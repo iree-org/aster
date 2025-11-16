@@ -1,0 +1,15 @@
+/.aster/
+/.cache/
+*.hsaco*
+/.pytest_cache/
+*.pytest_cache*
+/.vscode/
+/__pycache__/
+*__pycache__*
+/build/
+/install/
+/sandbox/
+/trace_*
+/examples/trace_*
+/examples/*zip
+/llvm/
