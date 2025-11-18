@@ -1,0 +1,24 @@
+add_mlir_library(AsterTransforms
+  ReplaceConstantGPUDims.cpp
+  OptimizeArith.cpp
+  ToIntArith.cpp
+  Utils.cpp
+
+  DEPENDS
+  AsterPassesIncGen
+
+  LINK_LIBS PUBLIC
+  MLIRAffineDialect
+  MLIRArithDialect
+  MLIRAffineTransforms
+  MLIRArithTransforms
+  MLIRAffineToStandard
+  MLIRFuncDialect
+  MLIRGPUDialect
+  MLIRIR
+  MLIRPass
+  MLIRSCFDialect
+  MLIRSCFUtils
+  MLIRUBDialect
+  MLIRTransformUtils
+)

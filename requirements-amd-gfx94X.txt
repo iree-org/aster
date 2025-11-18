@@ -1,0 +1,3 @@
+-i https://rocm.nightlies.amd.com/v2/gfx94X-dcgpu/
+
+rocm[libraries,devel]
