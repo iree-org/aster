@@ -1,0 +1,20 @@
+--extra-index-url https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
+# Build/test requirements.
+cmake==3.31.6
+filecheck==1.0.0
+lit==18.1.7
+nanobind>=2.9.0
+setuptools
+wheel
+black
+numpy
+# For some reason upstream requires this
+pybind11
+
+# Used for managing pre-commit flows.
+pre-commit
+pytest
+
+# Type checking
+pyright
+typing-extensions>=4.1

@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you want to cite ASTER, feel free to use this"
+title: "ASTER"
+abstract: >-
+  Assembly Tooling, Representations and Language
+date-released: 2025-11-17
+authors:
+  - name: "The ASTER Authors"
+contact:
+  - family-names: Vasilache
+    given-names: Nicolas
+    email: nico.vasilache@amd.com
+    affiliation: Advanced Micro Devices, Inc.
+  - family-names: Mora Cordero
+    given-names: Fabian
+    email: fabian.mora-cordero@amd.com
+    affiliation: Advanced Micro Devices, Inc.
+license: "Apache-2.0 WITH LLVM-exception"
+repository-code: "https://github.com/iree-org/aster"
+keywords:
+  - "compiler"
+  - "assembly"
+  - "hardware"
+  - "GPU"
+  - "AMD"
+  - "CDNA"
+  - "RDNA"
+  - "GCN"

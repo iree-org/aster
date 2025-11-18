@@ -1,0 +1,431 @@
+#include "aster/Dialect/PIR/IR/PIROps.td"
+
+//===----------------------------------------------------------------------===//
+// Helpers to check register types.
+//===----------------------------------------------------------------------===//
+Constraint IsAGPR(value: Value);
+Constraint IsSGPR(value: Value);
+Constraint IsVGPR(value: Value);
+Constraint IsGPR(value: Value);
+
+Constraint IsAGPRRange(value: Value, size: Attr);
+Constraint IsSGPRRange(value: Value, size: Attr);
+Constraint IsVGPRRange(value: Value, size: Attr);
+Constraint IsGPRRange(value: Value, size: Attr);
+
+//===----------------------------------------------------------------------===//
+// Rewrite helpers.
+//===----------------------------------------------------------------------===//
+
+// Helper to get the type of a value.
+Rewrite get_type(value: Value) -> Type;
+// Helper to get a value from a value range at given index.
+Rewrite get_value(value: ValueRange, index: Attr) -> Value;
+
+// Helper to get the opcode attribute for an instruction.
+Rewrite get_opcode(opcode: Attr) -> Attr;
+
+// Helper to create alloca instruction.
+Rewrite get_reg(kind: Attr, size: Attr) -> Type;
+
+// Helper to create alloca instruction.
+Rewrite make_alloca(value: Value, type: Type) -> Value;
+
+// Helper to creare a range allocation.
+Rewrite make_range(value: ValueRange) -> Value;
+// Helper to split a range value into its components.
+Rewrite split_range(value: ValueRange) -> ValueRange;
+
+// Helper to create constant value.
+Rewrite constant(locV : Value, value: Attr) -> Value;
+
+//===----------------------------------------------------------------------===//
+// Patterns.
+//===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
+// pir.addi patterns.
+//===----------------------------------------------------------------------===//
+
+Pattern VAddI16 {
+  let dst: [Value, IsVGPR];
+  let lhs: [Value, IsGPR];
+  let rhs: [Value, IsVGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.addi>(dst, lhs, rhs) {semantics = attr<"i16">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"v_add_u16\"">);
+    let result = op<amdgcn.vop2>(dst, lhs, rhs) {opcode = opcode, operandSegmentSizes = attr<"array<i32: 1, 0, 1, 1, 0>">} -> (resultTypes);
+    replace root with result;
+  };
+}
+
+Pattern VAddI32 {
+  let dst: [Value, IsVGPR];
+  let lhs: [Value, IsGPR];
+  let rhs: [Value, IsVGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.addi>(dst, lhs, rhs) {semantics = attr<"i32">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"v_add_u32\"">);
+    let result = op<amdgcn.vop2>(dst, lhs, rhs) {opcode = opcode, operandSegmentSizes = attr<"array<i32: 1, 0, 1, 1, 0>">} -> (resultTypes);
+    replace root with result;
+  };
+}
+
+Pattern VAddI64 {
+  let dst: Value;
+  let lhs: Value;
+  let rhs: Value;
+  IsVGPRRange(dst, attr<"2">);
+  IsGPRRange(lhs, attr<"2">);
+  IsVGPRRange(rhs, attr<"2">);
+  let root = op<pir.addi>(dst, lhs, rhs) {semantics = attr<"i64">};
+  rewrite root with {
+    let carry: Value = make_alloca(dst, get_reg(attr<"\"SGPR\"">, attr<"2">));
+    let lhsP: ValueRange = split_range((lhs));
+    let rhsP: ValueRange = split_range((rhs));
+    let dstP: ValueRange = split_range((dst));
+    let dstType: Type = get_type(get_value(dstP, attr<"0">));
+    let lo = op<amdgcn.vop2>(get_value(dstP, attr<"0">), carry, get_value(lhsP, attr<"0">), get_value(rhsP, attr<"0">))
+      {opcode = get_opcode(attr<"\"v_add_co_u32\"">), operandSegmentSizes = attr<"array<i32: 1, 1, 1, 1, 0>">} -> (dstType, get_type(carry));
+    let hi = op<amdgcn.vop2>(get_value(dstP, attr<"1">), carry, get_value(lhsP, attr<"1">), get_value(rhsP, attr<"1">), carry)
+      {opcode = get_opcode(attr<"\"v_addc_co_u32\"">), operandSegmentSizes = attr<"array<i32: 1, 1, 1, 1, 1>">} -> (dstType, get_type(carry));
+    let result = make_range((lo.0, hi.0));
+    replace root with result;
+  };
+}
+
+Pattern VAddI64_O3 with benefit(10) {
+  let dstType: Type;
+  let dst: Value<dstType>;
+  let lhs: Value;
+  let rhs: Value;
+  IsVGPRRange(dst, attr<"2">);
+  IsGPRRange(lhs, attr<"2">);
+  IsGPRRange(rhs, attr<"2">);
+  let root = op<pir.addi>(dst, lhs, rhs) {semantics = attr<"i64">};
+  rewrite root with {
+    let result = op<amdgcn.vop3>(dst, lhs, constant(dst, attr<"0 : i32">), rhs)
+      {opcode = get_opcode(attr<"\"v_lshl_add_u64\"">), operandSegmentSizes = attr<"array<i32: 1, 0, 1, 1, 1>">} -> (dstType);
+    replace root with result;
+  };
+}
+
+Pattern SAddI8 {
+  let dst: [Value, IsSGPR];
+  let lhs: [Value, IsSGPR];
+  let rhs: [Value, IsSGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.addi>(dst, lhs, rhs) {semantics = attr<"i8">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"s_add_i32\"">);
+    let result = op<amdgcn.sop2>(dst, lhs, rhs) {opcode = opcode} -> (resultTypes);
+    // TODO: Mask the result to 8 bits.
+    replace root with result;
+  };
+}
+
+Pattern SAddI16 {
+  let dst: [Value, IsSGPR];
+  let lhs: [Value, IsSGPR];
+  let rhs: [Value, IsSGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.addi>(dst, lhs, rhs) {semantics = attr<"i16">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"s_add_i32\"">);
+    let result = op<amdgcn.sop2>(dst, lhs, rhs) {opcode = opcode} -> (resultTypes);
+    // TODO: Mask the result to 16 bits.
+    replace root with result;
+  };
+}
+
+Pattern SAddI32 {
+  let dst: [Value, IsSGPR];
+  let lhs: [Value, IsSGPR];
+  let rhs: [Value, IsSGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.addi>(dst, lhs, rhs) {semantics = attr<"i32">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"s_add_i32\"">);
+    let result = op<amdgcn.sop2>(dst, lhs, rhs) {opcode = opcode} -> (resultTypes);
+    replace root with result;
+  };
+}
+
+Pattern SAddI64 {
+  let dst: Value;
+  let lhs: Value;
+  let rhs: Value;
+  IsSGPRRange(dst, attr<"2">);
+  IsSGPRRange(lhs, attr<"2">);
+  IsSGPRRange(rhs, attr<"2">);
+  let root = op<pir.addi>(dst, lhs, rhs) {semantics = attr<"i64">};
+  rewrite root with {
+    let lhsP: ValueRange = split_range((lhs));
+    let rhsP: ValueRange = split_range((rhs));
+    let dstP: ValueRange = split_range((dst));
+    let dstType: Type = get_type(get_value(dstP, attr<"0">));
+    let lo = op<amdgcn.sop2>(get_value(dstP, attr<"0">), get_value(lhsP, attr<"0">), get_value(rhsP, attr<"0">))
+      {opcode = get_opcode(attr<"\"s_add_u32\"">)} -> (dstType);
+    let hi = op<amdgcn.sop2>(get_value(dstP, attr<"1">), get_value(lhsP, attr<"1">), get_value(rhsP, attr<"1">))
+      {opcode = get_opcode(attr<"\"s_addc_u32\"">)} -> (dstType);
+    let result = make_range((lo.0, hi.0));
+    replace root with result;
+  };
+}
+
+//===----------------------------------------------------------------------===//
+// pir.subi patterns.
+//===----------------------------------------------------------------------===//
+
+Pattern VSubI16 {
+  let dst: [Value, IsVGPR];
+  let lhs: [Value, IsGPR];
+  let rhs: [Value, IsVGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.subi>(dst, lhs, rhs) {semantics = attr<"i16">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"v_sub_u16\"">);
+    let result = op<amdgcn.vop2>(dst, lhs, rhs) {opcode = opcode, operandSegmentSizes = attr<"array<i32: 1, 0, 1, 1, 0>">} -> (resultTypes);
+    replace root with result;
+  };
+}
+
+Pattern VSubI32 {
+  let dst: [Value, IsVGPR];
+  let lhs: [Value, IsGPR];
+  let rhs: [Value, IsVGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.subi>(dst, lhs, rhs) {semantics = attr<"i32">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"v_sub_u32\"">);
+    let result = op<amdgcn.vop2>(dst, lhs, rhs) {opcode = opcode, operandSegmentSizes = attr<"array<i32: 1, 0, 1, 1, 0>">} -> (resultTypes);
+    replace root with result;
+  };
+}
+
+Pattern VSubI64 {
+  let dst: Value;
+  let lhs: Value;
+  let rhs: Value;
+  IsVGPRRange(dst, attr<"2">);
+  IsGPRRange(lhs, attr<"2">);
+  IsVGPRRange(rhs, attr<"2">);
+  let root = op<pir.subi>(dst, lhs, rhs) {semantics = attr<"i64">};
+  rewrite root with {
+    let carry: Value = make_alloca(dst, get_reg(attr<"\"SGPR\"">, attr<"2">));
+    let lhsP: ValueRange = split_range((lhs));
+    let rhsP: ValueRange = split_range((rhs));
+    let dstP: ValueRange = split_range((dst));
+    let dstType: Type = get_type(get_value(dstP, attr<"0">));
+    let lo = op<amdgcn.vop2>(get_value(dstP, attr<"0">), carry, get_value(lhsP, attr<"0">), get_value(rhsP, attr<"0">))
+      {opcode = get_opcode(attr<"\"v_sub_co_u32\"">), operandSegmentSizes = attr<"array<i32: 1, 1, 1, 1, 0>">} -> (dstType, get_type(carry));
+    let hi = op<amdgcn.vop2>(get_value(dstP, attr<"1">), carry, get_value(lhsP, attr<"1">), get_value(rhsP, attr<"1">), carry)
+      {opcode = get_opcode(attr<"\"v_subb_co_u32\"">), operandSegmentSizes = attr<"array<i32: 1, 1, 1, 1, 1>">} -> (dstType, get_type(carry));
+    let result = make_range((lo.0, hi.0));
+    replace root with result;
+  };
+}
+
+Pattern SSubI8 {
+  let dst: [Value, IsSGPR];
+  let lhs: [Value, IsSGPR];
+  let rhs: [Value, IsSGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.subi>(dst, lhs, rhs) {semantics = attr<"i8">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"s_sub_u32\"">);
+    let result = op<amdgcn.sop2>(dst, lhs, rhs) {opcode = opcode} -> (resultTypes);
+    // TODO: Mask the result to 8 bits.
+    replace root with result;
+  };
+}
+
+Pattern SSubI16 {
+  let dst: [Value, IsSGPR];
+  let lhs: [Value, IsSGPR];
+  let rhs: [Value, IsSGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.subi>(dst, lhs, rhs) {semantics = attr<"i16">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"s_sub_u32\"">);
+    let result = op<amdgcn.sop2>(dst, lhs, rhs) {opcode = opcode} -> (resultTypes);
+    // TODO: Mask the result to 16 bits.
+    replace root with result;
+  };
+}
+
+Pattern SSubI32 {
+  let dst: [Value, IsSGPR];
+  let lhs: [Value, IsSGPR];
+  let rhs: [Value, IsSGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.subi>(dst, lhs, rhs) {semantics = attr<"i32">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"s_sub_u32\"">);
+    let result = op<amdgcn.sop2>(dst, lhs, rhs) {opcode = opcode} -> (resultTypes);
+    replace root with result;
+  };
+}
+
+Pattern SSubI64 {
+  let dst: Value;
+  let lhs: Value;
+  let rhs: Value;
+  IsSGPRRange(dst, attr<"2">);
+  IsSGPRRange(lhs, attr<"2">);
+  IsSGPRRange(rhs, attr<"2">);
+  let root = op<pir.subi>(dst, lhs, rhs) {semantics = attr<"i64">};
+  rewrite root with {
+    let lhsP: ValueRange = split_range((lhs));
+    let rhsP: ValueRange = split_range((rhs));
+    let dstP: ValueRange = split_range((dst));
+    let dstType: Type = get_type(get_value(dstP, attr<"0">));
+    let lo = op<amdgcn.sop2>(get_value(dstP, attr<"0">), get_value(lhsP, attr<"0">), get_value(rhsP, attr<"0">))
+      {opcode = get_opcode(attr<"\"s_sub_u32\"">)} -> (dstType);
+    let hi = op<amdgcn.sop2>(get_value(dstP, attr<"1">), get_value(lhsP, attr<"1">), get_value(rhsP, attr<"1">))
+      {opcode = get_opcode(attr<"\"s_subb_u32\"">)} -> (dstType);
+    let result = make_range((lo.0, hi.0));
+    replace root with result;
+  };
+}
+
+//===----------------------------------------------------------------------===//
+// pir.muli patterns.
+//===----------------------------------------------------------------------===//
+
+Pattern VMulI16 {
+  let dst: [Value, IsVGPR];
+  let lhs: [Value, IsGPR];
+  let rhs: [Value, IsVGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.muli>(dst, lhs, rhs) {semantics = attr<"i16">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"v_mul_lo_u16\"">);
+    let result = op<amdgcn.vop2>(dst, lhs, rhs) {opcode = opcode, operandSegmentSizes = attr<"array<i32: 1, 0, 1, 1, 0>">} -> (resultTypes);
+    replace root with result;
+  };
+}
+
+Pattern VMulI32 {
+  let dst: [Value, IsVGPR];
+  let lhs: [Value, IsGPR];
+  let rhs: [Value, IsVGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.muli>(dst, lhs, rhs) {semantics = attr<"i32">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"v_mul_lo_u32\"">);
+    let result = op<amdgcn.vop3>(dst, lhs, rhs) {opcode = opcode, operandSegmentSizes = attr<"array<i32: 1, 0, 1, 1, 0>">} -> (resultTypes);
+    replace root with result;
+  };
+}
+
+Pattern VMulI64 {
+  let dst: Value;
+  let lhs: Value;
+  let rhs: Value;
+  IsVGPRRange(dst, attr<"2">);
+  IsGPRRange(lhs, attr<"2">);
+  IsGPRRange(rhs, attr<"2">);
+  let root = op<pir.muli>(dst, lhs, rhs) {semantics = attr<"i64">};
+  rewrite root with {
+    let lhsP: ValueRange = split_range((lhs));
+    let rhsP: ValueRange = split_range((rhs));
+    let dstType: Type = get_reg(attr<"\"VGPR\"">, attr<"1">);
+    let lLo: Value = get_value(lhsP, attr<"0">);
+    let rLo: Value = get_value(rhsP, attr<"0">);
+    let lHi: Value = get_value(lhsP, attr<"1">);
+    let rHi: Value = get_value(rhsP, attr<"1">);
+    let tmp: Value = make_alloca(dst, get_reg(attr<"\"VGPR\"">, attr<"1">));
+    let carry: Value = make_alloca(dst, get_reg(attr<"\"SGPR\"">, attr<"2">));
+    let t0 = op<amdgcn.vop3>(rHi, rHi, lLo)
+      {opcode = get_opcode(attr<"\"v_mul_lo_u32\"">), operandSegmentSizes = attr<"array<i32: 1, 0, 1, 1, 0>">} -> (dstType);
+    let t1 = op<amdgcn.vop3>(tmp, rLo, lHi)
+      {opcode = get_opcode(attr<"\"v_mul_lo_u32\"">), operandSegmentSizes = attr<"array<i32: 1, 0, 1, 1, 0>">} -> (dstType);
+    let t2 = op<amdgcn.vop3>(dst, carry, rLo, lLo, constant(lLo, attr<"0 : i32">))
+      {opcode = get_opcode(attr<"\"v_mad_u64_u32\"">), operandSegmentSizes = attr<"array<i32: 1, 1, 1, 1, 1>">} -> (get_type(dst), get_type(carry));
+    let dstP: ValueRange = split_range((t2.0));
+    let t3 = op<amdgcn.vop3>(get_value(dstP, attr<"1">), get_value(dstP, attr<"1">), tmp, t0.0)
+      {opcode = get_opcode(attr<"\"v_add3_u32\"">), operandSegmentSizes = attr<"array<i32: 1, 0, 1, 1, 1>">} -> (dstType);
+    let result = make_range((get_value(dstP, attr<"0">), t3.0));
+    replace root with result;
+  };
+}
+
+Pattern SMulI8 {
+  let dst: [Value, IsSGPR];
+  let lhs: [Value, IsSGPR];
+  let rhs: [Value, IsSGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.muli>(dst, lhs, rhs) {semantics = attr<"i8">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"s_mul_i32\"">);
+    let result = op<amdgcn.sop2>(dst, lhs, rhs) {opcode = opcode} -> (resultTypes);
+    // TODO: Mask the result to 8 bits.
+    replace root with result;
+  };
+}
+
+Pattern SMulI16 {
+  let dst: [Value, IsSGPR];
+  let lhs: [Value, IsSGPR];
+  let rhs: [Value, IsSGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.muli>(dst, lhs, rhs) {semantics = attr<"i16">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"s_mul_i32\"">);
+    let result = op<amdgcn.sop2>(dst, lhs, rhs) {opcode = opcode} -> (resultTypes);
+    // TODO: Mask the result to 16 bits.
+    replace root with result;
+  };
+}
+
+Pattern SMulI32 {
+  let dst: [Value, IsSGPR];
+  let lhs: [Value, IsSGPR];
+  let rhs: [Value, IsSGPR];
+  let resultTypes: TypeRange;
+  let root = op<pir.muli>(dst, lhs, rhs) {semantics = attr<"i32">} -> (resultTypes);
+  rewrite root with {
+    let opcode: Attr = get_opcode(attr<"\"s_mul_i32\"">);
+    let result = op<amdgcn.sop2>(dst, lhs, rhs) {opcode = opcode} -> (resultTypes);
+    replace root with result;
+  };
+}
+
+Pattern SMulI64 {
+  let dst: Value;
+  let lhs: Value;
+  let rhs: Value;
+  IsSGPRRange(dst, attr<"2">);
+  IsSGPRRange(lhs, attr<"2">);
+  IsSGPRRange(rhs, attr<"2">);
+  let root = op<pir.muli>(dst, lhs, rhs) {semantics = attr<"i64">};
+  rewrite root with {
+    let lhsP: ValueRange = split_range((lhs));
+    let rhsP: ValueRange = split_range((rhs));
+    let dstP: ValueRange = split_range((dst));
+    let dstType: Type = get_type(get_value(dstP, attr<"0">));
+    let dLo: Value = get_value(dstP, attr<"0">);
+    let lLo: Value = get_value(lhsP, attr<"0">);
+    let rLo: Value = get_value(rhsP, attr<"0">);
+    let dHi: Value = get_value(dstP, attr<"1">);
+    let lHi: Value = get_value(lhsP, attr<"1">);
+    let rHi: Value = get_value(rhsP, attr<"1">);
+    let t1 = op<amdgcn.sop2>(lHi, rLo, lHi)
+      {opcode = get_opcode(attr<"\"s_mul_i32\"">)} -> (dstType);
+    let t2 = op<amdgcn.sop2>(dLo, rLo, lLo)
+      {opcode = get_opcode(attr<"\"s_mul_hi_u32\"">)} -> (dstType);
+    let t3 = op<amdgcn.sop2>(rHi, rHi, lLo)
+      {opcode = get_opcode(attr<"\"s_mul_i32\"">)} -> (dstType);
+    let t4 = op<amdgcn.sop2>(t1.0, t2.0, t1.0)
+      {opcode = get_opcode(attr<"\"s_add_i32\"">)} -> (dstType);
+    let t5 = op<amdgcn.sop2>(dLo, rLo, lLo)
+      {opcode = get_opcode(attr<"\"s_mul_i32\"">)} -> (dstType);
+    let t6 = op<amdgcn.sop2>(dHi, t4.0, t3.0)
+      {opcode = get_opcode(attr<"\"s_add_i32\"">)} -> (dstType);
+    let result = make_range((t5.0, t6.0));
+    replace root with result;
+  };
+}
