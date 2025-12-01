@@ -145,65 +145,129 @@ Table 37. VOP3P-Matrix Opcodes Required NOPs
 
 First Instruction,Second Instruction,Required Waits,Comments
 
-✅ Case 100, Non-DLops VALU Write VGPR,"V_MFMA* read VGPR OR V_SMFMA* read VGPR",2,"No internal 4 & 8 cycle forwarding path."
+✅ Case 100, Non-DLops VALU Write VGPR,"
+V_MFMA* read VGPR OR V_SMFMA* read VGPR",2,"
+No internal 4 & 8 cycle forwarding path."
 
-❌ Case 101, DL ops Write VGPR,"DLops read VGPR as SrcC, and the opcode is exactly the same as 1st DLops",0,"supports same opcode of DLops back-to-back SrcC forwarding which is used for accumulation."
-DL ops Write VGPR,"DLops read VGPR as SrcA/B, and the opcode is exactly the same as 1st DLops",3,"does not support SrcA/B forwarding in DLops"
-DL ops Write VGPR,"Any opcode read/write VGPR that is not the same as 1st DLops opcode (RAW + WAW)",3,"Disable all of the forwarding path from DL ops to normal VALU/VM/LDS/FLAT ops"
+❌ Case 101, DL ops Write VGPR,"
+DLops read VGPR as SrcC, and the opcode is exactly the same as 1st DLops",0,"
+supports same opcode of DLops back-to-back SrcC forwarding which is used for accumulation."
+DL ops Write VGPR,"
+DLops read VGPR as SrcA/B, and the opcode is exactly the same as 1st DLops",3,"
+does not support SrcA/B forwarding in DLops"
+DL ops Write VGPR,"
+Any opcode read/write VGPR that is not the same as 1st DLops opcode (RAW + WAW)",3,"
+Disable all of the forwarding path from DL ops to normal VALU/VM/LDS/FLAT ops"
 
-❌ Case 102, "XDL Write VGPR or V_SMFMA* Write VGPR","XDL read VGPR as Source C exactly same with 1st vDst OR V_SMFMA* read VGPR for Matrix C exactly same with 1st vDst","2 if 1st V_MFMA is 2 passes
+❌ Case 102, "XDL Write VGPR or V_SMFMA* Write VGPR","
+XDL read VGPR as Source C exactly same with 1st vDst OR V_SMFMA* read VGPR for Matrix C exactly same with 1st vDst","
+2 if 1st V_MFMA is 2 passes
 0 if 1st V_MFMA is 4 passes
 0 if 1st V_MFMA is 8 passes
-0 if 1st V_MFMA is 16 passes","the two V_MFMA must be the same number passes and vDst and vSrc start from the same offset and same VGPR size. V_MFMA & V_SMFMA must be the same number passes and both vDst start from the same offset and same VGPR size. Note: V_SMFMA reads vdst for Matrix C."
+0 if 1st V_MFMA is 16 passes","
+the two V_MFMA must be the same number passes and vDst and vSrc start from the same offset and same VGPR size. V_MFMA & V_SMFMA must be the same number passes and both vDst start from the same offset and same VGPR size. Note: V_SMFMA reads vdst for Matrix C."
 
-❌ Case 103, "XDL Write VGPR or V_SMFMA* Write VGPR","XDL read VGPR as Source C overlapped with 1st vDst OR V_SMFMA* read VGPR for Matrix C overlapped with 1st vDst","3 if 1st V_MFMA is 2 passes
+❌ Case 103, "XDL Write VGPR or V_SMFMA* Write VGPR","
+XDL read VGPR as Source C overlapped with 1st vDst OR V_SMFMA* read VGPR for Matrix C overlapped with 1st vDst","
+3 if 1st V_MFMA is 2 passes
 5 if 1st V_MFMA is 4 passes
 9 if 1st V_MFMA is 8 passes
-17 if 1st V_MFMA is 16 passes","overlapped with XDL. Note: V_SMFMA reads vdst for Matrix C."
+17 if 1st V_MFMA is 16 passes","
+overlapped with XDL. Note: V_SMFMA reads vdst for Matrix C."
 
-❌ Case 104, "XDL Write VGPR or V_SMFMA* Write VGPR","S/DGEMM read VGPR as Source C","3 if 1st V_MFMA is 2 passes
+❌ Case 104, "XDL Write VGPR or V_SMFMA* Write VGPR","
+S/DGEMM read VGPR as Source C","
+3 if 1st V_MFMA is 2 passes
 5 if 1st V_MFMA is 4 passes
 9 if 1st V_MFMA is 8 passes
-17 if 1st V_MFMA is 16 passes","Overlapped with S/DGEMM"
+17 if 1st V_MFMA is 16 passes","
+Overlapped with S/DGEMM"
 
-❌ Case 105, "XDL Write VGPR or V_SMFMA* Write VGPR","V_MFMA read VGPR as SrcA or SrcB OR V_SMFMA* read VGPR as SrcA or SrcB or Index SrcC","5 if 1st V_MFMA is 2 passes
+❌ Case 105, "XDL Write VGPR or V_SMFMA* Write VGPR","
+V_MFMA read VGPR as SrcA or SrcB OR V_SMFMA* read VGPR as SrcA or SrcB or Index SrcC","
+5 if 1st V_MFMA is 2 passes
 7 if 1st V_MFMA is 4 passes
 11 if 1st V_MFMA is 8 passes
-19 if 1st V_MFMA is 16 passes","No internal forwarding path waits for previous V_MFMA/V_SMFMA* commit result to VGPR. V_SMFMA uses srcC address for extra Index C Reads"
+19 if 1st V_MFMA is 16 passes","
+No internal forwarding path waits for previous V_MFMA/V_SMFMA* commit result to VGPR. V_SMFMA uses srcC address for extra Index C Reads"
 
-❌ Case 106, "XDL Write VGPR or V_SMFMA* Write VGPR","1) VM, L/GDS, FLAT, Export Read VGPR overlapped with 1st vDst
-2) VALU read/write VGPR (RAW + WAW)","5 if 1st V_MFMA is 2 passes
-7 if 1st V_MFMA is 4 passes
-11 if 1st V_MFMA is 8 passes
-19 if 1st V_MFMA is 16 passes","V_MFMA_F32_4X4X4F16
-V_MFMA_F32_16X16X16F16
-V_MFMA_F32_32X32X8F16
-V_MFMA_F32_32X32X4F16"
+❌ Case 106, "XDL Write VGPR or V_SMFMA* Write VGPR","
+❌ 1) VM, L/GDS, FLAT, Export Read VGPR overlapped with 1st vDst
+✅ 2) VALU read/write VGPR (RAW + WAW)","
+❌ 5 if 1st V_MFMA is 2 passes
+✅ 7 if 1st V_MFMA is 4 passes
+❌ 11 if 1st V_MFMA is 8 passes
+❌ 19 if 1st V_MFMA is 16 passes","
+❌ V_MFMA_F32_4X4X4F16
+✅ V_MFMA_F32_16X16X16F16
+❌ V_MFMA_F32_32X32X8F16
+❌ V_MFMA_F32_32X32X4F16"
 
-❌ Case 107, SGEMM Write VGPR,"XDL read VGPR as Source C exactly same with 1st vDst OR V_SMFMA* read VGPR for Matrix C exactly same with 1st vDst",0,"the two V_MFMA must be the same number passes and vDst and vSrc start from the same offset and same VGPR size. V_MFMA & V_SMFMA must be the same number passes and both vDst start from the same offset and same VGPR size. Note: V_SMFMA reads vdst for Matrix C."
+❌ Case 107, SGEMM Write VGPR,"
+XDL read VGPR as Source C exactly same with 1st vDst OR V_SMFMA* read VGPR for Matrix C exactly same with 1st vDst",0,"
+the two V_MFMA must be the same number passes and vDst and vSrc start from the same offset and same VGPR size. V_MFMA & V_SMFMA must be the same number passes and both vDst start from the same offset and same VGPR size. Note: V_SMFMA reads vdst for Matrix C."
 
-❌ Case 108, "SGEMM Write VGPR","XDL read VGPR as Source C overlapped with 1st vDst OR V_SMFMA* read VGPR for Matrix C overlapped with 1st vDst","2 if 1st V_MFMA is 2 passes; 4 if 4 passes; 8 if 8 passes; 16 if 16 passes","V_SMFMA reads vdst for Matrix C."
+❌ Case 108, "SGEMM Write VGPR","
+XDL read VGPR as Source C overlapped with 1st vDst OR V_SMFMA* read VGPR for Matrix C overlapped with 1st vDst","
+2 if 1st V_MFMA is 2 passes; 4 if 4 passes; 8 if 8 passes; 16 if 16 passes","
+V_SMFMA reads vdst for Matrix C."
 
-❌ Case 109, "SGEMM Write VGPR","S/DGEMM read VGPR as Source C","2 if 1st V_MFMA is 2 passes; 4 if 4 passes; 8 if 8 passes; 16 if 16 passes","Overlapped with S/DGEMM"
+❌ Case 109, "SGEMM Write VGPR","
+S/DGEMM read VGPR as Source C","
+2 if 1st V_MFMA is 2 passes; 4 if 4 passes; 8 if 8 passes; 16 if 16 passes","
+Overlapped with S/DGEMM"
 
-❌ Case 110, "SGEMM Write VGPR","V_MFMA read VGPR as SrcA or SrcB OR V_SMFMA* read VGPR as SrcA/SrcB/Index SrcC","4 if 1st V_MFMA is 2 passes; 6 if 4 passes; 10 if 8 passes; 18 if 16 passes","No internal forwarding path; V_SMFMA uses SrcC for Index reads."
+❌ Case 110, "SGEMM Write VGPR","
+V_MFMA read VGPR as SrcA or SrcB OR V_SMFMA* read VGPR as SrcA/SrcB/Index SrcC","
+4 if 1st V_MFMA is 2 passes; 6 if 4 passes; 10 if 8 passes; 18 if 16 passes","
+No internal forwarding path; V_SMFMA uses SrcC for Index reads."
 
-❌ Case 111, "SGEMM Write VGPR","1) VM, L/GDS, FLAT, Export Read VGPR overlapped with 1st vDst  2) VALU read/write VGPR (RAW+WAW)","4 if 1st V_MFMA is 2 passes; 6 if 4 passes; 10 if 8 passes; 18 if 16 passes",""
+❌ Case 111, "SGEMM Write VGPR","
+1) VM, L/GDS, FLAT, Export Read VGPR overlapped with 1st vDst  2) VALU read/write VGPR (RAW+WAW)","
+4 if 1st V_MFMA is 2 passes; 6 if 4 passes; 10 if 8 passes; 18 if 16 passes","
+"
 
-❌ Case 112, "V_MFMA_16x16x4_F64 Write VGPR","V_MFMA_16x16x4_F64 read VGPR as Source C exactly same with 1st vDst","0","The two V_MFMA must be the same number passes and vDst and vSrc start from the same offset." :contentReference[oaicite:0]{index=0}
+❌ Case 112, "V_MFMA_16x16x4_F64 Write VGPR","
+V_MFMA_16x16x4_F64 read VGPR as Source C exactly same with 1st vDst","
+0","
+The two V_MFMA must be the same number passes and vDst and vSrc start from the same offset." :contentReference[oaicite:0]{index=0}
 
-❌ Case 113, "V_MFMA_16x16x4_F64 Write VGPR","S/DGEMM read VGPR as Source C overlapped with 1st vDst","9","Overlapped, different VGPR access sequence" :contentReference[oaicite:1]{index=1}
+❌ Case 113, "V_MFMA_16x16x4_F64 Write VGPR","
+S/DGEMM read VGPR as Source C overlapped with 1st vDst","
+9","
+Overlapped, different VGPR access sequence" :contentReference[oaicite:1]{index=1}
 
-❌ Case 114, "V_MFMA_16x16x4_F64 Write VGPR","XDL read VGPR as Source C overlapped with 1st vDst","0","" :contentReference[oaicite:2]{index=2}
+❌ Case 114, "V_MFMA_16x16x4_F64 Write VGPR","
+XDL read VGPR as Source C overlapped with 1st vDst","
+0","
+" :contentReference[oaicite:2]{index=2}
 
-❌ Case 115, "V_MFMA_16x16x4_F64 Write VGPR","V_SMFMA* read VGPR for Matrix C overlapped with 1st vDst","0","V_SMFMA reads vdst for Matrix C." :contentReference[oaicite:3]{index=3}
+❌ Case 115, "V_MFMA_16x16x4_F64 Write VGPR","
+V_SMFMA* read VGPR for Matrix C overlapped with 1st vDst","
+0","
+V_SMFMA reads vdst for Matrix C." :contentReference[oaicite:3]{index=3}
 
-❌ Case 116, "V_MFMA_16x16x4_F64 Write VGPR","S/DGEMM read VGPR as SrcA or SrcB","11","No internal forwarding path, need to wait previous V_MFMA commit result to VGPR" :contentReference[oaicite:4]{index=4}
+❌ Case 116, "V_MFMA_16x16x4_F64 Write VGPR","
+S/DGEMM read VGPR as SrcA or SrcB","
+11","
+No internal forwarding path, need to wait previous V_MFMA commit result to VGPR" :contentReference[oaicite:4]{index=4}
 
-❌ Case 117, "V_MFMA_16x16x4_F64 Write VGPR","XDL read VGPR as SrcA or SrcB","11","" :contentReference[oaicite:5]{index=5}
+❌ Case 117, "V_MFMA_16x16x4_F64 Write VGPR","
+XDL read VGPR as SrcA or SrcB","
+11","
+" :contentReference[oaicite:5]{index=5}
 
-❌ Case 118, "V_MFMA_16x16x4_F64 Write VGPR","V_SMFMA* read VGPR as SrcA or SrcB or Index SrcC","11","V_SMFMA uses srcC address for extra Index C Reads" :contentReference[oaicite:6]{index=6}
+❌ Case 118, "V_MFMA_16x16x4_F64 Write VGPR","
+V_SMFMA* read VGPR as SrcA or SrcB or Index SrcC","
+11","
+V_SMFMA uses srcC address for extra Index C Reads" :contentReference[oaicite:6]{index=6}
 
-❌ Case 119, "V_MFMA_16x16x4_F64 Write VGPR","VALU read/write VGPR (RAW + WAW)","11","" :contentReference[oaicite:7]{index=7}
+❌ Case 119, "V_MFMA_16x16x4_F64 Write VGPR","
+VALU read/write VGPR (RAW + WAW)","
+11","
+" :contentReference[oaicite:7]{index=7}
 
-❌ Case 120, "V_MFMA_16x16x4_F64 Write VGPR","VM, L/GDS, FLAT and Export Read VGPR overlapped with 1st vDst","18","No internal forwarding path, need to wait previous V_MFMA commit result to VGPR" :contentReference[oaicite:8]{index=8}
+❌ Case 120, "V_MFMA_16x16x4_F64 Write VGPR","
+VM, L/GDS, FLAT and Export Read VGPR overlapped with 1st vDst","
+18","
+No internal forwarding path, need to wait previous V_MFMA commit result to VGPR" :contentReference[oaicite:8]{index=8}

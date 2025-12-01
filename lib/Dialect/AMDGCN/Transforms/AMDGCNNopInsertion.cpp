@@ -125,6 +125,20 @@ static std::optional<RegisterRange> getSGPRRange(Value value) {
   return regType.getAsRange();
 }
 
+/// Get the VGPR or AGPR range from a value if it's a VGPR or AGPR range type.
+static std::optional<RegisterRange> getVGPROrAGPRRange(Value value) {
+  Type type = value.getType();
+  auto regType = dyn_cast<AMDGCNRegisterTypeInterface>(type);
+  if (!regType)
+    return std::nullopt;
+
+  RegisterKind regKind = regType.getRegisterKind();
+  if (regKind != RegisterKind::VGPR && regKind != RegisterKind::AGPR)
+    return std::nullopt;
+
+  return regType.getAsRange();
+}
+
 /// Check if an operation is a VMEM (Vector Memory) instruction.
 /// VMEM instructions include MUBUF, MTBUF, and FLAT memory operations.
 /// TODO: something less brittle in tablegen directly.
@@ -479,6 +493,39 @@ static NopInsertionCaseDef getCase10Definition() {
                              /*nopType=*/NopType::SNOP);
 }
 
+/// Case 100: Non-DLops VALU Write VGPR -> V_MFMA* read VGPR (2 NOPs)
+static NopInsertionCaseDef getCase100Definition() {
+  auto selectInst1 = [](Operation *op) -> bool {
+    // Non-DLops VALU that writes to VGPR (exclude MFMA)
+    return isVALUInstruction(op) && !isa<inst::VOP3PMAIOp>(op);
+  };
+
+  auto selectInst2 = [](Operation *op) -> bool {
+    return isa<inst::VOP3PMAIOp>(op);
+  };
+
+  auto checkDependency = [](Operation *inst1, Operation *inst2) -> int {
+    auto maiOp2 = cast<inst::VOP3PMAIOp>(inst2);
+    for (OpOperand &operand :
+         cast<AMDGCNInstOpInterface>(inst1).getInstOutsMutable()) {
+      auto vgprRange = getVGPRRange(operand.get());
+      if (!vgprRange)
+        continue;
+      // Check if MFMA reads from SrcA or SrcB overlapping inst1's output
+      for (Value src : {maiOp2.getA(), maiOp2.getB()}) {
+        auto srcRange = getVGPRRange(src);
+        if (srcRange && registerRangesOverlap(*vgprRange, *srcRange))
+          return 2;
+      }
+    }
+    return 0;
+  };
+
+  return NopInsertionCaseDef(selectInst1, selectInst2, checkDependency,
+                             /*maxLookaheadCount=*/5, /*caseNumber=*/100,
+                             /*nopType=*/NopType::VNOP);
+}
+
 /// Case 101: DL ops Write VGPR -> DLops read VGPR as SrcC, and the opcode is
 /// exactly the same as 1st DLops
 /// Table 37, Case 101: Requires 0 NOPs (supports same opcode of DLops
@@ -495,13 +542,13 @@ static NopInsertionCaseDef getCase101Definition() {
   auto checkDependency = [](Operation *inst1, Operation *inst2) -> int {
     auto maiOp1 = cast<inst::VOP3PMAIOp>(inst1);
     auto maiOp2 = cast<inst::VOP3PMAIOp>(inst2);
-    // Get the VGPR output range from inst1
+    // Get the VGPR or AGPR output range from inst1
     Value vdst1 = maiOp1.getVdst();
-    auto vdst1Range = getVGPRRange(vdst1);
-    assert(vdst1Range && "VGPR range should be valid");
+    auto vdst1Range = getVGPROrAGPRRange(vdst1);
+    assert(vdst1Range && "VGPR or AGPR range should be valid");
     Value srcC = maiOp2.getC();
-    auto srcCRange = getVGPRRange(srcC);
-    assert(srcCRange && "VGPR range should be valid");
+    auto srcCRange = getVGPROrAGPRRange(srcC);
+    assert(srcCRange && "VGPR or AGPR range should be valid");
     if (maiOp1.getOpcode() == maiOp2.getOpcode() &&
         registerRangesEqual(*vdst1Range, *srcCRange))
       return 0;
@@ -522,17 +569,20 @@ static NopInsertionCaseDef getCase106Definition() {
   };
 
   auto selectInst2 = [](Operation *op) -> bool {
+    // Part 1: VM, L/GDS, FLAT, Export Read VGPR overlapped with 1st vDst
+    // Part 2: VALU read/write VGPR (RAW + WAW)
     return isa<inst::GlobalStoreOp, inst::DSWriteOp, inst::GlobalLoadOp,
-               inst::DSReadOp, inst::VOP2Op, inst::VOP1Op>(op);
+               inst::DSReadOp, inst::VOP1Op, inst::VOP2Op, inst::VOP3Op,
+               inst::VOP3POp>(op);
   };
 
   auto checkDependency = [](Operation *inst1, Operation *inst2) -> int {
     auto maiOp1 = cast<inst::VOP3PMAIOp>(inst1);
     auto op2 = cast<AMDGCNInstOpInterface>(inst2);
-    // Get the VGPR output range from inst1
+    // Get the VGPR or AGPR output range from inst1
     Value vdst1 = maiOp1.getVdst();
-    auto vdst1Range = getVGPRRange(vdst1);
-    assert(vdst1Range && "VGPR range should be valid");
+    auto vdst1Range = getVGPROrAGPRRange(vdst1);
+    assert(vdst1Range && "VGPR or AGPR range should be valid");
     OpCode maiOp = maiOp1.getOpcode();
     int32_t numNops = -1;
     switch (maiOp) {
@@ -646,6 +696,14 @@ void AMDGCNNopInsertion::runOnOperation() {
 
     // TODO: cases 11 - 21
 
+    // Case 100: Non-DLops VALU Write VGPR -> MFMA reads VGPR (2 NOPs)
+    auto case100Def = getCase100Definition();
+    auto cases100 =
+        findNopInsertionCases(block, case100Def, case100Def.maxLookaheadCount);
+    for (const auto &case100 : cases100) {
+      allCases.insert(case100);
+    }
+
     // Case 101: DL ops Write VGPR -> DLops read VGPR as SrcC, same opcode (0
     // NOPs)
     auto case101Def = getCase101Definition();
@@ -657,14 +715,14 @@ void AMDGCNNopInsertion::runOnOperation() {
     // Note: Case 101 requires 0 NOPs, so cases won't be added to allCases
     // (due to requiredNops > 0 check), but we still detect it for tracking
 
-    // Case 101: DL ops Write VGPR -> MEM/VALU read or writes from VDest.
+    // Case 106: DL ops Write VGPR -> MEM/VALU read or writes from VDest.
     auto case106Def = getCase106Definition();
     auto cases106 =
         findNopInsertionCases(block, case106Def, case106Def.maxLookaheadCount);
     for (const auto &case106 : cases106) {
       allCases.insert(case106);
     }
-    // TODO: cases 100, 102 - 120
+    // TODO: cases 102 - 105, 107 - 120
 
     // Case ConservativeExtraDelays: Conservative extra delays after MFMA,
     // global_load, ds_read
