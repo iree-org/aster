@@ -2,3 +2,6 @@
 	path = llvm/llvm-project
 	url = git@github.com:llvm/llvm-project.git
 	shallow = true
+[submodule "toolchains_llvm_bootstrapped"]
+	path = toolchains_llvm_bootstrapped
+	url = https://github.com/cerisier/toolchains_llvm_bootstrapped.git
