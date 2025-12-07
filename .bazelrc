@@ -14,9 +14,11 @@ build --copt=-O3
 # try-import %workspace%/toolchains_llvm_bootstrapped/tools/preset.bazelrc
 
 # Cross-compilation targets
-build:linux_amd64 --platforms=@toolchains_llvm_bootstrapped//platforms:linux_x86_64
 build:linux_arm64 --platforms=@toolchains_llvm_bootstrapped//platforms:linux_aarch64
+build:linux_amd64 --platforms=@toolchains_llvm_bootstrapped//platforms:linux_x86_64
 
-# Disable zlib for LLVM cross-compilation (headers not available for target)
-build --@llvm_zlib//:llvm_enable_zlib=false
-build --@llvm_zstd//:llvm_enable_zstd=false
+# Disable zlib/zstd for cross-compilation (LLVM uses <zlib.h> which fails cross-compile)
+build:linux_amd64 --@llvm-project//third-party:llvm_enable_zlib=false
+build:linux_amd64 --@llvm-project//third-party:llvm_enable_zstd=false
+build:linux_arm64 --@llvm-project//third-party:llvm_enable_zlib=false
+build:linux_arm64 --@llvm-project//third-party:llvm_enable_zstd=false

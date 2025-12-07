@@ -1,1 +1,891 @@
-# Root BUILD file
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# =============================================================================
+# TableGen file groups
+# =============================================================================
+
+td_library(
+    name = "AsterSupportTdFiles",
+    srcs = [
+        "include/aster/Support/EnumBase.td",
+        "include/aster/Support/Utils.td",
+    ],
+    includes = ["include"],
+)
+
+td_library(
+    name = "AsterInterfacesTdFiles",
+    srcs = glob(["include/aster/Interfaces/*.td"]),
+    includes = ["include"],
+    deps = [
+        "@llvm-project//mlir:OpBaseTdFiles",
+    ],
+)
+
+td_library(
+    name = "AMDGCNDialectTdFiles",
+    srcs = glob([
+        "include/aster/Dialect/AMDGCN/IR/*.td",
+        "include/aster/Dialect/AMDGCN/IR/Instructions/*.td",
+    ]),
+    includes = ["include"],
+    deps = [
+        ":AsterInterfacesTdFiles",
+        ":AsterSupportTdFiles",
+        "@llvm-project//mlir:ControlFlowInterfacesTdFiles",
+        "@llvm-project//mlir:FunctionInterfacesTdFiles",
+        "@llvm-project//mlir:InferTypeOpInterfaceTdFiles",
+        "@llvm-project//mlir:OpBaseTdFiles",
+        "@llvm-project//mlir:PtrTdFiles",
+        "@llvm-project//mlir:SideEffectInterfacesTdFiles",
+    ],
+)
+
+td_library(
+    name = "AMDGCNTransformsTdFiles",
+    srcs = ["include/aster/Dialect/AMDGCN/Transforms/AMDGCNPasses.td"],
+    includes = ["include"],
+    deps = [
+        "@llvm-project//mlir:PassBaseTdFiles",
+    ],
+)
+
+td_library(
+    name = "LSIRDialectTdFiles",
+    srcs = glob(["include/aster/Dialect/LSIR/IR/*.td"]),
+    includes = ["include"],
+    deps = [
+        ":AsterInterfacesTdFiles",
+        ":AsterSupportTdFiles",
+        "@llvm-project//mlir:ArithOpsTdFiles",
+        "@llvm-project//mlir:InferIntRangeInterfaceTdFiles",
+        "@llvm-project//mlir:InferTypeOpInterfaceTdFiles",
+        "@llvm-project//mlir:OpBaseTdFiles",
+        "@llvm-project//mlir:PtrTdFiles",
+        "@llvm-project//mlir:SideEffectInterfacesTdFiles",
+    ],
+)
+
+td_library(
+    name = "LSIRTransformsTdFiles",
+    srcs = ["include/aster/Dialect/LSIR/Transforms/Passes.td"],
+    includes = ["include"],
+    deps = [
+        "@llvm-project//mlir:PassBaseTdFiles",
+    ],
+)
+
+td_library(
+    name = "AsterUtilsDialectTdFiles",
+    srcs = glob(["include/aster/Dialect/AsterUtils/IR/*.td"]),
+    includes = ["include"],
+    deps = [
+        ":AsterSupportTdFiles",
+        "@llvm-project//mlir:ControlFlowInterfacesTdFiles",
+        "@llvm-project//mlir:InferIntRangeInterfaceTdFiles",
+        "@llvm-project//mlir:InferTypeOpInterfaceTdFiles",
+        "@llvm-project//mlir:OpBaseTdFiles",
+        "@llvm-project//mlir:SideEffectInterfacesTdFiles",
+    ],
+)
+
+td_library(
+    name = "AsterUtilsTransformsTdFiles",
+    srcs = ["include/aster/Dialect/AsterUtils/Transforms/Passes.td"],
+    includes = ["include"],
+    deps = [
+        "@llvm-project//mlir:PassBaseTdFiles",
+    ],
+)
+
+td_library(
+    name = "AsterTransformsTdFiles",
+    srcs = ["include/aster/Transforms/Passes.td"],
+    includes = ["include"],
+    deps = [
+        "@llvm-project//mlir:PassBaseTdFiles",
+    ],
+)
+
+# =============================================================================
+# Interfaces TableGen
+# =============================================================================
+
+gentbl_cc_library(
+    name = "AsterInterfacesIncGen",
+    tbl_outs = [
+        (["--gen-type-interface-decls", "-name=DependentTokenType"], "include/aster/Interfaces/DependentTokenTypeInterface.h.inc"),
+        (["--gen-type-interface-defs", "-name=DependentTokenType"], "include/aster/Interfaces/DependentTokenTypeInterface.cpp.inc"),
+        (["-gen-op-interface-decls"], "include/aster/Interfaces/DependentOpInterface.h.inc"),
+        (["-gen-op-interface-defs"], "include/aster/Interfaces/DependentOpInterface.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Interfaces/DependentOpInterface.td",
+    deps = [":AsterInterfacesTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "GPUFuncInterfaceIncGen",
+    tbl_outs = [
+        (["-gen-op-interface-decls"], "include/aster/Interfaces/GPUFuncInterface.h.inc"),
+        (["-gen-op-interface-defs"], "include/aster/Interfaces/GPUFuncInterface.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Interfaces/GPUFuncInterface.td",
+    deps = [":AsterInterfacesTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "InstOpInterfaceIncGen",
+    tbl_outs = [
+        (["-gen-op-interface-decls"], "include/aster/Interfaces/InstOpInterface.h.inc"),
+        (["-gen-op-interface-defs"], "include/aster/Interfaces/InstOpInterface.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Interfaces/InstOpInterface.td",
+    deps = [":AsterInterfacesTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "MemorySpaceConstraintsIncGen",
+    tbl_outs = [
+        (["-gen-attr-interface-decls"], "include/aster/Interfaces/MemorySpaceConstraints.h.inc"),
+        (["-gen-attr-interface-defs"], "include/aster/Interfaces/MemorySpaceConstraints.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Interfaces/MemorySpaceConstraints.td",
+    deps = [":AsterInterfacesTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "ModuleOpInterfaceIncGen",
+    tbl_outs = [
+        (["-gen-op-interface-decls"], "include/aster/Interfaces/ModuleOpInterface.h.inc"),
+        (["-gen-op-interface-defs"], "include/aster/Interfaces/ModuleOpInterface.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Interfaces/ModuleOpInterface.td",
+    deps = [":AsterInterfacesTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "RegisterTypeIncGen",
+    tbl_outs = [
+        (["-gen-type-interface-decls"], "include/aster/Interfaces/RegisterType.h.inc"),
+        (["-gen-type-interface-defs"], "include/aster/Interfaces/RegisterType.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Interfaces/RegisterType.td",
+    deps = [":AsterInterfacesTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "VerifierAttrIncGen",
+    tbl_outs = [
+        (["-gen-attr-interface-decls"], "include/aster/Interfaces/VerifierAttr.h.inc"),
+        (["-gen-attr-interface-defs"], "include/aster/Interfaces/VerifierAttr.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Interfaces/VerifierAttr.td",
+    deps = [":AsterInterfacesTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "ResourceInterfacesIncGen",
+    tbl_outs = [
+        (["-gen-type-interface-decls"], "include/aster/Interfaces/ResourceTypeInterfaces.h.inc"),
+        (["-gen-type-interface-defs"], "include/aster/Interfaces/ResourceTypeInterfaces.cpp.inc"),
+        (["-gen-op-interface-decls"], "include/aster/Interfaces/ResourceOpInterfaces.h.inc"),
+        (["-gen-op-interface-defs"], "include/aster/Interfaces/ResourceOpInterfaces.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Interfaces/ResourceInterfaces.td",
+    deps = [":AsterInterfacesTdFiles"],
+)
+
+# =============================================================================
+# AMDGCN Dialect TableGen
+# =============================================================================
+
+gentbl_cc_library(
+    name = "AMDGCNOpsIncGen",
+    tbl_outs = [
+        (["-gen-dialect-decls", "-dialect=amdgcn"], "include/aster/Dialect/AMDGCN/IR/AMDGCNDialect.h.inc"),
+        (["-gen-dialect-defs", "-dialect=amdgcn"], "include/aster/Dialect/AMDGCN/IR/AMDGCNDialect.cpp.inc"),
+        (["-gen-typedef-decls", "-dialect=amdgcn"], "include/aster/Dialect/AMDGCN/IR/AMDGCNTypes.h.inc"),
+        (["-gen-typedef-defs", "-dialect=amdgcn"], "include/aster/Dialect/AMDGCN/IR/AMDGCNTypes.cpp.inc"),
+        (["-gen-attrdef-decls", "-dialect=amdgcn"], "include/aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h.inc"),
+        (["-gen-attrdef-defs", "-dialect=amdgcn"], "include/aster/Dialect/AMDGCN/IR/AMDGCNAttrs.cpp.inc"),
+        (["-gen-op-decls"], "include/aster/Dialect/AMDGCN/IR/AMDGCNOps.h.inc"),
+        (["-gen-op-defs"], "include/aster/Dialect/AMDGCN/IR/AMDGCNOps.cpp.inc"),
+        (["-gen-enum-decls"], "include/aster/Dialect/AMDGCN/IR/AMDGCNEnums.h.inc"),
+        (["-gen-enum-defs"], "include/aster/Dialect/AMDGCN/IR/AMDGCNEnums.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/AMDGCN/IR/AMDGCNOps.td",
+    deps = [":AMDGCNDialectTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "AMDGCNAttrInterfacesIncGen",
+    tbl_outs = [
+        (["-gen-attr-interface-decls"], "include/aster/Dialect/AMDGCN/IR/AMDGCNAttrInterfaces.h.inc"),
+        (["-gen-attr-interface-defs"], "include/aster/Dialect/AMDGCN/IR/AMDGCNAttrInterfaces.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/AMDGCN/IR/AMDGCNAttrInterfaces.td",
+    deps = [":AMDGCNDialectTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "AMDGCNTypeInterfacesIncGen",
+    tbl_outs = [
+        (["-gen-type-interface-decls"], "include/aster/Dialect/AMDGCN/IR/AMDGCNTypeInterfaces.h.inc"),
+        (["-gen-type-interface-defs"], "include/aster/Dialect/AMDGCN/IR/AMDGCNTypeInterfaces.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/AMDGCN/IR/AMDGCNTypeInterfaces.td",
+    deps = [":AMDGCNDialectTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "AMDGCNInstOpInterfaceIncGen",
+    tbl_outs = [
+        (["-gen-op-interface-decls"], "include/aster/Dialect/AMDGCN/IR/AMDGCNInstOpInterface.h.inc"),
+        (["-gen-op-interface-defs"], "include/aster/Dialect/AMDGCN/IR/AMDGCNInstOpInterface.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/AMDGCN/IR/AMDGCNInstOpInterface.td",
+    deps = [":AMDGCNDialectTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "AMDGCNPassesIncGen",
+    tbl_outs = [
+        (["-gen-pass-decls", "-name=AMDGCN"], "include/aster/Dialect/AMDGCN/Transforms/Passes.h.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/AMDGCN/Transforms/AMDGCNPasses.td",
+    deps = [":AMDGCNTransformsTdFiles"],
+)
+
+# =============================================================================
+# LSIR Dialect TableGen
+# =============================================================================
+
+gentbl_cc_library(
+    name = "LSIROpsIncGen",
+    tbl_outs = [
+        (["-gen-dialect-decls", "-dialect=lsir"], "include/aster/Dialect/LSIR/IR/LSIRDialect.h.inc"),
+        (["-gen-dialect-defs", "-dialect=lsir"], "include/aster/Dialect/LSIR/IR/LSIRDialect.cpp.inc"),
+        (["-gen-typedef-decls", "-dialect=lsir", "-typedefs-dialect=lsir"], "include/aster/Dialect/LSIR/IR/LSIRTypes.h.inc"),
+        (["-gen-typedef-defs", "-dialect=lsir", "-typedefs-dialect=lsir"], "include/aster/Dialect/LSIR/IR/LSIRTypes.cpp.inc"),
+        (["-gen-attrdef-decls", "-dialect=lsir", "-attrdefs-dialect=lsir"], "include/aster/Dialect/LSIR/IR/LSIRAttrs.h.inc"),
+        (["-gen-attrdef-defs", "-dialect=lsir", "-attrdefs-dialect=lsir"], "include/aster/Dialect/LSIR/IR/LSIRAttrs.cpp.inc"),
+        (["-gen-op-decls"], "include/aster/Dialect/LSIR/IR/LSIROps.h.inc"),
+        (["-gen-op-defs"], "include/aster/Dialect/LSIR/IR/LSIROps.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/LSIR/IR/LSIROps.td",
+    deps = [":LSIRDialectTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "LSIREnumsIncGen",
+    tbl_outs = [
+        (["-gen-enum-decls"], "include/aster/Dialect/LSIR/IR/LSIREnums.h.inc"),
+        (["-gen-enum-defs"], "include/aster/Dialect/LSIR/IR/LSIREnums.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/LSIR/IR/LSIREnums.td",
+    deps = [":LSIRDialectTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "LSIRPassIncGen",
+    tbl_outs = [
+        (["-gen-pass-decls", "-name=LSIR"], "include/aster/Dialect/LSIR/Transforms/Passes.h.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/LSIR/Transforms/Passes.td",
+    deps = [":LSIRTransformsTdFiles"],
+)
+
+# =============================================================================
+# AsterUtils Dialect TableGen
+# =============================================================================
+
+gentbl_cc_library(
+    name = "AsterUtilsOpsIncGen",
+    tbl_outs = [
+        (["-gen-dialect-decls", "-dialect=aster_utils"], "include/aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h.inc"),
+        (["-gen-dialect-defs", "-dialect=aster_utils"], "include/aster/Dialect/AsterUtils/IR/AsterUtilsDialect.cpp.inc"),
+        (["-gen-typedef-decls", "-dialect=aster_utils", "-typedefs-dialect=aster_utils"], "include/aster/Dialect/AsterUtils/IR/AsterUtilsTypes.h.inc"),
+        (["-gen-typedef-defs", "-dialect=aster_utils", "-typedefs-dialect=aster_utils"], "include/aster/Dialect/AsterUtils/IR/AsterUtilsTypes.cpp.inc"),
+        (["-gen-attrdef-decls", "-dialect=aster_utils", "-attrdefs-dialect=aster_utils"], "include/aster/Dialect/AsterUtils/IR/AsterUtilsAttrs.h.inc"),
+        (["-gen-attrdef-defs", "-dialect=aster_utils", "-attrdefs-dialect=aster_utils"], "include/aster/Dialect/AsterUtils/IR/AsterUtilsAttrs.cpp.inc"),
+        (["-gen-op-decls"], "include/aster/Dialect/AsterUtils/IR/AsterUtilsOps.h.inc"),
+        (["-gen-op-defs"], "include/aster/Dialect/AsterUtils/IR/AsterUtilsOps.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/AsterUtils/IR/AsterUtilsOps.td",
+    deps = [":AsterUtilsDialectTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "AsterUtilsEnumsIncGen",
+    tbl_outs = [
+        (["-gen-enum-decls"], "include/aster/Dialect/AsterUtils/IR/AsterUtilsEnums.h.inc"),
+        (["-gen-enum-defs"], "include/aster/Dialect/AsterUtils/IR/AsterUtilsEnums.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/AsterUtils/IR/AsterUtilsEnums.td",
+    deps = [":AsterUtilsDialectTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "AsterUtilsPassIncGen",
+    tbl_outs = [
+        (["-gen-pass-decls", "-name=AsterUtils"], "include/aster/Dialect/AsterUtils/Transforms/Passes.h.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Dialect/AsterUtils/Transforms/Passes.td",
+    deps = [":AsterUtilsTransformsTdFiles"],
+)
+
+# =============================================================================
+# Aster Transforms TableGen
+# =============================================================================
+
+gentbl_cc_library(
+    name = "AsterPassesIncGen",
+    tbl_outs = [
+        (["-gen-pass-decls", "-name=Aster"], "include/aster/Transforms/Passes.h.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "include/aster/Transforms/Passes.td",
+    deps = [":AsterTransformsTdFiles"],
+)
+
+# =============================================================================
+# amdgcn-tblgen tool (custom tablegen for instructions)
+# =============================================================================
+
+cc_binary(
+    name = "amdgcn-tblgen",
+    srcs = [
+        "tools/amdgcn-tblgen/Dump.cpp",
+        "tools/amdgcn-tblgen/InstAsmFormat.cpp",
+        "tools/amdgcn-tblgen/InstBindings.cpp",
+        "tools/amdgcn-tblgen/InstCommon.cpp",
+        "tools/amdgcn-tblgen/InstCommon.h",
+        "tools/amdgcn-tblgen/InstGen.cpp",
+        "tools/amdgcn-tblgen/Instruction.cpp",
+        "tools/amdgcn-tblgen/Instruction.h",
+        "tools/amdgcn-tblgen/main.cpp",
+        "tools/amdgcn-tblgen/OpGen.cpp",
+    ],
+    deps = [
+        ":ASTERSupport",
+        "@llvm-project//llvm:CodeGenTypes",
+        "@llvm-project//llvm:Demangle",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//llvm:TableGen",
+        "@llvm-project//llvm:TableGenGlobalISel",
+        "@llvm-project//mlir:TableGen",
+    ],
+)
+
+# Custom tablegen for AMDGCN instructions (uses amdgcn-tblgen)
+gentbl_cc_library(
+    name = "AMDGCNInstsIncGen",
+    tbl_outs = [
+        (["-gen-inst-decls"], "include/aster/Dialect/AMDGCN/IR/AMDGCNInsts.h.inc"),
+        (["-gen-inst-defs"], "include/aster/Dialect/AMDGCN/IR/AMDGCNInsts.cpp.inc"),
+    ],
+    tblgen = ":amdgcn-tblgen",
+    td_file = "include/aster/Dialect/AMDGCN/IR/AMDGCNOps.td",
+    deps = [":AMDGCNDialectTdFiles"],
+)
+
+td_library(
+    name = "AMDGCNAsmTdFiles",
+    srcs = ["lib/Target/ASM/AMDGCN.td"],
+    includes = ["lib/Target/ASM"],
+    deps = [":AMDGCNDialectTdFiles"],
+)
+
+# ASM printer tablegen (uses amdgcn-tblgen)
+gentbl_cc_library(
+    name = "AMDGCNAsmIncGen",
+    tbl_outs = [
+        (["-gen-inst-printers"], "lib/Target/ASM/AMDGCNAsmPrinter.cpp.inc"),
+    ],
+    tblgen = ":amdgcn-tblgen",
+    td_file = "lib/Target/ASM/AMDGCN.td",
+    deps = [":AMDGCNAsmTdFiles"],
+)
+
+# =============================================================================
+# Libraries
+# =============================================================================
+
+cc_library(
+    name = "ASTERSupport",
+    srcs = [
+        "lib/Support/Graph.cpp",
+        "lib/Support/Lexer.cpp",
+    ],
+    hdrs = [
+        "include/aster/Support/API.h",
+        "include/aster/Support/Graph.h",
+        "include/aster/Support/Lexer.h",
+    ],
+    includes = ["include"],
+    deps = [
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:Support",
+    ],
+)
+
+cc_library(
+    name = "AsterInterfaces",
+    srcs = [
+        "lib/Interfaces/DependentOpInterface.cpp",
+        "lib/Interfaces/GPUFuncInterface.cpp",
+        "lib/Interfaces/InstOpInterface.cpp",
+        "lib/Interfaces/MemorySpaceConstraints.cpp",
+        "lib/Interfaces/ModuleOpInterface.cpp",
+        "lib/Interfaces/RegisterType.cpp",
+        "lib/Interfaces/ResourceInterfaces.cpp",
+        "lib/Interfaces/VerifierAttr.cpp",
+    ],
+    hdrs = [
+        "include/aster/Interfaces/DependentOpInterface.h",
+        "include/aster/Interfaces/GPUFuncInterface.h",
+        "include/aster/Interfaces/InstOpInterface.h",
+        "include/aster/Interfaces/MemorySpaceConstraints.h",
+        "include/aster/Interfaces/ModuleOpInterface.h",
+        "include/aster/Interfaces/RegisterType.h",
+        "include/aster/Interfaces/ResourceInterfaces.h",
+        "include/aster/Interfaces/VerifierAttr.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":AsterInterfacesIncGen",
+        ":ASTERSupport",
+        ":GPUFuncInterfaceIncGen",
+        ":InstOpInterfaceIncGen",
+        ":MemorySpaceConstraintsIncGen",
+        ":ModuleOpInterfaceIncGen",
+        ":RegisterTypeIncGen",
+        ":ResourceInterfacesIncGen",
+        ":VerifierAttrIncGen",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:SideEffectInterfaces",
+        "@llvm-project//mlir:Support",
+    ],
+)
+
+cc_library(
+    name = "AsterUpstreamModelsImpl",
+    srcs = ["lib/Interfaces/UpstreamModelsImpl.cpp"],
+    hdrs = ["include/aster/Interfaces/UpstreamExternalModels.h"],
+    includes = ["include"],
+    deps = [
+        ":AsterInterfaces",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:GPUDialect",
+    ],
+)
+
+cc_library(
+    name = "AMDGCNDialect",
+    srcs = [
+        "lib/Dialect/AMDGCN/IR/AMDGCN.cpp",
+        "lib/Dialect/AMDGCN/IR/AMDGCNAttrs.cpp",
+        "lib/Dialect/AMDGCN/IR/AMDGCNTypes.cpp",
+        "lib/Dialect/AMDGCN/IR/AMDGCNVerifiers.cpp",
+        "lib/Dialect/AMDGCN/IR/Utils.cpp",
+    ],
+    hdrs = [
+        "include/aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h",
+        "include/aster/Dialect/AMDGCN/IR/AMDGCNDialect.h",
+        "include/aster/Dialect/AMDGCN/IR/AMDGCNEnums.h",
+        "include/aster/Dialect/AMDGCN/IR/AMDGCNInst.h",
+        "include/aster/Dialect/AMDGCN/IR/AMDGCNInterfaces.h",
+        "include/aster/Dialect/AMDGCN/IR/AMDGCNOps.h",
+        "include/aster/Dialect/AMDGCN/IR/AMDGCNTypes.h",
+        "include/aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h",
+        "include/aster/Dialect/AMDGCN/IR/Utils.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":AMDGCNAttrInterfacesIncGen",
+        ":AMDGCNInstOpInterfaceIncGen",
+        ":AMDGCNInstsIncGen",
+        ":AMDGCNOpsIncGen",
+        ":AMDGCNTypeInterfacesIncGen",
+        ":AsterInterfaces",
+        "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:ControlFlowDialect",
+        "@llvm-project//mlir:ControlFlowInterfaces",
+        "@llvm-project//mlir:FunctionInterfaces",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:InferTypeOpInterface",
+        "@llvm-project//mlir:PtrDialect",
+    ],
+)
+
+cc_library(
+    name = "LSIRDialect",
+    srcs = [
+        "lib/Dialect/LSIR/IR/LSIRAttrs.cpp",
+        "lib/Dialect/LSIR/IR/LSIROps.cpp",
+        "lib/Dialect/LSIR/IR/LSIRTypes.cpp",
+    ],
+    hdrs = [
+        "include/aster/Dialect/LSIR/IR/LSIRAttrs.h",
+        "include/aster/Dialect/LSIR/IR/LSIRDialect.h",
+        "include/aster/Dialect/LSIR/IR/LSIREnums.h",
+        "include/aster/Dialect/LSIR/IR/LSIROps.h",
+        "include/aster/Dialect/LSIR/IR/LSIRTypes.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":AsterInterfaces",
+        ":LSIREnumsIncGen",
+        ":LSIROpsIncGen",
+        "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:InferIntRangeInterface",
+        "@llvm-project//mlir:InferTypeOpInterface",
+        "@llvm-project//mlir:PtrDialect",
+        "@llvm-project//mlir:SideEffectInterfaces",
+    ],
+)
+
+cc_library(
+    name = "AsterUtilsDialect",
+    srcs = [
+        "lib/Dialect/AsterUtils/IR/AsterUtilsAttrs.cpp",
+        "lib/Dialect/AsterUtils/IR/AsterUtilsOps.cpp",
+        "lib/Dialect/AsterUtils/IR/AsterUtilsTypes.cpp",
+        "lib/Dialect/AsterUtils/IR/IntRangeImpl.cpp",
+    ],
+    hdrs = [
+        "include/aster/Dialect/AsterUtils/IR/AsterUtilsAttrs.h",
+        "include/aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h",
+        "include/aster/Dialect/AsterUtils/IR/AsterUtilsEnums.h",
+        "include/aster/Dialect/AsterUtils/IR/AsterUtilsOps.h",
+        "include/aster/Dialect/AsterUtils/IR/AsterUtilsTypes.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":AsterInterfaces",
+        ":AsterUtilsEnumsIncGen",
+        ":AsterUtilsOpsIncGen",
+        "@llvm-project//mlir:ControlFlowInterfaces",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:InferIntRangeInterface",
+        "@llvm-project//mlir:InferTypeOpInterface",
+        "@llvm-project//mlir:SideEffectInterfaces",
+        "@llvm-project//mlir:TransformUtils",
+    ],
+)
+
+cc_library(
+    name = "ASTERAnalysis",
+    srcs = [
+        "lib/Analysis/InterferenceGraph.cpp",
+        "lib/Analysis/LivenessAnalysis.cpp",
+        "lib/Analysis/MemoryDependenceAnalysis.cpp",
+        "lib/Analysis/RangeAnalysis.cpp",
+        "lib/Analysis/RegisterConstraints.cpp",
+        "lib/Analysis/ThreadUniformAnalysis.cpp",
+        "lib/Analysis/VariableAnalysis.cpp",
+    ],
+    hdrs = [
+        "include/aster/Analysis/ABIAnalysis.h",
+        "include/aster/Analysis/InterferenceAnalysis.h",
+        "include/aster/Analysis/LivenessAnalysis.h",
+        "include/aster/Analysis/MemoryDependenceAnalysis.h",
+        "include/aster/Analysis/RangeAnalysis.h",
+        "include/aster/Analysis/RegisterConstraints.h",
+        "include/aster/Analysis/ThreadUniformAnalysis.h",
+        "include/aster/Analysis/VariableAnalysis.h",
+        "include/aster/IR/ValueOrConst.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":AMDGCNDialect",
+        ":ASTERSupport",
+        ":AsterUtilsDialect",
+        ":LSIRDialect",
+        "@llvm-project//mlir:Analysis",
+        "@llvm-project//mlir:GPUDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+    ],
+)
+
+cc_library(
+    name = "AsterTransforms",
+    srcs = [
+        "lib/Transforms/OptimizeArith.cpp",
+        "lib/Transforms/ReplaceConstantGPUDims.cpp",
+        "lib/Transforms/ToIntArith.cpp",
+        "lib/Transforms/Utils.cpp",
+    ],
+    hdrs = [
+        "include/aster/Transforms/Passes.h",
+        "include/aster/Transforms/Utils.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":AsterInterfaces",
+        ":AsterPassesIncGen",
+        ":AsterUtilsDialect",
+        ":LSIRDialect",
+        "@llvm-project//mlir:AffineDialect",
+        "@llvm-project//mlir:AffineToStandard",
+        "@llvm-project//mlir:AffineTransforms",
+        "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:ArithTransforms",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:GPUDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:SCFDialect",
+        "@llvm-project//mlir:SCFUtils",
+        "@llvm-project//mlir:TransformUtils",
+        "@llvm-project//mlir:UBDialect",
+    ],
+)
+
+cc_library(
+    name = "AMDGCNTransforms",
+    srcs = [
+        "lib/Dialect/AMDGCN/Transforms/AMDGCNNopInsertion.cpp",
+        "lib/Dialect/AMDGCN/Transforms/AMDGCNOptimizeStraightLineWaits.cpp",
+        "lib/Dialect/AMDGCN/Transforms/AsterSelectiveInlining.cpp",
+        "lib/Dialect/AMDGCN/Transforms/ConstexprExpansion.cpp",
+        "lib/Dialect/AMDGCN/Transforms/ExpandMetadataOps.cpp",
+        "lib/Dialect/AMDGCN/Transforms/HoistOps.cpp",
+        "lib/Dialect/AMDGCN/Transforms/InstructionScheduling.cpp",
+        "lib/Dialect/AMDGCN/Transforms/InstructionSchedulingAutoschedulePass.cpp",
+        "lib/Dialect/AMDGCN/Transforms/Mem2Reg.cpp",
+        "lib/Dialect/AMDGCN/Transforms/PreloadLibrary.cpp",
+        "lib/Dialect/AMDGCN/Transforms/RegisterAlloc.cpp",
+        "lib/Dialect/AMDGCN/Transforms/RegisterDealloc.cpp",
+        "lib/Dialect/AMDGCN/Transforms/SelectRegClasses.cpp",
+        "lib/Dialect/AMDGCN/Transforms/SetABI.cpp",
+        "lib/Dialect/AMDGCN/Transforms/ToAMDGCN.cpp",
+        "lib/Dialect/AMDGCN/Transforms/ToAMDGCNPatterns.cpp",
+    ],
+    hdrs = [
+        "include/aster/Dialect/AMDGCN/Transforms/Passes.h",
+        "include/aster/Dialect/AMDGCN/Transforms/Transforms.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":AMDGCNDialect",
+        ":AMDGCNPassesIncGen",
+        ":ASTERAnalysis",
+        ":AsterTransforms",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Parser",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:SCFDialect",
+        "@llvm-project//mlir:SCFUtils",
+        "@llvm-project//mlir:Transforms",
+        "@llvm-project//mlir:UBDialect",
+    ],
+)
+
+cc_library(
+    name = "LSIRTransforms",
+    srcs = [
+        "lib/Dialect/LSIR/Transforms/ToLSIR.cpp",
+        "lib/Dialect/LSIR/Transforms/ToLSIRPatterns.cpp",
+    ],
+    hdrs = [
+        "include/aster/Dialect/LSIR/Transforms/Passes.h",
+        "include/aster/Dialect/LSIR/Transforms/ToLSIR.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":ASTERAnalysis",
+        ":AsterTransforms",
+        ":LSIRDialect",
+        ":LSIRPassIncGen",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:TransformUtils",
+    ],
+)
+
+cc_library(
+    name = "AsterUtilsTransforms",
+    srcs = [
+        "lib/Dialect/AsterUtils/Transforms/InlineExecuteRegion.cpp",
+        "lib/Dialect/AsterUtils/Transforms/WrapCallsWithExecuteRegion.cpp",
+    ],
+    hdrs = [
+        "include/aster/Dialect/AsterUtils/Transforms/Passes.h",
+    ],
+    includes = ["include"],
+    deps = [
+        ":AsterUtilsDialect",
+        ":AsterUtilsPassIncGen",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:TransformUtils",
+    ],
+)
+
+cc_library(
+    name = "AsterExportASM",
+    srcs = [
+        "lib/Target/ASM/AsmPrinter.cpp",
+        "lib/Target/ASM/TranslateModule.cpp",
+    ],
+    hdrs = [
+        "include/aster/Target/ASM/AsmPrinter.h",
+        "include/aster/Target/ASM/TranslateModule.h",
+    ],
+    includes = ["include", "lib/Target/ASM"],
+    deps = [
+        ":AMDGCNAsmIncGen",
+        ":AMDGCNDialect",
+        ":ASTERAnalysis",
+        "@llvm-project//mlir:ArithDialect",
+    ],
+)
+
+cc_library(
+    name = "AsterBinaryTarget",
+    srcs = ["lib/Target/Binary/CompileAsm.cpp"],
+    hdrs = ["include/aster/Target/Binary/CompileAsm.h"],
+    defines = ["ASTER_ENABLE_TARGET=1"],
+    includes = ["include"],
+    deps = [
+        "@llvm-project//llvm:AMDGPUAsmParser",
+        "@llvm-project//llvm:AMDGPUCodeGen",
+        "@llvm-project//llvm:AMDGPUDesc",
+        "@llvm-project//llvm:AMDGPUInfo",
+        "@llvm-project//llvm:Linker",
+        "@llvm-project//llvm:MC",
+        "@llvm-project//llvm:MCParser",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//llvm:Target",
+        "@llvm-project//lld:ELF",
+        "@llvm-project//lld:Common",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+    ],
+)
+
+cc_library(
+    name = "AsterAPI",
+    srcs = ["lib/API/API.cpp"],
+    hdrs = ["include/aster/API/API.h"],
+    includes = ["include"],
+    deps = [
+        ":AMDGCNDialect",
+        ":AsterBinaryTarget",
+        ":AsterExportASM",
+    ],
+)
+
+cc_library(
+    name = "ASTERInit",
+    srcs = ["lib/Init.cpp"],
+    hdrs = ["include/aster/Init.h"],
+    includes = ["include"],
+    deps = [
+        ":AMDGCNDialect",
+        ":AMDGCNTransforms",
+        ":AsterInterfaces",
+        ":AsterUpstreamModelsImpl",
+        ":AsterUtilsDialect",
+        ":AsterUtilsTransforms",
+        ":LSIRDialect",
+        ":LSIRTransforms",
+        "@llvm-project//mlir:AffineDialect",
+        "@llvm-project//mlir:AffineTransforms",
+        "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:ArithValueBoundsOpInterfaceImpl",
+        "@llvm-project//mlir:CAPIIR",
+        "@llvm-project//mlir:CastInterfaces",
+        "@llvm-project//mlir:ControlFlowDialect",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:FuncExtensions",
+        "@llvm-project//mlir:GPUDialect",
+        "@llvm-project//mlir:IndexDialect",
+        "@llvm-project//mlir:LLVMDialect",
+        "@llvm-project//mlir:LLVMIRTransforms",
+        "@llvm-project//mlir:MemRefDialect",
+        "@llvm-project//mlir:MemRefTransforms",
+        "@llvm-project//mlir:PtrDialect",
+        "@llvm-project//mlir:SCFDialect",
+    ],
+)
+
+cc_library(
+    name = "ASTERTestPass",
+    srcs = ["test/lib/Pass/TestMemoryDependenceAnalysis.cpp"],
+    includes = ["include"],
+    deps = [
+        ":AMDGCNDialect",
+        ":ASTERAnalysis",
+        "@llvm-project//mlir:Analysis",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
+    ],
+)
+
+# =============================================================================
+# Binaries
+# =============================================================================
+
+cc_binary(
+    name = "aster-opt",
+    srcs = ["tools/aster-opt/aster-opt.cpp"],
+    deps = [
+        ":AMDGCNTransforms",
+        ":ASTERInit",
+        ":ASTERTestPass",
+        "@llvm-project//mlir:MlirOptLib",
+    ],
+)
+
+cc_binary(
+    name = "aster-translate",
+    srcs = ["tools/aster-translate/aster-translate.cpp"],
+    deps = [
+        ":ASTERInit",
+        ":AsterExportASM",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Parser",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:TranslateLib",
+    ],
+)
+
+filegroup(
+    name = "aster-tools",
+    srcs = [
+        ":aster-opt",
+        ":aster-translate",
+        ":amdgcn-tblgen",
+    ],
+)
