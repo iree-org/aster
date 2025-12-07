@@ -1,0 +1,22 @@
+# Common settings
+common --enable_bzlmod
+common --experimental_cc_static_library
+
+# Build settings
+build --cxxopt=-std=c++17
+build --host_cxxopt=-std=c++17
+
+# LLVM build optimizations
+build --compilation_mode=opt
+build --copt=-O3
+
+# Toolchain preset requires Bazel 9; skip for now
+# try-import %workspace%/toolchains_llvm_bootstrapped/tools/preset.bazelrc
+
+# Cross-compilation targets
+build:linux_amd64 --platforms=@toolchains_llvm_bootstrapped//platforms:linux_x86_64
+build:linux_arm64 --platforms=@toolchains_llvm_bootstrapped//platforms:linux_aarch64
+
+# Disable zlib for LLVM cross-compilation (headers not available for target)
+build --@llvm_zlib//:llvm_enable_zlib=false
+build --@llvm_zstd//:llvm_enable_zstd=false

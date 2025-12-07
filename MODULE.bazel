@@ -1,0 +1,33 @@
+module(
+    name = "aster",
+    version = "1.0.0",
+)
+
+bazel_dep(name = "rules_cc", version = "0.2.14")
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+bazel_dep(name = "toolchains_llvm_bootstrapped", version = "")
+local_path_override(
+    module_name = "toolchains_llvm_bootstrapped",
+    path = "toolchains_llvm_bootstrapped",
+)
+
+register_toolchains(
+    "@toolchains_llvm_bootstrapped//toolchain:all",
+)
+
+# Configure LLVM with AMDGPU target
+llvm_raw = use_extension("@toolchains_llvm_bootstrapped//:llvm_raw.bzl", "llvm_raw")
+use_repo(llvm_raw, "llvm-raw", "llvm_zlib", "llvm_zstd")
+
+llvm = use_extension("@toolchains_llvm_bootstrapped//:llvm.bzl", "llvm")
+llvm.configure(
+    targets = [
+        "AArch64",
+        "X86",
+        "AMDGPU",
+        "NVPTX",
+    ],
+)
+use_repo(llvm, "llvm-project")

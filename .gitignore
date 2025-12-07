@@ -1,3 +1,4 @@
+# Dirs
 /.aster/
 /.cache/
 *.hsaco*
@@ -6,6 +7,7 @@
 /.vscode/
 /__pycache__/
 *__pycache__*
+/bazel-*
 /build/
 /install/
 /sandbox/
@@ -14,3 +16,5 @@
 /examples/trace_*
 /examples/*zip
 /llvm/
+# Files
+/MODULE.bazel.lock
