@@ -48,13 +48,21 @@ private:
 
 ASMFormatHandler::ASMFormatHandler(const AMDInst &inst) : inst(inst) {
   Dag args = Record(&inst.getInstOp().getDef(), "Op").getDag("arguments");
+  Dag successors =
+      Record(&inst.getInstOp().getDef(), "Op").getDag("successors");
   // Collect the arguments.
   for (auto [i, arg] : llvm::enumerate(args.getAsRange())) {
     opArgs.insert(arg.getName());
     if (!AsmArgFormat::isa(arg.getAsRecord()))
       continue;
-    arguments[inst.getInstOp().getArgName(i)] = {
-        arg, AsmArgFormat(arg.getAsRecord())};
+    arguments[arg.getName()] = {arg, AsmArgFormat(arg.getAsRecord())};
+  }
+  // Collect the successors.
+  for (auto [i, succ] : llvm::enumerate(successors.getAsRange())) {
+    opArgs.insert(succ.getName());
+    if (!AsmArgFormat::isa(succ.getAsRecord()))
+      continue;
+    arguments[succ.getName()] = {succ, AsmArgFormat(succ.getAsRecord())};
   }
   // Populate the format context.
   populateFmtContext(inst, ctx);

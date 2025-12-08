@@ -131,3 +131,28 @@ void aster::amdgcn::AsmPrinter::endInstruction() {
   os << "\n";
   instInProgress = false;
 }
+
+std::string aster::amdgcn::AsmPrinter::getBranchLabel(Block *block) {
+  if (blockLabels.contains(block)) {
+    return blockLabels.lookup(block);
+  }
+  // Give correct name to entry block.
+  if (block->isEntryBlock()) {
+    // get KernelOp parent.
+    Operation *parentOp = block->getParentOp();
+    while (parentOp && !isa<KernelOp>(parentOp)) {
+      parentOp = parentOp->getParentOp();
+    }
+    assert(parentOp && "Entry block has no KernelOp parent");
+    std::string label = cast<KernelOp>(parentOp).getName().str();
+    blockLabels[block] = label;
+    return label;
+  }
+  std::string label = ".AMDGCN_BB_" + std::to_string(blockLabels.size());
+  blockLabels[block] = label;
+  return label;
+}
+
+void aster::amdgcn::AsmPrinter::printBranchLabel(Block *block) {
+  os << " " << getBranchLabel(block);
+}

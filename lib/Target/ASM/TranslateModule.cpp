@@ -87,6 +87,8 @@ private:
   LogicalResult emitKernelEpilogue(KernelOp kernel, size_t kernelIndex);
   /// Emit the prologue for the given kernel.
   LogicalResult emitKernelPrologue(KernelOp kernel, size_t kernelIndex);
+  /// Emit the given block.
+  LogicalResult emitBlock(amdgcn::AsmPrinter &printer, Block *block);
   /// Emit the given operation.
   LogicalResult emitOperation(amdgcn::AsmPrinter &printer, Operation *op);
   /// Emit a kernel argument. Returns the argument offset after this argument.
@@ -274,6 +276,18 @@ int32_t TranslateModuleImpl::emitKernelArgument(KernelArgAttrInterface arg,
   return offset + size;
 }
 
+LogicalResult TranslateModuleImpl::emitBlock(amdgcn::AsmPrinter &printer,
+                                             Block *block) {
+  printer.getStream() << printer.getBranchLabel(block) << ":\n";
+  os.indent();
+  for (Operation &op : *block) {
+    if (failed(emitOperation(printer, &op)))
+      return failure();
+  }
+  os.unindent();
+  return success();
+}
+
 LogicalResult TranslateModuleImpl::emitOperation(amdgcn::AsmPrinter &printer,
                                                  Operation *op) {
   return llvm::TypeSwitch<Operation *, LogicalResult>(op)
@@ -303,7 +317,6 @@ LogicalResult TranslateModuleImpl::emitKernelPrologue(KernelOp kernel,
   os << ".p2align 8\n";
   os << ".type " << kernel.getName() << ",@function\n";
   os.unindent();
-  os << kernel.getName() << ":\n";
   return success();
 }
 
@@ -315,10 +328,9 @@ LogicalResult TranslateModuleImpl::emitKernel(KernelOp kernel,
   if (failed(emitKernelPrologue(kernel, kernelIndex)))
     return failure();
 
-  os.indent();
   // Emit instructions
-  WalkResult result = kernel.walk<WalkOrder::PreOrder>([&](Operation *op) {
-    if (failed(emitOperation(printer, op)))
+  WalkResult result = kernel.walk<WalkOrder::PreOrder>([&](Block *block) {
+    if (failed(emitBlock(printer, block)))
       return WalkResult::interrupt();
     return WalkResult::advance();
   });
@@ -329,7 +341,6 @@ LogicalResult TranslateModuleImpl::emitKernel(KernelOp kernel,
   if (failed(emitKernelEpilogue(kernel, kernelIndex)))
     return failure();
 
-  os.unindent();
   os << "\n";
   return success();
 }
@@ -353,6 +364,8 @@ LogicalResult TranslateModuleImpl::emitKernelEpilogue(KernelOp kernel,
   userSGPRCount += kernel.getEnablePrivateSegmentBuffer() ? 4 : 0;
   userSGPRCount += kernel.getEnableDispatchPtr() ? 2 : 0;
   userSGPRCount += kernel.getEnableKernargSegmentPtr() ? 2 : 0;
+
+  os.indent();
 
   os << ".section .rodata,\"a\",@progbits\n";
   os << ".p2align 6, 0x0\n";
@@ -428,6 +441,7 @@ LogicalResult TranslateModuleImpl::emitKernelEpilogue(KernelOp kernel,
   os.indent();
   os << ".size " << kernel.getName() << ", " << ".Lfunc_end" << kernelIndex
      << "-" << kernel.getName() << "\n";
+  os.unindent();
   return success();
 }
 

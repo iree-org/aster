@@ -341,6 +341,12 @@ def OffsetType : I<32>, AsmArgFormat {
   let asmPrinter = "$_printer.printOffsetOperand($_self);";
 }
 
+/// A label that can be branched to.
+def BranchLabel : Successor<?, "">, AsmArgFormat {
+  let asmParser = "$_parser.parseBranchLabel($_self);";
+  let asmPrinter = "$_printer.printBranchLabel($_self);";
+}
+
 //===----------------------------------------------------------------------===//
 // Register like types
 //===----------------------------------------------------------------------===//

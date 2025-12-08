@@ -287,6 +287,7 @@ defvar CppValue = "::mlir::Value";
 
 /// Shorthand for Python values in the instruction builders.
 defvar PyValue = "$_ir.Value";
+defvar PyBlock = "$_ir.Block";
 
 /// Helper for C++/python integer arguments on builders.
 class IntArg<int v> : CArg<"int", !cast<string>(v)>;

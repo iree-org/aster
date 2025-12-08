@@ -16,10 +16,12 @@
 #define ASTER_TARGET_ASM_ASMPRINTER_H
 
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
 class Value;
+class Block;
 } // namespace mlir
 
 namespace mlir::aster {
@@ -77,6 +79,9 @@ public:
 
   /// Print the mnemonic.
   PrintGuard printMnemonic(StringRef mnemonic);
+  /// Prints a label for a block.
+  std::string getBranchLabel(Block *block);
+  void printBranchLabel(Block *block);
 
 private:
   friend struct PrintGuard;
@@ -90,6 +95,7 @@ private:
   llvm::raw_ostream &os;
   /// Whether an instruction is currently being printed.
   bool instInProgress = false;
+  llvm::DenseMap<Block *, std::string> blockLabels;
 };
 } // namespace amdgcn
 } // namespace mlir::aster

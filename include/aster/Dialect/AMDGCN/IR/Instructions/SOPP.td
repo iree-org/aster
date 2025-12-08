@@ -60,6 +60,51 @@ def EndKernelInst : AMDInst<
 }
 
 //===----------------------------------------------------------------------===//
+// BranchOp
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_BranchOp : InstOp<"branch", [
+  Terminator, AMDGCNInstOpInterface, HasParent<"KernelOp">]> {
+  let summary = "AMDGCN branch operation";
+  let description = [{
+    Conditional branching operation.
+  }];
+  let arguments = (ins AMDGCN_InstAttr:$opcode);
+  let successors = (successor BranchLabel:$dest);
+  let assemblyFormat = "$opcode $dest attr-dict";
+  let extraClassDeclaration = [{
+    //===------------------------------------------------------------------===//
+    // InstOpInterface Methods
+    //===------------------------------------------------------------------===//
+    /// Get the instruction output operands.
+    MutableArrayRef<OpOperand> getInstOutsMutable() {
+      return {};
+    }
+    /// Get the instruction input operands.
+    MutableArrayRef<OpOperand> getInstInsMutable() {
+      return {};
+    }
+  }];
+  let cppNamespace = "::mlir::aster::amdgcn";
+}
+
+def BranchInst : AMDInst<
+  /*mnemonic=*/"s_branch", /*symbol=*/"s_branch",
+  /*instOp=*/AMDGCN_BranchOp, /*targets=*/[]> {
+  let summary = "Unconditional Branch instruction";
+  let description = [{
+    Branch instruction that performs unconditional branching.
+  }];
+  let cppBuilder = OpBuilder<(ins "Block *":$dest), [{
+    return $_create($_builder, $_loc, $_opcode, dest);
+  }]>;
+  let pythonBuilder = OpBuilder<(ins PyBlock:$dest), [{
+    return $_create(opcode=$_opcode, dest=dest);
+  }]>;
+  let asmFormat = [SingleAsmVariant<"$dest">];
+}
+
+//===----------------------------------------------------------------------===//
 // SOPP Operation
 //===----------------------------------------------------------------------===//
 
