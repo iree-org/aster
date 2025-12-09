@@ -150,12 +150,12 @@ To build the project use:
 
 #### Executing pytests
 ```
-(cd build && ninja install) && pytest ./examples/ ./integration_test/ ./mlir_kernels/test/
+(cd build && ninja install) && pytest ./integration_test/ ./mlir_kernels/test/
 ```
 
 #### Executing all tests
 ```
-(cd build && ninja install) &&  lit build/test -v &&  pytest ./examples/ ./integration_test/ ./mlir_kernels/test/
+(cd build && ninja install) &&  lit build/test -v &&  pytest ./integration_test/ ./mlir_kernels/test/
 ```
 
 #### Running python manually
