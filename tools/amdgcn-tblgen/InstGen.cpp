@@ -80,6 +80,15 @@ static bool generateInstDecls(const llvm::RecordKeeper &records,
     AMDInst inst(instRec);
     genInstDecl(inst, os);
   }
+
+  // Add declaration for the opcode to isa versions table.
+  {
+    llvm::NamespaceEmitter ns(os, "mlir::aster::amdgcn");
+    os << R"(
+SmallVector<ISAVersion> getISAVersionsForOpCode(OpCode opCode);
+)";
+  }
+
   return false;
 }
 
@@ -199,7 +208,8 @@ $0
 }
 
 /// Generate the instruction metadata tables.
-static void genTables(ArrayRef<const llvm::Record *> insts, raw_ostream &os) {
+static void genMetadataTable(ArrayRef<const llvm::Record *> insts,
+                             raw_ostream &os) {
   os << R"(
 static ::mlir::aster::amdgcn::InstMetadata *
 getMetadataForOpCode(::mlir::AttributeStorageAllocator &allocator,
@@ -220,6 +230,24 @@ getMetadataForOpCode(::mlir::AttributeStorageAllocator &allocator,
   os << "\n  default:\n    return nullptr;\n  }\n}\n\n";
 }
 
+static void genISAVersionsTable(ArrayRef<const llvm::Record *> insts,
+                                raw_ostream &os) {
+  os << R"(SmallVector<mlir::aster::amdgcn::ISAVersion>
+mlir::aster::amdgcn::getISAVersionsForOpCode(mlir::aster::amdgcn::OpCode opCode) {
+  switch (opCode) {
+)";
+
+  auto getTable = [&](const AMDInst &inst) {
+    std::string_view body = "  case {0}:\n    return {{{1}};";
+    os << llvm::formatv(body.data(), getOpCode(inst), getISAVersionList(inst));
+  };
+  // Generate each table entry.
+  auto amdInst = llvm::map_range(
+      insts, [](const llvm::Record *rec) { return AMDInst(rec); });
+  llvm::interleave(amdInst, os, getTable, "\n");
+  os << "\n  default:\n    return {};\n  }\n}\n\n";
+}
+
 /// Generate declarations for all instructions in the given record keeper.
 static bool generateInstDefs(const llvm::RecordKeeper &records,
                              raw_ostream &os) {
@@ -234,7 +262,10 @@ static bool generateInstDefs(const llvm::RecordKeeper &records,
     genInstDef(AMDInst(instRec), os);
 
   // Generate the instruction metadata table.
-  genTables(instRecs, os);
+  genMetadataTable(instRecs, os);
+
+  // Generate the opcode to isa versions function table.
+  genISAVersionsTable(instRecs, os);
 
   // Generate verify methods for instructions that need them.
   {
