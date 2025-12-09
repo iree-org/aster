@@ -235,7 +235,7 @@ LogicalResult amdgcn::verifyConstantsImpl(Operation *op,
 LogicalResult
 amdgcn::verifyISAsSupportImpl(Region &region, ArrayRef<ISAVersion> isas,
                               function_ref<InFlightDiagnostic()> emitError) {
-  // If no ISAs specified, verify no target-specific AMDGCN instructions.
+  // If no ISAs specified, verify no isa-specific AMDGCN instructions.
   if (isas.empty()) {
     LogicalResult result = success();
     region.walk([&](Operation *op) {

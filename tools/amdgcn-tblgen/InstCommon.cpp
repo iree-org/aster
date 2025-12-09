@@ -98,11 +98,12 @@ mlir::aster::amdgcn::tblgen::genArgList(const Builder &b,
 }
 
 /// Get the list of target names for the given instruction.
-std::string mlir::aster::amdgcn::tblgen::getTargetList(const AMDInst &inst) {
-  SmallVector<Target> targets = inst.getTargets();
+std::string
+mlir::aster::amdgcn::tblgen::getISAVersionList(const AMDInst &inst) {
+  SmallVector<ISAVersion> isa = inst.getISAVersions();
   StrStream tgts;
-  llvm::interleaveComma(targets, tgts.os, [&](const Target &tgt) {
-    tgts.os << "::mlir::aster::amdgcn::Target::" +
+  llvm::interleaveComma(isa, tgts.os, [&](const ISAVersion &tgt) {
+    tgts.os << "::mlir::aster::amdgcn::ISAVersion::" +
                    tgt.getAsEnumCase().getIdentifier();
   });
   return tgts.str;
@@ -118,6 +119,6 @@ void mlir::aster::amdgcn::tblgen::populateFmtContext(
   ctx.addSubst("_instOp", getInstOpName(inst.getInstOp()));
   ctx.addSubst("_opcode", getOpCode(inst));
   ctx.addSubst("_mnemonic", inst.getMnemonic());
-  ctx.addSubst("_targets", getTargetList(inst));
-  ctx.addSubst("_numTargets", std::to_string(inst.getTargets().size()));
+  ctx.addSubst("_isa", getISAVersionList(inst));
+  ctx.addSubst("_numISAVersions", std::to_string(inst.getISAVersions().size()));
 }

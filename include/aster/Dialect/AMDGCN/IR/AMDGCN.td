@@ -247,7 +247,7 @@ class _GetBuilder<OpBuilder instBuilder, OpBuilder _opBuilder> {
 /// An instruction case.
 class InstCase<string _mnemonic, list<AsmVariant> _asmFormat,
                dag _constraints = (ins),
-               list<Target> _targets = ?, string _description = "",
+               list<ISAVersion> _isa = ?, string _description = "",
                OpBuilder _cppBuilder = UseOpBuilder,
                OpBuilder _pythonBuilder = UseOpBuilder,
                string _identifier = ""> {
@@ -256,7 +256,7 @@ class InstCase<string _mnemonic, list<AsmVariant> _asmFormat,
   dag constraints = _constraints;
   OpBuilder cppBuilder = _cppBuilder;
   OpBuilder pythonBuilder = _pythonBuilder;
-  list<Target> targets = _targets;
+  list<ISAVersion> isa = _isa;
   string identifier =
     !if(!empty(_identifier), snakeCaseToCamelCase<_mnemonic>.ret, _identifier);
   list<AsmVariant> asmFormat = _asmFormat;

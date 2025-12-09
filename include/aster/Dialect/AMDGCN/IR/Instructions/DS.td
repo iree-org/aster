@@ -69,8 +69,8 @@ def DSReadOp : DS_Op<"read", [
 }
 
 class DSReadInst<string _mnemonic, string sym, int dataRegs, InstOp _instOp,
-      list<Target> _targets>
-    : AMDInst<_mnemonic, sym, _instOp, _targets> {
+      list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, sym, _instOp, _isa> {
   let constraints = (ins VGPROperand<dataRegs>:$vdst,
                          VGPROperand<1>:$addr);
   let cppBuilder = DefaultCppBuilder<(ins
@@ -85,7 +85,7 @@ class DSReadInst<string _mnemonic, string sym, int dataRegs, InstOp _instOp,
 
 def DS_READ_B32_INST : DSReadInst<
   /*mnemonic=*/"ds_read_b32", /*symbol=*/"ds_read_b32",
-  /*dataRegs=*/1, /*instOp=*/DSReadOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/1, /*instOp=*/DSReadOp, /*isa=*/[CDNA3]> {
   let summary = "DS read 32-bit";
   let description = [{
     DS read instruction that loads a 32-bit value from LDS.
@@ -94,7 +94,7 @@ def DS_READ_B32_INST : DSReadInst<
 
 def DS_READ_B64_INST : DSReadInst<
   /*mnemonic=*/"ds_read_b64", /*symbol=*/"ds_read_b64",
-  /*dataRegs=*/2, /*instOp=*/DSReadOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/2, /*instOp=*/DSReadOp, /*isa=*/[CDNA3]> {
   let summary = "DS read 64-bit";
   let description = [{
     DS read instruction that loads a 64-bit value from LDS.
@@ -103,7 +103,7 @@ def DS_READ_B64_INST : DSReadInst<
 
 def DS_READ_B96_INST : DSReadInst<
   /*mnemonic=*/"ds_read_b96", /*symbol=*/"ds_read_b96",
-  /*dataRegs=*/3, /*instOp=*/DSReadOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/3, /*instOp=*/DSReadOp, /*isa=*/[CDNA3]> {
   let summary = "DS read 96-bit";
   let description = [{
     DS read instruction that loads a 96-bit value from LDS.
@@ -112,7 +112,7 @@ def DS_READ_B96_INST : DSReadInst<
 
 def DS_READ_B128_INST : DSReadInst<
   /*mnemonic=*/"ds_read_b128", /*symbol=*/"ds_read_b128",
-  /*dataRegs=*/4, /*instOp=*/DSReadOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/4, /*instOp=*/DSReadOp, /*isa=*/[CDNA3]> {
   let summary = "DS read 128-bit";
   let description = [{
     DS read instruction that loads a 128-bit value from LDS.
@@ -161,7 +161,7 @@ def DSWriteOp : DS_Op<"write", [
 }
 
 class DSWriteInst<string _mnemonic, string sym, int dataRegs, InstOp _instOp,
-               list<Target> _targets> : AMDInst<_mnemonic, sym, _instOp, _targets> {
+               list<ISAVersion> _isa> : AMDInst<_mnemonic, sym, _instOp, _isa> {
   let constraints = (ins VGPROperand<dataRegs>:$data,
                          VGPROperand<1>:$addr);
   let cppBuilder = DefaultCppBuilder<(ins
@@ -176,7 +176,7 @@ class DSWriteInst<string _mnemonic, string sym, int dataRegs, InstOp _instOp,
 
 def DS_WRITE_B32_INST : DSWriteInst<
   /*mnemonic=*/"ds_write_b32", /*symbol=*/"ds_write_b32",
-  /*dataRegs=*/1, /*instOp=*/DSWriteOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/1, /*instOp=*/DSWriteOp, /*isa=*/[CDNA3]> {
   let summary = "DS write 32-bit";
   let description = [{
     DS write instruction that stores a 32-bit value to LDS.
@@ -185,7 +185,7 @@ def DS_WRITE_B32_INST : DSWriteInst<
 
 def DS_WRITE_B64_INST : DSWriteInst<
   /*mnemonic=*/"ds_write_b64", /*symbol=*/"ds_write_b64",
-  /*dataRegs=*/2, /*instOp=*/DSWriteOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/2, /*instOp=*/DSWriteOp, /*isa=*/[CDNA3]> {
   let summary = "DS write 64-bit";
   let description = [{
     DS write instruction that stores a 64-bit value to LDS.
@@ -194,7 +194,7 @@ def DS_WRITE_B64_INST : DSWriteInst<
 
 def DS_WRITE_B96_INST : DSWriteInst<
   /*mnemonic=*/"ds_write_b96", /*symbol=*/"ds_write_b96",
-  /*dataRegs=*/3, /*instOp=*/DSWriteOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/3, /*instOp=*/DSWriteOp, /*isa=*/[CDNA3]> {
   let summary = "DS write 96-bit";
   let description = [{
     DS write instruction that stores a 96-bit value to LDS.
@@ -203,7 +203,7 @@ def DS_WRITE_B96_INST : DSWriteInst<
 
 def DS_WRITE_B128_INST : DSWriteInst<
   /*mnemonic=*/"ds_write_b128", /*symbol=*/"ds_write_b128",
-  /*dataRegs=*/4, /*instOp=*/DSWriteOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/4, /*instOp=*/DSWriteOp, /*isa=*/[CDNA3]> {
   let summary = "DS write 128-bit";
   let description = [{
     DS write instruction that stores a 128-bit value to LDS.

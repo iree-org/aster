@@ -46,8 +46,8 @@ class VOP3PConstraints<int dst_size, int src0_size, int src1_size, int src2_size
   );
 }
 
-class VOP3PInst<string _mnemonic, list<Target> _targets>
-    : AMDInst<_mnemonic, _mnemonic, VOP3POp, _targets> {
+class VOP3PInst<string _mnemonic, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, _mnemonic, VOP3POp, _isa> {
   // Default builders.
   let cppBuilder = OpBuilder<(ins
     CppValue:$vdst, CppValue:$src0, CppValue:$src1, CppValue:$src2), [{
@@ -67,7 +67,7 @@ class VOP3PInst<string _mnemonic, list<Target> _targets>
 // Read/Write ACC Registers
 //===----------------------------------------------------------------------===//
 
-def VAccvgprRead : VOP3PInst<"v_accvgpr_read_b32",  [GFX942]> {
+def VAccvgprRead : VOP3PInst<"v_accvgpr_read_b32",  [CDNA3]> {
   let summary = "Move 32 bits of data from an ACC register to a VGPR";
   let constraints = (ins
     /*ins=*/RegImmOperand<AGPRType, 1>:$src0, NotPresent:$src1, NotPresent:$src2,
@@ -86,7 +86,7 @@ def VAccvgprRead : VOP3PInst<"v_accvgpr_read_b32",  [GFX942]> {
   let asmFormat = [SingleAsmVariant<"$vdst, $src0">];
 }
 
-def VAccvgprWrite : VOP3PInst<"v_accvgpr_write_b32",  [GFX942]> {
+def VAccvgprWrite : VOP3PInst<"v_accvgpr_write_b32",  [CDNA3]> {
   let summary = "Move 32 bits of data to an ACC register";
   let constraints = (ins
     /*ins=*/RegImmOperand<VOP3PSrc, 1>:$src0, NotPresent:$src1, NotPresent:$src2,
@@ -172,8 +172,8 @@ def VOP3PMAIOp : VOP3P_Op<"vop3p_mai", [
 }
 
 class MFMAInst<string _mnemonic, string sym, int aRegs, int bRegs, int cRegs,
-      int dstRegs, list<Target> _targets>
-    : AMDInst<_mnemonic, sym, VOP3PMAIOp, _targets> {
+      int dstRegs, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, sym, VOP3PMAIOp, _isa> {
   let constraints = (ins
       /*outs=*/AccOperand<dstRegs>:$vdst,
       /*ins=*/ VGPROperand<aRegs>:$a, VGPROperand<bRegs>:$b,
@@ -187,7 +187,7 @@ class MFMAInst<string _mnemonic, string sym, int aRegs, int bRegs, int cRegs,
 
 def V_MFMA_F32_16X16X16_F16 : MFMAInst<
   /*mnemonic=*/"v_mfma_f32_16x16x16_f16", /*symbol=*/"v_mfma_f32_16x16x16_f16",
-  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*targets=*/[GFX942]> {
+  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3]> {
   let summary = "MFMA f32 16x16x16 with f16 inputs";
   let description = [{
     MFMA instruction performing matrix multiplication and accumulation
@@ -197,7 +197,7 @@ def V_MFMA_F32_16X16X16_F16 : MFMAInst<
 
 def V_MFMA_F32_16X16X16_BF16 : MFMAInst<
   /*mnemonic=*/"v_mfma_f32_16x16x16_bf16", /*symbol=*/"v_mfma_f32_16x16x16_bf16",
-  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*targets=*/[GFX942]> {
+  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3]> {
   let summary = "MFMA f32 16x16x16 with bf16 inputs";
   let description = [{
     MFMA instruction performing matrix multiplication and accumulation
@@ -207,7 +207,7 @@ def V_MFMA_F32_16X16X16_BF16 : MFMAInst<
 
 def V_MFMA_F16_16X16X16_F16 : MFMAInst<
   /*mnemonic=*/"v_mfma_f16_16x16x16_f16", /*symbol=*/"v_mfma_f16_16x16x16_f16",
-  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*targets=*/[GFX942]> {
+  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3]> {
   let summary = "MFMA f16 16x16x16 with f16 inputs";
   let description = [{
     MFMA instruction performing matrix multiplication and accumulation

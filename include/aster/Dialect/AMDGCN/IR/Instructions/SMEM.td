@@ -79,8 +79,8 @@ def SMEMLoadOp : SMEM_Op<"load", [
 }
 
 class SMEMLoadInst<string _mnemonic, string sym, int addrRegs, int resultRegs,
-                   InstOp _instOp, list<Target> _targets>
-    : AMDInst<_mnemonic, sym, _instOp, _targets> {
+                   InstOp _instOp, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, sym, _instOp, _isa> {
   let constraints = (ins SGPROperand<resultRegs>:$sdst,
                          SGPROperand<addrRegs, 1>:$addr);
   let cppBuilder = DefaultCppBuilder<(ins
@@ -92,7 +92,7 @@ class SMEMLoadInst<string _mnemonic, string sym, int addrRegs, int resultRegs,
 
 def SMEM_LOAD_DWORD_INST : SMEMLoadInst<
   /*mnemonic=*/"s_load_dword", /*symbol=*/"s_load_dword",
-  /*addrRegs=*/2, /*resultRegs=*/1, /*instOp=*/SMEMLoadOp, /*targets=*/[GFX942]> {
+  /*addrRegs=*/2, /*resultRegs=*/1, /*instOp=*/SMEMLoadOp, /*isa=*/[CDNA3]> {
   let summary = "SMEM load 32-bit";
   let description = [{
     SMEM load instruction that loads a 32-bit value from scalar memory.
@@ -101,7 +101,7 @@ def SMEM_LOAD_DWORD_INST : SMEMLoadInst<
 
 def SMEM_LOAD_DWORDX2_INST : SMEMLoadInst<
   /*mnemonic=*/"s_load_dwordx2", /*symbol=*/"s_load_dwordx2",
-  /*addrRegs=*/2, /*resultRegs=*/2, /*instOp=*/SMEMLoadOp, /*targets=*/[GFX942]> {
+  /*addrRegs=*/2, /*resultRegs=*/2, /*instOp=*/SMEMLoadOp, /*isa=*/[CDNA3]> {
   let summary = "SMEM load 64-bit";
   let description = [{
     SMEM load instruction that loads a 64-bit value from scalar memory.
@@ -110,7 +110,7 @@ def SMEM_LOAD_DWORDX2_INST : SMEMLoadInst<
 
 def SMEM_LOAD_DWORDX4_INST : SMEMLoadInst<
   /*mnemonic=*/"s_load_dwordx4", /*symbol=*/"s_load_dwordx4",
-  /*addrRegs=*/2, /*resultRegs=*/4, /*instOp=*/SMEMLoadOp, /*targets=*/[GFX942]> {
+  /*addrRegs=*/2, /*resultRegs=*/4, /*instOp=*/SMEMLoadOp, /*isa=*/[CDNA3]> {
   let summary = "SMEM load 128-bit";
   let description = [{
     SMEM load instruction that loads a 128-bit value from scalar memory.
@@ -119,7 +119,7 @@ def SMEM_LOAD_DWORDX4_INST : SMEMLoadInst<
 
 def SMEM_LOAD_DWORDX8_INST : SMEMLoadInst<
   /*mnemonic=*/"s_load_dwordx8", /*symbol=*/"s_load_dwordx8",
-  /*addrRegs=*/2, /*resultRegs=*/8, /*instOp=*/SMEMLoadOp, /*targets=*/[GFX942]> {
+  /*addrRegs=*/2, /*resultRegs=*/8, /*instOp=*/SMEMLoadOp, /*isa=*/[CDNA3]> {
   let summary = "SMEM load 256-bit";
   let description = [{
     SMEM load instruction that loads a 256-bit value from scalar memory.
@@ -128,7 +128,7 @@ def SMEM_LOAD_DWORDX8_INST : SMEMLoadInst<
 
 def SMEM_LOAD_DWORDX16_INST : SMEMLoadInst<
   /*mnemonic=*/"s_load_dwordx16", /*symbol=*/"s_load_dwordx16",
-  /*addrRegs=*/2, /*resultRegs=*/16, /*instOp=*/SMEMLoadOp, /*targets=*/[GFX942]> {
+  /*addrRegs=*/2, /*resultRegs=*/16, /*instOp=*/SMEMLoadOp, /*isa=*/[CDNA3]> {
   let summary = "SMEM load 512-bit";
   let description = [{
     SMEM load instruction that loads a 512-bit value from scalar memory.
@@ -141,7 +141,7 @@ def SMEM_LOAD_DWORDX16_INST : SMEMLoadInst<
 //   - etc
 def SMEM_MEMTIME_INST : SMEMLoadInst<
   /*mnemonic=*/"s_memtime", /*symbol=*/"s_memtime",
-  /*addrRegs=*/0, /*resultRegs=*/2, /*instOp=*/SMEMLoadOp, /*targets=*/[GFX942]> {
+  /*addrRegs=*/0, /*resultRegs=*/2, /*instOp=*/SMEMLoadOp, /*isa=*/[CDNA3]> {
   let summary = "SMEM load 128-bit";
   let description = [{
     SMEM time instruction.
@@ -204,8 +204,8 @@ def SMEMStoreOp : SMEM_Op<"store", [
 }
 
 class SMEMStoreInst<string _mnemonic, string sym, int dataRegs, int addrRegs,
-                    InstOp _instOp, list<Target> _targets>
-    : AMDInst<_mnemonic, sym, _instOp, _targets> {
+                    InstOp _instOp, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, sym, _instOp, _isa> {
   let constraints = (ins SGPROperand<dataRegs>:$data,
                          SGPROperand<addrRegs>:$addr);
   let cppBuilder = DefaultCppBuilder<(ins
@@ -217,7 +217,7 @@ class SMEMStoreInst<string _mnemonic, string sym, int dataRegs, int addrRegs,
 
 def SMEM_STORE_DWORD_INST : SMEMStoreInst<
   /*mnemonic=*/"s_store_dword", /*symbol=*/"s_store_dword",
-  /*dataRegs=*/1, /*addrRegs=*/2, /*instOp=*/SMEMStoreOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/1, /*addrRegs=*/2, /*instOp=*/SMEMStoreOp, /*isa=*/[CDNA3]> {
   let summary = "SMEM store 32-bit";
   let description = [{
     SMEM store instruction that stores a 32-bit value to scalar memory.
@@ -226,7 +226,7 @@ def SMEM_STORE_DWORD_INST : SMEMStoreInst<
 
 def SMEM_STORE_DWORDX2_INST : SMEMStoreInst<
   /*mnemonic=*/"s_store_dwordx2", /*symbol=*/"s_store_dwordx2",
-  /*dataRegs=*/2, /*addrRegs=*/2, /*instOp=*/SMEMStoreOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/2, /*addrRegs=*/2, /*instOp=*/SMEMStoreOp, /*isa=*/[CDNA3]> {
   let summary = "SMEM store 64-bit";
   let description = [{
     SMEM store instruction that stores a 64-bit value to scalar memory.
@@ -235,7 +235,7 @@ def SMEM_STORE_DWORDX2_INST : SMEMStoreInst<
 
 def SMEM_STORE_DWORDX4_INST : SMEMStoreInst<
   /*mnemonic=*/"s_store_dwordx4", /*symbol=*/"s_store_dwordx4",
-  /*dataRegs=*/4, /*addrRegs=*/2, /*instOp=*/SMEMStoreOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/4, /*addrRegs=*/2, /*instOp=*/SMEMStoreOp, /*isa=*/[CDNA3]> {
   let summary = "SMEM store 128-bit";
   let description = [{
     SMEM store instruction that stores a 128-bit value to scalar memory.

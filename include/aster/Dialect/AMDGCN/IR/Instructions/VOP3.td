@@ -47,8 +47,8 @@ class VOP3Constraints<int words, int dst1_w, int src2_w> {
   );
 }
 
-class VOP3Inst<string _mnemonic, list<Target> _targets>
-    : AMDInst<_mnemonic, _mnemonic, VOP3Op, _targets> {
+class VOP3Inst<string _mnemonic, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, _mnemonic, VOP3Op, _isa> {
   // Default constraints.
   let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/0, /*src2_w=*/0>.constraints;
   // Default builders.
@@ -70,7 +70,7 @@ class VOP3Inst<string _mnemonic, list<Target> _targets>
 // Conditional and mask operations
 //===----------------------------------------------------------------------===//
 
-def VCndmaskB32E64 : VOP3Inst<"v_cndmask_b32_e64", [GFX942]> {
+def VCndmaskB32E64 : VOP3Inst<"v_cndmask_b32_e64", [CDNA3]> {
   let summary = "VOP3 conditional mask";
   let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1, $src2">];
   let constraints = (ins
@@ -94,32 +94,32 @@ def VCndmaskB32E64 : VOP3Inst<"v_cndmask_b32_e64", [GFX942]> {
 // Floating-point arithmetic operations
 //===----------------------------------------------------------------------===//
 
-def VAddF32E64 : VOP3Inst<"v_add_f32_e64", [GFX942]> {
+def VAddF32E64 : VOP3Inst<"v_add_f32_e64", [CDNA3]> {
   let summary = "VOP3 add two 32-bit floating point values";
 }
 
-def VSubF32E64 : VOP3Inst<"v_sub_f32_e64", [GFX942]> {
+def VSubF32E64 : VOP3Inst<"v_sub_f32_e64", [CDNA3]> {
   let summary = "VOP3 subtract 32-bit floating point values";
 }
 
-def VSubrevF32E64 : VOP3Inst<"v_subrev_f32_e64", [GFX942]> {
+def VSubrevF32E64 : VOP3Inst<"v_subrev_f32_e64", [CDNA3]> {
   let summary = "VOP3 reverse subtract 32-bit floating point values";
 }
 
-def VFmacF64E64 : VOP3Inst<"v_fmac_f64_e64", [GFX942]> {
+def VFmacF64E64 : VOP3Inst<"v_fmac_f64_e64", [CDNA3]> {
   let summary = "VOP3 fused multiply-add 64-bit floating point";
   let constraints = VOP3Constraints</*words=*/2, /*dst1_w=*/0, /*src2_w=*/0>.constraints;
 }
 
-def VMulF32E64 : VOP3Inst<"v_mul_f32_e64", [GFX942]> {
+def VMulF32E64 : VOP3Inst<"v_mul_f32_e64", [CDNA3]> {
   let summary = "VOP3 multiply 32-bit floating point values";
 }
 
-def VMinF32E64 : VOP3Inst<"v_min_f32_e64", [GFX942]> {
+def VMinF32E64 : VOP3Inst<"v_min_f32_e64", [CDNA3]> {
   let summary = "VOP3 minimum of two 32-bit floating point values";
 }
 
-def VMaxF32E64 : VOP3Inst<"v_max_f32_e64", [GFX942]> {
+def VMaxF32E64 : VOP3Inst<"v_max_f32_e64", [CDNA3]> {
   let summary = "VOP3 maximum of two 32-bit floating point values";
 }
 
@@ -127,35 +127,35 @@ def VMaxF32E64 : VOP3Inst<"v_max_f32_e64", [GFX942]> {
 // 16-bit floating-point arithmetic operations
 //===----------------------------------------------------------------------===//
 
-def VAddF16E64 : VOP3Inst<"v_add_f16_e64", [GFX942]> {
+def VAddF16E64 : VOP3Inst<"v_add_f16_e64", [CDNA3]> {
   let summary = "VOP3 add two 16-bit floating point values";
 }
 
-def VSubF16E64 : VOP3Inst<"v_sub_f16_e64", [GFX942]> {
+def VSubF16E64 : VOP3Inst<"v_sub_f16_e64", [CDNA3]> {
   let summary = "VOP3 subtract 16-bit floating point values";
 }
 
-def VSubrevF16E64 : VOP3Inst<"v_subrev_f16_e64", [GFX942]> {
+def VSubrevF16E64 : VOP3Inst<"v_subrev_f16_e64", [CDNA3]> {
   let summary = "VOP3 reverse subtract 16-bit floating point values";
 }
 
-def VMulF16E64 : VOP3Inst<"v_mul_f16_e64", [GFX942]> {
+def VMulF16E64 : VOP3Inst<"v_mul_f16_e64", [CDNA3]> {
   let summary = "VOP3 multiply 16-bit floating point values";
 }
 
-def VMacF16E64 : VOP3Inst<"v_mac_f16_e64", [GFX942]> {
+def VMacF16E64 : VOP3Inst<"v_mac_f16_e64", [CDNA3]> {
   let summary = "VOP3 multiply-accumulate 16-bit floating point";
 }
 
-def VMaxF16E64 : VOP3Inst<"v_max_f16_e64", [GFX942]> {
+def VMaxF16E64 : VOP3Inst<"v_max_f16_e64", [CDNA3]> {
   let summary = "VOP3 maximum of two 16-bit floating point values";
 }
 
-def VMinF16E64 : VOP3Inst<"v_min_f16_e64", [GFX942]> {
+def VMinF16E64 : VOP3Inst<"v_min_f16_e64", [CDNA3]> {
   let summary = "VOP3 minimum of two 16-bit floating point values";
 }
 
-def VLdexpF16E64 : VOP3Inst<"v_ldexp_f16_e64", [GFX942]> {
+def VLdexpF16E64 : VOP3Inst<"v_ldexp_f16_e64", [CDNA3]> {
   let summary = "VOP3 ldexp 16-bit floating point";
 }
 
@@ -163,19 +163,19 @@ def VLdexpF16E64 : VOP3Inst<"v_ldexp_f16_e64", [GFX942]> {
 // 16-bit integer arithmetic operations
 //===----------------------------------------------------------------------===//
 
-def VAddU16E64 : VOP3Inst<"v_add_u16_e64", [GFX942]> {
+def VAddU16E64 : VOP3Inst<"v_add_u16_e64", [CDNA3]> {
   let summary = "VOP3 add two unsigned 16-bit integers";
 }
 
-def VSubU16E64 : VOP3Inst<"v_sub_u16_e64", [GFX942]> {
+def VSubU16E64 : VOP3Inst<"v_sub_u16_e64", [CDNA3]> {
   let summary = "VOP3 subtract unsigned 16-bit integers";
 }
 
-def VSubrevU16E64 : VOP3Inst<"v_subrev_u16_e64", [GFX942]> {
+def VSubrevU16E64 : VOP3Inst<"v_subrev_u16_e64", [CDNA3]> {
   let summary = "VOP3 reverse subtract unsigned 16-bit integers";
 }
 
-def VMulLoU16E64 : VOP3Inst<"v_mul_lo_u16_e64", [GFX942]> {
+def VMulLoU16E64 : VOP3Inst<"v_mul_lo_u16_e64", [CDNA3]> {
   let summary = "VOP3 multiply unsigned 16-bit integers (low bits)";
 }
 
@@ -183,15 +183,15 @@ def VMulLoU16E64 : VOP3Inst<"v_mul_lo_u16_e64", [GFX942]> {
 // 16-bit shift operations
 //===----------------------------------------------------------------------===//
 
-def VLshlrevB16E64 : VOP3Inst<"v_lshlrev_b16_e64", [GFX942]> {
+def VLshlrevB16E64 : VOP3Inst<"v_lshlrev_b16_e64", [CDNA3]> {
   let summary = "VOP3 logical shift left reverse 16-bit";
 }
 
-def VLshrrevB16E64 : VOP3Inst<"v_lshrrev_b16_e64", [GFX942]> {
+def VLshrrevB16E64 : VOP3Inst<"v_lshrrev_b16_e64", [CDNA3]> {
   let summary = "VOP3 logical shift right reverse 16-bit";
 }
 
-def VAshrrevI16E64 : VOP3Inst<"v_ashrrev_i16_e64", [GFX942]> {
+def VAshrrevI16E64 : VOP3Inst<"v_ashrrev_i16_e64", [CDNA3]> {
   let summary = "VOP3 arithmetic shift right reverse 16-bit";
 }
 
@@ -199,19 +199,19 @@ def VAshrrevI16E64 : VOP3Inst<"v_ashrrev_i16_e64", [GFX942]> {
 // 16-bit integer min/max operations
 //===----------------------------------------------------------------------===//
 
-def VMaxU16E64 : VOP3Inst<"v_max_u16_e64", [GFX942]> {
+def VMaxU16E64 : VOP3Inst<"v_max_u16_e64", [CDNA3]> {
   let summary = "VOP3 maximum of two unsigned 16-bit integers";
 }
 
-def VMaxI16E64 : VOP3Inst<"v_max_i16_e64", [GFX942]> {
+def VMaxI16E64 : VOP3Inst<"v_max_i16_e64", [CDNA3]> {
   let summary = "VOP3 maximum of two signed 16-bit integers";
 }
 
-def VMinU16E64 : VOP3Inst<"v_min_u16_e64", [GFX942]> {
+def VMinU16E64 : VOP3Inst<"v_min_u16_e64", [CDNA3]> {
   let summary = "VOP3 minimum of two unsigned 16-bit integers";
 }
 
-def VMinI16E64 : VOP3Inst<"v_min_i16_e64", [GFX942]> {
+def VMinI16E64 : VOP3Inst<"v_min_i16_e64", [CDNA3]> {
   let summary = "VOP3 minimum of two signed 16-bit integers";
 }
 
@@ -219,19 +219,19 @@ def VMinI16E64 : VOP3Inst<"v_min_i16_e64", [GFX942]> {
 // Integer min/max operations
 //===----------------------------------------------------------------------===//
 
-def VMinI32E64 : VOP3Inst<"v_min_i32_e64", [GFX942]> {
+def VMinI32E64 : VOP3Inst<"v_min_i32_e64", [CDNA3]> {
   let summary = "VOP3 minimum of two signed 32-bit integers";
 }
 
-def VMaxI32E64 : VOP3Inst<"v_max_i32_e64", [GFX942]> {
+def VMaxI32E64 : VOP3Inst<"v_max_i32_e64", [CDNA3]> {
   let summary = "VOP3 maximum of two signed 32-bit integers";
 }
 
-def VMinU32E64 : VOP3Inst<"v_min_u32_e64", [GFX942]> {
+def VMinU32E64 : VOP3Inst<"v_min_u32_e64", [CDNA3]> {
   let summary = "VOP3 minimum of two unsigned 32-bit integers";
 }
 
-def VMaxU32E64 : VOP3Inst<"v_max_u32_e64", [GFX942]> {
+def VMaxU32E64 : VOP3Inst<"v_max_u32_e64", [CDNA3]> {
   let summary = "VOP3 maximum of two unsigned 32-bit integers";
 }
 
@@ -239,42 +239,42 @@ def VMaxU32E64 : VOP3Inst<"v_max_u32_e64", [GFX942]> {
 // Bit operations
 //===----------------------------------------------------------------------===//
 
-def VLshrrevB32E64 : VOP3Inst<"v_lshrrev_b32_e64", [GFX942]> {
+def VLshrrevB32E64 : VOP3Inst<"v_lshrrev_b32_e64", [CDNA3]> {
   let summary = "VOP3 logical shift right 32-bit";
 }
 
-def VLshlrevB32E64 : VOP3Inst<"v_lshlrev_b32_e64", [GFX942]> {
+def VLshlrevB32E64 : VOP3Inst<"v_lshlrev_b32_e64", [CDNA3]> {
   let summary = "VOP3 logical shift left 32-bit";
 }
 
-def VLshlrevB64 : VOP3Inst<"v_lshlrev_b64", [GFX942]> {
+def VLshlrevB64 : VOP3Inst<"v_lshlrev_b64", [CDNA3]> {
   let summary = "VOP3 logical shift left 64-bit";
   let constraints = VOP3Constraints</*words=*/2, /*dst1_w=*/0, /*src2_w=*/0>.constraints;
 }
 
-def VLshrrevB64 : VOP3Inst<"v_lshrrev_b64", [GFX942]> {
+def VLshrrevB64 : VOP3Inst<"v_lshrrev_b64", [CDNA3]> {
   let summary = "VOP3 logical shift right 64-bit";
   let constraints = VOP3Constraints</*words=*/2, /*dst1_w=*/0, /*src2_w=*/0>.constraints;
 }
 
-def VAshrrevI32E64 : VOP3Inst<"v_ashrrev_i32_e64", [GFX942]> {
+def VAshrrevI32E64 : VOP3Inst<"v_ashrrev_i32_e64", [CDNA3]> {
   let summary = "VOP3 arithmetic shift right 32-bit";
 }
 
-def VAshrrevI64 : VOP3Inst<"v_ashrrev_i64", [GFX942]> {
+def VAshrrevI64 : VOP3Inst<"v_ashrrev_i64", [CDNA3]> {
   let summary = "VOP3 arithmetic shift right 64-bit";
   let constraints = VOP3Constraints</*words=*/2, /*dst1_w=*/0, /*src2_w=*/0>.constraints;
 }
 
-def VAndB32E64 : VOP3Inst<"v_and_b32_e64", [GFX942]> {
+def VAndB32E64 : VOP3Inst<"v_and_b32_e64", [CDNA3]> {
   let summary = "VOP3 bitwise AND";
 }
 
-def VOrB32E64 : VOP3Inst<"v_or_b32_e64", [GFX942]> {
+def VOrB32E64 : VOP3Inst<"v_or_b32_e64", [CDNA3]> {
   let summary = "VOP3 bitwise OR";
 }
 
-def VXorB32E64 : VOP3Inst<"v_xor_b32_e64", [GFX942]> {
+def VXorB32E64 : VOP3Inst<"v_xor_b32_e64", [CDNA3]> {
   let summary = "VOP3 bitwise XOR";
 }
 
@@ -292,7 +292,7 @@ defvar VMad64Constraint = (ins
       RegImmOperand<SGPRRangeType, 2>:$dst1
   );
 
-def VMadU64U32 : VOP3Inst<"v_mad_u64_u32", [GFX942]> {
+def VMadU64U32 : VOP3Inst<"v_mad_u64_u32", [CDNA3]> {
   let summary = "VOP3 multiply-add unsigned 32-bit to 64-bit with carry";
   let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1, $src2">];
   let constraints = VMad64Constraint;
@@ -308,7 +308,7 @@ def VMadU64U32 : VOP3Inst<"v_mad_u64_u32", [GFX942]> {
   >;
 }
 
-def VMadI64I32 : VOP3Inst<"v_mad_i64_i32", [GFX942]> {
+def VMadI64I32 : VOP3Inst<"v_mad_i64_i32", [CDNA3]> {
   let summary = "VOP3 multiply-add signed 32-bit to 64-bit with carry";
   let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1, $src2">];
   let constraints = VMad64Constraint;
@@ -324,7 +324,7 @@ def VMadI64I32 : VOP3Inst<"v_mad_i64_i32", [GFX942]> {
   >;
 }
 
-def VMadU32U16 : VOP3Inst<"v_mad_u32_u16", [GFX942]> {
+def VMadU32U16 : VOP3Inst<"v_mad_u32_u16", [CDNA3]> {
   let summary = "VOP3 multiply-add unsigned 16-bit to 32-bit";
   let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1, $src2">];
   let constraints = (ins
@@ -344,7 +344,7 @@ def VMadU32U16 : VOP3Inst<"v_mad_u32_u16", [GFX942]> {
   >;
 }
 
-def VMadI32I16 : VOP3Inst<"v_mad_i32_i16", [GFX942]> {
+def VMadI32I16 : VOP3Inst<"v_mad_i32_i16", [CDNA3]> {
   let summary = "VOP3 multiply-add signed 16-bit to 32-bit";
   let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1, $src2">];
   let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/0, /*src2_w=*/1>.constraints;
@@ -360,33 +360,33 @@ def VMadI32I16 : VOP3Inst<"v_mad_i32_i16", [GFX942]> {
   >;
 }
 
-def VMulI32I24E64 : VOP3Inst<"v_mul_i32_i24_e64", [GFX942]> {
+def VMulI32I24E64 : VOP3Inst<"v_mul_i32_i24_e64", [CDNA3]> {
   let summary = "VOP3 multiply signed 24-bit integers";
 }
 
-def VMulHiI32I24E64 : VOP3Inst<"v_mul_hi_i32_i24_e64", [GFX942]> {
+def VMulHiI32I24E64 : VOP3Inst<"v_mul_hi_i32_i24_e64", [CDNA3]> {
   let summary = "VOP3 multiply signed 24-bit integers (high 32 bits)";
 }
 
-def VMulU32U24E64 : VOP3Inst<"v_mul_u32_u24_e64", [GFX942]> {
+def VMulU32U24E64 : VOP3Inst<"v_mul_u32_u24_e64", [CDNA3]> {
   let summary = "VOP3 multiply unsigned 24-bit integers";
 }
 
-def VMulHiU32U24E64 : VOP3Inst<"v_mul_hi_u32_u24_e64", [GFX942]> {
+def VMulHiU32U24E64 : VOP3Inst<"v_mul_hi_u32_u24_e64", [CDNA3]> {
   let summary = "VOP3 multiply unsigned 24-bit integers (high 32 bits)";
 }
 
-def VMulLoU32 : VOP3Inst<"v_mul_lo_u32", [GFX942]> {
+def VMulLoU32 : VOP3Inst<"v_mul_lo_u32", [CDNA3]> {
   let summary = "VOP3 mul lo 32-bit integers";
   let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1">];
 }
 
-def VMulHiU32 : VOP3Inst<"v_mul_hi_u32", [GFX942]> {
+def VMulHiU32 : VOP3Inst<"v_mul_hi_u32", [CDNA3]> {
   let summary = "VOP3 mul hi 32-bit integers";
   let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1">];
 }
 
-def VMulHiI32 : VOP3Inst<"v_mul_hi_i32", [GFX942]> {
+def VMulHiI32 : VOP3Inst<"v_mul_hi_i32", [CDNA3]> {
   let summary = "VOP3 mul hi 32-bit signed integers";
   let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1">];
 }
@@ -395,7 +395,7 @@ def VMulHiI32 : VOP3Inst<"v_mul_hi_i32", [GFX942]> {
 // Add operations
 //===----------------------------------------------------------------------===//
 
-def VAddCoU32E64 : VOP3Inst<"v_add_co_u32_e64", [GFX942]> {
+def VAddCoU32E64 : VOP3Inst<"v_add_co_u32_e64", [CDNA3]> {
   let summary = "VOP3 add with carry out";
   let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1">];
   let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/2, /*src2_w=*/0>.constraints;
@@ -411,7 +411,7 @@ def VAddCoU32E64 : VOP3Inst<"v_add_co_u32_e64", [GFX942]> {
   >;
 }
 
-def VAdd3U32 : VOP3Inst<"v_add3_u32", [GFX942]> {
+def VAdd3U32 : VOP3Inst<"v_add3_u32", [CDNA3]> {
   let summary = "VOP3 add with three 32-bit operands";
   let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1, $src2">];
   let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/0, /*src2_w=*/1>.constraints;
@@ -431,7 +431,7 @@ def VAdd3U32 : VOP3Inst<"v_add3_u32", [GFX942]> {
 // Subtract operations
 //===----------------------------------------------------------------------===//
 
-def VSubCoU32E64 : VOP3Inst<"v_sub_co_u32_e64", [GFX942]> {
+def VSubCoU32E64 : VOP3Inst<"v_sub_co_u32_e64", [CDNA3]> {
   let summary = "VOP3 subtract with carry out";
   let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1">];
   let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/2, /*src2_w=*/0>.constraints;
@@ -447,7 +447,7 @@ def VSubCoU32E64 : VOP3Inst<"v_sub_co_u32_e64", [GFX942]> {
   >;
 }
 
-def VSubrevCoU32E64 : VOP3Inst<"v_subrev_co_u32_e64", [GFX942]> {
+def VSubrevCoU32E64 : VOP3Inst<"v_subrev_co_u32_e64", [CDNA3]> {
   let summary = "VOP3 reverse subtract with carry out";
   let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1">];
   let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/2, /*src2_w=*/0>.constraints;
@@ -463,7 +463,7 @@ def VSubrevCoU32E64 : VOP3Inst<"v_subrev_co_u32_e64", [GFX942]> {
   >;
 }
 
-def VAddcCoU32E64 : VOP3Inst<"v_addc_co_u32_e64", [GFX942]> {
+def VAddcCoU32E64 : VOP3Inst<"v_addc_co_u32_e64", [CDNA3]> {
   let summary = "VOP3 add with carry in and out";
   let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1, $src2">];
   let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/1, /*src2_w=*/1>.constraints;
@@ -479,7 +479,7 @@ def VAddcCoU32E64 : VOP3Inst<"v_addc_co_u32_e64", [GFX942]> {
   >;
 }
 
-def VSubbCoU32E64 : VOP3Inst<"v_subb_co_u32_e64", [GFX942]> {
+def VSubbCoU32E64 : VOP3Inst<"v_subb_co_u32_e64", [CDNA3]> {
   let summary = "VOP3 subtract with borrow (carry in and out)";
   let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1, $src2">];
   let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/2, /*src2_w=*/2>.constraints;
@@ -495,7 +495,7 @@ def VSubbCoU32E64 : VOP3Inst<"v_subb_co_u32_e64", [GFX942]> {
   >;
 }
 
-def VSubbrevCoU32E64 : VOP3Inst<"v_subbrev_co_u32_e64", [GFX942]> {
+def VSubbrevCoU32E64 : VOP3Inst<"v_subbrev_co_u32_e64", [CDNA3]> {
   let summary = "VOP3 reverse subtract with borrow (carry in and out)";
   let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1, $src2">];
   let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/2, /*src2_w=*/2>.constraints;
@@ -511,19 +511,19 @@ def VSubbrevCoU32E64 : VOP3Inst<"v_subbrev_co_u32_e64", [GFX942]> {
   >;
 }
 
-def VAddU32E64 : VOP3Inst<"v_add_u32_e64", [GFX942]> {
+def VAddU32E64 : VOP3Inst<"v_add_u32_e64", [CDNA3]> {
   let summary = "VOP3 add two unsigned 32-bit integers";
 }
 
-def VSubU32E64 : VOP3Inst<"v_sub_u32_e64", [GFX942]> {
+def VSubU32E64 : VOP3Inst<"v_sub_u32_e64", [CDNA3]> {
   let summary = "VOP3 subtract unsigned 32-bit integers";
 }
 
-def VSubrevU32E64 : VOP3Inst<"v_subrev_u32_e64", [GFX942]> {
+def VSubrevU32E64 : VOP3Inst<"v_subrev_u32_e64", [CDNA3]> {
   let summary = "VOP3 reverse subtract unsigned 32-bit integers";
 }
 
-def VLshlAddU64 : VOP3Inst<"v_lshl_add_u64", [GFX942]> {
+def VLshlAddU64 : VOP3Inst<"v_lshl_add_u64", [CDNA3]> {
   let summary = "VOP3 lshl add 64-bit integers";
   let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1">];
   let constraints = VOP3Constraints</*words=*/2, /*dst1_w=*/0, /*src2_w=*/2>.constraints;

@@ -49,7 +49,7 @@ static void genInstDecl(const AMDInst &inst, raw_ostream &os) {
   using InstOp = $_instOp;
   static constexpr mlir::aster::amdgcn::OpCode kOpCode = $_opcode;
   static constexpr std::string_view mnemonic = "$_mnemonic";
-  static constexpr std::array<mlir::aster::amdgcn::Target, $_numTargets> targets = {$_targets};$1
+  static constexpr std::array<mlir::aster::amdgcn::ISAVersion, $_numISAVersions> isa = {$_isa};$1
   mlir::LogicalResult verifyImpl(InstOp op) const;$2$3
 };
 )";

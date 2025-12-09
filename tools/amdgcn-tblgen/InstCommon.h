@@ -193,6 +193,14 @@ struct Target : public RecordMixin<Target> {
   EnumCaseInfo getAsEnumCase() const { return EnumCaseInfo(def); }
 };
 
+/// AMDGCN isa version definition.
+struct ISAVersion : public RecordMixin<ISAVersion> {
+  using Base::Base;
+  static constexpr llvm::StringRef ClassType = "ISAVersion";
+  /// Get as enum case.
+  EnumCaseInfo getAsEnumCase() const { return EnumCaseInfo(def); }
+};
+
 /// AMDGCN instruction op type name.
 static constexpr std::string_view InstOpClassType = "InstOp";
 
@@ -257,9 +265,9 @@ struct AMDInst : public RecordMixin<AMDInst> {
   /// Get the input operands of the instruction.
   Dag getConstraints() const { return getDag("constraints"); }
 
-  /// Get the list of targets this instruction is available on.
-  SmallVector<Target> getTargets() const {
-    return getRecordList<Target>("targets");
+  /// Get the list of ISA versions this instruction is available on.
+  SmallVector<ISAVersion> getISAVersions() const {
+    return getRecordList<ISAVersion>("isa");
   }
 
   /// Get the assembly format variants.
@@ -332,8 +340,8 @@ std::string genParamList(const Builder &b, mlir::tblgen::FmtContext &ctx,
 std::string genArgList(const Builder &b, mlir::tblgen::FmtContext &ctx,
                        bool isCpp, bool useKwArgs = true);
 
-/// Get the list of target names for the given instruction.
-std::string getTargetList(const AMDInst &inst);
+/// Get the list of isa version names for the given instruction.
+std::string getISAVersionList(const AMDInst &inst);
 
 /// Populate the format context with common substitutions.
 void populateFmtContext(const AMDInst &inst, mlir::tblgen::FmtContext &ctx);

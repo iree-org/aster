@@ -115,15 +115,15 @@ class AsmVariant<Pred pred, code format> {
 }
 
 /// AMDGCN instruction definition.
-class AMDInst<string _mnemonic, string sym, InstOp _instOp, list<Target> _targets>
+class AMDInst<string _mnemonic, string sym, InstOp _instOp, list<ISAVersion> _isa>
     : EnumCaseInfo<sym, ""> {
   // The summary description of the instruction.
   code summary = "AMDGCN instruction `" # _mnemonic # "`.";
   code description = summary;
   // The mnemonic of the instruction.
   string mnemonic = _mnemonic;
-  // The AMDGCN targets this instruction is valid for.
-  list<Target> targets = _targets;
+  // The AMDGCN ISA this instruction is valid for.
+  list<ISAVersion> isa = _isa;
   // The assembly format variants for this instruction.
   list<AsmVariant> asmFormat = ?;
   // The C++ namespace where the instruction op is defined.

@@ -83,8 +83,8 @@ def GlobalLoadOp : FLAT_Op<"global_load", [
 }
 
 class GlobalLoadInst<string _mnemonic, string sym, int addrRegs, int resultRegs,
-                     list<Target> _targets>
-    : AMDInst<_mnemonic, sym, GlobalLoadOp, _targets> {
+                     list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, sym, GlobalLoadOp, _isa> {
   let constraints = (ins VGPROperand<resultRegs>:$vdst,
                          AddrOperand<addrRegs>:$addr,
                          VGPROperand<1, 1>:$vgpr_offset);
@@ -100,7 +100,7 @@ class GlobalLoadInst<string _mnemonic, string sym, int addrRegs, int resultRegs,
 
 def GLOBAL_LOAD_DWORD_INST : GlobalLoadInst<
   /*mnemonic=*/"global_load_dword", /*symbol=*/"global_load_dword",
-  /*addrRegs=*/2, /*resultRegs=*/1, /*targets=*/[GFX942]> {
+  /*addrRegs=*/2, /*resultRegs=*/1, /*isa=*/[CDNA3]> {
   let summary = "Global load 32-bit";
   let description = [{
     Global load instruction that loads a 32-bit value from global memory.
@@ -109,7 +109,7 @@ def GLOBAL_LOAD_DWORD_INST : GlobalLoadInst<
 
 def GLOBAL_LOAD_DWORDX2_INST : GlobalLoadInst<
   /*mnemonic=*/"global_load_dwordx2", /*symbol=*/"global_load_dwordx2",
-  /*addrRegs=*/2, /*resultRegs=*/2, /*targets=*/[GFX942]> {
+  /*addrRegs=*/2, /*resultRegs=*/2, /*isa=*/[CDNA3]> {
   let summary = "Global load 64-bit";
   let description = [{
     Global load instruction that loads a 64-bit value from global memory.
@@ -118,7 +118,7 @@ def GLOBAL_LOAD_DWORDX2_INST : GlobalLoadInst<
 
 def GLOBAL_LOAD_DWORDX3_INST : GlobalLoadInst<
   /*mnemonic=*/"global_load_dwordx3", /*symbol=*/"global_load_dwordx3",
-  /*addrRegs=*/2, /*resultRegs=*/3, /*targets=*/[GFX942]> {
+  /*addrRegs=*/2, /*resultRegs=*/3, /*isa=*/[CDNA3]> {
   let summary = "Global load 96-bit";
   let description = [{
     Global load instruction that loads a 96-bit value from global memory.
@@ -127,7 +127,7 @@ def GLOBAL_LOAD_DWORDX3_INST : GlobalLoadInst<
 
 def GLOBAL_LOAD_DWORDX4_INST : GlobalLoadInst<
   /*mnemonic=*/"global_load_dwordx4", /*symbol=*/"global_load_dwordx4",
-  /*addrRegs=*/2, /*resultRegs=*/4, /*targets=*/[GFX942]> {
+  /*addrRegs=*/2, /*resultRegs=*/4, /*isa=*/[CDNA3]> {
   let summary = "Global load 128-bit";
   let description = [{
     Global load instruction that loads a 128-bit value from global memory.
@@ -208,8 +208,8 @@ def GlobalStoreOp : FLAT_Op<"global_store", [
 }
 
 class GlobalStoreInst<string _mnemonic, string sym, int dataRegs, int addrRegs,
-                      InstOp _instOp, list<Target> _targets>
-    : AMDInst<_mnemonic, sym, _instOp, _targets> {
+                      InstOp _instOp, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, sym, _instOp, _isa> {
   let constraints = (ins AccOperand<dataRegs>:$data,
                          AddrOperand<addrRegs>:$addr,
                          VGPROperand<1, 1>:$vgpr_offset);
@@ -226,7 +226,7 @@ class GlobalStoreInst<string _mnemonic, string sym, int dataRegs, int addrRegs,
 
 def GLOBAL_STORE_DWORD_INST : GlobalStoreInst<
   /*mnemonic=*/"global_store_dword", /*symbol=*/"global_store_dword",
-  /*dataRegs=*/1, /*addrRegs=*/2, /*instOp=*/GlobalStoreOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/1, /*addrRegs=*/2, /*instOp=*/GlobalStoreOp, /*isa=*/[CDNA3]> {
   let summary = "Global store 32-bit";
   let description = [{
     Global store instruction that stores a 32-bit value to global memory.
@@ -235,7 +235,7 @@ def GLOBAL_STORE_DWORD_INST : GlobalStoreInst<
 
 def GLOBAL_STORE_DWORDX2_INST : GlobalStoreInst<
   /*mnemonic=*/"global_store_dwordx2", /*symbol=*/"global_store_dwordx2",
-  /*dataRegs=*/2, /*addrRegs=*/2, /*instOp=*/GlobalStoreOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/2, /*addrRegs=*/2, /*instOp=*/GlobalStoreOp, /*isa=*/[CDNA3]> {
   let summary = "Global store 64-bit";
   let description = [{
     Global store instruction that stores a 64-bit value to global memory.
@@ -244,7 +244,7 @@ def GLOBAL_STORE_DWORDX2_INST : GlobalStoreInst<
 
 def GLOBAL_STORE_DWORDX3_INST : GlobalStoreInst<
   /*mnemonic=*/"global_store_dwordx3", /*symbol=*/"global_store_dwordx3",
-  /*dataRegs=*/3, /*addrRegs=*/2, /*instOp=*/GlobalStoreOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/3, /*addrRegs=*/2, /*instOp=*/GlobalStoreOp, /*isa=*/[CDNA3]> {
   let summary = "Global store 96-bit";
   let description = [{
     Global store instruction that stores a 96-bit value to global memory.
@@ -253,7 +253,7 @@ def GLOBAL_STORE_DWORDX3_INST : GlobalStoreInst<
 
 def GLOBAL_STORE_DWORDX4_INST : GlobalStoreInst<
   /*mnemonic=*/"global_store_dwordx4", /*symbol=*/"global_store_dwordx4",
-  /*dataRegs=*/4, /*addrRegs=*/2, /*instOp=*/GlobalStoreOp, /*targets=*/[GFX942]> {
+  /*dataRegs=*/4, /*addrRegs=*/2, /*instOp=*/GlobalStoreOp, /*isa=*/[CDNA3]> {
   let summary = "Global store 128-bit";
   let description = [{
     Global store instruction that stores a 128-bit value to global memory.

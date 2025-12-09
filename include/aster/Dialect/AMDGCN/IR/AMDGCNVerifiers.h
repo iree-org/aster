@@ -35,7 +35,7 @@ LogicalResult verifyConstantsImpl(Operation *op, const VerifierState &state);
 /// Verify ISA support for operations in a region.
 /// If isas is empty, no AMDGCNInstOpInterface operations are allowed.
 /// If isas is non-empty, all AMDGCNInstOpInterface operations must be valid
-/// for ALL the listed ISA targets.
+/// for ALL the listed ISA versions.
 LogicalResult
 verifyISAsSupportImpl(Region &region, ArrayRef<ISAVersion> isas,
                       function_ref<InFlightDiagnostic()> emitError);

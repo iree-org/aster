@@ -48,8 +48,8 @@ class SOP2Constraints<int sz, bit hasSdst> {
   );
 }
 
-class SOP2Inst<string _mnemonic, list<Target> _targets>
-    : AMDInst<_mnemonic, _mnemonic, SOP2Op, _targets> {
+class SOP2Inst<string _mnemonic, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, _mnemonic, SOP2Op, _isa> {
   // Default constraints.
   let constraints = SOP2Constraints<1, 1>.constraints;
   // Default builders.
@@ -69,19 +69,19 @@ class SOP2Inst<string _mnemonic, list<Target> _targets>
 // Scalar add operations
 //===----------------------------------------------------------------------===//
 
-def SAddU32 : SOP2Inst<"s_add_u32", [GFX942]> {
+def SAddU32 : SOP2Inst<"s_add_u32", [CDNA3]> {
   let summary = "SOP2 add two unsigned 32-bit integers";
 }
 
-def SSubU32 : SOP2Inst<"s_sub_u32", [GFX942]> {
+def SSubU32 : SOP2Inst<"s_sub_u32", [CDNA3]> {
   let summary = "SOP2 subtract unsigned 32-bit integers";
 }
 
-def SAddI32 : SOP2Inst<"s_add_i32", [GFX942]> {
+def SAddI32 : SOP2Inst<"s_add_i32", [CDNA3]> {
   let summary = "SOP2 add two signed 32-bit integers";
 }
 
-def SSubI32 : SOP2Inst<"s_sub_i32", [GFX942]> {
+def SSubI32 : SOP2Inst<"s_sub_i32", [CDNA3]> {
   let summary = "SOP2 subtract signed 32-bit integers";
 }
 
@@ -89,11 +89,11 @@ def SSubI32 : SOP2Inst<"s_sub_i32", [GFX942]> {
 // Scalar add/subtract with carry operations
 //===----------------------------------------------------------------------===//
 
-def SAddcU32 : SOP2Inst<"s_addc_u32", [GFX942]> {
+def SAddcU32 : SOP2Inst<"s_addc_u32", [CDNA3]> {
   let summary = "SOP2 add two unsigned 32-bit integers with carry-in";
 }
 
-def SSubbU32 : SOP2Inst<"s_subb_u32", [GFX942]> {
+def SSubbU32 : SOP2Inst<"s_subb_u32", [CDNA3]> {
   let summary = "SOP2 subtract unsigned 32-bit integers with borrow";
 }
 
@@ -101,19 +101,19 @@ def SSubbU32 : SOP2Inst<"s_subb_u32", [GFX942]> {
 // Scalar min/max operations
 //===----------------------------------------------------------------------===//
 
-def SMinI32 : SOP2Inst<"s_min_i32", [GFX942]> {
+def SMinI32 : SOP2Inst<"s_min_i32", [CDNA3]> {
   let summary = "SOP2 minimum of two signed 32-bit integers";
 }
 
-def SMinU32 : SOP2Inst<"s_min_u32", [GFX942]> {
+def SMinU32 : SOP2Inst<"s_min_u32", [CDNA3]> {
   let summary = "SOP2 minimum of two unsigned 32-bit integers";
 }
 
-def SMaxI32 : SOP2Inst<"s_max_i32", [GFX942]> {
+def SMaxI32 : SOP2Inst<"s_max_i32", [CDNA3]> {
   let summary = "SOP2 maximum of two signed 32-bit integers";
 }
 
-def SMaxU32 : SOP2Inst<"s_max_u32", [GFX942]> {
+def SMaxU32 : SOP2Inst<"s_max_u32", [CDNA3]> {
   let summary = "SOP2 maximum of two unsigned 32-bit integers";
 }
 
@@ -121,11 +121,11 @@ def SMaxU32 : SOP2Inst<"s_max_u32", [GFX942]> {
 // Scalar conditional select operations
 //===----------------------------------------------------------------------===//
 
-def SCselectB32 : SOP2Inst<"s_cselect_b32", [GFX942]> {
+def SCselectB32 : SOP2Inst<"s_cselect_b32", [CDNA3]> {
   let summary = "SOP2 conditional select 32-bit value based on SCC";
 }
 
-def SCselectB64 : SOP2Inst<"s_cselect_b64", [GFX942]> {
+def SCselectB64 : SOP2Inst<"s_cselect_b64", [CDNA3]> {
   let summary = "SOP2 conditional select 64-bit value based on SCC";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
@@ -134,74 +134,74 @@ def SCselectB64 : SOP2Inst<"s_cselect_b64", [GFX942]> {
 // Scalar bitwise operations
 //===----------------------------------------------------------------------===//
 
-def SAndB32 : SOP2Inst<"s_and_b32", [GFX942]> {
+def SAndB32 : SOP2Inst<"s_and_b32", [CDNA3]> {
   let summary = "SOP2 bitwise AND of two 32-bit values";
 }
 
-def SAndB64 : SOP2Inst<"s_and_b64", [GFX942]> {
+def SAndB64 : SOP2Inst<"s_and_b64", [CDNA3]> {
   let summary = "SOP2 bitwise AND of two 64-bit values";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SOrB32 : SOP2Inst<"s_or_b32", [GFX942]> {
+def SOrB32 : SOP2Inst<"s_or_b32", [CDNA3]> {
   let summary = "SOP2 bitwise OR of two 32-bit values";
 }
 
-def SOrB64 : SOP2Inst<"s_or_b64", [GFX942]> {
+def SOrB64 : SOP2Inst<"s_or_b64", [CDNA3]> {
   let summary = "SOP2 bitwise OR of two 64-bit values";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SXorB32 : SOP2Inst<"s_xor_b32", [GFX942]> {
+def SXorB32 : SOP2Inst<"s_xor_b32", [CDNA3]> {
   let summary = "SOP2 bitwise XOR of two 32-bit values";
 }
 
-def SXorB64 : SOP2Inst<"s_xor_b64", [GFX942]> {
+def SXorB64 : SOP2Inst<"s_xor_b64", [CDNA3]> {
   let summary = "SOP2 bitwise XOR of two 64-bit values";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SAndn2B32 : SOP2Inst<"s_andn2_b32", [GFX942]> {
+def SAndn2B32 : SOP2Inst<"s_andn2_b32", [CDNA3]> {
   let summary = "SOP2 bitwise AND with negated second operand (32-bit)";
 }
 
-def SAndn2B64 : SOP2Inst<"s_andn2_b64", [GFX942]> {
+def SAndn2B64 : SOP2Inst<"s_andn2_b64", [CDNA3]> {
   let summary = "SOP2 bitwise AND with negated second operand (64-bit)";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SOrn2B32 : SOP2Inst<"s_orn2_b32", [GFX942]> {
+def SOrn2B32 : SOP2Inst<"s_orn2_b32", [CDNA3]> {
   let summary = "SOP2 bitwise OR with negated second operand (32-bit)";
 }
 
-def SOrn2B64 : SOP2Inst<"s_orn2_b64", [GFX942]> {
+def SOrn2B64 : SOP2Inst<"s_orn2_b64", [CDNA3]> {
   let summary = "SOP2 bitwise OR with negated second operand (64-bit)";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SNandB32 : SOP2Inst<"s_nand_b32", [GFX942]> {
+def SNandB32 : SOP2Inst<"s_nand_b32", [CDNA3]> {
   let summary = "SOP2 bitwise NAND of two 32-bit values";
 }
 
-def SNandB64 : SOP2Inst<"s_nand_b64", [GFX942]> {
+def SNandB64 : SOP2Inst<"s_nand_b64", [CDNA3]> {
   let summary = "SOP2 bitwise NAND of two 64-bit values";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SNorB32 : SOP2Inst<"s_nor_b32", [GFX942]> {
+def SNorB32 : SOP2Inst<"s_nor_b32", [CDNA3]> {
   let summary = "SOP2 bitwise NOR of two 32-bit values";
 }
 
-def SNorB64 : SOP2Inst<"s_nor_b64", [GFX942]> {
+def SNorB64 : SOP2Inst<"s_nor_b64", [CDNA3]> {
   let summary = "SOP2 bitwise NOR of two 64-bit values";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SXnorB32 : SOP2Inst<"s_xnor_b32", [GFX942]> {
+def SXnorB32 : SOP2Inst<"s_xnor_b32", [CDNA3]> {
   let summary = "SOP2 bitwise XNOR of two 32-bit values";
 }
 
-def SXnorB64 : SOP2Inst<"s_xnor_b64", [GFX942]> {
+def SXnorB64 : SOP2Inst<"s_xnor_b64", [CDNA3]> {
   let summary = "SOP2 bitwise XNOR of two 64-bit values";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
@@ -210,29 +210,29 @@ def SXnorB64 : SOP2Inst<"s_xnor_b64", [GFX942]> {
 // Scalar shift operations
 //===----------------------------------------------------------------------===//
 
-def SLshlB32 : SOP2Inst<"s_lshl_b32", [GFX942]> {
+def SLshlB32 : SOP2Inst<"s_lshl_b32", [CDNA3]> {
   let summary = "SOP2 logical shift left 32-bit value";
 }
 
-def SLshlB64 : SOP2Inst<"s_lshl_b64", [GFX942]> {
+def SLshlB64 : SOP2Inst<"s_lshl_b64", [CDNA3]> {
   let summary = "SOP2 logical shift left 64-bit value";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SLshrB32 : SOP2Inst<"s_lshr_b32", [GFX942]> {
+def SLshrB32 : SOP2Inst<"s_lshr_b32", [CDNA3]> {
   let summary = "SOP2 logical shift right 32-bit value";
 }
 
-def SLshrB64 : SOP2Inst<"s_lshr_b64", [GFX942]> {
+def SLshrB64 : SOP2Inst<"s_lshr_b64", [CDNA3]> {
   let summary = "SOP2 logical shift right 64-bit value";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SAshrI32 : SOP2Inst<"s_ashr_i32", [GFX942]> {
+def SAshrI32 : SOP2Inst<"s_ashr_i32", [CDNA3]> {
   let summary = "SOP2 arithmetic shift right 32-bit value";
 }
 
-def SAshrI64 : SOP2Inst<"s_ashr_i64", [GFX942]> {
+def SAshrI64 : SOP2Inst<"s_ashr_i64", [CDNA3]> {
   let summary = "SOP2 arithmetic shift right 64-bit value";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
@@ -241,29 +241,29 @@ def SAshrI64 : SOP2Inst<"s_ashr_i64", [GFX942]> {
 // Scalar bitfield operations
 //===----------------------------------------------------------------------===//
 
-def SBfmB32 : SOP2Inst<"s_bfm_b32", [GFX942]> {
+def SBfmB32 : SOP2Inst<"s_bfm_b32", [CDNA3]> {
   let summary = "SOP2 create 32-bit bitfield mask";
 }
 
-def SBfmB64 : SOP2Inst<"s_bfm_b64", [GFX942]> {
+def SBfmB64 : SOP2Inst<"s_bfm_b64", [CDNA3]> {
   let summary = "SOP2 create 64-bit bitfield mask";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SBfeU32 : SOP2Inst<"s_bfe_u32", [GFX942]> {
+def SBfeU32 : SOP2Inst<"s_bfe_u32", [CDNA3]> {
   let summary = "SOP2 extract unsigned bitfield from 32-bit value";
 }
 
-def SBfeI32 : SOP2Inst<"s_bfe_i32", [GFX942]> {
+def SBfeI32 : SOP2Inst<"s_bfe_i32", [CDNA3]> {
   let summary = "SOP2 extract signed bitfield from 32-bit value";
 }
 
-def SBfeU64 : SOP2Inst<"s_bfe_u64", [GFX942]> {
+def SBfeU64 : SOP2Inst<"s_bfe_u64", [CDNA3]> {
   let summary = "SOP2 extract unsigned bitfield from 64-bit value";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
-def SBfeI64 : SOP2Inst<"s_bfe_i64", [GFX942]> {
+def SBfeI64 : SOP2Inst<"s_bfe_i64", [CDNA3]> {
   let summary = "SOP2 extract signed bitfield from 64-bit value";
   let constraints = SOP2Constraints<2, 1>.constraints;
 }
@@ -272,15 +272,15 @@ def SBfeI64 : SOP2Inst<"s_bfe_i64", [GFX942]> {
 // Scalar multiply operations
 //===----------------------------------------------------------------------===//
 
-def SMulI32 : SOP2Inst<"s_mul_i32", [GFX942]> {
+def SMulI32 : SOP2Inst<"s_mul_i32", [CDNA3]> {
   let summary = "SOP2 multiply two signed 32-bit integers";
 }
 
-def SMulHiU32 : SOP2Inst<"s_mul_hi_u32", [GFX942]> {
+def SMulHiU32 : SOP2Inst<"s_mul_hi_u32", [CDNA3]> {
   let summary = "SOP2 multiply unsigned 32-bit integers, return high 32 bits";
 }
 
-def SMulHiI32 : SOP2Inst<"s_mul_hi_i32", [GFX942]> {
+def SMulHiI32 : SOP2Inst<"s_mul_hi_i32", [CDNA3]> {
   let summary = "SOP2 multiply signed 32-bit integers, return high 32 bits";
 }
 
@@ -288,7 +288,7 @@ def SMulHiI32 : SOP2Inst<"s_mul_hi_i32", [GFX942]> {
 // Scalar special operations
 //===----------------------------------------------------------------------===//
 
-def SCbranchGFork : SOP2Inst<"s_cbranch_g_fork", [GFX942]> {
+def SCbranchGFork : SOP2Inst<"s_cbranch_g_fork", [CDNA3]> {
   let summary = "SOP2 conditional branch using branch-stack";
   let constraints = (ins NotPresent:$sdst);
   let cppBuilder = OpBuilder<(ins CppValue:$src0, CppValue:$src1), [{
@@ -300,7 +300,7 @@ def SCbranchGFork : SOP2Inst<"s_cbranch_g_fork", [GFX942]> {
   let asmFormat = [SingleAsmVariant<"$src0, $src1">];
 }
 
-def SAbsdiffI32 : SOP2Inst<"s_absdiff_i32", [GFX942]> {
+def SAbsdiffI32 : SOP2Inst<"s_absdiff_i32", [CDNA3]> {
   let summary = "SOP2 absolute difference of two signed 32-bit integers";
 }
 
@@ -308,19 +308,19 @@ def SAbsdiffI32 : SOP2Inst<"s_absdiff_i32", [GFX942]> {
 // Scalar shift-add operations
 //===----------------------------------------------------------------------===//
 
-def SLshl1AddU32 : SOP2Inst<"s_lshl1_add_u32", [GFX942]> {
+def SLshl1AddU32 : SOP2Inst<"s_lshl1_add_u32", [CDNA3]> {
   let summary = "SOP2 shift left by 1 and add unsigned 32-bit";
 }
 
-def SLshl2AddU32 : SOP2Inst<"s_lshl2_add_u32", [GFX942]> {
+def SLshl2AddU32 : SOP2Inst<"s_lshl2_add_u32", [CDNA3]> {
   let summary = "SOP2 shift left by 2 and add unsigned 32-bit";
 }
 
-def SLshl3AddU32 : SOP2Inst<"s_lshl3_add_u32", [GFX942]> {
+def SLshl3AddU32 : SOP2Inst<"s_lshl3_add_u32", [CDNA3]> {
   let summary = "SOP2 shift left by 3 and add unsigned 32-bit";
 }
 
-def SLshl4AddU32 : SOP2Inst<"s_lshl4_add_u32", [GFX942]> {
+def SLshl4AddU32 : SOP2Inst<"s_lshl4_add_u32", [CDNA3]> {
   let summary = "SOP2 shift left by 4 and add unsigned 32-bit";
 }
 
@@ -328,15 +328,15 @@ def SLshl4AddU32 : SOP2Inst<"s_lshl4_add_u32", [GFX942]> {
 // Scalar pack operations
 //===----------------------------------------------------------------------===//
 
-def SPackLlB32B16 : SOP2Inst<"s_pack_ll_b32_b16", [GFX942]> {
+def SPackLlB32B16 : SOP2Inst<"s_pack_ll_b32_b16", [CDNA3]> {
   let summary = "SOP2 pack two low 16-bit values into 32-bit";
 }
 
-def SPackLhB32B16 : SOP2Inst<"s_pack_lh_b32_b16", [GFX942]> {
+def SPackLhB32B16 : SOP2Inst<"s_pack_lh_b32_b16", [CDNA3]> {
   let summary = "SOP2 pack low and high 16-bit values into 32-bit";
 }
 
-def SPackHhB32B16 : SOP2Inst<"s_pack_hh_b32_b16", [GFX942]> {
+def SPackHhB32B16 : SOP2Inst<"s_pack_hh_b32_b16", [CDNA3]> {
   let summary = "SOP2 pack two high 16-bit values into 32-bit";
 }
 
