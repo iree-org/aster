@@ -138,6 +138,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       } {amdgcn.constexpr}
 
       // Synchronize to ensure data is in LDS
+      amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
       amdgcn.sopp.sopp <s_barrier>
 
       // Perform block-level contraction

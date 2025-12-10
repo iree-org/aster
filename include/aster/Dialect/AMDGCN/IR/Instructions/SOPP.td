@@ -211,16 +211,16 @@ def SWaitcntOp : SOPP_Op<"s_waitcnt", [
     DefaultValuedAttr<AMDGCN_InstAttr, "mlir::aster::amdgcn::OpCode::S_WAITCNT">:$opcode,
     VmcntAttr:$vmcnt,
     ExpcntAttr:$expcnt,
-    LgkmcntAttr:$lgkmcnt
+    LgkmcntAttr:$lgkmcnt,
+    UnitAttr:$immutable
   );
-
   let results = (outs);
-
   let assemblyFormat = [{
     $opcode
     (`vmcnt` `=` $vmcnt^)?
     (`expcnt` `=` $expcnt^)?
     (`lgkmcnt` `=` $lgkmcnt^)?
+    (`immutable` $immutable^)?
     attr-dict
   }];
 

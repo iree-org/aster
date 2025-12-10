@@ -64,7 +64,8 @@ static bool hasNoBranches(Block *block) {
 static void eraseWaitcntOpsInBlock(Block *block) {
   llvm::SmallVector<Operation *> waitcntOpsToErase;
   block->walk([&](Operation *op) {
-    if (isa<amdgcn::inst::SWaitcntOp>(op))
+    if (auto wOp = dyn_cast<amdgcn::inst::SWaitcntOp>(op);
+        wOp && !wOp.getImmutable())
       waitcntOpsToErase.push_back(op);
   });
   for (Operation *op : waitcntOpsToErase)

@@ -158,6 +158,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       } else {
         %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
         scf.if %is_first_it {
+          amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
           amdgcn.sopp.sopp <s_barrier>
         }
         // Calculate mma tile indices

@@ -283,10 +283,11 @@ def execute_kernel_benchmark(
             diff = np.abs(c.astype(np.float32) - ref_f32)
             max_idx = np.unravel_index(np.argmax(diff), diff.shape)
             max_diff = diff[max_idx]
+            relative_error = np.linalg.norm(diff) / np.linalg.norm(ref_f32)
             raise AssertionError(
                 f"GEMM kernel failed!\n"
                 f"Max diff: {max_diff} at {max_idx}, c={c[max_idx]}, ref={ref_f32[max_idx]}\n"
-                f"Relative error: {rel_error}, rtol: {rtol}, atol: {atol}\n"
+                f"Relative error: {relative_error}, rtol: {rtol}, atol: {atol}\n"
                 f"c shape: {c.shape}, ref shape: {ref_f32.shape}"
             )
 
@@ -394,6 +395,7 @@ def main() -> None:
         (32, 32, 32),
         (64, 64, 32),
         (64, 64, 64),
+        (128, 128, 64),
     ]
 
     # Number of waves per block
