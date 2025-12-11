@@ -27,6 +27,7 @@ from mlir_kernels.benchmarks.benchmark_utils import (
     format_throughput_stats,
     run_benchmark,
 )
+from mlir_kernels.gemm_config import validate_gemm_config
 
 
 # MFMA operation sizes (16x16x16)
@@ -39,11 +40,6 @@ LDS_SIZE_LIMIT = 65536
 
 # 304 = num CUs on MI300X
 NUM_CU_PER_GPU = 304
-
-
-def is_power_of_two(n: int) -> bool:
-    """Check if a number is a power of two."""
-    return n > 0 and (n & (n - 1)) == 0
 
 
 @dataclass
@@ -61,45 +57,18 @@ class GEMMConfig(BaseConfig):
     # wavefront_size, pass_pipeline, mcpu, shader_clock_mhz, peak_gbps, peak_tflops
 
     def __post_init__(self):
-        """Validate configuration and compute derived fields based on current
-        implementation limittations.
-
-        Concretely:
-            - SIZE % TILE_SIZE = 0
-            - TILE_SIZE % 16 = 0
-            - TILE_SIZE / 16 is pow of 2
-            - W is pow of 2
-            - (TILE_SIZE_x / 16)  * (TILE_SIZE_y / 16) % W = 0
-        """
-        assert self.m % self.m_tile == 0, "M must be a multiple of m_tile"
-        assert self.n % self.n_tile == 0, "N must be a multiple of n_tile"
-        assert self.k % self.k_tile == 0, "K must be a multiple of k_tile"
-        assert self.m_tile % 16 == 0, "m_tile must be a multiple of 16"
-        assert self.n_tile % 16 == 0, "n_tile must be a multiple of 16"
-        assert self.k_tile % 16 == 0, "k_tile must be a multiple of 16"
-        assert self.m_tile >= 16, "m_tile must be at least 16"
-        assert self.n_tile >= 16, "n_tile must be at least 16"
-        assert self.k_tile >= 16, "k_tile must be at least 16"
-        assert is_power_of_two(self.m_tile // 16), "m_tile / 16 must be a power of 2"
-        assert is_power_of_two(self.n_tile // 16), "n_tile / 16 must be a power of 2"
-        assert is_power_of_two(self.k_tile // 16), "k_tile / 16 must be a power of 2"
-        assert self.num_waves > 0, "Number of waves must be positive"
-        assert is_power_of_two(self.num_waves), "Number of waves must be a power of 2"
-        assert (
-            (self.m_tile // 16) * (self.n_tile // 16)
-        ) % self.num_waves == 0, (
-            "m_tile / 16 * n_tile / 16 must be a multiple of number of waves"
+        """Validate configuration using shared validation logic."""
+        is_valid, error = validate_gemm_config(
+            self.m,
+            self.n,
+            self.k,
+            self.m_tile,
+            self.n_tile,
+            self.k_tile,
+            self.num_waves,
         )
-        assert (
-            (self.m_tile // 16) * (self.k_tile // 16)
-        ) % self.num_waves == 0, (
-            "m_tile / 16 * n_tile / 16 must be a multiple of number of waves"
-        )
-        assert (
-            (self.k_tile // 16) * (self.n_tile // 16)
-        ) % self.num_waves == 0, (
-            "m_tile / 16 * n_tile / 16 must be a multiple of number of waves"
-        )
+        if not is_valid:
+            raise AssertionError(error)
 
     @property
     def num_blocks_m(self) -> int:

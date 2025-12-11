@@ -70,6 +70,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // Constants
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
     %elt_sz_in_b = arith.constant 2 : index
 
     // Calculate base indices in LDS for A and B
@@ -113,15 +114,21 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // Loop over remaining 4-D tile **distributed** tile index (K, d_MMNNKK) in 2 phases:
     //   - Phase 0 loads to shared
     //   - Phase 1 computes
-    %ub = affine.apply affine_map<()[K, d_MMNNKK] -> (K * 2 * d_MMNNKK)>()[%K, %d_MMNNKK]
+    //   - Phase 2 stores to global
+    %num_phases = arith.constant 3 : index
+    %ub = affine.apply affine_map<()[K, num_phases, d_MMNNKK] ->
+         (K * num_phases * d_MMNNKK)>
+      ()[%K, %num_phases, %d_MMNNKK]
     scf.for %idx = %c0 to %ub step %c1 {
       // Decompose linear index into 3D index
-      %k, %phase, %d_mmnnkk = affine.delinearize_index %idx into (%K, 2, %d_MMNNKK) : index, index, index
+      %k, %phase, %d_mmnnkk = affine.delinearize_index %idx into (%K, %num_phases, %d_MMNNKK) : index, index, index
       %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%K_TILE_SIZE)[%k]
 
       // Phase 0 loads to shared
       // Phase 1 computes
       %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
+      %is_phase_1 = arith.cmpi eq, %phase, %c1 : index
+      %is_phase_2 = arith.cmpi eq, %phase, %c2 : index
       scf.if %is_phase_0 {
         %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
         scf.if %is_first_it {
@@ -153,7 +160,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           func.call @load_to_lds_dwordx2_wait(%b_global, %lds_b_base_off, %j_pos, %k_pos, %K_SIZE, %jj_pos, %c0, %K_TILE_SIZE, %KK)
             : (!sx2, index, index, index, index, index, index, index, index) -> ()
         }
-      } else {
+      }
+
+      scf.if %is_phase_1 {
         %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
         scf.if %is_first_it {
           amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
@@ -175,21 +184,27 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           : (index, index, index, index, index, index, !vx4) -> !vx4
         memref.store %updated_acc, %c_fragments[%d_mmnn] : memref<?x!vx4>
       }
-    } {amdgcn.constexpr}
 
-    // Store C fragments to global memory
-    scf.for %d_mmnn = %c0 to %d_MMNN step %c1 {
-      %mmnn = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmnn, %w, %W]
-      %ii, %jj = affine.delinearize_index %mmnn into (%MM, %NN) : index, index
+      scf.if %is_phase_2 {
+        // Calculate mma tile indices
+        %d_mmnn, %kk = affine.delinearize_index %d_mmnnkk into (%d_MMNN, %KK) : index, index
+        %mmnn = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmnn, %w, %W]
+        %ii, %jj = affine.delinearize_index %mmnn into (%MM, %NN) : index, index
 
-      // Compute positions
-      %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
-      %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
-
-      // Store the fragment
-      %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-      func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %N_SIZE, %ii_pos, %jj_pos)
-        : (!vx4, !sx2, index, index, index, index, index) -> ()
+        // if k is the last tile and kk is the last iteration, store to global
+        %k_minus_1 = arith.subi %K, %c1 : index
+        %kk_minus_1 = arith.subi %KK, %c1 : index
+        %is_last_k = arith.cmpi eq, %k, %k_minus_1 : index
+        %is_last_kk = arith.cmpi eq, %kk, %kk_minus_1 : index
+        %is_last_k_and_kk = arith.andi %is_last_k, %is_last_kk : i1
+        scf.if %is_last_k_and_kk {
+          %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
+          %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
+          %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
+          func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %N_SIZE, %ii_pos, %jj_pos)
+            : (!vx4, !sx2, index, index, index, index, index) -> ()
+        }
+      }
     } {amdgcn.constexpr}
 
     return

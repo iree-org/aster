@@ -12,6 +12,7 @@ from integration_test.test_utils import (
     DEFAULT_SROA_PASS_PIPELINE,
     hsaco_file,
 )
+from mlir_kernels.gemm_config import validate_gemm_config
 
 
 # Block sizes for each MFMA operation dimension (16x16x16)
@@ -74,22 +75,17 @@ def test_gemm_e2e_kernel(
     indexing_lib = os.path.join(test_dir, "..", "library", "common", "indexing.mlir")
     copies_lib = os.path.join(test_dir, "..", "library", "common", "copies.mlir")
 
+    # Validate configuration using shared validation logic
+    is_valid, error = validate_gemm_config(
+        m, n, k, m_tile, n_tile, k_tile, num_wavefronts
+    )
+    if not is_valid:
+        pytest.skip(f"Invalid configuration: {error}")
+
     with ir.Context() as ctx:
         dt_a, dt_b, dt_c = np.float16, np.float16, np.float32
         size_a = np.dtype(dt_a).itemsize  # bytes per element for A
         size_b = np.dtype(dt_b).itemsize  # bytes per element for B
-        size_c = np.dtype(dt_c).itemsize  # bytes per element for C
-
-        assert m % m_tile == 0, "M must be a multiple of M_TILE"
-        assert n % n_tile == 0, "N must be a multiple of N_TILE"
-        assert k % k_tile == 0, "K must be a multiple of K_TILE"
-        assert m_tile % 16 == 0, "M_TILE must be a multiple of 16"
-        assert n_tile % 16 == 0, "N_TILE must be a multiple of 16"
-        assert k_tile % 16 == 0, "K_TILE must be a multiple of 16"
-        assert m_tile >= 16, "M_TILE must be at least 16"
-        assert n_tile >= 16, "N_TILE must be at least 16"
-        assert k_tile >= 16, "K_TILE must be at least 64"
-        assert num_wavefronts > 0, "Number of wavefronts must be positive"
 
         num_blocks_m = m // m_tile
         num_blocks_n = n // n_tile
