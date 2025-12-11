@@ -29,6 +29,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   // copies.mlir
   func.func private @load_to_lds_16x16_dwordx2_wait(
     !sx2, index, index, index, index, index, index, index) -> ()
+  func.func private @load_to_lds_dwordx2_wait(
+    !sx2, index, index, index, index, index, index, index, index) -> ()
   func.func private @read_lds_A_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
   func.func private @store_global_16x16xf32_C_fragment_wait(
@@ -132,13 +134,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         scf.if %is_nn_zero {
           // Calculate mma tile indices
           %iikk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmkk, %w, %W]
-          %ii, %kk = affine.delinearize_index %iikk into (%MM, %KK) : index, index
 
           // Calculate positions
-          %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
-          %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-          func.call @load_to_lds_16x16_dwordx2_wait(%a_global, %lds_a_base_off, %i_pos, %k_pos, %K_SIZE, %ii_pos, %kk_pos, %K_TILE_SIZE)
-            : (!sx2, index, index, index, index, index, index, index) -> ()
+          %ii_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%iikk, %KK]
+          func.call @load_to_lds_dwordx2_wait(%a_global, %lds_a_base_off, %i_pos, %k_pos, %K_SIZE, %ii_pos, %c0, %K_TILE_SIZE, %KK)
+            : (!sx2, index, index, index, index, index, index, index, index) -> ()
         }
 
         // Load B tile into LDS
@@ -147,13 +147,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         scf.if %is_mm_zero {
           // Calculate mma tile indices
           %jjkk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_nnkk, %w, %W]
-          %jj, %kk = affine.delinearize_index %jjkk into (%NN, %KK) : index, index
 
           // Calculate positions
-          %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
-          %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-          func.call @load_to_lds_16x16_dwordx2_wait(%b_global, %lds_b_base_off, %j_pos, %k_pos, %K_SIZE, %jj_pos, %kk_pos, %K_TILE_SIZE)
-            : (!sx2, index, index, index, index, index, index, index) -> ()
+          %jj_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%jjkk, %KK]
+          func.call @load_to_lds_dwordx2_wait(%b_global, %lds_b_base_off, %j_pos, %k_pos, %K_SIZE, %jj_pos, %c0, %K_TILE_SIZE, %KK)
+            : (!sx2, index, index, index, index, index, index, index, index) -> ()
         }
       } else {
         %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
