@@ -92,6 +92,62 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     return
   }
 
+  // This functions is a generalized version of @load_to_lds_16x16_dwordx2_wait,
+  // it will load 16 * 16 f16 elements into LDS. However, it will adapt to the
+  // inner-most major-tile number of tiles (%NN) provided by the caller, to produce
+  // wider loads. The restriction is that %NN must be a divisor of 16.
+  func.func private @load_to_lds_dwordx2_wait(
+    %ptr: !sx2,           // The global base pointer
+    %lds_base_off: index, // The local base offset in LDS
+    %i_pos: index,        // The outer-most major-tile position
+    %j_pos: index,        // The inner-most major-tile position
+    %N_SIZE: index,       // The inner-most size
+    %ii_pos: index,       // The outer-most minor-tile position
+    %jj_pos: index,       // The inner-most minor-tile position
+    %NN_SIZE: index,      // The inner-most major-tile size
+    %NN: index            // The number of 16 tiles in the inner-most major-tile
+  ) {
+    // Constants
+    %c4 = arith.constant 4 : index
+    %c16 = arith.constant 16 : index
+    %elt_size = arith.constant 2 : index // f16 size in bytes
+
+    %SZ0 = affine.apply affine_map<()[NN, sz] -> (sz ceildiv NN)>()[%NN, %c16]
+    %SZ1 = affine.apply affine_map<()[NN, sz] -> (NN * sz)>()[%NN, %c4]
+
+    // Get local positions within the minor tile
+    %iii, %jjj = func.call @wave_partition_2D(%SZ0, %SZ1)
+      : (index, index) -> (index, index)
+    %jjj_pos = affine.apply affine_map<()[jjj, sz] -> (jjj * 4)>()[%jjj, %SZ1]
+
+    // Calculate global offset
+    %off_reg = func.call @tiledx2_matrix_offset(
+      %i_pos, %j_pos, %ii_pos, %jj_pos, %iii, %jjj_pos, %N_SIZE, %elt_size)
+      : (index, index, index, index, index, index, index, index) -> !v
+
+    // Perform the load
+    %dst = func.call @alloc_vgprx2() : () -> (!vx2)
+    %loaded = amdgcn.flat.global_load <global_load_dwordx2> %dst, %ptr[%off_reg]
+      : !vx2, !sx2[!v] -> !vx2
+
+    // Wait for load completion
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+
+    // Calculate offset into LDS
+    %off_lds_reg = func.call @tiled_matrix_offset(%ii_pos, %jj_pos, %iii, %jjj_pos, %NN_SIZE, %elt_size)
+      : (index, index, index, index, index, index) -> !v
+
+    // DS write to LDS
+    %l_off_i32 = arith.index_cast %lds_base_off : index to i32
+    amdgcn.ds.write #amdgcn.inst<ds_write_b64> %loaded, %off_lds_reg, offset = %l_off_i32
+      : !vx2, !v, i32
+
+    // Wait for LDS write
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+
+    return
+  }
+
   // Store a dword to global memory, in a **synchronized fashion** (i.e.
   // waitcnt 0 are inserted after global_store).
   // The caller is responsible for embedding distribution information into the
