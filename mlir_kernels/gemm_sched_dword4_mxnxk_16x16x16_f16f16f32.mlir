@@ -1,6 +1,7 @@
 // Drive this through pytest, only check input validity here.
 // RUN: cat %s \
-// RUN: | sed -e 's/{{SIZE_M}}/4/g' -e 's/{{SIZE_N}}/4/g' -e 's/{{SIZE_K}}/4/g' -e 's/{{LDS_B_SHIFT}}/8192/g' -e 's/{{LDS_SIZE}}/16384/g' \
+// RUN: | sed -e 's/{{SIZE_M}}/64/g' -e 's/{{SIZE_N}}/64/g' -e 's/{{SIZE_K}}/64/g' -e 's/{{LDS_B_SHIFT}}/8192/g' -e 's/{{LDS_SIZE}}/16384/g' \
+// RUN: | sed -e 's/{{LOOP_SIZE_M}}/4/g' -e 's/{{LOOP_SIZE_N}}/4/g' -e 's/{{LOOP_SIZE_K}}/4/g' \
 // RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/register_init.mlir,%p/library/common/indexing.mlir" \
 // RUN: | FileCheck %s
 
@@ -160,7 +161,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           func.call @ds_write_dwordx2_wait(%lds_b_base_off, %jj_pos, %c0, %K_TILE_SIZE, %KK, %d_nnkk, %c0, %b_load_memref)
             : (index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
         }
-      }
+      } {sched.delay = 0 : i64, sched.rate = 1 : i64}
 
       // Phase 1a: LDS reads (decoupled from mfma via memrefs)
       scf.if %is_phase_1 {
@@ -186,7 +187,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           : (index, index, index, index) -> !vx2
         memref.store %a_frag, %a_frag_memref[%d_mmnnkk] : memref<?x!vx2>
         memref.store %b_frag, %b_frag_memref[%d_mmnnkk] : memref<?x!vx2>
-      }
+      } {sched.delay = 10 : i64, sched.rate = 1 : i64}
 
       // Phase 1b: MFMA (decoupled from LDS reads via memrefs)
       scf.if %is_phase_1 {
@@ -201,7 +202,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %updated_acc = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
           %acc, %a_frag, %b_frag, %acc : !vx2, !vx2, !vx4 -> !vx4
         memref.store %updated_acc, %c_fragments[%d_mmnn] : memref<?x!vx4>
-      }
+      } {sched.delay = 20 : i64, sched.rate = 1 : i64}
 
       scf.if %is_phase_2 {
         // Calculate mma tile indices
@@ -222,8 +223,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %N_SIZE, %ii_pos, %jj_pos)
             : (!vx4, !sx2, index, index, index, index, index) -> ()
         }
-      }
-    } {amdgcn.constexpr}
+      } {sched.delay = 30 : i64, sched.rate = 1 : i64}
+
+    } {amdgcn.constexpr, sched.dims = array<i64: 2, 3, {{LOOP_SIZE_D_MMNNKK}}> }
 
     return
   }

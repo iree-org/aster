@@ -16,9 +16,9 @@ from mlir_kernels.gemm_config import validate_gemm_config
 
 
 # Block sizes for each MFMA operation dimension (16x16x16)
-M_BLOCK_SIZE = 16
-N_BLOCK_SIZE = 16
-K_BLOCK_SIZE = 16
+MFMA_SIZE_M = 16
+MFMA_SIZE_N = 16
+MFMA_SIZE_K = 16
 
 FILE_NAME = "gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir"
 KERNEL_NAME = "test_matmul_kernel"
@@ -105,6 +105,17 @@ def test_gemm_e2e_kernel(
                 "{{LDS_SIZE}}",
                 str((m_tile * k_tile * size_a + n_tile * k_tile * size_b)),
             )
+            mnkt = m_tile * n_tile * k_tile
+            mnk_mfma = MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K
+            mnkt_mfma = mnkt // mnk_mfma
+            LOOP_SIZE_D_MMNNKK = mnkt_mfma // num_wavefronts
+
+            # These should have been checked by validate_gemm_config; this is a
+            # sanity check.
+            assert mnkt % mnk_mfma == 0, "Invalid configuration"
+            assert mnkt_mfma % num_wavefronts == 0, "Invalid configuration"
+
+            x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(LOOP_SIZE_D_MMNNKK))
             return x
 
         asm_complete, module_after_passes = compile_mlir_file_to_asm(
