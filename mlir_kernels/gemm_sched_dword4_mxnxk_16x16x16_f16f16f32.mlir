@@ -36,24 +36,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @store_global_16x16xf32_C_fragment_wait(
     !vx4, !sx2, index, index, index, index, index) -> ()
 
-  // Compute the wavefront-level contraction using MFMA instructions
-  func.func private @wavefront_contract(
-    %lds_a_base: index, %lds_b_base: index,         // LDS base offsets
-    %K_TILE_SIZE: index,                            // The tile size in the reduction dimension
-    %ii_pos: index, %jj_pos: index, %kk_pos: index, // The mma tile positions
-    %acc: !vx4                                      // The accumulator register range
-  ) -> !vx4 {
-    // Read A and B fragments, assuming B is transposed to simplify the problem and have a single version.
-    %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base, %ii_pos, %kk_pos, %K_TILE_SIZE)
-      : (index, index, index, index) -> !vx2
-    %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base, %jj_pos, %kk_pos, %K_TILE_SIZE)
-     : (index, index, index, index) -> !vx2
-    // Perform MFMA operation: C = A * B + C
-    %result = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
-      %acc, %a_frag, %b_frag, %acc : !vx2, !vx2, !vx4 -> !vx4
-    return %result : !vx4
-  }
-
   // Main function that allocates memrefs and loops over M, N, K
   func.func private @matmul_loop(
     %M_SIZE: index, %N_SIZE: index, %K_SIZE: index,            // Problem sizes
@@ -105,6 +87,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // Allocate memrefs for decoupled global loads -> DS writes
     %a_load_memref = memref.alloca(%d_MMKK, %c1) : memref<?x?x!vx2>
     %b_load_memref = memref.alloca(%d_NNKK, %c1) : memref<?x?x!vx2>
+
+    // Allocate memrefs for decoupled LDS reads -> mfma
+    %a_frag_memref = memref.alloca(%d_MMNNKK) : memref<?x!vx2>
+    %b_frag_memref = memref.alloca(%d_MMNNKK) : memref<?x!vx2>
 
     // Initialize C fragments
     %c0_i32 = arith.constant 0 : i32
@@ -176,6 +162,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         }
       }
 
+      // Phase 1a: LDS reads (decoupled from mfma via memrefs)
       scf.if %is_phase_1 {
         %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
         scf.if %is_first_it {
@@ -192,10 +179,27 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
 
-        // Compute the wavefront-level contraction and update the C fragment
+        // Read A and B fragments from LDS, store to memrefs
+        %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base_off, %ii_pos, %kk_pos, %K_TILE_SIZE)
+          : (index, index, index, index) -> !vx2
+        %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base_off, %jj_pos, %kk_pos, %K_TILE_SIZE)
+          : (index, index, index, index) -> !vx2
+        memref.store %a_frag, %a_frag_memref[%d_mmnnkk] : memref<?x!vx2>
+        memref.store %b_frag, %b_frag_memref[%d_mmnnkk] : memref<?x!vx2>
+      }
+
+      // Phase 1b: MFMA (decoupled from LDS reads via memrefs)
+      scf.if %is_phase_1 {
+        %d_mmnn, %kk = affine.delinearize_index %d_mmnnkk into (%d_MMNN, %KK) : index, index
+
+        // Load fragments from memrefs
+        %a_frag = memref.load %a_frag_memref[%d_mmnnkk] : memref<?x!vx2>
+        %b_frag = memref.load %b_frag_memref[%d_mmnnkk] : memref<?x!vx2>
+
+        // Perform MFMA operation: C = A * B + C
         %acc = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-        %updated_acc = func.call @wavefront_contract(%lds_a_base_off, %lds_b_base_off, %K_TILE_SIZE , %ii_pos, %jj_pos, %kk_pos, %acc)
-          : (index, index, index, index, index, index, !vx4) -> !vx4
+        %updated_acc = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
+          %acc, %a_frag, %b_frag, %acc : !vx2, !vx2, !vx4 -> !vx4
         memref.store %updated_acc, %c_fragments[%d_mmnn] : memref<?x!vx4>
       }
 
