@@ -27,10 +27,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @wave_partition_2D(index, index) -> (index, index)
   func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
   // copies.mlir
-  func.func private @load_to_lds_16x16_dwordx2_wait(
-    !sx2, index, index, index, index, index, index, index) -> ()
-  func.func private @load_to_lds_dwordx2_wait(
-    !sx2, index, index, index, index, index, index, index, index) -> ()
+  func.func private @global_load_dwordx2_wait(
+    !sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
+  func.func private @ds_write_dwordx2_wait(
+    index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
   func.func private @read_lds_A_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
   func.func private @store_global_16x16xf32_C_fragment_wait(
@@ -102,6 +102,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // Allocate registers for the C fragment
     %c_fragments = memref.alloca(%d_MMNN) : memref<?x!vx4>
 
+    // Allocate memrefs for decoupled global loads -> DS writes
+    %a_load_memref = memref.alloca(%d_MMKK, %c1) : memref<?x?x!vx2>
+    %b_load_memref = memref.alloca(%d_NNKK, %c1) : memref<?x?x!vx2>
+
     // Initialize C fragments
     %c0_i32 = arith.constant 0 : i32
     scf.for %c = %c0 to %d_MMNN step %c1 {
@@ -135,30 +139,40 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           amdgcn.sopp.sopp <s_barrier>
         }
 
-        // Load A tile into LDS
+        // Global load A tile (decoupled: stores to memref)
         %_jj, %d_mmkk  = affine.delinearize_index %d_mmnnkk into (%NN, %d_MMKK) : index, index
         %is_nn_zero = arith.cmpi eq, %_jj, %c0 : index
         scf.if %is_nn_zero {
-          // Calculate mma tile indices
           %iikk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmkk, %w, %W]
-
-          // Calculate positions
           %ii_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%iikk, %KK]
-          func.call @load_to_lds_dwordx2_wait(%a_global, %lds_a_base_off, %i_pos, %k_pos, %K_SIZE, %ii_pos, %c0, %K_TILE_SIZE, %KK)
-            : (!sx2, index, index, index, index, index, index, index, index) -> ()
+          func.call @global_load_dwordx2_wait(%a_global, %i_pos, %k_pos, %K_SIZE, %ii_pos, %c0, %KK, %d_mmkk, %c0, %a_load_memref)
+            : (!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
         }
 
-        // Load B tile into LDS
-        %ii, %d_nnkk   = affine.delinearize_index %d_mmnnkk into (%MM, %d_NNKK) : index, index
-        %is_mm_zero  = arith.cmpi eq, %ii, %c0 : index
+        // Global load B tile (decoupled: stores to memref)
+        %ii, %d_nnkk = affine.delinearize_index %d_mmnnkk into (%MM, %d_NNKK) : index, index
+        %is_mm_zero = arith.cmpi eq, %ii, %c0 : index
         scf.if %is_mm_zero {
-          // Calculate mma tile indices
           %jjkk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_nnkk, %w, %W]
-
-          // Calculate positions
           %jj_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%jjkk, %KK]
-          func.call @load_to_lds_dwordx2_wait(%b_global, %lds_b_base_off, %j_pos, %k_pos, %K_SIZE, %jj_pos, %c0, %K_TILE_SIZE, %KK)
-            : (!sx2, index, index, index, index, index, index, index, index) -> ()
+          func.call @global_load_dwordx2_wait(%b_global, %j_pos, %k_pos, %K_SIZE, %jj_pos, %c0, %KK, %d_nnkk, %c0, %b_load_memref)
+            : (!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
+        }
+
+        // DS write A tile (decoupled: reads from memref)
+        scf.if %is_nn_zero {
+          %iikk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmkk, %w, %W]
+          %ii_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%iikk, %KK]
+          func.call @ds_write_dwordx2_wait(%lds_a_base_off, %ii_pos, %c0, %K_TILE_SIZE, %KK, %d_mmkk, %c0, %a_load_memref)
+            : (index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
+        }
+
+        // DS write B tile (decoupled: reads from memref)
+        scf.if %is_mm_zero {
+          %jjkk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_nnkk, %w, %W]
+          %jj_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%jjkk, %KK]
+          func.call @ds_write_dwordx2_wait(%lds_b_base_off, %jj_pos, %c0, %K_TILE_SIZE, %KK, %d_nnkk, %c0, %b_load_memref)
+            : (index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
         }
       }
 
