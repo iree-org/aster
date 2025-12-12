@@ -10,15 +10,16 @@ from integration_test.test_utils import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
     DEFAULT_SROA_PASS_PIPELINE,
+    SYNCHRONOUS_SROA_PASS_PIPELINE,
     hsaco_file,
 )
 from mlir_kernels.gemm_config import validate_gemm_config
 
 
 # Block sizes for each MFMA operation dimension (16x16x16)
-M_BLOCK_SIZE = 16
-N_BLOCK_SIZE = 16
-K_BLOCK_SIZE = 16
+MFMA_SIZE_M = 16
+MFMA_SIZE_N = 16
+MFMA_SIZE_K = 16
 
 FILE_NAME = "gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir"
 KERNEL_NAME = "test_matmul_kernel"
@@ -49,7 +50,9 @@ KERNEL_NAME = "test_matmul_kernel"
     ],
     # fmt: on
 )
-@pytest.mark.parametrize("pass_pipeline", [DEFAULT_SROA_PASS_PIPELINE])
+@pytest.mark.parametrize(
+    "pass_pipeline", [DEFAULT_SROA_PASS_PIPELINE, SYNCHRONOUS_SROA_PASS_PIPELINE]
+)
 @pytest.mark.parametrize("mcpu", ["gfx942"])
 def test_gemm_e2e_kernel(
     mlir_filename: str,
@@ -105,6 +108,17 @@ def test_gemm_e2e_kernel(
                 "{{LDS_SIZE}}",
                 str((m_tile * k_tile * size_a + n_tile * k_tile * size_b)),
             )
+            mnkt = m_tile * n_tile * k_tile
+            mnk_mfma = MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K
+            mnkt_mfma = mnkt // mnk_mfma
+            LOOP_SIZE_D_MMNNKK = mnkt_mfma // num_wavefronts
+
+            # These should have been checked by validate_gemm_config; this is a
+            # sanity check.
+            assert mnkt % mnk_mfma == 0, "Invalid configuration"
+            assert mnkt_mfma % num_wavefronts == 0, "Invalid configuration"
+
+            x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(LOOP_SIZE_D_MMNNKK))
             return x
 
         asm_complete, module_after_passes = compile_mlir_file_to_asm(
@@ -155,7 +169,7 @@ def test_gemm_e2e_kernel(
                     f"GPU {mcpu} not available, but cross-compilation to HSACO succeeded"
                 )
 
-            execute_kernel_and_verify(
+            iteration_times = execute_kernel_and_verify(
                 hsaco_path=hsaco_path,
                 kernel_name=kernel_name,
                 input_args=[a_data, b_data],
@@ -165,7 +179,9 @@ def test_gemm_e2e_kernel(
                 verify_fn=verify_fn,
                 grid_dim=(num_blocks, 1, 1),
                 block_dim=(num_threads, 1, 1),
+                num_iterations=5,
             )
+            print(f"Iteration times: {iteration_times} nanoseconds")
 
 
 if __name__ == "__main__":

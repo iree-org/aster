@@ -53,6 +53,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     memref.store %loaded, %memref[%i, %j] : memref<?x?x!amdgcn.vgpr_range<[? + 2]>>
     return
   }
+
   func.func private @global_load_body_if(
     %cond: i1,
     %tidx: index,

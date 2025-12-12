@@ -165,8 +165,6 @@ DEFAULT_SROA_PASS_PIPELINE = (
     # can be relocated
     # TODO: NORMAL FORMS or include in pass.
     "      aster-amdgcn-expand-md-ops,"
-    # Note: perform late register allocation to wait for
-    # optimize-straight-line-waits to complete and erase lsir.assume_noalias ops.
     "      amdgcn-register-allocation"
     "    )"
     "  ),"
@@ -218,12 +216,12 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     # Note: this must have a aster-amdgcn-expand-md-ops run before to expose
     # s_load_dwordx2.
     # TODO: NORMAL FORMS or include in pass.
-    # Note: going to PIR early will make memory dependency more conservative,
+    # Note: going to LSIR early will make memory dependency more conservative,
     # resulting in more waits during amdgcn-optimize-straight-line-waits.
     # TODO: NORMAL FORMS or include in pass.
-    "  amdgcn-optimize-straight-line-waits,"
+    # "  amdgcn-optimize-straight-line-waits,"
     #
-    # Note: convert to PIR and AMDGCN after straight-line wait optimization.
+    # Note: convert to LSIR and AMDGCN after straight-line wait optimization.
     # Note: aster-to-int-arith contains lower-affine without linking in and
     # cargo-culting the whole conversion library.
     "  aster-to-int-arith,"
@@ -243,15 +241,13 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     # can be relocated
     # TODO: NORMAL FORMS or include in pass.
     "      aster-amdgcn-expand-md-ops,"
-    # Note: perform late register allocation to wait for
-    # optimize-straight-line-waits to complete and erase pir.assume_noalias ops.
     "      amdgcn-register-allocation"
     "    )"
     "  ),"
     #
     # Note: needs to know about instructions and actual register number for
     # WAW dependencies.
-    "  amdgcn-nop-insertion{conservative-extra-delays=0}"
+    "  amdgcn-nop-insertion{conservative-extra-delays=16}"
     ")"
 )
 
