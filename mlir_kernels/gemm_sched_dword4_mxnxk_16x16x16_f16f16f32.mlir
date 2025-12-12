@@ -120,6 +120,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
       %is_phase_1 = arith.cmpi eq, %phase, %c1 : index
       %is_phase_2 = arith.cmpi eq, %phase, %c2 : index
+      // Phase 0a: Global loads (decoupled from DS writes via memrefs)
       scf.if %is_phase_0 {
         %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
         scf.if %is_first_it {
@@ -145,8 +146,13 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           func.call @global_load_dwordx2_wait(%b_global, %j_pos, %k_pos, %K_SIZE, %jj_pos, %c0, %KK, %d_nnkk, %c0, %b_load_memref)
             : (!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
         }
+      } {sched.delay = 0 : i64, sched.rate = 1 : i64}
 
+      // Phase 0b: DS writes (decoupled from global loads via memrefs)
+      scf.if %is_phase_0 {
         // DS write A tile (decoupled: reads from memref)
+        %_jj, %d_mmkk  = affine.delinearize_index %d_mmnnkk into (%NN, %d_MMKK) : index, index
+        %is_nn_zero = arith.cmpi eq, %_jj, %c0 : index
         scf.if %is_nn_zero {
           %iikk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmkk, %w, %W]
           %ii_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%iikk, %KK]
@@ -155,6 +161,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         }
 
         // DS write B tile (decoupled: reads from memref)
+        %ii, %d_nnkk = affine.delinearize_index %d_mmnnkk into (%MM, %d_NNKK) : index, index
+        %is_mm_zero = arith.cmpi eq, %ii, %c0 : index
         scf.if %is_mm_zero {
           %jjkk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_nnkk, %w, %W]
           %jj_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%jjkk, %KK]
