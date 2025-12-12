@@ -31,9 +31,9 @@ from mlir_kernels.gemm_config import validate_gemm_config
 
 
 # MFMA operation sizes (16x16x16)
-M_MFMA_SIZE = 16
-N_MFMA_SIZE = 16
-K_MFMA_SIZE = 16
+MFMA_SIZE_M = 16
+MFMA_SIZE_N = 16
+MFMA_SIZE_K = 16
 
 # LDS limit (64KB)
 LDS_SIZE_LIMIT = 65536
@@ -147,6 +147,17 @@ def compile_kernel_worker(config: GEMMConfig) -> Tuple[GEMMConfig, str]:
                         + config.n_tile * config.k_tile * size_b
                     ),
                 )
+                mnkt = config.m_tile * config.n_tile * config.k_tile
+                mnk_mfma = MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K
+                mnkt_mfma = mnkt // mnk_mfma
+                LOOP_SIZE_D_MMNNKK = mnkt_mfma // config.num_waves
+
+                # These should have been checked by validate_gemm_config; this is a
+                # sanity check.
+                assert mnkt % mnk_mfma == 0, "Invalid configuration"
+                assert mnkt_mfma % config.num_waves == 0, "Invalid configuration"
+                x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(LOOP_SIZE_D_MMNNKK))
+
                 return x
 
             bench_dir = os.path.dirname(os.path.abspath(__file__))
@@ -403,7 +414,7 @@ def main() -> None:
         and config.total_flops <= 2 * 2048 * 2048 * 2048  # Maximum problem size
         # Maximum FLOPS per wave (in MFMA operations) to avoid too much unrolling atm
         and config.total_flops / (config.num_waves * config.num_workgroups)
-        <= 256 * (M_MFMA_SIZE * N_MFMA_SIZE * K_MFMA_SIZE)
+        <= 256 * (MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K)
     ]
 
     print(f"Generated {len(configs)} valid configurations")
