@@ -131,7 +131,7 @@ def compile_kernel_worker(config: GEMMConfig) -> Tuple[GEMMConfig, str]:
             size_a = np.dtype(np.float16).itemsize
             size_b = np.dtype(np.float16).itemsize
 
-            def preprocess(x: str) -> str:
+            def preprocess(x):
                 x = x.replace("{{SIZE_M}}", str(config.m))
                 x = x.replace("{{SIZE_N}}", str(config.n))
                 x = x.replace("{{SIZE_K}}", str(config.k))
@@ -140,24 +140,20 @@ def compile_kernel_worker(config: GEMMConfig) -> Tuple[GEMMConfig, str]:
                 x = x.replace("{{TILE_SIZE_K}}", str(config.k_tile))
                 x = x.replace("{{NUM_BLOCKS}}", str(config.num_workgroups))
                 x = x.replace("{{NUM_THREADS}}", str(config.num_threads))
-                x = x.replace(
-                    "{{LDS_SIZE}}",
-                    str(
-                        config.m_tile * config.k_tile * size_a
-                        + config.n_tile * config.k_tile * size_b
-                    ),
-                )
+                x = x.replace("{{LDS_SIZE}}", str(config.lds_total_size))
+                SIZE_K_BY_TILE_SIZE_K = config.k // config.k_tile
+                x = x.replace("{{SIZE_K_BY_TILE_SIZE_K}}", str(SIZE_K_BY_TILE_SIZE_K))
+                # Perform replacement for LOOP_SIZE_D_MMNNKK (proper count needed for
+                # scheduling to kick in).
                 mnkt = config.m_tile * config.n_tile * config.k_tile
                 mnk_mfma = MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K
                 mnkt_mfma = mnkt // mnk_mfma
                 LOOP_SIZE_D_MMNNKK = mnkt_mfma // config.num_waves
-
                 # These should have been checked by validate_gemm_config; this is a
                 # sanity check.
                 assert mnkt % mnk_mfma == 0, "Invalid configuration"
                 assert mnkt_mfma % config.num_waves == 0, "Invalid configuration"
                 x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(LOOP_SIZE_D_MMNNKK))
-
                 return x
 
             bench_dir = os.path.dirname(os.path.abspath(__file__))
@@ -380,6 +376,12 @@ def main() -> None:
 
     # Number of waves per block
     num_waves_values: List[int] = [1, 2, 4]
+
+    m_values: List[int] = [1024]
+    n_values: List[int] = [1024]
+    k_values: List[int] = [1024]
+    tile_configs: List[Tuple[int, int, int]] = [(32, 32, 32)]
+    num_waves_values: List[int] = [4]
 
     # Generate all valid configs
     all_configs: List[GEMMConfig] = []

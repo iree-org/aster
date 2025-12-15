@@ -37,7 +37,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Load a 16x16xdword2 tile from global memory to LDS within a single wave, in
   // a **synchronized fashion** (i.e. waitcnt 0 are inserted after global_load
-  // and after ds_write).
+  // and after lds_write).
   // The implementation assumes access to be performed in a tiled fashion, where
   // there is a major tile and a minor tile within it. The caller is
   // responsible for embedding distribution information into the indices.
@@ -92,10 +92,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     return
   }
 
-  // Loads from global memory and stores to a memref for later DS write.
-  // The memref enables a "side-effecting communication channel" that decouples
-  // global loads from LDS writes at the caller level, they must fold away when
-  // performing SROA + MEM2REG.
+  // Loads from global memory to VGPRs, in a **synchronized fashion** (i.e.
+  // waitcnt 0 are inserted after global_load).
   func.func private @global_load_dwordx2_wait(
     %ptr: !sx2,           // The global base pointer
     %i_pos: index,        // The outer-most major-tile position
@@ -103,11 +101,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %N_SIZE: index,       // The inner-most size
     %ii_pos: index,       // The outer-most minor-tile position
     %jj_pos: index,       // The inner-most minor-tile position
-    %NN: index,           // The number of 16 tiles in the inner-most major-tile
-    %i: index,            // Memref index i
-    %j: index,            // Memref index j
-    %memref: memref<?x?x!vx2>
-  ) {
+    %NN: index            // The number of 16 tiles in the inner-most major-tile
+  ) -> !vx2 {
     // Constants
     %c4 = arith.constant 4 : index
     %c16 = arith.constant 16 : index
@@ -134,25 +129,17 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
-    // Store to memref for later DS write
-    memref.store %loaded, %memref[%i, %j] : memref<?x?x!vx2>
-
-    return
+    return %loaded : !vx2
   }
 
-  // Reads from a memref (populated by global_load_dwordx2_wait) and writes to LDS.
-  // The memref enables a "side-effecting communication channel" that decouples
-  // global loads from LDS writes at the caller level, they must fold away when
-  // performing SROA + MEM2REG.
-  func.func private @ds_write_dwordx2_wait(
+  // Write %value to LDS.
+  func.func private @lds_write_dwordx2_wait(
     %lds_base_off: index, // The local base offset in LDS
     %ii_pos: index,       // The outer-most minor-tile position
     %jj_pos: index,       // The inner-most minor-tile position
     %NN_SIZE: index,      // The inner-most major-tile size
     %NN: index,           // The number of 16 tiles in the inner-most major-tile
-    %i: index,            // Memref index i
-    %j: index,            // Memref index j
-    %memref: memref<?x?x!vx2>
+    %value: !vx2          // The value to write to LDS
   ) {
     // Constants
     %c4 = arith.constant 4 : index
@@ -167,16 +154,13 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       : (index, index) -> (index, index)
     %jjj_pos = affine.apply affine_map<()[jjj, sz] -> (jjj * 4)>()[%jjj, %SZ1]
 
-    // Load the value from memref
-    %loaded = memref.load %memref[%i, %j] : memref<?x?x!vx2>
-
     // Calculate offset into LDS
     %off_lds_reg = func.call @tiled_matrix_offset(%ii_pos, %jj_pos, %iii, %jjj_pos, %NN_SIZE, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
     // DS write to LDS
     %l_off_i32 = arith.index_cast %lds_base_off : index to i32
-    amdgcn.ds.write #amdgcn.inst<ds_write_b64> %loaded, %off_lds_reg, offset = %l_off_i32
+    amdgcn.ds.write #amdgcn.inst<ds_write_b64> %value, %off_lds_reg, offset = %l_off_i32
       : !vx2, !v, i32
 
     // Wait for LDS write
