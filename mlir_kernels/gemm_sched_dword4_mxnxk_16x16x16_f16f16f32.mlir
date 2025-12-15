@@ -307,7 +307,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %phase, %k, %d_mmnnkk, %NN, %MM, %d_MMKK, %d_NNKK, %w, %W, %KK,
         %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
         %a_load_memref, %b_load_memref)
-        {sched.delay = 25 : i64, sched.rate = 1 : i64}
+        {sched.delay = 12 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index, index, index,
            index, index, index,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
@@ -317,7 +317,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %phase, %k, %d_mmnnkk, %d_MMNN, %KK, %w, %W, %MM, %NN,
         %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
         %a_frag_memref, %b_frag_memref)
-        {sched.delay = 25 : i64, sched.rate = 1 : i64}
+        {sched.delay = 24 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index, index,
            index, index, index,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
@@ -326,7 +326,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       func.call @maybe_mfma(
         %phase, %k, %d_mmnnkk, %d_MMNN, %KK,
         %a_frag_memref, %b_frag_memref, %c_fragments)
-        {sched.delay = 75 : i64, sched.rate = 1 : i64}
+        {sched.delay = 36 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index,
            memref<?x?x!vx2>, memref<?x?x!vx2>, memref<?x!vx4>) -> ()
 
@@ -334,7 +334,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       func.call @maybe_store_c_fragment(
         %phase, %d_mmnnkk, %d_MMNN, %KK, %w, %W, %MM, %NN, %k, %K,
         %i_pos, %j_pos, %SIZE_N, %c_fragments, %c_global)
-          {sched.delay = 100 : i64, sched.rate = 1 : i64}
+          {sched.delay = 48 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index, index, index,
            index, index, index, memref<?x!vx4>, !sx2) -> ()
 
