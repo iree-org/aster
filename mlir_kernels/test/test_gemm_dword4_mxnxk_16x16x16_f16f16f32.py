@@ -10,6 +10,7 @@ from integration_test.test_utils import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
     DEFAULT_SROA_PASS_PIPELINE,
+    SYNCHRONOUS_SROA_PASS_PIPELINE,
     hsaco_file,
 )
 from mlir_kernels.gemm_config import validate_gemm_config
@@ -49,7 +50,7 @@ KERNEL_NAME = "test_matmul_kernel"
     ],
     # fmt: on
 )
-@pytest.mark.parametrize("pass_pipeline", [DEFAULT_SROA_PASS_PIPELINE])
+@pytest.mark.parametrize("pass_pipeline", [SYNCHRONOUS_SROA_PASS_PIPELINE])
 @pytest.mark.parametrize("mcpu", ["gfx942"])
 def test_gemm_e2e_kernel(
     mlir_filename: str,

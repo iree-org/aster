@@ -222,7 +222,7 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     # Note: going to PIR early will make memory dependency more conservative,
     # resulting in more waits during amdgcn-optimize-straight-line-waits.
     # TODO: NORMAL FORMS or include in pass.
-    "  amdgcn-optimize-straight-line-waits,"
+    # "  amdgcn-optimize-straight-line-waits,"
     #
     # Note: convert to PIR and AMDGCN after straight-line wait optimization.
     # Note: aster-to-int-arith contains lower-affine without linking in and
@@ -252,7 +252,7 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     #
     # Note: needs to know about instructions and actual register number for
     # WAW dependencies.
-    "  amdgcn-nop-insertion{conservative-extra-delays=0}"
+    "  amdgcn-nop-insertion{conservative-extra-delays=16}"
     ")"
 )
 
