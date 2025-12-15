@@ -128,7 +128,7 @@ def test_gemm_e2e_kernel(
             pass_pipeline,
             ctx,
             preprocess=preprocess,
-            print_ir_after_all=False,
+            print_ir_after_all=True,
             library_paths=[register_init_lib, indexing_lib, copies_lib],
             print_timings=False,
         )
