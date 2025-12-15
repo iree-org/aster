@@ -1,5 +1,16 @@
 // RUN: aster-opt %s -aster-to-amdgcn | FileCheck %s
 
+// CHECK-LABEL:   func.func @test_assume_noalias(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr_range<[? + 2]>, %[[ARG1:.*]]: !amdgcn.sgpr_range<[? + 2]>) -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>) {
+// CHECK-NOT:       lsir.assume_noalias
+// CHECK:           return %[[ARG0]], %[[ARG1]]
+// CHECK:         }
+func.func @test_assume_noalias(%ptr1: !amdgcn.sgpr_range<[? + 2]>, %ptr2: !amdgcn.sgpr_range<[? + 2]>) -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>) {
+  %ptr1_noalias, %ptr2_noalias = lsir.assume_noalias %ptr1, %ptr2
+    : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>) -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>)
+  return %ptr1_noalias, %ptr2_noalias : !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>
+}
+
 // CHECK-LABEL:   func.func @test_add_i32(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr, %[[ARG2:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
 // CHECK:           %[[VAL_0:.*]] = amdgcn.vop2 v_add_u32 outs %[[ARG0]] ins %[[ARG1]], %[[ARG2]] : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
