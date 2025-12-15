@@ -264,6 +264,6 @@ if __name__ == "__main__":
         n_tile=args.n_tile,
         k_tile=args.k_tile,
         num_wavefronts=args.num_wavefronts,
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline=SYNCHRONOUS_SROA_PASS_PIPELINE,
         mcpu=args.mcpu,
     )
