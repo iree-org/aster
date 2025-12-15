@@ -166,7 +166,7 @@ def test_gemm_e2e_kernel(
                     f"GPU {mcpu} not available, but cross-compilation to HSACO succeeded"
                 )
 
-            execute_kernel_and_verify(
+            iteration_times = execute_kernel_and_verify(
                 hsaco_path=hsaco_path,
                 kernel_name=kernel_name,
                 input_args=[a_data, b_data],
@@ -176,7 +176,9 @@ def test_gemm_e2e_kernel(
                 verify_fn=verify_fn,
                 grid_dim=(num_blocks, 1, 1),
                 block_dim=(num_threads, 1, 1),
+                num_iterations=5,
             )
+            print(f"Iteration times: {iteration_times} nanoseconds")
 
 
 if __name__ == "__main__":
