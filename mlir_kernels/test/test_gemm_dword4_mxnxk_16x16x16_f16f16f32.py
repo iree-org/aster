@@ -50,7 +50,9 @@ KERNEL_NAME = "test_matmul_kernel"
     ],
     # fmt: on
 )
-@pytest.mark.parametrize("pass_pipeline", [SYNCHRONOUS_SROA_PASS_PIPELINE])
+@pytest.mark.parametrize(
+    "pass_pipeline", [DEFAULT_SROA_PASS_PIPELINE, SYNCHRONOUS_SROA_PASS_PIPELINE]
+)
 @pytest.mark.parametrize("mcpu", ["gfx942"])
 def test_gemm_e2e_kernel(
     mlir_filename: str,
@@ -128,7 +130,7 @@ def test_gemm_e2e_kernel(
             pass_pipeline,
             ctx,
             preprocess=preprocess,
-            print_ir_after_all=True,
+            print_ir_after_all=False,
             library_paths=[register_init_lib, indexing_lib, copies_lib],
             print_timings=False,
         )
