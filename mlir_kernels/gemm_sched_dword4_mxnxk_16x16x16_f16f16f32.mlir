@@ -39,8 +39,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // Main function that allocates memrefs and loops over M, N, K
   func.func private @matmul_loop(
-    %M_SIZE: index, %N_SIZE: index, %K_SIZE: index,            // Problem sizes
-    %M_TILE_SIZE: index, %N_TILE_SIZE: index, %K_TILE_SIZE: index,   // Block-level tile sizes
+    %SIZE_M: index, %SIZE_N: index, %SIZE_K: index,            // Problem sizes
+    %TILE_SIZE_M: index, %TILE_SIZE_N: index, %TILE_SIZE_K: index,   // Block-level tile sizes
     %a_global: !sx2, %b_global: !sx2, %c_global: !sx2 // Global memory pointers
   ) {
     // GPU variables
@@ -60,21 +60,21 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %lds_a_base_off = arith.constant 0 : index
     %lds_b_base_off = affine.apply
       affine_map<()[rows, cols, type_size] -> (rows * cols * type_size)>
-      ()[%M_TILE_SIZE, %K_TILE_SIZE, %elt_sz_in_b]
+      ()[%TILE_SIZE_M, %TILE_SIZE_K, %elt_sz_in_b]
 
     // Block-level tile indices (i, j, k) and sizes (M, N, K)
-    %K = affine.apply affine_map<()[sz, bsz] -> (sz ceildiv bsz)>()[%K_SIZE, %K_TILE_SIZE]
-    %i, %j = func.call @tiled_grid_partition_2D(%M_SIZE, %N_SIZE, %M_TILE_SIZE, %N_TILE_SIZE)
+    %K = affine.apply affine_map<()[sz, bsz] -> (sz ceildiv bsz)>()[%SIZE_K, %TILE_SIZE_K]
+    %i, %j = func.call @tiled_grid_partition_2D(%SIZE_M, %SIZE_N, %TILE_SIZE_M, %TILE_SIZE_N)
       : (index, index, index, index) -> (index, index)
 
     // Calculate global positions
-    %i_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%M_TILE_SIZE)[%i]
-    %j_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%N_TILE_SIZE)[%j]
+    %i_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_M)[%i]
+    %j_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_N)[%j]
 
     // Warp-level tile indices (ii, jj, kk) and sizes (MM, NN, KK)
-    %MM = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%M_TILE_SIZE]
-    %NN = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%N_TILE_SIZE]
-    %KK = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%K_TILE_SIZE]
+    %MM = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_M]
+    %NN = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_N]
+    %KK = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_K]
 
     // Number of distributed mma tiles
     %d_MMNNKK = affine.apply affine_map<()[sz0, sz1, sz2, W] -> ((sz0 * sz1 * sz2) ceildiv W)>()[%MM, %NN, %KK, %W]
@@ -113,7 +113,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     scf.for %idx = %c0 to %ub step %c1 {
       // Decompose linear index into 3D index
       %k, %phase, %d_mmnnkk = affine.delinearize_index %idx into (%K, %num_phases, %d_MMNNKK) : index, index, index
-      %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%K_TILE_SIZE)[%k]
+      %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
       // Phase 0 loads to shared
       // Phase 1 computes
@@ -133,7 +133,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         scf.if %is_nn_zero {
           %iikk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmkk, %w, %W]
           %ii_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%iikk, %KK]
-          func.call @global_load_dwordx2_wait(%a_global, %i_pos, %k_pos, %K_SIZE, %ii_pos, %c0, %KK, %d_mmkk, %c0, %a_load_memref)
+          func.call @global_load_dwordx2_wait(%a_global, %i_pos, %k_pos, %SIZE_K, %ii_pos, %c0, %KK, %d_mmkk, %c0, %a_load_memref)
             : (!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
         }
 
@@ -143,7 +143,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         scf.if %is_mm_zero {
           %jjkk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_nnkk, %w, %W]
           %jj_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%jjkk, %KK]
-          func.call @global_load_dwordx2_wait(%b_global, %j_pos, %k_pos, %K_SIZE, %jj_pos, %c0, %KK, %d_nnkk, %c0, %b_load_memref)
+          func.call @global_load_dwordx2_wait(%b_global, %j_pos, %k_pos, %SIZE_K, %jj_pos, %c0, %KK, %d_nnkk, %c0, %b_load_memref)
             : (!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
         }
       } {sched.delay = 0 : i64, sched.rate = 1 : i64}
@@ -156,7 +156,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         scf.if %is_nn_zero {
           %iikk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmkk, %w, %W]
           %ii_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%iikk, %KK]
-          func.call @ds_write_dwordx2_wait(%lds_a_base_off, %ii_pos, %c0, %K_TILE_SIZE, %KK, %d_mmkk, %c0, %a_load_memref)
+          func.call @ds_write_dwordx2_wait(%lds_a_base_off, %ii_pos, %c0, %TILE_SIZE_K, %KK, %d_mmkk, %c0, %a_load_memref)
             : (index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
         }
 
@@ -166,7 +166,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         scf.if %is_mm_zero {
           %jjkk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_nnkk, %w, %W]
           %jj_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%jjkk, %KK]
-          func.call @ds_write_dwordx2_wait(%lds_b_base_off, %jj_pos, %c0, %K_TILE_SIZE, %KK, %d_nnkk, %c0, %b_load_memref)
+          func.call @ds_write_dwordx2_wait(%lds_b_base_off, %jj_pos, %c0, %TILE_SIZE_K, %KK, %d_nnkk, %c0, %b_load_memref)
             : (index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
         }
       // 2 K * 3 phases multiplier..
@@ -190,9 +190,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
 
         // Read A and B fragments from LDS, store to memrefs
-        %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base_off, %ii_pos, %kk_pos, %K_TILE_SIZE)
+        %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base_off, %ii_pos, %kk_pos, %TILE_SIZE_K)
           : (index, index, index, index) -> !vx2
-        %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base_off, %jj_pos, %kk_pos, %K_TILE_SIZE)
+        %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base_off, %jj_pos, %kk_pos, %TILE_SIZE_K)
           : (index, index, index, index) -> !vx2
         memref.store %a_frag, %a_frag_memref[%d_mmnnkk] : memref<?x!vx2>
         memref.store %b_frag, %b_frag_memref[%d_mmnnkk] : memref<?x!vx2>
@@ -231,7 +231,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
           %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
           %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-          func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %N_SIZE, %ii_pos, %jj_pos)
+          func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %SIZE_N, %ii_pos, %jj_pos)
             : (!vx4, !sx2, index, index, index, index, index) -> ()
         }
       // 2 K * 3 phases multiplier..
