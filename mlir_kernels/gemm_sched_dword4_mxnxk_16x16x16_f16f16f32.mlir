@@ -285,7 +285,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       ()[%K, %num_phases, %d_MMNNKK]
     scf.for %idx = %c0 to %ub step %c1 {
       // Decompose linear index into 3D index
-      %k, %d_mmnnkk, %phase = affine.delinearize_index %idx into (%K, %d_MMNNKK, %num_phases) : index, index, index
+      %k, %phase, %d_mmnnkk = affine.delinearize_index %idx into (%K, %num_phases, %d_MMNNKK) : index, index, index
       %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
       // Phase 0a: Global loads (decoupled from DS writes via memrefs)
@@ -338,7 +338,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         : (index, index, index, index, index, index, index, index, index, index,
            index, index, index, memref<?x!vx4>, !sx2) -> ()
 
-    } {amdgcn.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, {{LOOP_SIZE_D_MMNNKK}}, 3> }
+    } {amdgcn.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, 3, {{LOOP_SIZE_D_MMNNKK}}> }
 
     return
   }
