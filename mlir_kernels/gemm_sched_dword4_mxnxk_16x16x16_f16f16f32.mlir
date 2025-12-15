@@ -328,7 +328,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       func.call @maybe_mfma(
         %phase, %d_mmnnkk, %d_MMNN, %KK,
         %a_frag_memref, %b_frag_memref, %c_fragments)
-        {sched.delay = 3 : i64, sched.rate = 1 : i64}
+        {sched.delay = 0 : i64, sched.rate = 1 : i64}
         : (index, index, index, index,
            memref<?x!vx2>, memref<?x!vx2>, memref<?x!vx4>) -> ()
 
