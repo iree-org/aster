@@ -108,16 +108,18 @@ def test_gemm_e2e_kernel(
                 "{{LDS_SIZE}}",
                 str((m_tile * k_tile * size_a + n_tile * k_tile * size_b)),
             )
+            SIZE_K_BY_TILE_SIZE_K = k // k_tile
+            x = x.replace("{{SIZE_K_BY_TILE_SIZE_K}}", str(SIZE_K_BY_TILE_SIZE_K))
+            # Perform replacement for LOOP_SIZE_D_MMNNKK (proper count needed for
+            # scheduling to kick in).
             mnkt = m_tile * n_tile * k_tile
             mnk_mfma = MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K
             mnkt_mfma = mnkt // mnk_mfma
             LOOP_SIZE_D_MMNNKK = mnkt_mfma // num_wavefronts
-
             # These should have been checked by validate_gemm_config; this is a
             # sanity check.
             assert mnkt % mnk_mfma == 0, "Invalid configuration"
             assert mnkt_mfma % num_wavefronts == 0, "Invalid configuration"
-
             x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(LOOP_SIZE_D_MMNNKK))
             return x
 

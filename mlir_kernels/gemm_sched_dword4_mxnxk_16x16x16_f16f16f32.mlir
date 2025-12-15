@@ -2,6 +2,8 @@
 // RUN: cat %s \
 // RUN: | sed -e 's/{{SIZE_M}}/64/g' -e 's/{{SIZE_N}}/64/g' -e 's/{{SIZE_K}}/64/g' -e 's/{{LDS_B_SHIFT}}/8192/g' -e 's/{{LDS_SIZE}}/16384/g' \
 // RUN: | sed -e 's/{{LOOP_SIZE_M}}/4/g' -e 's/{{LOOP_SIZE_N}}/4/g' -e 's/{{LOOP_SIZE_K}}/4/g' \
+// RUN: | sed -e 's/{{SIZE_K_BY_TILE_SIZE_K}}/2/g' \
+// RUN: | sed -e 's/{{LOOP_SIZE_D_MMNNKK}}/6/g' \
 // RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/register_init.mlir,%p/library/common/indexing.mlir" \
 // RUN: | FileCheck %s
 
@@ -336,7 +338,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         : (index, index, index, index, index, index, index, index, index, index,
            index, index, index, memref<?x!vx4>, !sx2) -> ()
 
-    } {amdgcn.constexpr, sched.dims = array<i64: 2, 3, {{LOOP_SIZE_D_MMNNKK}}> }
+    } {amdgcn.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, 3, {{LOOP_SIZE_D_MMNNKK}}> }
 
     return
   }
