@@ -307,7 +307,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %phase, %k, %d_mmnnkk, %NN, %MM, %d_MMKK, %d_NNKK, %w, %W, %KK,
         %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
         %a_load_memref, %b_load_memref)
-        {sched.delay = 0 : i64, sched.rate = 1 : i64}
+        {sched.delay = 25 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index, index, index,
            index, index, index,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
@@ -317,7 +317,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %phase, %k, %d_mmnnkk, %d_MMNN, %KK, %w, %W, %MM, %NN,
         %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
         %a_frag_memref, %b_frag_memref)
-        {sched.delay = 0 : i64, sched.rate = 1 : i64}
+        {sched.delay = 50 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index, index,
            index, index, index,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
