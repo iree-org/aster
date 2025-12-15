@@ -104,9 +104,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %ii_pos: index,       // The outer-most minor-tile position
     %jj_pos: index,       // The inner-most minor-tile position
     %NN: index,           // The number of 16 tiles in the inner-most major-tile
-    %i: index,            // Memref index i
-    %j: index,            // Memref index j
-    %memref: memref<?x?x!vx2>
+    %m_idx: index,        // Memref index
+    %memref: memref<?x!vx2>
   ) {
     // Constants
     %c4 = arith.constant 4 : index
@@ -135,7 +134,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     // Store to memref for later DS write
-    memref.store %loaded, %memref[%i, %j] : memref<?x?x!vx2>
+    memref.store %loaded, %memref[%m_idx] : memref<?x!vx2>
 
     return
   }
@@ -150,9 +149,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %jj_pos: index,       // The inner-most minor-tile position
     %NN_SIZE: index,      // The inner-most major-tile size
     %NN: index,           // The number of 16 tiles in the inner-most major-tile
-    %i: index,            // Memref index i
-    %j: index,            // Memref index j
-    %memref: memref<?x?x!vx2>
+    %m_idx: index,        // Memref index
+    %memref: memref<?x!vx2>
   ) {
     // Constants
     %c4 = arith.constant 4 : index
@@ -168,7 +166,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %jjj_pos = affine.apply affine_map<()[jjj, sz] -> (jjj * 4)>()[%jjj, %SZ1]
 
     // Load the value from memref
-    %loaded = memref.load %memref[%i, %j] : memref<?x?x!vx2>
+    %loaded = memref.load %memref[%m_idx] : memref<?x!vx2>
 
     // Calculate offset into LDS
     %off_lds_reg = func.call @tiled_matrix_offset(%ii_pos, %jj_pos, %iii, %jjj_pos, %NN_SIZE, %elt_size)
