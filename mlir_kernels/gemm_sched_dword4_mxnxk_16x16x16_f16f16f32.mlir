@@ -215,6 +215,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %a_global: !sx2, %b_global: !sx2, %c_global: !sx2 // Global memory pointers
   ) {
     // GPU variables
+    %bdim = gpu.block_dim x
+    %bid = gpu.block_id x
+    %tid = gpu.thread_id x
     %w = func.call @wave_id() : () -> index
     %W = func.call @wave_count() : () -> index
 
@@ -280,7 +283,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       ()[%K, %num_phases, %d_MMNNKK]
     scf.for %idx = %c0 to %ub step %c1 {
       // Decompose linear index into 3D index
-      %d_mmnnkk, %k, %phase = affine.delinearize_index %idx into (%d_MMNNKK, %K, %num_phases) : index, index, index
+      %k, %phase, %d_mmnnkk = affine.delinearize_index %idx into (%K, %num_phases, %d_MMNNKK) : index, index, index
       %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
       // Phase 0a: Global loads (decoupled from DS writes via memrefs)
@@ -298,8 +301,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %phase, %d_mmnnkk, %NN, %MM, %d_MMKK, %d_NNKK, %w, %W, %KK,
         %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
         %a_load_memref, %b_load_memref)
-        // 3 phases multiplier..
-        {sched.delay = 6 : i64, sched.rate = 1 : i64}
+        // 2 K * 3 phases multiplier..
+        {sched.delay = 25 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index, index,
            index, index, index,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
@@ -309,8 +312,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %phase, %d_mmnnkk, %d_MMNN, %KK, %w, %W, %MM, %NN,
         %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
         %a_frag_memref, %b_frag_memref)
-        // 3 phases multiplier..
-        {sched.delay = 12 : i64, sched.rate = 1 : i64}
+        // 2 K * 3 phases multiplier..
+        {sched.delay = 50 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index,
            index, index, index,
            memref<?x!vx2>, memref<?x!vx2>) -> ()
@@ -319,20 +322,20 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       func.call @maybe_mfma(
         %phase, %d_mmnnkk, %d_MMNN, %KK,
         %a_frag_memref, %b_frag_memref, %c_fragments)
-        // 3 phases multiplier..
-        {sched.delay = 18 : i64, sched.rate = 1 : i64}
+        // 2 K * 3 phases multiplier..
+        {sched.delay = 75 : i64, sched.rate = 1 : i64}
         : (index, index, index, index,
            memref<?x!vx2>, memref<?x!vx2>, memref<?x!vx4>) -> ()
 
       func.call @maybe_store_c_fragment(
         %phase, %d_mmnnkk, %d_MMNN, %KK, %w, %W, %MM, %NN, %k, %K,
         %i_pos, %j_pos, %SIZE_N, %c_fragments, %c_global)
-          // 3 phases multiplier..
-          {sched.delay = 24 : i64, sched.rate = 1 : i64}
+          // 2 K * 3 phases multiplier..
+          {sched.delay = 100 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index, index, index,
            index, index, index, memref<?x!vx4>, !sx2) -> ()
 
-    } {amdgcn.constexpr, sched.dims = array<i64: {{LOOP_SIZE_D_MMNNKK}}> }
+    } {amdgcn.constexpr, sched.dims = array<i64: 2, 3, {{LOOP_SIZE_D_MMNNKK}}> }
 
     return
   }

@@ -147,20 +147,17 @@ def compile_kernel_worker(config: GEMMConfig) -> Tuple[GEMMConfig, str]:
                         + config.n_tile * config.k_tile * size_b
                     ),
                 )
-                # Perform replacement for LOOP_SIZE_D_MMNNKK (proper count needed for
-                # scheduling to kick in).
-                NUM_PHASES = 3
-                mnkt = config.m_tile * config.n_tile * config.k
+                mnkt = config.m_tile * config.n_tile * config.k_tile
                 mnk_mfma = MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K
                 mnkt_mfma = mnkt // mnk_mfma
                 LOOP_SIZE_D_MMNNKK = mnkt_mfma // config.num_waves
+
                 # These should have been checked by validate_gemm_config; this is a
                 # sanity check.
                 assert mnkt % mnk_mfma == 0, "Invalid configuration"
                 assert mnkt_mfma % config.num_waves == 0, "Invalid configuration"
-                x = x.replace(
-                    "{{LOOP_SIZE_D_MMNNKK}}", str(NUM_PHASES * LOOP_SIZE_D_MMNNKK)
-                )
+                x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(LOOP_SIZE_D_MMNNKK))
+
                 return x
 
             bench_dir = os.path.dirname(os.path.abspath(__file__))
