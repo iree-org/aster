@@ -31,9 +31,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
   // copies.mlir
   func.func private @global_load_dwordx2_wait(
-    !sx2, index, index, index, index, index, index, index, memref<?x!vx2>) -> ()
-  func.func private @ds_write_dwordx2_wait(
-    index, index, index, index, index, index, memref<?x!vx2>) -> ()
+    !sx2, index, index, index, index, index, index) -> (!vx2)
+  func.func private @lds_write_dwordx2_wait(
+    index, index, index, index, index, !vx2) -> ()
   func.func private @read_lds_A_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
   func.func private @store_global_16x16xf32_C_fragment_wait(
@@ -62,8 +62,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       scf.if %is_nn_zero {
         %iikk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_mmkk, %w, %W]
         %ii_pos = affine.apply affine_map<()[idx, KKv] -> (idx * (16 ceildiv KKv))>()[%iikk, %KK]
-        func.call @global_load_dwordx2_wait(%a_global, %i_pos, %k_pos, %SIZE_K, %ii_pos, %c0, %KK, %d_mmkk, %a_load_memref)
-          : (!sx2, index, index, index, index, index, index, index, memref<?x!vx2>) -> ()
+        %loaded = func.call @global_load_dwordx2_wait(%a_global, %i_pos, %k_pos, %SIZE_K, %ii_pos, %c0, %KK)
+          : (!sx2, index, index, index, index, index, index) -> (!vx2)
+
+        memref.store %loaded, %a_load_memref[%d_mmkk] : memref<?x!vx2>
       }
 
       // Global load B tile (decoupled: stores to memref)
@@ -72,15 +74,17 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       scf.if %is_mm_zero {
         %jjkk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_nnkk, %w, %W]
         %jj_pos = affine.apply affine_map<()[idx, KKv] -> (idx * (16 ceildiv KKv))>()[%jjkk, %KK]
-        func.call @global_load_dwordx2_wait(%b_global, %j_pos, %k_pos, %SIZE_K, %jj_pos, %c0, %KK, %d_nnkk, %b_load_memref)
-          : (!sx2, index, index, index, index, index, index, index, memref<?x!vx2>) -> ()
+        %loaded = func.call @global_load_dwordx2_wait(%b_global, %j_pos, %k_pos, %SIZE_K, %jj_pos, %c0, %KK)
+          : (!sx2, index, index, index, index, index, index) -> (!vx2)
+
+        memref.store %loaded, %b_load_memref[%d_nnkk] : memref<?x!vx2>
       }
     }
     return
   }
 
   // Phase 0b: DS writes if phase 0 (decoupled from global loads via memrefs)
-  func.func private @maybe_ds_write(
+  func.func private @maybe_lds_write(
     %phase: index, %d_mmnnkk: index,
     %NN: index, %MM: index, %d_MMKK: index, %d_NNKK: index,
     %w: index, %W: index, %KK: index,
@@ -96,8 +100,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       scf.if %is_nn_zero {
         %iikk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_mmkk, %w, %W]
         %ii_pos = affine.apply affine_map<()[idx, KKv] -> (idx * (16 ceildiv KKv))>()[%iikk, %KK]
-        func.call @ds_write_dwordx2_wait(%lds_a_base_off, %ii_pos, %c0, %TILE_SIZE_K, %KK, %d_mmkk, %a_load_memref)
-          : (index, index, index, index, index, index, memref<?x!vx2>) -> ()
+        %loaded = memref.load %a_load_memref[%d_mmkk] : memref<?x!vx2>
+        func.call @lds_write_dwordx2_wait(%lds_a_base_off, %ii_pos, %c0, %TILE_SIZE_K, %KK, %loaded)
+          : (index, index, index, index, index, !vx2) -> ()
       }
 
       // DS write B tile (decoupled: reads from memref)
@@ -106,8 +111,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       scf.if %is_mm_zero {
         %jjkk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_nnkk, %w, %W]
         %jj_pos = affine.apply affine_map<()[idx, KKv] -> (idx * (16 ceildiv KKv))>()[%jjkk, %KK]
-        func.call @ds_write_dwordx2_wait(%lds_b_base_off, %jj_pos, %c0, %TILE_SIZE_K, %KK, %d_nnkk, %b_load_memref)
-          : (index, index, index, index, index, index, memref<?x!vx2>) -> ()
+        %loaded = memref.load %b_load_memref[%d_nnkk] : memref<?x!vx2>
+        func.call @lds_write_dwordx2_wait(%lds_b_base_off, %jj_pos, %c0, %TILE_SIZE_K, %KK, %loaded)
+          : (index, index, index, index, index, !vx2) -> ()
       }
     }
     return
@@ -299,7 +305,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
            memref<?x!vx2>, memref<?x!vx2>) -> ()
 
       // Phase 0b: DS writes (decoupled from global loads via memrefs)
-      func.call @maybe_ds_write(
+      func.call @maybe_lds_write(
         %phase, %d_mmnnkk, %NN, %MM, %d_MMKK, %d_NNKK, %w, %W, %KK,
         %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
         %a_load_memref, %b_load_memref)
