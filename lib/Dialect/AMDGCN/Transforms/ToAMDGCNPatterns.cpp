@@ -66,6 +66,16 @@ struct AllocaOpPattern : public OpRewritePattern<lsir::AllocaOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// AssumeNoaliasOpPattern
+//===----------------------------------------------------------------------===//
+
+struct AssumeNoaliasOpPattern : public OpRewritePattern<lsir::AssumeNoaliasOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::AssumeNoaliasOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
 // AndIOpPattern
 //===----------------------------------------------------------------------===//
 
@@ -427,6 +437,20 @@ AllocaOpPattern::matchAndRewrite(lsir::AllocaOp op,
         op, "operand type is not an AMDGCN register type");
   }
   rewriter.replaceOp(op, createAllocation(rewriter, op.getLoc(), op.getType()));
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AssumeNoaliasOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+AssumeNoaliasOpPattern::matchAndRewrite(lsir::AssumeNoaliasOp op,
+                                        PatternRewriter &rewriter) const {
+  // If we still have AssumeNoAlias at this point, just forward the operands.
+  // This op is meant to be used in analyses before lowering to improve alias
+  // analysis.
+  rewriter.replaceOp(op, op.getOperands());
   return success();
 }
 
@@ -1589,9 +1613,10 @@ LogicalResult WaitOpPattern::matchAndRewrite(lsir::WaitOp op,
 
 void mlir::aster::amdgcn::populateToAMDGCNPatterns(
     RewritePatternSet &patterns) {
-  patterns.add<AddIOpPattern, AllocaOpPattern, AndIOpPattern, KernelOpPattern,
-               LoadOpPattern, MulIOpPattern, OrIOpPattern, RegCastOpPattern,
-               ReturnOpPattern, ShLIOpPattern, ShRSIOpPattern, ShRUIOpPattern,
-               StoreOpPattern, SubIOpPattern, TimingStartOpPattern,
-               TimingStopOpPattern, WaitOpPattern>(patterns.getContext());
+  patterns.add<AddIOpPattern, AllocaOpPattern, AssumeNoaliasOpPattern,
+               AndIOpPattern, KernelOpPattern, LoadOpPattern, MulIOpPattern,
+               OrIOpPattern, RegCastOpPattern, ReturnOpPattern, ShLIOpPattern,
+               ShRSIOpPattern, ShRUIOpPattern, StoreOpPattern, SubIOpPattern,
+               TimingStartOpPattern, TimingStopOpPattern, WaitOpPattern>(
+      patterns.getContext());
 }
