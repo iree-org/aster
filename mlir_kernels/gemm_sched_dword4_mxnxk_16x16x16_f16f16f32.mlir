@@ -60,8 +60,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %_jj, %d_mmkk = affine.delinearize_index %d_mmnnkk into (%NN, %d_MMKK) : index, index
       %is_nn_zero = arith.cmpi eq, %_jj, %c0 : index
       scf.if %is_nn_zero {
-        %iikk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_mmkk, %w, %W]
-        %ii_pos = affine.apply affine_map<()[idx, KKv] -> (idx * (16 ceildiv KKv))>()[%iikk, %KK]
+        %iikk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmkk, %w, %W]
+        %ii_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%iikk, %KK]
         %loaded = func.call @global_load_dwordx2_wait(%a_global, %i_pos, %k_pos, %SIZE_K, %ii_pos, %c0, %KK)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
 
@@ -72,8 +72,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %ii, %d_nnkk = affine.delinearize_index %d_mmnnkk into (%MM, %d_NNKK) : index, index
       %is_mm_zero = arith.cmpi eq, %ii, %c0 : index
       scf.if %is_mm_zero {
-        %jjkk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_nnkk, %w, %W]
-        %jj_pos = affine.apply affine_map<()[idx, KKv] -> (idx * (16 ceildiv KKv))>()[%jjkk, %KK]
+        %jjkk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_nnkk, %w, %W]
+        %jj_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%jjkk, %KK]
         %loaded = func.call @global_load_dwordx2_wait(%b_global, %j_pos, %k_pos, %SIZE_K, %jj_pos, %c0, %KK)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
 
@@ -98,8 +98,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %_jj, %d_mmkk = affine.delinearize_index %d_mmnnkk into (%NN, %d_MMKK) : index, index
       %is_nn_zero = arith.cmpi eq, %_jj, %c0 : index
       scf.if %is_nn_zero {
-        %iikk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_mmkk, %w, %W]
-        %ii_pos = affine.apply affine_map<()[idx, KKv] -> (idx * (16 ceildiv KKv))>()[%iikk, %KK]
+        %iikk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmkk, %w, %W]
+        %ii_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%iikk, %KK]
         %loaded = memref.load %a_load_memref[%k, %d_mmkk] : memref<?x?x!vx2>
         func.call @lds_write_dwordx2_wait(%lds_a_base_off, %ii_pos, %c0, %TILE_SIZE_K, %KK, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
@@ -109,8 +109,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %ii, %d_nnkk = affine.delinearize_index %d_mmnnkk into (%MM, %d_NNKK) : index, index
       %is_mm_zero = arith.cmpi eq, %ii, %c0 : index
       scf.if %is_mm_zero {
-        %jjkk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_nnkk, %w, %W]
-        %jj_pos = affine.apply affine_map<()[idx, KKv] -> (idx * (16 ceildiv KKv))>()[%jjkk, %KK]
+        %jjkk = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_nnkk, %w, %W]
+        %jj_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%jjkk, %KK]
         %loaded = memref.load %b_load_memref[%k, %d_nnkk] : memref<?x?x!vx2>
         func.call @lds_write_dwordx2_wait(%lds_b_base_off, %jj_pos, %c0, %TILE_SIZE_K, %KK, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
@@ -137,7 +137,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       }
       // Calculate mma tile indices
       %d_mmnn, %kk = affine.delinearize_index %d_mmnnkk into (%d_MMNN, %KK) : index, index
-      %mmnn = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_mmnn, %w, %W]
+      %mmnn = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmnn, %w, %W]
       %ii, %jj = affine.delinearize_index %mmnn into (%MM, %NN) : index, index
 
       // Compute positions
@@ -194,7 +194,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     scf.if %is_phase_2 {
       // Calculate mma tile indices
       %d_mmnn, %kk = affine.delinearize_index %d_mmnnkk into (%d_MMNN, %KK) : index, index
-      %mmnn = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_mmnn, %w, %W]
+      %mmnn = affine.apply affine_map<()[d_idx, w, W] -> (d_idx * W + w)>()[%d_mmnn, %w, %W]
       %ii, %jj = affine.delinearize_index %mmnn into (%MM, %NN) : index, index
 
       // if k is the last tile and kk is the last iteration, store to global
@@ -279,7 +279,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
 
     // M, N are fully distributed to blocks.
-    // Loop over remaining 4-D tile **distributed** tile index (K, d_MMNNKK) in 2 phases:
+    // Loop over remaining 4-D tile **distributed** tile index (K, d_MMNNKK) in 3 phases:
     //   - Phase 0 loads to shared
     //   - Phase 1 computes
     //   - Phase 2 stores to global
@@ -307,7 +307,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %phase, %k, %d_mmnnkk, %NN, %MM, %d_MMKK, %d_NNKK, %w, %W, %KK,
         %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
         %a_load_memref, %b_load_memref)
-        {sched.delay = 12 : i64, sched.rate = 1 : i64}
+        {sched.delay = 0 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index, index, index,
            index, index, index,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
@@ -317,7 +317,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %phase, %k, %d_mmnnkk, %d_MMNN, %KK, %w, %W, %MM, %NN,
         %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
         %a_frag_memref, %b_frag_memref)
-        {sched.delay = 24 : i64, sched.rate = 1 : i64}
+        {sched.delay = 0 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index, index,
            index, index, index,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
