@@ -101,22 +101,21 @@ NB_MODULE(_runtime_module, m) {
           }
         }
 
-        hipCheck(hipModuleLaunchKernel(*f,         // func
-                                       gx, gy, gz, // grid
-                                       bx, by, bz, // block
-                                       0,
-                                       0,               // default stream
-                                       kernelParamsPtr, // kernelParams
-                                       extra // extra (exclusive w/ kernelParams)
-        ));
+        hipCheck(
+            hipModuleLaunchKernel(*f,         // func
+                                  gx, gy, gz, // grid
+                                  bx, by, bz, // block
+                                  0,
+                                  0,               // default stream
+                                  kernelParamsPtr, // kernelParams
+                                  extra // extra (exclusive w/ kernelParams)
+                                  ));
       },
       nb::arg("function"), nb::arg("gx"), nb::arg("gy"), nb::arg("gz"),
       nb::arg("bx"), nb::arg("by"), nb::arg("bz"),
       nb::arg("kernelParams") = nb::none());
 
-  m.def("hip_device_synchronize", []() {
-    hipCheck(hipDeviceSynchronize());
-  });
+  m.def("hip_device_synchronize", []() { hipCheck(hipDeviceSynchronize()); });
 
   // HIP memory allocation functions
   m.def("hip_malloc", [](size_t size) -> void * {
@@ -149,9 +148,8 @@ NB_MODULE(_runtime_module, m) {
     return count;
   });
 
-  m.def("hip_set_device", [](int device_id) {
-    hipCheck(hipSetDevice(device_id));
-  });
+  m.def("hip_set_device",
+        [](int device_id) { hipCheck(hipSetDevice(device_id)); });
 
   m.def("hip_get_device", []() -> int {
     int device_id = 0;
@@ -176,7 +174,7 @@ NB_MODULE(_runtime_module, m) {
 
   m.def("hip_event_record", [](void *event) {
     hipEvent_t *e = reinterpret_cast<hipEvent_t *>(event);
-    hipCheck(hipEventRecord(*e, 0));  // 0 = default stream
+    hipCheck(hipEventRecord(*e, 0)); // 0 = default stream
   });
 
   m.def("hip_event_synchronize", [](void *event) {
