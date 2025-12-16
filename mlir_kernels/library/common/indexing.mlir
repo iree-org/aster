@@ -37,23 +37,17 @@ amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // Reusable work distribution functions.
   //===--------------------------------------------------------------------===//
-  // Compute 2D partitioning of lanes within a wave.
-  func.func private @wave_partition_2D(
-    %M_SIZE: index, // Outer problem size
-    %N_SIZE: index  // Inner problem size
-  ) -> (index, index) {
+  // 2-D delinearization of lane id to 2D position.
+  func.func private @lane_delinearize_2d(%M: index, %N: index) -> (index, index) {
     %lane_id = func.call @lane_id() : () -> index
-    %i, %j = affine.delinearize_index %lane_id into (%M_SIZE, %N_SIZE) : index, index
+    %i, %j = affine.delinearize_index %lane_id into (%M, %N) : index, index
     return %i, %j : index, index
   }
 
   // Compute 2D partitioning of blocks within the grid.
-  func.func private @grid_partition_2D(
-    %M_SIZE: index, // Outer problem size
-    %N_SIZE: index  // Inner problem size
-  ) -> (index, index) {
+  func.func private @block_id_x_delinearize_2d(%M: index, %N: index) -> (index, index) {
     %bid = gpu.block_id x
-    %i, %j = affine.delinearize_index %bid into (%M_SIZE, %N_SIZE) : index, index
+    %i, %j = affine.delinearize_index %bid into (%M, %N) : index, index
     return %i, %j : index, index
   }
 
@@ -66,7 +60,7 @@ amdgcn.library @common_indexing {
   ) -> (index, index) {
     %M = affine.apply affine_map<()[sz, bsz] -> (sz ceildiv bsz)>()[%M_SIZE, %M_TILE_SIZE]
     %N = affine.apply affine_map<()[sz, bsz] -> (sz ceildiv bsz)>()[%N_SIZE, %N_TILE_SIZE]
-    %i, %j = func.call @grid_partition_2D(%M, %N) : (index, index) -> (index, index)
+    %i, %j = func.call @block_id_x_delinearize_2d(%M, %N) : (index, index) -> (index, index)
     return %i, %j : index, index
   }
 

@@ -534,7 +534,7 @@ def execute_kernel_and_verify(
             )
 
             # Verify results only on first iteration
-            if iteration == 0 and verify_fn is not None:
+            if iteration == 0:
                 _log_with_device(logger, actual_device_id, "Verifying results")
                 # Copy results back
                 num_inputs = len(input_args)
@@ -557,8 +557,9 @@ def execute_kernel_and_verify(
                             capsule_output, output_ptr, output_arr.nbytes
                         )
 
-                verify_fn(input_args, output_args)
-                _log_with_device(logger, actual_device_id, "Verification passed")
+                if verify_fn is not None:
+                    verify_fn(input_args, output_args)
+                    _log_with_device(logger, actual_device_id, "Verification passed")
 
         # Free the GPU buffers
         avg_time_ms = sum(iteration_times_ns) / len(iteration_times_ns) / 1_000_000

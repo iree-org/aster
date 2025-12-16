@@ -25,7 +25,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   // indexing.mlir
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index
-  func.func private @wave_partition_2D(index, index) -> (index, index)
+  func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
   // copies.mlir
   func.func private @global_load_dwordx2_wait(
