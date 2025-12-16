@@ -37,13 +37,10 @@ amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // Reusable work distribution functions.
   //===--------------------------------------------------------------------===//
-  // Compute 2D partitioning of lanes within a wave.
-  func.func private @wave_partition_2D(
-    %M_SIZE: index, // Outer problem size
-    %N_SIZE: index  // Inner problem size
-  ) -> (index, index) {
+  // 2-D delinearization of lane id to 2D position.
+  func.func private @lane_delinearize_2d(%M: index, %N: index) -> (index, index) {
     %lane_id = func.call @lane_id() : () -> index
-    %i, %j = affine.delinearize_index %lane_id into (%M_SIZE, %N_SIZE) : index, index
+    %i, %j = affine.delinearize_index %lane_id into (%M, %N) : index, index
     return %i, %j : index, index
   }
 

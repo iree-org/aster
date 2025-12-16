@@ -129,21 +129,24 @@ class TestWaveCount:
         np.testing.assert_array_equal(output, expected)
 
 
-# class TestWavePartition2D:
-#     """Test @wave_partition_2D function."""
+class TestWavePartition2D:
+    """Test @lane_delinearize_2d function."""
 
-#     def test_wave_partition_8x8(self):
-#         """Partition 64 lanes into 8x8 grid."""
-#         # Output: pairs of (i, j) at indices tid*2, tid*2+1
-#         output = np.zeros(NUM_THREADS * 2, dtype=np.int32)
-#         compile_and_run("test_wave_partition_2D", output)
+    def test_wave_partition_8x8(self):
+        """Partition 64 lanes into 8x8 grid."""
+        # Output: pairs of (i, j) at indices tid * 2, tid * 2 + 1
+        num_threads = 64
+        output = np.zeros(num_threads * 2, dtype=np.int32)
+        compile_and_run("test_lane_delinearize_2d", output)
 
-#         # lane_id -> (lane_id / 8, lane_id % 8)
-#         for tid in range(64):
-#             expected_i = tid // 8
-#             expected_j = tid % 8
-#             assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch"
-#             assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch"
+        expected = np.zeros(num_threads * 2, dtype=np.int32)
+        for tid in range(num_threads):
+            expected[tid * 2] = tid // 8
+            expected[tid * 2 + 1] = tid % 8
+
+        # Print full arrays on failure
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 # class TestGridPartition2D:

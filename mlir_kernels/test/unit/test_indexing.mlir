@@ -16,7 +16,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @lane_id() -> index
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index
-  func.func private @wave_partition_2D(index, index) -> (index, index)
+  func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @grid_partition_2D(index, index) -> (index, index)
   func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
   func.func private @matrix_offset(index, index, index, index) -> !v
@@ -116,20 +116,22 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.end_kernel
   }
 
-  // // Test @wave_partition_2D: partition 64 lanes into M_SIZE x N_SIZE
-  // // Uses M_SIZE=8, N_SIZE=8 so lane_id maps to (lane_id / 8, lane_id % 8)
-  // amdgcn.kernel @test_wave_partition_2D arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %c8 = arith.constant 8 : index
-  //   %i, %j = func.call @wave_partition_2D(%c8, %c8) : (index, index) -> (index, index)
-  //   %i_i32 = arith.index_cast %i : index to i32
-  //   %j_i32 = arith.index_cast %j : index to i32
-  //   func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr) : (i32, i32, !sx2) -> ()
-  //   amdgcn.end_kernel
-  // }
+  // Test @lane_delinearize_2d: partition 64 lanes into M_SIZE x N_SIZE
+  // Uses M_SIZE=8, N_SIZE=8 so lane_id maps to (lane_id / 8, lane_id % 8)
+  amdgcn.kernel @test_lane_delinearize_2d arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+
+    %c8 = arith.constant 8 : index
+    %i, %j = func.call @lane_delinearize_2d(%c8, %c8) : (index, index) -> (index, index)
+    %i_i32 = arith.index_cast %i : index to i32
+    %j_i32 = arith.index_cast %j : index to i32
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr) : (i32, i32, !sx2) -> ()
+
+    amdgcn.end_kernel
+  }
 
   // // Test @grid_partition_2D: partition block_id into M_SIZE x N_SIZE grid
   // // Uses M_SIZE=2, N_SIZE=2 for a 2x2 grid (4 blocks)

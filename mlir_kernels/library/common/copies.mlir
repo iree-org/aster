@@ -25,7 +25,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @alloc_vgprx2() -> !vx2
   func.func private @init_vgprx4(i32) -> !vx4
   // indexing.mlir
-  func.func private @wave_partition_2D(index, index) -> (index, index)
+  func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
@@ -60,7 +60,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %elt_size = arith.constant 2 : index // f16 size in bytes
 
     // Get local positions within the minor tile
-    %iii, %jjj = func.call @wave_partition_2D(%c16, %c4)
+    %iii, %jjj = func.call @lane_delinearize_2d(%c16, %c4)
       : (index, index) -> (index, index)
     %jjj_pos = affine.apply affine_map<()[jjj] -> (jjj * 4)>()[%jjj]
 
@@ -117,7 +117,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %SZ1 = affine.apply affine_map<()[NN, sz] -> (NN * sz)>()[%NN, %c4]
 
     // Get local positions within the minor tile
-    %iii, %jjj = func.call @wave_partition_2D(%SZ0, %SZ1)
+    %iii, %jjj = func.call @lane_delinearize_2d(%SZ0, %SZ1)
       : (index, index) -> (index, index)
     %jjj_pos = affine.apply affine_map<()[jjj, sz] -> (jjj * 4)>()[%jjj, %SZ1]
 
@@ -163,7 +163,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %SZ1 = affine.apply affine_map<()[NN, sz] -> (NN * sz)>()[%NN, %c4]
 
     // Get local positions within the minor tile
-    %iii, %jjj = func.call @wave_partition_2D(%SZ0, %SZ1)
+    %iii, %jjj = func.call @lane_delinearize_2d(%SZ0, %SZ1)
       : (index, index) -> (index, index)
     %jjj_pos = affine.apply affine_map<()[jjj, sz] -> (jjj * 4)>()[%jjj, %SZ1]
 
