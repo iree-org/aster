@@ -15,7 +15,7 @@ def validate_gemm_config(
     m_tile: int,
     n_tile: int,
     k_tile: int,
-    num_waves: int,
+    num_waves: int = 1,
 ) -> Tuple[bool, Optional[str]]:
     """Validate GEMM configuration for dword4 16x16x16 f16f16f32 kernels.
 
