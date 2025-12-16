@@ -17,7 +17,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
-  func.func private @grid_partition_2D(index, index) -> (index, index)
+  func.func private @block_id_x_delinearize_2d(index, index) -> (index, index)
   func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
@@ -31,11 +31,11 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   //===--------------------------------------------------------------------===//
   // Helper: store i32 to global at thread index
   //===--------------------------------------------------------------------===//
-  func.func private @store_at_tid(%value: i32, %ptr: !sx2) {
+  func.func private @store_at_tid(%value: i32, %ptr: !sx2, %index_offset: index) {
     %tid = gpu.thread_id x
     %value_vgpr = lsir.to_reg %value : i32 -> !v
 
-    %offset_index = affine.apply affine_map<()[tid] -> (tid * 4)>()[%tid]
+    %offset_index = affine.apply affine_map<()[tid, index_offset] -> (tid * 4 + index_offset)>()[%tid, %index_offset]
     %offset = arith.index_cast %offset_index : index to i32
     %offset_vgpr = lsir.to_reg %offset : i32 -> !v
 
@@ -48,11 +48,11 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   }
 
   // Store two i32 values at thread index (for functions returning two values)
-  func.func private @store_pair_at_tid(%v0: i32, %v1: i32, %ptr: !sx2) {
+  func.func private @store_pair_at_tid(%v0: i32, %v1: i32, %ptr: !sx2, %index_offset: index) {
     %tid = gpu.thread_id x
 
     // Store v0 at tid * 8, v1 at tid * 8 + 4
-    %offset0_index = affine.apply affine_map<()[tid] -> (tid * 8)>()[%tid]
+    %offset0_index = affine.apply affine_map<()[tid, index_offset] -> (tid * 8 + index_offset)>()[%tid, %index_offset]
     %offset0 = arith.index_cast %offset0_index : index to i32
     %offset0_vgpr = lsir.to_reg %offset0 : i32 -> !v
     %v0_vgpr = lsir.to_reg %v0 : i32 -> !v
@@ -83,7 +83,8 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     %lane = func.call @lane_id() : () -> index
     %lane_i32 = arith.index_cast %lane : index to i32
-    func.call @store_at_tid(%lane_i32, %out_ptr) : (i32, !sx2) -> ()
+    %c0 = arith.constant 0 : index
+    func.call @store_at_tid(%lane_i32, %out_ptr, %c0) : (i32, !sx2, index) -> ()
 
     amdgcn.end_kernel
   }
@@ -97,7 +98,8 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     %wave = func.call @wave_id() : () -> index
     %wave_i32 = arith.index_cast %wave : index to i32
-    func.call @store_at_tid(%wave_i32, %out_ptr) : (i32, !sx2) -> ()
+    %c0 = arith.constant 0 : index
+    func.call @store_at_tid(%wave_i32, %out_ptr, %c0) : (i32, !sx2, index) -> ()
 
     amdgcn.end_kernel
   }
@@ -111,13 +113,13 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     %count = func.call @wave_count() : () -> index
     %count_i32 = arith.index_cast %count : index to i32
-    func.call @store_at_tid(%count_i32, %out_ptr) : (i32, !sx2) -> ()
+    %c0 = arith.constant 0 : index
+    func.call @store_at_tid(%count_i32, %out_ptr, %c0) : (i32, !sx2, index) -> ()
 
     amdgcn.end_kernel
   }
 
-  // Test @lane_delinearize_2d: partition 64 lanes into M_SIZE x N_SIZE
-  // Uses M_SIZE=8, N_SIZE=8 so lane_id maps to (lane_id / 8, lane_id % 8)
+  // Test @lane_delinearize_2d: partition 64 lanes by 8x8
   amdgcn.kernel @test_lane_delinearize_2d arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
@@ -128,25 +130,33 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %i, %j = func.call @lane_delinearize_2d(%c8, %c8) : (index, index) -> (index, index)
     %i_i32 = arith.index_cast %i : index to i32
     %j_i32 = arith.index_cast %j : index to i32
-    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr) : (i32, i32, !sx2) -> ()
+    %c0 = arith.constant 0 : index
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
 
     amdgcn.end_kernel
   }
 
-  // // Test @grid_partition_2D: partition block_id into M_SIZE x N_SIZE grid
-  // // Uses M_SIZE=2, N_SIZE=2 for a 2x2 grid (4 blocks)
-  // amdgcn.kernel @test_grid_partition_2D arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %c2 = arith.constant 2 : index
-  //   %i, %j = func.call @grid_partition_2D(%c2, %c2) : (index, index) -> (index, index)
-  //   %i_i32 = arith.index_cast %i : index to i32
-  //   %j_i32 = arith.index_cast %j : index to i32
-  //   func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr) : (i32, i32, !sx2) -> ()
-  //   amdgcn.end_kernel
-  // }
+  // Test @block_id_x_delinearize_2d: partition block_id_x by 2x2
+  amdgcn.kernel @test_block_id_x_delinearize_2d arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+
+    %c2 = arith.constant 2 : index
+    %c4 = arith.constant 4 : index
+    %i, %j = func.call @block_id_x_delinearize_2d(%c2, %c4) : (index, index) -> (index, index)
+
+    %i_i32 = arith.index_cast %i : index to i32
+    %j_i32 = arith.index_cast %j : index to i32
+
+    // Shift out_ptr by block_idx * 64 * (2x4) bytes.
+    %block_idx = gpu.block_id x
+    %offset = affine.apply affine_map<()[block_idx] -> (block_idx * 64 * (2 * 4))>()[%block_idx]
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %offset) : (i32, i32, !sx2, index) -> ()
+
+    amdgcn.end_kernel
+  }
 
   // // Test @tiled_grid_partition_2D: partition for tiled problems
   // // M=64, N=64, M_TILE=32, N_TILE=32 -> 2x2 tiles

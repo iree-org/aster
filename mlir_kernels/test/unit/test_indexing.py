@@ -149,27 +149,30 @@ class TestWavePartition2D:
             np.testing.assert_array_equal(output, expected)
 
 
-# class TestGridPartition2D:
-#     """Test @grid_partition_2D function."""
+class TestGridPartition2D:
+    """Test @block_id_x_delinearize_2d function."""
 
-#     def test_grid_partition_2x2(self):
-#         """Partition 4 blocks into 2x2 grid."""
-#         num_blocks = 4
-#         output = np.zeros(NUM_THREADS * 2 * num_blocks, dtype=np.int32)
-#         compile_and_run(
-#             "test_grid_partition_2D",
-#             output,
-#             grid_dim=(num_blocks, 1, 1),
-#         )
+    def test_grid_partition_2x4(self):
+        num_blocks = 8
+        num_threads = 64
+        output = np.zeros(num_threads * 2 * num_blocks, dtype=np.int32)
+        compile_and_run(
+            "test_block_id_x_delinearize_2d",
+            output,
+            block_dim=(num_threads, 1, 1),
+            grid_dim=(num_blocks, 1, 1),
+        )
 
-#         # block_id -> (block_id / 2, block_id % 2)
-#         for bid in range(num_blocks):
-#             expected_i = bid // 2
-#             expected_j = bid % 2
-#             for tid in range(64):
-#                 global_tid = bid * 64 + tid
-#                 assert output[global_tid * 2] == expected_i, f"bid={bid}, tid={tid}: i mismatch"
-#                 assert output[global_tid * 2 + 1] == expected_j, f"bid={bid}, tid={tid}: j mismatch"
+        expected = np.zeros(num_threads * 2 * num_blocks, dtype=np.int32)
+        for bid in range(num_blocks):
+            for tid in range(num_threads):
+                global_tid = bid * num_threads + tid
+                expected[global_tid * 2] = bid // 4
+                expected[global_tid * 2 + 1] = bid % 4
+
+        # Print full arrays on failure
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 # class TestTiledGridPartition2D:
@@ -339,4 +342,4 @@ class TestWavePartition2D:
 
 
 if __name__ == "__main__":
-    TestWaveCount().test_wave_count_single_wave()
+    TestGridPartition2D().test_grid_partition_2x4()
