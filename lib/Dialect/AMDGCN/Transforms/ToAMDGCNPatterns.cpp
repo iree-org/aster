@@ -116,6 +116,16 @@ struct MulIOpPattern : public OpRewritePattern<lsir::MulIOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// MovOpPattern
+//===----------------------------------------------------------------------===//
+
+struct MovOpPattern : public OpRewritePattern<lsir::MovOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::MovOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
 // OrIOpPattern
 //===----------------------------------------------------------------------===//
 
@@ -938,6 +948,26 @@ LogicalResult OrIOpPattern::matchAndRewrite(lsir::OrIOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// MovOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult MovOpPattern::matchAndRewrite(lsir::MovOp op,
+                                            PatternRewriter &rewriter) const {
+  // Only handle the constant case.
+  if (!matchPattern(op.getValue(), m_Constant()))
+    return rewriter.notifyMatchFailure(op, "only constant mov is supported");
+
+  OperandKind kind = getOperandKind(op.getType());
+  if (kind != OperandKind::VGPR)
+    return rewriter.notifyMatchFailure(op, "only VGPR mov is supported");
+
+  Value res =
+      V_MOV_B32_E32::create(rewriter, op.getLoc(), op.getDst(), op.getValue());
+  rewriter.replaceOp(op, res);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // RegCastOpPattern
 //===----------------------------------------------------------------------===//
 
@@ -1614,9 +1644,9 @@ LogicalResult WaitOpPattern::matchAndRewrite(lsir::WaitOp op,
 void mlir::aster::amdgcn::populateToAMDGCNPatterns(
     RewritePatternSet &patterns) {
   patterns.add<AddIOpPattern, AllocaOpPattern, AssumeNoaliasOpPattern,
-               AndIOpPattern, KernelOpPattern, LoadOpPattern, MulIOpPattern,
-               OrIOpPattern, RegCastOpPattern, ReturnOpPattern, ShLIOpPattern,
-               ShRSIOpPattern, ShRUIOpPattern, StoreOpPattern, SubIOpPattern,
-               TimingStartOpPattern, TimingStopOpPattern, WaitOpPattern>(
-      patterns.getContext());
+               AndIOpPattern, KernelOpPattern, LoadOpPattern, MovOpPattern,
+               MulIOpPattern, OrIOpPattern, RegCastOpPattern, ReturnOpPattern,
+               ShLIOpPattern, ShRSIOpPattern, ShRUIOpPattern, StoreOpPattern,
+               SubIOpPattern, TimingStartOpPattern, TimingStopOpPattern,
+               WaitOpPattern>(patterns.getContext());
 }

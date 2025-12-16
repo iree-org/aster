@@ -157,7 +157,15 @@ template <typename OpTy>
 LogicalResult FromToRegOpPattern<OpTy>::matchAndRewrite(
     OpTy op, typename OpTy::Adaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  rewriter.replaceOp(op, adaptor.getInput());
+  Value input = adaptor.getInput();
+  // If the input is a constant, create a mov to the proper register type.
+  if (m_Constant().match(input.getDefiningOp())) {
+    Type type = this->converter.convertType(op);
+    Value dst = this->createAlloca(rewriter, op.getLoc(), type);
+    rewriter.replaceOpWithNewOp<lsir::MovOp>(op, dst, input);
+    return success();
+  }
+  rewriter.replaceOp(op, input);
   return success();
 }
 

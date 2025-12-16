@@ -928,3 +928,15 @@ func.func @test_wait_load_and_store(%dst: !amdgcn.vgpr_range<[? + 1]>, %data: !a
   lsir.wait %ltoken, %stoken : !lsir.load_token, !lsir.store_token
   return %res : !amdgcn.vgpr_range<[? + 1]>
 }
+
+// CHECK-LABEL:   func.func @test_mov_constant_to_vgpr(
+// CHECK-SAME:      %[[DST:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
+// CHECK:           %[[C42:.*]] = arith.constant 42 : i32
+// CHECK:           %[[RES:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[DST]], %[[C42]] : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+// CHECK:           return %[[RES]] : !amdgcn.vgpr
+// CHECK:         }
+func.func @test_mov_constant_to_vgpr(%dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %c42 = arith.constant 42 : i32
+  %res = lsir.mov %dst, %c42 : !amdgcn.vgpr, i32
+  return %res : !amdgcn.vgpr
+}
