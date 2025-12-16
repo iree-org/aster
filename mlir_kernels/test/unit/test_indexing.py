@@ -50,7 +50,7 @@ def compile_and_run(
             SYNCHRONOUS_SROA_PASS_PIPELINE,
             ctx,
             library_paths=[library_path],
-            print_ir_after_all=True,
+            print_ir_after_all=False,
             preprocess=preprocess,
         )
 
@@ -175,170 +175,195 @@ class TestGridPartition2D:
             np.testing.assert_array_equal(output, expected)
 
 
-# class TestTiledGridPartition2D:
-#     """Test @tiled_grid_partition_2D function."""
+class TestTiledGridPartition2D:
+    """Test @tiled_grid_partition_2D function."""
 
-#     def test_tiled_grid_partition_64x64_32x32(self):
-#         """Partition 64x64 problem with 32x32 tiles -> 2x2 tile grid."""
-#         num_blocks = 4
-#         output = np.zeros(NUM_THREADS * 2 * num_blocks, dtype=np.int32)
-#         compile_and_run(
-#             "test_tiled_grid_partition_2D",
-#             output,
-#             grid_dim=(num_blocks, 1, 1),
-#         )
+    def test_tiled_grid_partition_64x64_32x32(self):
+        """Partition 64x64 problem with 32x32 tiles -> 2x2 tile grid."""
+        num_threads = 64
+        num_blocks = 4
+        output = np.zeros(num_threads * 2 * num_blocks, dtype=np.int32)
+        compile_and_run(
+            "test_tiled_grid_partition_2D",
+            output,
+            grid_dim=(num_blocks, 1, 1),
+        )
 
-#         # block_id partitions into ceildiv(64,32) x ceildiv(64,32) = 2x2 grid
-#         for bid in range(num_blocks):
-#             expected_i = bid // 2
-#             expected_j = bid % 2
-#             for tid in range(64):
-#                 global_tid = bid * 64 + tid
-#                 assert output[global_tid * 2] == expected_i, f"bid={bid}, tid={tid}: i mismatch"
-#                 assert output[global_tid * 2 + 1] == expected_j, f"bid={bid}, tid={tid}: j mismatch"
-
-
-# class TestMatrixOffset:
-#     """Test @matrix_offset function."""
-
-#     def test_matrix_offset(self):
-#         """Compute byte offset for 2D matrix access."""
-#         output = np.zeros(NUM_THREADS, dtype=np.int32)
-#         compile_and_run("test_matrix_offset", output)
-
-#         # offset = (i * N + j) * elt_size
-#         # i = tid / 8, j = tid % 8, N = 16, elt_size = 4
-#         for tid in range(64):
-#             i = tid // 8
-#             j = tid % 8
-#             expected = (i * 16 + j) * 4
-#             assert output[tid] == expected, f"tid={tid}: expected {expected}, got {output[tid]}"
+        # block_id partitions into ceildiv(64,32) x ceildiv(64,32) = 2x2 grid
+        for bid in range(num_blocks):
+            expected_i = bid // 2
+            expected_j = bid % 2
+            for tid in range(64):
+                global_tid = bid * 64 + tid
+                assert (
+                    output[global_tid * 2] == expected_i
+                ), f"bid={bid}, tid={tid}: i mismatch"
+                assert (
+                    output[global_tid * 2 + 1] == expected_j
+                ), f"bid={bid}, tid={tid}: j mismatch"
 
 
-# class TestTiledMatrixOffset:
-#     """Test @tiled_matrix_offset function."""
+class TestMatrixOffset:
+    """Test @matrix_offset function."""
 
-#     def test_tiled_matrix_offset(self):
-#         """Compute byte offset for tiled 2D matrix access."""
-#         output = np.zeros(NUM_THREADS, dtype=np.int32)
-#         compile_and_run("test_tiled_matrix_offset", output)
+    def test_matrix_offset(self):
+        """Compute byte offset for 2D matrix access."""
+        num_threads = 64
+        output = np.zeros(num_threads, dtype=np.int32)
+        compile_and_run("test_matrix_offset", output)
 
-#         # offset = ((i + ii) * N + (j + jj)) * elt_size
-#         # i=0, j=0, ii = tid / 8, jj = tid % 8, N = 16, elt_size = 4
-#         for tid in range(64):
-#             ii = tid // 8
-#             jj = tid % 8
-#             expected = ((0 + ii) * 16 + (0 + jj)) * 4
-#             assert output[tid] == expected, f"tid={tid}: expected {expected}, got {output[tid]}"
-
-
-# class TestTiledx2MatrixOffset:
-#     """Test @tiledx2_matrix_offset function."""
-
-#     def test_tiledx2_matrix_offset(self):
-#         """Compute byte offset for twice-tiled 2D matrix access."""
-#         output = np.zeros(NUM_THREADS, dtype=np.int32)
-#         compile_and_run("test_tiledx2_matrix_offset", output)
-
-#         # offset = ((i + ii + iii) * N + (j + jj + jjj)) * elt_size
-#         # i=0, j=0, ii=0, jj=0, iii = tid / 8, jjj = tid % 8, N = 16, elt_size = 4
-#         for tid in range(64):
-#             iii = tid // 8
-#             jjj = tid % 8
-#             expected = ((0 + 0 + iii) * 16 + (0 + 0 + jjj)) * 4
-#             assert output[tid] == expected, f"tid={tid}: expected {expected}, got {output[tid]}"
+        # offset = (i * N + j) * elt_size
+        # i = tid / 8, j = tid % 8, N = 16, elt_size = 4
+        for tid in range(64):
+            i = tid // 8
+            j = tid % 8
+            expected = (i * 16 + j) * 4
+            assert (
+                output[tid] == expected
+            ), f"tid={tid}: expected {expected}, got {output[tid]}"
 
 
-# class TestSwizzle16x16Helper:
-#     """Test @swizzle_16x16_helper function."""
+class TestTiledMatrixOffset:
+    """Test @tiled_matrix_offset function."""
 
-#     def test_swizzle_16x16_helper(self):
-#         """Returns (4 * (lane_id / 16), lane_id mod 16)."""
-#         output = np.zeros(NUM_THREADS * 2, dtype=np.int32)
-#         compile_and_run("test_swizzle_16x16_helper", output)
+    def test_tiled_matrix_offset(self):
+        """Compute byte offset for tiled 2D matrix access."""
+        num_threads = 64
+        output = np.zeros(num_threads, dtype=np.int32)
+        compile_and_run("test_tiled_matrix_offset", output)
 
-#         for tid in range(64):
-#             lane_id = tid % 64
-#             expected_i = 4 * (lane_id // 16)
-#             expected_j = lane_id % 16
-#             assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch"
-#             assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch"
-
-
-# class TestSwizzleA16x16xf16:
-#     """Test @swizzle_A_16x16xf16 function."""
-
-#     def test_swizzle_A(self):
-#         """Swizzle for A fragment (swapped from helper)."""
-#         output = np.zeros(NUM_THREADS * 2, dtype=np.int32)
-#         compile_and_run("test_swizzle_A_16x16xf16", output)
-
-#         # A swizzle returns (j, i) from helper, which is (lane_id mod 16, 4 * (lane_id / 16))
-#         for tid in range(64):
-#             lane_id = tid % 64
-#             helper_i = 4 * (lane_id // 16)
-#             helper_j = lane_id % 16
-#             # swizzle_A returns (j, i) from helper, so (helper_j, helper_i)
-#             expected_i = helper_j
-#             expected_j = helper_i
-#             assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch, got {output[tid * 2]}, expected {expected_i}"
-#             assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch, got {output[tid * 2 + 1]}, expected {expected_j}"
+        # offset = ((i + ii) * N + (j + jj)) * elt_size
+        # i=0, j=0, ii = tid / 8, jj = tid % 8, N = 16, elt_size = 4
+        for tid in range(64):
+            ii = tid // 8
+            jj = tid % 8
+            expected = ((0 + ii) * 16 + (0 + jj)) * 4
+            assert (
+                output[tid] == expected
+            ), f"tid={tid}: expected {expected}, got {output[tid]}"
 
 
-# class TestSwizzleB16x16xf16:
-#     """Test @swizzle_B_16x16xf16 function."""
+class TestTiledx2MatrixOffset:
+    """Test @tiledx2_matrix_offset function."""
 
-#     def test_swizzle_B(self):
-#         """Swizzle for B fragment (same as helper)."""
-#         output = np.zeros(NUM_THREADS * 2, dtype=np.int32)
-#         compile_and_run("test_swizzle_B_16x16xf16", output)
+    def test_tiledx2_matrix_offset(self):
+        """Compute byte offset for twice-tiled 2D matrix access."""
+        num_threads = 64
+        output = np.zeros(num_threads, dtype=np.int32)
+        compile_and_run("test_tiledx2_matrix_offset", output)
 
-#         for tid in range(64):
-#             lane_id = tid % 64
-#             expected_i = 4 * (lane_id // 16)
-#             expected_j = lane_id % 16
-#             assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch"
-#             assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch"
-
-
-# class TestSwizzleC16x16xf32:
-#     """Test @swizzle_C_16x16xf32 function."""
-
-#     def test_swizzle_C(self):
-#         """Swizzle for C fragment (same as helper)."""
-#         output = np.zeros(NUM_THREADS * 2, dtype=np.int32)
-#         compile_and_run("test_swizzle_C_16x16xf32", output)
-
-#         for tid in range(64):
-#             lane_id = tid % 64
-#             expected_i = 4 * (lane_id // 16)
-#             expected_j = lane_id % 16
-#             assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch"
-#             assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch"
+        # offset = ((i + ii + iii) * N + (j + jj + jjj)) * elt_size
+        # i=0, j=0, ii=0, jj=0, iii = tid / 8, jjj = tid % 8, N = 16, elt_size = 4
+        for tid in range(64):
+            iii = tid // 8
+            jjj = tid % 8
+            expected = ((0 + 0 + iii) * 16 + (0 + 0 + jjj)) * 4
+            assert (
+                output[tid] == expected
+            ), f"tid={tid}: expected {expected}, got {output[tid]}"
 
 
-# class TestIndexBxMxNxK:
-#     """Test @index_bxmxnxk_16x16x16_f16f16f32 function."""
+class TestSwizzle16x16Helper:
+    """Test @swizzle_16x16_helper function."""
 
-#     def test_index_bxmxnxk(self):
-#         """MFMA-style tiled indexing."""
-#         output = np.zeros(NUM_THREADS, dtype=np.int32)
-#         compile_and_run("test_index_bxmxnxk", output)
+    def test_swizzle_16x16_helper(self):
+        """Returns (4 * (lane_id / 16), lane_id mod 16)."""
+        num_threads = 64
+        output = np.zeros(num_threads * 2, dtype=np.int32)
+        compile_and_run("test_swizzle_16x16_helper", output)
 
-#         # Formula from indexing.mlir:
-#         # offset = bidx * num_waves * szI * szJ * tile_sz +
-#         #          widx * szI * szJ * tile_sz +
-#         #          i * szJ * tile_sz +
-#         #          j * tile_sz +
-#         #          lidx * lane_stride
-#         # With bidx=0, widx=0, i=0, j=0, szI=2, szJ=2, tile_sz=16, lane_stride=4, bdimx=64
-#         # num_waves = bdimx / 64 = 1
-#         # widx = tidx / 64 = 0
-#         # lidx = tidx % 64
-#         # offset = 0 + 0 + 0 + 0 + lidx * 4 = tidx * 4 (for tidx < 64)
-#         for tid in range(64):
-#             expected = tid * 4
-#             assert output[tid] == expected, f"tid={tid}: expected {expected}, got {output[tid]}"
+        for tid in range(64):
+            lane_id = tid % 64
+            expected_i = 4 * (lane_id // 16)
+            expected_j = lane_id % 16
+            assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch"
+            assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch"
+
+
+class TestSwizzleA16x16xf16:
+    """Test @swizzle_A_16x16xf16 function."""
+
+    def test_swizzle_A(self):
+        """Swizzle for A fragment (swapped from helper)."""
+        num_threads = 64
+        output = np.zeros(num_threads * 2, dtype=np.int32)
+        compile_and_run("test_swizzle_A_16x16xf16", output)
+
+        # A swizzle returns (j, i) from helper, which is (lane_id mod 16, 4 * (lane_id / 16))
+        for tid in range(64):
+            lane_id = tid % 64
+            helper_i = 4 * (lane_id // 16)
+            helper_j = lane_id % 16
+            # swizzle_A returns (j, i) from helper, so (helper_j, helper_i)
+            expected_i = helper_j
+            expected_j = helper_i
+            assert (
+                output[tid * 2] == expected_i
+            ), f"tid={tid}: i mismatch, got {output[tid * 2]}, expected {expected_i}"
+            assert (
+                output[tid * 2 + 1] == expected_j
+            ), f"tid={tid}: j mismatch, got {output[tid * 2 + 1]}, expected {expected_j}"
+
+
+class TestSwizzleB16x16xf16:
+    """Test @swizzle_B_16x16xf16 function."""
+
+    def test_swizzle_B(self):
+        """Swizzle for B fragment (same as helper)."""
+        num_threads = 64
+        output = np.zeros(num_threads * 2, dtype=np.int32)
+        compile_and_run("test_swizzle_B_16x16xf16", output)
+
+        for tid in range(64):
+            lane_id = tid % 64
+            expected_i = 4 * (lane_id // 16)
+            expected_j = lane_id % 16
+            assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch"
+            assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch"
+
+
+class TestSwizzleC16x16xf32:
+    """Test @swizzle_C_16x16xf32 function."""
+
+    def test_swizzle_C(self):
+        """Swizzle for C fragment (same as helper)."""
+        num_threads = 64
+        output = np.zeros(num_threads * 2, dtype=np.int32)
+        compile_and_run("test_swizzle_C_16x16xf32", output)
+
+        for tid in range(64):
+            lane_id = tid % 64
+            expected_i = 4 * (lane_id // 16)
+            expected_j = lane_id % 16
+            assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch"
+            assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch"
+
+
+class TestIndexBxMxNxK:
+    """Test @index_bxmxnxk_16x16x16_f16f16f32 function."""
+
+    def test_index_bxmxnxk(self):
+        """MFMA-style tiled indexing."""
+        num_threads = 64
+        output = np.zeros(num_threads, dtype=np.int32)
+        compile_and_run("test_index_bxmxnxk", output)
+
+        # Formula from indexing.mlir:
+        # offset = bidx * num_waves * szI * szJ * tile_sz +
+        #          widx * szI * szJ * tile_sz +
+        #          i * szJ * tile_sz +
+        #          j * tile_sz +
+        #          lidx * lane_stride
+        # With bidx=0, widx=0, i=0, j=0, szI=2, szJ=2, tile_sz=16, lane_stride=4, bdimx=64
+        # num_waves = bdimx / 64 = 1
+        # widx = tidx / 64 = 0
+        # lidx = tidx % 64
+        # offset = 0 + 0 + 0 + 0 + lidx * 4 = tidx * 4 (for tidx < 64)
+        for tid in range(64):
+            expected = tid * 4
+            assert (
+                output[tid] == expected
+            ), f"tid={tid}: expected {expected}, got {output[tid]}"
 
 
 if __name__ == "__main__":

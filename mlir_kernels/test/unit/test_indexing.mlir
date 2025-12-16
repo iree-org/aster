@@ -59,7 +59,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %v0_vgpr, %ptr[%offset0_vgpr]
       : !v, !sx2[!v]
 
-    %offset1_index = affine.apply affine_map<()[tid] -> (tid * 8 + 4)>()[%tid]
+    %offset1_index = affine.apply affine_map<()[tid, index_offset] -> (tid * 8 + 4 + index_offset)>()[%tid, %index_offset]
     %offset1 = arith.index_cast %offset1_index : index to i32
     %offset1_vgpr = lsir.to_reg %offset1 : i32 -> !v
     %v1_vgpr = lsir.to_reg %v1 : i32 -> !v
@@ -136,7 +136,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.end_kernel
   }
 
-  // Test @block_id_x_delinearize_2d: partition block_id_x by 2x2
+  // Test @block_id_x_delinearize_2d: partition block_id_x by 2x4
   amdgcn.kernel @test_block_id_x_delinearize_2d arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
@@ -158,177 +158,185 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.end_kernel
   }
 
-  // // Test @tiled_grid_partition_2D: partition for tiled problems
-  // // M=64, N=64, M_TILE=32, N_TILE=32 -> 2x2 tiles
-  // amdgcn.kernel @test_tiled_grid_partition_2D arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %c64 = arith.constant 64 : index
-  //   %c32 = arith.constant 32 : index
-  //   %i, %j = func.call @tiled_grid_partition_2D(%c64, %c64, %c32, %c32)
-  //     : (index, index, index, index) -> (index, index)
-  //   %i_i32 = arith.index_cast %i : index to i32
-  //   %j_i32 = arith.index_cast %j : index to i32
-  //   func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr) : (i32, i32, !sx2) -> ()
-  //   amdgcn.end_kernel
-  // }
+  // Test @tiled_grid_partition_2D: partition for tiled problems
+  // M=64, N=64, M_TILE=32, N_TILE=32 -> 2x2 tiles
+  amdgcn.kernel @test_tiled_grid_partition_2D arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %c0 = arith.constant 0 : index
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %c64 = arith.constant 64 : index
+    %c32 = arith.constant 32 : index
+    %i, %j = func.call @tiled_grid_partition_2D(%c64, %c64, %c32, %c32)
+      : (index, index, index, index) -> (index, index)
+    %i_i32 = arith.index_cast %i : index to i32
+    %j_i32 = arith.index_cast %j : index to i32
 
-  // // Test @matrix_offset: compute byte offset for 2D matrix access
-  // // Uses i=thread_id/8, j=thread_id%8, N=16, elt_size=4
-  // amdgcn.kernel @test_matrix_offset arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %tid = gpu.thread_id x
-  //   %c8 = arith.constant 8 : index
-  //   %c16 = arith.constant 16 : index
-  //   %c4 = arith.constant 4 : index
-  //   %i = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
-  //   %j = affine.apply affine_map<()[tid] -> (tid mod 8)>()[%tid]
-  //   %off_vgpr = func.call @matrix_offset(%i, %j, %c16, %c4)
-  //     : (index, index, index, index) -> !v
+    // Shift out_ptr by block_idx * 64 * (2x4) bytes.
+    %block_idx = gpu.block_id x
+    %offset = affine.apply affine_map<()[block_idx] -> (block_idx * 64 * (2 * 4))>()[%block_idx]
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %offset) : (i32, i32, !sx2, index) -> ()
+    amdgcn.end_kernel
+  }
 
-  //   // Store the offset at thread position
-  //   %out_offset_index = affine.apply affine_map<()[tid] -> (tid * 4)>()[%tid]
-  //   %out_offset = arith.index_cast %out_offset_index : index to i32
-  //   %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
-  //   amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %off_vgpr, %out_ptr[%out_offset_vgpr]
-  //     : !v, !sx2[!v]
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-  //   amdgcn.end_kernel
-  // }
+  // Test @matrix_offset: compute byte offset for 2D matrix access
+  // Uses i=thread_id/8, j=thread_id%8, N=16, elt_size=4
+  amdgcn.kernel @test_matrix_offset arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %tid = gpu.thread_id x
+    %c8 = arith.constant 8 : index
+    %c16 = arith.constant 16 : index
+    %c4 = arith.constant 4 : index
+    %i = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
+    %j = affine.apply affine_map<()[tid] -> (tid mod 8)>()[%tid]
+    %off_vgpr = func.call @matrix_offset(%i, %j, %c16, %c4)
+      : (index, index, index, index) -> !v
 
-  // // Test @tiled_matrix_offset: compute byte offset for tiled 2D matrix access
-  // // Uses i=0, j=0, ii=tid/8, jj=tid%8, N=16, elt_size=4
-  // amdgcn.kernel @test_tiled_matrix_offset arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %tid = gpu.thread_id x
-  //   %c0 = arith.constant 0 : index
-  //   %c8 = arith.constant 8 : index
-  //   %c16 = arith.constant 16 : index
-  //   %c4 = arith.constant 4 : index
-  //   %ii = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
-  //   %jj = affine.apply affine_map<()[tid] -> (tid mod 8)>()[%tid]
-  //   %off_vgpr = func.call @tiled_matrix_offset(%c0, %c0, %ii, %jj, %c16, %c4)
-  //     : (index, index, index, index, index, index) -> !v
+    // Store the offset at thread position
+    %out_offset_index = affine.apply affine_map<()[tid] -> (tid * 4)>()[%tid]
+    %out_offset = arith.index_cast %out_offset_index : index to i32
+    %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
+    amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %off_vgpr, %out_ptr[%out_offset_vgpr]
+      : !v, !sx2[!v]
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.end_kernel
+  }
 
-  //   // Store the offset at thread position
-  //   %out_offset_index = affine.apply affine_map<()[tid] -> (tid * 4)>()[%tid]
-  //   %out_offset = arith.index_cast %out_offset_index : index to i32
-  //   %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
-  //   amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %off_vgpr, %out_ptr[%out_offset_vgpr]
-  //     : !v, !sx2[!v]
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-  //   amdgcn.end_kernel
-  // }
+  // Test @tiled_matrix_offset: compute byte offset for tiled 2D matrix access
+  // Uses i=0, j=0, ii=tid/8, jj=tid%8, N=16, elt_size=4
+  amdgcn.kernel @test_tiled_matrix_offset arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %tid = gpu.thread_id x
+    %c0 = arith.constant 0 : index
+    %c8 = arith.constant 8 : index
+    %c16 = arith.constant 16 : index
+    %c4 = arith.constant 4 : index
+    %ii = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
+    %jj = affine.apply affine_map<()[tid] -> (tid mod 8)>()[%tid]
+    %off_vgpr = func.call @tiled_matrix_offset(%c0, %c0, %ii, %jj, %c16, %c4)
+      : (index, index, index, index, index, index) -> !v
 
-  // // Test @tiledx2_matrix_offset: compute byte offset for twice-tiled 2D matrix access
-  // // Uses i=0, j=0, ii=0, jj=0, iii=tid/8, jjj=tid%8, N=16, elt_size=4
-  // amdgcn.kernel @test_tiledx2_matrix_offset arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %tid = gpu.thread_id x
-  //   %c0 = arith.constant 0 : index
-  //   %c8 = arith.constant 8 : index
-  //   %c16 = arith.constant 16 : index
-  //   %c4 = arith.constant 4 : index
-  //   %iii = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
-  //   %jjj = affine.apply affine_map<()[tid] -> (tid mod 8)>()[%tid]
-  //   %off_vgpr = func.call @tiledx2_matrix_offset(%c0, %c0, %c0, %c0, %iii, %jjj, %c16, %c4)
-  //     : (index, index, index, index, index, index, index, index) -> !v
+    // Store the offset at thread position
+    %out_offset_index = affine.apply affine_map<()[tid] -> (tid * 4)>()[%tid]
+    %out_offset = arith.index_cast %out_offset_index : index to i32
+    %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
+    amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %off_vgpr, %out_ptr[%out_offset_vgpr]
+      : !v, !sx2[!v]
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.end_kernel
+  }
 
-  //   // Store the offset at thread position
-  //   %out_offset_index = affine.apply affine_map<()[tid] -> (tid * 4)>()[%tid]
-  //   %out_offset = arith.index_cast %out_offset_index : index to i32
-  //   %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
-  //   amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %off_vgpr, %out_ptr[%out_offset_vgpr]
-  //     : !v, !sx2[!v]
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-  //   amdgcn.end_kernel
-  // }
+  // Test @tiledx2_matrix_offset: compute byte offset for twice-tiled 2D matrix access
+  // Uses i=0, j=0, ii=0, jj=0, iii=tid/8, jjj=tid%8, N=16, elt_size=4
+  amdgcn.kernel @test_tiledx2_matrix_offset arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %tid = gpu.thread_id x
+    %c0 = arith.constant 0 : index
+    %c8 = arith.constant 8 : index
+    %c16 = arith.constant 16 : index
+    %c4 = arith.constant 4 : index
+    %iii = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
+    %jjj = affine.apply affine_map<()[tid] -> (tid mod 8)>()[%tid]
+    %off_vgpr = func.call @tiledx2_matrix_offset(%c0, %c0, %c0, %c0, %iii, %jjj, %c16, %c4)
+      : (index, index, index, index, index, index, index, index) -> !v
 
-  // // Test @swizzle_16x16_helper: returns (4 * (lane_id / 16), lane_id mod 16)
-  // amdgcn.kernel @test_swizzle_16x16_helper arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %i, %j = func.call @swizzle_16x16_helper() : () -> (index, index)
-  //   %i_i32 = arith.index_cast %i : index to i32
-  //   %j_i32 = arith.index_cast %j : index to i32
-  //   func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr) : (i32, i32, !sx2) -> ()
-  //   amdgcn.end_kernel
-  // }
+    // Store the offset at thread position
+    %out_offset_index = affine.apply affine_map<()[tid] -> (tid * 4)>()[%tid]
+    %out_offset = arith.index_cast %out_offset_index : index to i32
+    %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
+    amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %off_vgpr, %out_ptr[%out_offset_vgpr]
+      : !v, !sx2[!v]
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.end_kernel
+  }
 
-  // // Test @swizzle_A_16x16xf16: swizzle for A fragment (swapped from helper)
-  // amdgcn.kernel @test_swizzle_A_16x16xf16 arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %i, %j = func.call @swizzle_A_16x16xf16() : () -> (index, index)
-  //   %i_i32 = arith.index_cast %i : index to i32
-  //   %j_i32 = arith.index_cast %j : index to i32
-  //   func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr) : (i32, i32, !sx2) -> ()
-  //   amdgcn.end_kernel
-  // }
+  // Test @swizzle_16x16_helper: returns (4 * (lane_id / 16), lane_id mod 16)
+  amdgcn.kernel @test_swizzle_16x16_helper arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %c0 = arith.constant 0 : index
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %i, %j = func.call @swizzle_16x16_helper() : () -> (index, index)
+    %i_i32 = arith.index_cast %i : index to i32
+    %j_i32 = arith.index_cast %j : index to i32
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
+    amdgcn.end_kernel
+  }
 
-  // // Test @swizzle_B_16x16xf16: swizzle for B fragment
-  // amdgcn.kernel @test_swizzle_B_16x16xf16 arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %i, %j = func.call @swizzle_B_16x16xf16() : () -> (index, index)
-  //   %i_i32 = arith.index_cast %i : index to i32
-  //   %j_i32 = arith.index_cast %j : index to i32
-  //   func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr) : (i32, i32, !sx2) -> ()
-  //   amdgcn.end_kernel
-  // }
+  // Test @swizzle_A_16x16xf16: swizzle for A fragment (swapped from helper)
+  amdgcn.kernel @test_swizzle_A_16x16xf16 arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %c0 = arith.constant 0 : index
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %i, %j = func.call @swizzle_A_16x16xf16() : () -> (index, index)
+    %i_i32 = arith.index_cast %i : index to i32
+    %j_i32 = arith.index_cast %j : index to i32
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
+    amdgcn.end_kernel
+  }
 
-  // // Test @swizzle_C_16x16xf32: swizzle for C fragment
-  // amdgcn.kernel @test_swizzle_C_16x16xf32 arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %i, %j = func.call @swizzle_C_16x16xf32() : () -> (index, index)
-  //   %i_i32 = arith.index_cast %i : index to i32
-  //   %j_i32 = arith.index_cast %j : index to i32
-  //   func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr) : (i32, i32, !sx2) -> ()
-  //   amdgcn.end_kernel
-  // }
+  // Test @swizzle_B_16x16xf16: swizzle for B fragment
+  amdgcn.kernel @test_swizzle_B_16x16xf16 arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %c0 = arith.constant 0 : index
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %i, %j = func.call @swizzle_B_16x16xf16() : () -> (index, index)
+    %i_i32 = arith.index_cast %i : index to i32
+    %j_i32 = arith.index_cast %j : index to i32
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
+    amdgcn.end_kernel
+  }
 
-  // // Test @index_bxmxnxk_16x16x16_f16f16f32: MFMA-style tiled indexing
-  // // Uses fixed values to test the formula
-  // amdgcn.kernel @test_index_bxmxnxk arguments <[
-  //   #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  // ]> attributes {shared_memory_size = 0 : i32} {
-  //   %out_ptr = amdgcn.load_arg 0 : !sx2
-  //   amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-  //   %bidx = gpu.block_id x
-  //   %tidx = gpu.thread_id x
-  //   %bdimx = gpu.block_dim x
-  //   // Fixed test parameters
-  //   %c0 = arith.constant 0 : index
-  //   %c1 = arith.constant 1 : index
-  //   %c4 = arith.constant 4 : index   // lane_stride
-  //   %c16 = arith.constant 16 : index // tile_size
-  //   %c2 = arith.constant 2 : index   // szI, szJ
-  //   %offset = func.call @index_bxmxnxk_16x16x16_f16f16f32(
-  //     %bidx, %tidx, %c0, %c0, %c2, %c2, %bdimx, %c16, %c4)
-  //     : (index, index, index, index, index, index, index, index, index) -> index
-  //   %offset_i32 = arith.index_cast %offset : index to i32
-  //   func.call @store_at_tid(%offset_i32, %out_ptr) : (i32, !sx2) -> ()
-  //   amdgcn.end_kernel
-  // }
+  // Test @swizzle_C_16x16xf32: swizzle for C fragment
+  amdgcn.kernel @test_swizzle_C_16x16xf32 arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %c0 = arith.constant 0 : index
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %i, %j = func.call @swizzle_C_16x16xf32() : () -> (index, index)
+    %i_i32 = arith.index_cast %i : index to i32
+    %j_i32 = arith.index_cast %j : index to i32
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
+    amdgcn.end_kernel
+  }
 
+  // Test @index_bxmxnxk_16x16x16_f16f16f32: MFMA-style tiled indexing
+  // Uses fixed values to test the formula
+  amdgcn.kernel @test_index_bxmxnxk arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %c0 = arith.constant 0 : index
+    %bidx = gpu.block_id x
+    %tidx = gpu.thread_id x
+    %bdimx = gpu.block_dim x
+    // Fixed test parameters
+    %c1 = arith.constant 1 : index
+    %c4 = arith.constant 4 : index   // lane_stride
+    %c16 = arith.constant 16 : index // tile_size
+    %c2 = arith.constant 2 : index   // szI, szJ
+    %offset = func.call @index_bxmxnxk_16x16x16_f16f16f32(
+      %bidx, %tidx, %c0, %c0, %c2, %c2, %bdimx, %c16, %c4)
+      : (index, index, index, index, index, index, index, index, index) -> index
+    %offset_i32 = arith.index_cast %offset : index to i32
+    func.call @store_at_tid(%offset_i32, %out_ptr, %c0) : (i32, !sx2, index) -> ()
+    amdgcn.end_kernel
+  }
 }
