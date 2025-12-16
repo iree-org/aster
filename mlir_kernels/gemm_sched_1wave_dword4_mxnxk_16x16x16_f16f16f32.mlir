@@ -45,19 +45,28 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %K: index, %MM: index, %NN: index,  %KK: index,              // sizes
     %a_global: !sx2,                                             // global memory pointers
     %m_pos: index, %n_pos: index, %k_pos: index, %SIZE_K: index, // global positions
-    %a_load_memref: memref<?x?x!vx2>                             // memref for decoupled global load
+    %a_load_memref: memref<?x?x!vx2>, %a_frag_memref: memref<?x?x!vx2> // memref for decoupled global load
   ) {
     %c0 = arith.constant 0 : index
+    %mmkk = affine.linearize_index [%mm, %kk] by (%MM, %KK) : index
 
     // Global load A tile (decoupled: stores to memref)
     %is_nn_zero = arith.cmpi eq, %nn, %c0 : index
     scf.if %is_nn_zero {
-      %mmkk = affine.linearize_index [%mm, %kk] by (%MM, %KK) : index
       %mm_pos = affine.apply affine_map<()[mmkk, KK] -> (mmkk * (16 ceildiv KK))>()[%mmkk, %KK]
       %loaded = func.call @global_load_dwordx2_wait(%a_global, %m_pos, %k_pos, %SIZE_K, %mm_pos, %c0, %KK)
         : (!sx2, index, index, index, index, index, index) -> (!vx2)
       memref.store %loaded, %a_load_memref[%k, %mmkk] : memref<?x?x!vx2>
+
+      // For debugging purposes, store the loaded fragment to the fragment memref.
+      // This allows bypassing LDS and ensuring correctness of the kernel with constant inputs.
+      %c1 = arith.constant 1 : index
+      scf.for %n_idx = %c0 to %NN step %c1 {
+        %mmnnkk = affine.linearize_index [%mm, %n_idx, %kk] by (%MM, %NN, %KK) : index
+        memref.store %loaded, %a_frag_memref[%k, %mmnnkk] : memref<?x?x!vx2>
+      } {amdgcn.constexpr}
     }
+
     return
   }
 
@@ -68,17 +77,27 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %K: index, %MM: index, %NN: index,  %KK: index,              // sizes
     %b_global: !sx2,                                             // global memory pointers
     %m_pos: index, %n_pos: index, %k_pos: index, %SIZE_K: index, // global positions
-    %b_load_memref: memref<?x?x!vx2>                             // memref for decoupled global
+    %b_load_memref: memref<?x?x!vx2>, %b_frag_memref: memref<?x?x!vx2> // memref for decoupled global
   ) {
     %c0 = arith.constant 0 : index
+    %nnkk = affine.linearize_index [%nn, %kk] by (%NN, %KK) : index
+
     %is_mm_zero = arith.cmpi eq, %mm, %c0 : index
     scf.if %is_mm_zero {
-      %nnkk = affine.linearize_index [%nn, %kk] by (%NN, %KK) : index
       %nn_pos = affine.apply affine_map<()[nnkk, KK] -> (nnkk * (16 ceildiv KK))>()[%nnkk, %KK]
       %loaded = func.call @global_load_dwordx2_wait(%b_global, %n_pos, %k_pos, %SIZE_K, %nn_pos, %c0, %KK)
         : (!sx2, index, index, index, index, index, index) -> (!vx2)
       memref.store %loaded, %b_load_memref[%k, %nnkk] : memref<?x?x!vx2>
+
+      // For debugging purposes, store the loaded fragment to the fragment memref.
+      // This allows bypassing LDS and ensuring correctness of the kernel with constant inputs.
+      %c1 = arith.constant 1 : index
+      scf.for %m_idx = %c0 to %MM step %c1 {
+        %mmnnkk = affine.linearize_index [%m_idx, %nn, %kk] by (%MM, %NN, %KK) : index
+        memref.store %loaded, %b_frag_memref[%k, %mmnnkk] : memref<?x?x!vx2>
+      } {amdgcn.constexpr}
     }
+
     return
   }
 
@@ -282,11 +301,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %K, %MM, %NN, %KK,
         %a_global,
         %m_pos, %n_pos, %k_pos, %SIZE_K,
-        %a_load_memref)
+        %a_load_memref, %a_frag_memref)
         {sched.delay = 0 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index,
            !sx2, index, index, index, index,
-           memref<?x?x!vx2>) -> ()
+           memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
 
       // Global load B (decoupled from DS writes via memrefs)
       func.call @maybe_global_load_B(
@@ -294,59 +313,59 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %K, %MM, %NN, %KK,
         %b_global,
         %m_pos, %n_pos, %k_pos, %SIZE_K,
-        %b_load_memref)
+        %b_load_memref, %b_frag_memref)
         {sched.delay = 0 : i64, sched.rate = 1 : i64}
         : (index, index, index, index, index, index, index, index,
            !sx2, index, index, index, index,
-           memref<?x?x!vx2>) -> ()
+           memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
 
-      // DS writeA (decoupled from global loads via memrefs)
-      func.call @maybe_lds_write_A(
-        %k, %mm, %nn, %kk,
-        %K, %MM, %NN, %KK,
-        %lds_a_base_off, %TILE_SIZE_K,
-        %a_load_memref)
-        {sched.delay = 0 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index,
-           index, index, index, index,
-           index, index,
-           memref<?x?x!vx2>) -> ()
+      // // DS writeA (decoupled from global loads via memrefs)
+      // func.call @maybe_lds_write_A(
+      //   %k, %mm, %nn, %kk,
+      //   %K, %MM, %NN, %KK,
+      //   %lds_a_base_off, %TILE_SIZE_K,
+      //   %a_load_memref)
+      //   {sched.delay = 0 : i64, sched.rate = 1 : i64}
+      //   : (index, index, index, index,
+      //      index, index, index, index,
+      //      index, index,
+      //      memref<?x?x!vx2>) -> ()
 
-      // DS writeB (decoupled from global loads via memrefs)
-      func.call @maybe_lds_write_B(
-        %k, %mm, %nn, %kk,
-        %K, %MM, %NN, %KK,
-        %lds_b_base_off, %TILE_SIZE_K,
-        %b_load_memref)
-        {sched.delay = 0 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index,
-           index, index, index, index,
-           index, index,
-           memref<?x?x!vx2>) -> ()
+      // // DS writeB (decoupled from global loads via memrefs)
+      // func.call @maybe_lds_write_B(
+      //   %k, %mm, %nn, %kk,
+      //   %K, %MM, %NN, %KK,
+      //   %lds_b_base_off, %TILE_SIZE_K,
+      //   %b_load_memref)
+      //   {sched.delay = 0 : i64, sched.rate = 1 : i64}
+      //   : (index, index, index, index,
+      //      index, index, index, index,
+      //      index, index,
+      //      memref<?x?x!vx2>) -> ()
 
-      // DS readA (decoupled from global loads via memrefs)
-      func.call @maybe_lds_read_A(
-        %k, %mm, %nn, %kk,
-        %K, %MM, %NN, %KK,
-        %lds_a_base_off, %TILE_SIZE_K,
-        %a_frag_memref)
-        {sched.delay = 0 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index,
-           index, index, index, index,
-           index, index,
-           memref<?x?x!vx2>) -> ()
+      // // DS readA (decoupled from global loads via memrefs)
+      // func.call @maybe_lds_read_A(
+      //   %k, %mm, %nn, %kk,
+      //   %K, %MM, %NN, %KK,
+      //   %lds_a_base_off, %TILE_SIZE_K,
+      //   %a_frag_memref)
+      //   {sched.delay = 0 : i64, sched.rate = 1 : i64}
+      //   : (index, index, index, index,
+      //      index, index, index, index,
+      //      index, index,
+      //      memref<?x?x!vx2>) -> ()
 
-      // DS readB (decoupled from global loads via memrefs)
-      func.call @maybe_lds_read_B(
-        %k, %mm, %nn, %kk,
-        %K, %MM, %NN, %KK,
-        %lds_b_base_off, %TILE_SIZE_K,
-        %b_frag_memref)
-        {sched.delay = 0 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index,
-           index, index, index, index,
-           index, index,
-           memref<?x?x!vx2>) -> ()
+      // // DS readB (decoupled from global loads via memrefs)
+      // func.call @maybe_lds_read_B(
+      //   %k, %mm, %nn, %kk,
+      //   %K, %MM, %NN, %KK,
+      //   %lds_b_base_off, %TILE_SIZE_K,
+      //   %b_frag_memref)
+      //   {sched.delay = 0 : i64, sched.rate = 1 : i64}
+      //   : (index, index, index, index,
+      //      index, index, index, index,
+      //      index, index,
+      //      memref<?x?x!vx2>) -> ()
 
       // MFMA (decoupled from LDS reads via memrefs)
       func.call @maybe_mfma(
