@@ -24,6 +24,7 @@ namespace mlir::aster::amdgcn {
 class AMDGCNDialect;
 /// Enumeration of AMDGCN opcodes.
 enum class OpCode : uint64_t;
+enum class ISAVersion : uint32_t;
 
 namespace detail {
 struct InstAttrStorage;
@@ -35,6 +36,8 @@ public:
   virtual ~InstMetadata() = default;
   /// Get the opcode of the instruction.
   OpCode getOpCode() const { return opCode; }
+  /// Get the supported ISA versions of the instruction.
+  ArrayRef<ISAVersion> getISAVersions() const { return isaVersions; }
 
   /// Equality operator.
   bool operator==(const InstMetadata &other) const {
@@ -50,12 +53,14 @@ public:
   virtual LogicalResult verify(Operation *op) const = 0;
 
 protected:
-  InstMetadata(OpCode opCode) : opCode(opCode) {}
+  InstMetadata(OpCode opCode, ArrayRef<ISAVersion> isaVersions)
+      : opCode(opCode), isaVersions(isaVersions) {}
   virtual void initialize(MLIRContext *ctx) {}
   friend struct amdgcn::detail::InstAttrStorage;
 
 private:
   OpCode opCode;
+  ArrayRef<ISAVersion> isaVersions;
 };
 
 /// CRTP helper class for defining instructions.
@@ -63,7 +68,7 @@ template <typename ConcreteTy>
 class InstMD : public InstMetadata {
 public:
   using Base = InstMD;
-  InstMD() : InstMetadata(ConcreteTy::kOpCode) {}
+  InstMD() : InstMetadata(ConcreteTy::kOpCode, ConcreteTy::isa) {}
   /// Classof method for LLVM-style RTTI.
   static bool classof(const InstMetadata *md) {
     return md->getOpCode() == ConcreteTy::kOpCode;

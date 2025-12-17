@@ -90,7 +90,8 @@ ISAVersion getIsaForTarget(Target target);
 
 /// Check if an instruction opcode is valid for all the given ISA versions.
 /// Returns true if the instruction is valid for ALL ISAs in the list.
-bool isOpcodeValidForAllIsas(OpCode opcode, ArrayRef<ISAVersion> isas);
+bool isOpcodeValidForAllIsas(OpCode opcode, ArrayRef<ISAVersion> isas,
+                             MLIRContext *ctx);
 
 /// Check if the given type is an AMD register type or an Immedate type.
 bool isAMDRegOrImm(Type type);

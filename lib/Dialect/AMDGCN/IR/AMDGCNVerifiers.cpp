@@ -255,7 +255,7 @@ amdgcn::verifyISAsSupportImpl(Region &region, ArrayRef<ISAVersion> isas,
   LogicalResult result = success();
   region.walk([&](AMDGCNInstOpInterface instOp) {
     OpCode opcode = instOp.getOpcodeAttr().getValue();
-    if (!isOpcodeValidForAllIsas(opcode, isas)) {
+    if (!isOpcodeValidForAllIsas(opcode, isas, region.getContext())) {
       result = instOp->emitError("instruction '")
                << stringifyOpCode(opcode)
                << "' is not valid for all specified ISA targets";

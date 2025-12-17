@@ -18,6 +18,7 @@
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "llvm/ADT/SetOperations.h"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -138,14 +139,18 @@ ISAVersion mlir::aster::amdgcn::getIsaForTarget(Target target) {
 }
 
 bool mlir::aster::amdgcn::isOpcodeValidForAllIsas(OpCode opcode,
-                                                  ArrayRef<ISAVersion> isas) {
-  // TODO: Implement per-opcode ISA validation. This requires generating a
-  // mapping from OpCode -> valid Targets in amdgcn-tblgen.
-  // For now, we conservatively return true (allow all instructions if isa
-  // attribute is present). The translation pass will catch invalid
-  // instructions.
-  (void)opcode;
-  (void)isas;
+                                                  ArrayRef<ISAVersion> isas,
+                                                  MLIRContext *ctx) {
+  ArrayRef<ISAVersion> instISAVersions =
+      InstAttr::get(ctx, opcode).getMetadata()->getISAVersions();
+  if (instISAVersions.empty()) {
+    // Available on all targets.
+    return true;
+  }
+  for (ISAVersion isa : isas) {
+    if (!llvm::is_contained(instISAVersions, isa))
+      return false;
+  }
   return true;
 }
 
