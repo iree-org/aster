@@ -324,3 +324,22 @@ func.func private @test_select(%arg0: i1, %arg1: i32, %arg2: i32) -> i32 attribu
   %0 = arith.select %arg0, %arg1, %arg2 : i32
   return {abi = (!amdgcn.ggpr<[? + 1], uniform = 0>, !amdgcn.ggpr<[? + 1], uniform = 0>, !amdgcn.ggpr<[? + 1], uniform = 0>) -> !amdgcn.ggpr<[? + 1], uniform = 0>} %0 : i32
 }
+
+// CHECK-LABEL:   func.func private @test_to_reg_constant
+// CHECK:           %[[C42:.*]] = arith.constant 42 : i32
+// CHECK:           %[[ALLOCA:.*]] = lsir.alloca : !amdgcn.ggpr<[? + 1], uniform = 1>
+// CHECK:           %[[MOV:.*]] = lsir.mov %[[ALLOCA]], %[[C42]]
+// CHECK:           %[[ALLOCA2:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[MOV2:.*]] = lsir.mov %[[ALLOCA2]], %[[C42]]
+// CHECK:           %[[ALLOCA3:.*]] = lsir.alloca : !amdgcn.sgpr
+// CHECK:           %[[MOV3:.*]] = lsir.mov %[[ALLOCA3]], %[[C42]]
+// CHECK:           return %[[MOV]], %[[MOV2]], %[[MOV3]] : !amdgcn.ggpr<[? + 1], uniform = 1>, !amdgcn.vgpr, !amdgcn.sgpr
+func.func private @test_to_reg_constant()
+    -> (!amdgcn.ggpr<[? + 1], uniform = 1>, !amdgcn.vgpr, !amdgcn.sgpr)
+{
+  %c42 = arith.constant 42 : i32
+  %0 = lsir.to_reg %c42 : i32 -> !amdgcn.ggpr<[? + 1], uniform = 1>
+  %1 = lsir.to_reg %c42 : i32 -> !amdgcn.vgpr
+  %2 = lsir.to_reg %c42 : i32 -> !amdgcn.sgpr
+  return %0, %1, %2 : !amdgcn.ggpr<[? + 1], uniform = 1>, !amdgcn.vgpr, !amdgcn.sgpr
+}
