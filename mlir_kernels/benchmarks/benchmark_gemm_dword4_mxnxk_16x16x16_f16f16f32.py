@@ -342,6 +342,13 @@ def main() -> None:
         help="Skip correctness verification",
     )
     parser.add_argument(
+        "--num-waves",
+        type=int,
+        nargs="+",
+        default=[1, 2, 4],
+        help="Number of waves per block (default: [1, 2, 4])",
+    )
+    parser.add_argument(
         "--mlir-filename",
         type=str,
         default="gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir",
@@ -375,7 +382,7 @@ def main() -> None:
     ]
 
     # Number of waves per block
-    num_waves_values: List[int] = [1, 2, 4]
+    num_waves_values: List[int] = args.num_waves
 
     # Generate all valid configs
     all_configs: List[GEMMConfig] = []
@@ -395,7 +402,8 @@ def main() -> None:
                         k_tile=k_tile,
                         num_waves=num_waves,
                         mlir_file=mlir_file,
-                        pass_pipeline=SYNCHRONOUS_SROA_PASS_PIPELINE,
+                        # pass_pipeline=SYNCHRONOUS_SROA_PASS_PIPELINE,
+                        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
                     )
                     all_configs.append(config)
                 except AssertionError:
