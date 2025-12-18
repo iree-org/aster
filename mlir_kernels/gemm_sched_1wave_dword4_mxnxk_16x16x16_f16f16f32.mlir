@@ -229,36 +229,33 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     return
   }
 
-  // Store C fragment to global memory if phase 2 and at last k iteration
+  // Store C fragment to global memory and at last k iteration
   func.func private @maybe_store_c_fragment(
     %phase: index,
-    %d_mmnnkk: index, %d_MMNN: index, %KK: index,
-    %MM: index, %NN: index,
-    %k: index, %K: index,
-    %i_pos: index, %j_pos: index, %SIZE_N: index,
-    %c_fragments: memref<?x!vx4>, %c_global: !sx2
+    %k: index, %mm: index, %nn: index, %kk: index,  // indices
+    %K: index, %MM: index, %NN: index,  %KK: index, // sizes
+    %c_fragments: memref<?x!vx4>,                   // register fragments for C
+    %c_global: !sx2,                                // global memory pointer
+    %m_pos: index, %n_pos: index, %SIZE_N: index    // global positions
   ) {
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index
     %is_phase_2 = arith.cmpi eq, %phase, %c2 : index
     scf.if %is_phase_2 {
-      // Calculate mma tile indices
-      %d_mmnn, %kk = affine.delinearize_index %d_mmnnkk into (%d_MMNN, %KK) : index, index
-      %ii, %jj = affine.delinearize_index %d_mmnn into (%MM, %NN) : index, index
-
-      // if k is the last tile and kk is the last iteration, store to global
-      %k_minus_1 = arith.subi %K, %c1 : index
-      %kk_minus_1 = arith.subi %KK, %c1 : index
-      %is_last_k = arith.cmpi eq, %k, %k_minus_1 : index
-      %is_last_kk = arith.cmpi eq, %kk, %kk_minus_1 : index
-      %is_last_k_and_kk = arith.andi %is_last_k, %is_last_kk : i1
-      scf.if %is_last_k_and_kk {
-        %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
-        %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
-        %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-        func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %SIZE_N, %ii_pos, %jj_pos)
-          : (!vx4, !sx2, index, index, index, index, index) -> ()
-      }
+        // if k is the last tile and kk is the last iteration, store to global
+        %k_minus_1 = arith.subi %K, %c1 : index
+        %kk_minus_1 = arith.subi %KK, %c1 : index
+        %is_last_k = arith.cmpi eq, %k, %k_minus_1 : index
+        %is_last_kk = arith.cmpi eq, %kk, %kk_minus_1 : index
+        %is_last_k_and_kk = arith.andi %is_last_k, %is_last_kk : i1
+        scf.if %is_last_k_and_kk {
+            %mmnn = affine.linearize_index [%mm, %nn] by (%MM, %NN) : index
+            %fragment = memref.load %c_fragments[%mmnn] : memref<?x!vx4>
+            %mm_pos = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
+            %nn_pos = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
+            func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %m_pos, %n_pos, %SIZE_N, %mm_pos, %nn_pos)
+                : (!vx4, !sx2, index, index, index, index, index) -> ()
+        }
     }
     return
   }
@@ -444,11 +441,19 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
       // Phase 2: Store C fragment back to global memory
       func.call @maybe_store_c_fragment(
-        %phase, %d_mmnnkk, %d_MMNN, %KK, %MM, %NN, %k, %K,
-        %i_pos, %j_pos, %SIZE_N, %c_fragments, %c_global)
-          {sched.delay = 12 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index, index, index, index, index,
-           index, index, index, memref<?x!vx4>, !sx2) -> ()
+        %phase,
+        %k, %mm, %nn, %kk,
+        %K, %MM, %NN, %KK,
+        %c_fragments,
+        %c_global,
+        %m_pos, %n_pos, %SIZE_N)
+        {sched.delay = 12 : i64, sched.rate = 1 : i64}
+        : (index,
+            index, index, index, index,
+            index, index, index, index,
+            memref<?x!vx4>,
+            !sx2,
+            index, index, index) -> ()
 
     } {amdgcn.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, 3, {{LOOP_SIZE_D_MMNNKK}}> }
 
