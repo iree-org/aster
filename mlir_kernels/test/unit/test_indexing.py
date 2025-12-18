@@ -86,7 +86,8 @@ class TestLaneId:
         output = np.zeros(num_threads, dtype=np.int32)
         compile_and_run("test_lane_id", output)
         expected = np.arange(num_threads, dtype=np.int32)
-        np.testing.assert_array_equal(output, expected)
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestWaveId:
@@ -98,7 +99,8 @@ class TestWaveId:
         output = np.zeros(num_threads, dtype=np.int32)
         compile_and_run("test_wave_id", output)
         expected = np.zeros(num_threads, dtype=np.int32)
-        np.testing.assert_array_equal(output, expected)
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
     def test_wave_id_two_waves(self):
         """With two waves, threads 0-63 output 0, threads 64-127 output 1."""
@@ -106,7 +108,8 @@ class TestWaveId:
         output = np.zeros(num_threads, dtype=np.int32)
         compile_and_run("test_wave_id", output, block_dim=(num_threads, 1, 1))
         expected = np.array([0] * 64 + [1] * 64, dtype=np.int32)
-        np.testing.assert_array_equal(output, expected)
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestWaveCount:
@@ -118,7 +121,8 @@ class TestWaveCount:
         output = np.zeros(num_threads, dtype=np.int32)
         compile_and_run("test_wave_count", output)
         expected = np.ones(num_threads, dtype=np.int32)
-        np.testing.assert_array_equal(output, expected)
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
     def test_wave_count_two_waves(self):
         """With 128 threads, wave_count should be 2."""
@@ -126,7 +130,8 @@ class TestWaveCount:
         output = np.zeros(num_threads, dtype=np.int32)
         compile_and_run("test_wave_count", output, block_dim=(num_threads, 1, 1))
         expected = np.full(num_threads, 2, dtype=np.int32)
-        np.testing.assert_array_equal(output, expected)
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestWavePartition2D:
@@ -144,7 +149,6 @@ class TestWavePartition2D:
             expected[tid * 2] = tid // 8
             expected[tid * 2 + 1] = tid % 8
 
-        # Print full arrays on failure
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
 
@@ -170,7 +174,6 @@ class TestGridPartition2D:
                 expected[global_tid * 2] = bid // 4
                 expected[global_tid * 2 + 1] = bid % 4
 
-        # Print full arrays on failure
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
 
@@ -189,18 +192,17 @@ class TestTiledGridPartition2D:
             grid_dim=(num_blocks, 1, 1),
         )
 
-        # block_id partitions into ceildiv(64,32) x ceildiv(64,32) = 2x2 grid
+        expected = np.zeros(num_threads * 2 * num_blocks, dtype=np.int32)
         for bid in range(num_blocks):
             expected_i = bid // 2
             expected_j = bid % 2
             for tid in range(64):
                 global_tid = bid * 64 + tid
-                assert (
-                    output[global_tid * 2] == expected_i
-                ), f"bid={bid}, tid={tid}: i mismatch"
-                assert (
-                    output[global_tid * 2 + 1] == expected_j
-                ), f"bid={bid}, tid={tid}: j mismatch"
+                expected[global_tid * 2] = expected_i
+                expected[global_tid * 2 + 1] = expected_j
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestMatrixOffset:
@@ -214,13 +216,14 @@ class TestMatrixOffset:
 
         # offset = (i * N + j) * elt_size
         # i = tid / 8, j = tid % 8, N = 16, elt_size = 4
+        expected = np.zeros(num_threads, dtype=np.int32)
         for tid in range(64):
             i = tid // 8
             j = tid % 8
-            expected = (i * 16 + j) * 4
-            assert (
-                output[tid] == expected
-            ), f"tid={tid}: expected {expected}, got {output[tid]}"
+            expected[tid] = (i * 16 + j) * 4
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestTiledMatrixOffset:
@@ -234,13 +237,14 @@ class TestTiledMatrixOffset:
 
         # offset = ((i + ii) * N + (j + jj)) * elt_size
         # i=0, j=0, ii = tid / 8, jj = tid % 8, N = 16, elt_size = 4
+        expected = np.zeros(num_threads, dtype=np.int32)
         for tid in range(64):
             ii = tid // 8
             jj = tid % 8
-            expected = ((0 + ii) * 16 + (0 + jj)) * 4
-            assert (
-                output[tid] == expected
-            ), f"tid={tid}: expected {expected}, got {output[tid]}"
+            expected[tid] = ((0 + ii) * 16 + (0 + jj)) * 4
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestTiledx2MatrixOffset:
@@ -254,13 +258,14 @@ class TestTiledx2MatrixOffset:
 
         # offset = ((i + ii + iii) * N + (j + jj + jjj)) * elt_size
         # i=0, j=0, ii=0, jj=0, iii = tid / 8, jjj = tid % 8, N = 16, elt_size = 4
+        expected = np.zeros(num_threads, dtype=np.int32)
         for tid in range(64):
             iii = tid // 8
             jjj = tid % 8
-            expected = ((0 + 0 + iii) * 16 + (0 + 0 + jjj)) * 4
-            assert (
-                output[tid] == expected
-            ), f"tid={tid}: expected {expected}, got {output[tid]}"
+            expected[tid] = ((0 + 0 + iii) * 16 + (0 + 0 + jjj)) * 4
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestSwizzle16x16Helper:
@@ -272,12 +277,14 @@ class TestSwizzle16x16Helper:
         output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_swizzle_16x16_helper", output)
 
+        expected = np.zeros(num_threads * 2, dtype=np.int32)
         for tid in range(64):
             lane_id = tid % 64
-            expected_i = 4 * (lane_id // 16)
-            expected_j = lane_id % 16
-            assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch"
-            assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch"
+            expected[tid * 2] = 4 * (lane_id // 16)
+            expected[tid * 2 + 1] = lane_id % 16
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestSwizzleA16x16xf16:
@@ -290,19 +297,17 @@ class TestSwizzleA16x16xf16:
         compile_and_run("test_swizzle_A_16x16xf16", output)
 
         # A swizzle returns (j, i) from helper, which is (lane_id mod 16, 4 * (lane_id / 16))
+        expected = np.zeros(num_threads * 2, dtype=np.int32)
         for tid in range(64):
             lane_id = tid % 64
             helper_i = 4 * (lane_id // 16)
             helper_j = lane_id % 16
             # swizzle_A returns (j, i) from helper, so (helper_j, helper_i)
-            expected_i = helper_j
-            expected_j = helper_i
-            assert (
-                output[tid * 2] == expected_i
-            ), f"tid={tid}: i mismatch, got {output[tid * 2]}, expected {expected_i}"
-            assert (
-                output[tid * 2 + 1] == expected_j
-            ), f"tid={tid}: j mismatch, got {output[tid * 2 + 1]}, expected {expected_j}"
+            expected[tid * 2] = helper_j
+            expected[tid * 2 + 1] = helper_i
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestSwizzleB16x16xf16:
@@ -314,12 +319,14 @@ class TestSwizzleB16x16xf16:
         output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_swizzle_B_16x16xf16", output)
 
+        expected = np.zeros(num_threads * 2, dtype=np.int32)
         for tid in range(64):
             lane_id = tid % 64
-            expected_i = 4 * (lane_id // 16)
-            expected_j = lane_id % 16
-            assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch"
-            assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch"
+            expected[tid * 2] = 4 * (lane_id // 16)
+            expected[tid * 2 + 1] = lane_id % 16
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestSwizzleC16x16xf32:
@@ -331,12 +338,14 @@ class TestSwizzleC16x16xf32:
         output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_swizzle_C_16x16xf32", output)
 
+        expected = np.zeros(num_threads * 2, dtype=np.int32)
         for tid in range(64):
             lane_id = tid % 64
-            expected_i = 4 * (lane_id // 16)
-            expected_j = lane_id % 16
-            assert output[tid * 2] == expected_i, f"tid={tid}: i mismatch"
-            assert output[tid * 2 + 1] == expected_j, f"tid={tid}: j mismatch"
+            expected[tid * 2] = 4 * (lane_id // 16)
+            expected[tid * 2 + 1] = lane_id % 16
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestIndexBxMxNxK:
@@ -359,11 +368,12 @@ class TestIndexBxMxNxK:
         # widx = tidx / 64 = 0
         # lidx = tidx % 64
         # offset = 0 + 0 + 0 + 0 + lidx * 4 = tidx * 4 (for tidx < 64)
+        expected = np.zeros(num_threads, dtype=np.int32)
         for tid in range(64):
-            expected = tid * 4
-            assert (
-                output[tid] == expected
-            ), f"tid={tid}: expected {expected}, got {output[tid]}"
+            expected[tid] = tid * 4
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 if __name__ == "__main__":
