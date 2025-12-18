@@ -377,12 +377,6 @@ def main() -> None:
     # Number of waves per block
     num_waves_values: List[int] = [1, 2, 4]
 
-    m_values: List[int] = [1024]
-    n_values: List[int] = [1024]
-    k_values: List[int] = [1024]
-    tile_configs: List[Tuple[int, int, int]] = [(32, 32, 32)]
-    num_waves_values: List[int] = [4]
-
     # Generate all valid configs
     all_configs: List[GEMMConfig] = []
     for m, n, k in itertools.product(m_values, n_values, k_values):
