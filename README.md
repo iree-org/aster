@@ -134,7 +134,7 @@ To build the project use:
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DCMAKE_INSTALL_PREFIX="../.aster" \
     -DLLVM_EXTERNAL_LIT=${VIRTUAL_ENV}/bin/lit \
-    -DCMAKE_PREFIX_PATH="$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib/cmake/hip" \
+    -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip" \
     -DHIP_PLATFORM=amd \
   && ninja install FileCheck count not \
   && ninja install
