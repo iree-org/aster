@@ -107,7 +107,9 @@ DEFAULT_SROA_PASS_PIPELINE = (
     "  amdgcn-instruction-scheduling-autoschedule,"
     "  amdgcn-instruction-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
-    # Note: SROA requires inlining of everything to properly kick in.
+    "  aster-replace-constant-gpu-dims,cse,canonicalize,"
+    # Note: SROA requires inlining of everything and canonicalization of GPU
+    # quantities to properly kick in.
     # TODO: NORMAL FORMS or include in pass.
     "  cse,canonicalize,sroa,"
     "  cse,canonicalize,amdgcn-mem2reg,"
@@ -115,9 +117,9 @@ DEFAULT_SROA_PASS_PIPELINE = (
     # Note: analysis does not support branches so full inlining is required.
     "  aster-selective-inlining{allow-scheduled-calls=true},"
     "  cse,canonicalize,symbol-dce,"
-    "  aster-replace-constant-gpu-dims,cse,canonicalize,"
     "  amdgcn-constexpr-expansion,cse,canonicalize,"
-    # Note: SROA requires inlining of everything to properly kick in.
+    # Note: SROA requires inlining of everything and canonicalization of GPU
+    # quantities to properly kick in.
     # TODO: NORMAL FORMS or include in pass.
     "  affine-expand-index-ops-as-affine,"
     "  cse,canonicalize,sroa,"
@@ -181,6 +183,7 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     "  amdgcn-instruction-scheduling-autoschedule,"
     "  amdgcn-instruction-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
+    "  aster-replace-constant-gpu-dims,cse,canonicalize,"
     # Note: SROA requires inlining of everything to properly kick in.
     # TODO: NORMAL FORMS or include in pass.
     "  cse,canonicalize,sroa,"

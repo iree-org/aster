@@ -39,14 +39,14 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @store_global_16x16xf32_C_fragment_wait(
     !vx4, !sx2, index, index, index, index, index) -> ()
 
-  // Phase 0a: Global loads if phase 0 (decoupled from DS writes via memrefs)
-  func.func private @maybe_global_load(
-    %phase: index, %k: index, %d_mmnnkk: index,
-    %NN: index, %MM: index, %d_MMKK: index, %d_NNKK: index,
-    %KK: index,
-    %a_global: !sx2, %b_global: !sx2,
-    %i_pos: index, %j_pos: index, %k_pos: index, %SIZE_K: index,
-    %a_load_memref: memref<?x?x!vx2>, %b_load_memref: memref<?x?x!vx2>
+  // Global load A (decoupled from DS writes via memrefs).
+  func.func private @maybe_global_load_A(
+    %phase: index, %d_mmnnkk: index,
+    %k: index, %mm: index, %nn: index, %kk: index,               // indices
+    %K: index, %MM: index, %NN: index,  %KK: index,              // sizes
+    %a_global: !sx2,                                             // global memory pointers
+    %m_pos: index, %n_pos: index, %k_pos: index, %SIZE_K: index, // global positions
+    %a_load_memref: memref<?x?x!vx2>                             // memref for decoupled global load
   ) {
     %c0 = arith.constant 0 : index
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
@@ -55,31 +55,52 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       scf.if %is_first_it {
         amdgcn.sopp.sopp <s_barrier>
       }
+      %mmkk = affine.linearize_index [%mm, %kk] by (%MM, %KK) : index
 
       // Global load A tile (decoupled: stores to memref)
-      %_jj, %d_mmkk = affine.delinearize_index %d_mmnnkk into (%NN, %d_MMKK) : index, index
-      %is_nn_zero = arith.cmpi eq, %_jj, %c0 : index
+      %is_nn_zero = arith.cmpi eq, %nn, %c0 : index
       scf.if %is_nn_zero {
-        %ii_pos = affine.apply affine_map<()[idx, KKv] -> (idx * (16 ceildiv KKv))>()[%d_mmkk, %KK]
-        %loaded = func.call @global_load_dwordx2_wait(%a_global, %i_pos, %k_pos, %SIZE_K, %ii_pos, %c0, %KK)
+        %mm_pos = affine.apply affine_map<()[mmkk, KK] -> (mmkk * (16 ceildiv KK))>()[%mmkk, %KK]
+        %loaded = func.call @global_load_dwordx2_wait(%a_global, %m_pos, %k_pos, %SIZE_K, %mm_pos, %c0, %KK)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
-
-        memref.store %loaded, %a_load_memref[%k, %d_mmkk] : memref<?x?x!vx2>
-      }
-
-      // Global load B tile (decoupled: stores to memref)
-      %ii, %d_nnkk = affine.delinearize_index %d_mmnnkk into (%MM, %d_NNKK) : index, index
-      %is_mm_zero = arith.cmpi eq, %ii, %c0 : index
-      scf.if %is_mm_zero {
-        %jj_pos = affine.apply affine_map<()[idx, KKv] -> (idx * (16 ceildiv KKv))>()[%d_nnkk, %KK]
-        %loaded = func.call @global_load_dwordx2_wait(%b_global, %j_pos, %k_pos, %SIZE_K, %jj_pos, %c0, %KK)
-          : (!sx2, index, index, index, index, index, index) -> (!vx2)
-
-        memref.store %loaded, %b_load_memref[%k, %d_nnkk] : memref<?x?x!vx2>
+        memref.store %loaded, %a_load_memref[%k, %mmkk] : memref<?x?x!vx2>
       }
     }
+
     return
   }
+
+  // Global load B (decoupled from DS writes via memrefs).
+  // Note: B is transposed (i.e. has layout NNxKK)
+  func.func private @maybe_global_load_B(
+    %phase: index, %d_mmnnkk: index,
+    %k: index, %mm: index, %nn: index, %kk: index,               // indices
+    %K: index, %MM: index, %NN: index,  %KK: index,              // sizes
+    %b_global: !sx2,                                             // global memory pointers
+    %m_pos: index, %n_pos: index, %k_pos: index, %SIZE_K: index, // global positions
+    %b_load_memref: memref<?x?x!vx2>                             // memref for decoupled global
+  ) {
+    %c0 = arith.constant 0 : index
+    %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
+    scf.if %is_phase_0 {
+      %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
+      scf.if %is_first_it {
+        amdgcn.sopp.sopp <s_barrier>
+      }
+      %nnkk = affine.linearize_index [%nn, %kk] by (%NN, %KK) : index
+
+      %is_mm_zero = arith.cmpi eq, %mm, %c0 : index
+      scf.if %is_mm_zero {
+        %nn_pos = affine.apply affine_map<()[nnkk, KK] -> (nnkk * (16 ceildiv KK))>()[%nnkk, %KK]
+        %loaded = func.call @global_load_dwordx2_wait(%b_global, %n_pos, %k_pos, %SIZE_K, %nn_pos, %c0, %KK)
+          : (!sx2, index, index, index, index, index, index) -> (!vx2)
+        memref.store %loaded, %b_load_memref[%k, %nnkk] : memref<?x?x!vx2>
+      }
+    }
+
+    return
+  }
+
 
   // Phase 0b: DS writes if phase 0 (decoupled from global loads via memrefs)
   func.func private @maybe_lds_write(
@@ -239,6 +260,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // Calculate global positions
     %i_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_M)[%i]
     %j_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_N)[%j]
+    %m_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_M)[%i]
+    %n_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_N)[%j]
 
     // Warp-level tile indices (ii, jj, kk) and sizes (MM, NN, KK)
     %MM = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_M]
@@ -281,18 +304,39 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       ()[%K, %num_phases, %d_MMNNKK]
     scf.for %idx = %c0 to %ub step %c1 {
       // Decompose linear index into 3D index
-      %k, %phase, %d_mmnnkk = affine.delinearize_index %idx into (%K, %num_phases, %d_MMNNKK) : index, index, index
+      %_, %__, %d_mmnnkk = affine.delinearize_index %idx into (%K, %num_phases, %d_MMNNKK) : index, index, index
+
+      %k, %phase, %mm, %nn, %kk = affine.delinearize_index %idx into (%K, %num_phases, %MM, %NN, %KK) : index, index, index, index, index
       %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
-      // Phase 0a: Global loads (decoupled from DS writes via memrefs)
-      func.call @maybe_global_load(
-        %phase, %k, %d_mmnnkk, %NN, %MM, %d_MMKK, %d_NNKK, %KK,
-        %a_global, %b_global, %i_pos, %j_pos, %k_pos, %SIZE_K,
-        %a_load_memref, %b_load_memref)
+      func.call @maybe_global_load_A(
+        %phase, %d_mmnnkk,
+        %k, %mm, %nn, %kk,
+        %K, %MM, %NN, %KK,
+        %a_global,
+        %m_pos, %n_pos, %k_pos, %SIZE_K,
+        %a_load_memref)
         {sched.delay = 0 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index, index, index, index, index,
-           !sx2, !sx2, index, index, index, index,
-           memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
+        : (index, index,
+           index, index, index, index,
+           index, index, index, index,
+           !sx2, index, index, index, index,
+           memref<?x?x!vx2>) -> ()
+
+      // Global load B (decoupled from DS writes via memrefs)
+      func.call @maybe_global_load_B(
+        %phase, %d_mmnnkk,
+        %k, %mm, %nn, %kk,
+        %K, %MM, %NN, %KK,
+        %b_global,
+        %m_pos, %n_pos, %k_pos, %SIZE_K,
+        %b_load_memref)
+        {sched.delay = 0 : i64, sched.rate = 1 : i64}
+        : (index, index,
+           index, index, index, index,
+           index, index, index, index,
+           !sx2, index, index, index, index,
+           memref<?x?x!vx2>) -> ()
 
       // Phase 0b: DS writes (decoupled from global loads via memrefs)
       func.call @maybe_lds_write(
