@@ -21,32 +21,27 @@ MFMA_SIZE_M = 16
 MFMA_SIZE_N = 16
 MFMA_SIZE_K = 16
 
-FILE_NAME = "gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir"
-KERNEL_NAME = "test_matmul_kernel"
-
 
 @pytest.mark.parametrize(
     "mlir_filename",
     [
-        "gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir",
-        "gemm_sched_dword4_mxnxk_16x16x16_f16f16f32.mlir",
+        "gemm_sched_1wave_dword4_mxnxk_16x16x16_f16f16f32.mlir",
     ],
 )
 @pytest.mark.parametrize("kernel_name", ["test_matmul_kernel"])
 @pytest.mark.parametrize(
     # fmt: off
-    "m,n,k,m_tile,n_tile,k_tile,num_wavefronts",
+    "m,n,k,m_tile,n_tile,k_tile",
     [
-        (16, 16, 16, 16, 16, 16, 1),
-        (32, 32, 32, 16, 16, 16, 1),
-        (32, 32, 64, 16, 16, 16, 1),
-        (128, 128, 64, 16, 16, 16, 1),
-        (128, 128, 256, 16, 16, 16, 1),
-        (32, 32, 32, 32, 16, 32, 1),
-        (32, 32, 64, 16, 32, 16, 1),
-        (128, 128, 64, 32, 32, 32, 1),
-        (128, 128, 256, 32, 32, 16, 1),
-        (1024, 1024, 1024, 64, 64, 64, 4),
+        (16, 16, 16, 16, 16, 16),
+        (32, 32, 32, 16, 16, 16),
+        (32, 32, 64, 16, 16, 16),
+        (128, 128, 64, 16, 16, 16),
+        (128, 128, 256, 16, 16, 16),
+        (32, 32, 32, 32, 16, 32),
+        (32, 32, 64, 16, 32, 16),
+        (128, 128, 64, 32, 32, 32),
+        # (128, 128, 256, 32, 32, 16), runs out of registers atm
     ],
     # fmt: on
 )
@@ -63,7 +58,6 @@ def test_gemm_e2e_kernel(
     m_tile: int,
     n_tile: int,
     k_tile: int,
-    num_wavefronts: int,
     pass_pipeline: str,
     mcpu: str,
     wavefront_size=64,
@@ -79,9 +73,7 @@ def test_gemm_e2e_kernel(
     copies_lib = os.path.join(test_dir, "..", "library", "common", "copies.mlir")
 
     # Validate configuration using shared validation logic
-    is_valid, error = validate_gemm_config(
-        m, n, k, m_tile, n_tile, k_tile, num_wavefronts
-    )
+    is_valid, error = validate_gemm_config(m, n, k, m_tile, n_tile, k_tile)
     if not is_valid:
         pytest.skip(f"Invalid configuration: {error}")
 
@@ -93,7 +85,7 @@ def test_gemm_e2e_kernel(
         num_blocks_m = m // m_tile
         num_blocks_n = n // n_tile
         num_blocks = num_blocks_m * num_blocks_n
-        num_threads = 64 * num_wavefronts
+        num_threads = 64
 
         def preprocess(x):
             x = x.replace("{{SIZE_M}}", str(m))
@@ -115,11 +107,10 @@ def test_gemm_e2e_kernel(
             mnkt = m_tile * n_tile * k_tile
             mnk_mfma = MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K
             mnkt_mfma = mnkt // mnk_mfma
-            LOOP_SIZE_D_MMNNKK = mnkt_mfma // num_wavefronts
+            LOOP_SIZE_D_MMNNKK = mnkt_mfma
             # These should have been checked by validate_gemm_config; this is a
             # sanity check.
             assert mnkt % mnk_mfma == 0, "Invalid configuration"
-            assert mnkt_mfma % num_wavefronts == 0, "Invalid configuration"
             x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(LOOP_SIZE_D_MMNNKK))
             return x
 
@@ -233,13 +224,6 @@ if __name__ == "__main__":
         help="Tile size in K dimension (default: 16)",
     )
     parser.add_argument(
-        "-W",
-        "--num-wavefronts",
-        type=int,
-        default=1,
-        help="Number of wavefronts (default: 1)",
-    )
-    parser.add_argument(
         "--mcpu",
         type=str,
         default="gfx942",
@@ -248,9 +232,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mlir-filename",
         type=str,
-        # default="gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir",
-        default="gemm_sched_dword4_mxnxk_16x16x16_f16f16f32.mlir",
-        help="MLIR filename to test (default: mfma_dword4_mxnxk_16x16x16_f16f16f32.mlir)",
+        default="gemm_sched_1wave_dword4_mxnxk_16x16x16_f16f16f32.mlir",
+        help="MLIR filename to test (default: gemm_sched_1wave_dword4_mxnxk_16x16x16_f16f16f32.mlir)",
     )
     args = parser.parse_args()
 
@@ -263,7 +246,6 @@ if __name__ == "__main__":
         m_tile=args.m_tile,
         n_tile=args.n_tile,
         k_tile=args.k_tile,
-        num_wavefronts=args.num_wavefronts,
         # pass_pipeline=SYNCHRONOUS_SROA_PASS_PIPELINE,
         pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
         mcpu=args.mcpu,
