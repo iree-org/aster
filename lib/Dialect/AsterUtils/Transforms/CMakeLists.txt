@@ -1,6 +1,8 @@
 add_mlir_library(AsterUtilsTransforms
-  WrapCallsWithExecuteRegion.cpp
+  AsterSelectiveInlining.cpp
   InlineExecuteRegion.cpp
+  Transforms.cpp
+  WrapCallsWithExecuteRegion.cpp
 
   DEPENDS
   AsterUtilsPassIncGen

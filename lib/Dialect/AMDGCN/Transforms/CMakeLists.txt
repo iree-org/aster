@@ -3,7 +3,6 @@ add_mlir_library(
 
   AMDGCNNopInsertion.cpp
   AMDGCNOptimizeStraightLineWaits.cpp
-  AsterSelectiveInlining.cpp
   ConstexprExpansion.cpp
   ExpandMetadataOps.cpp
   InstructionScheduling.cpp

@@ -9,9 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AsterUtils/Transforms/Passes.h"
-
-#include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
-#include "mlir/IR/PatternMatch.h"
+#include "aster/Dialect/AsterUtils/Transforms/Transforms.h"
 
 namespace mlir::aster {
 namespace aster_utils {
@@ -37,15 +35,5 @@ public:
 } // namespace
 
 void InlineExecuteRegion::runOnOperation() {
-  Operation *op = getOperation();
-  IRRewriter rewriter(op->getContext());
-  op->walk<WalkOrder::PostOrder>([&](ExecuteRegionOp executeRegionOp) {
-    rewriter.setInsertionPoint(executeRegionOp);
-    Block *block = executeRegionOp.getBody();
-    auto yieldOp = cast<YieldOp>(block->getTerminator());
-    rewriter.inlineBlockBefore(block, executeRegionOp);
-    rewriter.replaceOp(executeRegionOp, yieldOp.getResults());
-    rewriter.eraseOp(yieldOp);
-    return WalkResult::skip();
-  });
+  inlineExecuteRegions(getOperation());
 }

@@ -8,34 +8,35 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
+#include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
+#include "aster/Dialect/AsterUtils/Transforms/Passes.h"
+#include "aster/Dialect/AsterUtils/Transforms/Transforms.h"
 
 #include "mlir/Analysis/CallGraph.h"
-#include "mlir/IR/Attributes.h"
 #include "mlir/IR/Operation.h"
-#include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Inliner.h"
 #include "mlir/Transforms/Passes.h"
 
 namespace mlir::aster {
-namespace amdgcn {
+namespace aster_utils {
 #define GEN_PASS_DEF_ASTERSELECTIVEINLINING
-#include "aster/Dialect/AMDGCN/Transforms/Passes.h.inc"
-} // namespace amdgcn
+#include "aster/Dialect/AsterUtils/Transforms/Passes.h.inc"
+} // namespace aster_utils
 } // namespace mlir::aster
 
 using namespace mlir;
 using namespace mlir::aster;
-using namespace mlir::aster::amdgcn;
+using namespace mlir::aster::aster_utils;
 
 namespace {
 //===----------------------------------------------------------------------===//
 // AsterSelectiveInlining pass
 //===----------------------------------------------------------------------===//
 struct AsterSelectiveInlining
-    : public amdgcn::impl::AsterSelectiveInliningBase<AsterSelectiveInlining> {
+    : public aster_utils::impl::AsterSelectiveInliningBase<
+          AsterSelectiveInlining> {
 public:
   using Base::Base;
 
@@ -62,6 +63,9 @@ void AsterSelectiveInlining::runOnOperation() {
     return signalPassFailure();
   }
 
+  // Wrap all calls with execute_region before inlining.
+  wrapCallsWithExecuteRegion(op);
+
   CallGraph &cg = getAnalysis<CallGraph>();
 
   // Default inliner optimization pipeline (canonicalize)
@@ -77,7 +81,8 @@ void AsterSelectiveInlining::runOnOperation() {
         Operation *callOp = resolvedCall.call;
         if (!callOp)
           return true;
-        if (hasSchedAttribute(callOp))
+        // TODO: Remove this layering violation.
+        if (amdgcn::hasSchedAttribute(callOp))
           return allowScheduled;
         return true;
       };
@@ -85,5 +90,8 @@ void AsterSelectiveInlining::runOnOperation() {
   Inliner inliner(op, cg, *this, getAnalysisManager(), runPipelineHelper,
                   config, profitabilityCb);
   if (failed(inliner.doInlining()))
-    signalPassFailure();
+    return signalPassFailure();
+
+  // Inline all execute_region operations after inlining.
+  inlineExecuteRegions(op);
 }

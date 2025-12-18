@@ -8,16 +8,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AsterUtils/Transforms/Passes.h"
-
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
-#include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/IRMapping.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/CallInterfaces.h"
-#include "mlir/Support/WalkResult.h"
+#include "aster/Dialect/AsterUtils/Transforms/Passes.h"
+#include "aster/Dialect/AsterUtils/Transforms/Transforms.h"
 
 namespace mlir::aster {
 namespace aster_utils {
@@ -45,25 +38,5 @@ public:
 } // namespace
 
 void WrapCallsWithExecuteRegion::runOnOperation() {
-  Operation *op = getOperation();
-  IRRewriter rewriter(op->getContext());
-  op->walk<WalkOrder::PostOrder>([&](CallOpInterface callOp) {
-    if (callOp.getOperation()->getParentOfType<ExecuteRegionOp>())
-      return WalkResult::advance();
-    rewriter.setInsertionPoint(callOp);
-    Location loc = callOp.getLoc();
-
-    // Create the execute_region operation.
-    auto executeRegionOp =
-        ExecuteRegionOp::create(rewriter, loc, callOp->getResultTypes());
-
-    // Replace the call uses with the execute_region results.
-    rewriter.replaceAllOpUsesWith(callOp, executeRegionOp.getResults());
-
-    // Move the call into the execute_region body.
-    Block *block = rewriter.createBlock(&executeRegionOp.getRegion());
-    rewriter.moveOpBefore(callOp, block, block->end());
-    YieldOp::create(rewriter, loc, callOp->getResults());
-    return WalkResult::skip();
-  });
+  wrapCallsWithExecuteRegion(getOperation());
 }
