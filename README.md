@@ -91,8 +91,8 @@ pip install -r requirements-amd-gfx120X-all.txt
 # For CDNA3 (MI300, gfx94x):
 pip install -r requirements-amd-gfx94X.txt
 
-# Untar development files (required once)
-${VIRTUAL_ENV}/bin/rocm-sdk path --root
+# Initialize rocm sdk
+rocm-sdk init
 
 # Test ROCm installation
 rocm-sdk test
@@ -132,9 +132,9 @@ To build the project use:
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    -DCMAKE_INSTALL_PREFIX="../install" \
+    -DCMAKE_INSTALL_PREFIX="../.aster" \
     -DLLVM_EXTERNAL_LIT=${VIRTUAL_ENV}/bin/lit \
-    -DCMAKE_PREFIX_PATH="$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib/cmake/hip" \
+    -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip" \
     -DHIP_PLATFORM=amd \
   && ninja install FileCheck count not \
   && ninja install
