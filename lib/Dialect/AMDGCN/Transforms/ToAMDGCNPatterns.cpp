@@ -958,11 +958,18 @@ LogicalResult MovOpPattern::matchAndRewrite(lsir::MovOp op,
     return rewriter.notifyMatchFailure(op, "only constant mov is supported");
 
   OperandKind kind = getOperandKind(op.getType());
-  if (kind != OperandKind::VGPR)
-    return rewriter.notifyMatchFailure(op, "only VGPR mov is supported");
-
-  Value res =
-      V_MOV_B32_E32::create(rewriter, op.getLoc(), op.getDst(), op.getValue());
+  Value res;
+  switch (kind) {
+  case OperandKind::VGPR:
+    res = V_MOV_B32_E32::create(rewriter, op.getLoc(), op.getDst(),
+                                op.getValue());
+    break;
+  case OperandKind::SGPR:
+    res = S_MOV_B32::create(rewriter, op.getLoc(), op.getDst(), op.getValue());
+    break;
+  default:
+    return rewriter.notifyMatchFailure(op, "unsupported mov register operand");
+  }
   rewriter.replaceOp(op, res);
   return success();
 }

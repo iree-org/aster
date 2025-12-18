@@ -65,7 +65,7 @@ struct RegisterUsage {
 
 private:
   /// Update the maximum register number for the given kind.
-  void updateRegisters(RegisterKind kind, int32_t regNum,
+  void updateRegisters(AMDGCNRegisterTypeInterface kind, int32_t regNum,
                        DenseSet<int16_t> &usedVGPRs,
                        DenseSet<int16_t> &usedSGPRs,
                        DenseSet<int16_t> &usedAGPRs);
@@ -166,23 +166,34 @@ private:
 // RegisterUsage
 //===----------------------------------------------------------------------===//
 
-void RegisterUsage::updateRegisters(RegisterKind kind, int32_t regNum,
+void RegisterUsage::updateRegisters(AMDGCNRegisterTypeInterface ty,
+                                    int32_t regNum,
                                     DenseSet<int16_t> &usedVGPRs,
                                     DenseSet<int16_t> &usedSGPRs,
                                     DenseSet<int16_t> &usedAGPRs) {
+  RegisterKind kind = ty.getRegisterKind();
   switch (kind) {
   case RegisterKind::VGPR:
     maxVGPR = std::max(maxVGPR, regNum + 1);
     usedVGPRs.insert(regNum);
-    break;
+    return;
   case RegisterKind::SGPR:
     maxSGPR = std::max(maxSGPR, regNum + 1);
     usedSGPRs.insert(regNum);
-    break;
+    return;
   case RegisterKind::AGPR:
     maxAGPR = std::max(maxAGPR, regNum + 1);
     usedAGPRs.insert(regNum);
-    break;
+    return;
+  case RegisterKind::SREG: {
+    SregKind sregKind = cast<SREGType>(ty).getKind();
+    switch (sregKind) {
+    case SregKind::Scc:
+      return;
+    }
+    llvm_unreachable("nyi sreg kind");
+    return;
+  }
   default:
     llvm_unreachable("nyi register kind");
   }
@@ -201,8 +212,8 @@ FailureOr<RegisterUsage> RegisterUsage::countKernelRegisters(KernelOp kernel) {
     }
     RegisterRange range = type.getAsRange();
     assert(range.size() == 1 && "expected single register");
-    counts.updateRegisters(getRegisterKind(type), range.begin().getRegister(),
-                           usedVGPRs, usedSGPRs, usedAGPRs);
+    counts.updateRegisters(type, range.begin().getRegister(), usedVGPRs,
+                           usedSGPRs, usedAGPRs);
     return WalkResult::advance();
   });
   if (result.wasInterrupted())
@@ -291,6 +302,34 @@ LogicalResult TranslateModuleImpl::emitBlock(amdgcn::AsmPrinter &printer,
 LogicalResult TranslateModuleImpl::emitOperation(amdgcn::AsmPrinter &printer,
                                                  Operation *op) {
   return llvm::TypeSwitch<Operation *, LogicalResult>(op)
+      .Case<amdgcn::BranchOp>([&](amdgcn::BranchOp branchOp) {
+        // If the branch label is the next block, don't emit the branch and let
+        // it fallthrough.
+        if (branchOp.getDest() == branchOp->getBlock()->getNextNode()) {
+          printer.getStream()
+              << "; fallthrough: " << printer.getBranchLabel(branchOp.getDest())
+              << "\n";
+          return success();
+        }
+        return printInstruction(printer, branchOp);
+      })
+      .Case<amdgcn::CBranchOp>([&](amdgcn::CBranchOp cbranchOp)
+                                   -> LogicalResult {
+        // The fallthrough branch has to be the next block, otherwise the asm
+        // emission is invalid.
+        if (cbranchOp.getFallthrough() !=
+            cbranchOp->getBlock()->getNextNode()) {
+          return cbranchOp->emitError()
+                 << "conditional branch fallthrough target must be the next "
+                    "block";
+        }
+        if (failed(printInstruction(printer, cbranchOp)))
+          return failure();
+        printer.getStream()
+            << "; fallthrough: "
+            << printer.getBranchLabel(cbranchOp.getFallthrough()) << "\n";
+        return success();
+      })
       .Case<AMDGCNInstOpInterface>([&](AMDGCNInstOpInterface op) {
         return printInstruction(printer, op);
       })
@@ -327,6 +366,9 @@ LogicalResult TranslateModuleImpl::emitKernel(KernelOp kernel,
   // Emit prologue
   if (failed(emitKernelPrologue(kernel, kernelIndex)))
     return failure();
+
+  // TODO: Reorder blocks to get better fallthrough paths instead of having
+  // explicit branching.
 
   // Emit instructions
   WalkResult result = kernel.walk<WalkOrder::PreOrder>([&](Block *block) {

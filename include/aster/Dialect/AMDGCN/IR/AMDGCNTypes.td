@@ -296,6 +296,47 @@ def VGPRRangeType
 }
 
 //===----------------------------------------------------------------------===//
+// SREG like types
+//===----------------------------------------------------------------------===//
+
+/// Special registers to model state.
+def SREGType : AMDGCN_RegisterDef<"SREG", "sreg", [MemRefElementTypeInterface]> {
+  let summary = "SREG type";
+  let parameters = (ins 
+    DefaultValuedParameter<"Register", "Register()">:$reg,
+    "SregKind":$kind);
+  let assemblyFormat = "`<`$kind (`,` $reg^)?`>`";
+  let genVerifyDecl = 1;
+  let extraClassDeclaration = [{
+    /// Returns true if the register is relocatable.
+    bool isRelocatable() const { return getReg().isRelocatable(); }
+
+    //===------------------------------------------------------------------===//
+    // RegisterTypeInterface
+    //===------------------------------------------------------------------===//
+    bool isRegisterRange() const { return false; }
+    RegisterRange getAsRange() const {
+      return RegisterRange(getReg(), 1);
+    }
+    RegisterKind getRegisterKind() const {
+      return RegisterKind::SREG;
+    }
+    RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
+      assert(range.size() == 1 && "SREG type can only clone single register");
+      return SREGType::get(getContext(), range.begin(), getKind());
+    }
+    RegisterTypeInterface cloneRegisterType(Register reg) const {
+      return SREGType::get(getContext(), reg, getKind());
+    }
+
+    //===------------------------------------------------------------------===//
+    // ResourceTypeInterface
+    //===------------------------------------------------------------------===//
+    Resource *getResource() const;
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Common type constraints
 //===----------------------------------------------------------------------===//
 
@@ -351,12 +392,12 @@ def BranchLabel : Successor<?, "">, AsmArgFormat {
 // Register like types
 //===----------------------------------------------------------------------===//
 
-/// A register like type that matches AGPR, SGPR, or VGPR types.
-def RegisterLike : AnyRegOf<[AGPRType, SGPRType, VGPRType]> {
+/// A register like type that matches AGPR, SGPR, VGPR, or SREG types.
+def RegisterLike : AnyRegOf<[AGPRType, SGPRType, VGPRType, SREGType]> {
   let summary = "Register like types";
   let description = [{
     The register like types represent the different kinds of registers
-    (AGPR, SGPR, VGPR) in the AMDGCN architecture.
+    (AGPR, SGPR, VGPR, SREG) in the AMDGCN architecture.
   }];
 }
 
@@ -371,5 +412,14 @@ def RegisterRangeLike : AnyRegOf<[AGPRRangeType, SGPRRangeType, VGPRRangeType]> 
 
 /// A register type that matches either a VGPR or an AGPR type.
 def VGPROrAGPRType : AnyRegOf<[AGPRRangeType, VGPRRangeType]>;
+
+/// SCC register.
+def SCCReg : Type<CPred<"cast<SREGType>($_self).getKind() == SregKind::Scc">,
+    "SCC register",
+    "::mlir::aster::amdgcn::SREGType"
+  >, AsmArgFormat {
+  let asmParser = "$_parser.parseOperand($_self);";
+  let asmPrinter = "$_printer.printOperand($_self);";
+}
 
 #endif // ASTER_AMDGCN_TYPES_TD
