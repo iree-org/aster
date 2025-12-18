@@ -99,6 +99,20 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     return %range : !vx4
   }
 
+  // Initialize a VGPRx4 range to %reg
+  func.func private @init_vgprx4_reg(%reg: !v) -> !vx4 {
+    %r0 = amdgcn.alloca : !v
+    %r1 = amdgcn.alloca : !v
+    %r2 = amdgcn.alloca : !v
+    %r3 = amdgcn.alloca : !v
+    %v0 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r0, %reg : (!v, !v) -> !v
+    %v1 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r1, %reg : (!v, !v) -> !v
+    %v2 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r2, %reg : (!v, !v) -> !v
+    %v3 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r3, %reg : (!v, !v) -> !v
+    %range = amdgcn.make_register_range %v0, %v1, %v2, %v3 : !v, !v, !v, !v
+    return %range : !vx4
+  }
+
   // TODO: SGPR initialization requires s_mov_b32 (SOP1) which is not yet implemented
   // TODO: AGPR initialization requires v_accvgpr_write_b32 which is not yet implemented
 }

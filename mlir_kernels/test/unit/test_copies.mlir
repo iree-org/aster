@@ -17,6 +17,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @alloc_vgprx2() -> !vx2
   func.func private @alloc_vgprx4() -> !vx4
   func.func private @init_vgprx4(i32) -> !vx4
+  func.func private @init_vgprx4_reg(!v) -> !vx4
   // indexing.mlir
   func.func private @lane_id() -> index
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
@@ -125,96 +126,97 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-//   // Test @store_global_16x16xf32_C_fragment_wait: store C fragment to global
-//   // Initialize accumulators with known values, then store using swizzled function
-//   amdgcn.kernel @test_store_global_C_fragment_wait arguments <[
-//     #amdgcn.buffer_arg<address_space = generic, access = read_write>
-//   ]> attributes {shared_memory_size = 0 : i32} {
-//     %out_ptr = amdgcn.load_arg 0 : !sx2
-//     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+  // Test @store_global_16x16xf32_C_fragment_wait: store C fragment to global
+  // Initialize accumulators with known values, then store using swizzled function
+  amdgcn.kernel @test_store_global_C_fragment_wait arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
-//     %c0 = arith.constant 0 : index
-//     %c16 = arith.constant 16 : index
+    %c0 = arith.constant 0 : index
+    %c16 = arith.constant 16 : index
 
-//     // Initialize accumulator with lane_id (as float bits)
-//     %lane = func.call @lane_id() : () -> index
-//     %lane_i32 = arith.index_cast %lane : index to i32
-//     %acc = func.call @init_vgprx4(%lane_i32) : (i32) -> !vx4
+    // Initialize accumulator with lane_id (as float bits)
+    %lane = func.call @lane_id() : () -> index
+    %lane_i32 = arith.index_cast %lane : index to i32
+    %lane_reg = lsir.to_reg %lane_i32 : i32 -> !v
+    %acc = func.call @init_vgprx4_reg(%lane_reg) : (!v) -> !vx4
 
-//     // Store using the library function
-//     // i_pos=0, j_pos=0, N_SIZE=16, ii_pos=0, jj_pos=0
-//     func.call @store_global_16x16xf32_C_fragment_wait(
-//       %acc, %out_ptr, %c0, %c0, %c16, %c0, %c0
-//     ) : (!vx4, !sx2, index, index, index, index, index) -> ()
+    // Store using the library function
+    // i_pos=0, j_pos=0, N_SIZE=16, ii_pos=0, jj_pos=0
+    func.call @store_global_16x16xf32_C_fragment_wait(
+      %acc, %out_ptr, %c0, %c0, %c16, %c0, %c0
+    ) : (!vx4, !sx2, index, index, index, index, index) -> ()
 
-//     amdgcn.end_kernel
-//   }
+    amdgcn.end_kernel
+  }
 
-//   // Test @global_load_dwordx2_wait + @ds_write_dwordx2_wait: decoupled global load and LDS write
-//   // Load from global to memref, then write from memref to LDS, then read back from LDS
-//   amdgcn.kernel @test_global_load_ds_write arguments <[
-//     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
-//     #amdgcn.buffer_arg<address_space = generic, access = read_write>
-//   ]> attributes {shared_memory_size = 512 : i32} {
-//     %in_ptr = amdgcn.load_arg 0 : !sx2
-//     %out_ptr = amdgcn.load_arg 1 : !sx2
-//     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+  // Test @global_load_dwordx2_wait + @ds_write_dwordx2_wait: decoupled global load and LDS write
+  // Load from global to memref, then write from memref to LDS, then read back from LDS
+  amdgcn.kernel @test_global_load_ds_write arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_only>,
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 512 : i32} {
+    %in_ptr = amdgcn.load_arg 0 : !sx2
+    %out_ptr = amdgcn.load_arg 1 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
-//     %c0 = arith.constant 0 : index
-//     %c1 = arith.constant 1 : index
-//     %c2 = arith.constant 2 : index
-//     %c4 = arith.constant 4 : index
-//     %c16 = arith.constant 16 : index
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %c4 = arith.constant 4 : index
+    %c16 = arith.constant 16 : index
 
-//     // Allocate memref for intermediate storage and cast to dynamic
-//     %memref_static = memref.alloca() : memref<1x1x!vx2>
-//     %memref = memref.cast %memref_static : memref<1x1x!vx2> to memref<?x?x!vx2>
+    // Allocate memref for intermediate storage and cast to dynamic
+    %memref_static = memref.alloca() : memref<1x1x!vx2>
+    %memref = memref.cast %memref_static : memref<1x1x!vx2> to memref<?x?x!vx2>
 
-//     // Global load to memref
-//     func.call @global_load_dwordx2_wait(
-//       %in_ptr,           // ptr
-//       %c0, %c0,          // i_pos, j_pos (major tile)
-//       %c16,              // N_SIZE
-//       %c0, %c0,          // ii_pos, jj_pos (minor tile)
-//       %c1,               // NN (number of 16 tiles = 1)
-//       %c0, %c0,          // memref indices
-//       %memref            // memref
-//     ) : (!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
+    // Global load to memref
+    func.call @global_load_dwordx2_wait(
+      %in_ptr,           // ptr
+      %c0, %c0,          // i_pos, j_pos (major tile)
+      %c16,              // N_SIZE
+      %c0, %c0,          // ii_pos, jj_pos (minor tile)
+      %c1,               // NN (number of 16 tiles = 1)
+      %c0, %c0,          // memref indices
+      %memref            // memref
+    ) : (!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
 
-//     // DS write from memref to LDS
-//     func.call @ds_write_dwordx2_wait(
-//       %c0,               // lds_base_off
-//       %c0, %c0,          // ii_pos, jj_pos
-//       %c16,              // NN_SIZE
-//       %c1,               // NN (number of 16 tiles = 1)
-//       %c0, %c0,          // memref indices
-//       %memref            // memref
-//     ) : (index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
+    // DS write from memref to LDS
+    func.call @ds_write_dwordx2_wait(
+      %c0,               // lds_base_off
+      %c0, %c0,          // ii_pos, jj_pos
+      %c16,              // NN_SIZE
+      %c1,               // NN (number of 16 tiles = 1)
+      %c0, %c0,          // memref indices
+      %memref            // memref
+    ) : (index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
 
-//     // Read back from LDS and store to output
-//     %tid = gpu.thread_id x
-//     %lane = func.call @lane_id() : () -> index
-//     %iii, %jjj = func.call @lane_delinearize_2d(%c16, %c4) : (index, index) -> (index, index)
-//     %jjj_pos = affine.apply affine_map<()[jjj] -> (jjj * 4)>()[%jjj]
+    // Read back from LDS and store to output
+    %tid = gpu.thread_id x
+    %lane = func.call @lane_id() : () -> index
+    %iii, %jjj = func.call @lane_delinearize_2d(%c16, %c4) : (index, index) -> (index, index)
+    %jjj_pos = affine.apply affine_map<()[jjj] -> (jjj * 4)>()[%jjj]
 
-//     %lds_off = affine.apply affine_map<()[iii, jjj_pos] -> ((iii * 16 + jjj_pos) * 2)>()[%iii, %jjj_pos]
-//     %lds_off_i32 = arith.index_cast %lds_off : index to i32
-//     %lds_off_vgpr = lsir.to_reg %lds_off_i32 : i32 -> !v
+    %lds_off = affine.apply affine_map<()[iii, jjj_pos] -> ((iii * 16 + jjj_pos) * 2)>()[%iii, %jjj_pos]
+    %lds_off_i32 = arith.index_cast %lds_off : index to i32
+    %lds_off_vgpr = lsir.to_reg %lds_off_i32 : i32 -> !v
 
-//     %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-//     %c0_i32 = arith.constant 0 : i32
-//     %from_lds = amdgcn.ds.read #amdgcn.inst<ds_read_b64> %dst, %lds_off_vgpr, offset = %c0_i32
-//       : !v, i32 -> !vx2
-//     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %dst = func.call @alloc_vgprx2() : () -> (!vx2)
+    %c0_i32 = arith.constant 0 : i32
+    %from_lds = amdgcn.ds.read #amdgcn.inst<ds_read_b64> %dst, %lds_off_vgpr, offset = %c0_i32
+      : !v, i32 -> !vx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
-//     %out_off = affine.apply affine_map<()[tid] -> (tid * 8)>()[%tid]
-//     %out_off_i32 = arith.index_cast %out_off : index to i32
-//     %out_off_vgpr = lsir.to_reg %out_off_i32 : i32 -> !v
-//     amdgcn.flat.global_store #amdgcn.inst<global_store_dwordx2> %from_lds, %out_ptr[%out_off_vgpr]
-//       : !vx2, !sx2[!v]
-//     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    %out_off = affine.apply affine_map<()[tid] -> (tid * 8)>()[%tid]
+    %out_off_i32 = arith.index_cast %out_off : index to i32
+    %out_off_vgpr = lsir.to_reg %out_off_i32 : i32 -> !v
+    amdgcn.flat.global_store #amdgcn.inst<global_store_dwordx2> %from_lds, %out_ptr[%out_off_vgpr]
+      : !vx2, !sx2[!v]
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
-//     amdgcn.end_kernel
-//   }
+    amdgcn.end_kernel
+  }
 
 }
