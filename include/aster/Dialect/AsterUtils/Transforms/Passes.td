@@ -17,6 +17,25 @@ include "mlir/Pass/PassBase.td"
 // AsterUtils passes
 //===----------------------------------------------------------------------===//
 
+def AsterSelectiveInlining : Pass<"aster-selective-inlining", "mlir::ModuleOp"> {
+  let summary = "Selective inlining pass with ASTER-specific behavior";
+  let description = [{
+    This pass performs inlining similar to the standard inline pass, but with
+    ASTER-specific behavior. By default, calls with sched.* attributes are not
+    inlined, but this can be controlled via the allow-scheduled-calls option.
+  }];
+  let options = [
+    Option<"allowScheduledCalls",
+           "allow-scheduled-calls",
+           "bool",
+           "false",
+           "If true, allow inlining calls that have sched.* attributes">,
+  ];
+  let dependentDialects = [
+    "mlir::aster::aster_utils::AsterUtilsDialect"
+  ];
+}
+
 def InlineExecuteRegion : Pass<"aster-inline-execute-region"> {
   let summary = "Inline aster_utils.execute_region operations";
   let description = [{

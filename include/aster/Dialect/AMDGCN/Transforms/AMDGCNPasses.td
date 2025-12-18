@@ -98,22 +98,6 @@ def ConstexprExpansion : Pass<"amdgcn-constexpr-expansion"> {
   let dependentDialects = ["mlir::scf::SCFDialect"];
 }
 
-def AsterSelectiveInlining : Pass<"aster-selective-inlining", "mlir::ModuleOp"> {
-  let summary = "Selective inlining pass with ASTER-specific behavior";
-  let description = [{
-    This pass performs inlining similar to the standard inline pass, but with
-    ASTER-specific behavior. By default, calls with sched.* attributes are not
-    inlined, but this can be controlled via the allow-scheduled-calls option.
-  }];
-  let options = [
-    Option<"allowScheduledCalls",
-           "allow-scheduled-calls",
-           "bool",
-           "false",
-           "If true, allow inlining calls that have sched.* attributes">,
-  ];
-}
-
 def SetABI : Pass<"aster-amdgcn-set-abi"> {
   let summary = "Set AMDGCN ABI information";
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];

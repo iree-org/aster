@@ -103,12 +103,10 @@ def hsaco_file(path: str) -> Generator[str, None, None]:
 # Default pass pipeline for integration tests
 DEFAULT_SROA_PASS_PIPELINE = (
     "builtin.module("
-    "  aster-wrap-calls-with-execute-region,"
     "  aster-selective-inlining,"
     "  amdgcn-instruction-scheduling-autoschedule,"
     "  amdgcn-instruction-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
-    "  aster-inline-execute-region,"
     # Note: SROA requires inlining of everything to properly kick in.
     # TODO: NORMAL FORMS or include in pass.
     "  cse,canonicalize,sroa,"
@@ -179,12 +177,10 @@ DEFAULT_SROA_PASS_PIPELINE = (
 # NOP insertion. This is used for debugging races.
 SYNCHRONOUS_SROA_PASS_PIPELINE = (
     "builtin.module("
-    "  aster-wrap-calls-with-execute-region,"
     "  aster-selective-inlining,"
     "  amdgcn-instruction-scheduling-autoschedule,"
     "  amdgcn-instruction-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
-    "  aster-inline-execute-region,"
     # Note: SROA requires inlining of everything to properly kick in.
     # TODO: NORMAL FORMS or include in pass.
     "  cse,canonicalize,sroa,"
