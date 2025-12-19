@@ -120,7 +120,7 @@ def test_gemm_e2e_kernel(
             pass_pipeline,
             ctx,
             preprocess=preprocess,
-            print_ir_after_all=False,
+            print_ir_after_all=True,
             library_paths=[register_init_lib, indexing_lib, copies_lib],
             print_timings=False,
         )
@@ -246,7 +246,7 @@ if __name__ == "__main__":
         m_tile=args.m_tile,
         n_tile=args.n_tile,
         k_tile=args.k_tile,
-        # pass_pipeline=SYNCHRONOUS_SROA_PASS_PIPELINE,
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline=SYNCHRONOUS_SROA_PASS_PIPELINE,
+        # pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
         mcpu=args.mcpu,
     )

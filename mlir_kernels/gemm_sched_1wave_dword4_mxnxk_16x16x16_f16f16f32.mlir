@@ -333,7 +333,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         (K * num_phases * d_MMNNKK)>
       ()[%K, %num_phases, %d_MMNNKK]
     scf.for %idx = %c0 to %ub step %c1 {
-        %k, %phase, %mm, %nn, %kk = affine.delinearize_index %idx into (%K, %num_phases, %MM, %NN, %KK) : index, index, index, index, index
+        %k, %mm, %nn, %kk, %phase = affine.delinearize_index %idx into (%K, %MM, %NN, %KK, %num_phases)
+          : index, index, index, index, index
         %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
         %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
@@ -430,7 +431,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %k, %mm, %nn, %kk,
           %K, %MM, %NN, %KK,
           %a_frag_memref, %b_frag_memref, %c_fragments)
-            {sched.delay = 6 : i64, sched.rate = 1 : i64}
+            {sched.delay = 0 : i64, sched.rate = 1 : i64}
           : (index,
             index, index, index, index,
             index, index, index, index,
@@ -444,7 +445,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %c_fragments,
           %c_global,
           %m_pos, %n_pos, %SIZE_N)
-            {sched.delay = 12 : i64, sched.rate = 1 : i64}
+            {sched.delay = 0 : i64, sched.rate = 1 : i64}
         : (index,
           index, index, index, index,
           index, index, index, index,
