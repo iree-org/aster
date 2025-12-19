@@ -119,6 +119,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %loaded = memref.load %a_load_memref[%k, %mmkk] : memref<?x?x!vx2>
         func.call @lds_write_dwordx2_wait(%lds_a_base_off, %mm_pos, %c0, %TILE_SIZE_K, %KK, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
+        amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
+        amdgcn.sopp.sopp <s_barrier>
       }
     }
     return
@@ -143,6 +145,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %loaded = memref.load %b_load_memref[%k, %nnkk] : memref<?x?x!vx2>
         func.call @lds_write_dwordx2_wait(%lds_b_base_off, %nn_pos, %c0, %TILE_SIZE_K, %KK, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
+        amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
+        amdgcn.sopp.sopp <s_barrier>
       }
     }
     return
@@ -160,10 +164,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %is_phase_1 = arith.cmpi eq, %phase, %c1 : index
     scf.if %is_phase_1 {
       %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
-      scf.if %is_first_it {
-        amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
-        amdgcn.sopp.sopp <s_barrier>
-      }
       %mm_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%mm]
       %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
       %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base_off, %mm_pos, %kk_pos, %TILE_SIZE_K)
@@ -188,10 +188,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %is_phase_1 = arith.cmpi eq, %phase, %c1 : index
     scf.if %is_phase_1 {
       %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
-      scf.if %is_first_it {
-        amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
-        amdgcn.sopp.sopp <s_barrier>
-      }
       %nn_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%nn]
       %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
       %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base_off, %nn_pos, %kk_pos, %TILE_SIZE_K)
