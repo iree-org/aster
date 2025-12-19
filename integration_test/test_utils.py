@@ -246,7 +246,7 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     #
     # Note: needs to know about instructions and actual register number for
     # WAW dependencies.
-    "  amdgcn-nop-insertion{conservative-extra-delays=16}"
+    "  amdgcn-nop-insertion{conservative-extra-delays=32}"
     ")"
 )
 

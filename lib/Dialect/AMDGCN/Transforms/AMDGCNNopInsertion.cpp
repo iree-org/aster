@@ -691,11 +691,11 @@ void AMDGCNNopInsertion::runOnOperation() {
   // collaborate
   for (const NopInsertionCase &nopCase : allCases) {
     builder.setInsertionPoint(nopCase.inst2);
-    int remainingNops = nopCase.requiredNops;
 
     if (nopCase.nopType == NopType::SNOP || nopCase.nopType == NopType::BOTH) {
       // Insert SNOPs. For cases requiring more than 15 NOPs, we insert multiple
       // SNOP instructions (max 15 wait states per SNOP).
+      int remainingNops = nopCase.requiredNops;
       while (remainingNops > 0) {
         int nopValue = std::min(remainingNops, 15);
         inst::SOPPOp::create(builder, nopCase.inst2->getLoc(), OpCode::S_NOP,
@@ -704,6 +704,7 @@ void AMDGCNNopInsertion::runOnOperation() {
       }
     }
     if (nopCase.nopType == NopType::VNOP || nopCase.nopType == NopType::BOTH) {
+      int remainingNops = nopCase.requiredNops;
       // Insert VNOPs. VNOP doesn't support immediate values, so we insert one
       // VNOP per required NOP.
       for (int i = 0; i < remainingNops; ++i) {
