@@ -46,7 +46,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %K: index, %MM: index, %NN: index,  %KK: index,              // sizes
     %a_global: !sx2,                                             // global memory pointers
     %m_pos: index, %n_pos: index, %k_pos: index, %SIZE_K: index, // global positions
-    %a_load_memref: memref<?x?x!vx2>                             // memref for decoupled global load
+    %a_load_memref: memref<?x?x?x!vx2>                             // memref for decoupled global load
   ) {
     %c0 = arith.constant 0 : index
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
@@ -63,7 +63,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %mm_pos = affine.apply affine_map<()[mmkk, KK] -> (mmkk * (16 ceildiv KK))>()[%mmkk, %KK]
         %loaded = func.call @global_load_dwordx2_wait(%a_global, %m_pos, %k_pos, %SIZE_K, %mm_pos, %c0, %KK)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
-        memref.store %loaded, %a_load_memref[%k, %mmkk] : memref<?x?x!vx2>
+        memref.store %loaded, %a_load_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
       }
     }
 
@@ -78,7 +78,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %K: index, %MM: index, %NN: index,  %KK: index,              // sizes
     %b_global: !sx2,                                             // global memory pointers
     %m_pos: index, %n_pos: index, %k_pos: index, %SIZE_K: index, // global positions
-    %b_load_memref: memref<?x?x!vx2>                             // memref for decoupled global
+    %b_load_memref: memref<?x?x?x!vx2>                             // memref for decoupled global
   ) {
     %c0 = arith.constant 0 : index
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
@@ -94,7 +94,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %nn_pos = affine.apply affine_map<()[nnkk, KK] -> (nnkk * (16 ceildiv KK))>()[%nnkk, %KK]
         %loaded = func.call @global_load_dwordx2_wait(%b_global, %n_pos, %k_pos, %SIZE_K, %nn_pos, %c0, %KK)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
-        memref.store %loaded, %b_load_memref[%k, %nnkk] : memref<?x?x!vx2>
+        memref.store %loaded, %b_load_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
       }
     }
 
@@ -107,7 +107,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %k: index, %mm: index, %nn: index, %kk: index,  // indices
     %K: index, %MM: index, %NN: index,  %KK: index, // sizes
     %lds_a_base_off: index, %TILE_SIZE_K: index,    // base offset and stride for A
-    %a_load_memref: memref<?x?x!vx2>                // memref<reg> for decoupled LDS write
+    %a_load_memref: memref<?x?x?x!vx2>                // memref<reg> for decoupled LDS write
   ) {
     %c0 = arith.constant 0 : index
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
@@ -116,7 +116,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       scf.if %is_nn_zero {
         %mmkk = affine.linearize_index [%mm, %kk] by (%MM, %KK) : index
         %mm_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%mmkk, %KK]
-        %loaded = memref.load %a_load_memref[%k, %mmkk] : memref<?x?x!vx2>
+        %loaded = memref.load %a_load_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
         func.call @lds_write_dwordx2_wait(%lds_a_base_off, %mm_pos, %c0, %TILE_SIZE_K, %KK, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
       }
@@ -131,7 +131,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %k: index, %mm: index, %nn: index, %kk: index,  // indices
     %K: index, %MM: index, %NN: index,  %KK: index, // sizes
     %lds_b_base_off: index, %TILE_SIZE_K: index,    // base offset and stride for B
-    %b_load_memref: memref<?x?x!vx2>                // memref<reg> for decoupled LDS write
+    %b_load_memref: memref<?x?x?x!vx2>                // memref<reg> for decoupled LDS write
   ) {
     %c0 = arith.constant 0 : index
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
@@ -140,7 +140,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       scf.if %is_mm_zero {
         %nnkk = affine.linearize_index [%nn, %kk] by (%NN, %KK) : index
         %nn_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%nnkk, %KK]
-        %loaded = memref.load %b_load_memref[%k, %nnkk] : memref<?x?x!vx2>
+        %loaded = memref.load %b_load_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
         func.call @lds_write_dwordx2_wait(%lds_b_base_off, %nn_pos, %c0, %TILE_SIZE_K, %KK, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
       }
@@ -153,7 +153,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %k: index, %mm: index, %nn: index, %kk: index,  // indices
     %K: index, %MM: index, %NN: index,  %KK: index, // sizes
     %lds_a_base_off: index, %TILE_SIZE_K: index,    // base offset and stride for A
-    %a_frag_memref: memref<?x?x!vx2>                // memref<reg> for decoupled LDS read
+    %a_frag_memref: memref<?x?x?x?x!vx2>                // memref<reg> for decoupled LDS read
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -169,7 +169,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base_off, %mm_pos, %kk_pos, %TILE_SIZE_K)
         : (index, index, index, index) -> !vx2
       %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
-      memref.store %a_frag, %a_frag_memref[%k, %mmnnkk] : memref<?x?x!vx2>
+      memref.store %a_frag, %a_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
     }
     return
   }
@@ -181,7 +181,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %k: index, %mm: index, %nn: index, %kk: index,  // indices
     %K: index, %MM: index, %NN: index,  %KK: index, // sizes
     %lds_b_base_off: index, %TILE_SIZE_K: index,    // base offset and stride for B
-    %b_frag_memref: memref<?x?x!vx2>                // memref<reg> for decoupled LDS read
+    %b_frag_memref: memref<?x?x?x?x!vx2>                // memref<reg> for decoupled LDS read
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -197,7 +197,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base_off, %nn_pos, %kk_pos, %TILE_SIZE_K)
         : (index, index, index, index) -> !vx2
       %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
-      memref.store %b_frag, %b_frag_memref[%k, %mmnnkk] : memref<?x?x!vx2>
+      memref.store %b_frag, %b_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
     }
     return
   }
@@ -207,24 +207,21 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %phase: index,
     %k: index, %mm: index, %nn: index, %kk: index,  // indices
     %K: index, %MM: index, %NN: index,  %KK: index, // sizes
-    %a_frag_memref: memref<?x?x!vx2>,    // register fragments for A
-    %b_frag_memref: memref<?x?x!vx2>,    // register fragments for B
-    %c_fragments: memref<?x!vx4>         // register fragments for C
+    %a_frag_memref: memref<?x?x?x?x!vx2>,    // register fragments for A
+    %b_frag_memref: memref<?x?x?x?x!vx2>,    // register fragments for B
+    %c_fragments: memref<?x?x!vx4>         // register fragments for C
   ) {
     %c1 = arith.constant 1 : index
     %is_phase_1 = arith.cmpi eq, %phase, %c1 : index
     scf.if %is_phase_1 {
       // Load fragments from memrefs
-      %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
-      %a_frag = memref.load %a_frag_memref[%k, %mmnnkk] : memref<?x?x!vx2>
-      %b_frag = memref.load %b_frag_memref[%k, %mmnnkk] : memref<?x?x!vx2>
-
+      %a_frag = memref.load %a_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
+      %b_frag = memref.load %b_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
       // Perform MFMA operation: C = A * B + C
-      %mmnn = affine.linearize_index [%mm, %nn] by (%MM, %NN) : index
-      %acc = memref.load %c_fragments[%mmnn] : memref<?x!vx4>
+      %acc = memref.load %c_fragments[%mm, %nn] : memref<?x?x!vx4>
       %updated_acc = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
       %acc, %a_frag, %b_frag, %acc : !vx2, !vx2, !vx4 -> !vx4
-      memref.store %updated_acc, %c_fragments[%mmnn] : memref<?x!vx4>
+      memref.store %updated_acc, %c_fragments[%mm, %nn] : memref<?x?x!vx4>
     }
     return
   }
@@ -234,7 +231,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %phase: index,
     %k: index, %mm: index, %nn: index, %kk: index,  // indices
     %K: index, %MM: index, %NN: index,  %KK: index, // sizes
-    %c_fragments: memref<?x!vx4>,                   // register fragments for C
+    %c_fragments: memref<?x?x!vx4>,                   // register fragments for C
     %c_global: !sx2,                                // global memory pointer
     %m_pos: index, %n_pos: index, %SIZE_N: index    // global positions
   ) {
@@ -249,8 +246,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %is_last_kk = arith.cmpi eq, %kk, %kk_minus_1 : index
       %is_last_k_and_kk = arith.andi %is_last_k, %is_last_kk : i1
       scf.if %is_last_k_and_kk {
-        %mmnn = affine.linearize_index [%mm, %nn] by (%MM, %NN) : index
-        %fragment = memref.load %c_fragments[%mmnn] : memref<?x!vx4>
+        %fragment = memref.load %c_fragments[%mm, %nn] : memref<?x?x!vx4>
         %mm_pos = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
         %nn_pos = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
         func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %m_pos, %n_pos, %SIZE_N, %mm_pos, %nn_pos)
@@ -299,39 +295,35 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %NN = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_N]
     %KK = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_K]
 
-    // Number of distributed mma tiles
-    %d_MMNNKK = affine.apply affine_map<()[sz0, sz1, sz2] -> (sz0 * sz1 * sz2)>()[%MM, %NN, %KK]
-    %d_MMNN = affine.apply affine_map<()[sz0, sz1] -> (sz0 * sz1)>()[%MM, %NN]
-    %d_MMKK = affine.apply affine_map<()[sz0, sz1] -> (sz0 * sz1)>()[%MM, %KK]
-    %d_NNKK = affine.apply affine_map<()[sz0, sz1] -> (sz0 * sz1)>()[%NN, %KK]
-
     // Allocate registers for the C fragment
-    %c_fragments = memref.alloca(%d_MMNN) : memref<?x!vx4>
+    %c_fragments = memref.alloca(%MM, %NN) : memref<?x?x!vx4>
 
     // Allocate memrefs for decoupled global loads -> DS writes
-    %a_load_memref = memref.alloca(%K, %d_MMKK) : memref<?x?x!vx2>
-    %b_load_memref = memref.alloca(%K, %d_NNKK) : memref<?x?x!vx2>
+    %a_load_memref = memref.alloca(%K, %MM, %KK) : memref<?x?x?x!vx2>
+    %b_load_memref = memref.alloca(%K, %NN, %KK) : memref<?x?x?x!vx2>
 
     // Allocate memrefs for decoupled LDS reads -> mfma
-    %a_frag_memref = memref.alloca(%K, %d_MMNNKK) : memref<?x?x!vx2>
-    %b_frag_memref = memref.alloca(%K, %d_MMNNKK) : memref<?x?x!vx2>
+    %a_frag_memref = memref.alloca(%K, %MM, %NN, %KK) : memref<?x?x?x?x!vx2>
+    %b_frag_memref = memref.alloca(%K, %MM, %NN, %KK) : memref<?x?x?x?x!vx2>
 
     // Initialize C fragments
     %c0_i32 = arith.constant 0 : i32
-    scf.for %c = %c0 to %d_MMNN step %c1 {
+    scf.for %m = %c0 to %MM step %c1 {
+      scf.for %n = %c0 to %NN step %c1 {
         %c_fragment = func.call @init_vgprx4(%c0_i32) : (i32) -> !vx4
-        memref.store %c_fragment, %c_fragments[%c] : memref<?x!vx4>
+        memref.store %c_fragment, %c_fragments[%m, %n] : memref<?x?x!vx4>
+      } {amdgcn.constexpr}
     } {amdgcn.constexpr}
 
     // M, N are fully distributed to blocks.
-    // Loop over remaining 4-D tile **distributed** tile index (K, d_MMNNKK) in 2 phases:
+    // Loop over remaining 4-D tile **distributed** tile index (K, MM, NN, KK) in 3 phases:
     //   - Phase 0 loads to shared
     //   - Phase 1 computes
     //   - Phase 2 stores to global
     %num_phases = arith.constant 3 : index
-    %ub = affine.apply affine_map<()[K, num_phases, d_MMNNKK] ->
-        (K * num_phases * d_MMNNKK)>
-      ()[%K, %num_phases, %d_MMNNKK]
+    %ub = affine.apply affine_map<()[K, num_phases, MM, NN, KK] ->
+        (K * num_phases * MM * NN * KK)>
+      ()[%K, %num_phases, %MM, %NN, %KK]
     scf.for %idx = %c0 to %ub step %c1 {
         %k, %phase, %mm, %nn, %kk = affine.delinearize_index %idx into (%K, %num_phases, %MM, %NN, %KK) : index, index, index, index, index
         %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
@@ -349,7 +341,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             index, index, index, index,
             index, index, index, index,
             !sx2, index, index, index, index,
-            memref<?x?x!vx2>) -> ()
+            memref<?x?x?x!vx2>) -> ()
 
         // Global load B (decoupled from DS writes via memrefs)
         func.call @maybe_global_load_B(
@@ -364,7 +356,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             index, index, index, index,
             index, index, index, index,
             !sx2, index, index, index, index,
-            memref<?x?x!vx2>) -> ()
+            memref<?x?x?x!vx2>) -> ()
 
         // Phase 0b: DS writes
         // DS writeA (decoupled from global loads via memrefs)
@@ -379,7 +371,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             index, index, index, index,
             index, index, index, index,
             index, index,
-            memref<?x?x!vx2>) -> ()
+            memref<?x?x?x!vx2>) -> ()
 
         // DS writeB (decoupled from global loads via memrefs)
         func.call @maybe_lds_write_B(
@@ -393,7 +385,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             index, index, index, index,
             index, index, index, index,
             index, index,
-            memref<?x?x!vx2>) -> ()
+            memref<?x?x?x!vx2>) -> ()
 
         // Phase 1a: LDS reads
         // DS readA (decoupled from global loads via memrefs)
@@ -408,7 +400,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             index, index, index, index,
             index, index, index, index,
             index, index,
-            memref<?x?x!vx2>) -> ()
+            memref<?x?x?x?x!vx2>) -> ()
 
         // DS readB (decoupled from global loads via memrefs)
         func.call @maybe_lds_read_B(
@@ -422,7 +414,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             index, index, index, index,
             index, index, index, index,
             index, index,
-            memref<?x?x!vx2>) -> ()
+            memref<?x?x?x?x!vx2>) -> ()
 
         // Phase 1b: MFMA (decoupled from LDS reads via memrefs)
         func.call @maybe_mfma(
@@ -434,7 +426,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           : (index,
             index, index, index, index,
             index, index, index, index,
-            memref<?x?x!vx2>, memref<?x?x!vx2>, memref<?x!vx4>) -> ()
+            memref<?x?x?x?x!vx2>, memref<?x?x?x?x!vx2>, memref<?x?x!vx4>) -> ()
 
         // Phase 2: Store C fragment back to global memory
         func.call @maybe_store_c_fragment(
@@ -448,7 +440,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         : (index,
           index, index, index, index,
           index, index, index, index,
-          memref<?x!vx4>,
+          memref<?x?x!vx4>,
           !sx2,
           index, index, index) -> ()
 
