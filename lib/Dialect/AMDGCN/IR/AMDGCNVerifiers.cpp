@@ -203,9 +203,9 @@ static LogicalResult checkMaybeConstOperand(AMDGCNInstOpInterface op,
                .attachNote(state.getLoc())
            << "is invalid";
   }
-  if (isa<inst::VOP1Op, inst::SOP2Op, inst::DSReadOp, inst::DSWriteOp,
-          inst::GlobalLoadOp, inst::GlobalStoreOp, inst::SMEMLoadOp,
-          inst::SOPPOp>(op)) {
+  if (isa<inst::VOP1Op, inst::SOP1Op, inst::SOP2Op, inst::DSReadOp,
+          inst::DSWriteOp, inst::GlobalLoadOp, inst::GlobalStoreOp,
+          inst::SMEMLoadOp, inst::SOPPOp>(op)) {
     return success();
   }
   // TODO: implement actual checks for other instructions.

@@ -7,7 +7,7 @@
 // CHECK:  .p2align 8
 // CHECK:  .type test_branch,@function
 // CHECK:test_branch:
-// CHECK:  s_branch .AMDGCN_BB_1
+// CHECK:  ; fallthrough: .AMDGCN_BB_1
 // CHECK:.AMDGCN_BB_1:
 // CHECK:  s_endpgm
 // CHECK:  .section .rodata,"a",@progbits
@@ -27,11 +27,11 @@
 // CHECK:  .p2align 8
 // CHECK:  .type test_diamond_branch,@function
 // CHECK:test_diamond_branch:
-// CHECK:  s_branch .AMDGCN_BB_1
+// CHECK:  ; fallthrough: .AMDGCN_BB_1
 // CHECK:.AMDGCN_BB_1:
 // CHECK:  s_branch .AMDGCN_BB_2
 // CHECK:.AMDGCN_BB_3:
-// CHECK:  s_branch .AMDGCN_BB_2
+// CHECK:  ; fallthrough: .AMDGCN_BB_2
 // CHECK:.AMDGCN_BB_2:
 // CHECK:  s_endpgm
 // CHECK:  .section .rodata,"a",@progbits

@@ -136,3 +136,24 @@ VGPRRangeType::verify(function_ref<InFlightDiagnostic()> emitError,
 
 Resource *VGPRType::getResource() const { return VGPRResource::get(); }
 Resource *VGPRRangeType::getResource() const { return VGPRResource::get(); }
+
+//===----------------------------------------------------------------------===//
+// SREG types
+//===----------------------------------------------------------------------===//
+
+LogicalResult SREGType::verify(function_ref<InFlightDiagnostic()> emitError,
+                               Register reg, SregKind kind) {
+  if (!reg.isValid())
+    return emitError() << "SREG must be non-negative";
+  switch (kind) {
+  case SregKind::Scc: {
+    if (!reg.isRelocatable() && reg.getRegister() != 0) {
+      return emitError() << "SCC SREG must be register 0";
+    }
+    break;
+  }
+  }
+  return success();
+}
+
+Resource *SREGType::getResource() const { return SGPRResource::get(); }

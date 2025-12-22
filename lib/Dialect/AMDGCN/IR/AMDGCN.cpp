@@ -129,6 +129,9 @@ void mlir::aster::amdgcn::getInstEffects(
       case RegisterKind::AGPR:
         resource = AGPRResource::get();
         break;
+      case RegisterKind::SREG:
+        resource = SREGResource::get();
+        break;
       default:
         llvm_unreachable("nyi register kind");
       }

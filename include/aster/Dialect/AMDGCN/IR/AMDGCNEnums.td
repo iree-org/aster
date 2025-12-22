@@ -24,6 +24,7 @@ def RegisterKind : I32Enum<"RegisterKind", "AMDGCN register kind", [
     I32EnumCase<"SGPR", 2>,
     I32EnumCase<"VGPR", 3>,
     I32EnumCase<"GGPR", 4>,
+    I32EnumCase<"SREG", 5>,
   ]> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }
@@ -154,6 +155,17 @@ def DimEnum : AutoI32EnumCases<"Dim",
     PrettyEnumCaseInfo<"x">,
     PrettyEnumCaseInfo<"y">,
     PrettyEnumCaseInfo<"z">,
+  ]> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+}
+
+//===----------------------------------------------------------------------===//
+// AMDGCN SREG variants.
+//===----------------------------------------------------------------------===//
+
+def SregKind : AutoI32EnumCases<"SregKind", 
+  "AMDGCN Sreg kind", [
+    PrettyEnumCaseInfo<"scc">,
   ]> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }

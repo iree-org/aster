@@ -60,17 +60,17 @@ def EndKernelInst : AMDInst<
 }
 
 //===----------------------------------------------------------------------===//
-// BranchOp
+// BranchOp/CondBranchOp
 //===----------------------------------------------------------------------===//
 
 def AMDGCN_BranchOp : InstOp<"branch", [
-  Terminator, AMDGCNInstOpInterface, HasParent<"KernelOp">]> {
-  let summary = "AMDGCN branch operation";
+  Pure, Terminator, AMDGCNInstOpInterface, HasParent<"KernelOp">]> {
+  let summary = "AMDGCN unconditional branch operation";
   let description = [{
-    Conditional branching operation.
+    unconditional branching operation.
   }];
   let arguments = (ins AMDGCN_InstAttr:$opcode);
-  let successors = (successor BranchLabel:$dest);
+  let successors = (successor BranchLabel:$dest );
   let assemblyFormat = "$opcode $dest attr-dict";
   let extraClassDeclaration = [{
     //===------------------------------------------------------------------===//
@@ -83,6 +83,38 @@ def AMDGCN_BranchOp : InstOp<"branch", [
     /// Get the instruction input operands.
     MutableArrayRef<OpOperand> getInstInsMutable() {
       return {};
+    }
+  }];
+  let cppNamespace = "::mlir::aster::amdgcn";
+}
+
+def AMDGCN_CBranchOp : InstOp<"cbranch", [
+  Terminator, AMDGCNInstOpInterface, HasParent<"KernelOp">]> {
+  let summary = "AMDGCN conditional branch operation";
+  let description = [{
+    Conditional branching operation that branches based on the SCC register value.
+
+    Example:
+    ```mlir
+    // Branch to ^loop if SCC is 1, otherwise fall through to ^exit
+    amdgcn.cbranch #amdgcn.inst<s_cbranch_scc1> %scc ^loop fallthrough (^exit)
+      : !amdgcn.sreg<scc>
+    ```
+  }];
+  let arguments = (ins AMDGCN_InstAttr:$opcode, SREGType:$scc);
+  let successors = (successor BranchLabel:$dest, BranchLabel:$fallthrough);
+  let assemblyFormat = "$opcode $scc $dest `fallthrough` `(` $fallthrough `)` attr-dict `:` type($scc)";
+  let extraClassDeclaration = [{
+    //===------------------------------------------------------------------===//
+    // InstOpInterface Methods
+    //===------------------------------------------------------------------===//
+    /// Get the instruction output operands.
+    MutableArrayRef<OpOperand> getInstOutsMutable() {
+      return {};
+    }
+    /// Get the instruction input operands.
+    MutableArrayRef<OpOperand> getInstInsMutable() {
+      return getSccMutable();
     }
   }];
   let cppNamespace = "::mlir::aster::amdgcn";
@@ -102,6 +134,34 @@ def BranchInst : AMDInst<
     return $_create(opcode=$_opcode, dest=dest);
   }]>;
   let asmFormat = [SingleAsmVariant<"$dest">];
+}
+
+class CBranchInst<string _mnemonic, string sym>
+  : AMDInst<_mnemonic, sym, /*instOp=*/AMDGCN_CBranchOp, /*isa=*/[]> {
+  let cppBuilder = OpBuilder<(ins "Value":$scc, "Block *":$dest, "Block *":$fallthrough), [{
+    return $_create($_builder, $_loc, $_opcode, scc, dest, fallthrough);
+  }]>;
+  let pythonBuilder = OpBuilder<(ins PyValue:$scc, PyBlock:$dest, PyBlock:$fallthrough), [{
+    return $_create(opcode=$_opcode, scc=scc, dest=dest, fallthrough=fallthrough);
+  }]>;
+  // Assembly output: s_cbranch_scc* label (SCC is implicit in hardware encoding)
+  let asmFormat = [SingleAsmVariant<"$dest">];
+}
+
+def S_CBRANCH_SCC0_INST : CBranchInst<
+  /*mnemonic=*/"s_cbranch_scc0", /*symbol=*/"s_cbranch_scc0"> {
+  let summary = "Conditional Branch if SCC is 0";
+  let description = [{
+    Conditional branch instruction that branches if SCC is 0.
+  }];
+}
+
+def S_CBRANCH_SCC1_INST : CBranchInst<
+  /*mnemonic=*/"s_cbranch_scc1", /*symbol=*/"s_cbranch_scc1"> {
+  let summary = "Conditional Branch if SCC is 1";
+  let description = [{
+    Conditional branch instruction that branches if SCC is 1.
+  }];
 }
 
 //===----------------------------------------------------------------------===//

@@ -33,7 +33,7 @@ void aster::amdgcn::AsmPrinter::printComment(StringRef comment) {
 }
 
 static void printRegister(llvm::raw_ostream &os,
-                          AMDGCNRegisterTypeInterface type) {
+                          AMDGCNRegisterTypeInterface type, Location loc) {
   RegisterRange range = type.getAsRange();
   StringRef prefix;
   switch (type.getRegisterKind()) {
@@ -46,6 +46,10 @@ static void printRegister(llvm::raw_ostream &os,
   case RegisterKind::AGPR:
     prefix = "a";
     break;
+  case RegisterKind::SREG:
+    emitError(loc, "SREG registers are implicit in assembly format and should "
+                   "not be printed");
+    return;
   default:
     llvm_unreachable("nyi register kind");
   }
@@ -74,7 +78,8 @@ void aster::amdgcn::AsmPrinter::printOperand(Value operand) {
     os << " " << floatValue;
     return;
   }
-  printRegister(os, cast<AMDGCNRegisterTypeInterface>(operand.getType()));
+  printRegister(os, cast<AMDGCNRegisterTypeInterface>(operand.getType()),
+                operand.getLoc());
 }
 
 void aster::amdgcn::AsmPrinter::printOffsetOperand(Value operand) {

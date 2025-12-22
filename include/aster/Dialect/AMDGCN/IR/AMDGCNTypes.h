@@ -51,6 +51,12 @@ public:
   StringRef getName() override { return AGPRType::name; }
 };
 
+/// SREG register resource.
+class SREGResource : public SideEffects::Resource::Base<SREGResource> {
+public:
+  StringRef getName() override { return SREGType::name; }
+};
+
 /// Get the register kind as an integer from the given register type.
 /// This call asserts if type is not an AMD register.
 RegisterKind getRegisterKind(AMDGCNRegisterTypeInterface type);

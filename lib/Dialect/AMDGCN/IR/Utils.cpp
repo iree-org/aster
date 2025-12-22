@@ -93,7 +93,7 @@ RegisterTypeInterface mlir::aster::amdgcn::getRegisterType(MLIRContext *ctx,
 
 bool mlir::aster::amdgcn::isAMDReg(Type regTy) {
   return isa<AGPRType, AGPRRangeType, SGPRType, SGPRRangeType, VGPRType,
-             VGPRRangeType>(regTy);
+             VGPRRangeType, SREGType>(regTy);
 }
 
 bool mlir::aster::amdgcn::isAMDRegOrImm(Type type) {
