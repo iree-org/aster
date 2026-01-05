@@ -157,12 +157,19 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
       amdgcn.sopp.sopp <s_barrier>
     }
-    %mm_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%mm]
-    %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-    %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base_off, %mm_pos, %kk_pos, %TILE_SIZE_K)
-      : (index, index, index, index) -> !vx2
-    %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
-    memref.store %a_frag, %a_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
+
+    %is_nn_zero = arith.cmpi eq, %nn, %c0 : index
+    scf.if %is_nn_zero {
+      %mm_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%mm]
+      %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
+      %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base_off, %mm_pos, %kk_pos, %TILE_SIZE_K)
+        : (index, index, index, index) -> !vx2
+      %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
+      memref.store %a_frag, %a_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
+    } else {
+      %a_frag = memref.load %a_frag_memref[%k, %mm, %c0, %kk] : memref<?x?x?x?x!vx2>
+      memref.store %a_frag, %a_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
+    }
     return
   }
 
@@ -182,12 +189,18 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
       amdgcn.sopp.sopp <s_barrier>
     }
-    %nn_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%nn]
-    %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-    %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base_off, %nn_pos, %kk_pos, %TILE_SIZE_K)
-      : (index, index, index, index) -> !vx2
-    %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
-    memref.store %b_frag, %b_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
+    %is_mm_zero = arith.cmpi eq, %mm, %c0 : index
+    scf.if %is_mm_zero {
+      %nn_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%nn]
+      %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
+      %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base_off, %nn_pos, %kk_pos, %TILE_SIZE_K)
+        : (index, index, index, index) -> !vx2
+      %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
+      memref.store %b_frag, %b_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
+    } else {
+      %b_frag = memref.load %b_frag_memref[%k, %c0, %nn, %kk] : memref<?x?x?x?x!vx2>
+      memref.store %b_frag, %b_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
+    }
     return
   }
 
