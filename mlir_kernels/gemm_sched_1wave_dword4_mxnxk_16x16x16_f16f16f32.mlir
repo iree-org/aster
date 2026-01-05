@@ -49,10 +49,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %a_load_memref: memref<?x?x?x!vx2>                             // memref for decoupled global load
   ) {
     %c0 = arith.constant 0 : index
-    %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
-    scf.if %is_first_it {
-      amdgcn.sopp.sopp <s_barrier>
-    }
     %mmkk = affine.linearize_index [%mm, %kk] by (%MM, %KK) : index
 
     // Global load A tile (decoupled: stores to memref)
@@ -81,10 +77,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %b_load_memref: memref<?x?x?x!vx2>                             // memref for decoupled global
   ) {
     %c0 = arith.constant 0 : index
-    %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
-    scf.if %is_first_it {
-      amdgcn.sopp.sopp <s_barrier>
-    }
     %nnkk = affine.linearize_index [%nn, %kk] by (%NN, %KK) : index
 
     %is_mm_zero = arith.cmpi eq, %mm, %c0 : index
@@ -152,12 +144,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %a_frag_memref: memref<?x?x?x?x!vx2>                // memref<reg> for decoupled LDS read
   ) {
     %c0 = arith.constant 0 : index
-    %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
-    scf.if %is_first_it {
-      amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
-      amdgcn.sopp.sopp <s_barrier>
-    }
-
     %is_nn_zero = arith.cmpi eq, %nn, %c0 : index
     scf.if %is_nn_zero {
       %mm_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%mm]
@@ -184,11 +170,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
-    scf.if %is_first_it {
-      amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
-      amdgcn.sopp.sopp <s_barrier>
-    }
     %is_mm_zero = arith.cmpi eq, %mm, %c0 : index
     scf.if %is_mm_zero {
       %nn_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%nn]
