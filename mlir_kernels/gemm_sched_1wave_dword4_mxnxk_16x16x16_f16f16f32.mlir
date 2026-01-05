@@ -311,123 +311,125 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     // M, N are fully distributed to blocks.
     // Loop over remaining 4-D tile **distributed** tile index (K, MM, NN, KK)
-    %ub = affine.apply affine_map<()[K, MM, NN, KK] ->
-        (K * MM * NN * KK)>
-      ()[%K, %MM, %NN, %KK]
-    scf.for %idx = %c0 to %ub step %c1 {
-        // mmkknn order
-        %k, %mm, %kk, %nn = affine.delinearize_index %idx into (%K, %MM, %KK, %NN) : index, index, index, index
-        %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
-        %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
+    scf.for %k = %c0 to %K step %c1 {
+      %ub = affine.apply affine_map<()[MM, NN, KK] ->
+          (MM * NN * KK)>
+        ()[%MM, %NN, %KK]
+      scf.for %idx = %c0 to %ub step %c1 {
+          // mmkknn order
+          %mm, %kk, %nn = affine.delinearize_index %idx into (%MM, %KK, %NN) : index, index, index
+          %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
+          %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
-        func.call @maybe_global_load_A(
-          %mmnnkk,
-          %k, %mm, %nn, %kk,
-          %K, %MM, %NN, %KK,
-          %a_global,
-          %m_pos, %n_pos, %k_pos, %SIZE_K,
-          %a_load_memref)
-            {sched.delay = 0 : i64, sched.rate = 1 : i64}
-          : (index,
-            index, index, index, index,
-            index, index, index, index,
-            !sx2, index, index, index, index,
-            memref<?x?x?x!vx2>) -> ()
+          func.call @maybe_global_load_A(
+            %mmnnkk,
+            %k, %mm, %nn, %kk,
+            %K, %MM, %NN, %KK,
+            %a_global,
+            %m_pos, %n_pos, %k_pos, %SIZE_K,
+            %a_load_memref)
+              {sched.delay = 0 : i64, sched.rate = 1 : i64}
+            : (index,
+              index, index, index, index,
+              index, index, index, index,
+              !sx2, index, index, index, index,
+              memref<?x?x?x!vx2>) -> ()
 
-        // Global load B (decoupled from DS writes via memrefs)
-        func.call @maybe_global_load_B(
-          %mmnnkk,
-          %k, %mm, %nn, %kk,
-          %K, %MM, %NN, %KK,
-          %b_global,
-          %m_pos, %n_pos, %k_pos, %SIZE_K,
-          %b_load_memref)
-            {sched.delay = 0 : i64, sched.rate = 1 : i64}
-          : (index,
-            index, index, index, index,
-            index, index, index, index,
-            !sx2, index, index, index, index,
-            memref<?x?x?x!vx2>) -> ()
+          // Global load B (decoupled from DS writes via memrefs)
+          func.call @maybe_global_load_B(
+            %mmnnkk,
+            %k, %mm, %nn, %kk,
+            %K, %MM, %NN, %KK,
+            %b_global,
+            %m_pos, %n_pos, %k_pos, %SIZE_K,
+            %b_load_memref)
+              {sched.delay = 0 : i64, sched.rate = 1 : i64}
+            : (index,
+              index, index, index, index,
+              index, index, index, index,
+              !sx2, index, index, index, index,
+              memref<?x?x?x!vx2>) -> ()
 
-        // Phase 0b: DS writes
-        // DS writeA (decoupled from global loads via memrefs)
-        func.call @maybe_lds_write_A(
-          %k, %mm, %nn, %kk,
-          %K, %MM, %NN, %KK,
-          %lds_a_base_off, %TILE_SIZE_K,
-          %a_load_memref)
-            {sched.delay = 3 : i64, sched.rate = 1 : i64}
+          // Phase 0b: DS writes
+          // DS writeA (decoupled from global loads via memrefs)
+          func.call @maybe_lds_write_A(
+            %k, %mm, %nn, %kk,
+            %K, %MM, %NN, %KK,
+            %lds_a_base_off, %TILE_SIZE_K,
+            %a_load_memref)
+              {sched.delay = 3 : i64, sched.rate = 1 : i64}
+            : (index, index, index, index,
+              index, index, index, index,
+              index, index,
+              memref<?x?x?x!vx2>) -> ()
+
+          // DS writeB (decoupled from global loads via memrefs)
+          func.call @maybe_lds_write_B(
+            %k, %mm, %nn, %kk,
+            %K, %MM, %NN, %KK,
+            %lds_b_base_off, %TILE_SIZE_K,
+            %b_load_memref)
+              {sched.delay = 3 : i64, sched.rate = 1 : i64}
+            : (index, index, index, index,
+              index, index, index, index,
+              index, index,
+              memref<?x?x?x!vx2>) -> ()
+
+          // Phase 1a: LDS reads
+          // DS readA (decoupled from global loads via memrefs)
+          func.call @maybe_lds_read_A(
+            %mmnnkk,
+            %k, %mm, %nn, %kk,
+            %K, %MM, %NN, %KK,
+            %lds_a_base_off, %TILE_SIZE_K,
+            %a_frag_memref)
+              {sched.delay = 6 : i64, sched.rate = 1 : i64}
+            : (index,
+              index, index, index, index,
+              index, index, index, index,
+              index, index,
+              memref<?x?x?x?x!vx2>) -> ()
+
+          // DS readB (decoupled from global loads via memrefs)
+          func.call @maybe_lds_read_B(
+            %mmnnkk,
+            %k, %mm, %nn, %kk,
+            %K, %MM, %NN, %KK,
+            %lds_b_base_off, %TILE_SIZE_K,
+            %b_frag_memref)
+              {sched.delay = 6 : i64, sched.rate = 1 : i64}
+            : (index,
+              index, index, index, index,
+              index, index, index, index,
+              index, index,
+              memref<?x?x?x?x!vx2>) -> ()
+
+          // Phase 1b: MFMA (decoupled from LDS reads via memrefs)
+          func.call @maybe_mfma(
+            %k, %mm, %nn, %kk,
+            %K, %MM, %NN, %KK,
+            %a_frag_memref, %b_frag_memref, %c_fragments)
+              {sched.delay = 9 : i64, sched.rate = 1 : i64}
+            : (index, index, index, index,
+              index, index, index, index,
+              memref<?x?x?x?x!vx2>, memref<?x?x?x?x!vx2>, memref<?x?x!vx4>) -> ()
+
+          // Phase 2: Store C fragment back to global memory
+          func.call @maybe_store_c_fragment(
+            %k, %mm, %nn, %kk,
+            %K, %MM, %NN, %KK,
+            %c_fragments,
+            %c_global,
+            %m_pos, %n_pos, %SIZE_N)
+              {sched.delay = 12 : i64, sched.rate = 1 : i64}
           : (index, index, index, index,
             index, index, index, index,
-            index, index,
-            memref<?x?x?x!vx2>) -> ()
+            memref<?x?x!vx4>,
+            !sx2,
+            index, index, index) -> ()
 
-        // DS writeB (decoupled from global loads via memrefs)
-        func.call @maybe_lds_write_B(
-          %k, %mm, %nn, %kk,
-          %K, %MM, %NN, %KK,
-          %lds_b_base_off, %TILE_SIZE_K,
-          %b_load_memref)
-            {sched.delay = 3 : i64, sched.rate = 1 : i64}
-          : (index, index, index, index,
-            index, index, index, index,
-            index, index,
-            memref<?x?x?x!vx2>) -> ()
-
-        // Phase 1a: LDS reads
-        // DS readA (decoupled from global loads via memrefs)
-        func.call @maybe_lds_read_A(
-          %mmnnkk,
-          %k, %mm, %nn, %kk,
-          %K, %MM, %NN, %KK,
-          %lds_a_base_off, %TILE_SIZE_K,
-          %a_frag_memref)
-            {sched.delay = 6 : i64, sched.rate = 1 : i64}
-          : (index,
-            index, index, index, index,
-            index, index, index, index,
-            index, index,
-            memref<?x?x?x?x!vx2>) -> ()
-
-        // DS readB (decoupled from global loads via memrefs)
-        func.call @maybe_lds_read_B(
-          %mmnnkk,
-          %k, %mm, %nn, %kk,
-          %K, %MM, %NN, %KK,
-          %lds_b_base_off, %TILE_SIZE_K,
-          %b_frag_memref)
-            {sched.delay = 6 : i64, sched.rate = 1 : i64}
-          : (index,
-            index, index, index, index,
-            index, index, index, index,
-            index, index,
-            memref<?x?x?x?x!vx2>) -> ()
-
-        // Phase 1b: MFMA (decoupled from LDS reads via memrefs)
-        func.call @maybe_mfma(
-          %k, %mm, %nn, %kk,
-          %K, %MM, %NN, %KK,
-          %a_frag_memref, %b_frag_memref, %c_fragments)
-            {sched.delay = 9 : i64, sched.rate = 1 : i64}
-          : (index, index, index, index,
-            index, index, index, index,
-            memref<?x?x?x?x!vx2>, memref<?x?x?x?x!vx2>, memref<?x?x!vx4>) -> ()
-
-        // Phase 2: Store C fragment back to global memory
-        func.call @maybe_store_c_fragment(
-          %k, %mm, %nn, %kk,
-          %K, %MM, %NN, %KK,
-          %c_fragments,
-          %c_global,
-          %m_pos, %n_pos, %SIZE_N)
-            {sched.delay = 12 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index,
-          index, index, index, index,
-          memref<?x?x!vx4>,
-          !sx2,
-          index, index, index) -> ()
-
-    } {amdgcn.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, {{LOOP_SIZE_D_MMNNKK}}> }
+      } {amdgcn.constexpr, sched.dims = array<i64: {{LOOP_SIZE_D_MMNNKK}}> }
+    } {amdgcn.constexpr}
 
     return
   }
