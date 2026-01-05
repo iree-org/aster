@@ -10,6 +10,7 @@
 
 #include "aster/Analysis/ConstantMemoryOffsetAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/IR/ValueOrConst.h"
 #include "mlir/Analysis/DataFlow/DenseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -125,13 +126,8 @@ bool ConstantMemoryOffsetAnalysis::handleTopPropagation(
 
 #define DUMP_STATE_HELPER(name, obj)                                           \
   auto _atExit = llvm::make_scope_exit([&]() {                                 \
-    LDBG_OS([&](raw_ostream &os) {                                             \
-      os << "Visiting " name ": " << obj << "\n";                              \
-      os << "  Incoming lattice: ";                                            \
-      before.print(os);                                                        \
-      os << "\n  Outgoing lattice: ";                                          \
-      after->print(os);                                                        \
-    });                                                                        \
+    LDBG_OS(                                                                   \
+        [&](raw_ostream &os) { os << "Visiting " name ": " << obj << "\n"; }); \
   });
 
 //===----------------------------------------------------------------------===//
@@ -170,6 +166,13 @@ LogicalResult ConstantMemoryOffsetAnalysis::visitOperation(
     // Operand is an input, so get its info from the before state
     auto info = before.getInfo(indexCast->getOperand(0));
     result |= after->setInfo(indexCast->getResult(0), info);
+    propagateIfChanged(after, result);
+    return success();
+  }
+  if (auto toReg = dyn_cast<lsir::ToRegOp>(op)) {
+    // Operand is an input, so get its info from the before state
+    auto info = before.getInfo(toReg->getOperand(0));
+    result |= after->setInfo(toReg->getResult(0), info);
     propagateIfChanged(after, result);
     return success();
   }
