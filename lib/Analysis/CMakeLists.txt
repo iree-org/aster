@@ -1,5 +1,6 @@
 add_mlir_library(
   ASTERAnalysis
+  ConstantMemoryOffsetAnalysis.cpp
   InterferenceGraph.cpp
   LivenessAnalysis.cpp
   MemoryDependenceAnalysis.cpp
