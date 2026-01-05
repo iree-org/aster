@@ -30,9 +30,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
   // copies.mlir
-  func.func private @global_load_dwordx2_wait(
+  func.func private @global_load_64xdwordx2_wait(
     !sx2, index, index, index, index, index, index) -> (!vx2)
-  func.func private @lds_write_dwordx2_wait(
+  func.func private @lds_write_64xdwordx2_wait(
     index, index, index, index, index, !vx2) -> ()
   func.func private @read_lds_A_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
@@ -60,8 +60,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       // Global load A tile (decoupled: stores to memref)
       %is_nn_zero = arith.cmpi eq, %nn, %c0 : index
       scf.if %is_nn_zero {
-        %mm_pos = affine.apply affine_map<()[mmkk, KK] -> (mmkk * (16 ceildiv KK))>()[%mmkk, %KK]
-        %loaded = func.call @global_load_dwordx2_wait(%a_global, %m_pos, %k_pos, %SIZE_K, %mm_pos, %c0, %KK)
+        %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
+        %mm_pos = affine.apply affine_map<()[mmkk, num_rows] -> (mmkk * num_rows)>()[%mmkk, %num_rows]
+        %loaded = func.call @global_load_64xdwordx2_wait(%a_global, %m_pos, %k_pos, %SIZE_K, %mm_pos, %c0, %num_rows)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
         memref.store %loaded, %a_load_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
       }
@@ -91,8 +92,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
       %is_mm_zero = arith.cmpi eq, %mm, %c0 : index
       scf.if %is_mm_zero {
-        %nn_pos = affine.apply affine_map<()[nnkk, KK] -> (nnkk * (16 ceildiv KK))>()[%nnkk, %KK]
-        %loaded = func.call @global_load_dwordx2_wait(%b_global, %n_pos, %k_pos, %SIZE_K, %nn_pos, %c0, %KK)
+        %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
+        %nn_pos = affine.apply affine_map<()[nnkk, num_rows] -> (nnkk * num_rows)>()[%nnkk, %num_rows]
+        %loaded = func.call @global_load_64xdwordx2_wait(%b_global, %n_pos, %k_pos, %SIZE_K, %nn_pos, %c0, %num_rows)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
         memref.store %loaded, %b_load_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
       }
@@ -114,10 +116,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     scf.if %is_phase_0 {
       %is_nn_zero = arith.cmpi eq, %nn, %c0 : index
       scf.if %is_nn_zero {
+        %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %mmkk = affine.linearize_index [%mm, %kk] by (%MM, %KK) : index
-        %mm_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%mmkk, %KK]
+        %mm_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%mmkk, %num_rows]
         %loaded = memref.load %a_load_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
-        func.call @lds_write_dwordx2_wait(%lds_a_base_off, %mm_pos, %c0, %TILE_SIZE_K, %KK, %loaded)
+        func.call @lds_write_64xdwordx2_wait(%lds_a_base_off, %mm_pos, %c0, %TILE_SIZE_K, %num_rows, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
       }
     }
@@ -138,10 +141,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     scf.if %is_phase_0 {
       %is_mm_zero = arith.cmpi eq, %mm, %c0 : index
       scf.if %is_mm_zero {
+        %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %nnkk = affine.linearize_index [%nn, %kk] by (%NN, %KK) : index
-        %nn_pos = affine.apply affine_map<()[idx, KK] -> (idx * (16 ceildiv KK))>()[%nnkk, %KK]
+        %nn_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%nnkk, %num_rows]
         %loaded = memref.load %b_load_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
-        func.call @lds_write_dwordx2_wait(%lds_b_base_off, %nn_pos, %c0, %TILE_SIZE_K, %KK, %loaded)
+        func.call @lds_write_64xdwordx2_wait(%lds_b_base_off, %nn_pos, %c0, %TILE_SIZE_K, %num_rows, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
       }
     }
