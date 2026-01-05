@@ -39,6 +39,27 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @store_global_16x16xf32_C_fragment_wait(
     !vx4, !sx2, index, index, index, index, index) -> ()
 
+  // Initialize C (decoupled via memrefs).
+  func.func private @maybe_init_C(
+    %k: index, %mm: index, %nn: index, %kk: index,               // indices
+    %K: index, %MM: index, %NN: index,  %KK: index,              // sizes
+    %c_fragments: memref<?x?x!vx4>                             // memref for decoupled global load
+  ) {
+    %c0 = arith.constant 0 : index
+    %k_kk = affine.linearize_index [%k, %kk] by (%K, %KK) : index
+
+    // Global load A tile (decoupled: stores to memref)
+    %is_k_kk_zero = arith.cmpi eq, %k_kk, %c0 : index
+    scf.if %is_k_kk_zero {
+      %c0_i32 = arith.constant 0 : i32
+      // %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
+      %c_fragment = func.call @init_vgprx4(%c0_i32) : (i32) -> !vx4
+      memref.store %c_fragment, %c_fragments[%mm, %nn] : memref<?x?x!vx4>
+    }
+
+    return
+  }
+
   // Global load A (decoupled from DS writes via memrefs).
   func.func private @maybe_global_load_A(
     %d_mmnnkk: index,
@@ -281,15 +302,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %a_frag_memref = memref.alloca(%K, %MM, %NN, %KK) : memref<?x?x?x?x!vx2>
     %b_frag_memref = memref.alloca(%K, %MM, %NN, %KK) : memref<?x?x?x?x!vx2>
 
-    // Initialize C fragments
-    %c0_i32 = arith.constant 0 : i32
-    scf.for %m = %c0 to %MM step %c1 {
-      scf.for %n = %c0 to %NN step %c1 {
-        %c_fragment = func.call @init_vgprx4(%c0_i32) : (i32) -> !vx4
-        memref.store %c_fragment, %c_fragments[%m, %n] : memref<?x?x!vx4>
-      } {amdgcn.constexpr}
-    } {amdgcn.constexpr}
-
     // M, N are fully distributed to blocks.
     // Loop over remaining 4-D tile **distributed** tile index (K, MM, NN, KK)
     scf.for %k = %c0 to %K step %c1 {
@@ -300,6 +312,15 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %mm, %nn, %kk = affine.delinearize_index %idx into (%MM, %NN, %KK) : index, index, index
           %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
           %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
+
+          func.call @maybe_init_C(
+            %k, %mm, %nn, %kk,
+            %K, %MM, %NN, %KK,
+            %c_fragments)
+              {sched.delay = 0 : i64, sched.rate = 1 : i64}
+            : (index, index, index, index,
+              index, index, index, index,
+              memref<?x?x!vx4>) -> ()
 
           func.call @maybe_global_load_A(
             %mmnnkk,
