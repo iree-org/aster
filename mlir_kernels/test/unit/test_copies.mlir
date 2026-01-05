@@ -28,8 +28,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @swizzle_C_16x16xf32() -> (index, index)
   // copies.mlir
   func.func private @load_to_lds_16x16_dwordx2_wait(!sx2, index, index, index, index, index, index, index)
-  func.func private @global_load_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
-  func.func private @lds_write_dwordx2_wait(index, index, index, index, index, !vx2) -> ()
+  func.func private @global_load_64xdwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
+  func.func private @lds_write_64xdwordx2_wait(index, index, index, index, index, !vx2) -> ()
   func.func private @store_to_global_dword_wait(!v, !sx2, index, index, index)
   func.func private @read_lds_A_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
   func.func private @store_global_16x16xf32_C_fragment_wait(!vx4, !sx2, index, index, index, index, index)
@@ -152,7 +152,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-  // Test @global_load_dwordx2_wait + @lds_write_dwordx2_wait: decoupled global load and LDS write
+  // Test @global_load_64xdwordx2_wait + @lds_write_64xdwordx2_wait: decoupled global load and LDS write
   // Load from global to memref, then write from memref to LDS, then read back from LDS
   amdgcn.kernel @test_global_load_ds_write arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
@@ -173,7 +173,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %memref = memref.cast %memref_static : memref<1x1x!vx2> to memref<?x?x!vx2>
 
     // Global load to memref
-    %loaded = func.call @global_load_dwordx2_wait(
+    %loaded = func.call @global_load_64xdwordx2_wait(
       %in_ptr,  // ptr
       %c0, %c0, // i_pos, j_pos (major tile)
       %c16,     // N_SIZE
@@ -182,7 +182,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     ) : (!sx2, index, index, index, index, index, index) -> (!vx2)
 
     // DS write from memref to LDS
-    func.call @lds_write_dwordx2_wait(
+    func.call @lds_write_64xdwordx2_wait(
       %c0,               // lds_base_off
       %c0, %c0,          // ii_pos, jj_pos
       %c16,              // NN_SIZE

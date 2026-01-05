@@ -80,7 +80,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @zero_init_body(
     %i: index,
     %j: index,
-    %memref: memref<?x?x!amdgcn.vgpr_range<[? + 4]>>
+    %memref: memref<?x?x!amdgcn.agpr_range<[? + 4]>>
   ) {
     // Implicit i32 0 <=> f32 0.0
     %c0 = arith.constant 0 : i32
@@ -93,9 +93,17 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %c0_vgpr_1 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vgpr_1, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
     %c0_vgpr_2 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vgpr_2, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
     %c0_vgpr_3 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vgpr_3, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %c0_vgpr_range = amdgcn.make_register_range %c0_vgpr_0, %c0_vgpr_1, %c0_vgpr_2, %c0_vgpr_3
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-    memref.store %c0_vgpr_range, %memref[%i, %j] : memref<?x?x!amdgcn.vgpr_range<[? + 4]>>
+    %agpr_0 = amdgcn.alloca : !amdgcn.agpr
+    %agpr_1 = amdgcn.alloca : !amdgcn.agpr
+    %agpr_2 = amdgcn.alloca : !amdgcn.agpr
+    %agpr_3 = amdgcn.alloca : !amdgcn.agpr
+    %acc_0 = amdgcn.vop3p v_accvgpr_write_b32 outs %agpr_0 ins %c0_vgpr_0 : !amdgcn.agpr, !amdgcn.vgpr
+    %acc_1 = amdgcn.vop3p v_accvgpr_write_b32 outs %agpr_1 ins %c0_vgpr_1 : !amdgcn.agpr, !amdgcn.vgpr
+    %acc_2 = amdgcn.vop3p v_accvgpr_write_b32 outs %agpr_2 ins %c0_vgpr_2 : !amdgcn.agpr, !amdgcn.vgpr
+    %acc_3 = amdgcn.vop3p v_accvgpr_write_b32 outs %agpr_3 ins %c0_vgpr_3 : !amdgcn.agpr, !amdgcn.vgpr
+    %acc_range = amdgcn.make_register_range %acc_0, %acc_1, %acc_2, %acc_3
+      : !amdgcn.agpr, !amdgcn.agpr, !amdgcn.agpr, !amdgcn.agpr
+    memref.store %acc_range, %memref[%i, %j] : memref<?x?x!amdgcn.agpr_range<[? + 4]>>
     return
   }
 
@@ -103,11 +111,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %cond: i1,
     %i: index,
     %j: index,
-    %memref: memref<?x?x!amdgcn.vgpr_range<[? + 4]>>
+    %memref: memref<?x?x!amdgcn.agpr_range<[? + 4]>>
   ) {
     scf.if %cond {
       func.call @zero_init_body(%i, %j, %memref)
-        : (index, index, memref<?x?x!amdgcn.vgpr_range<[? + 4]>>) -> ()
+        : (index, index, memref<?x?x!amdgcn.agpr_range<[? + 4]>>) -> ()
     }
     return
   }
@@ -124,12 +132,12 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %j: index,
     %szI: index,
     %szJ: index,
-    %c_memref: memref<?x?x!amdgcn.vgpr_range<[? + 4]>>,
+    %c_memref: memref<?x?x!amdgcn.agpr_range<[? + 4]>>,
     %c_global: !amdgcn.sgpr_range<[? + 2]>
   ) {
     // Load from c_memref for SROA + MEM2REG
     %c_value = memref.load %c_memref[%i, %j]
-      : memref<?x?x!amdgcn.vgpr_range<[? + 4]>>
+      : memref<?x?x!amdgcn.agpr_range<[? + 4]>>
 
     // Compute byte offset using library function
     // tile_size = 16*16*4 = 1024 (f32 output), lane_stride = 16 (dwordx4)
@@ -140,10 +148,27 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     ) : (index, index, index, index, index, index, index, index, index) -> index
     %offset_vgpr = lsir.to_reg %offset : index -> !amdgcn.vgpr
 
+    // c_value to vgpr range
+    %vgpr_0 = amdgcn.alloca : !amdgcn.vgpr
+    %vgpr_1 = amdgcn.alloca : !amdgcn.vgpr
+    %vgpr_2 = amdgcn.alloca : !amdgcn.vgpr
+    %vgpr_3 = amdgcn.alloca : !amdgcn.vgpr
+
+    %c_value_agpr_0, %c_value_agpr_1, %c_value_agpr_2, %c_value_agpr_3 =
+      amdgcn.split_register_range %c_value : !amdgcn.agpr_range<[? + 4]>
+    %c_value_vgpr_0 = amdgcn.vop3p v_accvgpr_read_b32 outs %vgpr_0 ins %c_value_agpr_0 : !amdgcn.vgpr, !amdgcn.agpr
+    %c_value_vgpr_1 = amdgcn.vop3p v_accvgpr_read_b32 outs %vgpr_1 ins %c_value_agpr_1 : !amdgcn.vgpr, !amdgcn.agpr
+    %c_value_vgpr_2 = amdgcn.vop3p v_accvgpr_read_b32 outs %vgpr_2 ins %c_value_agpr_2 : !amdgcn.vgpr, !amdgcn.agpr
+    %c_value_vgpr_3 = amdgcn.vop3p v_accvgpr_read_b32 outs %vgpr_3 ins %c_value_agpr_3 : !amdgcn.vgpr, !amdgcn.agpr
+
     // Store vGPR range directly to global memory
+    %c_value_vgpr_range = amdgcn.make_register_range
+        %c_value_vgpr_0, %c_value_vgpr_1, %c_value_vgpr_2, %c_value_vgpr_3
+      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
     amdgcn.flat.global_store #amdgcn.inst<global_store_dwordx4>
-      %c_value, %c_global[%offset_vgpr]
-    : !amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 2]>[!amdgcn.vgpr]
+        %c_value_vgpr_range, %c_global[%offset_vgpr]
+      : !amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 2]>[!amdgcn.vgpr]
+
     return
   }
 
@@ -157,12 +182,12 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %j: index,
     %szI: index,
     %szJ: index,
-    %c_memref: memref<?x?x!amdgcn.vgpr_range<[? + 4]>>,
+    %c_memref: memref<?x?x!amdgcn.agpr_range<[? + 4]>>,
     %c_global: !amdgcn.sgpr_range<[? + 2]>
   ) {
     scf.if %cond {
       func.call @global_store_body(%tidx, %bidx, %bdimx, %gdimx, %i, %j, %szI, %szJ, %c_memref, %c_global)
-        : (index, index, index, index, index, index, index, index, memref<?x?x!amdgcn.vgpr_range<[? + 4]>>, !amdgcn.sgpr_range<[? + 2]>) -> ()
+        : (index, index, index, index, index, index, index, index, memref<?x?x!amdgcn.agpr_range<[? + 4]>>, !amdgcn.sgpr_range<[? + 2]>) -> ()
     }
     return
   }
@@ -303,21 +328,21 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %k: index,
     %a_memref: memref<?x?x!amdgcn.vgpr_range<[? + 2]>>,
     %b_memref: memref<?x?x!amdgcn.vgpr_range<[? + 2]>>,
-    %c_memref: memref<?x?x!amdgcn.vgpr_range<[? + 4]>>
+    %c_memref: memref<?x?x!amdgcn.agpr_range<[? + 4]>>
   ) {
     // Load register ranges from memrefs at specified indices for SROA + MEM2REG
     %a = memref.load %a_memref[%m, %k] : memref<?x?x!amdgcn.vgpr_range<[? + 2]>>
     %b = memref.load %b_memref[%k, %n] : memref<?x?x!amdgcn.vgpr_range<[? + 2]>>
-    %c = memref.load %c_memref[%m, %n] : memref<?x?x!amdgcn.vgpr_range<[? + 4]>>
+    %c = memref.load %c_memref[%m, %n] : memref<?x?x!amdgcn.agpr_range<[? + 4]>>
 
     // Perform MFMA operation: C = A * B + C
     %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
-      %c, %a, %b, %c : <[? + 2]>, <[? + 2]>, !amdgcn.vgpr_range<[? + 4]>
-      -> !amdgcn.vgpr_range<[? + 4]>
+      %c, %a, %b, %c : <[? + 2]>, <[? + 2]>, !amdgcn.agpr_range<[? + 4]>
+      -> !amdgcn.agpr_range<[? + 4]>
 
     // Store result back to memref at [m, n] for SROA + MEM2REG
     memref.store %result, %c_memref[%m, %n]
-      : memref<?x?x!amdgcn.vgpr_range<[? + 4]>>
+      : memref<?x?x!amdgcn.agpr_range<[? + 4]>>
 
     return
   }
@@ -330,7 +355,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // Allocate memrefs for A, B, and C matrices
     %a_memref = memref.alloca(%M, %K) : memref<?x?x!amdgcn.vgpr_range<[? + 2]>>
     %b_memref = memref.alloca(%K, %N) : memref<?x?x!amdgcn.vgpr_range<[? + 2]>>
-    %c_memref = memref.alloca(%M, %N) : memref<?x?x!amdgcn.vgpr_range<[? + 4]>>
+    %c_memref = memref.alloca(%M, %N) : memref<?x?x!amdgcn.agpr_range<[? + 4]>>
 
     // Constants for loop
     %c0 = arith.constant 0 : index
@@ -368,7 +393,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %is_first_k = arith.cmpi eq, %k, %c0 : index
       func.call @zero_init_body_if(%is_first_k, %m, %n, %c_memref)
           {sched.delay = 0 : i64, sched.rate = 1 : i64, sched.permutation = array<i64: 0, 2, 1>}
-        : (i1, index, index, memref<?x?x!amdgcn.vgpr_range<[? + 4]>>) -> ()
+        : (i1, index, index, memref<?x?x!amdgcn.agpr_range<[? + 4]>>) -> ()
 
       // // WARNING: if we bring this too early, canonicalization will fuse it with
       // // the prior scf.if ignoring scheduling attributes..
@@ -397,14 +422,14 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         : (index, index, index,
            memref<?x?x!amdgcn.vgpr_range<[? + 2]>>,
            memref<?x?x!amdgcn.vgpr_range<[? + 2]>>,
-           memref<?x?x!amdgcn.vgpr_range<[? + 4]>>) -> ()
+           memref<?x?x!amdgcn.agpr_range<[? + 4]>>) -> ()
 
       // If last K iteration, store C to global memory
       %k_minus_1 = arith.subi %K, %c1 : index
       %is_last_k = arith.cmpi eq, %k, %k_minus_1 : index
       func.call @global_store_body_if(%is_last_k, %tidx, %bidx, %bdimx, %gdimx, %m, %n, %M, %N, %c_memref, %c_global)
         {sched.delay = 20 : i64, sched.rate = 1 : i64, sched.permutation = array<i64: 0, 2, 1>}
-        : (i1, index, index, index, index, index, index, index, index, memref<?x?x!amdgcn.vgpr_range<[? + 4]>>, !amdgcn.sgpr_range<[? + 2]>) -> ()
+        : (i1, index, index, index, index, index, index, index, index, memref<?x?x!amdgcn.agpr_range<[? + 4]>>, !amdgcn.sgpr_range<[? + 2]>) -> ()
 
     } {sched.dims = array<i64: {{SIZE_M}}, {{SIZE_N}}, {{SIZE_K}}>}
 
