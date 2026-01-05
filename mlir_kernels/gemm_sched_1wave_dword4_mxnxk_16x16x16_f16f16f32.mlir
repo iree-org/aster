@@ -302,7 +302,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         (K * MM * NN * KK)>
       ()[%K, %MM, %NN, %KK]
     scf.for %idx = %c0 to %ub step %c1 {
-        %k, %mm, %nn, %kk = affine.delinearize_index %idx into (%K, %MM, %NN, %KK) : index, index, index, index
+        // mmkknn order
+        %k, %mm, %kk, %nn = affine.delinearize_index %idx into (%K, %MM, %KK, %NN) : index, index, index, index
         %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
         %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
@@ -342,7 +343,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %K, %MM, %NN, %KK,
           %lds_a_base_off, %TILE_SIZE_K,
           %a_load_memref)
-            {sched.delay = 0 : i64, sched.rate = 1 : i64}
+            {sched.delay = 3 : i64, sched.rate = 1 : i64}
           : (index, index, index, index,
             index, index, index, index,
             index, index,
@@ -354,7 +355,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %K, %MM, %NN, %KK,
           %lds_b_base_off, %TILE_SIZE_K,
           %b_load_memref)
-            {sched.delay = 0 : i64, sched.rate = 1 : i64}
+            {sched.delay = 3 : i64, sched.rate = 1 : i64}
           : (index, index, index, index,
             index, index, index, index,
             index, index,
@@ -368,7 +369,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %K, %MM, %NN, %KK,
           %lds_a_base_off, %TILE_SIZE_K,
           %a_frag_memref)
-            {sched.delay = 0 : i64, sched.rate = 1 : i64}
+            {sched.delay = 3 : i64, sched.rate = 1 : i64}
           : (index,
             index, index, index, index,
             index, index, index, index,
@@ -382,7 +383,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %K, %MM, %NN, %KK,
           %lds_b_base_off, %TILE_SIZE_K,
           %b_frag_memref)
-            {sched.delay = 0 : i64, sched.rate = 1 : i64}
+            {sched.delay = 3 : i64, sched.rate = 1 : i64}
           : (index,
             index, index, index, index,
             index, index, index, index,
@@ -406,14 +407,14 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %c_fragments,
           %c_global,
           %m_pos, %n_pos, %SIZE_N)
-            {sched.delay = 12 : i64, sched.rate = 1 : i64}
+            {sched.delay = 9 : i64, sched.rate = 1 : i64}
         : (index, index, index, index,
           index, index, index, index,
           memref<?x?x!vx4>,
           !sx2,
           index, index, index) -> ()
 
-    } {amdgcn.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, 3, {{LOOP_SIZE_D_MMNNKK}}> }
+    } {amdgcn.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, {{LOOP_SIZE_D_MMNNKK}}> }
 
     return
   }
