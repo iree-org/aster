@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/MemoryDependenceAnalysis.h"
+#include "aster/Analysis/ConstantMemoryOffsetAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/IR/ValueOrConst.h"
@@ -73,6 +74,10 @@ MLIR_DEFINE_EXPLICIT_TYPE_ID(mlir::aster::MemoryDependenceLattice)
 //===----------------------------------------------------------------------===//
 
 bool MemoryLocation::mayAlias(const MemoryLocation &other) const {
+  // Safety check: ensure we have valid addresses before proceeding
+  if (!address || !other.address)
+    return true; // Conservative: assume they may alias
+
   // Universal alias locations alias with everything of the same resource type
   if (isUniversalAlias || other.isUniversalAlias) {
     return resourceType == other.resourceType;
@@ -257,6 +262,110 @@ bool MemoryDependenceAnalysis::handleTopPropagation(
   return false;
 }
 
+/// Check if two base value infos are equal and can be compared for aliasing.
+static bool canCompareBaseValues(const BaseValueInfo *base1,
+                                 const BaseValueInfo *base2) {
+  if (!base1 || !base2)
+    return false;
+
+  // Must be the same kind
+  if (base1->kind != base2->kind)
+    return false;
+
+  // For AffineApplyValueInfo, check if they have the same affine map and
+  // operands
+  if (base1->kind == BaseValueInfo::Kind::AffineApply) {
+    auto *affine1 = static_cast<const AffineApplyValueInfo *>(base1);
+    auto *affine2 = static_cast<const AffineApplyValueInfo *>(base2);
+    return *affine1 == *affine2;
+  }
+
+  // For SSAValueInfo, check if they have the same SSA value
+  if (base1->kind == BaseValueInfo::Kind::SSAValue) {
+    auto *ssa1 = static_cast<const SSAValueInfo *>(base1);
+    auto *ssa2 = static_cast<const SSAValueInfo *>(base2);
+    return *ssa1 == *ssa2;
+  }
+
+  return false;
+}
+
+/// Refined aliasing check using constant offset analysis.
+bool MemoryDependenceAnalysis::mayAliasRefined(const MemoryLocation &loc1,
+                                               const MemoryLocation &loc2,
+                                               ProgramPoint *point) {
+  if (!loc1.mayAlias(loc2))
+    return false;
+
+  // Safety check: ensure we have valid addresses before proceeding
+  if (!loc1.address || !loc2.address)
+    return true; // Conservative: assume they may alias
+
+  // Different base address SSA values - try to refine using constant offset
+  // analysis
+  if (loc1.address != loc2.address) {
+    // Try to get constant offset information
+    auto *offsetState = solver.lookupState<ConstantMemoryOffsetLattice>(point);
+
+    if (offsetState && !offsetState->isTop()) {
+      // Get base value info for both locations
+      ConstantMemoryOffsetInfo info1 = offsetState->getInfo(loc1.address);
+      ConstantMemoryOffsetInfo info2 = offsetState->getInfo(loc2.address);
+
+      const BaseValueInfo *base1 = info1.baseValue.get();
+      const BaseValueInfo *base2 = info2.baseValue.get();
+
+      if (canCompareBaseValues(base1, base2)) {
+        // They have the same underlying base - check if offsets overlap
+        int64_t offset1 = loc1.offset + info1.constantOffset;
+        int64_t offset2 = loc2.offset + info2.constantOffset;
+        int64_t end1 = offset1 + loc1.length;
+        int64_t end2 = offset2 + loc2.length;
+
+        LDBG() << "Refined aliasing: same base, offset1=" << offset1
+               << " end1=" << end1 << " offset2=" << offset2
+               << " end2=" << end2;
+
+        // Check if ranges overlap
+        bool overlap = (offset1 < end2) && (offset2 < end1);
+        if (!overlap) {
+          LDBG() << "Refined: no alias (non-overlapping ranges)";
+        }
+        return overlap;
+      }
+    }
+
+    // Conservative: different addresses may alias
+    return true;
+  }
+
+  // Different VGPR offset SSA values may alias (conservative)
+  if (loc1.vgprOffset != loc2.vgprOffset)
+    return true;
+
+  // Different SGPR offset SSA values may alias (conservative)
+  if (loc1.sgprOffset != loc2.sgprOffset)
+    return true;
+
+  // Same base address and same dynamic offsets: check if byte ranges overlap
+  // Try to use improved offsets from constant analysis
+  int64_t offset1 = loc1.offset;
+  int64_t offset2 = loc2.offset;
+
+  auto *offsetState = solver.lookupState<ConstantMemoryOffsetLattice>(point);
+  if (offsetState && !offsetState->isTop()) {
+    ConstantMemoryOffsetInfo info1 = offsetState->getInfo(loc1.address);
+    ConstantMemoryOffsetInfo info2 = offsetState->getInfo(loc2.address);
+    offset1 += info1.constantOffset;
+    offset2 += info2.constantOffset;
+  }
+
+  int64_t end1 = offset1 + loc1.length;
+  int64_t end2 = offset2 + loc2.length;
+
+  return (offset1 < end2) && (offset2 < end1);
+}
+
 #define DUMP_STATE_HELPER(name, obj)                                           \
   auto _atExit = llvm::make_scope_exit([&]() {                                 \
     LDBG_OS([&](raw_ostream &os) {                                             \
@@ -358,6 +467,7 @@ MemoryDependenceAnalysis::visitOperation(Operation *op,
   bool isStore = isStoreOp(op);
   if (isLoad || isStore) {
     auto loc = getMemoryLocation(op);
+    ProgramPoint *beforePoint = getProgramPointBefore(op);
 
     std::function<bool(const MemoryLocation &)> loadPredicate =
         [&](const MemoryLocation &memLoc) {
@@ -370,7 +480,9 @@ MemoryDependenceAnalysis::visitOperation(Operation *op,
           if ((m1 && m1.getOpcode() == OpCode::S_MEMTIME) ||
               (m2 && m2.getOpcode() == OpCode::S_MEMTIME))
             return true;
-          bool res = isStoreOp(memLoc.op) && loc.mayAlias(memLoc);
+          // Use refined aliasing that considers constant offsets
+          bool res =
+              isStoreOp(memLoc.op) && mayAliasRefined(loc, memLoc, beforePoint);
           if (res)
             LDBG() << "predicate: " << *memLoc.op << " ALIASES with "
                    << *loc.op;
@@ -381,7 +493,9 @@ MemoryDependenceAnalysis::visitOperation(Operation *op,
         };
     std::function<bool(const MemoryLocation &)> storePredicate =
         [&](const MemoryLocation &memLoc) {
-          return isLoadOp(memLoc.op) && loc.mayAlias(memLoc);
+          // Use refined aliasing that considers constant offsets
+          return isLoadOp(memLoc.op) &&
+                 mayAliasRefined(loc, memLoc, beforePoint);
         };
 
     // Load must flush any previous pending memory stores issued before that may

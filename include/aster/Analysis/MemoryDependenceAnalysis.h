@@ -342,7 +342,7 @@ public:
   MemoryDependenceAnalysis(DataFlowSolver &solver,
                            bool flushAllMemoryOnExit = true)
       : dataflow::DenseForwardDataFlowAnalysis<MemoryDependenceLattice>(solver),
-        flushAllMemoryOnExit(flushAllMemoryOnExit) {}
+        flushAllMemoryOnExit(flushAllMemoryOnExit), solver(solver) {}
 
   /// Visit an operation and update the lattice state.
   LogicalResult visitOperation(Operation *op,
@@ -384,8 +384,16 @@ private:
   /// Check if an operation is a store operation.
   bool isStoreOp(Operation *op);
 
+  /// Check if two memory locations may alias, using constant offset analysis
+  /// for refinement when available.
+  bool mayAliasRefined(const MemoryLocation &loc1, const MemoryLocation &loc2,
+                       ProgramPoint *point);
+
   /// Whether to flush all pending memory operations on end_kernel.
   bool flushAllMemoryOnExit;
+
+  /// Reference to the solver for querying other analyses
+  DataFlowSolver &solver;
 };
 
 } // end namespace mlir::aster

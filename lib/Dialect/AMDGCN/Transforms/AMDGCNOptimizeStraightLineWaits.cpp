@@ -8,6 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Analysis/ConstantMemoryOffsetAnalysis.h"
 #include "aster/Analysis/MemoryDependenceAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
@@ -105,9 +106,13 @@ void AMDGCNOptimizeStraightLineWaits::runOnOperation() {
   eraseWaitcntOpsInBlock(block);
 
   // Create and configure the data flow solver for this block.
+  // Load both MemoryDependenceAnalysis and ConstantMemoryOffsetAnalysis.
+  // MemoryDependenceAnalysis will query ConstantMemoryOffsetAnalysis to
+  // refine aliasing checks using constant offset information.
   LDBG() << "Processing op: " << *op;
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
   dataflow::loadBaselineAnalyses(solver);
+  solver.load<ConstantMemoryOffsetAnalysis>();
   solver.load<MemoryDependenceAnalysis>(flushAllMemoryOnExit);
   if (failed(solver.initializeAndRun(op))) {
     op->emitError() << "Failed to run data flow analysis";
