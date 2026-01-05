@@ -94,27 +94,27 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
 
   // Loads from global memory to VGPRs, in a **synchronized fashion** (i.e.
   // waitcnt 0 are inserted after global_load).
-  // This function cooperatively loads 256 f16 elements (64 dwordx2), depending on %NN:
-  //   - when %NN =  1, a 16x16xf16 tile is loaded from global memory to VGPRs
-  //   - when %NN =  2, a  8x32xf16 tile is loaded from global memory to VGPRs
-  //   - when %NN =  4, a  4x64xf16 tile is loaded from global memory to VGPRs
-  //   - when %NN =  8, a 2x128xf16 tile is loaded from global memory to VGPRs
-  //   - when %NN = 16, a 1x256xf16 tile is loaded from global memory to VGPRs
-  // This results in better global memory coalescing when %NN is not 1.
-  func.func private @global_load_dwordx2_wait(
+  // This function cooperatively loads 256 f16 elements (64 dwordx2), depending on %num_rows:
+  //   - when %num_rows =  1, a 16x16xf16 tile is loaded from global memory to VGPRs
+  //   - when %num_rows =  2, a  8x32xf16 tile is loaded from global memory to VGPRs
+  //   - when %num_rows =  4, a  4x64xf16 tile is loaded from global memory to VGPRs
+  //   - when %num_rows =  8, a 2x128xf16 tile is loaded from global memory to VGPRs
+  //   - when %num_rows = 16, a 1x256xf16 tile is loaded from global memory to VGPRs
+  // This results in better global memory coalescing when %num_rows is not 1.
+  func.func private @global_load_64xdwordx2_wait(
     %ptr: !sx2,           // The global base pointer
     %i_pos: index,        // The outer-most major-tile position
     %j_pos: index,        // The inner-most major-tile position
     %N_SIZE: index,       // The inner-most size
     %ii_pos: index,       // The outer-most minor-tile position
     %jj_pos: index,       // The inner-most minor-tile position
-    %NN: index            // The number of 16 tiles in the inner-most major-tile
+    %num_rows: index      // The number of rows in the 256 elements
   ) -> !vx2 {
     // Constants
     %elt_size = arith.constant 2 : index // f16 size in bytes
 
-    %SZ0 = affine.apply affine_map<()[NN] -> (16 ceildiv NN)>()[%NN]
-    %SZ1 = affine.apply affine_map<()[NN] -> (4 * NN)>()[%NN]
+    %SZ0 = affine.apply affine_map<()[num_rows] -> (num_rows)>()[%num_rows]
+    %SZ1 = affine.apply affine_map<()[num_rows] -> (4 * (16 ceildiv num_rows))>()[%num_rows]
 
     // Get local positions within the minor tile
     %iii, %jjj = func.call @lane_delinearize_2d(%SZ0, %SZ1)
@@ -138,26 +138,26 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   // Write %value to LDS.
-  // This function cooperatively writes 256 f16 elements (64 dwordx2), depending on %NN:
-  //   - when %NN =  1, a 16x16xf16 tile is written from VGPRs to LDS
-  //   - when %NN =  2, a  8x32xf16 tile is written from VGPRs to LDS
-  //   - when %NN =  4, a  4x64xf16 tile is written from VGPRs to LDS
-  //   - when %NN =  8, a 2x128xf16 tile is written from VGPRs to LDS
-  //   - when %NN = 16, a 1x256xf16 tile is written from VGPRs to LDS
-  // This results in better global memory coalescing when %NN is not 1.
-  func.func private @lds_write_dwordx2_wait(
+  // This function cooperatively writes 256 f16 elements (64 dwordx2), depending on %num_rows:
+  //   - when %num_rows =  1, a 16x16xf16 tile is written from VGPRs to LDS
+  //   - when %num_rows =  2, a  8x32xf16 tile is written from VGPRs to LDS
+  //   - when %num_rows =  4, a  4x64xf16 tile is written from VGPRs to LDS
+  //   - when %num_rows =  8, a 2x128xf16 tile is written from VGPRs to LDS
+  //   - when %num_rows = 16, a 1x256xf16 tile is written from VGPRs to LDS
+  // This results in better global memory coalescing when %num_rows is not 1.
+  func.func private @lds_write_64xdwordx2_wait(
     %lds_base_off: index, // The local base offset in LDS
     %ii_pos: index,       // The outer-most minor-tile position
     %jj_pos: index,       // The inner-most minor-tile position
-    %NN_SIZE: index,      // The inner-most major-tile size
-    %NN: index,           // The number of 16 tiles in the inner-most major-tile
+    %N_SIZE: index,      // The inner-most major-tile size
+    %num_rows: index,     // The number of rows in the 256 elements
     %value: !vx2          // The value to write to LDS
   ) {
     // Constants
     %elt_size = arith.constant 2 : index // f16 size in bytes
 
-    %SZ0 = affine.apply affine_map<()[NN] -> (16 ceildiv NN)>()[%NN]
-    %SZ1 = affine.apply affine_map<()[NN] -> (4 * NN)>()[%NN]
+    %SZ0 = affine.apply affine_map<()[num_rows] -> (num_rows)>()[%num_rows]
+    %SZ1 = affine.apply affine_map<()[num_rows] -> (4 * (16 ceildiv num_rows))>()[%num_rows]
 
     // Get local positions within the minor tile
     %iii, %jjj = func.call @lane_delinearize_2d(%SZ0, %SZ1)
@@ -165,7 +165,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %jjj_pos = affine.apply affine_map<()[jjj] -> (4 * jjj)>()[%jjj]
 
     // Calculate offset into LDS
-    %off_lds_reg = func.call @tiled_matrix_offset(%ii_pos, %jj_pos, %iii, %jjj_pos, %NN_SIZE, %elt_size)
+    %off_lds_reg = func.call @tiled_matrix_offset(%ii_pos, %jj_pos, %iii, %jjj_pos, %N_SIZE, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
     // DS write to LDS
