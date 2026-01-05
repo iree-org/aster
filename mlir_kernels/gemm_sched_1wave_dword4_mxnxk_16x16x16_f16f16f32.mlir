@@ -316,8 +316,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           (MM * NN * KK)>
         ()[%MM, %NN, %KK]
       scf.for %idx = %c0 to %ub step %c1 {
-          // mmkknn order
-          %mm, %kk, %nn = affine.delinearize_index %idx into (%MM, %KK, %NN) : index, index, index
+          %mm, %nn, %kk = affine.delinearize_index %idx into (%MM, %NN, %KK) : index, index, index
           %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
           %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
