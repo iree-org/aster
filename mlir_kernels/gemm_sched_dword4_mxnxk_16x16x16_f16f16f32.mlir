@@ -34,9 +34,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     !sx2, index, index, index, index, index, index) -> (!vx2)
   func.func private @lds_write_wave_64xdwordx2_wait(
     index, index, index, index, index, !vx2) -> ()
-  func.func private @read_lds_A_16x16xf16_fragment_wait(
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
-  func.func private @store_global_16x16xf32_C_fragment_wait(
+  func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
     !vx4, !sx2, index, index, index, index, index) -> ()
 
   // Phase 0a: Global loads if phase 0 (decoupled from DS writes via memrefs)
@@ -150,9 +150,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
 
       // Read A and B fragments from LDS, store to memrefs
-      %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base_off, %ii_pos, %kk_pos, %TILE_SIZE_K)
+      %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_a_base_off, %ii_pos, %kk_pos, %TILE_SIZE_K)
         : (index, index, index, index) -> !vx2
-      %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base_off, %jj_pos, %kk_pos, %TILE_SIZE_K)
+      %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_b_base_off, %jj_pos, %kk_pos, %TILE_SIZE_K)
         : (index, index, index, index) -> !vx2
       memref.store %a_frag, %a_frag_memref[%k, %d_mmnnkk] : memref<?x?x!vx2>
       memref.store %b_frag, %b_frag_memref[%k, %d_mmnnkk] : memref<?x?x!vx2>
@@ -211,7 +211,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
         %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
         %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-        func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %SIZE_N, %ii_pos, %jj_pos)
+        func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %SIZE_N, %ii_pos, %jj_pos)
           : (!vx4, !sx2, index, index, index, index, index) -> ()
       }
     }

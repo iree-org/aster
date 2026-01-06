@@ -27,11 +27,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
   // copies.mlir
-  func.func private @load_to_lds_16x16_dwordx2_wait(
+  func.func private @global_load_to_lds_wave_16x16_dwordx2_wait(
     !sx2, index, index, index, index, index, index, index) -> ()
-  func.func private @read_lds_A_16x16xf16_fragment_wait(
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
-  func.func private @store_global_16x16xf32_C_fragment_wait(
+  func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
     !vx4, !sx2, index, index, index, index, index) -> ()
 
   // Compute the wavefront-level contraction using MFMA instructions
@@ -42,9 +42,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %acc: !vx4                                      // The accumulator register range
   ) -> !vx4 {
     // Read A and B fragments, assuming B is transposed to simplify the problem and have a single version.
-    %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base, %ii_pos, %kk_pos, %K_TILE_SIZE)
+    %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_a_base, %ii_pos, %kk_pos, %K_TILE_SIZE)
       : (index, index, index, index) -> !vx2
-    %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base, %jj_pos, %kk_pos, %K_TILE_SIZE)
+    %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_b_base, %jj_pos, %kk_pos, %K_TILE_SIZE)
      : (index, index, index, index) -> !vx2
     // Perform MFMA operation: C = A * B + C
     %result = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
@@ -120,7 +120,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         // Calculate positions
         %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-        func.call @load_to_lds_16x16_dwordx2_wait(%a_global, %lds_a_base_off, %i_pos, %k_pos, %K_SIZE, %ii_pos, %kk_pos, %K_TILE_SIZE)
+        func.call @global_load_to_lds_wave_16x16_dwordx2_wait(%a_global, %lds_a_base_off, %i_pos, %k_pos, %K_SIZE, %ii_pos, %kk_pos, %K_TILE_SIZE)
           : (!sx2, index, index, index, index, index, index, index) -> ()
       } {amdgcn.constexpr}
 
@@ -133,7 +133,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         // Calculate positions
         %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-        func.call @load_to_lds_16x16_dwordx2_wait(%b_global, %lds_b_base_off, %j_pos, %k_pos, %K_SIZE, %jj_pos, %kk_pos, %K_TILE_SIZE)
+        func.call @global_load_to_lds_wave_16x16_dwordx2_wait(%b_global, %lds_b_base_off, %j_pos, %k_pos, %K_SIZE, %jj_pos, %kk_pos, %K_TILE_SIZE)
           : (!sx2, index, index, index, index, index, index, index) -> ()
       } {amdgcn.constexpr}
 
@@ -175,7 +175,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
       // Store the fragment
       %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-      func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %N_SIZE, %ii_pos, %jj_pos)
+      func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %N_SIZE, %ii_pos, %jj_pos)
         : (!vx4, !sx2, index, index, index, index, index) -> ()
     } {amdgcn.constexpr}
 

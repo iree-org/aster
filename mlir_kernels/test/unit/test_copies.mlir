@@ -27,12 +27,12 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @swizzle_A_16x16xf16() -> (index, index)
   func.func private @swizzle_C_16x16xf32() -> (index, index)
   // copies.mlir
-  func.func private @load_to_lds_16x16_dwordx2_wait(!sx2, index, index, index, index, index, index, index)
+  func.func private @global_load_to_lds_wave_16x16_dwordx2_wait(!sx2, index, index, index, index, index, index, index)
   func.func private @global_load_wave_64xdwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
   func.func private @lds_write_wave_64xdwordx2_wait(index, index, index, index, index, !vx2) -> ()
   func.func private @store_to_global_dword_wait(!v, !sx2, index, index, index)
-  func.func private @read_lds_A_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
-  func.func private @store_global_16x16xf32_C_fragment_wait(!vx4, !sx2, index, index, index, index, index)
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
+  func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(!vx4, !sx2, index, index, index, index, index)
 
   //===--------------------------------------------------------------------===//
   // Helper: store i32 to global at thread index
@@ -86,9 +86,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-  // Test @read_lds_A_16x16xf16_fragment_wait: read swizzled A fragment from LDS
+  // Test @lds_read_A_wave_16x16xf16_fragment_wait: read swizzled A fragment from LDS
   // First populate LDS with known data, then read using the swizzled function
-  amdgcn.kernel @test_load_and_read_lds_A_16x16xf16_fragment_wait arguments <[
+  amdgcn.kernel @test_load_and_lds_read_A_wave_16x16xf16_fragment_wait arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 512 : i32} {
@@ -101,7 +101,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %c16 = arith.constant 16 : index
 
     // First load data to LDS using load_to_lds
-    func.call @load_to_lds_16x16_dwordx2_wait(
+    func.call @global_load_to_lds_wave_16x16_dwordx2_wait(
       %in_ptr, %c0,      // ptr, lds_base_off
       %c0, %c0,          // i_pos, j_pos
       %c16,              // N_SIZE
@@ -111,7 +111,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Now read the A fragment using the swizzled read
     // i_pos=0, j_pos=0, N_SIZE=16
-    %fragment = func.call @read_lds_A_16x16xf16_fragment_wait(%c0, %c0, %c0, %c16)
+    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c16)
       : (index, index, index, index) -> !vx2
 
     // Store fragment to output (each thread writes 8 bytes)
@@ -126,7 +126,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-  // Test @store_global_16x16xf32_C_fragment_wait: store C fragment to global
+  // Test @global_store_wave_16x16xf32_swizzled_C_fragment_wait: store C fragment to global
   // Initialize accumulators with known values, then store using swizzled function
   amdgcn.kernel @test_store_global_C_fragment_wait arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
@@ -145,7 +145,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function
     // i_pos=0, j_pos=0, N_SIZE=16, ii_pos=0, jj_pos=0
-    func.call @store_global_16x16xf32_C_fragment_wait(
+    func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
       %acc, %out_ptr, %c0, %c0, %c16, %c0, %c0
     ) : (!vx4, !sx2, index, index, index, index, index) -> ()
 

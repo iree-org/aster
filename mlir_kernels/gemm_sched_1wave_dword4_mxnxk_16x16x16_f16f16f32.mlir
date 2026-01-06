@@ -34,9 +34,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     !sx2, index, index, index, index, index, index) -> (!vx2)
   func.func private @lds_write_wave_64xdwordx2_wait(
     index, index, index, index, index, !vx2) -> ()
-  func.func private @read_lds_A_16x16xf16_fragment_wait(
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
-  func.func private @store_global_16x16xf32_C_fragment_wait(
+  func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
     !vx4, !sx2, index, index, index, index, index) -> ()
 
   // Global load A (decoupled from DS writes via memrefs).
@@ -170,7 +170,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       }
       %mm_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%mm]
       %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-      %a_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_a_base_off, %mm_pos, %kk_pos, %TILE_SIZE_K)
+      %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_a_base_off, %mm_pos, %kk_pos, %TILE_SIZE_K)
         : (index, index, index, index) -> !vx2
       %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
       memref.store %a_frag, %a_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
@@ -198,7 +198,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       }
       %nn_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%nn]
       %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-      %b_frag = func.call @read_lds_A_16x16xf16_fragment_wait(%lds_b_base_off, %nn_pos, %kk_pos, %TILE_SIZE_K)
+      %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_b_base_off, %nn_pos, %kk_pos, %TILE_SIZE_K)
         : (index, index, index, index) -> !vx2
       %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
       memref.store %b_frag, %b_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
@@ -253,7 +253,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %fragment = memref.load %c_fragments[%mm, %nn] : memref<?x?x!vx4>
         %mm_pos = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
         %nn_pos = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
-        func.call @store_global_16x16xf32_C_fragment_wait(%fragment, %c_global, %m_pos, %n_pos, %SIZE_N, %mm_pos, %nn_pos)
+        func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(%fragment, %c_global, %m_pos, %n_pos, %SIZE_N, %mm_pos, %nn_pos)
           : (!vx4, !sx2, index, index, index, index, index) -> ()
       }
     }

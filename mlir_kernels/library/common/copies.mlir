@@ -44,7 +44,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The callee is responsible for computing the offsets within the tiles based on
   // the lane id.
 
-  func.func private @load_to_lds_16x16_dwordx2_wait(
+  func.func private @global_load_to_lds_wave_16x16_dwordx2_wait(
     %ptr: !sx2,           // The global base pointer
     %lds_base_off: index, // The local base offset in LDS
     %m_pos: index,        // The outer-most major-tile position
@@ -236,7 +236,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // fashion** (i.e. waitcnt 0 is inserted after the ds_read).
   // The caller is responsible for embedding distribution information into the
   // positions %m_pos and %n_pos.
-  func.func private @read_lds_A_16x16xf16_fragment_wait(
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     %lds_base: index, // The local base offset in LDS
     %m_pos: index,    // The outer-most tile position
     %n_pos: index,    // The inner-most tile position
@@ -263,7 +263,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The caller is responsible for embedding distribution information into the
   // positions. The callee computes and embeds the swizzled positions.
   // This function assumes a major/minor tile structure for the global positions.
-  func.func private @store_global_16x16xf32_C_fragment_wait(
+  func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
     %acc: !vx4,           // The accumulator fragment to store
     %ptr: !sx2,           // The global base pointer
     %m_pos: index,        // The outer-most major-tile position

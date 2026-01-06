@@ -103,7 +103,7 @@ class TestStoreToGlobalDwordWait:
 
 
 class TestLoadAndReadLdsAFragmentWait:
-    """Test @read_lds_A_16x16xf16_fragment_wait function."""
+    """Test @lds_read_A_wave_16x16xf16_fragment_wait function."""
 
     def test_read_A_fragment_swizzled(self):
         """Read A fragment from LDS with swizzled access pattern."""
@@ -115,7 +115,9 @@ class TestLoadAndReadLdsAFragmentWait:
         output = np.zeros(num_threads * 4, dtype=np.uint16)
 
         compile_and_run(
-            "test_load_and_read_lds_A_16x16xf16_fragment_wait", [input_data], output
+            "test_load_and_lds_read_A_wave_16x16xf16_fragment_wait",
+            [input_data],
+            output,
         )
 
         # Verify: swizzle_A returns (lane_id % 16, 4 * (lane_id // 16))
@@ -140,7 +142,7 @@ class TestLoadAndReadLdsAFragmentWait:
 
 
 class TestStoreGlobalCFragmentWait:
-    """Test @store_global_16x16xf32_C_fragment_wait function."""
+    """Test @global_store_wave_16x16xf32_swizzled_C_fragment_wait function."""
 
     def test_store_C_fragment_swizzled(self):
         """Store C fragment to global with swizzled access pattern."""
@@ -180,7 +182,7 @@ class TestGlobalLoadDsWrite:
 
         compile_and_run("test_global_load_ds_write", [input_data], output)
 
-        # The data flow is identical to load_to_lds_16x16_dwordx2_wait
+        # The data flow is identical to global_load_to_lds_wave_16x16_dwordx2_wait
         expected = np.zeros(num_threads * 4, dtype=np.uint16)
         for tid in range(num_threads):
             lane_id = tid % 64
