@@ -30,9 +30,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
   // copies.mlir
-  func.func private @global_load_64xdwordx2_wait(
+  func.func private @global_load_wave_64xdwordx2_wait(
     !sx2, index, index, index, index, index, index) -> (!vx2)
-  func.func private @lds_write_64xdwordx2_wait(
+  func.func private @lds_write_wave_64xdwordx2_wait(
     index, index, index, index, index, !vx2) -> ()
   func.func private @read_lds_A_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
@@ -63,7 +63,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %iikk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_mmkk, %w, %W]
         %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %ii_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%iikk, %num_rows]
-        %loaded = func.call @global_load_64xdwordx2_wait(%a_global, %i_pos, %k_pos, %SIZE_K, %ii_pos, %c0, %num_rows)
+        %loaded = func.call @global_load_wave_64xdwordx2_wait(%a_global, %i_pos, %k_pos, %SIZE_K, %ii_pos, %c0, %num_rows)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
 
         memref.store %loaded, %a_load_memref[%k, %d_mmkk] : memref<?x?x!vx2>
@@ -76,7 +76,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %jjkk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_nnkk, %w, %W]
         %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %jj_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%jjkk, %num_rows]
-        %loaded = func.call @global_load_64xdwordx2_wait(%b_global, %j_pos, %k_pos, %SIZE_K, %jj_pos, %c0, %num_rows)
+        %loaded = func.call @global_load_wave_64xdwordx2_wait(%b_global, %j_pos, %k_pos, %SIZE_K, %jj_pos, %c0, %num_rows)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
 
         memref.store %loaded, %b_load_memref[%k, %d_nnkk] : memref<?x?x!vx2>
@@ -104,7 +104,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %ii_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%iikk, %num_rows]
         %loaded = memref.load %a_load_memref[%k, %d_mmkk] : memref<?x?x!vx2>
-        func.call @lds_write_64xdwordx2_wait(%lds_a_base_off, %ii_pos, %c0, %TILE_SIZE_K, %num_rows, %loaded)
+        func.call @lds_write_wave_64xdwordx2_wait(%lds_a_base_off, %ii_pos, %c0, %TILE_SIZE_K, %num_rows, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
       }
 
@@ -116,7 +116,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %jj_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%jjkk, %num_rows]
         %loaded = memref.load %b_load_memref[%k, %d_nnkk] : memref<?x?x!vx2>
-        func.call @lds_write_64xdwordx2_wait(%lds_b_base_off, %jj_pos, %c0, %TILE_SIZE_K, %num_rows, %loaded)
+        func.call @lds_write_wave_64xdwordx2_wait(%lds_b_base_off, %jj_pos, %c0, %TILE_SIZE_K, %num_rows, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
       }
     }

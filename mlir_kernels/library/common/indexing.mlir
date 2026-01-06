@@ -67,7 +67,7 @@ amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // Reusable contiguous memory access indexing functions.
   //===--------------------------------------------------------------------===//
-  // Compute the linear byte offset for accesing a 2-D matrix given the outer
+  // Compute the linear byte offset for accessing a 2-D matrix given the outer
   // and inner positions.
   func.func private @matrix_offset(
     %i: index,       // The outer-most position (e.g. a row)
@@ -83,7 +83,7 @@ amdgcn.library @common_indexing {
     return %off_reg : !v
   }
 
-  // Compute the linear byte offset for accesing a tiled 2-D matrix given the
+  // Compute the linear byte offset for accessing a tiled 2-D matrix given the
   // positions to the start of the tile and the position within the tile.
   func.func private @tiled_matrix_offset(
     %i: index,       // The outer-most tile position (e.g. the start row of a tile)
@@ -100,7 +100,7 @@ amdgcn.library @common_indexing {
     return %off_reg : !v
   }
 
-  // Compute the linear byte offset for accesing a twice tiled 2-D matrix given the
+  // Compute the linear byte offset for accessing a twice tiled 2-D matrix given the
   // positions to the start of the major tile, positions to the start of the
   // minor tile, and the position within the tile.
   func.func private @tiledx2_matrix_offset(

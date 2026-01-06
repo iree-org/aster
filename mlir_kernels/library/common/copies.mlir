@@ -47,11 +47,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @load_to_lds_16x16_dwordx2_wait(
     %ptr: !sx2,           // The global base pointer
     %lds_base_off: index, // The local base offset in LDS
-    %i_pos: index,        // The outer-most major-tile position
-    %j_pos: index,        // The inner-most major-tile position
+    %m_pos: index,        // The outer-most major-tile position
+    %n_pos: index,        // The inner-most major-tile position
     %N_SIZE: index,       // The inner-most size
-    %ii_pos: index,       // The outer-most minor-tile position
-    %jj_pos: index,       // The inner-most minor-tile position
+    %mm_pos: index,       // The outer-most minor-tile position
+    %nn_pos: index,       // The inner-most minor-tile position
     %NN_SIZE: index       // The inner-most major-tile size
   ) {
     // Constants
@@ -60,13 +60,13 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %elt_size = arith.constant 2 : index // f16 size in bytes
 
     // Get local positions within the minor tile
-    %iii, %jjj = func.call @lane_delinearize_2d(%c16, %c4)
+    %mmm, %nnn = func.call @lane_delinearize_2d(%c16, %c4)
       : (index, index) -> (index, index)
-    %jjj_pos = affine.apply affine_map<()[jjj] -> (jjj * 4)>()[%jjj]
+    %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
 
     // Calculate global offset
     %off_reg = func.call @tiledx2_matrix_offset(
-      %i_pos, %j_pos, %ii_pos, %jj_pos, %iii, %jjj_pos, %N_SIZE, %elt_size)
+      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm, %nnn_pos, %N_SIZE, %elt_size)
       : (index, index, index, index, index, index, index, index) -> !v
 
     // Perform the load
@@ -78,7 +78,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     // Calculate offset into LDS
-    %off_lds_reg = func.call @tiled_matrix_offset(%ii_pos, %jj_pos, %iii, %jjj_pos, %NN_SIZE, %elt_size)
+    %off_lds_reg = func.call @tiled_matrix_offset(%mm_pos, %nn_pos, %mmm, %nnn_pos, %NN_SIZE, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
     // DS write to LDS
@@ -94,36 +94,46 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
 
   // Loads from global memory to VGPRs, in a **synchronized fashion** (i.e.
   // waitcnt 0 are inserted after global_load).
-  // This function cooperatively loads 256 f16 elements (64 dwordx2), depending on %num_rows:
-  //   - when %num_rows =  1, a 16x16xf16 tile is loaded from global memory to VGPRs
-  //   - when %num_rows =  2, a  8x32xf16 tile is loaded from global memory to VGPRs
-  //   - when %num_rows =  4, a  4x64xf16 tile is loaded from global memory to VGPRs
-  //   - when %num_rows =  8, a 2x128xf16 tile is loaded from global memory to VGPRs
-  //   - when %num_rows = 16, a 1x256xf16 tile is loaded from global memory to VGPRs
-  // This results in better global memory coalescing when %num_rows is not 1.
-  func.func private @global_load_64xdwordx2_wait(
+  // This function cooperatively loads 64 dwordx2 (i.e. 256 (16x16) f16 elements),
+  // depending on %num_rows:
+  //   - when %num_rows =  1, a 1x64xdwordx2 tile is loaded from global memory to VGPRs
+  //   - when %num_rows =  2, a 2x32xdwordx2 tile is loaded from global memory to VGPRs
+  //   - when %num_rows =  4, a 4x16xdwordx2 tile is loaded from global memory to VGPRs
+  //   - when %num_rows =  8, a  8x8xdwordx2 tile is loaded from global memory to VGPRs
+  //   - when %num_rows = 16, a 16x4xdwordx2 tile is loaded from global memory to VGPRs
+  //   - when %num_rows = 32, a 32x2xdwordx2 tile is loaded from global memory to VGPRs
+  //   - when %num_rows = 64, a 64x1xdwordx2 tile is loaded from global memory to VGPRs
+  // This can be configured for better global memory coalescing when %num_rows is not 1.
+  // This is typically useful when %N_SIZE is 64 (or greater), (resp. 32, 16, 8, 4, 2, 1).
+  // We use an extra %num_rows (instead of just %N_SIZE) to give the caller the
+  // option to use non-coalesced loads and obtain better flexibility (e.g. useful
+  // for pipelining)
+  //
+  // TODO: also add a variant with upper bounds and buffer_load to handle boundary conditions.
+  // TODO: add a static assert to enforce these.
+  func.func private @global_load_wave_64xdwordx2_wait(
     %ptr: !sx2,           // The global base pointer
-    %i_pos: index,        // The outer-most major-tile position
-    %j_pos: index,        // The inner-most major-tile position
+    %m_pos: index,        // The outer-most major-tile position
+    %n_pos: index,        // The inner-most major-tile position
     %N_SIZE: index,       // The inner-most size
-    %ii_pos: index,       // The outer-most minor-tile position
-    %jj_pos: index,       // The inner-most minor-tile position
+    %mm_pos: index,       // The outer-most minor-tile position
+    %nn_pos: index,       // The inner-most minor-tile position
     %num_rows: index      // The number of rows in the 256 elements
   ) -> !vx2 {
     // Constants
-    %elt_size = arith.constant 2 : index // f16 size in bytes
+    %elt_size = arith.constant 2 : index // dwordx2 size in bytes
+    %wave_size = arith.constant 64 : index
 
-    %SZ0 = affine.apply affine_map<()[num_rows] -> (num_rows)>()[%num_rows]
-    %SZ1 = affine.apply affine_map<()[num_rows] -> (4 * (16 ceildiv num_rows))>()[%num_rows]
+    %num_cols = affine.apply affine_map<()[wave_size, num_rows]
+      -> (wave_size ceildiv num_rows)>()[%wave_size, %num_rows]
 
     // Get local positions within the minor tile
-    %iii, %jjj = func.call @lane_delinearize_2d(%SZ0, %SZ1)
-      : (index, index) -> (index, index)
-    %jjj_pos = affine.apply affine_map<()[jjj] -> (4 * jjj)>()[%jjj]
+    %mmm_pos, %nnn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
+    %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
 
     // Calculate global offset
     %off_reg = func.call @tiledx2_matrix_offset(
-      %i_pos, %j_pos, %ii_pos, %jj_pos, %iii, %jjj_pos, %N_SIZE, %elt_size)
+      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %N_SIZE, %elt_size)
       : (index, index, index, index, index, index, index, index) -> !v
 
     // Perform the load
@@ -138,34 +148,55 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   // Write %value to LDS.
-  // This function cooperatively writes 256 f16 elements (64 dwordx2), depending on %num_rows:
+  // This function cooperatively writes 64 dwordx2 (i.e. 256 (16x16 )f16 elements),
+  // depending on %num_rows:
   //   - when %num_rows =  1, a 16x16xf16 tile is written from VGPRs to LDS
   //   - when %num_rows =  2, a  8x32xf16 tile is written from VGPRs to LDS
   //   - when %num_rows =  4, a  4x64xf16 tile is written from VGPRs to LDS
   //   - when %num_rows =  8, a 2x128xf16 tile is written from VGPRs to LDS
   //   - when %num_rows = 16, a 1x256xf16 tile is written from VGPRs to LDS
   // This results in better global memory coalescing when %num_rows is not 1.
-  func.func private @lds_write_64xdwordx2_wait(
+  // TODO: it would be good to have a static assert enforce these.
+  // This function cooperatively writes 64 dwordx2 (i.e. 256 (16x16) f16 elements),
+  // depending on %num_rows:
+  //   - when %num_rows =  1, a 1x64xdwordx2 tile is written from VGPRs to LDS
+  //   - when %num_rows =  2, a 2x32xdwordx2 tile is written from VGPRs to LDS
+  //   - when %num_rows =  4, a 4x16xdwordx2 tile is written from VGPRs to LDS
+  //   - when %num_rows =  8, a  8x8xdwordx2 tile is written from VGPRs to LDS
+  //   - when %num_rows = 16, a 16x4xdwordx2 tile is written from VGPRs to LDS
+  //   - when %num_rows = 32, a 32x2xdwordx2 tile is written from VGPRs to LDS
+  //   - when %num_rows = 64, a 64x1xdwordx2 tile is written from VGPRs to LDS
+  // This can be configured to match the memory coalescing needs needs of a producer
+  // global_load_wave_64xdwordx2_waitglobal when %num_rows is not 1.
+  // This is typically useful when %N_SIZE is 64 (or greater), (resp. 32, 16, 8, 4, 2, 1).
+  // We use an extra %num_rows (instead of just %N_SIZE) to give the caller the
+  // option to use non-coalesced loads and obtain better flexibility (e.g. useful
+  // for pipelining)
+  //
+  // TODO: also add a variant with upper bounds and buffer_load to handle boundary conditions.
+  // TODO: add a static assert to enforce these.
+  func.func private @lds_write_wave_64xdwordx2_wait(
     %lds_base_off: index, // The local base offset in LDS
-    %ii_pos: index,       // The outer-most minor-tile position
-    %jj_pos: index,       // The inner-most minor-tile position
+    %mm_pos: index,       // The outer-most minor-tile position
+    %nn_pos: index,       // The inner-most minor-tile position
     %N_SIZE: index,      // The inner-most major-tile size
     %num_rows: index,     // The number of rows in the 256 elements
     %value: !vx2          // The value to write to LDS
   ) {
     // Constants
     %elt_size = arith.constant 2 : index // f16 size in bytes
+    %wave_size = arith.constant 64 : index
 
-    %SZ0 = affine.apply affine_map<()[num_rows] -> (num_rows)>()[%num_rows]
-    %SZ1 = affine.apply affine_map<()[num_rows] -> (4 * (16 ceildiv num_rows))>()[%num_rows]
+    %num_cols = affine.apply affine_map<()[wave_size, num_rows]
+      -> (wave_size ceildiv num_rows)>()[%wave_size, %num_rows]
 
     // Get local positions within the minor tile
-    %iii, %jjj = func.call @lane_delinearize_2d(%SZ0, %SZ1)
-      : (index, index) -> (index, index)
-    %jjj_pos = affine.apply affine_map<()[jjj] -> (4 * jjj)>()[%jjj]
+    %mmm_pos, %nnn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
+    %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
 
     // Calculate offset into LDS
-    %off_lds_reg = func.call @tiled_matrix_offset(%ii_pos, %jj_pos, %iii, %jjj_pos, %N_SIZE, %elt_size)
+    %off_lds_reg = func.call @tiled_matrix_offset(
+        %mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %N_SIZE, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
     // DS write to LDS
@@ -182,16 +213,16 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Store a dword to global memory, in a **synchronized fashion** (i.e.
   // waitcnt 0 are inserted after global_store).
   // The caller is responsible for embedding distribution information into the
-  // positions %i and %j (and make them workgroup/wave/thread/lane-dependent).
+  // positions %m_pos and %n_pos (and make them workgroup/wave/thread/lane-dependent).
   func.func private @store_to_global_dword_wait(
     %value: !v,     // Value to store
     %ptr: !sx2,     // The global base pointer
-    %i: index,      // The outer-most position
-    %j: index,      // The inner-most position
+    %m_pos: index,      // The outer-most position
+    %n_pos: index,      // The inner-most position
     %N_SIZE: index  // The inner-most size (stride)
   ) {
     %elt_size = arith.constant 4 : index // dword size in bytes
-    %off_reg = func.call @matrix_offset(%i, %j, %N_SIZE, %elt_size)
+    %off_reg = func.call @matrix_offset(%m_pos, %n_pos, %N_SIZE, %elt_size)
       : (index, index, index, index) -> !v
     amdgcn.flat.global_store <global_store_dword> %value, %ptr[%off_reg] : !v, !sx2[!v]
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -204,17 +235,17 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Read the `A` fragment (16x16xf16) from LDS to VGPRs, in a **synchronized
   // fashion** (i.e. waitcnt 0 is inserted after the ds_read).
   // The caller is responsible for embedding distribution information into the
-  // positions %i_pos and %j_pos.
+  // positions %m_pos and %n_pos.
   func.func private @read_lds_A_16x16xf16_fragment_wait(
     %lds_base: index, // The local base offset in LDS
-    %i_pos: index,    // The outer-most tile position
-    %j_pos: index,    // The inner-most tile position
+    %m_pos: index,    // The outer-most tile position
+    %n_pos: index,    // The inner-most tile position
     %N_SIZE: index    // The inner-most size
   ) -> !vx2 {
-    // Compute the swizzled offset
+    // Compute the swizzled positions
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %ii, %jj = func.call @swizzle_A_16x16xf16() : () -> (index, index)
-    %off_lds_reg = func.call @tiled_matrix_offset(%i_pos, %j_pos, %ii, %jj, %N_SIZE, %elt_size)
+    %mm_pos, %nn_pos = func.call @swizzle_A_16x16xf16() : () -> (index, index)
+    %off_lds_reg = func.call @tiled_matrix_offset(%m_pos, %n_pos, %mm_pos, %nn_pos, %N_SIZE, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
     // Perform the DS read
@@ -235,11 +266,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @store_global_16x16xf32_C_fragment_wait(
     %acc: !vx4,           // The accumulator fragment to store
     %ptr: !sx2,           // The global base pointer
-    %i_pos: index,        // The outer-most major-tile position
-    %j_pos: index,        // The inner-most major-tile position
+    %m_pos: index,        // The outer-most major-tile position
+    %n_pos: index,        // The inner-most major-tile position
     %N_SIZE: index,       // The inner-most size
-    %ii_pos: index,       // The outer-most minor-tile position
-    %jj_pos: index        // The inner-most minor-tile position
+    %mm_pos: index,       // The outer-most minor-tile position
+    %nn_pos: index        // The inner-most minor-tile position
   ) {
     // Constants
     %c0 = arith.constant 0 : index
@@ -256,24 +287,24 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     memref.store %v2, %C_fragment[%c2] : memref<4x!v>
     memref.store %v3, %C_fragment[%c3] : memref<4x!v>
 
-    // Compute the swizzled offset
-    %iii, %jjj = func.call @swizzle_C_16x16xf32() : () -> (index, index)
+    // Compute the swizzled positions
+    %mmm_pos, %nnn_pos = func.call @swizzle_C_16x16xf32() : () -> (index, index)
 
     // Calculate global j position
-    %j_global_pos = affine.apply
-      affine_map<()[j_pos, jj_pos, jjj] -> (j_pos + jj_pos + jjj)>
-      ()[%j_pos, %jj_pos, %jjj]
+    %n_global_pos = affine.apply
+      affine_map<()[n_pos, nn_pos, nnn_pos] -> (n_pos + nn_pos + nnn_pos)>
+      ()[%n_pos, %nn_pos, %nnn_pos]
 
     // Store each fragment to global memory
-    scf.for %iiii = %c0 to %c4 step %c1 {
-      %fragment = memref.load %C_fragment[%iiii] : memref<4x!v>
+    scf.for %mmmm_pos = %c0 to %c4 step %c1 {
+      %fragment = memref.load %C_fragment[%mmmm_pos] : memref<4x!v>
       // Calculate global i position
-      %i_global_pos = affine.apply
-        affine_map<()[i_pos, ii_pos, iii, iiii] -> (i_pos + ii_pos + iii + iiii)>
-        ()[%i_pos, %ii_pos, %iii, %iiii]
+      %m_global_pos = affine.apply
+        affine_map<()[m_pos, mm_pos, mmm_pos, mmmm_pos] -> (m_pos + mm_pos + mmm_pos + mmmm_pos)>
+        ()[%m_pos, %mm_pos, %mmm_pos, %mmmm_pos]
 
       // Store to global memory with wait
-      func.call @store_to_global_dword_wait(%fragment, %ptr, %i_global_pos, %j_global_pos, %N_SIZE)
+      func.call @store_to_global_dword_wait(%fragment, %ptr, %m_global_pos, %n_global_pos, %N_SIZE)
         : (!v, !sx2, index, index, index) -> ()
     } {amdgcn.constexpr}
     return

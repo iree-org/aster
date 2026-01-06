@@ -168,7 +168,7 @@ class TestStoreGlobalCFragmentWait:
 
 
 class TestGlobalLoadDsWrite:
-    """Test @global_load_64xdwordx2_wait + @ds_write_dwordx2_wait functions."""
+    """Test @global_load_wave_64xdwordx2_wait + @ds_write_dwordx2_wait functions."""
 
     def test_decoupled_load_store(self):
         """Load from global via memref, write to LDS, verify roundtrip."""
