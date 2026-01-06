@@ -149,71 +149,23 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // and after lds_write).
   // This function cooperatively loads a 16x16xf16 tile from global memory to LDS
   // and forces num_rows to be 16, resulting in non-coalesced accesses
-  // func.func private @global_load_to_lds_wave_16x16_f16_wait(
-  //   %ptr: !sx2,                     // The global base pointer
-  //   %lds_base_off: index,           // The local base offset in LDS
-  //   %m_pos: index,                  // The outer-most major-tile position (in global memory)
-  //   %n_pos: index,                  // The inner-most major-tile position (in global memory)
-  //   %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes** in global memory
-  //   %mm_pos: index,                 // The outer-most minor-tile position (in LDS)
-  //   %nn_pos: index,                 // The inner-most minor-tile position (in LDS)
-  //   %LDS_STRIDE_IN_BYTES: index     // The inner-most major-tile size **in bytes** in LDS
-  // ) {
-  //   %num_rows = arith.constant 16 : index
-  //   %loaded = func.call @global_load_wave_64xdwordx2_wait(
-  //       %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows)
-  //     : (!sx2, index, index, index, index, index, index) -> (!vx2)
-  //   func.call @lds_write_wave_64xdwordx2_wait(
-  //       %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
-  //     : (index, index, index, index, index, !vx2) -> ()
-  //   return
-  // }
-
   func.func private @global_load_to_lds_wave_16x16_f16_wait(
-    %ptr: !sx2,           // The global base pointer
-    %lds_base_off: index, // The local base offset in LDS
-    %m_pos: index,        // The outer-most major-tile position
-    %n_pos: index,        // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index,       // The inner-most size
-    %mm_pos: index,       // The outer-most minor-tile position
-    %nn_pos: index,       // The inner-most minor-tile position
-    %LDS_STRIDE_IN_BYTES: index       // The inner-most major-tile size
+    %ptr: !sx2,                     // The global base pointer
+    %lds_base_off: index,           // The local base offset in LDS
+    %m_pos: index,                  // The outer-most major-tile position (in global memory)
+    %n_pos: index,                  // The inner-most major-tile position (in global memory)
+    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes** in global memory
+    %mm_pos: index,                 // The outer-most minor-tile position (in LDS)
+    %nn_pos: index,                 // The inner-most minor-tile position (in LDS)
+    %LDS_STRIDE_IN_BYTES: index     // The inner-most major-tile size **in bytes** in LDS
   ) {
-    // Constants
-    %c4 = arith.constant 4 : index
-    %c16 = arith.constant 16 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
-
-    // Get local positions within the minor tile
-    %mmm, %nnn = func.call @lane_delinearize_2d(%c16, %c4)
-      : (index, index) -> (index, index)
-    %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
-
-    // Calculate global offset
-    %off_reg = func.call @tiledx2_matrix_offset(
-      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm, %nnn_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size)
-      : (index, index, index, index, index, index, index, index) -> !v
-
-    // Perform the load
-    %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-    %loaded = amdgcn.flat.global_load <global_load_dwordx2> %dst, %ptr[%off_reg]
-      : !vx2, !sx2[!v] -> !vx2
-
-    // Wait for load completion
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-
-    // Calculate offset into LDS
-    %off_lds_reg = func.call @tiled_matrix_offset(%mm_pos, %nn_pos, %mmm, %nnn_pos, %LDS_STRIDE_IN_BYTES, %elt_size)
-      : (index, index, index, index, index, index) -> !v
-
-    // DS write to LDS
-    %l_off_i32 = arith.index_cast %lds_base_off : index to i32
-    amdgcn.ds.write #amdgcn.inst<ds_write_b64> %loaded, %off_lds_reg, offset = %l_off_i32
-      : !vx2, !v, i32
-
-    // Wait for LDS write
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-
+    %num_rows = arith.constant 16 : index
+    %loaded = func.call @global_load_wave_64xdwordx2_wait(
+        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows)
+      : (!sx2, index, index, index, index, index, index) -> (!vx2)
+    func.call @lds_write_wave_64xdwordx2_wait(
+        %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
+      : (index, index, index, index, index, !vx2) -> ()
     return
   }
 
