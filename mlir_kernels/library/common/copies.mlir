@@ -35,63 +35,6 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Global <-> LDS
   //===--------------------------------------------------------------------===//
-  // Load a 16x16xdword2 tile from global memory to LDS within a single wave, in
-  // a **synchronized fashion** (i.e. waitcnt 0 are inserted after global_load
-  // and after lds_write).
-  // The implementation assumes access to be performed in a tiled fashion, where
-  // there is a major tile and a minor tile within it. The caller is
-  // responsible for embedding distribution information into the indices.
-  // The callee is responsible for computing the offsets within the tiles based on
-  // the lane id.
-
-  func.func private @global_load_to_lds_wave_16x16_dwordx2_wait(
-    %ptr: !sx2,           // The global base pointer
-    %lds_base_off: index, // The local base offset in LDS
-    %m_pos: index,        // The outer-most major-tile position
-    %n_pos: index,        // The inner-most major-tile position
-    %N_SIZE: index,       // The inner-most size
-    %mm_pos: index,       // The outer-most minor-tile position
-    %nn_pos: index,       // The inner-most minor-tile position
-    %NN_SIZE: index       // The inner-most major-tile size
-  ) {
-    // Constants
-    %c4 = arith.constant 4 : index
-    %c16 = arith.constant 16 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
-
-    // Get local positions within the minor tile
-    %mmm, %nnn = func.call @lane_delinearize_2d(%c16, %c4)
-      : (index, index) -> (index, index)
-    %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
-
-    // Calculate global offset
-    %off_reg = func.call @tiledx2_matrix_offset(
-      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm, %nnn_pos, %N_SIZE, %elt_size)
-      : (index, index, index, index, index, index, index, index) -> !v
-
-    // Perform the load
-    %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-    %loaded = amdgcn.flat.global_load <global_load_dwordx2> %dst, %ptr[%off_reg]
-      : !vx2, !sx2[!v] -> !vx2
-
-    // Wait for load completion
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-
-    // Calculate offset into LDS
-    %off_lds_reg = func.call @tiled_matrix_offset(%mm_pos, %nn_pos, %mmm, %nnn_pos, %NN_SIZE, %elt_size)
-      : (index, index, index, index, index, index) -> !v
-
-    // DS write to LDS
-    %l_off_i32 = arith.index_cast %lds_base_off : index to i32
-    amdgcn.ds.write #amdgcn.inst<ds_write_b64> %loaded, %off_lds_reg, offset = %l_off_i32
-      : !vx2, !v, i32
-
-    // Wait for LDS write
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-
-    return
-  }
-
   // Loads from global memory to VGPRs, in a **synchronized fashion** (i.e.
   // waitcnt 0 are inserted after global_load).
   // This function cooperatively loads 64 dwordx2 (i.e. 256 (16x16) f16 elements),
@@ -112,13 +55,13 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // TODO: also add a variant with upper bounds and buffer_load to handle boundary conditions.
   // TODO: add a static assert to enforce these.
   func.func private @global_load_wave_64xdwordx2_wait(
-    %ptr: !sx2,           // The global base pointer
-    %m_pos: index,        // The outer-most major-tile position
-    %n_pos: index,        // The inner-most major-tile position
-    %N_SIZE: index,       // The inner-most size
-    %mm_pos: index,       // The outer-most minor-tile position
-    %nn_pos: index,       // The inner-most minor-tile position
-    %num_rows: index      // The number of rows in the 256 elements
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most major-tile position
+    %n_pos: index,                  // The inner-most major-tile position
+    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
+    %mm_pos: index,                 // The outer-most minor-tile position
+    %nn_pos: index,                 // The inner-most minor-tile position
+    %num_rows: index                // The number of rows in the 256 elements
   ) -> !vx2 {
     // Constants
     %elt_size = arith.constant 2 : index // f16 size in bytes
@@ -132,8 +75,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
 
     // Calculate global offset
+    %GLOBAL_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[GLOBAL_STRIDE_IN_BYTES, elt_size]
+      -> (GLOBAL_STRIDE_IN_BYTES ceildiv elt_size)>()[%GLOBAL_STRIDE_IN_BYTES, %elt_size]
     %off_reg = func.call @tiledx2_matrix_offset(
-      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %N_SIZE, %elt_size)
+      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %GLOBAL_STRIDE_IN_NUM_ELEMENTS, %elt_size)
       : (index, index, index, index, index, index, index, index) -> !v
 
     // Perform the load
@@ -158,7 +103,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //   - when %num_rows = 32, a 32x2xdwordx2 tile is written from VGPRs to LDS
   //   - when %num_rows = 64, a 64x1xdwordx2 tile is written from VGPRs to LDS
   // This can be configured to match the memory coalescing needs needs of a producer
-  // global_load_wave_64xdwordx2_waitglobal when %num_rows is not 1.
+  // global_load_wave_64xdwordx2_wait when %num_rows is not 1.
   // This is typically useful when %N_SIZE is 64 (or greater), (resp. 32, 16, 8, 4, 2, 1).
   // We use an extra %num_rows (instead of just %N_SIZE) to give the caller the
   // option to use non-coalesced loads and obtain better flexibility (e.g. useful
@@ -167,15 +112,15 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // TODO: also add a variant with upper bounds and buffer_load to handle boundary conditions.
   // TODO: add a static assert to enforce these.
   func.func private @lds_write_wave_64xdwordx2_wait(
-    %lds_base_off: index, // The local base offset in LDS
-    %mm_pos: index,       // The outer-most minor-tile position
-    %nn_pos: index,       // The inner-most minor-tile position
-    %N_SIZE: index,       // The inner-most major-tile size
-    %num_rows: index,     // The number of rows in the 256 elements
-    %value: !vx2          // The value to write to LDS
+    %lds_base_off: index,        // The local base offset in LDS
+    %mm_pos: index,              // The outer-most minor-tile position
+    %nn_pos: index,              // The inner-most minor-tile position
+    %LDS_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
+    %num_rows: index,            // The number of rows in the 256 elements
+    %value: !vx2                 // The value to write to LDS
   ) {
     // Constants
-    %elt_size = arith.constant 2 : index // f16 size in bytes
+    %elt_size = arith.constant 2 : index // dwordx2 size in bytes
     %wave_size = arith.constant 64 : index
 
     %num_cols = affine.apply affine_map<()[wave_size, num_rows]
@@ -186,8 +131,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
 
     // Calculate offset into LDS
+    %LDS_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[LDS_STRIDE_IN_BYTES, elt_size]
+      -> (LDS_STRIDE_IN_BYTES ceildiv elt_size)>()[%LDS_STRIDE_IN_BYTES, %elt_size]
     %off_lds_reg = func.call @tiled_matrix_offset(
-        %mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %N_SIZE, %elt_size)
+        %mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %LDS_STRIDE_IN_NUM_ELEMENTS, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
     // DS write to LDS
@@ -201,19 +148,98 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     return
   }
 
+  // Load a 16x16xf16 tile from global memory to LDS within a single wave, in
+  // a **synchronized fashion** (i.e. waitcnt 0 are inserted after global_load
+  // and after lds_write).
+  // This function cooperatively loads a 16x16xf16 tile from global memory to LDS
+  // and forces num_rows to be 16, resulting in non-coalesced accesses
+  // func.func private @global_load_to_lds_wave_16x16_f16_wait(
+  //   %ptr: !sx2,                     // The global base pointer
+  //   %lds_base_off: index,           // The local base offset in LDS
+  //   %m_pos: index,                  // The outer-most major-tile position (in global memory)
+  //   %n_pos: index,                  // The inner-most major-tile position (in global memory)
+  //   %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes** in global memory
+  //   %mm_pos: index,                 // The outer-most minor-tile position (in LDS)
+  //   %nn_pos: index,                 // The inner-most minor-tile position (in LDS)
+  //   %LDS_STRIDE_IN_BYTES: index     // The inner-most major-tile size **in bytes** in LDS
+  // ) {
+  //   %num_rows = arith.constant 16 : index
+  //   %loaded = func.call @global_load_wave_64xdwordx2_wait(
+  //       %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows)
+  //     : (!sx2, index, index, index, index, index, index) -> (!vx2)
+  //   func.call @lds_write_wave_64xdwordx2_wait(
+  //       %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
+  //     : (index, index, index, index, index, !vx2) -> ()
+  //   return
+  // }
+
+  func.func private @global_load_to_lds_wave_16x16_f16_wait(
+    %ptr: !sx2,           // The global base pointer
+    %lds_base_off: index, // The local base offset in LDS
+    %m_pos: index,        // The outer-most major-tile position
+    %n_pos: index,        // The inner-most major-tile position
+    %GLOBAL_STRIDE_IN_BYTES: index,       // The inner-most size
+    %mm_pos: index,       // The outer-most minor-tile position
+    %nn_pos: index,       // The inner-most minor-tile position
+    %LDS_STRIDE_IN_BYTES: index       // The inner-most major-tile size
+  ) {
+    // Constants
+    %c4 = arith.constant 4 : index
+    %c16 = arith.constant 16 : index
+    %elt_size = arith.constant 2 : index // f16 size in bytes
+
+    // Get local positions within the minor tile
+    %mmm, %nnn = func.call @lane_delinearize_2d(%c16, %c4)
+      : (index, index) -> (index, index)
+    %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
+
+    // Calculate global offset
+    %GLOBAL_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[GLOBAL_STRIDE_IN_BYTES, elt_size]
+      -> (GLOBAL_STRIDE_IN_BYTES ceildiv elt_size)>()[%GLOBAL_STRIDE_IN_BYTES, %elt_size]
+    %off_reg = func.call @tiledx2_matrix_offset(
+      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm, %nnn_pos, %GLOBAL_STRIDE_IN_NUM_ELEMENTS, %elt_size)
+      : (index, index, index, index, index, index, index, index) -> !v
+
+    // Perform the load
+    %dst = func.call @alloc_vgprx2() : () -> (!vx2)
+    %loaded = amdgcn.flat.global_load <global_load_dwordx2> %dst, %ptr[%off_reg]
+      : !vx2, !sx2[!v] -> !vx2
+
+    // Wait for load completion
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+
+    // Calculate offset into LDS
+    %LDS_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[LDS_STRIDE_IN_BYTES, elt_size]
+      -> (LDS_STRIDE_IN_BYTES ceildiv elt_size)>()[%LDS_STRIDE_IN_BYTES, %elt_size]
+    %off_lds_reg = func.call @tiled_matrix_offset(%mm_pos, %nn_pos, %mmm, %nnn_pos, %LDS_STRIDE_IN_NUM_ELEMENTS, %elt_size)
+      : (index, index, index, index, index, index) -> !v
+
+    // DS write to LDS
+    %l_off_i32 = arith.index_cast %lds_base_off : index to i32
+    amdgcn.ds.write #amdgcn.inst<ds_write_b64> %loaded, %off_lds_reg, offset = %l_off_i32
+      : !vx2, !v, i32
+
+    // Wait for LDS write
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+
+    return
+  }
+
   // Store a dword to global memory, in a **synchronized fashion** (i.e.
   // waitcnt 0 are inserted after global_store).
   // The caller is responsible for embedding distribution information into the
   // positions %m_pos and %n_pos (and make them workgroup/wave/thread/lane-dependent).
   func.func private @store_to_global_dword_wait(
-    %value: !v,     // Value to store
-    %ptr: !sx2,     // The global base pointer
-    %m_pos: index,  // The outer-most position
-    %n_pos: index,  // The inner-most position
-    %N_SIZE: index  // The inner-most size (stride)
+    %value: !v,                     // Value to store
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most position
+    %n_pos: index,                  // The inner-most position
+    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
   ) {
     %elt_size = arith.constant 4 : index // dword size in bytes
-    %off_reg = func.call @matrix_offset(%m_pos, %n_pos, %N_SIZE, %elt_size)
+    %GLOBAL_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[GLOBAL_STRIDE_IN_BYTES, elt_size]
+      -> (GLOBAL_STRIDE_IN_BYTES ceildiv elt_size)>()[%GLOBAL_STRIDE_IN_BYTES, %elt_size]
+    %off_reg = func.call @matrix_offset(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_NUM_ELEMENTS, %elt_size)
       : (index, index, index, index) -> !v
     amdgcn.flat.global_store <global_store_dword> %value, %ptr[%off_reg] : !v, !sx2[!v]
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -228,15 +254,18 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The caller is responsible for embedding distribution information into the
   // positions %m_pos and %n_pos.
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    %lds_base: index, // The local base offset in LDS
-    %m_pos: index,    // The outer-most tile position
-    %n_pos: index,    // The inner-most tile position
-    %N_SIZE: index    // The inner-most size
+    %lds_base: index,           // The local base offset in LDS
+    %m_pos: index,              // The outer-most tile position
+    %n_pos: index,              // The inner-most tile position
+    %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
   ) -> !vx2 {
     // Compute the swizzled positions
     %elt_size = arith.constant 2 : index // f16 size in bytes
     %mm_pos, %nn_pos = func.call @swizzle_A_16x16xf16() : () -> (index, index)
-    %off_lds_reg = func.call @tiled_matrix_offset(%m_pos, %n_pos, %mm_pos, %nn_pos, %N_SIZE, %elt_size)
+    %LDS_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[LDS_STRIDE_IN_BYTES, elt_size]
+      -> (LDS_STRIDE_IN_BYTES ceildiv elt_size)>()[%LDS_STRIDE_IN_BYTES, %elt_size]
+    %off_lds_reg = func.call @tiled_matrix_offset(
+        %m_pos, %n_pos, %mm_pos, %nn_pos, %LDS_STRIDE_IN_NUM_ELEMENTS, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
     // Perform the DS read
@@ -255,13 +284,13 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // positions. The callee computes and embeds the swizzled positions.
   // This function assumes a major/minor tile structure for the global positions.
   func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
-    %acc: !vx4,           // The accumulator fragment to store
-    %ptr: !sx2,           // The global base pointer
-    %m_pos: index,        // The outer-most major-tile position
-    %n_pos: index,        // The inner-most major-tile position
-    %N_SIZE: index,       // The inner-most size
-    %mm_pos: index,       // The outer-most minor-tile position
-    %nn_pos: index        // The inner-most minor-tile position
+    %acc: !vx4,                     // The accumulator fragment to store
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most major-tile position
+    %n_pos: index,                  // The inner-most major-tile position
+    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most stride **in bytes** in global memory
+    %mm_pos: index,                 // The outer-most minor-tile position
+    %nn_pos: index                  // The inner-most minor-tile position
   ) {
     // Constants
     %c0 = arith.constant 0 : index
@@ -295,7 +324,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
         ()[%m_pos, %mm_pos, %mmm_pos, %mmmm_pos]
 
       // Store to global memory with wait
-      func.call @store_to_global_dword_wait(%fragment, %ptr, %m_global_pos, %n_global_pos, %N_SIZE)
+      func.call @store_to_global_dword_wait(%fragment, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
         : (!v, !sx2, index, index, index) -> ()
     } {amdgcn.constexpr}
     return

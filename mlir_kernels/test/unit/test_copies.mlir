@@ -27,7 +27,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @swizzle_A_16x16xf16() -> (index, index)
   func.func private @swizzle_C_16x16xf32() -> (index, index)
   // copies.mlir
-  func.func private @global_load_to_lds_wave_16x16_dwordx2_wait(!sx2, index, index, index, index, index, index, index)
+  func.func private @global_load_to_lds_wave_16x16_f16_wait(!sx2, index, index, index, index, index, index, index)
   func.func private @global_load_wave_64xdwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
   func.func private @lds_write_wave_64xdwordx2_wait(index, index, index, index, index, !vx2) -> ()
   func.func private @store_to_global_dword_wait(!v, !sx2, index, index, index)
@@ -80,7 +80,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %value = lsir.to_reg %value_i32 : i32 -> !v
 
     // Store using the library function
-    func.call @store_to_global_dword_wait(%value, %out_ptr, %i, %j, %c16)
+    %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[c16] -> (c16 * 4)>()[%c16]
+    func.call @store_to_global_dword_wait(%value, %out_ptr, %i, %j, %GLOBAL_STRIDE_IN_BYTES)
       : (!v, !sx2, index, index, index) -> ()
 
     amdgcn.end_kernel
@@ -101,17 +102,18 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %c16 = arith.constant 16 : index
 
     // First load data to LDS using load_to_lds
-    func.call @global_load_to_lds_wave_16x16_dwordx2_wait(
+    %N_SIZE_IN_BYTES = affine.apply affine_map<()[N_SIZE] -> (N_SIZE * 2)>()[%c16]
+    func.call @global_load_to_lds_wave_16x16_f16_wait(
       %in_ptr, %c0,      // ptr, lds_base_off
       %c0, %c0,          // i_pos, j_pos
-      %c16,              // N_SIZE
+      %N_SIZE_IN_BYTES,  // N_SIZE_IN_BYTES
       %c0, %c0,          // ii_pos, jj_pos
-      %c16               // NN_SIZE
+      %N_SIZE_IN_BYTES   // NN_SIZE_IN_BYTES
     ) : (!sx2, index, index, index, index, index, index, index) -> ()
 
     // Now read the A fragment using the swizzled read
     // i_pos=0, j_pos=0, N_SIZE=16
-    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c16)
+    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %N_SIZE_IN_BYTES)
       : (index, index, index, index) -> !vx2
 
     // Store fragment to output (each thread writes 8 bytes)
@@ -145,8 +147,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function
     // i_pos=0, j_pos=0, N_SIZE=16, ii_pos=0, jj_pos=0
+    %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[c16] ->
+      (c16 * 4)>()[%c16]
     func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
-      %acc, %out_ptr, %c0, %c0, %c16, %c0, %c0
+      %acc, %out_ptr, %c0, %c0, %GLOBAL_STRIDE_IN_BYTES, %c0, %c0
     ) : (!vx4, !sx2, index, index, index, index, index) -> ()
 
     amdgcn.end_kernel
@@ -172,21 +176,22 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %memref_static = memref.alloca() : memref<1x1x!vx2>
     %memref = memref.cast %memref_static : memref<1x1x!vx2> to memref<?x?x!vx2>
 
-    // Global load to memref
+    // Global load to memref, we know we are using 2B elements.
+    %N_SIZE_IN_BYTES = affine.apply affine_map<()[N_SIZE] -> (N_SIZE * 2)>()[%c16]
     %loaded = func.call @global_load_wave_64xdwordx2_wait(
-      %in_ptr,  // ptr
-      %c0, %c0, // i_pos, j_pos (major tile)
-      %c16,     // N_SIZE
-      %c0, %c0, // ii_pos, jj_pos (minor tile)
-      %c1       // NN (number of 16 tiles = 1)
+      %in_ptr,          // ptr
+      %c0, %c0,         // m_pos, n_pos (major tile)
+      %N_SIZE_IN_BYTES, // N_SIZE_IN_BYTES
+      %c0, %c0,         // mm_pos, nn_pos (minor tile)
+      %c1               // num_rows
     ) : (!sx2, index, index, index, index, index, index) -> (!vx2)
 
     // DS write from memref to LDS
     func.call @lds_write_wave_64xdwordx2_wait(
       %c0,               // lds_base_off
-      %c0, %c0,          // ii_pos, jj_pos
-      %c16,              // NN_SIZE
-      %c1,               // NN (number of 16 tiles = 1)
+      %c0, %c0,          // mm_pos, nn_pos
+      %N_SIZE_IN_BYTES,  // N_SIZE_IN_BYTES
+      %c1,               // num_rows
       %loaded            // value
     ) : (index, index, index, index, index, !vx2) -> ()
 

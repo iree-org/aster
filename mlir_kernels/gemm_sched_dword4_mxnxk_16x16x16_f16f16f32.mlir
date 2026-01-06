@@ -49,6 +49,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %a_load_memref: memref<?x?x!vx2>, %b_load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
+    %elt_size = arith.constant 2 : index // f16 size in bytes
+    %SIZE_K_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size] -> (SIZE_K * elt_size)>()[%SIZE_K, %elt_size]
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
     scf.if %is_phase_0 {
       %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
@@ -63,7 +65,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %iikk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_mmkk, %w, %W]
         %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %ii_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%iikk, %num_rows]
-        %loaded = func.call @global_load_wave_64xdwordx2_wait(%a_global, %i_pos, %k_pos, %SIZE_K, %ii_pos, %c0, %num_rows)
+        %loaded = func.call @global_load_wave_64xdwordx2_wait(
+            %a_global, %i_pos, %k_pos, %SIZE_K_IN_BYTES, %ii_pos, %c0, %num_rows)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
 
         memref.store %loaded, %a_load_memref[%k, %d_mmkk] : memref<?x?x!vx2>
@@ -76,7 +79,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %jjkk = affine.apply affine_map<()[d_idx, wv, Wv] -> (d_idx * Wv + wv)>()[%d_nnkk, %w, %W]
         %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %jj_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%jjkk, %num_rows]
-        %loaded = func.call @global_load_wave_64xdwordx2_wait(%b_global, %j_pos, %k_pos, %SIZE_K, %jj_pos, %c0, %num_rows)
+        %loaded = func.call @global_load_wave_64xdwordx2_wait(
+            %b_global, %j_pos, %k_pos, %SIZE_K_IN_BYTES, %jj_pos, %c0, %num_rows)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
 
         memref.store %loaded, %b_load_memref[%k, %d_nnkk] : memref<?x?x!vx2>
@@ -94,6 +98,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %a_load_memref: memref<?x?x!vx2>, %b_load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
+    %elt_size = arith.constant 2 : index // f16 size in bytes
+    %TILE_SIZE_K_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
+      (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
+
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
     scf.if %is_phase_0 {
       // DS write A tile (decoupled: reads from memref)
@@ -104,7 +112,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %ii_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%iikk, %num_rows]
         %loaded = memref.load %a_load_memref[%k, %d_mmkk] : memref<?x?x!vx2>
-        func.call @lds_write_wave_64xdwordx2_wait(%lds_a_base_off, %ii_pos, %c0, %TILE_SIZE_K, %num_rows, %loaded)
+        func.call @lds_write_wave_64xdwordx2_wait(
+            %lds_a_base_off, %ii_pos, %c0, %TILE_SIZE_K_IN_BYTES, %num_rows, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
       }
 
@@ -116,7 +125,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %jj_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%jjkk, %num_rows]
         %loaded = memref.load %b_load_memref[%k, %d_nnkk] : memref<?x?x!vx2>
-        func.call @lds_write_wave_64xdwordx2_wait(%lds_b_base_off, %jj_pos, %c0, %TILE_SIZE_K, %num_rows, %loaded)
+        func.call @lds_write_wave_64xdwordx2_wait(
+            %lds_b_base_off, %jj_pos, %c0, %TILE_SIZE_K_IN_BYTES, %num_rows, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
       }
     }
@@ -132,6 +142,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+    %elt_size = arith.constant 2 : index // f16 size in bytes
+    %TILE_SIZE_K_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
+      (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
     %is_phase_1 = arith.cmpi eq, %phase, %c1 : index
     scf.if %is_phase_1 {
       %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
@@ -150,9 +163,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
 
       // Read A and B fragments from LDS, store to memrefs
-      %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_a_base_off, %ii_pos, %kk_pos, %TILE_SIZE_K)
+      %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+          %lds_a_base_off, %ii_pos, %kk_pos, %TILE_SIZE_K_IN_BYTES)
         : (index, index, index, index) -> !vx2
-      %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_b_base_off, %jj_pos, %kk_pos, %TILE_SIZE_K)
+      %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+          %lds_b_base_off, %jj_pos, %kk_pos, %TILE_SIZE_K_IN_BYTES)
         : (index, index, index, index) -> !vx2
       memref.store %a_frag, %a_frag_memref[%k, %d_mmnnkk] : memref<?x?x!vx2>
       memref.store %b_frag, %b_frag_memref[%k, %d_mmnnkk] : memref<?x?x!vx2>
@@ -211,7 +226,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
         %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
         %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-        func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %SIZE_N, %ii_pos, %jj_pos)
+        %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
+          (SIZE_N * 4)>()[%SIZE_N]
+        func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
+            %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %jj_pos)
           : (!vx4, !sx2, index, index, index, index, index) -> ()
       }
     }
