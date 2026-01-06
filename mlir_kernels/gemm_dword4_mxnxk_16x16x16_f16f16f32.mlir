@@ -43,13 +43,13 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   ) -> !vx4 {
     // Read A and B fragments, assuming B is transposed to simplify the problem and have a single version.
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %TILE_SIZE_K_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
+    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
       (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
     %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-        %lds_a_base, %ii_pos, %kk_pos, %TILE_SIZE_K_IN_BYTES)
+        %lds_a_base, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
       : (index, index, index, index) -> !vx2
     %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-        %lds_b_base, %jj_pos, %kk_pos, %TILE_SIZE_K_IN_BYTES)
+        %lds_b_base, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
      : (index, index, index, index) -> !vx2
     // Perform MFMA operation: C = A * B + C
     %result = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
@@ -114,9 +114,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     // Loop over the k_pos dimension
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %SIZE_K_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size]
+    %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size]
       -> (SIZE_K * elt_size)>()[%SIZE_K, %elt_size]
-    %TILE_SIZE_K_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size]
+    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size]
       -> (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
     scf.for %k = %c0 to %K step %c1 {
       %k_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_K)[%k]
@@ -131,7 +131,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
         func.call @global_load_to_lds_wave_16x16_f16_wait(
-            %a_global, %lds_a_base_off, %i_pos, %k_pos, %SIZE_K_IN_BYTES, %ii_pos, %kk_pos, %TILE_SIZE_K_IN_BYTES)
+            %a_global, %lds_a_base_off, %i_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
           : (!sx2, index, index, index, index, index, index, index) -> ()
       } {amdgcn.constexpr}
 
@@ -145,7 +145,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
         func.call @global_load_to_lds_wave_16x16_f16_wait(
-            %b_global, %lds_b_base_off, %j_pos, %k_pos, %SIZE_K_IN_BYTES, %jj_pos, %kk_pos, %TILE_SIZE_K_IN_BYTES)
+            %b_global, %lds_b_base_off, %j_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
           : (!sx2, index, index, index, index, index, index, index) -> ()
       } {amdgcn.constexpr}
 
@@ -187,10 +187,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
       // Store the fragment
       %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-      %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
+      %GLOBAL_C_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
         (SIZE_N * 4)>()[%SIZE_N]
       func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
-          %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %jj_pos)
+          %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_C_STRIDE_IN_BYTES, %ii_pos, %jj_pos)
         : (!vx4, !sx2, index, index, index, index, index) -> ()
     } {amdgcn.constexpr}
 

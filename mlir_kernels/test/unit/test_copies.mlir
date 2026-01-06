@@ -67,7 +67,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     %tid = gpu.thread_id x
     %c8 = arith.constant 8 : index
-    %c16 = arith.constant 16 : index
+    %c64 = arith.constant 64 : index // stride in bytes (16 elements * 4 bytes)
 
     // Compute i, j from tid
     %i = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
@@ -80,8 +80,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %value = lsir.to_reg %value_i32 : i32 -> !v
 
     // Store using the library function
-    %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[c16] -> (c16 * 4)>()[%c16]
-    func.call @store_to_global_dword_wait(%value, %out_ptr, %i, %j, %GLOBAL_STRIDE_IN_BYTES)
+    func.call @store_to_global_dword_wait(%value, %out_ptr, %i, %j, %c64)
       : (!v, !sx2, index, index, index) -> ()
 
     amdgcn.end_kernel
@@ -98,22 +97,20 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
-    %c4 = arith.constant 4 : index
-    %c16 = arith.constant 16 : index
+    %c32 = arith.constant 32 : index // stride in bytes (16 elements * 2 bytes for f16)
 
     // First load data to LDS using load_to_lds
-    %N_SIZE_IN_BYTES = affine.apply affine_map<()[N_SIZE] -> (N_SIZE * 2)>()[%c16]
     func.call @global_load_to_lds_wave_16x16_f16_wait(
-      %in_ptr, %c0,      // ptr, lds_base_off
-      %c0, %c0,          // i_pos, j_pos
-      %N_SIZE_IN_BYTES,  // N_SIZE_IN_BYTES
-      %c0, %c0,          // ii_pos, jj_pos
-      %N_SIZE_IN_BYTES   // NN_SIZE_IN_BYTES
+      %in_ptr, %c0,  // ptr, lds_base_off
+      %c0, %c0,      // i_pos, j_pos
+      %c32,          // GLOBAL_STRIDE_IN_BYTES
+      %c0, %c0,      // ii_pos, jj_pos
+      %c32           // LDS_STRIDE_IN_BYTES
     ) : (!sx2, index, index, index, index, index, index, index) -> ()
 
     // Now read the A fragment using the swizzled read
-    // i_pos=0, j_pos=0, N_SIZE=16
-    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %N_SIZE_IN_BYTES)
+    // i_pos=0, j_pos=0
+    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c32)
       : (index, index, index, index) -> !vx2
 
     // Store fragment to output (each thread writes 8 bytes)
@@ -137,7 +134,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
-    %c16 = arith.constant 16 : index
+    %c64 = arith.constant 64 : index // stride in bytes (16 elements * 4 bytes for f32)
 
     // Initialize accumulator with lane_id (as float bits)
     %lane = func.call @lane_id() : () -> index
@@ -146,11 +143,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %acc = func.call @init_vgprx4_reg(%lane_reg) : (!v) -> !vx4
 
     // Store using the library function
-    // i_pos=0, j_pos=0, N_SIZE=16, ii_pos=0, jj_pos=0
-    %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[c16] ->
-      (c16 * 4)>()[%c16]
+    // i_pos=0, j_pos=0, ii_pos=0, jj_pos=0
     func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
-      %acc, %out_ptr, %c0, %c0, %GLOBAL_STRIDE_IN_BYTES, %c0, %c0
+      %acc, %out_ptr, %c0, %c0, %c64, %c0, %c0
     ) : (!vx4, !sx2, index, index, index, index, index) -> ()
 
     amdgcn.end_kernel
@@ -168,31 +163,30 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %c2 = arith.constant 2 : index
     %c4 = arith.constant 4 : index
     %c16 = arith.constant 16 : index
+    %c32 = arith.constant 32 : index // stride in bytes (16 elements * 2 bytes for f16)
 
     // Allocate memref for intermediate storage and cast to dynamic
     %memref_static = memref.alloca() : memref<1x1x!vx2>
     %memref = memref.cast %memref_static : memref<1x1x!vx2> to memref<?x?x!vx2>
 
     // Global load to memref, we know we are using 2B elements.
-    %N_SIZE_IN_BYTES = affine.apply affine_map<()[N_SIZE] -> (N_SIZE * 2)>()[%c16]
     %loaded = func.call @global_load_wave_64xdwordx2_wait(
-      %in_ptr,          // ptr
-      %c0, %c0,         // m_pos, n_pos (major tile)
-      %N_SIZE_IN_BYTES, // N_SIZE_IN_BYTES
-      %c0, %c0,         // mm_pos, nn_pos (minor tile)
-      %c1               // num_rows
+      %in_ptr,    // ptr
+      %c0, %c0,   // m_pos, n_pos (major tile)
+      %c32,       // GLOBAL_STRIDE_IN_BYTES
+      %c0, %c0,   // mm_pos, nn_pos (minor tile)
+      %c1         // num_rows
     ) : (!sx2, index, index, index, index, index, index) -> (!vx2)
 
     // DS write from memref to LDS
     func.call @lds_write_wave_64xdwordx2_wait(
-      %c0,               // lds_base_off
-      %c0, %c0,          // mm_pos, nn_pos
-      %N_SIZE_IN_BYTES,  // N_SIZE_IN_BYTES
-      %c1,               // num_rows
-      %loaded            // value
+      %c0,        // lds_base_off
+      %c0, %c0,   // mm_pos, nn_pos
+      %c32,       // LDS_STRIDE_IN_BYTES
+      %c1,        // num_rows
+      %loaded     // value
     ) : (index, index, index, index, index, !vx2) -> ()
 
     // Read back from LDS and store to output

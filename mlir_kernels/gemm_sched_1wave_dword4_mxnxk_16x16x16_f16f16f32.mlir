@@ -49,7 +49,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %a_load_memref: memref<?x?x?x!vx2>                           // memref for decoupled global load
   ) {
     %c0 = arith.constant 0 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
     scf.if %is_phase_0 {
       %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
@@ -63,9 +62,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       scf.if %is_nn_zero {
         %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %mm_pos = affine.apply affine_map<()[mmkk, num_rows] -> (mmkk * num_rows)>()[%mmkk, %num_rows]
-        %SIZE_K_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size] -> (SIZE_K * elt_size)>()[%SIZE_K, %elt_size]
+        %elt_size = arith.constant 2 : index // f16 size in bytes
+        %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size] ->
+          (SIZE_K * elt_size)>()[%SIZE_K, %elt_size]
         %loaded = func.call @global_load_wave_64xdwordx2_wait(
-            %a_global, %m_pos, %k_pos, %SIZE_K_IN_BYTES, %mm_pos, %c0, %num_rows)
+            %a_global, %m_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %c0, %num_rows)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
         memref.store %loaded, %a_load_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
       }
@@ -85,7 +86,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %b_load_memref: memref<?x?x?x!vx2>                           // memref for decoupled global
   ) {
     %c0 = arith.constant 0 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
     scf.if %is_phase_0 {
       %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
@@ -98,9 +98,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       scf.if %is_mm_zero {
         %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
         %nn_pos = affine.apply affine_map<()[nnkk, num_rows] -> (nnkk * num_rows)>()[%nnkk, %num_rows]
-        %SIZE_K_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size] -> (SIZE_K * elt_size)>()[%SIZE_K, %elt_size]
+        %elt_size = arith.constant 2 : index // f16 size in bytes
+        %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size] ->
+          (SIZE_K * elt_size)>()[%SIZE_K, %elt_size]
         %loaded = func.call @global_load_wave_64xdwordx2_wait(
-            %b_global, %n_pos, %k_pos, %SIZE_K_IN_BYTES, %nn_pos, %c0, %num_rows)
+            %b_global, %n_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %nn_pos, %c0, %num_rows)
           : (!sx2, index, index, index, index, index, index) -> (!vx2)
         memref.store %loaded, %b_load_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
       }
@@ -118,7 +120,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %a_load_memref: memref<?x?x?x!vx2>                // memref<reg> for decoupled LDS write
   ) {
     %c0 = arith.constant 0 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
     scf.if %is_phase_0 {
       %is_nn_zero = arith.cmpi eq, %nn, %c0 : index
@@ -127,10 +128,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %mmkk = affine.linearize_index [%mm, %kk] by (%MM, %KK) : index
         %mm_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%mmkk, %num_rows]
         %loaded = memref.load %a_load_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
-        %TILE_SIZE_K_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
+        %elt_size = arith.constant 2 : index // f16 size in bytes
+        %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
           (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
         func.call @lds_write_wave_64xdwordx2_wait(
-            %lds_a_base_off, %mm_pos, %c0, %TILE_SIZE_K_IN_BYTES, %num_rows, %loaded)
+            %lds_a_base_off, %mm_pos, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
       }
     }
@@ -147,7 +149,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %b_load_memref: memref<?x?x?x!vx2>                // memref<reg> for decoupled LDS write
   ) {
     %c0 = arith.constant 0 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
     scf.if %is_phase_0 {
       %is_mm_zero = arith.cmpi eq, %mm, %c0 : index
@@ -156,10 +157,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %nnkk = affine.linearize_index [%nn, %kk] by (%NN, %KK) : index
         %nn_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%nnkk, %num_rows]
         %loaded = memref.load %b_load_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
-        %TILE_SIZE_K_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
+        %elt_size = arith.constant 2 : index // f16 size in bytes
+        %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
           (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
         func.call @lds_write_wave_64xdwordx2_wait(
-            %lds_b_base_off, %nn_pos, %c0, %TILE_SIZE_K_IN_BYTES, %num_rows, %loaded)
+            %lds_b_base_off, %nn_pos, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
           : (index, index, index, index, index, !vx2) -> ()
       }
     }
@@ -175,7 +177,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
     %is_phase_1 = arith.cmpi eq, %phase, %c1 : index
     scf.if %is_phase_1 {
       %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
@@ -185,10 +186,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       }
       %mm_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%mm]
       %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-      %TILE_SIZE_K_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
+      %elt_size = arith.constant 2 : index // f16 size in bytes
+      %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
         (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
       %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-          %lds_a_base_off, %mm_pos, %kk_pos, %TILE_SIZE_K_IN_BYTES)
+          %lds_a_base_off, %mm_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
         : (index, index, index, index) -> !vx2
       %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
       memref.store %a_frag, %a_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>
@@ -207,7 +209,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
     %is_phase_1 = arith.cmpi eq, %phase, %c1 : index
     scf.if %is_phase_1 {
       %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
@@ -217,10 +218,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       }
       %nn_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%nn]
       %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-      %TILE_SIZE_K_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
+      %elt_size = arith.constant 2 : index // f16 size in bytes
+      %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
         (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
       %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-          %lds_b_base_off, %nn_pos, %kk_pos, %TILE_SIZE_K_IN_BYTES)
+          %lds_b_base_off, %nn_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
         : (index, index, index, index) -> !vx2
       %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
       memref.store %b_frag, %b_frag_memref[%k, %mm, %nn, %kk] : memref<?x?x?x?x!vx2>

@@ -181,7 +181,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   }
 
   // Test @matrix_offset: compute byte offset for 2D matrix access
-  // Uses i=thread_id/8, j=thread_id%8, N=16, elt_size=4
+  // Uses i=thread_id/8, j=thread_id%8, stride=64 (16*4 bytes), elt_size=4
   amdgcn.kernel @test_matrix_offset arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
@@ -189,11 +189,11 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     %tid = gpu.thread_id x
     %c8 = arith.constant 8 : index
-    %c16 = arith.constant 16 : index
+    %c64 = arith.constant 64 : index // stride in bytes (16 elements * 4 bytes)
     %c4 = arith.constant 4 : index
     %i = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
     %j = affine.apply affine_map<()[tid] -> (tid mod 8)>()[%tid]
-    %off_vgpr = func.call @matrix_offset(%i, %j, %c16, %c4)
+    %off_vgpr = func.call @matrix_offset(%i, %j, %c64, %c4)
       : (index, index, index, index) -> !v
 
     // Store the offset at thread position
@@ -207,7 +207,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   }
 
   // Test @tiled_matrix_offset: compute byte offset for tiled 2D matrix access
-  // Uses i=0, j=0, ii=tid/8, jj=tid%8, N=16, elt_size=4
+  // Uses i=0, j=0, ii=tid/8, jj=tid%8, stride=64 (16*4 bytes), elt_size=4
   amdgcn.kernel @test_tiled_matrix_offset arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
@@ -216,11 +216,11 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %tid = gpu.thread_id x
     %c0 = arith.constant 0 : index
     %c8 = arith.constant 8 : index
-    %c16 = arith.constant 16 : index
+    %c64 = arith.constant 64 : index // stride in bytes (16 elements * 4 bytes)
     %c4 = arith.constant 4 : index
     %ii = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
     %jj = affine.apply affine_map<()[tid] -> (tid mod 8)>()[%tid]
-    %off_vgpr = func.call @tiled_matrix_offset(%c0, %c0, %ii, %jj, %c16, %c4)
+    %off_vgpr = func.call @tiled_matrix_offset(%c0, %c0, %ii, %jj, %c64, %c4)
       : (index, index, index, index, index, index) -> !v
 
     // Store the offset at thread position
@@ -234,7 +234,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   }
 
   // Test @tiledx2_matrix_offset: compute byte offset for twice-tiled 2D matrix access
-  // Uses i=0, j=0, ii=0, jj=0, iii=tid/8, jjj=tid%8, N=16, elt_size=4
+  // Uses i=0, j=0, ii=0, jj=0, iii=tid/8, jjj=tid%8, stride=64 (16*4 bytes), elt_size=4
   amdgcn.kernel @test_tiledx2_matrix_offset arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
@@ -243,11 +243,11 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %tid = gpu.thread_id x
     %c0 = arith.constant 0 : index
     %c8 = arith.constant 8 : index
-    %c16 = arith.constant 16 : index
+    %c64 = arith.constant 64 : index // stride in bytes (16 elements * 4 bytes)
     %c4 = arith.constant 4 : index
     %iii = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
     %jjj = affine.apply affine_map<()[tid] -> (tid mod 8)>()[%tid]
-    %off_vgpr = func.call @tiledx2_matrix_offset(%c0, %c0, %c0, %c0, %iii, %jjj, %c16, %c4)
+    %off_vgpr = func.call @tiledx2_matrix_offset(%c0, %c0, %c0, %c0, %iii, %jjj, %c64, %c4)
       : (index, index, index, index, index, index, index, index) -> !v
 
     // Store the offset at thread position

@@ -75,10 +75,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
 
     // Calculate global offset
-    %GLOBAL_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[GLOBAL_STRIDE_IN_BYTES, elt_size]
-      -> (GLOBAL_STRIDE_IN_BYTES ceildiv elt_size)>()[%GLOBAL_STRIDE_IN_BYTES, %elt_size]
     %off_reg = func.call @tiledx2_matrix_offset(
-      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %GLOBAL_STRIDE_IN_NUM_ELEMENTS, %elt_size)
+      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index, index, index, index, index) -> !v
 
     // Perform the load
@@ -131,10 +129,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
 
     // Calculate offset into LDS
-    %LDS_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[LDS_STRIDE_IN_BYTES, elt_size]
-      -> (LDS_STRIDE_IN_BYTES ceildiv elt_size)>()[%LDS_STRIDE_IN_BYTES, %elt_size]
     %off_lds_reg = func.call @tiled_matrix_offset(
-        %mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %LDS_STRIDE_IN_NUM_ELEMENTS, %elt_size)
+        %mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %LDS_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
     // DS write to LDS
@@ -194,10 +190,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
 
     // Calculate global offset
-    %GLOBAL_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[GLOBAL_STRIDE_IN_BYTES, elt_size]
-      -> (GLOBAL_STRIDE_IN_BYTES ceildiv elt_size)>()[%GLOBAL_STRIDE_IN_BYTES, %elt_size]
     %off_reg = func.call @tiledx2_matrix_offset(
-      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm, %nnn_pos, %GLOBAL_STRIDE_IN_NUM_ELEMENTS, %elt_size)
+      %m_pos, %n_pos, %mm_pos, %nn_pos, %mmm, %nnn_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index, index, index, index, index) -> !v
 
     // Perform the load
@@ -209,9 +203,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     // Calculate offset into LDS
-    %LDS_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[LDS_STRIDE_IN_BYTES, elt_size]
-      -> (LDS_STRIDE_IN_BYTES ceildiv elt_size)>()[%LDS_STRIDE_IN_BYTES, %elt_size]
-    %off_lds_reg = func.call @tiled_matrix_offset(%mm_pos, %nn_pos, %mmm, %nnn_pos, %LDS_STRIDE_IN_NUM_ELEMENTS, %elt_size)
+    %off_lds_reg = func.call @tiled_matrix_offset(%mm_pos, %nn_pos, %mmm, %nnn_pos, %LDS_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
     // DS write to LDS
@@ -237,9 +229,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
   ) {
     %elt_size = arith.constant 4 : index // dword size in bytes
-    %GLOBAL_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[GLOBAL_STRIDE_IN_BYTES, elt_size]
-      -> (GLOBAL_STRIDE_IN_BYTES ceildiv elt_size)>()[%GLOBAL_STRIDE_IN_BYTES, %elt_size]
-    %off_reg = func.call @matrix_offset(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_NUM_ELEMENTS, %elt_size)
+    %off_reg = func.call @matrix_offset(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index) -> !v
     amdgcn.flat.global_store <global_store_dword> %value, %ptr[%off_reg] : !v, !sx2[!v]
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -262,10 +252,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     // Compute the swizzled positions
     %elt_size = arith.constant 2 : index // f16 size in bytes
     %mm_pos, %nn_pos = func.call @swizzle_A_16x16xf16() : () -> (index, index)
-    %LDS_STRIDE_IN_NUM_ELEMENTS = affine.apply affine_map<()[LDS_STRIDE_IN_BYTES, elt_size]
-      -> (LDS_STRIDE_IN_BYTES ceildiv elt_size)>()[%LDS_STRIDE_IN_BYTES, %elt_size]
     %off_lds_reg = func.call @tiled_matrix_offset(
-        %m_pos, %n_pos, %mm_pos, %nn_pos, %LDS_STRIDE_IN_NUM_ELEMENTS, %elt_size)
+        %m_pos, %n_pos, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
     // Perform the DS read
