@@ -365,8 +365,8 @@ def main() -> None:
 
     # Problem size parameters (powers of 2 for typical GEMM sizes)
     # These are actual matrix dimensions, not block counts
-    m_values: List[int] = [128, 256, 512, 1024, 2048]
-    n_values: List[int] = [128, 256, 512, 1024, 2048]
+    m_values: List[int] = [128, 256, 512, 1024, 2048, 2048 * 8]
+    n_values: List[int] = [128, 256, 512, 1024, 2048, 2048 * 8]
     k_values: List[int] = [128, 256, 512, 1024]
 
     # Tile sizes (must divide problem dimensions evenly, and be multiples of 16)
@@ -376,9 +376,10 @@ def main() -> None:
         (16, 32, 16),
         (32, 32, 16),
         (32, 32, 32),
+        (32, 64, 64),
+        (64, 32, 64),
         (64, 64, 32),
         (64, 64, 64),
-        (128, 128, 64),
     ]
 
     # Number of waves per block
@@ -418,7 +419,7 @@ def main() -> None:
         and config.total_flops <= 2 * 2048 * 2048 * 2048  # Maximum problem size
         # Maximum FLOPS per wave (in MFMA operations) to avoid too much unrolling atm
         and config.total_flops / (config.num_waves * config.num_workgroups)
-        <= 256 * (MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K)
+        <= 1024 * (MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K)
     ]
 
     print(f"Generated {len(configs)} valid configurations")
