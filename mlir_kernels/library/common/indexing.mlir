@@ -72,12 +72,12 @@ amdgcn.library @common_indexing {
   func.func private @matrix_offset(
     %i: index,       // The outer-most position (e.g. a row)
     %j: index,       // The inner-most position (e.g. a column)
-    %N: index,       // The stride (e.g. inner 2-D size)
-    %elt_size: index // The element size in bytes
+    %stride: index,  // The stride (e.g. inner 2-D size **in bytes**)
+    %elt_size: index // The element size **in bytes**
   ) -> !v {
     %off = affine.apply
-      affine_map<()[i, j, N, elt_size] -> ((i * N  + j) * elt_size)>
-      ()[%i, %j, %N, %elt_size]
+      affine_map<()[i, j, stride, elt_size] -> (i * stride  + j * elt_size)>
+      ()[%i, %j, %stride, %elt_size]
     %off_i32 = arith.index_cast %off : index to i32
     %off_reg = lsir.to_reg %off_i32 : i32 -> !v
     return %off_reg : !v
@@ -90,12 +90,12 @@ amdgcn.library @common_indexing {
     %j: index,       // The inner-most tile position (e.g. the start column of a tile)
     %ii: index,      // The outer-most position (e.g. a row relative to the tile)
     %jj: index,      // The inner-most position (e.g. a column relative to the tile)
-    %N: index,       // The stride (e.g. inner 2-D tile size)
-    %elt_size: index // The element size in bytes
+    %stride: index,  // The stride (e.g. inner 2-D tile size **in bytes**)
+    %elt_size: index // The element size **in bytes**
   ) -> !v {
     %i_pos = affine.apply affine_map<()[i, ii] -> (i + ii)>()[%i, %ii]
     %j_pos = affine.apply affine_map<()[j, jj] -> (j + jj)>()[%j, %jj]
-    %off_reg = func.call @matrix_offset(%i_pos, %j_pos, %N, %elt_size)
+    %off_reg = func.call @matrix_offset(%i_pos, %j_pos, %stride, %elt_size)
       : (index, index, index, index) -> !v
     return %off_reg : !v
   }
@@ -110,12 +110,12 @@ amdgcn.library @common_indexing {
     %jj: index,      // The inner-most minor tile position (e.g. the start column of the sub-tile)
     %iii: index,     // The outer-most position (e.g. a row relative to the sub-tile)
     %jjj: index,     // The inner-most position (e.g. a column relative to the sub-tile)
-    %N: index,       // The stride (e.g. inner 2-D tile size)
-    %elt_size: index // The element size in bytes
+    %stride: index,  // The stride (e.g. inner 2-D tile size **in bytes**)
+    %elt_size: index // The element size **in bytes**
   ) -> !v {
     %i_pos = affine.apply affine_map<()[i, ii, iii] -> (i + ii + iii)>()[%i, %ii, %iii]
     %j_pos = affine.apply affine_map<()[j, jj, jjj] -> (j + jj + jjj)>()[%j, %jj, %jjj]
-    %off_reg = func.call @matrix_offset(%i_pos, %j_pos, %N, %elt_size)
+    %off_reg = func.call @matrix_offset(%i_pos, %j_pos, %stride, %elt_size)
       : (index, index, index, index) -> !v
     return %off_reg : !v
   }

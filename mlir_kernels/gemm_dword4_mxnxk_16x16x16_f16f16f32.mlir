@@ -27,7 +27,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
   // copies.mlir
-  func.func private @global_load_to_lds_wave_16x16_dwordx2_wait(
+  func.func private @global_load_to_lds_wave_16x16_f16_wait(
     !sx2, index, index, index, index, index, index, index) -> ()
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
@@ -37,14 +37,19 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   // Compute the wavefront-level contraction using MFMA instructions
   func.func private @wavefront_contract(
     %lds_a_base: index, %lds_b_base: index,         // LDS base offsets
-    %K_TILE_SIZE: index,                            // The tile size in the reduction dimension
+    %TILE_SIZE_K: index,                            // The tile size in the reduction dimension
     %ii_pos: index, %jj_pos: index, %kk_pos: index, // The mma tile positions
     %acc: !vx4                                      // The accumulator register range
   ) -> !vx4 {
     // Read A and B fragments, assuming B is transposed to simplify the problem and have a single version.
-    %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_a_base, %ii_pos, %kk_pos, %K_TILE_SIZE)
+    %elt_size = arith.constant 2 : index // f16 size in bytes
+    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
+      (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
+    %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+        %lds_a_base, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
       : (index, index, index, index) -> !vx2
-    %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_b_base, %jj_pos, %kk_pos, %K_TILE_SIZE)
+    %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+        %lds_b_base, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
      : (index, index, index, index) -> !vx2
     // Perform MFMA operation: C = A * B + C
     %result = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
@@ -54,8 +59,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // Main function that allocates memrefs and loops over M, N, K
   func.func private @matmul_loop(
-    %M_SIZE: index, %N_SIZE: index, %K_SIZE: index,            // Problem sizes
-    %M_TILE_SIZE: index, %N_TILE_SIZE: index, %K_TILE_SIZE: index,   // Block-level tile sizes
+    %SIZE_M: index, %SIZE_N: index, %SIZE_K: index,            // Problem sizes
+    %TILE_SIZE_M: index, %TILE_SIZE_N: index, %TILE_SIZE_K: index,   // Block-level tile sizes
     %a_global: !sx2, %b_global: !sx2, %c_global: !sx2 // Global memory pointers
   ) {
     // GPU variables
@@ -74,21 +79,21 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %lds_a_base_off = arith.constant 0 : index
     %lds_b_base_off = affine.apply
       affine_map<()[rows, cols, type_size] -> (rows * cols * type_size)>
-      ()[%M_TILE_SIZE, %K_TILE_SIZE, %elt_sz_in_b]
+      ()[%TILE_SIZE_M, %TILE_SIZE_K, %elt_sz_in_b]
 
     // Block-level tile indices (i, j, k) and sizes (M, N, K)
-    %K = affine.apply affine_map<()[sz, bsz] -> (sz ceildiv bsz)>()[%K_SIZE, %K_TILE_SIZE]
-    %i, %j = func.call @tiled_grid_partition_2D(%M_SIZE, %N_SIZE, %M_TILE_SIZE, %N_TILE_SIZE)
+    %K = affine.apply affine_map<()[sz, bsz] -> (sz ceildiv bsz)>()[%SIZE_K, %TILE_SIZE_K]
+    %i, %j = func.call @tiled_grid_partition_2D(%SIZE_M, %SIZE_N, %TILE_SIZE_M, %TILE_SIZE_N)
       : (index, index, index, index) -> (index, index)
 
     // Calculate global positions
-    %i_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%M_TILE_SIZE)[%i]
-    %j_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%N_TILE_SIZE)[%j]
+    %i_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_M)[%i]
+    %j_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_N)[%j]
 
     // Warp-level tile indices (ii, jj, kk) and sizes (MM, NN, KK)
-    %MM = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%M_TILE_SIZE]
-    %NN = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%N_TILE_SIZE]
-    %KK = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%K_TILE_SIZE]
+    %MM = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_M]
+    %NN = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_N]
+    %KK = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_K]
 
     // Number of distributed mma tiles
     %d_MMNNKK = affine.apply affine_map<()[sz0, sz1, sz2, W] -> ((sz0 * sz1 * sz2) ceildiv W)>()[%MM, %NN, %KK, %W]
@@ -108,8 +113,13 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
 
     // Loop over the k_pos dimension
+    %elt_size = arith.constant 2 : index // f16 size in bytes
+    %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size]
+      -> (SIZE_K * elt_size)>()[%SIZE_K, %elt_size]
+    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size]
+      -> (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
     scf.for %k = %c0 to %K step %c1 {
-      %k_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%K_TILE_SIZE)[%k]
+      %k_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_K)[%k]
 
       // Load A tile into LDS
       scf.for %d_mmkk = %c0 to %d_MMKK step %c1 {
@@ -120,7 +130,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         // Calculate positions
         %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-        func.call @global_load_to_lds_wave_16x16_dwordx2_wait(%a_global, %lds_a_base_off, %i_pos, %k_pos, %K_SIZE, %ii_pos, %kk_pos, %K_TILE_SIZE)
+        func.call @global_load_to_lds_wave_16x16_f16_wait(
+            %a_global, %lds_a_base_off, %i_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
           : (!sx2, index, index, index, index, index, index, index) -> ()
       } {amdgcn.constexpr}
 
@@ -133,7 +144,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         // Calculate positions
         %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-        func.call @global_load_to_lds_wave_16x16_dwordx2_wait(%b_global, %lds_b_base_off, %j_pos, %k_pos, %K_SIZE, %jj_pos, %kk_pos, %K_TILE_SIZE)
+        func.call @global_load_to_lds_wave_16x16_f16_wait(
+            %b_global, %lds_b_base_off, %j_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
           : (!sx2, index, index, index, index, index, index, index) -> ()
       } {amdgcn.constexpr}
 
@@ -155,7 +167,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
         // Compute the wavefront-level contraction and update the C fragment
         %acc = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-        %updated_acc = func.call @wavefront_contract(%lds_a_base_off, %lds_b_base_off, %K_TILE_SIZE , %ii_pos, %jj_pos, %kk_pos, %acc)
+        %updated_acc = func.call @wavefront_contract(%lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K , %ii_pos, %jj_pos, %kk_pos, %acc)
           : (index, index, index, index, index, index, !vx4) -> !vx4
         memref.store %updated_acc, %c_fragments[%d_mmnn] : memref<?x!vx4>
       } {amdgcn.constexpr}
@@ -175,7 +187,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
       // Store the fragment
       %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-      func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(%fragment, %c_global, %i_pos, %j_pos, %N_SIZE, %ii_pos, %jj_pos)
+      %GLOBAL_C_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
+        (SIZE_N * 4)>()[%SIZE_N]
+      func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
+          %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_C_STRIDE_IN_BYTES, %ii_pos, %jj_pos)
         : (!vx4, !sx2, index, index, index, index, index) -> ()
     } {amdgcn.constexpr}
 

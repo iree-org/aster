@@ -182,7 +182,7 @@ class TestGlobalLoadDsWrite:
 
         compile_and_run("test_global_load_ds_write", [input_data], output)
 
-        # The data flow is identical to global_load_to_lds_wave_16x16_dwordx2_wait
+        # The data flow is identical to global_load_to_lds_wave_16x16_f16_wait
         expected = np.zeros(num_threads * 4, dtype=np.uint16)
         for tid in range(num_threads):
             lane_id = tid % 64

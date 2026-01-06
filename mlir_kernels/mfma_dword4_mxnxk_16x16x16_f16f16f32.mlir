@@ -370,27 +370,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           {sched.delay = 0 : i64, sched.rate = 1 : i64, sched.permutation = array<i64: 0, 2, 1>}
         : (i1, index, index, memref<?x?x!amdgcn.vgpr_range<[? + 4]>>) -> ()
 
-      // // WARNING: if we bring this too early, canonicalization will fuse it with
-      // // the prior scf.if ignoring scheduling attributes..
-      // // Part 1b: DS write for A
-      // func.call @ds_write_body_if(%is_first_n, %tidx, %bidx, %bdimx, %gdimx, %m, %k, %M, %K, %a_memref, %c0_i32)
-      //   : (i1, index, index, index, index, index, index, index, memref<?x?x!amdgcn.vgpr_range<[? + 2]>>, i32) -> ()
-      //
-      // // WARNING: if we bring this too early, canonicalization will fuse it with
-      // // the prior scf.if ignoring scheduling attributes..
-      // // Part 2b: DS write for B
-      // func.call @ds_write_body_if(%is_first_m, %tidx, %bidx, %bdimx, %gdimx, %k, %n, %K, %N, %b_memref, %clds_b_shift_i32)
-      //   : (i1, index, index, index, index, index, index, index, memref<?x?x!amdgcn.vgpr_range<[? + 2]>>, i32) -> ()
-
-      // // Part 1c: DS read for A
-      // func.call @ds_read_body_if(%is_first_n, %tidx, %bidx, %bdimx, %gdimx, %m, %k, %M, %K, %a_memref, %c0_i32)
-      //   : (i1, index, index, index, index, index, index, index, memref<?x?x!amdgcn.vgpr_range<[? + 2]>>, i32) -> ()
-      //
-      // // Part 2c: DS read for B
-      // func.call @ds_read_body_if(%is_first_m, %tidx, %bidx, %bdimx, %gdimx, %k, %n, %K, %N, %b_memref, %clds_b_shift_i32)
-      //   : (i1, index, index, index, index, index, index, index, memref<?x?x!amdgcn.vgpr_range<[? + 2]>>, i32) -> ()
-      //
-
       // Call simple_mfma with delinearized indices
       func.call @simple_mfma(%m, %n, %k, %a_memref, %b_memref, %c_memref)
         {sched.delay = 5 : i64, sched.rate = 1 : i64, sched.permutation = array<i64: 0, 2, 1>}
