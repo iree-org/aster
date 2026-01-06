@@ -37,21 +37,31 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Loads from global memory to VGPRs, in a **synchronized fashion** (i.e.
   // waitcnt 0 are inserted after global_load).
-  // This function cooperatively loads 64 dwordx2 (i.e. 256 (16x16) f16 elements),
-  // depending on %num_rows:
-  //   - when %num_rows =  1, a 1x64xdwordx2 tile is loaded from global memory to VGPRs
-  //   - when %num_rows =  2, a 2x32xdwordx2 tile is loaded from global memory to VGPRs
-  //   - when %num_rows =  4, a 4x16xdwordx2 tile is loaded from global memory to VGPRs
-  //   - when %num_rows =  8, a  8x8xdwordx2 tile is loaded from global memory to VGPRs
-  //   - when %num_rows = 16, a 16x4xdwordx2 tile is loaded from global memory to VGPRs
-  //   - when %num_rows = 32, a 32x2xdwordx2 tile is loaded from global memory to VGPRs
-  //   - when %num_rows = 64, a 64x1xdwordx2 tile is loaded from global memory to VGPRs
+  // This function cooperatively loads 256 f16 elements arranged in a 16x16 matrix
+  // with a configurable number of rows with 64 global_load_dwordx2 operations
+  // (1 per thread).
+  //   - %num_rows =  1: tile is 1x64xdwordx2 (1x256xf16)
+  //   - %num_rows =  2: tile is 2x32xdwordx2 (2x128xf16)
+  //   - %num_rows =  4: tile is 4x16xdwordx2 ( 4x64xf16)
+  //   - %num_rows =  8: tile is  8x8xdwordx2 ( 8x32xf16)
+  //   - %num_rows = 16: tile is 16x4xdwordx2 (16x16xf16)
+  //   - %num_rows = 32: tile is 32x2xdwordx2 ( 32x8xf16)
+  //   - %num_rows = 64: tile is 64x1xdwordx2 ( 64x4xf16)
   // This can be configured for better global memory coalescing when %num_rows is not 1.
-  // This is typically useful when %N_SIZE is 64 (or greater), (resp. 32, 16, 8, 4, 2, 1).
-  // We use an extra %num_rows (instead of just %N_SIZE) to give the caller the
-  // option to use non-coalesced loads and obtain better flexibility (e.g. useful
-  // for pipelining)
+  // This is typically useful when %GLOBAL_STRIDE_IN_BYTES is 64xf16(or greater),
+  // (resp. 32xf16, 16xf16, 8xf16, 4xf16, 2xf16, 1xf16).
+  // We use an extra %num_rows (instead of just %GLOBAL_STRIDE_IN_BYTES) to give
+  // the caller the option to use non-coalesced loads and obtain better flexibility
+  // (e.g. useful for pipelining).
   //
+  // Notes:
+  // This models the read part of a more general copy function that can be
+  // generalized to different number of elements and different transfer sizes.
+  // The positions n_pos, m_pos, etc. are in number of elements; an adjustment
+  // by transfer_size / elt_size is needed to get the global memory offset.
+  //
+  // TODO: if we communicated results via opaque ptr + mem2reg, we could make
+  // this generic without templating MLIR.
   // TODO: also add a variant with upper bounds and buffer_load to handle boundary conditions.
   // TODO: add a static assert to enforce these.
   func.func private @global_load_wave_64xdwordx2_wait(
@@ -63,16 +73,19 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %nn_pos: index,                 // The inner-most minor-tile position
     %num_rows: index                // The number of rows in the 256 elements
   ) -> !vx2 {
-    // Constants
-    %elt_size = arith.constant 2 : index // f16 size in bytes
-    %wave_size = arith.constant 64 : index
+    // Constants that could become generic parameters if we communicated results
+    // via opaque ptr + mem2reg.
+    %elt_size = arith.constant 2 : index      // f16 size in bytes
+    %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
+    %wave_size = arith.constant 64 : index    // 64 threads per wave
 
     %num_cols = affine.apply affine_map<()[wave_size, num_rows]
       -> (wave_size ceildiv num_rows)>()[%wave_size, %num_rows]
 
     // Get local positions within the minor tile
     %mmm_pos, %nnn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
-    %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
+    %nnn_pos = affine.apply affine_map<()[nnn, transfer_size, elt_size] ->
+      (nnn * transfer_size ceildiv elt_size)>()[%nnn, %transfer_size, %elt_size]
 
     // Calculate global offset
     %off_reg = func.call @tiledx2_matrix_offset(
@@ -90,25 +103,31 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     return %loaded : !vx2
   }
 
-  // Write %value to LDS.
-  // This function cooperatively writes 64 dwordx2 (i.e. 256 (16x16) f16 elements),
-  // depending on %num_rows:
-  //   - when %num_rows =  1, a 1x64xdwordx2 tile is written from VGPRs to LDS
-  //   - when %num_rows =  2, a 2x32xdwordx2 tile is written from VGPRs to LDS
-  //   - when %num_rows =  4, a 4x16xdwordx2 tile is written from VGPRs to LDS
-  //   - when %num_rows =  8, a  8x8xdwordx2 tile is written from VGPRs to LDS
-  //   - when %num_rows = 16, a 16x4xdwordx2 tile is written from VGPRs to LDS
-  //   - when %num_rows = 32, a 32x2xdwordx2 tile is written from VGPRs to LDS
-  //   - when %num_rows = 64, a 64x1xdwordx2 tile is written from VGPRs to LDS
-  // This can be configured to match the memory coalescing needs needs of a producer
+  // Writes %value to LDS, in a **synchronized fashion** (i.e. waitcnt 0 is
+  // inserted after ds_write).
+  // This function cooperatively writes 256 f16 elements arranged in a 16x16 matrix
+  // with a configurable number of rows with 64 ds_write_b64 operations
+  // (1 per thread).
+  //   - %num_rows =  1: tile is 1x64xdwordx2 (1x256xf16)
+  //   - %num_rows =  2: tile is 2x32xdwordx2 (2x128xf16)
+  //   - %num_rows =  4: tile is 4x16xdwordx2 ( 4x64xf16)
+  //   - %num_rows =  8: tile is  8x8xdwordx2 ( 8x32xf16)
+  //   - %num_rows = 16: tile is 16x4xdwordx2 (16x16xf16)
+  //   - %num_rows = 32: tile is 32x2xdwordx2 ( 32x8xf16)
+  //   - %num_rows = 64: tile is 64x1xdwordx2 ( 64x4xf16)
+  // This can be configured to match the memory coalescing needs of a producer
   // global_load_wave_64xdwordx2_wait when %num_rows is not 1.
-  // This is typically useful when %N_SIZE is 64 (or greater), (resp. 32, 16, 8, 4, 2, 1).
-  // We use an extra %num_rows (instead of just %N_SIZE) to give the caller the
-  // option to use non-coalesced loads and obtain better flexibility (e.g. useful
-  // for pipelining)
+  // This is typically useful when %LDS_STRIDE_IN_BYTES is 64xf16 (or greater),
+  // (resp. 32xf16, 16xf16, 8xf16, 4xf16, 2xf16, 1xf16).
+  // We use an extra %num_rows (instead of just %LDS_STRIDE_IN_BYTES) to give
+  // the caller the option to use non-coalesced writes and obtain better flexibility
+  // (e.g. useful for pipelining).
   //
-  // TODO: also add a variant with upper bounds and buffer_load to handle boundary conditions.
-  // TODO: add a static assert to enforce these.
+  // Notes:
+  // This models the write part of a more general copy function that can be
+  // generalized to different number of elements and different transfer sizes.
+  // The positions nn_pos, mm_pos, etc. are in number of elements; an adjustment
+  // by transfer_size / elt_size is needed to get the LDS offset.
   func.func private @lds_write_wave_64xdwordx2_wait(
     %lds_base_off: index,        // The local base offset in LDS
     %mm_pos: index,              // The outer-most minor-tile position
@@ -117,16 +136,19 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %num_rows: index,            // The number of rows in the 256 elements
     %value: !vx2                 // The value to write to LDS
   ) {
-    // Constants
-    %elt_size = arith.constant 2 : index // dwordx2 size in bytes
-    %wave_size = arith.constant 64 : index
+    // Constants that could become generic parameters if we communicated results
+    // via opaque ptr + mem2reg.
+    %elt_size = arith.constant 2 : index      // f16 size in bytes
+    %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
+    %wave_size = arith.constant 64 : index    // 64 threads per wave
 
     %num_cols = affine.apply affine_map<()[wave_size, num_rows]
       -> (wave_size ceildiv num_rows)>()[%wave_size, %num_rows]
 
     // Get local positions within the minor tile
     %mmm_pos, %nnn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
-    %nnn_pos = affine.apply affine_map<()[nnn] -> (4 * nnn)>()[%nnn]
+    %nnn_pos = affine.apply affine_map<()[nnn, transfer_size, elt_size] ->
+      (nnn * transfer_size ceildiv elt_size)>()[%nnn, %transfer_size, %elt_size]
 
     // Calculate offset into LDS
     %off_lds_reg = func.call @tiled_matrix_offset(
@@ -148,7 +170,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // a **synchronized fashion** (i.e. waitcnt 0 are inserted after global_load
   // and after lds_write).
   // This function cooperatively loads a 16x16xf16 tile from global memory to LDS
-  // and forces num_rows to be 16, resulting in non-coalesced accesses
+  // and forces num_rows to be 16, resulting in non-coalesced accesses in order
+  // to preserve the 16x16 shape.
+  // TODO: support different global_load and lds_write num_rows, to achieve a
+  // reshape (only when we have a clear use for it).
   func.func private @global_load_to_lds_wave_16x16_f16_wait(
     %ptr: !sx2,                     // The global base pointer
     %lds_base_off: index,           // The local base offset in LDS
