@@ -294,4 +294,49 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     } {amdgcn.constexpr}
     return
   }
+
+  //===--------------------------------------------------------------------===//
+  // Multi-tile Global Load
+  //===--------------------------------------------------------------------===//
+  // Multi-tile version of global_load_wave_64xdwordx2_wait.
+  // Loads m_tiles x n_tiles 16x16 tiles from global memory.
+  // Results are stored in a provided memref of shape [m_tiles, n_tiles].
+  //
+  // This function enables loading larger regions (e.g., 16x64 = 4 tiles)
+  // for better memory coalescing while preserving the scheduling attributes.
+  // Each tile load includes its own waitcnt 0 (simpler wait strategy).
+  func.func private @global_load_wave_multi_tile_64xdwordx2_wait(
+    %ptr: !sx2,                      // Global base pointer
+    %m_pos: index,                   // Major-tile M position
+    %n_pos: index,                   // Major-tile N position
+    %GLOBAL_STRIDE_IN_BYTES: index,  // Stride in bytes
+    %mm_pos_base: index,             // Base minor-tile M position
+    %nn_pos_base: index,             // Base minor-tile N position
+    %num_rows: index,                // Coalescing configuration
+    %m_tiles: index,                 // Number of tiles in M direction
+    %n_tiles: index,                 // Number of tiles in N direction
+    %result_memref: memref<?x?x!vx2> // Output: m_tiles x n_tiles results
+  ) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+
+    scf.for %mt = %c0 to %m_tiles step %c1 {
+      scf.for %nt = %c0 to %n_tiles step %c1 {
+        // Compute minor-tile positions for this tile
+        %mm_pos = affine.apply affine_map<()[base, mt] ->
+          (base + mt * 16)>()[%mm_pos_base, %mt]
+        %nn_pos = affine.apply affine_map<()[base, nt] ->
+          (base + nt * 16)>()[%nn_pos_base, %nt]
+
+        // Load the tile
+        %loaded = func.call @global_load_wave_64xdwordx2_wait(
+          %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows)
+          : (!sx2, index, index, index, index, index, index) -> !vx2
+
+        // Store result in memref
+        memref.store %loaded, %result_memref[%mt, %nt] : memref<?x?x!vx2>
+      } {amdgcn.constexpr}
+    } {amdgcn.constexpr}
+    return
+  }
 }
