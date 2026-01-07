@@ -105,9 +105,9 @@ You can then set useful environment variables to load automatically upon venv ac
 ```
 cat >> .aster/bin/activate << 'EOF'
 
-export PATH=${PWD}/install/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/bin/:${PATH}
+export PATH=${PWD}/.aster/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/bin/:${PATH}
 
-export PYTHONPATH=${PYTHONPATH}:${PWD}/install/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
 
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
 EOF
