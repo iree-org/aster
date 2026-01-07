@@ -468,34 +468,45 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Each tile load includes its own waitcnt 0 (simpler wait strategy).
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
     %ptr: !sx2,                      // Global base pointer
-    %m_pos: index,                   // Major-tile M position
-    %n_pos: index,                   // Major-tile N position
+    %m_pos_base: index,                   // Major-tile M position
+    %n_pos_base: index,                   // Major-tile N position
     %GLOBAL_STRIDE_IN_BYTES: index,  // Stride in bytes
     %mm_pos_base: index,             // Base minor-tile M position
     %nn_pos_base: index,             // Base minor-tile N position
-    %num_rows: index,                // Coalescing configuration
     %m_tiles: index,                 // Number of tiles in M direction
     %n_tiles: index,                 // Number of tiles in N direction
-    %result_memref: memref<?x?x!vx2> // Output: m_tiles x n_tiles results
+    %result_memref: memref<?x!vx2> // Output: m_tiles x n_tiles results
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
 
-    scf.for %mt = %c0 to %m_tiles step %c1 {
-      scf.for %nt = %c0 to %n_tiles step %c1 {
+    // Each transfer does row_size * col_size elements, this is a reshape via a
+    // 256-size tile with a number of rows that is determined internaly by 
+    // global_load_wave_256xf16_via_dwordx2_wait.
+    %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
+    %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
+    %total_rows = affine.apply affine_map<()[m_tiles] -> (16 * m_tiles)>()[%m_tiles]
+    %total_cols = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
+
+    scf.for %mt = %c0 to %total_rows step %row_size {
+      scf.for %nt = %c0 to %total_cols step %col_size {
         // Compute minor-tile positions for this tile
-        %mm_pos = affine.apply affine_map<()[base, mt] ->
-          (base + mt * 16)>()[%mm_pos_base, %mt]
-        %nn_pos = affine.apply affine_map<()[base, nt] ->
-          (base + nt * 16)>()[%nn_pos_base, %nt]
+        %m_pos = affine.apply affine_map<()[base, mt] -> (base + mt)>()[%m_pos_base, %mt]
+        %mm_pos = affine.apply affine_map<()[base, mt] -> (base + mt)>()[%mm_pos_base, %mt]
+        %n_pos = affine.apply affine_map<()[base, nt] -> (base + nt)>()[%n_pos_base, %nt]
+        %nn_pos = affine.apply affine_map<()[base, nt] -> (base + nt)>()[%nn_pos_base, %nt]
 
         // Load the tile
         %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(
-          %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows)
+          %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %row_size)
           : (!sx2, index, index, index, index, index, index) -> !vx2
 
         // Store result in memref
-        memref.store %loaded, %result_memref[%mt, %nt] : memref<?x?x!vx2>
+        %i = affine.apply affine_map<()[mt, row_size] -> (mt ceildiv row_size)>()[%mt, %row_size]
+        %j = affine.apply affine_map<()[nt, col_size] -> (nt ceildiv col_size)>()[%nt, %col_size]
+        %J = affine.apply affine_map<()[total_cols, col_size] -> (total_cols ceildiv col_size)>()[%total_cols, %col_size]
+        %idx = affine.apply affine_map<()[i, j, J] -> (i * J + j)>()[%i, %j, %J]
+        memref.store %loaded, %result_memref[%idx] : memref<?x!vx2>
       } {amdgcn.constexpr}
     } {amdgcn.constexpr}
     return
@@ -511,35 +522,40 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Each tile write includes its own waitcnt 0 (simpler wait strategy).
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
     %lds_base_off: index,              // Base LDS offset
+    %mm_pos_base: index,               // Base minor-tile M position
+    %nn_pos_base: index,               // Base minor-tile N position
     %LDS_STRIDE_IN_BYTES: index,       // Stride in bytes
-    %num_rows: index,                  // Coalescing configuration
     %m_tiles: index,                   // Number of tiles in M direction
     %n_tiles: index,                   // Number of tiles in N direction
-    %values_memref: memref<?x?x!vx2>   // Input: m_tiles x n_tiles values
+    %values_memref: memref<?x!vx2>   // Input: m_tiles x n_tiles values
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %c16 = arith.constant 16 : index
 
-    scf.for %mt = %c0 to %m_tiles step %c1 {
-      scf.for %nt = %c0 to %n_tiles step %c1 {
+    // Each transfer does row_size * col_size elements, this is a reshape via a
+    // 256-size tile with a number of rows that is determined internaly by 
+    // lds_write_wave_256xf16_via_dwordx2_wait.
+    %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
+    %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
+    %total_rows = affine.apply affine_map<()[m_tiles] -> (16 * m_tiles)>()[%m_tiles]
+    %total_cols = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
+
+    scf.for %mt = %c0 to %total_rows step %row_size {
+      scf.for %nt = %c0 to %total_cols step %col_size {
         // Load value from memref
-        %value = memref.load %values_memref[%mt, %nt] : memref<?x?x!vx2>
+        %i = affine.apply affine_map<()[mt, row_size] -> (mt ceildiv row_size)>()[%mt, %row_size]
+        %j = affine.apply affine_map<()[nt, col_size] -> (nt ceildiv col_size)>()[%nt, %col_size]
+        %J = affine.apply affine_map<()[total_cols, col_size] -> (total_cols ceildiv col_size)>()[%total_cols, %col_size]
+        %idx = affine.apply affine_map<()[i, j, J] -> (i * J + j)>()[%i, %j, %J]
+        %value = memref.load %values_memref[%idx] : memref<?x!vx2>
 
-        // Calculate LDS offset for this tile: (mt * n_tiles + nt) * tile_size
-        // Each tile is 16 rows * LDS_STRIDE_IN_BYTES bytes
-        %tile_size = affine.apply affine_map<()[stride] -> (stride * 16)>()[%LDS_STRIDE_IN_BYTES]
-        %tile_idx = affine.apply affine_map<()[mt, nt, n_tiles] ->
-          (mt * n_tiles + nt)>()[%mt, %nt, %n_tiles]
-        %tile_lds_off = affine.apply affine_map<()[idx, size] ->
-          (idx * size)>()[%tile_idx, %tile_size]
-        %lds_tile_base_off = affine.apply affine_map<()[base, tile_off] ->
-          (base + tile_off)>()[%lds_base_off, %tile_lds_off]
+        // Compute minor-tile positions for this tile
+        %mm_pos = affine.apply affine_map<()[base, mt] -> (base + mt)>()[%mm_pos_base, %mt]
+        %nn_pos = affine.apply affine_map<()[base, nt] -> (base + nt)>()[%nn_pos_base, %nt]
 
         // Write the tile to LDS
-        // Pass %c0, %c0 for mm_pos, nn_pos since tile offset is already in lds_tile_base_off
         func.call @lds_write_wave_256xf16_via_dwordx2_wait(
-          %lds_tile_base_off, %c0, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %value)
+          %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %row_size, %value)
           : (index, index, index, index, index, !vx2) -> ()
       } {amdgcn.constexpr}
     } {amdgcn.constexpr}
