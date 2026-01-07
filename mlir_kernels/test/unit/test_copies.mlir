@@ -34,6 +34,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
   func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(!vx4, !sx2, index, index, index, index, index)
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
+  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(index, index, index, index, index, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Helper: store i32 to global at thread index
@@ -216,8 +217,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-  // Test @global_load_wave_multi_tile_256xf16_via_dwordx2_wait: load multiple tiles from global
-  // Load 2x3 tiles (32x48 region = six 16x16 tiles) and write each tile to LDS then output
+  // Test @global_load_wave_multi_tile_256xf16_via_dwordx2_wait and @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait
+  // Load 2x3 tiles (32x48 region = six 16x16 tiles) from global, write to LDS using multi-tile write, then read back and output
   amdgcn.kernel @test_global_load_multi_tile arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
@@ -250,7 +251,17 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
       %memref     // result memref
     ) : (!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>) -> ()
 
-    // Each thread reads its position in the tile
+    // Write all tiles to LDS using multi-tile LDS write
+    func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+      %c0,        // lds_base_off
+      %c32,       // LDS_STRIDE_IN_BYTES
+      %c16,       // num_rows
+      %c2, %c3,   // m_tiles=2, n_tiles=3
+      %memref     // values memref
+    ) : (index, index, index, index, index, memref<?x?x!vx2>) -> ()
+
+    // Read back from LDS and store to output
+    // Each thread reads its position in each tile
     %tid = gpu.thread_id x
     %c4 = arith.constant 4 : index
     %iii, %jjj = func.call @lane_delinearize_2d(%c16, %c4) : (index, index) -> (index, index)
@@ -265,22 +276,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     scf.for %mt = %c0 to %c2 step %c1 {
       // Iterate over 3 tiles in N dimension using scf.for with constexpr
       scf.for %nt = %c0 to %c3 step %c1 {
-        // Load tile from memref
-        %tile = memref.load %memref[%mt, %nt] : memref<?x?x!vx2>
-
         // Calculate LDS offset for this tile: (mt * 3 + nt) * 512 bytes
         %lds_tile_idx = affine.apply affine_map<()[mt, nt] -> (mt * 3 + nt)>()[%mt, %nt]
         %lds_tile_off = affine.apply affine_map<()[idx] -> (idx * 512)>()[%lds_tile_idx]
         %lds_tile_off_i32 = arith.index_cast %lds_tile_off : index to i32
-
-        // Write tile to LDS
-        func.call @lds_write_wave_256xf16_via_dwordx2_wait(
-          %lds_tile_off,  // lds_base_off for this tile
-          %c0, %c0,       // mm_pos, nn_pos
-          %c32,           // LDS_STRIDE_IN_BYTES
-          %c16,           // num_rows
-          %tile           // value
-        ) : (index, index, index, index, index, !vx2) -> ()
 
         // Read tile from LDS
         %dst = func.call @alloc_vgprx2() : () -> (!vx2)

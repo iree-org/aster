@@ -339,4 +339,49 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     } {amdgcn.constexpr}
     return
   }
+
+  //===--------------------------------------------------------------------===//
+  // Multi-tile version of lds_write_wave_256xf16_via_dwordx2_wait.
+  // Writes m_tiles x n_tiles 16x16 tiles to LDS.
+  // Values are read from a provided memref of shape [m_tiles, n_tiles].
+  //
+  // This function enables writing larger regions (e.g., 16x64 = 4 tiles)
+  // for connecting to better memory coalescing global loads multi-tile version.
+  // Each tile write includes its own waitcnt 0 (simpler wait strategy).
+  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+    %lds_base_off: index,              // Base LDS offset
+    %LDS_STRIDE_IN_BYTES: index,       // Stride in bytes
+    %num_rows: index,                  // Coalescing configuration
+    %m_tiles: index,                   // Number of tiles in M direction
+    %n_tiles: index,                   // Number of tiles in N direction
+    %values_memref: memref<?x?x!vx2>   // Input: m_tiles x n_tiles values
+  ) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c16 = arith.constant 16 : index
+
+    scf.for %mt = %c0 to %m_tiles step %c1 {
+      scf.for %nt = %c0 to %n_tiles step %c1 {
+        // Load value from memref
+        %value = memref.load %values_memref[%mt, %nt] : memref<?x?x!vx2>
+
+        // Calculate LDS offset for this tile: (mt * n_tiles + nt) * tile_size
+        // Each tile is 16 rows * LDS_STRIDE_IN_BYTES bytes
+        %tile_size = affine.apply affine_map<()[stride] -> (stride * 16)>()[%LDS_STRIDE_IN_BYTES]
+        %tile_idx = affine.apply affine_map<()[mt, nt, n_tiles] ->
+          (mt * n_tiles + nt)>()[%mt, %nt, %n_tiles]
+        %tile_lds_off = affine.apply affine_map<()[idx, size] ->
+          (idx * size)>()[%tile_idx, %tile_size]
+        %lds_tile_base_off = affine.apply affine_map<()[base, tile_off] ->
+          (base + tile_off)>()[%lds_base_off, %tile_lds_off]
+
+        // Write the tile to LDS
+        // Pass %c0, %c0 for mm_pos, nn_pos since tile offset is already in lds_tile_base_off
+        func.call @lds_write_wave_256xf16_via_dwordx2_wait(
+          %lds_tile_base_off, %c0, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %value)
+          : (index, index, index, index, index, !vx2) -> ()
+      } {amdgcn.constexpr}
+    } {amdgcn.constexpr}
+    return
+  }
 }
