@@ -30,9 +30,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
   // copies.mlir
-  func.func private @global_load_wave_64xdwordx2_wait(
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(
     !sx2, index, index, index, index, index, index) -> (!vx2)
-  func.func private @lds_write_wave_64xdwordx2_wait(
+  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
     index, index, index, index, index, !vx2) -> ()
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
@@ -80,7 +80,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %elt_size = arith.constant 2 : index // f16 size in bytes
       %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size] ->
         (SIZE_K * elt_size)>()[%SIZE_K, %elt_size]
-      %loaded = func.call @global_load_wave_64xdwordx2_wait(
+      %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(
           %a_global, %m_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %c0, %num_rows)
         : (!sx2, index, index, index, index, index, index) -> (!vx2)
       memref.store %loaded, %a_load_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
@@ -109,7 +109,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %elt_size = arith.constant 2 : index // f16 size in bytes
       %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size] ->
         (SIZE_K * elt_size)>()[%SIZE_K, %elt_size]
-      %loaded = func.call @global_load_wave_64xdwordx2_wait(
+      %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(
           %b_global, %n_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %nn_pos, %c0, %num_rows)
         : (!sx2, index, index, index, index, index, index) -> (!vx2)
       memref.store %loaded, %b_load_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
@@ -135,7 +135,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %elt_size = arith.constant 2 : index // f16 size in bytes
       %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
         (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
-      func.call @lds_write_wave_64xdwordx2_wait(
+      func.call @lds_write_wave_256xf16_via_dwordx2_wait(
           %lds_a_base_off, %mm_pos, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
         : (index, index, index, index, index, !vx2) -> ()
     }
@@ -160,7 +160,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %elt_size = arith.constant 2 : index // f16 size in bytes
       %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
         (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
-      func.call @lds_write_wave_64xdwordx2_wait(
+      func.call @lds_write_wave_256xf16_via_dwordx2_wait(
           %lds_b_base_off, %nn_pos, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
         : (index, index, index, index, index, !vx2) -> ()
     }

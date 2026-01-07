@@ -170,7 +170,7 @@ class TestStoreGlobalCFragmentWait:
 
 
 class TestGlobalLoadDsWrite:
-    """Test @global_load_wave_64xdwordx2_wait + @ds_write_dwordx2_wait functions."""
+    """Test @global_load_wave_256xf16_via_dwordx2_wait + @ds_write_dwordx2_wait functions."""
 
     def test_decoupled_load_store(self):
         """Load from global via memref, write to LDS, verify roundtrip."""
@@ -199,7 +199,7 @@ class TestGlobalLoadDsWrite:
 
 
 class TestGlobalLoadMultiTile:
-    """Test @global_load_wave_multi_tile_64xdwordx2_wait function."""
+    """Test @global_load_wave_multi_tile_256xf16_via_dwordx2_wait function."""
 
     def test_load_multi_tile_2x3(self):
         """Load 2x3 tiles (32x48 region = six 16x16 tiles) from global memory."""

@@ -64,7 +64,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // this generic without templating MLIR.
   // TODO: also add a variant with upper bounds and buffer_load to handle boundary conditions.
   // TODO: add a static assert to enforce these.
-  func.func private @global_load_wave_64xdwordx2_wait(
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(
     %ptr: !sx2,                     // The global base pointer
     %m_pos: index,                  // The outer-most major-tile position
     %n_pos: index,                  // The inner-most major-tile position
@@ -116,7 +116,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //   - %num_rows = 32: tile is 32x2xdwordx2 ( 32x8xf16)
   //   - %num_rows = 64: tile is 64x1xdwordx2 ( 64x4xf16)
   // This can be configured to match the memory coalescing needs of a producer
-  // global_load_wave_64xdwordx2_wait when %num_rows is not 1.
+  // global_load_wave_256xf16_via_dwordx2_wait when %num_rows is not 1.
   // This is typically useful when %LDS_STRIDE_IN_BYTES is 64xf16 (or greater),
   // (resp. 32xf16, 16xf16, 8xf16, 4xf16, 2xf16, 1xf16).
   // We use an extra %num_rows (instead of just %LDS_STRIDE_IN_BYTES) to give
@@ -128,7 +128,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // generalized to different number of elements and different transfer sizes.
   // The positions nn_pos, mm_pos, etc. are in number of elements; an adjustment
   // by transfer_size / elt_size is needed to get the LDS offset.
-  func.func private @lds_write_wave_64xdwordx2_wait(
+  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
     %lds_base_off: index,        // The local base offset in LDS
     %mm_pos: index,              // The outer-most minor-tile position
     %nn_pos: index,              // The inner-most minor-tile position
@@ -185,10 +185,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %LDS_STRIDE_IN_BYTES: index     // The inner-most major-tile size **in bytes** in LDS
   ) {
     %num_rows = arith.constant 16 : index
-    %loaded = func.call @global_load_wave_64xdwordx2_wait(
+    %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(
         %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows)
       : (!sx2, index, index, index, index, index, index) -> (!vx2)
-    func.call @lds_write_wave_64xdwordx2_wait(
+    func.call @lds_write_wave_256xf16_via_dwordx2_wait(
         %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
       : (index, index, index, index, index, !vx2) -> ()
     return
@@ -298,14 +298,14 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Multi-tile Global Load
   //===--------------------------------------------------------------------===//
-  // Multi-tile version of global_load_wave_64xdwordx2_wait.
+  // Multi-tile version of global_load_wave_256xf16_via_dwordx2_wait.
   // Loads m_tiles x n_tiles 16x16 tiles from global memory.
   // Results are stored in a provided memref of shape [m_tiles, n_tiles].
   //
   // This function enables loading larger regions (e.g., 16x64 = 4 tiles)
   // for better memory coalescing while preserving the scheduling attributes.
   // Each tile load includes its own waitcnt 0 (simpler wait strategy).
-  func.func private @global_load_wave_multi_tile_64xdwordx2_wait(
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
     %ptr: !sx2,                      // Global base pointer
     %m_pos: index,                   // Major-tile M position
     %n_pos: index,                   // Major-tile N position
@@ -329,7 +329,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
           (base + nt * 16)>()[%nn_pos_base, %nt]
 
         // Load the tile
-        %loaded = func.call @global_load_wave_64xdwordx2_wait(
+        %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(
           %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows)
           : (!sx2, index, index, index, index, index, index) -> !vx2
 

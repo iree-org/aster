@@ -28,12 +28,12 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @swizzle_C_16x16xf32() -> (index, index)
   // copies.mlir
   func.func private @global_load_to_lds_wave_16x16_f16_wait(!sx2, index, index, index, index, index, index, index)
-  func.func private @global_load_wave_64xdwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
-  func.func private @lds_write_wave_64xdwordx2_wait(index, index, index, index, index, !vx2) -> ()
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
+  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> ()
   func.func private @store_to_global_dword_wait(!v, !sx2, index, index, index)
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
   func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(!vx4, !sx2, index, index, index, index, index)
-  func.func private @global_load_wave_multi_tile_64xdwordx2_wait(!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Helper: store i32 to global at thread index
@@ -152,7 +152,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-  // Test @global_load_wave_64xdwordx2_wait + @lds_write_wave_64xdwordx2_wait: decoupled global load and LDS write
+  // Test @global_load_wave_256xf16_via_dwordx2_wait + @lds_write_wave_256xf16_via_dwordx2_wait: decoupled global load and LDS write
   // Load from global to memref, then write from memref to LDS, then read back from LDS
   amdgcn.kernel @test_global_load_ds_write arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
@@ -173,7 +173,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %memref = memref.cast %memref_static : memref<1x1x!vx2> to memref<?x?x!vx2>
 
     // Global load to memref, we know we are using 2B elements.
-    %loaded = func.call @global_load_wave_64xdwordx2_wait(
+    %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(
       %in_ptr,    // ptr
       %c0, %c0,   // m_pos, n_pos (major tile)
       %c32,       // GLOBAL_STRIDE_IN_BYTES
@@ -182,7 +182,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     ) : (!sx2, index, index, index, index, index, index) -> (!vx2)
 
     // DS write from memref to LDS
-    func.call @lds_write_wave_64xdwordx2_wait(
+    func.call @lds_write_wave_256xf16_via_dwordx2_wait(
       %c0,        // lds_base_off
       %c0, %c0,   // mm_pos, nn_pos
       %c32,       // LDS_STRIDE_IN_BYTES
@@ -216,7 +216,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-  // Test @global_load_wave_multi_tile_64xdwordx2_wait: load multiple tiles from global
+  // Test @global_load_wave_multi_tile_256xf16_via_dwordx2_wait: load multiple tiles from global
   // Load 2x3 tiles (32x48 region = six 16x16 tiles) and write each tile to LDS then output
   amdgcn.kernel @test_global_load_multi_tile arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
@@ -240,7 +240,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %memref = memref.cast %memref_static : memref<2x3x!vx2> to memref<?x?x!vx2>
 
     // Multi-tile global load: 2 tiles in M, 3 tiles in N (32x48 region)
-    func.call @global_load_wave_multi_tile_64xdwordx2_wait(
+    func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
       %in_ptr,    // ptr
       %c0, %c0,   // m_pos, n_pos (major tile)
       %c96,       // GLOBAL_STRIDE_IN_BYTES (48 f16 elements * 2 bytes)
@@ -274,7 +274,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         %lds_tile_off_i32 = arith.index_cast %lds_tile_off : index to i32
 
         // Write tile to LDS
-        func.call @lds_write_wave_64xdwordx2_wait(
+        func.call @lds_write_wave_256xf16_via_dwordx2_wait(
           %lds_tile_off,  // lds_base_off for this tile
           %c0, %c0,       // mm_pos, nn_pos
           %c32,           // LDS_STRIDE_IN_BYTES
