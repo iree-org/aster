@@ -1,5 +1,6 @@
 add_mlir_library(AsterUtilsTransforms
   AsterSelectiveInlining.cpp
+  FromAnyToPoison.cpp
   InlineExecuteRegion.cpp
   Transforms.cpp
   WrapCallsWithExecuteRegion.cpp
@@ -12,4 +13,5 @@ add_mlir_library(AsterUtilsTransforms
   MLIRIR
   MLIRPass
   MLIRTransformUtils
+  MLIRUBDialect
 )

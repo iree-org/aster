@@ -13,6 +13,7 @@
 
 namespace mlir {
 class Operation;
+class RewritePatternSet;
 } // namespace mlir
 
 namespace mlir::aster {
@@ -25,6 +26,10 @@ void wrapCallsWithExecuteRegion(Operation *op);
 /// Inlines all execute_region operations in the given operation, replacing
 /// them with their body contents.
 void inlineExecuteRegions(Operation *op);
+
+/// Populates the pattern set with the FromAnyOp to ub.poison conversion
+/// pattern.
+void populateFromAnyToPoisonPattern(RewritePatternSet &patterns);
 
 } // namespace aster_utils
 } // namespace mlir::aster

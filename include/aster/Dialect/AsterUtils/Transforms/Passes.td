@@ -55,4 +55,16 @@ def WrapCallsWithExecuteRegion : Pass<"aster-wrap-calls-with-execute-region"> {
   ];
 }
 
+def FromAnyToPoison : Pass<"aster-from-any-to-poison"> {
+  let summary = "Transform FromAnyOp to ub.poison";
+  let description = [{
+    This pass transforms `aster_utils.from_any` operations into `ub.poison`
+    operations. This is useful for lowering type-erased values to undefined
+    behavior when the original type cannot be recovered.
+  }];
+  let dependentDialects = [
+    "mlir::ub::UBDialect"
+  ];
+}
+
 #endif // ASTER_DIALECT_ASTERUTILS_TRANSFORMS_PASSES_TD

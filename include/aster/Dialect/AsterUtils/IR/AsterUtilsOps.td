@@ -122,6 +122,30 @@ def AsterUtils_ExecuteRegionOp : AsterUtils_Op<"execute_region", [
 }
 
 //===----------------------------------------------------------------------===//
+// FromAnyOp
+//===----------------------------------------------------------------------===//
+
+def AsterUtils_FromAnyOp : AsterUtils_Op<"from_any", [Pure]> {
+  let summary = "Convert an AnyType to a concrete type";
+  let description = [{
+    The `from_any` operation converts a value of AsterUtils AnyType to a
+    concrete type. This is the inverse of `to_any` and is used to recover
+    the original type from a type-erased value.
+
+    Example:
+    ```mlir
+    %value = aster_utils.from_any %any : i32
+    ```
+  }];
+  let arguments = (ins AsterUtils_AnyType:$input);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = [{
+    $input attr-dict `:` type($result)
+  }];
+  let hasFolder = 1;
+}
+
+//===----------------------------------------------------------------------===//
 // GridDimOp
 //===----------------------------------------------------------------------===//
 
@@ -153,6 +177,30 @@ def AsterUtils_ThreadIdOp : AsterUtils_Op<"thread_id", [
   let arguments = (ins DimAttr:$dim);
   let results = (outs I32:$result);
   let assemblyFormat = "$dim attr-dict";
+}
+
+//===----------------------------------------------------------------------===//
+// ToAnyOp
+//===----------------------------------------------------------------------===//
+
+def AsterUtils_ToAnyOp : AsterUtils_Op<"to_any", [Pure]> {
+  let summary = "Convert a value to AnyType";
+  let description = [{
+    The `to_any` operation converts any value to the AsterUtils AnyType.
+    This is useful for type-erasing values that need to be stored or passed
+    through generic interfaces.
+
+    Example:
+    ```mlir
+    %any = aster_utils.to_any %value : i32
+    ```
+  }];
+  let arguments = (ins AnyType:$input);
+  let results = (outs AsterUtils_AnyType:$result);
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input)
+  }];
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
