@@ -268,7 +268,19 @@ class TestGlobalLoadMultiTile:
                 expected[dst_idx] = src_idx
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
-            np.testing.assert_array_equal(output, expected)
+            try:
+                np.testing.assert_array_equal(output, expected)
+            except AssertionError as e:
+                diff = output != expected
+                diff_indices = np.where(diff)[0]
+                print(f"\nMismatch at {len(diff_indices)} indices:")
+                print(f"All mismatches:")
+                for idx in diff_indices:
+                    print(f"  index {idx}: got {output[idx]}, expected {expected[idx]}")
+                print(f"\nOutput shape: {output.shape}, Expected shape: {expected.shape}")
+                print(f"\nFull diff array:")
+                print(diff)
+                raise
 
 
 if __name__ == "__main__":
