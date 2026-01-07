@@ -86,6 +86,51 @@ void ExecuteRegionOp::getSuccessorRegions(
       RegionSuccessor(getOperation()->getParentOp(), getResults()));
 }
 
+//===----------------------------------------------------------------------===//
+// FromAnyOp
+//===----------------------------------------------------------------------===//
+
+/// Fold FromAnyOp(ToAnyOp(x)) to x when the types match.
+OpFoldResult FromAnyOp::fold(FoldAdaptor adaptor) {
+  Value value;
+  auto toAny = getInput().getDefiningOp<ToAnyOp>();
+  while (toAny) {
+    if (toAny.getInput().getType() != getType())
+      break;
+    value = toAny.getInput();
+    auto fromAny = value.getDefiningOp<FromAnyOp>();
+    if (!fromAny)
+      break;
+    toAny = fromAny.getInput().getDefiningOp<ToAnyOp>();
+  }
+  return value;
+}
+
+//===----------------------------------------------------------------------===//
+// ToAnyOp
+//===----------------------------------------------------------------------===//
+
+/// Fold ToAnyOp(FromAnyOp(x)) to x when the types match.
+OpFoldResult ToAnyOp::fold(FoldAdaptor adaptor) {
+  Value value;
+  Type type = getInput().getType();
+  auto fromAny = getInput().getDefiningOp<FromAnyOp>();
+  while (fromAny) {
+    if (fromAny.getType() != type)
+      break;
+    auto toAny = fromAny.getInput().getDefiningOp<ToAnyOp>();
+    if (!toAny || toAny.getInput().getType() != type)
+      break;
+    value = toAny;
+    fromAny = toAny.getInput().getDefiningOp<FromAnyOp>();
+  }
+  return value;
+}
+
+//===----------------------------------------------------------------------===//
+// IncGen
+//===----------------------------------------------------------------------===//
+
 #define GET_OP_CLASSES
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.cpp.inc"
 

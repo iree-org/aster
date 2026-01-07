@@ -12,9 +12,16 @@
 #define ASTER_DIALECT_ASTERUTILS_IR_ASTERUTILSTYPES_TD
 
 include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.td"
+include "mlir/IR/BuiltinTypeInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // AsterUtils types
 //===----------------------------------------------------------------------===//
+
+def AsterUtils_AnyType :
+  AsterUtils_Type<"AnyType", "any", [MemRefElementTypeInterface]> {
+  let description = "Any type";
+  let assemblyFormat = "";
+}
 
 #endif // ASTER_DIALECT_ASTERUTILS_IR_ASTERUTILSTYPES_TD

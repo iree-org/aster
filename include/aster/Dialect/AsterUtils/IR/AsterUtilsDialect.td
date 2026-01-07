@@ -25,7 +25,7 @@ def AsterUtils_Dialect : Dialect {
     The AsterUtils dialect provides utility operations for the Aster compiler.
   }];
   let cppNamespace = "::mlir::aster::aster_utils";
-  let useDefaultTypePrinterParser = 0;
+  let useDefaultTypePrinterParser = 1;
   let useDefaultAttributePrinterParser = 1;
   let extraClassDeclaration = [{
     private:
