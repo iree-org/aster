@@ -91,54 +91,33 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     return
   }
 
-  // DS write A (decoupled from global loads via memrefs)
-  func.func private @maybe_lds_write_A(
-    %k: index, %mm: index, %nn: index, %kk: index,  // indices
-    %K: index, %MM: index, %NN: index,  %KK: index, // sizes
-    %lds_a_base_off: index, %TILE_SIZE_K: index,    // base offset and stride for A
-    %a_load_memref: memref<?x?x?x!vx2>                // memref<reg> for decoupled LDS write
+  // Unified LDS write function (decoupled from global loads via memrefs).
+  // For A: call with (mm, kk, nn, MM, KK) → ii=mm, jj=kk, cond_iter=nn
+  // For B: call with (nn, kk, mm, NN, KK) → ii=nn, jj=kk, cond_iter=mm
+  // Executes write when cond_iter == 0, linearizes [ii, jj] by (II, JJ).
+  func.func private @maybe_lds_write(
+    %k: index, %ii: index, %jj: index, %cond_iter: index,  // indices (cond_iter is checked for zero)
+    %K: index, %II: index, %JJ: index,                     // sizes
+    %lds_base_off: index, %TILE_SIZE_K: index,             // base offset and stride
+    %load_memref: memref<?x?x?x!vx2>                       // memref<reg> for decoupled LDS write
   ) {
     %c0 = arith.constant 0 : index
-    %is_nn_zero = arith.cmpi eq, %nn, %c0 : index
-    scf.if %is_nn_zero {
-      %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
-      %mmkk = affine.linearize_index [%mm, %kk] by (%MM, %KK) : index
-      %mm_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%mmkk, %num_rows]
-      %loaded = memref.load %a_load_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
+    %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
+    scf.if %is_cond_zero {
+      %num_rows = affine.apply affine_map<()[JJ] -> (16 ceildiv JJ)>()[%JJ]
+      %iijj = affine.linearize_index [%ii, %jj] by (%II, %JJ) : index
+      %ii_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%iijj, %num_rows]
+      %loaded = memref.load %load_memref[%k, %ii, %jj] : memref<?x?x?x!vx2>
       %elt_size = arith.constant 2 : index // f16 size in bytes
       %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
         (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
       func.call @lds_write_wave_256xf16_via_dwordx2_wait(
-          %lds_a_base_off, %mm_pos, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
+          %lds_base_off, %ii_pos, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
         : (index, index, index, index, index, !vx2) -> ()
     }
     return
   }
 
-  // DS write B (decoupled from global loads via memrefs)
-  // Note: B is transposed (i.e. has layout NNxKK)
-  func.func private @maybe_lds_write_B(
-    %k: index, %mm: index, %nn: index, %kk: index,  // indices
-    %K: index, %MM: index, %NN: index,  %KK: index, // sizes
-    %lds_b_base_off: index, %TILE_SIZE_K: index,    // base offset and stride for B
-    %b_load_memref: memref<?x?x?x!vx2>                // memref<reg> for decoupled LDS write
-  ) {
-    %c0 = arith.constant 0 : index
-    %is_mm_zero = arith.cmpi eq, %mm, %c0 : index
-    scf.if %is_mm_zero {
-      %num_rows = affine.apply affine_map<()[KK] -> (16 ceildiv KK)>()[%KK]
-      %nnkk = affine.linearize_index [%nn, %kk] by (%NN, %KK) : index
-      %nn_pos = affine.apply affine_map<()[idx, num_rows] -> (idx * num_rows)>()[%nnkk, %num_rows]
-      %loaded = memref.load %b_load_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
-      %elt_size = arith.constant 2 : index // f16 size in bytes
-      %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
-        (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
-      func.call @lds_write_wave_256xf16_via_dwordx2_wait(
-          %lds_b_base_off, %nn_pos, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
-        : (index, index, index, index, index, !vx2) -> ()
-    }
-    return
-  }
   // LDS read A (decoupled from mfma via memrefs)
   func.func private @maybe_lds_read_A(
     %d_mmnnkk: index,
@@ -334,27 +313,27 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
               memref<?x?x?x!vx2>) -> ()
 
           // DS writes
-          // DS writeA (decoupled from global loads via memrefs)
-          func.call @maybe_lds_write_A(
-            %k, %mm, %nn, %kk,
-            %K, %MM, %NN, %KK,
+          // DS write A: ii=mm, jj=kk, cond_iter=nn
+          func.call @maybe_lds_write(
+            %k, %mm, %kk, %nn,
+            %K, %MM, %KK,
             %lds_a_base_off, %TILE_SIZE_K,
             %a_load_memref)
               {sched.delay = 5 : i64, sched.rate = 1 : i64}
             : (index, index, index, index,
-              index, index, index, index,
+              index, index, index,
               index, index,
               memref<?x?x?x!vx2>) -> ()
 
-          // DS writeB (decoupled from global loads via memrefs)
-          func.call @maybe_lds_write_B(
-            %k, %mm, %nn, %kk,
-            %K, %MM, %NN, %KK,
+          // DS write B: ii=nn, jj=kk, cond_iter=mm
+          func.call @maybe_lds_write(
+            %k, %nn, %kk, %mm,
+            %K, %NN, %KK,
             %lds_b_base_off, %TILE_SIZE_K,
             %b_load_memref)
               {sched.delay = 5 : i64, sched.rate = 1 : i64}
             : (index, index, index, index,
-              index, index, index, index,
+              index, index, index,
               index, index,
               memref<?x?x?x!vx2>) -> ()
 
