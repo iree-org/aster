@@ -2,12 +2,19 @@
 // These functions compute byte offsets for tiled data access patterns.
 
 !s   = !amdgcn.sgpr
+!sx1 = !amdgcn.sgpr_range<[? + 1]>
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx4 = !amdgcn.sgpr_range<[? + 4]>
 
 !v   = !amdgcn.vgpr
 !vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
+
+!a   = !amdgcn.agpr
+!ax1 = !amdgcn.agpr_range<[? + 1]>
+!ax2 = !amdgcn.agpr_range<[? + 2]>
+!ax4 = !amdgcn.agpr_range<[? + 4]>
 
 amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
@@ -158,20 +165,25 @@ amdgcn.library @common_indexing {
   // Input: (row, col) in fragment coordinates
   // Output: (row, swizzled_col) for LDS access
   // Formula: swizzled_col = col XOR (row / 4)
-  // We XOR the high 2 bits of col (col/4) with row_group (row/4)
+  // We XOR the high 2 bits of col (col / 4) with row_group (row / 4)
   func.func private @xor_swizzled_mfma_index_16xf16(%row: index, %col: index) -> (index, index) {
-    // row_group = row / 4 (values 0,1,2,3 for rows 0,4,8,12)
-    %row_group = affine.apply affine_map<()[r] -> (r floordiv 4)>()[%row]
+    // row_group = row / 4 (values 0, 1, 2, 3 for rows 0, 4, 8, 12)
+    %row_group = affine.apply affine_map<()[row] -> (row floordiv 4)>()[%row]
+  
     // col_low = col mod 4, col_high = col / 4
-    %col_low = affine.apply affine_map<()[c] -> (c mod 4)>()[%col]
-    %col_high = affine.apply affine_map<()[c] -> (c floordiv 4)>()[%col]
+    %col_low = affine.apply affine_map<()[col] -> (col mod 4)>()[%col]
+    %col_high = affine.apply affine_map<()[col] -> (col floordiv 4)>()[%col]
+  
     // XOR col_high with row_group using arith.xori
     %col_high_i32 = arith.index_cast %col_high : index to i32
     %row_group_i32 = arith.index_cast %row_group : index to i32
     %xored_i32 = arith.xori %col_high_i32, %row_group_i32 : i32
     %xored = arith.index_cast %xored_i32 : i32 to index
+  
     // Reconstruct: swizzled_col = xored * 4 + col_low
-    %swizzled_col = affine.apply affine_map<()[x, cl] -> (x * 4 + cl)>()[%xored, %col_low]
+    %swizzled_col = affine.apply affine_map<()[xored, col_low] 
+      -> (xored * 4 + col_low)>()[%xored, %col_low]
+
     return %row, %swizzled_col : index, index
   }
 

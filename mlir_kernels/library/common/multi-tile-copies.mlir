@@ -8,10 +8,19 @@
 // RUN: | FileCheck %s
 
 !s   = !amdgcn.sgpr
+!sx1 = !amdgcn.sgpr_range<[? + 1]>
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx4 = !amdgcn.sgpr_range<[? + 4]>
 
 !v   = !amdgcn.vgpr
+!vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
+!vx4 = !amdgcn.vgpr_range<[? + 4]>
+
+!a   = !amdgcn.agpr
+!ax1 = !amdgcn.agpr_range<[? + 1]>
+!ax2 = !amdgcn.agpr_range<[? + 2]>
+!ax4 = !amdgcn.agpr_range<[? + 4]>
 
 amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//

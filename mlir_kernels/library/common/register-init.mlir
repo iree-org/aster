@@ -1,14 +1,17 @@
 // Common register allocation functions for AMDGCN kernels.
 
 !s   = !amdgcn.sgpr
+!sx1 = !amdgcn.sgpr_range<[? + 1]>
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 !sx4 = !amdgcn.sgpr_range<[? + 4]>
 
 !v   = !amdgcn.vgpr
+!vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
 !a   = !amdgcn.agpr
+!ax1 = !amdgcn.agpr_range<[? + 1]>
 !ax2 = !amdgcn.agpr_range<[? + 2]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
 
@@ -17,6 +20,19 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // xGPR allocation functions
   //===--------------------------------------------------------------------===//
+  // Allocate a single VGPR
+  func.func private @alloc_vgpr() -> !v {
+    %r = amdgcn.alloca : !v
+    return %r : !v
+  }
+
+  // Allocate a VGPRx1 range
+  func.func private @alloc_vgprx1() -> !vx1 {
+    %r0 = amdgcn.alloca : !v
+    %range = amdgcn.make_register_range %r0 : !v
+    return %range : !vx1
+  }
+
   // Allocate a VGPRx2 range
   func.func private @alloc_vgprx2() -> !vx2 {
     %r0 = amdgcn.alloca : !v
@@ -35,6 +51,13 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     return %range : !vx4
   }
 
+  // Allocate a SGPRx1 range
+  func.func private @alloc_sgprx1() -> !sx1 {
+    %r0 = amdgcn.alloca : !s
+    %range = amdgcn.make_register_range %r0 : !s
+    return %range : !sx1
+  }
+
   // Allocate a SGPRx2 range
   func.func private @alloc_sgprx2() -> !sx2 {
     %r0 = amdgcn.alloca : !s
@@ -51,6 +74,13 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     %r3 = amdgcn.alloca : !s
     %range = amdgcn.make_register_range %r0, %r1, %r2, %r3 : !s, !s, !s, !s
     return %range : !sx4
+  }
+
+  // Allocate an AGPRx1 range
+  func.func private @alloc_agprx1() -> !ax1 {
+    %r0 = amdgcn.alloca : !a
+    %range = amdgcn.make_register_range %r0 : !a
+    return %range : !ax1
   }
 
   // Allocate an AGPRx2 range
