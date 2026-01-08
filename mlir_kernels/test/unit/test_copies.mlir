@@ -37,6 +37,12 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(!vx4, !sx2, index, index, index, index, index)
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, memref<?x!vx2>)
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(index, index, index, index, index, index, memref<?x!vx2>)
+  func.func private @global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
+  func.func private @lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index)
+  func.func private @lds_read_wave_16x16xf16_wait(index, index, index, index) -> !vx2
+  // multi_tile_copies.mlir
+  func.func private @maybe_global_load_multi_tile_simple(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
+  func.func private @maybe_lds_write_multi_tile_simple(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Helper: store i32 to global at thread index
@@ -339,6 +345,80 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     // Ensure all stores complete before kernel ends
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
+    amdgcn.end_kernel
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Test maybe_*_multi_tile_simple pattern from GEMM
+  // This tests the library functions from multi_tile_copies.mlir
+  //===--------------------------------------------------------------------===//
+  // Pattern: Loop over (ii, jj) indices, execute multi-tile load/write when
+  // ii % NT_I == 0 AND jj % NT_J == 0
+  // Input: 64x64 array (4x4 tiles of 16x16)
+  // Test with NT_I=2, NT_J=2 to exercise multiple batches
+  amdgcn.kernel @test_maybe_multi_tile_simple arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_only>,
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 16384 : i32} {
+    %in_ptr = amdgcn.load_arg 0 : !sx2
+    %out_ptr = amdgcn.load_arg 1 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c64 = arith.constant 64 : index // stride in elements
+
+    // Parameters: 4x4 tiles, load 2x2 tiles at a time
+    %K = arith.constant 1 : index    // Outer loop size (single iteration for simplicity)
+    %II = arith.constant 2 : index   // Total tiles in I dimension
+    %JJ = arith.constant 4 : index   // Total tiles in J dimension
+    %NT_I = arith.constant 2 : index // Multi-tile factor I
+    %NT_J = arith.constant 2 : index // Multi-tile factor J
+
+    // Allocate 2D memref for library functions: [K, NT_I*NT_J]
+    %load_memref_static = memref.alloca() : memref<1x4x!vx2>
+    %load_memref = memref.cast %load_memref_static : memref<1x4x!vx2> to memref<?x?x!vx2>
+
+    // Loop over all tile indices like in GEMM (single k iteration)
+    scf.for %ii = %c0 to %II step %c1 {
+      scf.for %jj = %c0 to %JJ step %c1 {
+        // Call library function for global load (k=0, cond_iter=0 to always execute when aligned)
+        func.call @maybe_global_load_multi_tile_simple(
+          %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
+          %K, %II, %JJ,                 // K, II, JJ
+          %NT_I, %NT_J,                 // NT_I, NT_J
+          %in_ptr, %c0, %c0, %c64,      // ptr, i_pos_base, j_pos_base, SIZE_J
+          %load_memref)                 // load_memref
+          : (index, index, index, index, index, index, index, index, index,
+             !sx2, index, index, index, memref<?x?x!vx2>) -> ()
+
+        // Call library function for LDS write (k=0, cond_iter=0)
+        func.call @maybe_lds_write_multi_tile_simple(
+          %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
+          %K, %II, %JJ,                 // K, II, JJ
+          %NT_I, %NT_J,                 // NT_I, NT_J
+          %c0, %c64,                    // lds_base_off, SIZE_J
+          %load_memref)                 // load_memref
+          : (index, index, index, index, index, index, index, index, index,
+             index, index, memref<?x?x!vx2>) -> ()
+      } {amdgcn.constexpr}
+    } {amdgcn.constexpr}
+
+    // Read back all tiles from LDS and write to output
+    %STRIDE_IN_BYTES = arith.constant 128 : index // 64 * 2 bytes
+    scf.for %ii = %c0 to %II step %c1 {
+      scf.for %jj = %c0 to %JJ step %c1 {
+        %m_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
+        %n_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
+
+        func.call @lds_to_global_wave_16x16xf16_wait(
+          %c0, %m_pos, %n_pos, %STRIDE_IN_BYTES,
+          %out_ptr, %m_pos, %n_pos, %STRIDE_IN_BYTES)
+          : (index, index, index, index, !sx2, index, index, index) -> ()
+      } {amdgcn.constexpr}
+    } {amdgcn.constexpr}
+
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
   }
 

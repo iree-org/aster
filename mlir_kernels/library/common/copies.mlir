@@ -468,20 +468,20 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Each tile load includes its own waitcnt 0 (simpler wait strategy).
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
     %ptr: !sx2,                      // Global base pointer
-    %m_pos_base: index,                   // Major-tile M position
-    %n_pos_base: index,                   // Major-tile N position
+    %m_pos_base: index,              // Major-tile M position
+    %n_pos_base: index,              // Major-tile N position
     %GLOBAL_STRIDE_IN_BYTES: index,  // Stride in bytes
     %mm_pos_base: index,             // Base minor-tile M position
     %nn_pos_base: index,             // Base minor-tile N position
     %m_tiles: index,                 // Number of tiles in M direction
     %n_tiles: index,                 // Number of tiles in N direction
-    %result_memref: memref<?x!vx2> // Output: m_tiles x n_tiles results
+    %result_memref: memref<?x!vx2>   // Output: m_tiles x n_tiles results
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
 
     // Each transfer does row_size * col_size elements, this is a reshape via a
-    // 256-size tile with a number of rows that is determined internaly by 
+    // 256-size tile with a number of rows that is determined internally by 
     // global_load_wave_256xf16_via_dwordx2_wait.
     %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
     %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
@@ -533,7 +533,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %c1 = arith.constant 1 : index
 
     // Each transfer does row_size * col_size elements, this is a reshape via a
-    // 256-size tile with a number of rows that is determined internaly by 
+    // 256-size tile with a number of rows that is determined internally by 
     // lds_write_wave_256xf16_via_dwordx2_wait.
     %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
     %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]

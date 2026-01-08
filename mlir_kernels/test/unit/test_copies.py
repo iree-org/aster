@@ -31,6 +31,7 @@ def get_library_paths():
         os.path.join(library_dir, "register_init.mlir"),
         os.path.join(library_dir, "indexing.mlir"),
         os.path.join(library_dir, "copies.mlir"),
+        os.path.join(library_dir, "multi-tile-copies.mlir"),
     ]
 
 
@@ -268,6 +269,49 @@ class TestGlobalLoadMultiTile:
                 print(f"Output: {output[diff_indices]}")
                 print(f"Expected: {input_data[diff_indices]}")
 
-if __name__ == "__main__":\
+class TestMaybeMultiTileSimple:
+    """Test the maybe_*_multi_tile_simple library functions.
+    
+    This isolates the indexing logic to debug NT_I/NT_J tile position bugs.
+    The pattern loops over (ii, jj) indices and executes multi-tile operations
+    when ii % NT_I == 0 AND jj % NT_J == 0.
+    """
+
+    def test_multi_tile_with_nt_2x2(self):
+        """Test with NT_I=2, NT_J=2 on a 32x64 array (2x4 tiles).
+
+        This test reveals the bug when ii or jj > 0 at execution time.
+        """
+        rows, cols = 32, 64
+
+        # Input: 64x64 matrix with values = linear index
+        input_data = np.arange(rows * cols, dtype=np.uint16)
+        output = np.zeros(rows * cols, dtype=np.uint16)
+
+        compile_and_run("test_maybe_multi_tile_simple", [input_data], output)
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            input_2d = input_data.reshape(rows, cols)
+            output_2d = output.reshape(rows, cols)
+
+            print("input_2d:")
+            print(input_2d)
+            print("output_2d:")
+            print(output_2d)
+
+            # Check which 16x16 tiles have correct data
+            for ti in range(2):
+                for tj in range(4):
+                    r0, r1 = ti * 16, (ti + 1) * 16
+                    c0, c1 = tj * 16, (tj + 1) * 16
+                    tile_in = input_2d[r0:r1, c0:c1]
+                    tile_out = output_2d[r0:r1, c0:c1]
+                    match = np.array_equal(tile_in, tile_out)
+                    print(f"Tile ({ti},{tj}) rows {r0}-{r1-1} cols {c0}-{c1-1}: {'✓' if match else '✗'}")
+
+            np.testing.assert_array_equal(output, input_data)
+
+
+if __name__ == "__main__":
     # Run a specific test for debugging
-    TestGlobalToLdsAndBack16x16().test_copy_tile_at_position_3_5()
+    TestMaybeMultiTileSimple().test_multi_tile_with_nt_2x2()
