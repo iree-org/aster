@@ -87,16 +87,16 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Copy tile at (48, 80) from global to LDS at base 0
     func.call @global_to_lds_wave_16x16xf16_wait(
-      %in_ptr, %c16, %c32, %c120, 
+      %in_ptr, %c16, %c32, %c120,
       %c0, %c16, %c32, %c32_2)
-      : (!sx2, index, index, index, 
+      : (!sx2, index, index, index,
          index, index, index, index) -> ()
 
     // Copy from LDS to global at position (48, 80)
     func.call @lds_to_global_wave_16x16xf16_wait(
       %c0, %c16, %c32, %c32_2,
       %out_ptr, %c16, %c32, %c120)
-      : (index, index, index, index, 
+      : (index, index, index, index,
          !sx2, index, index, index) -> ()
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -339,10 +339,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
               %c0, %lds_m, %lds_n, %c256,
               %out_ptr, %global_m, %global_n, %c256)
               : (index, index, index, index, !sx2, index, index, index) -> ()
-          } {amdgcn.constexpr}
-        } {amdgcn.constexpr}
-      } {amdgcn.constexpr}
-    } {amdgcn.constexpr}
+          } {aster.constexpr}
+        } {aster.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
 
     // Ensure all stores complete before kernel ends
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -403,8 +403,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
           %load_memref)                 // load_memref
           : (index, index, index, index, index, index, index, index, index,
              index, index, memref<?x?x!vx2>) -> ()
-      } {amdgcn.constexpr}
-    } {amdgcn.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
 
     // Read back all tiles from LDS and write to output
     %STRIDE_IN_BYTES = arith.constant 256 : index // 128 * 2 bytes
@@ -417,8 +417,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
           %c0, %m_pos, %n_pos, %STRIDE_IN_BYTES,
           %out_ptr, %m_pos, %n_pos, %STRIDE_IN_BYTES)
           : (index, index, index, index, !sx2, index, index, index) -> ()
-      } {amdgcn.constexpr}
-    } {amdgcn.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
@@ -477,8 +477,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
           %load_memref)                 // load_memref
           : (index, index, index, index, index, index, index, index, index,
              index, index, memref<?x?x!vx2>) -> ()
-      } {amdgcn.constexpr}
-    } {amdgcn.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
 
     // Read back all tiles from LDS and write to output
     %STRIDE_IN_BYTES = arith.constant 256 : index // 128 * 2 bytes
@@ -491,8 +491,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
           %c0, %m_pos, %n_pos, %STRIDE_IN_BYTES,
           %out_ptr, %m_pos, %n_pos, %STRIDE_IN_BYTES)
           : (index, index, index, index, !sx2, index, index, index) -> ()
-      } {amdgcn.constexpr}
-    } {amdgcn.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel

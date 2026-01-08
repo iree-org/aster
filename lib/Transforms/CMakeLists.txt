@@ -1,4 +1,5 @@
 add_mlir_library(AsterTransforms
+  ConstexprExpansion.cpp
   OpScheduling.cpp
   OptimizeArith.cpp
   ReplaceConstantGPUDims.cpp

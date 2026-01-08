@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --pass-pipeline="builtin.module(func.func(amdgcn-constexpr-expansion,cse,canonicalize,amdgcn-mem2reg))" | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline="builtin.module(func.func(aster-constexpr-expansion,cse,canonicalize,amdgcn-mem2reg))" | FileCheck %s
 
 
 // This test checks perfect interleaving of registers when unrolled.
@@ -23,7 +23,7 @@ func.func @test_interleaving() -> !amdgcn.vgpr_range<[? + 4]> {
     %5 = memref.load %3#1[] : memref<!amdgcn.vgpr_range<[? + 4]>>
     %6 = amdgcn.test_inst outs %5 ins %4 : (!amdgcn.vgpr_range<[? + 4]>, !amdgcn.vgpr_range<[? + 4]>) -> !amdgcn.vgpr_range<[? + 4]>
     memref.store %6, %3#1[] : memref<!amdgcn.vgpr_range<[? + 4]>>
-  } {amdgcn.constexpr}
+  } {aster.constexpr}
   %0 = memref.load %alloca[] : memref<!amdgcn.vgpr_range<[? + 4]>>
   return %0 : !amdgcn.vgpr_range<[? + 4]>
 }

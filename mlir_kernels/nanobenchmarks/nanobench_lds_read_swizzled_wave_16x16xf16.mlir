@@ -11,7 +11,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
 
-  amdgcn.kernel @nanobench_lds_read_swizzled_wave_16x16xf16 
+  amdgcn.kernel @nanobench_lds_read_swizzled_wave_16x16xf16
   attributes {shared_memory_size = {{LDS_SIZE}} : i32, block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>} {
 
     %c0 = arith.constant 0 : index
@@ -37,7 +37,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           // m_pos and n_pos are tile indices * 16
           %m_pos = arith.muli %ii, %c1 : index  // Would be ii * 16 in real usage
           %n_pos = arith.muli %jj, %c1 : index  // Would be jj * 16 in real usage
-          
+
           // Call the LDS read function
           %result = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
             %c0,                  // lds_base
@@ -47,13 +47,11 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           ) : (index, index, index, index) -> !vx2
           // Prevent DCE - erased just before translation to assembly with amdgcn-remove-test-inst
           amdgcn.test_inst ins %result : (!vx2) -> ()
-        } {amdgcn.constexpr}
-      } {amdgcn.constexpr}
-    } {amdgcn.constexpr}
+        } {aster.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     amdgcn.end_kernel
   }
 }
-
-

@@ -82,8 +82,8 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
 
           %tile_idx = affine.apply affine_map<()[i, j, NT_J] -> (i * NT_J + j)>()[%i, %j, %NT_J]
           memref.store %value, %load_memref[%k, %tile_idx] : memref<?x?x!vx2>
-        } {amdgcn.constexpr}
-      } {amdgcn.constexpr}
+        } {aster.constexpr}
+      } {aster.constexpr}
     }
 
     return
@@ -145,8 +145,8 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
           func.call @lds_write_wave_16x16xf16_wait(
             %value, %lds_base_off, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES)
             : (!vx2, index, index, index, index) -> ()
-        } {amdgcn.constexpr}
-      } {amdgcn.constexpr}
+        } {aster.constexpr}
+      } {aster.constexpr}
     }
     return
   }
@@ -178,7 +178,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %c1 = arith.constant 1 : index
 
     // Each transfer does row_size * col_size elements, this is a reshape via a
-    // 256-size tile with a number of rows that is determined internally by 
+    // 256-size tile with a number of rows that is determined internally by
     // global_load_wave_256xf16_via_dwordx2_wait.
     %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
     %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
@@ -205,8 +205,8 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
         %J = affine.apply affine_map<()[total_cols, col_size] -> (total_cols ceildiv col_size)>()[%total_cols, %col_size]
         %idx = affine.apply affine_map<()[i, j, J] -> (i * J + j)>()[%i, %j, %J]
         memref.store %loaded, %result_memref[%idx] : memref<?x!vx2>
-      } {amdgcn.constexpr}
-    } {amdgcn.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
     return
   }
 
@@ -280,7 +280,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
       scf.for %idx = %c0 to %NT_IJ step %c1 {
         %loaded = memref.load %temp_memref[%idx] : memref<?x!vx2>
         memref.store %loaded, %load_memref[%k, %idx] : memref<?x?x!vx2>
-      } {amdgcn.constexpr}
+      } {aster.constexpr}
     }
 
     return
@@ -311,7 +311,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %c1 = arith.constant 1 : index
 
     // Each transfer does row_size * col_size elements, this is a reshape via a
-    // 256-size tile with a number of rows that is determined internally by 
+    // 256-size tile with a number of rows that is determined internally by
     // lds_write_wave_256xf16_via_dwordx2_wait.
     %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
     %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
@@ -335,8 +335,8 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
         func.call @lds_write_wave_256xf16_via_dwordx2_wait(
           %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %row_size, %value)
           : (index, index, index, index, index, !vx2) -> ()
-      } {amdgcn.constexpr}
-    } {amdgcn.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
     return
   }
 
@@ -391,7 +391,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
       scf.for %idx = %c0 to %NT_IJ step %c1 {
         %loaded = memref.load %load_memref[%k, %idx] : memref<?x?x!vx2>
         memref.store %loaded, %temp_memref[%idx] : memref<?x!vx2>
-      } {amdgcn.constexpr}
+      } {aster.constexpr}
 
       // Write NT_I x NT_J tiles using bulk primitive
       func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
@@ -403,4 +403,3 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     return
   }
 }
-

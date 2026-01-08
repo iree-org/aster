@@ -365,8 +365,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             index, index, index, index,
             memref<?x?x!vx4>, !sx2, index, index, index) -> ()
 
-      } {amdgcn.constexpr, sched.dims = array<i64: {{LOOP_SIZE_D_MMNNKK}}> }
-    } {amdgcn.constexpr}
+      } {aster.constexpr, sched.dims = array<i64: {{LOOP_SIZE_D_MMNNKK}}> }
+    } {aster.constexpr}
 
     return
   }

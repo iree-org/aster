@@ -15,12 +15,12 @@ NANOBENCH_PASS_PIPELINE = (
     "  cse,canonicalize,amdgcn-mem2reg,"
     "  cse,canonicalize,symbol-dce,"
     "  aster-replace-constant-gpu-dims,cse,canonicalize,"
-    "  amdgcn-constexpr-expansion,cse,canonicalize,"
+    "  aster-constexpr-expansion,cse,canonicalize,"
     "  affine-expand-index-ops-as-affine,"
     "  cse,canonicalize,sroa,"
     "  cse,canonicalize,amdgcn-mem2reg,"
     "  cse,canonicalize,symbol-dce,"
-    "  amdgcn-constexpr-expansion,cse,canonicalize,"
+    "  aster-constexpr-expansion,cse,canonicalize,"
     "  amdgcn.module("
     "    amdgcn.kernel("
     "      aster-amdgcn-expand-md-ops"
@@ -56,4 +56,3 @@ def get_library_paths():
         os.path.join(library_dir, "copies.mlir"),
         os.path.join(library_dir, "multi-tile-copies.mlir"),
     ]
-

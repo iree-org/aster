@@ -19,7 +19,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     memref<?x?x!vx2>
   )
 
-  amdgcn.kernel @nanobench_lds_write_multi_tile 
+  amdgcn.kernel @nanobench_lds_write_multi_tile
   attributes {shared_memory_size = {{LDS_SIZE}} : i32, block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>} {
 
     %c0 = arith.constant 0 : index
@@ -54,12 +54,11 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
             %load_memref)                 // load_memref
             : (index, index, index, index, index, index, index, index, index,
                index, index, memref<?x?x!vx2>) -> ()
-        } {amdgcn.constexpr}
-      } {amdgcn.constexpr}
-    } {amdgcn.constexpr}
+        } {aster.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     amdgcn.end_kernel
   }
 }
-

@@ -109,7 +109,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     scf.for %c = %c0 to %d_MMNN step %c1 {
       %c_fragment = func.call @init_vgprx4(%c0_i32) : (i32) -> !vx4
       memref.store %c_fragment, %c_fragments[%c] : memref<?x!vx4>
-    } {amdgcn.constexpr}
+    } {aster.constexpr}
 
 
     // Loop over the k_pos dimension
@@ -133,7 +133,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         func.call @global_load_to_lds_wave_16x16_f16_wait(
             %a_global, %lds_a_base_off, %i_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
           : (!sx2, index, index, index, index, index, index, index) -> ()
-      } {amdgcn.constexpr}
+      } {aster.constexpr}
 
       // Load B tile into LDS
       scf.for %d_nnkk = %c0 to %d_NNKK step %c1 {
@@ -147,7 +147,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         func.call @global_load_to_lds_wave_16x16_f16_wait(
             %b_global, %lds_b_base_off, %j_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
           : (!sx2, index, index, index, index, index, index, index) -> ()
-      } {amdgcn.constexpr}
+      } {aster.constexpr}
 
       // Synchronize to ensure data is in LDS
       amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0 immutable
@@ -170,11 +170,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %updated_acc = func.call @wavefront_contract(%lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K , %ii_pos, %jj_pos, %kk_pos, %acc)
           : (index, index, index, index, index, index, !vx4) -> !vx4
         memref.store %updated_acc, %c_fragments[%d_mmnn] : memref<?x!vx4>
-      } {amdgcn.constexpr}
+      } {aster.constexpr}
 
       // Synchronize to ensure all threads are done using LDS
       amdgcn.sopp.sopp <s_barrier>
-    } {amdgcn.constexpr}
+    } {aster.constexpr}
 
     // Store C fragments to global memory
     scf.for %d_mmnn = %c0 to %d_MMNN step %c1 {
@@ -192,7 +192,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
           %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_C_STRIDE_IN_BYTES, %ii_pos, %jj_pos)
         : (!vx4, !sx2, index, index, index, index, index) -> ()
-    } {amdgcn.constexpr}
+    } {aster.constexpr}
 
     return
   }

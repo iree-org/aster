@@ -452,7 +452,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       // Store to global memory with wait
       func.call @store_to_global_dword_wait(%fragment, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
         : (!v, !sx2, index, index, index) -> ()
-    } {amdgcn.constexpr}
+    } {aster.constexpr}
     return
   }
 }

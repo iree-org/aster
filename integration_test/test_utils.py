@@ -117,7 +117,7 @@ DEFAULT_SROA_PASS_PIPELINE = (
     # Note: analysis does not support branches so full inlining is required.
     "  aster-selective-inlining{allow-scheduled-calls=true},"
     "  cse,canonicalize,symbol-dce,"
-    "  amdgcn-constexpr-expansion,cse,canonicalize,"
+    "  aster-constexpr-expansion,cse,canonicalize,"
     # Note: SROA requires inlining of everything and canonicalization of GPU
     # quantities to properly kick in.
     # TODO: NORMAL FORMS or include in pass.
@@ -125,7 +125,7 @@ DEFAULT_SROA_PASS_PIPELINE = (
     "  cse,canonicalize,sroa,"
     "  cse,canonicalize,amdgcn-mem2reg,"
     "  cse,canonicalize,symbol-dce,"
-    "  amdgcn-constexpr-expansion,cse,canonicalize,"
+    "  aster-constexpr-expansion,cse,canonicalize,"
     # Note: this really must happen on amdgcn.kernel within a module to ensure
     # that the pass happens correctly..
     "  amdgcn.module("
@@ -193,14 +193,14 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     "  aster-selective-inlining{allow-scheduled-calls=true},"
     "  cse,canonicalize,symbol-dce,"
     "  aster-replace-constant-gpu-dims,cse,canonicalize,"
-    "  amdgcn-constexpr-expansion,cse,canonicalize,"
+    "  aster-constexpr-expansion,cse,canonicalize,"
     # Note: SROA requires inlining of everything to properly kick in.
     # TODO: NORMAL FORMS or include in pass.
     "  affine-expand-index-ops-as-affine,"
     "  cse,canonicalize,sroa,"
     "  cse,canonicalize,amdgcn-mem2reg,"
     "  cse,canonicalize,symbol-dce,"
-    "  amdgcn-constexpr-expansion,cse,canonicalize,"
+    "  aster-constexpr-expansion,cse,canonicalize,"
     # Note: this really must happen on amdgcn.kernel within a module to ensure
     # that the pass happens correctly..
     "  amdgcn.module("

@@ -297,7 +297,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     scf.for %c = %c0 to %d_MMNN step %c1 {
       %c_fragment = func.call @init_vgprx4(%c0_i32) : (i32) -> !vx4
       memref.store %c_fragment, %c_fragments[%c] : memref<?x!vx4>
-    } {amdgcn.constexpr}
+    } {aster.constexpr}
 
 
     // M, N are fully distributed to blocks.
@@ -360,7 +360,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         : (index, index, index, index, index, index, index, index, index, index,
            index, index, index, memref<?x!vx4>, !sx2) -> ()
 
-    } {amdgcn.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, 3, {{LOOP_SIZE_D_MMNNKK}}> }
+    } {aster.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, 3, {{LOOP_SIZE_D_MMNNKK}}> }
 
     return
   }

@@ -3,7 +3,6 @@ add_mlir_library(
 
   AMDGCNNopInsertion.cpp
   AMDGCNOptimizeStraightLineWaits.cpp
-  ConstexprExpansion.cpp
   ExpandMetadataOps.cpp
   InstructionSchedulingAutoschedulePass.cpp
   HoistOps.cpp

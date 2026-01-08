@@ -54,16 +54,6 @@ def Mem2Reg : Pass<"amdgcn-mem2reg"> {
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
 }
 
-def ConstexprExpansion : Pass<"amdgcn-constexpr-expansion"> {
-  let summary = "Expand operations tagged with amdgcn.constexpr attribute";
-  let description = [{
-    This pass unrolls scf.for loops that have the "amdgcn.constexpr" attribute.
-    The attribute indicates that the loop bounds are compile-time constants
-    and the loop should be fully unrolled for AMDGCN code generation.
-  }];
-  let dependentDialects = ["mlir::scf::SCFDialect"];
-}
-
 def SetABI : Pass<"aster-amdgcn-set-abi"> {
   let summary = "Set AMDGCN ABI information";
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];

@@ -14,6 +14,20 @@
 include "mlir/Pass/PassBase.td"
 
 //===----------------------------------------------------------------------===//
+// ConstexprExpansion
+//===----------------------------------------------------------------------===//
+
+def ConstexprExpansion : Pass<"aster-constexpr-expansion"> {
+  let summary = "Expand operations tagged with aster.constexpr attribute";
+  let description = [{
+    This pass unrolls scf.for loops that have the "aster.constexpr" attribute.
+    The attribute indicates that the loop bounds are compile-time constants
+    and the loop should be fully unrolled.
+  }];
+  let dependentDialects = ["mlir::scf::SCFDialect"];
+}
+
+//===----------------------------------------------------------------------===//
 // OpScheduling
 //===----------------------------------------------------------------------===//
 

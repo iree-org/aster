@@ -8,7 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Transforms/Passes.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Utils/Utils.h"
@@ -17,10 +17,8 @@
 #include "mlir/Support/LLVM.h"
 
 namespace mlir::aster {
-namespace amdgcn {
 #define GEN_PASS_DEF_CONSTEXPREXPANSION
-#include "aster/Dialect/AMDGCN/Transforms/Passes.h.inc"
-} // namespace amdgcn
+#include "aster/Transforms/Passes.h.inc"
 } // namespace mlir::aster
 
 using namespace mlir;
@@ -31,8 +29,7 @@ namespace {
 // ConstexprExpansion pass
 //===----------------------------------------------------------------------===//
 struct ConstexprExpansion
-    : public mlir::aster::amdgcn::impl::ConstexprExpansionBase<
-          ConstexprExpansion> {
+    : public mlir::aster::impl::ConstexprExpansionBase<ConstexprExpansion> {
 public:
   using Base::Base;
   void runOnOperation() override;
@@ -46,11 +43,11 @@ public:
 void ConstexprExpansion::runOnOperation() {
   Operation *op = getOperation();
   op->walk([&](scf::ForOp forOp) {
-    if (!forOp->hasAttr("amdgcn.constexpr"))
+    if (!forOp->hasAttr("aster.constexpr"))
       return;
     if (failed(loopUnrollFull(forOp))) {
       forOp.emitWarning()
-          << "failed to unroll scf.for marked with amdgcn.constexpr attribute";
+          << "failed to unroll scf.for marked with aster.constexpr attribute";
     }
   });
 }
