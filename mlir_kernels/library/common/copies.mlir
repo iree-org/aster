@@ -6,14 +6,17 @@
 // RUN: | FileCheck %s
 
 !s   = !amdgcn.sgpr
+!sx1 = !amdgcn.sgpr_range<[? + 1]>
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 !sx4 = !amdgcn.sgpr_range<[? + 4]>
 
 !v   = !amdgcn.vgpr
+!vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
 !a   = !amdgcn.agpr
+!ax1 = !amdgcn.agpr_range<[? + 1]>
 !ax2 = !amdgcn.agpr_range<[? + 2]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
 
@@ -22,6 +25,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Library function declarations (provided by amdgcn-preload-library pass)
   //===--------------------------------------------------------------------===//
   // register_init.mlir
+  func.func private @alloc_vgpr() -> !v
+  func.func private @alloc_vgprx1() -> !vx1
   func.func private @alloc_vgprx2() -> !vx2
   func.func private @init_vgprx4(i32) -> !vx4
   // indexing.mlir
@@ -29,6 +34,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
+  func.func private @swizzle_16x16_helper() -> (index, index)
+  func.func private @xor_swizzle_16xf16(index, index) -> (index, index)
   func.func private @swizzle_A_16x16xf16() -> (index, index)
   func.func private @swizzle_C_16x16xf32() -> (index, index)
 
@@ -381,27 +388,60 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // fashion** (i.e. waitcnt 0 is inserted after the ds_read).
   // The caller is responsible for embedding distribution information into the
   // positions %m_pos and %n_pos.
+  //
+  // With XOR swizzling for bank conflict avoidance, the two dwords of the
+  // fragment may be at non-contiguous addresses, so we use two ds_read_b32
+  // operations and combine the results.
+  //
+  // For A matrix (column-major in LDS), each lane reads 4 f16 from 4 consecutive
+  // rows at the same column. The XOR swizzle pattern may place rows 0-1 and
+  // rows 2-3 at different swizzled addresses.
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     %lds_base: index,           // The local base offset in LDS
     %m_pos: index,              // The outer-most tile position
     %n_pos: index,              // The inner-most tile position
     %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
   ) -> !vx2 {
-    // Compute the swizzled positions
+    %c2 = arith.constant 2 : index
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %mm_pos, %nn_pos = func.call @swizzle_A_16x16xf16() : () -> (index, index)
-    %off_lds_reg = func.call @tiled_matrix_offset(
-        %m_pos, %n_pos, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size)
+
+    // Get the base (row, col) from lane indexing (before swizzle)
+    // row = (lane_id/16)*4, col = lane_id%16
+    %base_row, %col = func.call @swizzle_16x16_helper() : () -> (index, index)
+
+    // First dword: rows [base_row, base_row+1], same col
+    // Apply A-matrix swizzle (transpose: pass col as row, row as col to xor_swizzle)
+    %swizzled_row_0, %swizzled_col_0 = func.call @xor_swizzle_16xf16(%col, %base_row)
+      : (index, index) -> (index, index)
+    %off_lds_0 = func.call @tiled_matrix_offset(
+        %m_pos, %n_pos, %swizzled_row_0, %swizzled_col_0, %LDS_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index, index, index) -> !v
 
-    // Perform the DS read
-    %lds_base_i32 = arith.index_cast %lds_base : index to i32
-    %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-    %from_lds = amdgcn.ds.read #amdgcn.inst<ds_read_b64> %dst, %off_lds_reg, offset = %lds_base_i32
-      : !v, i32 -> !vx2
+    // Second dword: rows [base_row+2, base_row+3], same col
+    %row_plus_2 = arith.addi %base_row, %c2 : index
+    %swizzled_row_1, %swizzled_col_1 = func.call @xor_swizzle_16xf16(%col, %row_plus_2)
+      : (index, index) -> (index, index)
+    %off_lds_1 = func.call @tiled_matrix_offset(
+        %m_pos, %n_pos, %swizzled_row_1, %swizzled_col_1, %LDS_STRIDE_IN_BYTES, %elt_size)
+      : (index, index, index, index, index, index) -> !v
 
+    // Perform two DS reads (b32 each = 4 bytes = 2 f16)
+    %lds_base_i32 = arith.index_cast %lds_base : index to i32
+    %dst_0 = func.call @alloc_vgprx1() : () -> (!vx1)
+    %dst_1 = func.call @alloc_vgprx1() : () -> (!vx1)
+    %dword_0 = amdgcn.ds.read #amdgcn.inst<ds_read_b32> %dst_0, %off_lds_0, offset = %lds_base_i32
+      : !v, i32 -> !vx1
+    %dword_1 = amdgcn.ds.read #amdgcn.inst<ds_read_b32> %dst_1, %off_lds_1, offset = %lds_base_i32
+      : !v, i32 -> !vx1
+
+    // Wait for both reads to complete
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-    return %from_lds : !vx2
+
+    // Extract single registers from the ranges and combine into !vx2
+    %v0 = amdgcn.split_register_range %dword_0 : !vx1
+    %v1 = amdgcn.split_register_range %dword_1 : !vx1
+    %result = amdgcn.make_register_range %v0, %v1 : !v, !v
+    return %result : !vx2
   }
 
   // Store the `C` fragment (16x16xf32) from VGPRs to global memory, in a
