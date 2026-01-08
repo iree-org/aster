@@ -157,15 +157,20 @@ def compile_kernel_worker(config: GEMMConfig) -> Tuple[GEMMConfig, str]:
                 return x
 
             bench_dir = os.path.dirname(os.path.abspath(__file__))
-            register_init_lib = os.path.join(
-                bench_dir, "..", "library", "common", "register_init.mlir"
-            )
-            indexing_lib = os.path.join(
-                bench_dir, "..", "library", "common", "indexing.mlir"
-            )
-            copies_lib = os.path.join(
-                bench_dir, "..", "library", "common", "copies.mlir"
-            )
+            
+            def get_library_paths():
+                """Get paths to all required library files."""
+                library_dir = os.path.join(
+                    bench_dir, "..", "library", "common"
+                )
+                return [
+                    os.path.join(library_dir, "register_init.mlir"),
+                    os.path.join(library_dir, "indexing.mlir"),
+                    os.path.join(library_dir, "copies.mlir"),
+                    os.path.join(library_dir, "multi-tile-copies.mlir"),
+                ]
+            
+            library_paths = get_library_paths()
 
             asm_complete, _ = compile_mlir_file_to_asm(
                 config.mlir_file,
@@ -173,7 +178,7 @@ def compile_kernel_worker(config: GEMMConfig) -> Tuple[GEMMConfig, str]:
                 config.pass_pipeline,
                 ctx,
                 preprocess=preprocess,
-                library_paths=[register_init_lib, indexing_lib, copies_lib],
+                library_paths=library_paths,
                 print_ir_after_all=False,
                 print_timings=False,
             )

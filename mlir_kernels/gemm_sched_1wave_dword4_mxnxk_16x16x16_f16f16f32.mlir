@@ -38,6 +38,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     index, index, index, index) -> !vx2
   func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
     !vx4, !sx2, index, index, index, index, index) -> ()
+  // multi-tile-copies.mlir
+  func.func private @maybe_global_load_multi_tile_simple(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
+  func.func private @maybe_lds_write_multi_tile_simple(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
 
   // Initialize C (decoupled via memrefs).
   func.func private @maybe_init_C(
@@ -234,12 +237,19 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %NN = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_N]
     %KK = affine.apply affine_map<()[sz] -> (sz ceildiv 16)>()[%TILE_SIZE_K]
 
+    // Multi-tile factors: load/write multiple tiles at once
+    %NT_M = affine.min affine_map<()[MM] -> (4, MM)>()[%MM]
+    %NT_N = affine.min affine_map<()[NN] -> (4, NN)>()[%NN]
+    %NT_K = affine.min affine_map<()[KK] -> (4, KK)>()[%KK]
+
     // Allocate registers for the C fragment
     %c_fragments = memref.alloca(%MM, %NN) : memref<?x?x!vx4>
 
-    // Allocate memrefs for decoupled global loads -> DS writes
-    %a_load_memref = memref.alloca(%K, %MM, %KK) : memref<?x?x?x!vx2>
-    %b_load_memref = memref.alloca(%K, %NN, %KK) : memref<?x?x?x!vx2>
+    // Allocate memrefs for decoupled global loads -> DS writes (2D: [K, NT_I*NT_J])
+    %NT_MK = affine.apply affine_map<()[NT_M, NT_K] -> (NT_M * NT_K)>()[%NT_M, %NT_K]
+    %NT_NK = affine.apply affine_map<()[NT_N, NT_K] -> (NT_N * NT_K)>()[%NT_N, %NT_K]
+    %a_load_memref = memref.alloca(%K, %NT_MK) : memref<?x?x!vx2>
+    %b_load_memref = memref.alloca(%K, %NT_NK) : memref<?x?x!vx2>
 
     // Allocate memrefs for decoupled LDS reads -> mfma
     %a_frag_memref = memref.alloca(%K, %MM, %KK) : memref<?x?x?x!vx2>
@@ -256,47 +266,54 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
           %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
-          // Global load A: ii=mm, jj=kk, cond_iter=nn
-          func.call @maybe_global_load(
+          // Multi-tile global load A: ii=mm, jj=kk, cond_iter=nn
+          func.call @maybe_global_load_multi_tile_simple(
             %k, %mm, %kk, %nn,
             %K, %MM, %KK,
+            %NT_M, %NT_K,
             %a_global, %m_pos, %k_pos, %SIZE_K, %a_load_memref)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
             : (index, index, index, index,
               index, index, index,
-              !sx2, index, index, index, memref<?x?x?x!vx2>) -> ()
+              index, index,
+              !sx2, index, index, index, memref<?x?x!vx2>) -> ()
 
-          // Global load B: ii=nn, jj=kk, cond_iter=mm
-          func.call @maybe_global_load(
+          // Multi-tile global load B: ii=nn, jj=kk, cond_iter=mm
+          func.call @maybe_global_load_multi_tile_simple(
             %k, %nn, %kk, %mm,
             %K, %NN, %KK,
+            %NT_N, %NT_K,
             %b_global, %n_pos, %k_pos, %SIZE_K, %b_load_memref)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
             : (index, index, index, index,
               index, index, index,
-              !sx2, index, index, index,
-              memref<?x?x?x!vx2>) -> ()
+              index, index,
+              !sx2, index, index, index, memref<?x?x!vx2>) -> ()
 
-          // DS writes
-          // DS write A: ii=mm, jj=kk, cond_iter=nn
-          func.call @maybe_lds_write(
+          // Multi-tile DS writes
+          // Multi-tile DS write A: ii=mm, jj=kk, cond_iter=nn
+          func.call @maybe_lds_write_multi_tile_simple(
             %k, %mm, %kk, %nn,
             %K, %MM, %KK,
+            %NT_M, %NT_K,
             %lds_a_base_off, %TILE_SIZE_K, %a_load_memref)
               {sched.delay = 5 : i64, sched.rate = 1 : i64}
             : (index, index, index, index,
               index, index, index,
-              index, index, memref<?x?x?x!vx2>) -> ()
+              index, index,
+              index, index, memref<?x?x!vx2>) -> ()
 
-          // DS write B: ii=nn, jj=kk, cond_iter=mm
-          func.call @maybe_lds_write(
+          // Multi-tile DS write B: ii=nn, jj=kk, cond_iter=mm
+          func.call @maybe_lds_write_multi_tile_simple(
             %k, %nn, %kk, %mm,
             %K, %NN, %KK,
+            %NT_N, %NT_K,
             %lds_b_base_off, %TILE_SIZE_K, %b_load_memref)
               {sched.delay = 5 : i64, sched.rate = 1 : i64}
             : (index, index, index, index,
               index, index, index,
-              index, index, memref<?x?x?x!vx2>) -> ()
+              index, index,
+              index, index, memref<?x?x!vx2>) -> ()
 
           func.call @maybe_init_C(
             %k, %mm, %nn, %kk,
