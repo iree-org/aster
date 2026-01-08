@@ -130,6 +130,67 @@ class TestLoadAndReadLdsAFragmentWait:
             )
 
 
+class TestLdsReadSwizzledFragmentWaitXorSwizzled:
+    """Test @lds_read_A_wave_16x16xf16_fragment_wait function with XOR swizzling."""
+
+    def test_read_mfma_A_fragment_xor_swizzled(self):
+        """Read A fragment from LDS with XOR-swizzled MFMA A access pattern."""
+        num_threads = 64
+        # Input: 16x16 matrix of f16 values (stored as uint16)
+        # Each element is its linear index
+        input_data = np.arange(16 * 16, dtype=np.uint16)
+        # Output: each thread reads 8 bytes (4 f16 values = dwordx2)
+        output = np.zeros(num_threads * 4, dtype=np.uint16)
+
+        compile_and_run(
+            "test_lds_read_swizzled_A_wave_16x16xf16_fragment_wait",
+            [input_data],
+            output,
+        )
+
+        # Compute expected values: XOR swizzled read pattern
+        # The swizzle changes the access pattern based on XOR of row/col groups
+        expected = np.array([
+            # tid 0-3 (row 0 of output)
+            0, 1, 2, 3, 16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51,
+            # tid 4-7 (row 1 of output)
+            68, 69, 70, 71, 84, 85, 86, 87, 100, 101, 102, 103, 116, 117, 118, 119,
+            # tid 8-11 (row 2 of output)
+            136, 137, 138, 139, 152, 153, 154, 155, 168, 169, 170, 171, 184, 185, 186, 187,
+            # tid 12-15 (row 3 of output)
+            204, 205, 206, 207, 220, 221, 222, 223, 236, 237, 238, 239, 252, 253, 254, 255,
+            # tid 16-19 (row 4 of output)
+            4, 5, 6, 7, 20, 21, 22, 23, 36, 37, 38, 39, 52, 53, 54, 55,
+            # tid 20-23 (row 5 of output)
+            64, 65, 66, 67, 80, 81, 82, 83, 96, 97, 98, 99, 112, 113, 114, 115,
+            # tid 24-27 (row 6 of output)
+            140, 141, 142, 143, 156, 157, 158, 159, 172, 173, 174, 175, 188, 189, 190, 191,
+            # tid 28-31 (row 7 of output)
+            200, 201, 202, 203, 216, 217, 218, 219, 232, 233, 234, 235, 248, 249, 250, 251,
+            # tid 32-35 (row 8 of output)
+            8, 9, 10, 11, 24, 25, 26, 27, 40, 41, 42, 43, 56, 57, 58, 59,
+            # tid 36-39 (row 9 of output)
+            76, 77, 78, 79, 92, 93, 94, 95, 108, 109, 110, 111, 124, 125, 126, 127,
+            # tid 40-43 (row 10 of output)
+            128, 129, 130, 131, 144, 145, 146, 147, 160, 161, 162, 163, 176, 177, 178, 179,
+            # tid 44-47 (row 11 of output)
+            196, 197, 198, 199, 212, 213, 214, 215, 228, 229, 230, 231, 244, 245, 246, 247,
+            # tid 48-51 (row 12 of output)
+            12, 13, 14, 15, 28, 29, 30, 31, 44, 45, 46, 47, 60, 61, 62, 63,
+            # tid 52-55 (row 13 of output)
+            72, 73, 74, 75, 88, 89, 90, 91, 104, 105, 106, 107, 120, 121, 122, 123,
+            # tid 56-59 (row 14 of output)
+            132, 133, 134, 135, 148, 149, 150, 151, 164, 165, 166, 167, 180, 181, 182, 183,
+            # tid 60-63 (row 15 of output)
+            192, 193, 194, 195, 208, 209, 210, 211, 224, 225, 226, 227, 240, 241, 242, 243,
+        ], dtype=np.uint16)
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            print("actual:\n", output.reshape(16, 16))
+            print("expected:\n", expected.reshape(16, 16))
+            np.testing.assert_array_equal(output, expected)
+
+
 class TestStoreGlobalCFragmentWait:
     """Test @global_store_wave_16x16xf32_C_fragment_wait function."""
 
@@ -278,7 +339,7 @@ class TestMaybeMultiTileSimple:
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             input_2d = input_data.reshape(rows, cols)
             output_2d = output.reshape(rows, cols)
-            
+
             # Check which 16x16 tiles have correct data
             for ti in range(4):
                 for tj in range(8):

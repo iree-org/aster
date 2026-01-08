@@ -6,14 +6,17 @@
 // RUN: | FileCheck %s
 
 !s   = !amdgcn.sgpr
+!sx1 = !amdgcn.sgpr_range<[? + 1]>
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 !sx4 = !amdgcn.sgpr_range<[? + 4]>
 
 !v   = !amdgcn.vgpr
+!vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
 !a   = !amdgcn.agpr
+!ax1 = !amdgcn.agpr_range<[? + 1]>
 !ax2 = !amdgcn.agpr_range<[? + 2]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
 
@@ -22,6 +25,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Library function declarations (provided by amdgcn-preload-library pass)
   //===--------------------------------------------------------------------===//
   // register-init.mlir
+  func.func private @alloc_vgpr() -> !v
+  func.func private @alloc_vgprx1() -> !vx1
   func.func private @alloc_vgprx2() -> !vx2
   func.func private @init_vgprx4(i32) -> !vx4
   // indexing.mlir
@@ -29,6 +34,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
+  func.func private @mfma_index_16x16_helper() -> (index, index)
+  func.func private @xor_swizzled_mfma_index_16xf16(index, index) -> (index, index)
   func.func private @mfma_index_A_16x16xf16() -> (index, index)
   func.func private @mfma_index_C_16x16xf32() -> (index, index)
 
@@ -294,4 +301,41 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     } {aster.constexpr}
     return
   }
+
+  //===--------------------------------------------------------------------===//
+  // Swizzled MFMA fragment reads/writes
+  //===--------------------------------------------------------------------===//
+  // Read the `A` fragment (16x16xf16) from LDS to VGPRs, in a **synchronized
+  // fashion** (i.e. waitcnt 0 is inserted after the ds_read).
+  // The caller is responsible for embedding distribution information into the
+  // positions %m_pos and %n_pos.
+  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(
+    %lds_base: index,           // The local base offset in LDS
+    %m_pos: index,              // The outer-most tile position
+    %n_pos: index,              // The inner-most tile position
+    %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
+  ) -> !vx2 {
+    %c2 = arith.constant 2 : index
+    %elt_size = arith.constant 2 : index // f16 size in bytes
+
+    // Get the base (row, col) from lane indexing (before swizzle)
+    // row = (lane_id/16)*4, col = lane_id%16
+    %row, %col = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
+
+    // Apply A-matrix swizzle (transpose: pass col as row, row as col to xor_swizzle)
+    %swizzled_row_0, %swizzled_col_0 = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
+      : (index, index) -> (index, index)
+    %off_lds_0 = func.call @tiled_matrix_offset(
+        %m_pos, %n_pos, %swizzled_row_0, %swizzled_col_0, %LDS_STRIDE_IN_BYTES, %elt_size)
+      : (index, index, index, index, index, index) -> !v
+
+    %lds_base_i32 = arith.index_cast %lds_base : index to i32
+    %dst = func.call @alloc_vgprx2() : () -> (!vx2)
+    %result = amdgcn.ds.read #amdgcn.inst<ds_read_b64> %dst, %off_lds_0, offset = %lds_base_i32
+      : !v, i32 -> !vx2
+
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    return %result : !vx2
+  }
+
 }
