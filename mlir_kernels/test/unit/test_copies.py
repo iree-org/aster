@@ -11,6 +11,7 @@ from integration_test.test_utils import (
     SYNCHRONOUS_SROA_PASS_PIPELINE,
     hsaco_file,
 )
+from mlir_kernels.common import get_library_paths
 
 # Test configuration
 MCPU = "gfx942"
@@ -20,19 +21,6 @@ WAVEFRONT_SIZE = 64
 def get_mlir_file():
     """Get path to the test MLIR file."""
     return os.path.join(os.path.dirname(__file__), "test_copies.mlir")
-
-
-def get_library_paths():
-    """Get paths to all required library files."""
-    library_dir = os.path.join(
-        os.path.dirname(__file__), "..", "..", "library", "common"
-    )
-    return [
-        os.path.join(library_dir, "register_init.mlir"),
-        os.path.join(library_dir, "indexing.mlir"),
-        os.path.join(library_dir, "copies.mlir"),
-        os.path.join(library_dir, "multi-tile-copies.mlir"),
-    ]
 
 
 def compile_and_run(

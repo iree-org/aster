@@ -27,6 +27,7 @@ from mlir_kernels.benchmarks.benchmark_utils import (
     format_throughput_stats,
     run_benchmark,
 )
+from mlir_kernels.common import get_library_paths
 from mlir_kernels.gemm_config import validate_gemm_config
 
 
@@ -156,20 +157,6 @@ def compile_kernel_worker(config: GEMMConfig) -> Tuple[GEMMConfig, str]:
                 x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(LOOP_SIZE_D_MMNNKK))
                 return x
 
-            bench_dir = os.path.dirname(os.path.abspath(__file__))
-            
-            def get_library_paths():
-                """Get paths to all required library files."""
-                library_dir = os.path.join(
-                    bench_dir, "..", "library", "common"
-                )
-                return [
-                    os.path.join(library_dir, "register_init.mlir"),
-                    os.path.join(library_dir, "indexing.mlir"),
-                    os.path.join(library_dir, "copies.mlir"),
-                    os.path.join(library_dir, "multi-tile-copies.mlir"),
-                ]
-            
             library_paths = get_library_paths()
 
             asm_complete, _ = compile_mlir_file_to_asm(
