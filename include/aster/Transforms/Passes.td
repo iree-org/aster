@@ -14,6 +14,44 @@
 include "mlir/Pass/PassBase.td"
 
 //===----------------------------------------------------------------------===//
+// OpScheduling
+//===----------------------------------------------------------------------===//
+
+def OpScheduling : Pass<"aster-op-scheduling"> {
+  let summary = "Schedule operations based on delay and rate attributes";
+  let description = [{
+    This pass implements operation scheduling by reading delay and rate
+    attributes from operations and emitting them at the appropriate times.
+    It proceeds by taking charge of the unrolling of particular scf.for loops
+    marked with sched.apply and sched.dims attributes. It supports unrolling
+    across multiple dimensions.
+
+    Operations within the loop body can have the following attributes:
+    - "sched.delay" : i32 - Initial delay before first emission
+    - "sched.rate" : i32 - How often to emit (every N iterations)
+    - "sched.permutation" : array<i32> - Optional permutation for dimension
+      ordering. The convention is that the highest dimension is the fastest
+      varying dimension. More specifically, assuming an (i, j, k) iteration
+      space, of ranges [0, 1), [0, 2), [0, 3) and a permutation
+      array<i32: 2, 0, 1>, the operations will be emitted in the order:
+        - j fastest varying dimension
+        - i second fastest varying dimension
+        - k slowest varying dimension
+      In other words, the operations will be emitted in the order:
+        (0, 0, 0), (0, 1, 0), (0, 0, 1), (0, 1, 1), (0, 0, 2), (0, 1, 2)
+  }];
+  let options = [
+    Option<"numIterations", "num-iterations", "unsigned", "1",
+           "Number of global iterations to schedule">,
+    ListOption<"dimensions", "dims", "int64_t",
+               "Dimensions for multi-dimensional unrolling (e.g., --dims=4,4,4 for m,n,k)">,
+    Option<"testOnly", "test-only", "bool", "false",
+           "If true, add unroll attributes for testing purposes">,
+  ];
+  let dependentDialects = ["mlir::scf::SCFDialect"];
+}
+
+//===----------------------------------------------------------------------===//
 // ReplaceConstantGPUDims
 //===----------------------------------------------------------------------===//
 

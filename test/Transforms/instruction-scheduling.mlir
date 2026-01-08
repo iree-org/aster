@@ -1,4 +1,4 @@
-// RUN: aster-opt --amdgcn-instruction-scheduling="test-only=true" --allow-unregistered-dialect --mlir-disable-threading %s | FileCheck %s
+// RUN: aster-opt --aster-op-scheduling="test-only=true" --allow-unregistered-dialect --mlir-disable-threading %s | FileCheck %s
 
 // CHECK-LABEL: func.func @test_scheduling()
 // CHECK-NOT: scf.for

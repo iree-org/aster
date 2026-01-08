@@ -1,6 +1,6 @@
 // RUN: aster-opt %s \
 // RUN:   --aster-selective-inlining \
-// RUN:   --amdgcn-instruction-scheduling \
+// RUN:   --aster-op-scheduling \
 // RUN:   --aster-selective-inlining="allow-scheduled-calls=true" \
 // RUN:   --cse --canonicalize --sroa \
 // RUN:   --cse --canonicalize --amdgcn-mem2reg \

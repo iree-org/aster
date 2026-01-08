@@ -105,7 +105,7 @@ DEFAULT_SROA_PASS_PIPELINE = (
     "builtin.module("
     "  aster-selective-inlining,"
     "  amdgcn-instruction-scheduling-autoschedule,"
-    "  amdgcn-instruction-scheduling,"
+    "  aster-op-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
     "  aster-replace-constant-gpu-dims,cse,canonicalize,"
     # Note: SROA requires inlining of everything and canonicalization of GPU
@@ -181,7 +181,7 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     "builtin.module("
     "  aster-selective-inlining,"
     "  amdgcn-instruction-scheduling-autoschedule,"
-    "  amdgcn-instruction-scheduling,"
+    "  aster-op-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
     "  aster-replace-constant-gpu-dims,cse,canonicalize,"
     # Note: SROA requires inlining of everything to properly kick in.

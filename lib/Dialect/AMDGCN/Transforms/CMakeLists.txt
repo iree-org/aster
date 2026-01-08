@@ -5,7 +5,6 @@ add_mlir_library(
   AMDGCNOptimizeStraightLineWaits.cpp
   ConstexprExpansion.cpp
   ExpandMetadataOps.cpp
-  InstructionScheduling.cpp
   InstructionSchedulingAutoschedulePass.cpp
   HoistOps.cpp
   Mem2Reg.cpp

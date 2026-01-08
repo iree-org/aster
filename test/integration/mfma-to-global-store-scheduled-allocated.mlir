@@ -1,5 +1,5 @@
 // RUN: aster-opt %s --inline \
-// RUN:   --amdgcn-instruction-scheduling-autoschedule --amdgcn-instruction-scheduling \
+// RUN:   --amdgcn-instruction-scheduling-autoschedule --aster-op-scheduling \
 // RUN:   --cse --canonicalize --sroa \
 // RUN:   --cse --canonicalize --amdgcn-mem2reg \
 // RUN:   --cse --canonicalize --symbol-dce \

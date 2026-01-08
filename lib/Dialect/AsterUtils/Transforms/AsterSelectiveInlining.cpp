@@ -8,10 +8,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
 #include "aster/Dialect/AsterUtils/Transforms/Passes.h"
 #include "aster/Dialect/AsterUtils/Transforms/Transforms.h"
+#include "aster/Transforms/SchedUtils.h"
 
 #include "mlir/Analysis/CallGraph.h"
 #include "mlir/IR/Operation.h"
@@ -82,7 +82,7 @@ void AsterSelectiveInlining::runOnOperation() {
         if (!callOp)
           return true;
         // TODO: Remove this layering violation.
-        if (amdgcn::hasSchedAttribute(callOp))
+        if (hasSchedAttribute(callOp))
           return allowScheduled;
         return true;
       };

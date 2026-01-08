@@ -13,42 +13,29 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
-#include "aster/Dialect/AMDGCN/Transforms/Passes.h"
-#include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
-
+#include "aster/Transforms/Passes.h"
+#include "aster/Transforms/SchedUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
-#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/RegionUtils.h"
-
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
 
 namespace mlir::aster {
-namespace amdgcn {
-#define GEN_PASS_DEF_INSTRUCTIONSCHEDULING
-#include "aster/Dialect/AMDGCN/Transforms/Passes.h.inc"
-} // namespace amdgcn
+#define GEN_PASS_DEF_OPSCHEDULING
+#include "aster/Transforms/Passes.h.inc"
 } // namespace mlir::aster
 
-#define DEBUG_TYPE "amdgcn-instruction-scheduling"
+#define DEBUG_TYPE "aster-op-scheduling"
 
 namespace mlir::aster {
-namespace amdgcn {
 namespace {
 
 // Attribute name constants
@@ -332,10 +319,9 @@ materializeOpSchedule(OpBuilder &b, ArrayRef<ScheduledOp> scheduledOps,
   return clonedOps;
 }
 
-class InstructionSchedulingPass
-    : public impl::InstructionSchedulingBase<InstructionSchedulingPass> {
+class OpSchedulingPass : public impl::OpSchedulingBase<OpSchedulingPass> {
 public:
-  using InstructionSchedulingBase::InstructionSchedulingBase;
+  using OpSchedulingBase::OpSchedulingBase;
 
   void runOnOperation() override {
     // Walk through all scf.for loops in the module
@@ -429,6 +415,4 @@ private:
     forOp.erase();
   }
 };
-
-} // namespace amdgcn
 } // namespace mlir::aster

@@ -1,4 +1,4 @@
-//===- Transforms.h - Common transform constants --------------------------===//
+//===- SchedUtils.h - Schedule utility functions and constants  -----------===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,16 +8,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef AMDGCN_TRANSFORM_TRANSFORMS_H
-#define AMDGCN_TRANSFORM_TRANSFORMS_H
+#ifndef ASTER_TRANSFORMS_SCHEDUTILS_H
+#define ASTER_TRANSFORMS_SCHEDUTILS_H
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/StringRef.h"
 
 namespace mlir::aster {
-namespace amdgcn {
-
 // Schedule attribute name constants
 constexpr StringLiteral kSchedDelayAttr = "sched.delay";
 constexpr StringLiteral kSchedRateAttr = "sched.rate";
@@ -43,8 +41,6 @@ inline bool hasSchedAttribute(Operation *op) {
   }
   return false;
 }
-
-} // namespace amdgcn
 } // namespace mlir::aster
 
-#endif // AMDGCN_TRANSFORM_TRANSFORMS_H
+#endif // ASTER_TRANSFORMS_SCHEDUTILS_H

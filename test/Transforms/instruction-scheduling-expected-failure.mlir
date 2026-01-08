@@ -1,4 +1,4 @@
-// RUN: aster-opt --amdgcn-instruction-scheduling="num-iterations=1 dims=2,2,2 test-only=true" --allow-unregistered-dialect %s | FileCheck %s
+// RUN: aster-opt --aster-op-scheduling="num-iterations=1 dims=2,2,2 test-only=true" --allow-unregistered-dialect %s | FileCheck %s
 
 // Test that pass fails gracefully with a warning when scheduling violates SSA chains.
 

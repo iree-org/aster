@@ -10,7 +10,7 @@
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
-#include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
+#include "aster/Transforms/SchedUtils.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
