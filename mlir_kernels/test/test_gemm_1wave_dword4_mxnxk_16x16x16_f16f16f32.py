@@ -13,6 +13,7 @@ from integration_test.test_utils import (
     SYNCHRONOUS_SROA_PASS_PIPELINE,
     hsaco_file,
 )
+from mlir_kernels.common import get_library_paths
 from mlir_kernels.gemm_config import validate_gemm_config
 
 
@@ -69,19 +70,6 @@ def test_gemm_e2e_kernel(
 
     test_dir = os.path.dirname(os.path.abspath(__file__))
     mlir_file = os.path.join(test_dir, "..", mlir_filename)
-    
-    def get_library_paths():
-        """Get paths to all required library files."""
-        library_dir = os.path.join(
-            test_dir, "..", "library", "common"
-        )
-        return [
-            os.path.join(library_dir, "register_init.mlir"),
-            os.path.join(library_dir, "indexing.mlir"),
-            os.path.join(library_dir, "copies.mlir"),
-            os.path.join(library_dir, "multi-tile-copies.mlir"),
-        ]
-    
     library_paths = get_library_paths()
 
     # Validate configuration using shared validation logic

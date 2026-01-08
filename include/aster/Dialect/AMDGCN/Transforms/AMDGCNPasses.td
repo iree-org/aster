@@ -197,4 +197,13 @@ def PreloadLibrary : Pass<"amdgcn-preload-library", "mlir::ModuleOp"> {
   ];
 }
 
+def RemoveTestInst : Pass<"amdgcn-remove-test-inst"> {
+  let summary = "Remove all amdgcn.test_inst operations";
+  let description = [{
+    This pass removes all amdgcn.test_inst operations from the IR.
+    It is useful for cleaning up test instructions used to prevent DCE
+    in nanobenchmarks before final code generation.
+  }];
+}
+
 #endif // AMDGCN_PASSES

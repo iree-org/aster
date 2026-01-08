@@ -12,6 +12,7 @@ add_mlir_library(
   PreloadLibrary.cpp
   RegisterAlloc.cpp
   RegisterDealloc.cpp
+  RemoveTestInst.cpp
   SetABI.cpp
   SelectRegClasses.cpp
   ToAMDGCN.cpp
