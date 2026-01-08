@@ -41,7 +41,8 @@ NANOBENCH_PASS_PIPELINE = (
     "      amdgcn-register-allocation"
     "    )"
     "  ),"
-    "  amdgcn-nop-insertion{conservative-extra-delays=0}"
+    "  amdgcn-nop-insertion{conservative-extra-delays=0},"
+    "  amdgcn-remove-test-inst"
     ")"
 )
 
