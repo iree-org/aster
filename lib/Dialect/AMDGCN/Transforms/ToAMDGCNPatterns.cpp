@@ -136,6 +136,16 @@ struct OrIOpPattern : public OpRewritePattern<lsir::OrIOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// XOrIOpPattern
+//===----------------------------------------------------------------------===//
+
+struct XOrIOpPattern : public OpRewritePattern<lsir::XOrIOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::XOrIOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
 // RegCastOpPattern
 //===----------------------------------------------------------------------===//
 
@@ -948,6 +958,56 @@ LogicalResult OrIOpPattern::matchAndRewrite(lsir::OrIOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// XOrIOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult XOrIOpPattern::matchAndRewrite(lsir::XOrIOp op,
+                                             PatternRewriter &rewriter) const {
+  RegisterTypeInterface oTy = op.getType();
+  Value dst = op.getDst();
+  Value lhs = op.getLhs();
+  Value rhs = op.getRhs();
+  OperandKind kind = getOperandKind(oTy);
+  unsigned width = op.getSemantics().getWidth();
+  OperandKind lhsKind, rhsKind;
+
+  // Check we can transform this op
+  if (failed(checkAIOp(op, rewriter, kind, lhs, rhs, oTy, width, lhsKind,
+                       rhsKind, {32, 64}, {32})))
+    return failure();
+
+  Location loc = op.getLoc();
+  // Determine whether we need to use VOP3.
+  bool isVOp3 = rhsKind == OperandKind::SGPR;
+
+  // At this point, operands are valid - create the appropriate xor op
+  if (kind == OperandKind::SGPR) {
+    if (width == 32) {
+      Value result =
+          S_XOR_B32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+      rewriter.replaceOp(op, result);
+      return success();
+    }
+    Value result = S_XOR_B64::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+  // Move operand to lhs if needed
+  if (kind == OperandKind::VGPR &&
+      isOperand(rhsKind, {OperandKind::IntImm, OperandKind::SGPR})) {
+    std::swap(lhs, rhs);
+    std::swap(lhsKind, rhsKind);
+  }
+
+  // Handle the VGPR case
+  Value result = createVOP<OpCode::V_XOR_B32, OpCode::V_XOR_B32_E64>(
+      isVOp3, rewriter, loc, dst, lhs, rhs);
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MovOpPattern
 //===----------------------------------------------------------------------===//
 
@@ -1652,8 +1712,8 @@ void mlir::aster::amdgcn::populateToAMDGCNPatterns(
     RewritePatternSet &patterns) {
   patterns.add<AddIOpPattern, AllocaOpPattern, AssumeNoaliasOpPattern,
                AndIOpPattern, KernelOpPattern, LoadOpPattern, MovOpPattern,
-               MulIOpPattern, OrIOpPattern, RegCastOpPattern, ReturnOpPattern,
-               ShLIOpPattern, ShRSIOpPattern, ShRUIOpPattern, StoreOpPattern,
-               SubIOpPattern, TimingStartOpPattern, TimingStopOpPattern,
-               WaitOpPattern>(patterns.getContext());
+               MulIOpPattern, OrIOpPattern, XOrIOpPattern, RegCastOpPattern,
+               ReturnOpPattern, ShLIOpPattern, ShRSIOpPattern, ShRUIOpPattern,
+               StoreOpPattern, SubIOpPattern, TimingStartOpPattern,
+               TimingStopOpPattern, WaitOpPattern>(patterns.getContext());
 }

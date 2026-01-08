@@ -438,6 +438,36 @@ func.func @test_or_i64_sgpr(%dst: !amdgcn.sgpr_range<[? + 2]>, %lhs: !amdgcn.sgp
   return %res : !amdgcn.sgpr_range<[? + 2]>
 }
 
+// CHECK-LABEL:   func.func @test_xor_i32_vgpr(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr, %[[ARG2:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
+// CHECK:           %[[VAL_0:.*]] = amdgcn.vop2 v_xor_b32 outs %[[ARG0]] ins %[[ARG1]], %[[ARG2]] : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           return %[[VAL_0]] : !amdgcn.vgpr
+// CHECK:         }
+func.func @test_xor_i32_vgpr(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr{
+  %res = lsir.xori i32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr
+}
+
+// CHECK-LABEL:   func.func @test_xor_i32_sgpr(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr, %[[ARG1:.*]]: !amdgcn.sgpr, %[[ARG2:.*]]: !amdgcn.sgpr) -> !amdgcn.sgpr {
+// CHECK:           %[[VAL_0:.*]] = amdgcn.sop2 s_xor_b32 outs %[[ARG0]] ins %[[ARG1]], %[[ARG2]] : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+// CHECK:           return %[[VAL_0]] : !amdgcn.sgpr
+// CHECK:         }
+func.func @test_xor_i32_sgpr(%dst: !amdgcn.sgpr, %lhs: !amdgcn.sgpr, %rhs: !amdgcn.sgpr) -> !amdgcn.sgpr{
+  %res = lsir.xori i32 %dst, %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+  return %res : !amdgcn.sgpr
+}
+
+// CHECK-LABEL:   func.func @test_xor_i64_sgpr(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr_range<[? + 2]>, %[[ARG1:.*]]: !amdgcn.sgpr_range<[? + 2]>, %[[ARG2:.*]]: !amdgcn.sgpr_range<[? + 2]>) -> !amdgcn.sgpr_range<[? + 2]> {
+// CHECK:           %[[VAL_0:.*]] = amdgcn.sop2 s_xor_b64 outs %[[ARG0]] ins %[[ARG1]], %[[ARG2]] : !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>
+// CHECK:           return %[[VAL_0]] : !amdgcn.sgpr_range<[? + 2]>
+// CHECK:         }
+func.func @test_xor_i64_sgpr(%dst: !amdgcn.sgpr_range<[? + 2]>, %lhs: !amdgcn.sgpr_range<[? + 2]>, %rhs: !amdgcn.sgpr_range<[? + 2]>) -> !amdgcn.sgpr_range<[? + 2]>{
+  %res = lsir.xori i64 %dst, %lhs, %rhs : !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>
+  return %res : !amdgcn.sgpr_range<[? + 2]>
+}
+
 // CHECK-LABEL:   func.func @test_load_global_dword(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr_range<[? + 1]>, %[[ARG1:.*]]: !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr_range<[? + 1]> {
 // CHECK:           %[[FLAT_0:.*]] = amdgcn.flat.global_load <global_load_dword> %[[ARG0]], %[[ARG1]] : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]> -> <[? + 1]>
