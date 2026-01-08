@@ -277,11 +277,11 @@ class TestMaybeMultiTileSimple:
     when ii % NT_I == 0 AND jj % NT_J == 0.
     """
 
-    def test_multi_tile_with_nt_2x2(self):
-        """Test with NT_I=2, NT_J=2 on a 32x64 array (2x4 tiles)."""
-        rows, cols = 32, 64
+    def test_multi_tile_with_nt_2x4(self):
+        """Test with NT_I=2, NT_J=4 on a 64x128 array (4x8 tiles)."""
+        rows, cols = 64, 128
 
-        # Input: 64x64 matrix with values = linear index
+        # Input: 64x128 matrix with values = linear index
         input_data = np.arange(rows * cols, dtype=np.uint16)
         output = np.zeros(rows * cols, dtype=np.uint16)
 
@@ -290,9 +290,10 @@ class TestMaybeMultiTileSimple:
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             input_2d = input_data.reshape(rows, cols)
             output_2d = output.reshape(rows, cols)
+            
             # Check which 16x16 tiles have correct data
-            for ti in range(2):
-                for tj in range(4):
+            for ti in range(4):
+                for tj in range(8):
                     r0, r1 = ti * 16, (ti + 1) * 16
                     c0, c1 = tj * 16, (tj + 1) * 16
                     tile_in = input_2d[r0:r1, c0:c1]
@@ -311,11 +312,11 @@ class TestMaybeMultiTileCoalesced:
     lds_write_wave_multi_tile_256xf16_via_dwordx2_wait.
     """
 
-    def test_multi_tile_coalesced_with_nt_2x2(self):
-        """Test with NT_I=2, NT_J=2 on a 32x64 array (2x4 tiles)."""
-        rows, cols = 32, 64
+    def test_multi_tile_coalesced_with_nt_2x4(self):
+        """Test with NT_I=2, NT_J=4 on a 64x128 array (4x8 tiles)."""
+        rows, cols = 64, 128
 
-        # Input: 32x64 matrix with values = linear index
+        # Input: 64x128 matrix with values = linear index
         input_data = np.arange(rows * cols, dtype=np.uint16)
         output = np.zeros(rows * cols, dtype=np.uint16)
 
@@ -327,8 +328,8 @@ class TestMaybeMultiTileCoalesced:
             output_2d = output.reshape(rows, cols)
 
             # Check which 16x16 tiles have correct data
-            for ti in range(2):
-                for tj in range(4):
+            for ti in range(4):
+                for tj in range(8):
                     r0, r1 = ti * 16, (ti + 1) * 16
                     c0, c1 = tj * 16, (tj + 1) * 16
                     tile_in = input_2d[r0:r1, c0:c1]
@@ -341,4 +342,4 @@ class TestMaybeMultiTileCoalesced:
 
 if __name__ == "__main__":
     # Run a specific test for debugging
-    TestMaybeMultiTileCoalesced().test_multi_tile_coalesced_with_nt_2x2()
+    TestMaybeMultiTileCoalesced().test_multi_tile_coalesced_with_nt_2x4()
