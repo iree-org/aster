@@ -39,8 +39,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
     !vx4, !sx2, index, index, index, index, index) -> ()
   // multi-tile-copies.mlir
-  func.func private @maybe_global_load_multi_tile_simple(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
-  func.func private @maybe_lds_write_multi_tile_simple(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
+  func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
+  func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
 
   // Initialize C (decoupled via memrefs).
   func.func private @maybe_init_C(
@@ -262,12 +262,12 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           (MM * NN * KK)>
         ()[%MM, %NN, %KK]
       scf.for %idx = %c0 to %ub step %c1 {
-          %mm, %nn, %kk = affine.delinearize_index %idx into (%MM, %NN, %KK) : index, index, index
+          %mm, %kk, %nn = affine.delinearize_index %idx into (%MM, %KK, %NN) : index, index, index
           %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
           %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
           // Multi-tile global load A: ii=mm, jj=kk, cond_iter=nn
-          func.call @maybe_global_load_multi_tile_simple(
+          func.call @maybe_global_load_multi_tile_coalesced(
             %k, %mm, %kk, %nn,
             %K, %MM, %KK,
             %NT_M, %NT_K,
@@ -279,7 +279,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
               !sx2, index, index, index, memref<?x?x!vx2>) -> ()
 
           // Multi-tile global load B: ii=nn, jj=kk, cond_iter=mm
-          func.call @maybe_global_load_multi_tile_simple(
+          func.call @maybe_global_load_multi_tile_coalesced(
             %k, %nn, %kk, %mm,
             %K, %NN, %KK,
             %NT_N, %NT_K,
@@ -292,7 +292,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
           // Multi-tile DS writes
           // Multi-tile DS write A: ii=mm, jj=kk, cond_iter=nn
-          func.call @maybe_lds_write_multi_tile_simple(
+          func.call @maybe_lds_write_multi_tile_coalesced(
             %k, %mm, %kk, %nn,
             %K, %MM, %KK,
             %NT_M, %NT_K,
@@ -304,7 +304,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
               index, index, memref<?x?x!vx2>) -> ()
 
           // Multi-tile DS write B: ii=nn, jj=kk, cond_iter=mm
-          func.call @maybe_lds_write_multi_tile_simple(
+          func.call @maybe_lds_write_multi_tile_coalesced(
             %k, %nn, %kk, %mm,
             %K, %NN, %KK,
             %NT_N, %NT_K,
@@ -330,7 +330,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %k, %mm, %kk, %nn,
             %lds_a_base_off, %TILE_SIZE_K,
             %a_frag_memref)
-              {sched.delay = 0 : i64, sched.rate = 1 : i64}
+              {sched.delay = 4 : i64, sched.rate = 1 : i64}
             : (index, index, index, index,
               index, index,
               memref<?x?x?x!vx2>) -> ()
@@ -340,7 +340,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %k, %nn, %kk, %mm,
             %lds_b_base_off, %TILE_SIZE_K,
             %b_frag_memref)
-              {sched.delay = 0 : i64, sched.rate = 1 : i64}
+              {sched.delay = 4 : i64, sched.rate = 1 : i64}
             : (index, index, index, index,
               index, index,
               memref<?x?x?x!vx2>) -> ()
@@ -350,7 +350,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %k, %mm, %nn, %kk,
             %K, %MM, %NN, %KK,
             %a_frag_memref, %b_frag_memref, %c_fragments)
-              {sched.delay = 0 : i64, sched.rate = 1 : i64}
+              {sched.delay = 10 : i64, sched.rate = 1 : i64}
             : (index, index, index, index,
               index, index, index, index,
               memref<?x?x?x!vx2>, memref<?x?x?x!vx2>, memref<?x?x!vx4>) -> ()
@@ -360,7 +360,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %k, %mm, %nn, %kk,
             %K, %MM, %NN, %KK,
             %c_fragments, %c_global, %m_pos, %n_pos, %SIZE_N)
-              {sched.delay = 20 : i64, sched.rate = 1 : i64}
+              {sched.delay = 12 : i64, sched.rate = 1 : i64}
           : (index, index, index, index,
             index, index, index, index,
             memref<?x?x!vx4>, !sx2, index, index, index) -> ()
