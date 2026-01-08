@@ -368,18 +368,18 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %c64 = arith.constant 64 : index // stride in elements
+    %SIZE_J = arith.constant 128 : index
 
-    // Parameters: 4x4 tiles, load 2x2 tiles at a time
+    // Parameters: 4x8 tiles, load 2x4 tiles at a time
     %K = arith.constant 1 : index    // Outer loop size (single iteration for simplicity)
-    %II = arith.constant 2 : index   // Total tiles in I dimension
-    %JJ = arith.constant 4 : index   // Total tiles in J dimension
+    %II = arith.constant 4 : index   // Total tiles in I dimension
+    %JJ = arith.constant 8 : index   // Total tiles in J dimension
     %NT_I = arith.constant 2 : index // Multi-tile factor I
-    %NT_J = arith.constant 2 : index // Multi-tile factor J
+    %NT_J = arith.constant 4 : index // Multi-tile factor J
 
     // Allocate 2D memref for library functions: [K, NT_I*NT_J]
-    %load_memref_static = memref.alloca() : memref<1x4x!vx2>
-    %load_memref = memref.cast %load_memref_static : memref<1x4x!vx2> to memref<?x?x!vx2>
+    %load_memref_static = memref.alloca() : memref<1x8x!vx2>
+    %load_memref = memref.cast %load_memref_static : memref<1x8x!vx2> to memref<?x?x!vx2>
 
     // Loop over all tile indices like in GEMM (single k iteration)
     scf.for %ii = %c0 to %II step %c1 {
@@ -389,7 +389,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
           %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
           %K, %II, %JJ,                 // K, II, JJ
           %NT_I, %NT_J,                 // NT_I, NT_J
-          %in_ptr, %c0, %c0, %c64,      // ptr, i_pos_base, j_pos_base, SIZE_J
+          %in_ptr, %c0, %c0, %SIZE_J,   // ptr, i_pos_base, j_pos_base, SIZE_J
           %load_memref)                 // load_memref
           : (index, index, index, index, index, index, index, index, index,
              !sx2, index, index, index, memref<?x?x!vx2>) -> ()
@@ -399,7 +399,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
           %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
           %K, %II, %JJ,                 // K, II, JJ
           %NT_I, %NT_J,                 // NT_I, NT_J
-          %c0, %c64,                    // lds_base_off, SIZE_J
+          %c0, %SIZE_J,                 // lds_base_off, SIZE_J
           %load_memref)                 // load_memref
           : (index, index, index, index, index, index, index, index, index,
              index, index, memref<?x?x!vx2>) -> ()
@@ -407,7 +407,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     } {amdgcn.constexpr}
 
     // Read back all tiles from LDS and write to output
-    %STRIDE_IN_BYTES = arith.constant 128 : index // 64 * 2 bytes
+    %STRIDE_IN_BYTES = arith.constant 256 : index // 128 * 2 bytes
     scf.for %ii = %c0 to %II step %c1 {
       scf.for %jj = %c0 to %JJ step %c1 {
         %m_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
@@ -442,18 +442,18 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %c64 = arith.constant 64 : index // stride in elements
+    %SIZE_J = arith.constant 128 : index
 
-    // Parameters: 2x4 tiles, load 2x2 tiles at a time
+    // Parameters: 4x8 tiles, load 2x4 tiles at a time
     %K = arith.constant 1 : index    // Outer loop size (single iteration for simplicity)
-    %II = arith.constant 2 : index   // Total tiles in I dimension
-    %JJ = arith.constant 4 : index   // Total tiles in J dimension
+    %II = arith.constant 4 : index   // Total tiles in I dimension
+    %JJ = arith.constant 8 : index   // Total tiles in J dimension
     %NT_I = arith.constant 2 : index // Multi-tile factor I
-    %NT_J = arith.constant 2 : index // Multi-tile factor J
+    %NT_J = arith.constant 4 : index // Multi-tile factor J
 
     // Allocate 2D memref for library functions: [K, NT_I*NT_J]
-    %load_memref_static = memref.alloca() : memref<1x4x!vx2>
-    %load_memref = memref.cast %load_memref_static : memref<1x4x!vx2> to memref<?x?x!vx2>
+    %load_memref_static = memref.alloca() : memref<1x8x!vx2>
+    %load_memref = memref.cast %load_memref_static : memref<1x8x!vx2> to memref<?x?x!vx2>
 
     // Loop over all tile indices like in GEMM (single k iteration)
     scf.for %ii = %c0 to %II step %c1 {
@@ -463,7 +463,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
           %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
           %K, %II, %JJ,                 // K, II, JJ
           %NT_I, %NT_J,                 // NT_I, NT_J
-          %in_ptr, %c0, %c0, %c64,      // ptr, i_pos_base, j_pos_base, SIZE_J
+          %in_ptr, %c0, %c0, %SIZE_J,   // ptr, i_pos_base, j_pos_base, SIZE_J
           %load_memref)                 // load_memref
           : (index, index, index, index, index, index, index, index, index,
              !sx2, index, index, index, memref<?x?x!vx2>) -> ()
@@ -473,7 +473,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
           %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
           %K, %II, %JJ,                 // K, II, JJ
           %NT_I, %NT_J,                 // NT_I, NT_J
-          %c0, %c64,                    // lds_base_off, SIZE_J
+          %c0, %SIZE_J,                 // lds_base_off, SIZE_J
           %load_memref)                 // load_memref
           : (index, index, index, index, index, index, index, index, index,
              index, index, memref<?x?x!vx2>) -> ()
@@ -481,7 +481,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     } {amdgcn.constexpr}
 
     // Read back all tiles from LDS and write to output
-    %STRIDE_IN_BYTES = arith.constant 128 : index // 64 * 2 bytes
+    %STRIDE_IN_BYTES = arith.constant 256 : index // 128 * 2 bytes
     scf.for %ii = %c0 to %II step %c1 {
       scf.for %jj = %c0 to %JJ step %c1 {
         %m_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
