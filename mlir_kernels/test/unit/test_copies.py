@@ -278,10 +278,7 @@ class TestMaybeMultiTileSimple:
     """
 
     def test_multi_tile_with_nt_2x2(self):
-        """Test with NT_I=2, NT_J=2 on a 32x64 array (2x4 tiles).
-
-        This test reveals the bug when ii or jj > 0 at execution time.
-        """
+        """Test with NT_I=2, NT_J=2 on a 32x64 array (2x4 tiles)."""
         rows, cols = 32, 64
 
         # Input: 64x64 matrix with values = linear index
@@ -293,11 +290,41 @@ class TestMaybeMultiTileSimple:
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             input_2d = input_data.reshape(rows, cols)
             output_2d = output.reshape(rows, cols)
+            # Check which 16x16 tiles have correct data
+            for ti in range(2):
+                for tj in range(4):
+                    r0, r1 = ti * 16, (ti + 1) * 16
+                    c0, c1 = tj * 16, (tj + 1) * 16
+                    tile_in = input_2d[r0:r1, c0:c1]
+                    tile_out = output_2d[r0:r1, c0:c1]
+                    match = np.array_equal(tile_in, tile_out)
+                    print(f"Tile ({ti},{tj}) rows {r0}-{r1-1} cols {c0}-{c1-1}: {'✓' if match else '✗'}")
 
-            print("input_2d:")
-            print(input_2d)
-            print("output_2d:")
-            print(output_2d)
+            np.testing.assert_array_equal(output, input_data)
+
+
+class TestMaybeMultiTileCoalesced:
+    """Test the maybe_*_multi_tile_coalesced library functions (bulk version).
+    
+    This tests the bulk multi-tile functions that use
+    global_load_wave_multi_tile_256xf16_via_dwordx2_wait and
+    lds_write_wave_multi_tile_256xf16_via_dwordx2_wait.
+    """
+
+    def test_multi_tile_coalesced_with_nt_2x2(self):
+        """Test with NT_I=2, NT_J=2 on a 32x64 array (2x4 tiles)."""
+        rows, cols = 32, 64
+
+        # Input: 32x64 matrix with values = linear index
+        input_data = np.arange(rows * cols, dtype=np.uint16)
+        output = np.zeros(rows * cols, dtype=np.uint16)
+
+        compile_and_run("test_maybe_multi_tile_coalesced", [input_data],
+                        output)
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            input_2d = input_data.reshape(rows, cols)
+            output_2d = output.reshape(rows, cols)
 
             # Check which 16x16 tiles have correct data
             for ti in range(2):
@@ -314,4 +341,4 @@ class TestMaybeMultiTileSimple:
 
 if __name__ == "__main__":
     # Run a specific test for debugging
-    TestMaybeMultiTileSimple().test_multi_tile_with_nt_2x2()
+    TestMaybeMultiTileCoalesced().test_multi_tile_coalesced_with_nt_2x2()
