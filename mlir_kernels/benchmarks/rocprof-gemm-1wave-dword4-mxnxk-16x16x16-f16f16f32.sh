@@ -35,9 +35,11 @@ profile_kernel() {
     echo "========================================"
     echo ""
 
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local cmd="/usr/bin/rocprofv3 \
         --att \
-        --att-activity 10 \
+        --att-perfcounter-ctrl 10 \
+        --att-perfcounters \"SQ_LDS_BANK_CONFLICT SQ_INSTS_LDS SQ_WAIT_INST_LDS\" \
         -d \"$trace\" \
         -- \
         \"$PYTHON_BIN\" \"$TEST_SCRIPT\" \
