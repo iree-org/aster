@@ -66,11 +66,20 @@ def test_gemm_e2e_kernel(
 
     test_dir = os.path.dirname(os.path.abspath(__file__))
     mlir_file = os.path.join(test_dir, "..", mlir_filename)
-    register_init_lib = os.path.join(
-        test_dir, "..", "library", "common", "register_init.mlir"
-    )
-    indexing_lib = os.path.join(test_dir, "..", "library", "common", "indexing.mlir")
-    copies_lib = os.path.join(test_dir, "..", "library", "common", "copies.mlir")
+    
+    def get_library_paths():
+        """Get paths to all required library files."""
+        library_dir = os.path.join(
+            test_dir, "..", "library", "common"
+        )
+        return [
+            os.path.join(library_dir, "register_init.mlir"),
+            os.path.join(library_dir, "indexing.mlir"),
+            os.path.join(library_dir, "copies.mlir"),
+            os.path.join(library_dir, "multi-tile-copies.mlir"),
+        ]
+    
+    library_paths = get_library_paths()
 
     # Validate configuration using shared validation logic
     is_valid, error = validate_gemm_config(m, n, k, m_tile, n_tile, k_tile)
@@ -121,7 +130,7 @@ def test_gemm_e2e_kernel(
             ctx,
             preprocess=preprocess,
             print_ir_after_all=False,
-            library_paths=[register_init_lib, indexing_lib, copies_lib],
+            library_paths=library_paths,
             print_timings=False,
         )
         # print(asm_complete, flush=True)
