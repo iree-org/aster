@@ -284,7 +284,7 @@ class TestSwizzle16x16Helper:
             expected[tid * 2 + 1] = lane_id % 16
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
-            np.testing.assert_array_equal(output, expected)
+            np.testing.assert_array_equal(output.reshape(8, 16), expected.reshape(8, 16))
 
 
 class TestSwizzleA16x16xf16:
@@ -307,7 +307,9 @@ class TestSwizzleA16x16xf16:
             expected[tid * 2 + 1] = helper_i
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
-            np.testing.assert_array_equal(output, expected)
+            print(output.reshape(8, 16))
+            print(expected.reshape(8, 16))
+            np.testing.assert_array_equal(output.reshape(8, 16), expected.reshape(8, 16))
 
 
 class TestSwizzleB16x16xf16:
@@ -326,7 +328,7 @@ class TestSwizzleB16x16xf16:
             expected[tid * 2 + 1] = lane_id % 16
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
-            np.testing.assert_array_equal(output, expected)
+            np.testing.assert_array_equal(output.reshape(8, 16), expected.reshape(8, 16))
 
 
 class TestSwizzleC16x16xf32:
@@ -345,7 +347,7 @@ class TestSwizzleC16x16xf32:
             expected[tid * 2 + 1] = lane_id % 16
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
-            np.testing.assert_array_equal(output, expected)
+            np.testing.assert_array_equal(output.reshape(8, 16), expected.reshape(8, 16))
 
 
 class TestIndexBxMxNxK:
