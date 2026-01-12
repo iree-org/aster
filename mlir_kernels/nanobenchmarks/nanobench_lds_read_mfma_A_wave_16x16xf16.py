@@ -15,7 +15,7 @@ from integration_test.test_utils import (
 )
 from mlir_kernels.common import get_library_paths, NANOBENCH_PASS_PIPELINE
 
-KERNEL_NAME = "nanobench_lds_read_swizzled_wave_16x16xf16"
+KERNEL_NAME = "nanobench_lds_read_mfma_A_wave_16x16xf16"
 MCPU = "gfx942"
 WAVEFRONT_SIZE = 64
 
@@ -50,7 +50,7 @@ def main():
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    mlir_file = os.path.join(script_dir, "nanobench_lds_read_swizzled_wave_16x16xf16.mlir")
+    mlir_file = os.path.join(script_dir, "nanobench_lds_read_mfma_A_wave_16x16xf16.mlir")
     library_paths = get_library_paths()
 
     def preprocess(x):
@@ -118,4 +118,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -94,8 +94,8 @@ class TestStoreToGlobalDwordWait:
 class TestLoadAndReadLdsAFragmentWait:
     """Test @lds_read_A_wave_16x16xf16_fragment_wait function."""
 
-    def test_read_A_fragment_swizzled(self):
-        """Read A fragment from LDS with swizzled access pattern."""
+    def test_read_mfma_A_fragment(self):
+        """Read A fragment from LDS with MFMA A access pattern."""
         num_threads = 64
         # Input: 16x16 matrix of f16 values (stored as uint16)
         # Each element is its linear index
@@ -131,10 +131,10 @@ class TestLoadAndReadLdsAFragmentWait:
 
 
 class TestStoreGlobalCFragmentWait:
-    """Test @global_store_wave_16x16xf32_swizzled_C_fragment_wait function."""
+    """Test @global_store_wave_16x16xf32_C_fragment_wait function."""
 
-    def test_store_C_fragment_swizzled(self):
-        """Store C fragment to global with swizzled access pattern."""
+    def test_store_MFMA_C_fragment(self):
+        """Store C fragment to global with MFMA C access pattern."""
         num_threads = 64
         # Output: 16x16 matrix of f32 values (stored as int32)
         output = np.zeros(16 * 16, dtype=np.int32)

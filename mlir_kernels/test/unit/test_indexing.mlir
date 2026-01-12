@@ -274,7 +274,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.end_kernel
   }
 
-  // Test @mfma_index_A_16x16xf16: swizzle for A fragment (swapped from helper)
+  // Test @mfma_index_A_16x16xf16: MFMA indexing for A fragment (swapped from helper)
   amdgcn.kernel @test_mfma_index_A_16x16xf16 arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
@@ -288,7 +288,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.end_kernel
   }
 
-  // Test @mfma_index_B_16x16xf16: swizzle for B fragment
+  // Test @mfma_index_B_16x16xf16: MFMA indexing for B fragment
   amdgcn.kernel @test_mfma_index_B_16x16xf16 arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
@@ -302,7 +302,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.end_kernel
   }
 
-  // Test @mfma_index_C_16x16xf32: swizzle for C fragment
+  // Test @mfma_index_C_16x16xf32: MFMA indexing for C fragment
   amdgcn.kernel @test_mfma_index_C_16x16xf32 arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
