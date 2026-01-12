@@ -21,11 +21,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %II = arith.constant 4 : index       // Number of tiles in M dimension
     // Note: as soon as we have a power-of-2 LDS_STRIDE_IN_BYTES, we start having swizzling bank conflicts.
     %JJ = arith.constant 4 : index       // Number of tiles in K dimension
-    %SIZE_J = affine.apply affine_map<()[j] -> (j * 16)>()[%JJ] // LDS stride in elements (K dimension)
-
-    // LDS stride in bytes: SIZE_J * 2 (f16 = 2 bytes)
-    %elt_size = arith.constant 2 : index
-    %LDS_STRIDE_IN_BYTES = arith.muli %SIZE_J, %elt_size : index
+    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[j] -> (j * 16 * 2)>()[%JJ] // LDS stride in bytes (K dimension)
 
     // Number of outer iterations
     %NUM_ITERS = arith.constant {{NUM_ITERS}} : index

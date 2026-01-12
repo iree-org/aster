@@ -134,23 +134,33 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
     """Test @lds_read_A_wave_16x16xf16_fragment_wait function with XOR swizzling."""
 
     def test_read_mfma_A_fragment_xor_swizzled(self):
-        """Read A fragment from LDS with XOR-swizzled MFMA A access pattern."""
+        """Read A fragment from LDS with XOR-swizzled MFMA A access pattern.
+
+        Tests 2x3 tiles of 16x16, each tile contains iota 0-255.
+        """
         num_threads = 64
-        # Input: 16x16 matrix of f16 values (stored as uint16)
-        # Each element is its linear index
-        input_data = np.arange(16 * 16, dtype=np.uint16)
-        # Output: each thread reads 8 bytes (4 f16 values = dwordx2)
-        output = np.zeros(num_threads * 4, dtype=np.uint16)
+        II, JJ = 2, 3  # 2x3 tiles
+
+        # Input: 32x48 matrix (2x3 tiles of 16x16)
+        # Each 16x16 tile contains iota 0-255
+        input_data = np.zeros((II * 16, JJ * 16), dtype=np.uint16)
+        tile_iota = np.arange(256, dtype=np.uint16).reshape(16, 16)
+        for ii in range(II):
+            for jj in range(JJ):
+                input_data[ii * 16 : (ii + 1) * 16, jj * 16 : (jj + 1) * 16] = tile_iota
+
+        # Output: 6 tiles * 64 threads * 4 f16 values
+        output = np.zeros(II * JJ * num_threads * 4, dtype=np.uint16)
 
         compile_and_run(
             "test_lds_read_swizzled_A_wave_16x16xf16_fragment_wait",
-            [input_data],
+            [input_data.flatten()],
             output,
         )
 
-        # Compute expected values: XOR swizzled read pattern
-        # The swizzle changes the access pattern based on XOR of row/col groups
-        expected = np.array([
+        # Compute expected values for each tile
+        # Each tile should produce the same swizzled pattern since each tile has the same iota values
+        tile_expected = np.array([
             # tid 0-3 (row 0 of output)
             0, 1, 2, 3, 16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51,
             # tid 4-7 (row 1 of output)
@@ -185,10 +195,23 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
             192, 193, 194, 195, 208, 209, 210, 211, 224, 225, 226, 227, 240, 241, 242, 243,
         ], dtype=np.uint16)
 
+        # All 6 tiles should have the same expected pattern
+        expected = np.tile(tile_expected, II * JJ)
+
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
-            print("actual:\n", output.reshape(16, 16))
-            print("expected:\n", expected.reshape(16, 16))
-            np.testing.assert_array_equal(output, expected)
+            # Check each tile separately for better error messages
+            for ii in range(II):
+                for jj in range(JJ):
+                    tile_idx = ii * JJ + jj
+                    tile_start = tile_idx * num_threads * 4
+                    tile_end = tile_start + num_threads * 4
+                    actual_tile = output[tile_start:tile_end]
+                    print(f"Tile ({ii}, {jj}) actual:\n", actual_tile.reshape(16, 16))
+                    print(f"Tile ({ii}, {jj}) expected:\n", tile_expected.reshape(16, 16))
+                    np.testing.assert_array_equal(
+                        actual_tile, tile_expected,
+                        err_msg=f"Mismatch at tile ({ii}, {jj})"
+                    )
 
 
 class TestStoreGlobalCFragmentWait:

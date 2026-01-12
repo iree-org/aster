@@ -26,9 +26,11 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
   func.func private @mfma_index_A_16x16xf16() -> (index, index)
   func.func private @mfma_index_C_16x16xf32() -> (index, index)
-  // copies.mlir
+  // simple-copies.mlir
   func.func private @simple_global_to_lds_wave_16x16xf16_wait(!sx2, index, index, index, index, index, index, index)
+  func.func private @simple_global_store_wave_16x16xf16_wait(!vx2, !sx2, index, index, index)
   func.func private @simple_lds_to_global_wave_16x16xf16_wait(index, index, index, index, !sx2, index, index, index)
+  // copies.mlir
   func.func private @global_load_to_lds_wave_16x16_f16_wait(!sx2, index, index, index, index, index, index, index)
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> ()
@@ -41,9 +43,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
   func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index)
   func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> !vx2
-  // multi_tile_copies.mlir
-  func.func private @maybe_global_load_multi_tile_simple(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
+  // simple-multi-tile-copies.mlir
   func.func private @simple_maybe_lds_write_multi_tile(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
+  // multi-tile-copies.mlir
+  func.func private @maybe_global_load_multi_tile_simple(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
   func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
   func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
 
@@ -177,41 +180,59 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   }
 
   // Test @lds_read_swizzled_wave_16x16xf16_fragment_wait with XOR swizzling: read MFMA A fragment from LDS
+  // Tests 2x3 tiles of 16x16, each tile contains iota 0-255
   // First populate LDS with known data, then read using the XOR-swizzled MFMA function
   amdgcn.kernel @test_lds_read_swizzled_A_wave_16x16xf16_fragment_wait arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  ]> attributes {shared_memory_size = 512 : i32} {
+  ]> attributes {shared_memory_size = 4096 : i32} {
     %in_ptr = amdgcn.load_arg 0 : !sx2
     %out_ptr = amdgcn.load_arg 1 : !sx2
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
-    %c32 = arith.constant 32 : index // stride in bytes (16 elements * 2 bytes for f16)
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index  // II = 2 tiles in M
+    %c3 = arith.constant 3 : index  // JJ = 3 tiles in K
 
-    // First load data to LDS using load_to_lds
-    func.call @global_load_to_lds_wave_16x16_f16_wait(
-      %in_ptr, %c0,  // ptr, lds_base_off
-      %c0, %c0,      // i_pos, j_pos
-      %c32,          // GLOBAL_STRIDE_IN_BYTES
-      %c0, %c0,      // ii_pos, jj_pos
-      %c32           // LDS_STRIDE_IN_BYTES
-    ) : (!sx2, index, index, index, index, index, index, index) -> ()
+    // Global stride: JJ tiles * 16 elements * 2 bytes = JJ * 32 bytes
+    %GLOBAL_STRIDE = affine.apply affine_map<()[j] -> (j * 32)>()[%c3]
+    // LDS stride: same as global stride for this test
+    %LDS_STRIDE = affine.apply affine_map<()[j] -> (j * 32)>()[%c3]
 
-    // Now read the A fragment using the XOR-swizzled MFMA read
-    // m_pos=0, n_pos=0
-    %fragment = func.call @lds_read_swizzled_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c32)
-      : (index, index, index, index) -> !vx2
+    // Load all 2x3 tiles from global to LDS
+    scf.for %ii = %c0 to %c2 step %c1 {
+      scf.for %jj = %c0 to %c3 step %c1 {
+        %i_pos = affine.apply affine_map<()[i] -> (i * 16)>()[%ii]
+        %j_pos = affine.apply affine_map<()[j] -> (j * 16)>()[%jj]
+        func.call @global_load_to_lds_wave_16x16_f16_wait(
+          %in_ptr, %c0,           // ptr, lds_base_off
+          %i_pos, %j_pos,         // i_pos, j_pos (global position)
+          %GLOBAL_STRIDE,         // GLOBAL_STRIDE_IN_BYTES
+          %i_pos, %j_pos,         // ii_pos, jj_pos (LDS position)
+          %LDS_STRIDE             // LDS_STRIDE_IN_BYTES
+        ) : (!sx2, index, index, index, index, index, index, index) -> ()
+      } {aster.constexpr}
+    } {aster.constexpr}
 
-    // Store fragment to output (each thread writes 8 bytes = 4 f16 values)
-    %tid = gpu.thread_id x
-    %out_off = affine.apply affine_map<()[tid] -> (tid * 8)>()[%tid]
-    %out_off_i32 = arith.index_cast %out_off : index to i32
-    %out_off_vgpr = lsir.to_reg %out_off_i32 : i32 -> !v
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dwordx2> %fragment, %out_ptr[%out_off_vgpr]
-      : !vx2, !sx2[!v]
+    // Read all tiles using XOR-swizzled read and store to output
+    // Output layout: 6 tiles * 64 threads * 4 f16 = 1536 f16 values
+    scf.for %ii = %c0 to %c2 step %c1 {
+      scf.for %jj = %c0 to %c3 step %c1 {
+        %m_pos = affine.apply affine_map<()[i] -> (i * 16)>()[%ii]
+        %n_pos = affine.apply affine_map<()[j] -> (j * 16)>()[%jj]
+
+        %fragment = func.call @lds_read_swizzled_wave_16x16xf16_fragment_wait(%c0, %m_pos, %n_pos, %LDS_STRIDE)
+          : (index, index, index, index) -> !vx2
+
+        // Store fragment to output using simple_global_store_wave_16x16xf16_wait
+        // Output buffer is treated as II*16 rows x JJ*16 columns with stride JJ*32 bytes
+        func.call @simple_global_store_wave_16x16xf16_wait(%fragment, %out_ptr, %m_pos, %n_pos, %GLOBAL_STRIDE)
+          : (!vx2, !sx2, index, index, index) -> ()
+      } {aster.constexpr}
+    } {aster.constexpr}
+
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-
     amdgcn.end_kernel
   }
 

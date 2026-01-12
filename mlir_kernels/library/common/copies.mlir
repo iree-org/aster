@@ -319,7 +319,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %elt_size = arith.constant 2 : index // f16 size in bytes
 
     // Get the base (row, col) from lane indexing (before swizzle)
-    // row = (lane_id/16)*4, col = lane_id%16
+    // row = (lane_id / 16) * 4, col = lane_id % 16
     %row, %col = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
 
     // Apply A-matrix swizzle (transpose: pass col as row, row as col to xor_swizzle)
