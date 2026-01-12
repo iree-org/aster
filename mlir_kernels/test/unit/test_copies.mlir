@@ -13,7 +13,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
   //===--------------------------------------------------------------------===//
-  // register_init.mlir
+  // register-init.mlir
   func.func private @alloc_vgprx2() -> !vx2
   func.func private @alloc_vgprx4() -> !vx4
   func.func private @init_vgprx4(i32) -> !vx4
@@ -27,8 +27,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @mfma_index_A_16x16xf16() -> (index, index)
   func.func private @mfma_index_C_16x16xf32() -> (index, index)
   // copies.mlir
-  func.func private @global_to_lds_wave_16x16xf16_wait(!sx2, index, index, index, index, index, index, index)
-  func.func private @lds_to_global_wave_16x16xf16_wait(index, index, index, index, !sx2, index, index, index)
+  func.func private @simple_global_to_lds_wave_16x16xf16_wait(!sx2, index, index, index, index, index, index, index)
+  func.func private @simple_lds_to_global_wave_16x16xf16_wait(index, index, index, index, !sx2, index, index, index)
   func.func private @global_load_to_lds_wave_16x16_f16_wait(!sx2, index, index, index, index, index, index, index)
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> ()
@@ -37,12 +37,12 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !sx2, index, index, index, index, index)
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, memref<?x!vx2>)
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(index, index, index, index, index, index, memref<?x!vx2>)
-  func.func private @global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
-  func.func private @lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index)
-  func.func private @lds_read_wave_16x16xf16_wait(index, index, index, index) -> !vx2
+  func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
+  func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index)
+  func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> !vx2
   // multi_tile_copies.mlir
   func.func private @maybe_global_load_multi_tile_simple(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
-  func.func private @maybe_lds_write_multi_tile_simple(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
+  func.func private @simple_maybe_lds_write_multi_tile(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
   func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
   func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
 
@@ -68,7 +68,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   //===--------------------------------------------------------------------===//
   // Simple wave-level 16x16xf16 tile reads/writes
   //===--------------------------------------------------------------------===//
-  // Test @global_to_lds_wave_16x16xf16_wait: copy a single 16x16 tile from global to LDS
+  // Test @simple_global_to_lds_wave_16x16xf16_wait: copy a single 16x16 tile from global to LDS
   // Input: 64x96 array, copy tile at position (3,5) = element (48, 80)
   // Verifies position handling by checking only the correct tile is copied
   amdgcn.kernel @test_global_to_lds_and_back_wave_16x16xf16_wait arguments <[
@@ -86,14 +86,14 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %c32_2 = arith.constant 32 : index   // LDS stride = 16 * 2 bytes
 
     // Copy tile at (48, 80) from global to LDS at base 0
-    func.call @global_to_lds_wave_16x16xf16_wait(
+    func.call @simple_global_to_lds_wave_16x16xf16_wait(
       %in_ptr, %c16, %c32, %c120,
       %c0, %c16, %c32, %c32_2)
       : (!sx2, index, index, index,
          index, index, index, index) -> ()
 
     // Copy from LDS to global at position (48, 80)
-    func.call @lds_to_global_wave_16x16xf16_wait(
+    func.call @simple_lds_to_global_wave_16x16xf16_wait(
       %c0, %c16, %c32, %c32_2,
       %out_ptr, %c16, %c32, %c120)
       : (index, index, index, index,
@@ -335,7 +335,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
             %global_n = affine.apply affine_map<()[base, nt] -> (base + nt * 16)>()[%n_pos, %nt]
 
             // Copy from LDS to global using simple function
-            func.call @lds_to_global_wave_16x16xf16_wait(
+            func.call @simple_lds_to_global_wave_16x16xf16_wait(
               %c0, %lds_m, %lds_n, %c256,
               %out_ptr, %global_m, %global_n, %c256)
               : (index, index, index, index, !sx2, index, index, index) -> ()
@@ -395,7 +395,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
              !sx2, index, index, index, memref<?x?x!vx2>) -> ()
 
         // Call library function for LDS write (k=0, cond_iter=0)
-        func.call @maybe_lds_write_multi_tile_simple(
+        func.call @simple_maybe_lds_write_multi_tile(
           %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
           %K, %II, %JJ,                 // K, II, JJ
           %NT_I, %NT_J,                 // NT_I, NT_J
@@ -413,7 +413,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         %m_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
         %n_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
 
-        func.call @lds_to_global_wave_16x16xf16_wait(
+        func.call @simple_lds_to_global_wave_16x16xf16_wait(
           %c0, %m_pos, %n_pos, %STRIDE_IN_BYTES,
           %out_ptr, %m_pos, %n_pos, %STRIDE_IN_BYTES)
           : (index, index, index, index, !sx2, index, index, index) -> ()
@@ -487,7 +487,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         %m_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
         %n_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
 
-        func.call @lds_to_global_wave_16x16xf16_wait(
+        func.call @simple_lds_to_global_wave_16x16xf16_wait(
           %c0, %m_pos, %n_pos, %STRIDE_IN_BYTES,
           %out_ptr, %m_pos, %n_pos, %STRIDE_IN_BYTES)
           : (index, index, index, index, !sx2, index, index, index) -> ()

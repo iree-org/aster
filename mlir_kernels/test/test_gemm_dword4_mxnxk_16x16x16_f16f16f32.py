@@ -73,7 +73,7 @@ def test_gemm_e2e_kernel(
     test_dir = os.path.dirname(os.path.abspath(__file__))
     mlir_file = os.path.join(test_dir, "..", mlir_filename)
     register_init_lib = os.path.join(
-        test_dir, "..", "library", "common", "register_init.mlir"
+        test_dir, "..", "library", "common", "register-init.mlir"
     )
     indexing_lib = os.path.join(test_dir, "..", "library", "common", "indexing.mlir")
     copies_lib = os.path.join(test_dir, "..", "library", "common", "copies.mlir")
