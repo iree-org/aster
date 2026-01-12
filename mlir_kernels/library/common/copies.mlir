@@ -29,8 +29,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
-  func.func private @swizzle_A_16x16xf16() -> (index, index)
-  func.func private @swizzle_C_16x16xf32() -> (index, index)
+  func.func private @mfma_index_A_16x16xf16() -> (index, index)
+  func.func private @mfma_index_C_16x16xf32() -> (index, index)
 
   //===--------------------------------------------------------------------===//
   // Simple wave-level 16x16xf16 tile reads/writes
@@ -389,7 +389,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   ) -> !vx2 {
     // Compute the swizzled positions
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %mm_pos, %nn_pos = func.call @swizzle_A_16x16xf16() : () -> (index, index)
+    %mm_pos, %nn_pos = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
     %off_lds_reg = func.call @tiled_matrix_offset(
         %m_pos, %n_pos, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index, index, index) -> !v
@@ -434,7 +434,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     memref.store %v3, %C_fragment[%c3] : memref<4x!v>
 
     // Compute the swizzled positions
-    %mmm_pos, %nnn_pos = func.call @swizzle_C_16x16xf32() : () -> (index, index)
+    %mmm_pos, %nnn_pos = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
 
     // Calculate global j position
     %n_global_pos = affine.apply

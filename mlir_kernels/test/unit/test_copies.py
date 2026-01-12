@@ -109,13 +109,13 @@ class TestLoadAndReadLdsAFragmentWait:
             output,
         )
 
-        # Verify: swizzle_A returns (lane_id % 16, 4 * (lane_id // 16))
+        # Verify: mfma_index_A returns (lane_id % 16, 4 * (lane_id // 16))
         # So row = lane_id % 16, col_base = 4 * (lane_id // 16)
         # Each thread reads 4 consecutive f16 values
         expected = np.zeros(num_threads * 4, dtype=np.uint16)
         for tid in range(num_threads):
             lane_id = tid % 64
-            # swizzle_A: ii = lane_id % 16, jj = 4 * (lane_id // 16)
+            # mfma_index_A: ii = lane_id % 16, jj = 4 * (lane_id // 16)
             ii = lane_id % 16
             jj = 4 * (lane_id // 16)
             # Each thread reads 4 consecutive values starting at (ii, jj)
@@ -142,7 +142,7 @@ class TestStoreGlobalCFragmentWait:
         compile_and_run("test_store_global_C_fragment_wait", [], output)
 
         # Verify: each lane initializes its fragment with lane_id
-        # swizzle_C returns (4 * (lane_id // 16), lane_id % 16)
+        # mfma_index_C returns (4 * (lane_id // 16), lane_id % 16)
         # So row_base = 4 * (lane_id // 16), col = lane_id % 16
         # Each lane writes 4 values at rows row_base, row_base+1, row_base+2, row_base+3
         expected = np.zeros(16 * 16, dtype=np.int32)

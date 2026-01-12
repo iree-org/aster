@@ -24,8 +24,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
-  func.func private @swizzle_A_16x16xf16() -> (index, index)
-  func.func private @swizzle_C_16x16xf32() -> (index, index)
+  func.func private @mfma_index_A_16x16xf16() -> (index, index)
+  func.func private @mfma_index_C_16x16xf32() -> (index, index)
   // copies.mlir
   func.func private @global_to_lds_wave_16x16xf16_wait(!sx2, index, index, index, index, index, index, index)
   func.func private @lds_to_global_wave_16x16xf16_wait(index, index, index, index, !sx2, index, index, index)
