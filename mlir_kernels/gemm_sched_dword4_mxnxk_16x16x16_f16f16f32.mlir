@@ -4,7 +4,7 @@
 // RUN: | sed -e 's/{{LOOP_SIZE_M}}/4/g' -e 's/{{LOOP_SIZE_N}}/4/g' -e 's/{{LOOP_SIZE_K}}/4/g' \
 // RUN: | sed -e 's/{{SIZE_K_BY_TILE_SIZE_K}}/2/g' \
 // RUN: | sed -e 's/{{LOOP_SIZE_D_MMNNKK}}/6/g' \
-// RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/register_init.mlir,%p/library/common/indexing.mlir" \
+// RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/register-init.mlir,%p/library/common/indexing.mlir" \
 // RUN: | FileCheck %s
 
 // CHECK-LABEL: amdgcn.module
@@ -21,7 +21,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
   //===--------------------------------------------------------------------===//
-  // register_init.mlir
+  // register-init.mlir
   func.func private @alloc_vgprx2() -> !vx2
   func.func private @init_vgprx4(i32) -> !vx4
   // indexing.mlir
