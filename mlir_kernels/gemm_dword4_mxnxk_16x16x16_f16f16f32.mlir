@@ -31,7 +31,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     !sx2, index, index, index, index, index, index, index) -> ()
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
-  func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
+  func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     !vx4, !sx2, index, index, index, index, index) -> ()
 
   // Compute the wavefront-level contraction using MFMA instructions
@@ -189,7 +189,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
       %GLOBAL_C_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
         (SIZE_N * 4)>()[%SIZE_N]
-      func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
+      func.call @global_store_wave_16x16xf32_C_fragment_wait(
           %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_C_STRIDE_IN_BYTES, %ii_pos, %jj_pos)
         : (!vx4, !sx2, index, index, index, index, index) -> ()
     } {aster.constexpr}

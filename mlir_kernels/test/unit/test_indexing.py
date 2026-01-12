@@ -268,10 +268,10 @@ class TestTiledx2MatrixOffset:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestSwizzle16x16Helper:
+class TestMfmaIndex16x16Helper:
     """Test @mfma_index_16x16_helper function."""
 
-    def test_swizzle_16x16_helper(self):
+    def test_mfma_index_16x16_helper(self):
         """Returns (4 * (lane_id / 16), lane_id mod 16)."""
         num_threads = 64
         output = np.zeros(num_threads * 2, dtype=np.int32)
@@ -287,16 +287,16 @@ class TestSwizzle16x16Helper:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestSwizzleA16x16xf16:
+class TestMfmaIndexA16x16xf16:
     """Test @mfma_index_A_16x16xf16 function."""
 
-    def test_swizzle_A(self):
-        """Swizzle for A fragment (swapped from helper)."""
+    def test_mfma_index_A_16x16xf16(self):
+        """MFMA indexing for A fragment (swapped from helper)."""
         num_threads = 64
         output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_mfma_index_A_16x16xf16", output)
 
-        # A swizzle returns (j, i) from helper, which is (lane_id mod 16, 4 * (lane_id / 16))
+        # A MFMA indexing returns (j, i) from helper, which is (lane_id mod 16, 4 * (lane_id / 16))
         expected = np.zeros(num_threads * 2, dtype=np.int32)
         for tid in range(64):
             lane_id = tid % 64
@@ -310,11 +310,11 @@ class TestSwizzleA16x16xf16:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestSwizzleB16x16xf16:
+class TestMfmaIndexB16x16xf16:
     """Test @mfma_index_B_16x16xf16 function."""
 
-    def test_swizzle_B(self):
-        """Swizzle for B fragment (same as helper)."""
+    def test_mfma_index_B_16x16xf16(self):
+        """MFMA indexing for B fragment (same as helper)."""
         num_threads = 64
         output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_mfma_index_B_16x16xf16", output)
@@ -329,11 +329,11 @@ class TestSwizzleB16x16xf16:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestSwizzleC16x16xf32:
+class TestMfmaIndexC16x16xf32:
     """Test @mfma_index_C_16x16xf32 function."""
 
-    def test_swizzle_C(self):
-        """Swizzle for C fragment (same as helper)."""
+    def test_mfma_index_C_16x16xf32(self):
+        """MFMA indexing for C fragment (same as helper)."""
         num_threads = 64
         output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_mfma_index_C_16x16xf32", output)

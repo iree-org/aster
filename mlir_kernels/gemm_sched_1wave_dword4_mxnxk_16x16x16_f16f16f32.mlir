@@ -36,7 +36,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     index, index, index, index, index, !vx2) -> ()
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     index, index, index, index) -> !vx2
-  func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
+  func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     !vx4, !sx2, index, index, index, index, index) -> ()
   // multi-tile-copies.mlir
   func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
@@ -191,7 +191,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %nn_pos = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
       %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
         (SIZE_N * 4)>()[%SIZE_N]
-      func.call @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
+      func.call @global_store_wave_16x16xf32_C_fragment_wait(
           %fragment, %c_global, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos)
         : (!vx4, !sx2, index, index, index, index, index) -> ()
     }

@@ -122,9 +122,9 @@ amdgcn.library @common_indexing {
 
 
   //===--------------------------------------------------------------------===//
-  // Reusable swizzled memory access indexing functions.
+  // Reusable MFMA memory access indexing functions.
   //===--------------------------------------------------------------------===//
-  // Helper to compute swizzled positions for a 16x16 fragment
+  // Helper to compute MFMA positions for a 16x16 fragment
   // Returns (4 * (lane_id / 16), lane_id mod 16)
   func.func private @mfma_index_16x16_helper() -> (index, index) {
     %lane_id = func.call @lane_id() : () -> index
@@ -133,20 +133,20 @@ amdgcn.library @common_indexing {
     return %idx0, %idx1 : index, index
   }
 
-  // Swizzle function for accessing the `A` 16x16xf16 fragment
+  // MFMA indexing function for accessing the `A` 16x16xf16 fragment
   func.func private @mfma_index_A_16x16xf16() -> (index, index) {
     // Note the swapped return order
     %j, %i = func.call @mfma_index_16x16_helper() : () -> (index, index)
     return %i, %j : index, index
   }
 
-  // Swizzle function for accessing the `B` 16x16xf16 fragment
+  // MFMA indexing function for accessing the `B` 16x16xf16 fragment
   func.func private @mfma_index_B_16x16xf16() -> (index, index) {
     %i, %j = func.call @mfma_index_16x16_helper() : () -> (index, index)
     return %i, %j : index, index
   }
 
-  // Swizzle function for accessing the `C` 16x16xf32 fragment
+  // MFMA indexing function for accessing the `C` 16x16xf32 fragment
   func.func private @mfma_index_C_16x16xf32() -> (index, index) {
     %i, %j = func.call @mfma_index_16x16_helper() : () -> (index, index)
     return %i, %j : index, index

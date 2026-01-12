@@ -375,7 +375,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // Swizzled fragment reads/writes
+  // MFMA fragment reads/writes
   //===--------------------------------------------------------------------===//
   // Read the `A` fragment (16x16xf16) from LDS to VGPRs, in a **synchronized
   // fashion** (i.e. waitcnt 0 is inserted after the ds_read).
@@ -387,7 +387,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %n_pos: index,              // The inner-most tile position
     %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
   ) -> !vx2 {
-    // Compute the swizzled positions
+    // Compute the MFMA positions
     %elt_size = arith.constant 2 : index // f16 size in bytes
     %mm_pos, %nn_pos = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
     %off_lds_reg = func.call @tiled_matrix_offset(
@@ -407,9 +407,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Store the `C` fragment (16x16xf32) from VGPRs to global memory, in a
   // **synchronized fashion** (i.e. waitcnt 0 is inserted after each global_store).
   // The caller is responsible for embedding distribution information into the
-  // positions. The callee computes and embeds the swizzled positions.
+  // positions. The callee computes and embeds the MFMA positions.
   // This function assumes a major/minor tile structure for the global positions.
-  func.func private @global_store_wave_16x16xf32_swizzled_C_fragment_wait(
+  func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     %acc: !vx4,                     // The accumulator fragment to store
     %ptr: !sx2,                     // The global base pointer
     %m_pos: index,                  // The outer-most major-tile position
@@ -433,7 +433,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     memref.store %v2, %C_fragment[%c2] : memref<4x!v>
     memref.store %v3, %C_fragment[%c3] : memref<4x!v>
 
-    // Compute the swizzled positions
+    // Compute the MFMA positions
     %mmm_pos, %nnn_pos = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
 
     // Calculate global j position
