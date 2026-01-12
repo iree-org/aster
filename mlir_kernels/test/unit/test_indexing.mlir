@@ -26,6 +26,9 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @mfma_index_A_16x16xf16() -> (index, index)
   func.func private @mfma_index_B_16x16xf16() -> (index, index)
   func.func private @mfma_index_C_16x16xf32() -> (index, index)
+  func.func private @swizzled_mfma_index_A_16x16xf16() -> (index, index)
+  func.func private @swizzled_mfma_index_B_16x16xf16() -> (index, index)
+  func.func private @swizzled_mfma_index_C_16x16xf32() -> (index, index)
   func.func private @index_bxmxnxk_16x16x16_f16f16f32(index, index, index, index, index, index, index, index, index) -> index
 
   //===--------------------------------------------------------------------===//
@@ -310,6 +313,48 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %out_ptr = amdgcn.load_arg 0 : !sx2
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     %i, %j = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
+    %i_i32 = arith.index_cast %i : index to i32
+    %j_i32 = arith.index_cast %j : index to i32
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
+    amdgcn.end_kernel
+  }
+
+  // Test @swizzled_mfma_index_A_16x16xf16: swizzled MFMA indexing for A fragment
+  amdgcn.kernel @test_swizzled_mfma_index_A_16x16xf16 arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %c0 = arith.constant 0 : index
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %i, %j = func.call @swizzled_mfma_index_A_16x16xf16() : () -> (index, index)
+    %i_i32 = arith.index_cast %i : index to i32
+    %j_i32 = arith.index_cast %j : index to i32
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
+    amdgcn.end_kernel
+  }
+
+  // Test @swizzled_mfma_index_B_16x16xf16: swizzled MFMA indexing for B fragment
+  amdgcn.kernel @test_swizzled_mfma_index_B_16x16xf16 arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %c0 = arith.constant 0 : index
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %i, %j = func.call @swizzled_mfma_index_B_16x16xf16() : () -> (index, index)
+    %i_i32 = arith.index_cast %i : index to i32
+    %j_i32 = arith.index_cast %j : index to i32
+    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
+    amdgcn.end_kernel
+  }
+
+  // Test @swizzled_mfma_index_C_16x16xf32: swizzled MFMA indexing for C fragment
+  amdgcn.kernel @test_swizzled_mfma_index_C_16x16xf32 arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %c0 = arith.constant 0 : index
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %i, %j = func.call @swizzled_mfma_index_C_16x16xf32() : () -> (index, index)
     %i_i32 = arith.index_cast %i : index to i32
     %j_i32 = arith.index_cast %j : index to i32
     func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()

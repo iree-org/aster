@@ -120,7 +120,6 @@ amdgcn.library @common_indexing {
     return %off_reg : !v
   }
 
-
   //===--------------------------------------------------------------------===//
   // Reusable MFMA memory access indexing functions.
   //===--------------------------------------------------------------------===//
@@ -150,6 +149,61 @@ amdgcn.library @common_indexing {
   func.func private @mfma_index_C_16x16xf32() -> (index, index) {
     %i, %j = func.call @mfma_index_16x16_helper() : () -> (index, index)
     return %i, %j : index, index
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Reusable swizzles MFMA memory access indexing functions.
+  //===--------------------------------------------------------------------===//
+  // XOR swizzle for 16-column f16 layout (avoids bank conflicts)
+  // Input: (row, col) in fragment coordinates
+  // Output: (row, swizzled_col) for LDS access
+  // Formula: swizzled_col = col XOR (row / 4)
+  // We XOR the high 2 bits of col (col/4) with row_group (row/4)
+  func.func private @xor_swizzled_mfma_index_16xf16(%row: index, %col: index) -> (index, index) {
+    // row_group = row / 4 (values 0,1,2,3 for rows 0,4,8,12)
+    %row_group = affine.apply affine_map<()[r] -> (r floordiv 4)>()[%row]
+    // col_low = col mod 4, col_high = col / 4
+    %col_low = affine.apply affine_map<()[c] -> (c mod 4)>()[%col]
+    %col_high = affine.apply affine_map<()[c] -> (c floordiv 4)>()[%col]
+    // XOR col_high with row_group using arith.xori
+    %col_high_i32 = arith.index_cast %col_high : index to i32
+    %row_group_i32 = arith.index_cast %row_group : index to i32
+    %xored_i32 = arith.xori %col_high_i32, %row_group_i32 : i32
+    %xored = arith.index_cast %xored_i32 : i32 to index
+    // Reconstruct: swizzled_col = xored * 4 + col_low
+    %swizzled_col = affine.apply affine_map<()[x, cl] -> (x * 4 + cl)>()[%xored, %col_low]
+    return %row, %swizzled_col : index, index
+  }
+
+  // Swizzle for `A` 16x16xf16 fragment with bank conflict avoidance
+  // A matrix is accessed with transposed pattern (col-major in LDS)
+  // Returns (row, swizzled_col) for LDS access
+  func.func private @swizzled_mfma_index_A_16x16xf16() -> (index, index) {
+    %row, %col = func.call @mfma_index_16x16_helper() : () -> (index, index)
+    // A matrix: transpose access (swap row/col for the swizzle input)
+    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%col, %row) 
+      : (index, index) -> (index, index)
+    return %swizzled_row, %swizzled_col : index, index
+  }
+
+  // Swizzle for `B` 16x16xf16 fragment with bank conflict avoidance
+  // Returns (row, swizzled_col) for LDS access
+  func.func private @swizzled_mfma_index_B_16x16xf16() -> (index, index) {
+    %row, %col = func.call @mfma_index_16x16_helper() : () -> (index, index)
+    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col) 
+      : (index, index) -> (index, index)
+    return %swizzled_row, %swizzled_col : index, index
+  }
+
+  // Swizzle for `C` 16x16xf32 fragment with bank conflict avoidance
+  // For f32: each element is 4 bytes = 1 bank width
+  // Returns (row, swizzled_col) for LDS access
+  func.func private @swizzled_mfma_index_C_16x16xf32() -> (index, index) {
+    %row, %col = func.call @mfma_index_16x16_helper() : () -> (index, index)
+    // For f32 with 16 cols, XOR pattern is the same but affects different banks
+    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col) 
+      : (index, index) -> (index, index)
+    return %swizzled_row, %swizzled_col : index, index
   }
 
   //===--------------------------------------------------------------------===//
