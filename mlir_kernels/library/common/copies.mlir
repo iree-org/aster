@@ -48,9 +48,14 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Loads from global memory to VGPRs, in a **synchronized fashion** (i.e.
   // waitcnt 0 are inserted after global_load).
-  // This function cooperatively loads 256 f16 elements arranged in a 16x16 matrix
-  // with a configurable number of rows with 64 global_load_dwordx2 operations
-  // (1 per thread).
+  // This function cooperatively (loads wave_size * transfer_size / elt_size)
+  // elements arranged in a rows x cols matrix where num_rows is configurable.
+  //
+  // The actual AMDGCN instruction used is selected based on the transfer_size.
+  // num_cols is computed as wave_size ceildiv num_rows.
+  //
+  // For example, with 64 threads per wave, f16 elements and dwordx2 transfers,
+  // we have:
   //   - %num_rows =  1: tile is 1x64xdwordx2 (1x256xf16)
   //   - %num_rows =  2: tile is 2x32xdwordx2 (2x128xf16)
   //   - %num_rows =  4: tile is 4x16xdwordx2 ( 4x64xf16)
@@ -71,10 +76,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The positions n_pos, m_pos, etc. are in number of elements; an adjustment
   // by transfer_size / elt_size is needed to get the global memory offset.
   //
-  // TODO: if we communicated results via opaque ptr + mem2reg, we could make
-  // this generic without templating MLIR.
   // TODO: also add a variant with upper bounds and buffer_load to handle boundary conditions.
-  // TODO: add a static assert to enforce these.
    func.func private @global_load_wave_elt_2d_wait_impl(
     %ptr: !sx2,                     // The global base pointer
     %m_pos: index,                  // The outer-most major-tile position
@@ -88,9 +90,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %wave_size: index               // The number of elements per wave
   ) -> !aster_utils.any {
 
+    // static assert that %mod is 0
     %mod = affine.apply affine_map<()[wave_size, num_rows]
       -> (wave_size mod num_rows)>()[%wave_size, %num_rows]
-    // static assert that %mod is 0
     scf.index_switch %mod
     case 0 {
       scf.yield
@@ -156,6 +158,26 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     return %res : !aster_utils.any
   }
 
+  func.func private @global_load_wave_128xf16_via_dword_wait(
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most major-tile position
+    %n_pos: index,                  // The inner-most major-tile position
+    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
+    %mm_pos: index,                 // The outer-most minor-tile position
+    %nn_pos: index,                 // The inner-most minor-tile position
+    %num_rows: index                // The number of rows in the 256 elements
+  ) -> !vx1 {
+    %elt_size = arith.constant 2 : index      // f16 size in bytes
+    %transfer_size = arith.constant 4 : index // dword size in bytes
+    %wave_size = arith.constant 64 : index    // 64 threads per wave
+
+    %loaded = func.call @global_load_wave_elt_2d_wait_impl(
+        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+
+    %res = aster_utils.from_any %loaded : !vx1
+    return %res : !vx1
+  }
 
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(
     %ptr: !sx2,                     // The global base pointer
@@ -176,6 +198,48 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
 
     %res = aster_utils.from_any %loaded : !vx2
     return %res : !vx2
+  }
+
+  func.func private @global_load_wave_384xf16_via_dwordx3_wait(
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most major-tile position
+    %n_pos: index,                  // The inner-most major-tile position
+    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
+    %mm_pos: index,                 // The outer-most minor-tile position
+    %nn_pos: index,                 // The inner-most minor-tile position
+    %num_rows: index                // The number of rows in the 256 elements
+  ) -> !vx3 {
+    %elt_size = arith.constant 2 : index      // f16 size in bytes
+    %transfer_size = arith.constant 12 : index // dwordx3 size in bytes
+    %wave_size = arith.constant 64 : index    // 64 threads per wave
+
+    %loaded = func.call @global_load_wave_elt_2d_wait_impl(
+        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+
+    %res = aster_utils.from_any %loaded : !vx3
+    return %res : !vx3
+  }
+
+  func.func private @global_load_wave_512xf16_via_dwordx4_wait(
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most major-tile position
+    %n_pos: index,                  // The inner-most major-tile position
+    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
+    %mm_pos: index,                 // The outer-most minor-tile position
+    %nn_pos: index,                 // The inner-most minor-tile position
+    %num_rows: index                // The number of rows in the 256 elements
+  ) -> !vx4 {
+    %elt_size = arith.constant 2 : index      // f16 size in bytes
+    %transfer_size = arith.constant 16 : index // dwordx4 size in bytes
+    %wave_size = arith.constant 64 : index    // 64 threads per wave
+
+    %loaded = func.call @global_load_wave_elt_2d_wait_impl(
+        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+
+    %res = aster_utils.from_any %loaded : !vx4
+    return %res : !vx4
   }
 
   // Writes %value to LDS, in a **synchronized fashion** (i.e. waitcnt 0 is
