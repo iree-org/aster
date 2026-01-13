@@ -11,7 +11,13 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
+#include "aster/Dialect/LSIR/IR/LSIRDialect.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"

@@ -144,8 +144,16 @@ def PreloadLibrary : Pass<"amdgcn-preload-library", "mlir::ModuleOp"> {
     This enables modular development of reusable kernel components.
   }];
   let dependentDialects = [
+    // Aster dialects
     "mlir::aster::amdgcn::AMDGCNDialect",
-    "mlir::func::FuncDialect"
+    "mlir::aster::aster_utils::AsterUtilsDialect",
+    "mlir::aster::lsir::LSIRDialect",
+    // MLIR dialects
+    "mlir::affine::AffineDialect",
+    "mlir::func::FuncDialect",
+    "mlir::gpu::GPUDialect",
+    "mlir::memref::MemRefDialect",
+    "mlir::scf::SCFDialect"
   ];
   let options = [
     ListOption<"libraryPaths", "library-paths", "std::string",
