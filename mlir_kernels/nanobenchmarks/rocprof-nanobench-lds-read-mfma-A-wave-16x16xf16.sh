@@ -10,7 +10,7 @@ fi
 
 PYTHON_BIN="${VIRTUAL_ENV}/bin/python"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEST_SCRIPT="${SCRIPT_DIR}/nanobench_lds_read_swizzled_wave_16x16xf16.py"
+TEST_SCRIPT="${SCRIPT_DIR}/nanobench_lds_read_mfma_A_wave_16x16xf16.py"
 
 profile_kernel() {
     local num_iters="$1"
@@ -18,11 +18,11 @@ profile_kernel() {
     local num_cus="$3"
 
     local machine_name="$(hostname)"
-    local trace="trace_${machine_name}_nanobench_lds_read_swizzled_wave_16x16xf16_iters${num_iters}_runs${num_kernel_runs}_cus${num_cus}"
+    local trace="trace_${machine_name}_nanobench_lds_read_mfma_A_wave_16x16xf16_iters${num_iters}_runs${num_kernel_runs}_cus${num_cus}"
 
     echo ""
     echo "========================================"
-    echo "Profiling: nanobench_lds_read_swizzled_wave_16x16xf16"
+    echo "Profiling: nanobench_lds_read_mfma_A_wave_16x16xf16"
     echo "num_iters=$num_iters, num_kernel_runs=$num_kernel_runs, num_cus=$num_cus"
     echo "========================================"
     echo ""
