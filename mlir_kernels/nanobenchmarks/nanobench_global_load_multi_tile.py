@@ -39,6 +39,12 @@ def main():
         help="Number of kernel invocations for timing (default: 10)",
     )
     parser.add_argument(
+        "--num-tiles",
+        type=int,
+        default=4,
+        help="Number of tiles to load (default: 4)",
+    )
+    parser.add_argument(
         "--num-cus",
         type=int,
         default=1,
@@ -57,6 +63,7 @@ def main():
 
     def preprocess(x):
         x = x.replace("{{NUM_ITERS}}", str(args.num_iters))
+        x = x.replace("{{NUM_TILES}}", str(args.num_tiles))
         x = x.replace("{{NUM_THREADS}}", str(64))
         x = x.replace("{{NUM_BLOCKS}}", str(args.num_cus))
         return x
@@ -69,6 +76,7 @@ def main():
             ctx,
             preprocess=preprocess,
             library_paths=library_paths,
+            print_ir_after_all=False,
         )
 
         if args.print_asm:
@@ -87,9 +95,9 @@ def main():
             print(f"GPU {MCPU} not available, stopping after cross-compilation")
             return
 
-        # Allocate input buffer: 4 tiles * 1024 2 bytes = 4KB
+        # Allocate input buffer: num_tiles * 1024 bytes
         # This should fit entirely in L1 cache
-        num_bytes = 4 * 1024
+        num_bytes = args.num_tiles * 1024
         input_data = np.random.randn(num_bytes).astype(np.uint8)
 
         with hsaco_file(hsaco_path):

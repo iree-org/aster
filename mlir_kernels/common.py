@@ -41,8 +41,12 @@ NANOBENCH_PASS_PIPELINE = (
     "      amdgcn-register-allocation"
     "    )"
     "  ),"
-    "  amdgcn-nop-insertion{conservative-extra-delays=0},"
-    "  amdgcn-remove-test-inst"
+    # Note: removal of test_inst must happen before nop insertion. If it were to
+    # happen after, nop insertion could potentially be tripped by test_inst
+    # operations that do not materialize in the final asm.
+    # TODO: use proper interfaces to avoid this concern.
+    "  amdgcn-remove-test-inst,"
+    "  amdgcn-nop-insertion{conservative-extra-delays=0}"
     ")"
 )
 

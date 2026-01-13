@@ -15,7 +15,8 @@ TEST_SCRIPT="${SCRIPT_DIR}/nanobench_global_load_multi_tile.py"
 profile_kernel() {
     local num_iters="$1"
     local num_kernel_runs="$2"
-    local num_cus="$3"
+    local num_tiles="$3"
+    local num_cus="$4"
 
     local machine_name="$(hostname)"
     local trace="trace_${machine_name}_nanobench_global_load_iters${num_iters}_runs${num_kernel_runs}_cus${num_cus}"
@@ -36,10 +37,11 @@ profile_kernel() {
         \"$PYTHON_BIN\" \"$TEST_SCRIPT\" \
         --num-iters \"$num_iters\" \
         --num-kernel-runs \"$num_kernel_runs\" \
+        --num-tiles \"$num_tiles\" \
         --num-cus \"$num_cus\""
     echo "Command: $cmd"
     eval "$cmd"
 }
 
-# Default: num_iters=10, num_kernel_runs=10, num_cus=1216 (= 304 * 4)
-profile_kernel "${1:-10}" "${2:-10}" "${3:-1216}"
+# Default: num_iters=10, num_kernel_runs=10, num_tiles=4, num_cus=1216 (= 304 * 4)
+profile_kernel "${1:-10}" "${2:-10}" "${3:-4}" "${4:-1216}"
