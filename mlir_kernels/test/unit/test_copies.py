@@ -141,8 +141,8 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
         num_threads = 64
         II, JJ = 2, 3  # 2x3 tiles
 
-        # Input: 32x48 matrix (2x3 tiles of 16x16) in 2D row-major layout
-        # Each 16x16 tile contains iota 0-255
+        # Input: 32x48 matrix (2x3 tiles of 16x16) in 2D row-major layout.
+        # Each 16x16 tile contains iota 0-255.
         tile_iota = np.arange(256, dtype=np.uint16).reshape(16, 16)
         input_2d = np.zeros((II * 16, JJ * 16), dtype=np.uint16)
         for ii in range(II):
@@ -158,8 +158,9 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
             output,
         )
 
-        # Compute expected values for each tile
-        # Each tile should produce the same swizzled pattern since each tile has the same iota values
+        # Compute expected values for each tile.
+        # Each tile should produce the same swizzled pattern since each tile has
+        # the same iota values.
         # fmt: off
         expected = np.array([
             [  0,   1,   2,   3,  16,  17,  18,  19,  32,  33,  34,  35,  48,  49,  50,  51],
@@ -189,9 +190,6 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
                 for jj in range(JJ):
                     input_tile = input_2d[ii*16:(ii+1)*16, jj*16:(jj+1)*16]
                     output_tile = output_2d[ii*16:(ii+1)*16, jj*16:(jj+1)*16]
-                    print(f"Input ({ii}, {jj}):\n", input_tile)
-                    print(f"Output ({ii}, {jj}):\n", output_tile)
-                    print(f"Expected ({ii}, {jj}):\n", expected)
                     np.testing.assert_array_equal(
                         output_tile, expected,
                         err_msg=f"Mismatch at tile ({ii}, {jj})"
