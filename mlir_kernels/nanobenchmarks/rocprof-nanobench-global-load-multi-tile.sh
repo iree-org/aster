@@ -41,5 +41,5 @@ profile_kernel() {
     eval "$cmd"
 }
 
-# Default: num_iters=32, num_kernel_runs=10, num_cus=304
-profile_kernel "${1:-32}" "${2:-10}" "${3:-304}"
+# Default: num_iters=10, num_kernel_runs=10, num_cus=1216 (= 304 * 4)
+profile_kernel "${1:-10}" "${2:-10}" "${3:-1216}"
