@@ -35,8 +35,8 @@ def main():
     parser.add_argument(
         "--num-kernel-runs",
         type=int,
-        default=100,
-        help="Number of kernel invocations for timing (default: 100)",
+        default=10,
+        help="Number of kernel invocations for timing (default: 10)",
     )
     parser.add_argument(
         "--num-cus",
@@ -87,12 +87,10 @@ def main():
             print(f"GPU {MCPU} not available, stopping after cross-compilation")
             return
 
-        # Allocate input buffer: 4 tiles * 16*16 elements * 2 bytes = 2KB
+        # Allocate input buffer: 4 tiles * 1024 2 bytes = 4KB
         # This should fit entirely in L1 cache
-        num_tiles = 4
-        tile_elements = 16 * 16
-        total_elements = num_tiles * tile_elements
-        input_data = np.random.randn(total_elements).astype(np.float16)
+        num_bytes = 4 * 1024
+        input_data = np.random.randn(num_bytes).astype(np.uint8)
 
         with hsaco_file(hsaco_path):
             iteration_times_ns = execute_kernel_and_verify(
@@ -110,19 +108,11 @@ def main():
 
             # Stats
             times_us = np.array(iteration_times_ns) / 1000.0
-            # With II=1, JJ=4, NT_I=1, NT_J=4: load triggers once per outer iteration
-            # (when ii=0, jj=0)
-            calls_per_iter = 1
-            total_calls = args.num_iters * calls_per_iter
-            bytes_per_call = num_tiles * tile_elements * 2  # 2KB per call
-
             print(f"\nTiming results ({args.num_kernel_runs} runs):")
             print(f"  Mean: {np.mean(times_us):.2f} us")
             print(f"  Min:  {np.min(times_us):.2f} us")
             print(f"  Max:  {np.max(times_us):.2f} us")
             print(f"  Std:  {np.std(times_us):.2f} us")
-            print(f"\nPer-call estimate: {np.mean(times_us) * 1000 / total_calls:.2f} ns "
-                  f"({total_calls} calls per kernel, {bytes_per_call} bytes/call)")
 
 
 if __name__ == "__main__":
