@@ -104,6 +104,7 @@ def hsaco_file(path: str) -> Generator[str, None, None]:
 DEFAULT_SROA_PASS_PIPELINE = (
     "builtin.module("
     "  aster-selective-inlining,"
+    "  cse,canonicalize,symbol-dce,"
     "  amdgcn-instruction-scheduling-autoschedule,"
     "  aster-op-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
@@ -172,14 +173,14 @@ DEFAULT_SROA_PASS_PIPELINE = (
     # Note: needs to know about instructions and actual register number for
     # WAW dependencies.
     "  amdgcn-nop-insertion{conservative-extra-delays=0}"
-    ")"
-)
+    ")")
 
 # SROA pass pipeline that runs synchronously, i.e. no wait optimization and extra
 # NOP insertion. This is used for debugging races.
 SYNCHRONOUS_SROA_PASS_PIPELINE = (
     "builtin.module("
     "  aster-selective-inlining,"
+    "  cse,canonicalize,symbol-dce,"
     "  amdgcn-instruction-scheduling-autoschedule,"
     "  aster-op-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
@@ -247,8 +248,7 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     # Note: needs to know about instructions and actual register number for
     # WAW dependencies.
     "  amdgcn-nop-insertion{conservative-extra-delays=32}"
-    ")"
-)
+    ")")
 
 
 def load_mlir_module_from_file(

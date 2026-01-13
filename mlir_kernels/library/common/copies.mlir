@@ -8,16 +8,19 @@
 !s   = !amdgcn.sgpr
 !sx1 = !amdgcn.sgpr_range<[? + 1]>
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx3 = !amdgcn.sgpr_range<[? + 3]>
 !sx4 = !amdgcn.sgpr_range<[? + 4]>
 
 !v   = !amdgcn.vgpr
 !vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
+!vx3 = !amdgcn.vgpr_range<[? + 3]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
 !a   = !amdgcn.agpr
 !ax1 = !amdgcn.agpr_range<[? + 1]>
 !ax2 = !amdgcn.agpr_range<[? + 2]>
+!ax3 = !amdgcn.agpr_range<[? + 3]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
 
 amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
@@ -28,7 +31,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @alloc_vgpr() -> !v
   func.func private @alloc_vgprx1() -> !vx1
   func.func private @alloc_vgprx2() -> !vx2
-  func.func private @init_vgprx4(i32) -> !vx4
+  func.func private @alloc_vgprx3() -> !vx3
+  func.func private @alloc_vgprx4() -> !vx4
   // indexing.mlir
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @matrix_offset(index, index, index, index) -> !v
@@ -71,26 +75,36 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // this generic without templating MLIR.
   // TODO: also add a variant with upper bounds and buffer_load to handle boundary conditions.
   // TODO: add a static assert to enforce these.
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(
+   func.func private @global_load_wave_elt_2d_wait_impl(
     %ptr: !sx2,                     // The global base pointer
     %m_pos: index,                  // The outer-most major-tile position
     %n_pos: index,                  // The inner-most major-tile position
     %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
     %mm_pos: index,                 // The outer-most minor-tile position
     %nn_pos: index,                 // The inner-most minor-tile position
-    %num_rows: index                // The number of rows in the 256 elements
-  ) -> !vx2 {
-    // Constants that could become generic parameters if we communicated results
-    // via opaque ptr + mem2reg.
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
-    %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
-    %wave_size = arith.constant 64 : index    // 64 threads per wave
+    %num_rows: index,               // The number of rows for the transfer, must divide %wave_size evenly
+    %elt_size: index,               // The size of each element in bytes (used to map positions to addresses)
+    %transfer_size: index,          // The size of each transfer in bytes
+    %wave_size: index               // The number of elements per wave
+  ) -> !aster_utils.any {
+
+    %mod = affine.apply affine_map<()[wave_size, num_rows]
+      -> (wave_size mod num_rows)>()[%wave_size, %num_rows]
+    // static assert that %mod is 0
+    scf.index_switch %mod
+    case 0 {
+      scf.yield
+    }
+    default {
+      amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 42
+    }
 
     %num_cols = affine.apply affine_map<()[wave_size, num_rows]
       -> (wave_size ceildiv num_rows)>()[%wave_size, %num_rows]
 
-    // Get local positions within the minor tile
-    %mmm_pos, %nnn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
+    // Get threadlocal positions within the minor tile
+    %mmm_pos, %nnn = func.call @lane_delinearize_2d(%num_rows, %num_cols)
+      : (index, index) -> (index, index)
     %nnn_pos = affine.apply affine_map<()[nnn, transfer_size, elt_size] ->
       (nnn * transfer_size ceildiv elt_size)>()[%nnn, %transfer_size, %elt_size]
 
@@ -100,14 +114,68 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       : (index, index, index, index, index, index, index, index) -> !v
 
     // Perform the load
-    %c0_load = arith.constant 0 : i32
-    %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-    %loaded, %tok_load = amdgcn.load global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load) : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+    %res = scf.index_switch %transfer_size -> !aster_utils.any
+    case 4 {
+        %dst = func.call @alloc_vgprx1() : () -> (!vx1)
+        %loaded, %tok_load = amdgcn.load global_load_dword dest %dst addr %ptr offset d(%off_reg)
+          : dps(!vx1) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+        %any = aster_utils.to_any %loaded : !vx1
+        scf.yield %any : !aster_utils.any
+    }
+    case 8 {
+        %dst = func.call @alloc_vgprx2() : () -> (!vx2)
+        %loaded, %tok_load = amdgcn.load global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg)
+          : dps(!vx2) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+        %any = aster_utils.to_any %loaded : !vx2
+        scf.yield %any : !aster_utils.any
+    }
+    case 12 {
+        %dst = func.call @alloc_vgprx3() : () -> (!vx3)
+        %loaded, %tok_load = amdgcn.load global_load_dwordx3 dest %dst addr %ptr offset d(%off_reg)
+          : dps(!vx3) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+        %any = aster_utils.to_any %loaded : !vx3
+        scf.yield %any : !aster_utils.any
+    }
+    case 16 {
+        %dst = func.call @alloc_vgprx4() : () -> (!vx4)
+        %loaded, %tok_load = amdgcn.load global_load_dwordx4 dest %dst addr %ptr offset d(%off_reg)
+          : dps(!vx4) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+        %any = aster_utils.to_any %loaded : !vx4
+        scf.yield %any : !aster_utils.any
+    }
+    default {
+        amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 43
+        %c0 = arith.constant 0 : index
+        %any = aster_utils.to_any %c0 : index
+        scf.yield %any : !aster_utils.any
+    }
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
-    return %loaded : !vx2
+    return %res : !aster_utils.any
+  }
+
+
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most major-tile position
+    %n_pos: index,                  // The inner-most major-tile position
+    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
+    %mm_pos: index,                 // The outer-most minor-tile position
+    %nn_pos: index,                 // The inner-most minor-tile position
+    %num_rows: index                // The number of rows in the 256 elements
+  ) -> !vx2 {
+    %elt_size = arith.constant 2 : index      // f16 size in bytes
+    %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
+    %wave_size = arith.constant 64 : index    // 64 threads per wave
+
+    %loaded = func.call @global_load_wave_elt_2d_wait_impl(
+        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+
+    %res = aster_utils.from_any %loaded : !vx2
+    return %res : !vx2
   }
 
   // Writes %value to LDS, in a **synchronized fashion** (i.e. waitcnt 0 is
