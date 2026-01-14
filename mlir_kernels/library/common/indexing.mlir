@@ -27,14 +27,16 @@ amdgcn.library @common_indexing {
     return %lane_id : index
   }
 
-  // Get the wave id within the block
+  // Get the wave id within the block.
+  // Note: assumes 1-D thread specification ([num_threads, 1, 1]).
   func.func private @wave_id() -> index {
     %tid = gpu.thread_id x
     %wave_id = affine.apply affine_map<()[tid] -> (tid floordiv 64)>()[%tid]
     return %wave_id : index
   }
 
-  // Get the number of waves in the block
+  // Get the number of waves in the block.
+  // Note: assumes 1-D thread specification ([num_threads, 1, 1]).
   func.func private @wave_count() -> index {
     %bdim = gpu.block_dim x
     %wave_count = affine.apply affine_map<()[bdim] -> (bdim ceildiv 64)>()[%bdim]
