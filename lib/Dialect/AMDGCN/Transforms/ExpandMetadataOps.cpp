@@ -51,7 +51,7 @@ public:
 
 static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
                           uint32_t size, int32_t offset) {
-  llvm::function_ref<Value(OpBuilder &, Location, Value, Value, uint32_t)>
+  llvm::function_ref<LoadOp(OpBuilder &, Location, Value, Value, Value, Value)>
       createOp;
   RegisterTypeInterface loadTy{};
   int32_t numWords;
@@ -86,8 +86,10 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
 
   // Load the easy case.
   if (numLoads == 1)
-    return createOp(rewriter, alloc.getLoc(), alloc, kenArgPtr, offset);
-
+    return createOp(rewriter, alloc.getLoc(), alloc, kenArgPtr, nullptr,
+                    arith::ConstantIntOp::create(rewriter, alloc.getLoc(),
+                                                 offset, 32))
+        .getResult();
   // Load in multiple instructions.
   ValueRange splitAlloc = splitRange(rewriter, alloc.getLoc(), alloc);
   SmallVector<Value> loadedRegs;
@@ -102,8 +104,11 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
     }
 
     // Load the segment.
-    Value segment = createOp(rewriter, alloc.getLoc(), dest, kenArgPtr,
-                             offset + i * 4 * numWords);
+    Value segment =
+        createOp(rewriter, alloc.getLoc(), dest, kenArgPtr, nullptr,
+                 arith::ConstantIntOp::create(rewriter, alloc.getLoc(),
+                                              offset + i * 4 * numWords, 32))
+            .getResult();
 
     // Maybe partition the segment.
     if (numWords > 1) {

@@ -91,9 +91,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %c_value = memref.load %c_memref[%m, %n]
         : memref<?x?x!amdgcn.agpr_range<[? + 4]>>
         // Store AGPR range directly to global memory
-        amdgcn.flat.global_store #amdgcn.inst<global_store_dwordx4>
-          %c_value, %c_global
-        : !amdgcn.agpr_range<[? + 4]>, !amdgcn.vgpr_range<[10 : 12]>
+        %c0_gs = arith.constant 0 : i32
+        %tok = amdgcn.store global_store_dwordx4 data %c_value addr %c_global offset c(%c0_gs) : ins(!amdgcn.agpr_range<[? + 4]>, !amdgcn.vgpr_range<[10 : 12]>, i32) -> !amdgcn.write_token<flat>
       } {sched.delay = 10 : i64, sched.rate = 2 : i64, sched.permutation = array<i64: 0, 2, 1>}
 
     } {sched.dims = array<i64: 4, 1, 3>}

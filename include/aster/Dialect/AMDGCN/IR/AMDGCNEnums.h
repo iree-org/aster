@@ -29,6 +29,9 @@ inline bool isAddressSpaceOf(AddressSpaceKind value,
 inline bool isAccessKindOf(AccessKind value, ArrayRef<AccessKind> kinds) {
   return llvm::is_contained(kinds, value);
 }
+
+/// Helper to get the memory instruction kind from an opcode.
+MemoryInstructionKind getMemoryInstructionKind(OpCode opCode);
 } // namespace mlir::aster::amdgcn
 
 #endif // ASTER_DIALECT_AMDGCN_AMDGCNENUMS_H

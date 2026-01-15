@@ -195,45 +195,27 @@ MemoryLocation MemoryDependenceAnalysis::getMemoryLocation(Operation *op) {
     llvm_unreachable("Unknown memory operation");
   }
 
-  /// TODO: extract the whole function into some memory access interface
-  if (auto globalLoad = dyn_cast<amdgcn::inst::GlobalLoadOp>(op)) {
-    address = globalLoad.getAddr();
-    dataValue = globalLoad.getVdst(); // Destination register range
-    if (globalLoad.getVgprOffset())
-      vgprOffset = globalLoad.getVgprOffset();
-    offset = globalLoad.getOffset();
-  } else if (auto globalStore = dyn_cast<amdgcn::inst::GlobalStoreOp>(op)) {
-    address = globalStore.getAddr();
-    dataValue = globalStore.getData(); // Source data register range
-    if (globalStore.getVgprOffset())
-      vgprOffset = globalStore.getVgprOffset();
-    offset = globalStore.getOffset();
-  } else if (auto smemLoad = dyn_cast<amdgcn::inst::SMEMLoadOp>(op)) {
-    if (smemLoad.getOpcode() == OpCode::S_MEMTIME) {
-      return MemoryLocation::createUniversalAlias(op,
-                                                  GlobalMemoryResource::get());
-    } else if (smemLoad.getAddr()) {
-      address = smemLoad.getAddr();
-      dataValue = smemLoad.getSdst(); // Destination register range
-      // SMEM operations typically don't have VGPR offsets
-      offset = smemLoad.getOffset();
-    } else {
-      llvm_unreachable("Unknown SMEM operation");
-    }
-  } else if (auto smemStore = dyn_cast<amdgcn::inst::SMEMStoreOp>(op)) {
-    address = smemStore.getAddr();
-    dataValue = smemStore.getData(); // Source data register range
-    offset = smemStore.getOffset();
-  } else if (auto dsRead = dyn_cast<amdgcn::inst::DSReadOp>(op)) {
-    address = dsRead.getAddr();
-    // For DS read, use the result type
-    if (!op->getResults().empty())
-      dataValue = op->getResult(0);
-    offset = cast<ValueOrI32>(dsRead.getOffset()).getConst().value_or(0);
-  } else if (auto dsWrite = dyn_cast<amdgcn::inst::DSWriteOp>(op)) {
-    address = dsWrite.getAddr();
-    dataValue = dsWrite.getData(); // Source data
-    offset = cast<ValueOrI32>(dsWrite.getOffset()).getConst().value_or(0);
+  if (auto load = dyn_cast<amdgcn::LoadOp>(op)) {
+    address = load.getAddr();
+    dataValue = load.getDest();
+    vgprOffset = load.getDynamicOffset();
+    sgprOffset = load.getUniformOffset();
+    // FIXME: This doesn't handle unrealized constant offsets.
+    offset =
+        !load.getConstantOffset()
+            ? 0
+            : cast<ValueOrI32>(load.getConstantOffset()).getConst().value_or(0);
+  } else if (auto store = dyn_cast<amdgcn::StoreOp>(op)) {
+    address = store.getAddr();
+    dataValue = store.getData();
+    vgprOffset = store.getDynamicOffset();
+    sgprOffset = store.getUniformOffset();
+    // FIXME: This doesn't handle unrealized constant offsets.
+    offset = !store.getConstantOffset()
+                 ? 0
+                 : cast<ValueOrI32>(store.getConstantOffset())
+                       .getConst()
+                       .value_or(0);
   } else {
     llvm_unreachable("Unknown memory operation");
   }
@@ -361,15 +343,6 @@ MemoryDependenceAnalysis::visitOperation(Operation *op,
 
     std::function<bool(const MemoryLocation &)> loadPredicate =
         [&](const MemoryLocation &memLoc) {
-          // If either of the ops is an smem operation return true.
-          // This is stricter than strictly needed for correctness but gives
-          // more precise timing results.
-
-          auto m1 = dyn_cast<amdgcn::inst::SMEMLoadOp>(memLoc.op);
-          auto m2 = dyn_cast<amdgcn::inst::SMEMLoadOp>(loc.op);
-          if ((m1 && m1.getOpcode() == OpCode::S_MEMTIME) ||
-              (m2 && m2.getOpcode() == OpCode::S_MEMTIME))
-            return true;
           bool res = isStoreOp(memLoc.op) && loc.mayAlias(memLoc);
           if (res)
             LDBG() << "predicate: " << *memLoc.op << " ALIASES with "

@@ -39,6 +39,10 @@ private:
   void emitVariant(AsmVariant variant, mlir::raw_indented_ostream &os);
   /// Emit the code to print the given argument.
   void emitArg(DagArg dagArg, AsmArgFormat arg, mlir::raw_indented_ostream &os);
+  /// Emit the custom syntax at the current lexer position.
+  LogicalResult emitCustomSyntax(Lexer &lexer, mlir::raw_indented_ostream &os);
+  /// Emit an error message.
+  void emitError(Twine msg) { llvm::PrintFatalError(&inst.getDef(), msg); }
   AMDInst inst;
   mlir::tblgen::FmtContext ctx;
   llvm::StringMap<ArgTy> arguments;
@@ -80,6 +84,64 @@ void ASMFormatHandler::emitArg(DagArg dagArg, AsmArgFormat arg,
   os << "\n";
   // Restore context.
   ctx.withSelf("_inst");
+}
+
+LogicalResult
+ASMFormatHandler::emitCustomSyntax(Lexer &lexer,
+                                   mlir::raw_indented_ostream &os) {
+  // Expect '@'.
+  if (lexer.currentChar() != '@')
+    return failure();
+  lexer.consumeChar();
+
+  // Parse identifier.
+  FailureOr<StringRef> id = lexer.lexIdentifier();
+
+  // Couldn't lex identifier.
+  if (failed(id)) {
+    emitError("failed to lex identifier in asm format: " +
+              lexer.getCurrentPos());
+    return failure();
+  }
+
+  // Lex the argument list.
+  if (lexer.currentChar() != '(') {
+    emitError("expected '(' after custom syntax: " + lexer.getCurrentPos());
+    return failure();
+  }
+  lexer.consumeChar(); // consume '('
+  StringRef argStr =
+      lexer.getCurrentPos().take_until([](char c) { return c == ')'; });
+  if (lexer.getCurrentPos() == argStr) {
+    emitError("expected ')' to terminate custom syntax: " +
+              lexer.getCurrentPos());
+    return failure();
+  }
+  (void)lexer.consume(argStr);
+  lexer.consumeChar(); // consume ')'
+
+  // Parse the arguments.
+  SmallVector<StringRef, 4> args;
+  argStr.split(args, ',', -1, true);
+  for (StringRef &arg : args) {
+    arg = arg.trim(" \t\n\v\f\r$");
+    if (!arguments.contains(arg)) {
+      emitError("unknown argument in custom syntax: " + arg);
+      return failure();
+    }
+    if (arg.empty()) {
+      emitError("empty argument in custom syntax");
+      return failure();
+    }
+  }
+  os << id << "(" << mlir::tblgen::tgfmt("$_printer, $_self", &ctx);
+  if (!args.empty())
+    os << ", ";
+  llvm::interleaveComma(args, os, [&](StringRef arg) {
+    os << "_inst.get" + llvm::convertToCamelFromSnakeCase(arg, true) + "()";
+  });
+  os << ");\n";
+  return success();
 }
 
 void ASMFormatHandler::emitVariant(AsmVariant variant,
@@ -149,6 +211,13 @@ void ASMFormatHandler::emitVariant(AsmVariant variant,
         return;
       }
       os << llvm::formatv("$_printer.printKeyword(\"{0}\");\n", *id);
+      continue;
+    }
+
+    // Handle custom syntax.
+    if (lexer.currentChar() == '@') {
+      if (failed(emitCustomSyntax(lexer, os)))
+        return;
       continue;
     }
 

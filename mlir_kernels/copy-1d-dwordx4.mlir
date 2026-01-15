@@ -36,8 +36,8 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     %offset_vgpr = lsir.to_reg %offset : i32 -> !amdgcn.vgpr
 
     // Global load dwordx4
-    %loaded = amdgcn.flat.global_load #amdgcn.inst<global_load_dwordx4> %range, %src_global[%offset_vgpr]
-      : !amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 2]>[!amdgcn.vgpr] -> !amdgcn.vgpr_range<[? + 4]>
+    %c0_load = arith.constant 0 : i32
+    %loaded, %tok_load = amdgcn.load global_load_dwordx4 dest %range addr %src_global offset d(%offset_vgpr) + c(%c0_load) : dps(!amdgcn.vgpr_range<[? + 4]>) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.read_token<flat>
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -68,8 +68,8 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     %offset_vgpr = lsir.to_reg %offset : i32 -> !amdgcn.vgpr
 
     // Global store dwordx4
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dwordx4> %value, %dst_global[%offset_vgpr]
-      : !amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 2]>[!amdgcn.vgpr]
+    %c0_store = arith.constant 0 : i32
+    %tok_store = amdgcn.store global_store_dwordx4 data %value addr %dst_global offset d(%offset_vgpr) + c(%c0_store) : ins(!amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<flat>
 
     // Wait for store completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0

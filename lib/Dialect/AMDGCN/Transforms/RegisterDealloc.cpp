@@ -191,9 +191,7 @@ void RegisterDealloc::runOnOperation() {
   target.addDynamicallyLegalOp<
       amdgcn::AllocaOp, amdgcn::MakeRegisterRangeOp,
       amdgcn::SplitRegisterRangeOp, amdgcn::inst::VOP1Op, amdgcn::inst::VOP2Op,
-      amdgcn::inst::VOP3PMAIOp, amdgcn::inst::DSReadOp, amdgcn::inst::DSWriteOp,
-      amdgcn::inst::GlobalLoadOp, amdgcn::inst::GlobalStoreOp,
-      amdgcn::inst::SMEMLoadOp, amdgcn::inst::SMEMStoreOp>(
+      amdgcn::inst::VOP3PMAIOp, amdgcn::LoadOp, amdgcn::StoreOp>(
       [&](Operation *op) -> std::optional<bool> {
         return converter.isLegal(op);
       });

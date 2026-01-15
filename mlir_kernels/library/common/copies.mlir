@@ -100,9 +100,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       : (index, index, index, index, index, index, index, index) -> !v
 
     // Perform the load
+    %c0_load = arith.constant 0 : i32
     %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-    %loaded = amdgcn.flat.global_load <global_load_dwordx2> %dst, %ptr[%off_reg]
-      : !vx2, !sx2[!v] -> !vx2
+    %loaded, %tok_load = amdgcn.load global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load) : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -164,8 +164,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
 
     // DS write to LDS
     %l_off_i32 = arith.index_cast %lds_base_off : index to i32
-    amdgcn.ds.write #amdgcn.inst<ds_write_b64> %value, %off_lds_reg, offset = %l_off_i32
-      : !vx2, !v, i32
+    %tok_write = amdgcn.store ds_write_b64 data %value addr %off_lds_reg offset c(%l_off_i32) : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
     // Wait for LDS write
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
@@ -215,7 +214,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %elt_size = arith.constant 4 : index // dword size in bytes
     %off_reg = func.call @matrix_offset(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index) -> !v
-    amdgcn.flat.global_store <global_store_dword> %value, %ptr[%off_reg] : !v, !sx2[!v]
+    %c0_store = arith.constant 0 : i32
+    %tok_store = amdgcn.store global_store_dword data %value addr %ptr offset d(%off_reg) + c(%c0_store) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -243,8 +243,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     // Perform the DS read
     %lds_base_i32 = arith.index_cast %lds_base : index to i32
     %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-    %from_lds = amdgcn.ds.read #amdgcn.inst<ds_read_b64> %dst, %off_lds_reg, offset = %lds_base_i32
-      : !v, i32 -> !vx2
+    %from_lds, %tok_read = amdgcn.load ds_read_b64 dest %dst addr %off_lds_reg offset c(%lds_base_i32) : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     return %from_lds : !vx2
@@ -327,8 +326,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
 
     %lds_base_i32 = arith.index_cast %lds_base : index to i32
     %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-    %result = amdgcn.ds.read #amdgcn.inst<ds_read_b64> %dst, %off_lds, offset = %lds_base_i32
-      : !v, i32 -> !vx2
+    %result, %tok_read = amdgcn.load ds_read_b64 dest %dst addr %off_lds offset c(%lds_base_i32) : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     return %result : !vx2

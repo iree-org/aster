@@ -83,6 +83,8 @@ void aster::amdgcn::AsmPrinter::printOperand(Value operand) {
 }
 
 void aster::amdgcn::AsmPrinter::printOffsetOperand(Value operand) {
+  if (!operand)
+    return;
   // This asserts if it's not a constant.
   int32_t value = *cast<ValueOrI32>(operand).getConst();
   if (value == 0)

@@ -7,14 +7,30 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from aster import ir, utils
 from aster.dialects import amdgcn, builtin
-from cdna.test_cdna import build_test_module
 
 
 def test_hsaco_generation():
     """Test translation of AMDGCN module to hsaco file."""
     with ir.Context() as ctx, ir.Location.unknown():
         # Build the test module from existing test
-        module = build_test_module(ctx)
+        module = ir.Module.parse(
+            """
+amdgcn.module @test_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  amdgcn.kernel @ds_all_kernel {
+    %addr = amdgcn.alloca : !amdgcn.vgpr
+    %vgpr0 = amdgcn.alloca : !amdgcn.vgpr
+
+    // Read from LDS
+    %data, %tok = load ds_read_b32 dest %vgpr0 addr %addr : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+
+    // Write to LDS
+    store ds_write_b32 data %data addr %addr : ins(!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.write_token<shared>
+
+    end_kernel
+  }
+}
+"""
+        )
 
         # Find the AMDGCN module
         amdgcn_mod = None
@@ -31,7 +47,7 @@ def test_hsaco_generation():
         pm = passmanager.PassManager.parse(
             "builtin.module(amdgcn.module(amdgcn-register-allocation))", ctx
         )
-        pm.run(module)
+        pm.run(module.operation)
 
         # Translate to assembly
         asm = utils.translate_module(amdgcn_mod)

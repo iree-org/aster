@@ -20,6 +20,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
+#include "aster/Interfaces/DependentOpInterface.h"
 #include "aster/Interfaces/GPUFuncInterface.h"
 #include "aster/Interfaces/ModuleOpInterface.h"
 #include "mlir/Bytecode/BytecodeOpInterface.h"

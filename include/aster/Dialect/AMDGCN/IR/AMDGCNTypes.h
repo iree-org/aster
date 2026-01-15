@@ -65,7 +65,8 @@ RegisterKind getRegisterKind(AMDGCNRegisterTypeInterface type);
 /// Returns true if `lhs` is less than `rhs`.
 bool compareLessAMDGCNRegisterTypes(AMDGCNRegisterTypeInterface lhs,
                                     AMDGCNRegisterTypeInterface rhs);
-
+/// Check if the given type is a register range and has the given size.
+bool hasSize(Type type, ArrayRef<int32_t> size);
 } // namespace mlir::aster::amdgcn
 
 namespace mlir::aster {

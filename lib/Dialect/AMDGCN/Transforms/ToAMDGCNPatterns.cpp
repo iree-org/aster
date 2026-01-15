@@ -707,6 +707,10 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
     rewriter.eraseOp(op);
     return success();
   }
+  Value cOff;
+  if (off > 0) {
+    cOff = getI32Constant(rewriter, loc, off);
+  }
 
   // Handle a SMEM load
   bool addrIsSGPR = isSGPR(addrTy, 2);
@@ -716,23 +720,24 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
     }
     switch (numWords) {
     case 1:
-      result = S_LOAD_DWORD::create(rewriter, loc, dst, addr, off).getResult();
+      result = S_LOAD_DWORD::create(rewriter, loc, dst, addr, nullptr, cOff)
+                   .getResult();
       break;
     case 2:
-      result =
-          S_LOAD_DWORDX2::create(rewriter, loc, dst, addr, off).getResult();
+      result = S_LOAD_DWORDX2::create(rewriter, loc, dst, addr, nullptr, cOff)
+                   .getResult();
       break;
     case 4:
-      result =
-          S_LOAD_DWORDX4::create(rewriter, loc, dst, addr, off).getResult();
+      result = S_LOAD_DWORDX4::create(rewriter, loc, dst, addr, nullptr, cOff)
+                   .getResult();
       break;
     case 8:
-      result =
-          S_LOAD_DWORDX8::create(rewriter, loc, dst, addr, off).getResult();
+      result = S_LOAD_DWORDX8::create(rewriter, loc, dst, addr, nullptr, cOff)
+                   .getResult();
       break;
     case 16:
-      result =
-          S_LOAD_DWORDX16::create(rewriter, loc, dst, addr, off).getResult();
+      result = S_LOAD_DWORDX16::create(rewriter, loc, dst, addr, nullptr, cOff)
+                   .getResult();
       break;
     default:
       return rewriter.notifyMatchFailure(
@@ -760,22 +765,22 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
   if (true)
     switch (numWords) {
     case 1:
-      result = GLOBAL_LOAD_DWORD::create(rewriter, loc, dst, addr, offset, off)
+      result = GLOBAL_LOAD_DWORD::create(rewriter, loc, dst, addr, offset, cOff)
                    .getResult();
       break;
     case 2:
       result =
-          GLOBAL_LOAD_DWORDX2::create(rewriter, loc, dst, addr, offset, off)
+          GLOBAL_LOAD_DWORDX2::create(rewriter, loc, dst, addr, offset, cOff)
               .getResult();
       break;
     case 3:
       result =
-          GLOBAL_LOAD_DWORDX3::create(rewriter, loc, dst, addr, offset, off)
+          GLOBAL_LOAD_DWORDX3::create(rewriter, loc, dst, addr, offset, cOff)
               .getResult();
       break;
     case 4:
       result =
-          GLOBAL_LOAD_DWORDX4::create(rewriter, loc, dst, addr, offset, off)
+          GLOBAL_LOAD_DWORDX4::create(rewriter, loc, dst, addr, offset, cOff)
               .getResult();
       break;
     default:
@@ -1370,13 +1375,16 @@ LogicalResult StoreOpPattern::matchAndRewrite(lsir::StoreOp op,
 
     switch (numWords) {
     case 1:
-      S_STORE_DWORD::create(rewriter, loc, data, addr, off);
+      S_STORE_DWORD::create(rewriter, loc, data, addr, nullptr,
+                            getI32Constant(rewriter, loc, off));
       break;
     case 2:
-      S_STORE_DWORDX2::create(rewriter, loc, data, addr, off);
+      S_STORE_DWORDX2::create(rewriter, loc, data, addr, nullptr,
+                              getI32Constant(rewriter, loc, off));
       break;
     case 4:
-      S_STORE_DWORDX4::create(rewriter, loc, data, addr, off);
+      S_STORE_DWORDX4::create(rewriter, loc, data, addr, nullptr,
+                              getI32Constant(rewriter, loc, off));
       break;
     default:
       return rewriter.notifyMatchFailure(
@@ -1400,19 +1408,22 @@ LogicalResult StoreOpPattern::matchAndRewrite(lsir::StoreOp op,
                                        "expected VGPR offset for store to "
                                        "global memory space with SGPR address");
   }
-
+  Value cOff = nullptr;
+  if (off > 0) {
+    cOff = getI32Constant(rewriter, loc, off);
+  }
   switch (numWords) {
   case 1:
-    GLOBAL_STORE_DWORD::create(rewriter, loc, data, addr, offset, off);
+    GLOBAL_STORE_DWORD::create(rewriter, loc, data, addr, offset, cOff);
     break;
   case 2:
-    GLOBAL_STORE_DWORDX2::create(rewriter, loc, data, addr, offset, off);
+    GLOBAL_STORE_DWORDX2::create(rewriter, loc, data, addr, offset, cOff);
     break;
   case 3:
-    GLOBAL_STORE_DWORDX3::create(rewriter, loc, data, addr, offset, off);
+    GLOBAL_STORE_DWORDX3::create(rewriter, loc, data, addr, offset, cOff);
     break;
   case 4:
-    GLOBAL_STORE_DWORDX4::create(rewriter, loc, data, addr, offset, off);
+    GLOBAL_STORE_DWORDX4::create(rewriter, loc, data, addr, offset, cOff);
     break;
   default:
     return rewriter.notifyMatchFailure(
@@ -1508,101 +1519,6 @@ LogicalResult SubIOpPattern::matchAndRewrite(lsir::SubIOp op,
                  .getVdst0Res();
   rewriter.replaceOp(op,
                      MakeRegisterRangeOp::create(rewriter, loc, oTy, {lo, hi}));
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// TimingStartOpPattern
-//===----------------------------------------------------------------------===//
-
-LogicalResult
-TimingStartOpPattern::matchAndRewrite(lsir::TimingStartOp op,
-                                      PatternRewriter &rewriter) const {
-  Location loc = op.getLoc();
-
-  // Allocate SGPRs for timestamp (2 SGPRs for 64-bit time value)
-  Value timestampSgpr = createAllocation(
-      rewriter, loc,
-      rewriter.getType<SGPRRangeType>(RegisterRange(Register(), 2)));
-
-  // Read timestamp using s_memtime
-  Value timestampRead = rewriter.create<inst::SMEMLoadOp>(
-      loc, timestampSgpr.getType(), OpCode::S_MEMTIME, timestampSgpr, Value(),
-      0);
-
-  // Wait for memtime to complete
-  S_WAITCNT::create(rewriter, loc, 0, 0, 0);
-
-  // Replace the operation with the timestamp read result
-  rewriter.replaceOp(op, timestampRead);
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// TimingStopOpPattern
-//===----------------------------------------------------------------------===//
-
-LogicalResult
-TimingStopOpPattern::matchAndRewrite(lsir::TimingStopOp op,
-                                     PatternRewriter &rewriter) const {
-  Location loc = op.getLoc();
-
-  // Get operands
-  Value startTimeSgpr = op.getStartTime();
-  Value startBufferPtrSgpr = op.getStartBufferPtr();
-  Value endBufferPtrSgpr = op.getEndBufferPtr();
-
-  // Read end timestamp using s_memtime
-  Value endTimestampSgpr = createAllocation(
-      rewriter, loc,
-      rewriter.getType<SGPRRangeType>(RegisterRange(Register(), 2)));
-  Value endTimeRead = rewriter.create<inst::SMEMLoadOp>(
-      loc, endTimestampSgpr.getType(), OpCode::S_MEMTIME, endTimestampSgpr,
-      Value(), 0);
-
-  // Wait for memtime to complete
-  S_WAITCNT::create(rewriter, loc, 0, 0, 0);
-
-  // Helper function to convert SGPR timestamp to VGPR and store to global
-  // memory These stores happen AFTER the [start, stop) interval, so they're not
-  // counted
-  auto storeTimestamp = [&](Value timestampSgpr, Value bufferPtrSgpr) {
-    // Convert timestamp from SGPR to VGPR for global_store
-    ValueRange timestampSplit =
-        SplitRegisterRangeOp::create(rewriter, loc, timestampSgpr).getResults();
-    Value timestampVgprLo =
-        createAllocation(rewriter, loc, rewriter.getType<VGPRType>(Register()));
-    Value timestampVgprHi =
-        createAllocation(rewriter, loc, rewriter.getType<VGPRType>(Register()));
-    Value timestampVgprLoMoved = V_MOV_B32_E32::create(
-        rewriter, loc, timestampVgprLo, timestampSplit[0]);
-    Value timestampVgprHiMoved = V_MOV_B32_E32::create(
-        rewriter, loc, timestampVgprHi, timestampSplit[1]);
-    Value timestampVgpr = MakeRegisterRangeOp::create(
-        rewriter, loc, {timestampVgprLoMoved, timestampVgprHiMoved});
-
-    // Allocate zero offset VGPR for global_store (no per-thread offset)
-    Value zeroVgpr =
-        createAllocation(rewriter, loc, rewriter.getType<VGPRType>(Register()));
-    Value zeroConst = rewriter.create<arith::ConstantIntOp>(loc, 0, 32);
-    Value zeroVgprMoved =
-        V_MOV_B32_E32::create(rewriter, loc, zeroVgpr, zeroConst);
-
-    // Store timestamp to global memory using SGPR address and VGPR data
-    rewriter.create<inst::GlobalStoreOp>(loc, OpCode::GLOBAL_STORE_DWORDX2,
-                                         timestampVgpr, bufferPtrSgpr,
-                                         zeroVgprMoved, 0);
-  };
-
-  // Store both timestamps (these are outside the [start, stop) interval)
-  storeTimestamp(startTimeSgpr, startBufferPtrSgpr);
-  storeTimestamp(endTimeRead, endBufferPtrSgpr);
-
-  // Wait for stores to complete
-  S_WAITCNT::create(rewriter, loc, 0, 0, 0);
-
-  // Erase the operation (it has no results)
-  rewriter.eraseOp(op);
   return success();
 }
 
@@ -1714,6 +1630,6 @@ void mlir::aster::amdgcn::populateToAMDGCNPatterns(
                AndIOpPattern, KernelOpPattern, LoadOpPattern, MovOpPattern,
                MulIOpPattern, OrIOpPattern, XOrIOpPattern, RegCastOpPattern,
                ReturnOpPattern, ShLIOpPattern, ShRSIOpPattern, ShRUIOpPattern,
-               StoreOpPattern, SubIOpPattern, TimingStartOpPattern,
-               TimingStopOpPattern, WaitOpPattern>(patterns.getContext());
+               StoreOpPattern, SubIOpPattern, WaitOpPattern>(
+      patterns.getContext());
 }

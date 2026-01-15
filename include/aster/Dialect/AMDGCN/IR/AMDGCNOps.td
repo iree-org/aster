@@ -516,11 +516,7 @@ def AMDGCN_ThreadIdOp : AMDGCN_Op<"thread_id", [Pure]> {
 // AMDGCN Target Operations
 //===----------------------------------------------------------------------===//
 
-include "aster/Dialect/AMDGCN/IR/Instructions/DS.td"
-include "aster/Dialect/AMDGCN/IR/Instructions/FLAT.td"
-include "aster/Dialect/AMDGCN/IR/Instructions/MTBUF.td"
-include "aster/Dialect/AMDGCN/IR/Instructions/MUBUF.td"
-include "aster/Dialect/AMDGCN/IR/Instructions/SMEM.td"
+include "aster/Dialect/AMDGCN/IR/Instructions/Memory.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SOP1.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SOP2.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SOPC.td"

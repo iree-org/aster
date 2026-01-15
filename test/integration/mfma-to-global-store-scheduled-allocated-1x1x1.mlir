@@ -70,8 +70,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %offset_vgpr = lsir.to_reg %offset : i32 -> !amdgcn.vgpr
 
     // Global load
-    %loaded = amdgcn.flat.global_load #amdgcn.inst<global_load_dwordx2> %range, %global[%offset_vgpr]
-      : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>[!amdgcn.vgpr] -> !amdgcn.vgpr_range<[? + 2]>
+    %c0_load = arith.constant 0 : i32
+    %loaded, %tok = amdgcn.load global_load_dwordx2 dest %range addr %global offset d(%offset_vgpr) + c(%c0_load) : dps(!amdgcn.vgpr_range<[? + 2]>) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.read_token<flat>
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -100,9 +100,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %offset_vgpr = lsir.to_reg %offset : i32 -> !amdgcn.vgpr
 
     // Store vGPR range directly to global memory
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dwordx4>
-      %c_value, %c_global[%offset_vgpr]
-    : !amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 2]>[!amdgcn.vgpr]
+    %c0_store = arith.constant 0 : i32
+    %tok = amdgcn.store global_store_dwordx4 data %c_value addr %c_global offset d(%offset_vgpr) + c(%c0_store) : ins(!amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<flat>
     return
   }
 
@@ -126,8 +125,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %offset_vgpr = lsir.to_reg %offset : i32 -> !amdgcn.vgpr
 
     // DS read from LDS
-    %from_lds = amdgcn.ds.read #amdgcn.inst<ds_read_b64> %range, %offset_vgpr, offset = %lds_offset
-      : !amdgcn.vgpr, i32 -> !amdgcn.vgpr_range<[? + 2]>
+    %from_lds, %tok = amdgcn.load ds_read_b64 dest %range addr %offset_vgpr offset c(%lds_offset) : dps(!amdgcn.vgpr_range<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
 
     // Wait for LDS read
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
@@ -156,8 +154,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %offset_vgpr = lsir.to_reg %offset : i32 -> !amdgcn.vgpr
 
     // DS write to LDS
-    amdgcn.ds.write #amdgcn.inst<ds_write_b64> %loaded, %offset_vgpr, offset = %lds_offset
-      : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr, i32
+    %tok = amdgcn.store ds_write_b64 data %loaded addr %offset_vgpr offset c(%lds_offset) : ins(!amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
 
     // Wait for LDS write
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0

@@ -8,39 +8,187 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
-
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/SMLoc.h"
 
 using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
-RegisterKind
-mlir::aster::amdgcn::getRegisterKind(AMDGCNRegisterTypeInterface type) {
-  if (auto rTy = dyn_cast<AMDGCNRegisterTypeInterface>(type))
-    return rTy.getRegisterKind();
-  return RegisterKind::Unknown;
+//===----------------------------------------------------------------------===//
+// Internal functions
+//===----------------------------------------------------------------------===//
+
+/// Pretty parser for OpCode attribute when parsed from an operation.
+static ParseResult parseOpcode(OpAsmParser &parser, InstAttr &opcode) {
+  StringRef opcodeStr;
+  if (parser.parseKeyword(&opcodeStr))
+    return failure();
+
+  auto opcodeOpt = symbolizeOpCode(opcodeStr);
+  if (!opcodeOpt)
+    return parser.emitError(parser.getCurrentLocation(), "invalid opcode: ")
+           << opcodeStr;
+
+  opcode = InstAttr::get(parser.getBuilder().getContext(), *opcodeOpt);
+  return success();
+}
+
+/// Pretty printer for OpCode attribute when parsed from an operation.
+static void printOpcode(OpAsmPrinter &printer, Operation *, InstAttr opcode) {
+  printer << stringifyOpCode(opcode.getValue());
+}
+
+//===----------------------------------------------------------------------===//
+// Offset Parsing/Printing
+//===----------------------------------------------------------------------===//
+
+static ParseResult
+parseOffsets(OpAsmParser &parser,
+             std::optional<OpAsmParser::UnresolvedOperand> &uOff,
+             std::optional<OpAsmParser::UnresolvedOperand> &dOff,
+             std::optional<OpAsmParser::UnresolvedOperand> &cOff) {
+  // If there are no offsets, return success.
+  llvm::SMLoc loc = parser.getCurrentLocation();
+  if (failed(parser.parseOptionalKeyword("offset")))
+    return success();
+
+  // Helper to parse an optional offset.
+  auto parseOffset = [&](std::optional<OpAsmParser::UnresolvedOperand> &offset,
+                         StringRef prefix) -> OptionalParseResult {
+    if (failed(parser.parseOptionalKeyword(prefix)))
+      return std::nullopt;
+    OpAsmParser::UnresolvedOperand operand;
+    if (parser.parseLParen() || parser.parseOperand(operand) ||
+        parser.parseRParen())
+      return failure();
+    offset = operand;
+    return success();
+  };
+
+  // Parse (`u` `(` operand `)` `+`?)?
+  {
+    OptionalParseResult result = parseOffset(uOff, "u");
+    if (result.has_value() && failed(result.value()))
+      return failure();
+    if (result.has_value() && failed(parser.parseOptionalPlus()))
+      return success();
+  }
+
+  // Parse (`d` `(` operand `)` `+`?)?
+  {
+    OptionalParseResult result = parseOffset(dOff, "d");
+    if (result.has_value() && failed(result.value()))
+      return failure();
+    if (result.has_value() && failed(parser.parseOptionalPlus()))
+      return success();
+  }
+
+  // Parse (`c` `(` operand `)` `+`?)?
+  {
+    OptionalParseResult result = parseOffset(cOff, "c");
+    if (result.has_value() && failed(result.value()))
+      return failure();
+  }
+  if (!uOff.has_value() && !dOff.has_value() && !cOff.has_value())
+    return parser.emitError(loc, "expected at least one offset operand");
+  return success();
+}
+
+static void printOffsets(OpAsmPrinter &printer, Operation *, Value uOff,
+                         Value dOff, Value cOff) {
+  if (dOff == nullptr && uOff == nullptr && cOff == nullptr)
+    return;
+  printer << " offset ";
+  bool first = true;
+  auto printOperand = [&](Value operand, StringRef prefix) {
+    if (!operand)
+      return;
+    if (!first)
+      printer << " + ";
+    printer << prefix << "(";
+    printer.printOperand(operand);
+    printer << ")";
+    first = false;
+  };
+  printOperand(uOff, "u");
+  printOperand(dOff, "d");
+  printOperand(cOff, "c");
+}
+
+static ParseResult parseOutTypes(OpAsmParser &parser, Type &dpsType,
+                                 Type &resultType) {
+  if (parser.parseKeyword("dps") || parser.parseLParen() ||
+      parser.parseType(resultType) || parser.parseRParen())
+    return failure();
+  dpsType = resultType;
+  return success();
+}
+
+static void printOutTypes(OpAsmPrinter &printer, Operation *, Type dpsType,
+                          Type resultType) {
+  printer << "dps(";
+  printer << resultType;
+  printer << ")";
+}
+
+static ParseResult
+parseOffsetTypes(OpAsmParser &parser,
+                 std::optional<OpAsmParser::UnresolvedOperand> &uOff,
+                 std::optional<OpAsmParser::UnresolvedOperand> &dOff,
+                 std::optional<OpAsmParser::UnresolvedOperand> &cOff,
+                 Type &uOffTy, Type &dOffTy, Type &cOffTy) {
+  // Helper to parse an optional type.
+  auto parseType = [&](Type &type, bool present) -> ParseResult {
+    if (!present)
+      return success();
+    if (parser.parseComma())
+      return failure();
+    return parser.parseType(type);
+  };
+
+  if (parseType(uOffTy, uOff.has_value()) ||
+      parseType(dOffTy, dOff.has_value()) ||
+      parseType(cOffTy, cOff.has_value()))
+    return failure();
+  return success();
+}
+
+static void printOffsetTypes(OpAsmPrinter &printer, Operation *, Value uOff,
+                             Value dOff, Value cOff, Type uOffTy, Type dOffTy,
+                             Type cOffTy) {
+  if (uOff)
+    printer << ", " << uOffTy;
+  if (dOff)
+    printer << ", " << dOffTy;
+  if (cOff)
+    printer << ", " << cOffTy;
 }
 
 //===----------------------------------------------------------------------===//
@@ -86,6 +234,17 @@ void AMDGCNDialect::initialize() {
       >();
   initializeAttributes();
   addInterfaces<AMDGCNInlinerInterface>();
+}
+
+//===----------------------------------------------------------------------===//
+// API
+//===----------------------------------------------------------------------===//
+
+RegisterKind
+mlir::aster::amdgcn::getRegisterKind(AMDGCNRegisterTypeInterface type) {
+  if (auto rTy = dyn_cast<AMDGCNRegisterTypeInterface>(type))
+    return rTy.getRegisterKind();
+  return RegisterKind::Unknown;
 }
 
 Speculation::Speculatability
@@ -152,6 +311,41 @@ void mlir::aster::amdgcn::getInstEffects(
   }
 }
 
+MemoryInstructionKind
+mlir::aster::amdgcn::getMemoryInstructionKind(OpCode opCode) {
+  switch (opCode) {
+  case OpCode::DS_READ_B32:
+  case OpCode::DS_READ_B64:
+  case OpCode::DS_READ_B96:
+  case OpCode::DS_READ_B128:
+  case OpCode::DS_WRITE_B32:
+  case OpCode::DS_WRITE_B64:
+  case OpCode::DS_WRITE_B96:
+  case OpCode::DS_WRITE_B128:
+    return MemoryInstructionKind::Shared;
+  case OpCode::S_LOAD_DWORD:
+  case OpCode::S_LOAD_DWORDX2:
+  case OpCode::S_LOAD_DWORDX4:
+  case OpCode::S_LOAD_DWORDX8:
+  case OpCode::S_LOAD_DWORDX16:
+  case OpCode::S_STORE_DWORD:
+  case OpCode::S_STORE_DWORDX2:
+  case OpCode::S_STORE_DWORDX4:
+    return MemoryInstructionKind::Constant;
+  case OpCode::GLOBAL_LOAD_DWORD:
+  case OpCode::GLOBAL_LOAD_DWORDX2:
+  case OpCode::GLOBAL_LOAD_DWORDX3:
+  case OpCode::GLOBAL_LOAD_DWORDX4:
+  case OpCode::GLOBAL_STORE_DWORD:
+  case OpCode::GLOBAL_STORE_DWORDX2:
+  case OpCode::GLOBAL_STORE_DWORDX3:
+  case OpCode::GLOBAL_STORE_DWORDX4:
+    return MemoryInstructionKind::Flat;
+  default:
+    return MemoryInstructionKind::None;
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // AllocaOp
 //===----------------------------------------------------------------------===//
@@ -169,6 +363,87 @@ void AllocaOp::getEffects(
     return;
   effects.emplace_back(MemoryEffects::Allocate::get(),
                        getOperation()->getResult(0));
+}
+
+//===----------------------------------------------------------------------===//
+// LoadOp
+//===----------------------------------------------------------------------===//
+
+static Type getTokType(MLIRContext *context, OpCode code, bool isRead) {
+  MemoryInstructionKind kind =
+      mlir::aster::amdgcn::getMemoryInstructionKind(code);
+  return isRead ? cast<Type>(ReadTokenType::get(context, kind))
+                : cast<Type>(WriteTokenType::get(context, kind));
+}
+
+void LoadOp::build(OpBuilder &odsBuilder, OperationState &odsState,
+                   OpCode opcode, Value dst, Value addr, Value uniform_offset,
+                   Value dynamic_offset, Value constant_offset) {
+  auto &props = odsState.getOrAddProperties<Properties>();
+  props.setOpcode(InstAttr::get(odsBuilder.getContext(), opcode));
+  odsState.addOperands({dst, addr});
+  if (uniform_offset)
+    odsState.addOperands({uniform_offset});
+  if (dynamic_offset)
+    odsState.addOperands({dynamic_offset});
+  if (constant_offset)
+    odsState.addOperands({constant_offset});
+  props.operandSegmentSizes =
+      std::array<int32_t, 5>({1, 1, uniform_offset ? 1 : 0,
+                              dynamic_offset ? 1 : 0, constant_offset ? 1 : 0});
+  LogicalResult res = inferReturnTypes(
+      odsBuilder.getContext(), odsState.location, odsState.operands,
+      odsState.attributes.getDictionary(odsBuilder.getContext()), &props,
+      odsState.regions, odsState.types);
+  assert(succeeded(res) && "unexpected inferReturnTypes failure");
+  (void)res;
+}
+
+MutableArrayRef<OpOperand> LoadOp::getInstInsMutable() {
+  MutableArrayRef<OpOperand> operands =
+      getOperation()->getOpOperands().drop_front(1);
+  if (getConstantOffset())
+    operands = operands.drop_back(1);
+  return operands;
+}
+
+MutableOperandRange LoadOp::getDependenciesMutable() {
+  return MutableOperandRange(getOperation(), 0, 0);
+}
+
+Value LoadOp::getOutDependency() { return getToken(); }
+
+LogicalResult
+LoadOp::inferReturnTypes(MLIRContext *context, std::optional<Location> location,
+                         ValueRange operands, DictionaryAttr attributes,
+                         OpaqueProperties properties, RegionRange regions,
+                         SmallVectorImpl<Type> &inferredReturnTypes) {
+  inferredReturnTypes.push_back(operands[0].getType());
+  inferredReturnTypes.push_back(getTokType(
+      context, properties.as<Properties *>()->getOpcode().getValue(), true));
+  return success();
+}
+
+void LoadOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &getAddrMutable());
+  effects.emplace_back(MemoryEffects::Write::get(), &getDestMutable());
+  switch (getInstKind()) {
+  case MemoryInstructionKind::Flat:
+    effects.emplace_back(MemoryEffects::Read::get(),
+                         GlobalMemoryResource::get());
+    break;
+  case MemoryInstructionKind::Shared:
+    effects.emplace_back(MemoryEffects::Read::get(), LDSMemoryResource::get());
+    break;
+  case MemoryInstructionKind::Constant:
+    effects.emplace_back(MemoryEffects::Read::get(),
+                         GlobalMemoryResource::get());
+    break;
+  default:
+    break;
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -314,6 +589,76 @@ LogicalResult SplitRegisterRangeOp::inferReturnTypes(
 }
 
 //===----------------------------------------------------------------------===//
+// StoreOp
+//===----------------------------------------------------------------------===//
+
+void StoreOp::build(OpBuilder &odsBuilder, OperationState &odsState,
+                    OpCode opcode, Value data, Value addr, Value uniform_offset,
+                    Value dynamic_offset, Value constant_offset) {
+  auto &props = odsState.getOrAddProperties<Properties>();
+  props.setOpcode(InstAttr::get(odsBuilder.getContext(), opcode));
+  odsState.addOperands({data, addr});
+  if (uniform_offset)
+    odsState.addOperands({uniform_offset});
+  if (dynamic_offset)
+    odsState.addOperands({dynamic_offset});
+  if (constant_offset)
+    odsState.addOperands({constant_offset});
+  props.operandSegmentSizes =
+      std::array<int32_t, 5>({1, 1, uniform_offset ? 1 : 0,
+                              dynamic_offset ? 1 : 0, constant_offset ? 1 : 0});
+  LogicalResult res = inferReturnTypes(
+      odsBuilder.getContext(), odsState.location, odsState.operands,
+      odsState.attributes.getDictionary(odsBuilder.getContext()), &props,
+      odsState.regions, odsState.types);
+  assert(succeeded(res) && "unexpected inferReturnTypes failure");
+  (void)res;
+}
+
+MutableArrayRef<OpOperand> StoreOp::getInstInsMutable() {
+  MutableArrayRef<OpOperand> operands = getOperation()->getOpOperands();
+  if (getConstantOffset())
+    operands = operands.drop_back(1);
+  return operands;
+}
+
+MutableOperandRange StoreOp::getDependenciesMutable() {
+  return MutableOperandRange(getOperation(), 0, 0);
+}
+
+Value StoreOp::getOutDependency() { return getToken(); }
+
+LogicalResult StoreOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  inferredReturnTypes.push_back(getTokType(
+      context, properties.as<Properties *>()->getOpcode().getValue(), false));
+  return success();
+}
+
+void StoreOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(), &getAddrMutable());
+  switch (getInstKind()) {
+  case MemoryInstructionKind::Flat:
+    effects.emplace_back(MemoryEffects::Write::get(),
+                         GlobalMemoryResource::get());
+    break;
+  case MemoryInstructionKind::Shared:
+    effects.emplace_back(MemoryEffects::Write::get(), LDSMemoryResource::get());
+    break;
+  case MemoryInstructionKind::Constant:
+    effects.emplace_back(MemoryEffects::Write::get(),
+                         GlobalMemoryResource::get());
+    break;
+  default:
+    break;
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // KernelOp Verification
 //===----------------------------------------------------------------------===//
 
@@ -380,84 +725,6 @@ inferTypesImpl(MLIRContext *ctx, std::optional<Location> &loc,
       types.push_back(ty);
   }
   return success();
-}
-
-//===----------------------------------------------------------------------===//
-// OpCode Parsing/Printing
-//===----------------------------------------------------------------------===//
-
-/// Pretty parser for OpCode attribute when parsed from an operation.
-static ParseResult parseOpcode(OpAsmParser &parser, InstAttr &opcode) {
-  StringRef opcodeStr;
-  if (parser.parseKeyword(&opcodeStr))
-    return failure();
-
-  auto opcodeOpt = symbolizeOpCode(opcodeStr);
-  if (!opcodeOpt)
-    return parser.emitError(parser.getCurrentLocation(), "invalid opcode: ")
-           << opcodeStr;
-
-  opcode = InstAttr::get(parser.getBuilder().getContext(), *opcodeOpt);
-  return success();
-}
-
-/// Pretty printer for OpCode attribute when parsed from an operation.
-static void printOpcode(OpAsmPrinter &printer, Operation *, InstAttr opcode) {
-  printer << stringifyOpCode(opcode.getValue());
-}
-
-//===----------------------------------------------------------------------===//
-// CDNA3 GlobalLoadOp Builders
-//===----------------------------------------------------------------------===//
-
-void inst::GlobalLoadOp::build(::mlir::OpBuilder &builder,
-                               ::mlir::OperationState &state,
-                               ::mlir::aster::amdgcn::OpCode opcode,
-                               ::mlir::Value vdst, ::mlir::Value addr,
-                               ::mlir::Value vgpr_offset, int32_t offset) {
-  state.addAttribute("opcode", ::mlir::aster::amdgcn::InstAttr::get(
-                                   builder.getContext(), opcode));
-  state.addOperands({vdst, addr, vgpr_offset});
-  state.addAttribute("offset", builder.getI32IntegerAttr(offset));
-  state.addTypes(vdst.getType());
-}
-
-void inst::GlobalLoadOp::build(::mlir::OpBuilder &builder,
-                               ::mlir::OperationState &state,
-                               ::mlir::aster::amdgcn::OpCode opcode,
-                               ::mlir::Value vdst, ::mlir::Value addr,
-                               int32_t offset) {
-  state.addAttribute("opcode", ::mlir::aster::amdgcn::InstAttr::get(
-                                   builder.getContext(), opcode));
-  state.addOperands({vdst, addr});
-  state.addAttribute("offset", builder.getI32IntegerAttr(offset));
-  state.addTypes(vdst.getType());
-}
-
-//===----------------------------------------------------------------------===//
-// CDNA3 GlobalStoreOp Builders
-//===----------------------------------------------------------------------===//
-
-void inst::GlobalStoreOp::build(::mlir::OpBuilder &builder,
-                                ::mlir::OperationState &state,
-                                ::mlir::aster::amdgcn::OpCode opcode,
-                                ::mlir::Value data, ::mlir::Value addr,
-                                ::mlir::Value vgpr_offset, int32_t offset) {
-  state.addAttribute("opcode", ::mlir::aster::amdgcn::InstAttr::get(
-                                   builder.getContext(), opcode));
-  state.addOperands({data, addr, vgpr_offset});
-  state.addAttribute("offset", builder.getI32IntegerAttr(offset));
-}
-
-void inst::GlobalStoreOp::build(::mlir::OpBuilder &builder,
-                                ::mlir::OperationState &state,
-                                ::mlir::aster::amdgcn::OpCode opcode,
-                                ::mlir::Value data, ::mlir::Value addr,
-                                int32_t offset) {
-  state.addAttribute("opcode", ::mlir::aster::amdgcn::InstAttr::get(
-                                   builder.getContext(), opcode));
-  state.addOperands({data, addr});
-  state.addAttribute("offset", builder.getI32IntegerAttr(offset));
 }
 
 //===----------------------------------------------------------------------===//

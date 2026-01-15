@@ -22,10 +22,12 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/TypeID.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -276,17 +278,40 @@ InstRewritePattern::matchAndRewrite(InstOpInterface op,
     rewriter.replaceOp(op, newInst->getResults());
     return success();
   }
-  SmallVector<Value> operands;
-  for (auto &&[res, out] :
-       llvm::zip(newInst->getResults(), newInst.getInstOuts())) {
-    if (res.getType() == out.getType()) {
-      operands.push_back(res);
+
+  // Get the updated results.
+  SmallVector<Value> newRes;
+  ResultRange results = newInst->getResults();
+  ResultRange instResults = newInst.getInstResults();
+  ValueRange outs = newInst.getInstOuts();
+  int64_t rPos = 0;
+  int64_t rSz = results.size();
+  int64_t oPos = 0;
+  int64_t oSz = outs.size();
+  while (rPos < rSz) {
+    OpResult res = rPos >= rSz ? nullptr : results[rPos++];
+    OpResult out = oPos >= oSz ? nullptr : instResults[oPos];
+
+    // Add non-inst results as is.
+    if (res != out) {
+      newRes.push_back(res);
       continue;
     }
-    res.setType(out.getType());
-    operands.push_back(DeallocCastOp::create(rewriter, res.getLoc(), res));
+
+    // Handle inst results.
+    Value outVal = outs[oPos++];
+
+    // If the types match, add the result as is.
+    if (out.getType() == outVal.getType()) {
+      newRes.push_back(res);
+      continue;
+    }
+
+    // Otherwise, create a cast to the expected type.
+    out.setType(outVal.getType());
+    newRes.push_back(DeallocCastOp::create(rewriter, out.getLoc(), out));
   }
-  rewriter.replaceOp(op, operands);
+  rewriter.replaceOp(op, newRes);
   return success();
 }
 

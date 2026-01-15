@@ -22,8 +22,7 @@ amdgcn.module @test_case8_9_store_x4 target = #amdgcn.target<gfx942> isa = #amdg
     %data_range = amdgcn.make_register_range %data0, %data1, %data2, %data3 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
 
     // Case 8: FLAT_STORE_X4 followed by write to same VGPRs
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dwordx4> %data_range, %addr_range, offset = 0
-      : !amdgcn.vgpr_range<[0 : 4]>, !amdgcn.sgpr_range<[0 : 2]>
+    %tok_store = amdgcn.store global_store_dwordx4 data %data_range addr %addr_range : ins(!amdgcn.vgpr_range<[0 : 4]>, !amdgcn.sgpr_range<[0 : 2]>) -> !amdgcn.write_token<flat>
 
     // Write to VGPRs that overlap with the store's data VGPRs (should trigger case 8)
     // Writing to %data1 (VGPR 1) which is in the store's data range [0:4)
@@ -38,7 +37,7 @@ amdgcn.module @test_case8_9_store_x4 target = #amdgcn.target<gfx942> isa = #amdg
 
 // CHECK-LABEL: kernel @test_kernel
 //       CHECK:   amdgcn.sopp.sopp <s_nop>, imm = 5
-//  CHECK-NEXT:   amdgcn.flat.global_load <global_load_dword>
+//  CHECK-NEXT:   load global_load_dword
 amdgcn.module @test_case10_valu_sgpr_vmem target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @test_kernel {
     // Allocate SGPRs for address (2 SGPRs) - using registers 0-1
@@ -66,8 +65,7 @@ amdgcn.module @test_case10_valu_sgpr_vmem target = #amdgcn.target<gfx942> isa = 
     // VMEM instruction (global_load) that reads from the SGPR written by VALU
     // This should trigger case 10 (requires 5 NOPs)
     %dst_range = amdgcn.make_register_range %result0 : !amdgcn.vgpr<1>
-    %0 = amdgcn.flat.global_load #amdgcn.inst<global_load_dword> %dst_range, %addr_range, offset = 0
-      : !amdgcn.vgpr_range<[1 : 2]>, !amdgcn.sgpr_range<[0 : 2]> -> !amdgcn.vgpr_range<[1 : 2]>
+    %0, %tok_load = amdgcn.load global_load_dword dest %dst_range addr %addr_range : dps(!amdgcn.vgpr_range<[1 : 2]>) ins(!amdgcn.sgpr_range<[0 : 2]>) -> !amdgcn.read_token<flat>
 
     amdgcn.end_kernel
   }
@@ -99,8 +97,7 @@ amdgcn.module @test_case8_no_overlap target = #amdgcn.target<gfx942> isa = #amdg
     %data_range = amdgcn.make_register_range %data0, %data1, %data2 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>
 
     // Case 8: FLAT_STORE_X3
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dwordx3> %data_range, %addr_range, offset = 0
-      : !amdgcn.vgpr_range<[0 : 3]>, !amdgcn.sgpr_range<[0 : 2]>
+    %tok_store = amdgcn.store global_store_dwordx3 data %data_range addr %addr_range : ins(!amdgcn.vgpr_range<[0 : 3]>, !amdgcn.sgpr_range<[0 : 2]>) -> !amdgcn.write_token<flat>
 
     // Write to different VGPRs (no overlap) - should NOT trigger case 8
     // Writing to registers 10-11 which don't overlap with store data range [0:3)
@@ -133,8 +130,7 @@ amdgcn.module @test_case9_no_overlap_valu target = #amdgcn.target<gfx942> isa = 
     %data_range = amdgcn.make_register_range %data0, %data1, %data2 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>
 
     // Case 9: FLAT_STORE_X3
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dwordx3> %data_range, %addr_range, offset = 0
-      : !amdgcn.vgpr_range<[0 : 3]>, !amdgcn.sgpr_range<[0 : 2]>
+    %tok_store = amdgcn.store global_store_dwordx3 data %data_range addr %addr_range : ins(!amdgcn.vgpr_range<[0 : 3]>, !amdgcn.sgpr_range<[0 : 2]>) -> !amdgcn.write_token<flat>
 
     // VALU instruction writing to different VGPRs (no overlap) - should NOT trigger case 9
     // Writing to registers 10-11 which don't overlap with store data range [0:3)
@@ -173,8 +169,7 @@ amdgcn.module @test_case10_no_overlap_sgpr target = #amdgcn.target<gfx942> isa =
     // Reading from SGPRs 0-1, but VALU wrote to SGPR 10
     %addr_range = amdgcn.make_register_range %addr0, %addr1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
     %dst_range = amdgcn.make_register_range %result0 : !amdgcn.vgpr<1>
-    %2 = amdgcn.flat.global_load #amdgcn.inst<global_load_dword> %dst_range, %addr_range, offset = 0
-      : !amdgcn.vgpr_range<[1 : 2]>, !amdgcn.sgpr_range<[0 : 2]> -> !amdgcn.vgpr_range<[1 : 2]>
+    %2, %tok_load = amdgcn.load global_load_dword dest %dst_range addr %addr_range : dps(!amdgcn.vgpr_range<[1 : 2]>) ins(!amdgcn.sgpr_range<[0 : 2]>) -> !amdgcn.read_token<flat>
 
     amdgcn.end_kernel
   }

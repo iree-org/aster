@@ -15,6 +15,7 @@
 #ifndef ASTER_DIALECT_AMDGCN_IR_AMDGCNINTERFACES_H
 #define ASTER_DIALECT_AMDGCN_IR_AMDGCNINTERFACES_H
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Interfaces/InstOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"

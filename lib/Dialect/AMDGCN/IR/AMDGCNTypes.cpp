@@ -65,6 +65,15 @@ bool mlir::aster::amdgcn::compareLessAMDGCNRegisterTypes(
   return lhs.getAsRange() < rhs.getAsRange();
 }
 
+bool amdgcn::hasSize(Type type, ArrayRef<int32_t> size) {
+  auto rangeType = dyn_cast<AMDGCNRegisterTypeInterface>(type);
+  if (!rangeType || !rangeType.isRegisterRange())
+    return false;
+
+  RegisterRange range = rangeType.getAsRange();
+  return llvm::any_of(size, [&](int32_t s) { return range.size() == s; });
+}
+
 //===----------------------------------------------------------------------===//
 // GGPR types
 //===----------------------------------------------------------------------===//

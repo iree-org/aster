@@ -26,7 +26,6 @@ set(ASTER_TEST_DEPENDS
 
 if(ASTER_ENABLE_PYTHON)
   list(APPEND ASTER_TEST_DEPENDS ASTERPythonModules)
-  add_subdirectory(python/cdna)
 endif()
 
 add_subdirectory(lib)

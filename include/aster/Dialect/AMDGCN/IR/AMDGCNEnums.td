@@ -163,9 +163,23 @@ def DimEnum : AutoI32EnumCases<"Dim",
 // AMDGCN SREG variants.
 //===----------------------------------------------------------------------===//
 
-def SregKind : AutoI32EnumCases<"SregKind", 
+def SregKind : AutoI32EnumCases<"SregKind",
   "AMDGCN Sreg kind", [
     PrettyEnumCaseInfo<"scc">,
+  ]> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+}
+
+//===----------------------------------------------------------------------===//
+// AMDGCN memory instruction kind.
+//===----------------------------------------------------------------------===//
+
+def MemoryInstructionKind : AutoI32EnumCases<"MemoryInstructionKind",
+  "AMDGCN memory instruction kind", [
+    PrettyEnumCaseInfo<"none">,
+    PrettyEnumCaseInfo<"flat">,
+    PrettyEnumCaseInfo<"constant">,
+    PrettyEnumCaseInfo<"shared">,
   ]> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }

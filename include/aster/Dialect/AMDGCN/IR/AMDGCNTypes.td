@@ -302,7 +302,7 @@ def VGPRRangeType
 /// Special registers to model state.
 def SREGType : AMDGCN_RegisterDef<"SREG", "sreg", [MemRefElementTypeInterface]> {
   let summary = "SREG type";
-  let parameters = (ins 
+  let parameters = (ins
     DefaultValuedParameter<"Register", "Register()">:$reg,
     "SregKind":$kind);
   let assemblyFormat = "`<`$kind (`,` $reg^)?`>`";
@@ -337,6 +337,30 @@ def SREGType : AMDGCN_RegisterDef<"SREG", "sreg", [MemRefElementTypeInterface]> 
 }
 
 //===----------------------------------------------------------------------===//
+// Token types
+//===----------------------------------------------------------------------===//
+
+def ReadTokenType : AMDGCN_Type<"ReadToken", "read_token"> {
+  let summary = "Read token type";
+  let description = [{
+    A token type representing a memory read operation. Parametrized by the
+    memory instruction kind (flat, constant, or shared).
+  }];
+  let parameters = (ins "MemoryInstructionKind":$kind);
+  let assemblyFormat = "`<` $kind `>`";
+}
+
+def WriteTokenType : AMDGCN_Type<"WriteToken", "write_token"> {
+  let summary = "Write token type";
+  let description = [{
+    A token type representing a memory write operation. Parametrized by the
+    memory instruction kind (flat, constant, or shared).
+  }];
+  let parameters = (ins "MemoryInstructionKind":$kind);
+  let assemblyFormat = "`<` $kind `>`";
+}
+
+//===----------------------------------------------------------------------===//
 // Common type constraints
 //===----------------------------------------------------------------------===//
 
@@ -352,6 +376,15 @@ def AnyReg : Type<CPred<"true">, "any register type",
 class AnyRegOf<list<Type> types> : AnyTypeOf<types, "register type",
     "::mlir::aster::amdgcn::AMDGCNRegisterTypeInterface"
   >, AsmArgFormat {
+  let asmParser = "$_parser.parseOperand($_self);";
+  let asmPrinter = "$_printer.printOperand($_self);";
+}
+
+/// A sized SGPR range.
+class SizedGPRRange<list<Type> types, list<int> size> :
+  ConfinedType<AnyRegOf<types>, [
+    CPred<"::mlir::aster::amdgcn::hasSize($_self, {" # !interleave(size, ", ") # "})">
+  ], "sized GPR range">, AsmArgFormat {
   let asmParser = "$_parser.parseOperand($_self);";
   let asmPrinter = "$_printer.printOperand($_self);";
 }
@@ -377,7 +410,7 @@ class OptionalRegOrImm<list<Type> regTypes, list<Type> immTypes>
 }
 
 /// A 32-bit offset.
-def OffsetType : I<32>, AsmArgFormat {
+def OptionalOffsetType : Optional<I32>, AsmArgFormat {
   let asmParser = "$_parser.parseOffsetOperand($_self);";
   let asmPrinter = "$_printer.printOffsetOperand($_self);";
 }

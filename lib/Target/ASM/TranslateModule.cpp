@@ -14,6 +14,7 @@
 
 #include "aster/Target/ASM/TranslateModule.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Interfaces/RegisterType.h"
@@ -35,6 +36,25 @@ using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 using namespace mlir::aster::amdgcn::target;
+
+/// Print offset operand, which is either a constant or absent (zero).
+static void printLSOffset(amdgcn::AsmPrinter &printer, AMDGCNInstOpInterface op,
+                          Value off, Value cOff) {
+  if (off && !cOff) {
+    printer.printOperand(off);
+    return;
+  }
+  if (off && cOff) {
+    printer.printOperand(off);
+    printer.printOffsetOperand(cOff);
+    return;
+  }
+  if (!off && cOff) {
+    printer.printOperand(cOff);
+    return;
+  }
+  printer.getStream() << " " << 0;
+}
 
 #include "AMDGCNAsmPrinter.cpp.inc"
 

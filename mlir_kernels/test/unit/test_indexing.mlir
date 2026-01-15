@@ -42,8 +42,8 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %offset = arith.index_cast %offset_index : index to i32
     %offset_vgpr = lsir.to_reg %offset : i32 -> !v
 
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %value_vgpr, %ptr[%offset_vgpr]
-      : !v, !sx2[!v]
+    %c0 = arith.constant 0 : i32
+    %tok_store = amdgcn.store global_store_dword data %value_vgpr addr %ptr offset d(%offset_vgpr) + c(%c0) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
@@ -54,20 +54,20 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @store_pair_at_tid(%v0: i32, %v1: i32, %ptr: !sx2, %index_offset: index) {
     %tid = gpu.thread_id x
 
+    %c0_pair = arith.constant 0 : i32
+
     // Store v0 at tid * 8, v1 at tid * 8 + 4
     %offset0_index = affine.apply affine_map<()[tid, index_offset] -> (tid * 8 + index_offset)>()[%tid, %index_offset]
     %offset0 = arith.index_cast %offset0_index : index to i32
     %offset0_vgpr = lsir.to_reg %offset0 : i32 -> !v
     %v0_vgpr = lsir.to_reg %v0 : i32 -> !v
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %v0_vgpr, %ptr[%offset0_vgpr]
-      : !v, !sx2[!v]
+    %tok_store0 = amdgcn.store global_store_dword data %v0_vgpr addr %ptr offset d(%offset0_vgpr) + c(%c0_pair) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
 
     %offset1_index = affine.apply affine_map<()[tid, index_offset] -> (tid * 8 + 4 + index_offset)>()[%tid, %index_offset]
     %offset1 = arith.index_cast %offset1_index : index to i32
     %offset1_vgpr = lsir.to_reg %offset1 : i32 -> !v
     %v1_vgpr = lsir.to_reg %v1 : i32 -> !v
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %v1_vgpr, %ptr[%offset1_vgpr]
-      : !v, !sx2[!v]
+    %tok_store1 = amdgcn.store global_store_dword data %v1_vgpr addr %ptr offset d(%offset1_vgpr) + c(%c0_pair) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
@@ -203,8 +203,8 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %out_offset_index = affine.apply affine_map<()[tid] -> (tid * 4)>()[%tid]
     %out_offset = arith.index_cast %out_offset_index : index to i32
     %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %off_vgpr, %out_ptr[%out_offset_vgpr]
-      : !v, !sx2[!v]
+    %c0_mo = arith.constant 0 : i32
+    %tok1 = amdgcn.store global_store_dword data %off_vgpr addr %out_ptr offset d(%out_offset_vgpr) + c(%c0_mo) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
   }
@@ -230,8 +230,8 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %out_offset_index = affine.apply affine_map<()[tid] -> (tid * 4)>()[%tid]
     %out_offset = arith.index_cast %out_offset_index : index to i32
     %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %off_vgpr, %out_ptr[%out_offset_vgpr]
-      : !v, !sx2[!v]
+    %c0_tmo = arith.constant 0 : i32
+    %tok2 = amdgcn.store global_store_dword data %off_vgpr addr %out_ptr offset d(%out_offset_vgpr) + c(%c0_tmo) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
   }
@@ -257,8 +257,8 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %out_offset_index = affine.apply affine_map<()[tid] -> (tid * 4)>()[%tid]
     %out_offset = arith.index_cast %out_offset_index : index to i32
     %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
-    amdgcn.flat.global_store #amdgcn.inst<global_store_dword> %off_vgpr, %out_ptr[%out_offset_vgpr]
-      : !v, !sx2[!v]
+    %c0_tx2 = arith.constant 0 : i32
+    %tok3 = amdgcn.store global_store_dword data %off_vgpr addr %out_ptr offset d(%out_offset_vgpr) + c(%c0_tx2) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
   }

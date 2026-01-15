@@ -135,8 +135,11 @@ static bool isVMEMInstruction(Operation *op) {
       opName.starts_with("amdgcn.mtbuf."))
     return true;
   // FLAT operations that are memory operations (load/store)
-  if (opName.starts_with("amdgcn.flat.global_load") ||
-      opName.starts_with("amdgcn.flat.global_store"))
+  if (auto loadOp = dyn_cast<LoadOp>(op);
+      loadOp && loadOp.getInstKind() == MemoryInstructionKind::Flat)
+    return true;
+  if (auto storeOp = dyn_cast<StoreOp>(op);
+      storeOp && storeOp.getInstKind() == MemoryInstructionKind::Flat)
     return true;
   return false;
 }
@@ -151,15 +154,17 @@ static bool vMemReadsFromSGPRRange(Operation *op, RegisterRange targetRange) {
   // TODO: more ops here. Also, use a MemoryOpInterface.
 
   // For GlobalLoadOp and GlobalStoreOp, check the address operand directly
-  if (auto globalLoad = dyn_cast<inst::GlobalLoadOp>(op)) {
-    Value addr = globalLoad.getAddr();
+  if (auto loadOp = dyn_cast<LoadOp>(op);
+      loadOp && loadOp.getInstKind() == MemoryInstructionKind::Flat) {
+    Value addr = loadOp.getAddr();
     auto addrRange = getSGPRRange(addr);
     if (addrRange && registerRangesOverlap(*addrRange, targetRange))
       return true;
     return false;
   }
-  if (auto globalStore = dyn_cast<inst::GlobalStoreOp>(op)) {
-    Value addr = globalStore.getAddr();
+  if (auto storeOp = dyn_cast<StoreOp>(op);
+      storeOp && storeOp.getInstKind() == MemoryInstructionKind::Flat) {
+    Value addr = storeOp.getAddr();
     auto addrRange = getSGPRRange(addr);
     if (addrRange && registerRangesOverlap(*addrRange, targetRange))
       return true;
@@ -322,8 +327,9 @@ findNopInsertionCases(Block *block, const NopInsertionCaseDef &caseDef,
 /// Table 11, Case 8: Requires 1 NOP
 static NopInsertionCaseDef getCase8Definition() {
   auto selectInst1 = [](Operation *op) -> bool {
-    auto globalStore = dyn_cast<inst::GlobalStoreOp>(op);
-    if (!globalStore)
+    auto globalStore = dyn_cast<StoreOp>(op);
+    if (!globalStore ||
+        globalStore.getInstKind() != MemoryInstructionKind::Flat)
       return false;
     OpCode opcode = globalStore.getOpcode();
     return opcode == OpCode::GLOBAL_STORE_DWORDX3 ||
@@ -344,7 +350,7 @@ static NopInsertionCaseDef getCase8Definition() {
   };
 
   auto checkDependency = [](Operation *inst1, Operation *inst2) -> int {
-    auto globalStore = cast<inst::GlobalStoreOp>(inst1);
+    auto globalStore = cast<StoreOp>(inst1);
     Value dataValue = globalStore.getData();
     auto dataRange = getVGPRRange(dataValue);
     if (!dataRange) {
@@ -377,8 +383,9 @@ static NopInsertionCaseDef getCase8Definition() {
 /// Similar to Case 8, but inst2 must be a VALU instruction
 static NopInsertionCaseDef getCase9Definition() {
   auto selectInst1 = [](Operation *op) -> bool {
-    auto globalStore = dyn_cast<inst::GlobalStoreOp>(op);
-    if (!globalStore)
+    auto globalStore = dyn_cast<StoreOp>(op);
+    if (!globalStore ||
+        globalStore.getInstKind() != MemoryInstructionKind::Flat)
       return false;
     OpCode opcode = globalStore.getOpcode();
     return opcode == OpCode::GLOBAL_STORE_DWORDX3 ||
@@ -401,7 +408,7 @@ static NopInsertionCaseDef getCase9Definition() {
   };
 
   auto checkDependency = [](Operation *inst1, Operation *inst2) -> int {
-    auto globalStore = cast<inst::GlobalStoreOp>(inst1);
+    auto globalStore = cast<StoreOp>(inst1);
     Value dataValue = globalStore.getData();
     auto dataRange = getVGPRRange(dataValue);
     if (!dataRange) {
@@ -522,8 +529,7 @@ static NopInsertionCaseDef getCase106Definition() {
   };
 
   auto selectInst2 = [](Operation *op) -> bool {
-    return isa<inst::GlobalStoreOp, inst::DSWriteOp, inst::GlobalLoadOp,
-               inst::DSReadOp, inst::VOP2Op, inst::VOP1Op>(op);
+    return isa<StoreOp, LoadOp, inst::VOP2Op, inst::VOP1Op>(op);
   };
 
   auto checkDependency = [](Operation *inst1, Operation *inst2) -> int {
@@ -574,8 +580,7 @@ static NopInsertionCaseDef getCase106Definition() {
 static NopInsertionCaseDef
 getCaseConservativeExtraDelaysDefinition(unsigned numNops) {
   auto selectInst1 = [](Operation *op) -> bool {
-    return isa<inst::VOP3PMAIOp, inst::GlobalLoadOp, inst::DSReadOp,
-               inst::GlobalStoreOp, inst::DSWriteOp>(op);
+    return isa<inst::VOP3PMAIOp, LoadOp, StoreOp>(op);
   };
 
   auto selectInst2 = [](Operation *op) -> bool { return true; };
