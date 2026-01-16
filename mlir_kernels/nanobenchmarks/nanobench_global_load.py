@@ -63,6 +63,13 @@ def main():
         help="Number of CUs to use (default: 1)",
     )
     parser.add_argument(
+        "--dwordx",
+        type=int,
+        choices=[1, 2, 3, 4],
+        default=1,
+        help="DWORD type: 1=dword, 2=dwordx2, 3=dwordx3, 4=dwordx4 (default: run all)",
+    )
+    parser.add_argument(
         "--print-asm",
         action="store_true",
         help="Print generated assembly",
@@ -75,13 +82,14 @@ def main():
 
     num_threads = args.num_waves * WAVEFRONT_SIZE  # 256 threads
 
-    def preprocess(x):
+    def preprocess(x, dt=args.dwordx):
         x = x.replace("{{NUM_ITERS}}", str(args.num_iters))
         x = x.replace("{{NUM_TILES}}", str(args.num_tiles))
         x = x.replace("{{TILE_REUSE_FACTOR}}", str(args.tile_reuse_factor))
         x = x.replace("{{NUM_WAVES}}", str(args.num_waves))
         x = x.replace("{{NUM_THREADS}}", str(num_threads))
         x = x.replace("{{NUM_BLOCKS}}", str(args.num_cus))
+        x = x.replace("{{DWORDX}}", str(dt))
         return x
 
     with ir.Context() as ctx:
@@ -115,13 +123,13 @@ def main():
         # Allocate input buffer: num_tiles * 256 bytes per tile
         # This should fit entirely in L1 cache
         num_bytes = args.num_tiles * 256
-        input_data = np.random.randn(num_bytes).astype(np.uint8)
+        input = np.random.randn(num_bytes).astype(np.uint8)
 
         with hsaco_file(hsaco_path):
             iteration_times_ns = execute_kernel_and_verify(
                 hsaco_path=hsaco_path,
                 kernel_name=KERNEL_NAME,
-                input_args=[input_data],
+                input_args=[input],
                 output_args=[],
                 mcpu=MCPU,
                 wavefront_size=WAVEFRONT_SIZE,
@@ -134,7 +142,7 @@ def main():
 
             # Stats
             times_us = np.array(iteration_times_ns) / 1000.0
-            print(f"\nTiming results ({args.num_kernel_runs} runs):")
+            print(f"\nTiming results for dwordx{args.dwordx} ({args.num_kernel_runs} runs):")
             print(f"  Mean: {np.mean(times_us):.2f} us")
             print(f"  Min:  {np.min(times_us):.2f} us")
             print(f"  Max:  {np.max(times_us):.2f} us")
