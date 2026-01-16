@@ -14,6 +14,10 @@
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  // indexing.mlir
+  func.func private @wave_id() -> index
+  func.func private @wave_count() -> index
+
   // copies.mlir
   func.func private @global_load_wave_128xf16_via_dword_nowait(
     !sx2, index, index, index, index, index, index) -> !vx1
@@ -52,6 +56,13 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     // DWORDX selector: 1=dword, 2=dwordx2, 3=dwordx3, 4=dwordx4
     %DWORDX = arith.constant {{DWORDX}} : index
 
+    %wave_id = func.call @wave_id() : () -> index
+    %WAVE_COUNT = func.call @wave_count() : () -> index
+    %block_id_x = gpu.block_id x
+    %n_pos = affine.apply affine_map<()[block_id_x, wave_id, WAVE_COUNT, NT_J, TILE_SIZE] 
+      -> ((block_id_x * WAVE_COUNT + wave_id) * NT_J * TILE_SIZE)>()
+          [%block_id_x, %wave_id, %WAVE_COUNT, %NT_J, %TILE_SIZE]
+
     scf.index_switch %DWORDX
     case 1 {
       //===--------------------------------------------------------------------===//
@@ -65,10 +76,10 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
         // Load all tiles into memref
         scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
           scf.for %nt = %c0 to %NT_J step %c1 {
-            %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
+            %nn_pos = affine.apply affine_map<()[nt, TILE_SIZE] -> (nt * TILE_SIZE)>()[%nt, %TILE_SIZE]
             %result_vx1 = func.call @global_load_wave_128xf16_via_dword_nowait(
               %ptr,         // global pointer
-              %c0, %c0,     // m_pos, n_pos (major tile = 0)
+              %c0, %n_pos,  // m_pos, n_pos (major tile = 0)
               %c0,          // stride in bytes (single row, stride must not matter)
               %c0, %nn_pos, // mm_pos, nn_pos (minor tile positions)
               %c1           // num_rows
@@ -105,7 +116,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
             %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
             %result_vx2 = func.call @global_load_wave_256xf16_via_dwordx2_nowait(
               %ptr,         // global pointer
-              %c0, %c0,     // m_pos, n_pos (major tile = 0)
+              %c0, %n_pos,  // m_pos, n_pos (major tile = 0)
               %c0,          // stride in bytes (single row, stride must not matter)
               %c0, %nn_pos, // mm_pos, nn_pos (minor tile positions)
               %c1           // num_rows
@@ -142,7 +153,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
             %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
             %result_vx3 = func.call @global_load_wave_384xf16_via_dwordx3_nowait(
               %ptr,         // global pointer
-              %c0, %c0,     // m_pos, n_pos (major tile = 0)
+              %c0, %n_pos,  // m_pos, n_pos (major tile = 0)
               %c0,          // stride in bytes (single row, stride must not matter)
               %c0, %nn_pos, // mm_pos, nn_pos (minor tile positions)
               %c1           // num_rows
@@ -179,7 +190,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
             %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
             %result_vx4 = func.call @global_load_wave_512xf16_via_dwordx4_nowait(
               %ptr,         // global pointer
-              %c0, %c0,     // m_pos, n_pos (major tile = 0)
+              %c0, %n_pos,  // m_pos, n_pos (major tile = 0)
               %c0,          // stride in bytes (single row, stride must not matter)
               %c0, %nn_pos, // mm_pos, nn_pos (minor tile positions)
               %c1           // num_rows

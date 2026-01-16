@@ -51,16 +51,16 @@ def main():
         help="Tile reuse factor (default: 1)",
     )
     parser.add_argument(
+        "--num-blocks",
+        type=int,
+        default=1,
+        help="Number of blocks to use (default: 1)",
+    )
+    parser.add_argument(
         "--num-waves",
         type=int,
         default=4,
         help="Number of waves per block (default: 4)",
-    )
-    parser.add_argument(
-        "--num-cus",
-        type=int,
-        default=1,
-        help="Number of CUs to use (default: 1)",
     )
     parser.add_argument(
         "--dwordx",
@@ -80,7 +80,10 @@ def main():
     mlir_file = os.path.join(script_dir, "nanobench_global_load.mlir")
     library_paths = get_library_paths()
 
-    num_threads = args.num_waves * WAVEFRONT_SIZE  # 256 threads
+    num_threads = args.num_waves * WAVEFRONT_SIZE
+    # Allocate input buffer: num_blocks * num_waves * num_tiles * 256 bytes per tile
+    # This should fit entirely in L1 cache for hot cache benchmark.
+    num_bytes = args.num_blocks * args.num_waves * args.num_tiles * 256
 
     def preprocess(x, dt=args.dwordx):
         x = x.replace("{{NUM_ITERS}}", str(args.num_iters))
@@ -88,7 +91,7 @@ def main():
         x = x.replace("{{TILE_REUSE_FACTOR}}", str(args.tile_reuse_factor))
         x = x.replace("{{NUM_WAVES}}", str(args.num_waves))
         x = x.replace("{{NUM_THREADS}}", str(num_threads))
-        x = x.replace("{{NUM_BLOCKS}}", str(args.num_cus))
+        x = x.replace("{{NUM_BLOCKS}}", str(args.num_blocks))
         x = x.replace("{{DWORDX}}", str(dt))
         return x
 
@@ -120,9 +123,6 @@ def main():
             print(f"GPU {MCPU} not available, stopping after cross-compilation")
             return
 
-        # Allocate input buffer: num_tiles * 256 bytes per tile
-        # This should fit entirely in L1 cache
-        num_bytes = args.num_tiles * 256
         input = np.random.randn(num_bytes).astype(np.uint8)
 
         with hsaco_file(hsaco_path):
@@ -133,7 +133,7 @@ def main():
                 output_args=[],
                 mcpu=MCPU,
                 wavefront_size=WAVEFRONT_SIZE,
-                grid_dim=(args.num_cus, 1, 1),
+                grid_dim=(args.num_blocks, 1, 1),
                 block_dim=(num_threads, 1, 1),
                 verify_fn=None,
                 num_iterations=args.num_kernel_runs,
