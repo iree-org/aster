@@ -61,7 +61,7 @@ amdgcn.library @common_indexing {
   }
 
   // Compute 2D partitioning of blocks within the grid for tiled problems.
-  func.func private @tiled_grid_partition_2D(
+  func.func private @tiled_grid_partition_2d(
     %M_SIZE: index,      // Outer problem size
     %N_SIZE: index,      // Inner problem size
     %M_TILE_SIZE: index, // Outer tile size

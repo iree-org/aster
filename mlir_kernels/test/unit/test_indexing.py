@@ -179,7 +179,7 @@ class TestGridPartition2D:
 
 
 class TestTiledGridPartition2D:
-    """Test @tiled_grid_partition_2D function."""
+    """Test @tiled_grid_partition_2d function."""
 
     def test_tiled_grid_partition_64x64_32x32(self):
         """Partition 64x64 problem with 32x32 tiles -> 2x2 tile grid."""
@@ -187,7 +187,7 @@ class TestTiledGridPartition2D:
         num_blocks = 4
         output = np.zeros(num_threads * 2 * num_blocks, dtype=np.int32)
         compile_and_run(
-            "test_tiled_grid_partition_2D",
+            "test_tiled_grid_partition_2d",
             output,
             grid_dim=(num_blocks, 1, 1),
         )
