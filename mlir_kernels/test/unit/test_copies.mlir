@@ -46,7 +46,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   // simple-multi-tile-copies.mlir
   func.func private @simple_maybe_lds_write_multi_tile(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
   // multi-tile-copies.mlir
-  func.func private @maybe_global_load_multi_tile_simple(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
+  func.func private @simple_maybe_global_load_multi_tile(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
   func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
   func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
 
@@ -457,7 +457,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     scf.for %ii = %c0 to %II step %c1 {
       scf.for %jj = %c0 to %JJ step %c1 {
         // Call library function for global load (k=0, cond_iter=0 to always execute when aligned)
-        func.call @maybe_global_load_multi_tile_simple(
+        func.call @simple_maybe_global_load_multi_tile(
           %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
           %K, %II, %JJ,                 // K, II, JJ
           %NT_I, %NT_J,                 // NT_I, NT_J

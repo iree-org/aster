@@ -51,8 +51,8 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   //   %load_memref: output memref[K, NT_I * NT_J] for returning variadic loaded
   //                 values -> mem2reg.
   //
-  // CHECK-LABEL: func.func private @maybe_global_load_multi_tile_simple
-  func.func private @maybe_global_load_multi_tile_simple(
+  // CHECK-LABEL: func.func private @simple_maybe_global_load_multi_tile
+  func.func private @simple_maybe_global_load_multi_tile(
     %k: index, %ii: index, %jj: index, %cond_iter: index,
     %K: index, %II: index, %JJ: index,
     %NT_I: index, %NT_J: index,
