@@ -18,7 +18,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @wave_count() -> index
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @block_id_x_delinearize_2d(index, index) -> (index, index)
-  func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
+  func.func private @tiled_grid_partition_2d(index, index, index, index) -> (index, index)
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
@@ -161,9 +161,9 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.end_kernel
   }
 
-  // Test @tiled_grid_partition_2D: partition for tiled problems
+  // Test @tiled_grid_partition_2d: partition for tiled problems
   // M=64, N=64, M_TILE=32, N_TILE=32 -> 2x2 tiles
-  amdgcn.kernel @test_tiled_grid_partition_2D arguments <[
+  amdgcn.kernel @test_tiled_grid_partition_2d arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %c0 = arith.constant 0 : index
@@ -171,7 +171,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     %c64 = arith.constant 64 : index
     %c32 = arith.constant 32 : index
-    %i, %j = func.call @tiled_grid_partition_2D(%c64, %c64, %c32, %c32)
+    %i, %j = func.call @tiled_grid_partition_2d(%c64, %c64, %c32, %c32)
       : (index, index, index, index) -> (index, index)
     %i_i32 = arith.index_cast %i : index to i32
     %j_i32 = arith.index_cast %j : index to i32

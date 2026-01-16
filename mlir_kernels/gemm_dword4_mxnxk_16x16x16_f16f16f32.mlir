@@ -25,7 +25,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
-  func.func private @tiled_grid_partition_2D(index, index, index, index) -> (index, index)
+  func.func private @tiled_grid_partition_2d(index, index, index, index) -> (index, index)
   // copies.mlir
   func.func private @global_load_to_lds_wave_16x16_f16_wait(
     !sx2, index, index, index, index, index, index, index) -> ()
@@ -83,7 +83,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     // Block-level tile indices (i, j, k) and sizes (M, N, K)
     %K = affine.apply affine_map<()[sz, bsz] -> (sz ceildiv bsz)>()[%SIZE_K, %TILE_SIZE_K]
-    %i, %j = func.call @tiled_grid_partition_2D(%SIZE_M, %SIZE_N, %TILE_SIZE_M, %TILE_SIZE_N)
+    %i, %j = func.call @tiled_grid_partition_2d(%SIZE_M, %SIZE_N, %TILE_SIZE_M, %TILE_SIZE_N)
       : (index, index, index, index) -> (index, index)
 
     // Calculate global positions
