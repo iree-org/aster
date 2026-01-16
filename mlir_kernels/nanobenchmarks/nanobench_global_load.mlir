@@ -53,8 +53,9 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     // Number of outer iterations, fit all data in L1
     %NUM_ITERS = arith.constant {{NUM_ITERS}} : index
 
-    // DWORDX selector: 1=dword, 2=dwordx2, 3=dwordx3, 4=dwordx4
-    %DWORDX = arith.constant {{DWORDX}} : index
+    // DWORDX bitfield: bit0=dword, bit1=dwordx2, bit2=dwordx3, bit3=dwordx4
+    %DWORDXBITS = arith.constant {{DWORDXBITS}} : index
+    %c8 = arith.constant 8 : index
 
     %wave_id = func.call @wave_id() : () -> index
     %WAVE_COUNT = func.call @wave_count() : () -> index
@@ -63,35 +64,26 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       -> ((block_id_x * WAVE_COUNT + wave_id) * NT_J * TILE_SIZE)>()
           [%block_id_x, %wave_id, %WAVE_COUNT, %NT_J, %TILE_SIZE]
 
-    scf.index_switch %DWORDX
-    case 1 {
+    // Test bit 0 for dword
+    %bit0 = arith.andi %DWORDXBITS, %c1 : index
+    %run_dword = arith.cmpi ne, %bit0, %c0 : index
+    scf.if %run_dword {
       //===--------------------------------------------------------------------===//
       // dword
       //===--------------------------------------------------------------------===//
-      // Allocate memref to hold all tile results
       %memref_vx1 = memref.alloca(%TILE_REUSE_FACTOR, %NT_J) : memref<?x?x!vx1>
-
-      // Outer timing loop
       scf.for %iter = %c0 to %NUM_ITERS step %c1 {
-        // Load all tiles into memref
         scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
           scf.for %nt = %c0 to %NT_J step %c1 {
             %nn_pos = affine.apply affine_map<()[nt, TILE_SIZE] -> (nt * TILE_SIZE)>()[%nt, %TILE_SIZE]
             %result_vx1 = func.call @global_load_wave_128xf16_via_dword_nowait(
-              %ptr,         // global pointer
-              %c0, %n_pos,  // m_pos, n_pos (major tile = 0)
-              %c0,          // stride in bytes (single row, stride must not matter)
-              %c0, %nn_pos, // mm_pos, nn_pos (minor tile positions)
-              %c1           // num_rows
+              %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
             ) : (!sx2, index, index, index, index, index, index) -> !vx1
             memref.store %result_vx1, %memref_vx1[%reuse, %nt] : memref<?x?x!vx1>
           } {aster.constexpr}
         } {aster.constexpr}
-
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
         amdgcn.sopp.sopp <s_barrier>
-
-        // Prevent DCE by reading from memref - erased just before translation to assembly
         scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
           scf.for %nt = %c0 to %NT_J step %c1 {
             %loaded_vx1 = memref.load %memref_vx1[%reuse, %nt] : memref<?x?x!vx1>
@@ -99,36 +91,28 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           } {aster.constexpr}
         } {aster.constexpr}
       } {aster.constexpr}
-      scf.yield
     }
-    case 2 {
+
+    // Test bit 1 for dwordx2
+    %bit1 = arith.andi %DWORDXBITS, %c2 : index
+    %run_dwordx2 = arith.cmpi ne, %bit1, %c0 : index
+    scf.if %run_dwordx2 {
       //===--------------------------------------------------------------------===//
       // dwordx2
       //===--------------------------------------------------------------------===//
-      // Allocate memref to hold all tile results
       %memref_vx2 = memref.alloca(%TILE_REUSE_FACTOR, %NT_J) : memref<?x?x!vx2>
-
-      // Outer timing loop
       scf.for %iter = %c0 to %NUM_ITERS step %c1 {
-        // Load all tiles into memref
         scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
           scf.for %nt = %c0 to %NT_J step %c2 {
             %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
             %result_vx2 = func.call @global_load_wave_256xf16_via_dwordx2_nowait(
-              %ptr,         // global pointer
-              %c0, %n_pos,  // m_pos, n_pos (major tile = 0)
-              %c0,          // stride in bytes (single row, stride must not matter)
-              %c0, %nn_pos, // mm_pos, nn_pos (minor tile positions)
-              %c1           // num_rows
+              %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
             ) : (!sx2, index, index, index, index, index, index) -> !vx2
             memref.store %result_vx2, %memref_vx2[%reuse, %nt] : memref<?x?x!vx2>
           } {aster.constexpr}
         } {aster.constexpr}
-
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
         amdgcn.sopp.sopp <s_barrier>
-
-        // Prevent DCE by reading from memref - erased just before translation to assembly
         scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
           scf.for %nt = %c0 to %NT_J step %c2 {
             %loaded_vx2 = memref.load %memref_vx2[%reuse, %nt] : memref<?x?x!vx2>
@@ -136,36 +120,28 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           } {aster.constexpr}
         } {aster.constexpr}
       } {aster.constexpr}
-      scf.yield
     }
-    case 3 {
+
+    // Test bit 2 for dwordx3
+    %bit2 = arith.andi %DWORDXBITS, %c4 : index
+    %run_dwordx3 = arith.cmpi ne, %bit2, %c0 : index
+    scf.if %run_dwordx3 {
       //===--------------------------------------------------------------------===//
       // dwordx3
       //===--------------------------------------------------------------------===//
-      // Allocate memref to hold all tile results
       %memref_vx3 = memref.alloca(%TILE_REUSE_FACTOR, %NT_J) : memref<?x?x!vx3>
-
-      // Outer timing loop
       scf.for %iter = %c0 to %NUM_ITERS step %c1 {
-        // Load all tiles into memref
         scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
           scf.for %nt = %c0 to %NT_J step %c3 {
             %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
             %result_vx3 = func.call @global_load_wave_384xf16_via_dwordx3_nowait(
-              %ptr,         // global pointer
-              %c0, %n_pos,  // m_pos, n_pos (major tile = 0)
-              %c0,          // stride in bytes (single row, stride must not matter)
-              %c0, %nn_pos, // mm_pos, nn_pos (minor tile positions)
-              %c1           // num_rows
+              %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
             ) : (!sx2, index, index, index, index, index, index) -> !vx3
             memref.store %result_vx3, %memref_vx3[%reuse, %nt] : memref<?x?x!vx3>
           } {aster.constexpr}
         } {aster.constexpr}
-
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
         amdgcn.sopp.sopp <s_barrier>
-
-        // Prevent DCE by reading from memref - erased just before translation to assembly
         scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
           scf.for %nt = %c0 to %NT_J step %c3 {
             %loaded_vx3 = memref.load %memref_vx3[%reuse, %nt] : memref<?x?x!vx3>
@@ -173,36 +149,28 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           } {aster.constexpr}
         } {aster.constexpr}
       } {aster.constexpr}
-      scf.yield
     }
-    case 4 {
+
+    // Test bit 3 for dwordx4
+    %bit3 = arith.andi %DWORDXBITS, %c8 : index
+    %run_dwordx4 = arith.cmpi ne, %bit3, %c0 : index
+    scf.if %run_dwordx4 {
       //===--------------------------------------------------------------------===//
       // dwordx4
       //===--------------------------------------------------------------------===//
-      // Allocate memref to hold all tile results
       %memref_vx4 = memref.alloca(%TILE_REUSE_FACTOR, %NT_J) : memref<?x?x!vx4>
-
-      // Outer timing loop
       scf.for %iter = %c0 to %NUM_ITERS step %c1 {
-        // Load all tiles into memref
         scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
           scf.for %nt = %c0 to %NT_J step %c4 {
             %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
             %result_vx4 = func.call @global_load_wave_512xf16_via_dwordx4_nowait(
-              %ptr,         // global pointer
-              %c0, %n_pos,  // m_pos, n_pos (major tile = 0)
-              %c0,          // stride in bytes (single row, stride must not matter)
-              %c0, %nn_pos, // mm_pos, nn_pos (minor tile positions)
-              %c1           // num_rows
+              %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
             ) : (!sx2, index, index, index, index, index, index) -> !vx4
             memref.store %result_vx4, %memref_vx4[%reuse, %nt] : memref<?x?x!vx4>
           } {aster.constexpr}
         } {aster.constexpr}
-
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
         amdgcn.sopp.sopp <s_barrier>
-
-        // Prevent DCE by reading from memref - erased just before translation to assembly
         scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
           scf.for %nt = %c0 to %NT_J step %c4 {
             %loaded_vx4 = memref.load %memref_vx4[%reuse, %nt] : memref<?x?x!vx4>
@@ -210,10 +178,6 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           } {aster.constexpr}
         } {aster.constexpr}
       } {aster.constexpr}
-      scf.yield
-    }
-    default {
-      amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 2
     }
 
     amdgcn.end_kernel

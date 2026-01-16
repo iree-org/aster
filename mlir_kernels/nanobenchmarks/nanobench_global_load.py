@@ -63,11 +63,10 @@ def main():
         help="Number of waves per block (default: 4)",
     )
     parser.add_argument(
-        "--dwordx",
+        "--dwordxbits",
         type=int,
-        choices=[1, 2, 3, 4],
-        default=1,
-        help="DWORD type: 1=dword, 2=dwordx2, 3=dwordx3, 4=dwordx4 (default: run all)",
+        default=15,
+        help="DWORDX bits: 1=dword, 2=dwordx2, 4=dwordx3, 8=dwordx4 (default: 15=all)",
     )
     parser.add_argument(
         "--print-asm",
@@ -85,14 +84,14 @@ def main():
     # This should fit entirely in L1 cache for hot cache benchmark.
     num_bytes = args.num_blocks * args.num_waves * args.num_tiles * 256
 
-    def preprocess(x, dt=args.dwordx):
+    def preprocess(x, dwordxbits=args.dwordxbits):
         x = x.replace("{{NUM_ITERS}}", str(args.num_iters))
         x = x.replace("{{NUM_TILES}}", str(args.num_tiles))
         x = x.replace("{{TILE_REUSE_FACTOR}}", str(args.tile_reuse_factor))
         x = x.replace("{{NUM_WAVES}}", str(args.num_waves))
         x = x.replace("{{NUM_THREADS}}", str(num_threads))
         x = x.replace("{{NUM_BLOCKS}}", str(args.num_blocks))
-        x = x.replace("{{DWORDX}}", str(dt))
+        x = x.replace("{{DWORDXBITS}}", str(dwordxbits))
         return x
 
     with ir.Context() as ctx:
@@ -142,7 +141,9 @@ def main():
 
             # Stats
             times_us = np.array(iteration_times_ns) / 1000.0
-            print(f"\nTiming results for dwordx{args.dwordx} ({args.num_kernel_runs} runs):")
+            variants = [f"dword{'x'+str(i) if i > 1 else ''}" for i in [1,2,3,4] if args.dwordxbits & (1 << (i-1))]
+            print(f"\nTiming results for {'+'.join(variants)} ({args.num_kernel_runs} runs):")
+            print(f"  num_bytes: {num_bytes/1e6} MB")
             print(f"  Mean: {np.mean(times_us):.2f} us")
             print(f"  Min:  {np.min(times_us):.2f} us")
             print(f"  Max:  {np.max(times_us):.2f} us")
