@@ -51,8 +51,6 @@ assembly instruction (not even `nop`).
 In the case of memory operations such as `global_load`, special care needs to be
 taken to ensure the semantics implied by the existence of transient ops, is
 materialized during execution.
-This observation more generally to operations with Out-Of-Order completion and
-result visibility.
 
 Concretely, issues may arise when these conditions hold:
 1. some SSA def-use chains are disjoint 
