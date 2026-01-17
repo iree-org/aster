@@ -628,6 +628,16 @@ MutableOperandRange StoreOp::getDependenciesMutable() {
 
 Value StoreOp::getOutDependency() { return getToken(); }
 
+//===----------------------------------------------------------------------===//
+// WaitOp
+//===----------------------------------------------------------------------===//
+
+Value WaitOp::getOutDependency() { return Value(); }
+
+//===----------------------------------------------------------------------===//
+// StoreOp inference and effects
+//===----------------------------------------------------------------------===//
+
 LogicalResult StoreOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> location, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,

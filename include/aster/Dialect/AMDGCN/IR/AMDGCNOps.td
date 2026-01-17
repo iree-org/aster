@@ -21,6 +21,7 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
+include "aster/Interfaces/DependentOpInterface.td"
 include "aster/Interfaces/GPUFuncInterface.td"
 include "aster/Interfaces/ModuleOpInterface.td"
 include "mlir/Interfaces/CallInterfaces.td"
@@ -510,6 +511,43 @@ def AMDGCN_ThreadIdOp : AMDGCN_Op<"thread_id", [Pure]> {
   let arguments = (ins DimAttr:$dim);
   let results = (outs VGPRType:$result);
   let assemblyFormat = "$dim attr-dict `:` type($result)";
+}
+
+//===----------------------------------------------------------------------===//
+// WaitOp
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
+    AttrSizedOperandSegments,
+    DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>
+  ]> {
+  let summary = "AMDGCN wait operation";
+  let description = [{
+    Waits for the completion of operations represented by the given dependency
+    tokens. This operation is used to express ordering constraints between
+    operations.
+
+    Pass-through tokens can be specified to forward dependency tokens
+    without waiting on them.
+
+    Example:
+    ```mlir
+    %tok0 = amdgcn.store global_store_dword data %data addr %addr
+        : ins(!amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>)
+          -> !amdgcn.write_token<flat>
+    %result, %tok1 = amdgcn.load global_load_dword dest %dest addr %addr2
+        : dps(!amdgcn.vgpr_range<[? + 1]>) ins(!amdgcn.vgpr_range<[? + 2]>)
+          -> !amdgcn.read_token<flat>
+    amdgcn.wait %tok0, %tok1 : !amdgcn.write_token<flat>, !amdgcn.read_token<flat>
+    ```
+  }];
+  let arguments = (ins
+    Variadic<TokenDependencyTypeInterface>:$dependencies,
+    Variadic<TokenDependencyTypeInterface>:$passthrough
+  );
+  let assemblyFormat = [{
+    $dependencies (`passthrough` $passthrough^)? attr-dict `:` type(operands)
+  }];
 }
 
 //===----------------------------------------------------------------------===//

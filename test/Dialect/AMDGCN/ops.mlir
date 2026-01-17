@@ -179,3 +179,39 @@ func.func @test_sopp_nop_with_imm_max() {
   amdgcn.sopp.sopp #amdgcn.inst<s_nop> , imm = 15
   return
 }
+
+//===----------------------------------------------------------------------===//
+// Wait Operations
+//===----------------------------------------------------------------------===//
+
+amdgcn.module @test_wait_ops target = #amdgcn.target<gfx940> isa = #amdgcn.isa<cdna3> {
+  amdgcn.kernel @test_wait_single_token {
+    %dest = amdgcn.alloca : !amdgcn.vgpr_range<[? + 1]>
+    %addr = amdgcn.alloca : !amdgcn.vgpr_range<[? + 2]>
+    %coff = arith.constant 0 : i32
+    %result, %tok = amdgcn.load global_load_dword dest %dest addr %addr offset c(%coff)
+        : dps(!amdgcn.vgpr_range<[? + 1]>) ins(!amdgcn.vgpr_range<[? + 2]>, i32)
+          -> !amdgcn.read_token<flat>
+    amdgcn.wait %tok : !amdgcn.read_token<flat>
+    amdgcn.end_kernel
+  }
+
+  amdgcn.kernel @test_wait_multiple_tokens {
+    %dest = amdgcn.alloca : !amdgcn.vgpr_range<[? + 1]>
+    %data = amdgcn.alloca : !amdgcn.vgpr_range<[? + 1]>
+    %addr1 = amdgcn.alloca : !amdgcn.vgpr_range<[? + 2]>
+    %addr2 = amdgcn.alloca : !amdgcn.vgpr_range<[? + 2]>
+    %coff = arith.constant 0 : i32
+    // Issue a store
+    %write_tok = amdgcn.store global_store_dword data %data addr %addr1 offset c(%coff)
+        : ins(!amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32)
+          -> !amdgcn.write_token<flat>
+    // Issue a load
+    %result, %read_tok = amdgcn.load global_load_dword dest %dest addr %addr2 offset c(%coff)
+        : dps(!amdgcn.vgpr_range<[? + 1]>) ins(!amdgcn.vgpr_range<[? + 2]>, i32)
+          -> !amdgcn.read_token<flat>
+    // Wait for both operations to complete
+    amdgcn.wait %write_tok, %read_tok : !amdgcn.write_token<flat>, !amdgcn.read_token<flat>
+    amdgcn.end_kernel
+  }
+}

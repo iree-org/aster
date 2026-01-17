@@ -16,6 +16,7 @@
 #define ASTER_DIALECT_AMDGCN_IR_AMDGCNTYPES_H
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
+#include "aster/Interfaces/DependentOpInterface.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
 #include "mlir/IR/Types.h"

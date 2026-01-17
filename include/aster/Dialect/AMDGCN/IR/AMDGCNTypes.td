@@ -18,6 +18,7 @@
 include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNTypeInterfaces.td"
+include "aster/Interfaces/DependentOpInterface.td"
 
 //===----------------------------------------------------------------------===//
 // Base classes
@@ -340,7 +341,8 @@ def SREGType : AMDGCN_RegisterDef<"SREG", "sreg", [MemRefElementTypeInterface]> 
 // Token types
 //===----------------------------------------------------------------------===//
 
-def ReadTokenType : AMDGCN_Type<"ReadToken", "read_token"> {
+def ReadTokenType : AMDGCN_Type<"ReadToken", "read_token",
+    [TokenDependencyTypeInterface]> {
   let summary = "Read token type";
   let description = [{
     A token type representing a memory read operation. Parametrized by the
@@ -350,7 +352,8 @@ def ReadTokenType : AMDGCN_Type<"ReadToken", "read_token"> {
   let assemblyFormat = "`<` $kind `>`";
 }
 
-def WriteTokenType : AMDGCN_Type<"WriteToken", "write_token"> {
+def WriteTokenType : AMDGCN_Type<"WriteToken", "write_token",
+    [TokenDependencyTypeInterface]> {
   let summary = "Write token type";
   let description = [{
     A token type representing a memory write operation. Parametrized by the

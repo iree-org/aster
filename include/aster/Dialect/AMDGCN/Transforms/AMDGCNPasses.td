@@ -162,4 +162,35 @@ def RemoveTestInst : Pass<"amdgcn-remove-test-inst"> {
   }];
 }
 
+def AMDGCNInsertWaits : Pass<"amdgcn-insert-waits"> {
+  let summary = "Insert wait operations for memory dependencies";
+  let description = [{
+    This pass inserts amdgcn.wait operations to synchronize memory dependencies.
+    It analyzes the dependency tokens produced by load and store operations
+    and inserts wait operations at appropriate points to ensure correct
+    ordering of memory accesses.
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+}
+
+def AMDGCNCanonicalizeDependencies : Pass<"amdgcn-canonicalize-dependencies"> {
+  let summary = "Canonicalize dependency tokens in AMDGCN kernels";
+  let description = [{
+    This pass canonicalizes dependency token usage by removing redundant
+    dependencies, merging wait operations where possible, and simplifying
+    the dependency graph to improve code quality.
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+}
+
+def AMDGCNConvertWaits : Pass<"amdgcn-convert-waits"> {
+  let summary = "Convert wait operations to hardware wait instructions";
+  let description = [{
+    This pass converts high-level amdgcn.wait operations into the appropriate
+    hardware wait instructions (s_waitcnt) based on the types of dependencies
+    being waited on.
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+}
+
 #endif // AMDGCN_PASSES
