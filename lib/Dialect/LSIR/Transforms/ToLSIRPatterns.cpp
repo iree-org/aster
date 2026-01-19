@@ -96,6 +96,20 @@ struct RegConstraintPattern : public OpToLSIRPattern<RegConstraintOp> {
     return success();
   }
 };
+
+//===----------------------------------------------------------------------===//
+// AssumeRangeOpPattern
+//===----------------------------------------------------------------------===//
+struct AssumeRangeOpPattern
+    : public OpToLSIRPattern<aster_utils::AssumeRangeOp> {
+  using OpToLSIRPattern::OpToLSIRPattern;
+  LogicalResult
+  matchAndRewrite(Op op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOp(op, adaptor.getInput());
+    return success();
+  }
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -282,7 +296,8 @@ void mlir::aster::lsir::populateToLSIRPatterns(ToLSIRConverter &converter,
       [&](RegConstraintOp op) { return converter.isLegal(op); });
   target.addIllegalOp<aster_utils::ThreadIdOp, aster_utils::BlockIdOp,
                       aster_utils::BlockDimOp, aster_utils::GridDimOp,
-                      lsir::FromRegOp, lsir::ToRegOp, lsir::RegConstraintOp>();
+                      aster_utils::AssumeRangeOp, lsir::FromRegOp,
+                      lsir::ToRegOp, lsir::RegConstraintOp>();
   target.addLegalOp<UnrealizedConversionCastOp>();
 
   // Add the type conversions.
@@ -293,42 +308,44 @@ void mlir::aster::lsir::populateToLSIRPatterns(ToLSIRConverter &converter,
 
   populateFuncConversionPatterns(converter, target, patterns);
   // Add the patterns.
-  patterns.add<ArithBinaryOpPattern<arith::AddIOp, lsir::AddIOp>,
-               ArithBinaryOpPattern<arith::SubIOp, lsir::SubIOp>,
-               ArithBinaryOpPattern<arith::MulIOp, lsir::MulIOp>,
-               ArithBinaryOpPattern<arith::DivSIOp, lsir::DivSIOp>,
-               ArithBinaryOpPattern<arith::DivUIOp, lsir::DivUIOp>,
-               ArithBinaryOpPattern<arith::RemSIOp, lsir::RemSIOp>,
-               ArithBinaryOpPattern<arith::RemUIOp, lsir::RemUIOp>,
-               ArithBinaryOpPattern<arith::AndIOp, lsir::AndIOp>,
-               ArithBinaryOpPattern<arith::OrIOp, lsir::OrIOp>,
-               ArithBinaryOpPattern<arith::XOrIOp, lsir::XOrIOp>,
-               ArithBinaryOpPattern<arith::ShLIOp, lsir::ShLIOp>,
-               ArithBinaryOpPattern<arith::ShRSIOp, lsir::ShRSIOp>,
-               ArithBinaryOpPattern<arith::ShRUIOp, lsir::ShRUIOp>,
-               ArithBinaryOpPattern<arith::MaxSIOp, lsir::MaxSIOp>,
-               ArithBinaryOpPattern<arith::MaxUIOp, lsir::MaxUIOp>,
-               ArithBinaryOpPattern<arith::AddFOp, lsir::AddFOp>,
-               ArithBinaryOpPattern<arith::SubFOp, lsir::SubFOp>,
-               ArithBinaryOpPattern<arith::MulFOp, lsir::MulFOp>,
-               ArithBinaryOpPattern<arith::DivFOp, lsir::DivFOp>,
-               ArithBinaryOpPattern<arith::MaximumFOp, lsir::MaximumFOp>,
-               ArithBinaryOpPattern<arith::MinimumFOp, lsir::MinimumFOp>,
-               ArithCastOpPattern<arith::ExtSIOp, lsir::ExtSIOp>,
-               ArithCastOpPattern<arith::ExtUIOp, lsir::ExtUIOp>,
-               ArithCastOpPattern<arith::TruncIOp, lsir::TruncIOp>,
-               ArithCastOpPattern<arith::ExtFOp, lsir::ExtFOp>,
-               ArithCastOpPattern<arith::TruncFOp, lsir::TruncFOp>,
-               ArithCastOpPattern<arith::FPToSIOp, lsir::FPToSIOp>,
-               ArithCastOpPattern<arith::FPToUIOp, lsir::FPToUIOp>,
-               ArithCastOpPattern<arith::SIToFPOp, lsir::SIToFPOp>,
-               ArithCastOpPattern<arith::UIToFPOp, lsir::UIToFPOp>,
-               IDDimOpPattern<aster_utils::ThreadIdOp, amdgcn::ThreadIdOp>,
-               IDDimOpPattern<aster_utils::BlockIdOp, amdgcn::BlockIdOp>,
-               IDDimOpPattern<aster_utils::BlockDimOp, amdgcn::BlockDimOp>,
-               IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>,
-               FromToRegOpPattern<ToRegOp>, FromToRegOpPattern<FromRegOp>,
-               RegConstraintPattern, ArithSelectOpPattern>(converter);
+  patterns
+      .add<ArithBinaryOpPattern<arith::AddIOp, lsir::AddIOp>,
+           ArithBinaryOpPattern<arith::SubIOp, lsir::SubIOp>,
+           ArithBinaryOpPattern<arith::MulIOp, lsir::MulIOp>,
+           ArithBinaryOpPattern<arith::DivSIOp, lsir::DivSIOp>,
+           ArithBinaryOpPattern<arith::DivUIOp, lsir::DivUIOp>,
+           ArithBinaryOpPattern<arith::RemSIOp, lsir::RemSIOp>,
+           ArithBinaryOpPattern<arith::RemUIOp, lsir::RemUIOp>,
+           ArithBinaryOpPattern<arith::AndIOp, lsir::AndIOp>,
+           ArithBinaryOpPattern<arith::OrIOp, lsir::OrIOp>,
+           ArithBinaryOpPattern<arith::XOrIOp, lsir::XOrIOp>,
+           ArithBinaryOpPattern<arith::ShLIOp, lsir::ShLIOp>,
+           ArithBinaryOpPattern<arith::ShRSIOp, lsir::ShRSIOp>,
+           ArithBinaryOpPattern<arith::ShRUIOp, lsir::ShRUIOp>,
+           ArithBinaryOpPattern<arith::MaxSIOp, lsir::MaxSIOp>,
+           ArithBinaryOpPattern<arith::MaxUIOp, lsir::MaxUIOp>,
+           ArithBinaryOpPattern<arith::AddFOp, lsir::AddFOp>,
+           ArithBinaryOpPattern<arith::SubFOp, lsir::SubFOp>,
+           ArithBinaryOpPattern<arith::MulFOp, lsir::MulFOp>,
+           ArithBinaryOpPattern<arith::DivFOp, lsir::DivFOp>,
+           ArithBinaryOpPattern<arith::MaximumFOp, lsir::MaximumFOp>,
+           ArithBinaryOpPattern<arith::MinimumFOp, lsir::MinimumFOp>,
+           ArithCastOpPattern<arith::ExtSIOp, lsir::ExtSIOp>,
+           ArithCastOpPattern<arith::ExtUIOp, lsir::ExtUIOp>,
+           ArithCastOpPattern<arith::TruncIOp, lsir::TruncIOp>,
+           ArithCastOpPattern<arith::ExtFOp, lsir::ExtFOp>,
+           ArithCastOpPattern<arith::TruncFOp, lsir::TruncFOp>,
+           ArithCastOpPattern<arith::FPToSIOp, lsir::FPToSIOp>,
+           ArithCastOpPattern<arith::FPToUIOp, lsir::FPToUIOp>,
+           ArithCastOpPattern<arith::SIToFPOp, lsir::SIToFPOp>,
+           ArithCastOpPattern<arith::UIToFPOp, lsir::UIToFPOp>,
+           IDDimOpPattern<aster_utils::ThreadIdOp, amdgcn::ThreadIdOp>,
+           IDDimOpPattern<aster_utils::BlockIdOp, amdgcn::BlockIdOp>,
+           IDDimOpPattern<aster_utils::BlockDimOp, amdgcn::BlockDimOp>,
+           IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>,
+           FromToRegOpPattern<ToRegOp>, FromToRegOpPattern<FromRegOp>,
+           RegConstraintPattern, AssumeRangeOpPattern, ArithSelectOpPattern>(
+          converter);
   patterns.add<GenericOpConversion<RegConstraintOp>>(converter,
                                                      patterns.getContext());
 }

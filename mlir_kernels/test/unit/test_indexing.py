@@ -216,9 +216,10 @@ class TestMatrixOffset:
 
         # offset = (i * N + j) * elt_size
         # i = tid / 8, j = tid % 8, N = 16, elt_size = 4
+        # fmt: off
         expected = np.array([
-            0, 4, 8, 12, 16, 20, 24, 28,  # tid 0-7: i=0, j=0-7
-            64, 68, 72, 76, 80, 84, 88, 92,  # tid 8-15: i=1, j=0-7
+              0,   4,   8,  12,  16,  20,  24,  28,  # tid 0-7: i=0, j=0-7
+             64,  68,  72,  76,  80,  84,  88,  92,  # tid 8-15: i=1, j=0-7
             128, 132, 136, 140, 144, 148, 152, 156,  # tid 16-23: i=2, j=0-7
             192, 196, 200, 204, 208, 212, 216, 220,  # tid 24-31: i=3, j=0-7
             256, 260, 264, 268, 272, 276, 280, 284,  # tid 32-39: i=4, j=0-7
@@ -226,6 +227,7 @@ class TestMatrixOffset:
             384, 388, 392, 396, 400, 404, 408, 412,  # tid 48-55: i=6, j=0-7
             448, 452, 456, 460, 464, 468, 472, 476,  # tid 56-63: i=7, j=0-7
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -242,9 +244,10 @@ class TestTiledMatrixOffset:
 
         # offset = ((i + ii) * N + (j + jj)) * elt_size
         # i=0, j=0, ii = tid / 8, jj = tid % 8, N = 16, elt_size = 4
+        # fmt: off
         expected = np.array([
-            0, 4, 8, 12, 16, 20, 24, 28,  # tid 0-7: ii=0, jj=0-7
-            64, 68, 72, 76, 80, 84, 88, 92,  # tid 8-15: ii=1, jj=0-7
+              0,   4,   8,  12,  16,  20,  24,  28,  # tid 0-7: ii=0,  jj=0-7
+             64,  68,  72,  76,  80,  84,  88,  92,  # tid 8-15: ii=1, jj=0-7
             128, 132, 136, 140, 144, 148, 152, 156,  # tid 16-23: ii=2, jj=0-7
             192, 196, 200, 204, 208, 212, 216, 220,  # tid 24-31: ii=3, jj=0-7
             256, 260, 264, 268, 272, 276, 280, 284,  # tid 32-39: ii=4, jj=0-7
@@ -252,6 +255,7 @@ class TestTiledMatrixOffset:
             384, 388, 392, 396, 400, 404, 408, 412,  # tid 48-55: ii=6, jj=0-7
             448, 452, 456, 460, 464, 468, 472, 476,  # tid 56-63: ii=7, jj=0-7
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -268,9 +272,10 @@ class TestTiledx2MatrixOffset:
 
         # offset = ((i + ii + iii) * N + (j + jj + jjj)) * elt_size
         # i=0, j=0, ii=0, jj=0, iii = tid / 8, jjj = tid % 8, N = 16, elt_size = 4
+        # fmt: off
         expected = np.array([
-            0, 4, 8, 12, 16, 20, 24, 28,  # tid 0-7: iii=0, jjj=0-7
-            64, 68, 72, 76, 80, 84, 88, 92,  # tid 8-15: iii=1, jjj=0-7
+              0,   4,   8,  12,  16,  20,  24,  28,  # tid 0-7: iii=0,  jjj=0-7
+             64,  68,  72,  76,  80,  84,  88,  92,  # tid 8-15: iii=1, jjj=0-7
             128, 132, 136, 140, 144, 148, 152, 156,  # tid 16-23: iii=2, jjj=0-7
             192, 196, 200, 204, 208, 212, 216, 220,  # tid 24-31: iii=3, jjj=0-7
             256, 260, 264, 268, 272, 276, 280, 284,  # tid 32-39: iii=4, jjj=0-7
@@ -278,6 +283,7 @@ class TestTiledx2MatrixOffset:
             384, 388, 392, 396, 400, 404, 408, 412,  # tid 48-55: iii=6, jjj=0-7
             448, 452, 456, 460, 464, 468, 472, 476,  # tid 56-63: iii=7, jjj=0-7
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -292,6 +298,7 @@ class TestMfmaIndex16x16Helper:
         output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_mfma_index_16x16_helper", output)
 
+        # fmt: off
         expected = np.array([
             0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,  # tid 0-7: lane_id 0-7
             0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15,  # tid 8-15: lane_id 8-15
@@ -302,6 +309,7 @@ class TestMfmaIndex16x16Helper:
             12, 0, 12, 1, 12, 2, 12, 3, 12, 4, 12, 5, 12, 6, 12, 7,  # tid 48-55: lane_id 48-55
             12, 8, 12, 9, 12, 10, 12, 11, 12, 12, 12, 13, 12, 14, 12, 15,  # tid 56-63: lane_id 56-63
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -317,6 +325,7 @@ class TestMfmaIndexA16x16xf16:
         compile_and_run("test_mfma_index_A_16x16xf16", output)
 
         # A MFMA indexing returns (j, i) from helper, which is (lane_id mod 16, 4 * (lane_id / 16))
+        # fmt: off
         expected = np.array([
             0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0,  # tid 0-7: lane_id 0-7 -> (j, i) = (0-7, 0)
             8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15, 0,  # tid 8-15: lane_id 8-15 -> (j, i) = (8-15, 0)
@@ -327,6 +336,7 @@ class TestMfmaIndexA16x16xf16:
             0, 12, 1, 12, 2, 12, 3, 12, 4, 12, 5, 12, 6, 12, 7, 12,  # tid 48-55: lane_id 48-55 -> (j, i) = (0-7, 12)
             8, 12, 9, 12, 10, 12, 11, 12, 12, 12, 13, 12, 14, 12, 15, 12,  # tid 56-63: lane_id 56-63 -> (j, i) = (8-15, 12)
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -341,6 +351,7 @@ class TestMfmaIndexB16x16xf16:
         output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_mfma_index_B_16x16xf16", output)
 
+        # fmt: off
         expected = np.array([
             0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,  # tid 0-7: lane_id 0-7
             0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15,  # tid 8-15: lane_id 8-15
@@ -351,6 +362,7 @@ class TestMfmaIndexB16x16xf16:
             12, 0, 12, 1, 12, 2, 12, 3, 12, 4, 12, 5, 12, 6, 12, 7,  # tid 48-55: lane_id 48-55
             12, 8, 12, 9, 12, 10, 12, 11, 12, 12, 12, 13, 12, 14, 12, 15,  # tid 56-63: lane_id 56-63
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -365,6 +377,7 @@ class TestMfmaIndexC16x16xf32:
         output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_mfma_index_C_16x16xf32", output)
 
+        # fmt: off
         expected = np.array([
             0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,  # tid 0-7: lane_id 0-7
             0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15,  # tid 8-15: lane_id 8-15
@@ -375,6 +388,7 @@ class TestMfmaIndexC16x16xf32:
             12, 0, 12, 1, 12, 2, 12, 3, 12, 4, 12, 5, 12, 6, 12, 7,  # tid 48-55: lane_id 48-55
             12, 8, 12, 9, 12, 10, 12, 11, 12, 12, 12, 13, 12, 14, 12, 15,  # tid 56-63: lane_id 56-63
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -398,6 +412,7 @@ class TestSwizzledMfmaIndexA16x16xf16:
         #   lane_id 16-31:  helper_row=4  -> col=4,  rows 0-15, swizzled_cols: 4,4,4,4,0,0,0,0,12,12,12,12,8,8,8,8
         #   lane_id 32-47:  helper_row=8  -> col=8,  rows 0-15, swizzled_cols: 8,8,8,8,12,12,12,12,0,0,0,0,4,4,4,4
         #   lane_id 48-63:  helper_row=12 -> col=12, rows 0-15, swizzled_cols: 12,12,12,12,8,8,8,8,4,4,4,4,0,0,0,0
+        # fmt: off
         expected = np.array([
             # lane_id 0-15:   row=0-15, col=0  -> swizzled_col pattern: 0,0,0,0,4,4,4,4,8,8,8,8,12,12,12,12
             0, 0, 1, 0, 2, 0, 3, 0, 4, 4, 5, 4, 6, 4, 7, 4,
@@ -412,6 +427,7 @@ class TestSwizzledMfmaIndexA16x16xf16:
             0, 12, 1, 12, 2, 12, 3, 12, 4, 8, 5, 8, 6, 8, 7, 8,
             8, 4, 9, 4, 10, 4, 11, 4, 12, 0, 13, 0, 14, 0, 15, 0,
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -435,6 +451,7 @@ class TestSwizzledMfmaIndexB16x16xf16:
         #   lane_id 16-31:  row=4,  col=0-15  -> swizzled_col: 4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11
         #   lane_id 32-47:  row=8,  col=0-15  -> swizzled_col: 8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7
         #   lane_id 48-63:  row=12, col=0-15  -> swizzled_col: 12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3
+        # fmt: off
         expected = np.array([
             # lane_id 0-15:   row=0, swizzled_col=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
             0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,
@@ -449,6 +466,7 @@ class TestSwizzledMfmaIndexB16x16xf16:
             12, 12, 12, 13, 12, 14, 12, 15, 12, 8, 12, 9, 12, 10, 12, 11,
             12, 4, 12, 5, 12, 6, 12, 7, 12, 0, 12, 1, 12, 2, 12, 3,
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -472,6 +490,7 @@ class TestSwizzledMfmaIndexC16x16xf32:
         #   lane_id 16-31:  row=4,  col=0-15  -> swizzled_col: 4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11
         #   lane_id 32-47:  row=8,  col=0-15  -> swizzled_col: 8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7
         #   lane_id 48-63:  row=12, col=0-15  -> swizzled_col: 12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3
+        # fmt: off
         expected = np.array([
             # lane_id 0-15:   row=0, swizzled_col=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
             0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,
@@ -486,6 +505,7 @@ class TestSwizzledMfmaIndexC16x16xf32:
             12, 12, 12, 13, 12, 14, 12, 15, 12, 8, 12, 9, 12, 10, 12, 11,
             12, 4, 12, 5, 12, 6, 12, 7, 12, 0, 12, 1, 12, 2, 12, 3,
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -511,16 +531,18 @@ class TestIndexBxMxNxK:
         # widx = tidx / 64 = 0
         # lidx = tidx % 64
         # offset = 0 + 0 + 0 + 0 + lidx * 4 = tidx * 4 (for tidx < 64)
+        # fmt: off
         expected = np.array([
-            0, 4, 8, 12, 16, 20, 24, 28,  # tid 0-7
-            32, 36, 40, 44, 48, 52, 56, 60,  # tid 8-15
-            64, 68, 72, 76, 80, 84, 88, 92,  # tid 16-23
-            96, 100, 104, 108, 112, 116, 120, 124,  # tid 24-31
+              0,   4,   8,  12,  16,  20,  24,  28,  # tid 0-7
+             32,  36,  40,  44,  48,  52,  56,  60,  # tid 8-15
+             64,  68,  72,  76,  80,  84,  88,  92,  # tid 16-23
+             96, 100, 104, 108, 112, 116, 120, 124,  # tid 24-31
             128, 132, 136, 140, 144, 148, 152, 156,  # tid 32-39
             160, 164, 168, 172, 176, 180, 184, 188,  # tid 40-47
             192, 196, 200, 204, 208, 212, 216, 220,  # tid 48-55
             224, 228, 232, 236, 240, 244, 248, 252,  # tid 56-63
         ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
