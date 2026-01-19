@@ -6,7 +6,9 @@
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 
 !v   = !amdgcn.vgpr
+!vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
+!vx3 = !amdgcn.vgpr_range<[? + 3]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
@@ -35,6 +37,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> ()
   func.func private @store_to_global_dword_wait(!v, !sx2, index, index, index)
+  func.func private @store_to_global_dwordx2_wait(!vx2, !sx2, index, index, index)
+  func.func private @store_to_global_dwordx3_wait(!vx3, !sx2, index, index, index)
+  func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index)
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
   func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !sx2, index, index, index, index, index)
@@ -107,38 +112,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
+
   //===--------------------------------------------------------------------===//
   // Global <-> LDS
   //===--------------------------------------------------------------------===//
-
-  // Test @store_to_global_dword_wait: store a dword to global memory
-  // Each thread stores (tid * 100) at position (tid/8, tid%8) in a 16-wide matrix
-  amdgcn.kernel @test_store_to_global_dword_wait arguments <[
-    #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  ]> attributes {shared_memory_size = 0 : i32} {
-    %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-
-    %tid = gpu.thread_id x
-    %c8 = arith.constant 8 : index
-    %c64 = arith.constant 64 : index // stride in bytes (16 elements * 4 bytes)
-
-    // Compute i, j from tid
-    %i = affine.apply affine_map<()[tid] -> (tid floordiv 8)>()[%tid]
-    %j = affine.apply affine_map<()[tid] -> (tid mod 8)>()[%tid]
-
-    // Compute value to store: tid * 100
-    %tid_i32 = arith.index_cast %tid : index to i32
-    %c100 = arith.constant 100 : i32
-    %value_i32 = arith.muli %tid_i32, %c100 : i32
-    %value = lsir.to_reg %value_i32 : i32 -> !v
-
-    // Store using the library function
-    func.call @store_to_global_dword_wait(%value, %out_ptr, %i, %j, %c64)
-      : (!v, !sx2, index, index, index) -> ()
-
-    amdgcn.end_kernel
-  }
 
   // Test @lds_read_A_wave_16x16xf16_fragment_wait: read MFMA A fragment from LDS
   // First populate LDS with known data, then read using the MFMA function

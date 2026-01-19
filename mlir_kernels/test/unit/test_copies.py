@@ -18,12 +18,13 @@ MCPU = "gfx942"
 WAVEFRONT_SIZE = 64
 
 
-def get_mlir_file():
+def get_mlir_file(file_name: str):
     """Get path to the test MLIR file."""
-    return os.path.join(os.path.dirname(__file__), "test_copies.mlir")
+    return os.path.join(os.path.dirname(__file__), file_name)
 
 
 def compile_and_run(
+    file_name: str,
     kernel_name: str,
     input_data: list,
     output_data: np.ndarray,
@@ -31,7 +32,7 @@ def compile_and_run(
     block_dim=(64, 1, 1),
 ):
     """Compile and run a test kernel, returning the output buffer."""
-    mlir_file = get_mlir_file()
+    mlir_file = get_mlir_file(file_name)
     library_paths = get_library_paths()
 
     with ir.Context() as ctx:
@@ -76,19 +77,80 @@ class TestStoreToGlobalDwordWait:
         # Output is 8 rows x 16 columns = 128 dwords, but only 64 are written
         # Layout: row = tid // 8, col = tid % 8
         output = np.zeros(8 * 16, dtype=np.int32)
-        compile_and_run("test_store_to_global_dword_wait", [], output)
+        compile_and_run("test_global_store_wave.mlir", "test_store_to_global_dword_wait", [], output)
 
         expected = np.zeros(8 * 16, dtype=np.int32)
         for tid in range(num_threads):
-            row = tid // 8
-            col = tid % 8
-            linear_idx = row * 16 + col
-            expected[linear_idx] = tid * 100
+            expected[tid] = tid * 100
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(
                 output.reshape(8, 16), expected.reshape(8, 16)
             )
+
+
+class TestStoreToGlobalDwordx2Wait:
+    """Test @store_to_global_dwordx2_wait function."""
+
+    def test_store_dwordx2(self):
+        """Each thread stores 2 dwords at position (tid/4, tid%4) in an 8-wide matrix."""
+        num_threads = 64
+        # Each thread writes 2 dwords, 64 threads = 128 dwords
+        # Layout: row = tid // 4, col = tid % 4, stride = 8 dwords
+        # Output: 16 rows x 8 columns = 128 dwords
+        output = np.zeros(16 * 8, dtype=np.int32)
+        compile_and_run("test_global_store_wave.mlir", "test_store_to_global_dwordx2_wait", [], output)
+
+        expected = np.zeros(16 * 8, dtype=np.int32)
+        for tid in range(num_threads):
+            expected[2 * tid] = tid * 100
+            expected[2 * tid + 1] = tid * 100 + 1
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
+
+
+class TestStoreToGlobalDwordx3Wait:
+    """Test @store_to_global_dwordx3_wait function."""
+
+    def test_store_dwordx3(self):
+        """Each thread stores 3 dwords at linear position tid."""
+        num_threads = 64
+        # Each thread writes 3 dwords, 64 threads = 192 dwords
+        output = np.zeros(num_threads * 3, dtype=np.int32)
+        compile_and_run("test_global_store_wave.mlir", "test_store_to_global_dwordx3_wait", [], output)
+
+        expected = np.zeros(num_threads * 3, dtype=np.int32)
+        for tid in range(num_threads):
+            expected[3 * tid] = tid * 100
+            expected[3 * tid + 1] = tid * 100 + 1
+            expected[3 * tid + 2] = tid * 100 + 2
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
+
+
+class TestStoreToGlobalDwordx4Wait:
+    """Test @store_to_global_dwordx4_wait function."""
+
+    def test_store_dwordx4(self):
+        """Each thread stores 4 dwords at position (tid/4, tid%4) in a 4-wide matrix."""
+        num_threads = 64
+        # Each thread writes 4 dwords (16 bytes), stride = 64 bytes = 16 dwords
+        # Layout: row = tid // 4, col = tid % 4
+        # Output: 16 rows x 16 dwords per row = 256 dwords
+        output = np.zeros(16 * 16, dtype=np.int32)
+        compile_and_run("test_global_store_wave.mlir", "test_store_to_global_dwordx4_wait", [], output)
+
+        expected = np.zeros(16 * 16, dtype=np.int32)
+        for tid in range(num_threads):
+            expected[4 * tid] = tid * 100
+            expected[4 * tid + 1] = tid * 100 + 1
+            expected[4 * tid + 2] = tid * 100 + 2
+            expected[4 * tid + 3] = tid * 100 + 3
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(output, expected)
 
 
 class TestLoadAndReadLdsAFragmentWait:
@@ -103,7 +165,7 @@ class TestLoadAndReadLdsAFragmentWait:
         # Output: each thread reads 8 bytes (4 f16 values = dwordx2)
         output = np.zeros(num_threads * 4, dtype=np.uint16)
 
-        compile_and_run(
+        compile_and_run("test_copies.mlir", 
             "test_load_and_lds_read_A_wave_16x16xf16_fragment_wait",
             [input_data],
             output,
@@ -152,7 +214,7 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
         # Output: 32x48 matrix
         output = np.zeros(II * JJ * 16 * 16, dtype=np.uint16)
 
-        compile_and_run(
+        compile_and_run("test_copies.mlir", 
             "test_lds_read_swizzled_A_wave_16x16xf16_fragment_wait",
             [input_2d.flatten()],
             output,
@@ -205,7 +267,7 @@ class TestStoreGlobalCFragmentWait:
         # Output: 16x16 matrix of f32 values (stored as int32)
         output = np.zeros(16 * 16, dtype=np.int32)
 
-        compile_and_run("test_store_global_C_fragment_wait", [], output)
+        compile_and_run("test_copies.mlir", "test_store_global_C_fragment_wait", [], output)
 
         # Verify: each lane initializes its fragment with lane_id
         # mfma_index_C returns (4 * (lane_id // 16), lane_id % 16)
@@ -235,7 +297,7 @@ class TestGlobalLoadDsWrite:
         # Output: each thread reads back 8 bytes (4 f16 values)
         output = np.zeros(num_threads * 4, dtype=np.uint16)
 
-        compile_and_run("test_global_load_ds_write", [input_data], output)
+        compile_and_run("test_copies.mlir", "test_global_load_ds_write", [input_data], output)
 
         # The data flow is identical to global_load_to_lds_wave_16x16_f16_wait
         expected = np.zeros(num_threads * 4, dtype=np.uint16)
@@ -269,7 +331,7 @@ class TestGlobalToLdsAndBack16x16:
         input_data = np.arange(rows * cols, dtype=np.uint16)
         output = np.zeros(rows * cols, dtype=np.uint16)
 
-        compile_and_run("test_global_to_lds_and_back_wave_16x16xf16_wait",
+        compile_and_run("test_copies.mlir", "test_global_to_lds_and_back_wave_16x16xf16_wait",
                         [input_data], output)
 
         # Expected: the 16x16 tile at (48, 80) flattened
@@ -313,7 +375,7 @@ class TestGlobalLoadMultiTile:
         input_data = np.linspace(0, 1, 64 * 128, dtype=np.float16).view(np.uint16)
         output = np.zeros(output_size, dtype=np.uint16)
 
-        compile_and_run("test_global_load_multi_tile", [input_data], output)
+        compile_and_run("test_copies.mlir", "test_global_load_multi_tile", [input_data], output)
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             diff = output != input_data
@@ -339,7 +401,7 @@ class TestMaybeMultiTileSimple:
         input_data = np.arange(rows * cols, dtype=np.uint16)
         output = np.zeros(rows * cols, dtype=np.uint16)
 
-        compile_and_run("test_maybe_multi_tile_simple", [input_data], output)
+        compile_and_run("test_copies.mlir", "test_maybe_multi_tile_simple", [input_data], output)
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             input_2d = input_data.reshape(rows, cols)
@@ -374,7 +436,7 @@ class TestMaybeMultiTileCoalesced:
         input_data = np.arange(rows * cols, dtype=np.uint16)
         output = np.zeros(rows * cols, dtype=np.uint16)
 
-        compile_and_run("test_maybe_multi_tile_coalesced", [input_data],
+        compile_and_run("test_copies.mlir", "test_maybe_multi_tile_coalesced", [input_data],
                         output)
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
@@ -396,4 +458,5 @@ class TestMaybeMultiTileCoalesced:
 
 if __name__ == "__main__":
     # Run a specific test for debugging
-    TestMaybeMultiTileCoalesced().test_multi_tile_coalesced_with_nt_2x4()
+    TestStoreToGlobalDwordWait().test_store_dword()
+    # TestMaybeMultiTileCoalesced().test_multi_tile_coalesced_with_nt_2x4()

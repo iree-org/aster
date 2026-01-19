@@ -424,10 +424,56 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     return
   }
 
-  // Store a dword to global memory, in a **synchronized fashion** (i.e.
-  // waitcnt 0 are inserted after global_store).
+  // Store to global memory implementation.
+  // Supports dword (4 bytes), dwordx2 (8 bytes), dwordx3 (12 bytes), and
+  // dwordx4 (16 bytes) transfers.
   // The caller is responsible for embedding distribution information into the
   // positions %m_pos and %n_pos (and make them workgroup/wave/thread/lane-dependent).
+  func.func private @store_to_global_impl(
+    %value: !aster_utils.any,       // Value to store (v, vx2, vx3, or vx4)
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most position
+    %n_pos: index,                  // The inner-most position
+    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most stride **in bytes** in global memory
+    %transfer_size: index           // Transfer size in bytes (4, 8, 12, or 16)
+  ) {
+    %off_reg = func.call @matrix_offset(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
+      : (index, index, index, index) -> !v
+    %c0_store = arith.constant 0 : i32
+
+    scf.index_switch %transfer_size
+    case 4 {
+      %data = aster_utils.from_any %value : !v
+      %tok = amdgcn.store global_store_dword data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+        : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+      scf.yield
+    }
+    case 8 {
+      %data = aster_utils.from_any %value : !vx2
+      %tok = amdgcn.store global_store_dwordx2 data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+        : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+      scf.yield
+    }
+    case 12 {
+      %data = aster_utils.from_any %value : !vx3
+      %tok = amdgcn.store global_store_dwordx3 data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+        : ins(!vx3, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+      scf.yield
+    }
+    case 16 {
+      %data = aster_utils.from_any %value : !vx4
+      %tok = amdgcn.store global_store_dwordx4 data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+        : ins(!vx4, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+      scf.yield
+    }
+    default {
+      amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 44
+    }
+
+    return
+  }
+
+  // Store a dword (dword) to global memory, in a **synchronized fashion**.
   func.func private @store_to_global_dword_wait(
     %value: !v,                     // Value to store
     %ptr: !sx2,                     // The global base pointer
@@ -435,11 +481,58 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %n_pos: index,                  // The inner-most position
     %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
   ) {
-    %elt_size = arith.constant 4 : index // dword size in bytes
-    %off_reg = func.call @matrix_offset(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size)
-      : (index, index, index, index) -> !v
-    %c0_store = arith.constant 0 : i32
-    %tok_store = amdgcn.store global_store_dword data %value addr %ptr offset d(%off_reg) + c(%c0_store) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+    %transfer_size = arith.constant 4 : index
+    %any_value = aster_utils.to_any %value : !v
+    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
+      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    return
+  }
+
+  // Store a dwordx2 (dwordx2) to global memory, in a **synchronized fashion**.
+  func.func private @store_to_global_dwordx2_wait(
+    %value: !vx2,                   // Value to store
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most position
+    %n_pos: index,                  // The inner-most position
+    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+  ) {
+    %transfer_size = arith.constant 8 : index
+    %any_value = aster_utils.to_any %value : !vx2
+    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
+      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    return
+  }
+
+  // Store a dwordx3 (dwordx3) to global memory, in a **synchronized fashion**.
+  func.func private @store_to_global_dwordx3_wait(
+    %value: !vx3,                   // Value to store
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most position
+    %n_pos: index,                  // The inner-most position
+    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+  ) {
+    %transfer_size = arith.constant 12 : index
+    %any_value = aster_utils.to_any %value : !vx3
+    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
+      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    return
+  }
+
+  // Store a dwordx4 (dwordx4) to global memory, in a **synchronized fashion**.
+  func.func private @store_to_global_dwordx4_wait(
+    %value: !vx4,                   // Value to store
+    %ptr: !sx2,                     // The global base pointer
+    %m_pos: index,                  // The outer-most position
+    %n_pos: index,                  // The inner-most position
+    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+  ) {
+    %transfer_size = arith.constant 16 : index
+    %any_value = aster_utils.to_any %value : !vx4
+    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
+      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
