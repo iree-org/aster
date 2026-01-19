@@ -1,46 +1,35 @@
 #!/bin/bash
+# Profiling script for nanobench_lds_write_multi_tile
 
-set -e
-
-# Check for virtual environment
-if [ -z "$VIRTUAL_ENV" ]; then
-    echo "Error: VIRTUAL_ENV is not set: source the virtual environment"
-    exit 1
-fi
-
-PYTHON_BIN="${VIRTUAL_ENV}/bin/python"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/utils.sh"
+
+check_venv
+
+KERNEL_NAME="nanobench_lds_write_multi_tile"
 TEST_SCRIPT="${SCRIPT_DIR}/nanobench_lds_write_multi_tile.py"
+PERF_COUNTERS="SQ_LDS_BANK_CONFLICT SQ_INSTS_LDS SQ_WAIT_INST_LDS"
 
 profile_kernel() {
     local num_iters="$1"
     local num_kernel_runs="$2"
-    local num_cus="$3"
+    local num_blocks="$3"
 
-    local machine_name="$(hostname)"
-    local trace="trace_${machine_name}_nanobench_lds_write_iters${num_iters}_runs${num_kernel_runs}_cus${num_cus}"
+    local params="num_iters=$num_iters, num_kernel_runs=$num_kernel_runs, num_blocks=$num_blocks"
+    print_profile_header "$KERNEL_NAME" "$params"
 
-    echo ""
-    echo "========================================"
-    echo "Profiling: nanobench_lds_write_multi_tile"
-    echo "num_iters=$num_iters, num_kernel_runs=$num_kernel_runs, num_cus=$num_cus"
-    echo "========================================"
-    echo ""
+    local trace_dir
+    trace_dir=$(make_trace_dir "$KERNEL_NAME" "_iters${num_iters}_runs${num_kernel_runs}_blocks${num_blocks}")
 
-    local cmd="/usr/bin/rocprofv3 \
-        --att \
-        --att-perfcounter-ctrl 10 \
-        --att-perfcounters \"SQ_LDS_BANK_CONFLICT SQ_INSTS_LDS SQ_WAIT_INST_LDS\" \
-        -d \"$trace\" \
-        -- \
-        \"$PYTHON_BIN\" \"$TEST_SCRIPT\" \
-        --num-iters \"$num_iters\" \
-        --num-kernel-runs \"$num_kernel_runs\" \
-        --num-cus \"$num_cus\""
-    echo "Command: $cmd"
-    eval "$cmd"
+    run_rocprof_att_perf \
+        "$trace_dir" \
+        "$KERNEL_NAME" \
+        "$PERF_COUNTERS" \
+        "$TEST_SCRIPT" \
+        --num-iters "$num_iters" \
+        --num-kernel-runs "$num_kernel_runs" \
+        --num-blocks "$num_blocks"
 }
 
-# Default: num_iters=10, num_kernel_runs=10, num_cus=304
+# Default: num_iters=10, num_kernel_runs=10, num_blocks=304
 profile_kernel "${1:-10}" "${2:-10}" "${3:-304}"
-

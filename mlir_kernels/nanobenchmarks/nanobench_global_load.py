@@ -3,46 +3,32 @@
 
 import argparse
 import os
-import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
-
-from aster import ir, utils
-from integration_test.test_utils import (
-    compile_mlir_file_to_asm,
-    execute_kernel_and_verify,
-    hsaco_file,
+from utils import (
+    MCPU,
+    WAVEFRONT_SIZE,
+    NanobenchConfig,
+    add_common_args,
+    compile_kernel,
+    run_kernel,
+    print_timing_stats,
 )
-from integration_test.flush_llc import FlushLLC
-from mlir_kernels.common import get_library_paths, NANOBENCH_PASS_PIPELINE
 
 KERNEL_NAME = "nanobench_global_load"
-MCPU = "gfx942"
-WAVEFRONT_SIZE = 64
+
 
 def main():
     parser = argparse.ArgumentParser(
         description="Nanobenchmark for global load with configurable multiple tiles/waves/workgroups per CU"
     )
-    parser.add_argument(
-        "--num-iters",
-        type=int,
-        default=5,
-        help="Number of outer loop iterations (default: 5)",
-    )
-    parser.add_argument(
-        "--num-kernel-runs",
-        type=int,
-        default=5,
-        help="Number of kernel invocations for timing (default: 5)",
-    )
+    add_common_args(parser)
     parser.add_argument(
         "--num-tiles",
         type=int,
         default=4,
-        help="Number of tiles to load (default: 16)",
+        help="Number of tiles to load (default: 4)",
     )
     parser.add_argument(
         "--tile-reuse-factor",
@@ -51,37 +37,17 @@ def main():
         help="Tile reuse factor (default: 1)",
     )
     parser.add_argument(
-        "--num-blocks",
-        type=int,
-        default=1,
-        help="Number of blocks to use (default: 1)",
-    )
-    parser.add_argument(
-        "--num-waves",
-        type=int,
-        default=4,
-        help="Number of waves per block (default: 4)",
-    )
-    parser.add_argument(
         "--dwordxbits",
         type=int,
         default=15,
         help="DWORDX bits: 1=dword, 2=dwordx2, 4=dwordx3, 8=dwordx4 (default: 15=all)",
     )
-    parser.add_argument(
-        "--print-asm",
-        action="store_true",
-        help="Print generated assembly",
-    )
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     mlir_file = os.path.join(script_dir, "nanobench_global_load.mlir")
-    library_paths = get_library_paths()
 
     num_threads = args.num_waves * WAVEFRONT_SIZE
-    # Allocate input buffer: num_blocks * num_waves * num_tiles * 256 bytes per tile
-    # This should fit entirely in L1 cache for hot cache benchmark.
     num_bytes = args.num_blocks * args.num_waves * args.num_tiles * 256
 
     def preprocess(x, dwordxbits=args.dwordxbits):
@@ -94,60 +60,34 @@ def main():
         x = x.replace("{{DWORDXBITS}}", str(dwordxbits))
         return x
 
-    with ir.Context() as ctx:
-        asm_complete, _ = compile_mlir_file_to_asm(
-            mlir_file,
-            KERNEL_NAME,
-            NANOBENCH_PASS_PIPELINE,
-            ctx,
-            preprocess=preprocess,
-            library_paths=library_paths,
-            print_timings=False,
-            print_ir_after_all=False,
+    input_buffer = np.random.randn(num_bytes).astype(np.uint8)
+
+    config = NanobenchConfig(
+        kernel_name=KERNEL_NAME,
+        mlir_file=mlir_file,
+        description="global load benchmark",
+        num_blocks=args.num_blocks,
+        num_threads=num_threads,
+        num_iters=args.num_iters,
+        num_kernel_runs=args.num_kernel_runs,
+        input_buffers=[input_buffer],
+        flush_llc=True,
+        print_asm=args.print_asm,
+    )
+
+    hsaco_path, _ = compile_kernel(config, preprocess)
+    iteration_times_ns = run_kernel(config, hsaco_path)
+
+    if iteration_times_ns is not None:
+        variants = [f"dword{'x'+str(i) if i > 1 else ''}" for i in [1,2,3,4] if args.dwordxbits & (1 << (i-1))]
+        print_timing_stats(
+            iteration_times_ns,
+            args.num_kernel_runs,
+            extra_info={
+                "variants": "+".join(variants),
+                "num_bytes": f"{num_bytes/1e6} MB",
+            },
         )
-
-        if args.print_asm:
-            print(asm_complete)
-
-        hsaco_path = utils.assemble_to_hsaco(
-            asm_complete, target=MCPU, wavefront_size=WAVEFRONT_SIZE
-        )
-        if hsaco_path is None:
-            raise RuntimeError("Failed to assemble kernel to HSACO")
-
-        print(f"Compiled successfully. HSACO: {hsaco_path}")
-        print(f"Config: {args.num_iters} inner iterations, {args.num_kernel_runs} kernel runs, {args.num_waves} waves/block")
-
-        if not utils.system_has_mcpu(mcpu=MCPU):
-            print(f"GPU {MCPU} not available, stopping after cross-compilation")
-            return
-
-        input = np.random.randn(num_bytes).astype(np.uint8)
-
-        with hsaco_file(hsaco_path):
-            iteration_times_ns = execute_kernel_and_verify(
-                hsaco_path=hsaco_path,
-                kernel_name=KERNEL_NAME,
-                input_args=[input],
-                output_args=[],
-                mcpu=MCPU,
-                wavefront_size=WAVEFRONT_SIZE,
-                grid_dim=(args.num_blocks, 1, 1),
-                block_dim=(num_threads, 1, 1),
-                verify_fn=None,
-                num_iterations=args.num_kernel_runs,
-                flush_llc=FlushLLC(mcpu=MCPU),
-            )
-
-            # Stats
-            times_us = np.array(iteration_times_ns) / 1000.0
-            variants = [f"dword{'x'+str(i) if i > 1 else ''}" for i in [1,2,3,4] if args.dwordxbits & (1 << (i-1))]
-            print(f"\nTiming results for {'+'.join(variants)} ({args.num_kernel_runs} runs):")
-            print(f"  num_bytes: {num_bytes/1e6} MB")
-            print(f"  Mean: {np.mean(times_us):.2f} us")
-            print(f"  Min:  {np.min(times_us):.2f} us")
-            print(f"  Max:  {np.max(times_us):.2f} us")
-            print(f"  Std:  {np.std(times_us):.2f} us")
 
 
 if __name__ == "__main__":
