@@ -31,10 +31,10 @@ using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
 //===----------------------------------------------------------------------===//
-// Variable
+// AliasEquivalenceClass
 //===----------------------------------------------------------------------===//
 
-void Variable::print(raw_ostream &os) const {
+void AliasEquivalenceClass::print(raw_ostream &os) const {
   if (isTop()) {
     os << "<TOP>";
     return;
@@ -44,13 +44,13 @@ void Variable::print(raw_ostream &os) const {
     return;
   }
   os << "[";
-  llvm::interleaveComma(*variableIds, os);
+  llvm::interleaveComma(*eqClassIds, os);
   os << "]";
 }
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
-                                     const Variable &var) {
-  var.print(os);
+                                     const AliasEquivalenceClass &eqClass) {
+  eqClass.print(os);
   return os;
 }
 
@@ -61,7 +61,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 /// Helper to mark the IR as ill-formed if any of the given lattices is top.
 /// Returns true if any lattice is top.
 static bool isIllFormed(bool &illFormed,
-                        ArrayRef<const dataflow::Lattice<Variable> *> lattices,
+                        ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> lattices,
                         ValueRange operands) {
   if (illFormed)
     return false;
@@ -74,7 +74,7 @@ static bool isIllFormed(bool &illFormed,
   return false;
 }
 static void isIllFormedOp(bool &illFormed,
-                          ArrayRef<dataflow::Lattice<Variable> *> lattices,
+                          ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> lattices,
                           ValueRange results) {
   for (auto [result, lattice] : llvm::zip_equal(results, lattices)) {
     if (lattice->getValue().isTop() &&
@@ -85,8 +85,8 @@ static void isIllFormedOp(bool &illFormed,
 }
 
 LogicalResult DPSAliasAnalysis::visitOperation(
-    Operation *op, ArrayRef<const dataflow::Lattice<Variable> *> operandLattices,
-    ArrayRef<dataflow::Lattice<Variable> *> results) {
+    Operation *op, ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> operandLattices,
+    ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> results) {
   // Check if the op results are ill-formed.
   auto _atExit = llvm::make_scope_exit([&]() {
     if (ValueRange vals = op->getResults(); !vals.empty())
@@ -105,26 +105,26 @@ LogicalResult DPSAliasAnalysis::visitOperation(
   // Early exit if any register-like operand lattice is top.
   bool isIllFormedOperand = isIllFormed(illFormed, operandLattices, op->getOperands());
   if (isIllFormedOperand) {
-    for (dataflow::Lattice<Variable> *result : results)
-      propagateIfChanged(result, result->join(Variable::getTop()));
+    for (dataflow::Lattice<AliasEquivalenceClass> *result : results)
+      propagateIfChanged(result, result->join(AliasEquivalenceClass::getTop()));
     return success();
   }
 
   // Handle specific operations.
-  // Each AllocaOp defines a new variable.
+  // Each AllocaOp defines a new equivalence class.
   if (auto aOp = dyn_cast<AllocaOp>(op)) {
-    // For AllocaOp, we can assign a unique variable ID
-    int32_t varId = valueToVarIdMap.size();
-    valueToVarIdMap[aOp.getResult()] = varId;
+    // For AllocaOp, we can assign a unique equivalence class ID
+    int32_t eqClassId = valueToEqClassIdMap.size();
+    valueToEqClassIdMap[aOp.getResult()] = eqClassId;
     idsToValuesMap.push_back(aOp.getResult());
-    assert(idsToValuesMap.size() == valueToVarIdMap.size() &&
-           "idsToValuesMap and valueToVarIdMap size mismatch");
-    propagateIfChanged(results[0], results[0]->join(Variable({varId})));
+    assert(idsToValuesMap.size() == valueToEqClassIdMap.size() &&
+           "idsToValuesMap and valueToEqClassIdMap size mismatch");
+    propagateIfChanged(results[0], results[0]->join(AliasEquivalenceClass({eqClassId})));
     return success();
   }
 
   // Handle InstOpInterface operations.
-  // Each InstOpInterface ties its results to variables tied to the matching DPS operand.
+  // Each InstOpInterface marks its results with the equivalence classes of the matching DPS operand.
   if (auto instOp = dyn_cast<InstOpInterface>(op)) {
     for (OpOperand &operand : instOp.getInstOutsMutable()) {
       size_t idx = operand.getOperandNumber();
@@ -135,22 +135,22 @@ LogicalResult DPSAliasAnalysis::visitOperation(
   }
 
   // Handle MakeRegisterRangeOp operations.
-  // Each MakeRegisterRangeOp ties its result to variables tied to all the operandLattices.
+  // Each MakeRegisterRangeOp marks its result with the equivalence classes of all the operandLattices.
   if (auto mOp = dyn_cast<amdgcn::MakeRegisterRangeOp>(op)) {
-    Variable::VIdList varIds;
-    for (const dataflow::Lattice<Variable> *operand : operandLattices)
-      llvm::append_range(varIds, operand->getValue().getVariableIds());
-    propagateIfChanged(results[0], results[0]->join(Variable(varIds)));
+    AliasEquivalenceClass::EqClassList eqClassIds;
+    for (const dataflow::Lattice<AliasEquivalenceClass> *operand : operandLattices)
+      llvm::append_range(eqClassIds, operand->getValue().getEqClassIds());
+    propagateIfChanged(results[0], results[0]->join(AliasEquivalenceClass(eqClassIds)));
     return success();
   }
 
   // Handle SplitRegisterRangeOp operations.
-  // Each SplitRegisterRangeOp ties its results to variables tied to all the
-  // variables tied to the unique operand.
+  // Each SplitRegisterRangeOp marks its results with the equivalence classes of all the
+  // equivalence classes tied to the unique operand.
   if (isa<amdgcn::SplitRegisterRangeOp>(op)) {
-    for (auto [idx, result, vid] :
-         llvm::enumerate(results, operandLattices[0]->getValue().getVariableIds())) {
-      propagateIfChanged(result, result->join(Variable({vid})));
+    for (auto [idx, result, eqClassId] : llvm::enumerate(
+             results, operandLattices[0]->getValue().getEqClassIds())) {
+      propagateIfChanged(result, result->join(AliasEquivalenceClass({eqClassId})));
     }
     return success();
   }
@@ -160,7 +160,7 @@ LogicalResult DPSAliasAnalysis::visitOperation(
   return success();
 }
 
-void DPSAliasAnalysis::setToEntryState(dataflow::Lattice<Variable> *lattice) {
+void DPSAliasAnalysis::setToEntryState(dataflow::Lattice<AliasEquivalenceClass> *lattice) {
   // Set the lattice to top (overdefined) at entry points
-  propagateIfChanged(lattice, lattice->join(Variable::getTop()));
+  propagateIfChanged(lattice, lattice->join(AliasEquivalenceClass::getTop()));
 }

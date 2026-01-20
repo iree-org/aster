@@ -8,7 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements variable analysis using sparse data-flow analysis.
+// This file implements DPS alias analysis using sparse data-flow analysis.
 //
 //===----------------------------------------------------------------------===//
 
@@ -28,121 +28,122 @@
 
 namespace mlir::aster {
 //===----------------------------------------------------------------------===//
-// Variable
+// AliasEquivalenceClass
 //===----------------------------------------------------------------------===//
 
-using VariableID = int32_t;
-/// This lattice value represents variable information.
-class Variable {
+using EqClassID = int32_t;
+/// This lattice value represents equivalence class information.
+class AliasEquivalenceClass {
 public:
-  using VIdList = llvm::SmallVector<VariableID, 4>;
-  /// Construct a variable value.
-  Variable(VIdList variableIds = {}) : variableIds(std::move(variableIds)) {}
+  using EqClassList = llvm::SmallVector<EqClassID, 4>;
+  /// Construct a equivalence class value.
+  AliasEquivalenceClass(EqClassList eqClassIds = {}) : eqClassIds(std::move(eqClassIds)) {}
 
-  /// Compare variable values.
-  bool operator==(const Variable &rhs) const {
-    return succeeded(rhs.variableIds) == succeeded(variableIds) &&
-           (failed(rhs.variableIds) || *rhs.variableIds == *variableIds);
+  /// Compare equivalence class values.
+  bool operator==(const AliasEquivalenceClass &rhs) const {
+    return succeeded(rhs.eqClassIds) == succeeded(eqClassIds) &&
+           (failed(rhs.eqClassIds) || *rhs.eqClassIds == *eqClassIds);
   }
 
-  /// Print the variable value.
+  /// Print the equivalence class value.
   void print(raw_ostream &os) const;
 
-  /// The state where the variable value is uninitialized.
-  static Variable getUninitialized() { return Variable{}; }
+  /// The state to which the equivalence class value is uninitialized.
+  static AliasEquivalenceClass getUninitialized() { return AliasEquivalenceClass{}; }
 
-  /// The state where the variable value is overdefined.
-  static Variable getTop() { return Variable(std::nullopt); }
+  /// The state to which the equivalence class value is overdefined.
+  static AliasEquivalenceClass getTop() { return AliasEquivalenceClass(std::nullopt); }
 
   /// Whether the state is uninitialized.
   bool isUninitialized() const {
-    return llvm::succeeded(variableIds) && variableIds->empty();
+    return llvm::succeeded(eqClassIds) && eqClassIds->empty();
   }
 
   /// Whether the state is top (overdefined).
-  bool isTop() const { return llvm::failed(variableIds); }
+  bool isTop() const { return llvm::failed(eqClassIds); }
 
   /// Join operation for lattice.
-  static Variable join(const Variable &lhs, const Variable &rhs) {
+  static AliasEquivalenceClass join(const AliasEquivalenceClass &lhs, const AliasEquivalenceClass &rhs) {
     if (lhs.isTop() || rhs.isTop())
       return getTop();
     if (lhs.isUninitialized())
       return rhs;
     if (rhs.isUninitialized())
       return lhs;
-    if (*lhs.variableIds == *rhs.variableIds)
+    if (*lhs.eqClassIds == *rhs.eqClassIds)
       return lhs;
-    /// If the variable IDs differ, we conservatively return top.
-    return Variable(std::nullopt);
+    /// If the equivalence class IDs differ, we conservatively return top.
+    return AliasEquivalenceClass(std::nullopt);
   }
 
-  /// Get the variable IDs. Returns an empty list if uninitialized or top.
-  ArrayRef<VariableID> getVariableIds() const {
-    return succeeded(variableIds) ? *variableIds : ArrayRef<VariableID>();
+  /// Get the equivalence class IDs. Returns an empty list if uninitialized or top.
+  ArrayRef<EqClassID> getEqClassIds() const {
+    return succeeded(eqClassIds) ? *eqClassIds : ArrayRef<EqClassID>();
   }
 
 private:
-  /// Construct a variable value from a LogicalResult. This only works for
+  /// Construct an equivalence class value from a LogicalResult. This only works for
   /// failure states.
-  explicit Variable(std::nullopt_t) : variableIds(failure()) {}
-  llvm::FailureOr<VIdList> variableIds;
+  explicit AliasEquivalenceClass(std::nullopt_t) : eqClassIds(failure()) {}
+  // The equivalence class IDs.
+  llvm::FailureOr<EqClassList> eqClassIds;
 };
 
 //===----------------------------------------------------------------------===//
 // DPSAliasAnalysis
 //===----------------------------------------------------------------------===//
 
-/// This analysis implements variable analysis using sparse forward data-flow
+/// This analysis implements DPS alias analysis using sparse forward data-flow
 /// analysis.
 class DPSAliasAnalysis : public dataflow::SparseForwardDataFlowAnalysis<
-                             dataflow::Lattice<Variable>> {
+                             dataflow::Lattice<AliasEquivalenceClass>> {
 public:
   DPSAliasAnalysis(DataFlowSolver &solver)
       : SparseForwardDataFlowAnalysis(solver), solver(solver) {}
   LogicalResult
   visitOperation(Operation *op,
-                 ArrayRef<const dataflow::Lattice<Variable> *> operands,
-                 ArrayRef<dataflow::Lattice<Variable> *> results) override;
+                 ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> operands,
+                 ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> results) override;
 
-  void setToEntryState(dataflow::Lattice<Variable> *lattice) override;
+  void setToEntryState(dataflow::Lattice<AliasEquivalenceClass> *lattice) override;
 
-  /// Lookup the variable ID assigned to the given value. Returns -1 if not
+  /// Lookup the equivalence class ID assigned to the given value. Returns -1 if not
   /// found.
-  VariableID lookup(Value val) const {
-    return valueToVarIdMap.lookup_or(val, -1);
+  EqClassID lookup(Value val) const {
+    return valueToEqClassIdMap.lookup_or(val, -1);
   }
 
-  /// Lookup the value assigned to the given variable ID. Returns null Value if
+  /// Lookup the value assigned to the given equivalence class ID. Returns null Value if
   /// not found.
-  Value lookup(VariableID varId) const {
-    return static_cast<size_t>(varId) < idsToValuesMap.size()
-               ? idsToValuesMap[varId]
+  Value lookup(EqClassID eqClassId) const {
+    return static_cast<size_t>(eqClassId) < idsToValuesMap.size()
+               ? idsToValuesMap[eqClassId]
                : Value();
   }
 
-  /// Whether the analysis detected ill-formed variable usage.
+  /// Whether the analysis detected ill-formed equivalence class usage.
   bool isIllFormedIR() const { return illFormed; }
 
   /// Get the underlying data flow solver.
   const DataFlowSolver &getSolver() const { return solver; }
 
-  /// Lookup the variable state for a given value.
-  const Variable *lookupState(Value v) const {
-    auto *state = solver.lookupState<dataflow::Lattice<Variable>>(v);
+  /// Lookup the equivalence class state for a given value.
+  const AliasEquivalenceClass *lookupState(Value v) const {
+    auto *state = solver.lookupState<dataflow::Lattice<AliasEquivalenceClass>>(v);
     return state ? &state->getValue() : nullptr;
   }
 
-  /// Get the variable IDs for a given value.
-  ArrayRef<VariableID> getVariableIds(Value v) const {
+  /// Get the equivalence class IDs for a given value.
+  ArrayRef<EqClassID> getEqClassIds(Value v) const {
     auto *state = lookupState(v);
-    return state ? state->getVariableIds() : ArrayRef<VariableID>();
+    return state ? state->getEqClassIds() : ArrayRef<EqClassID>();
   }
 
-  /// Get the values corresponding to variable IDs.
-  ArrayRef<Value> getVariables() const { return idsToValuesMap; }
+  /// Get the values corresponding to equivalence class IDs.
+  ArrayRef<Value> getValues() const { return idsToValuesMap; }
 
 protected:
-  DenseMap<Value, VariableID> valueToVarIdMap;
+  DenseMap<Value, EqClassID> valueToEqClassIdMap;
   SmallVector<Value> idsToValuesMap;
   const DataFlowSolver &solver;
   bool illFormed = false;
