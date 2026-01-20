@@ -139,9 +139,8 @@ LogicalResult LivenessAnalysis::visitOperation(Operation *op,
   // Handle MakeRegisterRangeOp.
   if (auto mOp = dyn_cast<amdgcn::MakeRegisterRangeOp>(op)) {
     SmallVector<Value> deadValues = llvm::to_vector_of<Value>(op->getResults());
-    // The inputs don't participate in the transfer function as this op doesn't
-    // change liveness.
-    transferFunction(after, before, std::move(deadValues), {});
+    // The operands become live since they're used by this operation.
+    transferFunction(after, before, std::move(deadValues), op->getOperands());
     return success();
   }
 
