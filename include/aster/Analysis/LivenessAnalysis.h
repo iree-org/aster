@@ -11,6 +11,7 @@
 #ifndef ASTER_ANALYSIS_LIVENESSANALYSIS_H
 #define ASTER_ANALYSIS_LIVENESSANALYSIS_H
 
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "mlir/Analysis/DataFlow/DenseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Support/TypeID.h"
@@ -24,25 +25,26 @@ namespace mlir::aster {
 // LivenessState
 //===----------------------------------------------------------------------===//
 
-/// This lattice represents liveness information.
+/// This lattice represents liveness information using equivalence class IDs.
+/// Each equivalence class ID maps 1-1 to an AllocaOp via DPSAliasAnalysis.
 struct LivenessState : dataflow::AbstractDenseLattice {
-  using LiveSet = llvm::SmallDenseSet<Value>;
+  using LiveSet = llvm::SmallDenseSet<EqClassID>;
   LivenessState(LatticeAnchor anchor)
-      : AbstractDenseLattice(anchor), liveValues(LiveSet{}) {}
+      : AbstractDenseLattice(anchor), liveEqClasses(LiveSet{}) {}
 
   /// Whether the state is the top state.
-  bool isTop() const { return llvm::failed(liveValues); }
+  bool isTop() const { return llvm::failed(liveEqClasses); }
 
   /// Whether the state is empty.
   bool isEmpty() const {
-    return llvm::succeeded(liveValues) && liveValues->empty();
+    return llvm::succeeded(liveEqClasses) && liveEqClasses->empty();
   }
 
   /// Set the lattice to top.
   ChangeResult setToTop() {
     if (isTop())
       return ChangeResult::NoChange;
-    liveValues = failure();
+    liveEqClasses = failure();
     return ChangeResult::Change;
   }
 
@@ -55,33 +57,33 @@ struct LivenessState : dataflow::AbstractDenseLattice {
     return meet(static_cast<const LivenessState &>(lattice));
   }
 
-  /// Append values to the live set.
-  ChangeResult appendValues(ArrayRef<Value> values) {
-    if (llvm::failed(liveValues))
+  /// Append equivalence class IDs to the live set.
+  ChangeResult appendEqClassIds(ArrayRef<EqClassID> eqClassIds) {
+    if (llvm::failed(liveEqClasses))
       return ChangeResult::NoChange;
-    size_t oldSize = liveValues->size();
-    liveValues->insert_range(values);
-    return liveValues->size() != oldSize ? ChangeResult::Change
-                                         : ChangeResult::NoChange;
+    size_t oldSize = liveEqClasses->size();
+    liveEqClasses->insert_range(eqClassIds);
+    return liveEqClasses->size() != oldSize ? ChangeResult::Change
+                                            : ChangeResult::NoChange;
   }
 
-  /// Append values to the live set.
-  ChangeResult appendValues(const LiveSet &values) {
-    if (llvm::failed(liveValues))
+  /// Append equivalence class IDs to the live set.
+  ChangeResult appendEqClassIds(const LiveSet &eqClassIds) {
+    if (llvm::failed(liveEqClasses))
       return ChangeResult::NoChange;
-    size_t oldSize = liveValues->size();
-    liveValues->insert_range(values);
-    return liveValues->size() != oldSize ? ChangeResult::Change
-                                         : ChangeResult::NoChange;
+    size_t oldSize = liveEqClasses->size();
+    liveEqClasses->insert_range(eqClassIds);
+    return liveEqClasses->size() != oldSize ? ChangeResult::Change
+                                            : ChangeResult::NoChange;
   }
 
-  /// Get the live values.
-  const LiveSet *getLiveValues() const {
-    return succeeded(liveValues) ? &*liveValues : nullptr;
+  /// Get the live equivalence class IDs.
+  const LiveSet *getLiveEqClassIds() const {
+    return succeeded(liveEqClasses) ? &*liveEqClasses : nullptr;
   }
 
 private:
-  FailureOr<LiveSet> liveValues;
+  FailureOr<LiveSet> liveEqClasses;
 };
 
 //===----------------------------------------------------------------------===//
@@ -89,12 +91,16 @@ private:
 //===----------------------------------------------------------------------===//
 
 /// An analysis that, by going backwards along the dataflow graph, computes
-/// liveness information.
+/// liveness information. This analysis tracks live equivalence classes (which
+/// map 1-1 to AllocaOps) rather than individual values, using DPSAliasAnalysis
+/// to resolve value-to-equivalence-class mappings.
 class LivenessAnalysis
     : public dataflow::DenseBackwardDataFlowAnalysis<LivenessState> {
 public:
-  using dataflow::DenseBackwardDataFlowAnalysis<
-      LivenessState>::DenseBackwardDataFlowAnalysis;
+  LivenessAnalysis(DataFlowSolver &solver, SymbolTableCollection &symbolTable,
+                   DPSAliasAnalysis *aliasAnalysis)
+      : DenseBackwardDataFlowAnalysis(solver, symbolTable),
+        aliasAnalysis(aliasAnalysis) {}
 
   /// Visit an operation and update the lattice state.
   LogicalResult visitOperation(Operation *op, const LivenessState &after,
@@ -126,9 +132,17 @@ private:
   /// either state is top.
   bool handleTopPropagation(const LivenessState &after, LivenessState *before);
 
-  /// Transfer function for liveness analysis.
+  /// Transfer function for liveness analysis. Takes dead and live equivalence
+  /// class IDs and propagates them through the lattice.
   void transferFunction(const LivenessState &after, LivenessState *before,
-                        SmallVector<Value> &&deadValues, ValueRange inValues);
+                        SmallVector<EqClassID> &&deadEqClassIds,
+                        ArrayRef<EqClassID> liveEqClassIds);
+
+  /// Get the equivalence class IDs for a value. Returns empty if the value
+  /// doesn't have a register type.
+  ArrayRef<EqClassID> getEqClassIds(Value v) const;
+
+  DPSAliasAnalysis *aliasAnalysis;
 };
 } // end namespace mlir::aster
 

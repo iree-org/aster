@@ -228,6 +228,136 @@ amdgcn.module @ds_kernels target = <gfx942> isa = <cdna3> {
     test_inst ins %0, %1, %2, %3, %4, %5, %6, %7, %8, %13 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.sgpr<0>, !amdgcn.sgpr<2>, !amdgcn.sgpr<5>, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr_range<[? + 4]>) -> ()
     end_kernel
   }
+
+// Test that values used by make_register_range are kept live, creating
+// interference with intermediate definitions.
+// CHECK-LABEL:   kernel @test_make_range_liveness_1 {
+// CHECK:           %[[A:.*]] = alloca : !amdgcn.vgpr<0>
+// CHECK:           %[[B:.*]] = alloca : !amdgcn.vgpr<1>
+// CHECK:           %[[RES_A:.*]] = test_inst outs %[[A]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[RES_B:.*]] = test_inst outs %[[B]] : (!amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
+// Intermediate values must NOT reuse vgpr<0> or vgpr<1> since %RES_A and %RES_B are still live
+// CHECK:           %[[TMP1:.*]] = alloca : !amdgcn.vgpr<2>
+// CHECK:           %[[INT_0:.*]] = test_inst outs %[[TMP1]] ins %[[RES_B]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<2>
+// CHECK:           %[[TMP2:.*]] = alloca : !amdgcn.vgpr<3>
+// CHECK:           %[[INT_1:.*]] = test_inst outs %[[TMP2]] ins %[[INT_0]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<3>
+// CHECK:           %[[RANGE:.*]] = make_register_range %[[RES_A]], %[[RES_B]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:           test_inst ins %[[RANGE]], %[[INT_0]] : (!amdgcn.vgpr_range<[0 : 2]>, !amdgcn.vgpr<2>) -> ()
+// CHECK:           end_kernel
+// CHECK:         }
+  amdgcn.kernel @test_make_range_liveness_1 {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.vgpr
+
+    %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %3 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+
+    // Intermediate computation - these allocas must not reuse %0 or %1's registers
+    // because %2 and %3 are still live (used by make_register_range below),
+    // which itself is used by range.
+
+    %tmp1 = alloca : !amdgcn.vgpr
+    // intermediate_0 is used, it must not be clobbered
+    %intermediate_0 = test_inst outs %tmp1 ins %3 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+
+    %tmp2 = alloca : !amdgcn.vgpr
+    %intermediate_1 = test_inst outs %tmp2 ins %intermediate_0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+
+    %range = make_register_range %2, %3 : !amdgcn.vgpr, !amdgcn.vgpr
+    // Use at the same time as the range.
+    test_inst ins %range, %intermediate_0 : (!amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr) -> ()
+
+    end_kernel
+  }
+
+// Test that values used by make_register_range are kept live, creating
+// interference with intermediate definitions.
+// CHECK-LABEL:   kernel @test_make_range_liveness_2 {
+// CHECK:           %[[A:.*]] = alloca : !amdgcn.vgpr<0>
+// CHECK:           %[[B:.*]] = alloca : !amdgcn.vgpr<1>
+// CHECK:           %[[RES_A:.*]] = test_inst outs %[[A]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[RES_B:.*]] = test_inst outs %[[B]] : (!amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
+// Intermediate values must NOT reuse vgpr<0> or vgpr<1> since %RES_A and %RES_B are still live
+// CHECK:           %[[TMP1:.*]] = alloca : !amdgcn.vgpr<2>
+// CHECK:           %[[INT_0:.*]] = test_inst outs %[[TMP1]] ins %[[RES_B]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<2>
+// CHECK:           %[[TMP2:.*]] = alloca : !amdgcn.vgpr<3>
+// CHECK:           %[[INT_1:.*]] = test_inst outs %[[TMP2]] ins %[[INT_0]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<3>
+// CHECK:           test_inst ins %[[INT_0]] : (!amdgcn.vgpr<2>) -> ()
+// CHECK:           %[[RANGE:.*]] = make_register_range %[[RES_A]], %[[RES_B]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:           test_inst ins %[[RANGE]] : (!amdgcn.vgpr_range<[0 : 2]>) -> ()
+// CHECK:           end_kernel
+// CHECK:         }
+  amdgcn.kernel @test_make_range_liveness_2 {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.vgpr
+
+    %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %3 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+
+    // Intermediate computation - these allocas must not reuse %0 or %1's registers
+    // because %2 and %3 are still live (used by make_register_range below),
+    // which itself is used by range.
+
+    %tmp1 = alloca : !amdgcn.vgpr
+    // intermediate_0 is used, it must not be clobbered
+    %intermediate_0 = test_inst outs %tmp1 ins %3 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+
+    %tmp2 = alloca : !amdgcn.vgpr
+    %intermediate_1 = test_inst outs %tmp2 ins %intermediate_0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+
+    // Use before the range.
+    test_inst ins %intermediate_0 : (!amdgcn.vgpr) -> ()
+
+    %range = make_register_range %2, %3 : !amdgcn.vgpr, !amdgcn.vgpr
+    test_inst ins %range : (!amdgcn.vgpr_range<[? + 2]>) -> ()
+
+    end_kernel
+  }
+
+// Test that values used by make_register_range are kept live, creating
+// interference with intermediate definitions.
+// CHECK-LABEL:   kernel @test_make_range_liveness_3 {
+// CHECK:           %[[A:.*]] = alloca : !amdgcn.vgpr<0>
+// CHECK:           %[[B:.*]] = alloca : !amdgcn.vgpr<1>
+// CHECK:           %[[RES_A:.*]] = test_inst outs %[[A]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[RES_B:.*]] = test_inst outs %[[B]] : (!amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
+// Intermediate values must NOT reuse vgpr<0> or vgpr<1> since %RES_A and %RES_B are still live
+// CHECK:           %[[TMP1:.*]] = alloca : !amdgcn.vgpr<2>
+// CHECK:           %[[INT_0:.*]] = test_inst outs %[[TMP1]] ins %[[RES_B]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<2>
+// CHECK:           %[[TMP2:.*]] = alloca : !amdgcn.vgpr<3>
+// CHECK:           %[[INT_1:.*]] = test_inst outs %[[TMP2]] ins %[[INT_0]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<3>
+// CHECK:           %[[RANGE:.*]] = make_register_range %[[RES_A]], %[[RES_B]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:           test_inst ins %[[RANGE]] : (!amdgcn.vgpr_range<[0 : 2]>) -> ()
+// CHECK:           test_inst ins %[[INT_0]] : (!amdgcn.vgpr<2>) -> ()
+// CHECK:           end_kernel
+// CHECK:         }
+  amdgcn.kernel @test_make_range_liveness_3 {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.vgpr
+
+    %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %3 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+
+    // Intermediate computation - these allocas must not reuse %0 or %1's registers
+    // because %2 and %3 are still live (used by make_register_range below),
+    // which itself is used by range.
+
+    %tmp1 = alloca : !amdgcn.vgpr
+    // intermediate_0 is used, it must not be clobbered
+    %intermediate_0 = test_inst outs %tmp1 ins %3 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+
+    %tmp2 = alloca : !amdgcn.vgpr
+    %intermediate_1 = test_inst outs %tmp2 ins %intermediate_0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+
+    %range = make_register_range %2, %3 : !amdgcn.vgpr, !amdgcn.vgpr
+    test_inst ins %range : (!amdgcn.vgpr_range<[? + 2]>) -> ()
+
+    // Use after the range.
+    test_inst ins %intermediate_0 : (!amdgcn.vgpr) -> ()
+
+    end_kernel
+  }
+
 // CHECK-LABEL:   kernel @reg_interference {
 // CHECK:           %[[VAL_0:.*]] = alloca : !amdgcn.sgpr<0>
 // CHECK:           %[[VAL_1:.*]] = alloca : !amdgcn.sgpr<1>

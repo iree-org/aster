@@ -9,7 +9,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/LivenessAnalysis.h"
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Interfaces/RegisterType.h"
 #include "mlir/Analysis/DataFlow/DenseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/Operation.h"
@@ -44,12 +46,11 @@ void LivenessState::print(raw_ostream &os) const {
     os << "<top>";
     return;
   }
-  const LiveSet *values = getLiveValues();
-  assert(values && "Live values should be valid here");
+  const LiveSet *eqClassIds = getLiveEqClassIds();
+  assert(eqClassIds && "Live equivalence classes should be valid here");
   os << "[";
-  llvm::interleaveComma(*values, os, [&](Value value) {
-    value.printAsOperand(os, OpPrintingFlags());
-  });
+  llvm::interleaveComma(*eqClassIds, os,
+                        [&](EqClassID eqClassId) { os << eqClassId; });
   os << "]";
 }
 
@@ -64,12 +65,12 @@ ChangeResult LivenessState::meet(const LivenessState &lattice) {
     return setToTop();
 
   if (isEmpty()) {
-    liveValues = *lattice.liveValues;
+    liveEqClasses = *lattice.liveEqClasses;
     return ChangeResult::Change;
   }
-  const LiveSet *latticeVals = lattice.getLiveValues();
-  assert(latticeVals && "Lattice values should be valid here");
-  return appendValues(*latticeVals);
+  const LiveSet *latticeEqClasses = lattice.getLiveEqClassIds();
+  assert(latticeEqClasses && "Lattice equivalence classes should be valid");
+  return appendEqClassIds(*latticeEqClasses);
 }
 
 MLIR_DEFINE_EXPLICIT_TYPE_ID(mlir::aster::LivenessState)
@@ -78,25 +79,27 @@ MLIR_DEFINE_EXPLICIT_TYPE_ID(mlir::aster::LivenessState)
 // LivenessAnalysis
 //===----------------------------------------------------------------------===//
 
+ArrayRef<EqClassID> LivenessAnalysis::getEqClassIds(Value v) const {
+  if (!isa<RegisterTypeInterface>(v.getType()))
+    return {};
+  return aliasAnalysis->getEqClassIds(v);
+}
+
 /// Transfer function for liveness analysis.
 void LivenessAnalysis::transferFunction(const LivenessState &after,
                                         LivenessState *before,
-                                        SmallVector<Value> &&deadValues,
-                                        ValueRange inValues) {
-  auto cmpVal = +[](Value a, Value b) {
-    return a.getAsOpaquePointer() < b.getAsOpaquePointer();
-  };
-  SmallVector<Value> liveValues;
-  SmallVector<Value> afterValues = llvm::to_vector(*after.getLiveValues());
-  if (!afterValues.empty())
-    llvm::sort(afterValues, cmpVal);
-  if (!deadValues.empty())
-    llvm::sort(deadValues, cmpVal);
-  std::set_difference(afterValues.begin(), afterValues.end(),
-                      deadValues.begin(), deadValues.end(),
-                      std::back_inserter(liveValues), cmpVal);
-  llvm::append_range(liveValues, inValues);
-  propagateIfChanged(before, before->appendValues(liveValues));
+                                        SmallVector<EqClassID> &&deadEqClassIds,
+                                        ArrayRef<EqClassID> liveEqClassIds) {
+  SmallVector<EqClassID> resultLiveIds;
+  SmallVector<EqClassID> afterIds = llvm::to_vector(*after.getLiveEqClassIds());
+  if (!afterIds.empty())
+    llvm::sort(afterIds);
+  if (!deadEqClassIds.empty())
+    llvm::sort(deadEqClassIds);
+  std::set_difference(afterIds.begin(), afterIds.end(), deadEqClassIds.begin(),
+                      deadEqClassIds.end(), std::back_inserter(resultLiveIds));
+  llvm::append_range(resultLiveIds, liveEqClassIds);
+  propagateIfChanged(before, before->appendEqClassIds(resultLiveIds));
 }
 
 bool LivenessAnalysis::handleTopPropagation(const LivenessState &after,
@@ -119,6 +122,17 @@ bool LivenessAnalysis::handleTopPropagation(const LivenessState &after,
     });                                                                        \
   });
 
+/// Helper to collect equivalence class IDs from a range of values.
+static void collectEqClassIds(DPSAliasAnalysis *aliasAnalysis,
+                              ValueRange values,
+                              SmallVectorImpl<EqClassID> &eqClassIds) {
+  for (Value v : values) {
+    if (!isa<RegisterTypeInterface>(v.getType()))
+      continue;
+    llvm::append_range(eqClassIds, aliasAnalysis->getEqClassIds(v));
+  }
+}
+
 LogicalResult LivenessAnalysis::visitOperation(Operation *op,
                                                const LivenessState &after,
                                                LivenessState *before) {
@@ -128,29 +142,38 @@ LogicalResult LivenessAnalysis::visitOperation(Operation *op,
 
   // Handle instruction operations.
   if (auto inst = dyn_cast<InstOpInterface>(op)) {
-    SmallVector<Value> deadValues = llvm::to_vector_of<Value>(op->getResults());
+    SmallVector<EqClassID> deadEqClassIds;
+    collectEqClassIds(aliasAnalysis, op->getResults(), deadEqClassIds);
     // Append instruction outputs to dead values, as they are actually result
     // values.
-    llvm::append_range(deadValues, inst.getInstOuts());
-    transferFunction(after, before, std::move(deadValues), inst.getInstIns());
+    collectEqClassIds(aliasAnalysis, inst.getInstOuts(), deadEqClassIds);
+    SmallVector<EqClassID> liveEqClassIds;
+    collectEqClassIds(aliasAnalysis, inst.getInstIns(), liveEqClassIds);
+    transferFunction(after, before, std::move(deadEqClassIds), liveEqClassIds);
     return success();
   }
 
   // Handle MakeRegisterRangeOp.
   if (auto mOp = dyn_cast<amdgcn::MakeRegisterRangeOp>(op)) {
-    SmallVector<Value> deadValues = llvm::to_vector_of<Value>(op->getResults());
-    // The inputs don't participate in the transfer function as this op doesn't
-    // change liveness.
-    transferFunction(after, before, std::move(deadValues), {});
+    SmallVector<EqClassID> deadEqClassIds;
+    collectEqClassIds(aliasAnalysis, op->getResults(), deadEqClassIds);
+    // The operands are aliased with the result, they must be live before this
+    // op.
+    SmallVector<EqClassID> liveEqClassIds;
+    collectEqClassIds(aliasAnalysis, op->getOperands(), liveEqClassIds);
+    transferFunction(after, before, std::move(deadEqClassIds), liveEqClassIds);
     return success();
   }
 
   // Handle SplitRegisterRangeOp.
   if (auto sOp = dyn_cast<amdgcn::SplitRegisterRangeOp>(op)) {
-    SmallVector<Value> deadValues = llvm::to_vector_of<Value>(op->getResults());
-    // The inputs don't participate in the transfer function as this op doesn't
-    // change liveness.
-    transferFunction(after, before, std::move(deadValues), op->getOperands());
+    SmallVector<EqClassID> deadEqClassIds;
+    collectEqClassIds(aliasAnalysis, op->getResults(), deadEqClassIds);
+    // The operands are aliased with the results, they must be live before this
+    // op.
+    SmallVector<EqClassID> liveEqClassIds;
+    collectEqClassIds(aliasAnalysis, op->getOperands(), liveEqClassIds);
+    transferFunction(after, before, std::move(deadEqClassIds), liveEqClassIds);
     return success();
   }
 
@@ -162,8 +185,11 @@ LogicalResult LivenessAnalysis::visitOperation(Operation *op,
   }
 
   // Handle generic operations.
-  transferFunction(after, before, llvm::to_vector_of<Value>(op->getResults()),
-                   op->getOperands());
+  SmallVector<EqClassID> deadEqClassIds;
+  collectEqClassIds(aliasAnalysis, op->getResults(), deadEqClassIds);
+  SmallVector<EqClassID> liveEqClassIds;
+  collectEqClassIds(aliasAnalysis, op->getOperands(), liveEqClassIds);
+  transferFunction(after, before, std::move(deadEqClassIds), liveEqClassIds);
   return success();
 }
 
@@ -174,8 +200,9 @@ void LivenessAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   DUMP_STATE_HELPER("block", block);
   if (handleTopPropagation(after, before))
     return;
-  transferFunction(after, before,
-                   llvm::to_vector_of<Value>(successor->getArguments()), {});
+  SmallVector<EqClassID> deadEqClassIds;
+  collectEqClassIds(aliasAnalysis, successor->getArguments(), deadEqClassIds);
+  transferFunction(after, before, std::move(deadEqClassIds), {});
 }
 
 void LivenessAnalysis::visitCallControlFlowTransfer(
@@ -187,8 +214,11 @@ void LivenessAnalysis::visitCallControlFlowTransfer(
     return;
   assert(action == dataflow::CallControlFlowAction::ExternalCallee &&
          "we don't support inter-procedural analysis");
-  transferFunction(after, before, llvm::to_vector_of<Value>(call->getResults()),
-                   call.getArgOperands());
+  SmallVector<EqClassID> deadEqClassIds;
+  collectEqClassIds(aliasAnalysis, call->getResults(), deadEqClassIds);
+  SmallVector<EqClassID> liveEqClassIds;
+  collectEqClassIds(aliasAnalysis, call.getArgOperands(), liveEqClassIds);
+  transferFunction(after, before, std::move(deadEqClassIds), liveEqClassIds);
 }
 
 void LivenessAnalysis::visitRegionBranchControlFlowTransfer(
@@ -199,9 +229,10 @@ void LivenessAnalysis::visitRegionBranchControlFlowTransfer(
                     OpWithFlags(branch, OpPrintingFlags().skipRegions()));
   if (handleTopPropagation(after, before))
     return;
-  transferFunction(after, before,
-                   llvm::to_vector_of<Value>(regionTo.getSuccessorInputs()),
-                   {});
+  SmallVector<EqClassID> deadEqClassIds;
+  collectEqClassIds(aliasAnalysis, regionTo.getSuccessorInputs(),
+                    deadEqClassIds);
+  transferFunction(after, before, std::move(deadEqClassIds), {});
 }
 
 void LivenessAnalysis::setToExitState(LivenessState *lattice) {

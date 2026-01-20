@@ -74,13 +74,16 @@ LogicalResult InterferenceAnalysis::handleOp(Operation *op) {
   assert(lattice && "missing liveness lattice");
   if (lattice->isTop())
     return op->emitError() << "liveness lattice is top";
-  const LivenessState::LiveSet &liveValues = *lattice->getLiveValues();
+  const LivenessState::LiveSet &liveEqClassIds = *lattice->getLiveEqClassIds();
 
-  // Collect live registers.
+  // Collect live registers from equivalence class IDs.
   llvm::SmallVectorImpl<std::pair<ResourceTypeInterface, Value>> &liveRegs =
       liveRegsScratch;
   liveRegs.clear();
-  for (Value v : liveValues) {
+  for (EqClassID eqClassId : liveEqClassIds) {
+    Value v = aliasAnalysis->lookup(eqClassId);
+    if (!v)
+      continue;
     auto regTy = dyn_cast<ResourceTypeInterface>(v.getType());
     if (!regTy)
       continue;
@@ -170,7 +173,7 @@ InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
   // Load the necessary analyses.
   dataflow::loadBaselineAnalyses(solver);
   auto *aliasAnalysis = solver.load<aster::DPSAliasAnalysis>();
-  solver.load<aster::LivenessAnalysis>(symbolTable);
+  solver.load<aster::LivenessAnalysis>(symbolTable, aliasAnalysis);
 
   // Initialize and run the solver.
   if (failed(solver.initializeAndRun(op)))
