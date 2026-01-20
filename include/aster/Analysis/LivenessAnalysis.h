@@ -11,11 +11,13 @@
 #ifndef ASTER_ANALYSIS_LIVENESSANALYSIS_H
 #define ASTER_ANALYSIS_LIVENESSANALYSIS_H
 
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "mlir/Analysis/DataFlow/DenseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Support/TypeID.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include <cstddef>
 
 namespace mlir::aster {
@@ -24,25 +26,30 @@ namespace mlir::aster {
 // LivenessState
 //===----------------------------------------------------------------------===//
 
-/// This lattice represents liveness information.
+/// This lattice represents liveness information using both values and
+/// equivalence class IDs. We track individual values to determine when
+/// an equivalence class can become dead: only when ALL values aliasing
+/// that class are dead.
 struct LivenessState : dataflow::AbstractDenseLattice {
-  using LiveSet = llvm::SmallDenseSet<Value>;
+  using ValueSet = llvm::SmallDenseSet<Value>;
+  using EqClassSet = llvm::SmallDenseSet<EqClassID>;
   LivenessState(LatticeAnchor anchor)
-      : AbstractDenseLattice(anchor), liveValues(LiveSet{}) {}
+      : AbstractDenseLattice(anchor), isTopState(false), liveValues(),
+        liveEqClasses() {}
 
   /// Whether the state is the top state.
-  bool isTop() const { return llvm::failed(liveValues); }
+  bool isTop() const { return isTopState; }
 
   /// Whether the state is empty.
-  bool isEmpty() const {
-    return llvm::succeeded(liveValues) && liveValues->empty();
-  }
+  bool isEmpty() const { return !isTopState && liveValues.empty(); }
 
   /// Set the lattice to top.
   ChangeResult setToTop() {
-    if (isTop())
+    if (isTopState)
       return ChangeResult::NoChange;
-    liveValues = failure();
+    isTopState = true;
+    liveValues.clear();
+    liveEqClasses.clear();
     return ChangeResult::Change;
   }
 
@@ -55,33 +62,39 @@ struct LivenessState : dataflow::AbstractDenseLattice {
     return meet(static_cast<const LivenessState &>(lattice));
   }
 
-  /// Append values to the live set.
-  ChangeResult appendValues(ArrayRef<Value> values) {
-    if (llvm::failed(liveValues))
-      return ChangeResult::NoChange;
-    size_t oldSize = liveValues->size();
-    liveValues->insert_range(values);
-    return liveValues->size() != oldSize ? ChangeResult::Change
-                                         : ChangeResult::NoChange;
+  /// Get the live values. Requires that the state is not top.
+  const ValueSet &getLiveValues() const {
+    assert(!isTopState && "Cannot get live values from top state");
+    return liveValues;
   }
 
-  /// Append values to the live set.
-  ChangeResult appendValues(const LiveSet &values) {
-    if (llvm::failed(liveValues))
-      return ChangeResult::NoChange;
-    size_t oldSize = liveValues->size();
-    liveValues->insert_range(values);
-    return liveValues->size() != oldSize ? ChangeResult::Change
-                                         : ChangeResult::NoChange;
+  /// Get the live equivalence class IDs. Requires that the state is not top.
+  const EqClassSet &getLiveEqClassIds() const {
+    assert(!isTopState && "Cannot get live eq class IDs from top state");
+    return liveEqClasses;
   }
 
-  /// Get the live values.
-  const LiveSet *getLiveValues() const {
-    return succeeded(liveValues) ? &*liveValues : nullptr;
+  /// Update the state with new live values and their eq classes.
+  /// Returns Change if the state was modified.
+  /// This method does nothing if the state is top.
+  ChangeResult updateLiveness(const ValueSet &newValues,
+                              const EqClassSet &newEqClasses) {
+    if (isTopState)
+      return ChangeResult::NoChange;
+    size_t oldValSize = liveValues.size();
+    size_t oldEqSize = liveEqClasses.size();
+    liveValues.insert_range(newValues);
+    liveEqClasses.insert_range(newEqClasses);
+    return (liveValues.size() != oldValSize ||
+            liveEqClasses.size() != oldEqSize)
+               ? ChangeResult::Change
+               : ChangeResult::NoChange;
   }
 
 private:
-  FailureOr<LiveSet> liveValues;
+  bool isTopState;
+  ValueSet liveValues;
+  EqClassSet liveEqClasses;
 };
 
 //===----------------------------------------------------------------------===//
@@ -89,12 +102,16 @@ private:
 //===----------------------------------------------------------------------===//
 
 /// An analysis that, by going backwards along the dataflow graph, computes
-/// liveness information.
+/// liveness information. This analysis tracks live equivalence classes (which
+/// map 1-1 to AllocaOps) rather than individual values, using DPSAliasAnalysis
+/// to resolve value-to-equivalence-class mappings.
 class LivenessAnalysis
     : public dataflow::DenseBackwardDataFlowAnalysis<LivenessState> {
 public:
-  using dataflow::DenseBackwardDataFlowAnalysis<
-      LivenessState>::DenseBackwardDataFlowAnalysis;
+  LivenessAnalysis(DataFlowSolver &solver, SymbolTableCollection &symbolTable,
+                   DPSAliasAnalysis *aliasAnalysis)
+      : DenseBackwardDataFlowAnalysis(solver, symbolTable),
+        aliasAnalysis(aliasAnalysis) {}
 
   /// Visit an operation and update the lattice state.
   LogicalResult visitOperation(Operation *op, const LivenessState &after,
@@ -127,8 +144,17 @@ private:
   bool handleTopPropagation(const LivenessState &after, LivenessState *before);
 
   /// Transfer function for liveness analysis.
+  /// - deadValues: Results being defined (dead going backwards)
+  /// - liveValues: Operands always live with their eq classes
+  /// - aliasingOperands: Operands live but eq classes conditional on callback
+  /// - isEqClassLive: Returns true if aliasing operand's eq class should be
+  ///   live (only called for aliasingOperands)
   void transferFunction(const LivenessState &after, LivenessState *before,
-                        SmallVector<Value> &&deadValues, ValueRange inValues);
+                        ArrayRef<Value> deadValues, ArrayRef<Value> liveValues,
+                        ArrayRef<Value> aliasingOperands = {},
+                        function_ref<bool(Value)> isEqClassLive = nullptr);
+
+  DPSAliasAnalysis *aliasAnalysis;
 };
 } // end namespace mlir::aster
 

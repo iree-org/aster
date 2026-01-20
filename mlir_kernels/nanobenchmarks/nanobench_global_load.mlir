@@ -1,4 +1,4 @@
-// Nanobenchmark for @global_load_wave_xxx_wait
+// Nanobenchmark for @global_load_wave_xxx_nowait
 // Measures global load performance with data fitting in L1 cache.
 
 !s   = !amdgcn.sgpr
@@ -57,7 +57,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %wave_id = func.call @wave_id() : () -> index
     %WAVE_COUNT = func.call @wave_count() : () -> index
     %block_id_x = gpu.block_id x
-    %n_pos = affine.apply affine_map<()[block_id_x, wave_id, WAVE_COUNT, NT_J, TILE_SIZE] 
+    %n_pos = affine.apply affine_map<()[block_id_x, wave_id, WAVE_COUNT, NT_J, TILE_SIZE]
       -> ((block_id_x * WAVE_COUNT + wave_id) * NT_J * TILE_SIZE)>()
           [%block_id_x, %wave_id, %WAVE_COUNT, %NT_J, %TILE_SIZE]
 
@@ -68,21 +68,16 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       //===--------------------------------------------------------------------===//
       // dword
       //===--------------------------------------------------------------------===//
-      %memref_vx1 = memref.alloca(%TILE_REUSE_FACTOR, %NT_J) : memref<?x?x!vx1>
       scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
         scf.for %nt = %c0 to %NT_J step %c1 {
           %nn_pos = affine.apply affine_map<()[nt, TILE_SIZE] -> (nt * TILE_SIZE)>()[%nt, %TILE_SIZE]
           %result_vx1 = func.call @global_load_wave_128xf16_via_dword_nowait(
             %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
           ) : (!sx2, index, index, index, index, index, index) -> !vx1
-          memref.store %result_vx1, %memref_vx1[%reuse, %nt] : memref<?x?x!vx1>
+          amdgcn.test_inst ins %result_vx1 : (!vx1) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
         amdgcn.sopp.sopp <s_barrier>
-        scf.for %nt = %c0 to %NT_J step %c1 {
-          %loaded_vx1 = memref.load %memref_vx1[%reuse, %nt] : memref<?x?x!vx1>
-          amdgcn.test_inst ins %loaded_vx1 : (!vx1) -> ()
-        } {aster.constexpr}
       } {aster.constexpr}
     }
 
@@ -93,21 +88,16 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       //===--------------------------------------------------------------------===//
       // dwordx2
       //===--------------------------------------------------------------------===//
-      %memref_vx2 = memref.alloca(%TILE_REUSE_FACTOR, %NT_J) : memref<?x?x!vx2>
       scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
         scf.for %nt = %c0 to %NT_J step %c2 {
           %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
           %result_vx2 = func.call @global_load_wave_256xf16_via_dwordx2_nowait(
             %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
           ) : (!sx2, index, index, index, index, index, index) -> !vx2
-          memref.store %result_vx2, %memref_vx2[%reuse, %nt] : memref<?x?x!vx2>
+          amdgcn.test_inst ins %result_vx2 : (!vx2) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
         amdgcn.sopp.sopp <s_barrier>
-        scf.for %nt = %c0 to %NT_J step %c2 {
-          %loaded_vx2 = memref.load %memref_vx2[%reuse, %nt] : memref<?x?x!vx2>
-          amdgcn.test_inst ins %loaded_vx2 : (!vx2) -> ()
-        } {aster.constexpr}
       } {aster.constexpr}
     }
 
@@ -118,21 +108,16 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       //===--------------------------------------------------------------------===//
       // dwordx3
       //===--------------------------------------------------------------------===//
-      %memref_vx3 = memref.alloca(%TILE_REUSE_FACTOR, %NT_J) : memref<?x?x!vx3>
       scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
         scf.for %nt = %c0 to %NT_J step %c3 {
           %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
           %result_vx3 = func.call @global_load_wave_384xf16_via_dwordx3_nowait(
             %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
           ) : (!sx2, index, index, index, index, index, index) -> !vx3
-          memref.store %result_vx3, %memref_vx3[%reuse, %nt] : memref<?x?x!vx3>
+          amdgcn.test_inst ins %result_vx3 : (!vx3) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
         amdgcn.sopp.sopp <s_barrier>
-        scf.for %nt = %c0 to %NT_J step %c3 {
-          %loaded_vx3 = memref.load %memref_vx3[%reuse, %nt] : memref<?x?x!vx3>
-          amdgcn.test_inst ins %loaded_vx3 : (!vx3) -> ()
-        } {aster.constexpr}
       } {aster.constexpr}
     }
 
@@ -143,21 +128,16 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       //===--------------------------------------------------------------------===//
       // dwordx4
       //===--------------------------------------------------------------------===//
-      %memref_vx4 = memref.alloca(%TILE_REUSE_FACTOR, %NT_J) : memref<?x?x!vx4>
       scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
         scf.for %nt = %c0 to %NT_J step %c4 {
           %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
           %result_vx4 = func.call @global_load_wave_512xf16_via_dwordx4_nowait(
             %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
           ) : (!sx2, index, index, index, index, index, index) -> !vx4
-          memref.store %result_vx4, %memref_vx4[%reuse, %nt] : memref<?x?x!vx4>
+          amdgcn.test_inst ins %result_vx4 : (!vx4) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
         amdgcn.sopp.sopp <s_barrier>
-        scf.for %nt = %c0 to %NT_J step %c4 {
-          %loaded_vx4 = memref.load %memref_vx4[%reuse, %nt] : memref<?x?x!vx4>
-          amdgcn.test_inst ins %loaded_vx4 : (!vx4) -> ()
-        } {aster.constexpr}
       } {aster.constexpr}
     }
 

@@ -3,30 +3,37 @@
 // CHECK: === Liveness Analysis Results ===
 // CHECK-LABEL: Kernel: no_interference_mixed
 
-// Simple test: no interference, values die after use
+// Simple test: no interference, values die after use.
+// Note: outs operands are always live (true SSA), but eq classes are only live
+// when the result is actually used.
+
 // CHECK: Operation: %[[v0:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], eqClasses: ]
 // CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
 
 // CHECK: Operation: %[[v1:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], eqClasses: ]
+// CHECK: LIVE BEFORE: [values: %[[v0]], eqClasses: ]
 
 // CHECK: Operation: %[[v2:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: [%[[v2]]]
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], %[[v2]], eqClasses: 2]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], eqClasses: ]
 
 // CHECK: Operation: %[[v3:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
-// CHECK: LIVE BEFORE: [%[[v2]]]
-// CHECK: LIVE AFTER: [%[[v2]], %[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], eqClasses: 2, 3]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], %[[v2]], eqClasses: 2]
+
+// CHECK: Operation: %[[v4:[0-9]*]] = amdgcn.test_inst outs %[[v0]] ins %[[v2]]
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v3]], eqClasses: 3]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], eqClasses: 2, 3]
 
 // CHECK: Operation: %[[v5:[0-9]*]] = amdgcn.test_inst outs %[[v1]] ins %[[v3]]
-// CHECK: LIVE BEFORE: [%[[v3]]]
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v3]], eqClasses: 3]
 
 // CHECK: Operation: amdgcn.end_kernel
+// CHECK: LIVE  AFTER: []
 // CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
 
 // CHECK: === End Analysis Results ===
 
@@ -51,33 +58,43 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // Test: values interfere because they are all live at the final use
 
 // CHECK: Operation: %[[v0:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: Operation: %[[v1:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: Operation: %[[v2:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
-// CHECK: Operation: %[[v3:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
-// CHECK: Operation: %[[v4:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], eqClasses: 0]
+// CHECK: LIVE BEFORE: []
 
-// CHECK: LIVE BEFORE: [%[[v2]], %[[v3]]]
-// CHECK: LIVE AFTER: [%[[v2]], %[[v3]], %[[v4]]]
+// CHECK: Operation: %[[v1:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], eqClasses: 0]
+
+// CHECK: Operation: %[[v2:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], %[[v2]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
+
+// CHECK: Operation: %[[v3:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], eqClasses: 0, 1, 2, 3]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], %[[v2]], eqClasses: 0, 1, 2]
+
+// CHECK: Operation: %[[v4:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2, 3, 4]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], eqClasses: 0, 1, 2, 3]
 
 // CHECK: Operation: %[[v5:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v2]], %[[v3]], %[[v4]]]
-// CHECK: LIVE AFTER: [%[[v2]], %[[v3]], %[[v4]], %[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], %[[v4]], %[[v5]], eqClasses: 0, 1, 2, 3, 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2, 3, 4]
 
 // CHECK: Operation: %[[v6:[0-9]*]] = amdgcn.test_inst outs %[[v0]] ins %[[v2]], %[[v4]]
-// CHECK: LIVE BEFORE: [%[[v2]], %[[v3]], %[[v4]], %[[v5]]]
-// CHECK: LIVE AFTER: [%[[v3]], %[[v4]], %[[v5]], %[[v6]]]
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v3]], %[[v4]], %[[v5]], %[[v6]], eqClasses: 0, 1, 3, 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], %[[v4]], %[[v5]], eqClasses: 0, 1, 2, 3, 4, 5]
 
 // CHECK: Operation: %[[v7:[0-9]*]] = amdgcn.test_inst outs %[[v1]] ins %[[v3]], %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v3]], %[[v4]], %[[v5]], %[[v6]]]
-// CHECK: LIVE AFTER: [%[[v4]], %[[v5]], %[[v6]], %[[v7]]]
+// CHECK: LIVE  AFTER: [values: %[[v4]], %[[v5]], %[[v6]], %[[v7]], eqClasses: 0, 1, 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v3]], %[[v4]], %[[v5]], %[[v6]], eqClasses: 0, 1, 3, 4, 5]
 
 // All of %0, %1, %4, %5 must be live here (4 eq classes)
 // CHECK: Operation: amdgcn.test_inst ins %[[v6]], %[[v7]], %[[v4]], %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v4]], %[[v5]], %[[v6]], %[[v7]]]
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v4]], %[[v5]], %[[v6]], %[[v7]], eqClasses: 0, 1, 4, 5]
 
 // CHECK: Operation: amdgcn.end_kernel
-// CHECK: LIVE BEFORE: []
 
 // CHECK: === End Analysis Results ===
 
@@ -105,44 +122,43 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // Test: values can be reused after they die
 
 // CHECK: Operation: %[[v0:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], eqClasses: 0]
 // CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
 
 // CHECK: Operation: %[[v1:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], eqClasses: 0]
 
 // CHECK: Operation: %[[v2:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: [%[[v2]]]
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], %[[v2]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v3:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
-// CHECK: LIVE BEFORE: [%[[v2]]]
-// CHECK: LIVE AFTER: [%[[v2]], %[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], eqClasses: 0, 1, 2, 3]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], %[[v2]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v4:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v2]], %[[v3]]]
-// CHECK: LIVE AFTER: [%[[v2]], %[[v3]], %[[v4]]]
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2, 3, 4]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], eqClasses: 0, 1, 2, 3]
 
 // CHECK: Operation: %[[v5:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v2]], %[[v3]], %[[v4]]]
-// CHECK: LIVE AFTER: [%[[v2]], %[[v3]], %[[v4]], %[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], %[[v4]], %[[v5]], eqClasses: 0, 1, 2, 3, 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2, 3, 4]
 
 // CHECK: Operation: %[[v6:[0-9]*]] = amdgcn.test_inst outs %[[v0]] ins %[[v2]], %[[v4]]
-// CHECK: LIVE BEFORE: [%[[v2]], %[[v3]], %[[v4]], %[[v5]]]
-// CHECK: LIVE AFTER: [%[[v3]], %[[v5]], %[[v6]]]
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v3]], %[[v5]], %[[v6]], eqClasses: 0, 1, 3, 5]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], %[[v2]], %[[v3]], %[[v4]], %[[v5]], eqClasses: 0, 1, 2, 3, 4, 5]
 
 // CHECK: Operation: %[[v7:[0-9]*]] = amdgcn.test_inst outs %[[v1]] ins %[[v3]], %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v3]], %[[v5]], %[[v6]]]
-// CHECK: LIVE AFTER: [%[[v6]], %[[v7]]]
+// CHECK: LIVE  AFTER: [values: %[[v6]], %[[v7]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v3]], %[[v5]], %[[v6]], eqClasses: 0, 1, 3, 5]
 
 // Only %6 and %7 are live here
 // CHECK: Operation: amdgcn.test_inst ins %[[v6]], %[[v7]]
-// CHECK: LIVE BEFORE: [%[[v6]], %[[v7]]]
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v6]], %[[v7]], eqClasses: 0, 1]
 
 // CHECK: Operation: amdgcn.end_kernel
-// CHECK: LIVE BEFORE: []
 
 // CHECK: === End Analysis Results ===
 
@@ -170,70 +186,70 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // Test: control flow - values live across branches
 
 // CHECK: Operation: %[[v0:[0-9]*]] = func.call @rand() : () -> i1
+// Note: %0 is **not** a register.
+// CHECK: LIVE  AFTER: []
 // CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: [%[[v0]]]
 
 // CHECK: Operation: %[[v1:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v0]]]
-// CHECK: LIVE AFTER: [%[[v0]]]
+// CHECK: LIVE  AFTER: [values: %[[v1]], eqClasses: 0]
+// CHECK: LIVE BEFORE: []
 
 // CHECK: Operation: %[[v2:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v0]]]
-// CHECK: LIVE AFTER: [%[[v0]]]
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v2]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v1]], eqClasses: 0]
 
 // CHECK: Operation: %[[v3:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
-// CHECK: LIVE BEFORE: [%[[v0]]]
-// CHECK: LIVE AFTER: [%[[v0]], %[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v2]], %[[v3]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v2]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v4:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
-// CHECK: LIVE BEFORE: [%[[v0]], %[[v3]]]
-// CHECK: LIVE AFTER: [%[[v0]], %[[v3]], %[[v4]]]
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2, 3]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v2]], %[[v3]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v5:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v0]], %[[v3]], %[[v4]]]
-// CHECK: LIVE AFTER: [%[[v0]], %[[v3]], %[[v4]], %[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v2]], %[[v3]], %[[v4]], %[[v5]], eqClasses: 0, 1, 2, 3, 4]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2, 3]
 
 // CHECK: Operation: %[[v6:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v0]], %[[v3]], %[[v4]], %[[v5]]]
-// CHECK: LIVE AFTER: [%[[v0]], %[[v3]], %[[v4]], %[[v5]], %[[v6]]]
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v2]], %[[v3]], %[[v4]], %[[v5]], %[[v6]], eqClasses: 0, 1, 2, 3, 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v2]], %[[v3]], %[[v4]], %[[v5]], eqClasses: 0, 1, 2, 3, 4]
 
 // CHECK: Operation: %[[v7:[0-9]*]] = amdgcn.test_inst outs %[[v1]] ins %[[v3]]
-// CHECK: LIVE BEFORE: [%[[v0]], %[[v3]], %[[v4]], %[[v5]], %[[v6]]]
-// CHECK: LIVE AFTER: [%[[v0]], %[[v4]], %[[v5]], %[[v6]], %[[v7]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v4]], %[[v5]], %[[v6]], %[[v7]], eqClasses: 0, 1, 3, 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v2]], %[[v3]], %[[v4]], %[[v5]], %[[v6]], eqClasses: 0, 1, 2, 3, 4, 5]
 
 // CHECK: Operation: %[[v8:[0-9]*]] = amdgcn.test_inst outs %[[v2]] ins %[[v4]]
-// CHECK: LIVE BEFORE: [%[[v0]], %[[v4]], %[[v5]], %[[v6]], %[[v7]]]
-// CHECK: LIVE AFTER: [%[[v0]], %[[v5]], %[[v6]], %[[v7]], %[[v8]]]
+// CHECK: LIVE  AFTER: [values: %[[v5]], %[[v6]], %[[v7]], %[[v8]], eqClasses: 0, 1, 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v4]], %[[v5]], %[[v6]], %[[v7]], eqClasses: 0, 1, 3, 4, 5]
 
 // CHECK: Operation: cf.cond_br %[[v0]], ^bb1, ^bb2
-// CHECK: LIVE BEFORE: [%[[v0]], %[[v5]], %[[v6]], %[[v7]], %[[v8]]]
-// CHECK: LIVE AFTER: [%[[v5]], %[[v6]], %[[v7]], %[[v8]]]
+// CHECK: LIVE  AFTER: [values: %[[v5]], %[[v6]], %[[v7]], %[[v8]], eqClasses: 0, 1, 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v5]], %[[v6]], %[[v7]], %[[v8]], eqClasses: 0, 1, 4, 5]
 
-// In bb1: %6 and %7 live (for final use)
+// In bb1: outs %5 is always live, eq class 4 only becomes live if result %9 is used (it's not)
 // CHECK: Operation: %[[v9:[0-9]*]] = amdgcn.test_inst outs %[[v5]] ins %[[v7]]
-// CHECK: LIVE BEFORE: [%[[v6]], %[[v7]]]
-// CHECK: LIVE AFTER: [%[[v5]], %[[v6]]]
+// CHECK: LIVE  AFTER: [values: %[[v5]], %[[v6]], eqClasses: 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v5]], %[[v6]], %[[v7]], eqClasses: 0, 5]
 
 // CHECK: Operation: cf.br ^bb3
-// CHECK: LIVE BEFORE: [%[[v5]], %[[v6]]]
-// CHECK: LIVE AFTER: [%[[v5]], %[[v6]]]
+// CHECK: LIVE  AFTER: [values: %[[v5]], %[[v6]], eqClasses: 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v5]], %[[v6]], eqClasses: 4, 5]
 
-// In bb2: %5 and %8 live (for final use)
+// In bb2: outs %6 is always live, eq class 5 only becomes live if result %10 is used (it's not)
 // CHECK: Operation: %[[v10:[0-9]*]] = amdgcn.test_inst outs %[[v6]] ins %[[v8]]
-// CHECK: LIVE BEFORE: [%[[v5]], %[[v8]]]
-// CHECK: LIVE AFTER: [%[[v5]], %[[v6]]]
+// CHECK: LIVE  AFTER: [values: %[[v5]], %[[v6]], eqClasses: 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v5]], %[[v6]], %[[v8]], eqClasses: 1, 4]
 
 // CHECK: Operation: cf.br ^bb3
-// CHECK: LIVE BEFORE: [%[[v5]], %[[v6]]]
-// CHECK: LIVE AFTER: [%[[v5]], %[[v6]]]
+// CHECK: LIVE  AFTER: [values: %[[v5]], %[[v6]], eqClasses: 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v5]], %[[v6]], eqClasses: 4, 5]
 
 // %5 and %6 must both be live here (from different branches)
 // CHECK: Operation: amdgcn.test_inst ins %[[v5]], %[[v6]]
-// CHECK: LIVE BEFORE: [%[[v5]], %[[v6]]]
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v5]], %[[v6]], eqClasses: 4, 5]
 
 // CHECK: Operation: amdgcn.end_kernel
-// CHECK: LIVE BEFORE: []
 
 // CHECK: === End Analysis Results ===
 
@@ -272,46 +288,49 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // Test: make_register_range keeps values live
 
 // CHECK: Operation: %[[v0:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], eqClasses: 0]
 // CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
 
 // CHECK: Operation: %[[v1:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], eqClasses: 0]
 
 // CHECK: Operation: %[[v2:[0-9]*]] = amdgcn.test_inst outs %[[v0]]
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v2]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v3:[0-9]*]] = amdgcn.test_inst outs %[[v1]]
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: [%[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v2]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v4:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v3]]]
-// CHECK: LIVE AFTER: [%[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v5:[0-9]*]] = amdgcn.test_inst outs %[[v4]] ins %[[v3]]
-// CHECK: LIVE BEFORE: [%[[v3]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v6:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// Note: %6 alloca not live after because %7 result is not used
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], %[[v6]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v7:[0-9]*]] = amdgcn.test_inst outs %[[v6]] ins %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// Note: outs %6 is live (true SSA), but eq class 3 is not because %7 isn't used
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], %[[v6]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v8:[0-9]*]] = amdgcn.make_register_range %[[v2]], %[[v3]]
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]], %[[v8]]]
+// CHECK: LIVE  AFTER: [values: %[[v5]], %[[v8]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: amdgcn.test_inst ins %[[v8]], %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v5]], %[[v8]]]
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v5]], %[[v8]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: amdgcn.end_kernel
+// CHECK: LIVE  AFTER: []
 // CHECK: LIVE BEFORE: []
 
 // CHECK: === End Analysis Results ===
@@ -346,46 +365,47 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // Test: make_register_range with simultaneous use of intermediate value
 
 // CHECK: Operation: %[[v0:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], eqClasses: 0]
 // CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
 
 // CHECK: Operation: %[[v1:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], eqClasses: 0]
 
 // CHECK: Operation: %[[v2:[0-9]*]] = amdgcn.test_inst outs %[[v0]]
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v2]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v3:[0-9]*]] = amdgcn.test_inst outs %[[v1]]
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: [%[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v2]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v4:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v3]]]
-// CHECK: LIVE AFTER: [%[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v5:[0-9]*]] = amdgcn.test_inst outs %[[v4]] ins %[[v3]]
-// CHECK: LIVE BEFORE: [%[[v3]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v6:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], %[[v6]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v7:[0-9]*]] = amdgcn.test_inst outs %[[v6]] ins %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], %[[v6]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v8:[0-9]*]] = amdgcn.make_register_range %[[v2]], %[[v3]]
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]], %[[v8]]]
+// CHECK: LIVE  AFTER: [values: %[[v5]], %[[v8]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: amdgcn.test_inst ins %[[v8]], %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v5]], %[[v8]]]
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v5]], %[[v8]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: amdgcn.end_kernel
+// CHECK: LIVE  AFTER: []
 // CHECK: LIVE BEFORE: []
 
 // CHECK: === End Analysis Results ===
@@ -426,51 +446,52 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // Test: intermediate value used before make_register_range
 
 // CHECK: Operation: %[[v0:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], eqClasses: 0]
 // CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
 
 // CHECK: Operation: %[[v1:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], eqClasses: 0]
 
 // CHECK: Operation: %[[v2:[0-9]*]] = amdgcn.test_inst outs %[[v0]]
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v2]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v3:[0-9]*]] = amdgcn.test_inst outs %[[v1]]
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: [%[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v2]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v4:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v3]]]
-// CHECK: LIVE AFTER: [%[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v5:[0-9]*]] = amdgcn.test_inst outs %[[v4]] ins %[[v3]]
-// CHECK: LIVE BEFORE: [%[[v3]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v6:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], %[[v6]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v7:[0-9]*]] = amdgcn.test_inst outs %[[v6]] ins %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], %[[v6]], eqClasses: 0, 1, 2]
 
 // Use before the range - %5 dies here
 // CHECK: Operation: amdgcn.test_inst ins %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v8:[0-9]*]] = amdgcn.make_register_range %[[v2]], %[[v3]]
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: [%[[v8]]]
+// CHECK: LIVE  AFTER: [values: %[[v8]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], eqClasses: 0, 1]
 
 // CHECK: Operation: amdgcn.test_inst ins %[[v8]]
-// CHECK: LIVE BEFORE: [%[[v8]]]
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v8]], eqClasses: 0, 1]
 
 // CHECK: Operation: amdgcn.end_kernel
+// CHECK: LIVE  AFTER: []
 // CHECK: LIVE BEFORE: []
 
 // CHECK: === End Analysis Results ===
@@ -513,51 +534,52 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // Test: intermediate value used after make_register_range
 
 // CHECK: Operation: %[[v0:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], eqClasses: 0]
 // CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
 
 // CHECK: Operation: %[[v1:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], eqClasses: 0]
 
 // CHECK: Operation: %[[v2:[0-9]*]] = amdgcn.test_inst outs %[[v0]]
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: [values: %[[v1]], %[[v2]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v3:[0-9]*]] = amdgcn.test_inst outs %[[v1]]
-// CHECK: LIVE BEFORE: []
-// CHECK: LIVE AFTER: [%[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v1]], %[[v2]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v4:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v3]]]
-// CHECK: LIVE AFTER: [%[[v3]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], eqClasses: 0, 1]
 
 // CHECK: Operation: %[[v5:[0-9]*]] = amdgcn.test_inst outs %[[v4]] ins %[[v3]]
-// CHECK: LIVE BEFORE: [%[[v3]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v4]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v6:[0-9]*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], %[[v6]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v7:[0-9]*]] = amdgcn.test_inst outs %[[v6]] ins %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], %[[v6]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: %[[v8:[0-9]*]] = amdgcn.make_register_range %[[v2]], %[[v3]]
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: [%[[v5]], %[[v8]]]
+// CHECK: LIVE  AFTER: [values: %[[v5]], %[[v8]], eqClasses: 0, 1, 2]
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], %[[v5]], eqClasses: 0, 1, 2]
 
 // CHECK: Operation: amdgcn.test_inst ins %[[v8]]
-// CHECK: LIVE BEFORE: [%[[v5]], %[[v8]]]
-// CHECK: LIVE AFTER: [%[[v5]]]
+// CHECK: LIVE  AFTER: [values: %[[v5]], eqClasses: 2]
+// CHECK: LIVE BEFORE: [values: %[[v5]], %[[v8]], eqClasses: 0, 1, 2]
 
 // Use after the range - %5 dies here
 // CHECK: Operation: amdgcn.test_inst ins %[[v5]]
-// CHECK: LIVE BEFORE: [%[[v5]]]
-// CHECK: LIVE AFTER: []
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v5]], eqClasses: 2]
 
 // CHECK: Operation: amdgcn.end_kernel
+// CHECK: LIVE  AFTER: []
 // CHECK: LIVE BEFORE: []
 
 // CHECK: === End Analysis Results ===
@@ -587,6 +609,96 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
     // Note: Use after the range.
     test_inst ins %intermediate_0 : (!amdgcn.vgpr) -> ()
 
+    end_kernel
+  }
+}
+
+// -----
+
+
+// CHECK: === Liveness Analysis Results ===
+// CHECK-LABEL: Kernel: reg_interference
+
+// Test: reg_interference marks values as live
+
+// CHECK: Operation: %[[v0:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], eqClasses: 0]
+// CHECK: LIVE BEFORE: []
+
+// CHECK: Operation: %[[v1:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: LIVE  AFTER: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
+// CHECK: LIVE BEFORE: [values: %[[v0]], eqClasses: 0]
+
+// CHECK: Operation: amdgcn.test_inst ins %[[v0]], %[[v1]]
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v0]], %[[v1]], eqClasses: 0, 1]
+
+// CHECK: Operation: %[[v2:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: LIVE  AFTER: [values: %[[v2]], eqClasses: 2]
+// CHECK: LIVE BEFORE: []
+
+// CHECK: Operation: %[[v3:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: LIVE  AFTER: [values: %[[v2]], %[[v3]], eqClasses: 2, 3]
+// CHECK: LIVE BEFORE: [values: %[[v2]], eqClasses: 2]
+
+// CHECK: Operation: amdgcn.test_inst ins %[[v2]], %[[v3]]
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v2]], %[[v3]], eqClasses: 2, 3]
+
+// CHECK: Operation: amdgcn.reg_interference %[[v0]], %[[v2]], %[[v3]]
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: []
+
+// CHECK: Operation: %[[v4:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: LIVE  AFTER: [values: %[[v4]], eqClasses: 4]
+// CHECK: LIVE BEFORE: []
+
+// CHECK: Operation: %[[v5:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: LIVE  AFTER: [values: %[[v4]], %[[v5]], eqClasses: 4, 5]
+// CHECK: LIVE BEFORE: [values: %[[v4]], eqClasses: 4]
+
+// CHECK: Operation: amdgcn.test_inst ins %[[v4]], %[[v5]]
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v4]], %[[v5]], eqClasses: 4, 5]
+
+// CHECK: Operation: %[[v6:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: LIVE  AFTER: [values: %[[v6]], eqClasses: 6]
+// CHECK: LIVE BEFORE: []
+
+// CHECK: Operation: %[[v7:[0-9]*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: LIVE  AFTER: [values: %[[v6]], %[[v7]], eqClasses: 6, 7]
+// CHECK: LIVE BEFORE: [values: %[[v6]], eqClasses: 6]
+
+// CHECK: Operation: amdgcn.test_inst ins %[[v6]], %[[v7]]
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: [values: %[[v6]], %[[v7]], eqClasses: 6, 7]
+
+// CHECK: Operation: amdgcn.reg_interference %[[v4]], %[[v1]], %[[v3]], %[[v7]]
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: []
+
+// CHECK: Operation: amdgcn.end_kernel
+// CHECK: LIVE  AFTER: []
+// CHECK: LIVE BEFORE: []
+
+// CHECK: === End Analysis Results ===
+
+amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @reg_interference {
+    %0 = alloca : !amdgcn.sgpr
+    %1 = alloca : !amdgcn.sgpr
+    test_inst ins %0, %1 : (!amdgcn.sgpr, !amdgcn.sgpr) -> ()
+    %2 = alloca : !amdgcn.sgpr
+    %3 = alloca : !amdgcn.sgpr
+    test_inst ins %2, %3 : (!amdgcn.sgpr, !amdgcn.sgpr) -> ()
+    amdgcn.reg_interference %0, %2, %3 : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+    %4 = alloca : !amdgcn.sgpr
+    %5 = alloca : !amdgcn.sgpr
+    test_inst ins %4, %5 : (!amdgcn.sgpr, !amdgcn.sgpr) -> ()
+    %6 = alloca : !amdgcn.sgpr
+    %7 = alloca : !amdgcn.sgpr
+    test_inst ins %6, %7 : (!amdgcn.sgpr, !amdgcn.sgpr) -> ()
+    amdgcn.reg_interference %4, %1, %3, %7 : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
     end_kernel
   }
 }
