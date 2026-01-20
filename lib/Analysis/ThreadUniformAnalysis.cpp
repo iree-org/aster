@@ -92,14 +92,14 @@ LogicalResult ThreadUniformAnalysis::visitOperation(
 }
 
 void ThreadUniformAnalysis::visitNonControlFlowArguments(
-    Operation *op, const RegionSuccessor &successor,
+    Operation *op, const RegionSuccessor &successor, ValueRange successorInputs,
     ArrayRef<ThreadUniformLattice *> argLattices, unsigned firstIndex) {
   auto loop = dyn_cast<LoopLikeOpInterface>(op);
 
   // Be pessimistic about non loop ops.
   if (!loop) {
     SparseForwardDataFlowAnalysis::visitNonControlFlowArguments(
-        op, successor, argLattices, firstIndex);
+        op, successor, successorInputs, argLattices, firstIndex);
     return;
   }
 
@@ -108,7 +108,7 @@ void ThreadUniformAnalysis::visitNonControlFlowArguments(
   std::optional<SmallVector<Value>> iV = loop.getLoopInductionVars();
   if (!iV) {
     SparseForwardDataFlowAnalysis::visitNonControlFlowArguments(
-        op, successor, argLattices, firstIndex);
+        op, successor, successorInputs, argLattices, firstIndex);
     return;
   }
 

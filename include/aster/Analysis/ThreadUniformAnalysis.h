@@ -77,6 +77,7 @@ public:
   /// Handles the uniformity of control-flow arguments and results.
   void
   visitNonControlFlowArguments(Operation *op, const RegionSuccessor &successor,
+                               ValueRange successorInputs,
                                ArrayRef<ThreadUniformLattice *> argLattices,
                                unsigned firstIndex) override;
 
