@@ -11,7 +11,7 @@
 #ifndef ASTER_ANALYSIS_INTERFERENCEANALYSIS_H
 #define ASTER_ANALYSIS_INTERFERENCEANALYSIS_H
 
-#include "aster/Analysis/VariableAnalysis.h"
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Support/Graph.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
@@ -25,12 +25,12 @@ class SymbolTableCollection;
 } // namespace mlir
 
 namespace mlir::aster {
-class VariableAnalysis;
+class DPSAliasAnalysis;
 /// Interference graph analysis.
 struct InterferenceAnalysis : public Graph {
   /// Create an interference graph for the given operation and data flow solver.
   static FailureOr<InterferenceAnalysis>
-  create(Operation *op, DataFlowSolver &solver, VariableAnalysis *varAnalysis);
+  create(Operation *op, DataFlowSolver &solver, DPSAliasAnalysis *varAnalysis);
   static FailureOr<InterferenceAnalysis>
   create(Operation *op, DataFlowSolver &solver,
          SymbolTableCollection &symbolTable);
@@ -42,11 +42,11 @@ struct InterferenceAnalysis : public Graph {
   llvm::ArrayRef<VariableID> getVariableIds(Value value) const;
 
   /// Get the underlying variable analysis.
-  const VariableAnalysis *getAnalysis() const { return varAnalysis; }
-  const VariableAnalysis *operator->() const { return varAnalysis; }
+  const DPSAliasAnalysis *getAnalysis() const { return varAnalysis; }
+  const DPSAliasAnalysis *operator->() const { return varAnalysis; }
 
 private:
-  InterferenceAnalysis(DataFlowSolver &solver, VariableAnalysis *varAnalysis)
+  InterferenceAnalysis(DataFlowSolver &solver, DPSAliasAnalysis *varAnalysis)
       : Graph(false), solver(solver), varAnalysis(varAnalysis) {}
   /// Handle a generic operation during graph construction.
   LogicalResult handleOp(Operation *op);
@@ -54,7 +54,7 @@ private:
   void addEdges(Value lhsV, Value rhsV, llvm::ArrayRef<int32_t> lhs,
                 llvm::ArrayRef<int32_t> rhs);
   DataFlowSolver &solver;
-  VariableAnalysis *varAnalysis;
+  DPSAliasAnalysis *varAnalysis;
   // Scratch space to avoid repeated allocations.
   llvm::SmallVector<std::pair<ResourceTypeInterface, Value>> liveRegsScratch;
   SmallVector<llvm::ArrayRef<VariableID>> varIdsScratch;

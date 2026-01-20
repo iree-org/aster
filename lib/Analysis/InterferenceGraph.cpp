@@ -10,7 +10,7 @@
 
 #include "aster/Analysis/InterferenceAnalysis.h"
 #include "aster/Analysis/LivenessAnalysis.h"
-#include "aster/Analysis/VariableAnalysis.h"
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
@@ -134,7 +134,7 @@ LogicalResult InterferenceAnalysis::handleOp(Operation *op) {
 
 FailureOr<InterferenceAnalysis>
 InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
-                             VariableAnalysis *varAnalysis) {
+                             DPSAliasAnalysis *varAnalysis) {
   // Check for ill-formed IR.
   if (varAnalysis->isIllFormedIR())
     return op->emitError() << "ill-formed IR detected";
@@ -168,7 +168,7 @@ InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
                              SymbolTableCollection &symbolTable) {
   // Load the necessary analyses.
   dataflow::loadBaselineAnalyses(solver);
-  auto *varAnalysis = solver.load<aster::VariableAnalysis>();
+  auto *varAnalysis = solver.load<aster::DPSAliasAnalysis>();
   solver.load<aster::LivenessAnalysis>(symbolTable);
 
   // Initialize and run the solver.

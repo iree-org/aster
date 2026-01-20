@@ -10,7 +10,7 @@
 
 #include "aster/Analysis/InterferenceAnalysis.h"
 #include "aster/Analysis/RangeAnalysis.h"
-#include "aster/Analysis/VariableAnalysis.h"
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"

@@ -1,4 +1,4 @@
-//===- VariableAnalysis.cpp - Variable analysis --------------------------===//
+//===- DPSAliasAnalysis.cpp - DPS alias analysis --------------------------===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,7 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Analysis/VariableAnalysis.h"
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/IR/Operation.h"
@@ -24,7 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#define DEBUG_TYPE "variable-analysis"
+#define DEBUG_TYPE "dps-alias-analysis"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -55,7 +55,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 }
 
 //===----------------------------------------------------------------------===//
-// VariableAnalysis
+// DPSAliasAnalysis
 //===----------------------------------------------------------------------===//
 
 /// Helper to mark the IR as ill-formed if any of the given lattices is top.
@@ -84,8 +84,8 @@ static void isIllFormedOp(bool &illFormed,
   }
 }
 
-LogicalResult VariableAnalysis::visitOperation(
-    Operation *op, ArrayRef<const dataflow::Lattice<Variable> *> operands,
+LogicalResult DPSAliasAnalysis::visitOperation(
+    Operation *op, ArrayRef<const dataflow::Lattice<Variable> *> operandLattices,
     ArrayRef<dataflow::Lattice<Variable> *> results) {
   // Check if the op results are ill-formed.
   auto _atExit = llvm::make_scope_exit([&]() {
@@ -103,7 +103,7 @@ LogicalResult VariableAnalysis::visitOperation(
   });
 
   // Early exit if any register-like operand lattice is top.
-  bool isIllFormedOperand = isIllFormed(illFormed, operands, op->getOperands());
+  bool isIllFormedOperand = isIllFormed(illFormed, operandLattices, op->getOperands());
   if (isIllFormedOperand) {
     for (dataflow::Lattice<Variable> *result : results)
       propagateIfChanged(result, result->join(Variable::getTop()));
@@ -111,6 +111,7 @@ LogicalResult VariableAnalysis::visitOperation(
   }
 
   // Handle specific operations.
+  // Each AllocaOp defines a new variable.
   if (auto aOp = dyn_cast<AllocaOp>(op)) {
     // For AllocaOp, we can assign a unique variable ID
     int32_t varId = valueToVarIdMap.size();
@@ -123,28 +124,32 @@ LogicalResult VariableAnalysis::visitOperation(
   }
 
   // Handle InstOpInterface operations.
+  // Each InstOpInterface ties its results to variables tied to the matching DPS operand.
   if (auto instOp = dyn_cast<InstOpInterface>(op)) {
     for (OpOperand &operand : instOp.getInstOutsMutable()) {
       size_t idx = operand.getOperandNumber();
       propagateIfChanged(results[idx],
-                         results[idx]->join(operands[idx]->getValue()));
+                         results[idx]->join(operandLattices[idx]->getValue()));
     }
     return success();
   }
 
   // Handle MakeRegisterRangeOp operations.
+  // Each MakeRegisterRangeOp ties its result to variables tied to all the operandLattices.
   if (auto mOp = dyn_cast<amdgcn::MakeRegisterRangeOp>(op)) {
     Variable::VIdList varIds;
-    for (const dataflow::Lattice<Variable> *operand : operands)
+    for (const dataflow::Lattice<Variable> *operand : operandLattices)
       llvm::append_range(varIds, operand->getValue().getVariableIds());
     propagateIfChanged(results[0], results[0]->join(Variable(varIds)));
     return success();
   }
 
   // Handle SplitRegisterRangeOp operations.
+  // Each SplitRegisterRangeOp ties its results to variables tied to all the
+  // variables tied to the unique operand.
   if (isa<amdgcn::SplitRegisterRangeOp>(op)) {
     for (auto [idx, result, vid] :
-         llvm::enumerate(results, operands[0]->getValue().getVariableIds())) {
+         llvm::enumerate(results, operandLattices[0]->getValue().getVariableIds())) {
       propagateIfChanged(result, result->join(Variable({vid})));
     }
     return success();
@@ -155,7 +160,7 @@ LogicalResult VariableAnalysis::visitOperation(
   return success();
 }
 
-void VariableAnalysis::setToEntryState(dataflow::Lattice<Variable> *lattice) {
+void DPSAliasAnalysis::setToEntryState(dataflow::Lattice<Variable> *lattice) {
   // Set the lattice to top (overdefined) at entry points
   propagateIfChanged(lattice, lattice->join(Variable::getTop()));
 }

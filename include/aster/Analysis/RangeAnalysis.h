@@ -15,7 +15,7 @@
 #ifndef ASTER_ANALYSIS_RANGEANALYSIS_H
 #define ASTER_ANALYSIS_RANGEANALYSIS_H
 
-#include "aster/Analysis/VariableAnalysis.h"
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "aster/Support/Graph.h"
@@ -87,15 +87,15 @@ private:
 //===----------------------------------------------------------------------===//
 /// This class represents the register range analysis.
 struct RangeAnalysis {
-  /// Create a RangeAnalysis instance from a VariableAnalysis.
+  /// Create a RangeAnalysis instance from a DPSAliasAnalysis.
   static RangeAnalysis create(Operation *topOp,
-                              const VariableAnalysis *analysis);
+                              const DPSAliasAnalysis *analysis);
 
   /// Returns true if the range constraints are satisfiable.
   bool isSatisfiable() const { return succeeded(allocationMap); }
 
   /// Get the underlying variable analysis.
-  const VariableAnalysis *getAnalysis() const { return analysis; }
+  const DPSAliasAnalysis *getAnalysis() const { return analysis; }
 
   /// Get the underlying graph.
   const Graph &getGraph() const { return graph; }
@@ -120,9 +120,9 @@ struct RangeAnalysis {
   }
 
 private:
-  RangeAnalysis(const VariableAnalysis *analysis)
+  RangeAnalysis(const DPSAliasAnalysis *analysis)
       : analysis(analysis), graph(true) {}
-  const VariableAnalysis *analysis;
+  const DPSAliasAnalysis *analysis;
   SmallVector<Range> ranges;
   SmallVector<RangeAllocation> allocations;
   Graph graph;

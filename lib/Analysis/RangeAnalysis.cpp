@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/RangeAnalysis.h"
-#include "aster/Analysis/VariableAnalysis.h"
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
 #include "mlir/IR/Operation.h"
@@ -33,7 +33,7 @@ using namespace mlir::aster::amdgcn;
 namespace {
 struct RangeAnalysisImpl {
   using RangeList = SmallVector<Range *>;
-  RangeAnalysisImpl(const VariableAnalysis *analysis,
+  RangeAnalysisImpl(const DPSAliasAnalysis *analysis,
                     SmallVector<Range> &ranges,
                     SmallVector<RangeAllocation> &allocations, Graph &graph)
       : analysis(analysis), ranges(ranges), allocations(allocations),
@@ -44,7 +44,7 @@ struct RangeAnalysisImpl {
 private:
   void createGraph();
   FailureOr<DenseMap<VariableID, int32_t>> computeSatisfiability(Location loc);
-  const VariableAnalysis *analysis;
+  const DPSAliasAnalysis *analysis;
   SmallVector<Range> &ranges;
   SmallVector<RangeAllocation> &allocations;
   Graph &graph;
@@ -219,7 +219,7 @@ RangeAnalysisImpl::computeAnalysis(Operation *op) {
 }
 
 RangeAnalysis RangeAnalysis::create(Operation *topOp,
-                                    const VariableAnalysis *analysis) {
+                                    const DPSAliasAnalysis *analysis) {
   RangeAnalysis ra(analysis);
   RangeAnalysisImpl impl(analysis, ra.ranges, ra.allocations, ra.graph);
   ra.allocationMap = impl.computeAnalysis(topOp);

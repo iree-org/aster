@@ -1,4 +1,4 @@
-//===- VariableAnalysis.h - Variable analysis -----------------------------===//
+//===- DPSAliasAnalysis.h - DPS alias analysis -----------------------------===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ASTER_ANALYSIS_VARIABLEANALYSIS_H
-#define ASTER_ANALYSIS_VARIABLEANALYSIS_H
+#ifndef ASTER_ANALYSIS_DPSALIASANALYSIS_H
+#define ASTER_ANALYSIS_DPSALIASANALYSIS_H
 
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
@@ -89,15 +89,15 @@ private:
 };
 
 //===----------------------------------------------------------------------===//
-// VariableAnalysis
+// DPSAliasAnalysis
 //===----------------------------------------------------------------------===//
 
 /// This analysis implements variable analysis using sparse forward data-flow
 /// analysis.
-class VariableAnalysis : public dataflow::SparseForwardDataFlowAnalysis<
+class DPSAliasAnalysis : public dataflow::SparseForwardDataFlowAnalysis<
                              dataflow::Lattice<Variable>> {
 public:
-  VariableAnalysis(DataFlowSolver &solver)
+  DPSAliasAnalysis(DataFlowSolver &solver)
       : SparseForwardDataFlowAnalysis(solver), solver(solver) {}
   LogicalResult
   visitOperation(Operation *op,
@@ -149,4 +149,4 @@ protected:
 };
 } // end namespace mlir::aster
 
-#endif // ASTER_ANALYSIS_VARIABLEANALYSIS_H
+#endif // ASTER_ANALYSIS_DPSALIASANALYSIS_H
