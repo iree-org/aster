@@ -290,4 +290,22 @@ amdgcn.module @ds_kernels target = <gfx942> isa = <cdna3> {
     amdgcn.reg_interference %4, %1, %3, %7 : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
     end_kernel
   }
+
+// CHECK-LABEL:   kernel @make_range_dedup {
+// CHECK:           %[[A:.*]] = alloca : !amdgcn.vgpr<0>
+// CHECK:           %[[RES:.*]] = test_inst outs %[[A]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
+// A copy is created for the duplicate at position 1
+// CHECK:           %[[COPY_DST:.*]] = alloca : !amdgcn.vgpr<1>
+// CHECK:           %[[COPY:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[COPY_DST]], %[[RES]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<0>) -> !amdgcn.vgpr<1>
+// CHECK:           %[[RANGE:.*]] = make_register_range %[[RES]], %[[COPY]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:           test_inst ins %[[RANGE]] : (!amdgcn.vgpr_range<[0 : 2]>) -> ()
+// CHECK:           end_kernel
+// CHECK:         }
+  amdgcn.kernel @make_range_dedup {
+    %a = alloca : !amdgcn.vgpr
+    %res = test_inst outs %a : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %range = make_register_range %res, %res : !amdgcn.vgpr, !amdgcn.vgpr
+    test_inst ins %range : (!amdgcn.vgpr_range<[? + 2]>) -> ()
+    end_kernel
+  }
 }

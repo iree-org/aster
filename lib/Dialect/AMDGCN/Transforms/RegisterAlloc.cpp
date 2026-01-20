@@ -53,6 +53,66 @@ using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
+//===----------------------------------------------------------------------===//
+// MakeRegisterRangeOp operand deduplication
+//===----------------------------------------------------------------------===//
+
+/// Creates a copy of a register value using the appropriate mov instruction.
+/// Returns the copy or nullptr if the register type is not supported.
+static Value createRegisterCopy(OpBuilder &builder, Location loc, Value src) {
+  auto rTy = dyn_cast<ResourceTypeInterface>(src.getType());
+  if (!rTy)
+    return nullptr;
+
+  Resource *resource = rTy.getResource();
+  Value dst = AllocaOp::create(builder, loc, src.getType());
+
+  if (resource == VGPRResource::get()) {
+    return V_MOV_B32_E32::create(builder, loc, dst, src);
+  }
+  if (resource == SGPRResource::get()) {
+    return S_MOV_B32::create(builder, loc, dst, src);
+  }
+  // AGPR copy not yet supported
+  return nullptr;
+}
+
+/// Deduplicates operands of MakeRegisterRangeOp by creating copies for
+/// duplicate uses. If an operand appears at positions [i, j, k, ...] where
+/// i < j < k, copies are created for positions j, k, ... using mov instructions.
+static LogicalResult
+deduplicateMakeRegisterRangeOperands(Operation *topOp, OpBuilder &builder) {
+  WalkResult result = topOp->walk([&](MakeRegisterRangeOp op) {
+    SmallVector<Value> operands(op.getInputs());
+    DenseSet<Value> firstOccurrence;
+    bool needsUpdate = false;
+
+    for (auto [idx, operand] : llvm::enumerate(operands)) {
+      auto it = firstOccurrence.find(operand);
+      if (it == firstOccurrence.end()) {
+        firstOccurrence.insert(operand);
+        continue;
+      }
+      // Duplicate found, create a copy
+      builder.setInsertionPoint(op);
+      Value copy = createRegisterCopy(builder, op.getLoc(), operand);
+      if (!copy) {
+        op.emitError() << "failed to create copy for duplicate operand";
+        return WalkResult::interrupt();
+      }
+      operands[idx] = copy;
+      needsUpdate = true;
+    }
+
+    // Update the operation in place
+    if (needsUpdate)
+      op.getInputsMutable().assign(operands);
+    return WalkResult::advance();
+  });
+
+  return failure(result.wasInterrupted());
+}
+
 namespace {
 //===----------------------------------------------------------------------===//
 // RegisterAlloc pass
@@ -508,6 +568,13 @@ LogicalResult RegAlloc::transform(RewriterBase &rewriter,
 
 void RegisterAlloc::runOnOperation() {
   Operation *op = getOperation();
+
+  // Deduplicate operands of MakeRegisterRangeOp before register allocation.
+  // This ensures each position in the range has a unique register.
+  OpBuilder builder(op->getContext());
+  if (failed(deduplicateMakeRegisterRangeOperands(op, builder)))
+    return signalPassFailure();
+
   if (failed(runVerifiersOnOp<IsAllocatableOpAttr>(op)))
     return signalPassFailure();
   SymbolTableCollection symbolTable;
