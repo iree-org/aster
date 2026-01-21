@@ -136,9 +136,10 @@ LogicalResult RangeAllocation::setAlignment(Location loc, EqClassID eqClassId,
                                             int32_t alignCtr,
                                             MakeRegisterRangeOp owner) {
   assert(alignCtr > 0 && "Alignment must be positive");
-  ArrayRef<EqClassID> allocatedEqClassIds = this->allocatedEqClassIds.getArrayRef();
-  ptrdiff_t pos =
-      std::distance(allocatedEqClassIds.begin(), llvm::find(allocatedEqClassIds, eqClassId));
+  ArrayRef<EqClassID> allocatedEqClassIds =
+      this->allocatedEqClassIds.getArrayRef();
+  ptrdiff_t pos = std::distance(allocatedEqClassIds.begin(),
+                                llvm::find(allocatedEqClassIds, eqClassId));
   for (int32_t a = 1; a <= alignCtr; ++a) {
     if ((pos + alignment * a) % alignCtr == 0) {
       alignment = a * alignment;
@@ -167,8 +168,8 @@ RangeAnalysisImpl::computeSatisfiability(Location loc) {
     }
     return allocation.setAlignment(
         analysis->getValues()[allocation.startEqClassId()].getLoc(),
-        range.startEqClassId(), range.getRegisterType().getAsRange().alignment(),
-        range.getOp());
+        range.startEqClassId(),
+        range.getRegisterType().getAsRange().alignment(), range.getOp());
   };
   SmallVector<int> visits(ranges.size(), 0);
   for (NodeID node : *graphSort) {

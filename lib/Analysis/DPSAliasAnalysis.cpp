@@ -60,9 +60,10 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 
 /// Helper to mark the IR as ill-formed if any of the given lattices is top.
 /// Returns true if any lattice is top.
-static bool isIllFormed(bool &illFormed,
-                        ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> lattices,
-                        ValueRange operands) {
+static bool
+isIllFormed(bool &illFormed,
+            ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> lattices,
+            ValueRange operands) {
   if (illFormed)
     return false;
   for (auto [operand, lattice] : llvm::zip_equal(operands, lattices)) {
@@ -73,9 +74,10 @@ static bool isIllFormed(bool &illFormed,
   }
   return false;
 }
-static void isIllFormedOp(bool &illFormed,
-                          ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> lattices,
-                          ValueRange results) {
+static void
+isIllFormedOp(bool &illFormed,
+              ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> lattices,
+              ValueRange results) {
   for (auto [result, lattice] : llvm::zip_equal(results, lattices)) {
     if (lattice->getValue().isTop() &&
         isa<RegisterTypeInterface>(result.getType())) {
@@ -85,7 +87,8 @@ static void isIllFormedOp(bool &illFormed,
 }
 
 LogicalResult DPSAliasAnalysis::visitOperation(
-    Operation *op, ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> operandLattices,
+    Operation *op,
+    ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> operandLattices,
     ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> results) {
   // Check if the op results are ill-formed.
   auto _atExit = llvm::make_scope_exit([&]() {
@@ -103,7 +106,8 @@ LogicalResult DPSAliasAnalysis::visitOperation(
   });
 
   // Early exit if any register-like operand lattice is top.
-  bool isIllFormedOperand = isIllFormed(illFormed, operandLattices, op->getOperands());
+  bool isIllFormedOperand =
+      isIllFormed(illFormed, operandLattices, op->getOperands());
   if (isIllFormedOperand) {
     for (dataflow::Lattice<AliasEquivalenceClass> *result : results)
       propagateIfChanged(result, result->join(AliasEquivalenceClass::getTop()));
@@ -119,12 +123,14 @@ LogicalResult DPSAliasAnalysis::visitOperation(
     idsToValuesMap.push_back(aOp.getResult());
     assert(idsToValuesMap.size() == valueToEqClassIdMap.size() &&
            "idsToValuesMap and valueToEqClassIdMap size mismatch");
-    propagateIfChanged(results[0], results[0]->join(AliasEquivalenceClass({eqClassId})));
+    propagateIfChanged(results[0],
+                       results[0]->join(AliasEquivalenceClass({eqClassId})));
     return success();
   }
 
   // Handle InstOpInterface operations.
-  // Each InstOpInterface marks its results with the equivalence classes of the matching DPS operand.
+  // Each InstOpInterface marks its results with the equivalence classes of the
+  // matching DPS operand.
   if (auto instOp = dyn_cast<InstOpInterface>(op)) {
     for (OpOperand &operand : instOp.getInstOutsMutable()) {
       size_t idx = operand.getOperandNumber();
@@ -135,22 +141,26 @@ LogicalResult DPSAliasAnalysis::visitOperation(
   }
 
   // Handle MakeRegisterRangeOp operations.
-  // Each MakeRegisterRangeOp marks its result with the equivalence classes of all the operandLattices.
+  // Each MakeRegisterRangeOp marks its result with the equivalence classes of
+  // all the operandLattices.
   if (auto mOp = dyn_cast<amdgcn::MakeRegisterRangeOp>(op)) {
     AliasEquivalenceClass::EqClassList eqClassIds;
-    for (const dataflow::Lattice<AliasEquivalenceClass> *operand : operandLattices)
+    for (const dataflow::Lattice<AliasEquivalenceClass> *operand :
+         operandLattices)
       llvm::append_range(eqClassIds, operand->getValue().getEqClassIds());
-    propagateIfChanged(results[0], results[0]->join(AliasEquivalenceClass(eqClassIds)));
+    propagateIfChanged(results[0],
+                       results[0]->join(AliasEquivalenceClass(eqClassIds)));
     return success();
   }
 
   // Handle SplitRegisterRangeOp operations.
-  // Each SplitRegisterRangeOp marks its results with the equivalence classes of all the
-  // equivalence classes tied to the unique operand.
+  // Each SplitRegisterRangeOp marks its results with the equivalence classes of
+  // all the equivalence classes tied to the unique operand.
   if (isa<amdgcn::SplitRegisterRangeOp>(op)) {
     for (auto [idx, result, eqClassId] : llvm::enumerate(
              results, operandLattices[0]->getValue().getEqClassIds())) {
-      propagateIfChanged(result, result->join(AliasEquivalenceClass({eqClassId})));
+      propagateIfChanged(result,
+                         result->join(AliasEquivalenceClass({eqClassId})));
     }
     return success();
   }
@@ -160,7 +170,8 @@ LogicalResult DPSAliasAnalysis::visitOperation(
   return success();
 }
 
-void DPSAliasAnalysis::setToEntryState(dataflow::Lattice<AliasEquivalenceClass> *lattice) {
+void DPSAliasAnalysis::setToEntryState(
+    dataflow::Lattice<AliasEquivalenceClass> *lattice) {
   // Set the lattice to top (overdefined) at entry points
   propagateIfChanged(lattice, lattice->join(AliasEquivalenceClass::getTop()));
 }

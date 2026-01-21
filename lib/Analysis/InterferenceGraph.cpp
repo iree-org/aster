@@ -8,9 +8,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Analysis/InterferenceAnalysis.h"
 #include "aster/Analysis/LivenessAnalysis.h"
-#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
@@ -36,7 +36,8 @@ using namespace mlir::aster::amdgcn;
 
 llvm::ArrayRef<EqClassID>
 InterferenceAnalysis::getEqClassIds(Value value) const {
-  const auto *lattice = solver.lookupState<dataflow::Lattice<AliasEquivalenceClass>>(value);
+  const auto *lattice =
+      solver.lookupState<dataflow::Lattice<AliasEquivalenceClass>>(value);
   assert(lattice && "missing equivalence class lattice");
   const AliasEquivalenceClass &eqClass = lattice->getValue();
   assert(!(eqClass.isTop() || eqClass.isUninitialized()) &&

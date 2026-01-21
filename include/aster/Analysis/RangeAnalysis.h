@@ -58,7 +58,9 @@ struct RangeAllocation {
   RangeAllocation(EqClassID start) { allocatedEqClassIds.insert(start); }
 
   /// Add an equivalence class to the allocation.
-  void pushEqClassId(EqClassID eqClassId) { allocatedEqClassIds.insert(eqClassId); }
+  void pushEqClassId(EqClassID eqClassId) {
+    allocatedEqClassIds.insert(eqClassId);
+  }
 
   /// Get the allocated equivalence classes.
   ArrayRef<EqClassID> getAllocatedEqClassIds() const {
@@ -72,7 +74,8 @@ struct RangeAllocation {
   int32_t getAlignment() const { return alignment; }
 
   /// Set alignment constraints.
-  LogicalResult setAlignment(Location loc, EqClassID eqClassId, int32_t alignCtr,
+  LogicalResult setAlignment(Location loc, EqClassID eqClassId,
+                             int32_t alignCtr,
                              amdgcn::MakeRegisterRangeOp owner);
 
   /// Get the start equivalence class of this range.
@@ -104,8 +107,8 @@ struct RangeAnalysis {
   /// Get the ranges.
   ArrayRef<Range> getRanges() const { return ranges; }
 
-  /// Get the allocation constraint or nullptr if the equivalence class is not tied to
-  /// any ranges.
+  /// Get the allocation constraint or nullptr if the equivalence class is not
+  /// tied to any ranges.
   const RangeAllocation *lookupAllocation(EqClassID eqClassId) const {
     assert(isSatisfiable() && "Range constraints are not satisfiable");
     int32_t allocId = allocationMap->lookup_or(eqClassId, -1);

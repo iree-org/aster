@@ -8,9 +8,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Analysis/InterferenceAnalysis.h"
 #include "aster/Analysis/RangeAnalysis.h"
-#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
@@ -101,7 +101,8 @@ struct RegAlloc {
 
 private:
   LogicalResult
-  allocateVariable(EqClassID eqClassId, AllocaOp alloca, RegisterTypeInterface &cTy,
+  allocateVariable(EqClassID eqClassId, AllocaOp alloca,
+                   RegisterTypeInterface &cTy,
                    SmallVectorImpl<RegisterTypeInterface> &constraints);
   void collectConstraints(EqClassID eqClassId,
                           SmallVectorImpl<RegisterTypeInterface> &constraints);
@@ -421,7 +422,8 @@ LogicalResult RegAlloc::allocateVariable(
 
   Register begin = allocatedRange->begin();
   for (auto [i, eqClassId] : llvm::enumerate(eqClassIds))
-    coloring[eqClassId] = getRegisterType(rTy, Register(begin.getRegister() + i));
+    coloring[eqClassId] =
+        getRegisterType(rTy, Register(begin.getRegister() + i));
   return success();
 }
 
@@ -430,10 +432,9 @@ LogicalResult RegAlloc::run(RewriterBase &rewriter) {
   SmallVector<AllocaOp> allocaOps;
   {
     SetVector<Operation *> vars, unsortedVars;
-    unsortedVars.insert_range(
-        llvm::map_range(graph->getValues(), [](Value v) {
-          return cast<AllocaOp>(v.getDefiningOp());
-        }));
+    unsortedVars.insert_range(llvm::map_range(graph->getValues(), [](Value v) {
+      return cast<AllocaOp>(v.getDefiningOp());
+    }));
     vars = mlir::topologicalSort(unsortedVars);
     allocaOps = llvm::map_to_vector(
         vars.getArrayRef(), [](Operation *op) { return cast<AllocaOp>(op); });

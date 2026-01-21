@@ -1,4 +1,4 @@
-//===- DPSAliasAnalysis.h - DPS alias analysis -----------------------------===//
+//===- DPSAliasAnalysis.h - DPS alias analysis ----------------------------===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -37,7 +37,8 @@ class AliasEquivalenceClass {
 public:
   using EqClassList = llvm::SmallVector<EqClassID, 4>;
   /// Construct a equivalence class value.
-  AliasEquivalenceClass(EqClassList eqClassIds = {}) : eqClassIds(std::move(eqClassIds)) {}
+  AliasEquivalenceClass(EqClassList eqClassIds = {})
+      : eqClassIds(std::move(eqClassIds)) {}
 
   /// Compare equivalence class values.
   bool operator==(const AliasEquivalenceClass &rhs) const {
@@ -49,10 +50,14 @@ public:
   void print(raw_ostream &os) const;
 
   /// The state to which the equivalence class value is uninitialized.
-  static AliasEquivalenceClass getUninitialized() { return AliasEquivalenceClass{}; }
+  static AliasEquivalenceClass getUninitialized() {
+    return AliasEquivalenceClass{};
+  }
 
   /// The state to which the equivalence class value is overdefined.
-  static AliasEquivalenceClass getTop() { return AliasEquivalenceClass(std::nullopt); }
+  static AliasEquivalenceClass getTop() {
+    return AliasEquivalenceClass(std::nullopt);
+  }
 
   /// Whether the state is uninitialized.
   bool isUninitialized() const {
@@ -63,7 +68,8 @@ public:
   bool isTop() const { return llvm::failed(eqClassIds); }
 
   /// Join operation for lattice.
-  static AliasEquivalenceClass join(const AliasEquivalenceClass &lhs, const AliasEquivalenceClass &rhs) {
+  static AliasEquivalenceClass join(const AliasEquivalenceClass &lhs,
+                                    const AliasEquivalenceClass &rhs) {
     if (lhs.isTop() || rhs.isTop())
       return getTop();
     if (lhs.isUninitialized())
@@ -76,14 +82,15 @@ public:
     return AliasEquivalenceClass(std::nullopt);
   }
 
-  /// Get the equivalence class IDs. Returns an empty list if uninitialized or top.
+  /// Get the equivalence class IDs. Returns an empty list if uninitialized or
+  /// top.
   ArrayRef<EqClassID> getEqClassIds() const {
     return succeeded(eqClassIds) ? *eqClassIds : ArrayRef<EqClassID>();
   }
 
 private:
-  /// Construct an equivalence class value from a LogicalResult. This only works for
-  /// failure states.
+  /// Construct an equivalence class value from a LogicalResult. This only works
+  /// for failure states.
   explicit AliasEquivalenceClass(std::nullopt_t) : eqClassIds(failure()) {}
   // The equivalence class IDs.
   llvm::FailureOr<EqClassList> eqClassIds;
@@ -100,21 +107,22 @@ class DPSAliasAnalysis : public dataflow::SparseForwardDataFlowAnalysis<
 public:
   DPSAliasAnalysis(DataFlowSolver &solver)
       : SparseForwardDataFlowAnalysis(solver), solver(solver) {}
-  LogicalResult
-  visitOperation(Operation *op,
-                 ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> operands,
-                 ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> results) override;
+  LogicalResult visitOperation(
+      Operation *op,
+      ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> operands,
+      ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> results) override;
 
-  void setToEntryState(dataflow::Lattice<AliasEquivalenceClass> *lattice) override;
+  void
+  setToEntryState(dataflow::Lattice<AliasEquivalenceClass> *lattice) override;
 
-  /// Lookup the equivalence class ID assigned to the given value. Returns -1 if not
-  /// found.
+  /// Lookup the equivalence class ID assigned to the given value. Returns -1 if
+  /// not found.
   EqClassID lookup(Value val) const {
     return valueToEqClassIdMap.lookup_or(val, -1);
   }
 
-  /// Lookup the value assigned to the given equivalence class ID. Returns null Value if
-  /// not found.
+  /// Lookup the value assigned to the given equivalence class ID. Returns null
+  /// Value if not found.
   Value lookup(EqClassID eqClassId) const {
     return static_cast<size_t>(eqClassId) < idsToValuesMap.size()
                ? idsToValuesMap[eqClassId]
@@ -129,7 +137,8 @@ public:
 
   /// Lookup the equivalence class state for a given value.
   const AliasEquivalenceClass *lookupState(Value v) const {
-    auto *state = solver.lookupState<dataflow::Lattice<AliasEquivalenceClass>>(v);
+    auto *state =
+        solver.lookupState<dataflow::Lattice<AliasEquivalenceClass>>(v);
     return state ? &state->getValue() : nullptr;
   }
 

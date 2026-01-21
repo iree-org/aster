@@ -30,7 +30,8 @@ class DPSAliasAnalysis;
 struct InterferenceAnalysis : public Graph {
   /// Create an interference graph for the given operation and data flow solver.
   static FailureOr<InterferenceAnalysis>
-  create(Operation *op, DataFlowSolver &solver, DPSAliasAnalysis *aliasAnalysis);
+  create(Operation *op, DataFlowSolver &solver,
+         DPSAliasAnalysis *aliasAnalysis);
   static FailureOr<InterferenceAnalysis>
   create(Operation *op, DataFlowSolver &solver,
          SymbolTableCollection &symbolTable);
