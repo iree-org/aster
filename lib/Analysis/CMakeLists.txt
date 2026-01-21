@@ -6,7 +6,7 @@ add_mlir_library(
   RangeAnalysis.cpp
   RegisterConstraints.cpp
   ThreadUniformAnalysis.cpp
-  VariableAnalysis.cpp
+  DPSAliasAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/aster/Analysis

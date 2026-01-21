@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/RangeAnalysis.h"
-#include "aster/Analysis/VariableAnalysis.h"
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
 #include "mlir/IR/Operation.h"
@@ -33,18 +33,18 @@ using namespace mlir::aster::amdgcn;
 namespace {
 struct RangeAnalysisImpl {
   using RangeList = SmallVector<Range *>;
-  RangeAnalysisImpl(const VariableAnalysis *analysis,
+  RangeAnalysisImpl(const DPSAliasAnalysis *analysis,
                     SmallVector<Range> &ranges,
                     SmallVector<RangeAllocation> &allocations, Graph &graph)
       : analysis(analysis), ranges(ranges), allocations(allocations),
         graph(graph) {}
 
-  FailureOr<DenseMap<VariableID, int32_t>> computeAnalysis(Operation *op);
+  FailureOr<DenseMap<EqClassID, int32_t>> computeAnalysis(Operation *op);
 
 private:
   void createGraph();
-  FailureOr<DenseMap<VariableID, int32_t>> computeSatisfiability(Location loc);
-  const VariableAnalysis *analysis;
+  FailureOr<DenseMap<EqClassID, int32_t>> computeSatisfiability(Location loc);
+  const DPSAliasAnalysis *analysis;
   SmallVector<Range> &ranges;
   SmallVector<RangeAllocation> &allocations;
   Graph &graph;
@@ -55,7 +55,7 @@ private:
 static bool cmpRanges(const Range &lhs, const Range &rhs) {
   auto getTuple = [](const Range &r) {
     auto ty = static_cast<ResourceTypeInterface>(r.getRegisterType());
-    return std::make_tuple(ty, r.getVariableIds(), r.getOp().getOperation());
+    return std::make_tuple(ty, r.getEqClassIds(), r.getOp().getOperation());
   };
   return getTuple(lhs) < getTuple(rhs);
 }
@@ -63,8 +63,8 @@ static bool cmpRanges(const Range &lhs, const Range &rhs) {
 /// Add an edge between two ranges in the graph.
 static void addEdge(Graph &graph, const Range &src, const Range &tgt,
                     size_t srcId, size_t tgtId) {
-  ArrayRef<VariableID> srcIds = src.getVariableIds();
-  ArrayRef<VariableID> tgtIds = tgt.getVariableIds();
+  ArrayRef<EqClassID> srcIds = src.getEqClassIds();
+  ArrayRef<EqClassID> tgtIds = tgt.getEqClassIds();
   assert(!srcIds.empty() && !tgtIds.empty());
 
   // Find the largest common subsequence between srcIds and tgtIds
@@ -132,13 +132,14 @@ void RangeAnalysisImpl::createGraph() {
   graph.compress();
 }
 
-LogicalResult RangeAllocation::setAlignment(Location loc, VariableID id,
+LogicalResult RangeAllocation::setAlignment(Location loc, EqClassID eqClassId,
                                             int32_t alignCtr,
                                             MakeRegisterRangeOp owner) {
   assert(alignCtr > 0 && "Alignment must be positive");
-  ArrayRef<VariableID> allocatedVars = allocatedVariables.getArrayRef();
-  ptrdiff_t pos =
-      std::distance(allocatedVars.begin(), llvm::find(allocatedVars, id));
+  ArrayRef<EqClassID> allocatedEqClassIds =
+      this->allocatedEqClassIds.getArrayRef();
+  ptrdiff_t pos = std::distance(allocatedEqClassIds.begin(),
+                                llvm::find(allocatedEqClassIds, eqClassId));
   for (int32_t a = 1; a <= alignCtr; ++a) {
     if ((pos + alignment * a) % alignCtr == 0) {
       alignment = a * alignment;
@@ -149,7 +150,7 @@ LogicalResult RangeAllocation::setAlignment(Location loc, VariableID id,
   return failure();
 }
 
-FailureOr<DenseMap<VariableID, int32_t>>
+FailureOr<DenseMap<EqClassID, int32_t>>
 RangeAnalysisImpl::computeSatisfiability(Location loc) {
   using NodeID = Graph::NodeID;
   FailureOr<SmallVector<NodeID>> graphSort = graph.topologicalSort();
@@ -158,30 +159,30 @@ RangeAnalysisImpl::computeSatisfiability(Location loc) {
     return failure();
   }
   LDBG() << "Topological sort result: " << llvm::interleaved_array(*graphSort);
-  DenseMap<VariableID, int32_t> allocMap;
+  DenseMap<EqClassID, int32_t> allocMap;
   auto setAlloc = [&](const Range &range, int32_t alloc) {
     RangeAllocation &allocation = allocations[alloc];
-    for (VariableID var : range.getVariableIds()) {
-      allocMap[var] = alloc;
-      allocation.pushVariable(var);
+    for (EqClassID eqClassId : range.getEqClassIds()) {
+      allocMap[eqClassId] = alloc;
+      allocation.pushEqClassId(eqClassId);
     }
     return allocation.setAlignment(
-        analysis->getVariables()[allocation.startVariable()].getLoc(),
-        range.startVariable(), range.getRegisterType().getAsRange().alignment(),
-        range.getOp());
+        analysis->getValues()[allocation.startEqClassId()].getLoc(),
+        range.startEqClassId(),
+        range.getRegisterType().getAsRange().alignment(), range.getOp());
   };
   SmallVector<int> visits(ranges.size(), 0);
   for (NodeID node : *graphSort) {
     Range range = ranges[node];
     if (visits[node] == 0) {
-      allocations.push_back(RangeAllocation(range.startVariable()));
+      allocations.push_back(RangeAllocation(range.startEqClassId()));
       if (failed(setAlloc(range, allocations.size() - 1)))
         return failure();
     }
     if (visits[node] > 1)
       continue;
     ++visits[node];
-    int32_t alloc = allocMap.lookup_or(range.startVariable(), -1);
+    int32_t alloc = allocMap.lookup_or(range.startEqClassId(), -1);
     assert(alloc != -1 && "invalid alloc");
     for (auto [src, tgt] : graph.edges(node)) {
       if (failed(setAlloc(ranges[tgt], alloc)))
@@ -192,10 +193,10 @@ RangeAnalysisImpl::computeSatisfiability(Location loc) {
   return allocMap;
 }
 
-FailureOr<DenseMap<VariableID, int32_t>>
+FailureOr<DenseMap<EqClassID, int32_t>>
 RangeAnalysisImpl::computeAnalysis(Operation *op) {
   op->walk([&](MakeRegisterRangeOp range) {
-    ranges.push_back(Range(range, analysis->getVariableIds(range)));
+    ranges.push_back(Range(range, analysis->getEqClassIds(range)));
   });
   llvm::sort(ranges, cmpRanges);
   LDBG_OS([&](raw_ostream &os) {
@@ -205,7 +206,7 @@ RangeAnalysisImpl::computeAnalysis(Operation *op) {
         [&](auto it) {
           const Range &range = it.value();
           os << "  " << it.index() << ": "
-             << llvm::interleaved_array(range.getVariableIds())
+             << llvm::interleaved_array(range.getEqClassIds())
              << ", op: " << range.getOp();
         },
         "\n");
@@ -219,7 +220,7 @@ RangeAnalysisImpl::computeAnalysis(Operation *op) {
 }
 
 RangeAnalysis RangeAnalysis::create(Operation *topOp,
-                                    const VariableAnalysis *analysis) {
+                                    const DPSAliasAnalysis *analysis) {
   RangeAnalysis ra(analysis);
   RangeAnalysisImpl impl(analysis, ra.ranges, ra.allocations, ra.graph);
   ra.allocationMap = impl.computeAnalysis(topOp);
@@ -231,13 +232,13 @@ RangeAnalysis RangeAnalysis::create(Operation *topOp,
     os << "Range constraints mapping: ";
     llvm::interleaveComma(*ra.allocationMap, os, [&](const auto &it) {
       os << "(" << it.first << "->"
-         << ra.allocations[it.second].getAllocatedVariables().front() << ")";
+         << ra.allocations[it.second].getAllocatedEqClassIds().front() << ")";
     });
     os << "\nRange allocations:\n";
     llvm::interleave(
         ra.allocations, os,
         [&](const RangeAllocation &alloc) {
-          os << llvm::interleaved_array(alloc.getAllocatedVariables());
+          os << llvm::interleaved_array(alloc.getAllocatedEqClassIds());
         },
         "\n");
   });

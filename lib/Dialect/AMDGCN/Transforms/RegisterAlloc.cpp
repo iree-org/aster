@@ -8,9 +8,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Analysis/InterferenceAnalysis.h"
 #include "aster/Analysis/RangeAnalysis.h"
-#include "aster/Analysis/VariableAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
@@ -101,17 +101,18 @@ struct RegAlloc {
 
 private:
   LogicalResult
-  allocateVariable(VariableID vid, AllocaOp alloca, RegisterTypeInterface &cTy,
+  allocateVariable(EqClassID eqClassId, AllocaOp alloca,
+                   RegisterTypeInterface &cTy,
                    SmallVectorImpl<RegisterTypeInterface> &constraints);
-  void collectConstraints(VariableID vid,
+  void collectConstraints(EqClassID eqClassId,
                           SmallVectorImpl<RegisterTypeInterface> &constraints);
   LogicalResult transform(RewriterBase &rewriter, MutableArrayRef<AllocaOp> aOp,
-                          ArrayRef<VariableID> vids);
+                          ArrayRef<EqClassID> eqClassIds);
   Operation *topOp;
   InterferenceAnalysis &graph;
   RangeAnalysis &rangeAnalysis;
   RegisterManager registers;
-  /// The register coloring, it's indexed by variable ID.
+  /// The register coloring.
   SmallVector<RegisterTypeInterface> coloring;
 };
 
@@ -367,9 +368,9 @@ static RegisterTypeInterface getRegisterType(RegisterTypeInterface base,
 }
 
 void RegAlloc::collectConstraints(
-    VariableID vid, SmallVectorImpl<RegisterTypeInterface> &constraints) {
+    EqClassID eqClassId, SmallVectorImpl<RegisterTypeInterface> &constraints) {
   constraints.clear();
-  for (Graph::Edge edge : graph.edges(vid)) {
+  for (Graph::Edge edge : graph.edges(eqClassId)) {
     RegisterTypeInterface rTy = coloring[edge.second];
     if (rTy == nullptr)
       continue;
@@ -380,15 +381,15 @@ void RegAlloc::collectConstraints(
 }
 
 LogicalResult RegAlloc::allocateVariable(
-    VariableID vid, AllocaOp alloca, RegisterTypeInterface &cTy,
+    EqClassID eqClassId, AllocaOp alloca, RegisterTypeInterface &cTy,
     SmallVectorImpl<RegisterTypeInterface> &constraints) {
   FailureOr<RegisterRange> allocatedRange;
   RegisterTypeInterface rTy = alloca.getType();
   Resource *regKind = rTy.getResource();
-  LDBG() << "Allocating variable " << vid << ": " << alloca;
+  LDBG() << "Allocating equivalence class " << eqClassId << ": " << alloca;
 
   // Collect neighbor coloring constraints.
-  collectConstraints(vid, constraints);
+  collectConstraints(eqClassId, constraints);
 
   // Deallocate constraints on scope exit.
   auto deallocConstraints = llvm::make_scope_exit([&]() {
@@ -398,7 +399,7 @@ LogicalResult RegAlloc::allocateVariable(
       registers.release(regKind, *allocatedRange);
   });
 
-  const RangeAllocation *allocation = rangeAnalysis.lookupAllocation(vid);
+  const RangeAllocation *allocation = rangeAnalysis.lookupAllocation(eqClassId);
 
   // We only need to allocate a single register in this case.
   if (!allocation) {
@@ -413,55 +414,55 @@ LogicalResult RegAlloc::allocateVariable(
   }
 
   // The register belongs to a range, allocate the entire range.
-  ArrayRef<VariableID> vars = allocation->getAllocatedVariables();
-  allocatedRange = registers.alloc(rTy.getResource(), vars.size(),
+  ArrayRef<EqClassID> eqClassIds = allocation->getAllocatedEqClassIds();
+  allocatedRange = registers.alloc(rTy.getResource(), eqClassIds.size(),
                                    allocation->getAlignment());
   if (failed(allocatedRange))
     return alloca.emitError() << "failed to allocate register range";
 
   Register begin = allocatedRange->begin();
-  for (auto [i, var] : llvm::enumerate(vars))
-    coloring[var] = getRegisterType(rTy, Register(begin.getRegister() + i));
+  for (auto [i, eqClassId] : llvm::enumerate(eqClassIds))
+    coloring[eqClassId] =
+        getRegisterType(rTy, Register(begin.getRegister() + i));
   return success();
 }
 
 LogicalResult RegAlloc::run(RewriterBase &rewriter) {
   // Get a deterministic order by sorting the allocas by dominance:
-  SmallVector<AllocaOp> variables;
+  SmallVector<AllocaOp> allocaOps;
   {
     SetVector<Operation *> vars, unsortedVars;
-    unsortedVars.insert_range(
-        llvm::map_range(graph->getVariables(), [](Value v) {
-          return cast<AllocaOp>(v.getDefiningOp());
-        }));
+    unsortedVars.insert_range(llvm::map_range(graph->getValues(), [](Value v) {
+      return cast<AllocaOp>(v.getDefiningOp());
+    }));
     vars = mlir::topologicalSort(unsortedVars);
-    variables = llvm::map_to_vector(
+    allocaOps = llvm::map_to_vector(
         vars.getArrayRef(), [](Operation *op) { return cast<AllocaOp>(op); });
   }
   // Initialize the coloring.
-  coloring.assign(variables.size(), nullptr);
+  coloring.assign(allocaOps.size(), nullptr);
 
-  // Get the variable IDs.
-  SmallVector<VariableID> varIds = llvm::map_to_vector(
-      variables, [&](AllocaOp op) { return graph.getVariableIds(op).front(); });
-  assert(varIds.size() == static_cast<size_t>(graph.sizeNodes()) &&
+  // Get the equivalence class IDs.
+  SmallVector<EqClassID> eqClassIds = llvm::map_to_vector(
+      allocaOps, [&](AllocaOp op) { return graph.getEqClassIds(op).front(); });
+  assert(eqClassIds.size() == static_cast<size_t>(graph.sizeNodes()) &&
          "ill-formed analysis");
 
-  // Pre-color non-relocatable variables.
-  for (auto [var, vid] : llvm::zip(variables, varIds)) {
-    RegisterTypeInterface rTy = var.getType();
+  // Pre-color non-relocatable registers and register ranges.
+  for (auto [allocaOp, eqClassId] : llvm::zip(allocaOps, eqClassIds)) {
+    RegisterTypeInterface rTy = allocaOp.getType();
     if (rTy.isRelocatable())
       continue;
-    coloring[vid] = rTy;
+    coloring[eqClassId] = rTy;
   }
 
   SmallVector<RegisterTypeInterface> localConstraints;
   // Color the graph.
-  for (auto &&[vid, allocOp] : llvm::zip(varIds, variables)) {
-    RegisterTypeInterface &cTy = coloring[vid];
+  for (auto &&[allocaOp, eqClassId] : llvm::zip(allocaOps, eqClassIds)) {
+    RegisterTypeInterface &cTy = coloring[eqClassId];
     if (cTy != nullptr)
       continue;
-    if (failed(allocateVariable(vid, allocOp, cTy, localConstraints)))
+    if (failed(allocateVariable(eqClassId, allocaOp, cTy, localConstraints)))
       return failure();
   }
   LDBG_OS([&](raw_ostream &os) {
@@ -470,14 +471,14 @@ LogicalResult RegAlloc::run(RewriterBase &rewriter) {
         coloring, os, [&](RegisterTypeInterface ty) { os << "  " << ty; },
         "\n");
   });
-  return transform(rewriter, variables, varIds);
+  return transform(rewriter, allocaOps, eqClassIds);
 }
 
 LogicalResult RegAlloc::transform(RewriterBase &rewriter,
                                   MutableArrayRef<AllocaOp> aOp,
-                                  ArrayRef<VariableID> vids) {
-  for (auto [alloca, vid] : llvm::zip(aOp, vids)) {
-    RegisterTypeInterface coloredType = coloring[vid];
+                                  ArrayRef<EqClassID> eqClassIds) {
+  for (auto [alloca, eqClassId] : llvm::zip(aOp, eqClassIds)) {
+    RegisterTypeInterface coloredType = coloring[eqClassId];
     // Insert the new alloca before the original one
     rewriter.setInsertionPoint(alloca);
 

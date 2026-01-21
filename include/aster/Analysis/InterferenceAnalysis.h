@@ -11,7 +11,7 @@
 #ifndef ASTER_ANALYSIS_INTERFERENCEANALYSIS_H
 #define ASTER_ANALYSIS_INTERFERENCEANALYSIS_H
 
-#include "aster/Analysis/VariableAnalysis.h"
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Support/Graph.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
@@ -25,12 +25,13 @@ class SymbolTableCollection;
 } // namespace mlir
 
 namespace mlir::aster {
-class VariableAnalysis;
+class DPSAliasAnalysis;
 /// Interference graph analysis.
 struct InterferenceAnalysis : public Graph {
   /// Create an interference graph for the given operation and data flow solver.
   static FailureOr<InterferenceAnalysis>
-  create(Operation *op, DataFlowSolver &solver, VariableAnalysis *varAnalysis);
+  create(Operation *op, DataFlowSolver &solver,
+         DPSAliasAnalysis *aliasAnalysis);
   static FailureOr<InterferenceAnalysis>
   create(Operation *op, DataFlowSolver &solver,
          SymbolTableCollection &symbolTable);
@@ -38,26 +39,26 @@ struct InterferenceAnalysis : public Graph {
   /// Print the interference graph.
   void print(raw_ostream &os) const;
 
-  /// Get the variable IDs associated with a value.
-  llvm::ArrayRef<VariableID> getVariableIds(Value value) const;
+  /// Get the equivalence class IDs associated with a value.
+  llvm::ArrayRef<EqClassID> getEqClassIds(Value value) const;
 
-  /// Get the underlying variable analysis.
-  const VariableAnalysis *getAnalysis() const { return varAnalysis; }
-  const VariableAnalysis *operator->() const { return varAnalysis; }
+  /// Get the underlying DPS alias analysis.
+  const DPSAliasAnalysis *getAnalysis() const { return aliasAnalysis; }
+  const DPSAliasAnalysis *operator->() const { return aliasAnalysis; }
 
 private:
-  InterferenceAnalysis(DataFlowSolver &solver, VariableAnalysis *varAnalysis)
-      : Graph(false), solver(solver), varAnalysis(varAnalysis) {}
+  InterferenceAnalysis(DataFlowSolver &solver, DPSAliasAnalysis *aliasAnalysis)
+      : Graph(false), solver(solver), aliasAnalysis(aliasAnalysis) {}
   /// Handle a generic operation during graph construction.
   LogicalResult handleOp(Operation *op);
-  /// Add edges between variables.
+  /// Add edges between equivalence classes.
   void addEdges(Value lhsV, Value rhsV, llvm::ArrayRef<int32_t> lhs,
                 llvm::ArrayRef<int32_t> rhs);
   DataFlowSolver &solver;
-  VariableAnalysis *varAnalysis;
+  DPSAliasAnalysis *aliasAnalysis;
   // Scratch space to avoid repeated allocations.
   llvm::SmallVector<std::pair<ResourceTypeInterface, Value>> liveRegsScratch;
-  SmallVector<llvm::ArrayRef<VariableID>> varIdsScratch;
+  SmallVector<llvm::ArrayRef<EqClassID>> eqClassIdsScratch;
 };
 } // end namespace mlir::aster
 

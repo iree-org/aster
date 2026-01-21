@@ -8,9 +8,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Analysis/InterferenceAnalysis.h"
 #include "aster/Analysis/LivenessAnalysis.h"
-#include "aster/Analysis/VariableAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
@@ -34,28 +34,29 @@ using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
-llvm::ArrayRef<VariableID>
-InterferenceAnalysis::getVariableIds(Value value) const {
-  const auto *lattice = solver.lookupState<dataflow::Lattice<Variable>>(value);
-  assert(lattice && "missing variable lattice");
-  const Variable &variable = lattice->getValue();
-  assert(!(variable.isTop() || variable.isUninitialized()) &&
-         "invalid variable value");
-  return variable.getVariableIds();
+llvm::ArrayRef<EqClassID>
+InterferenceAnalysis::getEqClassIds(Value value) const {
+  const auto *lattice =
+      solver.lookupState<dataflow::Lattice<AliasEquivalenceClass>>(value);
+  assert(lattice && "missing equivalence class lattice");
+  const AliasEquivalenceClass &eqClass = lattice->getValue();
+  assert(!(eqClass.isTop() || eqClass.isUninitialized()) &&
+         "invalid equivalence class value");
+  return eqClass.getEqClassIds();
 }
 
 void InterferenceAnalysis::addEdges(Value lhsV, Value rhsV,
-                                    llvm::ArrayRef<VariableID> lhs,
-                                    llvm::ArrayRef<VariableID> rhs) {
-  // Add edges between all pairs of variables in lhs and rhs.
-  for (VariableID l : lhs) {
-    for (VariableID r : rhs) {
+                                    llvm::ArrayRef<EqClassID> lhs,
+                                    llvm::ArrayRef<EqClassID> rhs) {
+  // Add edges between all pairs of equivalence classes in lhs and rhs.
+  for (EqClassID l : lhs) {
+    for (EqClassID r : rhs) {
       if (l != r)
         addEdge(l, r);
     }
   }
   LDBG_OS([&](raw_ostream &os) {
-    os << "Added edge between variables: \n";
+    os << "Added edge between equivalence classes: \n";
     os << "  " << llvm::interleaved_array(lhs) << ": " << lhsV;
     os << "  " << llvm::interleaved_array(rhs) << ": " << rhsV;
   });
@@ -113,19 +114,19 @@ LogicalResult InterferenceAnalysis::handleOp(Operation *op) {
            std::make_tuple(rhs.first, rhs.second.getAsOpaquePointer());
   });
 
-  SmallVectorImpl<llvm::ArrayRef<VariableID>> &varIds = varIdsScratch;
-  varIds.clear();
+  SmallVectorImpl<llvm::ArrayRef<EqClassID>> &eqClassIds = eqClassIdsScratch;
+  eqClassIds.clear();
   for (const auto &[rTy, value] : liveRegs)
-    varIds.push_back(getVariableIds(value));
+    eqClassIds.push_back(getEqClassIds(value));
 
-  // Add edges between all pairs of variables in lhs and rhs.
+  // Add edges between all pairs of equivalence classes in lhs and rhs.
   for (int i = 0, end = static_cast<int>(liveRegs.size()); i < end; ++i) {
     for (int j = i + 1; j < end; ++j) {
       // Skip if the register kinds differ.
       if (liveRegs[i].first.getResource() != liveRegs[j].first.getResource())
         break;
-      llvm::ArrayRef<VariableID> u = varIds[i];
-      llvm::ArrayRef<VariableID> v = varIds[j];
+      llvm::ArrayRef<EqClassID> u = eqClassIds[i];
+      llvm::ArrayRef<EqClassID> v = eqClassIds[j];
       addEdges(liveRegs[i].second, liveRegs[j].second, u, v);
     }
   }
@@ -134,12 +135,12 @@ LogicalResult InterferenceAnalysis::handleOp(Operation *op) {
 
 FailureOr<InterferenceAnalysis>
 InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
-                             VariableAnalysis *varAnalysis) {
+                             DPSAliasAnalysis *aliasAnalysis) {
   // Check for ill-formed IR.
-  if (varAnalysis->isIllFormedIR())
+  if (aliasAnalysis->isIllFormedIR())
     return op->emitError() << "ill-formed IR detected";
 
-  InterferenceAnalysis graph(solver, varAnalysis);
+  InterferenceAnalysis graph(solver, aliasAnalysis);
   // Walk the operation tree to build the interference graph.
   WalkResult result = op->walk([&](Operation *wOp) {
     if (op == wOp)
@@ -154,7 +155,7 @@ InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
     return failure();
 
   // Set the number of nodes and compress the graph.
-  graph.setNumNodes(varAnalysis->getVariables().size());
+  graph.setNumNodes(aliasAnalysis->getValues().size());
   graph.compress();
   LDBG_OS([&](raw_ostream &os) {
     os << "Interference graph:\n";
@@ -168,24 +169,24 @@ InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
                              SymbolTableCollection &symbolTable) {
   // Load the necessary analyses.
   dataflow::loadBaselineAnalyses(solver);
-  auto *varAnalysis = solver.load<aster::VariableAnalysis>();
+  auto *aliasAnalysis = solver.load<aster::DPSAliasAnalysis>();
   solver.load<aster::LivenessAnalysis>(symbolTable);
 
   // Initialize and run the solver.
   if (failed(solver.initializeAndRun(op)))
     return failure();
-  return create(op, solver, varAnalysis);
+  return create(op, solver, aliasAnalysis);
 }
 
 void InterferenceAnalysis::print(raw_ostream &os) const {
   assert(compressed && "Graph must be compressed before printing");
-  ArrayRef<Value> variables = varAnalysis->getVariables();
+  ArrayRef<Value> values = aliasAnalysis->getValues();
   os << "graph InterferenceAnalysis {\n";
   llvm::interleave(
       nodes(), os,
       [&](NodeID node) {
         os << "  " << node << " [label=\"" << node << ", ";
-        variables[node].printAsOperand(os, OpPrintingFlags());
+        values[node].printAsOperand(os, OpPrintingFlags());
         os << "\"];";
       },
       "\n");
