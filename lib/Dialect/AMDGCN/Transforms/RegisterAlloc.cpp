@@ -17,6 +17,7 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
+#include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/IR/Attributes.h"
@@ -106,8 +107,9 @@ private:
                    SmallVectorImpl<RegisterTypeInterface> &constraints);
   void collectConstraints(EqClassID eqClassId,
                           SmallVectorImpl<RegisterTypeInterface> &constraints);
-  LogicalResult transform(RewriterBase &rewriter, MutableArrayRef<AllocaOp> aOp,
-                          ArrayRef<EqClassID> eqClassIds);
+  LogicalResult applyRegisterRewrites(RewriterBase &rewriter,
+                                      MutableArrayRef<AllocaOp> aOp,
+                                      ArrayRef<EqClassID> eqClassIds);
   Operation *topOp;
   InterferenceAnalysis &graph;
   RangeAnalysis &rangeAnalysis;
@@ -471,28 +473,24 @@ LogicalResult RegAlloc::run(RewriterBase &rewriter) {
         coloring, os, [&](RegisterTypeInterface ty) { os << "  " << ty; },
         "\n");
   });
-  return transform(rewriter, allocaOps, eqClassIds);
+
+  return applyRegisterRewrites(rewriter, allocaOps, eqClassIds);
 }
 
-LogicalResult RegAlloc::transform(RewriterBase &rewriter,
-                                  MutableArrayRef<AllocaOp> aOp,
-                                  ArrayRef<EqClassID> eqClassIds) {
+LogicalResult RegAlloc::applyRegisterRewrites(RewriterBase &rewriter,
+                                              MutableArrayRef<AllocaOp> aOp,
+                                              ArrayRef<EqClassID> eqClassIds) {
+  // Rewrite unallocated alloca operations to return an allocated register.
+  // Since we change the return type, this requires a clone and a case.
   for (auto [alloca, eqClassId] : llvm::zip(aOp, eqClassIds)) {
     RegisterTypeInterface coloredType = coloring[eqClassId];
-    // Insert the new alloca before the original one
+    OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(alloca);
-
-    // Create new alloca with the colored register type
     AllocaOp newAlloca =
-        AllocaOp::create(rewriter, alloca.getLoc(), coloredType);
-
-    // Insert unrealized cast from new alloca to original type
-    auto cast =
-        DeallocCastOp::create(rewriter, alloca.getLoc(), newAlloca.getResult());
-
-    // Replace the alloca with the new one
-    rewriter.replaceOp(alloca, cast);
+        rewriter.create<AllocaOp>(alloca.getLoc(), coloredType);
+    rewriter.replaceOpWithNewOp<DeallocCastOp>(alloca, newAlloca.getResult());
   }
+
   // Configure and run the greedy pattern rewriter
   RewritePatternSet patterns(rewriter.getContext());
   patterns.add<InstRewritePattern, MakeRegisterRangeOpPattern,
@@ -500,6 +498,7 @@ LogicalResult RegAlloc::transform(RewriterBase &rewriter,
       rewriter.getContext());
   if (failed(applyPatternsGreedily(topOp, std::move(patterns))))
     return failure();
+
   return success();
 }
 
@@ -511,10 +510,21 @@ void RegisterAlloc::runOnOperation() {
   Operation *op = getOperation();
   if (failed(runVerifiersOnOp<IsAllocatableOpAttr>(op)))
     return signalPassFailure();
+
+  // Run DPSAliasAnalysis first. LivenessAnalysis depends on its results.
+  DataFlowSolver aliasSolver(DataFlowConfig().setInterprocedural(false));
+  dataflow::loadBaselineAnalyses(aliasSolver);
+  auto *aliasAnalysis = aliasSolver.load<DPSAliasAnalysis>();
+  if (failed(aliasSolver.initializeAndRun(op))) {
+    op->emitError() << "Failed to run alias analysis";
+    return signalPassFailure();
+  }
+
+  // Run LivenessAnalysis and create interference graph.
   SymbolTableCollection symbolTable;
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
   FailureOr<InterferenceAnalysis> graph =
-      InterferenceAnalysis::create(op, solver, symbolTable);
+      InterferenceAnalysis::create(op, solver, symbolTable, aliasAnalysis);
   if (failed(graph)) {
     op->emitError() << "Failed to create interference graph";
     return signalPassFailure();

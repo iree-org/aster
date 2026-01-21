@@ -111,8 +111,27 @@ bool LivenessAnalysis::handleTopPropagation(const LivenessState &after,
   return false;
 }
 
-#define DUMP_STATE_HELPER(name, obj)                                           \
-  auto _atExit = llvm::make_scope_exit([&]() {                                 \
+/// Helper to print a block as an operand (e.g. "^bb3").
+struct PrintableBlock {
+  Block *block;
+  friend raw_ostream &operator<<(raw_ostream &os, const PrintableBlock &b) {
+    b.block->printAsOperand(os);
+    return os;
+  }
+};
+
+/// Helper to print a ProgramPoint* by dereferencing it.
+struct PrintableProgramPoint {
+  ProgramPoint *point;
+  friend raw_ostream &operator<<(raw_ostream &os,
+                                 const PrintableProgramPoint &p) {
+    p.point->print(os);
+    return os;
+  }
+};
+
+#define DUMP_STATE_HELPER(uniqueGuardName, name, obj)                          \
+  auto uniqueGuardName = llvm::make_scope_exit([&]() {                         \
     LDBG_OS([&](raw_ostream &os) {                                             \
       os << "Visiting " name ": " << obj << "\n";                              \
       os << "  Incoming lattice: ";                                            \
@@ -136,60 +155,42 @@ static void collectEqClassIds(DPSAliasAnalysis *aliasAnalysis,
 LogicalResult LivenessAnalysis::visitOperation(Operation *op,
                                                const LivenessState &after,
                                                LivenessState *before) {
-  DUMP_STATE_HELPER("op", OpWithFlags(op, OpPrintingFlags().skipRegions()));
+  DUMP_STATE_HELPER(g1, "op", OpWithFlags(op, OpPrintingFlags().skipRegions()));
   if (handleTopPropagation(after, before))
     return success();
 
-  // Handle instruction operations.
-  if (auto inst = dyn_cast<InstOpInterface>(op)) {
+  // AllocaOp is the only operation that defines a new equivalence class.
+  // As we traverse dataflow backwards, the equivalence class is dead before.
+  if (auto allocaOp = dyn_cast<amdgcn::AllocaOp>(op)) {
     SmallVector<EqClassID> deadEqClassIds;
-    collectEqClassIds(aliasAnalysis, op->getResults(), deadEqClassIds);
-    // Append instruction outputs to dead values, as they are actually result
-    // values.
-    collectEqClassIds(aliasAnalysis, inst.getInstOuts(), deadEqClassIds);
-    SmallVector<EqClassID> liveEqClassIds;
-    collectEqClassIds(aliasAnalysis, inst.getInstIns(), liveEqClassIds);
-    transferFunction(after, before, std::move(deadEqClassIds), liveEqClassIds);
+    collectEqClassIds(aliasAnalysis, allocaOp.getResult(), deadEqClassIds);
+    transferFunction(after, before, std::move(deadEqClassIds), {});
     return success();
   }
 
-  // Handle MakeRegisterRangeOp.
-  if (auto mOp = dyn_cast<amdgcn::MakeRegisterRangeOp>(op)) {
-    SmallVector<EqClassID> deadEqClassIds;
-    collectEqClassIds(aliasAnalysis, op->getResults(), deadEqClassIds);
-    // The operands are aliased with the result, they must be live before this
-    // op.
-    SmallVector<EqClassID> liveEqClassIds;
-    collectEqClassIds(aliasAnalysis, op->getOperands(), liveEqClassIds);
-    transferFunction(after, before, std::move(deadEqClassIds), liveEqClassIds);
-    return success();
-  }
-
-  // Handle SplitRegisterRangeOp.
-  if (auto sOp = dyn_cast<amdgcn::SplitRegisterRangeOp>(op)) {
-    SmallVector<EqClassID> deadEqClassIds;
-    collectEqClassIds(aliasAnalysis, op->getResults(), deadEqClassIds);
-    // The operands are aliased with the results, they must be live before this
-    // op.
-    SmallVector<EqClassID> liveEqClassIds;
-    collectEqClassIds(aliasAnalysis, op->getOperands(), liveEqClassIds);
-    transferFunction(after, before, std::move(deadEqClassIds), liveEqClassIds);
-    return success();
-  }
-
-  // Handle RegInterferenceOp.
-  if (auto iOp = dyn_cast<amdgcn::RegInterferenceOp>(op)) {
-    // Reg interference operations do not affect liveness.
+  // Handle MakeRegisterRangeOp, SplitRegisterRangeOp and RegInterferenceOp.
+  // These are pure aliasing ops and do not affect liveness.
+  if (isa<amdgcn::MakeRegisterRangeOp, amdgcn::SplitRegisterRangeOp,
+          amdgcn::RegInterferenceOp>(op)) {
     transferFunction(after, before, {}, {});
     return success();
   }
 
-  // Handle generic operations.
-  SmallVector<EqClassID> deadEqClassIds;
-  collectEqClassIds(aliasAnalysis, op->getResults(), deadEqClassIds);
+  // Handle InstOpInterface operations.
+  // These operations can only make existing equivalence classes live before.
+  if (auto inst = dyn_cast<InstOpInterface>(op)) {
+    SmallVector<EqClassID> liveEqClassIds;
+    // collectEqClassIds(aliasAnalysis, inst.getInstOuts(), liveEqClassIds);
+    collectEqClassIds(aliasAnalysis, inst.getInstIns(), liveEqClassIds);
+    transferFunction(after, before, {}, liveEqClassIds);
+    return success();
+  }
+
+  // Handle other operations.
+  // These operations can only make existing equivalence classes live before.
   SmallVector<EqClassID> liveEqClassIds;
   collectEqClassIds(aliasAnalysis, op->getOperands(), liveEqClassIds);
-  transferFunction(after, before, std::move(deadEqClassIds), liveEqClassIds);
+  transferFunction(after, before, {}, liveEqClassIds);
   return success();
 }
 
@@ -197,7 +198,9 @@ void LivenessAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
                                           Block *successor,
                                           const LivenessState &after,
                                           LivenessState *before) {
-  DUMP_STATE_HELPER("block", block);
+  DUMP_STATE_HELPER(g1, "with successor", PrintableBlock{successor});
+  DUMP_STATE_HELPER(g2, "within block", PrintableBlock{block});
+  DUMP_STATE_HELPER(g3, "program point", PrintableProgramPoint{point});
   if (handleTopPropagation(after, before))
     return;
   SmallVector<EqClassID> deadEqClassIds;
@@ -208,7 +211,7 @@ void LivenessAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
 void LivenessAnalysis::visitCallControlFlowTransfer(
     CallOpInterface call, dataflow::CallControlFlowAction action,
     const LivenessState &after, LivenessState *before) {
-  DUMP_STATE_HELPER("call op",
+  DUMP_STATE_HELPER(g1, "call op",
                     OpWithFlags(call, OpPrintingFlags().skipRegions()));
   if (handleTopPropagation(after, before))
     return;
@@ -225,7 +228,7 @@ void LivenessAnalysis::visitRegionBranchControlFlowTransfer(
     RegionBranchOpInterface branch, RegionBranchPoint regionFrom,
     RegionSuccessor regionTo, const LivenessState &after,
     LivenessState *before) {
-  DUMP_STATE_HELPER("branch op",
+  DUMP_STATE_HELPER(g1, "branch op",
                     OpWithFlags(branch, OpPrintingFlags().skipRegions()));
   if (handleTopPropagation(after, before))
     return;

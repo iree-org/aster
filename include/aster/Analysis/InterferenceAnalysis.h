@@ -29,12 +29,17 @@ class DPSAliasAnalysis;
 /// Interference graph analysis.
 struct InterferenceAnalysis : public Graph {
   /// Create an interference graph for the given operation and data flow solver.
+  /// The aliasAnalysis must be fully computed before calling this function.
+  /// This overload expects LivenessAnalysis to already be loaded in the solver.
   static FailureOr<InterferenceAnalysis>
   create(Operation *op, DataFlowSolver &solver,
          DPSAliasAnalysis *aliasAnalysis);
+
+  /// Create an interference graph, loading and running LivenessAnalysis.
+  /// The aliasAnalysis must be fully computed before calling this function.
   static FailureOr<InterferenceAnalysis>
   create(Operation *op, DataFlowSolver &solver,
-         SymbolTableCollection &symbolTable);
+         SymbolTableCollection &symbolTable, DPSAliasAnalysis *aliasAnalysis);
 
   /// Print the interference graph.
   void print(raw_ostream &os) const;

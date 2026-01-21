@@ -36,13 +36,7 @@ using namespace mlir::aster::amdgcn;
 
 llvm::ArrayRef<EqClassID>
 InterferenceAnalysis::getEqClassIds(Value value) const {
-  const auto *lattice =
-      solver.lookupState<dataflow::Lattice<AliasEquivalenceClass>>(value);
-  assert(lattice && "missing equivalence class lattice");
-  const AliasEquivalenceClass &eqClass = lattice->getValue();
-  assert(!(eqClass.isTop() || eqClass.isUninitialized()) &&
-         "invalid equivalence class value");
-  return eqClass.getEqClassIds();
+  return aliasAnalysis->getEqClassIds(value);
 }
 
 void InterferenceAnalysis::addEdges(Value lhsV, Value rhsV,
@@ -169,13 +163,11 @@ InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
 
 FailureOr<InterferenceAnalysis>
 InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
-                             SymbolTableCollection &symbolTable) {
-  // Load the necessary analyses.
+                             SymbolTableCollection &symbolTable,
+                             DPSAliasAnalysis *aliasAnalysis) {
+  // Load and run LivenessAnalysis with the pre-computed alias analysis.
   dataflow::loadBaselineAnalyses(solver);
-  auto *aliasAnalysis = solver.load<aster::DPSAliasAnalysis>();
   solver.load<aster::LivenessAnalysis>(symbolTable, aliasAnalysis);
-
-  // Initialize and run the solver.
   if (failed(solver.initializeAndRun(op)))
     return failure();
   return create(op, solver, aliasAnalysis);
