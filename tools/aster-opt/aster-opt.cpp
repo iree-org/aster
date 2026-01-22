@@ -19,6 +19,7 @@
 
 // Forward declaration for test pass registration
 namespace mlir::aster::test {
+void registerTestLivenessAnalysisPass();
 void registerTestMemoryDependenceAnalysisPass();
 } // namespace mlir::aster::test
 
@@ -36,6 +37,7 @@ int main(int argc, char **argv) {
   /// Aster C++ stuff
   aster::initDialects(registry);
   aster::registerPasses();
+  aster::test::registerTestLivenessAnalysisPass();
   aster::test::registerTestMemoryDependenceAnalysisPass();
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "aster modular optimizer driver\n", registry));

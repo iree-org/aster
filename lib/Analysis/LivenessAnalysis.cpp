@@ -32,6 +32,41 @@ using namespace mlir::aster::amdgcn;
 using namespace mlir::dataflow;
 
 //===----------------------------------------------------------------------===//
+// Helper functions
+//===----------------------------------------------------------------------===//
+
+/// Compare two values by program order for deterministic sorting.
+/// Block arguments come before op results. Block arguments are compared by
+/// block and argument number. Op results are compared by operation order.
+static bool compareValuesByProgramOrder(Value a, Value b) {
+  // Block arguments come before op results.
+  bool aIsArg = isa<BlockArgument>(a);
+  bool bIsArg = isa<BlockArgument>(b);
+  if (aIsArg != bIsArg)
+    return aIsArg;
+
+  if (aIsArg) {
+    // Both are block arguments - compare by block and arg number.
+    auto argA = cast<BlockArgument>(a);
+    auto argB = cast<BlockArgument>(b);
+    if (argA.getOwner() != argB.getOwner())
+      return argA.getOwner() < argB.getOwner();
+    return argA.getArgNumber() < argB.getArgNumber();
+  }
+
+  // Both are op results - compare by operation order.
+  Operation *opA = a.getDefiningOp();
+  Operation *opB = b.getDefiningOp();
+  if (opA == opB)
+    return cast<OpResult>(a).getResultNumber() <
+           cast<OpResult>(b).getResultNumber();
+  if (opA->getBlock() == opB->getBlock())
+    return opA->isBeforeInBlock(opB);
+  // Different blocks - use pointer comparison for stability.
+  return opA->getBlock() < opB->getBlock();
+}
+
+//===----------------------------------------------------------------------===//
 // LivenessState
 //===----------------------------------------------------------------------===//
 
@@ -46,8 +81,13 @@ void LivenessState::print(raw_ostream &os) const {
   }
   const LiveSet *values = getLiveValues();
   assert(values && "Live values should be valid here");
+
+  // Sort values by program order for deterministic output.
+  SmallVector<Value> sortedValues(values->begin(), values->end());
+  llvm::sort(sortedValues, compareValuesByProgramOrder);
+
   os << "[";
-  llvm::interleaveComma(*values, os, [&](Value value) {
+  llvm::interleaveComma(sortedValues, os, [&](Value value) {
     value.printAsOperand(os, OpPrintingFlags());
   });
   os << "]";
