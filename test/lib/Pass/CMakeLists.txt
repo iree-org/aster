@@ -1,4 +1,5 @@
 add_mlir_library(ASTERTestPass
+  TestDPSAliasAnalysis.cpp
   TestLivenessAnalysis.cpp
   TestMemoryDependenceAnalysis.cpp
 
