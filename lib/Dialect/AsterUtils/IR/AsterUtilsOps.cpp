@@ -13,6 +13,8 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/ValueRange.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/InliningUtils.h"
 
@@ -82,8 +84,13 @@ void ExecuteRegionOp::getSuccessorRegions(
     regions.push_back(RegionSuccessor(&getRegion()));
     return;
   }
-  regions.push_back(
-      RegionSuccessor(getOperation()->getParentOp(), getResults()));
+  regions.push_back(RegionSuccessor::parent());
+}
+
+ValueRange ExecuteRegionOp::getSuccessorInputs(RegionSuccessor successor) {
+  if (successor.isParent())
+    return getResults();
+  return {};
 }
 
 //===----------------------------------------------------------------------===//

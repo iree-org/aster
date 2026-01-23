@@ -239,9 +239,9 @@ void LivenessAnalysis::visitRegionBranchControlFlowTransfer(
                     OpWithFlags(branch, OpPrintingFlags().skipRegions()));
   if (handleTopPropagation(after, before))
     return;
-  transferFunction(after, before,
-                   llvm::to_vector_of<Value>(regionTo.getSuccessorInputs()),
-                   {});
+  transferFunction(
+      after, before,
+      llvm::to_vector_of<Value>(branch.getSuccessorInputs(regionTo)), {});
 }
 
 void LivenessAnalysis::setToExitState(LivenessState *lattice) {

@@ -102,7 +102,9 @@ def AsterUtils_BlockIdOp : AsterUtils_Op<"block_id", [
 
 def AsterUtils_ExecuteRegionOp : AsterUtils_Op<"execute_region", [
     AffineScope, AutomaticAllocationScope, NoRegionArguments,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface>,
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, [
+      "getSuccessorInputs"
+    ]>,
     RecursiveMemoryEffects,
     SingleBlockImplicitTerminator<"aster_utils::YieldOp">,
   ]> {
