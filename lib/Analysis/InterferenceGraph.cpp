@@ -196,13 +196,12 @@ InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
                              SymbolTableCollection &symbolTable) {
   // Load the necessary analyses.
   dataflow::loadBaselineAnalyses(solver);
-  auto *aliasAnalysis = solver.load<aster::DPSAliasAnalysis>();
-  solver.load<aster::LivenessAnalysis>(symbolTable, aliasAnalysis);
+  auto *livenessAnalysis = solver.load<aster::LivenessAnalysis>(symbolTable);
 
   // Initialize and run the solver.
   if (failed(solver.initializeAndRun(op)))
     return failure();
-  return create(op, solver, aliasAnalysis);
+  return create(op, solver, livenessAnalysis->getAliasAnalysis());
 }
 
 void InterferenceAnalysis::print(raw_ostream &os) const {

@@ -379,7 +379,9 @@ void LivenessAnalysis::visitRegionBranchControlFlowTransfer(
     return;
   }
   SmallVector<Value> deadValues;
-  collectRegisterValues(llvm::to_vector_of<Value>(branch.getSuccessorInputs(regionTo)), deadValues);
+  collectRegisterValues(
+      llvm::to_vector_of<Value>(branch.getSuccessorInputs(regionTo)),
+      deadValues);
   SmallVector<Value> liveValues;
   // The branch operation's operands (e.g., the condition in cf.cond_br) are
   // used by the branch and should be live before it.

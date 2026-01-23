@@ -60,14 +60,15 @@ public:
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       SymbolTableCollection symbolTable;
       dataflow::loadBaselineAnalyses(solver);
-      auto *aliasAnalysis = solver.load<DPSAliasAnalysis>();
-      solver.load<LivenessAnalysis>(symbolTable, aliasAnalysis);
+      auto *livenessAnalysis = solver.load<LivenessAnalysis>(symbolTable);
 
       // Initialize and run the solver on the kernel
       if (failed(solver.initializeAndRun(kernel))) {
         kernel.emitError() << "Failed to run liveness analysis";
         return;
       }
+
+      auto *aliasAnalysis = livenessAnalysis->getAliasAnalysis();
 
       // Collect all values per equivalence class
       llvm::DenseMap<EqClassID, llvm::SmallVector<Value>> eqClassToValues;
