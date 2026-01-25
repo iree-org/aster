@@ -35,6 +35,10 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+namespace mlir {
+class PatternRewriter;
+}
+
 #define GET_OP_CLASSES
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h.inc"
 

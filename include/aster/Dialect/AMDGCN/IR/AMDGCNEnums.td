@@ -174,7 +174,7 @@ def SregKind : AutoI32EnumCases<"SregKind",
 // AMDGCN memory instruction kind.
 //===----------------------------------------------------------------------===//
 
-def MemoryInstructionKind : AutoI32EnumCases<"MemoryInstructionKind",
+def MemoryInstructionKind : AutoI8EnumCases<"MemoryInstructionKind",
   "AMDGCN memory instruction kind", [
     PrettyEnumCaseInfo<"none">,
     PrettyEnumCaseInfo<"flat">,

@@ -23,6 +23,7 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
@@ -30,12 +31,9 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/InliningUtils.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/SMLoc.h"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -706,6 +704,139 @@ LogicalResult LibraryOp::verify() {
   // Verify ISA support for all operations in the library.
   return verifyISAsSupportImpl(getBodyRegion(), isas,
                                [&]() { return emitError(); });
+}
+
+//===----------------------------------------------------------------------===//
+// WaitOp
+//===----------------------------------------------------------------------===//
+
+Value WaitOp::getOutDependency() { return Value(); }
+
+bool WaitOp::addDependencies(ValueRange deps) {
+  bool changed = false;
+  if (deps.empty())
+    return changed;
+  getDependenciesMutable().append(deps);
+  changed = true;
+  return changed;
+}
+
+bool WaitOp::removeDependencies(ValueRange deps) {
+  bool changed = false;
+  if (deps.empty())
+    return changed;
+  MutableOperandRange operands = getDependenciesMutable();
+  llvm::SmallPtrSet<Value, 5> removeSet(deps.begin(), deps.end());
+  SmallVector<Value> remaining;
+  for (Value dep : operands.getAsOperandRange()) {
+    if (removeSet.contains(dep))
+      continue;
+    remaining.push_back(dep);
+  }
+  if (remaining.size() != operands.size()) {
+    operands.assign(remaining);
+    changed = true;
+  }
+  return changed;
+}
+
+void WaitOp::setDependencies(ValueRange deps) {
+  getDependenciesMutable().assign(deps);
+}
+
+/// Merge contiguous wait ops into a single wait op and canonicalize its
+/// operands.
+static LogicalResult canonicalizeWaitImpl(WaitOp waitOp, RewriterBase &rewriter,
+                                          llvm::SetVector<Value> &deps) {
+  deps.clear();
+  bool changed = false;
+
+  // Helper to remove duplicate dependency operands.
+  auto removeDuplicates = [&]() {
+    MutableOperandRange operands = waitOp.getDependenciesMutable();
+    deps.insert_range(operands.getAsOperandRange());
+    if (deps.size() != operands.size()) {
+      operands.assign(deps.getArrayRef());
+      changed = true;
+    }
+  };
+
+  /// Early exit if the wait op is not in a block.
+  Block::iterator bbEnd;
+  if (Block *bb = waitOp->getBlock()) {
+    bbEnd = bb->end();
+  } else {
+    removeDuplicates();
+    if (changed)
+      rewriter.modifyOpInPlace(waitOp, []() {});
+    return success(changed);
+  }
+
+  Block::iterator start = waitOp->getIterator(),
+                  end = ++(waitOp->getIterator());
+  // Find the end of the contiguous wait ops.
+  while (end != bbEnd) {
+    Operation &op = *end;
+    // Stop at non-wait ops.
+    auto wait = dyn_cast<WaitOp>(op);
+    if (!wait)
+      break;
+    ++end;
+  }
+
+  // Compute the new counts and arguments
+  uint16_t vmCnt = waitOp.getVmCnt(), lgkmCnt = waitOp.getLgkmCnt();
+  while (start != end) {
+    auto wait = cast<WaitOp>(*(start++));
+    deps.insert_range(wait.getDependencies());
+    vmCnt = std::min(vmCnt, wait.getVmCnt());
+    lgkmCnt = std::min(lgkmCnt, wait.getLgkmCnt());
+
+    // Erase redundant wait ops.
+    if (wait != waitOp) {
+      rewriter.eraseOp(wait);
+      changed = true;
+    }
+  }
+
+  // Update the original wait op.
+  removeDuplicates();
+  if (waitOp.getVmCnt() != vmCnt) {
+    changed = true;
+    waitOp.setVmCnt(vmCnt);
+  }
+  if (waitOp.getLgkmCnt() != lgkmCnt) {
+    changed = true;
+    waitOp.setLgkmCnt(lgkmCnt);
+  }
+  if (changed)
+    rewriter.modifyOpInPlace(waitOp, []() {});
+  return success(changed);
+}
+
+FailureOr<Block::iterator>
+WaitOp::canonicalizeWait(WaitOp op, RewriterBase &rewriter,
+                         llvm::SetVector<Value> &deps) {
+  deps.clear();
+  LogicalResult res = canonicalizeWaitImpl(op, rewriter, deps);
+
+  // Get the next iterator before potentially erasing the op.
+  Block::iterator nextIt;
+  if (op->getBlock() != nullptr) {
+    nextIt = op->getIterator();
+    ++nextIt;
+  }
+  if (op.isNop()) {
+    rewriter.eraseOp(op);
+    return nextIt;
+  }
+  return failed(res) ? FailureOr<Block::iterator>(res)
+                     : FailureOr<Block::iterator>(nextIt);
+}
+
+LogicalResult WaitOp::canonicalize(WaitOp op, PatternRewriter &rewriter) {
+  llvm::SetVector<Value> deps;
+  return op.canonicalizeWait(op, rewriter, deps);
 }
 
 //===----------------------------------------------------------------------===//

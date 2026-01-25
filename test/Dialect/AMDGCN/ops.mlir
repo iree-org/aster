@@ -179,3 +179,22 @@ func.func @test_sopp_nop_with_imm_max() {
   amdgcn.sopp.sopp #amdgcn.inst<s_nop> , imm = 15
   return
 }
+
+//===----------------------------------------------------------------------===//
+// Wait Operation
+//===----------------------------------------------------------------------===//
+
+func.func @test_waits(
+    %rt1: !amdgcn.read_token<flat>,
+    %rt2: !amdgcn.read_token<shared>,
+    %wt1: !amdgcn.write_token<flat>) {
+  // Wait for tokens.
+  amdgcn.wait deps %rt1 : !amdgcn.read_token<flat>
+  amdgcn.wait deps %rt1, %rt2 : !amdgcn.read_token<flat>, !amdgcn.read_token<shared>
+  amdgcn.wait deps %rt1, %wt1 : !amdgcn.read_token<flat>, !amdgcn.write_token<flat>
+  // Mixed wait with counts and tokens.
+  amdgcn.wait vm_cnt 0 lgkm_cnt 1 deps %rt1, %wt1 : !amdgcn.read_token<flat>, !amdgcn.write_token<flat>
+  // Wait with only counts.
+  amdgcn.wait vm_cnt 2
+  return
+}

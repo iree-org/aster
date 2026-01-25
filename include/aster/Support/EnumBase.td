@@ -40,6 +40,10 @@ class AutoEnumCases<string name, string summary, list<EnumCaseInfo> cases,
     : IntEnum<name, summary, _EnumCases<cases, bitwidth, start>.cases,
               bitwidth> {}
 
+class AutoI8EnumCases<string name, string summary, list<EnumCaseInfo> cases,
+                       int start = 0>
+    : IntEnum<name, summary, _EnumCases<cases, 8, start>.cases, 8> {}
+
 class AutoI32EnumCases<string name, string summary, list<EnumCaseInfo> cases,
                        int start = 0>
     : IntEnum<name, summary, _EnumCases<cases, 32, start>.cases, 32> {}

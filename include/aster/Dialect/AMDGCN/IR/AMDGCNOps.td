@@ -21,6 +21,7 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
+include "aster/Interfaces/DependentOpInterface.td"
 include "aster/Interfaces/GPUFuncInterface.td"
 include "aster/Interfaces/ModuleOpInterface.td"
 include "mlir/Interfaces/CallInterfaces.td"
@@ -510,6 +511,80 @@ def AMDGCN_ThreadIdOp : AMDGCN_Op<"thread_id", [Pure]> {
   let arguments = (ins DimAttr:$dim);
   let results = (outs VGPRType:$result);
   let assemblyFormat = "$dim attr-dict `:` type($result)";
+}
+
+//===----------------------------------------------------------------------===//
+// WaitOp
+//===----------------------------------------------------------------------===//
+
+def WaitCountAttr :
+  DefaultValuedAttr<I16Attr, "std::numeric_limits<uint16_t>::max()">;
+
+def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
+    DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>
+  ]> {
+  let summary = "AMDGCN wait operation";
+  let description = [{
+    Waits for the completion of operations represented by the given dependency
+    tokens, or attributes. This operation is used to express ordering
+    constraints between operations.
+
+    The attributes control which memory subsystems to wait for:
+    - `vm_cnt`: Wait for vector memory operations
+    - `lgkm_cnt`: Wait for lds, gws and constant memory operations
+
+    NOTE: This operations is compatiable only with CDNA3 and CDNA4 targets.
+    TODO: Support RDNA4 counts, and other targets.
+
+    Example:
+    ```mlir
+    %tok0 = amdgcn.store global_store_dword data %data addr %addr
+        : ins(!amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>)
+          -> !amdgcn.write_token<flat>
+    %result, %tok1 = amdgcn.load global_load_dword dest %dest addr %addr2
+        : dps(!amdgcn.vgpr_range<[? + 1]>) ins(!amdgcn.vgpr_range<[? + 2]>)
+          -> !amdgcn.read_token<flat>
+    amdgcn.wait %tok0, %tok1 : !amdgcn.write_token<flat>, !amdgcn.read_token<flat>
+    ```
+  }];
+  let arguments = (ins
+    Variadic<TokenDependencyTypeInterface>:$dependencies,
+    WaitCountAttr:$vm_cnt, WaitCountAttr:$lgkm_cnt
+  );
+  let assemblyFormat = [{
+    oilist(`vm_cnt` $vm_cnt | `lgkm_cnt` $lgkm_cnt) (`deps` $dependencies^)?
+    attr-dict (`:` type($dependencies)^)?
+  }];
+  let extraClassDeclaration = [{
+    static constexpr uint16_t kNoWaitCount = std::numeric_limits<uint16_t>::max();
+
+    /// Canonicalize the wait operation, this method removes duplicate operands,
+    /// merges consecutive wait operations if possible. Returns an iterator to
+    /// the next operation if changes were made, or failure otherwise.
+    static FailureOr<Block::iterator> canonicalizeWait(WaitOp op,
+      RewriterBase &rewriter, llvm::SetVector<Value>& uniqueDeps);
+
+    /// Add dependencies to the wait operation.
+    bool addDependencies(ValueRange deps);
+
+    /// Remove dependencies from the wait operation. Returns true if any changes
+    /// were made.
+    bool removeDependencies(ValueRange deps);
+
+    /// Set the dependencies of the wait operation.
+    void setDependencies(ValueRange deps);
+
+    /// Check if the wait operation waits for any memory subsystem.
+    bool hasAnyCount() {
+      return getVmCnt() != kNoWaitCount || getLgkmCnt() != kNoWaitCount;
+    }
+
+    /// Check if the wait operation is a no-op (has no dependencies).
+    bool isNop() {
+      return !hasAnyCount() && getDependencies().empty();
+    }
+  }];
+  let hasCanonicalizeMethod = 1;
 }
 
 //===----------------------------------------------------------------------===//
