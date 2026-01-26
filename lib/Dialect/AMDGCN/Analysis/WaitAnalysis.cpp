@@ -61,28 +61,21 @@ static bool merge(SmallVectorImpl<TokenState> &target,
   bool changed = false;
   while (i < n) {
     if (j >= m) {
-      temp.push_back(target[i]);
-      i++;
+      temp.push_back(target[i++]);
       continue;
     }
     if (target[i] < source[j]) {
-      temp.push_back(target[i]);
-      i++;
+      temp.push_back(target[i++]);
     } else if (source[j] < target[i]) {
-      temp.push_back(source[j]);
-      j++;
+      temp.push_back(source[j++]);
     } else {
-      TokenState merged = target[i];
-      changed |= merged.merge(source[j]);
+      TokenState merged = target[i++];
+      changed |= merged.merge(source[j++]);
       temp.push_back(merged);
-      i++;
-      j++;
     }
   }
-  while (j < m) {
-    temp.push_back(source[j]);
-    j++;
-  }
+  while (j < m)
+    temp.push_back(source[j++]);
   target = std::move(temp);
   return changed || target.size() != oldSize;
 }
@@ -549,11 +542,15 @@ LogicalResult WaitAnalysis::visitOperation(Operation *op,
   // Handle other operations.
   ChangeResult changed = after->join(before);
   SmallVector<TokenState> producedTokens;
+
+  // Collect produced tokens.
   for (OpResult result : op->getResults()) {
     if (getMemoryKindFromToken(result) == MemoryInstructionKind::None)
       continue;
     producedTokens.push_back(getState(result, 0));
   }
+
+  // Add produced tokens to the reaching set.
   if (!producedTokens.empty()) {
     llvm::sort(producedTokens);
     producedTokens.erase(llvm::unique(producedTokens), producedTokens.end());
@@ -573,6 +570,7 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   SmallVector<TokenState> scratch;
   SmallVector<TokenState> &tokens = after->reachingTokens;
   escapedTokens.clear();
+
   // Get tokens reaching the beginning of the block.
   changed |= addTokensByDominance(
       tokens, scratch, escapedTokens, before.reachingTokens,
@@ -581,6 +579,7 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
     os << "  Initial escaped tokens: "
        << llvm::interleaved_array(escapedTokens);
   });
+
   // Propagate tokens from the predecessor to this block.
   for (auto [i, succ] : llvm::enumerate(terminator->getSuccessors())) {
     if (succ != block)
@@ -590,6 +589,7 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
         terminator.getSuccessorOperands(i).getForwardedOperands(),
         block->getArguments());
   }
+
   // Handle escaped tokens.
   changed |= WaitCnt::handleEscapedTokens(tokens, escapedTokens);
   propagateIfChanged(after,
@@ -610,10 +610,12 @@ void WaitAnalysis::visitRegionBranchControlFlowTransfer(
   SmallVector<TokenState> scratch;
   SmallVector<TokenState> &tokens = after->reachingTokens;
   escapedTokens.clear();
+
   // Determine the successor.
   RegionSuccessor successor =
       regionTo ? RegionSuccessor(&branch->getRegion(*regionTo))
                : RegionSuccessor::parent();
+
   // Get the reaching tokens that are control-flow independent.
   changed |= addTokensByDominance(
       tokens, scratch, escapedTokens, predecessorTokens, [&](Value v) {
@@ -631,6 +633,7 @@ void WaitAnalysis::visitRegionBranchControlFlowTransfer(
         branch.getSuccessorOperands(RegionBranchPoint::parent(), successor),
         branch.getSuccessorInputs(successor));
   } else {
+    // Branch from a region.
     walkTerminators(&branch->getRegion(*regionFrom),
                     [&](RegionBranchTerminatorOpInterface terminator) {
                       changed |= mapControlFlowOperands(
@@ -640,6 +643,7 @@ void WaitAnalysis::visitRegionBranchControlFlowTransfer(
                           branch.getSuccessorInputs(successor));
                     });
   }
+
   // Handle escaped tokens.
   changed |= WaitCnt::handleEscapedTokens(tokens, escapedTokens);
   propagateIfChanged(after,
