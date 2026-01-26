@@ -31,13 +31,13 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @tiled_grid_partition_2d(index, index, index, index) -> (index, index)
   // copies.mlir
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(
-    !sx2, index, index, index, index, index, index) -> (!vx2)
+    !sx2, index, index, index, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
-    index, index, index, index, index, !vx2) -> ()
+    index, index, index, index, index, !vx2) -> !amdgcn.write_token<shared>
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    index, index, index, index) -> !vx2
+    index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
-    !vx4, !sx2, index, index, index, index, index) -> ()
+    !vx4, !sx2, index, index, index, index, index) -> !amdgcn.write_token<flat>
   // multi-tile-copies.mlir
   func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
   func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
@@ -114,9 +114,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %elt_size = arith.constant 2 : index // f16 size in bytes
       %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
         (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
-      func.call @lds_write_wave_256xf16_via_dwordx2_wait(
+      %tok_write = func.call @lds_write_wave_256xf16_via_dwordx2_wait(
           %lds_base_off, %ii_pos, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
-        : (index, index, index, index, index, !vx2) -> ()
+        : (index, index, index, index, index, !vx2) -> !amdgcn.write_token<shared>
     }
     return
   }
@@ -141,9 +141,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
         (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
       // Note: LDS read A and B are the same function because B is NxK atm.
-      %frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+      %frag, %tok_read = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
           %lds_base_off, %ii_pos, %jj_pos, %LDS_STRIDE_IN_BYTES)
-        : (index, index, index, index) -> !vx2
+        : (index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
       memref.store %frag, %frag_memref[%k, %ii, %jj] : memref<?x?x?x!vx2>
     }
     return
@@ -191,9 +191,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %nn_pos = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
       %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
         (SIZE_N * 4)>()[%SIZE_N]
-      func.call @global_store_wave_16x16xf32_C_fragment_wait(
+      %tok_store = func.call @global_store_wave_16x16xf32_C_fragment_wait(
           %fragment, %c_global, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos)
-        : (!vx4, !sx2, index, index, index, index, index) -> ()
+        : (!vx4, !sx2, index, index, index, index, index) -> !amdgcn.write_token<flat>
     }
     return
   }

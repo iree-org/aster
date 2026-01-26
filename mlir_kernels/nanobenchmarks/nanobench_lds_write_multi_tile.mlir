@@ -9,7 +9,7 @@
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Library declarations
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
-    index, index, index, index, index, index, memref<?x!vx2>)
+    index, index, index, index, index, index, memref<?x!vx2>) -> !amdgcn.write_token<shared>
 
   func.func private @maybe_lds_write_multi_tile_coalesced(
     index, index, index, index,

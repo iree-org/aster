@@ -18,11 +18,11 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   // Library function declarations (provided by amdgcn-preload-library pass)
   //===--------------------------------------------------------------------===//
   // copies.mlir
-  func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
-  func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index)
-  func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> !vx2
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> !vx2
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2)
+  func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
+  func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index) -> !amdgcn.write_token<shared>
+  func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
+  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> !amdgcn.write_token<shared>
 
   //===--------------------------------------------------------------------===//
   // Conditional multi-tile LDS write
@@ -77,9 +77,9 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
           %m_pos = affine.apply affine_map<()[ii_pos, i] -> (ii_pos + i * 16)>()[%ii_pos, %i]
           %n_pos = affine.apply affine_map<()[jj_pos, j] -> (jj_pos + j * 16)>()[%jj_pos, %j]
 
-          func.call @simple_lds_write_wave_16x16xf16_wait(
+          %tok_write = func.call @simple_lds_write_wave_16x16xf16_wait(
             %value, %lds_base_off, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES)
-            : (!vx2, index, index, index, index) -> ()
+            : (!vx2, index, index, index, index) -> !amdgcn.write_token<shared>
         } {aster.constexpr}
       } {aster.constexpr}
     }

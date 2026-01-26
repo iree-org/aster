@@ -45,7 +45,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos: index,                  // The outer-most tile position
     %n_pos: index,                  // The inner-most tile position
     %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
-  ) -> !vx2 {
+  ) -> (!vx2, !amdgcn.read_token<flat>) {
     %num_rows = arith.constant 16 : index
     %num_cols = arith.constant 4 : index
     %mm_pos, %nn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
@@ -62,7 +62,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %from_global, %tok_load = amdgcn.load global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg) + c(%c0) : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-    return %from_global : !vx2
+    return %from_global, %tok_load : !vx2, !amdgcn.read_token<flat>
   }
 
   // Write a 16x16xf16 tile from VGPRs to global memory, in a **synchronized fashion**
@@ -75,7 +75,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos: index,                  // The outer-most tile position
     %n_pos: index,                  // The inner-most tile position
     %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
-  ) {
+  ) -> !amdgcn.write_token<flat> {
     %num_rows = arith.constant 16 : index
     %num_cols = arith.constant 4 : index
     %mm_pos, %nn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
@@ -91,7 +91,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %tok_store = amdgcn.store global_store_dwordx2 data %value addr %ptr offset d(%off_reg) + c(%c0) : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-    return
+    return %tok_store : !amdgcn.write_token<flat>
   }
 
   // Read a 16x16xf16 tile from LDS to VGPRs, in a **synchronized fashion**
@@ -103,7 +103,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos: index,              // The outer-most tile position
     %n_pos: index,              // The inner-most tile position
     %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
-  ) -> !vx2 {
+  ) -> (!vx2, !amdgcn.read_token<shared>) {
     %num_rows = arith.constant 16 : index
     %num_cols = arith.constant 4 : index
     %mm_pos, %nn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
@@ -120,7 +120,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %from_lds, %tok_read = amdgcn.load ds_read_b64 dest %dst addr %off_lds_reg offset c(%lds_base_i32) : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-    return %from_lds : !vx2
+    return %from_lds, %tok_read : !vx2, !amdgcn.read_token<shared>
   }
 
   // Write a 16x16xf16 tile from VGPRs to LDS, in a **synchronized fashion**
@@ -133,7 +133,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos: index,              // The outer-most tile position
     %n_pos: index,              // The inner-most tile position
     %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
-  ) {
+  ) -> !amdgcn.write_token<shared> {
     %num_rows = arith.constant 16 : index
     %num_cols = arith.constant 4 : index
     %mm_pos, %nn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
@@ -149,7 +149,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %tok_write = amdgcn.store ds_write_b64 data %value addr %off_lds_reg offset c(%lds_base_i32) : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-    return
+    return %tok_write : !amdgcn.write_token<shared>
   }
 
   // Simple variant: load a 16x16xf16 tile from global to LDS.
@@ -162,14 +162,14 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos_lds: index,              // The LDS outer-most tile position
     %n_pos_lds: index,              // The LDS inner-most tile position
     %LDS_STRIDE_IN_BYTES: index     // LDS stride in bytes
-  ) {
-    %loaded = func.call @simple_global_load_wave_16x16xf16_wait(
+  ) -> (!amdgcn.read_token<flat>, !amdgcn.write_token<shared>) {
+    %loaded, %tok_load = func.call @simple_global_load_wave_16x16xf16_wait(
         %ptr, %m_pos_global, %n_pos_global, %GLOBAL_STRIDE_IN_BYTES)
-      : (!sx2, index, index, index) -> !vx2
-    func.call @simple_lds_write_wave_16x16xf16_wait(
+      : (!sx2, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
+    %tok_write = func.call @simple_lds_write_wave_16x16xf16_wait(
         %loaded, %lds_base, %m_pos_lds, %n_pos_lds, %LDS_STRIDE_IN_BYTES)
-      : (!vx2, index, index, index, index) -> ()
-    return
+      : (!vx2, index, index, index, index) -> !amdgcn.write_token<shared>
+    return %tok_load, %tok_write : !amdgcn.read_token<flat>, !amdgcn.write_token<shared>
   }
 
   // Simple variant: load a 16x16xf16 tile from LDS to global.
@@ -182,14 +182,14 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos_global: index,           // The global outer-most tile position
     %n_pos_global: index,           // The global inner-most tile position
     %GLOBAL_STRIDE_IN_BYTES: index  // Global stride in bytes
-  ) {
-    %loaded = func.call @simple_lds_read_wave_16x16xf16_wait(
+  ) -> (!amdgcn.read_token<shared>, !amdgcn.write_token<flat>) {
+    %loaded, %tok_read = func.call @simple_lds_read_wave_16x16xf16_wait(
         %lds_base, %m_pos_lds, %n_pos_lds, %LDS_STRIDE_IN_BYTES)
-      : (index, index, index, index) -> !vx2
-    func.call @simple_global_store_wave_16x16xf16_wait(
+      : (index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
+    %tok_store = func.call @simple_global_store_wave_16x16xf16_wait(
         %loaded, %ptr, %m_pos_global, %n_pos_global, %GLOBAL_STRIDE_IN_BYTES)
-      : (!vx2, !sx2, index, index, index) -> ()
-    return
+      : (!vx2, !sx2, index, index, index) -> !amdgcn.write_token<flat>
+    return %tok_read, %tok_store : !amdgcn.read_token<shared>, !amdgcn.write_token<flat>
   }
 
 }

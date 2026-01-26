@@ -87,7 +87,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %elt_size: index,               // The size of each element in bytes (used to map positions to addresses)
     %transfer_size: index,          // The size of each transfer in bytes
     %wave_size: index               // The number of elements per wave
-  ) -> !aster_utils.any {
+  ) -> (!aster_utils.any, !amdgcn.read_token<flat>) {
 
     // static assert that %mod is 0
     %mod = affine.apply affine_map<()[wave_size, num_rows]
@@ -115,43 +115,47 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       : (index, index, index, index, index, index, index, index) -> !v
 
     // Perform the load
-    %res = scf.index_switch %transfer_size -> !aster_utils.any
+    %res, %tok = scf.index_switch %transfer_size -> (!aster_utils.any, !amdgcn.read_token<flat>)
     case 4 {
         %dst = func.call @alloc_vgprx1() : () -> (!vx1)
         %loaded, %tok_load = amdgcn.load global_load_dword dest %dst addr %ptr offset d(%off_reg)
           : dps(!vx1) ins(!sx2, !v) -> !amdgcn.read_token<flat>
         %any = aster_utils.to_any %loaded : !vx1
-        scf.yield %any : !aster_utils.any
+        scf.yield %any, %tok_load : !aster_utils.any, !amdgcn.read_token<flat>
     }
     case 8 {
         %dst = func.call @alloc_vgprx2() : () -> (!vx2)
         %loaded, %tok_load = amdgcn.load global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg)
           : dps(!vx2) ins(!sx2, !v) -> !amdgcn.read_token<flat>
         %any = aster_utils.to_any %loaded : !vx2
-        scf.yield %any : !aster_utils.any
+        scf.yield %any, %tok_load : !aster_utils.any, !amdgcn.read_token<flat>
     }
     case 12 {
         %dst = func.call @alloc_vgprx3() : () -> (!vx3)
         %loaded, %tok_load = amdgcn.load global_load_dwordx3 dest %dst addr %ptr offset d(%off_reg)
           : dps(!vx3) ins(!sx2, !v) -> !amdgcn.read_token<flat>
         %any = aster_utils.to_any %loaded : !vx3
-        scf.yield %any : !aster_utils.any
+        scf.yield %any, %tok_load : !aster_utils.any, !amdgcn.read_token<flat>
     }
     case 16 {
         %dst = func.call @alloc_vgprx4() : () -> (!vx4)
         %loaded, %tok_load = amdgcn.load global_load_dwordx4 dest %dst addr %ptr offset d(%off_reg)
           : dps(!vx4) ins(!sx2, !v) -> !amdgcn.read_token<flat>
         %any = aster_utils.to_any %loaded : !vx4
-        scf.yield %any : !aster_utils.any
+        scf.yield %any, %tok_load : !aster_utils.any, !amdgcn.read_token<flat>
     }
     default {
         amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 43
         %c0 = arith.constant 0 : index
         %any = aster_utils.to_any %c0 : index
-        scf.yield %any : !aster_utils.any
+        // Create a dummy token for the default case
+        %dst = func.call @alloc_vgprx1() : () -> (!vx1)
+        %dummy, %dummy_tok = amdgcn.load global_load_dword dest %dst addr %ptr offset d(%off_reg)
+          : dps(!vx1) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+        scf.yield %any, %dummy_tok : !aster_utils.any, !amdgcn.read_token<flat>
     }
 
-    return %res : !aster_utils.any
+    return %res, %tok : !aster_utils.any, !amdgcn.read_token<flat>
   }
 
   func.func private @global_load_wave_128xf16_via_dword_wait(
@@ -162,20 +166,20 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %mm_pos: index,                 // The outer-most minor-tile position
     %nn_pos: index,                 // The inner-most minor-tile position
     %num_rows: index                // The number of rows in the 256 elements
-  ) -> !vx1 {
+  ) -> (!vx1, !amdgcn.read_token<flat>) {
     %elt_size = arith.constant 2 : index      // f16 size in bytes
     %transfer_size = arith.constant 4 : index // dword size in bytes
     %wave_size = arith.constant 64 : index    // 64 threads per wave
 
-    %loaded = func.call @global_load_wave_elt_2d_impl(
+    %loaded, %tok = func.call @global_load_wave_elt_2d_impl(
         %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any, !amdgcn.read_token<flat>)
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %res = aster_utils.from_any %loaded : !vx1
-    return %res : !vx1
+    return %res, %tok : !vx1, !amdgcn.read_token<flat>
   }
 
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(
@@ -186,20 +190,20 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %mm_pos: index,                 // The outer-most minor-tile position
     %nn_pos: index,                 // The inner-most minor-tile position
     %num_rows: index                // The number of rows in the 256 elements
-  ) -> !vx2 {
+  ) -> (!vx2, !amdgcn.read_token<flat>) {
     %elt_size = arith.constant 2 : index      // f16 size in bytes
     %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
     %wave_size = arith.constant 64 : index    // 64 threads per wave
 
-    %loaded = func.call @global_load_wave_elt_2d_impl(
+    %loaded, %tok = func.call @global_load_wave_elt_2d_impl(
         %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any, !amdgcn.read_token<flat>)
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %res = aster_utils.from_any %loaded : !vx2
-    return %res : !vx2
+    return %res, %tok : !vx2, !amdgcn.read_token<flat>
   }
 
   func.func private @global_load_wave_384xf16_via_dwordx3_wait(
@@ -210,20 +214,20 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %mm_pos: index,                 // The outer-most minor-tile position
     %nn_pos: index,                 // The inner-most minor-tile position
     %num_rows: index                // The number of rows in the 256 elements
-  ) -> !vx3 {
+  ) -> (!vx3, !amdgcn.read_token<flat>) {
     %elt_size = arith.constant 2 : index      // f16 size in bytes
     %transfer_size = arith.constant 12 : index // dwordx3 size in bytes
     %wave_size = arith.constant 64 : index    // 64 threads per wave
 
-    %loaded = func.call @global_load_wave_elt_2d_impl(
+    %loaded, %tok = func.call @global_load_wave_elt_2d_impl(
         %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any, !amdgcn.read_token<flat>)
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %res = aster_utils.from_any %loaded : !vx3
-    return %res : !vx3
+    return %res, %tok : !vx3, !amdgcn.read_token<flat>
   }
 
   func.func private @global_load_wave_512xf16_via_dwordx4_wait(
@@ -234,20 +238,20 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %mm_pos: index,                 // The outer-most minor-tile position
     %nn_pos: index,                 // The inner-most minor-tile position
     %num_rows: index                // The number of rows in the 256 elements
-  ) -> !vx4 {
+  ) -> (!vx4, !amdgcn.read_token<flat>) {
     %elt_size = arith.constant 2 : index      // f16 size in bytes
     %transfer_size = arith.constant 16 : index // dwordx4 size in bytes
     %wave_size = arith.constant 64 : index    // 64 threads per wave
 
-    %loaded = func.call @global_load_wave_elt_2d_impl(
+    %loaded, %tok = func.call @global_load_wave_elt_2d_impl(
         %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any, !amdgcn.read_token<flat>)
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %res = aster_utils.from_any %loaded : !vx4
-    return %res : !vx4
+    return %res, %tok : !vx4, !amdgcn.read_token<flat>
   }
 
   func.func private @global_load_wave_128xf16_via_dword_nowait(
@@ -258,17 +262,17 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %mm_pos: index,                 // The outer-most minor-tile position
     %nn_pos: index,                 // The inner-most minor-tile position
     %num_rows: index                // The number of rows in the 256 elements
-  ) -> !vx1 {
+  ) -> (!vx1, !amdgcn.read_token<flat>) {
     %elt_size = arith.constant 2 : index      // f16 size in bytes
     %transfer_size = arith.constant 4 : index // dword size in bytes
     %wave_size = arith.constant 64 : index    // 64 threads per wave
 
-    %loaded = func.call @global_load_wave_elt_2d_impl(
+    %loaded, %tok = func.call @global_load_wave_elt_2d_impl(
         %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any, !amdgcn.read_token<flat>)
 
     %res = aster_utils.from_any %loaded : !vx1
-    return %res : !vx1
+    return %res, %tok : !vx1, !amdgcn.read_token<flat>
   }
 
   func.func private @global_load_wave_256xf16_via_dwordx2_nowait(
@@ -279,17 +283,17 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %mm_pos: index,                 // The outer-most minor-tile position
     %nn_pos: index,                 // The inner-most minor-tile position
     %num_rows: index                // The number of rows in the 256 elements
-  ) -> !vx2 {
+  ) -> (!vx2, !amdgcn.read_token<flat>) {
     %elt_size = arith.constant 2 : index      // f16 size in bytes
     %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
     %wave_size = arith.constant 64 : index    // 64 threads per wave
 
-    %loaded = func.call @global_load_wave_elt_2d_impl(
+    %loaded, %tok = func.call @global_load_wave_elt_2d_impl(
         %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any, !amdgcn.read_token<flat>)
 
     %res = aster_utils.from_any %loaded : !vx2
-    return %res : !vx2
+    return %res, %tok : !vx2, !amdgcn.read_token<flat>
   }
 
   func.func private @global_load_wave_384xf16_via_dwordx3_nowait(
@@ -300,17 +304,17 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %mm_pos: index,                 // The outer-most minor-tile position
     %nn_pos: index,                 // The inner-most minor-tile position
     %num_rows: index                // The number of rows in the 256 elements
-  ) -> !vx3 {
+  ) -> (!vx3, !amdgcn.read_token<flat>) {
     %elt_size = arith.constant 2 : index      // f16 size in bytes
     %transfer_size = arith.constant 12 : index // dwordx3 size in bytes
     %wave_size = arith.constant 64 : index    // 64 threads per wave
 
-    %loaded = func.call @global_load_wave_elt_2d_impl(
+    %loaded, %tok = func.call @global_load_wave_elt_2d_impl(
         %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any, !amdgcn.read_token<flat>)
 
     %res = aster_utils.from_any %loaded : !vx3
-    return %res : !vx3
+    return %res, %tok : !vx3, !amdgcn.read_token<flat>
   }
 
   func.func private @global_load_wave_512xf16_via_dwordx4_nowait(
@@ -321,17 +325,17 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %mm_pos: index,                 // The outer-most minor-tile position
     %nn_pos: index,                 // The inner-most minor-tile position
     %num_rows: index                // The number of rows in the 256 elements
-  ) -> !vx4 {
+  ) -> (!vx4, !amdgcn.read_token<flat>) {
     %elt_size = arith.constant 2 : index      // f16 size in bytes
     %transfer_size = arith.constant 16 : index // dwordx4 size in bytes
     %wave_size = arith.constant 64 : index    // 64 threads per wave
 
-    %loaded = func.call @global_load_wave_elt_2d_impl(
+    %loaded, %tok = func.call @global_load_wave_elt_2d_impl(
         %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any, !amdgcn.read_token<flat>)
 
     %res = aster_utils.from_any %loaded : !vx4
-    return %res : !vx4
+    return %res, %tok : !vx4, !amdgcn.read_token<flat>
   }
 
   // Writes %value to LDS, in a **synchronized fashion** (i.e. waitcnt 0 is
@@ -366,7 +370,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %LDS_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
     %num_rows: index,            // The number of rows in the 256 elements
     %value: !vx2                 // The value to write to LDS
-  ) {
+  ) -> !amdgcn.write_token<shared> {
     // Constants that could become generic parameters if we communicated results
     // via opaque ptr + mem2reg.
     %elt_size = arith.constant 2 : index      // f16 size in bytes
@@ -393,7 +397,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     // Wait for LDS write
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
-    return
+    return %tok_write : !amdgcn.write_token<shared>
   }
 
   // Load a 16x16xf16 tile from global memory to LDS within a single wave, in
@@ -413,15 +417,15 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %mm_pos: index,                 // The outer-most minor-tile position (in LDS)
     %nn_pos: index,                 // The inner-most minor-tile position (in LDS)
     %LDS_STRIDE_IN_BYTES: index     // The inner-most major-tile size **in bytes** in LDS
-  ) {
+  ) -> (!amdgcn.read_token<flat>, !amdgcn.write_token<shared>) {
     %num_rows = arith.constant 16 : index
-    %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(
+    %loaded, %tok_load = func.call @global_load_wave_256xf16_via_dwordx2_wait(
         %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows)
-      : (!sx2, index, index, index, index, index, index) -> (!vx2)
-    func.call @lds_write_wave_256xf16_via_dwordx2_wait(
+      : (!sx2, index, index, index, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
+    %tok_write = func.call @lds_write_wave_256xf16_via_dwordx2_wait(
         %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
-      : (index, index, index, index, index, !vx2) -> ()
-    return
+      : (index, index, index, index, index, !vx2) -> !amdgcn.write_token<shared>
+    return %tok_load, %tok_write : !amdgcn.read_token<flat>, !amdgcn.write_token<shared>
   }
 
   // Store to global memory implementation.
@@ -436,41 +440,46 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %n_pos: index,                  // The inner-most position
     %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most stride **in bytes** in global memory
     %transfer_size: index           // Transfer size in bytes (4, 8, 12, or 16)
-  ) {
+  ) -> !amdgcn.write_token<flat> {
     %off_reg = func.call @matrix_offset(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
       : (index, index, index, index) -> !v
     %c0_store = arith.constant 0 : i32
 
-    scf.index_switch %transfer_size
+    %tok = scf.index_switch %transfer_size -> !amdgcn.write_token<flat>
     case 4 {
       %data = aster_utils.from_any %value : !v
-      %tok = amdgcn.store global_store_dword data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+      %tok_store = amdgcn.store global_store_dword data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-      scf.yield
+      scf.yield %tok_store : !amdgcn.write_token<flat>
     }
     case 8 {
       %data = aster_utils.from_any %value : !vx2
-      %tok = amdgcn.store global_store_dwordx2 data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+      %tok_store = amdgcn.store global_store_dwordx2 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-      scf.yield
+      scf.yield %tok_store : !amdgcn.write_token<flat>
     }
     case 12 {
       %data = aster_utils.from_any %value : !vx3
-      %tok = amdgcn.store global_store_dwordx3 data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+      %tok_store = amdgcn.store global_store_dwordx3 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!vx3, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-      scf.yield
+      scf.yield %tok_store : !amdgcn.write_token<flat>
     }
     case 16 {
       %data = aster_utils.from_any %value : !vx4
-      %tok = amdgcn.store global_store_dwordx4 data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+      %tok_store = amdgcn.store global_store_dwordx4 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!vx4, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-      scf.yield
+      scf.yield %tok_store : !amdgcn.write_token<flat>
     }
     default {
       amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 44
+      // Create a dummy token for the default case
+      %data = aster_utils.from_any %value : !v
+      %dummy_tok = amdgcn.store global_store_dword data %data addr %ptr offset d(%off_reg) + c(%c0_store)
+        : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+      scf.yield %dummy_tok : !amdgcn.write_token<flat>
     }
 
-    return
+    return %tok : !amdgcn.write_token<flat>
   }
 
   // Store a dword (dword) to global memory, in a **synchronized fashion**.
@@ -480,13 +489,13 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos: index,                  // The outer-most position
     %n_pos: index,                  // The inner-most position
     %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
-  ) {
+  ) -> !amdgcn.write_token<flat> {
     %transfer_size = arith.constant 4 : index
     %any_value = aster_utils.to_any %value : !v
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    %tok = func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
+      : (!aster_utils.any, !sx2, index, index, index, index) -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-    return
+    return %tok : !amdgcn.write_token<flat>
   }
 
   // Store a dwordx2 (dwordx2) to global memory, in a **synchronized fashion**.
@@ -496,13 +505,13 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos: index,                  // The outer-most position
     %n_pos: index,                  // The inner-most position
     %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
-  ) {
+  ) -> !amdgcn.write_token<flat> {
     %transfer_size = arith.constant 8 : index
     %any_value = aster_utils.to_any %value : !vx2
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    %tok = func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
+      : (!aster_utils.any, !sx2, index, index, index, index) -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-    return
+    return %tok : !amdgcn.write_token<flat>
   }
 
   // Store a dwordx3 (dwordx3) to global memory, in a **synchronized fashion**.
@@ -512,13 +521,13 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos: index,                  // The outer-most position
     %n_pos: index,                  // The inner-most position
     %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
-  ) {
+  ) -> !amdgcn.write_token<flat> {
     %transfer_size = arith.constant 12 : index
     %any_value = aster_utils.to_any %value : !vx3
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    %tok = func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
+      : (!aster_utils.any, !sx2, index, index, index, index) -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-    return
+    return %tok : !amdgcn.write_token<flat>
   }
 
   // Store a dwordx4 (dwordx4) to global memory, in a **synchronized fashion**.
@@ -528,13 +537,13 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos: index,                  // The outer-most position
     %n_pos: index,                  // The inner-most position
     %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
-  ) {
+  ) -> !amdgcn.write_token<flat> {
     %transfer_size = arith.constant 16 : index
     %any_value = aster_utils.to_any %value : !vx4
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    %tok = func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
+      : (!aster_utils.any, !sx2, index, index, index, index) -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-    return
+    return %tok : !amdgcn.write_token<flat>
   }
 
   //===--------------------------------------------------------------------===//
@@ -549,7 +558,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos: index,              // The outer-most tile position
     %n_pos: index,              // The inner-most tile position
     %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
-  ) -> !vx2 {
+  ) -> (!vx2, !amdgcn.read_token<shared>) {
     // Compute the MFMA positions
     %elt_size = arith.constant 2 : index // f16 size in bytes
     %mm_pos, %nn_pos = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
@@ -563,7 +572,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %from_lds, %tok_read = amdgcn.load ds_read_b64 dest %dst addr %off_lds_reg offset c(%lds_base_i32) : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-    return %from_lds : !vx2
+    return %from_lds, %tok_read : !vx2, !amdgcn.read_token<shared>
   }
 
   // Store the `C` fragment (16x16xf32) from VGPRs to global memory, in a
@@ -612,8 +621,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
         ()[%m_pos, %mm_pos, %mmm_pos, %mmmm_pos]
 
       // Store to global memory with wait
-      func.call @store_to_global_dword_wait(%fragment, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
-        : (!v, !sx2, index, index, index) -> ()
+      %tok_store = func.call @store_to_global_dword_wait(%fragment, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
+        : (!v, !sx2, index, index, index) -> !amdgcn.write_token<flat>
     } {aster.constexpr}
     return
   }
@@ -630,7 +639,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %m_pos: index,              // The outer-most tile position
     %n_pos: index,              // The inner-most tile position
     %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
-  ) -> !vx2 {
+  ) -> (!vx2, !amdgcn.read_token<shared>) {
     %elt_size = arith.constant 2 : index // f16 size in bytes
 
     // Apply A-matrix swizzle
@@ -646,7 +655,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %result, %tok_read = amdgcn.load ds_read_b64 dest %dst addr %off_lds offset c(%lds_base_i32) : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-    return %result : !vx2
+    return %result, %tok_read : !vx2, !amdgcn.read_token<shared>
   }
 
 }

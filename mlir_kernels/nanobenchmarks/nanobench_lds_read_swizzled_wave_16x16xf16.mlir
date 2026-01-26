@@ -9,7 +9,7 @@
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Library declarations
   func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(
-    index, index, index, index) -> !vx2
+    index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
 
   amdgcn.kernel @nanobench_lds_read_swizzled_wave_16x16xf16
   attributes {shared_memory_size = {{LDS_SIZE}} : i32, block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>} {
@@ -23,7 +23,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %JJ = arith.constant 4 : index       // Number of tiles in K dimension
 
     %elt_size = arith.constant 2 : index
-    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[JJ, elt_size] 
+    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[JJ, elt_size]
       -> (JJ * 16 * elt_size)>()[%JJ, %elt_size]
 
     // Number of outer iterations
@@ -40,12 +40,12 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
 
           // Call the swizzled LDS read function
           // %result = func.call @lds_read_swizzled_wave_16x16xf16_fragment_wait(
-          %result = func.call @lds_read_swizzled_wave_16x16xf16_fragment_wait(
+          %result, %lds_read_token = func.call @lds_read_swizzled_wave_16x16xf16_fragment_wait(
             %c0,                  // lds_base
             %m_pos,               // m_pos
             %n_pos,               // n_pos
             %LDS_STRIDE_IN_BYTES  // LDS_STRIDE_IN_BYTES
-          ) : (index, index, index, index) -> !vx2
+          ) : (index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
 
           // Prevent DCE - erased just before translation to assembly with amdgcn-remove-test-inst
           amdgcn.test_inst ins %result : (!vx2) -> ()

@@ -29,25 +29,25 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @mfma_index_A_16x16xf16() -> (index, index)
   func.func private @mfma_index_C_16x16xf32() -> (index, index)
   // simple-copies.mlir
-  func.func private @simple_global_to_lds_wave_16x16xf16_wait(!sx2, index, index, index, index, index, index, index)
-  func.func private @simple_global_store_wave_16x16xf16_wait(!vx2, !sx2, index, index, index)
-  func.func private @simple_lds_to_global_wave_16x16xf16_wait(index, index, index, index, !sx2, index, index, index)
+  func.func private @simple_global_to_lds_wave_16x16xf16_wait(!sx2, index, index, index, index, index, index, index) -> (!amdgcn.read_token<flat>, !amdgcn.write_token<shared>)
+  func.func private @simple_global_store_wave_16x16xf16_wait(!vx2, !sx2, index, index, index) -> !amdgcn.write_token<flat>
+  func.func private @simple_lds_to_global_wave_16x16xf16_wait(index, index, index, index, !sx2, index, index, index) -> (!amdgcn.read_token<shared>, !amdgcn.write_token<flat>)
   // copies.mlir
-  func.func private @global_load_to_lds_wave_16x16_f16_wait(!sx2, index, index, index, index, index, index, index)
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> ()
-  func.func private @store_to_global_dword_wait(!v, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx2_wait(!vx2, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx3_wait(!vx3, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index)
-  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
-  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
-  func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !sx2, index, index, index, index, index)
+  func.func private @global_load_to_lds_wave_16x16_f16_wait(!sx2, index, index, index, index, index, index, index) -> (!amdgcn.read_token<flat>, !amdgcn.write_token<shared>)
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
+  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> !amdgcn.write_token<shared>
+  func.func private @store_to_global_dword_wait(!v, !sx2, index, index, index) -> !amdgcn.write_token<flat>
+  func.func private @store_to_global_dwordx2_wait(!vx2, !sx2, index, index, index) -> !amdgcn.write_token<flat>
+  func.func private @store_to_global_dwordx3_wait(!vx3, !sx2, index, index, index) -> !amdgcn.write_token<flat>
+  func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index) -> !amdgcn.write_token<flat>
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
+  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
+  func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !sx2, index, index, index, index, index) -> !amdgcn.write_token<flat>
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, memref<?x!vx2>)
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(index, index, index, index, index, index, memref<?x!vx2>)
-  func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
-  func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index)
-  func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> !vx2
+  func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
+  func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index) -> !amdgcn.write_token<shared>
+  func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
   // simple-multi-tile-copies.mlir
   func.func private @simple_maybe_lds_write_multi_tile(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
   // multi-tile-copies.mlir
@@ -82,8 +82,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function (single row, stride must not matter)
     %c0 = arith.constant 0 : index
-    func.call @store_to_global_dword_wait(%value, %out_ptr, %c0, %tid, %c0)
-      : (!v, !sx2, index, index, index) -> ()
+    %tok_store = func.call @store_to_global_dword_wait(%value, %out_ptr, %c0, %tid, %c0)
+      : (!v, !sx2, index, index, index) -> !amdgcn.write_token<flat>
 
     amdgcn.end_kernel
   }
@@ -115,8 +115,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function (single row, stride must not matter)
     %c0 = arith.constant 0 : index
-    func.call @store_to_global_dwordx2_wait(%value, %out_ptr, %c0, %tid, %c0)
-      : (!vx2, !sx2, index, index, index) -> ()
+    %tok_store = func.call @store_to_global_dwordx2_wait(%value, %out_ptr, %c0, %tid, %c0)
+      : (!vx2, !sx2, index, index, index) -> !amdgcn.write_token<flat>
 
     amdgcn.end_kernel
   }
@@ -145,8 +145,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function (single row, stride must not matter)
     %c0 = arith.constant 0 : index
-    func.call @store_to_global_dwordx3_wait(%value, %out_ptr, %c0, %tid, %c0)
-      : (!vx3, !sx2, index, index, index) -> ()
+    %tok_store = func.call @store_to_global_dwordx3_wait(%value, %out_ptr, %c0, %tid, %c0)
+      : (!vx3, !sx2, index, index, index) -> !amdgcn.write_token<flat>
 
     amdgcn.end_kernel
   }
@@ -178,10 +178,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function (single row, stride must not matter)
     %c0 = arith.constant 0 : index
-    func.call @store_to_global_dwordx4_wait(%value, %out_ptr, %c0, %tid, %c0)
-      : (!vx4, !sx2, index, index, index) -> ()
+    %tok_store = func.call @store_to_global_dwordx4_wait(%value, %out_ptr, %c0, %tid, %c0)
+      : (!vx4, !sx2, index, index, index) -> !amdgcn.write_token<flat>
 
     amdgcn.end_kernel
   }
-  
+
 }

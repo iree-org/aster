@@ -19,14 +19,14 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   // Library function declarations (provided by amdgcn-preload-library pass)
   //===--------------------------------------------------------------------===//
   // copies.mlir
-  func.func private @global_load_wave_128xf16_via_dword_wait(!sx2, index, index, index, index, index, index) -> (!vx1)
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
-  func.func private @global_load_wave_384xf16_via_dwordx3_wait(!sx2, index, index, index, index, index, index) -> (!vx3)
-  func.func private @global_load_wave_512xf16_via_dwordx4_wait(!sx2, index, index, index, index, index, index) -> (!vx4)
+  func.func private @global_load_wave_128xf16_via_dword_wait(!sx2, index, index, index, index, index, index) -> (!vx1, !amdgcn.read_token<flat>)
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
+  func.func private @global_load_wave_384xf16_via_dwordx3_wait(!sx2, index, index, index, index, index, index) -> (!vx3, !amdgcn.read_token<flat>)
+  func.func private @global_load_wave_512xf16_via_dwordx4_wait(!sx2, index, index, index, index, index, index) -> (!vx4, !amdgcn.read_token<flat>)
 
   func.func private @get_test_offset(%transfer_size: index) -> (!v) {
     %tid = gpu.thread_id x
-    %offset = affine.apply affine_map<()[tid, transfer_size] 
+    %offset = affine.apply affine_map<()[tid, transfer_size]
       -> (tid * transfer_size)>()[%tid, %transfer_size]
     %offset_i32 = arith.index_cast %offset : index to i32
     %offset_vgpr = lsir.to_reg %offset_i32 : i32 -> !v
@@ -56,13 +56,13 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     //===--------------------------------------------------------------------===//
     // Global load to registers.
     %transfer_size_vx1 = arith.constant 4 : index
-    %loaded_vx1 = func.call @global_load_wave_128xf16_via_dword_wait(
+    %loaded_vx1, %tok_load_1 = func.call @global_load_wave_128xf16_via_dword_wait(
       %in_ptr,   // ptr
       %c0, %c0,  // m_pos, n_pos (major tile)
       %c0,       // GLOBAL_STRIDE_IN_BYTES (single row, stride must not matter)
       %c0, %c0,  // mm_pos, nn_pos (minor tile)
       %c1        // num_rows
-    ) : (!sx2, index, index, index, index, index, index) -> (!vx1)
+    ) : (!sx2, index, index, index, index, index, index) -> (!vx1, !amdgcn.read_token<flat>)
     %out_off_vx1 = func.call @get_test_offset(%transfer_size_vx1) : (index) -> (!v)
     %tok_store_1 = amdgcn.store global_store_dword data %loaded_vx1 addr %out_ptr_vx1 offset d(%out_off_vx1)
       : ins(!vx1, !sx2, !v) -> !amdgcn.write_token<flat>
@@ -73,13 +73,13 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     //===--------------------------------------------------------------------===//
     // Global load to registers.
     %transfer_size_vx2 = arith.constant 8 : index
-    %loaded_vx2 = func.call @global_load_wave_256xf16_via_dwordx2_wait(
+    %loaded_vx2, %tok_load_2 = func.call @global_load_wave_256xf16_via_dwordx2_wait(
       %in_ptr,   // ptr
       %c0, %c0,  // m_pos, n_pos (major tile)
       %c0,       // GLOBAL_STRIDE_IN_BYTES (single row, stride must not matter)
       %c0, %c0,  // mm_pos, nn_pos (minor tile)
       %c1        // num_rows
-    ) : (!sx2, index, index, index, index, index, index) -> (!vx2)
+    ) : (!sx2, index, index, index, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
     %out_off_vx2 = func.call @get_test_offset(%transfer_size_vx2) : (index) -> (!v)
     %tok_store_2 = amdgcn.store global_store_dwordx2 data %loaded_vx2 addr %out_ptr_vx2 offset d(%out_off_vx2)
       : ins(!vx2, !sx2, !v) -> !amdgcn.write_token<flat>
@@ -90,13 +90,13 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     //===--------------------------------------------------------------------===//
     // Global load to registers.
     %transfer_size_vx3 = arith.constant 12 : index
-    %loaded_vx3 = func.call @global_load_wave_384xf16_via_dwordx3_wait(
+    %loaded_vx3, %tok_load_3 = func.call @global_load_wave_384xf16_via_dwordx3_wait(
       %in_ptr,   // ptr
       %c0, %c0,  // m_pos, n_pos (major tile)
       %c0,       // GLOBAL_STRIDE_IN_BYTES (single row, stride must not matter)
       %c0, %c0,  // mm_pos, nn_pos (minor tile)
       %c1        // num_rows
-    ) : (!sx2, index, index, index, index, index, index) -> (!vx3)
+    ) : (!sx2, index, index, index, index, index, index) -> (!vx3, !amdgcn.read_token<flat>)
     %out_off_vx3 = func.call @get_test_offset(%transfer_size_vx3) : (index) -> (!v)
     %tok_store_3 = amdgcn.store global_store_dwordx3 data %loaded_vx3 addr %out_ptr_vx3 offset d(%out_off_vx3)
       : ins(!vx3, !sx2, !v) -> !amdgcn.write_token<flat>
@@ -107,13 +107,13 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     //===--------------------------------------------------------------------===//
     // Global load to registers.
     %transfer_size_vx4 = arith.constant 16 : index
-    %loaded_vx4 = func.call @global_load_wave_512xf16_via_dwordx4_wait(
+    %loaded_vx4, %tok_load_4 = func.call @global_load_wave_512xf16_via_dwordx4_wait(
       %in_ptr,   // ptr
       %c0, %c0,  // m_pos, n_pos (major tile)
       %c0,       // GLOBAL_STRIDE_IN_BYTES (single row, stride must not matter)
       %c0, %c0,  // mm_pos, nn_pos (minor tile)
       %c1        // num_rows
-    ) : (!sx2, index, index, index, index, index, index) -> (!vx4)
+    ) : (!sx2, index, index, index, index, index, index) -> (!vx4, !amdgcn.read_token<flat>)
     %out_off_vx4 = func.call @get_test_offset(%transfer_size_vx4) : (index) -> (!v)
     %tok_store_4 = amdgcn.store global_store_dwordx4 data %loaded_vx4 addr %out_ptr_vx4 offset d(%out_off_vx4)
       : ins(!vx4, !sx2, !v) -> !amdgcn.write_token<flat>

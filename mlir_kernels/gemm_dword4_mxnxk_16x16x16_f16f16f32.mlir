@@ -28,11 +28,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @tiled_grid_partition_2d(index, index, index, index) -> (index, index)
   // copies.mlir
   func.func private @global_load_to_lds_wave_16x16_f16_wait(
-    !sx2, index, index, index, index, index, index, index) -> ()
+    !sx2, index, index, index, index, index, index, index) -> (!amdgcn.read_token<flat>, !amdgcn.write_token<shared>)
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    index, index, index, index) -> !vx2
+    index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
-    !vx4, !sx2, index, index, index, index, index) -> ()
+    !vx4, !sx2, index, index, index, index, index) -> !amdgcn.write_token<flat>
 
   // Compute the wavefront-level contraction using MFMA instructions
   func.func private @wavefront_contract(
@@ -45,12 +45,12 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %elt_size = arith.constant 2 : index // f16 size in bytes
     %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
       (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
-    %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+    %a_frag, %tok_a = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
         %lds_a_base, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
-      : (index, index, index, index) -> !vx2
-    %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+      : (index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
+    %b_frag, %tok_b = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
         %lds_b_base, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
-     : (index, index, index, index) -> !vx2
+     : (index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
     // Perform MFMA operation: C = A * B + C
     %result = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
       %acc, %a_frag, %b_frag, %acc : !vx2, !vx2, !vx4 -> !vx4
@@ -130,9 +130,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         // Calculate positions
         %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-        func.call @global_load_to_lds_wave_16x16_f16_wait(
+        %tok_load_a, %tok_write_a = func.call @global_load_to_lds_wave_16x16_f16_wait(
             %a_global, %lds_a_base_off, %i_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
-          : (!sx2, index, index, index, index, index, index, index) -> ()
+          : (!sx2, index, index, index, index, index, index, index) -> (!amdgcn.read_token<flat>, !amdgcn.write_token<shared>)
       } {aster.constexpr}
 
       // Load B tile into LDS
@@ -144,9 +144,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         // Calculate positions
         %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-        func.call @global_load_to_lds_wave_16x16_f16_wait(
+        %tok_load_b, %tok_write_b = func.call @global_load_to_lds_wave_16x16_f16_wait(
             %b_global, %lds_b_base_off, %j_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
-          : (!sx2, index, index, index, index, index, index, index) -> ()
+          : (!sx2, index, index, index, index, index, index, index) -> (!amdgcn.read_token<flat>, !amdgcn.write_token<shared>)
       } {aster.constexpr}
 
       // Synchronize to ensure data is in LDS
@@ -189,9 +189,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
       %GLOBAL_C_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
         (SIZE_N * 4)>()[%SIZE_N]
-      func.call @global_store_wave_16x16xf32_C_fragment_wait(
+      %tok_store = func.call @global_store_wave_16x16xf32_C_fragment_wait(
           %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_C_STRIDE_IN_BYTES, %ii_pos, %jj_pos)
-        : (!vx4, !sx2, index, index, index, index, index) -> ()
+        : (!vx4, !sx2, index, index, index, index, index) -> !amdgcn.write_token<flat>
     } {aster.constexpr}
 
     return

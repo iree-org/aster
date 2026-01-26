@@ -20,13 +20,13 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
 
   // copies.mlir
   func.func private @global_load_wave_128xf16_via_dword_nowait(
-    !sx2, index, index, index, index, index, index) -> !vx1
+    !sx2, index, index, index, index, index, index) -> (!vx1, !amdgcn.read_token<flat>)
   func.func private @global_load_wave_256xf16_via_dwordx2_nowait(
-    !sx2, index, index, index, index, index, index) -> !vx2
+    !sx2, index, index, index, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
   func.func private @global_load_wave_384xf16_via_dwordx3_nowait(
-    !sx2, index, index, index, index, index, index) -> !vx3
+    !sx2, index, index, index, index, index, index) -> (!vx3, !amdgcn.read_token<flat>)
   func.func private @global_load_wave_512xf16_via_dwordx4_nowait(
-    !sx2, index, index, index, index, index, index) -> !vx4
+    !sx2, index, index, index, index, index, index) -> (!vx4, !amdgcn.read_token<flat>)
 
   amdgcn.kernel @nanobench_global_load arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>
@@ -71,9 +71,9 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
         scf.for %nt = %c0 to %NT_J step %c1 {
           %nn_pos = affine.apply affine_map<()[nt, TILE_SIZE] -> (nt * TILE_SIZE)>()[%nt, %TILE_SIZE]
-          %result_vx1 = func.call @global_load_wave_128xf16_via_dword_nowait(
+          %result_vx1, %tok_vx1 = func.call @global_load_wave_128xf16_via_dword_nowait(
             %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
-          ) : (!sx2, index, index, index, index, index, index) -> !vx1
+          ) : (!sx2, index, index, index, index, index, index) -> (!vx1, !amdgcn.read_token<flat>)
           amdgcn.test_inst ins %result_vx1 : (!vx1) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -91,9 +91,9 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
         scf.for %nt = %c0 to %NT_J step %c2 {
           %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
-          %result_vx2 = func.call @global_load_wave_256xf16_via_dwordx2_nowait(
+          %result_vx2, %tok_vx2 = func.call @global_load_wave_256xf16_via_dwordx2_nowait(
             %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
-          ) : (!sx2, index, index, index, index, index, index) -> !vx2
+          ) : (!sx2, index, index, index, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
           amdgcn.test_inst ins %result_vx2 : (!vx2) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -111,9 +111,9 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
         scf.for %nt = %c0 to %NT_J step %c3 {
           %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
-          %result_vx3 = func.call @global_load_wave_384xf16_via_dwordx3_nowait(
+          %result_vx3, %tok_vx3 = func.call @global_load_wave_384xf16_via_dwordx3_nowait(
             %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
-          ) : (!sx2, index, index, index, index, index, index) -> !vx3
+          ) : (!sx2, index, index, index, index, index, index) -> (!vx3, !amdgcn.read_token<flat>)
           amdgcn.test_inst ins %result_vx3 : (!vx3) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -131,9 +131,9 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       scf.for %reuse = %c0 to %TILE_REUSE_FACTOR step %c1 {
         scf.for %nt = %c0 to %NT_J step %c4 {
           %nn_pos = affine.apply affine_map<()[nn, TILE_SIZE] -> (nn * TILE_SIZE)>()[%nt, %TILE_SIZE]
-          %result_vx4 = func.call @global_load_wave_512xf16_via_dwordx4_nowait(
+          %result_vx4, %tok_vx4 = func.call @global_load_wave_512xf16_via_dwordx4_nowait(
             %ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %c1
-          ) : (!sx2, index, index, index, index, index, index) -> !vx4
+          ) : (!sx2, index, index, index, index, index, index) -> (!vx4, !amdgcn.read_token<flat>)
           amdgcn.test_inst ins %result_vx4 : (!vx4) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0

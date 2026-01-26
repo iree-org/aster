@@ -27,11 +27,11 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   // Library function declarations (provided by amdgcn-preload-library pass)
   //===--------------------------------------------------------------------===//
   // copies.mlir
-  func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
-  func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index)
-  func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> !vx2
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> !vx2
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2)
+  func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
+  func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index) -> !amdgcn.write_token<shared>
+  func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> (!vx2, !amdgcn.read_token<shared>)
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
+  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> !amdgcn.write_token<shared>
 
   //===--------------------------------------------------------------------===//
   // Simple conditional multi-tile global load
@@ -85,9 +85,9 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
           %m_pos = affine.apply affine_map<()[i_pos_base, ii_pos, i] -> (i_pos_base + ii_pos + i * 16)>()[%i_pos_base, %ii_pos, %i]
           %n_pos = affine.apply affine_map<()[j_pos_base, jj_pos, j] -> (j_pos_base + jj_pos + j * 16)>()[%j_pos_base, %jj_pos, %j]
 
-          %value = func.call @simple_global_load_wave_16x16xf16_wait(
+          %value, %tok_load = func.call @simple_global_load_wave_16x16xf16_wait(
             %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES)
-            : (!sx2, index, index, index) -> !vx2
+            : (!sx2, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
 
           %tile_idx = affine.apply affine_map<()[i, j, NT_J] -> (i * NT_J + j)>()[%i, %j, %NT_J]
           memref.store %value, %load_memref[%k, %tile_idx] : memref<?x?x!vx2>
@@ -142,9 +142,9 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
         %nn_pos = affine.apply affine_map<()[base, nt] -> (base + nt)>()[%nn_pos_base, %nt]
 
         // Load the tile
-        %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(
+        %loaded, %tok_load = func.call @global_load_wave_256xf16_via_dwordx2_wait(
           %ptr, %m_pos_base, %n_pos_base, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %row_size)
-          : (!sx2, index, index, index, index, index, index) -> !vx2
+          : (!sx2, index, index, index, index, index, index) -> (!vx2, !amdgcn.read_token<flat>)
 
         // Store result in memref
         %i = affine.apply affine_map<()[mt, row_size] -> (mt ceildiv row_size)>()[%mt, %row_size]
@@ -279,9 +279,9 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
         %nn_pos = affine.apply affine_map<()[base, nt] -> (base + nt)>()[%nn_pos_base, %nt]
 
         // Write the tile to LDS
-        func.call @lds_write_wave_256xf16_via_dwordx2_wait(
+        %tok_write = func.call @lds_write_wave_256xf16_via_dwordx2_wait(
           %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %row_size, %value)
-          : (index, index, index, index, index, !vx2) -> ()
+          : (index, index, index, index, index, !vx2) -> !amdgcn.write_token<shared>
       } {aster.constexpr}
     } {aster.constexpr}
     return
@@ -341,11 +341,11 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
       } {aster.constexpr}
 
       // Write NT_I x NT_J tiles using bulk primitive
-      func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+      %tok_write = func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
           %lds_base_off, %ii_pos, %jj_pos, %LDS_STRIDE_IN_BYTES,
           %NT_I, %NT_J,
           %temp_memref)
-        : (index, index, index, index, index, index, memref<?x!vx2>) -> ()
+        : (index, index, index, index, index, index, memref<?x!vx2>) -> !amdgcn.write_token<shared>
     }
     return
   }
