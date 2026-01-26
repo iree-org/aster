@@ -22,6 +22,7 @@ namespace mlir::aster::test {
 void registerTestDPSAliasAnalysisPass();
 void registerTestLivenessAnalysisPass();
 void registerTestMemoryDependenceAnalysisPass();
+void registerTestWaitAnalysisPass();
 } // namespace mlir::aster::test
 
 using namespace llvm;
@@ -41,6 +42,7 @@ int main(int argc, char **argv) {
   aster::test::registerTestDPSAliasAnalysisPass();
   aster::test::registerTestLivenessAnalysisPass();
   aster::test::registerTestMemoryDependenceAnalysisPass();
+  aster::test::registerTestWaitAnalysisPass();
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "aster modular optimizer driver\n", registry));
 }
