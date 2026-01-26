@@ -488,6 +488,47 @@ static bool dominatesSuccessor(DominanceInfo &domInfo, Value value,
   return domInfo.properlyDominates(defBlock, block);
 }
 
+/// Check if a value dominates a given succesor.
+static bool dominatesSuccessor(DominanceInfo &domInfo, Value value,
+                               RegionBranchOpInterface op,
+                               RegionSuccessor successor) {
+  if (successor.isParent())
+    return domInfo.dominates(value, op);
+  Block *defBlock = nullptr;
+  if (auto blockArg = dyn_cast<BlockArgument>(value)) {
+    defBlock = blockArg.getOwner();
+  } else {
+    defBlock = value.getDefiningOp()->getBlock();
+  }
+  return domInfo.properlyDominates(defBlock,
+                                   &successor.getSuccessor()->front());
+}
+
+/// Add tokens from predecessor to results based on dominance.
+static bool addTokensByDominance(SmallVectorImpl<TokenState> &results,
+                                 SmallVectorImpl<TokenState> &scratch,
+                                 SmallVectorImpl<TokenState> &escapedTokens,
+                                 ArrayRef<TokenState> predecessorTokens,
+                                 llvm::function_ref<bool(Value)> dominates) {
+  scratch.reserve(predecessorTokens.size());
+  for (const TokenState &tok : predecessorTokens) {
+    if (tok.getID() == TokenState::kUnknownID) {
+      // Unknown tokens always propagate.
+      scratch.push_back(tok);
+      continue;
+    }
+
+    // Only include tokens whose defining block dominates the successor.
+    if (!dominates(tok.getToken())) {
+      // Add a potentially escaped token.
+      escapedTokens.push_back(tok);
+      continue;
+    }
+    scratch.push_back(tok);
+  }
+  return merge(results, scratch);
+}
+
 bool WaitAnalysis::getReachingTokens(SmallVectorImpl<TokenState> &results,
                                      SmallVectorImpl<TokenState> &scratch,
                                      SmallVectorImpl<TokenState> &escapedTokens,
@@ -520,29 +561,6 @@ bool WaitAnalysis::getReachingTokens(SmallVectorImpl<TokenState> &results,
   return merge(results, scratch);
 }
 
-bool WaitAnalysis::getReachingTokens(SmallVectorImpl<TokenState> &results,
-                                     SmallVectorImpl<TokenState> &scratch,
-                                     SmallVectorImpl<TokenState> &escapedTokens,
-                                     ArrayRef<TokenState> predecessorTokens,
-                                     Block *successor) {
-  scratch.reserve(predecessorTokens.size());
-  for (const TokenState &tok : predecessorTokens) {
-    if (tok.getID() == TokenState::kUnknownID) {
-      // Unknown tokens always propagate.
-      scratch.push_back(tok);
-      continue;
-    }
-    // Only include tokens whose defining block dominates the successor.
-    if (!dominatesSuccessor(domInfo, tok.getToken(), successor)) {
-      // Add a potentially escaped token.
-      escapedTokens.push_back(tok);
-      continue;
-    }
-    scratch.push_back(tok);
-  }
-  return merge(results, scratch);
-}
-
 void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
                                       Block *predecessor,
                                       const WaitState &before,
@@ -554,8 +572,9 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   SmallVector<TokenState> &tokens = after->reachingTokens;
   escapedTokens.clear();
   // Get tokens reaching the beginning of the block.
-  changed |= getReachingTokens(tokens, scratch, escapedTokens,
-                               before.reachingTokens, block);
+  changed |= addTokensByDominance(
+      tokens, scratch, escapedTokens, before.reachingTokens,
+      [&](Value v) { return dominatesSuccessor(domInfo, v, block); });
   LDBG_OS([&](llvm::raw_ostream &os) {
     os << "  Initial escaped tokens: "
        << llvm::interleaved_array(escapedTokens);
@@ -573,22 +592,6 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   changed |= WaitCnt::handleEscapedTokens(tokens, escapedTokens);
   propagateIfChanged(after,
                      changed ? ChangeResult::Change : ChangeResult::NoChange);
-}
-
-/// Check if a value dominates a given succesor.
-static bool dominatesSuccessor(DominanceInfo &domInfo, Value value,
-                               RegionBranchOpInterface op,
-                               RegionSuccessor successor) {
-  if (successor.isParent())
-    return domInfo.dominates(value, op);
-  Block *defBlock = nullptr;
-  if (auto blockArg = dyn_cast<BlockArgument>(value)) {
-    defBlock = blockArg.getOwner();
-  } else {
-    defBlock = value.getDefiningOp()->getBlock();
-  }
-  return domInfo.properlyDominates(defBlock,
-                                   &successor.getSuccessor()->front());
 }
 
 bool WaitAnalysis::getReachingTokens(SmallVectorImpl<TokenState> &results,
@@ -640,29 +643,6 @@ bool WaitAnalysis::getReachingTokens(SmallVectorImpl<TokenState> &results,
   return merge(results, scratch);
 }
 
-bool WaitAnalysis::getReachingTokens(SmallVectorImpl<TokenState> &results,
-                                     SmallVectorImpl<TokenState> &scratch,
-                                     SmallVectorImpl<TokenState> &escapedTokens,
-                                     ArrayRef<TokenState> predecessorTokens,
-                                     RegionBranchOpInterface op,
-                                     RegionSuccessor successor) {
-  scratch.reserve(predecessorTokens.size());
-  for (const TokenState &tok : predecessorTokens) {
-    if (tok.getID() == TokenState::kUnknownID) {
-      // Unknown tokens always propagate.
-      scratch.push_back(tok);
-      continue;
-    }
-    if (!dominatesSuccessor(domInfo, tok.getToken(), op, successor)) {
-      // Add a potentially escaped token.
-      escapedTokens.push_back(tok);
-      continue;
-    }
-    scratch.push_back(tok);
-  }
-  return merge(results, scratch);
-}
-
 /// Walk all terminators in a region and invoke a function on each.
 static void
 walkTerminators(Region *region,
@@ -695,8 +675,10 @@ void WaitAnalysis::visitRegionBranchControlFlowTransfer(
       regionTo ? RegionSuccessor(&branch->getRegion(*regionTo))
                : RegionSuccessor::parent();
   // Get the reaching tokens that are control-flow independent.
-  changed |= getReachingTokens(tokens, scratch, escapedTokens,
-                               predecessorTokens, branch, successor);
+  changed |= addTokensByDominance(
+      tokens, scratch, escapedTokens, predecessorTokens, [&](Value v) {
+        return dominatesSuccessor(domInfo, v, branch, successor);
+      });
   LDBG_OS([&](llvm::raw_ostream &os) {
     os << "  Initial escaped tokens: "
        << llvm::interleaved_array(escapedTokens);

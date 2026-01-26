@@ -331,18 +331,8 @@ private:
                          SmallVectorImpl<TokenState> &scratch,
                          SmallVectorImpl<TokenState> &escapedTokens,
                          ArrayRef<TokenState> predecessorTokens,
-                         Block *successor);
-  bool getReachingTokens(SmallVectorImpl<TokenState> &results,
-                         SmallVectorImpl<TokenState> &scratch,
-                         SmallVectorImpl<TokenState> &escapedTokens,
-                         ArrayRef<TokenState> predecessorTokens,
                          RegionBranchOpInterface op, RegionBranchPoint point,
                          RegionSuccessor successor);
-  bool getReachingTokens(SmallVectorImpl<TokenState> &results,
-                         SmallVectorImpl<TokenState> &scratch,
-                         SmallVectorImpl<TokenState> &escapedTokens,
-                         ArrayRef<TokenState> predecessorTokens,
-                         RegionBranchOpInterface op, RegionSuccessor successor);
 };
 
 } // end namespace mlir::aster::amdgcn
