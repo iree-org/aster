@@ -17,6 +17,15 @@
 
 include "mlir/Pass/PassBase.td"
 
+def AMDGCNConvertWaits : InterfacePass<"amdgcn-convert-waits", "mlir::aster::ModuleOpInterface"> {
+  let summary = "Convert wait operations to hardware wait instructions";
+  let description = [{
+    This pass converts high-level amdgcn.wait operations into the appropriate
+    hardware wait instructions (s_waitcnt) based on the types of dependencies
+    being waited on.
+  }];
+}
+
 def RegisterAlloc : Pass<"amdgcn-register-allocation"> {
   let summary = "Perform register allocation for AMDGCN kernels";
 }
