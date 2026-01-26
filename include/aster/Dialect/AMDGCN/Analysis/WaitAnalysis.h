@@ -25,7 +25,6 @@
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstddef>
 #include <cstdint>
@@ -36,6 +35,34 @@ namespace mlir::aster::amdgcn {
 class WaitOp;
 class WaitAnalysis;
 struct WaitState;
+
+/// This analysis computes, for each program point, the set of outstanding
+/// (not-yet-waited-on) dependency tokens. It is implemented as a dense forward
+/// dataflow analysis.
+///
+/// The analysis tracks dependency tokens produced by operations implementing
+/// DependentOpInterface (load/store operations) and consumed via WaitOps. Key
+/// capabilities include:
+///
+/// - Token production tracking from load/store operations
+/// - Token consumption via WaitOps with position-based counting
+/// - Position updates as new tokens are pushed (stack-like ordering for FIFO
+///   hardware counters)
+/// - Control flow merging with dominance-aware token filtering
+/// - Region-based control flow transfers
+///
+/// The analysis is built on several core components:
+///
+/// - TokenState: Represents a dependency token with its ID, position, and
+///   token kind.
+///
+/// - WaitCnt: Helper struct for managing hardware wait count values (vm_cnt,
+///   lgkm_cnt). Provides utilities for computing counts from WaitOps and
+///   updating counts based on token positions.
+///
+/// - WaitState: Lattice element tracking reaching tokens at each program point,
+///   plus optional WaitOpInfo that captures waited tokens, implied tokens, and
+///   computed wait counts.
 
 //===----------------------------------------------------------------------===//
 // TokenState
@@ -51,6 +78,9 @@ struct TokenState {
   static constexpr Position kMaxPosition = std::numeric_limits<Position>::max();
 
   TokenState() = default;
+  TokenState(Value token, ID id, MemoryInstructionKind kind,
+             Position position = 0)
+      : token(token), id(id), position(position), kind(kind) {}
 
   /// Create an unknown token state for dmem.
   static TokenState unknownDMem(Position pos) {
@@ -85,7 +115,6 @@ struct TokenState {
 
   /// Merge another token state into this one.
   bool merge(const TokenState &other);
-
   /// Return the token value.
   Value getToken() const { return token; }
   /// Returns the unique ID of the token.
@@ -94,16 +123,10 @@ struct TokenState {
   int32_t getPosition() const { return position; }
   /// Returns the memory instruction kind of the token.
   MemoryInstructionKind getKind() const { return kind; }
-
   /// Print the state.
   void print(raw_ostream &os) const;
 
 private:
-  friend class WaitAnalysis;
-  friend struct WaitState;
-  TokenState(Value token, ID id, MemoryInstructionKind kind,
-             Position position = 0)
-      : token(token), id(id), position(position), kind(kind) {}
   Value token = nullptr;
   ID id = -1;
   Position position = 0;
@@ -124,19 +147,18 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 /// of CDNA3 and CDNA4. TODO: Expand to other architectures.
 struct WaitCnt {
   using Position = TokenState::Position;
-  static constexpr Position kMaxPosition = std::numeric_limits<Position>::max();
+  static constexpr Position kMaxPosition = TokenState::kMaxPosition;
   WaitCnt(Position vmCnt = kMaxPosition, Position lgkmCnt = kMaxPosition)
       : vmCnt(vmCnt), lgkmCnt(lgkmCnt) {}
 
+  /// Returns the vm wait count.
+  int32_t getVmcnt() const { return vmCnt; }
+  /// Returns the lgkm wait count.
+  int32_t getLgkmcnt() const { return lgkmCnt; }
   /// Create WaitCnt object from a WaitOp.
   static WaitCnt fromOp(WaitOp waitOp);
-
-  /// Set the wait counts from a WaitOp.
-  void setOpCounts(WaitOp waitOp) const;
-
   /// Get the wait count for a given memory instruction kind.
   int32_t getCount(MemoryInstructionKind kind) const;
-
   /// Given a set of reaching tokens and token dependencies, compute the waited
   /// and implied tokens, the new reaching tokens after the wait, and update the
   /// wait counts so that they are consistent.
@@ -158,17 +180,11 @@ struct WaitCnt {
     return vmCnt == other.vmCnt && lgkmCnt == other.lgkmCnt;
   }
 
-  /// Returns the vm wait count.
-  int32_t getVmcnt() const { return vmCnt; }
-  /// Returns the lgkm wait count.
-  int32_t getLgkmcnt() const { return lgkmCnt; }
-
 private:
   /// Update the wait count with the given kind and position.
   void updateCount(MemoryInstructionKind kind, Position count);
   /// Update the wait count from a set of tokens.
   void updateCount(ArrayRef<TokenState> tokens);
-
   Position vmCnt;
   Position lgkmCnt;
 };
@@ -186,19 +202,14 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 /// Object for storing information about a wait operation.
 struct WaitOpInfo {
   WaitOpInfo(WaitCnt counts) : counts(counts) {}
-  /// Get the wait counts.
-  WaitCnt getCounts() const { return counts; }
-  /// Get the waited tokens.
-  ArrayRef<TokenState> getWaitedTokens() const { return waitedTokens; }
-  /// Get the implied tokens.
-  ArrayRef<TokenState> getImpliedTokens() const { return impliedTokens; }
   /// Print the wait op info.
   void print(llvm::raw_ostream &os) const;
 
-private:
-  friend struct WaitState;
+  /// The computed wait counts for the wait operation.
   WaitCnt counts;
+  /// The tokens that are waited on by this wait operation.
   SmallVector<TokenState> waitedTokens;
+  /// The tokens that are implied (already waited on) by this wait operation.
   SmallVector<TokenState> impliedTokens;
 };
 
@@ -226,26 +237,16 @@ struct WaitState : dataflow::AbstractDenseLattice {
   ChangeResult join(const AbstractDenseLattice &lattice) final {
     return join(static_cast<const WaitState &>(lattice));
   }
-
   /// Dedicated join for wait operations.
   ChangeResult joinWait(ValueRange deps, const WaitState &before,
                         WaitCnt waitCounts,
                         llvm::function_ref<TokenState(Value)> getState);
-
   /// Add tokens to the reaching set.
   ChangeResult addTokens(ArrayRef<TokenState> tokens);
-
-  /// Get the reaching tokens.
-  ArrayRef<TokenState> getReachingTokens() const { return reachingTokens; }
-
-  /// Get the wait op info.
-  const std::optional<WaitOpInfo> &getWaitOpInfo() const { return waitOpInfo; }
-
   /// Print the lattice element.
   void print(raw_ostream &os) const override;
 
-private:
-  friend class WaitAnalysis;
+  /// Reaching tokens at this program point.
   SmallVector<TokenState> reachingTokens;
   /// Optional information about wait operations that produced this state.
   std::optional<WaitOpInfo> waitOpInfo;
@@ -265,9 +266,6 @@ public:
   WaitAnalysis(DataFlowSolver &solver, DominanceInfo &domInfo)
       : dataflow::DenseForwardDataFlowAnalysis<WaitState>(solver),
         domInfo(domInfo) {}
-
-  /// Sort values by dominance order. Values that dominate others come first.
-  void sortByDominance(SmallVectorImpl<Value> &values) const;
 
   /// Visit an operation and update the lattice state.
   LogicalResult visitOperation(Operation *op, const WaitState &before,
@@ -307,9 +305,8 @@ private:
   /// Map from token values to their unique IDs.
   DenseMap<Value, int32_t> tokenIDs;
 
-  /// Get the memory instruction kind from a token value's type.
-  /// Returns MemoryInstructionKind::None if the value is not a token type
-  static MemoryInstructionKind getMemoryKindFromToken(Value token);
+  /// Temporary storage for escaped tokens during control flow transfer.
+  llvm::SmallVector<TokenState> escapedTokens;
 
   /// Get the unique ID for a given token value.
   TokenState::ID getID(Value token) {
@@ -320,26 +317,7 @@ private:
   }
 
   /// Get the TokenState for a given token value at a specific position.
-  TokenState getState(Value token, TokenState::ID position) {
-    return TokenState(token, getID(token), getMemoryKindFromToken(token),
-                      position);
-  }
-
-  /// Get the token states for a range of token values.
-  void getTokenStates(ValueRange tokens, SmallVectorImpl<TokenState> &result) {
-    for (Value token : tokens) {
-      result.push_back(getState(token, 0));
-    }
-  }
-  template <size_t N>
-  SmallVector<TokenState, N> getTokenStates(ValueRange tokens) {
-    SmallVector<TokenState, N> result;
-    getTokenStates(tokens, result);
-    return result;
-  }
-
-  /// Temporary storage for escaped tokens during control flow transfer.
-  llvm::SmallVector<TokenState> escapedTokens;
+  TokenState getState(Value token, TokenState::ID position);
 
   /// Control flow transfer function. This function propagates tokens from
   /// predecessor to successor, taking into account dominance, as well as the

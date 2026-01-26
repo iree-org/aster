@@ -103,12 +103,21 @@ static bool merge(SmallVectorImpl<TokenState> &target,
 /// Get a fingerprint of the wait state for change detection.
 static std::tuple<int32_t, int32_t, int32_t, WaitCnt>
 getStateFingerprint(const WaitState &state) {
-  const std::optional<WaitOpInfo> &info = state.getWaitOpInfo();
+  const std::optional<WaitOpInfo> &info = state.waitOpInfo;
   return std::tuple<int32_t, int32_t, int32_t, WaitCnt>(
-      state.getReachingTokens().size(),
-      info ? info->getWaitedTokens().size() : -1,
-      info ? info->getImpliedTokens().size() : -1,
-      info ? info->getCounts() : WaitCnt());
+      state.reachingTokens.size(), info ? info->waitedTokens.size() : -1,
+      info ? info->impliedTokens.size() : -1, info ? info->counts : WaitCnt());
+}
+
+/// Get the memory instruction kind from a token value's type.
+/// Returns MemoryInstructionKind::None if the value is not a token type
+static MemoryInstructionKind getMemoryKindFromToken(Value token) {
+  Type type = token.getType();
+  if (auto readToken = dyn_cast<ReadTokenType>(type))
+    return readToken.getKind();
+  if (auto writeToken = dyn_cast<WriteTokenType>(type))
+    return writeToken.getKind();
+  return MemoryInstructionKind::None;
 }
 
 //===----------------------------------------------------------------------===//
@@ -178,11 +187,6 @@ void WaitCnt::updateCount(MemoryInstructionKind kind, Position count) {
 void WaitCnt::updateCount(ArrayRef<TokenState> tokens) {
   for (const TokenState &tok : tokens)
     updateCount(tok.getKind(), tok.getPosition());
-}
-
-void WaitCnt::setOpCounts(WaitOp waitOp) const {
-  waitOp.setVmCnt(vmCnt);
-  waitOp.setLgkmCnt(lgkmCnt);
 }
 
 void WaitCnt::print(llvm::raw_ostream &os) const {
@@ -347,7 +351,7 @@ void WaitState::print(raw_ostream &os) const {
     os << "<Empty>";
     return;
   }
-  ArrayRef<TokenState> tokens = getReachingTokens();
+  ArrayRef<TokenState> tokens = reachingTokens;
   os << "unhandled tokens = " << llvm::interleaved_array(tokens);
   if (!waitOpInfo.has_value()) {
     return;
@@ -379,7 +383,7 @@ WaitState::joinWait(ValueRange deps, const WaitState &before,
   LDBG_OS([&](raw_ostream &os) {
     os << "  Merging wait dependencies:\n";
     os << "  Reaching tokens: "
-       << llvm::interleaved_array(before.getReachingTokens()) << "\n";
+       << llvm::interleaved_array(before.reachingTokens) << "\n";
     os << "  Wait dependencies: " << llvm::interleaved_array(deps) << "\n";
     os << "  Wait counts: " << waitCounts;
   });
@@ -392,7 +396,7 @@ WaitState::joinWait(ValueRange deps, const WaitState &before,
   }
   SmallVector<TokenState> newReachingToks;
   waitOpInfo->counts.handleWait(
-      before.getReachingTokens(), deps, waitOpInfo->waitedTokens,
+      before.reachingTokens, deps, waitOpInfo->waitedTokens,
       waitOpInfo->impliedTokens, newReachingToks, getState);
   bool changed = oldFingerprint != getStateFingerprint(*this);
   if (reachingTokens != newReachingToks) {
@@ -430,15 +434,6 @@ MLIR_DEFINE_EXPLICIT_TYPE_ID(mlir::aster::amdgcn::WaitState)
     });                                                                        \
   });
 
-MemoryInstructionKind WaitAnalysis::getMemoryKindFromToken(Value token) {
-  Type type = token.getType();
-  if (auto readToken = dyn_cast<ReadTokenType>(type))
-    return readToken.getKind();
-  if (auto writeToken = dyn_cast<WriteTokenType>(type))
-    return writeToken.getKind();
-  return MemoryInstructionKind::None;
-}
-
 LogicalResult WaitAnalysis::handleWaitOp(WaitOp waitOp, const WaitState &before,
                                          WaitState *after) {
   auto getState = [&](Value token) { return this->getState(token, 0); };
@@ -474,6 +469,11 @@ LogicalResult WaitAnalysis::visitOperation(Operation *op,
     return handleWaitOp(waitOp, before, after);
 
   return handleOp(op, before, after);
+}
+
+TokenState WaitAnalysis::getState(Value token, TokenState::ID position) {
+  return TokenState(token, getID(token), getMemoryKindFromToken(token),
+                    position);
 }
 
 /// Check if a value's defining block dominates a given block.
@@ -555,7 +555,7 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   escapedTokens.clear();
   // Get tokens reaching the beginning of the block.
   changed |= getReachingTokens(tokens, scratch, escapedTokens,
-                               before.getReachingTokens(), block);
+                               before.reachingTokens, block);
   LDBG_OS([&](llvm::raw_ostream &os) {
     os << "  Initial escaped tokens: "
        << llvm::interleaved_array(escapedTokens);
@@ -566,7 +566,7 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
       continue;
     scratch.clear();
     changed |= getReachingTokens(
-        tokens, scratch, escapedTokens, before.getReachingTokens(),
+        tokens, scratch, escapedTokens, before.reachingTokens,
         terminator.getSuccessorOperands(i).getForwardedOperands(), block);
   }
   // Handle escaped tokens.
@@ -686,7 +686,7 @@ void WaitAnalysis::visitRegionBranchControlFlowTransfer(
            << " to " << (regionTo ? *regionTo : -1);
       });
   bool changed = false;
-  ArrayRef<TokenState> predecessorTokens = before.getReachingTokens();
+  ArrayRef<TokenState> predecessorTokens = before.reachingTokens;
   SmallVector<TokenState> scratch;
   SmallVector<TokenState> &tokens = after->reachingTokens;
   escapedTokens.clear();
