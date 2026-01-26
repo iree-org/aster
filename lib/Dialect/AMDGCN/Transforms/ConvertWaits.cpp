@@ -12,6 +12,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 
@@ -61,6 +62,7 @@ void AMDGCNConvertWaits::runOnOperation() {
     assert(afterState &&
            "expected valid wait analysis states before and after wait op");
 
+    OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(waitOp);
     WaitCnt counts = afterState->waitOpInfo->counts;
 
@@ -73,6 +75,8 @@ void AMDGCNConvertWaits::runOnOperation() {
 
     // Replace the wait op with an inst::SWaitcntOp with the minimal counts
     // required after this wait op.
+    // Note that `SWaitcntOp` defaults to max counts, so we only need to set the
+    // counts that are less than max.
     auto newWait = rewriter.replaceOpWithNewOp<inst::SWaitcntOp>(waitOp);
 
     // The default builder of SWaitcntOp sets both counts to max, so we take the
