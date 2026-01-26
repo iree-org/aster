@@ -500,37 +500,6 @@ walkTerminators(Region *region,
   }
 }
 
-LogicalResult WaitAnalysis::visitOperation(Operation *op,
-                                           const WaitState &before,
-                                           WaitState *after) {
-  DUMP_STATE_HELPER("op", OpWithFlags(op, OpPrintingFlags().skipRegions()), {});
-
-  // Handle a wait op.
-  if (auto waitOp = dyn_cast<WaitOp>(op)) {
-    auto getState = [&](Value token) { return this->getState(token, 0); };
-    propagateIfChanged(after,
-                       after->joinWait(waitOp.getDependencies(), before,
-                                       WaitCnt::fromOp(waitOp), getState));
-    return success();
-  }
-
-  // Handle other operations.
-  ChangeResult changed = after->join(before);
-  SmallVector<TokenState> producedTokens;
-  for (OpResult result : op->getResults()) {
-    if (getMemoryKindFromToken(result) == MemoryInstructionKind::None)
-      continue;
-    producedTokens.push_back(getState(result, 0));
-  }
-  if (!producedTokens.empty()) {
-    llvm::sort(producedTokens);
-    producedTokens.erase(llvm::unique(producedTokens), producedTokens.end());
-    changed = after->addTokens(producedTokens) | changed;
-  }
-  propagateIfChanged(after, changed);
-  return success();
-}
-
 TokenState WaitAnalysis::getState(Value token, TokenState::ID position) {
   return TokenState(token, getID(token), getMemoryKindFromToken(token),
                     position);
@@ -576,6 +545,37 @@ bool WaitAnalysis::mapControlFlowOperands(
   return merge(results, scratch);
 }
 
+LogicalResult WaitAnalysis::visitOperation(Operation *op,
+                                           const WaitState &before,
+                                           WaitState *after) {
+  DUMP_STATE_HELPER("op", OpWithFlags(op, OpPrintingFlags().skipRegions()), {});
+
+  // Handle a wait op.
+  if (auto waitOp = dyn_cast<WaitOp>(op)) {
+    auto getState = [&](Value token) { return this->getState(token, 0); };
+    propagateIfChanged(after,
+                       after->joinWait(waitOp.getDependencies(), before,
+                                       WaitCnt::fromOp(waitOp), getState));
+    return success();
+  }
+
+  // Handle other operations.
+  ChangeResult changed = after->join(before);
+  SmallVector<TokenState> producedTokens;
+  for (OpResult result : op->getResults()) {
+    if (getMemoryKindFromToken(result) == MemoryInstructionKind::None)
+      continue;
+    producedTokens.push_back(getState(result, 0));
+  }
+  if (!producedTokens.empty()) {
+    llvm::sort(producedTokens);
+    producedTokens.erase(llvm::unique(producedTokens), producedTokens.end());
+    changed = after->addTokens(producedTokens) | changed;
+  }
+  propagateIfChanged(after, changed);
+  return success();
+}
+
 void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
                                       Block *predecessor,
                                       const WaitState &before,
@@ -608,6 +608,7 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   propagateIfChanged(after,
                      changed ? ChangeResult::Change : ChangeResult::NoChange);
 }
+
 void WaitAnalysis::visitRegionBranchControlFlowTransfer(
     RegionBranchOpInterface branch, std::optional<unsigned> regionFrom,
     std::optional<unsigned> regionTo, const WaitState &before,

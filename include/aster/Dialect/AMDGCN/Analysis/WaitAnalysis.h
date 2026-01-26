@@ -312,8 +312,8 @@ private:
   /// Get the TokenState for a given token value at a specific position.
   TokenState getState(Value token, TokenState::ID position);
 
-  /// Control flow transfer function. This function propagates tokens from
-  /// predecessor to successor based on the operand-to-value mapping.
+  /// Map control flow operands to tokens and update the reaching and escaped
+  /// tokens.
   bool mapControlFlowOperands(SmallVectorImpl<TokenState> &results,
                               SmallVectorImpl<TokenState> &scratch,
                               SmallVectorImpl<TokenState> &escapedTokens,
