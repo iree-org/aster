@@ -56,7 +56,7 @@ static bool merge(SmallVectorImpl<TokenState> &target,
 
   size_t oldSize = target.size();
   SmallVector<TokenState> temp;
-  temp.reserve(target.size());
+  temp.reserve(target.size() + source.size());
   int64_t i = 0, j = 0, n = target.size(), m = source.size();
   bool changed = false;
   while (i < n) {
