@@ -139,28 +139,20 @@ WaitCnt WaitCnt::fromOp(WaitOp waitOp) {
 }
 
 int32_t WaitCnt::getCount(MemoryInstructionKind kind) const {
-  switch (kind) {
-  case MemoryInstructionKind::Flat:
+  if (kind == MemoryInstructionKind::Flat)
     return vmCnt;
-  case MemoryInstructionKind::Constant:
-  case MemoryInstructionKind::Shared:
+  if (kind == MemoryInstructionKind::Constant ||
+      kind == MemoryInstructionKind::Shared)
     return lgkmCnt;
-  default:
-    return -1;
-  }
+  return -1;
 }
 
 void WaitCnt::updateCount(MemoryInstructionKind kind, Position count) {
-  switch (kind) {
-  case MemoryInstructionKind::Flat:
+  if (kind == MemoryInstructionKind::Flat) {
     vmCnt = std::min(vmCnt, count);
-    break;
-  case MemoryInstructionKind::Constant:
-  case MemoryInstructionKind::Shared:
+  } else if (kind == MemoryInstructionKind::Constant ||
+             kind == MemoryInstructionKind::Shared) {
     lgkmCnt = std::min(lgkmCnt, count);
-    break;
-  default:
-    break;
   }
 }
 
@@ -192,7 +184,7 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
   // Clear the waited tokens.
   waitedTokens.clear();
 
-  int32_t numLgkmToks = 0;
+  bool hasLgkmDeps = false;
 
   // Compute which dependencies are in the reaching set.
   for (Value v : dependencies) {
@@ -209,40 +201,34 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
     waitedTokens.push_back(*lb);
 
     // Count the number of DS and SMem tokens.
-    switch (tok.getKind()) {
-    case MemoryInstructionKind::Constant:
-    case MemoryInstructionKind::Shared:
-      numLgkmToks++;
-      break;
-    default:
-      break;
+    if (tok.getKind() == MemoryInstructionKind::Constant ||
+        tok.getKind() == MemoryInstructionKind::Shared) {
+      hasLgkmDeps = true;
     }
   }
 
-  int32_t numDSToks = 0;
-  int32_t numSMemToks = 0;
+  bool hasDstoks = false;
+  bool hasSmemToks = false;
+
   // If there are LGKM tokens, count the number of DS and SMEM tokens in the
   // reaching tokens.
-  if (numLgkmToks > 0) {
+  if (hasLgkmDeps) {
     for (const TokenState &tok : reachingTokens) {
-      switch (tok.getKind()) {
-      case MemoryInstructionKind::Constant:
-        numSMemToks++;
+      // End early if both types have been found.
+      if (hasDstoks && hasSmemToks)
         break;
-      case MemoryInstructionKind::Shared:
-        numDSToks++;
-        break;
-      default:
-        break;
-      }
+
+      if (tok.getKind() == MemoryInstructionKind::Constant)
+        hasSmemToks = true;
+      else if (tok.getKind() == MemoryInstructionKind::Shared)
+        hasDstoks = true;
     }
   }
 
   // If there are both DS and SMEM tokens, the only consistent wait is to wait
   // for all lgkm tokens.
-  if (numDSToks > 0 && numSMemToks > 0) {
+  if (hasDstoks && hasSmemToks)
     lgkmCnt = 0;
-  }
 
   // Update the wait counts based on the waited tokens.
   updateCount(waitedTokens);
@@ -273,6 +259,7 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
     // Preserve tokens that are not waited on.
     if (token.getPosition() < count)
       nextReachingTokens.push_back(token);
+
     // Collect implied tokens.
     if (token.getPosition() >= count)
       impliedTokens.push_back(token);
@@ -330,6 +317,8 @@ WaitState::joinWait(ValueRange deps, const WaitState &before,
     os << "  Wait dependencies: " << llvm::interleaved_array(deps) << "\n";
     os << "  Wait counts: " << waitCounts;
   });
+
+  // Update or create the wait op info.
   if (waitOpInfo.has_value()) {
     waitOpInfo->counts = waitCounts;
     waitOpInfo->waitedTokens.clear();
@@ -337,11 +326,15 @@ WaitState::joinWait(ValueRange deps, const WaitState &before,
   } else {
     waitOpInfo = WaitOpInfo(waitCounts);
   }
+
+  // Compute the new reaching tokens after the wait.
   SmallVector<TokenState> newReachingToks;
   waitOpInfo->counts.handleWait(
       before.reachingTokens, deps, waitOpInfo->waitedTokens,
       waitOpInfo->impliedTokens, newReachingToks, getState);
   bool changed = oldFingerprint != getStateFingerprint(*this);
+
+  // Update the reaching tokens.
   if (reachingTokens != newReachingToks) {
     changed = true;
     reachingTokens = std::move(newReachingToks);
