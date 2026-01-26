@@ -529,17 +529,24 @@ static bool addTokensByDominance(SmallVectorImpl<TokenState> &results,
   return merge(results, scratch);
 }
 
-bool WaitAnalysis::getReachingTokens(SmallVectorImpl<TokenState> &results,
-                                     SmallVectorImpl<TokenState> &scratch,
-                                     SmallVectorImpl<TokenState> &escapedTokens,
-                                     ArrayRef<TokenState> predecessorTokens,
-                                     ValueRange successorOperands,
-                                     Block *successor) {
+bool WaitAnalysis::mapControlFlowOperands(
+    SmallVectorImpl<TokenState> &results, SmallVectorImpl<TokenState> &scratch,
+    SmallVectorImpl<TokenState> &escapedTokens,
+    ArrayRef<TokenState> predecessorTokens, ValueRange successorOperands,
+    ValueRange successorValues) {
+  scratch.clear();
   scratch.reserve(successorOperands.size());
-  for (auto operandArg :
-       llvm::zip_equal(successorOperands, successor->getArguments())) {
-    Value operand = std::get<0>(operandArg);
-    Value arg = std::get<1>(operandArg);
+  for (auto operandValue :
+       llvm::zip_equal(successorOperands, successorValues)) {
+    Value operand = std::get<0>(operandValue);
+    Value value = std::get<1>(operandValue);
+
+    LDBG_OS([&](llvm::raw_ostream &os) {
+      os << "  Checking propagated value from: ";
+      operand.printAsOperand(os, OpPrintingFlags());
+      os << " to ";
+      value.printAsOperand(os, OpPrintingFlags());
+    });
 
     // Find the token in predecessorTokens.
     auto it = llvm::find_if(predecessorTokens, [&](const TokenState &state) {
@@ -551,11 +558,12 @@ bool WaitAnalysis::getReachingTokens(SmallVectorImpl<TokenState> &results,
     // Remove from escaped tokens those tokens that flow through control-flow.
     if (auto lb = llvm::lower_bound(escapedTokens, *it);
         lb != escapedTokens.end() && *lb == *it) {
+      LDBG() << "  Removing escaped token: " << *lb;
       *lb = TokenState();
     }
 
     scratch.push_back(
-        TokenState(arg, getID(arg), it->getKind(), it->getPosition()));
+        TokenState(value, getID(value), it->getKind(), it->getPosition()));
   }
   llvm::sort(scratch);
   return merge(results, scratch);
@@ -583,64 +591,15 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   for (auto [i, succ] : llvm::enumerate(terminator->getSuccessors())) {
     if (succ != block)
       continue;
-    scratch.clear();
-    changed |= getReachingTokens(
+    changed |= mapControlFlowOperands(
         tokens, scratch, escapedTokens, before.reachingTokens,
-        terminator.getSuccessorOperands(i).getForwardedOperands(), block);
+        terminator.getSuccessorOperands(i).getForwardedOperands(),
+        block->getArguments());
   }
   // Handle escaped tokens.
   changed |= WaitCnt::handleEscapedTokens(tokens, escapedTokens);
   propagateIfChanged(after,
                      changed ? ChangeResult::Change : ChangeResult::NoChange);
-}
-
-bool WaitAnalysis::getReachingTokens(SmallVectorImpl<TokenState> &results,
-                                     SmallVectorImpl<TokenState> &scratch,
-                                     SmallVectorImpl<TokenState> &escapedTokens,
-                                     ArrayRef<TokenState> predecessorTokens,
-                                     RegionBranchOpInterface op,
-                                     RegionBranchPoint point,
-                                     RegionSuccessor successor) {
-  // Early exit if successor region is empty.
-  if (!successor.isParent() && successor.getSuccessor()->empty())
-    return false;
-
-  // Get the successor operands and arguments.
-  ValueRange successorOperands = op.getSuccessorOperands(point, successor);
-  ValueRange successorValues = op.getSuccessorInputs(successor);
-  scratch.reserve(successorOperands.size());
-  for (auto operandValue :
-       llvm::zip_equal(successorOperands, successorValues)) {
-    Value operand = std::get<0>(operandValue);
-    Value value = std::get<1>(operandValue);
-
-    LDBG_OS([&](llvm::raw_ostream &os) {
-      os << "  Checking propagated value from: ";
-      operand.printAsOperand(os, OpPrintingFlags());
-      os << " to ";
-      value.printAsOperand(os, OpPrintingFlags());
-    });
-
-    // Find the token in predecessorTokens.
-    auto it = llvm::find_if(predecessorTokens, [&](const TokenState &state) {
-      return state.getToken() == operand;
-    });
-    if (it == predecessorTokens.end()) {
-      continue;
-    }
-
-    // Remove from escaped tokens those tokens that flow through control-flow.
-    if (auto lb = llvm::find(escapedTokens, *it);
-        lb != escapedTokens.end() && *lb == *it) {
-      LDBG() << "  Removing escaped token: " << *lb;
-      *lb = TokenState();
-    }
-
-    scratch.push_back(
-        TokenState(value, getID(value), it->getKind(), it->getPosition()));
-  }
-  llvm::sort(scratch);
-  return merge(results, scratch);
 }
 
 /// Walk all terminators in a region and invoke a function on each.
@@ -686,15 +645,18 @@ void WaitAnalysis::visitRegionBranchControlFlowTransfer(
 
   // Branch from parent.
   if (!regionFrom) {
-    changed |=
-        getReachingTokens(tokens, scratch, escapedTokens, predecessorTokens,
-                          branch, RegionBranchPoint::parent(), successor);
+    changed |= mapControlFlowOperands(
+        tokens, scratch, escapedTokens, predecessorTokens,
+        branch.getSuccessorOperands(RegionBranchPoint::parent(), successor),
+        branch.getSuccessorInputs(successor));
   } else {
     walkTerminators(&branch->getRegion(*regionFrom),
                     [&](RegionBranchTerminatorOpInterface terminator) {
-                      changed |= getReachingTokens(
+                      changed |= mapControlFlowOperands(
                           tokens, scratch, escapedTokens, predecessorTokens,
-                          branch, RegionBranchPoint(terminator), successor);
+                          branch.getSuccessorOperands(
+                              RegionBranchPoint(terminator), successor),
+                          branch.getSuccessorInputs(successor));
                     });
   }
   // Handle escaped tokens.

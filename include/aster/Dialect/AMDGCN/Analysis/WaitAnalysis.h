@@ -320,19 +320,13 @@ private:
   TokenState getState(Value token, TokenState::ID position);
 
   /// Control flow transfer function. This function propagates tokens from
-  /// predecessor to successor, taking into account dominance, as well as the
-  /// tokens being forwarded by control-flow.
-  bool getReachingTokens(SmallVectorImpl<TokenState> &results,
-                         SmallVectorImpl<TokenState> &scratch,
-                         SmallVectorImpl<TokenState> &escapedTokens,
-                         ArrayRef<TokenState> predecessorTokens,
-                         ValueRange successorOperands, Block *successor);
-  bool getReachingTokens(SmallVectorImpl<TokenState> &results,
-                         SmallVectorImpl<TokenState> &scratch,
-                         SmallVectorImpl<TokenState> &escapedTokens,
-                         ArrayRef<TokenState> predecessorTokens,
-                         RegionBranchOpInterface op, RegionBranchPoint point,
-                         RegionSuccessor successor);
+  /// predecessor to successor based on the operand-to-value mapping.
+  bool mapControlFlowOperands(SmallVectorImpl<TokenState> &results,
+                              SmallVectorImpl<TokenState> &scratch,
+                              SmallVectorImpl<TokenState> &escapedTokens,
+                              ArrayRef<TokenState> predecessorTokens,
+                              ValueRange successorOperands,
+                              ValueRange successorValues);
 };
 
 } // end namespace mlir::aster::amdgcn
