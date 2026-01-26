@@ -579,8 +579,8 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
       return getVmCnt() != kNoWaitCount || getLgkmCnt() != kNoWaitCount;
     }
 
-    /// Check if the wait operation is a no-op (has no dependencies).
-    bool isNop() {
+    /// Check if the wait operation is a no-wait (has no dependencies).
+    bool isNowait() {
       return !hasAnyCount() && getDependencies().empty();
     }
   }];

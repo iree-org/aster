@@ -826,7 +826,7 @@ WaitOp::canonicalizeWait(WaitOp op, RewriterBase &rewriter,
     nextIt = op->getIterator();
     ++nextIt;
   }
-  if (op.isNop()) {
+  if (op.isNowait()) {
     rewriter.eraseOp(op);
     return nextIt;
   }
