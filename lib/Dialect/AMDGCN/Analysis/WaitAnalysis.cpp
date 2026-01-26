@@ -659,17 +659,22 @@ void WaitAnalysis::visitRegionBranchControlFlowTransfer(
                      changed ? ChangeResult::Change : ChangeResult::NoChange);
 }
 
-void WaitAnalysis::setToEntryState(WaitState *lattice) {
-  // Entry state is empty (no pending tokens at function entry).
-  propagateIfChanged(lattice, ChangeResult::NoChange);
-}
-
 void WaitAnalysis::visitCallControlFlowTransfer(
     CallOpInterface call, dataflow::CallControlFlowAction action,
     const WaitState &before, WaitState *after) {
   DUMP_STATE_HELPER("call op",
                     OpWithFlags(call, OpPrintingFlags().skipRegions()), {});
   assert(false && "we don't support inter-procedural analysis");
+}
+
+void WaitAnalysis::setToEntryState(WaitState *lattice) {
+  auto fingerprint = getStateFingerprint(*lattice);
+  lattice->reachingTokens.clear();
+  lattice->waitOpInfo.reset();
+  auto newFingerprint = getStateFingerprint(*lattice);
+  propagateIfChanged(lattice, fingerprint == newFingerprint
+                                  ? ChangeResult::NoChange
+                                  : ChangeResult::Change);
 }
 
 #undef DUMP_STATE_HELPER
