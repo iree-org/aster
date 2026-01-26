@@ -157,12 +157,6 @@ struct WaitCnt {
                   SmallVectorImpl<TokenState> &impliedTokens,
                   SmallVectorImpl<TokenState> &nextReachingTokens,
                   llvm::function_ref<TokenState(Value)> getState);
-
-  /// Handle escaped tokens by converting them to unknown tokens at their
-  /// dominant positions, and merging them into the results.
-  static bool handleEscapedTokens(SmallVectorImpl<TokenState> &results,
-                                  SmallVectorImpl<TokenState> &escapedTokens);
-
   /// Print the wait counts.
   void print(llvm::raw_ostream &os) const;
 

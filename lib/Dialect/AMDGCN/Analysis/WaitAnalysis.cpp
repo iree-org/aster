@@ -279,43 +279,6 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
   }
 }
 
-bool WaitCnt::handleEscapedTokens(SmallVectorImpl<TokenState> &results,
-                                  SmallVectorImpl<TokenState> &escapedTokens) {
-  LDBG_OS([&](llvm::raw_ostream &os) {
-    os << "  Handling escaped tokens: "
-       << llvm::interleaved_array(escapedTokens);
-  });
-  std::array<int32_t, 4> cnt = {
-      static_cast<int32_t>(TokenState::kMaxPosition),
-      static_cast<int32_t>(TokenState::kMaxPosition),
-      static_cast<int32_t>(TokenState::kMaxPosition),
-      static_cast<int32_t>(TokenState::kMaxPosition),
-  };
-  auto getEscCnt = [&](MemoryInstructionKind kind) -> int32_t & {
-    int32_t i = static_cast<int32_t>(kind);
-    assert(i >= 0 && i < 4 && "invalid memory kind");
-    return cnt[i];
-  };
-  for (TokenState &tok : escapedTokens) {
-    if (tok.getKind() == MemoryInstructionKind::None)
-      continue;
-    getEscCnt(tok.getKind()) =
-        std::min(getEscCnt(tok.getKind()), tok.getPosition());
-  }
-  escapedTokens.clear();
-  if (getEscCnt(MemoryInstructionKind::Flat) != TokenState::kMaxPosition)
-    escapedTokens.push_back(
-        TokenState::unknownVMem(getEscCnt(MemoryInstructionKind::Flat)));
-  if (getEscCnt(MemoryInstructionKind::Constant) != TokenState::kMaxPosition)
-    escapedTokens.push_back(
-        TokenState::unknownSMem(getEscCnt(MemoryInstructionKind::Constant)));
-  if (getEscCnt(MemoryInstructionKind::Shared) != TokenState::kMaxPosition)
-    escapedTokens.push_back(
-        TokenState::unknownDMem(getEscCnt(MemoryInstructionKind::Shared)));
-  llvm::sort(escapedTokens);
-  return merge(results, escapedTokens);
-}
-
 //===----------------------------------------------------------------------===//
 // WaitState
 //===----------------------------------------------------------------------===//
@@ -413,6 +376,48 @@ MLIR_DEFINE_EXPLICIT_TYPE_ID(mlir::aster::amdgcn::WaitState)
       after->print(os);                                                        \
     });                                                                        \
   });
+
+/// Handle escaped tokens by converting them to unknown tokens at their
+/// dominant positions, and merging them into the results.
+static bool handleEscapedTokens(SmallVectorImpl<TokenState> &results,
+                                SmallVectorImpl<TokenState> &escapedTokens) {
+  LDBG_OS([&](llvm::raw_ostream &os) {
+    os << "  Handling escaped tokens: "
+       << llvm::interleaved_array(escapedTokens);
+  });
+  std::array<int32_t, 4> cnt = {
+      static_cast<int32_t>(TokenState::kMaxPosition),
+      static_cast<int32_t>(TokenState::kMaxPosition),
+      static_cast<int32_t>(TokenState::kMaxPosition),
+      static_cast<int32_t>(TokenState::kMaxPosition),
+  };
+  auto getEscCnt = [&](MemoryInstructionKind kind) -> int32_t & {
+    int32_t i = static_cast<int32_t>(kind);
+    assert(i >= 0 && i < 4 && "invalid memory kind");
+    return cnt[i];
+  };
+  for (TokenState &tok : escapedTokens) {
+    if (tok.getKind() == MemoryInstructionKind::None)
+      continue;
+    getEscCnt(tok.getKind()) =
+        std::min(getEscCnt(tok.getKind()), tok.getPosition());
+  }
+  escapedTokens.clear();
+  if (getEscCnt(MemoryInstructionKind::Flat) != TokenState::kMaxPosition) {
+    escapedTokens.push_back(
+        TokenState::unknownVMem(getEscCnt(MemoryInstructionKind::Flat)));
+  }
+  if (getEscCnt(MemoryInstructionKind::Constant) != TokenState::kMaxPosition) {
+    escapedTokens.push_back(
+        TokenState::unknownSMem(getEscCnt(MemoryInstructionKind::Constant)));
+  }
+  if (getEscCnt(MemoryInstructionKind::Shared) != TokenState::kMaxPosition) {
+    escapedTokens.push_back(
+        TokenState::unknownDMem(getEscCnt(MemoryInstructionKind::Shared)));
+  }
+  llvm::sort(escapedTokens);
+  return merge(results, escapedTokens);
+}
 
 /// Check if a value's defining block dominates a given block.
 static bool dominatesSuccessor(DominanceInfo &domInfo, Value value,
@@ -591,7 +596,7 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   }
 
   // Handle escaped tokens.
-  changed |= WaitCnt::handleEscapedTokens(tokens, escapedTokens);
+  changed |= handleEscapedTokens(tokens, escapedTokens);
   propagateIfChanged(after,
                      changed ? ChangeResult::Change : ChangeResult::NoChange);
 }
@@ -645,7 +650,7 @@ void WaitAnalysis::visitRegionBranchControlFlowTransfer(
   }
 
   // Handle escaped tokens.
-  changed |= WaitCnt::handleEscapedTokens(tokens, escapedTokens);
+  changed |= handleEscapedTokens(tokens, escapedTokens);
   propagateIfChanged(after,
                      changed ? ChangeResult::Change : ChangeResult::NoChange);
 }
