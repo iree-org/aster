@@ -12,6 +12,7 @@
 #include "aster/Analysis/InterferenceAnalysis.h"
 #include "aster/Analysis/LivenessAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Interfaces/RegisterType.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
@@ -68,30 +69,56 @@ LogicalResult InterferenceAnalysis::handleOp(Operation *op) {
   if (isa<MakeRegisterRangeOp, SplitRegisterRangeOp>(op))
     return success();
 
-  // Get the liveness lattice before the operation.
-  const auto *lattice =
-      solver.lookupState<LivenessState>(solver.getProgramPointBefore(op));
-  assert(lattice && "missing liveness lattice");
-  if (lattice->isTop())
-    return op->emitError() << "liveness lattice is top";
-  const LivenessState::LiveSet &liveValues = *lattice->getLiveValues();
+  // Skip AllocaOp only if it's relocatable (not pre-allocated).
+  // If an alloca has a fixed register, it must participate in interference
+  // to prevent other values from using that register.
+  if (auto allocaOp = dyn_cast<AllocaOp>(op)) {
+    auto regTy = dyn_cast<RegisterTypeInterface>(allocaOp.getType());
+    if (regTy && regTy.isRelocatable())
+      return success();
+    // Fall through to process pre-allocated allocas like other ops.
+  }
 
-  // Collect live registers.
+  // Get the liveness lattice after the operation.
+  // We use **live after** because:
+  // 1. Defined values (results) interfere with what's **live after** their def
+  // 2. Dying inputs are NOT in live-after, so results don't interfere with them
+  // This allows register reuse: a dying input's register can be reused by
+  // a value that's live-through but not used at this operation.
+  const auto *afterLattice =
+      solver.lookupState<LivenessState>(solver.getProgramPointAfter(op));
+  assert(afterLattice && "missing liveness lattice");
+  if (afterLattice->isTop())
+    return op->emitError() << "liveness lattice after is top";
+
+  const LivenessState::EqClassSet &liveAfterEqClasses =
+      afterLattice->getLiveEqClassIds();
+
+  // Collect values that are **live after** this operation.
   llvm::SmallVectorImpl<std::pair<ResourceTypeInterface, Value>> &liveRegs =
       liveRegsScratch;
   liveRegs.clear();
-  for (Value v : liveValues) {
+  for (EqClassID eqClassId : liveAfterEqClasses) {
+    Value v = aliasAnalysis->lookup(eqClassId);
+    if (!v)
+      continue;
     auto regTy = dyn_cast<ResourceTypeInterface>(v.getType());
     if (!regTy)
       continue;
     liveRegs.push_back({regTy, v});
   }
+
+  // Add op results: even if a result isn't used later (not in **live after** ,
+  // it still needs a register that doesn't conflict with what's live.
+  // The proper way to remove such cases is to do CSE and DCE before allocation.
   for (Value v : op->getResults()) {
     auto regTy = dyn_cast<ResourceTypeInterface>(v.getType());
     if (!regTy)
       continue;
     liveRegs.push_back({regTy, v});
   }
+
+  // For RegInterferenceOp, also add the inputs as they must interfere.
   if (auto iOp = dyn_cast<amdgcn::RegInterferenceOp>(op)) {
     for (Value v : iOp.getInputs())
       liveRegs.push_back({cast<ResourceTypeInterface>(v.getType()), v});
@@ -119,7 +146,7 @@ LogicalResult InterferenceAnalysis::handleOp(Operation *op) {
   for (const auto &[rTy, value] : liveRegs)
     eqClassIds.push_back(getEqClassIds(value));
 
-  // Add edges between all pairs of equivalence classes in lhs and rhs.
+  // Add edges between all pairs of live values (same resource type).
   for (int i = 0, end = static_cast<int>(liveRegs.size()); i < end; ++i) {
     for (int j = i + 1; j < end; ++j) {
       // Skip if the register kinds differ.
@@ -169,13 +196,12 @@ InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
                              SymbolTableCollection &symbolTable) {
   // Load the necessary analyses.
   dataflow::loadBaselineAnalyses(solver);
-  auto *aliasAnalysis = solver.load<aster::DPSAliasAnalysis>();
-  solver.load<aster::LivenessAnalysis>(symbolTable);
+  auto *livenessAnalysis = solver.load<aster::LivenessAnalysis>(symbolTable);
 
   // Initialize and run the solver.
   if (failed(solver.initializeAndRun(op)))
     return failure();
-  return create(op, solver, aliasAnalysis);
+  return create(op, solver, livenessAnalysis->getAliasAnalysis());
 }
 
 void InterferenceAnalysis::print(raw_ostream &os) const {

@@ -97,7 +97,7 @@ LogicalResult DPSAliasAnalysis::visitOperation(
 
     // Log the lattices at exit for debugging.
     LDBG_OS([&](llvm::raw_ostream &os) {
-      os << "Lattices for op: " << *op << " =>\n  ";
+      os << "Alias sets for op: " << *op << " =>\n  ";
       llvm::interleaveComma(llvm::enumerate(results), os, [&](auto idxLattice) {
         os << idxLattice.index() << ": ";
         idxLattice.value()->getValue().print(os);
