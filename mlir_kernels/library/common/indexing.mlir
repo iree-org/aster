@@ -163,28 +163,31 @@ amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // Reusable swizzles MFMA memory access indexing functions.
   //===--------------------------------------------------------------------===//
-  // XOR swizzle for 16-column f16 layout (avoids bank conflicts)
-  // Input: (row, col) in fragment coordinates
-  // Output: (row, swizzled_col) for LDS access
-  // Formula: swizzled_col = col XOR (row / 4)
-  // We XOR the high 2 bits of col (col / 4) with row_group (row / 4)
-  func.func private @xor_swizzled_mfma_index_16xf16(%row: index, %col: index) -> (index, index) {
-    // row_group = row / 4 (values 0, 1, 2, 3 for rows 0, 4, 8, 12)
-    %row_group = affine.apply affine_map<()[row] -> (row floordiv 4)>()[%row]
+  // XOR swizzle for (row, col) positions depending on the element size and
+  // transfer size (avoids bank conflicts on mi300x)
+  //   Input: (row, col) in fragment offsets
+  //   Output: (row, swizzled_col) for LDS access
+  //   Formula: swizzled_col = XOR(col / factor, (row / factor) % factor) * factor + (col % factor)
+  func.func private @xor_swizzled_index(%row: index, %col: index, %element_size: index, %transfer_size: index) -> (index, index) {
+    %factor = affine.apply affine_map<()[element_size, transfer_size]
+      -> (transfer_size floordiv element_size)>()[%element_size, %transfer_size]
 
-    // col_low = col mod 4, col_high = col / 4
-    %col_low = affine.apply affine_map<()[col] -> (col mod 4)>()[%col]
-    %col_high = affine.apply affine_map<()[col] -> (col floordiv 4)>()[%col]
+    // row_phase = (row / factor) % factor — cycles through factor phases
+    %row_phase = affine.apply affine_map<()[row, factor] -> ((row floordiv factor) mod factor)>()[%row, %factor]
 
-    // XOR col_high with row_group using arith.xori
-    %col_high_i32 = arith.index_cast %col_high : index to i32
-    %row_group_i32 = arith.index_cast %row_group : index to i32
-    %xored_i32 = arith.xori %col_high_i32, %row_group_i32 : i32
+    // col_group = col / factor, col_low = col % factor
+    %col_group = affine.apply affine_map<()[col, factor] -> (col floordiv factor)>()[%col, %factor]
+    %col_low = affine.apply affine_map<()[col, factor] -> (col mod factor)>()[%col, %factor]
+
+    // XOR col_group with row_phase
+    %col_group_i32 = arith.index_cast %col_group : index to i32
+    %row_phase_i32 = arith.index_cast %row_phase : index to i32
+    %xored_i32 = arith.xori %col_group_i32, %row_phase_i32 : i32
     %xored = arith.index_cast %xored_i32 : i32 to index
 
-    // Reconstruct: swizzled_col = xored * 4 + col_low
-    %swizzled_col = affine.apply affine_map<()[xored, col_low]
-      -> (xored * 4 + col_low)>()[%xored, %col_low]
+    // Reconstruct: swizzled_col = xored * factor + col_low
+    %swizzled_col = affine.apply affine_map<()[xored, col_low, factor]
+      -> (xored * factor + col_low)>()[%xored, %col_low, %factor]
 
     return %row, %swizzled_col : index, index
   }
@@ -192,100 +195,91 @@ amdgcn.library @common_indexing {
   // Swizzle for `A` 16x16xf16 fragment with bank conflict avoidance
   // A matrix is accessed with transposed pattern (col-major in LDS)
   // Returns (row, swizzled_col) for LDS access
-  func.func private @swizzled_mfma_index_A_16x16xf16() -> (index, index) {
+  func.func private @swizzled_mfma_index_A_16x16xf16(%transfer_size: index) -> (index, index) {
+    %element_size = arith.constant 2 : index
     %row, %col = func.call @mfma_index_16x16_helper() : () -> (index, index)
-    // A matrix: transpose access (swap row/col for the swizzle input)
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%col, %row)
-      : (index, index) -> (index, index)
+    %swizzled_row, %swizzled_col = func.call @xor_swizzled_index(%row, %col, %element_size, %transfer_size)
+      : (index, index, index, index) -> (index, index)
     return %swizzled_row, %swizzled_col : index, index
   }
 
   // Swizzle for `B` 16x16xf16 fragment with bank conflict avoidance
   // Returns (row, swizzled_col) for LDS access
-  func.func private @swizzled_mfma_index_B_16x16xf16() -> (index, index) {
+  func.func private @swizzled_mfma_index_B_16x16xf16(%transfer_size: index) -> (index, index) {
+    %element_size = arith.constant 2 : index
     %row, %col = func.call @mfma_index_16x16_helper() : () -> (index, index)
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
-      : (index, index) -> (index, index)
+    %swizzled_row, %swizzled_col = func.call @xor_swizzled_index(%row, %col, %element_size, %transfer_size)
+      : (index, index, index, index) -> (index, index)
     return %swizzled_row, %swizzled_col : index, index
   }
 
   // Swizzle for `C` 16x16xf32 fragment with bank conflict avoidance
   // For f32: each element is 4 bytes = 1 bank width
   // Returns (row, swizzled_col) for LDS access
-  func.func private @swizzled_mfma_index_C_16x16xf32() -> (index, index) {
+  func.func private @swizzled_mfma_index_C_16x16xf32(%transfer_size: index) -> (index, index) {
+    %element_size = arith.constant 4 : index
     %row, %col = func.call @mfma_index_16x16_helper() : () -> (index, index)
     // For f32 with 16 cols, XOR pattern is the same but affects different banks
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
-      : (index, index) -> (index, index)
+    %swizzled_row, %swizzled_col = func.call @xor_swizzled_index(%row, %col, %element_size, %transfer_size)
+      : (index, index, index, index) -> (index, index)
     return %swizzled_row, %swizzled_col : index, index
   }
 
   //===--------------------------------------------------------------------===//
   // LDS bank computation functions for debugging bank conflicts.
-  // AMD GPUs have 32 banks with 2 bytes per bank (64-byte bank cycle).
-  // For a byte at address A: bank = (A / 2) % 32
+  // AMD GPUs have 32 banks with 4 bytes per bank (128-byte bank cycle).
+  // For a byte at address A: bank = (A / 4) % 32
   //===--------------------------------------------------------------------===//
 
   // Compute bank indices for a contiguous transfer starting at byte_address.
-  // AMD LDS has 32 banks with 2 bytes per bank, so bank = (addr / 2) % 32.
+  // AMD LDS has 32 banks with 4 bytes per bank, so bank = (addr / 4) % 32.
   //
   // Args:
   //   %byte_address: Starting byte address in LDS
   //   %transfer_size: Transfer size in bytes (4=b32, 8=b64, 12=b96, 16=b128)
   //
-  // Returns 8 bank indices (b0..b7):
-  //   -  b32  (4 bytes): b0, b1 valid; b2..b7 = -1
-  //   -  b64  (8 bytes): b0..b3 valid; b4..b7 = -1
-  //   -  b96 (12 bytes): b0..b5 valid; b6..b7 = -1
-  //   - b128 (16 bytes): b0..b7 all valid
-  //
-  // Traps with code 42 for unsupported transfer sizes.
+  // Returns 4 bank indices (b0..b3):
+  //   -  b32  (4 bytes): b0 valid; b1..b3 = -1
+  //   -  b64  (8 bytes): b0, b1 valid; b2, b3 = -1
+  //   -  b96 (12 bytes): b0..b2 valid; b3 = -1
+  //   - b128 (16 bytes): b0..b3 all valid
   func.func private @lds_banks_for_transfer(
     %addr: index,
     %transfer_size: index
-  ) -> (index, index, index, index, index, index, index, index) {
+  ) -> (index, index, index, index) {
     %neg1 = arith.constant -1 : index
 
-    // Compute all 8 possible banks (this is a thread-local quantity)
+    // Compute all 4 possible banks (this is a thread-local quantity)
+    // With 4 bytes per bank, max b128 = 16 bytes = 4 banks
     %aaddr = aster_utils.assume_range %addr min 0 : index
-    %b0 = affine.apply affine_map<()[addr] -> (((addr + 0) floordiv 2) mod 32)>()[%aaddr]
-    %b1 = affine.apply affine_map<()[addr] -> (((addr + 2) floordiv 2) mod 32)>()[%aaddr]
-    %b2 = affine.apply affine_map<()[addr] -> (((addr + 4) floordiv 2) mod 32)>()[%aaddr]
-    %b3 = affine.apply affine_map<()[addr] -> (((addr + 6) floordiv 2) mod 32)>()[%aaddr]
-    %b4 = affine.apply affine_map<()[addr] -> (((addr + 8) floordiv 2) mod 32)>()[%aaddr]
-    %b5 = affine.apply affine_map<()[addr] -> (((addr + 10) floordiv 2) mod 32)>()[%aaddr]
-    %b6 = affine.apply affine_map<()[addr] -> (((addr + 12) floordiv 2) mod 32)>()[%aaddr]
-    %b7 = affine.apply affine_map<()[addr] -> (((addr + 14) floordiv 2) mod 32)>()[%aaddr]
+    %b0 = affine.apply affine_map<()[addr] -> (((addr +  0) floordiv 4) mod 32)>()[%aaddr]
+    %b1 = affine.apply affine_map<()[addr] -> (((addr +  4) floordiv 4) mod 32)>()[%aaddr]
+    %b2 = affine.apply affine_map<()[addr] -> (((addr +  8) floordiv 4) mod 32)>()[%aaddr]
+    %b3 = affine.apply affine_map<()[addr] -> (((addr + 12) floordiv 4) mod 32)>()[%aaddr]
 
-    %r0, %r1, %r2, %r3, %r4, %r5, %r6, %r7 = scf.index_switch %transfer_size
-      -> index, index, index, index, index, index, index, index
+    %r0, %r1, %r2, %r3 = scf.index_switch %transfer_size
+      -> index, index, index, index
     case 4 {
-      // b32: 2 banks valid
-      scf.yield %b0, %b1, %neg1, %neg1, %neg1, %neg1, %neg1, %neg1
-        : index, index, index, index, index, index, index, index
+      // b32: 1 bank valid
+      scf.yield %b0, %neg1, %neg1, %neg1 : index, index, index, index
     }
     case 8 {
-      // b64: 4 banks valid
-      scf.yield %b0, %b1, %b2, %b3, %neg1, %neg1, %neg1, %neg1
-        : index, index, index, index, index, index, index, index
+      // b64: 2 banks valid
+      scf.yield %b0, %b1, %neg1, %neg1 : index, index, index, index
     }
     case 12 {
-      // b96: 6 banks valid
-      scf.yield %b0, %b1, %b2, %b3, %b4, %b5, %neg1, %neg1
-        : index, index, index, index, index, index, index, index
+      // b96: 3 banks valid
+      scf.yield %b0, %b1, %b2, %neg1 : index, index, index, index
     }
     case 16 {
-      // b128: 8 banks valid
-      scf.yield %b0, %b1, %b2, %b3, %b4, %b5, %b6, %b7
-        : index, index, index, index, index, index, index, index
+      // b128: 4 banks valid
+      scf.yield %b0, %b1, %b2, %b3 : index, index, index, index
     }
     default {
-      scf.yield %neg1, %neg1, %neg1, %neg1, %neg1, %neg1, %neg1, %neg1
-        : index, index, index, index, index, index, index, index
+      scf.yield %neg1, %neg1, %neg1, %neg1 : index, index, index, index
     }
 
-    return %r0, %r1, %r2, %r3, %r4, %r5, %r6, %r7
-      : index, index, index, index, index, index, index, index
+    return %r0, %r1, %r2, %r3 : index, index, index, index
   }
 
   //===--------------------------------------------------------------------===//

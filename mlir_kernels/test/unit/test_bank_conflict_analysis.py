@@ -74,8 +74,9 @@ def analyze_bank_conflicts(banks, title=""):
     """Analyze and print bank conflict information.
 
     Args:
-        banks: Array of shape (64, 4) where banks[tid] = [b0, b1, b2, b3]
-               for the 4 banks accessed by each thread's b64 load.
+        banks: Array of shape (64, 2) where banks[tid] = [b0, b1]
+               for the banks accessed by each thread's b64 load.
+               With 4 bytes per bank, b64 (8 bytes) touches 2 banks.
         title: Description for the output.
     """
     print(f"\n{'='*70}")
@@ -83,10 +84,10 @@ def analyze_bank_conflicts(banks, title=""):
     print(f"{'='*70}")
 
     # Print banks accessed by each thread
-    print("\nBanks accessed per thread (tid: [b0, b1, b2, b3]):")
+    print("\nBanks accessed per thread (tid: [b0, b1]):")
     for tid in range(64):
         b = banks[tid]
-        print(f"  lane {tid:2d}: [{b[0]:2d}, {b[1]:2d}, {b[2]:2d}, {b[3]:2d}]", end="")
+        print(f"  lane {tid:2d}: [{b[0]:2d}, {b[1]:2d}]", end="")
         if (tid + 1) % 4 == 0:
             print()
 
@@ -110,29 +111,32 @@ class TestLdsBanks:
     def test_lds_banks_A_16x16xf16(self):
         """Test banks for non-swizzled MFMA A matrix pattern."""
         num_threads = 64
-        # Output: 4 banks per thread (b64 = 8 bytes = 4 x 2-byte banks)
-        output = np.zeros(num_threads * 4, dtype=np.int32)
+        # Output: 2 banks per thread (b64 = 8 bytes = 2 x 4-byte banks)
+        output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_lds_banks_A_16x16xf16", output)
 
-        banks = output.reshape(64, 4)
+        banks = output.reshape(64, 2)
         # fmt: off
+        # mfma_index_A_16x16xf16: row = tid % 16, col = 4 * (tid / 16)
+        # byte_addr = row * 32 + col * 2
+        # bank = (byte_addr / 4) % 32
         expected = np.array([
-            [ 0,  1,  2,  3], [16, 17, 18, 19], [ 0,  1,  2,  3], [16, 17, 18, 19],  # tid 0-3
-            [ 0,  1,  2,  3], [16, 17, 18, 19], [ 0,  1,  2,  3], [16, 17, 18, 19],  # tid 4-7
-            [ 0,  1,  2,  3], [16, 17, 18, 19], [ 0,  1,  2,  3], [16, 17, 18, 19],  # tid 8-11
-            [ 0,  1,  2,  3], [16, 17, 18, 19], [ 0,  1,  2,  3], [16, 17, 18, 19],  # tid 12-15
-            [ 4,  5,  6,  7], [20, 21, 22, 23], [ 4,  5,  6,  7], [20, 21, 22, 23],  # tid 16-19
-            [ 4,  5,  6,  7], [20, 21, 22, 23], [ 4,  5,  6,  7], [20, 21, 22, 23],  # tid 20-23
-            [ 4,  5,  6,  7], [20, 21, 22, 23], [ 4,  5,  6,  7], [20, 21, 22, 23],  # tid 24-27
-            [ 4,  5,  6,  7], [20, 21, 22, 23], [ 4,  5,  6,  7], [20, 21, 22, 23],  # tid 28-31
-            [ 8,  9, 10, 11], [24, 25, 26, 27], [ 8,  9, 10, 11], [24, 25, 26, 27],  # tid 32-35
-            [ 8,  9, 10, 11], [24, 25, 26, 27], [ 8,  9, 10, 11], [24, 25, 26, 27],  # tid 36-39
-            [ 8,  9, 10, 11], [24, 25, 26, 27], [ 8,  9, 10, 11], [24, 25, 26, 27],  # tid 40-43
-            [ 8,  9, 10, 11], [24, 25, 26, 27], [ 8,  9, 10, 11], [24, 25, 26, 27],  # tid 44-47
-            [12, 13, 14, 15], [28, 29, 30, 31], [12, 13, 14, 15], [28, 29, 30, 31],  # tid 48-51
-            [12, 13, 14, 15], [28, 29, 30, 31], [12, 13, 14, 15], [28, 29, 30, 31],  # tid 52-55
-            [12, 13, 14, 15], [28, 29, 30, 31], [12, 13, 14, 15], [28, 29, 30, 31],  # tid 56-59
-            [12, 13, 14, 15], [28, 29, 30, 31], [12, 13, 14, 15], [28, 29, 30, 31],  # tid 60-63
+            [ 0,  1], [ 8,  9], [16, 17], [24, 25],  # tid 0-3
+            [ 0,  1], [ 8,  9], [16, 17], [24, 25],  # tid 4-7
+            [ 0,  1], [ 8,  9], [16, 17], [24, 25],  # tid 8-11
+            [ 0,  1], [ 8,  9], [16, 17], [24, 25],  # tid 12-15
+            [ 2,  3], [10, 11], [18, 19], [26, 27],  # tid 16-19
+            [ 2,  3], [10, 11], [18, 19], [26, 27],  # tid 20-23
+            [ 2,  3], [10, 11], [18, 19], [26, 27],  # tid 24-27
+            [ 2,  3], [10, 11], [18, 19], [26, 27],  # tid 28-31
+            [ 4,  5], [12, 13], [20, 21], [28, 29],  # tid 32-35
+            [ 4,  5], [12, 13], [20, 21], [28, 29],  # tid 36-39
+            [ 4,  5], [12, 13], [20, 21], [28, 29],  # tid 40-43
+            [ 4,  5], [12, 13], [20, 21], [28, 29],  # tid 44-47
+            [ 6,  7], [14, 15], [22, 23], [30, 31],  # tid 48-51
+            [ 6,  7], [14, 15], [22, 23], [30, 31],  # tid 52-55
+            [ 6,  7], [14, 15], [22, 23], [30, 31],  # tid 56-59
+            [ 6,  7], [14, 15], [22, 23], [30, 31],  # tid 60-63
         ], dtype=np.int32)
         # fmt: on
         np.testing.assert_array_equal(banks, expected, "Non-swizzled bank mismatch")
@@ -142,40 +146,42 @@ class TestLdsBanks:
     def test_lds_banks_swizzled_A_16x16xf16(self):
         """Test banks for swizzled MFMA A matrix pattern."""
         num_threads = 64
-        output = np.zeros(num_threads * 4, dtype=np.int32)
+        output = np.zeros(num_threads * 2, dtype=np.int32)
         compile_and_run("test_lds_banks_swizzled_A_16x16xf16", output)
 
-        banks = output.reshape(64, 4)
+        banks = output.reshape(16, 4, 2)
 
-        # Verify swizzled bank computation:
+        # Verify swizzled bank computation (32 banks, 4 bytes per bank):
         #   swizzled_col = (col_high XOR row_group) * 4 + col_low
         # where:
-        #   row = 4 * (tid // 16), col = tid % 16,
-        #   row_group = row // 4 = tid // 16,
-        #   col_high = col // 4, col_low = col % 4
+        #   row = tid % 16, col = 4 * (tid // 16),
+        #   row_group = row // 4,
+        #   col_high = col // 4, col_low = col % 4 (always 0 for this pattern)
+        # byte_addr = row * 32 + swizzled_col * 2
+        # bank = (byte_addr / 4) % 32
         # fmt: off
         expected = np.array([
-            [ 0,  1,  2,  3], [16, 17, 18, 19], [ 0,  1,  2,  3], [16, 17, 18, 19],  # tid 0-3
-            [ 4,  5,  6,  7], [20, 21, 22, 23], [ 4,  5,  6,  7], [20, 21, 22, 23],  # tid 4-7
-            [ 8,  9, 10, 11], [24, 25, 26, 27], [ 8,  9, 10, 11], [24, 25, 26, 27],  # tid 8-11
-            [12, 13, 14, 15], [28, 29, 30, 31], [12, 13, 14, 15], [28, 29, 30, 31],  # tid 12-15
-            [ 4,  5,  6,  7], [20, 21, 22, 23], [ 4,  5,  6,  7], [20, 21, 22, 23],  # tid 16-19
-            [ 0,  1,  2,  3], [16, 17, 18, 19], [ 0,  1,  2,  3], [16, 17, 18, 19],  # tid 20-23
-            [12, 13, 14, 15], [28, 29, 30, 31], [12, 13, 14, 15], [28, 29, 30, 31],  # tid 24-27
-            [ 8,  9, 10, 11], [24, 25, 26, 27], [ 8,  9, 10, 11], [24, 25, 26, 27],  # tid 28-31
-            [ 8,  9, 10, 11], [24, 25, 26, 27], [ 8,  9, 10, 11], [24, 25, 26, 27],  # tid 32-35
-            [12, 13, 14, 15], [28, 29, 30, 31], [12, 13, 14, 15], [28, 29, 30, 31],  # tid 36-39
-            [ 0,  1,  2,  3], [16, 17, 18, 19], [ 0,  1,  2,  3], [16, 17, 18, 19],  # tid 40-43
-            [ 4,  5,  6,  7], [20, 21, 22, 23], [ 4,  5,  6,  7], [20, 21, 22, 23],  # tid 44-47
-            [12, 13, 14, 15], [28, 29, 30, 31], [12, 13, 14, 15], [28, 29, 30, 31],  # tid 48-51
-            [ 8,  9, 10, 11], [24, 25, 26, 27], [ 8,  9, 10, 11], [24, 25, 26, 27],  # tid 52-55
-            [ 4,  5,  6,  7], [20, 21, 22, 23], [ 4,  5,  6,  7], [20, 21, 22, 23],  # tid 56-59
-            [ 0,  1,  2,  3], [16, 17, 18, 19], [ 0,  1,  2,  3], [16, 17, 18, 19],  # tid 60-63
+            [[ 0,  1], [10, 11], [20, 21], [30, 31]],  # tid 0-3
+            [[ 8,  9], [18, 19], [28, 29], [ 6,  7]],  # tid 4-7
+            [[16, 17], [26, 27], [ 4,  5], [14, 15]],  # tid 8-11
+            [[24, 25], [ 2,  3], [12, 13], [22, 23]],  # tid 12-15
+            [[ 2,  3], [ 8,  9], [22, 23], [28, 29]],  # tid 16-19
+            [[10, 11], [16, 17], [30, 31], [ 4,  5]],  # tid 20-23
+            [[18, 19], [24, 25], [ 6,  7], [12, 13]],  # tid 24-27
+            [[26, 27], [ 0,  1], [14, 15], [20, 21]],  # tid 28-31
+            [[ 4,  5], [14, 15], [16, 17], [26, 27]],  # tid 32-35
+            [[12, 13], [22, 23], [24, 25], [ 2,  3]],  # tid 36-39
+            [[20, 21], [30, 31], [ 0,  1], [10, 11]],  # tid 40-43
+            [[28, 29], [ 6,  7], [ 8,  9], [18, 19]],  # tid 44-47
+            [[ 6,  7], [12, 13], [18, 19], [24, 25]],  # tid 48-51
+            [[14, 15], [20, 21], [26, 27], [ 0,  1]],  # tid 52-55
+            [[22, 23], [28, 29], [ 2,  3], [ 8,  9]],  # tid 56-59
+            [[30, 31], [ 4,  5], [10, 11], [16, 17]],  # tid 60-63
         ], dtype=np.int32)
         # fmt: on
         np.testing.assert_array_equal(banks, expected, "Swizzled bank mismatch")
 
-        analyze_bank_conflicts(banks, "Swizzled MFMA A 16x16xf16 (b64)")
+        analyze_bank_conflicts(banks.reshape(64, 2), "Swizzled MFMA A 16x16xf16 (b64)")
 
 
 if __name__ == "__main__":

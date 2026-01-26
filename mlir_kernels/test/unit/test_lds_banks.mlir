@@ -12,10 +12,10 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   // indexing.mlir
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @mfma_index_A_16x16xf16() -> (index, index)
-  func.func private @xor_swizzled_mfma_index_16xf16(index, index) -> (index, index)
-  func.func private @lds_banks_for_transfer(index, index) -> (index, index, index, index, index, index, index, index)
+  func.func private @swizzled_mfma_index_A_16x16xf16(index) -> (index, index)
+  func.func private @lds_banks_for_transfer(index, index) -> (index, index, index, index)
   // copies.mlir
-  func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index)
+  func.func private @store_to_global_dwordx2_wait(!vx2, !sx2, index, index, index)
 
   //===--------------------------------------------------------------------===//
   // LDS bank debugging kernels
@@ -49,31 +49,27 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     // Compute banks for an 8-byte access
     %transfer_size = arith.constant 8 : index  // dwordx2
-    %b0, %b1, %b2, %b3, %b4_, %b5_, %b6_, %b7_ = func.call @lds_banks_for_transfer(%byte_address, %transfer_size)
-      : (index, index) -> (index, index, index, index, index, index, index, index)
+    %b0, %b1, %b2, %b3 = func.call @lds_banks_for_transfer(%byte_address, %transfer_size)
+      : (index, index) -> (index, index, index, index)
 
 
-    // Store 4 banks as dwordx4 at tid position
+    // Store bank results as dwordx2 at tid position
     %tid = gpu.thread_id x
-    %c16 = arith.constant 16 : index
+    %c8 = arith.constant 8 : index
     %b0_i32 = arith.index_cast %b0 : index to i32
     %b1_i32 = arith.index_cast %b1 : index to i32
-    %b2_i32 = arith.index_cast %b2 : index to i32
-    %b3_i32 = arith.index_cast %b3 : index to i32
     %b0_v = lsir.to_reg %b0_i32 : i32 -> !v
     %b1_v = lsir.to_reg %b1_i32 : i32 -> !v
-    %b2_v = lsir.to_reg %b2_i32 : i32 -> !v
-    %b3_v = lsir.to_reg %b3_i32 : i32 -> !v
-    %data = amdgcn.make_register_range %b0_v, %b1_v, %b2_v, %b3_v : !v, !v, !v, !v
-    func.call @store_to_global_dwordx4_wait(%data, %out_ptr, %c0, %tid, %c16)
-      : (!vx4, !sx2, index, index, index) -> ()
+    %data = amdgcn.make_register_range %b0_v, %b1_v : !v, !v
+    func.call @store_to_global_dwordx2_wait(%data, %out_ptr, %c0, %tid, %c8)
+      : (!vx2, !sx2, index, index, index) -> ()
 
     amdgcn.end_kernel
   }
 
   // Test LDS banks for swizzled MFMA A matrix pattern (16x16xf16).
-  // Each thread outputs 4 banks accessed by a dwordx2 (8-byte) load at its swizzled address.
-  // Output layout: tid * 16 bytes -> [bank0, bank1, bank2, bank3] (4 x i32)
+  // Each thread outputs 2 bank indices (b0, b1) for its swizzled address.
+  // Output layout: tid * 8 bytes -> [b0, b1] (2 x i32)
   // This helps debug bank conflicts in swizzled LDS access patterns.
   amdgcn.kernel @test_lds_banks_swizzled_A_16x16xf16 arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
@@ -90,12 +86,10 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %elt_size = arith.constant 2 : index   // f16 = 2 bytes
     %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[elt_size] -> (elt_size * 16)>()[%elt_size]
 
-    // Get MFMA A indexing pattern: returns (row, col) for this lane
-    %row, %col = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
-
-    // Apply XOR swizzle to avoid bank conflicts
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
-      : (index, index) -> (index, index)
+    // Apply swizzle pattern to avoid bank conflicts (transfer_size = 8 for typical access)
+    %transfer_size = arith.constant 8 : index  // dwordx2
+    %swizzled_row, %swizzled_col = func.call @swizzled_mfma_index_A_16x16xf16(%transfer_size)
+      : (index) -> (index, index)
 
     // Compute byte address in LDS: address = m_pos=0, n_pos=0 + swizzled position
     %off_vgpr = func.call @tiled_matrix_offset(
@@ -106,25 +100,20 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %byte_address = arith.index_cast %off_i32 : i32 to index
 
     // Compute banks for an 8-byte (dwordx2) access starting at byte_address
-    %transfer_size = arith.constant 8 : index  // dwordx2
-    %b0, %b1, %b2, %b3, %b4_, %b5_, %b6_, %b7_ = func.call @lds_banks_for_transfer(%byte_address, %transfer_size)
-      : (index, index) -> (index, index, index, index, index, index, index, index)
+    %b0, %b1, %b2, %b3 = func.call @lds_banks_for_transfer(%byte_address, %transfer_size)
+      : (index, index) -> (index, index, index, index)
 
 
-    // Store 4 banks as dwordx4 at tid position
+    // Store bank results as dwordx2 at tid position
     %tid = gpu.thread_id x
-    %c16 = arith.constant 16 : index
+    %c8 = arith.constant 8 : index
     %b0_i32 = arith.index_cast %b0 : index to i32
     %b1_i32 = arith.index_cast %b1 : index to i32
-    %b2_i32 = arith.index_cast %b2 : index to i32
-    %b3_i32 = arith.index_cast %b3 : index to i32
     %b0_v = lsir.to_reg %b0_i32 : i32 -> !v
     %b1_v = lsir.to_reg %b1_i32 : i32 -> !v
-    %b2_v = lsir.to_reg %b2_i32 : i32 -> !v
-    %b3_v = lsir.to_reg %b3_i32 : i32 -> !v
-    %data = amdgcn.make_register_range %b0_v, %b1_v, %b2_v, %b3_v : !v, !v, !v, !v
-    func.call @store_to_global_dwordx4_wait(%data, %out_ptr, %c0, %tid, %c16)
-      : (!vx4, !sx2, index, index, index) -> ()
+    %data = amdgcn.make_register_range %b0_v, %b1_v : !v, !v
+    func.call @store_to_global_dwordx2_wait(%data, %out_ptr, %c0, %tid, %c8)
+      : (!vx2, !sx2, index, index, index) -> ()
 
     amdgcn.end_kernel
   }

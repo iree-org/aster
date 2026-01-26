@@ -178,7 +178,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %GLOBAL_STRIDE = affine.apply affine_map<()[JJ, elt_size] -> (JJ * 16 * elt_size)>()[%JJ, %elt_size]
 
     // LDS stride: same as global stride for this test
-    %LDS_STRIDE = affine.apply affine_map<()[JJ, elt_size] -> (JJ * 16 * elt_size)>()[%JJ, %elt_size]
+    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[JJ, elt_size]
+      -> (JJ * 16 * elt_size)>()[%JJ, %elt_size]
 
     // Load all 2x3 tiles from global to LDS
     scf.for %ii = %c0 to %II step %c1 {
@@ -191,7 +192,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
           %GLOBAL_STRIDE, // GLOBAL_STRIDE_IN_BYTES
           %c0,            // lds_base_off
           %i_pos, %j_pos, // ii_pos, jj_pos (LDS position)
-          %LDS_STRIDE     // LDS_STRIDE_IN_BYTES
+          %LDS_STRIDE_IN_BYTES     // LDS_STRIDE_IN_BYTES
         ) : (!sx2, index, index, index, index, index, index, index) -> ()
       } {aster.constexpr}
     } {aster.constexpr}
@@ -207,11 +208,11 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
             %c0, // lds_base_off
             %m_pos, // m_pos
             %n_pos, // n_pos
-            %LDS_STRIDE) // LDS_STRIDE_IN_BYTES
+            %LDS_STRIDE_IN_BYTES) // LDS_STRIDE_IN_BYTES
           : (index, index, index, index) -> !vx2
 
         // %fragment = func.call @simple_lds_read_wave_16x16xf16_wait(
-        //     %c0, %m_pos, %n_pos, %LDS_STRIDE)
+        //     %c0, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES)
         //   : (index, index, index, index) -> !vx2
 
         // Store fragment to output using simple_global_store_wave_16x16xf16_wait

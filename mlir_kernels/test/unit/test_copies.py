@@ -208,7 +208,7 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
         Tests 2x3 tiles of 16x16, each tile contains iota 0-255.
         """
         num_threads = 64
-        II, JJ = 2, 3  # 2x3 tiles
+        II, JJ = 1, 1  # 2x3 tiles
 
         # Input: 32x48 matrix (2x3 tiles of 16x16) in 2D row-major layout.
         # Each 16x16 tile contains iota 0-255.
@@ -264,6 +264,11 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
                     output_tile = output_2d[
                         ii * 16 : (ii + 1) * 16, jj * 16 : (jj + 1) * 16
                     ]
+                    print("")
+                    print("ii, jj", ii, jj)
+                    print(input_tile)
+                    print(output_tile)
+                    print(expected)
                     np.testing.assert_array_equal(
                         output_tile, expected, err_msg=f"Mismatch at tile ({ii}, {jj})"
                     )

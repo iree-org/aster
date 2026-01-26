@@ -400,7 +400,7 @@ class TestSwizzledMfmaIndexA16x16xf16:
     def test_swizzled_mfma_index_A(self):
         """Swizzled MFMA indexing for A fragment (transposed + XOR swizzle)."""
         num_threads = 64
-        output = np.zeros(num_threads * 2, dtype=np.int32)
+        output = np.zeros(num_threads * 2, dtype=np.int32).reshape(4, 32)
         compile_and_run("test_swizzled_mfma_index_A_16x16xf16", output)
 
         # Helper returns (row, col) = (4*(lane_id//16), lane_id%16)
@@ -426,10 +426,13 @@ class TestSwizzledMfmaIndexA16x16xf16:
             # lane_id 48-63:  row=0-15, col=12 -> swizzled_col pattern: 12,12,12,12,8,8,8,8,4,4,4,4,0,0,0,0
             0, 12, 1, 12, 2, 12, 3, 12, 4, 8, 5, 8, 6, 8, 7, 8,
             8, 4, 9, 4, 10, 4, 11, 4, 12, 0, 13, 0, 14, 0, 15, 0,
-        ], dtype=np.int32)
+        ], dtype=np.int32).reshape(4, 32)
         # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            print("")
+            print(output)
+            print(expected)
             np.testing.assert_array_equal(output, expected)
 
 

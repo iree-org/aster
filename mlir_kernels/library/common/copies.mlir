@@ -39,7 +39,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
   func.func private @mfma_index_16x16_helper() -> (index, index)
-  func.func private @xor_swizzled_mfma_index_16xf16(index, index) -> (index, index)
+  func.func private @swizzled_mfma_index_A_16x16xf16(index) -> (index, index)
   func.func private @mfma_index_A_16x16xf16() -> (index, index)
   func.func private @mfma_index_C_16x16xf32() -> (index, index)
 
@@ -633,10 +633,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   ) -> !vx2 {
     %elt_size = arith.constant 2 : index // f16 size in bytes
 
-    // Apply A-matrix swizzle
-    %row, %col = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
-      : (index, index) -> (index, index)
+    // Apply A-matrix swizzle (transfer_size = 8 for ds_read_b64)
+    %transfer_size = arith.constant 8 : index
+    %swizzled_row, %swizzled_col = func.call @swizzled_mfma_index_A_16x16xf16(%transfer_size)
+      : (index) -> (index, index)
     %off_lds = func.call @tiled_matrix_offset(
         %m_pos, %n_pos, %swizzled_row, %swizzled_col, %LDS_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index, index, index) -> !v
