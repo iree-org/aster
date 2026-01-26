@@ -434,48 +434,6 @@ MLIR_DEFINE_EXPLICIT_TYPE_ID(mlir::aster::amdgcn::WaitState)
     });                                                                        \
   });
 
-LogicalResult WaitAnalysis::handleWaitOp(WaitOp waitOp, const WaitState &before,
-                                         WaitState *after) {
-  auto getState = [&](Value token) { return this->getState(token, 0); };
-  propagateIfChanged(after, after->joinWait(waitOp.getDependencies(), before,
-                                            WaitCnt::fromOp(waitOp), getState));
-  return success();
-}
-
-LogicalResult WaitAnalysis::handleOp(Operation *op, const WaitState &before,
-                                     WaitState *after) {
-  ChangeResult changed = after->join(before);
-  SmallVector<TokenState> producedTokens;
-  for (OpResult result : op->getResults()) {
-    if (getMemoryKindFromToken(result) == MemoryInstructionKind::None)
-      continue;
-    producedTokens.push_back(getState(result, 0));
-  }
-  if (!producedTokens.empty()) {
-    llvm::sort(producedTokens);
-    producedTokens.erase(llvm::unique(producedTokens), producedTokens.end());
-    changed = after->addTokens(producedTokens) | changed;
-  }
-  propagateIfChanged(after, changed);
-  return success();
-}
-
-LogicalResult WaitAnalysis::visitOperation(Operation *op,
-                                           const WaitState &before,
-                                           WaitState *after) {
-  DUMP_STATE_HELPER("op", OpWithFlags(op, OpPrintingFlags().skipRegions()), {});
-
-  if (auto waitOp = dyn_cast<WaitOp>(op))
-    return handleWaitOp(waitOp, before, after);
-
-  return handleOp(op, before, after);
-}
-
-TokenState WaitAnalysis::getState(Value token, TokenState::ID position) {
-  return TokenState(token, getID(token), getMemoryKindFromToken(token),
-                    position);
-}
-
 /// Check if a value's defining block dominates a given block.
 static bool dominatesSuccessor(DominanceInfo &domInfo, Value value,
                                Block *block) {
@@ -527,6 +485,61 @@ static bool addTokensByDominance(SmallVectorImpl<TokenState> &results,
     scratch.push_back(tok);
   }
   return merge(results, scratch);
+}
+
+/// Walk all terminators in a region and invoke a function on each.
+static void
+walkTerminators(Region *region,
+                std::function<void(RegionBranchTerminatorOpInterface)> &&func) {
+  for (Block &block : *region) {
+    if (block.empty())
+      continue;
+    if (auto terminator =
+            dyn_cast<RegionBranchTerminatorOpInterface>(block.back()))
+      func(terminator);
+  }
+}
+
+LogicalResult WaitAnalysis::handleWaitOp(WaitOp waitOp, const WaitState &before,
+                                         WaitState *after) {
+  auto getState = [&](Value token) { return this->getState(token, 0); };
+  propagateIfChanged(after, after->joinWait(waitOp.getDependencies(), before,
+                                            WaitCnt::fromOp(waitOp), getState));
+  return success();
+}
+
+LogicalResult WaitAnalysis::handleOp(Operation *op, const WaitState &before,
+                                     WaitState *after) {
+  ChangeResult changed = after->join(before);
+  SmallVector<TokenState> producedTokens;
+  for (OpResult result : op->getResults()) {
+    if (getMemoryKindFromToken(result) == MemoryInstructionKind::None)
+      continue;
+    producedTokens.push_back(getState(result, 0));
+  }
+  if (!producedTokens.empty()) {
+    llvm::sort(producedTokens);
+    producedTokens.erase(llvm::unique(producedTokens), producedTokens.end());
+    changed = after->addTokens(producedTokens) | changed;
+  }
+  propagateIfChanged(after, changed);
+  return success();
+}
+
+LogicalResult WaitAnalysis::visitOperation(Operation *op,
+                                           const WaitState &before,
+                                           WaitState *after) {
+  DUMP_STATE_HELPER("op", OpWithFlags(op, OpPrintingFlags().skipRegions()), {});
+
+  if (auto waitOp = dyn_cast<WaitOp>(op))
+    return handleWaitOp(waitOp, before, after);
+
+  return handleOp(op, before, after);
+}
+
+TokenState WaitAnalysis::getState(Value token, TokenState::ID position) {
+  return TokenState(token, getID(token), getMemoryKindFromToken(token),
+                    position);
 }
 
 bool WaitAnalysis::mapControlFlowOperands(
@@ -601,20 +614,6 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   propagateIfChanged(after,
                      changed ? ChangeResult::Change : ChangeResult::NoChange);
 }
-
-/// Walk all terminators in a region and invoke a function on each.
-static void
-walkTerminators(Region *region,
-                std::function<void(RegionBranchTerminatorOpInterface)> &&func) {
-  for (Block &block : *region) {
-    if (block.empty())
-      continue;
-    if (auto terminator =
-            dyn_cast<RegionBranchTerminatorOpInterface>(block.back()))
-      func(terminator);
-  }
-}
-
 void WaitAnalysis::visitRegionBranchControlFlowTransfer(
     RegionBranchOpInterface branch, std::optional<unsigned> regionFrom,
     std::optional<unsigned> regionTo, const WaitState &before,
