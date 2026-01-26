@@ -8,10 +8,33 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines a forward dataflow analysis that tracks dependency tokens
-// produced by operations implementing the DependentOpInterface. The analysis
-// computes, for each program point, the set of outstanding (not-yet-waited-on)
-// dependency tokens.
+// This analysis computes, for each program point, the set of outstanding
+// (not-yet-waited-on) dependency tokens. It is implemented as a dense forward
+// dataflow analysis.
+//
+// The analysis tracks dependency tokens produced by operations implementing
+// DependentOpInterface (load/store operations) and consumed via WaitOps. Key
+// capabilities include:
+//
+// - Token production tracking from load/store operations
+// - Token consumption via WaitOps with position-based counting
+// - Position updates as new tokens are pushed (stack-like ordering for FIFO
+//   hardware counters)
+// - Control flow merging with dominance-aware token filtering
+// - Region-based control flow transfers
+//
+// The analysis is built on several core components:
+//
+// - TokenState: Represents a dependency token with its ID, position, and
+//   token kind.
+//
+// - WaitCnt: Helper struct for managing hardware wait count values (vm_cnt,
+//   lgkm_cnt). Provides utilities for computing counts from WaitOps and
+//   updating counts based on token positions.
+//
+// - WaitState: Lattice element tracking reaching tokens at each program point,
+//   plus optional WaitOpInfo that captures waited tokens, implied tokens, and
+//   computed wait counts.
 //
 //===----------------------------------------------------------------------===//
 
@@ -25,44 +48,11 @@
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "llvm/Support/raw_ostream.h"
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <optional>
 
 namespace mlir::aster::amdgcn {
 class WaitOp;
 class WaitAnalysis;
 struct WaitState;
-
-/// This analysis computes, for each program point, the set of outstanding
-/// (not-yet-waited-on) dependency tokens. It is implemented as a dense forward
-/// dataflow analysis.
-///
-/// The analysis tracks dependency tokens produced by operations implementing
-/// DependentOpInterface (load/store operations) and consumed via WaitOps. Key
-/// capabilities include:
-///
-/// - Token production tracking from load/store operations
-/// - Token consumption via WaitOps with position-based counting
-/// - Position updates as new tokens are pushed (stack-like ordering for FIFO
-///   hardware counters)
-/// - Control flow merging with dominance-aware token filtering
-/// - Region-based control flow transfers
-///
-/// The analysis is built on several core components:
-///
-/// - TokenState: Represents a dependency token with its ID, position, and
-///   token kind.
-///
-/// - WaitCnt: Helper struct for managing hardware wait count values (vm_cnt,
-///   lgkm_cnt). Provides utilities for computing counts from WaitOps and
-///   updating counts based on token positions.
-///
-/// - WaitState: Lattice element tracking reaching tokens at each program point,
-///   plus optional WaitOpInfo that captures waited tokens, implied tokens, and
-///   computed wait counts.
 
 //===----------------------------------------------------------------------===//
 // TokenState

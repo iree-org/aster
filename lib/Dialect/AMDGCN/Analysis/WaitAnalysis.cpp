@@ -1,4 +1,4 @@
-//===- WaitAnalysis.cpp - Wait dependency analysis -----------------------===//
+//===- WaitAnalysis.cpp - Wait dependency analysis ------------------------===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -9,28 +9,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
-#include "mlir/Analysis/DataFlow/DenseAnalysis.h"
-#include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/Operation.h"
-#include "mlir/IR/OperationSupport.h"
-#include "mlir/IR/Region.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "mlir/Support/LLVM.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/DebugLog.h"
 #include "llvm/Support/InterleavedRange.h"
-#include "llvm/Support/raw_ostream.h"
-#include <algorithm>
-#include <cstdint>
-#include <optional>
 
 #define DEBUG_TYPE "wait-analysis"
 
