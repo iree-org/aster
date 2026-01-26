@@ -3,6 +3,7 @@ add_mlir_library(
 
   AMDGCNNopInsertion.cpp
   AMDGCNOptimizeStraightLineWaits.cpp
+  ConvertWaits.cpp
   ExpandMetadataOps.cpp
   InstructionSchedulingAutoschedulePass.cpp
   HoistOps.cpp
@@ -21,6 +22,7 @@ add_mlir_library(
 
   LINK_LIBS PUBLIC
   AMDGCNDialect
+  AMDGCNAnalysis
   ASTERAnalysis
   AsterTransforms
 
