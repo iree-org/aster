@@ -12,7 +12,10 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
+<<<<<<< HEAD
 #include "mlir/IR/Builders.h"
+=======
+>>>>>>> f5cd330 (Convert waits)
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 
