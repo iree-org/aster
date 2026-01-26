@@ -292,13 +292,6 @@ public:
   void setToEntryState(WaitState *lattice) override;
 
 private:
-  /// Handle a WaitOp operation.
-  LogicalResult handleWaitOp(WaitOp waitOp, const WaitState &before,
-                             WaitState *after);
-
-  /// Handle an operation.
-  LogicalResult handleOp(Operation *op, const WaitState &before,
-                         WaitState *after);
   /// Reference to the dominance info.
   DominanceInfo &domInfo;
 

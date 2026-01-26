@@ -500,16 +500,21 @@ walkTerminators(Region *region,
   }
 }
 
-LogicalResult WaitAnalysis::handleWaitOp(WaitOp waitOp, const WaitState &before,
-                                         WaitState *after) {
-  auto getState = [&](Value token) { return this->getState(token, 0); };
-  propagateIfChanged(after, after->joinWait(waitOp.getDependencies(), before,
-                                            WaitCnt::fromOp(waitOp), getState));
-  return success();
-}
+LogicalResult WaitAnalysis::visitOperation(Operation *op,
+                                           const WaitState &before,
+                                           WaitState *after) {
+  DUMP_STATE_HELPER("op", OpWithFlags(op, OpPrintingFlags().skipRegions()), {});
 
-LogicalResult WaitAnalysis::handleOp(Operation *op, const WaitState &before,
-                                     WaitState *after) {
+  // Handle a wait op.
+  if (auto waitOp = dyn_cast<WaitOp>(op)) {
+    auto getState = [&](Value token) { return this->getState(token, 0); };
+    propagateIfChanged(after,
+                       after->joinWait(waitOp.getDependencies(), before,
+                                       WaitCnt::fromOp(waitOp), getState));
+    return success();
+  }
+
+  // Handle other operations.
   ChangeResult changed = after->join(before);
   SmallVector<TokenState> producedTokens;
   for (OpResult result : op->getResults()) {
@@ -524,17 +529,6 @@ LogicalResult WaitAnalysis::handleOp(Operation *op, const WaitState &before,
   }
   propagateIfChanged(after, changed);
   return success();
-}
-
-LogicalResult WaitAnalysis::visitOperation(Operation *op,
-                                           const WaitState &before,
-                                           WaitState *after) {
-  DUMP_STATE_HELPER("op", OpWithFlags(op, OpPrintingFlags().skipRegions()), {});
-
-  if (auto waitOp = dyn_cast<WaitOp>(op))
-    return handleWaitOp(waitOp, before, after);
-
-  return handleOp(op, before, after);
 }
 
 TokenState WaitAnalysis::getState(Value token, TokenState::ID position) {
