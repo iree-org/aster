@@ -22,7 +22,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %JJ = arith.constant 8 : index       // Number of tiles in K dimension
 
     %elt_size = arith.constant 2 : index
-    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[JJ, elt_size] 
+    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[JJ, elt_size]
       -> (JJ * 16 * elt_size)>()[%JJ, %elt_size]
 
     // Number of outer iterations

@@ -27,6 +27,7 @@ WAVEFRONT_SIZE = 64
 @dataclass
 class NanobenchConfig:
     """Configuration for a nanobenchmark."""
+
     kernel_name: str
     mlir_file: str
     description: str
@@ -85,11 +86,11 @@ def compile_kernel(
     preprocess: Callable[[str], str],
 ) -> tuple[str, str]:
     """Compile MLIR to HSACO.
-    
+
     Returns (hsaco_path, asm) or raises RuntimeError on failure.
     """
     library_paths = get_library_paths()
-    
+
     with ir.Context() as ctx:
         asm_complete, _ = compile_mlir_file_to_asm(
             config.mlir_file,
@@ -120,12 +121,14 @@ def run_kernel(
     verify_fn: Optional[Callable] = None,
 ) -> Optional[list[int]]:
     """Run the kernel and return iteration times in nanoseconds.
-    
+
     Returns None if GPU is not available.
     """
     print(f"Compiled successfully. HSACO: {hsaco_path}")
-    print(f"Config: {config.num_iters} inner iterations, {config.num_kernel_runs} kernel runs, "
-          f"{config.num_blocks} blocks, {config.num_threads} threads/block")
+    print(
+        f"Config: {config.num_iters} inner iterations, {config.num_kernel_runs} kernel runs, "
+        f"{config.num_blocks} blocks, {config.num_threads} threads/block"
+    )
 
     if not utils.system_has_mcpu(mcpu=MCPU):
         print(f"GPU {MCPU} not available, stopping after cross-compilation")
@@ -157,7 +160,7 @@ def print_timing_stats(
 ) -> None:
     """Print timing statistics."""
     times_us = np.array(iteration_times_ns) / 1000.0
-    
+
     print(f"\nTiming results ({num_kernel_runs} runs):")
     if extra_info:
         for key, value in extra_info.items():
@@ -177,14 +180,16 @@ def print_per_call_stats(
     """Print timing statistics with per-call breakdown."""
     times_us = np.array(iteration_times_ns) / 1000.0
     total_calls = num_iters * calls_per_iter
-    
+
     print(f"\nTiming results ({num_kernel_runs} runs):")
     print(f"  Mean: {np.mean(times_us):.2f} us")
     print(f"  Min:  {np.min(times_us):.2f} us")
     print(f"  Max:  {np.max(times_us):.2f} us")
     print(f"  Std:  {np.std(times_us):.2f} us")
-    print(f"\nPer-call estimate: {np.mean(times_us) * 1000 / total_calls:.2f} ns "
-          f"({total_calls} calls per kernel)")
+    print(
+        f"\nPer-call estimate: {np.mean(times_us) * 1000 / total_calls:.2f} ns "
+        f"({total_calls} calls per kernel)"
+    )
 
 
 def run_nanobenchmark(
@@ -194,20 +199,20 @@ def run_nanobenchmark(
     stats_fn: Optional[Callable[[list[int]], None]] = None,
 ) -> Optional[list[int]]:
     """Full nanobenchmark pipeline: compile, run, print stats.
-    
+
     Args:
         config: Nanobenchmark configuration
         preprocess: Function to preprocess MLIR source
         verify_fn: Optional verification function
         stats_fn: Optional custom stats function, receives iteration_times_ns
-        
+
     Returns:
         Iteration times in nanoseconds, or None if GPU unavailable
     """
     hsaco_path, _ = compile_kernel(config, preprocess)
     iteration_times_ns = run_kernel(config, hsaco_path, verify_fn)
-    
+
     if iteration_times_ns is not None and stats_fn is not None:
         stats_fn(iteration_times_ns)
-    
+
     return iteration_times_ns

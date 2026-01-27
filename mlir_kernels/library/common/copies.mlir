@@ -444,25 +444,25 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     scf.index_switch %transfer_size
     case 4 {
       %data = aster_utils.from_any %value : !v
-      %tok = amdgcn.store global_store_dword data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+      %tok = amdgcn.store global_store_dword data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
       scf.yield
     }
     case 8 {
       %data = aster_utils.from_any %value : !vx2
-      %tok = amdgcn.store global_store_dwordx2 data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+      %tok = amdgcn.store global_store_dwordx2 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
       scf.yield
     }
     case 12 {
       %data = aster_utils.from_any %value : !vx3
-      %tok = amdgcn.store global_store_dwordx3 data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+      %tok = amdgcn.store global_store_dwordx3 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!vx3, !sx2, !v, i32) -> !amdgcn.write_token<flat>
       scf.yield
     }
     case 16 {
       %data = aster_utils.from_any %value : !vx4
-      %tok = amdgcn.store global_store_dwordx4 data %data addr %ptr offset d(%off_reg) + c(%c0_store) 
+      %tok = amdgcn.store global_store_dwordx4 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!vx4, !sx2, !v, i32) -> !amdgcn.write_token<flat>
       scf.yield
     }

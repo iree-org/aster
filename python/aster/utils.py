@@ -85,7 +85,9 @@ def copy_array_to_gpu(array, padding_bytes: int = 0):
     total_size = array.nbytes + padding_bytes
     base_gpu_ptr = hip_malloc(total_size)
     if base_gpu_ptr is None:
-        raise RuntimeError(f"Failed to allocate GPU memory of size {total_size} for shape {array.shape}")
+        raise RuntimeError(
+            f"Failed to allocate GPU memory of size {total_size} for shape {array.shape}"
+        )
 
     # Calculate pointer to data location (with padding offset)
     base_ptr_value = unwrap_pointer_from_capsule(base_gpu_ptr)

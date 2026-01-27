@@ -16,16 +16,16 @@ class SubstCase<string _tgt, string _value> {
 }
 
 /// Substitute integer `_value` for substring `_tgt`.
-class IntSubstCase<string _tgt, int _value> :
-  SubstCase<_tgt, !cast<string>(_value)>;
+class IntSubstCase<string _tgt, int _value>
+    : SubstCase<_tgt, !cast<string>(_value)>;
 
 /// Substitute variable `$var` with `value`.
-class VarRepl<string var, string value> :
-  SubstCase<!strconcat("$", var), value>;
+class VarRepl<string var, string value>
+    : SubstCase<!strconcat("$", var), value>;
 
 /// Substitute an int variable `$var` with `value`.
-class IntRepl<string var, int value> :
-  IntSubstCase<!strconcat("$", var), value>;
+class IntRepl<string var, int value>
+    : IntSubstCase<!strconcat("$", var), value>;
 
 /// Substitute all occurrences of substrings in `cases` within `input`.
 /// The cases are applied in order, i.e., earlier cases have higher priority.

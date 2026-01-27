@@ -37,4 +37,3 @@ void RemoveTestInst::runOnOperation() {
   for (auto testOp : toErase)
     testOp.erase();
 }
-

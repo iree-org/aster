@@ -29,7 +29,7 @@ print_profile_header() {
     local kernel_name="$1"
     shift
     local params="$@"
-    
+
     echo ""
     echo "========================================"
     echo "Profiling: $kernel_name"
@@ -46,17 +46,17 @@ run_rocprof_att() {
     local python_script="$3"
     shift 3
     local script_args="$@"
-    
+
     local python_bin
     python_bin="$(get_python_bin)"
-    
+
     local cmd="/usr/bin/rocprofv3 \
         --att \
         --att-perfcounter-ctrl 10 \
         -d \"$trace_dir\" \
         -- \
         \"$python_bin\" \"$python_script\" $script_args"
-    
+
     echo "Command: $cmd"
     eval "$cmd"
 }
@@ -70,10 +70,10 @@ run_rocprof_att_perf() {
     local python_script="$4"
     shift 4
     local script_args="$@"
-    
+
     local python_bin
     python_bin="$(get_python_bin)"
-    
+
     local cmd="/usr/bin/rocprofv3 \
         --att \
         --att-perfcounter-ctrl 10 \
@@ -81,7 +81,7 @@ run_rocprof_att_perf() {
         -d \"$trace_dir\" \
         -- \
         \"$python_bin\" \"$python_script\" $script_args"
-    
+
     echo "Command: $cmd"
     eval "$cmd"
 }
@@ -97,10 +97,10 @@ run_rocprof_att_filtered() {
     local python_script="$6"
     shift 6
     local script_args="$@"
-    
+
     local python_bin
     python_bin="$(get_python_bin)"
-    
+
     local cmd="/usr/bin/rocprofv3 \
         --att \
         --att-perfcounter-ctrl 10 \
@@ -110,7 +110,7 @@ run_rocprof_att_filtered() {
         --kernel-iteration-range \"$iter_range\" \
         -- \
         \"$python_bin\" \"$python_script\" $script_args"
-    
+
     echo "Command: $cmd"
     eval "$cmd"
 }

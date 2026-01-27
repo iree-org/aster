@@ -25,7 +25,9 @@ def main():
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    mlir_file = os.path.join(script_dir, "nanobench_lds_read_swizzled_wave_16x16xf16.mlir")
+    mlir_file = os.path.join(
+        script_dir, "nanobench_lds_read_swizzled_wave_16x16xf16.mlir"
+    )
 
     def preprocess(x):
         x = x.replace("{{NUM_ITERS}}", str(args.num_iters))

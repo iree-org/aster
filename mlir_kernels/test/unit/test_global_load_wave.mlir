@@ -26,7 +26,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
   func.func private @get_test_offset(%transfer_size: index) -> (!v) {
     %tid = gpu.thread_id x
-    %offset = affine.apply affine_map<()[tid, transfer_size] 
+    %offset = affine.apply affine_map<()[tid, transfer_size]
       -> (tid * transfer_size)>()[%tid, %transfer_size]
     %offset_i32 = arith.index_cast %offset : index to i32
     %offset_vgpr = lsir.to_reg %offset_i32 : i32 -> !v
