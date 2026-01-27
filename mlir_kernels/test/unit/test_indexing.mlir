@@ -352,10 +352,9 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-    %i, %j = func.call @swizzled_mfma_index_C_16x16xf32() : () -> (index, index)
-    %i_i32 = arith.index_cast %i : index to i32
-    %j_i32 = arith.index_cast %j : index to i32
-    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
+    %swizzled_row, %swizzled_col = func.call @swizzled_mfma_index_C_16x16xf32() : () -> (index, index)
+    %swizzled_col_i32 = arith.index_cast %swizzled_col : index to i32
+    func.call @store_at_tid(%swizzled_col_i32, %out_ptr, %c0) : (i32, !sx2, index) -> ()
     amdgcn.end_kernel
   }
 

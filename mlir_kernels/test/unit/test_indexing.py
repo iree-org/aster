@@ -471,34 +471,26 @@ class TestSwizzledMfmaIndexC16x16xf32:
     """Test @swizzled_mfma_index_C_16x16xf32 function."""
 
     def test_swizzled_mfma_index_C(self):
-        """Swizzled MFMA indexing for C fragment (XOR swizzle)."""
+        """Swizzled MFMA indexing for C fragment (XOR swizzle, same as A)."""
         num_threads = 64
-        output = np.zeros(num_threads * 2, dtype=np.int32)
+        output = np.zeros(num_threads, dtype=np.int32).reshape(4, 4, 4)
         compile_and_run("test_swizzled_mfma_index_C_16x16xf32", output)
 
-        # Helper returns (row, col) = (4*(lane_id//16), lane_id%16)
-        # C applies XOR swizzle directly (same as B)
-        # XOR swizzle: swizzled_col = (col_high XOR row_group) * 4 + col_low
-        # Expected: (row, swizzled_col) pairs for 64 threads
-        # Grouped by row (from helper):
-        #   lane_id 0-15:   row=0,  col=0-15  -> swizzled_col: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
-        #   lane_id 16-31:  row=4,  col=0-15  -> swizzled_col: 4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11
-        #   lane_id 32-47:  row=8,  col=0-15  -> swizzled_col: 8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7
-        #   lane_id 48-63:  row=12, col=0-15  -> swizzled_col: 12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3
+        # Helper returns (row, col) = (lane_id%16, 4*(lane_id//16))
+        # C applies XOR swizzle directly (same as A)
+        # XOR swizzle: swizzled_col = (col_high XOR row_group) * 4
+        # where row_group = row/4, col_high = col/4
+        # Expected: swizzled_col values for 64 threads (same as A)
+        #   lane_id 0-15:   swizzled_cols: 0,0,0,0,4,4,4,4,8,8,8,8,12,12,12,12
+        #   lane_id 16-31:  swizzled_cols: 4,4,4,4,0,0,0,0,12,12,12,12,8,8,8,8
+        #   lane_id 32-47:  swizzled_cols: 8,8,8,8,12,12,12,12,0,0,0,0,4,4,4,4
+        #   lane_id 48-63:  swizzled_cols: 12,12,12,12,8,8,8,8,4,4,4,4,0,0,0,0
         # fmt: off
         expected = np.array([
-            # lane_id 0-15:   row=0, swizzled_col=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
-            0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,
-            0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15,
-            # lane_id 16-31:  row=4, swizzled_col=4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11
-            4, 4, 4, 5, 4, 6, 4, 7, 4, 0, 4, 1, 4, 2, 4, 3,
-            4, 12, 4, 13, 4, 14, 4, 15, 4, 8, 4, 9, 4, 10, 4, 11,
-            # lane_id 32-47:  row=8, swizzled_col=8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7
-            8, 8, 8, 9, 8, 10, 8, 11, 8, 12, 8, 13, 8, 14, 8, 15,
-            8, 0, 8, 1, 8, 2, 8, 3, 8, 4, 8, 5, 8, 6, 8, 7,
-            # lane_id 48-63:  row=12, swizzled_col=12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3
-            12, 12, 12, 13, 12, 14, 12, 15, 12, 8, 12, 9, 12, 10, 12, 11,
-            12, 4, 12, 5, 12, 6, 12, 7, 12, 0, 12, 1, 12, 2, 12, 3,
+            [[0] * 4, [4] * 4, [8] * 4, [12] * 4],
+            [[4] * 4, [0] * 4, [12] * 4, [8] * 4],
+            [[8] * 4, [12] * 4, [0] * 4, [4] * 4],
+            [[12] * 4, [8] * 4, [4] * 4, [0] * 4],
         ], dtype=np.int32)
         # fmt: on
 
@@ -550,3 +542,4 @@ if __name__ == "__main__":
     TestMfmaIndexC16x16xf32().test_mfma_index_C_16x16xf32()
     TestSwizzledMfmaIndexA16x16xf16().test_swizzled_mfma_index_A()
     TestSwizzledMfmaIndexB16x16xf16().test_swizzled_mfma_index_B()
+    TestSwizzledMfmaIndexC16x16xf32().test_swizzled_mfma_index_C()
