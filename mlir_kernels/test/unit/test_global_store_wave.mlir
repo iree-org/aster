@@ -59,17 +59,17 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d, i1) -> !vx2
   func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !tensor_position_descriptor_2level_2d, i1)
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, memref<?x!vx2>)
-  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(index, index, index, index, index, index, memref<?x!vx2>)
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
+  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
   func.func private @simple_global_load_wave_16x16xf16_wait(!tensor_position_descriptor_2d) -> !vx2
   func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, !lds_position_descriptor_2d)
   func.func private @simple_lds_read_wave_16x16xf16_wait(!lds_position_descriptor_2d) -> !vx2
   // simple-multi-tile-copies.mlir
   func.func private @simple_maybe_lds_write_multi_tile(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
   // multi-tile-copies.mlir
-  func.func private @simple_maybe_global_load_multi_tile(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
-  func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
-  func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
+  func.func private @simple_maybe_global_load_multi_tile(index, index, index, index, index, index, index, !tensor_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
+  func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Global store

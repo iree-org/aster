@@ -51,8 +51,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     !vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
   // multi-tile-copies.mlir
-  func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
-  func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
+  func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
+  func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
 
   // Initialize C (decoupled via memrefs).
   func.func private @maybe_init_C(
@@ -287,54 +287,67 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
           %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
-          // Multi-tile global load A: ii=mm, jj=kk, cond_iter=nn
+          // Multi-tile global load A: mm_pos=mm, nn_pos=kk, cond_iter=nn
+          // 2-level descriptor: m_pos/n_pos=base positions, mm_pos/nn_pos=tile indices
+          %elt_size_a = arith.constant 2 : index
+          %global_stride_a = affine.apply affine_map<()[SIZE_K, elt_sz] -> (SIZE_K * elt_sz)>()[%SIZE_K, %elt_size_a]
+          %tensor_desc_a = aster_utils.struct_create(%a_global, %m_pos, %k_pos, %global_stride_a, %mm, %kk, %elt_size_a) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
           func.call @maybe_global_load_multi_tile_coalesced(
-            %k, %mm, %kk, %nn,
+            %k, %nn,
             %K, %MM, %KK,
             %NT_M, %NT_K,
-            %a_global, %m_pos, %k_pos, %SIZE_K, %a_load_memref)
+            %tensor_desc_a, %a_load_memref)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (index, index, index, index,
+            : (index, index,
               index, index, index,
               index, index,
-              !sx2, index, index, index, memref<?x?x!vx2>) -> ()
+              !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
 
-          // Multi-tile global load B: ii=nn, jj=kk, cond_iter=mm
+          // Multi-tile global load B: mm_pos=nn, nn_pos=kk, cond_iter=mm
+          %elt_size_b = arith.constant 2 : index
+          %global_stride_b = affine.apply affine_map<()[SIZE_K, elt_sz] -> (SIZE_K * elt_sz)>()[%SIZE_K, %elt_size_b]
+          %tensor_desc_b = aster_utils.struct_create(%b_global, %n_pos, %k_pos, %global_stride_b, %nn, %kk, %elt_size_b) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
           func.call @maybe_global_load_multi_tile_coalesced(
-            %k, %nn, %kk, %mm,
+            %k, %mm,
             %K, %NN, %KK,
             %NT_N, %NT_K,
-            %b_global, %n_pos, %k_pos, %SIZE_K, %b_load_memref)
+            %tensor_desc_b, %b_load_memref)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (index, index, index, index,
+            : (index, index,
               index, index, index,
               index, index,
-              !sx2, index, index, index, memref<?x?x!vx2>) -> ()
+              !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
 
           // Multi-tile DS writes
-          // Multi-tile DS write A: ii=mm, jj=kk, cond_iter=nn
+          // LDS stride in bytes = TILE_SIZE_K * 2 (f16 element size)
+          %elt_size_lds = arith.constant 2 : index
+          %lds_stride_bytes = affine.apply affine_map<()[TILE_SIZE_K, elt_sz] -> (TILE_SIZE_K * elt_sz)>()[%TILE_SIZE_K, %elt_size_lds]
+
+          // Multi-tile DS write A: mm_pos=mm, nn_pos=kk (tile indices), cond_iter=nn
+          %lds_desc_a = aster_utils.struct_create(%lds_a_base_off, %mm, %kk, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
           func.call @maybe_lds_write_multi_tile_coalesced(
-            %k, %mm, %kk, %nn,
+            %k, %nn,
             %K, %MM, %KK,
             %NT_M, %NT_K,
-            %lds_a_base_off, %TILE_SIZE_K, %a_load_memref)
+            %lds_desc_a, %a_load_memref)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (index, index, index, index,
+            : (index, index,
               index, index, index,
               index, index,
-              index, index, memref<?x?x!vx2>) -> ()
+              !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
 
-          // Multi-tile DS write B: ii=nn, jj=kk, cond_iter=mm
+          // Multi-tile DS write B: mm_pos=nn, nn_pos=kk (tile indices), cond_iter=mm
+          %lds_desc_b = aster_utils.struct_create(%lds_b_base_off, %nn, %kk, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
           func.call @maybe_lds_write_multi_tile_coalesced(
-            %k, %nn, %kk, %mm,
+            %k, %mm,
             %K, %NN, %KK,
             %NT_N, %NT_K,
-            %lds_b_base_off, %TILE_SIZE_K, %b_load_memref)
+            %lds_desc_b, %b_load_memref)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (index, index, index, index,
+            : (index, index,
               index, index, index,
               index, index,
-              index, index, memref<?x?x!vx2>) -> ()
+              !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
 
           func.call @maybe_init_C(
             %k, %mm, %nn, %kk,

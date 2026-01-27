@@ -83,17 +83,17 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d, i1) -> !vx2
   func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !tensor_position_descriptor_2level_2d, i1)
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, memref<?x!vx2>)
-  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(index, index, index, index, index, index, memref<?x!vx2>)
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
+  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
   func.func private @simple_global_load_wave_16x16xf16_wait(!tensor_position_descriptor_2d) -> !vx2
   func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, !lds_position_descriptor_2d)
   func.func private @simple_lds_read_wave_16x16xf16_wait(!lds_position_descriptor_2d) -> !vx2
   // simple-multi-tile-copies.mlir
   func.func private @simple_maybe_lds_write_multi_tile(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
   // multi-tile-copies.mlir
-  func.func private @simple_maybe_global_load_multi_tile(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
-  func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
-  func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
+  func.func private @simple_maybe_global_load_multi_tile(index, index, index, index, index, index, index, !tensor_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
+  func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Helper: store i32 to global at thread index
@@ -443,23 +443,22 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         %nn_pos_base = affine.apply affine_map<()[pn] -> (pn * 4)>()[%pn]
 
         // Multi-tile global load: 2 tiles in M, 4 tiles in N (32x64 region)
+        // Create 2-level descriptor: m_pos/n_pos=major tile pos, mm_pos/nn_pos=minor tile base
+        %global_load_desc = aster_utils.struct_create(%in_ptr, %m_pos, %n_pos, %c256, %mm_pos_base, %nn_pos_base, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
         func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
-          %in_ptr,                    // ptr
-          %m_pos, %n_pos,             // m_pos, n_pos (major tile position)
-          %c256,                      // GLOBAL_STRIDE_IN_BYTES (128 f16 elements * 2 bytes)
-          %mm_pos_base, %nn_pos_base, // mm_pos_base, nn_pos_base (minor tile base)
+          %global_load_desc,          // tensor_position_descriptor_2level_2d
           %c2, %c4,                   // m_tiles=2, n_tiles=4
           %memref                     // result memref
-        ) : (!sx2, index, index, index, index, index, index, index, memref<?x!vx2>) -> ()
+        ) : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
 
         // Write all tiles to LDS using multi-tile LDS write (with non-zero base offset)
+        // Create 2-level LDS descriptor: lds_base=0, mm_pos/nn_pos=minor tile base
+        %lds_write_desc = aster_utils.struct_create(%c0, %mm_pos_base, %nn_pos_base, %c256, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
         func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
-          %c0,                        // lds_base_off (256 bytes offset)
-          %mm_pos_base, %nn_pos_base, // mm_pos_base, nn_pos_base (minor tile base)
-          %c256,                      // LDS_STRIDE_IN_BYTES
+          %lds_write_desc,            // lds_position_descriptor_2level_2d
           %c2, %c4,                   // m_tiles=2, n_tiles=4
           %memref                     // values memref
-        ) : (index, index, index, index, index, index, memref<?x!vx2>) -> ()
+        ) : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
 
         // Read back from LDS and store to output for each tile using lds_to_global
         scf.for %mt = %c0 to %c2 step %c1 {
@@ -520,17 +519,21 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %load_memref = memref.cast %load_memref_static : memref<1x8x!vx2> to memref<?x?x!vx2>
 
     // Loop over all tile indices like in GEMM (single k iteration)
+    %global_stride_bytes = arith.constant 256 : index // SIZE_J * 2 = 128 * 2 bytes
+    %elt_size_global = arith.constant 2 : index // f16 size in bytes
     scf.for %ii = %c0 to %II step %c1 {
       scf.for %jj = %c0 to %JJ step %c1 {
         // Call library function for global load (k=0, cond_iter=0 to always execute when aligned)
+        // tensor_desc: m_pos=ii, n_pos=jj are tile indices
+        %tensor_desc = aster_utils.struct_create(%in_ptr, %ii, %jj, %global_stride_bytes, %elt_size_global) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
         func.call @simple_maybe_global_load_multi_tile(
-          %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
+          %c0, %c0,                     // k, cond_iter
           %K, %II, %JJ,                 // K, II, JJ
           %NT_I, %NT_J,                 // NT_I, NT_J
-          %in_ptr, %c0, %c0, %SIZE_J,   // ptr, i_pos_base, j_pos_base, SIZE_J
+          %tensor_desc,                 // tensor_position_descriptor_2d
           %load_memref)                 // load_memref
-          : (index, index, index, index, index, index, index, index, index,
-             !sx2, index, index, index, memref<?x?x!vx2>) -> ()
+          : (index, index, index, index, index, index, index,
+             !tensor_position_descriptor_2d, memref<?x?x!vx2>) -> ()
 
         // Call library function for LDS write (k=0, cond_iter=0)
         %lds_stride_mt = arith.constant 256 : index // 128 * 2 bytes
@@ -598,27 +601,35 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %load_memref = memref.cast %load_memref_static : memref<1x8x!vx2> to memref<?x?x!vx2>
 
     // Loop over all tile indices like in GEMM (single k iteration)
+    %global_stride_bytes_coal = arith.constant 256 : index // SIZE_J * 2 = 128 * 2 bytes
+    %elt_size_global_coal = arith.constant 2 : index // f16 size in bytes
     scf.for %ii = %c0 to %II step %c1 {
       scf.for %jj = %c0 to %JJ step %c1 {
         // Call library function for global load (k=0, cond_iter=0 to always execute when aligned)
+        // 2-level descriptor: m_pos/n_pos=0 (base positions), mm_pos/nn_pos=ii/jj (tile indices)
+        %tensor_desc_coal = aster_utils.struct_create(%in_ptr, %c0, %c0, %global_stride_bytes_coal, %ii, %jj, %elt_size_global_coal) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
         func.call @maybe_global_load_multi_tile_coalesced(
-          %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
+          %c0, %c0,                     // k, cond_iter
           %K, %II, %JJ,                 // K, II, JJ
           %NT_I, %NT_J,                 // NT_I, NT_J
-          %in_ptr, %c0, %c0, %SIZE_J,   // ptr, i_pos_base, j_pos_base, SIZE_J
+          %tensor_desc_coal,            // tensor_position_descriptor_2level_2d
           %load_memref)                 // load_memref
-          : (index, index, index, index, index, index, index, index, index,
-             !sx2, index, index, index, memref<?x?x!vx2>) -> ()
+          : (index, index, index, index, index, index, index,
+             !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
 
         // Call library function for LDS write (k=0, cond_iter=0)
+        // LDS descriptor: lds_base=0, m_pos=ii, n_pos=jj (tile indices)
+        %lds_stride_bytes_coal = arith.constant 256 : index // SIZE_J * 2 = 128 * 2 bytes
+        %elt_size_lds_coal = arith.constant 2 : index
+        %lds_desc_coal = aster_utils.struct_create(%c0, %ii, %jj, %lds_stride_bytes_coal, %elt_size_lds_coal) : (index, index, index, index, index) -> !lds_position_descriptor_2d
         func.call @maybe_lds_write_multi_tile_coalesced(
-          %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
+          %c0, %c0,                     // k, cond_iter
           %K, %II, %JJ,                 // K, II, JJ
           %NT_I, %NT_J,                 // NT_I, NT_J
-          %c0, %SIZE_J,                 // lds_base_off, SIZE_J
+          %lds_desc_coal,               // lds_position_descriptor_2d
           %load_memref)                 // load_memref
-          : (index, index, index, index, index, index, index, index, index,
-             index, index, memref<?x?x!vx2>) -> ()
+          : (index, index, index, index, index, index, index,
+             !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
       } {aster.constexpr}
     } {aster.constexpr}
 

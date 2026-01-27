@@ -22,6 +22,27 @@
 !ax2 = !amdgcn.agpr_range<[? + 2]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
 
+// A 2D tensor position descriptor containing:
+//   - ptr: global base pointer
+//   - m_pos, n_pos: row and column positions (in elements)
+//   - global_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
+!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
+
+// A 2D LDS position descriptor containing:
+//   - lds_base: local base offset in LDS
+//   - m_pos, n_pos: row and column positions (in elements)
+//   - lds_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+
+// A 2-level 2D LDS position descriptor containing:
+//   - lds_base: local base offset in LDS
+//   - mm_pos, nn_pos: row and column positions of the minor tile (in elements)
+//   - lds_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
+!lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
+
 // A 2-level 2D tensor position descriptor containing:
 //   - ptr: global base pointer
 //   - m_pos, n_pos: row and column positions of the outer tile (in elements)
@@ -29,9 +50,11 @@
 //   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
 //   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
-!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
-!lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
-!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+
+// A 2D transfer descriptor containing:
+//   - num_rows: number of rows for the transfer (must divide wave_size evenly)
+//   - transfer_size: size of each transfer in bytes
+//   - wave_size: number of threads per wave
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
 amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
@@ -54,27 +77,27 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   //
   // Parameters:
   //   %k: outer loop index (for storing variadic results in load_memref -> mem2reg)
-  //   %ii, %jj: tile indices being iterated
   //   %cond_iter: condition index (execute only when cond_iter == 0)
   //   %K, %II, %JJ: loop bounds (unused but kept for API compatibility)
   //   %NT_I, %NT_J: multi-tile factors (load NT_I x NT_J tiles at once)
-  //   %ptr: global memory pointer
-  //   %i_pos_base, %j_pos_base: base positions in global memory
-  //   %SIZE_J: stride in elements (converted to bytes internally)
+  //   %tensor_desc: tensor position descriptor (m_pos/n_pos are tile indices, converted to elements internally)
   //   %load_memref: output memref[K, NT_I * NT_J] for returning variadic loaded
   //                 values -> mem2reg.
   //
   // CHECK-LABEL: func.func private @simple_maybe_global_load_multi_tile
   func.func private @simple_maybe_global_load_multi_tile(
-    %k: index, %ii: index, %jj: index, %cond_iter: index,
+    %k: index, %cond_iter: index,
     %K: index, %II: index, %JJ: index,
     %NT_I: index, %NT_J: index,
-    %ptr: !sx2,
-    %i_pos_base: index, %j_pos_base: index, %SIZE_J: index,
+    %tensor_desc: !tensor_position_descriptor_2d,
     %load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+
+    // Extract tile indices from descriptor (m_pos/n_pos are tile indices here)
+    %ii = aster_utils.struct_extract %tensor_desc["m_pos"] : !tensor_position_descriptor_2d -> index
+    %jj = aster_utils.struct_extract %tensor_desc["n_pos"] : !tensor_position_descriptor_2d -> index
 
     %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
     %ii_mod = affine.apply affine_map<()[ii, NT_I] -> (ii mod NT_I)>()[%ii, %NT_I]
@@ -85,20 +108,19 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %should_load = arith.andi %is_cond_zero, %ii_jj_aligned : i1
 
     scf.if %should_load {
-      %ii_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
-      %jj_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
-
-      %elt_size = arith.constant 2 : index
-      %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_J, elt_size] ->
-        (SIZE_J * elt_size)>()[%SIZE_J, %elt_size]
+      // Extract remaining fields from descriptor
+      %ptr = aster_utils.struct_extract %tensor_desc["ptr"] : !tensor_position_descriptor_2d -> !sx2
+      %global_stride_in_bytes = aster_utils.struct_extract %tensor_desc["global_stride_in_bytes"] : !tensor_position_descriptor_2d -> index
+      %elt_size = aster_utils.struct_extract %tensor_desc["elt_size"] : !tensor_position_descriptor_2d -> index
 
       // Load NT_I x NT_J tiles using simple 16x16 loads
       scf.for %i = %c0 to %NT_I step %c1 {
         scf.for %j = %c0 to %NT_J step %c1 {
-          %m_pos = affine.apply affine_map<()[i_pos_base, ii_pos, i] -> (i_pos_base + ii_pos + i * 16)>()[%i_pos_base, %ii_pos, %i]
-          %n_pos = affine.apply affine_map<()[j_pos_base, jj_pos, j] -> (j_pos_base + jj_pos + j * 16)>()[%j_pos_base, %jj_pos, %j]
+          // Convert tile indices to element positions: (ii + i) * 16, (jj + j) * 16
+          %m_pos = affine.apply affine_map<()[ii, i] -> ((ii + i) * 16)>()[%ii, %i]
+          %n_pos = affine.apply affine_map<()[jj, j] -> ((jj + j) * 16)>()[%jj, %j]
 
-          %pos_desc = aster_utils.struct_create(%ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+          %pos_desc = aster_utils.struct_create(%ptr, %m_pos, %n_pos, %global_stride_in_bytes, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
           %value = func.call @simple_global_load_wave_16x16xf16_wait(%pos_desc)
             : (!tensor_position_descriptor_2d) -> !vx2
 
@@ -122,20 +144,31 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   // for better memory coalescing while preserving the scheduling attributes.
   // Each tile load includes its own waitcnt 0 (simpler wait strategy).
   //
+  // Parameters:
+  //   %tensor_desc: 2-level tensor position descriptor where:
+  //     - m_pos/n_pos are major-tile positions (in elements)
+  //     - mm_pos/nn_pos are base minor-tile positions (in elements)
+  //   %m_tiles, %n_tiles: number of tiles in M and N directions
+  //   %result_memref: output memref[m_tiles * n_tiles] for results
+  //
   // CHECK-LABEL: func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
-    %ptr: !sx2,                      // Global base pointer
-    %m_pos_base: index,              // Major-tile M position
-    %n_pos_base: index,              // Major-tile N position
-    %GLOBAL_STRIDE_IN_BYTES: index,  // Stride in bytes
-    %mm_pos_base: index,             // Base minor-tile M position
-    %nn_pos_base: index,             // Base minor-tile N position
+    %tensor_desc: !tensor_position_descriptor_2level_2d,
     %m_tiles: index,                 // Number of tiles in M direction
     %n_tiles: index,                 // Number of tiles in N direction
     %result_memref: memref<?x!vx2>   // Output: m_tiles x n_tiles results
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+
+    // Extract fields from descriptor
+    %ptr = aster_utils.struct_extract %tensor_desc["ptr"] : !tensor_position_descriptor_2level_2d -> !sx2
+    %m_pos_base = aster_utils.struct_extract %tensor_desc["m_pos"] : !tensor_position_descriptor_2level_2d -> index
+    %n_pos_base = aster_utils.struct_extract %tensor_desc["n_pos"] : !tensor_position_descriptor_2level_2d -> index
+    %global_stride_in_bytes = aster_utils.struct_extract %tensor_desc["global_stride_in_bytes"] : !tensor_position_descriptor_2level_2d -> index
+    %mm_pos_base = aster_utils.struct_extract %tensor_desc["mm_pos"] : !tensor_position_descriptor_2level_2d -> index
+    %nn_pos_base = aster_utils.struct_extract %tensor_desc["nn_pos"] : !tensor_position_descriptor_2level_2d -> index
+    %elt_size = aster_utils.struct_extract %tensor_desc["elt_size"] : !tensor_position_descriptor_2level_2d -> index
 
     // Each transfer does row_size * col_size elements, this is a reshape via a
     // 256-size tile with a number of rows that is determined internally by
@@ -155,8 +188,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
         %nn_pos = affine.apply affine_map<()[base, nt] -> (base + nt)>()[%nn_pos_base, %nt]
 
         // Load the tile
-        %elt_size = arith.constant 2 : index
-        %pos_desc = aster_utils.struct_create(%ptr, %m_pos_base, %n_pos_base, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+        %pos_desc = aster_utils.struct_create(%ptr, %m_pos_base, %n_pos_base, %global_stride_in_bytes, %mm_pos, %nn_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
         %transfer_size = arith.constant 8 : index // dwordx2
         %wave_size = arith.constant 64 : index
         %transfer_desc = aster_utils.struct_create(%row_size, %transfer_size, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
@@ -178,27 +210,29 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   //
   // Parameters:
   //   %k: outer loop index (for storing variadic results in load_memref -> mem2reg)
-  //   %ii, %jj: tile indices being iterated
   //   %cond_iter: condition index (execute only when cond_iter == 0)
   //   %K, %II, %JJ: loop bounds (unused but kept for API compatibility)
   //   %NT_I, %NT_J: multi-tile factors (load NT_I x NT_J tiles at once)
-  //   %ptr: global memory pointer
-  //   %i_pos_base, %j_pos_base: base positions in global memory
-  //   %SIZE_J: stride in elements (converted to bytes internally)
+  //   %tensor_desc: 2-level tensor position descriptor where:
+  //     - m_pos/n_pos are base positions in elements (major tile position)
+  //     - mm_pos/nn_pos are tile indices (converted to elements internally)
   //   %load_memref: output memref[K, NT_I * NT_J] for returning variadic loaded
   //                 values -> mem2reg.
   //
   // CHECK-LABEL: func.func private @maybe_global_load_multi_tile_coalesced
   func.func private @maybe_global_load_multi_tile_coalesced(
-    %k: index, %ii: index, %jj: index, %cond_iter: index,
+    %k: index, %cond_iter: index,
     %K: index, %II: index, %JJ: index,
     %NT_I: index, %NT_J: index,
-    %ptr: !sx2,
-    %i_pos_base: index, %j_pos_base: index, %SIZE_J: index,
+    %tensor_desc: !tensor_position_descriptor_2level_2d,
     %load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+
+    // Extract tile indices from descriptor (mm_pos/nn_pos are tile indices here)
+    %ii = aster_utils.struct_extract %tensor_desc["mm_pos"] : !tensor_position_descriptor_2level_2d -> index
+    %jj = aster_utils.struct_extract %tensor_desc["nn_pos"] : !tensor_position_descriptor_2level_2d -> index
 
     // Execute when cond_iter == 0 AND ii/jj are at NT boundaries
     %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
@@ -210,34 +244,29 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %should_load = arith.andi %is_cond_zero, %ii_jj_aligned : i1
 
     scf.if %should_load {
+      // Extract remaining fields from descriptor
+      %ptr = aster_utils.struct_extract %tensor_desc["ptr"] : !tensor_position_descriptor_2level_2d -> !sx2
+      %m_pos_base = aster_utils.struct_extract %tensor_desc["m_pos"] : !tensor_position_descriptor_2level_2d -> index
+      %n_pos_base = aster_utils.struct_extract %tensor_desc["n_pos"] : !tensor_position_descriptor_2level_2d -> index
+      %global_stride_in_bytes = aster_utils.struct_extract %tensor_desc["global_stride_in_bytes"] : !tensor_position_descriptor_2level_2d -> index
+      %elt_size = aster_utils.struct_extract %tensor_desc["elt_size"] : !tensor_position_descriptor_2level_2d -> index
+
       // Allocate temp memref for multi-tile results: [NT_I, NT_J]
       %NT_IJ = affine.apply affine_map<()[NT_I, NT_J] ->
         (NT_I * NT_J)>()[%NT_I, %NT_J]
       %temp_memref = memref.alloca(%NT_IJ) : memref<?x!vx2>
 
-      %i_pos = affine.apply affine_map<()[i_pos_base, ii, NT_I] ->
-        (i_pos_base)>()[%i_pos_base, %ii, %NT_I]
-      %j_pos = affine.apply affine_map<()[j_pos_base, jj, NT_J] ->
-        (j_pos_base)>()[%j_pos_base, %jj, %NT_J]
-
       // ii/jj are tile indices, so position = tile_index * 16
       %ii_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
       %jj_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
 
-      %elt_size = arith.constant 2 : index
-      %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_J, elt_size] ->
-        (SIZE_J * elt_size)>()[%SIZE_J, %elt_size]
+      // Create 2-level descriptor for the bulk load primitive
+      %load_desc = aster_utils.struct_create(%ptr, %m_pos_base, %n_pos_base, %global_stride_in_bytes, %ii_pos, %jj_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
 
       // Load NT_I x NT_J tiles at once using bulk primitive
       func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
-          %ptr, %i_pos, %j_pos, %GLOBAL_STRIDE_IN_BYTES,
-          %ii_pos, %jj_pos,
-          %NT_I, %NT_J,
-          %temp_memref)
-        : (!sx2, index, index, index,
-           index, index,
-           index, index,
-           memref<?x!vx2>) -> ()
+          %load_desc, %NT_I, %NT_J, %temp_memref)
+        : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
 
       // Copy results from temp memref to main memref
       scf.for %idx = %c0 to %NT_IJ step %c1 {
@@ -260,18 +289,29 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   // for connecting to better memory coalescing global loads multi-tile version.
   // Each tile write includes its own waitcnt 0 (simpler wait strategy).
   //
+  // Parameters:
+  //   %lds_desc: 2-level LDS position descriptor where:
+  //     - lds_base is the base LDS offset
+  //     - mm_pos/nn_pos are base minor-tile positions (in elements)
+  //   %m_tiles, %n_tiles: number of tiles in M and N directions
+  //   %values_memref: input memref[m_tiles * n_tiles] with values to write
+  //
   // CHECK-LABEL: func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
-    %lds_base_off: index,              // Base LDS offset
-    %mm_pos_base: index,               // Base minor-tile M position
-    %nn_pos_base: index,               // Base minor-tile N position
-    %LDS_STRIDE_IN_BYTES: index,       // Stride in bytes
+    %lds_desc: !lds_position_descriptor_2level_2d,
     %m_tiles: index,                   // Number of tiles in M direction
     %n_tiles: index,                   // Number of tiles in N direction
-    %values_memref: memref<?x!vx2>   // Input: m_tiles x n_tiles values
+    %values_memref: memref<?x!vx2>     // Input: m_tiles x n_tiles values
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+
+    // Extract fields from descriptor
+    %lds_base_off = aster_utils.struct_extract %lds_desc["lds_base"] : !lds_position_descriptor_2level_2d -> index
+    %mm_pos_base = aster_utils.struct_extract %lds_desc["mm_pos"] : !lds_position_descriptor_2level_2d -> index
+    %nn_pos_base = aster_utils.struct_extract %lds_desc["nn_pos"] : !lds_position_descriptor_2level_2d -> index
+    %lds_stride_in_bytes = aster_utils.struct_extract %lds_desc["lds_stride_in_bytes"] : !lds_position_descriptor_2level_2d -> index
+    %elt_size = aster_utils.struct_extract %lds_desc["elt_size"] : !lds_position_descriptor_2level_2d -> index
 
     // Each transfer does row_size * col_size elements, this is a reshape via a
     // 256-size tile with a number of rows that is determined internally by
@@ -295,8 +335,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
         %nn_pos = affine.apply affine_map<()[base, nt] -> (base + nt)>()[%nn_pos_base, %nt]
 
         // Write the tile to LDS
-        %elt_size = arith.constant 2 : index  // f16 size in bytes
-        %lds_pos_desc = aster_utils.struct_create(%lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+        %lds_pos_desc = aster_utils.struct_create(%lds_base_off, %mm_pos, %nn_pos, %lds_stride_in_bytes, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
         %transfer_size_lds = arith.constant 8 : index // dwordx2
         %wave_size_lds = arith.constant 64 : index
         %transfer_desc_lds = aster_utils.struct_create(%row_size, %transfer_size_lds, %wave_size_lds) : (index, index, index) -> !transfer_descriptor_2d
@@ -312,25 +351,26 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   //
   // Parameters:
   //   %k: outer loop index (for reading variadic results from load_memref -> mem2reg)
-  //   %ii, %jj: tile indices being iterated
   //   %cond_iter: condition index (execute only when cond_iter == 0)
   //   %K, %II, %JJ: loop bounds (unused but kept for API compatibility)
   //   %NT_I, %NT_J: multi-tile factors (write NT_I x NT_J tiles at once)
-  //   %lds_base_off: base offset in LDS
-  //   %SIZE_J: stride in elements (converted to bytes internally)
+  //   %lds_desc: LDS position descriptor (m_pos/n_pos are tile indices, converted to elements internally)
   //   %load_memref: input memref[K, NT_I * NT_J] for reading variadic values -> mem2reg.
   //
   // CHECK-LABEL: func.func private @maybe_lds_write_multi_tile_coalesced
   func.func private @maybe_lds_write_multi_tile_coalesced(
-    %k: index, %ii: index, %jj: index, %cond_iter: index,
+    %k: index, %cond_iter: index,
     %K: index, %II: index, %JJ: index,
     %NT_I: index, %NT_J: index,
-    %lds_base_off: index,
-    %SIZE_J: index,
+    %lds_desc: !lds_position_descriptor_2d,
     %load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+
+    // Extract tile indices from descriptor (m_pos/n_pos are tile indices here)
+    %ii = aster_utils.struct_extract %lds_desc["m_pos"] : !lds_position_descriptor_2d -> index
+    %jj = aster_utils.struct_extract %lds_desc["n_pos"] : !lds_position_descriptor_2d -> index
 
     // Execute when cond_iter == 0 AND ii/jj are at NT boundaries
     %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
@@ -342,6 +382,11 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %should_write = arith.andi %is_cond_zero, %ii_jj_aligned : i1
 
     scf.if %should_write {
+      // Extract remaining fields from descriptor
+      %lds_base_off = aster_utils.struct_extract %lds_desc["lds_base"] : !lds_position_descriptor_2d -> index
+      %lds_stride_in_bytes = aster_utils.struct_extract %lds_desc["lds_stride_in_bytes"] : !lds_position_descriptor_2d -> index
+      %elt_size = aster_utils.struct_extract %lds_desc["elt_size"] : !lds_position_descriptor_2d -> index
+
       %NT_IJ = affine.apply affine_map<()[NT_I, NT_J] ->
         (NT_I * NT_J)>()[%NT_I, %NT_J]
       %temp_memref = memref.alloca(%NT_IJ) : memref<?x!vx2>
@@ -350,22 +395,19 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
       %ii_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
       %jj_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
 
-      %elt_size = arith.constant 2 : index
-      %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_J, elt_size] ->
-        (SIZE_J * elt_size)>()[%SIZE_J, %elt_size]
-
       // Copy results from main memref to temp memref
       scf.for %idx = %c0 to %NT_IJ step %c1 {
         %loaded = memref.load %load_memref[%k, %idx] : memref<?x?x!vx2>
         memref.store %loaded, %temp_memref[%idx] : memref<?x!vx2>
       } {aster.constexpr}
 
+      // Create 2-level LDS descriptor for the bulk write primitive
+      %lds_write_desc = aster_utils.struct_create(%lds_base_off, %ii_pos, %jj_pos, %lds_stride_in_bytes, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+
       // Write NT_I x NT_J tiles using bulk primitive
       func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
-          %lds_base_off, %ii_pos, %jj_pos, %LDS_STRIDE_IN_BYTES,
-          %NT_I, %NT_J,
-          %temp_memref)
-        : (index, index, index, index, index, index, memref<?x!vx2>) -> ()
+          %lds_write_desc, %NT_I, %NT_J, %temp_memref)
+        : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
     }
     return
   }
