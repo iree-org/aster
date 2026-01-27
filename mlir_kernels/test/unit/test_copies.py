@@ -75,7 +75,9 @@ class TestStoreToGlobalDwordWait:
         """Each thread stores (tid * 100) at position tid."""
         num_threads = 64
         output = np.zeros(num_threads, dtype=np.int32)
-        compile_and_run("test_global_store_wave.mlir", "test_store_to_global_dword_wait", [], output)
+        compile_and_run(
+            "test_global_store_wave.mlir", "test_store_to_global_dword_wait", [], output
+        )
 
         expected = np.zeros(num_threads, dtype=np.int32)
         for tid in range(num_threads):
@@ -92,7 +94,12 @@ class TestStoreToGlobalDwordx2Wait:
         """Each thread stores 2 dwords at position 2*tid, 2*tid+1."""
         num_threads = 64
         output = np.zeros(num_threads * 2, dtype=np.int32)
-        compile_and_run("test_global_store_wave.mlir", "test_store_to_global_dwordx2_wait", [], output)
+        compile_and_run(
+            "test_global_store_wave.mlir",
+            "test_store_to_global_dwordx2_wait",
+            [],
+            output,
+        )
 
         expected = np.zeros(num_threads * 2, dtype=np.int32)
         for tid in range(num_threads):
@@ -110,7 +117,12 @@ class TestStoreToGlobalDwordx3Wait:
         """Each thread stores 3 dwords at position 3*tid, 3*tid+1, 3*tid+2."""
         num_threads = 64
         output = np.zeros(num_threads * 3, dtype=np.int32)
-        compile_and_run("test_global_store_wave.mlir", "test_store_to_global_dwordx3_wait", [], output)
+        compile_and_run(
+            "test_global_store_wave.mlir",
+            "test_store_to_global_dwordx3_wait",
+            [],
+            output,
+        )
 
         expected = np.zeros(num_threads * 3, dtype=np.int32)
         for tid in range(num_threads):
@@ -129,7 +141,12 @@ class TestStoreToGlobalDwordx4Wait:
         """Each thread stores 4 dwords at position 4*tid, 4*tid+1, 4*tid+2, 4*tid+3."""
         num_threads = 64
         output = np.zeros(num_threads * 4, dtype=np.int32)
-        compile_and_run("test_global_store_wave.mlir", "test_store_to_global_dwordx4_wait", [], output)
+        compile_and_run(
+            "test_global_store_wave.mlir",
+            "test_store_to_global_dwordx4_wait",
+            [],
+            output,
+        )
 
         expected = np.zeros(num_threads * 4, dtype=np.int32)
         for tid in range(num_threads):
@@ -154,7 +171,8 @@ class TestLoadAndReadLdsAFragmentWait:
         # Output: each thread reads 8 bytes (4 f16 values = dwordx2)
         output = np.zeros(num_threads * 4, dtype=np.uint16)
 
-        compile_and_run("test_copies.mlir", 
+        compile_and_run(
+            "test_copies.mlir",
             "test_load_and_lds_read_A_wave_16x16xf16_fragment_wait",
             [input_data],
             output,
@@ -198,12 +216,13 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
         input_2d = np.zeros((II * 16, JJ * 16), dtype=np.uint16)
         for ii in range(II):
             for jj in range(JJ):
-                input_2d[ii*16:(ii+1)*16, jj*16:(jj+1)*16] = tile_iota
+                input_2d[ii * 16 : (ii + 1) * 16, jj * 16 : (jj + 1) * 16] = tile_iota
 
         # Output: 32x48 matrix
         output = np.zeros(II * JJ * 16 * 16, dtype=np.uint16)
 
-        compile_and_run("test_copies.mlir", 
+        compile_and_run(
+            "test_copies.mlir",
             "test_lds_read_swizzled_A_wave_16x16xf16_fragment_wait",
             [input_2d.flatten()],
             output,
@@ -239,11 +258,14 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
             # Check each tile separately for better error messages
             for ii in range(II):
                 for jj in range(JJ):
-                    input_tile = input_2d[ii*16:(ii+1)*16, jj*16:(jj+1)*16]
-                    output_tile = output_2d[ii*16:(ii+1)*16, jj*16:(jj+1)*16]
+                    input_tile = input_2d[
+                        ii * 16 : (ii + 1) * 16, jj * 16 : (jj + 1) * 16
+                    ]
+                    output_tile = output_2d[
+                        ii * 16 : (ii + 1) * 16, jj * 16 : (jj + 1) * 16
+                    ]
                     np.testing.assert_array_equal(
-                        output_tile, expected,
-                        err_msg=f"Mismatch at tile ({ii}, {jj})"
+                        output_tile, expected, err_msg=f"Mismatch at tile ({ii}, {jj})"
                     )
 
 
@@ -256,7 +278,9 @@ class TestStoreGlobalCFragmentWait:
         # Output: 16x16 matrix of f32 values (stored as int32)
         output = np.zeros(16 * 16, dtype=np.int32)
 
-        compile_and_run("test_copies.mlir", "test_store_global_C_fragment_wait", [], output)
+        compile_and_run(
+            "test_copies.mlir", "test_store_global_C_fragment_wait", [], output
+        )
 
         # Verify: each lane initializes its fragment with lane_id
         # mfma_index_C returns (4 * (lane_id // 16), lane_id % 16)
@@ -286,7 +310,9 @@ class TestGlobalLoadDsWrite:
         # Output: each thread reads back 8 bytes (4 f16 values)
         output = np.zeros(num_threads * 4, dtype=np.uint16)
 
-        compile_and_run("test_copies.mlir", "test_global_load_ds_write", [input_data], output)
+        compile_and_run(
+            "test_copies.mlir", "test_global_load_ds_write", [input_data], output
+        )
 
         # The data flow is identical to global_load_to_lds_wave_16x16_f16_wait
         expected = np.zeros(num_threads * 4, dtype=np.uint16)
@@ -303,14 +329,15 @@ class TestGlobalLoadDsWrite:
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
 
+
 class TestGlobalToLdsAndBack16x16:
     """Test @global_to_lds_and_back_wave_16x16xf16_wait function."""
 
     def test_copy_tile_at_position_3_5(self):
         """Copy a single 16x16 tile from position (3,5) in a 64x96 array.
 
-        This tests that position handling is correct by loading from a specific
-        tile location and verifying the correct data is retrieved.
+        This tests that position handling is correct by loading from a specific tile
+        location and verifying the correct data is retrieved.
         """
         rows, cols = 40, 60
         tile_m, tile_n = 1, 2  # Tile position (element 16, 32)
@@ -320,21 +347,26 @@ class TestGlobalToLdsAndBack16x16:
         input_data = np.arange(rows * cols, dtype=np.uint16)
         output = np.zeros(rows * cols, dtype=np.uint16)
 
-        compile_and_run("test_copies.mlir", "test_global_to_lds_and_back_wave_16x16xf16_wait",
-                        [input_data], output)
+        compile_and_run(
+            "test_copies.mlir",
+            "test_global_to_lds_and_back_wave_16x16xf16_wait",
+            [input_data],
+            output,
+        )
 
         # Expected: the 16x16 tile at (48, 80) flattened
         input_2d = input_data.reshape(rows, cols)
-        expected = input_2d[m_pos:m_pos+16, n_pos:n_pos+16]
+        expected = input_2d[m_pos : m_pos + 16, n_pos : n_pos + 16]
         output_2d = output.reshape(rows, cols)
-        output_2d_slice = output_2d[m_pos:m_pos+16, n_pos:n_pos+16]
+        output_2d_slice = output_2d[m_pos : m_pos + 16, n_pos : n_pos + 16]
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output_2d_slice, expected)
 
             # remove output_2d_slice from output_2d at m_pos:m_pos+16, n_pos:n_pos+16
             # and assert all zeros.
-            output_2d[m_pos:m_pos + 16, n_pos:n_pos + 16] = \
-                output_2d[m_pos:m_pos + 16, n_pos:n_pos + 16] - output_2d_slice
+            output_2d[m_pos : m_pos + 16, n_pos : n_pos + 16] = (
+                output_2d[m_pos : m_pos + 16, n_pos : n_pos + 16] - output_2d_slice
+            )
             np.testing.assert_array_equal(output_2d.flatten(), np.zeros(rows * cols))
 
 
@@ -364,7 +396,9 @@ class TestGlobalLoadMultiTile:
         input_data = np.linspace(0, 1, 64 * 128, dtype=np.float16).view(np.uint16)
         output = np.zeros(output_size, dtype=np.uint16)
 
-        compile_and_run("test_copies.mlir", "test_global_load_multi_tile", [input_data], output)
+        compile_and_run(
+            "test_copies.mlir", "test_global_load_multi_tile", [input_data], output
+        )
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             diff = output != input_data
@@ -374,12 +408,13 @@ class TestGlobalLoadMultiTile:
                 print(f"Output: {output[diff_indices]}")
                 print(f"Expected: {input_data[diff_indices]}")
 
+
 class TestMaybeMultiTileSimple:
     """Test the maybe_*_multi_tile_simple library functions.
-    
-    This isolates the indexing logic to debug NT_I/NT_J tile position bugs.
-    The pattern loops over (ii, jj) indices and executes multi-tile operations
-    when ii % NT_I == 0 AND jj % NT_J == 0.
+
+    This isolates the indexing logic to debug NT_I/NT_J tile position bugs. The pattern
+    loops over (ii, jj) indices and executes multi-tile operations when ii % NT_I == 0
+    AND jj % NT_J == 0.
     """
 
     def test_multi_tile_with_nt_2x4(self):
@@ -390,7 +425,9 @@ class TestMaybeMultiTileSimple:
         input_data = np.arange(rows * cols, dtype=np.uint16)
         output = np.zeros(rows * cols, dtype=np.uint16)
 
-        compile_and_run("test_copies.mlir", "test_maybe_multi_tile_simple", [input_data], output)
+        compile_and_run(
+            "test_copies.mlir", "test_maybe_multi_tile_simple", [input_data], output
+        )
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             input_2d = input_data.reshape(rows, cols)
@@ -404,14 +441,16 @@ class TestMaybeMultiTileSimple:
                     tile_in = input_2d[r0:r1, c0:c1]
                     tile_out = output_2d[r0:r1, c0:c1]
                     match = np.array_equal(tile_in, tile_out)
-                    print(f"Tile ({ti},{tj}) rows {r0}-{r1-1} cols {c0}-{c1-1}: {'✓' if match else '✗'}")
+                    print(
+                        f"Tile ({ti},{tj}) rows {r0}-{r1-1} cols {c0}-{c1-1}: {'✓' if match else '✗'}"
+                    )
 
             np.testing.assert_array_equal(output, input_data)
 
 
 class TestMaybeMultiTileCoalesced:
     """Test the maybe_*_multi_tile_coalesced library functions (bulk version).
-    
+
     This tests the bulk multi-tile functions that use
     global_load_wave_multi_tile_256xf16_via_dwordx2_wait and
     lds_write_wave_multi_tile_256xf16_via_dwordx2_wait.
@@ -425,8 +464,9 @@ class TestMaybeMultiTileCoalesced:
         input_data = np.arange(rows * cols, dtype=np.uint16)
         output = np.zeros(rows * cols, dtype=np.uint16)
 
-        compile_and_run("test_copies.mlir", "test_maybe_multi_tile_coalesced", [input_data],
-                        output)
+        compile_and_run(
+            "test_copies.mlir", "test_maybe_multi_tile_coalesced", [input_data], output
+        )
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             input_2d = input_data.reshape(rows, cols)
@@ -440,7 +480,9 @@ class TestMaybeMultiTileCoalesced:
                     tile_in = input_2d[r0:r1, c0:c1]
                     tile_out = output_2d[r0:r1, c0:c1]
                     match = np.array_equal(tile_in, tile_out)
-                    print(f"Tile ({ti},{tj}) rows {r0}-{r1-1} cols {c0}-{c1-1}: {'✓' if match else '✗'}")
+                    print(
+                        f"Tile ({ti},{tj}) rows {r0}-{r1-1} cols {c0}-{c1-1}: {'✓' if match else '✗'}"
+                    )
 
             np.testing.assert_array_equal(output, input_data)
 

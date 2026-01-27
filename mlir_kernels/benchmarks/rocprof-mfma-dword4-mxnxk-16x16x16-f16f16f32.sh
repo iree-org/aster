@@ -53,4 +53,3 @@ profile_kernel() {
 # Parse command line arguments for profiling
 # Default: num_workgroups=304, num_waves=1, m=3, n=3, k=16
 profile_kernel "${1:-304}" "${2:-1}" "${3:-3}" "${4:-3}" "${5:-16}" "${6:-gfx942}"
-

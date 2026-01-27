@@ -183,5 +183,5 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     amdgcn.end_kernel
   }
-  
+
 }

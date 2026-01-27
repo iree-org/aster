@@ -58,7 +58,8 @@ def OpScheduling : Pass<"aster-op-scheduling"> {
     Option<"numIterations", "num-iterations", "unsigned", "1",
            "Number of global iterations to schedule">,
     ListOption<"dimensions", "dims", "int64_t",
-               "Dimensions for multi-dimensional unrolling (e.g., --dims=4,4,4 for m,n,k)">,
+               "Dimensions for multi-dimensional unrolling (e.g., --dims=4,4,4 "
+               "for m,n,k)">,
     Option<"testOnly", "test-only", "bool", "false",
            "If true, add unroll attributes for testing purposes">,
   ];
@@ -69,13 +70,14 @@ def OpScheduling : Pass<"aster-op-scheduling"> {
 // ReplaceConstantGPUDims
 //===----------------------------------------------------------------------===//
 
-def ReplaceConstantGPUDims : InterfacePass<"aster-replace-constant-gpu-dims", "mlir::aster::ModuleOpInterface"> {
+def ReplaceConstantGPUDims : InterfacePass<"aster-replace-constant-gpu-dims",
+                                           "mlir::aster::ModuleOpInterface"> {
   let summary = "Replace gpu.block_dim and gpu.grid_dim with constants";
-  let description = [{
-    This pass identifies functions implementing GPUFuncInterface and replaces
-    gpu.block_dim and gpu.grid_dim operations with constant values based on
-    the block and grid dimension annotations on the function.
-  }];
+  let description =
+      [{This pass identifies functions implementing GPUFuncInterface and
+            replaces gpu.block_dim and
+                gpu.grid_dim operations with constant values based on the block
+                    and grid dimension annotations on the function.}];
   let dependentDialects = [
     "mlir::arith::ArithDialect",
     "mlir::gpu::GPUDialect",
@@ -86,7 +88,8 @@ def ReplaceConstantGPUDims : InterfacePass<"aster-replace-constant-gpu-dims", "m
 // ToIntArith
 //===----------------------------------------------------------------------===//
 
-def ToIntArith : InterfacePass<"aster-to-int-arith", "mlir::aster::ModuleOpInterface"> {
+def ToIntArith
+    : InterfacePass<"aster-to-int-arith", "mlir::aster::ModuleOpInterface"> {
   let summary = "Convert index operations to integer operations";
   let dependentDialects = [
     "mlir::arith::ArithDialect",
@@ -105,7 +108,8 @@ def ToIntArith : InterfacePass<"aster-to-int-arith", "mlir::aster::ModuleOpInter
 // OptimizeArith
 //===----------------------------------------------------------------------===//
 
-def OptimizeArith : InterfacePass<"aster-optimize-arith", "mlir::aster::ModuleOpInterface"> {
+def OptimizeArith
+    : InterfacePass<"aster-optimize-arith", "mlir::aster::ModuleOpInterface"> {
   let summary = "Optimize arithmetic operations";
 }
 

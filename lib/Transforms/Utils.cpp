@@ -372,25 +372,29 @@ void mlir::aster::populateArithConversionPatterns(TypeConverter &converter,
                                                   RewritePatternSet &patterns) {
 
   target.addDynamicallyLegalOp<
-      arith::AddIOp, arith::MulIOp, arith::SubIOp, arith::AddFOp, arith::AndIOp, arith::CeilDivSIOp,arith::CeilDivUIOp,
-      arith::CmpFOp, arith::CmpIOp, arith::ConstantOp, arith::DivFOp,
-      arith::DivSIOp, arith::DivUIOp, arith::ExtFOp, arith::ExtSIOp,
-      arith::ExtUIOp, arith::FloorDivSIOp, arith::IndexCastOp, arith::MaximumFOp, arith::MaxSIOp,
-      arith::MaxUIOp, arith::MinimumFOp, arith::MinSIOp, arith::MinUIOp,
-      arith::MulFOp, arith::OrIOp, arith::RemSIOp, arith::RemUIOp,
-      arith::SelectOp, arith::ShLIOp, arith::ShRSIOp, arith::ShRUIOp,
-      arith::SubFOp, arith::TruncFOp, arith::TruncIOp>(
+      arith::AddIOp, arith::MulIOp, arith::SubIOp, arith::AddFOp, arith::AndIOp,
+      arith::CeilDivSIOp, arith::CeilDivUIOp, arith::CmpFOp, arith::CmpIOp,
+      arith::ConstantOp, arith::DivFOp, arith::DivSIOp, arith::DivUIOp,
+      arith::ExtFOp, arith::ExtSIOp, arith::ExtUIOp, arith::FloorDivSIOp,
+      arith::IndexCastOp, arith::MaximumFOp, arith::MaxSIOp, arith::MaxUIOp,
+      arith::MinimumFOp, arith::MinSIOp, arith::MinUIOp, arith::MulFOp,
+      arith::OrIOp, arith::RemSIOp, arith::RemUIOp, arith::SelectOp,
+      arith::ShLIOp, arith::ShRSIOp, arith::ShRUIOp, arith::SubFOp,
+      arith::TruncFOp, arith::TruncIOp>(
       [&](Operation *op) -> std::optional<bool> {
         return converter.isLegal(op);
       });
   patterns.add<
       GenericOpConversion<arith::AddIOp>, GenericOpConversion<arith::MulIOp>,
       GenericOpConversion<arith::SubIOp>, GenericOpConversion<arith::AddFOp>,
-      GenericOpConversion<arith::AndIOp>, GenericOpConversion<arith::CeilDivSIOp>, GenericOpConversion<arith::CeilDivUIOp>, GenericOpConversion<arith::CmpFOp>,
-      GenericOpConversion<arith::CmpIOp>, GenericOpConversion<arith::DivFOp>,
-      GenericOpConversion<arith::DivSIOp>, GenericOpConversion<arith::DivUIOp>,
-      GenericOpConversion<arith::ExtFOp>, GenericOpConversion<arith::ExtSIOp>,
-      GenericOpConversion<arith::ExtUIOp>, GenericOpConversion<arith::FloorDivSIOp>,
+      GenericOpConversion<arith::AndIOp>,
+      GenericOpConversion<arith::CeilDivSIOp>,
+      GenericOpConversion<arith::CeilDivUIOp>,
+      GenericOpConversion<arith::CmpFOp>, GenericOpConversion<arith::CmpIOp>,
+      GenericOpConversion<arith::DivFOp>, GenericOpConversion<arith::DivSIOp>,
+      GenericOpConversion<arith::DivUIOp>, GenericOpConversion<arith::ExtFOp>,
+      GenericOpConversion<arith::ExtSIOp>, GenericOpConversion<arith::ExtUIOp>,
+      GenericOpConversion<arith::FloorDivSIOp>,
       GenericOpConversion<arith::MaximumFOp>,
       GenericOpConversion<arith::MaxSIOp>, GenericOpConversion<arith::MaxUIOp>,
       GenericOpConversion<arith::MinimumFOp>,

@@ -34,7 +34,7 @@ profile_kernel() {
         flush_llc_flag="--no-flush-llc"
     fi
 
-    # Note: use kernel-include-regex and kernel-iteration-range to profile only 
+    # Note: use kernel-include-regex and kernel-iteration-range to profile only
     # the kernel of interest on its 3rd iteration to remove icache effects.
     run_rocprof_att_filtered \
         "$trace_dir" \
@@ -79,5 +79,4 @@ done
 
 
 # Note: run the following to check L2 cache hits / misses
-# rocprofv3 -r --output-format csv --pmc TCC_HIT,TCC_MISS  -- python ./mlir_kernels/nanobenchmarks/nanobench_global_load.py   --num-blocks 304 --dwordxbits 1 --num-kernel-runs=1 --num-tiles 96 --tile-size-bytes 256 --tile-reuse-factor 1 
-
+# rocprofv3 -r --output-format csv --pmc TCC_HIT,TCC_MISS  -- python ./mlir_kernels/nanobenchmarks/nanobench_global_load.py   --num-blocks 304 --dwordxbits 1 --num-kernel-runs=1 --num-tiles 96 --tile-size-bytes 256 --tile-reuse-factor 1

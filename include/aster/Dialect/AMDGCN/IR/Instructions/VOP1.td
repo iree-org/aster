@@ -21,13 +21,10 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 // VOP1 Nop Operation
 //===----------------------------------------------------------------------===//
 
-def VOP1NopOp : VOP1_Op<"v_nop", [
-    AMDGCNInstOpInterface
-  ]> {
+def VOP1NopOp : VOP1_Op<"v_nop", [AMDGCNInstOpInterface]> {
   let summary = "VOP1 NOP operation";
-  let description = [{
-    Do nothing. This operation is a vector no-op that occupies a VALU slot.
-  }];
+  let description = [{Do nothing.This operation is a vector no -
+                      op that occupies a VALU slot.}];
 
   let arguments = (ins
     DefaultValuedAttr<AMDGCN_InstAttr, "mlir::aster::amdgcn::OpCode::V_NOP">:$opcode
@@ -44,21 +41,18 @@ def VOP1NopOp : VOP1_Op<"v_nop", [
     /// Get the instruction output operands.
     MutableArrayRef<OpOperand> getInstOutsMutable() {
       return {};
-    }
-    /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return {};
-    }
-  }];
+}
+/// Get the instruction input operands.
+MutableArrayRef<OpOperand> getInstInsMutable() { return {}; }
+}];
 }
 
 def V_NOP_INST : AMDInst<
-  /*mnemonic=*/"v_nop", /*symbol=*/"v_nop",
-  /*instOp=*/VOP1NopOp, /*isa=*/[CDNA3]> {
+                     /*mnemonic=*/"v_nop", /*symbol=*/"v_nop",
+                     /*instOp=*/VOP1NopOp, /*isa=*/[CDNA3]> {
   let summary = "VOP1 NOP";
-  let description = [{
-    Do nothing. This is a vector no-op instruction that occupies a VALU slot.
-  }];
+  let description = [{Do nothing.This is a vector no -
+                      op instruction that occupies a VALU slot.}];
   let pythonBuilder = DefaultPyBuilder<(ins)>;
   let asmFormat = [SingleAsmVariant<"">];
 }
@@ -68,10 +62,8 @@ def V_NOP_INST : AMDInst<
 //===----------------------------------------------------------------------===//
 
 def VOP1Op : VOP1_Op<"vop1", [
-    AMDGCNInstTraits,
-    AMDGCNInstOpInterface,
-    AllTypesMatch<["vdst", "result"]>
-  ]> {
+  AMDGCNInstTraits, AMDGCNInstOpInterface, AllTypesMatch<["vdst", "result"]>
+]> {
   let summary = "VOP1 (Vector Operations with 1 operand) operation";
   let description = [{
     The VOP1 operation performs vector operations with one source operand for CDNA
@@ -96,7 +88,7 @@ def VOP1Op : VOP1_Op<"vop1", [
     VGPRType:$vdst,
     RegOrImm<[RegisterLike], [I32]>:$src0
   );
-  let results = (outs VGPRType:$result);
+  let results = (outs VGPRType : $result);
   let assemblyFormat = [{
     $opcode $vdst `,` $src0
     attr-dict `:` functional-type(operands, results)
@@ -108,35 +100,34 @@ def VOP1Op : VOP1_Op<"vop1", [
     /// Get the instruction output operands.
     MutableArrayRef<OpOperand> getInstOutsMutable() {
       return getVdstMutable();
-    }
-    /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front();
-    }
-  }];
+}
+/// Get the instruction input operands.
+MutableArrayRef<OpOperand> getInstInsMutable() {
+  return getOperation()->getOpOperands().drop_front();
+}
+}];
 }
 
-class VOP1Inst<string _mnemonic, string sym, InstOp _instOp, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, sym, _instOp, _isa> {
+class VOP1Inst<string _mnemonic, string sym, InstOp _instOp,
+               list<ISAVersion> _isa> : AMDInst<_mnemonic, sym, _instOp, _isa> {
   let constraints = (ins
       /*outs=*/VGPROperand<1>:$vdst);
-  let pythonBuilder = DefaultPyBuilder<(ins
-    PyValue:$vdst, PyValue:$src0
-  )>;
-  let cppBuilder = DefaultCppBuilder<(ins
-    CppValue:$vdst, CppValue:$src0
-  )>;
+  let pythonBuilder = DefaultPyBuilder<(ins PyValue : $vdst, PyValue : $src0)>;
+  let cppBuilder = DefaultCppBuilder<(ins CppValue : $vdst, CppValue : $src0)>;
   let asmFormat = [SingleAsmVariant<"$vdst, $src0">];
 }
 
-def V_MOV_B32_E32_INST : VOP1Inst<
-  /*mnemonic=*/"v_mov_b32_e32", /*symbol=*/"v_mov_b32_e32",
-  /*instOp=*/VOP1Op, /*isa=*/[CDNA3]> {
+def V_MOV_B32_E32_INST
+    : VOP1Inst<
+          /*mnemonic=*/"v_mov_b32_e32", /*symbol=*/"v_mov_b32_e32",
+          /*instOp=*/VOP1Op, /*isa=*/[CDNA3]> {
   let summary = "VOP1 move 32-bit";
   let description = [{
-    VOP1 instruction that moves a 32-bit value to a destination register.
-    Computes: vdst = src0
-    The source operand (src0) can be a register (SGPR or VGPR) or an immediate value.
+    VOP1 instruction that moves a 32 -
+    bit value to a destination register.Computes: vdst =
+                                            src0 The source operand(src0)
+                                                can be a register(SGPR or VGPR)
+                                                    or an immediate value.
   }];
 }
 

@@ -57,7 +57,9 @@ def main():
     # Don't support num-iters, this is all about tile-reuse-factor.
     # Remove --num-iters from parser (it was added by add_common_args)
     # argparse converts --num-iters to dest="num_iters"
-    parser._actions = [action for action in parser._actions if action.dest != "num_iters"]
+    parser._actions = [
+        action for action in parser._actions if action.dest != "num_iters"
+    ]
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -95,7 +97,11 @@ def main():
     iteration_times_ns = run_kernel(config, hsaco_path)
 
     if iteration_times_ns is not None:
-        variants = [f"dword{'x'+str(i) if i > 1 else ''}" for i in [1,2,3,4] if args.dwordxbits & (1 << (i-1))]
+        variants = [
+            f"dword{'x'+str(i) if i > 1 else ''}"
+            for i in [1, 2, 3, 4]
+            if args.dwordxbits & (1 << (i - 1))
+        ]
         print_timing_stats(
             iteration_times_ns,
             args.num_kernel_runs,
