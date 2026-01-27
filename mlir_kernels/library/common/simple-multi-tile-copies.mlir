@@ -13,6 +13,14 @@
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 
+// A 2-level 2D tensor position descriptor containing:
+//   - ptr: global base pointer
+//   - m_pos, n_pos: row and column positions of the outer tile (in elements)
+//   - global_stride_in_bytes: stride in bytes
+//   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
+//   - elt_size: element size in bytes
+!tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+
 amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
@@ -21,7 +29,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
   func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index)
   func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> !vx2
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> !vx2
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index) -> !vx2
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2)
 
   //===--------------------------------------------------------------------===//
