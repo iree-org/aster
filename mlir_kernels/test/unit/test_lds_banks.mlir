@@ -8,6 +8,7 @@
 !index_pair = !aster_utils.struct<i: index, j: index>
 !index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
 !index_tuple_8 = !aster_utils.struct<b0: index, b1: index, b2: index, b3: index, b4: index, b5: index, b6: index, b7: index>
+!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 
 amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
@@ -19,7 +20,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
   func.func private @lds_banks_for_transfer(index, index) -> !index_tuple_8
   // copies.mlir
-  func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index)
+  func.func private @store_to_global_dwordx4_wait(!vx4, !tensor_position_descriptor_2d)
 
   //===--------------------------------------------------------------------===//
   // LDS bank debugging kernels
@@ -69,8 +70,10 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %b2_v = lsir.to_reg %b2_i32 : i32 -> !v
     %b3_v = lsir.to_reg %b3_i32 : i32 -> !v
     %data = amdgcn.make_register_range %b0_v, %b1_v, %b2_v, %b3_v : !v, !v, !v, !v
-    func.call @store_to_global_dwordx4_wait(%data, %out_ptr, %c0, %tid, %c16)
-      : (!vx4, !sx2, index, index, index) -> ()
+    %elt_size_out = arith.constant 16 : index  // dwordx4 = 16 bytes
+    %pos_desc = aster_utils.struct_create(%out_ptr, %c0, %tid, %c16, %elt_size_out) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+    func.call @store_to_global_dwordx4_wait(%data, %pos_desc)
+      : (!vx4, !tensor_position_descriptor_2d) -> ()
 
     amdgcn.end_kernel
   }
@@ -126,8 +129,10 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %b2_v = lsir.to_reg %b2_i32 : i32 -> !v
     %b3_v = lsir.to_reg %b3_i32 : i32 -> !v
     %data = amdgcn.make_register_range %b0_v, %b1_v, %b2_v, %b3_v : !v, !v, !v, !v
-    func.call @store_to_global_dwordx4_wait(%data, %out_ptr, %c0, %tid, %c16)
-      : (!vx4, !sx2, index, index, index) -> ()
+    %elt_size_out2 = arith.constant 16 : index  // dwordx4 = 16 bytes
+    %pos_desc2 = aster_utils.struct_create(%out_ptr, %c0, %tid, %c16, %elt_size_out2) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+    func.call @store_to_global_dwordx4_wait(%data, %pos_desc2)
+      : (!vx4, !tensor_position_descriptor_2d) -> ()
 
     amdgcn.end_kernel
   }

@@ -15,6 +15,17 @@
 !index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>
 !index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
 !index_descriptor_3level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, iii: index, jjj: index, stride: index, elt_size_b: index>
+// A 2-level 2D tensor position descriptor containing:
+//   - ptr: global base pointer
+//   - m_pos, n_pos: row and column positions of the outer tile (in elements)
+//   - global_stride_in_bytes: stride in bytes
+//   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
+//   - elt_size: element size in bytes
+!tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+!lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
+!transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
@@ -38,16 +49,16 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @simple_global_store_wave_16x16xf16_wait(!vx2, !sx2, index, index, index)
   func.func private @simple_lds_to_global_wave_16x16xf16_wait(index, index, index, index, !sx2, index, index, index)
   // copies.mlir
-  func.func private @global_load_to_lds_wave_16x16_f16_wait(!sx2, index, index, index, index, index, index, index)
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> ()
-  func.func private @store_to_global_dword_wait(!v, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx2_wait(!vx2, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx3_wait(!vx3, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index)
-  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index, i1) -> !vx2
-  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
-  func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !sx2, index, index, index, index, index, i1)
+  func.func private @global_load_to_lds_wave_16x16_f16_wait(!tensor_position_descriptor_2level_2d, index, index)
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
+  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
+  func.func private @store_to_global_dword_wait(!v, !tensor_position_descriptor_2d)
+  func.func private @store_to_global_dwordx2_wait(!vx2, !tensor_position_descriptor_2d)
+  func.func private @store_to_global_dwordx3_wait(!vx3, !tensor_position_descriptor_2d)
+  func.func private @store_to_global_dwordx4_wait(!vx4, !tensor_position_descriptor_2d)
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d, i1) -> !vx2
+  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d) -> !vx2
+  func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !tensor_position_descriptor_2level_2d, i1)
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, memref<?x!vx2>)
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(index, index, index, index, index, index, memref<?x!vx2>)
   func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
@@ -136,19 +147,16 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %c32 = arith.constant 32 : index // stride in bytes (16 elements * 2 bytes for f16)
 
     // First load data to LDS using load_to_lds
-    func.call @global_load_to_lds_wave_16x16_f16_wait(
-      %in_ptr, %c0,  // ptr, lds_base_off
-      %c0, %c0,      // i_pos, j_pos
-      %c32,          // GLOBAL_STRIDE_IN_BYTES
-      %c0, %c0,      // ii_pos, jj_pos
-      %c32           // LDS_STRIDE_IN_BYTES
-    ) : (!sx2, index, index, index, index, index, index, index) -> ()
+    %elt_size = arith.constant 2 : index
+    %pos_desc = aster_utils.struct_create(%in_ptr, %c0, %c0, %c32, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+    func.call @global_load_to_lds_wave_16x16_f16_wait(%pos_desc, %c0, %c32) : (!tensor_position_descriptor_2level_2d, index, index) -> ()
 
     // Now read the A fragment using the MFMA read
     // i_pos=0, j_pos=0
     %false = arith.constant false
-    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c32, %false)
-      : (index, index, index, index, i1) -> !vx2
+    %lds_pos_desc = aster_utils.struct_create(%c0, %c0, %c0, %c32, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc, %false)
+      : (!lds_position_descriptor_2d, i1) -> !vx2
 
     // Store fragment to output (each thread writes 8 bytes)
     %tid = gpu.thread_id x
@@ -176,19 +184,16 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %c32 = arith.constant 32 : index // stride in bytes (16 elements * 2 bytes for f16)
 
     // First load data to LDS using load_to_lds
-    func.call @global_load_to_lds_wave_16x16_f16_wait(
-      %in_ptr, %c0,  // ptr, lds_base_off
-      %c0, %c0,      // i_pos, j_pos
-      %c32,          // GLOBAL_STRIDE_IN_BYTES
-      %c0, %c0,      // ii_pos, jj_pos
-      %c32           // LDS_STRIDE_IN_BYTES
-    ) : (!sx2, index, index, index, index, index, index, index) -> ()
+    %elt_size = arith.constant 2 : index
+    %pos_desc = aster_utils.struct_create(%in_ptr, %c0, %c0, %c32, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+    func.call @global_load_to_lds_wave_16x16_f16_wait(%pos_desc, %c0, %c32) : (!tensor_position_descriptor_2level_2d, index, index) -> ()
 
     // Now read the A fragment using the MFMA read
     // i_pos=0, j_pos=0
     %true = arith.constant true
-    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c32, %true)
-      : (index, index, index, index, i1) -> !vx2
+    %lds_pos_desc = aster_utils.struct_create(%c0, %c0, %c0, %c32, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc, %true)
+      : (!lds_position_descriptor_2d, i1) -> !vx2
 
     // Store fragment to output (each thread writes 8 bytes)
     %tid = gpu.thread_id x
@@ -249,12 +254,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         %m_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
         %n_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
 
-        %fragment = func.call @lds_read_swizzled_wave_16x16xf16_fragment_wait(
-            %c0, // lds_base_off
-            %m_pos, // m_pos
-            %n_pos, // n_pos
-            %LDS_STRIDE) // LDS_STRIDE_IN_BYTES
-          : (index, index, index, index) -> !vx2
+        %lds_pos_desc = aster_utils.struct_create(%c0, %m_pos, %n_pos, %LDS_STRIDE, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+        %fragment = func.call @lds_read_swizzled_wave_16x16xf16_fragment_wait(%lds_pos_desc)
+          : (!lds_position_descriptor_2d) -> !vx2
 
         // %fragment = func.call @simple_lds_read_wave_16x16xf16_wait(
         //     %c0, %m_pos, %n_pos, %LDS_STRIDE)
@@ -291,10 +293,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function
     // i_pos=0, j_pos=0, ii_pos=0, jj_pos=0
+    %elt_size = arith.constant 4 : index
+    %pos_desc = aster_utils.struct_create(%out_ptr, %c0, %c0, %c64, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
     %false = arith.constant false
-    func.call @global_store_wave_16x16xf32_C_fragment_wait(
-      %acc, %out_ptr, %c0, %c0, %c64, %c0, %c0, %false
-    ) : (!vx4, !sx2, index, index, index, index, index, i1) -> ()
+    func.call @global_store_wave_16x16xf32_C_fragment_wait(%acc, %pos_desc, %false) : (!vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
 
     amdgcn.end_kernel
   }
@@ -318,10 +320,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function
     // i_pos=0, j_pos=0, ii_pos=0, jj_pos=0
+    %elt_size = arith.constant 4 : index
+    %pos_desc = aster_utils.struct_create(%out_ptr, %c0, %c0, %c64, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
     %true = arith.constant true
-    func.call @global_store_wave_16x16xf32_C_fragment_wait(
-      %acc, %out_ptr, %c0, %c0, %c64, %c0, %c0, %true
-    ) : (!vx4, !sx2, index, index, index, index, index, i1) -> ()
+    func.call @global_store_wave_16x16xf32_C_fragment_wait(%acc, %pos_desc, %true) : (!vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
 
     amdgcn.end_kernel
   }
@@ -347,22 +349,18 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %memref = memref.cast %memref_static : memref<1x1x!vx2> to memref<?x?x!vx2>
 
     // Global load to memref, we know we are using 2B elements.
-    %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(
-      %in_ptr,    // ptr
-      %c0, %c0,   // m_pos, n_pos (major tile)
-      %c32,       // GLOBAL_STRIDE_IN_BYTES
-      %c0, %c0,   // mm_pos, nn_pos (minor tile)
-      %c1         // num_rows
-    ) : (!sx2, index, index, index, index, index, index) -> (!vx2)
+    %elt_size = arith.constant 2 : index
+    %pos_desc = aster_utils.struct_create(%in_ptr, %c0, %c0, %c32, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+    %transfer_size_load = arith.constant 8 : index // dwordx2
+    %wave_size_load = arith.constant 64 : index
+    %transfer_desc_load = aster_utils.struct_create(%c16, %transfer_size_load, %wave_size_load) : (index, index, index) -> !transfer_descriptor_2d
+    %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc, %transfer_desc_load) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
 
     // DS write from memref to LDS
-    func.call @lds_write_wave_256xf16_via_dwordx2_wait(
-      %c0,        // lds_base_off
-      %c0, %c0,   // mm_pos, nn_pos
-      %c32,       // LDS_STRIDE_IN_BYTES
-      %c1,        // num_rows
-      %loaded     // value
-    ) : (index, index, index, index, index, !vx2) -> ()
+    %lds_pos_desc_write = aster_utils.struct_create(%c0, %c0, %c0, %c32, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+    %transfer_desc_write = aster_utils.struct_create(%c1, %transfer_size_load, %wave_size_load) : (index, index, index) -> !transfer_descriptor_2d
+    func.call @lds_write_wave_256xf16_via_dwordx2_wait(%lds_pos_desc_write, %transfer_desc_write, %loaded)
+      : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
 
     // Read back from LDS and store to output
     %tid = gpu.thread_id x

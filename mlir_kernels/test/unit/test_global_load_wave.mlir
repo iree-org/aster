@@ -14,15 +14,24 @@
 !vx3 = !amdgcn.vgpr_range<[? + 3]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
+// A 2-level 2D tensor position descriptor containing:
+//   - ptr: global base pointer
+//   - m_pos, n_pos: row and column positions of the outer tile (in elements)
+//   - global_stride_in_bytes: stride in bytes
+//   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
+//   - elt_size: element size in bytes
+!tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+!transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
+
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
   //===--------------------------------------------------------------------===//
   // copies.mlir
-  func.func private @global_load_wave_128xf16_via_dword_wait(!sx2, index, index, index, index, index, index) -> (!vx1)
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index) -> (!vx2)
-  func.func private @global_load_wave_384xf16_via_dwordx3_wait(!sx2, index, index, index, index, index, index) -> (!vx3)
-  func.func private @global_load_wave_512xf16_via_dwordx4_wait(!sx2, index, index, index, index, index, index) -> (!vx4)
+  func.func private @global_load_wave_128xf16_via_dword_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx1)
+  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
+  func.func private @global_load_wave_384xf16_via_dwordx3_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx3)
+  func.func private @global_load_wave_512xf16_via_dwordx4_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx4)
 
   func.func private @get_test_offset(%transfer_size: index) -> (!v) {
     %tid = gpu.thread_id x
@@ -56,13 +65,11 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     //===--------------------------------------------------------------------===//
     // Global load to registers.
     %transfer_size_vx1 = arith.constant 4 : index
-    %loaded_vx1 = func.call @global_load_wave_128xf16_via_dword_wait(
-      %in_ptr,   // ptr
-      %c0, %c0,  // m_pos, n_pos (major tile)
-      %c0,       // GLOBAL_STRIDE_IN_BYTES (single row, stride must not matter)
-      %c0, %c0,  // mm_pos, nn_pos (minor tile)
-      %c1        // num_rows
-    ) : (!sx2, index, index, index, index, index, index) -> (!vx1)
+    %elt_size = arith.constant 2 : index
+    %wave_size = arith.constant 64 : index
+    %pos_desc_vx1 = aster_utils.struct_create(%in_ptr, %c0, %c0, %c0, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+    %transfer_desc_vx1 = aster_utils.struct_create(%c1, %transfer_size_vx1, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
+    %loaded_vx1 = func.call @global_load_wave_128xf16_via_dword_wait(%pos_desc_vx1, %transfer_desc_vx1) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx1)
     %out_off_vx1 = func.call @get_test_offset(%transfer_size_vx1) : (index) -> (!v)
     %tok_store_1 = amdgcn.store global_store_dword data %loaded_vx1 addr %out_ptr_vx1 offset d(%out_off_vx1)
       : ins(!vx1, !sx2, !v) -> !amdgcn.write_token<flat>
@@ -73,13 +80,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     //===--------------------------------------------------------------------===//
     // Global load to registers.
     %transfer_size_vx2 = arith.constant 8 : index
-    %loaded_vx2 = func.call @global_load_wave_256xf16_via_dwordx2_wait(
-      %in_ptr,   // ptr
-      %c0, %c0,  // m_pos, n_pos (major tile)
-      %c0,       // GLOBAL_STRIDE_IN_BYTES (single row, stride must not matter)
-      %c0, %c0,  // mm_pos, nn_pos (minor tile)
-      %c1        // num_rows
-    ) : (!sx2, index, index, index, index, index, index) -> (!vx2)
+    %pos_desc_vx2 = aster_utils.struct_create(%in_ptr, %c0, %c0, %c0, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+    %transfer_desc_vx2 = aster_utils.struct_create(%c1, %transfer_size_vx2, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
+    %loaded_vx2 = func.call @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc_vx2, %transfer_desc_vx2) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
     %out_off_vx2 = func.call @get_test_offset(%transfer_size_vx2) : (index) -> (!v)
     %tok_store_2 = amdgcn.store global_store_dwordx2 data %loaded_vx2 addr %out_ptr_vx2 offset d(%out_off_vx2)
       : ins(!vx2, !sx2, !v) -> !amdgcn.write_token<flat>
@@ -90,13 +93,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     //===--------------------------------------------------------------------===//
     // Global load to registers.
     %transfer_size_vx3 = arith.constant 12 : index
-    %loaded_vx3 = func.call @global_load_wave_384xf16_via_dwordx3_wait(
-      %in_ptr,   // ptr
-      %c0, %c0,  // m_pos, n_pos (major tile)
-      %c0,       // GLOBAL_STRIDE_IN_BYTES (single row, stride must not matter)
-      %c0, %c0,  // mm_pos, nn_pos (minor tile)
-      %c1        // num_rows
-    ) : (!sx2, index, index, index, index, index, index) -> (!vx3)
+    %pos_desc_vx3 = aster_utils.struct_create(%in_ptr, %c0, %c0, %c0, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+    %transfer_desc_vx3 = aster_utils.struct_create(%c1, %transfer_size_vx3, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
+    %loaded_vx3 = func.call @global_load_wave_384xf16_via_dwordx3_wait(%pos_desc_vx3, %transfer_desc_vx3) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx3)
     %out_off_vx3 = func.call @get_test_offset(%transfer_size_vx3) : (index) -> (!v)
     %tok_store_3 = amdgcn.store global_store_dwordx3 data %loaded_vx3 addr %out_ptr_vx3 offset d(%out_off_vx3)
       : ins(!vx3, !sx2, !v) -> !amdgcn.write_token<flat>
@@ -107,13 +106,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     //===--------------------------------------------------------------------===//
     // Global load to registers.
     %transfer_size_vx4 = arith.constant 16 : index
-    %loaded_vx4 = func.call @global_load_wave_512xf16_via_dwordx4_wait(
-      %in_ptr,   // ptr
-      %c0, %c0,  // m_pos, n_pos (major tile)
-      %c0,       // GLOBAL_STRIDE_IN_BYTES (single row, stride must not matter)
-      %c0, %c0,  // mm_pos, nn_pos (minor tile)
-      %c1        // num_rows
-    ) : (!sx2, index, index, index, index, index, index) -> (!vx4)
+    %pos_desc_vx4 = aster_utils.struct_create(%in_ptr, %c0, %c0, %c0, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+    %transfer_desc_vx4 = aster_utils.struct_create(%c1, %transfer_size_vx4, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
+    %loaded_vx4 = func.call @global_load_wave_512xf16_via_dwordx4_wait(%pos_desc_vx4, %transfer_desc_vx4) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx4)
     %out_off_vx4 = func.call @get_test_offset(%transfer_size_vx4) : (index) -> (!v)
     %tok_store_4 = amdgcn.store global_store_dwordx4 data %loaded_vx4 addr %out_ptr_vx4 offset d(%out_off_vx4)
       : ins(!vx4, !sx2, !v) -> !amdgcn.write_token<flat>

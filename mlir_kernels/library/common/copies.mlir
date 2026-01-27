@@ -28,6 +28,41 @@
 !index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
 !index_descriptor_3level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, iii: index, jjj: index, stride: index, elt_size_b: index>
 
+// A 2D tensor position descriptor containing:
+//   - ptr: global base pointer
+//   - m_pos, n_pos: row and column positions (in elements)
+//   - global_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
+!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
+
+// A 2D LDS position descriptor containing:
+//   - lds_base: local base offset in LDS
+//   - m_pos, n_pos: row and column positions (in elements)
+//   - lds_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+
+// A 2-level 2D LDS position descriptor containing:
+//   - lds_base: local base offset in LDS
+//   - mm_pos, nn_pos: row and column positions of the minor tile (in elements)
+//   - lds_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
+!lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
+
+// A 2-level 2D tensor position descriptor containing:
+//   - ptr: global base pointer
+//   - m_pos, n_pos: row and column positions of the outer tile (in elements)
+//   - global_stride_in_bytes: stride in bytes
+//   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
+//   - elt_size: element size in bytes
+!tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+
+// A 2D transfer descriptor containing:
+//   - num_rows: number of rows for the transfer (must divide wave_size evenly)
+//   - transfer_size: size of each transfer in bytes
+//   - wave_size: number of threads per wave
+!transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
+
 amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
@@ -82,17 +117,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //
   // TODO: also add a variant with upper bounds and buffer_load to handle boundary conditions.
    func.func private @global_load_wave_elt_2d_impl(
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most major-tile position
-    %n_pos: index,                  // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
-    %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index,                 // The inner-most minor-tile position
-    %num_rows: index,               // The number of rows for the transfer, must divide %wave_size evenly
-    %elt_size: index,               // The size of each element in bytes (used to map positions to addresses)
-    %transfer_size: index,          // The size of each transfer in bytes
-    %wave_size: index               // The number of elements per wave
+    %pos_desc: !tensor_position_descriptor_2level_2d,
+    %transfer_desc: !transfer_descriptor_2d
   ) -> !aster_utils.any {
+    %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %elt_size = aster_utils.struct_extract %pos_desc ["ptr", "m_pos", "n_pos", "global_stride_in_bytes", "mm_pos", "nn_pos", "elt_size"] : !tensor_position_descriptor_2level_2d -> !sx2, index, index, index, index, index, index
+    %num_rows, %transfer_size, %wave_size = aster_utils.struct_extract %transfer_desc ["num_rows", "transfer_size", "wave_size"] : !transfer_descriptor_2d -> index, index, index
 
     // static assert that %mod is 0
     %mod = affine.apply affine_map<()[wave_size, num_rows]
@@ -160,21 +189,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   func.func private @global_load_wave_128xf16_via_dword_wait(
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most major-tile position
-    %n_pos: index,                  // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
-    %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index,                 // The inner-most minor-tile position
-    %num_rows: index                // The number of rows in the 256 elements
+    %pos_desc: !tensor_position_descriptor_2level_2d,
+    %transfer_desc: !transfer_descriptor_2d
   ) -> !vx1 {
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
-    %transfer_size = arith.constant 4 : index // dword size in bytes
-    %wave_size = arith.constant 64 : index    // 64 threads per wave
-
-    %loaded = func.call @global_load_wave_elt_2d_impl(
-        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+    %loaded = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!aster_utils.any)
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -184,21 +202,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most major-tile position
-    %n_pos: index,                  // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
-    %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index,                 // The inner-most minor-tile position
-    %num_rows: index                // The number of rows in the 256 elements
+    %pos_desc: !tensor_position_descriptor_2level_2d,
+    %transfer_desc: !transfer_descriptor_2d
   ) -> !vx2 {
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
-    %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
-    %wave_size = arith.constant 64 : index    // 64 threads per wave
-
-    %loaded = func.call @global_load_wave_elt_2d_impl(
-        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+    %loaded = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!aster_utils.any)
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -208,21 +215,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   func.func private @global_load_wave_384xf16_via_dwordx3_wait(
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most major-tile position
-    %n_pos: index,                  // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
-    %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index,                 // The inner-most minor-tile position
-    %num_rows: index                // The number of rows in the 256 elements
+    %pos_desc: !tensor_position_descriptor_2level_2d,
+    %transfer_desc: !transfer_descriptor_2d
   ) -> !vx3 {
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
-    %transfer_size = arith.constant 12 : index // dwordx3 size in bytes
-    %wave_size = arith.constant 64 : index    // 64 threads per wave
-
-    %loaded = func.call @global_load_wave_elt_2d_impl(
-        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+    %loaded = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!aster_utils.any)
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -232,21 +228,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   func.func private @global_load_wave_512xf16_via_dwordx4_wait(
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most major-tile position
-    %n_pos: index,                  // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
-    %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index,                 // The inner-most minor-tile position
-    %num_rows: index                // The number of rows in the 256 elements
+    %pos_desc: !tensor_position_descriptor_2level_2d,
+    %transfer_desc: !transfer_descriptor_2d
   ) -> !vx4 {
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
-    %transfer_size = arith.constant 16 : index // dwordx4 size in bytes
-    %wave_size = arith.constant 64 : index    // 64 threads per wave
-
-    %loaded = func.call @global_load_wave_elt_2d_impl(
-        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+    %loaded = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!aster_utils.any)
 
     // Wait for load completion
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -256,84 +241,40 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   func.func private @global_load_wave_128xf16_via_dword_nowait(
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most major-tile position
-    %n_pos: index,                  // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
-    %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index,                 // The inner-most minor-tile position
-    %num_rows: index                // The number of rows in the 256 elements
+    %pos_desc: !tensor_position_descriptor_2level_2d,
+    %transfer_desc: !transfer_descriptor_2d
   ) -> !vx1 {
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
-    %transfer_size = arith.constant 4 : index // dword size in bytes
-    %wave_size = arith.constant 64 : index    // 64 threads per wave
-
-    %loaded = func.call @global_load_wave_elt_2d_impl(
-        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+    %loaded = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!aster_utils.any)
 
     %res = aster_utils.from_any %loaded : !vx1
     return %res : !vx1
   }
 
   func.func private @global_load_wave_256xf16_via_dwordx2_nowait(
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most major-tile position
-    %n_pos: index,                  // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
-    %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index,                 // The inner-most minor-tile position
-    %num_rows: index                // The number of rows in the 256 elements
+    %pos_desc: !tensor_position_descriptor_2level_2d,
+    %transfer_desc: !transfer_descriptor_2d
   ) -> !vx2 {
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
-    %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
-    %wave_size = arith.constant 64 : index    // 64 threads per wave
-
-    %loaded = func.call @global_load_wave_elt_2d_impl(
-        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+    %loaded = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!aster_utils.any)
 
     %res = aster_utils.from_any %loaded : !vx2
     return %res : !vx2
   }
 
   func.func private @global_load_wave_384xf16_via_dwordx3_nowait(
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most major-tile position
-    %n_pos: index,                  // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
-    %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index,                 // The inner-most minor-tile position
-    %num_rows: index                // The number of rows in the 256 elements
+    %pos_desc: !tensor_position_descriptor_2level_2d,
+    %transfer_desc: !transfer_descriptor_2d
   ) -> !vx3 {
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
-    %transfer_size = arith.constant 12 : index // dwordx3 size in bytes
-    %wave_size = arith.constant 64 : index    // 64 threads per wave
-
-    %loaded = func.call @global_load_wave_elt_2d_impl(
-        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+    %loaded = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!aster_utils.any)
 
     %res = aster_utils.from_any %loaded : !vx3
     return %res : !vx3
   }
 
   func.func private @global_load_wave_512xf16_via_dwordx4_nowait(
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most major-tile position
-    %n_pos: index,                  // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
-    %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index,                 // The inner-most minor-tile position
-    %num_rows: index                // The number of rows in the 256 elements
+    %pos_desc: !tensor_position_descriptor_2level_2d,
+    %transfer_desc: !transfer_descriptor_2d
   ) -> !vx4 {
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
-    %transfer_size = arith.constant 16 : index // dwordx4 size in bytes
-    %wave_size = arith.constant 64 : index    // 64 threads per wave
-
-    %loaded = func.call @global_load_wave_elt_2d_impl(
-        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows, %elt_size, %transfer_size, %wave_size)
-      : (!sx2, index, index, index, index, index, index, index, index, index) -> (!aster_utils.any)
+    %loaded = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!aster_utils.any)
 
     %res = aster_utils.from_any %loaded : !vx4
     return %res : !vx4
@@ -365,18 +306,12 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The positions nn_pos, mm_pos, etc. are in number of elements; an adjustment
   // by transfer_size / elt_size is needed to get the LDS offset.
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
-    %lds_base_off: index,        // The local base offset in LDS
-    %mm_pos: index,              // The outer-most minor-tile position
-    %nn_pos: index,              // The inner-most minor-tile position
-    %LDS_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
-    %num_rows: index,            // The number of rows in the 256 elements
+    %pos_desc: !lds_position_descriptor_2level_2d,
+    %transfer_desc: !transfer_descriptor_2d,
     %value: !vx2                 // The value to write to LDS
   ) {
-    // Constants that could become generic parameters if we communicated results
-    // via opaque ptr + mem2reg.
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
-    %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
-    %wave_size = arith.constant 64 : index    // 64 threads per wave
+    %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["lds_base", "mm_pos", "nn_pos", "lds_stride_in_bytes", "elt_size"] : !lds_position_descriptor_2level_2d -> index, index, index, index, index
+    %num_rows, %transfer_size, %wave_size = aster_utils.struct_extract %transfer_desc ["num_rows", "transfer_size", "wave_size"] : !transfer_descriptor_2d -> index, index, index
 
     %num_cols = affine.apply affine_map<()[wave_size, num_rows]
       -> (wave_size ceildiv num_rows)>()[%wave_size, %num_rows]
@@ -411,22 +346,19 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // TODO: support different global_load and lds_write num_rows, to achieve a
   // reshape (only when we have a clear use for it).
   func.func private @global_load_to_lds_wave_16x16_f16_wait(
-    %ptr: !sx2,                     // The global base pointer
+    %pos_desc: !tensor_position_descriptor_2level_2d,
     %lds_base_off: index,           // The local base offset in LDS
-    %m_pos: index,                  // The outer-most major-tile position (in global memory)
-    %n_pos: index,                  // The inner-most major-tile position (in global memory)
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most size **in bytes** in global memory
-    %mm_pos: index,                 // The outer-most minor-tile position (in LDS)
-    %nn_pos: index,                 // The inner-most minor-tile position (in LDS)
     %LDS_STRIDE_IN_BYTES: index     // The inner-most major-tile size **in bytes** in LDS
   ) {
+    %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %elt_size = aster_utils.struct_extract %pos_desc ["ptr", "m_pos", "n_pos", "global_stride_in_bytes", "mm_pos", "nn_pos", "elt_size"] : !tensor_position_descriptor_2level_2d -> !sx2, index, index, index, index, index, index
     %num_rows = arith.constant 16 : index
-    %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(
-        %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %num_rows)
-      : (!sx2, index, index, index, index, index, index) -> (!vx2)
-    func.call @lds_write_wave_256xf16_via_dwordx2_wait(
-        %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
-      : (index, index, index, index, index, !vx2) -> ()
+    %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
+    %wave_size = arith.constant 64 : index    // 64 threads per wave
+    %transfer_desc = aster_utils.struct_create(%num_rows, %transfer_size, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
+    %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
+    %lds_pos_desc = aster_utils.struct_create(%lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+    func.call @lds_write_wave_256xf16_via_dwordx2_wait(%lds_pos_desc, %transfer_desc, %loaded)
+      : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
     return
   }
 
@@ -437,12 +369,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // positions %m_pos and %n_pos (and make them workgroup/wave/thread/lane-dependent).
   func.func private @store_to_global_impl(
     %value: !aster_utils.any,       // Value to store (v, vx2, vx3, or vx4)
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most position
-    %n_pos: index,                  // The inner-most position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most stride **in bytes** in global memory
+    %pos_desc: !tensor_position_descriptor_2d,
     %transfer_size: index           // Transfer size in bytes (4, 8, 12, or 16)
   ) {
+    %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["ptr", "m_pos", "n_pos", "global_stride_in_bytes", "elt_size"] : !tensor_position_descriptor_2d -> !sx2, index, index, index, index
     %desc = aster_utils.struct_create(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size) : (index, index, index, index) -> !index_descriptor_2d
     %off_reg = func.call @matrix_offset(%desc) : (!index_descriptor_2d) -> !v
     %c0_store = arith.constant 0 : i32
@@ -482,15 +412,12 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Store a dword (dword) to global memory, in a **synchronized fashion**.
   func.func private @store_to_global_dword_wait(
     %value: !v,                     // Value to store
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most position
-    %n_pos: index,                  // The inner-most position
-    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+    %pos_desc: !tensor_position_descriptor_2d
   ) {
     %transfer_size = arith.constant 4 : index
     %any_value = aster_utils.to_any %value : !v
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> ()
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -498,15 +425,12 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Store a dwordx2 (dwordx2) to global memory, in a **synchronized fashion**.
   func.func private @store_to_global_dwordx2_wait(
     %value: !vx2,                   // Value to store
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most position
-    %n_pos: index,                  // The inner-most position
-    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+    %pos_desc: !tensor_position_descriptor_2d
   ) {
     %transfer_size = arith.constant 8 : index
     %any_value = aster_utils.to_any %value : !vx2
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> ()
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -514,15 +438,12 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Store a dwordx3 (dwordx3) to global memory, in a **synchronized fashion**.
   func.func private @store_to_global_dwordx3_wait(
     %value: !vx3,                   // Value to store
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most position
-    %n_pos: index,                  // The inner-most position
-    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+    %pos_desc: !tensor_position_descriptor_2d
   ) {
     %transfer_size = arith.constant 12 : index
     %any_value = aster_utils.to_any %value : !vx3
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> ()
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -530,15 +451,12 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Store a dwordx4 (dwordx4) to global memory, in a **synchronized fashion**.
   func.func private @store_to_global_dwordx4_wait(
     %value: !vx4,                   // Value to store
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most position
-    %n_pos: index,                  // The inner-most position
-    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+    %pos_desc: !tensor_position_descriptor_2d
   ) {
     %transfer_size = arith.constant 16 : index
     %any_value = aster_utils.to_any %value : !vx4
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> ()
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -551,14 +469,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The caller is responsible for embedding distribution information into the
   // positions %m_pos and %n_pos.
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    %lds_base: index,            // The local base offset in LDS
-    %m_pos: index,               // The outer-most tile position
-    %n_pos: index,               // The inner-most tile position
-    %LDS_STRIDE_IN_BYTES: index, // The inner-most stride **in bytes** in LDS
+    %pos_desc: !lds_position_descriptor_2d,
     %transposed: i1              // Whether to transpose the indexing
   ) -> !vx2 {
+    %lds_base, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["lds_base", "m_pos", "n_pos", "lds_stride_in_bytes", "elt_size"] : !lds_position_descriptor_2d -> index, index, index, index, index
     // Compute the MFMA positions
-    %elt_size = arith.constant 2 : index // f16 size in bytes
     %mfma_idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
     %mm_pos_raw, %nn_pos_raw = aster_utils.struct_extract %mfma_idx ["i", "j"] : !index_pair -> index, index
     %mm_pos, %nn_pos = scf.if %transposed -> (index, index) {
@@ -585,14 +500,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // This function assumes a major/minor tile structure for the global positions.
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     %acc: !vx4,                     // The accumulator fragment to store
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most major-tile position
-    %n_pos: index,                  // The inner-most major-tile position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most stride **in bytes** in global memory
-    %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index,                 // The inner-most minor-tile position
+    %pos_desc: !tensor_position_descriptor_2level_2d,
     %transposed: i1                 // Whether to transpose the indexing
   ) {
+    %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %elt_size = aster_utils.struct_extract %pos_desc ["ptr", "m_pos", "n_pos", "global_stride_in_bytes", "mm_pos", "nn_pos", "elt_size"] : !tensor_position_descriptor_2level_2d -> !sx2, index, index, index, index, index, index
     // Constants
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -627,9 +538,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
           affine_map<()[m_pos, mm_pos, mmm_pos, mmmm_pos] -> (m_pos + mm_pos + mmm_pos + mmmm_pos)>
           ()[%m_pos, %mm_pos, %mmm_pos, %mmmm_pos]
 
+        // Create position descriptor
+        %pos_desc_2d = aster_utils.struct_create(%ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
         // Store to global memory with wait
-        func.call @store_to_global_dword_wait(%fragment, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
-          : (!v, !sx2, index, index, index) -> ()
+        func.call @store_to_global_dword_wait(%fragment, %pos_desc_2d)
+          : (!v, !tensor_position_descriptor_2d) -> ()
       } {aster.constexpr}
     } else {
       // Compute the MFMA positions
@@ -647,9 +560,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       %n_global_pos = affine.apply affine_map<()[n_global_pos_in_f32]
         -> (n_global_pos_in_f32 floordiv 4)>()[%n_global_pos_in_f32]
 
+      // Create position descriptor
+      %pos_desc_2d = aster_utils.struct_create(%ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
       // Store to global memory with wait
-      func.call @store_to_global_dwordx4_wait(%acc, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
-        : (!vx4, !sx2, index, index, index) -> ()
+      func.call @store_to_global_dwordx4_wait(%acc, %pos_desc_2d)
+        : (!vx4, !tensor_position_descriptor_2d) -> ()
     }
     return
   }
@@ -662,12 +577,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The caller is responsible for embedding distribution information into the
   // positions %m_pos and %n_pos.
   func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(
-    %lds_base: index,           // The local base offset in LDS
-    %m_pos: index,              // The outer-most tile position
-    %n_pos: index,              // The inner-most tile position
-    %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
+    %pos_desc: !lds_position_descriptor_2d
   ) -> !vx2 {
-    %elt_size = arith.constant 2 : index // f16 size in bytes
+    %lds_base, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["lds_base", "m_pos", "n_pos", "lds_stride_in_bytes", "elt_size"] : !lds_position_descriptor_2d -> index, index, index, index, index
 
     // Apply A-matrix swizzle
     %mfma_idx_A = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
