@@ -203,7 +203,7 @@ amdgcn.library @common_indexing {
   // Returns (row, swizzled_col) for LDS access
   func.func private @swizzled_mfma_index_B_16x16xf16() -> (index, index) {
     %row, %col = func.call @mfma_index_B_16x16xf16() : () -> (index, index)
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%col, %row)
+    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
       : (index, index) -> (index, index)
     return %swizzled_row, %swizzled_col : index, index
   }
