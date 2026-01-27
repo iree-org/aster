@@ -14,6 +14,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Support/LLVM.h"
@@ -200,6 +201,40 @@ LogicalResult StructExtractOp::verify() {
   }
 
   return success();
+}
+
+namespace {
+/// Fold struct_extract(struct_create(...)) to the corresponding operands.
+struct FoldStructExtractOfCreate : public OpRewritePattern<StructExtractOp> {
+  using OpRewritePattern<StructExtractOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(StructExtractOp op,
+                                PatternRewriter &rewriter) const override {
+    auto createOp = op.getInput().getDefiningOp<StructCreateOp>();
+    if (!createOp)
+      return failure();
+
+    auto structType = llvm::cast<StructType>(op.getInput().getType());
+    ArrayAttr fieldNames = op.getFieldNames();
+
+    // Map each extracted field to its corresponding operand in struct_create.
+    SmallVector<Value> replacements;
+    for (Attribute attr : fieldNames) {
+      auto fieldName = llvm::cast<StringAttr>(attr).getValue();
+      auto fieldIndex = structType.getFieldIndex(fieldName);
+      assert(fieldIndex && "field name should exist (verified)");
+      replacements.push_back(createOp.getFields()[*fieldIndex]);
+    }
+
+    rewriter.replaceOp(op, replacements);
+    return success();
+  }
+};
+} // namespace
+
+void StructExtractOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
+                                                  MLIRContext *context) {
+  patterns.add<FoldStructExtractOfCreate>(context);
 }
 
 //===----------------------------------------------------------------------===//

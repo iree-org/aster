@@ -244,6 +244,9 @@ def AsterUtils_StructExtractOp : AsterUtils_Op<"struct_extract", [Pure]> {
     %x = aster_utils.struct_extract %s["x"] : !aster_utils.struct<x: i32, y: f32> -> i32
     %x, %y = aster_utils.struct_extract %s["x", "y"] : !aster_utils.struct<x: i32, y: f32> -> i32, f32
     ```
+
+    Canonicalization: If the input is a `struct_create`, the extract is folded
+    to directly use the corresponding operands of the create operation.
   }];
   let arguments = (ins
     AsterUtils_Struct:$input,
@@ -254,6 +257,7 @@ def AsterUtils_StructExtractOp : AsterUtils_Op<"struct_extract", [Pure]> {
     $input $fieldNames attr-dict `:` type($input) `->` type($results)
   }];
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
 }
 
 //===----------------------------------------------------------------------===//
