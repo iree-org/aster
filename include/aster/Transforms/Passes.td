@@ -73,11 +73,11 @@ def OpScheduling : Pass<"aster-op-scheduling"> {
 def ReplaceConstantGPUDims : InterfacePass<"aster-replace-constant-gpu-dims",
                                            "mlir::aster::ModuleOpInterface"> {
   let summary = "Replace gpu.block_dim and gpu.grid_dim with constants";
-  let description =
-      [{This pass identifies functions implementing GPUFuncInterface and
-            replaces gpu.block_dim and
-                gpu.grid_dim operations with constant values based on the block
-                    and grid dimension annotations on the function.}];
+  let description = [{
+    This pass identifies functions implementing GPUFuncInterface and replaces
+    gpu.block_dim and gpu.grid_dim operations with constant values based on
+    the block and grid dimension annotations on the function.
+  }];
   let dependentDialects = [
     "mlir::arith::ArithDialect",
     "mlir::gpu::GPUDialect",

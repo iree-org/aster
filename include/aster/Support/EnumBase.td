@@ -19,12 +19,12 @@ include "mlir/IR/EnumAttr.td"
 
 class EnumCaseInfo<string sym, string id = ""> {
   string symbol = sym;
-  string identifier = !if (!empty(id), !toupper(sym), id);
+  string identifier = !if(!empty(id), !toupper(sym), id);
   string description = "";
 }
 
 class PrettyEnumCaseInfo<string sym, string id = "">
-    : EnumCaseInfo<sym, !if (!empty(id), snakeCaseToCamelCase<sym>.ret, id)>;
+    : EnumCaseInfo<sym, !if(!empty(id), snakeCaseToCamelCase<sym>.ret, id)>;
 
 class _AutoEnumCase<EnumCaseInfo info, int c, int bitwidth>
     : EnumCase<info.identifier, c, info.symbol, bitwidth> {
