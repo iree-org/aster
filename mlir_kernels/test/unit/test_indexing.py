@@ -380,21 +380,24 @@ class TestMfmaIndexC16x16xf32:
     """Test @mfma_index_C_16x16xf32 function."""
 
     def test_mfma_index_C_16x16xf32(self):
-        """MFMA indexing for C fragment (same as helper)."""
+        """MFMA indexing for C fragment.
+
+        That is, for each lane, the (row, col) to load 4xf32 (dwordx4) values of C.
+        """
         num_threads = 64
-        output = np.zeros(num_threads * 2, dtype=np.int32)
+        output = np.zeros(num_threads * 2, dtype=np.int32).reshape(16, 4, 2)
         compile_and_run("test_mfma_index_C_16x16xf32", output)
 
         # fmt: off
         expected = np.array([
-            0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,  # tid 0-7: lane_id 0-7
-            0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15,  # tid 8-15: lane_id 8-15
-            4, 0, 4, 1, 4, 2, 4, 3, 4, 4, 4, 5, 4, 6, 4, 7,  # tid 16-23: lane_id 16-23
-            4, 8, 4, 9, 4, 10, 4, 11, 4, 12, 4, 13, 4, 14, 4, 15,  # tid 24-31: lane_id 24-31
-            8, 0, 8, 1, 8, 2, 8, 3, 8, 4, 8, 5, 8, 6, 8, 7,  # tid 32-39: lane_id 32-39
-            8, 8, 8, 9, 8, 10, 8, 11, 8, 12, 8, 13, 8, 14, 8, 15,  # tid 40-47: lane_id 40-47
-            12, 0, 12, 1, 12, 2, 12, 3, 12, 4, 12, 5, 12, 6, 12, 7,  # tid 48-55: lane_id 48-55
-            12, 8, 12, 9, 12, 10, 12, 11, 12, 12, 12, 13, 12, 14, 12, 15,  # tid 56-63: lane_id 56-63
+            [[0,  0], [1,  0], [ 2,  0], [ 3,  0]], [[ 4,  0], [ 5,  0], [ 6,  0], [ 7,  0]],  #   tid 0-7: lane_id 0-7
+            [[8,  0], [9,  0], [10,  0], [11,  0]], [[12,  0], [13,  0], [14,  0], [15,  0]],  #  tid 8-15: lane_id 8-15
+            [[0,  4], [1,  4], [ 2,  4], [ 3,  4]], [[ 4,  4], [ 5,  4], [ 6,  4], [ 7,  4]],  # tid 16-23: lane_id 16-23
+            [[8,  4], [9,  4], [10,  4], [11,  4]], [[12,  4], [13,  4], [14,  4], [15,  4]],  # tid 24-31: lane_id 24-31
+            [[0,  8], [1,  8], [ 2,  8], [ 3,  8]], [[ 4,  8], [ 5,  8], [ 6,  8], [ 7,  8]],  # tid 32-39: lane_id 32-39
+            [[8,  8], [9,  8], [10,  8], [11,  8]], [[12,  8], [13,  8], [14,  8], [15,  8]],  # tid 40-47: lane_id 40-47
+            [[0, 12], [1, 12], [ 2, 12], [ 3, 12]], [[ 4, 12], [ 5, 12], [ 6, 12], [ 7, 12]],  # tid 48-55: lane_id 48-55
+            [[8, 12], [9, 12], [10, 12], [11, 12]], [[12, 12], [13, 12], [14, 12], [15, 12]],  # tid 56-63: lane_id 56-63
         ], dtype=np.int32)
         # fmt: on
 
@@ -560,3 +563,4 @@ if __name__ == "__main__":
     TestMfmaIndex16x16Helper().test_mfma_index_16x16x16xf16_helper()
     TestMfmaIndexA16x16xf16().test_mfma_index_A_16x16xf16()
     TestMfmaIndexB16x16xf16().test_mfma_index_B_16x16xf16()
+    TestMfmaIndexC16x16xf32().test_mfma_index_C_16x16xf32()
