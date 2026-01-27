@@ -89,7 +89,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, !lds_position_descriptor_2d)
   func.func private @simple_lds_read_wave_16x16xf16_wait(!lds_position_descriptor_2d) -> !vx2
   // simple-multi-tile-copies.mlir
-  func.func private @simple_maybe_lds_write_multi_tile(index, index, index, index, index, index, index, index, index, index, index, memref<?x?x!vx2>)
+  func.func private @simple_maybe_lds_write_multi_tile(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
   // multi-tile-copies.mlir
   func.func private @simple_maybe_global_load_multi_tile(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
   func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, index, index, !sx2, index, index, index, memref<?x?x!vx2>)
@@ -533,14 +533,17 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
              !sx2, index, index, index, memref<?x?x!vx2>) -> ()
 
         // Call library function for LDS write (k=0, cond_iter=0)
+        %lds_stride_mt = arith.constant 256 : index // 128 * 2 bytes
+        %elt_size_mt = arith.constant 2 : index
+        %lds_pos_desc_mt = aster_utils.struct_create(%c0, %ii, %jj, %lds_stride_mt, %elt_size_mt) : (index, index, index, index, index) -> !lds_position_descriptor_2d
         func.call @simple_maybe_lds_write_multi_tile(
-          %c0, %ii, %jj, %c0,           // k, ii, jj, cond_iter
+          %c0, %c0,                     // k, cond_iter
           %K, %II, %JJ,                 // K, II, JJ
           %NT_I, %NT_J,                 // NT_I, NT_J
-          %c0, %SIZE_J,                 // lds_base_off, SIZE_J
+          %lds_pos_desc_mt,             // lds_pos_desc_base (m_pos=ii, n_pos=jj as tile indices)
           %load_memref)                 // load_memref
-          : (index, index, index, index, index, index, index, index, index,
-             index, index, memref<?x?x!vx2>) -> ()
+          : (index, index, index, index, index, index, index,
+             !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
       } {aster.constexpr}
     } {aster.constexpr}
 
