@@ -35,9 +35,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
     index, index, index, index, index, !vx2) -> ()
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    index, index, index, index) -> !vx2
+    index, index, index, index, i1) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
-    !vx4, !sx2, index, index, index, index, index) -> ()
+    !vx4, !sx2, index, index, index, index, index, i1) -> ()
 
   // Phase 0a: Global loads if phase 0 (decoupled from DS writes via memrefs)
   func.func private @maybe_global_load(
@@ -163,12 +163,13 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
 
       // Read A and B fragments from LDS, store to memrefs
+      %false = arith.constant false
       %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-          %lds_a_base_off, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
-        : (index, index, index, index) -> !vx2
+          %lds_a_base_off, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES, %false)
+        : (index, index, index, index, i1) -> !vx2
       %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-          %lds_b_base_off, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
-        : (index, index, index, index) -> !vx2
+          %lds_b_base_off, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES, %false)
+        : (index, index, index, index, i1) -> !vx2
       memref.store %a_frag, %a_frag_memref[%k, %d_mmnnkk] : memref<?x?x!vx2>
       memref.store %b_frag, %b_frag_memref[%k, %d_mmnnkk] : memref<?x?x!vx2>
     }
@@ -228,9 +229,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
         %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
           (SIZE_N * 4)>()[%SIZE_N]
+        %true_store = arith.constant true
         func.call @global_store_wave_16x16xf32_C_fragment_wait(
-            %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %jj_pos)
-          : (!vx4, !sx2, index, index, index, index, index) -> ()
+            %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %jj_pos, %true_store)
+          : (!vx4, !sx2, index, index, index, index, index, i1) -> ()
       }
     }
     return

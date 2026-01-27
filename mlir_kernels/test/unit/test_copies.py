@@ -199,6 +199,46 @@ class TestLoadAndReadLdsAFragmentWait:
             )
 
 
+class TestLoadAndReadLdsAFragmentWaitTransposed:
+    """Test @test_load_and_lds_read_A_wave_16x16xf16_fragment_transposed_wait function."""
+
+    def test_read_mfma_A_fragment(self):
+        """Read A fragment from LDS with MFMA A access pattern."""
+        num_threads = 64
+        # Input: 16x16 matrix of f16 values (stored as uint16)
+        # Each element is its linear index
+        input_data = np.arange(16 * 16, dtype=np.uint16)
+        # Output: each thread reads 8 bytes (4 f16 values = dwordx2)
+        output = np.zeros(num_threads * 4, dtype=np.uint16)
+
+        compile_and_run(
+            "test_copies.mlir",
+            "test_load_and_lds_read_A_wave_16x16xf16_fragment_transposed_wait",
+            [input_data],
+            output,
+        )
+
+        # Verify: mfma_index_A returns (lane_id % 16, 4 * (lane_id // 16))
+        # So row = lane_id % 16, col_base = 4 * (lane_id // 16)
+        # Each thread reads 4 consecutive f16 values
+        expected = np.zeros(num_threads * 4, dtype=np.uint16)
+        for tid in range(num_threads):
+            lane_id = tid % 64
+            # mfma_index_A transposed: ii = 4 * (lane_id // 16), jj = lane_id % 16
+            ii = 4 * (lane_id // 16)
+            jj = lane_id % 16
+            # Each thread reads 4 consecutive values starting at (ii, jj)
+            for k in range(4):
+                src_idx = ii * 16 + jj + k
+                dst_idx = tid * 4 + k
+                expected[dst_idx] = src_idx
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            np.testing.assert_array_equal(
+                output.reshape(16, 16), expected.reshape(16, 16)
+            )
+
+
 class TestLdsReadSwizzledFragmentWaitXorSwizzled:
     """Test @lds_read_A_wave_16x16xf16_fragment_wait function with XOR swizzling."""
 
@@ -275,25 +315,76 @@ class TestStoreGlobalCFragmentWait:
     def test_store_MFMA_C_fragment(self):
         """Store C fragment to global with MFMA C access pattern."""
         num_threads = 64
-        # Output: 16x16 matrix of f32 values (stored as int32)
-        output = np.zeros(16 * 16, dtype=np.int32)
+        # Output: 16x16 matrix of int32.
+        output = np.zeros(16 * 16, dtype=np.int32).reshape(16, 4, 4)
 
         compile_and_run(
             "test_copies.mlir", "test_store_global_C_fragment_wait", [], output
         )
 
-        # Verify: each lane initializes its fragment with lane_id
-        # mfma_index_C returns (4 * (lane_id // 16), lane_id % 16)
-        # So row_base = 4 * (lane_id // 16), col = lane_id % 16
-        # Each lane writes 4 values at rows row_base, row_base+1, row_base+2, row_base+3
-        expected = np.zeros(16 * 16, dtype=np.int32)
-        for lane_id in range(num_threads):
-            row_base = 4 * (lane_id // 16)
-            col = lane_id % 16
-            for k in range(4):
-                row = row_base + k
-                linear_idx = row * 16 + col
-                expected[linear_idx] = lane_id
+        # fmt: off
+        expected = np.array([
+            [[0] * 4, [16] * 4, [32] * 4, [48] * 4],
+            [[1] * 4, [17] * 4, [33] * 4, [49] * 4],
+            [[2] * 4, [18] * 4, [34] * 4, [50] * 4],
+            [[3] * 4, [19] * 4, [35] * 4, [51] * 4],
+            [[4] * 4, [20] * 4, [36] * 4, [52] * 4],
+            [[5] * 4, [21] * 4, [37] * 4, [53] * 4],
+            [[6] * 4, [22] * 4, [38] * 4, [54] * 4],
+            [[7] * 4, [23] * 4, [39] * 4, [55] * 4],
+            [[8] * 4, [24] * 4, [40] * 4, [56] * 4],
+            [[9] * 4, [25] * 4, [41] * 4, [57] * 4],
+            [[10] * 4, [26] * 4, [42] * 4, [58] * 4],
+            [[11] * 4, [27] * 4, [43] * 4, [59] * 4],
+            [[12] * 4, [28] * 4, [44] * 4, [60] * 4],
+            [[13] * 4, [29] * 4, [45] * 4, [61] * 4],
+            [[14] * 4, [30] * 4, [46] * 4, [62] * 4],
+            [[15] * 4, [31] * 4, [47] * 4, [63] * 4],
+        ], dtype=np.int32)
+        # fmt: on
+
+        with np.printoptions(threshold=np.inf, linewidth=np.inf):
+            print(output)
+            print(expected)
+            np.testing.assert_array_equal(output, expected)
+
+
+class TestStoreGlobalCFragmentWaitTransposed:
+    """Test @test_store_global_C_fragment_wait_transposed function."""
+
+    def test_store_MFMA_C_fragment_transposed(self):
+        """Store C fragment to global with MFMA C access pattern."""
+        num_threads = 64
+        # Output: 16x16 matrix of f32 values (stored as int32)
+        output = np.zeros(16 * 16, dtype=np.int32).reshape(16, 16)
+
+        compile_and_run(
+            "test_copies.mlir",
+            "test_store_global_C_fragment_wait_transposed",
+            [],
+            output,
+        )
+
+        # fmt: off
+        expected = np.array([
+            [ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15],
+            [ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15],
+            [ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15],
+            [ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15],
+            [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+            [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+            [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+            [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+            [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47],
+            [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47],
+            [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47],
+            [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47],
+            [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63],
+            [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63],
+            [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63],
+            [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63],
+        ], dtype=np.int32)
+        # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -488,6 +579,16 @@ class TestMaybeMultiTileCoalesced:
 
 
 if __name__ == "__main__":
-    # Run a specific test for debugging
+    # Run all tests
     TestStoreToGlobalDwordWait().test_store_dword()
-    # TestMaybeMultiTileCoalesced().test_multi_tile_coalesced_with_nt_2x4()
+    TestStoreToGlobalDwordx2Wait().test_store_dwordx2()
+    TestStoreToGlobalDwordx3Wait().test_store_dwordx3()
+    TestStoreToGlobalDwordx4Wait().test_store_dwordx4()
+    TestLoadAndReadLdsAFragmentWait().test_lds_read_A_fragment()
+    TestLdsReadSwizzledFragmentWaitXorSwizzled().test_lds_read_swizzled_A_fragment()
+    TestStoreGlobalCFragmentWait().test_store_C_fragment()
+    TestGlobalLoadDsWrite().test_global_load_ds_write()
+    TestGlobalToLdsAndBack16x16().test_global_to_lds_and_back()
+    TestGlobalLoadMultiTile().test_global_load_multi_tile()
+    TestMaybeMultiTileSimple().test_multi_tile_simple()
+    TestMaybeMultiTileCoalesced().test_multi_tile_coalesced_with_nt_2x4()

@@ -34,11 +34,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @alloc_vgprx3() -> !vx3
   func.func private @alloc_vgprx4() -> !vx4
   // indexing.mlir
+  func.func private @lane_id() -> index
   func.func private @lane_delinearize_2d(index, index) -> (index, index)
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
-  func.func private @mfma_index_16x16_helper() -> (index, index)
   func.func private @xor_swizzled_mfma_index_16xf16(index, index) -> (index, index)
   func.func private @mfma_index_A_16x16xf16() -> (index, index)
   func.func private @mfma_index_C_16x16xf32() -> (index, index)
@@ -545,14 +545,20 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The caller is responsible for embedding distribution information into the
   // positions %m_pos and %n_pos.
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    %lds_base: index,           // The local base offset in LDS
-    %m_pos: index,              // The outer-most tile position
-    %n_pos: index,              // The inner-most tile position
-    %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
+    %lds_base: index,            // The local base offset in LDS
+    %m_pos: index,               // The outer-most tile position
+    %n_pos: index,               // The inner-most tile position
+    %LDS_STRIDE_IN_BYTES: index, // The inner-most stride **in bytes** in LDS
+    %transposed: i1              // Whether to transpose the indexing
   ) -> !vx2 {
     // Compute the MFMA positions
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %mm_pos, %nn_pos = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
+    %mm_pos_raw, %nn_pos_raw = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
+    %mm_pos, %nn_pos = scf.if %transposed -> (index, index) {
+      scf.yield %nn_pos_raw, %mm_pos_raw : index, index
+    } else {
+      scf.yield %mm_pos_raw, %nn_pos_raw : index, index
+    }
     %off_lds_reg = func.call @tiled_matrix_offset(
         %m_pos, %n_pos, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index, index, index) -> !v
@@ -578,7 +584,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %n_pos: index,                  // The inner-most major-tile position
     %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most stride **in bytes** in global memory
     %mm_pos: index,                 // The outer-most minor-tile position
-    %nn_pos: index                  // The inner-most minor-tile position
+    %nn_pos: index,                 // The inner-most minor-tile position
+    %transposed: i1                 // Whether to transpose the indexing
   ) {
     // Constants
     %c0 = arith.constant 0 : index
@@ -587,34 +594,55 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %c3 = arith.constant 3 : index
     %c4 = arith.constant 4 : index
 
-    // Split the fragment into 4 dword values
-    %v0, %v1, %v2, %v3 = amdgcn.split_register_range %acc : !vx4
-    %C_fragment =  memref.alloca() : memref<4x!v>
-    memref.store %v0, %C_fragment[%c0] : memref<4x!v>
-    memref.store %v1, %C_fragment[%c1] : memref<4x!v>
-    memref.store %v2, %C_fragment[%c2] : memref<4x!v>
-    memref.store %v3, %C_fragment[%c3] : memref<4x!v>
 
-    // Compute the MFMA positions
-    %mmm_pos, %nnn_pos = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
+    scf.if %transposed {
+      // Split the fragment into 4 dword values
+      %v0, %v1, %v2, %v3 = amdgcn.split_register_range %acc : !vx4
+      %C_fragment =  memref.alloca() : memref<4x!v>
+      memref.store %v0, %C_fragment[%c0] : memref<4x!v>
+      memref.store %v1, %C_fragment[%c1] : memref<4x!v>
+      memref.store %v2, %C_fragment[%c2] : memref<4x!v>
+      memref.store %v3, %C_fragment[%c3] : memref<4x!v>
 
-    // Calculate global j position
-    %n_global_pos = affine.apply
-      affine_map<()[n_pos, nn_pos, nnn_pos] -> (n_pos + nn_pos + nnn_pos)>
-      ()[%n_pos, %nn_pos, %nnn_pos]
+      // Compute the transposed MFMA positions.
+      %nnn_pos, %mmm_pos = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
 
-    // Store each fragment to global memory
-    scf.for %mmmm_pos = %c0 to %c4 step %c1 {
-      %fragment = memref.load %C_fragment[%mmmm_pos] : memref<4x!v>
-      // Calculate global i position
+      // Calculate global j position
+      %n_global_pos = affine.apply
+        affine_map<()[n_pos, nn_pos, nnn_pos] -> (n_pos + nn_pos + nnn_pos)>
+        ()[%n_pos, %nn_pos, %nnn_pos]
+
+      // Store each fragment to global memory
+      scf.for %mmmm_pos = %c0 to %c4 step %c1 {
+        %fragment = memref.load %C_fragment[%mmmm_pos] : memref<4x!v>
+        // Calculate global i position
+        %m_global_pos = affine.apply
+          affine_map<()[m_pos, mm_pos, mmm_pos, mmmm_pos] -> (m_pos + mm_pos + mmm_pos + mmmm_pos)>
+          ()[%m_pos, %mm_pos, %mmm_pos, %mmmm_pos]
+
+        // Store to global memory with wait
+        func.call @store_to_global_dword_wait(%fragment, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
+          : (!v, !sx2, index, index, index) -> ()
+      } {aster.constexpr}
+    } else {
+      // Compute the MFMA positions
+      %mmm_pos, %nnn_pos = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
+
+      // Calculate global j position
       %m_global_pos = affine.apply
-        affine_map<()[m_pos, mm_pos, mmm_pos, mmmm_pos] -> (m_pos + mm_pos + mmm_pos + mmmm_pos)>
-        ()[%m_pos, %mm_pos, %mmm_pos, %mmmm_pos]
+        affine_map<()[m_pos, mm_pos, mmm_pos] -> (m_pos + mm_pos + mmm_pos)>
+        ()[%m_pos, %mm_pos, %mmm_pos]
+      %n_global_pos_in_f32 = affine.apply
+        affine_map<()[n_pos, nn_pos, nnn_pos] -> (n_pos + nn_pos + nnn_pos)>
+        ()[%n_pos, %nn_pos, %nnn_pos]
+      // Translate n in units of the transfer size (dwordx4).
+      %n_global_pos = affine.apply affine_map<()[n_global_pos_in_f32]
+        -> (n_global_pos_in_f32 floordiv 4)>()[%n_global_pos_in_f32]
 
       // Store to global memory with wait
-      func.call @store_to_global_dword_wait(%fragment, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
-        : (!v, !sx2, index, index, index) -> ()
-    } {aster.constexpr}
+      func.call @store_to_global_dwordx4_wait(%acc, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
+        : (!vx4, !sx2, index, index, index) -> ()
+    }
     return
   }
 

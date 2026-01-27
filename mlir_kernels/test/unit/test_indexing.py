@@ -289,52 +289,28 @@ class TestTiledx2MatrixOffset:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestMfmaIndex16x16Helper:
-    """Test @mfma_index_16x16_helper function."""
-
-    def test_mfma_index_16x16_helper(self):
-        """Returns (4 * (lane_id / 16), lane_id mod 16)."""
-        num_threads = 64
-        output = np.zeros(num_threads * 2, dtype=np.int32)
-        compile_and_run("test_mfma_index_16x16_helper", output)
-
-        # fmt: off
-        expected = np.array([
-            0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,  # tid 0-7: lane_id 0-7
-            0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15,  # tid 8-15: lane_id 8-15
-            4, 0, 4, 1, 4, 2, 4, 3, 4, 4, 4, 5, 4, 6, 4, 7,  # tid 16-23: lane_id 16-23
-            4, 8, 4, 9, 4, 10, 4, 11, 4, 12, 4, 13, 4, 14, 4, 15,  # tid 24-31: lane_id 24-31
-            8, 0, 8, 1, 8, 2, 8, 3, 8, 4, 8, 5, 8, 6, 8, 7,  # tid 32-39: lane_id 32-39
-            8, 8, 8, 9, 8, 10, 8, 11, 8, 12, 8, 13, 8, 14, 8, 15,  # tid 40-47: lane_id 40-47
-            12, 0, 12, 1, 12, 2, 12, 3, 12, 4, 12, 5, 12, 6, 12, 7,  # tid 48-55: lane_id 48-55
-            12, 8, 12, 9, 12, 10, 12, 11, 12, 12, 12, 13, 12, 14, 12, 15,  # tid 56-63: lane_id 56-63
-        ], dtype=np.int32)
-        # fmt: on
-
-        with np.printoptions(threshold=np.inf, linewidth=np.inf):
-            np.testing.assert_array_equal(output, expected)
-
-
 class TestMfmaIndexA16x16xf16:
     """Test @mfma_index_A_16x16xf16 function."""
 
     def test_mfma_index_A_16x16xf16(self):
-        """MFMA indexing for A fragment (swapped from helper)."""
+        """MFMA indexing for A fragment.
+
+        That is, for each lane, the (row, col) to load 4xf16 (dwordx2) values of A.
+        """
         num_threads = 64
-        output = np.zeros(num_threads * 2, dtype=np.int32)
+        output = np.zeros(num_threads * 2, dtype=np.int32).reshape(16, 4, 2)
         compile_and_run("test_mfma_index_A_16x16xf16", output)
 
-        # A MFMA indexing returns (j, i) from helper, which is (lane_id mod 16, 4 * (lane_id / 16))
         # fmt: off
         expected = np.array([
-            0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0,  # tid 0-7: lane_id 0-7 -> (j, i) = (0-7, 0)
-            8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15, 0,  # tid 8-15: lane_id 8-15 -> (j, i) = (8-15, 0)
-            0, 4, 1, 4, 2, 4, 3, 4, 4, 4, 5, 4, 6, 4, 7, 4,  # tid 16-23: lane_id 16-23 -> (j, i) = (0-7, 4)
-            8, 4, 9, 4, 10, 4, 11, 4, 12, 4, 13, 4, 14, 4, 15, 4,  # tid 24-31: lane_id 24-31 -> (j, i) = (8-15, 4)
-            0, 8, 1, 8, 2, 8, 3, 8, 4, 8, 5, 8, 6, 8, 7, 8,  # tid 32-39: lane_id 32-39 -> (j, i) = (0-7, 8)
-            8, 8, 9, 8, 10, 8, 11, 8, 12, 8, 13, 8, 14, 8, 15, 8,  # tid 40-47: lane_id 40-47 -> (j, i) = (8-15, 8)
-            0, 12, 1, 12, 2, 12, 3, 12, 4, 12, 5, 12, 6, 12, 7, 12,  # tid 48-55: lane_id 48-55 -> (j, i) = (0-7, 12)
-            8, 12, 9, 12, 10, 12, 11, 12, 12, 12, 13, 12, 14, 12, 15, 12,  # tid 56-63: lane_id 56-63 -> (j, i) = (8-15, 12)
+            [[0,  0], [1,  0], [ 2,  0], [ 3,  0]], [[ 4,  0], [ 5,  0], [ 6,  0], [ 7,  0]],  #   tid 0-7: lane_id 0-7
+            [[8,  0], [9,  0], [10,  0], [11,  0]], [[12,  0], [13,  0], [14,  0], [15,  0]],  #  tid 8-15: lane_id 8-15
+            [[0,  4], [1,  4], [ 2,  4], [ 3,  4]], [[ 4,  4], [ 5,  4], [ 6,  4], [ 7,  4]],  # tid 16-23: lane_id 16-23
+            [[8,  4], [9,  4], [10,  4], [11,  4]], [[12,  4], [13,  4], [14,  4], [15,  4]],  # tid 24-31: lane_id 24-31
+            [[0,  8], [1,  8], [ 2,  8], [ 3,  8]], [[ 4,  8], [ 5,  8], [ 6,  8], [ 7,  8]],  # tid 32-39: lane_id 32-39
+            [[8,  8], [9,  8], [10,  8], [11,  8]], [[12,  8], [13,  8], [14,  8], [15,  8]],  # tid 40-47: lane_id 40-47
+            [[0, 12], [1, 12], [ 2, 12], [ 3, 12]], [[ 4, 12], [ 5, 12], [ 6, 12], [ 7, 12]],  # tid 48-55: lane_id 48-55
+            [[8, 12], [9, 12], [10, 12], [11, 12]], [[12, 12], [13, 12], [14, 12], [15, 12]],  # tid 56-63: lane_id 56-63
         ], dtype=np.int32)
         # fmt: on
 
@@ -346,21 +322,24 @@ class TestMfmaIndexB16x16xf16:
     """Test @mfma_index_B_16x16xf16 function."""
 
     def test_mfma_index_B_16x16xf16(self):
-        """MFMA indexing for B fragment (same as helper)."""
+        """MFMA indexing for B fragment.
+
+        That is, for each lane, the (row, col) to load 4xf16 (dwordx2) values of B.
+        """
         num_threads = 64
-        output = np.zeros(num_threads * 2, dtype=np.int32)
+        output = np.zeros(num_threads * 2, dtype=np.int32).reshape(16, 4, 2)
         compile_and_run("test_mfma_index_B_16x16xf16", output)
 
         # fmt: off
         expected = np.array([
-            0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,  # tid 0-7: lane_id 0-7
-            0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15,  # tid 8-15: lane_id 8-15
-            4, 0, 4, 1, 4, 2, 4, 3, 4, 4, 4, 5, 4, 6, 4, 7,  # tid 16-23: lane_id 16-23
-            4, 8, 4, 9, 4, 10, 4, 11, 4, 12, 4, 13, 4, 14, 4, 15,  # tid 24-31: lane_id 24-31
-            8, 0, 8, 1, 8, 2, 8, 3, 8, 4, 8, 5, 8, 6, 8, 7,  # tid 32-39: lane_id 32-39
-            8, 8, 8, 9, 8, 10, 8, 11, 8, 12, 8, 13, 8, 14, 8, 15,  # tid 40-47: lane_id 40-47
-            12, 0, 12, 1, 12, 2, 12, 3, 12, 4, 12, 5, 12, 6, 12, 7,  # tid 48-55: lane_id 48-55
-            12, 8, 12, 9, 12, 10, 12, 11, 12, 12, 12, 13, 12, 14, 12, 15,  # tid 56-63: lane_id 56-63
+            [[0,  0], [0,  1], [0,  2], [0,  3]], [[0,  4], [0,  5], [0,  6], [0,  7]],  #   tid 0-7: lane_id 0-7
+            [[0,  8], [0,  9], [0, 10], [0, 11]], [[0, 12], [0, 13], [0, 14], [0, 15]],  #  tid 8-15: lane_id 8-15
+            [[4,  0], [4,  1], [4,  2], [4,  3]], [[4,  4], [4,  5], [4,  6], [4,  7]],  # tid 16-23: lane_id 16-23
+            [[4,  8], [4,  9], [4, 10], [4, 11]], [[4, 12], [4, 13], [4, 14], [4, 15]],  # tid 24-31: lane_id 24-31
+            [[8,  0], [8,  1], [8,  2], [8,  3]], [[8,  4], [8,  5], [8,  6], [8,  7]],  # tid 32-39: lane_id 32-39
+            [[8,  8], [8,  9], [8, 10], [8, 11]], [[8, 12], [8, 13], [8, 14], [8, 15]],  # tid 40-47: lane_id 40-47
+            [[12, 0], [12, 1], [12, 2], [12, 3]], [[12, 4], [12, 5], [12, 6], [12, 7]],  # tid 48-55: lane_id 48-55
+            [[12, 8], [12, 9], [12,10], [12,11]], [[12,12], [12,13], [12,14], [12,15]],  # tid 56-63: lane_id 56-63
         ], dtype=np.int32)
         # fmt: on
 
@@ -372,21 +351,24 @@ class TestMfmaIndexC16x16xf32:
     """Test @mfma_index_C_16x16xf32 function."""
 
     def test_mfma_index_C_16x16xf32(self):
-        """MFMA indexing for C fragment (same as helper)."""
+        """MFMA indexing for C fragment.
+
+        That is, for each lane, the (row, col) to load 4xf32 (dwordx4) values of C.
+        """
         num_threads = 64
-        output = np.zeros(num_threads * 2, dtype=np.int32)
+        output = np.zeros(num_threads * 2, dtype=np.int32).reshape(16, 4, 2)
         compile_and_run("test_mfma_index_C_16x16xf32", output)
 
         # fmt: off
         expected = np.array([
-            0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,  # tid 0-7: lane_id 0-7
-            0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15,  # tid 8-15: lane_id 8-15
-            4, 0, 4, 1, 4, 2, 4, 3, 4, 4, 4, 5, 4, 6, 4, 7,  # tid 16-23: lane_id 16-23
-            4, 8, 4, 9, 4, 10, 4, 11, 4, 12, 4, 13, 4, 14, 4, 15,  # tid 24-31: lane_id 24-31
-            8, 0, 8, 1, 8, 2, 8, 3, 8, 4, 8, 5, 8, 6, 8, 7,  # tid 32-39: lane_id 32-39
-            8, 8, 8, 9, 8, 10, 8, 11, 8, 12, 8, 13, 8, 14, 8, 15,  # tid 40-47: lane_id 40-47
-            12, 0, 12, 1, 12, 2, 12, 3, 12, 4, 12, 5, 12, 6, 12, 7,  # tid 48-55: lane_id 48-55
-            12, 8, 12, 9, 12, 10, 12, 11, 12, 12, 12, 13, 12, 14, 12, 15,  # tid 56-63: lane_id 56-63
+            [[0,  0], [1,  0], [ 2,  0], [ 3,  0]], [[ 4,  0], [ 5,  0], [ 6,  0], [ 7,  0]],  #   tid 0-7: lane_id 0-7
+            [[8,  0], [9,  0], [10,  0], [11,  0]], [[12,  0], [13,  0], [14,  0], [15,  0]],  #  tid 8-15: lane_id 8-15
+            [[0,  4], [1,  4], [ 2,  4], [ 3,  4]], [[ 4,  4], [ 5,  4], [ 6,  4], [ 7,  4]],  # tid 16-23: lane_id 16-23
+            [[8,  4], [9,  4], [10,  4], [11,  4]], [[12,  4], [13,  4], [14,  4], [15,  4]],  # tid 24-31: lane_id 24-31
+            [[0,  8], [1,  8], [ 2,  8], [ 3,  8]], [[ 4,  8], [ 5,  8], [ 6,  8], [ 7,  8]],  # tid 32-39: lane_id 32-39
+            [[8,  8], [9,  8], [10,  8], [11,  8]], [[12,  8], [13,  8], [14,  8], [15,  8]],  # tid 40-47: lane_id 40-47
+            [[0, 12], [1, 12], [ 2, 12], [ 3, 12]], [[ 4, 12], [ 5, 12], [ 6, 12], [ 7, 12]],  # tid 48-55: lane_id 48-55
+            [[8, 12], [9, 12], [10, 12], [11, 12]], [[12, 12], [13, 12], [14, 12], [15, 12]],  # tid 56-63: lane_id 56-63
         ], dtype=np.int32)
         # fmt: on
 
@@ -398,9 +380,9 @@ class TestSwizzledMfmaIndexA16x16xf16:
     """Test @swizzled_mfma_index_A_16x16xf16 function."""
 
     def test_swizzled_mfma_index_A(self):
-        """Swizzled MFMA indexing for A fragment (transposed + XOR swizzle)."""
+        """Swizzled MFMA indexing for A fragment (XOR swizzle)."""
         num_threads = 64
-        output = np.zeros(num_threads * 2, dtype=np.int32)
+        output = np.zeros(num_threads, dtype=np.int32).reshape(4, 4, 4)
         compile_and_run("test_swizzled_mfma_index_A_16x16xf16", output)
 
         # Helper returns (row, col) = (4*(lane_id//16), lane_id%16)
@@ -408,24 +390,16 @@ class TestSwizzledMfmaIndexA16x16xf16:
         # XOR swizzle: swizzled_col = (col_high XOR row_group) * 4 + col_low
         # Expected: (row, swizzled_col) pairs for 64 threads
         # Grouped by helper_row (which becomes col after swap):
-        #   lane_id 0-15:   helper_row=0  -> col=0,  rows 0-15, swizzled_cols: 0,0,0,0,4,4,4,4,8,8,8,8,12,12,12,12
-        #   lane_id 16-31:  helper_row=4  -> col=4,  rows 0-15, swizzled_cols: 4,4,4,4,0,0,0,0,12,12,12,12,8,8,8,8
-        #   lane_id 32-47:  helper_row=8  -> col=8,  rows 0-15, swizzled_cols: 8,8,8,8,12,12,12,12,0,0,0,0,4,4,4,4
-        #   lane_id 48-63:  helper_row=12 -> col=12, rows 0-15, swizzled_cols: 12,12,12,12,8,8,8,8,4,4,4,4,0,0,0,0
+        #   lane_id 0-15:   swizzled_cols: 0,0,0,0,4,4,4,4,8,8,8,8,12,12,12,12
+        #   lane_id 16-31:  swizzled_cols: 4,4,4,4,0,0,0,0,12,12,12,12,8,8,8,8
+        #   lane_id 32-47:  swizzled_cols: 8,8,8,8,12,12,12,12,0,0,0,0,4,4,4,4
+        #   lane_id 48-63:  swizzled_cols: 12,12,12,12,8,8,8,8,4,4,4,4,0,0,0,0
         # fmt: off
         expected = np.array([
-            # lane_id 0-15:   row=0-15, col=0  -> swizzled_col pattern: 0,0,0,0,4,4,4,4,8,8,8,8,12,12,12,12
-            0, 0, 1, 0, 2, 0, 3, 0, 4, 4, 5, 4, 6, 4, 7, 4,
-            8, 8, 9, 8, 10, 8, 11, 8, 12, 12, 13, 12, 14, 12, 15, 12,
-            # lane_id 16-31:  row=0-15, col=4  -> swizzled_col pattern: 4,4,4,4,0,0,0,0,12,12,12,12,8,8,8,8
-            0, 4, 1, 4, 2, 4, 3, 4, 4, 0, 5, 0, 6, 0, 7, 0,
-            8, 12, 9, 12, 10, 12, 11, 12, 12, 8, 13, 8, 14, 8, 15, 8,
-            # lane_id 32-47:  row=0-15, col=8  -> swizzled_col pattern: 8,8,8,8,12,12,12,12,0,0,0,0,4,4,4,4
-            0, 8, 1, 8, 2, 8, 3, 8, 4, 12, 5, 12, 6, 12, 7, 12,
-            8, 0, 9, 0, 10, 0, 11, 0, 12, 4, 13, 4, 14, 4, 15, 4,
-            # lane_id 48-63:  row=0-15, col=12 -> swizzled_col pattern: 12,12,12,12,8,8,8,8,4,4,4,4,0,0,0,0
-            0, 12, 1, 12, 2, 12, 3, 12, 4, 8, 5, 8, 6, 8, 7, 8,
-            8, 4, 9, 4, 10, 4, 11, 4, 12, 0, 13, 0, 14, 0, 15, 0,
+            [[0] * 4, [4] * 4, [8] * 4, [12] * 4],
+            [[4] * 4, [0] * 4, [12] * 4, [8] * 4],
+            [[8] * 4, [12] * 4, [0] * 4, [4] * 4],
+            [[12] * 4, [8] * 4, [4] * 4, [0] * 4],
         ], dtype=np.int32)
         # fmt: on
 
@@ -439,32 +413,24 @@ class TestSwizzledMfmaIndexB16x16xf16:
     def test_swizzled_mfma_index_B(self):
         """Swizzled MFMA indexing for B fragment (XOR swizzle)."""
         num_threads = 64
-        output = np.zeros(num_threads * 2, dtype=np.int32)
+        output = np.zeros(num_threads, dtype=np.int32).reshape(4, 4, 4)
         compile_and_run("test_swizzled_mfma_index_B_16x16xf16", output)
 
-        # Helper returns (row, col) = (4*(lane_id//16), lane_id%16)
-        # B applies XOR swizzle directly
+        # Helper returns (row, col) = (lane_id%16, 4*(lane_id//16))
+        # B swaps to (col, row) then applies XOR swizzle
         # XOR swizzle: swizzled_col = (col_high XOR row_group) * 4 + col_low
-        # Expected: (row, swizzled_col) pairs for 64 threads
-        # Grouped by row (from helper):
+        # where row_group = col/4 = lane_id/16, col_high = row/4, col_low = row%4
+        # Expected: swizzled_col values for 64 threads
         #   lane_id 0-15:   row=0,  col=0-15  -> swizzled_col: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
         #   lane_id 16-31:  row=4,  col=0-15  -> swizzled_col: 4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11
         #   lane_id 32-47:  row=8,  col=0-15  -> swizzled_col: 8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7
         #   lane_id 48-63:  row=12, col=0-15  -> swizzled_col: 12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3
         # fmt: off
         expected = np.array([
-            # lane_id 0-15:   row=0, swizzled_col=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
-            0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,
-            0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15,
-            # lane_id 16-31:  row=4, swizzled_col=4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11
-            4, 4, 4, 5, 4, 6, 4, 7, 4, 0, 4, 1, 4, 2, 4, 3,
-            4, 12, 4, 13, 4, 14, 4, 15, 4, 8, 4, 9, 4, 10, 4, 11,
-            # lane_id 32-47:  row=8, swizzled_col=8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7
-            8, 8, 8, 9, 8, 10, 8, 11, 8, 12, 8, 13, 8, 14, 8, 15,
-            8, 0, 8, 1, 8, 2, 8, 3, 8, 4, 8, 5, 8, 6, 8, 7,
-            # lane_id 48-63:  row=12, swizzled_col=12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3
-            12, 12, 12, 13, 12, 14, 12, 15, 12, 8, 12, 9, 12, 10, 12, 11,
-            12, 4, 12, 5, 12, 6, 12, 7, 12, 0, 12, 1, 12, 2, 12, 3,
+            [[0,1,2,3], [4,5,6,7], [8,9,10,11], [12,13,14,15]],
+            [[4,5,6,7], [0,1,2,3], [12,13,14,15], [8,9,10,11]],
+            [[8,9,10,11], [12,13,14,15], [0,1,2,3], [4,5,6,7]],
+            [[12,13,14,15], [8,9,10,11], [4,5,6,7], [0,1,2,3]],
         ], dtype=np.int32)
         # fmt: on
 
@@ -476,34 +442,26 @@ class TestSwizzledMfmaIndexC16x16xf32:
     """Test @swizzled_mfma_index_C_16x16xf32 function."""
 
     def test_swizzled_mfma_index_C(self):
-        """Swizzled MFMA indexing for C fragment (XOR swizzle)."""
+        """Swizzled MFMA indexing for C fragment (XOR swizzle, same as A)."""
         num_threads = 64
-        output = np.zeros(num_threads * 2, dtype=np.int32)
+        output = np.zeros(num_threads, dtype=np.int32).reshape(4, 4, 4)
         compile_and_run("test_swizzled_mfma_index_C_16x16xf32", output)
 
-        # Helper returns (row, col) = (4*(lane_id//16), lane_id%16)
-        # C applies XOR swizzle directly (same as B)
-        # XOR swizzle: swizzled_col = (col_high XOR row_group) * 4 + col_low
-        # Expected: (row, swizzled_col) pairs for 64 threads
-        # Grouped by row (from helper):
-        #   lane_id 0-15:   row=0,  col=0-15  -> swizzled_col: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
-        #   lane_id 16-31:  row=4,  col=0-15  -> swizzled_col: 4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11
-        #   lane_id 32-47:  row=8,  col=0-15  -> swizzled_col: 8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7
-        #   lane_id 48-63:  row=12, col=0-15  -> swizzled_col: 12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3
+        # Helper returns (row, col) = (lane_id%16, 4*(lane_id//16))
+        # C applies XOR swizzle directly (same as A)
+        # XOR swizzle: swizzled_col = (col_high XOR row_group) * 4
+        # where row_group = row/4, col_high = col/4
+        # Expected: swizzled_col values for 64 threads (same as A)
+        #   lane_id 0-15:   swizzled_cols: 0,0,0,0,4,4,4,4,8,8,8,8,12,12,12,12
+        #   lane_id 16-31:  swizzled_cols: 4,4,4,4,0,0,0,0,12,12,12,12,8,8,8,8
+        #   lane_id 32-47:  swizzled_cols: 8,8,8,8,12,12,12,12,0,0,0,0,4,4,4,4
+        #   lane_id 48-63:  swizzled_cols: 12,12,12,12,8,8,8,8,4,4,4,4,0,0,0,0
         # fmt: off
         expected = np.array([
-            # lane_id 0-15:   row=0, swizzled_col=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
-            0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7,
-            0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15,
-            # lane_id 16-31:  row=4, swizzled_col=4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11
-            4, 4, 4, 5, 4, 6, 4, 7, 4, 0, 4, 1, 4, 2, 4, 3,
-            4, 12, 4, 13, 4, 14, 4, 15, 4, 8, 4, 9, 4, 10, 4, 11,
-            # lane_id 32-47:  row=8, swizzled_col=8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7
-            8, 8, 8, 9, 8, 10, 8, 11, 8, 12, 8, 13, 8, 14, 8, 15,
-            8, 0, 8, 1, 8, 2, 8, 3, 8, 4, 8, 5, 8, 6, 8, 7,
-            # lane_id 48-63:  row=12, swizzled_col=12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3
-            12, 12, 12, 13, 12, 14, 12, 15, 12, 8, 12, 9, 12, 10, 12, 11,
-            12, 4, 12, 5, 12, 6, 12, 7, 12, 0, 12, 1, 12, 2, 12, 3,
+            [[0] * 4, [4] * 4, [8] * 4, [12] * 4],
+            [[4] * 4, [0] * 4, [12] * 4, [8] * 4],
+            [[8] * 4, [12] * 4, [0] * 4, [4] * 4],
+            [[12] * 4, [8] * 4, [4] * 4, [0] * 4],
         ], dtype=np.int32)
         # fmt: on
 
@@ -549,4 +507,9 @@ class TestIndexBxMxNxK:
 
 
 if __name__ == "__main__":
-    TestGridPartition2D().test_grid_partition_2x4()
+    TestMfmaIndexA16x16xf16().test_mfma_index_A_16x16xf16()
+    TestMfmaIndexB16x16xf16().test_mfma_index_B_16x16xf16()
+    TestMfmaIndexC16x16xf32().test_mfma_index_C_16x16xf32()
+    TestSwizzledMfmaIndexA16x16xf16().test_swizzled_mfma_index_A()
+    TestSwizzledMfmaIndexB16x16xf16().test_swizzled_mfma_index_B()
+    TestSwizzledMfmaIndexC16x16xf32().test_swizzled_mfma_index_C()

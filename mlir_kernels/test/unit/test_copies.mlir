@@ -40,9 +40,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @store_to_global_dwordx2_wait(!vx2, !sx2, index, index, index)
   func.func private @store_to_global_dwordx3_wait(!vx3, !sx2, index, index, index)
   func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index)
-  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index, i1) -> !vx2
   func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
-  func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !sx2, index, index, index, index, index)
+  func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !sx2, index, index, index, index, index, i1)
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, memref<?x!vx2>)
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(index, index, index, index, index, index, memref<?x!vx2>)
   func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
@@ -141,8 +141,49 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Now read the A fragment using the MFMA read
     // i_pos=0, j_pos=0
-    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c32)
-      : (index, index, index, index) -> !vx2
+    %false = arith.constant false
+    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c32, %false)
+      : (index, index, index, index, i1) -> !vx2
+
+    // Store fragment to output (each thread writes 8 bytes)
+    %tid = gpu.thread_id x
+    %out_off = affine.apply affine_map<()[tid] -> (tid * 8)>()[%tid]
+    %out_off_i32 = arith.index_cast %out_off : index to i32
+    %out_off_vgpr = lsir.to_reg %out_off_i32 : i32 -> !v
+    %c0_store = arith.constant 0 : i32
+    %tok_store = amdgcn.store global_store_dwordx2 data %fragment addr %out_ptr offset d(%out_off_vgpr) + c(%c0_store) : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+
+    amdgcn.end_kernel
+  }
+
+  // Test @test_load_and_lds_read_A_wave_16x16xf16_fragment_transposed_wait: read MFMA A fragment from LDS
+  // First populate LDS with known data, then read using the MFMA function
+  amdgcn.kernel @test_load_and_lds_read_A_wave_16x16xf16_fragment_transposed_wait arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_only>,
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 512 : i32} {
+    %in_ptr = amdgcn.load_arg 0 : !sx2
+    %out_ptr = amdgcn.load_arg 1 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+
+    %c0 = arith.constant 0 : index
+    %c32 = arith.constant 32 : index // stride in bytes (16 elements * 2 bytes for f16)
+
+    // First load data to LDS using load_to_lds
+    func.call @global_load_to_lds_wave_16x16_f16_wait(
+      %in_ptr, %c0,  // ptr, lds_base_off
+      %c0, %c0,      // i_pos, j_pos
+      %c32,          // GLOBAL_STRIDE_IN_BYTES
+      %c0, %c0,      // ii_pos, jj_pos
+      %c32           // LDS_STRIDE_IN_BYTES
+    ) : (!sx2, index, index, index, index, index, index, index) -> ()
+
+    // Now read the A fragment using the MFMA read
+    // i_pos=0, j_pos=0
+    %true = arith.constant true
+    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c32, %true)
+      : (index, index, index, index, i1) -> !vx2
 
     // Store fragment to output (each thread writes 8 bytes)
     %tid = gpu.thread_id x
@@ -245,9 +286,37 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function
     // i_pos=0, j_pos=0, ii_pos=0, jj_pos=0
+    %false = arith.constant false
     func.call @global_store_wave_16x16xf32_C_fragment_wait(
-      %acc, %out_ptr, %c0, %c0, %c64, %c0, %c0
-    ) : (!vx4, !sx2, index, index, index, index, index) -> ()
+      %acc, %out_ptr, %c0, %c0, %c64, %c0, %c0, %false
+    ) : (!vx4, !sx2, index, index, index, index, index, i1) -> ()
+
+    amdgcn.end_kernel
+  }
+
+  // Test @global_store_wave_16x16xf32_C_fragment_wait_transposed: store C fragment to global
+  // Initialize accumulators with known values, then store using MFMA function
+  amdgcn.kernel @test_store_global_C_fragment_wait_transposed arguments <[
+    #amdgcn.buffer_arg<address_space = generic, access = read_write>
+  ]> attributes {shared_memory_size = 0 : i32} {
+    %out_ptr = amdgcn.load_arg 0 : !sx2
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+
+    %c0 = arith.constant 0 : index
+    %c64 = arith.constant 64 : index // stride in bytes (16 elements * 4 bytes for f32)
+
+    // Initialize accumulator with lane_id (as float bits)
+    %lane = func.call @lane_id() : () -> index
+    %lane_i32 = arith.index_cast %lane : index to i32
+    %lane_reg = lsir.to_reg %lane_i32 : i32 -> !v
+    %acc = func.call @init_vgprx4_reg(%lane_reg) : (!v) -> !vx4
+
+    // Store using the library function
+    // i_pos=0, j_pos=0, ii_pos=0, jj_pos=0
+    %true = arith.constant true
+    func.call @global_store_wave_16x16xf32_C_fragment_wait(
+      %acc, %out_ptr, %c0, %c0, %c64, %c0, %c0, %true
+    ) : (!vx4, !sx2, index, index, index, index, index, i1) -> ()
 
     amdgcn.end_kernel
   }

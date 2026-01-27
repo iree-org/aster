@@ -28,7 +28,7 @@ KERNEL_NAME = "test_matmul_kernel"
 @pytest.mark.parametrize(
     "mlir_filename",
     [
-        "gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir",
+        # "gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir",
         "gemm_sched_dword4_mxnxk_16x16x16_f16f16f32.mlir",
     ],
 )

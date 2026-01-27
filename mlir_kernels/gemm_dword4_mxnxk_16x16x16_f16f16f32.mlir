@@ -30,9 +30,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @global_load_to_lds_wave_16x16_f16_wait(
     !sx2, index, index, index, index, index, index, index) -> ()
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    index, index, index, index) -> !vx2
+    index, index, index, index, i1) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
-    !vx4, !sx2, index, index, index, index, index) -> ()
+    !vx4, !sx2, index, index, index, index, index, i1) -> ()
 
   // Compute the wavefront-level contraction using MFMA instructions
   func.func private @wavefront_contract(
@@ -45,12 +45,13 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %elt_size = arith.constant 2 : index // f16 size in bytes
     %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
       (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
+    %false = arith.constant false
     %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-        %lds_a_base, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
-      : (index, index, index, index) -> !vx2
+        %lds_a_base, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES, %false)
+      : (index, index, index, index, i1) -> !vx2
     %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-        %lds_b_base, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
-     : (index, index, index, index) -> !vx2
+        %lds_b_base, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES, %false)
+     : (index, index, index, index, i1) -> !vx2
     // Perform MFMA operation: C = A * B + C
     %result = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
       %acc, %a_frag, %b_frag, %acc : !vx2, !vx2, !vx4 -> !vx4
@@ -189,9 +190,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
       %GLOBAL_C_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
         (SIZE_N * 4)>()[%SIZE_N]
+      %true = arith.constant true
       func.call @global_store_wave_16x16xf32_C_fragment_wait(
-          %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_C_STRIDE_IN_BYTES, %ii_pos, %jj_pos)
-        : (!vx4, !sx2, index, index, index, index, index) -> ()
+          %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_C_STRIDE_IN_BYTES, %ii_pos, %jj_pos, %true)
+        : (!vx4, !sx2, index, index, index, index, index, i1) -> ()
     } {aster.constexpr}
 
     return

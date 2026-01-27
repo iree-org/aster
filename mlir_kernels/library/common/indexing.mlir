@@ -132,32 +132,28 @@ amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // Reusable MFMA memory access indexing functions.
   //===--------------------------------------------------------------------===//
-  // Helper to compute MFMA positions for a 16x16 fragment
-  // Returns (4 * (lane_id / 16), lane_id mod 16)
-  func.func private @mfma_index_16x16_helper() -> (index, index) {
-    %lane_id = func.call @lane_id() : () -> index
-    %idx0 = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
-    %idx1 = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
-    return %idx0, %idx1 : index, index
-  }
-
   // MFMA indexing function for accessing the `A` 16x16xf16 fragment
   func.func private @mfma_index_A_16x16xf16() -> (index, index) {
-    // Note the swapped return order
-    %j, %i = func.call @mfma_index_16x16_helper() : () -> (index, index)
-    return %i, %j : index, index
+    %lane_id = func.call @lane_id() : () -> index
+    %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
+    %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
+    return %row, %col : index, index
   }
 
   // MFMA indexing function for accessing the `B` 16x16xf16 fragment
   func.func private @mfma_index_B_16x16xf16() -> (index, index) {
-    %i, %j = func.call @mfma_index_16x16_helper() : () -> (index, index)
-    return %i, %j : index, index
+    %lane_id = func.call @lane_id() : () -> index
+    %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
+    %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
+    return %col, %row : index, index
   }
 
   // MFMA indexing function for accessing the `C` 16x16xf32 fragment
   func.func private @mfma_index_C_16x16xf32() -> (index, index) {
-    %i, %j = func.call @mfma_index_16x16_helper() : () -> (index, index)
-    return %i, %j : index, index
+    %lane_id = func.call @lane_id() : () -> index
+    %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
+    %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
+    return %row, %col : index, index
   }
 
   //===--------------------------------------------------------------------===//
@@ -193,9 +189,8 @@ amdgcn.library @common_indexing {
   // A matrix is accessed with transposed pattern (col-major in LDS)
   // Returns (row, swizzled_col) for LDS access
   func.func private @swizzled_mfma_index_A_16x16xf16() -> (index, index) {
-    %row, %col = func.call @mfma_index_16x16_helper() : () -> (index, index)
-    // A matrix: transpose access (swap row/col for the swizzle input)
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%col, %row)
+    %row, %col = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
+    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
       : (index, index) -> (index, index)
     return %swizzled_row, %swizzled_col : index, index
   }
@@ -203,7 +198,7 @@ amdgcn.library @common_indexing {
   // Swizzle for `B` 16x16xf16 fragment with bank conflict avoidance
   // Returns (row, swizzled_col) for LDS access
   func.func private @swizzled_mfma_index_B_16x16xf16() -> (index, index) {
-    %row, %col = func.call @mfma_index_16x16_helper() : () -> (index, index)
+    %row, %col = func.call @mfma_index_B_16x16xf16() : () -> (index, index)
     %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
       : (index, index) -> (index, index)
     return %swizzled_row, %swizzled_col : index, index
@@ -213,8 +208,7 @@ amdgcn.library @common_indexing {
   // For f32: each element is 4 bytes = 1 bank width
   // Returns (row, swizzled_col) for LDS access
   func.func private @swizzled_mfma_index_C_16x16xf32() -> (index, index) {
-    %row, %col = func.call @mfma_index_16x16_helper() : () -> (index, index)
-    // For f32 with 16 cols, XOR pattern is the same but affects different banks
+    %row, %col = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
     %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
       : (index, index) -> (index, index)
     return %swizzled_row, %swizzled_col : index, index
