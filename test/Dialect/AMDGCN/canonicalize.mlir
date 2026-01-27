@@ -34,3 +34,18 @@ func.func @erase_noop_wait() {
   amdgcn.wait
   return
 }
+
+// CHECK-LABEL:   func.func @lds_buffer_folding(
+// CHECK-SAME:      %[[ARG0:.*]]: index) -> (!amdgcn.lds_buffer, !amdgcn.lds_buffer, !amdgcn.lds_buffer) {
+// CHECK-DAG:       %[[ALLOC_LDS_0:.*]] = amdgcn.alloc_lds %[[ARG0]]
+// CHECK-DAG:       %[[ALLOC_LDS_1:.*]] = amdgcn.alloc_lds 64
+// CHECK-DAG:       %[[ALLOC_LDS_2:.*]] = amdgcn.alloc_lds 32
+// CHECK:           return %[[ALLOC_LDS_0]], %[[ALLOC_LDS_1]], %[[ALLOC_LDS_2]] : !amdgcn.lds_buffer, !amdgcn.lds_buffer, !amdgcn.lds_buffer
+// CHECK:         }
+func.func @lds_buffer_folding(%arg0: index) -> (!amdgcn.lds_buffer, !amdgcn.lds_buffer, !amdgcn.lds_buffer) {
+  %c64 = arith.constant 64 : index
+  %0 = amdgcn.alloc_lds %arg0
+  %1 = amdgcn.alloc_lds %c64
+  %2 = amdgcn.alloc_lds 32
+  return %0, %1, %2 : !amdgcn.lds_buffer, !amdgcn.lds_buffer, !amdgcn.lds_buffer
+}

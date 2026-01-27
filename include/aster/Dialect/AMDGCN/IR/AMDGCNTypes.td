@@ -338,6 +338,18 @@ def SREGType : AMDGCN_RegisterDef<"SREG", "sreg", [MemRefElementTypeInterface]> 
 }
 
 //===----------------------------------------------------------------------===//
+// Misc types
+//===----------------------------------------------------------------------===//
+
+def LDSBufferType : AMDGCN_Type<"LDSBuffer", "lds_buffer"> {
+  let summary = "LDS buffer type";
+  let description = [{
+    A type representing a buffer allocated in the Local Data Store (LDS).
+  }];
+  let assemblyFormat = "";
+}
+
+//===----------------------------------------------------------------------===//
 // Token types
 //===----------------------------------------------------------------------===//
 
