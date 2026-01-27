@@ -22,6 +22,9 @@
 //   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
 //   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+!lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
@@ -47,13 +50,13 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   // copies.mlir
   func.func private @global_load_to_lds_wave_16x16_f16_wait(!tensor_position_descriptor_2level_2d, index, index)
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index) -> (!vx2)
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> ()
-  func.func private @store_to_global_dword_wait(!v, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx2_wait(!vx2, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx3_wait(!vx3, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index)
-  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index, i1) -> !vx2
-  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
+  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, !vx2) -> ()
+  func.func private @store_to_global_dword_wait(!v, !tensor_position_descriptor_2d)
+  func.func private @store_to_global_dwordx2_wait(!vx2, !tensor_position_descriptor_2d)
+  func.func private @store_to_global_dwordx3_wait(!vx3, !tensor_position_descriptor_2d)
+  func.func private @store_to_global_dwordx4_wait(!vx4, !tensor_position_descriptor_2d)
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d, i1) -> !vx2
+  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !tensor_position_descriptor_2level_2d, i1)
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, memref<?x!vx2>)
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(index, index, index, index, index, index, memref<?x!vx2>)
@@ -150,8 +153,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     // Now read the A fragment using the MFMA read
     // i_pos=0, j_pos=0
     %false = arith.constant false
-    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c32, %false)
-      : (index, index, index, index, i1) -> !vx2
+    %lds_pos_desc = aster_utils.struct_create(%c0, %c0, %c0, %c32, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc, %false)
+      : (!lds_position_descriptor_2d, i1) -> !vx2
 
     // Store fragment to output (each thread writes 8 bytes)
     %tid = gpu.thread_id x
@@ -186,8 +190,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     // Now read the A fragment using the MFMA read
     // i_pos=0, j_pos=0
     %true = arith.constant true
-    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%c0, %c0, %c0, %c32, %true)
-      : (index, index, index, index, i1) -> !vx2
+    %lds_pos_desc = aster_utils.struct_create(%c0, %c0, %c0, %c32, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc, %true)
+      : (!lds_position_descriptor_2d, i1) -> !vx2
 
     // Store fragment to output (each thread writes 8 bytes)
     %tid = gpu.thread_id x
@@ -248,12 +253,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         %m_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
         %n_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
 
-        %fragment = func.call @lds_read_swizzled_wave_16x16xf16_fragment_wait(
-            %c0, // lds_base_off
-            %m_pos, // m_pos
-            %n_pos, // n_pos
-            %LDS_STRIDE) // LDS_STRIDE_IN_BYTES
-          : (index, index, index, index) -> !vx2
+        %lds_pos_desc = aster_utils.struct_create(%c0, %m_pos, %n_pos, %LDS_STRIDE, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+        %fragment = func.call @lds_read_swizzled_wave_16x16xf16_fragment_wait(%lds_pos_desc)
+          : (!lds_position_descriptor_2d) -> !vx2
 
         // %fragment = func.call @simple_lds_read_wave_16x16xf16_wait(
         //     %c0, %m_pos, %n_pos, %LDS_STRIDE)
@@ -351,13 +353,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc, %c16) : (!tensor_position_descriptor_2level_2d, index) -> (!vx2)
 
     // DS write from memref to LDS
-    func.call @lds_write_wave_256xf16_via_dwordx2_wait(
-      %c0,        // lds_base_off
-      %c0, %c0,   // mm_pos, nn_pos
-      %c32,       // LDS_STRIDE_IN_BYTES
-      %c1,        // num_rows
-      %loaded     // value
-    ) : (index, index, index, index, index, !vx2) -> ()
+    %lds_pos_desc_write = aster_utils.struct_create(%c0, %c0, %c0, %c32, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+    func.call @lds_write_wave_256xf16_via_dwordx2_wait(%lds_pos_desc_write, %c1, %loaded)
+      : (!lds_position_descriptor_2level_2d, index, !vx2) -> ()
 
     // Read back from LDS and store to output
     %tid = gpu.thread_id x

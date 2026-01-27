@@ -24,6 +24,8 @@
 //   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
 //   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+!lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
@@ -42,9 +44,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(
     !tensor_position_descriptor_2level_2d, index) -> (!vx2)
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
-    index, index, index, index, index, !vx2) -> ()
+    !lds_position_descriptor_2level_2d, index, !vx2) -> ()
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    index, index, index, index, i1) -> !vx2
+    !lds_position_descriptor_2d, i1) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     !vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
   // multi-tile-copies.mlir
@@ -122,9 +124,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %elt_size = arith.constant 2 : index // f16 size in bytes
       %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
         (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
-      func.call @lds_write_wave_256xf16_via_dwordx2_wait(
-          %lds_base_off, %ii_pos, %c0, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
-        : (index, index, index, index, index, !vx2) -> ()
+      %lds_pos_desc = aster_utils.struct_create(%lds_base_off, %ii_pos, %c0, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+      func.call @lds_write_wave_256xf16_via_dwordx2_wait(%lds_pos_desc, %num_rows, %loaded)
+        : (!lds_position_descriptor_2level_2d, index, !vx2) -> ()
     }
     return
   }
@@ -150,9 +152,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
       // Note: LDS read A and B are the same function because B is NxK atm.
       %false = arith.constant false
-      %frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-          %lds_base_off, %ii_pos, %jj_pos, %LDS_STRIDE_IN_BYTES, %false)
-        : (index, index, index, index, i1) -> !vx2
+      %lds_pos_desc_read = aster_utils.struct_create(%lds_base_off, %ii_pos, %jj_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+      %frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc_read, %false)
+        : (!lds_position_descriptor_2d, i1) -> !vx2
       memref.store %frag, %frag_memref[%k, %ii, %jj] : memref<?x?x?x!vx2>
     }
     return

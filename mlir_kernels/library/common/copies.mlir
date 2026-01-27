@@ -35,6 +35,20 @@
 //   - elt_size: element size in bytes
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 
+// A 2D LDS position descriptor containing:
+//   - lds_base: local base offset in LDS
+//   - m_pos, n_pos: row and column positions (in elements)
+//   - lds_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+
+// A 2-level 2D LDS position descriptor containing:
+//   - lds_base: local base offset in LDS
+//   - mm_pos, nn_pos: row and column positions of the minor tile (in elements)
+//   - lds_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
+!lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
+
 // A 2-level 2D tensor position descriptor containing:
 //   - ptr: global base pointer
 //   - m_pos, n_pos: row and column positions of the outer tile (in elements)
@@ -319,16 +333,13 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The positions nn_pos, mm_pos, etc. are in number of elements; an adjustment
   // by transfer_size / elt_size is needed to get the LDS offset.
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
-    %lds_base_off: index,        // The local base offset in LDS
-    %mm_pos: index,              // The outer-most minor-tile position
-    %nn_pos: index,              // The inner-most minor-tile position
-    %LDS_STRIDE_IN_BYTES: index, // The inner-most size **in bytes**
+    %pos_desc: !lds_position_descriptor_2level_2d,
     %num_rows: index,            // The number of rows in the 256 elements
     %value: !vx2                 // The value to write to LDS
   ) {
+    %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["lds_base", "mm_pos", "nn_pos", "lds_stride_in_bytes", "elt_size"] : !lds_position_descriptor_2level_2d -> index, index, index, index, index
     // Constants that could become generic parameters if we communicated results
     // via opaque ptr + mem2reg.
-    %elt_size = arith.constant 2 : index      // f16 size in bytes
     %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
     %wave_size = arith.constant 64 : index    // 64 threads per wave
 
@@ -372,9 +383,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %elt_size = aster_utils.struct_extract %pos_desc ["ptr", "m_pos", "n_pos", "global_stride_in_bytes", "mm_pos", "nn_pos", "elt_size"] : !tensor_position_descriptor_2level_2d -> !sx2, index, index, index, index, index, index
     %num_rows = arith.constant 16 : index
     %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc, %num_rows) : (!tensor_position_descriptor_2level_2d, index) -> (!vx2)
-    func.call @lds_write_wave_256xf16_via_dwordx2_wait(
-        %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %num_rows, %loaded)
-      : (index, index, index, index, index, !vx2) -> ()
+    %lds_pos_desc = aster_utils.struct_create(%lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+    func.call @lds_write_wave_256xf16_via_dwordx2_wait(%lds_pos_desc, %num_rows, %loaded)
+      : (!lds_position_descriptor_2level_2d, index, !vx2) -> ()
     return
   }
 
@@ -485,14 +496,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The caller is responsible for embedding distribution information into the
   // positions %m_pos and %n_pos.
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    %lds_base: index,            // The local base offset in LDS
-    %m_pos: index,               // The outer-most tile position
-    %n_pos: index,               // The inner-most tile position
-    %LDS_STRIDE_IN_BYTES: index, // The inner-most stride **in bytes** in LDS
+    %pos_desc: !lds_position_descriptor_2d,
     %transposed: i1              // Whether to transpose the indexing
   ) -> !vx2 {
+    %lds_base, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["lds_base", "m_pos", "n_pos", "lds_stride_in_bytes", "elt_size"] : !lds_position_descriptor_2d -> index, index, index, index, index
     // Compute the MFMA positions
-    %elt_size = arith.constant 2 : index // f16 size in bytes
     %mfma_idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
     %mm_pos_raw, %nn_pos_raw = aster_utils.struct_extract %mfma_idx ["i", "j"] : !index_pair -> index, index
     %mm_pos, %nn_pos = scf.if %transposed -> (index, index) {
@@ -596,12 +604,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // The caller is responsible for embedding distribution information into the
   // positions %m_pos and %n_pos.
   func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(
-    %lds_base: index,           // The local base offset in LDS
-    %m_pos: index,              // The outer-most tile position
-    %n_pos: index,              // The inner-most tile position
-    %LDS_STRIDE_IN_BYTES: index // The inner-most stride **in bytes** in LDS
+    %pos_desc: !lds_position_descriptor_2d
   ) -> !vx2 {
-    %elt_size = arith.constant 2 : index // f16 size in bytes
+    %lds_base, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["lds_base", "m_pos", "n_pos", "lds_stride_in_bytes", "elt_size"] : !lds_position_descriptor_2d -> index, index, index, index, index
 
     // Apply A-matrix swizzle
     %mfma_idx_A = func.call @mfma_index_A_16x16xf16() : () -> !index_pair

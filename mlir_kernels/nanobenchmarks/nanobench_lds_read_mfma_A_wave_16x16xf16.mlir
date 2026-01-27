@@ -5,11 +5,12 @@
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Library declarations
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    index, index, index, index, i1) -> !vx2
+    !lds_position_descriptor_2d, i1) -> !vx2
 
   amdgcn.kernel @nanobench_lds_read_mfma_A_wave_16x16xf16
   attributes {shared_memory_size = {{LDS_SIZE}} : i32, block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>} {
@@ -39,13 +40,9 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
 
           // Call the LDS read function
           %false = arith.constant false
-          %result = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-            %c0,                  // lds_base
-            %m_pos,               // m_pos
-            %n_pos,               // n_pos
-            %LDS_STRIDE_IN_BYTES, // LDS_STRIDE_IN_BYTES
-            %false                // transposed
-          ) : (index, index, index, index, i1) -> !vx2
+          %lds_pos_desc = aster_utils.struct_create(%c0, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+          %result = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc, %false)
+            : (!lds_position_descriptor_2d, i1) -> !vx2
           // Prevent DCE - erased just before translation to assembly with amdgcn-remove-test-inst
           amdgcn.test_inst ins %result : (!vx2) -> ()
         } {aster.constexpr}

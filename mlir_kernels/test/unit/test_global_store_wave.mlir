@@ -22,6 +22,9 @@
 //   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
 //   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+!lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
@@ -47,13 +50,13 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   // copies.mlir
   func.func private @global_load_to_lds_wave_16x16_f16_wait(!tensor_position_descriptor_2level_2d, index, index)
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index) -> (!vx2)
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2) -> ()
-  func.func private @store_to_global_dword_wait(!v, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx2_wait(!vx2, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx3_wait(!vx3, !sx2, index, index, index)
-  func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index)
-  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(index, index, index, index, i1) -> !vx2
-  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(index, index, index, index) -> !vx2
+  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, !vx2) -> ()
+  func.func private @store_to_global_dword_wait(!v, !tensor_position_descriptor_2d)
+  func.func private @store_to_global_dwordx2_wait(!vx2, !tensor_position_descriptor_2d)
+  func.func private @store_to_global_dwordx3_wait(!vx3, !tensor_position_descriptor_2d)
+  func.func private @store_to_global_dwordx4_wait(!vx4, !tensor_position_descriptor_2d)
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d, i1) -> !vx2
+  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !tensor_position_descriptor_2level_2d, i1)
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!sx2, index, index, index, index, index, index, index, memref<?x!vx2>)
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(index, index, index, index, index, index, memref<?x!vx2>)
@@ -94,8 +97,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function (single row, stride must not matter)
     %c0 = arith.constant 0 : index
-    func.call @store_to_global_dword_wait(%value, %out_ptr, %c0, %tid, %c0)
-      : (!v, !sx2, index, index, index) -> ()
+    %elt_size = arith.constant 4 : index  // dword = 4 bytes
+    %pos_desc = aster_utils.struct_create(%out_ptr, %c0, %tid, %c0, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+    func.call @store_to_global_dword_wait(%value, %pos_desc)
+      : (!v, !tensor_position_descriptor_2d) -> ()
 
     amdgcn.end_kernel
   }
@@ -127,8 +132,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function (single row, stride must not matter)
     %c0 = arith.constant 0 : index
-    func.call @store_to_global_dwordx2_wait(%value, %out_ptr, %c0, %tid, %c0)
-      : (!vx2, !sx2, index, index, index) -> ()
+    %elt_size = arith.constant 8 : index  // dwordx2 = 8 bytes
+    %pos_desc = aster_utils.struct_create(%out_ptr, %c0, %tid, %c0, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+    func.call @store_to_global_dwordx2_wait(%value, %pos_desc)
+      : (!vx2, !tensor_position_descriptor_2d) -> ()
 
     amdgcn.end_kernel
   }
@@ -157,8 +164,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function (single row, stride must not matter)
     %c0 = arith.constant 0 : index
-    func.call @store_to_global_dwordx3_wait(%value, %out_ptr, %c0, %tid, %c0)
-      : (!vx3, !sx2, index, index, index) -> ()
+    %elt_size = arith.constant 12 : index  // dwordx3 = 12 bytes
+    %pos_desc = aster_utils.struct_create(%out_ptr, %c0, %tid, %c0, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+    func.call @store_to_global_dwordx3_wait(%value, %pos_desc)
+      : (!vx3, !tensor_position_descriptor_2d) -> ()
 
     amdgcn.end_kernel
   }
@@ -190,8 +199,10 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 
     // Store using the library function (single row, stride must not matter)
     %c0 = arith.constant 0 : index
-    func.call @store_to_global_dwordx4_wait(%value, %out_ptr, %c0, %tid, %c0)
-      : (!vx4, !sx2, index, index, index) -> ()
+    %elt_size = arith.constant 16 : index  // dwordx4 = 16 bytes
+    %pos_desc = aster_utils.struct_create(%out_ptr, %c0, %tid, %c0, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+    func.call @store_to_global_dwordx4_wait(%value, %pos_desc)
+      : (!vx4, !tensor_position_descriptor_2d) -> ()
 
     amdgcn.end_kernel
   }

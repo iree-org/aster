@@ -21,6 +21,7 @@
 //   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
 //   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
@@ -39,7 +40,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @global_load_to_lds_wave_16x16_f16_wait(
     !tensor_position_descriptor_2level_2d, index, index) -> ()
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
-    index, index, index, index, i1) -> !vx2
+    !lds_position_descriptor_2d, i1) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     !vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
 
@@ -55,12 +56,12 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
       (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
     %false = arith.constant false
-    %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-        %lds_a_base, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES, %false)
-      : (index, index, index, index, i1) -> !vx2
-    %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
-        %lds_b_base, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES, %false)
-     : (index, index, index, index, i1) -> !vx2
+    %lds_pos_desc_a = aster_utils.struct_create(%lds_a_base, %ii_pos, %kk_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+    %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc_a, %false)
+      : (!lds_position_descriptor_2d, i1) -> !vx2
+    %lds_pos_desc_b = aster_utils.struct_create(%lds_b_base, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+    %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc_b, %false)
+     : (!lds_position_descriptor_2d, i1) -> !vx2
     // Perform MFMA operation: C = A * B + C
     %result = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
       %acc, %a_frag, %b_frag, %acc : !vx2, !vx2, !vx4 -> !vx4

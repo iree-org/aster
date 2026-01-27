@@ -20,6 +20,7 @@
 //   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
 //   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+!lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
@@ -30,7 +31,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index)
   func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> !vx2
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index) -> !vx2
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(index, index, index, index, index, !vx2)
+  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, !vx2)
 
   //===--------------------------------------------------------------------===//
   // Conditional multi-tile LDS write
