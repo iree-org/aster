@@ -16,6 +16,8 @@
 !ax2 = !amdgcn.agpr_range<[? + 2]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
 
+!index_pair = !aster_utils.struct<i: index, j: index>
+
 amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // GPU id functions.
@@ -47,30 +49,35 @@ amdgcn.library @common_indexing {
   // Reusable work distribution functions.
   //===--------------------------------------------------------------------===//
   // 2-D delinearization of lane id to 2D position.
-  func.func private @lane_delinearize_2d(%M: index, %N: index) -> (index, index) {
+  func.func private @lane_delinearize_2d(%dims: !index_pair) -> !index_pair {
+    %M, %N = aster_utils.struct_extract %dims ["i", "j"] : !index_pair -> index, index
     %lane_id = func.call @lane_id() : () -> index
     %i, %j = affine.delinearize_index %lane_id into (%M, %N) : index, index
-    return %i, %j : index, index
+    %result = aster_utils.struct_create(%i, %j) : (index, index) -> !index_pair
+    return %result : !index_pair
   }
 
   // Compute 2D partitioning of blocks within the grid.
-  func.func private @block_id_x_delinearize_2d(%M: index, %N: index) -> (index, index) {
+  func.func private @block_id_x_delinearize_2d(%dims: !index_pair) -> !index_pair {
+    %M, %N = aster_utils.struct_extract %dims ["i", "j"] : !index_pair -> index, index
     %bid = gpu.block_id x
     %i, %j = affine.delinearize_index %bid into (%M, %N) : index, index
-    return %i, %j : index, index
+    %result = aster_utils.struct_create(%i, %j) : (index, index) -> !index_pair
+    return %result : !index_pair
   }
 
   // Compute 2D partitioning of blocks within the grid for tiled problems.
   func.func private @tiled_grid_partition_2d(
-    %M_SIZE: index,      // Outer problem size
-    %N_SIZE: index,      // Inner problem size
-    %M_TILE_SIZE: index, // Outer tile size
-    %N_TILE_SIZE: index  // Inner tile size
-  ) -> (index, index) {
+    %sizes: !index_pair,      // Problem sizes (M_SIZE, N_SIZE)
+    %tile_sizes: !index_pair  // Tile sizes (M_TILE_SIZE, N_TILE_SIZE)
+  ) -> !index_pair {
+    %M_SIZE, %N_SIZE = aster_utils.struct_extract %sizes ["i", "j"] : !index_pair -> index, index
+    %M_TILE_SIZE, %N_TILE_SIZE = aster_utils.struct_extract %tile_sizes ["i", "j"] : !index_pair -> index, index
     %M = affine.apply affine_map<()[sz, bsz] -> (sz ceildiv bsz)>()[%M_SIZE, %M_TILE_SIZE]
     %N = affine.apply affine_map<()[sz, bsz] -> (sz ceildiv bsz)>()[%N_SIZE, %N_TILE_SIZE]
-    %i, %j = func.call @block_id_x_delinearize_2d(%M, %N) : (index, index) -> (index, index)
-    return %i, %j : index, index
+    %dims = aster_utils.struct_create(%M, %N) : (index, index) -> !index_pair
+    %result = func.call @block_id_x_delinearize_2d(%dims) : (!index_pair) -> !index_pair
+    return %result : !index_pair
   }
 
   //===--------------------------------------------------------------------===//
@@ -133,27 +140,30 @@ amdgcn.library @common_indexing {
   // Reusable MFMA memory access indexing functions.
   //===--------------------------------------------------------------------===//
   // MFMA indexing function for accessing the `A` 16x16xf16 fragment
-  func.func private @mfma_index_A_16x16xf16() -> (index, index) {
+  func.func private @mfma_index_A_16x16xf16() -> !index_pair {
     %lane_id = func.call @lane_id() : () -> index
     %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
     %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
-    return %row, %col : index, index
+    %result = aster_utils.struct_create(%row, %col) : (index, index) -> !index_pair
+    return %result : !index_pair
   }
 
   // MFMA indexing function for accessing the `B` 16x16xf16 fragment
-  func.func private @mfma_index_B_16x16xf16() -> (index, index) {
+  func.func private @mfma_index_B_16x16xf16() -> !index_pair {
     %lane_id = func.call @lane_id() : () -> index
     %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
     %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
-    return %col, %row : index, index
+    %result = aster_utils.struct_create(%col, %row) : (index, index) -> !index_pair
+    return %result : !index_pair
   }
 
   // MFMA indexing function for accessing the `C` 16x16xf32 fragment
-  func.func private @mfma_index_C_16x16xf32() -> (index, index) {
+  func.func private @mfma_index_C_16x16xf32() -> !index_pair {
     %lane_id = func.call @lane_id() : () -> index
     %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
     %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
-    return %row, %col : index, index
+    %result = aster_utils.struct_create(%row, %col) : (index, index) -> !index_pair
+    return %result : !index_pair
   }
 
   //===--------------------------------------------------------------------===//
@@ -164,7 +174,8 @@ amdgcn.library @common_indexing {
   // Output: (row, swizzled_col) for LDS access
   // Formula: swizzled_col = col XOR (row / 4)
   // We XOR the high 2 bits of col (col / 4) with row_group (row / 4)
-  func.func private @xor_swizzled_mfma_index_16xf16(%row: index, %col: index) -> (index, index) {
+  func.func private @xor_swizzled_mfma_index_16xf16(%idx: !index_pair) -> !index_pair {
+    %row, %col = aster_utils.struct_extract %idx ["i", "j"] : !index_pair -> index, index
     // row_group = row / 4 (values 0, 1, 2, 3 for rows 0, 4, 8, 12)
     %row_group = affine.apply affine_map<()[row] -> (row floordiv 4)>()[%row]
 
@@ -182,36 +193,34 @@ amdgcn.library @common_indexing {
     %swizzled_col = affine.apply affine_map<()[xored, col_low]
       -> (xored * 4 + col_low)>()[%xored, %col_low]
 
-    return %row, %swizzled_col : index, index
+    %result = aster_utils.struct_create(%row, %swizzled_col) : (index, index) -> !index_pair
+    return %result : !index_pair
   }
 
   // Swizzle for `A` 16x16xf16 fragment with bank conflict avoidance
   // A matrix is accessed with transposed pattern (col-major in LDS)
   // Returns (row, swizzled_col) for LDS access
-  func.func private @swizzled_mfma_index_A_16x16xf16() -> (index, index) {
-    %row, %col = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
-      : (index, index) -> (index, index)
-    return %swizzled_row, %swizzled_col : index, index
+  func.func private @swizzled_mfma_index_A_16x16xf16() -> !index_pair {
+    %idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
+    %result = func.call @xor_swizzled_mfma_index_16xf16(%idx) : (!index_pair) -> !index_pair
+    return %result : !index_pair
   }
 
   // Swizzle for `B` 16x16xf16 fragment with bank conflict avoidance
   // Returns (row, swizzled_col) for LDS access
-  func.func private @swizzled_mfma_index_B_16x16xf16() -> (index, index) {
-    %row, %col = func.call @mfma_index_B_16x16xf16() : () -> (index, index)
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
-      : (index, index) -> (index, index)
-    return %swizzled_row, %swizzled_col : index, index
+  func.func private @swizzled_mfma_index_B_16x16xf16() -> !index_pair {
+    %idx = func.call @mfma_index_B_16x16xf16() : () -> !index_pair
+    %result = func.call @xor_swizzled_mfma_index_16xf16(%idx) : (!index_pair) -> !index_pair
+    return %result : !index_pair
   }
 
   // Swizzle for `C` 16x16xf32 fragment with bank conflict avoidance
   // For f32: each element is 4 bytes = 1 bank width
   // Returns (row, swizzled_col) for LDS access
-  func.func private @swizzled_mfma_index_C_16x16xf32() -> (index, index) {
-    %row, %col = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
-      : (index, index) -> (index, index)
-    return %swizzled_row, %swizzled_col : index, index
+  func.func private @swizzled_mfma_index_C_16x16xf32() -> !index_pair {
+    %idx = func.call @mfma_index_C_16x16xf32() : () -> !index_pair
+    %result = func.call @xor_swizzled_mfma_index_16xf16(%idx) : (!index_pair) -> !index_pair
+    return %result : !index_pair
   }
 
   //===--------------------------------------------------------------------===//

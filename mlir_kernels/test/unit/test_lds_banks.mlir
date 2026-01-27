@@ -5,14 +5,16 @@
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
+!index_pair = !aster_utils.struct<i: index, j: index>
+
 amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
   //===--------------------------------------------------------------------===//
   // indexing.mlir
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
-  func.func private @mfma_index_A_16x16xf16() -> (index, index)
-  func.func private @xor_swizzled_mfma_index_16xf16(index, index) -> (index, index)
+  func.func private @mfma_index_A_16x16xf16() -> !index_pair
+  func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
   func.func private @lds_banks_for_transfer(index, index) -> (index, index, index, index, index, index, index, index)
   // copies.mlir
   func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index)
@@ -37,7 +39,8 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[elt_size] -> (elt_size * 16)>()[%elt_size]
 
     // Get MFMA A indexing pattern WITHOUT swizzle
-    %row, %col = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
+    %idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
+    %row, %col = aster_utils.struct_extract %idx ["i", "j"] : !index_pair -> index, index
 
     // Compute byte address in LDS directly (no swizzle)
     %off_vgpr = func.call @tiled_matrix_offset(
@@ -91,11 +94,11 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[elt_size] -> (elt_size * 16)>()[%elt_size]
 
     // Get MFMA A indexing pattern: returns (row, col) for this lane
-    %row, %col = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
+    %idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
 
     // Apply XOR swizzle to avoid bank conflicts
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
-      : (index, index) -> (index, index)
+    %swizzled_idx = func.call @xor_swizzled_mfma_index_16xf16(%idx) : (!index_pair) -> !index_pair
+    %swizzled_row, %swizzled_col = aster_utils.struct_extract %swizzled_idx ["i", "j"] : !index_pair -> index, index
 
     // Compute byte address in LDS: address = m_pos=0, n_pos=0 + swizzled position
     %off_vgpr = func.call @tiled_matrix_offset(

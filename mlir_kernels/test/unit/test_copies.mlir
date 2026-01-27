@@ -11,6 +11,8 @@
 !vx3 = !amdgcn.vgpr_range<[? + 3]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
+!index_pair = !aster_utils.struct<i: index, j: index>
+
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
@@ -22,12 +24,12 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @init_vgprx4_reg(!v) -> !vx4
   // indexing.mlir
   func.func private @lane_id() -> index
-  func.func private @lane_delinearize_2d(index, index) -> (index, index)
+  func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
-  func.func private @mfma_index_A_16x16xf16() -> (index, index)
-  func.func private @mfma_index_C_16x16xf32() -> (index, index)
+  func.func private @mfma_index_A_16x16xf16() -> !index_pair
+  func.func private @mfma_index_C_16x16xf32() -> !index_pair
   // simple-copies.mlir
   func.func private @simple_global_to_lds_wave_16x16xf16_wait(!sx2, index, index, index, index, index, index, index)
   func.func private @simple_global_store_wave_16x16xf16_wait(!vx2, !sx2, index, index, index)
@@ -362,7 +364,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     // Read back from LDS and store to output
     %tid = gpu.thread_id x
     %lane = func.call @lane_id() : () -> index
-    %iii, %jjj = func.call @lane_delinearize_2d(%c16, %c4) : (index, index) -> (index, index)
+    %dims = aster_utils.struct_create(%c16, %c4) : (index, index) -> !index_pair
+    %result = func.call @lane_delinearize_2d(%dims) : (!index_pair) -> !index_pair
+    %iii, %jjj = aster_utils.struct_extract %result ["i", "j"] : !index_pair -> index, index
     %jjj_pos = affine.apply affine_map<()[jjj] -> (jjj * 4)>()[%jjj]
 
     %lds_off = affine.apply affine_map<()[iii, jjj_pos] -> ((iii * 16 + jjj_pos) * 2)>()[%iii, %jjj_pos]

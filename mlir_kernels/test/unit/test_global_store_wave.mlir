@@ -11,6 +11,8 @@
 !vx3 = !amdgcn.vgpr_range<[? + 3]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
+!index_pair = !aster_utils.struct<i: index, j: index>
+
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
@@ -22,12 +24,12 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @init_vgprx4_reg(!v) -> !vx4
   // indexing.mlir
   func.func private @lane_id() -> index
-  func.func private @lane_delinearize_2d(index, index) -> (index, index)
+  func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
-  func.func private @mfma_index_A_16x16xf16() -> (index, index)
-  func.func private @mfma_index_C_16x16xf32() -> (index, index)
+  func.func private @mfma_index_A_16x16xf16() -> !index_pair
+  func.func private @mfma_index_C_16x16xf32() -> !index_pair
   // simple-copies.mlir
   func.func private @simple_global_to_lds_wave_16x16xf16_wait(!sx2, index, index, index, index, index, index, index)
   func.func private @simple_global_store_wave_16x16xf16_wait(!vx2, !sx2, index, index, index)

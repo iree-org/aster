@@ -17,6 +17,8 @@
 !ax2 = !amdgcn.agpr_range<[? + 2]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
 
+!index_pair = !aster_utils.struct<i: index, j: index>
+
 amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
@@ -25,12 +27,12 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @alloc_vgprx2() -> !vx2
   func.func private @init_vgprx4(i32) -> !vx4
   // indexing.mlir
-  func.func private @lane_delinearize_2d(index, index) -> (index, index)
+  func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
-  func.func private @mfma_index_A_16x16xf16() -> (index, index)
-  func.func private @mfma_index_C_16x16xf32() -> (index, index)
+  func.func private @mfma_index_A_16x16xf16() -> !index_pair
+  func.func private @mfma_index_C_16x16xf32() -> !index_pair
 
 
   //===--------------------------------------------------------------------===//
@@ -48,7 +50,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   ) -> !vx2 {
     %num_rows = arith.constant 16 : index
     %num_cols = arith.constant 4 : index
-    %mm_pos, %nn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
+    %dims = aster_utils.struct_create(%num_rows, %num_cols) : (index, index) -> !index_pair
+    %result = func.call @lane_delinearize_2d(%dims) : (!index_pair) -> !index_pair
+    %mm_pos, %nn = aster_utils.struct_extract %result ["i", "j"] : !index_pair -> index, index
     // Scale nn by 4 since each thread handles 4 elements (dwordx2 = 8 bytes / 2 bytes per f16)
     %nn_pos = affine.apply affine_map<()[nn] -> (nn * 4)>()[%nn]
     %elt_size = arith.constant 2 : index // f16 size in bytes
@@ -78,7 +82,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   ) {
     %num_rows = arith.constant 16 : index
     %num_cols = arith.constant 4 : index
-    %mm_pos, %nn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
+    %dims = aster_utils.struct_create(%num_rows, %num_cols) : (index, index) -> !index_pair
+    %result = func.call @lane_delinearize_2d(%dims) : (!index_pair) -> !index_pair
+    %mm_pos, %nn = aster_utils.struct_extract %result ["i", "j"] : !index_pair -> index, index
     // Scale nn by 4 since each thread handles 4 elements (dwordx2 = 8 bytes / 2 bytes per f16)
     %nn_pos = affine.apply affine_map<()[nn] -> (nn * 4)>()[%nn]
     %elt_size = arith.constant 2 : index // f16 size in bytes
@@ -106,7 +112,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   ) -> !vx2 {
     %num_rows = arith.constant 16 : index
     %num_cols = arith.constant 4 : index
-    %mm_pos, %nn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
+    %dims = aster_utils.struct_create(%num_rows, %num_cols) : (index, index) -> !index_pair
+    %result = func.call @lane_delinearize_2d(%dims) : (!index_pair) -> !index_pair
+    %mm_pos, %nn = aster_utils.struct_extract %result ["i", "j"] : !index_pair -> index, index
     // Scale nn by 4 since each thread handles 4 elements (dwordx2 = 8 bytes / 2 bytes per f16)
     %nn_pos = affine.apply affine_map<()[nn] -> (nn * 4)>()[%nn]
     %elt_size = arith.constant 2 : index // f16 size in bytes
@@ -136,7 +144,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   ) {
     %num_rows = arith.constant 16 : index
     %num_cols = arith.constant 4 : index
-    %mm_pos, %nn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
+    %dims = aster_utils.struct_create(%num_rows, %num_cols) : (index, index) -> !index_pair
+    %result = func.call @lane_delinearize_2d(%dims) : (!index_pair) -> !index_pair
+    %mm_pos, %nn = aster_utils.struct_extract %result ["i", "j"] : !index_pair -> index, index
     // Scale nn by 4 since each thread handles 4 elements (dwordx2 = 8 bytes / 2 bytes per f16)
     %nn_pos = affine.apply affine_map<()[nn] -> (nn * 4)>()[%nn]
     %elt_size = arith.constant 2 : index // f16 size in bytes

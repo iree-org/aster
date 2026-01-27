@@ -16,6 +16,8 @@
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
+!index_pair = !aster_utils.struct<i: index, j: index>
+
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
   //===--------------------------------------------------------------------===//
@@ -27,8 +29,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   // indexing.mlir
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index
-  func.func private @lane_delinearize_2d(index, index) -> (index, index)
-  func.func private @tiled_grid_partition_2d(index, index, index, index) -> (index, index)
+  func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
+  func.func private @tiled_grid_partition_2d(!index_pair, !index_pair) -> !index_pair
   // copies.mlir
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(
     !sx2, index, index, index, index, index, index) -> (!vx2)
@@ -265,8 +267,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     // Block-level tile indices (i, j, k) and sizes (M, N, K)
     %K = affine.apply affine_map<()[sz, bsz] -> (sz ceildiv bsz)>()[%SIZE_K, %TILE_SIZE_K]
-    %i, %j = func.call @tiled_grid_partition_2d(%SIZE_M, %SIZE_N, %TILE_SIZE_M, %TILE_SIZE_N)
-      : (index, index, index, index) -> (index, index)
+    %sizes = aster_utils.struct_create(%SIZE_M, %SIZE_N) : (index, index) -> !index_pair
+    %tile_sizes = aster_utils.struct_create(%TILE_SIZE_M, %TILE_SIZE_N) : (index, index) -> !index_pair
+    %result = func.call @tiled_grid_partition_2d(%sizes, %tile_sizes) : (!index_pair, !index_pair) -> !index_pair
+    %i, %j = aster_utils.struct_extract %result ["i", "j"] : !index_pair -> index, index
 
     // Calculate global positions
     %i_pos = affine.apply affine_map<(tile_size)[idx] -> (idx * tile_size)>(%TILE_SIZE_M)[%i]

@@ -23,6 +23,8 @@
 !ax3 = !amdgcn.agpr_range<[? + 3]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
 
+!index_pair = !aster_utils.struct<i: index, j: index>
+
 amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
@@ -35,13 +37,13 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @alloc_vgprx4() -> !vx4
   // indexing.mlir
   func.func private @lane_id() -> index
-  func.func private @lane_delinearize_2d(index, index) -> (index, index)
+  func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
-  func.func private @xor_swizzled_mfma_index_16xf16(index, index) -> (index, index)
-  func.func private @mfma_index_A_16x16xf16() -> (index, index)
-  func.func private @mfma_index_C_16x16xf32() -> (index, index)
+  func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
+  func.func private @mfma_index_A_16x16xf16() -> !index_pair
+  func.func private @mfma_index_C_16x16xf32() -> !index_pair
 
   //===--------------------------------------------------------------------===//
   // Global <-> LDS
@@ -104,8 +106,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       -> (wave_size ceildiv num_rows)>()[%wave_size, %num_rows]
 
     // Get threadlocal positions within the minor tile
-    %mmm_pos, %nnn = func.call @lane_delinearize_2d(%num_rows, %num_cols)
-      : (index, index) -> (index, index)
+    %dims = aster_utils.struct_create(%num_rows, %num_cols) : (index, index) -> !index_pair
+    %result = func.call @lane_delinearize_2d(%dims) : (!index_pair) -> !index_pair
+    %mmm_pos, %nnn = aster_utils.struct_extract %result ["i", "j"] : !index_pair -> index, index
     %nnn_pos = affine.apply affine_map<()[nnn, transfer_size, elt_size] ->
       (nnn * transfer_size ceildiv elt_size)>()[%nnn, %transfer_size, %elt_size]
 
@@ -377,7 +380,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       -> (wave_size ceildiv num_rows)>()[%wave_size, %num_rows]
 
     // Get local positions within the minor tile
-    %mmm_pos, %nnn = func.call @lane_delinearize_2d(%num_rows, %num_cols) : (index, index) -> (index, index)
+    %dims = aster_utils.struct_create(%num_rows, %num_cols) : (index, index) -> !index_pair
+    %result = func.call @lane_delinearize_2d(%dims) : (!index_pair) -> !index_pair
+    %mmm_pos, %nnn = aster_utils.struct_extract %result ["i", "j"] : !index_pair -> index, index
     %nnn_pos = affine.apply affine_map<()[nnn, transfer_size, elt_size] ->
       (nnn * transfer_size ceildiv elt_size)>()[%nnn, %transfer_size, %elt_size]
 
@@ -553,7 +558,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   ) -> !vx2 {
     // Compute the MFMA positions
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %mm_pos_raw, %nn_pos_raw = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
+    %mfma_idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
+    %mm_pos_raw, %nn_pos_raw = aster_utils.struct_extract %mfma_idx ["i", "j"] : !index_pair -> index, index
     %mm_pos, %nn_pos = scf.if %transposed -> (index, index) {
       scf.yield %nn_pos_raw, %mm_pos_raw : index, index
     } else {
@@ -605,7 +611,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       memref.store %v3, %C_fragment[%c3] : memref<4x!v>
 
       // Compute the transposed MFMA positions.
-      %nnn_pos, %mmm_pos = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
+      %mfma_idx_C = func.call @mfma_index_C_16x16xf32() : () -> !index_pair
+      %nnn_pos, %mmm_pos = aster_utils.struct_extract %mfma_idx_C ["i", "j"] : !index_pair -> index, index
 
       // Calculate global j position
       %n_global_pos = affine.apply
@@ -626,7 +633,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       } {aster.constexpr}
     } else {
       // Compute the MFMA positions
-      %mmm_pos, %nnn_pos = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
+      %mfma_idx_C2 = func.call @mfma_index_C_16x16xf32() : () -> !index_pair
+      %mmm_pos, %nnn_pos = aster_utils.struct_extract %mfma_idx_C2 ["i", "j"] : !index_pair -> index, index
 
       // Calculate global j position
       %m_global_pos = affine.apply
@@ -662,9 +670,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %elt_size = arith.constant 2 : index // f16 size in bytes
 
     // Apply A-matrix swizzle
-    %row, %col = func.call @mfma_index_A_16x16xf16() : () -> (index, index)
-    %swizzled_row, %swizzled_col = func.call @xor_swizzled_mfma_index_16xf16(%row, %col)
-      : (index, index) -> (index, index)
+    %mfma_idx_A = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
+    %swizzled_idx = func.call @xor_swizzled_mfma_index_16xf16(%mfma_idx_A) : (!index_pair) -> !index_pair
+    %swizzled_row, %swizzled_col = aster_utils.struct_extract %swizzled_idx ["i", "j"] : !index_pair -> index, index
     %off_lds = func.call @tiled_matrix_offset(
         %m_pos, %n_pos, %swizzled_row, %swizzled_col, %LDS_STRIDE_IN_BYTES, %elt_size)
       : (index, index, index, index, index, index) -> !v
