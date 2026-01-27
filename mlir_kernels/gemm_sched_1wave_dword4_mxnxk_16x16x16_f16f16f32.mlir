@@ -26,6 +26,7 @@
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
+!transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
@@ -42,9 +43,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @tiled_grid_partition_2d(!index_pair, !index_pair) -> !index_pair
   // copies.mlir
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(
-    !tensor_position_descriptor_2level_2d, index) -> (!vx2)
+    !tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
-    !lds_position_descriptor_2level_2d, index, !vx2) -> ()
+    !lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
     !lds_position_descriptor_2d, i1) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
@@ -97,7 +98,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_J, elt_size] ->
         (SIZE_J * elt_size)>()[%SIZE_J, %elt_size]
       %pos_desc = aster_utils.struct_create(%ptr, %i_pos, %j_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-      %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc, %num_rows) : (!tensor_position_descriptor_2level_2d, index) -> (!vx2)
+      %transfer_size = arith.constant 8 : index // dwordx2
+      %wave_size = arith.constant 64 : index
+      %transfer_desc = aster_utils.struct_create(%num_rows, %transfer_size, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
+      %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
       memref.store %loaded, %load_memref[%k, %ii, %jj] : memref<?x?x?x!vx2>
     }
 
@@ -125,8 +129,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
         (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
       %lds_pos_desc = aster_utils.struct_create(%lds_base_off, %ii_pos, %c0, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
-      func.call @lds_write_wave_256xf16_via_dwordx2_wait(%lds_pos_desc, %num_rows, %loaded)
-        : (!lds_position_descriptor_2level_2d, index, !vx2) -> ()
+      %transfer_size_lds = arith.constant 8 : index // dwordx2
+      %wave_size_lds = arith.constant 64 : index
+      %transfer_desc_lds = aster_utils.struct_create(%num_rows, %transfer_size_lds, %wave_size_lds) : (index, index, index) -> !transfer_descriptor_2d
+      func.call @lds_write_wave_256xf16_via_dwordx2_wait(%lds_pos_desc, %transfer_desc_lds, %loaded)
+        : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
     }
     return
   }
