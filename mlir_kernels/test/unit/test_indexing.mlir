@@ -22,7 +22,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
-  func.func private @mfma_index_16x16_helper() -> (index, index)
+  func.func private @mfma_index_16x16x16xf16_helper() -> (index, index)
   func.func private @mfma_index_A_16x16xf16() -> (index, index)
   func.func private @mfma_index_B_16x16xf16() -> (index, index)
   func.func private @mfma_index_C_16x16xf32() -> (index, index)
@@ -263,17 +263,17 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.end_kernel
   }
 
-  // Test @mfma_index_16x16_helper: returns (4 * (lane_id / 16), lane_id mod 16)
-  amdgcn.kernel @test_mfma_index_16x16_helper arguments <[
+  // Test @mfma_index_16x16x16xf16_helper: returns (lane_id mod 16, 4 * (lane_id / 16))
+  amdgcn.kernel @test_mfma_index_16x16x16xf16_helper arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-    %i, %j = func.call @mfma_index_16x16_helper() : () -> (index, index)
-    %i_i32 = arith.index_cast %i : index to i32
-    %j_i32 = arith.index_cast %j : index to i32
-    func.call @store_pair_at_tid(%i_i32, %j_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
+    %row, %col = func.call @mfma_index_16x16x16xf16_helper() : () -> (index, index)
+    %row_i32 = arith.index_cast %row : index to i32
+    %col_i32 = arith.index_cast %col : index to i32
+    func.call @store_pair_at_tid(%row_i32, %col_i32, %out_ptr, %c0) : (i32, i32, !sx2, index) -> ()
     amdgcn.end_kernel
   }
 
