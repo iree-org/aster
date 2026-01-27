@@ -16,7 +16,29 @@
 !ax2 = !amdgcn.agpr_range<[? + 2]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
 
+// A 2D index pair containing row (i) and column (j) indices.
 !index_pair = !aster_utils.struct<i: index, j: index>
+
+// A 2D index descriptor containing:
+//   - i, j: row and column indices
+//   - stride: stride in elements (not bytes)
+//   - elt_size_b: element size in bytes
+!index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>
+
+// A 2-level 2D index descriptor containing:
+//   - i, j: row and column indices of the outer tile
+//   - ii, jj: row and column indices of the inner tile
+//   - stride: stride in elements (not bytes)
+//   - elt_size_b: element size in bytes
+!index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
+
+// A 3-level 2D index descriptor containing:
+//   - i, j: The outer-most major tile position (e.g. the start row of a tile)
+//   - ii, jj: The outer-most minor tile position (e.g. the start row of the sub-tile)
+//   - iii, jjj: The outer-most position (e.g. a row relative to the sub-tile)
+//   - stride: The stride (e.g. inner 2-D tile size **in bytes**)
+//   - elt_size_b: The element size **in bytes**
+!index_descriptor_3level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, iii: index, jjj: index, stride: index, elt_size_b: index>
 
 amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
@@ -85,12 +107,8 @@ amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // Compute the linear byte offset for accessing a 2-D matrix given the outer
   // and inner positions.
-  func.func private @matrix_offset(
-    %i: index,       // The outer-most position (e.g. a row)
-    %j: index,       // The inner-most position (e.g. a column)
-    %stride: index,  // The stride (e.g. inner 2-D size **in bytes**)
-    %elt_size: index // The element size **in bytes**
-  ) -> !v {
+  func.func private @matrix_offset(%desc: !index_descriptor_2d) -> !v {
+    %i, %j, %stride, %elt_size = aster_utils.struct_extract %desc ["i", "j", "stride", "elt_size_b"] : !index_descriptor_2d -> index, index, index, index
     %off = affine.apply
       affine_map<()[i, j, stride, elt_size] -> (i * stride  + j * elt_size)>
       ()[%i, %j, %stride, %elt_size]
@@ -102,17 +120,13 @@ amdgcn.library @common_indexing {
   // Compute the linear byte offset for accessing a tiled 2-D matrix given the
   // positions to the start of the tile and the position within the tile.
   func.func private @tiled_matrix_offset(
-    %i: index,       // The outer-most tile position (e.g. the start row of a tile)
-    %j: index,       // The inner-most tile position (e.g. the start column of a tile)
-    %ii: index,      // The outer-most position (e.g. a row relative to the tile)
-    %jj: index,      // The inner-most position (e.g. a column relative to the tile)
-    %stride: index,  // The stride (e.g. inner 2-D tile size **in bytes**)
-    %elt_size: index // The element size **in bytes**
+    %desc: !index_descriptor_2level_2d
   ) -> !v {
+    %i, %j, %ii, %jj, %stride, %elt_size = aster_utils.struct_extract %desc ["i", "j", "ii", "jj", "stride", "elt_size_b"] : !index_descriptor_2level_2d -> index, index, index, index, index, index
     %i_pos = affine.apply affine_map<()[i, ii] -> (i + ii)>()[%i, %ii]
     %j_pos = affine.apply affine_map<()[j, jj] -> (j + jj)>()[%j, %jj]
-    %off_reg = func.call @matrix_offset(%i_pos, %j_pos, %stride, %elt_size)
-      : (index, index, index, index) -> !v
+    %desc_2d = aster_utils.struct_create(%i_pos, %j_pos, %stride, %elt_size) : (index, index, index, index) -> !index_descriptor_2d
+    %off_reg = func.call @matrix_offset(%desc_2d) : (!index_descriptor_2d) -> !v
     return %off_reg : !v
   }
 
@@ -120,19 +134,13 @@ amdgcn.library @common_indexing {
   // positions to the start of the major tile, positions to the start of the
   // minor tile, and the position within the tile.
   func.func private @tiledx2_matrix_offset(
-    %i: index,       // The outer-most major tile position (e.g. the start row of a tile)
-    %j: index,       // The inner-most major tile position (e.g. the start column of a tile)
-    %ii: index,      // The outer-most minor tile position (e.g. the start row of a the sub-tile)
-    %jj: index,      // The inner-most minor tile position (e.g. the start column of the sub-tile)
-    %iii: index,     // The outer-most position (e.g. a row relative to the sub-tile)
-    %jjj: index,     // The inner-most position (e.g. a column relative to the sub-tile)
-    %stride: index,  // The stride (e.g. inner 2-D tile size **in bytes**)
-    %elt_size: index // The element size **in bytes**
+    %desc: !index_descriptor_3level_2d
   ) -> !v {
+    %i, %j, %ii, %jj, %iii, %jjj, %stride, %elt_size = aster_utils.struct_extract %desc ["i", "j", "ii", "jj", "iii", "jjj", "stride", "elt_size_b"] : !index_descriptor_3level_2d -> index, index, index, index, index, index, index, index
     %i_pos = affine.apply affine_map<()[i, ii, iii] -> (i + ii + iii)>()[%i, %ii, %iii]
     %j_pos = affine.apply affine_map<()[j, jj, jjj] -> (j + jj + jjj)>()[%j, %jj, %jjj]
-    %off_reg = func.call @matrix_offset(%i_pos, %j_pos, %stride, %elt_size)
-      : (index, index, index, index) -> !v
+    %desc_2d = aster_utils.struct_create(%i_pos, %j_pos, %stride, %elt_size) : (index, index, index, index) -> !index_descriptor_2d
+    %off_reg = func.call @matrix_offset(%desc_2d) : (!index_descriptor_2d) -> !v
     return %off_reg : !v
   }
 

@@ -12,6 +12,9 @@
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
 !index_pair = !aster_utils.struct<i: index, j: index>
+!index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>
+!index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
+!index_descriptor_3level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, iii: index, jjj: index, stride: index, elt_size_b: index>
 
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
@@ -25,9 +28,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   // indexing.mlir
   func.func private @lane_id() -> index
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
-  func.func private @matrix_offset(index, index, index, index) -> !v
-  func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
-  func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
+  func.func private @matrix_offset(!index_descriptor_2d) -> !v
+  func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
+  func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
   func.func private @mfma_index_A_16x16xf16() -> !index_pair
   func.func private @mfma_index_C_16x16xf32() -> !index_pair
   // simple-copies.mlir

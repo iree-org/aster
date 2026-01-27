@@ -18,6 +18,9 @@
 !ax4 = !amdgcn.agpr_range<[? + 4]>
 
 !index_pair = !aster_utils.struct<i: index, j: index>
+!index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>
+!index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
+!index_descriptor_3level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, iii: index, jjj: index, stride: index, elt_size_b: index>
 
 amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
@@ -28,9 +31,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @init_vgprx4(i32) -> !vx4
   // indexing.mlir
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
-  func.func private @matrix_offset(index, index, index, index) -> !v
-  func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
-  func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
+  func.func private @matrix_offset(!index_descriptor_2d) -> !v
+  func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
+  func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
   func.func private @mfma_index_A_16x16xf16() -> !index_pair
   func.func private @mfma_index_C_16x16xf32() -> !index_pair
 
@@ -56,9 +59,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     // Scale nn by 4 since each thread handles 4 elements (dwordx2 = 8 bytes / 2 bytes per f16)
     %nn_pos = affine.apply affine_map<()[nn] -> (nn * 4)>()[%nn]
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %off_reg = func.call @tiled_matrix_offset(
-        %m_pos, %n_pos, %mm_pos, %nn_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size)
-      : (index, index, index, index, index, index) -> !v
+    %desc = aster_utils.struct_create(%m_pos, %n_pos, %mm_pos, %nn_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
+    %off_reg = func.call @tiled_matrix_offset(%desc) : (!index_descriptor_2level_2d) -> !v
 
     // Perform the global load
     %c0 = arith.constant 0 : i32
@@ -88,9 +90,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     // Scale nn by 4 since each thread handles 4 elements (dwordx2 = 8 bytes / 2 bytes per f16)
     %nn_pos = affine.apply affine_map<()[nn] -> (nn * 4)>()[%nn]
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %off_reg = func.call @tiled_matrix_offset(
-        %m_pos, %n_pos, %mm_pos, %nn_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size)
-      : (index, index, index, index, index, index) -> !v
+    %desc = aster_utils.struct_create(%m_pos, %n_pos, %mm_pos, %nn_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
+    %off_reg = func.call @tiled_matrix_offset(%desc) : (!index_descriptor_2level_2d) -> !v
 
     // Perform the global store
     %c0 = arith.constant 0 : i32
@@ -118,9 +119,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     // Scale nn by 4 since each thread handles 4 elements (dwordx2 = 8 bytes / 2 bytes per f16)
     %nn_pos = affine.apply affine_map<()[nn] -> (nn * 4)>()[%nn]
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %off_lds_reg = func.call @tiled_matrix_offset(
-        %m_pos, %n_pos, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size)
-      : (index, index, index, index, index, index) -> !v
+    %desc = aster_utils.struct_create(%m_pos, %n_pos, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
+    %off_lds_reg = func.call @tiled_matrix_offset(%desc) : (!index_descriptor_2level_2d) -> !v
 
     // Perform the DS read
     %lds_base_i32 = arith.index_cast %lds_base : index to i32
@@ -150,9 +150,8 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     // Scale nn by 4 since each thread handles 4 elements (dwordx2 = 8 bytes / 2 bytes per f16)
     %nn_pos = affine.apply affine_map<()[nn] -> (nn * 4)>()[%nn]
     %elt_size = arith.constant 2 : index // f16 size in bytes
-    %off_lds_reg = func.call @tiled_matrix_offset(
-        %m_pos, %n_pos, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size)
-      : (index, index, index, index, index, index) -> !v
+    %desc = aster_utils.struct_create(%m_pos, %n_pos, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
+    %off_lds_reg = func.call @tiled_matrix_offset(%desc) : (!index_descriptor_2level_2d) -> !v
 
     // Perform the DS write
     %lds_base_i32 = arith.index_cast %lds_base : index to i32
