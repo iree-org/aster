@@ -20,17 +20,20 @@
 //   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
 //   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
 amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
   //===--------------------------------------------------------------------===//
+  // simple-copies.mlir
+  func.func private @simple_global_load_wave_16x16xf16_wait(!tensor_position_descriptor_2d) -> !vx2
+  func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, !lds_position_descriptor_2d)
+  func.func private @simple_lds_read_wave_16x16xf16_wait(!lds_position_descriptor_2d) -> !vx2
   // copies.mlir
-  func.func private @simple_global_load_wave_16x16xf16_wait(!sx2, index, index, index) -> !vx2
-  func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, index, index, index, index)
-  func.func private @simple_lds_read_wave_16x16xf16_wait(index, index, index, index) -> !vx2
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx2
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2)
 
@@ -87,9 +90,9 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
           %m_pos = affine.apply affine_map<()[ii_pos, i] -> (ii_pos + i * 16)>()[%ii_pos, %i]
           %n_pos = affine.apply affine_map<()[jj_pos, j] -> (jj_pos + j * 16)>()[%jj_pos, %j]
 
-          func.call @simple_lds_write_wave_16x16xf16_wait(
-            %value, %lds_base_off, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES)
-            : (!vx2, index, index, index, index) -> ()
+          %lds_pos_desc = aster_utils.struct_create(%lds_base_off, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+          func.call @simple_lds_write_wave_16x16xf16_wait(%value, %lds_pos_desc)
+            : (!vx2, !lds_position_descriptor_2d) -> ()
         } {aster.constexpr}
       } {aster.constexpr}
     }
