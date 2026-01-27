@@ -27,6 +27,14 @@
 !index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>
 !index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
 !index_descriptor_3level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, iii: index, jjj: index, stride: index, elt_size_b: index>
+
+// A 2D tensor position descriptor containing:
+//   - ptr: global base pointer
+//   - m_pos, n_pos: row and column positions (in elements)
+//   - global_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
+!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
+
 // A 2-level 2D tensor position descriptor containing:
 //   - ptr: global base pointer
 //   - m_pos, n_pos: row and column positions of the outer tile (in elements)
@@ -377,12 +385,10 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // positions %m_pos and %n_pos (and make them workgroup/wave/thread/lane-dependent).
   func.func private @store_to_global_impl(
     %value: !aster_utils.any,       // Value to store (v, vx2, vx3, or vx4)
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most position
-    %n_pos: index,                  // The inner-most position
-    %GLOBAL_STRIDE_IN_BYTES: index, // The inner-most stride **in bytes** in global memory
+    %pos_desc: !tensor_position_descriptor_2d,
     %transfer_size: index           // Transfer size in bytes (4, 8, 12, or 16)
   ) {
+    %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["ptr", "m_pos", "n_pos", "global_stride_in_bytes", "elt_size"] : !tensor_position_descriptor_2d -> !sx2, index, index, index, index
     %desc = aster_utils.struct_create(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size) : (index, index, index, index) -> !index_descriptor_2d
     %off_reg = func.call @matrix_offset(%desc) : (!index_descriptor_2d) -> !v
     %c0_store = arith.constant 0 : i32
@@ -422,15 +428,12 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Store a dword (dword) to global memory, in a **synchronized fashion**.
   func.func private @store_to_global_dword_wait(
     %value: !v,                     // Value to store
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most position
-    %n_pos: index,                  // The inner-most position
-    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+    %pos_desc: !tensor_position_descriptor_2d
   ) {
     %transfer_size = arith.constant 4 : index
     %any_value = aster_utils.to_any %value : !v
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> ()
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -438,15 +441,12 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Store a dwordx2 (dwordx2) to global memory, in a **synchronized fashion**.
   func.func private @store_to_global_dwordx2_wait(
     %value: !vx2,                   // Value to store
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most position
-    %n_pos: index,                  // The inner-most position
-    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+    %pos_desc: !tensor_position_descriptor_2d
   ) {
     %transfer_size = arith.constant 8 : index
     %any_value = aster_utils.to_any %value : !vx2
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> ()
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -454,15 +454,12 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Store a dwordx3 (dwordx3) to global memory, in a **synchronized fashion**.
   func.func private @store_to_global_dwordx3_wait(
     %value: !vx3,                   // Value to store
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most position
-    %n_pos: index,                  // The inner-most position
-    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+    %pos_desc: !tensor_position_descriptor_2d
   ) {
     %transfer_size = arith.constant 12 : index
     %any_value = aster_utils.to_any %value : !vx3
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> ()
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -470,15 +467,12 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Store a dwordx4 (dwordx4) to global memory, in a **synchronized fashion**.
   func.func private @store_to_global_dwordx4_wait(
     %value: !vx4,                   // Value to store
-    %ptr: !sx2,                     // The global base pointer
-    %m_pos: index,                  // The outer-most position
-    %n_pos: index,                  // The inner-most position
-    %GLOBAL_STRIDE_IN_BYTES: index  // The inner-most stride **in bytes** in global memory
+    %pos_desc: !tensor_position_descriptor_2d
   ) {
     %transfer_size = arith.constant 16 : index
     %any_value = aster_utils.to_any %value : !vx4
-    func.call @store_to_global_impl(%any_value, %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size)
-      : (!aster_utils.any, !sx2, index, index, index, index) -> ()
+    func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> ()
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -563,9 +557,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
           affine_map<()[m_pos, mm_pos, mmm_pos, mmmm_pos] -> (m_pos + mm_pos + mmm_pos + mmmm_pos)>
           ()[%m_pos, %mm_pos, %mmm_pos, %mmmm_pos]
 
+        // Create position descriptor
+        %pos_desc_2d = aster_utils.struct_create(%ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
         // Store to global memory with wait
-        func.call @store_to_global_dword_wait(%fragment, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
-          : (!v, !sx2, index, index, index) -> ()
+        func.call @store_to_global_dword_wait(%fragment, %pos_desc_2d)
+          : (!v, !tensor_position_descriptor_2d) -> ()
       } {aster.constexpr}
     } else {
       // Compute the MFMA positions
@@ -583,9 +579,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       %n_global_pos = affine.apply affine_map<()[n_global_pos_in_f32]
         -> (n_global_pos_in_f32 floordiv 4)>()[%n_global_pos_in_f32]
 
+      // Create position descriptor
+      %pos_desc_2d = aster_utils.struct_create(%ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
       // Store to global memory with wait
-      func.call @store_to_global_dwordx4_wait(%acc, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
-        : (!vx4, !sx2, index, index, index) -> ()
+      func.call @store_to_global_dwordx4_wait(%acc, %pos_desc_2d)
+        : (!vx4, !tensor_position_descriptor_2d) -> ()
     }
     return
   }
