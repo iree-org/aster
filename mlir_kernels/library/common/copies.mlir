@@ -39,7 +39,6 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   func.func private @matrix_offset(index, index, index, index) -> !v
   func.func private @tiled_matrix_offset(index, index, index, index, index, index) -> !v
   func.func private @tiledx2_matrix_offset(index, index, index, index, index, index, index, index) -> !v
-  func.func private @mfma_index_16x16x16xf16_helper() -> (index, index)
   func.func private @xor_swizzled_mfma_index_16xf16(index, index) -> (index, index)
   func.func private @mfma_index_A_16x16xf16() -> (index, index)
   func.func private @mfma_index_C_16x16xf32() -> (index, index)

@@ -132,31 +132,27 @@ amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // Reusable MFMA memory access indexing functions.
   //===--------------------------------------------------------------------===//
-  // Helper to compute MFMA positions for a 16x16 fragment
-  // Returns (lane_id mod 16, 4 * (lane_id / 16))
-  func.func private @mfma_index_16x16x16xf16_helper() -> (index, index) {
+  // MFMA indexing function for accessing the `A` 16x16xf16 fragment
+  func.func private @mfma_index_A_16x16xf16() -> (index, index) {
     %lane_id = func.call @lane_id() : () -> index
     %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
     %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
     return %row, %col : index, index
   }
 
-  // MFMA indexing function for accessing the `A` 16x16xf16 fragment
-  func.func private @mfma_index_A_16x16xf16() -> (index, index) {
-    %row, %col = func.call @mfma_index_16x16x16xf16_helper() : () -> (index, index)
-    return %row, %col : index, index
-  }
-
   // MFMA indexing function for accessing the `B` 16x16xf16 fragment
   func.func private @mfma_index_B_16x16xf16() -> (index, index) {
-    // Note the swapped (transposed) order.
-    %col, %row = func.call @mfma_index_16x16x16xf16_helper() : () -> (index, index)
-    return %row, %col : index, index
+    %lane_id = func.call @lane_id() : () -> index
+    %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
+    %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
+    return %col, %row : index, index
   }
 
   // MFMA indexing function for accessing the `C` 16x16xf32 fragment
   func.func private @mfma_index_C_16x16xf32() -> (index, index) {
-    %row, %col = func.call @mfma_index_16x16x16xf16_helper() : () -> (index, index)
+    %lane_id = func.call @lane_id() : () -> index
+    %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
+    %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
     return %row, %col : index, index
   }
 
