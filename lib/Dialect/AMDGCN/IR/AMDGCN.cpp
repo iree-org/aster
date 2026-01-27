@@ -21,6 +21,7 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
@@ -187,6 +188,46 @@ static void printOffsetTypes(OpAsmPrinter &printer, Operation *, Value uOff,
     printer << ", " << dOffTy;
   if (cOff)
     printer << ", " << cOffTy;
+}
+
+//===----------------------------------------------------------------------===//
+// AllocSize Parsing/Printing
+//===----------------------------------------------------------------------===//
+
+/// Parse a size that can be either static (integer) or dynamic (SSA value).
+/// Format: `<integer>` for static, `%operand` for dynamic.
+static ParseResult
+parseAllocSize(OpAsmParser &parser,
+               std::optional<OpAsmParser::UnresolvedOperand> &dynamicSize,
+               IntegerAttr &staticSize) {
+  // Try to parse an integer first (static size).
+  int64_t intVal;
+  auto intRes = parser.parseOptionalInteger(intVal);
+  if (intRes.has_value()) {
+    if (failed(*intRes))
+      return failure();
+    staticSize = parser.getBuilder().getI64IntegerAttr(intVal);
+    dynamicSize = std::nullopt;
+    return success();
+  }
+
+  // Otherwise, parse an operand (dynamic size).
+  OpAsmParser::UnresolvedOperand operand;
+  if (parser.parseOperand(operand))
+    return failure();
+  dynamicSize = operand;
+  staticSize = parser.getBuilder().getI64IntegerAttr(ShapedType::kDynamic);
+  return success();
+}
+
+/// Print a size that can be either static or dynamic.
+static void printAllocSize(OpAsmPrinter &printer, Operation *op,
+                           Value dynamicSize, IntegerAttr staticSize) {
+  if (ShapedType::isDynamic(staticSize.getInt())) {
+    printer.printOperand(dynamicSize);
+    return;
+  }
+  printer << staticSize.getInt();
 }
 
 //===----------------------------------------------------------------------===//
@@ -361,6 +402,42 @@ void AllocaOp::getEffects(
     return;
   effects.emplace_back(MemoryEffects::Allocate::get(),
                        getOperation()->getResult(0));
+}
+
+//===----------------------------------------------------------------------===//
+// AllocLDSOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult AllocLDSOp::verify() {
+  int64_t staticSize = getStaticSize();
+  bool hasDynamicSize = getDynamicSize() != nullptr;
+
+  // Check that we have either a static or dynamic size, not both.
+  if (ShapedType::isDynamic(staticSize) && !hasDynamicSize) {
+    return emitOpError("requires a dynamic size operand when static size is "
+                       "dynamic");
+  }
+  if (!ShapedType::isDynamic(staticSize) && hasDynamicSize)
+    return emitOpError("cannot have both static and dynamic size");
+
+  // Verify static size is positive.
+  if (!ShapedType::isDynamic(staticSize) && staticSize <= 0)
+    return emitOpError("static size must be positive, got ") << staticSize;
+
+  return success();
+}
+
+OpFoldResult AllocLDSOp::fold(FoldAdaptor adaptor) {
+  if (!ShapedType::isDynamic(getStaticSize()))
+    return nullptr;
+
+  // Update in case the dynamic size is a constant.
+  auto constValue = dyn_cast_or_null<IntegerAttr>(adaptor.getDynamicSize());
+  if (!constValue)
+    return nullptr;
+  setStaticSize(constValue.getValue().getZExtValue());
+  getDynamicSizeMutable().clear();
+  return getResult();
 }
 
 //===----------------------------------------------------------------------===//
