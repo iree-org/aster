@@ -10,6 +10,7 @@
 
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
+#include "aster/Dialect/AsterUtils/IR/AsterUtilsTypes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpDefinition.h"
@@ -132,6 +133,73 @@ OpFoldResult ToAnyOp::fold(FoldAdaptor adaptor) {
     fromAny = toAny.getInput().getDefiningOp<FromAnyOp>();
   }
   return value;
+}
+
+//===----------------------------------------------------------------------===//
+// StructCreateOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult StructCreateOp::verify() {
+  auto structType = llvm::cast<StructType>(getResult().getType());
+  ArrayRef<Type> fieldTypes = structType.getFieldTypes();
+
+  // Check that the number of operands matches the number of fields.
+  if (getFields().size() != fieldTypes.size()) {
+    return emitOpError("expected ")
+           << fieldTypes.size() << " field values, but got "
+           << getFields().size();
+  }
+
+  // Check that each operand type matches the corresponding field type.
+  for (size_t i = 0, e = fieldTypes.size(); i < e; ++i) {
+    if (getFields()[i].getType() != fieldTypes[i]) {
+      return emitOpError("field ")
+             << i << " ('" << structType.getFieldName(i).getValue()
+             << "') type mismatch: expected " << fieldTypes[i] << ", got "
+             << getFields()[i].getType();
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// StructExtractOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult StructExtractOp::verify() {
+  auto structType = llvm::cast<StructType>(getInput().getType());
+  ArrayAttr fieldNames = getFieldNames();
+  ResultRange results = getResults();
+
+  // Check that the number of field names matches the number of results.
+  if (fieldNames.size() != results.size()) {
+    return emitOpError("expected ")
+           << fieldNames.size() << " results for " << fieldNames.size()
+           << " field names, but got " << results.size();
+  }
+
+  // Check each field name and result type.
+  for (size_t i = 0, e = fieldNames.size(); i < e; ++i) {
+    auto fieldName = llvm::cast<StringAttr>(fieldNames[i]).getValue();
+
+    // Check that the field name exists in the struct type.
+    auto fieldIndex = structType.getFieldIndex(fieldName);
+    if (!fieldIndex) {
+      return emitOpError("field '")
+             << fieldName << "' does not exist in struct type " << structType;
+    }
+
+    // Check that the result type matches the field type.
+    Type expectedType = structType.getFieldType(*fieldIndex);
+    if (results[i].getType() != expectedType) {
+      return emitOpError("result type mismatch: field '")
+             << fieldName << "' has type " << expectedType << ", but got "
+             << results[i].getType();
+    }
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

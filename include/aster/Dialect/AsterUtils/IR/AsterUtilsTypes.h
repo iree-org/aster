@@ -15,6 +15,7 @@
 #ifndef ASTER_DIALECT_ASTERUTILS_IR_ASTERUTILSTYPES_H
 #define ASTER_DIALECT_ASTERUTILS_IR_ASTERUTILSTYPES_H
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/Types.h"
 

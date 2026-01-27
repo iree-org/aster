@@ -206,6 +206,57 @@ def AsterUtils_ToAnyOp : AsterUtils_Op<"to_any", [Pure]> {
 }
 
 //===----------------------------------------------------------------------===//
+// StructCreateOp
+//===----------------------------------------------------------------------===//
+
+def AsterUtils_StructCreateOp : AsterUtils_Op<"struct_create", [Pure]> {
+  let summary = "Create a struct value from field values";
+  let description = [{
+    The `struct_create` operation creates a struct value from a list of field
+    values. The number and types of the values must match the struct type's
+    field definitions.
+
+    Example:
+    ```mlir
+    %s = aster_utils.struct_create(%x, %y) : (i32, f32) -> !aster_utils.struct<x: i32, y: f32>
+    ```
+  }];
+  let arguments = (ins Variadic<AnyType>:$fields);
+  let results = (outs AsterUtils_Struct:$result);
+  let assemblyFormat = [{
+    `(` $fields `)` attr-dict `:` functional-type($fields, $result)
+  }];
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// StructExtractOp
+//===----------------------------------------------------------------------===//
+
+def AsterUtils_StructExtractOp : AsterUtils_Op<"struct_extract", [Pure]> {
+  let summary = "Extract fields from a struct value";
+  let description = [{
+    The `struct_extract` operation extracts one or more field values from a
+    struct by name. All field names must exist in the struct type.
+
+    Example:
+    ```mlir
+    %x = aster_utils.struct_extract %s["x"] : !aster_utils.struct<x: i32, y: f32> -> i32
+    %x, %y = aster_utils.struct_extract %s["x", "y"] : !aster_utils.struct<x: i32, y: f32> -> i32, f32
+    ```
+  }];
+  let arguments = (ins
+    AsterUtils_Struct:$input,
+    StrArrayAttr:$fieldNames
+  );
+  let results = (outs Variadic<AnyType>:$results);
+  let assemblyFormat = [{
+    $input $fieldNames attr-dict `:` type($input) `->` type($results)
+  }];
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
 // YieldOp
 //===----------------------------------------------------------------------===//
 
