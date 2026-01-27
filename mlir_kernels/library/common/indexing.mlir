@@ -40,6 +40,10 @@
 //   - elt_size_b: The element size **in bytes**
 !index_descriptor_3level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, iii: index, jjj: index, stride: index, elt_size_b: index>
 
+// An 8-tuple of index values (used for LDS bank indices)
+// Note: MLIR doesn't support tuple type aliases directly, so we use a struct
+!index_tuple_8 = !aster_utils.struct<b0: index, b1: index, b2: index, b3: index, b4: index, b5: index, b6: index, b7: index>
+
 amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // GPU id functions.
@@ -254,49 +258,47 @@ amdgcn.library @common_indexing {
   func.func private @lds_banks_for_transfer(
     %addr: index,
     %transfer_size: index
-  ) -> (index, index, index, index, index, index, index, index) {
+  ) -> !index_tuple_8 {
     %neg1 = arith.constant -1 : index
 
     // Compute all 8 possible banks (this is a thread-local quantity)
     %aaddr = aster_utils.assume_range %addr min 0 : index
-    %b0 = affine.apply affine_map<()[addr] -> (((addr + 0) floordiv 2) mod 32)>()[%aaddr]
-    %b1 = affine.apply affine_map<()[addr] -> (((addr + 2) floordiv 2) mod 32)>()[%aaddr]
-    %b2 = affine.apply affine_map<()[addr] -> (((addr + 4) floordiv 2) mod 32)>()[%aaddr]
-    %b3 = affine.apply affine_map<()[addr] -> (((addr + 6) floordiv 2) mod 32)>()[%aaddr]
-    %b4 = affine.apply affine_map<()[addr] -> (((addr + 8) floordiv 2) mod 32)>()[%aaddr]
-    %b5 = affine.apply affine_map<()[addr] -> (((addr + 10) floordiv 2) mod 32)>()[%aaddr]
-    %b6 = affine.apply affine_map<()[addr] -> (((addr + 12) floordiv 2) mod 32)>()[%aaddr]
-    %b7 = affine.apply affine_map<()[addr] -> (((addr + 14) floordiv 2) mod 32)>()[%aaddr]
+    %b0_val = affine.apply affine_map<()[addr] -> (((addr + 0) floordiv 2) mod 32)>()[%aaddr]
+    %b1_val = affine.apply affine_map<()[addr] -> (((addr + 2) floordiv 2) mod 32)>()[%aaddr]
+    %b2_val = affine.apply affine_map<()[addr] -> (((addr + 4) floordiv 2) mod 32)>()[%aaddr]
+    %b3_val = affine.apply affine_map<()[addr] -> (((addr + 6) floordiv 2) mod 32)>()[%aaddr]
+    %b4_val = affine.apply affine_map<()[addr] -> (((addr + 8) floordiv 2) mod 32)>()[%aaddr]
+    %b5_val = affine.apply affine_map<()[addr] -> (((addr + 10) floordiv 2) mod 32)>()[%aaddr]
+    %b6_val = affine.apply affine_map<()[addr] -> (((addr + 12) floordiv 2) mod 32)>()[%aaddr]
+    %b7_val = affine.apply affine_map<()[addr] -> (((addr + 14) floordiv 2) mod 32)>()[%aaddr]
 
-    %r0, %r1, %r2, %r3, %r4, %r5, %r6, %r7 = scf.index_switch %transfer_size
-      -> index, index, index, index, index, index, index, index
+    %result = scf.index_switch %transfer_size -> !index_tuple_8
     case 4 {
       // b32: 2 banks valid
-      scf.yield %b0, %b1, %neg1, %neg1, %neg1, %neg1, %neg1, %neg1
-        : index, index, index, index, index, index, index, index
+      %result_case4 = aster_utils.struct_create(%b0_val, %b1_val, %neg1, %neg1, %neg1, %neg1, %neg1, %neg1) : (index, index, index, index, index, index, index, index) -> !index_tuple_8
+      scf.yield %result_case4 : !index_tuple_8
     }
     case 8 {
       // b64: 4 banks valid
-      scf.yield %b0, %b1, %b2, %b3, %neg1, %neg1, %neg1, %neg1
-        : index, index, index, index, index, index, index, index
+      %result_case8 = aster_utils.struct_create(%b0_val, %b1_val, %b2_val, %b3_val, %neg1, %neg1, %neg1, %neg1) : (index, index, index, index, index, index, index, index) -> !index_tuple_8
+      scf.yield %result_case8 : !index_tuple_8
     }
     case 12 {
       // b96: 6 banks valid
-      scf.yield %b0, %b1, %b2, %b3, %b4, %b5, %neg1, %neg1
-        : index, index, index, index, index, index, index, index
+      %result_case12 = aster_utils.struct_create(%b0_val, %b1_val, %b2_val, %b3_val, %b4_val, %b5_val, %neg1, %neg1) : (index, index, index, index, index, index, index, index) -> !index_tuple_8
+      scf.yield %result_case12 : !index_tuple_8
     }
     case 16 {
       // b128: 8 banks valid
-      scf.yield %b0, %b1, %b2, %b3, %b4, %b5, %b6, %b7
-        : index, index, index, index, index, index, index, index
+      %result_case16 = aster_utils.struct_create(%b0_val, %b1_val, %b2_val, %b3_val, %b4_val, %b5_val, %b6_val, %b7_val) : (index, index, index, index, index, index, index, index) -> !index_tuple_8
+      scf.yield %result_case16 : !index_tuple_8
     }
     default {
-      scf.yield %neg1, %neg1, %neg1, %neg1, %neg1, %neg1, %neg1, %neg1
-        : index, index, index, index, index, index, index, index
+      %result_default = aster_utils.struct_create(%neg1, %neg1, %neg1, %neg1, %neg1, %neg1, %neg1, %neg1) : (index, index, index, index, index, index, index, index) -> !index_tuple_8
+      scf.yield %result_default : !index_tuple_8
     }
 
-    return %r0, %r1, %r2, %r3, %r4, %r5, %r6, %r7
-      : index, index, index, index, index, index, index, index
+    return %result : !index_tuple_8
   }
 
   //===--------------------------------------------------------------------===//

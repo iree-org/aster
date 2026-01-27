@@ -7,6 +7,7 @@
 
 !index_pair = !aster_utils.struct<i: index, j: index>
 !index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
+!index_tuple_8 = !aster_utils.struct<b0: index, b1: index, b2: index, b3: index, b4: index, b5: index, b6: index, b7: index>
 
 amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
@@ -16,7 +17,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @mfma_index_A_16x16xf16() -> !index_pair
   func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
-  func.func private @lds_banks_for_transfer(index, index) -> (index, index, index, index, index, index, index, index)
+  func.func private @lds_banks_for_transfer(index, index) -> !index_tuple_8
   // copies.mlir
   func.func private @store_to_global_dwordx4_wait(!vx4, !sx2, index, index, index)
 
@@ -52,8 +53,8 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     // Compute banks for an 8-byte access
     %transfer_size = arith.constant 8 : index  // dwordx2
-    %b0, %b1, %b2, %b3, %b4_, %b5_, %b6_, %b7_ = func.call @lds_banks_for_transfer(%byte_address, %transfer_size)
-      : (index, index) -> (index, index, index, index, index, index, index, index)
+    %banks_result = func.call @lds_banks_for_transfer(%byte_address, %transfer_size) : (index, index) -> !index_tuple_8
+    %b0, %b1, %b2, %b3, %b4_, %b5_, %b6_, %b7_ = aster_utils.struct_extract %banks_result ["b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"] : !index_tuple_8 -> index, index, index, index, index, index, index, index
 
 
     // Store 4 banks as dwordx4 at tid position
@@ -109,8 +110,8 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     // Compute banks for an 8-byte (dwordx2) access starting at byte_address
     %transfer_size = arith.constant 8 : index  // dwordx2
-    %b0, %b1, %b2, %b3, %b4_, %b5_, %b6_, %b7_ = func.call @lds_banks_for_transfer(%byte_address, %transfer_size)
-      : (index, index) -> (index, index, index, index, index, index, index, index)
+    %banks_result = func.call @lds_banks_for_transfer(%byte_address, %transfer_size) : (index, index) -> !index_tuple_8
+    %b0, %b1, %b2, %b3, %b4_, %b5_, %b6_, %b7_ = aster_utils.struct_extract %banks_result ["b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"] : !index_tuple_8 -> index, index, index, index, index, index, index, index
 
 
     // Store 4 banks as dwordx4 at tid position
