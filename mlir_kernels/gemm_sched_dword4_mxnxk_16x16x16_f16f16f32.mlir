@@ -229,9 +229,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
         %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
           (SIZE_N * 4)>()[%SIZE_N]
-        %false_store = arith.constant false
+        %true_store = arith.constant true
         func.call @global_store_wave_16x16xf32_C_fragment_wait(
-            %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %jj_pos, %false_store)
+            %fragment, %c_global, %i_pos, %j_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %jj_pos, %true_store)
           : (!vx4, !sx2, index, index, index, index, index, i1) -> ()
       }
     }

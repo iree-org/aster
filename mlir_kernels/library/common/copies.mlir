@@ -627,18 +627,18 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       } {aster.constexpr}
     } else {
       // Compute the MFMA positions
-      %mmm_pos, %nnn_pos_in_f32 = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
-      // Translate nn in units of the transfer size (dwordx4).
-      %nnn_pos = affine.apply affine_map<()[nnn_pos_in_f32]
-        -> (nnn_pos_in_f32 floordiv 4)>()[%nnn_pos_in_f32]
+      %mmm_pos, %nnn_pos = func.call @mfma_index_C_16x16xf32() : () -> (index, index)
 
       // Calculate global j position
       %m_global_pos = affine.apply
         affine_map<()[m_pos, mm_pos, mmm_pos] -> (m_pos + mm_pos + mmm_pos)>
         ()[%m_pos, %mm_pos, %mmm_pos]
-      %n_global_pos = affine.apply
+      %n_global_pos_in_f32 = affine.apply
         affine_map<()[n_pos, nn_pos, nnn_pos] -> (n_pos + nn_pos + nnn_pos)>
         ()[%n_pos, %nn_pos, %nnn_pos]
+      // Translate n in units of the transfer size (dwordx4).
+      %n_global_pos = affine.apply affine_map<()[n_global_pos_in_f32]
+        -> (n_global_pos_in_f32 floordiv 4)>()[%n_global_pos_in_f32]
 
       // Store to global memory with wait
       func.call @store_to_global_dwordx4_wait(%acc, %ptr, %m_global_pos, %n_global_pos, %GLOBAL_STRIDE_IN_BYTES)
