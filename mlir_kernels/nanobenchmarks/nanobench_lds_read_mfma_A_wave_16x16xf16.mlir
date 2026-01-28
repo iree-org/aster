@@ -2,9 +2,6 @@
 // Uses garbage values in LDS (no verification).
 
 // From descriptors.mlir
-!s   = !amdgcn.sgpr
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
-!v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
