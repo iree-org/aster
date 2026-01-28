@@ -110,3 +110,11 @@ amdgcn.library @invalid_library_with_amdgcn_inst {
 // expected-error @+1 {{isa attribute must contain only ISAVersion elements}}
 amdgcn.library @invalid_isa_attr_type isa = ["not_an_isa"] {
 }
+
+// -----
+
+func.func @offset_with_invalid_aligment() {
+// expected-error @+1 {{offset 33 is not aligned to alignment 8}}
+  %2 = amdgcn.alloc_lds 32 alignment 8 offset 33
+  return
+}

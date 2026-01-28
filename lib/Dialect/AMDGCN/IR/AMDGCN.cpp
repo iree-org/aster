@@ -424,6 +424,12 @@ LogicalResult AllocLDSOp::verify() {
   if (!ShapedType::isDynamic(staticSize) && staticSize <= 0)
     return emitOpError("static size must be positive, got ") << staticSize;
 
+  if (std::optional<uint32_t> offset = getOffset();
+      offset && *offset % getAlignment() != 0) {
+    return emitOpError("offset ")
+           << *offset << " is not aligned to alignment " << getAlignment();
+  }
+
   return success();
 }
 
