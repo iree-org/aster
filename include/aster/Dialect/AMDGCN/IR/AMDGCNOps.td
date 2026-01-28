@@ -65,6 +65,9 @@ def AMDGCN_AllocLDSOp : AMDGCN_Op<"alloc_lds"> {
     live until it is deallocated with `amdgcn.dealloc_lds` or the value
     stops being reachable.
 
+    If offset is provided, it specifies the byte offset of the allocated buffer
+    in LDS.
+
     Example:
     ```mlir
     // Allocate 16 bytes of LDS with 4-byte alignment.
@@ -74,12 +77,13 @@ def AMDGCN_AllocLDSOp : AMDGCN_Op<"alloc_lds"> {
   let arguments = (ins
     Optional<Index>:$dynamic_size,
     I64Attr:$static_size,
-    DefaultValuedAttr<IntValidAlignment<I64Attr>, "16">:$alignment
+    DefaultValuedAttr<IntValidAlignment<I64Attr>, "16">:$alignment,
+    OptionalAttr<ConfinedAttr<I32Attr, [IntNonNegative]>>:$offset
   );
   let results = (outs LDSBufferType:$buffer);
   let assemblyFormat = [{
     custom<AllocSize>($dynamic_size, $static_size) (`alignment` $alignment^)?
-    attr-dict
+    (`offset` $offset^)? attr-dict
   }];
   let extraClassDeclaration = [{
     /// Get the size of the allocated LDS buffer, either static or dynamic.
