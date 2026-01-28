@@ -1,6 +1,8 @@
 // Multi-tile copy functions for AMDGCN kernels.
-// These functions handle conditional multi-tile global loads and LDS writes
-// using the simpler 16x16 wave-level primitives.
+//
+// Provides multi-tile variants of the copy primitives in copies.mlir.
+// Multi-tile operations process multiple 16x16 tiles at once for better memory
+// coalescing and to enable overlapped execution patterns.
 
 // Drive this through pytest, only check input IR validity here.
 // RUN: cat %s \
@@ -25,6 +27,9 @@
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
+!future_global_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
+!future_lds_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
+!future_lds_write_any = !aster_utils.struct<token: !amdgcn.write_token<shared>>
 
 // A 2D conditional execution descriptor for multi-tile operations containing:
 //   - k: outer loop index (for indexing load_memref -> mem2reg)
@@ -33,17 +38,28 @@
 !conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
 
 amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
+
   //===--------------------------------------------------------------------===//
+  // External function declarations
+  //===--------------------------------------------------------------------===//
+
   // From simple-copies.mlir
   func.func private @simple_global_load_wave_16x16xf16_wait(!tensor_position_descriptor_2d) -> !vx2
   func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, !lds_position_descriptor_2d)
   func.func private @simple_lds_read_wave_16x16xf16_wait(!lds_position_descriptor_2d) -> !vx2
-  // From copies.mlir
+
+  // From copies.mlir - _wait variants
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx2
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2)
 
+  // From copies.mlir - _future variants for token-aware operations
+  func.func private @global_load_wave_256xf16_via_dwordx2_future(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !future_global_read_any
+  func.func private @lds_write_wave_256xf16_via_dwordx2_future(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write_any
+  func.func private @lds_read_A_wave_16x16xf16_fragment_future(!lds_position_descriptor_2d, i1) -> !future_lds_read_any
+
   //===--------------------------------------------------------------------===//
-  // Simple conditional multi-tile global load
+  // Simple conditional multi-tile global loads
+  //   Uses simple_global_load_wave_16x16xf16_wait (no coalescing optimization)
   //===--------------------------------------------------------------------===//
   // Simplified multi-tile global load using simple_global_load_wave_16x16xf16_wait.
   // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
@@ -108,32 +124,33 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // Conditional coalesced multi-tile global read
+  // Multi-tile global loads via dwordx2
+  //   256xf16 tiles (16x16 elements) with coalesced memory access
+  //   (future + wait variants)
   //===--------------------------------------------------------------------===//
-  // Helper function: Multi-tile version of global_load_wave_256xf16_via_dwordx2_wait.
-  // Loads m_tiles x n_tiles 16x16 tiles from global memory.
-  // Results are stored in a provided memref of shape [m_tiles, n_tiles].
-  //
-  // This function enables loading larger regions (e.g., 16x64 = 4 tiles)
-  // for better memory coalescing while preserving the scheduling attributes.
-  // Each tile load includes its own waitcnt 0 (simpler wait strategy).
+  // These functions use a _future/_wait pattern:
+  // - _future: Core implementation that returns tokens for explicit wait control
+  // - _wait: Calls _future, then waits on all tokens
+
+  // Multi-tile global load returning array of futures (value + token).
+  // Loads m_tiles x n_tiles 16x16 tiles from global memory WITHOUT waiting.
+  // Results and tokens are stored in provided memrefs.
   //
   // Parameters:
-  //   %tensor_desc: 2-level tensor position descriptor where:
-  //     - m_pos/n_pos are major-tile positions (in elements)
-  //     - mm_pos/nn_pos are base minor-tile positions (in elements)
+  //   %tensor_desc: 2-level tensor position descriptor
   //   %m_tiles, %n_tiles: number of tiles in M and N directions
-  //   %result_memref: output memref[m_tiles * n_tiles] for results
+  //   %result_memref: output memref[m_tiles * n_tiles] for loaded values
+  //   %token_memref: output memref[m_tiles * n_tiles] for read tokens
   //
-  // CHECK-LABEL: func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
+  // CHECK-LABEL: func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
     %tensor_desc: !tensor_position_descriptor_2level_2d,
-    %m_tiles: index,                 // Number of tiles in M direction
-    %n_tiles: index,                 // Number of tiles in N direction
-    %result_memref: memref<?x!vx2>   // Output: m_tiles x n_tiles results
+    %m_tiles: index,
+    %n_tiles: index,
+    %result_memref: memref<?x!vx2>,
+    %token_memref: memref<?x!amdgcn.read_token<flat>>
   ) {
     %c0 = arith.constant 0 : index
-    %c1 = arith.constant 1 : index
 
     // Extract fields from descriptor
     %ptr = aster_utils.struct_extract %tensor_desc["ptr"] : !tensor_position_descriptor_2level_2d -> !sx2
@@ -144,9 +161,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %nn_pos_base = aster_utils.struct_extract %tensor_desc["nn_pos"] : !tensor_position_descriptor_2level_2d -> index
     %elt_size = aster_utils.struct_extract %tensor_desc["elt_size"] : !tensor_position_descriptor_2level_2d -> index
 
-    // Each transfer does row_size * col_size elements, this is a reshape via a
-    // 256-size tile with a number of rows that is determined internally by
-    // global_load_wave_256xf16_via_dwordx2_wait.
+    // Compute tile layout
     %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
     %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
     %total_rows = affine.apply affine_map<()[m_tiles] -> (16 * m_tiles)>()[%m_tiles]
@@ -154,30 +169,70 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
 
     scf.for %mt = %c0 to %total_rows step %row_size {
       scf.for %nt = %c0 to %total_cols step %col_size {
-        // Compute minor-tile positions for this tile
-        // NOTE: Only add mt/nt to the minor positions (mm_pos/nn_pos), NOT to major
-        // positions (m_pos/n_pos). tiledx2_matrix_offset adds them together, so
-        // adding to both would double-count the offset.
+        // Compute minor-tile positions
         %mm_pos = affine.apply affine_map<()[base, mt] -> (base + mt)>()[%mm_pos_base, %mt]
         %nn_pos = affine.apply affine_map<()[base, nt] -> (base + nt)>()[%nn_pos_base, %nt]
 
-        // Load the tile
+        // Load the tile and get future
         %pos_desc = aster_utils.struct_create(%ptr, %m_pos_base, %n_pos_base, %global_stride_in_bytes, %mm_pos, %nn_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-        %transfer_size = arith.constant 8 : index // dwordx2
+        %transfer_size = arith.constant 8 : index
         %wave_size = arith.constant 64 : index
         %transfer_desc = aster_utils.struct_create(%row_size, %transfer_size, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
-        %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx2
+        %future = func.call @global_load_wave_256xf16_via_dwordx2_future(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !future_global_read_any
 
-        // Store result in memref
+        // Extract value and token from future
+        %loaded_any, %token = aster_utils.struct_extract %future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
+        %loaded = aster_utils.from_any %loaded_any : !vx2
+
+        // Store results
         %i = affine.apply affine_map<()[mt, row_size] -> (mt ceildiv row_size)>()[%mt, %row_size]
         %j = affine.apply affine_map<()[nt, col_size] -> (nt ceildiv col_size)>()[%nt, %col_size]
         %J = affine.apply affine_map<()[total_cols, col_size] -> (total_cols ceildiv col_size)>()[%total_cols, %col_size]
         %idx = affine.apply affine_map<()[i, j, J] -> (i * J + j)>()[%i, %j, %J]
         memref.store %loaded, %result_memref[%idx] : memref<?x!vx2>
+        memref.store %token, %token_memref[%idx] : memref<?x!amdgcn.read_token<flat>>
       } {aster.constexpr}
     } {aster.constexpr}
     return
   }
+
+  // Multi-tile global load with waiting.
+  // Calls _future variant and waits on all tokens via amdgcn.wait.
+  //
+  // CHECK-LABEL: func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
+    %tensor_desc: !tensor_position_descriptor_2level_2d,
+    %m_tiles: index,
+    %n_tiles: index,
+    %result_memref: memref<?x!vx2>
+  ) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+
+    // Allocate temp memref for tokens
+    %num_tiles = affine.apply affine_map<()[m, n] -> (m * n)>()[%m_tiles, %n_tiles]
+    %token_memref = memref.alloca(%num_tiles) : memref<?x!amdgcn.read_token<flat>>
+
+    // Call future variant to issue all loads
+    func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
+      %tensor_desc, %m_tiles, %n_tiles, %result_memref, %token_memref)
+      : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>, memref<?x!amdgcn.read_token<flat>>) -> ()
+
+    // TODO: Wait on all tokens and use only amdgcn-convert-waits pass
+    // scf.for %idx = %c0 to %num_tiles step %c1 {
+    //   %token = memref.load %token_memref[%idx] : memref<?x!amdgcn.read_token<flat>>
+    //   amdgcn.wait deps %token : !amdgcn.read_token<flat>
+    // } {aster.constexpr}
+
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+
+    return
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Conditional multi-tile global loads (coalesced)
+  //   Executes bulk loads when alignment conditions are met
+  //===--------------------------------------------------------------------===//
 
   // Multi-tile global load using global_load_wave_multi_tile_256xf16_via_dwordx2_wait.
   // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
@@ -254,32 +309,29 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // Conditional coalesced multi-tile LDS write
+  // Multi-tile LDS writes via dwordx2
+  //   256xf16 tiles (16x16 elements) with coalesced LDS access
+  //   (future + wait variants)
   //===--------------------------------------------------------------------===//
-  // Multi-tile version of lds_write_wave_256xf16_via_dwordx2_wait.
-  // Writes m_tiles x n_tiles 16x16 tiles to LDS.
-  // Values are read from a provided memref of shape [m_tiles, n_tiles].
-  //
-  // This function enables writing larger regions (e.g., 16x64 = 4 tiles)
-  // for connecting to better memory coalescing global loads multi-tile version.
-  // Each tile write includes its own waitcnt 0 (simpler wait strategy).
+  // Multi-tile LDS write returning array of write tokens.
+  // Writes m_tiles x n_tiles 16x16 tiles to LDS WITHOUT waiting.
+  // Write tokens are stored in provided memref.
   //
   // Parameters:
-  //   %lds_desc: 2-level LDS position descriptor where:
-  //     - lds_base is the base LDS offset
-  //     - mm_pos/nn_pos are base minor-tile positions (in elements)
+  //   %lds_desc: 2-level LDS position descriptor
   //   %m_tiles, %n_tiles: number of tiles in M and N directions
   //   %values_memref: input memref[m_tiles * n_tiles] with values to write
+  //   %token_memref: output memref[m_tiles * n_tiles] for write tokens
   //
-  // CHECK-LABEL: func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait
-  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+  // CHECK-LABEL: func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_future
+  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_future(
     %lds_desc: !lds_position_descriptor_2level_2d,
-    %m_tiles: index,                   // Number of tiles in M direction
-    %n_tiles: index,                   // Number of tiles in N direction
-    %values_memref: memref<?x!vx2>     // Input: m_tiles x n_tiles values
+    %m_tiles: index,
+    %n_tiles: index,
+    %values_memref: memref<?x!vx2>,
+    %token_memref: memref<?x!amdgcn.write_token<shared>>
   ) {
     %c0 = arith.constant 0 : index
-    %c1 = arith.constant 1 : index
 
     // Extract fields from descriptor
     %lds_base_off = aster_utils.struct_extract %lds_desc["lds_base"] : !lds_position_descriptor_2level_2d -> index
@@ -288,9 +340,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %lds_stride_in_bytes = aster_utils.struct_extract %lds_desc["lds_stride_in_bytes"] : !lds_position_descriptor_2level_2d -> index
     %elt_size = aster_utils.struct_extract %lds_desc["elt_size"] : !lds_position_descriptor_2level_2d -> index
 
-    // Each transfer does row_size * col_size elements, this is a reshape via a
-    // 256-size tile with a number of rows that is determined internally by
-    // lds_write_wave_256xf16_via_dwordx2_wait.
+    // Compute tile layout
     %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
     %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
     %total_rows = affine.apply affine_map<()[m_tiles] -> (16 * m_tiles)>()[%m_tiles]
@@ -305,22 +355,63 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
         %idx = affine.apply affine_map<()[i, j, J] -> (i * J + j)>()[%i, %j, %J]
         %value = memref.load %values_memref[%idx] : memref<?x!vx2>
 
-        // Compute minor-tile positions for this tile
+        // Compute minor-tile positions
         %mm_pos = affine.apply affine_map<()[base, mt] -> (base + mt)>()[%mm_pos_base, %mt]
         %nn_pos = affine.apply affine_map<()[base, nt] -> (base + nt)>()[%nn_pos_base, %nt]
 
-        // Write the tile to LDS
+        // Write the tile and get future
         %lds_pos_desc = aster_utils.struct_create(%lds_base_off, %mm_pos, %nn_pos, %lds_stride_in_bytes, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
-        %transfer_size_lds = arith.constant 8 : index // dwordx2
+        %transfer_size_lds = arith.constant 8 : index
         %wave_size_lds = arith.constant 64 : index
         %transfer_desc_lds = aster_utils.struct_create(%row_size, %transfer_size_lds, %wave_size_lds) : (index, index, index) -> !transfer_descriptor_2d
-        func.call @lds_write_wave_256xf16_via_dwordx2_wait(%lds_pos_desc, %transfer_desc_lds, %value)
-          : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
+        %future = func.call @lds_write_wave_256xf16_via_dwordx2_future(%lds_pos_desc, %transfer_desc_lds, %value)
+          : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write_any
+
+        // Extract and store token
+        %token = aster_utils.struct_extract %future ["token"] : !future_lds_write_any -> !amdgcn.write_token<shared>
+        memref.store %token, %token_memref[%idx] : memref<?x!amdgcn.write_token<shared>>
       } {aster.constexpr}
     } {aster.constexpr}
     return
   }
 
+  // Multi-tile LDS write with waiting.
+  // Calls _future variant and waits on all tokens via amdgcn.wait.
+  //
+  // CHECK-LABEL: func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait
+  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+    %lds_desc: !lds_position_descriptor_2level_2d,
+    %m_tiles: index,
+    %n_tiles: index,
+    %values_memref: memref<?x!vx2>
+  ) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+
+    // Allocate temp memref for tokens
+    %num_tiles = affine.apply affine_map<()[m, n] -> (m * n)>()[%m_tiles, %n_tiles]
+    %token_memref = memref.alloca(%num_tiles) : memref<?x!amdgcn.write_token<shared>>
+
+    // Call future variant to issue all writes
+    func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_future(
+      %lds_desc, %m_tiles, %n_tiles, %values_memref, %token_memref)
+      : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, memref<?x!amdgcn.write_token<shared>>) -> ()
+
+    // TODO: Wait on all tokens and use only amdgcn-convert-waits pass
+    // scf.for %idx = %c0 to %num_tiles step %c1 {
+    //   %token = memref.load %token_memref[%idx] : memref<?x!amdgcn.write_token<shared>>
+    //   amdgcn.wait deps %token : !amdgcn.write_token<shared>
+    // } {aster.constexpr}
+
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+
+    return
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Conditional multi-tile LDS writes (coalesced)
+  //   Executes bulk writes when alignment conditions are met
+  //===--------------------------------------------------------------------===//
   // Multi-tile LDS write using lds_write_wave_multi_tile_256xf16_via_dwordx2_wait.
   // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
   //

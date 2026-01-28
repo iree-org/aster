@@ -94,7 +94,7 @@ struct IndexInlinerInterface : public DialectInlinerInterface {
 } // namespace
 
 //===----------------------------------------------------------------------===//
-//  Extarnal model for MemRef to support SROA.
+//  External model for MemRef to support SROA.
 //===----------------------------------------------------------------------===//
 namespace {
 
