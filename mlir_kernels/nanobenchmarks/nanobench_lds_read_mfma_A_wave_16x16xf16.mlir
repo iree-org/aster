@@ -1,16 +1,11 @@
 // Nanobenchmark for @lds_read_A_wave_16x16xf16_fragment_wait
 // Uses garbage values in LDS (no verification).
 
+// From descriptors.mlir
 !s   = !amdgcn.sgpr
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
-
-// A 2D LDS position descriptor containing:
-//   - lds_base: local base offset in LDS
-//   - m_pos, n_pos: row and column positions (in elements)
-//   - lds_stride_in_bytes: stride in bytes
-//   - elt_size: element size in bytes
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {

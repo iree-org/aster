@@ -5,28 +5,16 @@
 // RUN: | FileCheck %s
 
 // CHECK-LABEL: amdgcn.module
+
+// From descriptors.mlir
 !s   = !amdgcn.sgpr
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
-
 !v   = !amdgcn.vgpr
 !vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
-
 !index_pair = !aster_utils.struct<i: index, j: index>
-// A 2-level 2D tensor position descriptor containing:
-//   - ptr: global base pointer
-//   - m_pos, n_pos: row and column positions of the outer tile (in elements)
-//   - global_stride_in_bytes: stride in bytes
-//   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
-//   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
-
-// A 2D LDS position descriptor containing:
-//   - lds_base: local base offset in LDS
-//   - m_pos, n_pos: row and column positions (in elements)
-//   - lds_stride_in_bytes: stride in bytes
-//   - elt_size: element size in bytes
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {

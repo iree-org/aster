@@ -7,54 +7,23 @@
 // RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/register-init.mlir,%p/library/common/indexing.mlir,%p/library/common/simple-copies.mlir,%p/library/common/copies.mlir" \
 // RUN: | FileCheck %s
 
+// From descriptors.mlir
 !s   = !amdgcn.sgpr
 !sx1 = !amdgcn.sgpr_range<[? + 1]>
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 !sx4 = !amdgcn.sgpr_range<[? + 4]>
-
 !v   = !amdgcn.vgpr
 !vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
-
 !a   = !amdgcn.agpr
 !ax1 = !amdgcn.agpr_range<[? + 1]>
 !ax2 = !amdgcn.agpr_range<[? + 2]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
-
-// A 2D tensor position descriptor containing:
-//   - ptr: global base pointer
-//   - m_pos, n_pos: row and column positions (in elements)
-//   - global_stride_in_bytes: stride in bytes
-//   - elt_size: element size in bytes
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
-
-// A 2D LDS position descriptor containing:
-//   - lds_base: local base offset in LDS
-//   - m_pos, n_pos: row and column positions (in elements)
-//   - lds_stride_in_bytes: stride in bytes
-//   - elt_size: element size in bytes
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
-
-// A 2-level 2D LDS position descriptor containing:
-//   - lds_base: local base offset in LDS
-//   - mm_pos, nn_pos: row and column positions of the minor tile (in elements)
-//   - lds_stride_in_bytes: stride in bytes
-//   - elt_size: element size in bytes
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
-
-// A 2-level 2D tensor position descriptor containing:
-//   - ptr: global base pointer
-//   - m_pos, n_pos: row and column positions of the outer tile (in elements)
-//   - global_stride_in_bytes: stride in bytes
-//   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
-//   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
-
-// A 2D transfer descriptor containing:
-//   - num_rows: number of rows for the transfer (must divide wave_size evenly)
-//   - transfer_size: size of each transfer in bytes
-//   - wave_size: number of threads per wave
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
 // A 2D conditional execution descriptor for multi-tile operations containing:

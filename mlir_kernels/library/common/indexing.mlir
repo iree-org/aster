@@ -1,47 +1,23 @@
 // Common indexing functions for AMDGCN kernels.
 // These functions compute byte offsets for tiled data access patterns.
 
+// From descriptors.mlir
 !s   = !amdgcn.sgpr
 !sx1 = !amdgcn.sgpr_range<[? + 1]>
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 !sx4 = !amdgcn.sgpr_range<[? + 4]>
-
 !v   = !amdgcn.vgpr
 !vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
-
 !a   = !amdgcn.agpr
 !ax1 = !amdgcn.agpr_range<[? + 1]>
 !ax2 = !amdgcn.agpr_range<[? + 2]>
 !ax4 = !amdgcn.agpr_range<[? + 4]>
-
-// A 2D index pair containing row (i) and column (j) indices.
 !index_pair = !aster_utils.struct<i: index, j: index>
-
-// A 2D index descriptor containing:
-//   - i, j: row and column indices
-//   - stride: stride in elements (not bytes)
-//   - elt_size_b: element size in bytes
 !index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>
-
-// A 2-level 2D index descriptor containing:
-//   - i, j: row and column indices of the outer tile
-//   - ii, jj: row and column indices of the inner tile
-//   - stride: stride in elements (not bytes)
-//   - elt_size_b: element size in bytes
 !index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
-
-// A 3-level 2D index descriptor containing:
-//   - i, j: The outer-most major tile position (e.g. the start row of a tile)
-//   - ii, jj: The outer-most minor tile position (e.g. the start row of the sub-tile)
-//   - iii, jjj: The outer-most position (e.g. a row relative to the sub-tile)
-//   - stride: The stride (e.g. inner 2-D tile size **in bytes**)
-//   - elt_size_b: The element size **in bytes**
 !index_descriptor_3level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, iii: index, jjj: index, stride: index, elt_size_b: index>
-
-// An 8-tuple of index values (used for LDS bank indices)
-// Note: MLIR doesn't support tuple type aliases directly, so we use a struct
 !index_tuple_8 = !aster_utils.struct<b0: index, b1: index, b2: index, b3: index, b4: index, b5: index, b6: index, b7: index>
 
 amdgcn.library @common_indexing {

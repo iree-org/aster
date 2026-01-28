@@ -7,51 +7,16 @@
 // RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/register-init.mlir,%p/library/common/indexing.mlir,%p/library/common/simple-copies.mlir,%p/library/common/copies.mlir" \
 // RUN: | FileCheck %s
 
+// From descriptors.mlir
 !s   = !amdgcn.sgpr
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
-
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
-
-// A 2D tensor position descriptor containing:
-//   - ptr: global base pointer
-//   - m_pos, n_pos: row and column positions (in elements)
-//   - global_stride_in_bytes: stride in bytes
-//   - elt_size: element size in bytes
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
-
-// A 2D LDS position descriptor containing:
-//   - lds_base: local base offset in LDS
-//   - m_pos, n_pos: row and column positions (in elements)
-//   - lds_stride_in_bytes: stride in bytes
-//   - elt_size: element size in bytes
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
-
-// A 2-level 2D LDS position descriptor containing:
-//   - lds_base: local base offset in LDS
-//   - mm_pos, nn_pos: row and column positions of the minor tile (in elements)
-//   - lds_stride_in_bytes: stride in bytes
-//   - elt_size: element size in bytes
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
-
-// A 2-level 2D tensor position descriptor containing:
-//   - ptr: global base pointer
-//   - m_pos, n_pos: row and column positions of the outer tile (in elements)
-//   - global_stride_in_bytes: stride in bytes
-//   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
-//   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
-
-// A 2D transfer descriptor containing:
-//   - num_rows: number of rows for the transfer (must divide wave_size evenly)
-//   - transfer_size: size of each transfer in bytes
-//   - wave_size: number of threads per wave
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
-
-// A 2D conditional execution descriptor for multi-tile operations containing:
-//   - k: outer loop index (for indexing load_memref -> mem2reg)
-//   - cond_iter: condition index (execute only when cond_iter == 0)
-//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
 !conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
 
 amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
