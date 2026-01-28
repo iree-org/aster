@@ -8,17 +8,15 @@
 // RUN: | FileCheck %s
 
 // CHECK-LABEL: amdgcn.module
+
+// From descriptors.mlir
 !s   = !amdgcn.sgpr
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
-
 !v   = !amdgcn.vgpr
 !vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
-
 !index_pair = !aster_utils.struct<i: index, j: index>
-
-// Declare descriptor types from descriptors.mlir
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>

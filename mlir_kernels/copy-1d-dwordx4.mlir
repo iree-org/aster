@@ -15,10 +15,11 @@
 
 amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
-  // Declare library functions
+  // From indexing.mlir
+  func.func private @distributed_index_1d_with_grid_stride(index) -> index
+  // From copies.mlir
   func.func private @store_to_global_dwordx4_wait(!vx4, !tensor_position_descriptor_2d) -> ()
   func.func private @load_from_global_dwordx4_wait(!tensor_position_descriptor_2d) -> !vx4
-  func.func private @distributed_index_1d_with_grid_stride(index) -> index
 
   // Global load helper - loads dwordx4 at element position
   func.func private @global_load_body(

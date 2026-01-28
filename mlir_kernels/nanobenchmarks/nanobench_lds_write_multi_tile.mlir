@@ -1,23 +1,12 @@
 // Nanobenchmark for @maybe_lds_write_multi_tile_coalesced
 // Uses garbage values in registers (no verification).
 
+// From descriptors.mlir
 !s   = !amdgcn.sgpr
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
-
-// A 2D LDS position descriptor containing:
-//   - lds_base: local base offset in LDS
-//   - m_pos, n_pos: row and column positions (in elements)
-//   - lds_stride_in_bytes: stride in bytes
-//   - elt_size: element size in bytes
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
-
-// A 2-level 2D LDS position descriptor containing:
-//   - lds_base: local base offset in LDS
-//   - mm_pos, nn_pos: row and column positions of the minor tile (in elements)
-//   - lds_stride_in_bytes: stride in bytes
-//   - elt_size: element size in bytes
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 // A 2D conditional execution descriptor for multi-tile operations containing:

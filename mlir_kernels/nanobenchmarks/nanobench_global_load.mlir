@@ -1,24 +1,17 @@
 // Nanobenchmark for @global_load_wave_xxx_nowait
 // Measures global load performance with data fitting in L1 cache.
 
+// From descriptors.mlir
 !s   = !amdgcn.sgpr
 !sx1 = !amdgcn.sgpr_range<[? + 1]>
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 !sx3 = !amdgcn.sgpr_range<[? + 3]>
 !sx4 = !amdgcn.sgpr_range<[? + 4]>
-
 !v   = !amdgcn.vgpr
 !vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx3 = !amdgcn.vgpr_range<[? + 3]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
-
-// A 2-level 2D tensor position descriptor containing:
-//   - ptr: global base pointer
-//   - m_pos, n_pos: row and column positions of the outer tile (in elements)
-//   - global_stride_in_bytes: stride in bytes
-//   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
-//   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 
 // A 2D transfer descriptor containing:
