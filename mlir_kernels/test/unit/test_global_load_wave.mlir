@@ -3,11 +3,7 @@
 // to a global output buffer.
 
 // From descriptors.mlir
-!s   = !amdgcn.sgpr
-!sx1 = !amdgcn.sgpr_range<[? + 1]>
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
-!sx3 = !amdgcn.sgpr_range<[? + 3]>
-!sx4 = !amdgcn.sgpr_range<[? + 4]>
 !v   = !amdgcn.vgpr
 !vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>

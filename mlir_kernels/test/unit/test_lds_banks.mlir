@@ -1,8 +1,6 @@
 // From descriptors.mlir
-!s   = !amdgcn.sgpr
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
 !v   = !amdgcn.vgpr
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 !index_pair = !aster_utils.struct<i: index, j: index>
 !index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>

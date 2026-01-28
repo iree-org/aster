@@ -7,10 +7,7 @@
 // CHECK-LABEL: amdgcn.module
 
 // From descriptors.mlir
-!s   = !amdgcn.sgpr
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
-!v   = !amdgcn.vgpr
-!vx1 = !amdgcn.vgpr_range<[? + 1]>
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 !index_pair = !aster_utils.struct<i: index, j: index>
@@ -21,12 +18,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   //===--------------------------------------------------------------------===//
   // From register-init.mlir
-  func.func private @alloc_vgprx2() -> !vx2
   func.func private @init_vgprx4(i32) -> !vx4
   // From indexing.mlir
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index
-  func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_grid_partition_2d(!index_pair, !index_pair) -> !index_pair
   // From copies.mlir
   func.func private @global_load_to_lds_wave_16x16_f16_wait(
