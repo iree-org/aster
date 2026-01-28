@@ -158,6 +158,8 @@ DEFAULT_SROA_PASS_PIPELINE = (
     "  canonicalize,cse,"
     "  canonicalize,"
     "  aster-to-amdgcn,"
+    # Convert amdgcn.wait ops to s_waitcnt instructions
+    "  amdgcn-convert-waits,"
     # Note: this really must happen on amdgcn.kernel within a module to ensure
     # that the interference graph is built correctly...
     "  amdgcn.module("
@@ -234,6 +236,8 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     "  canonicalize,cse,"
     "  canonicalize,"
     "  aster-to-amdgcn,"
+    # Convert amdgcn.wait ops to s_waitcnt instructions
+    "  amdgcn-convert-waits,"
     # Note: this really must happen on amdgcn.kernel within a module to ensure
     # that the interference graph is built correctly...
     "  amdgcn.module("

@@ -12,6 +12,7 @@
 #include "aster/Interfaces/RegisterType.h"
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "mlir/Analysis/DataLayoutAnalysis.h"
 #include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -50,6 +51,11 @@ public:
 // Mem2Reg pass
 //===----------------------------------------------------------------------===//
 
+/// Returns true if the type is a token type (ReadTokenType or WriteTokenType).
+static bool isTokenType(Type type) {
+  return isa<ReadTokenType, WriteTokenType>(type);
+}
+
 /// Runs the upstream Mem2Reg transformation on the given operation.
 /// This code was adapted from: llvm-project/mlir/lib/Transforms/Mem2Reg.cpp
 static bool runUpstreamMem2Reg(RewriterBase &rewriter, Operation *op,
@@ -61,10 +67,13 @@ static bool runUpstreamMem2Reg(RewriterBase &rewriter, Operation *op,
       continue;
     SmallVector<PromotableAllocationOpInterface> allocators;
     region.walk([&](PromotableAllocationOpInterface allocator) {
-      // Skip over any allocator that does not allocate a register type, and
-      // it's not a `memref.alloca`.
-      if (auto aOp = dyn_cast<memref::AllocaOp>(allocator.getOperation());
-          !aOp || !isa<RegisterTypeInterface>(aOp.getType().getElementType()))
+      // Skip over any allocator that does not allocate a register or token
+      // type, and it's not a `memref.alloca`.
+      auto aOp = dyn_cast<memref::AllocaOp>(allocator.getOperation());
+      if (!aOp)
+        return;
+      Type elemType = aOp.getType().getElementType();
+      if (!isa<RegisterTypeInterface>(elemType) && !isTokenType(elemType))
         return;
       allocators.emplace_back(allocator);
     });
@@ -91,7 +100,11 @@ void Mem2Reg::runOnOperation() {
     markAllAnalysesPreserved();
   // `mem2reg` Might allocate `ub.poison` ops to represent uninitialized
   // register values. Replace them with `amdgcn.alloca` ops.
+  // For token types, we leave them as poison since they don't need allocation.
   op->walk([&rewriter](ub::PoisonOp pOp) {
+    // Skip token types - they can stay as poison.
+    if (isTokenType(pOp.getType()))
+      return;
     if (!isa<RegisterTypeInterface>(pOp.getType()))
       return;
     rewriter.setInsertionPoint(pOp);

@@ -124,7 +124,7 @@ LogicalResult amdgcn::verifyIsAllocatableOpImpl(Operation *op,
     return success();
   }
   if (isa<KernelOp, aster::ModuleOpInterface, AllocaOp, MakeRegisterRangeOp,
-          RegInterferenceOp, SplitRegisterRangeOp>(op))
+          RegInterferenceOp, SplitRegisterRangeOp, WaitOp>(op))
     return success();
   if (state.getStrictness() != VerifierStrictness::Lax &&
       isa<ThreadIdOp, BlockIdOp, GridDimOp, BlockDimOp>(op)) {
@@ -132,7 +132,8 @@ LogicalResult amdgcn::verifyIsAllocatableOpImpl(Operation *op,
                     "before invoking the register allocator");
     return success();
   }
-  return op->emitOpError() << "encountered unexpected operation";
+  return op->emitOpError()
+         << "encountered unexpected operation in verifyIsAllocatableOpImpl";
 }
 
 //===----------------------------------------------------------------------===//
@@ -171,7 +172,8 @@ LogicalResult amdgcn::verifyIsAllocatedOpImpl(Operation *op,
     }
     return success();
   }
-  return op->emitOpError() << "encountered unexpected operation";
+  return op->emitOpError()
+         << "encountered unexpected operation in verifyIsAllocatedOpImpl";
 }
 
 //===----------------------------------------------------------------------===//

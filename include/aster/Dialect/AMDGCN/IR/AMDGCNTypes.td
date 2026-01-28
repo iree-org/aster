@@ -354,7 +354,7 @@ def LDSBufferType : AMDGCN_Type<"LDSBuffer", "lds_buffer"> {
 //===----------------------------------------------------------------------===//
 
 def ReadTokenType : AMDGCN_Type<"ReadToken", "read_token",
-    [TokenDependencyTypeInterface]> {
+    [TokenDependencyTypeInterface, MemRefElementTypeInterface]> {
   let summary = "Read token type";
   let description = [{
     A token type representing a memory read operation. Parametrized by the
@@ -365,7 +365,7 @@ def ReadTokenType : AMDGCN_Type<"ReadToken", "read_token",
 }
 
 def WriteTokenType : AMDGCN_Type<"WriteToken", "write_token",
-    [TokenDependencyTypeInterface]> {
+    [TokenDependencyTypeInterface, MemRefElementTypeInterface]> {
   let summary = "Write token type";
   let description = [{
     A token type representing a memory write operation. Parametrized by the
