@@ -362,6 +362,59 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     return
   }
 
+  // Load from global memory implementation.
+  // Supports dword (4 bytes), dwordx2 (8 bytes), dwordx3 (12 bytes), and
+  // dwordx4 (16 bytes) transfers.
+  // The caller is responsible for embedding distribution information into the
+  // positions %m_pos and %n_pos (and make them workgroup/wave/thread/lane-dependent).
+  func.func private @load_from_global_impl(
+    %pos_desc: !tensor_position_descriptor_2d,
+    %transfer_size: index           // Transfer size in bytes (4, 8, 12, or 16)
+  ) -> !aster_utils.any {
+    %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["ptr", "m_pos", "n_pos", "global_stride_in_bytes", "elt_size"] : !tensor_position_descriptor_2d -> !sx2, index, index, index, index
+    %desc = aster_utils.struct_create(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size) : (index, index, index, index) -> !index_descriptor_2d
+    %off_reg = func.call @matrix_offset(%desc) : (!index_descriptor_2d) -> !v
+    %c0_load = arith.constant 0 : i32
+
+    %res = scf.index_switch %transfer_size -> !aster_utils.any
+    case 4 {
+      %dst = func.call @alloc_vgprx1() : () -> (!vx1)
+      %loaded, %tok_load = amdgcn.load global_load_dword dest %dst addr %ptr offset d(%off_reg) + c(%c0_load)
+        : dps(!vx1) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+      %any = aster_utils.to_any %loaded : !vx1
+      scf.yield %any : !aster_utils.any
+    }
+    case 8 {
+      %dst = func.call @alloc_vgprx2() : () -> (!vx2)
+      %loaded, %tok_load = amdgcn.load global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load)
+        : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+      %any = aster_utils.to_any %loaded : !vx2
+      scf.yield %any : !aster_utils.any
+    }
+    case 12 {
+      %dst = func.call @alloc_vgprx3() : () -> (!vx3)
+      %loaded, %tok_load = amdgcn.load global_load_dwordx3 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load)
+        : dps(!vx3) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+      %any = aster_utils.to_any %loaded : !vx3
+      scf.yield %any : !aster_utils.any
+    }
+    case 16 {
+      %dst = func.call @alloc_vgprx4() : () -> (!vx4)
+      %loaded, %tok_load = amdgcn.load global_load_dwordx4 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load)
+        : dps(!vx4) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+      %any = aster_utils.to_any %loaded : !vx4
+      scf.yield %any : !aster_utils.any
+    }
+    default {
+      amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 45
+      %c0 = arith.constant 0 : index
+      %any = aster_utils.to_any %c0 : index
+      scf.yield %any : !aster_utils.any
+    }
+
+    return %res : !aster_utils.any
+  }
+
   // Store to global memory implementation.
   // Supports dword (4 bytes), dwordx2 (8 bytes), dwordx3 (12 bytes), and
   // dwordx4 (16 bytes) transfers.
@@ -459,6 +512,54 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
       : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> ()
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
+  }
+
+  // Load a dword (dword) from global memory, in a **synchronized fashion**.
+  func.func private @load_from_global_dword_wait(
+    %pos_desc: !tensor_position_descriptor_2d
+  ) -> !v {
+    %transfer_size = arith.constant 4 : index
+    %loaded_any = func.call @load_from_global_impl(%pos_desc, %transfer_size)
+      : (!tensor_position_descriptor_2d, index) -> (!aster_utils.any)
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    %res = aster_utils.from_any %loaded_any : !v
+    return %res : !v
+  }
+
+  // Load a dwordx2 (dwordx2) from global memory, in a **synchronized fashion**.
+  func.func private @load_from_global_dwordx2_wait(
+    %pos_desc: !tensor_position_descriptor_2d
+  ) -> !vx2 {
+    %transfer_size = arith.constant 8 : index
+    %loaded_any = func.call @load_from_global_impl(%pos_desc, %transfer_size)
+      : (!tensor_position_descriptor_2d, index) -> (!aster_utils.any)
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    %res = aster_utils.from_any %loaded_any : !vx2
+    return %res : !vx2
+  }
+
+  // Load a dwordx3 (dwordx3) from global memory, in a **synchronized fashion**.
+  func.func private @load_from_global_dwordx3_wait(
+    %pos_desc: !tensor_position_descriptor_2d
+  ) -> !vx3 {
+    %transfer_size = arith.constant 12 : index
+    %loaded_any = func.call @load_from_global_impl(%pos_desc, %transfer_size)
+      : (!tensor_position_descriptor_2d, index) -> (!aster_utils.any)
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    %res = aster_utils.from_any %loaded_any : !vx3
+    return %res : !vx3
+  }
+
+  // Load a dwordx4 (dwordx4) from global memory, in a **synchronized fashion**.
+  func.func private @load_from_global_dwordx4_wait(
+    %pos_desc: !tensor_position_descriptor_2d
+  ) -> !vx4 {
+    %transfer_size = arith.constant 16 : index
+    %loaded_any = func.call @load_from_global_impl(%pos_desc, %transfer_size)
+      : (!tensor_position_descriptor_2d, index) -> (!aster_utils.any)
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    %res = aster_utils.from_any %loaded_any : !vx4
+    return %res : !vx4
   }
 
   //===--------------------------------------------------------------------===//

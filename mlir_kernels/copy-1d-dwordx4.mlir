@@ -1,95 +1,74 @@
 // Drive this through pytest, only check input validity here.
 // RUN: cat %s \
 // RUN: | sed -e 's/{{GRID_DIM_X}}/1/g' -e 's/{{BLOCK_DIM_X}}/64/g' -e 's/{{NUM_ELEMENTS_PER_THREAD}}/1/g' -e 's/{{SCHED_DELAY_STORE}}/3/g' \
-// RUN: | aster-opt \
+// RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/copies.mlir,%p/library/common/indexing.mlir,%p/library/common/register-init.mlir" \
 // RUN: | FileCheck %s
 
 // Minimal 1-D copy kernel using dwordx4 (16 bytes per thread)
 
 // CHECK-LABEL: amdgcn.module
 
+// From descriptors.mlir
+!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!vx4 = !amdgcn.vgpr_range<[? + 4]>
+!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
+
 amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
-  // Global load helper - loads dwordx4 at iteration index
+  // Declare library functions
+  func.func private @store_to_global_dwordx4_wait(!vx4, !tensor_position_descriptor_2d) -> ()
+  func.func private @load_from_global_dwordx4_wait(!tensor_position_descriptor_2d) -> !vx4
+  func.func private @distributed_index_1d_with_grid_stride(index) -> index
+
+  // Global load helper - loads dwordx4 at element position
   func.func private @global_load_body(
-    %threadidx_x: index,
-    %blockidx_x: index,
-    %blockdim_x: index,
-    %griddim_x: index,
+    %elem_index: index,
     %iter: index,
-    %src_global: !amdgcn.sgpr_range<[? + 2]>,
-    %memref: memref<?x!amdgcn.vgpr_range<[? + 4]>>
+    %src_global: !sx2,
+    %memref: memref<?x!vx4>
   ) {
-    // Allocate registers for dwordx4
-    %vgpr0 = amdgcn.alloca : !amdgcn.vgpr
-    %vgpr1 = amdgcn.alloca : !amdgcn.vgpr
-    %vgpr2 = amdgcn.alloca : !amdgcn.vgpr
-    %vgpr3 = amdgcn.alloca : !amdgcn.vgpr
-    %range = amdgcn.make_register_range %vgpr0, %vgpr1, %vgpr2, %vgpr3
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    // Create position descriptor for 1D access (treat as 2D with m_pos=0)
+    %c0 = arith.constant 0 : index
+    %c16 = arith.constant 16 : index  // dwordx4 size in bytes
+    %pos_desc = aster_utils.struct_create(%src_global, %c0, %elem_index, %c16, %c16) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
 
-    // Calculate byte offset: ((iter * griddim * blockdim) + (blockidx * blockdim) + threadidx) * 16
-    %offset_index = affine.apply affine_map<
-      (iter, bidx, tidx)[gdim, bdim] -> (((iter * gdim + bidx) * bdim + tidx) * 16)>
-      (%iter, %blockidx_x, %threadidx_x)[%griddim_x, %blockdim_x]
-    %offset = arith.index_cast %offset_index : index to i32
-    %offset_vgpr = lsir.to_reg %offset : i32 -> !amdgcn.vgpr
-
-    // Global load dwordx4
-    %c0_load = arith.constant 0 : i32
-    %loaded, %tok_load = amdgcn.load global_load_dwordx4 dest %range addr %src_global offset d(%offset_vgpr) + c(%c0_load) : dps(!amdgcn.vgpr_range<[? + 4]>) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.read_token<flat>
-
-    // Wait for load completion
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    // Use library function to load dwordx4
+    %loaded = func.call @load_from_global_dwordx4_wait(%pos_desc) : (!tensor_position_descriptor_2d) -> !vx4
 
     // Store to memref for later use
-    memref.store %loaded, %memref[%iter] : memref<?x!amdgcn.vgpr_range<[? + 4]>>
+    memref.store %loaded, %memref[%iter] : memref<?x!vx4>
     return
   }
 
-  // Global store helper - stores dwordx4 at iteration index
+  // Global store helper - stores dwordx4 at element position
   func.func private @global_store_body(
-    %threadidx_x: index,
-    %blockidx_x: index,
-    %blockdim_x: index,
-    %griddim_x: index,
+    %elem_index: index,
     %iter: index,
-    %memref: memref<?x!amdgcn.vgpr_range<[? + 4]>>,
-    %dst_global: !amdgcn.sgpr_range<[? + 2]>
+    %memref: memref<?x!vx4>,
+    %dst_global: !sx2
   ) {
     // Load from memref (for SROA + MEM2REG)
-    %value = memref.load %memref[%iter] : memref<?x!amdgcn.vgpr_range<[? + 4]>>
+    %value = memref.load %memref[%iter] : memref<?x!vx4>
 
-    // Calculate byte offset: ((iter * griddim * blockdim) + (blockidx * blockdim) + threadidx) * 16
-    %offset_index = affine.apply affine_map<
-      (iter, bidx, tidx)[gdim, bdim] -> (((iter * gdim + bidx) * bdim + tidx) * 16)>
-      (%iter, %blockidx_x, %threadidx_x)[%griddim_x, %blockdim_x]
-    %offset = arith.index_cast %offset_index : index to i32
-    %offset_vgpr = lsir.to_reg %offset : i32 -> !amdgcn.vgpr
+    // Create position descriptor for 1D access (treat as 2D with m_pos=0)
+    %c0 = arith.constant 0 : index
+    %c16 = arith.constant 16 : index  // dwordx4 size in bytes
+    %pos_desc = aster_utils.struct_create(%dst_global, %c0, %elem_index, %c16, %c16) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
 
-    // Global store dwordx4
-    %c0_store = arith.constant 0 : i32
-    %tok_store = amdgcn.store global_store_dwordx4 data %value addr %dst_global offset d(%offset_vgpr) + c(%c0_store) : ins(!amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<flat>
-
-    // Wait for store completion
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    // Use library function to store dwordx4
+    func.call @store_to_global_dwordx4_wait(%value, %pos_desc)
+      : (!vx4, !tensor_position_descriptor_2d) -> ()
     return
   }
 
   // Main copy loop function
   func.func private @copy_loop(
     %num_elements: index,
-    %src_global: !amdgcn.sgpr_range<[? + 2]>,
-    %dst_global: !amdgcn.sgpr_range<[? + 2]>
+    %src_global: !sx2,
+    %dst_global: !sx2
   ) {
     // Allocate memref for data transfer between load and store
-    %memref = memref.alloca(%num_elements) : memref<?x!amdgcn.vgpr_range<[? + 4]>>
-
-    // Get thread/block indices
-    %threadidx_x = gpu.thread_id x
-    %blockidx_x = gpu.block_id x
-    %blockdim_x = gpu.block_dim x
-    %griddim_x = gpu.grid_dim x
+    %memref = memref.alloca(%num_elements) : memref<?x!vx4>
 
     // Loop constants
     %c0 = arith.constant 0 : index
@@ -97,12 +76,15 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
     // Loop over elements per thread
     scf.for %i = %c0 to %num_elements step %c1 {
-      func.call @global_load_body(%threadidx_x, %blockidx_x, %blockdim_x, %griddim_x, %i, %src_global, %memref)
+      // Calculate element index using grid-stride pattern (internally queries GPU intrinsics)
+      %elem_index = func.call @distributed_index_1d_with_grid_stride(%i) : (index) -> index
+
+      func.call @global_load_body(%elem_index, %i, %src_global, %memref)
         {sched.delay = 0 : i32, sched.rate = 1 : i32}
-        : (index, index, index, index, index, !amdgcn.sgpr_range<[? + 2]>, memref<?x!amdgcn.vgpr_range<[? + 4]>>) -> ()
-      func.call @global_store_body(%threadidx_x, %blockidx_x, %blockdim_x, %griddim_x, %i, %memref, %dst_global)
+        : (index, index, !sx2, memref<?x!vx4>) -> ()
+      func.call @global_store_body(%elem_index, %i, %memref, %dst_global)
         {sched.delay = {{SCHED_DELAY_STORE}} : i32, sched.rate = 1 : i32}
-        : (index, index, index, index, index, memref<?x!amdgcn.vgpr_range<[? + 4]>>, !amdgcn.sgpr_range<[? + 2]>) -> ()
+        : (index, index, memref<?x!vx4>, !sx2) -> ()
     } {sched.dims = array<i64: {{NUM_ELEMENTS_PER_THREAD}}>}
 
     return
@@ -110,13 +92,13 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
   // Test function that calls copy_loop with templated dimensions
   func.func private @test_copy(
-    %src_global: !amdgcn.sgpr_range<[? + 2]>,
-    %dst_global: !amdgcn.sgpr_range<[? + 2]>
+    %src_global: !sx2,
+    %dst_global: !sx2
   ) {
     %num_elements = arith.constant {{NUM_ELEMENTS_PER_THREAD}} : index
 
     func.call @copy_loop(%num_elements, %src_global, %dst_global)
-      : (index, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>) -> ()
+      : (index, !sx2, !sx2) -> ()
 
     return
   }
@@ -126,15 +108,15 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     // Load kernel arguments
-    %src_ptr_s = amdgcn.load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
-    %dst_ptr_s = amdgcn.load_arg 1 : !amdgcn.sgpr_range<[? + 2]>
+    %src_ptr_s = amdgcn.load_arg 0 : !sx2
+    %dst_ptr_s = amdgcn.load_arg 1 : !sx2
     %src_ptr, %dst_ptr = lsir.assume_noalias %src_ptr_s, %dst_ptr_s
-      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>)
-      -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>)
+      : (!sx2, !sx2)
+      -> (!sx2, !sx2)
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
     func.call @test_copy(%src_ptr, %dst_ptr)
-      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>) -> ()
+      : (!sx2, !sx2) -> ()
 
     amdgcn.end_kernel
   }

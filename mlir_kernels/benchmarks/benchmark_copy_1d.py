@@ -78,12 +78,23 @@ def compile_kernel_worker(config: Copy1DConfig) -> Tuple[Copy1DConfig, str]:
                 x = x.replace("{{GRID_DIM_X}}", str(config.num_workgroups))
                 return x
 
+            # Get library paths relative to the MLIR file (use absolute paths)
+            # Load dependencies first: register-init and indexing before copies
+            mlir_dir = os.path.dirname(os.path.abspath(config.mlir_file))
+            library_dir = os.path.join(mlir_dir, "library", "common")
+            library_paths = [
+                os.path.abspath(os.path.join(library_dir, "register-init.mlir")),
+                os.path.abspath(os.path.join(library_dir, "indexing.mlir")),
+                os.path.abspath(os.path.join(library_dir, "copies.mlir")),
+            ]
+
             asm_complete, _ = compile_mlir_file_to_asm(
                 config.mlir_file,
                 config.kernel_name,
                 config.pass_pipeline,
                 ctx,
                 preprocess=preprocess,
+                library_paths=library_paths,
             )
 
             hsaco_path = utils.assemble_to_hsaco(

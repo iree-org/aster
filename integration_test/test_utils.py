@@ -313,6 +313,12 @@ def compile_mlir_file_to_asm(
 
     # Pre-apply preload-library pass if library paths are provided
     if library_paths:
+        # Verify all library files exist
+        for lib_path in library_paths:
+            if not os.path.exists(lib_path):
+                raise FileNotFoundError(
+                    f"Library file not found: {lib_path}. " f"MLIR file: {mlir_file}"
+                )
         _log_info(logger, f"[COMPILE] Pre-applying preload-library pass")
         paths_str = ",".join(library_paths)
         preload_pass = (
@@ -330,8 +336,6 @@ def compile_mlir_file_to_asm(
         pm.enable_timing()
     pm.run(module.operation)
     _log_info(logger, f"[COMPILE] Pass pipeline completed")
-    # Leave this here, it's useful for debugging.
-    # print(module)
 
     # Find the amdgcn.kernel inside the proper amdgcn.module
     _log_info(logger, f"[COMPILE] Searching for kernel: {kernel_name}")
