@@ -19,6 +19,7 @@
 
 // Forward declaration for test pass registration
 namespace mlir::aster::test {
+void registerTestBufferAnalysisPass();
 void registerTestDPSAliasAnalysisPass();
 void registerTestLivenessAnalysisPass();
 void registerTestMemoryDependenceAnalysisPass();
@@ -39,6 +40,7 @@ int main(int argc, char **argv) {
   /// Aster C++ stuff
   aster::initDialects(registry);
   aster::registerPasses();
+  aster::test::registerTestBufferAnalysisPass();
   aster::test::registerTestDPSAliasAnalysisPass();
   aster::test::registerTestLivenessAnalysisPass();
   aster::test::registerTestMemoryDependenceAnalysisPass();

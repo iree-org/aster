@@ -1,4 +1,5 @@
 add_mlir_library(ASTERTestPass
+  TestBufferAnalysis.cpp
   TestDPSAliasAnalysis.cpp
   TestLivenessAnalysis.cpp
   TestMemoryDependenceAnalysis.cpp
@@ -9,6 +10,7 @@ add_mlir_library(ASTERTestPass
   AMDGCNDialect
   ASTERAnalysis
   MLIRAnalysis
+  MLIRFuncDialect
   MLIRIR
   MLIRPass
 )

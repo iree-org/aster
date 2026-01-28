@@ -1,5 +1,6 @@
 add_mlir_library(
   AMDGCNAnalysis
+  BufferAnalysis.cpp
   WaitAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS

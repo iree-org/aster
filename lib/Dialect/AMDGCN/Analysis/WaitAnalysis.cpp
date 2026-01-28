@@ -11,6 +11,7 @@
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
+#include "aster/IR/Utils.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -412,34 +413,6 @@ static bool handleEscapedTokens(SmallVectorImpl<TokenState> &results,
   return merge(results, escapedTokens);
 }
 
-/// Check if a value's defining block dominates a given block.
-static bool dominatesSuccessor(DominanceInfo &domInfo, Value value,
-                               Block *block) {
-  Block *defBlock = nullptr;
-  if (auto blockArg = dyn_cast<BlockArgument>(value)) {
-    defBlock = blockArg.getOwner();
-  } else {
-    defBlock = value.getDefiningOp()->getBlock();
-  }
-  return domInfo.properlyDominates(defBlock, block);
-}
-
-/// Check if a value dominates a given succesor.
-static bool dominatesSuccessor(DominanceInfo &domInfo, Value value,
-                               RegionBranchOpInterface op,
-                               RegionSuccessor successor) {
-  if (successor.isParent())
-    return domInfo.dominates(value, op);
-  Block *defBlock = nullptr;
-  if (auto blockArg = dyn_cast<BlockArgument>(value)) {
-    defBlock = blockArg.getOwner();
-  } else {
-    defBlock = value.getDefiningOp()->getBlock();
-  }
-  return domInfo.properlyDominates(defBlock,
-                                   &successor.getSuccessor()->front());
-}
-
 /// Add tokens from predecessor to results based on dominance.
 static bool addTokensByDominance(SmallVectorImpl<TokenState> &results,
                                  SmallVectorImpl<TokenState> &scratch,
@@ -463,19 +436,6 @@ static bool addTokensByDominance(SmallVectorImpl<TokenState> &results,
     scratch.push_back(tok);
   }
   return merge(results, scratch);
-}
-
-/// Walk all terminators in a region and invoke a function on each.
-static void
-walkTerminators(Region *region,
-                std::function<void(RegionBranchTerminatorOpInterface)> &&func) {
-  for (Block &block : *region) {
-    if (block.empty())
-      continue;
-    if (auto terminator =
-            dyn_cast<RegionBranchTerminatorOpInterface>(block.back()))
-      func(terminator);
-  }
 }
 
 TokenState WaitAnalysis::getState(Value token, TokenState::ID position) {
