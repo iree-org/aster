@@ -54,6 +54,45 @@ def AMDGCN_AllocaOp : AMDGCN_Op<"alloca", [
 }
 
 //===----------------------------------------------------------------------===//
+// AllocLDS
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_AllocLDSOp : AMDGCN_Op<"alloc_lds"> {
+  let summary = "AMDGCN allocate LDS operation";
+  let description = [{
+    Allocates a buffer in the Local Data Store (LDS) with the specified size
+    and optional alignment in bytes. The allocated buffer is considered
+    live until it is deallocated with `amdgcn.dealloc_lds` or the value
+    stops being reachable.
+
+    Example:
+    ```mlir
+    // Allocate 16 bytes of LDS with 4-byte alignment.
+    %1 = amdgcn.alloc_lds 16 alignment 4
+    ```
+  }];
+  let arguments = (ins
+    Optional<Index>:$dynamic_size,
+    I64Attr:$static_size,
+    DefaultValuedAttr<IntValidAlignment<I64Attr>, "16">:$alignment
+  );
+  let results = (outs LDSBufferType:$buffer);
+  let assemblyFormat = [{
+    custom<AllocSize>($dynamic_size, $static_size) (`alignment` $alignment^)?
+    attr-dict
+  }];
+  let extraClassDeclaration = [{
+    /// Get the size of the allocated LDS buffer, either static or dynamic.
+    OpFoldResult getSize() {
+      return ShapedType::isDynamic(getStaticSize()) ?
+        OpFoldResult(getDynamicSize()) : OpFoldResult(getStaticSizeAttr());
+    }
+  }];
+  let hasFolder = 1;
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
 // BlockIdOp
 //===----------------------------------------------------------------------===//
 
@@ -109,6 +148,46 @@ def AMDGCN_DeallocCastOp : AMDGCN_Op<"dealloc_cast", [
   let assemblyFormat = [{
     $input attr-dict `:` type($input)
   }];
+}
+
+//===----------------------------------------------------------------------===//
+// DeallocLDSOp
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_DeallocLDSOp : AMDGCN_Op<"dealloc_lds"> {
+  let summary = "AMDGCN deallocate LDS operation";
+  let description = [{
+    Deallocates a buffer in the Local Data Store (LDS). It's considered
+    undefined behavior to use a buffer after deallocation.
+
+    Example:
+    ```mlir
+    amdgcn.dealloc_lds %0
+    ```
+  }];
+  let arguments = (ins LDSBufferType:$buffer);
+  let assemblyFormat = "$buffer attr-dict";
+}
+
+//===----------------------------------------------------------------------===//
+// GetLDSOffsetOp
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_GetLDSOffsetOp : AMDGCN_Op<"get_lds_offset", [Pure]> {
+  let summary = "AMDGCN get LDS offset operation";
+  let description = [{
+    Returns the offset to the start of shared memory for the buffer. Its value
+    is considered poison if used after the buffer's lifetime has ended, or if
+    the buffer never had a valid lifetime.
+
+    Example:
+    ```mlir
+    %ptr = amdgcn.get_lds_offset %0 : i32
+    ```
+  }];
+  let arguments = (ins LDSBufferType:$buffer);
+  let results = (outs AnyTypeOf<[I32, Index]>:$result);
+  let assemblyFormat = "$buffer attr-dict `:` type($result)";
 }
 
 //===----------------------------------------------------------------------===//

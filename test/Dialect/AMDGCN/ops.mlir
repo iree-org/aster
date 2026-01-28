@@ -198,3 +198,18 @@ func.func @test_waits(
   amdgcn.wait vm_cnt 2
   return
 }
+
+//===----------------------------------------------------------------------===//
+// LDS Buffer Operations
+//===----------------------------------------------------------------------===//
+
+func.func @lds_buffer_ops(%arg0: index, %arg1: index) {
+  %0 = amdgcn.alloc_lds %arg0
+  amdgcn.get_lds_offset %0 : i32
+  amdgcn.dealloc_lds %0
+  %1 = amdgcn.alloc_lds %arg1
+  amdgcn.get_lds_offset %0 : index
+  amdgcn.dealloc_lds %1
+  %2 = amdgcn.alloc_lds 32
+  return
+}
