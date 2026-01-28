@@ -23,6 +23,11 @@
 
 #define DEBUG_TYPE "test-dps-alias-analysis"
 
+namespace mlir::aster::test {
+#define GEN_PASS_DEF_TESTDPSALIASANALYSIS
+#include "Passes.h.inc"
+} // namespace mlir::aster::test
+
 using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
@@ -32,16 +37,10 @@ namespace {
 // TestDPSAliasAnalysis pass
 //===----------------------------------------------------------------------===//
 class TestDPSAliasAnalysis
-    : public PassWrapper<TestDPSAliasAnalysis, OperationPass<>> {
+    : public mlir::aster::test::impl::TestDPSAliasAnalysisBase<
+          TestDPSAliasAnalysis> {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestDPSAliasAnalysis)
-
-  StringRef getArgument() const final { return "test-dps-alias-analysis"; }
-  StringRef getDescription() const final {
-    return "Test pass for DPS alias analysis";
-  }
-
-  TestDPSAliasAnalysis() = default;
+  using TestDPSAliasAnalysisBase::TestDPSAliasAnalysisBase;
 
   void runOnOperation() override {
     Operation *op = getOperation();
@@ -93,13 +92,3 @@ public:
   }
 };
 } // namespace
-
-namespace mlir {
-namespace aster {
-namespace test {
-void registerTestDPSAliasAnalysisPass() {
-  PassRegistration<TestDPSAliasAnalysis>();
-}
-} // namespace test
-} // namespace aster
-} // namespace mlir

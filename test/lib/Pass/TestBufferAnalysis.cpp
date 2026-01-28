@@ -20,6 +20,11 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 
+namespace mlir::aster::test {
+#define GEN_PASS_DEF_TESTBUFFERANALYSIS
+#include "Passes.h.inc"
+} // namespace mlir::aster::test
+
 using namespace mlir;
 using namespace mlir::aster::amdgcn;
 
@@ -28,16 +33,10 @@ namespace {
 // TestBufferAnalysis pass
 //===----------------------------------------------------------------------===//
 class TestBufferAnalysis
-    : public PassWrapper<TestBufferAnalysis, OperationPass<>> {
+    : public mlir::aster::test::impl::TestBufferAnalysisBase<
+          TestBufferAnalysis> {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestBufferAnalysis)
-
-  StringRef getArgument() const final { return "test-buffer-analysis"; }
-  StringRef getDescription() const final {
-    return "Test pass for buffer analysis";
-  }
-
-  TestBufferAnalysis() = default;
+  using TestBufferAnalysisBase::TestBufferAnalysisBase;
 
   void runOnOperation() override {
     Operation *op = getOperation();
@@ -89,13 +88,3 @@ public:
   }
 };
 } // namespace
-
-namespace mlir {
-namespace aster {
-namespace test {
-void registerTestBufferAnalysisPass() {
-  PassRegistration<TestBufferAnalysis>();
-}
-} // namespace test
-} // namespace aster
-} // namespace mlir

@@ -27,6 +27,11 @@
 
 #define DEBUG_TYPE "test-liveness-analysis"
 
+namespace mlir::aster::test {
+#define GEN_PASS_DEF_TESTLIVENESSANALYSIS
+#include "Passes.h.inc"
+} // namespace mlir::aster::test
+
 using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
@@ -36,16 +41,10 @@ namespace {
 // TestLivenessAnalysis pass
 //===----------------------------------------------------------------------===//
 class TestLivenessAnalysis
-    : public PassWrapper<TestLivenessAnalysis, OperationPass<>> {
+    : public mlir::aster::test::impl::TestLivenessAnalysisBase<
+          TestLivenessAnalysis> {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestLivenessAnalysis)
-
-  StringRef getArgument() const final { return "test-liveness-analysis"; }
-  StringRef getDescription() const final {
-    return "Test pass for liveness analysis";
-  }
-
-  TestLivenessAnalysis() = default;
+  using TestLivenessAnalysisBase::TestLivenessAnalysisBase;
 
   void runOnOperation() override {
     Operation *op = getOperation();
@@ -123,13 +122,3 @@ public:
   }
 };
 } // namespace
-
-namespace mlir {
-namespace aster {
-namespace test {
-void registerTestLivenessAnalysisPass() {
-  PassRegistration<TestLivenessAnalysis>();
-}
-} // namespace test
-} // namespace aster
-} // namespace mlir

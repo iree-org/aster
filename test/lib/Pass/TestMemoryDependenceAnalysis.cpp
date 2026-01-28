@@ -24,6 +24,11 @@
 
 #define DEBUG_TYPE "test-memory-dependence-analysis"
 
+namespace mlir::aster::test {
+#define GEN_PASS_DEF_TESTMEMORYDEPENDENCEANALYSIS
+#include "Passes.h.inc"
+} // namespace mlir::aster::test
+
 using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
@@ -33,18 +38,10 @@ namespace {
 // TestMemoryDependenceAnalysis pass
 //===----------------------------------------------------------------------===//
 class TestMemoryDependenceAnalysis
-    : public PassWrapper<TestMemoryDependenceAnalysis, OperationPass<>> {
+    : public mlir::aster::test::impl::TestMemoryDependenceAnalysisBase<
+          TestMemoryDependenceAnalysis> {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestMemoryDependenceAnalysis)
-
-  StringRef getArgument() const final {
-    return "test-memory-dependence-analysis";
-  }
-  StringRef getDescription() const final {
-    return "Test pass for memory dependence analysis";
-  }
-
-  TestMemoryDependenceAnalysis() = default;
+  using TestMemoryDependenceAnalysisBase::TestMemoryDependenceAnalysisBase;
 
   void runOnOperation() override {
     Operation *op = getOperation();
@@ -117,13 +114,3 @@ public:
   }
 };
 } // namespace
-
-namespace mlir {
-namespace aster {
-namespace test {
-void registerTestMemoryDependenceAnalysisPass() {
-  PassRegistration<TestMemoryDependenceAnalysis>();
-}
-} // namespace test
-} // namespace aster
-} // namespace mlir

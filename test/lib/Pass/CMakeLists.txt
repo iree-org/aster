@@ -1,9 +1,17 @@
+set(LLVM_TARGET_DEFINITIONS Passes.td)
+mlir_tablegen(Passes.h.inc -gen-pass-decls)
+add_public_tablegen_target(ASTERTestPassesIncGen)
+
 add_mlir_library(ASTERTestPass
+  Passes.cpp
   TestBufferAnalysis.cpp
   TestDPSAliasAnalysis.cpp
   TestLivenessAnalysis.cpp
   TestMemoryDependenceAnalysis.cpp
   TestWaitAnalysis.cpp
+
+  DEPENDS
+  ASTERTestPassesIncGen
 
   LINK_LIBS PUBLIC
   AMDGCNAnalysis
@@ -14,3 +22,5 @@ add_mlir_library(ASTERTestPass
   MLIRIR
   MLIRPass
 )
+
+target_include_directories(ASTERTestPass PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

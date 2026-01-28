@@ -25,19 +25,20 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/raw_ostream.h"
 
+namespace mlir::aster::test {
+#define GEN_PASS_DEF_TESTWAITANALYSIS
+#include "Passes.h.inc"
+} // namespace mlir::aster::test
+
 using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
 namespace {
-class TestWaitAnalysis : public PassWrapper<TestWaitAnalysis, OperationPass<>> {
+class TestWaitAnalysis
+    : public mlir::aster::test::impl::TestWaitAnalysisBase<TestWaitAnalysis> {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestWaitAnalysis)
-  StringRef getArgument() const final { return "test-wait-analysis"; }
-  StringRef getDescription() const final {
-    return "Test pass for wait analysis";
-  }
-  TestWaitAnalysis() = default;
+  using TestWaitAnalysisBase::TestWaitAnalysisBase;
 
   void runOnOperation() override {
     Operation *op = getOperation();
@@ -93,11 +94,3 @@ public:
   }
 };
 } // namespace
-
-namespace mlir {
-namespace aster {
-namespace test {
-void registerTestWaitAnalysisPass() { PassRegistration<TestWaitAnalysis>(); }
-} // namespace test
-} // namespace aster
-} // namespace mlir
