@@ -21,6 +21,12 @@
 //   - mm_pos, nn_pos: row and column positions of the inner tile (in elements)
 //   - elt_size: element size in bytes
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+
+// A 2D LDS position descriptor containing:
+//   - lds_base: local base offset in LDS
+//   - m_pos, n_pos: row and column positions (in elements)
+//   - lds_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
