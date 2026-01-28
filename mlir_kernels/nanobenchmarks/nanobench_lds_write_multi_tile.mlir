@@ -6,8 +6,24 @@
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 
+// A 2D LDS position descriptor containing:
+//   - lds_base: local base offset in LDS
+//   - m_pos, n_pos: row and column positions (in elements)
+//   - lds_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+
+// A 2-level 2D LDS position descriptor containing:
+//   - lds_base: local base offset in LDS
+//   - mm_pos, nn_pos: row and column positions of the minor tile (in elements)
+//   - lds_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
+
+// A 2D conditional execution descriptor for multi-tile operations containing:
+//   - k: outer loop index (for indexing load_memref -> mem2reg)
+//   - cond_iter: condition index (execute only when cond_iter == 0)
+//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
 !conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
 
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
