@@ -10,6 +10,7 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/BufferAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/IR/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/Operation.h"
@@ -59,17 +60,20 @@ void BufferState::print(raw_ostream &os) const {
 
 /// Update the state of a buffer and return whether it changed.
 static ChangeResult updateState(BufferState::State &state,
-                                BufferState::State incomingState) {
-  if (state == incomingState || state == BufferState::State::Top)
+                                BufferState::State other) {
+  if (state == other || state == BufferState::State::Top)
     return ChangeResult::NoChange;
 
-  assert(incomingState != BufferState::State::None && "invalid incoming state");
-
+  assert(other != BufferState::State::None && "invalid state");
   // If the buffer is not present, set it to the incoming state.
   if (state == BufferState::State::None) {
-    state = incomingState;
+    state = other;
     return ChangeResult::Change;
   }
+
+  // If the states are compatible, update accordingly.
+  if (state == BufferState::State::Dead && other == BufferState::State::Live)
+    return ChangeResult::NoChange;
 
   // At this point the states conflict, set to Top.
   state = BufferState::State::Top;
@@ -90,12 +94,12 @@ ChangeResult BufferState::join(const BufferState &lattice,
   ChangeResult changed = ChangeResult::NoChange;
 
   // Merge the buffer states.
-  for (auto [buffer, incomingState] : lattice.buffers) {
+  for (auto [buffer, prevState] : lattice.buffers) {
     // If a dominance function is provided, skip buffers that do not dominate.
     if (dominates && !dominates(buffer))
       continue;
 
-    changed |= updateState(buffers[buffer], incomingState);
+    changed |= updateState(buffers[buffer], prevState);
   }
   return changed;
 }
@@ -152,34 +156,15 @@ LogicalResult BufferAnalysis::visitOperation(Operation *op,
   return success();
 }
 
-static ChangeResult
-mapControlFlowOperands(BufferState &after, const BufferState &before,
-                       ValueRange successorOperands, ValueRange successorValues,
-                       llvm::function_ref<bool(Value)> dominates) {
+/// Mark all buffers used in the successor as Top in the after state.
+static ChangeResult mapControlFlowOperands(BufferState &after,
+                                           const BufferState &before,
+                                           ValueRange successorValues) {
   ChangeResult changed = ChangeResult::NoChange;
-  for (auto operandValue :
-       llvm::zip_equal(successorOperands, successorValues)) {
-    Value operand = std::get<0>(operandValue);
-    Value value = std::get<1>(operandValue);
-
-    LDBG_OS([&](llvm::raw_ostream &os) {
-      os << "  Checking propagated value from: ";
-      operand.printAsOperand(os, OpPrintingFlags());
-      os << " to ";
-      value.printAsOperand(os, OpPrintingFlags());
-    });
-
-    BufferState::State state = before.getBufferState(operand);
-
-    if (state == BufferState::State::None)
+  for (Value value : successorValues) {
+    if (!isa<LDSBufferType>(value.getType()))
       continue;
-
-    // Mark as dead if the operand does not dominate. This scopes the lifetime
-    // of the buffer to the dominance frontier.
-    if (!dominates(operand))
-      state = BufferState::State::Dead;
-
-    changed |= after.updateBuffer(value, state);
+    changed |= after.updateBuffer(value, BufferState::State::Top);
   }
   return changed;
 }
@@ -201,10 +186,7 @@ void BufferAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   for (auto [i, succ] : llvm::enumerate(terminator->getSuccessors())) {
     if (succ != block)
       continue;
-    changed |= mapControlFlowOperands(
-        *after, before,
-        terminator.getSuccessorOperands(i).getForwardedOperands(),
-        block->getArguments(), dominates);
+    changed |= mapControlFlowOperands(*after, before, block->getArguments());
   }
   propagateIfChanged(after, changed);
 }
@@ -231,19 +213,14 @@ void BufferAnalysis::visitRegionBranchControlFlowTransfer(
 
   // Branch from parent.
   if (!regionFrom) {
-    changed |= mapControlFlowOperands(
-        *after, before,
-        branch.getSuccessorOperands(RegionBranchPoint::parent(), successor),
-        branch.getSuccessorInputs(successor), dominates);
+    changed |= mapControlFlowOperands(*after, before,
+                                      branch.getSuccessorInputs(successor));
   } else {
     // Branch from a region.
     walkTerminators(&branch->getRegion(*regionFrom),
                     [&](RegionBranchTerminatorOpInterface terminator) {
                       changed |= mapControlFlowOperands(
-                          *after, before,
-                          branch.getSuccessorOperands(
-                              RegionBranchPoint(terminator), successor),
-                          branch.getSuccessorInputs(successor), dominates);
+                          *after, before, branch.getSuccessorInputs(successor));
                     });
   }
   propagateIfChanged(after, changed);

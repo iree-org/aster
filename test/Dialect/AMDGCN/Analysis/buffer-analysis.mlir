@@ -185,11 +185,11 @@ func.func @buffer_in_if_1(%arg0: i1) {
   return
 }
 
-// CHECK-LABEL: func @buffer_in_if_dead
-func.func @buffer_in_if_dead(%arg0: i1) {
+// CHECK-LABEL: func @buffer_in_if_top
+func.func @buffer_in_if_top(%arg0: i1) {
 // CHECK: %[[RES:.*]] = scf.if %{{.*}}
 // CHECK-NEXT: BEFORE: []
-// CHECK-NEXT: AFTER: [{%[[RES]], dead}]
+// CHECK-NEXT: AFTER: [{%[[RES]], top}]
   scf.if %arg0 -> !amdgcn.lds_buffer {
     %0 = amdgcn.alloc_lds 32
     scf.yield %0 : !amdgcn.lds_buffer
