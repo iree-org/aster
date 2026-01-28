@@ -126,3 +126,22 @@
 //   - i: iteration index into the memref
 //   - memref: the memref for mem2reg transformation
 !m2reg_param_1d_vx4 = !aster_utils.struct<i: index, memref: memref<?x!vx4>>
+
+//===----------------------------------------------------------------------===//
+// Future descriptors (for async operations with explicit wait control)
+//===----------------------------------------------------------------------===//
+
+// A future descriptor for async global load operations containing:
+//   - value: the loaded value (type-erased via !aster_utils.any)
+//   - token: the read token for synchronization via amdgcn.wait
+// This enables callers to wait explicitly instead of using hardcoded s_waitcnt.
+!future_global_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
+
+// A future descriptor for async LDS write operations containing:
+//   - token: the write token for synchronization via amdgcn.wait
+!future_lds_write_any = !aster_utils.struct<token: !amdgcn.write_token<shared>>
+
+// A future descriptor for async LDS read operations containing:
+//   - value: the loaded value (type-erased via !aster_utils.any)
+//   - token: the read token for synchronization via amdgcn.wait
+!future_lds_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
