@@ -27,6 +27,12 @@
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
+// A 2D conditional execution descriptor for multi-tile operations containing:
+//   - k: outer loop index (for indexing load_memref -> mem2reg)
+//   - cond_iter: condition index (execute only when cond_iter == 0)
+//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
+!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
+
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
@@ -65,11 +71,11 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, !lds_position_descriptor_2d)
   func.func private @simple_lds_read_wave_16x16xf16_wait(!lds_position_descriptor_2d) -> !vx2
   // simple-multi-tile-copies.mlir
-  func.func private @simple_maybe_lds_write_multi_tile(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @simple_maybe_lds_write_multi_tile(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
   // multi-tile-copies.mlir
-  func.func private @simple_maybe_global_load_multi_tile(index, index, index, index, index, index, index, !tensor_position_descriptor_2d, memref<?x?x!vx2>)
-  func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
-  func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @simple_maybe_global_load_multi_tile(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @maybe_global_load_multi_tile_coalesced(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
+  func.func private @maybe_lds_write_multi_tile_coalesced(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Global store

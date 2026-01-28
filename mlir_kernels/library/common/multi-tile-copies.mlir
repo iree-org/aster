@@ -57,6 +57,12 @@
 //   - wave_size: number of threads per wave
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
+// A 2D conditional execution descriptor for multi-tile operations containing:
+//   - k: outer loop index (for indexing load_memref -> mem2reg)
+//   - cond_iter: condition index (execute only when cond_iter == 0)
+//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
+!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
+
 amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
@@ -76,24 +82,25 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
   //
   // Parameters:
-  //   %k: outer loop index (for storing variadic results in load_memref -> mem2reg)
-  //   %cond_iter: condition index (execute only when cond_iter == 0)
-  //   %K, %II, %JJ: loop bounds (unused but kept for API compatibility)
-  //   %NT_I, %NT_J: multi-tile factors (load NT_I x NT_J tiles at once)
+  //   %cond_desc: conditional execution descriptor (k, cond_iter, K, II, JJ, NT_I, NT_J)
   //   %tensor_desc: tensor position descriptor (m_pos/n_pos are tile indices, converted to elements internally)
   //   %load_memref: output memref[K, NT_I * NT_J] for returning variadic loaded
   //                 values -> mem2reg.
   //
   // CHECK-LABEL: func.func private @simple_maybe_global_load_multi_tile
   func.func private @simple_maybe_global_load_multi_tile(
-    %k: index, %cond_iter: index,
-    %K: index, %II: index, %JJ: index,
-    %NT_I: index, %NT_J: index,
+    %cond_desc: !conditional_execution_descriptor_2d,
     %tensor_desc: !tensor_position_descriptor_2d,
     %load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+
+    // Extract fields from conditional execution descriptor
+    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
+    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
+    %NT_I = aster_utils.struct_extract %cond_desc["NT_I"] : !conditional_execution_descriptor_2d -> index
+    %NT_J = aster_utils.struct_extract %cond_desc["NT_J"] : !conditional_execution_descriptor_2d -> index
 
     // Extract tile indices from descriptor (m_pos/n_pos are tile indices here)
     %ii = aster_utils.struct_extract %tensor_desc["m_pos"] : !tensor_position_descriptor_2d -> index
@@ -209,10 +216,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
   //
   // Parameters:
-  //   %k: outer loop index (for storing variadic results in load_memref -> mem2reg)
-  //   %cond_iter: condition index (execute only when cond_iter == 0)
-  //   %K, %II, %JJ: loop bounds (unused but kept for API compatibility)
-  //   %NT_I, %NT_J: multi-tile factors (load NT_I x NT_J tiles at once)
+  //   %cond_desc: conditional execution descriptor (k, cond_iter, K, II, JJ, NT_I, NT_J)
   //   %tensor_desc: 2-level tensor position descriptor where:
   //     - m_pos/n_pos are base positions in elements (major tile position)
   //     - mm_pos/nn_pos are tile indices (converted to elements internally)
@@ -221,14 +225,18 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   //
   // CHECK-LABEL: func.func private @maybe_global_load_multi_tile_coalesced
   func.func private @maybe_global_load_multi_tile_coalesced(
-    %k: index, %cond_iter: index,
-    %K: index, %II: index, %JJ: index,
-    %NT_I: index, %NT_J: index,
+    %cond_desc: !conditional_execution_descriptor_2d,
     %tensor_desc: !tensor_position_descriptor_2level_2d,
     %load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+
+    // Extract fields from conditional execution descriptor
+    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
+    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
+    %NT_I = aster_utils.struct_extract %cond_desc["NT_I"] : !conditional_execution_descriptor_2d -> index
+    %NT_J = aster_utils.struct_extract %cond_desc["NT_J"] : !conditional_execution_descriptor_2d -> index
 
     // Extract tile indices from descriptor (mm_pos/nn_pos are tile indices here)
     %ii = aster_utils.struct_extract %tensor_desc["mm_pos"] : !tensor_position_descriptor_2level_2d -> index
@@ -350,23 +358,24 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
   // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
   //
   // Parameters:
-  //   %k: outer loop index (for reading variadic results from load_memref -> mem2reg)
-  //   %cond_iter: condition index (execute only when cond_iter == 0)
-  //   %K, %II, %JJ: loop bounds (unused but kept for API compatibility)
-  //   %NT_I, %NT_J: multi-tile factors (write NT_I x NT_J tiles at once)
+  //   %cond_desc: conditional execution descriptor (k, cond_iter, K, II, JJ, NT_I, NT_J)
   //   %lds_desc: LDS position descriptor (m_pos/n_pos are tile indices, converted to elements internally)
   //   %load_memref: input memref[K, NT_I * NT_J] for reading variadic values -> mem2reg.
   //
   // CHECK-LABEL: func.func private @maybe_lds_write_multi_tile_coalesced
   func.func private @maybe_lds_write_multi_tile_coalesced(
-    %k: index, %cond_iter: index,
-    %K: index, %II: index, %JJ: index,
-    %NT_I: index, %NT_J: index,
+    %cond_desc: !conditional_execution_descriptor_2d,
     %lds_desc: !lds_position_descriptor_2d,
     %load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+
+    // Extract fields from conditional execution descriptor
+    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
+    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
+    %NT_I = aster_utils.struct_extract %cond_desc["NT_I"] : !conditional_execution_descriptor_2d -> index
+    %NT_J = aster_utils.struct_extract %cond_desc["NT_J"] : !conditional_execution_descriptor_2d -> index
 
     // Extract tile indices from descriptor (m_pos/n_pos are tile indices here)
     %ii = aster_utils.struct_extract %lds_desc["m_pos"] : !lds_position_descriptor_2d -> index
