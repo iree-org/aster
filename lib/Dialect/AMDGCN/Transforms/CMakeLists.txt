@@ -7,6 +7,7 @@ add_mlir_library(
   ExpandMetadataOps.cpp
   InstructionSchedulingAutoschedulePass.cpp
   HoistOps.cpp
+  LDSAlloc.cpp
   Mem2Reg.cpp
   PreloadLibrary.cpp
   RegisterAlloc.cpp

@@ -179,4 +179,21 @@ def RemoveTestInst : Pass<"amdgcn-remove-test-inst"> {
   }];
 }
 
+def LDSAlloc : Pass<"amdgcn-lds-alloc"> {
+  let summary = "Perform LDS buffer allocation analysis";
+  let description = [{
+    This pass analyzes LDS buffer allocations using the BufferAnalysis dataflow
+    framework. It builds an interference graph where nodes are AllocLDSOp
+    operations and edges connect buffers that are simultaneously live.
+
+    The pass will emit errors for:
+    - Any buffer with a `top` liveness state (conflicting information)
+    - Any `get_lds_offset` operation acting on a dead buffer
+    - Any allocation without a constant size
+
+    This analysis is a prerequisite for LDS memory layout optimization.
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+}
+
 #endif // AMDGCN_PASSES
