@@ -69,9 +69,9 @@ struct BufferState : dataflow::AbstractDenseLattice {
     State &state = buffers[buffer];
     State cur = state;
 
-    // If the state is Live, mark it as Dead, and if it is not dead, mark it as
-    // Top.
-    if (cur == State::Live)
+    // If the state is Live or unset, mark it as Dead, and if it is not dead,
+    // mark it as Top.
+    if (cur == State::Live || cur == State::None)
       state = State::Dead;
     else if (cur != State::Dead)
       state = State::Top;
