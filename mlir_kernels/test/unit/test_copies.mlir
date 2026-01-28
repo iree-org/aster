@@ -44,7 +44,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @lds_read_A_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d, i1) -> !vx2
   func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !tensor_position_descriptor_2level_2d, i1)
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, memref<?x?x!vx2>)
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
   // From simple-multi-tile-copies.mlir
   func.func private @simple_maybe_lds_write_multi_tile(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
@@ -380,9 +380,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %c256 = arith.constant 256 : index // global/LDS stride = 128 * 2 bytes
     %elt_size = arith.constant 2 : index // f16 size in bytes
 
-    // Allocate memref for multi-tile results and cast to dynamic
-    %memref_static = memref.alloca() : memref<8x!vx2>
-    %memref = memref.cast %memref_static : memref<8x!vx2> to memref<?x!vx2>
+    // Allocate memref for multi-tile results (2x4 tiles) and cast to dynamic
+    %memref_static = memref.alloca() : memref<2x4x!vx2>
+    %memref = memref.cast %memref_static : memref<2x4x!vx2> to memref<?x?x!vx2>
 
     // 2x2 loop over different starting positions in the 64x128 input
     // Position (0,0): m_pos=0, n_pos=0
@@ -407,15 +407,17 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
           %global_load_desc,          // tensor_position_descriptor_2level_2d
           %c2, %c4,                   // m_tiles=2, n_tiles=4
           %memref                     // result memref
-        ) : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+        ) : (!tensor_position_descriptor_2level_2d, index, index, memref<?x?x!vx2>) -> ()
 
         // Write all tiles to LDS using multi-tile LDS write (with non-zero base offset)
         // Create 2-level LDS descriptor: lds_base=0, mm_pos/nn_pos=minor tile base
         %lds_write_desc = aster_utils.struct_create(%c0, %mm_pos_base, %nn_pos_base, %c256, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+        // Reshape 2D memref to 1D for LDS write (which uses linearized indexing)
+        %memref_1d = memref.collapse_shape %memref [[0, 1]] : memref<?x?x!vx2> into memref<?x!vx2>
         func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
           %lds_write_desc,            // lds_position_descriptor_2level_2d
           %c2, %c4,                   // m_tiles=2, n_tiles=4
-          %memref                     // values memref
+          %memref_1d                  // values memref (linearized)
         ) : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
 
         // Read back from LDS and store to output for each tile using lds_to_global

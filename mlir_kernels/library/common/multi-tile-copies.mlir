@@ -29,7 +29,7 @@
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 !future_global_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 !future_lds_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
-!future_lds_write_any = !aster_utils.struct<token: !amdgcn.write_token<shared>>
+!future_lds_write = !amdgcn.write_token<shared>
 
 // A 2D conditional execution descriptor for multi-tile operations containing:
 //   - k: outer loop index (for indexing load_memref -> mem2reg)
@@ -54,7 +54,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
 
   // From copies.mlir - _future variants for token-aware operations
   func.func private @global_load_wave_256xf16_via_dwordx2_future(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !future_global_read_any
-  func.func private @lds_write_wave_256xf16_via_dwordx2_future(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write_any
+  func.func private @lds_write_wave_256xf16_via_dwordx2_future(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
   func.func private @lds_read_A_wave_16x16xf16_fragment_future(!lds_position_descriptor_2d, i1) -> !future_lds_read_any
 
   //===--------------------------------------------------------------------===//
@@ -134,21 +134,19 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
 
   // Multi-tile global load returning array of futures (value + token).
   // Loads m_tiles x n_tiles 16x16 tiles from global memory WITHOUT waiting.
-  // Results and tokens are stored in provided memrefs.
+  // Futures are stored in provided memref.
   //
   // Parameters:
   //   %tensor_desc: 2-level tensor position descriptor
   //   %m_tiles, %n_tiles: number of tiles in M and N directions
-  //   %result_memref: output memref[m_tiles * n_tiles] for loaded values
-  //   %token_memref: output memref[m_tiles * n_tiles] for read tokens
+  //   %future_memref: output memref[m_tiles, n_tiles] for !future_global_read_any
   //
   // CHECK-LABEL: func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
     %tensor_desc: !tensor_position_descriptor_2level_2d,
     %m_tiles: index,
     %n_tiles: index,
-    %result_memref: memref<?x!vx2>,
-    %token_memref: memref<?x!amdgcn.read_token<flat>>
+    %future_memref: memref<?x?x!future_global_read_any>
   ) {
     %c0 = arith.constant 0 : index
 
@@ -161,17 +159,17 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %nn_pos_base = aster_utils.struct_extract %tensor_desc["nn_pos"] : !tensor_position_descriptor_2level_2d -> index
     %elt_size = aster_utils.struct_extract %tensor_desc["elt_size"] : !tensor_position_descriptor_2level_2d -> index
 
-    // Compute tile layout
+    // Compute tile sizes
     %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
     %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
-    %total_rows = affine.apply affine_map<()[m_tiles] -> (16 * m_tiles)>()[%m_tiles]
-    %total_cols = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
+    %c1 = arith.constant 1 : index
 
-    scf.for %mt = %c0 to %total_rows step %row_size {
-      scf.for %nt = %c0 to %total_cols step %col_size {
-        // Compute minor-tile positions
-        %mm_pos = affine.apply affine_map<()[base, mt] -> (base + mt)>()[%mm_pos_base, %mt]
-        %nn_pos = affine.apply affine_map<()[base, nt] -> (base + nt)>()[%nn_pos_base, %nt]
+    // Iterate over tile indices directly (ensures bounds are correct)
+    scf.for %i = %c0 to %m_tiles step %c1 {
+      scf.for %j = %c0 to %n_tiles step %c1 {
+        // Compute positions from tile indices
+        %mm_pos = affine.apply affine_map<()[base, i, row_size] -> (base + i * row_size)>()[%mm_pos_base, %i, %row_size]
+        %nn_pos = affine.apply affine_map<()[base, j, col_size] -> (base + j * col_size)>()[%nn_pos_base, %j, %col_size]
 
         // Load the tile and get future
         %pos_desc = aster_utils.struct_create(%ptr, %m_pos_base, %n_pos_base, %global_stride_in_bytes, %mm_pos, %nn_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
@@ -180,17 +178,8 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
         %transfer_desc = aster_utils.struct_create(%row_size, %transfer_size, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
         %future = func.call @global_load_wave_256xf16_via_dwordx2_future(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !future_global_read_any
 
-        // Extract value and token from future
-        %loaded_any, %token = aster_utils.struct_extract %future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
-        %loaded = aster_utils.from_any %loaded_any : !vx2
-
-        // Store results
-        %i = affine.apply affine_map<()[mt, row_size] -> (mt ceildiv row_size)>()[%mt, %row_size]
-        %j = affine.apply affine_map<()[nt, col_size] -> (nt ceildiv col_size)>()[%nt, %col_size]
-        %J = affine.apply affine_map<()[total_cols, col_size] -> (total_cols ceildiv col_size)>()[%total_cols, %col_size]
-        %idx = affine.apply affine_map<()[i, j, J] -> (i * J + j)>()[%i, %j, %J]
-        memref.store %loaded, %result_memref[%idx] : memref<?x!vx2>
-        memref.store %token, %token_memref[%idx] : memref<?x!amdgcn.read_token<flat>>
+        // Store future using tile indices directly
+        memref.store %future, %future_memref[%i, %j] : memref<?x?x!future_global_read_any>
       } {aster.constexpr}
     } {aster.constexpr}
     return
@@ -204,27 +193,29 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %tensor_desc: !tensor_position_descriptor_2level_2d,
     %m_tiles: index,
     %n_tiles: index,
-    %result_memref: memref<?x!vx2>
+    %result_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
 
-    // Allocate temp memref for tokens
-    %num_tiles = affine.apply affine_map<()[m, n] -> (m * n)>()[%m_tiles, %n_tiles]
-    %token_memref = memref.alloca(%num_tiles) : memref<?x!amdgcn.read_token<flat>>
+    // Allocate temp memref for futures
+    %future_memref = memref.alloca(%m_tiles, %n_tiles) : memref<?x?x!future_global_read_any>
 
     // Call future variant to issue all loads
     func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
-      %tensor_desc, %m_tiles, %n_tiles, %result_memref, %token_memref)
-      : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>, memref<?x!amdgcn.read_token<flat>>) -> ()
+      %tensor_desc, %m_tiles, %n_tiles, %future_memref)
+      : (!tensor_position_descriptor_2level_2d, index, index, memref<?x?x!future_global_read_any>) -> ()
 
-    // TODO: Wait on all tokens and use only amdgcn-convert-waits pass
-    // scf.for %idx = %c0 to %num_tiles step %c1 {
-    //   %token = memref.load %token_memref[%idx] : memref<?x!amdgcn.read_token<flat>>
-    //   amdgcn.wait deps %token : !amdgcn.read_token<flat>
-    // } {aster.constexpr}
-
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    // Extract values from futures and store in result_memref
+    scf.for %i = %c0 to %m_tiles step %c1 {
+      scf.for %j = %c0 to %n_tiles step %c1 {
+        %future = memref.load %future_memref[%i, %j] : memref<?x?x!future_global_read_any>
+        %value_any, %token = aster_utils.struct_extract %future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
+        amdgcn.wait deps %token : !amdgcn.read_token<flat>
+        %value = aster_utils.from_any %value_any : !vx2
+        memref.store %value, %result_memref[%i, %j] : memref<?x?x!vx2>
+      } {aster.constexpr}
+    } {aster.constexpr}
 
     return
   }
@@ -282,9 +273,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
       %elt_size = aster_utils.struct_extract %tensor_desc["elt_size"] : !tensor_position_descriptor_2level_2d -> index
 
       // Allocate temp memref for multi-tile results: [NT_I, NT_J]
-      %NT_IJ = affine.apply affine_map<()[NT_I, NT_J] ->
-        (NT_I * NT_J)>()[%NT_I, %NT_J]
-      %temp_memref = memref.alloca(%NT_IJ) : memref<?x!vx2>
+      %temp_memref = memref.alloca(%NT_I, %NT_J) : memref<?x?x!vx2>
 
       // ii/jj are tile indices, so position = tile_index * 16
       %ii_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
@@ -296,11 +285,15 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
       // Load NT_I x NT_J tiles at once using bulk primitive
       func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
           %load_desc, %NT_I, %NT_J, %temp_memref)
-        : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+        : (!tensor_position_descriptor_2level_2d, index, index, memref<?x?x!vx2>) -> ()
 
-      // Copy results from temp memref to main memref
+      // Copy results from temp memref to main memref (linearized indexing for mem2reg)
+      %NT_IJ = affine.apply affine_map<()[NT_I, NT_J] ->
+        (NT_I * NT_J)>()[%NT_I, %NT_J]
       scf.for %idx = %c0 to %NT_IJ step %c1 {
-        %loaded = memref.load %temp_memref[%idx] : memref<?x!vx2>
+        %ti = affine.apply affine_map<()[idx, nj] -> (idx floordiv nj)>()[%idx, %NT_J]
+        %tj = affine.apply affine_map<()[idx, nj] -> (idx mod nj)>()[%idx, %NT_J]
+        %loaded = memref.load %temp_memref[%ti, %tj] : memref<?x?x!vx2>
         memref.store %loaded, %load_memref[%k, %idx] : memref<?x?x!vx2>
       } {aster.constexpr}
     }
@@ -364,11 +357,10 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
         %transfer_size_lds = arith.constant 8 : index
         %wave_size_lds = arith.constant 64 : index
         %transfer_desc_lds = aster_utils.struct_create(%row_size, %transfer_size_lds, %wave_size_lds) : (index, index, index) -> !transfer_descriptor_2d
-        %future = func.call @lds_write_wave_256xf16_via_dwordx2_future(%lds_pos_desc, %transfer_desc_lds, %value)
-          : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write_any
+        %token = func.call @lds_write_wave_256xf16_via_dwordx2_future(%lds_pos_desc, %transfer_desc_lds, %value)
+          : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
 
-        // Extract and store token
-        %token = aster_utils.struct_extract %future ["token"] : !future_lds_write_any -> !amdgcn.write_token<shared>
+        // Store token
         memref.store %token, %token_memref[%idx] : memref<?x!amdgcn.write_token<shared>>
       } {aster.constexpr}
     } {aster.constexpr}
@@ -397,14 +389,11 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
       %lds_desc, %m_tiles, %n_tiles, %values_memref, %token_memref)
       : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, memref<?x!amdgcn.write_token<shared>>) -> ()
 
-    // TODO: Wait on all tokens and use only amdgcn-convert-waits pass
-    // scf.for %idx = %c0 to %num_tiles step %c1 {
-    //   %token = memref.load %token_memref[%idx] : memref<?x!amdgcn.write_token<shared>>
-    //   amdgcn.wait deps %token : !amdgcn.write_token<shared>
-    // } {aster.constexpr}
-
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-
+    // Wait on all tokens
+    scf.for %idx = %c0 to %num_tiles step %c1 {
+      %token = memref.load %token_memref[%idx] : memref<?x!amdgcn.write_token<shared>>
+      amdgcn.wait deps %token : !amdgcn.write_token<shared>
+    } {aster.constexpr}
     return
   }
 

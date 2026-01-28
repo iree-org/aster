@@ -201,7 +201,7 @@ createOpSchedule(OpBuilder &b, const FiringExpressionsAndBounds &firingData,
     emissionCounts[op] = 0;
 
   LDBG() << "Creating op schedule with max global index: "
-         << firingData.maxGlobalIdx << "\n";
+         << firingData.maxGlobalIdx << "";
   SmallVector<ScheduledOp> scheduledOps;
   for (int globalIdx = 0; globalIdx < firingData.maxGlobalIdx + 1;
        ++globalIdx) {
@@ -258,7 +258,6 @@ static LogicalResult validateOperandMappings(const ScheduledOp &schedOp,
           << "' depends on '" << originalOperand
           << "' which hasn't fired yet for this iteration instance. Check "
              "delay/rate attributes.";
-      schedOp.op->getParentOp()->dump();
       return failure();
     }
   }
@@ -333,7 +332,7 @@ private:
     // Get dimensions from the loop's sched.dims attribute
     auto dimsAttr = forOp->getAttrOfType<DenseI64ArrayAttr>(kSchedDimsAttr);
     if (!dimsAttr) {
-      LDBG() << "Loop missing sched.dims attribute, skipping\n";
+      LDBG() << "Loop missing sched.dims attribute, skipping";
       return;
     }
 
@@ -351,9 +350,15 @@ private:
     SmallVector<int64_t> shape;
     shape.assign(dimsAttr.asArrayRef().begin(), dimsAttr.asArrayRef().end());
     int totalNumIterations = maybeConstantTripCount->getSExtValue();
+    LDBG_OS([&](raw_ostream &os) {
+      os << "Loop trip count: " << totalNumIterations << ", shape: [";
+      llvm::interleaveComma(shape, os);
+      os << "], product: " << computeProduct(shape);
+    });
+
     if (totalNumIterations != computeProduct(shape)) {
       LDBG()
-          << "Loop trip count does not match product of dimensions, skipping\n";
+          << "Loop trip count does not match product of dimensions, skipping";
       return;
     }
 
@@ -365,7 +370,7 @@ private:
     LDBG_OS([&](raw_ostream &os) {
       os << "Found " << opsToSchedule.size() << " ops, schedule with dims: [";
       llvm::interleaveComma(shape, os);
-      os << "]\n";
+      os << "]";
     });
 
     // Preconditions done, start scheduling.

@@ -44,7 +44,7 @@
 
 // A future descriptor for async LDS write operations containing:
 //   - token: the write token for synchronization via amdgcn.wait
-!future_lds_write_any = !aster_utils.struct<token: !amdgcn.write_token<shared>>
+!future_lds_write = !amdgcn.write_token<shared>
 
 // A future descriptor for async LDS read operations containing:
 //   - value: the loaded value (type-erased via !aster_utils.any)
@@ -53,7 +53,7 @@
 
 // A future descriptor for async global write operations containing:
 //   - token: the write token for synchronization via amdgcn.wait
-!future_global_write_any = !aster_utils.struct<token: !amdgcn.write_token<flat>>
+!future_global_write = !amdgcn.write_token<flat>
 
 amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
@@ -99,7 +99,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   // Issue a dummy global_store to address 0 to get a valid write token.
   // This code must be unreachable (after s_trap) but needed for type correctness.
   // Note: if we ever need this for real, consider an amdgcn.undef_token.
-  func.func private @trapping_undef_future_global_write() -> !future_global_write_any {
+  func.func private @trapping_undef_future_global_write() -> !future_global_write {
     /// TRAP
     amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 45
 
@@ -107,8 +107,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %data = func.call @alloc_vgprx1() : () -> !vx1
     %token = amdgcn.store global_store_dword data %data addr %addr
       : ins(!vx1, !vx2) -> !amdgcn.write_token<flat>
-    %future = aster_utils.struct_create(%token) : (!amdgcn.write_token<flat>) -> !future_global_write_any
-    return %future : !future_global_write_any
+    return %token : !future_global_write
   }
 
   //===--------------------------------------------------------------------===//
@@ -509,93 +508,89 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %value: !aster_utils.any,       // Value to store (v, vx2, vx3, or vx4)
     %pos_desc: !tensor_position_descriptor_2d,
     %transfer_size: index           // Transfer size in bytes (4, 8, 12, or 16)
-  ) -> !future_global_write_any {
+  ) -> !future_global_write {
     %ptr, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["ptr", "m_pos", "n_pos", "global_stride_in_bytes", "elt_size"] : !tensor_position_descriptor_2d -> !sx2, index, index, index, index
     %desc = aster_utils.struct_create(%m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %transfer_size) : (index, index, index, index) -> !index_descriptor_2d
     %off_reg = func.call @matrix_offset(%desc) : (!index_descriptor_2d) -> !v
     %c0_store = arith.constant 0 : i32
 
-    %res = scf.index_switch %transfer_size -> !future_global_write_any
+    %res = scf.index_switch %transfer_size -> !future_global_write
     case 4 {
       %data = aster_utils.from_any %value : !v
       %token = amdgcn.store global_store_dword data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-      %future = aster_utils.struct_create(%token) : (!amdgcn.write_token<flat>) -> !future_global_write_any
-      scf.yield %future : !future_global_write_any
+      scf.yield %token : !future_global_write
     }
     case 8 {
       %data = aster_utils.from_any %value : !vx2
       %token = amdgcn.store global_store_dwordx2 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-      %future = aster_utils.struct_create(%token) : (!amdgcn.write_token<flat>) -> !future_global_write_any
-      scf.yield %future : !future_global_write_any
+      scf.yield %token : !future_global_write
     }
     case 12 {
       %data = aster_utils.from_any %value : !vx3
       %token = amdgcn.store global_store_dwordx3 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!vx3, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-      %future = aster_utils.struct_create(%token) : (!amdgcn.write_token<flat>) -> !future_global_write_any
-      scf.yield %future : !future_global_write_any
+      scf.yield %token : !future_global_write
     }
     case 16 {
       %data = aster_utils.from_any %value : !vx4
       %token = amdgcn.store global_store_dwordx4 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
         : ins(!vx4, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-      %future = aster_utils.struct_create(%token) : (!amdgcn.write_token<flat>) -> !future_global_write_any
-      scf.yield %future : !future_global_write_any
+      scf.yield %token : !future_global_write
     }
     default {
       // Note: this is an unexpected path needed for completeness, it will trap.
-      %future = func.call @trapping_undef_future_global_write() : () -> !future_global_write_any
-      scf.yield %future : !future_global_write_any
+      %future = func.call @trapping_undef_future_global_write() : () -> !future_global_write
+      scf.yield %future : !future_global_write
     }
 
-    return %res : !future_global_write_any
+    return %res : !future_global_write
   }
 
   // Future variants - return future for explicit wait control via amdgcn.wait
   func.func private @store_to_global_dword_future(
     %value: !v,
     %pos_desc: !tensor_position_descriptor_2d
-  ) -> !future_global_write_any {
+  ) -> !future_global_write {
     %transfer_size = arith.constant 4 : index
     %any_value = aster_utils.to_any %value : !v
     %future = func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
-      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> !future_global_write_any
-    return %future : !future_global_write_any
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> !future_global_write
+    return %future : !future_global_write
   }
 
   func.func private @store_to_global_dwordx2_future(
     %value: !vx2,
     %pos_desc: !tensor_position_descriptor_2d
-  ) -> !future_global_write_any {
+  ) -> !future_global_write {
     %transfer_size = arith.constant 8 : index
     %any_value = aster_utils.to_any %value : !vx2
     %future = func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
-      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> !future_global_write_any
-    return %future : !future_global_write_any
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> !future_global_write
+    return %future : !future_global_write
   }
 
   func.func private @store_to_global_dwordx3_future(
     %value: !vx3,
     %pos_desc: !tensor_position_descriptor_2d
-  ) -> !future_global_write_any {
+  ) -> !future_global_write {
     %transfer_size = arith.constant 12 : index
     %any_value = aster_utils.to_any %value : !vx3
     %future = func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
-      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> !future_global_write_any
-    return %future : !future_global_write_any
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> !future_global_write
+    return %future : !future_global_write
   }
 
   func.func private @store_to_global_dwordx4_future(
     %value: !vx4,
     %pos_desc: !tensor_position_descriptor_2d
-  ) -> !future_global_write_any {
+  ) -> !future_global_write {
     %transfer_size = arith.constant 16 : index
     %any_value = aster_utils.to_any %value : !vx4
     %future = func.call @store_to_global_impl(%any_value, %pos_desc, %transfer_size)
-      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> !future_global_write_any
-    return %future : !future_global_write_any
+      : (!aster_utils.any, !tensor_position_descriptor_2d, index) -> !future_global_write
+    return %future : !future_global_write
   }
 
   // Wait variants - call future variant and wait via s_waitcnt (no amdgcn-convert-waits for now)
@@ -605,7 +600,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %pos_desc: !tensor_position_descriptor_2d
   ) {
     %future = func.call @store_to_global_dword_future(%value, %pos_desc)
-      : (!v, !tensor_position_descriptor_2d) -> !future_global_write_any
+      : (!v, !tensor_position_descriptor_2d) -> !future_global_write
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -615,7 +610,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %pos_desc: !tensor_position_descriptor_2d
   ) {
     %future = func.call @store_to_global_dwordx2_future(%value, %pos_desc)
-      : (!vx2, !tensor_position_descriptor_2d) -> !future_global_write_any
+      : (!vx2, !tensor_position_descriptor_2d) -> !future_global_write
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -625,7 +620,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %pos_desc: !tensor_position_descriptor_2d
   ) {
     %future = func.call @store_to_global_dwordx3_future(%value, %pos_desc)
-      : (!vx3, !tensor_position_descriptor_2d) -> !future_global_write_any
+      : (!vx3, !tensor_position_descriptor_2d) -> !future_global_write
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -635,7 +630,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %pos_desc: !tensor_position_descriptor_2d
   ) {
     %future = func.call @store_to_global_dwordx4_future(%value, %pos_desc)
-      : (!vx4, !tensor_position_descriptor_2d) -> !future_global_write_any
+      : (!vx4, !tensor_position_descriptor_2d) -> !future_global_write
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     return
   }
@@ -866,7 +861,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %pos_desc: !lds_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d,
     %value: !vx2                 // The value to write to LDS
-  ) -> !future_lds_write_any {
+  ) -> !future_lds_write {
     %lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["lds_base", "mm_pos", "nn_pos", "lds_stride_in_bytes", "elt_size"] : !lds_position_descriptor_2level_2d -> index, index, index, index, index
     %num_rows, %transfer_size, %wave_size = aster_utils.struct_extract %transfer_desc ["num_rows", "transfer_size", "wave_size"] : !transfer_descriptor_2d -> index, index, index
 
@@ -884,12 +879,11 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %desc = aster_utils.struct_create(%mm_pos, %nn_pos, %mmm_pos, %nnn_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
     %off_lds_reg = func.call @tiled_matrix_offset(%desc) : (!index_descriptor_2level_2d) -> !v
 
-    // DS write to LDS and return future
+    // DS write to LDS and return token
     %l_off_i32 = arith.index_cast %lds_base_off : index to i32
-    %tok_write = amdgcn.store ds_write_b64 data %value addr %off_lds_reg offset c(%l_off_i32) : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
-    %future = aster_utils.struct_create(%tok_write) : (!amdgcn.write_token<shared>) -> !future_lds_write_any
+    %token = amdgcn.store ds_write_b64 data %value addr %off_lds_reg offset c(%l_off_i32) : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
-    return %future : !future_lds_write_any
+    return %token : !future_lds_write
   }
 
   // Writes %value to LDS, in a **synchronized fashion** (i.e. waitcnt 0 is
@@ -901,8 +895,7 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %transfer_desc: !transfer_descriptor_2d,
     %value: !vx2
   ) {
-    %future = func.call @lds_write_wave_256xf16_via_dwordx2_impl(%pos_desc, %transfer_desc, %value) : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write_any
-    %token = aster_utils.struct_extract %future ["token"] : !future_lds_write_any -> !amdgcn.write_token<shared>
+    %_token = func.call @lds_write_wave_256xf16_via_dwordx2_impl(%pos_desc, %transfer_desc, %value) : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     return
   }
@@ -913,9 +906,9 @@ amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
     %pos_desc: !lds_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d,
     %value: !vx2
-  ) -> !future_lds_write_any {
-    %future = func.call @lds_write_wave_256xf16_via_dwordx2_impl(%pos_desc, %transfer_desc, %value) : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write_any
-    return %future : !future_lds_write_any
+  ) -> !future_lds_write {
+    %future = func.call @lds_write_wave_256xf16_via_dwordx2_impl(%pos_desc, %transfer_desc, %value) : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
+    return %future : !future_lds_write
   }
 
   //===--------------------------------------------------------------------===//

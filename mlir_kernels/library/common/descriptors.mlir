@@ -139,7 +139,7 @@
 
 // A future descriptor for async LDS write operations containing:
 //   - token: the write token for synchronization via amdgcn.wait
-!future_lds_write_any = !aster_utils.struct<token: !amdgcn.write_token<shared>>
+!future_lds_write = !amdgcn.write_token<shared>
 
 // A future descriptor for async LDS read operations containing:
 //   - value: the loaded value (type-erased via !aster_utils.any)

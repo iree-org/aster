@@ -4,11 +4,14 @@ import os
 
 _MLIR_KERNELS_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Minimal pass pipeline for nanobenchmarks - no scheduling, synchronous waits.
-# This produces unoptimized code that reflects the raw instruction sequence.
+# Pass pipeline for nanobenchmarks with scheduling enabled.
 NANOBENCH_PASS_PIPELINE = (
     "builtin.module("
-    # Skip scheduling
+    # Scheduling passes
+    "  aster-selective-inlining,"
+    "  cse,canonicalize,symbol-dce,"
+    "  amdgcn-instruction-scheduling-autoschedule,"
+    "  aster-op-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
     "  aster-replace-constant-gpu-dims,cse,canonicalize,"
     "  cse,canonicalize,sroa,"
@@ -35,6 +38,8 @@ NANOBENCH_PASS_PIPELINE = (
     "  canonicalize,cse,"
     "  canonicalize,"
     "  aster-to-amdgcn,"
+    # Convert amdgcn.wait ops to s_waitcnt instructions
+    "  amdgcn-convert-waits,"
     "  amdgcn.module("
     "    amdgcn.kernel("
     "      aster-amdgcn-expand-md-ops,"
