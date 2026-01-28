@@ -17,6 +17,14 @@
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 
 !index_pair = !aster_utils.struct<i: index, j: index>
+
+// A 2D tensor position descriptor containing:
+//   - ptr: global base pointer
+//   - m_pos, n_pos: row and column positions (in elements)
+//   - global_stride_in_bytes: stride in bytes
+//   - elt_size: element size in bytes
+!tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
+
 // A 2-level 2D tensor position descriptor containing:
 //   - ptr: global base pointer
 //   - m_pos, n_pos: row and column positions of the outer tile (in elements)
@@ -45,6 +53,23 @@
 //   - wave_size: number of threads per wave
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
+///===----------------------------------------------------------------------===//
+/// The descriptors below are not yet generally useful, they will need to be
+/// revisited once we have more experience with multi-wave.
+///===----------------------------------------------------------------------===//
+// A scheduling phase descriptor containing:
+//   - phase: current phase (0=load, 1=compute, 2=store)
+//   - k: outer k tile index
+//   - d_mmnnkk: distributed inner tile index
+!sched_phase_descriptor = !aster_utils.struct<phase: index, k: index, d_mmnnkk: index>
+
+// A distributed tile dimensions descriptor containing:
+//   - MM, NN, KK: tile counts in M, N, K dimensions
+//   - d_MMKK, d_NNKK, d_MMNN: distributed tile counts
+//   - w, W: wave id and wave count
+//   - K: total K tiles (for store phase)
+!distributed_dims_descriptor = !aster_utils.struct<MM: index, NN: index, KK: index, d_MMKK: index, d_NNKK: index, d_MMNN: index, w: index, W: index, K: index>
+
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
   //===--------------------------------------------------------------------===//
@@ -70,16 +95,39 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // Phase 0a: Global loads if phase 0 (decoupled from DS writes via memrefs)
   func.func private @maybe_global_load(
-    %phase: index, %k: index, %d_mmnnkk: index,
-    %NN: index, %MM: index, %d_MMKK: index, %d_NNKK: index,
-    %w: index, %W: index, %KK: index,
-    %a_global: !sx2, %b_global: !sx2,
-    %i_pos: index, %j_pos: index, %k_pos: index, %SIZE_K: index,
+    %sched_desc: !sched_phase_descriptor,
+    %dims_desc: !distributed_dims_descriptor,
+    %tensor_desc_a: !tensor_position_descriptor_2d,
+    %tensor_desc_b: !tensor_position_descriptor_2d,
+    %k_pos: index,
     %a_load_memref: memref<?x?x!vx2>, %b_load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
-    %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size] -> (SIZE_K * elt_size)>()[%SIZE_K, %elt_size]
+
+    // Extract scheduling info
+    %phase = aster_utils.struct_extract %sched_desc["phase"] : !sched_phase_descriptor -> index
+    %k = aster_utils.struct_extract %sched_desc["k"] : !sched_phase_descriptor -> index
+    %d_mmnnkk = aster_utils.struct_extract %sched_desc["d_mmnnkk"] : !sched_phase_descriptor -> index
+
+    // Extract dimensions
+    %MM = aster_utils.struct_extract %dims_desc["MM"] : !distributed_dims_descriptor -> index
+    %NN = aster_utils.struct_extract %dims_desc["NN"] : !distributed_dims_descriptor -> index
+    %KK = aster_utils.struct_extract %dims_desc["KK"] : !distributed_dims_descriptor -> index
+    %d_MMKK = aster_utils.struct_extract %dims_desc["d_MMKK"] : !distributed_dims_descriptor -> index
+    %d_NNKK = aster_utils.struct_extract %dims_desc["d_NNKK"] : !distributed_dims_descriptor -> index
+    %w = aster_utils.struct_extract %dims_desc["w"] : !distributed_dims_descriptor -> index
+    %W = aster_utils.struct_extract %dims_desc["W"] : !distributed_dims_descriptor -> index
+
+    // Extract tensor A info
+    %a_global = aster_utils.struct_extract %tensor_desc_a["ptr"] : !tensor_position_descriptor_2d -> !sx2
+    %i_pos = aster_utils.struct_extract %tensor_desc_a["m_pos"] : !tensor_position_descriptor_2d -> index
+    %GLOBAL_STRIDE_IN_BYTES = aster_utils.struct_extract %tensor_desc_a["global_stride_in_bytes"] : !tensor_position_descriptor_2d -> index
+    %elt_size = aster_utils.struct_extract %tensor_desc_a["elt_size"] : !tensor_position_descriptor_2d -> index
+
+    // Extract tensor B info
+    %b_global = aster_utils.struct_extract %tensor_desc_b["ptr"] : !tensor_position_descriptor_2d -> !sx2
+    %j_pos = aster_utils.struct_extract %tensor_desc_b["m_pos"] : !tensor_position_descriptor_2d -> index
+
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
     scf.if %is_phase_0 {
       %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
@@ -124,16 +172,35 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // Phase 0b: DS writes if phase 0 (decoupled from global loads via memrefs)
   func.func private @maybe_lds_write(
-    %phase: index, %k: index, %d_mmnnkk: index,
-    %NN: index, %MM: index, %d_MMKK: index, %d_NNKK: index,
-    %w: index, %W: index, %KK: index,
-    %lds_a_base_off: index, %lds_b_base_off: index, %TILE_SIZE_K: index,
+    %sched_desc: !sched_phase_descriptor,
+    %dims_desc: !distributed_dims_descriptor,
+    %lds_desc_a: !lds_position_descriptor_2d,
+    %lds_desc_b: !lds_position_descriptor_2d,
     %a_load_memref: memref<?x?x!vx2>, %b_load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
-    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
-      (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
+
+    // Extract scheduling info
+    %phase = aster_utils.struct_extract %sched_desc["phase"] : !sched_phase_descriptor -> index
+    %k = aster_utils.struct_extract %sched_desc["k"] : !sched_phase_descriptor -> index
+    %d_mmnnkk = aster_utils.struct_extract %sched_desc["d_mmnnkk"] : !sched_phase_descriptor -> index
+
+    // Extract dimensions
+    %MM = aster_utils.struct_extract %dims_desc["MM"] : !distributed_dims_descriptor -> index
+    %NN = aster_utils.struct_extract %dims_desc["NN"] : !distributed_dims_descriptor -> index
+    %KK = aster_utils.struct_extract %dims_desc["KK"] : !distributed_dims_descriptor -> index
+    %d_MMKK = aster_utils.struct_extract %dims_desc["d_MMKK"] : !distributed_dims_descriptor -> index
+    %d_NNKK = aster_utils.struct_extract %dims_desc["d_NNKK"] : !distributed_dims_descriptor -> index
+    %w = aster_utils.struct_extract %dims_desc["w"] : !distributed_dims_descriptor -> index
+    %W = aster_utils.struct_extract %dims_desc["W"] : !distributed_dims_descriptor -> index
+
+    // Extract LDS A info
+    %lds_a_base_off = aster_utils.struct_extract %lds_desc_a["lds_base"] : !lds_position_descriptor_2d -> index
+    %LDS_STRIDE_IN_BYTES = aster_utils.struct_extract %lds_desc_a["lds_stride_in_bytes"] : !lds_position_descriptor_2d -> index
+    %elt_size = aster_utils.struct_extract %lds_desc_a["elt_size"] : !lds_position_descriptor_2d -> index
+
+    // Extract LDS B info
+    %lds_b_base_off = aster_utils.struct_extract %lds_desc_b["lds_base"] : !lds_position_descriptor_2d -> index
 
     %is_phase_0 = arith.cmpi eq, %phase, %c0 : index
     scf.if %is_phase_0 {
@@ -174,16 +241,34 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // Phase 1a: LDS reads if phase 1 (decoupled from mfma via memrefs)
   func.func private @maybe_lds_read(
-    %phase: index, %k: index, %d_mmnnkk: index, %d_MMNN: index, %KK: index,
-    %w: index, %W: index, %MM: index, %NN: index,
-    %lds_a_base_off: index, %lds_b_base_off: index, %TILE_SIZE_K: index,
+    %sched_desc: !sched_phase_descriptor,
+    %dims_desc: !distributed_dims_descriptor,
+    %lds_desc_a: !lds_position_descriptor_2d,
+    %lds_desc_b: !lds_position_descriptor_2d,
     %a_frag_memref: memref<?x?x!vx2>, %b_frag_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %elt_size = arith.constant 2 : index // f16 size in bytes
-    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] ->
-      (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size]
+
+    // Extract scheduling info
+    %phase = aster_utils.struct_extract %sched_desc["phase"] : !sched_phase_descriptor -> index
+    %k = aster_utils.struct_extract %sched_desc["k"] : !sched_phase_descriptor -> index
+    %d_mmnnkk = aster_utils.struct_extract %sched_desc["d_mmnnkk"] : !sched_phase_descriptor -> index
+
+    // Extract dimensions
+    %MM = aster_utils.struct_extract %dims_desc["MM"] : !distributed_dims_descriptor -> index
+    %NN = aster_utils.struct_extract %dims_desc["NN"] : !distributed_dims_descriptor -> index
+    %KK = aster_utils.struct_extract %dims_desc["KK"] : !distributed_dims_descriptor -> index
+    %d_MMNN = aster_utils.struct_extract %dims_desc["d_MMNN"] : !distributed_dims_descriptor -> index
+    %w = aster_utils.struct_extract %dims_desc["w"] : !distributed_dims_descriptor -> index
+    %W = aster_utils.struct_extract %dims_desc["W"] : !distributed_dims_descriptor -> index
+
+    // Extract LDS info
+    %lds_a_base_off = aster_utils.struct_extract %lds_desc_a["lds_base"] : !lds_position_descriptor_2d -> index
+    %LDS_STRIDE_IN_BYTES = aster_utils.struct_extract %lds_desc_a["lds_stride_in_bytes"] : !lds_position_descriptor_2d -> index
+    %elt_size = aster_utils.struct_extract %lds_desc_a["elt_size"] : !lds_position_descriptor_2d -> index
+    %lds_b_base_off = aster_utils.struct_extract %lds_desc_b["lds_base"] : !lds_position_descriptor_2d -> index
+
     %is_phase_1 = arith.cmpi eq, %phase, %c1 : index
     scf.if %is_phase_1 {
       %is_first_it = arith.cmpi eq, %d_mmnnkk, %c0 : index
@@ -217,11 +302,22 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // Perform MFMA if phase 1: load fragments, compute, store result
   func.func private @maybe_mfma(
-    %phase: index, %k: index, %d_mmnnkk: index, %d_MMNN: index, %KK: index,
+    %sched_desc: !sched_phase_descriptor,
+    %dims_desc: !distributed_dims_descriptor,
     %a_frag_memref: memref<?x?x!vx2>, %b_frag_memref: memref<?x?x!vx2>,
     %c_fragments: memref<?x!vx4>
   ) {
     %c1 = arith.constant 1 : index
+
+    // Extract scheduling info
+    %phase = aster_utils.struct_extract %sched_desc["phase"] : !sched_phase_descriptor -> index
+    %k = aster_utils.struct_extract %sched_desc["k"] : !sched_phase_descriptor -> index
+    %d_mmnnkk = aster_utils.struct_extract %sched_desc["d_mmnnkk"] : !sched_phase_descriptor -> index
+
+    // Extract dimensions
+    %KK = aster_utils.struct_extract %dims_desc["KK"] : !distributed_dims_descriptor -> index
+    %d_MMNN = aster_utils.struct_extract %dims_desc["d_MMNN"] : !distributed_dims_descriptor -> index
+
     %is_phase_1 = arith.cmpi eq, %phase, %c1 : index
     scf.if %is_phase_1 {
       // Load fragments from memrefs
@@ -240,15 +336,35 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // Store C fragment to global memory if phase 2 and at last k iteration
   func.func private @maybe_store_c_fragment(
-    %phase: index,
-    %d_mmnnkk: index, %d_MMNN: index, %KK: index,
-    %w: index, %W: index, %MM: index, %NN: index,
-    %k: index, %K: index,
-    %i_pos: index, %j_pos: index, %SIZE_N: index,
-    %c_fragments: memref<?x!vx4>, %c_global: !sx2
+    %sched_desc: !sched_phase_descriptor,
+    %dims_desc: !distributed_dims_descriptor,
+    %tensor_desc_c: !tensor_position_descriptor_2d,
+    %c_fragments: memref<?x!vx4>
   ) {
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index
+
+    // Extract scheduling info
+    %phase = aster_utils.struct_extract %sched_desc["phase"] : !sched_phase_descriptor -> index
+    %k = aster_utils.struct_extract %sched_desc["k"] : !sched_phase_descriptor -> index
+    %d_mmnnkk = aster_utils.struct_extract %sched_desc["d_mmnnkk"] : !sched_phase_descriptor -> index
+
+    // Extract dimensions
+    %MM = aster_utils.struct_extract %dims_desc["MM"] : !distributed_dims_descriptor -> index
+    %NN = aster_utils.struct_extract %dims_desc["NN"] : !distributed_dims_descriptor -> index
+    %KK = aster_utils.struct_extract %dims_desc["KK"] : !distributed_dims_descriptor -> index
+    %d_MMNN = aster_utils.struct_extract %dims_desc["d_MMNN"] : !distributed_dims_descriptor -> index
+    %w = aster_utils.struct_extract %dims_desc["w"] : !distributed_dims_descriptor -> index
+    %W = aster_utils.struct_extract %dims_desc["W"] : !distributed_dims_descriptor -> index
+    %K = aster_utils.struct_extract %dims_desc["K"] : !distributed_dims_descriptor -> index
+
+    // Extract tensor C info
+    %c_global = aster_utils.struct_extract %tensor_desc_c["ptr"] : !tensor_position_descriptor_2d -> !sx2
+    %i_pos = aster_utils.struct_extract %tensor_desc_c["m_pos"] : !tensor_position_descriptor_2d -> index
+    %j_pos = aster_utils.struct_extract %tensor_desc_c["n_pos"] : !tensor_position_descriptor_2d -> index
+    %GLOBAL_STRIDE_IN_BYTES = aster_utils.struct_extract %tensor_desc_c["global_stride_in_bytes"] : !tensor_position_descriptor_2d -> index
+    %elt_size_c = aster_utils.struct_extract %tensor_desc_c["elt_size"] : !tensor_position_descriptor_2d -> index
+
     %is_phase_2 = arith.cmpi eq, %phase, %c2 : index
     scf.if %is_phase_2 {
       // Calculate mma tile indices
@@ -266,9 +382,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
         %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
         %fragment = memref.load %c_fragments[%d_mmnn] : memref<?x!vx4>
-        %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] ->
-          (SIZE_N * 4)>()[%SIZE_N]
-        %elt_size_c = arith.constant 4 : index
         %pos_desc_c = aster_utils.struct_create(%c_global, %i_pos, %j_pos, %GLOBAL_STRIDE_IN_BYTES, %ii_pos, %jj_pos, %elt_size_c) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
         %true_store = arith.constant true
         func.call @global_store_wave_16x16xf32_C_fragment_wait(%fragment, %pos_desc_c, %true_store) : (!vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
@@ -352,56 +465,78 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %ub = affine.apply affine_map<()[K, num_phases, d_MMNNKK] ->
          (K * num_phases * d_MMNNKK)>
       ()[%K, %num_phases, %d_MMNNKK]
+
+    // Pre-compute strides (lifted outside the loop)
+    %elt_size_ab = arith.constant 2 : index // f16 size in bytes
+    %GLOBAL_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_K, elt_size] -> (SIZE_K * elt_size)>()[%SIZE_K, %elt_size_ab]
+    %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[TILE_SIZE_K, elt_size] -> (TILE_SIZE_K * elt_size)>()[%TILE_SIZE_K, %elt_size_ab]
+    %elt_size_c = arith.constant 4 : index // f32 size in bytes
+    %GLOBAL_C_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N] -> (SIZE_N * 4)>()[%SIZE_N]
+
+    // Create distributed dimensions descriptor (loop-invariant)
+    %dims_desc = aster_utils.struct_create(%MM, %NN, %KK, %d_MMKK, %d_NNKK, %d_MMNN, %w, %W, %K) : (index, index, index, index, index, index, index, index, index) -> !distributed_dims_descriptor
+
+    // Create tensor base descriptors (loop-invariant except k_pos)
+    %tensor_desc_a = aster_utils.struct_create(%a_global, %i_pos, %c0, %GLOBAL_STRIDE_IN_BYTES, %elt_size_ab) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+    %tensor_desc_b = aster_utils.struct_create(%b_global, %j_pos, %c0, %GLOBAL_STRIDE_IN_BYTES, %elt_size_ab) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+    %tensor_desc_c = aster_utils.struct_create(%c_global, %i_pos, %j_pos, %GLOBAL_C_STRIDE_IN_BYTES, %elt_size_c) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+
+    // Create LDS base descriptors (loop-invariant, m_pos/n_pos unused - set to 0)
+    %lds_desc_a = aster_utils.struct_create(%lds_a_base_off, %c0, %c0, %LDS_STRIDE_IN_BYTES, %elt_size_ab) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+    %lds_desc_b = aster_utils.struct_create(%lds_b_base_off, %c0, %c0, %LDS_STRIDE_IN_BYTES, %elt_size_ab) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+
     scf.for %idx = %c0 to %ub step %c1 {
       // Decompose linear index into 3D index
       %k, %phase, %d_mmnnkk = affine.delinearize_index %idx into (%K, %num_phases, %d_MMNNKK) : index, index, index
       %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
+      // Create scheduling descriptor (loop-variant)
+      %sched_desc = aster_utils.struct_create(%phase, %k, %d_mmnnkk) : (index, index, index) -> !sched_phase_descriptor
+
       // Phase 0a: Global loads (decoupled from DS writes via memrefs)
       func.call @maybe_global_load(
-        %phase, %k, %d_mmnnkk, %NN, %MM, %d_MMKK, %d_NNKK, %w, %W, %KK,
-        %a_global, %b_global, %i_pos, %j_pos, %k_pos, %SIZE_K,
+        %sched_desc, %dims_desc,
+        %tensor_desc_a, %tensor_desc_b, %k_pos,
         %a_load_memref, %b_load_memref)
         {sched.delay = 0 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index, index, index, index, index, index, index,
-           !sx2, !sx2, index, index, index, index,
+        : (!sched_phase_descriptor, !distributed_dims_descriptor,
+           !tensor_position_descriptor_2d, !tensor_position_descriptor_2d, index,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
 
       // Phase 0b: DS writes (decoupled from global loads via memrefs)
       func.call @maybe_lds_write(
-        %phase, %k, %d_mmnnkk, %NN, %MM, %d_MMKK, %d_NNKK, %w, %W, %KK,
-        %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
+        %sched_desc, %dims_desc,
+        %lds_desc_a, %lds_desc_b,
         %a_load_memref, %b_load_memref)
         {sched.delay = 0 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index, index, index, index, index, index, index,
-           index, index, index,
+        : (!sched_phase_descriptor, !distributed_dims_descriptor,
+           !lds_position_descriptor_2d, !lds_position_descriptor_2d,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
 
       // Phase 1a: LDS reads (decoupled from mfma via memrefs)
       func.call @maybe_lds_read(
-        %phase, %k, %d_mmnnkk, %d_MMNN, %KK, %w, %W, %MM, %NN,
-        %lds_a_base_off, %lds_b_base_off, %TILE_SIZE_K,
+        %sched_desc, %dims_desc,
+        %lds_desc_a, %lds_desc_b,
         %a_frag_memref, %b_frag_memref)
         {sched.delay = 0 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index, index, index, index, index, index,
-           index, index, index,
+        : (!sched_phase_descriptor, !distributed_dims_descriptor,
+           !lds_position_descriptor_2d, !lds_position_descriptor_2d,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
 
       // Phase 1b: MFMA (decoupled from LDS reads via memrefs)
       func.call @maybe_mfma(
-        %phase, %k, %d_mmnnkk, %d_MMNN, %KK,
+        %sched_desc, %dims_desc,
         %a_frag_memref, %b_frag_memref, %c_fragments)
         {sched.delay = 6 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index, index,
+        : (!sched_phase_descriptor, !distributed_dims_descriptor,
            memref<?x?x!vx2>, memref<?x?x!vx2>, memref<?x!vx4>) -> ()
 
       // Phase 2: Store C fragment back to global memory
       func.call @maybe_store_c_fragment(
-        %phase, %d_mmnnkk, %d_MMNN, %KK, %w, %W, %MM, %NN, %k, %K,
-        %i_pos, %j_pos, %SIZE_N, %c_fragments, %c_global)
+        %sched_desc, %dims_desc, %tensor_desc_c, %c_fragments)
           {sched.delay = 12 : i64, sched.rate = 1 : i64}
-        : (index, index, index, index, index, index, index, index, index, index,
-           index, index, index, memref<?x!vx4>, !sx2) -> ()
+        : (!sched_phase_descriptor, !distributed_dims_descriptor,
+           !tensor_position_descriptor_2d, memref<?x!vx4>) -> ()
 
     } {aster.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, 3, {{LOOP_SIZE_D_MMNNKK}}> }
 
