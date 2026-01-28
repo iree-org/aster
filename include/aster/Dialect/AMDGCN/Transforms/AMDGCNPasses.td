@@ -196,4 +196,21 @@ def LDSAlloc : Pass<"amdgcn-lds-alloc"> {
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
 }
 
+def ConvertLDSBuffers : Pass<"amdgcn-convert-lds-buffers"> {
+  let summary = "Convert LDS buffer operations to constants";
+  let description = [{
+    This pass converts allocated LDS buffer operations to their final form:
+    - Replaces `get_lds_offset` operations with `arith.constant` using the
+      buffer's assigned offset
+    - Erases `dealloc_lds` operations
+    - Removes `alloc_lds` operations if all uses are removed
+
+    This pass should run after `amdgcn-lds-alloc` has assigned offsets to all
+    LDS allocations.
+  }];
+  let dependentDialects = [
+    "mlir::arith::ArithDialect",
+  ];
+}
+
 #endif // AMDGCN_PASSES
