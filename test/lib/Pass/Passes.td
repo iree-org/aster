@@ -57,4 +57,13 @@ def TestWaitAnalysis : Pass<"test-wait-analysis"> {
   }];
 }
 
+def TestLDSInterferenceGraph
+    : InterfacePass<"test-lds-interference-graph", "::mlir::FunctionOpInterface"> {
+  let summary = "Test pass that prints the LDS interference graph";
+  let description = [{
+    This pass builds and prints the LDS interference graph for testing purposes.
+    The graph is printed in DOT format to stderr.
+  }];
+}
+
 #endif // ASTER_TEST_PASSES

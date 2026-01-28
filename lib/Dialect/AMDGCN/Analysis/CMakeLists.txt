@@ -1,6 +1,7 @@
 add_mlir_library(
   AMDGCNAnalysis
   BufferAnalysis.cpp
+  LDSInterferenceGraph.cpp
   WaitAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -8,6 +9,7 @@ add_mlir_library(
 
   LINK_LIBS PUBLIC
   AMDGCNDialect
+  ASTERSupport
 
   AMDGCNDialect
   MLIRAnalysis
