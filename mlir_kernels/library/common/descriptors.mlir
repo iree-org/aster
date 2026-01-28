@@ -62,6 +62,13 @@
 // Position descriptors
 //===----------------------------------------------------------------------===//
 
+// A 1D tensor position descriptor containing:
+//   - ptr: global base pointer
+//   - pos: position (in elements)
+//   - stride_in_bytes: stride in bytes between consecutive accesses
+//   - elt_size: element size in bytes
+!tensor_position_descriptor_1d = !aster_utils.struct<ptr: !sx2, pos: index, stride_in_bytes: index, elt_size: index>
+
 // A 2D tensor position descriptor containing:
 //   - ptr: global base pointer
 //   - m_pos, n_pos: row and column positions (in elements)
@@ -110,3 +117,12 @@
 //   - cond_iter: condition index (execute only when cond_iter == 0)
 //   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
 !conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
+
+//===----------------------------------------------------------------------===//
+// Mem2reg parameter descriptors
+//===----------------------------------------------------------------------===//
+
+// A 1D mem2reg parameter descriptor for vx4 values containing:
+//   - i: iteration index into the memref
+//   - memref: the memref for mem2reg transformation
+!m2reg_param_1d_vx4 = !aster_utils.struct<i: index, memref: memref<?x!vx4>>
