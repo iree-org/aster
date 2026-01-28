@@ -51,6 +51,12 @@
 //   - wave_size: number of threads per wave
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
+// A 2D conditional execution descriptor for multi-tile operations containing:
+//   - k: outer loop index (for indexing load_memref -> mem2reg)
+//   - cond_iter: condition index (execute only when cond_iter == 0)
+//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
+!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
+
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
   // Library function declarations (provided by amdgcn-preload-library pass)
@@ -89,11 +95,11 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, !lds_position_descriptor_2d)
   func.func private @simple_lds_read_wave_16x16xf16_wait(!lds_position_descriptor_2d) -> !vx2
   // simple-multi-tile-copies.mlir
-  func.func private @simple_maybe_lds_write_multi_tile(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @simple_maybe_lds_write_multi_tile(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
   // multi-tile-copies.mlir
-  func.func private @simple_maybe_global_load_multi_tile(index, index, index, index, index, index, index, !tensor_position_descriptor_2d, memref<?x?x!vx2>)
-  func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
-  func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @simple_maybe_global_load_multi_tile(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @maybe_global_load_multi_tile_coalesced(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
+  func.func private @maybe_lds_write_multi_tile_coalesced(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Helper: store i32 to global at thread index
@@ -523,30 +529,27 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %elt_size_global = arith.constant 2 : index // f16 size in bytes
     scf.for %ii = %c0 to %II step %c1 {
       scf.for %jj = %c0 to %JJ step %c1 {
-        // Call library function for global load (k=0, cond_iter=0 to always execute when aligned)
+        // Create conditional execution descriptor (k=0, cond_iter=0 to always execute when aligned)
+        %cond_desc = aster_utils.struct_create(%c0, %c0, %NT_I, %NT_J) : (index, index, index, index) -> !conditional_execution_descriptor_2d
+
+        // Call library function for global load
         // tensor_desc: m_pos=ii, n_pos=jj are tile indices
         %tensor_desc = aster_utils.struct_create(%in_ptr, %ii, %jj, %global_stride_bytes, %elt_size_global) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
         func.call @simple_maybe_global_load_multi_tile(
-          %c0, %c0,                     // k, cond_iter
-          %K, %II, %JJ,                 // K, II, JJ
-          %NT_I, %NT_J,                 // NT_I, NT_J
+          %cond_desc,                   // conditional_execution_descriptor_2d
           %tensor_desc,                 // tensor_position_descriptor_2d
           %load_memref)                 // load_memref
-          : (index, index, index, index, index, index, index,
-             !tensor_position_descriptor_2d, memref<?x?x!vx2>) -> ()
+          : (!conditional_execution_descriptor_2d, !tensor_position_descriptor_2d, memref<?x?x!vx2>) -> ()
 
-        // Call library function for LDS write (k=0, cond_iter=0)
+        // Call library function for LDS write
         %lds_stride_mt = arith.constant 256 : index // 128 * 2 bytes
         %elt_size_mt = arith.constant 2 : index
         %lds_pos_desc_mt = aster_utils.struct_create(%c0, %ii, %jj, %lds_stride_mt, %elt_size_mt) : (index, index, index, index, index) -> !lds_position_descriptor_2d
         func.call @simple_maybe_lds_write_multi_tile(
-          %c0, %c0,                     // k, cond_iter
-          %K, %II, %JJ,                 // K, II, JJ
-          %NT_I, %NT_J,                 // NT_I, NT_J
+          %cond_desc,                   // conditional_execution_descriptor_2d
           %lds_pos_desc_mt,             // lds_pos_desc_base (m_pos=ii, n_pos=jj as tile indices)
           %load_memref)                 // load_memref
-          : (index, index, index, index, index, index, index,
-             !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
+          : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
       } {aster.constexpr}
     } {aster.constexpr}
 
@@ -605,31 +608,28 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     %elt_size_global_coal = arith.constant 2 : index // f16 size in bytes
     scf.for %ii = %c0 to %II step %c1 {
       scf.for %jj = %c0 to %JJ step %c1 {
-        // Call library function for global load (k=0, cond_iter=0 to always execute when aligned)
+        // Create conditional execution descriptor (k=0, cond_iter=0 to always execute when aligned)
+        %cond_desc_coal = aster_utils.struct_create(%c0, %c0, %NT_I, %NT_J) : (index, index, index, index) -> !conditional_execution_descriptor_2d
+
+        // Call library function for global load
         // 2-level descriptor: m_pos/n_pos=0 (base positions), mm_pos/nn_pos=ii/jj (tile indices)
         %tensor_desc_coal = aster_utils.struct_create(%in_ptr, %c0, %c0, %global_stride_bytes_coal, %ii, %jj, %elt_size_global_coal) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
         func.call @maybe_global_load_multi_tile_coalesced(
-          %c0, %c0,                     // k, cond_iter
-          %K, %II, %JJ,                 // K, II, JJ
-          %NT_I, %NT_J,                 // NT_I, NT_J
+          %cond_desc_coal,              // conditional_execution_descriptor_2d
           %tensor_desc_coal,            // tensor_position_descriptor_2level_2d
           %load_memref)                 // load_memref
-          : (index, index, index, index, index, index, index,
-             !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
+          : (!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
 
-        // Call library function for LDS write (k=0, cond_iter=0)
+        // Call library function for LDS write
         // LDS descriptor: lds_base=0, m_pos=ii, n_pos=jj (tile indices)
         %lds_stride_bytes_coal = arith.constant 256 : index // SIZE_J * 2 = 128 * 2 bytes
         %elt_size_lds_coal = arith.constant 2 : index
         %lds_desc_coal = aster_utils.struct_create(%c0, %ii, %jj, %lds_stride_bytes_coal, %elt_size_lds_coal) : (index, index, index, index, index) -> !lds_position_descriptor_2d
         func.call @maybe_lds_write_multi_tile_coalesced(
-          %c0, %c0,                     // k, cond_iter
-          %K, %II, %JJ,                 // K, II, JJ
-          %NT_I, %NT_J,                 // NT_I, NT_J
+          %cond_desc_coal,              // conditional_execution_descriptor_2d
           %lds_desc_coal,               // lds_position_descriptor_2d
           %load_memref)                 // load_memref
-          : (index, index, index, index, index, index, index,
-             !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
+          : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
       } {aster.constexpr}
     } {aster.constexpr}
 

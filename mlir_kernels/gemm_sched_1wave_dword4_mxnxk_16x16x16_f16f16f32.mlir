@@ -28,6 +28,12 @@
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
+// A 2D conditional execution descriptor for multi-tile operations containing:
+//   - k: outer loop index (for indexing load_memref -> mem2reg)
+//   - cond_iter: condition index (execute only when cond_iter == 0)
+//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
+!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
+
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
   //===--------------------------------------------------------------------===//
@@ -51,8 +57,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     !vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
   // multi-tile-copies.mlir
-  func.func private @maybe_global_load_multi_tile_coalesced(index, index, index, index, index, index, index, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
-  func.func private @maybe_lds_write_multi_tile_coalesced(index, index, index, index, index, index, index, !lds_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @maybe_global_load_multi_tile_coalesced(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
+  func.func private @maybe_lds_write_multi_tile_coalesced(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
 
   // Initialize C (decoupled via memrefs).
   func.func private @maybe_init_C(
@@ -292,31 +298,21 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %elt_size_a = arith.constant 2 : index
           %global_stride_a = affine.apply affine_map<()[SIZE_K, elt_sz] -> (SIZE_K * elt_sz)>()[%SIZE_K, %elt_size_a]
           %tensor_desc_a = aster_utils.struct_create(%a_global, %m_pos, %k_pos, %global_stride_a, %mm, %kk, %elt_size_a) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+          %cond_desc_a = aster_utils.struct_create(%k, %nn, %NT_M, %NT_K) : (index, index, index, index) -> !conditional_execution_descriptor_2d
           func.call @maybe_global_load_multi_tile_coalesced(
-            %k, %nn,
-            %K, %MM, %KK,
-            %NT_M, %NT_K,
-            %tensor_desc_a, %a_load_memref)
+            %cond_desc_a, %tensor_desc_a, %a_load_memref)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (index, index,
-              index, index, index,
-              index, index,
-              !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
+            : (!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
 
           // Multi-tile global load B: mm_pos=nn, nn_pos=kk, cond_iter=mm
           %elt_size_b = arith.constant 2 : index
           %global_stride_b = affine.apply affine_map<()[SIZE_K, elt_sz] -> (SIZE_K * elt_sz)>()[%SIZE_K, %elt_size_b]
           %tensor_desc_b = aster_utils.struct_create(%b_global, %n_pos, %k_pos, %global_stride_b, %nn, %kk, %elt_size_b) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+          %cond_desc_b = aster_utils.struct_create(%k, %mm, %NT_N, %NT_K) : (index, index, index, index) -> !conditional_execution_descriptor_2d
           func.call @maybe_global_load_multi_tile_coalesced(
-            %k, %mm,
-            %K, %NN, %KK,
-            %NT_N, %NT_K,
-            %tensor_desc_b, %b_load_memref)
+            %cond_desc_b, %tensor_desc_b, %b_load_memref)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (index, index,
-              index, index, index,
-              index, index,
-              !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
+            : (!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
 
           // Multi-tile DS writes
           // LDS stride in bytes = TILE_SIZE_K * 2 (f16 element size)
@@ -325,29 +321,19 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
           // Multi-tile DS write A: mm_pos=mm, nn_pos=kk (tile indices), cond_iter=nn
           %lds_desc_a = aster_utils.struct_create(%lds_a_base_off, %mm, %kk, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+          %cond_desc_lds_a = aster_utils.struct_create(%k, %nn, %NT_M, %NT_K) : (index, index, index, index) -> !conditional_execution_descriptor_2d
           func.call @maybe_lds_write_multi_tile_coalesced(
-            %k, %nn,
-            %K, %MM, %KK,
-            %NT_M, %NT_K,
-            %lds_desc_a, %a_load_memref)
+            %cond_desc_lds_a, %lds_desc_a, %a_load_memref)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (index, index,
-              index, index, index,
-              index, index,
-              !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
+            : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
 
           // Multi-tile DS write B: mm_pos=nn, nn_pos=kk (tile indices), cond_iter=mm
           %lds_desc_b = aster_utils.struct_create(%lds_b_base_off, %nn, %kk, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+          %cond_desc_lds_b = aster_utils.struct_create(%k, %mm, %NT_N, %NT_K) : (index, index, index, index) -> !conditional_execution_descriptor_2d
           func.call @maybe_lds_write_multi_tile_coalesced(
-            %k, %mm,
-            %K, %NN, %KK,
-            %NT_N, %NT_K,
-            %lds_desc_b, %b_load_memref)
+            %cond_desc_lds_b, %lds_desc_b, %b_load_memref)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (index, index,
-              index, index, index,
-              index, index,
-              !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
+            : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
 
           func.call @maybe_init_C(
             %k, %mm, %nn, %kk,

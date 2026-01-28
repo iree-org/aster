@@ -6,15 +6,17 @@
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr_range<[? + 2]>
 
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+!lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
+!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
+
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Library declarations
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
     !lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
 
   func.func private @maybe_lds_write_multi_tile_coalesced(
-    index, index,
-    index, index, index,
-    index, index,
+    !conditional_execution_descriptor_2d,
     !lds_position_descriptor_2d,
     memref<?x?x!vx2>
   )
@@ -46,18 +48,17 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       scf.for %ii = %c0 to %II step %c1 {
         scf.for %jj = %c0 to %JJ step %c1 {
           // Call the LDS write function with garbage register values
+          // Create conditional execution descriptor (k=0, cond_iter=0)
+          %cond_desc = aster_utils.struct_create(%c0, %c0, %NT_I, %NT_J) : (index, index, index, index) -> !conditional_execution_descriptor_2d
           // LDS descriptor: lds_base=0, m_pos=ii, n_pos=jj (tile indices)
           %lds_stride_bytes = arith.constant 256 : index // SIZE_J * 2 bytes
           %elt_size_lds = arith.constant 2 : index
           %lds_desc = aster_utils.struct_create(%c0, %ii, %jj, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
           func.call @maybe_lds_write_multi_tile_coalesced(
-            %c0, %c0,                     // k, cond_iter
-            %K, %II, %JJ,                 // K, II, JJ
-            %NT_I, %NT_J,                 // NT_I, NT_J
+            %cond_desc,                   // conditional_execution_descriptor_2d
             %lds_desc,                    // lds_position_descriptor_2d
             %load_memref)                 // load_memref
-            : (index, index, index, index, index, index, index,
-               !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
+            : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
         } {aster.constexpr}
       } {aster.constexpr}
     } {aster.constexpr}
