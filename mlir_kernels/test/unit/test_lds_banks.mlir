@@ -11,14 +11,12 @@
 
 amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
-  // Library function declarations (provided by amdgcn-preload-library pass)
-  //===--------------------------------------------------------------------===//
-  // indexing.mlir
+  // From indexing.mlir
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @mfma_index_A_16x16xf16() -> !index_pair
   func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
   func.func private @lds_banks_for_transfer(index, index) -> !index_tuple_8
-  // copies.mlir
+  // From copies.mlir
   func.func private @store_to_global_dwordx4_wait(!vx4, !tensor_position_descriptor_2d)
 
   //===--------------------------------------------------------------------===//

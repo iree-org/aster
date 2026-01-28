@@ -14,9 +14,7 @@
 !index_descriptor_3level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, iii: index, jjj: index, stride: index, elt_size_b: index>
 
 amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  //===--------------------------------------------------------------------===//
-  // Library function declarations (provided by amdgcn-preload-library pass)
-  //===--------------------------------------------------------------------===//
+  // From indexing.mlir
   func.func private @lane_id() -> index
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index

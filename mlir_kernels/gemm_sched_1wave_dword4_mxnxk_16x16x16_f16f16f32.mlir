@@ -35,18 +35,15 @@
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
-  //===--------------------------------------------------------------------===//
-  // Library function declarations (provided by amdgcn-preload-library pass)
-  //===--------------------------------------------------------------------===//
-  // register-init.mlir
+  // From register-init.mlir
   func.func private @alloc_vgprx2() -> !vx2
   func.func private @init_vgprx4(i32) -> !vx4
-  // indexing.mlir
+  // From indexing.mlir
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_grid_partition_2d(!index_pair, !index_pair) -> !index_pair
-  // copies.mlir
+  // From copies.mlir
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(
     !tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
   func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
@@ -55,7 +52,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     !lds_position_descriptor_2d, i1) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     !vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
-  // multi-tile-copies.mlir
+  // From multi-tile-copies.mlir
   func.func private @maybe_global_load_multi_tile_coalesced(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
   func.func private @maybe_lds_write_multi_tile_coalesced(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
 

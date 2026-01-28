@@ -24,12 +24,10 @@
 
 amdgcn.library @common_copies isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
-  // Library function declarations (provided by amdgcn-preload-library pass)
-  //===--------------------------------------------------------------------===//
-  // register-init.mlir
+  // From register-init.mlir
   func.func private @alloc_vgprx2() -> !vx2
   func.func private @init_vgprx4(i32) -> !vx4
-  // indexing.mlir
+  // From indexing.mlir
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @matrix_offset(!index_descriptor_2d) -> !v
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v

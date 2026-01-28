@@ -23,9 +23,7 @@
 
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
-  // Library function declarations (provided by amdgcn-preload-library pass)
-  //===--------------------------------------------------------------------===//
-  // copies.mlir
+  // From copies.mlir
   func.func private @global_load_wave_128xf16_via_dword_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx1)
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
   func.func private @global_load_wave_384xf16_via_dwordx3_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx3)

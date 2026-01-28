@@ -85,25 +85,29 @@ amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // Reusable contiguous memory access indexing functions.
   //===--------------------------------------------------------------------===//
-  // Compute the global element index for a 1D grid-stride loop pattern.
-  // This calculates the linear element index across all threads in the grid,
-  // accounting for a stride index that steps by (gridDim.x * blockDim.x) in the index space.
-  // Formula: (idx * griddim + blockidx) * blockdim + threadidx
-  //          = idx * (griddim * blockdim) + (blockidx * blockdim + threadidx)
-  // This implements the grid-stride pattern where each thread processes multiple
-  // elements by stepping through the data space with stride equal to the grid size.
-  // The function internally queries GPU intrinsics for thread/block/grid dimensions.
-  func.func private @distributed_index_1d_with_grid_stride(
-    %idx: index  // Stride index (steps by gridDim.x * blockDim.x in element space)
-  ) -> index {
+
+  // Compute the base distributed index for this thread in a 1D grid.
+  // Formula: blockidx * blockdim + threadidx
+  // This gives each thread a unique index within the entire grid.
+  func.func private @distributed_index_1d() -> index {
     %blockidx_x = gpu.block_id x
     %threadidx_x = gpu.thread_id x
     %blockdim_x = gpu.block_dim x
+    %base_index = affine.apply affine_map<
+      (bidx, tidx)[bdim] -> (bidx * bdim + tidx)>
+      (%blockidx_x, %threadidx_x)[%blockdim_x]
+    return %base_index : index
+  }
+
+  // Compute the grid stride for a 1D grid-stride loop pattern.
+  // Formula: griddim * blockdim (total number of threads in the grid)
+  func.func private @grid_stride_1d() -> index {
+    %blockdim_x = gpu.block_dim x
     %griddim_x = gpu.grid_dim x
-    %elem_index = affine.apply affine_map<
-      (idx, bidx, tidx)[gdim, bdim] -> ((idx * gdim + bidx) * bdim + tidx)>
-      (%idx, %blockidx_x, %threadidx_x)[%griddim_x, %blockdim_x]
-    return %elem_index : index
+    %stride = affine.apply affine_map<
+      ()[gdim, bdim] -> (gdim * bdim)>
+      ()[%griddim_x, %blockdim_x]
+    return %stride : index
   }
 
   // Compute the linear byte offset for accessing a 2-D matrix given the outer

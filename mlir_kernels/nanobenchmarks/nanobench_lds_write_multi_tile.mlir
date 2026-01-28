@@ -16,10 +16,10 @@
 !conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
 
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  // Library declarations
+  // From copies.mlir
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
     !lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
-
+  // From multi-tile-copies.mlir
   func.func private @maybe_lds_write_multi_tile_coalesced(
     !conditional_execution_descriptor_2d,
     !lds_position_descriptor_2d,

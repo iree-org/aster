@@ -9,8 +9,7 @@
 // CHECK-LABEL: amdgcn.module
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
-  // Library function declaration (provided by amdgcn-preload-library pass)
-  // Needs to import ""../library/common/indexing.mlir"
+  // From indexing.mlir
   func.func private @index_bxmxnxk_16x16x16_f16f16f32(index, index, index, index, index, index, index, index, index) -> index
 
   //

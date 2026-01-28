@@ -21,11 +21,10 @@
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  // indexing.mlir
+  // From indexing.mlir
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index
-
-  // copies.mlir
+  // From copies.mlir
   func.func private @global_load_wave_128xf16_via_dword_nowait(
     !tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx1
   func.func private @global_load_wave_256xf16_via_dwordx2_nowait(
