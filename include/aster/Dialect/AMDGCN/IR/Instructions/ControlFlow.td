@@ -186,4 +186,20 @@ def S_CBRANCH_SCC1_INST : CBranchInst<
   }];
 }
 
+def S_CBRANCH_VCCZ_INST : CBranchInst<
+  /*mnemonic=*/"s_cbranch_vccz", /*symbol=*/"s_cbranch_vccz"> {
+  let summary = "Conditional Branch if VCC is zero";
+  let description = [{
+    Conditional branch instruction that branches if VCC is zero.
+  }];
+}
+
+def S_CBRANCH_VCCNZ_INST : CBranchInst<
+  /*mnemonic=*/"s_cbranch_vccnz", /*symbol=*/"s_cbranch_vccnz"> {
+  let summary = "Conditional Branch if VCC is not zero";
+  let description = [{
+    Conditional branch instruction that branches if VCC is not zero.
+  }];
+}
+
 #endif // AMDGCN_INST_CONTROLFLOW_TD

@@ -213,4 +213,28 @@ def ConvertLDSBuffers : Pass<"amdgcn-convert-lds-buffers"> {
   ];
 }
 
+def ConvertSCFControlFlow : Pass<"amdgcn-convert-scf-control-flow"> {
+  let summary = "Convert SCF control flow to AMDGCN control flow instructions";
+  let description = [{
+    This pass converts SCF structured control flow operations (such as scf.for,
+    scf.if, scf.while) to AMDGCN control flow instructions.
+
+    The pass first runs thread uniform analysis to determine whether loop
+    induction variables and conditions are uniform across all threads. Based on
+    this analysis:
+
+    - For thread-uniform conditions: emit scalar compare instructions (s_cmp_*)
+      and branch on SCC
+    - For thread-divergent conditions: emit vector compare instructions (v_cmp_*)
+      and branch on VCC/VCCZ
+
+    This pass should run after the ABI has been set and before register
+    allocation.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::aster::lsir::LSIRDialect"
+  ];
+}
+
 #endif // AMDGCN_PASSES
