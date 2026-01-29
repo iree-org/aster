@@ -64,7 +64,7 @@ def EndKernelInst : AMDInst<
 def BranchOperand : AnyRegOf<[SReg<"SCC">, SReg<"VCCZ">, SReg<"EXECZ">]>;
 
 def AMDGCN_BranchOp : InstOp<"branch", [
-    Pure, Terminator, AMDGCNInstOpInterface
+    Pure, Terminator, AMDGCNInstOpInterface, BranchOpInterface
   ]> {
   let summary = "AMDGCN unconditional branch operation";
   let description = [{
@@ -85,12 +85,22 @@ def AMDGCN_BranchOp : InstOp<"branch", [
     MutableArrayRef<OpOperand> getInstInsMutable() {
       return {};
     }
+
+    //===------------------------------------------------------------------===//
+    // BranchOpInterface Methods
+    //===------------------------------------------------------------------===//
+    /// Returns the operands forwarded to the successor. No arguments are
+    /// forwarded by this branch.
+    SuccessorOperands getSuccessorOperands(unsigned index) {
+      return SuccessorOperands(MutableOperandRange(getOperation(), 0, 0));
+    }
   }];
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
 def AMDGCN_CBranchOp : InstOp<"cbranch", [
-  Terminator, AMDGCNInstOpInterface, HasParent<"KernelOp">]> {
+    Terminator, AMDGCNInstOpInterface, BranchOpInterface
+  ]> {
   let summary = "AMDGCN conditional branch operation";
   let description = [{
     Conditional branching operation that branches based on a condition register.
@@ -119,6 +129,15 @@ def AMDGCN_CBranchOp : InstOp<"cbranch", [
     /// Get the instruction input operands.
     MutableArrayRef<OpOperand> getInstInsMutable() {
       return getCondMutable();
+    }
+
+    //===------------------------------------------------------------------===//
+    // BranchOpInterface Methods
+    //===------------------------------------------------------------------===//
+    /// Returns the operands forwarded to the given successor. No arguments are
+    /// forwarded by this branch.
+    SuccessorOperands getSuccessorOperands(unsigned index) {
+      return SuccessorOperands(MutableOperandRange(getOperation(), 0, 0));
     }
   }];
   let cppNamespace = "::mlir::aster::amdgcn";
