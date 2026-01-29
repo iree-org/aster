@@ -381,6 +381,14 @@ foreach sreg = SpecialRegisters in {
   def sreg#Type : SREGBase<sreg.typeName, sreg.typeMnemonic, sreg.name>;
 }
 
+class SReg<string name> : Type<CPred<"true">,
+    name # " special register type",
+    "::mlir::aster::amdgcn::" # name # "Type"
+  >, AsmArgFormat {
+  let asmParser = "$_parser.parseOperand($_self);";
+  let asmPrinter = "$_printer.printOperand($_self);";
+}
+
 //===----------------------------------------------------------------------===//
 // Misc types
 //===----------------------------------------------------------------------===//

@@ -48,6 +48,14 @@ def InstOpInterface : OpInterface<"InstOpInterface"> {
       "bool", "isRegAllocated", (ins), [{}], [{
         return ::mlir::aster::detail::isRegAllocatedImpl($_op);
       }]
+    >,
+    InterfaceMethod<
+      "Returns true if the instruction has DPS-like semantics",
+      "bool", "isDPSInstruction", (ins), [{}], [{
+        // TODO: Remove this default implementation when all instructions have proper
+        // overrides.
+        return true;
+      }]
     >
   ];
   let extraSharedClassDeclaration = [{
