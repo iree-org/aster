@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/ThreadUniformAnalysis.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/GPUFuncInterface.h"
@@ -57,6 +58,13 @@ static bool isWorkgroupUniform(Operation *op) {
     return true;
   if (isa<affine::AffineDialect>(op->getDialect()))
     return !isa<affine::AffineDmaStartOp, affine::AffineDmaWaitOp>(op);
+
+  // FromReg ops consuming sgpr types are uniform.
+  if (auto fromReg = dyn_cast<lsir::FromRegOp>(op)) {
+    return isa<amdgcn::SGPRType, amdgcn::SGPRRangeType>(
+        fromReg.getInput().getType());
+  }
+
   return isa<arith::ArithDialect>(op->getDialect()) &&
          op->getNumResults() == 1 &&
          op->getResult(0).getType().isIntOrIndexOrFloat();
@@ -65,29 +73,45 @@ static bool isWorkgroupUniform(Operation *op) {
 LogicalResult ThreadUniformAnalysis::visitOperation(
     Operation *op, ArrayRef<const ThreadUniformLattice *> operands,
     ArrayRef<ThreadUniformLattice *> results) {
+
+  // Helper function to pessimistically set all results to dependent.
+  auto pessimisticSetResults = [&]() {
+    for (auto [lattice, result] : llvm::zip(results, op->getResults())) {
+      // An sgpr result is always uniform.
+      if (isa<amdgcn::SGPRType, amdgcn::SGPRRangeType>(result.getType())) {
+        propagateIfChanged(lattice, lattice->join(ThreadUniform::getUniform()));
+        continue;
+      }
+      propagateIfChanged(lattice, lattice->join(ThreadUniform::getDependent()));
+    }
+  };
+
+  if (isa<aster_utils::AssumeUniformOp>(op)) {
+    for (ThreadUniformLattice *v : results)
+      propagateIfChanged(v, v->join(ThreadUniform::getUniform()));
+    return success();
+  }
+
   // Early exit if any of the operands is already dependent.
   if (llvm::any_of(operands, [&](const ThreadUniformLattice *lattice) {
         return ThreadUniform::getDependent() == lattice->getValue();
       })) {
-    for (ThreadUniformLattice *v : results) {
-      propagateIfChanged(v, v->join(ThreadUniform::getDependent()));
-    }
-    LDBG() << " dependent op: " << *op;
+    LDBG() << " op with dependent operands: " << *op;
+    pessimisticSetResults();
     return success();
   }
 
   // Check if it's a uniform op.
   if (isWorkgroupUniform(op)) {
     LDBG() << " uniform op: " << *op;
-    for (ThreadUniformLattice *v : results) {
+    for (ThreadUniformLattice *v : results)
       propagateIfChanged(v, v->join(ThreadUniform::getUniform()));
-    }
     return success();
   }
 
   LDBG() << " pessimistic dependent op: " << *op;
   // Be pessimistic about all other ops.
-  setAllToEntryStates(results);
+  pessimisticSetResults();
   return success();
 }
 
