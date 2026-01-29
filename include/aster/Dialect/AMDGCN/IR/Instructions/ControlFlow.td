@@ -64,14 +64,15 @@ def EndKernelInst : AMDInst<
 def BranchOperand : AnyRegOf<[SReg<"SCC">, SReg<"VCCZ">, SReg<"EXECZ">]>;
 
 def AMDGCN_BranchOp : InstOp<"branch", [
-  Pure, Terminator, AMDGCNInstOpInterface, HasParent<"KernelOp">]> {
+    Pure, Terminator, AMDGCNInstOpInterface
+  ]> {
   let summary = "AMDGCN unconditional branch operation";
   let description = [{
-    unconditional branching operation.
+    Unconditional branching operation.
   }];
   let arguments = (ins AMDGCN_InstAttr:$opcode);
-  let successors = (successor BranchLabel:$dest );
-  let assemblyFormat = "$opcode $dest attr-dict";
+  let successors = (successor BranchLabel:$dest);
+  let assemblyFormat = "custom<Opcode>($opcode) $dest attr-dict";
   let extraClassDeclaration = [{
     //===------------------------------------------------------------------===//
     // InstOpInterface Methods
@@ -92,18 +93,21 @@ def AMDGCN_CBranchOp : InstOp<"cbranch", [
   Terminator, AMDGCNInstOpInterface, HasParent<"KernelOp">]> {
   let summary = "AMDGCN conditional branch operation";
   let description = [{
-    Conditional branching operation that branches based on the SCC register value.
+    Conditional branching operation that branches based on a condition register.
 
     Example:
     ```mlir
     // Branch to ^loop if SCC is 1, otherwise fall through to ^exit
-    amdgcn.cbranch #amdgcn.inst<s_cbranch_cond1> %cond ^loop fallthrough (^exit)
+    amdgcn.cbranch s_cbranch_scc1 %cond ^loop fallthrough (^exit)
       : !amdgcn.scc
     ```
   }];
   let arguments = (ins AMDGCN_InstAttr:$opcode, BranchOperand:$cond);
   let successors = (successor BranchLabel:$dest, BranchLabel:$fallthrough);
-  let assemblyFormat = "$opcode $cond $dest `fallthrough` `(` $fallthrough `)` attr-dict `:` type($cond)";
+  let assemblyFormat = [{
+    custom<Opcode>($opcode)  $cond $dest `fallthrough` `(` $fallthrough `)`
+    attr-dict `:` type($cond)
+  }];
   let extraClassDeclaration = [{
     //===------------------------------------------------------------------===//
     // InstOpInterface Methods
@@ -120,9 +124,8 @@ def AMDGCN_CBranchOp : InstOp<"cbranch", [
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
-def BranchInst : AMDInst<
-  /*mnemonic=*/"s_branch", /*symbol=*/"s_branch",
-  /*instOp=*/AMDGCN_BranchOp, /*targets=*/[]> {
+def BranchInst : AMDInst</*mnemonic=*/"s_branch", /*symbol=*/"s_branch",
+    /*instOp=*/AMDGCN_BranchOp, /*targets=*/[]> {
   let summary = "Unconditional Branch instruction";
   let description = [{
     Branch instruction that performs unconditional branching.

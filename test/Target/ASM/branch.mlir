@@ -86,17 +86,17 @@
 amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @test_branch {
   ^entry:
-    amdgcn.branch #amdgcn.inst<s_branch> ^next
+    amdgcn.branch s_branch ^next
   ^next:
     amdgcn.end_kernel
   }
   amdgcn.kernel @test_diamond_branch {
   ^entry:
-    amdgcn.branch #amdgcn.inst<s_branch> ^true
+    amdgcn.branch s_branch ^true
   ^true:
-    amdgcn.branch #amdgcn.inst<s_branch> ^exit
+    amdgcn.branch s_branch ^exit
   ^false:
-    amdgcn.branch #amdgcn.inst<s_branch> ^exit
+    amdgcn.branch s_branch ^exit
   ^exit:
     amdgcn.end_kernel
   }
