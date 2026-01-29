@@ -201,7 +201,7 @@ createOpSchedule(OpBuilder &b, const FiringExpressionsAndBounds &firingData,
     emissionCounts[op] = 0;
 
   LDBG() << "Creating op schedule with max global index: "
-         << firingData.maxGlobalIdx << "\n";
+         << firingData.maxGlobalIdx << "";
   SmallVector<ScheduledOp> scheduledOps;
   for (int globalIdx = 0; globalIdx < firingData.maxGlobalIdx + 1;
        ++globalIdx) {
@@ -245,7 +245,7 @@ static SmallVector<Operation *> collectOpsToSchedule(scf::ForOp forOp) {
 }
 
 /// Validates that all operands of an operation can be properly mapped
-/// before cloning.
+/// before cloning. Emits warnings for violations but doesn't fail.
 static LogicalResult validateOperandMappings(const ScheduledOp &schedOp,
                                              const IRMapping &mapping) {
   for (OpOperand &operand : schedOp.op->getOpOperands()) {
@@ -253,12 +253,23 @@ static LogicalResult validateOperandMappings(const ScheduledOp &schedOp,
 
     // Check if it's in the IRMapping
     if (!mapping.contains(originalOperand)) {
-      schedOp.op->emitWarning()
-          << "scheduling violation: '" << schedOp.op->getName()
-          << "' depends on '" << originalOperand
-          << "' which hasn't fired yet for this iteration instance. Check "
-             "delay/rate attributes.";
-      schedOp.op->getParentOp()->dump();
+      Operation *definingOp = originalOperand.getDefiningOp();
+      if (definingOp) {
+        schedOp.op->emitWarning()
+            << "op scheduling: '" << schedOp.op->getName() << "' depends on '"
+            << originalOperand << "' produced by '" << definingOp->getName()
+            << "' which hasn't been cloned yet for this iteration instance. "
+               "This indicates a scheduling violation - operations must be "
+               "scheduled in dependency order. Check delay/rate attributes. "
+               "Pass fails gracefully.";
+      } else {
+        schedOp.op->emitWarning()
+            << "op scheduling: '" << schedOp.op->getName() << "' depends on '"
+            << originalOperand
+            << "' which isn't in the mapping. This indicates a scheduling "
+               "violation. Check delay/rate attributes. Pass fails gracefully.";
+      }
+      // Pass fails gracefully.
       return failure();
     }
   }
@@ -332,40 +343,55 @@ private:
   void processLoop(scf::ForOp forOp) {
     // Get dimensions from the loop's sched.dims attribute
     auto dimsAttr = forOp->getAttrOfType<DenseI64ArrayAttr>(kSchedDimsAttr);
-    if (!dimsAttr) {
-      LDBG() << "Loop missing sched.dims attribute, skipping\n";
+    // No dimsAttr, no scheduling, no need for a warning.
+    if (!dimsAttr)
       return;
-    }
 
     if (forOp.getNumResults() > 0) {
-      forOp.emitWarning() << "Skip loop that yields values";
+      forOp.emitWarning()
+          << "op scheduling: skipping loop - loop yields values. Operation "
+             "scheduling only supports loops that don't yield values atm.";
       return;
     }
 
     auto maybeConstantTripCount = forOp.getStaticTripCount();
     if (!maybeConstantTripCount.has_value()) {
-      forOp.emitWarning() << "Skip loop with dynamic bounds";
+      forOp.emitWarning()
+          << "op scheduling: skipping loop - dynamic bounds detected. "
+             "Operation scheduling requires constant trip count atm.";
       return;
     }
 
     SmallVector<int64_t> shape;
     shape.assign(dimsAttr.asArrayRef().begin(), dimsAttr.asArrayRef().end());
     int totalNumIterations = maybeConstantTripCount->getSExtValue();
+    LDBG_OS([&](raw_ostream &os) {
+      os << "Loop trip count: " << totalNumIterations << ", shape: [";
+      llvm::interleaveComma(shape, os);
+      os << "], product: " << computeProduct(shape);
+    });
+
     if (totalNumIterations != computeProduct(shape)) {
-      LDBG()
-          << "Loop trip count does not match product of dimensions, skipping\n";
+      forOp.emitWarning()
+          << "op scheduling: skipping loop - trip count (" << totalNumIterations
+          << ") does not match product of dimensions (" << computeProduct(shape)
+          << "). Ensure 'sched.dims' matches the actual loop iteration space.";
       return;
     }
 
     // Collect operations to schedule within the loop body
     SmallVector<Operation *> opsToSchedule = collectOpsToSchedule(forOp);
-    if (opsToSchedule.empty())
+    if (opsToSchedule.empty()) {
+      forOp.emitWarning()
+          << "op scheduling: skipping loop - no operations to schedule in "
+             "loop body (only terminator found).";
       return;
+    }
 
     LDBG_OS([&](raw_ostream &os) {
       os << "Found " << opsToSchedule.size() << " ops, schedule with dims: [";
       llvm::interleaveComma(shape, os);
-      os << "]\n";
+      os << "]";
     });
 
     // Preconditions done, start scheduling.
@@ -404,8 +430,13 @@ private:
 
     FailureOr<SmallVector<Operation *>> clonedOps =
         materializeOpSchedule(b, scheduledOps, irMappings, testOnly);
-    if (failed(clonedOps))
+    if (failed(clonedOps)) {
+      forOp.emitWarning()
+          << "op scheduling: failed to materialize operation schedule. "
+             "Check previous warnings for scheduling violations. Loop will "
+             "not be unrolled.";
       return;
+    }
 
     // Move all the cloned operations before the loop
     for (Operation *op : clonedOps.value())

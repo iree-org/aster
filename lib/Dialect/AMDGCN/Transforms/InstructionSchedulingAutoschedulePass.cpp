@@ -104,13 +104,34 @@ findConsumerWithEarliestSchedule(ArrayRef<Operation *> consumersWithSchedule) {
   return earliestConsumer;
 }
 
+/// Compute the maximum delay among operand producers that have schedules.
+/// Returns 0 if no operand producer has a schedule.
+static int computeMaxOperandDelay(Operation *op,
+                                  ArrayRef<Operation *> opsToSchedule) {
+  int maxDelay = 0;
+  for (Value operand : op->getOperands()) {
+    Operation *producer = operand.getDefiningOp();
+    if (!producer || !llvm::is_contained(opsToSchedule, producer))
+      continue;
+    if (auto delayAttr = producer->getAttrOfType<IntegerAttr>(kSchedDelayAttr))
+      maxDelay = std::max(maxDelay, static_cast<int>(delayAttr.getInt()));
+  }
+  return maxDelay;
+}
+
 /// Apply autoschedules to operations that don't have explicit ones.
-static void applyAutoschedules(SmallVector<Operation *> &opsToSchedule) {
+/// Returns failure if conflicting constraints are detected.
+static LogicalResult
+applyAutoschedules(SmallVector<Operation *> &opsToSchedule) {
   // Process each operation without a schedule (in reverse order)
   for (size_t i = opsToSchedule.size(); i > 0; --i) {
     Operation *op = opsToSchedule[i - 1];
     if (hasSchedule(op))
       continue;
+
+    // Compute the minimum delay required by operand constraints.
+    // The operation must be scheduled at a delay >= max of its operand delays.
+    int minDelayFromOperands = computeMaxOperandDelay(op, opsToSchedule);
 
     // Rule 1: Gather all consumers with schedules and select the earliest one
     // (first by delay, then by rate)
@@ -119,9 +140,7 @@ static void applyAutoschedules(SmallVector<Operation *> &opsToSchedule) {
     Operation *earliestConsumer =
         findConsumerWithEarliestSchedule(consumersWithSchedule);
     if (earliestConsumer) {
-      // Apply Rule 1: inherit schedule from consumer with earliest schedule
-      copyScheduleAttributes(earliestConsumer, op);
-      int delay =
+      int consumerDelay =
           earliestConsumer->getAttrOfType<IntegerAttr>(kSchedDelayAttr)
               ? earliestConsumer->getAttrOfType<IntegerAttr>(kSchedDelayAttr)
                     .getInt()
@@ -131,20 +150,39 @@ static void applyAutoschedules(SmallVector<Operation *> &opsToSchedule) {
               ? earliestConsumer->getAttrOfType<IntegerAttr>(kSchedRateAttr)
                     .getInt()
               : 1;
+
+      // Check for conflicting constraints: consumer wants earlier than operands
+      // allow
+      if (consumerDelay < minDelayFromOperands) {
+        op->emitWarning()
+            << "autoschedule conflict: consumer '"
+            << earliestConsumer->getName()
+            << "' requires delay=" << consumerDelay
+            << ", but operand constraints require delay>="
+            << minDelayFromOperands
+            << ". Please add explicit sched.delay/sched.rate attributes to "
+               "resolve this conflict.";
+        return failure();
+      }
+
+      // Apply Rule 1: inherit schedule from consumer with earliest schedule
+      copyScheduleAttributes(earliestConsumer, op);
       LDBG() << "Operation '" << op->getName()
              << "' inherits schedule from consumer '"
-             << earliestConsumer->getName() << "' (delay=" << delay
+             << earliestConsumer->getName() << "' (delay=" << consumerDelay
              << ", rate=" << rate << ")\n";
       continue;
     }
 
-    // Rule 2: Apply default schedule (delay=0, rate=1, no permutation)
+    // Rule 2: Apply schedule with delay=max(0, operand delays), rate=1
     OpBuilder b(op->getContext());
-    op->setAttr(kSchedDelayAttr, b.getI32IntegerAttr(0));
+    op->setAttr(kSchedDelayAttr, b.getI32IntegerAttr(minDelayFromOperands));
     op->setAttr(kSchedRateAttr, b.getI32IntegerAttr(1));
     LDBG() << "Operation '" << op->getName()
-           << "' gets default schedule (delay=0, rate=1)\n";
+           << "' gets schedule (delay=" << minDelayFromOperands
+           << ", rate=1) based on operand constraints\n";
   }
+  return success();
 }
 
 /// Collect all operations that should be scheduled from a loop body.
@@ -187,7 +225,8 @@ private:
       return;
 
     // Apply autoschedules
-    applyAutoschedules(opsToSchedule);
+    if (failed(applyAutoschedules(opsToSchedule)))
+      signalPassFailure();
   }
 };
 
