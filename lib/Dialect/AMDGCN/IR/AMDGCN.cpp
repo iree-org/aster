@@ -35,6 +35,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -736,6 +737,140 @@ void StoreOp::getEffects(
     break;
   default:
     break;
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// CmpIOp
+//===----------------------------------------------------------------------===//
+
+/// Check if a type is an unallocated register (relocatable).
+static bool isUnallocatedRegister(Type type) {
+  auto regType = dyn_cast<RegisterTypeInterface>(type);
+  return regType && regType.isRelocatable();
+}
+
+/// Parse the output types for CmpIOp.
+/// Format: `dps(type) outs(type)?` or `outs(type, type?)`
+static ParseResult
+parseCmpOutTypes(OpAsmParser &parser, Type &destType,
+                 std::optional<OpAsmParser::UnresolvedOperand> &exec,
+                 Type &execType) {
+  // Parse either:
+  //   dps(destType) outs(execType)?  -- unallocated dest
+  //   outs(destType, execType?)      -- allocated dest
+
+  SMLoc loc = parser.getCurrentLocation();
+  if (succeeded(parser.parseOptionalKeyword("dps"))) {
+    // dps(destType) format
+    if (parser.parseLParen() || parser.parseType(destType) ||
+        parser.parseRParen())
+      return failure();
+
+    if (!isUnallocatedRegister(destType)) {
+      return parser.emitError(loc)
+             << "expected unallocated register type for dps";
+    }
+
+    // Optionally parse outs(execType)
+    if (succeeded(parser.parseOptionalKeyword("outs"))) {
+      if (parser.parseLParen() || parser.parseType(execType) ||
+          parser.parseRParen())
+        return failure();
+    }
+    return success();
+  }
+
+  // outs(destType, execType?) format
+  if (parser.parseKeyword("outs") || parser.parseLParen() ||
+      parser.parseType(destType))
+    return failure();
+
+  if (isUnallocatedRegister(destType)) {
+    return parser.emitError(loc) << "expected allocated register type for outs";
+  }
+
+  // Check if exec is present
+  if (exec.has_value()) {
+    if (parser.parseComma() || parser.parseType(execType))
+      return failure();
+  }
+
+  if (parser.parseRParen())
+    return failure();
+  return success();
+}
+
+/// Print the output types for CmpIOp.
+static void printCmpOutTypes(OpAsmPrinter &printer, Operation *, Type destType,
+                             Value exec, Type execType) {
+  if (isUnallocatedRegister(destType)) {
+    // dps(type) outs(type)? format
+    printer << "dps(" << destType << ")";
+    if (exec)
+      printer << " outs(" << execType << ")";
+    return;
+  }
+  // outs(type, type?) format
+  printer << "outs(" << destType;
+  if (exec)
+    printer << ", " << execType;
+  printer << ")";
+}
+
+void CmpIOp::build(OpBuilder &builder, OperationState &state, OpCode opcode,
+                   Value dest, Value lhs, Value rhs) {
+  auto &props = state.getOrAddProperties<Properties>();
+  props.setOpcode(InstAttr::get(builder.getContext(), opcode));
+  state.addOperands({dest, lhs, rhs});
+  LogicalResult res =
+      inferReturnTypes(builder.getContext(), state.location, state.operands,
+                       state.attributes.getDictionary(builder.getContext()),
+                       &props, state.regions, state.types);
+  assert(succeeded(res) && "unexpected inferReturnTypes failure");
+  (void)res;
+}
+
+void CmpIOp::build(OpBuilder &builder, OperationState &state, OpCode opcode,
+                   Value dest, Value exec, Value lhs, Value rhs) {
+  auto &props = state.getOrAddProperties<Properties>();
+  props.setOpcode(InstAttr::get(builder.getContext(), opcode));
+  state.addOperands({dest, exec, lhs, rhs});
+  LogicalResult res =
+      inferReturnTypes(builder.getContext(), state.location, state.operands,
+                       state.attributes.getDictionary(builder.getContext()),
+                       &props, state.regions, state.types);
+  assert(succeeded(res) && "unexpected inferReturnTypes failure");
+  (void)res;
+}
+
+LogicalResult
+CmpIOp::inferReturnTypes(MLIRContext *context, std::optional<Location> location,
+                         ValueRange operands, DictionaryAttr attributes,
+                         OpaqueProperties properties, RegionRange regions,
+                         SmallVectorImpl<Type> &inferredReturnTypes) {
+  // The dest operand is the first operand.
+  Type destType = operands[0].getType();
+  // If dest is an unallocated SGPR, return it as the result type.
+  if (isUnallocatedRegister(destType) && isa<SGPRType>(destType))
+    inferredReturnTypes.push_back(destType);
+  return success();
+}
+
+void CmpIOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  // Always write effect on dest.
+  effects.emplace_back(MemoryEffects::Write::get(), &getDestMutable());
+  // Read effects on inputs.
+  effects.emplace_back(MemoryEffects::Read::get(), &getLhsMutable());
+  effects.emplace_back(MemoryEffects::Read::get(), &getRhsMutable());
+  // Write effect on exec if present.
+  if (getExec()) {
+    MutableOperandRange execRange = getExecMutable();
+    effects.emplace_back(
+        MemoryEffects::Write::get(),
+        &getOperation()->getOpOperand(execRange[0].getOperandNumber()));
   }
 }
 

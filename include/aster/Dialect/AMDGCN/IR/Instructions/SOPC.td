@@ -74,13 +74,6 @@ class SOPCInst<string _mnemonic, list<ISAVersion> _isa>
 // SOPC Instructions - Signed 32-bit integer comparisons
 //===----------------------------------------------------------------------===//
 
-def SCmpEqI32 : SOPCInst<"s_cmp_eq_i32", [CDNA3, RDNA4]> {
-  let summary = "SOPC compare equal (signed 32-bit)";
-  let description = [{
-    Set SCC to 1 if the first scalar input equals the second scalar input.
-    SCC = (S0.i32 == S1.i32)
-  }];
-}
 
 def SCmpLgI32 : SOPCInst<"s_cmp_lg_i32", [CDNA3, RDNA4]> {
   let summary = "SOPC compare not equal (signed 32-bit)";

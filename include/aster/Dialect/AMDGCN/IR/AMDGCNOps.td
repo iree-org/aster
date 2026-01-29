@@ -674,6 +674,7 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
 // AMDGCN Target Operations
 //===----------------------------------------------------------------------===//
 
+include "aster/Dialect/AMDGCN/IR/Instructions/Comparison.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/Memory.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SOP1.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SOP2.td"

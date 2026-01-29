@@ -15,6 +15,8 @@ using namespace mlir;
 using namespace mlir::aster;
 
 LogicalResult mlir::aster::detail::verifyInstImpl(InstOpInterface op) {
+  if (!op.isDPSInstruction())
+    return success();
   ValueRange outOperands = op.getInstOuts();
   ValueRange results = op.getInstResults();
   if (outOperands.size() != results.size()) {
