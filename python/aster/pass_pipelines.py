@@ -181,10 +181,10 @@ def phase_nop_insertion(delays=0):
 # Test and benchmarking pipelines
 # --------------------------------------------------------------------------- #
 
-# Minimal pass pipeline for nanobenchmarks - no scheduling, synchronous waits.
-# This produces unoptimized code that reflects the raw instruction sequence.
-# For now this skips scheduling because we do not need it yet.
+# Pass pipeline for nanobenchmarks.
 NANOBENCH_PASS_PIPELINE = builtin_module(
+    PHASE_PRE_SCHEDULING_CLEANUP,
+    PHASE_SCHEDULING,
     PHASE_POST_SCHEDULING_CLEANUP,
     PHASE_SROA,
     POST_SROA_CLEANUPS,

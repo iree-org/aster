@@ -8,6 +8,7 @@ import numpy as np
 
 from utils import (
     MCPU,
+    NANOBENCH_PASS_PIPELINE,
     WAVEFRONT_SIZE,
     NanobenchConfig,
     add_common_args,
@@ -83,6 +84,7 @@ def main():
     config = NanobenchConfig(
         kernel_name=KERNEL_NAME,
         mlir_file=mlir_file,
+        pass_pipeline=NANOBENCH_PASS_PIPELINE,
         description="global load benchmark",
         num_blocks=args.num_blocks,
         num_threads=num_threads,

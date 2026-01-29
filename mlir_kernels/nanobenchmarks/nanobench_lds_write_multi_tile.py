@@ -5,6 +5,7 @@ import argparse
 import os
 
 from utils import (
+    NANOBENCH_PASS_PIPELINE,
     WAVEFRONT_SIZE,
     NanobenchConfig,
     add_common_args,
@@ -37,6 +38,7 @@ def main():
     config = NanobenchConfig(
         kernel_name=KERNEL_NAME,
         mlir_file=mlir_file,
+        pass_pipeline=NANOBENCH_PASS_PIPELINE,
         description="LDS write multi-tile benchmark",
         num_blocks=args.num_blocks,
         num_threads=WAVEFRONT_SIZE,
