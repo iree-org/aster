@@ -29,7 +29,7 @@
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 !future_global_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 !future_lds_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
-!future_lds_write_any = !aster_utils.struct<token: !amdgcn.write_token<shared>>
+!future_lds_write = !amdgcn.write_token<shared>
 
 // A 2D conditional execution descriptor for multi-tile operations containing:
 //   - k: outer loop index (for indexing load_memref -> mem2reg)
@@ -54,7 +54,7 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
 
   // From copies.mlir - _future variants for token-aware operations
   func.func private @global_load_wave_256xf16_via_dwordx2_future(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !future_global_read_any
-  func.func private @lds_write_wave_256xf16_via_dwordx2_future(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write_any
+  func.func private @lds_write_wave_256xf16_via_dwordx2_future(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
   func.func private @lds_read_A_wave_16x16xf16_fragment_future(!lds_position_descriptor_2d, i1) -> !future_lds_read_any
 
   //===--------------------------------------------------------------------===//
@@ -364,11 +364,9 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
         %transfer_size_lds = arith.constant 8 : index
         %wave_size_lds = arith.constant 64 : index
         %transfer_desc_lds = aster_utils.struct_create(%row_size, %transfer_size_lds, %wave_size_lds) : (index, index, index) -> !transfer_descriptor_2d
-        %future = func.call @lds_write_wave_256xf16_via_dwordx2_future(%lds_pos_desc, %transfer_desc_lds, %value)
-          : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write_any
+        %token = func.call @lds_write_wave_256xf16_via_dwordx2_future(%lds_pos_desc, %transfer_desc_lds, %value) : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
 
-        // Extract and store token
-        %token = aster_utils.struct_extract %future ["token"] : !future_lds_write_any -> !amdgcn.write_token<shared>
+        // Store token
         memref.store %token, %token_memref[%idx] : memref<?x!amdgcn.write_token<shared>>
       } {aster.constexpr}
     } {aster.constexpr}
