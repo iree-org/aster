@@ -105,6 +105,9 @@ DEFAULT_SROA_PASS_PIPELINE = (
     "builtin.module("
     "  aster-selective-inlining,"
     "  cse,canonicalize,symbol-dce,"
+    # Scheduling passes relieves the burden of synchronization interleaving from
+    # the API while still maintaining good control over the schedule.
+    # This is one possible design point in the control / automation tradeoff space.
     "  amdgcn-instruction-scheduling-autoschedule,"
     "  aster-op-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
@@ -184,6 +187,9 @@ SYNCHRONOUS_SROA_PASS_PIPELINE = (
     "builtin.module("
     "  aster-selective-inlining,"
     "  cse,canonicalize,symbol-dce,"
+    # Scheduling passes relieves the burden of synchronization interleaving from
+    # the API while still maintaining good control over the schedule.
+    # This is one possible design point in the control / automation tradeoff space.
     "  amdgcn-instruction-scheduling-autoschedule,"
     "  aster-op-scheduling,"
     "  aster-selective-inlining{allow-scheduled-calls=true},"
