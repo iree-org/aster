@@ -1,71 +1,11 @@
 """Unit tests for copies.mlir library functions."""
 
-import os
-import pytest
 import numpy as np
 
-from aster import ir, utils
-from integration_test.test_utils import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-    SYNCHRONOUS_SROA_PASS_PIPELINE,
-    hsaco_file,
-)
-from mlir_kernels.common import get_library_paths
-
-# Test configuration
-MCPU = "gfx942"
-WAVEFRONT_SIZE = 64
-
-
-def get_mlir_file(file_name: str):
-    """Get path to the test MLIR file."""
-    return os.path.join(os.path.dirname(__file__), file_name)
-
-
-def compile_and_run(
-    file_name: str,
-    kernel_name: str,
-    input_data: list,
-    output_data: np.ndarray,
-    grid_dim=(1, 1, 1),
-    block_dim=(64, 1, 1),
-):
-    """Compile and run a test kernel, returning the output buffer."""
-    mlir_file = get_mlir_file(file_name)
-    library_paths = get_library_paths()
-
-    with ir.Context() as ctx:
-        asm_complete, module = compile_mlir_file_to_asm(
-            mlir_file,
-            kernel_name,
-            SYNCHRONOUS_SROA_PASS_PIPELINE,
-            ctx,
-            library_paths=library_paths,
-            print_ir_after_all=False,
-        )
-
-        hsaco_path = utils.assemble_to_hsaco(
-            asm_complete, target=MCPU, wavefront_size=WAVEFRONT_SIZE
-        )
-        if hsaco_path is None:
-            raise RuntimeError("Failed to assemble kernel to HSACO")
-
-        with hsaco_file(hsaco_path):
-            if not utils.system_has_mcpu(mcpu=MCPU):
-                print(asm_complete)
-                pytest.skip(f"GPU {MCPU} not available")
-
-            execute_kernel_and_verify(
-                hsaco_path=hsaco_path,
-                kernel_name=kernel_name,
-                input_args=input_data,
-                output_args=[output_data],
-                mcpu=MCPU,
-                wavefront_size=WAVEFRONT_SIZE,
-                grid_dim=grid_dim,
-                block_dim=block_dim,
-            )
+try:
+    from .test_utils import compile_and_run
+except ImportError:
+    from test_utils import compile_and_run
 
 
 class TestGlobalToLdsAndBack16x16:

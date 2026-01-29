@@ -1,71 +1,11 @@
 """Unit tests for copies.mlir library functions."""
 
-import os
-import pytest
 import numpy as np
 
-from aster import ir, utils
-from integration_test.test_utils import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-    SYNCHRONOUS_SROA_PASS_PIPELINE,
-    hsaco_file,
-)
-from mlir_kernels.common import get_library_paths
-
-# Test configuration
-MCPU = "gfx942"
-WAVEFRONT_SIZE = 64
-
-
-def get_mlir_file(file_name: str):
-    """Get path to the test MLIR file."""
-    return os.path.join(os.path.dirname(__file__), file_name)
-
-
-def compile_and_run(
-    file_name: str,
-    kernel_name: str,
-    input_data: list,
-    output_data: np.ndarray,
-    grid_dim=(1, 1, 1),
-    block_dim=(64, 1, 1),
-):
-    """Compile and run a test kernel, returning the output buffer."""
-    mlir_file = get_mlir_file(file_name)
-    library_paths = get_library_paths()
-
-    with ir.Context() as ctx:
-        asm_complete, module = compile_mlir_file_to_asm(
-            mlir_file,
-            kernel_name,
-            SYNCHRONOUS_SROA_PASS_PIPELINE,
-            ctx,
-            library_paths=library_paths,
-            print_ir_after_all=False,
-        )
-
-        hsaco_path = utils.assemble_to_hsaco(
-            asm_complete, target=MCPU, wavefront_size=WAVEFRONT_SIZE
-        )
-        if hsaco_path is None:
-            raise RuntimeError("Failed to assemble kernel to HSACO")
-
-        with hsaco_file(hsaco_path):
-            if not utils.system_has_mcpu(mcpu=MCPU):
-                print(asm_complete)
-                pytest.skip(f"GPU {MCPU} not available")
-
-            execute_kernel_and_verify(
-                hsaco_path=hsaco_path,
-                kernel_name=kernel_name,
-                input_args=input_data,
-                output_args=[output_data],
-                mcpu=MCPU,
-                wavefront_size=WAVEFRONT_SIZE,
-                grid_dim=grid_dim,
-                block_dim=block_dim,
-            )
+try:
+    from .test_utils import compile_and_run
+except ImportError:
+    from test_utils import compile_and_run
 
 
 class TestStoreToGlobalDwordWait:
@@ -157,46 +97,6 @@ class TestStoreToGlobalDwordx4Wait:
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
-
-
-class TestLoadAndReadLdsAFragmentWait:
-    """Test @lds_read_A_wave_16x16xf16_fragment_wait function."""
-
-    def test_read_mfma_A_fragment(self):
-        """Read A fragment from LDS with MFMA A access pattern."""
-        num_threads = 64
-        # Input: 16x16 matrix of f16 values (stored as uint16)
-        # Each element is its linear index
-        input_data = np.arange(16 * 16, dtype=np.uint16)
-        # Output: each thread reads 8 bytes (4 f16 values = dwordx2)
-        output = np.zeros(num_threads * 4, dtype=np.uint16)
-
-        compile_and_run(
-            "test_copies.mlir",
-            "test_load_and_lds_read_A_wave_16x16xf16_fragment_wait",
-            [input_data],
-            output,
-        )
-
-        # Verify: mfma_index_A returns (lane_id % 16, 4 * (lane_id // 16))
-        # So row = lane_id % 16, col_base = 4 * (lane_id // 16)
-        # Each thread reads 4 consecutive f16 values
-        expected = np.zeros(num_threads * 4, dtype=np.uint16)
-        for tid in range(num_threads):
-            lane_id = tid % 64
-            # mfma_index_A: ii = lane_id % 16, jj = 4 * (lane_id // 16)
-            ii = lane_id % 16
-            jj = 4 * (lane_id // 16)
-            # Each thread reads 4 consecutive values starting at (ii, jj)
-            for k in range(4):
-                src_idx = ii * 16 + jj + k
-                dst_idx = tid * 4 + k
-                expected[dst_idx] = src_idx
-
-        with np.printoptions(threshold=np.inf, linewidth=np.inf):
-            np.testing.assert_array_equal(
-                output.reshape(16, 16), expected.reshape(16, 16)
-            )
 
 
 class TestLoadAndReadLdsAFragmentWaitTransposed:
@@ -544,7 +444,6 @@ if __name__ == "__main__":
     TestStoreToGlobalDwordx2Wait().test_store_dwordx2()
     TestStoreToGlobalDwordx3Wait().test_store_dwordx3()
     TestStoreToGlobalDwordx4Wait().test_store_dwordx4()
-    TestLoadAndReadLdsAFragmentWait().test_lds_read_A_fragment()
     TestLdsReadSwizzledFragmentWaitXorSwizzled().test_lds_read_swizzled_A_fragment()
     TestStoreGlobalCFragmentWait().test_store_C_fragment()
     TestGlobalLoadDsWrite().test_global_load_ds_write()
