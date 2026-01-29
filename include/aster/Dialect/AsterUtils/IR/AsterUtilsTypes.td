@@ -29,7 +29,7 @@ def AsterUtils_AnyType :
 //===----------------------------------------------------------------------===//
 
 def AsterUtils_StructType :
-  AsterUtils_Type<"Struct", "struct"> {
+  AsterUtils_Type<"Struct", "struct", [MemRefElementTypeInterface]> {
   let summary = "Composite type with named fields";
   let description = [{
     A struct type represents a composite value with named fields. Each field
