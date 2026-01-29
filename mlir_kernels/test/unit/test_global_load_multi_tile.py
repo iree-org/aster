@@ -126,7 +126,10 @@ class TestGlobalLoadMultiTile:
         output = np.zeros(output_size, dtype=np.uint16)
 
         compile_and_run(
-            "test_copies.mlir", "test_global_load_multi_tile", [input_data], output
+            "test_global_load_multi_tile.mlir",
+            "test_global_load_multi_tile",
+            [input_data],
+            output,
         )
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
