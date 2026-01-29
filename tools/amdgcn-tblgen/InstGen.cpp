@@ -107,6 +107,7 @@ static void genConstraint(raw_ostream &os, mlir::tblgen::FmtContext &ctx,
   }
   const std::string_view body = R"(  {
     auto &&_self = $_selfExpr;
+    (void)_self;
     if ($0!($1)) {
       return $_op.emitError() << R"delim($2)delim"$3$4;
     }

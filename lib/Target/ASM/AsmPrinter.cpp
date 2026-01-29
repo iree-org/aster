@@ -46,9 +46,35 @@ static void printRegister(llvm::raw_ostream &os,
   case RegisterKind::AGPR:
     prefix = "a";
     break;
-  case RegisterKind::SREG:
-    emitError(loc, "SREG registers are implicit in assembly format and should "
-                   "not be printed");
+  case RegisterKind::VCC:
+    os << " vcc";
+    return;
+  case RegisterKind::VCC_LO:
+    os << " vcc_lo";
+    return;
+  case RegisterKind::VCC_HI:
+    os << " vcc_hi";
+    return;
+  case RegisterKind::VCCZ:
+    os << " vccz";
+    return;
+  case RegisterKind::EXEC:
+    os << " exec";
+    return;
+  case RegisterKind::EXEC_LO:
+    os << " exec_lo";
+    return;
+  case RegisterKind::EXEC_HI:
+    os << " exec_hi";
+    return;
+  case RegisterKind::EXECZ:
+    os << " execz";
+    return;
+  case RegisterKind::M0:
+    os << " m0";
+    return;
+  case RegisterKind::SCC:
+    os << " scc";
     return;
   default:
     llvm_unreachable("nyi register kind");

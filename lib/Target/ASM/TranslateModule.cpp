@@ -205,15 +205,17 @@ void RegisterUsage::updateRegisters(AMDGCNRegisterTypeInterface ty,
     maxAGPR = std::max(maxAGPR, regNum + 1);
     usedAGPRs.insert(regNum);
     return;
-  case RegisterKind::SREG: {
-    SregKind sregKind = cast<SREGType>(ty).getKind();
-    switch (sregKind) {
-    case SregKind::Scc:
-      return;
-    }
-    llvm_unreachable("nyi sreg kind");
+  case RegisterKind::VCC:
+  case RegisterKind::VCC_LO:
+  case RegisterKind::VCC_HI:
+  case RegisterKind::VCCZ:
+  case RegisterKind::EXEC:
+  case RegisterKind::EXEC_LO:
+  case RegisterKind::EXEC_HI:
+  case RegisterKind::EXECZ:
+  case RegisterKind::M0:
+  case RegisterKind::SCC:
     return;
-  }
   default:
     llvm_unreachable("nyi register kind");
   }

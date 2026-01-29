@@ -61,6 +61,8 @@ def EndKernelInst : AMDInst<
 // BranchOp/CondBranchOp
 //===----------------------------------------------------------------------===//
 
+def BranchOperand : AnyRegOf<[SReg<"SCC">, SReg<"VCCZ">, SReg<"EXECZ">]>;
+
 def AMDGCN_BranchOp : InstOp<"branch", [
   Pure, Terminator, AMDGCNInstOpInterface, HasParent<"KernelOp">]> {
   let summary = "AMDGCN unconditional branch operation";
@@ -95,13 +97,13 @@ def AMDGCN_CBranchOp : InstOp<"cbranch", [
     Example:
     ```mlir
     // Branch to ^loop if SCC is 1, otherwise fall through to ^exit
-    amdgcn.cbranch #amdgcn.inst<s_cbranch_scc1> %scc ^loop fallthrough (^exit)
-      : !amdgcn.sreg<scc>
+    amdgcn.cbranch #amdgcn.inst<s_cbranch_cond1> %cond ^loop fallthrough (^exit)
+      : !amdgcn.scc
     ```
   }];
-  let arguments = (ins AMDGCN_InstAttr:$opcode, SREGType:$scc);
+  let arguments = (ins AMDGCN_InstAttr:$opcode, BranchOperand:$cond);
   let successors = (successor BranchLabel:$dest, BranchLabel:$fallthrough);
-  let assemblyFormat = "$opcode $scc $dest `fallthrough` `(` $fallthrough `)` attr-dict `:` type($scc)";
+  let assemblyFormat = "$opcode $cond $dest `fallthrough` `(` $fallthrough `)` attr-dict `:` type($cond)";
   let extraClassDeclaration = [{
     //===------------------------------------------------------------------===//
     // InstOpInterface Methods
@@ -112,7 +114,7 @@ def AMDGCN_CBranchOp : InstOp<"cbranch", [
     }
     /// Get the instruction input operands.
     MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getSccMutable();
+      return getCondMutable();
     }
   }];
   let cppNamespace = "::mlir::aster::amdgcn";
@@ -136,13 +138,13 @@ def BranchInst : AMDInst<
 
 class CBranchInst<string _mnemonic, string sym>
   : AMDInst<_mnemonic, sym, /*instOp=*/AMDGCN_CBranchOp, /*isa=*/[]> {
-  let cppBuilder = OpBuilder<(ins "Value":$scc, "Block *":$dest, "Block *":$fallthrough), [{
-    return $_create($_builder, $_loc, $_opcode, scc, dest, fallthrough);
+  let cppBuilder = OpBuilder<(ins "Value":$cond, "Block *":$dest, "Block *":$fallthrough), [{
+    return $_create($_builder, $_loc, $_opcode, cond, dest, fallthrough);
   }]>;
-  let pythonBuilder = OpBuilder<(ins PyValue:$scc, PyBlock:$dest, PyBlock:$fallthrough), [{
-    return $_create(opcode=$_opcode, scc=scc, dest=dest, fallthrough=fallthrough);
+  let pythonBuilder = OpBuilder<(ins PyValue:$cond, PyBlock:$dest, PyBlock:$fallthrough), [{
+    return $_create(opcode=$_opcode, cond=cond, dest=dest, fallthrough=fallthrough);
   }]>;
-  // Assembly output: s_cbranch_scc* label (SCC is implicit in hardware encoding)
+  // Assembly output: s_cbranch_cond* label (SCC is implicit in hardware encoding)
   let asmFormat = [SingleAsmVariant<"$dest">];
 }
 

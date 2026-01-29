@@ -381,7 +381,7 @@ foreach sreg = SpecialRegisters in {
   def sreg#Type : SREGBase<sreg.typeName, sreg.typeMnemonic, sreg.name>;
 }
 
-class SReg<string name> : Type<CPred<"true">,
+class SReg<string name> : Type<CPred<"::mlir::isa<::mlir::aster::amdgcn::" # name # "Type>($_self)">,
     name # " special register type",
     "::mlir::aster::amdgcn::" # name # "Type"
   >, AsmArgFormat {
@@ -493,7 +493,9 @@ def BranchLabel : Successor<?, "">, AsmArgFormat {
 //===----------------------------------------------------------------------===//
 
 /// A register like type that matches AGPR, SGPR, VGPR, or SREG types.
-def RegisterLike : AnyRegOf<[AGPRType, SGPRType, VGPRType, SREGType]> {
+def RegisterLike :  Type<CPred<"::mlir::aster::amdgcn::isRegisterLike($_self)">,
+    "register like type", "::mlir::aster::amdgcn::AMDGCNRegisterTypeInterface"
+  >, AsmArgFormat {
   let summary = "Register like types";
   let description = [{
     The register like types represent the different kinds of registers

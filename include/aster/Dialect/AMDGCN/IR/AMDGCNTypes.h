@@ -30,6 +30,9 @@ class SREGResource : public SideEffects::Resource::Base<SREGResource> {
 public:
   StringRef getName() override { return "amdgcn.special_register"; }
 };
+
+/// Returns true if it's a register type with size 1.
+bool isRegisterLike(Type type);
 } // namespace mlir::aster::amdgcn
 
 #define GET_TYPEDEF_CLASSES

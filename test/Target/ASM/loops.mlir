@@ -44,17 +44,17 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   ^entry:
     %c5 = arith.constant 5 : i32
     %c4 = arith.constant 4 : i32
-    %scc = amdgcn.alloca : !amdgcn.sreg<scc, 0>
+    %scc = amdgcn.alloca : !amdgcn.scc
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
     %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
 
     %r0 = amdgcn.sop1 s_mov_b32 outs %s0 ins %c5 : !amdgcn.sgpr<0>, i32
     %r1 = amdgcn.sop1 s_mov_b32 outs %s1 ins %c4 : !amdgcn.sgpr<1>, i32
-    %scc_result = amdgcn.sopc s_cmp_le_i32 outs %scc ins %r0, %r1
-      : !amdgcn.sreg<scc, 0>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+    amdgcn.cmpi s_cmp_le_i32 outs %scc ins %r0, %r1
+      : outs(!amdgcn.scc) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
 
-    amdgcn.cbranch #amdgcn.inst<s_cbranch_scc1> %scc_result ^then fallthrough (^else)
-      : !amdgcn.sreg<scc, 0>
+    amdgcn.cbranch #amdgcn.inst<s_cbranch_scc1> %scc ^then fallthrough (^else)
+      : !amdgcn.scc
   ^else:
     amdgcn.end_kernel
   ^then:
@@ -68,7 +68,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   ^entry:
     %c10 = arith.constant 10 : i32
     %c9 = arith.constant 9 : i32
-    %scc = amdgcn.alloca : !amdgcn.sreg<scc, 0>
+    %scc = amdgcn.alloca : !amdgcn.scc
     %s2 = amdgcn.alloca : !amdgcn.sgpr<2>
     %s3 = amdgcn.alloca : !amdgcn.sgpr<3>
 
@@ -77,10 +77,10 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     amdgcn.branch #amdgcn.inst<s_branch> ^loop_header
 
   ^loop_header:
-    %scc_result = amdgcn.sopc s_cmp_lt_i32 outs %scc ins %r3, %r2
-      : !amdgcn.sreg<scc, 0>, !amdgcn.sgpr<3>, !amdgcn.sgpr<2>
-    amdgcn.cbranch #amdgcn.inst<s_cbranch_scc0> %scc_result ^exit fallthrough (^loop_body)
-      : !amdgcn.sreg<scc, 0>
+    amdgcn.cmpi s_cmp_lt_i32 outs %scc ins %r3, %r2
+      : outs(!amdgcn.scc) ins(!amdgcn.sgpr<3>, !amdgcn.sgpr<2>)
+    amdgcn.cbranch #amdgcn.inst<s_cbranch_scc0> %scc ^exit fallthrough (^loop_body)
+      : !amdgcn.scc
   ^loop_body:
     amdgcn.branch #amdgcn.inst<s_branch> ^loop_header
   ^exit:

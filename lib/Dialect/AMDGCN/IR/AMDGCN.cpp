@@ -280,6 +280,16 @@ void AMDGCNDialect::initialize() {
 // API
 //===----------------------------------------------------------------------===//
 
+bool mlir::aster::amdgcn::isRegisterLike(Type type) {
+  auto regType = dyn_cast<RegisterTypeInterface>(type);
+  if (!regType)
+    return false;
+
+  // Check if it's a register type with size 1
+  RegisterRange range = regType.getAsRange();
+  return range.size() == 1;
+}
+
 RegisterKind
 mlir::aster::amdgcn::getRegisterKind(AMDGCNRegisterTypeInterface type) {
   if (auto rTy = dyn_cast<AMDGCNRegisterTypeInterface>(type))
