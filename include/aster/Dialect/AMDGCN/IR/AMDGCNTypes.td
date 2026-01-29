@@ -337,6 +337,50 @@ def SREGType : AMDGCN_RegisterDef<"SREG", "sreg", [MemRefElementTypeInterface]> 
   }];
 }
 
+/// Special registers to model state.
+class SREGBase<string name, string mnemonic, string kind>
+    : AMDGCN_RegisterDef<name, mnemonic, [MemRefElementTypeInterface]> {
+  let summary = kind # " special register type";
+  let assemblyFormat = "";
+  string declarations = StrSubst<[{
+    /// The register kind for this SREG type.
+    static constexpr RegisterKind kRegisterKind = RegisterKind::$kind;
+    }], [VarRepl<"kind", kind>]>.result;
+  let extraClassDeclaration = declarations # [{
+    /// Returns true if the register is relocatable.
+    bool isRelocatable() const { return false; }
+
+    //===------------------------------------------------------------------===//
+    // RegisterTypeInterface
+    //===------------------------------------------------------------------===//
+    bool isRegisterRange() const { return false; }
+    RegisterRange getAsRange() const {
+      return RegisterRange(Register(0), 1);
+    }
+    RegisterKind getRegisterKind() const {
+      return kRegisterKind;
+    }
+    RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
+      return get(getContext());
+    }
+    RegisterTypeInterface cloneRegisterType(Register reg) const {
+      return get(getContext());
+    }
+
+    //===------------------------------------------------------------------===//
+    // ResourceTypeInterface
+    //===------------------------------------------------------------------===//
+    Resource *getResource() const {
+      return SREGResource::get();
+    }
+  }];
+}
+
+// Define all special registers.
+foreach sreg = SpecialRegisters in {
+  def sreg#Type : SREGBase<sreg.typeName, sreg.typeMnemonic, sreg.name>;
+}
+
 //===----------------------------------------------------------------------===//
 // Misc types
 //===----------------------------------------------------------------------===//

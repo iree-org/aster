@@ -18,14 +18,33 @@ include "aster/Support/EnumBase.td"
 // AMDGCN register variants.
 //===----------------------------------------------------------------------===//
 
-def RegisterKind : I32Enum<"RegisterKind", "AMDGCN register kind", [
-    I32EnumCase<"Unknown", 0>,
-    I32EnumCase<"AGPR", 1>,
-    I32EnumCase<"SGPR", 2>,
-    I32EnumCase<"VGPR", 3>,
-    I32EnumCase<"GGPR", 4>,
-    I32EnumCase<"SREG", 5>,
-  ]> {
+class SpecialRegister<string identifier, string cppTypeName = ""> {
+  string name = identifier;
+  string typeName = !if(!empty(cppTypeName), identifier, cppTypeName);
+  string typeMnemonic = !tolower(identifier);
+}
+
+defvar SpecialRegisters = [
+  SpecialRegister<"VCC">,
+  SpecialRegister<"VCC_LO", "VCCLo">,
+  SpecialRegister<"VCC_HI", "VCCHi">,
+  SpecialRegister<"VCCZ">,
+  SpecialRegister<"EXEC">,
+  SpecialRegister<"EXEC_LO", "EXECLo">,
+  SpecialRegister<"EXEC_HI", "EXECHi">,
+  SpecialRegister<"EXECZ">,
+  SpecialRegister<"M0">,
+  SpecialRegister<"SCC">,
+];
+
+def RegisterKind : AutoI32EnumCases<"RegisterKind", "AMDGCN register kind", [
+    EnumCaseInfo<"Unknown", "Unknown">,
+    EnumCaseInfo<"AGPR">,
+    EnumCaseInfo<"SGPR">,
+    EnumCaseInfo<"VGPR">,
+    EnumCaseInfo<"GGPR">,
+    EnumCaseInfo<"SREG">
+  ] # !foreach(sreg, SpecialRegisters, EnumCaseInfo<sreg.name>)> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 

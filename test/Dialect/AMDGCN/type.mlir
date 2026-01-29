@@ -4,3 +4,8 @@
 !sgpr2 = !amdgcn.sgpr_range<[0 : 5]>
 !sgpr3 = !amdgcn.sgpr_range<[0 : 3]>
 !sgpr4 = !amdgcn.sgpr_range<[0 : 4 align 8]>
+
+!vcc = !amdgcn.vcc
+!scc = !amdgcn.scc
+!exec = !amdgcn.exec
+!execz = !amdgcn.execz

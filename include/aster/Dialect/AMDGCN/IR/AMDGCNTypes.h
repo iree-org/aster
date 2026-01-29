@@ -24,6 +24,14 @@
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypeInterfaces.h.inc"
 
+namespace mlir::aster::amdgcn {
+/// SREG register resource.
+class SREGResource : public SideEffects::Resource::Base<SREGResource> {
+public:
+  StringRef getName() override { return "amdgcn.special_register"; }
+};
+} // namespace mlir::aster::amdgcn
+
 #define GET_TYPEDEF_CLASSES
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h.inc"
 
@@ -50,12 +58,6 @@ public:
 class AGPRResource : public SideEffects::Resource::Base<AGPRResource> {
 public:
   StringRef getName() override { return AGPRType::name; }
-};
-
-/// SREG register resource.
-class SREGResource : public SideEffects::Resource::Base<SREGResource> {
-public:
-  StringRef getName() override { return SREGType::name; }
 };
 
 /// Get the register kind as an integer from the given register type.
