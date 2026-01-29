@@ -4,6 +4,7 @@ add_mlir_library(
   AMDGCNNopInsertion.cpp
   AMDGCNOptimizeStraightLineWaits.cpp
   ConvertLDSBuffers.cpp
+  ConvertSCFControlFlow.cpp
   ConvertWaits.cpp
   ExpandMetadataOps.cpp
   InstructionSchedulingAutoschedulePass.cpp
