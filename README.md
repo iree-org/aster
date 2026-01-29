@@ -142,7 +142,7 @@ To build the project use:
     -DLLVM_EXTERNAL_LIT=${VIRTUAL_ENV}/bin/lit \
     -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip" \
     -DHIP_PLATFORM=amd \
-  && ninja install FileCheck count not \
+  && ninja install FileCheck count not llvm-objdump \
   && ninja install
 )
 ```

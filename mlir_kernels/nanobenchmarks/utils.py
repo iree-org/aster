@@ -18,8 +18,8 @@ from integration_test.test_utils import (
     hsaco_file,
 )
 from integration_test.flush_llc import FlushLLC
-from aster.pass_pipelines import NANOBENCH_PASS_PIPELINE
 from mlir_kernels.common import get_library_paths
+from aster.pass_pipelines import NANOBENCH_PASS_PIPELINE
 
 MCPU = "gfx942"
 WAVEFRONT_SIZE = 64
@@ -31,6 +31,7 @@ class NanobenchConfig:
 
     kernel_name: str
     mlir_file: str
+    pass_pipeline: str
     description: str
     # Grid/block dimensions
     num_blocks: int = 1
@@ -96,7 +97,7 @@ def compile_kernel(
         asm_complete, _ = compile_mlir_file_to_asm(
             config.mlir_file,
             config.kernel_name,
-            NANOBENCH_PASS_PIPELINE,
+            config.pass_pipeline,
             ctx,
             preprocess=preprocess,
             library_paths=library_paths,
