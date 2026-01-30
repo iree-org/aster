@@ -1,6 +1,9 @@
 // Conditional copy functions for AMDGCN kernels.
 //
-// Provides conditional C fragment initialization and store-to-global primitives.
+// Provides conditional C fragment initialization and store-to-global primitives
+// for GEMM kernels. Operations execute based on K loop iteration position:
+// - Init at first K iteration (k==0, kk==0)
+// - Store at last K iteration (k==K-1, kk==KK-1)
 
 // From descriptors.mlir
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
@@ -17,7 +20,14 @@
 //   - mm, nn: tile indices for C fragment indexing
 !c_fragment_position_descriptor_2d = !aster_utils.struct<mm: index, nn: index>
 
-amdgcn.library @conditional_copies isa = [#amdgcn.isa<cdna3>] {
+//===-----------------------------------------------------------------------===//
+// Wave-level, conditional C fragment init/store instructions, parameterizable by
+// !store_conditional_execution_descriptor_2d and position descriptors.
+//
+// Conditionally initializes C fragments to zero (first K iteration) or stores
+// C fragments to global memory (last K iteration) for GEMM K-loop patterns.
+//===-----------------------------------------------------------------------===//
+amdgcn.library @conditional_c_fragment_init_store_single_wave isa = [#amdgcn.isa<cdna3>] {
 
   //===--------------------------------------------------------------------===//
   // External function declarations
@@ -32,17 +42,19 @@ amdgcn.library @conditional_copies isa = [#amdgcn.isa<cdna3>] {
 
   //===--------------------------------------------------------------------===//
   // Conditional C fragment initialization
-  //   Initialize C fragments to zero at first K iteration
+  //   Init C fragment to zero at first K iteration (k==0 AND kk==0)
+  // (conditional variant only)
   //===--------------------------------------------------------------------===//
-
-  // Conditionally initialize C fragment to zero.
-  // Executes only when k == 0 AND kk == 0 (first iteration of K reduction).
+  // Conditionally initializes a C fragment (!vx4) to zero.
+  // Executes only at first K iteration (k==0 AND kk==0) for GEMM reduction.
   //
   // Parameters:
-  //   %cond_desc: conditional execution descriptor (k, kk, K, KK)
-  //   %pos_desc: C fragment position descriptor (mm, nn tile indices)
-  //   %c_fragments: output memref[MM, NN] of C fragments to initialize
-  //
+  //   %cond_desc: !store_conditional_execution_descriptor_2d
+  //     - k, kk: current K tile indices
+  //     - K, KK: total K tile counts
+  //   %pos_desc: !c_fragment_position_descriptor_2d
+  //     - mm, nn: tile indices for C fragment indexing
+  //   %c_fragments: memref<?x?x!vx4> - output memref to store initialized fragment
   func.func private @maybe_init_C(
     %cond_desc: !store_conditional_execution_descriptor_2d,
     %pos_desc: !c_fragment_position_descriptor_2d,
@@ -73,20 +85,24 @@ amdgcn.library @conditional_copies isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // Conditional C fragment global stores
-  //   16x16xf32 C fragments stored only at last K iteration
+  // Conditional C fragment global store
+  //   16x16xf32 C fragment stored at last K iteration (k==K-1 AND kk==KK-1)
+  // (conditional variant only)
   //===--------------------------------------------------------------------===//
-
-  // Conditionally store C fragment to global memory.
-  // Executes only when k == K-1 AND kk == KK-1 (last iteration of K reduction).
+  // Conditionally stores a C fragment (16x16xf32) to global memory.
+  // Executes only at last K iteration (k==K-1 AND kk==KK-1) for GEMM reduction.
   //
   // Parameters:
-  //   %cond_desc: conditional execution descriptor (k, kk, K, KK)
-  //   %tensor_desc: 2-level tensor position descriptor where:
-  //     - m_pos/n_pos are base positions in elements (major tile position)
-  //     - mm_pos/nn_pos are tile indices (converted to elements internally)
-  //   %c_fragments: input memref[MM, NN] of C fragments to store
-  //
+  //   %cond_desc: !store_conditional_execution_descriptor_2d
+  //     - k, kk: current K tile indices
+  //     - K, KK: total K tile counts
+  //   %tensor_desc: !tensor_position_descriptor_2level_2d
+  //     - ptr: base pointer
+  //     - m_pos, n_pos: major tile position (element coordinates)
+  //     - mm_pos, nn_pos: tile indices (converted to mm*16, nn*16 internally)
+  //     - global_stride_in_bytes: row stride
+  //     - elt_size: element size in bytes (4 for f32)
+  //   %c_fragments: memref<?x?x!vx4> - input memref with C fragments to store
   func.func private @maybe_store_c_fragment(
     %cond_desc: !store_conditional_execution_descriptor_2d,
     %tensor_desc: !tensor_position_descriptor_2level_2d,
