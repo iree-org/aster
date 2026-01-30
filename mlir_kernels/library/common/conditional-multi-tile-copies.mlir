@@ -1,6 +1,9 @@
 // Conditional multi-tile copy functions for AMDGCN kernels.
 //
 // Provides conditional variants of the multi-tile copy primitives in multi-tile-copies.mlir.
+// Operations execute based on alignment conditions:
+// - cond_iter == 0 (execute at specified iteration)
+// - ii % NT_I == 0 AND jj % NT_J == 0 (tile alignment for multi-tile batching)
 
 // From descriptors.mlir
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
@@ -16,32 +19,38 @@
 //   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
 !conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
 
-amdgcn.library @conditional_multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
-
-  //===--------------------------------------------------------------------===//
-  // External function declarations
-  //===--------------------------------------------------------------------===//
-
+//===-----------------------------------------------------------------------===//
+// Wave-level, conditional simple multi-tile global load instructions,
+// parameterizable by !conditional_execution_descriptor_2d and !tensor_position_descriptor_2d.
+//
+// Conditionally loads NT_I x NT_J 16x16xf16 tiles using simple (non-coalesced) loads.
+// Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+//===-----------------------------------------------------------------------===//
+amdgcn.library @conditional_simple_multi_tile_global_load_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From simple-copies.mlir
   func.func private @simple_global_load_wave_16x16xf16_wait(!tensor_position_descriptor_2d) -> !vx2
 
-  // From multi-tile-copies.mlir
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
-  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
-
   //===--------------------------------------------------------------------===//
-  // Simple conditional multi-tile global loads
-  //   Uses simple_global_load_wave_16x16xf16_wait (no coalescing optimization)
+  // Conditional simple multi-tile global load
+  //   NT_I x NT_J 16x16xf16 tiles via simple_global_load (non-coalesced)
+  // (conditional variant only)
   //===--------------------------------------------------------------------===//
-  // Simplified multi-tile global load using simple_global_load_wave_16x16xf16_wait.
+  // Conditionally loads NT_I x NT_J 16x16xf16 tiles from global memory.
+  // Uses @simple_global_load_wave_16x16xf16_wait for each tile (non-coalesced).
   // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
   //
   // Parameters:
-  //   %cond_desc: conditional execution descriptor (k, cond_iter, K, II, JJ, NT_I, NT_J)
-  //   %tensor_desc: tensor position descriptor (m_pos/n_pos are tile indices, converted to elements internally)
-  //   %load_memref: output memref[K, NT_I * NT_J] for returning variadic loaded
-  //                 values -> mem2reg.
-  //
+  //   %cond_desc: !conditional_execution_descriptor_2d
+  //     - k: loop index for memref storage
+  //     - cond_iter: execute only when == 0
+  //     - NT_I, NT_J: multi-tile factors
+  //   %tensor_desc: !tensor_position_descriptor_2d
+  //     - ptr: base pointer
+  //     - m_pos, n_pos: tile indices (converted to m*16, n*16 internally)
+  //     - global_stride_in_bytes: row stride
+  //     - elt_size: element size in bytes (2 for f16)
+  //   %load_memref: memref<?x?x!vx2> - output memref[K, NT_I * NT_J]
+
   // CHECK-LABEL: func.func private @simple_maybe_global_load_multi_tile
   func.func private @simple_maybe_global_load_multi_tile(
     %cond_desc: !conditional_execution_descriptor_2d,
@@ -94,23 +103,41 @@ amdgcn.library @conditional_multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
 
     return
   }
+}
+
+//===-----------------------------------------------------------------------===//
+// Wave-level, conditional multi-tile global load instructions (coalesced),
+// parameterizable by !conditional_execution_descriptor_2d and !tensor_position_descriptor_2level_2d.
+//
+// Conditionally loads NT_I x NT_J 16x16xf16 tiles using bulk coalesced primitive.
+// Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+//===-----------------------------------------------------------------------===//
+amdgcn.library @conditional_multi_tile_global_load_single_wave isa = [#amdgcn.isa<cdna3>] {
+  // From multi-tile-copies.mlir
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
 
   //===--------------------------------------------------------------------===//
-  // Conditional multi-tile global loads (coalesced)
-  //   Executes bulk loads when alignment conditions are met
+  // Conditional multi-tile global load (coalesced)
+  //   NT_I x NT_J 16x16xf16 tiles via bulk dwordx2 load
+  // (conditional variant only)
   //===--------------------------------------------------------------------===//
-
-  // Multi-tile global load using global_load_wave_multi_tile_256xf16_via_dwordx2_wait.
+  // Conditionally loads NT_I x NT_J 16x16xf16 tiles from global memory.
+  // Uses @global_load_wave_multi_tile_256xf16_via_dwordx2_wait (coalesced).
   // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
   //
   // Parameters:
-  //   %cond_desc: conditional execution descriptor (k, cond_iter, K, II, JJ, NT_I, NT_J)
-  //   %tensor_desc: 2-level tensor position descriptor where:
-  //     - m_pos/n_pos are base positions in elements (major tile position)
-  //     - mm_pos/nn_pos are tile indices (converted to elements internally)
-  //   %load_memref: output memref[K, NT_I * NT_J] for returning variadic loaded
-  //                 values -> mem2reg.
-  //
+  //   %cond_desc: !conditional_execution_descriptor_2d
+  //     - k: loop index for memref storage
+  //     - cond_iter: execute only when == 0
+  //     - NT_I, NT_J: multi-tile factors
+  //   %tensor_desc: !tensor_position_descriptor_2level_2d
+  //     - ptr: base pointer
+  //     - m_pos, n_pos: major tile position (element coordinates)
+  //     - mm_pos, nn_pos: tile indices (converted to mm*16, nn*16 internally)
+  //     - global_stride_in_bytes: row stride
+  //     - elt_size: element size in bytes (2 for f16)
+  //   %load_memref: memref<?x?x!vx2> - output memref[K, NT_I * NT_J]
+
   // CHECK-LABEL: func.func private @maybe_global_load_multi_tile_coalesced
   func.func private @maybe_global_load_multi_tile_coalesced(
     %cond_desc: !conditional_execution_descriptor_2d,
@@ -172,19 +199,40 @@ amdgcn.library @conditional_multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
 
     return
   }
+}
+
+//===-----------------------------------------------------------------------===//
+// Wave-level, conditional multi-tile LDS write instructions (coalesced),
+// parameterizable by !conditional_execution_descriptor_2d and !lds_position_descriptor_2d.
+//
+// Conditionally writes NT_I x NT_J 16x16xf16 tiles using bulk coalesced primitive.
+// Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+//===-----------------------------------------------------------------------===//
+amdgcn.library @conditional_multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
+  // From multi-tile-copies.mlir
+  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
 
   //===--------------------------------------------------------------------===//
-  // Conditional multi-tile LDS writes (coalesced)
-  //   Executes bulk writes when alignment conditions are met
+  // Conditional multi-tile LDS write (coalesced)
+  //   NT_I x NT_J 16x16xf16 tiles via bulk ds_write_b64
+  // (conditional variant only)
   //===--------------------------------------------------------------------===//
-  // Multi-tile LDS write using lds_write_wave_multi_tile_256xf16_via_dwordx2_wait.
+  // Conditionally writes NT_I x NT_J 16x16xf16 tiles from VGPRs to LDS.
+  // Uses @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait (coalesced).
   // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
   //
   // Parameters:
-  //   %cond_desc: conditional execution descriptor (k, cond_iter, K, II, JJ, NT_I, NT_J)
-  //   %lds_desc: LDS position descriptor (m_pos/n_pos are tile indices, converted to elements internally)
-  //   %load_memref: input memref[K, NT_I * NT_J] for reading variadic values -> mem2reg.
-  //
+  //   %cond_desc: !conditional_execution_descriptor_2d
+  //     - k: loop index for memref access
+  //     - cond_iter: execute only when == 0
+  //     - NT_I, NT_J: multi-tile factors
+  //   %lds_desc: !lds_position_descriptor_2d
+  //     - lds_base: base offset in LDS (bytes)
+  //     - m_pos, n_pos: tile indices (converted to m*16, n*16 internally)
+  //     - lds_stride_in_bytes: row stride
+  //     - elt_size: element size in bytes (2 for f16)
+  //   %load_memref: memref<?x?x!vx2> - input memref[K, NT_I * NT_J]
+
   // CHECK-LABEL: func.func private @maybe_lds_write_multi_tile_coalesced
   func.func private @maybe_lds_write_multi_tile_coalesced(
     %cond_desc: !conditional_execution_descriptor_2d,
