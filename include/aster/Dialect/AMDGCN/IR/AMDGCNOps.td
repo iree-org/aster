@@ -671,6 +671,66 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
 }
 
 //===----------------------------------------------------------------------===//
+// OpaqueOp
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_OpaqueOp : AMDGCN_Op<"opaque", [
+    AMDGCNInstOpInterface,
+    AttrSizedOperandSegments
+  ]> {
+  let summary = "AMDGCN opaque instruction";
+  let description = [{
+    An opaque instruction that can represent any AMDGCN instruction.
+    This is useful for representing instructions that are not yet fully
+    modeled in the dialect.
+
+    The `mnemonic` attribute specifies the instruction mnemonic.
+    The `in_mask` is a dense bool array where `true` signifies the
+    operand appears in the operand list and `false` that the operand is off.
+    If all values in `in_mask` are `true`, it is omitted from the assembly.
+
+    Example:
+    ```mlir
+    %result = amdgcn.opaque "v_add_f32" outs(%dst) ins(%src0, %src1)
+        : (!amdgcn.vgpr<10>, !amdgcn.vgpr<11>, !amdgcn.vgpr<12>) -> !amdgcn.vgpr<10>
+    ```
+  }];
+  let arguments = (ins
+    StrAttr:$mnemonic,
+    Variadic<AnyType>:$outs,
+    Variadic<AnyType>:$ins,
+    DenseBoolArrayAttr:$in_mask,
+    OptionalAttr<ModifiersAttr>:$modifiers
+  );
+  let results = (outs Variadic<AnyType>:$results);
+  let assemblyFormat = [{
+    $mnemonic (`outs` `(` $outs^ `)`)? (`ins` `(` $ins^ `)`)?
+    custom<OpaqueInsMask>(ref($ins), $in_mask) custom<OpaqueModifiers>($modifiers)
+    attr-dict `:` functional-type(operands, results)
+  }];
+  let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    //===------------------------------------------------------------------===//
+    // InstOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// Get the opcode of the instruction.
+    InstAttr getOpcodeAttr() {
+      // Opaque ops don't have a typed opcode, return null.
+      return InstAttr();
+    }
+    /// Get the instruction output operands.
+    MutableArrayRef<OpOperand> getInstOutsMutable() {
+      return getOutsMutable();
+    }
+    /// Get the instruction input operands.
+    MutableArrayRef<OpOperand> getInstInsMutable() {
+      return getInsMutable();
+    }
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // AMDGCN Target Operations
 //===----------------------------------------------------------------------===//
 

@@ -935,6 +935,111 @@ LogicalResult LibraryOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// OpaqueOp
+//===----------------------------------------------------------------------===//
+
+/// Check if all values in the mask are true.
+static bool isAllTrue(ArrayRef<bool> mask) {
+  return llvm::all_of(mask, [](bool v) { return v; });
+}
+
+/// Parse the optional ins_mask for OpaqueOp.
+/// Format: (`ins_mask` $in_mask)?
+/// If not present, creates an all-true mask with size matching the ins
+/// operands.
+static ParseResult
+parseOpaqueInsMask(OpAsmParser &parser,
+                   ArrayRef<OpAsmParser::UnresolvedOperand> ins,
+                   DenseBoolArrayAttr &inMask) {
+  // Try to parse the optional ins_mask keyword.
+  if (succeeded(parser.parseOptionalKeyword("ins_mask"))) {
+    if (parser.parseAttribute(inMask))
+      return failure();
+  } else {
+    // No ins_mask provided, create a default mask of all true.
+    SmallVector<bool> defaultMask(ins.size(), true);
+    inMask = DenseBoolArrayAttr::get(parser.getContext(), defaultMask);
+  }
+  return success();
+}
+
+/// Print the optional ins_mask for OpaqueOp.
+/// Only prints if the mask is not all true.
+static void printOpaqueInsMask(OpAsmPrinter &printer, Operation *op,
+                               OperandRange ins, DenseBoolArrayAttr inMask) {
+  ArrayRef<bool> mask = inMask.asArrayRef();
+  if (!isAllTrue(mask)) {
+    printer << " ins_mask ";
+    printer.printAttribute(inMask);
+  }
+}
+
+/// Parse the optional modifiers for OpaqueOp.
+/// Format: `modifiers` `(` $mod (`,` $mod)* `)`
+static ParseResult parseOpaqueModifiers(OpAsmParser &parser,
+                                        ModifiersAttr &modifiers) {
+  // Try to parse the optional modifiers keyword.
+  if (failed(parser.parseOptionalKeyword("modifiers")))
+    return success();
+
+  // Parse the opening parenthesis.
+  if (parser.parseLParen())
+    return failure();
+
+  // Parse the list of modifiers.
+  SmallVector<OpaqueModifierAttr> modList;
+  do {
+    std::string modStr;
+    if (parser.parseKeywordOrString(&modStr))
+      return failure();
+    modList.push_back(OpaqueModifierAttr::get(parser.getContext(), modStr));
+  } while (succeeded(parser.parseOptionalComma()));
+
+  // Parse the closing parenthesis.
+  if (parser.parseRParen())
+    return failure();
+
+  modifiers = ModifiersAttr::get(parser.getContext(), modList);
+  return success();
+}
+
+/// Print the optional modifiers for OpaqueOp.
+/// Format: `modifiers` `(` $mod (`,` $mod)* `)`
+static void printOpaqueModifiers(OpAsmPrinter &printer, Operation *op,
+                                 ModifiersAttr modifiers) {
+  if (!modifiers || modifiers.empty())
+    return;
+
+  printer << " modifiers(";
+  llvm::interleaveComma(modifiers.getValue(), printer, [&](Attribute attr) {
+    auto mod = cast<OpaqueModifierAttr>(attr);
+    printer << mod.getValue();
+  });
+  printer << ")";
+}
+
+LogicalResult OpaqueOp::verify() {
+  // Check that all outs are AMDGCN register types.
+  for (Value out : getOuts()) {
+    if (!isa<AMDGCNRegisterTypeInterface>(out.getType()))
+      return emitOpError("expected all 'outs' operands to be AMDGCN register "
+                         "types, but got ")
+             << out.getType();
+  }
+
+  // Check that the number of true elements in in_mask matches the number of
+  // ins operands.
+  ArrayRef<bool> mask = getInMask();
+  size_t numTrue = llvm::count(mask, true);
+  if (numTrue != getIns().size())
+    return emitOpError("expected the number of 'true' elements in 'in_mask' (")
+           << numTrue << ") to match the number of 'ins' operands ("
+           << getIns().size() << ")";
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // WaitOp
 //===----------------------------------------------------------------------===//
 
