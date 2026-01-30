@@ -4,7 +4,7 @@
 // RUN: | sed -e 's/{{LOOP_SIZE_M}}/4/g' -e 's/{{LOOP_SIZE_N}}/4/g' -e 's/{{LOOP_SIZE_K}}/4/g' \
 // RUN: | sed -e 's/{{SIZE_K_BY_TILE_SIZE_K}}/2/g' \
 // RUN: | sed -e 's/{{LOOP_SIZE_D_MMNNKK}}/6/g' \
-// RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/register-init.mlir,%p/library/common/indexing.mlir,%p/library/common/descriptors.mlir" \
+// RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/register-init.mlir,%p/library/common/indexing.mlir,%p/library/common/descriptors.mlir,%p/library/common/conditional-copies.mlir" \
 // RUN: | FileCheck %s
 
 // CHECK-LABEL: amdgcn.module
@@ -29,6 +29,11 @@
 // A 4D tile dimensions descriptor containing:
 //   - K, MM, NN, KK: tile counts in each dimension
 !tile_dims_descriptor_4d = !aster_utils.struct<K: index, MM: index, NN: index, KK: index>
+
+// A 2D conditional execution descriptor for store operations containing:
+//   - k, kk: current K tile indices (outer and inner)
+//   - K, KK: total K tile counts (for last-iteration detection)
+!store_conditional_execution_descriptor_2d = !aster_utils.struct<k: index, kk: index, K: index, KK: index>
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
@@ -135,45 +140,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     return
   }
 
-  // Store C fragment to global memory at last k iteration
-  func.func private @maybe_store_c_fragment(
-    %idx_desc: !tile_index_descriptor_4d,
-    %dims_desc: !tile_dims_descriptor_4d,
-    %c_fragments: memref<?x?x!vx4>,
-    %tensor_desc_c: !tensor_position_descriptor_2d
-  ) {
-    %c1 = arith.constant 1 : index
-    // Extract indices
-    %k = aster_utils.struct_extract %idx_desc["k"] : !tile_index_descriptor_4d -> index
-    %mm = aster_utils.struct_extract %idx_desc["mm"] : !tile_index_descriptor_4d -> index
-    %nn = aster_utils.struct_extract %idx_desc["nn"] : !tile_index_descriptor_4d -> index
-    %kk = aster_utils.struct_extract %idx_desc["kk"] : !tile_index_descriptor_4d -> index
-    // Extract dimensions
-    %K = aster_utils.struct_extract %dims_desc["K"] : !tile_dims_descriptor_4d -> index
-    %KK = aster_utils.struct_extract %dims_desc["KK"] : !tile_dims_descriptor_4d -> index
-    // Extract tensor info
-    %c_global = aster_utils.struct_extract %tensor_desc_c["ptr"] : !tensor_position_descriptor_2d -> !sx2
-    %m_pos = aster_utils.struct_extract %tensor_desc_c["m_pos"] : !tensor_position_descriptor_2d -> index
-    %n_pos = aster_utils.struct_extract %tensor_desc_c["n_pos"] : !tensor_position_descriptor_2d -> index
-    %GLOBAL_STRIDE_IN_BYTES = aster_utils.struct_extract %tensor_desc_c["global_stride_in_bytes"] : !tensor_position_descriptor_2d -> index
-    %elt_size_c = aster_utils.struct_extract %tensor_desc_c["elt_size"] : !tensor_position_descriptor_2d -> index
-
-    // if k is the last tile and kk is the last iteration, store to global
-    %k_minus_1 = arith.subi %K, %c1 : index
-    %kk_minus_1 = arith.subi %KK, %c1 : index
-    %is_last_k = arith.cmpi eq, %k, %k_minus_1 : index
-    %is_last_kk = arith.cmpi eq, %kk, %kk_minus_1 : index
-    %is_last_k_and_kk = arith.andi %is_last_k, %is_last_kk : i1
-    scf.if %is_last_k_and_kk {
-      %fragment = memref.load %c_fragments[%mm, %nn] : memref<?x?x!vx4>
-      %mm_pos = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
-      %nn_pos = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
-      %pos_desc_c = aster_utils.struct_create(%c_global, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %elt_size_c) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-      %true_store = arith.constant true
-      func.call @global_store_wave_16x16xf32_C_fragment_wait(%fragment, %pos_desc_c, %true_store) : (!vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
-    }
-    return
-  }
+  // From conditional-copies.mlir
+  func.func private @maybe_store_c_fragment(!store_conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx4>)
 
   // Main function that allocates memrefs and loops over M, N, K
   func.func private @matmul_loop(
@@ -328,10 +296,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           // Store C fragment back to global memory
           %elt_size_c = arith.constant 4 : index // f32 size in bytes
           %GLOBAL_C_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N, elt_sz] -> (SIZE_N * elt_sz)>()[%SIZE_N, %elt_size_c]
-          %tensor_desc_c = aster_utils.struct_create(%c_global, %m_pos, %n_pos, %GLOBAL_C_STRIDE_IN_BYTES, %elt_size_c) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
-          func.call @maybe_store_c_fragment(%idx_desc, %dims_desc, %c_fragments, %tensor_desc_c)
+          %cond_desc_store_c = aster_utils.struct_create(%k, %kk, %K, %KK) : (index, index, index, index) -> !store_conditional_execution_descriptor_2d
+          %tensor_desc_c = aster_utils.struct_create(%c_global, %m_pos, %n_pos, %GLOBAL_C_STRIDE_IN_BYTES, %mm, %nn, %elt_size_c) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+          func.call @maybe_store_c_fragment(%cond_desc_store_c, %tensor_desc_c, %c_fragments)
               {sched.delay = 12 : i64, sched.rate = 1 : i64}
-          : (!tile_index_descriptor_4d, !tile_dims_descriptor_4d, memref<?x?x!vx4>, !tensor_position_descriptor_2d) -> ()
+          : (!store_conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx4>) -> ()
 
       } {aster.constexpr, sched.dims = array<i64: {{LOOP_SIZE_D_MMNNKK}}> }
     } {aster.constexpr}
