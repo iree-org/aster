@@ -21,4 +21,25 @@ def CodeGen : InterfacePass<"aster-codegen", "mlir::aster::ModuleOpInterface"> {
   let summary = "Convert high-level dialects to the low-level dialects";
 }
 
+//===----------------------------------------------------------------------===//
+// Legalizer
+//===----------------------------------------------------------------------===//
+
+def Legalizer : Pass<"aster-legalizer"> {
+  let summary = "Legalize operations for code generation";
+  let description = [{
+    This pass legalizes operations to forms that are supported by the
+    target architecture. It handles vector type conversions, operation
+    lowering, and memory access transformations as needed.
+  }];
+  let dependentDialects = [
+    "mlir::affine::AffineDialect",
+    "mlir::arith::ArithDialect",
+    "mlir::memref::MemRefDialect",
+    "mlir::ptr::PtrDialect",
+    "mlir::vector::VectorDialect",
+    "aster::amdgcn::AMDGCNDialect"
+  ];
+}
+
 #endif // ASTER_CODEGEN_PASSES_TD

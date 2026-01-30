@@ -11,10 +11,13 @@
 #ifndef ASTER_DIALECT_AMDGCN_CODEGEN_CODEGEN_H
 #define ASTER_DIALECT_AMDGCN_CODEGEN_CODEGEN_H
 
+#include "mlir/IR/PatternMatch.h"
+
 namespace mlir {
 class ConversionTarget;
 class DialectRegistry;
 class RewritePatternSet;
+class TypeConverter;
 namespace aster {
 struct CodeGenConverter;
 namespace amdgcn {
@@ -25,6 +28,16 @@ void getDependentCodeGenDialects(DialectRegistry &registry);
 void populateCodeGenPatterns(CodeGenConverter &converter,
                              RewritePatternSet &patterns,
                              ConversionTarget &target);
+
+/// Populate AMDGPU-specific legalization patterns.
+void populateAMDGPULegalizationPatterns(RewritePatternSet &patterns,
+                                        PatternBenefit benefit = 1);
+
+/// Populate AMDGPU type legalization patterns using dialect conversion.
+void populateAMDGPUTypeLegalizationPatterns(TypeConverter &converter,
+                                            ConversionTarget &target,
+                                            RewritePatternSet &patterns,
+                                            PatternBenefit benefit = 1);
 } // namespace amdgcn
 } // namespace aster
 } // namespace mlir

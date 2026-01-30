@@ -36,6 +36,7 @@
 #include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/DialectInterface.h"
 #include "mlir/Transforms/InliningUtils.h"
@@ -56,6 +57,7 @@ void mlir::aster::initUpstreamMLIRDialects(DialectRegistry &registry) {
   registry.insert<memref::MemRefDialect>();
   registry.insert<ptr::PtrDialect>();
   registry.insert<scf::SCFDialect>();
+  registry.insert<vector::VectorDialect>();
 }
 
 //===----------------------------------------------------------------------===//
