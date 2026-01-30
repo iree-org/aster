@@ -7,12 +7,12 @@ AMD GPUs.
 
 Today, achieving peak performance on modern AI accelerators often requires control
 over low-level hardware features. This trend is expected to further exacerbate as
-more asynchronicity and dynamism is built first-class in the hardware. As Dark
+more asynchronicity and dynamism are built first-class in the hardware. As Dark
 Silicon trends continue, hardware is expected to expose coarser-grain primitives
 and coarser-grain programming models must be used (e.g. with warp/wave
-specialization,  the low-level programming model more and more resembles
-MPI/MIMD-style parallelism complexified by low-level hardware constraints such
-instruction issue ports or warp/wave scheduling).
+specialization, the low-level programming model increasingly resembles
+MPI/MIMD-style parallelism but complexified by low-level hardware constraints
+such as instruction issue ports or warp/wave scheduling and specialization).
 
 AMD's open approach to hardware ISA documentation creates a unique opportunity to
 build world-class assembly tooling in the open, making AMDGPU ASM accessible to a
@@ -27,10 +27,10 @@ and pushes the boundaries of what’s possible in low‑level performance toolin
 
 ## Design Philosophy and More
 
-**ASTER** is as an open-source MLIR-based tool for programmable and
+**ASTER** is an open-source MLIR-based tool for programmable and
 highly-controllable assembly production on AMD GPUs.
 We believe ASTER addresses a gap in the ML high-performance software stack:
-the ability to write, optimize, and reason about the lowest-level of hardware
+the ability to write, optimize, and reason about the lowest level of hardware
 with the same rigor, composability, type-safety and automation that are available
 at higher levels in the software stack.
 
@@ -51,14 +51,14 @@ stability of production readiness.
 
 ## Building and Testing ASTER
 
-ASTER can be built MacOS and Linux. Windows is also expected to work
+ASTER can be built on macOS and Linux. Windows is also expected to work
 but is less tested at this time. Examples and tests are meant to always
-cross-compile and build valid hsaco on any host machine.
+cross-compile and build valid HSACO on any host machine.
 Integration tests that require execution on actual hardware are filtered with
 appropriate pytest and lit filters.
 
 Generally, once the first LLVM compilation occurred, we aim at keeping builds and
-tests always running within a budget of a few seconds.
+tests always running within a (parallel) budget of a few seconds.
 
 ### Preliminary: venv
 
@@ -69,7 +69,7 @@ python3 -m venv --prompt aster .aster
 # Activate the virtual environment
 source .aster/bin/activate
 
-# Install the requirements of the project/ This installs cmake, ninja...
+# Install the requirements of the project. This installs cmake, ninja...
 pip install -r requirements.txt
 ```
 
@@ -104,7 +104,7 @@ rocm-sdk init
 rocm-sdk test
 ```
 
-### Set useful environmant variables in python env
+### Set useful variables in a Python virtual environment
 
 You can then set useful environment variables to load automatically upon venv activation:
 
@@ -164,8 +164,8 @@ To build the project use:
 (cd build && ninja install) && lit build/test -v && pytest -n 16 ./integration_test/ ./mlir_kernels/test/ ./mlir_kernels/nanobenchmarks/
 ```
 
-#### Running python manually
-Additionally, to run python scripts in the absence of a python wheels for this
+#### Running Python manually
+Additionally, to run Python scripts in the absence of Python wheels for this
 project, the libASTER.dylib/.so library is automatically installed alongside the
 Python modules so they can find it (macOS and Linux).
 
@@ -175,9 +175,9 @@ The following should now properly print valid IR:
 python test/python/smoke.py
 ```
 
-#### Generating hsaco files
+#### Generating HSACO files
 
-To generate hsaco files from MLIR modules, use the `assemble_to_hsaco` utility
+To generate HSACO files from MLIR modules, use the `assemble_to_hsaco` utility
 function:
 
 ```python
@@ -190,9 +190,9 @@ with ir.Context() as ctx, ir.Location.unknown():
     # Translate to assembly
     asm = utils.translate_module(amdgcn_mod)
 
-    # Assemble to hsaco (requires LLVM_TOOLS_DIR to be set)
+    # Assemble to HSACO (requires LLVM_TOOLS_DIR to be set)
     hsaco_path = utils.assemble_to_hsaco(asm, target="gfx942")
-    print(f"Generated hsaco: {hsaco_path}")
+    print(f"Generated HSACO: {hsaco_path}")
 ```
 
 
@@ -202,20 +202,20 @@ ASTER embraces three core principles:
 
 ### 1. **Control First, Automatic Optimizations Second**
 -  Modifying assembly comes from a specific intent to make hardware perform
-specified operations at specified time predictably; ASTER respects that intent,
+specified operations at specified times predictably; ASTER respects that intent,
 while still providing opt-in composable automation to increase velocity
 - WYSIWYG: What you see is what you get, no automatic compiler transformation by
 default. This lets you actually run exactly the ASM you want with e.g. dead-code
 elimination interference that is hard to avoid in compiler pipelines.
 
-These features allow unprecedented level of control which enables separation of
-concerns and first-principle thinking.
+These features allow an unprecedented level of control which enables separation
+of concerns and first-principle thinking.
 As an early motivating example, we wanted to deeply understand the performance of
 low-level schedules to saturate the MATRIX unit using only LDS loads + MFMA in a
 critical code region. In particular, we wanted to avoid worrying about swizzle
 patterns that are necessary to avoid performance bugs due to shared memory bank
 conflicts.
-We ended up with a simple soluation: just load from LDS at address 0, in a first
+We ended up with a simple solution: just load from LDS at address 0, in a first
 approximation.
 Such an experiment would immediately turn into dead code when passed through a
 compiler. Instead we were able to focus on isolating ASM and hardware performance
@@ -224,7 +224,7 @@ characteristics to deeply understand the hardware characteristics.
 ### 2. **Leverages Modern Compiler Infrastructure**
 - A clean MLIR dialect for AMDGPU instruction classes (e.g. VOPx, MUBUF, DS, etc)
 - Semantic grouping for readability: one MLIR operation can represent a
-family of similar instructions, syntactic improvement are introduced to increase
+family of similar instructions, syntactic improvements are introduced to increase
 programmability and understanding
 - SSA-based representation of ASM dialect instructions enables modern compiler
 analyses
@@ -242,7 +242,7 @@ compiler passes where useful
 ## Core ASTER Infrastructure Available Today
 
 **IR Design**: Clean abstraction MLIR Dialect with DPS ops to represent AMDGCN ISA.
-The folowing MLIR snippet:
+The following MLIR snippet:
 ```mlir
 
     // ds_load from ldsA
@@ -298,13 +298,13 @@ passes to control advanced transformations
 
 **Assembly Generation**:
 - Direct translation from MLIR to AMDGCN assembly
-- Capable of generating linked Hsaco binaries without any external tooling
+- Capable of generating linked HSACO binaries without any external tooling
 - Complete metadata generation (.rodata, .amdhsa_kernel directives)
 - Ready-to-execute HSACO generation
 - Compatible with CDNA and RDNA versions (early proof of concepts on RDNA,
 current focus on CDNA)
 
-**Minimal Dependence Python Runtime Integration**:
+**Minimal Dependency Python Runtime Integration**:
 - NumPy-compatible kernel invocation
 - HIP runtime integration
 - Fast time to insight: edit → compile → execute → profile in seconds
@@ -321,7 +321,7 @@ current focus on CDNA)
 - Lowerings from higher level MLIR dialects and connection to ASTER
 - Raising from existing ASM to MLIR ASTER to edit and fine-tune existing ASM
 using familiar MLIR tooling, automation and type checkers
-- Creation of high-performance, reusable and precisely fine-tuned nanokernels
+- Creation of high-performance, reusable and precisely fine-tuned nanokernels.
 These will be the target of MLIR rewrite patterns from higher levels in the stack
 - Heuristics for controllable automation of transformations, selectively
 augmenting WYSIWYG with productivity tools
@@ -337,12 +337,12 @@ instructions
 sources
 - **Rapid kernel development**: Test new ML kernel implementations directly on
 the relevant hardware features.
-- **Hardware exploration**: Deeply understanding through systematic measurement
+- **Hardware exploration**: Deep understanding through systematic measurement
 - **Reproducible results**: IR-based artifacts will be version-controllable and shareable
-- **Interoperability**: MLIR ecosystem means your tool automatically composes
+- **Interoperability**: MLIR ecosystem means your tools automatically compose
 - **Level the playing field**: Open alternative to proprietary CUDA assembly tools
 - **Community building**: Shared infrastructure reduces duplicated effort
-- **Accelerate innovation**: Lower barriers to AMDGPU programming at peak
+- **Accelerate innovation**: Lower barriers to AMDGPU programming at peak performance
 
 ## Other Hardware Than AMDGPUs
 While our immediate focus is to get ASTER to be good and useful for AMDGPUs,
@@ -386,13 +386,13 @@ Setting realistic expectations around maturity is important.
 In the span of a few weeks, ASTER already demonstrated a few non-trivial
 capabilities that typically take traditional compiler projects longer to achieve:
 
-1. **Programmable AMD With End-to-end Compilation** from python to executable
-HSACO binaries and connection to numpy + HIP APIs.
+1. **Programmable AMDGPU With End-to-end Compilation** from Python to executable
+HSACO binaries and connection to NumPy + HIP APIs.
 1. **SSA-based register allocation** with interference analysis that composes
 with partial user specifications and function inlining at the MLIR level
 2. **Instruction scheduling** using simple modular expressions for precise
 control over emission timing
-4. **Hardware validation** with passing integration tests on real AMD GPUs
+3. **Hardware validation** with passing integration tests on real AMD GPUs
 5. **Clean separation of concerns**: Authoring → Analysis → Transformation → ASM → Execution
 
 
