@@ -159,9 +159,9 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %nn_pos_base = aster_utils.struct_extract %tensor_desc["nn_pos"] : !tensor_position_descriptor_2level_2d -> index
     %elt_size = aster_utils.struct_extract %tensor_desc["elt_size"] : !tensor_position_descriptor_2level_2d -> index
 
-    // Compute tile sizes
-    %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
-    %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
+    // Tile size is always 16x16
+    %row_size = arith.constant 16 : index
+    %col_size = arith.constant 16 : index
     %c1 = arith.constant 1 : index
 
     // Iterate over tile indices directly (ensures bounds are correct)
@@ -208,11 +208,16 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
       %tensor_desc, %m_tiles, %n_tiles, %future_memref)
       : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!future_global_read_any>) -> ()
 
+    // TODO: Wait on all tokens and use only amdgcn-convert-waits pass
+    // For now we continue using s_waitcnt directly for correctness.
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+
     // Extract values from futures and store in result_memref (linearized)
     scf.for %idx = %c0 to %num_tiles step %c1 {
       %future = memref.load %future_memref[%idx] : memref<?x!future_global_read_any>
       %value_any, %token = aster_utils.struct_extract %future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
-      amdgcn.wait deps %token : !amdgcn.read_token<flat>
+      // TODO: Wait on all tokens and use only amdgcn-convert-waits pass
+      // amdgcn.wait deps %token : !amdgcn.read_token<flat>
       %value = aster_utils.from_any %value_any : !vx2
       memref.store %value, %result_memref[%idx] : memref<?x!vx2>
     } {aster.constexpr}
@@ -330,9 +335,9 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
     %lds_stride_in_bytes = aster_utils.struct_extract %lds_desc["lds_stride_in_bytes"] : !lds_position_descriptor_2level_2d -> index
     %elt_size = aster_utils.struct_extract %lds_desc["elt_size"] : !lds_position_descriptor_2level_2d -> index
 
-    // Compute tile layout
-    %row_size = affine.apply affine_map<()[n_tiles] -> (16 ceildiv n_tiles)>()[%n_tiles]
-    %col_size = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
+    // Tile size is always 16x16
+    %row_size = arith.constant 16 : index
+    %col_size = arith.constant 16 : index
     %total_rows = affine.apply affine_map<()[m_tiles] -> (16 * m_tiles)>()[%m_tiles]
     %total_cols = affine.apply affine_map<()[n_tiles] -> (16 * n_tiles)>()[%n_tiles]
 
@@ -390,11 +395,16 @@ amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
       %lds_desc, %m_tiles, %n_tiles, %values_memref, %token_memref)
       : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, memref<?x!amdgcn.write_token<shared>>) -> ()
 
-    // Wait on all tokens
-    scf.for %idx = %c0 to %num_tiles step %c1 {
-      %token = memref.load %token_memref[%idx] : memref<?x!amdgcn.write_token<shared>>
-      amdgcn.wait deps %token : !amdgcn.write_token<shared>
-    } {aster.constexpr}
+    // TODO: Wait on all tokens and use only amdgcn-convert-waits pass
+    // For now we continue using s_waitcnt directly for correctness.
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+
+    // // Wait on all tokens
+    // scf.for %idx = %c0 to %num_tiles step %c1 {
+    //   %token = memref.load %token_memref[%idx] : memref<?x!amdgcn.write_token<shared>>
+    //   amdgcn.wait deps %token : !amdgcn.write_token<shared>
+    // } {aster.constexpr}
+
     return
   }
 
