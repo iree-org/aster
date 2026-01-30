@@ -13,13 +13,13 @@
 amdgcn.module @test_maybe_multi_tile_coalesced target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // From simple-copies.mlir
   func.func private @simple_lds_to_global_wave_16x16xf16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
-  // From multi-tile-copies.mlir
+  // From conditional-multi-tile-copies.mlir
   func.func private @maybe_global_load_multi_tile_coalesced(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
   func.func private @maybe_lds_write_multi_tile_coalesced(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Test maybe_*_multi_tile_coalesced pattern from GEMM (bulk version)
-  // This tests the bulk multi-tile library functions from multi_tile_copies.mlir
+  // This tests the bulk multi-tile library functions from conditional_multi_tile_copies.mlir
   //===--------------------------------------------------------------------===//
   // Pattern: Loop over (ii, jj) indices, execute multi-tile load/write when
   // ii % NT_I == 0 AND jj % NT_J == 0

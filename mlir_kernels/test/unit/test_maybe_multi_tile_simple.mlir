@@ -14,12 +14,12 @@ amdgcn.module @test_maybe_multi_tile_simple target = #amdgcn.target<gfx942> isa 
   func.func private @simple_lds_to_global_wave_16x16xf16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
   // From simple-multi-tile-copies.mlir
   func.func private @simple_maybe_lds_write_multi_tile(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
-  // From multi-tile-copies.mlir
+  // From conditional-multi-tile-copies.mlir
   func.func private @simple_maybe_global_load_multi_tile(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2d, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Test maybe_*_multi_tile_simple pattern from GEMM
-  // This tests the library functions from multi_tile_copies.mlir
+  // This tests the library functions from conditional_multi_tile_copies.mlir
   //===--------------------------------------------------------------------===//
   // Pattern: Loop over (ii, jj) indices, execute multi-tile load/write when
   // ii % NT_I == 0 AND jj % NT_J == 0
