@@ -1,6 +1,8 @@
-  // Multi-tile copy functions for AMDGCN kernels.
-// These functions handle conditional multi-tile global loads and LDS writes
-// using the simpler 16x16 wave-level primitives.
+// Simple multi-tile copy functions for AMDGCN kernels.
+//
+// Provides simplified conditional multi-tile LDS write primitives using
+// the simple 16x16 wave-level primitives from simple-copies.mlir.
+// For coalesced variants, use conditional-multi-tile-copies.mlir.
 
 // Drive this through pytest, only check input IR validity here.
 // RUN: cat %s \
@@ -19,27 +21,38 @@
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 !conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
 
-amdgcn.library @multi_tile_copies isa = [#amdgcn.isa<cdna3>] {
-  //===--------------------------------------------------------------------===//
+//===-----------------------------------------------------------------------===//
+// Wave-level, conditional simple multi-tile LDS write instructions,
+// parameterizable by !conditional_execution_descriptor_2d and !lds_position_descriptor_2d.
+//
+// Conditionally writes NT_I x NT_J 16x16xf16 tiles using simple (non-coalesced) writes.
+// Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+//===-----------------------------------------------------------------------===//
+amdgcn.library @conditional_simple_multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From simple-copies.mlir
-  func.func private @simple_global_load_wave_16x16xf16_wait(!tensor_position_descriptor_2d) -> !vx2
   func.func private @simple_lds_write_wave_16x16xf16_wait(!vx2, !lds_position_descriptor_2d)
-  func.func private @simple_lds_read_wave_16x16xf16_wait(!lds_position_descriptor_2d) -> !vx2
-  // From copies.mlir
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx2
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2)
 
   //===--------------------------------------------------------------------===//
-  // Conditional multi-tile LDS write
+  // Conditional simple multi-tile LDS write
+  //   NT_I x NT_J 16x16xf16 tiles via simple_lds_write (non-coalesced)
+  // (conditional variant only)
   //===--------------------------------------------------------------------===//
-  // Simplified multi-tile LDS write using simple_lds_write_wave_16x16xf16_wait.
-  // Executes when cond_iter == 0 AND m_pos % NT_I == 0 AND n_pos % NT_J == 0.
+  // Conditionally writes NT_I x NT_J 16x16xf16 tiles from VGPRs to LDS.
+  // Uses @simple_lds_write_wave_16x16xf16_wait for each tile (non-coalesced).
+  // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
   //
   // Parameters:
-  //   %cond_desc: conditional execution descriptor (k, cond_iter, K, II, JJ, NT_I, NT_J)
-  //   %lds_pos_desc_base: LDS position descriptor (m_pos/n_pos are tile indices, converted to elements internally)
-  //   %load_memref: input memref[K, NT_I * NT_J] for reading variadic values -> mem2reg.
-  //
+  //   %cond_desc: !conditional_execution_descriptor_2d
+  //     - k: loop index for memref access
+  //     - cond_iter: execute only when == 0
+  //     - NT_I, NT_J: multi-tile factors
+  //   %lds_pos_desc_base: !lds_position_descriptor_2d
+  //     - lds_base: base offset in LDS (bytes)
+  //     - m_pos, n_pos: tile indices (converted to m*16, n*16 internally)
+  //     - lds_stride_in_bytes: row stride
+  //     - elt_size: element size in bytes (2 for f16)
+  //   %load_memref: memref<?x?x!vx2> - input memref[K, NT_I * NT_J]
+
   // CHECK-LABEL: func.func private @simple_maybe_lds_write_multi_tile
   func.func private @simple_maybe_lds_write_multi_tile(
     %cond_desc: !conditional_execution_descriptor_2d,
