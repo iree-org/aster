@@ -18,7 +18,8 @@ from integration_test.test_utils import (
     hsaco_file,
 )
 from integration_test.flush_llc import FlushLLC
-from mlir_kernels.common import get_library_paths, NANOBENCH_PASS_PIPELINE
+from aster.pass_pipelines import NANOBENCH_PASS_PIPELINE
+from mlir_kernels.common import get_library_paths
 
 MCPU = "gfx942"
 WAVEFRONT_SIZE = 64

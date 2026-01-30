@@ -18,6 +18,8 @@ from integration_test.test_utils import (
     compile_mlir_file_to_asm,
     _get_logger,
     _log_info,
+)
+from aster.pass_pipelines import (
     DEFAULT_SROA_PASS_PIPELINE,
     SYNCHRONOUS_SROA_PASS_PIPELINE,
 )

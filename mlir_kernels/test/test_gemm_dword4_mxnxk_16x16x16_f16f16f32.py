@@ -9,9 +9,11 @@ from aster import ir, utils
 from integration_test.test_utils import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
+    hsaco_file,
+)
+from aster.pass_pipelines import (
     DEFAULT_SROA_PASS_PIPELINE,
     SYNCHRONOUS_SROA_PASS_PIPELINE,
-    hsaco_file,
 )
 from mlir_kernels.gemm_config import validate_gemm_config
 

@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from typing import Callable, Optional, List, Tuple, TypeVar
 
 from tqdm.auto import tqdm
-from integration_test.test_utils import hip_get_device_count, DEFAULT_SROA_PASS_PIPELINE
+from integration_test.test_utils import hip_get_device_count
+from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
 
 
 @dataclass

@@ -9,9 +9,9 @@ from aster import ir, utils
 from integration_test.test_utils import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
-    SYNCHRONOUS_SROA_PASS_PIPELINE,
     hsaco_file,
 )
+from aster.pass_pipelines import SYNCHRONOUS_SROA_PASS_PIPELINE
 from mlir_kernels.common import get_library_paths
 
 # Test configuration

@@ -13,11 +13,9 @@ from integration_test.test_utils import (
     execute_kernel_and_verify,
     hsaco_file,
 )
+from aster.pass_pipelines import MINIMAL_PASS_PIPELINE
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Minimal pass pipeline without DCE or optimizations that might remove operations
-MINIMAL_PASS_PIPELINE = "builtin.module()"
 KERNEL_NAME = "kernel"
 
 
