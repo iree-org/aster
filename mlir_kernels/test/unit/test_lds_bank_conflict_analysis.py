@@ -1,73 +1,11 @@
 """Unit tests for LDS bank conflict analysis using indexing.mlir functions."""
 
-import os
-import pytest
 import numpy as np
 
-from aster import ir, utils
-from integration_test.test_utils import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-    SYNCHRONOUS_SROA_PASS_PIPELINE,
-    hsaco_file,
-)
-from mlir_kernels.common import get_library_paths
-
-# Test configuration
-MCPU = "gfx942"
-WAVEFRONT_SIZE = 64
-
-
-def get_mlir_file():
-    """Get path to the test MLIR file."""
-    return os.path.join(os.path.dirname(__file__), "test_lds_banks.mlir")
-
-
-def compile_and_run(
-    kernel_name: str, output_data: np.ndarray, grid_dim=(1, 1, 1), block_dim=(64, 1, 1)
-):
-    """Compile and run a test kernel, returning the output buffer."""
-    mlir_file = get_mlir_file()
-
-    def preprocess(x):
-        x = x.replace(
-            "{{NUM_THREADS}}", str(block_dim[0] * block_dim[1] * block_dim[2])
-        )
-        x = x.replace("{{NUM_BLOCKS}}", str(grid_dim[0] * grid_dim[1] * grid_dim[2]))
-        return x
-
-    with ir.Context() as ctx:
-        asm_complete, module = compile_mlir_file_to_asm(
-            mlir_file,
-            kernel_name,
-            SYNCHRONOUS_SROA_PASS_PIPELINE,
-            ctx,
-            library_paths=get_library_paths(),
-            print_ir_after_all=False,
-            preprocess=preprocess,
-        )
-
-        hsaco_path = utils.assemble_to_hsaco(
-            asm_complete, target=MCPU, wavefront_size=WAVEFRONT_SIZE
-        )
-        if hsaco_path is None:
-            raise RuntimeError("Failed to assemble kernel to HSACO")
-
-        with hsaco_file(hsaco_path):
-            if not utils.system_has_mcpu(mcpu=MCPU):
-                print(asm_complete)
-                pytest.skip(f"GPU {MCPU} not available")
-
-            execute_kernel_and_verify(
-                hsaco_path=hsaco_path,
-                kernel_name=kernel_name,
-                input_args=[],
-                output_args=[output_data],
-                mcpu=MCPU,
-                wavefront_size=WAVEFRONT_SIZE,
-                grid_dim=grid_dim,
-                block_dim=block_dim,
-            )
+try:
+    from .test_utils import compile_and_run, make_grid_block_preprocess
+except ImportError:
+    from test_utils import compile_and_run, make_grid_block_preprocess
 
 
 def analyze_bank_conflicts(banks, title=""):
@@ -110,9 +48,17 @@ class TestLdsBanks:
     def test_lds_banks_A_16x16xf16(self):
         """Test banks for non-swizzled MFMA A matrix pattern."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         # Output: 4 banks per thread (b64 = 8 bytes = 4 x 2-byte banks)
         output = np.zeros(num_threads * 4, dtype=np.int32)
-        compile_and_run("test_lds_banks_A_16x16xf16", output)
+        compile_and_run(
+            "test_lds_banks.mlir",
+            "test_lds_banks_A_16x16xf16",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         banks = output.reshape(64, 4)
         # fmt: off
@@ -142,8 +88,16 @@ class TestLdsBanks:
     def test_lds_banks_swizzled_A_16x16xf16(self):
         """Test banks for swizzled MFMA A matrix pattern."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads * 4, dtype=np.int32)
-        compile_and_run("test_lds_banks_swizzled_A_16x16xf16", output)
+        compile_and_run(
+            "test_lds_banks.mlir",
+            "test_lds_banks_swizzled_A_16x16xf16",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         banks = output.reshape(64, 4)
 
