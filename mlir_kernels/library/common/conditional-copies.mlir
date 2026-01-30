@@ -1,6 +1,6 @@
 // Conditional copy functions for AMDGCN kernels.
 //
-// Provides conditional store-to-global primitives.
+// Provides conditional C fragment initialization and store-to-global primitives.
 
 // From descriptors.mlir
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
@@ -8,10 +8,14 @@
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 
-// A 2D conditional execution descriptor for store operations containing:
+// A 2D conditional execution descriptor for C fragment init/store operations containing:
 //   - k, kk: current K tile indices (outer and inner)
-//   - K, KK: total K tile counts (for last-iteration detection)
+//   - K, KK: total K tile counts (for first/last-iteration detection)
 !store_conditional_execution_descriptor_2d = !aster_utils.struct<k: index, kk: index, K: index, KK: index>
+
+// A 2D C fragment position descriptor containing:
+//   - mm, nn: tile indices for C fragment indexing
+!c_fragment_position_descriptor_2d = !aster_utils.struct<mm: index, nn: index>
 
 amdgcn.library @conditional_copies isa = [#amdgcn.isa<cdna3>] {
 
@@ -19,9 +23,54 @@ amdgcn.library @conditional_copies isa = [#amdgcn.isa<cdna3>] {
   // External function declarations
   //===--------------------------------------------------------------------===//
 
+  // From register-init.mlir
+  func.func private @init_vgprx4(i32) -> !vx4
+
   // From simple-copies.mlir
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     !vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
+
+  //===--------------------------------------------------------------------===//
+  // Conditional C fragment initialization
+  //   Initialize C fragments to zero at first K iteration
+  //===--------------------------------------------------------------------===//
+
+  // Conditionally initialize C fragment to zero.
+  // Executes only when k == 0 AND kk == 0 (first iteration of K reduction).
+  //
+  // Parameters:
+  //   %cond_desc: conditional execution descriptor (k, kk, K, KK)
+  //   %pos_desc: C fragment position descriptor (mm, nn tile indices)
+  //   %c_fragments: output memref[MM, NN] of C fragments to initialize
+  //
+  func.func private @maybe_init_C(
+    %cond_desc: !store_conditional_execution_descriptor_2d,
+    %pos_desc: !c_fragment_position_descriptor_2d,
+    %c_fragments: memref<?x?x!vx4>
+  ) {
+    %c0 = arith.constant 0 : index
+
+    // Extract from conditional execution descriptor
+    %k = aster_utils.struct_extract %cond_desc["k"] : !store_conditional_execution_descriptor_2d -> index
+    %kk = aster_utils.struct_extract %cond_desc["kk"] : !store_conditional_execution_descriptor_2d -> index
+    %K = aster_utils.struct_extract %cond_desc["K"] : !store_conditional_execution_descriptor_2d -> index
+    %KK = aster_utils.struct_extract %cond_desc["KK"] : !store_conditional_execution_descriptor_2d -> index
+
+    // Extract tile indices from position descriptor
+    %mm = aster_utils.struct_extract %pos_desc["mm"] : !c_fragment_position_descriptor_2d -> index
+    %nn = aster_utils.struct_extract %pos_desc["nn"] : !c_fragment_position_descriptor_2d -> index
+
+    // Execute when k == 0 AND kk == 0 (first iteration of K reduction)
+    %k_kk = affine.linearize_index [%k, %kk] by (%K, %KK) : index
+    %is_first_k = arith.cmpi eq, %k_kk, %c0 : index
+
+    scf.if %is_first_k {
+      %c0_i32 = arith.constant 0 : i32
+      %c_fragment = func.call @init_vgprx4(%c0_i32) : (i32) -> !vx4
+      memref.store %c_fragment, %c_fragments[%mm, %nn] : memref<?x?x!vx4>
+    }
+    return
+  }
 
   //===--------------------------------------------------------------------===//
   // Conditional C fragment global stores

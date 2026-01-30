@@ -30,15 +30,17 @@
 //   - K, MM, NN, KK: tile counts in each dimension
 !tile_dims_descriptor_4d = !aster_utils.struct<K: index, MM: index, NN: index, KK: index>
 
-// A 2D conditional execution descriptor for store operations containing:
+// A 2D conditional execution descriptor for C fragment init/store operations containing:
 //   - k, kk: current K tile indices (outer and inner)
-//   - K, KK: total K tile counts (for last-iteration detection)
+//   - K, KK: total K tile counts (for first/last-iteration detection)
 !store_conditional_execution_descriptor_2d = !aster_utils.struct<k: index, kk: index, K: index, KK: index>
+
+// A 2D C fragment position descriptor containing:
+//   - mm, nn: tile indices for C fragment indexing
+!c_fragment_position_descriptor_2d = !aster_utils.struct<mm: index, nn: index>
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
-  // From register-init.mlir
-  func.func private @init_vgprx4(i32) -> !vx4
   // From indexing.mlir
   func.func private @tiled_grid_partition_2d(!index_pair, !index_pair) -> !index_pair
   // From copies.mlir
@@ -54,34 +56,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   func.func private @maybe_global_load_multi_tile_coalesced(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
   func.func private @maybe_lds_write_multi_tile_coalesced(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
 
-  // Initialize C (decoupled via memrefs).
-  func.func private @maybe_init_C(
-    %idx_desc: !tile_index_descriptor_4d,
-    %dims_desc: !tile_dims_descriptor_4d,
-    %c_fragments: memref<?x?x!vx4>
-  ) {
-    %c0 = arith.constant 0 : index
-    // Extract indices
-    %k = aster_utils.struct_extract %idx_desc["k"] : !tile_index_descriptor_4d -> index
-    %mm = aster_utils.struct_extract %idx_desc["mm"] : !tile_index_descriptor_4d -> index
-    %nn = aster_utils.struct_extract %idx_desc["nn"] : !tile_index_descriptor_4d -> index
-    %kk = aster_utils.struct_extract %idx_desc["kk"] : !tile_index_descriptor_4d -> index
-    // Extract dimensions
-    %K = aster_utils.struct_extract %dims_desc["K"] : !tile_dims_descriptor_4d -> index
-    %KK = aster_utils.struct_extract %dims_desc["KK"] : !tile_dims_descriptor_4d -> index
-
-    %k_kk = affine.linearize_index [%k, %kk] by (%K, %KK) : index
-
-    // Initialize C fragment at first k iteration
-    %is_k_kk_zero = arith.cmpi eq, %k_kk, %c0 : index
-    scf.if %is_k_kk_zero {
-      %c0_i32 = arith.constant 0 : i32
-      %c_fragment = func.call @init_vgprx4(%c0_i32) : (i32) -> !vx4
-      memref.store %c_fragment, %c_fragments[%mm, %nn] : memref<?x?x!vx4>
-    }
-
-    return
-  }
+  // From conditional-copies.mlir
+  func.func private @maybe_init_C(!store_conditional_execution_descriptor_2d, !c_fragment_position_descriptor_2d, memref<?x?x!vx4>)
 
   // Unified LDS read function (decoupled from mfma via memrefs).
   // For A: ii=mm, jj=kk, cond_iter=nn → memref[k, ii, jj]
@@ -255,13 +231,12 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
             : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
 
-          // Create tile index and dimension descriptors
-          %idx_desc = aster_utils.struct_create(%k, %mm, %nn, %kk) : (index, index, index, index) -> !tile_index_descriptor_4d
-          %dims_desc = aster_utils.struct_create(%K, %MM, %NN, %KK) : (index, index, index, index) -> !tile_dims_descriptor_4d
-
-          func.call @maybe_init_C(%idx_desc, %dims_desc, %c_fragments)
+          // Initialize C fragment (only at first K iteration)
+          %cond_desc_init_c = aster_utils.struct_create(%k, %kk, %K, %KK) : (index, index, index, index) -> !store_conditional_execution_descriptor_2d
+          %pos_desc_init_c = aster_utils.struct_create(%mm, %nn) : (index, index) -> !c_fragment_position_descriptor_2d
+          func.call @maybe_init_C(%cond_desc_init_c, %pos_desc_init_c, %c_fragments)
               {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (!tile_index_descriptor_4d, !tile_dims_descriptor_4d, memref<?x?x!vx4>) -> ()
+            : (!store_conditional_execution_descriptor_2d, !c_fragment_position_descriptor_2d, memref<?x?x!vx4>) -> ()
 
           // LDS reads
           // LDS read A: ii=mm, jj=kk, cond_iter=nn
@@ -289,6 +264,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
               memref<?x?x?x!vx2>) -> ()
 
           // MFMA (decoupled from LDS reads via memrefs)
+          %idx_desc = aster_utils.struct_create(%k, %mm, %nn, %kk) : (index, index, index, index) -> !tile_index_descriptor_4d
           func.call @maybe_mfma(%idx_desc, %a_frag_memref, %b_frag_memref, %c_fragments)
               {sched.delay = 10 : i64, sched.rate = 1 : i64}
             : (!tile_index_descriptor_4d, memref<?x?x?x!vx2>, memref<?x?x?x!vx2>, memref<?x?x!vx4>) -> ()
