@@ -24,7 +24,7 @@ amdgcn.module @test_maybe_multi_tile_coalesced target = #amdgcn.target<gfx942> i
   // Pattern: Loop over (ii, jj) indices, execute multi-tile load/write when
   // ii % NT_I == 0 AND jj % NT_J == 0
   // Input: 32x64 array (2x4 tiles of 16x16)
-  // Test with NT_I=2, NT_J=2 to exercise multiple batches
+  // Test with configurable NT_I, NT_J to exercise multiple batches
   amdgcn.kernel @test_maybe_multi_tile_coalesced arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
@@ -35,21 +35,23 @@ amdgcn.module @test_maybe_multi_tile_coalesced target = #amdgcn.target<gfx942> i
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %SIZE_J = arith.constant 128 : index
 
-    // Parameters: 4x8 tiles, load 2x4 tiles at a time
+    // Parameters: configurable via preprocessing (II x JJ tiles, load NT_I x NT_J tiles at a time)
+    %SIZE_J = arith.constant {{SIZE_J}} : index
     %K = arith.constant 1 : index    // Outer loop size (single iteration for simplicity)
-    %II = arith.constant 4 : index   // Total tiles in I dimension
-    %JJ = arith.constant 8 : index   // Total tiles in J dimension
-    %NT_I = arith.constant 2 : index // Multi-tile factor I
-    %NT_J = arith.constant 4 : index // Multi-tile factor J
+    %II = arith.constant {{II}} : index   // Total tiles in I dimension
+    %JJ = arith.constant {{JJ}} : index   // Total tiles in J dimension
+    %NT_I = arith.constant {{NT_I}} : index // Multi-tile factor I
+    %NT_J = arith.constant {{NT_J}} : index // Multi-tile factor J
+    %global_stride_bytes_coal = arith.constant {{GLOBAL_STRIDE_BYTES}} : index // SIZE_J * 2 bytes
 
     // Allocate 2D memref for library functions: [K, NT_I*NT_J]
-    %load_memref_static = memref.alloca() : memref<1x8x!vx2>
-    %load_memref = memref.cast %load_memref_static : memref<1x8x!vx2> to memref<?x?x!vx2>
+    // This specific shape is required by `maybe_global_load_multi_tile_coalesced`
+    // and by `maybe_lds_write_multi_tile_coalesced`.
+    %load_memref_static = memref.alloca() : memref<1x{{NT_PRODUCT}}x!vx2>
+    %load_memref = memref.cast %load_memref_static : memref<1x{{NT_PRODUCT}}x!vx2> to memref<?x?x!vx2>
 
     // Loop over all tile indices like in GEMM (single k iteration)
-    %global_stride_bytes_coal = arith.constant 256 : index // SIZE_J * 2 = 128 * 2 bytes
     %elt_size_global_coal = arith.constant 2 : index // f16 size in bytes
     scf.for %ii = %c0 to %II step %c1 {
       scf.for %jj = %c0 to %JJ step %c1 {
@@ -67,7 +69,7 @@ amdgcn.module @test_maybe_multi_tile_coalesced target = #amdgcn.target<gfx942> i
 
         // Call library function for LDS write
         // LDS descriptor: lds_base=0, m_pos=ii, n_pos=jj (tile indices)
-        %lds_stride_bytes_coal = arith.constant 256 : index // SIZE_J * 2 = 128 * 2 bytes
+        %lds_stride_bytes_coal = arith.constant {{GLOBAL_STRIDE_BYTES}} : index // SIZE_J * 2 bytes
         %elt_size_lds_coal = arith.constant 2 : index
         %lds_desc_coal = aster_utils.struct_create(%c0, %ii, %jj, %lds_stride_bytes_coal, %elt_size_lds_coal) : (index, index, index, index, index) -> !lds_position_descriptor_2d
         func.call @maybe_lds_write_multi_tile_coalesced(
@@ -79,7 +81,7 @@ amdgcn.module @test_maybe_multi_tile_coalesced target = #amdgcn.target<gfx942> i
     } {aster.constexpr}
 
     // Read back all tiles from LDS and write to output
-    %STRIDE_IN_BYTES = arith.constant 256 : index // 128 * 2 bytes
+    %STRIDE_IN_BYTES = arith.constant {{GLOBAL_STRIDE_BYTES}} : index // SIZE_J * 2 bytes
     %elt_size_coal = arith.constant 2 : index // f16 size in bytes
     scf.for %ii = %c0 to %II step %c1 {
       scf.for %jj = %c0 to %JJ step %c1 {
