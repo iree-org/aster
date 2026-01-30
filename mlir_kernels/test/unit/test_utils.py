@@ -24,6 +24,19 @@ def get_mlir_file(file_name: str) -> str:
     return os.path.join(os.path.dirname(__file__), file_name)
 
 
+def make_grid_block_preprocess(grid_dim, block_dim):
+    """Create a preprocess function that substitutes NUM_THREADS and NUM_BLOCKS."""
+
+    def preprocess(x):
+        num_threads = block_dim[0] * block_dim[1] * block_dim[2]
+        num_blocks = grid_dim[0] * grid_dim[1] * grid_dim[2]
+        x = x.replace("{{NUM_THREADS}}", str(num_threads))
+        x = x.replace("{{NUM_BLOCKS}}", str(num_blocks))
+        return x
+
+    return preprocess
+
+
 def compile_and_run(
     file_name: str,
     kernel_name: str,
@@ -34,6 +47,7 @@ def compile_and_run(
     library_paths: Optional[List[str]] = None,
     preprocess: Optional[Callable[[str], str]] = None,
     print_ir_after_all: bool = False,
+    pass_pipeline: Optional[str] = None,
 ):
     """Compile and run a test kernel, returning the output buffer.
 
@@ -47,11 +61,15 @@ def compile_and_run(
         library_paths: Optional list of library paths. If None, uses get_library_paths()
         preprocess: Optional preprocessing function for MLIR content
         print_ir_after_all: Whether to print IR after all passes
+        pass_pipeline: Optional pass pipeline string. If None, uses SYNCHRONOUS_SROA_PASS_PIPELINE
     """
     mlir_file = get_mlir_file(file_name)
 
     if library_paths is None:
         library_paths = get_library_paths()
+
+    if pass_pipeline is None:
+        pass_pipeline = SYNCHRONOUS_SROA_PASS_PIPELINE
 
     # Convert single arrays to lists for compatibility
     if input_data is not None and not isinstance(input_data, list):
@@ -69,7 +87,7 @@ def compile_and_run(
         asm_complete, module = compile_mlir_file_to_asm(
             mlir_file,
             kernel_name,
-            SYNCHRONOUS_SROA_PASS_PIPELINE,
+            pass_pipeline,
             ctx,
             library_paths=library_paths,
             print_ir_after_all=print_ir_after_all,

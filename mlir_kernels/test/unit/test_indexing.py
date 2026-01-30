@@ -1,80 +1,11 @@
 """Unit tests for indexing.mlir library functions."""
 
-import os
-import pytest
 import numpy as np
 
-from aster import ir, utils
-from integration_test.test_utils import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-    SYNCHRONOUS_SROA_PASS_PIPELINE,
-    hsaco_file,
-)
-
-# Test configuration
-MCPU = "gfx942"
-WAVEFRONT_SIZE = 64
-
-
-def get_mlir_file():
-    """Get path to the test MLIR file."""
-    return os.path.join(os.path.dirname(__file__), "test_indexing.mlir")
-
-
-def get_library_path():
-    """Get path to the indexing library."""
-    return os.path.join(
-        os.path.dirname(__file__), "..", "..", "library", "common", "indexing.mlir"
-    )
-
-
-def compile_and_run(
-    kernel_name: str, output_data: np.ndarray, grid_dim=(1, 1, 1), block_dim=(64, 1, 1)
-):
-    """Compile and run a test kernel, returning the output buffer."""
-    mlir_file = get_mlir_file()
-    library_path = get_library_path()
-
-    def preprocess(x):
-        x = x.replace(
-            "{{NUM_THREADS}}", str(block_dim[0] * block_dim[1] * block_dim[2])
-        )
-        x = x.replace("{{NUM_BLOCKS}}", str(grid_dim[0] * grid_dim[1] * grid_dim[2]))
-        return x
-
-    with ir.Context() as ctx:
-        asm_complete, module = compile_mlir_file_to_asm(
-            mlir_file,
-            kernel_name,
-            SYNCHRONOUS_SROA_PASS_PIPELINE,
-            ctx,
-            library_paths=[library_path],
-            print_ir_after_all=False,
-            preprocess=preprocess,
-        )
-
-        hsaco_path = utils.assemble_to_hsaco(
-            asm_complete, target=MCPU, wavefront_size=WAVEFRONT_SIZE
-        )
-        if hsaco_path is None:
-            raise RuntimeError("Failed to assemble kernel to HSACO")
-
-        with hsaco_file(hsaco_path):
-            if not utils.system_has_mcpu(mcpu=MCPU):
-                print(asm_complete)
-                pytest.skip(f"GPU {MCPU} not available")
-
-            execute_kernel_and_verify(
-                hsaco_path=hsaco_path,
-                kernel_name=kernel_name,
-                input_args=[],
-                output_args=[output_data],
-                mcpu=MCPU,
-                wavefront_size=WAVEFRONT_SIZE,
-                grid_dim=grid_dim,
-                block_dim=block_dim,
-            )
+try:
+    from .test_utils import compile_and_run, make_grid_block_preprocess
+except ImportError:
+    from test_utils import compile_and_run, make_grid_block_preprocess
 
 
 class TestLaneId:
@@ -83,8 +14,16 @@ class TestLaneId:
     def test_lane_id(self):
         """Each thread should output its lane_id (0..63)."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32)
-        compile_and_run("test_lane_id", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_lane_id",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
         expected = np.arange(num_threads, dtype=np.int32)
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -96,8 +35,16 @@ class TestWaveId:
     def test_wave_id_single_wave(self):
         """With one wave, all threads should output wave_id=0."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32)
-        compile_and_run("test_wave_id", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_wave_id",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
         expected = np.zeros(num_threads, dtype=np.int32)
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -105,8 +52,16 @@ class TestWaveId:
     def test_wave_id_two_waves(self):
         """With two waves, threads 0-63 output 0, threads 64-127 output 1."""
         num_threads = 128
+        grid_dim, block_dim = (1, 1, 1), (num_threads, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32)
-        compile_and_run("test_wave_id", output, block_dim=(num_threads, 1, 1))
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_wave_id",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
         expected = np.array([0] * 64 + [1] * 64, dtype=np.int32)
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -118,8 +73,16 @@ class TestWaveCount:
     def test_wave_count_single_wave(self):
         """With 64 threads, wave_count should be 1."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32)
-        compile_and_run("test_wave_count", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_wave_count",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
         expected = np.ones(num_threads, dtype=np.int32)
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -127,8 +90,16 @@ class TestWaveCount:
     def test_wave_count_two_waves(self):
         """With 128 threads, wave_count should be 2."""
         num_threads = 128
+        grid_dim, block_dim = (1, 1, 1), (num_threads, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32)
-        compile_and_run("test_wave_count", output, block_dim=(num_threads, 1, 1))
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_wave_count",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
         expected = np.full(num_threads, 2, dtype=np.int32)
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected)
@@ -141,8 +112,16 @@ class TestWavePartition2D:
         """Partition 64 lanes into 8x8 grid."""
         # Output: pairs of (i, j) at indices tid * 2, tid * 2 + 1
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads * 2, dtype=np.int32)
-        compile_and_run("test_lane_delinearize_2d", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_lane_delinearize_2d",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         expected = np.zeros(num_threads * 2, dtype=np.int32)
         for tid in range(num_threads):
@@ -159,12 +138,15 @@ class TestGridPartition2D:
     def test_grid_partition_2x4(self):
         num_blocks = 8
         num_threads = 64
+        grid_dim, block_dim = (num_blocks, 1, 1), (num_threads, 1, 1)
         output = np.zeros(num_threads * 2 * num_blocks, dtype=np.int32)
         compile_and_run(
+            "test_indexing.mlir",
             "test_block_id_x_delinearize_2d",
-            output,
-            block_dim=(num_threads, 1, 1),
-            grid_dim=(num_blocks, 1, 1),
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
         )
 
         expected = np.zeros(num_threads * 2 * num_blocks, dtype=np.int32)
@@ -185,11 +167,15 @@ class TestTiledGridPartition2D:
         """Partition 64x64 problem with 32x32 tiles -> 2x2 tile grid."""
         num_threads = 64
         num_blocks = 4
+        grid_dim, block_dim = (num_blocks, 1, 1), (num_threads, 1, 1)
         output = np.zeros(num_threads * 2 * num_blocks, dtype=np.int32)
         compile_and_run(
+            "test_indexing.mlir",
             "test_tiled_grid_partition_2d",
-            output,
-            grid_dim=(num_blocks, 1, 1),
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
         )
 
         expected = np.zeros(num_threads * 2 * num_blocks, dtype=np.int32)
@@ -211,8 +197,16 @@ class TestMatrixOffset:
     def test_matrix_offset(self):
         """Compute byte offset for 2D matrix access."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32)
-        compile_and_run("test_matrix_offset", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_matrix_offset",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         # offset = (i * N + j) * elt_size
         # i = tid / 8, j = tid % 8, N = 16, elt_size = 4
@@ -239,8 +233,16 @@ class TestTiledMatrixOffset:
     def test_tiled_matrix_offset(self):
         """Compute byte offset for tiled 2D matrix access."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32)
-        compile_and_run("test_tiled_matrix_offset", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_tiled_matrix_offset",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         # offset = ((i + ii) * N + (j + jj)) * elt_size
         # i=0, j=0, ii = tid / 8, jj = tid % 8, N = 16, elt_size = 4
@@ -267,8 +269,16 @@ class TestTiledx2MatrixOffset:
     def test_tiledx2_matrix_offset(self):
         """Compute byte offset for twice-tiled 2D matrix access."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32)
-        compile_and_run("test_tiledx2_matrix_offset", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_tiledx2_matrix_offset",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         # offset = ((i + ii + iii) * N + (j + jj + jjj)) * elt_size
         # i=0, j=0, ii=0, jj=0, iii = tid / 8, jjj = tid % 8, N = 16, elt_size = 4
@@ -298,8 +308,16 @@ class TestMfmaIndexA16x16xf16:
         That is, for each lane, the (row, col) to load 4xf16 (dwordx2) values of A.
         """
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads * 2, dtype=np.int32).reshape(16, 4, 2)
-        compile_and_run("test_mfma_index_A_16x16xf16", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_mfma_index_A_16x16xf16",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         # fmt: off
         expected = np.array([
@@ -327,8 +345,16 @@ class TestMfmaIndexB16x16xf16:
         That is, for each lane, the (row, col) to load 4xf16 (dwordx2) values of B.
         """
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads * 2, dtype=np.int32).reshape(16, 4, 2)
-        compile_and_run("test_mfma_index_B_16x16xf16", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_mfma_index_B_16x16xf16",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         # fmt: off
         expected = np.array([
@@ -356,8 +382,16 @@ class TestMfmaIndexC16x16xf32:
         That is, for each lane, the (row, col) to load 4xf32 (dwordx4) values of C.
         """
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads * 2, dtype=np.int32).reshape(16, 4, 2)
-        compile_and_run("test_mfma_index_C_16x16xf32", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_mfma_index_C_16x16xf32",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         # fmt: off
         expected = np.array([
@@ -382,8 +416,16 @@ class TestSwizzledMfmaIndexA16x16xf16:
     def test_swizzled_mfma_index_A(self):
         """Swizzled MFMA indexing for A fragment (XOR swizzle)."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32).reshape(4, 4, 4)
-        compile_and_run("test_swizzled_mfma_index_A_16x16xf16", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_swizzled_mfma_index_A_16x16xf16",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         # Helper returns (row, col) = (4*(lane_id//16), lane_id%16)
         # A swaps to (col, row), then applies XOR swizzle
@@ -413,8 +455,16 @@ class TestSwizzledMfmaIndexB16x16xf16:
     def test_swizzled_mfma_index_B(self):
         """Swizzled MFMA indexing for B fragment (XOR swizzle)."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32).reshape(4, 4, 4)
-        compile_and_run("test_swizzled_mfma_index_B_16x16xf16", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_swizzled_mfma_index_B_16x16xf16",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         # Helper returns (row, col) = (lane_id%16, 4*(lane_id//16))
         # B swaps to (col, row) then applies XOR swizzle
@@ -444,8 +494,16 @@ class TestSwizzledMfmaIndexC16x16xf32:
     def test_swizzled_mfma_index_C(self):
         """Swizzled MFMA indexing for C fragment (XOR swizzle, same as A)."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32).reshape(4, 4, 4)
-        compile_and_run("test_swizzled_mfma_index_C_16x16xf32", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_swizzled_mfma_index_C_16x16xf32",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         # Helper returns (row, col) = (lane_id%16, 4*(lane_id//16))
         # C applies XOR swizzle directly (same as A)
@@ -475,8 +533,16 @@ class TestIndexBxMxNxK:
     def test_index_bxmxnxk(self):
         """MFMA-style tiled indexing."""
         num_threads = 64
+        grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads, dtype=np.int32)
-        compile_and_run("test_index_bxmxnxk", output)
+        compile_and_run(
+            "test_indexing.mlir",
+            "test_index_bxmxnxk",
+            output_data=output,
+            grid_dim=grid_dim,
+            block_dim=block_dim,
+            preprocess=make_grid_block_preprocess(grid_dim, block_dim),
+        )
 
         # Formula from indexing.mlir:
         # offset = bidx * num_waves * szI * szJ * tile_sz +
