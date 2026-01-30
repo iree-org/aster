@@ -30,7 +30,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   func.func private @store_to_global_dwordx2_wait(!vx2, !tensor_position_descriptor_2d)
   func.func private @store_to_global_dwordx3_wait(!vx3, !tensor_position_descriptor_2d)
   func.func private @store_to_global_dwordx4_wait(!vx4, !tensor_position_descriptor_2d)
-  // From simple-multi-tile-copies.mlir
+  // From conditional-simple-multi-tile-copies.mlir
 
   //===--------------------------------------------------------------------===//
   // Global store

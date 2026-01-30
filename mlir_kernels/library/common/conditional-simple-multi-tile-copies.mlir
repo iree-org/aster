@@ -22,6 +22,92 @@
 !conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
 
 //===-----------------------------------------------------------------------===//
+// Wave-level, conditional simple multi-tile global load instructions,
+// parameterizable by !conditional_execution_descriptor_2d and !tensor_position_descriptor_2d.
+//
+// Conditionally loads NT_I x NT_J 16x16xf16 tiles using simple (non-coalesced) loads.
+// Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+//===-----------------------------------------------------------------------===//
+amdgcn.library @conditional_simple_multi_tile_global_load_single_wave isa = [#amdgcn.isa<cdna3>] {
+  // From simple-copies.mlir
+  func.func private @simple_global_load_wave_16x16xf16_wait(!tensor_position_descriptor_2d) -> !vx2
+
+  //===--------------------------------------------------------------------===//
+  // Conditional simple multi-tile global load
+  //   NT_I x NT_J 16x16xf16 tiles via simple_global_load (non-coalesced)
+  // (conditional variant only)
+  //===--------------------------------------------------------------------===//
+  // Conditionally loads NT_I x NT_J 16x16xf16 tiles from global memory.
+  // Uses @simple_global_load_wave_16x16xf16_wait for each tile (non-coalesced).
+  // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+  //
+  // Parameters:
+  //   %cond_desc: !conditional_execution_descriptor_2d
+  //     - k: loop index for memref storage
+  //     - cond_iter: execute only when == 0
+  //     - NT_I, NT_J: multi-tile factors
+  //   %tensor_desc: !tensor_position_descriptor_2d
+  //     - ptr: base pointer
+  //     - m_pos, n_pos: tile indices (converted to m*16, n*16 internally)
+  //     - global_stride_in_bytes: row stride
+  //     - elt_size: element size in bytes (2 for f16)
+  //   %load_memref: memref<?x?x!vx2> - output memref[K, NT_I * NT_J]
+
+  // CHECK-LABEL: func.func private @simple_maybe_global_load_multi_tile
+  func.func private @simple_maybe_global_load_multi_tile(
+    %cond_desc: !conditional_execution_descriptor_2d,
+    %tensor_desc: !tensor_position_descriptor_2d,
+    %load_memref: memref<?x?x!vx2>
+  ) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+
+    // Extract fields from conditional execution descriptor
+    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
+    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
+    %NT_I = aster_utils.struct_extract %cond_desc["NT_I"] : !conditional_execution_descriptor_2d -> index
+    %NT_J = aster_utils.struct_extract %cond_desc["NT_J"] : !conditional_execution_descriptor_2d -> index
+
+    // Extract tile indices from descriptor (m_pos/n_pos are tile indices here)
+    %ii = aster_utils.struct_extract %tensor_desc["m_pos"] : !tensor_position_descriptor_2d -> index
+    %jj = aster_utils.struct_extract %tensor_desc["n_pos"] : !tensor_position_descriptor_2d -> index
+
+    %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
+    %ii_mod = affine.apply affine_map<()[ii, NT_I] -> (ii mod NT_I)>()[%ii, %NT_I]
+    %jj_mod = affine.apply affine_map<()[jj, NT_J] -> (jj mod NT_J)>()[%jj, %NT_J]
+    %is_ii_aligned = arith.cmpi eq, %ii_mod, %c0 : index
+    %is_jj_aligned = arith.cmpi eq, %jj_mod, %c0 : index
+    %ii_jj_aligned = arith.andi %is_ii_aligned, %is_jj_aligned : i1
+    %should_load = arith.andi %is_cond_zero, %ii_jj_aligned : i1
+
+    scf.if %should_load {
+      // Extract remaining fields from descriptor
+      %ptr = aster_utils.struct_extract %tensor_desc["ptr"] : !tensor_position_descriptor_2d -> !sx2
+      %global_stride_in_bytes = aster_utils.struct_extract %tensor_desc["global_stride_in_bytes"] : !tensor_position_descriptor_2d -> index
+      %elt_size = aster_utils.struct_extract %tensor_desc["elt_size"] : !tensor_position_descriptor_2d -> index
+
+      // Load NT_I x NT_J tiles using simple 16x16 loads
+      scf.for %i = %c0 to %NT_I step %c1 {
+        scf.for %j = %c0 to %NT_J step %c1 {
+          // Convert tile indices to element positions: (ii + i) * 16, (jj + j) * 16
+          %m_pos = affine.apply affine_map<()[ii, i] -> ((ii + i) * 16)>()[%ii, %i]
+          %n_pos = affine.apply affine_map<()[jj, j] -> ((jj + j) * 16)>()[%jj, %j]
+
+          %pos_desc = aster_utils.struct_create(%ptr, %m_pos, %n_pos, %global_stride_in_bytes, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
+          %value = func.call @simple_global_load_wave_16x16xf16_wait(%pos_desc)
+            : (!tensor_position_descriptor_2d) -> !vx2
+
+          %tile_idx = affine.apply affine_map<()[i, j, NT_J] -> (i * NT_J + j)>()[%i, %j, %NT_J]
+          memref.store %value, %load_memref[%k, %tile_idx] : memref<?x?x!vx2>
+        } {aster.constexpr}
+      } {aster.constexpr}
+    }
+
+    return
+  }
+}
+
+//===-----------------------------------------------------------------------===//
 // Wave-level, conditional simple multi-tile LDS write instructions,
 // parameterizable by !conditional_execution_descriptor_2d and !lds_position_descriptor_2d.
 //

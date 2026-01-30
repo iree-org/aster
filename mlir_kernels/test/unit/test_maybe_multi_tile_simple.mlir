@@ -12,9 +12,8 @@
 amdgcn.module @test_maybe_multi_tile_simple target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // From simple-copies.mlir
   func.func private @simple_lds_to_global_wave_16x16xf16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
-  // From simple-multi-tile-copies.mlir
+  // From conditional-simple-multi-tile-copies.mlir
   func.func private @simple_maybe_lds_write_multi_tile(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
-  // From conditional-multi-tile-copies.mlir
   func.func private @simple_maybe_global_load_multi_tile(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2d, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
