@@ -13,7 +13,7 @@ from integration_test.test_utils import (
     execute_kernel_and_verify,
     hsaco_file,
 )
-from aster.pass_pipelines import MINIMAL_PASS_PIPELINE
+from aster.pass_pipelines import EMPTY_PASS_PIPELINE
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 KERNEL_NAME = "kernel"
@@ -58,7 +58,7 @@ def main():
         asm_complete, _ = compile_mlir_file_to_asm(
             args.mlir_file,
             KERNEL_NAME,
-            MINIMAL_PASS_PIPELINE,
+            EMPTY_PASS_PIPELINE,
             ctx,
         )
         print(asm_complete)
@@ -86,7 +86,7 @@ def main():
             output_args=[],
             mcpu=mcpu,
             wavefront_size=wavefront_size,
-            # TODO: ideally we'd want to have exactly 1 warp on the wholw machine
+            # TODO: ideally we'd want to have exactly 1 warp on the whole machine
             # but I don't find the right incantations on CDNA to precisely
             # profile the exact CU on which the kernel will be scheduled.
             # Note: on RDNA this seems more predictable.
