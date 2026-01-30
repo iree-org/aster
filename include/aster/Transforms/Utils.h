@@ -88,6 +88,11 @@ void populateFuncConversionPatterns(TypeConverter &converter,
                                     ConversionTarget &target,
                                     RewritePatternSet &patterns);
 
+/// Populate ptr dialect conversion patterns.
+void populatePtrConversionPatterns(TypeConverter &converter,
+                                   ConversionTarget &target,
+                                   RewritePatternSet &patterns);
+
 /// Populate SCF conversion patterns.
 void populateScfConversionPatterns(TypeConverter &converter,
                                    ConversionTarget &target,

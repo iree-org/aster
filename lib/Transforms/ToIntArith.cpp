@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Affine/Transforms/Transforms.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
@@ -162,7 +163,8 @@ void ToIntArith::runOnOperation() {
   ToIntConverter converter(&getContext(), bitwidth);
   ConversionTarget target(getContext());
   target.addLegalOp<UnrealizedConversionCastOp>();
-  target.addLegalDialect<arith::ArithDialect, aster_utils::AsterUtilsDialect>();
+  target.addLegalDialect<arith::ArithDialect, aster_utils::AsterUtilsDialect,
+                         ptr::PtrDialect>();
   target.addDynamicallyLegalOp<aster_utils::AssumeRangeOp>(
       [&](Operation *op) -> std::optional<bool> {
         return converter.isLegal(op);
@@ -171,6 +173,7 @@ void ToIntArith::runOnOperation() {
   populateFuncConversionPatterns(converter, target, conversionPatterns);
   populateScfConversionPatterns(converter, target, conversionPatterns);
   populateArithConversionPatterns(converter, target, conversionPatterns);
+  populatePtrConversionPatterns(converter, target, conversionPatterns);
   conversionPatterns
       .add<IdDimOpConversion<gpu::BlockIdOp, aster_utils::BlockIdOp>,
            IdDimOpConversion<gpu::BlockDimOp, aster_utils::BlockDimOp>,

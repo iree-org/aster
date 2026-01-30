@@ -12,6 +12,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -424,6 +425,18 @@ void mlir::aster::populateFuncConversionPatterns(TypeConverter &converter,
   converter.addConversion([&](FunctionType type) {
     return FuncTypeConverter::convertFuncType(converter, type);
   });
+}
+
+void mlir::aster::populatePtrConversionPatterns(TypeConverter &converter,
+                                                ConversionTarget &target,
+                                                RewritePatternSet &patterns) {
+  target.addDynamicallyLegalOp<ptr::TypeOffsetOp, ptr::PtrAddOp>(
+      [&](Operation *op) -> std::optional<bool> {
+        return converter.isLegal(op);
+      });
+  patterns.add<GenericOpConversion<ptr::TypeOffsetOp>,
+               GenericOpConversion<ptr::PtrAddOp>>(converter,
+                                                   patterns.getContext());
 }
 
 void mlir::aster::populateScfConversionPatterns(TypeConverter &converter,

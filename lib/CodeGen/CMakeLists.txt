@@ -1,6 +1,10 @@
 set(LLVM_OPTIONAL_SOURCES
   CodeGen.cpp
   CodeGenPass.cpp
+  Legalizer.cpp
+  MemOpsLegalization.cpp
+  TypeConverter.cpp
+  VectorLegalization.cpp
 )
 
 add_mlir_library(AsterCodeGen
@@ -14,17 +18,37 @@ add_mlir_library(AsterCodeGen
   MLIRTransformUtils
 )
 
+add_mlir_library(AsterLegalizer
+  MemOpsLegalization.cpp
+  TypeConverter.cpp
+  VectorLegalization.cpp
+
+  LINK_LIBS PUBLIC
+  AsterTransforms
+  MLIRAffineDialect
+  MLIRArithDialect
+  MLIRAffineTransforms
+  MLIRArithTransforms
+  MLIRMemRefDialect
+  MLIRPtrDialect
+  MLIRSCFDialect
+  MLIRTransformUtils
+  MLIRVectorDialect
+  MLIRVectorTransforms
+)
+
 add_mlir_library(AsterCodeGenTransforms
   CodeGenPass.cpp
+  Legalizer.cpp
 
   DEPENDS
   AsterCodeGenPassesIncGen
 
   LINK_LIBS PUBLIC
   AsterCodeGen
+  AsterLegalizer
   AsterTransforms
   MLIRPass
-  MLIRTransformUtils
   # TODO: Remove these when we use interfaces ala ConvertToLLVM.
   AsterLSIRCodeGen
   AsterAMDGCNCodeGen
