@@ -16,6 +16,7 @@ add_mlir_library(
   DEPENDS
   AMDGCNOpsIncGen
   AMDGCNPassesIncGen
+  AsterCodeGenPassesIncGen
 
   LINK_LIBS PRIVATE
   AMDGCNDialect

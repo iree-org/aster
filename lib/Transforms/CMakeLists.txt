@@ -22,9 +22,13 @@ add_mlir_library(AsterTransforms
   MLIRFuncDialect
   MLIRGPUDialect
   MLIRIR
+  MLIRMemRefDialect
   MLIRPass
+  MLIRPtrDialect
   MLIRSCFDialect
   MLIRSCFUtils
   MLIRUBDialect
   MLIRTransformUtils
+  MLIRVectorDialect
+  MLIRVectorTransforms
 )
