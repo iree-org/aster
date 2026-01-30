@@ -82,10 +82,13 @@ LogicalResult PreloadLibrary::parseLibraries(
       return failure();
     }
 
-    // Parse the file.
+    // Parse the file. Use ModuleOp as container to support multiple top-level
+    // operations (e.g., multiple amdgcn.library ops in one file).
     llvm::SourceMgr sourceMgr;
     sourceMgr.AddNewSourceBuffer(std::move(file), llvm::SMLoc());
-    OwningOpRef<Operation *> parsed = parseSourceFile(sourceMgr, ctx);
+    ParserConfig config(ctx);
+    OwningOpRef<mlir::ModuleOp> parsed =
+        parseSourceFile<mlir::ModuleOp>(sourceMgr, config);
     if (!parsed) {
       emitError(UnknownLoc::get(ctx))
           << "failed to parse library file '" << path << "'";
@@ -105,7 +108,8 @@ LogicalResult PreloadLibrary::parseLibraries(
     });
 
     // Keep the parsed module alive so the FuncOp references remain valid.
-    parsedModules.push_back(std::move(parsed));
+    // Cast ModuleOp to Operation* for storage.
+    parsedModules.push_back(OwningOpRef<Operation *>(parsed.release()));
   }
 
   return success();
