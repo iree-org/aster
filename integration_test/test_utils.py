@@ -33,7 +33,7 @@ from aster._mlir_libs._runtime_module import (
 from integration_test.flush_llc import FlushLLC
 from aster.pass_pipelines import (
     DEFAULT_SROA_PASS_PIPELINE,
-    SYNCHRONOUS_SROA_PASS_PIPELINE,
+    TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
 )
 
 

@@ -11,7 +11,7 @@ from integration_test.test_utils import (
     compile_mlir_file_to_asm,
     hsaco_file,
 )
-from aster.pass_pipelines import SYNCHRONOUS_SROA_PASS_PIPELINE
+from aster.pass_pipelines import TEST_SYNCHRONOUS_SROA_PASS_PIPELINE
 from mlir_kernels.common import get_library_paths
 
 # Test configuration
@@ -61,7 +61,7 @@ def compile_and_run(
         library_paths: Optional list of library paths. If None, uses get_library_paths()
         preprocess: Optional preprocessing function for MLIR content
         print_ir_after_all: Whether to print IR after all passes
-        pass_pipeline: Optional pass pipeline string. If None, uses SYNCHRONOUS_SROA_PASS_PIPELINE
+        pass_pipeline: Optional pass pipeline string. If None, uses TEST_SYNCHRONOUS_SROA_PASS_PIPELINE
     """
     mlir_file = get_mlir_file(file_name)
 
@@ -69,7 +69,7 @@ def compile_and_run(
         library_paths = get_library_paths()
 
     if pass_pipeline is None:
-        pass_pipeline = SYNCHRONOUS_SROA_PASS_PIPELINE
+        pass_pipeline = TEST_SYNCHRONOUS_SROA_PASS_PIPELINE
 
     # Convert single arrays to lists for compatibility
     if input_data is not None and not isinstance(input_data, list):

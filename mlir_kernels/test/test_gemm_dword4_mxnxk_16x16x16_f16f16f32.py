@@ -13,7 +13,7 @@ from integration_test.test_utils import (
 )
 from aster.pass_pipelines import (
     DEFAULT_SROA_PASS_PIPELINE,
-    SYNCHRONOUS_SROA_PASS_PIPELINE,
+    TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
 )
 from mlir_kernels.gemm_config import validate_gemm_config
 
@@ -53,7 +53,7 @@ KERNEL_NAME = "test_matmul_kernel"
     # fmt: on
 )
 @pytest.mark.parametrize(
-    "pass_pipeline", [DEFAULT_SROA_PASS_PIPELINE, SYNCHRONOUS_SROA_PASS_PIPELINE]
+    "pass_pipeline", [DEFAULT_SROA_PASS_PIPELINE, TEST_SYNCHRONOUS_SROA_PASS_PIPELINE]
 )
 @pytest.mark.parametrize("mcpu", ["gfx942"])
 def test_gemm_e2e_kernel(
@@ -266,7 +266,7 @@ if __name__ == "__main__":
         n_tile=args.n_tile,
         k_tile=args.k_tile,
         num_wavefronts=args.num_wavefronts,
-        # pass_pipeline=SYNCHRONOUS_SROA_PASS_PIPELINE,
+        # pass_pipeline=TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
         pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
         mcpu=args.mcpu,
     )

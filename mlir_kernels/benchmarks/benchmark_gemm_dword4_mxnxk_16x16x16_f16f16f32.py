@@ -21,7 +21,7 @@ from integration_test.test_utils import (
 )
 from aster.pass_pipelines import (
     DEFAULT_SROA_PASS_PIPELINE,
-    SYNCHRONOUS_SROA_PASS_PIPELINE,
+    TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
 )
 from mlir_kernels.benchmarks.benchmark_utils import (
     BenchmarkResult,
@@ -397,7 +397,7 @@ def main() -> None:
                         k_tile=k_tile,
                         num_waves=num_waves,
                         mlir_file=mlir_file,
-                        # pass_pipeline=SYNCHRONOUS_SROA_PASS_PIPELINE,
+                        # pass_pipeline=TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
                         pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
                     )
                     all_configs.append(config)

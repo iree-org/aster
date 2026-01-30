@@ -1,7 +1,7 @@
 """Unit tests for loop execution."""
 
 import numpy as np
-from aster.pass_pipelines import LOOP_PASS_PIPELINE
+from aster.pass_pipelines import TEST_LOOP_PASS_PIPELINE
 
 try:
     from .test_utils import compile_and_run
@@ -23,7 +23,7 @@ class TestUniformLoopLowering:
             input_data=[np.array([output.size], dtype=np.int32)],
             output_data=output,
             block_dim=(num_threads, 1, 1),
-            pass_pipeline=LOOP_PASS_PIPELINE,
+            pass_pipeline=TEST_LOOP_PASS_PIPELINE,
             library_paths=[],  # No library needed for this test
         )
         expected = np.arange(num_threads, dtype=np.int32)
