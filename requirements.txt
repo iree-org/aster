@@ -16,6 +16,7 @@ pybind11
 # Used for managing pre-commit flows.
 pre-commit
 pytest
+pytest-xdist
 
 # Type checking
 pyright

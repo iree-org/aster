@@ -19,10 +19,10 @@ build world-class assembly tooling in the open, making AMDGPU ASM accessible to 
 broader community as well as higher-level tools, while maintaining expert-level
 control.
 
-To reap the benefits of modern and future HW we believe an order of magnitude 
+To reap the benefits of modern and future HW we believe an order of magnitude
 better low-level tooling is needed.
 
-Aster builds the foundations for highly-controllable assembly production 
+Aster builds the foundations for highly-controllable assembly production
 and pushes the boundaries of what’s possible in low‑level performance tooling.
 
 ## Design Philosophy and More
@@ -156,12 +156,12 @@ To build the project use:
 
 #### Executing pytests
 ```
-(cd build && ninja install) && pytest ./integration_test/ ./mlir_kernels/test/
+(cd build && ninja install) && pytest -n 16 ./integration_test/ ./mlir_kernels/test/ ./mlir_kernels/nanobenchmarks/
 ```
 
 #### Executing all tests
 ```
-(cd build && ninja install) &&  lit build/test -v &&  pytest ./integration_test/ ./mlir_kernels/test/
+(cd build && ninja install) && lit build/test -v && pytest -n 16 ./integration_test/ ./mlir_kernels/test/ ./mlir_kernels/nanobenchmarks/
 ```
 
 #### Running python manually

@@ -41,6 +41,8 @@ NANOBENCH_PASS_PIPELINE = (
     "      amdgcn-register-allocation"
     "    )"
     "  ),"
+    # Convert amdgcn.wait ops to s_waitcnt instructions
+    "  amdgcn-convert-waits,"
     # Note: removal of test_inst must happen before nop insertion. If it were to
     # happen after, nop insertion could potentially be tripped by test_inst
     # operations that do not materialize in the final asm.
