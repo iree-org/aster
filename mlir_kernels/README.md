@@ -64,22 +64,33 @@ To run kernel tests:
 
 ## Benchmarking
 
-The `benchmark_copy_1d.py` script provides a way to benchmark multiple kernel configurations
-in parallel. It compiles kernels using multiple processes and executes them sequentially
-(since only one kernel can run on the GPU at a time).
+Benchmark scripts in `benchmarks/` provide a way to benchmark multiple kernel configurations
+in parallel. They compile kernels using multiple processes and execute them across available GPUs.
 
-To run benchmarks:
+To run all benchmarks via pytest:
 ```bash
-(cd build && ninja install) && python ./mlir_kernels/benchmark_copy_1d.py
+(cd build && ninja install) && pytest ./mlir_kernels/benchmarks/
 ```
 
-The benchmark script:
-- Compiles all kernel configurations in parallel using multiple CPU cores
-- Executes kernels sequentially on the GPU
-- Prints performance statistics for each configuration
-- Provides a summary of all results
+To run a specific benchmark directly:
+```bash
+(cd build && ninja install) && python ./mlir_kernels/benchmarks/benchmark_copy_1d.py
+```
 
-You can customize the benchmark configurations by editing the `configs` list in `main()`.
+The benchmark scripts:
+- Compile all kernel configurations in parallel using multiple CPU cores
+- Execute kernels across available GPUs (round-robin distribution)
+- Verify correctness (can be skipped with `--skip-test`)
+- Print performance statistics for each configuration
+
+## Nanobenchmarks
+
+Nanobenchmarks in `nanobenchmarks/` test specific low-level operations (LDS reads/writes, global loads, etc.).
+
+To run all nanobenchmarks via pytest:
+```bash
+(cd build && ninja install) && pytest ./mlir_kernels/nanobenchmarks/
+```
 
 ## Pass Pipeline
 
