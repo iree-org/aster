@@ -5,7 +5,7 @@ import os
 import pytest
 
 from aster import ir
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.pass_pipelines import get_pass_pipeline
 from mlir_kernels.kernel_utils import (
     BatchedSmallGEMMConfig,
     make_batchedsmallgemm_preprocess,
@@ -32,24 +32,24 @@ def _get_library_paths():
 
 @pytest.mark.parametrize(
     # fmt: off
-    "mlir_filename,kernel_name,num_workgroups,num_waves,m,n,k,pass_pipeline",
+    "mlir_filename,kernel_name,num_workgroups,num_waves,m,n,k,pass_pipeline_name",
     [
-        (FILE_NAME, KERNEL_NAME, 1, 1, 1, 1, 1, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 1, 1, 1, 1, 2, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 1, 1, 2, 1, 2, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 1, 1, 1, 2, 2, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 1, 1, 2, 2, 1, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 1, 1, 2, 2, 2, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 1, 1, 3, 3, 3, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 1, 1, 4, 4, 4, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 1, 1, 4, 4, 6, DEFAULT_SROA_PASS_PIPELINE),
+        (FILE_NAME, KERNEL_NAME, 1, 1, 1, 1, 1, "default"),
+        (FILE_NAME, KERNEL_NAME, 1, 1, 1, 1, 2, "default"),
+        (FILE_NAME, KERNEL_NAME, 1, 1, 2, 1, 2, "default"),
+        (FILE_NAME, KERNEL_NAME, 1, 1, 1, 2, 2, "default"),
+        (FILE_NAME, KERNEL_NAME, 1, 1, 2, 2, 1, "default"),
+        (FILE_NAME, KERNEL_NAME, 1, 1, 2, 2, 2, "default"),
+        (FILE_NAME, KERNEL_NAME, 1, 1, 3, 3, 3, "default"),
+        (FILE_NAME, KERNEL_NAME, 1, 1, 4, 4, 4, "default"),
+        (FILE_NAME, KERNEL_NAME, 1, 1, 4, 4, 6, "default"),
         # Test with multiple workgroups and waves
-        (FILE_NAME, KERNEL_NAME, 2, 1, 1, 1, 1, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 2, 1, 2, 2, 2, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 1, 2, 1, 1, 1, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 1, 2, 2, 2, 2, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 2, 2, 1, 1, 1, DEFAULT_SROA_PASS_PIPELINE),
-        (FILE_NAME, KERNEL_NAME, 2, 2, 2, 2, 2, DEFAULT_SROA_PASS_PIPELINE),
+        (FILE_NAME, KERNEL_NAME, 2, 1, 1, 1, 1, "default"),
+        (FILE_NAME, KERNEL_NAME, 2, 1, 2, 2, 2, "default"),
+        (FILE_NAME, KERNEL_NAME, 1, 2, 1, 1, 1, "default"),
+        (FILE_NAME, KERNEL_NAME, 1, 2, 2, 2, 2, "default"),
+        (FILE_NAME, KERNEL_NAME, 2, 2, 1, 1, 1, "default"),
+        (FILE_NAME, KERNEL_NAME, 2, 2, 2, 2, 2, "default"),
     ],
     # fmt: on
 )
@@ -62,7 +62,7 @@ def test_batchedsmallgemm_e2e_kernel(
     m: int,
     n: int,
     k: int,
-    pass_pipeline: str,
+    pass_pipeline_name: str,
     mcpu: str,
     wavefront_size: int = 64,
 ):
@@ -72,6 +72,7 @@ def test_batchedsmallgemm_e2e_kernel(
     - m, n, k are the number of 16x16 blocks in each dimension
     - Each workgroup/wave needs its own data (batch = num_workgroups * num_waves)
     """
+    pass_pipeline = get_pass_pipeline(pass_pipeline_name)
     config = BatchedSmallGEMMConfig(
         m=m,
         n=n,
@@ -147,6 +148,6 @@ if __name__ == "__main__":
         k=args.k,
         num_workgroups=args.num_workgroups,
         num_waves=args.num_waves,
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline_name="default",
         mcpu=args.mcpu,
     )
