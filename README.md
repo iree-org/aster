@@ -156,12 +156,12 @@ To build the project use:
 
 #### Executing pytests
 ```
-(cd build && ninja install) && pytest -n 16 ./integration_test/ ./mlir_kernels/test/ ./mlir_kernels/nanobenchmarks/
+(cd build && ninja install) && pytest -n 16 ./integration_test/ ./mlir_kernels/
 ```
 
 #### Executing all tests
 ```
-(cd build && ninja install) && lit build/test -v && pytest -n 16 ./integration_test/ ./mlir_kernels/test/ ./mlir_kernels/nanobenchmarks/
+(cd build && ninja install) && lit build/test -v && pytest -n 16 ./integration_test/ ./mlir_kernels/
 ```
 
 #### Running Python manually
