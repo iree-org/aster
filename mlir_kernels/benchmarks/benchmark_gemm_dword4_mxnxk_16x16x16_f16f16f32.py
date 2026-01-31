@@ -208,9 +208,8 @@ def main() -> None:
     parser.add_argument(
         "--mlir-filename",
         type=str,
-        default="gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir",
-        # default="gemm_sched_dword4_mxnxk_16x16x16_f16f16f32.mlir",
-        help="MLIR filename (default: gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir)",
+        default="gemm_sched_1wave_dword4_mxnxk_16x16x16_f16f16f32.mlir",
+        help="MLIR filename (default: gemm_sched_1wave_dword4_mxnxk_16x16x16_f16f16f32.mlir)",
     )
     parser.add_argument(
         "--smoke-test",

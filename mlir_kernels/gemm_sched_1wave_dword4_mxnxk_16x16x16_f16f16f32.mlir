@@ -4,7 +4,7 @@
 // RUN: | sed -e 's/{{LOOP_SIZE_M}}/4/g' -e 's/{{LOOP_SIZE_N}}/4/g' -e 's/{{LOOP_SIZE_K}}/4/g' \
 // RUN: | sed -e 's/{{SIZE_K_BY_TILE_SIZE_K}}/2/g' \
 // RUN: | sed -e 's/{{LOOP_SIZE_D_MMNNKK}}/6/g' \
-// RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/register-init.mlir,%p/library/common/indexing.mlir,%p/library/common/descriptors.mlir,%p/library/common/conditional-copies.mlir" \
+// RUN: | aster-opt --amdgcn-preload-library="library-paths=%p/library/common/register-init.mlir,%p/library/common/indexing.mlir,%p/library/common/descriptors.mlir,%p/library/common/copies.mlir,%p/library/common/multi-tile-copies.mlir" \
 // RUN: | FileCheck %s
 
 // CHECK-LABEL: amdgcn.module
@@ -19,30 +19,13 @@
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
-!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
-
-// A 4D tile index descriptor containing:
-//   - k: outer K tile index
-//   - mm, nn, kk: inner tile indices in M, N, K dimensions
-!tile_index_descriptor_4d = !aster_utils.struct<k: index, mm: index, nn: index, kk: index>
-
-// A 4D tile dimensions descriptor containing:
-//   - K, MM, NN, KK: tile counts in each dimension
-!tile_dims_descriptor_4d = !aster_utils.struct<K: index, MM: index, NN: index, KK: index>
-
-// A 2D conditional execution descriptor for C fragment init/store operations containing:
-//   - k, kk: current K tile indices (outer and inner)
-//   - K, KK: total K tile counts (for first/last-iteration detection)
-!store_conditional_execution_descriptor_2d = !aster_utils.struct<k: index, kk: index, K: index, KK: index>
-
-// A 2D C fragment position descriptor containing:
-//   - mm, nn: tile indices for C fragment indexing
-!c_fragment_position_descriptor_2d = !aster_utils.struct<mm: index, nn: index>
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
   // From indexing.mlir
   func.func private @tiled_grid_partition_2d(!index_pair, !index_pair) -> !index_pair
+  // From register-init.mlir
+  func.func private @init_vgprx4(i32) -> !vx4
   // From copies.mlir
   func.func private @global_load_wave_256xf16_via_dwordx2_wait(
     !tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
@@ -52,27 +35,19 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     !lds_position_descriptor_2d, i1) -> !vx2
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(
     !vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
-  // From conditional-multi-tile-copies.mlir
-  func.func private @maybe_global_load_wave_multi_tile_256xf16(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
-  func.func private @maybe_lds_write_wave_multi_tile_256xf16(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
-
-  // From conditional-copies.mlir
-  func.func private @maybe_init_wave_16x16xf32_C_fragment(!store_conditional_execution_descriptor_2d, !c_fragment_position_descriptor_2d, memref<?x?x!vx4>)
-  func.func private @maybe_lds_read_wave_16x16xf16_fragment(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, index, index, memref<?x?x?x!vx2>)
+  // From multi-tile-copies.mlir
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
+    !tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
+  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+    !lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
 
   // Perform MFMA: load fragments, compute, store result fragment
-  func.func private @maybe_mfma(
-    %idx_desc: !tile_index_descriptor_4d,
+  func.func private @mfma(
+    %k: index, %mm: index, %nn: index, %kk: index,
     %a_frag_memref: memref<?x?x?x!vx2>,
     %b_frag_memref: memref<?x?x?x!vx2>,
     %c_fragments: memref<?x?x!vx4>
   ) {
-    // Extract indices
-    %k = aster_utils.struct_extract %idx_desc["k"] : !tile_index_descriptor_4d -> index
-    %mm = aster_utils.struct_extract %idx_desc["mm"] : !tile_index_descriptor_4d -> index
-    %nn = aster_utils.struct_extract %idx_desc["nn"] : !tile_index_descriptor_4d -> index
-    %kk = aster_utils.struct_extract %idx_desc["kk"] : !tile_index_descriptor_4d -> index
-
     // Load fragments from memrefs
     %a_frag = memref.load %a_frag_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
     %b_frag = memref.load %b_frag_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
@@ -83,9 +58,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     memref.store %updated_acc, %c_fragments[%mm, %nn] : memref<?x?x!vx4>
     return
   }
-
-  // From conditional-copies.mlir
-  func.func private @maybe_global_store_wave_16x16xf32_C_fragment(!store_conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx4>)
 
   // Main function that allocates memrefs and loops over M, N, K
   func.func private @matmul_loop(
@@ -102,7 +74,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index
+    %c16 = arith.constant 16 : index
     %elt_sz_in_b = arith.constant 2 : index
+    %false = arith.constant false
 
     // Calculate base indices in LDS for A and B
     %lds_a_base_off = arith.constant 0 : index
@@ -136,11 +110,11 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // Allocate registers for the C fragment
     %c_fragments = memref.alloca(%MM, %NN) : memref<?x?x!vx4>
 
-    // Allocate memrefs for decoupled global loads -> DS writes (2D: [K, NT_I*NT_J])
+    // Allocate memrefs for decoupled global loads -> DS writes (linearized: [NT_I*NT_J])
     %NT_MK = affine.apply affine_map<()[NT_M, NT_K] -> (NT_M * NT_K)>()[%NT_M, %NT_K]
     %NT_NK = affine.apply affine_map<()[NT_N, NT_K] -> (NT_N * NT_K)>()[%NT_N, %NT_K]
-    %a_load_memref = memref.alloca(%K, %NT_MK) : memref<?x?x!vx2>
-    %b_load_memref = memref.alloca(%K, %NT_NK) : memref<?x?x!vx2>
+    %a_load_memref = memref.alloca(%NT_MK) : memref<?x!vx2>
+    %b_load_memref = memref.alloca(%NT_NK) : memref<?x!vx2>
 
     // Allocate memrefs for decoupled LDS reads -> mfma
     %a_frag_memref = memref.alloca(%K, %MM, %KK) : memref<?x?x?x!vx2>
@@ -157,94 +131,132 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %mmnnkk = affine.linearize_index [%mm, %nn, %kk] by (%MM, %NN, %KK) : index
           %k_pos = affine.apply affine_map<(tile_size)[tile] -> (tile * tile_size)>(%TILE_SIZE_K)[%k]
 
-          // Multi-tile global load A: mm_pos=mm, nn_pos=kk, cond_iter=nn
-          // 2-level descriptor: m_pos/n_pos=base positions, mm_pos/nn_pos=tile indices
-          %elt_size_a = arith.constant 2 : index
-          %global_stride_a = affine.apply affine_map<()[SIZE_K, elt_sz] -> (SIZE_K * elt_sz)>()[%SIZE_K, %elt_size_a]
-          %tensor_desc_a = aster_utils.struct_create(%a_global, %m_pos, %k_pos, %global_stride_a, %mm, %kk, %elt_size_a) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-          %cond_desc_a = aster_utils.struct_create(%k, %nn, %NT_M, %NT_K) : (index, index, index, index) -> !conditional_execution_descriptor_2d
-          func.call @maybe_global_load_wave_multi_tile_256xf16(
-            %cond_desc_a, %tensor_desc_a, %a_load_memref)
-              {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
+          // Multi-tile global load A: execute when nn == 0 AND mm % NT_M == 0 AND kk % NT_K == 0
+          %cond_nn_zero = arith.cmpi eq, %nn, %c0 : index
+          %mm_mod_NT_M = affine.apply affine_map<()[mm, NT_M] -> (mm mod NT_M)>()[%mm, %NT_M]
+          %kk_mod_NT_K = affine.apply affine_map<()[kk, NT_K] -> (kk mod NT_K)>()[%kk, %NT_K]
+          %mm_aligned = arith.cmpi eq, %mm_mod_NT_M, %c0 : index
+          %kk_aligned_a = arith.cmpi eq, %kk_mod_NT_K, %c0 : index
+          %cond_load_a_1 = arith.andi %cond_nn_zero, %mm_aligned : i1
+          %cond_load_a = arith.andi %cond_load_a_1, %kk_aligned_a : i1
+          scf.if %cond_load_a {
+            %elt_size_a = arith.constant 2 : index
+            %global_stride_a = affine.apply affine_map<()[SIZE_K, elt_sz] -> (SIZE_K * elt_sz)>()[%SIZE_K, %elt_size_a]
+            // mm_pos_load and kk_pos_load are the tile-level positions (in elements, i.e. *16)
+            %mm_pos_load = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
+            %kk_pos_load = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
+            %tensor_desc_a = aster_utils.struct_create(%a_global, %m_pos, %k_pos, %global_stride_a, %mm_pos_load, %kk_pos_load, %elt_size_a) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+            func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
+              %tensor_desc_a, %NT_M, %NT_K, %a_load_memref)
+              : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+          }
 
-          // Multi-tile global load B: mm_pos=nn, nn_pos=kk, cond_iter=mm
-          %elt_size_b = arith.constant 2 : index
-          %global_stride_b = affine.apply affine_map<()[SIZE_K, elt_sz] -> (SIZE_K * elt_sz)>()[%SIZE_K, %elt_size_b]
-          %tensor_desc_b = aster_utils.struct_create(%b_global, %n_pos, %k_pos, %global_stride_b, %nn, %kk, %elt_size_b) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-          %cond_desc_b = aster_utils.struct_create(%k, %mm, %NT_N, %NT_K) : (index, index, index, index) -> !conditional_execution_descriptor_2d
-          func.call @maybe_global_load_wave_multi_tile_256xf16(
-            %cond_desc_b, %tensor_desc_b, %b_load_memref)
-              {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>) -> ()
+          // Multi-tile global load B: execute when mm == 0 AND nn % NT_N == 0 AND kk % NT_K == 0
+          %cond_mm_zero = arith.cmpi eq, %mm, %c0 : index
+          %nn_mod_NT_N = affine.apply affine_map<()[nn, NT_N] -> (nn mod NT_N)>()[%nn, %NT_N]
+          %kk_mod_NT_K_b = affine.apply affine_map<()[kk, NT_K] -> (kk mod NT_K)>()[%kk, %NT_K]
+          %nn_aligned = arith.cmpi eq, %nn_mod_NT_N, %c0 : index
+          %kk_aligned_b = arith.cmpi eq, %kk_mod_NT_K_b, %c0 : index
+          %cond_load_b_1 = arith.andi %cond_mm_zero, %nn_aligned : i1
+          %cond_load_b = arith.andi %cond_load_b_1, %kk_aligned_b : i1
+          scf.if %cond_load_b {
+            %elt_size_b = arith.constant 2 : index
+            %global_stride_b = affine.apply affine_map<()[SIZE_K, elt_sz] -> (SIZE_K * elt_sz)>()[%SIZE_K, %elt_size_b]
+            // nn_pos_load and kk_pos_load_b are the tile-level positions (in elements, i.e. *16)
+            %nn_pos_load = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
+            %kk_pos_load_b = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
+            %tensor_desc_b = aster_utils.struct_create(%b_global, %n_pos, %k_pos, %global_stride_b, %nn_pos_load, %kk_pos_load_b, %elt_size_b) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+            func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
+              %tensor_desc_b, %NT_N, %NT_K, %b_load_memref)
+              : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+          }
 
           // Multi-tile DS writes
           // LDS stride in bytes = TILE_SIZE_K * 2 (f16 element size)
           %elt_size_lds = arith.constant 2 : index
           %lds_stride_bytes = affine.apply affine_map<()[TILE_SIZE_K, elt_sz] -> (TILE_SIZE_K * elt_sz)>()[%TILE_SIZE_K, %elt_size_lds]
 
-          // Multi-tile DS write A: mm_pos=mm, nn_pos=kk (tile indices), cond_iter=nn
-          %lds_desc_a = aster_utils.struct_create(%lds_a_base_off, %mm, %kk, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-          %cond_desc_lds_a = aster_utils.struct_create(%k, %nn, %NT_M, %NT_K) : (index, index, index, index) -> !conditional_execution_descriptor_2d
-          func.call @maybe_lds_write_wave_multi_tile_256xf16(
-            %cond_desc_lds_a, %lds_desc_a, %a_load_memref)
-              {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
+          // Multi-tile DS write A: execute when nn == 0 AND mm/kk aligned
+          scf.if %cond_load_a {
+            // mm_pos_lds and kk_pos_lds are the tile-level positions (in elements, i.e. *16)
+            %mm_pos_lds = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
+            %kk_pos_lds = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
+            %lds_desc_a = aster_utils.struct_create(%lds_a_base_off, %mm_pos_lds, %kk_pos_lds, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+            func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+              %lds_desc_a, %NT_M, %NT_K, %a_load_memref)
+              : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+          }
 
-          // Multi-tile DS write B: mm_pos=nn, nn_pos=kk (tile indices), cond_iter=mm
-          %lds_desc_b = aster_utils.struct_create(%lds_b_base_off, %nn, %kk, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-          %cond_desc_lds_b = aster_utils.struct_create(%k, %mm, %NT_N, %NT_K) : (index, index, index, index) -> !conditional_execution_descriptor_2d
-          func.call @maybe_lds_write_wave_multi_tile_256xf16(
-            %cond_desc_lds_b, %lds_desc_b, %b_load_memref)
-              {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
+          // Multi-tile DS write B: execute when mm == 0 AND nn/kk aligned
+          scf.if %cond_load_b {
+            // nn_pos_lds and kk_pos_lds_b are the tile-level positions (in elements, i.e. *16)
+            %nn_pos_lds = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
+            %kk_pos_lds_b = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
+            %lds_desc_b = aster_utils.struct_create(%lds_b_base_off, %nn_pos_lds, %kk_pos_lds_b, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+            func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+              %lds_desc_b, %NT_N, %NT_K, %b_load_memref)
+              : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+          }
 
-          // Initialize C fragment (only at first K iteration)
-          %cond_desc_init_c = aster_utils.struct_create(%k, %kk, %K, %KK) : (index, index, index, index) -> !store_conditional_execution_descriptor_2d
-          %pos_desc_init_c = aster_utils.struct_create(%mm, %nn) : (index, index) -> !c_fragment_position_descriptor_2d
-          func.call @maybe_init_wave_16x16xf32_C_fragment(%cond_desc_init_c, %pos_desc_init_c, %c_fragments)
-              {sched.delay = 0 : i64, sched.rate = 1 : i64}
-            : (!store_conditional_execution_descriptor_2d, !c_fragment_position_descriptor_2d, memref<?x?x!vx4>) -> ()
+          // Initialize C fragment (only at first K iteration: k == 0 && kk == 0)
+          %k_is_zero = arith.cmpi eq, %k, %c0 : index
+          %kk_is_zero = arith.cmpi eq, %kk, %c0 : index
+          %cond_init_c = arith.andi %k_is_zero, %kk_is_zero : i1
+          scf.if %cond_init_c {
+            %zero_i32 = arith.constant 0 : i32
+            %zero_acc = func.call @init_vgprx4(%zero_i32) : (i32) -> !vx4
+            memref.store %zero_acc, %c_fragments[%mm, %nn] : memref<?x?x!vx4>
+          }
 
-          // LDS reads
-          // LDS read A: ii=mm, jj=kk, cond_iter=nn
-          %cond_desc_read_a = aster_utils.struct_create(%k, %nn, %c0, %c0) : (index, index, index, index) -> !conditional_execution_descriptor_2d
-          %lds_desc_read_a_base = aster_utils.struct_create(%lds_a_base_off, %c0, %c0, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-          func.call @maybe_lds_read_wave_16x16xf16_fragment(
-            %cond_desc_read_a, %lds_desc_read_a_base,
-            %mm, %kk,
-            %a_frag_memref)
-              {sched.delay = 4 : i64, sched.rate = 1 : i64}
-            : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d,
-              index, index,
-              memref<?x?x?x!vx2>) -> ()
+          // LDS read A: execute when nn == 0 (tile reuse across nn iterations)
+          scf.if %cond_nn_zero {
+            %mm_pos_a = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
+            %kk_pos_a = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
+            %lds_desc_read_a = aster_utils.struct_create(%lds_a_base_off, %mm_pos_a, %kk_pos_a, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+            %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+              %lds_desc_read_a, %false)
 
-          // LDS read B: ii=nn, jj=kk, cond_iter=mm
-          %cond_desc_read_b = aster_utils.struct_create(%k, %mm, %c0, %c0) : (index, index, index, index) -> !conditional_execution_descriptor_2d
-          %lds_desc_read_b_base = aster_utils.struct_create(%lds_b_base_off, %c0, %c0, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-          func.call @maybe_lds_read_wave_16x16xf16_fragment(
-            %cond_desc_read_b, %lds_desc_read_b_base,
-            %nn, %kk,
-            %b_frag_memref)
-              {sched.delay = 4 : i64, sched.rate = 1 : i64}
-            : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d,
-              index, index,
-              memref<?x?x?x!vx2>) -> ()
+              : (!lds_position_descriptor_2d, i1) -> !vx2
+            memref.store %a_frag, %a_frag_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
+          }
+
+          // LDS read B: execute when mm == 0 (tile reuse across mm iterations)
+          scf.if %cond_mm_zero {
+            %nn_pos_b = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
+            %kk_pos_b = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
+            %lds_desc_read_b = aster_utils.struct_create(%lds_b_base_off, %nn_pos_b, %kk_pos_b, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+            %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+              %lds_desc_read_b, %false)
+
+              : (!lds_position_descriptor_2d, i1) -> !vx2
+            memref.store %b_frag, %b_frag_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
+          }
 
           // MFMA (decoupled from LDS reads via memrefs)
-          %idx_desc = aster_utils.struct_create(%k, %mm, %nn, %kk) : (index, index, index, index) -> !tile_index_descriptor_4d
-          func.call @maybe_mfma(%idx_desc, %a_frag_memref, %b_frag_memref, %c_fragments)
-              {sched.delay = 10 : i64, sched.rate = 1 : i64}
-            : (!tile_index_descriptor_4d, memref<?x?x?x!vx2>, memref<?x?x?x!vx2>, memref<?x?x!vx4>) -> ()
+          func.call @mfma(%k, %mm, %nn, %kk, %a_frag_memref, %b_frag_memref, %c_fragments)
 
-          // Store C fragment back to global memory
-          %elt_size_c = arith.constant 4 : index // f32 size in bytes
-          %GLOBAL_C_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N, elt_sz] -> (SIZE_N * elt_sz)>()[%SIZE_N, %elt_size_c]
-          %cond_desc_store_c = aster_utils.struct_create(%k, %kk, %K, %KK) : (index, index, index, index) -> !store_conditional_execution_descriptor_2d
-          %tensor_desc_c = aster_utils.struct_create(%c_global, %m_pos, %n_pos, %GLOBAL_C_STRIDE_IN_BYTES, %mm, %nn, %elt_size_c) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-          func.call @maybe_global_store_wave_16x16xf32_C_fragment(%cond_desc_store_c, %tensor_desc_c, %c_fragments)
-              {sched.delay = 12 : i64, sched.rate = 1 : i64}
-          : (!store_conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx4>) -> ()
+            : (index, index, index, index, memref<?x?x?x!vx2>, memref<?x?x?x!vx2>, memref<?x?x!vx4>) -> ()
+
+          // Store C fragment back to global memory (only at last K iteration)
+          %K_minus_1 = affine.apply affine_map<()[K] -> (K - 1)>()[%K]
+          %KK_minus_1 = affine.apply affine_map<()[KK] -> (KK - 1)>()[%KK]
+          %k_is_last = arith.cmpi eq, %k, %K_minus_1 : index
+          %kk_is_last = arith.cmpi eq, %kk, %KK_minus_1 : index
+          %cond_store_c = arith.andi %k_is_last, %kk_is_last : i1
+          scf.if %cond_store_c {
+            %elt_size_c = arith.constant 4 : index // f32 size in bytes
+            %GLOBAL_C_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N, elt_sz] -> (SIZE_N * elt_sz)>()[%SIZE_N, %elt_size_c]
+            %mm_pos_c = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
+            %nn_pos_c = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
+            %tensor_desc_c = aster_utils.struct_create(%c_global, %m_pos, %n_pos, %GLOBAL_C_STRIDE_IN_BYTES, %mm_pos_c, %nn_pos_c, %elt_size_c) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+            %acc = memref.load %c_fragments[%mm, %nn] : memref<?x?x!vx4>
+            // Use transposed=true because MFMA C output has 4 elements in consecutive rows,
+            // not consecutive columns. The "transposed" path does individual dword stores
+            // with proper row offsets.
+            %true_store = arith.constant true
+            func.call @global_store_wave_16x16xf32_C_fragment_wait(%acc, %tensor_desc_c, %true_store)
+              : (!vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
+          }
 
       } {aster.constexpr, sched.dims = array<i64: {{LOOP_SIZE_D_MMNNKK}}> }
     } {aster.constexpr}

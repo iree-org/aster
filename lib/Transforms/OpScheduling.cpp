@@ -294,6 +294,13 @@ static LogicalResult validateOperandMappings(const ScheduledOp &schedOp,
       for (OpOperand &operand : nestedOp->getOpOperands()) {
         Value val = operand.get();
 
+        // Skip if operand is a block argument that belongs to this nested
+        // region (will be created when the region is cloned)
+        if (auto blockArg = dyn_cast<BlockArgument>(val)) {
+          if (region.isAncestor(blockArg.getOwner()->getParent()))
+            continue;
+        }
+
         // Skip if operand is defined within this nested region (will be cloned
         // together)
         if (Operation *defOp = val.getDefiningOp()) {
