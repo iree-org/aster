@@ -1,35 +1,31 @@
-"""Integration test for MFMA end-to-end kernel execution."""
+"""Integration test for GEMM 1-wave end-to-end kernel execution."""
 
 import argparse
-import os
 import pytest
 import numpy as np
 
-from aster import ir, utils
-from integration_test.test_utils import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-    hsaco_file,
-)
+from aster import ir
 from aster.pass_pipelines import (
     DEFAULT_SROA_PASS_PIPELINE,
+    FUTURE_SROA_PASS_PIPELINE,
     TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
 )
 from mlir_kernels.common import get_library_paths
 from mlir_kernels.gemm_config import validate_gemm_config
-
-
-# Block sizes for each MFMA operation dimension (16x16x16)
-MFMA_SIZE_M = 16
-MFMA_SIZE_N = 16
-MFMA_SIZE_K = 16
+from mlir_kernels.test.test_utils import (
+    get_mlir_file_path,
+    make_gemm_preprocess,
+    make_gemm_verify_fn,
+    compile_and_run_kernel,
+    add_mnk_args,
+    add_tile_args,
+    add_gpu_args,
+)
 
 
 @pytest.mark.parametrize(
     "mlir_filename",
-    [
-        "gemm_sched_1wave_dword4_mxnxk_16x16x16_f16f16f32.mlir",
-    ],
+    ["gemm_sched_1wave_dword4_mxnxk_16x16x16_f16f16f32.mlir"],
 )
 @pytest.mark.parametrize("kernel_name", ["test_matmul_kernel"])
 @pytest.mark.parametrize(
@@ -47,12 +43,16 @@ MFMA_SIZE_K = 16
         (128, 128, 128, 32, 64, 64),
         (128, 128, 128, 64, 32, 64),
         (128, 128, 128, 64, 64, 32),
-        # (128, 128, 256, 32, 32, 16), runs out of registers atm
     ],
     # fmt: on
 )
 @pytest.mark.parametrize(
-    "pass_pipeline", [DEFAULT_SROA_PASS_PIPELINE, TEST_SYNCHRONOUS_SROA_PASS_PIPELINE]
+    "pass_pipeline",
+    [
+        DEFAULT_SROA_PASS_PIPELINE,
+        TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
+        FUTURE_SROA_PASS_PIPELINE,
+    ],
 )
 @pytest.mark.parametrize("mcpu", ["gfx942"])
 def test_gemm_e2e_kernel(
@@ -66,176 +66,77 @@ def test_gemm_e2e_kernel(
     k_tile: int,
     pass_pipeline: str,
     mcpu: str,
-    wavefront_size=64,
+    wavefront_size: int = 64,
 ):
-    """Tes."""
-
-    test_dir = os.path.dirname(os.path.abspath(__file__))
-    mlir_file = os.path.join(test_dir, "..", mlir_filename)
-    library_paths = get_library_paths()
-
-    # Validate configuration using shared validation logic
+    """Test GEMM 1-wave kernel execution."""
     is_valid, error = validate_gemm_config(m, n, k, m_tile, n_tile, k_tile)
     if not is_valid:
         pytest.skip(f"Invalid configuration: {error}")
 
+    dt_a, dt_b, dt_c = np.float16, np.float16, np.float32
+    size_a = np.dtype(dt_a).itemsize
+    size_b = np.dtype(dt_b).itemsize
+
+    num_blocks_m = m // m_tile
+    num_blocks_n = n // n_tile
+    num_blocks = num_blocks_m * num_blocks_n
+    num_threads = 64
+
+    # Per-block dimensions
+    m_per_block = m // num_blocks_m
+    n_per_block = n // num_blocks_n
+
+    print(
+        f"M={m_per_block} N={n_per_block} K={k} tile=({m_tile}x{n_tile}x{k_tile}) blocks={num_blocks}"
+    )
+
+    preprocess = make_gemm_preprocess(
+        m=m_per_block,
+        n=n_per_block,
+        k=k,
+        m_tile=m_tile,
+        n_tile=n_tile,
+        k_tile=k_tile,
+        num_blocks=num_blocks,
+        num_threads=num_threads,
+        size_a=size_a,
+        size_b=size_b,
+    )
+
+    a_data = np.random.randn(m_per_block, k).astype(dt_a)
+    b_data = np.random.randn(k, n_per_block).astype(dt_b)
+    c_data = np.zeros((m_per_block * n_per_block), dtype=dt_c)
+
+    verify_fn = make_gemm_verify_fn(m_per_block, n_per_block, k, dt_a, dt_b, dt_c)
+
     with ir.Context() as ctx:
-        dt_a, dt_b, dt_c = np.float16, np.float16, np.float32
-        size_a = np.dtype(dt_a).itemsize  # bytes per element for A
-        size_b = np.dtype(dt_b).itemsize  # bytes per element for B
-
-        num_blocks_m = m // m_tile
-        num_blocks_n = n // n_tile
-        num_blocks = num_blocks_m * num_blocks_n
-        num_threads = 64
-
-        def preprocess(x):
-            x = x.replace("{{SIZE_M}}", str(m))
-            x = x.replace("{{SIZE_N}}", str(n))
-            x = x.replace("{{SIZE_K}}", str(k))
-            x = x.replace("{{TILE_SIZE_M}}", str(m_tile))
-            x = x.replace("{{TILE_SIZE_N}}", str(n_tile))
-            x = x.replace("{{TILE_SIZE_K}}", str(k_tile))
-            x = x.replace("{{NUM_BLOCKS}}", str(num_blocks))
-            x = x.replace("{{NUM_THREADS}}", str(num_threads))
-            x = x.replace(
-                "{{LDS_SIZE}}",
-                str((m_tile * k_tile * size_a + n_tile * k_tile * size_b)),
-            )
-            SIZE_K_BY_TILE_SIZE_K = k // k_tile
-            x = x.replace("{{SIZE_K_BY_TILE_SIZE_K}}", str(SIZE_K_BY_TILE_SIZE_K))
-            # Perform replacement for LOOP_SIZE_D_MMNNKK (proper count needed for
-            # scheduling to kick in).
-            mnkt = m_tile * n_tile * k_tile
-            mnk_mfma = MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K
-            mnkt_mfma = mnkt // mnk_mfma
-            LOOP_SIZE_D_MMNNKK = mnkt_mfma
-            # These should have been checked by validate_gemm_config; this is a
-            # sanity check.
-            assert mnkt % mnk_mfma == 0, "Invalid configuration"
-            x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(LOOP_SIZE_D_MMNNKK))
-            return x
-
-        asm_complete, module_after_passes = compile_mlir_file_to_asm(
-            mlir_file,
-            kernel_name,
-            pass_pipeline,
-            ctx,
+        compile_and_run_kernel(
+            mlir_file=get_mlir_file_path(mlir_filename),
+            kernel_name=kernel_name,
+            pass_pipeline=pass_pipeline,
+            ctx=ctx,
+            input_args=[a_data, b_data],
+            output_args=[c_data],
+            grid_dim=(num_blocks, 1, 1),
+            block_dim=(num_threads, 1, 1),
+            verify_fn=verify_fn,
+            mcpu=mcpu,
+            wavefront_size=wavefront_size,
             preprocess=preprocess,
-            print_ir_after_all=False,
-            library_paths=library_paths,
-            print_timings=False,
+            library_paths=get_library_paths(),
+            skip_on_cross_compile=True,
         )
-        # print(asm_complete, flush=True)
-        a_data = np.random.randn(m, k).astype(dt_a)
-        b_data = np.random.randn(k, n).astype(dt_b)
-        c_data = np.zeros((m * n), dtype=dt_c)
-
-        def verify_fn(input_args, output_args):
-            a_flat = np.array(input_args[0])
-            a = a_flat.reshape(m, k)
-            b_flat = np.array(input_args[1])
-            b = b_flat.reshape(n, k).T
-            c_flat = np.array(output_args[0], dtype=dt_c)
-            c = c_flat.reshape(m, n)
-            ref_f32 = np.matmul(a.astype(np.float32), b.astype(np.float32))
-            print(f"Error: {np.linalg.norm(c - ref_f32) / np.linalg.norm(ref_f32)}")
-            diff = np.abs(c.astype(np.float32) - ref_f32)
-            diff[np.where(diff < 1e-5)] = 0.0
-            assert np.allclose(c, ref_f32, rtol=1e-4, atol=1e-4), (
-                f"MFMA kernel failed!\n"
-                f"Max diff: {np.max(np.abs(c - ref_f32))}\n"
-                f"c shape: {c.shape}, ref shape: {ref_f32.shape}\n"
-                f"diff:\n{np.array2string(diff, precision=4, suppress_small=True)}"
-            )
-
-        # Assemble to hsaco
-        hsaco_path = utils.assemble_to_hsaco(
-            asm_complete, target=mcpu, wavefront_size=wavefront_size
-        )
-        assert hsaco_path is not None, "Failed to assemble kernel to HSACO"
-
-        with hsaco_file(hsaco_path):
-            # Skip execution if GPU doesn't match
-            if not utils.system_has_mcpu(mcpu=mcpu):
-                print(module_after_passes)
-                print(asm_complete)
-                pytest.skip(
-                    f"GPU {mcpu} not available, but cross-compilation to HSACO succeeded"
-                )
-
-            iteration_times = execute_kernel_and_verify(
-                hsaco_path=hsaco_path,
-                kernel_name=kernel_name,
-                input_args=[a_data, b_data],
-                output_args=[c_data],
-                mcpu=mcpu,
-                wavefront_size=wavefront_size,
-                verify_fn=verify_fn,
-                grid_dim=(num_blocks, 1, 1),
-                block_dim=(num_threads, 1, 1),
-                num_iterations=5,
-            )
-            print(f"Iteration times: {iteration_times} nanoseconds")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Test MFMA end-to-end kernel execution with block matrix multiplication"
+        description="Test GEMM 1-wave end-to-end kernel execution"
     )
-    parser.add_argument(
-        "-m",
-        "--m",
-        type=int,
-        default=16,
-        help="Number of blocks in M dimension (default: 16)",
-    )
-    parser.add_argument(
-        "-n",
-        "--n",
-        type=int,
-        default=16,
-        help="Number of blocks in N dimension (default: 16)",
-    )
-    parser.add_argument(
-        "-k",
-        "--k",
-        type=int,
-        default=32,
-        help="Number of blocks in K dimension (default: 32)",
-    )
-    parser.add_argument(
-        "-M",
-        "--m-tile",
-        type=int,
-        default=16,
-        help="Tile size in M dimension (default: 16)",
-    )
-    parser.add_argument(
-        "-N",
-        "--n-tile",
-        type=int,
-        default=16,
-        help="Tile size in N dimension (default: 16)",
-    )
-    parser.add_argument(
-        "-K",
-        "--k-tile",
-        type=int,
-        default=32,
-        help="Tile size in K dimension (default: 16)",
-    )
-    parser.add_argument(
-        "--mcpu",
-        type=str,
-        default="gfx942",
-        help="Target GPU architecture (default: gfx942)",
-    )
-    parser.add_argument(
-        "--mlir-filename",
-        type=str,
-        default="gemm_sched_1wave_dword4_mxnxk_16x16x16_f16f16f32.mlir",
-        help="MLIR filename to test (default: gemm_sched_1wave_dword4_mxnxk_16x16x16_f16f16f32.mlir)",
+    add_mnk_args(parser, m_default=16, n_default=16, k_default=32)
+    add_tile_args(parser, m_tile_default=16, n_tile_default=16, k_tile_default=32)
+    add_gpu_args(
+        parser,
+        mlir_filename_default="gemm_sched_1wave_dword4_mxnxk_16x16x16_f16f16f32.mlir",
     )
     args = parser.parse_args()
 
@@ -248,7 +149,6 @@ if __name__ == "__main__":
         m_tile=args.m_tile,
         n_tile=args.n_tile,
         k_tile=args.k_tile,
-        # pass_pipeline=TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline=FUTURE_SROA_PASS_PIPELINE,
         mcpu=args.mcpu,
     )
