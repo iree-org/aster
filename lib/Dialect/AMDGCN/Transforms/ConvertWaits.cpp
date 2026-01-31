@@ -66,24 +66,36 @@ void AMDGCNConvertWaits::runOnOperation() {
     rewriter.setInsertionPoint(waitOp);
     WaitCnt counts = afterState->waitOpInfo->counts;
 
+    // TODO: support hasExpcnt.
+    bool hasExpcnt = false;
+    bool hasVmcnt = counts.getVmcnt() < TokenState::kMaxPosition;
+    bool hasLgkmcnt = counts.getLgkmcnt() < TokenState::kMaxPosition;
     // If no wait is needed, erase the wait op.
-    if (counts.getVmcnt() == TokenState::kMaxPosition &&
-        counts.getLgkmcnt() == TokenState::kMaxPosition) {
+    if (!hasVmcnt && !hasLgkmcnt && !hasExpcnt) {
       rewriter.eraseOp(waitOp);
       return;
     }
 
     // Replace the wait op with an inst::SWaitcntOp with the minimal counts
     // required after this wait op.
-    // Note that `SWaitcntOp` defaults to max counts, so we only need to set the
-    // counts that are less than max.
+    // Note that `SWaitcntOp` defaults to max counts, so we need to:
+    //   1. set the counts that are less than max and hasXXX is true
+    //   2. leave it alone when hasXXX is true
+    //   3. unset the attribute when hasXXX is false
     auto newWait = rewriter.replaceOpWithNewOp<inst::SWaitcntOp>(waitOp);
 
     // The default builder of SWaitcntOp sets both counts to max, so we take the
     // minimum of the max allowed hardware value count and the required count.
-    newWait.setVmcnt(
-        std::min(static_cast<int32_t>(newWait.getVmcnt()), counts.getVmcnt()));
-    newWait.setLgkmcnt(std::min(static_cast<int32_t>(newWait.getLgkmcnt()),
-                                counts.getLgkmcnt()));
+    if (hasVmcnt) {
+      newWait.setVmcnt(std::min(static_cast<int32_t>(newWait.getVmcnt()) - 1,
+                                counts.getVmcnt()));
+    }
+    if (hasLgkmcnt) {
+      newWait.setLgkmcnt(std::min(
+          static_cast<int32_t>(newWait.getLgkmcnt()) - 1, counts.getLgkmcnt()));
+    }
+    if (hasExpcnt) {
+      llvm_unreachable("EXPCNT is not supported yet");
+    }
   });
 }

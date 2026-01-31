@@ -112,17 +112,17 @@ def OffsetImm32Attr : IntModifier<I32Attr, 0> {
 }
 
 // EXPCNT attribute
-def ExpcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<7>]>, "expcnt", 7, I8Attr> {
+def ExpcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<8>]>, "expcnt", 8, I8Attr> {
   let summary = "EXPCNT wait count modifier";
 }
 
 // LGKMCNT attribute
-def LgkmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<15>]>, "lgkmcnt", 15, I8Attr> {
+def LgkmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<16>]>, "lgkmcnt", 16, I8Attr> {
   let summary = "LGKMCNT wait count modifier";
 }
 
 // VMCNT attribute
-def VmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<63>]>, "vmcnt", 63, I8Attr> {
+def VmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<64>]>, "vmcnt", 64, I8Attr> {
   let summary = "VMCNT wait count modifier";
 }
 

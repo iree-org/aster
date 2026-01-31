@@ -26,6 +26,9 @@ amdgcn.module @test_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     // Write to LDS
     store ds_write_b32 data %data addr %addr : ins(!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.write_token<shared>
 
+    // Test the limit of a valid waitcnt instruction
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 63 expcnt = 7 lgkmcnt = 15
+
     end_kernel
   }
 }
@@ -59,6 +62,7 @@ amdgcn.module @test_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         # CHECK: ds_all_kernel:
         # CHECK: ds_read_b32
         # CHECK: ds_write_b32
+        # CHECK: s_waitcnt vmcnt(63) expcnt(7) lgkmcnt(15)
         # CHECK: s_endpgm
 
         hsaco_path = utils.assemble_to_hsaco(asm, target="gfx942")

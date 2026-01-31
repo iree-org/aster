@@ -39,14 +39,14 @@ func.func @test_pipelined_pattern(%arg0: !amdgcn.vgpr_range<[? + 2]>) {
 }
 
 // CHECK-LABEL:   func.func @test_escaped_waits_1(
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0 lgkmcnt = 0
+// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 63 lgkmcnt = 15
 func.func @test_escaped_waits_1(%arg0: !amdgcn.vgpr_range<[? + 2]>, %arg1: i1) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
   scf.if %arg1 {
     %result, %token = amdgcn.load global_load_dword dest %0 addr %arg0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.read_token<flat>
   }
-  amdgcn.wait vm_cnt 0 lgkm_cnt 0
+  amdgcn.wait vm_cnt 63 lgkm_cnt 15
   return
 }
 
