@@ -6,7 +6,6 @@ import argparse
 import itertools
 import multiprocessing
 from typing import List, Tuple, Optional
-from dataclasses import dataclass, field
 
 # Add project root to path to allow imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -14,7 +13,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 import numpy as np
 from aster import ir, utils
 from integration_test.test_utils import (
-    execute_kernel_and_verify,
     compile_mlir_file_to_asm,
     _get_logger,
     _log_info,
@@ -30,135 +28,35 @@ from mlir_kernels.benchmarks.benchmark_utils import (
     run_benchmark,
 )
 from mlir_kernels.common import get_library_paths
-from mlir_kernels.gemm_config import validate_gemm_config
-
-
-# MFMA operation sizes (16x16x16)
-MFMA_SIZE_M = 16
-MFMA_SIZE_N = 16
-MFMA_SIZE_K = 16
-
-# LDS limit (64KB)
-LDS_SIZE_LIMIT = 65536
+from mlir_kernels.kernel_utils import (
+    GEMMConfig,
+    MFMA_SIZE,
+    make_gemm_preprocess,
+    make_gemm_verify_fn,
+    generate_gemm_data,
+    LDS_SIZE_LIMIT,
+)
+from integration_test.test_utils import execute_kernel_and_verify
 
 # 304 = num CUs on MI300X
 NUM_CU_PER_GPU = 304
 
 
-@dataclass
-class GEMMConfig(BaseConfig):
-    """Configuration for GEMM 16x16x16 benchmark."""
-
-    m: int = field(default=...)  # Problem size M
-    n: int = field(default=...)  # Problem size N
-    k: int = field(default=...)  # Problem size K
-    m_tile: int = field(default=16)  # Tile size in M dimension
-    n_tile: int = field(default=16)  # Tile size in N dimension
-    k_tile: int = field(default=16)  # Tile size in K dimension
-    kernel_name: str = "test_matmul_kernel"
-    # BaseConfig fields: num_workgroups, num_waves, mlir_file, total_flops, total_bytes,
-    # wavefront_size, pass_pipeline, mcpu, shader_clock_mhz, peak_gbps, peak_tflops
+class BenchmarkGEMMConfig(GEMMConfig, BaseConfig):
+    """GEMM config that inherits from both GEMMConfig and BaseConfig for benchmarking."""
 
     def __post_init__(self):
-        """Validate configuration using shared validation logic."""
-        is_valid, error = validate_gemm_config(
-            self.m,
-            self.n,
-            self.k,
-            self.m_tile,
-            self.n_tile,
-            self.k_tile,
-            self.num_waves,
-        )
-        if not is_valid:
-            raise AssertionError(error)
-
-    @property
-    def num_blocks_m(self) -> int:
-        """Number of blocks in M dimension."""
-        return self.m // self.m_tile
-
-    @property
-    def num_blocks_n(self) -> int:
-        """Number of blocks in N dimension."""
-        return self.n // self.n_tile
-
-    @property
-    def num_workgroups(self) -> int:
-        """Total number of workgroups (blocks)."""
-        return self.num_blocks_m * self.num_blocks_n
-
-    @property
-    def num_threads(self) -> int:
-        """Number of threads per workgroup."""
-        return self.wavefront_size * self.num_waves
-
-    @property
-    def total_bytes(self) -> int:
-        """Compute total bytes read/written."""
-        size_a = np.dtype(np.float16).itemsize
-        size_b = np.dtype(np.float16).itemsize
-        size_c = np.dtype(np.float32).itemsize
-        bytes_a = self.m * self.k * size_a
-        bytes_b = self.k * self.n * size_b
-        bytes_c = self.m * self.n * size_c  # WO
-        return bytes_a + bytes_b + bytes_c
-
-    @property
-    def lds_a_size(self) -> int:
-        """LDS size for A tile."""
-        size_a = np.dtype(np.float16).itemsize
-        return self.m_tile * self.k_tile * size_a
-
-    @property
-    def lds_b_size(self) -> int:
-        """LDS size for B tile."""
-        size_b = np.dtype(np.float16).itemsize
-        return self.n_tile * self.k_tile * size_b
-
-    @property
-    def lds_total_size(self) -> int:
-        """Total LDS size for A and B tiles."""
-        return self.lds_a_size + self.lds_b_size
-
-    @property
-    def total_flops(self) -> int:
-        """Total FLOPs for the matmul (2*M*N*K)."""
-        return 2 * self.m * self.n * self.k
+        # Call GEMMConfig's validation
+        GEMMConfig.__post_init__(self)
 
 
-def compile_kernel_worker(config: GEMMConfig) -> Tuple[GEMMConfig, str]:
+def compile_kernel_worker(
+    config: BenchmarkGEMMConfig,
+) -> Tuple[BenchmarkGEMMConfig, str]:
     """Worker function for parallel compilation."""
     try:
         with ir.Context() as ctx:
-            size_a = np.dtype(np.float16).itemsize
-            size_b = np.dtype(np.float16).itemsize
-
-            def preprocess(x):
-                x = x.replace("{{SIZE_M}}", str(config.m))
-                x = x.replace("{{SIZE_N}}", str(config.n))
-                x = x.replace("{{SIZE_K}}", str(config.k))
-                x = x.replace("{{TILE_SIZE_M}}", str(config.m_tile))
-                x = x.replace("{{TILE_SIZE_N}}", str(config.n_tile))
-                x = x.replace("{{TILE_SIZE_K}}", str(config.k_tile))
-                x = x.replace("{{NUM_BLOCKS}}", str(config.num_workgroups))
-                x = x.replace("{{NUM_THREADS}}", str(config.num_threads))
-                x = x.replace("{{LDS_SIZE}}", str(config.lds_total_size))
-                SIZE_K_BY_TILE_SIZE_K = config.k // config.k_tile
-                x = x.replace("{{SIZE_K_BY_TILE_SIZE_K}}", str(SIZE_K_BY_TILE_SIZE_K))
-                # Perform replacement for LOOP_SIZE_D_MMNNKK (proper count needed for
-                # scheduling to kick in).
-                mnkt = config.m_tile * config.n_tile * config.k_tile
-                mnk_mfma = MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K
-                mnkt_mfma = mnkt // mnk_mfma
-                LOOP_SIZE_D_MMNNKK = mnkt_mfma // config.num_waves
-                # These should have been checked by validate_gemm_config; this is a
-                # sanity check.
-                assert mnkt % mnk_mfma == 0, "Invalid configuration"
-                assert mnkt_mfma % config.num_waves == 0, "Invalid configuration"
-                x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(LOOP_SIZE_D_MMNNKK))
-                return x
-
+            preprocess = make_gemm_preprocess(config)
             library_paths = get_library_paths()
 
             asm_complete, _ = compile_mlir_file_to_asm(
@@ -200,7 +98,7 @@ def compile_kernel_worker(config: GEMMConfig) -> Tuple[GEMMConfig, str]:
 
 
 def execute_kernel_benchmark(
-    config: GEMMConfig,
+    config: BenchmarkGEMMConfig,
     hsaco_path: str,
     skip_test: bool = False,
     num_iterations: int = 5,
@@ -208,58 +106,23 @@ def execute_kernel_benchmark(
 ) -> Tuple[Optional[BenchmarkResult], str]:
     """Execute a compiled kernel and return benchmark result with status message."""
     logger = _get_logger()
-    dt_a: type = np.float16
-    dt_b: type = np.float16
-    dt_c: type = np.float32
 
     _log_info(
         logger, f"[EXECUTE] Executing kernel: m={config.m}, n={config.n}, k={config.k}"
     )
 
-    # Create matrices in standard row-major layout
-    # Values in [-1.0, -0.5] ∪ [0.5, 1.0] for well-conditioned matrices
-    mean = 0.75
-    a_data: np.ndarray = (
-        np.random.uniform(mean * 2 / 3, mean * 4 / 3, (config.m, config.k))
-        * np.random.choice([-1, 1], (config.m, config.k))
-    ).astype(dt_a)
-    b_data: np.ndarray = (
-        np.random.uniform(mean * 2 / 3, mean * 4 / 3, (config.k, config.n))
-        * np.random.choice([-1, 1], (config.k, config.n))
-    ).astype(dt_b)
-    c_data: np.ndarray = np.zeros(config.m * config.n, dtype=dt_c)
+    # Generate data with well-conditioned values for benchmarks
+    a_data, b_data, c_data = generate_gemm_data(config, random_data=False)
 
     _log_info(
         logger,
         f"[EXECUTE] Matrices created: m={config.m}, n={config.n}, k={config.k}",
     )
 
-    def verify_fn(input_args: List[np.ndarray], output_args: List[np.ndarray]) -> None:
-        a_flat = np.array(input_args[0])
-        a = a_flat.reshape(config.m, config.k)
-        b_flat = np.array(input_args[1])
-        # B is transposed in the kernel (stored as N x K)
-        b = b_flat.reshape(config.n, config.k).T
-        c_flat = np.array(output_args[0], dtype=dt_c)
-        c = c_flat.reshape(config.m, config.n)
-        ref_f32 = np.matmul(a.astype(np.float32), b.astype(np.float32))
-
-        # Scale tolerance with problem size
-        # f16 has 10-bit mantissa → ~1e-3 relative precision
-        # Error accumulates with k reductions (sqrt(k) factor)
-        rtol = 1e-3 * np.sqrt(config.k)
-        atol = 1e-3 * config.k * mean
-        if not np.allclose(c, ref_f32, rtol=rtol, atol=atol):
-            diff = np.abs(c.astype(np.float32) - ref_f32)
-            max_idx = np.unravel_index(np.argmax(diff), diff.shape)
-            max_diff = diff[max_idx]
-            relative_error = np.linalg.norm(diff) / np.linalg.norm(ref_f32)
-            raise AssertionError(
-                f"GEMM kernel failed!\n"
-                f"Max diff: {max_diff} at {max_idx}, c={c[max_idx]}, ref={ref_f32[max_idx]}\n"
-                f"Relative error: {relative_error}, rtol: {rtol}, atol: {atol}\n"
-                f"c shape: {c.shape}, ref shape: {ref_f32.shape}"
-            )
+    # Use scaled tolerance for large k
+    verify_fn = (
+        make_gemm_verify_fn(config, scale_with_k=True) if not skip_test else None
+    )
 
     try:
         iteration_times_ns: List[int] = execute_kernel_and_verify(
@@ -271,7 +134,7 @@ def execute_kernel_benchmark(
             wavefront_size=config.wavefront_size,
             grid_dim=(config.num_workgroups, 1, 1),
             block_dim=(config.num_threads, 1, 1),
-            verify_fn=verify_fn if not skip_test else None,
+            verify_fn=verify_fn,
             num_iterations=num_iterations,
             device_id=device_id,
         )
@@ -287,7 +150,7 @@ def execute_kernel_benchmark(
 
 
 def format_gemm_failure(
-    config: GEMMConfig, error_msg: str, device_id: Optional[int]
+    config: BenchmarkGEMMConfig, error_msg: str, device_id: Optional[int]
 ) -> str:
     """Format failure message for GEMM benchmark."""
     device_str = f"GPU{device_id}" if device_id is not None else "GPU?"
@@ -301,10 +164,10 @@ def format_gemm_failure(
 
 
 def benchmark_gemm(
-    configs: List[GEMMConfig],
+    configs: List[BenchmarkGEMMConfig],
     num_compile_workers: int = multiprocessing.cpu_count() // 2,
     skip_test: bool = False,
-) -> Tuple[List[BenchmarkResult], List[Tuple[GEMMConfig, str]]]:
+) -> Tuple[List[BenchmarkResult], List[Tuple[BenchmarkGEMMConfig, str]]]:
     """Benchmark multiple GEMM kernel configurations using all available GPUs.
 
     Jobs are distributed across GPUs in round-robin fashion with only one job running
@@ -380,7 +243,7 @@ def main() -> None:
     num_waves_values: List[int] = args.num_waves
 
     # Generate all valid configs
-    all_configs: List[GEMMConfig] = []
+    all_configs: List[BenchmarkGEMMConfig] = []
     for m, n, k in itertools.product(m_values, n_values, k_values):
         for m_tile, n_tile, k_tile in tile_configs:
             # Skip invalid tile configurations
@@ -388,7 +251,7 @@ def main() -> None:
                 continue
             for num_waves in num_waves_values:
                 try:
-                    config = GEMMConfig(
+                    config = BenchmarkGEMMConfig(
                         m=m,
                         n=n,
                         k=k,
@@ -401,11 +264,11 @@ def main() -> None:
                         pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
                     )
                     all_configs.append(config)
-                except AssertionError:
+                except ValueError:
                     continue
 
     # Filter configs: stay within LDS limit and reasonable problem sizes
-    configs: List[GEMMConfig] = [
+    configs: List[BenchmarkGEMMConfig] = [
         config
         for config in all_configs
         if config.lds_total_size <= LDS_SIZE_LIMIT
@@ -413,7 +276,7 @@ def main() -> None:
         and config.total_flops <= 2 * 2048 * 2048 * 2048  # Maximum problem size
         # Maximum FLOPS per wave (in MFMA operations) to avoid too much unrolling atm
         and config.total_flops / (config.num_waves * config.num_workgroups)
-        <= 1024 * (MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K)
+        <= 1024 * MFMA_SIZE
     ]
 
     print(f"Generated {len(configs)} valid configurations")
@@ -424,7 +287,7 @@ def main() -> None:
 
     # Run the configurations
     results: List[BenchmarkResult]
-    failed_configs: List[Tuple[GEMMConfig, str]]
+    failed_configs: List[Tuple[BenchmarkGEMMConfig, str]]
     print(
         f"Compiling {len(configs)} configurations on {multiprocessing.cpu_count()} processes..."
     )
@@ -451,7 +314,7 @@ def main() -> None:
         )
         print("=" * 160, file=sys.stderr)
         for result in results_sorted:
-            config: GEMMConfig = result.config
+            config = result.config  # type: BenchmarkGEMMConfig
             print(
                 f"GPU{result.device_id} "
                 f"m={config.m:4d} n={config.n:4d} k={config.k:4d} | "
