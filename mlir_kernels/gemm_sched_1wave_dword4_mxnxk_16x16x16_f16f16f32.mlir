@@ -58,39 +58,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // From conditional-copies.mlir
   func.func private @maybe_init_C(!store_conditional_execution_descriptor_2d, !c_fragment_position_descriptor_2d, memref<?x?x!vx4>)
-
-  // Unified LDS read function (decoupled from mfma via memrefs).
-  // For A: ii=mm, jj=kk, cond_iter=nn → memref[k, ii, jj]
-  // For B: ii=nn, jj=kk, cond_iter=mm → memref[k, ii, jj]
-  // When cond_iter == 0: reads from LDS at (ii*16, jj*16), stores to memref
-  // When cond_iter != 0: no-op (value already in memref from cond_iter==0)
-  func.func private @maybe_lds_read(
-    %cond_desc: !conditional_execution_descriptor_2d,           // k, cond_iter, NT_I (unused), NT_J (unused)
-    %lds_pos_desc_base: !lds_position_descriptor_2d,           // lds_base, m_pos (unused), n_pos (unused), lds_stride_in_bytes, elt_size
-    %ii: index, %jj: index,                                   // inner tile indices for position computation and memref indexing
-    %frag_memref: memref<?x?x?x!vx2>                         // 3D memref for fragments
-  ) {
-    // Extract from conditional execution descriptor
-    %k, %cond_iter, %unused_NT_I, %unused_NT_J = aster_utils.struct_extract %cond_desc ["k", "cond_iter", "NT_I", "NT_J"] : !conditional_execution_descriptor_2d -> index, index, index, index
-
-    // Extract from LDS position descriptor base
-    %lds_base_off, %unused_m_pos, %unused_n_pos, %LDS_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %lds_pos_desc_base ["lds_base", "m_pos", "n_pos", "lds_stride_in_bytes", "elt_size"] : !lds_position_descriptor_2d -> index, index, index, index, index
-
-    %c0 = arith.constant 0 : index
-    %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
-
-    scf.if %is_cond_zero {
-      %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
-      %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
-      // Note: LDS read A and B are the same function because B is NxK atm.
-      %false = arith.constant false
-      %lds_pos_desc_read = aster_utils.struct_create(%lds_base_off, %ii_pos, %jj_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-      %frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc_read, %false)
-        : (!lds_position_descriptor_2d, i1) -> !vx2
-      memref.store %frag, %frag_memref[%k, %ii, %jj] : memref<?x?x?x!vx2>
-    }
-    return
-  }
+  func.func private @maybe_lds_read(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, index, index, memref<?x?x?x!vx2>)
 
   // Perform MFMA: load fragments, compute, store result fragment
   func.func private @maybe_mfma(
