@@ -150,6 +150,7 @@ def compile_and_run_kernel(
     print_ir_after_all: bool = False,
     num_iterations: int = 5,
     skip_on_cross_compile: bool = False,
+    print_asm: bool = False,
 ) -> Optional[List[int]]:
     """Compile MLIR to hsaco, execute, and verify.
 
@@ -167,6 +168,8 @@ def compile_and_run_kernel(
         print_timings=print_timings,
         print_ir_after_all=print_ir_after_all,
     )
+    if print_asm:
+        print(asm_complete)
 
     hsaco_path = utils.assemble_to_hsaco(
         asm_complete, target=mcpu, wavefront_size=wavefront_size
