@@ -1,15 +1,23 @@
 // Conditional copy functions for AMDGCN kernels.
 //
-// Provides conditional C fragment initialization and store-to-global primitives
-// for GEMM kernels. Operations execute based on K loop iteration position:
-// - Init at first K iteration (k==0, kk==0)
-// - Store at last K iteration (k==K-1, kk==KK-1)
+// Provides conditional primitives for GEMM kernels:
+// - C fragment initialization at first K iteration (k==0, kk==0)
+// - C fragment store-to-global at last K iteration (k==K-1, kk==KK-1)
+// - LDS read with tile reuse (execute when cond_iter == 0)
 
 // From descriptors.mlir
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
+!vx2 = !amdgcn.vgpr_range<[? + 2]>
 !vx4 = !amdgcn.vgpr_range<[? + 4]>
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+!lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
+
+// A 2D conditional execution descriptor for multi-tile operations containing:
+//   - k: outer loop index (for indexing load_memref -> mem2reg)
+//   - cond_iter: condition index (execute only when cond_iter == 0)
+//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
+!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
 
 // A 2D conditional execution descriptor for C fragment init/store operations containing:
 //   - k, kk: current K tile indices (outer and inner)
@@ -144,6 +152,83 @@ amdgcn.library @conditional_c_fragment_init_store_single_wave isa = [#amdgcn.isa
       %pos_desc_c = aster_utils.struct_create(%c_global, %m_pos, %n_pos, %GLOBAL_STRIDE_IN_BYTES, %mm_pos, %nn_pos, %elt_size_c) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
       %true_store = arith.constant true
       func.call @global_store_wave_16x16xf32_C_fragment_wait(%fragment, %pos_desc_c, %true_store) : (!vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
+    }
+    return
+  }
+}
+
+//===-----------------------------------------------------------------------===//
+// Wave-level, conditional LDS read instructions, parameterizable by
+// !conditional_execution_descriptor_2d and !lds_position_descriptor_2d.
+//
+// Conditionally reads a 16x16xf16 fragment from LDS when cond_iter == 0.
+// Used for GEMM A/B fragment loading with tile reuse across iterations.
+//===-----------------------------------------------------------------------===//
+amdgcn.library @conditional_lds_read_single_wave isa = [#amdgcn.isa<cdna3>] {
+
+  //===--------------------------------------------------------------------===//
+  // External function declarations
+  //===--------------------------------------------------------------------===//
+
+  // From copies.mlir
+  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
+    !lds_position_descriptor_2d, i1) -> !vx2
+
+  //===--------------------------------------------------------------------===//
+  // Conditional LDS read
+  //   16x16xf16 fragment read when cond_iter == 0
+  // (conditional variant only)
+  //===--------------------------------------------------------------------===//
+  // Conditionally reads a 16x16xf16 fragment from LDS to VGPRs.
+  // Executes only when cond_iter == 0 (for tile reuse across iterations).
+  //
+  // Usage pattern (GEMM):
+  //   For A: ii=mm, jj=kk, cond_iter=nn -> memref[k, ii, jj]
+  //   For B: ii=nn, jj=kk, cond_iter=mm -> memref[k, ii, jj]
+  //   When cond_iter == 0: reads from LDS at (ii*16, jj*16), stores to memref
+  //   When cond_iter != 0: no-op (value already in memref from cond_iter==0)
+  //
+  // Parameters:
+  //   %cond_desc: !conditional_execution_descriptor_2d
+  //     - k: outer loop index for memref storage
+  //     - cond_iter: execute only when == 0
+  //     - NT_I, NT_J: unused (present for descriptor compatibility)
+  //   %lds_pos_desc_base: !lds_position_descriptor_2d
+  //     - lds_base: base offset in LDS (bytes)
+  //     - m_pos, n_pos: unused (ii/jj used for position computation)
+  //     - lds_stride_in_bytes: row stride
+  //     - elt_size: element size in bytes (2 for f16)
+  //   %ii, %jj: inner tile indices for position computation and memref indexing
+  //   %frag_memref: memref<?x?x?x!vx2> - 3D memref[K, II, JJ] for fragments
+  func.func private @maybe_lds_read(
+    %cond_desc: !conditional_execution_descriptor_2d,
+    %lds_pos_desc_base: !lds_position_descriptor_2d,
+    %ii: index, %jj: index,
+    %frag_memref: memref<?x?x?x!vx2>
+  ) {
+    %c0 = arith.constant 0 : index
+
+    // Extract from conditional execution descriptor
+    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
+    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
+
+    // Extract from LDS position descriptor base
+    %lds_base_off = aster_utils.struct_extract %lds_pos_desc_base["lds_base"] : !lds_position_descriptor_2d -> index
+    %LDS_STRIDE_IN_BYTES = aster_utils.struct_extract %lds_pos_desc_base["lds_stride_in_bytes"] : !lds_position_descriptor_2d -> index
+    %elt_size = aster_utils.struct_extract %lds_pos_desc_base["elt_size"] : !lds_position_descriptor_2d -> index
+
+    %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
+
+    scf.if %is_cond_zero {
+      %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
+      %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
+
+      %lds_pos_desc_read = aster_utils.struct_create(%lds_base_off, %ii_pos, %jj_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
+      %false = arith.constant false
+      %frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc_read, %false)
+        : (!lds_position_descriptor_2d, i1) -> !vx2
+
+      memref.store %frag, %frag_memref[%k, %ii, %jj] : memref<?x?x?x!vx2>
     }
     return
   }
