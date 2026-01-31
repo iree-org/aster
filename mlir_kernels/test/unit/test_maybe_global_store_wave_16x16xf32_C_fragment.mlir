@@ -1,4 +1,4 @@
-// Unit test for maybe_store_c_fragment from conditional-copies.mlir
+// Unit test for maybe_global_store_wave_16x16xf32_C_fragment from conditional-copies.mlir
 // Tests that C fragment is stored only at the last K iteration (k == K-1 AND kk == KK-1)
 
 // Type aliases
@@ -8,7 +8,7 @@
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 !store_conditional_execution_descriptor_2d = !aster_utils.struct<k: index, kk: index, K: index, KK: index>
 
-amdgcn.module @test_maybe_store_c_fragment target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_maybe_global_store_wave_16x16xf32_C_fragment target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // From register-init.mlir
   func.func private @init_vgprx4_reg(!v) -> !vx4
   // From indexing.mlir
@@ -17,13 +17,13 @@ amdgcn.module @test_maybe_store_c_fragment target = #amdgcn.target<gfx942> isa =
   func.func private @maybe_global_store_wave_16x16xf32_C_fragment(!store_conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx4>)
 
   //===--------------------------------------------------------------------===//
-  // Test maybe_store_c_fragment: store only at last K iteration
+  // Test maybe_global_store_wave_16x16xf32_C_fragment: store only at last K iteration
   // Tests that the function correctly stores C fragment only when
   // k == K-1 AND kk == KK-1
   //===--------------------------------------------------------------------===//
   // Setup: MM=2, NN=2 (4 fragments), K=2, KK=2 (4 total K iterations)
   // Expected: fragments stored only at (k=1, kk=1)
-  amdgcn.kernel @test_maybe_store_c_fragment arguments <[
+  amdgcn.kernel @test_maybe_global_store_wave_16x16xf32_C_fragment arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
@@ -59,7 +59,7 @@ amdgcn.module @test_maybe_store_c_fragment target = #amdgcn.target<gfx942> isa =
       } {aster.constexpr}
     } {aster.constexpr}
 
-    // Loop over all (k, kk) iterations and call maybe_store_c_fragment for each fragment
+    // Loop over all (k, kk) iterations and call maybe_global_store_wave_16x16xf32_C_fragment for each fragment
     // The function should only store at the last iteration (k=K-1, kk=KK-1)
     scf.for %k = %c0 to %K step %c1 {
       scf.for %kk = %c0 to %KK step %c1 {
@@ -71,7 +71,7 @@ amdgcn.module @test_maybe_store_c_fragment target = #amdgcn.target<gfx942> isa =
             // Create tensor descriptor with mm/nn as tile indices
             %tensor_desc = aster_utils.struct_create(%out_ptr, %c0, %c0, %global_stride_bytes, %mm, %nn, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
 
-            // Call maybe_store_c_fragment (should only store at k=1, kk=1)
+            // Call maybe_global_store_wave_16x16xf32_C_fragment (should only store at k=1, kk=1)
             func.call @maybe_global_store_wave_16x16xf32_C_fragment(%cond_desc, %tensor_desc, %c_fragments)
               : (!store_conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx4>) -> ()
           } {aster.constexpr}
