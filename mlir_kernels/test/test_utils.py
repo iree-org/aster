@@ -1,4 +1,9 @@
-"""Common utilities for mlir_kernels tests."""
+"""Test utilities for mlir_kernels tests.
+
+This module provides CLI argument helpers and the compile_and_run_kernel function.
+Shared config classes, preprocess, and verify functions are in
+mlir_kernels.kernel_utils.
+"""
 
 import argparse
 import os
@@ -12,11 +17,21 @@ from integration_test.test_utils import (
     hsaco_file,
 )
 
-# MFMA operation dimensions (16x16x16)
-MFMA_SIZE_M = 16
-MFMA_SIZE_N = 16
-MFMA_SIZE_K = 16
-MFMA_SIZE = MFMA_SIZE_M * MFMA_SIZE_N * MFMA_SIZE_K
+# Re-export from kernel_utils for convenience
+from mlir_kernels.kernel_utils import (
+    MFMA_SIZE_M,
+    MFMA_SIZE_N,
+    MFMA_SIZE_K,
+    MFMA_SIZE,
+    GEMMConfig,
+    MFMAConfig,
+    make_gemm_preprocess,
+    make_mfma_preprocess,
+    make_gemm_verify_fn,
+    make_mfma_verify_fn,
+    generate_gemm_data,
+    generate_mfma_data,
+)
 
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 _MLIR_KERNELS_DIR = os.path.dirname(_TEST_DIR)
@@ -27,9 +42,9 @@ def get_mlir_file_path(mlir_filename: str) -> str:
     return os.path.join(_MLIR_KERNELS_DIR, mlir_filename)
 
 
-# ============================================================================
+# =============================================================================
 # CLI Argument Helpers
-# ============================================================================
+# =============================================================================
 
 
 def add_mnk_args(
@@ -112,110 +127,9 @@ def add_wavefront_args(
     )
 
 
-# ============================================================================
-# GEMM Preprocess Helpers
-# ============================================================================
-
-
-def make_gemm_preprocess(
-    m: int,
-    n: int,
-    k: int,
-    m_tile: int,
-    n_tile: int,
-    k_tile: int,
-    num_blocks: int,
-    num_threads: int,
-    size_a: int,
-    size_b: int,
-    num_wavefronts: int = 1,
-) -> Callable[[str], str]:
-    """Create a preprocess function for GEMM MLIR templates.
-
-    Args:
-        m, n, k: Problem dimensions (per-block for multi-block)
-        m_tile, n_tile, k_tile: Tile sizes
-        num_blocks: Number of workgroups
-        num_threads: Threads per workgroup
-        size_a, size_b: Bytes per element for A and B
-        num_wavefronts: Number of wavefronts per workgroup
-    """
-
-    def preprocess(x: str) -> str:
-        x = x.replace("{{SIZE_M}}", str(m))
-        x = x.replace("{{SIZE_N}}", str(n))
-        x = x.replace("{{SIZE_K}}", str(k))
-        x = x.replace("{{TILE_SIZE_M}}", str(m_tile))
-        x = x.replace("{{TILE_SIZE_N}}", str(n_tile))
-        x = x.replace("{{TILE_SIZE_K}}", str(k_tile))
-        x = x.replace("{{NUM_BLOCKS}}", str(num_blocks))
-        x = x.replace("{{NUM_THREADS}}", str(num_threads))
-        x = x.replace(
-            "{{LDS_SIZE}}",
-            str(m_tile * k_tile * size_a + n_tile * k_tile * size_b),
-        )
-        size_k_by_tile = k // k_tile
-        x = x.replace("{{SIZE_K_BY_TILE_SIZE_K}}", str(size_k_by_tile))
-
-        # MFMA loop count
-        mnkt = m_tile * n_tile * k_tile
-        mnkt_mfma = mnkt // MFMA_SIZE
-        loop_size = mnkt_mfma // num_wavefronts
-        assert mnkt % MFMA_SIZE == 0, "Invalid configuration"
-        assert mnkt_mfma % num_wavefronts == 0, "Invalid configuration"
-        x = x.replace("{{LOOP_SIZE_D_MMNNKK}}", str(loop_size))
-        return x
-
-    return preprocess
-
-
-# ============================================================================
-# Verification Helpers
-# ============================================================================
-
-
-def make_gemm_verify_fn(
-    m: int,
-    n: int,
-    k: int,
-    dt_a=np.float16,
-    dt_b=np.float16,
-    dt_c=np.float32,
-    rtol: float = 1e-4,
-    atol: float = 1e-4,
-) -> Callable:
-    """Create a verification function for GEMM kernels.
-
-    Expects B in transposed layout (n, k) and output C as flat (m*n,).
-    """
-
-    def verify_fn(input_args, output_args):
-        a_flat = np.array(input_args[0])
-        a = a_flat.reshape(m, k)
-        b_flat = np.array(input_args[1])
-        b = b_flat.reshape(n, k).T  # B stored as (n, k), need (k, n)
-        c_flat = np.array(output_args[0], dtype=dt_c)
-        c = c_flat.reshape(m, n)
-
-        ref = np.matmul(a.astype(np.float32), b.astype(np.float32))
-        rel_error = np.linalg.norm(c - ref) / np.linalg.norm(ref)
-        print(f"Error: {rel_error}")
-
-        diff = np.abs(c.astype(np.float32) - ref)
-        diff[np.where(diff < 1e-5)] = 0.0
-        assert np.allclose(c, ref, rtol=rtol, atol=atol), (
-            f"GEMM kernel failed!\n"
-            f"Max diff: {np.max(np.abs(c - ref))}\n"
-            f"c shape: {c.shape}, ref shape: {ref.shape}\n"
-            f"diff:\n{np.array2string(diff, precision=4, suppress_small=True)}"
-        )
-
-    return verify_fn
-
-
-# ============================================================================
-# Kernel Execution Helpers
-# ============================================================================
+# =============================================================================
+# Kernel Execution
+# =============================================================================
 
 
 def compile_and_run_kernel(

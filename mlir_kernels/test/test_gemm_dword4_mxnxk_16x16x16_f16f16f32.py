@@ -3,18 +3,20 @@
 import argparse
 import os
 import pytest
-import numpy as np
 
 from aster import ir
 from aster.pass_pipelines import (
     DEFAULT_SROA_PASS_PIPELINE,
     TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
 )
-from mlir_kernels.gemm_config import validate_gemm_config
-from mlir_kernels.test.test_utils import (
-    get_mlir_file_path,
+from mlir_kernels.kernel_utils import (
+    GEMMConfig,
     make_gemm_preprocess,
     make_gemm_verify_fn,
+    generate_gemm_data,
+)
+from mlir_kernels.test.test_utils import (
+    get_mlir_file_path,
     compile_and_run_kernel,
     add_mnk_args,
     add_tile_args,
@@ -76,57 +78,38 @@ def test_gemm_e2e_kernel(
     wavefront_size: int = 64,
 ):
     """Test GEMM multi-wave kernel execution."""
-    is_valid, error = validate_gemm_config(
-        m, n, k, m_tile, n_tile, k_tile, num_wavefronts
-    )
-    if not is_valid:
-        pytest.skip(f"Invalid configuration: {error}")
+    try:
+        config = GEMMConfig(
+            m=m,
+            n=n,
+            k=k,
+            m_tile=m_tile,
+            n_tile=n_tile,
+            k_tile=k_tile,
+            num_waves=num_wavefronts,
+            mlir_file=get_mlir_file_path(mlir_filename),
+            kernel_name=kernel_name,
+            pass_pipeline=pass_pipeline,
+            mcpu=mcpu,
+            wavefront_size=wavefront_size,
+        )
+    except ValueError as e:
+        pytest.skip(f"Invalid configuration: {e}")
 
-    dt_a, dt_b, dt_c = np.float16, np.float16, np.float32
-    size_a = np.dtype(dt_a).itemsize
-    size_b = np.dtype(dt_b).itemsize
-
-    num_blocks_m = m // m_tile
-    num_blocks_n = n // n_tile
-    num_blocks = num_blocks_m * num_blocks_n
-    num_threads = 64 * num_wavefronts
-    # Per-block dimensions
-    m_per_block = m // num_blocks_m
-    n_per_block = n // num_blocks_n
-    print(
-        f"M={m_per_block} N={n_per_block} K={k} tile=({m_tile}x{n_tile}x{k_tile}) blocks={num_blocks}"
-    )
-
-    preprocess = make_gemm_preprocess(
-        m=m_per_block,
-        n=n_per_block,
-        k=k,
-        m_tile=m_tile,
-        n_tile=n_tile,
-        k_tile=k_tile,
-        num_blocks=num_blocks,
-        num_threads=num_threads,
-        size_a=size_a,
-        size_b=size_b,
-        num_wavefronts=num_wavefronts,
-    )
-
-    a_data = np.random.randn(m, k).astype(dt_a)
-    b_data = np.random.randn(k, n).astype(dt_b)
-    c_data = np.zeros((m * n), dtype=dt_c)
-
-    verify_fn = make_gemm_verify_fn(m, n, k, dt_a, dt_b, dt_c)
+    a_data, b_data, c_data = generate_gemm_data(config)
+    preprocess = make_gemm_preprocess(config)
+    verify_fn = make_gemm_verify_fn(config)
 
     with ir.Context() as ctx:
         compile_and_run_kernel(
-            mlir_file=get_mlir_file_path(mlir_filename),
+            mlir_file=config.mlir_file,
             kernel_name=kernel_name,
             pass_pipeline=pass_pipeline,
             ctx=ctx,
             input_args=[a_data, b_data],
             output_args=[c_data],
-            grid_dim=(num_blocks, 1, 1),
-            block_dim=(num_threads, 1, 1),
+            grid_dim=(config.num_workgroups, 1, 1),
+            block_dim=(config.num_threads, 1, 1),
             verify_fn=verify_fn,
             mcpu=mcpu,
             wavefront_size=wavefront_size,

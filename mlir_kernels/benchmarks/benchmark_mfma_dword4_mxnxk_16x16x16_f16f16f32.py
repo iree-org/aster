@@ -6,7 +6,6 @@ import argparse
 import itertools
 import multiprocessing
 from typing import List, Tuple, Optional
-from dataclasses import dataclass, field
 
 # Add project root to path to allow imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -25,80 +24,44 @@ from mlir_kernels.benchmarks.benchmark_utils import (
     format_throughput_stats,
     run_benchmark,
 )
+from mlir_kernels.kernel_utils import (
+    MFMAConfig,
+    make_mfma_preprocess,
+    make_mfma_verify_fn,
+    generate_mfma_data,
+    LDS_SIZE_LIMIT,
+)
 
-
-# Block sizes for each MFMA operation dimension (16x16x16)
-M_BLOCK_SIZE = 16
-N_BLOCK_SIZE = 16
-K_BLOCK_SIZE = 16
-
-# LDS limit (64KB)
-LDS_SIZE_LIMIT = 65536
 
 # 304 = num CUs on MI300X
 NUM_CU_PER_GPU = 304
 
 
-@dataclass
-class MFMAConfig(BaseConfig):
-    """Configuration for MFMA 16x16x16 benchmark."""
+class BenchmarkMFMAConfig(MFMAConfig, BaseConfig):
+    """MFMA config that inherits from both MFMAConfig and BaseConfig for benchmarking.
 
-    m: int = field(default=...)  # Number of blocks in M dimension
-    n: int = field(default=...)  # Number of blocks in N dimension
-    k: int = field(default=...)  # Number of blocks in K dimension
-    kernel_name: str = "test_matmul_kernel"
-    # BaseConfig fields: num_workgroups, num_waves, mlir_file, total_flops, total_bytes,
-    # wavefront_size, pass_pipeline, mcpu, shader_clock_mhz, peak_gbps, peak_tflops
+    Note: MFMAConfig uses num_workgroups directly, while BaseConfig expects _num_workgroups.
+    We override the property to make them compatible.
+    """
 
     @property
-    def total_bytes(self) -> int:
-        """Compute total bytes read/written."""
-        size_a = np.dtype(np.float16).itemsize
-        size_b = np.dtype(np.float16).itemsize
-        size_c = np.dtype(np.float32).itemsize
-        bytes_a = self.m * self.k * M_BLOCK_SIZE * K_BLOCK_SIZE * size_a
-        bytes_b = self.k * self.n * K_BLOCK_SIZE * N_BLOCK_SIZE * size_b
-        bytes_c = self.m * self.n * M_BLOCK_SIZE * N_BLOCK_SIZE * size_c  # WO
-        return (bytes_a + bytes_b + bytes_c) * self.num_waves * self.num_workgroups
-
-    @property
-    def lds_a_size(self) -> int:
-        """LDS size for A matrix (all waves colocate in shared memory)."""
-        size_a = np.dtype(np.float16).itemsize
-        return self.m * self.k * M_BLOCK_SIZE * K_BLOCK_SIZE * size_a * self.num_waves
-
-    @property
-    def lds_b_size(self) -> int:
-        """LDS size for B matrix (all waves colocate in shared memory)."""
-        size_b = np.dtype(np.float16).itemsize
-        return self.k * self.n * K_BLOCK_SIZE * N_BLOCK_SIZE * size_b * self.num_waves
-
-    @property
-    def lds_total_size(self) -> int:
-        """Total LDS size for A and B matrices."""
-        return self.lds_a_size + self.lds_b_size
-
-    @property
-    def total_flops(self) -> int:
-        """Total FLOPs for the matmul."""
-        flops_per_wave = (
-            self.m * self.n * self.k * 2 * M_BLOCK_SIZE * N_BLOCK_SIZE * K_BLOCK_SIZE
-        )
-        return flops_per_wave * self.num_waves * self.num_workgroups
+    def num_workgroups(self) -> int:
+        """Override to use MFMAConfig's num_workgroups field directly."""
+        return self.__dict__.get("num_workgroups", self._num_workgroups)
 
 
-def compile_kernel_worker(config: MFMAConfig) -> Tuple[MFMAConfig, str]:
+def compile_kernel_worker(
+    config: BenchmarkMFMAConfig,
+) -> Tuple[BenchmarkMFMAConfig, str]:
     """Worker function for parallel compilation."""
     try:
         with ir.Context() as ctx:
-
+            # Use shared preprocess function, but benchmark disables LDS
             def preprocess(x: str) -> str:
                 x = x.replace("{{SIZE_M}}", str(config.m))
                 x = x.replace("{{SIZE_N}}", str(config.n))
                 x = x.replace("{{SIZE_K}}", str(config.k))
-                # x = x.replace("{{LDS_B_SHIFT}}", str(config.lds_a_size))
-                # x = x.replace("{{LDS_SIZE}}", str(config.lds_total_size))
-                # LDS manually disabled atm
+                # LDS manually disabled atm for benchmark
                 x = x.replace("{{LDS_B_SHIFT}}", str(0))
                 x = x.replace("{{LDS_SIZE}}", str(0))
                 return x
@@ -144,7 +107,7 @@ def compile_kernel_worker(config: MFMAConfig) -> Tuple[MFMAConfig, str]:
 
 
 def execute_kernel_benchmark(
-    config: MFMAConfig,
+    config: BenchmarkMFMAConfig,
     hsaco_path: str,
     skip_test: bool = False,
     num_iterations: int = 5,
@@ -152,65 +115,25 @@ def execute_kernel_benchmark(
 ) -> Tuple[Optional[BenchmarkResult], str]:
     """Execute a compiled kernel and return benchmark result with status message."""
     logger = _get_logger()
-    dt_a: type = np.float16
-    dt_b: type = np.float16
-    dt_c: type = np.float32
 
     _log_info(
         logger, f"[EXECUTE] Executing kernel: m={config.m}, n={config.n}, k={config.k}"
     )
-    # Create matrices with block-major layout
-    # batch by num_workgroups * num_waves since each workgroup/wave needs its own data
-    batch: int = config.num_workgroups * config.num_waves
-    a_size: int = batch * (config.m * config.k) * (M_BLOCK_SIZE * K_BLOCK_SIZE)
-    b_size: int = batch * (config.k * config.n) * (K_BLOCK_SIZE * N_BLOCK_SIZE)
-    c_size: int = batch * (config.m * config.n) * (M_BLOCK_SIZE * N_BLOCK_SIZE)
-    a_data: np.ndarray = np.full(a_size, 1.0, dtype=dt_a)
-    b_data: np.ndarray = np.full(b_size, 2.0, dtype=dt_b)
-    c_data: np.ndarray = np.zeros(c_size, dtype=dt_c)
+
+    # Generate data using shared function
+    a_data, b_data, c_data = generate_mfma_data(config)
+
     _log_info(
         logger,
-        f"[EXECUTE] Matrices created: m={config.m}, n={config.n}, k={config.k}, batch={batch}",
+        f"[EXECUTE] Matrices created: m={config.m}, n={config.n}, k={config.k}, batch={config.batch}",
     )
 
     assert all(
-        sz > 0 for sz in [a_size, b_size, c_size]
+        sz > 0 for sz in [len(a_data), len(b_data), len(c_data)]
     ), f"All matrix sizes must be > 0 for m={config.m}, n={config.n}, k={config.k} wg={config.num_workgroups} waves={config.num_waves}"
 
-    def verify_fn(input_args: List[np.ndarray], output_args: List[np.ndarray]) -> None:
-        # Convert from block-major to element-major layout for verification
-        a_flat = np.array(input_args[0])
-        a_blocks = a_flat.reshape(batch, config.m, config.k, M_BLOCK_SIZE, K_BLOCK_SIZE)
-
-        b_flat = np.array(input_args[1])
-        b_blocks = b_flat.reshape(batch, config.k, config.n, K_BLOCK_SIZE, N_BLOCK_SIZE)
-
-        c_flat = np.array(output_args[0])
-        c_blocks = c_flat.reshape(batch, config.m, config.n, M_BLOCK_SIZE, N_BLOCK_SIZE)
-
-        # Compute reference using block matrix multiplication
-        ref = np.zeros(
-            (batch, config.m, config.n, M_BLOCK_SIZE, N_BLOCK_SIZE), dtype=dt_c
-        )
-        for b in range(batch):
-            for i in range(config.m):
-                for j in range(config.n):
-                    for l in range(config.k):
-                        a_block = a_blocks[b, i, l]
-                        b_block = b_blocks[b, l, j]
-                        ref[b, i, j] = ref[b, i, j] + np.matmul(
-                            a_block.astype(dt_c), b_block.astype(dt_c)
-                        )
-
-        if not np.allclose(c_blocks, ref, rtol=1e-5, atol=1e-5):
-            diff = np.abs(c_blocks - ref)
-            max_diff = np.max(diff)
-            max_idx = np.unravel_index(np.argmax(diff), diff.shape)
-            raise AssertionError(
-                f"MFMA kernel failed! Max diff: {max_diff} at index {max_idx}\n"
-                f"c shape: {c_blocks.shape}, ref shape: {ref.shape}\n"
-                f"c_blocks:\n{c_blocks}\nref:\n{ref}"
-            )
+    # Use shared verify function
+    verify_fn = make_mfma_verify_fn(config) if not skip_test else None
 
     try:
         iteration_times_ns: List[int] = execute_kernel_and_verify(
@@ -222,7 +145,7 @@ def execute_kernel_benchmark(
             wavefront_size=config.wavefront_size,
             grid_dim=(config.num_workgroups, 1, 1),
             block_dim=(config.num_threads, 1, 1),
-            verify_fn=verify_fn if not skip_test else None,
+            verify_fn=verify_fn,
             num_iterations=num_iterations,
             device_id=device_id,
         )
@@ -238,7 +161,7 @@ def execute_kernel_benchmark(
 
 
 def format_mfma_failure(
-    config: MFMAConfig, error_msg: str, device_id: Optional[int]
+    config: BenchmarkMFMAConfig, error_msg: str, device_id: Optional[int]
 ) -> str:
     """Format failure message for MFMA benchmark."""
     device_str = f"GPU{device_id}" if device_id is not None else "GPU?"
@@ -251,10 +174,10 @@ def format_mfma_failure(
 
 
 def benchmark_mfma(
-    configs: List[MFMAConfig],
+    configs: List[BenchmarkMFMAConfig],
     num_compile_workers: int = multiprocessing.cpu_count() // 2,
     skip_test: bool = False,
-) -> Tuple[List[BenchmarkResult], List[Tuple[MFMAConfig, str]]]:
+) -> Tuple[List[BenchmarkResult], List[Tuple[BenchmarkMFMAConfig, str]]]:
     """Benchmark multiple MFMA kernel configurations using all available GPUs.
 
     Jobs are distributed across GPUs in round-robin fashion with only one job running
@@ -303,9 +226,9 @@ def main() -> None:
     num_waves_values: List[int] = [i for i in range(1, 8)]
 
     # Generate all configs
-    all_configs: List[MFMAConfig] = [
-        MFMAConfig(
-            m=m, n=n, k=k, _num_workgroups=wg, num_waves=waves, mlir_file=mlir_file
+    all_configs: List[BenchmarkMFMAConfig] = [
+        BenchmarkMFMAConfig(
+            m=m, n=n, k=k, num_workgroups=wg, num_waves=waves, mlir_file=mlir_file
         )
         for m, n, k, wg, waves in itertools.product(
             m_values, n_values, k_values, num_workgroups_values, num_waves_values
@@ -313,7 +236,7 @@ def main() -> None:
     ]
 
     # Filter configs: limit problem size to avoid unrolling blowup and stay within LDS limit
-    configs: List[MFMAConfig] = [
+    configs: List[BenchmarkMFMAConfig] = [
         config
         for config in all_configs
         if config.m * config.n * config.k >= 16
@@ -325,7 +248,7 @@ def main() -> None:
 
     # Run the configurations
     results: List[BenchmarkResult]
-    failed_configs: List[Tuple[MFMAConfig, str]]
+    failed_configs: List[Tuple[BenchmarkMFMAConfig, str]]
     print(
         f"Compiling {len(configs)} configurations on {multiprocessing.cpu_count()} processes..."
     )
@@ -352,7 +275,7 @@ def main() -> None:
         )
         print("=" * 140, file=sys.stderr)
         for result in results_sorted:
-            config: MFMAConfig = result.config
+            config = result.config  # type: BenchmarkMFMAConfig
             print(
                 f"GPU{result.device_id} "
                 f"wg={config.num_workgroups:4d} waves={config.num_waves:2d} | "
