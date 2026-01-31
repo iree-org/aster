@@ -208,7 +208,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   }
 
   // Phase 1a: LDS reads if phase 1 (decoupled from mfma via memrefs)
-  func.func private @maybe_lds_read(
+  func.func private @maybe_lds_read_wave_16x16xf16_fragment(
     %sched_desc: !sched_phase_descriptor,
     %dims_desc: !distributed_dims_descriptor,
     %lds_desc_a: !lds_position_descriptor_2d,
@@ -303,7 +303,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   }
 
   // Store C fragment to global memory if phase 2 and at last k iteration
-  func.func private @maybe_store_c_fragment(
+  func.func private @maybe_global_store_wave_16x16xf32_C_fragment(
     %sched_desc: !sched_phase_descriptor,
     %dims_desc: !distributed_dims_descriptor,
     %tensor_desc_c: !tensor_position_descriptor_2d,
@@ -482,7 +482,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
 
       // Phase 1a: LDS reads (decoupled from mfma via memrefs)
-      func.call @maybe_lds_read(
+      func.call @maybe_lds_read_wave_16x16xf16_fragment(
         %sched_desc, %dims_desc,
         %lds_desc_a, %lds_desc_b,
         %a_frag_memref, %b_frag_memref)
@@ -500,7 +500,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
            memref<?x?x!vx2>, memref<?x?x!vx2>, memref<?x!vx4>) -> ()
 
       // Phase 2: Store C fragment back to global memory
-      func.call @maybe_store_c_fragment(
+      func.call @maybe_global_store_wave_16x16xf32_C_fragment(
         %sched_desc, %dims_desc, %tensor_desc_c, %c_fragments)
           {sched.delay = 12 : i64, sched.rate = 1 : i64}
         : (!sched_phase_descriptor, !distributed_dims_descriptor,

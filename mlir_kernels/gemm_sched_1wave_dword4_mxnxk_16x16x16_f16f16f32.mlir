@@ -58,7 +58,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // From conditional-copies.mlir
   func.func private @maybe_init_C(!store_conditional_execution_descriptor_2d, !c_fragment_position_descriptor_2d, memref<?x?x!vx4>)
-  func.func private @maybe_lds_read(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, index, index, memref<?x?x?x!vx2>)
+  func.func private @maybe_lds_read_wave_16x16xf16_fragment(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, index, index, memref<?x?x?x!vx2>)
 
   // Perform MFMA: load fragments, compute, store result fragment
   func.func private @maybe_mfma(
@@ -85,7 +85,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   }
 
   // From conditional-copies.mlir
-  func.func private @maybe_store_c_fragment(!store_conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx4>)
+  func.func private @maybe_global_store_wave_16x16xf32_C_fragment(!store_conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx4>)
 
   // Main function that allocates memrefs and loops over M, N, K
   func.func private @matmul_loop(
@@ -210,7 +210,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           // LDS read A: ii=mm, jj=kk, cond_iter=nn
           %cond_desc_read_a = aster_utils.struct_create(%k, %nn, %c0, %c0) : (index, index, index, index) -> !conditional_execution_descriptor_2d
           %lds_desc_read_a_base = aster_utils.struct_create(%lds_a_base_off, %c0, %c0, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-          func.call @maybe_lds_read(
+          func.call @maybe_lds_read_wave_16x16xf16_fragment(
             %cond_desc_read_a, %lds_desc_read_a_base,
             %mm, %kk,
             %a_frag_memref)
@@ -222,7 +222,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           // LDS read B: ii=nn, jj=kk, cond_iter=mm
           %cond_desc_read_b = aster_utils.struct_create(%k, %mm, %c0, %c0) : (index, index, index, index) -> !conditional_execution_descriptor_2d
           %lds_desc_read_b_base = aster_utils.struct_create(%lds_b_base_off, %c0, %c0, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-          func.call @maybe_lds_read(
+          func.call @maybe_lds_read_wave_16x16xf16_fragment(
             %cond_desc_read_b, %lds_desc_read_b_base,
             %nn, %kk,
             %b_frag_memref)
@@ -242,7 +242,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
           %GLOBAL_C_STRIDE_IN_BYTES = affine.apply affine_map<()[SIZE_N, elt_sz] -> (SIZE_N * elt_sz)>()[%SIZE_N, %elt_size_c]
           %cond_desc_store_c = aster_utils.struct_create(%k, %kk, %K, %KK) : (index, index, index, index) -> !store_conditional_execution_descriptor_2d
           %tensor_desc_c = aster_utils.struct_create(%c_global, %m_pos, %n_pos, %GLOBAL_C_STRIDE_IN_BYTES, %mm, %nn, %elt_size_c) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-          func.call @maybe_store_c_fragment(%cond_desc_store_c, %tensor_desc_c, %c_fragments)
+          func.call @maybe_global_store_wave_16x16xf32_C_fragment(%cond_desc_store_c, %tensor_desc_c, %c_fragments)
               {sched.delay = 12 : i64, sched.rate = 1 : i64}
           : (!store_conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx4>) -> ()
 

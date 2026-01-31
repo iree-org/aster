@@ -111,7 +111,7 @@ amdgcn.library @conditional_c_fragment_init_store_single_wave isa = [#amdgcn.isa
   //     - global_stride_in_bytes: row stride
   //     - elt_size: element size in bytes (4 for f32)
   //   %c_fragments: memref<?x?x!vx4> - input memref with C fragments to store
-  func.func private @maybe_store_c_fragment(
+  func.func private @maybe_global_store_wave_16x16xf32_C_fragment(
     %cond_desc: !store_conditional_execution_descriptor_2d,
     %tensor_desc: !tensor_position_descriptor_2level_2d,
     %c_fragments: memref<?x?x!vx4>
@@ -200,7 +200,7 @@ amdgcn.library @conditional_lds_read_single_wave isa = [#amdgcn.isa<cdna3>] {
   //     - elt_size: element size in bytes (2 for f16)
   //   %ii, %jj: inner tile indices for position computation and memref indexing
   //   %frag_memref: memref<?x?x?x!vx2> - 3D memref[K, II, JJ] for fragments
-  func.func private @maybe_lds_read(
+  func.func private @maybe_lds_read_wave_16x16xf16_fragment(
     %cond_desc: !conditional_execution_descriptor_2d,
     %lds_pos_desc_base: !lds_position_descriptor_2d,
     %ii: index, %jj: index,
