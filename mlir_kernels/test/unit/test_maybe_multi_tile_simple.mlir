@@ -1,4 +1,4 @@
-// Unit test for simple_maybe_global_load_multi_tile and simple_maybe_lds_write_multi_tile
+// Unit test for maybe_simple_global_load_wave_multi_tile_16x16xf16 and maybe_simple_lds_write_wave_multi_tile_16x16xf16
 // Tests the GEMM-style multi-tile pattern where operations execute when
 // ii % NT_I == 0 AND jj % NT_J == 0
 
@@ -13,8 +13,8 @@ amdgcn.module @test_maybe_multi_tile_simple target = #amdgcn.target<gfx942> isa 
   // From simple-copies.mlir
   func.func private @simple_lds_to_global_wave_16x16xf16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
   // From conditional-simple-multi-tile-copies.mlir
-  func.func private @simple_maybe_lds_write_multi_tile(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
-  func.func private @simple_maybe_global_load_multi_tile(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @maybe_simple_lds_write_wave_multi_tile_16x16xf16(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @maybe_simple_global_load_wave_multi_tile_16x16xf16(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2d, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Test maybe_*_multi_tile_simple pattern from GEMM
@@ -58,7 +58,7 @@ amdgcn.module @test_maybe_multi_tile_simple target = #amdgcn.target<gfx942> isa 
         // Call library function for global load
         // tensor_desc: m_pos=ii, n_pos=jj are tile indices
         %tensor_desc = aster_utils.struct_create(%in_ptr, %ii, %jj, %global_stride_bytes, %elt_size_global) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
-        func.call @simple_maybe_global_load_multi_tile(
+        func.call @maybe_simple_global_load_wave_multi_tile_16x16xf16(
           %cond_desc,                   // conditional_execution_descriptor_2d
           %tensor_desc,                 // tensor_position_descriptor_2d
           %load_memref)                 // load_memref
@@ -68,7 +68,7 @@ amdgcn.module @test_maybe_multi_tile_simple target = #amdgcn.target<gfx942> isa 
         %lds_stride_mt = arith.constant 256 : index // 128 * 2 bytes
         %elt_size_mt = arith.constant 2 : index
         %lds_pos_desc_mt = aster_utils.struct_create(%c0, %ii, %jj, %lds_stride_mt, %elt_size_mt) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-        func.call @simple_maybe_lds_write_multi_tile(
+        func.call @maybe_simple_lds_write_wave_multi_tile_16x16xf16(
           %cond_desc,                   // conditional_execution_descriptor_2d
           %lds_pos_desc_mt,             // lds_pos_desc_base (m_pos=ii, n_pos=jj as tile indices)
           %load_memref)                 // load_memref

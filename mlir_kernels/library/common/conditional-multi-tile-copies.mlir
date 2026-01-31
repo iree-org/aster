@@ -1,9 +1,12 @@
 // Conditional multi-tile copy functions for AMDGCN kernels.
 //
 // Provides conditional variants of the multi-tile copy primitives in multi-tile-copies.mlir.
+// All functions use the `maybe_` prefix indicating conditional execution.
 // Operations execute based on alignment conditions:
 // - cond_iter == 0 (execute at specified iteration)
 // - ii % NT_I == 0 AND jj % NT_J == 0 (tile alignment for multi-tile batching)
+//
+// Naming convention: @maybe_<operation>_wave_multi_tile_<data_size>
 
 // From descriptors.mlir
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
@@ -52,8 +55,8 @@ amdgcn.library @conditional_multi_tile_global_load_single_wave isa = [#amdgcn.is
   //     - elt_size: element size in bytes (2 for f16)
   //   %load_memref: memref<?x?x!vx2> - output memref[K, NT_I * NT_J]
 
-  // CHECK-LABEL: func.func private @maybe_global_load_multi_tile_coalesced
-  func.func private @maybe_global_load_multi_tile_coalesced(
+  // CHECK-LABEL: func.func private @maybe_global_load_wave_multi_tile_256xf16
+  func.func private @maybe_global_load_wave_multi_tile_256xf16(
     %cond_desc: !conditional_execution_descriptor_2d,
     %tensor_desc: !tensor_position_descriptor_2level_2d,
     %load_memref: memref<?x?x!vx2>
@@ -147,8 +150,8 @@ amdgcn.library @conditional_multi_tile_lds_write_single_wave isa = [#amdgcn.isa<
   //     - elt_size: element size in bytes (2 for f16)
   //   %load_memref: memref<?x?x!vx2> - input memref[K, NT_I * NT_J]
 
-  // CHECK-LABEL: func.func private @maybe_lds_write_multi_tile_coalesced
-  func.func private @maybe_lds_write_multi_tile_coalesced(
+  // CHECK-LABEL: func.func private @maybe_lds_write_wave_multi_tile_256xf16
+  func.func private @maybe_lds_write_wave_multi_tile_256xf16(
     %cond_desc: !conditional_execution_descriptor_2d,
     %lds_desc: !lds_position_descriptor_2d,
     %load_memref: memref<?x?x!vx2>

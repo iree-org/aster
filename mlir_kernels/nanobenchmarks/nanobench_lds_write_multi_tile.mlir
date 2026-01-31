@@ -1,4 +1,4 @@
-// Nanobenchmark for @maybe_lds_write_multi_tile_coalesced
+// Nanobenchmark for @maybe_lds_write_wave_multi_tile_256xf16
 // Uses garbage values in registers (no verification).
 
 // From descriptors.mlir
@@ -17,7 +17,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
     !lds_position_descriptor_2level_2d, index, index, memref<?x?x!vx2>)
   // From conditional-multi-tile-copies.mlir
-  func.func private @maybe_lds_write_multi_tile_coalesced(
+  func.func private @maybe_lds_write_wave_multi_tile_256xf16(
     !conditional_execution_descriptor_2d,
     !lds_position_descriptor_2d,
     memref<?x?x!vx2>
@@ -56,7 +56,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           %lds_stride_bytes = arith.constant 256 : index // SIZE_J * 2 bytes
           %elt_size_lds = arith.constant 2 : index
           %lds_desc = aster_utils.struct_create(%c0, %ii, %jj, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-          func.call @maybe_lds_write_multi_tile_coalesced(
+          func.call @maybe_lds_write_wave_multi_tile_256xf16(
             %cond_desc,                   // conditional_execution_descriptor_2d
             %lds_desc,                    // lds_position_descriptor_2d
             %load_memref)                 // load_memref

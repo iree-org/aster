@@ -1,9 +1,12 @@
 // Conditional copy functions for AMDGCN kernels.
 //
-// Provides conditional primitives for GEMM kernels:
+// Provides conditional primitives for GEMM kernels. All functions use the
+// `maybe_` prefix indicating conditional execution:
 // - C fragment initialization at first K iteration (k==0, kk==0)
 // - C fragment store-to-global at last K iteration (k==K-1, kk==KK-1)
 // - LDS read with tile reuse (execute when cond_iter == 0)
+//
+// Naming convention: @maybe_<operation>_wave_<tile_size>_<data_type>_<fragment_type>
 
 // From descriptors.mlir
 !sx2 = !amdgcn.sgpr_range<[? + 2]>
@@ -63,7 +66,7 @@ amdgcn.library @conditional_c_fragment_init_store_single_wave isa = [#amdgcn.isa
   //   %pos_desc: !c_fragment_position_descriptor_2d
   //     - mm, nn: tile indices for C fragment indexing
   //   %c_fragments: memref<?x?x!vx4> - output memref to store initialized fragment
-  func.func private @maybe_init_C(
+  func.func private @maybe_init_wave_16x16xf32_C_fragment(
     %cond_desc: !store_conditional_execution_descriptor_2d,
     %pos_desc: !c_fragment_position_descriptor_2d,
     %c_fragments: memref<?x?x!vx4>

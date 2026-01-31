@@ -1,8 +1,10 @@
-// Simple multi-tile copy functions for AMDGCN kernels.
+// Conditional simple multi-tile copy functions for AMDGCN kernels.
 //
-// Provides simplified conditional multi-tile LDS write primitives using
-// the simple 16x16 wave-level primitives from simple-copies.mlir.
+// Provides conditional multi-tile primitives using the simple 16x16 wave-level
+// primitives from simple-copies.mlir (non-coalesced, fixed num_rows=16).
 // For coalesced variants, use conditional-multi-tile-copies.mlir.
+//
+// Naming convention: @maybe_simple_<operation>_wave_multi_tile_16x16xf16
 
 // Drive this through pytest, only check input IR validity here.
 // RUN: cat %s \
@@ -53,8 +55,8 @@ amdgcn.library @conditional_simple_multi_tile_global_load_single_wave isa = [#am
   //     - elt_size: element size in bytes (2 for f16)
   //   %load_memref: memref<?x?x!vx2> - output memref[K, NT_I * NT_J]
 
-  // CHECK-LABEL: func.func private @simple_maybe_global_load_multi_tile
-  func.func private @simple_maybe_global_load_multi_tile(
+  // CHECK-LABEL: func.func private @maybe_simple_global_load_wave_multi_tile_16x16xf16
+  func.func private @maybe_simple_global_load_wave_multi_tile_16x16xf16(
     %cond_desc: !conditional_execution_descriptor_2d,
     %tensor_desc: !tensor_position_descriptor_2d,
     %load_memref: memref<?x?x!vx2>
@@ -139,8 +141,8 @@ amdgcn.library @conditional_simple_multi_tile_lds_write_single_wave isa = [#amdg
   //     - elt_size: element size in bytes (2 for f16)
   //   %load_memref: memref<?x?x!vx2> - input memref[K, NT_I * NT_J]
 
-  // CHECK-LABEL: func.func private @simple_maybe_lds_write_multi_tile
-  func.func private @simple_maybe_lds_write_multi_tile(
+  // CHECK-LABEL: func.func private @maybe_simple_lds_write_wave_multi_tile_16x16xf16
+  func.func private @maybe_simple_lds_write_wave_multi_tile_16x16xf16(
     %cond_desc: !conditional_execution_descriptor_2d,
     %lds_pos_desc_base: !lds_position_descriptor_2d,
     %load_memref: memref<?x?x!vx2>

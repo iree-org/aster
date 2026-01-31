@@ -1,4 +1,4 @@
-// Unit test for maybe_global_load_multi_tile_coalesced and maybe_lds_write_multi_tile_coalesced
+// Unit test for maybe_global_load_wave_multi_tile_256xf16 and maybe_lds_write_wave_multi_tile_256xf16
 // Tests the GEMM-style bulk multi-tile pattern where operations execute when
 // ii % NT_I == 0 AND jj % NT_J == 0
 
@@ -14,8 +14,8 @@ amdgcn.module @test_maybe_multi_tile_coalesced target = #amdgcn.target<gfx942> i
   // From simple-copies.mlir
   func.func private @simple_lds_to_global_wave_16x16xf16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
   // From conditional-multi-tile-copies.mlir
-  func.func private @maybe_global_load_multi_tile_coalesced(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
-  func.func private @maybe_lds_write_multi_tile_coalesced(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
+  func.func private @maybe_global_load_wave_multi_tile_256xf16(!conditional_execution_descriptor_2d, !tensor_position_descriptor_2level_2d, memref<?x?x!vx2>)
+  func.func private @maybe_lds_write_wave_multi_tile_256xf16(!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>)
 
   //===--------------------------------------------------------------------===//
   // Test maybe_*_multi_tile_coalesced pattern from GEMM (bulk version)
@@ -46,8 +46,8 @@ amdgcn.module @test_maybe_multi_tile_coalesced target = #amdgcn.target<gfx942> i
     %global_stride_bytes_coal = arith.constant {{GLOBAL_STRIDE_BYTES}} : index // SIZE_J * 2 bytes
 
     // Allocate 2D memref for library functions: [K, NT_I*NT_J]
-    // This specific shape is required by `maybe_global_load_multi_tile_coalesced`
-    // and by `maybe_lds_write_multi_tile_coalesced`.
+    // This specific shape is required by `maybe_global_load_wave_multi_tile_256xf16`
+    // and by `maybe_lds_write_wave_multi_tile_256xf16`.
     %load_memref_static = memref.alloca() : memref<1x{{NT_PRODUCT}}x!vx2>
     %load_memref = memref.cast %load_memref_static : memref<1x{{NT_PRODUCT}}x!vx2> to memref<?x?x!vx2>
 
@@ -61,7 +61,7 @@ amdgcn.module @test_maybe_multi_tile_coalesced target = #amdgcn.target<gfx942> i
         // Call library function for global load
         // 2-level descriptor: m_pos/n_pos=0 (base positions), mm_pos/nn_pos=ii/jj (tile indices)
         %tensor_desc_coal = aster_utils.struct_create(%in_ptr, %c0, %c0, %global_stride_bytes_coal, %ii, %jj, %elt_size_global_coal) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-        func.call @maybe_global_load_multi_tile_coalesced(
+        func.call @maybe_global_load_wave_multi_tile_256xf16(
           %cond_desc_coal,              // conditional_execution_descriptor_2d
           %tensor_desc_coal,            // tensor_position_descriptor_2level_2d
           %load_memref)                 // load_memref
@@ -72,7 +72,7 @@ amdgcn.module @test_maybe_multi_tile_coalesced target = #amdgcn.target<gfx942> i
         %lds_stride_bytes_coal = arith.constant {{GLOBAL_STRIDE_BYTES}} : index // SIZE_J * 2 bytes
         %elt_size_lds_coal = arith.constant 2 : index
         %lds_desc_coal = aster_utils.struct_create(%c0, %ii, %jj, %lds_stride_bytes_coal, %elt_size_lds_coal) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-        func.call @maybe_lds_write_multi_tile_coalesced(
+        func.call @maybe_lds_write_wave_multi_tile_256xf16(
           %cond_desc_coal,              // conditional_execution_descriptor_2d
           %lds_desc_coal,               // lds_position_descriptor_2d
           %load_memref)                 // load_memref

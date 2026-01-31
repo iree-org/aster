@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Nanobenchmark for @maybe_lds_write_multi_tile_coalesced."""
+"""Nanobenchmark for @maybe_lds_write_wave_multi_tile_256xf16."""
 
 import argparse
 import os

@@ -1,4 +1,4 @@
-"""Unit tests for maybe_global_load_multi_tile_coalesced and maybe_lds_write_multi_tile_coalesced."""
+"""Unit tests for maybe_global_load_wave_multi_tile_256xf16 and maybe_lds_write_wave_multi_tile_256xf16."""
 
 import numpy as np
 
