@@ -14,8 +14,5 @@ def get_library_paths():
         os.path.join(library_dir, "simple-copies.mlir"),
         os.path.join(library_dir, "copies.mlir"),
         os.path.join(library_dir, "multi-tile-copies.mlir"),
-        os.path.join(library_dir, "conditional-multi-tile-copies.mlir"),
-        os.path.join(library_dir, "conditional-copies.mlir"),
-        os.path.join(library_dir, "conditional-simple-multi-tile-copies.mlir"),
         os.path.join(library_dir, "futures.mlir"),
     ]
