@@ -143,9 +143,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         // Calculate positions
         %jj_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%jj]
         %kk_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%kk]
-        func.call @global_load_to_lds_wave_16x16_f16_wait(
-            %b_global, %lds_b_base_off, %j_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %jj_pos, %kk_pos, %LDS_STRIDE_IN_BYTES)
-          : (!sx2, index, index, index, index, index, index, index) -> ()
+        %pos_desc_b = aster_utils.struct_create(%b_global, %j_pos, %k_pos, %GLOBAL_STRIDE_IN_BYTES, %jj_pos, %kk_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+        func.call @global_load_to_lds_wave_16x16_f16_wait(%pos_desc_b, %lds_b_base_off, %LDS_STRIDE_IN_BYTES) : (!tensor_position_descriptor_2level_2d, index, index) -> ()
       } {aster.constexpr}
 
       // Synchronize to ensure data is in LDS

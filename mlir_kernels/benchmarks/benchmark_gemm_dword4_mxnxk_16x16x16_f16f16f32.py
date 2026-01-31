@@ -212,6 +212,11 @@ def main() -> None:
         # default="gemm_sched_dword4_mxnxk_16x16x16_f16f16f32.mlir",
         help="MLIR filename (default: gemm_dword4_mxnxk_16x16x16_f16f16f32.mlir)",
     )
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Run minimal configuration for quick validation",
+    )
     args: argparse.Namespace = parser.parse_args()
 
     script_dir: str = os.path.dirname(os.path.abspath(__file__))
@@ -221,26 +226,32 @@ def main() -> None:
         raise FileNotFoundError(f"MLIR file not found: {mlir_file}")
 
     # Problem size parameters (powers of 2 for typical GEMM sizes)
-    # These are actual matrix dimensions, not block counts
-    m_values: List[int] = [128, 256, 512, 1024, 2048, 2048 * 8]
-    n_values: List[int] = [128, 256, 512, 1024, 2048, 2048 * 8]
-    k_values: List[int] = [128, 256, 512, 1024]
-
-    # Tile sizes (must divide problem dimensions evenly, and be multiples of 16)
-    tile_configs: List[Tuple[int, int, int]] = [
-        (16, 16, 16),
-        (32, 16, 16),
-        (16, 32, 16),
-        (32, 32, 16),
-        (32, 32, 32),
-        (32, 64, 64),
-        (64, 32, 64),
-        (64, 64, 32),
-        (64, 64, 64),
-    ]
-
-    # Number of waves per block
-    num_waves_values: List[int] = args.num_waves
+    if args.smoke_test:
+        # Minimal config for smoke test
+        m_values: List[int] = [128]
+        n_values: List[int] = [128]
+        k_values: List[int] = [128]
+        tile_configs: List[Tuple[int, int, int]] = [(16, 16, 16)]
+        num_waves_values: List[int] = [1]
+    else:
+        # These are actual matrix dimensions, not block counts
+        m_values = [128, 256, 512, 1024, 2048, 2048 * 8]
+        n_values = [128, 256, 512, 1024, 2048, 2048 * 8]
+        k_values = [128, 256, 512, 1024]
+        # Tile sizes (must divide problem dimensions evenly, and be multiples of 16)
+        tile_configs = [
+            (16, 16, 16),
+            (32, 16, 16),
+            (16, 32, 16),
+            (32, 32, 16),
+            (32, 32, 32),
+            (32, 64, 64),
+            (64, 32, 64),
+            (64, 64, 32),
+            (64, 64, 64),
+        ]
+        # Number of waves per block
+        num_waves_values = args.num_waves
 
     # Generate all valid configs
     all_configs: List[BenchmarkGEMMConfig] = []
