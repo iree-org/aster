@@ -212,6 +212,11 @@ def main() -> None:
         action="store_true",
         help="Skip correctness verification",
     )
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Run minimal configuration for quick validation",
+    )
     args: argparse.Namespace = parser.parse_args()
 
     script_dir: str = os.path.dirname(os.path.abspath(__file__))
@@ -221,11 +226,19 @@ def main() -> None:
         raise FileNotFoundError(f"MLIR file not found: {mlir_file}")
 
     # Define benchmark configurations
-    num_workgroups_values: List[int] = [1, 304, 608, 3040]
-    num_waves_values: List[int] = [1, 2, 5, 8, 10, 16]
-    num_elements_per_thread_values: List[int] = [1, 4, 6, 8, 12, 16]
-    sched_delay_store_values: List[int] = [0, 3, 8]
-    padding_bytes_values: List[List[int]] = [[0, 0], [1, 1], [2, 2], [3, 3]]
+    if args.smoke_test:
+        # Minimal config for smoke test
+        num_workgroups_values: List[int] = [1]
+        num_waves_values: List[int] = [1]
+        num_elements_per_thread_values: List[int] = [4]
+        sched_delay_store_values: List[int] = [0]
+        padding_bytes_values: List[List[int]] = [[0, 0]]
+    else:
+        num_workgroups_values = [1, 304, 608, 3040]
+        num_waves_values = [1, 2, 5, 8, 10, 16]
+        num_elements_per_thread_values = [1, 4, 6, 8, 12, 16]
+        sched_delay_store_values = [0, 3, 8]
+        padding_bytes_values = [[0, 0], [1, 1], [2, 2], [3, 3]]
     configs: List[Copy1DConfig] = [
         Copy1DConfig(
             _num_workgroups=num_workgroups,

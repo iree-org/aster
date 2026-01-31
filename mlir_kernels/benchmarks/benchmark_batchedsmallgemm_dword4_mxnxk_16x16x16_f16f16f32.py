@@ -18,6 +18,7 @@ from integration_test.test_utils import (
     _get_logger,
     _log_info,
 )
+from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
 from mlir_kernels.benchmarks.benchmark_utils import (
     BenchmarkResult,
     BaseConfig,
@@ -39,14 +40,11 @@ NUM_CU_PER_GPU = 304
 class BenchmarkBatchedSmallGEMMConfig(BatchedSmallGEMMConfig, BaseConfig):
     """BatchedSmallGEMM config that inherits from both BatchedSmallGEMMConfig and BaseConfig for benchmarking.
 
-    Note: BatchedSmallGEMMConfig uses num_workgroups directly, while BaseConfig expects _num_workgroups.
-    We override the property to make them compatible.
+    BatchedSmallGEMMConfig already has num_workgroups as a field, so no property
+    override needed.
     """
 
-    @property
-    def num_workgroups(self) -> int:
-        """Override to use BatchedSmallGEMMConfig's num_workgroups field directly."""
-        return self.__dict__.get("num_workgroups", self._num_workgroups)
+    pass
 
 
 def compile_kernel_worker(
@@ -206,6 +204,11 @@ def main() -> None:
         action="store_true",
         help="Skip correctness verification",
     )
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Run minimal configuration for quick validation",
+    )
     args: argparse.Namespace = parser.parse_args()
 
     script_dir: str = os.path.dirname(os.path.abspath(__file__))
@@ -217,17 +220,30 @@ def main() -> None:
         raise FileNotFoundError(f"MLIR file not found: {mlir_file}")
 
     # Problem size parameters
-    m_values: List[int] = [i for i in range(3, 8)]
-    n_values: List[int] = [i for i in range(3, 8)]
-    k_values: List[int] = [i for i in range(3, 16)]
-    # Scaling parameters
-    num_workgroups_values: List[int] = [NUM_CU_PER_GPU * i for i in range(1, 10)]
-    num_waves_values: List[int] = [i for i in range(1, 8)]
+    if args.smoke_test:
+        # Minimal config for smoke test
+        m_values: List[int] = [3]
+        n_values: List[int] = [3]
+        k_values: List[int] = [3]
+        num_workgroups_values: List[int] = [1]
+        num_waves_values: List[int] = [1]
+    else:
+        m_values = [i for i in range(3, 8)]
+        n_values = [i for i in range(3, 8)]
+        k_values = [i for i in range(3, 16)]
+        num_workgroups_values = [NUM_CU_PER_GPU * i for i in range(1, 10)]
+        num_waves_values = [i for i in range(1, 8)]
 
     # Generate all configs
     all_configs: List[BenchmarkBatchedSmallGEMMConfig] = [
         BenchmarkBatchedSmallGEMMConfig(
-            m=m, n=n, k=k, num_workgroups=wg, num_waves=waves, mlir_file=mlir_file
+            m=m,
+            n=n,
+            k=k,
+            num_workgroups=wg,
+            num_waves=waves,
+            mlir_file=mlir_file,
+            pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
         )
         for m, n, k, wg, waves in itertools.product(
             m_values, n_values, k_values, num_workgroups_values, num_waves_values
@@ -235,15 +251,18 @@ def main() -> None:
     ]
 
     # Filter configs: limit problem size to avoid unrolling blowup and stay within LDS limit
-    configs: List[BenchmarkBatchedSmallGEMMConfig] = [
-        config
-        for config in all_configs
-        if config.m * config.n * config.k >= 16
-        and config.m * config.n * config.k <= 144
-        and config.num_workgroups * config.num_waves >= 4 * NUM_CU_PER_GPU
-        and config.num_workgroups * config.num_waves <= 12 * NUM_CU_PER_GPU
-        and config.lds_total_size <= LDS_SIZE_LIMIT
-    ]
+    if args.smoke_test:
+        configs = all_configs  # No filtering for smoke test
+    else:
+        configs: List[BenchmarkBatchedSmallGEMMConfig] = [
+            config
+            for config in all_configs
+            if config.m * config.n * config.k >= 16
+            and config.m * config.n * config.k <= 144
+            and config.num_workgroups * config.num_waves >= 4 * NUM_CU_PER_GPU
+            and config.num_workgroups * config.num_waves <= 12 * NUM_CU_PER_GPU
+            and config.lds_total_size <= LDS_SIZE_LIMIT
+        ]
 
     # Run the configurations
     results: List[BenchmarkResult]
