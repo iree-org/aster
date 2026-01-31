@@ -7,10 +7,9 @@
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 // A 2D conditional execution descriptor for multi-tile operations containing:
-//   - k: outer loop index (for indexing load_memref -> mem2reg)
-//   - cond_iter: condition index (execute only when cond_iter == 0)
-//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
-!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
+//   - cond_zero: condition index (execute only when cond_zero == 0)
+//   - cond_mod_zero_i, cond_mod_zero_j: multi-tile factors (execute when ii % cond_mod_zero_i == 0 AND jj % cond_mod_zero_j == 0)
+!conditional_execution_descriptor_2d = !aster_utils.struct<cond_zero: index, cond_mod_zero_i: index, cond_mod_zero_j: index>
 
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // From copies.mlir
@@ -20,6 +19,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
   func.func private @maybe_lds_write_wave_multi_tile_256xf16(
     !conditional_execution_descriptor_2d,
     !lds_position_descriptor_2d,
+    index,
     memref<?x?x!vx2>
   )
 
@@ -33,8 +33,8 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %K = arith.constant 1 : index
     %II = arith.constant 4 : index
     %JJ = arith.constant 8 : index
-    %NT_I = arith.constant 2 : index
-    %NT_J = arith.constant 4 : index
+    %cond_mod_zero_i = arith.constant 2 : index
+    %cond_mod_zero_j = arith.constant 4 : index
     %SIZE_J = arith.constant 128 : index
 
     // Number of outer iterations
@@ -50,8 +50,8 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       scf.for %ii = %c0 to %II step %c1 {
         scf.for %jj = %c0 to %JJ step %c1 {
           // Call the LDS write function with garbage register values
-          // Create conditional execution descriptor (k=0, cond_iter=0)
-          %cond_desc = aster_utils.struct_create(%c0, %c0, %NT_I, %NT_J) : (index, index, index, index) -> !conditional_execution_descriptor_2d
+          // Create conditional execution descriptor (cond_zero=0)
+          %cond_desc = aster_utils.struct_create(%c0, %cond_mod_zero_i, %cond_mod_zero_j) : (index, index, index) -> !conditional_execution_descriptor_2d
           // LDS descriptor: lds_base=0, m_pos=ii, n_pos=jj (tile indices)
           %lds_stride_bytes = arith.constant 256 : index // SIZE_J * 2 bytes
           %elt_size_lds = arith.constant 2 : index
@@ -59,8 +59,9 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           func.call @maybe_lds_write_wave_multi_tile_256xf16(
             %cond_desc,                   // conditional_execution_descriptor_2d
             %lds_desc,                    // lds_position_descriptor_2d
+            %c0,                          // k (loop index for memref access)
             %load_memref)                 // load_memref
-            : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, memref<?x?x!vx2>) -> ()
+            : (!conditional_execution_descriptor_2d, !lds_position_descriptor_2d, index, memref<?x?x!vx2>) -> ()
         } {aster.constexpr}
       } {aster.constexpr}
     } {aster.constexpr}

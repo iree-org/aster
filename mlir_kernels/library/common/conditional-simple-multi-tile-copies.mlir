@@ -21,14 +21,14 @@
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
-!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
+!conditional_execution_descriptor_2d = !aster_utils.struct<cond_zero: index, cond_mod_zero_i: index, cond_mod_zero_j: index>
 
 //===-----------------------------------------------------------------------===//
 // Wave-level, conditional simple multi-tile global load instructions,
 // parameterizable by !conditional_execution_descriptor_2d and !tensor_position_descriptor_2d.
 //
-// Conditionally loads NT_I x NT_J 16x16xf16 tiles using simple (non-coalesced) loads.
-// Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+// Conditionally loads cond_mod_zero_i x cond_mod_zero_j 16x16xf16 tiles using simple (non-coalesced) loads.
+// Executes when cond_zero == 0 AND ii % cond_mod_zero_i == 0 AND jj % cond_mod_zero_j == 0.
 //===-----------------------------------------------------------------------===//
 amdgcn.library @conditional_simple_multi_tile_global_load_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From simple-copies.mlir
@@ -36,47 +36,47 @@ amdgcn.library @conditional_simple_multi_tile_global_load_single_wave isa = [#am
 
   //===--------------------------------------------------------------------===//
   // Conditional simple multi-tile global load
-  //   NT_I x NT_J 16x16xf16 tiles via simple_global_load (non-coalesced)
+  //   cond_mod_zero_i x cond_mod_zero_j 16x16xf16 tiles via simple_global_load (non-coalesced)
   // (conditional variant only)
   //===--------------------------------------------------------------------===//
-  // Conditionally loads NT_I x NT_J 16x16xf16 tiles from global memory.
+  // Conditionally loads cond_mod_zero_i x cond_mod_zero_j 16x16xf16 tiles from global memory.
   // Uses @simple_global_load_wave_16x16xf16_wait for each tile (non-coalesced).
-  // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+  // Executes when cond_zero == 0 AND ii % cond_mod_zero_i == 0 AND jj % cond_mod_zero_j == 0.
   //
   // Parameters:
   //   %cond_desc: !conditional_execution_descriptor_2d
-  //     - k: loop index for memref storage
-  //     - cond_iter: execute only when == 0
-  //     - NT_I, NT_J: multi-tile factors
+  //     - cond_zero: execute only when == 0
+  //     - cond_mod_zero_i, cond_mod_zero_j: multi-tile factors
   //   %tensor_desc: !tensor_position_descriptor_2d
   //     - ptr: base pointer
   //     - m_pos, n_pos: tile indices (converted to m*16, n*16 internally)
   //     - global_stride_in_bytes: row stride
   //     - elt_size: element size in bytes (2 for f16)
-  //   %load_memref: memref<?x?x!vx2> - output memref[K, NT_I * NT_J]
+  //   %k: loop index for memref storage
+  //   %load_memref: memref<?x?x!vx2> - output memref[K, cond_mod_zero_i * cond_mod_zero_j]
 
   // CHECK-LABEL: func.func private @maybe_simple_global_load_wave_multi_tile_16x16xf16
   func.func private @maybe_simple_global_load_wave_multi_tile_16x16xf16(
     %cond_desc: !conditional_execution_descriptor_2d,
     %tensor_desc: !tensor_position_descriptor_2d,
+    %k: index,
     %load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
 
     // Extract fields from conditional execution descriptor
-    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
-    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
-    %NT_I = aster_utils.struct_extract %cond_desc["NT_I"] : !conditional_execution_descriptor_2d -> index
-    %NT_J = aster_utils.struct_extract %cond_desc["NT_J"] : !conditional_execution_descriptor_2d -> index
+    %cond_zero = aster_utils.struct_extract %cond_desc["cond_zero"] : !conditional_execution_descriptor_2d -> index
+    %cond_mod_zero_i = aster_utils.struct_extract %cond_desc["cond_mod_zero_i"] : !conditional_execution_descriptor_2d -> index
+    %cond_mod_zero_j = aster_utils.struct_extract %cond_desc["cond_mod_zero_j"] : !conditional_execution_descriptor_2d -> index
 
     // Extract tile indices from descriptor (m_pos/n_pos are tile indices here)
     %ii = aster_utils.struct_extract %tensor_desc["m_pos"] : !tensor_position_descriptor_2d -> index
     %jj = aster_utils.struct_extract %tensor_desc["n_pos"] : !tensor_position_descriptor_2d -> index
 
-    %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
-    %ii_mod = affine.apply affine_map<()[ii, NT_I] -> (ii mod NT_I)>()[%ii, %NT_I]
-    %jj_mod = affine.apply affine_map<()[jj, NT_J] -> (jj mod NT_J)>()[%jj, %NT_J]
+    %is_cond_zero = arith.cmpi eq, %cond_zero, %c0 : index
+    %ii_mod = affine.apply affine_map<()[ii, cond_mod_zero_i] -> (ii mod cond_mod_zero_i)>()[%ii, %cond_mod_zero_i]
+    %jj_mod = affine.apply affine_map<()[jj, cond_mod_zero_j] -> (jj mod cond_mod_zero_j)>()[%jj, %cond_mod_zero_j]
     %is_ii_aligned = arith.cmpi eq, %ii_mod, %c0 : index
     %is_jj_aligned = arith.cmpi eq, %jj_mod, %c0 : index
     %ii_jj_aligned = arith.andi %is_ii_aligned, %is_jj_aligned : i1
@@ -88,9 +88,9 @@ amdgcn.library @conditional_simple_multi_tile_global_load_single_wave isa = [#am
       %global_stride_in_bytes = aster_utils.struct_extract %tensor_desc["global_stride_in_bytes"] : !tensor_position_descriptor_2d -> index
       %elt_size = aster_utils.struct_extract %tensor_desc["elt_size"] : !tensor_position_descriptor_2d -> index
 
-      // Load NT_I x NT_J tiles using simple 16x16 loads
-      scf.for %i = %c0 to %NT_I step %c1 {
-        scf.for %j = %c0 to %NT_J step %c1 {
+      // Load cond_mod_zero_i x cond_mod_zero_j tiles using simple 16x16 loads
+      scf.for %i = %c0 to %cond_mod_zero_i step %c1 {
+        scf.for %j = %c0 to %cond_mod_zero_j step %c1 {
           // Convert tile indices to element positions: (ii + i) * 16, (jj + j) * 16
           %m_pos = affine.apply affine_map<()[ii, i] -> ((ii + i) * 16)>()[%ii, %i]
           %n_pos = affine.apply affine_map<()[jj, j] -> ((jj + j) * 16)>()[%jj, %j]
@@ -99,7 +99,7 @@ amdgcn.library @conditional_simple_multi_tile_global_load_single_wave isa = [#am
           %value = func.call @simple_global_load_wave_16x16xf16_wait(%pos_desc)
             : (!tensor_position_descriptor_2d) -> !vx2
 
-          %tile_idx = affine.apply affine_map<()[i, j, NT_J] -> (i * NT_J + j)>()[%i, %j, %NT_J]
+          %tile_idx = affine.apply affine_map<()[i, j, cond_mod_zero_j] -> (i * cond_mod_zero_j + j)>()[%i, %j, %cond_mod_zero_j]
           memref.store %value, %load_memref[%k, %tile_idx] : memref<?x?x!vx2>
         } {aster.constexpr}
       } {aster.constexpr}
@@ -113,8 +113,8 @@ amdgcn.library @conditional_simple_multi_tile_global_load_single_wave isa = [#am
 // Wave-level, conditional simple multi-tile LDS write instructions,
 // parameterizable by !conditional_execution_descriptor_2d and !lds_position_descriptor_2d.
 //
-// Conditionally writes NT_I x NT_J 16x16xf16 tiles using simple (non-coalesced) writes.
-// Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+// Conditionally writes cond_mod_zero_i x cond_mod_zero_j 16x16xf16 tiles using simple (non-coalesced) writes.
+// Executes when cond_zero == 0 AND ii % cond_mod_zero_i == 0 AND jj % cond_mod_zero_j == 0.
 //===-----------------------------------------------------------------------===//
 amdgcn.library @conditional_simple_multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From simple-copies.mlir
@@ -122,47 +122,47 @@ amdgcn.library @conditional_simple_multi_tile_lds_write_single_wave isa = [#amdg
 
   //===--------------------------------------------------------------------===//
   // Conditional simple multi-tile LDS write
-  //   NT_I x NT_J 16x16xf16 tiles via simple_lds_write (non-coalesced)
+  //   cond_mod_zero_i x cond_mod_zero_j 16x16xf16 tiles via simple_lds_write (non-coalesced)
   // (conditional variant only)
   //===--------------------------------------------------------------------===//
-  // Conditionally writes NT_I x NT_J 16x16xf16 tiles from VGPRs to LDS.
+  // Conditionally writes cond_mod_zero_i x cond_mod_zero_j 16x16xf16 tiles from VGPRs to LDS.
   // Uses @simple_lds_write_wave_16x16xf16_wait for each tile (non-coalesced).
-  // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+  // Executes when cond_zero == 0 AND ii % cond_mod_zero_i == 0 AND jj % cond_mod_zero_j == 0.
   //
   // Parameters:
   //   %cond_desc: !conditional_execution_descriptor_2d
-  //     - k: loop index for memref access
-  //     - cond_iter: execute only when == 0
-  //     - NT_I, NT_J: multi-tile factors
+  //     - cond_zero: execute only when == 0
+  //     - cond_mod_zero_i, cond_mod_zero_j: multi-tile factors
   //   %lds_pos_desc_base: !lds_position_descriptor_2d
   //     - lds_base: base offset in LDS (bytes)
   //     - m_pos, n_pos: tile indices (converted to m*16, n*16 internally)
   //     - lds_stride_in_bytes: row stride
   //     - elt_size: element size in bytes (2 for f16)
-  //   %load_memref: memref<?x?x!vx2> - input memref[K, NT_I * NT_J]
+  //   %k: loop index for memref access
+  //   %load_memref: memref<?x?x!vx2> - input memref[K, cond_mod_zero_i * cond_mod_zero_j]
 
   // CHECK-LABEL: func.func private @maybe_simple_lds_write_wave_multi_tile_16x16xf16
   func.func private @maybe_simple_lds_write_wave_multi_tile_16x16xf16(
     %cond_desc: !conditional_execution_descriptor_2d,
     %lds_pos_desc_base: !lds_position_descriptor_2d,
+    %k: index,
     %load_memref: memref<?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
 
     // Extract fields from conditional execution descriptor
-    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
-    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
-    %NT_I = aster_utils.struct_extract %cond_desc["NT_I"] : !conditional_execution_descriptor_2d -> index
-    %NT_J = aster_utils.struct_extract %cond_desc["NT_J"] : !conditional_execution_descriptor_2d -> index
+    %cond_zero = aster_utils.struct_extract %cond_desc["cond_zero"] : !conditional_execution_descriptor_2d -> index
+    %cond_mod_zero_i = aster_utils.struct_extract %cond_desc["cond_mod_zero_i"] : !conditional_execution_descriptor_2d -> index
+    %cond_mod_zero_j = aster_utils.struct_extract %cond_desc["cond_mod_zero_j"] : !conditional_execution_descriptor_2d -> index
 
     // Extract tile indices from descriptor (m_pos/n_pos are tile indices here)
     %ii = aster_utils.struct_extract %lds_pos_desc_base["m_pos"] : !lds_position_descriptor_2d -> index
     %jj = aster_utils.struct_extract %lds_pos_desc_base["n_pos"] : !lds_position_descriptor_2d -> index
 
-    %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
-    %ii_mod = affine.apply affine_map<()[ii, NT_I] -> (ii mod NT_I)>()[%ii, %NT_I]
-    %jj_mod = affine.apply affine_map<()[jj, NT_J] -> (jj mod NT_J)>()[%jj, %NT_J]
+    %is_cond_zero = arith.cmpi eq, %cond_zero, %c0 : index
+    %ii_mod = affine.apply affine_map<()[ii, cond_mod_zero_i] -> (ii mod cond_mod_zero_i)>()[%ii, %cond_mod_zero_i]
+    %jj_mod = affine.apply affine_map<()[jj, cond_mod_zero_j] -> (jj mod cond_mod_zero_j)>()[%jj, %cond_mod_zero_j]
     %is_ii_aligned = arith.cmpi eq, %ii_mod, %c0 : index
     %is_jj_aligned = arith.cmpi eq, %jj_mod, %c0 : index
     %ii_jj_aligned = arith.andi %is_ii_aligned, %is_jj_aligned : i1
@@ -174,10 +174,10 @@ amdgcn.library @conditional_simple_multi_tile_lds_write_single_wave isa = [#amdg
       %lds_stride_in_bytes = aster_utils.struct_extract %lds_pos_desc_base["lds_stride_in_bytes"] : !lds_position_descriptor_2d -> index
       %elt_size = aster_utils.struct_extract %lds_pos_desc_base["elt_size"] : !lds_position_descriptor_2d -> index
 
-      // Write NT_I x NT_J tiles using simple 16x16 writes
-      scf.for %i = %c0 to %NT_I step %c1 {
-        scf.for %j = %c0 to %NT_J step %c1 {
-          %tile_idx = affine.apply affine_map<()[i, j, NT_J] -> (i * NT_J + j)>()[%i, %j, %NT_J]
+      // Write cond_mod_zero_i x cond_mod_zero_j tiles using simple 16x16 writes
+      scf.for %i = %c0 to %cond_mod_zero_i step %c1 {
+        scf.for %j = %c0 to %cond_mod_zero_j step %c1 {
+          %tile_idx = affine.apply affine_map<()[i, j, cond_mod_zero_j] -> (i * cond_mod_zero_j + j)>()[%i, %j, %cond_mod_zero_j]
           %value = memref.load %load_memref[%k, %tile_idx] : memref<?x?x!vx2>
 
           // Convert tile indices to element positions: (ii + i) * 16, (jj + j) * 16

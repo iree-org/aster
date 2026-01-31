@@ -4,7 +4,7 @@
 // `maybe_` prefix indicating conditional execution:
 // - C fragment initialization at first K iteration (k==0, kk==0)
 // - C fragment store-to-global at last K iteration (k==K-1, kk==KK-1)
-// - LDS read with tile reuse (execute when cond_iter == 0)
+// - LDS read with tile reuse (execute when cond_zero == 0)
 //
 // Naming convention: @maybe_<operation>_wave_<tile_size>_<data_type>_<fragment_type>
 
@@ -21,10 +21,9 @@
 !future_global_write = !amdgcn.write_token<flat>
 
 // A 2D conditional execution descriptor for multi-tile operations containing:
-//   - k: outer loop index (for indexing load_memref -> mem2reg)
-//   - cond_iter: condition index (execute only when cond_iter == 0)
-//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
-!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
+//   - cond_zero: condition index (execute only when cond_zero == 0)
+//   - cond_mod_zero_i, cond_mod_zero_j: multi-tile factors (execute when ii % cond_mod_zero_i == 0 AND jj % cond_mod_zero_j == 0)
+!conditional_execution_descriptor_2d = !aster_utils.struct<cond_zero: index, cond_mod_zero_i: index, cond_mod_zero_j: index>
 
 // A 2D conditional execution descriptor for C fragment init/store operations containing:
 //   - k, kk: current K tile indices (outer and inner)
@@ -233,29 +232,13 @@ amdgcn.library @conditional_c_fragment_init_store_single_wave isa = [#amdgcn.isa
 
     return %valid : i1
   }
-
-  //===--------------------------------------------------------------------===//
-  // Wait helper for conditional C fragment global store
-  //===--------------------------------------------------------------------===//
-  // No-op wait helper for API consistency.
-  // The _future variant already waits internally since there's no
-  // subsequent computation to overlap with after the final C store.
-  //
-  // Parameters:
-  //   %valid: i1 - flag indicating if store executed (unused)
-  func.func private @wait_global_store_wave_16x16xf32_C_fragment_futures(
-    %valid: i1
-  ) {
-    // No-op: the _future variant already waited since there's nothing to overlap
-    return
-  }
 }
 
 //===-----------------------------------------------------------------------===//
 // Wave-level, conditional LDS read instructions, parameterizable by
 // !conditional_execution_descriptor_2d and !lds_position_descriptor_2d.
 //
-// Conditionally reads a 16x16xf16 fragment from LDS when cond_iter == 0.
+// Conditionally reads a 16x16xf16 fragment from LDS when cond_zero == 0.
 // Used for GEMM A/B fragment loading with tile reuse across iterations.
 //===-----------------------------------------------------------------------===//
 amdgcn.library @conditional_lds_read_single_wave isa = [#amdgcn.isa<cdna3>] {
@@ -272,48 +255,47 @@ amdgcn.library @conditional_lds_read_single_wave isa = [#amdgcn.isa<cdna3>] {
 
   //===--------------------------------------------------------------------===//
   // Conditional LDS read
-  //   16x16xf16 fragment read when cond_iter == 0
+  //   16x16xf16 fragment read when cond_zero == 0
   // (conditional variant only)
   //===--------------------------------------------------------------------===//
   // Conditionally reads a 16x16xf16 fragment from LDS to VGPRs.
-  // Executes only when cond_iter == 0 (for tile reuse across iterations).
+  // Executes only when cond_zero == 0 (for tile reuse across iterations).
   //
   // Usage pattern (GEMM):
-  //   For A: ii=mm, jj=kk, cond_iter=nn -> memref[k, ii, jj]
-  //   For B: ii=nn, jj=kk, cond_iter=mm -> memref[k, ii, jj]
-  //   When cond_iter == 0: reads from LDS at (ii*16, jj*16), stores to memref
-  //   When cond_iter != 0: no-op (value already in memref from cond_iter==0)
+  //   For A: ii=mm, jj=kk, cond_zero=nn -> memref[k, ii, jj]
+  //   For B: ii=nn, jj=kk, cond_zero=mm -> memref[k, ii, jj]
+  //   When cond_zero == 0: reads from LDS at (ii*16, jj*16), stores to memref
+  //   When cond_zero != 0: no-op (value already in memref from cond_zero==0)
   //
   // Parameters:
   //   %cond_desc: !conditional_execution_descriptor_2d
-  //     - k: outer loop index for memref storage
-  //     - cond_iter: execute only when == 0
-  //     - NT_I, NT_J: unused (present for descriptor compatibility)
+  //     - cond_zero: execute only when == 0
+  //     - cond_mod_zero_i, cond_mod_zero_j: unused (present for descriptor compatibility)
   //   %lds_pos_desc_base: !lds_position_descriptor_2d
   //     - lds_base: base offset in LDS (bytes)
   //     - m_pos, n_pos: unused (ii/jj used for position computation)
   //     - lds_stride_in_bytes: row stride
   //     - elt_size: element size in bytes (2 for f16)
+  //   %k: outer loop index for memref storage
   //   %ii, %jj: inner tile indices for position computation and memref indexing
   //   %frag_memref: memref<?x?x?x!vx2> - 3D memref[K, II, JJ] for fragments
   func.func private @maybe_lds_read_wave_16x16xf16_fragment(
     %cond_desc: !conditional_execution_descriptor_2d,
     %lds_pos_desc_base: !lds_position_descriptor_2d,
-    %ii: index, %jj: index,
+    %k: index, %ii: index, %jj: index,
     %frag_memref: memref<?x?x?x!vx2>
   ) {
     %c0 = arith.constant 0 : index
 
     // Extract from conditional execution descriptor
-    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
-    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
+    %cond_zero = aster_utils.struct_extract %cond_desc["cond_zero"] : !conditional_execution_descriptor_2d -> index
 
     // Extract from LDS position descriptor base
     %lds_base_off = aster_utils.struct_extract %lds_pos_desc_base["lds_base"] : !lds_position_descriptor_2d -> index
     %LDS_STRIDE_IN_BYTES = aster_utils.struct_extract %lds_pos_desc_base["lds_stride_in_bytes"] : !lds_position_descriptor_2d -> index
     %elt_size = aster_utils.struct_extract %lds_pos_desc_base["elt_size"] : !lds_position_descriptor_2d -> index
 
-    %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
+    %is_cond_zero = arith.cmpi eq, %cond_zero, %c0 : index
 
     scf.if %is_cond_zero {
       %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]
@@ -331,16 +313,17 @@ amdgcn.library @conditional_lds_read_single_wave isa = [#amdgcn.isa<cdna3>] {
 
   //===--------------------------------------------------------------------===//
   // Conditional LDS read - FUTURE variant
-  //   16x16xf16 fragment read when cond_iter == 0
+  //   16x16xf16 fragment read when cond_zero == 0
   // (future variant - returns without waiting)
   //===--------------------------------------------------------------------===//
   // Conditionally reads a 16x16xf16 fragment from LDS to VGPRs.
   // Uses @lds_read_A_wave_16x16xf16_fragment_future (non-blocking).
-  // Executes only when cond_iter == 0 (for tile reuse across iterations).
+  // Executes only when cond_zero == 0 (for tile reuse across iterations).
   //
   // Parameters:
   //   %cond_desc: !conditional_execution_descriptor_2d - execution condition
   //   %lds_pos_desc_base: !lds_position_descriptor_2d - LDS position
+  //   %k: index - outer loop index for memref storage
   //   %ii, %jj: index - inner tile indices for position computation
   //   %future_memref: memref<?x?x?x!future_lds_read_any> - output for futures
   // Returns:
@@ -348,7 +331,7 @@ amdgcn.library @conditional_lds_read_single_wave isa = [#amdgcn.isa<cdna3>] {
   func.func private @maybe_lds_read_wave_16x16xf16_fragment_future(
     %cond_desc: !conditional_execution_descriptor_2d,
     %lds_pos_desc_base: !lds_position_descriptor_2d,
-    %ii: index, %jj: index,
+    %k: index, %ii: index, %jj: index,
     %future_memref: memref<?x?x?x!future_lds_read_any>
   ) -> i1 {
     %c0 = arith.constant 0 : index
@@ -356,15 +339,14 @@ amdgcn.library @conditional_lds_read_single_wave isa = [#amdgcn.isa<cdna3>] {
     %true = arith.constant true
 
     // Extract from conditional execution descriptor
-    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
-    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
+    %cond_zero = aster_utils.struct_extract %cond_desc["cond_zero"] : !conditional_execution_descriptor_2d -> index
 
     // Extract from LDS position descriptor base
     %lds_base_off = aster_utils.struct_extract %lds_pos_desc_base["lds_base"] : !lds_position_descriptor_2d -> index
     %LDS_STRIDE_IN_BYTES = aster_utils.struct_extract %lds_pos_desc_base["lds_stride_in_bytes"] : !lds_position_descriptor_2d -> index
     %elt_size = aster_utils.struct_extract %lds_pos_desc_base["elt_size"] : !lds_position_descriptor_2d -> index
 
-    %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
+    %is_cond_zero = arith.cmpi eq, %cond_zero, %c0 : index
 
     %valid = scf.if %is_cond_zero -> i1 {
       %ii_pos = affine.apply affine_map<()[idx] -> (idx * 16)>()[%ii]

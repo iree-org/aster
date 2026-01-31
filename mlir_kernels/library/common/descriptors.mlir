@@ -113,10 +113,9 @@
 //===----------------------------------------------------------------------===//
 
 // A 2D conditional execution descriptor for multi-tile operations containing:
-//   - k: outer loop index (for indexing load_memref -> mem2reg)
-//   - cond_iter: condition index (execute only when cond_iter == 0)
-//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
-!conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
+//   - cond_zero: condition index (execute only when cond_zero == 0)
+//   - cond_mod_zero_i, cond_mod_zero_j: multi-tile factors (execute when ii % cond_mod_zero_i == 0 AND jj % cond_mod_zero_j == 0)
+!conditional_execution_descriptor_2d = !aster_utils.struct<cond_zero: index, cond_mod_zero_i: index, cond_mod_zero_j: index>
 
 //===----------------------------------------------------------------------===//
 // Mem2reg parameter descriptors

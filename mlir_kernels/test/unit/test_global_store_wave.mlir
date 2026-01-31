@@ -17,8 +17,8 @@
 
 // A 2D conditional execution descriptor for multi-tile operations containing:
 //   - k: outer loop index (for indexing load_memref -> mem2reg)
-//   - cond_iter: condition index (execute only when cond_iter == 0)
-//   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
+//   - cond_zero: condition index (execute only when cond_zero == 0)
+//   - cond_mod_zero_i, cond_mod_zero_j: multi-tile factors (execute when ii % cond_mod_zero_i == 0 AND jj % cond_mod_zero_j == 0)
 
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
