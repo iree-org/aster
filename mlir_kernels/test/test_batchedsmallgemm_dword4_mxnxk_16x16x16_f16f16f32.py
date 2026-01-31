@@ -1,4 +1,4 @@
-"""Integration test for MFMA end-to-end kernel execution."""
+"""Integration test for BatchedSmallGEMM end-to-end kernel execution."""
 
 import argparse
 import os
@@ -7,10 +7,10 @@ import pytest
 from aster import ir
 from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
 from mlir_kernels.kernel_utils import (
-    MFMAConfig,
-    make_mfma_preprocess,
-    make_mfma_verify_fn,
-    generate_mfma_data,
+    BatchedSmallGEMMConfig,
+    make_batchedsmallgemm_preprocess,
+    make_batchedsmallgemm_verify_fn,
+    generate_batchedsmallgemm_data,
 )
 from mlir_kernels.test.test_utils import (
     get_mlir_file_path,
@@ -21,12 +21,12 @@ from mlir_kernels.test.test_utils import (
 
 _MLIR_KERNELS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-FILE_NAME = "mfma_dword4_mxnxk_16x16x16_f16f16f32.mlir"
+FILE_NAME = "batchedsmallgemm_dword4_mxnxk_16x16x16_f16f16f32.mlir"
 KERNEL_NAME = "test_matmul_kernel"
 
 
 def _get_library_paths():
-    """Get paths to library files for MFMA test."""
+    """Get paths to library files for BatchedSmallGEMM test."""
     return [os.path.join(_MLIR_KERNELS_DIR, "library", "common", "indexing.mlir")]
 
 
@@ -54,7 +54,7 @@ def _get_library_paths():
     # fmt: on
 )
 @pytest.mark.parametrize("mcpu", ["gfx942"])
-def test_mfma_e2e_kernel(
+def test_batchedsmallgemm_e2e_kernel(
     mlir_filename: str,
     kernel_name: str,
     num_workgroups: int,
@@ -66,13 +66,13 @@ def test_mfma_e2e_kernel(
     mcpu: str,
     wavefront_size: int = 64,
 ):
-    """Test MFMA end-to-end kernel execution.
+    """Test BatchedSmallGEMM end-to-end kernel execution.
 
     Tests block matrix multiplication where:
     - m, n, k are the number of 16x16 blocks in each dimension
     - Each workgroup/wave needs its own data (batch = num_workgroups * num_waves)
     """
-    config = MFMAConfig(
+    config = BatchedSmallGEMMConfig(
         m=m,
         n=n,
         k=k,
@@ -85,9 +85,9 @@ def test_mfma_e2e_kernel(
         wavefront_size=wavefront_size,
     )
 
-    a_data, b_data, c_data = generate_mfma_data(config)
-    preprocess = make_mfma_preprocess(config)
-    verify_fn = make_mfma_verify_fn(config)
+    a_data, b_data, c_data = generate_batchedsmallgemm_data(config)
+    preprocess = make_batchedsmallgemm_preprocess(config)
+    verify_fn = make_batchedsmallgemm_verify_fn(config)
 
     with ir.Context() as ctx:
         compile_and_run_kernel(
@@ -110,7 +110,7 @@ def test_mfma_e2e_kernel(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Test MFMA end-to-end kernel execution with block matrix multiplication"
+        description="Test BatchedSmallGEMM end-to-end kernel execution with block matrix multiplication"
     )
     add_mnk_args(
         parser,
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     )
     add_gpu_args(
         parser,
-        mlir_filename_default="mfma_dword4_mxnxk_16x16x16_f16f16f32.mlir",
+        mlir_filename_default="batchedsmallgemm_dword4_mxnxk_16x16x16_f16f16f32.mlir",
     )
     parser.add_argument(
         "--num-workgroups",
@@ -139,7 +139,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    test_mfma_e2e_kernel(
+    test_batchedsmallgemm_e2e_kernel(
         mlir_filename=args.mlir_filename,
         kernel_name=KERNEL_NAME,
         m=args.m,

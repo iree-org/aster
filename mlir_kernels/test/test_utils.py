@@ -24,13 +24,13 @@ from mlir_kernels.kernel_utils import (
     MFMA_SIZE_K,
     MFMA_SIZE,
     GEMMConfig,
-    MFMAConfig,
+    BatchedSmallGEMMConfig,
     make_gemm_preprocess,
-    make_mfma_preprocess,
+    make_batchedsmallgemm_preprocess,
     make_gemm_verify_fn,
-    make_mfma_verify_fn,
+    make_batchedsmallgemm_verify_fn,
     generate_gemm_data,
-    generate_mfma_data,
+    generate_batchedsmallgemm_data,
 )
 
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))

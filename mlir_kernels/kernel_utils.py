@@ -1,4 +1,4 @@
-"""Shared kernel utilities for GEMM/MFMA tests and benchmarks.
+"""Shared kernel utilities for GEMM/BatchedSmallGEMM tests and benchmarks.
 
 This module provides unified config classes, preprocess functions, and verification
 functions used by both test and benchmark infrastructure.
@@ -140,15 +140,16 @@ class GEMMConfig:
 
 
 # =============================================================================
-# MFMA Config (block-based, m/n/k are block counts not sizes)
+# BatchedSmallGEMM Config (block-based, m/n/k are block counts not sizes)
 # =============================================================================
 
 
 @dataclass
-class MFMAConfig:
-    """Configuration for MFMA 16x16x16 block-based kernels.
+class BatchedSmallGEMMConfig:
+    """Configuration for batched small GEMM 16x16x16 block-based kernels.
 
-    Here m, n, k are the number of 16x16 blocks, not element counts.
+    Here m, n, k are the number of 16x16 blocks, not element counts. Each workgroup/wave
+    processes its own independent batch.
     """
 
     m: int  # Number of 16x16 blocks in M dimension
@@ -251,8 +252,10 @@ def make_gemm_preprocess(config: GEMMConfig) -> Callable[[str], str]:
     return preprocess
 
 
-def make_mfma_preprocess(config: MFMAConfig) -> Callable[[str], str]:
-    """Create a preprocess function for MFMA MLIR templates."""
+def make_batchedsmallgemm_preprocess(
+    config: BatchedSmallGEMMConfig,
+) -> Callable[[str], str]:
+    """Create a preprocess function for BatchedSmallGEMM MLIR templates."""
 
     def preprocess(x: str) -> str:
         x = x.replace("{{SIZE_M}}", str(config.m))
@@ -323,8 +326,8 @@ def make_gemm_verify_fn(
     return verify_fn
 
 
-def make_mfma_verify_fn(config: MFMAConfig) -> Callable:
-    """Create a verification function for MFMA block-based kernels."""
+def make_batchedsmallgemm_verify_fn(config: BatchedSmallGEMMConfig) -> Callable:
+    """Create a verification function for BatchedSmallGEMM block-based kernels."""
     m, n, k = config.m, config.n, config.k
     batch = config.batch
 
@@ -355,7 +358,7 @@ def make_mfma_verify_fn(config: MFMAConfig) -> Callable:
             max_diff = np.max(diff)
             max_idx = np.unravel_index(np.argmax(diff), diff.shape)
             raise AssertionError(
-                f"MFMA kernel failed! Max diff: {max_diff} at index {max_idx}\n"
+                f"BatchedSmallGEMM kernel failed! Max diff: {max_diff} at index {max_idx}\n"
                 f"c shape: {c_blocks.shape}, ref shape: {ref.shape}\n"
                 f"c_blocks:\n{c_blocks}\nref:\n{ref}"
             )
@@ -402,15 +405,15 @@ def generate_gemm_data(
     return a_data, b_data, c_data
 
 
-def generate_mfma_data(
-    config: MFMAConfig,
+def generate_batchedsmallgemm_data(
+    config: BatchedSmallGEMMConfig,
     a_val: float = 1.0,
     b_val: float = 2.0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Generate input/output data for MFMA kernel.
+    """Generate input/output data for BatchedSmallGEMM kernel.
 
     Args:
-        config: MFMA configuration
+        config: BatchedSmallGEMM configuration
         a_val, b_val: Constant values to fill A and B matrices
 
     Returns:

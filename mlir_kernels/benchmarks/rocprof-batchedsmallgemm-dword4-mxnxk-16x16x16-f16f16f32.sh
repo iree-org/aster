@@ -11,7 +11,7 @@ if [ -z "$VIRTUAL_ENV" ]; then
 fi
 
 PYTHON_BIN="${VIRTUAL_ENV}/bin/python"
-TEST_SCRIPT="mlir_kernels/test/test_mfma_dword4_mxnxk_16x16x16_f16f16f32.py"
+TEST_SCRIPT="mlir_kernels/test/test_batchedsmallgemm_dword4_mxnxk_16x16x16_f16f16f32.py"
 
 profile_kernel() {
     local num_workgroups="$1"
@@ -23,11 +23,11 @@ profile_kernel() {
 
     local machine_name="$(hostname)"
     local trace_dir="trace_${machine_name}"
-    local trace="${trace_dir}_mfma_m${m}_n${n}_k${k}_wg${num_workgroups}_waves${num_waves}"
+    local trace="${trace_dir}_batchedsmallgemm_m${m}_n${n}_k${k}_wg${num_workgroups}_waves${num_waves}"
 
     echo ""
     echo "========================================"
-    echo "Profiling: mfma_dword4_mxnxk_16x16x16_f16f16f32"
+    echo "Profiling: batchedsmallgemm_dword4_mxnxk_16x16x16_f16f16f32"
     echo "m=$m, n=$n, k=$k"
     echo "Workgroups: $num_workgroups, Waves: $num_waves"
     echo "mcpu: $mcpu"
