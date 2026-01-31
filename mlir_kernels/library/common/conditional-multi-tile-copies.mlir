@@ -15,6 +15,11 @@
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
+!transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
+
+// Future types from copies.mlir
+!future_global_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
+!future_lds_write = !amdgcn.write_token<shared>
 
 // A 2D conditional execution descriptor for multi-tile operations containing:
 //   - k: outer loop index (for indexing load_memref -> mem2reg)
@@ -32,6 +37,7 @@
 amdgcn.library @conditional_multi_tile_global_load_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From multi-tile-copies.mlir
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future(!tensor_position_descriptor_2level_2d, index, index, memref<?x!future_global_read_any>) -> ()
 
   //===--------------------------------------------------------------------===//
   // Conditional multi-tile global load (coalesced)
@@ -116,6 +122,82 @@ amdgcn.library @conditional_multi_tile_global_load_single_wave isa = [#amdgcn.is
 
     return
   }
+
+  //===--------------------------------------------------------------------===//
+  // Conditional multi-tile global load (coalesced) - FUTURE variant
+  //   NT_I x NT_J 16x16xf16 tiles via bulk dwordx2 load
+  // (future variant - returns without waiting)
+  //===--------------------------------------------------------------------===//
+  // Conditionally loads NT_I x NT_J 16x16xf16 tiles from global memory.
+  // Uses @global_load_wave_multi_tile_256xf16_via_dwordx2_future (non-blocking).
+  // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+  //
+  // Parameters:
+  //   %cond_desc: !conditional_execution_descriptor_2d - execution condition
+  //   %tensor_desc: !tensor_position_descriptor_2level_2d - memory position
+  //   %load_memref: memref<?x?x!vx2> - output memref[K, NT_I * NT_J] for values
+  //   %future_memref: memref<?x!future_global_read_any> - output for futures
+  // Returns:
+  //   i1 - true if operation executed, false otherwise
+
+  // CHECK-LABEL: func.func private @maybe_global_load_wave_multi_tile_256xf16_future
+  func.func private @maybe_global_load_wave_multi_tile_256xf16_future(
+    %cond_desc: !conditional_execution_descriptor_2d,
+    %tensor_desc: !tensor_position_descriptor_2level_2d,
+    %load_memref: memref<?x?x!vx2>,
+    %future_memref: memref<?x!future_global_read_any>
+  ) -> i1 {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %false = arith.constant false
+    %true = arith.constant true
+
+    // Extract fields from conditional execution descriptor
+    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
+    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
+    %NT_I = aster_utils.struct_extract %cond_desc["NT_I"] : !conditional_execution_descriptor_2d -> index
+    %NT_J = aster_utils.struct_extract %cond_desc["NT_J"] : !conditional_execution_descriptor_2d -> index
+
+    // Extract tile indices from descriptor (mm_pos/nn_pos are tile indices here)
+    %ii = aster_utils.struct_extract %tensor_desc["mm_pos"] : !tensor_position_descriptor_2level_2d -> index
+    %jj = aster_utils.struct_extract %tensor_desc["nn_pos"] : !tensor_position_descriptor_2level_2d -> index
+
+    // Execute when cond_iter == 0 AND ii/jj are at NT boundaries
+    %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
+    %ii_mod = affine.apply affine_map<()[ii, mult] -> (ii mod mult)>()[%ii, %NT_I]
+    %jj_mod = affine.apply affine_map<()[jj, mult] -> (jj mod mult)>()[%jj, %NT_J]
+    %is_ii_aligned = arith.cmpi eq, %ii_mod, %c0 : index
+    %is_jj_aligned = arith.cmpi eq, %jj_mod, %c0 : index
+    %ii_jj_aligned = arith.andi %is_ii_aligned, %is_jj_aligned : i1
+    %should_load = arith.andi %is_cond_zero, %ii_jj_aligned : i1
+
+    %valid = scf.if %should_load -> i1 {
+      // Extract remaining fields from descriptor
+      %ptr = aster_utils.struct_extract %tensor_desc["ptr"] : !tensor_position_descriptor_2level_2d -> !sx2
+      %m_pos_base = aster_utils.struct_extract %tensor_desc["m_pos"] : !tensor_position_descriptor_2level_2d -> index
+      %n_pos_base = aster_utils.struct_extract %tensor_desc["n_pos"] : !tensor_position_descriptor_2level_2d -> index
+      %global_stride_in_bytes = aster_utils.struct_extract %tensor_desc["global_stride_in_bytes"] : !tensor_position_descriptor_2level_2d -> index
+      %elt_size = aster_utils.struct_extract %tensor_desc["elt_size"] : !tensor_position_descriptor_2level_2d -> index
+
+      // ii/jj are tile indices, so position = tile_index * 16
+      %ii_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
+      %jj_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
+
+      // Create 2-level descriptor for the bulk load primitive
+      %load_desc = aster_utils.struct_create(%ptr, %m_pos_base, %n_pos_base, %global_stride_in_bytes, %ii_pos, %jj_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+
+      // Load NT_I x NT_J tiles at once using bulk future primitive (non-blocking)
+      func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
+          %load_desc, %NT_I, %NT_J, %future_memref)
+        : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!future_global_read_any>) -> ()
+
+      scf.yield %true : i1
+    } else {
+      scf.yield %false : i1
+    }
+
+    return %valid : i1
+  }
 }
 
 //===-----------------------------------------------------------------------===//
@@ -128,6 +210,7 @@ amdgcn.library @conditional_multi_tile_global_load_single_wave isa = [#amdgcn.is
 amdgcn.library @conditional_multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From multi-tile-copies.mlir
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_future(!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, memref<?x!future_lds_write>) -> ()
 
   //===--------------------------------------------------------------------===//
   // Conditional multi-tile LDS write (coalesced)
@@ -207,5 +290,89 @@ amdgcn.library @conditional_multi_tile_lds_write_single_wave isa = [#amdgcn.isa<
         : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
     }
     return
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Conditional multi-tile LDS write (coalesced) - FUTURE variant
+  //   NT_I x NT_J 16x16xf16 tiles via bulk ds_write_b64
+  // (future variant - returns without waiting)
+  //===--------------------------------------------------------------------===//
+  // Conditionally writes NT_I x NT_J 16x16xf16 tiles from VGPRs to LDS.
+  // Uses @lds_write_wave_multi_tile_256xf16_via_dwordx2_future (non-blocking).
+  // Executes when cond_iter == 0 AND ii % NT_I == 0 AND jj % NT_J == 0.
+  //
+  // Parameters:
+  //   %cond_desc: !conditional_execution_descriptor_2d - execution condition
+  //   %lds_desc: !lds_position_descriptor_2d - LDS position
+  //   %load_memref: memref<?x?x!vx2> - input memref[K, NT_I * NT_J] with values
+  //   %token_memref: memref<?x!future_lds_write> - output for write tokens
+  // Returns:
+  //   i1 - true if operation executed, false otherwise
+
+  // CHECK-LABEL: func.func private @maybe_lds_write_wave_multi_tile_256xf16_future
+  func.func private @maybe_lds_write_wave_multi_tile_256xf16_future(
+    %cond_desc: !conditional_execution_descriptor_2d,
+    %lds_desc: !lds_position_descriptor_2d,
+    %load_memref: memref<?x?x!vx2>,
+    %token_memref: memref<?x!future_lds_write>
+  ) -> i1 {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %false = arith.constant false
+    %true = arith.constant true
+
+    // Extract fields from conditional execution descriptor
+    %k = aster_utils.struct_extract %cond_desc["k"] : !conditional_execution_descriptor_2d -> index
+    %cond_iter = aster_utils.struct_extract %cond_desc["cond_iter"] : !conditional_execution_descriptor_2d -> index
+    %NT_I = aster_utils.struct_extract %cond_desc["NT_I"] : !conditional_execution_descriptor_2d -> index
+    %NT_J = aster_utils.struct_extract %cond_desc["NT_J"] : !conditional_execution_descriptor_2d -> index
+
+    // Extract tile indices from descriptor (m_pos/n_pos are tile indices here)
+    %ii = aster_utils.struct_extract %lds_desc["m_pos"] : !lds_position_descriptor_2d -> index
+    %jj = aster_utils.struct_extract %lds_desc["n_pos"] : !lds_position_descriptor_2d -> index
+
+    // Execute when cond_iter == 0 AND ii/jj are at NT boundaries
+    %is_cond_zero = arith.cmpi eq, %cond_iter, %c0 : index
+    %ii_mod = affine.apply affine_map<()[ii, NT_I] -> (ii mod NT_I)>()[%ii, %NT_I]
+    %jj_mod = affine.apply affine_map<()[jj, NT_J] -> (jj mod NT_J)>()[%jj, %NT_J]
+    %is_ii_aligned = arith.cmpi eq, %ii_mod, %c0 : index
+    %is_jj_aligned = arith.cmpi eq, %jj_mod, %c0 : index
+    %ii_jj_aligned = arith.andi %is_ii_aligned, %is_jj_aligned : i1
+    %should_write = arith.andi %is_cond_zero, %ii_jj_aligned : i1
+
+    %valid = scf.if %should_write -> i1 {
+      // Extract remaining fields from descriptor
+      %lds_base_off = aster_utils.struct_extract %lds_desc["lds_base"] : !lds_position_descriptor_2d -> index
+      %lds_stride_in_bytes = aster_utils.struct_extract %lds_desc["lds_stride_in_bytes"] : !lds_position_descriptor_2d -> index
+      %elt_size = aster_utils.struct_extract %lds_desc["elt_size"] : !lds_position_descriptor_2d -> index
+
+      // Allocate 1D temp memref (linearized)
+      %NT_IJ = affine.apply affine_map<()[NT_I, NT_J] -> (NT_I * NT_J)>()[%NT_I, %NT_J]
+      %temp_memref = memref.alloca(%NT_IJ) : memref<?x!vx2>
+
+      // ii/jj are tile indices, so position = tile_index * 16
+      %ii_pos = affine.apply affine_map<()[ii] -> (ii * 16)>()[%ii]
+      %jj_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
+
+      // Copy results from main memref to temp memref using linearized indices
+      scf.for %idx = %c0 to %NT_IJ step %c1 {
+        %loaded = memref.load %load_memref[%k, %idx] : memref<?x?x!vx2>
+        memref.store %loaded, %temp_memref[%idx] : memref<?x!vx2>
+      } {aster.constexpr}
+
+      // Create 2-level LDS descriptor for the bulk write primitive
+      %lds_write_desc = aster_utils.struct_create(%lds_base_off, %ii_pos, %jj_pos, %lds_stride_in_bytes, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+
+      // Write NT_I x NT_J tiles using bulk future primitive (non-blocking)
+      func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_future(
+          %lds_write_desc, %NT_I, %NT_J, %temp_memref, %token_memref)
+        : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, memref<?x!future_lds_write>) -> ()
+
+      scf.yield %true : i1
+    } else {
+      scf.yield %false : i1
+    }
+
+    return %valid : i1
   }
 }
