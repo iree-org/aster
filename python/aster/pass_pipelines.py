@@ -211,8 +211,8 @@ TEST_SYNCHRONOUS_SROA_PASS_PIPELINE = builtin_module(
     PHASE_SROA,
     POST_SROA_CLEANUPS,
     PHASE_EXPAND_MD_OPS,
-    # In synchronous mode we do not optimize straight-line waits, we want them as
-    # specified by the programmer.
+    # In synchronous mode we do not optimize straight-line waits, we want them
+    # exactly as specified by the programmer.
     # PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS,
     PHASE_LOWER_TO_AMDGCN,
     PHASE_CONVERT_WAITS,
@@ -257,6 +257,25 @@ DEFAULT_SROA_PASS_PIPELINE = builtin_module(
     POST_SROA_CLEANUPS,
     PHASE_EXPAND_MD_OPS,
     PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS,
+    PHASE_LOWER_TO_AMDGCN,
+    # Convert amdgcn.wait ops to s_waitcnt instructions
+    PHASE_CONVERT_WAITS,
+    PHASE_REGISTER_ALLOCATION,
+    phase_nop_insertion(delays=0)
+)
+
+# Default pass pipeline for integration tests
+FUTURE_SROA_PASS_PIPELINE = builtin_module(
+    PHASE_PRE_SCHEDULING_CLEANUP,
+    PHASE_SCHEDULING,
+    PHASE_POST_SCHEDULING_CLEANUP,
+    # Note: this is run twice with affine expansion in between, revisit need.
+    PHASE_SROA,
+    POST_SROA_CLEANUPS,
+    PHASE_AFFINE_EXPANSION,
+    PHASE_SROA,
+    POST_SROA_CLEANUPS,
+    PHASE_EXPAND_MD_OPS,
     PHASE_LOWER_TO_AMDGCN,
     # Convert amdgcn.wait ops to s_waitcnt instructions
     PHASE_CONVERT_WAITS,
