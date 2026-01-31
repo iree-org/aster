@@ -1,4 +1,4 @@
-"""Benchmark script for MFMA dword4 16x16x16 f16f16f32 kernel with multiple parameter configurations."""
+"""Benchmark script for BatchedSmallGEMM dword4 16x16x16 f16f16f32 kernel with multiple parameter configurations."""
 
 import os
 import sys
@@ -25,10 +25,9 @@ from mlir_kernels.benchmarks.benchmark_utils import (
     run_benchmark,
 )
 from mlir_kernels.kernel_utils import (
-    MFMAConfig,
-    make_mfma_preprocess,
-    make_mfma_verify_fn,
-    generate_mfma_data,
+    BatchedSmallGEMMConfig,
+    generate_batchedsmallgemm_data,
+    make_batchedsmallgemm_verify_fn,
     LDS_SIZE_LIMIT,
 )
 
@@ -37,22 +36,22 @@ from mlir_kernels.kernel_utils import (
 NUM_CU_PER_GPU = 304
 
 
-class BenchmarkMFMAConfig(MFMAConfig, BaseConfig):
-    """MFMA config that inherits from both MFMAConfig and BaseConfig for benchmarking.
+class BenchmarkBatchedSmallGEMMConfig(BatchedSmallGEMMConfig, BaseConfig):
+    """BatchedSmallGEMM config that inherits from both BatchedSmallGEMMConfig and BaseConfig for benchmarking.
 
-    Note: MFMAConfig uses num_workgroups directly, while BaseConfig expects _num_workgroups.
+    Note: BatchedSmallGEMMConfig uses num_workgroups directly, while BaseConfig expects _num_workgroups.
     We override the property to make them compatible.
     """
 
     @property
     def num_workgroups(self) -> int:
-        """Override to use MFMAConfig's num_workgroups field directly."""
+        """Override to use BatchedSmallGEMMConfig's num_workgroups field directly."""
         return self.__dict__.get("num_workgroups", self._num_workgroups)
 
 
 def compile_kernel_worker(
-    config: BenchmarkMFMAConfig,
-) -> Tuple[BenchmarkMFMAConfig, str]:
+    config: BenchmarkBatchedSmallGEMMConfig,
+) -> Tuple[BenchmarkBatchedSmallGEMMConfig, str]:
     """Worker function for parallel compilation."""
     try:
         with ir.Context() as ctx:
@@ -107,7 +106,7 @@ def compile_kernel_worker(
 
 
 def execute_kernel_benchmark(
-    config: BenchmarkMFMAConfig,
+    config: BenchmarkBatchedSmallGEMMConfig,
     hsaco_path: str,
     skip_test: bool = False,
     num_iterations: int = 5,
@@ -121,7 +120,7 @@ def execute_kernel_benchmark(
     )
 
     # Generate data using shared function
-    a_data, b_data, c_data = generate_mfma_data(config)
+    a_data, b_data, c_data = generate_batchedsmallgemm_data(config)
 
     _log_info(
         logger,
@@ -133,7 +132,7 @@ def execute_kernel_benchmark(
     ), f"All matrix sizes must be > 0 for m={config.m}, n={config.n}, k={config.k} wg={config.num_workgroups} waves={config.num_waves}"
 
     # Use shared verify function
-    verify_fn = make_mfma_verify_fn(config) if not skip_test else None
+    verify_fn = make_batchedsmallgemm_verify_fn(config) if not skip_test else None
 
     try:
         iteration_times_ns: List[int] = execute_kernel_and_verify(
@@ -160,10 +159,10 @@ def execute_kernel_benchmark(
         return None, f"ERROR: {e}"
 
 
-def format_mfma_failure(
-    config: BenchmarkMFMAConfig, error_msg: str, device_id: Optional[int]
+def format_batchedsmallgemm_failure(
+    config: BenchmarkBatchedSmallGEMMConfig, error_msg: str, device_id: Optional[int]
 ) -> str:
-    """Format failure message for MFMA benchmark."""
+    """Format failure message for BatchedSmallGEMM benchmark."""
     device_str = f"GPU{device_id}" if device_id is not None else "GPU?"
     return (
         f"FAILED [{device_str}] "
@@ -173,12 +172,12 @@ def format_mfma_failure(
     )
 
 
-def benchmark_mfma(
-    configs: List[BenchmarkMFMAConfig],
+def benchmark_batchedsmallgemm(
+    configs: List[BenchmarkBatchedSmallGEMMConfig],
     num_compile_workers: int = multiprocessing.cpu_count() // 2,
     skip_test: bool = False,
-) -> Tuple[List[BenchmarkResult], List[Tuple[BenchmarkMFMAConfig, str]]]:
-    """Benchmark multiple MFMA kernel configurations using all available GPUs.
+) -> Tuple[List[BenchmarkResult], List[Tuple[BenchmarkBatchedSmallGEMMConfig, str]]]:
+    """Benchmark multiple BatchedSmallGEMM kernel configurations using all available GPUs.
 
     Jobs are distributed across GPUs in round-robin fashion with only one job running
     per GPU at a time. Control GPU visibility with CUDA_VISIBLE_DEVICES.
@@ -192,7 +191,7 @@ def benchmark_mfma(
         execute_benchmark=execute_kernel_benchmark,
         num_compile_workers=num_compile_workers,
         skip_test=skip_test,
-        format_failure=format_mfma_failure,
+        format_failure=format_batchedsmallgemm_failure,
         handle_keyboard_interrupt=True,
     )
 
@@ -200,7 +199,7 @@ def benchmark_mfma(
 def main() -> None:
     """Main benchmark function with example configurations."""
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="Benchmark MFMA dword4 16x16x16 f16f16f32 kernel"
+        description="Benchmark BatchedSmallGEMM dword4 16x16x16 f16f16f32 kernel"
     )
     parser.add_argument(
         "--skip-test",
@@ -211,7 +210,7 @@ def main() -> None:
 
     script_dir: str = os.path.dirname(os.path.abspath(__file__))
     mlir_file: str = os.path.join(
-        script_dir, "..", "mfma_dword4_mxnxk_16x16x16_f16f16f32.mlir"
+        script_dir, "..", "batchedsmallgemm_dword4_mxnxk_16x16x16_f16f16f32.mlir"
     )
 
     if not os.path.exists(mlir_file):
@@ -226,8 +225,8 @@ def main() -> None:
     num_waves_values: List[int] = [i for i in range(1, 8)]
 
     # Generate all configs
-    all_configs: List[BenchmarkMFMAConfig] = [
-        BenchmarkMFMAConfig(
+    all_configs: List[BenchmarkBatchedSmallGEMMConfig] = [
+        BenchmarkBatchedSmallGEMMConfig(
             m=m, n=n, k=k, num_workgroups=wg, num_waves=waves, mlir_file=mlir_file
         )
         for m, n, k, wg, waves in itertools.product(
@@ -236,7 +235,7 @@ def main() -> None:
     ]
 
     # Filter configs: limit problem size to avoid unrolling blowup and stay within LDS limit
-    configs: List[BenchmarkMFMAConfig] = [
+    configs: List[BenchmarkBatchedSmallGEMMConfig] = [
         config
         for config in all_configs
         if config.m * config.n * config.k >= 16
@@ -248,12 +247,14 @@ def main() -> None:
 
     # Run the configurations
     results: List[BenchmarkResult]
-    failed_configs: List[Tuple[BenchmarkMFMAConfig, str]]
+    failed_configs: List[Tuple[BenchmarkBatchedSmallGEMMConfig, str]]
     print(
         f"Compiling {len(configs)} configurations on {multiprocessing.cpu_count()} processes..."
     )
     try:
-        results, failed_configs = benchmark_mfma(configs, skip_test=args.skip_test)
+        results, failed_configs = benchmark_batchedsmallgemm(
+            configs, skip_test=args.skip_test
+        )
     except KeyboardInterrupt:
         print(
             "\n\nBenchmark interrupted by user during compilation. No results available.",
@@ -275,7 +276,7 @@ def main() -> None:
         )
         print("=" * 140, file=sys.stderr)
         for result in results_sorted:
-            config = result.config  # type: BenchmarkMFMAConfig
+            config = result.config  # BenchmarkBatchedSmallGEMMConfig
             print(
                 f"GPU{result.device_id} "
                 f"wg={config.num_workgroups:4d} waves={config.num_waves:2d} | "
