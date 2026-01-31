@@ -14,6 +14,20 @@
 include "mlir/Pass/PassBase.td"
 
 //===----------------------------------------------------------------------===//
+// CanonicalizePtrOps
+//===----------------------------------------------------------------------===//
+
+def CanonicalizePtrOps : Pass<"aster-canonicalize-ptr"> {
+  let summary = "Canonicalize pointer computation";
+  let description = [{
+    This pass canonicalizes pointer computation operations.
+  }];
+  let dependentDialects = [
+    "mlir::arith::ArithDialect", "mlir::affine::AffineDialect"
+  ];
+}
+
+//===----------------------------------------------------------------------===//
 // ConstexprExpansion
 //===----------------------------------------------------------------------===//
 
@@ -26,7 +40,6 @@ def ConstexprExpansion : Pass<"aster-constexpr-expansion"> {
   }];
   let dependentDialects = ["mlir::scf::SCFDialect"];
 }
-
 //===----------------------------------------------------------------------===//
 // OpScheduling
 //===----------------------------------------------------------------------===//
