@@ -12,7 +12,7 @@ from integration_test.test_utils import (
     compile_mlir_file_to_asm,
     hsaco_file,
 )
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.pass_pipelines import get_pass_pipeline
 from mlir_kernels.benchmarks.benchmark_utils import (
     format_throughput_stats,
     BenchmarkResult,
@@ -147,16 +147,16 @@ def execute_copy_1d_kernel(
 
 @pytest.mark.parametrize(
     # fmt: off
-    "mlir_filename,kernel_name,num_workgroups,num_waves,num_elements_per_thread,element_size,sched_delay_store,pass_pipeline",
+    "mlir_filename,kernel_name,num_workgroups,num_waves,num_elements_per_thread,element_size,sched_delay_store,pass_pipeline_name",
     [
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 1, 1, 1, 16, 0, DEFAULT_SROA_PASS_PIPELINE),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 1, 1, 6, 16, 3, DEFAULT_SROA_PASS_PIPELINE),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 2, 2, 6, 16, 4, DEFAULT_SROA_PASS_PIPELINE),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 3, 3, 16, 16, 11, DEFAULT_SROA_PASS_PIPELINE),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 5, 7, 3, 16, 2, DEFAULT_SROA_PASS_PIPELINE),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 5, 7, 7, 16, 5, DEFAULT_SROA_PASS_PIPELINE),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 304, 10, 16, 16, 0, DEFAULT_SROA_PASS_PIPELINE),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 608, 10, 16, 16, 7, DEFAULT_SROA_PASS_PIPELINE),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 1, 1, 1, 16, 0, "default"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 1, 1, 6, 16, 3, "default"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 2, 2, 6, 16, 4, "default"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 3, 3, 16, 16, 11, "default"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 5, 7, 3, 16, 2, "default"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 5, 7, 7, 16, 5, "default"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 304, 10, 16, 16, 0, "default"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 608, 10, 16, 16, 7, "default"),
     ],
     # fmt: on
 )
@@ -169,7 +169,7 @@ def test_copy_1d_dwordx4(
     num_elements_per_thread: int,
     element_size: int,
     sched_delay_store: int,
-    pass_pipeline: str,
+    pass_pipeline_name: str,
     mcpu: str,
     wavefront_size: int = 64,
     padding_bytes: Optional[List[int]] = None,
@@ -181,6 +181,7 @@ def test_copy_1d_dwordx4(
         padding_bytes: List of padding bytes per buffer [input_padding, output_data_padding].
                        Timing buffers are excluded and get 0 padding.
     """
+    pass_pipeline = get_pass_pipeline(pass_pipeline_name)
 
     test_dir = os.path.dirname(os.path.abspath(__file__))
     mlir_file = os.path.join(test_dir, "..", mlir_filename)
@@ -325,7 +326,7 @@ if __name__ == "__main__":
         num_waves=args.num_waves,
         element_size=args.element_size,
         sched_delay_store=args.sched_delay_store,
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline_name="default",
         mcpu=args.mcpu,
         wavefront_size=args.wavefront_size,
         padding_bytes=args.padding_bytes,

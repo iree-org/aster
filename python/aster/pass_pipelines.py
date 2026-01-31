@@ -282,3 +282,36 @@ FUTURE_SROA_PASS_PIPELINE = builtin_module(
     PHASE_REGISTER_ALLOCATION,
     phase_nop_insertion(delays=0)
 )
+
+# --------------------------------------------------------------------------- #
+# Pass pipeline registry for pytest parametrization
+# --------------------------------------------------------------------------- #
+
+# Maps short readable names to actual pipeline strings
+PASS_PIPELINES = {
+    "default": DEFAULT_SROA_PASS_PIPELINE,
+    "synchronous": TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
+    "future": FUTURE_SROA_PASS_PIPELINE,
+    "nanobench": NANOBENCH_PASS_PIPELINE,
+    "loop": TEST_LOOP_PASS_PIPELINE,
+    "empty": EMPTY_PASS_PIPELINE,
+    "minimal": MINIMAL_PASS_PIPELINE,
+}
+
+
+def get_pass_pipeline(name: str) -> str:
+    """Get a pass pipeline by its short name.
+
+    Args:
+        name: Short name of the pipeline (e.g., 'default', 'synchronous', 'future')
+
+    Returns:
+        The actual pass pipeline string
+
+    Raises:
+        KeyError: If the pipeline name is not found
+    """
+    if name not in PASS_PIPELINES:
+        available = ", ".join(sorted(PASS_PIPELINES.keys()))
+        raise KeyError(f"Unknown pass pipeline '{name}'. Available: {available}")
+    return PASS_PIPELINES[name]

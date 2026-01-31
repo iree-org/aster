@@ -4,11 +4,7 @@ import argparse
 import pytest
 
 from aster import ir
-from aster.pass_pipelines import (
-    DEFAULT_SROA_PASS_PIPELINE,
-    FUTURE_SROA_PASS_PIPELINE,
-    TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
-)
+from aster.pass_pipelines import get_pass_pipeline
 from mlir_kernels.common import get_library_paths
 from mlir_kernels.kernel_utils import (
     GEMMConfig,
@@ -48,14 +44,7 @@ from mlir_kernels.test.test_utils import (
     ],
     # fmt: on
 )
-@pytest.mark.parametrize(
-    "pass_pipeline",
-    [
-        DEFAULT_SROA_PASS_PIPELINE,
-        TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
-        FUTURE_SROA_PASS_PIPELINE,
-    ],
-)
+@pytest.mark.parametrize("pass_pipeline_name", ["default", "synchronous", "future"])
 @pytest.mark.parametrize("mcpu", ["gfx942"])
 def test_gemm_e2e_kernel(
     mlir_filename: str,
@@ -66,11 +55,12 @@ def test_gemm_e2e_kernel(
     m_tile: int,
     n_tile: int,
     k_tile: int,
-    pass_pipeline: str,
+    pass_pipeline_name: str,
     mcpu: str,
     wavefront_size: int = 64,
 ):
     """Test GEMM 1-wave kernel execution."""
+    pass_pipeline = get_pass_pipeline(pass_pipeline_name)
     try:
         config = GEMMConfig(
             m=m,
@@ -158,6 +148,6 @@ if __name__ == "__main__":
         m_tile=args.m_tile,
         n_tile=args.n_tile,
         k_tile=args.k_tile,
-        pass_pipeline=FUTURE_SROA_PASS_PIPELINE,
+        pass_pipeline_name="default",
         mcpu=args.mcpu,
     )
