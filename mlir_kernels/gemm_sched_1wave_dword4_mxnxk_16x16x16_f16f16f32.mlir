@@ -225,10 +225,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %lds_desc_read_a = aster_utils.struct_create(%lds_a_base_off, %mm_pos_a, %kk_pos_a, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
             %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
               %lds_desc_read_a, %false)
-
+              {sched.delay = 4 : i64, sched.rate = 1 : i64}
               : (!lds_position_descriptor_2d, i1) -> !vx2
             memref.store %a_frag, %a_frag_memref[%k, %mm, %kk] : memref<?x?x?x!vx2>
-          }
+          } {sched.delay = 4 : i64, sched.rate = 1 : i64}
 
           // LDS read B: execute when mm == 0 (tile reuse across mm iterations)
           scf.if %cond_mm_zero {
@@ -237,14 +237,14 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %lds_desc_read_b = aster_utils.struct_create(%lds_b_base_off, %nn_pos_b, %kk_pos_b, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
             %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
               %lds_desc_read_b, %false)
-
+              {sched.delay = 4 : i64, sched.rate = 1 : i64}
               : (!lds_position_descriptor_2d, i1) -> !vx2
             memref.store %b_frag, %b_frag_memref[%k, %nn, %kk] : memref<?x?x?x!vx2>
-          }
+          } {sched.delay = 4 : i64, sched.rate = 1 : i64}
 
           // MFMA (decoupled from LDS reads via memrefs)
           func.call @mfma(%k, %mm, %nn, %kk, %a_frag_memref, %b_frag_memref, %c_fragments)
-
+              {sched.delay = 10 : i64, sched.rate = 1 : i64}
             : (index, index, index, index, memref<?x?x?x!vx2>, memref<?x?x?x!vx2>, memref<?x?x!vx4>) -> ()
 
           // Store C fragment back to global memory (only at last K iteration)
@@ -265,8 +265,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             // with proper row offsets.
             %true_store = arith.constant true
             func.call @global_store_wave_16x16xf32_C_fragment_wait(%acc, %tensor_desc_c, %true_store)
+                {sched.delay = 12 : i64, sched.rate = 1 : i64}
               : (!vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
-          }
+          } {sched.delay = 12 : i64, sched.rate = 1 : i64}
 
       } {aster.constexpr, sched.dims = array<i64: {{LOOP_SIZE_D_MMNNKK}}> }
     } {aster.constexpr}
