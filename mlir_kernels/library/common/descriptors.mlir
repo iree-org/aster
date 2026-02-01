@@ -127,6 +127,21 @@
 //   - offset: base offset for indexing (allows K-iteration separation)
 !return_value_descriptor_1d_vx2 = !aster_utils.struct<memref: memref<?x!vx2>, offset: index>
 
+// A 1D descriptor for future global read values containing:
+//   - memref: the memref to store futures into
+//   - offset: base offset for indexing
+!future_global_read_descriptor_1d = !aster_utils.struct<memref: memref<?x!future_global_read_any>, offset: index>
+
+// A 1D descriptor for future LDS read values containing:
+//   - memref: the memref to store futures into
+//   - offset: base offset for indexing
+!future_lds_read_descriptor_1d = !aster_utils.struct<memref: memref<?x!future_lds_read_any>, offset: index>
+
+// A 1D descriptor for write tokens containing:
+//   - memref: the memref to store write tokens into
+//   - offset: base offset for indexing
+!write_token_descriptor_1d = !aster_utils.struct<memref: memref<?x!future_lds_write>, offset: index>
+
 //===----------------------------------------------------------------------===//
 // Mem2reg parameter descriptors
 //===----------------------------------------------------------------------===//

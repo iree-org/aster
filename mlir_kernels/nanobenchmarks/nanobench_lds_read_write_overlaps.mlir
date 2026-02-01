@@ -17,6 +17,7 @@
 !future_global_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 !future_lds_write = !amdgcn.write_token<shared>
 !future_lds_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
+!future_global_read_descriptor_1d = !aster_utils.struct<memref: memref<?x!future_global_read_any>, offset: index>
 
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   //===--------------------------------------------------------------------===//
@@ -25,7 +26,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
   // From multi-tile-copies.mlir
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
     !tensor_position_descriptor_2level_2d, index, index,
-    memref<?x!future_global_read_any>)
+    !future_global_read_descriptor_1d)
 
   // From copies.mlir - single-tile variants
   func.func private @lds_write_wave_256xf16_via_dwordx2_future(
@@ -73,6 +74,9 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     // Allocate memrefs for multi-tile operations
     %load_futures_1d = memref.alloca(%NUM_TILES) : memref<?x!future_global_read_any>
 
+    // Create descriptor for future memref (offset=0)
+    %load_futures_desc = aster_utils.struct_create(%load_futures_1d, %c0) : (memref<?x!future_global_read_any>, index) -> !future_global_read_descriptor_1d
+
     // Outer timing loop
     scf.for %iter = %c0 to %NUM_ITERS step %c1 {
       //-----------------------------------------------------------
@@ -80,8 +84,8 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       //-----------------------------------------------------------
       %tensor_desc = aster_utils.struct_create(%arg0_raw, %c0, %c0, %global_stride_bytes, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
       func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
-        %tensor_desc, %NUM_TILES_I, %NUM_TILES_J, %load_futures_1d)
-        : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!future_global_read_any>) -> ()
+        %tensor_desc, %NUM_TILES_I, %NUM_TILES_J, %load_futures_desc)
+        : (!tensor_position_descriptor_2level_2d, index, index, !future_global_read_descriptor_1d) -> ()
 
       //-----------------------------------------------------------
       // For each tile, interleave:
