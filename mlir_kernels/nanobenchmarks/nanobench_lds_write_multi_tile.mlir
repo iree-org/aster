@@ -8,7 +8,7 @@
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // From multi-tile-copies.mlir
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
-    !lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
+    !lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index)
 
   amdgcn.kernel @nanobench_lds_write_multi_tile
   attributes {shared_memory_size = {{LDS_SIZE}} : i32, block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>} {
@@ -39,8 +39,8 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     scf.for %iter = %c0 to %NUM_ITERS step %c1 {
       // Call the LDS write function with garbage register values
       func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
-        %lds_desc, %NT_I, %NT_J, %load_memref)
-        : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+        %lds_desc, %NT_I, %NT_J, %load_memref, %c0)
+        : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index) -> ()
     } {aster.constexpr}
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0

@@ -102,7 +102,8 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
     %tensor_desc: !tensor_position_descriptor_2level_2d,
     %m_tiles: index,
     %n_tiles: index,
-    %result_memref: memref<?x!vx2>
+    %result_memref: memref<?x!vx2>,
+    %memref_offset: index
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -120,14 +121,15 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
     // TODO: use amdgcn-convert-waits pass instead
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
-    // Extract values from futures and store in result_memref (linearized)
+    // Extract values from futures and store in result_memref (linearized, with offset)
     scf.for %idx = %c0 to %num_tiles step %c1 {
       %future = memref.load %future_memref[%idx] : memref<?x!future_global_read_any>
       %value_any, %token = aster_utils.struct_extract %future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
     // TODO: use amdgcn-convert-waits pass instead
     // amdgcn.wait deps %token : !amdgcn.read_token<flat>
       %value = aster_utils.from_any %value_any : !vx2
-      memref.store %value, %result_memref[%idx] : memref<?x!vx2>
+      %store_idx = affine.apply affine_map<()[idx, offset] -> (idx + offset)>()[%idx, %memref_offset]
+      memref.store %value, %result_memref[%store_idx] : memref<?x!vx2>
     } {aster.constexpr}
 
     return
@@ -286,6 +288,7 @@ amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
     %m_tiles: index,
     %n_tiles: index,
     %values_memref: memref<?x!vx2>,
+    %memref_offset: index,
     %token_memref: memref<?x!amdgcn.write_token<shared>>
   ) {
     %c0 = arith.constant 0 : index
@@ -308,8 +311,9 @@ amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
         // Compute linear index
         %idx = affine.apply affine_map<()[i, j, n] -> (i * n + j)>()[%i, %j, %n_tiles]
 
-        // Load value from memref
-        %value = memref.load %values_memref[%idx] : memref<?x!vx2>
+        // Load value from memref (with offset)
+        %load_idx = affine.apply affine_map<()[idx, offset] -> (idx + offset)>()[%idx, %memref_offset]
+        %value = memref.load %values_memref[%load_idx] : memref<?x!vx2>
 
         // Compute minor-tile positions
         %mm_pos = affine.apply affine_map<()[base, i, n_rows] -> (base + i * n_rows)>()[%mm_pos_base, %i, %n_rows]
@@ -335,7 +339,8 @@ amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
     %lds_desc: !lds_position_descriptor_2level_2d,
     %m_tiles: index,
     %n_tiles: index,
-    %values_memref: memref<?x!vx2>
+    %values_memref: memref<?x!vx2>,
+    %memref_offset: index
   ) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -346,8 +351,8 @@ amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
 
     // Call future variant to issue all writes
     func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_future(
-      %lds_desc, %m_tiles, %n_tiles, %values_memref, %token_memref)
-      : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, memref<?x!amdgcn.write_token<shared>>) -> ()
+      %lds_desc, %m_tiles, %n_tiles, %values_memref, %memref_offset, %token_memref)
+      : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index, memref<?x!amdgcn.write_token<shared>>) -> ()
 
     // Wait on all writes via s_waitcnt
     // TODO: use amdgcn-convert-waits pass instead

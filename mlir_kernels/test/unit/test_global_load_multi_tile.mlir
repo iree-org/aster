@@ -29,8 +29,8 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   // From simple-copies.mlir
   func.func private @simple_lds_to_global_wave_16x16xf16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
   // From multi-tile-copies.mlir (1D linearized memrefs)
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
-  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
+  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index)
+  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index)
 
   //===--------------------------------------------------------------------===//
   // Global <-> LDS
@@ -83,8 +83,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
           %global_load_desc,          // tensor_position_descriptor_2level_2d
           %c2, %c4,                   // m_tiles=2, n_tiles=4
-          %memref                     // result memref (1D linearized)
-        ) : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+          %memref,                    // result memref (1D linearized)
+          %c0                         // memref_offset=0
+        ) : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index) -> ()
 
         // Write all tiles to LDS using multi-tile LDS write (with non-zero base offset)
         // Create 2-level LDS descriptor: lds_base=0, mm_pos/nn_pos=minor tile base
@@ -92,8 +93,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
           %lds_write_desc,            // lds_position_descriptor_2level_2d
           %c2, %c4,                   // m_tiles=2, n_tiles=4
-          %memref                     // values memref (1D linearized)
-        ) : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+          %memref,                    // values memref (1D linearized)
+          %c0                         // memref_offset=0
+        ) : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index) -> ()
 
         // Read back from LDS and store to output for each tile using lds_to_global
         scf.for %mt = %c0 to %c2 step %c1 {

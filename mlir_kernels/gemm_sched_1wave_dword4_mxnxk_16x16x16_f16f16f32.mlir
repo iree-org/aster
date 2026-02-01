@@ -37,9 +37,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     !vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
   // From multi-tile-copies.mlir
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
-    !tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
+    !tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index)
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
-    !lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>)
+    !lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index)
 
   // Perform MFMA: load fragments, compute, store result fragment
   func.func private @mfma(
@@ -110,11 +110,14 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // Allocate registers for the C fragment
     %c_fragments = memref.alloca(%MM, %NN) : memref<?x?x!vx4>
 
-    // Allocate memrefs for decoupled global loads -> DS writes (linearized: [NT_I*NT_J])
+    // Allocate memrefs for decoupled global loads -> DS writes
+    // Size includes K dimension to avoid clobbers across K iterations: K * NT_I * NT_J
     %NT_MK = affine.apply affine_map<()[NT_M, NT_K] -> (NT_M * NT_K)>()[%NT_M, %NT_K]
     %NT_NK = affine.apply affine_map<()[NT_N, NT_K] -> (NT_N * NT_K)>()[%NT_N, %NT_K]
-    %a_load_memref = memref.alloca(%NT_MK) : memref<?x!vx2>
-    %b_load_memref = memref.alloca(%NT_NK) : memref<?x!vx2>
+    %K_times_NT_MK = affine.apply affine_map<()[K, NT_MK] -> (K * NT_MK)>()[%K, %NT_MK]
+    %K_times_NT_NK = affine.apply affine_map<()[K, NT_NK] -> (K * NT_NK)>()[%K, %NT_NK]
+    %a_load_memref = memref.alloca(%K_times_NT_MK) : memref<?x!vx2>
+    %b_load_memref = memref.alloca(%K_times_NT_NK) : memref<?x!vx2>
 
     // Allocate memrefs for decoupled LDS reads -> mfma
     %a_frag_memref = memref.alloca(%K, %MM, %KK) : memref<?x?x?x!vx2>
@@ -123,6 +126,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // M, N are fully distributed to blocks.
     // Loop over remaining 4-D tile **distributed** tile index (K, MM, NN, KK)
     scf.for %k = %c0 to %K step %c1 {
+      // Compute memref offsets for this K iteration to avoid clobbers
+      %k_offset_a = affine.apply affine_map<()[k, NT_MK] -> (k * NT_MK)>()[%k, %NT_MK]
+      %k_offset_b = affine.apply affine_map<()[k, NT_NK] -> (k * NT_NK)>()[%k, %NT_NK]
+
       %ub = affine.apply affine_map<()[MM, NN, KK] ->
           (MM * NN * KK)>
         ()[%MM, %NN, %KK]
@@ -147,8 +154,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %kk_pos_load = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
             %tensor_desc_a = aster_utils.struct_create(%a_global, %m_pos, %k_pos, %global_stride_a, %mm_pos_load, %kk_pos_load, %elt_size_a) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
             func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
-              %tensor_desc_a, %NT_M, %NT_K, %a_load_memref)
-              : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+              %tensor_desc_a, %NT_M, %NT_K, %a_load_memref, %k_offset_a)
+              : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index) -> ()
           }
 
           // Multi-tile global load B: execute when mm == 0 AND nn % NT_N == 0 AND kk % NT_K == 0
@@ -167,8 +174,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %kk_pos_load_b = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
             %tensor_desc_b = aster_utils.struct_create(%b_global, %n_pos, %k_pos, %global_stride_b, %nn_pos_load, %kk_pos_load_b, %elt_size_b) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
             func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
-              %tensor_desc_b, %NT_N, %NT_K, %b_load_memref)
-              : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+              %tensor_desc_b, %NT_N, %NT_K, %b_load_memref, %k_offset_b)
+              : (!tensor_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index) -> ()
           }
 
           // Multi-tile DS writes
@@ -183,8 +190,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %kk_pos_lds = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
             %lds_desc_a = aster_utils.struct_create(%lds_a_base_off, %mm_pos_lds, %kk_pos_lds, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
             func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
-              %lds_desc_a, %NT_M, %NT_K, %a_load_memref)
-              : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+              %lds_desc_a, %NT_M, %NT_K, %a_load_memref, %k_offset_a)
+              : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index) -> ()
           }
 
           // Multi-tile DS write B: execute when mm == 0 AND nn/kk aligned
@@ -194,8 +201,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %kk_pos_lds_b = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
             %lds_desc_b = aster_utils.struct_create(%lds_b_base_off, %nn_pos_lds, %kk_pos_lds_b, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
             func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
-              %lds_desc_b, %NT_N, %NT_K, %b_load_memref)
-              : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>) -> ()
+              %lds_desc_b, %NT_N, %NT_K, %b_load_memref, %k_offset_b)
+              : (!lds_position_descriptor_2level_2d, index, index, memref<?x!vx2>, index) -> ()
           }
 
           // Initialize C fragment (only at first K iteration: k == 0 && kk == 0)
