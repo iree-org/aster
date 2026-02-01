@@ -119,11 +119,22 @@ static int computeMaxOperandDelay(Operation *op,
   return maxDelay;
 }
 
+/// Propagate schedule from a parent operation to all nested operations.
+static void propagateScheduleToNestedOps(Operation *parent) {
+  for (Region &region : parent->getRegions()) {
+    region.walk([&](Operation *nestedOp) {
+      if (!hasSchedule(nestedOp))
+        copyScheduleAttributes(parent, nestedOp);
+    });
+  }
+}
+
 /// Apply autoschedules to operations that don't have explicit ones.
 /// Returns failure if conflicting constraints are detected.
 static LogicalResult
 applyAutoschedules(SmallVector<Operation *> &opsToSchedule) {
-  // Process each operation without a schedule (in reverse order)
+  // Phase 1: Autoschedule all top-level ops (in reverse order)
+  // Does not recurse into nested regions.
   for (size_t i = opsToSchedule.size(); i > 0; --i) {
     Operation *op = opsToSchedule[i - 1];
     if (hasSchedule(op))
@@ -182,6 +193,16 @@ applyAutoschedules(SmallVector<Operation *> &opsToSchedule) {
            << "' gets schedule (delay=" << minDelayFromOperands
            << ", rate=1) based on operand constraints\n";
   }
+
+  // Phase 2: Propagate schedule to nested ops for ops with regions
+  for (Operation *op : opsToSchedule) {
+    if (op->getNumRegions() > 0) {
+      propagateScheduleToNestedOps(op);
+      LDBG() << "Propagated schedule to nested ops of '" << op->getName()
+             << "'\n";
+    }
+  }
+
   return success();
 }
 

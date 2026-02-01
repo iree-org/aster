@@ -232,6 +232,8 @@ createOpSchedule(OpBuilder &b, const FiringExpressionsAndBounds &firingData,
 }
 
 /// Collect all operations that should be scheduled from a loop body.
+/// Only collects top-level operations - does not recurse into nested regions.
+/// Operations with regions (scf.if, etc.) are scheduled as atomic units.
 static SmallVector<Operation *> collectOpsToSchedule(scf::ForOp forOp) {
   SmallVector<Operation *> opsToSchedule;
   Block *loopBody = forOp.getBody();
@@ -244,46 +246,93 @@ static SmallVector<Operation *> collectOpsToSchedule(scf::ForOp forOp) {
   return opsToSchedule;
 }
 
-/// Validates that all operands of an operation can be properly mapped
-/// before cloning. Emits warnings for violations but doesn't fail.
+/// Check if a value needs to be in the mapping (i.e., it's defined inside the
+/// loop body and not a block argument).
+static bool needsMapping(Value value, Region *loopRegion) {
+  // Block arguments (like loop IV) should already be in mapping
+  if (isa<BlockArgument>(value))
+    return true;
+  // Values defined inside the loop need mapping
+  Operation *defOp = value.getDefiningOp();
+  return defOp && loopRegion->isAncestor(defOp->getParentRegion());
+}
+
+/// Validates that all operands of an operation (including those in nested
+/// regions) can be properly mapped before cloning. Emits errors for violations.
 static LogicalResult validateOperandMappings(const ScheduledOp &schedOp,
-                                             const IRMapping &mapping) {
+                                             const IRMapping &mapping,
+                                             Region *loopRegion) {
+  // Check top-level operands
   for (OpOperand &operand : schedOp.op->getOpOperands()) {
     Value originalOperand = operand.get();
-
-    // Check if it's in the IRMapping
-    if (!mapping.contains(originalOperand)) {
+    if (needsMapping(originalOperand, loopRegion) &&
+        !mapping.contains(originalOperand)) {
       Operation *definingOp = originalOperand.getDefiningOp();
       if (definingOp) {
-        schedOp.op->emitWarning()
+        schedOp.op->emitError()
             << "op scheduling: '" << schedOp.op->getName() << "' depends on '"
             << originalOperand << "' produced by '" << definingOp->getName()
             << "' which hasn't been cloned yet for this iteration instance. "
                "This indicates a scheduling violation - operations must be "
-               "scheduled in dependency order. Check delay/rate attributes. "
-               "Pass fails gracefully.";
+               "scheduled in dependency order. Check delay/rate attributes.";
       } else {
-        schedOp.op->emitWarning()
+        schedOp.op->emitError()
             << "op scheduling: '" << schedOp.op->getName() << "' depends on '"
             << originalOperand
             << "' which isn't in the mapping. This indicates a scheduling "
-               "violation. Check delay/rate attributes. Pass fails gracefully.";
+               "violation. Check delay/rate attributes.";
       }
-      // Pass fails gracefully.
       return failure();
     }
   }
+
+  // Check operands inside nested regions (for scf.if, etc.)
+  // Only check operands that come from OUTSIDE the nested region.
+  // Operands from within the same region will be cloned together.
+  for (Region &region : schedOp.op->getRegions()) {
+    WalkResult result = region.walk([&](Operation *nestedOp) {
+      for (OpOperand &operand : nestedOp->getOpOperands()) {
+        Value val = operand.get();
+
+        // Skip if operand is defined within this nested region (will be cloned
+        // together)
+        if (Operation *defOp = val.getDefiningOp()) {
+          if (region.isAncestor(defOp->getParentRegion()))
+            continue;
+        }
+
+        // Check if this external operand needs mapping and isn't available
+        if (needsMapping(val, loopRegion) && !mapping.contains(val)) {
+          Operation *defOp = val.getDefiningOp();
+          nestedOp->emitError()
+              << "op scheduling: operation inside nested region uses '" << val
+              << "' produced by '"
+              << (defOp ? defOp->getName().getStringRef() : "block argument")
+              << "' which hasn't been cloned yet. The enclosing '"
+              << schedOp.op->getName()
+              << "' has a schedule that fires before this dependency. "
+                 "Ensure operations used inside nested regions have delays <= "
+                 "the enclosing operation's delay.";
+          return WalkResult::interrupt();
+        }
+      }
+      return WalkResult::advance();
+    });
+    if (result.wasInterrupted())
+      return failure();
+  }
+
   return success();
 }
 
 /// Clone and insert operations in scheduled order, setting unroll attributes.
 /// Maintains SSA use-def chains by remapping operands to cloned producers.
-/// Returns the list of cloned operations on success, or an empty vector on
-/// failure.
+/// Returns the list of cloned operations on success, or failure if there are
+/// scheduling violations (e.g., operand not yet cloned).
 static FailureOr<SmallVector<Operation *>>
 materializeOpSchedule(OpBuilder &b, ArrayRef<ScheduledOp> scheduledOps,
                       llvm::DenseMap<MappingInstance, IRMapping> &irMappings,
-                      bool testOnly) {
+                      Region *loopRegion, bool testOnly) {
   assert(!scheduledOps.empty() && "expected ops to schedule");
   Block *block = scheduledOps.front().op->getBlock();
   assert(block && "expected block");
@@ -303,8 +352,8 @@ materializeOpSchedule(OpBuilder &b, ArrayRef<ScheduledOp> scheduledOps,
   for (const ScheduledOp &schedOp : scheduledOps) {
     IRMapping &mapping = irMappings[schedOp.iterationIndices];
 
-    // Validate that all operands can be mapped before cloning
-    if (failed(validateOperandMappings(schedOp, mapping))) {
+    // Validate that all operands (including in nested regions) can be mapped
+    if (failed(validateOperandMappings(schedOp, mapping, loopRegion))) {
       tempBlock->erase();
       return failure();
     }
@@ -335,31 +384,35 @@ public:
   using OpSchedulingBase::OpSchedulingBase;
 
   void runOnOperation() override {
-    // Walk through all scf.for loops in the module
-    getOperation()->walk([&](scf::ForOp forOp) { processLoop(forOp); });
+    bool failed = false;
+    getOperation()->walk([&](scf::ForOp forOp) {
+      if (mlir::failed(processLoop(forOp)))
+        failed = true;
+    });
+    if (failed)
+      signalPassFailure();
   }
 
 private:
-  void processLoop(scf::ForOp forOp) {
+  LogicalResult processLoop(scf::ForOp forOp) {
     // Get dimensions from the loop's sched.dims attribute
     auto dimsAttr = forOp->getAttrOfType<DenseI64ArrayAttr>(kSchedDimsAttr);
     // No dimsAttr, no scheduling, no need for a warning.
     if (!dimsAttr)
-      return;
+      return success();
 
     if (forOp.getNumResults() > 0) {
-      forOp.emitWarning()
-          << "op scheduling: skipping loop - loop yields values. Operation "
-             "scheduling only supports loops that don't yield values atm.";
-      return;
+      forOp.emitError()
+          << "op scheduling: loop yields values. Operation "
+             "scheduling only supports loops that don't yield values.";
+      return failure();
     }
 
     auto maybeConstantTripCount = forOp.getStaticTripCount();
     if (!maybeConstantTripCount.has_value()) {
-      forOp.emitWarning()
-          << "op scheduling: skipping loop - dynamic bounds detected. "
-             "Operation scheduling requires constant trip count atm.";
-      return;
+      forOp.emitError() << "op scheduling: dynamic bounds detected. "
+                           "Operation scheduling requires constant trip count.";
+      return failure();
     }
 
     SmallVector<int64_t> shape;
@@ -372,20 +425,19 @@ private:
     });
 
     if (totalNumIterations != computeProduct(shape)) {
-      forOp.emitWarning()
-          << "op scheduling: skipping loop - trip count (" << totalNumIterations
+      forOp.emitError()
+          << "op scheduling: trip count (" << totalNumIterations
           << ") does not match product of dimensions (" << computeProduct(shape)
           << "). Ensure 'sched.dims' matches the actual loop iteration space.";
-      return;
+      return failure();
     }
 
     // Collect operations to schedule within the loop body
     SmallVector<Operation *> opsToSchedule = collectOpsToSchedule(forOp);
     if (opsToSchedule.empty()) {
-      forOp.emitWarning()
-          << "op scheduling: skipping loop - no operations to schedule in "
-             "loop body (only terminator found).";
-      return;
+      forOp.emitError() << "op scheduling: no operations to schedule in "
+                           "loop body (only terminator found).";
+      return failure();
     }
 
     LDBG_OS([&](raw_ostream &os) {
@@ -428,14 +480,13 @@ private:
       irMappings[mappingInstance] = mapping;
     }
 
-    FailureOr<SmallVector<Operation *>> clonedOps =
-        materializeOpSchedule(b, scheduledOps, irMappings, testOnly);
+    FailureOr<SmallVector<Operation *>> clonedOps = materializeOpSchedule(
+        b, scheduledOps, irMappings, &forOp.getRegion(), testOnly);
     if (failed(clonedOps)) {
-      forOp.emitWarning()
+      forOp.emitError()
           << "op scheduling: failed to materialize operation schedule. "
-             "Check previous warnings for scheduling violations. Loop will "
-             "not be unrolled.";
-      return;
+             "Check previous errors for scheduling violations.";
+      return failure();
     }
 
     // Move all the cloned operations before the loop
@@ -444,6 +495,8 @@ private:
 
     // Erase the original loop
     forOp.erase();
+
+    return success();
   }
 };
 } // namespace mlir::aster

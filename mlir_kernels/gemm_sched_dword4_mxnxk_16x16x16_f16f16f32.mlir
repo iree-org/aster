@@ -466,7 +466,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %sched_desc, %dims_desc,
         %tensor_desc_a, %tensor_desc_b, %k_pos,
         %a_load_memref, %b_load_memref)
-        {sched.delay = 0 : i64, sched.rate = 1 : i64}
         : (!sched_phase_descriptor, !distributed_dims_descriptor,
            !tensor_position_descriptor_2d, !tensor_position_descriptor_2d, index,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
@@ -476,7 +475,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %sched_desc, %dims_desc,
         %lds_desc_a, %lds_desc_b,
         %a_load_memref, %b_load_memref)
-        {sched.delay = 0 : i64, sched.rate = 1 : i64}
         : (!sched_phase_descriptor, !distributed_dims_descriptor,
            !lds_position_descriptor_2d, !lds_position_descriptor_2d,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
@@ -486,7 +484,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         %sched_desc, %dims_desc,
         %lds_desc_a, %lds_desc_b,
         %a_frag_memref, %b_frag_memref)
-        {sched.delay = 0 : i64, sched.rate = 1 : i64}
         : (!sched_phase_descriptor, !distributed_dims_descriptor,
            !lds_position_descriptor_2d, !lds_position_descriptor_2d,
            memref<?x?x!vx2>, memref<?x?x!vx2>) -> ()
@@ -495,18 +492,16 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       func.call @maybe_mfma(
         %sched_desc, %dims_desc,
         %a_frag_memref, %b_frag_memref, %c_fragments)
-        {sched.delay = 6 : i64, sched.rate = 1 : i64}
         : (!sched_phase_descriptor, !distributed_dims_descriptor,
            memref<?x?x!vx2>, memref<?x?x!vx2>, memref<?x!vx4>) -> ()
 
       // Phase 2: Store C fragment back to global memory
       func.call @maybe_global_store_wave_16x16xf32_C_fragment(
         %sched_desc, %dims_desc, %tensor_desc_c, %c_fragments)
-          {sched.delay = 12 : i64, sched.rate = 1 : i64}
         : (!sched_phase_descriptor, !distributed_dims_descriptor,
            !tensor_position_descriptor_2d, memref<?x!vx4>) -> ()
 
-    } {aster.constexpr, sched.dims = array<i64: {{SIZE_K_BY_TILE_SIZE_K}}, 3, {{LOOP_SIZE_D_MMNNKK}}> }
+    } {aster.constexpr}
 
     return
   }
