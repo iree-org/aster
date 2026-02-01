@@ -3,6 +3,37 @@
 // Provides multi-tile variants of the copy primitives in copies.mlir.
 // Multi-tile operations process multiple 16x16 tiles at once for better memory
 // coalescing and to enable overlapped execution patterns.
+//
+//===-----------------------------------------------------------------------===//
+// DESIGN NOTE: Linearized Return Value Descriptors for API Composition
+//===-----------------------------------------------------------------------===//
+//
+// All return values (futures, tokens, values) use 1D linearized memrefs with
+// offset descriptors (e.g., !return_value_descriptor_1d_vx2). This design is
+// useful for API composition:
+//
+// 1. SROA and mem2reg compatibility: Return values stored in memrefs will be
+//    subject to Scalar Replacement of Aggregates (SROA) and mem2reg passes.
+//    These passes work best with simple 1D layouts where each element has a
+//    unique, statically-determinable index.
+//
+// 2. Composable offsets: When composing operations (e.g., K-loop iterations),
+//    each call can write to a different region of the same memref by passing
+//    different offsets. This avoids needing separate allocations per iteration
+//    and prevents value clobbering.
+//
+// 3. Descriptor uniformity: While position descriptors for memory operations
+//    (tensor, LDS) may naturally be 2D or multi-level, return value descriptors
+//    should always be linearized. The caller linearizes tile indices (e.g.,
+//    i * n_tiles + j) and passes an offset to partition the output space.
+//
+// Example composition pattern:
+//   %result_memref = memref.alloca(%K_times_num_tiles) : memref<?x!vx2>
+//   scf.for %k = 0 to %K {
+//     %offset = affine.apply (k * num_tiles)
+//     %desc = struct_create(%result_memref, %offset) -> !return_value_descriptor_1d_vx2
+//     call @multi_tile_load(..., %desc)  // writes to [offset, offset+num_tiles)
+//   }
 
 // Drive this through pytest, only check input IR validity here.
 // RUN: cat %s \
@@ -29,7 +60,11 @@
 // !tensor_position_descriptor_2level_2d and tile counts (m_tiles, n_tiles).
 //
 // Loads m_tiles x n_tiles 16x16xf16 tiles (256xf16 each) via dwordx2.
-// Results stored in linearized memref.
+//
+// Return value design: Results stored in linearized 1D memref via descriptor.
+// The 2D tile indices (i, j) are linearized to (i * n_tiles + j) + offset.
+// This enables SROA/mem2reg optimization and composable K-loop patterns where
+// each iteration writes to a distinct region of the same output memref.
 //===-----------------------------------------------------------------------===//
 amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From copies.mlir
@@ -44,17 +79,22 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
   // Each tile is 256 f16 elements loaded via dwordx2 (4xf16 per thread, 64 threads).
   //
   // Parameters:
-  //   %tensor_desc: !tensor_position_descriptor_2level_2d
+  //   %tensor_desc: !tensor_position_descriptor_2level_2d (2D position for memory access)
   //     - ptr: base pointer
   //     - m_pos, n_pos: major tile position (element coordinates)
   //     - mm_pos, nn_pos: minor tile base position within major tile
   //     - global_stride_in_bytes: row stride
   //     - elt_size: element size in bytes (2 for f16)
   //   %m_tiles, %n_tiles: number of tiles in M and N directions
-  //   %future_memref / %result_memref: output memref[m_tiles * n_tiles] (linearized)
+  //   %future_desc / %result_desc: 1D linearized output descriptor
+  //     - memref: output storage for m_tiles * n_tiles elements
+  //     - offset: base index for this call (enables K-loop composition)
   //
   // The _future variant issues all loads without waiting, storing futures.
   // The _wait variant calls _future, waits via s_waitcnt, then extracts values.
+  //
+  // IMPORTANT: Return descriptors are always 1D linearized (not 2D) to enable
+  // SROA/mem2reg and composable offset-based API patterns.
 
   // CHECK-LABEL: func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future
   func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
@@ -156,7 +196,11 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
 // parameterizable by !lds_position_descriptor_2level_2d, tile counts, and %transposed.
 //
 // Reads m_tiles x n_tiles 16x16xf16 tiles from LDS into MFMA "A" fragment layout.
-// Results stored in linearized memref; supports future/wait patterns.
+//
+// Return value design: Results stored in linearized 1D memref via descriptor.
+// The 2D tile indices (i, j) are linearized to (i * n_tiles + j) + offset.
+// This enables SROA/mem2reg optimization and composable K-loop patterns where
+// each iteration writes to a distinct region of the same output memref.
 //===-----------------------------------------------------------------------===//
 amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From copies.mlir
@@ -171,19 +215,24 @@ amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#am
   // Each tile is 256 f16 elements read via ds_read_b64 (4xf16 per thread, 64 threads).
   //
   // Parameters:
-  //   %lds_desc: !lds_position_descriptor_2level_2d
+  //   %lds_desc: !lds_position_descriptor_2level_2d (2D position for LDS access)
   //     - lds_base: base offset in LDS (bytes)
   //     - mm_pos, nn_pos: minor tile base position (element coordinates)
   //     - lds_stride_in_bytes: row stride
   //     - elt_size: element size in bytes (2 for f16)
   //   %m_tiles, %n_tiles: number of tiles in M and N directions
   //   %transposed: swaps row/col indexing for transposed layout (B matrix as A^T)
-  //   %future_memref / %result_memref: output memref[m_tiles * n_tiles] (linearized)
+  //   %future_desc / %result_desc: 1D linearized output descriptor
+  //     - memref: output storage for m_tiles * n_tiles elements
+  //     - offset: base index for this call (enables K-loop composition)
   //
   // Thread mapping follows MFMA 16x16 layout from @mfma_index_A_16x16xf16().
   //
   // The _future variant issues all reads without waiting, storing futures.
   // The _wait variant calls _future, waits via s_waitcnt, then extracts values.
+  //
+  // IMPORTANT: Return descriptors are always 1D linearized (not 2D) to enable
+  // SROA/mem2reg and composable offset-based API patterns.
 
   // CHECK-LABEL: func.func private @lds_read_wave_multi_tile_16x16xf16_fragment_future
   func.func private @lds_read_wave_multi_tile_16x16xf16_fragment_future(
@@ -283,7 +332,12 @@ amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#am
 // !lds_position_descriptor_2level_2d and tile counts (m_tiles, n_tiles).
 //
 // Writes m_tiles x n_tiles 16x16xf16 tiles (256xf16 each) via ds_write_b64.
-// Values read from VGPRs via linearized memref.
+//
+// Return value design: Input values and output tokens use linearized 1D memrefs
+// via descriptors. The 2D tile indices (i, j) are linearized to
+// (i * n_tiles + j) + offset. This enables SROA/mem2reg optimization and
+// composable K-loop patterns where each iteration operates on a distinct
+// region of the input/output memrefs.
 //===-----------------------------------------------------------------------===//
 amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From copies.mlir
@@ -298,17 +352,24 @@ amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   // Each tile is 256 f16 elements written via ds_write_b64 (4xf16 per thread, 64 threads).
   //
   // Parameters:
-  //   %lds_desc: !lds_position_descriptor_2level_2d
+  //   %lds_desc: !lds_position_descriptor_2level_2d (2D position for LDS access)
   //     - lds_base: base offset in LDS (bytes)
   //     - mm_pos, nn_pos: minor tile base position (element coordinates)
   //     - lds_stride_in_bytes: row stride
   //     - elt_size: element size in bytes (2 for f16)
   //   %m_tiles, %n_tiles: number of tiles in M and N directions
-  //   %values_memref: input memref[m_tiles * n_tiles] with values to write (linearized)
-  //   %token_memref: output memref[m_tiles * n_tiles] for write tokens (linearized, _future only)
+  //   %values_desc: 1D linearized input descriptor for values to write
+  //     - memref: input storage with m_tiles * n_tiles elements
+  //     - offset: base index for this call (enables K-loop composition)
+  //   %token_desc: 1D linearized output descriptor for write tokens (_future only)
+  //     - memref: output storage for m_tiles * n_tiles tokens
+  //     - offset: base index for this call
   //
   // The _future variant issues all writes without waiting, storing tokens.
   // The _wait variant calls _future, then waits via s_waitcnt.
+  //
+  // IMPORTANT: Value and token descriptors are always 1D linearized (not 2D)
+  // to enable SROA/mem2reg and composable offset-based API patterns.
 
   // CHECK-LABEL: func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_future
   func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_future(
