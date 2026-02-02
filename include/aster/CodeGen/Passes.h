@@ -1,4 +1,4 @@
-//===- Passes.h - LSIR passes -----------------------------------*- C++ -*-===//
+//===- Passes.h - CodeGen passes --------------------------------*- C++ -*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,24 +8,22 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file declares the passes for the LSIR dialect.
+// This file declares the passes for CodeGen.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ASTER_DIALECT_ASTER_TRANSFORMS_PASSES_H
-#define ASTER_DIALECT_ASTER_TRANSFORMS_PASSES_H
+#ifndef ASTER_CODEGEN_PASSES_H
+#define ASTER_CODEGEN_PASSES_H
 
 #include "mlir/Pass/Pass.h"
 
 namespace mlir::aster {
-namespace lsir {
 #define GEN_PASS_DECL
-#include "aster/Dialect/LSIR/Transforms/Passes.h.inc"
+#include "aster/CodeGen/Passes.h.inc"
 
 /// Generate the code for registering passes.
 #define GEN_PASS_REGISTRATION
-#include "aster/Dialect/LSIR/Transforms/Passes.h.inc"
-} // namespace lsir
+#include "aster/CodeGen/Passes.h.inc"
 } // namespace mlir::aster
 
-#endif // ASTER_DIALECT_ASTER_TRANSFORMS_PASSES_H
+#endif // ASTER_CODEGEN_PASSES_H

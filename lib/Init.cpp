@@ -9,12 +9,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Init.h"
+#include "aster/CodeGen/Passes.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
 #include "aster/Dialect/AsterUtils/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
-#include "aster/Dialect/LSIR/Transforms/Passes.h"
 #include "aster/Interfaces/UpstreamExternalModels.h"
 #include "aster/Transforms/Passes.h"
 #include "mlir/CAPI/IR.h"
@@ -379,8 +379,8 @@ void mlir::aster::initDialects(DialectRegistry &registry) {
 void mlir::aster::registerPasses() {
   amdgcn::registerAMDGCNPasses();
   aster_utils::registerAsterUtilsPasses();
-  lsir::registerLSIRPasses();
   aster::registerAsterPasses();
+  aster::registerCodeGenPasses();
 }
 
 ///

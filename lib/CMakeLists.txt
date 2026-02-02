@@ -1,5 +1,6 @@
 add_subdirectory(Analysis)
 add_subdirectory(API)
+add_subdirectory(CodeGen)
 add_subdirectory(Dialect)
 add_subdirectory(Interfaces)
 add_subdirectory(Support)
@@ -18,8 +19,8 @@ add_mlir_library(
   LINK_LIBS PRIVATE
   AMDGCNDialect
   AMDGCNTransforms
+  AsterCodeGenTransforms
   LSIRDialect
-  LSIRTransforms
   AsterUtilsDialect
   AsterUtilsTransforms
 

@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --aster-to-lsir --canonicalize | FileCheck %s
+// RUN: aster-opt %s --aster-codegen --canonicalize | FileCheck %s
 
 // CHECK-LABEL:   func.func private @test_add(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.ggpr<[? + 1], uniform = 0>, %[[ARG1:.*]]: !amdgcn.ggpr<[? + 1], uniform = 0>) -> !amdgcn.ggpr<[? + 1], uniform = 0> {
