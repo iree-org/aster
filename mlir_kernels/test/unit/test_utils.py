@@ -1,17 +1,13 @@
-"""Common utilities for unit tests."""
+"""Common utilities for unit tests.
+
+This module re-exports from aster.testing with some convenience wrappers.
+"""
 
 import os
-import pytest
-import numpy as np
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Tuple
 
-from aster import ir, utils
-from integration_test.test_utils import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-    hsaco_file,
-)
-from aster.pass_pipelines import TEST_SYNCHRONOUS_SROA_PASS_PIPELINE
+import numpy as np
+from aster.testing import compile_and_run as _compile_and_run
 from mlir_kernels.common import get_library_paths
 
 # Test configuration
@@ -42,8 +38,8 @@ def compile_and_run(
     kernel_name: str,
     input_data=None,
     output_data=None,
-    grid_dim=(1, 1, 1),
-    block_dim=(64, 1, 1),
+    grid_dim: Tuple[int, int, int] = (1, 1, 1),
+    block_dim: Tuple[int, int, int] = (64, 1, 1),
     library_paths: Optional[List[str]] = None,
     preprocess: Optional[Callable[[str], str]] = None,
     print_ir_after_all: bool = False,
@@ -68,9 +64,6 @@ def compile_and_run(
     if library_paths is None:
         library_paths = get_library_paths()
 
-    if pass_pipeline is None:
-        pass_pipeline = TEST_SYNCHRONOUS_SROA_PASS_PIPELINE
-
     # Convert single arrays to lists for compatibility
     if input_data is not None and not isinstance(input_data, list):
         input_data = [input_data]
@@ -83,35 +76,17 @@ def compile_and_run(
     if output_data is None:
         output_data = []
 
-    with ir.Context() as ctx:
-        asm_complete, module = compile_mlir_file_to_asm(
-            mlir_file,
-            kernel_name,
-            pass_pipeline,
-            ctx,
-            library_paths=library_paths,
-            print_ir_after_all=print_ir_after_all,
-            preprocess=preprocess,
-        )
-
-        hsaco_path = utils.assemble_to_hsaco(
-            asm_complete, target=MCPU, wavefront_size=WAVEFRONT_SIZE
-        )
-        if hsaco_path is None:
-            raise RuntimeError("Failed to assemble kernel to HSACO")
-
-        with hsaco_file(hsaco_path):
-            if not utils.system_has_mcpu(mcpu=MCPU):
-                print(asm_complete)
-                pytest.skip(f"GPU {MCPU} not available")
-
-            execute_kernel_and_verify(
-                hsaco_path=hsaco_path,
-                kernel_name=kernel_name,
-                input_args=input_data,
-                output_args=output_data,
-                mcpu=MCPU,
-                wavefront_size=WAVEFRONT_SIZE,
-                grid_dim=grid_dim,
-                block_dim=block_dim,
-            )
+    _compile_and_run(
+        mlir_file=mlir_file,
+        kernel_name=kernel_name,
+        input_data=input_data,
+        output_data=output_data,
+        grid_dim=grid_dim,
+        block_dim=block_dim,
+        library_paths=library_paths,
+        preprocess=preprocess,
+        print_ir_after_all=print_ir_after_all,
+        pass_pipeline=pass_pipeline,
+        mcpu=MCPU,
+        wavefront_size=WAVEFRONT_SIZE,
+    )

@@ -1,7 +1,7 @@
 """Test utilities for mlir_kernels tests.
 
-This module provides CLI argument helpers and the compile_and_run_kernel function.
-Shared config classes, preprocess, and verify functions are in
+This module provides CLI argument helpers and re-exports compile_and_run from
+aster.testing. Shared config classes, preprocess, and verify functions are in
 mlir_kernels.kernel_utils.
 """
 
@@ -11,9 +11,9 @@ from typing import Callable, Optional, List, Tuple
 import numpy as np
 
 from aster import ir, utils
-from integration_test.test_utils import (
-    execute_kernel_and_verify,
+from aster.testing import (
     compile_mlir_file_to_asm,
+    execute_kernel_and_verify,
     hsaco_file,
 )
 
