@@ -153,7 +153,7 @@ To build the project use:
 
 #### Executing all tests
 ```
-(cd build && ninja install) && lit build/test -v && pytest -n 16 ./test ./integration_test ./mlir_kernels
+(cd build && ninja install) && lit build/test -v && pytest -n 16 ./test ./integration_test ./mlir_kernels ./contrib
 ```
 
 #### Executing lit tests only
@@ -163,7 +163,7 @@ To build the project use:
 
 #### Executing pytests only
 ```
-(cd build && ninja install) && pytest -n 16 ./test ./integration_test ./mlir_kernels
+(cd build && ninja install) && pytest -n 16 ./test ./integration_test ./mlir_kernels ./contrib
 ```
 
 #### Running Python manually
