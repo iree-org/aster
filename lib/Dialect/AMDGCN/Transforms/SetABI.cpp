@@ -8,6 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 
 #include "aster/Analysis/ABIAnalysis.h"
@@ -54,8 +55,10 @@ static Type getRegTy(Type type, const ABIAnalysis &abiAnalysis) {
     return ty;
   llvm::TypeSize sz = abiAnalysis.getTypeSize(type);
   int32_t words = (sz.getFixedValue() + 3) / 4;
-  return amdgcn::GGPRType::get(type.getContext(),
-                               RegisterRange(Register(), words), false);
+  if (words == 1)
+    return amdgcn::VGPRType::get(type.getContext(), Register());
+  return amdgcn::VGPRRangeType::get(type.getContext(),
+                                    RegisterRange(Register(), words));
 }
 
 static Type getRegTy(Value value, const ABIAnalysis &abiAnalysis,
@@ -70,9 +73,17 @@ static Type getRegTy(Value value, const ABIAnalysis &abiAnalysis,
     return amdgcn::SGPRRangeType::get(value.getContext(),
                                       RegisterRange(Register(), words));
   }
-  return amdgcn::GGPRType::get(value.getContext(),
-                               RegisterRange(Register(), words),
-                               abiAnalysis.isThreadUniform(value));
+  if (std::optional<bool> isUniform = abiAnalysis.isThreadUniform(value);
+      isUniform && *isUniform) {
+    if (words == 1)
+      return amdgcn::SGPRType::get(value.getContext(), Register());
+    return amdgcn::SGPRRangeType::get(value.getContext(),
+                                      RegisterRange(Register(), words));
+  }
+  if (words == 1)
+    return amdgcn::VGPRType::get(value.getContext(), Register());
+  return amdgcn::VGPRRangeType::get(value.getContext(),
+                                    RegisterRange(Register(), words));
 }
 
 static void handleFunction(FunctionOpInterface funcOp,
@@ -141,11 +152,11 @@ static void handleFunction(FunctionOpInterface funcOp,
       if (type == nTy)
         continue;
 
-      // This type promotion is guranteed to be safe since the type must be a
-      // ggpr. Prefer non-uniform if there is a conflict.
-      auto lhs = cast<amdgcn::GGPRType>(type);
-      if (!lhs.getIsUniform())
-        nTy = lhs;
+      // Prefer VGPR over SGPR if there is a conflict.
+      if (auto regType = dyn_cast<amdgcn::AMDGCNRegisterTypeInterface>(type)) {
+        if (regType.getRegisterKind() == RegisterKind::VGPR)
+          nTy = type;
+      }
       outs.push_back(nTy);
     }
   }

@@ -123,8 +123,6 @@ PHASE_LOWER_TO_AMDGCN = (
     "amdgcn-convert-scf-control-flow",
     "canonicalize", "cse",
     "aster-codegen",
-    "canonicalize", "cse",
-    "aster-amdgcn-select-reg-classes",
     "canonicalize", "cse", "canonicalize",
     "aster-to-amdgcn",
 )

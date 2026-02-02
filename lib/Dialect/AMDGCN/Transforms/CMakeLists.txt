@@ -16,7 +16,6 @@ add_mlir_library(
   RegisterDealloc.cpp
   RemoveTestInst.cpp
   SetABI.cpp
-  SelectRegClasses.cpp
   ToAMDGCN.cpp
   ToAMDGCNPatterns.cpp
 

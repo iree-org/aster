@@ -135,10 +135,6 @@ def ExpandMetadataOps : Pass<"aster-amdgcn-expand-md-ops", "::mlir::aster::amdgc
   ];
 }
 
-def SelectRegClasses : InterfacePass<"aster-amdgcn-select-reg-classes", "mlir::aster::ModuleOpInterface"> {
-  let summary = "Select register classes for AMDGCN instructions";
-}
-
 def PreloadLibrary : Pass<"amdgcn-preload-library", "mlir::ModuleOp"> {
   let summary = "Preload AMDGCN library functions into modules";
   let description = [{

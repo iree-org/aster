@@ -32,49 +32,6 @@ class AMDGCN_RegisterDef<string name, string typeMnemonic, list<Trait> traits = 
 }
 
 //===----------------------------------------------------------------------===//
-// Generic register type
-//===----------------------------------------------------------------------===//
-
-def GenericRegisterType
-    : AMDGCN_RegisterDef<"GGPR", "ggpr", [MemRefElementTypeInterface]> {
-  let summary = "Generic register type";
-  let parameters = (ins
-    DefaultValuedParameter<"RegisterRange", "RegisterRange()">:$range,
-    OptionalParameter<"std::optional<bool>">:$is_uniform
-  );
-  let assemblyFormat = "`<` $range (`,` `uniform` `=` $is_uniform^)? `>`";
-  let genVerifyDecl = 1;
-  let extraClassDeclaration = [{
-    /// Returns true if the register range is relocatable.
-    bool isRelocatable() const { return getRange().begin().isRelocatable(); }
-    /// Returns the size of the register range.
-    int64_t size() const { return getRange().size(); }
-
-    //===------------------------------------------------------------------===//
-    // RegisterTypeInterface
-    //===------------------------------------------------------------------===//
-    bool isRegisterRange() const { return true; }
-    RegisterRange getAsRange() const {
-      return getRange();
-    }
-    RegisterKind getRegisterKind() const {
-      return RegisterKind::GGPR;
-    }
-    RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
-      return GGPRType::get(getContext(), range, getIsUniform());
-    }
-    RegisterTypeInterface cloneRegisterType(Register reg) const {
-      return GGPRType::get(getContext(), RegisterRange(reg, 1), getIsUniform());
-    }
-
-    //===------------------------------------------------------------------===//
-    // ResourceTypeInterface
-    //===------------------------------------------------------------------===//
-    Resource *getResource() const;
-  }];
-}
-
-//===----------------------------------------------------------------------===//
 // AGPR like types
 //===----------------------------------------------------------------------===//
 

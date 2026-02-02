@@ -39,12 +39,6 @@ bool isRegisterLike(Type type);
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h.inc"
 
 namespace mlir::aster::amdgcn {
-/// GGPR register resource.
-class GGPRResource : public SideEffects::Resource::Base<GGPRResource> {
-public:
-  StringRef getName() override { return GGPRType::name; }
-};
-
 /// SGPR register resource.
 class SGPRResource : public SideEffects::Resource::Base<SGPRResource> {
 public:

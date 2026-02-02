@@ -42,7 +42,6 @@ def RegisterKind : AutoI32EnumCases<"RegisterKind", "AMDGCN register kind", [
     EnumCaseInfo<"AGPR">,
     EnumCaseInfo<"SGPR">,
     EnumCaseInfo<"VGPR">,
-    EnumCaseInfo<"GGPR">,
     EnumCaseInfo<"SREG">
   ] # !foreach(sreg, SpecialRegisters, EnumCaseInfo<sreg.name>)> {
   let cppNamespace = "::mlir::aster::amdgcn";
