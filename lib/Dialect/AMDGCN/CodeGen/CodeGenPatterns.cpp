@@ -124,8 +124,17 @@ static Type convertTypeImpl(Value value, const CodeGenConverter &converter) {
   std::optional<bool> isUniform = converter.isThreadUniform(value);
   assert(isUniform.has_value() &&
          "Type conversion for value without known thread-uniformity");
-  return amdgcn::GGPRType::get(value.getContext(),
-                               RegisterRange(Register(), numWords), isUniform);
+
+  if (isUniform.has_value() && *isUniform) {
+    if (numWords > 1)
+      return amdgcn::SGPRRangeType::get(value.getContext(),
+                                        RegisterRange(Register(), numWords));
+    return amdgcn::SGPRType::get(value.getContext(), Register());
+  }
+  if (numWords > 1)
+    return amdgcn::VGPRRangeType::get(value.getContext(),
+                                      RegisterRange(Register(), numWords));
+  return amdgcn::VGPRType::get(value.getContext(), Register());
 }
 
 static Type convertTypeImpl(Type type, const CodeGenConverter &converter) {
@@ -133,8 +142,10 @@ static Type convertTypeImpl(Type type, const CodeGenConverter &converter) {
     return type;
   int64_t typeSize = converter.getTypeSize(type);
   int64_t numWords = (typeSize + 3) / 4;
-  return amdgcn::GGPRType::get(
-      type.getContext(), RegisterRange(Register(), numWords), std::nullopt);
+  if (numWords > 1)
+    return amdgcn::VGPRRangeType::get(type.getContext(),
+                                      RegisterRange(Register(), numWords));
+  return amdgcn::VGPRType::get(type.getContext(), Register());
 }
 
 //===----------------------------------------------------------------------===//

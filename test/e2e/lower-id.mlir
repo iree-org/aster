@@ -7,7 +7,6 @@
 // RUN:    ), \
 // RUN:    aster-codegen, \
 // RUN:    canonicalize, \
-// RUN:    aster-amdgcn-select-reg-classes, \
 // RUN:    aster-to-amdgcn, \
 // RUN:    amdgcn.kernel( \
 // RUN:      aster-amdgcn-expand-md-ops, \

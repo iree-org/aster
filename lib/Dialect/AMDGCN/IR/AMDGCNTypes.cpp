@@ -56,12 +56,6 @@ bool mlir::aster::amdgcn::compareLessAMDGCNRegisterTypes(
     AMDGCNRegisterTypeInterface lhs, AMDGCNRegisterTypeInterface rhs) {
   if (lhs.getRegisterKind() != rhs.getRegisterKind())
     return lhs.getRegisterKind() < rhs.getRegisterKind();
-  if (lhs.getRegisterKind() == RegisterKind::GGPR) {
-    auto ggprL = cast<GGPRType>(lhs);
-    auto ggprR = cast<GGPRType>(rhs);
-    return std::make_pair(ggprL.getAsRange(), ggprL.getIsUniform()) <
-           std::make_pair(ggprR.getAsRange(), ggprR.getIsUniform());
-  }
   return lhs.getAsRange() < rhs.getAsRange();
 }
 
@@ -73,18 +67,6 @@ bool amdgcn::hasSize(Type type, ArrayRef<int32_t> size) {
   RegisterRange range = rangeType.getAsRange();
   return llvm::any_of(size, [&](int32_t s) { return range.size() == s; });
 }
-
-//===----------------------------------------------------------------------===//
-// GGPR types
-//===----------------------------------------------------------------------===//
-
-LogicalResult GGPRType::verify(function_ref<InFlightDiagnostic()> emitError,
-                               RegisterRange range,
-                               std::optional<bool> isUniform) {
-  return verifyRegisterRange(emitError, range, "GGPR");
-}
-
-Resource *GGPRType::getResource() const { return GGPRResource::get(); }
 
 //===----------------------------------------------------------------------===//
 // AGPR types

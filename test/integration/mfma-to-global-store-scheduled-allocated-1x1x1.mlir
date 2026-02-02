@@ -15,7 +15,6 @@
 // RUN:   --aster-amdgcn-set-abi \
 // RUN:   --aster-codegen \
 // RUN:   --canonicalize \
-// RUN:   --aster-amdgcn-select-reg-classes \
 // RUN:   --canonicalize \
 // RUN:   --aster-to-amdgcn \
 // RUN: | aster-opt \
