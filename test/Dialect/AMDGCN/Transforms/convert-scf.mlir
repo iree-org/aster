@@ -64,6 +64,72 @@ func.func @test_uniform_loops_non_const_bounds(%n: i32) {
 
 // -----
 
+// CHECK-LABEL:   func.func @test_scf_with_iter_args_sgpr(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr) -> !amdgcn.sgpr {
+// CHECK-DAG:       %[[C0:.*]] = arith.constant 0 : i32
+// CHECK-DAG:       %[[C1:.*]] = arith.constant 1 : i32
+// CHECK-DAG:       %[[C4:.*]] = arith.constant 4 : i32
+// CHECK-DAG:       %[[ALLOCA_SCC:.*]] = amdgcn.alloca : !amdgcn.scc
+// CHECK-DAG:       %[[ALLOCA_IV:.*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK:           %[[IV_INIT:.*]] = amdgcn.sop1 s_mov_b32 outs %[[ALLOCA_IV]] ins %[[C0]] : !amdgcn.sgpr, i32
+// CHECK:           amdgcn.cmpi s_cmp_lt_i32 outs %[[ALLOCA_SCC]] ins %[[IV_INIT]], %[[C4]] : outs(!amdgcn.scc) ins(!amdgcn.sgpr, i32)
+// CHECK:           amdgcn.cbranch s_cbranch_scc0 %[[ALLOCA_SCC]] ^bb2 fallthrough(^bb1) : !amdgcn.scc
+// CHECK:         ^bb1:
+// CHECK:           %[[IV_VAL:.*]] = lsir.from_reg %[[IV_INIT]] : !amdgcn.sgpr -> i32
+// CHECK:           amdgcn.test_inst ins %[[ARG0]] : (!amdgcn.sgpr) -> ()
+// CHECK:           %[[IV_NEXT:.*]] = amdgcn.sop2 s_add_i32 outs %[[IV_INIT]] ins %[[IV_INIT]], %[[C1]] : !amdgcn.sgpr, !amdgcn.sgpr, i32
+// CHECK:           amdgcn.cmpi s_cmp_lt_i32 outs %[[ALLOCA_SCC]] ins %[[IV_NEXT]], %[[C4]] : outs(!amdgcn.scc) ins(!amdgcn.sgpr, i32)
+// CHECK:           amdgcn.cbranch s_cbranch_scc1 %[[ALLOCA_SCC]] ^bb1 fallthrough(^bb2) : !amdgcn.scc
+// CHECK:         ^bb2:
+// CHECK:           return %[[ARG0]] : !amdgcn.sgpr
+// CHECK:         }
+func.func @test_scf_with_iter_args_sgpr(%acc_init: !amdgcn.sgpr) -> !amdgcn.sgpr {
+  %c0 = arith.constant 0 : i32
+  %c1 = arith.constant 1 : i32
+  %c4 = arith.constant 4 : i32
+  %result = scf.for %i = %c0 to %c4 step %c1 iter_args(%acc = %acc_init) -> (!amdgcn.sgpr) : i32 {
+    amdgcn.test_inst ins %acc : (!amdgcn.sgpr) -> ()
+    scf.yield %acc : !amdgcn.sgpr
+  }
+  return %result : !amdgcn.sgpr
+}
+
+// -----
+
+// Test iter_args with vgpr_range (4 registers) - models MFMA accumulator pattern.
+
+// CHECK-LABEL:   func.func @test_scf_with_iter_args_vx4(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr_range<[? + 4]>) -> !amdgcn.vgpr_range<[? + 4]> {
+// CHECK-DAG:       %[[C0:.*]] = arith.constant 0 : i32
+// CHECK-DAG:       %[[C1:.*]] = arith.constant 1 : i32
+// CHECK-DAG:       %[[C4:.*]] = arith.constant 4 : i32
+// CHECK-DAG:       %[[ALLOCA_SCC:.*]] = amdgcn.alloca : !amdgcn.scc
+// CHECK-DAG:       %[[ALLOCA_IV:.*]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK:           %[[IV_INIT:.*]] = amdgcn.sop1 s_mov_b32 outs %[[ALLOCA_IV]] ins %[[C0]] : !amdgcn.sgpr, i32
+// CHECK:           amdgcn.cmpi s_cmp_lt_i32 outs %[[ALLOCA_SCC]] ins %[[IV_INIT]], %[[C4]] : outs(!amdgcn.scc) ins(!amdgcn.sgpr, i32)
+// CHECK:           amdgcn.cbranch s_cbranch_scc0 %[[ALLOCA_SCC]] ^bb2 fallthrough(^bb1) : !amdgcn.scc
+// CHECK:         ^bb1:
+// CHECK:           %[[IV_VAL:.*]] = lsir.from_reg %[[IV_INIT]] : !amdgcn.sgpr -> i32
+// CHECK:           amdgcn.test_inst ins %[[ARG0]] : (!amdgcn.vgpr_range<[? + 4]>) -> ()
+// CHECK:           %[[IV_NEXT:.*]] = amdgcn.sop2 s_add_i32 outs %[[IV_INIT]] ins %[[IV_INIT]], %[[C1]] : !amdgcn.sgpr, !amdgcn.sgpr, i32
+// CHECK:           amdgcn.cmpi s_cmp_lt_i32 outs %[[ALLOCA_SCC]] ins %[[IV_NEXT]], %[[C4]] : outs(!amdgcn.scc) ins(!amdgcn.sgpr, i32)
+// CHECK:           amdgcn.cbranch s_cbranch_scc1 %[[ALLOCA_SCC]] ^bb1 fallthrough(^bb2) : !amdgcn.scc
+// CHECK:         ^bb2:
+// CHECK:           return %[[ARG0]] : !amdgcn.vgpr_range<[? + 4]>
+// CHECK:         }
+func.func @test_scf_with_iter_args_vx4(%acc_init: !amdgcn.vgpr_range<[? + 4]>) -> !amdgcn.vgpr_range<[? + 4]> {
+  %c0 = arith.constant 0 : i32
+  %c1 = arith.constant 1 : i32
+  %c4 = arith.constant 4 : i32
+  %result = scf.for %i = %c0 to %c4 step %c1 iter_args(%acc = %acc_init) -> (!amdgcn.vgpr_range<[? + 4]>) : i32 {
+    amdgcn.test_inst ins %acc : (!amdgcn.vgpr_range<[? + 4]>) -> ()
+    scf.yield %acc : !amdgcn.vgpr_range<[? + 4]>
+  }
+  return %result : !amdgcn.vgpr_range<[? + 4]>
+}
+
+// -----
+
 func.func @test_non_const_bounds(%n: i32) {
   %c0 = arith.constant 0 : i32
   %c1 = arith.constant 1 : i32

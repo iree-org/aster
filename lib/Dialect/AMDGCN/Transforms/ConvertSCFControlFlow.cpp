@@ -95,11 +95,8 @@ ConvertSCFControlFlow::convertForOp(scf::ForOp forOp,
            << "only thread-uniform loops are supported in this conversion";
   }
 
-  // Bail out if the loop has iter_args (not supported yet).
-  if (!forOp.getInitArgs().empty()) {
-    return forOp.emitError()
-           << "loops with iter_args are not supported in this conversion";
-  }
+  // Get init args for iter_args handling.
+  SmallVector<Value> initArgs(forOp.getInitArgs());
 
   Type sgprType = SGPRType::get(rewriter.getContext(), Register());
 
@@ -115,46 +112,67 @@ ConvertSCFControlFlow::convertForOp(scf::ForOp forOp,
 
     return aster::lsir::ToRegOp::create(rewriter, loc, sgprType, value);
   };
-  rewriter.setInsertionPoint(forOp);
-  lowerBound = toRegOrConst(lowerBound);
-  upperBound = toRegOrConst(upperBound);
-  step = toRegOrConst(step);
 
-  // Create the SCC register to hold the comparison result.
-  Type destType = SCCType::get(rewriter.getContext());
-  Value scc = AllocaOp::create(rewriter, loc, destType);
+  Value ivReg, scc;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(forOp);
+    lowerBound = toRegOrConst(lowerBound);
+    upperBound = toRegOrConst(upperBound);
+    step = toRegOrConst(step);
 
-  // Create an SGPR register to hold the induction variable.
-  Value ivReg = AllocaOp::create(rewriter, loc, sgprType);
-  ivReg = S_MOV_B32::create(rewriter, loc, ivReg, lowerBound);
+    // Create the SCC register to hold the comparison result.
+    Type destType = SCCType::get(rewriter.getContext());
+    scc = AllocaOp::create(rewriter, loc, destType);
 
-  // Create the initial comparison: iv < upperBound.
-  CmpIOp::create(rewriter, loc, getCmpLtOpCode(isLoopUniform), scc, ivReg,
-                 upperBound);
-  CBranchOp::create(rewriter, loc, OpCode::S_CBRANCH_SCC0, scc, bbEnd, bbBody);
+    // Create an SGPR register to hold the induction variable.
+    ivReg = AllocaOp::create(rewriter, loc, sgprType);
+    ivReg = S_MOV_B32::create(rewriter, loc, ivReg, lowerBound);
 
-  // Build the body.
-  rewriter.eraseOp(forOp.getBody()->getTerminator());
-  rewriter.setInsertionPointToStart(bbBody);
-  inductionVar =
-      lsir::FromRegOp::create(rewriter, loc, inductionVar.getType(), ivReg);
+    // Create the initial comparison: iv < upperBound.
+    CmpIOp::create(rewriter, loc, getCmpLtOpCode(isLoopUniform), scc, ivReg,
+                   upperBound);
+    CBranchOp::create(rewriter, loc, OpCode::S_CBRANCH_SCC0, scc, bbEnd,
+                      bbBody);
+
+    // Erase the yield terminator (loop body will get a branch instead).
+    rewriter.eraseOp(forOp.getBody()->getTerminator());
+  }
+
+  // Create from_reg for the induction variable at the start of bbBody.
+  Value inductionVarVal;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(bbBody);
+    inductionVarVal =
+        lsir::FromRegOp::create(rewriter, loc, inductionVar.getType(), ivReg);
+  }
+
+  // Build block argument replacements: [inductionVar, iterArg0, iterArg1, ...]
+  SmallVector<Value> blockArgReplacements;
+  blockArgReplacements.push_back(inductionVarVal);
+  blockArgReplacements.append(initArgs.begin(), initArgs.end());
 
   // Inline the loop body into the new block.
-  rewriter.setInsertionPointToEnd(bbBody);
-  rewriter.inlineBlockBefore(forOp.getBody(), bbBody, bbBody->end(),
-                             {inductionVar});
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToEnd(bbBody);
+    rewriter.inlineBlockBefore(forOp.getBody(), bbBody, bbBody->end(),
+                               blockArgReplacements);
 
-  // Update the induction variable in the body.
-  Value ivNext =
-      amdgcn::S_ADD_I32::create(rewriter, loc, ivReg, ivReg, step).getResult(0);
+    // Update the induction variable in the body.
+    Value ivNext = amdgcn::S_ADD_I32::create(rewriter, loc, ivReg, ivReg, step)
+                       .getResult(0);
 
-  // Create the end-of-body comparison: ivNext < upperBound.
-  CmpIOp::create(rewriter, loc, getCmpLtOpCode(isLoopUniform), scc, ivNext,
-                 upperBound);
-  CBranchOp::create(rewriter, loc, OpCode::S_CBRANCH_SCC1, scc, bbBody, bbEnd);
+    // Create the end-of-body comparison: ivNext < upperBound.
+    CmpIOp::create(rewriter, loc, getCmpLtOpCode(isLoopUniform), scc, ivNext,
+                   upperBound);
+    CBranchOp::create(rewriter, loc, OpCode::S_CBRANCH_SCC1, scc, bbBody,
+                      bbEnd);
 
-  // Erase the original forOp.
-  rewriter.eraseOp(forOp);
+    // Replace scf.for results with init args.
+    rewriter.replaceOp(forOp, initArgs);
+  }
   return success();
 }
 
