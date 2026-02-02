@@ -1,4 +1,4 @@
-//===- ToLSIRPatterns.cpp --------------*----------------------------------===//
+//===- CodeGenPatterns.cpp ------------------------------------------------===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,22 +8,20 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Convert to LSIR patterns
+// LSIR CodeGen patterns
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/LSIR/CodeGen/CodeGen.h"
+
+#include "aster/CodeGen/CodeGen.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
-#include "aster/Dialect/LSIR/Transforms/ToLSIR.h"
-#include "aster/Interfaces/RegisterType.h"
 #include "aster/Transforms/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include <type_traits>
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -34,8 +32,8 @@ namespace {
 // ArithBinaryOpPattern
 //===----------------------------------------------------------------------===//
 template <typename OpTy, typename NewOpTy>
-struct ArithBinaryOpPattern : public OpToLSIRPattern<OpTy> {
-  using OpToLSIRPattern<OpTy>::OpToLSIRPattern;
+struct ArithBinaryOpPattern : public OpCodeGenPattern<OpTy> {
+  using OpCodeGenPattern<OpTy>::OpCodeGenPattern;
   LogicalResult
   matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
@@ -45,8 +43,8 @@ struct ArithBinaryOpPattern : public OpToLSIRPattern<OpTy> {
 // ArithCastOpPattern
 //===----------------------------------------------------------------------===//
 template <typename OpTy, typename NewOpTy>
-struct ArithCastOpPattern : public OpToLSIRPattern<OpTy> {
-  using OpToLSIRPattern<OpTy>::OpToLSIRPattern;
+struct ArithCastOpPattern : public OpCodeGenPattern<OpTy> {
+  using OpCodeGenPattern<OpTy>::OpCodeGenPattern;
   LogicalResult
   matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
@@ -55,8 +53,8 @@ struct ArithCastOpPattern : public OpToLSIRPattern<OpTy> {
 //===----------------------------------------------------------------------===//
 // ArithSelectOpPattern
 //===----------------------------------------------------------------------===//
-struct ArithSelectOpPattern : public OpToLSIRPattern<arith::SelectOp> {
-  using OpToLSIRPattern::OpToLSIRPattern;
+struct ArithSelectOpPattern : public OpCodeGenPattern<arith::SelectOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
   LogicalResult
   matchAndRewrite(arith::SelectOp op, arith::SelectOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
@@ -66,19 +64,8 @@ struct ArithSelectOpPattern : public OpToLSIRPattern<arith::SelectOp> {
 // FromToRegOpPattern
 //===----------------------------------------------------------------------===//
 template <typename OpTy>
-struct FromToRegOpPattern : public OpToLSIRPattern<OpTy> {
-  using OpToLSIRPattern<OpTy>::OpToLSIRPattern;
-  LogicalResult
-  matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
-};
-
-//===----------------------------------------------------------------------===//
-// IDDimOpPattern
-//===----------------------------------------------------------------------===//
-template <typename OpTy, typename NewOpTy>
-struct IDDimOpPattern : public OpToLSIRPattern<OpTy> {
-  using OpToLSIRPattern<OpTy>::OpToLSIRPattern;
+struct FromToRegOpPattern : public OpCodeGenPattern<OpTy> {
+  using OpCodeGenPattern<OpTy>::OpCodeGenPattern;
   LogicalResult
   matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
@@ -87,8 +74,8 @@ struct IDDimOpPattern : public OpToLSIRPattern<OpTy> {
 //===----------------------------------------------------------------------===//
 // RegConstraintPattern
 //===----------------------------------------------------------------------===//
-struct RegConstraintPattern : public OpToLSIRPattern<RegConstraintOp> {
-  using OpToLSIRPattern::OpToLSIRPattern;
+struct RegConstraintPattern : public OpCodeGenPattern<RegConstraintOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
   LogicalResult
   matchAndRewrite(Op op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -101,8 +88,8 @@ struct RegConstraintPattern : public OpToLSIRPattern<RegConstraintOp> {
 // AssumeRangeOpPattern
 //===----------------------------------------------------------------------===//
 struct AssumeRangeOpPattern
-    : public OpToLSIRPattern<aster_utils::AssumeRangeOp> {
-  using OpToLSIRPattern::OpToLSIRPattern;
+    : public OpCodeGenPattern<aster_utils::AssumeRangeOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
   LogicalResult
   matchAndRewrite(Op op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -164,7 +151,7 @@ LogicalResult ArithSelectOpPattern::matchAndRewrite(
 }
 
 //===----------------------------------------------------------------------===//
-// IDDimOpPattern
+// FromToRegOpPattern
 //===----------------------------------------------------------------------===//
 
 template <typename OpTy>
@@ -184,129 +171,26 @@ LogicalResult FromToRegOpPattern<OpTy>::matchAndRewrite(
 }
 
 //===----------------------------------------------------------------------===//
-// IDDimOpPattern
+// API
 //===----------------------------------------------------------------------===//
 
-template <typename OpTy, typename NewOpTy>
-LogicalResult IDDimOpPattern<OpTy, NewOpTy>::matchAndRewrite(
-    OpTy op, typename OpTy::Adaptor adaptor,
-    ConversionPatternRewriter &rewriter) const {
-  Type type = this->converter.convertType(op);
-  Type regTy = std::is_same_v<OpTy, aster_utils::ThreadIdOp>
-                   ? Type(amdgcn::VGPRType::get(op.getContext(), Register()))
-                   : Type(amdgcn::SGPRType::get(op.getContext(), Register()));
-  auto nOp = NewOpTy::create(
-      rewriter, op.getLoc(), regTy,
-      static_cast<amdgcn::Dim>(static_cast<int8_t>(op.getDim())));
-  rewriter.replaceOpWithNewOp<RegCastOp>(op, type, nOp);
-  return success();
+void mlir::aster::lsir::getDependentCodeGenDialects(DialectRegistry &registry) {
+  registry.insert<lsir::LSIRDialect>();
 }
 
-//===----------------------------------------------------------------------===//
-// ToLSIRPass pass
-//===----------------------------------------------------------------------===//
-
-/// Untagle unrealized conversion casts to find the original value.
-static Value untagleConvertValue(Value value) {
-  if (isa<RegisterTypeInterface>(value.getType()))
-    return value;
-  auto cOp =
-      dyn_cast_if_present<UnrealizedConversionCastOp>(value.getDefiningOp());
-  while (cOp && cOp.getNumOperands() == 1) {
-    Value value = cOp.getOperand(0);
-    if (isa<RegisterTypeInterface>(value.getType()))
-      return value;
-    cOp =
-        dyn_cast_if_present<UnrealizedConversionCastOp>(value.getDefiningOp());
-  }
-  return value;
-}
-
-static Type convertAttrConstraintToType(Attribute constraint,
-                                        int64_t numWords) {
-  auto kind = dyn_cast<amdgcn::RegisterKindAttr>(constraint);
-  if (!kind)
-    return nullptr;
-  switch (kind.getValue()) {
-  case amdgcn::RegisterKind::SGPR:
-    if (numWords == 1)
-      return amdgcn::SGPRType::get(kind.getContext(), Register());
-    return amdgcn::SGPRRangeType::get(kind.getContext(),
-                                      RegisterRange(Register(), numWords));
-  case amdgcn::RegisterKind::VGPR:
-    if (numWords == 1)
-      return amdgcn::VGPRType::get(kind.getContext(), Register());
-    return amdgcn::VGPRRangeType::get(kind.getContext(),
-                                      RegisterRange(Register(), numWords));
-  case amdgcn::RegisterKind::AGPR:
-    if (numWords == 1)
-      return amdgcn::AGPRType::get(kind.getContext(), Register());
-    return amdgcn::AGPRRangeType::get(kind.getContext(),
-                                      RegisterRange(Register(), numWords));
-  default:
-    assert(false && "nyi register kind");
-  }
-  return nullptr;
-}
-
-static Type convertTypeImpl(Value value, const ToLSIRConverter &converter) {
-  if (Operation *defOp = value.getDefiningOp();
-      defOp && m_Constant().match(value.getDefiningOp()))
-    return value.getType();
-  value = untagleConvertValue(value);
-  if (isa<RegisterTypeInterface>(value.getType()))
-    return value.getType();
-
-  int64_t typeSize = converter.getTypeSize(value.getType());
-  int64_t numWords = (typeSize + 3) / 4;
-
-  // If there is a register constraint, use it to determine the type.
-  if (Attribute constraint =
-          converter.getState().getRegisterConstraint(value)) {
-    if (Type t = convertAttrConstraintToType(constraint, numWords))
-      return t;
-  }
-
-  std::optional<bool> isUniform = converter.isThreadUniform(value);
-  assert(isUniform.has_value() &&
-         "Type conversion for value without known thread-uniformity");
-  return amdgcn::GGPRType::get(value.getContext(),
-                               RegisterRange(Register(), numWords), isUniform);
-}
-
-static Type convertTypeImpl(Type type, const ToLSIRConverter &converter) {
-  if (isa<RegisterTypeInterface>(type))
-    return type;
-  int64_t typeSize = converter.getTypeSize(type);
-  int64_t numWords = (typeSize + 3) / 4;
-  return amdgcn::GGPRType::get(
-      type.getContext(), RegisterRange(Register(), numWords), std::nullopt);
-}
-
-void mlir::aster::lsir::populateToLSIRPatterns(ToLSIRConverter &converter,
-                                               RewritePatternSet &patterns,
-                                               ConversionTarget &target) {
+void mlir::aster::lsir::populateCodeGenPatterns(CodeGenConverter &converter,
+                                                RewritePatternSet &patterns,
+                                                ConversionTarget &target) {
   // Configure the conversion target.
-  target.addLegalDialect<amdgcn::AMDGCNDialect, lsir::LSIRDialect>();
+  target.addLegalDialect<lsir::LSIRDialect>();
   target.addIllegalDialect<arith::ArithDialect>();
-
   target.addDynamicallyLegalOp<arith::ConstantOp>(
       [&](arith::ConstantOp op) { return op.getType().isIntOrIndexOrFloat(); });
   target.addDynamicallyLegalOp<RegConstraintOp>(
       [&](RegConstraintOp op) { return converter.isLegal(op); });
-  target.addIllegalOp<aster_utils::ThreadIdOp, aster_utils::BlockIdOp,
-                      aster_utils::BlockDimOp, aster_utils::GridDimOp,
-                      aster_utils::AssumeRangeOp, lsir::FromRegOp,
+  target.addIllegalOp<aster_utils::AssumeRangeOp, lsir::FromRegOp,
                       lsir::ToRegOp, lsir::RegConstraintOp>();
   target.addLegalOp<UnrealizedConversionCastOp>();
-
-  // Add the type conversions.
-  converter.addConversion(
-      [&converter](Type type) { return convertTypeImpl(type, converter); });
-  converter.addConversion(
-      [&converter](Value value) { return convertTypeImpl(value, converter); });
-
-  populateFuncConversionPatterns(converter, target, patterns);
   // Add the patterns.
   patterns
       .add<ArithBinaryOpPattern<arith::AddIOp, lsir::AddIOp>,
@@ -339,10 +223,6 @@ void mlir::aster::lsir::populateToLSIRPatterns(ToLSIRConverter &converter,
            ArithCastOpPattern<arith::FPToUIOp, lsir::FPToUIOp>,
            ArithCastOpPattern<arith::SIToFPOp, lsir::SIToFPOp>,
            ArithCastOpPattern<arith::UIToFPOp, lsir::UIToFPOp>,
-           IDDimOpPattern<aster_utils::ThreadIdOp, amdgcn::ThreadIdOp>,
-           IDDimOpPattern<aster_utils::BlockIdOp, amdgcn::BlockIdOp>,
-           IDDimOpPattern<aster_utils::BlockDimOp, amdgcn::BlockDimOp>,
-           IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>,
            FromToRegOpPattern<ToRegOp>, FromToRegOpPattern<FromRegOp>,
            RegConstraintPattern, AssumeRangeOpPattern, ArithSelectOpPattern>(
           converter);

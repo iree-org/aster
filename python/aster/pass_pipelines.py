@@ -122,7 +122,7 @@ PHASE_LOWER_TO_AMDGCN = (
     # to harden invariants.
     "amdgcn-convert-scf-control-flow",
     "canonicalize", "cse",
-    "aster-to-lsir",
+    "aster-codegen",
     "canonicalize", "cse",
     "aster-amdgcn-select-reg-classes",
     "canonicalize", "cse", "canonicalize",

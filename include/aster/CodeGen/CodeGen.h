@@ -1,4 +1,4 @@
-//===- ToLSIR.h - Convert to LSIR -----------------------------------------===//
+//===- CodeGen.h - Code Generation ----------------------------------------===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,8 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ASTER_TRANSFORM_TOLSIR_H
-#define ASTER_TRANSFORM_TOLSIR_H
+#ifndef ASTER_CODEGEN_CODEGEN_H
+#define ASTER_CODEGEN_CODEGEN_H
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
@@ -23,16 +23,15 @@
 namespace mlir {
 class FrozenRewritePatternSet;
 namespace aster {
-namespace lsir {
 /// State information for instruction selection.
 /// TODO: Use ABIanalysis here.
-class ConvertToLSIRState : public Builder {
+class ConvertCodeGenState : public Builder {
 public:
-  ConvertToLSIRState() = delete;
-  ConvertToLSIRState(ConvertToLSIRState &&) = default;
-  ~ConvertToLSIRState();
+  ConvertCodeGenState() = delete;
+  ConvertCodeGenState(ConvertCodeGenState &&) = default;
+  ~ConvertCodeGenState();
   /// Create an instruction selection state for the given root operation.
-  static FailureOr<ConvertToLSIRState> create(Operation *op);
+  static FailureOr<ConvertCodeGenState> create(Operation *op);
 
   /// Check if the given value is known to be thread-uniform.
   bool isThreadUniform(Value value) const;
@@ -51,8 +50,8 @@ private:
 };
 
 /// The type converter used for instruction selection.
-struct ToLSIRConverter : TypeConverter {
-  ToLSIRConverter(ConvertToLSIRState &state);
+struct CodeGenConverter : TypeConverter {
+  CodeGenConverter(ConvertCodeGenState &state);
   /// Get the size of the given type according to the data layout.
   int64_t getTypeSize(Type type) const { return state->getTypeSize(type); }
   int64_t getTypeSizeInBits(Type type) const {
@@ -77,7 +76,7 @@ struct ToLSIRConverter : TypeConverter {
   MLIRContext *getContext() const { return state->getContext(); }
 
   /// Return the instruction selection state.
-  const ConvertToLSIRState &getState() const {
+  const ConvertCodeGenState &getState() const {
     assert(state && "State is not initialized");
     return *state;
   }
@@ -85,41 +84,35 @@ struct ToLSIRConverter : TypeConverter {
   Type getIndexType() const { return indexType; }
 
 private:
-  ConvertToLSIRState *state;
+  ConvertCodeGenState *state;
   Type indexType;
 };
 
 /// Base class for instruction selection patterns.
-struct ToLSIRPatternBase {
-  ToLSIRPatternBase(ToLSIRConverter &converter) : converter(converter) {}
+struct CodeGenPatternBase {
+  CodeGenPatternBase(CodeGenConverter &converter) : converter(converter) {}
   /// Create an alloca of the given register type.
   Value createAlloca(RewriterBase &rewriter, Location loc, Type regTy) const;
 
 protected:
-  ToLSIRConverter &converter;
+  CodeGenConverter &converter;
 };
 
 /// Base class for instruction selection patterns.
 template <typename ConcreteType>
-class OpToLSIRPattern : public OpConversionPattern<ConcreteType>,
-                        protected ToLSIRPatternBase {
+class OpCodeGenPattern : public OpConversionPattern<ConcreteType>,
+                         protected CodeGenPatternBase {
 public:
   using OpConversionPattern<ConcreteType>::OpConversionPattern;
-  using Base = OpToLSIRPattern;
+  using Base = OpCodeGenPattern;
   using Op = ConcreteType;
   using OpAdaptor = typename ConcreteType::Adaptor;
-  OpToLSIRPattern(ToLSIRConverter &converter, PatternBenefit benefit = 1)
+  OpCodeGenPattern(CodeGenConverter &converter, PatternBenefit benefit = 1)
       : OpConversionPattern<ConcreteType>(converter, converter.getContext(),
                                           benefit),
-        ToLSIRPatternBase(converter) {}
+        CodeGenPatternBase(converter) {}
 };
-
-/// Populate the given pattern list with instruction selection patterns.
-void populateToLSIRPatterns(ToLSIRConverter &converter,
-                            RewritePatternSet &patterns,
-                            ConversionTarget &target);
-} // namespace lsir
 } // namespace aster
 } // namespace mlir
 
-#endif // ASTER_TRANSFORM_TOLSIR_H
+#endif // ASTER_CODEGEN_CODEGEN_H

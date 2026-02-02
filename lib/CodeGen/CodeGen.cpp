@@ -1,4 +1,4 @@
-//===- ConvertToLSIR.cpp --------------------------------------------------===//
+//===- CodeGen.cpp --------------------------------------------------------===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,55 +8,26 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/LSIR/Transforms/Passes.h"
+#include "aster/CodeGen/CodeGen.h"
 
 #include "aster/Analysis/RegisterConstraints.h"
 #include "aster/Analysis/ThreadUniformAnalysis.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
-#include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
-#include "aster/Dialect/LSIR/Transforms/ToLSIR.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/DataLayoutAnalysis.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Support/TypeSize.h"
-#include <optional>
-
-namespace mlir {
-namespace aster {
-namespace lsir {
-#define GEN_PASS_DEF_CONVERTTOLSIR
-#include "aster/Dialect/LSIR/Transforms/Passes.h.inc"
-} // namespace lsir
-} // namespace aster
-} // namespace mlir
 
 using namespace mlir;
 using namespace mlir::aster;
-using namespace mlir::aster::lsir;
-
-namespace {
-//===----------------------------------------------------------------------===//
-// ConvertToLSIR pass
-//===----------------------------------------------------------------------===//
-struct ConvertToLSIR : public lsir::impl::ConvertToLSIRBase<ConvertToLSIR> {
-public:
-  using Base::Base;
-  void runOnOperation() override;
-};
-} // namespace
 
 //===----------------------------------------------------------------------===//
-// ConvertToLSIRState
+// ConvertCodeGenState
 //===----------------------------------------------------------------------===//
 
-struct ConvertToLSIRState::Impl {
+struct ConvertCodeGenState::Impl {
   Impl(Operation *op) : rootOp(op), solver(), dataLayoutAnalysis(op) {}
   /// Initialize the analyses.
   LogicalResult initialize();
@@ -74,7 +45,7 @@ struct ConvertToLSIRState::Impl {
   std::optional<RegisterConstraints> registerConstraints;
 };
 
-LogicalResult ConvertToLSIRState::Impl ::initialize() {
+LogicalResult ConvertCodeGenState::Impl::initialize() {
   // Load the necessary analyses.
   mlir::dataflow::loadBaselineAnalyses(solver);
   solver.load<aster::dataflow::ThreadUniformAnalysis>();
@@ -91,27 +62,27 @@ LogicalResult ConvertToLSIRState::Impl ::initialize() {
   return success();
 }
 
-llvm::TypeSize ConvertToLSIRState::Impl::getTypeSize(Type type) const {
+llvm::TypeSize ConvertCodeGenState::Impl::getTypeSize(Type type) const {
   return dataLayout->getTypeSize(type);
 }
 
-Attribute ConvertToLSIRState::getRegisterConstraint(Value value) const {
+Attribute ConvertCodeGenState::getRegisterConstraint(Value value) const {
   return impl->registerConstraints->getConstraint(value);
 }
 
-ConvertToLSIRState::~ConvertToLSIRState() = default;
+ConvertCodeGenState::~ConvertCodeGenState() = default;
 
-FailureOr<ConvertToLSIRState> ConvertToLSIRState::create(Operation *op) {
+FailureOr<ConvertCodeGenState> ConvertCodeGenState::create(Operation *op) {
   if (!op)
     return failure();
-  ConvertToLSIRState state(op->getContext());
+  ConvertCodeGenState state(op->getContext());
   state.impl = std::make_unique<Impl>(op);
   if (failed(state.impl->initialize()))
     return failure();
-  return FailureOr<ConvertToLSIRState>(std::move(state));
+  return FailureOr<ConvertCodeGenState>(std::move(state));
 }
 
-bool ConvertToLSIRState::isThreadUniform(Value value) const {
+bool ConvertCodeGenState::isThreadUniform(Value value) const {
   auto cOp =
       dyn_cast_if_present<UnrealizedConversionCastOp>(value.getDefiningOp());
   while (cOp && cOp.getNumOperands() == 1) {
@@ -124,19 +95,19 @@ bool ConvertToLSIRState::isThreadUniform(Value value) const {
   return lattice && lattice->getValue().isUniform();
 }
 
-int64_t ConvertToLSIRState::getTypeSize(Type type) const {
+int64_t ConvertCodeGenState::getTypeSize(Type type) const {
   return impl->getTypeSize(type).getFixedValue();
 }
 
-int64_t ConvertToLSIRState::getTypeSizeInBits(Type type) const {
+int64_t ConvertCodeGenState::getTypeSizeInBits(Type type) const {
   return impl->dataLayout->getTypeSizeInBits(type).getFixedValue();
 }
 
 //===----------------------------------------------------------------------===//
-// ConvertToLSIRConverter
+// ConvertCodeGenConverter
 //===----------------------------------------------------------------------===//
 
-ToLSIRConverter::ToLSIRConverter(ConvertToLSIRState &state) : state(&state) {
+CodeGenConverter::CodeGenConverter(ConvertCodeGenState &state) : state(&state) {
   // Add generic source and target materializations.
   addSourceMaterialization([&](OpBuilder &builder, Type resultType,
                                ValueRange inputs, Location loc) -> Value {
@@ -161,36 +132,12 @@ ToLSIRConverter::ToLSIRConverter(ConvertToLSIRState &state) : state(&state) {
 }
 
 //===----------------------------------------------------------------------===//
-// ConvertToLSIRPatternBase
+// ConvertCodeGenPatternBase
 //===----------------------------------------------------------------------===//
 
-Value ToLSIRPatternBase::createAlloca(RewriterBase &rewriter, Location loc,
-                                      Type regTy) const {
+Value CodeGenPatternBase::createAlloca(RewriterBase &rewriter, Location loc,
+                                       Type regTy) const {
   assert(isa<RegisterTypeInterface>(regTy) &&
          "Expected a register type for alloca");
-  return AllocaOp::create(rewriter, loc, regTy);
-}
-
-//===----------------------------------------------------------------------===//
-// ConvertToLSIR pass
-//===----------------------------------------------------------------------===//
-
-void ConvertToLSIR::runOnOperation() {
-  Operation *op = getOperation();
-  RewritePatternSet patterns(&getContext());
-  FailureOr<ConvertToLSIRState> state = ConvertToLSIRState::create(op);
-  if (failed(state))
-    return signalPassFailure();
-  ToLSIRConverter converter(*state);
-  ConversionTarget target(getContext());
-  lsir::populateToLSIRPatterns(converter, patterns, target);
-  ConversionConfig config;
-  config.allowPatternRollback = false;
-  if (failed(applyPartialConversion(
-          op, target, FrozenRewritePatternSet(std::move(patterns)), config)))
-    return signalPassFailure();
-  SmallVector<UnrealizedConversionCastOp> ops;
-  getOperation()->walk(
-      [&](UnrealizedConversionCastOp castOp) { ops.push_back(castOp); });
-  reconcileUnrealizedCasts(ops);
+  return lsir::AllocaOp::create(rewriter, loc, regTy);
 }
