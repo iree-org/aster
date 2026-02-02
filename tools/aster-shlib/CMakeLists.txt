@@ -10,8 +10,6 @@ set(_capi_libraries
   MLIRCAPITransforms
   MLIRCAPIDebug
   MLIRCAPIInterfaces
-  MLIRParser
-  MLIRAsmParser
 )
 
 add_mlir_aggregate(ASTER
@@ -19,6 +17,9 @@ add_mlir_aggregate(ASTER
   EMBED_LIBS
     ${_capi_libraries}
     ${amdgcn_libs}
+  PUBLIC_LIBS
+    MLIRParser
+    MLIRAsmParser
 )
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_options(ASTER PRIVATE "-Wl,-exclude-libs,ALL")

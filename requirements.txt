@@ -1,9 +1,8 @@
---extra-index-url https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
 # Build/test requirements.
-cmake==3.31.6
+cmake>=3.31.6
 ninja
-filecheck==1.0.0
-lit==18.1.7
+filecheck>=1.0.0
+lit>=18.1.7
 nanobind>=2.9.0
 setuptools
 wheel

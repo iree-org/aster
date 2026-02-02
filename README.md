@@ -62,6 +62,8 @@ tests always running within a (parallel) budget of a few seconds.
 
 ### Preliminary: venv
 
+We use `uv` to pip install in the new venv, the latency of pure `pip` being too high.
+
 ```
 # Create a virtual environment
 python3 -m venv --prompt aster .aster
@@ -70,7 +72,7 @@ python3 -m venv --prompt aster .aster
 source .aster/bin/activate
 
 # Install the requirements of the project. This installs cmake, ninja...
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 ### Preliminary note: LLVM requirement
@@ -149,19 +151,19 @@ To build the project use:
 
 ### Testing
 
-#### Executing lit tests
+#### Executing all tests
+```
+(cd build && ninja install) && lit build/test -v && pytest -n 16 ./test ./integration_test ./mlir_kernels
+```
+
+#### Executing lit tests only
 ```bash
 (cd build && ninja install) && lit build/test -v
 ```
 
-#### Executing pytests
+#### Executing pytests only
 ```
-(cd build && ninja install) && pytest -n 16 ./integration_test/ ./mlir_kernels/
-```
-
-#### Executing all tests
-```
-(cd build && ninja install) && lit build/test -v && pytest -n 16 ./integration_test/ ./mlir_kernels/
+(cd build && ninja install) && pytest -n 16 ./test ./integration_test ./mlir_kernels
 ```
 
 #### Running Python manually
