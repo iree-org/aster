@@ -58,6 +58,16 @@ struct PtrStoreOpPattern : public OpCodeGenPattern<ptr::StoreOp> {
   matchAndRewrite(ptr::StoreOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
+
+//===----------------------------------------------------------------------===//
+// PtrAddOpPattern
+//===----------------------------------------------------------------------===//
+struct PtrAddOpPattern : public OpCodeGenPattern<aster_utils::PtrAddOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
+  LogicalResult
+  matchAndRewrite(aster_utils::PtrAddOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -249,6 +259,25 @@ PtrStoreOpPattern::matchAndRewrite(ptr::StoreOp op, OpAdaptor adaptor,
 }
 
 //===----------------------------------------------------------------------===//
+// PtrAddOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+PtrAddOpPattern::matchAndRewrite(aster_utils::PtrAddOp op, OpAdaptor adaptor,
+                                 ConversionPatternRewriter &rewriter) const {
+  // Get the converted operands.
+  Value ptr = adaptor.getPtr();
+  Value offset = adaptor.getOffset();
+  Value uniformOffset = adaptor.getUniformOffset();
+  int64_t constOffset = op.getConstOffset();
+
+  // Create the AMDGCN ptr_add operation.
+  rewriter.replaceOpWithNewOp<amdgcn::PtrAddOp>(op, ptr.getType(), ptr, offset,
+                                                uniformOffset, constOffset);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Internal functions
 //===----------------------------------------------------------------------===//
 
@@ -365,15 +394,16 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
   target.addIllegalOp<aster_utils::ThreadIdOp, aster_utils::BlockIdOp,
                       aster_utils::BlockDimOp, aster_utils::GridDimOp>();
 
-  target.addIllegalOp<
-      aster_utils::ThreadIdOp, aster_utils::BlockIdOp, aster_utils::BlockDimOp,
-      aster_utils::GridDimOp, aster_utils::AssumeRangeOp, lsir::FromRegOp,
-      lsir::ToRegOp, lsir::RegConstraintOp, ptr::LoadOp, ptr::StoreOp>();
+  target.addIllegalOp<aster_utils::ThreadIdOp, aster_utils::BlockIdOp,
+                      aster_utils::BlockDimOp, aster_utils::GridDimOp,
+                      aster_utils::AssumeRangeOp, aster_utils::PtrAddOp,
+                      lsir::FromRegOp, lsir::ToRegOp, lsir::RegConstraintOp,
+                      ptr::LoadOp, ptr::StoreOp>();
 
   // Add the patterns.
   patterns.add<IDDimOpPattern<aster_utils::ThreadIdOp, amdgcn::ThreadIdOp>,
                IDDimOpPattern<aster_utils::BlockIdOp, amdgcn::BlockIdOp>,
                IDDimOpPattern<aster_utils::BlockDimOp, amdgcn::BlockDimOp>,
                IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>,
-               PtrLoadOpPattern, PtrStoreOpPattern>(converter);
+               PtrLoadOpPattern, PtrStoreOpPattern, PtrAddOpPattern>(converter);
 }
