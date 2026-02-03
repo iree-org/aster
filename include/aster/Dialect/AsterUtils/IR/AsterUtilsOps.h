@@ -18,6 +18,7 @@
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsAttrs.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsTypes.h"
 #include "mlir/Bytecode/BytecodeOpInterface.h"
+#include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
