@@ -41,6 +41,12 @@ export LLVM_BUILD=${HOME}/llvm-build
 
 mkdir -p "$LLVM_BUILD" && cd "$LLVM_BUILD"
 
+# MLIR recommended setup for python bindings
+export LLVM_VENV=${LLVM_BUILD}/.venv
+uv venv ${LLVM_VENV} --seed -p 3.12
+source ${LLVM_VENV}/bin/activate
+uv pip install -r ${LLVM_SRC}/mlir/python/requirements.txt
+
 cmake "$LLVM_SRC" -GNinja \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DCMAKE_INSTALL_PREFIX="$LLVM_INSTALL" \
@@ -60,6 +66,13 @@ ninja install
 
 # Install test tools
 ninja install FileCheck count not llvm-objdump
+
+# Note: on some systems the LLVM CMake does not install those tools properly so
+# one may need to manually copy them:
+cp ${LLVM_BUILD}/bin/FileCheck ${LLVM_INSTALL}/bin/FileCheck
+cp ${LLVM_BUILD}/bin/count ${LLVM_INSTALL}/bin/count
+cp ${LLVM_BUILD}/bin/not ${LLVM_INSTALL}/bin/not
+cp ${LLVM_BUILD}/bin/llvm-objdump ${LLVM_INSTALL}/bin/llvm-objdump
 ```
 
 Rebuild when LLVM submodule is updated (`git submodule status`) or different build options needed.
