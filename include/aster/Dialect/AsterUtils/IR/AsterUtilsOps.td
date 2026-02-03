@@ -18,6 +18,7 @@
 include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.td"
 include "aster/Dialect/AsterUtils/IR/AsterUtilsAttrs.td"
 include "aster/Dialect/AsterUtils/IR/AsterUtilsTypes.td"
+include "mlir/Dialect/Ptr/IR/PtrDialect.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
@@ -203,6 +204,50 @@ def AsterUtils_ToAnyOp : AsterUtils_Op<"to_any", [Pure]> {
     $input attr-dict `:` type($input)
   }];
   let hasFolder = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// PtrAddOp
+//===----------------------------------------------------------------------===//
+
+def AsterUtils_PtrAddOp : AsterUtils_Op<"ptr_add", [
+    Pure,
+    AllTypesMatch<["ptr", "result"]>,
+    OptionalTypesMatchWith<"uniform_offset type matches offset type",
+                           "offset", "uniform_offset",
+                           "$_self">
+  ]> {
+  let summary = "Add offsets to a pointer";
+  let description = [{
+    The `ptr_add` operation computes a new pointer by adding offsets to an
+    existing pointer. The operation supports multiple offset components:
+    - `offset`: A dynamic (potentially non-uniform) offset
+    - `uniform_offset`: An optional uniform offset (same across threads)
+    - `const_offset`: A constant offset attribute (defaults to 0)
+
+    The final address is computed as:
+      result = ptr + offset + uniform_offset + const_offset
+
+    All offset operands must be signless integer types.
+
+    Example:
+    ```mlir
+    %new_ptr = aster_utils.ptr_add %ptr, %offset : !ptr.ptr<#ptr.generic_space>, i64
+    %new_ptr = aster_utils.ptr_add %ptr, %offset, %uniform : !ptr.ptr<#ptr.generic_space>, i64
+    %new_ptr = aster_utils.ptr_add %ptr, %offset const_offset = 16 : !ptr.ptr<#ptr.generic_space>, i64
+    ```
+  }];
+  let arguments = (ins
+    Ptr_PtrType:$ptr,
+    AnySignlessInteger:$offset,
+    Optional<AnySignlessInteger>:$uniform_offset,
+    DefaultValuedAttr<I64Attr, "0">:$const_offset
+  );
+  let results = (outs Ptr_PtrType:$result);
+  let assemblyFormat = [{
+    $ptr `,` $offset (`,` $uniform_offset^)? (`const_offset` `=` $const_offset^)?
+    attr-dict `:` type($ptr) `,` type($offset)
+  }];
 }
 
 //===----------------------------------------------------------------------===//

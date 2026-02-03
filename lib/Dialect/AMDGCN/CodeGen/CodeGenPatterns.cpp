@@ -18,11 +18,14 @@
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 using namespace mlir;
 using namespace mlir::aster;
+using namespace mlir::aster::amdgcn;
 
 namespace {
 //===----------------------------------------------------------------------===//
@@ -33,6 +36,26 @@ struct IDDimOpPattern : public OpCodeGenPattern<OpTy> {
   using OpCodeGenPattern<OpTy>::OpCodeGenPattern;
   LogicalResult
   matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
+// PtrLoadOpPattern
+//===----------------------------------------------------------------------===//
+struct PtrLoadOpPattern : public OpCodeGenPattern<ptr::LoadOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
+  LogicalResult
+  matchAndRewrite(ptr::LoadOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
+// PtrStoreOpPattern
+//===----------------------------------------------------------------------===//
+struct PtrStoreOpPattern : public OpCodeGenPattern<ptr::StoreOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
+  LogicalResult
+  matchAndRewrite(ptr::StoreOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
 } // namespace
@@ -53,6 +76,175 @@ LogicalResult IDDimOpPattern<OpTy, NewOpTy>::matchAndRewrite(
       rewriter, op.getLoc(), regTy,
       static_cast<amdgcn::Dim>(static_cast<int8_t>(op.getDim())));
   rewriter.replaceOpWithNewOp<lsir::RegCastOp>(op, type, nOp);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Internal helpers
+//===----------------------------------------------------------------------===//
+
+/// Create an i32 constant value.
+static Value getI32Constant(OpBuilder &builder, Location loc, int32_t value) {
+  return arith::ConstantOp::create(
+      builder, loc, builder.getI32Type(),
+      builder.getIntegerAttr(builder.getI32Type(), value));
+}
+
+/// Get the address space kind from a ptr type. Returns std::nullopt for
+/// generic/unknown memory spaces (which default to global).
+static std::optional<AddressSpaceKind>
+getAddressSpaceKind(ptr::PtrType ptrType) {
+  auto memSpace = ptrType.getMemorySpace();
+  if (!memSpace)
+    return std::nullopt;
+  if (auto addrSpace = dyn_cast<AddressSpaceAttr>(memSpace))
+    return addrSpace.getSpace();
+  return std::nullopt;
+}
+
+//===----------------------------------------------------------------------===//
+// PtrLoadOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+PtrLoadOpPattern::matchAndRewrite(ptr::LoadOp op, OpAdaptor adaptor,
+                                  ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+
+  // Get the result type and compute the number of 32-bit words needed.
+  Type resultType = converter.convertType(op.getResult());
+  int64_t typeSize = converter.getTypeSize(op.getResult().getType());
+  int64_t numWords = (typeSize + 3) / 4;
+
+  // Create the destination register allocation.
+  Value dst = createAlloca(rewriter, loc, resultType);
+
+  // Get the converted address operand.
+  Value addr = adaptor.getPtr();
+
+  // Get the memory space from the ptr type.
+  auto ptrType = cast<ptr::PtrType>(op.getPtr().getType());
+  std::optional<AddressSpaceKind> space = getAddressSpaceKind(ptrType);
+
+  Value result;
+  // Handle local memory (shared/LDS) with DS_READ instructions.
+  if (space && *space == AddressSpaceKind::Local) {
+    Value offset = getI32Constant(rewriter, loc, 0);
+    switch (numWords) {
+    case 1:
+      result =
+          DS_READ_B32::create(rewriter, loc, dst, addr, offset).getResult();
+      break;
+    case 2:
+      result =
+          DS_READ_B64::create(rewriter, loc, dst, addr, offset).getResult();
+      break;
+    case 3:
+      result =
+          DS_READ_B96::create(rewriter, loc, dst, addr, offset).getResult();
+      break;
+    case 4:
+      result =
+          DS_READ_B128::create(rewriter, loc, dst, addr, offset).getResult();
+      break;
+    default:
+      return rewriter.notifyMatchFailure(
+          op, "unsupported number of words for ptr.load from local memory");
+    }
+  } else {
+    // Default to global memory with GLOBAL_LOAD instructions.
+    switch (numWords) {
+    case 1:
+      result =
+          GLOBAL_LOAD_DWORD::create(rewriter, loc, dst, addr, nullptr, nullptr)
+              .getResult();
+      break;
+    case 2:
+      result = GLOBAL_LOAD_DWORDX2::create(rewriter, loc, dst, addr, nullptr,
+                                           nullptr)
+                   .getResult();
+      break;
+    case 3:
+      result = GLOBAL_LOAD_DWORDX3::create(rewriter, loc, dst, addr, nullptr,
+                                           nullptr)
+                   .getResult();
+      break;
+    case 4:
+      result = GLOBAL_LOAD_DWORDX4::create(rewriter, loc, dst, addr, nullptr,
+                                           nullptr)
+                   .getResult();
+      break;
+    default:
+      return rewriter.notifyMatchFailure(
+          op, "unsupported number of words for ptr.load");
+    }
+  }
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PtrStoreOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+PtrStoreOpPattern::matchAndRewrite(ptr::StoreOp op, OpAdaptor adaptor,
+                                   ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+
+  // Get the value to store and compute the number of 32-bit words.
+  Value data = adaptor.getValue();
+  int64_t typeSize = converter.getTypeSize(op.getValue().getType());
+  int64_t numWords = (typeSize + 3) / 4;
+
+  // Get the converted address operand.
+  Value addr = adaptor.getPtr();
+
+  // Get the memory space from the ptr type.
+  auto ptrType = cast<ptr::PtrType>(op.getPtr().getType());
+  std::optional<AddressSpaceKind> space = getAddressSpaceKind(ptrType);
+
+  // Handle local memory (shared/LDS) with DS_WRITE instructions.
+  if (space && *space == AddressSpaceKind::Local) {
+    Value offset = getI32Constant(rewriter, loc, 0);
+    switch (numWords) {
+    case 1:
+      DS_WRITE_B32::create(rewriter, loc, data, addr, offset);
+      break;
+    case 2:
+      DS_WRITE_B64::create(rewriter, loc, data, addr, offset);
+      break;
+    case 3:
+      DS_WRITE_B96::create(rewriter, loc, data, addr, offset);
+      break;
+    case 4:
+      DS_WRITE_B128::create(rewriter, loc, data, addr, offset);
+      break;
+    default:
+      return rewriter.notifyMatchFailure(
+          op, "unsupported number of words for ptr.store to local memory");
+    }
+  } else {
+    // Default to global memory with GLOBAL_STORE instructions.
+    switch (numWords) {
+    case 1:
+      GLOBAL_STORE_DWORD::create(rewriter, loc, data, addr, nullptr, nullptr);
+      break;
+    case 2:
+      GLOBAL_STORE_DWORDX2::create(rewriter, loc, data, addr, nullptr, nullptr);
+      break;
+    case 3:
+      GLOBAL_STORE_DWORDX3::create(rewriter, loc, data, addr, nullptr, nullptr);
+      break;
+    case 4:
+      GLOBAL_STORE_DWORDX4::create(rewriter, loc, data, addr, nullptr, nullptr);
+      break;
+    default:
+      return rewriter.notifyMatchFailure(
+          op, "unsupported number of words for ptr.store");
+    }
+  }
+  rewriter.eraseOp(op);
   return success();
 }
 
@@ -173,15 +365,15 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
   target.addIllegalOp<aster_utils::ThreadIdOp, aster_utils::BlockIdOp,
                       aster_utils::BlockDimOp, aster_utils::GridDimOp>();
 
-  target.addIllegalOp<aster_utils::ThreadIdOp, aster_utils::BlockIdOp,
-                      aster_utils::BlockDimOp, aster_utils::GridDimOp,
-                      aster_utils::AssumeRangeOp, lsir::FromRegOp,
-                      lsir::ToRegOp, lsir::RegConstraintOp>();
+  target.addIllegalOp<
+      aster_utils::ThreadIdOp, aster_utils::BlockIdOp, aster_utils::BlockDimOp,
+      aster_utils::GridDimOp, aster_utils::AssumeRangeOp, lsir::FromRegOp,
+      lsir::ToRegOp, lsir::RegConstraintOp, ptr::LoadOp, ptr::StoreOp>();
 
   // Add the patterns.
   patterns.add<IDDimOpPattern<aster_utils::ThreadIdOp, amdgcn::ThreadIdOp>,
                IDDimOpPattern<aster_utils::BlockIdOp, amdgcn::BlockIdOp>,
                IDDimOpPattern<aster_utils::BlockDimOp, amdgcn::BlockDimOp>,
-               IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>>(
-      converter);
+               IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>,
+               PtrLoadOpPattern, PtrStoreOpPattern>(converter);
 }
