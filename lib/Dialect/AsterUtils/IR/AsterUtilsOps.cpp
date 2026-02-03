@@ -11,7 +11,9 @@
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsTypes.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/PatternMatch.h"
@@ -70,10 +72,132 @@ void AsterUtilsDialect::initialize() {
 // AssumeRangeOp
 //===----------------------------------------------------------------------===//
 
+/// Parse a bound that can be either static (integer) or dynamic (SSA value).
+/// Format: `keyword <integer>` for static, `keyword %operand` for dynamic.
+/// Returns success even if the keyword is not present (optional bound).
+static ParseResult
+parseAssumeRangeBound(OpAsmParser &parser, StringRef keyword,
+                      std::optional<OpAsmParser::UnresolvedOperand> &dynamic,
+                      IntegerAttr &staticVal) {
+  // Check if the keyword is present.
+  if (failed(parser.parseOptionalKeyword(keyword))) {
+    dynamic = std::nullopt;
+    staticVal = nullptr;
+    return success();
+  }
+
+  // Try to parse an integer first (static bound).
+  int64_t intVal;
+  auto intRes = parser.parseOptionalInteger(intVal);
+  if (intRes.has_value()) {
+    if (failed(*intRes))
+      return failure();
+    staticVal = parser.getBuilder().getIndexAttr(intVal);
+    dynamic = std::nullopt;
+    return success();
+  }
+
+  // Otherwise, parse an operand (dynamic bound).
+  OpAsmParser::UnresolvedOperand operand;
+  if (parser.parseOperand(operand))
+    return failure();
+  dynamic = operand;
+  staticVal = nullptr;
+  return success();
+}
+
+/// Print a bound that can be either static or dynamic.
+static void printAssumeRangeBound(OpAsmPrinter &printer, Operation *,
+                                  StringRef keyword, Value dynamic,
+                                  IntegerAttr staticVal) {
+  if (!dynamic && !staticVal)
+    return;
+  printer << " " << keyword << " ";
+  if (dynamic) {
+    printer.printOperand(dynamic);
+    return;
+  }
+  printer << staticVal.getInt();
+}
+
+LogicalResult AssumeRangeOp::verify() {
+  // Cannot have both static and dynamic min.
+  if (getDynamicMin() && getStaticMin())
+    return emitOpError("cannot have both static and dynamic min");
+  // Cannot have both static and dynamic max.
+  if (getDynamicMax() && getStaticMax())
+    return emitOpError("cannot have both static and dynamic max");
+  return success();
+}
+
 OpFoldResult AssumeRangeOp::fold(FoldAdaptor adaptor) {
-  if (!getMin().has_value() && !getMax().has_value())
-    return getInput();
-  return nullptr;
+  bool changed = false;
+  if (auto attr = dyn_cast_if_present<IntegerAttr>(adaptor.getDynamicMax());
+      attr && attr.getType().getIntOrFloatBitWidth() <= 64) {
+    getDynamicMaxMutable().clear();
+    setStaticMaxAttr(IntegerAttr::get(IndexType::get(getContext()),
+                                      attr.getValue().getSExtValue()));
+    changed = true;
+  }
+  if (auto attr = dyn_cast_if_present<IntegerAttr>(adaptor.getDynamicMin());
+      attr && attr.getType().getIntOrFloatBitWidth() <= 64) {
+    getDynamicMinMutable().clear();
+    setStaticMinAttr(IntegerAttr::get(IndexType::get(getContext()),
+                                      attr.getValue().getSExtValue()));
+    changed = true;
+  }
+  return changed ? OpFoldResult(getResult()) : OpFoldResult();
+}
+
+namespace {
+/// Canonicalize assume_range by folding constant dynamic bounds into static.
+struct FoldConstantAssumeRangeBounds : public OpRewritePattern<AssumeRangeOp> {
+  using OpRewritePattern<AssumeRangeOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AssumeRangeOp op,
+                                PatternRewriter &rewriter) const override {
+    bool changed = false;
+    IntegerAttr staticMin = op.getStaticMinAttr();
+    IntegerAttr staticMax = op.getStaticMaxAttr();
+    Value dynamicMin = op.getDynamicMin();
+    Value dynamicMax = op.getDynamicMax();
+
+    // Try to fold constant dynamic min.
+    if (dynamicMin) {
+      if (auto constOp = dynamicMin.getDefiningOp<arith::ConstantOp>()) {
+        if (auto intAttr = dyn_cast<IntegerAttr>(constOp.getValue())) {
+          staticMin = rewriter.getIndexAttr(intAttr.getInt());
+          dynamicMin = nullptr;
+          changed = true;
+        }
+      }
+    }
+
+    // Try to fold constant dynamic max.
+    if (dynamicMax) {
+      if (auto constOp = dynamicMax.getDefiningOp<arith::ConstantOp>()) {
+        if (auto intAttr = dyn_cast<IntegerAttr>(constOp.getValue())) {
+          staticMax = rewriter.getIndexAttr(intAttr.getInt());
+          dynamicMax = nullptr;
+          changed = true;
+        }
+      }
+    }
+
+    if (!changed)
+      return failure();
+
+    rewriter.replaceOpWithNewOp<AssumeRangeOp>(op, op.getType(), op.getInput(),
+                                               dynamicMin, dynamicMax,
+                                               staticMin, staticMax);
+    return success();
+  }
+};
+} // namespace
+
+void AssumeRangeOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
+                                                MLIRContext *context) {
+  patterns.add<FoldConstantAssumeRangeBounds>(context);
 }
 
 //===----------------------------------------------------------------------===//

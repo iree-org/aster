@@ -279,10 +279,6 @@ OffsetComponents::analyzeTerm(Value value) {
 
   // Handle multiplicative operations.
   if (auto mulOp = dyn_cast<arith::MulIOp>(defOp)) {
-    // If the multiplication result is not uniform, bail out as we can't split.
-    if (!isUniform(mulOp, solver))
-      return getOffsets(mulOp, true);
-
     FailureOr<Offsets> lhs = analyzeTerm(mulOp.getLhs());
     // If the left-hand side analysis failed, bail out and treat the mul as a
     // single term.

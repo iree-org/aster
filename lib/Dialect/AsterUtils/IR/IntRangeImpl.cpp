@@ -101,14 +101,32 @@ void ThreadIdOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
 
 void AssumeRangeOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                       SetIntRangeFn setResultRange) {
-  std::optional<APInt> min = getMin();
-  std::optional<APInt> max = getMax();
+  // Get min/max bounds - for dynamic bounds, we need to use the input range
+  // from dataflow analysis. For static bounds, use the attribute value.
+  std::optional<APInt> min;
+  std::optional<APInt> max;
+
+  // Check for static min bound
+  if (hasStaticMin())
+    min = getStaticMinAttr().getValue();
+  else if (getDynamicMin() && ranges.size() > 1)
+    min = ranges[1].smin(); // Use the min from dataflow analysis
+
+  // Check for static max bound (index into ranges depends on whether
+  // dynamic_min exists)
+  if (hasStaticMax()) {
+    max = getStaticMaxAttr().getValue();
+  } else if (getDynamicMax()) {
+    size_t maxIdx = getDynamicMin() ? 2 : 1;
+    if (ranges.size() > maxIdx)
+      max = ranges[maxIdx].smax(); // Use the max from dataflow analysis
+  }
+
   if (!min && !max) {
     setResultRange(getResult(), ranges.front());
     return;
   }
-  IntegerType type = dyn_cast<IntegerType>(getType());
-  unsigned width = type ? type.getWidth() : 64;
+  unsigned width = getResult().getType().getIntOrFloatBitWidth();
   ConstantIntRanges inRange = ranges.front();
   if (max)
     max = max->sextOrTrunc(width);
