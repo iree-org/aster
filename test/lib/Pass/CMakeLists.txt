@@ -9,6 +9,7 @@ add_mlir_library(ASTERTestPass
   TestLDSInterferenceGraph.cpp
   TestLivenessAnalysis.cpp
   TestMemoryDependenceAnalysis.cpp
+  TestValueProvenanceAnalysis.cpp
   TestWaitAnalysis.cpp
 
   DEPENDS

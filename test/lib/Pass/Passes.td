@@ -49,6 +49,14 @@ def TestMemoryDependenceAnalysis : Pass<"test-memory-dependence-analysis"> {
   }];
 }
 
+def TestValueProvenanceAnalysis : Pass<"test-value-provenance-analysis"> {
+  let summary = "Test pass for value provenance analysis";
+  let description = [{
+    This pass runs value provenance analysis and prints which alloca
+    each value originates from, as well as phi-coalescing equivalences.
+  }];
+}
+
 def TestWaitAnalysis : Pass<"test-wait-analysis"> {
   let summary = "Test pass for wait analysis";
   let description = [{
