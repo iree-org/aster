@@ -223,42 +223,28 @@ def LSIR_AssumeNoaliasOp : LSIR_Op<"assume_noalias", [
 // CmpFOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CmpFOp : LSIR_Op<"cmpf", [
-    Pure, AllTypesMatch<["dst", "result"]>, InstOpInterface
-  ]> {
+def LSIR_CmpFOp : LSIR_Op<"cmpf", [Pure]> {
   let summary = "Floating point comparison operation";
   let description = [{
-    The `lsir.cmpf` operation compares two floating point values.
+    The `lsir.cmpf` operation compares two floating point values and returns i1.
+    The `i1` return value is kept late in the pipeline and is only translated to
+    SCC after register allocation, together with cf branch operations.
+    As a consequence of this special behavior, it is not an InstOpInterface.
 
     Example:
     ```mlir
-    %result = lsir.cmpf f32 olt %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %result = lsir.cmpf f32 olt %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
     ```
   }];
   let arguments = (ins
     AnyFloatTypeAttr:$semantics,
     Arith_CmpFPredicateAttr:$predicate,
-    RegType:$dst,
     FloatOrRegType:$lhs,
     FloatOrRegType:$rhs
   );
-  let results = (outs RegType:$result);
+  let results = (outs I1:$result);
   let assemblyFormat = [{
-    $semantics $predicate $dst `,` $lhs `,` $rhs attr-dict
-    `:` type($dst) `,` type($lhs) `,` type($rhs)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(1);
-    }
-    /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front(1);
-    }
+    $semantics $predicate $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
   }];
 }
 
@@ -266,43 +252,29 @@ def LSIR_CmpFOp : LSIR_Op<"cmpf", [
 // CmpIOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CmpIOp : LSIR_Op<"cmpi", [
-    Pure, AllTypesMatch<["dst", "result"]>, InstOpInterface
-  ]> {
+def LSIR_CmpIOp : LSIR_Op<"cmpi", [Pure]> {
   let summary = "Integer comparison operation";
   let description = [{
     The `lsir.cmpi` operation compares two integer operands according to the
-    specified predicate and produces an i1 result.
+    specified predicate and returns i1.
+    The `i1` return value is kept late in the pipeline and is only translated to
+    SCC after register allocation, together with cf branch operations.
+    As a consequence of this special behavior, it is not an InstOpInterface.
 
     Example:
     ```mlir
-    %result = lsir.cmpi i32 eq %dst, %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+    %result = lsir.cmpi i32 eq %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr
     ```
   }];
   let arguments = (ins
     AnyIntTypeAttr:$semantics,
     Arith_CmpIPredicateAttr:$predicate,
-    RegType:$dst,
     IntOrRegType:$lhs,
     IntOrRegType:$rhs
   );
-  let results = (outs RegType:$result);
+  let results = (outs I1:$result);
   let assemblyFormat = [{
-    $semantics $predicate $dst `,` $lhs `,` $rhs attr-dict
-    `:` type($dst) `,` type($lhs) `,` type($rhs)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(1);
-    }
-    /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front(1);
-    }
+    $semantics $predicate $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
   }];
 }
 

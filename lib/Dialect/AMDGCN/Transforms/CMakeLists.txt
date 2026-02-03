@@ -10,6 +10,7 @@ add_mlir_library(
   InstructionSchedulingAutoschedulePass.cpp
   HoistOps.cpp
   LDSAlloc.cpp
+  LegalizeCF.cpp
   Mem2Reg.cpp
   PreloadLibrary.cpp
   RegisterAlloc.cpp
@@ -28,6 +29,7 @@ add_mlir_library(
   ASTERAnalysis
   AsterTransforms
 
+  MLIRControlFlowDialect
   MLIRFuncDialect
   MLIRIR
   MLIRPass

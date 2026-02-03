@@ -233,4 +233,32 @@ def ConvertSCFControlFlow : Pass<"amdgcn-convert-scf-control-flow"> {
   ];
 }
 
+def LegalizeCF : Pass<"amdgcn-legalize-cf"> {
+  let summary = "Legalize CF dialect ops to AMDGCN scalar branch instructions";
+  let description = [{
+    This pass legalizes CF dialect operations (cf.cond_br, cf.br) and lsir.cmpi
+    to AMDGCN scalar branch and compare instructions. It runs after register
+    allocation when operands are in physical registers and values from through
+    side effects.
+
+    Transformations:
+    - lsir.cmpi (returns i1) -> s_cmp_* (sets SCC flag)
+    - cf.cond_br -> s_cbranch_scc1 / scc0 + s_branch
+    - cf.br -> s_branch
+
+    Prerequisites:
+    - Register allocation must have run (all operands must be in allocatedSGPRs)
+    - Block arguments must have been eliminated
+
+    TODO: AMDGCN supports only a very limited form of branches. At this time,
+    the pass errors when we reach more advanced control flow patterns. Still, the
+    current behavior is enough to model `scf.for` loops.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::arith::ArithDialect",
+    "mlir::cf::ControlFlowDialect"
+  ];
+}
+
 #endif // AMDGCN_PASSES

@@ -60,54 +60,54 @@ func.func @test_shrui(%dst: !amdgcn.vgpr, %value: !amdgcn.vgpr, %amount: !amdgcn
   return %0 : !amdgcn.vgpr
 }
 
-func.func @test_cmpi_eq(%dst: !amdgcn.sgpr, %lhs: !amdgcn.sgpr, %rhs: !amdgcn.sgpr) -> !amdgcn.sgpr {
-  %0 = lsir.cmpi i32 eq %dst, %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
-  return %0 : !amdgcn.sgpr
+func.func @test_cmpi_eq(%lhs: !amdgcn.sgpr, %rhs: !amdgcn.sgpr) -> i1 {
+  %0 = lsir.cmpi i32 eq %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr
+  return %0 : i1
 }
 
-func.func @test_cmpi_ne(%dst: !amdgcn.sgpr, %lhs: !amdgcn.sgpr, %rhs: !amdgcn.sgpr) -> !amdgcn.sgpr {
-  %0 = lsir.cmpi i32 ne %dst, %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
-  return %0 : !amdgcn.sgpr
+func.func @test_cmpi_ne(%lhs: !amdgcn.sgpr, %rhs: !amdgcn.sgpr) -> i1 {
+  %0 = lsir.cmpi i32 ne %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr
+  return %0 : i1
 }
 
-func.func @test_cmpi_slt(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %0 = lsir.cmpi i32 slt %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+func.func @test_cmpi_slt(%lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> i1 {
+  %0 = lsir.cmpi i32 slt %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : i1
 }
 
-func.func @test_cmpi_sle(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %0 = lsir.cmpi i32 sle %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+func.func @test_cmpi_sle(%lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> i1 {
+  %0 = lsir.cmpi i32 sle %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : i1
 }
 
-func.func @test_cmpi_sgt(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %0 = lsir.cmpi i32 sgt %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+func.func @test_cmpi_sgt(%lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> i1 {
+  %0 = lsir.cmpi i32 sgt %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : i1
 }
 
-func.func @test_cmpi_sge(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %0 = lsir.cmpi i32 sge %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+func.func @test_cmpi_sge(%lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> i1 {
+  %0 = lsir.cmpi i32 sge %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : i1
 }
 
-func.func @test_cmpi_ult(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %0 = lsir.cmpi i32 ult %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+func.func @test_cmpi_ult(%lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> i1 {
+  %0 = lsir.cmpi i32 ult %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : i1
 }
 
-func.func @test_cmpi_ule(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %0 = lsir.cmpi i32 ule %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+func.func @test_cmpi_ule(%lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> i1 {
+  %0 = lsir.cmpi i32 ule %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : i1
 }
 
-func.func @test_cmpi_ugt(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %0 = lsir.cmpi i32 ugt %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+func.func @test_cmpi_ugt(%lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> i1 {
+  %0 = lsir.cmpi i32 ugt %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : i1
 }
 
-func.func @test_cmpi_uge(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %0 = lsir.cmpi i32 uge %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+func.func @test_cmpi_uge(%lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> i1 {
+  %0 = lsir.cmpi i32 uge %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : i1
 }
 
 func.func @test_extsi(%dst: !amdgcn.sgpr, %value: !amdgcn.sgpr) -> !amdgcn.sgpr {
@@ -201,14 +201,14 @@ func.func @test_xori(%dst: !amdgcn.sgpr, %lhs: !amdgcn.sgpr, %rhs: !amdgcn.sgpr)
   return %0 : !amdgcn.sgpr
 }
 
-func.func @test_cmpf_olt(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %0 = lsir.cmpf f32 olt %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+func.func @test_cmpf_olt(%lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> i1 {
+  %0 = lsir.cmpf f32 olt %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : i1
 }
 
-func.func @test_cmpf_oeq(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %0 = lsir.cmpf f32 oeq %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+func.func @test_cmpf_oeq(%lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> i1 {
+  %0 = lsir.cmpf f32 oeq %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : i1
 }
 
 func.func @test_extf(%dst: !amdgcn.vgpr, %value: !amdgcn.vgpr) -> !amdgcn.vgpr {
