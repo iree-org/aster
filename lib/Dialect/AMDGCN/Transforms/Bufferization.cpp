@@ -13,6 +13,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Analysis/LivenessAnalysis.h"
 #include "aster/Analysis/ValueProvenanceAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
@@ -20,8 +21,11 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Interfaces/RegisterType.h"
+#include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
+#include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -132,26 +136,123 @@ static void insertPhiBreakingCopies(Block *block, IRRewriter &rewriter,
   }
 }
 
+/// Insert copies for values that would be clobbered by reused allocas.
+///
+/// When the same alloca is used as outs for multiple instructions, later
+/// instructions could clobber earlier values. If an earlier value is still
+/// live at the time the clobbering instruction is executed, we must copy it
+/// first.
+///
+/// Example:
+///   %0 = alloca
+///   %1 = test_inst outs %0          // %1 stored in %0
+///   %2 = test_inst outs %0          // CLOBBERS %1!
+///   test_inst ins %1, %2            // uses both - %1 is garbage
+///
+/// Fix: Before %2's definition, copy %1 to a new alloca.
+static void
+removePotentiallyClobberedValues(Operation *op, IRRewriter &rewriter,
+                                 DataFlowSolver &livenessSolver,
+                                 ValueProvenanceAnalysis *provenanceAnalysis) {
+  op->walk([&](InstOpInterface inst) {
+    for (Value outsVal : inst.getInstOuts()) {
+      FailureOr<Value> outsAlloca =
+          provenanceAnalysis->getCanonicalPhiEquivalentAlloca(outsVal);
+      if (failed(outsAlloca))
+        continue;
+
+      // Get liveness state before this instruction. Values that are live here
+      // and originate from the same alloca will be clobbered by this write.
+      const auto *liveness = livenessSolver.lookupState<LivenessState>(
+          livenessSolver.getProgramPointBefore(inst));
+      if (!liveness || liveness->isTop())
+        continue;
+
+      // Find live values from the same alloca - these will be clobbered.
+      SmallVector<Value> clobberedValues;
+      for (Value liveVal : liveness->getLiveValues()) {
+        FailureOr<Value> liveAlloca =
+            provenanceAnalysis->getCanonicalPhiEquivalentAlloca(liveVal);
+        if (failed(liveAlloca) || *liveAlloca != *outsAlloca)
+          continue;
+        // Don't consider the outs value itself.
+        if (liveVal == outsVal)
+          continue;
+        clobberedValues.push_back(liveVal);
+      }
+
+      // Insert copies for clobbered values.
+      Block *instBlock = inst->getBlock();
+      for (Value clobbered : clobberedValues) {
+        OpBuilder::InsertionGuard g(rewriter);
+        rewriter.setInsertionPoint(inst);
+        auto copyAlloca =
+            AllocaOp::create(rewriter, inst.getLoc(),
+                             cast<RegisterTypeInterface>(clobbered.getType()));
+        Value copyResult =
+            insertCopy(rewriter, inst.getLoc(), copyAlloca, clobbered);
+
+        // Replace "reading" uses of the clobbered value after inst (in same
+        // block) with the copy. Don't replace outs operands - those specify
+        // WHERE to write, not WHAT to read.
+        clobbered.replaceUsesWithIf(copyResult, [&](OpOperand &use) {
+          Operation *useOwner = use.getOwner();
+          if (useOwner->getBlock() != instBlock ||
+              !inst->isBeforeInBlock(useOwner))
+            return false;
+          // Don't replace outs operands.
+          if (auto userInst = dyn_cast<InstOpInterface>(useOwner)) {
+            for (OpOperand &outsOp : userInst.getInstOutsMutable()) {
+              if (&outsOp == &use)
+                return false;
+            }
+          }
+          return true;
+        });
+      }
+    }
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // Bufferization pass
 //===----------------------------------------------------------------------===//
 
 void Bufferization::runOnOperation() {
   Operation *op = getOperation();
+  IRRewriter rewriter(op->getContext());
 
+  // 1. Insert copies to resolve phi-equivalence conflicts.
   // Run value provenance analysis.
-  DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
+  DataFlowSolver provenanceSolver(DataFlowConfig().setInterprocedural(false));
   ValueProvenanceAnalysis *provenanceAnalysis =
-      ValueProvenanceAnalysis::create(solver, op);
+      ValueProvenanceAnalysis::create(provenanceSolver, op);
   if (!provenanceAnalysis) {
     op->emitError() << "Failed to run value provenance analysis";
     return signalPassFailure();
   }
 
-  IRRewriter rewriter(op->getContext());
-
   // Insert copies to break interference between phi-equivalent allocas.
   op->walk([&](Block *block) {
-    insertPhiBreakingCopies(block, rewriter, solver, provenanceAnalysis);
+    insertPhiBreakingCopies(block, rewriter, provenanceSolver,
+                            provenanceAnalysis);
   });
+
+  // 2. Insert copies to remove potentially clobbered values.
+  // Update provenance analysis after inserting copies.
+  provenanceAnalysis = ValueProvenanceAnalysis::create(provenanceSolver, op);
+
+  // Run liveness analysis for clobber detection.
+  DataFlowSolver livenessSolver(DataFlowConfig().setInterprocedural(false));
+  SymbolTableCollection symbolTable;
+  dataflow::loadBaselineAnalyses(livenessSolver);
+  livenessSolver.load<LivenessAnalysis>(symbolTable, provenanceAnalysis);
+  if (failed(livenessSolver.initializeAndRun(op))) {
+    op->emitError() << "Failed to run liveness analysis";
+    return signalPassFailure();
+  }
+
+  // Insert copies to remove potentially clobbered values.
+  removePotentiallyClobberedValues(op, rewriter, livenessSolver,
+                                   provenanceAnalysis);
 }
