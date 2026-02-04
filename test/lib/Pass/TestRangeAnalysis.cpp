@@ -14,6 +14,7 @@
 
 #include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Analysis/RangeAnalysis.h"
+#include "aster/Analysis/ValueProvenanceAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 
 #include "mlir/Analysis/DataFlow/Utils.h"
@@ -51,10 +52,19 @@ public:
       llvm::outs() << "\nKernel: " << kernel.getSymName() << "\n";
       llvm::outs() << kernel << "\n";
 
+      // Run ValueProvenanceAnalysis first.
+      DataFlowSolver provenanceSolver;
+      auto *provenanceAnalysis =
+          ValueProvenanceAnalysis::create(provenanceSolver, kernel);
+      if (!provenanceAnalysis) {
+        kernel.emitError() << "Failed to run provenance analysis";
+        return;
+      }
+
       // Run DPSAliasAnalysis.
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       dataflow::loadBaselineAnalyses(solver);
-      auto *aliasAnalysis = solver.load<DPSAliasAnalysis>();
+      auto *aliasAnalysis = solver.load<DPSAliasAnalysis>(provenanceAnalysis);
       if (failed(solver.initializeAndRun(kernel))) {
         kernel.emitError() << "Failed to run DPS alias analysis";
         return;

@@ -15,6 +15,7 @@
 #ifndef ASTER_ANALYSIS_DPSALIASANALYSIS_H
 #define ASTER_ANALYSIS_DPSALIASANALYSIS_H
 
+#include "aster/Analysis/ValueProvenanceAnalysis.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -32,10 +33,12 @@ namespace mlir::aster {
 //===----------------------------------------------------------------------===//
 
 using EqClassID = int32_t;
-/// This lattice value represents equivalence class information.
+
+/// Lattice value representing equivalence class information.
 class AliasEquivalenceClass {
 public:
   using EqClassList = llvm::SmallVector<EqClassID, 4>;
+
   /// Construct a equivalence class value.
   AliasEquivalenceClass(EqClassList eqClassIds = {})
       : eqClassIds(std::move(eqClassIds)) {}
@@ -67,7 +70,8 @@ public:
   /// Whether the state is top (overdefined).
   bool isTop() const { return llvm::failed(eqClassIds); }
 
-  /// Join operation for lattice.
+  /// Returns TOP if IDs differ (ill-formed IR or bug in ValueProvenanceAnalysis
+  /// where phi-coalesced allocas weren't unified).
   static AliasEquivalenceClass join(const AliasEquivalenceClass &lhs,
                                     const AliasEquivalenceClass &rhs) {
     if (lhs.isTop() || rhs.isTop())
@@ -78,7 +82,7 @@ public:
       return lhs;
     if (*lhs.eqClassIds == *rhs.eqClassIds)
       return lhs;
-    /// If the equivalence class IDs differ, we conservatively return top.
+    // Different IDs at join = ill-formed IR. See class documentation.
     return AliasEquivalenceClass(std::nullopt);
   }
 
@@ -100,13 +104,21 @@ private:
 // DPSAliasAnalysis
 //===----------------------------------------------------------------------===//
 
-/// This analysis implements DPS alias analysis using sparse forward data-flow
-/// analysis.
+/// DPS alias analysis assigns alias-equivalence class IDs to values for
+/// register allocation interference analysis.
+///
+/// Runs after ValueProvenanceAnalysis to properly track phi-coalesced values.
+///
+/// TOP state indicates ill-formed IR: non-equivalent allocas merging at a
+/// block argument.
 class DPSAliasAnalysis : public dataflow::SparseForwardDataFlowAnalysis<
                              dataflow::Lattice<AliasEquivalenceClass>> {
 public:
-  DPSAliasAnalysis(DataFlowSolver &solver)
-      : SparseForwardDataFlowAnalysis(solver), solver(solver) {}
+  DPSAliasAnalysis(DataFlowSolver &solver,
+                   const ValueProvenanceAnalysis *provenance = nullptr)
+      : SparseForwardDataFlowAnalysis(solver), solver(solver),
+        provenanceAnalysis(provenance) {}
+
   LogicalResult visitOperation(
       Operation *op,
       ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> operands,
@@ -115,8 +127,7 @@ public:
   void
   setToEntryState(dataflow::Lattice<AliasEquivalenceClass> *lattice) override;
 
-  /// Lookup the equivalence class ID assigned to the given value. Returns -1 if
-  /// not found.
+  /// Lookup eq class ID for a value. Returns -1 if not found.
   EqClassID lookup(Value val) const {
     return valueToEqClassIdMap.lookup_or(val, -1);
   }
@@ -156,6 +167,13 @@ protected:
   SmallVector<Value> idsToValuesMap;
   const DataFlowSolver &solver;
   bool illFormed = false;
+
+private:
+  // Optional provenance analysis for phi-coalescing. Null = no phi-coalescing.
+  const ValueProvenanceAnalysis *provenanceAnalysis;
+
+  // Equivalence classes resulting from DPS alias analysis.
+  EqClassID getOrCreateEqClassId(Value alloca);
 };
 } // end namespace mlir::aster
 

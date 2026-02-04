@@ -511,6 +511,8 @@ void RegisterAlloc::runOnOperation() {
   Operation *op = getOperation();
   if (failed(runVerifiersOnOp<IsAllocatableOpAttr>(op)))
     return signalPassFailure();
+
+  // Load the main analyses.
   SymbolTableCollection symbolTable;
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
   FailureOr<InterferenceAnalysis> graph =

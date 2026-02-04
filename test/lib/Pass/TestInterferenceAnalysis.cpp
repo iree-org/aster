@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/InterferenceAnalysis.h"
+#include "aster/Analysis/ValueProvenanceAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -45,11 +46,20 @@ struct TestInterferenceAnalysis
     op->walk([&](KernelOp kernel) {
       llvm::errs() << "// Kernel: " << kernel.getSymName() << "\n";
 
+      // Run ValueProvenanceAnalysis first in a separate solver.
+      DataFlowSolver provenanceSolver;
+      auto *provenanceAnalysis =
+          ValueProvenanceAnalysis::create(provenanceSolver, kernel);
+      if (!provenanceAnalysis) {
+        kernel.emitError() << "Failed to run provenance analysis";
+        return signalPassFailure();
+      }
+
       // Create the interference graph.
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       SymbolTableCollection symbolTable;
-      FailureOr<InterferenceAnalysis> graph =
-          InterferenceAnalysis::create(kernel, solver, symbolTable);
+      FailureOr<InterferenceAnalysis> graph = InterferenceAnalysis::create(
+          kernel, solver, symbolTable, provenanceAnalysis);
       if (failed(graph)) {
         kernel.emitError() << "Failed to build interference graph";
         return signalPassFailure();

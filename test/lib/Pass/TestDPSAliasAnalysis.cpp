@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/DPSAliasAnalysis.h"
+#include "aster/Analysis/ValueProvenanceAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 
 #include "mlir/Analysis/DataFlow/Utils.h"
@@ -55,10 +56,19 @@ public:
       // SSA values during FileCheck.
       llvm::outs() << kernel << "\n";
 
-      // Load DPSAliasAnalysis.
+      // Run ValueProvenanceAnalysis first in a separate solver.
+      DataFlowSolver provenanceSolver;
+      auto *provenanceAnalysis =
+          ValueProvenanceAnalysis::create(provenanceSolver, kernel);
+      if (!provenanceAnalysis) {
+        kernel.emitError() << "Failed to run provenance analysis";
+        return;
+      }
+
+      // Load DPSAliasAnalysis with the computed provenance.
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       dataflow::loadBaselineAnalyses(solver);
-      auto *aliasAnalysis = solver.load<DPSAliasAnalysis>();
+      auto *aliasAnalysis = solver.load<DPSAliasAnalysis>(provenanceAnalysis);
       if (failed(solver.initializeAndRun(kernel))) {
         kernel.emitError() << "Failed to run DPS alias analysis";
         return;

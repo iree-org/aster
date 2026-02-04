@@ -108,9 +108,10 @@ private:
 class LivenessAnalysis
     : public dataflow::DenseBackwardDataFlowAnalysis<LivenessState> {
 public:
-  LivenessAnalysis(DataFlowSolver &solver, SymbolTableCollection &symbolTable)
+  LivenessAnalysis(DataFlowSolver &solver, SymbolTableCollection &symbolTable,
+                   const ValueProvenanceAnalysis *provenance = nullptr)
       : DenseBackwardDataFlowAnalysis(solver, symbolTable),
-        aliasAnalysis(solver.load<DPSAliasAnalysis>()) {}
+        aliasAnalysis(solver.load<DPSAliasAnalysis>(provenance)) {}
 
   /// Visit an operation and update the lattice state.
   LogicalResult visitOperation(Operation *op, const LivenessState &after,

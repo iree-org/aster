@@ -12,11 +12,13 @@
 #include "aster/Analysis/InterferenceAnalysis.h"
 #include "aster/Analysis/LivenessAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Value.h"
@@ -191,12 +193,13 @@ InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
   return graph;
 }
 
-FailureOr<InterferenceAnalysis>
-InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
-                             SymbolTableCollection &symbolTable) {
-  // Load the necessary analyses.
+FailureOr<InterferenceAnalysis> InterferenceAnalysis::create(
+    Operation *op, DataFlowSolver &solver, SymbolTableCollection &symbolTable,
+    const ValueProvenanceAnalysis *provenanceAnalysis) {
+  // Load the main analyses with optional phi-coalescing via provenance.
   dataflow::loadBaselineAnalyses(solver);
-  auto *livenessAnalysis = solver.load<aster::LivenessAnalysis>(symbolTable);
+  auto *livenessAnalysis =
+      solver.load<aster::LivenessAnalysis>(symbolTable, provenanceAnalysis);
 
   // Initialize and run the solver.
   if (failed(solver.initializeAndRun(op)))

@@ -9,10 +9,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/DPSAliasAnalysis.h"
+#include "aster/Analysis/ValueProvenanceAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
@@ -60,6 +64,8 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 
 /// Helper to mark the IR as ill-formed if any of the given lattices is top.
 /// Returns true if any lattice is top.
+/// Block arguments are skipped since they receive values from control flow
+/// and may have top lattices in loops before the analysis converges.
 static bool
 isIllFormed(bool &illFormed,
             ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> lattices,
@@ -114,23 +120,15 @@ LogicalResult DPSAliasAnalysis::visitOperation(
     return success();
   }
 
-  // Handle specific operations.
-  // Each AllocaOp defines a new equivalence class.
-  if (auto aOp = dyn_cast<AllocaOp>(op)) {
-    // For AllocaOp, we can assign a unique equivalence class ID
-    int32_t eqClassId = valueToEqClassIdMap.size();
-    valueToEqClassIdMap[aOp.getResult()] = eqClassId;
-    idsToValuesMap.push_back(aOp.getResult());
-    assert(idsToValuesMap.size() == valueToEqClassIdMap.size() &&
-           "idsToValuesMap and valueToEqClassIdMap size mismatch");
+  // AllocaOps define new equivalence classes (may be phi-coalesced).
+  if (isa<AllocaOp, lsir::AllocaOp>(op)) {
+    EqClassID eqClassId = getOrCreateEqClassId(op->getResult(0));
     propagateIfChanged(results[0],
                        results[0]->join(AliasEquivalenceClass({eqClassId})));
     return success();
   }
 
-  // Handle InstOpInterface operations.
-  // Each InstOpInterface marks its results with the equivalence classes of the
-  // matching DPS operand.
+  // InstOpInterface: results inherit alias classes from DPS outs operands.
   if (auto instOp = dyn_cast<InstOpInterface>(op)) {
     for (OpOperand &operand : instOp.getInstOutsMutable()) {
       size_t idx = operand.getOperandNumber();
@@ -140,10 +138,8 @@ LogicalResult DPSAliasAnalysis::visitOperation(
     return success();
   }
 
-  // Handle MakeRegisterRangeOp operations.
-  // Each MakeRegisterRangeOp marks its result with the equivalence classes of
-  // all the operandLattices.
-  if (auto mOp = dyn_cast<amdgcn::MakeRegisterRangeOp>(op)) {
+  // MakeRegisterRangeOp: result contains all operand alias classes.
+  if (isa<amdgcn::MakeRegisterRangeOp>(op)) {
     AliasEquivalenceClass::EqClassList eqClassIds;
     for (const dataflow::Lattice<AliasEquivalenceClass> *operand :
          operandLattices)
@@ -153,9 +149,7 @@ LogicalResult DPSAliasAnalysis::visitOperation(
     return success();
   }
 
-  // Handle SplitRegisterRangeOp operations.
-  // Each SplitRegisterRangeOp marks its results with the equivalence classes of
-  // all the equivalence classes tied to the unique operand.
+  // SplitRegisterRangeOp: each result gets one alias class from operand.
   if (isa<amdgcn::SplitRegisterRangeOp>(op)) {
     for (auto [idx, result, eqClassId] : llvm::enumerate(
              results, operandLattices[0]->getValue().getEqClassIds())) {
@@ -174,4 +168,37 @@ void DPSAliasAnalysis::setToEntryState(
     dataflow::Lattice<AliasEquivalenceClass> *lattice) {
   // Set the lattice to top (overdefined) at entry points
   propagateIfChanged(lattice, lattice->join(AliasEquivalenceClass::getTop()));
+}
+
+EqClassID DPSAliasAnalysis::getOrCreateEqClassId(Value alloca) {
+  if (auto it = valueToEqClassIdMap.find(alloca);
+      it != valueToEqClassIdMap.end())
+    return it->second;
+
+  // Without provenance analysis, just create a new ID (no phi-coalescing).
+  if (!provenanceAnalysis) {
+    EqClassID eqClassId = idsToValuesMap.size();
+    valueToEqClassIdMap[alloca] = eqClassId;
+    idsToValuesMap.push_back(alloca);
+    return eqClassId;
+  }
+
+  // Phi-equivalence implies alias equivalence.
+  FailureOr<Value> maybeEquivalentAlloca =
+      provenanceAnalysis->getCanonicalPhiEquivalentAlloca(alloca);
+
+  //  No different equivalent alloca - create new ID.
+  if (failed(maybeEquivalentAlloca) || *maybeEquivalentAlloca == alloca) {
+    EqClassID eqClassId = idsToValuesMap.size();
+    valueToEqClassIdMap[alloca] = eqClassId;
+    idsToValuesMap.push_back(alloca);
+    return eqClassId;
+  }
+
+  // Different equivalent alloca - getOrCreate its DPS alias class ID.
+  // Note: recursive call to getOrCreateEqClassId is guaranteed to succeed now.
+  EqClassID eqClassId = getOrCreateEqClassId(*maybeEquivalentAlloca);
+  valueToEqClassIdMap[alloca] = eqClassId;
+
+  return eqClassId;
 }

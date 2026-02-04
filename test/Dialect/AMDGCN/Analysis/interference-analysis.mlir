@@ -264,3 +264,125 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+// -----
+
+// Test: phi coalescing - allocas in different branches that flow to the same block
+// argument get phi-coalesced into the same equivalence class (eq class 6).
+// CHECK: // Kernel: phi_coalescing_2
+// CHECK: graph InterferenceAnalysis {
+// CHECK-DAG:   0 [label="0, %0"];
+// CHECK-DAG:   1 [label="1, %1"];
+// CHECK-DAG:   2 [label="2, %2"];
+// CHECK-DAG:   3 [label="3, %3"];
+// CHECK-DAG:   4 [label="4, %4"];
+// CHECK-DAG:   5 [label="5, %5"];
+// Phi-coalesced allocas %10 and %13 share eq class 6
+// CHECK-DAG:   6 [label="6, %{{[0-9]+}}"];
+// CHECK-DAG:   0 -- 1;
+// CHECK-DAG:   2 -- 3;
+// CHECK: }
+amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
+  kernel @phi_coalescing_2 {
+    %1 = alloca : !amdgcn.vgpr
+    %2 = alloca : !amdgcn.vgpr
+    %3 = alloca : !amdgcn.sgpr
+    %4 = alloca : !amdgcn.sgpr
+    %5 = alloca : !amdgcn.vgpr
+    %6 = alloca : !amdgcn.vgpr
+    // While %7, %8 don't interfere in this block, they interfere with %9, %10
+    %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %8 = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %c0 = arith.constant 0 : i32
+    %cond = lsir.cmpi i32 eq %3, %c0 : !amdgcn.sgpr, i32
+    cf.cond_br %cond, ^bb1, ^bb2
+  ^bb1:  // pred: ^bb0
+    // Nevertheless, we can reuse the allocation of (%8, %2) because they are dead.
+    %9 = test_inst outs %5 ins %7 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %alloc0 = alloca : !amdgcn.vgpr
+    %bb1 = test_inst outs %alloc0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    cf.br ^bb3(%bb1 : !amdgcn.vgpr)
+  ^bb2:  // pred: ^bb0
+    // Nevertheless, we can reuse the allocation of (%7, %1) because they are dead.
+    %10 = test_inst outs %6 ins %8 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %alloc1 = alloca : !amdgcn.vgpr
+    %bb2 = test_inst outs %alloc1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    cf.br ^bb3(%bb2 : !amdgcn.vgpr)
+  ^bb3(%val: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
+    test_inst ins %val : (!amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+// Test: phi coalescing - values %7 and %8 flow to same block arg, so their source
+// allocas %1 and %2 get phi-coalesced (only 5 eq classes instead of 6).
+// CHECK: // Kernel: phi_coalescing_3
+// CHECK: graph InterferenceAnalysis {
+// Allocas %1 and %2 are phi-coalesced, so only one eq class for them
+// CHECK-DAG:   0 [label="0, %{{[0-9]+}}"];
+// CHECK-DAG:   1 [label="1, %2"];
+// CHECK-DAG:   2 [label="2, %3"];
+// CHECK-DAG:   3 [label="3, %4"];
+// CHECK-DAG:   4 [label="4, %5"];
+// CHECK-DAG:   1 -- 2;
+// CHECK: }
+amdgcn.module @ra_phi_coalescing_3 target = <gfx942> isa = <cdna3> {
+  kernel @phi_coalescing_3 {
+    %1 = alloca : !amdgcn.vgpr
+    %2 = alloca : !amdgcn.vgpr
+    %3 = alloca : !amdgcn.sgpr
+    %4 = alloca : !amdgcn.sgpr
+    %5 = alloca : !amdgcn.vgpr
+    %6 = alloca : !amdgcn.vgpr
+    // While %7, %8 don't interfere in this block, they interfere with %9, %10
+    %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %8 = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %c0 = arith.constant 0 : i32
+    %cond = lsir.cmpi i32 eq %3, %c0 : !amdgcn.sgpr, i32
+    cf.cond_br %cond, ^bb1, ^bb2
+  ^bb1:  // pred: ^bb0
+    cf.br ^bb3(%7 : !amdgcn.vgpr)
+  ^bb2:  // pred: ^bb0
+    cf.br ^bb3(%8 : !amdgcn.vgpr)
+  ^bb3(%val: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
+    test_inst ins %val, %7, %8 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+// Test: same as phi_coalescing_3 - phi coalescing reduces eq classes.
+// CHECK: // Kernel: phi_coalescing_4
+// CHECK: graph InterferenceAnalysis {
+// CHECK-DAG:   0 [label="0, %{{[0-9]+}}"];
+// CHECK-DAG:   1 [label="1, %2"];
+// CHECK-DAG:   2 [label="2, %3"];
+// CHECK-DAG:   3 [label="3, %4"];
+// CHECK-DAG:   4 [label="4, %5"];
+// CHECK-DAG:   1 -- 2;
+// CHECK: }
+amdgcn.module @ra_phi_coalescing_4 target = <gfx942> isa = <cdna3> {
+  kernel @phi_coalescing_4 {
+    %1 = alloca : !amdgcn.vgpr
+    %2 = alloca : !amdgcn.vgpr
+    %3 = alloca : !amdgcn.sgpr
+    %4 = alloca : !amdgcn.sgpr
+    %5 = alloca : !amdgcn.vgpr
+    %6 = alloca : !amdgcn.vgpr
+    // While %7, %8 don't interfere in this block, they interfere with %9, %10
+    %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %8 = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %c0 = arith.constant 0 : i32
+    %cond = lsir.cmpi i32 eq %3, %c0 : !amdgcn.sgpr, i32
+    cf.cond_br %cond, ^bb1, ^bb2
+  ^bb1:  // pred: ^bb0
+    cf.br ^bb3(%7 : !amdgcn.vgpr)
+  ^bb2:  // pred: ^bb0
+    cf.br ^bb3(%8 : !amdgcn.vgpr)
+  ^bb3(%val: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
+    test_inst ins %val, %7, %8 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}

@@ -32,9 +32,12 @@ struct InterferenceAnalysis : public Graph {
   static FailureOr<InterferenceAnalysis>
   create(Operation *op, DataFlowSolver &solver,
          DPSAliasAnalysis *aliasAnalysis);
+  /// Create an interference graph for the given operation and data flow solver,
+  /// with optional phi-coalescing via ValueProvenanceAnalysis.
   static FailureOr<InterferenceAnalysis>
   create(Operation *op, DataFlowSolver &solver,
-         SymbolTableCollection &symbolTable);
+         SymbolTableCollection &symbolTable,
+         const ValueProvenanceAnalysis *provenanceAnalysis = nullptr);
 
   /// Print the interference graph.
   void print(raw_ostream &os) const;

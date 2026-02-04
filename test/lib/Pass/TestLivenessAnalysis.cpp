@@ -14,6 +14,7 @@
 
 #include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Analysis/LivenessAnalysis.h"
+#include "aster/Analysis/ValueProvenanceAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 
 #include "mlir/Analysis/DataFlow/Utils.h"
@@ -55,11 +56,21 @@ public:
     op->walk([&](KernelOp kernel) {
       llvm::outs() << "\nKernel: " << kernel.getSymName() << "\n";
 
-      // Load LivenessAnalysis.
+      // Run ValueProvenanceAnalysis first in a separate solver.
+      DataFlowSolver provenanceSolver;
+      auto *provenanceAnalysis =
+          ValueProvenanceAnalysis::create(provenanceSolver, kernel);
+      if (!provenanceAnalysis) {
+        kernel.emitError() << "Failed to run provenance analysis";
+        return;
+      }
+
+      // Load LivenessAnalysis with the computed provenance.
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       SymbolTableCollection symbolTable;
       dataflow::loadBaselineAnalyses(solver);
-      auto *livenessAnalysis = solver.load<LivenessAnalysis>(symbolTable);
+      auto *livenessAnalysis =
+          solver.load<LivenessAnalysis>(symbolTable, provenanceAnalysis);
 
       // Initialize and run the solver on the kernel
       if (failed(solver.initializeAndRun(kernel))) {
