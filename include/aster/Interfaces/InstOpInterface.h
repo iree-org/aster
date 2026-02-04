@@ -16,17 +16,35 @@
 #define ASTER_INTERFACES_INSTOPINTERFACE_H
 
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 
-namespace mlir::aster {
+namespace mlir {
+class OpBuilder;
+namespace aster {
 class InstOpInterface;
 namespace detail {
+/// Returns the speculatability of the instruction.
+Speculation::Speculatability getInstSpeculatabilityImpl(InstOpInterface op);
+
+/// Returns the memory effects of the instruction.
+void getInstEffectsImpl(
+    InstOpInterface op,
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects);
+
 /// Verify the instruction operation.
 LogicalResult verifyInstImpl(InstOpInterface op);
 /// Returns true if the instruction has been register allocated.
-bool isRegAllocatedImpl(InstOpInterface op);
+bool hasPureValueSemanticsImpl(InstOpInterface op);
+
+/// Clones the instruction operation with new operands and results.
+InstOpInterface cloneInstOpImpl(InstOpInterface op, OpBuilder &builder,
+                                ValueRange outs, ValueRange ins,
+                                std::optional<TypeRange> resultTypes);
 struct InstAttrStorage;
 } // namespace detail
-} // namespace mlir::aster
+} // namespace aster
+} // namespace mlir
 
 #include "aster/Interfaces/InstOpInterface.h.inc"
 

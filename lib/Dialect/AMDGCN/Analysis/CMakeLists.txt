@@ -2,6 +2,11 @@ add_mlir_library(
   AMDGCNAnalysis
   BufferAnalysis.cpp
   LDSInterferenceGraph.cpp
+  RegisterInterference.cpp
+  RegisterLiveness.cpp
+  Utils.cpp
+  AllocaAliasAnalysis.cpp
+  RegisterRangeAnalysis.cpp
   WaitAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS

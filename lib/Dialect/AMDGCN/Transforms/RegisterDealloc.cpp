@@ -113,7 +113,7 @@ public:
 DeallocTypeConverter::DeallocTypeConverter(MLIRContext *ctx) {
   addConversion(+[](Type type) { return type; });
   addConversion(+[](RegisterTypeInterface type) {
-    return type.cloneRegisterType(type.getAsRange().getAsRelocatableRange());
+    return type.cloneRegisterType(type.getAsRange().getAsValueRange());
   });
 }
 

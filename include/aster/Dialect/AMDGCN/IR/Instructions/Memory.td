@@ -122,7 +122,7 @@ def AMDGCN_LoadOp : InstOp<"load", [
     }
     /// Returns the speculatability of the operation.
     Speculation::Speculatability getSpeculatability() {
-      return getInstSpeculatability(*this);
+      return aster::detail::getInstSpeculatabilityImpl(*this);
     }
 
     //===------------------------------------------------------------------===//
@@ -218,7 +218,7 @@ def AMDGCN_StoreOp : InstOp<"store", [
     }
     /// Returns the speculatability of the operation.
     Speculation::Speculatability getSpeculatability() {
-      return getInstSpeculatability(*this);
+      return aster::detail::getInstSpeculatabilityImpl(*this);
     }
 
     //===------------------------------------------------------------------===//

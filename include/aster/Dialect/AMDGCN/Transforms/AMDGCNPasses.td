@@ -68,6 +68,15 @@ def RegisterAlloc : Pass<"amdgcn-register-allocation"> {
     "mlir::aster::amdgcn::AMDGCNDialect", "mlir::aster::lsir::LSIRDialect"];
 }
 
+def RegisterColoring : Pass<"amdgcn-register-coloring"> {
+  let summary = "Perform register coloring for functions";
+  let description = [{
+    This pass performs register coloring analysis on functions using
+    liveness analysis to determine live ranges and assign registers accordingly.
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+}
+
 def RegisterDealloc : Pass<"amdgcn-register-dealloc"> {
   let summary = "Convert a register allocated kernel to an unallocated one";
 }
@@ -296,6 +305,29 @@ def LegalizeCF : Pass<"amdgcn-legalize-cf"> {
     "mlir::aster::amdgcn::AMDGCNDialect",
     "mlir::arith::ArithDialect",
     "mlir::cf::ControlFlowDialect"
+  ];
+}
+
+def ToRegisterSemantics : Pass<"amdgcn-to-register-semantics"> {
+  let summary = "Convert value allocas to unallocated register semantics";
+  let description = [{
+    This pass converts value allocas (with RegisterSemantics::Value) to
+    unallocated allocas (with RegisterSemantics::Unallocated) and updates
+    InstOpInterface operations to point to the hoisted allocations in the entry
+    block using make_register_range operations.
+
+    The pass performs the following steps:
+    1. Hoists all allocations to the entry block
+    2. Configures dataflow with DPSAliasAnalysis
+    3. Invokes dialect conversion with two patterns:
+       - Converts value allocas to unallocated allocas
+       - Updates InstOpInterface operations to use make_register_range pointing
+         to the hoisted allocations based on DPSAliasAnalysis
+
+    This pass should run before register allocation.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect"
   ];
 }
 
