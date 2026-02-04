@@ -55,7 +55,7 @@ public:
     op->walk([&](KernelOp kernel) {
       llvm::outs() << "\nKernel: " << kernel.getSymName() << "\n";
 
-      // Create and configure the data flow solver for this kernel
+      // Load LivenessAnalysis.
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       SymbolTableCollection symbolTable;
       dataflow::loadBaselineAnalyses(solver);

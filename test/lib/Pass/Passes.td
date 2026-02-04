@@ -74,4 +74,22 @@ def TestLDSInterferenceGraph
   }];
 }
 
+def TestInterferenceAnalysis : Pass<"test-interference-analysis"> {
+  let summary = "Test pass for register interference analysis";
+  let description = [{
+    This pass runs register interference analysis and prints the interference
+    graph in DOT format. Use this to verify that interference edges are
+    correctly computed between live values.
+  }];
+}
+
+def TestRangeAnalysis : Pass<"test-range-analysis"> {
+  let summary = "Test pass for register range analysis";
+  let description = [{
+    This pass runs range analysis and prints the ranges, dependency graph,
+    and allocations. Use this to verify that register ranges are correctly
+    identified and that range constraints are satisfiable.
+  }];
+}
+
 #endif // ASTER_TEST_PASSES
