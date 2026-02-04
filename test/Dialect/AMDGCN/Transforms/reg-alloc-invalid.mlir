@@ -40,27 +40,6 @@ amdgcn.module @invalid target = <gfx942> isa = <cdna3> {
 // -----
 
 amdgcn.module @invalid target = <gfx942> isa = <cdna3> {
-// expected-error@above {{ill-formed IR detected}}
-// expected-error@above {{Failed to create interference graph}}
-  func.func private @rand() -> i1
-  kernel @unallocatable_range {
-    %0 = func.call @rand() : () -> i1
-    %1 = alloca : !amdgcn.vgpr
-    %2 = alloca : !amdgcn.vgpr
-    cf.cond_br %0, ^bb1, ^bb2
-  ^bb1:  // pred: ^bb0
-    cf.br ^bb3(%1 : !amdgcn.vgpr)
-  ^bb2:  // pred: ^bb0
-    cf.br ^bb3(%2 : !amdgcn.vgpr)
-  ^bb3(%3: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
-    %4 = test_inst outs %3 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-    end_kernel
-  }
-}
-
-// -----
-
-amdgcn.module @invalid target = <gfx942> isa = <cdna3> {
   kernel @too_many_regs {
     // It maxes out available registers.
     // expected-error@below {{failed to allocate register range}}

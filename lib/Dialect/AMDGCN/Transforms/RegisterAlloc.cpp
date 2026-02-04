@@ -11,14 +11,19 @@
 #include "aster/Analysis/DPSAliasAnalysis.h"
 #include "aster/Analysis/InterferenceAnalysis.h"
 #include "aster/Analysis/RangeAnalysis.h"
+#include "aster/Analysis/ValueProvenanceAnalysis.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Dialect/LSIR/IR/LSIRDialect.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/TopologicalSortUtils.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -28,6 +33,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/TypeID.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -89,34 +95,6 @@ private:
 };
 
 //===----------------------------------------------------------------------===//
-// Register allocation driver
-//===----------------------------------------------------------------------===//
-struct RegAlloc {
-  RegAlloc(Operation *topOp, InterferenceAnalysis &graph,
-           RangeAnalysis &rangeAnalysis, int numSGPR, int numVGPR, int numAGPR)
-      : topOp(topOp), graph(graph), rangeAnalysis(rangeAnalysis),
-        registers(topOp->getContext(), numSGPR, numVGPR, numAGPR) {}
-  /// Run the register allocation.
-  LogicalResult run(RewriterBase &rewriter);
-
-private:
-  LogicalResult
-  allocateVariable(EqClassID eqClassId, AllocaOp alloca,
-                   RegisterTypeInterface &cTy,
-                   SmallVectorImpl<RegisterTypeInterface> &constraints);
-  void collectConstraints(EqClassID eqClassId,
-                          SmallVectorImpl<RegisterTypeInterface> &constraints);
-  LogicalResult transform(RewriterBase &rewriter, MutableArrayRef<AllocaOp> aOp,
-                          ArrayRef<EqClassID> eqClassIds);
-  Operation *topOp;
-  InterferenceAnalysis &graph;
-  RangeAnalysis &rangeAnalysis;
-  RegisterManager registers;
-  /// The register coloring.
-  SmallVector<RegisterTypeInterface> coloring;
-};
-
-//===----------------------------------------------------------------------===//
 // Rewrite patterns
 //===----------------------------------------------------------------------===//
 struct InstRewritePattern : public OpInterfaceRewritePattern<InstOpInterface> {
@@ -147,6 +125,39 @@ struct SplitRegisterRangeOpPattern
 
   LogicalResult matchAndRewrite(SplitRegisterRangeOp op,
                                 PatternRewriter &rewriter) const override;
+};
+
+/// Pattern to update lsir compare ops (cmpi, cmpf) operands from dealloc_cast
+/// outputs to allocated values. These ops don't implement InstOpInterface but
+/// should still use allocated operands after register allocation.
+/// TODO: new interface for this "register-operands, non-register SSA value" if
+/// proven globally useful. For now this is a stepping stone.
+template <typename CmpOpT>
+struct CmpOpPattern : public OpRewritePattern<CmpOpT> {
+  using OpRewritePattern<CmpOpT>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(CmpOpT op,
+                                PatternRewriter &rewriter) const override {
+    bool changed = false;
+    SmallVector<Value> newOperands;
+    for (Value operand : op->getOperands()) {
+      if (auto cOp = dyn_cast_or_null<DeallocCastOp>(operand.getDefiningOp())) {
+        newOperands.push_back(cOp.getInput());
+        changed = true;
+      } else {
+        newOperands.push_back(operand);
+      }
+    }
+    if (!changed)
+      return failure();
+
+    // Create new compare op with allocated operands.
+    auto newOp =
+        CmpOpT::create(rewriter, op.getLoc(), op.getSemanticsAttr(),
+                       op.getPredicateAttr(), newOperands[0], newOperands[1]);
+    rewriter.replaceOp(op, newOp);
+    return success();
+  }
 };
 } // namespace
 
@@ -362,6 +373,112 @@ SplitRegisterRangeOpPattern::matchAndRewrite(SplitRegisterRangeOp op,
 // RegAlloc
 //===----------------------------------------------------------------------===//
 
+// Register allocation driver
+struct RegAlloc {
+  RegAlloc(Operation *topOp, InterferenceAnalysis &graph,
+           RangeAnalysis &rangeAnalysis, int numSGPR, int numVGPR, int numAGPR)
+      : topOp(topOp), graph(graph), rangeAnalysis(rangeAnalysis),
+        registers(topOp->getContext(), numSGPR, numVGPR, numAGPR) {}
+  /// Run the register allocation.
+  LogicalResult run(RewriterBase &rewriter);
+
+private:
+  void collectConstraints(EqClassID eqClassId,
+                          SmallVectorImpl<RegisterTypeInterface> &constraints);
+  LogicalResult
+  allocateVariable(EqClassID eqClassId, AllocaOp alloca,
+                   RegisterTypeInterface &cTy,
+                   SmallVectorImpl<RegisterTypeInterface> &constraints);
+  LogicalResult transform(RewriterBase &rewriter, MutableArrayRef<AllocaOp> aOp,
+                          ArrayRef<EqClassID> eqClassIds);
+  Operation *topOp;
+  InterferenceAnalysis &graph;
+  RangeAnalysis &rangeAnalysis;
+  RegisterManager registers;
+  /// The register coloring.
+  SmallVector<RegisterTypeInterface> coloring;
+};
+
+/// Eliminate self-copies: mov instructions where the source and destination
+/// have the same allocated register type. These are no-ops that can be removed
+/// by replacing uses with the source operand.
+static void eliminateSelfCopies(Operation *topOp, RewriterBase &rewriter) {
+  SmallVector<Operation *> selfCopies;
+
+  // Collect self-copies (s_mov_b32 or v_mov_b32_e32)
+  topOp->walk([&](Operation *op) {
+    auto sop1 = dyn_cast<inst::SOP1Op>(op);
+    auto vop1 = dyn_cast<inst::VOP1Op>(op);
+    bool isSMovb32 = sop1 && sop1.getOpcode() == OpCode::S_MOV_B32;
+    bool isVMovb32 = vop1 && vop1.getOpcode() == OpCode::V_MOV_B32_E32;
+    if (isSMovb32 || isVMovb32) {
+      Value outs = cast<InstOpInterface>(op).getInstOuts().front();
+      Value ins = cast<InstOpInterface>(op).getInstIns().front();
+      if (outs.getType() == ins.getType())
+        selfCopies.push_back(op);
+    }
+  });
+
+  for (Operation *op : selfCopies) {
+    Value ins = cast<InstOpInterface>(op).getInstIns().front();
+    rewriter.replaceOp(op, ins);
+  }
+}
+
+/// Update branch operands that pass dealloc_cast outputs to block arguments.
+/// For each such operand, replace with the dealloc_cast input (allocated
+/// value), update the block argument type, and insert a dealloc_cast at block
+/// start to provide a relocatable-typed value for uses within the block.
+/// Returns true if any changes were made.
+static bool propagateBranchOperands(Operation *topOp, RewriterBase &rewriter) {
+  bool changed = false;
+  topOp->walk([&](Block *block) {
+    for (BlockArgument arg : block->getArguments()) {
+      if (!isa<RegisterTypeInterface>(arg.getType()))
+        continue;
+
+      RegisterTypeInterface coloredType;
+      for (Block *pred : block->getPredecessors()) {
+        auto branchOp = dyn_cast<BranchOpInterface>(pred->getTerminator());
+        if (!branchOp)
+          continue;
+
+        for (int64_t succIdx = 0; succIdx < branchOp->getNumSuccessors();
+             ++succIdx) {
+          if (branchOp->getSuccessor(succIdx) != block)
+            continue;
+
+          SuccessorOperands succOperands =
+              branchOp.getSuccessorOperands(succIdx);
+          int64_t argNum = arg.getArgNumber();
+          if (argNum >= succOperands.size())
+            continue;
+
+          Value operand = succOperands[argNum];
+          if (auto castOp =
+                  dyn_cast_or_null<DeallocCastOp>(operand.getDefiningOp())) {
+            Value allocatedVal = castOp.getInput();
+            succOperands.getMutableForwardedOperands()[argNum].set(
+                allocatedVal);
+            coloredType = cast<RegisterTypeInterface>(allocatedVal.getType());
+            changed = true;
+          }
+        }
+      }
+
+      if (coloredType) {
+        // Update arg type and insert dealloc_cast for uses (RAUW pattern).
+        arg.setType(coloredType);
+        rewriter.setInsertionPointToStart(block);
+        auto cast = DeallocCastOp::create(rewriter, arg.getLoc(), arg);
+        arg.replaceAllUsesExcept(cast, cast);
+        changed = true;
+      }
+    }
+  });
+  return changed;
+}
+
 static RegisterTypeInterface getRegisterType(RegisterTypeInterface base,
                                              Register reg) {
   return base.cloneRegisterType(reg);
@@ -428,25 +545,22 @@ LogicalResult RegAlloc::allocateVariable(
 }
 
 LogicalResult RegAlloc::run(RewriterBase &rewriter) {
-  // Get a deterministic order by sorting the allocas by dominance:
+  // Collect ALL allocas from the IR (not just canonical ones from the graph).
+  // Phi-equivalent allocas share eq class IDs but all need to be transformed.
   SmallVector<AllocaOp> allocaOps;
   {
     SetVector<Operation *> vars, unsortedVars;
-    unsortedVars.insert_range(llvm::map_range(graph->getValues(), [](Value v) {
-      return cast<AllocaOp>(v.getDefiningOp());
-    }));
+    topOp->walk([&](AllocaOp op) { unsortedVars.insert(op.getOperation()); });
     vars = mlir::topologicalSort(unsortedVars);
     allocaOps = llvm::map_to_vector(
         vars.getArrayRef(), [](Operation *op) { return cast<AllocaOp>(op); });
   }
-  // Initialize the coloring.
-  coloring.assign(allocaOps.size(), nullptr);
+  // Initialize the coloring based on the number of eq class nodes in the graph.
+  coloring.assign(graph.sizeNodes(), nullptr);
 
-  // Get the equivalence class IDs.
+  // Get the equivalence class IDs. Phi-equivalent allocas share the same ID.
   SmallVector<EqClassID> eqClassIds = llvm::map_to_vector(
       allocaOps, [&](AllocaOp op) { return graph.getEqClassIds(op).front(); });
-  assert(eqClassIds.size() == static_cast<size_t>(graph.sizeNodes()) &&
-         "ill-formed analysis");
 
   // Pre-color non-relocatable registers and register ranges.
   for (auto [allocaOp, eqClassId] : llvm::zip(allocaOps, eqClassIds)) {
@@ -465,6 +579,7 @@ LogicalResult RegAlloc::run(RewriterBase &rewriter) {
     if (failed(allocateVariable(eqClassId, allocaOp, cTy, localConstraints)))
       return failure();
   }
+
   LDBG_OS([&](raw_ostream &os) {
     os << "Register coloring:\n";
     llvm::interleave(
@@ -477,29 +592,45 @@ LogicalResult RegAlloc::run(RewriterBase &rewriter) {
 LogicalResult RegAlloc::transform(RewriterBase &rewriter,
                                   MutableArrayRef<AllocaOp> aOp,
                                   ArrayRef<EqClassID> eqClassIds) {
+  // Step 1: Replace allocas with colored allocas + dealloc_cast.
+  // dealloc_cast acts as a type bridge: it takes an allocated-type value as
+  // input and produces a relocatable-type value as output. The rewrite patterns
+  // will iteratively look through dealloc_casts to find the actual allocated
+  // values.
   for (auto [alloca, eqClassId] : llvm::zip(aOp, eqClassIds)) {
     RegisterTypeInterface coloredType = coloring[eqClassId];
-    // Insert the new alloca before the original one
     rewriter.setInsertionPoint(alloca);
-
-    // Create new alloca with the colored register type
     AllocaOp newAlloca =
         AllocaOp::create(rewriter, alloca.getLoc(), coloredType);
-
-    // Insert unrealized cast from new alloca to original type
     auto cast =
         DeallocCastOp::create(rewriter, alloca.getLoc(), newAlloca.getResult());
-
-    // Replace the alloca with the new one
     rewriter.replaceOp(alloca, cast);
+    LDBG() << "initial alloca: " << newAlloca;
   }
-  // Configure and run the greedy pattern rewriter
+
+  // 2. Iterate between cross-block and intra-block until all updates are
+  // applied.
   RewritePatternSet patterns(rewriter.getContext());
   patterns.add<InstRewritePattern, MakeRegisterRangeOpPattern,
-               RegInterferenceOpPattern, SplitRegisterRangeOpPattern>(
+               RegInterferenceOpPattern, SplitRegisterRangeOpPattern,
+               CmpOpPattern<lsir::CmpIOp>, CmpOpPattern<lsir::CmpFOp>>(
       rewriter.getContext());
-  if (failed(applyPatternsGreedily(topOp, std::move(patterns))))
-    return failure();
+  FrozenRewritePatternSet frozenPatterns(std::move(patterns));
+  bool changed = true;
+  while (changed) {
+    // Step 2.a. Run patterns to rewrite operations with allocated types.
+    if (failed(applyPatternsGreedily(topOp, frozenPatterns,
+                                     GreedyRewriteConfig(), &changed)))
+      return failure();
+
+    // Step 2.b. Allocate block arguments that receive dealloc_cast results. By
+    // construction, all branches into these blocks have matching types.
+    changed |= propagateBranchOperands(topOp, rewriter);
+  }
+
+  // 3. Eliminate self-copies (v_mov where src and dst have same register).
+  eliminateSelfCopies(topOp, rewriter);
+
   return success();
 }
 
@@ -512,11 +643,20 @@ void RegisterAlloc::runOnOperation() {
   if (failed(runVerifiersOnOp<IsAllocatableOpAttr>(op)))
     return signalPassFailure();
 
-  // Load the main analyses.
+  // Re-run provenance analysis on the transformed IR.
+  DataFlowSolver provenanceSolver(DataFlowConfig().setInterprocedural(false));
+  ValueProvenanceAnalysis *provenanceAnalysis =
+      ValueProvenanceAnalysis::create(provenanceSolver, op);
+  if (!provenanceAnalysis) {
+    op->emitError() << "Failed to run value provenance analysis after copy "
+                       "insertion";
+    return;
+  }
+
   SymbolTableCollection symbolTable;
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
   FailureOr<InterferenceAnalysis> graph =
-      InterferenceAnalysis::create(op, solver, symbolTable);
+      InterferenceAnalysis::create(op, solver, symbolTable, provenanceAnalysis);
   if (failed(graph)) {
     op->emitError() << "Failed to create interference graph";
     return signalPassFailure();
@@ -526,6 +666,7 @@ void RegisterAlloc::runOnOperation() {
     op->emitError() << "Range constraints are not satisfiable";
     return signalPassFailure();
   }
+
   IRRewriter rewriter(op->getContext());
   RegAlloc regAlloc(op, *graph, range, 100, 256, 256);
   if (failed(regAlloc.run(rewriter)))
