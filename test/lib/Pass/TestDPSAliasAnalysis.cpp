@@ -55,6 +55,7 @@ public:
       // SSA values during FileCheck.
       llvm::outs() << kernel << "\n";
 
+      // Load DPSAliasAnalysis.
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       dataflow::loadBaselineAnalyses(solver);
       auto *aliasAnalysis = solver.load<DPSAliasAnalysis>();
