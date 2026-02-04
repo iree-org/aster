@@ -38,7 +38,7 @@
 // CHECK: === End Analysis Results ===
 
 amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
-  kernel @no_interference_mixed {
+  amdgcn.kernel @no_interference_mixed {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.sgpr
@@ -99,7 +99,7 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // CHECK: === End Analysis Results ===
 
 amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
-  kernel @interference_mixed_all_live {
+  amdgcn.kernel @interference_mixed_all_live {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.sgpr
@@ -163,7 +163,7 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // CHECK: === End Analysis Results ===
 
 amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
-  kernel @interference_mixed_with_reuse {
+  amdgcn.kernel @interference_mixed_with_reuse {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.sgpr
@@ -256,7 +256,7 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
 
-  kernel @interference_cf {
+  amdgcn.kernel @interference_cf {
     %0 = func.call @rand() : () -> i1
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
@@ -704,20 +704,35 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 }
 // -----
 
+// CHECK: === Liveness Analysis Results ===
+// CHECK-LABEL: Kernel: phi_coalescing_2
+
 // Test: phi coalescing - allocas in different branches that flow to the same block
-// argument get phi-coalesced into the same equivalence class (eq class 6).
-// CHECK: Kernel: phi_coalescing_2
+// argument get phi-coalesced into the same equivalence class.
+
+// Equivalence Classes are printed FIRST (capture SSA values from there)
 // CHECK: Equivalence Classes:
-// CHECK-DAG:   EqClass 0: [%0, %6]
-// CHECK-DAG:   EqClass 1: [%1, %7]
-// CHECK-DAG:   EqClass 2: [%2]
-// CHECK-DAG:   EqClass 3: [%3]
-// CHECK-DAG:   EqClass 4: [%4, %9]
-// CHECK-DAG:   EqClass 5: [%5, %12]
-// Phi-coalesced allocas %10 and %13 share eq class 6
-// CHECK-DAG:   EqClass 6: [%10, %11, %13, %14]
-amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_2 {
+// CHECK-DAG:   EqClass 0: [%[[v0:[0-9]+]], %[[v6:[0-9]+]]]
+// CHECK-DAG:   EqClass 1: [%[[v1:[0-9]+]], %[[v7:[0-9]+]]]
+// CHECK-DAG:   EqClass 2: [%[[v2:[0-9]+]]]
+// CHECK-DAG:   EqClass 3: [%[[v3:[0-9]+]]]
+// CHECK-DAG:   EqClass 4: [%[[v4:[0-9]+]], %[[v9:[0-9]+]]]
+// CHECK-DAG:   EqClass 5: [%[[v5:[0-9]+]], %[[v12:[0-9]+]]]
+// Phi-coalesced allocas from different branches share eq class 6 (4 members)
+// CHECK-DAG:   EqClass 6: [%[[alloc0:[0-9]+]], %[[bb1:[0-9]+]], %[[alloc1:[0-9]+]], %[[bb2:[0-9]+]]]
+
+// Now verify the Operation output uses consistent SSA values
+// CHECK: Operation: %[[v0]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: Operation: %[[v1]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: Operation: %[[v2]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: Operation: %[[v3]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: Operation: %[[v4]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: Operation: %[[v5]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: Operation: %[[v6]] = amdgcn.test_inst outs %[[v0]] ins %[[v2]]
+// CHECK: Operation: %[[v7]] = amdgcn.test_inst outs %[[v1]] ins %[[v3]]
+
+amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_2 {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr
@@ -750,52 +765,33 @@ amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
 
 // -----
 
-// Test: phi coalescing - values %7 and %8 flow to same block arg, so their source
-// allocas %1 and %2 (now %0 and %1) get phi-coalesced into eq class 0.
-// CHECK: Kernel: phi_coalescing_3
-// CHECK: Equivalence Classes:
-// Allocas %0 and %1 are phi-coalesced because %6 and %7 flow to same block arg
-// CHECK-DAG:   EqClass 0: [%0, %1, %6, %7]
-// CHECK-DAG:   EqClass 1: [%2]
-// CHECK-DAG:   EqClass 2: [%3]
-// CHECK-DAG:   EqClass 3: [%4]
-// CHECK-DAG:   EqClass 4: [%5]
-amdgcn.module @ra_phi_coalescing_3 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_3 {
-    %1 = alloca : !amdgcn.vgpr
-    %2 = alloca : !amdgcn.vgpr
-    %3 = alloca : !amdgcn.sgpr
-    %4 = alloca : !amdgcn.sgpr
-    %5 = alloca : !amdgcn.vgpr
-    %6 = alloca : !amdgcn.vgpr
-    // While %7, %8 don't interfere in this block, they interfere with %9, %10
-    %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %8 = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %c0 = arith.constant 0 : i32
-    %cond = lsir.cmpi i32 eq %3, %c0 : !amdgcn.sgpr, i32
-    cf.cond_br %cond, ^bb1, ^bb2
-  ^bb1:  // pred: ^bb0
-    cf.br ^bb3(%7 : !amdgcn.vgpr)
-  ^bb2:  // pred: ^bb0
-    cf.br ^bb3(%8 : !amdgcn.vgpr)
-  ^bb3(%val: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
-    test_inst ins %val, %7, %8 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
-    end_kernel
-  }
-}
+// CHECK: === Liveness Analysis Results ===
+// CHECK-LABEL: Kernel: phi_coalescing_3
 
-// -----
+// Test: phi coalescing - values flow to same block arg, so their source
+// allocas get phi-coalesced into the same equivalence class.
 
-// Test: same as phi_coalescing_3 - phi coalescing reduces eq classes.
-// CHECK: Kernel: phi_coalescing_4
+// Equivalence Classes are printed FIRST (capture SSA values from there)
 // CHECK: Equivalence Classes:
-// CHECK-DAG:   EqClass 0: [%0, %1, %6, %7]
-// CHECK-DAG:   EqClass 1: [%2]
-// CHECK-DAG:   EqClass 2: [%3]
-// CHECK-DAG:   EqClass 3: [%4]
-// CHECK-DAG:   EqClass 4: [%5]
-amdgcn.module @ra_phi_coalescing_4 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_4 {
+// Allocas %0 and %1 are phi-coalesced because their results flow to same block arg
+// CHECK-DAG:   EqClass 0: [%[[v0:[0-9]+]], %[[v1:[0-9]+]], %[[v6:[0-9]+]], %[[v7:[0-9]+]]]
+// CHECK-DAG:   EqClass 1: [%[[v2:[0-9]+]]]
+// CHECK-DAG:   EqClass 2: [%[[v3:[0-9]+]]]
+// CHECK-DAG:   EqClass 3: [%[[v4:[0-9]+]]]
+// CHECK-DAG:   EqClass 4: [%[[v5:[0-9]+]]]
+
+// Verify the Operation output uses consistent SSA values
+// CHECK: Operation: %[[v0]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: Operation: %[[v1]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: Operation: %[[v2]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: Operation: %[[v3]] = amdgcn.alloca : !amdgcn.sgpr
+// CHECK: Operation: %[[v4]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: Operation: %[[v5]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK: Operation: %[[v6]] = amdgcn.test_inst outs %[[v0]] ins %[[v2]]
+// CHECK: Operation: %[[v7]] = amdgcn.test_inst outs %[[v1]] ins %[[v3]]
+
+amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_3 {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr

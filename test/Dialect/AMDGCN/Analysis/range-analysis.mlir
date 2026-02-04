@@ -150,7 +150,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK-DAG:   Range {{[0-9]+}}: [0, 1]
 // CHECK-DAG:   Range {{[0-9]+}}: [2, 3]
 
-amdgcn.module @cf_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
   amdgcn.kernel @cf_disjoint_branch_ranges {
     %cond = func.call @rand() : () -> i1
@@ -298,8 +298,8 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // Test: phi coalescing scenario - the range analysis should be satisfiable.
 // CHECK: Kernel: phi_coalescing_2
 // CHECK: Satisfiable: yes
-amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_2 {
+amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_2 {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr
@@ -335,37 +335,8 @@ amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
 // Test: phi coalescing scenario - the range analysis should be satisfiable.
 // CHECK: Kernel: phi_coalescing_3
 // CHECK: Satisfiable: yes
-amdgcn.module @ra_phi_coalescing_3 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_3 {
-    %1 = alloca : !amdgcn.vgpr
-    %2 = alloca : !amdgcn.vgpr
-    %3 = alloca : !amdgcn.sgpr
-    %4 = alloca : !amdgcn.sgpr
-    %5 = alloca : !amdgcn.vgpr
-    %6 = alloca : !amdgcn.vgpr
-    // While %7, %8 don't interfere in this block, they interfere with %9, %10
-    %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %8 = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %c0 = arith.constant 0 : i32
-    %cond = lsir.cmpi i32 eq %3, %c0 : !amdgcn.sgpr, i32
-    cf.cond_br %cond, ^bb1, ^bb2
-  ^bb1:  // pred: ^bb0
-    cf.br ^bb3(%7 : !amdgcn.vgpr)
-  ^bb2:  // pred: ^bb0
-    cf.br ^bb3(%8 : !amdgcn.vgpr)
-  ^bb3(%val: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
-    test_inst ins %val, %7, %8 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
-    end_kernel
-  }
-}
-
-// -----
-
-// Test: phi coalescing scenario - the range analysis should be satisfiable.
-// CHECK: Kernel: phi_coalescing_4
-// CHECK: Satisfiable: yes
-amdgcn.module @ra_phi_coalescing_4 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_4 {
+amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_3 {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr

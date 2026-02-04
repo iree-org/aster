@@ -17,7 +17,7 @@
 // CHECK:   %[[v2]] -> %[[v0]]
 
 amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
-  kernel @basic_dps_chain {
+  amdgcn.kernel @basic_dps_chain {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.sgpr
     %2 = test_inst outs %0 ins %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
@@ -46,7 +46,7 @@ amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   %[[v3]] -> %[[v0]]
 
 amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
-  kernel @chained_dps {
+  amdgcn.kernel @chained_dps {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.sgpr
     %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
@@ -76,7 +76,7 @@ amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   %[[v3]] -> %[[v1]]
 
 amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
-  kernel @multiple_allocas {
+  amdgcn.kernel @multiple_allocas {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
     %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
@@ -116,7 +116,7 @@ amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
 amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
 
-  kernel @control_flow_no_phi {
+  amdgcn.kernel @control_flow_no_phi {
     %cond = func.call @rand() : () -> i1
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
@@ -162,7 +162,7 @@ amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
 amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
 
-  kernel @phi_coalescing_1 {
+  amdgcn.kernel @phi_coalescing_1 {
     %cond = func.call @rand() : () -> i1
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
@@ -219,8 +219,8 @@ amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
 // CHECK: Phi-Equivalences:
 // CHECK:   Phi-Equivalent: [%[[v1]], %[[v0]]]
 
-amdgcn.module @ra target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_2 {
+amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_2 {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr
@@ -295,8 +295,8 @@ amdgcn.module @ra target = <gfx942> isa = <cdna3> {
 // CHECK: Phi-Equivalences:
 // CHECK:   Phi-Equivalent: [%[[v13]], %[[v10]]]
 
-amdgcn.module @ra target = <gfx942> isa = <cdna3> {
-  kernel @cf_bbargs_and_lsir_cmpi {
+amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @cf_bbargs_and_lsir_cmpi {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr
@@ -328,44 +328,85 @@ amdgcn.module @ra target = <gfx942> isa = <cdna3> {
 }
 // -----
 
-// Test: phi coalescing - allocas in different branches flowing to same block arg
-// are detected as phi-equivalent.
-// CHECK: Kernel: phi_coalescing_2
+// CHECK: === Value Provenance Analysis Results ===
+// CHECK-LABEL: Kernel: phi_coalescing_2b
+
+// Test: phi coalescing - allocas in different branches (%alloc0 and %alloc1)
+// that flow to the same block argument get phi-coalesced.
+
+// Capture values from IR dump
+// CHECK: amdgcn.kernel @phi_coalescing_2b {
+// CHECK:   %[[v0:[0-9]+]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v1:[0-9]+]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v2:[0-9]+]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[v3:[0-9]+]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[v4:[0-9]+]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v5:[0-9]+]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v6:[0-9]+]] = test_inst outs %[[v0]] ins %[[v2]]
+// CHECK:   %[[v7:[0-9]+]] = test_inst outs %[[v1]] ins %[[v3]]
+// CHECK:   cf.cond_br
+// CHECK: ^bb1:
+// CHECK:   %[[v9:[0-9]+]] = test_inst outs %[[v4]] ins %[[v6]]
+// CHECK:   %[[alloc0:[0-9]+]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[bb1:[0-9]+]] = test_inst outs %[[alloc0]]
+// CHECK:   cf.br ^bb3(%[[bb1]] :
+// CHECK: ^bb2:
+// CHECK:   %[[v12:[0-9]+]] = test_inst outs %[[v5]] ins %[[v7]]
+// CHECK:   %[[alloc1:[0-9]+]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[bb2:[0-9]+]] = test_inst outs %[[alloc1]]
+// CHECK:   cf.br ^bb3(%[[bb2]] :
+// CHECK: ^bb3(%[[val:[0-9]+]]:
+// CHECK:   test_inst ins %[[val]]
+// CHECK:   end_kernel
+// CHECK: }
+
 // CHECK: Value Provenances:
-// CHECK-DAG:   %0 -> %0
-// CHECK-DAG:   %1 -> %1
-// CHECK-DAG:   %10 -> %13
-// CHECK-DAG:   %13 -> %13
+// Entry block allocas trace to themselves
+// CHECK-DAG:   %[[v0]] -> %[[v0]]
+// CHECK-DAG:   %[[v1]] -> %[[v1]]
+// CHECK-DAG:   %[[v2]] -> %[[v2]]
+// CHECK-DAG:   %[[v3]] -> %[[v3]]
+// CHECK-DAG:   %[[v4]] -> %[[v4]]
+// CHECK-DAG:   %[[v5]] -> %[[v5]]
+// DPS results trace to their outs alloca
+// CHECK-DAG:   %[[v6]] -> %[[v0]]
+// CHECK-DAG:   %[[v7]] -> %[[v1]]
+// CHECK-DAG:   %[[v9]] -> %[[v4]]
+// CHECK-DAG:   %[[v12]] -> %[[v5]]
+// Phi-coalesced allocas trace to canonical alloca (alloc1)
+// CHECK-DAG:   %[[alloc0]] -> %[[alloc1]]
+// CHECK-DAG:   %[[alloc1]] -> %[[alloc1]]
+// CHECK-DAG:   %[[bb1]] -> %[[alloc1]]
+// CHECK-DAG:   %[[bb2]] -> %[[alloc1]]
+
 // CHECK: Phi-Equivalences:
-// Allocas %10 and %13 are phi-equivalent (they flow to same block arg)
-// CHECK:   Phi-Equivalent: [%13, %10]
-amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_2 {
+// Allocas %alloc0 and %alloc1 are phi-equivalent (flow to same block arg)
+// CHECK:   Phi-Equivalent: [%[[alloc1]], %[[alloc0]]]
+
+amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_2b {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr
     %4 = alloca : !amdgcn.sgpr
     %5 = alloca : !amdgcn.vgpr
     %6 = alloca : !amdgcn.vgpr
-    // While %7, %8 don't interfere in this block, they interfere with %9, %10
     %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
     %8 = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
     %c0 = arith.constant 0 : i32
     %cond = lsir.cmpi i32 eq %3, %c0 : !amdgcn.sgpr, i32
     cf.cond_br %cond, ^bb1, ^bb2
-  ^bb1:  // pred: ^bb0
-    // Nevertheless, we can reuse the allocation of (%8, %2) because they are dead.
+  ^bb1:
     %9 = test_inst outs %5 ins %7 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     %alloc0 = alloca : !amdgcn.vgpr
     %bb1 = test_inst outs %alloc0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
     cf.br ^bb3(%bb1 : !amdgcn.vgpr)
-  ^bb2:  // pred: ^bb0
-    // Nevertheless, we can reuse the allocation of (%7, %1) because they are dead.
+  ^bb2:
     %10 = test_inst outs %6 ins %8 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     %alloc1 = alloca : !amdgcn.vgpr
     %bb2 = test_inst outs %alloc1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
     cf.br ^bb3(%bb2 : !amdgcn.vgpr)
-  ^bb3(%val: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
+  ^bb3(%val: !amdgcn.vgpr):
     test_inst ins %val : (!amdgcn.vgpr) -> ()
     end_kernel
   }
@@ -373,75 +414,71 @@ amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
 
 // -----
 
-// Test: phi coalescing - values %6 and %7 flow to same block arg, so their source
-// allocas %0 and %1 are phi-equivalent.
-// CHECK: Kernel: phi_coalescing_3
+// CHECK: === Value Provenance Analysis Results ===
+// CHECK-LABEL: Kernel: phi_coalescing_3b
+
+// Test: phi coalescing - values %6 and %7 flow to same block arg, so their
+// source allocas %0 and %1 are phi-coalesced.
+
+// Capture values from IR dump
+// CHECK: amdgcn.kernel @phi_coalescing_3b {
+// CHECK:   %[[v0:[0-9]+]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v1:[0-9]+]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v2:[0-9]+]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[v3:[0-9]+]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[v4:[0-9]+]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v5:[0-9]+]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v6:[0-9]+]] = test_inst outs %[[v0]] ins %[[v2]]
+// CHECK:   %[[v7:[0-9]+]] = test_inst outs %[[v1]] ins %[[v3]]
+// CHECK:   cf.cond_br
+// CHECK: ^bb1:
+// CHECK:   cf.br ^bb3(%[[v6]] :
+// CHECK: ^bb2:
+// CHECK:   cf.br ^bb3(%[[v7]] :
+// CHECK: ^bb3(%[[val:[0-9]+]]:
+// CHECK:   test_inst ins %[[val]], %[[v6]], %[[v7]]
+// CHECK:   end_kernel
+// CHECK: }
+
 // CHECK: Value Provenances:
-// Both %0 and %1 trace to the same canonical alloca (%1) due to phi-equivalence
-// CHECK-DAG:   %0 -> %1
-// CHECK-DAG:   %1 -> %1
-// CHECK-DAG:   %6 -> %1
-// CHECK-DAG:   %7 -> %1
+// Both %0 and %1 trace to canonical alloca %1 (due to phi-coalescing)
+// CHECK-DAG:   %[[v0]] -> %[[v1]]
+// CHECK-DAG:   %[[v1]] -> %[[v1]]
+// CHECK-DAG:   %[[v2]] -> %[[v2]]
+// CHECK-DAG:   %[[v3]] -> %[[v3]]
+// CHECK-DAG:   %[[v4]] -> %[[v4]]
+// CHECK-DAG:   %[[v5]] -> %[[v5]]
+// DPS results trace to canonical alloca %1
+// CHECK-DAG:   %[[v6]] -> %[[v1]]
+// CHECK-DAG:   %[[v7]] -> %[[v1]]
+
 // CHECK: Phi-Equivalences:
-// CHECK:   Phi-Equivalent: [%1, %0]
-amdgcn.module @ra_phi_coalescing_3 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_3 {
+// Allocas %0 and %1 are phi-equivalent (their results flow to same block arg)
+// CHECK:   Phi-Equivalent: [%[[v1]], %[[v0]]]
+
+amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_3b {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr
     %4 = alloca : !amdgcn.sgpr
     %5 = alloca : !amdgcn.vgpr
     %6 = alloca : !amdgcn.vgpr
-    // While %7, %8 don't interfere in this block, they interfere with %9, %10
     %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
     %8 = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
     %c0 = arith.constant 0 : i32
     %cond = lsir.cmpi i32 eq %3, %c0 : !amdgcn.sgpr, i32
     cf.cond_br %cond, ^bb1, ^bb2
-  ^bb1:  // pred: ^bb0
+  ^bb1:
     cf.br ^bb3(%7 : !amdgcn.vgpr)
-  ^bb2:  // pred: ^bb0
+  ^bb2:
     cf.br ^bb3(%8 : !amdgcn.vgpr)
-  ^bb3(%val: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
+  ^bb3(%val: !amdgcn.vgpr):
     test_inst ins %val, %7, %8 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
     end_kernel
   }
 }
 
-// -----
-
-// Test: same as phi_coalescing_3 - phi coalescing detection.
-// CHECK: Kernel: phi_coalescing_4
-// CHECK: Value Provenances:
-// CHECK-DAG:   %0 -> %1
-// CHECK-DAG:   %1 -> %1
-// CHECK-DAG:   %6 -> %1
-// CHECK-DAG:   %7 -> %1
-// CHECK: Phi-Equivalences:
-// CHECK:   Phi-Equivalent: [%1, %0]
-amdgcn.module @ra_phi_coalescing_4 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_4 {
-    %1 = alloca : !amdgcn.vgpr
-    %2 = alloca : !amdgcn.vgpr
-    %3 = alloca : !amdgcn.sgpr
-    %4 = alloca : !amdgcn.sgpr
-    %5 = alloca : !amdgcn.vgpr
-    %6 = alloca : !amdgcn.vgpr
-    // While %7, %8 don't interfere in this block, they interfere with %9, %10
-    %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %8 = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %c0 = arith.constant 0 : i32
-    %cond = lsir.cmpi i32 eq %3, %c0 : !amdgcn.sgpr, i32
-    cf.cond_br %cond, ^bb1, ^bb2
-  ^bb1:  // pred: ^bb0
-    cf.br ^bb3(%7 : !amdgcn.vgpr)
-  ^bb2:  // pred: ^bb0
-    cf.br ^bb3(%8 : !amdgcn.vgpr)
-  ^bb3(%val: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
-    test_inst ins %val, %7, %8 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
-    end_kernel
-  }
-}
 
 // -----
 
@@ -460,7 +497,7 @@ amdgcn.module @ra_phi_coalescing_4 target = <gfx942> isa = <cdna3> {
 amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
   func.func private @get_value() -> i32
 
-  kernel @non_dps_value {
+  amdgcn.kernel @non_dps_value {
     %0 = func.call @get_value() : () -> i32
     end_kernel
   }
@@ -480,7 +517,7 @@ amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
 // CHECK-NOT: %
 
 amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
-  kernel @empty_kernel {
+  amdgcn.kernel @empty_kernel {
     end_kernel
   }
 }
@@ -500,7 +537,7 @@ amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   %[[v0]] -> %[[v0]]
 
 amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
-  kernel @single_alloca_unused {
+  amdgcn.kernel @single_alloca_unused {
     %0 = alloca : !amdgcn.vgpr
     end_kernel
   }
@@ -529,7 +566,7 @@ amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   %[[v4]] -> %[[v0]]
 
 amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
-  kernel @deep_dps_chain {
+  amdgcn.kernel @deep_dps_chain {
     %0 = alloca : !amdgcn.vgpr
     %1 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
     %2 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
@@ -569,7 +606,7 @@ amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
 amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
 
-  kernel @allocas_in_branches {
+  amdgcn.kernel @allocas_in_branches {
     %cond = func.call @rand() : () -> i1
     cf.cond_br %cond, ^bb1, ^bb2
   ^bb1:

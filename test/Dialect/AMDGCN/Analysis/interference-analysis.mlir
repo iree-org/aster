@@ -5,8 +5,8 @@
 // No edges expected - values don't interfere
 // CHECK: }
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
-  kernel @no_interference {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @no_interference {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
     %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
@@ -25,8 +25,8 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
 // CHECK: 0 -- 1;
 // CHECK: }
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
-  kernel @basic_interference {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @basic_interference {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
     %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
@@ -50,8 +50,8 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
 // CHECK-DAG: 1 -- 2;
 // CHECK: }
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
-  kernel @three_way_interference {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @three_way_interference {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
@@ -74,8 +74,8 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
 // CHECK-NOT: 0 -- 1;
 // CHECK: }
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
-  kernel @no_cross_type_interference {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @no_cross_type_interference {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.sgpr
     %a = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
@@ -99,8 +99,8 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
 // CHECK-DAG: 1 -- 2;
 // CHECK: }
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
-  kernel @reg_interference_op {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @reg_interference_op {
     %0 = alloca : !amdgcn.sgpr
     %1 = alloca : !amdgcn.sgpr
     %2 = alloca : !amdgcn.sgpr
@@ -126,8 +126,8 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
 // CHECK-DAG: 1 -- 2;
 // CHECK: }
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
-  kernel @partial_interference {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @partial_interference {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
@@ -152,9 +152,9 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
 // CHECK: 0 -- 1;
 // CHECK: }
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
-  kernel @diamond_cf {
+  amdgcn.kernel @diamond_cf {
     %cond = func.call @rand() : () -> i1
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
@@ -184,9 +184,9 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
 // CHECK-DAG: 0 -- 2;
 // CHECK: }
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
-  kernel @live_across_diamond {
+  amdgcn.kernel @live_across_diamond {
     %cond = func.call @rand() : () -> i1
     %s0 = alloca : !amdgcn.vgpr
     %s1 = alloca : !amdgcn.vgpr
@@ -218,8 +218,8 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
 // CHECK: 0 -- 1;
 // CHECK: }
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
-  kernel @sequential_use {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @sequential_use {
     %s0 = alloca : !amdgcn.vgpr
     %s1 = alloca : !amdgcn.vgpr
     %a = test_inst outs %s0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
@@ -248,8 +248,8 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
 // CHECK-DAG: 3 -- 4;
 // CHECK: }
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
-  kernel @many_overlapping {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @many_overlapping {
     %s0 = alloca : !amdgcn.vgpr
     %s1 = alloca : !amdgcn.vgpr
     %s2 = alloca : !amdgcn.vgpr
@@ -268,21 +268,34 @@ amdgcn.module @test target = <gfx942> isa = <cdna3> {
 
 // Test: phi coalescing - allocas in different branches that flow to the same block
 // argument get phi-coalesced into the same equivalence class (eq class 6).
-// CHECK: // Kernel: phi_coalescing_2
+//
+// 7 equivalence classes total:
+// - EqClass 0: first VGPR alloca and its result
+// - EqClass 1: second VGPR alloca and its result
+// - EqClass 2: first SGPR alloca
+// - EqClass 3: second SGPR alloca
+// - EqClass 4: third VGPR alloca (bb1 use) and its result
+// - EqClass 5: fourth VGPR alloca (bb2 use) and its result
+// - EqClass 6: phi-coalesced allocas from bb1 and bb2 (alloc0 and alloc1)
+//
+// CHECK-LABEL: // Kernel: phi_coalescing_2
 // CHECK: graph InterferenceAnalysis {
-// CHECK-DAG:   0 [label="0, %0"];
-// CHECK-DAG:   1 [label="1, %1"];
-// CHECK-DAG:   2 [label="2, %2"];
-// CHECK-DAG:   3 [label="3, %3"];
-// CHECK-DAG:   4 [label="4, %4"];
-// CHECK-DAG:   5 [label="5, %5"];
-// Phi-coalesced allocas %10 and %13 share eq class 6
-// CHECK-DAG:   6 [label="6, %{{[0-9]+}}"];
+// CHECK-DAG:   0 [label="0, %[[eq0:[0-9]+]]"];
+// CHECK-DAG:   1 [label="1, %[[eq1:[0-9]+]]"];
+// CHECK-DAG:   2 [label="2, %[[eq2:[0-9]+]]"];
+// CHECK-DAG:   3 [label="3, %[[eq3:[0-9]+]]"];
+// CHECK-DAG:   4 [label="4, %[[eq4:[0-9]+]]"];
+// CHECK-DAG:   5 [label="5, %[[eq5:[0-9]+]]"];
+// Phi-coalesced allocas from different branches share eq class 6
+// CHECK-DAG:   6 [label="6, %[[eq6:[0-9]+]]"];
+// VGPRs 0 and 1 interfere (both computed in entry block, used later)
 // CHECK-DAG:   0 -- 1;
+// SGPRs 2 and 3 interfere (both live at the same time)
 // CHECK-DAG:   2 -- 3;
 // CHECK: }
-amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_2 {
+
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_2 {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr
@@ -315,56 +328,31 @@ amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
 
 // -----
 
-// Test: phi coalescing - values %7 and %8 flow to same block arg, so their source
-// allocas %1 and %2 get phi-coalesced (only 5 eq classes instead of 6).
-// CHECK: // Kernel: phi_coalescing_3
+// Test: phi coalescing - values %6 and %7 flow to same block arg, so their source
+// allocas %0 and %1 get phi-coalesced into the same equivalence class.
+//
+// Only 5 equivalence classes (instead of 6) due to phi-coalescing:
+// - EqClass 0: phi-coalesced VGPRs (allocas whose results flow to same block arg)
+// - EqClass 1: first SGPR alloca
+// - EqClass 2: second SGPR alloca
+// - EqClass 3: unused VGPR alloca
+// - EqClass 4: unused VGPR alloca
+//
+// CHECK-LABEL: // Kernel: phi_coalescing_3
 // CHECK: graph InterferenceAnalysis {
-// Allocas %1 and %2 are phi-coalesced, so only one eq class for them
-// CHECK-DAG:   0 [label="0, %{{[0-9]+}}"];
-// CHECK-DAG:   1 [label="1, %2"];
-// CHECK-DAG:   2 [label="2, %3"];
-// CHECK-DAG:   3 [label="3, %4"];
-// CHECK-DAG:   4 [label="4, %5"];
+// CHECK-DAG:   0 [label="0, %[[eq0:[0-9]+]]"];
+// CHECK-DAG:   1 [label="1, %[[eq1:[0-9]+]]"];
+// CHECK-DAG:   2 [label="2, %[[eq2:[0-9]+]]"];
+// CHECK-DAG:   3 [label="3, %[[eq3:[0-9]+]]"];
+// CHECK-DAG:   4 [label="4, %[[eq4:[0-9]+]]"];
+// SGPRs 1 and 2 interfere (both live at the same time)
 // CHECK-DAG:   1 -- 2;
+// No eq class 5 - allocas were phi-coalesced into eq class 0
+// CHECK-NOT:   5 [label=
 // CHECK: }
-amdgcn.module @ra_phi_coalescing_3 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_3 {
-    %1 = alloca : !amdgcn.vgpr
-    %2 = alloca : !amdgcn.vgpr
-    %3 = alloca : !amdgcn.sgpr
-    %4 = alloca : !amdgcn.sgpr
-    %5 = alloca : !amdgcn.vgpr
-    %6 = alloca : !amdgcn.vgpr
-    // While %7, %8 don't interfere in this block, they interfere with %9, %10
-    %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %8 = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %c0 = arith.constant 0 : i32
-    %cond = lsir.cmpi i32 eq %3, %c0 : !amdgcn.sgpr, i32
-    cf.cond_br %cond, ^bb1, ^bb2
-  ^bb1:  // pred: ^bb0
-    cf.br ^bb3(%7 : !amdgcn.vgpr)
-  ^bb2:  // pred: ^bb0
-    cf.br ^bb3(%8 : !amdgcn.vgpr)
-  ^bb3(%val: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
-    test_inst ins %val, %7, %8 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
-    end_kernel
-  }
-}
 
-// -----
-
-// Test: same as phi_coalescing_3 - phi coalescing reduces eq classes.
-// CHECK: // Kernel: phi_coalescing_4
-// CHECK: graph InterferenceAnalysis {
-// CHECK-DAG:   0 [label="0, %{{[0-9]+}}"];
-// CHECK-DAG:   1 [label="1, %2"];
-// CHECK-DAG:   2 [label="2, %3"];
-// CHECK-DAG:   3 [label="3, %4"];
-// CHECK-DAG:   4 [label="4, %5"];
-// CHECK-DAG:   1 -- 2;
-// CHECK: }
-amdgcn.module @ra_phi_coalescing_4 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_4 {
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_3 {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr

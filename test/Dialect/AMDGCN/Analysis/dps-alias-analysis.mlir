@@ -16,7 +16,7 @@
 // CHECK-NOT: EqClass
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @trivial_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @empty_kernel {
     end_kernel
   }
@@ -37,7 +37,7 @@ amdgcn.module @trivial_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 0: [%[[v0]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @trivial_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @single_alloca_no_use {
     %0 = alloca : !amdgcn.vgpr
     end_kernel
@@ -71,8 +71,8 @@ amdgcn.module @trivial_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 3: [%[[v3]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @basic_tests target = <gfx942> isa = <cdna3> {
-  kernel @simple_dps {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @simple_dps {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.sgpr
@@ -109,7 +109,7 @@ amdgcn.module @basic_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 3: [%[[s3]], %[[v3]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @basic_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @deep_dps_chain {
     %s0 = alloca : !amdgcn.vgpr
     %s1 = alloca : !amdgcn.vgpr
@@ -153,7 +153,7 @@ amdgcn.module @basic_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 4: [%[[v4]], %[[r4]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @basic_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @many_allocas {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
@@ -200,7 +200,7 @@ amdgcn.module @basic_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 3: [%[[v1]], %[[rv1]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @mixed_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @sgpr_and_vgpr_mixed {
     %s0 = alloca : !amdgcn.sgpr
     %v0 = alloca : !amdgcn.vgpr
@@ -247,7 +247,7 @@ amdgcn.module @mixed_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 1: [%[[s1]], %[[b]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @cf_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
   amdgcn.kernel @diamond_no_merge {
     %cond = func.call @rand() : () -> i1
@@ -304,10 +304,10 @@ amdgcn.module @cf_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 5: [%[[v6]], %[[v10]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @cf_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
 
-  kernel @diamond_values_live_across {
+  amdgcn.kernel @diamond_values_live_across {
     %0 = func.call @rand() : () -> i1
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
@@ -355,7 +355,7 @@ amdgcn.module @cf_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 1: [%[[v1]], %[[v3]], %[[v4]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @make_range_basic {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
@@ -394,7 +394,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 3: [%[[v6]], %[[v7]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @make_range_with_intermediate {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
@@ -440,7 +440,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 2: [%[[v4]], %[[v5]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @make_range_use_before {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
@@ -486,7 +486,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 2: [%[[v4]], %[[v5]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @make_range_use_after {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
@@ -550,8 +550,8 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 6: [%[[v10]], %[[v11]], %[[v13]], %[[v14]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_2 {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_2 {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr
@@ -615,66 +615,8 @@ amdgcn.module @ra_phi_coalescing_2 target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 4: [%[[v5]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @ra_phi_coalescing_3 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_3 {
-    %1 = alloca : !amdgcn.vgpr
-    %2 = alloca : !amdgcn.vgpr
-    %3 = alloca : !amdgcn.sgpr
-    %4 = alloca : !amdgcn.sgpr
-    %5 = alloca : !amdgcn.vgpr
-    %6 = alloca : !amdgcn.vgpr
-    %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %8 = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %c0 = arith.constant 0 : i32
-    %cond = lsir.cmpi i32 eq %3, %c0 : !amdgcn.sgpr, i32
-    cf.cond_br %cond, ^bb1, ^bb2
-  ^bb1:
-    cf.br ^bb3(%7 : !amdgcn.vgpr)
-  ^bb2:
-    cf.br ^bb3(%8 : !amdgcn.vgpr)
-  ^bb3(%val: !amdgcn.vgpr):
-    test_inst ins %val, %7, %8 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
-    end_kernel
-  }
-}
-
-// -----
-
-// CHECK: === DPS Alias Analysis Results ===
-// CHECK-LABEL: Kernel: phi_coalescing_4
-
-// Test: same as phi_coalescing_3 but with kernel named phi_coalescing_4.
-// Verifies phi coalescing when values from different allocas flow to same block argument.
-// CHECK: amdgcn.kernel @phi_coalescing_4 {
-// CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v2:[0-9]*]] = alloca : !amdgcn.sgpr
-// CHECK:   %[[v3:[0-9]*]] = alloca : !amdgcn.sgpr
-// CHECK:   %[[v4:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v5:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v6:[0-9]*]] = test_inst outs %[[v0]] ins %[[v2]]
-// CHECK:   %[[v7:[0-9]*]] = test_inst outs %[[v1]] ins %[[v3]]
-// CHECK:   lsir.cmpi i32 eq
-// CHECK:   cf.cond_br
-// CHECK: ^bb1:
-// CHECK:   cf.br ^bb3(%[[v6]] : !amdgcn.vgpr)
-// CHECK: ^bb2:
-// CHECK:   cf.br ^bb3(%[[v7]] : !amdgcn.vgpr)
-// CHECK: ^bb3
-// CHECK:   end_kernel
-// CHECK: }
-// CHECK: Ill-formed IR: no
-// CHECK: Equivalence Classes:
-// Allocas %0 and %1 are phi-coalesced because their results %6 and %7 flow to same block arg
-// CHECK:   EqClass 0: [%[[v0]], %[[v1]], %[[v6]], %[[v7]]]
-// CHECK:   EqClass 1: [%[[v2]]]
-// CHECK:   EqClass 2: [%[[v3]]]
-// CHECK:   EqClass 3: [%[[v4]]]
-// CHECK:   EqClass 4: [%[[v5]]]
-// CHECK: === End Analysis Results ===
-
-amdgcn.module @ra_phi_coalescing_4 target = <gfx942> isa = <cdna3> {
-  kernel @phi_coalescing_4 {
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @phi_coalescing_3 {
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
     %3 = alloca : !amdgcn.sgpr
