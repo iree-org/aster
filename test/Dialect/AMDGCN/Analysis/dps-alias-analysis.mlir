@@ -1,10 +1,60 @@
 // RUN: aster-opt %s --test-dps-alias-analysis --split-input-file 2>&1 | FileCheck %s
 
-// CHECK: === DPS Alias Analysis Results ===
-// CHECK-LABEL: Kernel: no_interference_mixed
+//===----------------------------------------------------------------------===//
+// Trivial cases
+//===----------------------------------------------------------------------===//
 
-// Simple test: no interference, values die after use
-// CHECK: amdgcn.kernel @no_interference_mixed {
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: empty_kernel
+
+// Test: empty kernel with no allocas
+// CHECK: amdgcn.kernel @empty_kernel {
+// CHECK:   end_kernel
+// CHECK: }
+// CHECK: Ill-formed IR: no
+// CHECK: Equivalence Classes:
+// CHECK-NOT: EqClass
+// CHECK: === End Analysis Results ===
+
+amdgcn.module @trivial_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @empty_kernel {
+    end_kernel
+  }
+}
+
+// -----
+
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: single_alloca_no_use
+
+// Test: single alloca with no uses
+// CHECK: amdgcn.kernel @single_alloca_no_use {
+// CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   end_kernel
+// CHECK: }
+// CHECK: Ill-formed IR: no
+// CHECK: Equivalence Classes:
+// CHECK:   EqClass 0: [%[[v0]]]
+// CHECK: === End Analysis Results ===
+
+amdgcn.module @trivial_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @single_alloca_no_use {
+    %0 = alloca : !amdgcn.vgpr
+    end_kernel
+  }
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// Basic straight-line code
+//===----------------------------------------------------------------------===//
+
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: simple_dps
+
+// Test: simple DPS - alloca produces result, result goes to equivalence class
+// CHECK: amdgcn.kernel @simple_dps {
 // CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v2:[0-9]*]] = alloca : !amdgcn.sgpr
@@ -21,8 +71,8 @@
 // CHECK:   EqClass 3: [%[[v3]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
-  kernel @no_interference_mixed {
+amdgcn.module @basic_tests target = <gfx942> isa = <cdna3> {
+  kernel @simple_dps {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.sgpr
@@ -35,44 +85,41 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 
 // -----
 
-
 // CHECK: === DPS Alias Analysis Results ===
-// CHECK-LABEL: Kernel: interference_mixed_all_live
+// CHECK-LABEL: Kernel: deep_dps_chain
 
-// Test: values interfere because they are all live at the final use
-// CHECK: amdgcn.kernel @interference_mixed_all_live {
-// CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v2:[0-9]*]] = alloca : !amdgcn.sgpr
-// CHECK:   %[[v3:[0-9]*]] = alloca : !amdgcn.sgpr
-// CHECK:   %[[v4:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v5:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v6:[0-9]*]] = test_inst outs %[[v0]] ins %[[v2]], %[[v4]]
-// CHECK:   %[[v7:[0-9]*]] = test_inst outs %[[v1]] ins %[[v3]], %[[v5]]
-// CHECK:   test_inst ins %[[v6]], %[[v7]], %[[v4]], %[[v5]]
+// Test: chain of DPS operations - each result used as input to next
+// CHECK: amdgcn.kernel @deep_dps_chain {
+// CHECK:   %[[s0:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[s1:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[s2:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[s3:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v0:[0-9]*]] = test_inst outs %[[s0]]
+// CHECK:   %[[v1:[0-9]*]] = test_inst outs %[[s1]] ins %[[v0]]
+// CHECK:   %[[v2:[0-9]*]] = test_inst outs %[[s2]] ins %[[v1]]
+// CHECK:   %[[v3:[0-9]*]] = test_inst outs %[[s3]] ins %[[v2]]
+// CHECK:   test_inst ins %[[v3]]
 // CHECK:   end_kernel
 // CHECK: }
 // CHECK: Ill-formed IR: no
 // CHECK: Equivalence Classes:
-// CHECK:   EqClass 0: [%[[v0]], %[[v6]]]
-// CHECK:   EqClass 1: [%[[v1]], %[[v7]]]
-// CHECK:   EqClass 2: [%[[v2]]]
-// CHECK:   EqClass 3: [%[[v3]]]
-// CHECK:   EqClass 4: [%[[v4]]]
-// CHECK:   EqClass 5: [%[[v5]]]
+// CHECK:   EqClass 0: [%[[s0]], %[[v0]]]
+// CHECK:   EqClass 1: [%[[s1]], %[[v1]]]
+// CHECK:   EqClass 2: [%[[s2]], %[[v2]]]
+// CHECK:   EqClass 3: [%[[s3]], %[[v3]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
-  kernel @interference_mixed_all_live {
-    %0 = alloca : !amdgcn.vgpr
-    %1 = alloca : !amdgcn.vgpr
-    %2 = alloca : !amdgcn.sgpr
-    %3 = alloca : !amdgcn.sgpr
-    %4 = alloca : !amdgcn.vgpr
-    %5 = alloca : !amdgcn.vgpr
-    %6 = test_inst outs %0 ins %2, %4 : (!amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-    %7 = test_inst outs %1 ins %3, %5 : (!amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-    test_inst ins %6, %7, %4, %5 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
+amdgcn.module @basic_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @deep_dps_chain {
+    %s0 = alloca : !amdgcn.vgpr
+    %s1 = alloca : !amdgcn.vgpr
+    %s2 = alloca : !amdgcn.vgpr
+    %s3 = alloca : !amdgcn.vgpr
+    %v0 = test_inst outs %s0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %v1 = test_inst outs %s1 ins %v0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %v2 = test_inst outs %s2 ins %v1 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %v3 = test_inst outs %s3 ins %v2 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    test_inst ins %v3 : (!amdgcn.vgpr) -> ()
     end_kernel
   }
 }
@@ -80,42 +127,142 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // -----
 
 // CHECK: === DPS Alias Analysis Results ===
-// CHECK-LABEL: Kernel: interference_mixed_with_reuse
+// CHECK-LABEL: Kernel: many_allocas
 
-// Test: values can be reused after they die
-// CHECK: amdgcn.kernel @interference_mixed_with_reuse {
+// Test: many allocas with simple DPS chains
+// CHECK: amdgcn.kernel @many_allocas {
 // CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v2:[0-9]*]] = alloca : !amdgcn.sgpr
-// CHECK:   %[[v3:[0-9]*]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[v2:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v3:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v4:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v5:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v6:[0-9]*]] = test_inst outs %[[v0]] ins %[[v2]], %[[v4]]
-// CHECK:   %[[v7:[0-9]*]] = test_inst outs %[[v1]] ins %[[v3]], %[[v5]]
-// CHECK:   test_inst ins %[[v6]], %[[v7]]
+// CHECK:   %[[r0:[0-9]*]] = test_inst outs %[[v0]]
+// CHECK:   %[[r1:[0-9]*]] = test_inst outs %[[v1]]
+// CHECK:   %[[r2:[0-9]*]] = test_inst outs %[[v2]]
+// CHECK:   %[[r3:[0-9]*]] = test_inst outs %[[v3]]
+// CHECK:   %[[r4:[0-9]*]] = test_inst outs %[[v4]]
+// CHECK:   test_inst ins %[[r0]], %[[r1]], %[[r2]], %[[r3]], %[[r4]]
 // CHECK:   end_kernel
 // CHECK: }
 // CHECK: Ill-formed IR: no
 // CHECK: Equivalence Classes:
-// CHECK:   EqClass 0: [%[[v0]], %[[v6]]]
-// CHECK:   EqClass 1: [%[[v1]], %[[v7]]]
-// CHECK:   EqClass 2: [%[[v2]]]
-// CHECK:   EqClass 3: [%[[v3]]]
-// CHECK:   EqClass 4: [%[[v4]]]
-// CHECK:   EqClass 5: [%[[v5]]]
+// CHECK:   EqClass 0: [%[[v0]], %[[r0]]]
+// CHECK:   EqClass 1: [%[[v1]], %[[r1]]]
+// CHECK:   EqClass 2: [%[[v2]], %[[r2]]]
+// CHECK:   EqClass 3: [%[[v3]], %[[r3]]]
+// CHECK:   EqClass 4: [%[[v4]], %[[r4]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
-  kernel @interference_mixed_with_reuse {
+amdgcn.module @basic_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @many_allocas {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
-    %2 = alloca : !amdgcn.sgpr
-    %3 = alloca : !amdgcn.sgpr
+    %2 = alloca : !amdgcn.vgpr
+    %3 = alloca : !amdgcn.vgpr
     %4 = alloca : !amdgcn.vgpr
-    %5 = alloca : !amdgcn.vgpr
-    %6 = test_inst outs %0 ins %2, %4 : (!amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-    %7 = test_inst outs %1 ins %3, %5 : (!amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-    test_inst ins %6, %7 : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    %r0 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %r1 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %r2 = test_inst outs %2 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %r3 = test_inst outs %3 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %r4 = test_inst outs %4 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    test_inst ins %r0, %r1, %r2, %r3, %r4 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// Mixed register types (SGPR + VGPR)
+//===----------------------------------------------------------------------===//
+
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: sgpr_and_vgpr_mixed
+
+// Test: mixed SGPR and VGPR allocas with interactions
+// CHECK: amdgcn.kernel @sgpr_and_vgpr_mixed {
+// CHECK:   %[[s0:[0-9]*]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[s1:[0-9]*]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[rs0:[0-9]*]] = test_inst outs %[[s0]]
+// CHECK:   %[[rv0:[0-9]*]] = test_inst outs %[[v0]] ins %[[rs0]]
+// CHECK:   %[[rs1:[0-9]*]] = test_inst outs %[[s1]]
+// CHECK:   %[[rv1:[0-9]*]] = test_inst outs %[[v1]] ins %[[rs1]], %[[rv0]]
+// CHECK:   test_inst ins %[[rv1]]
+// CHECK:   end_kernel
+// CHECK: }
+// CHECK: Ill-formed IR: no
+// CHECK: Equivalence Classes:
+// CHECK:   EqClass 0: [%[[s0]], %[[rs0]]]
+// CHECK:   EqClass 1: [%[[v0]], %[[rv0]]]
+// CHECK:   EqClass 2: [%[[s1]], %[[rs1]]]
+// CHECK:   EqClass 3: [%[[v1]], %[[rv1]]]
+// CHECK: === End Analysis Results ===
+
+amdgcn.module @mixed_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @sgpr_and_vgpr_mixed {
+    %s0 = alloca : !amdgcn.sgpr
+    %v0 = alloca : !amdgcn.vgpr
+    %s1 = alloca : !amdgcn.sgpr
+    %v1 = alloca : !amdgcn.vgpr
+    %rs0 = test_inst outs %s0 : (!amdgcn.sgpr) -> !amdgcn.sgpr
+    %rv0 = test_inst outs %v0 ins %rs0 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %rs1 = test_inst outs %s1 : (!amdgcn.sgpr) -> !amdgcn.sgpr
+    %rv1 = test_inst outs %v1 ins %rs1, %rv0 : (!amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    test_inst ins %rv1 : (!amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// Control flow
+//===----------------------------------------------------------------------===//
+
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: diamond_no_merge
+
+// Test: diamond control flow with independent branch operations
+// CHECK: amdgcn.kernel @diamond_no_merge {
+// CHECK:   %[[cond:[0-9]*]] = func.call @rand() : () -> i1
+// CHECK:   %[[s0:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[s1:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   cf.cond_br %[[cond]], ^bb1, ^bb2
+// CHECK: ^bb1:
+// CHECK:   %[[a:[0-9]*]] = test_inst outs %[[s0]]
+// CHECK:   test_inst ins %[[a]]
+// CHECK:   cf.br ^bb3
+// CHECK: ^bb2:
+// CHECK:   %[[b:[0-9]*]] = test_inst outs %[[s1]]
+// CHECK:   test_inst ins %[[b]]
+// CHECK:   cf.br ^bb3
+// CHECK: ^bb3:
+// CHECK:   end_kernel
+// CHECK: }
+// CHECK: Ill-formed IR: no
+// CHECK: Equivalence Classes:
+// CHECK:   EqClass 0: [%[[s0]], %[[a]]]
+// CHECK:   EqClass 1: [%[[s1]], %[[b]]]
+// CHECK: === End Analysis Results ===
+
+amdgcn.module @cf_tests target = <gfx942> isa = <cdna3> {
+  func.func private @rand() -> i1
+  amdgcn.kernel @diamond_no_merge {
+    %cond = func.call @rand() : () -> i1
+    %s0 = alloca : !amdgcn.vgpr
+    %s1 = alloca : !amdgcn.vgpr
+    cf.cond_br %cond, ^bb1, ^bb2
+  ^bb1:
+    %a = test_inst outs %s0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    test_inst ins %a : (!amdgcn.vgpr) -> ()
+    cf.br ^bb3
+  ^bb2:
+    %b = test_inst outs %s1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    test_inst ins %b : (!amdgcn.vgpr) -> ()
+    cf.br ^bb3
+  ^bb3:
     end_kernel
   }
 }
@@ -123,10 +270,10 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // -----
 
 // CHECK: === DPS Alias Analysis Results ===
-// CHECK-LABEL: Kernel: interference_cf
+// CHECK-LABEL: Kernel: diamond_values_live_across
 
-// Test: control flow - values live across branches
-// CHECK: amdgcn.kernel @interference_cf {
+// Test: diamond control flow with values live across branches
+// CHECK: amdgcn.kernel @diamond_values_live_across {
 // CHECK:   %[[v0:[0-9]*]] = func.call @rand() : () -> i1
 // CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v2:[0-9]*]] = alloca : !amdgcn.vgpr
@@ -157,10 +304,10 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 5: [%[[v6]], %[[v10]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @cf_tests target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
 
-  kernel @interference_cf {
+  kernel @diamond_values_live_across {
     %0 = func.call @rand() : () -> i1
     %1 = alloca : !amdgcn.vgpr
     %2 = alloca : !amdgcn.vgpr
@@ -185,11 +332,48 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 
 // -----
 
-// CHECK: === DPS Alias Analysis Results ===
-// CHECK-LABEL: Kernel: test_make_range_liveness
+//===----------------------------------------------------------------------===//
+// Register ranges (make_register_range)
+//===----------------------------------------------------------------------===//
 
-// Test: make_register_range keeps values live
-// CHECK: amdgcn.kernel @test_make_range_liveness {
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: make_range_basic
+
+// Test: make_register_range groups values into same equivalence class
+// CHECK: amdgcn.kernel @make_range_basic {
+// CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v2:[0-9]*]] = test_inst outs %[[v0]]
+// CHECK:   %[[v3:[0-9]*]] = test_inst outs %[[v1]]
+// CHECK:   %[[v4:[0-9]*]] = make_register_range %[[v2]], %[[v3]]
+// CHECK:   test_inst ins %[[v4]]
+// CHECK:   end_kernel
+// CHECK: }
+// CHECK: Ill-formed IR: no
+// CHECK: Equivalence Classes:
+// CHECK:   EqClass 0: [%[[v0]], %[[v2]], %[[v4]]]
+// CHECK:   EqClass 1: [%[[v1]], %[[v3]], %[[v4]]]
+// CHECK: === End Analysis Results ===
+
+amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @make_range_basic {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.vgpr
+    %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %3 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %range = make_register_range %2, %3 : !amdgcn.vgpr, !amdgcn.vgpr
+    test_inst ins %range : (!amdgcn.vgpr_range<[? + 2]>) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: make_range_with_intermediate
+
+// Test: make_register_range with intermediate computations
+// CHECK: amdgcn.kernel @make_range_with_intermediate {
 // CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v2:[0-9]*]] = test_inst outs %[[v0]]
@@ -210,8 +394,8 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   EqClass 3: [%[[v6]], %[[v7]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
-  amdgcn.kernel @test_make_range_liveness {
+amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @make_range_with_intermediate {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
 
@@ -234,105 +418,40 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // -----
 
 // CHECK: === DPS Alias Analysis Results ===
-// CHECK-LABEL: Kernel: test_make_range_liveness_1
-
-// Test: make_register_range with simultaneous use of intermediate value
-// CHECK: amdgcn.kernel @test_make_range_liveness_1 {
-// CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v2:[0-9]*]] = test_inst outs %[[v0]]
-// CHECK:   %[[v3:[0-9]*]] = test_inst outs %[[v1]]
-// CHECK:   %[[v4:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v5:[0-9]*]] = test_inst outs %[[v4]] ins %[[v3]]
-// CHECK:   %[[v6:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v7:[0-9]*]] = test_inst outs %[[v6]] ins %[[v5]]
-// CHECK:   %[[v8:[0-9]*]] = make_register_range %[[v2]], %[[v3]]
-// CHECK:   test_inst ins %[[v8]], %[[v5]]
-// CHECK:   end_kernel
-// CHECK: }
-// CHECK: Ill-formed IR: no
-// CHECK: Equivalence Classes:
-// CHECK:   EqClass 0: [%[[v0]], %[[v2]], %[[v8]]]
-// CHECK:   EqClass 1: [%[[v1]], %[[v3]], %[[v8]]]
-// CHECK:   EqClass 2: [%[[v4]], %[[v5]]]
-// CHECK:   EqClass 3: [%[[v6]], %[[v7]]]
-// CHECK: === End Analysis Results ===
-
-amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
-  amdgcn.kernel @test_make_range_liveness_1 {
-    %0 = alloca : !amdgcn.vgpr
-    %1 = alloca : !amdgcn.vgpr
-
-    %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-    %3 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-
-    // Note: Intermediate computation - these allocas must not reuse %0 or %1's registers
-    // because %2 and %3 are still live (used by make_register_range below),
-    // which itself is used by range.
-
-    %tmp1 = alloca : !amdgcn.vgpr
-    // Note: intermediate_0 is used, it must not be clobbered
-    %intermediate_0 = test_inst outs %tmp1 ins %3 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-
-    %tmp2 = alloca : !amdgcn.vgpr
-    %intermediate_1 = test_inst outs %tmp2 ins %intermediate_0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-
-    %range = make_register_range %2, %3 : !amdgcn.vgpr, !amdgcn.vgpr
-    // Note: Use at the same time as the range.
-    test_inst ins %range, %intermediate_0 : (!amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr) -> ()
-
-    end_kernel
-  }
-}
-
-// -----
-
-// CHECK: === DPS Alias Analysis Results ===
-// CHECK-LABEL: Kernel: test_make_range_liveness_2
+// CHECK-LABEL: Kernel: make_range_use_before
 
 // Test: intermediate value used before make_register_range
-// CHECK: amdgcn.kernel @test_make_range_liveness_2 {
+// CHECK: amdgcn.kernel @make_range_use_before {
 // CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v2:[0-9]*]] = test_inst outs %[[v0]]
 // CHECK:   %[[v3:[0-9]*]] = test_inst outs %[[v1]]
 // CHECK:   %[[v4:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v5:[0-9]*]] = test_inst outs %[[v4]] ins %[[v3]]
-// CHECK:   %[[v6:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v7:[0-9]*]] = test_inst outs %[[v6]] ins %[[v5]]
 // CHECK:   test_inst ins %[[v5]]
-// CHECK:   %[[v8:[0-9]*]] = make_register_range %[[v2]], %[[v3]]
-// CHECK:   test_inst ins %[[v8]]
+// CHECK:   %[[v6:[0-9]*]] = make_register_range %[[v2]], %[[v3]]
+// CHECK:   test_inst ins %[[v6]]
 // CHECK:   end_kernel
 // CHECK: }
 // CHECK: Ill-formed IR: no
 // CHECK: Equivalence Classes:
-// CHECK:   EqClass 0: [%[[v0]], %[[v2]], %[[v8]]]
-// CHECK:   EqClass 1: [%[[v1]], %[[v3]], %[[v8]]]
+// CHECK:   EqClass 0: [%[[v0]], %[[v2]], %[[v6]]]
+// CHECK:   EqClass 1: [%[[v1]], %[[v3]], %[[v6]]]
 // CHECK:   EqClass 2: [%[[v4]], %[[v5]]]
-// CHECK:   EqClass 3: [%[[v6]], %[[v7]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
-  amdgcn.kernel @test_make_range_liveness_2 {
+amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @make_range_use_before {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
 
     %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
     %3 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
 
-    // Note: Intermediate computation - these allocas must not reuse %0 or %1's registers
-    // because %2 and %3 are still live (used by make_register_range below),
-    // which itself is used by range.
-
     %tmp1 = alloca : !amdgcn.vgpr
-    // Note: intermediate_0 is used, it must not be clobbered
     %intermediate_0 = test_inst outs %tmp1 ins %3 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
 
-    %tmp2 = alloca : !amdgcn.vgpr
-    %intermediate_1 = test_inst outs %tmp2 ins %intermediate_0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-
-    // Note: Use before the range.
+    // Use before the range
     test_inst ins %intermediate_0 : (!amdgcn.vgpr) -> ()
 
     %range = make_register_range %2, %3 : !amdgcn.vgpr, !amdgcn.vgpr
@@ -345,54 +464,43 @@ amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
 // -----
 
 // CHECK: === DPS Alias Analysis Results ===
-// CHECK-LABEL: Kernel: test_make_range_liveness_3
+// CHECK-LABEL: Kernel: make_range_use_after
 
 // Test: intermediate value used after make_register_range
-// CHECK: amdgcn.kernel @test_make_range_liveness_3 {
+// CHECK: amdgcn.kernel @make_range_use_after {
 // CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v1:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v2:[0-9]*]] = test_inst outs %[[v0]]
 // CHECK:   %[[v3:[0-9]*]] = test_inst outs %[[v1]]
 // CHECK:   %[[v4:[0-9]*]] = alloca : !amdgcn.vgpr
 // CHECK:   %[[v5:[0-9]*]] = test_inst outs %[[v4]] ins %[[v3]]
-// CHECK:   %[[v6:[0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[v7:[0-9]*]] = test_inst outs %[[v6]] ins %[[v5]]
-// CHECK:   %[[v8:[0-9]*]] = make_register_range %[[v2]], %[[v3]]
-// CHECK:   test_inst ins %[[v8]]
+// CHECK:   %[[v6:[0-9]*]] = make_register_range %[[v2]], %[[v3]]
+// CHECK:   test_inst ins %[[v6]]
 // CHECK:   test_inst ins %[[v5]]
 // CHECK:   end_kernel
 // CHECK: }
 // CHECK: Ill-formed IR: no
 // CHECK: Equivalence Classes:
-// CHECK:   EqClass 0: [%[[v0]], %[[v2]], %[[v8]]]
-// CHECK:   EqClass 1: [%[[v1]], %[[v3]], %[[v8]]]
+// CHECK:   EqClass 0: [%[[v0]], %[[v2]], %[[v6]]]
+// CHECK:   EqClass 1: [%[[v1]], %[[v3]], %[[v6]]]
 // CHECK:   EqClass 2: [%[[v4]], %[[v5]]]
-// CHECK:   EqClass 3: [%[[v6]], %[[v7]]]
 // CHECK: === End Analysis Results ===
 
-amdgcn.module @liveness_tests target = <gfx942> isa = <cdna3> {
-  amdgcn.kernel @test_make_range_liveness_3 {
+amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @make_range_use_after {
     %0 = alloca : !amdgcn.vgpr
     %1 = alloca : !amdgcn.vgpr
 
     %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
     %3 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
 
-    // Note: Intermediate computation - these allocas must not reuse %0 or %1's registers
-    // because %2 and %3 are still live (used by make_register_range below),
-    // which itself is used by range.
-
     %tmp1 = alloca : !amdgcn.vgpr
-    // Note: intermediate_0 is used, it must not be clobbered
     %intermediate_0 = test_inst outs %tmp1 ins %3 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-
-    %tmp2 = alloca : !amdgcn.vgpr
-    %intermediate_1 = test_inst outs %tmp2 ins %intermediate_0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
 
     %range = make_register_range %2, %3 : !amdgcn.vgpr, !amdgcn.vgpr
     test_inst ins %range : (!amdgcn.vgpr_range<[? + 2]>) -> ()
 
-    // Note: Use after the range.
+    // Use after the range
     test_inst ins %intermediate_0 : (!amdgcn.vgpr) -> ()
 
     end_kernel

@@ -349,3 +349,122 @@ amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+// -----
+
+// CHECK: === Value Provenance Analysis Results ===
+// CHECK-LABEL: Kernel: empty_kernel
+
+// Test: Empty kernel with no allocas
+// CHECK: amdgcn.kernel @empty_kernel {
+// CHECK:   end_kernel
+// CHECK: }
+
+// CHECK: Value Provenances:
+// CHECK-NOT: %
+
+amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
+  kernel @empty_kernel {
+    end_kernel
+  }
+}
+
+// -----
+
+// CHECK: === Value Provenance Analysis Results ===
+// CHECK-LABEL: Kernel: single_alloca_unused
+
+// Test: Single alloca with no uses
+// CHECK: amdgcn.kernel @single_alloca_unused {
+// CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   end_kernel
+// CHECK: }
+
+// CHECK: Value Provenances:
+// CHECK:   %[[v0]] -> %[[v0]]
+
+amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
+  kernel @single_alloca_unused {
+    %0 = alloca : !amdgcn.vgpr
+    end_kernel
+  }
+}
+
+// -----
+
+// CHECK: === Value Provenance Analysis Results ===
+// CHECK-LABEL: Kernel: deep_dps_chain
+
+// Test: Deep chain of 4 operations - provenance flows through all
+// CHECK: amdgcn.kernel @deep_dps_chain {
+// CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v1:[0-9]*]] = test_inst outs %[[v0]]
+// CHECK:   %[[v2:[0-9]*]] = test_inst outs %[[v1]]
+// CHECK:   %[[v3:[0-9]*]] = test_inst outs %[[v2]]
+// CHECK:   %[[v4:[0-9]*]] = test_inst outs %[[v3]]
+// CHECK:   end_kernel
+// CHECK: }
+
+// CHECK: Value Provenances:
+// CHECK:   %[[v0]] -> %[[v0]]
+// CHECK:   %[[v1]] -> %[[v0]]
+// CHECK:   %[[v2]] -> %[[v0]]
+// CHECK:   %[[v3]] -> %[[v0]]
+// CHECK:   %[[v4]] -> %[[v0]]
+
+amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
+  kernel @deep_dps_chain {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %2 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %3 = test_inst outs %2 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %4 = test_inst outs %3 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    end_kernel
+  }
+}
+
+// -----
+
+// CHECK: === Value Provenance Analysis Results ===
+// CHECK-LABEL: Kernel: allocas_in_branches
+
+// Test: Allocas defined inside branches (not in entry block)
+// CHECK: amdgcn.kernel @allocas_in_branches {
+// CHECK:   %[[cond:[0-9]*]] = func.call @rand() : () -> i1
+// CHECK:   cf.cond_br %[[cond]], ^bb1, ^bb2
+// CHECK: ^bb1:
+// CHECK:   %[[v0:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v1:[0-9]*]] = test_inst outs %[[v0]]
+// CHECK:   cf.br ^bb3
+// CHECK: ^bb2:
+// CHECK:   %[[v2:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v3:[0-9]*]] = test_inst outs %[[v2]]
+// CHECK:   cf.br ^bb3
+// CHECK: ^bb3:
+// CHECK:   end_kernel
+// CHECK: }
+
+// CHECK: Value Provenances:
+// CHECK-DAG:   %[[v0]] -> %[[v0]]
+// CHECK-DAG:   %[[v1]] -> %[[v0]]
+// CHECK-DAG:   %[[v2]] -> %[[v2]]
+// CHECK-DAG:   %[[v3]] -> %[[v2]]
+
+amdgcn.module @provenance_tests target = <gfx942> isa = <cdna3> {
+  func.func private @rand() -> i1
+
+  kernel @allocas_in_branches {
+    %cond = func.call @rand() : () -> i1
+    cf.cond_br %cond, ^bb1, ^bb2
+  ^bb1:
+    %0 = alloca : !amdgcn.vgpr
+    %1 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    cf.br ^bb3
+  ^bb2:
+    %2 = alloca : !amdgcn.vgpr
+    %3 = test_inst outs %2 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    cf.br ^bb3
+  ^bb3:
+    end_kernel
+  }
+}
