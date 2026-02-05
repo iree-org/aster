@@ -156,6 +156,7 @@ PHASE_REGISTER_ALLOCATION = amdgcn_module(
         "aster-amdgcn-expand-md-ops",
         "amdgcn-register-allocation",
         "canonicalize", "cse",
+        "amdgcn-legalize-cf",
     )
 )
 

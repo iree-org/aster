@@ -16,9 +16,11 @@
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/ModuleOpInterface.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "aster/Interfaces/VerifierAttr.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
@@ -126,6 +128,12 @@ LogicalResult amdgcn::verifyIsAllocatableOpImpl(Operation *op,
   if (isa<KernelOp, aster::ModuleOpInterface, AllocaOp, MakeRegisterRangeOp,
           RegInterferenceOp, SplitRegisterRangeOp, WaitOp>(op))
     return success();
+  // Allow CF dialect operations (cf.br, cf.cond_br) to pass through
+  if (isa<cf::BranchOp, cf::CondBranchOp>(op))
+    return success();
+  // Allow LSIR comparison operations (which return i1 for use in CF conditions)
+  if (isa<lsir::CmpIOp, lsir::CmpFOp>(op))
+    return success();
   if (state.getStrictness() != VerifierStrictness::Lax &&
       isa<ThreadIdOp, BlockIdOp, GridDimOp, BlockDimOp>(op)) {
     op->emitWarning("while valid, this operation should have been handled "
@@ -158,6 +166,9 @@ LogicalResult amdgcn::verifyIsAllocatedOpImpl(Operation *op,
     return success();
   }
   if (isa<KernelOp, aster::ModuleOpInterface>(op))
+    return success();
+  // Allow CF dialect operations and LSIR operations
+  if (isa<cf::BranchOp, cf::CondBranchOp, lsir::CmpIOp, lsir::CmpFOp>(op))
     return success();
   if (isa<AllocaOp, MakeRegisterRangeOp, SplitRegisterRangeOp>(op)) {
     for (auto [index, result] : llvm::enumerate(op->getResults())) {

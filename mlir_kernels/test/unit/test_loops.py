@@ -29,3 +29,7 @@ class TestUniformLoopLowering:
         expected = np.arange(num_threads, dtype=np.int32)
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
             np.testing.assert_array_equal(output, expected * 4)
+
+
+if __name__ == "__main__":
+    TestUniformLoopLowering().test_uniform_loop()
