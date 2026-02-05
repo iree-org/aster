@@ -637,3 +637,128 @@ amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+// -----
+
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: split_register_range_normal_match
+
+// Test: Normal case where split_register_range receives correct eqClassId count
+// This verifies the baseline happy path still works correctly
+// CHECK: amdgcn.kernel @split_register_range_normal_match {
+// CHECK:   %[[a0:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[a1:[0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[v0:[0-9]*]] = test_inst outs %[[a0]]
+// CHECK:   %[[v1:[0-9]*]] = test_inst outs %[[a1]]
+// CHECK:   %[[range:[0-9]*]] = make_register_range %[[v0]], %[[v1]]
+// CHECK:   %[[r2:[0-9]*]]:2 = split_register_range %[[range]]
+// CHECK:   test_inst ins %[[r2]]#0, %[[r2]]#1
+// CHECK:   end_kernel
+// CHECK: }
+// CHECK: Ill-formed IR: no
+// CHECK: Equivalence Classes:
+// CHECK-DAG: EqClass {{[0-9]+}}: [%[[a0]], %[[v0]], %[[range]], %[[r2]]#0, %[[r2]]#1]
+// CHECK-DAG: EqClass {{[0-9]+}}: [%[[a1]], %[[v1]], %[[range]], %[[r2]]#0, %[[r2]]#1]
+// CHECK: === End Analysis Results ===
+
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @split_register_range_normal_match {
+    %a0 = alloca : !amdgcn.vgpr
+    %a1 = alloca : !amdgcn.vgpr
+
+    %v0 = test_inst outs %a0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %v1 = test_inst outs %a1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+
+    %range = make_register_range %v0, %v1 : !amdgcn.vgpr, !amdgcn.vgpr
+    %r0, %r1 = split_register_range %range : !amdgcn.vgpr_range<[? + 2]>
+
+    test_inst ins %r0, %r1 : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+// Test: split_register_range on register_range from loop iter_args
+// Reproduces the issue where split_register_range receives a register_range as a block
+// argument from control flow (iter_args), and must handle potentially mismatched alias info.
+//
+
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: split_register_range_with_iter_args
+// CHECK:   %[[c0:[a-zA-Z_0-9]*]] = arith.constant 0 : i32
+// CHECK:   %[[c1:[a-zA-Z_0-9]*]] = arith.constant 1 : i32
+// CHECK:   %[[c2:[a-zA-Z_0-9]*]] = arith.constant 2 : i32
+// CHECK:   %[[alloc_cc:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[alloc_cd:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[alloc_ce:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[alloc_cf:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[alloc_d0:[a-zA-Z_0-9]*]] = alloca : !amdgcn.sgpr
+// CHECK:   cf.br
+// CHECK: ^bb1
+// CHECK:   make_register_range
+// CHECK:   amdgcn.vop3p.vop3p_mai
+// CHECK:   cf.cond_br
+// CHECK: ^bb2
+// CHECK:   split_register_range
+// CHECK:   end_kernel
+// CHECK: }
+// CHECK: Ill-formed IR: yes
+// CHECK: Equivalence Classes:
+// CHECK: === End Analysis Results ===
+
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @split_register_range_with_iter_args {
+    %c0_i32 = arith.constant 0 : i32
+    %c1_i32 = arith.constant 1 : i32
+    %c2_i32 = arith.constant 2 : i32
+
+    // Allocas for initial register range
+    %alloc0 = alloca : !amdgcn.vgpr
+    %alloc1 = alloca : !amdgcn.vgpr
+    %alloc2 = alloca : !amdgcn.vgpr
+    %alloc3 = alloca : !amdgcn.vgpr
+    %alloc_sgpr = alloca : !amdgcn.sgpr
+
+    // Allocas for loop body
+    %alloc_body0 = alloca : !amdgcn.vgpr
+    %alloc_body1 = alloca : !amdgcn.vgpr
+    %alloc_body2 = alloca : !amdgcn.vgpr
+    %alloc_body3 = alloca : !amdgcn.vgpr
+
+    // Create initial register range and mock A/B
+    %init0 = test_inst outs %alloc0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %init1 = test_inst outs %alloc1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %init2 = test_inst outs %alloc2 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %init3 = test_inst outs %alloc3 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %reg_range_init = make_register_range %init0, %init1, %init2, %init3 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+
+    %sgpr_init = sop1 s_mov_b32 outs %alloc_sgpr ins %c0_i32 : !amdgcn.sgpr, i32
+
+    %mock_a0 = test_inst outs %alloc_body0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %mock_a1 = test_inst outs %alloc_body1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %mock_a = make_register_range %mock_a0, %mock_a1 : !amdgcn.vgpr, !amdgcn.vgpr
+
+    // Enter loop with iter_args
+    cf.br ^bb1(%sgpr_init, %reg_range_init : !amdgcn.sgpr, !amdgcn.vgpr_range<[? + 4]>)
+
+  ^bb1(%sgpr_iter: !amdgcn.sgpr, %reg_iter: !amdgcn.vgpr_range<[? + 4]>):
+    // Create new register range for MFMA in loop body
+    %body_init0 = test_inst outs %alloc_body2 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %body_init1 = test_inst outs %alloc_body3 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %body_reg = make_register_range %body_init0, %body_init1, %alloc_body2, %alloc_body3 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+
+    // Use register_range from iter_args as accumulator to MFMA
+    %mfma_result = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %body_reg, %mock_a, %mock_a, %reg_iter : <[? + 2]>, <[? + 2]>, !amdgcn.vgpr_range<[? + 4]> -> !amdgcn.vgpr_range<[? + 4]>
+
+    // Loop increment
+    %sgpr_next = sop2 s_add_u32 outs %alloc_sgpr ins %sgpr_iter, %c1_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
+    %loop_cond = lsir.cmpi i32 slt %sgpr_next, %c2_i32 : !amdgcn.sgpr, i32
+    cf.cond_br %loop_cond, ^bb1(%sgpr_next, %mfma_result : !amdgcn.sgpr, !amdgcn.vgpr_range<[? + 4]>), ^bb2
+
+  ^bb2:
+    // split_register_range on MFMA result (which came from iter_args)
+    %split:4 = split_register_range %mfma_result : !amdgcn.vgpr_range<[? + 4]>
+    end_kernel
+  }
+}

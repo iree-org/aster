@@ -23,6 +23,7 @@
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/DebugLog.h"
+#include "llvm/Support/InterleavedRange.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstddef>
@@ -149,13 +150,15 @@ LogicalResult DPSAliasAnalysis::visitOperation(
     return success();
   }
 
-  // SplitRegisterRangeOp: each result gets one alias class from operand.
+  // SplitRegisterRangeOp: each result contains all alias classes from operand.
+  // This is the inverse of MakeRegisterRangeOp: all results alias together
+  // through the common register_range operand.
   if (isa<amdgcn::SplitRegisterRangeOp>(op)) {
-    for (auto [idx, result, eqClassId] : llvm::enumerate(
-             results, operandLattices[0]->getValue().getEqClassIds())) {
-      propagateIfChanged(result,
-                         result->join(AliasEquivalenceClass({eqClassId})));
-    }
+    const auto &eqClassIds = operandLattices[0]->getValue().getEqClassIds();
+    AliasEquivalenceClass operandClasses(AliasEquivalenceClass::EqClassList(
+        eqClassIds.begin(), eqClassIds.end()));
+    for (auto result : results)
+      propagateIfChanged(result, result->join(operandClasses));
     return success();
   }
 
