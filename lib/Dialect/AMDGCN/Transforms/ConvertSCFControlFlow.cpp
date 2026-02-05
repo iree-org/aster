@@ -9,18 +9,18 @@
 //===----------------------------------------------------------------------===//
 //
 // This file implements the pass that converts SCF control flow operations to
-// AMDGCN control flow instructions. It uses thread uniform analysis to
-// determine whether to emit scalar (s_cmp) or vector (v_cmp) compare
-// instructions.
+// CF dialect operations with explicit basic block structure. The pass uses
+// thread uniform analysis to ensure loops are uniform before conversion.
 //
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 
 #include "aster/Analysis/ABIAnalysis.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
-#include "aster/Dialect/LSIR/IR/LSIROps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
@@ -35,7 +35,6 @@ namespace amdgcn {
 
 using namespace mlir;
 using namespace mlir::aster;
-using namespace mlir::aster::amdgcn;
 
 namespace {
 //===----------------------------------------------------------------------===//
@@ -49,21 +48,9 @@ public:
   void runOnOperation() override;
 
 private:
-  /// Convert a scf.for operation to AMDGCN control flow.
+  /// Convert a scf.for operation to CF dialect control flow.
   LogicalResult convertForOp(scf::ForOp forOp, const ABIAnalysis &abiAnalysis);
-
-  /// Get the appropriate compare opcode based on uniformity.
-  /// Returns the opcode for a less-than comparison.
-  OpCode getCmpLtOpCode(bool isUniform) const;
 };
-
-//===----------------------------------------------------------------------===//
-// Helper functions
-//===----------------------------------------------------------------------===//
-
-OpCode ConvertSCFControlFlow::getCmpLtOpCode(bool isUniform) const {
-  return OpCode::S_CMP_LT_I32;
-}
 
 LogicalResult
 ConvertSCFControlFlow::convertForOp(scf::ForOp forOp,
@@ -76,85 +63,100 @@ ConvertSCFControlFlow::convertForOp(scf::ForOp forOp,
   Value upperBound = forOp.getUpperBound();
   Value step = forOp.getStep();
 
-  // Bail out if the induction variable is not i32.
-  Value inductionVar = forOp.getInductionVar();
-  if (!inductionVar.getType().isInteger(32)) {
+  Type ivType = forOp.getInductionVar().getType();
+
+  // Check if a value is i32 or index_cast from i32.
+  auto isI32OrCastFromI32 = [](Value v) {
+    if (v.getType().isInteger(32))
+      return true;
+    if (v.getType().isIndex()) {
+      if (auto castOp = v.getDefiningOp<arith::IndexCastOp>())
+        return castOp.getIn().getType().isInteger(32);
+    }
+    return false;
+  };
+
+  // Only i32 (or index_cast from i32) bounds are supported.
+  if (!isI32OrCastFromI32(lowerBound) || !isI32OrCastFromI32(upperBound) ||
+      !isI32OrCastFromI32(step)) {
     return forOp.emitError()
-           << "only i32 induction variables are supported in this conversion";
+           << "only i32 induction variables are supported in this conversion "
+              "(bounds must be i32 or arith.index_cast from i32)";
   }
 
-  // Check if the induction variable is thread-uniform.
-  // The loop is uniform if lower bound, upper bound, and step are all uniform.
-  bool isLowerUniform = abiAnalysis.isThreadUniform(lowerBound).value_or(false);
-  bool isUpperUniform = abiAnalysis.isThreadUniform(upperBound).value_or(false);
-  bool isStepUniform = abiAnalysis.isThreadUniform(step).value_or(false);
-  bool isLoopUniform = isLowerUniform && isUpperUniform && isStepUniform;
-
-  if (!isLoopUniform) {
+  // Check if the loop is thread-uniform.
+  bool isUniform = abiAnalysis.isThreadUniform(lowerBound).value_or(false) &&
+                   abiAnalysis.isThreadUniform(upperBound).value_or(false) &&
+                   abiAnalysis.isThreadUniform(step).value_or(false);
+  if (!isUniform) {
     return forOp.emitError()
            << "only thread-uniform loops are supported in this conversion";
   }
 
-  // Bail out if the loop has iter_args (not supported yet).
-  if (!forOp.getInitArgs().empty()) {
-    return forOp.emitError()
-           << "loops with iter_args are not supported in this conversion";
-  }
-
-  Type sgprType = SGPRType::get(rewriter.getContext(), Register());
+  // Get the yield op and its operands before modifying the body.
+  auto yieldOp = cast<scf::YieldOp>(forOp.getBody()->getTerminator());
+  SmallVector<Value> yieldOperands(yieldOp.getOperands());
 
   // Create the basic blocks for the loop structure.
   Block *bbPre = forOp->getBlock();
   Block *bbEnd = rewriter.splitBlock(bbPre, std::next(forOp->getIterator()));
   Block *bbBody = rewriter.createBlock(bbEnd);
 
-  // Convert bounds and step to registers or constants.
-  auto toRegOrConst = [&](Value value) -> Value {
-    if (matchPattern(value, m_Constant()))
-      return value;
+  // Add block arguments to bbBody for induction variable and iter_args.
+  bbBody->addArgument(ivType, loc);
+  for (Value iterArg : forOp.getRegionIterArgs())
+    bbBody->addArgument(iterArg.getType(), loc);
 
-    return aster::lsir::ToRegOp::create(rewriter, loc, sgprType, value);
-  };
+  // Add block arguments to bbEnd for the loop results (iter_args types).
+  for (Value result : forOp.getResults())
+    bbEnd->addArgument(result.getType(), loc);
+
+  // Create the initial comparison: lowerBound < upperBound.
   rewriter.setInsertionPoint(forOp);
-  lowerBound = toRegOrConst(lowerBound);
-  upperBound = toRegOrConst(upperBound);
-  step = toRegOrConst(step);
+  Value initCond = arith::CmpIOp::create(
+      rewriter, loc, arith::CmpIPredicate::slt, lowerBound, upperBound);
 
-  // Create the SCC register to hold the comparison result.
-  Type destType = SCCType::get(rewriter.getContext());
-  Value scc = AllocaOp::create(rewriter, loc, destType);
+  // Build initial branch operands: [lowerBound, init_args...]
+  SmallVector<Value> initBranchArgs = {lowerBound};
+  initBranchArgs.append(forOp.getInitArgs().begin(), forOp.getInitArgs().end());
 
-  // Create an SGPR register to hold the induction variable.
-  Value ivReg = AllocaOp::create(rewriter, loc, sgprType);
-  ivReg = S_MOV_B32::create(rewriter, loc, ivReg, lowerBound);
+  // Initial conditional branch: if lb < ub, enter loop; else skip to end.
+  cf::CondBranchOp::create(rewriter, loc, initCond, bbBody, initBranchArgs,
+                           bbEnd, forOp.getInitArgs());
 
-  // Create the initial comparison: iv < upperBound.
-  CmpIOp::create(rewriter, loc, getCmpLtOpCode(isLoopUniform), scc, ivReg,
-                 upperBound);
-  CBranchOp::create(rewriter, loc, OpCode::S_CBRANCH_SCC0, scc, bbEnd, bbBody);
-
-  // Build the body.
+  // Build the body. Get block arguments for IV and iter_args.
   rewriter.eraseOp(forOp.getBody()->getTerminator());
-  rewriter.setInsertionPointToStart(bbBody);
-  inductionVar =
-      lsir::FromRegOp::create(rewriter, loc, inductionVar.getType(), ivReg);
+  Value ivBlockArg = bbBody->getArgument(0);
+  SmallVector<Value> iterArgBlockArgs;
+  for (unsigned i = 0; i < forOp.getNumRegionIterArgs(); ++i)
+    iterArgBlockArgs.push_back(bbBody->getArgument(i + 1));
 
-  // Inline the loop body into the new block.
+  // Build the mapping from original region args to block args.
+  SmallVector<Value> bodyArgMapping = {ivBlockArg};
+  bodyArgMapping.append(iterArgBlockArgs);
+
+  // Inline the loop body into bbBody.
   rewriter.setInsertionPointToEnd(bbBody);
   rewriter.inlineBlockBefore(forOp.getBody(), bbBody, bbBody->end(),
-                             {inductionVar});
+                             bodyArgMapping);
 
-  // Update the induction variable in the body.
-  Value ivNext =
-      amdgcn::S_ADD_I32::create(rewriter, loc, ivReg, ivReg, step).getResult(0);
+  // Compute the next induction variable value.
+  Value ivNext = arith::AddIOp::create(rewriter, loc, ivBlockArg, step);
 
-  // Create the end-of-body comparison: ivNext < upperBound.
-  CmpIOp::create(rewriter, loc, getCmpLtOpCode(isLoopUniform), scc, ivNext,
-                 upperBound);
-  CBranchOp::create(rewriter, loc, OpCode::S_CBRANCH_SCC1, scc, bbBody, bbEnd);
+  // Create the back-edge comparison: ivNext < upperBound.
+  Value backEdgeCond = arith::CmpIOp::create(
+      rewriter, loc, arith::CmpIPredicate::slt, ivNext, upperBound);
 
-  // Erase the original forOp.
-  rewriter.eraseOp(forOp);
+  // Build back-edge operands: [ivNext, yield_values...]
+  SmallVector<Value> backEdgeArgs = {ivNext};
+  backEdgeArgs.append(yieldOperands);
+
+  // Conditional branch: if ivNext < ub, continue loop; else exit.
+  cf::CondBranchOp::create(rewriter, loc, backEdgeCond, bbBody, backEdgeArgs,
+                           bbEnd, yieldOperands);
+
+  // Replace forOp results with bbEnd's block arguments.
+  rewriter.replaceOp(forOp, bbEnd->getArguments());
   return success();
 }
 
