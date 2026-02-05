@@ -69,18 +69,39 @@ public:
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       dataflow::loadBaselineAnalyses(solver);
       auto *aliasAnalysis = solver.load<DPSAliasAnalysis>(provenanceAnalysis);
-      if (failed(solver.initializeAndRun(kernel))) {
+      if (!aliasAnalysis || failed(solver.initializeAndRun(kernel))) {
         kernel.emitError() << "Failed to run DPS alias analysis";
         return;
       }
 
-      llvm::outs() << "Ill-formed IR: "
-                   << (aliasAnalysis->isIllFormedIR() ? "yes" : "no") << "\n";
+      bool hasConflicts = !aliasAnalysis->getConflictingValues().empty();
+      llvm::outs() << "Ill-formed IR: " << (hasConflicts ? "yes" : "no")
+                   << "\n";
 
-      // Group values by equivalence class ID
+      // Print values with CONFLICT state (DPS violations).
+      if (!aliasAnalysis->getConflictingValues().empty()) {
+        llvm::outs() << "Conflicting values (DPS violations): [";
+        llvm::interleaveComma(
+            aliasAnalysis->getConflictingValues(), llvm::outs(),
+            [](Value v) { v.printAsOperand(llvm::outs(), OpPrintingFlags()); });
+        llvm::outs() << "]\n";
+      }
+
+      // Print values with UNKNOWN state (conservative, not errors).
+      if (!aliasAnalysis->getUnknownValues().empty()) {
+        llvm::outs() << "Unknown values (conservative): [";
+        llvm::interleaveComma(
+            aliasAnalysis->getUnknownValues(), llvm::outs(),
+            [](Value v) { v.printAsOperand(llvm::outs(), OpPrintingFlags()); });
+        llvm::outs() << "]\n";
+      }
+
+      // Group values by equivalence class ID (only register types).
       llvm::DenseMap<EqClassID, llvm::SmallVector<Value>> eqClassToValues;
       kernel.walk([&](Operation *operation) {
         for (Value result : operation->getResults()) {
+          if (!isa<RegisterTypeInterface>(result.getType()))
+            continue;
           for (EqClassID eqClassId : aliasAnalysis->getEqClassIds(result))
             eqClassToValues[eqClassId].push_back(result);
         }

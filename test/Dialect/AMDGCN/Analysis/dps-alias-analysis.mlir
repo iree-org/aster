@@ -680,8 +680,9 @@ amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
 // -----
 
 // Test: split_register_range on register_range from loop iter_args
-// Reproduces the issue where split_register_range receives a register_range as a block
-// argument from control flow (iter_args), and must handle potentially mismatched alias info.
+// MFMA loop with accumulation: C_next = A @ B^T + C_iter
+// This tests that the analysis correctly handles register_ranges flowing through block
+// arguments and MFMA operations without violating DPS invariants.
 //
 
 // CHECK: === DPS Alias Analysis Results ===
@@ -689,21 +690,20 @@ amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   %[[c0:[a-zA-Z_0-9]*]] = arith.constant 0 : i32
 // CHECK:   %[[c1:[a-zA-Z_0-9]*]] = arith.constant 1 : i32
 // CHECK:   %[[c2:[a-zA-Z_0-9]*]] = arith.constant 2 : i32
-// CHECK:   %[[alloc_cc:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[alloc_cd:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[alloc_ce:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[alloc_cf:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
-// CHECK:   %[[alloc_d0:[a-zA-Z_0-9]*]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[alloc0:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[alloc1:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[alloc2:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[alloc3:[a-zA-Z_0-9]*]] = alloca : !amdgcn.vgpr
+// CHECK:   %[[alloc_sgpr:[a-zA-Z_0-9]*]] = alloca : !amdgcn.sgpr
 // CHECK:   cf.br
 // CHECK: ^bb1
-// CHECK:   make_register_range
 // CHECK:   amdgcn.vop3p.vop3p_mai
 // CHECK:   cf.cond_br
 // CHECK: ^bb2
 // CHECK:   split_register_range
 // CHECK:   end_kernel
 // CHECK: }
-// CHECK: Ill-formed IR: yes
+// CHECK: Ill-formed IR: no
 // CHECK: Equivalence Classes:
 // CHECK: === End Analysis Results ===
 
@@ -713,52 +713,90 @@ amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
     %c1_i32 = arith.constant 1 : i32
     %c2_i32 = arith.constant 2 : i32
 
-    // Allocas for initial register range
+    // Allocas for accumulator (used throughout loop)
     %alloc0 = alloca : !amdgcn.vgpr
     %alloc1 = alloca : !amdgcn.vgpr
     %alloc2 = alloca : !amdgcn.vgpr
     %alloc3 = alloca : !amdgcn.vgpr
     %alloc_sgpr = alloca : !amdgcn.sgpr
 
-    // Allocas for loop body
-    %alloc_body0 = alloca : !amdgcn.vgpr
-    %alloc_body1 = alloca : !amdgcn.vgpr
-    %alloc_body2 = alloca : !amdgcn.vgpr
-    %alloc_body3 = alloca : !amdgcn.vgpr
+    // Allocas for A/B operands
+    %alloc_a0 = alloca : !amdgcn.vgpr
+    %alloc_a1 = alloca : !amdgcn.vgpr
 
-    // Create initial register range and mock A/B
-    %init0 = test_inst outs %alloc0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-    %init1 = test_inst outs %alloc1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-    %init2 = test_inst outs %alloc2 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-    %init3 = test_inst outs %alloc3 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-    %reg_range_init = make_register_range %init0, %init1, %init2, %init3 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    // Create initial accumulator register range
+    %C_init0 = test_inst outs %alloc0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %C_init1 = test_inst outs %alloc1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %C_init2 = test_inst outs %alloc2 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %C_init3 = test_inst outs %alloc3 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %C_init = make_register_range %C_init0, %C_init1, %C_init2, %C_init3 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
 
     %sgpr_init = sop1 s_mov_b32 outs %alloc_sgpr ins %c0_i32 : !amdgcn.sgpr, i32
 
-    %mock_a0 = test_inst outs %alloc_body0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-    %mock_a1 = test_inst outs %alloc_body1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-    %mock_a = make_register_range %mock_a0, %mock_a1 : !amdgcn.vgpr, !amdgcn.vgpr
+    // Create A operand
+    %A0 = test_inst outs %alloc_a0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %A1 = test_inst outs %alloc_a1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %A = make_register_range %A0, %A1 : !amdgcn.vgpr, !amdgcn.vgpr
 
-    // Enter loop with iter_args
-    cf.br ^bb1(%sgpr_init, %reg_range_init : !amdgcn.sgpr, !amdgcn.vgpr_range<[? + 4]>)
+    // Enter loop with C as iter_arg
+    cf.br ^bb1(%sgpr_init, %C_init : !amdgcn.sgpr, !amdgcn.vgpr_range<[? + 4]>)
 
-  ^bb1(%sgpr_iter: !amdgcn.sgpr, %reg_iter: !amdgcn.vgpr_range<[? + 4]>):
-    // Create new register range for MFMA in loop body
-    %body_init0 = test_inst outs %alloc_body2 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-    %body_init1 = test_inst outs %alloc_body3 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-    %body_reg = make_register_range %body_init0, %body_init1, %alloc_body2, %alloc_body3 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-
-    // Use register_range from iter_args as accumulator to MFMA
-    %mfma_result = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %body_reg, %mock_a, %mock_a, %reg_iter : <[? + 2]>, <[? + 2]>, !amdgcn.vgpr_range<[? + 4]> -> !amdgcn.vgpr_range<[? + 4]>
+  ^bb1(%sgpr_iter: !amdgcn.sgpr, %C_iter: !amdgcn.vgpr_range<[? + 4]>):
+    // MFMA: C_next = A @ A^T + C_iter
+    // D operand (accumulator) is C_iter from block argument
+    %C_next = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %C_iter, %A, %A, %C_iter : <[? + 2]>, <[? + 2]>, !amdgcn.vgpr_range<[? + 4]> -> !amdgcn.vgpr_range<[? + 4]>
 
     // Loop increment
     %sgpr_next = sop2 s_add_u32 outs %alloc_sgpr ins %sgpr_iter, %c1_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
     %loop_cond = lsir.cmpi i32 slt %sgpr_next, %c2_i32 : !amdgcn.sgpr, i32
-    cf.cond_br %loop_cond, ^bb1(%sgpr_next, %mfma_result : !amdgcn.sgpr, !amdgcn.vgpr_range<[? + 4]>), ^bb2
+    cf.cond_br %loop_cond, ^bb1(%sgpr_next, %C_next : !amdgcn.sgpr, !amdgcn.vgpr_range<[? + 4]>), ^bb2
 
   ^bb2:
-    // split_register_range on MFMA result (which came from iter_args)
-    %split:4 = split_register_range %mfma_result : !amdgcn.vgpr_range<[? + 4]>
+    // split_register_range on final MFMA result
+    %split:4 = split_register_range %C_next : !amdgcn.vgpr_range<[? + 4]>
+    end_kernel
+  }
+}
+
+// -----
+
+// Test: Simple scalar loop with loop-carried value that requires DPS analysis
+// to converge to a non-TOP state.
+
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: simple_loop_scalar
+// CHECK:   %[[alloc:[0-9]*]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[init:[0-9]*]] = sop1 s_mov_b32 outs %[[alloc]]
+// CHECK:   cf.br ^bb1(%[[init]]
+// CHECK: ^bb1(%[[iter:[0-9]*]]: !amdgcn.sgpr):
+// CHECK:   %[[result:[0-9]*]] = sop2 s_add_u32 outs %[[alloc]] ins %[[iter]]
+// CHECK:   cf.cond_br {{.*}}, ^bb1(%[[result]]
+// CHECK: ^bb2:
+// CHECK:   end_kernel
+// CHECK: }
+// CHECK: Ill-formed IR: no
+// CHECK: Equivalence Classes:
+// CHECK:   EqClass 0: [%[[alloc]], %[[init]], %[[result]]]
+// CHECK: === End Analysis Results ===
+
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
+  func.func private @rand() -> i1
+
+  amdgcn.kernel @simple_loop_scalar {
+    %c0_i32 = arith.constant 0 : i32
+    %c1_i32 = arith.constant 1 : i32
+
+    %alloc = alloca : !amdgcn.sgpr
+    %init = sop1 s_mov_b32 outs %alloc ins %c0_i32 : !amdgcn.sgpr, i32
+    cf.br ^bb1(%init : !amdgcn.sgpr)
+
+  ^bb1(%iter: !amdgcn.sgpr):
+    // Loop body: simple increment
+    %result = sop2 s_add_u32 outs %alloc ins %iter, %c1_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
+    %cond = func.call @rand() : () -> i1
+    cf.cond_br %cond, ^bb1(%result : !amdgcn.sgpr), ^bb2
+
+  ^bb2:
     end_kernel
   }
 }

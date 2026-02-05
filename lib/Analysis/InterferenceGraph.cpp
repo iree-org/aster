@@ -43,8 +43,7 @@ InterferenceAnalysis::getEqClassIds(Value value) const {
       solver.lookupState<dataflow::Lattice<AliasEquivalenceClass>>(value);
   assert(lattice && "missing equivalence class lattice");
   const AliasEquivalenceClass &eqClass = lattice->getValue();
-  assert(!(eqClass.isTop() || eqClass.isUninitialized()) &&
-         "invalid equivalence class value");
+  assert(eqClass.isKnown() && "invalid equivalence class value");
   return eqClass.getEqClassIds();
 }
 
@@ -165,9 +164,14 @@ LogicalResult InterferenceAnalysis::handleOp(Operation *op) {
 FailureOr<InterferenceAnalysis>
 InterferenceAnalysis::create(Operation *op, DataFlowSolver &solver,
                              DPSAliasAnalysis *aliasAnalysis) {
-  // Check for ill-formed IR.
-  if (aliasAnalysis->isIllFormedIR())
-    return op->emitError() << "ill-formed IR detected";
+  // Check for conflicting alias info (CONFLICT state = DPS violation).
+  if (!aliasAnalysis->getConflictingValues().empty())
+    return op->emitError() << "conflicting alias info detected (DPS violation)";
+
+  // Check for unknown alias info (defensive - should not happen with current
+  // ops).
+  assert(aliasAnalysis->getUnknownValues().empty() &&
+         "UNKNOWN alias state not supported in interference analysis");
 
   InterferenceAnalysis graph(solver, aliasAnalysis);
   // Walk the operation tree to build the interference graph.

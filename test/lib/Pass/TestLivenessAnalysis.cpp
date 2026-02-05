@@ -16,6 +16,7 @@
 #include "aster/Analysis/LivenessAnalysis.h"
 #include "aster/Analysis/ValueProvenanceAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Interfaces/RegisterType.h"
 
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -80,10 +81,12 @@ public:
 
       auto *aliasAnalysis = livenessAnalysis->getAliasAnalysis();
 
-      // Collect all values per equivalence class
+      // Collect all values per equivalence class (only register types).
       llvm::DenseMap<EqClassID, llvm::SmallVector<Value>> eqClassToValues;
       kernel.walk([&](Operation *operation) {
         for (Value result : operation->getResults()) {
+          if (!isa<RegisterTypeInterface>(result.getType()))
+            continue;
           for (EqClassID eqClassId : aliasAnalysis->getEqClassIds(result))
             eqClassToValues[eqClassId].push_back(result);
         }

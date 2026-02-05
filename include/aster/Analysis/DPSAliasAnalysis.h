@@ -24,8 +24,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
-#include <cstdint>
-#include <optional>
 
 namespace mlir::aster {
 //===----------------------------------------------------------------------===//
@@ -35,18 +33,39 @@ namespace mlir::aster {
 using EqClassID = int32_t;
 
 /// Lattice value representing equivalence class information.
+///
+/// States (ordered from bottom to top):
+///   UNINITIALIZED - No information yet, waiting for dataflow
+///   KNOWN         - Concrete equivalence class ID(s)
+///   UNKNOWN       - Cannot determine alias class (conservative)
+///   CONFLICT      - Different allocas merged at join (will trip register
+///                   allocation when used in that context)
 class AliasEquivalenceClass {
 public:
   using EqClassList = llvm::SmallVector<EqClassID, 4>;
 
-  /// Construct a equivalence class value.
+  /// Internal state enum for clarity.
+  enum class State : char {
+    Uninitialized, // Bottom: no info yet
+    Known,         // Has concrete eq class IDs
+    Unknown,       // Cannot determine, but not an error
+    Conflict       // Different allocas merged = DPS violation
+  };
+
+  /// Construct a known equivalence class value.
   AliasEquivalenceClass(EqClassList eqClassIds = {})
-      : eqClassIds(std::move(eqClassIds)) {}
+      : eqClassIds(std::move(eqClassIds)), state(State::Uninitialized) {
+    if (!this->eqClassIds.empty())
+      state = State::Known;
+  }
 
   /// Compare equivalence class values.
   bool operator==(const AliasEquivalenceClass &rhs) const {
-    return succeeded(rhs.eqClassIds) == succeeded(eqClassIds) &&
-           (failed(rhs.eqClassIds) || *rhs.eqClassIds == *eqClassIds);
+    if (state != rhs.state)
+      return false;
+    if (state == State::Known)
+      return eqClassIds == rhs.eqClassIds;
+    return true; // Non-Known states with same state are equal
   }
 
   /// Print the equivalence class value.
@@ -57,47 +76,74 @@ public:
     return AliasEquivalenceClass{};
   }
 
-  /// The state to which the equivalence class value is overdefined.
-  static AliasEquivalenceClass getTop() {
-    return AliasEquivalenceClass(std::nullopt);
+  /// Unknown alias class (conservative).
+  static AliasEquivalenceClass getUnknown() {
+    AliasEquivalenceClass result;
+    result.state = State::Unknown;
+    return result;
   }
+
+  /// Conflicting alias information (will trip register allocation).
+  static AliasEquivalenceClass getConflict() {
+    AliasEquivalenceClass result;
+    result.state = State::Conflict;
+    return result;
+  }
+
+  /// Legacy alias for getConflict() - will be removed.
+  // RVW: drop this and reuse getConflict() instead everywhere.
+  static AliasEquivalenceClass getTop() { return getConflict(); }
 
   /// Whether the state is uninitialized.
-  bool isUninitialized() const {
-    return llvm::succeeded(eqClassIds) && eqClassIds->empty();
-  }
+  bool isUninitialized() const { return state == State::Uninitialized; }
 
-  /// Whether the state is top (overdefined).
-  bool isTop() const { return llvm::failed(eqClassIds); }
+  /// Whether the state is known (has concrete eq class IDs).
+  bool isKnown() const { return state == State::Known; }
 
-  /// Returns TOP if IDs differ (ill-formed IR or bug in ValueProvenanceAnalysis
-  /// where phi-coalesced allocas weren't unified).
+  /// Whether the state is unknown (conservative, not error).
+  bool isUnknown() const { return state == State::Unknown; }
+
+  /// Whether the state is conflict (DPS violation, error).
+  bool isConflict() const { return state == State::Conflict; }
+
+  /// Legacy alias for isConflict() - will be removed.
+  bool isTop() const { return isConflict(); }
+
+  /// Join two lattice values. Returns CONFLICT only when different allocas
+  /// merge.
   static AliasEquivalenceClass join(const AliasEquivalenceClass &lhs,
                                     const AliasEquivalenceClass &rhs) {
-    if (lhs.isTop() || rhs.isTop())
-      return getTop();
+    // Conflict is absorbing (sticky error).
+    if (lhs.isConflict() || rhs.isConflict())
+      return getConflict();
+
+    // Unknown is conservative: Unknown union X = Unknown (except Conflict).
+    if (lhs.isUnknown() || rhs.isUnknown())
+      return getUnknown();
+
+    // Uninitialized is bottom: bottom union X = X.
     if (lhs.isUninitialized())
       return rhs;
     if (rhs.isUninitialized())
       return lhs;
-    if (*lhs.eqClassIds == *rhs.eqClassIds)
+
+    // Both Known: same IDs = stable, different IDs = CONFLICT.
+    if (lhs.eqClassIds == rhs.eqClassIds)
       return lhs;
-    // Different IDs at join = ill-formed IR. See class documentation.
-    return AliasEquivalenceClass(std::nullopt);
+    return getConflict();
   }
 
-  /// Get the equivalence class IDs. Returns an empty list if uninitialized or
-  /// top.
+  /// Get the equivalence class IDs. Returns empty if not Known state.
   ArrayRef<EqClassID> getEqClassIds() const {
-    return succeeded(eqClassIds) ? *eqClassIds : ArrayRef<EqClassID>();
+    return isKnown() ? ArrayRef<EqClassID>(eqClassIds) : ArrayRef<EqClassID>();
   }
+
+  /// Get the current state.
+  State getState() const { return state; }
 
 private:
-  /// Construct an equivalence class value from a LogicalResult. This only works
-  /// for failure states.
-  explicit AliasEquivalenceClass(std::nullopt_t) : eqClassIds(failure()) {}
-  // The equivalence class IDs.
-  llvm::FailureOr<EqClassList> eqClassIds;
+  EqClassList eqClassIds;
+  State state = State::Uninitialized;
 };
 
 //===----------------------------------------------------------------------===//
@@ -109,8 +155,9 @@ private:
 ///
 /// Runs after ValueProvenanceAnalysis to properly track phi-coalesced values.
 ///
-/// TOP state indicates ill-formed IR: non-equivalent allocas merging at a
-/// block argument.
+/// CONFLICT state indicates IR that will trip register allocation:
+/// non-equivalent allocas merging at a block argument.
+/// UNKNOWN state is conservative.
 class DPSAliasAnalysis : public dataflow::SparseForwardDataFlowAnalysis<
                              dataflow::Lattice<AliasEquivalenceClass>> {
 public:
@@ -140,8 +187,15 @@ public:
                : Value();
   }
 
-  /// Whether the analysis detected ill-formed equivalence class usage.
-  bool isIllFormedIR() const { return illFormed; }
+  /// Get values with CONFLICT state (will trip register allocation).
+  ArrayRef<Value> getConflictingValues() const { return conflictingValues; }
+
+  /// Get values with UNKNOWN state.
+  ArrayRef<Value> getUnknownValues() const { return unknownValues; }
+
+  /// Legacy alias for getConflictingValues() - will be removed.
+  // RVW: drop this and reuse getConflictingValues() instead everywhere.
+  ArrayRef<Value> getTopValues() const { return getConflictingValues(); }
 
   /// Get the underlying data flow solver.
   const DataFlowSolver &getSolver() const { return solver; }
@@ -154,19 +208,26 @@ public:
   }
 
   /// Get the equivalence class IDs for a given value.
+  /// Returns empty if value doesn't have Known state.
   ArrayRef<EqClassID> getEqClassIds(Value v) const {
     auto *state = lookupState(v);
-    return state ? state->getEqClassIds() : ArrayRef<EqClassID>();
+    return (state && state->isKnown()) ? state->getEqClassIds()
+                                       : ArrayRef<EqClassID>();
   }
 
   /// Get the values corresponding to equivalence class IDs.
   ArrayRef<Value> getValues() const { return idsToValuesMap; }
 
 protected:
+  // Map from values to equivalence class IDs.
   DenseMap<Value, EqClassID> valueToEqClassIdMap;
+  // Map from equivalence class IDs to values.
   SmallVector<Value> idsToValuesMap;
+  // Values with CONFLICT state (actual DPS violations).
+  SmallVector<Value> conflictingValues;
+  // Values with UNKNOWN state (conservative, not errors).
+  SmallVector<Value> unknownValues;
   const DataFlowSolver &solver;
-  bool illFormed = false;
 
 private:
   // Optional provenance analysis for phi-coalescing. Null = no phi-coalescing.

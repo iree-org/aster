@@ -40,17 +40,22 @@ using namespace mlir::aster::amdgcn;
 //===----------------------------------------------------------------------===//
 
 void AliasEquivalenceClass::print(raw_ostream &os) const {
-  if (isTop()) {
-    os << "<TOP>";
-    return;
-  }
-  if (isUninitialized()) {
+  switch (state) {
+  case State::Uninitialized:
     os << "<UNINITIALIZED>";
     return;
+  case State::Known:
+    os << "[";
+    llvm::interleaveComma(eqClassIds, os);
+    os << "]";
+    return;
+  case State::Unknown:
+    os << "<UNKNOWN>";
+    return;
+  case State::Conflict:
+    os << "<CONFLICT>";
+    return;
   }
-  os << "[";
-  llvm::interleaveComma(*eqClassIds, os);
-  os << "]";
 }
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
@@ -63,44 +68,60 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 // DPSAliasAnalysis
 //===----------------------------------------------------------------------===//
 
-/// Helper to mark the IR as ill-formed if any of the given lattices is top.
-/// Returns true if any lattice is top.
-/// Block arguments are skipped since they receive values from control flow
-/// and may have top lattices in loops before the analysis converges.
-static bool
-isIllFormed(bool &illFormed,
-            ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> lattices,
-            ValueRange operands) {
-  if (illFormed)
-    return false;
+/// Check operands for CONFLICT state (will trip register allocation) and
+/// UNKNOWN state (must be handled conservatively).
+/// Returns true if any register-like operand has CONFLICT state.
+static bool checkOperandStates(
+    SmallVectorImpl<Value> &conflictingValues,
+    SmallVectorImpl<Value> &unknownValues,
+    ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> lattices,
+    ValueRange operands) {
+  bool hasConflict = false;
   for (auto [operand, lattice] : llvm::zip_equal(operands, lattices)) {
-    if (lattice->getValue().isTop() &&
-        isa<RegisterTypeInterface>(operand.getType())) {
-      return (illFormed = true);
+    if (!isa<RegisterTypeInterface>(operand.getType()))
+      continue;
+    const auto &val = lattice->getValue();
+    if (val.isConflict()) {
+      conflictingValues.push_back(operand);
+      hasConflict = true;
+    } else if (val.isUnknown()) {
+      unknownValues.push_back(operand);
     }
   }
-  return false;
+  return hasConflict;
 }
-static void
-isIllFormedOp(bool &illFormed,
-              ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> lattices,
-              ValueRange results) {
+
+/// Check results for CONFLICT state (will trip register allocation) and
+/// UNKNOWN state (must be handled conservatively).
+/// Returns true if any register-like result has CONFLICT state.
+static bool
+checkResultStates(SmallVectorImpl<Value> &conflictingValues,
+                  SmallVectorImpl<Value> &unknownValues,
+                  ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> lattices,
+                  ValueRange results) {
+  bool hasConflict = false;
   for (auto [result, lattice] : llvm::zip_equal(results, lattices)) {
-    if (lattice->getValue().isTop() &&
-        isa<RegisterTypeInterface>(result.getType())) {
-      illFormed = true;
+    if (!isa<RegisterTypeInterface>(result.getType()))
+      continue;
+    const auto &val = lattice->getValue();
+    if (val.isConflict()) {
+      conflictingValues.push_back(result);
+      hasConflict = true;
+    } else if (val.isUnknown()) {
+      unknownValues.push_back(result);
     }
   }
+  return hasConflict;
 }
 
 LogicalResult DPSAliasAnalysis::visitOperation(
     Operation *op,
     ArrayRef<const dataflow::Lattice<AliasEquivalenceClass> *> operandLattices,
     ArrayRef<dataflow::Lattice<AliasEquivalenceClass> *> results) {
-  // Check if the op results are ill-formed.
+  // Track result states at exit for diagnostics.
   auto _atExit = llvm::make_scope_exit([&]() {
     if (ValueRange vals = op->getResults(); !vals.empty())
-      isIllFormedOp(illFormed, results, vals);
+      checkResultStates(conflictingValues, unknownValues, results, vals);
 
     // Log the lattices at exit for debugging.
     LDBG_OS([&](llvm::raw_ostream &os) {
@@ -112,12 +133,13 @@ LogicalResult DPSAliasAnalysis::visitOperation(
     });
   });
 
-  // Early exit if any register-like operand lattice is top.
-  bool isIllFormedOperand =
-      isIllFormed(illFormed, operandLattices, op->getOperands());
-  if (isIllFormedOperand) {
+  // Check operand states. If any operand has CONFLICT, propagate it.
+  bool hasConflict = checkOperandStates(conflictingValues, unknownValues,
+                                        operandLattices, op->getOperands());
+  if (hasConflict) {
     for (dataflow::Lattice<AliasEquivalenceClass> *result : results)
-      propagateIfChanged(result, result->join(AliasEquivalenceClass::getTop()));
+      propagateIfChanged(result,
+                         result->join(AliasEquivalenceClass::getConflict()));
     return success();
   }
 
@@ -162,15 +184,23 @@ LogicalResult DPSAliasAnalysis::visitOperation(
     return success();
   }
 
-  // For other operations, we conservatively set all results to top.
-  setAllToEntryStates(results);
+  // For other operations, set results to UNKNOWN (conservative).
+  // Note: branches and other operations of interest are handled through
+  // provenance analysis (used by getOrCreateEqClassId).
+  for (dataflow::Lattice<AliasEquivalenceClass> *result : results)
+    propagateIfChanged(result,
+                       result->join(AliasEquivalenceClass::getUnknown()));
   return success();
 }
 
 void DPSAliasAnalysis::setToEntryState(
     dataflow::Lattice<AliasEquivalenceClass> *lattice) {
-  // Set the lattice to top (overdefined) at entry points
-  propagateIfChanged(lattice, lattice->join(AliasEquivalenceClass::getTop()));
+  // Initialize block arguments to uninitialized (bottom of lattice). They will
+  // receive concrete equivalence class IDs via dataflow from incoming edges
+  // (cf.br, cf.cond_br). If conflicting information arrives, only then will the
+  // join sproduce TOP.
+  propagateIfChanged(lattice,
+                     lattice->join(AliasEquivalenceClass::getUninitialized()));
 }
 
 EqClassID DPSAliasAnalysis::getOrCreateEqClassId(Value alloca) {
