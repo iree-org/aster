@@ -114,3 +114,159 @@ amdgcn.module @ds_kernels target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+// -----
+
+// Test: Simple unconditional branch with 4-element VGPR range
+// Verifies basic range decomposition and reconstruction at block entry
+// The range should NOT appear as a block argument after legalization
+// Instead, values should flow through allocas and be reconstructed at block entry
+// CHECK-LABEL: kernel @test_br_vgpr_range_simple
+amdgcn.module @test_br_vgpr_range target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @test_br_vgpr_range_simple {
+    // Allocate constituent registers - verify they appear in order
+    // CHECK:       %[[V0:.*]] = alloca : !amdgcn.vgpr<0>
+    // CHECK:       %[[V1:.*]] = alloca : !amdgcn.vgpr<1>
+    // CHECK:       %[[V2:.*]] = alloca : !amdgcn.vgpr<2>
+    // CHECK:       %[[V3:.*]] = alloca : !amdgcn.vgpr<3>
+    %v0 = alloca : !amdgcn.vgpr<0>
+    %v1 = alloca : !amdgcn.vgpr<1>
+    %v2 = alloca : !amdgcn.vgpr<2>
+    %v3 = alloca : !amdgcn.vgpr<3>
+
+    // Initialize registers
+    %c0 = arith.constant 0 : i32
+    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V0]]
+    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V1]]
+    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V2]]
+    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V3]]
+    %init0 = amdgcn.vop1.vop1 <v_mov_b32_e32> %v0, %c0 : (!amdgcn.vgpr<0>, i32) -> !amdgcn.vgpr<0>
+    %init1 = amdgcn.vop1.vop1 <v_mov_b32_e32> %v1, %c0 : (!amdgcn.vgpr<1>, i32) -> !amdgcn.vgpr<1>
+    %init2 = amdgcn.vop1.vop1 <v_mov_b32_e32> %v2, %c0 : (!amdgcn.vgpr<2>, i32) -> !amdgcn.vgpr<2>
+    %init3 = amdgcn.vop1.vop1 <v_mov_b32_e32> %v3, %c0 : (!amdgcn.vgpr<3>, i32) -> !amdgcn.vgpr<3>
+
+    // Create range - uses vop1 results (which write to allocas)
+    // CHECK:       make_register_range
+    %range = make_register_range %init0, %init1, %init2, %init3 :
+      !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+
+    // Branch with range as operand
+    // CHECK:       branch s_branch ^bb1
+    cf.br ^bb1(%range : !amdgcn.vgpr_range<[0 : 4]>)
+
+    // Block argument should be removed, range reconstructed
+    // CHECK:       ^bb1:
+    // CHECK-NOT:     ^bb1(%
+    // Verify no duplicate allocas created
+    // CHECK-NOT:     alloca
+  ^bb1(%arg: !amdgcn.vgpr_range<[0 : 4]>):
+    // Range should be reconstructed from SAME allocas at block entry
+    // CHECK:       %[[RECONSTRUCTED:.*]] = make_register_range %[[V0]], %[[V1]], %[[V2]], %[[V3]]
+
+    // Split the range - verify 4 results
+    // CHECK:       %{{.*}}:4 = split_register_range %[[RECONSTRUCTED]]
+    %split:4 = split_register_range %arg : !amdgcn.vgpr_range<[0 : 4]>
+
+    // CHECK:       end_kernel
+    end_kernel
+  }
+}
+
+// -----
+
+// Test: Loop with VGPR range loop-carried value (MFMA accumulation pattern)
+// This is the real-world use case: 4-register accumulator passed through iterations
+// Verifies range decomposition in backedge and reconstruction at loop header
+// CHECK-LABEL: kernel @test_loop_vgpr_range_carried
+amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @test_loop_vgpr_range_carried {
+    // Constants
+    %c0_i32 = arith.constant 0 : i32
+    %c1_i32 = arith.constant 1 : i32
+    %c2_i32 = arith.constant 2 : i32
+
+    // Allocate 4-register accumulator (v4-v7) - verify order
+    // CHECK:       %[[V4:.*]] = alloca : !amdgcn.vgpr<4>
+    // CHECK:       %[[V5:.*]] = alloca : !amdgcn.vgpr<5>
+    // CHECK:       %[[V6:.*]] = alloca : !amdgcn.vgpr<6>
+    // CHECK:       %[[V7:.*]] = alloca : !amdgcn.vgpr<7>
+    %v4 = alloca : !amdgcn.vgpr<4>
+    %v5 = alloca : !amdgcn.vgpr<5>
+    %v6 = alloca : !amdgcn.vgpr<6>
+    %v7 = alloca : !amdgcn.vgpr<7>
+
+    // Loop counter
+    // CHECK:       %[[S8:.*]] = alloca : !amdgcn.sgpr<8>
+    %s8 = alloca : !amdgcn.sgpr<8>
+
+    // Initialize accumulator to zero
+    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V4]]
+    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V5]]
+    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V6]]
+    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V7]]
+    %init_v4 = amdgcn.vop1.vop1 <v_mov_b32_e32> %v4, %c0_i32 : (!amdgcn.vgpr<4>, i32) -> !amdgcn.vgpr<4>
+    %init_v5 = amdgcn.vop1.vop1 <v_mov_b32_e32> %v5, %c0_i32 : (!amdgcn.vgpr<5>, i32) -> !amdgcn.vgpr<5>
+    %init_v6 = amdgcn.vop1.vop1 <v_mov_b32_e32> %v6, %c0_i32 : (!amdgcn.vgpr<6>, i32) -> !amdgcn.vgpr<6>
+    %init_v7 = amdgcn.vop1.vop1 <v_mov_b32_e32> %v7, %c0_i32 : (!amdgcn.vgpr<7>, i32) -> !amdgcn.vgpr<7>
+
+    // Create initial accumulator range
+    // CHECK:       make_register_range
+    %acc_init = make_register_range %init_v4, %init_v5, %init_v6, %init_v7 :
+      !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
+
+    // Initialize counter
+    // CHECK:       sop1 s_mov_b32 outs %[[S8]]
+    %counter_init = sop1 s_mov_b32 outs %s8 ins %c0_i32 : !amdgcn.sgpr<8>, i32
+
+    // Branch to loop - passes counter (SGPR) and accumulator (VGPR range)
+    // CHECK:       branch s_branch ^bb1
+    cf.br ^bb1(%counter_init, %acc_init : !amdgcn.sgpr<8>, !amdgcn.vgpr_range<[4 : 8]>)
+
+    // Loop header - block arguments should be removed
+    // CHECK:       ^bb1:
+    // CHECK-NOT:     ^bb1(%
+    // Verify no duplicate allocas - counter flows through %[[S8]], accumulator through %[[V4]]-[[V7]]
+    // CHECK-NOT:     alloca
+  ^bb1(%counter: !amdgcn.sgpr<8>, %acc: !amdgcn.vgpr_range<[4 : 8]>):
+    // Accumulator range should be reconstructed from SAME allocas at loop entry
+    // CHECK:       %[[ACC_RECON:.*]] = make_register_range %[[V4]], %[[V5]], %[[V6]], %[[V7]]
+
+    // Dummy operands for MFMA (simplified - real code would have loads)
+    %v16 = alloca : !amdgcn.vgpr<16>
+    %v17 = alloca : !amdgcn.vgpr<17>
+    %v18 = alloca : !amdgcn.vgpr<18>
+    %v19 = alloca : !amdgcn.vgpr<19>
+    %dummy_a = make_register_range %v16, %v17 : !amdgcn.vgpr<16>, !amdgcn.vgpr<17>
+    %dummy_b = make_register_range %v18, %v19 : !amdgcn.vgpr<18>, !amdgcn.vgpr<19>
+
+    // MFMA: new_acc = MFMA(a, b, acc) - accumulator is both input and output
+    // CHECK:       vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %[[ACC_RECON]]
+    %new_acc = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %acc, %dummy_a, %dummy_b, %acc : <[16 : 18]>, <[18 : 20]>, !amdgcn.vgpr_range<[4 : 8]> -> !amdgcn.vgpr_range<[4 : 8]>
+
+    // Increment counter - writes to %[[S8]] alloca
+    // CHECK:       sop2 s_add_u32 outs %[[S8]] ins %[[S8]]
+    %counter_next = sop2 s_add_u32 outs %s8 ins %counter, %c1_i32 : !amdgcn.sgpr<8>, !amdgcn.sgpr<8>, i32
+
+    // Loop condition
+    // CHECK:       cmpi s_cmp_lt_i32
+    %cond = lsir.cmpi i32 slt %counter_next, %c2_i32 : !amdgcn.sgpr<8>, i32
+
+    // Loop backedge - passes updated counter and accumulator to both loop and exit
+    // CHECK:       cbranch s_cbranch_scc1 {{.*}} ^bb1 fallthrough(^bb2)
+    cf.cond_br %cond, ^bb1(%counter_next, %new_acc : !amdgcn.sgpr<8>, !amdgcn.vgpr_range<[4 : 8]>), ^bb2(%new_acc : !amdgcn.vgpr_range<[4 : 8]>)
+
+    // Exit block - receives final accumulator from loop
+    // CHECK:       ^bb2:
+    // CHECK-NOT:     ^bb2(%
+    // CHECK-NOT:     alloca
+  ^bb2(%final_acc: !amdgcn.vgpr_range<[4 : 8]>):
+    // Reconstruct range at exit from SAME allocas
+    // CHECK:       %[[FINAL_RECON:.*]] = make_register_range %[[V4]], %[[V5]], %[[V6]], %[[V7]]
+    // Extract final values - verify 4 results
+    // CHECK:       %{{.*}}:4 = split_register_range %[[FINAL_RECON]]
+    %final:4 = split_register_range %final_acc : !amdgcn.vgpr_range<[4 : 8]>
+
+    // CHECK:       end_kernel
+    end_kernel
+  }
+}

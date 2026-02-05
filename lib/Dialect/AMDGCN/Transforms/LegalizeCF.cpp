@@ -20,6 +20,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
@@ -230,25 +231,102 @@ void LegalizeCF::runOnOperation() {
 
   // Iterate all blocks in all regions of the function and replace block
   // arguments with the corresponding alloca.
+  //
+  // For register range block arguments, we decompose them to individual
+  // registers since ranges are composite constructs without their own allocas.
+  // Each range block arg is replaced by reconstructing the range from its
+  // constituent allocas using make_register_range at the block entry.
+  //
   // This is a simple way of legalizing block arguments, late in the pipeline.
-  // TODO: In the future, this is better done as a RA legalization once we have
-  // a side-effecting representation of instructions without return values.
+  //
+  // Note and caveat: taking the alloc is fine because at this point values do
+  // not flow through SSA values anymore, except i1  cf.cond_br conditions.
+  // While this is correct, it is easily confusing since SSA and side-effects
+  // are mixed in the same representation.
+  //
+  // TODO: In the very short future, this is better done as a RA legalization
+  // once we have a side-effecting representation of instructions without return
+  // values.
   op->walk([&](Block *block) {
+    IRRewriter rewriter(op->getContext());
+
     // Drop all block arguments, if any.
     for (int i = block->getNumArguments() - 1; i >= 0; --i) {
-      // Always erase index 0; indices shift after each erase.
+      // Always erase index i; indices shift after each erase.
       BlockArgument arg = block->getArgument(i);
       RegisterTypeInterface regType =
           cast<RegisterTypeInterface>(arg.getType());
-      auto it = allocatedRegisterToAllocaMap.find(regType);
-      if (it == allocatedRegisterToAllocaMap.end()) {
+
+      // Simple case: non-range register type
+      if (!regType.isRegisterRange()) {
+        auto it = allocatedRegisterToAllocaMap.find(regType);
+        if (it == allocatedRegisterToAllocaMap.end()) {
+          block->getParentOp()->emitError()
+              << "Alloca not found for register type " << regType;
+          signalPassFailure();
+          return WalkResult::interrupt();
+        }
+        arg.replaceAllUsesWith(it->second);
+        block->eraseArgument(i);
+        continue;
+      }
+
+      // Complex case: register range type - decompose to constituents
+      RegisterRange range = regType.getAsRange();
+      Register beginReg = range.begin();
+      int16_t rangeSize = range.size();
+
+      if (beginReg.isRelocatable()) {
         block->getParentOp()->emitError()
-            << "Alloca not found for register type" << regType
-            << "\nfor op: " << *block->getParentOp();
+            << "Cannot legalize relocatable register range block argument";
         signalPassFailure();
         return WalkResult::interrupt();
       }
-      arg.replaceAllUsesWith(it->second);
+
+      // Collect allocas for all constituent registers
+      SmallVector<Value> constituentAllocas;
+      constituentAllocas.reserve(rangeSize);
+
+      auto rangeRegType = cast<AMDGCNRegisterTypeInterface>(regType);
+      RegisterKind regKind = rangeRegType.getRegisterKind();
+
+      for (int16_t offset = 0; offset < rangeSize; ++offset) {
+        Register reg = beginReg.getWithOffset(offset);
+
+        RegisterTypeInterface constituentType;
+        MLIRContext *ctx = block->getParentOp()->getContext();
+        switch (regKind) {
+        case RegisterKind::SGPR:
+          constituentType = SGPRType::get(ctx, reg);
+          break;
+        case RegisterKind::VGPR:
+          constituentType = VGPRType::get(ctx, reg);
+          break;
+        case RegisterKind::AGPR:
+          constituentType = AGPRType::get(ctx, reg);
+          break;
+        default:
+          block->getParentOp()->emitError()
+              << "Unsupported register kind for range block argument";
+          signalPassFailure();
+          return WalkResult::interrupt();
+        }
+
+        auto it = allocatedRegisterToAllocaMap.find(constituentType);
+        if (it == allocatedRegisterToAllocaMap.end()) {
+          block->getParentOp()->emitError()
+              << "Alloca not found for constituent register " << constituentType
+              << " in range " << regType;
+          signalPassFailure();
+          return WalkResult::interrupt();
+        }
+        constituentAllocas.push_back(it->second);
+      }
+
+      rewriter.setInsertionPointToStart(block);
+      Value reconstructedRange = MakeRegisterRangeOp::create(
+          rewriter, arg.getLoc(), constituentAllocas);
+      arg.replaceAllUsesWith(reconstructedRange);
       block->eraseArgument(i);
     }
     return WalkResult::advance();
