@@ -127,10 +127,18 @@ public:
     if (rhs.isUninitialized())
       return lhs;
 
-    // Both Known: same IDs = stable, different IDs = CONFLICT.
+    // Both Known: union the equivalence class ID sets.
+    // Different IDs at a join means "could be in either storage" (e.g.,
+    // select mux through loop back-edges), not a real conflict.
     if (lhs.eqClassIds == rhs.eqClassIds)
       return lhs;
-    return getConflict();
+    EqClassList merged(lhs.eqClassIds.begin(), lhs.eqClassIds.end());
+    for (EqClassID id : rhs.eqClassIds) {
+      if (!llvm::is_contained(merged, id))
+        merged.push_back(id);
+    }
+    llvm::sort(merged);
+    return AliasEquivalenceClass(std::move(merged));
   }
 
   /// Get the equivalence class IDs. Returns empty if not Known state.
