@@ -344,3 +344,20 @@ func.func @test_store_with_dependencies(%data0: !amdgcn.vgpr_range<[? + 1]>, %da
   lsir.wait %token1 : !lsir.store_token
   return
 }
+
+func.func @test_select_reg_condition(%dst: !amdgcn.vgpr, %cond: !amdgcn.vgpr, %tv: !amdgcn.vgpr, %fv: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %0 = lsir.select %dst, %cond, %tv, %fv : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : !amdgcn.vgpr
+}
+
+func.func @test_select_i1_condition(%dst: !amdgcn.sgpr, %cond: i1, %tv: !amdgcn.sgpr, %fv: !amdgcn.sgpr) -> !amdgcn.sgpr {
+  %0 = lsir.select %dst, %cond, %tv, %fv : !amdgcn.sgpr, i1, !amdgcn.sgpr, !amdgcn.sgpr
+  return %0 : !amdgcn.sgpr
+}
+
+func.func @test_select_i1_imm_operands(%dst: !amdgcn.sgpr, %cond: i1) -> !amdgcn.sgpr {
+  %c42 = arith.constant 42 : i32
+  %c99 = arith.constant 99 : i32
+  %0 = lsir.select %dst, %cond, %c42, %c99 : !amdgcn.sgpr, i1, i32, i32
+  return %0 : !amdgcn.sgpr
+}

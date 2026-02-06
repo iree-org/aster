@@ -56,6 +56,9 @@ private:
 
   /// Lower cf.br to s_branch.
   LogicalResult lowerBranch(cf::BranchOp br);
+
+  /// Lower lsir.cmpi + lsir.select(i1) pattern to s_cmp + s_cselect_b32.
+  LogicalResult lowerSelect(lsir::SelectOp selectOp);
 };
 
 /// Map arith::CmpIPredicate to the appropriate s_cmp_* opcode.
@@ -188,6 +191,50 @@ LogicalResult LegalizeCF::lowerBranch(cf::BranchOp br) {
   return success();
 }
 
+LogicalResult LegalizeCF::lowerSelect(lsir::SelectOp selectOp) {
+  Value condition = selectOp.getCondition();
+  // Only handle i1-conditioned selects (from lsir.cmpi).
+  // Register-conditioned selects are handled elsewhere.
+  if (!condition.getType().isInteger(1))
+    return success();
+
+  auto cmpOp = condition.getDefiningOp<lsir::CmpIOp>();
+  if (!cmpOp) {
+    return selectOp.emitError()
+           << "lsir.select with i1 condition must come from lsir.cmpi";
+  }
+
+  Location loc = selectOp.getLoc();
+  IRRewriter rewriter(selectOp);
+  rewriter.setInsertionPoint(selectOp);
+
+  // Create SCC allocation for the compare result.
+  Type sccType = SCCType::get(rewriter.getContext());
+  Value scc = AllocaOp::create(rewriter, loc, sccType);
+
+  // Create the s_cmp_* instruction (sets SCC).
+  OpCode cmpOpCode = getCompareOpCode(cmpOp.getPredicate());
+  amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),
+                         cmpOp.getRhs());
+
+  // Create s_cselect_b32: sdst = SCC ? src0 : src1.
+  // src0 = true_value (selected when SCC=1), src1 = false_value.
+  Value sdst = selectOp.getDst();
+  amdgcn::inst::SOP2Op::create(rewriter, loc, OpCode::S_CSELECT_B32, sdst,
+                               selectOp.getTrueValue(),
+                               selectOp.getFalseValue());
+
+  // Replace uses of the select result with the dst (which now holds the
+  // s_cselect result via side effect).
+  rewriter.replaceOp(selectOp, sdst);
+
+  // Erase the lsir.cmpi if it has no other uses.
+  if (cmpOp.use_empty())
+    rewriter.eraseOp(cmpOp);
+
+  return success();
+}
+
 void LegalizeCF::runOnOperation() {
   Operation *op = getOperation();
 
@@ -203,17 +250,29 @@ void LegalizeCF::runOnOperation() {
     allocatedRegisterToAllocaMap.insert({alloca.getType(), alloca});
   });
 
-  // Collect all cf.cond_br and cf.br operations
+  // Collect all operations to lower.
+  SmallVector<lsir::SelectOp> selects;
   SmallVector<cf::CondBranchOp> condBranches;
   SmallVector<cf::BranchOp> branches;
   op->walk([&](Operation *innerOp) {
-    if (auto condBr = dyn_cast<cf::CondBranchOp>(innerOp))
+    if (auto selectOp = dyn_cast<lsir::SelectOp>(innerOp))
+      selects.push_back(selectOp);
+    else if (auto condBr = dyn_cast<cf::CondBranchOp>(innerOp))
       condBranches.push_back(condBr);
     else if (auto br = dyn_cast<cf::BranchOp>(innerOp))
       branches.push_back(br);
   });
 
-  // Lower conditional branches first (they may reference lsir.cmpi)
+  // Lower i1-conditioned selects first (they reference lsir.cmpi which may
+  // also be used by cond_br).
+  for (lsir::SelectOp selectOp : selects) {
+    if (failed(lowerSelect(selectOp))) {
+      signalPassFailure();
+      return;
+    }
+  }
+
+  // Lower conditional branches (they may reference lsir.cmpi)
   for (cf::CondBranchOp condBr : condBranches) {
     if (failed(lowerCondBranch(condBr))) {
       signalPassFailure();

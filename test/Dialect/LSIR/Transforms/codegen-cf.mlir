@@ -108,3 +108,38 @@ amdgcn.module @test_uniform_loop_with_load target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// Test arith.cmpi + arith.select -> lsir.cmpi + lsir.select(i1)
+// Verifies that:
+// 1. arith.cmpi is converted to lsir.cmpi returning i1
+// 2. arith.select with i1 condition is converted to lsir.select with i1
+// 3. No unrealized_conversion_cast is inserted for the i1 condition
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: amdgcn.module @test_select_i1
+// CHECK:         kernel @test_select_i1
+// CHECK:           %[[CMP:.*]] = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr, i32
+// CHECK:           %[[ALLOCA:.*]] = lsir.alloca : !amdgcn.sgpr
+// CHECK:           lsir.select %[[ALLOCA]], %[[CMP]], %{{.*}}, %{{.*}} : !amdgcn.sgpr, i1, i32, i32
+// CHECK-NOT:       unrealized_conversion_cast
+
+amdgcn.module @test_select_i1 target = <gfx942> isa = <cdna3> {
+  kernel @test_select_i1 arguments <[#amdgcn.buffer_arg<address_space = generic, access = read_only>, #amdgcn.buffer_arg<address_space = generic>]> {
+    %c0_i32 = arith.constant 0 : i32
+    %c42_i32 = arith.constant 42 : i32
+    %c99_i32 = arith.constant 99 : i32
+    %0 = amdgcn.load_arg 1 : !amdgcn.sgpr_range<[? + 2]>
+    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %arg0, %arg1 = amdgcn.split_register_range %0 : !amdgcn.sgpr_range<[? + 2]>
+    %1 = aster_utils.assume_uniform %arg0 : !amdgcn.sgpr
+    %2 = lsir.from_reg %1 : !amdgcn.sgpr -> i32
+    %cmp = arith.cmpi eq, %2, %c0_i32 : i32
+    %sel = arith.select %cmp, %c42_i32, %c99_i32 : i32
+    %3 = lsir.to_reg %sel : i32 -> !amdgcn.sgpr
+    amdgcn.test_inst ins %3 : (!amdgcn.sgpr) -> ()
+    end_kernel
+  }
+}

@@ -131,8 +131,9 @@ LogicalResult amdgcn::verifyIsAllocatableOpImpl(Operation *op,
   // Allow CF dialect operations (cf.br, cf.cond_br) to pass through
   if (isa<cf::BranchOp, cf::CondBranchOp>(op))
     return success();
-  // Allow LSIR comparison operations (which return i1 for use in CF conditions)
-  if (isa<lsir::CmpIOp, lsir::CmpFOp>(op))
+  // Allow LSIR operations that use i1 conditions (late SCC register path).
+  // These are not InstOpInterface and have custom RA patterns.
+  if (isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp>(op))
     return success();
   if (state.getStrictness() != VerifierStrictness::Lax &&
       isa<ThreadIdOp, BlockIdOp, GridDimOp, BlockDimOp>(op)) {
@@ -167,8 +168,9 @@ LogicalResult amdgcn::verifyIsAllocatedOpImpl(Operation *op,
   }
   if (isa<KernelOp, aster::ModuleOpInterface>(op))
     return success();
-  // Allow CF dialect operations and LSIR operations
-  if (isa<cf::BranchOp, cf::CondBranchOp, lsir::CmpIOp, lsir::CmpFOp>(op))
+  // Allow CF dialect operations and LSIR operations with i1 conditions
+  if (isa<cf::BranchOp, cf::CondBranchOp, lsir::CmpIOp, lsir::CmpFOp,
+          lsir::SelectOp>(op))
     return success();
   if (isa<AllocaOp, MakeRegisterRangeOp, SplitRegisterRangeOp>(op)) {
     for (auto [index, result] : llvm::enumerate(op->getResults())) {

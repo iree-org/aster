@@ -159,6 +159,48 @@ struct CmpOpPattern : public OpRewritePattern<CmpOpT> {
     return success();
   }
 };
+/// Pattern to update lsir.select operands from dealloc_cast outputs to
+/// allocated values. Like CmpOpPattern, this handles an op that is not
+/// InstOpInterface but has register-typed operands needing allocation.
+/// The dst operand drives the result type (DPS).
+struct SelectOpPattern : public OpRewritePattern<lsir::SelectOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(lsir::SelectOp op,
+                                PatternRewriter &rewriter) const override {
+    bool changed = false;
+    auto resolve = [&](Value operand) -> Value {
+      if (auto cOp = dyn_cast_or_null<DeallocCastOp>(operand.getDefiningOp())) {
+        changed = true;
+        return cOp.getInput();
+      }
+      return operand;
+    };
+
+    Value newDst = resolve(op.getDst());
+    Value newCond = resolve(op.getCondition());
+    Value newTv = resolve(op.getTrueValue());
+    Value newFv = resolve(op.getFalseValue());
+
+    if (!changed)
+      return failure();
+
+    auto newOp = lsir::SelectOp::create(rewriter, op.getLoc(), newDst, newCond,
+                                        newTv, newFv);
+
+    // If dst type changed (relocatable -> allocated), insert dealloc_cast
+    // so existing users see the original type.
+    if (newOp.getResult().getType() != op.getResult().getType()) {
+      Value cast =
+          DeallocCastOp::create(rewriter, op.getLoc(), newOp.getResult());
+      rewriter.replaceOp(op, cast);
+    } else {
+      rewriter.replaceOp(op, newOp.getResult());
+    }
+    return success();
+  }
+};
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -613,8 +655,8 @@ LogicalResult RegAlloc::transform(RewriterBase &rewriter,
   RewritePatternSet patterns(rewriter.getContext());
   patterns.add<InstRewritePattern, MakeRegisterRangeOpPattern,
                RegInterferenceOpPattern, SplitRegisterRangeOpPattern,
-               CmpOpPattern<lsir::CmpIOp>, CmpOpPattern<lsir::CmpFOp>>(
-      rewriter.getContext());
+               CmpOpPattern<lsir::CmpIOp>, CmpOpPattern<lsir::CmpFOp>,
+               SelectOpPattern>(rewriter.getContext());
   FrozenRewritePatternSet frozenPatterns(std::move(patterns));
   bool changed = true;
   while (changed) {
