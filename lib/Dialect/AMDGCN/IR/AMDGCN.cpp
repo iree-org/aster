@@ -297,70 +297,6 @@ mlir::aster::amdgcn::getRegisterKind(AMDGCNRegisterTypeInterface type) {
   return RegisterKind::Unknown;
 }
 
-Speculation::Speculatability
-mlir::aster::amdgcn::getInstSpeculatability(InstOpInterface op) {
-  if (!op.isRegAllocated())
-    return Speculation::Speculatability::Speculatable;
-  return Speculation::Speculatability::NotSpeculatable;
-}
-
-void mlir::aster::amdgcn::getInstEffects(
-    InstOpInterface op,
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-        &effects) {
-  if (!op.isRegAllocated())
-    return;
-
-  // Helper to add effects for a register type with specific resources
-  auto addEffectsForRegister = [&](Type type, MemoryEffects::Effect *effect) {
-    auto regType = dyn_cast<AMDGCNRegisterTypeInterface>(type);
-    if (!regType || regType.isRelocatable())
-      return;
-
-    RegisterRange range = regType.getAsRange();
-    RegisterKind kind = regType.getRegisterKind();
-
-    // For non-relocatable registers, get the register numbers
-    int size = range.size();
-
-    // Add effects for each register in the range
-    for (int i = 0; i < size; ++i) {
-      SideEffects::Resource *resource = nullptr;
-
-      // Get the type for this specific register
-      switch (kind) {
-      case RegisterKind::SGPR:
-        resource = SGPRResource::get();
-        break;
-      case RegisterKind::VGPR:
-        resource = VGPRResource::get();
-        break;
-      case RegisterKind::AGPR:
-        resource = AGPRResource::get();
-        break;
-      case RegisterKind::SREG:
-        resource = SREGResource::get();
-        break;
-      default:
-        llvm_unreachable("nyi register kind");
-      }
-
-      if (resource)
-        effects.emplace_back(effect, resource);
-    }
-  };
-
-  // Add write effects for outputs
-  for (OpResult res : op.getInstResults()) {
-    addEffectsForRegister(res.getType(), MemoryEffects::Write::get());
-  }
-
-  // Add read effects for inputs
-  for (OpOperand &in : op.getInstInsMutable()) {
-    addEffectsForRegister(in.get().getType(), MemoryEffects::Read::get());
-  }
-}
-
 MemoryInstructionKind
 mlir::aster::amdgcn::getMemoryInstructionKind(OpCode opCode) {
   switch (opCode) {
@@ -401,7 +337,7 @@ mlir::aster::amdgcn::getMemoryInstructionKind(OpCode opCode) {
 //===----------------------------------------------------------------------===//
 
 Speculation::Speculatability AllocaOp::getSpeculatability() {
-  if (!getType().isRelocatable())
+  if (getType().hasAllocatedSemantics())
     return Speculation::Speculatability::Speculatable;
   return Speculation::Speculatability::NotSpeculatable;
 }
@@ -409,7 +345,7 @@ Speculation::Speculatability AllocaOp::getSpeculatability() {
 void AllocaOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  if (!getType().isRelocatable())
+  if (getType().hasAllocatedSemantics())
     return;
   effects.emplace_back(MemoryEffects::Allocate::get(),
                        getOperation()->getResult(0));
@@ -567,7 +503,7 @@ LogicalResult MakeRegisterRangeOp::inferReturnTypes(
   if (llvm::any_of(TypeRange(operands), [&](Type type) {
         auto oTy = cast<AMDGCNRegisterTypeInterface>(type);
         return fTy.getRegisterKind() != oTy.getRegisterKind() ||
-               fTy.isRelocatable() != oTy.isRelocatable();
+               fTy.getSemantics() != oTy.getSemantics();
       })) {
     if (location) {
       mlir::emitError(*location)
@@ -590,9 +526,9 @@ LogicalResult MakeRegisterRangeOp::inferReturnTypes(
     }
   };
 
-  if (fTy.isRelocatable()) {
+  if (!fTy.hasAllocatedSemantics()) {
     inferredReturnTypes.push_back(
-        makeRange(RegisterRange(Register(), operands.size())));
+        makeRange(RegisterRange(fTy.getAsRange().begin(), operands.size())));
     return success();
   }
 
@@ -664,11 +600,10 @@ LogicalResult SplitRegisterRangeOp::inferReturnTypes(
     return rangeType.cloneRegisterType(reg);
   };
 
-  // If the range is relocatable, create relocatable individual registers.
-  if (range.begin().isRelocatable()) {
-    for (int i = 0; i < size; ++i) {
-      inferredReturnTypes.push_back(makeRegister(Register()));
-    }
+  // If the range doesn't have allocated semantics, create individual registers.
+  if (!rangeType.hasAllocatedSemantics()) {
+    for (int i = 0; i < size; ++i)
+      inferredReturnTypes.push_back(makeRegister(range.begin()));
     return success();
   }
 

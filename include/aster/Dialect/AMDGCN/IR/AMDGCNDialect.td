@@ -262,13 +262,13 @@ def AMDGCNInstOpTrait : NativeOpTrait<"InstOpTrait"> {
   let extraConcreteClassDeclaration = [{
     /// Returns the speculatability of the operation.
     Speculation::Speculatability getSpeculatability() {
-      return getInstSpeculatability(*this);
+      return aster::detail::getInstSpeculatabilityImpl(*this);
     }
     /// Returns the memory effects of the operation.
     void getEffects(
         SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
             &effects) {
-      return getInstEffects(*this, effects);
+      return aster::detail::getInstEffectsImpl(*this, effects);
     }
   }];
 }
@@ -300,13 +300,13 @@ class AMDGCNMemoryReadInstOpTraits<Resource memoryResource> : NativeOpTrait<"Ins
   let extraConcreteClassDeclaration = [{
     /// Returns the speculatability of the operation.
     Speculation::Speculatability getSpeculatability() {
-      return getInstSpeculatability(*this);
+      return aster::detail::getInstSpeculatabilityImpl(*this);
     }
     /// Returns the memory effects of the operation.
     void getEffects(
         SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
             &effects) {
-      getInstEffects(*this, effects);
+      aster::detail::getInstEffectsImpl(*this, effects);
       // Add explicit memory read effect on addr register even if not allocated.
       if (getAddr()) {
         MutableOperandRange addrRange = getAddrMutable();
@@ -337,13 +337,13 @@ class AMDGCNMemoryWriteInstOpTraits<Resource memoryResource> : NativeOpTrait<"In
   let extraConcreteClassDeclaration = [{
     /// Returns the speculatability of the operation.
     Speculation::Speculatability getSpeculatability() {
-      return getInstSpeculatability(*this);
+      return aster::detail::getInstSpeculatabilityImpl(*this);
     }
     /// Returns the memory effects of the operation.
     void getEffects(
         SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
             &effects) {
-      getInstEffects(*this, effects);
+      aster::detail::getInstEffectsImpl(*this, effects);
       // Add explicit memory write effect on addr register even if not allocated.
       MutableOperandRange addrRange = getAddrMutable();
       for (OpOperand &operand : addrRange) {

@@ -10,6 +10,7 @@
 
 #include "aster/Interfaces/InstOpInterface.h"
 #include "aster/Interfaces/RegisterType.h"
+#include "mlir/IR/Builders.h"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -31,14 +32,52 @@ LogicalResult mlir::aster::detail::verifyInstImpl(InstOpInterface op) {
   return success();
 }
 
-bool mlir::aster::detail::isRegAllocatedImpl(InstOpInterface op) {
-  /// Lambda to check if a type is allocated (not relocatable).
-  auto isAllocated = +[](Type type) {
+bool mlir::aster::detail::hasPureValueSemanticsImpl(InstOpInterface op) {
+  /// Lambda to check if a type has value semantics.
+  auto hasValueSemantics = +[](Type type) {
     auto regType = dyn_cast<RegisterTypeInterface>(type);
-    return !regType || !regType.isRelocatable();
+    return regType && regType.hasValueSemantics();
   };
-  return llvm::all_of(TypeRange(op.getInstOuts()), isAllocated) &&
-         llvm::all_of(TypeRange(op.getInstIns()), isAllocated);
+  return llvm::all_of(TypeRange(op.getInstOuts()), hasValueSemantics) &&
+         llvm::all_of(TypeRange(op.getInstIns()), hasValueSemantics);
+}
+
+Speculation::Speculatability
+mlir::aster::detail::getInstSpeculatabilityImpl(InstOpInterface op) {
+  // If the operation has pure value semantics, the op is Pure.
+  if (op.hasPureValueSemantics())
+    return Speculation::Speculatability::Speculatable;
+  return Speculation::Speculatability::NotSpeculatable;
+}
+
+void mlir::aster::detail::getInstEffectsImpl(
+    InstOpInterface op,
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  // If the operation has pure value semantics, the op is Pure.
+  if (op.hasPureValueSemantics())
+    return;
+
+  // Helper to add effects for a register type with specific resources
+  auto addEffectsForRegister = [&](Type type, MemoryEffects::Effect *effect) {
+    auto regType = dyn_cast<RegisterTypeInterface>(type);
+
+    // Skip if the type is not a register type or has value semantics.
+    if (!regType || regType.hasValueSemantics())
+      return;
+
+    // Add the effect for the resource.
+    if (SideEffects::Resource *resource = regType.getResource())
+      effects.emplace_back(effect, resource);
+  };
+
+  // Add write effects for outputs
+  for (OpResult res : op.getInstResults())
+    addEffectsForRegister(res.getType(), MemoryEffects::Write::get());
+
+  // Add read effects for inputs
+  for (OpOperand &in : op.getInstInsMutable())
+    addEffectsForRegister(in.get().getType(), MemoryEffects::Read::get());
 }
 
 #include "aster/Interfaces/InstOpInterface.cpp.inc"
