@@ -3,6 +3,7 @@ add_mlir_library(AsterTransforms
   OpScheduling.cpp
   OptimizeArith.cpp
   ReplaceConstantGPUDims.cpp
+  SCFPipelineAsterSched.cpp
   ToIntArith.cpp
   Utils.cpp
 

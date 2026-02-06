@@ -113,4 +113,25 @@ def OptimizeArith
   let summary = "Optimize arithmetic operations";
 }
 
+//===----------------------------------------------------------------------===//
+// SCFPipelineAsterSched
+//===----------------------------------------------------------------------===//
+
+def SCFPipelineAsterSched : Pass<"aster-scf-pipeline"> {
+  let summary = "Pipeline SCF loops using stage-based scheduling";
+  let description = [{
+    This pass pipelines scf.for loops whose operations are annotated with
+    sched.stage attributes. It generates prologue (ramp-up), kernel
+    (steady-state), and epilogue (drain) sections.
+
+    Operations without a sched.stage attribute default to stage 0.
+
+    Example (2-stage, load at stage 0, compute at stage 1):
+      Prologue: load(0)
+      Kernel:   for i in [1, N): load(i), compute(i-1)
+      Epilogue: compute(N-1)
+  }];
+  let dependentDialects = ["mlir::scf::SCFDialect", "mlir::arith::ArithDialect"];
+}
+
 #endif // ASTER_TRANSFORMS_PASSES_TD
