@@ -185,8 +185,8 @@ LogicalResult DPSAliasAnalysis::visitOperation(
   }
 
   // SelectOp: result aliases the dst operand (DPS semantics).
-  // SelectOp is not InstOpInterface but has a dst operand that provides
-  // storage.
+  // SelectOp is not InstOpInterface (due to separate i1 behavior) but has a dst
+  // operand that provides storage.
   if (auto selectOp = dyn_cast<lsir::SelectOp>(op)) {
     // operandLattices[0] is the dst operand.
     const auto &eqClassIds = operandLattices[0]->getValue().getEqClassIds();
