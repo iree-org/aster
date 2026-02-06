@@ -113,14 +113,6 @@ static LogicalResult analyzeLoop(scf::ForOp forOp, LoopPipelineInfo &info) {
     return forOp.emitError(
         "pipelining loops with existing iter_args not yet supported");
 
-  // TODO: stage > 0 needs IV adjustment (kernelIV - stage*step).
-  if (llvm::any_of(forOp.getInductionVar().getUsers(),
-                   [&forOp](Operation *user) {
-                     return !forOp->isProperAncestor(user);
-                   })) {
-    llvm_unreachable("operation depends on the loop IV");
-  }
-
   // Find cross-stage values: defined in stage D, used in stage U where D < U.
   for (Operation *op : info.opOrder) {
     int64_t useStage = info.stages[op];
@@ -219,13 +211,28 @@ static scf::ForOp emitKernel(scf::ForOp forOp, const LoopPipelineInfo &info,
   for (auto [idx, csv] : llvm::enumerate(info.crossStageVals))
     crossStageIdx[csv.value] = idx;
 
+  // Cache of stage-adjusted IVs. Stage s at kernel iteration k processes
+  // original iteration (k - lb)/step - s, so the effective IV is
+  // kernelIV - s * step.
+  DenseMap<int64_t, Value> adjustedIVs;
+  adjustedIVs[0] = kernelLoop.getInductionVar();
+
   // Track cloned results within the current kernel iteration.
   IRMapping kernelMapping;
   for (Operation *user : info.opOrder) {
     int64_t useStage = info.stages.lookup(user);
 
+    // Get or lazily create the stage-adjusted IV.
+    auto &stageIV = adjustedIVs[useStage];
+    if (!stageIV) {
+      Value offset =
+          arith::ConstantIndexOp::create(builder, loc, useStage * info.step);
+      stageIV = arith::SubIOp::create(builder, loc,
+                                      kernelLoop.getInductionVar(), offset);
+    }
+
     IRMapping opMapping;
-    opMapping.map(forOp.getInductionVar(), kernelLoop.getInductionVar());
+    opMapping.map(forOp.getInductionVar(), stageIV);
 
     // Map operands to their appropriate sources:
     // - For cross-stage dependencies (def in earlier stage): use iter_args
@@ -233,7 +240,9 @@ static scf::ForOp emitKernel(scf::ForOp forOp, const LoopPipelineInfo &info,
     // - For same-stage dependencies: use results from ops cloned earlier
     //   in this iteration.
     for (Value use : user->getOperands()) {
-      assert(use != forOp.getInductionVar() && "unexpected IV dependency");
+      // IV is handled via stage-adjusted IV mapping above.
+      if (use == forOp.getInductionVar())
+        continue;
       auto *defOp = use.getDefiningOp();
       if (!defOp) {
         assert(cast<BlockArgument>(use).getOwner()->getParentOp() != forOp &&
