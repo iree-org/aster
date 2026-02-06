@@ -109,6 +109,13 @@ PHASE_EXPAND_MD_OPS = amdgcn_module(
     )
 )
 
+# Convert LDS buffer operations (alloc_lds, get_lds_offset) to constants.
+# Must run after SROA has inlined everything and before lowering to AMDGCN.
+PHASE_CONVERT_LDS_BUFFERS = (
+    "amdgcn-convert-lds-buffers",
+    "canonicalize", "cse",
+)
+
 # Lowering to LSIR and then AMDGCN
 # Note: convert to lsir and AMDGCN after straight-line wait optimization.
 # Note: aster-to-int-arith contains lower-affine without linking in and
@@ -154,6 +161,8 @@ PHASE_CONVERT_WAITS = (
 PHASE_REGISTER_ALLOCATION = amdgcn_module(
     amdgcn_kernel(
         "aster-amdgcn-expand-md-ops",
+        "amdgcn-legalize-operands",
+        # TODO: add bufferization here and go towards side-effects.
         "amdgcn-register-allocation",
         "canonicalize", "cse",
         "amdgcn-legalize-cf",
@@ -190,6 +199,7 @@ NANOBENCH_PASS_PIPELINE = builtin_module(
     PHASE_AFFINE_EXPANSION,
     PHASE_SROA,
     POST_SROA_CLEANUPS,
+    PHASE_CONVERT_LDS_BUFFERS,
     PHASE_EXPAND_MD_OPS,
     PHASE_LOWER_TO_AMDGCN,
     PHASE_REGISTER_ALLOCATION,
@@ -209,6 +219,7 @@ TEST_SYNCHRONOUS_SROA_PASS_PIPELINE = builtin_module(
     PHASE_AFFINE_EXPANSION,
     PHASE_SROA,
     POST_SROA_CLEANUPS,
+    PHASE_CONVERT_LDS_BUFFERS,
     PHASE_EXPAND_MD_OPS,
     # In synchronous mode we do not optimize straight-line waits, we want them
     # exactly as specified by the programmer.
@@ -221,6 +232,10 @@ TEST_SYNCHRONOUS_SROA_PASS_PIPELINE = builtin_module(
 
 # Loop pass pipeline
 TEST_LOOP_PASS_PIPELINE = builtin_module(
+    PHASE_PRE_SCHEDULING_CLEANUP,
+    PHASE_SROA,
+    POST_SROA_CLEANUPS,
+    PHASE_CONVERT_LDS_BUFFERS,
     PHASE_LOWER_TO_AMDGCN,
     PHASE_EXPAND_MD_OPS,
     PHASE_LOWER_TO_AMDGCN,
@@ -254,6 +269,7 @@ DEFAULT_SROA_PASS_PIPELINE = builtin_module(
     PHASE_AFFINE_EXPANSION,
     PHASE_SROA,
     POST_SROA_CLEANUPS,
+    PHASE_CONVERT_LDS_BUFFERS,
     PHASE_EXPAND_MD_OPS,
     PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS,
     PHASE_LOWER_TO_AMDGCN,
@@ -274,6 +290,7 @@ FUTURE_SROA_PASS_PIPELINE = builtin_module(
     PHASE_AFFINE_EXPANSION,
     PHASE_SROA,
     POST_SROA_CLEANUPS,
+    PHASE_CONVERT_LDS_BUFFERS,
     PHASE_EXPAND_MD_OPS,
     PHASE_LOWER_TO_AMDGCN,
     # Convert amdgcn.wait ops to s_waitcnt instructions

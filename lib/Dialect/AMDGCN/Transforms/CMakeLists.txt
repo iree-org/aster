@@ -12,6 +12,7 @@ add_mlir_library(
   HoistOps.cpp
   LDSAlloc.cpp
   LegalizeCF.cpp
+  LegalizeOperands.cpp
   Mem2Reg.cpp
   PreloadLibrary.cpp
   RegisterAlloc.cpp

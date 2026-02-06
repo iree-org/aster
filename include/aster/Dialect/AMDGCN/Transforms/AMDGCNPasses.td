@@ -26,6 +26,23 @@ def AMDGCNConvertWaits : InterfacePass<"amdgcn-convert-waits", "mlir::aster::Mod
   }];
 }
 
+def LegalizeOperands : Pass<"amdgcn-legalize-operands"> {
+  let summary = "Legalize operand constraints for AMDGCN instructions";
+  let description = [{
+    This pass legalizes operand constraints that cannot be satisfied by the
+    hardware encoding. For example, SOP2 instructions allow at most one literal
+    (non-inline) constant operand. If an lsir.select has two non-inline literal
+    operands, this pass materializes one into a register via alloca + s_mov_b32.
+
+    This pass runs before bufferization and register allocation so that the
+    newly created allocas participate in the normal register allocation flow.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::arith::ArithDialect"
+  ];
+}
+
 def Bufferization : Pass<"amdgcn-bufferization"> {
   let summary = "Insert phi-breaking copies to prepare for register allocation";
   let description = [{
