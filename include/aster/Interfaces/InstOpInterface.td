@@ -45,8 +45,8 @@ def InstOpInterface : OpInterface<"InstOpInterface"> {
     >,
     InterfaceMethod<
       "Returns true if the instruction has been register allocated",
-      "bool", "isRegAllocated", (ins), [{}], [{
-        return ::mlir::aster::detail::isRegAllocatedImpl($_op);
+      "bool", "hasPureValueSemantics", (ins), [{}], [{
+        return ::mlir::aster::detail::hasPureValueSemanticsImpl($_op);
       }]
     >,
     InterfaceMethod<

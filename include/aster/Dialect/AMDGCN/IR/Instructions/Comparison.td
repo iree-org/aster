@@ -75,7 +75,7 @@ def AMDGCN_CmpIOp : InstOp<"cmpi", [
 
     /// Returns the speculatability of the operation.
     Speculation::Speculatability getSpeculatability() {
-      return getInstSpeculatability(*this);
+      return aster::detail::getInstSpeculatabilityImpl(*this);
     }
 
     //===------------------------------------------------------------------===//

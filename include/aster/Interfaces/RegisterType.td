@@ -73,6 +73,37 @@ def RegisterTypeInterface : TypeInterface<"RegisterTypeInterface", [
       return $_type.isRelocatable();
     }
   }];
+  let extraSharedClassDeclaration = [{
+    /// This method returns the semantics of the register type.
+    ::mlir::aster::RegisterSemantics getSemantics() const {
+      return $_type.getAsRange().getSemantics();
+    }
+
+    /// This method returns true if the register type has value semantics.
+    bool hasValueSemantics() const {
+      return getSemantics() == ::mlir::aster::RegisterSemantics::Value;
+    }
+
+    /// This method returns true if the register type has unallocated semantics.
+    bool hasUnallocatedSemantics() const {
+      return getSemantics() == ::mlir::aster::RegisterSemantics::Unallocated;
+    }
+
+    /// This method returns true if the register type has allocated semantics.
+    bool hasAllocatedSemantics() const {
+      return getSemantics() == ::mlir::aster::RegisterSemantics::Allocated;
+    }
+
+    /// This method returns a clone of the register type with unallocated semantics.
+    ::mlir::aster::RegisterTypeInterface getAsUnallocated() const {
+      return $_type.cloneRegisterType($_type.getAsRange().getAsUnallocatedRange());
+    }
+
+    /// This method returns a clone of the register type with value semantics.
+    ::mlir::aster::RegisterTypeInterface getAsValue() const {
+      return $_type.cloneRegisterType($_type.getAsRange().getAsValueRange());
+    }
+  }];
 }
 
 #endif // ASTER_REGISTERTYPEINTERFACES

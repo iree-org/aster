@@ -133,7 +133,7 @@ def AMDGCN_DeallocCastOp : AMDGCN_Op<"dealloc_cast", [
     TypesMatchWith<"unallocated result", "input", "output", [{
       [&]() -> Type {
         auto rTy = dyn_cast<RegisterTypeInterface>($_self);
-        return rTy.cloneRegisterType(rTy.getAsRange().getAsRelocatableRange());
+        return rTy.cloneRegisterType(rTy.getAsRange().getAsValueRange());
       }()
     }]>
   ]> {
