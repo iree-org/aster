@@ -184,6 +184,19 @@ LogicalResult DPSAliasAnalysis::visitOperation(
     return success();
   }
 
+  // SelectOp: result aliases the dst operand (DPS semantics).
+  // SelectOp is not InstOpInterface but has a dst operand that provides
+  // storage.
+  if (auto selectOp = dyn_cast<lsir::SelectOp>(op)) {
+    // operandLattices[0] is the dst operand.
+    const auto &eqClassIds = operandLattices[0]->getValue().getEqClassIds();
+    propagateIfChanged(
+        results[0], results[0]->join(AliasEquivalenceClass(
+                        AliasEquivalenceClass::EqClassList(eqClassIds.begin(),
+                                                           eqClassIds.end()))));
+    return success();
+  }
+
   // For other operations, set results to UNKNOWN (conservative).
   // Note: branches and other operations of interest are handled through
   // provenance analysis (used by getOrCreateEqClassId).

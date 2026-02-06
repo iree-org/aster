@@ -800,3 +800,52 @@ amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// lsir.select (non-InstOpInterface DPS op)
+//===----------------------------------------------------------------------===//
+
+// CHECK: === DPS Alias Analysis Results ===
+// CHECK-LABEL: Kernel: select_aliases_dst
+
+// Test: lsir.select result aliases the dst operand (DPS semantics).
+// lsir.select is not InstOpInterface but has a dst operand that provides
+// storage. The analysis must recognize this and assign the result to the
+// same equivalence class as dst, not UNKNOWN.
+// CHECK: amdgcn.kernel @select_aliases_dst {
+// CHECK:   %[[s0:[0-9]*]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[s1:[0-9]*]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[s2:[0-9]*]] = alloca : !amdgcn.sgpr
+// CHECK:   %[[cmp:[0-9]*]] = lsir.cmpi i32 eq %[[s0]]
+// CHECK:   %[[sel1:[0-9]*]] = lsir.select %[[s1]], %[[cmp]]
+// CHECK:   %[[sel2:[0-9]*]] = lsir.select %[[s2]], %[[cmp]]
+// CHECK:   test_inst ins %[[sel1]], %[[sel2]]
+// CHECK:   end_kernel
+// CHECK: }
+// CHECK: Ill-formed IR: no
+// CHECK-NOT: Unknown values
+// CHECK: Equivalence Classes:
+// CHECK-DAG: EqClass {{[0-9]+}}: [%[[s0]]]
+// CHECK-DAG: EqClass {{[0-9]+}}: [%[[s1]], %[[sel1]]]
+// CHECK-DAG: EqClass {{[0-9]+}}: [%[[s2]], %[[sel2]]]
+// CHECK: === End Analysis Results ===
+
+amdgcn.module @dps_alias_tests target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @select_aliases_dst {
+    %c0 = arith.constant 0 : i32
+    %c10 = arith.constant 10 : i32
+    %c20 = arith.constant 20 : i32
+
+    %s0 = alloca : !amdgcn.sgpr
+    %s1 = alloca : !amdgcn.sgpr
+    %s2 = alloca : !amdgcn.sgpr
+
+    %cmp = lsir.cmpi i32 eq %s0, %c0 : !amdgcn.sgpr, i32
+    %sel1 = lsir.select %s1, %cmp, %c10, %c20 : !amdgcn.sgpr, i1, i32, i32
+    %sel2 = lsir.select %s2, %cmp, %c20, %c10 : !amdgcn.sgpr, i1, i32, i32
+    test_inst ins %sel1, %sel2 : (!amdgcn.sgpr, !amdgcn.sgpr) -> ()
+    end_kernel
+  }
+}
