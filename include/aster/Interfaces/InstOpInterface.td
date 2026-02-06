@@ -56,7 +56,18 @@ def InstOpInterface : OpInterface<"InstOpInterface"> {
         // overrides.
         return true;
       }]
-    >
+    >,
+    InterfaceMethod< [{
+        Returns a clone of the instruction with the provided instruction operands and results,
+        if the result types are not provided, the clone will deduce the result types from the
+        instruction operands. Returns nullptr on failure.
+      }],  "::mlir::aster::InstOpInterface", "cloneInst", (ins
+          "::mlir::OpBuilder&":$builder, "::mlir::ValueRange":$outs,
+          "::mlir::ValueRange":$ins, "std::optional<::mlir::TypeRange>":$resultTypes
+        ), [{}], [{
+        return ::mlir::aster::detail::cloneInstOpImpl($_op, builder, outs, ins, resultTypes);
+      }]
+    >,
   ];
   let extraSharedClassDeclaration = [{
     /// Get the instruction input operands.
