@@ -270,3 +270,64 @@ amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+// -----
+
+// Test: lsir.cmpi + lsir.select(i1) -> s_cmp + s_cselect_b32
+
+// CHECK-LABEL: kernel @test_select_i1
+// CHECK:         %[[A:.*]] = sop1 s_mov_b32 outs %{{.*}} ins
+// CHECK:         %[[B:.*]] = sop1 s_mov_b32 outs %{{.*}} ins
+// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc
+// CHECK:         cmpi s_cmp_eq_i32 outs %[[SCC]] ins %[[A]], %[[B]]
+// CHECK:         sop2 s_cselect_b32 outs %{{.*}} ins
+// CHECK:         end_kernel
+amdgcn.module @test_select_i1_mod target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @test_select_i1 {
+    %c0 = arith.constant 0 : i32
+    %c10 = arith.constant 10 : i32
+    %c42 = arith.constant 42 : i32
+    %c99 = arith.constant 99 : i32
+    %alloc0 = amdgcn.alloca : !amdgcn.sgpr<0>
+    %alloc1 = amdgcn.alloca : !amdgcn.sgpr<1>
+    %alloc2 = amdgcn.alloca : !amdgcn.sgpr<2>
+    %a = amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
+    %b = amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
+    %cmp = lsir.cmpi i32 eq %a, %b : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+    %result = lsir.select %alloc2, %cmp, %c42, %c99 : !amdgcn.sgpr<2>, i1, i32, i32
+    amdgcn.end_kernel
+  }
+}
+
+// -----
+
+// Test: multiple lsir.select from one lsir.cmpi (SCC fan-out)
+
+// CHECK-LABEL: kernel @test_select_fanout
+// CHECK:         %[[A:.*]] = sop1 s_mov_b32 outs %{{.*}} ins
+// CHECK:         %[[B:.*]] = sop1 s_mov_b32 outs %{{.*}} ins
+// CHECK:         cmpi s_cmp_eq_i32 outs %{{.*}} ins %[[A]], %[[B]]
+// CHECK:         sop2 s_cselect_b32
+// CHECK:         cmpi s_cmp_eq_i32
+// CHECK:         sop2 s_cselect_b32
+// CHECK:         end_kernel
+amdgcn.module @test_select_fanout_mod target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @test_select_fanout {
+    %c0 = arith.constant 0 : i32
+    %c10 = arith.constant 10 : i32
+    %c1 = arith.constant 1 : i32
+    %c2 = arith.constant 2 : i32
+    %c3 = arith.constant 3 : i32
+    %c4 = arith.constant 4 : i32
+    %alloc0 = amdgcn.alloca : !amdgcn.sgpr<0>
+    %alloc1 = amdgcn.alloca : !amdgcn.sgpr<1>
+    %alloc2 = amdgcn.alloca : !amdgcn.sgpr<2>
+    %alloc3 = amdgcn.alloca : !amdgcn.sgpr<3>
+    %a = amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
+    %b = amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
+    %cmp = lsir.cmpi i32 eq %a, %b : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+    %r1 = lsir.select %alloc2, %cmp, %c1, %c2 : !amdgcn.sgpr<2>, i1, i32, i32
+    %r2 = lsir.select %alloc3, %cmp, %c3, %c4 : !amdgcn.sgpr<3>, i1, i32, i32
+    amdgcn.end_kernel
+  }
+}

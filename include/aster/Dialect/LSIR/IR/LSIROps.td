@@ -761,15 +761,23 @@ def LSIR_RemUIOp : BinaryIOp<"remui"> {
 //===----------------------------------------------------------------------===//
 
 def LSIR_SelectOp : LSIR_Op<"select", [
-    Pure, AllTypesMatch<["dst", "result"]>, InstOpInterface
+    Pure, AllTypesMatch<["dst", "result"]>
   ]> {
   let summary = "Select operation";
   let description = [{
     The `lsir.select` operation selects between two values based on a condition.
+    The condition can be either a register type or i1 (from lsir.cmpi/cmpf).
+
+    When the condition is i1, LegalizeCF fuses the cmpi + select into
+    s_cmp + s_cselect_b32. When the condition is a register, it lowers to
+    a conditional move instruction.
 
     Example:
     ```mlir
-    %result = lsir.select %dst, %cond, %true_val, %false_val : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %result = lsir.select %dst, %cond, %tv, %fv
+      : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+    %result = lsir.select %dst, %i1_cond, %tv, %fv
+      : !amdgcn.sgpr, i1, i32, i32
     ```
   }];
   let arguments = (ins
@@ -782,19 +790,6 @@ def LSIR_SelectOp : LSIR_Op<"select", [
   let assemblyFormat = [{
     $dst `,` $condition `,` $true_value `,` $false_value attr-dict
     `:` type($dst) `,` type($condition) `,` type($true_value) `,` type($false_value)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(1);
-    }
-    /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front(1);
-    }
   }];
 }
 

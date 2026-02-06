@@ -324,9 +324,16 @@ LogicalResult ArithSelectOpPattern::matchAndRewrite(
     ConversionPatternRewriter &rewriter) const {
   Type type = this->converter.convertType(op);
   Value dst = this->createAlloca(rewriter, op.getLoc(), type);
-  rewriter.replaceOpWithNewOp<lsir::SelectOp>(op, dst, adaptor.getCondition(),
-                                              adaptor.getTrueValue(),
-                                              adaptor.getFalseValue());
+  // If the original condition comes from lsir.cmpi/cmpf (i1 result), use the
+  // original value to avoid the type converter wrapping it in a cast.
+  // For block-argument i1 conditions, the type converter correctly maps them
+  // to register types, so we use the adapted value.
+  Value cond = op.getCondition().getDefiningOp<lsir::CmpIOp>() ||
+                       op.getCondition().getDefiningOp<lsir::CmpFOp>()
+                   ? op.getCondition()
+                   : adaptor.getCondition();
+  rewriter.replaceOpWithNewOp<lsir::SelectOp>(
+      op, dst, cond, adaptor.getTrueValue(), adaptor.getFalseValue());
   return success();
 }
 
