@@ -118,3 +118,31 @@ func.func @offset_with_invalid_aligment() {
   %2 = amdgcn.alloc_lds 32 alignment 8 offset 33
   return
 }
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// OpaqueOp Verification
+//===----------------------------------------------------------------------===//
+
+func.func @opaque_invalid_outs_type(%arg0: i32, %arg1: !amdgcn.vgpr<2>, %arg2: !amdgcn.vgpr<3>) -> i32 {
+  // expected-error @+1 {{expected all 'outs' operands to be AMDGCN register types, but got 'i32'}}
+  %0 = amdgcn.opaque "v_add_f32" outs(%arg0) ins(%arg1, %arg2) : (i32, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>) -> i32
+  return %0 : i32
+}
+
+// -----
+
+func.func @opaque_in_mask_mismatch(%arg0: !amdgcn.vgpr<1>, %arg1: !amdgcn.vgpr<2>) -> !amdgcn.vgpr<1> {
+  // expected-error @+1 {{expected the number of 'true' elements in 'in_mask' (2) to match the number of 'ins' operands (1)}}
+  %0 = amdgcn.opaque "v_add_f32" outs(%arg0) ins(%arg1) ins_mask array<i1: true, true, false> : (!amdgcn.vgpr<1>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<1>
+  return %0 : !amdgcn.vgpr<1>
+}
+
+// -----
+
+func.func @opaque_in_mask_mismatch_zero(%arg0: !amdgcn.vgpr<1>, %arg1: !amdgcn.vgpr<2>, %arg2: !amdgcn.vgpr<3>) -> !amdgcn.vgpr<1> {
+  // expected-error @+1 {{expected the number of 'true' elements in 'in_mask' (0) to match the number of 'ins' operands (2)}}
+  %0 = amdgcn.opaque "v_add_f32" outs(%arg0) ins(%arg1, %arg2) ins_mask array<i1: false, false> : (!amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>) -> !amdgcn.vgpr<1>
+  return %0 : !amdgcn.vgpr<1>
+}

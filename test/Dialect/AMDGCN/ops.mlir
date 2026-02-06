@@ -213,3 +213,37 @@ func.func @lds_buffer_ops(%arg0: index, %arg1: index) {
   %2 = amdgcn.alloc_lds 32 offset 64
   return
 }
+
+//===----------------------------------------------------------------------===//
+// OpaqueOp Operations
+//===----------------------------------------------------------------------===//
+
+func.func @opaque_basic(%arg0: !amdgcn.vgpr<1>, %arg1: !amdgcn.vgpr<2>, %arg2: !amdgcn.vgpr<3>) -> !amdgcn.vgpr<1> {
+  %0 = amdgcn.opaque "v_add_f32" outs(%arg0) ins(%arg1, %arg2) modifiers("offset(0)", neg) : (!amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>) -> !amdgcn.vgpr<1>
+  return %0 : !amdgcn.vgpr<1>
+}
+
+func.func @opaque_no_outs(%arg0: !amdgcn.vgpr<1>, %arg1: !amdgcn.vgpr<2>) {
+  amdgcn.opaque "v_mov_b32" ins(%arg0, %arg1) : (!amdgcn.vgpr<1>, !amdgcn.vgpr<2>) -> ()
+  return
+}
+
+func.func @opaque_no_ins(%arg0: !amdgcn.vgpr<1>) -> !amdgcn.vgpr<1> {
+  %0 = amdgcn.opaque "v_nop" outs(%arg0) : (!amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
+  return %0 : !amdgcn.vgpr<1>
+}
+
+func.func @opaque_with_ins_mask(%arg0: !amdgcn.vgpr<1>, %arg1: !amdgcn.vgpr<2>) -> !amdgcn.vgpr<1> {
+  %0 = amdgcn.opaque "v_add_f32" outs(%arg0) ins(%arg1) ins_mask array<i1: true, false> : (!amdgcn.vgpr<1>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<1>
+  return %0 : !amdgcn.vgpr<1>
+}
+
+func.func @opaque_multiple_results(%arg0: !amdgcn.vgpr<1>, %arg1: !amdgcn.vgpr<2>) -> (!amdgcn.vgpr<1>) {
+  %0 = amdgcn.opaque "v_div_scale_f32" outs(%arg0) ins(%arg1) : (!amdgcn.vgpr<1>, !amdgcn.vgpr<2>) -> (!amdgcn.vgpr<1>)
+  return %0 : !amdgcn.vgpr<1>
+}
+
+func.func @opaque_sgpr_and_vgpr(%arg0: !amdgcn.sgpr<1>, %arg1: !amdgcn.vgpr<2>, %arg2: !amdgcn.vgpr<3>) -> !amdgcn.sgpr<1> {
+  %0 = amdgcn.opaque "v_add_f32" outs(%arg0) ins(%arg1, %arg2) : (!amdgcn.sgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>) -> !amdgcn.sgpr<1>
+  return %0 : !amdgcn.sgpr<1>
+}

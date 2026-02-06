@@ -237,6 +237,52 @@ def GridDimArgAttr : AMDGCN_Attr<"GridDimArg", "grid_dim_arg", [
 }
 
 //===----------------------------------------------------------------------===//
+// OpaqueModifier attribute
+//===----------------------------------------------------------------------===//
+
+/// AMDGCN opaque modifier attribute.
+def OpaqueModifierAttr : AMDGCN_Attr<"OpaqueModifier", "opaque_modifier"> {
+  let summary = "AMDGCN opaque modifier attribute";
+  let description = [{
+    Attribute representing an opaque modifier with a string value.
+
+    Example:
+
+    ```mlir
+    #amdgcn.opaque_modifier<"neg">
+    ```
+  }];
+  let parameters = (ins StringRefParameter<>:$value);
+  let assemblyFormat = "`<` $value `>`";
+}
+
+//===----------------------------------------------------------------------===//
+// ModifiersAttr attribute
+//===----------------------------------------------------------------------===//
+
+def ModifiersAttr
+  : ArrayOfAttr<AMDGCN_Dialect, "Modifiers", "modifiers",
+                "::mlir::aster::amdgcn::OpaqueModifierAttr"> {
+  let summary = "AMDGCN modifiers list attribute";
+  let description = [{
+    Attribute representing a list of opaque modifiers.
+
+    Example:
+
+    ```mlir
+    #amdgcn.modifiers<[#amdgcn.opaque_modifier<"neg">, #amdgcn.opaque_modifier<"abs">]>
+    ```
+  }];
+  let constBuilderCall = [{
+    $_builder.getAttr<ModifiersAttr>(ArrayRef<OpaqueModifierAttr>($0))
+  }];
+  let defaultValue = "{}";
+  let assemblyFormat = [{
+    `<`(`[` $value^ `]`)? `>`
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Kernel arguments attribute
 //===----------------------------------------------------------------------===//
 

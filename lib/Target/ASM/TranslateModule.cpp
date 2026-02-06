@@ -61,6 +61,42 @@ static void printLSOffset(amdgcn::AsmPrinter &printer, AMDGCNInstOpInterface op,
 /// Prints the given instruction using the AsmPrinter.
 static llvm::LogicalResult printInstruction(amdgcn::AsmPrinter &printer,
                                             AMDGCNInstOpInterface op) {
+  if (auto opaque = dyn_cast<OpaqueOp>(op.getOperation())) {
+    // Print: mnemonic outs ins modifiers
+    auto guard = printer.printMnemonic(opaque.getMnemonic());
+
+    // Print outs operands.
+    llvm::interleave(
+        opaque.getOuts(), printer.getStream(),
+        [&](Value out) { printer.printOperand(out); }, ",");
+
+    bool requiresComma = !opaque.getOuts().empty();
+    // Print ins operands - check in_mask: if true print operand, else "off".
+    int64_t insIdx = 0;
+    for (bool inMask : opaque.getInMask()) {
+      if (requiresComma)
+        printer.getStream() << ",";
+      requiresComma = true;
+      if (inMask) {
+        // Print the actual operand.
+        printer.printOperand(opaque.getIns()[insIdx++]);
+        continue;
+      }
+      printer.printKeyword("off");
+    }
+
+    // Print modifiers - each entry in the array literally.
+    if (std::optional<ArrayRef<OpaqueModifierAttr>> modifiers =
+            opaque.getModifiers();
+        modifiers && !modifiers->empty()) {
+      printer.getStream() << " ";
+      auto printMod = [&](OpaqueModifierAttr mod) {
+        printer.getStream() << mod.getValue();
+      };
+      llvm::interleave(*modifiers, printer.getStream(), printMod, " ");
+    }
+    return success();
+  }
   OpCode opcode = op.getOpcodeAttr().getValue();
   assert(opcode != OpCode::Invalid && "invalid opcode in instruction");
   if (_instPrinters.size() <= static_cast<size_t>(opcode) ||
