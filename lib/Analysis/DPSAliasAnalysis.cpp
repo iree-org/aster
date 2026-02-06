@@ -211,7 +211,7 @@ void DPSAliasAnalysis::setToEntryState(
   // Initialize block arguments to uninitialized (bottom of lattice). They will
   // receive concrete equivalence class IDs via dataflow from incoming edges
   // (cf.br, cf.cond_br). If conflicting information arrives, only then will the
-  // join sproduce TOP.
+  // join produce CONFLICT.
   propagateIfChanged(lattice,
                      lattice->join(AliasEquivalenceClass::getUninitialized()));
 }

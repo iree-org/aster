@@ -112,6 +112,14 @@ LogicalResult ValueProvenanceAnalysis::visitOperation(
     return success();
   }
 
+  // SelectOp: result provenance comes from the dst operand (DPS semantics).
+  // But the op itself is not InstOpInterface, because of i1 handling / bbargs.
+  if (isa<lsir::SelectOp>(op)) {
+    propagateIfChanged(results[0],
+                       results[0]->join(operandLattices[0]->getValue()));
+    return success();
+  }
+
   // Other ops don't originate from allocas.
   setAllToEntryStates(results);
 
