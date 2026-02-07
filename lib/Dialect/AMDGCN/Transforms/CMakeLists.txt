@@ -14,13 +14,16 @@ add_mlir_library(
   LegalizeCF.cpp
   LegalizeOperands.cpp
   Mem2Reg.cpp
+  Pipelines.cpp
   PreloadLibrary.cpp
   RegisterAlloc.cpp
+  RegisterColoring.cpp
   RegisterDealloc.cpp
   RemoveTestInst.cpp
   SetABI.cpp
   ToAMDGCN.cpp
   ToAMDGCNPatterns.cpp
+  ToRegisterSemantics.cpp
 
   DEPENDS
   AMDGCNPassesIncGen

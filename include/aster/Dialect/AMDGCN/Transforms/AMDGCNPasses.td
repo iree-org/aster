@@ -46,26 +46,35 @@ def LegalizeOperands : Pass<"amdgcn-legalize-operands"> {
 def Bufferization : Pass<"amdgcn-bufferization"> {
   let summary = "Insert phi-breaking copies to prepare for register allocation";
   let description = [{
-    This pass runs value provenance analysis and inserts copy instructions before
-    branches that pass alloca-derived values to block arguments where multiple
-    allocas merge (phi-coalescing scenarios).
-
-    When multiple allocas flow to the same block argument, they are "phi-equivalent"
-    and traditionally share a register. However, if those allocas interfere (both
-    live at some point), they need separate registers.
+    This pass inserts copies to remove potentially clobbered values, and removes
+    phi-nodes arguments with register value semantics. Phi-nodes are handled by
+    inserting allocations at dominator points and copying the values to the new
+    allocations.
 
     This can be viewed as a "bufferization" pass that prepares the IR to go out
     of DPS semantics towards side-effects and before register allocation.
 
-    This pass should run just before register allocation.
+    This pass should run just before register coloring.
   }];
-  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::aster::lsir::LSIRDialect"
+  ];
 }
 
 def RegisterAlloc : Pass<"amdgcn-register-allocation"> {
   let summary = "Perform register allocation for AMDGCN kernels";
   let dependentDialects = [
     "mlir::aster::amdgcn::AMDGCNDialect", "mlir::aster::lsir::LSIRDialect"];
+}
+
+def RegisterColoring : Pass<"amdgcn-register-coloring"> {
+  let summary = "Perform register coloring for functions";
+  let description = [{
+    This pass performs register coloring analysis on functions using
+    liveness analysis to determine live ranges and assign registers accordingly.
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
 }
 
 def RegisterDealloc : Pass<"amdgcn-register-dealloc"> {
@@ -162,7 +171,7 @@ def AMDGCNNopInsertion : Pass<"amdgcn-nop-insertion"> {
   ];
 }
 
-def HoistOps : InterfacePass<"aster-hoist-ops", "::mlir::FunctionOpInterface"> {
+def HoistOps : Pass<"aster-hoist-ops"> {
   let summary = "Hoist special AMDGCN operations to the entry block";
 }
 
@@ -296,6 +305,17 @@ def LegalizeCF : Pass<"amdgcn-legalize-cf"> {
     "mlir::aster::amdgcn::AMDGCNDialect",
     "mlir::arith::ArithDialect",
     "mlir::cf::ControlFlowDialect"
+  ];
+}
+
+def ToRegisterSemantics : Pass<"amdgcn-to-register-semantics"> {
+  let summary = "Convert value allocas to unallocated register semantics";
+  let description = [{
+    This pass propagates register semantics through the IR.
+    This pass should run before register allocation.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect"
   ];
 }
 

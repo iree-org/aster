@@ -25,6 +25,14 @@ namespace amdgcn {
 
 /// Populate the given pattern list with instruction selection patterns.
 void populateToAMDGCNPatterns(RewritePatternSet &patterns);
+
+//===----------------------------------------------------------------------===//
+// Pass Pipelines
+//===----------------------------------------------------------------------===//
+
+/// Register the RegAlloc pass pipeline.
+void registerRegAllocPassPipeline();
+
 } // namespace amdgcn
 } // namespace mlir::aster
 
