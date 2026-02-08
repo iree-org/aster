@@ -16,6 +16,7 @@ add_mlir_library(
   Mem2Reg.cpp
   PreloadLibrary.cpp
   RegisterAlloc.cpp
+  RegisterColoring.cpp
   RegisterDealloc.cpp
   RemoveTestInst.cpp
   SetABI.cpp

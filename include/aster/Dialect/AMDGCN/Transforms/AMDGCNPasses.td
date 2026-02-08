@@ -68,6 +68,16 @@ def RegisterAlloc : Pass<"amdgcn-register-allocation"> {
     "mlir::aster::amdgcn::AMDGCNDialect", "mlir::aster::lsir::LSIRDialect"];
 }
 
+def RegisterColoring : Pass<"amdgcn-register-coloring"> {
+  let summary = "Perform register coloring for functions";
+  let description = [{
+    This pass performs register coloring on functions. It uses liveness analysis
+    to determine live ranges, create the interference graph, and assign registers
+    accordingly. This pass should run after bufferization, and to register semantics.
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+}
+
 def RegisterDealloc : Pass<"amdgcn-register-dealloc"> {
   let summary = "Convert a register allocated kernel to an unallocated one";
 }
