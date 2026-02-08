@@ -17,6 +17,15 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TestAMDGCNInterferenceAnalysis : Pass<"test-amdgcn-interference-analysis"> {
+  let summary = "Test pass for AMDGCN register interference analysis";
+  let description = [{
+    This pass runs AMDGCN register interference analysis and prints the
+    interference graph in DOT format. Use this to verify that interference
+    edges are correctly computed between live values.
+  }];
+}
+
 def TestAMDGCNRangeAnalysis : Pass<"test-amdgcn-range-analysis"> {
   let summary = "Test pass for AMDGCN register range constraint analysis";
   let description = [{

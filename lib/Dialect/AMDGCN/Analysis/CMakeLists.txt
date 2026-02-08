@@ -3,6 +3,7 @@ add_mlir_library(
   BufferAnalysis.cpp
   LDSInterferenceGraph.cpp
   RangeConstraintAnalysis.cpp
+  RegisterInterferenceGraph.cpp
   RegisterLiveness.cpp
   Utils.cpp
   WaitAnalysis.cpp
@@ -12,6 +13,7 @@ add_mlir_library(
 
   LINK_LIBS PUBLIC
   AMDGCNDialect
+  ASTERIR
   ASTERSupport
 
   AMDGCNDialect
