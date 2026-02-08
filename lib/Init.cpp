@@ -378,6 +378,7 @@ void mlir::aster::initDialects(DialectRegistry &registry) {
 
 void mlir::aster::registerPasses() {
   amdgcn::registerAMDGCNPasses();
+  amdgcn::registerRegAllocPassPipeline();
   aster_utils::registerAsterUtilsPasses();
   aster::registerAsterPasses();
   aster::registerCodeGenPasses();
