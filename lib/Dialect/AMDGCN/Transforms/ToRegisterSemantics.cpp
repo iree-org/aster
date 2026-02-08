@@ -249,8 +249,12 @@ LogicalResult InstOpPattern::matchAndRewrite(InstOpInterface instOp,
       llvm::to_vector_of<Value, 4>(newInst->getResults());
 
   // Forward the output operands to the new results.
-  for (auto &&[result, oldRes, out] : llvm::zip_equal(
-           newResults, instOp.getInstResults(), newInst.getInstOuts())) {
+  int64_t resPos = 0;
+  if (ResultRange range = instOp.getInstResults(); !range.empty())
+    resPos = range.front().getResultNumber();
+  for (auto [oldRes, out] :
+       llvm::zip_equal(instOp.getInstResults(), newInst.getInstOuts())) {
+    Value &result = newResults[resPos++];
     if (result.getType() == oldRes.getType())
       continue;
 
