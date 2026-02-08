@@ -24,6 +24,7 @@ add_mlir_library(
   LSIRDialect
   AsterUtilsDialect
   AsterUtilsTransforms
+  ASTERIR
 
   MLIRAffineDialect
   MLIRAffineTransforms

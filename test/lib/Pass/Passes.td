@@ -17,6 +17,14 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TestAMDGCNLivenessAnalysis : Pass<"test-amdgcn-liveness-analysis"> {
+  let summary = "Test pass for AMDGCN liveness analysis";
+  let description = [{
+    This pass runs AMDGCN liveness analysis and prints the live values
+    before and after each operation in kernel functions.
+  }];
+}
+
 def TestBufferAnalysis : Pass<"test-buffer-analysis"> {
   let summary = "Test pass for buffer analysis";
   let description = [{
