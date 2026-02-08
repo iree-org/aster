@@ -223,13 +223,12 @@ def LSIR_AssumeNoaliasOp : LSIR_Op<"assume_noalias", [
 // CmpFOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CmpFOp : LSIR_Op<"cmpf", [Pure]> {
+def LSIR_CmpFOp : LSIR_Op<"cmpf", [InstOpInterface, Pure]> {
   let summary = "Floating point comparison operation";
   let description = [{
     The `lsir.cmpf` operation compares two floating point values and returns i1.
     The `i1` return value is kept late in the pipeline and is only translated to
     SCC after register allocation, together with cf branch operations.
-    As a consequence of this special behavior, it is not an InstOpInterface.
 
     Example:
     ```mlir
@@ -246,20 +245,38 @@ def LSIR_CmpFOp : LSIR_Op<"cmpf", [Pure]> {
   let assemblyFormat = [{
     $semantics $predicate $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
   }];
+  let extraClassDeclaration = [{
+    //===------------------------------------------------------------------===//
+    // InstOpInterface Methods
+    //===------------------------------------------------------------------===//
+    /// Returns false; comparison ops produce i1 (SCC) not DPS format.
+    bool isDPSInstruction() { return false; }
+    /// Get the instruction output operands.
+    MutableArrayRef<OpOperand> getInstOutsMutable() {
+      return getOperation()->getOpOperands().slice(0, 0);
+    }
+    /// Get the instruction input operands.
+    MutableArrayRef<OpOperand> getInstInsMutable() {
+      return getOperation()->getOpOperands();
+    }
+    /// Get the instruction results.
+    ResultRange getInstResults() {
+      return getOperation()->getResults().slice(0, 0);
+    }
+  }];
 }
 
 //===----------------------------------------------------------------------===//
 // CmpIOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CmpIOp : LSIR_Op<"cmpi", [Pure]> {
+def LSIR_CmpIOp : LSIR_Op<"cmpi", [InstOpInterface, Pure]> {
   let summary = "Integer comparison operation";
   let description = [{
     The `lsir.cmpi` operation compares two integer operands according to the
     specified predicate and returns i1.
     The `i1` return value is kept late in the pipeline and is only translated to
     SCC after register allocation, together with cf branch operations.
-    As a consequence of this special behavior, it is not an InstOpInterface.
 
     Example:
     ```mlir
@@ -275,6 +292,25 @@ def LSIR_CmpIOp : LSIR_Op<"cmpi", [Pure]> {
   let results = (outs I1:$result);
   let assemblyFormat = [{
     $semantics $predicate $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+  }];
+  let extraClassDeclaration = [{
+    //===------------------------------------------------------------------===//
+    // InstOpInterface Methods
+    //===------------------------------------------------------------------===//
+    /// Returns false; comparison ops produce i1 (SCC) not DPS format.
+    bool isDPSInstruction() { return false; }
+    /// Get the instruction output operands.
+    MutableArrayRef<OpOperand> getInstOutsMutable() {
+      return getOperation()->getOpOperands().slice(0, 0);
+    }
+    /// Get the instruction input operands.
+    MutableArrayRef<OpOperand> getInstInsMutable() {
+      return getOperation()->getOpOperands();
+    }
+    /// Get the instruction results.
+    ResultRange getInstResults() {
+      return getOperation()->getResults().slice(0, 0);
+    }
   }];
 }
 
@@ -761,7 +797,8 @@ def LSIR_RemUIOp : BinaryIOp<"remui"> {
 //===----------------------------------------------------------------------===//
 
 def LSIR_SelectOp : LSIR_Op<"select", [
-    Pure, AllTypesMatch<["dst", "result"]>
+    AllTypesMatch<["dst", "result"]>, InstOpInterface,
+    ConditionallySpeculatable, MemoryEffectsOpInterface
   ]> {
   let summary = "Select operation";
   let description = [{
@@ -790,6 +827,31 @@ def LSIR_SelectOp : LSIR_Op<"select", [
   let assemblyFormat = [{
     $dst `,` $condition `,` $true_value `,` $false_value attr-dict
     `:` type($dst) `,` type($condition) `,` type($true_value) `,` type($false_value)
+  }];
+  let extraClassDeclaration = [{
+    /// Returns the speculatability of the operation.
+    Speculation::Speculatability getSpeculatability() {
+      return aster::detail::getInstSpeculatabilityImpl(*this);
+    }
+
+    /// Returns the memory effects of the operation.
+    void getEffects(
+        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+            &effects) {
+      return aster::detail::getInstEffectsImpl(*this, effects);
+    }
+
+    //===------------------------------------------------------------------===//
+    // InstOpInterface Methods
+    //===------------------------------------------------------------------===//
+    /// Get the instruction output operands.
+    MutableArrayRef<OpOperand> getInstOutsMutable() {
+      return getOperation()->getOpOperands().take_front(1);
+    }
+    /// Get the instruction input operands.
+    MutableArrayRef<OpOperand> getInstInsMutable() {
+      return getOperation()->getOpOperands().drop_front(1);
+    }
   }];
 }
 
