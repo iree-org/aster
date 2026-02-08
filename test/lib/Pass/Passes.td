@@ -17,6 +17,15 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TestAMDGCNRangeAnalysis : Pass<"test-amdgcn-range-analysis"> {
+  let summary = "Test pass for AMDGCN register range constraint analysis";
+  let description = [{
+    This pass runs AMDGCN register range constraint analysis and prints the
+    range constraints including allocations and alignment. Use this to verify
+    that range constraints are correctly computed and satisfiable.
+  }];
+}
+
 def TestAMDGCNLivenessAnalysis : Pass<"test-amdgcn-liveness-analysis"> {
   let summary = "Test pass for AMDGCN liveness analysis";
   let description = [{

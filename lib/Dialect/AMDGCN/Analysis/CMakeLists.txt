@@ -2,6 +2,7 @@ add_mlir_library(
   AMDGCNAnalysis
   BufferAnalysis.cpp
   LDSInterferenceGraph.cpp
+  RangeConstraintAnalysis.cpp
   RegisterLiveness.cpp
   Utils.cpp
   WaitAnalysis.cpp
