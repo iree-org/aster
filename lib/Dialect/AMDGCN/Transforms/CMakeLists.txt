@@ -22,6 +22,7 @@ add_mlir_library(
   SetABI.cpp
   ToAMDGCN.cpp
   ToAMDGCNPatterns.cpp
+  ToRegisterSemantics.cpp
 
   DEPENDS
   AMDGCNPassesIncGen

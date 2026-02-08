@@ -309,4 +309,17 @@ def LegalizeCF : Pass<"amdgcn-legalize-cf"> {
   ];
 }
 
+def ToRegisterSemantics : Pass<"amdgcn-to-register-semantics"> {
+  let summary = "Propagate non-value register semantics through the IR";
+  let description = [{
+    This pass propagates non-value register semantics through the IR. It converts
+    value allocas to unallocated allocas, and propogates them through the IR.
+    After this pass, no instruction resuls should be used other operations.
+    This pass should run after bufferization, and before register coloring.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect"
+  ];
+}
+
 #endif // AMDGCN_PASSES
