@@ -46,30 +46,30 @@ public:
 //===----------------------------------------------------------------------===//
 
 void HoistOps::runOnOperation() {
-  FunctionOpInterface op = getOperation();
+  getOperation()->walk([&](FunctionOpInterface op) {
+    // Get entry block.
+    Block *entryBlock{};
+    if (Region &region = op.getFunctionBody(); !region.empty())
+      entryBlock = &region.front();
 
-  // Get entry block.
-  Block *entryBlock{};
-  if (Region &region = op.getFunctionBody(); !region.empty())
-    entryBlock = &region.front();
-
-  // Early exit if no entry block.
-  if (!entryBlock || entryBlock->empty())
-    return;
-
-  // Collect all ops to hoist.
-  SetVector<Operation *> opList;
-  op.walk([&](Operation *op) {
-    if (!isa<AllocaOp, ThreadIdOp, BlockDimOp, BlockIdOp, LoadArgOp>(op) &&
-        !op->hasTrait<OpTrait::ConstantLike>())
+    // Early exit if no entry block.
+    if (!entryBlock || entryBlock->empty())
       return;
-    opList.insert(op);
-  });
-  SetVector<Operation *> sortedOps = mlir::topologicalSort(opList);
-  IRRewriter rewriter(op.getContext());
-  for (Operation *hoistOp : llvm::reverse(sortedOps.getArrayRef()))
-    rewriter.moveOpBefore(hoistOp, entryBlock, entryBlock->begin());
 
-  auto &dominance = getAnalysis<DominanceInfo>();
-  eliminateCommonSubExpressions(rewriter, dominance, op, nullptr);
+    // Collect all ops to hoist.
+    SetVector<Operation *> opList;
+    op.walk([&](Operation *op) {
+      if (!isa<AllocaOp, ThreadIdOp, BlockDimOp, BlockIdOp, LoadArgOp>(op) &&
+          !op->hasTrait<OpTrait::ConstantLike>())
+        return;
+      opList.insert(op);
+    });
+    SetVector<Operation *> sortedOps = mlir::topologicalSort(opList);
+    IRRewriter rewriter(op.getContext());
+    for (Operation *hoistOp : llvm::reverse(sortedOps.getArrayRef()))
+      rewriter.moveOpBefore(hoistOp, entryBlock, entryBlock->begin());
+
+    auto &dominance = getAnalysis<DominanceInfo>();
+    eliminateCommonSubExpressions(rewriter, dominance, op, nullptr);
+  });
 }

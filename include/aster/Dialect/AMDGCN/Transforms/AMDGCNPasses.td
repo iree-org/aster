@@ -162,7 +162,7 @@ def AMDGCNNopInsertion : Pass<"amdgcn-nop-insertion"> {
   ];
 }
 
-def HoistOps : InterfacePass<"aster-hoist-ops", "::mlir::FunctionOpInterface"> {
+def HoistOps : Pass<"aster-hoist-ops"> {
   let summary = "Hoist special AMDGCN operations to the entry block";
 }
 
