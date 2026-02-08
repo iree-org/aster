@@ -4,6 +4,7 @@ add_public_tablegen_target(ASTERTestPassesIncGen)
 
 add_mlir_library(ASTERTestPass
   Passes.cpp
+  TestAMDGCNLivenessAnalysis.cpp
   TestBufferAnalysis.cpp
   TestDPSAliasAnalysis.cpp
   TestInterferenceAnalysis.cpp
@@ -25,6 +26,7 @@ add_mlir_library(ASTERTestPass
   MLIRFuncDialect
   MLIRIR
   MLIRPass
+  ASTERIR
 )
 
 target_include_directories(ASTERTestPass PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
