@@ -315,6 +315,56 @@ def LSIR_CmpIOp : LSIR_Op<"cmpi", [InstOpInterface, Pure]> {
 }
 
 //===----------------------------------------------------------------------===//
+// CopyOp
+//===----------------------------------------------------------------------===//
+
+def LSIR_CopyOp : LSIR_Op<"copy", [
+    AllTypesMatch<["target", "result"]>, InstOpInterface,
+    ConditionallySpeculatable, MemoryEffectsOpInterface
+  ]> {
+  let summary = "Copy operation";
+  let description = [{
+    The `lsir.copy` operation copies a value from a source register to a target
+    register. The target and result types must match.
+
+    Example:
+    ```mlir
+    %result = lsir.copy %target, %source : !amdgcn.vgpr, !amdgcn.vgpr
+    ```
+  }];
+  let arguments = (ins RegType:$target, RegType:$source);
+  let results = (outs RegType:$result);
+  let assemblyFormat = [{
+    $target `,` $source attr-dict `:` type($target) `,` type($source)
+  }];
+  let extraClassDeclaration = [{
+    /// Returns the speculatability of the operation.
+    Speculation::Speculatability getSpeculatability() {
+      return aster::detail::getInstSpeculatabilityImpl(*this);
+    }
+
+    /// Returns the memory effects of the operation.
+    void getEffects(
+        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+            &effects) {
+      return aster::detail::getInstEffectsImpl(*this, effects);
+    }
+
+    //===------------------------------------------------------------------===//
+    // InstOpInterface Methods
+    //===------------------------------------------------------------------===//
+    /// Get the instruction output operands.
+    MutableArrayRef<OpOperand> getInstOutsMutable() {
+      return getOperation()->getOpOperands().take_front(1);
+    }
+    /// Get the instruction input operands.
+    MutableArrayRef<OpOperand> getInstInsMutable() {
+      return getOperation()->getOpOperands().drop_front(1);
+    }
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // DivFOp
 //===----------------------------------------------------------------------===//
 

@@ -130,6 +130,11 @@ func.func @test_mov(%dst: !amdgcn.vgpr, %value: !amdgcn.vgpr) -> !amdgcn.vgpr {
   return %0 : !amdgcn.vgpr
 }
 
+func.func @test_copy(%dst: !amdgcn.vgpr, %value: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %0 = lsir.copy %dst, %value : !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : !amdgcn.vgpr
+}
+
 func.func @test_timing_start() -> !amdgcn.sgpr_range<[? + 2]> {
   %start_time = lsir.timing_start : !amdgcn.sgpr_range<[? + 2]>
   return %start_time : !amdgcn.sgpr_range<[? + 2]>
