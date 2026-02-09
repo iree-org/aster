@@ -14,7 +14,6 @@ add_mlir_library(
   LegalizeCF.cpp
   LegalizeOperands.cpp
   Mem2Reg.cpp
-  Pipelines.cpp
   PreloadLibrary.cpp
   RegisterAlloc.cpp
   RegisterColoring.cpp
