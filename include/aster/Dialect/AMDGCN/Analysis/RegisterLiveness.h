@@ -112,6 +112,10 @@ public:
   /// Set the lattice to the exit state.
   void setToExitState(RegisterLivenessState *lattice) override;
 
+  /// Return true if the liveness analysis is incomplete. This is raised if
+  /// value semantics are detected.
+  bool isIncompleteLiveness() const { return incompleteLiveness; }
+
 private:
   /// Handle propagation when either of the states are top. Returns true if
   /// either state is top.
@@ -122,6 +126,7 @@ private:
   void transferFunction(const RegisterLivenessState &after,
                         RegisterLivenessState *before, ValueRange deadValues,
                         ValueRange inValues);
+  bool incompleteLiveness = false;
 };
 } // namespace amdgcn
 } // namespace mlir::aster
