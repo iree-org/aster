@@ -84,7 +84,37 @@ class TestLdsPipelineAccum:
         assert output[0] == 18, f"expected 18, got {output[0]}"
 
 
+class TestLdsPipelineSixStage:
+    """Six-stage double-LDS hop: global_load -> ds_write_A -> ds_read_A -> ds_write_B -> ds_read_B -> global_store.
+
+    Two alloc_lds each spanning all 6 stages produce 6 buffers each (12 total)
+    after multibuffer prep. 10 iterations, input[i] passed through two LDS hops.
+    Expected: output[i] = input[i] for i in [0..10)
+
+    KNOWN BUG: pipeliner crashes on cross-stage value gaps > 1 (Bug 8).
+    Mark xfail until the pipeliner is fixed.
+    """
+
+    import pytest
+
+    def test_lds_six_stage(self):
+        num_iters = 10
+        input_data = np.arange(num_iters, dtype=np.int32) * 11
+        output = np.zeros(num_iters, dtype=np.int32)
+        compile_and_run(
+            "test_scf_pipeline_lds.mlir",
+            "test_lds_six_stage",
+            input_data=input_data,
+            output_data=output,
+            block_dim=(64, 1, 1),
+            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            library_paths=[],
+        )
+        np.testing.assert_array_equal(output, input_data)
+
+
 if __name__ == "__main__":
     TestLdsPipelinePassthrough().test_lds_passthrough()
     TestLdsPipelineIVDep().test_lds_iv_dep()
     TestLdsPipelineAccum().test_lds_accum()
+    TestLdsPipelineSixStage().test_lds_six_stage()

@@ -26,6 +26,7 @@
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -118,13 +119,17 @@ LogicalResult LegalizeCF::lowerCondBranch(cf::CondBranchOp condBr) {
 
   // Create SCC allocation for the compare result
   Type sccType = SCCType::get(rewriter.getContext());
-  Value scc = AllocaOp::create(rewriter, loc, sccType);
+  Value scc;
 
   // Create the s_cmp_* instruction (sets SCC)
-  OpCode cmpOpCode = getCompareOpCode(cmpOp.getPredicate());
-  amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),
-                         cmpOp.getRhs());
-
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(cmpOp);
+    scc = AllocaOp::create(rewriter, loc, sccType);
+    OpCode cmpOpCode = getCompareOpCode(cmpOp.getPredicate());
+    amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),
+                           cmpOp.getRhs());
+  }
   // Create conditional branch based on which destination is the next physical
   // block. The fallthrough target must be the next block.
   Block *trueDest = condBr.getTrueDest();
@@ -210,13 +215,17 @@ LogicalResult LegalizeCF::lowerSelect(lsir::SelectOp selectOp) {
 
   // Create SCC allocation for the compare result.
   Type sccType = SCCType::get(rewriter.getContext());
-  Value scc = AllocaOp::create(rewriter, loc, sccType);
+  Value scc;
 
   // Create the s_cmp_* instruction (sets SCC).
-  OpCode cmpOpCode = getCompareOpCode(cmpOp.getPredicate());
-  amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),
-                         cmpOp.getRhs());
-
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(cmpOp);
+    OpCode cmpOpCode = getCompareOpCode(cmpOp.getPredicate());
+    scc = AllocaOp::create(rewriter, loc, sccType);
+    amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),
+                           cmpOp.getRhs());
+  }
   // Create s_cselect_b32: sdst = SCC ? src0 : src1.
   // src0 = true_value (selected when SCC=1), src1 = false_value.
   Value sdst = selectOp.getDst();
