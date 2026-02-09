@@ -2,6 +2,7 @@ add_mlir_library(
   AMDGCNTransforms
 
   AMDGCNNopInsertion.cpp
+  AMDGCNBufferization.cpp
   Bufferization.cpp
   AMDGCNOptimizeStraightLineWaits.cpp
   ConvertLDSBuffers.cpp
