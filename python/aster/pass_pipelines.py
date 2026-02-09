@@ -60,6 +60,10 @@ PHASE_SCHEDULING = (
     "aster-op-scheduling",
 )
 
+PHASE_SCF_PIPELINING = (
+    "aster-scf-pipeline",
+)
+
 # Cleanup after scheduling or initially if scheduling is skipped
 PHASE_POST_SCHEDULING_CLEANUP = (
     "aster-selective-inlining{allow-scheduled-calls=true}",
@@ -169,6 +173,17 @@ PHASE_REGISTER_ALLOCATION = amdgcn_module(
     )
 )
 
+PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION = amdgcn_module(
+    amdgcn_kernel(
+        "aster-amdgcn-expand-md-ops",
+        "amdgcn-legalize-operands",
+        "amdgcn-bufferization",
+        "amdgcn-register-allocation",
+        "canonicalize", "cse",
+        "amdgcn-legalize-cf",
+    )
+)
+
 # Note: needs to know about instructions and actual register number for WAW
 # dependencies.
 # TODO: NORMAL FORMS for amdgcn-nop-insertion.
@@ -245,6 +260,22 @@ TEST_LOOP_PASS_PIPELINE = builtin_module(
     PHASE_REGISTER_ALLOCATION
 )
 
+# Loop pipelining pass pipeline
+TEST_SCF_PIPELINING_PASS_PIPELINE = builtin_module(
+    PHASE_PRE_SCHEDULING_CLEANUP,
+    PHASE_SCF_PIPELINING,
+    PHASE_SROA,
+    POST_SROA_CLEANUPS,
+    PHASE_CONVERT_LDS_BUFFERS,
+    PHASE_LOWER_TO_AMDGCN,
+    PHASE_EXPAND_MD_OPS,
+    PHASE_LOWER_TO_AMDGCN,
+    PHASE_CONVERT_WAITS,
+    # TODO: Explain what and why and integrate in the relevant phases.
+    amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
+    PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION
+)
+
 # --------------------------------------------------------------------------- #
 # General pipelines for specific use cases
 # --------------------------------------------------------------------------- #
@@ -306,12 +337,13 @@ FUTURE_SROA_PASS_PIPELINE = builtin_module(
 # Maps short readable names to actual pipeline strings
 PASS_PIPELINES = {
     "default": DEFAULT_SROA_PASS_PIPELINE,
-    "synchronous": TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
-    "future": FUTURE_SROA_PASS_PIPELINE,
-    "nanobench": NANOBENCH_PASS_PIPELINE,
-    "loop": TEST_LOOP_PASS_PIPELINE,
     "empty": EMPTY_PASS_PIPELINE,
+    "future": FUTURE_SROA_PASS_PIPELINE,
+    "loop": TEST_LOOP_PASS_PIPELINE,
     "minimal": MINIMAL_PASS_PIPELINE,
+    "nanobench": NANOBENCH_PASS_PIPELINE,
+    "synchronous": TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
+    "scf-pipelining": TEST_SCF_PIPELINING_PASS_PIPELINE,
 }
 
 
