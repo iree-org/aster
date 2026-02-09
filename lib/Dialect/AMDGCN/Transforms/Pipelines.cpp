@@ -36,6 +36,7 @@ using namespace mlir::aster::amdgcn;
 static void buildRegAllocPassPipeline(OpPassManager &pm) {
   pm.addPass(createAMDGCNBufferization());
   pm.addPass(createToRegisterSemantics());
+  pm.addPass(createRegisterDCE());
   pm.addPass(createRegisterColoring());
   pm.addPass(createHoistOps());
 }

@@ -20,6 +20,7 @@ add_mlir_library(
   RegisterAlloc.cpp
   RegisterColoring.cpp
   RegisterDealloc.cpp
+  RegisterDCE.cpp
   RemoveTestInst.cpp
   SetABI.cpp
   ToAMDGCN.cpp

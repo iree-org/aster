@@ -1,0 +1,110 @@
+//===- RegisterDCE.cpp - Dead code elimination for register copies
+//---------===//
+//
+// Copyright 2025 The ASTER Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#include "aster/Dialect/AMDGCN/Analysis/RegisterLiveness.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
+#include "mlir/Analysis/DataFlow/Utils.h"
+#include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/SymbolTable.h"
+
+#define DEBUG_TYPE "amdgcn-register-dce"
+
+namespace mlir::aster {
+namespace amdgcn {
+#define GEN_PASS_DEF_REGISTERDCE
+#include "aster/Dialect/AMDGCN/Transforms/Passes.h.inc"
+} // namespace amdgcn
+} // namespace mlir::aster
+
+using namespace mlir;
+using namespace mlir::aster;
+using namespace mlir::aster::amdgcn;
+
+namespace {
+//===----------------------------------------------------------------------===//
+// RegisterDCE pass
+//===----------------------------------------------------------------------===//
+struct RegisterDCE : public amdgcn::impl::RegisterDCEBase<RegisterDCE> {
+  using Base::Base;
+  void runOnOperation() override;
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// Helper functions
+//===----------------------------------------------------------------------===//
+
+static Value getTargetRegister(Operation *op) {
+  if (auto copyOp = dyn_cast<lsir::CopyOp>(op))
+    return copyOp.getTarget();
+
+  if (auto instOp = dyn_cast<inst::VOP1Op>(op);
+      instOp && instOp.getOpcode() == OpCode::V_MOV_B32_E32) {
+    return instOp.getVdst();
+  }
+  if (auto instOp = dyn_cast<inst::SOP1Op>(op);
+      instOp && instOp.getOpcode() == OpCode::S_MOV_B32) {
+    return instOp.getSdst();
+  }
+  return nullptr;
+}
+
+void amdgcn::registerDCE(Operation *op, DataFlowSolver &solver) {
+  op->walk([&](Operation *operation) {
+    Value target = getTargetRegister(operation);
+
+    if (!target)
+      return;
+
+    // Get the liveness state after the operation.
+    const auto *state = solver.lookupState<RegisterLivenessState>(
+        solver.getProgramPointAfter(operation));
+    const RegisterLivenessState::ValueSet *liveValues =
+        state ? state->getLiveValues() : nullptr;
+    if (!liveValues)
+      return;
+
+    // Erase the operation if the target is not live after the operation.
+    if (liveValues->contains(target))
+      return;
+
+    operation->erase();
+  });
+}
+
+//===----------------------------------------------------------------------===//
+// RegisterDCE pass
+//===----------------------------------------------------------------------===//
+void RegisterDCE::runOnOperation() {
+  Operation *op = getOperation();
+
+  DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
+  SymbolTableCollection symbolTable;
+  dataflow::loadBaselineAnalyses(solver);
+  auto *liveness = solver.load<RegisterLiveness>(symbolTable);
+
+  if (failed(solver.initializeAndRun(op))) {
+    op->emitError() << "failed to run RegisterLiveness analysis";
+    return signalPassFailure();
+  }
+
+  if (liveness->isIncompleteLiveness()) {
+    op->emitError()
+        << "failed to run RegisterDCE due to incomplete liveness analysis";
+    return signalPassFailure();
+  }
+
+  registerDCE(op, solver);
+}

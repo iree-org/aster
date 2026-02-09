@@ -242,6 +242,16 @@ def RemoveTestInst : Pass<"amdgcn-remove-test-inst"> {
   }];
 }
 
+def RegisterDCE : Pass<"amdgcn-register-dce"> {
+  let summary = "Dead code elimination for register copy/mov operations";
+  let description = [{
+    This pass performs dead code elimination on copy and mov operations.
+    It runs the RegisterLiveness analysis and removes lsir.copy operations
+    and AMDGCN mov instructions (s_mov_b32, v_mov_b32_e32) whose target
+    register is not live after the operation.
+  }];
+}
+
 def LDSAlloc : Pass<"amdgcn-lds-alloc"> {
   let summary = "Perform LDS buffer allocation analysis";
   let description = [{
