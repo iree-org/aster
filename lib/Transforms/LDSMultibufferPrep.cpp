@@ -101,7 +101,7 @@ static LogicalResult transformLoop(scf::ForOp forOp,
   // Hoist N alloc_lds + get_lds_offset pairs before the loop.
   struct HoistedGroup {
     SmallVector<amdgcn::AllocLDSOp> allocs;
-    SmallVector<Value> offsets; // i32 results of get_lds_offset
+    SmallVector<Value> offsets; // results of get_lds_offset
   };
   SmallVector<HoistedGroup> hoisted;
 
@@ -115,7 +115,8 @@ static LogicalResult transformLoop(scf::ForOp forOp,
           g.allocOp.getAlignment(),
           /*offset=*/IntegerAttr{});
       auto newGetOff = amdgcn::GetLDSOffsetOp::create(
-          builder, loc, builder.getI32Type(), newAlloc.getBuffer());
+          builder, loc, g.getOffsetOp.getResult().getType(),
+          newAlloc.getBuffer());
       hg.allocs.push_back(newAlloc);
       hg.offsets.push_back(newGetOff.getResult());
     }
