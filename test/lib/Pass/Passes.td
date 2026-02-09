@@ -118,4 +118,17 @@ def TestRangeAnalysis : Pass<"test-range-analysis"> {
   }];
 }
 
+def TestLDSMultibufferPrep : Pass<"test-lds-multibuffer-prep"> {
+  let summary = "Test pass for LDS multi-buffer prep transformation";
+  let description = [{
+    This pass runs the LDS multi-buffer prep transformation for testing.
+    In production, this transformation is called directly from the
+    SCF pipelining pass.
+  }];
+  let dependentDialects = [
+    "mlir::scf::SCFDialect",
+    "mlir::aster::amdgcn::AMDGCNDialect",
+  ];
+}
+
 #endif // ASTER_TEST_PASSES
