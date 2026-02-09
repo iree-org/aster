@@ -279,7 +279,8 @@ TEST_SCF_PIPELINING_PASS_PIPELINE = builtin_module(
     PHASE_LOWER_TO_AMDGCN,
     # TODO: Explain what and why and integrate in the relevant phases.
     amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-    PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION
+    PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION,
+    phase_nop_insertion(delays=32)
 )
 
 # --------------------------------------------------------------------------- #
