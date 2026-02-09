@@ -8,10 +8,10 @@
 // CHECK-DAG:       %[[VAL_4:.*]] = alloca : !amdgcn.vgpr<2>
 // CHECK-DAG:       %[[VAL_5:.*]] = alloca : !amdgcn.vgpr<3>
 // CHECK-DAG:       %[[VAL_6:.*]] = alloca : !amdgcn.vgpr<4>
-// CHECK:           %[[COPY_0:.*]] = lsir.copy %[[VAL_6]], %[[VAL_0]] : !amdgcn.vgpr<4>, !amdgcn.vgpr<0>
+// CHECK:           %[[COPY_0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[VAL_6]], %[[VAL_0]] : (!amdgcn.vgpr<4>, !amdgcn.vgpr<0>) -> !amdgcn.vgpr<4>
 // CHECK:           %[[VAL_7:.*]] = test_inst outs %[[VAL_0]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
 // CHECK-DAG:       %[[VAL_8:.*]] = alloca : !amdgcn.vgpr<5>
-// CHECK:           %[[COPY_1:.*]] = lsir.copy %[[VAL_8]], %[[VAL_1]] : !amdgcn.vgpr<5>, !amdgcn.vgpr<1>
+// CHECK:           %[[COPY_1:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[VAL_8]], %[[VAL_1]] : (!amdgcn.vgpr<5>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<5>
 // CHECK:           %[[VAL_9:.*]] = test_inst outs %[[VAL_1]] : (!amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
 // CHECK:           %[[VAL_10:.*]] = make_register_range %[[VAL_6]], %[[VAL_8]] : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>
 // CHECK:           %[[VAL_11:.*]] = make_register_range %[[VAL_6]], %[[VAL_8]], %[[VAL_2]], %[[VAL_3]] : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
@@ -116,7 +116,7 @@ amdgcn.kernel @interference_mixed_with_reuse_undef_values {
 // CHECK-DAG:       %[[VAL_2:.*]] = alloca : !amdgcn.sgpr<0>
 // CHECK-DAG:       %[[VAL_3:.*]] = alloca : !amdgcn.sgpr<1>
 // CHECK-DAG:       %[[VAL_4:.*]] = alloca : !amdgcn.sgpr<2>
-// CHECK:           %[[COPY_0:.*]] = lsir.copy %[[VAL_4]], %[[VAL_3]] : !amdgcn.sgpr<2>, !amdgcn.sgpr<1>
+// CHECK:           %[[COPY_0:.*]] = sop1 s_mov_b32 outs %[[VAL_4]] ins %[[VAL_3]] : !amdgcn.sgpr<2>, !amdgcn.sgpr<1>
 // CHECK:           %[[VAL_5:.*]]:2 = test_inst outs %[[VAL_2]], %[[VAL_3]] : (!amdgcn.sgpr<0>, !amdgcn.sgpr<1>) -> (!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
 // CHECK:           %[[VAL_6:.*]]:2 = test_inst outs %[[VAL_0]], %[[VAL_1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:           %[[VAL_7:.*]] = test_inst outs %[[VAL_0]] ins %[[VAL_2]], %[[VAL_3]] : (!amdgcn.vgpr<0>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>) -> !amdgcn.vgpr<0>
@@ -249,9 +249,8 @@ amdgcn.kernel @no_interference_cf_undef_values {
 // CHECK-DAG:       %[[VAL_5:.*]] = alloca : !amdgcn.vgpr<3>
 // CHECK:           %[[VAL_6:.*]]:2 = test_inst outs %[[VAL_2]], %[[VAL_3]] : (!amdgcn.sgpr<0>, !amdgcn.sgpr<1>) -> (!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
 // CHECK:           %[[VAL_7:.*]]:2 = test_inst outs %[[VAL_4]], %[[VAL_5]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<3>) -> (!amdgcn.vgpr<2>, !amdgcn.vgpr<3>)
-// CHECK:           %[[COPY_0:.*]] = lsir.copy %[[VAL_0]], %[[VAL_0]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<0>
 // CHECK:           %[[VAL_8:.*]] = test_inst outs %[[VAL_0]] ins %[[VAL_2]], %[[VAL_4]] : (!amdgcn.vgpr<0>, !amdgcn.sgpr<0>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<0>
-// CHECK:           %[[COPY_1:.*]] = lsir.copy %[[VAL_0]], %[[VAL_1]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:           %[[COPY_1:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[VAL_0]], %[[VAL_1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<0>
 // CHECK:           %[[VAL_9:.*]] = test_inst outs %[[VAL_1]] ins %[[VAL_3]], %[[VAL_5]] : (!amdgcn.vgpr<1>, !amdgcn.sgpr<1>, !amdgcn.vgpr<3>) -> !amdgcn.vgpr<1>
 // CHECK:           cf.cond_br %[[CALL_0]], ^bb1, ^bb2
 // CHECK:         ^bb1:
@@ -610,4 +609,129 @@ amdgcn.kernel @test_index_bxmxnxk arguments <[#amdgcn.buffer_arg<address_space =
   %result_0, %token_1 = load s_load_dwordx2 dest %9 addr %3 offset c(%c42_i32) : dps(!amdgcn.sgpr_range<[? : ? + 2]>) ins(!amdgcn.sgpr_range<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
   test_inst ins %0, %5 : (!amdgcn.sgpr<2>, !amdgcn.sgpr<?>) -> ()
   end_kernel
+}
+
+// -----
+// CHECK-LABEL:   func.func @copy_single() {
+// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<0>
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
+// CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.sgpr<0>
+// CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.sgpr<1>
+// CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_1]], %[[ALLOCA_2]], %[[ALLOCA_3]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>) -> ()
+// CHECK:           %[[VAL_0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_0]], %[[ALLOCA_1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[VAL_1:.*]] = amdgcn.sop1 s_mov_b32 outs %[[ALLOCA_2]] ins %[[ALLOCA_3]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+// CHECK:           return
+// CHECK:         }
+func.func @copy_single() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %2 = amdgcn.alloca : !amdgcn.sgpr<?>
+  %3 = amdgcn.alloca : !amdgcn.sgpr<?>
+  amdgcn.test_inst ins %0, %1, %2, %3 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>) -> ()
+  %4 = lsir.copy %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %5 = lsir.copy %2, %3 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
+  return
+}
+
+// CHECK-LABEL:   func.func @copy_range_1() {
+// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<0>
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
+// CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.sgpr<0>
+// CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.sgpr<1>
+// CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_1]], %[[ALLOCA_2]], %[[ALLOCA_3]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>) -> ()
+// CHECK:           %[[VAL_0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_0]], %[[ALLOCA_2]] : (!amdgcn.vgpr<0>, !amdgcn.sgpr<0>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[VAL_1:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_3]] : (!amdgcn.vgpr<1>, !amdgcn.sgpr<1>) -> !amdgcn.vgpr<1>
+// CHECK:           return
+// CHECK:         }
+func.func @copy_range_1() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %2 = amdgcn.alloca : !amdgcn.sgpr<?>
+  %3 = amdgcn.alloca : !amdgcn.sgpr<?>
+  amdgcn.test_inst ins %0, %1, %2, %3 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>) -> ()
+  %4 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %5 = amdgcn.make_register_range %2, %3 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
+  %6 = lsir.copy %4, %5 : !amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.sgpr_range<[? : ? + 2]>
+  return
+}
+
+// CHECK-LABEL:   func.func @copy_range_2() {
+// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<0>
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
+// CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr<2>
+// CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr<3>
+// CHECK:           %[[ALLOCA_4:.*]] = amdgcn.alloca : !amdgcn.sgpr<0>
+// CHECK:           %[[ALLOCA_5:.*]] = amdgcn.alloca : !amdgcn.sgpr<1>
+// CHECK:           %[[ALLOCA_6:.*]] = amdgcn.alloca : !amdgcn.sgpr<2>
+// CHECK:           %[[ALLOCA_7:.*]] = amdgcn.alloca : !amdgcn.sgpr<3>
+// CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_1]], %[[ALLOCA_2]], %[[ALLOCA_3]], %[[ALLOCA_4]], %[[ALLOCA_5]], %[[ALLOCA_6]], %[[ALLOCA_7]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>, !amdgcn.sgpr<2>, !amdgcn.sgpr<3>) -> ()
+// CHECK:           %[[VAL_0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_0]], %[[ALLOCA_2]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[VAL_1:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_3]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<3>) -> !amdgcn.vgpr<1>
+// CHECK:           %[[VAL_2:.*]] = amdgcn.sop1 s_mov_b32 outs %[[ALLOCA_4]] ins %[[ALLOCA_6]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<2>
+// CHECK:           %[[VAL_3:.*]] = amdgcn.sop1 s_mov_b32 outs %[[ALLOCA_5]] ins %[[ALLOCA_7]] : !amdgcn.sgpr<1>, !amdgcn.sgpr<3>
+// CHECK:           return
+// CHECK:         }
+func.func @copy_range_2() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %2 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %3 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %4 = amdgcn.alloca : !amdgcn.sgpr<?>
+  %5 = amdgcn.alloca : !amdgcn.sgpr<?>
+  %6 = amdgcn.alloca : !amdgcn.sgpr<?>
+  %7 = amdgcn.alloca : !amdgcn.sgpr<?>
+  amdgcn.test_inst ins %0, %1, %2, %3, %4, %5, %6, %7 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>) -> ()
+  %8 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %9 = amdgcn.make_register_range %2, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %10 = amdgcn.make_register_range %4, %5 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
+  %11 = amdgcn.make_register_range %6, %7 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
+  %12 = lsir.copy %8, %9 : !amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.vgpr_range<[? : ? + 2]>
+  %13 = lsir.copy %10, %11 : !amdgcn.sgpr_range<[? : ? + 2]>, !amdgcn.sgpr_range<[? : ? + 2]>
+  return
+}
+
+// CHECK-LABEL:   func.func @copy_elided() {
+// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<0>
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
+// CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           return
+// CHECK:         }
+func.func @copy_elided() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  amdgcn.test_inst ins %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  %2 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %3 = lsir.copy %2, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  amdgcn.test_inst ins %0, %2 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  return
+}
+
+// CHECK-LABEL:   func.func @copies_mixed() {
+// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<0>
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
+// CHECK:           %[[TEST_INST_0:.*]]:2 = amdgcn.test_inst outs %[[ALLOCA_0]], %[[ALLOCA_1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr<2>
+// CHECK:           %[[VAL_0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_2]], %[[ALLOCA_0]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<0>) -> !amdgcn.vgpr<2>
+// CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr<3>
+// CHECK:           %[[VAL_1:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_3]], %[[ALLOCA_1]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<3>
+// CHECK:           %[[TEST_INST_1:.*]]:2 = amdgcn.test_inst outs %[[ALLOCA_0]], %[[ALLOCA_1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK:           amdgcn.test_inst ins %[[ALLOCA_2]], %[[ALLOCA_3]], %[[ALLOCA_0]], %[[ALLOCA_1]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<3>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           amdgcn.test_inst ins %[[ALLOCA_2]], %[[ALLOCA_3]], %[[ALLOCA_0]], %[[ALLOCA_1]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<3>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           return
+// CHECK:         }
+func.func @copies_mixed() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %2:2 = amdgcn.test_inst outs %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>)
+  %3 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %4 = lsir.copy %3, %0 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %5 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %6 = lsir.copy %5, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %7:2 = amdgcn.test_inst outs %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>)
+  amdgcn.test_inst ins %3, %5, %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  %8 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %9 = lsir.copy %8, %5 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  amdgcn.test_inst ins %3, %8, %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  return
 }
