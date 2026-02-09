@@ -25,6 +25,7 @@
 #define DEBUG_TYPE "amdgcn-register-liveness"
 
 using namespace mlir;
+using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 using namespace mlir::dataflow;
 
@@ -155,11 +156,27 @@ bool RegisterLiveness::handleTopPropagation(const RegisterLivenessState &after,
   return false;
 }
 
+/// Check if any of the values in the range have value semantics.
+static bool checkValueSemantics(ValueRange values) {
+  if (values.empty())
+    return false;
+  return llvm::any_of(values, [](Value v) {
+    auto regTy = dyn_cast<RegisterTypeInterface>(v.getType());
+    return regTy && regTy.hasValueSemantics();
+  });
+}
+
 LogicalResult
 RegisterLiveness::visitOperation(Operation *op,
                                  const RegisterLivenessState &after,
                                  RegisterLivenessState *before) {
   DUMP_STATE_HELPER("op", OpWithFlags(op, OpPrintingFlags().skipRegions()));
+
+  // Check if the operation has value semantics.
+  if (checkValueSemantics(op->getResults()) ||
+      checkValueSemantics(op->getOperands())) {
+    incompleteLiveness = true;
+  }
 
   // Handle top propagation.
   if (handleTopPropagation(after, before))
@@ -201,6 +218,12 @@ void RegisterLiveness::visitBlockTransfer(Block *block, ProgramPoint *point,
   DUMP_STATE_HELPER("block", block);
   if (handleTopPropagation(after, before))
     return;
+
+  // Check if any of the block arguments have value semantics.
+  if (checkValueSemantics(successor->getArguments()) ||
+      checkValueSemantics(block->getArguments()))
+    incompleteLiveness = true;
+
   transferFunction(after, before,
                    llvm::to_vector_of<Value>(successor->getArguments()), {});
 }
@@ -229,9 +252,15 @@ void RegisterLiveness::visitRegionBranchControlFlowTransfer(
                     OpWithFlags(branch, OpPrintingFlags().skipRegions()));
   if (handleTopPropagation(after, before))
     return;
-  transferFunction(
-      after, before,
-      llvm::to_vector_of<Value>(branch.getSuccessorInputs(regionTo)), {});
+
+  ValueRange inputs = branch.getSuccessorInputs(regionTo);
+  ValueRange operands = branch.getSuccessorOperands(regionFrom, regionTo);
+
+  // Check if any of the block arguments have value semantics.
+  if (checkValueSemantics(inputs) || checkValueSemantics(operands))
+    incompleteLiveness = true;
+
+  transferFunction(after, before, inputs, {});
 }
 
 void RegisterLiveness::setToExitState(RegisterLivenessState *lattice) {

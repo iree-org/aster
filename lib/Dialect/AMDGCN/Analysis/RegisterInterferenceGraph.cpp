@@ -154,12 +154,19 @@ FailureOr<RegisterInterferenceGraph>
 RegisterInterferenceGraph::create(Operation *op, DataFlowSolver &solver,
                                   SymbolTableCollection &symbolTable) {
   // Load the register liveness analysis.
-  solver.load<RegisterLiveness>(symbolTable);
+  auto *liveness = solver.load<RegisterLiveness>(symbolTable);
   mlir::dataflow::loadBaselineAnalyses(solver);
 
   // Initialize and run the solver.
   if (failed(solver.initializeAndRun(op))) {
-    LDBG() << "Failed to run register liveness analysis";
+    LDBG() << "failed to run register liveness analysis";
+    return failure();
+  }
+
+  // Check if the liveness analysis is incomplete.
+  if (liveness->isIncompleteLiveness()) {
+    LDBG() << "failed to create register interference graph due to incomplete "
+              "liveness analysis";
     return failure();
   }
 
