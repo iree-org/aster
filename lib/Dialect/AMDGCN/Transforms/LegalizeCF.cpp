@@ -26,6 +26,7 @@
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -51,6 +52,17 @@ public:
   void runOnOperation() override;
 
 private:
+  /// Verify i1 lifetime constraints for SCC register:
+  /// 1. No i1 value is used across block boundaries (SCC not preserved).
+  /// 2. No two lsir.cmp ops have overlapping lifetimes within a block
+  /// (clobber).
+  LogicalResult verifyI1Lifetimes(Operation *op);
+
+  /// Get or create the lowered amdgcn.cmpi + alloca:scc for an lsir.cmpi.
+  /// On first call for a given cmpOp, creates the alloca and cmpi at the
+  /// original lsir.cmpi location. On subsequent calls, returns the cached SCC.
+  Value getOrCreateLoweredCmp(lsir::CmpIOp cmpOp, IRRewriter &rewriter);
+
   /// Lower lsir.cmpi + cf.cond_br pattern to AMDGCN compare + branch.
   LogicalResult lowerCondBranch(cf::CondBranchOp condBr);
 
@@ -59,6 +71,10 @@ private:
 
   /// Lower lsir.cmpi + lsir.select(i1) pattern to s_cmp + s_cselect_b32.
   LogicalResult lowerSelect(lsir::SelectOp selectOp);
+
+  /// Map from original lsir.cmpi to the SCC alloca value from the lowered
+  /// amdgcn.cmpi. Used to deduplicate compare lowering on fan-out.
+  DenseMap<Operation *, Value> loweredCmpMap;
 };
 
 /// Map arith::CmpIPredicate to the appropriate s_cmp_* opcode.
@@ -88,6 +104,26 @@ static OpCode getCompareOpCode(arith::CmpIPredicate predicate) {
   llvm_unreachable("Unknown CmpIPredicate");
 }
 
+Value LegalizeCF::getOrCreateLoweredCmp(lsir::CmpIOp cmpOp,
+                                        IRRewriter &rewriter) {
+  auto it = loweredCmpMap.find(cmpOp);
+  if (it != loweredCmpMap.end())
+    return it->second;
+
+  // Create the lowered compare at the original lsir.cmpi location.
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(cmpOp);
+  Location loc = cmpOp.getLoc();
+  Type sccType = SCCType::get(rewriter.getContext());
+  Value scc = AllocaOp::create(rewriter, loc, sccType);
+  OpCode cmpOpCode = getCompareOpCode(cmpOp.getPredicate());
+  amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),
+                         cmpOp.getRhs());
+
+  loweredCmpMap[cmpOp] = scc;
+  return scc;
+}
+
 LogicalResult LegalizeCF::lowerCondBranch(cf::CondBranchOp condBr) {
   // Get the condition - must come from lsir.cmpi
   Value condition = condBr.getCondition();
@@ -112,21 +148,14 @@ LogicalResult LegalizeCF::lowerCondBranch(cf::CondBranchOp condBr) {
     }
   }
 
-  Location loc = condBr.getLoc();
   IRRewriter rewriter(condBr);
   rewriter.setInsertionPoint(condBr);
 
-  // Create SCC allocation for the compare result
-  Type sccType = SCCType::get(rewriter.getContext());
-  Value scc = AllocaOp::create(rewriter, loc, sccType);
-
-  // Create the s_cmp_* instruction (sets SCC)
-  OpCode cmpOpCode = getCompareOpCode(cmpOp.getPredicate());
-  amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),
-                         cmpOp.getRhs());
+  Value scc = getOrCreateLoweredCmp(cmpOp, rewriter);
 
   // Create conditional branch based on which destination is the next physical
   // block. The fallthrough target must be the next block.
+  Location loc = condBr.getLoc();
   Block *trueDest = condBr.getTrueDest();
   Block *falseDest = condBr.getFalseDest();
   Block *currentBlock = condBr->getBlock();
@@ -157,10 +186,6 @@ LogicalResult LegalizeCF::lowerCondBranch(cf::CondBranchOp condBr) {
 
   // Erase the original cf.cond_br
   rewriter.eraseOp(condBr);
-
-  // Erase the lsir.cmpi if it has no other uses
-  if (cmpOp.use_empty())
-    rewriter.eraseOp(cmpOp);
 
   return success();
 }
@@ -208,14 +233,8 @@ LogicalResult LegalizeCF::lowerSelect(lsir::SelectOp selectOp) {
   IRRewriter rewriter(selectOp);
   rewriter.setInsertionPoint(selectOp);
 
-  // Create SCC allocation for the compare result.
-  Type sccType = SCCType::get(rewriter.getContext());
-  Value scc = AllocaOp::create(rewriter, loc, sccType);
-
-  // Create the s_cmp_* instruction (sets SCC).
-  OpCode cmpOpCode = getCompareOpCode(cmpOp.getPredicate());
-  amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),
-                         cmpOp.getRhs());
+  // Ensure the compare is lowered. s_cselect_b32 implicitly reads SCC.
+  (void)getOrCreateLoweredCmp(cmpOp, rewriter);
 
   // Create s_cselect_b32: sdst = SCC ? src0 : src1.
   // src0 = true_value (selected when SCC=1), src1 = false_value.
@@ -228,15 +247,88 @@ LogicalResult LegalizeCF::lowerSelect(lsir::SelectOp selectOp) {
   // s_cselect result via side effect).
   rewriter.replaceOp(selectOp, sdst);
 
-  // Erase the lsir.cmpi if it has no other uses.
-  if (cmpOp.use_empty())
-    rewriter.eraseOp(cmpOp);
-
   return success();
+}
+
+/// Find the last user of `value` in `block`, by operation order.
+/// Returns nullptr if no user exists in the block.
+static Operation *findLastUserInBlock(Value value, Block *block) {
+  Operation *lastUser = nullptr;
+  for (Operation *user : value.getUsers()) {
+    if (user->getBlock() != block)
+      continue;
+    if (!lastUser || lastUser->isBeforeInBlock(user))
+      lastUser = user;
+  }
+  return lastUser;
+}
+
+LogicalResult LegalizeCF::verifyI1Lifetimes(Operation *op) {
+  LogicalResult result = success();
+
+  op->walk([&](Block *block) {
+    // Track the currently-live i1 value and where its lifetime ends.
+    Operation *activeI1Op = nullptr;
+    Operation *activeI1OpLastUserOp = nullptr;
+
+    for (Operation &innerOp : *block) {
+      Value i1;
+      if (auto cmpOp = dyn_cast<lsir::CmpIOp>(&innerOp))
+        i1 = cmpOp.getResult();
+      else if (auto cmpOp = dyn_cast<lsir::CmpFOp>(&innerOp))
+        i1 = cmpOp.getResult();
+      else
+        continue;
+
+      // Check cross-block usage: all users of this cmpi must be in the same
+      // block. SCC is not preserved across block boundaries.
+      for (Operation *user : i1.getUsers()) {
+        if (user->getBlock() != block) {
+          innerOp.emitError()
+              << "has consumer in a different block; SCC is not preserved "
+                 "across block boundaries";
+          result = failure();
+          return WalkResult::interrupt();
+        }
+      }
+
+      // Check overlap: any cmpi (even dead ones) clobbers SCC, so if a
+      // previous i1 is still live, this is an error.
+      if (activeI1Op && activeI1OpLastUserOp &&
+          !activeI1OpLastUserOp->isBeforeInBlock(&innerOp)) {
+        innerOp.emitError()
+            << "would clobber SCC from earlier compare; i1 lifetimes must "
+               "not overlap";
+        result = failure();
+        return WalkResult::interrupt();
+      }
+
+      // Dead cmpi (no users) is benign for tracking purposes -- it clobbers
+      // SCC but has no consumers that could be affected by a future clobber.
+      // Don't update activeI1 so it doesn't block subsequent live cmpi ops.
+      if (i1.use_empty())
+        continue;
+
+      // Start tracking this cmpi's lifetime.
+      activeI1Op = &innerOp;
+      activeI1OpLastUserOp = findLastUserInBlock(i1, block);
+    }
+    return WalkResult::advance();
+  });
+
+  return result;
 }
 
 void LegalizeCF::runOnOperation() {
   Operation *op = getOperation();
+
+  // Precondition: verify i1 lifetimes are non-overlapping and block-local.
+  // SCC is a single physical bit with no spill capability, so overlapping
+  // lifetimes or cross-block usage would produce silent miscompilation.
+  if (failed(verifyI1Lifetimes(op))) {
+    signalPassFailure();
+    return;
+  }
 
   // Construct allocated register to alloca map.
   // Assumes all operands are in allocated registers and there is exactly one
@@ -287,6 +379,18 @@ void LegalizeCF::runOnOperation() {
       return;
     }
   }
+
+  // Erase original lsir.cmpi ops that were lowered. Collect first, then
+  // clear the map before erasing to avoid dangling pointers during iteration.
+  SmallVector<Operation *> cmpsToErase;
+  for (auto &[cmpOp, scc] : loweredCmpMap) {
+    assert(cmpOp->use_empty() &&
+           "lsir.cmpi still has uses after all consumers lowered");
+    cmpsToErase.push_back(cmpOp);
+  }
+  loweredCmpMap.clear();
+  for (Operation *cmpOp : cmpsToErase)
+    cmpOp->erase();
 
   // Iterate all blocks in all regions of the function and replace block
   // arguments with the corresponding alloca.
