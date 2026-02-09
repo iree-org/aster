@@ -46,20 +46,20 @@ def LegalizeOperands : Pass<"amdgcn-legalize-operands"> {
 def Bufferization : Pass<"amdgcn-bufferization"> {
   let summary = "Insert phi-breaking copies to prepare for register allocation";
   let description = [{
-    This pass inserts copies to remove potentially clobbered values, and removes
-    phi-nodes arguments with register value semantics. Phi-nodes are handled by
-    inserting allocations at dominator points and copying the values to the new
-    allocations.
+    This pass runs value provenance analysis and inserts copy instructions before
+    branches that pass alloca-derived values to block arguments where multiple
+    allocas merge (phi-coalescing scenarios).
+
+    When multiple allocas flow to the same block argument, they are "phi-equivalent"
+    and traditionally share a register. However, if those allocas interfere (both
+    live at some point), they need separate registers.
 
     This can be viewed as a "bufferization" pass that prepares the IR to go out
     of DPS semantics towards side-effects and before register allocation.
 
-    This pass should run just before register coloring.
+    This pass should run just before register allocation.
   }];
-  let dependentDialects = [
-    "mlir::aster::amdgcn::AMDGCNDialect",
-    "mlir::aster::lsir::LSIRDialect"
-  ];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
 }
 
 def RegisterAlloc : Pass<"amdgcn-register-allocation"> {

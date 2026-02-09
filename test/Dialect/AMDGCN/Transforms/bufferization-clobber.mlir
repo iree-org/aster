@@ -1,19 +1,15 @@
-// RUN: aster-opt %s --amdgcn-bufferization | FileCheck %s
+// RUN: aster-opt %s --amdgcn-bufferization --split-input-file | FileCheck %s
 
-// CHECK-LABEL:   amdgcn.module @too_few_allocas target = <gfx942> isa = <cdna3> {
-// CHECK:           kernel @too_few_allocas {
-// CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[VAL_2:.*]] = test_inst outs %[[VAL_0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:             %[[VAL_3:.*]] = test_inst outs %[[COPY_0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:             %[[VAL_4:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_1:.*]] = lsir.copy %[[VAL_4]], %[[VAL_2]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[VAL_5:.*]] = test_inst outs %[[VAL_2]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:             test_inst ins %[[COPY_1]], %[[VAL_3]], %[[VAL_5]] : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
-// CHECK:             end_kernel
-// CHECK:           }
-// CHECK:         }
+// CHECK-LABEL: @too_few_allocas
+//       CHECK:   %[[a0:.*]] = alloca : !amdgcn.vgpr
+//       CHECK:   %[[t0:.*]] = test_inst outs %[[a0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
+//       CHECK:   %[[a1:.*]] = alloca : !amdgcn.vgpr
+//       CHECK:   %[[c1:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[a1]], %[[t0]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+//       CHECK:   %[[t2:.*]] = test_inst outs %[[a0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
+//       CHECK:   %[[a2:.*]] = alloca : !amdgcn.vgpr
+//       CHECK:   %[[c2:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[a2]], %[[t2]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+//       CHECK:   %[[t3:.*]] = test_inst outs %[[t0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
+//       CHECK:   test_inst ins %[[c1]], %[[c2]], %[[t3]] : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
 amdgcn.module @too_few_allocas target = <gfx942> isa = <cdna3> {
   kernel @too_few_allocas {
     %0 = alloca : !amdgcn.vgpr
