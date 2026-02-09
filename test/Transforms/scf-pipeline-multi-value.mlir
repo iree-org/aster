@@ -9,18 +9,19 @@
 
 // CHECK-LABEL: func.func @two_producers_one_consumer
 
-// Prologue: both stage-0 ops
+// Prologue: both stage-0 ops at iter 0
 // CHECK:       %[[P_A:.*]] = amdgcn.test_inst outs %[[S0:.*]] :
 // CHECK:       %[[P_B:.*]] = amdgcn.test_inst outs %[[S1:.*]] :
 
-// Kernel: 2 iter_args
-// CHECK:       %[[KER:.*]]:2 = scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%[[AA:.*]] = %[[P_A]], %[[AB:.*]] = %[[P_B]]) -> (!amdgcn.vgpr, !amdgcn.vgpr)
+// Kernel: 2 iter_args, lb = 1
+// CHECK:       %[[C1:.*]] = arith.constant 1 : index
+// CHECK:       %[[KER:.*]]:2 = scf.for %{{.*}} = %[[C1]] to %{{.*}} step %{{.*}} iter_args(%[[AA:.*]] = %[[P_A]], %[[AB:.*]] = %[[P_B]]) -> (!amdgcn.vgpr, !amdgcn.vgpr)
 // CHECK:         %[[K_A:.*]] = amdgcn.test_inst outs %[[S0]] :
 // CHECK:         %[[K_B:.*]] = amdgcn.test_inst outs %[[S1]] :
 // CHECK:         amdgcn.test_inst outs %{{.*}} ins %[[AA]], %[[AB]]
 // CHECK:         scf.yield %[[K_A]], %[[K_B]] : !amdgcn.vgpr, !amdgcn.vgpr
 
-// Epilogue: consume kernel results
+// Epilogue: consume kernel results for iter 3
 // CHECK:       amdgcn.test_inst outs %{{.*}} ins %[[KER]]#0, %[[KER]]#1
 // CHECK:       return
 
@@ -50,8 +51,9 @@ func.func @two_producers_one_consumer() {
 // Prologue: load at iteration 0
 // CHECK:       %[[PRO_D:.*]], %[[PRO_T:.*]] = amdgcn.load global_load_dword
 
-// Kernel: token + data as iter_args
-// CHECK:       %[[KER:.*]]:2 = scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%[[A_T:.*]] = %[[PRO_T]], %[[A_D:.*]] = %[[PRO_D]]) -> (!amdgcn.read_token<flat>, !amdgcn.vgpr)
+// Kernel: token + data as iter_args, lb = 1
+// CHECK:       %[[C1:.*]] = arith.constant 1 : index
+// CHECK:       %[[KER:.*]]:2 = scf.for %{{.*}} = %[[C1]] to %{{.*}} step %{{.*}} iter_args(%[[A_T:.*]] = %[[PRO_T]], %[[A_D:.*]] = %[[PRO_D]]) -> (!amdgcn.read_token<flat>, !amdgcn.vgpr)
 // CHECK:         %[[K_D:.*]], %[[K_T:.*]] = amdgcn.load global_load_dword
 // CHECK:         amdgcn.wait deps %[[A_T]] : !amdgcn.read_token<flat>
 // CHECK:         amdgcn.test_inst outs %{{.*}} ins %[[A_D]]

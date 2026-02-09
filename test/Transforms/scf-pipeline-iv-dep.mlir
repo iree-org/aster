@@ -18,7 +18,7 @@
 // CHECK:       %[[PRO_V:.*]] = amdgcn.test_inst
 
 // Kernel: cross-stage value as iter_arg
-// CHECK:       scf.for %[[KI:.*]] = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%[[ARG:.*]] = %[[PRO_V]]) -> (!amdgcn.vgpr)
+// CHECK:       %[[KER:.*]] = scf.for %[[KI:.*]] = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%[[ARG:.*]] = %[[PRO_V]]) -> (!amdgcn.vgpr)
 
 // Stage 0: uses kernelIV directly
 // CHECK:         %[[K_V:.*]] = amdgcn.test_inst outs %{{.*}}
@@ -29,9 +29,9 @@
 // CHECK:         amdgcn.test_inst outs %{{.*}} ins %[[ARG]]
 // CHECK:         scf.yield %[[K_V]] : !amdgcn.vgpr
 
-// Epilogue: stage 1 at iter 3
+// Epilogue: stage 1 at iter 3 with constant IV
 // CHECK:       arith.index_cast
-// CHECK:       amdgcn.test_inst outs %{{.*}} ins %[[KER:.*]]
+// CHECK:       amdgcn.test_inst outs %{{.*}} ins %[[KER]]
 // CHECK:       return
 
 func.func @iv_in_stage1() {
@@ -103,39 +103,64 @@ func.func @iv_in_both_stages() {
 //   stage 0: kernelIV
 //   stage 1: kernelIV - step
 //   stage 2: kernelIV - 2*step
+//
+// Per-iteration mapping is critical here: the prologue section 1 has
+//   iter 1 (stage 0) and iter 0 (stage 1) in the same section.
+// With per-iteration mappings, iter 0's stage 1 correctly reads iter 0's
+// stage 0 value (from prologue section 0), not iter 1's stage 0 value.
+//
+// Epilogue has 2 sections draining iters 4 and 5:
+//   Section 1: stage 1 (iter 5) + stage 2 (iter 4)
+//     - stage 1 reads ker#0 (iter 4's stage 0 value)
+//     - stage 2 reads ker#1 (iter 3's stage 1 value) -- NOT stage 1's output
+//   Section 2: stage 2 (iter 5)
+//     - reads section 1's stage 1 output for iter 5
 // ============================================================================
 
 // CHECK-LABEL: func.func @iv_three_stages
 
 // Prologue section 0: stage 0 at iter 0
 // CHECK:       arith.index_cast
-// CHECK:       %{{.*}} = amdgcn.test_inst
+// CHECK:       %[[P0_V:.*]] = amdgcn.test_inst
 
 // Prologue section 1: stage 0 at iter 1, stage 1 at iter 0
+// Per-iteration: iter 1's stage 0 doesn't interfere with iter 0's stage 1.
 // CHECK:       arith.index_cast
 // CHECK:       %[[P1_V:.*]] = amdgcn.test_inst
 // CHECK:       arith.index_cast
-// CHECK:       %[[P1_W:.*]] = amdgcn.test_inst
+// Stage 1 at iter 0 uses P0_V (iter 0's stage 0), not P1_V (iter 1's stage 0)
+// CHECK:       %[[P1_W:.*]] = amdgcn.test_inst outs %{{.*}} ins %[[P0_V]]
 
-// Kernel: 2 iter_args (from stage 0->1 and stage 1->2)
+// Kernel: 2 iter_args (stage 0->1 csv from iter 1, stage 1->2 csv from iter 0)
 // CHECK:       %[[KER:.*]]:2 = scf.for %[[KI:.*]] = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%[[A0:.*]] = %[[P1_V]], %[[A1:.*]] = %[[P1_W]]) -> (!amdgcn.vgpr, !amdgcn.vgpr)
 
 // Stage 0: uses kernelIV
 // CHECK:         arith.index_cast %[[KI]] : index to i32
 // CHECK:         %[[K_V:.*]] = amdgcn.test_inst
 
-// Stage 1: uses kernelIV - step
+// Stage 1: uses kernelIV - step, reads iter_arg A0
 // CHECK:         %[[ADJ1:.*]] = arith.subi %[[KI]],
 // CHECK:         arith.index_cast %[[ADJ1]] : index to i32
 // CHECK:         %[[K_W:.*]] = amdgcn.test_inst outs %{{.*}} ins %[[A0]]
 
-// Stage 2: uses kernelIV - 2*step
+// Stage 2: uses kernelIV - 2*step, reads iter_arg A1
 // CHECK:         %[[ADJ2:.*]] = arith.subi %[[KI]],
 // CHECK:         arith.index_cast %[[ADJ2]] : index to i32
 // CHECK:         amdgcn.test_inst outs %{{.*}} ins %[[A1]]
 // CHECK:         scf.yield %[[K_V]], %[[K_W]] : !amdgcn.vgpr, !amdgcn.vgpr
 
-// Epilogue
+// Epilogue section 1: stage 1 (iter 5) + stage 2 (iter 4)
+// Stage 1 at iter 5 uses ker#0 (produced by stage 0 for iter 4)
+// CHECK:       arith.index_cast
+// CHECK:       %[[E1_W:.*]] = amdgcn.test_inst outs %{{.*}} ins %[[KER]]#0
+// Stage 2 at iter 4 uses ker#1 (produced by stage 1 for iter 3) -- NOT E1_W
+// CHECK:       arith.index_cast
+// CHECK:       amdgcn.test_inst outs %{{.*}} ins %[[KER]]#1
+
+// Epilogue section 2: stage 2 (iter 5)
+// Uses E1_W (section 1's stage 1 output for iter 5)
+// CHECK:       arith.index_cast
+// CHECK:       amdgcn.test_inst outs %{{.*}} ins %[[E1_W]]
 // CHECK:       return
 
 func.func @iv_three_stages() {
