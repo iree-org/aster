@@ -105,9 +105,9 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
   }
 
   llvm::sort(allocas, [](Value a1, Value a2) {
-    return std::make_tuple(a1.getType().getAsOpaquePointer(),
+    return std::make_tuple(a1.getType().getTypeID().getAsOpaquePointer(),
                            a1.getAsOpaquePointer()) <
-           std::make_tuple(a2.getType().getAsOpaquePointer(),
+           std::make_tuple(a2.getType().getTypeID().getAsOpaquePointer(),
                            a2.getAsOpaquePointer());
   });
   allocas.erase(llvm::unique(allocas), allocas.end());
@@ -115,7 +115,7 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
   // Add edges between all pairs of allocas.
   for (auto [i, a1] : llvm::enumerate(allocasRef)) {
     for (Value a2 : allocasRef.drop_front(i + 1)) {
-      if (a1.getType() != a2.getType())
+      if (a1.getType().getTypeID() != a2.getType().getTypeID())
         break;
       addEdges(a1, a2);
     }

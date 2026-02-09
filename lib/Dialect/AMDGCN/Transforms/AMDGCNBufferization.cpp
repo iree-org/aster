@@ -13,7 +13,10 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
+#include "aster/IR/PrintingUtils.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
@@ -22,6 +25,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/DebugLog.h"
+#include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "amdgcn-bufferization"
 
@@ -54,8 +58,12 @@ public:
 struct CmpCFPair {
   bool operator()(const std::pair<BlockArgument, OpOperand *> &lhs,
                   const std::pair<BlockArgument, OpOperand *> &rhs) const {
-    return std::make_tuple(lhs.first.getAsOpaquePointer(), lhs.second) <
-           std::make_tuple(rhs.first.getAsOpaquePointer(), rhs.second);
+    return std::make_tuple(lhs.first.getOwner(), lhs.first.getArgNumber(),
+                           lhs.second->getOwner(),
+                           lhs.second->getOperandNumber()) <
+           std::make_tuple(rhs.first.getOwner(), rhs.first.getArgNumber(),
+                           rhs.second->getOwner(),
+                           rhs.second->getOperandNumber());
   }
 };
 
@@ -139,7 +147,7 @@ static void removePotentiallyClobberedValues(Operation *op,
       auto regTy = cast<RegisterTypeInterface>(out.getType());
       if (!regTy.hasValueSemantics())
         continue;
-      LDBG() << "  Handling potentially clobbered output operand: " << i;
+      LDBG() << "- Handling potentially clobbered output operand: " << i;
       auto alloc = createAllocation(rewriter, inst->getLoc(), regTy);
       auto cpy = lsir::CopyOp::create(rewriter, inst->getLoc(), alloc, out);
       rewriter.replaceUsesWithIf(out, cpy, [&](OpOperand &use) -> bool {
@@ -197,12 +205,12 @@ void CFGSimplifier::computeControlFlowPairs(
   if (succRange.empty())
     return;
 
-  LDBG() << "  Handling terminator: " << *lastOp;
+  LDBG() << "- Handling terminator: " << *lastOp;
 
   // Bail if the last operation is not a branch.
   auto terminator = dyn_cast<BranchOpInterface>(lastOp);
   if (!terminator) {
-    LDBG() << "  Terminator is not a branch, adding operands to "
+    LDBG() << "-- Terminator is not a branch, adding operands to "
               "irreducibleElements set";
     // Add the last operation's operands to the irreducibleElements set.
     {
@@ -224,7 +232,7 @@ void CFGSimplifier::computeControlFlowPairs(
 
   // Iterate over the successors to compute the control-flow pairs.
   for (auto [i, succ] : llvm::enumerate(succRange)) {
-    LDBG() << "  Handling successor: " << i;
+    LDBG() << "-- Handling successor: " << i;
     // Get the successor operands and block arguments.
     SuccessorOperands operands = terminator.getSuccessorOperands(i);
     MutableArrayRef<BlockArgument> bbArgs = succ->getArguments();
@@ -232,8 +240,11 @@ void CFGSimplifier::computeControlFlowPairs(
     // Add the hidden block arguments to the irreducibleElements set.
     int32_t numHiddenArgs = operands.getProducedOperandCount();
     irreducibleElements.reserve(irreducibleElements.size() + numHiddenArgs);
-    for (int32_t a = 0; a < numHiddenArgs; ++a)
+    for (int32_t a = 0; a < numHiddenArgs; ++a) {
+      LDBG() << "-- Adding hidden bbArg to irreducibleElements set: "
+             << bbArgs[a];
       irreducibleElements.insert(bbArgs[a].getAsOpaquePointer());
+    }
 
     // Add the control-flow pairs to the controlFlowPairs set.
     for (auto [operand, bbArg] :
@@ -244,10 +255,10 @@ void CFGSimplifier::computeControlFlowPairs(
       bool invalidOperand = irreducibleElements.contains(&operand);
       bool invalidBBArg =
           irreducibleElements.contains(bbArg.getAsOpaquePointer());
-      LDBG() << "  Handling control-flow pair: " << operand.getOperandNumber()
+      LDBG() << "-- Handling control-flow pair: " << operand.getOperandNumber()
              << " -> " << bbArg;
-      LDBG() << "    Invalid operand: " << invalidOperand;
-      LDBG() << "    Invalid BB arg: " << invalidBBArg;
+      LDBG() << "--- Invalid operand: " << (invalidOperand ? "true" : "false");
+      LDBG() << "--- Invalid BB arg: " << (invalidBBArg ? "true" : "false");
       if (invalidOperand || invalidBBArg) {
         if (invalidOperand)
           irreducibleElements.insert(bbArg.getAsOpaquePointer());
@@ -256,7 +267,7 @@ void CFGSimplifier::computeControlFlowPairs(
         continue;
       }
 
-      LDBG() << "  Adding control-flow pair to set";
+      LDBG() << "-- Adding control-flow pair to set";
       // Update the visited elements and control-flow pairs.
       visitedBBArgs.insert(bbArg);
       controlFlowPairs.insert({bbArg, &operand});
@@ -277,6 +288,9 @@ void CFGSimplifier::reduceControlFlowPairs(
       // Mark for deletion if the block argument is in the irreducibleElements
       // set.
       if (irreducibleElements.contains(bbArg.getAsOpaquePointer())) {
+        LDBG() << "-- Removing control-flow pair due to irreducible BB arg: "
+               << ValueWithFlags(bbArg, true) << ", " << operand->getOwner()
+               << ": " << operand->getOperandNumber();
         toRemove.push_back({bbArg, operand});
         irreducibleElements.insert(operand);
         continue;
@@ -284,6 +298,9 @@ void CFGSimplifier::reduceControlFlowPairs(
 
       // Mark for deletion if the operand is in the irreducibleElements set.
       if (irreducibleElements.contains(operand)) {
+        LDBG() << "-- Removing control-flow pair due to irreducible operand: "
+               << ValueWithFlags(bbArg, true) << ", " << operand->getOwner()
+               << ": " << operand->getOperandNumber();
         toRemove.push_back({bbArg, operand});
         irreducibleElements.insert(bbArg.getAsOpaquePointer());
       }
@@ -298,10 +315,51 @@ void CFGSimplifier::reduceControlFlowPairs(
   }
 }
 
+/// Dump a control-flow pair.
+static void dumpControlFlowPair(llvm::raw_ostream &os,
+                                std::pair<BlockArgument, OpOperand *> pair) {
+  BlockArgument bbArg = pair.first;
+  OpOperand *operand = pair.second;
+  Block *bb = bbArg.getOwner();
+  Operation *op = operand->getOwner();
+  os << "{ bb = "
+     << BlockWithFlags(bb, BlockWithFlags::PrintMode::PrintAsQualifiedOperand)
+     << ", arg = " << bbArg.getArgNumber()
+     << ", op = " << OpWithFlags(op, OpPrintingFlags().skipRegions())
+     << ", operand = " << operand->getOperandNumber() << "}";
+}
+
+/// Dump a set of control-flow pairs.
+static void dumpControlFlowPairs(
+    llvm::raw_ostream &os,
+    const std::set<std::pair<BlockArgument, OpOperand *>, CmpCFPair> &pairs) {
+  os << "Control-flow pairs:\n";
+  llvm::interleave(
+      pairs, os,
+      [&](const std::pair<BlockArgument, OpOperand *> &pair) {
+        os << "  ";
+        dumpControlFlowPair(os, pair);
+      },
+      "\n");
+}
+
+/// Comparator for OpOperands that sorts by owner block, then by operand number
+/// in descending order.
+static bool cmpOperands(OpOperand *lhs, OpOperand *rhs) {
+  if (lhs->getOwner() < rhs->getOwner())
+    return true;
+  if (lhs->getOwner() > rhs->getOwner())
+    return false;
+  return lhs->getOperandNumber() > rhs->getOperandNumber();
+}
+
 void CFGSimplifier::removeBBArgs() {
   SetVector<Block *> blocks;
   SetVector<OpOperand *> operands;
-  DenseSet<OpOperand *> operandsToRemove;
+  // NOTE: We need to remove operands in descending order of operand number
+  // to avoid invalidating the operand numbers of the remaining operands.
+  std::set<OpOperand *, decltype(&cmpOperands)> operandsToRemove(&cmpOperands);
+  LDBG_OS([&](raw_ostream &os) { dumpControlFlowPairs(os, controlFlowPairs); });
   // Iterate until all control-flow pairs have been processed.
   while (!controlFlowPairs.empty()) {
     blocks.clear();
@@ -312,7 +370,7 @@ void CFGSimplifier::removeBBArgs() {
     auto it = begin;
     auto end = controlFlowPairs.end();
     currentBBArg = begin->first;
-    LDBG() << "  Handling block argument: " << currentBBArg;
+    LDBG() << "-- Handling block argument: " << currentBBArg;
 
     // Iterate until the block argument changes.
     while (it != end) {
@@ -342,7 +400,8 @@ void CFGSimplifier::removeBBArgs() {
 
     // Get the branch operation.
     auto brOp = cast<BranchOpInterface>(operand->getOwner());
-    LDBG() << "  Handling branch operation: " << brOp;
+    LDBG() << "-- Erasing operand " << operandNumber
+           << " from branch operation: " << brOp;
     // Iterate over the successors to find the successor that handles the
     // operand.
     // NOTE: This is highly inefficient, but it's the only safe way to do this
@@ -360,12 +419,12 @@ void CFGSimplifier::removeBBArgs() {
       if (operandNumber >= beginOperandIndex &&
           beginOperandIndex + mutableOperands.size() > operandNumber) {
         mutableOperands.erase(operandNumber - beginOperandIndex);
-
+        LDBG() << "--- Erased operand from successor " << i;
         // Break to avoid erasing the operand multiple times.
         break;
       }
     }
-    LDBG() << "   Updated branch operation: " << brOp;
+    LDBG() << "--- Updated branch operation: " << brOp;
   }
 }
 
@@ -398,7 +457,7 @@ void CFGSimplifier::handlePhiNode(BlockArgument bbArg, ArrayRef<Block *> blocks,
   if (!domBB || domBB == bbArg.getOwner())
     domBB = entryBlock;
 
-  LDBG() << "  Inserting phi-breaking copies for block argument: " << bbArg;
+  LDBG() << "--- Inserting phi-breaking copies for block argument: " << bbArg;
   // Create the new allocation.
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(domBB->getTerminator());
@@ -423,6 +482,7 @@ void CFGSimplifier::handlePhiNode(BlockArgument bbArg, ArrayRef<Block *> blocks,
   rewriter.setInsertionPointToStart(bbArg.getOwner());
   auto newBBArg = deallocAllocation(rewriter, alloc);
   rewriter.replaceAllUsesWith(bbArg, newBBArg);
+  LDBG() << "--- Erased block argument: " << bbArg;
   bbArg.getOwner()->eraseArgument(bbArg.getArgNumber());
 }
 
