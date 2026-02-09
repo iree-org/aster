@@ -107,3 +107,31 @@ func.func @test_iter_args_zero_iterations(%init: i32) -> i32 {
   }
   return %result : i32
 }
+
+// Test scf.for that yields iter_args directly (swap/rotation pattern).
+// This exercises the case where yield operands reference the loop's own
+// block arguments, which must be remapped after inlining.
+// CHECK-LABEL:   func.func @test_iter_args_swap(
+// CHECK-SAME:      %[[INIT_A:.*]]: i32, %[[INIT_B:.*]]: i32) -> (i32, i32) {
+// CHECK:           cf.cond_br %{{.*}}, ^bb1(%{{.*}}, %[[INIT_A]], %[[INIT_B]] : index, i32, i32), ^bb2(%[[INIT_A]], %[[INIT_B]] : i32, i32)
+// CHECK:         ^bb1(%[[IV:.*]]: index, %[[A:.*]]: i32, %[[B:.*]]: i32):
+// CHECK:           %[[IV_NEXT:.*]] = arith.addi %[[IV]], %{{.*}} : index
+// CHECK:           %[[CMP:.*]] = arith.cmpi slt, %[[IV_NEXT]], %{{.*}} : index
+// CHECK:           cf.cond_br %[[CMP]], ^bb1(%[[IV_NEXT]], %[[B]], %[[A]] : index, i32, i32), ^bb2(%[[B]], %[[A]] : i32, i32)
+// CHECK:         ^bb2(%[[RES_A:.*]]: i32, %[[RES_B:.*]]: i32):
+// CHECK:           return %[[RES_A]], %[[RES_B]] : i32, i32
+// CHECK:         }
+func.func @test_iter_args_swap(%init_a: i32, %init_b: i32) -> (i32, i32) {
+  %c0 = arith.constant 0 : i32
+  %c1 = arith.constant 1 : i32
+  %c4 = arith.constant 4 : i32
+  %lb = arith.index_cast %c0 : i32 to index
+  %ub = arith.index_cast %c4 : i32 to index
+  %step = arith.index_cast %c1 : i32 to index
+  %result_a, %result_b = scf.for %i = %lb to %ub step %step
+      iter_args(%a = %init_a, %b = %init_b) -> (i32, i32) {
+    // Swap: yield iter_args in reverse order
+    scf.yield %b, %a : i32, i32
+  }
+  return %result_a, %result_b : i32, i32
+}

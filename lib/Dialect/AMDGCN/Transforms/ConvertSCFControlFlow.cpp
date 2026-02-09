@@ -135,13 +135,29 @@ ConvertSCFControlFlow::convertForOp(scf::ForOp forOp,
     iterArgBlockArgs.push_back(bbBody->getArgument(i + 1));
 
   // Build the mapping from original region args to block args.
+  // This mapping is used by inlineBlockBefore to remap the body, but
+  // yieldOperands may also reference old block args (e.g., swap patterns
+  // like `scf.yield %b, %a`), so we must remap them too.
   SmallVector<Value> bodyArgMapping = {ivBlockArg};
   bodyArgMapping.append(iterArgBlockArgs);
+
+  // Build an IRMapping so we can remap yield operands after inlining.
+  IRMapping blockArgMapping;
+  blockArgMapping.map(forOp.getInductionVar(), ivBlockArg);
+  for (unsigned i = 0; i < forOp.getNumRegionIterArgs(); ++i)
+    blockArgMapping.map(forOp.getRegionIterArgs()[i],
+                        bbBody->getArgument(i + 1));
 
   // Inline the loop body into bbBody.
   rewriter.setInsertionPointToEnd(bbBody);
   rewriter.inlineBlockBefore(forOp.getBody(), bbBody, bbBody->end(),
                              bodyArgMapping);
+
+  // Remap yield operands: they may reference old block args (now dead)
+  // from the original for body. After inlining, those block args have been
+  // replaced, but yieldOperands still holds the old Value references.
+  for (Value &val : yieldOperands)
+    val = blockArgMapping.lookupOrDefault(val);
 
   // Compute the next induction variable value.
   Value ivNext = arith::AddIOp::create(rewriter, loc, ivBlockArg, step);
