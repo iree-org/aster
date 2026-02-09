@@ -337,6 +337,7 @@ def LSIR_CopyOp : LSIR_Op<"copy", [
   let assemblyFormat = [{
     $target `,` $source attr-dict `:` type($target) `,` type($source)
   }];
+  let hasCanonicalizeMethod = 1;
   let extraClassDeclaration = [{
     /// Returns the speculatability of the operation.
     Speculation::Speculatability getSpeculatability() {

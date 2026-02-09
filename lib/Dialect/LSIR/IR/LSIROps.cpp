@@ -143,6 +143,23 @@ LogicalResult StoreOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// LSIR CopyOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult CopyOp::canonicalize(CopyOp op,
+                                   ::mlir::PatternRewriter &rewriter) {
+  TypedValue<RegisterTypeInterface> tgt = op.getTarget();
+  TypedValue<RegisterTypeInterface> src = op.getSource();
+  if (tgt == src || (tgt.getType().hasAllocatedSemantics() &&
+                     src.getType().hasAllocatedSemantics() &&
+                     tgt.getType() == src.getType())) {
+    rewriter.replaceOp(op, op.getSource());
+    return success();
+  }
+  return failure();
+}
+
+//===----------------------------------------------------------------------===//
 // LSIR RegCastOp
 //===----------------------------------------------------------------------===//
 
