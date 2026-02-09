@@ -17,13 +17,14 @@
 // Prologue: stage 0 at iteration 0
 // CHECK:       %[[PRO:.*]] = amdgcn.test_inst outs %[[S0:.*]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
 
-// Kernel: cross-stage value as iter_arg
-// CHECK:       %[[KER:.*]] = scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%[[ARG:.*]] = %[[PRO]]) -> (!amdgcn.vgpr)
+// Kernel: cross-stage value as iter_arg, lb = 1
+// CHECK:       %[[C1:.*]] = arith.constant 1 : index
+// CHECK:       %[[KER:.*]] = scf.for %[[KI:.*]] = %[[C1]] to %{{.*}} step %{{.*}} iter_args(%[[ARG:.*]] = %[[PRO]]) -> (!amdgcn.vgpr)
 // CHECK:         %[[K_V:.*]] = amdgcn.test_inst outs %[[S0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
 // CHECK:         amdgcn.test_inst outs %[[S1:.*]] ins %[[ARG]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
 // CHECK:         scf.yield %[[K_V]] : !amdgcn.vgpr
 
-// Epilogue: stage 1 using kernel result
+// Epilogue: stage 1 using kernel result for iter 3
 // CHECK:       amdgcn.test_inst outs %[[S1]] ins %[[KER]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
 // CHECK:       return
 
@@ -55,8 +56,9 @@ func.func @two_stage_dps() {
 // Prologue: load at iteration 0
 // CHECK:       %[[PRO_D:.*]], %[[PRO_T:.*]] = amdgcn.load global_load_dword
 
-// Kernel: token + data as iter_args
-// CHECK:       %[[KER:.*]]:2 = scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%[[A_T:.*]] = %[[PRO_T]], %[[A_D:.*]] = %[[PRO_D]]) -> (!amdgcn.read_token<flat>, !amdgcn.vgpr)
+// Kernel: token + data as iter_args, lb = 1
+// CHECK:       %[[C1:.*]] = arith.constant 1 : index
+// CHECK:       %[[KER:.*]]:2 = scf.for %[[KI:.*]] = %[[C1]] to %{{.*}} step %{{.*}} iter_args(%[[A_T:.*]] = %[[PRO_T]], %[[A_D:.*]] = %[[PRO_D]]) -> (!amdgcn.read_token<flat>, !amdgcn.vgpr)
 // CHECK:         %[[K_D:.*]], %[[K_T:.*]] = amdgcn.load global_load_dword
 // CHECK:         amdgcn.wait deps %[[A_T]] : !amdgcn.read_token<flat>
 // CHECK:         amdgcn.test_inst outs %{{.*}} ins %[[A_D]]
