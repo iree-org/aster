@@ -11,6 +11,15 @@
 // This pass pipelines scf.for loops whose operations are annotated with
 // sched.stage attributes, generating prologue/kernel/epilogue sections.
 //
+// The algorithm maintains different mappings to keep track of values:
+//   (a) a "latest value" mapping keeps track of the current state of every
+//   original value in the pipeline. Each clone updates the latest value mapping
+//   with the new value.
+//   (b) a "per stage" mapping keeps track of the results of each stage. This is
+//   useful when cross-stage values have gaps > 1 and require "older" versions
+//   of a value.
+//   (c) an "epilogue" mapping to track the results of the kernel loop and how
+//   it is used in the draining epilogue after all stages have completed.
 //===----------------------------------------------------------------------===//
 
 #include "aster/Transforms/Passes.h"
@@ -45,10 +54,18 @@ static int64_t getStage(Operation *op) {
 
 /// A value defined in one pipeline stage and used in a later stage.
 /// These must be carried across iterations via iter_args in the kernel loop.
+///
+/// When the stage gap (lastUseStage - defStage) exceeds 1, a shift of that
+/// depth is needed: each cross-stage value occupies `distance()` consecutive
+/// iter_args, forming a pipeline that shifts values forward.
 struct CrossStageValue {
   Value value;
   int64_t defStage;
   int64_t lastUseStage;
+
+  /// Number of iterations the value must survive as an iter_arg.
+  /// For consecutive stages this is 1; for gaps it equals the gap size.
+  int64_t distance() const { return lastUseStage - defStage; }
 };
 
 /// Analyzed loop information needed by the pipelining transform.
@@ -177,44 +194,76 @@ static void simulateYield(scf::ForOp originalForOp, IRMapping &mapping) {
   mapping.map(originalForOp.getRegionIterArgs(), nextIterArgs);
 }
 
+/// Compute the total number of iter_args needed for cross-stage values.
+/// Each cross-stage value with distance D occupies D consecutive iter_arg
+/// slots.
+// TODO: consider just grouping everything with a struct.
+static int64_t totalCrossStageIterArgs(const LoopPipelineInfo &info) {
+  int64_t total = 0;
+  for (auto &csv : info.crossStageVals)
+    total += csv.distance();
+  return total;
+}
+
+/// Compute the base iter_arg index for the i-th cross-stage value.
+/// Each cross-stage value occupies csv.distance() consecutive slots.
+// TODO: consider just grouping everything with a struct.
+static int64_t crossStageBaseIndex(const LoopPipelineInfo &info, int64_t i) {
+  int64_t base = 0;
+  for (int64_t j = 0; j < i; ++j)
+    base += info.crossStageVals[j].distance();
+  return base;
+}
+
 /// Seed an IRMapping from kernel loop results, following the iter_arg layout:
-/// [cross-stage values..., existing iter_args...]
+/// [cross-stage shift values..., existing iter_args...]
+///
+/// For each cross-stage value with distance D, the last slot (base + D - 1)
+/// holds the oldest value, i.e. the one the use-stage consumes.
+/// This last slot is mapped to csv.value.
+// TODO: consider just grouping everything with a struct.
 static void seedMappingFromKernelResults(scf::ForOp originalForOp,
                                          const LoopPipelineInfo &info,
                                          scf::ForOp kernelLoop,
                                          IRMapping &mapping) {
-  for (auto [idx, csv] : llvm::enumerate(info.crossStageVals))
-    mapping.map(csv.value, kernelLoop.getResult(idx));
-  int64_t numCrossStage = info.crossStageVals.size();
+  for (auto [i, csv] : llvm::enumerate(info.crossStageVals)) {
+    int64_t base = crossStageBaseIndex(info, i);
+    // The oldest slot (base + D - 1) is what the use-stage reads.
+    mapping.map(csv.value, kernelLoop.getResult(base + csv.distance() - 1));
+  }
+  int64_t numCSIterArgs = totalCrossStageIterArgs(info);
   for (auto [idx, blockArg] :
        llvm::enumerate(originalForOp.getRegionIterArgs()))
-    mapping.map(blockArg, kernelLoop.getResult(numCrossStage + idx));
+    mapping.map(blockArg, kernelLoop.getResult(numCSIterArgs + idx));
 }
 
 /// Clone an op from the original loop body into prologue or epilogue context.
 ///
 /// Builds a per-op IRMapping with:
 ///   - IV mapped to the given `iv`
-///   - iter_arg block args mapped from `globalMapping` (current section state)
+///   - iter_arg block args mapped from `latestValueMapping` (current section
+///   state)
 ///   - same-origIter operands mapped from `perStageMapping` (per-stage results)
 ///   - everything else falls through to builder.clone's default lookup
 ///
-/// After cloning, stores results in both `perStageMapping` and `globalMapping`,
-/// and strips the sched.stage attribute.
+/// After cloning, stores results in both `perStageMapping` and
+/// `latestValueMapping`, and strips the sched.stage attribute.
 static void cloneIntoPrologueOrEpilogue(OpBuilder &builder,
                                         Operation *originalOp,
                                         scf::ForOp originalForOp, Value iv,
                                         const LoopPipelineInfo &info,
                                         IRMapping &perStageMapping,
-                                        IRMapping &globalMapping) {
+                                        IRMapping &latestValueMapping) {
   IRMapping opMapping;
   opMapping.map(originalForOp.getInductionVar(), iv);
 
   // Map iter_arg block arguments from current section state.
   for (auto blockArg : originalForOp.getRegionIterArgs())
-    opMapping.map(blockArg, globalMapping.lookupOrDefault(blockArg));
+    opMapping.map(blockArg, latestValueMapping.lookupOrDefault(blockArg));
 
-  // Map operands from the same original iteration.
+  // Map operands: prefer same-origIter (perStageMapping), fall back to
+  // cross-stage (latestValueMapping) for values from earlier stages that
+  // finished in an earlier section.
   for (Value operand : originalOp->getOperands()) {
     if (operand == originalForOp.getInductionVar())
       continue;
@@ -223,13 +272,17 @@ static void cloneIntoPrologueOrEpilogue(OpBuilder &builder,
       continue;
     if (Value mapped = perStageMapping.lookupOrNull(operand))
       opMapping.map(operand, mapped);
+    else if (Value mapped = latestValueMapping.lookupOrNull(operand))
+      opMapping.map(operand, mapped);
+    else
+      llvm_unreachable("operand not found in perStage or latestValue mappings");
   }
 
   // Clone and update mappings.
   Operation *cloned = builder.clone(*originalOp, opMapping);
   cloned->removeAttr(kSchedStageAttr);
   perStageMapping.map(originalOp->getResults(), cloned->getResults());
-  globalMapping.map(originalOp->getResults(), cloned->getResults());
+  latestValueMapping.map(originalOp->getResults(), cloned->getResults());
 }
 
 //===----------------------------------------------------------------------===//
@@ -247,23 +300,23 @@ static void cloneIntoPrologueOrEpilogue(OpBuilder &builder,
 /// ops in later sections see the correct iter_arg values (e.g., rotated
 /// offsets for LDS multi-buffering).
 ///
-/// Input: originalForOp (original loop), info (analysis results), builder
-/// positioned
-///   before originalForOp.
-/// Output: prologueMapping populated with all cloned results. The caller
-///   extracts cross-stage values and iter_arg values from it.
+/// Output:
+///   - latestValueMapping: global mapping with latest cloned results
+///   - perStageMappings: per-stage results, needed for kernel init
+///     when cross-stage values have gaps > 1
 static void emitPrologue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
-                         OpBuilder &builder, IRMapping &prologueMapping) {
+                         OpBuilder &builder, IRMapping &latestValueMapping,
+                         SmallVector<IRMapping> &perStageMappings) {
   Location loc = originalForOp.getLoc();
 
   // Initialize iter_arg block arguments to their init values.
-  prologueMapping.map(originalForOp.getRegionIterArgs(),
-                      originalForOp.getInits());
+  latestValueMapping.map(originalForOp.getRegionIterArgs(),
+                         originalForOp.getInits());
 
   // Per-stage result mappings keeps track of the cloned results for each stage.
-  // The flat prologueMapping keeps track of the current state which constantly
-  // gets updated by a stage.
-  SmallVector<IRMapping> perStageMappings(info.maxStage, IRMapping());
+  // The flat latestValueMapping keeps track of the current state which
+  // constantly gets updated by a stage.
+  perStageMappings.assign(info.maxStage, IRMapping());
 
   for (int64_t section = 0; section < info.maxStage; ++section) {
     for (Operation *op : info.opOrder) {
@@ -277,9 +330,10 @@ static void emitPrologue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
       Value iv = arith::ConstantIndexOp::create(builder, loc,
                                                 info.lb + origIter * info.step);
       cloneIntoPrologueOrEpilogue(builder, op, originalForOp, iv, info,
-                                  perStageMappings[origIter], prologueMapping);
+                                  perStageMappings[origIter],
+                                  latestValueMapping);
     }
-    simulateYield(originalForOp, prologueMapping);
+    simulateYield(originalForOp, latestValueMapping);
   }
 }
 
@@ -287,18 +341,25 @@ static void emitPrologue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
 // Kernel helpers
 //===----------------------------------------------------------------------===//
 
-/// Build the iterArgIndex: maps original values to their position in the
-/// kernel's iter_arg list. Layout: [cross-stage values..., existing
-/// iter_args...]
+/// Build the iterArgIndex: maps original values to the kernel iter_arg slot
+/// that the use-stage reads from (the oldest slot in the shift register).
+///
+/// Layout: [csv0 shift reg (D0 slots)..., csv1 shift reg (D1 slots)...,
+///          existing iter_args...]
+///
+/// For each CSV with distance D, the use-stage reads from slot (base + D - 1).
+// TODO: consider just grouping everything with a struct and simplify the logic.
 static DenseMap<Value, int64_t>
 buildIterArgIndex(scf::ForOp originalForOp, const LoopPipelineInfo &info) {
   DenseMap<Value, int64_t> iterArgIndex;
-  for (auto [idx, csv] : llvm::enumerate(info.crossStageVals))
-    iterArgIndex[csv.value] = idx;
-  int64_t numCrossStage = info.crossStageVals.size();
+  for (auto [i, csv] : llvm::enumerate(info.crossStageVals)) {
+    int64_t base = crossStageBaseIndex(info, i);
+    iterArgIndex[csv.value] = base + csv.distance() - 1;
+  }
+  int64_t numCSIterArgs = totalCrossStageIterArgs(info);
   for (auto [idx, blockArg] :
        llvm::enumerate(originalForOp.getRegionIterArgs()))
-    iterArgIndex[blockArg] = numCrossStage + idx;
+    iterArgIndex[blockArg] = numCSIterArgs + idx;
   return iterArgIndex;
 }
 
@@ -379,17 +440,32 @@ static IRMapping mapKernelOperands(Operation *op, int64_t useStage,
 
 /// Build the yield values for the kernel loop.
 ///
-/// Layout: [cross-stage values from this iteration...,
+/// Layout: [csv0 (D0 slots for shifts)..., csv1 (D1 slots for shifts)...,
 ///          existing iter_arg yield operands resolved in kernel context...]
+///
+/// For each cross-stage value with distance D, the kernel yields:
+///   slot 0: freshly produced value (from this iteration's defStage)
+///   slot 1: old iter_arg[0]  (shifts forward)
+///   ...
+///   slot D-2: old iter_arg[D-3]
+/// The old slot D-1 (consumed this iteration) is dropped.
+// TODO: consider just grouping everything with a struct and simplify the logic.
 static SmallVector<Value>
 buildKernelYieldValues(scf::ForOp originalForOp, const LoopPipelineInfo &info,
                        const DenseMap<Value, int64_t> &iterArgIdx,
                        scf::ForOp kernelLoop, const IRMapping &kernelMapping) {
   SmallVector<Value> yieldValues;
 
-  // Cross-stage values produced in this iteration.
-  for (auto &csv : info.crossStageVals)
+  // Cross-stage shift register yields.
+  for (auto [i, csv] : llvm::enumerate(info.crossStageVals)) {
+    int64_t base = crossStageBaseIndex(info, i);
+    int64_t D = csv.distance();
+    // Slot 0: freshly produced value.
     yieldValues.push_back(kernelMapping.lookup(csv.value));
+    // Slots 1..D-1: shift from previous slots.
+    for (int64_t d = 1; d < D; ++d)
+      yieldValues.push_back(kernelLoop.getRegionIterArgs()[base + d - 1]);
+  }
 
   // Existing iter_args: resolve original yield operands in kernel context.
   auto yieldOp = cast<scf::YieldOp>(originalForOp.getBody()->getTerminator());
@@ -475,12 +551,20 @@ static void emitEpilogue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
 
   // Per-original-iteration result mappings. Cross-stage dependencies require
   // finding the value produced at the same logical iteration.
-  // Seed: at kernel exit, cross-stage iter_args hold values produced by
-  // defStage at origIter = (numIters - 1) - csv.defStage.
+  //
+  // Seed from kernel exit: for each CSV with distance D, the shift register
+  // holds D values. Slot d (0-indexed) was produced at
+  //   origIter = (numIters - 1) - csv.defStage - d
+  // (slot 0 = freshest, slot D-1 = oldest = what use-stage last consumed).
   DenseMap<int64_t, IRMapping> perStageMappings;
-  for (auto [idx, csv] : llvm::enumerate(info.crossStageVals)) {
-    int64_t defOrigIter = (info.numIters - 1) - csv.defStage;
-    perStageMappings[defOrigIter].map(csv.value, kernelLoop.getResult(idx));
+  for (auto [i, csv] : llvm::enumerate(info.crossStageVals)) {
+    int64_t base = crossStageBaseIndex(info, i);
+    int64_t D = csv.distance();
+    for (int64_t d = 0; d < D; ++d) {
+      int64_t defOrigIter = (info.numIters - 1) - csv.defStage - d;
+      perStageMappings[defOrigIter].map(csv.value,
+                                        kernelLoop.getResult(base + d));
+    }
   }
 
   for (int64_t epilogueStage = 1; epilogueStage <= info.maxStage;
@@ -530,18 +614,47 @@ void SCFPipelineAsterSchedPass::runOnOperation() {
         OpBuilder builder(originalForOp);
 
         // Step 1: Emit the prologue.
-        IRMapping prologueMapping;
-        emitPrologue(originalForOp, info, builder, prologueMapping);
+        IRMapping latestValueMapping;
+        SmallVector<IRMapping> prologuePerStageMappings;
+        emitPrologue(originalForOp, info, builder, latestValueMapping,
+                     prologuePerStageMappings);
 
         // Step 2: Collect kernel iter_arg initial values.
-        // Layout: [cross-stage values..., existing iter_args...]
+        // Layout: [csv0 (D0 slots for shifts)..., existing iter_args...]
+        //
+        // For each cross-stage value with distance D, the kernel's first
+        // iteration (ki = maxStage) has the use-stage processing:
+        //   `origIter = maxStage - lastUseStage`
+        // It needs the value from that origIter, which was produced in the
+        // prologue.
+        // The shifted values are initialized with D consecutive prologue
+        // values: the freshest at slot 0, the oldest at slot D-1.
+        // TODO: consider just grouping everything with a struct and simplify
+        // the logic.
         SmallVector<Value> iterArgInits;
-        for (auto &csv : info.crossStageVals)
-          iterArgInits.push_back(prologueMapping.lookupOrDefault(csv.value));
+        for (auto &csv : info.crossStageVals) {
+          int64_t D = csv.distance();
+          // At kernel start, the shifted values should contain the D most
+          // recent values from the prologue.
+          // The oldest (slot D-1) was produced at
+          //   `origIter = maxStage - lastUseStage`,
+          // and the freshest (slot 0) was produced at
+          //   `origIter = maxStage - defStage - 1`.
+          for (int64_t d = 0; d < D; ++d) {
+            // Slot d holds value from origIter = (maxStage - defStage - 1) - d
+            int64_t origIter = (info.maxStage - csv.defStage - 1) - d;
+            assert(origIter >= 0 &&
+                   origIter <
+                       static_cast<int64_t>(prologuePerStageMappings.size()) &&
+                   "shift register origIter out of prologue range");
+            iterArgInits.push_back(
+                prologuePerStageMappings[origIter].lookupOrDefault(csv.value));
+          }
+        }
         // Existing iter_args: use the values from after prologue yield
         // simulation.
         for (auto blockArg : originalForOp.getRegionIterArgs())
-          iterArgInits.push_back(prologueMapping.lookupOrDefault(blockArg));
+          iterArgInits.push_back(latestValueMapping.lookupOrDefault(blockArg));
 
         // Step 3: Emit the kernel.
         auto kernelLoop =
