@@ -43,6 +43,25 @@ def LegalizeOperands : Pass<"amdgcn-legalize-operands"> {
   ];
 }
 
+def AMDGCNBufferization : Pass<"aster-amdgcn-bufferization"> {
+  let summary = "Insert phi-breaking copies to prepare for register allocation";
+  let description = [{
+    This pass inserts copies to remove potentially clobbered values, and removes
+    phi-nodes arguments with register value semantics. Phi-nodes are handled by
+    inserting allocations at dominator points and copying the values to the new
+    allocations.
+
+    This can be viewed as a "bufferization" pass that prepares the IR to go out
+    of DPS semantics towards side-effects and before register allocation.
+
+    This pass should run just before register coloring.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::aster::lsir::LSIRDialect"
+  ];
+}
+
 def Bufferization : Pass<"amdgcn-bufferization"> {
   let summary = "Insert phi-breaking copies to prepare for register allocation";
   let description = [{
