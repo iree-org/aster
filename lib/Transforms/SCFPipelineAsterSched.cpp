@@ -73,14 +73,18 @@ struct LoopPipelineInfo {
 /// Returns failure with diagnostic if the loop cannot be pipelined:
 ///   - Non-constant bounds (static peeling only)
 ///   - Fewer iterations than pipeline stages
-///   - Existing iter_args (not yet supported)
 /// Returns success with info.maxStage == 0 if no pipelining is needed.
-static LogicalResult analyzeLoop(scf::ForOp forOp, LoopPipelineInfo &info) {
-  auto cstLb = forOp.getLowerBound().getDefiningOp<arith::ConstantIndexOp>();
-  auto cstUb = forOp.getUpperBound().getDefiningOp<arith::ConstantIndexOp>();
-  auto cstStep = forOp.getStep().getDefiningOp<arith::ConstantIndexOp>();
+static LogicalResult analyzeLoop(scf::ForOp originalForOp,
+                                 LoopPipelineInfo &info) {
+  auto cstLb =
+      originalForOp.getLowerBound().getDefiningOp<arith::ConstantIndexOp>();
+  auto cstUb =
+      originalForOp.getUpperBound().getDefiningOp<arith::ConstantIndexOp>();
+  auto cstStep =
+      originalForOp.getStep().getDefiningOp<arith::ConstantIndexOp>();
   if (!cstLb || !cstUb || !cstStep)
-    return forOp.emitError("aster-scf-pipeline requires constant loop bounds");
+    return originalForOp.emitError(
+        "aster-scf-pipeline requires constant loop bounds");
 
   // Collect loop bounds and step.
   info.lb = cast<IntegerAttr>(cstLb.getValue()).getInt();
@@ -90,7 +94,7 @@ static LogicalResult analyzeLoop(scf::ForOp forOp, LoopPipelineInfo &info) {
 
   // Collect stage assignments, op program order, and maximum loop stage.
   info.maxStage = 0;
-  for (Operation &op : forOp.getBody()->without_terminator()) {
+  for (Operation &op : originalForOp.getBody()->without_terminator()) {
     int64_t stage = getStage(&op);
     info.stages[&op] = stage;
     info.opOrder.push_back(&op);
@@ -103,29 +107,30 @@ static LogicalResult analyzeLoop(scf::ForOp forOp, LoopPipelineInfo &info) {
 
   // Check if the loop has enough iterations for the pipeline stages.
   if (info.numIters <= info.maxStage)
-    return forOp.emitError("loop has ")
+    return originalForOp.emitError("loop has ")
            << info.numIters << " iterations but needs at least "
            << info.maxStage + 1 << " for " << info.maxStage + 1
            << " pipeline stages";
 
-  // Check if the loop has any results, which are not yet supported.
-  if (forOp.getNumResults() > 0)
-    return forOp.emitError(
-        "pipelining loops with existing iter_args not yet supported");
-
   // Find cross-stage values: defined in stage D, used in stage U where D < U.
+  // Block arguments (IV and iter_args) are not stage-defined values -- skip.
   for (Operation *op : info.opOrder) {
     int64_t useStage = info.stages[op];
     for (OpOperand &operand : op->getOpOperands()) {
       Value v = operand.get();
-      if (v == forOp.getInductionVar())
+      if (v == originalForOp.getInductionVar())
         continue;
+      // Skip iter_arg block arguments -- they are carried as existing
+      // iter_args, not as cross-stage values.
+      if (auto blockArg = dyn_cast<BlockArgument>(v))
+        if (blockArg.getOwner() == originalForOp.getBody())
+          continue;
       auto *defOp = v.getDefiningOp();
       if (!defOp || !info.stages.count(defOp))
         continue;
       int64_t defStage = info.stages[defOp];
       if (defStage > useStage) {
-        return forOp.emitError("cross-stage value ")
+        return originalForOp.emitError("cross-stage value ")
                << v << " is used in stage " << useStage
                << " but defined in stage " << defStage;
       }
@@ -144,25 +149,87 @@ static LogicalResult analyzeLoop(scf::ForOp forOp, LoopPipelineInfo &info) {
 }
 
 //===----------------------------------------------------------------------===//
-// Per-iteration mapping helpers
+// Helpers
 //===----------------------------------------------------------------------===//
 
-/// Clone an op for a specific original iteration using that iteration's
-/// IRMapping. The IV is set to the iteration's constant value. Results are
-/// recorded in the iteration's mapping so that later ops from the same
-/// iteration find them (Operation::clone writes results into the mapping).
-static Operation *
-cloneForIteration(Operation *op, int64_t origIter, scf::ForOp forOp,
-                  const LoopPipelineInfo &info, OpBuilder &builder,
-                  DenseMap<int64_t, IRMapping> &iterMappings) {
-  IRMapping &mapping = iterMappings[origIter];
-  Value iv = arith::ConstantIndexOp::create(builder, forOp.getLoc(),
-                                            info.lb + origIter * info.step);
-  mapping.map(forOp.getInductionVar(), iv);
+/// Simulate one yield: evaluate the original yield operands through `mapping`,
+/// then update iter_arg block arguments to the new values. Evaluates all
+/// operands before updating to handle simultaneous swaps (yield %b, %a).
+///
+/// If a yield operand was not cloned (e.g., from a pipeline stage that hasn't
+/// been emitted yet), the corresponding iter_arg keeps its current value.
+static void simulateYield(scf::ForOp originalForOp, IRMapping &mapping) {
+  if (originalForOp.getNumRegionIterArgs() == 0)
+    return;
+  auto yieldOp = cast<scf::YieldOp>(originalForOp.getBody()->getTerminator());
+  SmallVector<Value> nextIterArgs;
+  for (auto [yieldOperand, iterArg] :
+       llvm::zip(yieldOp->getOperands(), originalForOp.getRegionIterArgs())) {
+    if (Value mapped = mapping.lookupOrNull(yieldOperand)) {
+      nextIterArgs.push_back(mapped);
+    } else if (yieldOperand.getParentBlock() == originalForOp.getBody()) {
+      // Defined inside loop body but not cloned -- keep current value.
+      nextIterArgs.push_back(mapping.lookupOrDefault(iterArg));
+    } else {
+      nextIterArgs.push_back(yieldOperand);
+    }
+  }
+  mapping.map(originalForOp.getRegionIterArgs(), nextIterArgs);
+}
 
-  Operation *cloned = builder.clone(*op, mapping);
+/// Seed an IRMapping from kernel loop results, following the iter_arg layout:
+/// [cross-stage values..., existing iter_args...]
+static void seedMappingFromKernelResults(scf::ForOp originalForOp,
+                                         const LoopPipelineInfo &info,
+                                         scf::ForOp kernelLoop,
+                                         IRMapping &mapping) {
+  for (auto [idx, csv] : llvm::enumerate(info.crossStageVals))
+    mapping.map(csv.value, kernelLoop.getResult(idx));
+  int64_t numCrossStage = info.crossStageVals.size();
+  for (auto [idx, blockArg] :
+       llvm::enumerate(originalForOp.getRegionIterArgs()))
+    mapping.map(blockArg, kernelLoop.getResult(numCrossStage + idx));
+}
+
+/// Clone an op from the original loop body into prologue or epilogue context.
+///
+/// Builds a per-op IRMapping with:
+///   - IV mapped to the given `iv`
+///   - iter_arg block args mapped from `globalMapping` (current section state)
+///   - same-origIter operands mapped from `perStageMapping` (per-stage results)
+///   - everything else falls through to builder.clone's default lookup
+///
+/// After cloning, stores results in both `perStageMapping` and `globalMapping`,
+/// and strips the sched.stage attribute.
+static void cloneIntoPrologueOrEpilogue(OpBuilder &builder,
+                                        Operation *originalOp,
+                                        scf::ForOp originalForOp, Value iv,
+                                        const LoopPipelineInfo &info,
+                                        IRMapping &perStageMapping,
+                                        IRMapping &globalMapping) {
+  IRMapping opMapping;
+  opMapping.map(originalForOp.getInductionVar(), iv);
+
+  // Map iter_arg block arguments from current section state.
+  for (auto blockArg : originalForOp.getRegionIterArgs())
+    opMapping.map(blockArg, globalMapping.lookupOrDefault(blockArg));
+
+  // Map operands from the same original iteration.
+  for (Value operand : originalOp->getOperands()) {
+    if (operand == originalForOp.getInductionVar())
+      continue;
+    auto *defOp = operand.getDefiningOp();
+    if (!defOp || !info.stages.count(defOp))
+      continue;
+    if (Value mapped = perStageMapping.lookupOrNull(operand))
+      opMapping.map(operand, mapped);
+  }
+
+  // Clone and update mappings.
+  Operation *cloned = builder.clone(*originalOp, opMapping);
   cloned->removeAttr(kSchedStageAttr);
-  return cloned;
+  perStageMapping.map(originalOp->getResults(), cloned->getResults());
+  globalMapping.map(originalOp->getResults(), cloned->getResults());
 }
 
 //===----------------------------------------------------------------------===//
@@ -175,25 +242,167 @@ cloneForIteration(Operation *op, int64_t origIter, scf::ForOp forOp,
 /// processes original iteration (i - s). This fills the pipeline so that
 /// the kernel can run with all stages active.
 ///
-/// Uses per-iteration IRMappings so that ops from different iterations
-/// within the same section don't interfere with each other's value mappings.
+/// When the original loop has existing iter_args, the prologue simulates
+/// the yield after each section to advance the iter_arg values. This ensures
+/// ops in later sections see the correct iter_arg values (e.g., rotated
+/// offsets for LDS multi-buffering).
 ///
-/// Input: forOp, info, builder positioned before forOp.
-/// Output: iterMappings populated with all cloned results per iteration.
-///   The caller extracts cross-stage values from the appropriate iteration
-///   mappings for kernel iter_arg initialization.
-static void emitPrologue(scf::ForOp forOp, const LoopPipelineInfo &info,
-                         OpBuilder &builder,
-                         DenseMap<int64_t, IRMapping> &iterMappings) {
+/// Input: originalForOp (original loop), info (analysis results), builder
+/// positioned
+///   before originalForOp.
+/// Output: prologueMapping populated with all cloned results. The caller
+///   extracts cross-stage values and iter_arg values from it.
+static void emitPrologue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
+                         OpBuilder &builder, IRMapping &prologueMapping) {
+  Location loc = originalForOp.getLoc();
+
+  // Initialize iter_arg block arguments to their init values.
+  prologueMapping.map(originalForOp.getRegionIterArgs(),
+                      originalForOp.getInits());
+
+  // Per-stage result mappings keeps track of the cloned results for each stage.
+  // The flat prologueMapping keeps track of the current state which constantly
+  // gets updated by a stage.
+  SmallVector<IRMapping> perStageMappings(info.maxStage, IRMapping());
+
   for (int64_t section = 0; section < info.maxStage; ++section) {
     for (Operation *op : info.opOrder) {
       int64_t stage = info.stages.lookup(op);
       if (stage > section)
         continue;
       int64_t origIter = section - stage;
-      cloneForIteration(op, origIter, forOp, info, builder, iterMappings);
+      assert(0 <= origIter &&
+             origIter < static_cast<int64_t>(perStageMappings.size()) &&
+             "origIter out of bounds");
+      Value iv = arith::ConstantIndexOp::create(builder, loc,
+                                                info.lb + origIter * info.step);
+      cloneIntoPrologueOrEpilogue(builder, op, originalForOp, iv, info,
+                                  perStageMappings[origIter], prologueMapping);
     }
+    simulateYield(originalForOp, prologueMapping);
   }
+}
+
+//===----------------------------------------------------------------------===//
+// Kernel helpers
+//===----------------------------------------------------------------------===//
+
+/// Build the iterArgIndex: maps original values to their position in the
+/// kernel's iter_arg list. Layout: [cross-stage values..., existing
+/// iter_args...]
+static DenseMap<Value, int64_t>
+buildIterArgIndex(scf::ForOp originalForOp, const LoopPipelineInfo &info) {
+  DenseMap<Value, int64_t> iterArgIndex;
+  for (auto [idx, csv] : llvm::enumerate(info.crossStageVals))
+    iterArgIndex[csv.value] = idx;
+  int64_t numCrossStage = info.crossStageVals.size();
+  for (auto [idx, blockArg] :
+       llvm::enumerate(originalForOp.getRegionIterArgs()))
+    iterArgIndex[blockArg] = numCrossStage + idx;
+  return iterArgIndex;
+}
+
+/// Look up a value in the iterArgIndex. Returns the corresponding kernel
+/// iter_arg if found, or nullptr if the value is not an iter_arg.
+static Value lookupIterArg(Value use,
+                           const DenseMap<Value, int64_t> &iterArgIndex,
+                           scf::ForOp kernelLoop) {
+  auto it = iterArgIndex.find(use);
+  if (it == iterArgIndex.end())
+    return nullptr;
+  return kernelLoop.getRegionIterArgs()[it->second];
+}
+
+/// Get or lazily create the stage-adjusted IV for a given pipeline stage.
+/// Stage s at kernel iteration k processes original iteration
+/// (k - lb)/step - s, so the effective IV is kernelIV - s * step.
+static Value getOrCreateStageIV(int64_t stage, const LoopPipelineInfo &info,
+                                OpBuilder &builder, scf::ForOp kernelLoop,
+                                SmallVectorImpl<Value> &cache) {
+  auto &iv = cache[stage];
+  if (!iv) {
+    Location loc = kernelLoop.getLoc();
+    Value offset =
+        arith::ConstantIndexOp::create(builder, loc, stage * info.step);
+    iv = arith::SubIOp::create(builder, loc, kernelLoop.getInductionVar(),
+                               offset);
+  }
+  return iv;
+}
+
+/// Build the operand mapping for one op in the kernel body.
+///
+/// For each operand, resolves to one of (in priority order):
+///   1. Stage-adjusted IV (for the induction variable)
+///   2. Kernel iter_arg (for existing iter_arg block args, or cross-stage
+///      values defined in an earlier stage)
+///   3. Same-iteration clone (for same-stage values cloned earlier)
+///   4. Unmapped / passthrough (for values defined outside the loop)
+static IRMapping mapKernelOperands(Operation *op, int64_t useStage,
+                                   Value stageIV, scf::ForOp originalForOp,
+                                   const LoopPipelineInfo &info,
+                                   const DenseMap<Value, int64_t> &iterArgIdx,
+                                   scf::ForOp kernelLoop,
+                                   const IRMapping &kernelMapping) {
+  IRMapping opMapping;
+  opMapping.map(originalForOp.getInductionVar(), stageIV);
+
+  for (Value use : op->getOperands()) {
+    if (use == originalForOp.getInductionVar())
+      continue;
+
+    // Check iter_arg index (cross-stage values + existing iter_args).
+    if (Value iterArg = lookupIterArg(use, iterArgIdx, kernelLoop)) {
+      auto *defOp = use.getDefiningOp();
+      // Block args (existing iter_args) always use kernel iter_args.
+      if (!defOp) {
+        opMapping.map(use, iterArg);
+        continue;
+      }
+      // Cross-stage: only if defined in an earlier stage.
+      if (info.stages.lookup(defOp) < useStage) {
+        opMapping.map(use, iterArg);
+        continue;
+      }
+    }
+
+    // Same-stage: use result cloned earlier this iteration.
+    auto *defOp = use.getDefiningOp();
+    if (!defOp || !info.stages.count(defOp))
+      continue;
+    if (Value mapped = kernelMapping.lookupOrNull(use))
+      opMapping.map(use, mapped);
+  }
+
+  return opMapping;
+}
+
+/// Build the yield values for the kernel loop.
+///
+/// Layout: [cross-stage values from this iteration...,
+///          existing iter_arg yield operands resolved in kernel context...]
+static SmallVector<Value>
+buildKernelYieldValues(scf::ForOp originalForOp, const LoopPipelineInfo &info,
+                       const DenseMap<Value, int64_t> &iterArgIdx,
+                       scf::ForOp kernelLoop, const IRMapping &kernelMapping) {
+  SmallVector<Value> yieldValues;
+
+  // Cross-stage values produced in this iteration.
+  for (auto &csv : info.crossStageVals)
+    yieldValues.push_back(kernelMapping.lookup(csv.value));
+
+  // Existing iter_args: resolve original yield operands in kernel context.
+  auto yieldOp = cast<scf::YieldOp>(originalForOp.getBody()->getTerminator());
+  for (Value yieldOperand : yieldOp->getOperands()) {
+    if (Value iterArg = lookupIterArg(yieldOperand, iterArgIdx, kernelLoop))
+      yieldValues.push_back(iterArg);
+    else if (Value mapped = kernelMapping.lookupOrNull(yieldOperand))
+      yieldValues.push_back(mapped);
+    else
+      yieldValues.push_back(yieldOperand); // outside loop
+  }
+
+  return yieldValues;
 }
 
 //===----------------------------------------------------------------------===//
@@ -202,99 +411,45 @@ static void emitPrologue(scf::ForOp forOp, const LoopPipelineInfo &info,
 
 /// Emit the kernel loop: steady-state where all stages execute concurrently.
 ///
-/// The kernel runs from lb + maxStage*step to ub. Cross-stage values are
-/// carried as iter_args: stage s > 0 reads its cross-stage operands from
-/// iter_args (previous iteration), while stage 0 produces new values that
-/// are yielded for the next iteration.
+/// The kernel runs from lb + maxStage*step to ub. All stages execute each
+/// iteration, with cross-stage values carried as iter_args from the previous
+/// iteration. Existing iter_args are appended after cross-stage iter_args.
 ///
-/// Input: forOp, info, builder positioned after prologue, iterArgInits
-///   (initial cross-stage values from prologue).
-/// Output: the created kernel ForOp whose results are the final cross-stage
-///   values (consumed by the epilogue).
-static scf::ForOp emitKernel(scf::ForOp forOp, const LoopPipelineInfo &info,
-                             OpBuilder &builder, ArrayRef<Value> iterArgInits) {
-  Location loc = forOp.getLoc();
+/// Iter_arg layout: [cross-stage values..., existing iter_args...]
+static scf::ForOp emitKernel(scf::ForOp originalForOp,
+                             const LoopPipelineInfo &info, OpBuilder &builder,
+                             SmallVectorImpl<Value> &iterArgInits) {
+  Location loc = originalForOp.getLoc();
   Value kernelLb = arith::ConstantIndexOp::create(
       builder, loc, info.lb + info.maxStage * info.step);
   auto kernelLoop =
-      scf::ForOp::create(builder, loc, kernelLb, forOp.getUpperBound(),
-                         forOp.getStep(), iterArgInits);
+      scf::ForOp::create(builder, loc, kernelLb, originalForOp.getUpperBound(),
+                         originalForOp.getStep(), iterArgInits);
 
   OpBuilder::InsertionGuard guard(builder);
   if (kernelLoop.getBody()->mightHaveTerminator())
     kernelLoop.getBody()->getTerminator()->erase();
   builder.setInsertionPointToStart(kernelLoop.getBody());
 
-  // Index from cross-stage value -> iter_arg position.
-  DenseMap<Value, int64_t> crossStageIdx;
-  for (auto [idx, csv] : llvm::enumerate(info.crossStageVals))
-    crossStageIdx[csv.value] = idx;
+  auto iterArgIdx = buildIterArgIndex(originalForOp, info);
+  SmallVector<Value> stageIVCache(info.maxStage + 1);
+  stageIVCache[0] = kernelLoop.getInductionVar();
 
-  // Cache of stage-adjusted IVs. Stage s at kernel iteration k processes
-  // original iteration (k - lb)/step - s, so the effective IV is
-  // kernelIV - s * step.
-  DenseMap<int64_t, Value> adjustedIVs;
-  adjustedIVs[0] = kernelLoop.getInductionVar();
-
-  // Track cloned results within the current kernel iteration.
+  // Clone each op with stage-adjusted IV and resolved operands.
   IRMapping kernelMapping;
-  for (Operation *user : info.opOrder) {
-    int64_t useStage = info.stages.lookup(user);
-
-    // Get or lazily create the stage-adjusted IV.
-    auto &stageIV = adjustedIVs[useStage];
-    if (!stageIV) {
-      Value offset =
-          arith::ConstantIndexOp::create(builder, loc, useStage * info.step);
-      stageIV = arith::SubIOp::create(builder, loc,
-                                      kernelLoop.getInductionVar(), offset);
-    }
-
-    IRMapping opMapping;
-    opMapping.map(forOp.getInductionVar(), stageIV);
-
-    // Map operands to their appropriate sources:
-    // - For cross-stage dependencies (def in earlier stage): use iter_args
-    //   which carry values from the previous iteration.
-    // - For same-stage dependencies: use results from ops cloned earlier
-    //   in this iteration.
-    for (Value use : user->getOperands()) {
-      // IV is handled via stage-adjusted IV mapping above.
-      if (use == forOp.getInductionVar())
-        continue;
-      auto *defOp = use.getDefiningOp();
-      if (!defOp) {
-        assert(cast<BlockArgument>(use).getOwner()->getParentOp() != forOp &&
-               "unexpected iter_args of the scf.for loop we are pipelining");
-        continue;
-      }
-
-      // No-stage means stage 0: implicit but natural interpretation.
-      if (!info.stages.count(defOp))
-        continue;
-
-      // `user` is the using op, `use` is the operand defined by `defOp` ->
-      // this is the definition stage.
-      int64_t defStage = info.stages.lookup(defOp);
-      if (defStage < useStage) {
-        auto it = crossStageIdx.find(use);
-        if (it != crossStageIdx.end())
-          opMapping.map(use, kernelLoop.getRegionIterArgs()[it->second]);
-      } else if (Value mapped = kernelMapping.lookupOrNull(use)) {
-        opMapping.map(use, mapped);
-      }
-    }
-
-    // Clone the operation and map its results.
-    Operation *cloned = builder.clone(*user, opMapping);
+  for (Operation *op : info.opOrder) {
+    int64_t stage = info.stages.lookup(op);
+    Value iv =
+        getOrCreateStageIV(stage, info, builder, kernelLoop, stageIVCache);
+    auto opMapping = mapKernelOperands(op, stage, iv, originalForOp, info,
+                                       iterArgIdx, kernelLoop, kernelMapping);
+    Operation *cloned = builder.clone(*op, opMapping);
     cloned->removeAttr(kSchedStageAttr);
-    kernelMapping.map(user->getResults(), cloned->getResults());
+    kernelMapping.map(op->getResults(), cloned->getResults());
   }
 
-  // Handle yields.
-  SmallVector<Value> yieldValues;
-  for (auto &csv : info.crossStageVals)
-    yieldValues.push_back(kernelMapping.lookup(csv.value));
+  auto yieldValues = buildKernelYieldValues(originalForOp, info, iterArgIdx,
+                                            kernelLoop, kernelMapping);
   scf::YieldOp::create(builder, loc, yieldValues);
 
   return kernelLoop;
@@ -305,33 +460,27 @@ static scf::ForOp emitKernel(scf::ForOp forOp, const LoopPipelineInfo &info,
 //===----------------------------------------------------------------------===//
 
 /// Emit the epilogue: maxStage sections that drain the pipeline.
+/// Section j (1-indexed) executes stages j..maxStage, where stage s processes
+/// original iteration (numIters - s + j - 1). Cross-stage values are seeded
+/// from the kernel results; yields are simulated between sections.
 ///
-/// Section j (1-indexed) executes stages j..maxStage. In section j, stage s
-/// processes original iteration (numIters - s + j - 1).
-///
-/// Uses per-iteration IRMappings so that different stages within the same
-/// section (which operate on different in-flight iterations) don't interfere
-/// with each other's value mappings.
-///
-/// Cross-stage values are seeded into each iteration's mapping from the
-/// kernel loop results. Each kernel result corresponds to the most recent
-/// value produced by the defining stage -- the iteration that produced it
-/// is determined by the pipeline geometry.
-///
-/// Input: forOp, info, builder positioned after kernel, kernelLoop (for
-///   extracting final cross-stage values from its results).
-/// Output: epilogue ops emitted after the kernel loop.
-static void emitEpilogue(scf::ForOp forOp, const LoopPipelineInfo &info,
-                         OpBuilder &builder, scf::ForOp kernelLoop) {
-  DenseMap<int64_t, IRMapping> iterMappings;
+/// epilogueMapping is populated with the final iter_arg values after all
+/// epilogue sections, for use in replacing the original loop results.
+static void emitEpilogue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
+                         OpBuilder &builder, scf::ForOp kernelLoop,
+                         IRMapping &epilogueMapping) {
+  Location loc = originalForOp.getLoc();
+  seedMappingFromKernelResults(originalForOp, info, kernelLoop,
+                               epilogueMapping);
 
-  // The last kernel IV is lb + (numIters - 1) * step (conceptual; kernel
-  // actually runs from lb + maxStage*step to ub). For each csv[i] at
-  // defStage D, the kernel result carries the value for original iteration
-  // (numIters - 1 - D).
+  // Per-original-iteration result mappings. Cross-stage dependencies require
+  // finding the value produced at the same logical iteration.
+  // Seed: at kernel exit, cross-stage iter_args hold values produced by
+  // defStage at origIter = (numIters - 1) - csv.defStage.
+  DenseMap<int64_t, IRMapping> perStageMappings;
   for (auto [idx, csv] : llvm::enumerate(info.crossStageVals)) {
-    int64_t producingIter = info.numIters - 1 - csv.defStage;
-    iterMappings[producingIter].map(csv.value, kernelLoop.getResult(idx));
+    int64_t defOrigIter = (info.numIters - 1) - csv.defStage;
+    perStageMappings[defOrigIter].map(csv.value, kernelLoop.getResult(idx));
   }
 
   for (int64_t epilogueStage = 1; epilogueStage <= info.maxStage;
@@ -340,10 +489,13 @@ static void emitEpilogue(scf::ForOp forOp, const LoopPipelineInfo &info,
       int64_t stage = info.stages.lookup(op);
       if (stage < epilogueStage)
         continue;
-
       int64_t origIter = info.numIters - stage + epilogueStage - 1;
-      cloneForIteration(op, origIter, forOp, info, builder, iterMappings);
+      Value iv = arith::ConstantIndexOp::create(builder, loc,
+                                                info.lb + origIter * info.step);
+      cloneIntoPrologueOrEpilogue(builder, op, originalForOp, iv, info,
+                                  perStageMappings[origIter], epilogueMapping);
     }
+    simulateYield(originalForOp, epilogueMapping);
   }
 }
 
@@ -358,52 +510,55 @@ struct SCFPipelineAsterSchedPass
 };
 
 void SCFPipelineAsterSchedPass::runOnOperation() {
-  auto walkResult = getOperation()->walk([&](scf::ForOp forOp) -> WalkResult {
-    // Interrupt the walk if the loop cannot be pipelined.
-    LoopPipelineInfo info;
-    if (mlir::failed(analyzeLoop(forOp, info)))
-      return WalkResult::interrupt();
+  auto walkResult =
+      getOperation()->walk([&](scf::ForOp originalForOp) -> WalkResult {
+        // Interrupt the walk if the loop cannot be pipelined.
+        LoopPipelineInfo info;
+        if (mlir::failed(analyzeLoop(originalForOp, info)))
+          return WalkResult::interrupt();
 
-    // Advance the walk if the loop does not need to be pipelined.
-    if (info.maxStage == 0)
-      return WalkResult::advance();
+        // Advance the walk if the loop does not need to be pipelined.
+        if (info.maxStage == 0)
+          return WalkResult::advance();
 
-    LLVM_DEBUG({
-      llvm::dbgs() << "Pipelining loop with " << info.maxStage + 1
-                   << " stages, " << info.crossStageVals.size()
-                   << " cross-stage values\n";
-    });
+        LLVM_DEBUG({
+          llvm::dbgs() << "Pipelining loop with " << info.maxStage + 1
+                       << " stages, " << info.crossStageVals.size()
+                       << " cross-stage values\n";
+        });
 
-    OpBuilder builder(forOp);
+        OpBuilder builder(originalForOp);
 
-    // Step 1: Emit the prologue with per-iteration mappings.
-    DenseMap<int64_t, IRMapping> iterMappings;
-    emitPrologue(forOp, info, builder, iterMappings);
+        // Step 1: Emit the prologue.
+        IRMapping prologueMapping;
+        emitPrologue(originalForOp, info, builder, prologueMapping);
 
-    // Step 2: Extract iter_arg initial values from prologue mappings.
-    // Each cross-stage value csv[i] (defStage D) needs the value from the
-    // last prologue iteration that executed stage D. In the prologue, stage D
-    // runs in sections D..maxStage-1, processing iterations 0..(maxStage-1-D).
-    // The last such iteration is (maxStage - 1 - D).
-    SmallVector<Value> iterArgInits;
-    for (auto &csv : info.crossStageVals) {
-      int64_t lastPrologueIter = info.maxStage - 1 - csv.defStage;
-      IRMapping &mapping = iterMappings[lastPrologueIter];
-      Value mapped = mapping.lookupOrNull(csv.value);
-      assert(mapped && "cross-stage value not found in prologue mapping");
-      iterArgInits.push_back(mapped);
-    }
+        // Step 2: Collect kernel iter_arg initial values.
+        // Layout: [cross-stage values..., existing iter_args...]
+        SmallVector<Value> iterArgInits;
+        for (auto &csv : info.crossStageVals)
+          iterArgInits.push_back(prologueMapping.lookupOrDefault(csv.value));
+        // Existing iter_args: use the values from after prologue yield
+        // simulation.
+        for (auto blockArg : originalForOp.getRegionIterArgs())
+          iterArgInits.push_back(prologueMapping.lookupOrDefault(blockArg));
 
-    // Step 3: Emit the kernel.
-    auto kernelLoop = emitKernel(forOp, info, builder, iterArgInits);
+        // Step 3: Emit the kernel.
+        auto kernelLoop =
+            emitKernel(originalForOp, info, builder, iterArgInits);
 
-    // Step 4: Emit the epilogue.
-    emitEpilogue(forOp, info, builder, kernelLoop);
+        IRMapping epilogueMapping;
+        emitEpilogue(originalForOp, info, builder, kernelLoop, epilogueMapping);
 
-    // TODO: RAUW when applicable.
-    forOp.erase();
-    return WalkResult::advance();
-  });
+        // Replace original loop results with final epilogue iter_arg values.
+        for (auto [oldResult, blockArg] : llvm::zip(
+                 originalForOp.getResults(), originalForOp.getRegionIterArgs()))
+          oldResult.replaceAllUsesWith(
+              epilogueMapping.lookupOrDefault(blockArg));
+
+        originalForOp.erase();
+        return WalkResult::advance();
+      });
 
   if (walkResult.wasInterrupted())
     signalPassFailure();
