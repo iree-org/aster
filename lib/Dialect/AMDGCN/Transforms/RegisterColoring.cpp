@@ -10,11 +10,14 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
+#include "aster/Dialect/AMDGCN/Analysis/Utils.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/DebugLog.h"
 
 #define DEBUG_TYPE "amdgcn-register-coloring"
@@ -146,6 +149,13 @@ struct RegInterferenceOpPattern : public OpRewritePattern<RegInterferenceOp> {
   using Base::Base;
 
   LogicalResult matchAndRewrite(RegInterferenceOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+struct CopyOpPattern : public OpRewritePattern<lsir::CopyOp> {
+  using Base::Base;
+
+  LogicalResult matchAndRewrite(lsir::CopyOp op,
                                 PatternRewriter &rewriter) const override;
 };
 } // namespace
@@ -431,6 +441,72 @@ RegInterferenceOpPattern::matchAndRewrite(RegInterferenceOp op,
   return success();
 }
 
+LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
+                                             PatternRewriter &rewriter) const {
+  // Try to canonicalize the operation.
+  if (succeeded(op.canonicalize(op, rewriter)))
+    return success();
+
+  // If the result is used, bail out.
+  if (!op.getResult().use_empty())
+    return failure();
+
+  // Get the source allocas. Bail out if the allocas are missing or need
+  // allocation.
+  FailureOr<ValueRange> srcAlloc = getAllocasOrFailure(op.getSource());
+  if (failed(srcAlloc) ||
+      llvm::any_of(*srcAlloc, [](Value v) { return needsAllocation(v); }))
+    return failure();
+
+  // Get the target allocas. Bail out if the allocas are missing or need
+  // allocation.
+  FailureOr<ValueRange> tgtAlloc = getAllocasOrFailure(op.getTarget());
+  if (failed(tgtAlloc) ||
+      llvm::any_of(*tgtAlloc, [](Value v) { return needsAllocation(v); }))
+    return failure();
+
+  assert(srcAlloc->size() == tgtAlloc->size() &&
+         "source and target allocas must have the same size");
+
+  assert(srcAlloc->size() > 0 &&
+         "source and target allocas must have at least one alloca");
+
+  auto srcTy = dyn_cast<AMDGCNRegisterTypeInterface>(op.getSource().getType());
+  auto tgtTy = dyn_cast<AMDGCNRegisterTypeInterface>(op.getTarget().getType());
+
+  // Bail if the source or target is not an AMDGCN register type.
+  if (!srcTy || !tgtTy)
+    return failure();
+
+  // Bail if the copy cannot be performed.
+  if (srcTy.getRegisterKind() != RegisterKind::SGPR &&
+      tgtTy.getRegisterKind() == RegisterKind::SGPR) {
+    return rewriter.notifyMatchFailure(
+        op, "cannot copy between non-sgpr type to an sgpr type");
+  }
+  if (!llvm::is_contained({RegisterKind::SGPR, RegisterKind::VGPR},
+                          srcTy.getRegisterKind()) ||
+      !llvm::is_contained({RegisterKind::SGPR, RegisterKind::VGPR},
+                          tgtTy.getRegisterKind())) {
+    return rewriter.notifyMatchFailure(
+        op, "cannot copy if data type is not SGPR or VGPR");
+  }
+
+  auto copyReg = [&](Value src, Value tgt) {
+    if (tgtTy.getRegisterKind() == RegisterKind::SGPR) {
+      S_MOV_B32::create(rewriter, tgt.getLoc(), tgt, src);
+      return;
+    }
+    V_MOV_B32_E32::create(rewriter, tgt.getLoc(), tgt, src);
+  };
+
+  // Create the copy operations.
+  for (auto [src, tgt] : llvm::zip_equal(*srcAlloc, *tgtAlloc))
+    copyReg(src, tgt);
+  rewriter.eraseOp(op);
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // RegisterColoring pass
 //===----------------------------------------------------------------------===//
@@ -459,7 +535,7 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
 
   RewritePatternSet patterns(&getContext());
   patterns.add<InstRewritePattern, MakeRegisterRangeOpPattern,
-               RegInterferenceOpPattern>(&getContext());
+               RegInterferenceOpPattern, CopyOpPattern>(&getContext());
   FrozenRewritePatternSet frozenPatterns(std::move(patterns));
   if (failed(applyPatternsGreedily(
           funcOp, frozenPatterns,
