@@ -131,7 +131,11 @@ def SCFPipelineAsterSched : Pass<"aster-scf-pipeline"> {
       Kernel:   for i in [1, N): load(i), compute(i-1)
       Epilogue: compute(N-1)
   }];
-  let dependentDialects = ["mlir::scf::SCFDialect", "mlir::arith::ArithDialect"];
+  let dependentDialects = [
+    "mlir::scf::SCFDialect",
+    "mlir::arith::ArithDialect",
+    "mlir::aster::amdgcn::AMDGCNDialect",
+  ];
 }
 
 #endif // ASTER_TRANSFORMS_PASSES_TD

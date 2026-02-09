@@ -1,5 +1,6 @@
 add_mlir_library(AsterTransforms
   ConstexprExpansion.cpp
+  LDSMultibufferPrep.cpp
   OpScheduling.cpp
   OptimizeArith.cpp
   ReplaceConstantGPUDims.cpp
@@ -11,6 +12,7 @@ add_mlir_library(AsterTransforms
   AsterPassesIncGen
 
   LINK_LIBS PUBLIC
+  AMDGCNDialect
   MLIRAffineDialect
   MLIRArithDialect
   MLIRAffineTransforms

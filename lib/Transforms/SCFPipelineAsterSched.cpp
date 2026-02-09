@@ -22,7 +22,9 @@
 //   it is used in the draining epilogue after all stages have completed.
 //===----------------------------------------------------------------------===//
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
 #include "aster/Transforms/Passes.h"
+#include "aster/Transforms/Transforms.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
@@ -594,6 +596,12 @@ struct SCFPipelineAsterSchedPass
 };
 
 void SCFPipelineAsterSchedPass::runOnOperation() {
+  // Prepare LDS buffers for multi-buffering before pipelining. This hoists
+  // alloc_lds ops out of loops and adds rotating offset iter_args, so the
+  // pipeliner sees only generic iter_args with no LDS-specific logic.
+  if (failed(prepareLDSMultibuffers(getOperation())))
+    return signalPassFailure();
+
   auto walkResult =
       getOperation()->walk([&](scf::ForOp originalForOp) -> WalkResult {
         // Interrupt the walk if the loop cannot be pipelined.

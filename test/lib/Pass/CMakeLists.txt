@@ -11,6 +11,7 @@ add_mlir_library(ASTERTestPass
   TestDPSAliasAnalysis.cpp
   TestInterferenceAnalysis.cpp
   TestLDSInterferenceGraph.cpp
+  TestLDSMultibufferPrep.cpp
   TestLivenessAnalysis.cpp
   TestMemoryDependenceAnalysis.cpp
   TestRangeAnalysis.cpp
@@ -24,6 +25,7 @@ add_mlir_library(ASTERTestPass
   AMDGCNAnalysis
   AMDGCNDialect
   ASTERAnalysis
+  AsterTransforms
   MLIRAnalysis
   MLIRFuncDialect
   MLIRIR

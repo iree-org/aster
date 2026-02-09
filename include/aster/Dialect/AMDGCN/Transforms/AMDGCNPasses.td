@@ -306,7 +306,8 @@ def ConvertSCFControlFlow : Pass<"amdgcn-convert-scf-control-flow"> {
   }];
   let dependentDialects = [
     "mlir::aster::amdgcn::AMDGCNDialect",
-    "mlir::aster::lsir::LSIRDialect"
+    "mlir::aster::lsir::LSIRDialect",
+    "mlir::cf::ControlFlowDialect"
   ];
 }
 
