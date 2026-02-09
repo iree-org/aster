@@ -193,12 +193,23 @@ removePotentiallyClobberedValues(Operation *op, IRRewriter &rewriter,
             insertCopy(rewriter, inst.getLoc(), copyAlloca, clobbered);
 
         // Replace "reading" uses of the clobbered value after inst (in same
-        // block) with the copy. Don't replace outs operands - those specify
-        // WHERE to write, not WHAT to read.
+        // block or in successor blocks) with the copy. Skip outs operands as
+        // they do not read values.
+        SmallPtrSet<Block *, 4> successorBlocks;
+        for (Block *succ : instBlock->getSuccessors())
+          successorBlocks.insert(succ);
         clobbered.replaceUsesWithIf(copyResult, [&](OpOperand &use) {
           Operation *useOwner = use.getOwner();
-          if (useOwner->getBlock() != instBlock ||
-              !inst->isBeforeInBlock(useOwner))
+          Block *useBlock = useOwner->getBlock();
+          // Allow same-block uses after the clobbering instruction.
+          bool sameBlockAfter =
+              useBlock == instBlock && inst->isBeforeInBlock(useOwner);
+          // Allow uses in successor blocks (they execute after the clobber).
+          // Exclude the instBlock itself from successors to avoid double-
+          // counting with the same-block check (relevant for self-loops).
+          bool inSuccessor =
+              useBlock != instBlock && successorBlocks.contains(useBlock);
+          if (!sameBlockAfter && !inSuccessor)
             return false;
           // Don't replace outs operands.
           if (auto userInst = dyn_cast<InstOpInterface>(useOwner)) {
@@ -239,8 +250,12 @@ void Bufferization::runOnOperation() {
   });
 
   // 2. Insert copies to remove potentially clobbered values.
-  // Update provenance analysis after inserting copies.
-  provenanceAnalysis = ValueProvenanceAnalysis::create(provenanceSolver, op);
+  // Fresh solver is required - the previous one retains stale phi-equivalence
+  // state from before phi-breaking copies were inserted.
+  DataFlowSolver freshProvenanceSolver(
+      DataFlowConfig().setInterprocedural(false));
+  provenanceAnalysis =
+      ValueProvenanceAnalysis::create(freshProvenanceSolver, op);
 
   // Run liveness analysis for clobber detection.
   DataFlowSolver livenessSolver(DataFlowConfig().setInterprocedural(false));
