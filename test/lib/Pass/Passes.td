@@ -51,35 +51,11 @@ def TestBufferAnalysis : Pass<"test-buffer-analysis"> {
   }];
 }
 
-def TestDPSAliasAnalysis : Pass<"test-dps-alias-analysis"> {
-  let summary = "Test pass for DPS alias analysis";
-  let description = [{
-    This pass runs DPS alias analysis and prints the equivalence classes
-    for kernel operations.
-  }];
-}
-
-def TestLivenessAnalysis : Pass<"test-liveness-analysis"> {
-  let summary = "Test pass for liveness analysis";
-  let description = [{
-    This pass runs liveness analysis and prints the live values
-    before and after each operation in kernel functions.
-  }];
-}
-
 def TestMemoryDependenceAnalysis : Pass<"test-memory-dependence-analysis"> {
   let summary = "Test pass for memory dependence analysis";
   let description = [{
     This pass runs memory dependence analysis and prints pending
     memory operations and flush requirements for each operation.
-  }];
-}
-
-def TestValueProvenanceAnalysis : Pass<"test-value-provenance-analysis"> {
-  let summary = "Test pass for value provenance analysis";
-  let description = [{
-    This pass runs value provenance analysis and prints which alloca
-    each value originates from, as well as phi-coalescing equivalences.
   }];
 }
 
@@ -97,24 +73,6 @@ def TestLDSInterferenceGraph
   let description = [{
     This pass builds and prints the LDS interference graph for testing purposes.
     The graph is printed in DOT format to stderr.
-  }];
-}
-
-def TestInterferenceAnalysis : Pass<"test-interference-analysis"> {
-  let summary = "Test pass for register interference analysis";
-  let description = [{
-    This pass runs register interference analysis and prints the interference
-    graph in DOT format. Use this to verify that interference edges are
-    correctly computed between live values.
-  }];
-}
-
-def TestRangeAnalysis : Pass<"test-range-analysis"> {
-  let summary = "Test pass for register range analysis";
-  let description = [{
-    This pass runs range analysis and prints the ranges, dependency graph,
-    and allocations. Use this to verify that register ranges are correctly
-    identified and that range constraints are satisfiable.
   }];
 }
 
