@@ -250,11 +250,10 @@ amdgcn.kernel @no_interference_cf_undef_values {
 // CHECK:           %[[VAL_6:.*]]:2 = test_inst outs %[[VAL_2]], %[[VAL_3]] : (!amdgcn.sgpr<0>, !amdgcn.sgpr<1>) -> (!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
 // CHECK:           %[[VAL_7:.*]]:2 = test_inst outs %[[VAL_4]], %[[VAL_5]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<3>) -> (!amdgcn.vgpr<2>, !amdgcn.vgpr<3>)
 // CHECK:           %[[VAL_8:.*]] = test_inst outs %[[VAL_0]] ins %[[VAL_2]], %[[VAL_4]] : (!amdgcn.vgpr<0>, !amdgcn.sgpr<0>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<0>
-// CHECK:           %[[COPY_1:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[VAL_0]], %[[VAL_1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<0>
 // CHECK:           %[[VAL_9:.*]] = test_inst outs %[[VAL_1]] ins %[[VAL_3]], %[[VAL_5]] : (!amdgcn.vgpr<1>, !amdgcn.sgpr<1>, !amdgcn.vgpr<3>) -> !amdgcn.vgpr<1>
 // CHECK:           cf.cond_br %[[CALL_0]], ^bb1, ^bb2
 // CHECK:         ^bb1:
-// CHECK:           %[[VAL_10:.*]] = test_inst outs %[[VAL_0]] ins %[[VAL_0]], %[[VAL_4]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[VAL_10:.*]] = test_inst outs %[[VAL_1]] ins %[[VAL_0]], %[[VAL_4]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<0>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<1>
 // CHECK:           cf.br ^bb3
 // CHECK:         ^bb2:
 // CHECK:           %[[VAL_11:.*]] = test_inst outs %[[VAL_0]] ins %[[VAL_1]], %[[VAL_5]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<3>) -> !amdgcn.vgpr<0>
@@ -430,12 +429,13 @@ amdgcn.kernel @existing_regs_with_values {
 // CHECK-DAG:       %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<0>
 // CHECK-DAG:       %[[VAL_1:.*]] = alloca : !amdgcn.vgpr<1>
 // CHECK-DAG:       %[[VAL_2:.*]] = alloca : !amdgcn.vgpr<2>
-// CHECK:           %[[VAL_3:.*]] = test_inst outs %[[VAL_0]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
-// CHECK:           %[[VAL_4:.*]] = test_inst outs %[[VAL_1]] : (!amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
-// CHECK:           %[[VAL_5:.*]] = test_inst outs %[[VAL_2]] ins %[[VAL_1]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<2>
-// CHECK:           %[[VAL_6:.*]] = test_inst outs %[[VAL_0]] ins %[[VAL_2]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<0>
-// CHECK:           %[[VAL_7:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
-// CHECK:           test_inst ins %[[VAL_7]], %[[VAL_2]] : (!amdgcn.vgpr_range<[0 : 2]>, !amdgcn.vgpr<2>) -> ()
+// CHECK-DAG:       %[[VAL_3:.*]] = alloca : !amdgcn.vgpr<3>
+// CHECK:           %[[VAL_4:.*]] = test_inst outs %[[VAL_0]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[VAL_5:.*]] = test_inst outs %[[VAL_1]] : (!amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
+// CHECK:           %[[VAL_6:.*]] = test_inst outs %[[VAL_2]] ins %[[VAL_1]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<2>
+// CHECK:           %[[VAL_7:.*]] = test_inst outs %[[VAL_3]] ins %[[VAL_2]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<3>
+// CHECK:           %[[VAL_8:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:           test_inst ins %[[VAL_8]], %[[VAL_2]] : (!amdgcn.vgpr_range<[0 : 2]>, !amdgcn.vgpr<2>) -> ()
 // CHECK:           end_kernel
 // CHECK:         }
 amdgcn.kernel @test_make_range_liveness_1 {
@@ -458,12 +458,13 @@ amdgcn.kernel @test_make_range_liveness_1 {
 // CHECK-DAG:       %[[VAL_1:.*]] = alloca : !amdgcn.vgpr<1>
 // CHECK:           %[[VAL_2:.*]] = test_inst outs %[[VAL_0]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
 // CHECK:           %[[VAL_3:.*]] = test_inst outs %[[VAL_1]] : (!amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
-// CHECK-DAG:       %[[VAL_4:.*]] = alloca : !amdgcn.vgpr<2>
+// CHECK:           %[[VAL_4:.*]] = alloca : !amdgcn.vgpr<2>
 // CHECK:           %[[VAL_5:.*]] = test_inst outs %[[VAL_4]] ins %[[VAL_1]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<2>
-// CHECK:           %[[VAL_6:.*]] = test_inst outs %[[VAL_0]] ins %[[VAL_4]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[VAL_6:.*]] = alloca : !amdgcn.vgpr<3>
+// CHECK:           %[[VAL_7:.*]] = test_inst outs %[[VAL_6]] ins %[[VAL_4]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<3>
 // CHECK:           test_inst ins %[[VAL_4]] : (!amdgcn.vgpr<2>) -> ()
-// CHECK:           %[[VAL_7:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
-// CHECK:           test_inst ins %[[VAL_7]] : (!amdgcn.vgpr_range<[0 : 2]>) -> ()
+// CHECK:           %[[VAL_8:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:           test_inst ins %[[VAL_8]] : (!amdgcn.vgpr_range<[0 : 2]>) -> ()
 // CHECK:           end_kernel
 // CHECK:         }
 amdgcn.kernel @test_make_range_liveness_2 {
@@ -487,11 +488,12 @@ amdgcn.kernel @test_make_range_liveness_2 {
 // CHECK-DAG:       %[[VAL_1:.*]] = alloca : !amdgcn.vgpr<1>
 // CHECK:           %[[VAL_2:.*]] = test_inst outs %[[VAL_0]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
 // CHECK:           %[[VAL_3:.*]] = test_inst outs %[[VAL_1]] : (!amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
-// CHECK-DAG:       %[[VAL_4:.*]] = alloca : !amdgcn.vgpr<2>
+// CHECK:           %[[VAL_4:.*]] = alloca : !amdgcn.vgpr<2>
 // CHECK:           %[[VAL_5:.*]] = test_inst outs %[[VAL_4]] ins %[[VAL_1]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<2>
-// CHECK:           %[[VAL_6:.*]] = test_inst outs %[[VAL_0]] ins %[[VAL_4]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<0>
-// CHECK:           %[[VAL_7:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
-// CHECK:           test_inst ins %[[VAL_7]] : (!amdgcn.vgpr_range<[0 : 2]>) -> ()
+// CHECK:           %[[VAL_6:.*]] = alloca : !amdgcn.vgpr<3>
+// CHECK:           %[[VAL_7:.*]] = test_inst outs %[[VAL_6]] ins %[[VAL_4]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<3>
+// CHECK:           %[[VAL_8:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:           test_inst ins %[[VAL_8]] : (!amdgcn.vgpr_range<[0 : 2]>) -> ()
 // CHECK:           test_inst ins %[[VAL_4]] : (!amdgcn.vgpr<2>) -> ()
 // CHECK:           end_kernel
 // CHECK:         }
@@ -756,4 +758,64 @@ func.func @redundant_copies() {
   amdgcn.vop1.vop1 <v_mov_b32_e32> %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
   amdgcn.sop1 s_mov_b32 outs %2 ins %3 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
   return
+}
+
+// -----
+// CHECK-LABEL:   amdgcn.kernel @dead_write_interference {
+// CHECK-DAG:       %[[LIVE:.*]] = alloca : !amdgcn.vgpr<0>
+// CHECK-DAG:       %[[DEAD:.*]] = alloca : !amdgcn.vgpr<1>
+// CHECK:           %[[V0:.*]] = test_inst outs %[[LIVE]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[V1:.*]] = test_inst outs %[[DEAD]] : (!amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
+// CHECK:           %[[V2:.*]] = test_inst outs %[[DEAD]] ins %[[DEAD]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> !amdgcn.vgpr<1>
+// CHECK:           test_inst ins %[[LIVE]] : (!amdgcn.vgpr<0>) -> ()
+// CHECK:           end_kernel
+// CHECK:         }
+amdgcn.kernel @dead_write_interference {
+  %live_through = alloca : !amdgcn.vgpr<?>
+  %dead_target = alloca : !amdgcn.vgpr<?>
+  %src = alloca : !amdgcn.vgpr<?>
+  %0 = test_inst outs %live_through : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+  %1 = test_inst outs %src : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+
+  // Dead write: result %2 is never used.
+  %2 = test_inst outs %dead_target ins %src : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+
+  // %live_through is used here, so it's live through the dead write above.
+  test_inst ins %live_through : (!amdgcn.vgpr<?>) -> ()
+  end_kernel
+}
+
+// CHECK-LABEL:   amdgcn.kernel @dead_copy_interference {
+// CHECK-DAG:       %[[A:.*]] = alloca : !amdgcn.vgpr<0>
+// CHECK-DAG:       %[[B:.*]] = alloca : !amdgcn.vgpr<1>
+// CHECK-DAG:       %[[SRC:.*]] = alloca : !amdgcn.vgpr<2>
+// CHECK:           %[[V0:.*]] = test_inst outs %[[A]] : (!amdgcn.vgpr<0>) -> !amdgcn.vgpr<0>
+// CHECK:           %[[V1:.*]] = test_inst outs %[[SRC]] : (!amdgcn.vgpr<2>) -> !amdgcn.vgpr<2>
+// CHECK:           %[[V2:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[B]], %[[SRC]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<1>
+// CHECK:           %[[V3:.*]] = test_inst outs %[[B]] ins %[[SRC]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<1>
+// CHECK:           %[[V4:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[B]], %[[A]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<0>) -> !amdgcn.vgpr<1>
+// CHECK:           test_inst ins %[[B]] : (!amdgcn.vgpr<1>) -> ()
+// CHECK:           end_kernel
+// CHECK:         }
+amdgcn.kernel @dead_copy_interference {
+  %a = alloca : !amdgcn.vgpr<?>
+  %b = alloca : !amdgcn.vgpr<?>
+  %c = alloca : !amdgcn.vgpr<?>
+  %src = alloca : !amdgcn.vgpr<?>
+  %0 = test_inst outs %a : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+  %1 = test_inst outs %src : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+
+  // Dead copy: writes to %b, but %b is overwritten at %4 before being read.
+  %2 = lsir.copy %b, %src : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+
+  // Use %src in another instruction.
+  %3 = test_inst outs %c ins %src : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+
+  // Overwrite %b with %a's value.
+  %4 = amdgcn.vop1.vop1 <v_mov_b32_e32> %b, %a : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+
+  // %b is used here, so it's live through the dead copy above.
+  test_inst ins %b : (!amdgcn.vgpr<?>) -> ()
+
+  end_kernel
 }

@@ -66,11 +66,36 @@ void RegisterInterferenceGraph::addEdges(Value lhs, Value rhs) {
   });
 }
 
+void RegisterInterferenceGraph::addEdges(SmallVectorImpl<Value> &allocas) {
+  if (allocas.empty())
+    return;
+  llvm::sort(allocas, [](Value a1, Value a2) {
+    return std::make_tuple(a1.getType().getTypeID().getAsOpaquePointer(),
+                           a1.getAsOpaquePointer()) <
+           std::make_tuple(a2.getType().getTypeID().getAsOpaquePointer(),
+                           a2.getAsOpaquePointer());
+  });
+  allocas.erase(llvm::unique(allocas), allocas.end());
+  ArrayRef<Value> allocasRef = allocas;
+  // Add edges between all pairs of allocas.
+  for (auto [i, a1] : llvm::enumerate(allocasRef)) {
+    for (Value a2 : allocasRef.drop_front(i + 1)) {
+      if (a1.getType().getTypeID() != a2.getType().getTypeID())
+        break;
+      addEdges(a1, a2);
+    }
+  }
+}
+
+/// NOTE: We use the liveness set after the operation to build the interference
+/// graph. The reason being that output registers must interfere with this set
+/// to prevent reusing registers that are live after the instruction is
+/// executed.
 LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
                                                   DataFlowSolver &solver) {
-  // Get the liveness state before the operation.
+  // Get the liveness state after the operation.
   const auto *state = solver.lookupState<RegisterLivenessState>(
-      solver.getProgramPointBefore(op));
+      solver.getProgramPointAfter(op));
   const RegisterLivenessState::ValueSet *liveness =
       state ? state->getLiveValues() : nullptr;
 
@@ -83,7 +108,7 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
     return op->emitError("found liveness with top state");
 
   LDBG_OS([&](raw_ostream &os) {
-    os << "Liveness state before operation: "
+    os << "Liveness state after operation: "
        << OpWithFlags(op, OpPrintingFlags().skipRegions()) << "\n";
     os << "  ";
     state->print(os);
@@ -104,22 +129,15 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
     }
   }
 
-  llvm::sort(allocas, [](Value a1, Value a2) {
-    return std::make_tuple(a1.getType().getTypeID().getAsOpaquePointer(),
-                           a1.getAsOpaquePointer()) <
-           std::make_tuple(a2.getType().getTypeID().getAsOpaquePointer(),
-                           a2.getAsOpaquePointer());
-  });
-  allocas.erase(llvm::unique(allocas), allocas.end());
-  ArrayRef<Value> allocasRef = allocas;
-  // Add edges between all pairs of allocas.
-  for (auto [i, a1] : llvm::enumerate(allocasRef)) {
-    for (Value a2 : allocasRef.drop_front(i + 1)) {
-      if (a1.getType().getTypeID() != a2.getType().getTypeID())
-        break;
-      addEdges(a1, a2);
+  // Add edges between the outputs and the live values in the after set.
+  if (auto instOp = dyn_cast<InstOpInterface>(op)) {
+    for (Value out : instOp.getInstOuts()) {
+      if (failed(getAllocasOrFailure(out, allocas)))
+        return op->emitError("IR is not in the `unallocated` normal form");
     }
   }
+
+  addEdges(allocas);
   return success();
 }
 

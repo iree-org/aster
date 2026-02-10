@@ -58,6 +58,9 @@ private:
   /// Add edges between allocations.
   void addEdges(Value lhs, Value rhs);
 
+  /// Add edges between all the related pairs of allocations in the given list.
+  void addEdges(SmallVectorImpl<Value> &allocas);
+
   /// Get or create a node ID for an allocation.
   NodeID getOrCreateNodeId(Value allocation);
 
