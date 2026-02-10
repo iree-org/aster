@@ -62,31 +62,6 @@ def AMDGCNBufferization : Pass<"aster-amdgcn-bufferization"> {
   ];
 }
 
-def Bufferization : Pass<"amdgcn-bufferization"> {
-  let summary = "Insert phi-breaking copies to prepare for register allocation";
-  let description = [{
-    This pass runs value provenance analysis and inserts copy instructions before
-    branches that pass alloca-derived values to block arguments where multiple
-    allocas merge (phi-coalescing scenarios).
-
-    When multiple allocas flow to the same block argument, they are "phi-equivalent"
-    and traditionally share a register. However, if those allocas interfere (both
-    live at some point), they need separate registers.
-
-    This can be viewed as a "bufferization" pass that prepares the IR to go out
-    of DPS semantics towards side-effects and before register allocation.
-
-    This pass should run just before register allocation.
-  }];
-  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
-}
-
-def RegisterAlloc : Pass<"amdgcn-register-allocation"> {
-  let summary = "Perform register allocation for AMDGCN kernels";
-  let dependentDialects = [
-    "mlir::aster::amdgcn::AMDGCNDialect", "mlir::aster::lsir::LSIRDialect"];
-}
-
 def RegisterColoring : Pass<"amdgcn-register-coloring"> {
   let summary = "Perform register coloring for functions";
   let description = [{
