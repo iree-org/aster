@@ -66,44 +66,9 @@ void RegisterInterferenceGraph::addEdges(Value lhs, Value rhs) {
   });
 }
 
-LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
-                                                  DataFlowSolver &solver) {
-  // Get the liveness state before the operation.
-  const auto *state = solver.lookupState<RegisterLivenessState>(
-      solver.getProgramPointBefore(op));
-  const RegisterLivenessState::ValueSet *liveness =
-      state ? state->getLiveValues() : nullptr;
-
-  // Add the alloca to the graph.
-  if (auto aOp = dyn_cast<AllocaOp>(op))
-    getOrCreateNodeId(aOp.getResult());
-
-  // If there's no liveness, return failure.
-  if (!liveness)
-    return op->emitError("found liveness with top state");
-
-  LDBG_OS([&](raw_ostream &os) {
-    os << "Liveness state before operation: "
-       << OpWithFlags(op, OpPrintingFlags().skipRegions()) << "\n";
-    os << "  ";
-    state->print(os);
-  });
-
-  SmallVector<Value> allocas;
-  for (Value v : *liveness) {
-    // Get the allocas in the liveness set.
-    if (failed(getAllocasOrFailure(v, allocas)))
-      return op->emitError("IR is not in the `unallocated` normal form");
-  }
-
-  // Add edges between the inputs of the RegInterferenceOp.
-  if (auto regInterferenceOp = dyn_cast<RegInterferenceOp>(op)) {
-    for (Value v : regInterferenceOp.getInputs()) {
-      if (failed(getAllocasOrFailure(v, allocas)))
-        return op->emitError("IR is not in the `unallocated` normal form");
-    }
-  }
-
+void RegisterInterferenceGraph::addEdges(SmallVectorImpl<Value> &allocas) {
+  if (allocas.empty())
+    return;
   llvm::sort(allocas, [](Value a1, Value a2) {
     return std::make_tuple(a1.getType().getTypeID().getAsOpaquePointer(),
                            a1.getAsOpaquePointer()) <
@@ -120,6 +85,64 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
       addEdges(a1, a2);
     }
   }
+}
+
+/// NOTE: We use the liveness set after the operation to build the interference
+/// graph. The reason being that output registers must interfere with this set
+/// to prevent reusing registers that are live after the instruction is
+/// executed.
+LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
+                                                  DataFlowSolver &solver) {
+  // Get the liveness state after the operation.
+  const auto *state = solver.lookupState<RegisterLivenessState>(
+      solver.getProgramPointAfter(op));
+  const RegisterLivenessState::ValueSet *liveness =
+      state ? state->getLiveValues() : nullptr;
+
+  // Add the alloca to the graph.
+  if (auto aOp = dyn_cast<AllocaOp>(op))
+    getOrCreateNodeId(aOp.getResult());
+
+  // If there's no liveness, return failure.
+  if (!liveness)
+    return op->emitError("found liveness with top state");
+
+  LDBG_OS([&](raw_ostream &os) {
+    os << "Liveness state after operation: "
+       << OpWithFlags(op, OpPrintingFlags().skipRegions()) << "\n";
+    os << "  ";
+    state->print(os);
+  });
+
+  SmallVector<Value> allocas;
+
+  // Add edges between the inputs of the RegInterferenceOp. Note that these
+  // edges shouldn't be mixed with the edges between the live values, as the
+  // semantics of the operation only establish interference between its inputs.
+  if (auto regInterferenceOp = dyn_cast<RegInterferenceOp>(op)) {
+    for (Value v : regInterferenceOp.getInputs()) {
+      if (failed(getAllocasOrFailure(v, allocas)))
+        return op->emitError("IR is not in the `unallocated` normal form");
+    }
+    addEdges(allocas);
+    allocas.clear();
+  }
+
+  for (Value v : *liveness) {
+    // Get the allocas in the liveness set.
+    if (failed(getAllocasOrFailure(v, allocas)))
+      return op->emitError("IR is not in the `unallocated` normal form");
+  }
+
+  // Add edges between the outputs and the live values in the after set.
+  if (auto instOp = dyn_cast<InstOpInterface>(op)) {
+    for (Value out : instOp.getInstOuts()) {
+      if (failed(getAllocasOrFailure(out, allocas)))
+        return op->emitError("IR is not in the `unallocated` normal form");
+    }
+  }
+
+  addEdges(allocas);
   return success();
 }
 
