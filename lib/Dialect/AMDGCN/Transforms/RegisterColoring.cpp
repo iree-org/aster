@@ -158,6 +158,20 @@ struct CopyOpPattern : public OpRewritePattern<lsir::CopyOp> {
   LogicalResult matchAndRewrite(lsir::CopyOp op,
                                 PatternRewriter &rewriter) const override;
 };
+
+struct VOP1OpPattern : public OpRewritePattern<inst::VOP1Op> {
+  using Base::Base;
+
+  LogicalResult matchAndRewrite(inst::VOP1Op op,
+                                PatternRewriter &rewriter) const override;
+};
+
+struct SOP1OpPattern : public OpRewritePattern<inst::SOP1Op> {
+  using Base::Base;
+
+  LogicalResult matchAndRewrite(inst::SOP1Op op,
+                                PatternRewriter &rewriter) const override;
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -507,6 +521,42 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
   return success();
 }
 
+LogicalResult VOP1OpPattern::matchAndRewrite(inst::VOP1Op op,
+                                             PatternRewriter &rewriter) const {
+  auto opCode = op.getOpcode();
+  if (opCode != OpCode::V_MOV_B32_E32)
+    return failure();
+  RegisterTypeInterface dstTy = op.getVdst().getType();
+  auto srcTy = llvm::dyn_cast<RegisterTypeInterface>(op.getSrc0().getType());
+  if (!srcTy)
+    return failure();
+  if (!srcTy.hasAllocatedSemantics() || !dstTy.hasAllocatedSemantics())
+    return failure();
+  if (srcTy != dstTy)
+    return rewriter.notifyMatchFailure(
+        op, "source and destination types do not match");
+  rewriter.eraseOp(op);
+  return success();
+}
+
+LogicalResult SOP1OpPattern::matchAndRewrite(inst::SOP1Op op,
+                                             PatternRewriter &rewriter) const {
+  auto opCode = op.getOpcode();
+  if (opCode != OpCode::S_MOV_B32)
+    return failure();
+  RegisterTypeInterface dstTy = op.getSdst().getType();
+  auto srcTy = llvm::dyn_cast<RegisterTypeInterface>(op.getSrc0().getType());
+  if (!srcTy)
+    return failure();
+  if (!srcTy.hasAllocatedSemantics() || !dstTy.hasAllocatedSemantics())
+    return failure();
+  if (srcTy != dstTy)
+    return rewriter.notifyMatchFailure(
+        op, "source and destination types do not match");
+  rewriter.eraseOp(op);
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // RegisterColoring pass
 //===----------------------------------------------------------------------===//
@@ -535,7 +585,8 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
 
   RewritePatternSet patterns(&getContext());
   patterns.add<InstRewritePattern, MakeRegisterRangeOpPattern,
-               RegInterferenceOpPattern, CopyOpPattern>(&getContext());
+               RegInterferenceOpPattern, CopyOpPattern, SOP1OpPattern,
+               VOP1OpPattern>(&getContext());
   FrozenRewritePatternSet frozenPatterns(std::move(patterns));
   if (failed(applyPatternsGreedily(
           funcOp, frozenPatterns,

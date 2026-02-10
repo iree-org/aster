@@ -743,3 +743,17 @@ func.func @copies_mixed() {
   amdgcn.test_inst ins %3, %8, %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   return
 }
+
+// -----
+// CHECK-LABEL: @redundant_copies
+// CHECK-NOT: v_mov_b32_e32
+// CHECK-NOT: s_mov_b32
+func.func @redundant_copies() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %2 = amdgcn.alloca : !amdgcn.sgpr<?>
+  %3 = amdgcn.alloca : !amdgcn.sgpr<?>
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+  amdgcn.sop1 s_mov_b32 outs %2 ins %3 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
+  return
+}
