@@ -345,8 +345,29 @@ WaitState::joinWait(ValueRange deps, const WaitState &before,
 }
 
 ChangeResult WaitState::addTokens(ArrayRef<TokenState> tokens) {
-  for (TokenState &token : reachingTokens)
-    ++token;
+  // Determine which hardware counters the new tokens affect.
+  bool hasVmcnt = false;
+  bool hasLgkmcnt = false;
+  for (const TokenState &tok : tokens) {
+    if (tok.getKind() == MemoryInstructionKind::Flat)
+      hasVmcnt = true;
+    else if (tok.getKind() == MemoryInstructionKind::Shared ||
+             tok.getKind() == MemoryInstructionKind::Constant)
+      hasLgkmcnt = true;
+  }
+
+  // Only increment positions for reaching tokens whose hardware counter
+  // matches the newly produced tokens. Hardware counters (vmcnt, lgkmcnt) are
+  // independent, so a flat (vmcnt) operation should not increment positions of
+  // shared (lgkmcnt) tokens and vice versa.
+  for (TokenState &token : reachingTokens) {
+    if (token.getKind() == MemoryInstructionKind::Flat && hasVmcnt)
+      ++token;
+    else if ((token.getKind() == MemoryInstructionKind::Shared ||
+              token.getKind() == MemoryInstructionKind::Constant) &&
+             hasLgkmcnt)
+      ++token;
+  }
   return merge(reachingTokens, tokens) ? ChangeResult::Change
                                        : ChangeResult::NoChange;
 }

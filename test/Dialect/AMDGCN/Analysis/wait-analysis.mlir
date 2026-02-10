@@ -335,12 +335,12 @@ func.func @test_passthrough_pattern(%arg0: !amdgcn.vgpr_range<[? + 2]>) {
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_4]], {{[0-9]*}}, 1, constant}, {%[[R_7]], {{[0-9]*}}, 0, shared}]
 // CHECK:       Op: %[[R_9:.*]], %[[R_10:.*]] = amdgcn.load global_load_dword dest %[[R_8]] addr %[[R_2]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_4]], {{[0-9]*}}, 1, constant}, {%[[R_7]], {{[0-9]*}}, 0, shared}]
-// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, flat}, {%[[R_4]], {{[0-9]*}}, 2, constant}, {%[[R_7]], {{[0-9]*}}, 1, shared}]
+// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, flat}, {%[[R_4]], {{[0-9]*}}, 1, constant}, {%[[R_7]], {{[0-9]*}}, 0, shared}]
 // CHECK:       Op: amdgcn.wait deps %[[R_4]] : !amdgcn.read_token<constant>
-// CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, flat}, {%[[R_4]], {{[0-9]*}}, 2, constant}, {%[[R_7]], {{[0-9]*}}, 1, shared}]
-// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, flat}], wait information = {counts: {vm_cnt: nowait, lgkm_cnt: 0}, waited_tokens: [], implied_tokens: [{%[[R_4]], {{[0-9]*}}, 2, constant}, {%[[R_7]], {{[0-9]*}}, 1, shared}]}
+// CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, flat}, {%[[R_4]], {{[0-9]*}}, 1, constant}, {%[[R_7]], {{[0-9]*}}, 0, shared}]
+// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, flat}], wait information = {counts: {vm_cnt: nowait, lgkm_cnt: 0}, waited_tokens: [], implied_tokens: [{%[[R_4]], {{[0-9]*}}, 1, constant}, {%[[R_7]], {{[0-9]*}}, 0, shared}]}
 // CHECK:       Op: func.return
-// CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, flat}], wait information = {counts: {vm_cnt: nowait, lgkm_cnt: 0}, waited_tokens: [], implied_tokens: [{%[[R_4]], {{[0-9]*}}, 2, constant}, {%[[R_7]], {{[0-9]*}}, 1, shared}]}
+// CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, flat}], wait information = {counts: {vm_cnt: nowait, lgkm_cnt: 0}, waited_tokens: [], implied_tokens: [{%[[R_4]], {{[0-9]*}}, 1, constant}, {%[[R_7]], {{[0-9]*}}, 0, shared}]}
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, flat}]
 func.func @test_mixed_smem_dsmem(%arg0: !amdgcn.sgpr_range<[? + 2]>, %arg1: !amdgcn.vgpr, %arg2: !amdgcn.vgpr_range<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.sgpr
