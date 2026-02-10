@@ -13,8 +13,7 @@ def test_hsaco_generation():
     """Test translation of AMDGCN module to hsaco file."""
     with ir.Context() as ctx, ir.Location.unknown():
         # Build the test module from existing test
-        module = ir.Module.parse(
-            """
+        module = ir.Module.parse("""
 amdgcn.module @test_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @ds_all_kernel {
     %addr = amdgcn.alloca : !amdgcn.vgpr
@@ -32,8 +31,7 @@ amdgcn.module @test_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     end_kernel
   }
 }
-"""
-        )
+""")
 
         # Find the AMDGCN module
         amdgcn_mod = None
@@ -48,7 +46,7 @@ amdgcn.module @test_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         from aster._mlir_libs._mlir import passmanager
 
         pm = passmanager.PassManager.parse(
-            "builtin.module(amdgcn.module(amdgcn-register-allocation))", ctx
+            "builtin.module(amdgcn.module(amdgcn-reg-alloc))", ctx
         )
         pm.run(module.operation)
 
