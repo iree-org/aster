@@ -115,18 +115,23 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
   });
 
   SmallVector<Value> allocas;
-  for (Value v : *liveness) {
-    // Get the allocas in the liveness set.
-    if (failed(getAllocasOrFailure(v, allocas)))
-      return op->emitError("IR is not in the `unallocated` normal form");
-  }
 
-  // Add edges between the inputs of the RegInterferenceOp.
+  // Add edges between the inputs of the RegInterferenceOp. Note that these
+  // edges shouldn't be mixed with the edges between the live values, as the
+  // semantics of the operation only establish interference between its inputs.
   if (auto regInterferenceOp = dyn_cast<RegInterferenceOp>(op)) {
     for (Value v : regInterferenceOp.getInputs()) {
       if (failed(getAllocasOrFailure(v, allocas)))
         return op->emitError("IR is not in the `unallocated` normal form");
     }
+    addEdges(allocas);
+    allocas.clear();
+  }
+
+  for (Value v : *liveness) {
+    // Get the allocas in the liveness set.
+    if (failed(getAllocasOrFailure(v, allocas)))
+      return op->emitError("IR is not in the `unallocated` normal form");
   }
 
   // Add edges between the outputs and the live values in the after set.
