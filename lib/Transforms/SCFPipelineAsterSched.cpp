@@ -401,12 +401,11 @@ static Value getOrCreateStageIV(int64_t stage, const LoopPipelineInfo &info,
 ///      values defined in an earlier stage)
 ///   3. Same-iteration clone (for same-stage values cloned earlier)
 ///   4. Unmapped / passthrough (for values defined outside the loop)
-static IRMapping mapKernelOperands(Operation *op, int64_t useStage,
-                                   Value stageIV, scf::ForOp originalForOp,
-                                   const LoopPipelineInfo &info,
-                                   const DenseMap<Value, int64_t> &iterArgIdx,
-                                   scf::ForOp kernelLoop,
-                                   const IRMapping &kernelMapping) {
+static IRMapping mapKernelOperands(
+    Operation *op, int64_t useStage, Value stageIV, scf::ForOp originalForOp,
+    const LoopPipelineInfo &info, const DenseMap<Value, int64_t> &iterArgIdx,
+    const DenseMap<Value, std::pair<int64_t, int64_t>> &crossStageSlotInfo,
+    scf::ForOp kernelLoop, const IRMapping &kernelMapping) {
   IRMapping opMapping;
   opMapping.map(originalForOp.getInductionVar(), stageIV);
 
@@ -414,17 +413,24 @@ static IRMapping mapKernelOperands(Operation *op, int64_t useStage,
     if (use == originalForOp.getInductionVar())
       continue;
 
-    // Check iter_arg index (cross-stage values + existing iter_args).
+    // Existing iter_args (block arguments) always use kernel iter_args.
     if (Value iterArg = lookupIterArg(use, iterArgIdx, kernelLoop)) {
-      auto *defOp = use.getDefiningOp();
-      // Block args (existing iter_args) always use kernel iter_args.
-      if (!defOp) {
+      if (!use.getDefiningOp()) {
         opMapping.map(use, iterArg);
         continue;
       }
-      // Cross-stage: only if defined in an earlier stage.
-      if (info.stages.lookup(defOp) < useStage) {
-        opMapping.map(use, iterArg);
+    }
+
+    // Cross-stage values: compute the correct shift-register slot based on
+    // the use stage. A value with shift register at baseIndex, defined at
+    // defStage, read at useStage maps to:
+    //   slot = baseIndex + (useStage - defStage) - 1
+    auto csIt = crossStageSlotInfo.find(use);
+    if (csIt != crossStageSlotInfo.end()) {
+      auto [base, defStage] = csIt->second;
+      if (defStage < useStage) {
+        int64_t slot = base + (useStage - defStage) - 1;
+        opMapping.map(use, kernelLoop.getRegionIterArgs()[slot]);
         continue;
       }
     }
@@ -510,6 +516,16 @@ static scf::ForOp emitKernel(scf::ForOp originalForOp,
   builder.setInsertionPointToStart(kernelLoop.getBody());
 
   auto iterArgIdx = buildIterArgIndex(originalForOp, info);
+
+  // Build per-use-stage slot info for cross-stage values. Maps each value
+  // to {baseIndex, defStage} so mapKernelOperands can compute the correct
+  // shift-register slot for each use stage.
+  DenseMap<Value, std::pair<int64_t, int64_t>> crossStageSlotInfo;
+  for (auto [i, csv] : llvm::enumerate(info.crossStageVals)) {
+    int64_t base = crossStageBaseIndex(info, i);
+    crossStageSlotInfo[csv.value] = {base, csv.defStage};
+  }
+
   SmallVector<Value> stageIVCache(info.maxStage + 1);
   stageIVCache[0] = kernelLoop.getInductionVar();
 
@@ -519,8 +535,9 @@ static scf::ForOp emitKernel(scf::ForOp originalForOp,
     int64_t stage = info.stages.lookup(op);
     Value iv =
         getOrCreateStageIV(stage, info, builder, kernelLoop, stageIVCache);
-    auto opMapping = mapKernelOperands(op, stage, iv, originalForOp, info,
-                                       iterArgIdx, kernelLoop, kernelMapping);
+    auto opMapping =
+        mapKernelOperands(op, stage, iv, originalForOp, info, iterArgIdx,
+                          crossStageSlotInfo, kernelLoop, kernelMapping);
     Operation *cloned = builder.clone(*op, opMapping);
     cloned->removeAttr(kSchedStageAttr);
     kernelMapping.map(op->getResults(), cloned->getResults());
