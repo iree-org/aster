@@ -1,7 +1,8 @@
 """Pytest wrapper to run all nanobenchmarks with default arguments."""
 
 import importlib.util
-import os
+import sys
+from unittest.mock import patch
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,8 @@ def _load_and_run_main(module_name: str):
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    module.main()
+    with patch.object(sys, "argv", [module_name]):
+        module.main()
 
 
 @pytest.mark.parametrize("module_name", _NANOBENCH_MODULES)
