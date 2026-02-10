@@ -440,3 +440,16 @@ func.func @split_range() {
   amdgcn.test_inst ins %5, %6, %11, %12 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
   func.return
 }
+
+// -----
+
+// CHECK-LABEL:   func.func @dealloc() -> !amdgcn.vgpr {
+// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[UNREALIZED_CONVERSION_CAST_0:.*]] = builtin.unrealized_conversion_cast %[[ALLOCA_0]] : !amdgcn.vgpr<?> to !amdgcn.vgpr {__to_register_semantics__}
+// CHECK:           return %[[UNREALIZED_CONVERSION_CAST_0]] : !amdgcn.vgpr
+// CHECK:         }
+func.func @dealloc() -> !amdgcn.vgpr {
+  %a = amdgcn.alloca : !amdgcn.vgpr<?>
+  %r = amdgcn.dealloc_cast %a : !amdgcn.vgpr<?>
+  return %r : !amdgcn.vgpr
+}
