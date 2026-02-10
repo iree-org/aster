@@ -124,7 +124,7 @@ static LogicalResult transformLoop(scf::ForOp forOp,
   }
 
   // Collect init values: existing iter_args first, then LDS offsets.
-  unsigned numExisting = forOp.getNumRegionIterArgs();
+  int64_t numExisting = forOp.getNumRegionIterArgs();
   SmallVector<Value> newIterArgs;
   for (Value init : forOp.getInits())
     newIterArgs.push_back(init);
@@ -143,19 +143,19 @@ static LogicalResult transformLoop(scf::ForOp forOp,
   mapping.map(forOp.getInductionVar(), newForOp.getInductionVar());
 
   // Map existing iter_args (identity, same position).
-  for (unsigned i = 0; i < numExisting; ++i)
+  for (int64_t i = 0; i < numExisting; ++i)
     mapping.map(forOp.getRegionIterArgs()[i], newForOp.getRegionIterArgs()[i]);
 
-  // Map LDS offset results to their new iter_args (after existing ones).
-  unsigned iterArgIdx = numExisting;
-  for (unsigned gi = 0; gi < groups.size(); ++gi) {
-    LDSGroup &g = groups[gi];
-    Value curIterArg = newForOp.getRegionIterArgs()[iterArgIdx];
-    mapping.map(g.getOffsetOp.getResult(), curIterArg);
-    iterArgIdx += hoisted[gi].offsets.size();
+  // Compute base iter_arg index for each LDS group.
+  SmallVector<int64_t> groupIterArgBase;
+  int64_t idx = numExisting;
+  for (int64_t gi = 0, gie = groups.size(); gi < gie; ++gi) {
+    groupIterArgBase.push_back(idx);
+    idx += hoisted[gi].offsets.size();
   }
 
   // Clone loop body, skipping LDS ops (already hoisted/replaced).
+  // For each cloned op, map LDS offsets to stage-appropriate iter_args.
   OpBuilder bodyBuilder(forOp.getContext());
   bodyBuilder.setInsertionPointToEnd(newForOp.getBody());
   SmallPtrSet<Operation *, 8> opsToSkip;
@@ -168,6 +168,33 @@ static LogicalResult transformLoop(scf::ForOp forOp,
   for (Operation &op : forOp.getBody()->without_terminator()) {
     if (opsToSkip.contains(&op))
       continue;
+
+    // Map each LDS offset to a stage-appropriate iter_arg position.
+    //
+    // The yield rotates offsets left by 1 each iteration. In the pipelined
+    // kernel, stage S processes an iteration whose data was loaded S-allocStage
+    // iterations earlier. After that many left-rotations, the buffer that was
+    // at position 0 is now at position N - stageDelta.
+    // So stage S reads from position N - stageDelta.
+    int opStage = getStage(&op);
+    for (int64_t gi = 0, gie = groups.size(); gi < gie; ++gi) {
+      LDSGroup &g = groups[gi];
+      int N = g.numBuffers();
+      int position = 0;
+      if (opStage >= 0 && opStage > g.allocStage && opStage <= g.deallocStage) {
+        // Op is within this group's stage span. Compute which rotated
+        // buffer position it should read from.
+        int stageDelta = opStage - g.allocStage;
+        position = N - stageDelta;
+      }
+      // Ops outside the group's stage range (or with no stage annotation)
+      // default to position 0. If they don't reference this group's offset
+      // the mapping won't be consulted.
+      mapping.map(
+          g.getOffsetOp.getResult(),
+          newForOp.getRegionIterArgs()[groupIterArgBase[gi] + position]);
+    }
+
     bodyBuilder.clone(op, mapping);
   }
 
@@ -180,17 +207,16 @@ static LogicalResult transformLoop(scf::ForOp forOp,
     yieldValues.push_back(mapping.lookupOrDefault(yieldVal));
 
   // Rotated LDS offsets: [off1, ..., off_{N-1}, off0] per group.
-  iterArgIdx = numExisting;
-  for (unsigned gi = 0; gi < groups.size(); ++gi) {
+  for (int64_t gi = 0, gie = groups.size(); gi < gie; ++gi) {
     int N = groups[gi].numBuffers();
+    int64_t base = groupIterArgBase[gi];
     SmallVector<Value> groupArgs;
     for (int i = 0; i < N; ++i)
-      groupArgs.push_back(newForOp.getRegionIterArgs()[iterArgIdx + i]);
+      groupArgs.push_back(newForOp.getRegionIterArgs()[base + i]);
     // Rotate left by 1: [1, 2, ..., N-1, 0]
     for (int i = 1; i < N; ++i)
       yieldValues.push_back(groupArgs[i]);
     yieldValues.push_back(groupArgs[0]);
-    iterArgIdx += N;
   }
 
   // Create yield with rotated offsets.
@@ -204,7 +230,7 @@ static LogicalResult transformLoop(scf::ForOp forOp,
   }
 
   // Replace uses of old loop results with corresponding new loop results.
-  for (unsigned i = 0; i < numExisting; ++i)
+  for (int64_t i = 0; i < numExisting; ++i)
     forOp.getResult(i).replaceAllUsesWith(newForOp.getResult(i));
 
   // Erase old loop.
