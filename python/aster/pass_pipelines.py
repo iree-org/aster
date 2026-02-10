@@ -167,7 +167,7 @@ PHASE_REGISTER_ALLOCATION = amdgcn_module(
         "aster-amdgcn-expand-md-ops",
         "amdgcn-legalize-operands",
         # TODO: add bufferization here and go towards side-effects.
-        "amdgcn-register-allocation",
+        "amdgcn-reg-alloc",
         "canonicalize", "cse",
         "amdgcn-legalize-cf",
     )
@@ -177,8 +177,7 @@ PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION = amdgcn_module(
     amdgcn_kernel(
         "aster-amdgcn-expand-md-ops",
         "amdgcn-legalize-operands",
-        "amdgcn-bufferization",
-        "amdgcn-register-allocation",
+        "amdgcn-reg-alloc",
         "canonicalize", "cse",
         "amdgcn-legalize-cf",
     )
@@ -257,7 +256,8 @@ TEST_LOOP_PASS_PIPELINE = builtin_module(
     PHASE_CONVERT_WAITS,
     # TODO: Explain what and why and integrate in the relevant phases.
     amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-    PHASE_REGISTER_ALLOCATION
+    PHASE_REGISTER_ALLOCATION,
+    phase_nop_insertion(delays=0)
 )
 
 # Loop pipelining pass pipeline
@@ -279,7 +279,8 @@ TEST_SCF_PIPELINING_PASS_PIPELINE = builtin_module(
     PHASE_LOWER_TO_AMDGCN,
     # TODO: Explain what and why and integrate in the relevant phases.
     amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-    PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION
+    PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION,
+    phase_nop_insertion(delays=0)
 )
 
 # --------------------------------------------------------------------------- #
