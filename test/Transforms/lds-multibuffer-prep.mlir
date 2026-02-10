@@ -221,6 +221,49 @@ func.func @index_offset_type(%data_in: !amdgcn.vgpr) {
   return
 }
 
+// Cross-stage direct offset: two ops at different stages both reference the
+// LDS offset directly.
+
+// CHECK-LABEL: func.func @cross_stage_direct_offset
+//
+// CHECK-DAG:   %[[LDS0:.*]] = amdgcn.alloc_lds 512
+// CHECK-DAG:   %[[OFF0:.*]] = amdgcn.get_lds_offset %[[LDS0]] : index
+// CHECK-DAG:   %[[LDS1:.*]] = amdgcn.alloc_lds 512
+// CHECK-DAG:   %[[OFF1:.*]] = amdgcn.get_lds_offset %[[LDS1]] : index
+//
+// CHECK:       scf.for {{.*}} iter_args(%[[WRITE:.*]] = %[[OFF0]], %[[READ:.*]] = %[[OFF1]]) -> (index, index)
+// Stage 0 writes to position 0 (current buffer)
+// CHECK:         func.call @write_to_lds(%[[WRITE]])
+// Stage 1 reads from position 1 (previous iteration's buffer)
+// CHECK:         func.call @read_from_lds(%[[READ]])
+// CHECK:         scf.yield %[[READ]], %[[WRITE]]
+//
+// CHECK:       amdgcn.dealloc_lds %[[LDS0]]
+// CHECK:       amdgcn.dealloc_lds %[[LDS1]]
+// CHECK:       return
+
+func.func private @write_to_lds(index) -> ()
+func.func private @read_from_lds(index) -> ()
+
+func.func @cross_stage_direct_offset() {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c4 = arith.constant 4 : index
+  scf.for %i = %c0 to %c4 step %c1 {
+    %lds = amdgcn.alloc_lds 512 {sched.stage = 0 : i32}
+    %off = amdgcn.get_lds_offset %lds {sched.stage = 0 : i32} : index
+
+    // Stage 0: write using offset directly
+    func.call @write_to_lds(%off) {sched.stage = 0 : i32} : (index) -> ()
+
+    // Stage 1: read using the same offset directly
+    func.call @read_from_lds(%off) {sched.stage = 1 : i32} : (index) -> ()
+
+    amdgcn.dealloc_lds %lds {sched.stage = 1 : i32}
+  }
+  return
+}
+
 // Negative test: loop without sched.stage annotations is left untouched.
 
 // CHECK-LABEL: func.func @no_stage_annotations
