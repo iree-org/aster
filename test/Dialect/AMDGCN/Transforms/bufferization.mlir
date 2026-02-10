@@ -178,6 +178,47 @@ amdgcn.module @bufferization_derived_values target = <gfx942> isa = <cdna3> {
   }
 }
 
+// -----
+
+// Same alloca written twice in ^bb0; the first value (%v1) is used in a
+// successor block. The clobber copy must replace that cross-block use.
+//
+// CHECK-LABEL:   amdgcn.module @cross_block_clobber target = <gfx942> isa = <cdna3> {
+// CHECK:           kernel @cross_block_clobber {
+// CHECK:             %[[COND:.*]] = func.call @rand() : () -> i1
+// CHECK:             %[[A:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[S:.*]] = alloca : !amdgcn.sgpr
+// CHECK:             %[[COPY_A:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[COPY:.*]] = lsir.copy %[[COPY_A]], %[[A]] : !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:             %[[V1:.*]] = test_inst outs %[[A]] ins %[[S]]
+// CHECK:             %[[V2:.*]] = test_inst outs %[[COPY]] ins %[[S]]
+// CHECK:             cf.cond_br %[[COND]], ^bb1, ^bb2
+// CHECK:           ^bb1:
+// CHECK:             test_inst ins %[[V1]]
+// CHECK:           ^bb2:
+// CHECK:             test_inst ins %[[V2]]
+amdgcn.module @cross_block_clobber target = <gfx942> isa = <cdna3> {
+  func.func private @rand() -> i1
+  kernel @cross_block_clobber {
+    %cond = func.call @rand() : () -> i1
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.sgpr
+    %v1 = test_inst outs %0 ins %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v2 = test_inst outs %0 ins %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    cf.cond_br %cond, ^bb1, ^bb2
+  ^bb1:
+    test_inst ins %v1 : (!amdgcn.vgpr) -> ()
+    cf.br ^bb3
+  ^bb2:
+    test_inst ins %v2 : (!amdgcn.vgpr) -> ()
+    cf.br ^bb3
+  ^bb3:
+    end_kernel
+  }
+}
+
+// -----
+
 // CHECK-LABEL:   amdgcn.module @too_few_allocas target = <gfx942> isa = <cdna3> {
 // CHECK:           kernel @too_few_allocas {
 // CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr

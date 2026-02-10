@@ -3,7 +3,7 @@
 Four focused tests covering the cross-product:
   {scalar, vgpr} iter_arg  x  {no IV, with IV}
 
-VGPR iter_args exercise the bufferization pass (amdgcn-bufferization) since
+VGPR iter_args exercise the bufferization pass (aster-amdgcn-bufferization) since
 the loop-carried register value must be properly handled across
 prologue/kernel/epilogue boundaries.
 """

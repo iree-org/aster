@@ -18,7 +18,7 @@
 // RUN:   --canonicalize \
 // RUN:   --aster-to-amdgcn \
 // RUN: | aster-opt \
-// RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops,amdgcn-register-allocation)))" \
+// RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops,amdgcn-reg-alloc)))" \
 // RUN: | aster-opt \
 // RUN:   --amdgcn-nop-insertion \
 // RUN: | aster-translate --mlir-to-asm \

@@ -3,7 +3,7 @@
 // RUN: | aster-opt \
 // RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops)))" \
 // RUN: | aster-opt \
-// RUN:   --amdgcn-register-allocation --symbol-dce \
+// RUN:   --amdgcn-reg-alloc --symbol-dce \
 // RUN: | FileCheck %s
 //
 // RUN: aster-opt %s \
@@ -11,7 +11,7 @@
 // RUN: | aster-opt \
 // RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops)))" \
 // RUN: | aster-opt \
-// RUN:   --amdgcn-register-allocation --symbol-dce | aster-translate --mlir-to-asm \
+// RUN:   --amdgcn-reg-alloc --symbol-dce | aster-translate --mlir-to-asm \
 // RUN: | FileCheck %s --check-prefix=ASM
 
 // CHECK-LABEL: amdgcn.module

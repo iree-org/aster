@@ -3,7 +3,7 @@
 // RUN:   --cse --canonicalize --sroa \
 // RUN:   --cse --canonicalize --amdgcn-mem2reg \
 // RUN:   --cse --canonicalize --symbol-dce \
-// RUN:   --amdgcn-register-allocation \
+// RUN:   --amdgcn-reg-alloc \
 // RUN: | aster-translate --mlir-to-asm \
 // RUN: | FileCheck %s
 

@@ -10,7 +10,7 @@
 // RUN:    aster-to-amdgcn, \
 // RUN:    amdgcn.kernel( \
 // RUN:      aster-amdgcn-expand-md-ops, \
-// RUN:      amdgcn-register-allocation \
+// RUN:      amdgcn-reg-alloc \
 // RUN:    ))" | FileCheck %s
 
 

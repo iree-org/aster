@@ -161,7 +161,7 @@ PHASE_CONVERT_WAITS = (
 # the interference graph is built correctly..  this should not be the case, reevaluate.
 # Note: `aster-amdgcn-expand-md-ops` again as it is really needed to lower away
 # threadidx etc ops into alloc that can be relocated.
-# TODO: NORMAL FORMS for amdgcn-register-allocation.
+# TODO: NORMAL FORMS for amdgcn-reg-alloc.
 PHASE_REGISTER_ALLOCATION = amdgcn_module(
     amdgcn_kernel(
         "aster-amdgcn-expand-md-ops",
