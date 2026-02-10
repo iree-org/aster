@@ -194,8 +194,12 @@ DeallocCastOpPattern::matchAndRewrite(DeallocCastOp op,
   if (failed(result) || result->size() != 1)
     return failure();
 
+  // Create a tagged cast to the original type.
+  auto castOp =
+      createTaggedCast(rewriter, op.getLoc(), op.getType(), result->front());
+
   // Replace the original operation with the new value.
-  rewriter.replaceOp(op, result->front());
+  rewriter.replaceOp(op, castOp.getResult(0));
   return success();
 }
 
