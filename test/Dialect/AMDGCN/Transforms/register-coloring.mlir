@@ -553,15 +553,15 @@ amdgcn.kernel @reg_interference_undef_values {
 // CHECK-DAG:       %[[VAL_4:.*]] = alloca : !amdgcn.sgpr<3>
 // CHECK:           %[[VAL_5:.*]]:2 = test_inst outs %[[VAL_3]], %[[VAL_4]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<3>) -> (!amdgcn.sgpr<2>, !amdgcn.sgpr<3>)
 // CHECK:           test_inst ins %[[VAL_1]], %[[VAL_3]] : (!amdgcn.sgpr<1>, !amdgcn.sgpr<2>) -> ()
-// CHECK-DAG:       %[[VAL_6:.*]] = alloca : !amdgcn.sgpr<4>
-// CHECK:           %[[VAL_7:.*]]:2 = test_inst outs %[[VAL_3]], %[[VAL_6]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<4>) -> (!amdgcn.sgpr<2>, !amdgcn.sgpr<4>)
-// CHECK:           test_inst ins %[[VAL_3]], %[[VAL_6]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<4>) -> ()
-// CHECK-DAG:       %[[VAL_8:.*]] = alloca : !amdgcn.sgpr<5>
-// CHECK:           %[[VAL_9:.*]]:2 = test_inst outs %[[VAL_1]], %[[VAL_8]] : (!amdgcn.sgpr<1>, !amdgcn.sgpr<5>) -> (!amdgcn.sgpr<1>, !amdgcn.sgpr<5>)
-// CHECK:           test_inst ins %[[VAL_1]], %[[VAL_8]] : (!amdgcn.sgpr<1>, !amdgcn.sgpr<5>) -> ()
-// CHECK:           test_inst ins %[[VAL_0]], %[[VAL_6]] : (!amdgcn.sgpr<0>, !amdgcn.sgpr<4>) -> ()
+// CHECK:           %[[VAL_6:.*]]:2 = test_inst outs %[[VAL_3]], %[[VAL_1]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<1>) -> (!amdgcn.sgpr<2>, !amdgcn.sgpr<1>)
+// CHECK:           test_inst ins %[[VAL_3]], %[[VAL_1]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<1>) -> ()
+// CHECK:           %[[VAL_7:.*]] = alloca : !amdgcn.sgpr<4>
+// CHECK:           %[[VAL_8:.*]]:2 = test_inst outs %[[VAL_3]], %[[VAL_7]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<4>) -> (!amdgcn.sgpr<2>, !amdgcn.sgpr<4>)
+// CHECK:           test_inst ins %[[VAL_3]], %[[VAL_7]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<4>) -> ()
+// CHECK:           test_inst ins %[[VAL_0]], %[[VAL_1]] : (!amdgcn.sgpr<0>, !amdgcn.sgpr<1>) -> ()
 // CHECK:           end_kernel
 // CHECK:         }
+
 
 amdgcn.kernel @reg_interference_with_values {
   %0 = alloca : !amdgcn.sgpr<?>
@@ -784,6 +784,7 @@ amdgcn.kernel @dead_write_interference {
   test_inst ins %live_through : (!amdgcn.vgpr<?>) -> ()
   end_kernel
 }
+
 // -----
 
 // CHECK-LABEL:   amdgcn.kernel @dead_copy_interference {
