@@ -15,17 +15,12 @@
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/IR/PrintingUtils.h"
 #include "mlir/IR/Dominance.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/CSE.h"
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/DebugLog.h"
-#include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "amdgcn-bufferization"
 
@@ -122,6 +117,29 @@ static Value deallocAllocation(IRRewriter &rewriter, Value value) {
   return DeallocCastOp::create(rewriter, value.getLoc(), value);
 }
 
+/// Copy the given values and propagate the copies to the uses that are
+/// dominated by the given dominance point. If the dominance point is null, use
+/// the copy operation as the dominance point.
+static void copyAndPropagateValues(ValueRange values, IRRewriter &rewriter,
+                                   DominanceInfo &info, Operation *domPoint) {
+  for (Value out : values) {
+    auto regTy = dyn_cast<RegisterTypeInterface>(out.getType());
+    if (!regTy || !regTy.hasValueSemantics())
+      continue;
+    LDBG() << "- Handling potentially clobbered value: " << out;
+    auto alloc = createAllocation(rewriter, out.getLoc(), regTy);
+    auto cpyOp = lsir::CopyOp::create(rewriter, out.getLoc(), alloc, out);
+    rewriter.replaceUsesWithIf(out, cpyOp, [&](OpOperand &use) {
+      return info.properlyDominates(domPoint ? domPoint : cpyOp.getOperation(),
+                                    use.getOwner());
+    });
+    if (isOpTriviallyDead(cpyOp)) {
+      rewriter.eraseOp(cpyOp);
+      rewriter.eraseOp(alloc.getDefiningOp());
+    }
+  }
+}
+
 /// Insert copies for values that would be clobbered by reused allocas.
 ///
 /// When the same alloca is used as outs for multiple instructions, later
@@ -140,23 +158,18 @@ static Value deallocAllocation(IRRewriter &rewriter, Value value) {
 static void removePotentiallyClobberedValues(Operation *op,
                                              IRRewriter &rewriter,
                                              DominanceInfo &domInfo) {
-  op->walk([&](InstOpInterface inst) {
-    LDBG() << "Handling clobbered values for: " << inst;
-    rewriter.setInsertionPoint(inst);
-    for (auto [i, out] : llvm::enumerate(inst.getInstOuts())) {
-      auto regTy = cast<RegisterTypeInterface>(out.getType());
-      if (!regTy.hasValueSemantics())
-        continue;
-      LDBG() << "- Handling potentially clobbered output operand: " << i;
-      auto alloc = createAllocation(rewriter, inst->getLoc(), regTy);
-      auto cpy = lsir::CopyOp::create(rewriter, inst->getLoc(), alloc, out);
-      rewriter.replaceUsesWithIf(out, cpy, [&](OpOperand &use) -> bool {
-        return domInfo.properlyDominates(inst, use.getOwner());
-      });
-      if (mlir::isOpTriviallyDead(cpy)) {
-        rewriter.eraseOp(cpy);
-        rewriter.eraseOp(alloc.getDefiningOp());
-      }
+  op->walk([&](Operation *op) {
+    if (auto inst = dyn_cast<InstOpInterface>(op)) {
+      rewriter.setInsertionPoint(inst);
+      LDBG() << "Handling clobbered values for: " << inst;
+      copyAndPropagateValues(inst.getInstOuts(), rewriter, domInfo, inst);
+      return;
+    }
+    if (auto brOp = dyn_cast<BranchOpInterface>(op)) {
+      rewriter.setInsertionPoint(brOp);
+      LDBG() << "Handling clobbered values for: " << brOp;
+      copyAndPropagateValues(brOp->getOperands(), rewriter, domInfo, nullptr);
+      return;
     }
   });
 }
@@ -510,7 +523,6 @@ void AMDGCNBufferization::runOnOperation() {
 
     // Eliminate common subexpressions to remove redundant copies.
     mlir::eliminateCommonSubExpressions(rewriter, domInfo, op);
-
     return WalkResult::skip();
   });
 }
