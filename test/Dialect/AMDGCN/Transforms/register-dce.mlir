@@ -81,3 +81,55 @@ func.func @live_copy() {
   amdgcn.test_inst ins %0 : (!amdgcn.vgpr<?>) -> ()
   return
 }
+
+// Verify that a range copy is preserved when the target allocas are used
+// downstream. This was a bug where DCE checked the make_register_range
+// result value for liveness instead of the underlying allocas.
+// CHECK-LABEL:   func.func @live_range_copy() {
+// CHECK:           %[[A0:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[A1:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[S0:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[S1:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           amdgcn.test_inst outs %[[S0]]
+// CHECK:           amdgcn.test_inst outs %[[S1]]
+// CHECK:           %[[TR:.*]] = amdgcn.make_register_range %[[A0]], %[[A1]]
+// CHECK:           %[[SR:.*]] = amdgcn.make_register_range %[[S0]], %[[S1]]
+// CHECK:           lsir.copy %[[TR]], %[[SR]]
+// CHECK:           amdgcn.test_inst ins %[[A0]], %[[A1]]
+// CHECK:           return
+// CHECK:         }
+func.func @live_range_copy() {
+  %a0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %a1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %s0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %s1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %w0 = amdgcn.test_inst outs %s0 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+  %w1 = amdgcn.test_inst outs %s1 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+  %target = amdgcn.make_register_range %a0, %a1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %source = amdgcn.make_register_range %s0, %s1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %copy = lsir.copy %target, %source : !amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.vgpr_range<[? : ? + 2]>
+  amdgcn.test_inst ins %a0, %a1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  return
+}
+
+// Verify that a dead range copy is still eliminated.
+// CHECK-LABEL:   func.func @dead_range_copy() {
+// CHECK:           %[[A0:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[A1:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[S0:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[S1:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK-NOT:       lsir.copy
+// CHECK:           return
+// CHECK:         }
+func.func @dead_range_copy() {
+  %a0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %a1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %s0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %s1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %w0 = amdgcn.test_inst outs %s0 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+  %w1 = amdgcn.test_inst outs %s1 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+  %target = amdgcn.make_register_range %a0, %a1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %source = amdgcn.make_register_range %s0, %s1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %copy = lsir.copy %target, %source : !amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.vgpr_range<[? : ? + 2]>
+  return
+}

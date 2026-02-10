@@ -10,6 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/RegisterLiveness.h"
+#include "aster/Dialect/AMDGCN/Analysis/Utils.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
@@ -76,8 +77,17 @@ void amdgcn::registerDCE(Operation *op, DataFlowSolver &solver) {
     if (!liveValues)
       return;
 
-    // Erase the operation if the target is not live after the operation.
-    if (liveValues->contains(target))
+    // Resolve the target to underlying allocas. For make_register_range
+    // targets, the liveness analysis tracks individual allocas, not the
+    // range value itself. We must check those allocas for liveness.
+    FailureOr<ValueRange> allocas = getAllocasOrFailure(target);
+    if (failed(allocas))
+      return; // Conservative: preserve operations we can't analyze.
+
+    // The operation is live if any of its target allocas are live.
+    bool isLive = llvm::any_of(
+        *allocas, [&](Value alloca) { return liveValues->contains(alloca); });
+    if (isLive)
       return;
 
     operation->erase();
