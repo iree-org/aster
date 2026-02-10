@@ -57,6 +57,7 @@ private:
 
   /// Add edges between allocations.
   void addEdges(Value lhs, Value rhs);
+  void addInterferenceEdges(ArrayRef<Value> allocaSet);
 
   /// Get or create a node ID for an allocation.
   NodeID getOrCreateNodeId(Value allocation);

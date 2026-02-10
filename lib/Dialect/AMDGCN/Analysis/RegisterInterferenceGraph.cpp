@@ -66,6 +66,25 @@ void RegisterInterferenceGraph::addEdges(Value lhs, Value rhs) {
   });
 }
 
+void RegisterInterferenceGraph::addInterferenceEdges(
+    ArrayRef<Value> allocaSet) {
+  SmallVector<Value> sorted(allocaSet);
+  llvm::sort(sorted, [](Value a1, Value a2) {
+    return std::make_tuple(a1.getType().getTypeID().getAsOpaquePointer(),
+                           a1.getAsOpaquePointer()) <
+           std::make_tuple(a2.getType().getTypeID().getAsOpaquePointer(),
+                           a2.getAsOpaquePointer());
+  });
+  sorted.erase(llvm::unique(sorted), sorted.end());
+  for (auto [i, a1] : llvm::enumerate(ArrayRef(sorted))) {
+    for (Value a2 : ArrayRef(sorted).drop_front(i + 1)) {
+      if (a1.getType().getTypeID() != a2.getType().getTypeID())
+        break;
+      addEdges(a1, a2);
+    }
+  }
+};
+
 LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
                                                   DataFlowSolver &solver) {
   // Get the liveness state before the operation.
@@ -73,10 +92,6 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
       solver.getProgramPointBefore(op));
   const RegisterLivenessState::ValueSet *liveness =
       state ? state->getLiveValues() : nullptr;
-
-  // Add the alloca to the graph.
-  if (auto aOp = dyn_cast<AllocaOp>(op))
-    getOrCreateNodeId(aOp.getResult());
 
   // If there's no liveness, return failure.
   if (!liveness)
@@ -89,6 +104,11 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
     state->print(os);
   });
 
+  // Add the alloca to the graph.
+  if (auto aOp = dyn_cast<AllocaOp>(op))
+    getOrCreateNodeId(aOp.getResult());
+
+  // Collect all the allocas traced back from the liveness set: these
   SmallVector<Value> allocas;
   for (Value v : *liveness) {
     // Get the allocas in the liveness set.
@@ -96,7 +116,8 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
       return op->emitError("IR is not in the `unallocated` normal form");
   }
 
-  // Add edges between the inputs of the RegInterferenceOp.
+  // If the op is a RegInterferenceOp, collect the allocas traced back from its
+  // inputs (i.e. this op "declares" interferences between inputs).
   if (auto regInterferenceOp = dyn_cast<RegInterferenceOp>(op)) {
     for (Value v : regInterferenceOp.getInputs()) {
       if (failed(getAllocasOrFailure(v, allocas)))
@@ -104,22 +125,40 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
     }
   }
 
-  llvm::sort(allocas, [](Value a1, Value a2) {
-    return std::make_tuple(a1.getType().getTypeID().getAsOpaquePointer(),
-                           a1.getAsOpaquePointer()) <
-           std::make_tuple(a2.getType().getTypeID().getAsOpaquePointer(),
-                           a2.getAsOpaquePointer());
-  });
-  allocas.erase(llvm::unique(allocas), allocas.end());
-  ArrayRef<Value> allocasRef = allocas;
-  // Add edges between all pairs of allocas.
-  for (auto [i, a1] : llvm::enumerate(allocasRef)) {
-    for (Value a2 : allocasRef.drop_front(i + 1)) {
-      if (a1.getType().getTypeID() != a2.getType().getTypeID())
-        break;
-      addEdges(a1, a2);
-    }
+  // Add edges between all pairs of allocas in the before-state.
+  addInterferenceEdges(allocas);
+
+  // At this point we are done with live values from the before-state.
+  // Dead values still physically occupy registers when written, even if the
+  // written value is dead (overwritten before being read).
+  // Therefore, we need interference edges between outs and everything live
+  // after the instruction.
+  auto instOp = dyn_cast<InstOpInterface>(op);
+  if (!instOp)
+    return success();
+
+  const auto *afterState = solver.lookupState<RegisterLivenessState>(
+      solver.getProgramPointAfter(op));
+  if (!afterState || !afterState->getLiveValues())
+    return success();
+
+  // Add outs allocas unconditionally: even dead writes create false
+  // dependencies.
+  SmallVector<Value> outsAllocas;
+  for (Value v : instOp.getInstOuts()) {
+    if (failed(getAllocasOrFailure(v, outsAllocas)))
+      return op->emitError("IR is not in the `unallocated` normal form");
   }
+
+  // Iterate over the live values after the instruction and add interference
+  // edges to all outsAllocas.
+  for (Value v : *afterState->getLiveValues()) {
+    SmallVector<Value> afterAllocas(outsAllocas);
+    if (failed(getAllocasOrFailure(v, afterAllocas)))
+      return op->emitError("IR is not in the `unallocated` normal form");
+    addInterferenceEdges(afterAllocas);
+  }
+
   return success();
 }
 
