@@ -784,6 +784,7 @@ amdgcn.kernel @dead_write_interference {
   test_inst ins %live_through : (!amdgcn.vgpr<?>) -> ()
   end_kernel
 }
+
 // -----
 
 // CHECK-LABEL:   amdgcn.kernel @dead_copy_interference {
