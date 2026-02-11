@@ -7,12 +7,13 @@ import itertools
 import multiprocessing
 from typing import List, Tuple, Optional
 
-# Add project root to path to allow imports
+# Add project root and test/ to path to allow imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../test"))
 
 import numpy as np
 from aster import ir, utils
-from integration_test.test_utils import (
+from integration.test_utils import (
     compile_mlir_file_to_asm,
     _get_logger,
     _log_info,
@@ -36,7 +37,7 @@ from mlir_kernels.kernel_utils import (
     generate_gemm_data,
     LDS_SIZE_LIMIT,
 )
-from integration_test.test_utils import execute_kernel_and_verify
+from integration.test_utils import execute_kernel_and_verify
 
 # 304 = num CUs on MI300X
 NUM_CU_PER_GPU = 304

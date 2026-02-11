@@ -22,7 +22,7 @@ from aster.dialects.api import (
     v_mov_b32_e32,
     s_waitcnt,
 )
-from integration_test.test_utils import execute_kernel_and_verify, hsaco_file
+from integration.test_utils import execute_kernel_and_verify, hsaco_file
 
 
 def build_copy_kernel_module(ctx: ir.Context, kernel_name: str, mcpu: str):

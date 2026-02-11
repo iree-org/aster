@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 
 from aster import utils
-from integration_test.test_utils import execute_kernel_and_verify, hsaco_file
+from integration.test_utils import execute_kernel_and_verify, hsaco_file
 
 
 @pytest.mark.parametrize("mcpu", ["gfx1201", "gfx942"])

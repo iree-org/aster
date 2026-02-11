@@ -10,14 +10,15 @@ from typing import Callable, Optional
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../test"))
 
 from aster import ir, utils
-from integration_test.test_utils import (
+from integration.test_utils import (
     compile_mlir_file_to_asm,
     execute_kernel_and_verify,
     hsaco_file,
 )
-from integration_test.flush_llc import FlushLLC
+from integration.flush_llc import FlushLLC
 from mlir_kernels.common import get_library_paths
 from aster.pass_pipelines import NANOBENCH_PASS_PIPELINE
 

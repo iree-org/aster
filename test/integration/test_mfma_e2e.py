@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from aster import ir, utils
-from integration_test.test_utils import (
+from integration.test_utils import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
     hsaco_file,
@@ -30,7 +30,7 @@ def test_mfma_e2e_kernel(
     """Test MFMA end-to-end kernel execution from parsed MLIR file."""
 
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    mlir_file = os.path.join(test_dir, "..", "test", "integration", mlir_filename)
+    mlir_file = os.path.join(test_dir, mlir_filename)
 
     with ir.Context() as ctx:
         asm_complete, module_after_passes = compile_mlir_file_to_asm(

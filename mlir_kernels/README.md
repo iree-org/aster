@@ -51,7 +51,7 @@ These kernels are designed to be:
 ## Testing
 
 Kernel tests are located in the `test/` subdirectory. Tests use the shared test utilities
-from `integration_test/test_utils.py` which provides:
+from `test/integration/test_utils.py` which provides:
 - `compile_mlir_file_to_asm()` - Compile MLIR to assembly
 - `execute_kernel_and_verify()` - Execute kernels on GPU and verify results
 - `DEFAULT_SROA_PASS_PIPELINE` - Standard pass pipeline for kernel compilation
@@ -95,16 +95,16 @@ To run all nanobenchmarks via pytest:
 ## Pass Pipeline
 
 Kernels in this directory are compiled with the DEFAULT_SROA_PASS_PIPELINE defined
-in `integration_test/test_utils.py`.
+in `test/integration/test_utils.py`.
 This ensures memref operations are properly eliminated before register allocation.
 
 ## Test Utilities
 
-The `integration_test/test_utils.py` module provides reusable utilities for testing MLIR kernels.
+The `test/integration/test_utils.py` module provides reusable utilities for testing MLIR kernels.
 These utilities can be imported from any test file:
 
 ```python
-from integration_test.test_utils import (
+from integration.test_utils import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
     DEFAULT_SROA_PASS_PIPELINE,

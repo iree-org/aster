@@ -4,11 +4,12 @@ import argparse
 import os
 import sys
 
-# Add project root to path to allow imports
+# Add project root and test/ to path to allow imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "test"))
 
 from aster import ir, utils
-from integration_test.test_utils import (
+from integration.test_utils import (
     compile_mlir_file_to_asm,
     execute_kernel_and_verify,
     hsaco_file,

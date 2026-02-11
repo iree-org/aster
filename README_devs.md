@@ -151,13 +151,13 @@ export WORKTREE_NAME=$(basename $(pwd))
 deactivate ;  unset PYTHONPATH; source .aster-wt-${WORKTREE_NAME}/bin/activate
 
 # All tests
-(cd build && ninja install) && lit build/test -v && pytest -n 16 ./test ./integration_test ./mlir_kernels ./contrib
+(cd build && ninja install) && lit build/test -v && pytest -n 16 ./test ./mlir_kernels ./contrib
 
 # Lit tests only
 (cd build && ninja install) && lit build/test -v
 
 # Pytest only
-(cd build && ninja install) && pytest -n 16 ./test ./integration_test ./mlir_kernels ./contrib
+(cd build && ninja install) && pytest -n 16 ./test ./mlir_kernels ./contrib
 ```
 
 ## Notes

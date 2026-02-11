@@ -7,7 +7,7 @@ import numpy as np
 
 from aster import ir, utils
 from typing import List, Optional
-from integration_test.test_utils import (
+from integration.test_utils import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
     hsaco_file,
@@ -218,7 +218,7 @@ def test_copy_1d_dwordx4(
                     x = x.replace("{{SCHED_DELAY_STORE}}", str(sched_delay_store))
                     return x
 
-                from integration_test.test_utils import load_mlir_module_from_file
+                from integration.test_utils import load_mlir_module_from_file
 
                 module = load_mlir_module_from_file(
                     mlir_file, ctx, preprocess=preprocess

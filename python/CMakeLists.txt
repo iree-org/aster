@@ -166,15 +166,15 @@ nanobind_add_stub(
   DEPENDS ASTERPythonModules
 )
 
-# Copy integration_test directory to build directory
+# Copy test/integration directory to build directory
 file(GLOB_RECURSE integration_test_files
-  "${CMAKE_SOURCE_DIR}/integration_test/*.py"
+  "${CMAKE_SOURCE_DIR}/test/integration/*.py"
 )
 foreach(file ${integration_test_files})
-  file(RELATIVE_PATH rel_file "${CMAKE_SOURCE_DIR}/integration_test" "${file}")
+  file(RELATIVE_PATH rel_file "${CMAKE_SOURCE_DIR}/test/integration" "${file}")
   configure_file(
     "${file}"
-    "${CMAKE_BINARY_DIR}/integration_test/${rel_file}"
+    "${CMAKE_BINARY_DIR}/test/integration/${rel_file}"
     COPYONLY
   )
 endforeach()
