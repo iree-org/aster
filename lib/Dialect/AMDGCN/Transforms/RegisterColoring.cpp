@@ -388,7 +388,7 @@ InstRewritePattern::matchAndRewrite(InstOpInterface op,
     return failure();
 
   // Create the new instruction.
-  auto newInst = op.cloneInst(rewriter, newOuts, newIns, std::nullopt);
+  auto newInst = op.cloneInst(rewriter, newOuts, newIns);
   if (!newInst)
     return failure();
 

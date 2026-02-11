@@ -63,9 +63,9 @@ def InstOpInterface : OpInterface<"InstOpInterface"> {
         instruction operands. Returns nullptr on failure.
       }],  "::mlir::aster::InstOpInterface", "cloneInst", (ins
           "::mlir::OpBuilder&":$builder, "::mlir::ValueRange":$outs,
-          "::mlir::ValueRange":$ins, "std::optional<::mlir::TypeRange>":$resultTypes
+          "::mlir::ValueRange":$ins
         ), [{}], [{
-        return ::mlir::aster::detail::cloneInstOpImpl($_op, builder, outs, ins, resultTypes);
+        return ::mlir::aster::detail::cloneInstOpImpl($_op, builder, outs, ins);
       }]
     >,
   ];

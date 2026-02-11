@@ -88,10 +88,10 @@ static MutableArrayRef<OpOperand> getOpOperands(Operation *op,
   return operands.slice(range.getBeginOperandIndex(), range.size());
 }
 
-InstOpInterface
-aster::detail::cloneInstOpImpl(InstOpInterface op, OpBuilder &builder,
-                               ValueRange outs, ValueRange ins,
-                               std::optional<TypeRange> resultTypes) {
+InstOpInterface aster::detail::cloneInstOpImpl(InstOpInterface op,
+                                               OpBuilder &builder,
+                                               ValueRange outs,
+                                               ValueRange ins) {
   auto newOp = cast<InstOpInterface>(builder.clone(*op.getOperation()));
 
   // Verify the number of operands matches.
@@ -111,14 +111,8 @@ aster::detail::cloneInstOpImpl(InstOpInterface op, OpBuilder &builder,
   // Update the result types. If resultTypes is not provided, use the types of
   // outs.
   ResultRange instResults = newOp.getInstResults();
-  if (!resultTypes)
-    resultTypes = TypeRange(outs);
 
-  // Verify the number of result types matches.
-  if (resultTypes->size() != instResults.size())
-    return nullptr;
-
-  for (auto &&[result, type] : llvm::zip_equal(instResults, *resultTypes))
+  for (auto &&[result, type] : llvm::zip_equal(instResults, TypeRange(outs)))
     result.setType(type);
 
   return newOp;

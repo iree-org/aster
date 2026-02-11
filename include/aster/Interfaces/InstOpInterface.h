@@ -45,8 +45,7 @@ bool hasPureValueSemanticsImpl(InstOpInterface op);
 
 /// Clones the instruction operation with new operands and results.
 InstOpInterface cloneInstOpImpl(InstOpInterface op, OpBuilder &builder,
-                                ValueRange outs, ValueRange ins,
-                                std::optional<TypeRange> resultTypes);
+                                ValueRange outs, ValueRange ins);
 struct InstAttrStorage;
 } // namespace detail
 } // namespace aster

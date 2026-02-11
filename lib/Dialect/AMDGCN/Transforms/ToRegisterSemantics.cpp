@@ -257,7 +257,7 @@ LogicalResult InstOpPattern::matchAndRewrite(InstOpInterface instOp,
     return rewriter.notifyMatchFailure(instOp, "no changes can be made");
 
   // Clone the instruction with the updated operands.
-  auto newInst = instOp.cloneInst(rewriter, outs, ins, std::nullopt);
+  auto newInst = instOp.cloneInst(rewriter, outs, ins);
 
   SmallVector<Value, 4> newResults =
       llvm::to_vector_of<Value, 4>(newInst->getResults());
