@@ -394,6 +394,36 @@ OpFoldResult AllocLDSOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// MakeBufferRsrcOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult MakeBufferRsrcOp::verify() {
+  // base_addr must be a 2-SGPR range.
+  auto baseAddrTy = dyn_cast<SGPRRangeType>(getBaseAddr().getType());
+  if (!baseAddrTy || baseAddrTy.getRange().size() != 2)
+    return emitOpError("base_addr must be an sgpr_range of size 2, got ")
+           << getBaseAddr().getType();
+
+  // Result must be a 4-SGPR range.
+  auto resultTy = dyn_cast<SGPRRangeType>(getResult().getType());
+  if (!resultTy || resultTy.getRange().size() != 4)
+    return emitOpError("result must be an sgpr_range of size 4, got ")
+           << getResult().getType();
+
+  // If stride is a known constant, validate it fits in 14 bits.
+  // Note: this is not standard to look at value provenance but it is a best
+  // effort to avoid ValueOrAttr that upstream MLIR is flippant about.
+  APInt strideVal;
+  if (matchPattern(getStride(), m_ConstantInt(&strideVal))) {
+    int64_t stride = strideVal.getSExtValue();
+    if (stride < 0 || stride > 16383)
+      return emitOpError("stride must be in [0, 16383], got ") << stride;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LoadOp
 //===----------------------------------------------------------------------===//
 
