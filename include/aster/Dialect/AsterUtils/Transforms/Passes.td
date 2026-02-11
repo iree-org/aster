@@ -76,6 +76,28 @@ def DestructureStructIterArgs : Pass<"aster-destructure-struct-iter-args"> {
   ];
 }
 
+def ResolveAnyIterArgs : Pass<"aster-resolve-any-iter-args"> {
+  let summary = "Resolve any-typed iter_args and block args to concrete types";
+  let description = [{
+    This pass specializes `!aster_utils.any`-typed values to their concrete
+    types by analyzing the to_any/from_any chain.
+
+    Handles two patterns:
+
+    **scf.for iter_args:** Init must be `to_any %x : T`, yield must be
+    `to_any %y : T`, and all block arg / result uses must be `from_any : T`.
+    Supports passthrough rotation patterns from the SCF pipeliner.
+
+    **CF block arguments:** All predecessor branches (cf.br / cf.cond_br)
+    must provide `to_any %x : T` for the same type T, and all uses within
+    the block must be `from_any : T`. Passthrough chains across blocks are
+    handled via fixpoint iteration.
+  }];
+  let dependentDialects = [
+    "mlir::aster::aster_utils::AsterUtilsDialect"
+  ];
+}
+
 def FromAnyToPoison : Pass<"aster-from-any-to-poison"> {
   let summary = "Transform FromAnyOp to ub.poison";
   let description = [{
