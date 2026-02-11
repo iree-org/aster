@@ -10,7 +10,8 @@ check_venv
 
 PYTHON_BIN="$(get_python_bin)"
 TEST_SCRIPT="${SCRIPT_DIR}/test/test_lib.py"
-NUM_BLOCKS="${1:-304}"
+NUM_BLOCKS="${1:-1216}" # 304 * 4
+# NUM_BLOCKS="${1:-304}"
 PERF_COUNTERS="SQ_LDS_BANK_CONFLICT SQ_INSTS_LDS SQ_WAIT_INST_LDS SQ_INSTS_VMEM SQ_WAIT_INST_VMEM TCC_HIT TCC_MISS"
 
 profile_kernel() {
@@ -34,4 +35,5 @@ profile_kernel() {
 # profile_kernel test_zero_C
 # profile_kernel test_load_store_A
 # profile_kernel test_mfma
-profile_kernel gemm_16x16x128
+# profile_kernel gemm_16x16x128
+profile_kernel gemm_16x16x128_sched
