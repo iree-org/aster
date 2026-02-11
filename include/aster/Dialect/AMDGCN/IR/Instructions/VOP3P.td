@@ -205,14 +205,4 @@ def V_MFMA_F32_16X16X16_BF16 : MFMAInst<
   }];
 }
 
-def V_MFMA_F16_16X16X16_F16 : MFMAInst<
-  /*mnemonic=*/"v_mfma_f16_16x16x16_f16", /*symbol=*/"v_mfma_f16_16x16x16_f16",
-  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3]> {
-  let summary = "MFMA f16 16x16x16 with f16 inputs";
-  let description = [{
-    MFMA instruction performing matrix multiplication and accumulation
-    with f16 output and f16 inputs.
-  }];
-}
-
 #endif // AMDGCN_INST_VOP3P_TD
