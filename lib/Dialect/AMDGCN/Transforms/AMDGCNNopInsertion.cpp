@@ -544,7 +544,6 @@ static NopInsertionCaseDef getCase106Definition() {
     switch (maiOp) {
     case OpCode::V_MFMA_F32_16X16X16_F16:
     case OpCode::V_MFMA_F32_16X16X16_BF16:
-    case OpCode::V_MFMA_F16_16X16X16_F16:
       // This is likely adding more waits than needed.
       // TODO: properly handle this.
       numNops = 7;

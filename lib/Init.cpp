@@ -18,6 +18,7 @@
 #include "aster/Interfaces/UpstreamExternalModels.h"
 #include "aster/Transforms/Passes.h"
 #include "mlir/CAPI/IR.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Affine/Transforms/Passes.h"
@@ -49,6 +50,7 @@ using namespace mlir;
 ///
 void mlir::aster::initUpstreamMLIRDialects(DialectRegistry &registry) {
   registry.insert<affine::AffineDialect>();
+  registry.insert<amdgpu::AMDGPUDialect>();
   registry.insert<arith::ArithDialect>();
   registry.insert<cf::ControlFlowDialect>();
   registry.insert<func::FuncDialect>();
