@@ -214,20 +214,20 @@ class TestKittensMFMA:
 
 
 class TestKittensGEMM:
-    """Test minimal GEMM kernel: C[16x16] = A[16x32] @ B[16x32]^T."""
+    """Test GEMM kernel: C[16x16] = A[16x128] @ B[16x128]^T."""
 
-    def test_gemm_16x16x32(self):
-        """GEMM should compute C = A @ B^T correctly with K=32."""
-        mlir_file = get_mlir_file("test_gemm_16x16x32.mlir")
-        kernel_name = "gemm_16x16x32"
+    def test_gemm_16x16x128(self):
+        """GEMM should compute C = A @ B^T correctly with K=128."""
+        mlir_file = get_mlir_file("test_gemm_16x16x128.mlir")
+        kernel_name = "gemm_16x16x128"
         library_paths = get_kittens_library_paths()
 
         # Create test matrices
-        # A: 16x32 f16, B: 16x32 f16
+        # A: 16x128 f16, B: 16x128 f16
         # Use small values to avoid overflow in f16
         np.random.seed(42)  # Reproducibility
-        A = (np.random.randn(16, 32) * 0.1).astype(np.float16)
-        B = (np.random.randn(16, 32) * 0.1).astype(np.float16)
+        A = (np.random.randn(16, 128) * 0.05).astype(np.float16)
+        B = (np.random.randn(16, 128) * 0.05).astype(np.float16)
 
         # Flatten for kernel input
         A_flat = A.flatten()
@@ -305,4 +305,4 @@ if __name__ == "__main__":
     run_test(TestKittensZeroC().test_zero_C_produces_zeros)
     run_test(TestKittensLoadStoreA().test_load_store_roundtrip)
     run_test(TestKittensMFMA().test_mfma_matmul)
-    run_test(TestKittensGEMM().test_gemm_16x16x32)
+    run_test(TestKittensGEMM().test_gemm_16x16x128)

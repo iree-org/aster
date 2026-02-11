@@ -34,4 +34,4 @@ profile_kernel() {
 # profile_kernel test_zero_C
 # profile_kernel test_load_store_A
 # profile_kernel test_mfma
-profile_kernel gemm_16x16x32
+profile_kernel gemm_16x16x128

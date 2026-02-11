@@ -216,7 +216,7 @@ amdgcn.library @kittens_tiles_16x16 isa = [#amdgcn.isa<cdna3>] {
   // Since these 4 values are non-contiguous in row-major memory (separated by
   // stride), we perform 4 separate global_store_dword operations.
   //
-  // Returns the last write token. The 3 earlier store tokens are not returned,
+  // Note: Returns the last write token. The 3 earlier store tokens are not returned,
   // but WaitAnalysis will conservatively insert proper s_waitcnt instructions
   // for all outstanding stores when this token is waited on.
   //
@@ -275,6 +275,9 @@ amdgcn.library @kittens_tiles_16x16 isa = [#amdgcn.isa<cdna3>] {
     %off3 = func.call @tiled_matrix_offset(%desc3) : (!index_descriptor_2level_2d) -> !v
     %tok3 = amdgcn.store global_store_dword data %v3 addr %ptr offset d(%off3) + c(%c0_i32) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
 
+    // Note: Returns the last write token. The 3 earlier store tokens are not returned,
+    // but WaitAnalysis will conservatively insert proper s_waitcnt instructions
+    // for all outstanding stores when this token is waited on.
     return %tok3 : !write_token
   }
 }
