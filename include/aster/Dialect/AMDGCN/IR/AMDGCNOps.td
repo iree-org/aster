@@ -626,12 +626,12 @@ def AMDGCN_TestInstOp : AMDGCN_Op<"test_inst", [
       return InstAttr();
     }
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
+    OperandRange getInstOuts() {
       return getOutsMutable();
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getInsMutable();
+    OperandRange getInstIns() {
+      return getAsOperandRange(getInsMutable());
     }
   }];
 }

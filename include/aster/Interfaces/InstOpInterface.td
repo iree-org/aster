@@ -31,11 +31,11 @@ def InstOpInterface : OpInterface<"InstOpInterface"> {
   let methods = [
     InterfaceMethod<
       "Get the instruction output operands",
-      "::mlir::MutableArrayRef<OpOperand>", "getInstOutsMutable"
+      "::mlir::OperandRange", "getInstOuts"
     >,
     InterfaceMethod<
       "Get the instruction input operands",
-      "::mlir::MutableArrayRef<OpOperand>", "getInstInsMutable"
+      "::mlir::OperandRange", "getInstIns"
     >,
     InterfaceMethod<
       "Get the instruction results",
@@ -69,18 +69,6 @@ def InstOpInterface : OpInterface<"InstOpInterface"> {
       }]
     >,
   ];
-  let extraSharedClassDeclaration = [{
-    /// Get the instruction input operands.
-    ::mlir::ValueRange getInstIns() {
-      auto operandRange = $_op.getInstInsMutable();
-      return OperandRange(operandRange.data(), operandRange.size());
-    }
-    /// Get the instruction output operands.
-    ::mlir::ValueRange getInstOuts() {
-      auto operandRange = $_op.getInstOutsMutable();
-      return OperandRange(operandRange.data(), operandRange.size());
-    }
-  }];
   let verify = [{
     return ::mlir::aster::detail::verifyInstImpl(cast<ConcreteOp>($_op));
   }];

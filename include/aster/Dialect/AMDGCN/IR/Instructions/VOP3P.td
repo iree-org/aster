@@ -161,12 +161,12 @@ def VOP3PMAIOp : VOP3P_Op<"vop3p_mai", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getVdstMutable();
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getVdstMutable());
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front();
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().drop_front());
     }
   }];
 }

@@ -142,14 +142,14 @@ class _InstOpTrait<dag ins, dag outs> : NativeOpTrait<"InstOpTrait"> {
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(
-        getNumOuts(*this, kOutsSize));
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getOperation()->getOpOperands().take_front(
+        getNumOuts(*this, kOutsSize)));
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().slice(
-        getNumOuts(*this, kOutsSize), getNumIns(*this, kOutsSize, kInsSize));
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().slice(
+        getNumOuts(*this, kOutsSize), getNumIns(*this, kOutsSize, kInsSize)));
     }
   }], [
     VarRepl<"ins_size", insInfo.argCount>,

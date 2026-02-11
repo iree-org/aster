@@ -129,11 +129,11 @@ def AMDGCN_LoadOp : InstOp<"load", [
     // AMDGCNInstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getDestMutable();
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getDestMutable());
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable();
+    OperandRange getInstIns();
     /// Get the instruction results.
     ResultRange getInstResults() {
       return getOperation()->getResult(0);
@@ -225,11 +225,11 @@ def AMDGCN_StoreOp : InstOp<"store", [
     // AMDGCNInstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return {};
+    OperandRange getInstOuts() {
+      return getAsOperandRange({});
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable();
+    OperandRange getInstIns();
     /// Get the instruction results.
     ResultRange getInstResults() {
       return getOperation()->getResults().slice(0, 0);

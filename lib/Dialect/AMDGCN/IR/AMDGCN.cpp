@@ -473,9 +473,9 @@ void LoadOp::build(OpBuilder &odsBuilder, OperationState &odsState,
   (void)res;
 }
 
-MutableArrayRef<OpOperand> LoadOp::getInstInsMutable() {
-  MutableArrayRef<OpOperand> operands =
-      getOperation()->getOpOperands().drop_front(1);
+OperandRange LoadOp::getInstIns() {
+  OperandRange operands =
+      getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
   if (getConstantOffset())
     operands = operands.drop_back(1);
   return operands;
@@ -688,8 +688,8 @@ void StoreOp::build(OpBuilder &odsBuilder, OperationState &odsState,
   (void)res;
 }
 
-MutableArrayRef<OpOperand> StoreOp::getInstInsMutable() {
-  MutableArrayRef<OpOperand> operands = getOperation()->getOpOperands();
+OperandRange StoreOp::getInstIns() {
+  OperandRange operands = getAsOperandRange(getOperation()->getOpOperands());
   if (getConstantOffset())
     operands = operands.drop_back(1);
   return operands;

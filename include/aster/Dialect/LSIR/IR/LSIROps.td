@@ -47,12 +47,12 @@ class BinaryIOp<string mnemonic, list<Trait> traits = []> :
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(1);
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front(1);
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
     }
   }];
 }
@@ -79,12 +79,12 @@ class BinaryFOp<string mnemonic, list<Trait> traits = []> :
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(1);
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front(1);
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
     }
   }];
 }
@@ -109,11 +109,11 @@ class CastOp<string mnemonic, Attr tgtAttr,
     //===------------------------------------------------------------------===//
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getDstMutable();
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getDstMutable());
     }
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getValueMutable();
+    OperandRange getInstIns() {
+      return getAsOperandRange(getValueMutable());
     }
   }];
 }
@@ -252,12 +252,12 @@ def LSIR_CmpFOp : LSIR_Op<"cmpf", [InstOpInterface, Pure]> {
     /// Returns false; comparison ops produce i1 (SCC) not DPS format.
     bool isDPSInstruction() { return false; }
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().slice(0, 0);
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getOperation()->getOpOperands().slice(0, 0));
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands();
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands());
     }
     /// Get the instruction results.
     ResultRange getInstResults() {
@@ -300,12 +300,12 @@ def LSIR_CmpIOp : LSIR_Op<"cmpi", [InstOpInterface, Pure]> {
     /// Returns false; comparison ops produce i1 (SCC) not DPS format.
     bool isDPSInstruction() { return false; }
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().slice(0, 0);
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getOperation()->getOpOperands().slice(0, 0));
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands();
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands());
     }
     /// Get the instruction results.
     ResultRange getInstResults() {
@@ -355,12 +355,12 @@ def LSIR_CopyOp : LSIR_Op<"copy", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(1);
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front(1);
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
     }
   }];
 }
@@ -556,12 +556,12 @@ def LSIR_LoadOp : LSIR_Op<"load", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(1);
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().slice(1, 3);
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().slice(1, 3));
     }
     /// Get the instruction result ranges.
     ResultRange getInstResults() {
@@ -671,12 +671,12 @@ def LSIR_MovOp : LSIR_Op<"mov", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getDstMutable();
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getDstMutable());
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getValueMutable();
+    OperandRange getInstIns() {
+      return getAsOperandRange(getValueMutable());
     }
   }];
 }
@@ -744,12 +744,12 @@ def LSIR_NegFOp : LSIR_Op<"negf", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(1);
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front(1);
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
     }
   }];
 }
@@ -896,12 +896,12 @@ def LSIR_SelectOp : LSIR_Op<"select", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(1);
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front(1);
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
     }
   }];
 }
@@ -1014,12 +1014,12 @@ def LSIR_StoreOp : LSIR_Op<"store", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return {};
+    OperandRange getInstOuts() {
+      return getAsOperandRange({});
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().slice(0, 4);
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().slice(0, 4));
     }
     /// Get the instruction result ranges.
     ResultRange getInstResults() {

@@ -48,12 +48,12 @@ def SOPPOp : SOPP_Op<"sopp", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return {};
+    OperandRange getInstOuts() {
+      return getAsOperandRange({});
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return {};
+    OperandRange getInstIns() {
+      return getAsOperandRange({});
     }
   }];
 }
@@ -142,12 +142,12 @@ def SWaitcntOp : SOPP_Op<"s_waitcnt", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return {};
+    OperandRange getInstOuts() {
+      return getAsOperandRange({});
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return {};
+    OperandRange getInstIns() {
+      return getAsOperandRange({});
     }
   }];
 }

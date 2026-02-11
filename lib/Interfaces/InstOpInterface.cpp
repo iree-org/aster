@@ -76,8 +76,16 @@ void mlir::aster::detail::getInstEffectsImpl(
     addEffectsForRegister(res.getType(), MemoryEffects::Write::get());
 
   // Add read effects for inputs
-  for (OpOperand &in : op.getInstInsMutable())
-    addEffectsForRegister(in.get().getType(), MemoryEffects::Read::get());
+  for (Value in : op.getInstIns())
+    addEffectsForRegister(in.getType(), MemoryEffects::Read::get());
+}
+
+static MutableArrayRef<OpOperand> getOpOperands(Operation *op,
+                                                OperandRange range) {
+  if (range.empty())
+    return {};
+  MutableArrayRef<OpOperand> operands = op->getOpOperands();
+  return operands.slice(range.getBeginOperandIndex(), range.size());
 }
 
 InstOpInterface
@@ -94,10 +102,10 @@ aster::detail::cloneInstOpImpl(InstOpInterface op, OpBuilder &builder,
 
   // Update the operands.
   for (auto &&[opOperand, operand] :
-       llvm::zip_equal(newOp.getInstOutsMutable(), outs))
+       llvm::zip_equal(getOpOperands(newOp, newOp.getInstOuts()), outs))
     opOperand.assign(operand);
   for (auto &&[opOperand, operand] :
-       llvm::zip_equal(newOp.getInstInsMutable(), ins))
+       llvm::zip_equal(getOpOperands(newOp, newOp.getInstIns()), ins))
     opOperand.assign(operand);
 
   // Update the result types. If resultTypes is not provided, use the types of
