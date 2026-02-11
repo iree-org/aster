@@ -29,6 +29,7 @@ add_mlir_library(
 
   MLIRAffineDialect
   MLIRAffineTransforms
+  MLIRAMDGPUDialect
   MLIRArithDialect
   MLIRArithValueBoundsOpInterfaceImpl
   MLIRCastInterfaces
