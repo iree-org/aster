@@ -57,6 +57,27 @@ amdgcn.module @kernel_with_int target = #amdgcn.target<gfx940> isa = #amdgcn.isa
   }
 }
 
+// Test gfx950/cdna4 module
+amdgcn.module @cdna4_module target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+  amdgcn.kernel @cdna4_kernel {
+    amdgcn.end_kernel
+  }
+}
+
+// Test library with cdna4 isa
+amdgcn.library @library_cdna4 isa = [#amdgcn.isa<cdna4>] {
+  func.func @cdna4_func() {
+    return
+  }
+}
+
+// Test library with both cdna3 and cdna4
+amdgcn.library @library_cdna3_cdna4 isa = [#amdgcn.isa<cdna3>, #amdgcn.isa<cdna4>] {
+  func.func @cross_cdna_func() {
+    return
+  }
+}
+
 // Test library operations (target-agnostic, no isa attribute)
 amdgcn.library @empty_library {
 }

@@ -78,6 +78,23 @@ cp ${LLVM_BUILD}/bin/llvm-objdump ${LLVM_INSTALL}/bin/llvm-objdump
 Rebuild when LLVM submodule is updated (`git submodule status`) or different build options needed.
 All worktrees must use the same LLVM submodule commit.
 
+### LLVM target support
+
+ASTER has early .hsaco generation support for the following targets, which all
+require an appropriate LLVM AMDGPU backend for translating asm to binary:
+
+| Target   | ISA   | Product Family          |
+|----------|-------|-------------------------|
+| gfx940   | CDNA3 | MI300A                  |
+| gfx942   | CDNA3 | MI300X                  |
+| gfx950   | CDNA4 | MI350X                  |
+| gfx1201  | RDNA4 | Radeon RX 9070          |
+
+HSACO assembly (the `assemble_to_hsaco` step) requires the LLVM version to
+recognize the target chip. If your LLVM build does not support a given target
+(e.g. gfx950 requires a recent LLVM with CDNA4 support), the HSACO step will
+be skipped. ASTER's own IR translation will work regardless of LLVM version.
+
 ## Worktree Setup
 
 Each worktree needs its own build directory and venv, but shares LLVM.

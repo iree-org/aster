@@ -53,6 +53,7 @@ config.excludes = [
     "__init__.py",
     "flush_llc.py",
     "test_mfma_e2e.py",
+    "test_hsaco.py",
     "test_utils.py",
 ]
 

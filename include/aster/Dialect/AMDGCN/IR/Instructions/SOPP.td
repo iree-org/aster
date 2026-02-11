@@ -66,7 +66,7 @@ class SOPPInst<string _mnemonic, string sym, InstOp _instOp, list<ISAVersion> _i
 
 def SOPP_TRAP_INST : SOPPInst<
   /*mnemonic=*/"s_trap", /*symbol=*/"s_trap",
-  /*instOp=*/SOPPOp, /*isa=*/[CDNA3]> {
+  /*instOp=*/SOPPOp, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SOPP trap";
   let description = [{
     SOPP instruction that generates a trap exception.
@@ -76,7 +76,7 @@ def SOPP_TRAP_INST : SOPPInst<
 
 def SOPP_BARRIER_INST : SOPPInst<
   /*mnemonic=*/"s_barrier", /*symbol=*/"s_barrier",
-  /*instOp=*/SOPPOp, /*isa=*/[CDNA3]> {
+  /*instOp=*/SOPPOp, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SOPP barrier";
   let description = [{
     SOPP instruction that creates a barrier synchronization point.
@@ -85,7 +85,7 @@ def SOPP_BARRIER_INST : SOPPInst<
 
 def SOPP_NOP_INST : SOPPInst<
   /*mnemonic=*/"s_nop", /*symbol=*/"s_nop",
-  /*instOp=*/SOPPOp, /*isa=*/[CDNA3]> {
+  /*instOp=*/SOPPOp, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SOPP NOP";
   let description = [{
     Do nothing. Delay issue of next instruction by a small, fixed amount.
@@ -154,7 +154,7 @@ def SWaitcntOp : SOPP_Op<"s_waitcnt", [
 
 def S_WAITCNT_INST : AMDInst<
   /*mnemonic=*/"s_waitcnt", /*symbol=*/"s_waitcnt",
-  /*instOp=*/SWaitcntOp, /*isa=*/[CDNA3]> {
+  /*instOp=*/SWaitcntOp, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "S_WAITCNT instruction";
   let description = [{
     Wait for counts of outstanding lds, vector-memory and export/vmem-write-data to be at or below specified levels.

@@ -414,7 +414,8 @@ LogicalResult TranslateModuleImpl::emitKernelEpilogue(KernelOp kernel,
   RegisterUsage regUsage = kernels[kernelIndex].second;
 
   Target target = module.getTarget();
-  bool hasAGPR = (target == Target::GFX940 || target == Target::GFX942);
+  bool hasAGPR = (target == Target::GFX940 || target == Target::GFX942 ||
+                  target == Target::GFX950);
 
   // Calculate kernarg segment information
   KernelArgSegmentInfo argInfo = KernelArgSegmentInfo::get(kernel);
@@ -514,7 +515,8 @@ LogicalResult TranslateModuleImpl::emitKernelMetadata(KernelOp kernel,
                                                       size_t kernelInde) {
   YAMLList yOs(os);
   Target target = module.getTarget();
-  bool hasAGPR = (target == Target::GFX940 || target == Target::GFX942);
+  bool hasAGPR = (target == Target::GFX940 || target == Target::GFX942 ||
+                  target == Target::GFX950);
   if (hasAGPR)
     yOs.printField(".agpr_count", regInfo.countAGPR);
 

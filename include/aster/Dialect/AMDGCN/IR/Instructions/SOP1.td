@@ -65,7 +65,7 @@ class SOP1Inst<string _mnemonic, list<ISAVersion> _isa>
 // SOP1Op instructions
 //===----------------------------------------------------------------------===//
 
-def SMovB32 : SOP1Inst<"s_mov_b32", [CDNA3, RDNA4]> {
+def SMovB32 : SOP1Inst<"s_mov_b32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOP1 move 32-bit value to destination register.";
 }
 

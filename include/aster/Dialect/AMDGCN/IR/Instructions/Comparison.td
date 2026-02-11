@@ -128,7 +128,7 @@ class SOPCmpIInst<string _mnemonic, list<ISAVersion> _isa>
   let asmFormat = [SingleAsmVariant<"$lhs, $rhs">];
 }
 
-def SCmpEqI32 : SOPCmpIInst<"s_cmp_eq_i32", [CDNA3, RDNA4]> {
+def SCmpEqI32 : SOPCmpIInst<"s_cmp_eq_i32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare equal (signed 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is equal to the second.
@@ -136,7 +136,7 @@ def SCmpEqI32 : SOPCmpIInst<"s_cmp_eq_i32", [CDNA3, RDNA4]> {
   }];
 }
 
-def SCmpLgI32 : SOPCmpIInst<"s_cmp_lg_i32", [CDNA3, RDNA4]> {
+def SCmpLgI32 : SOPCmpIInst<"s_cmp_lg_i32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare not equal (signed 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is not equal to the second.
@@ -144,7 +144,7 @@ def SCmpLgI32 : SOPCmpIInst<"s_cmp_lg_i32", [CDNA3, RDNA4]> {
   }];
 }
 
-def SCmpGtI32 : SOPCmpIInst<"s_cmp_gt_i32", [CDNA3, RDNA4]> {
+def SCmpGtI32 : SOPCmpIInst<"s_cmp_gt_i32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare greater than (signed 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is greater than the second.
@@ -152,7 +152,7 @@ def SCmpGtI32 : SOPCmpIInst<"s_cmp_gt_i32", [CDNA3, RDNA4]> {
   }];
 }
 
-def SCmpGeI32 : SOPCmpIInst<"s_cmp_ge_i32", [CDNA3, RDNA4]> {
+def SCmpGeI32 : SOPCmpIInst<"s_cmp_ge_i32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare greater than or equal (signed 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is greater than or equal to the second.
@@ -160,7 +160,7 @@ def SCmpGeI32 : SOPCmpIInst<"s_cmp_ge_i32", [CDNA3, RDNA4]> {
   }];
 }
 
-def SCmpLtI32 : SOPCmpIInst<"s_cmp_lt_i32", [CDNA3, RDNA4]> {
+def SCmpLtI32 : SOPCmpIInst<"s_cmp_lt_i32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare less than (signed 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is less than the second.
@@ -168,7 +168,7 @@ def SCmpLtI32 : SOPCmpIInst<"s_cmp_lt_i32", [CDNA3, RDNA4]> {
   }];
 }
 
-def SCmpLeI32 : SOPCmpIInst<"s_cmp_le_i32", [CDNA3, RDNA4]> {
+def SCmpLeI32 : SOPCmpIInst<"s_cmp_le_i32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare less than or equal (signed 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is less than or equal to the second.
@@ -180,7 +180,7 @@ def SCmpLeI32 : SOPCmpIInst<"s_cmp_le_i32", [CDNA3, RDNA4]> {
 // SOPC Instructions - Unsigned 32-bit integer comparisons
 //===----------------------------------------------------------------------===//
 
-def SCmpEqU32 : SOPCmpIInst<"s_cmp_eq_u32", [CDNA3, RDNA4]> {
+def SCmpEqU32 : SOPCmpIInst<"s_cmp_eq_u32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare equal (unsigned 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input equals the second scalar input.
@@ -188,7 +188,7 @@ def SCmpEqU32 : SOPCmpIInst<"s_cmp_eq_u32", [CDNA3, RDNA4]> {
   }];
 }
 
-def SCmpLgU32 : SOPCmpIInst<"s_cmp_lg_u32", [CDNA3, RDNA4]> {
+def SCmpLgU32 : SOPCmpIInst<"s_cmp_lg_u32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare not equal (unsigned 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is not equal to the second.
@@ -196,7 +196,7 @@ def SCmpLgU32 : SOPCmpIInst<"s_cmp_lg_u32", [CDNA3, RDNA4]> {
   }];
 }
 
-def SCmpGtU32 : SOPCmpIInst<"s_cmp_gt_u32", [CDNA3, RDNA4]> {
+def SCmpGtU32 : SOPCmpIInst<"s_cmp_gt_u32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare greater than (unsigned 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is greater than the second.
@@ -204,7 +204,7 @@ def SCmpGtU32 : SOPCmpIInst<"s_cmp_gt_u32", [CDNA3, RDNA4]> {
   }];
 }
 
-def SCmpGeU32 : SOPCmpIInst<"s_cmp_ge_u32", [CDNA3, RDNA4]> {
+def SCmpGeU32 : SOPCmpIInst<"s_cmp_ge_u32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare greater than or equal (unsigned 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is greater than or equal to the second.
@@ -212,7 +212,7 @@ def SCmpGeU32 : SOPCmpIInst<"s_cmp_ge_u32", [CDNA3, RDNA4]> {
   }];
 }
 
-def SCmpLtU32 : SOPCmpIInst<"s_cmp_lt_u32", [CDNA3, RDNA4]> {
+def SCmpLtU32 : SOPCmpIInst<"s_cmp_lt_u32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare less than (unsigned 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is less than the second.
@@ -220,7 +220,7 @@ def SCmpLtU32 : SOPCmpIInst<"s_cmp_lt_u32", [CDNA3, RDNA4]> {
   }];
 }
 
-def SCmpLeU32 : SOPCmpIInst<"s_cmp_le_u32", [CDNA3, RDNA4]> {
+def SCmpLeU32 : SOPCmpIInst<"s_cmp_le_u32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "SOPC compare less than or equal (unsigned 32-bit)";
   let description = [{
     Set SCC to 1 if the first scalar input is less than or equal to the second.
@@ -264,7 +264,7 @@ class VOPCE32CmpIInst<string _mnemonic, list<ISAVersion> _isa>
   let asmFormat = [SingleAsmVariant<"$lhs, $rhs">];
 }
 
-def VCmpEqI32 : VOPCE32CmpIInst<"v_cmp_eq_i32", [CDNA3, RDNA4]> {
+def VCmpEqI32 : VOPCE32CmpIInst<"v_cmp_eq_i32", [CDNA3, CDNA4, RDNA4]> {
   let summary = "VOPC compare equal (signed 32-bit)";
 }
 
@@ -285,7 +285,7 @@ class VOPCE64CmpIInst<string _mnemonic, list<ISAVersion> _isa> : VOPCE32CmpIInst
   );
 }
 
-def VCmpEqI32E64 : VOPCE64CmpIInst<"v_cmp_eq_i32_e64", [CDNA3, RDNA4]> {
+def VCmpEqI32E64 : VOPCE64CmpIInst<"v_cmp_eq_i32_e64", [CDNA3, CDNA4, RDNA4]> {
   let summary = "VOPC compare equal (signed 32-bit) E64";
 }
 

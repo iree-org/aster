@@ -54,7 +54,7 @@ def VOP1NopOp : VOP1_Op<"v_nop", [
 
 def V_NOP_INST : AMDInst<
   /*mnemonic=*/"v_nop", /*symbol=*/"v_nop",
-  /*instOp=*/VOP1NopOp, /*isa=*/[CDNA3]> {
+  /*instOp=*/VOP1NopOp, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "VOP1 NOP";
   let description = [{
     Do nothing. This is a vector no-op instruction that occupies a VALU slot.
@@ -131,7 +131,7 @@ class VOP1Inst<string _mnemonic, string sym, InstOp _instOp, list<ISAVersion> _i
 
 def V_MOV_B32_E32_INST : VOP1Inst<
   /*mnemonic=*/"v_mov_b32_e32", /*symbol=*/"v_mov_b32_e32",
-  /*instOp=*/VOP1Op, /*isa=*/[CDNA3]> {
+  /*instOp=*/VOP1Op, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "VOP1 move 32-bit";
   let description = [{
     VOP1 instruction that moves a 32-bit value to a destination register.
