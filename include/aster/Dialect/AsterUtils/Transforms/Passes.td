@@ -55,6 +55,27 @@ def WrapCallsWithExecuteRegion : Pass<"aster-wrap-calls-with-execute-region"> {
   ];
 }
 
+def DestructureStructIterArgs : Pass<"aster-destructure-struct-iter-args"> {
+  let summary = "Destructure struct-typed scf.for iter_args into individual fields";
+  let description = [{
+    This pass replaces struct-typed iter_args in scf.for loops with individual
+    field-typed iter_args. For each struct iter_arg:
+    - Init values: struct_extract decomposes the init value
+    - Loop body entry: struct_create reconstructs from individual block args
+    - Yield: struct_extract decomposes back into individual fields
+    - Loop results: struct_create reconstructs for downstream users
+
+    After this pass, canonicalization can fold the struct_create/struct_extract
+    pairs that become adjacent within each scope.
+
+    This is needed after SCF pipelining, which may create struct-typed iter_args
+    when cross-stage values are bundled in structs (e.g., futures).
+  }];
+  let dependentDialects = [
+    "mlir::aster::aster_utils::AsterUtilsDialect"
+  ];
+}
+
 def FromAnyToPoison : Pass<"aster-from-any-to-poison"> {
   let summary = "Transform FromAnyOp to ub.poison";
   let description = [{
