@@ -159,4 +159,80 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
     test_inst ins %0, %1, %2, %3, %4, %5 : (!amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr) -> ()
     end_kernel
   }
+
+// CHECK-LABEL: kernel @make_buffer_rsrc_raw
+//       CHECK:   %[[BASE:.*]], %{{.*}} = load s_load_dwordx2
+//       CHECK:   %[[NREC:.*]], %{{.*}} = load s_load_dword
+//       CHECK:   %[[BASE_SPLIT:.*]]:2 = split_register_range %[[BASE]] : !amdgcn.sgpr_range<[? + 2]>
+//   CHECK-NOT:   sop2 s_or_b32
+//       CHECK:   %[[FLAGS_VAL:.*]] = sop1 s_mov_b32 outs %{{.*}} ins %c0_i32 : !amdgcn.sgpr, i32
+//       CHECK:   %[[RSRC:.*]] = make_register_range %[[BASE_SPLIT]]#0, %[[BASE_SPLIT]]#1, %[[NREC]], %[[FLAGS_VAL]] : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+//       CHECK:   test_inst ins %[[RSRC]] : (!amdgcn.sgpr_range<[? + 4]>) -> ()
+//       CHECK:   end_kernel
+  kernel @make_buffer_rsrc_raw arguments <[
+      #amdgcn.buffer_arg<address_space = generic, access = read_only>,
+      #amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>
+    ]> {
+    %base = load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
+    %num_records = load_arg 1 : !amdgcn.sgpr
+    // stride=0, no swizzle -> dword 1 is just base_hi, no s_or needed
+    %stride = arith.constant 0 : i32
+    %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
+      cache_swizzle = false, swizzle_enable = false, flags = 0
+      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+    test_inst ins %rsrc : (!amdgcn.sgpr_range<[? + 4]>) -> ()
+    end_kernel
+  }
+
+// stride=16 -> dword1 upper bits = 16 << 16 = 0x00100000 = 1048576
+// CHECK-LABEL: kernel @make_buffer_rsrc_structured
+//       CHECK:   %[[BASE2:.*]], %{{.*}} = load s_load_dwordx2
+//       CHECK:   %[[NREC2:.*]], %{{.*}} = load s_load_dword
+//       CHECK:   %[[BASE_SPLIT2:.*]]:2 = split_register_range %[[BASE2]] : !amdgcn.sgpr_range<[? + 2]>
+//       CHECK:   %[[DWORD1:.*]] = sop2 s_or_b32 outs %{{.*}} ins %[[BASE_SPLIT2]]#1, %c1048576_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
+//       CHECK:   %[[FLAGS_VAL2:.*]] = sop1 s_mov_b32 outs %{{.*}} ins %c131076_i32 : !amdgcn.sgpr, i32
+//       CHECK:   %[[RSRC2:.*]] = make_register_range %[[BASE_SPLIT2]]#0, %[[DWORD1]], %[[NREC2]], %[[FLAGS_VAL2]] : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+//       CHECK:   test_inst ins %[[RSRC2]] : (!amdgcn.sgpr_range<[? + 4]>) -> ()
+//       CHECK:   end_kernel
+  kernel @make_buffer_rsrc_structured arguments <[
+      #amdgcn.buffer_arg<address_space = generic, access = read_only>,
+      #amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>
+    ]> {
+    %base = load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
+    %num_records = load_arg 1 : !amdgcn.sgpr
+    // stride=16 (float4), flags encodes dst_sel and data_format
+    %stride = arith.constant 16 : i32
+    %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
+      cache_swizzle = false, swizzle_enable = false, flags = 131076
+      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+    test_inst ins %rsrc : (!amdgcn.sgpr_range<[? + 4]>) -> ()
+    end_kernel
+  }
+
+// stride=4, cache_swizzle=true, swizzle_enable=true
+// dword1 upper = (4 << 16) | (1 << 30) | (1 << 31) = 262144 + 1073741824 + 2147483648 = 3221487616
+// as signed i32: -1073479680
+// CHECK-LABEL: kernel @make_buffer_rsrc_swizzled
+//       CHECK:   %[[BASE3:.*]], %{{.*}} = load s_load_dwordx2
+//       CHECK:   %[[NREC3:.*]], %{{.*}} = load s_load_dword
+//       CHECK:   %[[BASE_SPLIT3:.*]]:2 = split_register_range %[[BASE3]] : !amdgcn.sgpr_range<[? + 2]>
+//       CHECK:   %[[DWORD1_3:.*]] = sop2 s_or_b32 outs %{{.*}} ins %[[BASE_SPLIT3]]#1, %c-1073479680_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
+//       CHECK:   %[[FLAGS_VAL3:.*]] = sop1 s_mov_b32 outs %{{.*}} ins %c0_i32 : !amdgcn.sgpr, i32
+//       CHECK:   %[[RSRC3:.*]] = make_register_range %[[BASE_SPLIT3]]#0, %[[DWORD1_3]], %[[NREC3]], %[[FLAGS_VAL3]] : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+//       CHECK:   test_inst ins %[[RSRC3]] : (!amdgcn.sgpr_range<[? + 4]>) -> ()
+//       CHECK:   end_kernel
+  kernel @make_buffer_rsrc_swizzled arguments <[
+      #amdgcn.buffer_arg<address_space = generic, access = read_only>,
+      #amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>
+    ]> {
+    %base = load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
+    %num_records = load_arg 1 : !amdgcn.sgpr
+    // stride=4 (f32), both swizzle modes enabled
+    %stride = arith.constant 4 : i32
+    %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
+      cache_swizzle = true, swizzle_enable = true, flags = 0
+      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+    test_inst ins %rsrc : (!amdgcn.sgpr_range<[? + 4]>) -> ()
+    end_kernel
+  }
 }

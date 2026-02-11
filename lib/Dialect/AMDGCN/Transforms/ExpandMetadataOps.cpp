@@ -15,6 +15,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
@@ -190,6 +191,101 @@ static void handleBlockId(RewriterBase &rewriter, KernelOp op,
   }
 }
 
+/// Handle MakeBufferRsrcOps in a kernel.
+/// Expands make_buffer_rsrc into split + s_mov/s_or (for dword 1 upper bits
+/// and dword 3 flags) + make_register_range.
+///
+/// Buffer resource descriptor layout (4 dwords):
+///   dword 0: base_addr[31:0]
+///   dword 1: base_addr[47:32] | stride[13:0] << 16 | cache_swizzle << 30
+///            | swizzle_enable << 31
+///   dword 2: num_records[31:0]
+///   dword 3: flags (DST_SEL, NUM_FORMAT, DATA_FORMAT, etc.)
+static void handleMakeBufferRsrc(RewriterBase &rewriter,
+                                 ArrayRef<MakeBufferRsrcOp> ops) {
+  auto sgprTy = [&]() {
+    return SGPRType::get(rewriter.getContext(), Register());
+  };
+
+  for (MakeBufferRsrcOp rsrcOp : ops) {
+    rewriter.setInsertionPoint(rsrcOp);
+    Location loc = rsrcOp.getLoc();
+
+    // Split base_addr (2-SGPR range) into [base_lo, base_hi].
+    ValueRange baseParts = splitRange(rewriter, loc, rsrcOp.getBaseAddr());
+    assert(baseParts.size() == 2 && "base_addr must be a 2-SGPR range");
+    Value baseLo = baseParts[0]; // dword 0
+    Value baseHi = baseParts[1]; // dword 1 (base_addr[47:32] in bits [15:0])
+
+    // Build dword 1: base_hi | (stride << 16) | swizzle bits.
+    uint32_t swizzleBits = (rsrcOp.getCacheSwizzle() ? (1u << 30) : 0u) |
+                           (rsrcOp.getSwizzleEnable() ? (1u << 31) : 0u);
+
+    // Check if stride is a known constant so we can fold the shift.
+    Value dword1 = baseHi;
+    APInt strideConst;
+    bool strideIsConst =
+        matchPattern(rsrcOp.getStride(), m_ConstantInt(&strideConst));
+
+    if (strideIsConst) {
+      // Fold stride shift + swizzle bits into a single immediate.
+      uint32_t dword1Upper =
+          (static_cast<uint32_t>(strideConst.getZExtValue()) << 16) |
+          swizzleBits;
+      if (dword1Upper != 0) {
+        Value orDst = AllocaOp::create(rewriter, loc, sgprTy());
+        Value upperImm =
+            arith::ConstantIntOp::create(rewriter, loc, dword1Upper, 32);
+        dword1 = S_OR_B32::create(rewriter, loc, orDst, baseHi, upperImm)
+                     .getSdstRes();
+      }
+    } else {
+      // Runtime stride: shift left by 16, OR with swizzle bits, OR with
+      // base_hi.
+      Value strideSgprAlloc = AllocaOp::create(rewriter, loc, sgprTy());
+      Value strideSgpr =
+          S_MOV_B32::create(rewriter, loc, strideSgprAlloc, rsrcOp.getStride())
+              .getSdstRes();
+      Value shiftAlloc = AllocaOp::create(rewriter, loc, sgprTy());
+      Value sixteen = arith::ConstantIntOp::create(rewriter, loc, 16, 32);
+      Value shiftedStride =
+          S_LSHL_B32::create(rewriter, loc, shiftAlloc, strideSgpr, sixteen)
+              .getSdstRes();
+
+      // Merge swizzle bits if any.
+      Value upper = shiftedStride;
+      if (swizzleBits != 0) {
+        Value swzAlloc = AllocaOp::create(rewriter, loc, sgprTy());
+        Value swzImm =
+            arith::ConstantIntOp::create(rewriter, loc, swizzleBits, 32);
+        upper = S_OR_B32::create(rewriter, loc, swzAlloc, shiftedStride, swzImm)
+                    .getSdstRes();
+      }
+
+      Value orDst = AllocaOp::create(rewriter, loc, sgprTy());
+      dword1 =
+          S_OR_B32::create(rewriter, loc, orDst, baseHi, upper).getSdstRes();
+    }
+
+    // num_records is already a single SGPR -- dword 2.
+    Value numRecords = rsrcOp.getNumRecords();
+
+    // dword 3: flags constant loaded via s_mov_b32.
+    Value flagsAlloc = AllocaOp::create(rewriter, loc, sgprTy());
+    Value flagsImm =
+        arith::ConstantIntOp::create(rewriter, loc, rsrcOp.getFlags(), 32);
+    Value flagsVal =
+        S_MOV_B32::create(rewriter, loc, flagsAlloc, flagsImm).getSdstRes();
+
+    // Compose the 4-dword buffer resource descriptor.
+    Value rsrc =
+        MakeRegisterRangeOp::create(rewriter, loc, rsrcOp.getResult().getType(),
+                                    {baseLo, dword1, numRecords, flagsVal});
+
+    rewriter.replaceOp(rsrcOp, rsrc);
+  }
+}
+
 /// Handle the ThreadIdOps in a kernel.
 static void handleThreadId(RewriterBase &rewriter, KernelOp op,
                            ArrayRef<ThreadIdOp> ops) {
@@ -277,6 +373,7 @@ void ExpandMetadataOps::runOnOperation() {
   SmallVector<BlockDimOp> blockDims;
   SmallVector<BlockIdOp> blockIds;
   SmallVector<GridDimOp> gridDims;
+  SmallVector<MakeBufferRsrcOp> makeBufferRsrcs;
   std::array<bool, 3> threadIdSeen = {false, false, false};
   std::array<bool, 3> blockIdSeen = {false, false, false};
   std::array<bool, 3> blockDimSeen = {false, false, false};
@@ -300,6 +397,8 @@ void ExpandMetadataOps::runOnOperation() {
       int32_t dim = static_cast<int32_t>(gridDim.getDim());
       gridDims.push_back(gridDim);
       gridDimSeen[dim] = true;
+    } else if (auto makeRsrc = dyn_cast<MakeBufferRsrcOp>(op)) {
+      makeBufferRsrcs.push_back(makeRsrc);
     }
   });
 
@@ -323,4 +422,5 @@ void ExpandMetadataOps::runOnOperation() {
 
   handleBlockId(rewriter, op, blockIds);
   handleThreadId(rewriter, op, threadIds);
+  handleMakeBufferRsrc(rewriter, makeBufferRsrcs);
 }

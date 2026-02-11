@@ -223,6 +223,60 @@ def AMDGCN_LoadArgOp : AMDGCN_Op<"load_arg", [Pure]> {
 }
 
 //===----------------------------------------------------------------------===//
+// MakeBufferRsrcOp
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_MakeBufferRsrcOp : AMDGCN_Op<"make_buffer_rsrc", [Pure]> {
+  let summary = "Construct a buffer resource descriptor";
+  let description = [{
+    Constructs a 128-bit (4-SGPR) buffer resource descriptor from component
+    fields. The buffer resource descriptor describes a buffer in memory and is
+    used by buffer load/store instructions (MUBUF/MTBUF).
+
+    The descriptor is specified in four consecutive SGPRs (4-SGPR aligned) and
+    sent to the texture cache with each buffer instruction. Its layout is:
+      - dword 0: base_addr[31:0]
+      - dword 1: base_addr[47:32] | stride[13:0] | cache_swizzle | swizzle_en
+      - dword 2: num_records[31:0]
+      - dword 3: dst_sel | num_format | data_format | user_vm | index_stride | ...
+
+    The `base_addr` operand provides the 48-bit buffer base address (2 SGPRs).
+    The `num_records` operand provides the 32-bit number of accessible records.
+    The `stride` operand is the byte stride between elements (i32, must be in
+    [0, 16383] if constant). This goes into bits [29:16] of dword 1.
+    The `cache_swizzle` attribute enables TC L1 cache bank swizzling.
+    The `swizzle_enable` attribute enables AOS swizzle (vs linear addressing).
+    The `flags` attribute encodes dword 3 fields (dst_sel, num_format,
+    data_format, etc.) as a packed 32-bit immediate.
+
+    Example:
+    ```mlir
+    %stride = arith.constant 4 : i32
+    %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
+      cache_swizzle = false, swizzle_enable = false, flags = 0
+      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+    ```
+  }];
+  let arguments = (ins
+    AnyRegOf<[SGPRType, SGPRRangeType]>:$base_addr,
+    SGPRType:$num_records,
+    I32:$stride,
+    BoolAttr:$cache_swizzle,
+    BoolAttr:$swizzle_enable,
+    I32Attr:$flags
+  );
+  let results = (outs SGPRRangeType:$result);
+  let assemblyFormat = [{
+    $base_addr `,` $num_records `,` $stride `,`
+    `cache_swizzle` `=` $cache_swizzle `,`
+    `swizzle_enable` `=` $swizzle_enable `,`
+    `flags` `=` $flags
+    attr-dict `:` `(` type($base_addr) `,` type($num_records) `,` type($stride) `)` `->` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
 // KernelOp
 //===----------------------------------------------------------------------===//
 

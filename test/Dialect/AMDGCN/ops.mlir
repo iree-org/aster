@@ -224,6 +224,53 @@ func.func @test_waits(
 // LDS Buffer Operations
 //===----------------------------------------------------------------------===//
 
+//===----------------------------------------------------------------------===//
+// Buffer Resource Descriptor Operations
+//===----------------------------------------------------------------------===//
+
+func.func @test_make_buffer_rsrc(
+    %base : !amdgcn.sgpr_range<[? + 2]>,
+    %num_records : !amdgcn.sgpr) {
+  // Raw buffer (stride=0, no swizzle)
+  %stride = arith.constant 0 : i32
+  %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
+    cache_swizzle = false, swizzle_enable = false, flags = 0
+    : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+  return
+}
+
+func.func @test_make_buffer_rsrc_with_stride(
+    %base : !amdgcn.sgpr_range<[? + 2]>,
+    %num_records : !amdgcn.sgpr) {
+  // Structured buffer with 16-byte stride (e.g., float4 elements)
+  %stride = arith.constant 16 : i32
+  %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
+    cache_swizzle = false, swizzle_enable = false, flags = 131076
+    : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+  return
+}
+
+func.func @test_make_buffer_rsrc_swizzled(
+    %base : !amdgcn.sgpr_range<[? + 2]>,
+    %num_records : !amdgcn.sgpr) {
+  // Swizzled buffer access with stride=4 (f32 elements)
+  %stride = arith.constant 4 : i32
+  %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
+    cache_swizzle = true, swizzle_enable = true, flags = 0
+    : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+  return
+}
+
+func.func @test_make_buffer_rsrc_allocated(
+    %base : !amdgcn.sgpr_range<[0 : 2]>,
+    %num_records : !amdgcn.sgpr<2>) {
+  %stride = arith.constant 0 : i32
+  %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
+    cache_swizzle = false, swizzle_enable = false, flags = 0
+    : (!amdgcn.sgpr_range<[0 : 2]>, !amdgcn.sgpr<2>, i32) -> !amdgcn.sgpr_range<[? + 4]>
+  return
+}
+
 func.func @lds_buffer_ops(%arg0: index, %arg1: index) {
   %0 = amdgcn.alloc_lds %arg0
   amdgcn.get_lds_offset %0 : i32
