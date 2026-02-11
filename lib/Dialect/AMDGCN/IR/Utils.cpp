@@ -129,6 +129,8 @@ ISAVersion mlir::aster::amdgcn::getIsaForTarget(Target target) {
   case Target::GFX940:
   case Target::GFX942:
     return ISAVersion::CDNA3;
+  case Target::GFX950:
+    return ISAVersion::CDNA4;
   case Target::GFX1201:
     return ISAVersion::RDNA4;
   case Target::Invalid:

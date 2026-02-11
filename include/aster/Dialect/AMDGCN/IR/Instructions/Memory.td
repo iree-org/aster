@@ -259,7 +259,7 @@ class SLoadInst<string _mnemonic, int resultRegs, list<ISAVersion> _isa>
 }
 
 def S_LOAD_DWORD_INST : SLoadInst<
-  /*mnemonic=*/"s_load_dword", /*resultRegs=*/1, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"s_load_dword", /*resultRegs=*/1, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SMEM load 32-bit";
   let description = [{
     SMEM load instruction that loads a 32-bit value from scalar memory.
@@ -267,7 +267,7 @@ def S_LOAD_DWORD_INST : SLoadInst<
 }
 
 def S_LOAD_DWORDX2_INST : SLoadInst<
-  /*mnemonic=*/"s_load_dwordx2", /*resultRegs=*/2, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"s_load_dwordx2", /*resultRegs=*/2, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SMEM load 64-bit";
   let description = [{
     SMEM load instruction that loads a 64-bit value from scalar memory.
@@ -275,7 +275,7 @@ def S_LOAD_DWORDX2_INST : SLoadInst<
 }
 
 def S_LOAD_DWORDX4_INST : SLoadInst<
-  /*mnemonic=*/"s_load_dwordx4", /*resultRegs=*/4, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"s_load_dwordx4", /*resultRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SMEM load 128-bit";
   let description = [{
     SMEM load instruction that loads a 128-bit value from scalar memory.
@@ -283,7 +283,7 @@ def S_LOAD_DWORDX4_INST : SLoadInst<
 }
 
 def S_LOAD_DWORDX8_INST : SLoadInst<
-  /*mnemonic=*/"s_load_dwordx8", /*resultRegs=*/8, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"s_load_dwordx8", /*resultRegs=*/8, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SMEM load 256-bit";
   let description = [{
     SMEM load instruction that loads a 256-bit value from scalar memory.
@@ -291,7 +291,7 @@ def S_LOAD_DWORDX8_INST : SLoadInst<
 }
 
 def S_LOAD_DWORDX16_INST : SLoadInst<
-  /*mnemonic=*/"s_load_dwordx16", /*resultRegs=*/16, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"s_load_dwordx16", /*resultRegs=*/16, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SMEM load 512-bit";
   let description = [{
     SMEM load instruction that loads a 512-bit value from scalar memory.
@@ -324,7 +324,7 @@ class GLoadInst<string _mnemonic, int resultRegs,
 }
 
 def GLOBAL_LOAD_DWORD_INST : GLoadInst<
-  /*mnemonic=*/"global_load_dword", /*resultRegs=*/1, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"global_load_dword", /*resultRegs=*/1, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "Global load 32-bit";
   let description = [{
     Global load instruction that loads a 32-bit value from global memory.
@@ -332,7 +332,7 @@ def GLOBAL_LOAD_DWORD_INST : GLoadInst<
 }
 
 def GLOBAL_LOAD_DWORDX2_INST : GLoadInst<
-  /*mnemonic=*/"global_load_dwordx2", /*resultRegs=*/2, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"global_load_dwordx2", /*resultRegs=*/2, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "Global load 64-bit";
   let description = [{
     Global load instruction that loads a 64-bit value from global memory.
@@ -340,7 +340,7 @@ def GLOBAL_LOAD_DWORDX2_INST : GLoadInst<
 }
 
 def GLOBAL_LOAD_DWORDX3_INST : GLoadInst<
-  /*mnemonic=*/"global_load_dwordx3", /*resultRegs=*/3, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"global_load_dwordx3", /*resultRegs=*/3, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "Global load 96-bit";
   let description = [{
     Global load instruction that loads a 96-bit value from global memory.
@@ -348,7 +348,7 @@ def GLOBAL_LOAD_DWORDX3_INST : GLoadInst<
 }
 
 def GLOBAL_LOAD_DWORDX4_INST : GLoadInst<
-  /*mnemonic=*/"global_load_dwordx4", /*resultRegs=*/4, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"global_load_dwordx4", /*resultRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "Global load 128-bit";
   let description = [{
     Global load instruction that loads a 128-bit value from global memory.
@@ -374,7 +374,7 @@ class DReadInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
 }
 
 def DS_READ_B32_INST : DReadInst<
-  /*mnemonic=*/"ds_read_b32", /*dataRegs=*/1, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"ds_read_b32", /*dataRegs=*/1, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "DS read 32-bit";
   let description = [{
     DS read instruction that loads a 32-bit value from LDS.
@@ -382,7 +382,7 @@ def DS_READ_B32_INST : DReadInst<
 }
 
 def DS_READ_B64_INST : DReadInst<
-  /*mnemonic=*/"ds_read_b64", /*dataRegs=*/2, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"ds_read_b64", /*dataRegs=*/2, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "DS read 64-bit";
   let description = [{
     DS read instruction that loads a 64-bit value from LDS.
@@ -390,7 +390,7 @@ def DS_READ_B64_INST : DReadInst<
 }
 
 def DS_READ_B96_INST : DReadInst<
-  /*mnemonic=*/"ds_read_b96", /*dataRegs=*/3, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"ds_read_b96", /*dataRegs=*/3, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "DS read 96-bit";
   let description = [{
     DS read instruction that loads a 96-bit value from LDS.
@@ -398,7 +398,7 @@ def DS_READ_B96_INST : DReadInst<
 }
 
 def DS_READ_B128_INST : DReadInst<
-  /*mnemonic=*/"ds_read_b128", /*dataRegs=*/4, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"ds_read_b128", /*dataRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "DS read 128-bit";
   let description = [{
     DS read instruction that loads a 128-bit value from LDS.
@@ -427,7 +427,7 @@ class SStoreInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
 }
 
 def S_STORE_DWORD_INST : SStoreInst<
-  /*mnemonic=*/"s_store_dword", /*dataRegs=*/1, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"s_store_dword", /*dataRegs=*/1, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SMEM store 32-bit";
   let description = [{
     SMEM store instruction that stores a 32-bit value to scalar memory.
@@ -435,7 +435,7 @@ def S_STORE_DWORD_INST : SStoreInst<
 }
 
 def S_STORE_DWORDX2_INST : SStoreInst<
-  /*mnemonic=*/"s_store_dwordx2", /*dataRegs=*/2, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"s_store_dwordx2", /*dataRegs=*/2, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SMEM store 64-bit";
   let description = [{
     SMEM store instruction that stores a 64-bit value to scalar memory.
@@ -443,7 +443,7 @@ def S_STORE_DWORDX2_INST : SStoreInst<
 }
 
 def S_STORE_DWORDX4_INST : SStoreInst<
-  /*mnemonic=*/"s_store_dwordx4", /*dataRegs=*/4, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"s_store_dwordx4", /*dataRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "SMEM store 128-bit";
   let description = [{
     SMEM store instruction that stores a 128-bit value to scalar memory.
@@ -476,7 +476,7 @@ class GStoreInst<string _mnemonic, int dataRegs,
 }
 
 def GLOBAL_STORE_DWORD_INST : GStoreInst<
-  /*mnemonic=*/"global_store_dword", /*dataRegs=*/1, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"global_store_dword", /*dataRegs=*/1, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "Global store 32-bit";
   let description = [{
     Global store instruction that stores a 32-bit value to global memory.
@@ -484,7 +484,7 @@ def GLOBAL_STORE_DWORD_INST : GStoreInst<
 }
 
 def GLOBAL_STORE_DWORDX2_INST : GStoreInst<
-  /*mnemonic=*/"global_store_dwordx2", /*dataRegs=*/2, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"global_store_dwordx2", /*dataRegs=*/2, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "Global store 64-bit";
   let description = [{
     Global store instruction that stores a 64-bit value to global memory.
@@ -492,7 +492,7 @@ def GLOBAL_STORE_DWORDX2_INST : GStoreInst<
 }
 
 def GLOBAL_STORE_DWORDX3_INST : GStoreInst<
-  /*mnemonic=*/"global_store_dwordx3", /*dataRegs=*/3, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"global_store_dwordx3", /*dataRegs=*/3, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "Global store 96-bit";
   let description = [{
     Global store instruction that stores a 96-bit value to global memory.
@@ -500,7 +500,7 @@ def GLOBAL_STORE_DWORDX3_INST : GStoreInst<
 }
 
 def GLOBAL_STORE_DWORDX4_INST : GStoreInst<
-  /*mnemonic=*/"global_store_dwordx4", /*dataRegs=*/4, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"global_store_dwordx4", /*dataRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "Global store 128-bit";
   let description = [{
     Global store instruction that stores a 128-bit value to global memory.
@@ -526,7 +526,7 @@ class DWriteInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
 }
 
 def DS_WRITE_B32_INST : DWriteInst<
-  /*mnemonic=*/"ds_write_b32", /*dataRegs=*/1, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"ds_write_b32", /*dataRegs=*/1, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "DS write 32-bit";
   let description = [{
     DS write instruction that stores a 32-bit value to LDS.
@@ -534,7 +534,7 @@ def DS_WRITE_B32_INST : DWriteInst<
 }
 
 def DS_WRITE_B64_INST : DWriteInst<
-  /*mnemonic=*/"ds_write_b64", /*dataRegs=*/2, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"ds_write_b64", /*dataRegs=*/2, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "DS write 64-bit";
   let description = [{
     DS write instruction that stores a 64-bit value to LDS.
@@ -542,7 +542,7 @@ def DS_WRITE_B64_INST : DWriteInst<
 }
 
 def DS_WRITE_B96_INST : DWriteInst<
-  /*mnemonic=*/"ds_write_b96", /*dataRegs=*/3, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"ds_write_b96", /*dataRegs=*/3, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "DS write 96-bit";
   let description = [{
     DS write instruction that stores a 96-bit value to LDS.
@@ -550,7 +550,7 @@ def DS_WRITE_B96_INST : DWriteInst<
 }
 
 def DS_WRITE_B128_INST : DWriteInst<
-  /*mnemonic=*/"ds_write_b128", /*dataRegs=*/4, /*isa=*/[CDNA3]> {
+  /*mnemonic=*/"ds_write_b128", /*dataRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "DS write 128-bit";
   let description = [{
     DS write instruction that stores a 128-bit value to LDS.

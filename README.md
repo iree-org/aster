@@ -85,6 +85,25 @@ Therefore, to build the project one needs to initialize the submodule with:
 git submodule update --depth 1 --init
 ```
 
+### Supported GPU targets
+
+ASTER has early .hsaco generation support for the following targets, which all
+require an appropriate LLVM AMDGPU backend for translating asm to binary:
+
+| Target   | ISA   | Product Family          |
+|----------|-------|-------------------------|
+| gfx940   | CDNA3 | MI300A                  |
+| gfx942   | CDNA3 | MI300X                  |
+| gfx950   | CDNA4 | MI350X                  |
+| gfx1201  | RDNA4 | Radeon RX 9070          |
+
+HSACO binary generation requires an LLVM build that recognizes the target chip.
+Newer targets may require a recent LLVM version.
+ASTER's own IR and ASM translation works regardless of LLVM version.
+
+Support for newer architectures is very preliminary and subject of active ongoing
+work.
+
 ### Preliminary note: theRock installation (recommended) and LLVM Tools Directory Configuration
 For HIP runtime support and LLVM tools with AMDGPU target, you can use theRock which
 provides ROCm as a Python package.

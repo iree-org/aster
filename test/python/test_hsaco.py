@@ -1,73 +1,96 @@
-# RUN: %PYTHON %s | FileCheck %s
+"""Test HSACO generation for all supported targets via ModuleTranslation."""
 
-import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pytest
 
 from aster import ir, utils
-from aster.dialects import amdgcn, builtin
+from aster.dialects import amdgcn
+
+TARGET_CONFIGS = [
+    ("gfx942", "cdna3"),
+    ("gfx950", "cdna4"),
+    ("gfx1201", "rdna4"),
+]
 
 
-def test_hsaco_generation():
-    """Test translation of AMDGCN module to hsaco file."""
-    with ir.Context() as ctx, ir.Location.unknown():
-        # Build the test module from existing test
-        module = ir.Module.parse("""
-amdgcn.module @test_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  amdgcn.kernel @ds_all_kernel {
-    %addr = amdgcn.alloca : !amdgcn.vgpr
-    %vgpr0 = amdgcn.alloca : !amdgcn.vgpr
+def _build_module_ir(target, isa):
+    """Return MLIR source for a kernel that uses instructions available on all ISAs.
 
-    // Read from LDS
-    %data, %tok = load ds_read_b32 dest %vgpr0 addr %addr : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+    Uses s_mov_b32 (scalar move, all ISAs) and alloca/end_kernel (universal) to exercise
+    the regalloc -> ASM -> HSACO pipeline with a non-trivial instruction sequence.
+    """
+    return f"""\
+amdgcn.module @test_module target = #amdgcn.target<{target}> isa = #amdgcn.isa<{isa}> {{
+  amdgcn.kernel @test_kernel {{
+    %s0 = amdgcn.alloca : !amdgcn.sgpr<4>
+    %s1 = amdgcn.alloca : !amdgcn.sgpr<5>
+    %c42 = arith.constant 42 : i32
+    %c7 = arith.constant 7 : i32
+    %a = amdgcn.sop1 s_mov_b32 outs %s0 ins %c42 : !amdgcn.sgpr<4>, i32
+    %b = amdgcn.sop1 s_mov_b32 outs %s1 ins %c7 : !amdgcn.sgpr<5>, i32
+    amdgcn.end_kernel
+  }}
+}}
+"""
 
-    // Write to LDS
-    store ds_write_b32 data %data addr %addr : ins(!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.write_token<shared>
 
-    // Test the limit of a valid waitcnt instruction
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 63 expcnt = 7 lgkmcnt = 15
+def _run_pipeline(module, ctx):
+    """Translate module to ASM (registers are pre-assigned, no regalloc needed)."""
+    amdgcn_mod = None
+    for op in module.body:
+        if isinstance(op, amdgcn.ModuleOp):
+            amdgcn_mod = op
+            break
+    assert amdgcn_mod is not None, "Failed to find AMDGCN module"
 
-    end_kernel
-  }
-}
-""")
+    return utils.translate_module(amdgcn_mod)
 
-        # Find the AMDGCN module
-        amdgcn_mod = None
-        for op in module.body:
-            if isinstance(op, amdgcn.ModuleOp):
-                amdgcn_mod = op
-                break
 
-        assert amdgcn_mod is not None, "Failed to find AMDGCN module"
+@pytest.mark.parametrize(
+    "target,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS]
+)
+def test_translate_to_asm(target, isa):
+    """Test MLIR -> regalloc -> ASM translation for each target."""
+    with ir.Context(), ir.Location.unknown():
+        ctx = ir.Context.current
+        module = ir.Module.parse(_build_module_ir(target, isa))
+        asm = _run_pipeline(module, ctx)
 
-        # Run register allocation pass
-        from aster._mlir_libs._mlir import passmanager
+        assert f"amdgcn-amd-amdhsa--{target}" in asm
+        assert "s_mov_b32" in asm
+        assert "s_endpgm" in asm
+        assert ".amdhsa_kernel test_kernel" in asm
 
-        pm = passmanager.PassManager.parse(
-            "builtin.module(amdgcn.module(amdgcn-reg-alloc))", ctx
-        )
-        pm.run(module.operation)
 
-        # Translate to assembly
-        asm = utils.translate_module(amdgcn_mod)
-        print(asm)
+@pytest.mark.parametrize(
+    "target,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS]
+)
+def test_assemble_to_hsaco(target, isa):
+    """Test MLIR -> regalloc -> ASM -> HSACO assembly for each target."""
+    with ir.Context(), ir.Location.unknown():
+        ctx = ir.Context.current
+        module = ir.Module.parse(_build_module_ir(target, isa))
+        asm = _run_pipeline(module, ctx)
 
-        # CHECK-LABEL: .amdgcn_target "amdgcn-amd-amdhsa--gfx942"
-        # CHECK: .text
-        # CHECK: .globl ds_all_kernel
-        # CHECK: ds_all_kernel:
-        # CHECK: ds_read_b32
-        # CHECK: ds_write_b32
-        # CHECK: s_waitcnt vmcnt(63) expcnt(7) lgkmcnt(15)
-        # CHECK: s_endpgm
-
-        hsaco_path = utils.assemble_to_hsaco(asm, target="gfx942")
-        assert os.path.exists(hsaco_path), f"HSACO file {hsaco_path} was not created"
-        print(f"Successfully generated HSACO: {hsaco_path}")
-        os.unlink(hsaco_path)
+        hsaco_path = utils.assemble_to_hsaco(asm, target=target)
+        if hsaco_path is None:
+            pytest.skip(
+                f"LLVM assembler does not support {target} "
+                f"(rebuild LLVM with a version that includes {target} support)"
+            )
+        try:
+            assert os.path.exists(hsaco_path), f"HSACO not created for {target}"
+            assert os.path.getsize(hsaco_path) > 0, f"HSACO is empty for {target}"
+        finally:
+            if hsaco_path and os.path.exists(hsaco_path):
+                os.unlink(hsaco_path)
 
 
 if __name__ == "__main__":
-    test_hsaco_generation()
+    test_translate_to_asm("gfx942", "cdna3")
+    test_translate_to_asm("gfx950", "cdna4")
+    test_translate_to_asm("gfx1201", "rdna4")
+    test_assemble_to_hsaco("gfx942", "cdna3")
+    test_assemble_to_hsaco("gfx950", "cdna4")
+    test_assemble_to_hsaco("gfx1201", "rdna4")

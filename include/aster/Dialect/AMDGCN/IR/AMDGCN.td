@@ -393,11 +393,13 @@ def InvalidCase : EnumCaseInfo<"invalid", "Invalid">;
 
 def CDNA3 : ISAVersion<"cdna3"> { let description = "CDNA 3 ISA version"; }
 
+def CDNA4 : ISAVersion<"cdna4"> { let description = "CDNA 4 ISA version"; }
+
 def RDNA4 : ISAVersion<"rdna4"> { let description = "RDNA 4 ISA version"; }
 
 def IsaVersions
     : AutoI32EnumCases<"ISAVersion",
-                       "AMDGCN ISA Versions", [InvalidCase, CDNA3, RDNA4]> {
+                       "AMDGCN ISA Versions", [InvalidCase, CDNA3, CDNA4, RDNA4]> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
@@ -411,11 +413,13 @@ def GFX940 : Target<"gfx940", CDNA3> { let description = "GFX940 target"; }
 
 def GFX942 : Target<"gfx942", CDNA3> { let description = "GFX942 target"; }
 
+def GFX950 : Target<"gfx950", CDNA4> { let description = "GFX950 target"; }
+
 def GFX1201 : Target<"gfx1201", RDNA4> { let description = "GFX1201 target"; }
 
 def AMDGCNTargets
     : AutoI32EnumCases<
-          "Target", "AMDGCN Targets", [InvalidCase, GFX940, GFX942, GFX1201]> {
+          "Target", "AMDGCN Targets", [InvalidCase, GFX940, GFX942, GFX950, GFX1201]> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
