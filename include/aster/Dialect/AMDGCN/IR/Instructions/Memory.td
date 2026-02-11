@@ -508,6 +508,116 @@ def GLOBAL_STORE_DWORDX4_INST : GStoreInst<
 }
 
 //===----------------------------------------------------------------------===//
+// Buffer Load Instructions (MUBUF)
+//===----------------------------------------------------------------------===//
+
+class BLoadInst<string _mnemonic, int resultRegs, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa> {
+  let constraints = (ins AccOperand<resultRegs>:$dest,
+                         SGPROperand<4, 0, 4>:$addr,
+                         SGPROperand<1, 1>:$uniform_offset,
+                         VGPROperand<1, 1>:$dynamic_offset);
+  let cppBuilder = OpBuilder<(ins
+    CppValue:$dest, CppValue:$addr,
+    CppValue:$uniform_offset, CppValue:$dynamic_offset,
+    CppValue:$constant_offset), [{
+    return $_create($_builder, $_loc, $_opcode, dest, addr, uniform_offset,
+      dynamic_offset, constant_offset);
+    }]>;
+  let asmFormat = [
+    SingleAsmVariant<
+      "$dest, $dynamic_offset, $addr, $uniform_offset offen $constant_offset">
+  ];
+}
+
+def BUFFER_LOAD_DWORD_INST : BLoadInst<
+  /*mnemonic=*/"buffer_load_dword", /*resultRegs=*/1, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer load 32-bit";
+  let description = [{
+    MUBUF load instruction that loads a 32-bit value via buffer descriptor.
+  }];
+}
+
+def BUFFER_LOAD_DWORDX2_INST : BLoadInst<
+  /*mnemonic=*/"buffer_load_dwordx2", /*resultRegs=*/2, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer load 64-bit";
+  let description = [{
+    MUBUF load instruction that loads a 64-bit value via buffer descriptor.
+  }];
+}
+
+def BUFFER_LOAD_DWORDX3_INST : BLoadInst<
+  /*mnemonic=*/"buffer_load_dwordx3", /*resultRegs=*/3, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer load 96-bit";
+  let description = [{
+    MUBUF load instruction that loads a 96-bit value via buffer descriptor.
+  }];
+}
+
+def BUFFER_LOAD_DWORDX4_INST : BLoadInst<
+  /*mnemonic=*/"buffer_load_dwordx4", /*resultRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer load 128-bit";
+  let description = [{
+    MUBUF load instruction that loads a 128-bit value via buffer descriptor.
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Buffer Store Instructions (MUBUF)
+//===----------------------------------------------------------------------===//
+
+class BStoreInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_StoreOp, _isa> {
+  let constraints = (ins AccOperand<dataRegs>:$data,
+                         SGPROperand<4, 0, 4>:$addr,
+                         SGPROperand<1, 1>:$uniform_offset,
+                         VGPROperand<1, 1>:$dynamic_offset);
+  let cppBuilder = OpBuilder<(ins
+    CppValue:$data, CppValue:$addr,
+    CppValue:$uniform_offset, CppValue:$dynamic_offset,
+    CppValue:$constant_offset), [{
+    return $_create($_builder, $_loc, $_opcode, data, addr, uniform_offset,
+      dynamic_offset, constant_offset);
+    }]>;
+  let asmFormat = [
+    SingleAsmVariant<
+      "$data, $dynamic_offset, $addr, $uniform_offset offen $constant_offset">
+  ];
+}
+
+def BUFFER_STORE_DWORD_INST : BStoreInst<
+  /*mnemonic=*/"buffer_store_dword", /*dataRegs=*/1, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer store 32-bit";
+  let description = [{
+    MUBUF store instruction that stores a 32-bit value via buffer descriptor.
+  }];
+}
+
+def BUFFER_STORE_DWORDX2_INST : BStoreInst<
+  /*mnemonic=*/"buffer_store_dwordx2", /*dataRegs=*/2, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer store 64-bit";
+  let description = [{
+    MUBUF store instruction that stores a 64-bit value via buffer descriptor.
+  }];
+}
+
+def BUFFER_STORE_DWORDX3_INST : BStoreInst<
+  /*mnemonic=*/"buffer_store_dwordx3", /*dataRegs=*/3, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer store 96-bit";
+  let description = [{
+    MUBUF store instruction that stores a 96-bit value via buffer descriptor.
+  }];
+}
+
+def BUFFER_STORE_DWORDX4_INST : BStoreInst<
+  /*mnemonic=*/"buffer_store_dwordx4", /*dataRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer store 128-bit";
+  let description = [{
+    MUBUF store instruction that stores a 128-bit value via buffer descriptor.
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // DS Write Instructions
 //===----------------------------------------------------------------------===//
 

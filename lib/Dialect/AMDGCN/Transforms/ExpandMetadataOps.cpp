@@ -267,6 +267,16 @@ static void handleMakeBufferRsrc(RewriterBase &rewriter,
           S_OR_B32::create(rewriter, loc, orDst, baseHi, upper).getSdstRes();
     }
 
+    // When dword1 != baseHi (stride/swizzle bits were merged), baseLo is
+    // still constrained by its original 2-SGPR load range [baseLo, baseHi].
+    // Copy it into a fresh SGPR so the 4-SGPR descriptor range can be
+    // allocated independently.
+    Value dword0 = baseLo;
+    if (dword1 != baseHi) {
+      Value copyDst = AllocaOp::create(rewriter, loc, sgprTy());
+      dword0 = S_MOV_B32::create(rewriter, loc, copyDst, baseLo).getSdstRes();
+    }
+
     // num_records is already a single SGPR -- dword 2.
     Value numRecords = rsrcOp.getNumRecords();
 
@@ -280,7 +290,7 @@ static void handleMakeBufferRsrc(RewriterBase &rewriter,
     // Compose the 4-dword buffer resource descriptor.
     Value rsrc =
         MakeRegisterRangeOp::create(rewriter, loc, rsrcOp.getResult().getType(),
-                                    {baseLo, dword1, numRecords, flagsVal});
+                                    {dword0, dword1, numRecords, flagsVal});
 
     rewriter.replaceOp(rsrcOp, rsrc);
   }
