@@ -53,8 +53,6 @@ config.excludes = [
     "__init__.py",
     "flush_llc.py",
     "test_mfma_e2e.py",
-    "test_mlir_parameter_passing.py",
-    "test_parameter_passing.py",
     "test_utils.py",
 ]
 
