@@ -733,13 +733,11 @@ include "aster/Dialect/AMDGCN/IR/Instructions/ControlFlow.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/Memory.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SOP1.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SOP2.td"
-include "aster/Dialect/AMDGCN/IR/Instructions/SOPK.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SOPP.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/VOP1.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/VOP2.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/VOP3.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/VOP3P.td"
-include "aster/Dialect/AMDGCN/IR/Instructions/VOPC.td"
 
 def OpCodeEnum : AutoI64EnumCases<"OpCode", "AMDGCN Operation Codes",
     [InvalidCase] # !instances<AMDInst>()
