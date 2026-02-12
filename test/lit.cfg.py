@@ -39,23 +39,12 @@ llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
 
 llvm_config.use_default_substitutions()
 
-# excludes: A list of directories to exclude from the testsuite. The 'Inputs'
-# subdirectories contain auxiliary inputs for various tests in their parent
-# directories.
+# excludes: A list of directories to exclude from the testsuite.
 config.excludes = [
-    "Inputs",
-    "Examples",
-    "CMakeLists.txt",
-    "README.txt",
-    "LICENSE.txt",
     "lit.cfg.py",
     "lit.site.cfg.py",
     "__init__.py",
-    "flush_llc.py",
-    "test_mfma_e2e.py",
-    "test_buffer_copy_e2e.py",
-    "test_hsaco.py",
-    "test_utils.py",
+    "integration",
 ]
 
 # test_exec_root: The root path where tests should be run.
