@@ -3,22 +3,18 @@
 
 import argparse
 import os
-import sys
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../test"))
-
 from aster import ir, utils
-from integration.test_utils import (
+from aster.testing import (
     compile_mlir_file_to_asm,
     execute_kernel_and_verify,
     hsaco_file,
 )
-from integration.flush_llc import FlushLLC
+from aster.testing.flush_llc import FlushLLC
 from mlir_kernels.common import get_library_paths
 from aster.pass_pipelines import NANOBENCH_PASS_PIPELINE
 

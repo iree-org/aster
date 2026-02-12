@@ -12,9 +12,9 @@ from mlir_kernels.kernel_utils import (
     make_batchedsmallgemm_verify_fn,
     generate_batchedsmallgemm_data,
 )
+from aster.testing import compile_and_run
 from mlir_kernels.test.test_utils import (
     get_mlir_file_path,
-    compile_and_run_kernel,
     add_mnk_args,
     add_gpu_args,
 )
@@ -91,13 +91,13 @@ def test_batchedsmallgemm_e2e_kernel(
     verify_fn = make_batchedsmallgemm_verify_fn(config)
 
     with ir.Context() as ctx:
-        compile_and_run_kernel(
-            mlir_file=config.mlir_file,
+        compile_and_run(
+            file_name=config.mlir_file,
             kernel_name=kernel_name,
             pass_pipeline=pass_pipeline,
             ctx=ctx,
-            input_args=[a_data, b_data],
-            output_args=[c_data],
+            input_data=[a_data, b_data],
+            output_data=[c_data],
             grid_dim=(num_workgroups, 1, 1),
             block_dim=(config.num_threads, 1, 1),
             verify_fn=verify_fn,

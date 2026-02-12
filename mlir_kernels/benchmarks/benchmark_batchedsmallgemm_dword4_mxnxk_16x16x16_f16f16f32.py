@@ -7,13 +7,9 @@ import itertools
 import multiprocessing
 from typing import List, Tuple, Optional
 
-# Add project root and test/ to path to allow imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../test"))
-
 import numpy as np
 from aster import ir, utils
-from integration.test_utils import (
+from aster.testing import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
     _get_logger,

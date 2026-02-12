@@ -2,10 +2,7 @@
 
 import numpy as np
 
-try:
-    from .test_utils import compile_and_run, make_grid_block_preprocess
-except ImportError:
-    from test_utils import compile_and_run, make_grid_block_preprocess
+from aster.testing import compile_and_run, make_grid_block_preprocess
 
 
 def analyze_bank_conflicts(banks, title=""):

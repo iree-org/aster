@@ -1,0 +1,656 @@
+"""Unified testing utilities for ASTER E2E tests.
+
+This module consolidates compile-and-run infrastructure previously spread across:
+- test/integration/test_utils.py (low-level: load, compile, execute, verify)
+- mlir_kernels/test/unit/test_utils.py (mid-level: compile_and_run)
+
+Usage:
+    from aster.testing import compile_and_run
+
+    compile_and_run(
+        "test_my_kernel.mlir",
+        "my_kernel",
+        [input_data],
+        output,
+    )
+"""
+
+import os
+import time
+import logging
+import numpy as np
+from contextlib import contextmanager
+from typing import Tuple, Callable, Optional, List, Any, Generator, Union
+
+from aster import utils
+from aster.dialects import amdgcn
+from aster._mlir_libs._runtime_module import (
+    hip_init,
+    hip_module_load_data,
+    hip_module_get_function,
+    hip_module_launch_kernel,
+    hip_device_synchronize,
+    hip_free,
+    hip_malloc,
+    hip_memcpy_host_to_device,
+    hip_memcpy_device_to_host,
+    hip_module_unload,
+    hip_function_free,
+    hip_get_device_count,
+    hip_set_device,
+    hip_get_device,
+    hip_event_create,
+    hip_event_destroy,
+    hip_event_record,
+    hip_event_synchronize,
+    hip_event_elapsed_time,
+)
+from aster.pass_pipelines import (
+    DEFAULT_SROA_PASS_PIPELINE,
+    TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
+)
+
+# ---------------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------------
+
+
+class MillisecondFormatter(logging.Formatter):
+    """Formatter that includes milliseconds in timestamps."""
+
+    def formatTime(self, record, datefmt=None):
+        """Format time with millisecond precision."""
+        ct = self.converter(record.created)
+        msecs = int(record.msecs)
+        return f"{ct.tm_hour:02d}:{ct.tm_min:02d}:{ct.tm_sec:02d}.{msecs:03d}"
+
+
+def _get_logger():
+    """Get logger configured for multiprocessing-safe logging."""
+    logger = logging.getLogger("benchmark")
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            MillisecondFormatter(
+                fmt="%(asctime)s [PID:%(process)d] %(message)s",
+            )
+        )
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+    return logger
+
+
+def _should_log():
+    """Check if logging is enabled via ASTER_LOGGING environment variable."""
+    return bool(os.getenv("ASTER_LOGGING"))
+
+
+def _log_with_device(logger, device_id, message):
+    """Log message with device_id."""
+    if not _should_log():
+        return
+    device_str = f"GPU{device_id}" if device_id is not None else "GPU?"
+    logger.info(f"[{device_str}] {message}")
+
+
+def _log_info(logger, message):
+    """Log info message if logging is enabled."""
+    if not _should_log():
+        return
+    logger.info(message)
+
+
+# ---------------------------------------------------------------------------
+# Low-level utilities
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def hsaco_file(path: str) -> Generator[str, None, None]:
+    """Context manager that cleans up an HSACO file on exit.
+
+    Args:
+        path: Path to the HSACO file
+
+    Yields:
+        The path to the HSACO file
+
+    Example:
+        hsaco_path = utils.assemble_to_hsaco(asm, target=mcpu)
+        with hsaco_file(hsaco_path):
+            execute_kernel_and_verify(hsaco_path=hsaco_path, ...)
+    """
+    try:
+        yield path
+    finally:
+        if path and os.path.exists(path):
+            os.unlink(path)
+
+
+def load_mlir_module_from_file(
+    file_path: str,
+    ctx,
+    preprocess: Optional[Callable[[str], str]] = None,
+    print_preprocessed_ir: bool = False,
+):
+    """Load MLIR module from file.
+
+    Args:
+        file_path: Path to MLIR file
+        ctx: MLIR context
+        preprocess: Optional function to preprocess the MLIR string before parsing
+    """
+    from aster._mlir_libs._mlir import ir as mlir_ir
+
+    with open(file_path, "r") as f:
+        mlir_content = f.read()
+
+    if preprocess is not None:
+        mlir_content = preprocess(mlir_content)
+
+    if print_preprocessed_ir:
+        print(f"Preprocessed IR from {file_path}:\n{mlir_content}", flush=True)
+
+    # Enable unregistered dialects to allow parsing MLIR with unregistered dialects
+    ctx.allow_unregistered_dialects = True
+
+    with mlir_ir.Location.unknown():
+        module = mlir_ir.Module.parse(mlir_content, context=ctx)
+    return module
+
+
+def compile_mlir_file_to_asm(
+    mlir_file: str,
+    kernel_name: str,
+    pass_pipeline: str,
+    ctx,
+    preprocess: Optional[Callable[[str], str]] = None,
+    print_ir_after_all: bool = False,
+    print_preprocessed_ir: bool = False,
+    library_paths: Optional[List[str]] = None,
+    print_timings: bool = False,
+) -> Tuple[str, Any]:
+    """Compile MLIR file to assembly and extract kernel name.
+
+    Args:
+        mlir_file: Path to MLIR file
+        kernel_name: Name of the kernel function
+        pass_pipeline: Pass pipeline string
+        ctx: MLIR context
+        preprocess: Optional function to preprocess the MLIR string before parsing
+        print_ir_after_all: If True, print the IR after all passes have been applied
+        library_paths: Optional list of paths to AMDGCN library files to preload
+        print_timings: If True, enable pass timing
+
+    Returns:
+        Tuple of (asm_code, module) where module is the MLIR module after passes
+    """
+    logger = _get_logger()
+    _log_info(logger, f"[COMPILE] Loading MLIR file: {os.path.basename(mlir_file)}")
+
+    module = load_mlir_module_from_file(
+        mlir_file, ctx, preprocess, print_preprocessed_ir
+    )
+
+    # Apply passes
+    from aster._mlir_libs._mlir import passmanager
+
+    # Pre-apply preload-library pass if library paths are provided
+    if library_paths:
+        # Verify all library files exist
+        for lib_path in library_paths:
+            if not os.path.exists(lib_path):
+                raise FileNotFoundError(
+                    f"Library file not found: {lib_path}. " f"MLIR file: {mlir_file}"
+                )
+        _log_info(logger, f"[COMPILE] Pre-applying preload-library pass")
+        paths_str = ",".join(library_paths)
+        preload_pass = (
+            f"builtin.module(amdgcn-preload-library{{library-paths={paths_str}}})"
+        )
+        pm = passmanager.PassManager.parse(preload_pass, ctx)
+        pm.run(module.operation)
+
+    _log_info(logger, f"[COMPILE] Applying pass pipeline")
+    pm = passmanager.PassManager.parse(pass_pipeline, ctx)
+    # Leave this here, it's useful for debugging.
+    if print_ir_after_all:
+        pm.enable_ir_printing()
+    if print_timings:
+        pm.enable_timing()
+    pm.run(module.operation)
+    _log_info(logger, f"[COMPILE] Pass pipeline completed")
+
+    # Find the amdgcn.kernel inside the proper amdgcn.module
+    _log_info(logger, f"[COMPILE] Searching for kernel: {kernel_name}")
+    amdgcn_module = None
+    found_kernel = False
+    for op in module.body:
+        if not isinstance(op, amdgcn.ModuleOp):
+            continue
+        amdgcn_module = op
+        for kernel_op in amdgcn_module.body_region.blocks[0].operations:
+            if not isinstance(kernel_op, amdgcn.KernelOp):
+                continue
+            if kernel_op.sym_name.value == kernel_name:
+                found_kernel = True
+                break
+        if found_kernel:
+            break
+
+    assert amdgcn_module is not None, "Failed to find any AMDGCN module"
+    assert found_kernel, f"Failed to find kernel {kernel_name}"
+    _log_info(logger, f"[COMPILE] Found kernel: {kernel_name}")
+
+    _log_info(logger, f"[COMPILE] Translating to assembly")
+    asm_complete = utils.translate_module(
+        amdgcn_module,
+        debug_print=False,
+    )
+    _log_info(logger, f"[COMPILE] Assembly generation completed")
+
+    # print(asm_complete)
+    return asm_complete, module
+
+
+def execute_kernel_and_verify(
+    hsaco_path: Optional[str],
+    kernel_name: str,
+    input_args: List[np.ndarray],
+    output_args: List[np.ndarray],
+    mcpu: str,
+    wavefront_size: int = 32,
+    grid_dim: Tuple[int, int, int] = (1, 1, 1),
+    block_dim: Tuple[int, int, int] = (64, 1, 1),
+    verify_fn: Optional[Callable[[List[np.ndarray], List[np.ndarray]], None]] = None,
+    padding_bytes: Optional[List[int]] = None,
+    num_iterations: int = 1,
+    device_id: Optional[int] = None,
+    flush_llc: Optional[Any] = None,
+) -> List[int]:
+    """Execute a GPU kernel and verify its results.
+
+    Args:
+        hsaco_path: Path to the HSACO file
+        kernel_name: Name of the kernel function
+        input_args: List of input numpy arrays
+        output_args: List of output numpy arrays (will be modified in-place)
+        mcpu: Target GPU architecture (e.g., "gfx942", "gfx1201")
+        wavefront_size: Wavefront size (default: 32)
+        grid_dim: Grid dimensions (default: (1, 1, 1))
+        block_dim: Block dimensions (default: (64, 1, 1))
+        verify_fn: Custom verification function that takes (input_args, output_args).
+                   Only called on first iteration if provided. (default: None)
+        padding_bytes: List of padding bytes per buffer, one for each buffer in input_args + output_args.
+                       If None, no padding is applied. (default: None)
+        num_iterations: Number of times to execute the kernel (default: 1)
+        device_id: GPU device ID to use. If None, uses current device. (default: None)
+        flush_llc: Optional FlushLLC instance to flush the LLC before each iteration.
+                   Called outside of timing start/stop. Cleanup is handled automatically. (default: None)
+
+    Returns:
+        List of execution times in nanoseconds, one per iteration
+    """
+
+    assert all(
+        array.size > 0 for array in input_args + output_args
+    ), "All NP arrays must have > 0 elements"
+
+    if hsaco_path is None:
+        raise RuntimeError("Failed to assemble kernel to HSACO")
+
+    logger = _get_logger()
+
+    # Initialize HIP runtime and set device before any GPU allocations
+    hip_init()
+    if device_id is not None:
+        hip_set_device(device_id)
+
+    gpu_ptrs: Optional[List[Any]] = None
+    padded_buffers: Optional[List[Any]] = None
+    has_padding = False
+    module = None
+    function = None
+    start_event = None
+    stop_event = None
+
+    actual_device_id = device_id if device_id is not None else hip_get_device()
+
+    try:
+        _log_with_device(
+            logger,
+            actual_device_id,
+            f"Starting execution: kernel={kernel_name}, iterations={num_iterations}",
+        )
+
+        # Load hsaco binary
+        with open(hsaco_path, "rb") as f:
+            hsaco_binary = f.read()
+
+        module = hip_module_load_data(hsaco_binary)
+        function = hip_module_get_function(module, kernel_name.encode())
+        _log_with_device(
+            logger, actual_device_id, f"Loaded HSACO: {os.path.basename(hsaco_path)}"
+        )
+
+        all_arrays = input_args + output_args
+
+        # Normalize padding_bytes: if None, create list of zeros
+        if padding_bytes is None:
+            padding_bytes = [0] * len(all_arrays)
+        elif len(padding_bytes) != len(all_arrays):
+            raise ValueError(
+                f"padding_bytes must have {len(all_arrays)} elements (one per buffer), "
+                f"got {len(padding_bytes)}"
+            )
+
+        # Check if any buffer needs padding
+        has_padding = any(pb > 0 for pb in padding_bytes)
+
+        if has_padding:
+            # Use padded buffers
+            padded_buffers = []
+            ptr_values = []
+
+            # Allocate padded buffers and copy input data
+            _log_with_device(
+                logger, actual_device_id, f"Allocating {len(all_arrays)} padded buffers"
+            )
+            for arr, pad_bytes in zip(all_arrays, padding_bytes):
+                base_ptr, data_ptr, _ = utils.copy_array_to_gpu(arr, pad_bytes)
+                padded_buffers.append(base_ptr)
+                ptr_value = utils.unwrap_pointer_from_capsule(data_ptr)
+                ptr_values.append(ptr_value)
+
+            # Create kernel arguments from padded buffer pointers
+            params_tuple = utils.create_kernel_args_capsule(ptr_values)
+        else:
+            # Use normal buffers
+            _log_with_device(
+                logger, actual_device_id, f"Allocating {len(all_arrays)} buffers"
+            )
+            params_tuple, gpu_ptrs = utils.create_kernel_args_capsule_from_numpy(
+                *all_arrays, device_id=device_id
+            )
+
+        iteration_times_ns = []
+
+        # Create events for GPU-level timing
+        start_event = hip_event_create()
+        stop_event = hip_event_create()
+
+        _log_with_device(
+            logger,
+            actual_device_id,
+            f"Launching kernel: grid={grid_dim}, block={block_dim}",
+        )
+
+        if flush_llc is not None:
+            flush_llc.initialize()
+
+        # Execute kernel multiple times for cache warming
+        for iteration in range(num_iterations):
+            # Flush LLC before each iteration (outside timing)
+            if flush_llc is not None:
+                flush_llc.flush_llc()
+
+            # Record start event
+            hip_event_record(start_event)
+
+            # Launch kernel
+            hip_module_launch_kernel(
+                function,
+                grid_dim[0],
+                grid_dim[1],
+                grid_dim[2],
+                block_dim[0],
+                block_dim[1],
+                block_dim[2],
+                params_tuple[0],
+            )
+
+            # Record stop event and synchronize
+            hip_event_record(stop_event)
+            hip_event_synchronize(stop_event)
+
+            # Get elapsed time in milliseconds, convert to nanoseconds
+            elapsed_ms = hip_event_elapsed_time(start_event, stop_event)
+            elapsed_ns = int(elapsed_ms * 1_000_000)
+            iteration_times_ns.append(elapsed_ns)
+
+            _log_with_device(
+                logger, actual_device_id, f"Iteration {iteration}: {elapsed_ms:.3f}ms"
+            )
+
+            # Verify results only on first iteration
+            if iteration == 0:
+                _log_with_device(logger, actual_device_id, "Verifying results")
+                # Copy results back
+                num_inputs = len(input_args)
+                if has_padding:
+                    # Copy from padded buffers
+                    assert padded_buffers is not None
+                    for i, output_arr in enumerate(output_args):
+                        base_ptr = padded_buffers[num_inputs + i]
+                        pad_bytes = padding_bytes[num_inputs + i]
+                        utils.copy_from_gpu_buffer(base_ptr, output_arr, pad_bytes)
+                else:
+                    # Copy from normal buffers
+                    assert gpu_ptrs is not None
+                    for i, output_arr in enumerate(output_args):
+                        output_ptr = gpu_ptrs[num_inputs + i]
+                        capsule_output = utils.wrap_pointer_in_capsule(
+                            output_arr.ctypes.data
+                        )
+                        hip_memcpy_device_to_host(
+                            capsule_output, output_ptr, output_arr.nbytes
+                        )
+
+                if verify_fn is not None:
+                    verify_fn(input_args, output_args)
+                    _log_with_device(logger, actual_device_id, "Verification passed")
+
+        # Free the GPU buffers
+        avg_time_ms = sum(iteration_times_ns) / len(iteration_times_ns) / 1_000_000
+        _log_with_device(
+            logger,
+            actual_device_id,
+            f"Completed {num_iterations} iterations, avg={avg_time_ms:.3f}ms",
+        )
+
+        return iteration_times_ns
+
+    finally:
+        # Cleanup events
+        if start_event is not None:
+            hip_event_destroy(start_event)
+        if stop_event is not None:
+            hip_event_destroy(stop_event)
+        # Cleanup buffers
+        if padded_buffers is not None:
+            for ptr in padded_buffers:
+                hip_free(ptr)
+        elif gpu_ptrs is not None:
+            for ptr in gpu_ptrs:
+                hip_free(ptr)
+        # Cleanup flush buffer if FlushLLC instance was provided
+        if flush_llc is not None:
+            flush_llc.cleanup()
+        if function is not None:
+            hip_function_free(function)
+        if module is not None:
+            hip_module_unload(module)
+
+
+# ---------------------------------------------------------------------------
+# Preprocessing helpers
+# ---------------------------------------------------------------------------
+
+
+def make_grid_block_preprocess(grid_dim, block_dim):
+    """Create a preprocess function that substitutes NUM_THREADS and NUM_BLOCKS."""
+
+    def preprocess(x):
+        num_threads = block_dim[0] * block_dim[1] * block_dim[2]
+        num_blocks = grid_dim[0] * grid_dim[1] * grid_dim[2]
+        x = x.replace("{{NUM_THREADS}}", str(num_threads))
+        x = x.replace("{{NUM_BLOCKS}}", str(num_blocks))
+        return x
+
+    return preprocess
+
+
+# ---------------------------------------------------------------------------
+# High-level compile-and-run
+# ---------------------------------------------------------------------------
+
+# Default test configuration
+MCPU = "gfx942"
+WAVEFRONT_SIZE = 64
+
+
+def compile_and_run(
+    file_name: str,
+    kernel_name: str,
+    input_data=None,
+    output_data=None,
+    grid_dim=(1, 1, 1),
+    block_dim=(64, 1, 1),
+    library_paths: Optional[List[str]] = None,
+    preprocess: Optional[Callable[[str], str]] = None,
+    print_ir_after_all: bool = False,
+    pass_pipeline: Optional[str] = None,
+    verify_fn: Optional[Callable] = None,
+    mcpu: str = MCPU,
+    wavefront_size: int = WAVEFRONT_SIZE,
+    num_iterations: int = 1,
+    print_timings: bool = False,
+    print_preprocessed_ir: bool = False,
+    skip_on_cross_compile: bool = False,
+    mlir_dir: Optional[str] = None,
+    ctx=None,
+):
+    """Compile and run a test kernel, returning the output buffer.
+
+    This is the unified entry point for "give me MLIR, run it on GPU, give me
+    results". It handles context creation, compilation, assembly, GPU skip
+    detection, and kernel execution.
+
+    Args:
+        file_name: Name of the MLIR file. If not an absolute path, resolved
+            relative to mlir_dir (which defaults to the caller's directory).
+        kernel_name: Name of the kernel to compile and run.
+        input_data: Input numpy array(s). Single array or list of arrays.
+        output_data: Output numpy array(s). Single array or list of arrays.
+        grid_dim: Grid dimensions for kernel launch.
+        block_dim: Block dimensions for kernel launch.
+        library_paths: Library paths for preload. If None, auto-detected.
+        preprocess: Optional preprocessing function for MLIR content.
+        print_ir_after_all: Whether to print IR after all passes.
+        pass_pipeline: Pass pipeline string. Defaults to TEST_SYNCHRONOUS_SROA_PASS_PIPELINE.
+        verify_fn: Optional verification function(input_args, output_args).
+        mcpu: Target GPU architecture (default: "gfx942").
+        wavefront_size: Wavefront size (default: 64).
+        num_iterations: Number of kernel executions (default: 1).
+        print_timings: Whether to print pass timings.
+        print_preprocessed_ir: Whether to print preprocessed IR.
+        skip_on_cross_compile: If True, print IR+ASM before skipping on missing GPU.
+        mlir_dir: Directory to resolve relative file_name against. Defaults to
+            the caller's directory (via inspect.stack).
+        ctx: MLIR context. If None, one is created internally.
+
+    Returns:
+        List of iteration times in nanoseconds, or None if skipped.
+    """
+    import pytest
+
+    # Resolve MLIR file path
+    if os.path.isabs(file_name):
+        mlir_file = file_name
+    else:
+        if mlir_dir is None:
+            import inspect
+
+            caller_frame = inspect.stack()[1]
+            mlir_dir = os.path.dirname(os.path.abspath(caller_frame.filename))
+        mlir_file = os.path.join(mlir_dir, file_name)
+
+    # Auto-detect library paths if not provided
+    if library_paths is None:
+        try:
+            from mlir_kernels.common import get_library_paths
+
+            library_paths = get_library_paths()
+        except ImportError:
+            library_paths = []
+
+    if pass_pipeline is None:
+        pass_pipeline = TEST_SYNCHRONOUS_SROA_PASS_PIPELINE
+
+    # Convert single arrays to lists for compatibility
+    if input_data is not None and not isinstance(input_data, list):
+        input_data = [input_data]
+    if output_data is not None and not isinstance(output_data, list):
+        output_data = [output_data]
+
+    # Default to empty lists if not provided
+    if input_data is None:
+        input_data = []
+    if output_data is None:
+        output_data = []
+
+    from aster import ir
+
+    owns_ctx = ctx is None
+    if owns_ctx:
+        ctx = ir.Context()
+        ctx.__enter__()
+
+    try:
+        asm_complete, module_after_passes = compile_mlir_file_to_asm(
+            mlir_file,
+            kernel_name,
+            pass_pipeline,
+            ctx,
+            library_paths=library_paths,
+            print_ir_after_all=print_ir_after_all,
+            preprocess=preprocess,
+            print_timings=print_timings,
+            print_preprocessed_ir=print_preprocessed_ir,
+        )
+
+        hsaco_path = utils.assemble_to_hsaco(
+            asm_complete, target=mcpu, wavefront_size=wavefront_size
+        )
+        if hsaco_path is None:
+            raise RuntimeError("Failed to assemble kernel to HSACO")
+
+        with hsaco_file(hsaco_path):
+            if not utils.system_has_mcpu(mcpu=mcpu):
+                if skip_on_cross_compile:
+                    print(module_after_passes)
+                print(asm_complete)
+                pytest.skip(
+                    f"GPU {mcpu} not available, but cross-compilation to HSACO succeeded"
+                )
+
+            iteration_times = execute_kernel_and_verify(
+                hsaco_path=hsaco_path,
+                kernel_name=kernel_name,
+                input_args=input_data,
+                output_args=output_data,
+                mcpu=mcpu,
+                wavefront_size=wavefront_size,
+                grid_dim=grid_dim,
+                block_dim=block_dim,
+                verify_fn=verify_fn,
+                num_iterations=num_iterations,
+            )
+
+            if num_iterations > 1:
+                print(f"Iteration times: {iteration_times} nanoseconds")
+
+            return iteration_times
+    finally:
+        if owns_ctx:
+            ctx.__exit__(None, None, None)

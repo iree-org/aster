@@ -2,10 +2,7 @@
 
 import numpy as np
 
-try:
-    from .test_utils import compile_and_run
-except ImportError:
-    from test_utils import compile_and_run
+from aster.testing import compile_and_run
 
 
 class TestStoreGlobalCFragmentWait:

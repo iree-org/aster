@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from aster import ir, utils
-from integration.test_utils import (
+from aster.testing import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
     hsaco_file,

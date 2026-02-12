@@ -1,17 +1,14 @@
 """Unit tests for kittens/tiles_16x16.mlir library functions."""
 
 import os
-import sys
 from dataclasses import dataclass
 from typing import List
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "test"))
 
 import numpy as np
 import pytest
 
 from aster import ir, utils
-from integration.test_utils import (
+from aster.testing import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
     hsaco_file,

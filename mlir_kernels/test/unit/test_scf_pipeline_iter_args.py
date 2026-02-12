@@ -11,11 +11,7 @@ prologue/kernel/epilogue boundaries.
 import numpy as np
 from aster.pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
 
-try:
-    from .test_utils import compile_and_run
-except ImportError:
-    from test_utils import compile_and_run
-
+from aster.testing import compile_and_run
 
 MLIR_FILE = "test_scf_pipeline_iter_args.mlir"
 BLOCK = (64, 1, 1)

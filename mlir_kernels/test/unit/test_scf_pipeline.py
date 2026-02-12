@@ -12,10 +12,7 @@ despite being spread across prologue, kernel, and epilogue sections.
 import numpy as np
 from aster.pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
 
-try:
-    from .test_utils import compile_and_run
-except ImportError:
-    from test_utils import compile_and_run
+from aster.testing import compile_and_run
 
 
 class TestScfPipelineTwoStageNoIV:

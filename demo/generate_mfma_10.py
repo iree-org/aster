@@ -2,11 +2,7 @@
 """Demo: construct mfma_10 kernel IR programmatically using the Python API."""
 
 import argparse
-import os
-import sys
 
-# Add project root to path to allow imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from aster import ir
 from aster.dialects import amdgcn, arith, builtin

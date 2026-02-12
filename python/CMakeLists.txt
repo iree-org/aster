@@ -29,6 +29,8 @@ declare_mlir_python_sources(ASTERPythonSources.core
     __init__.py
     utils.py
     pass_pipelines.py
+    testing/__init__.py
+    testing/flush_llc.py
 )
 
 declare_mlir_python_extension(ASTERPythonExtensions._amdgcn
