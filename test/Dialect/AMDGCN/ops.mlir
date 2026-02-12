@@ -271,6 +271,114 @@ func.func @test_make_buffer_rsrc_allocated(
   return
 }
 
+//===----------------------------------------------------------------------===//
+// Buffer Load/Store Operations (MUBUF)
+//===----------------------------------------------------------------------===//
+
+func.func @test_buffer_load_dword(
+    %dest : !amdgcn.vgpr,
+    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %vaddr : !amdgcn.vgpr,
+    %soffset : !amdgcn.sgpr,
+    %off : i32) {
+  %result, %tok = amdgcn.load buffer_load_dword dest %dest addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
+  return
+}
+
+func.func @test_buffer_load_dwordx2(
+    %dest : !amdgcn.vgpr_range<[? + 2]>,
+    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %vaddr : !amdgcn.vgpr,
+    %soffset : !amdgcn.sgpr,
+    %off : i32) {
+  %result, %tok = amdgcn.load buffer_load_dwordx2 dest %dest addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : dps(!amdgcn.vgpr_range<[? + 2]>) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
+  return
+}
+
+func.func @test_buffer_load_dwordx3(
+    %dest : !amdgcn.vgpr_range<[? + 3]>,
+    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %vaddr : !amdgcn.vgpr,
+    %soffset : !amdgcn.sgpr,
+    %off : i32) {
+  %result, %tok = amdgcn.load buffer_load_dwordx3 dest %dest addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : dps(!amdgcn.vgpr_range<[? + 3]>) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
+  return
+}
+
+func.func @test_buffer_load_dwordx4(
+    %dest : !amdgcn.vgpr_range<[? + 4]>,
+    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %vaddr : !amdgcn.vgpr,
+    %soffset : !amdgcn.sgpr,
+    %off : i32) {
+  %result, %tok = amdgcn.load buffer_load_dwordx4 dest %dest addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : dps(!amdgcn.vgpr_range<[? + 4]>) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
+  return
+}
+
+func.func @test_buffer_store_dword(
+    %data : !amdgcn.vgpr,
+    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %vaddr : !amdgcn.vgpr,
+    %soffset : !amdgcn.sgpr,
+    %off : i32) {
+  %tok = amdgcn.store buffer_store_dword data %data addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
+  return
+}
+
+func.func @test_buffer_store_dwordx2(
+    %data : !amdgcn.vgpr_range<[? + 2]>,
+    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %vaddr : !amdgcn.vgpr,
+    %soffset : !amdgcn.sgpr,
+    %off : i32) {
+  %tok = amdgcn.store buffer_store_dwordx2 data %data addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : ins(!amdgcn.vgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
+  return
+}
+
+func.func @test_buffer_store_dwordx3(
+    %data : !amdgcn.vgpr_range<[? + 3]>,
+    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %vaddr : !amdgcn.vgpr,
+    %soffset : !amdgcn.sgpr,
+    %off : i32) {
+  %tok = amdgcn.store buffer_store_dwordx3 data %data addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : ins(!amdgcn.vgpr_range<[? + 3]>, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
+  return
+}
+
+func.func @test_buffer_store_dwordx4(
+    %data : !amdgcn.vgpr_range<[? + 4]>,
+    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %vaddr : !amdgcn.vgpr,
+    %soffset : !amdgcn.sgpr,
+    %off : i32) {
+  %tok = amdgcn.store buffer_store_dwordx4 data %data addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : ins(!amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
+  return
+}
+
 func.func @lds_buffer_ops(%arg0: index, %arg1: index) {
   %0 = amdgcn.alloc_lds %arg0
   amdgcn.get_lds_offset %0 : i32

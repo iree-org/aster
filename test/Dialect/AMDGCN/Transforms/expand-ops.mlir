@@ -190,8 +190,9 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
 //       CHECK:   %[[NREC2:.*]], %{{.*}} = load s_load_dword
 //       CHECK:   %[[BASE_SPLIT2:.*]]:2 = split_register_range %[[BASE2]] : !amdgcn.sgpr_range<[? + 2]>
 //       CHECK:   %[[DWORD1:.*]] = sop2 s_or_b32 outs %{{.*}} ins %[[BASE_SPLIT2]]#1, %c1048576_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
+//       CHECK:   %[[DWORD0_2:.*]] = sop1 s_mov_b32 outs %{{.*}} ins %[[BASE_SPLIT2]]#0 : !amdgcn.sgpr, !amdgcn.sgpr
 //       CHECK:   %[[FLAGS_VAL2:.*]] = sop1 s_mov_b32 outs %{{.*}} ins %c131076_i32 : !amdgcn.sgpr, i32
-//       CHECK:   %[[RSRC2:.*]] = make_register_range %[[BASE_SPLIT2]]#0, %[[DWORD1]], %[[NREC2]], %[[FLAGS_VAL2]] : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+//       CHECK:   %[[RSRC2:.*]] = make_register_range %[[DWORD0_2]], %[[DWORD1]], %[[NREC2]], %[[FLAGS_VAL2]] : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
 //       CHECK:   test_inst ins %[[RSRC2]] : (!amdgcn.sgpr_range<[? + 4]>) -> ()
 //       CHECK:   end_kernel
   kernel @make_buffer_rsrc_structured arguments <[
@@ -217,8 +218,9 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
 //       CHECK:   %[[NREC3:.*]], %{{.*}} = load s_load_dword
 //       CHECK:   %[[BASE_SPLIT3:.*]]:2 = split_register_range %[[BASE3]] : !amdgcn.sgpr_range<[? + 2]>
 //       CHECK:   %[[DWORD1_3:.*]] = sop2 s_or_b32 outs %{{.*}} ins %[[BASE_SPLIT3]]#1, %c-1073479680_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
+//       CHECK:   %[[DWORD0_3:.*]] = sop1 s_mov_b32 outs %{{.*}} ins %[[BASE_SPLIT3]]#0 : !amdgcn.sgpr, !amdgcn.sgpr
 //       CHECK:   %[[FLAGS_VAL3:.*]] = sop1 s_mov_b32 outs %{{.*}} ins %c0_i32 : !amdgcn.sgpr, i32
-//       CHECK:   %[[RSRC3:.*]] = make_register_range %[[BASE_SPLIT3]]#0, %[[DWORD1_3]], %[[NREC3]], %[[FLAGS_VAL3]] : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+//       CHECK:   %[[RSRC3:.*]] = make_register_range %[[DWORD0_3]], %[[DWORD1_3]], %[[NREC3]], %[[FLAGS_VAL3]] : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
 //       CHECK:   test_inst ins %[[RSRC3]] : (!amdgcn.sgpr_range<[? + 4]>) -> ()
 //       CHECK:   end_kernel
   kernel @make_buffer_rsrc_swizzled arguments <[
