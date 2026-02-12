@@ -35,12 +35,12 @@ def AMDGCN_EndKernelOp : InstOp<"end_kernel", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return {};
+    OperandRange getInstOuts() {
+      return getAsOperandRange({});
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return {};
+    OperandRange getInstIns() {
+      return getAsOperandRange({});
     }
   }];
   let cppNamespace = "::mlir::aster::amdgcn";
@@ -78,12 +78,12 @@ def AMDGCN_BranchOp : InstOp<"branch", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return {};
+    OperandRange getInstOuts() {
+      return getAsOperandRange({});
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return {};
+    OperandRange getInstIns() {
+      return getAsOperandRange({});
     }
 
     //===------------------------------------------------------------------===//
@@ -123,12 +123,12 @@ def AMDGCN_CBranchOp : InstOp<"cbranch", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return {};
+    OperandRange getInstOuts() {
+      return getAsOperandRange({});
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getCondMutable();
+    OperandRange getInstIns() {
+      return getAsOperandRange(getCondMutable());
     }
 
     //===------------------------------------------------------------------===//

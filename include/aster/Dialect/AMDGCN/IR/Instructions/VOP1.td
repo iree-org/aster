@@ -42,12 +42,12 @@ def VOP1NopOp : VOP1_Op<"v_nop", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return {};
+    OperandRange getInstOuts() {
+      return getAsOperandRange({});
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return {};
+    OperandRange getInstIns() {
+      return getAsOperandRange({});
     }
   }];
 }
@@ -106,12 +106,12 @@ def VOP1Op : VOP1_Op<"vop1", [
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getVdstMutable();
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getVdstMutable());
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front();
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().drop_front());
     }
   }];
 }

@@ -357,6 +357,7 @@ InstRewritePattern::matchAndRewrite(InstOpInterface op,
                                     PatternRewriter &rewriter) const {
   bool mutatedIns = false;
   bool mutatedOuts = false;
+
   // Helper to handle an operand.
   auto handleOperand = [&](Value operand) -> Value {
     auto cOp =
@@ -367,17 +368,19 @@ InstRewritePattern::matchAndRewrite(InstOpInterface op,
   };
 
   // Check if any operand or result needs to be updated.
-  for (OpOperand &operand : op.getInstOutsMutable()) {
-    Value nV = handleOperand(operand.get());
+  SmallVector<Value> newIns = llvm::to_vector(op.getInstIns());
+  SmallVector<Value> newOuts = llvm::to_vector(op.getInstOuts());
+  for (Value &operand : newOuts) {
+    Value nV = handleOperand(operand);
     mutatedOuts |= (nV != nullptr);
     if (nV)
-      operand.set(nV);
+      operand = nV;
   }
-  for (OpOperand &operand : op.getInstInsMutable()) {
-    Value nV = handleOperand(operand.get());
+  for (Value &operand : newIns) {
+    Value nV = handleOperand(operand);
     mutatedIns |= (nV != nullptr);
     if (nV)
-      operand.set(nV);
+      operand = nV;
   }
 
   // Early exit if nothing changed.
@@ -385,7 +388,9 @@ InstRewritePattern::matchAndRewrite(InstOpInterface op,
     return failure();
 
   // Create the new instruction.
-  auto newInst = cast<InstOpInterface>(rewriter.clone(*op.getOperation()));
+  auto newInst = op.cloneInst(rewriter, newOuts, newIns, std::nullopt);
+  if (!newInst)
+    return failure();
 
   if (!mutatedOuts) {
     rewriter.replaceOp(op, newInst->getResults());

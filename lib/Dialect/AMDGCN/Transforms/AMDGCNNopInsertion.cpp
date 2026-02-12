@@ -90,13 +90,11 @@ static bool writesToVGPRRange(Operation *op, RegisterRange targetRange) {
     return false;
 
   // Check all output operands (results)
-  for (OpOperand &operand : instOp.getInstOutsMutable()) {
-    Value result = operand.get();
+  for (Value result : instOp.getInstOuts()) {
     auto resultRange = getVGPRRange(result);
     if (resultRange && registerRangesOverlap(*resultRange, targetRange))
       return true;
   }
-
   return false;
 }
 
@@ -172,8 +170,7 @@ static bool vMemReadsFromSGPRRange(Operation *op, RegisterRange targetRange) {
   }
 
   // For other VMEM instructions, check all input operands for SGPR addresses.
-  for (OpOperand &operand : instOp.getInstInsMutable()) {
-    Value input = operand.get();
+  for (Value input : instOp.getInstIns()) {
     auto inputRange = getSGPRRange(input);
     if (inputRange && registerRangesOverlap(*inputRange, targetRange))
       return true;
@@ -342,8 +339,8 @@ static NopInsertionCaseDef getCase8Definition() {
     if (!instOp)
       return false;
     // Check if it has any VGPR outputs
-    for (OpOperand &operand : instOp.getInstOutsMutable()) {
-      if (getVGPRRange(operand.get()))
+    for (Value result : instOp.getInstOuts()) {
+      if (getVGPRRange(result))
         return true;
     }
     return false;
@@ -400,8 +397,8 @@ static NopInsertionCaseDef getCase9Definition() {
     if (!instOp)
       return false;
     // Check if it has any VGPR outputs
-    for (OpOperand &operand : instOp.getInstOutsMutable()) {
-      if (getVGPRRange(operand.get()))
+    for (Value result : instOp.getInstOuts()) {
+      if (getVGPRRange(result))
         return true;
     }
     return false;
@@ -444,8 +441,8 @@ static NopInsertionCaseDef getCase10Definition() {
     if (!instOp || !isVALUInstruction(op))
       return false;
     // Check if it has any SGPR outputs
-    for (OpOperand &operand : instOp.getInstOutsMutable()) {
-      if (getSGPRRange(operand.get()))
+    for (Value result : instOp.getInstOuts()) {
+      if (getSGPRRange(result))
         return true;
     }
     return false;
@@ -458,8 +455,7 @@ static NopInsertionCaseDef getCase10Definition() {
   auto checkDependency = [](Operation *inst1, Operation *inst2) -> int {
     // Check all SGPR outputs from inst1 (VALU)
     auto inst1Op = cast<AMDGCNInstOpInterface>(inst1);
-    for (OpOperand &operand : inst1Op.getInstOutsMutable()) {
-      Value sgprValue = operand.get();
+    for (Value sgprValue : inst1Op.getInstOuts()) {
       auto sgprRange = getSGPRRange(sgprValue);
       if (!sgprRange)
         continue;

@@ -82,12 +82,12 @@ def AMDGCN_CmpIOp : InstOp<"cmpi", [
     // AMDGCNInstOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the instruction output operands.
-    MutableArrayRef<OpOperand> getInstOutsMutable() {
-      return getOperation()->getOpOperands().take_front(getNumOuts());
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getOperation()->getOpOperands().take_front(getNumOuts()));
     }
     /// Get the instruction input operands.
-    MutableArrayRef<OpOperand> getInstInsMutable() {
-      return getOperation()->getOpOperands().drop_front(getNumOuts());
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().drop_front(getNumOuts()));
     }
     /// Get the instruction results.
     ResultRange getInstResults() {
