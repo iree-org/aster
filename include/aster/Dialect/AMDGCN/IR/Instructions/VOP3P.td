@@ -120,8 +120,9 @@ def VOP3PMAIOp : VOP3P_Op<"vop3p_mai", [
     The VOP3P-MAI operation performs matrix arithmetic instructions for CDNA
     architecture. It takes three source operands (a, b, c) and a destination
     operand (vdst). Operands a and b are VGPR ranges, while c and vdst can be
-    either VGPR ranges or AGPR ranges The result type
-    matches the vdst type.
+    either VGPR ranges or AGPR ranges. The result type matches the vdst type.
+
+    For scaled MFMA (f8f6f4 with ld_scale), use VOP3PScaledMAIOp instead.
 
     VOP3P-MAI Format fields:
     - VDST [7:0]: Destination VGPR or AGPR
@@ -164,6 +165,7 @@ def VOP3PMAIOp : VOP3P_Op<"vop3p_mai", [
     OperandRange getInstOuts() {
       return getAsOperandRange(getVdstMutable());
     }
+
     /// Get the instruction input operands.
     OperandRange getInstIns() {
       return getAsOperandRange(getOperation()->getOpOperands().drop_front());
@@ -212,6 +214,138 @@ def V_MFMA_F16_16X16X16_F16 : MFMAInst<
   let description = [{
     MFMA instruction performing matrix multiplication and accumulation
     with f16 output and f16 inputs.
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// CDNA4 Scaled MFMA (VOP3PX encoding)
+//===----------------------------------------------------------------------===//
+// V_MFMA_SCALE_F32_* are single 4-DWORD instructions combining ld_scale +
+// MFMA into one encoding (ISA manual section 7.2.1). In the IR we represent
+// them as a single op with both MFMA operands (a, b, c/vdst) and scale
+// source operands (scale_src0, scale_src1) plus format/op_sel modifiers.
+//
+// Format codes (cbsz for A, blgp for B):
+//   0=fp8(E4M3), 1=bf8(E5M2), 2=fp6(E2M3), 3=bf6(E3M2), 4=fp4(E2M1)
+//
+// op_sel selects which byte of each scale source contains the E8M0 factor:
+//   0: bits [7:0], 1: bits [15:8], 2: bits [23:16], 3: bits [31:24]
+//
+// ASM emission produces two lines (hardware assembler bundles them):
+//   v_mfma_ld_scale_b32 <scale_src0>, <scale_src1> [op_sel_0] [op_sel_1]
+//   v_mfma_f32_<tile>_f8f6f4 <vdst>, <a>, <b>, <c> [cbsz] [abid] [blgp]
+
+def ScaleSrc : AnyRegOf<[VGPRType, SGPRType]>;
+
+def VOP3PScaledMAIOp : VOP3P_Op<"vop3p_scaled_mai", [
+    AMDGCNInstTraits,
+    AMDGCNInstOpInterface,
+    AllTypesMatch<["vdst", "result"]>,
+    AllTypeIDsMatch<["vdst", "c"]>
+  ]> {
+  let summary = "VOP3P scaled MFMA (combined ld_scale + matrix multiply)";
+  let description = [{
+    Combined scaled MFMA instruction for CDNA4 (gfx950). This is a single
+    4-DWORD VOP3PX encoding that bundles v_mfma_ld_scale_b32 with a
+    v_mfma_f32_*_f8f6f4 MFMA instruction.
+
+    Operands:
+    - vdst/c: Destination/accumulator (VGPR or AGPR range)
+    - a, b: Matrix input operands (VGPR ranges, always 8 regs)
+    - scale_src0, scale_src1: Scale factor sources (VGPR or SGPR)
+
+    Modifiers:
+    - cbsz: A-matrix format code (0-4)
+    - abid: A-matrix broadcast identifier (0-15)
+    - blgp: B-matrix format/lane-group pattern (0-7)
+    - op_sel_0, op_sel_1: Byte select for scale sources (0-3)
+  }];
+  let arguments = (ins
+    AMDGCN_InstAttr:$opcode,
+    VGPROrAGPRType:$vdst,
+    VGPRRangeType:$a,
+    VGPRRangeType:$b,
+    VGPROrAGPRType:$c,
+    ScaleSrc:$scale_src0,
+    ScaleSrc:$scale_src1,
+    SquareIntModifier<I8Attr, "op_sel_0", 0>:$op_sel_0,
+    SquareIntModifier<I8Attr, "op_sel_1", 0>:$op_sel_1,
+    CBSZAttr:$cbsz,
+    ABIDAttr:$abid,
+    BLGPAttr:$blgp
+  );
+  let results = (outs VGPROrAGPRType:$result);
+  let assemblyFormat = [{
+    $opcode $vdst `,` $a `,` $b `,` $c `,` $scale_src0 `,` $scale_src1
+    oilist(
+        `op_sel_0` `=` $op_sel_0
+      | `op_sel_1` `=` $op_sel_1
+      | `cbsz` `=` $cbsz
+      | `abid` `=` $abid
+      | `blgp` `=` $blgp
+    )
+    attr-dict `:` type($a) `,` type($b) `,` type($c) `,`
+                  type($scale_src0) `,` type($scale_src1)
+    `->` type($vdst)
+  }];
+  let extraClassDeclaration = [{
+    //===------------------------------------------------------------------===//
+    // InstOpInterface Methods
+    //===------------------------------------------------------------------===//
+    /// Get the instruction output operands.
+    OperandRange getInstOuts() {
+      return getAsOperandRange(getVdstMutable());
+    }
+
+    /// Get the instruction input operands.
+    OperandRange getInstIns() {
+      return getAsOperandRange(getOperation()->getOpOperands().drop_front());
+    }
+  }];
+}
+
+class ScaledMFMAInst<string _mfma_mnemonic, string sym, int aRegs, int bRegs,
+      int cRegs, int dstRegs, list<ISAVersion> _isa>
+    : AMDInst<_mfma_mnemonic, sym, VOP3PScaledMAIOp, _isa> {
+  let constraints = (ins
+      /*outs=*/AccOperand<dstRegs>:$vdst,
+      /*ins=*/ VGPROperand<aRegs>:$a, VGPROperand<bRegs>:$b,
+               AccOperand<cRegs>:$c,
+               RegImmOperand<ScaleSrc, 1>:$scale_src0,
+               RegImmOperand<ScaleSrc, 1>:$scale_src1);
+  // The generated ASM printer emits only the MFMA line. The ld_scale prefix
+  // is emitted by custom code in TranslateModule.cpp::printInstruction().
+  let asmFormat = [SingleAsmVariant<
+    "$vdst, $a, $b, $c $cbsz$abid$blgp">];
+  let pythonBuilder = DefaultPyBuilder<(ins
+    PyValue:$vdst, PyValue:$a, PyValue:$b, PyValue:$c,
+    PyValue:$scale_src0, PyValue:$scale_src1,
+    IntArg<0>:$op_sel_0, IntArg<0>:$op_sel_1,
+    IntArg<0>:$cbsz, IntArg<0>:$abid, IntArg<0>:$blgp
+  )>;
+}
+
+def V_MFMA_SCALE_F32_16X16X128_F8F6F4 : ScaledMFMAInst<
+  /*mfma_mnemonic=*/"v_mfma_f32_16x16x128_f8f6f4",
+  /*symbol=*/"v_mfma_scale_f32_16x16x128_f8f6f4",
+  /*aRegs=*/8, /*bRegs=*/8, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA4]> {
+  let summary = "Scaled MFMA f32 16x16x128 with f8/f6/f4 inputs";
+  let description = [{
+    Combined scaled MFMA: v_mfma_ld_scale_b32 + v_mfma_f32_16x16x128_f8f6f4
+    in a single 4-DWORD VOP3PX encoding. Variable-precision narrow inputs
+    (fp8/bf8/fp6/bf6/fp4) with per-block E8M0 exponent scaling.
+  }];
+}
+
+def V_MFMA_SCALE_F32_32X32X64_F8F6F4 : ScaledMFMAInst<
+  /*mfma_mnemonic=*/"v_mfma_f32_32x32x64_f8f6f4",
+  /*symbol=*/"v_mfma_scale_f32_32x32x64_f8f6f4",
+  /*aRegs=*/8, /*bRegs=*/8, /*cRegs=*/16, /*dstRegs=*/16, /*isa=*/[CDNA4]> {
+  let summary = "Scaled MFMA f32 32x32x64 with f8/f6/f4 inputs";
+  let description = [{
+    Combined scaled MFMA: v_mfma_ld_scale_b32 + v_mfma_f32_32x32x64_f8f6f4
+    in a single 4-DWORD VOP3PX encoding. Variable-precision narrow inputs
+    (fp8/bf8/fp6/bf6/fp4) with per-block E8M0 exponent scaling.
   }];
 }
 

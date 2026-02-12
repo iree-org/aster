@@ -488,11 +488,11 @@ static NopInsertionCaseDef getCase10Definition() {
 /// back-to-back SrcC forwarding which is used for accumulation)
 static NopInsertionCaseDef getCase101Definition() {
   auto selectInst1 = [](Operation *op) -> bool {
-    return isa<inst::VOP3PMAIOp>(op);
+    return isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(op);
   };
 
   auto selectInst2 = [](Operation *op) -> bool {
-    return isa<inst::VOP3PMAIOp>(op);
+    return isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(op);
   };
 
   auto checkDependency = [](Operation *inst1, Operation *inst2) -> int {
@@ -521,7 +521,7 @@ static NopInsertionCaseDef getCase101Definition() {
 /// WAW)","5 if 1st V_MFMA is 2 passes
 static NopInsertionCaseDef getCase106Definition() {
   auto selectInst1 = [](Operation *op) -> bool {
-    return isa<inst::VOP3PMAIOp>(op);
+    return isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(op);
   };
 
   auto selectInst2 = [](Operation *op) -> bool {
@@ -529,20 +529,33 @@ static NopInsertionCaseDef getCase106Definition() {
   };
 
   auto checkDependency = [](Operation *inst1, Operation *inst2) -> int {
-    auto maiOp1 = cast<inst::VOP3PMAIOp>(inst1);
+    // Extract vdst and opcode from either MAI op type.
+    Value vdst1;
+    OpCode maiOp;
+    if (auto mai = dyn_cast<inst::VOP3PMAIOp>(inst1)) {
+      vdst1 = mai.getVdst();
+      maiOp = mai.getOpcode();
+    } else {
+      auto scaledMai = cast<inst::VOP3PScaledMAIOp>(inst1);
+      vdst1 = scaledMai.getVdst();
+      maiOp = scaledMai.getOpcode();
+    }
     auto op2 = cast<AMDGCNInstOpInterface>(inst2);
     // Get the VGPR output range from inst1
-    Value vdst1 = maiOp1.getVdst();
     auto vdst1Range = getVGPRRange(vdst1);
     assert(vdst1Range && "VGPR range should be valid");
-    OpCode maiOp = maiOp1.getOpcode();
     int32_t numNops = -1;
     switch (maiOp) {
     case OpCode::V_MFMA_F32_16X16X16_F16:
     case OpCode::V_MFMA_F32_16X16X16_BF16:
     case OpCode::V_MFMA_F16_16X16X16_F16:
-      // This is likely adding more waits than needed.
+    case OpCode::V_MFMA_SCALE_F32_16X16X128_F8F6F4:
+      // 2-pass MFMA: this is likely adding more waits than needed.
       // TODO: properly handle this.
+      numNops = 7;
+      break;
+    case OpCode::V_MFMA_SCALE_F32_32X32X64_F8F6F4:
+      // 4-pass MFMA: 7 NOPs per ISA spec case 106.
       numNops = 7;
       break;
     default:

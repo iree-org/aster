@@ -4,7 +4,7 @@ ninja
 filecheck>=1.0.0
 lit>=18.1.7
 nanobind>=2.9.0
-setuptools
+setuptools>=70.2.0
 wheel
 black
 numpy

@@ -113,10 +113,13 @@ Install the appropriate version for your GPU from [here](https://github.com/ROCm
 # For execution tests (optional), choose based on your GPU architecture:
 
 # For RDNA4 (gfx120x):
-pip install -r requirements-amd-gfx120X-all.txt
+uv pip install -r requirements-amd-gfx120X-all.txt
 
 # For CDNA3 (MI300, gfx94x):
-pip install -r requirements-amd-gfx94X.txt
+uv pip install -r requirements-amd-gfx94X.txt
+
+# For CDNA4 (MI350, gfx950):
+uv pip install -r requirements-amd-gfx950.txt
 
 # Initialize rocm sdk
 rocm-sdk init

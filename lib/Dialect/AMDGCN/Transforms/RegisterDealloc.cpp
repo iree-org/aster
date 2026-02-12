@@ -191,10 +191,10 @@ void RegisterDealloc::runOnOperation() {
   target.addDynamicallyLegalOp<
       amdgcn::AllocaOp, amdgcn::MakeRegisterRangeOp,
       amdgcn::SplitRegisterRangeOp, amdgcn::inst::VOP1Op, amdgcn::inst::VOP2Op,
-      amdgcn::inst::VOP3PMAIOp, amdgcn::LoadOp, amdgcn::StoreOp>(
-      [&](Operation *op) -> std::optional<bool> {
-        return converter.isLegal(op);
-      });
+      amdgcn::inst::VOP3PMAIOp, amdgcn::inst::VOP3PScaledMAIOp, amdgcn::LoadOp,
+      amdgcn::StoreOp>([&](Operation *op) -> std::optional<bool> {
+    return converter.isLegal(op);
+  });
   RewritePatternSet conversionPatterns(&getContext());
   conversionPatterns
       .add<AllocaOpConversion, InstOpConversion, MakeRegisterRangeOpConversion,
