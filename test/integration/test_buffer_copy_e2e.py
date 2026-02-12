@@ -4,39 +4,15 @@ The kernel uses buffer descriptors (make_buffer_rsrc) with stride=0 (raw mode).
 num_records is a byte count; the hardware checks voffset + soffset < num_records.
 """
 
-import os
-import pytest
 import numpy as np
+import pytest
 
-from aster import ir, utils
-from typing import List, Optional
-from aster.testing import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-    hsaco_file,
-)
+from aster.testing import compile_and_run
 from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
 
 MCPU = "gfx942"
 WAVEFRONT_SIZE = 64
 KERNEL_NAME = "buffer_copy_kernel"
-
-
-def _get_mlir_file():
-    return os.path.join(os.path.dirname(__file__), "buffer-copy-e2e.mlir")
-
-
-def _compile_kernel():
-    """Compile the buffer copy kernel, return (hsaco_path, asm)."""
-    with ir.Context() as ctx:
-        asm, _ = compile_mlir_file_to_asm(
-            _get_mlir_file(), KERNEL_NAME, DEFAULT_SROA_PASS_PIPELINE, ctx
-        )
-    hsaco_path = utils.assemble_to_hsaco(
-        asm, target=MCPU, wavefront_size=WAVEFRONT_SIZE
-    )
-    assert hsaco_path is not None, "Failed to assemble kernel to HSACO"
-    return hsaco_path, asm
 
 
 def _make_params(src_num_bytes, dst_num_bytes, soffset=0):
@@ -63,22 +39,19 @@ class TestBufferCopy:
         def verify(inputs, outputs):
             np.testing.assert_array_equal(outputs[0], inputs[0])
 
-        hsaco_path, _ = _compile_kernel()
-        with hsaco_file(hsaco_path):
-            if not utils.system_has_mcpu(mcpu=MCPU):
-                pytest.skip(f"GPU {MCPU} not available")
-
-            execute_kernel_and_verify(
-                hsaco_path=hsaco_path,
-                kernel_name=KERNEL_NAME,
-                input_args=[src, params],
-                output_args=[dst],
-                mcpu=MCPU,
-                wavefront_size=WAVEFRONT_SIZE,
-                grid_dim=(1, 1, 1),
-                block_dim=(num_elements, 1, 1),
-                verify_fn=verify,
-            )
+        compile_and_run(
+            "buffer-copy-e2e.mlir",
+            KERNEL_NAME,
+            input_data=[src, params],
+            output_data=[dst],
+            pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+            mcpu=MCPU,
+            wavefront_size=WAVEFRONT_SIZE,
+            block_dim=(num_elements, 1, 1),
+            verify_fn=verify,
+            library_paths=[],
+            skip_on_cross_compile=True,
+        )
 
     def test_oob_bounds_checking(self):
         """64 lanes launched, only 32 elements accessible.
@@ -108,22 +81,19 @@ class TestBufferCopy:
                 err_msg="OOB elements should keep sentinel",
             )
 
-        hsaco_path, _ = _compile_kernel()
-        with hsaco_file(hsaco_path):
-            if not utils.system_has_mcpu(mcpu=MCPU):
-                pytest.skip(f"GPU {MCPU} not available")
-
-            execute_kernel_and_verify(
-                hsaco_path=hsaco_path,
-                kernel_name=KERNEL_NAME,
-                input_args=[src, params],
-                output_args=[dst],
-                mcpu=MCPU,
-                wavefront_size=WAVEFRONT_SIZE,
-                grid_dim=(1, 1, 1),
-                block_dim=(total_lanes, 1, 1),
-                verify_fn=verify,
-            )
+        compile_and_run(
+            "buffer-copy-e2e.mlir",
+            KERNEL_NAME,
+            input_data=[src, params],
+            output_data=[dst],
+            pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+            mcpu=MCPU,
+            wavefront_size=WAVEFRONT_SIZE,
+            block_dim=(total_lanes, 1, 1),
+            verify_fn=verify,
+            library_paths=[],
+            skip_on_cross_compile=True,
+        )
 
 
 if __name__ == "__main__":

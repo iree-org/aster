@@ -7,12 +7,7 @@ from typing import List
 import numpy as np
 import pytest
 
-from aster import ir, utils
-from aster.testing import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-    hsaco_file,
-)
+from aster.testing import compile_and_run as _compile_and_run
 from aster.pass_pipelines import (
     TEST_SCF_PIPELINING_PASS_PIPELINE,
     FUTURE_SROA_PASS_PIPELINE,
@@ -55,39 +50,20 @@ def get_mlir_file(file_name: str) -> str:
 
 def compile_and_run(mlir_file, kernel_name, pass_pipeline, input_args, output_args):
     """Compile an MLIR file to HSACO and execute the kernel on GPU."""
-    library_paths = get_kittens_library_paths()
-
-    with ir.Context() as ctx:
-        asm_complete, module = compile_mlir_file_to_asm(
-            mlir_file,
-            kernel_name,
-            pass_pipeline,
-            ctx,
-            library_paths=library_paths,
-        )
-
-        hsaco_path = utils.assemble_to_hsaco(
-            asm_complete, target=MCPU, wavefront_size=WAVEFRONT_SIZE
-        )
-        if hsaco_path is None:
-            raise RuntimeError("Failed to assemble kernel to HSACO")
-
-        with hsaco_file(hsaco_path):
-            if not utils.system_has_mcpu(mcpu=MCPU):
-                print(asm_complete)
-                pytest.skip(f"GPU {MCPU} not available")
-
-            execute_kernel_and_verify(
-                hsaco_path=hsaco_path,
-                kernel_name=kernel_name,
-                input_args=input_args,
-                output_args=output_args,
-                mcpu=MCPU,
-                wavefront_size=WAVEFRONT_SIZE,
-                grid_dim=(run_config.num_blocks, 1, 1),
-                block_dim=(64, 1, 1),
-                num_iterations=run_config.num_iterations,
-            )
+    _compile_and_run(
+        file_name=mlir_file,
+        kernel_name=kernel_name,
+        input_data=input_args,
+        output_data=output_args,
+        pass_pipeline=pass_pipeline,
+        library_paths=get_kittens_library_paths(),
+        mcpu=MCPU,
+        wavefront_size=WAVEFRONT_SIZE,
+        grid_dim=(run_config.num_blocks, 1, 1),
+        block_dim=(64, 1, 1),
+        num_iterations=run_config.num_iterations,
+        skip_on_cross_compile=True,
+    )
 
 
 class TestKittensZeroC:
@@ -210,7 +186,7 @@ if __name__ == "__main__":
     )
     cli_args = parser.parse_args()
 
-    # Override module-level config for all execute_kernel_and_verify calls
+    # Override module-level config for all compile_and_run calls
     run_config.num_blocks = cli_args.num_blocks
     run_config.num_iterations = cli_args.num_iterations
 
