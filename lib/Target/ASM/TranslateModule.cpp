@@ -58,25 +58,52 @@ static void printLSOffset(amdgcn::AsmPrinter &printer, AMDGCNInstOpInterface op,
 
 #include "AMDGCNAsmPrinter.cpp.inc"
 
-/// Emit the v_mfma_ld_scale_b32 prefix line for scaled MFMA instructions.
-/// The generated printer handles the MFMA line; this emits the ld_scale line
-/// that precedes it (the hardware assembler bundles both into one 4-DWORD
-/// VOP3PX encoding).
-static void printScaledMFMALdScalePrefix(amdgcn::AsmPrinter &printer,
-                                         inst::VOP3PScaledMAIOp scaledMai) {
-  {
-    auto grd = printer.printMnemonic("v_mfma_ld_scale_b32");
-    printer.printOperand(scaledMai.getScaleSrc0());
-    printer.printComma();
-    printer.printOperand(scaledMai.getScaleSrc1());
-    printer.printSquareIntModifier("op_sel_0", scaledMai.getOpSel_0(), 0);
-    printer.printSquareIntModifier("op_sel_1", scaledMai.getOpSel_1(), 0);
+/// Emit a scaled MFMA as a single combined instruction line:
+///   v_mfma_scale_f32_<tile>_f8f6f4 vdst, a, b, c, s0, s1 op_sel_hi:[x,y,0]
+/// LLVM assembles this as one 4-DWORD VOP3PX encoding.
+static llvm::LogicalResult printScaledMFMA(amdgcn::AsmPrinter &printer,
+                                           inst::VOP3PScaledMAIOp scaledMai) {
+  OpCode opcode = scaledMai.getOpcodeAttr().getValue();
+  StringRef mnemonic;
+  switch (opcode) {
+  case OpCode::V_MFMA_SCALE_F32_16X16X128_F8F6F4:
+    mnemonic = "v_mfma_scale_f32_16x16x128_f8f6f4";
+    break;
+  case OpCode::V_MFMA_SCALE_F32_32X32X64_F8F6F4:
+    mnemonic = "v_mfma_scale_f32_32x32x64_f8f6f4";
+    break;
+  default:
+    return scaledMai.emitError() << "unknown scaled MFMA opcode";
   }
+  auto grd = printer.printMnemonic(mnemonic);
+  printer.printOperand(scaledMai.getVdst());
+  printer.printComma();
+  printer.printOperand(scaledMai.getA());
+  printer.printComma();
+  printer.printOperand(scaledMai.getB());
+  printer.printComma();
+  printer.printOperand(scaledMai.getC());
+  printer.printComma();
+  printer.printOperand(scaledMai.getScaleSrc0());
+  printer.printComma();
+  printer.printOperand(scaledMai.getScaleSrc1());
+  // op_sel_hi is always emitted (LLVM requires it).
+  auto &os = printer.getStream();
+  os << " op_sel_hi:[" << static_cast<int>(scaledMai.getOpSel_0()) << ","
+     << static_cast<int>(scaledMai.getOpSel_1()) << ",0]";
+  printer.printSquareIntModifier("cbsz", scaledMai.getCbsz(), 0);
+  printer.printSquareIntModifier("abid", scaledMai.getAbid(), 0);
+  printer.printSquareIntModifier("blgp", scaledMai.getBlgp(), 0);
+  return success();
 }
 
 /// Prints the given instruction using the AsmPrinter.
 static llvm::LogicalResult printInstruction(amdgcn::AsmPrinter &printer,
                                             AMDGCNInstOpInterface op) {
+  // Scaled MFMA: custom single-line emission (bypasses generated printer).
+  if (auto scaledMai = dyn_cast<inst::VOP3PScaledMAIOp>(op.getOperation()))
+    return printScaledMFMA(printer, scaledMai);
+
   OpCode opcode = op.getOpcodeAttr().getValue();
   assert(opcode != OpCode::Invalid && "invalid opcode in instruction");
   if (_instPrinters.size() <= static_cast<size_t>(opcode) ||
@@ -84,9 +111,6 @@ static llvm::LogicalResult printInstruction(amdgcn::AsmPrinter &printer,
     return op.emitError() << "no printer defined for opcode: "
                           << stringifyOpCode(opcode);
   }
-  // Scaled MFMA: emit v_mfma_ld_scale_b32 prefix, then the MFMA line.
-  if (auto scaledMai = dyn_cast<inst::VOP3PScaledMAIOp>(op.getOperation()))
-    printScaledMFMALdScalePrefix(printer, scaledMai);
   return _instPrinters[static_cast<size_t>(opcode)](opcode, printer, op);
 }
 

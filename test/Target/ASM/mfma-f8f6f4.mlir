@@ -9,34 +9,32 @@
 // RUN: | FileCheck %s
 
 // Verify ASM emission for CDNA4 scaled f8f6f4 MFMA instructions.
-// Each scaled MFMA emits two lines: v_mfma_ld_scale_b32 + v_mfma_f32_*_f8f6f4.
+// Each scaled MFMA emits a single combined v_mfma_scale_f32_*_f8f6f4 line.
 
 // CHECK-LABEL: Module: mfma_f8f6f4_mod
 // CHECK:    .amdgcn_target "amdgcn-amd-amdhsa--gfx950"
 
 // CHECK-LABEL: mfma_16x16x128:
-// CHECK:       v_mfma_ld_scale_b32
-// CHECK:       v_mfma_f32_16x16x128_f8f6f4
+// CHECK:       v_mfma_scale_f32_16x16x128_f8f6f4
+// CHECK-SAME:  op_sel_hi:[0,0,0]
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
 // CHECK-LABEL: mfma_16x16x128_with_formats:
-// CHECK:       v_mfma_ld_scale_b32
-// CHECK:       v_mfma_f32_16x16x128_f8f6f4
-// CHECK-SAME:  cbsz:[2] blgp:[4]
+// CHECK:       v_mfma_scale_f32_16x16x128_f8f6f4
+// CHECK-SAME:  op_sel_hi:[0,0,0] cbsz:[2] blgp:[4]
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
 // CHECK-LABEL: mfma_16x16x128_with_op_sel:
-// CHECK:       v_mfma_ld_scale_b32
-// CHECK-SAME:  op_sel_0:[3] op_sel_1:[3]
-// CHECK:       v_mfma_f32_16x16x128_f8f6f4
+// CHECK:       v_mfma_scale_f32_16x16x128_f8f6f4
+// CHECK-SAME:  op_sel_hi:[3,3,0]
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
 // CHECK-LABEL: mfma_32x32x64:
-// CHECK:       v_mfma_ld_scale_b32
-// CHECK:       v_mfma_f32_32x32x64_f8f6f4
+// CHECK:       v_mfma_scale_f32_32x32x64_f8f6f4
+// CHECK-SAME:  op_sel_hi:[0,0,0]
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 

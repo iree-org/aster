@@ -22,14 +22,12 @@
 //   Expected: 64*1.0*2.0 + 64*1.5*0.5 + 10.0 = 128 + 48 + 10 = 186.0
 
 // CHECK-LABEL: scaled_mfma_nonidentity_scales:
-// CHECK:       v_mfma_ld_scale_b32
-// CHECK:       v_mfma_f32_16x16x128_f8f6f4
+// CHECK:       v_mfma_scale_f32_16x16x128_f8f6f4
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
 // CHECK-LABEL: scaled_mfma_split_k_accum:
-// CHECK:       v_mfma_ld_scale_b32
-// CHECK:       v_mfma_f32_16x16x128_f8f6f4
+// CHECK:       v_mfma_scale_f32_16x16x128_f8f6f4
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
