@@ -172,80 +172,11 @@ class AMDGCN_Type<string name, string typeMnemonic, list<Trait> traits = []>
 // Inst Op Helpers
 //===----------------------------------------------------------------------===//
 
-// DS instruction op.
-class DS_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("ds.", mnemonic), traits> {
-}
-
-// FLAT instruction op.
-class FLAT_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("flat.", mnemonic), traits> {
-}
-
-// MTBUF instruction op.
-class MTBUF_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("mtbuf.", mnemonic), traits> {
-}
-
-// MUBUF instruction op.
-class MUBUF_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("mubuf.", mnemonic), traits> {
-}
-
-// SMEM instruction op.
-class SMEM_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("smem.", mnemonic), traits> {
-}
-
-// SOP1 instruction op.
-class SOP1_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("sop1.", mnemonic), traits> {
-}
-
-// SOP2 instruction op.
-class SOP2_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("sop2.", mnemonic), traits> {
-}
-
-// SOPC instruction op.
-class SOPC_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("sopc.", mnemonic), traits> {
-}
-
-// SOPK instruction op.
-class SOPK_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("sopk.", mnemonic), traits> {
-}
-
-// SOPP instruction op.
-class SOPP_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("sopp.", mnemonic), traits> {
-}
-
-// VOP1 instruction op.
-class VOP1_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("vop1.", mnemonic), traits> {
-}
-
-// VOP2 instruction op.
-class VOP2_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("vop2.", mnemonic), traits> {
-}
-
-// VOP3 instruction op.
-class VOP3_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("vop3.", mnemonic), traits> {
-}
-
 // VOP3P instruction op.
 class VOP3P_Op<string mnemonic, list<Trait> traits = []>
   : InstOpHelper<!strconcat("vop3p.", mnemonic), traits> {
 }
 
-// VOPC instruction op.
-class VOPC_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("vopc.", mnemonic), traits> {
-}
 
 //===----------------------------------------------------------------------===//
 // Base traits

@@ -27,32 +27,6 @@ include "mlir/IR/Constraints.td"
 // Inst Op Helpers
 //===----------------------------------------------------------------------===//
 
-/// Utility class to indicate that no builder should be generated.
-class SkipBuilderTag : OpBuilder<(ins)>;
-def SkipBuilder : SkipBuilderTag;
-
-/// Utility class to indicate that the op builder from the op definition
-// should be used.
-class UseOpBuilderTag : OpBuilder<(ins)>;
-def UseOpBuilder : UseOpBuilderTag;
-
-/// Utility class to configure various properties of an operation.
-class OpProps<list<OpBuilder> _builders = [], bit _skipDefaultBuilders = 0,
-              string _assemblyFormat = "", bit _hasVerifier = 0,
-              bit _hasCanonicalizer = 0, bit _hasCanonicalizeMethod = 0,
-              bit _hasFolder = 0, code _extraClassDeclaration = "",
-              code _extraClassDefinition = ""> {
-  list<OpBuilder> builders = _builders;
-  bit skipDefaultBuilders = _skipDefaultBuilders;
-  string assemblyFormat = _assemblyFormat;
-  bit hasVerifier = _hasVerifier;
-  bit hasCanonicalizer = _hasCanonicalizer;
-  bit hasCanonicalizeMethod = _hasCanonicalizeMethod;
-  bit hasFolder = _hasFolder;
-  code extraClassDeclaration = _extraClassDeclaration;
-  code extraClassDefinition = _extraClassDefinition;
-}
-
 /// Optional type match.
 class _OptTypeMatch<string lhs, string rhs>
     : OptionalTypesMatchWith<lhs#" and "#rhs#"must be equal", lhs, rhs,
@@ -193,7 +167,7 @@ class _OpInfo<dag inputs, dag outputs> {
 
 /// Helper class to define an AMDGCN instruction operations.
 class AutoInstOp<string mnemonic, list<Trait> _traits = [],
-                 bit _genInstVerifier = 1, OpProps opProps = OpProps<>>
+                 bit _genInstVerifier = 1>
     : InstOpHelper<mnemonic, []> {
   let cppNamespace = "::mlir::aster::amdgcn::inst";
   // The inputs of the instruction.
@@ -208,57 +182,18 @@ class AutoInstOp<string mnemonic, list<Trait> _traits = [],
   // Create the results dag from the outputs.
   let results = opInfo.results;
   // The assembly format string.
-  let assemblyFormat =
-      !if(!empty(opProps.assemblyFormat), opInfo.fmt, opProps.assemblyFormat);
+  let assemblyFormat = opInfo.fmt;
   let hasCustomAssemblyFormat = !not(!initialized(assemblyFormat));
   let traits = opInfo.traits#_traits;
   // Whether to generate the instruction verifier using amdgcn-tblgen.
   let genInstVerifier = _genInstVerifier;
-  let hasVerifier = !if(genInstVerifier, 1, opProps.hasVerifier);
+  let hasVerifier = genInstVerifier;
 
-  // Use OpProps to configure various properties of the op.
-  let builders = opProps.builders;
-  let skipDefaultBuilders = opProps.skipDefaultBuilders;
-  let hasCanonicalizer = opProps.hasCanonicalizer;
-  let hasCanonicalizeMethod = opProps.hasCanonicalizeMethod;
-  let hasFolder = opProps.hasFolder;
-  let extraClassDeclaration = opProps.extraClassDeclaration;
-  let extraClassDefinition = opProps.extraClassDefinition;
   // Check pre-conditions.
   assert opInfo.inputsInfo.areOptsAtEnd,
     "Optional input arguments must be at the end of the argument list: " #!repr(inputs);
   assert opInfo.outputsInfo.areOptsAtEnd,
     "Optional output arguments must be at the end of the argument list: " #!repr(outputs);
-}
-
-/// Helper class to get the appropriate op builder.
-class _GetBuilder<OpBuilder instBuilder, OpBuilder _opBuilder> {
-  assert !not(!isa<UseOpBuilderTag>(_opBuilder)),
-    "Op builder cannot be UseOpBuilder";
-  OpBuilder result = !cond(
-    !isa<SkipBuilderTag>(instBuilder) : ?,
-    !isa<UseOpBuilderTag>(instBuilder) : !cond(
-      !isa<SkipBuilderTag>(_opBuilder) : ?,
-      true : _opBuilder),
-    true : instBuilder);
-}
-
-/// An instruction case.
-class InstCase<string _mnemonic, list<AsmVariant> _asmFormat,
-               dag _constraints = (ins),
-               list<ISAVersion> _isa = ?, string _description = "",
-               OpBuilder _cppBuilder = UseOpBuilder,
-               OpBuilder _pythonBuilder = UseOpBuilder,
-               string _identifier = ""> {
-  string mnemonic = _mnemonic;
-  string description = _description;
-  dag constraints = _constraints;
-  OpBuilder cppBuilder = _cppBuilder;
-  OpBuilder pythonBuilder = _pythonBuilder;
-  list<ISAVersion> isa = _isa;
-  string identifier =
-    !if(!empty(_identifier), snakeCaseToCamelCase<_mnemonic>.ret, _identifier);
-  list<AsmVariant> asmFormat = _asmFormat;
 }
 
 //===----------------------------------------------------------------------===//
