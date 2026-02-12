@@ -277,8 +277,13 @@ static void handleMakeBufferRsrc(RewriterBase &rewriter,
       dword0 = S_MOV_B32::create(rewriter, loc, copyDst, baseLo).getSdstRes();
     }
 
-    // num_records is already a single SGPR -- dword 2.
-    Value numRecords = rsrcOp.getNumRecords();
+    // num_records (dword 2): copy into a fresh SGPR so each descriptor gets
+    // an independent register that won't conflict with other descriptors
+    // sharing the same num_records SSA value.
+    Value numRecordsCopyDst = AllocaOp::create(rewriter, loc, sgprTy());
+    Value numRecords = S_MOV_B32::create(rewriter, loc, numRecordsCopyDst,
+                                         rsrcOp.getNumRecords())
+                           .getSdstRes();
 
     // dword 3: flags constant loaded via s_mov_b32.
     Value flagsAlloc = AllocaOp::create(rewriter, loc, sgprTy());

@@ -618,6 +618,137 @@ def BUFFER_STORE_DWORDX4_INST : BStoreInst<
 }
 
 //===----------------------------------------------------------------------===//
+// Buffer Load Instructions (MUBUF, IDXEN mode)
+//===----------------------------------------------------------------------===//
+
+// MUBUF is a complex instruction and is currently split into different ops.
+
+// MUBUF has four addressing modes based on the OFFEN/IDXEN encoding bits:
+//   OFFSET (0,0): no VGPR, soffset + imm only
+//   OFFEN  (1,0): 1 VGPR byte offset (BLoadInst/BStoreInst above)
+//   IDXEN  (0,1): 1 VGPR element index, hw computes index * stride
+//   BOTHEN (1,1): VGPR pair {index, offset} in consecutive registers
+//
+// These are separate op classes (not a mode attribute on one op) because the
+// VGPR operand count and type differ per mode: OFFSET has none, OFFEN/IDXEN
+// have one, BOTHEN has a pair. This matches LLVM's separate pseudo-instructions.
+//
+// TODO: add a BufferOpInterface for shared queries (get descriptor, soffset, etc).
+class BLoadIdxInst<string _mnemonic, int resultRegs, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, _mnemonic # "_idxen", AMDGCN_LoadOp, _isa> {
+  let constraints = (ins AccOperand<resultRegs>:$dest,
+                         SGPROperand<4, 0, 4>:$addr,
+                         SGPROperand<1, 1>:$uniform_offset,
+                         VGPROperand<1, 1>:$dynamic_offset);
+  let cppBuilder = OpBuilder<(ins
+    CppValue:$dest, CppValue:$addr,
+    CppValue:$uniform_offset, CppValue:$dynamic_offset,
+    CppValue:$constant_offset), [{
+    return $_create($_builder, $_loc, $_opcode, dest, addr, uniform_offset,
+      dynamic_offset, constant_offset);
+    }]>;
+  let asmFormat = [
+    SingleAsmVariant<
+      "$dest, $dynamic_offset, $addr, $uniform_offset idxen $constant_offset">
+  ];
+}
+
+def BUFFER_LOAD_DWORD_IDXEN_INST : BLoadIdxInst<
+  /*mnemonic=*/"buffer_load_dword", /*resultRegs=*/1, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer load 32-bit (IDXEN)";
+  let description = [{
+    MUBUF load with IDXEN addressing. The VGPR provides an element index for
+    structured buffer mode (stride > 0). Hardware computes index * stride.
+  }];
+}
+
+def BUFFER_LOAD_DWORDX2_IDXEN_INST : BLoadIdxInst<
+  /*mnemonic=*/"buffer_load_dwordx2", /*resultRegs=*/2, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer load 64-bit (IDXEN)";
+  let description = [{
+    MUBUF load with IDXEN addressing. The VGPR provides an element index for
+    structured buffer mode (stride > 0). Hardware computes index * stride.
+  }];
+}
+
+def BUFFER_LOAD_DWORDX3_IDXEN_INST : BLoadIdxInst<
+  /*mnemonic=*/"buffer_load_dwordx3", /*resultRegs=*/3, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer load 96-bit (IDXEN)";
+  let description = [{
+    MUBUF load with IDXEN addressing. The VGPR provides an element index for
+    structured buffer mode (stride > 0). Hardware computes index * stride.
+  }];
+}
+
+def BUFFER_LOAD_DWORDX4_IDXEN_INST : BLoadIdxInst<
+  /*mnemonic=*/"buffer_load_dwordx4", /*resultRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer load 128-bit (IDXEN)";
+  let description = [{
+    MUBUF load with IDXEN addressing. The VGPR provides an element index for
+    structured buffer mode (stride > 0). Hardware computes index * stride.
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Buffer Store Instructions (MUBUF, IDXEN mode)
+//===----------------------------------------------------------------------===//
+
+class BStoreIdxInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, _mnemonic # "_idxen", AMDGCN_StoreOp, _isa> {
+  let constraints = (ins AccOperand<dataRegs>:$data,
+                         SGPROperand<4, 0, 4>:$addr,
+                         SGPROperand<1, 1>:$uniform_offset,
+                         VGPROperand<1, 1>:$dynamic_offset);
+  let cppBuilder = OpBuilder<(ins
+    CppValue:$data, CppValue:$addr,
+    CppValue:$uniform_offset, CppValue:$dynamic_offset,
+    CppValue:$constant_offset), [{
+    return $_create($_builder, $_loc, $_opcode, data, addr, uniform_offset,
+      dynamic_offset, constant_offset);
+    }]>;
+  let asmFormat = [
+    SingleAsmVariant<
+      "$data, $dynamic_offset, $addr, $uniform_offset idxen $constant_offset">
+  ];
+}
+
+def BUFFER_STORE_DWORD_IDXEN_INST : BStoreIdxInst<
+  /*mnemonic=*/"buffer_store_dword", /*dataRegs=*/1, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer store 32-bit (IDXEN)";
+  let description = [{
+    MUBUF store with IDXEN addressing. The VGPR provides an element index for
+    structured buffer mode (stride > 0). Hardware computes index * stride.
+  }];
+}
+
+def BUFFER_STORE_DWORDX2_IDXEN_INST : BStoreIdxInst<
+  /*mnemonic=*/"buffer_store_dwordx2", /*dataRegs=*/2, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer store 64-bit (IDXEN)";
+  let description = [{
+    MUBUF store with IDXEN addressing. The VGPR provides an element index for
+    structured buffer mode (stride > 0). Hardware computes index * stride.
+  }];
+}
+
+def BUFFER_STORE_DWORDX3_IDXEN_INST : BStoreIdxInst<
+  /*mnemonic=*/"buffer_store_dwordx3", /*dataRegs=*/3, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer store 96-bit (IDXEN)";
+  let description = [{
+    MUBUF store with IDXEN addressing. The VGPR provides an element index for
+    structured buffer mode (stride > 0). Hardware computes index * stride.
+  }];
+}
+
+def BUFFER_STORE_DWORDX4_IDXEN_INST : BStoreIdxInst<
+  /*mnemonic=*/"buffer_store_dwordx4", /*dataRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Buffer store 128-bit (IDXEN)";
+  let description = [{
+    MUBUF store with IDXEN addressing. The VGPR provides an element index for
+    structured buffer mode (stride > 0). Hardware computes index * stride.
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // DS Write Instructions
 //===----------------------------------------------------------------------===//
 

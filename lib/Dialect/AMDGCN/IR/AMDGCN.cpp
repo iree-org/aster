@@ -334,6 +334,14 @@ mlir::aster::amdgcn::getMemoryInstructionKind(OpCode opCode) {
   case OpCode::BUFFER_STORE_DWORDX2:
   case OpCode::BUFFER_STORE_DWORDX3:
   case OpCode::BUFFER_STORE_DWORDX4:
+  case OpCode::BUFFER_LOAD_DWORD_IDXEN:
+  case OpCode::BUFFER_LOAD_DWORDX2_IDXEN:
+  case OpCode::BUFFER_LOAD_DWORDX3_IDXEN:
+  case OpCode::BUFFER_LOAD_DWORDX4_IDXEN:
+  case OpCode::BUFFER_STORE_DWORD_IDXEN:
+  case OpCode::BUFFER_STORE_DWORDX2_IDXEN:
+  case OpCode::BUFFER_STORE_DWORDX3_IDXEN:
+  case OpCode::BUFFER_STORE_DWORDX4_IDXEN:
     return MemoryInstructionKind::Flat;
   default:
     return MemoryInstructionKind::None;
