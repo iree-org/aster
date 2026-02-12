@@ -685,19 +685,19 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
     switch (numWords) {
     case 1:
       result =
-          DS_READ_B32::create(rewriter, loc, dst, addr, offset).getResult();
+          DS_READ_B32::create(rewriter, loc, dst, addr, offset).getDestRes();
       break;
     case 2:
       result =
-          DS_READ_B64::create(rewriter, loc, dst, addr, offset).getResult();
+          DS_READ_B64::create(rewriter, loc, dst, addr, offset).getDestRes();
       break;
     case 3:
       result =
-          DS_READ_B96::create(rewriter, loc, dst, addr, offset).getResult();
+          DS_READ_B96::create(rewriter, loc, dst, addr, offset).getDestRes();
       break;
     case 4:
       result =
-          DS_READ_B128::create(rewriter, loc, dst, addr, offset).getResult();
+          DS_READ_B128::create(rewriter, loc, dst, addr, offset).getDestRes();
       break;
     default:
       return rewriter.notifyMatchFailure(
@@ -721,23 +721,23 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
     switch (numWords) {
     case 1:
       result = S_LOAD_DWORD::create(rewriter, loc, dst, addr, nullptr, cOff)
-                   .getResult();
+                   .getDestRes();
       break;
     case 2:
       result = S_LOAD_DWORDX2::create(rewriter, loc, dst, addr, nullptr, cOff)
-                   .getResult();
+                   .getDestRes();
       break;
     case 4:
       result = S_LOAD_DWORDX4::create(rewriter, loc, dst, addr, nullptr, cOff)
-                   .getResult();
+                   .getDestRes();
       break;
     case 8:
       result = S_LOAD_DWORDX8::create(rewriter, loc, dst, addr, nullptr, cOff)
-                   .getResult();
+                   .getDestRes();
       break;
     case 16:
       result = S_LOAD_DWORDX16::create(rewriter, loc, dst, addr, nullptr, cOff)
-                   .getResult();
+                   .getDestRes();
       break;
     default:
       return rewriter.notifyMatchFailure(
@@ -766,22 +766,22 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
     switch (numWords) {
     case 1:
       result = GLOBAL_LOAD_DWORD::create(rewriter, loc, dst, addr, offset, cOff)
-                   .getResult();
+                   .getDestRes();
       break;
     case 2:
       result =
           GLOBAL_LOAD_DWORDX2::create(rewriter, loc, dst, addr, offset, cOff)
-              .getResult();
+              .getDestRes();
       break;
     case 3:
       result =
           GLOBAL_LOAD_DWORDX3::create(rewriter, loc, dst, addr, offset, cOff)
-              .getResult();
+              .getDestRes();
       break;
     case 4:
       result =
           GLOBAL_LOAD_DWORDX4::create(rewriter, loc, dst, addr, offset, cOff)
-              .getResult();
+              .getDestRes();
       break;
     default:
       return rewriter.notifyMatchFailure(
@@ -836,7 +836,7 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
     if (matchPattern(lhs, m_ConstantInt(&constVal)) &&
         !constVal.isSignedIntN(6)) {
       Value vgpr = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
-      lhs = V_MOV_B32_E32::create(rewriter, loc, vgpr, lhs);
+      lhs = V_MOV_B32_E32::create(rewriter, loc, vgpr, lhs).getVdstRes();
       lhsKind = OperandKind::VGPR;
     }
   }
@@ -885,7 +885,7 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
       APInt constVal;
       if (matchPattern(lhs, m_ConstantInt(&constVal))) {
         Value vgpr = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
-        lhs = V_MOV_B32_E32::create(rewriter, loc, vgpr, lhs);
+        lhs = V_MOV_B32_E32::create(rewriter, loc, vgpr, lhs).getVdstRes();
         lhsKind = OperandKind::VGPR;
       }
     }
@@ -1026,8 +1026,9 @@ LogicalResult MovOpPattern::matchAndRewrite(lsir::MovOp op,
   Value res;
   switch (kind) {
   case OperandKind::VGPR:
-    res = V_MOV_B32_E32::create(rewriter, op.getLoc(), op.getDst(),
-                                op.getValue());
+    res =
+        V_MOV_B32_E32::create(rewriter, op.getLoc(), op.getDst(), op.getValue())
+            .getVdstRes();
     break;
   case OperandKind::SGPR:
     res = S_MOV_B32::create(rewriter, op.getLoc(), op.getDst(), op.getValue());
@@ -1060,8 +1061,9 @@ RegCastOpPattern::matchAndRewrite(lsir::RegCastOp op,
   }
 
   Value res = V_MOV_B32_E32::create(
-      rewriter, loc, createAllocation(rewriter, loc, op.getType()),
-      op.getSrc());
+                  rewriter, loc, createAllocation(rewriter, loc, op.getType()),
+                  op.getSrc())
+                  .getVdstRes();
   rewriter.replaceOp(op, res);
   return success();
 }

@@ -90,7 +90,7 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
     return createOp(rewriter, alloc.getLoc(), alloc, kenArgPtr, nullptr,
                     arith::ConstantIntOp::create(rewriter, alloc.getLoc(),
                                                  offset, 32))
-        .getResult();
+        .getDestRes();
   // Load in multiple instructions.
   ValueRange splitAlloc = splitRange(rewriter, alloc.getLoc(), alloc);
   SmallVector<Value> loadedRegs;
@@ -109,7 +109,7 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
         createOp(rewriter, alloc.getLoc(), dest, kenArgPtr, nullptr,
                  arith::ConstantIntOp::create(rewriter, alloc.getLoc(),
                                               offset + i * 4 * numWords, 32))
-            .getResult();
+            .getDestRes();
 
     // Maybe partition the segment.
     if (numWords > 1) {

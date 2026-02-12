@@ -20,7 +20,6 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNEnumAttrs.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNModifiers.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.td"
-include "aster/Dialect/AMDGCN/IR/AMDGCNInstOpInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/IR/Constraints.td"
 
@@ -195,7 +194,7 @@ class _OpInfo<dag inputs, dag outputs> {
 /// Helper class to define an AMDGCN instruction operations.
 class AutoInstOp<string mnemonic, list<Trait> _traits = [],
                  bit _genInstVerifier = 1, OpProps opProps = OpProps<>>
-    : InstOp<mnemonic, []> {
+    : InstOpHelper<mnemonic, []> {
   let cppNamespace = "::mlir::aster::amdgcn::inst";
   // The inputs of the instruction.
   dag inputs = (ins);

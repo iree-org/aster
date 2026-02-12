@@ -31,12 +31,7 @@ def CmpIOpResult : AnyRegOf<[SReg<"VCC">, SReg<"SCC">, SGPRType]>;
 // CmpIOp
 //===----------------------------------------------------------------------===//
 
-def AMDGCN_CmpIOp : InstOp<"cmpi", [
-    AMDGCNInstOpInterface,
-    ConditionallySpeculatable,
-    DeclareOpInterfaceMethods<InferTypeOpInterface>,
-    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
-  ]> {
+def AMDGCN_CmpIOp : AMDGCN_InstOp<"cmpi", [PureInst]> {
   let cppNamespace = "::mlir::aster::amdgcn";
   let summary = "AMDGCN integer comparison operation";
   let description = [{
@@ -44,14 +39,9 @@ def AMDGCN_CmpIOp : InstOp<"cmpi", [
     s_cmp_eq_i32, v_cmp_lt_i32, etc.). It compares two operands and writes the
     result to a special register (VCC or SCC).
   }];
-  let arguments = (ins
-    AMDGCN_InstAttr:$opcode,
-    CmpIOpResult:$dest,
-    OptionalReg<SReg<"EXEC">>:$exec,
-    CmpIOpOperand:$lhs,
-    CmpIOpOperand:$rhs
-  );
-  let results = (outs Optional<CmpIOpResult>:$result);
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
+  let outputs = (ins CmpIOpResult:$dest, OptionalReg<SReg<"EXEC">>:$exec);
+  let inputs = (ins CmpIOpOperand:$lhs, CmpIOpOperand:$rhs);
   let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<(ins "OpCode":$opcode, "Value":$dest, "Value":$lhs, "Value":$rhs)>,
@@ -59,41 +49,14 @@ def AMDGCN_CmpIOp : InstOp<"cmpi", [
   ];
   let assemblyFormat = [{
     custom<Opcode>($opcode) `outs` $dest (`,` $exec^)? `ins` $lhs `,` $rhs
-    attr-dict `:` custom<CmpOutTypes>(type($dest), ref($exec), type($exec))
+    attr-dict `:`
+    custom<CmpOutTypes>(type($dest), ref($exec), type($exec), type($dest_res), type($exec_res))
     `ins` `(` type($lhs) `,` type($rhs) `)`
   }];
   let extraClassDeclaration = [{
-    /// Returns the number of output operands.
-    int32_t getNumOuts() {
-      return getExec() ? 2 : 1;
-    }
-
     /// Returns true if this instruction is in DPS format.
     bool isDPSInstruction() {
-      return getResult() != nullptr;
-    }
-
-    /// Returns the speculatability of the operation.
-    Speculation::Speculatability getSpeculatability() {
-      return aster::detail::getInstSpeculatabilityImpl(*this);
-    }
-
-    //===------------------------------------------------------------------===//
-    // AMDGCNInstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getOperation()->getOpOperands().take_front(getNumOuts()));
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().drop_front(getNumOuts()));
-    }
-    /// Get the instruction results.
-    ResultRange getInstResults() {
-      if (isDPSInstruction())
-        return getOperation()->getResults().slice(0, 1);
-      return getOperation()->getResults().slice(0, 0);
+      return getDestRes() != nullptr;
     }
   }];
 }
