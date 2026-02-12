@@ -59,7 +59,7 @@ class LSIR_Op<string mnemonic, list<Trait> traits = []>
     : Op<LSIR_Dialect, mnemonic, traits>;
 
 class LSIR_InstOp<string mnemonic, list<Trait> traits = []>
-    : InstOperation<LSIR_Dialect, mnemonic, [InstOpInterface] # traits> {
+    : InstOp<LSIR_Dialect, mnemonic, [InstOpInterface] # traits> {
   let genInstVerifier = 0;
 }
 

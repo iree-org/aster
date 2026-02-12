@@ -50,7 +50,7 @@ def V_NOP_INST : AMDInst<
 //===----------------------------------------------------------------------===//
 
 def VOP1Op : AMDGCN_InstOp<"vop1.vop1", [
-    AMDGCNInstTraits, InstInferType
+    PureInst, InstInferType
   ]> {
   let summary = "VOP1 (Vector Operations with 1 operand) operation";
   let description = [{

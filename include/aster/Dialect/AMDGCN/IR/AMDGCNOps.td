@@ -42,7 +42,8 @@ include "mlir/IR/SymbolInterfaces.td"
 //===----------------------------------------------------------------------===//
 
 def AMDGCN_AllocaOp : AMDGCN_Op<"alloca", [
-    AMDGCNOpTraits
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
   let summary = "AMDGCN alloca operation";
   let description = [{

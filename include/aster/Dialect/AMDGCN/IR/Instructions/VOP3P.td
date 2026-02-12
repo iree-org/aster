@@ -115,7 +115,7 @@ def VAccvgprWrite : VOP3PInst<"v_accvgpr_write_b32",  [CDNA3, CDNA4]> {
 //===----------------------------------------------------------------------===//
 
 def VOP3PMAIOp : AMDGCN_InstOp<"vop3p.vop3p_mai", [
-    AMDGCNInstTraits, InstInferType,
+    PureInst, InstInferType,
     AllTypeIDsMatch<["vdst", "c"]>
   ]> {
   let summary = "VOP3P-MAI (Matrix Arithmetic Instructions) operation";

@@ -94,17 +94,6 @@ class InstConstraint<list<Constraint> _constraints = []> {
   list<Constraint> constraints = _constraints;
 }
 
-class InstOp;
-
-/// AMDGCN instruction op class.
-class InstOpHelper<string mnemonic, list<Trait> traits = []>
-  : AMDGCN_Op<mnemonic, traits>, InstOp {
-  let cppNamespace = "::mlir::aster::amdgcn::inst";
-  // Whether to generate the instruction verifier using amdgcn-tblgen.
-  bit genInstVerifier = 1;
-  let hasVerifier = !if(genInstVerifier, 1, 0);
-}
-
 /// AMDGCN instruction assembly variant.
 class AsmVariant<Pred pred, code format> {
   // The predicate that determines when this variant applies.
@@ -169,61 +158,12 @@ class AMDGCN_Type<string name, string typeMnemonic, list<Trait> traits = []>
 }
 
 //===----------------------------------------------------------------------===//
-// Inst Op Helpers
-//===----------------------------------------------------------------------===//
-
-// VOP3P instruction op.
-class VOP3P_Op<string mnemonic, list<Trait> traits = []>
-  : InstOpHelper<!strconcat("vop3p.", mnemonic), traits> {
-}
-
-//===----------------------------------------------------------------------===//
-// Base traits
-//===----------------------------------------------------------------------===//
-
-// Note: https://discourse.llvm.org/t/question-about-memoryeffectsopinterface/88879
-// MemoryEffectsOpInterface is the "generic" name for effects that prevent DCE.
-// We generally want that because of WYSIWYG, as a consequence, need to be very
-// explicit about resources.
-def AMDGCNOpTraits : TraitList<[
-    DeclareOpInterfaceMethods<ConditionallySpeculatable>,
-    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
-  ]>;
-
-def AMDGCNInstOpTrait : NativeOpTrait<"InstOpTrait"> {
-  let cppNamespace = "::mlir::aster::amdgcn";
-  let dependentTraits = [ConditionallySpeculatable, MemoryEffectsOpInterface];
-  let extraConcreteClassDeclaration = [{
-    /// Returns the speculatability of the operation.
-    Speculation::Speculatability getSpeculatability() {
-      return aster::detail::getInstSpeculatabilityImpl(*this);
-    }
-    /// Returns the memory effects of the operation.
-    void getEffects(
-        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-            &effects) {
-      return aster::detail::getInstEffectsImpl(*this, effects);
-    }
-  }];
-}
-
-// Note: https://discourse.llvm.org/t/question-about-memoryeffectsopinterface/88879
-// MemoryEffectsOpInterface is the "generic" name for effects that prevent DCE.
-// We generally want that because of WYSIWYG, as a consequence, need to be very
-// explicit about resources.
-def AMDGCNInstTraits : TraitList<[
-    ConditionallySpeculatable,
-    MemoryEffectsOpInterface,
-    AMDGCNInstOpTrait
-  ]>;
-
-//===----------------------------------------------------------------------===//
-// AMDGCN InstOperation base class
+// AMDGCN InstOp base class
 //===----------------------------------------------------------------------===//
 
 class AMDGCN_InstOp<string mnemonic, list<Trait> traits = []>
-    : InstOperation<AMDGCN_Dialect, mnemonic,
-                    traits # [AMDGCNInstOpInterface]>, InstOp {
+    : InstOp<AMDGCN_Dialect, mnemonic,
+                    traits # [AMDGCNInstOpInterface]> {
   let cppNamespace = "::mlir::aster::amdgcn::inst";
 }
 
