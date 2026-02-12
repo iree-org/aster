@@ -24,12 +24,13 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 def SOP1SSrc : RegOrImm<[SGPRType, SGPRRangeType], [I32]>;
 def SOP1SDst : AnyRegOf<[SGPRType, SGPRRangeType]>;
 
-def SOP1Op : AutoInstOp<"sop1", [AMDGCNInstTraits]> {
+def SOP1Op : AMDGCN_InstOp<"sop1", [PureInst, InstInferType]> {
   let summary = "SOP1 (Scalar Operations with 1 operands) operation";
   let description = [{
     The SOP1 operation performs scalar operations with one source operands and
     one dps operand.
   }];
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let inputs = (ins SOP1SSrc:$src0);
   let outputs = (ins SOP1SDst:$sdst);
   // TODO: add modifiers.

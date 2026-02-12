@@ -25,13 +25,19 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 def VOP3Src : RegOrImm<[SGPRType, VGPRType, SGPRRangeType, VGPRRangeType], [I32]>;
 def VOP3Dst : AnyRegOf<[VGPRType, VGPRRangeType]>;
 
-def VOP3Op : AutoInstOp<"vop3", [AMDGCNInstTraits]> {
+def VOP3Op : AMDGCN_InstOp<"vop3", [
+    PureInst, DeclareOpInterfaceMethods<InferTypeOpInterface>
+  ]> {
   let summary = "VOP3 (Vector Operations with 3 operands) operation";
   let description = [{
     The VOP3 operation performs vector operations with three source operands.
   }];
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let inputs = (ins VOP3Src:$src0, VOP3Src:$src1, OptionalReg<VOP3Src>:$src2);
   let outputs = (ins VOP3Dst:$vdst0, OptionalReg<SGPRRangeType>:$dst1);
+  // TODO: add declarative assembly format, currently it's impossible to do due
+  // to a bug in MLIR tblgen when there are inferred types and op attr results.
+  let hasCustomAssemblyFormat = 1;
   // TODO: add modifiers.
 }
 

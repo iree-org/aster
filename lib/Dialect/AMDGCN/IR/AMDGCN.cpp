@@ -24,6 +24,7 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -997,6 +998,281 @@ WaitOp::canonicalizeWait(WaitOp op, RewriterBase &rewriter,
 LogicalResult WaitOp::canonicalize(WaitOp op, PatternRewriter &rewriter) {
   llvm::SetVector<Value> deps;
   return op.canonicalizeWait(op, rewriter, deps);
+}
+
+//===----------------------------------------------------------------------===//
+// VOP2Op
+//===----------------------------------------------------------------------===//
+
+LogicalResult inst::VOP2Op::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  Adaptor adaptor(operands, attributes, properties, regions);
+  auto &props = *properties.as<Properties *>();
+  inferredReturnTypes.push_back(adaptor.getVdst0().getType());
+  if (adaptor.getDst1())
+    inferredReturnTypes.push_back(adaptor.getDst1().getType());
+  props.resultSegmentSizes[0] = 1;
+  props.resultSegmentSizes[1] = adaptor.getDst1() ? 1 : 0;
+  return success();
+}
+
+ParseResult inst::VOP2Op::parse(OpAsmParser &parser, OperationState &result) {
+  InstAttr opcodeAttr;
+  OpAsmParser::UnresolvedOperand vdst0Operand;
+  std::optional<OpAsmParser::UnresolvedOperand> dst1Operand;
+  OpAsmParser::UnresolvedOperand src0Operand, src1Operand;
+  std::optional<OpAsmParser::UnresolvedOperand> src2Operand;
+
+  if (parseOpcode(parser, opcodeAttr))
+    return failure();
+  result.getOrAddProperties<inst::VOP2Op::Properties>().opcode = opcodeAttr;
+
+  if (parser.parseKeyword("outs"))
+    return failure();
+  if (parser.parseOperand(vdst0Operand))
+    return failure();
+
+  if (succeeded(parser.parseOptionalKeyword("dst1"))) {
+    if (parser.parseEqual())
+      return failure();
+    OpAsmParser::UnresolvedOperand op;
+    if (parser.parseOperand(op))
+      return failure();
+    dst1Operand = op;
+  }
+
+  if (parser.parseKeyword("ins"))
+    return failure();
+  if (parser.parseOperand(src0Operand) || parser.parseComma() ||
+      parser.parseOperand(src1Operand))
+    return failure();
+
+  if (succeeded(parser.parseOptionalKeyword("src2"))) {
+    if (parser.parseEqual())
+      return failure();
+    OpAsmParser::UnresolvedOperand op;
+    if (parser.parseOperand(op))
+      return failure();
+    src2Operand = op;
+  }
+
+  if (parser.parseOptionalAttrDict(result.attributes))
+    return failure();
+
+  if (parser.parseColon())
+    return failure();
+
+  SmallVector<Type> operandTypes;
+  if (parser.parseTypeList(operandTypes))
+    return failure();
+
+  int numOperands = 1 + (dst1Operand ? 1 : 0) + 2 + (src2Operand ? 1 : 0);
+  if (static_cast<int>(operandTypes.size()) != numOperands)
+    return parser.emitError(parser.getCurrentLocation(), "expected ")
+           << numOperands << " operand types, got " << operandTypes.size();
+
+  int idx = 0;
+  Type vdst0Type = operandTypes[idx++];
+  Type dst1Type;
+  if (dst1Operand)
+    dst1Type = operandTypes[idx++];
+  Type src0Type = operandTypes[idx++];
+  Type src1Type = operandTypes[idx++];
+  Type src2Type;
+  if (src2Operand)
+    src2Type = operandTypes[idx++];
+
+  auto &props = result.getOrAddProperties<inst::VOP2Op::Properties>();
+  props.operandSegmentSizes = {1, dst1Operand ? 1 : 0, 1, 1,
+                               src2Operand ? 1 : 0};
+  props.resultSegmentSizes = {1, dst1Operand ? 1 : 0};
+
+  result.addTypes(vdst0Type);
+  if (dst1Operand)
+    result.addTypes(dst1Type);
+
+  if (parser.resolveOperand(vdst0Operand, vdst0Type, result.operands))
+    return failure();
+  if (dst1Operand &&
+      parser.resolveOperand(*dst1Operand, dst1Type, result.operands))
+    return failure();
+  if (parser.resolveOperand(src0Operand, src0Type, result.operands))
+    return failure();
+  if (parser.resolveOperand(src1Operand, src1Type, result.operands))
+    return failure();
+  if (src2Operand &&
+      parser.resolveOperand(*src2Operand, src2Type, result.operands))
+    return failure();
+
+  return success();
+}
+
+void inst::VOP2Op::print(OpAsmPrinter &p) {
+  p << ' ';
+  printOpcode(p, *this, getOpcodeAttr());
+  p << " outs ";
+  p << getVdst0();
+  if (getDst1())
+    p << " dst1 = " << getDst1();
+  p << " ins ";
+  p << getSrc0() << ", " << getSrc1();
+  if (getSrc2())
+    p << " src2 = " << getSrc2();
+  SmallVector<StringRef> elidedAttrs = {getOpcodeAttrName().getValue(),
+                                        "operandSegmentSizes",
+                                        "resultSegmentSizes"};
+  p.printOptionalAttrDict((*this)->getAttrs(), elidedAttrs);
+  p << " : ";
+  p << getVdst0().getType();
+  if (getDst1())
+    p << ", " << getDst1().getType();
+  p << ", " << getSrc0().getType() << ", " << getSrc1().getType();
+  if (getSrc2())
+    p << ", " << getSrc2().getType();
+}
+
+//===----------------------------------------------------------------------===//
+// VOP3Op
+//===----------------------------------------------------------------------===//
+
+LogicalResult inst::VOP3Op::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  Adaptor adaptor(operands, attributes, properties, regions);
+  auto &props = *properties.as<Properties *>();
+  inferredReturnTypes.push_back(adaptor.getVdst0().getType());
+  if (adaptor.getDst1())
+    inferredReturnTypes.push_back(adaptor.getDst1().getType());
+  props.resultSegmentSizes =
+      std::array<int32_t, 2>({1, adaptor.getDst1() ? 1 : 0});
+  return success();
+}
+
+ParseResult inst::VOP3Op::parse(OpAsmParser &parser, OperationState &result) {
+  InstAttr opcodeAttr;
+  OpAsmParser::UnresolvedOperand vdst0Operand;
+  std::optional<OpAsmParser::UnresolvedOperand> dst1Operand;
+  OpAsmParser::UnresolvedOperand src0Operand, src1Operand;
+  std::optional<OpAsmParser::UnresolvedOperand> src2Operand;
+
+  // Parse the opcode.
+  if (parseOpcode(parser, opcodeAttr))
+    return failure();
+  result.getOrAddProperties<inst::VOP3Op::Properties>().opcode = opcodeAttr;
+
+  // Parse the outputs.
+  if (parser.parseKeyword("outs"))
+    return failure();
+  if (parser.parseOperand(vdst0Operand))
+    return failure();
+
+  // Parse the dst1 operand.
+  if (succeeded(parser.parseOptionalKeyword("dst1"))) {
+    if (parser.parseEqual())
+      return failure();
+    OpAsmParser::UnresolvedOperand op;
+    if (parser.parseOperand(op))
+      return failure();
+    dst1Operand = op;
+  }
+
+  // Parse the inputs.
+  if (parser.parseKeyword("ins"))
+    return failure();
+  if (parser.parseOperand(src0Operand) || parser.parseComma() ||
+      parser.parseOperand(src1Operand))
+    return failure();
+
+  // Parse the src2 operand.
+  if (succeeded(parser.parseOptionalKeyword("src2"))) {
+    if (parser.parseEqual())
+      return failure();
+    OpAsmParser::UnresolvedOperand op;
+    if (parser.parseOperand(op))
+      return failure();
+    src2Operand = op;
+  }
+
+  // Parse the attributes.
+  if (parser.parseOptionalAttrDict(result.attributes))
+    return failure();
+
+  // Parse the types.
+  if (parser.parseColon())
+    return failure();
+
+  // Parse types for all operands in order: vdst0, [dst1], src0, src1, [src2].
+  SmallVector<Type> operandTypes;
+  if (parser.parseTypeList(operandTypes))
+    return failure();
+
+  int numOperands = 1 + (dst1Operand ? 1 : 0) + 2 + (src2Operand ? 1 : 0);
+  if (static_cast<int>(operandTypes.size()) != numOperands)
+    return parser.emitError(parser.getCurrentLocation(), "expected ")
+           << numOperands << " operand types, got " << operandTypes.size();
+
+  // Parse the types for the operands.
+  int idx = 0;
+  Type vdst0Type = operandTypes[idx++];
+  Type dst1Type;
+  if (dst1Operand)
+    dst1Type = operandTypes[idx++];
+  Type src0Type = operandTypes[idx++];
+  Type src1Type = operandTypes[idx++];
+  Type src2Type;
+  if (src2Operand)
+    src2Type = operandTypes[idx++];
+
+  auto &props = result.getOrAddProperties<inst::VOP3Op::Properties>();
+  props.operandSegmentSizes = {1, dst1Operand ? 1 : 0, 1, 1,
+                               src2Operand ? 1 : 0};
+  props.resultSegmentSizes = {1, dst1Operand ? 1 : 0};
+
+  result.addTypes(vdst0Type);
+  if (dst1Operand)
+    result.addTypes(dst1Type);
+
+  if (parser.resolveOperand(vdst0Operand, vdst0Type, result.operands))
+    return failure();
+  if (dst1Operand &&
+      parser.resolveOperand(*dst1Operand, dst1Type, result.operands))
+    return failure();
+  if (parser.resolveOperand(src0Operand, src0Type, result.operands))
+    return failure();
+  if (parser.resolveOperand(src1Operand, src1Type, result.operands))
+    return failure();
+  if (src2Operand &&
+      parser.resolveOperand(*src2Operand, src2Type, result.operands))
+    return failure();
+
+  return success();
+}
+
+void inst::VOP3Op::print(OpAsmPrinter &p) {
+  p << ' ';
+  printOpcode(p, *this, getOpcodeAttr());
+  p << " outs ";
+  p << getVdst0();
+  if (getDst1())
+    p << " dst1 = " << getDst1();
+  p << " ins ";
+  p << getSrc0() << ", " << getSrc1();
+  if (getSrc2())
+    p << " src2 = " << getSrc2();
+  SmallVector<StringRef> elidedAttrs = {getOpcodeAttrName().getValue(),
+                                        "operandSegmentSizes",
+                                        "resultSegmentSizes"};
+  p.printOptionalAttrDict((*this)->getAttrs(), elidedAttrs);
+  p << " : ";
+  p << getVdst0().getType();
+  if (getDst1())
+    p << ", " << getDst1().getType();
+  p << ", " << getSrc0().getType() << ", " << getSrc1().getType();
+  if (getSrc2())
+    p << ", " << getSrc2().getType();
 }
 
 //===----------------------------------------------------------------------===//

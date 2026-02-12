@@ -25,13 +25,18 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 def VOP3PSrc : RegOrImm<[VGPRType, VGPRRangeType, AGPRType, AGPRRangeType], [I32, F32]>;
 def VOP3PDst : AnyRegOf<[VGPRType, VGPRRangeType, AGPRType, AGPRRangeType]>;
 
-def VOP3POp : AutoInstOp<"vop3p", [AMDGCNInstTraits]> {
+def VOP3POp : AMDGCN_InstOp<"vop3p", [PureInst, InstInferType]> {
   let summary = "VOP3P operation";
   let description = [{
     The VOP3P operation performs vector operations with three source operands.
   }];
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let inputs = (ins VOP3PSrc:$src0, OptionalReg<VOP3PSrc>:$src1, OptionalReg<VOP3PSrc>:$src2);
   let outputs = (ins VOP3PDst:$vdst);
+  let assemblyFormat = [{
+    custom<Opcode>($opcode) `outs` $vdst `ins` $src0
+    (`src1` `=` $src1^)? (`src2` `=` $src2^)? attr-dict `:` type(operands)
+  }];
   // TODO: add modifiers.
 }
 
@@ -218,11 +223,8 @@ def V_MFMA_F16_16X16X16_F16 : MFMAInst<
 
 def ScaleSrc : AnyRegOf<[VGPRType, SGPRType]>;
 
-def VOP3PScaledMAIOp : VOP3P_Op<"vop3p_scaled_mai", [
-    AMDGCNInstTraits,
-    AMDGCNInstOpInterface,
-    AllTypesMatch<["vdst", "result"]>,
-    AllTypeIDsMatch<["vdst", "c"]>
+def VOP3PScaledMAIOp : AMDGCN_InstOp<"vop3p.vop3p_scaled_mai", [
+    PureInst, InstInferType
   ]> {
   let summary = "VOP3P scaled MFMA (combined ld_scale + matrix multiply)";
   let description = [{
@@ -241,21 +243,22 @@ def VOP3PScaledMAIOp : VOP3P_Op<"vop3p_scaled_mai", [
     - blgp: B-matrix format/lane-group pattern (0-7)
     - op_sel_0, op_sel_1: Byte select for scale sources (0-3)
   }];
-  let arguments = (ins
-    AMDGCN_InstAttr:$opcode,
-    VGPROrAGPRType:$vdst,
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
+  let outputs = (ins VGPROrAGPRType:$vdst);
+  let inputs = (ins
     VGPRRangeType:$a,
     VGPRRangeType:$b,
     VGPROrAGPRType:$c,
     ScaleSrc:$scale_src0,
-    ScaleSrc:$scale_src1,
-    SquareIntModifier<I8Attr, "op_sel_0", 0>:$op_sel_0,
-    SquareIntModifier<I8Attr, "op_sel_1", 0>:$op_sel_1,
+    ScaleSrc:$scale_src1
+  );
+  let trailingArguments = (ins
     CBSZAttr:$cbsz,
     ABIDAttr:$abid,
-    BLGPAttr:$blgp
+    BLGPAttr:$blgp,
+    SquareIntModifier<I8Attr, "op_sel_0", 0>:$op_sel_0,
+    SquareIntModifier<I8Attr, "op_sel_1", 0>:$op_sel_1
   );
-  let results = (outs VGPROrAGPRType:$result);
   let assemblyFormat = [{
     $opcode $vdst `,` $a `,` $b `,` $c `,` $scale_src0 `,` $scale_src1
     oilist(
@@ -268,20 +271,6 @@ def VOP3PScaledMAIOp : VOP3P_Op<"vop3p_scaled_mai", [
     attr-dict `:` type($a) `,` type($b) `,` type($c) `,`
                   type($scale_src0) `,` type($scale_src1)
     `->` type($vdst)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getVdstMutable());
-    }
-
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().drop_front());
-    }
   }];
 }
 

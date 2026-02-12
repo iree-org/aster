@@ -177,7 +177,6 @@ class VOP3P_Op<string mnemonic, list<Trait> traits = []>
   : InstOpHelper<!strconcat("vop3p.", mnemonic), traits> {
 }
 
-
 //===----------------------------------------------------------------------===//
 // Base traits
 //===----------------------------------------------------------------------===//
