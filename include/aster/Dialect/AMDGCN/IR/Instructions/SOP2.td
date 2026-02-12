@@ -23,12 +23,13 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 
 def SOP2SSrc : RegOrImm<[SGPRType, SGPRRangeType], [I32]>;
 
-def SOP2Op : AutoInstOp<"sop2", [AMDGCNInstTraits]> {
+def SOP2Op : AMDGCN_InstOp<"sop2", [PureInst, InstInferType]> {
   let summary = "SOP2 (Scalar Operations with 2 operands) operation";
   let description = [{
     The SOP2 operation performs scalar operations with two source operands for CDNA
     architecture.
   }];
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let inputs = (ins SOP2SSrc:$src0, SOP2SSrc:$src1);
   let outputs = (ins OptionalReg<AnyRegOf<[SGPRType, SGPRRangeType]>>:$sdst);
   // TODO: add modifiers.

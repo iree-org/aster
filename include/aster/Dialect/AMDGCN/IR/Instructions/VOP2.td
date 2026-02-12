@@ -25,13 +25,19 @@ def VOP2Src : RegOrImm<[SGPRType, SGPRRangeType, VGPRType, VGPRRangeType], [I32]
 def VOP2Src1 : AnyRegOf<[VGPRType, VGPRRangeType]>;
 def VOP2Dst : AnyRegOf<[VGPRType, VGPRRangeType]>;
 
-def VOP2Op : AutoInstOp<"vop2", [AMDGCNInstTraits]> {
+def VOP2Op : AMDGCN_InstOp<"vop2",  [
+    PureInst, DeclareOpInterfaceMethods<InferTypeOpInterface>
+  ]> {
   let summary = "VOP2 (Vector Operations with 2 operands) operation";
   let description = [{
     The VOP2 operation performs vector operations with two source operands.
   }];
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let inputs = (ins VOP2Src:$src0, VOP2Src1:$src1, OptionalReg<SGPRRangeType>:$src2);
   let outputs = (ins VOP2Dst:$vdst0, OptionalReg<SGPRRangeType>:$dst1);
+  // TODO: add declarative assembly format, currently it's impossible to do due
+  // to a bug in MLIR tblgen when there are inferred types and op attr results.
+  let hasCustomAssemblyFormat = 1;
   // TODO: add modifiers.
 }
 

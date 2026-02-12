@@ -1031,7 +1031,8 @@ LogicalResult MovOpPattern::matchAndRewrite(lsir::MovOp op,
             .getVdstRes();
     break;
   case OperandKind::SGPR:
-    res = S_MOV_B32::create(rewriter, op.getLoc(), op.getDst(), op.getValue());
+    res = S_MOV_B32::create(rewriter, op.getLoc(), op.getDst(), op.getValue())
+              .getSdstRes();
     break;
   default:
     return rewriter.notifyMatchFailure(op, "unsupported mov register operand");
