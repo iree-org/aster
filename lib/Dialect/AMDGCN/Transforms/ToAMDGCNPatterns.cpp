@@ -371,7 +371,7 @@ static MLIRContext *getCtx(PatternRewriter &rewriter) {
 
 LogicalResult AddIOpPattern::matchAndRewrite(lsir::AddIOp op,
                                              PatternRewriter &rewriter) const {
-  RegisterTypeInterface oTy = op.getType();
+  RegisterTypeInterface oTy = op.getDst().getType();
   Value dst = op.getDst();
   Value lhs = op.getLhs();
   Value rhs = op.getRhs();
@@ -480,7 +480,7 @@ AssumeNoaliasOpPattern::matchAndRewrite(lsir::AssumeNoaliasOp op,
 
 LogicalResult AndIOpPattern::matchAndRewrite(lsir::AndIOp op,
                                              PatternRewriter &rewriter) const {
-  RegisterTypeInterface oTy = op.getType();
+  RegisterTypeInterface oTy = op.getDst().getType();
   Value dst = op.getDst();
   Value lhs = op.getLhs();
   Value rhs = op.getRhs();
@@ -798,7 +798,7 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
 
 LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
                                              PatternRewriter &rewriter) const {
-  RegisterTypeInterface oTy = op.getType();
+  RegisterTypeInterface oTy = op.getDst().getType();
   Value dst = op.getDst();
   Value lhs = op.getLhs();
   Value rhs = op.getRhs();
@@ -925,7 +925,7 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
 
 LogicalResult OrIOpPattern::matchAndRewrite(lsir::OrIOp op,
                                             PatternRewriter &rewriter) const {
-  RegisterTypeInterface oTy = op.getType();
+  RegisterTypeInterface oTy = op.getDst().getType();
   Value dst = op.getDst();
   Value lhs = op.getLhs();
   Value rhs = op.getRhs();
@@ -968,7 +968,7 @@ LogicalResult OrIOpPattern::matchAndRewrite(lsir::OrIOp op,
 
 LogicalResult XOrIOpPattern::matchAndRewrite(lsir::XOrIOp op,
                                              PatternRewriter &rewriter) const {
-  RegisterTypeInterface oTy = op.getType();
+  RegisterTypeInterface oTy = op.getDst().getType();
   Value dst = op.getDst();
   Value lhs = op.getLhs();
   Value rhs = op.getRhs();
@@ -1022,7 +1022,7 @@ LogicalResult MovOpPattern::matchAndRewrite(lsir::MovOp op,
   if (!matchPattern(op.getValue(), m_Constant()))
     return rewriter.notifyMatchFailure(op, "only constant mov is supported");
 
-  OperandKind kind = getOperandKind(op.getType());
+  OperandKind kind = getOperandKind(op.getDst().getType());
   Value res;
   switch (kind) {
   case OperandKind::VGPR:
@@ -1085,7 +1085,7 @@ ReturnOpPattern::matchAndRewrite(func::ReturnOp op,
 
 LogicalResult ShLIOpPattern::matchAndRewrite(lsir::ShLIOp op,
                                              PatternRewriter &rewriter) const {
-  RegisterTypeInterface oTy = op.getType();
+  RegisterTypeInterface oTy = op.getDst().getType();
   Value dst = op.getDst();
   Value lhs = op.getLhs();
   Value rhs = op.getRhs();
@@ -1144,7 +1144,7 @@ LogicalResult ShLIOpPattern::matchAndRewrite(lsir::ShLIOp op,
 
 LogicalResult ShRSIOpPattern::matchAndRewrite(lsir::ShRSIOp op,
                                               PatternRewriter &rewriter) const {
-  RegisterTypeInterface oTy = op.getType();
+  RegisterTypeInterface oTy = op.getDst().getType();
   Value dst = op.getDst();
   Value lhs = op.getLhs();
   Value rhs = op.getRhs();
@@ -1202,7 +1202,7 @@ LogicalResult ShRSIOpPattern::matchAndRewrite(lsir::ShRSIOp op,
 
 LogicalResult ShRUIOpPattern::matchAndRewrite(lsir::ShRUIOp op,
                                               PatternRewriter &rewriter) const {
-  RegisterTypeInterface oTy = op.getType();
+  RegisterTypeInterface oTy = op.getDst().getType();
   Value dst = op.getDst();
   Value lhs = op.getLhs();
   Value rhs = op.getRhs();
@@ -1439,7 +1439,7 @@ LogicalResult StoreOpPattern::matchAndRewrite(lsir::StoreOp op,
 
 LogicalResult SubIOpPattern::matchAndRewrite(lsir::SubIOp op,
                                              PatternRewriter &rewriter) const {
-  RegisterTypeInterface oTy = op.getType();
+  RegisterTypeInterface oTy = op.getDst().getType();
   Value dst = op.getDst();
   Value lhs = op.getLhs();
   Value rhs = op.getRhs();

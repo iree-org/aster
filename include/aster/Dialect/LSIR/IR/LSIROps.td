@@ -21,40 +21,25 @@ include "aster/Dialect/LSIR/IR/LSIRTypes.td"
 include "aster/Interfaces/InstOpInterface.td"
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
+include "aster/IR/InstBase.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 /// Helper class for binary operations with integer or register operands.
 class BinaryIOp<string mnemonic, list<Trait> traits = []> :
-  LSIR_Op<mnemonic, traits # [
-    AllTypesMatch<["dst", "result"]>,
-    InstOpInterface, Pure
+  InstOperation<LSIR_Dialect, mnemonic, traits # [
+    AllTypesMatch<["dst", "dst_res"]>,
+    InstOpInterface, InstInferType, PureInst
   ]> {
-  let arguments = (ins
-    AnyIntTypeAttr:$semantics,
-    RegType:$dst,
-    IntOrRegType:$lhs,
-    IntOrRegType:$rhs
-  );
-  let results = (outs RegType:$result);
+  let leadingArguments = (ins AnyIntTypeAttr:$semantics);
+  let outputs = (ins RegType:$dst);
+  let inputs = (ins IntOrRegType:$lhs, IntOrRegType:$rhs);
   let assemblyFormat = [{
     $semantics $dst `,` $lhs `,` $rhs attr-dict
     `:` type($dst) `,` type($lhs) `,` type($rhs)
   }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
-    }
-  }];
+  let genInstVerifier = 0;
 }
 
 /// Helper class for binary operations with float or register operands.

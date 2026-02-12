@@ -17,6 +17,7 @@
 
 #include "aster/Dialect/LSIR/IR/LSIRAttrs.h"
 #include "aster/Dialect/LSIR/IR/LSIRTypes.h"
+#include "aster/IR/InstImpl.h"
 #include "aster/Interfaces/InstOpInterface.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Bytecode/BytecodeOpInterface.h"
