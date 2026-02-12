@@ -140,4 +140,68 @@ def V_MOV_B32_E32_INST : VOP1Inst<
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// VOP1 Conversion Operations
+//===----------------------------------------------------------------------===//
+
+def V_CVT_F32_F16_INST : VOP1Inst<
+  /*mnemonic=*/"v_cvt_f32_f16", /*symbol=*/"v_cvt_f32_f16",
+  /*instOp=*/VOP1Op, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "VOP1 convert f16 to f32";
+  let description = [{
+    Convert a half-precision floating-point value to single-precision.
+    Computes: vdst = (float)src0
+  }];
+}
+
+def V_CVT_F16_F32_INST : VOP1Inst<
+  /*mnemonic=*/"v_cvt_f16_f32", /*symbol=*/"v_cvt_f16_f32",
+  /*instOp=*/VOP1Op, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "VOP1 convert f32 to f16";
+  let description = [{
+    Convert a single-precision floating-point value to half-precision.
+    Computes: vdst = (half)src0
+  }];
+}
+
+def V_CVT_F32_U32_INST : VOP1Inst<
+  /*mnemonic=*/"v_cvt_f32_u32", /*symbol=*/"v_cvt_f32_u32",
+  /*instOp=*/VOP1Op, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "VOP1 convert unsigned 32-bit integer to f32";
+  let description = [{
+    Convert an unsigned 32-bit integer to single-precision floating-point.
+    Computes: vdst = (float)(uint32)src0
+  }];
+}
+
+def V_CVT_F32_I32_INST : VOP1Inst<
+  /*mnemonic=*/"v_cvt_f32_i32", /*symbol=*/"v_cvt_f32_i32",
+  /*instOp=*/VOP1Op, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "VOP1 convert signed 32-bit integer to f32";
+  let description = [{
+    Convert a signed 32-bit integer to single-precision floating-point.
+    Computes: vdst = (float)(int32)src0
+  }];
+}
+
+def V_CVT_U32_F32_INST : VOP1Inst<
+  /*mnemonic=*/"v_cvt_u32_f32", /*symbol=*/"v_cvt_u32_f32",
+  /*instOp=*/VOP1Op, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "VOP1 convert f32 to unsigned 32-bit integer";
+  let description = [{
+    Convert a single-precision floating-point value to an unsigned 32-bit integer.
+    Computes: vdst = (uint32)src0
+  }];
+}
+
+def V_CVT_I32_F32_INST : VOP1Inst<
+  /*mnemonic=*/"v_cvt_i32_f32", /*symbol=*/"v_cvt_i32_f32",
+  /*instOp=*/VOP1Op, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "VOP1 convert f32 to signed 32-bit integer";
+  let description = [{
+    Convert a single-precision floating-point value to a signed 32-bit integer.
+    Computes: vdst = (int32)src0
+  }];
+}
+
 #endif // AMDGCN_INST_VOP1_TD

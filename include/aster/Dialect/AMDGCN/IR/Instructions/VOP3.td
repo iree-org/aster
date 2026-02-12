@@ -539,4 +539,20 @@ def VLshlAddU64 : VOP3Inst<"v_lshl_add_u64", [CDNA3, CDNA4]> {
   >;
 }
 
+//===----------------------------------------------------------------------===//
+// Pack operations
+//===----------------------------------------------------------------------===//
+
+def VPackB32F16 : VOP3Inst<"v_pack_b32_f16", [CDNA3, CDNA4]> {
+  let summary = "VOP3 pack two f16 values into one b32";
+}
+
+def VCvtPkFp8F32 : VOP3Inst<"v_cvt_pk_fp8_f32", [CDNA3, CDNA4]> {
+  let summary = "VOP3 pack-convert two f32 values to two fp8 in one b32";
+}
+
+def VCvtPkBf8F32 : VOP3Inst<"v_cvt_pk_bf8_f32", [CDNA3, CDNA4]> {
+  let summary = "VOP3 pack-convert two f32 values to two bf8 in one b32";
+}
+
 #endif // AMDGCN_INST_VOP3_TD
