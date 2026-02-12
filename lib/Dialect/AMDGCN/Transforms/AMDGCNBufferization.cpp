@@ -129,7 +129,7 @@ static void copyAndPropagateValues(ValueRange values, IRRewriter &rewriter,
     LDBG() << "- Handling potentially clobbered value: " << out;
     auto alloc = createAllocation(rewriter, out.getLoc(), regTy);
     auto cpyOp = lsir::CopyOp::create(rewriter, out.getLoc(), alloc, out);
-    rewriter.replaceUsesWithIf(out, cpyOp, [&](OpOperand &use) {
+    rewriter.replaceUsesWithIf(out, cpyOp.getTargetRes(), [&](OpOperand &use) {
       return info.properlyDominates(domPoint ? domPoint : cpyOp.getOperation(),
                                     use.getOwner());
     });

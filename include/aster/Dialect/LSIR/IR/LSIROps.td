@@ -18,20 +18,15 @@
 include "aster/Dialect/LSIR/IR/LSIRDialect.td"
 include "aster/Dialect/LSIR/IR/LSIRAttrs.td"
 include "aster/Dialect/LSIR/IR/LSIRTypes.td"
-include "aster/Interfaces/InstOpInterface.td"
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
-include "aster/IR/InstBase.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 /// Helper class for binary operations with integer or register operands.
 class BinaryIOp<string mnemonic, list<Trait> traits = []> :
-  InstOperation<LSIR_Dialect, mnemonic, traits # [
-    AllTypesMatch<["dst", "dst_res"]>,
-    InstOpInterface, InstInferType, PureInst
-  ]> {
+    LSIR_InstOp<mnemonic, traits # [InstInferType, PureInst]> {
   let leadingArguments = (ins AnyIntTypeAttr:$semantics);
   let outputs = (ins RegType:$dst);
   let inputs = (ins IntOrRegType:$lhs, IntOrRegType:$rhs);
@@ -39,67 +34,32 @@ class BinaryIOp<string mnemonic, list<Trait> traits = []> :
     $semantics $dst `,` $lhs `,` $rhs attr-dict
     `:` type($dst) `,` type($lhs) `,` type($rhs)
   }];
-  let genInstVerifier = 0;
 }
 
 /// Helper class for binary operations with float or register operands.
 class BinaryFOp<string mnemonic, list<Trait> traits = []> :
-  LSIR_Op<mnemonic, traits # [
-    AllTypesMatch<["dst", "result"]>,
-    InstOpInterface, Pure
-  ]> {
-  let arguments = (ins
-    AnyFloatTypeAttr:$semantics,
-    RegType:$dst,
-    FloatOrRegType:$lhs,
-    FloatOrRegType:$rhs
-  );
-  let results = (outs RegType:$result);
+    LSIR_InstOp<mnemonic, traits # [InstInferType, PureInst]> {
+  let leadingArguments = (ins AnyFloatTypeAttr:$semantics);
+  let outputs = (ins RegType:$dst);
+  let inputs = (ins IntOrRegType:$lhs, IntOrRegType:$rhs);
   let assemblyFormat = [{
     $semantics $dst `,` $lhs `,` $rhs attr-dict
     `:` type($dst) `,` type($lhs) `,` type($rhs)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
-    }
   }];
 }
 
 /// Helper class cast-like operations.
 class CastOp<string mnemonic, Attr tgtAttr,
              Attr srcAttr, Type srcTy, list<Trait> traits = []> :
-  LSIR_Op<mnemonic, traits # [
-    AllTypesMatch<["dst", "result"]>, InstOpInterface, Pure,
-  ]> {
-  let arguments = (ins
+    LSIR_InstOp<mnemonic, traits # [InstInferType, PureInst]> {
+  let leadingArguments = (ins
     tgtAttr:$tgt_type,
-    srcAttr:$src_type,
-    RegType:$dst,
-    srcTy:$value
+    srcAttr:$src_type
   );
-  let results = (outs RegType:$result);
+  let outputs = (ins RegType:$dst);
+  let inputs = (ins srcTy:$value);
   let assemblyFormat = [{
     $tgt_type `from` $src_type $dst `,` $value attr-dict `:` type($dst) `,` type($value)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getDstMutable());
-    }
-    OperandRange getInstIns() {
-      return getAsOperandRange(getValueMutable());
-    }
   }];
 }
 
@@ -208,7 +168,7 @@ def LSIR_AssumeNoaliasOp : LSIR_Op<"assume_noalias", [
 // CmpFOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CmpFOp : LSIR_Op<"cmpf", [InstOpInterface, Pure]> {
+def LSIR_CmpFOp : LSIR_InstOp<"cmpf", [PureInst]> {
   let summary = "Floating point comparison operation";
   let description = [{
     The `lsir.cmpf` operation compares two floating point values and returns i1.
@@ -220,34 +180,14 @@ def LSIR_CmpFOp : LSIR_Op<"cmpf", [InstOpInterface, Pure]> {
     %result = lsir.cmpf f32 olt %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
     ```
   }];
-  let arguments = (ins
+  let leadingArguments = (ins
     AnyFloatTypeAttr:$semantics,
-    Arith_CmpFPredicateAttr:$predicate,
-    FloatOrRegType:$lhs,
-    FloatOrRegType:$rhs
+    Arith_CmpFPredicateAttr:$predicate
   );
-  let results = (outs I1:$result);
+  let inputs = (ins FloatOrRegType:$lhs, FloatOrRegType:$rhs);
+  let leadingResults = (outs I1:$result);
   let assemblyFormat = [{
     $semantics $predicate $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Returns false; comparison ops produce i1 (SCC) not DPS format.
-    bool isDPSInstruction() { return false; }
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getOperation()->getOpOperands().slice(0, 0));
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands());
-    }
-    /// Get the instruction results.
-    ResultRange getInstResults() {
-      return getOperation()->getResults().slice(0, 0);
-    }
   }];
 }
 
@@ -255,7 +195,7 @@ def LSIR_CmpFOp : LSIR_Op<"cmpf", [InstOpInterface, Pure]> {
 // CmpIOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CmpIOp : LSIR_Op<"cmpi", [InstOpInterface, Pure]> {
+def LSIR_CmpIOp : LSIR_InstOp<"cmpi", [PureInst]> {
   let summary = "Integer comparison operation";
   let description = [{
     The `lsir.cmpi` operation compares two integer operands according to the
@@ -268,34 +208,14 @@ def LSIR_CmpIOp : LSIR_Op<"cmpi", [InstOpInterface, Pure]> {
     %result = lsir.cmpi i32 eq %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr
     ```
   }];
-  let arguments = (ins
+  let leadingArguments = (ins
     AnyIntTypeAttr:$semantics,
-    Arith_CmpIPredicateAttr:$predicate,
-    IntOrRegType:$lhs,
-    IntOrRegType:$rhs
+    Arith_CmpIPredicateAttr:$predicate
   );
-  let results = (outs I1:$result);
+  let inputs = (ins IntOrRegType:$lhs, IntOrRegType:$rhs);
+  let leadingResults = (outs I1:$result);
   let assemblyFormat = [{
     $semantics $predicate $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Returns false; comparison ops produce i1 (SCC) not DPS format.
-    bool isDPSInstruction() { return false; }
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getOperation()->getOpOperands().slice(0, 0));
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands());
-    }
-    /// Get the instruction results.
-    ResultRange getInstResults() {
-      return getOperation()->getResults().slice(0, 0);
-    }
   }];
 }
 
@@ -303,10 +223,7 @@ def LSIR_CmpIOp : LSIR_Op<"cmpi", [InstOpInterface, Pure]> {
 // CopyOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CopyOp : LSIR_Op<"copy", [
-    AllTypesMatch<["target", "result"]>, InstOpInterface,
-    ConditionallySpeculatable, MemoryEffectsOpInterface
-  ]> {
+def LSIR_CopyOp : LSIR_InstOp<"copy", [InstInferType, PureInst]> {
   let summary = "Copy operation";
   let description = [{
     The `lsir.copy` operation copies a value from a source register to a target
@@ -317,37 +234,12 @@ def LSIR_CopyOp : LSIR_Op<"copy", [
     %result = lsir.copy %target, %source : !amdgcn.vgpr, !amdgcn.vgpr
     ```
   }];
-  let arguments = (ins RegType:$target, RegType:$source);
-  let results = (outs RegType:$result);
+  let outputs = (ins RegType:$target);
+  let inputs = (ins RegType:$source);
   let assemblyFormat = [{
     $target `,` $source attr-dict `:` type($target) `,` type($source)
   }];
   let hasCanonicalizeMethod = 1;
-  let extraClassDeclaration = [{
-    /// Returns the speculatability of the operation.
-    Speculation::Speculatability getSpeculatability() {
-      return aster::detail::getInstSpeculatabilityImpl(*this);
-    }
-
-    /// Returns the memory effects of the operation.
-    void getEffects(
-        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-            &effects) {
-      return aster::detail::getInstEffectsImpl(*this, effects);
-    }
-
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
-    }
-  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -505,8 +397,9 @@ def LSIR_FromRegOp : LSIR_Op<"from_reg", [Pure]> {
 // LoadOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_LoadOp : LSIR_Op<"load", [
-    AllTypesMatch<["dst", "dst_res"]>, InstOpInterface, DependentOpInterface
+def LSIR_LoadOp : LSIR_InstOp<"load", [
+    DependentOpInterface, ConditionallySpeculatable, MemoryEffectsOpInterface,
+    OptionalTypesMatchWith<"result", "dst", "dst_res", "$_self">
   ]> {
   let summary = "Load operation";
   let description = [{
@@ -518,18 +411,14 @@ def LSIR_LoadOp : LSIR_Op<"load", [
       : !amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, i32
     ```
   }];
-  let arguments = (ins
-    MemorySpaceAttrInterface:$memory_space,
-    RegType:$dst,
-    // This is not a 1-1 mapping as the op also has an offset and const_offset
-    // operands.
-    Arg<RegType, "the reference to load from",
-                 [MemRead]>:$addr,
-    IntOrRegType:$offset,
+  let leadingArguments = (ins MemorySpaceAttrInterface:$memory_space);
+  let outputs = (ins RegType:$dst);
+  let inputs = (ins RegType:$addr, IntOrRegType:$offset);
+  let trailingArguments = (ins
     I32:$const_offset,
     Variadic<LoadOrStoreToken>:$dependencies
   );
-  let results = (outs RegType:$dst_res, LoadToken:$token);
+  let trailingResults = (outs LoadToken:$token);
   let assemblyFormat = [{
     $memory_space $dst `,` $addr  `,` $offset `,` $const_offset
     (`dependencies` $dependencies^)? attr-dict
@@ -538,26 +427,27 @@ def LSIR_LoadOp : LSIR_Op<"load", [
   }];
   let extraClassDeclaration = [{
     //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().slice(1, 3));
-    }
-    /// Get the instruction result ranges.
-    ResultRange getInstResults() {
-      return getResults().slice(0, 1);
-    }
-    //===------------------------------------------------------------------===//
     // DependentOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the output result representing the dependency.
     Value getOutDependency() {
       return getToken();
+    }
+
+    //===------------------------------------------------------------------===//
+    // Side Effect Methods
+    //===------------------------------------------------------------------===//
+    /// Returns the speculatability of the operation.
+    Speculation::Speculatability getSpeculatability() {
+      return aster::detail::getInstSpeculatabilityImpl(*this);
+    }
+
+    /// Returns the memory effects of the operation.
+    void getEffects(
+        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+            &effects) {
+      aster::detail::getInstEffectsImpl(*this, effects);
+      aster::detail::getReadEffectsImpl(getAddrMutable(), effects);
     }
   }];
   let hasVerifier = 1;
@@ -631,8 +521,8 @@ def LSIR_MinimumFOp : BinaryFOp<"minimumf"> {
 // MovOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_MovOp : LSIR_Op<"mov", [
-    Pure, AllTypesMatch<["dst", "result"]>, InstOpInterface
+def LSIR_MovOp : LSIR_InstOp<"mov", [
+    PureInst, InstInferType
   ]> {
   let summary = "Move operation";
   let description = [{
@@ -643,26 +533,10 @@ def LSIR_MovOp : LSIR_Op<"mov", [
     %result = lsir.mov %dst, %value : !amdgcn.sgpr, !amdgcn.sgpr
     ```
   }];
-  let arguments = (ins
-    RegType:$dst,
-    IntFloatOrRegType:$value
-  );
-  let results = (outs RegType:$result);
+  let outputs = (ins RegType:$dst);
+  let inputs = (ins IntFloatOrRegType:$value);
   let assemblyFormat = [{
     $dst `,` $value attr-dict `:` type($dst) `,` type($value)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getDstMutable());
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getValueMutable());
-    }
   }];
 }
 
@@ -703,8 +577,8 @@ def LSIR_MulIOp : BinaryIOp<"muli"> {
 // NegFOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_NegFOp : LSIR_Op<"negf", [
-    Pure, AllTypesMatch<["dst", "result"]>, InstOpInterface
+def LSIR_NegFOp : LSIR_InstOp<"negf", [
+    PureInst, InstInferType
   ]> {
   let summary = "Floating point negation operation";
   let description = [{
@@ -715,27 +589,11 @@ def LSIR_NegFOp : LSIR_Op<"negf", [
     %result = lsir.negf f32 %dst, %value : !amdgcn.vgpr, !amdgcn.vgpr
     ```
   }];
-  let arguments = (ins
-    AnyFloatTypeAttr:$semantics,
-    RegType:$dst,
-    FloatOrRegType:$value
-  );
-  let results = (outs RegType:$result);
+  let leadingArguments = (ins AnyFloatTypeAttr:$semantics);
+  let outputs = (ins RegType:$dst);
+  let inputs = (ins FloatOrRegType:$value);
   let assemblyFormat = [{
     $semantics $dst `,` $value attr-dict `:` type($dst) `,` type($value)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
-    }
   }];
 }
 
@@ -832,10 +690,7 @@ def LSIR_RemUIOp : BinaryIOp<"remui"> {
 // SelectOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_SelectOp : LSIR_Op<"select", [
-    AllTypesMatch<["dst", "result"]>, InstOpInterface,
-    ConditionallySpeculatable, MemoryEffectsOpInterface
-  ]> {
+def LSIR_SelectOp : LSIR_InstOp<"select", [PureInst, InstInferType]> {
   let summary = "Select operation";
   let description = [{
     The `lsir.select` operation selects between two values based on a condition.
@@ -853,41 +708,15 @@ def LSIR_SelectOp : LSIR_Op<"select", [
       : !amdgcn.sgpr, i1, i32, i32
     ```
   }];
-  let arguments = (ins
-    RegType:$dst,
+  let outputs = (ins RegType:$dst);
+  let inputs = (ins
     IntFloatOrRegType:$condition,
     IntFloatOrRegType:$true_value,
     IntFloatOrRegType:$false_value
   );
-  let results = (outs RegType:$result);
   let assemblyFormat = [{
     $dst `,` $condition `,` $true_value `,` $false_value attr-dict
     `:` type($dst) `,` type($condition) `,` type($true_value) `,` type($false_value)
-  }];
-  let extraClassDeclaration = [{
-    /// Returns the speculatability of the operation.
-    Speculation::Speculatability getSpeculatability() {
-      return aster::detail::getInstSpeculatabilityImpl(*this);
-    }
-
-    /// Returns the memory effects of the operation.
-    void getEffects(
-        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-            &effects) {
-      return aster::detail::getInstEffectsImpl(*this, effects);
-    }
-
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getOperation()->getOpOperands().take_front(1));
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().drop_front(1));
-    }
   }];
 }
 
@@ -962,9 +791,8 @@ def LSIR_SIToFPOp : CastOp<"sitofp", AnyFloatTypeAttr, AnyIntTypeAttr, IntOrRegT
 // StoreOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_StoreOp : LSIR_Op<"store", [
-    InstOpInterface,
-    DependentOpInterface
+def LSIR_StoreOp : LSIR_InstOp<"store", [
+    DependentOpInterface, ConditionallySpeculatable, MemoryEffectsOpInterface
   ]> {
   let summary = "Store operation";
   let description = [{
@@ -976,18 +804,13 @@ def LSIR_StoreOp : LSIR_Op<"store", [
       : !amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, i32
     ```
   }];
-  let arguments = (ins
-    MemorySpaceAttrInterface:$memory_space,
-    RegType:$value,
-    // This is not a 1-1 mapping as the op also has an offset and const_offset
-    // operands.
-    Arg<IntOrRegType, "the reference to load from",
-                      [MemWrite]>:$addr,
-    IntOrRegType:$offset,
+  let leadingArguments = (ins MemorySpaceAttrInterface:$memory_space);
+  let inputs = (ins RegType:$value, IntOrRegType:$addr, IntOrRegType:$offset);
+  let trailingArguments = (ins
     I32:$const_offset,
     Variadic<LoadOrStoreToken>:$dependencies
   );
-  let results = (outs StoreToken:$token);
+  let leadingResults = (outs StoreToken:$token);
   let assemblyFormat = [{
     $memory_space $value `,` $addr  `,` $offset `,` $const_offset
     (`dependencies` $dependencies^)? attr-dict
@@ -996,26 +819,27 @@ def LSIR_StoreOp : LSIR_Op<"store", [
   }];
   let extraClassDeclaration = [{
     //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange({});
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().slice(0, 4));
-    }
-    /// Get the instruction result ranges.
-    ResultRange getInstResults() {
-      return getOperation()->getResults().slice(0, 0);
-    }
-    //===------------------------------------------------------------------===//
     // DependentOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Get the output result representing the dependency.
     Value getOutDependency() {
       return getToken();
+    }
+
+    //===------------------------------------------------------------------===//
+    // Side Effect Methods
+    //===------------------------------------------------------------------===//
+    /// Returns the speculatability of the operation.
+    Speculation::Speculatability getSpeculatability() {
+      return aster::detail::getInstSpeculatabilityImpl(*this);
+    }
+
+    /// Returns the memory effects of the operation.
+    void getEffects(
+        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+            &effects) {
+      aster::detail::getInstEffectsImpl(*this, effects);
+      aster::detail::getWriteEffectsImpl(getAddrMutable(), effects);
     }
   }];
   let hasVerifier = 1;

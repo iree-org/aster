@@ -240,7 +240,7 @@ convertBranchOperands(ValueRange operands, Block *destBlock,
                operand.getType().isIntOrIndexOrFloat()) {
       // Scalar to register conversion
       Value dst = lsir::AllocaOp::create(rewriter, loc, expectedType);
-      Value reg = lsir::MovOp::create(rewriter, loc, dst, operand).getResult();
+      Value reg = lsir::MovOp::create(rewriter, loc, dst, operand).getDstRes();
       converted.push_back(reg);
     } else if (isa<RegisterTypeInterface>(expectedType) &&
                isa<RegisterTypeInterface>(operand.getType())) {

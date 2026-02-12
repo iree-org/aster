@@ -12,6 +12,8 @@
 #define ASTER_DIALECT_LSIR_IR_LSIRDIALECT_TD
 
 include "mlir/IR/OpBase.td"
+include "aster/IR/InstBase.td"
+include "aster/Interfaces/InstOpInterface.td"
 include "aster/Support/EnumBase.td"
 
 //===----------------------------------------------------------------------===//
@@ -55,5 +57,10 @@ class LSIR_Type<string name, string typeMnemonic, list<Trait> traits = []>
 
 class LSIR_Op<string mnemonic, list<Trait> traits = []>
     : Op<LSIR_Dialect, mnemonic, traits>;
+
+class LSIR_InstOp<string mnemonic, list<Trait> traits = []>
+    : InstOperation<LSIR_Dialect, mnemonic, [InstOpInterface] # traits> {
+  let genInstVerifier = 0;
+}
 
 #endif // ASTER_DIALECT_LSIR_IR_LSIRDIALECT_TD

@@ -467,7 +467,7 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
     return success();
 
   // If the result is used, bail out.
-  if (!op.getResult().use_empty())
+  if (!op.getTargetRes().use_empty())
     return failure();
 
   // Get the source allocas. Bail out if the allocas are missing or need
