@@ -43,13 +43,10 @@ def DataOperand : AnyRegOf<[
 // LoadOp
 //===----------------------------------------------------------------------===//
 
-def AMDGCN_LoadOp : InstOp<"load", [
-    AttrSizedOperandSegments,
-    AMDGCNInstOpInterface,
-    ConditionallySpeculatable,
+def AMDGCN_LoadOp : AMDGCN_InstOp<"load", [
+    ConditionallySpeculatable, MemoryEffectsOpInterface,
     DeclareOpInterfaceMethods<DependentOpInterface>,
-    DeclareOpInterfaceMethods<InferTypeOpInterface>,
-    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+    DeclareOpInterfaceMethods<InferTypeOpInterface>
   ]> {
   let cppNamespace = "::mlir::aster::amdgcn";
   let summary = "AMDGCN memory load operation";
@@ -66,7 +63,7 @@ def AMDGCN_LoadOp : InstOp<"load", [
     - constant_offset[optional]: Constant offset (i32)
 
     Results:
-    - result[optional]: The loaded value (same type as dest)
+    - dest_res[optional]: The loaded value (same type as dest)
     - token: A read token indicating the memory operation
 
     Syntax:
@@ -85,18 +82,15 @@ def AMDGCN_LoadOp : InstOp<"load", [
         -> !amdgcn.read_token<flat>
     ```
   }];
-  let arguments = (ins
-    AMDGCN_InstAttr:$opcode,
-    DataOperand:$dest,
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
+  let outputs = (ins DataOperand:$dest);
+  let inputs = (ins
     AddrOperand:$addr,
     OptionalReg<UniformOffsetOperand>:$uniform_offset,
-    OptionalReg<DynamicOffsetOperand>:$dynamic_offset,
-    OptionalOffsetType:$constant_offset
+    OptionalReg<DynamicOffsetOperand>:$dynamic_offset
   );
-  let results = (outs
-    Optional<DataOperand>:$result,
-    ReadTokenType:$token
-  );
+  let trailingArguments = (ins OptionalOffsetType:$constant_offset);
+  let trailingResults = (outs ReadTokenType:$token);
   let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<(ins
@@ -109,7 +103,7 @@ def AMDGCN_LoadOp : InstOp<"load", [
     custom<Opcode>($opcode) `dest` $dest `addr` $addr ``
     custom<Offsets>($uniform_offset, $dynamic_offset, $constant_offset)
     attr-dict `:`
-    custom<OutTypes>(type($dest), type($result))
+    custom<OutTypes>(type($dest), type($dest_res))
     `ins` `` `(` type($addr) ``
     custom<OffsetTypes>(
       ref($uniform_offset), ref($dynamic_offset), ref($constant_offset),
@@ -124,20 +118,10 @@ def AMDGCN_LoadOp : InstOp<"load", [
     Speculation::Speculatability getSpeculatability() {
       return aster::detail::getInstSpeculatabilityImpl(*this);
     }
-
-    //===------------------------------------------------------------------===//
-    // AMDGCNInstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getDestMutable());
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns();
-    /// Get the instruction results.
-    ResultRange getInstResults() {
-      return getOperation()->getResult(0);
-    }
+    /// Returns the memory effects of the operation.
+    void getEffects(
+        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+            &effects);
   }];
 }
 
@@ -145,13 +129,10 @@ def AMDGCN_LoadOp : InstOp<"load", [
 // StoreOp
 //===----------------------------------------------------------------------===//
 
-def AMDGCN_StoreOp : InstOp<"store", [
-    AttrSizedOperandSegments,
-    AMDGCNInstOpInterface,
-    ConditionallySpeculatable,
+def AMDGCN_StoreOp : AMDGCN_InstOp<"store", [
+    ConditionallySpeculatable, MemoryEffectsOpInterface,
     DeclareOpInterfaceMethods<DependentOpInterface>,
-    DeclareOpInterfaceMethods<InferTypeOpInterface>,
-    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+    DeclareOpInterfaceMethods<InferTypeOpInterface>
   ]> {
   let cppNamespace = "::mlir::aster::amdgcn";
   let summary = "AMDGCN memory store operation";
@@ -185,15 +166,15 @@ def AMDGCN_StoreOp : InstOp<"store", [
         -> !amdgcn.write_token<shared>
     ```
   }];
-  let arguments = (ins
-    AMDGCN_InstAttr:$opcode,
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
+  let inputs = (ins
     DataOperand:$data,
     AddrOperand:$addr,
     OptionalReg<UniformOffsetOperand>:$uniform_offset,
-    OptionalReg<DynamicOffsetOperand>:$dynamic_offset,
-    OptionalOffsetType:$constant_offset
+    OptionalReg<DynamicOffsetOperand>:$dynamic_offset
   );
-  let results = (outs WriteTokenType:$token);
+  let trailingArguments = (ins OptionalOffsetType:$constant_offset);
+  let leadingResults = (outs WriteTokenType:$token);
   let builders = [
     OpBuilder<(ins
       "OpCode":$opcode, "Value":$data, "Value":$addr,
@@ -220,20 +201,10 @@ def AMDGCN_StoreOp : InstOp<"store", [
     Speculation::Speculatability getSpeculatability() {
       return aster::detail::getInstSpeculatabilityImpl(*this);
     }
-
-    //===------------------------------------------------------------------===//
-    // AMDGCNInstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange({});
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns();
-    /// Get the instruction results.
-    ResultRange getInstResults() {
-      return getOperation()->getResults().slice(0, 0);
-    }
+    /// Returns the memory effects of the operation.
+    void getEffects(
+        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+            &effects);
   }];
 }
 

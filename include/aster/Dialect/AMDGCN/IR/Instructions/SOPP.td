@@ -21,40 +21,22 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 // SOPP Operation
 //===----------------------------------------------------------------------===//
 
-def SOPPOp : SOPP_Op<"sopp", [
-    AMDGCNInstOpInterface
-  ]> {
+def SOPPOp : AMDGCN_InstOp<"sopp.sopp"> {
   let summary = "SOPP (Scalar Operations with Pairs) operation";
   let description = [{
     The SOPP operation performs scalar operations with pairs for CDNA architecture.
     These operations typically have no register operands and use immediate values.
   }];
 
-  let arguments = (ins
+  let leadingArguments = (ins
     AMDGCN_InstAttr:$opcode,
     Imm16Attr:$imm
   );
-
-  let results = (outs);
 
   let assemblyFormat = [{
     $opcode
     (`,` `imm` `=` $imm^)?
     attr-dict
-  }];
-
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange({});
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange({});
-    }
   }];
 }
 
@@ -102,9 +84,7 @@ def SOPP_NOP_INST : SOPPInst<
 // S_WAITCNT Operation
 //===----------------------------------------------------------------------===//
 
-def SWaitcntOp : SOPP_Op<"s_waitcnt", [
-    AMDGCNInstOpInterface
-  ]> {
+def SWaitcntOp : AMDGCN_InstOp<"sopp.s_waitcnt"> {
   let summary = "s_waitcnt operation";
   let description = [{
     The s_waitcnt operation waits for the counts of outstanding local data share,
@@ -120,14 +100,13 @@ def SWaitcntOp : SOPP_Op<"s_waitcnt", [
     ```
   }];
 
-  let arguments = (ins
+  let leadingArguments = (ins
     DefaultValuedAttr<AMDGCN_InstAttr, "mlir::aster::amdgcn::OpCode::S_WAITCNT">:$opcode,
     VmcntAttr:$vmcnt,
     ExpcntAttr:$expcnt,
     LgkmcntAttr:$lgkmcnt,
     UnitAttr:$immutable
   );
-  let results = (outs);
   let assemblyFormat = [{
     $opcode
     (`vmcnt` `=` $vmcnt^)?
@@ -135,20 +114,6 @@ def SWaitcntOp : SOPP_Op<"s_waitcnt", [
     (`lgkmcnt` `=` $lgkmcnt^)?
     (`immutable` $immutable^)?
     attr-dict
-  }];
-
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange({});
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange({});
-    }
   }];
 }
 

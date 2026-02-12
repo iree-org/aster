@@ -96,6 +96,9 @@ class InstInfo<dag inputs, dag outputs, dag leadingArgs, int leadingResultsSize>
   InstArgInfo inputsInfo = InstArgInfo<inputs>;
   InstArgInfo outputsInfo = InstArgInfo<outputs>;
 
+  // Get the number of arguments.
+  int numArgs = !add(inputsInfo.numArgs, outputsInfo.numArgs);
+
   // Get the number of optional arguments.
   int numOptArgs = !add(inputsInfo.numOptArgs, outputsInfo.numOptArgs);
 
@@ -147,7 +150,10 @@ class InstInfo<dag inputs, dag outputs, dag leadingArgs, int leadingResultsSize>
 /// Trait to provide instruction operand and result information.
 class InstTrait<InstInfo info> : NativeOpTrait<"InstTrait"> {
   let cppNamespace = "::mlir::aster";
-  let dependentTraits = [ConditionallySpeculatable, MemoryEffectsOpInterface];
+  let dependentTraits = !if(!gt(info.numArgs, 0),
+    /*true_value=*/[ConditionallySpeculatable, MemoryEffectsOpInterface],
+    /*false_value=*/[]
+  );
   let extraConcreteClassDeclaration = StrSubst<[{
     /// The number of input operands.
     static constexpr int64_t kInsSize = $kInsSize;

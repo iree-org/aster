@@ -16,6 +16,8 @@
 #define ASTER_AMDGCN_DIALECT
 
 include "mlir/IR/OpBase.td"
+include "aster/IR/InstBase.td"
+include "aster/Dialect/AMDGCN/IR/AMDGCNInstOpInterface.td"
 include "aster/Support/EnumBase.td"
 include "aster/Support/Utils.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
@@ -92,9 +94,11 @@ class InstConstraint<list<Constraint> _constraints = []> {
   list<Constraint> constraints = _constraints;
 }
 
+class InstOp;
+
 /// AMDGCN instruction op class.
-class InstOp<string mnemonic, list<Trait> traits = []>
-  : AMDGCN_Op<mnemonic, traits> {
+class InstOpHelper<string mnemonic, list<Trait> traits = []>
+  : AMDGCN_Op<mnemonic, traits>, InstOp {
   let cppNamespace = "::mlir::aster::amdgcn::inst";
   // Whether to generate the instruction verifier using amdgcn-tblgen.
   bit genInstVerifier = 1;
@@ -170,77 +174,77 @@ class AMDGCN_Type<string name, string typeMnemonic, list<Trait> traits = []>
 
 // DS instruction op.
 class DS_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("ds.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("ds.", mnemonic), traits> {
 }
 
 // FLAT instruction op.
 class FLAT_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("flat.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("flat.", mnemonic), traits> {
 }
 
 // MTBUF instruction op.
 class MTBUF_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("mtbuf.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("mtbuf.", mnemonic), traits> {
 }
 
 // MUBUF instruction op.
 class MUBUF_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("mubuf.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("mubuf.", mnemonic), traits> {
 }
 
 // SMEM instruction op.
 class SMEM_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("smem.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("smem.", mnemonic), traits> {
 }
 
 // SOP1 instruction op.
 class SOP1_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("sop1.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("sop1.", mnemonic), traits> {
 }
 
 // SOP2 instruction op.
 class SOP2_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("sop2.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("sop2.", mnemonic), traits> {
 }
 
 // SOPC instruction op.
 class SOPC_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("sopc.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("sopc.", mnemonic), traits> {
 }
 
 // SOPK instruction op.
 class SOPK_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("sopk.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("sopk.", mnemonic), traits> {
 }
 
 // SOPP instruction op.
 class SOPP_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("sopp.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("sopp.", mnemonic), traits> {
 }
 
 // VOP1 instruction op.
 class VOP1_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("vop1.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("vop1.", mnemonic), traits> {
 }
 
 // VOP2 instruction op.
 class VOP2_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("vop2.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("vop2.", mnemonic), traits> {
 }
 
 // VOP3 instruction op.
 class VOP3_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("vop3.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("vop3.", mnemonic), traits> {
 }
 
 // VOP3P instruction op.
 class VOP3P_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("vop3p.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("vop3p.", mnemonic), traits> {
 }
 
 // VOPC instruction op.
 class VOPC_Op<string mnemonic, list<Trait> traits = []>
-  : InstOp<!strconcat("vopc.", mnemonic), traits> {
+  : InstOpHelper<!strconcat("vopc.", mnemonic), traits> {
 }
 
 //===----------------------------------------------------------------------===//
@@ -284,86 +288,13 @@ def AMDGCNInstTraits : TraitList<[
   ]>;
 
 //===----------------------------------------------------------------------===//
-// Memory Resources
+// AMDGCN InstOperation base class
 //===----------------------------------------------------------------------===//
 
-def GlobalMemoryResource : Resource<"::mlir::aster::amdgcn::GlobalMemoryResource">;
-def LDSMemoryResource : Resource<"::mlir::aster::amdgcn::LDSMemoryResource">;
-
-//===----------------------------------------------------------------------===//
-// Memory Effect Traits
-//===----------------------------------------------------------------------===//
-
-class AMDGCNMemoryReadInstOpTraits<Resource memoryResource> : NativeOpTrait<"InstOpTrait"> {
-  let cppNamespace = "::mlir::aster::amdgcn";
-  let dependentTraits = [ConditionallySpeculatable, MemoryEffectsOpInterface];
-  let extraConcreteClassDeclaration = [{
-    /// Returns the speculatability of the operation.
-    Speculation::Speculatability getSpeculatability() {
-      return aster::detail::getInstSpeculatabilityImpl(*this);
-    }
-    /// Returns the memory effects of the operation.
-    void getEffects(
-        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-            &effects) {
-      aster::detail::getInstEffectsImpl(*this, effects);
-      // Add explicit memory read effect on addr register even if not allocated.
-      if (getAddr()) {
-        MutableOperandRange addrRange = getAddrMutable();
-        for (OpOperand &operand : addrRange) {
-          effects.emplace_back(MemoryEffects::Read::get(), &operand);
-        }
-      }
-      // Add memory resource effects for the proper memory resource.
-      effects.emplace_back(MemoryEffects::Read::get(), }] # memoryResource.name
-      # [{::get());
-    }
-  }];
+class AMDGCN_InstOp<string mnemonic, list<Trait> traits = []>
+    : InstOperation<AMDGCN_Dialect, mnemonic,
+                    traits # [AMDGCNInstOpInterface]>, InstOp {
+  let cppNamespace = "::mlir::aster::amdgcn::inst";
 }
-
-class AMDGCNMemoryReadInstTraits<Resource memoryResource> : TraitList<[
-    ConditionallySpeculatable,
-    MemoryEffectsOpInterface,
-    // Note: cannot just use because we also need to dynamically derive the
-    // precise resource in the case of registers and getEffects is already
-    // defined.
-    // MemoryEffects<[MemRead<memoryResource>]>,
-    AMDGCNMemoryReadInstOpTraits<memoryResource>
-  ]>;
-
-class AMDGCNMemoryWriteInstOpTraits<Resource memoryResource> : NativeOpTrait<"InstOpTrait"> {
-  let cppNamespace = "::mlir::aster::amdgcn";
-  let dependentTraits = [ConditionallySpeculatable, MemoryEffectsOpInterface];
-  let extraConcreteClassDeclaration = [{
-    /// Returns the speculatability of the operation.
-    Speculation::Speculatability getSpeculatability() {
-      return aster::detail::getInstSpeculatabilityImpl(*this);
-    }
-    /// Returns the memory effects of the operation.
-    void getEffects(
-        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-            &effects) {
-      aster::detail::getInstEffectsImpl(*this, effects);
-      // Add explicit memory write effect on addr register even if not allocated.
-      MutableOperandRange addrRange = getAddrMutable();
-      for (OpOperand &operand : addrRange) {
-        effects.emplace_back(MemoryEffects::Write::get(), &operand);
-      }
-      // Add memory resource effects for the proper memory resource.
-      effects.emplace_back(MemoryEffects::Write::get(), }] # memoryResource.name
-      # [{::get());
-    }
-  }];
-}
-
-class AMDGCNMemoryWriteInstTraits<Resource memoryResource> : TraitList<[
-    ConditionallySpeculatable,
-    MemoryEffectsOpInterface,
-    // Note: cannot just use because we also need to dynamically derive the
-    // precise resource in the case of registers and getEffects is already
-    // defined.
-    // MemoryEffects<[MemWrite<memoryResource>]>,
-    AMDGCNMemoryWriteInstOpTraits<memoryResource>
-  ]>;
 
 #endif // ASTER_AMDGCN_DIALECT

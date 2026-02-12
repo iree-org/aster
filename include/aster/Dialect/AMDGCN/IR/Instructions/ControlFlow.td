@@ -21,28 +21,14 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 // EndKernelOp
 //===----------------------------------------------------------------------===//
 
-def AMDGCN_EndKernelOp : InstOp<"end_kernel", [
-    Terminator, ReturnLike, HasParent<"KernelOp">,
-    AMDGCNInstOpInterface
+def AMDGCN_EndKernelOp : AMDGCN_InstOp<"end_kernel", [
+    PureInst, Terminator, ReturnLike, HasParent<"KernelOp">
   ]> {
   let summary = "AMDGCN end kernel operation";
   let description = [{Terminates an AMDGCN kernel function.}];
-  let arguments = (ins
+  let leadingArguments = (ins
     DefaultValuedAttr<AMDGCN_InstAttr, "mlir::aster::amdgcn::OpCode::S_ENDPGM">:$opcode);
   let assemblyFormat = "attr-dict";
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange({});
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange({});
-    }
-  }];
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
@@ -63,29 +49,17 @@ def EndKernelInst : AMDInst<
 
 def BranchOperand : AnyRegOf<[SReg<"SCC">, SReg<"VCCZ">, SReg<"EXECZ">]>;
 
-def AMDGCN_BranchOp : InstOp<"branch", [
-    Pure, Terminator, AMDGCNInstOpInterface, BranchOpInterface
+def AMDGCN_BranchOp : AMDGCN_InstOp<"branch", [
+    PureInst, Terminator, BranchOpInterface
   ]> {
   let summary = "AMDGCN unconditional branch operation";
   let description = [{
     Unconditional branching operation.
   }];
-  let arguments = (ins AMDGCN_InstAttr:$opcode);
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let successors = (successor BranchLabel:$dest);
   let assemblyFormat = "custom<Opcode>($opcode) $dest attr-dict";
   let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange({});
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange({});
-    }
-
     //===------------------------------------------------------------------===//
     // BranchOpInterface Methods
     //===------------------------------------------------------------------===//
@@ -98,8 +72,8 @@ def AMDGCN_BranchOp : InstOp<"branch", [
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
-def AMDGCN_CBranchOp : InstOp<"cbranch", [
-    Terminator, AMDGCNInstOpInterface, BranchOpInterface
+def AMDGCN_CBranchOp : AMDGCN_InstOp<"cbranch", [
+    PureInst, Terminator, BranchOpInterface
   ]> {
   let summary = "AMDGCN conditional branch operation";
   let description = [{
@@ -112,25 +86,14 @@ def AMDGCN_CBranchOp : InstOp<"cbranch", [
       : !amdgcn.scc
     ```
   }];
-  let arguments = (ins AMDGCN_InstAttr:$opcode, BranchOperand:$cond);
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
+  let inputs = (ins BranchOperand:$cond);
   let successors = (successor BranchLabel:$dest, BranchLabel:$fallthrough);
   let assemblyFormat = [{
     custom<Opcode>($opcode)  $cond $dest `fallthrough` `(` $fallthrough `)`
     attr-dict `:` type($cond)
   }];
   let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange({});
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getCondMutable());
-    }
-
     //===------------------------------------------------------------------===//
     // BranchOpInterface Methods
     //===------------------------------------------------------------------===//

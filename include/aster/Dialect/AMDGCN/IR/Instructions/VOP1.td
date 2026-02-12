@@ -21,35 +21,17 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 // VOP1 Nop Operation
 //===----------------------------------------------------------------------===//
 
-def VOP1NopOp : VOP1_Op<"v_nop", [
-    AMDGCNInstOpInterface
-  ]> {
+def VOP1NopOp : AMDGCN_InstOp<"vop1.v_nop"> {
   let summary = "VOP1 NOP operation";
   let description = [{
     Do nothing. This operation is a vector no-op that occupies a VALU slot.
   }];
 
-  let arguments = (ins
+  let leadingArguments = (ins
     DefaultValuedAttr<AMDGCN_InstAttr, "mlir::aster::amdgcn::OpCode::V_NOP">:$opcode
   );
 
-  let results = (outs);
-
   let assemblyFormat = "attr-dict";
-
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange({});
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange({});
-    }
-  }];
 }
 
 def V_NOP_INST : AMDInst<
@@ -67,10 +49,8 @@ def V_NOP_INST : AMDInst<
 // VOP1 Operation
 //===----------------------------------------------------------------------===//
 
-def VOP1Op : VOP1_Op<"vop1", [
-    AMDGCNInstTraits,
-    AMDGCNInstOpInterface,
-    AllTypesMatch<["vdst", "result"]>
+def VOP1Op : AMDGCN_InstOp<"vop1.vop1", [
+    AMDGCNInstTraits, InstInferType
   ]> {
   let summary = "VOP1 (Vector Operations with 1 operand) operation";
   let description = [{
@@ -91,28 +71,12 @@ def VOP1Op : VOP1_Op<"vop1", [
         : !amdgcn.vgpr<10>, !amdgcn.vgpr<11> -> !amdgcn.vgpr<10>
     ```
   }];
-  let arguments = (ins
-    AMDGCN_InstAttr:$opcode,
-    VGPRType:$vdst,
-    RegOrImm<[RegisterLike], [I32]>:$src0
-  );
-  let results = (outs VGPRType:$result);
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
+  let outputs = (ins VGPRType:$vdst);
+  let inputs = (ins RegOrImm<[RegisterLike], [I32]>:$src0);
   let assemblyFormat = [{
     $opcode $vdst `,` $src0
     attr-dict `:` functional-type(operands, results)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getVdstMutable());
-    }
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().drop_front());
-    }
   }];
 }
 

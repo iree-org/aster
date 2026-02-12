@@ -109,10 +109,8 @@ def VAccvgprWrite : VOP3PInst<"v_accvgpr_write_b32",  [CDNA3, CDNA4]> {
 // VOP3P_MAI Operation
 //===----------------------------------------------------------------------===//
 
-def VOP3PMAIOp : VOP3P_Op<"vop3p_mai", [
-    AMDGCNInstTraits,
-    AMDGCNInstOpInterface,
-    AllTypesMatch<["vdst", "result"]>,
+def VOP3PMAIOp : AMDGCN_InstOp<"vop3p.vop3p_mai", [
+    AMDGCNInstTraits, InstInferType,
     AllTypeIDsMatch<["vdst", "c"]>
   ]> {
   let summary = "VOP3P-MAI (Matrix Arithmetic Instructions) operation";
@@ -137,17 +135,14 @@ def VOP3PMAIOp : VOP3P_Op<"vop3p_mai", [
     - ACC [60:59]: ACC[0] and ACC[1] flags
     - BLGP [63:61]: B-Matrix Lane-Group Pattern (0-7)
   }];
-  let arguments = (ins
-    AMDGCN_InstAttr:$opcode,
-    VGPROrAGPRType:$vdst,
-    VGPRRangeType:$a,
-    VGPRRangeType:$b,
-    VGPROrAGPRType:$c,
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
+  let outputs = (ins VGPROrAGPRType:$vdst);
+  let inputs = (ins VGPRRangeType:$a, VGPRRangeType:$b, VGPROrAGPRType:$c);
+  let trailingArguments = (ins
     CBSZAttr:$cbsz,
     ABIDAttr:$abid,
     BLGPAttr:$blgp
   );
-  let results = (outs VGPROrAGPRType:$result);
   let assemblyFormat = [{
     $opcode $vdst `,` $a `,` $b `,` $c
     oilist(
@@ -156,20 +151,6 @@ def VOP3PMAIOp : VOP3P_Op<"vop3p_mai", [
       | `blgp` `=` $blgp
     )
     attr-dict `:` type($a) `,` type($b) `,` type($c) `->` type($vdst)
-  }];
-  let extraClassDeclaration =[{
-    //===------------------------------------------------------------------===//
-    // InstOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the instruction output operands.
-    OperandRange getInstOuts() {
-      return getAsOperandRange(getVdstMutable());
-    }
-
-    /// Get the instruction input operands.
-    OperandRange getInstIns() {
-      return getAsOperandRange(getOperation()->getOpOperands().drop_front());
-    }
   }];
 }
 
