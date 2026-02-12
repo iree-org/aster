@@ -1,4 +1,5 @@
 // RUN: aster-opt %s \
+// RUN:   --amdgcn-preload-library="library-paths=%p/../../mlir_kernels/library/common/register-init.mlir" \
 // RUN:   --inline \
 // RUN: | aster-opt \
 // RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops)))" \
@@ -7,6 +8,7 @@
 // RUN: | FileCheck %s
 //
 // RUN: aster-opt %s \
+// RUN:   --amdgcn-preload-library="library-paths=%p/../../mlir_kernels/library/common/register-init.mlir" \
 // RUN:   --inline \
 // RUN: | aster-opt \
 // RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops)))" \
@@ -20,6 +22,10 @@
 // ASM-LABEL: compute_kernel:
 //       ASM:   s_load_dwordx2 s[2:3], s[0:1], 0
 amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+
+  // From register-init.mlir (resolved by --amdgcn-preload-library)
+  func.func private @alloc_vgprx2() -> (!amdgcn.vgpr_range<[? + 2]>)
+  func.func private @init_vgprx4(%cst: i32) -> (!amdgcn.vgpr_range<[? + 4]>)
 
   func.func private @load_kernarg_pointers() -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>) {
     // Load kernarg arguments using load_arg operation
@@ -45,31 +51,11 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     // v0 reserved for threadidx.x
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
 
-    // Allocate VGPRs for threadidx.x, pointers, and register placeholders
-    %a_reg0 = amdgcn.alloca : !amdgcn.vgpr
-    %a_reg1 = amdgcn.alloca : !amdgcn.vgpr
-    %a_reg2 = amdgcn.alloca : !amdgcn.vgpr
-    %a_reg3 = amdgcn.alloca : !amdgcn.vgpr
-    %b_reg0 = amdgcn.alloca : !amdgcn.vgpr
-    %b_reg1 = amdgcn.alloca : !amdgcn.vgpr
-    %b_reg2 = amdgcn.alloca : !amdgcn.vgpr
-    %b_reg3 = amdgcn.alloca : !amdgcn.vgpr
-    %c_reg0 = amdgcn.alloca : !amdgcn.vgpr
-    %c_reg1 = amdgcn.alloca : !amdgcn.vgpr
-    %c_reg2 = amdgcn.alloca : !amdgcn.vgpr
-    %c_reg3 = amdgcn.alloca : !amdgcn.vgpr
-
-    // Initialize C registers to 0
+    // Allocate register ranges via library functions
+    %a_reg_range = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr_range<[? + 2]>)
+    %b_reg_range = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr_range<[? + 2]>)
     %c0 = arith.constant 0 : i32
-    %c_reg0_init = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c_reg0, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %c_reg1_init = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c_reg1, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %c_reg2_init = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c_reg2, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %c_reg3_init = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c_reg3, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-
-    // Create register ranges for a_reg (quad), b_reg (quad), c_reg (quad for MFMA)
-    %a_reg_range = amdgcn.make_register_range %a_reg0, %a_reg1 : !amdgcn.vgpr, !amdgcn.vgpr
-    %b_reg_range = amdgcn.make_register_range %b_reg0, %b_reg1 : !amdgcn.vgpr, !amdgcn.vgpr
-    %c_reg_range = amdgcn.make_register_range %c_reg0_init, %c_reg1_init, %c_reg2_init, %c_reg3_init : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %c_reg_range = func.call @init_vgprx4(%c0) : (i32) -> (!amdgcn.vgpr_range<[? + 4]>)
 
     // global_load (A)
     %offset_a = amdgcn.alloca : !amdgcn.vgpr

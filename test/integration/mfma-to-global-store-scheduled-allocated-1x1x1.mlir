@@ -1,4 +1,5 @@
 // RUN: aster-opt %s \
+// RUN:   --amdgcn-preload-library="library-paths=%p/../../mlir_kernels/library/common/register-init.mlir" \
 // RUN:   --aster-selective-inlining \
 // RUN:   --aster-op-scheduling \
 // RUN:   --aster-selective-inlining="allow-scheduled-calls=true" \
@@ -49,6 +50,10 @@
 // CHECK:   s_endpgm
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  // From register-init.mlir (resolved by --amdgcn-preload-library)
+  func.func private @alloc_vgprx2() -> (!amdgcn.vgpr_range<[? + 2]>)
+  func.func private @init_vgprx4(%cst: i32) -> (!amdgcn.vgpr_range<[? + 4]>)
+
   // Unified global load function
   func.func private @global_load_body(
     %threadidx_x: index,
@@ -59,9 +64,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %memref: memref<?x?x!amdgcn.vgpr_range<[? + 2]>>
   ) {
     // Allocate registers for matrix tile
-    %vgpr0 = amdgcn.alloca : !amdgcn.vgpr
-    %vgpr1 = amdgcn.alloca : !amdgcn.vgpr
-    %range = amdgcn.make_register_range %vgpr0, %vgpr1 : !amdgcn.vgpr, !amdgcn.vgpr
+    %range = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr_range<[? + 2]>)
 
     // Calculate offset (sz0 * st1 + sz1) * 8 bytes for dwordx2
     %offset_index = affine.apply affine_map<(d0, d1, d2)[s0] -> ((d0 * s0 + d1 + d2) * 8)>(%sz0, %sz1, %threadidx_x)[%st1]
@@ -114,9 +117,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %lds_offset: i32
   ) {
     // Allocate registers for matrix tile
-    %vgpr0 = amdgcn.alloca : !amdgcn.vgpr
-    %vgpr1 = amdgcn.alloca : !amdgcn.vgpr
-    %range = amdgcn.make_register_range %vgpr0, %vgpr1 : !amdgcn.vgpr, !amdgcn.vgpr
+    %range = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr_range<[? + 2]>)
 
     // Calculate offset (sz0 * st1 + sz1) * 8 bytes for dwordx2
     %offset_index = affine.apply affine_map<(d0, d1, d2)[s0] -> ((d0 * s0 + d1 + d2) * 8)>(%sz0, %sz1, %threadidx_x)[%st1]
@@ -194,17 +195,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   ) {
     // Implicit i32 0 <=> f32 0.0
     %c0 = arith.constant 0 : i32
-    %alloc = amdgcn.alloca : !amdgcn.vgpr
-    %vgpr_0 = amdgcn.alloca : !amdgcn.vgpr
-    %vgpr_1 = amdgcn.alloca : !amdgcn.vgpr
-    %vgpr_2 = amdgcn.alloca : !amdgcn.vgpr
-    %vgpr_3 = amdgcn.alloca : !amdgcn.vgpr
-    %c0_vgpr_0 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vgpr_0, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %c0_vgpr_1 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vgpr_1, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %c0_vgpr_2 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vgpr_2, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %c0_vgpr_3 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vgpr_3, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %c0_vgpr_range = amdgcn.make_register_range %c0_vgpr_0, %c0_vgpr_1, %c0_vgpr_2, %c0_vgpr_3
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %c0_vgpr_range = func.call @init_vgprx4(%c0) : (i32) -> (!amdgcn.vgpr_range<[? + 4]>)
     memref.store %c0_vgpr_range, %memref[%sz0, %sz1] : memref<?x?x!amdgcn.vgpr_range<[? + 4]>>
     return
   }

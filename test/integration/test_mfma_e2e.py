@@ -1,10 +1,16 @@
 """Integration test for MFMA end-to-end kernel execution."""
 
+import os
+
 import numpy as np
 import pytest
 
 from aster.testing import compile_and_run
 from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIBRARY_DIR = os.path.join(_THIS_DIR, "..", "..", "mlir_kernels", "library", "common")
+_REGISTER_INIT = os.path.join(_LIBRARY_DIR, "register-init.mlir")
 
 
 @pytest.mark.parametrize(
@@ -43,7 +49,7 @@ def test_mfma_e2e_kernel(
         mcpu=mcpu,
         wavefront_size=wavefront_size,
         verify_fn=verify_fn,
-        library_paths=[],
+        library_paths=[_REGISTER_INIT],
         skip_on_cross_compile=True,
     )
 
