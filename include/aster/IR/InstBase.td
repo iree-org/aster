@@ -247,7 +247,7 @@ def InstInferType : TraitList<[
 // class directly, instead they should let the InstOp class handle them. For example,
 // don't set the arguments and results fields directly, instead set the outputs
 // and inputs fields.
-class InstOperation<Dialect dialect, string mnemonic, list<Trait> opTraits = []>
+class InstOp<Dialect dialect, string mnemonic, list<Trait> opTraits = []>
   : Op<dialect, mnemonic, opTraits> {
   // The output operands of the instruction.
   dag outputs = (ins);
