@@ -18,6 +18,7 @@
 #include "aster/IR/OpSupport.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/TypeRange.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 
 namespace mlir::aster {
 namespace detail {
@@ -35,6 +36,18 @@ inferTypesImpl(ValueRange operands, DictionaryAttr attrs,
       TypeRange(operands.slice(numLeadingOperands, numInstOuts)));
   return success();
 }
+
+/// Add write effects to the given effects for the given address.
+void getWriteEffectsImpl(
+    OpOperand &addr,
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects);
+
+/// Add read effects to the given effects for the given address.
+void getReadEffectsImpl(
+    OpOperand &addr,
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects);
 } // namespace detail
 
 /// Trait to provide utility methods for instruction operations.
