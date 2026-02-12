@@ -49,27 +49,43 @@ class _GetOptType<TypeConstraint type, bit isOpt> {
 /// Helper class to extract information from a list of dag arguments.
 class InstArgInfo<dag args> {
   // Generate indices for the args.
-  list<int> indices = !range(!size(args));
+  list<int> indices = !if(!empty(args),
+    /*true_value=*/[],
+    /*false_value=*/!range(!size(args))
+  );
 
   // Get the number of arguments.
   int numArgs = !size(indices);
 
   // Extract the names of the arguments.
-  list<string> names = !foreach(i, indices, !getdagname(args, i));
+  list<string> names = !if(!empty(args),
+    /*true_value=*/[],
+    /*false_value=*/!foreach(i, indices, !getdagname(args, i))
+  );
 
   // Extract the types of the arguments.
-  list<TypeConstraint> types =
-      !foreach(i, indices, !getdagarg<TypeConstraint>(args, i));
+  list<TypeConstraint> types = !if(!empty(args),
+    /*true_value=*/[],
+    /*false_value=*/!foreach(i, indices, !getdagarg<TypeConstraint>(args, i))
+  );
 
   // Create argument objects.
-  list<InstArg> argList = !foreach(i, indices, InstArg<names[i], types[i]>);
+  list<InstArg> argList = !if(!empty(args),
+    /*true_value=*/[],
+    /*false_value=*/!foreach(i, indices, InstArg<names[i], types[i]>)
+  );
 
   // Create argument objects with optional types.
-  list<TypeConstraint> typesAsOpt =
-      !foreach(arg, argList, _GetOptType<arg.type, arg.isOpt>.optType);
+  list<TypeConstraint> typesAsOpt = !if(!empty(argList),
+    /*true_value=*/[],
+    /*false_value=*/!foreach(arg, argList, _GetOptType<arg.type, arg.isOpt>.optType)
+  );
 
   // Extract if the arguments are optional.
-  list<int> isOpt = !foreach(i, indices, argList[i].isOpt);
+  list<int> isOpt = !if(!empty(argList),
+    /*true_value=*/[],
+    /*false_value=*/!foreach(i, indices, argList[i].isOpt)
+  );
 
   // Get the number of optional arguments.
   int numOptArgs = !foldl(0, isOpt, acc, v, !add(v, acc));
@@ -97,17 +113,28 @@ class InstInfo<dag inputs, dag outputs, dag leadingArgs, int leadingResultsSize>
 
   // Generate result names by appending "_res" to argument names.
   list<string> resNames = !foreach(n, outputsInfo.names, n#"_res");
-  dag instResults = !dag(outs, outputsInfo.typesAsOpt, resNames);
+  dag instResults = !if(!gt(outputsInfo.numArgs, 0),
+    /*true_value=*/!dag(outs, outputsInfo.typesAsOpt, resNames),
+    /*false_value=*/(outs)
+  );
 
   // Generate indices for the args.
-  list<int> leadingIndices = !range(!size(leadingArgs));
+  list<int> leadingIndices = !if(!empty(leadingArgs),
+    /*true_value=*/[],
+    /*false_value=*/!range(!size(leadingArgs))
+  );
 
   // Extract the types of the arguments.
-  list<bit> isLeadingOperand =
-      !foreach(i, leadingIndices, !initialized(!getdagarg<TypeConstraint>(leadingArgs, i)));
+  list<bit> isLeadingOperand = !if(!empty(leadingArgs),
+    /*true_value=*/[],
+    /*false_value=*/!foreach(i, leadingIndices, !initialized(!getdagarg<TypeConstraint>(leadingArgs, i)))
+  );
 
   // The number of leading operands.
-  int numLeadingOperands = !foldl(0, isLeadingOperand, acc, v, !add(!if(v, 1, 0), acc));
+  int numLeadingOperands = !if(!empty(leadingArgs),
+    /*true_value=*/0,
+    /*false_value=*/!foldl(0, isLeadingOperand, acc, v, !add(!if(v, 1, 0), acc))
+  );
 
   // The number of instruction results.
   int numInstResults = !size(instResults);
