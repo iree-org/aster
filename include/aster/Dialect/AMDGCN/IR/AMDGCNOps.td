@@ -593,9 +593,14 @@ def AMDGCN_LibraryOp : AMDGCN_Op<"library", [
 // TestInst
 //===----------------------------------------------------------------------===//
 
+def InstTraitAMDGCN : NativeOpTrait<"InstTrait"> {
+  let cppNamespace = "::mlir::aster";
+}
+
 def AMDGCN_TestInstOp : AMDGCN_Op<"test_inst", [
     AMDGCNInstOpInterface,
-    AttrSizedOperandSegments
+    AttrSizedOperandSegments,
+    InstTraitAMDGCN
   ]> {
   let summary = "AMDGCN test instruction";
   let description = [{
@@ -617,6 +622,12 @@ def AMDGCN_TestInstOp : AMDGCN_Op<"test_inst", [
     functional-type(operands, results)
   }];
   let extraClassDeclaration = [{
+    static constexpr int32_t kLeadingOperandsSize = 0;
+    static constexpr int32_t kOutsSize = 1;
+    static constexpr int32_t kInsSize = 1;
+    static constexpr int32_t kLeadingResultsSize = 0;
+    static constexpr int32_t kTrailingResultsSize = 0;
+
     //===------------------------------------------------------------------===//
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
@@ -633,6 +644,17 @@ def AMDGCN_TestInstOp : AMDGCN_Op<"test_inst", [
     /// Get the instruction input operands.
     OperandRange getInstIns() {
       return getAsOperandRange(getInsMutable());
+    }
+
+    /// Clones the instruction operation with new operands and results.
+    InstOpInterface cloneInst(OpBuilder &builder, ValueRange outs,
+                            ValueRange ins) {
+      return aster::detail::cloneInstImpl(*this, builder, outs, ins);
+    }
+
+    /// Get the operand and result information for the instruction.
+    InstOpInfo getInstInfo() {
+      return getInstInfoImpl(*this);
     }
   }];
 }

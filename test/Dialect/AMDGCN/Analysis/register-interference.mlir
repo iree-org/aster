@@ -9,8 +9,8 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
   kernel @no_interference {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
-    %2 = test_inst outs %0 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %3 = test_inst outs %1 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %0 : (!amdgcn.vgpr<?>) -> ()
+    test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
     end_kernel
   }
 }
@@ -26,8 +26,8 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
   kernel @basic_interference {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
-    %2 = test_inst outs %0 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %3 = test_inst outs %1 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %0 : (!amdgcn.vgpr<?>) -> ()
+    test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     end_kernel
   }
@@ -48,9 +48,9 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
     %2 = alloca : !amdgcn.vgpr<?>
-    %3 = test_inst outs %0 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %4 = test_inst outs %1 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %5 = test_inst outs %2 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %0 : (!amdgcn.vgpr<?>) -> ()
+    test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
+    test_inst outs %2 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %0, %1, %2 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     end_kernel
   }
@@ -66,8 +66,8 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
   kernel @no_cross_type_interference {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.sgpr<?>
-    %2 = test_inst outs %0 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %3 = test_inst outs %1 : (!amdgcn.sgpr<?>) -> !amdgcn.sgpr<?>
+    test_inst outs %0 : (!amdgcn.vgpr<?>) -> ()
+    test_inst outs %1 : (!amdgcn.sgpr<?>) -> ()
     test_inst ins %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
     end_kernel
   }
@@ -88,9 +88,9 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %0 = alloca : !amdgcn.sgpr<?>
     %1 = alloca : !amdgcn.sgpr<?>
     %2 = alloca : !amdgcn.sgpr<?>
-    %3 = test_inst outs %0 : (!amdgcn.sgpr<?>) -> !amdgcn.sgpr<?>
-    %4 = test_inst outs %1 : (!amdgcn.sgpr<?>) -> !amdgcn.sgpr<?>
-    %5 = test_inst outs %2 : (!amdgcn.sgpr<?>) -> !amdgcn.sgpr<?>
+    test_inst outs %0 : (!amdgcn.sgpr<?>) -> ()
+    test_inst outs %1 : (!amdgcn.sgpr<?>) -> ()
+    test_inst outs %2 : (!amdgcn.sgpr<?>) -> ()
     reg_interference %0, %1, %2 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
     end_kernel
   }
@@ -109,10 +109,10 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
     %2 = alloca : !amdgcn.vgpr<?>
-    %3 = test_inst outs %0 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %4 = test_inst outs %1 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %0 : (!amdgcn.vgpr<?>) -> ()
+    test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
-    %5 = test_inst outs %2 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %2 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %2 : (!amdgcn.vgpr<?>) -> ()
     end_kernel
   }
@@ -132,11 +132,11 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %2 = alloca : !amdgcn.vgpr<?>
     cf.cond_br %0, ^bb1, ^bb2
   ^bb1:  // CHECK: pred: ^bb0
-    %3 = test_inst outs %1 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %1 : (!amdgcn.vgpr<?>) -> ()
     cf.br ^bb3
   ^bb2:  // CHECK: pred: ^bb0
-    %4 = test_inst outs %2 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %2 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %2 : (!amdgcn.vgpr<?>) -> ()
     cf.br ^bb3
   ^bb3:  // CHECK: 2 preds: ^bb1, ^bb2
@@ -160,14 +160,14 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %1 = alloca : !amdgcn.vgpr<?>
     %2 = alloca : !amdgcn.vgpr<?>
     %3 = alloca : !amdgcn.vgpr<?>
-    %4 = test_inst outs %1 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
     cf.cond_br %0, ^bb1, ^bb2
   ^bb1:  // CHECK: pred: ^bb0
-    %5 = test_inst outs %2 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %2 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %2 : (!amdgcn.vgpr<?>) -> ()
     cf.br ^bb3
   ^bb2:  // CHECK: pred: ^bb0
-    %6 = test_inst outs %3 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %3 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %3 : (!amdgcn.vgpr<?>) -> ()
     cf.br ^bb3
   ^bb3:  // CHECK: 2 preds: ^bb1, ^bb2
@@ -186,9 +186,9 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
   kernel @sequential_use {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
-    %2 = test_inst outs %0 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %0 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %0 : (!amdgcn.vgpr<?>) -> ()
-    %3 = test_inst outs %1 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %1 : (!amdgcn.vgpr<?>) -> ()
     end_kernel
   }
@@ -220,11 +220,11 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %2 = alloca : !amdgcn.vgpr<?>
     %3 = alloca : !amdgcn.vgpr<?>
     %4 = alloca : !amdgcn.vgpr<?>
-    %5 = test_inst outs %0 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %6 = test_inst outs %1 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %7 = test_inst outs %2 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %8 = test_inst outs %3 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %9 = test_inst outs %4 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %0 : (!amdgcn.vgpr<?>) -> ()
+    test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
+    test_inst outs %2 : (!amdgcn.vgpr<?>) -> ()
+    test_inst outs %3 : (!amdgcn.vgpr<?>) -> ()
+    test_inst outs %4 : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %0, %1, %2, %3, %4 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     end_kernel
   }
@@ -254,22 +254,22 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %3 = alloca : !amdgcn.sgpr<?>
     %4 = alloca : !amdgcn.vgpr<?>
     %5 = alloca : !amdgcn.vgpr<?>
-    %6 = test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> !amdgcn.vgpr<?>
-    %7 = test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
+    test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
     %8 = lsir.cmpi i32 eq %2, %c0_i32 : !amdgcn.sgpr<?>, i32
     %9 = alloca : !amdgcn.vgpr<?>
     cf.cond_br %8, ^bb1, ^bb2
   ^bb1:  // CHECK: pred: ^bb0
-    %10 = test_inst outs %4 ins %0 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %4 ins %0 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     %11 = alloca : !amdgcn.vgpr<?>
-    %12 = test_inst outs %11 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %13 = lsir.copy %9, %11 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+    test_inst outs %11 : (!amdgcn.vgpr<?>) -> ()
+    lsir.copy %9, %11 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^bb3
   ^bb2:  // CHECK: pred: ^bb0
-    %14 = test_inst outs %5 ins %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %5 ins %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     %15 = alloca : !amdgcn.vgpr<?>
-    %16 = test_inst outs %15 : (!amdgcn.vgpr<?>) -> !amdgcn.vgpr<?>
-    %17 = lsir.copy %9, %15 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+    test_inst outs %15 : (!amdgcn.vgpr<?>) -> ()
+    lsir.copy %9, %15 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^bb3
   ^bb3:  // CHECK: 2 preds: ^bb1, ^bb2
     test_inst ins %9 : (!amdgcn.vgpr<?>) -> ()
@@ -297,16 +297,16 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %1 = alloca : !amdgcn.vgpr<?>
     %2 = alloca : !amdgcn.sgpr<?>
     %3 = alloca : !amdgcn.sgpr<?>
-    %4 = test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> !amdgcn.vgpr<?>
-    %5 = test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> !amdgcn.vgpr<?>
+    test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
+    test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
     %6 = lsir.cmpi i32 eq %2, %c0_i32 : !amdgcn.sgpr<?>, i32
     %7 = alloca : !amdgcn.vgpr<?>
     cf.cond_br %6, ^bb1, ^bb2
   ^bb1:  // CHECK: pred: ^bb0
-    %8 = lsir.copy %7, %0 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+    lsir.copy %7, %0 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^bb3
   ^bb2:  // CHECK: pred: ^bb0
-    %9 = lsir.copy %7, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+    lsir.copy %7, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^bb3
   ^bb3:  // CHECK: 2 preds: ^bb1, ^bb2
     test_inst ins %7, %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()

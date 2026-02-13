@@ -153,7 +153,10 @@ LogicalResult CopyOp::canonicalize(CopyOp op,
   if (tgt == src || (tgt.getType().hasAllocatedSemantics() &&
                      src.getType().hasAllocatedSemantics() &&
                      tgt.getType() == src.getType())) {
-    rewriter.replaceOp(op, op.getSource());
+    if (op.getTargetRes())
+      rewriter.replaceOp(op, op.getSource());
+    else
+      rewriter.eraseOp(op);
     return success();
   }
   return failure();

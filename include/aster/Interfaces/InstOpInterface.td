@@ -49,25 +49,17 @@ def InstOpInterface : OpInterface<"InstOpInterface"> {
         return ::mlir::aster::detail::hasPureValueSemanticsImpl($_op);
       }]
     >,
-    InterfaceMethod<
-      "Returns true if the instruction has DPS-like semantics",
-      "bool", "isDPSInstruction", (ins), [{}], [{
-        // TODO: Remove this default implementation when all instructions have proper
-        // overrides.
-        return true;
-      }]
-    >,
     InterfaceMethod< [{
-        Returns a clone of the instruction with the provided instruction operands and results,
-        if the result types are not provided, the clone will deduce the result types from the
-        instruction operands. Returns nullptr on failure.
+        Returns a clone of the instruction with the provided instruction
+        operands and results. Returns nullptr on failure.
       }],  "::mlir::aster::InstOpInterface", "cloneInst", (ins
           "::mlir::OpBuilder&":$builder, "::mlir::ValueRange":$outs,
-          "::mlir::ValueRange":$ins
-        ), [{}], [{
-        return ::mlir::aster::detail::cloneInstOpImpl($_op, builder, outs, ins);
-      }]
+          "::mlir::ValueRange":$ins)
     >,
+    InterfaceMethod<
+      "Returns the operand and result information for the instruction",
+      "InstOpInfo", "getInstInfo"
+    >
   ];
   let verify = [{
     return ::mlir::aster::detail::verifyInstImpl(cast<ConcreteOp>($_op));

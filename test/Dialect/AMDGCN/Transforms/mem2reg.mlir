@@ -28,16 +28,16 @@ func.func @test_basic() -> !amdgcn.sgpr {
 // CHECK:           %[[ALLOCA_6:.*]] = amdgcn.alloca : !amdgcn.sgpr<2>
 // CHECK:           %[[ALLOCA_7:.*]] = amdgcn.alloca : !amdgcn.sgpr<3>
 // CHECK:           %[[MAKE_REGISTER_RANGE_1:.*]] = amdgcn.make_register_range %[[ALLOCA_4]], %[[ALLOCA_5]], %[[ALLOCA_6]], %[[ALLOCA_7]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>, !amdgcn.sgpr<2>, !amdgcn.sgpr<3>
-// CHECK:           %[[TEST_INST_0:.*]] = amdgcn.test_inst outs %[[MAKE_REGISTER_RANGE_1]] ins %[[MAKE_REGISTER_RANGE_0]] : (!amdgcn.sgpr_range<[0 : 4]>, !amdgcn.sgpr_range<[8 : 12]>) -> !amdgcn.sgpr_range<[0 : 4]>
-// CHECK:           return %[[TEST_INST_0]] : !amdgcn.sgpr_range<[0 : 4]>
+// CHECK:           amdgcn.test_inst outs %[[MAKE_REGISTER_RANGE_1]] ins %[[MAKE_REGISTER_RANGE_0]] : (!amdgcn.sgpr_range<[0 : 4]>, !amdgcn.sgpr_range<[8 : 12]>) -> ()
+// CHECK:           return %[[MAKE_REGISTER_RANGE_1]] : !amdgcn.sgpr_range<[0 : 4]>
 // CHECK:         }
 func.func @test_allocated() -> !amdgcn.sgpr_range<[0 : 4]> {
   %alloca = memref.alloca() : memref<!amdgcn.sgpr_range<[0 : 4]>>
   %alloca_0 = memref.alloca() : memref<!amdgcn.sgpr_range<[8 : 12]>>
   %0 = memref.load %alloca[] : memref<!amdgcn.sgpr_range<[0 : 4]>>
   %1 = memref.load %alloca_0[] : memref<!amdgcn.sgpr_range<[8 : 12]>>
-  %2 = amdgcn.test_inst outs %0 ins %1 : (!amdgcn.sgpr_range<[0 : 4]>, !amdgcn.sgpr_range<[8 : 12]>) -> !amdgcn.sgpr_range<[0 : 4]>
-  memref.store %2, %alloca[] : memref<!amdgcn.sgpr_range<[0 : 4]>>
+  amdgcn.test_inst outs %0 ins %1 : (!amdgcn.sgpr_range<[0 : 4]>, !amdgcn.sgpr_range<[8 : 12]>) -> ()
+  memref.store %0, %alloca[] : memref<!amdgcn.sgpr_range<[0 : 4]>>
   %3 = memref.load %alloca[] : memref<!amdgcn.sgpr_range<[0 : 4]>>
   return %3 : !amdgcn.sgpr_range<[0 : 4]>
 }

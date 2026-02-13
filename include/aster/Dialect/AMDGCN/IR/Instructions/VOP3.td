@@ -26,7 +26,7 @@ def VOP3Src : RegOrImm<[SGPRType, VGPRType, SGPRRangeType, VGPRRangeType], [I32]
 def VOP3Dst : AnyRegOf<[VGPRType, VGPRRangeType]>;
 
 def VOP3Op : AMDGCN_InstOp<"vop3", [
-    PureInst, DeclareOpInterfaceMethods<InferTypeOpInterface>
+    PureInst, InstInferType
   ]> {
   let summary = "VOP3 (Vector Operations with 3 operands) operation";
   let description = [{

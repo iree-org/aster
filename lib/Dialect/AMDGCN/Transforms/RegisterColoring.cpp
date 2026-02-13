@@ -358,6 +358,12 @@ InstRewritePattern::matchAndRewrite(InstOpInterface op,
   bool mutatedIns = false;
   bool mutatedOuts = false;
 
+  // Bail out if the instruction has results.
+  if (!op.getInstResults().empty()) {
+    return rewriter.notifyMatchFailure(
+        op, "expected instruction with register semantics");
+  }
+
   // Helper to handle an operand.
   auto handleOperand = [&](Value operand) -> Value {
     auto cOp =
@@ -392,47 +398,8 @@ InstRewritePattern::matchAndRewrite(InstOpInterface op,
   if (!newInst)
     return failure();
 
-  if (!mutatedOuts) {
-    rewriter.replaceOp(op, newInst->getResults());
-    return success();
-  }
-
-  // Get the updated results.
-  SmallVector<Value> newRes;
-  ResultRange results = newInst->getResults();
-  ResultRange instResults = newInst.getInstResults();
-  ValueRange outs = newInst.getInstOuts();
-  int64_t rPos = 0;
-  int64_t rSz = results.size();
-  int64_t oPos = 0;
-  int64_t oSz = outs.size();
-  while (rPos < rSz) {
-    OpResult res = rPos >= rSz ? nullptr : results[rPos++];
-    OpResult out = oPos >= oSz ? nullptr : instResults[oPos];
-
-    // Add non-inst results as is.
-    if (res != out) {
-      newRes.push_back(res);
-      continue;
-    }
-
-    // Handle inst results.
-    Value outVal = outs[oPos++];
-
-    // If the types match, add the result as is.
-    if (out.getType() == outVal.getType()) {
-      newRes.push_back(res);
-      continue;
-    }
-
-    // Otherwise, create a cast to the expected type.
-    out.setType(outVal.getType());
-    auto cOp = UnrealizedConversionCastOp::create(rewriter, out.getLoc(),
-                                                  outVal.getType(), out);
-    cOp->setDiscardableAttr(kCastOpTag, rewriter.getUnitAttr());
-    newRes.push_back(cOp.getResult(0));
-  }
-  rewriter.replaceOp(op, newRes);
+  // Replace the original instruction with the new results.
+  rewriter.replaceOp(op, newInst->getResults());
   return success();
 }
 
@@ -467,7 +434,7 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
     return success();
 
   // If the result is used, bail out.
-  if (!op.getTargetRes().use_empty())
+  if (op.getTargetRes() && !op.getTargetRes().use_empty())
     return failure();
 
   // Get the source allocas. Bail out if the allocas are missing or need

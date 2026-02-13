@@ -82,7 +82,7 @@ amdgcn.module @gfx950_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna
   amdgcn.kernel @simple_kernel {
     %0 = amdgcn.alloca : !amdgcn.vgpr<2>
     %c42 = arith.constant 42 : i32
-    %1 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %0, %c42 : (!amdgcn.vgpr<2>, i32) -> !amdgcn.vgpr<2>
+    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %0, %c42 : (!amdgcn.vgpr<2>, i32) -> ()
     amdgcn.end_kernel
   }
   amdgcn.kernel @empty_kernel {

@@ -31,7 +31,7 @@ def CmpIOpResult : AnyRegOf<[SReg<"VCC">, SReg<"SCC">, SGPRType]>;
 // CmpIOp
 //===----------------------------------------------------------------------===//
 
-def AMDGCN_CmpIOp : AMDGCN_InstOp<"cmpi", [PureInst]> {
+def AMDGCN_CmpIOp : AMDGCN_InstOp<"cmpi", [PureInst, InstInferType]> {
   let cppNamespace = "::mlir::aster::amdgcn";
   let summary = "AMDGCN integer comparison operation";
   let description = [{
@@ -42,22 +42,14 @@ def AMDGCN_CmpIOp : AMDGCN_InstOp<"cmpi", [PureInst]> {
   let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let outputs = (ins CmpIOpResult:$dest, OptionalReg<SReg<"EXEC">>:$exec);
   let inputs = (ins CmpIOpOperand:$lhs, CmpIOpOperand:$rhs);
-  let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<(ins "OpCode":$opcode, "Value":$dest, "Value":$lhs, "Value":$rhs)>,
-    OpBuilder<(ins "OpCode":$opcode, "Value":$dest, "Value":$exec, "Value":$lhs, "Value":$rhs)>
   ];
   let assemblyFormat = [{
     custom<Opcode>($opcode) `outs` $dest (`,` $exec^)? `ins` $lhs `,` $rhs
     attr-dict `:`
     custom<CmpOutTypes>(type($dest), ref($exec), type($exec), type($dest_res), type($exec_res))
     `ins` `(` type($lhs) `,` type($rhs) `)`
-  }];
-  let extraClassDeclaration = [{
-    /// Returns true if this instruction is in DPS format.
-    bool isDPSInstruction() {
-      return getDestRes() != nullptr;
-    }
   }];
 }
 

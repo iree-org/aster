@@ -26,7 +26,7 @@ def VOP2Src1 : AnyRegOf<[VGPRType, VGPRRangeType]>;
 def VOP2Dst : AnyRegOf<[VGPRType, VGPRRangeType]>;
 
 def VOP2Op : AMDGCN_InstOp<"vop2",  [
-    PureInst, DeclareOpInterfaceMethods<InferTypeOpInterface>
+    PureInst, InstInferType
   ]> {
   let summary = "VOP2 (Vector Operations with 2 operands) operation";
   let description = [{

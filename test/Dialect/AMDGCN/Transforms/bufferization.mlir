@@ -13,12 +13,12 @@
 // CHECK:           ^bb1:
 // CHECK:             %[[VAL_3:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_3]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[COPY_1:.*]] = lsir.copy %[[VAL_2]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_2]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb2:
 // CHECK:             %[[VAL_4:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[COPY_2:.*]] = lsir.copy %[[VAL_4]], %[[VAL_1]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[COPY_3:.*]] = lsir.copy %[[VAL_2]], %[[COPY_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_2]], %[[COPY_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb3:
 // CHECK:             %[[VAL_5:.*]] = dealloc_cast %[[VAL_2]] : !amdgcn.vgpr<?>
@@ -55,12 +55,12 @@ amdgcn.module @bufferization_phi_copies_1 target = <gfx942> isa = <cdna3> {
 // CHECK:           ^bb1:
 // CHECK:             %[[VAL_2:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_2]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[COPY_1:.*]] = lsir.copy %[[VAL_1]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_1]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb2:
 // CHECK:             %[[VAL_3:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[COPY_2:.*]] = lsir.copy %[[VAL_3]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[COPY_3:.*]] = lsir.copy %[[VAL_1]], %[[COPY_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_1]], %[[COPY_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb3:
 // CHECK:             %[[VAL_4:.*]] = dealloc_cast %[[VAL_1]] : !amdgcn.vgpr<?>
@@ -98,12 +98,12 @@ amdgcn.module @bufferization_same_phi_value target = <gfx942> isa = <cdna3> {
 // CHECK:           ^bb1:
 // CHECK:             %[[VAL_3:.*]] = alloca : !amdgcn.sgpr
 // CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_3]], %[[VAL_0]] : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:             %[[COPY_1:.*]] = lsir.copy %[[VAL_2]], %[[COPY_0]] : !amdgcn.sgpr<?>, !amdgcn.sgpr
+// CHECK:             lsir.copy %[[VAL_2]], %[[COPY_0]] : !amdgcn.sgpr<?>, !amdgcn.sgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb2:
 // CHECK:             %[[VAL_4:.*]] = alloca : !amdgcn.sgpr
 // CHECK:             %[[COPY_2:.*]] = lsir.copy %[[VAL_4]], %[[VAL_1]] : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:             %[[COPY_3:.*]] = lsir.copy %[[VAL_2]], %[[COPY_2]] : !amdgcn.sgpr<?>, !amdgcn.sgpr
+// CHECK:             lsir.copy %[[VAL_2]], %[[COPY_2]] : !amdgcn.sgpr<?>, !amdgcn.sgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb3:
 // CHECK:             %[[VAL_5:.*]] = dealloc_cast %[[VAL_2]] : !amdgcn.sgpr<?>
@@ -145,12 +145,12 @@ amdgcn.module @bufferization_sgpr_copies target = <gfx942> isa = <cdna3> {
 // CHECK:           ^bb1:
 // CHECK:             %[[VAL_6:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_6]], %[[VAL_3]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[COPY_1:.*]] = lsir.copy %[[VAL_5]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_5]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb2:
 // CHECK:             %[[VAL_7:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[COPY_2:.*]] = lsir.copy %[[VAL_7]], %[[VAL_4]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[COPY_3:.*]] = lsir.copy %[[VAL_5]], %[[COPY_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_5]], %[[COPY_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb3:
 // CHECK:             %[[VAL_8:.*]] = dealloc_cast %[[VAL_5]] : !amdgcn.vgpr<?>

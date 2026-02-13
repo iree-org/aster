@@ -91,8 +91,29 @@ class InstArgInfo<dag args> {
   int numOptArgs = !foldl(0, isOpt, acc, v, !add(v, acc));
 }
 
+/// Helper class to extract information from a dag.
+class InstDagInfo<dag args> {
+  // Generate indices for the args.
+  list<int> indices = !if(!empty(args),
+    /*true_value=*/[],
+    /*false_value=*/!range(!size(args))
+  );
+
+  // Extract the types of the arguments.
+  list<bit> isOperand = !if(!empty(args),
+    /*true_value=*/[],
+    /*false_value=*/!foreach(i, indices, !initialized(!getdagarg<TypeConstraint>(args, i)))
+  );
+
+  // The number of leading operands.
+  int numOperands = !if(!empty(args),
+    /*true_value=*/0,
+    /*false_value=*/!foldl(0, isOperand, acc, v, !add(!if(v, 1, 0), acc))
+  );
+}
+
 /// Helper class to extract information from a list of dag arguments.
-class InstInfo<dag inputs, dag outputs, dag leadingArgs, int leadingResultsSize> {
+class InstInfo<dag inputs, dag outputs, dag leadingArgs, dag trailingArgs, dag leadingResults, dag trailingResults> {
   InstArgInfo inputsInfo = InstArgInfo<inputs>;
   InstArgInfo outputsInfo = InstArgInfo<outputs>;
 
@@ -121,30 +142,20 @@ class InstInfo<dag inputs, dag outputs, dag leadingArgs, int leadingResultsSize>
     /*false_value=*/(outs)
   );
 
-  // Generate indices for the args.
-  list<int> leadingIndices = !if(!empty(leadingArgs),
-    /*true_value=*/[],
-    /*false_value=*/!range(!size(leadingArgs))
-  );
-
-  // Extract the types of the arguments.
-  list<bit> isLeadingOperand = !if(!empty(leadingArgs),
-    /*true_value=*/[],
-    /*false_value=*/!foreach(i, leadingIndices, !initialized(!getdagarg<TypeConstraint>(leadingArgs, i)))
-  );
-
   // The number of leading operands.
-  int numLeadingOperands = !if(!empty(leadingArgs),
-    /*true_value=*/0,
-    /*false_value=*/!foldl(0, isLeadingOperand, acc, v, !add(!if(v, 1, 0), acc))
-  );
+  int numLeadingOperands = InstDagInfo<leadingArgs>.numOperands;
+
+  // The number of trailing operands.
+  int numTrailingOperands = InstDagInfo<trailingArgs>.numOperands;
 
   // The number of instruction results.
   int numInstResults = !size(instResults);
 
   // The number of leading results.
-  int numLeadingResults = leadingResultsSize;
+  int numLeadingResults = InstDagInfo<leadingResults>.numOperands;
 
+  // The number of trailing results.
+  int numTrailingResults = InstDagInfo<trailingResults>.numOperands;
 }
 
 /// Trait to provide instruction operand and result information.
@@ -156,16 +167,22 @@ class InstTrait<InstInfo info> : NativeOpTrait<"InstTrait"> {
   );
   let extraConcreteClassDeclaration = StrSubst<[{
     /// The number of input operands.
-    static constexpr int64_t kInsSize = $kInsSize;
+    static constexpr int32_t kInsSize = $kInsSize;
 
     /// The number of output operands.
-    static constexpr int64_t kOutsSize = $kOutsSize;
+    static constexpr int32_t kOutsSize = $kOutsSize;
 
     /// The number of leading operands.
-    static constexpr int64_t kLeadingOperandsSize = $kLeadingOperandsSize;
+    static constexpr int32_t kLeadingOperandsSize = $kLeadingOperandsSize;
 
     /// The number of leading results.
-    static constexpr int64_t kLeadingResultsSize = $kLeadingResultsSize;
+    static constexpr int32_t kLeadingResultsSize = $kLeadingResultsSize;
+
+    /// The number of trailing operands.
+    static constexpr int32_t kTrailingOperandsSize = $kTrailingOperandsSize;
+
+    /// The number of trailing results.
+    static constexpr int32_t kTrailingResultsSize = $kTrailingResultsSize;
 
     /// Get the instruction output operands.
     OperandRange getInstOuts() {
@@ -181,11 +198,18 @@ class InstTrait<InstInfo info> : NativeOpTrait<"InstTrait"> {
     ResultRange getInstResults() {
       return getInstResultsImpl(*this);
     }
+
+    /// Get the operand and result information for the instruction.
+    InstOpInfo getInstInfo() {
+      return getInstInfoImpl(*this);
+    }
   }], [
     IntRepl<"kInsSize", info.inputsInfo.numArgs>,
     IntRepl<"kOutsSize", info.outputsInfo.numArgs>,
     IntRepl<"kLeadingOperandsSize", info.numLeadingOperands>,
-    IntRepl<"kLeadingResultsSize", info.numLeadingResults>
+    IntRepl<"kLeadingResultsSize", info.numLeadingResults>,
+    IntRepl<"kTrailingOperandsSize", info.numTrailingOperands>,
+    IntRepl<"kTrailingResultsSize", info.numTrailingResults>
   ]>.result;
 }
 
@@ -243,6 +267,23 @@ def InstInferType : TraitList<[
   InstInferTypeTrait
 ]>;
 
+/// Trait to provide the cloneInst method for instructions.
+def InstCloneOpTrait : NativeOpTrait<"InstTrait"> {
+  let cppNamespace = "::mlir::aster";
+  let extraConcreteClassDeclaration = [{
+  //===------------------------------------------------------------------===//
+  // Clone Methods
+  //===------------------------------------------------------------------===//
+  InstOpInterface cloneInst(OpBuilder &builder, ValueRange outs,
+                            ValueRange ins);
+  }];
+  let extraConcreteClassDefinition = [{
+  InstOpInterface $cppClass::cloneInst(OpBuilder &builder, ValueRange outs, ValueRange ins) {
+    return ::mlir::aster::detail::cloneInstImpl<$cppClass>(*this, builder, outs, ins);
+  }
+  }];
+}
+
 // Base class for all instructions. Users must not use the Op fields set by this
 // class directly, instead they should let the InstOp class handle them. For example,
 // don't set the arguments and results fields directly, instead set the outputs
@@ -268,7 +309,7 @@ class InstOp<Dialect dialect, string mnemonic, list<Trait> opTraits = []>
   dag trailingResults = (outs);
 
   // The instruction operand and result information.
-  InstInfo info = InstInfo<inputs, outputs, leadingArguments, !size(leadingResults)>;
+  InstInfo info = InstInfo<inputs, outputs, leadingArguments, trailingArguments, leadingResults, trailingResults>;
 
   // Helper with the arguments of the instruction.
   dag instArguments = !con(leadingArguments, outputs, inputs, trailingArguments);

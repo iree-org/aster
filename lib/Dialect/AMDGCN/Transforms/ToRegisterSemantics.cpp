@@ -15,10 +15,12 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
+#include "aster/IR/InstImpl.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -235,7 +237,8 @@ LogicalResult InstOpPattern::matchAndRewrite(InstOpInterface instOp,
                                              PatternRewriter &rewriter) const {
   // Try getting the new operands.
   bool changed = false;
-  SmallVector<Value, 4> outs = llvm::to_vector(instOp.getInstOuts()),
+  ValueRange instOuts = instOp.getInstOuts();
+  SmallVector<Value, 4> outs = llvm::to_vector(instOuts),
                         ins = llvm::to_vector(instOp.getInstIns());
   for (Value &operand : outs)
     handleInstOperand(instOp, operand, rewriter, changed);
@@ -259,34 +262,31 @@ LogicalResult InstOpPattern::matchAndRewrite(InstOpInterface instOp,
   // Clone the instruction with the updated operands.
   auto newInst = instOp.cloneInst(rewriter, outs, ins);
 
-  SmallVector<Value, 4> newResults =
-      llvm::to_vector_of<Value, 4>(newInst->getResults());
+  SmallVector<Value, 4> newResults;
+  InstOpInfo info = newInst.getInstInfo();
 
-  // Forward the output operands to the new results.
-  int64_t resPos = 0;
-  if (ResultRange range = instOp.getInstResults(); !range.empty())
-    resPos = range.front().getResultNumber();
+  // Append the leading results.
+  llvm::append_range(newResults, info.getLeadingResults(newInst->getResults()));
 
-  // Propagate non-value outs to results.
-  for (Value out : newInst.getInstOuts()) {
-    auto regTy = dyn_cast<RegisterTypeInterface>(out.getType());
-    if (regTy.hasValueSemantics())
+  // Propagate the outs to the results.
+  TiedInstOutsRange newOuts(newInst);
+  TiedInstOutsRange oldOuts(instOp);
+  for (auto [newOut, oldOut] : llvm::zip_equal(newOuts, oldOuts)) {
+    if (!oldOut.second)
       continue;
-    newResults[resPos++] = out;
+    Value oldRes = oldOut.second ? oldOut.second : oldOut.first;
+    Value result = newOut.second ? newOut.second : newOut.first;
+    if (oldRes.getType() != result.getType()) {
+      result =
+          createTaggedCast(rewriter, result.getLoc(), oldRes.getType(), result)
+              ->getResult(0);
+    }
+    newResults.push_back(result);
   }
 
-  // Create tagged casts for all results if the types don't match.
-  for (auto &&[result, oldResult] :
-       llvm::zip_equal(newResults, instOp->getResults())) {
-    if (result.getType() == oldResult.getType())
-      continue;
-
-    // Create a tagged cast to the expected type.
-    auto castOp = createTaggedCast(rewriter, result.getLoc(),
-                                   oldResult.getType(), result);
-    result = castOp.getResult(0);
-  }
-
+  // Append the trailing results.
+  llvm::append_range(newResults,
+                     info.getTrailingResults(newInst->getResults()));
   // Replace the original instruction with the new results.
   rewriter.replaceOp(instOp, newResults);
   return success();

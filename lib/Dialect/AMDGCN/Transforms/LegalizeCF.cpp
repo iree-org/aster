@@ -245,7 +245,10 @@ LogicalResult LegalizeCF::lowerSelect(lsir::SelectOp selectOp) {
 
   // Replace uses of the select result with the dst (which now holds the
   // s_cselect result via side effect).
-  rewriter.replaceOp(selectOp, sdst);
+  if (selectOp->getNumResults() > 0)
+    rewriter.replaceOp(selectOp, sdst);
+  else
+    rewriter.eraseOp(selectOp);
 
   return success();
 }

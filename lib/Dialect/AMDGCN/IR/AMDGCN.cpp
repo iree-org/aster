@@ -144,19 +144,21 @@ static void printOffsets(OpAsmPrinter &printer, Operation *, Value uOff,
   printOperand(cOff, "c");
 }
 
-static ParseResult parseOutTypes(OpAsmParser &parser, Type &dpsType,
+static ParseResult parseOutTypes(OpAsmParser &parser, Type &operand,
                                  Type &resultType) {
   if (parser.parseKeyword("dps") || parser.parseLParen() ||
-      parser.parseType(resultType) || parser.parseRParen())
+      parser.parseType(operand) || parser.parseRParen())
     return failure();
-  dpsType = resultType;
+  if (auto regTy = dyn_cast<RegisterTypeInterface>(operand);
+      regTy && regTy.hasValueSemantics())
+    resultType = operand;
   return success();
 }
 
-static void printOutTypes(OpAsmPrinter &printer, Operation *, Type dpsType,
+static void printOutTypes(OpAsmPrinter &printer, Operation *, Type operand,
                           Type resultType) {
   printer << "dps(";
-  printer << resultType;
+  printer << operand;
   printer << ")";
 }
 
@@ -452,29 +454,6 @@ static Type getTokType(MLIRContext *context, OpCode code, bool isRead) {
                 : cast<Type>(WriteTokenType::get(context, kind));
 }
 
-void LoadOp::build(OpBuilder &odsBuilder, OperationState &odsState,
-                   OpCode opcode, Value dst, Value addr, Value uniform_offset,
-                   Value dynamic_offset, Value constant_offset) {
-  auto &props = odsState.getOrAddProperties<Properties>();
-  props.setOpcode(InstAttr::get(odsBuilder.getContext(), opcode));
-  odsState.addOperands({dst, addr});
-  if (uniform_offset)
-    odsState.addOperands({uniform_offset});
-  if (dynamic_offset)
-    odsState.addOperands({dynamic_offset});
-  if (constant_offset)
-    odsState.addOperands({constant_offset});
-  props.operandSegmentSizes =
-      std::array<int32_t, 5>({1, 1, uniform_offset ? 1 : 0,
-                              dynamic_offset ? 1 : 0, constant_offset ? 1 : 0});
-  LogicalResult res = inferReturnTypes(
-      odsBuilder.getContext(), odsState.location, odsState.operands,
-      odsState.attributes.getDictionary(odsBuilder.getContext()), &props,
-      odsState.regions, odsState.types);
-  assert(succeeded(res) && "unexpected inferReturnTypes failure");
-  (void)res;
-}
-
 MutableOperandRange LoadOp::getDependenciesMutable() {
   return MutableOperandRange(getOperation(), 0, 0);
 }
@@ -486,7 +465,9 @@ LoadOp::inferReturnTypes(MLIRContext *context, std::optional<Location> location,
                          ValueRange operands, DictionaryAttr attributes,
                          OpaqueProperties properties, RegionRange regions,
                          SmallVectorImpl<Type> &inferredReturnTypes) {
-  inferredReturnTypes.push_back(operands[0].getType());
+  if (auto regTy = cast<RegisterTypeInterface>(operands[0].getType());
+      regTy && regTy.hasValueSemantics())
+    inferredReturnTypes.push_back(operands[0].getType());
   inferredReturnTypes.push_back(getTokType(
       context, properties.as<Properties *>()->getOpcode().getValue(), true));
   return success();
@@ -659,29 +640,6 @@ LogicalResult SplitRegisterRangeOp::inferReturnTypes(
 // StoreOp
 //===----------------------------------------------------------------------===//
 
-void StoreOp::build(OpBuilder &odsBuilder, OperationState &odsState,
-                    OpCode opcode, Value data, Value addr, Value uniform_offset,
-                    Value dynamic_offset, Value constant_offset) {
-  auto &props = odsState.getOrAddProperties<Properties>();
-  props.setOpcode(InstAttr::get(odsBuilder.getContext(), opcode));
-  odsState.addOperands({data, addr});
-  if (uniform_offset)
-    odsState.addOperands({uniform_offset});
-  if (dynamic_offset)
-    odsState.addOperands({dynamic_offset});
-  if (constant_offset)
-    odsState.addOperands({constant_offset});
-  props.operandSegmentSizes =
-      std::array<int32_t, 5>({1, 1, uniform_offset ? 1 : 0,
-                              dynamic_offset ? 1 : 0, constant_offset ? 1 : 0});
-  LogicalResult res = inferReturnTypes(
-      odsBuilder.getContext(), odsState.location, odsState.operands,
-      odsState.attributes.getDictionary(odsBuilder.getContext()), &props,
-      odsState.regions, odsState.types);
-  assert(succeeded(res) && "unexpected inferReturnTypes failure");
-  (void)res;
-}
-
 MutableOperandRange StoreOp::getDependenciesMutable() {
   return MutableOperandRange(getOperation(), 0, 0);
 }
@@ -738,8 +696,12 @@ parseCmpOutTypes(OpAsmParser &parser, Type &destType,
   //   dps(destType) outs(execType)?  -- unallocated dest
   //   outs(destType, execType?)      -- allocated dest
   llvm::scope_exit atExit([&]() {
-    destResType = destType;
-    execResType = execType;
+    auto regTy = cast<RegisterTypeInterface>(destType);
+    if (regTy.hasValueSemantics())
+      destResType = destType;
+    auto execRegTy = cast_or_null<RegisterTypeInterface>(execType);
+    if (execRegTy && execRegTy.hasValueSemantics())
+      execResType = execType;
   });
   SMLoc loc = parser.getCurrentLocation();
   if (succeeded(parser.parseOptionalKeyword("dps"))) {
@@ -804,17 +766,11 @@ void CmpIOp::build(OpBuilder &builder, OperationState &state, OpCode opcode,
   auto &props = state.getOrAddProperties<Properties>();
   props.setOpcode(InstAttr::get(builder.getContext(), opcode));
   state.addOperands({dest, lhs, rhs});
-  state.addTypes({dest.getType()});
-  props.resultSegmentSizes = std::array<int32_t, 2>({1, 0});
-}
-
-void CmpIOp::build(OpBuilder &builder, OperationState &state, OpCode opcode,
-                   Value dest, Value exec, Value lhs, Value rhs) {
-  auto &props = state.getOrAddProperties<Properties>();
-  props.setOpcode(InstAttr::get(builder.getContext(), opcode));
-  state.addOperands({dest, exec, lhs, rhs});
-  state.addTypes({dest.getType(), exec.getType()});
-  props.resultSegmentSizes = std::array<int32_t, 2>({1, exec ? 1 : 0});
+  if (auto regTy = dyn_cast<RegisterTypeInterface>(dest.getType());
+      regTy && regTy.hasValueSemantics()) {
+    state.addTypes({dest.getType()});
+    props.resultSegmentSizes = std::array<int32_t, 2>({1, 0});
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -1004,20 +960,6 @@ LogicalResult WaitOp::canonicalize(WaitOp op, PatternRewriter &rewriter) {
 // VOP2Op
 //===----------------------------------------------------------------------===//
 
-LogicalResult inst::VOP2Op::inferReturnTypes(
-    MLIRContext *context, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
-    SmallVectorImpl<Type> &inferredReturnTypes) {
-  Adaptor adaptor(operands, attributes, properties, regions);
-  auto &props = *properties.as<Properties *>();
-  inferredReturnTypes.push_back(adaptor.getVdst0().getType());
-  if (adaptor.getDst1())
-    inferredReturnTypes.push_back(adaptor.getDst1().getType());
-  props.resultSegmentSizes[0] = 1;
-  props.resultSegmentSizes[1] = adaptor.getDst1() ? 1 : 0;
-  return success();
-}
-
 ParseResult inst::VOP2Op::parse(OpAsmParser &parser, OperationState &result) {
   InstAttr opcodeAttr;
   OpAsmParser::UnresolvedOperand vdst0Operand;
@@ -1084,13 +1026,21 @@ ParseResult inst::VOP2Op::parse(OpAsmParser &parser, OperationState &result) {
   if (src2Operand)
     src2Type = operandTypes[idx++];
 
+  auto hasValueSemantics = [](Type type) {
+    auto regType = dyn_cast<RegisterTypeInterface>(type);
+    return regType && regType.hasValueSemantics();
+  };
+  int vdst0Results = hasValueSemantics(vdst0Type) ? 1 : 0;
+  int dst1Results = (dst1Operand && hasValueSemantics(dst1Type)) ? 1 : 0;
+
   auto &props = result.getOrAddProperties<inst::VOP2Op::Properties>();
   props.operandSegmentSizes = {1, dst1Operand ? 1 : 0, 1, 1,
                                src2Operand ? 1 : 0};
-  props.resultSegmentSizes = {1, dst1Operand ? 1 : 0};
+  props.resultSegmentSizes = {vdst0Results, dst1Results};
 
-  result.addTypes(vdst0Type);
-  if (dst1Operand)
+  if (vdst0Results)
+    result.addTypes(vdst0Type);
+  if (dst1Results)
     result.addTypes(dst1Type);
 
   if (parser.resolveOperand(vdst0Operand, vdst0Type, result.operands))
@@ -1136,20 +1086,6 @@ void inst::VOP2Op::print(OpAsmPrinter &p) {
 //===----------------------------------------------------------------------===//
 // VOP3Op
 //===----------------------------------------------------------------------===//
-
-LogicalResult inst::VOP3Op::inferReturnTypes(
-    MLIRContext *context, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
-    SmallVectorImpl<Type> &inferredReturnTypes) {
-  Adaptor adaptor(operands, attributes, properties, regions);
-  auto &props = *properties.as<Properties *>();
-  inferredReturnTypes.push_back(adaptor.getVdst0().getType());
-  if (adaptor.getDst1())
-    inferredReturnTypes.push_back(adaptor.getDst1().getType());
-  props.resultSegmentSizes =
-      std::array<int32_t, 2>({1, adaptor.getDst1() ? 1 : 0});
-  return success();
-}
 
 ParseResult inst::VOP3Op::parse(OpAsmParser &parser, OperationState &result) {
   InstAttr opcodeAttr;
@@ -1226,13 +1162,21 @@ ParseResult inst::VOP3Op::parse(OpAsmParser &parser, OperationState &result) {
   if (src2Operand)
     src2Type = operandTypes[idx++];
 
+  auto hasValueSemantics = [](Type type) {
+    auto regType = dyn_cast<RegisterTypeInterface>(type);
+    return regType && regType.hasValueSemantics();
+  };
+  int vdst0Results = hasValueSemantics(vdst0Type) ? 1 : 0;
+  int dst1Results = (dst1Operand && hasValueSemantics(dst1Type)) ? 1 : 0;
+
   auto &props = result.getOrAddProperties<inst::VOP3Op::Properties>();
   props.operandSegmentSizes = {1, dst1Operand ? 1 : 0, 1, 1,
                                src2Operand ? 1 : 0};
-  props.resultSegmentSizes = {1, dst1Operand ? 1 : 0};
+  props.resultSegmentSizes = {vdst0Results, dst1Results};
 
-  result.addTypes(vdst0Type);
-  if (dst1Operand)
+  if (vdst0Results)
+    result.addTypes(vdst0Type);
+  if (dst1Results)
     result.addTypes(dst1Type);
 
   if (parser.resolveOperand(vdst0Operand, vdst0Type, result.operands))

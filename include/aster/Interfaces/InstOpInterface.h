@@ -17,12 +17,56 @@
 
 #include "aster/IR/OpSupport.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 namespace mlir {
 class OpBuilder;
 namespace aster {
 class InstOpInterface;
+/// Operand and result information for the instruction operation.
+struct InstOpInfo {
+  InstOpInfo(int32_t numLeadingOperands, int32_t numInstOuts,
+             int32_t numInstIns, int32_t numLeadingResults,
+             int32_t numInstResults)
+      : numLeadingOperands(numLeadingOperands), numInstOuts(numInstOuts),
+        numInstIns(numInstIns), numLeadingResults(numLeadingResults),
+        numInstResults(numInstResults) {}
+  const int32_t numLeadingOperands;
+  const int32_t numInstOuts;
+  const int32_t numInstIns;
+  const int32_t numLeadingResults;
+  const int32_t numInstResults;
+  /// Get the leading operands.
+  ValueRange getLeadingOperands(ValueRange operands) {
+    return operands.slice(0, numLeadingOperands);
+  }
+  /// Get the instruction output operands.
+  ValueRange getInstOuts(ValueRange operands) {
+    return operands.slice(numLeadingOperands, numInstOuts);
+  }
+  /// Get the instruction input operands.
+  ValueRange getInstIns(ValueRange operands) {
+    return operands.slice(numLeadingOperands + numInstOuts, numInstIns);
+  }
+  /// Get the trailing operands.
+  ValueRange getTrailingOperands(ValueRange operands) {
+    return operands.drop_front(numLeadingOperands + numInstOuts + numInstIns);
+  }
+  /// Get the leading results.
+  ResultRange getLeadingResults(ResultRange results) {
+    return results.slice(0, numLeadingResults);
+  }
+  /// Get the instruction results.
+  ResultRange getInstResults(ResultRange results) {
+    return results.slice(numLeadingResults, numInstResults);
+  }
+  /// Get the trailing results.
+  ResultRange getTrailingResults(ResultRange results) {
+    return results.drop_front(numLeadingResults + numInstResults);
+  }
+};
+
 namespace detail {
 /// Returns the speculatability of the instruction. If the instruction has pure
 /// value semantics, this function returns Speculatable. Otherwise, it returns
@@ -42,10 +86,6 @@ LogicalResult verifyInstImpl(InstOpInterface op);
 
 /// Returns true if all the register operands have value semantics.
 bool hasPureValueSemanticsImpl(InstOpInterface op);
-
-/// Clones the instruction operation with new operands and results.
-InstOpInterface cloneInstOpImpl(InstOpInterface op, OpBuilder &builder,
-                                ValueRange outs, ValueRange ins);
 struct InstAttrStorage;
 } // namespace detail
 } // namespace aster

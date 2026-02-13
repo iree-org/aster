@@ -11,23 +11,41 @@
 #include "aster/Interfaces/InstOpInterface.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/Value.h"
+#include "llvm/ADT/ArrayRef.h"
 
 using namespace mlir;
 using namespace mlir::aster;
 
 LogicalResult mlir::aster::detail::verifyInstImpl(InstOpInterface op) {
-  if (!op.isDPSInstruction())
-    return success();
   ValueRange outOperands = op.getInstOuts();
   ValueRange results = op.getInstResults();
-  if (outOperands.size() != results.size()) {
-    return op.emitOpError()
-           << "number of output operands (" << outOperands.size()
-           << ") does not match number of results (" << results.size() << ")";
+  int64_t resPos = 0, numRes = 0, numOuts = 0, resSize = results.size();
+  for (Value value : outOperands) {
+    auto regType = dyn_cast<RegisterTypeInterface>(value.getType());
+    if (!regType) {
+      return op.emitError()
+             << "output operand has unexpected type: " << value.getType();
+    }
+    if (!regType.hasValueSemantics())
+      continue;
+    ++numOuts;
+    if (resPos >= resSize)
+      continue;
+    Type result = results[resPos++].getType();
+    if (result != value.getType()) {
+      return op.emitError() << "expected result type to be " << value.getType()
+                            << " but got " << result;
+    }
+    ++numRes;
   }
-  if (TypeRange(op.getInstOuts()) != TypeRange(op.getInstResults())) {
-    return op.emitOpError()
-           << "types of output operands do not match types of results";
+  if (numRes != resSize) {
+    return op.emitError() << "expected " << resSize << " results but got "
+                          << numRes;
+  }
+  if (numOuts != numRes) {
+    return op.emitError() << "expected " << numOuts << " results but got "
+                          << numRes;
   }
   return success();
 }
@@ -50,6 +68,25 @@ mlir::aster::detail::getInstSpeculatabilityImpl(InstOpInterface op) {
   return Speculation::Speculatability::NotSpeculatable;
 }
 
+template <typename IRElement>
+void addEffectsForRegister(
+    IRElement element, Type type, MemoryEffects::Effect *effect,
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  auto regType = dyn_cast<RegisterTypeInterface>(type);
+  if (!regType || regType.hasValueSemantics())
+    return;
+  // Add the effect for the resource.
+  if (SideEffects::Resource *resource = regType.getResource())
+    effects.emplace_back(effect, element, resource);
+}
+
+static llvm::MutableArrayRef<OpOperand> getAsOpOperands(OperandRange operands) {
+  if (operands.empty())
+    return {};
+  return llvm::MutableArrayRef<OpOperand>(operands.getBase(), operands.size());
+}
+
 void mlir::aster::detail::getInstEffectsImpl(
     InstOpInterface op,
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
@@ -58,64 +95,18 @@ void mlir::aster::detail::getInstEffectsImpl(
   if (op.hasPureValueSemantics())
     return;
 
-  // Helper to add effects for a register type with specific resources
-  auto addEffectsForRegister = [&](Type type, MemoryEffects::Effect *effect) {
-    auto regType = dyn_cast<RegisterTypeInterface>(type);
-
-    // Skip if the type is not a register type or has value semantics.
-    if (!regType || regType.hasValueSemantics())
-      return;
-
-    // Add the effect for the resource.
-    if (SideEffects::Resource *resource = regType.getResource())
-      effects.emplace_back(effect, resource);
-  };
-
   // Add write effects for outputs
   for (OpResult res : op.getInstResults())
-    addEffectsForRegister(res.getType(), MemoryEffects::Write::get());
+    addEffectsForRegister(res, res.getType(), MemoryEffects::Write::get(),
+                          effects);
+  for (OpOperand &out : getAsOpOperands(op.getInstOuts()))
+    addEffectsForRegister(&out, out.get().getType(),
+                          MemoryEffects::Write::get(), effects);
 
   // Add read effects for inputs
-  for (Value in : op.getInstIns())
-    addEffectsForRegister(in.getType(), MemoryEffects::Read::get());
-}
-
-static MutableArrayRef<OpOperand> getOpOperands(Operation *op,
-                                                OperandRange range) {
-  if (range.empty())
-    return {};
-  MutableArrayRef<OpOperand> operands = op->getOpOperands();
-  return operands.slice(range.getBeginOperandIndex(), range.size());
-}
-
-InstOpInterface aster::detail::cloneInstOpImpl(InstOpInterface op,
-                                               OpBuilder &builder,
-                                               ValueRange outs,
-                                               ValueRange ins) {
-  auto newOp = cast<InstOpInterface>(builder.clone(*op.getOperation()));
-
-  // Verify the number of operands matches.
-  if (outs.size() != newOp.getInstOuts().size() ||
-      ins.size() != newOp.getInstIns().size()) {
-    return nullptr;
-  }
-
-  // Update the operands.
-  for (auto &&[opOperand, operand] :
-       llvm::zip_equal(getOpOperands(newOp, newOp.getInstOuts()), outs))
-    opOperand.assign(operand);
-  for (auto &&[opOperand, operand] :
-       llvm::zip_equal(getOpOperands(newOp, newOp.getInstIns()), ins))
-    opOperand.assign(operand);
-
-  // Update the result types. If resultTypes is not provided, use the types of
-  // outs.
-  ResultRange instResults = newOp.getInstResults();
-
-  for (auto &&[result, type] : llvm::zip_equal(instResults, TypeRange(outs)))
-    result.setType(type);
-
-  return newOp;
+  for (OpOperand &in : getAsOpOperands(op.getInstIns()))
+    addEffectsForRegister(&in, in.get().getType(), MemoryEffects::Read::get(),
+                          effects);
 }
 
 #include "aster/Interfaces/InstOpInterface.cpp.inc"

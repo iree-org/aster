@@ -91,14 +91,6 @@ def AMDGCN_LoadOp : AMDGCN_InstOp<"load", [
   );
   let trailingArguments = (ins OptionalOffsetType:$constant_offset);
   let trailingResults = (outs ReadTokenType:$token);
-  let skipDefaultBuilders = 1;
-  let builders = [
-    OpBuilder<(ins
-      "OpCode":$opcode, "Value":$dest, "Value":$addr,
-      CArg<"Value", "nullptr">:$uniform_offset,
-      CArg<"Value", "nullptr">:$dynamic_offset,
-      CArg<"Value", "nullptr">:$constant_offset)>
-  ];
   let assemblyFormat = [{
     custom<Opcode>($opcode) `dest` $dest `addr` $addr ``
     custom<Offsets>($uniform_offset, $dynamic_offset, $constant_offset)
@@ -175,14 +167,6 @@ def AMDGCN_StoreOp : AMDGCN_InstOp<"store", [
   );
   let trailingArguments = (ins OptionalOffsetType:$constant_offset);
   let leadingResults = (outs WriteTokenType:$token);
-  let builders = [
-    OpBuilder<(ins
-      "OpCode":$opcode, "Value":$data, "Value":$addr,
-      CArg<"Value", "nullptr">:$uniform_offset,
-      CArg<"Value", "nullptr">:$dynamic_offset,
-      CArg<"Value", "nullptr">:$constant_offset)>
-  ];
-  let skipDefaultBuilders = 1;
   let assemblyFormat = [{
     custom<Opcode>($opcode) `data` $data `addr` $addr ``
     custom<Offsets>($uniform_offset, $dynamic_offset, $constant_offset)

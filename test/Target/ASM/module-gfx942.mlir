@@ -116,9 +116,9 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     %0 = amdgcn.alloca : !amdgcn.vgpr<2>
     %1 = amdgcn.alloca : !amdgcn.vgpr<3>
     %c456 = arith.constant 456 : i32
-    %2 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %0, %c456 : (!amdgcn.vgpr<2>, i32) -> !amdgcn.vgpr<2>
-    %3 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %1, %2 : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> !amdgcn.vgpr<3>
-    %4 = amdgcn.make_register_range %2, %3 : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %0, %c456 : (!amdgcn.vgpr<2>, i32) -> ()
+    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> ()
+    %4 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
     amdgcn.end_kernel
   }
   amdgcn.kernel @test_no_args {
