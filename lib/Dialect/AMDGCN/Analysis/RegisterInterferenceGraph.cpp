@@ -66,16 +66,22 @@ void RegisterInterferenceGraph::addEdges(Value lhs, Value rhs) {
   });
 }
 
-void RegisterInterferenceGraph::addEdges(SmallVectorImpl<Value> &allocas) {
-  if (allocas.empty())
-    return;
-  llvm::sort(allocas, [](Value a1, Value a2) {
+/// Helper function to sort and unique a list of values. This is used to
+/// optimize
+static void sortAndUniqueValues(SmallVectorImpl<Value> &values) {
+  llvm::sort(values, [](Value a1, Value a2) {
     return std::make_tuple(a1.getType().getTypeID().getAsOpaquePointer(),
                            a1.getAsOpaquePointer()) <
            std::make_tuple(a2.getType().getTypeID().getAsOpaquePointer(),
                            a2.getAsOpaquePointer());
   });
-  allocas.erase(llvm::unique(allocas), allocas.end());
+  values.erase(llvm::unique(values), values.end());
+}
+
+void RegisterInterferenceGraph::addEdges(SmallVectorImpl<Value> &allocas) {
+  if (allocas.empty())
+    return;
+  sortAndUniqueValues(allocas);
   ArrayRef<Value> allocasRef = allocas;
   // Add edges between all pairs of allocas.
   for (auto [i, a1] : llvm::enumerate(allocasRef)) {
@@ -87,10 +93,63 @@ void RegisterInterferenceGraph::addEdges(SmallVectorImpl<Value> &allocas) {
   }
 }
 
+void RegisterInterferenceGraph::addEdges(SmallVectorImpl<Value> &outs,
+                                         SmallVectorImpl<Value> &live) {
+  if (outs.empty() || live.empty())
+    return;
+  sortAndUniqueValues(outs);
+  sortAndUniqueValues(live);
+  ArrayRef<Value> outsRef = outs;
+  ArrayRef<Value> liveRef = live;
+  auto outIt = outsRef.begin();
+  auto outEnd = outsRef.end();
+  auto liveIt = liveRef.begin();
+  auto liveEnd = liveRef.end();
+  while (outIt != outEnd) {
+    TypeID outKind = outIt->getType().getTypeID();
+    // Find the end of the current kind in the outs.
+    auto outOfKindEnd =
+        llvm::find_if(llvm::make_range(outIt + 1, outEnd), [&](Value v) {
+          return v.getType().getTypeID() != outKind;
+        });
+
+    // Find the first live value of the same kind.
+    auto firstLiveOfKind =
+        llvm::find_if(llvm::make_range(liveIt, liveEnd), [&](Value v) {
+          return v.getType().getTypeID() == outKind;
+        });
+
+    // If there are no live values of the same kind, continue to the next kind.
+    if (firstLiveOfKind == liveEnd) {
+      outIt = outOfKindEnd;
+      continue;
+    }
+
+    // Find the end of the live values of the same kind.
+    auto liveOfKindEnd =
+        llvm::find_if(llvm::make_range(firstLiveOfKind, liveEnd), [&](Value v) {
+          return v.getType().getTypeID() != outKind;
+        });
+
+    // Add edges between all pairs of outs.
+    for (Value a1 : llvm::make_range(outIt, outOfKindEnd)) {
+      for (Value a2 : llvm::make_range(firstLiveOfKind, liveOfKindEnd)) {
+        if (a1 == a2)
+          continue;
+        addEdges(a1, a2);
+      }
+    }
+
+    // Move to the next kind.
+    outIt = outOfKindEnd;
+    liveIt = liveOfKindEnd;
+  }
+}
+
 /// NOTE: We use the liveness set after the operation to build the interference
-/// graph. The reason being that output registers must interfere with this set
-/// to prevent reusing registers that are live after the instruction is
-/// executed.
+/// graph. The reason being that output registers must interfere with the set of
+/// live registers after the instruction, as they will be written at the end of
+/// the instruction's execution.
 LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
                                                   DataFlowSolver &solver) {
   // Get the liveness state after the operation.
@@ -134,15 +193,16 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
       return op->emitError("IR is not in the `unallocated` normal form");
   }
 
-  // Add edges between the outputs and the live values in the after set.
+  SmallVector<Value, 5> outs;
   if (auto instOp = dyn_cast<InstOpInterface>(op)) {
     for (Value out : instOp.getInstOuts()) {
-      if (failed(getAllocasOrFailure(out, allocas)))
+      if (failed(getAllocasOrFailure(out, outs)))
         return op->emitError("IR is not in the `unallocated` normal form");
     }
   }
 
-  addEdges(allocas);
+  // Add edges between the outputs and the live values in the after set.
+  addEdges(outs, allocas);
   return success();
 }
 
