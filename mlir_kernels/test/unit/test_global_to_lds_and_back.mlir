@@ -2,7 +2,7 @@
 // Copy a single 16x16 tile from global to LDS and back
 
 // Type aliases
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 

@@ -3,10 +3,10 @@
 
 // Register types from common library
 !s   = !amdgcn.sgpr
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
-!vx4 = !amdgcn.vgpr_range<[? + 4]>
+!vx2 = !amdgcn.vgpr<[? + 2]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
 
 // Token types for async memory operations
 !write_token = !amdgcn.write_token<flat>

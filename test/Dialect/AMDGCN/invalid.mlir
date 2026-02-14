@@ -50,17 +50,8 @@ func.func @mixed_registers() {
   %2 = amdgcn.alloca : !amdgcn.vgpr
   // expected-note@+1 {{prior use here}}
   %3 = amdgcn.make_register_range %0, %1, %2 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  // expected-error@+1 {{expects different type than prior uses: '!amdgcn.vgpr_range<[? + 4]>' vs '!amdgcn.vgpr_range<[? + 3]>'}}
-  %4 = "test_op"(%3) : (!amdgcn.vgpr_range<[? + 4]>) -> ()
-  return
-}
-
-// -----
-
-func.func @split_non_range_type() {
-  %0 = amdgcn.alloca : !amdgcn.vgpr<1>
-  // expected-error@+1 {{expected register range type}}
-  %1, %2 = amdgcn.split_register_range %0 : !amdgcn.vgpr<1>
+  // expected-error@+1 {{expects different type than prior uses: '!amdgcn.vgpr<[? + 4]>' vs '!amdgcn.vgpr<[? + 3]>'}}
+  %4 = "test_op"(%3) : (!amdgcn.vgpr<[? + 4]>) -> ()
   return
 }
 
@@ -72,15 +63,15 @@ func.func @split_range_into_wrong_count() {
   %2 = amdgcn.alloca : !amdgcn.vgpr<2>
   %3 = amdgcn.make_register_range %0, %1, %2 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>
   // expected-error@+1 {{operation defines 3 results but was provided 4 to bind}}
-  %4, %5, %6, %7 = amdgcn.split_register_range %3 : !amdgcn.vgpr_range<[0 : 3]>
+  %4, %5, %6, %7 = amdgcn.split_register_range %3 : !amdgcn.vgpr<[0 : 3]>
   return
 }
 
 // -----
 
-func.func @add(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr, %arg2: !amdgcn.vgpr, %arg3: !amdgcn.sgpr_range<[? + 2]>) -> !amdgcn.vgpr {
+func.func @add(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr, %arg2: !amdgcn.vgpr, %arg3: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr {
   // expected-error@+1 {{expected `dst1` to not be present}}
-  %add, %0 = amdgcn.vop2 v_add_i32 outs %arg0 dst1 = %arg3 ins %arg1, %arg2 : !amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, !amdgcn.vgpr
+  %add, %0 = amdgcn.vop2 v_add_i32 outs %arg0 dst1 = %arg3 ins %arg1, %arg2 : !amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.vgpr
   return %add : !amdgcn.vgpr
 }
 

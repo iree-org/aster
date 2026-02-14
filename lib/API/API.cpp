@@ -48,11 +48,11 @@ MlirType getRegisterRangeType(MlirContext context, RegisterKind kind,
   MLIRContext *ctx = unwrap(context);
   switch (kind) {
   case RegisterKind::AGPR:
-    return wrap(AGPRRangeType::get(ctx, range));
+    return wrap(AGPRType::get(ctx, range));
   case RegisterKind::SGPR:
-    return wrap(SGPRRangeType::get(ctx, range));
+    return wrap(SGPRType::get(ctx, range));
   case RegisterKind::VGPR:
-    return wrap(VGPRRangeType::get(ctx, range));
+    return wrap(VGPRType::get(ctx, range));
   default:
     llvm_unreachable("nyi register kind");
   }

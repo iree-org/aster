@@ -52,11 +52,11 @@ mlir::aster::amdgcn::getRegKind(RegisterTypeInterface regTy) {
 }
 
 OperandKind mlir::aster::amdgcn::getOperandKind(Type type) {
-  if (isa<SGPRType, SGPRRangeType>(type))
+  if (isa<SGPRType, SGPRType>(type))
     return OperandKind::SGPR;
-  if (isa<VGPRType, VGPRRangeType>(type))
+  if (isa<VGPRType, VGPRType>(type))
     return OperandKind::VGPR;
-  if (isa<AGPRType, AGPRRangeType>(type))
+  if (isa<AGPRType, AGPRType>(type))
     return OperandKind::AGPR;
   if (auto iTy = dyn_cast<IntegerType>(type)) {
     if (iTy.isSignless() && (iTy.getWidth() == 32 || iTy.getWidth() == 64))
@@ -76,15 +76,15 @@ RegisterTypeInterface mlir::aster::amdgcn::getRegisterType(MLIRContext *ctx,
   switch (kind) {
   case amdgcn::RegisterKind::AGPR:
     return size == 1 ? RTy(amdgcn::AGPRType::get(ctx, Register()))
-                     : RTy(amdgcn::AGPRRangeType::get(
+                     : RTy(amdgcn::AGPRType::get(
                            ctx, RegisterRange(Register(), size)));
   case amdgcn::RegisterKind::SGPR:
     return size == 1 ? RTy(amdgcn::SGPRType::get(ctx, Register()))
-                     : RTy(amdgcn::SGPRRangeType::get(
+                     : RTy(amdgcn::SGPRType::get(
                            ctx, RegisterRange(Register(), size)));
   case amdgcn::RegisterKind::VGPR:
     return size == 1 ? RTy(amdgcn::VGPRType::get(ctx, Register()))
-                     : RTy(amdgcn::VGPRRangeType::get(
+                     : RTy(amdgcn::VGPRType::get(
                            ctx, RegisterRange(Register(), size)));
   default:
     llvm_unreachable("unknown register kind");

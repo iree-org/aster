@@ -57,8 +57,8 @@ static Type getRegTy(Type type, const ABIAnalysis &abiAnalysis) {
   int32_t words = (sz.getFixedValue() + 3) / 4;
   if (words == 1)
     return amdgcn::VGPRType::get(type.getContext(), Register());
-  return amdgcn::VGPRRangeType::get(type.getContext(),
-                                    RegisterRange(Register(), words));
+  return amdgcn::VGPRType::get(type.getContext(),
+                               RegisterRange(Register(), words));
 }
 
 static Type getRegTy(Value value, const ABIAnalysis &abiAnalysis,
@@ -70,20 +70,20 @@ static Type getRegTy(Value value, const ABIAnalysis &abiAnalysis,
   if (useSGPR) {
     if (words == 1)
       return amdgcn::SGPRType::get(value.getContext(), Register());
-    return amdgcn::SGPRRangeType::get(value.getContext(),
-                                      RegisterRange(Register(), words));
+    return amdgcn::SGPRType::get(value.getContext(),
+                                 RegisterRange(Register(), words));
   }
   if (std::optional<bool> isUniform = abiAnalysis.isThreadUniform(value);
       isUniform && *isUniform) {
     if (words == 1)
       return amdgcn::SGPRType::get(value.getContext(), Register());
-    return amdgcn::SGPRRangeType::get(value.getContext(),
-                                      RegisterRange(Register(), words));
+    return amdgcn::SGPRType::get(value.getContext(),
+                                 RegisterRange(Register(), words));
   }
   if (words == 1)
     return amdgcn::VGPRType::get(value.getContext(), Register());
-  return amdgcn::VGPRRangeType::get(value.getContext(),
-                                    RegisterRange(Register(), words));
+  return amdgcn::VGPRType::get(value.getContext(),
+                               RegisterRange(Register(), words));
 }
 
 static void handleFunction(FunctionOpInterface funcOp,

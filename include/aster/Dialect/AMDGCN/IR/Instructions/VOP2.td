@@ -21,9 +21,9 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 // VOP2 Operation
 //===----------------------------------------------------------------------===//
 
-def VOP2Src : RegOrImm<[SGPRType, SGPRRangeType, VGPRType, VGPRRangeType], [I32]>;
-def VOP2Src1 : AnyRegOf<[VGPRType, VGPRRangeType]>;
-def VOP2Dst : AnyRegOf<[VGPRType, VGPRRangeType]>;
+def VOP2Src : RegOrImm<[SGPRType, VGPRType], [I32]>;
+def VOP2Src1 : AnyRegOf<[VGPRType]>;
+def VOP2Dst : AnyRegOf<[VGPRType]>;
 
 def VOP2Op : AMDGCN_InstOp<"vop2",  [
     PureInst, InstInferType
@@ -33,8 +33,8 @@ def VOP2Op : AMDGCN_InstOp<"vop2",  [
     The VOP2 operation performs vector operations with two source operands.
   }];
   let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
-  let inputs = (ins VOP2Src:$src0, VOP2Src1:$src1, OptionalReg<SGPRRangeType>:$src2);
-  let outputs = (ins VOP2Dst:$vdst0, OptionalReg<SGPRRangeType>:$dst1);
+  let inputs = (ins VOP2Src:$src0, VOP2Src1:$src1, OptionalReg<SGPRType>:$src2);
+  let outputs = (ins VOP2Dst:$vdst0, OptionalReg<SGPRType>:$dst1);
   // TODO: add declarative assembly format, currently it's impossible to do due
   // to a bug in MLIR tblgen when there are inferred types and op attr results.
   let hasCustomAssemblyFormat = 1;
@@ -46,10 +46,10 @@ class VOP2Constraints<int sz, bit hasDst1, bit hasSrc2> {
     /*ins=*/
       RegImmOperand<VOP2Src, sz>:$src0,
       RegImmOperand<VOP2Src1, sz>:$src1,
-      !if(hasSrc2, RegImmOperand<SGPRRangeType, 2>, NotPresent):$src2,
+      !if(hasSrc2, RegImmOperand<SGPRType, 2>, NotPresent):$src2,
     /*outs=*/
       RegImmOperand<VOP2Dst, sz>:$vdst0,
-      !if(hasDst1, RegImmOperand<SGPRRangeType, 2>, NotPresent):$dst1
+      !if(hasDst1, RegImmOperand<SGPRType, 2>, NotPresent):$dst1
   );
 }
 

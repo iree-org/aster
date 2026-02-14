@@ -17,7 +17,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     test_inst outs %0 : (!amdgcn.vgpr<?>) -> ()
     test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
     %4 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    test_inst ins %4 : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
+    test_inst ins %4 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
     end_kernel
   }
 }
@@ -71,8 +71,8 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     test_inst outs %3 : (!amdgcn.vgpr<?>) -> ()
     %8 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %9 = make_register_range %2, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    test_inst ins %8 : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
-    test_inst ins %9 : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
+    test_inst ins %8 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
+    test_inst ins %9 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
     end_kernel
   }
 }
@@ -102,8 +102,8 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     test_inst outs %2 : (!amdgcn.vgpr<?>) -> ()
     %6 = make_register_range %0, %1, %2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %7 = make_register_range %1 : !amdgcn.vgpr<?>
-    test_inst ins %6 : (!amdgcn.vgpr_range<[? : ? + 3]>) -> ()
-    test_inst ins %7 : (!amdgcn.vgpr_range<[? : ? + 1]>) -> ()
+    test_inst ins %6 : (!amdgcn.vgpr<[? : ? + 3]>) -> ()
+    test_inst ins %7 : (!amdgcn.vgpr<?>) -> ()
     end_kernel
   }
 }
@@ -145,11 +145,11 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     cf.cond_br %0, ^bb1, ^bb2
   ^bb1:  // CHECK:  pred: ^bb0
     %9 = make_register_range %1, %2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    test_inst ins %9 : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
+    test_inst ins %9 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
     cf.br ^bb3
   ^bb2:  // CHECK:  pred: ^bb0
     %10 = make_register_range %3, %4 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    test_inst ins %10 : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
+    test_inst ins %10 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
     cf.br ^bb3
   ^bb3:  // CHECK:  2 preds: ^bb1, ^bb2
     end_kernel
@@ -192,7 +192,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     test_inst outs %2 : (!amdgcn.vgpr<?>) -> ()
     test_inst outs %3 : (!amdgcn.vgpr<?>) -> ()
     %8 = make_register_range %0, %1, %2, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    test_inst ins %8 : (!amdgcn.vgpr_range<[? : ? + 4]>) -> ()
+    test_inst ins %8 : (!amdgcn.vgpr<[? : ? + 4]>) -> ()
     end_kernel
   }
 }
@@ -215,8 +215,8 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     test_inst outs %0 : (!amdgcn.vgpr<?>) -> ()
     test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
     %4 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    test_inst ins %4 : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
-    test_inst ins %4 : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
+    test_inst ins %4 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
+    test_inst ins %4 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
     end_kernel
   }
 }
@@ -239,7 +239,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     test_inst outs %0 : (!amdgcn.sgpr<?>) -> ()
     test_inst outs %1 : (!amdgcn.sgpr<?>) -> ()
     %4 = make_register_range %0, %1 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
-    test_inst ins %4 : (!amdgcn.sgpr_range<[? : ? + 2]>) -> ()
+    test_inst ins %4 : (!amdgcn.sgpr<[? : ? + 2]>) -> ()
     end_kernel
   }
 }
@@ -357,8 +357,8 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     %v2 = test_inst outs %2 : (!amdgcn.vgpr) -> (!amdgcn.vgpr)
     %range_a = make_register_range %v0, %v1 : !amdgcn.vgpr, !amdgcn.vgpr
     %range_b = make_register_range %v1, %v2 : !amdgcn.vgpr, !amdgcn.vgpr
-    test_inst ins %range_a : (!amdgcn.vgpr_range<[? + 2]>) -> ()
-    test_inst ins %range_b : (!amdgcn.vgpr_range<[? + 2]>) -> ()
+    test_inst ins %range_a : (!amdgcn.vgpr<[? + 2]>) -> ()
+    test_inst ins %range_b : (!amdgcn.vgpr<[? + 2]>) -> ()
     end_kernel
   }
 }
@@ -378,8 +378,8 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     %v3 = test_inst outs %3 : (!amdgcn.vgpr) -> (!amdgcn.vgpr)
     %range_a = make_register_range %v0, %v1, %v2, %v3 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
     %range_b = make_register_range %v1, %v2 : !amdgcn.vgpr, !amdgcn.vgpr
-    test_inst ins %range_a : (!amdgcn.vgpr_range<[? + 4]>) -> ()
-    test_inst ins %range_b : (!amdgcn.vgpr_range<[? + 2]>) -> ()
+    test_inst ins %range_a : (!amdgcn.vgpr<[? + 4]>) -> ()
+    test_inst ins %range_b : (!amdgcn.vgpr<[? + 2]>) -> ()
     end_kernel
   }
 }

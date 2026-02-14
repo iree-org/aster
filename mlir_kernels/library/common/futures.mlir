@@ -6,7 +6,7 @@
 //===----------------------------------------------------------------------===//
 
 // Vector General Purpose Registers (VGPR)
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
+!vx2 = !amdgcn.vgpr<[? + 2]>
 
 // Future types
 !future_global_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>

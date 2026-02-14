@@ -9,8 +9,8 @@
 // CHECK-LABEL: amdgcn.module
 
 // From descriptors.mlir
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
-!vx4 = !amdgcn.vgpr_range<[? + 4]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
 !tensor_position_descriptor_1d = !aster_utils.struct<ptr: !sx2, pos: index, stride_in_bytes: index, elt_size: index>
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 !m2reg_param_1d_vx4 = !aster_utils.struct<i: index, memref: memref<?x!vx4>>

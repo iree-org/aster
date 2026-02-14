@@ -33,9 +33,9 @@ amdgcn.module @test_uniform_loop target = <gfx942> isa = <cdna3> {
   kernel @test_uniform_loop arguments <[#amdgcn.buffer_arg<address_space = generic, access = read_only>, #amdgcn.buffer_arg<address_space = generic>]> {
     %c0_i32 = arith.constant 0 : i32
     %c1_i32 = arith.constant 1 : i32
-    %0 = amdgcn.load_arg 1 : !amdgcn.sgpr_range<[? + 2]>
+    %0 = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-    %arg0, %arg1 = amdgcn.split_register_range %0 : !amdgcn.sgpr_range<[? + 2]>
+    %arg0, %arg1 = amdgcn.split_register_range %0 : !amdgcn.sgpr<[? + 2]>
     %1 = aster_utils.assume_uniform %arg0 : !amdgcn.sgpr
     %2 = lsir.from_reg %1 : !amdgcn.sgpr -> i32
     %3 = arith.cmpi sgt, %2, %c0_i32 : i32
@@ -86,11 +86,11 @@ amdgcn.module @test_uniform_loop_with_load target = <gfx942> isa = <cdna3> {
     %c2_i32 = arith.constant 2 : i32
     %c1_i32 = arith.constant 1 : i32
     %c0_i32 = arith.constant 0 : i32
-    %0 = amdgcn.load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
-    %1 = amdgcn.load_arg 1 : !amdgcn.sgpr_range<[? + 2]>
+    %0 = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
+    %1 = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     %2 = amdgcn.alloca : !amdgcn.sgpr
-    %result, %token = amdgcn.load s_load_dword dest %2 addr %0 : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr_range<[? + 2]>) -> !amdgcn.read_token<constant>
+    %result, %token = amdgcn.load s_load_dword dest %2 addr %0 : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<constant>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     %3 = lsir.from_reg %result : !amdgcn.sgpr -> i32
     %4 = arith.cmpi sgt, %3, %c0_i32 : i32
@@ -100,7 +100,7 @@ amdgcn.module @test_uniform_loop_with_load target = <gfx942> isa = <cdna3> {
     %7 = lsir.to_reg %6 : i32 -> !amdgcn.sgpr
     %8 = amdgcn.alloca : !amdgcn.vgpr
     %9 = amdgcn.vop1.vop1 <v_mov_b32_e32> %8, %7 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %10 = amdgcn.store global_store_dword data %9 addr %1 offset d(%9) : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
+    %10 = amdgcn.store global_store_dword data %9 addr %1 offset d(%9) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
     %11 = arith.addi %5, %c1_i32 : i32
     %12 = arith.cmpi slt, %11, %3 : i32
     cf.cond_br %12, ^bb1(%11 : i32), ^bb2
@@ -131,9 +131,9 @@ amdgcn.module @test_select_i1 target = <gfx942> isa = <cdna3> {
     %c0_i32 = arith.constant 0 : i32
     %c42_i32 = arith.constant 42 : i32
     %c99_i32 = arith.constant 99 : i32
-    %0 = amdgcn.load_arg 1 : !amdgcn.sgpr_range<[? + 2]>
+    %0 = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-    %arg0, %arg1 = amdgcn.split_register_range %0 : !amdgcn.sgpr_range<[? + 2]>
+    %arg0, %arg1 = amdgcn.split_register_range %0 : !amdgcn.sgpr<[? + 2]>
     %1 = aster_utils.assume_uniform %arg0 : !amdgcn.sgpr
     %2 = lsir.from_reg %1 : !amdgcn.sgpr -> i32
     %cmp = arith.cmpi eq, %2, %c0_i32 : i32

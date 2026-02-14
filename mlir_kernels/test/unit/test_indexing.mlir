@@ -3,7 +3,7 @@
 // to a global output buffer.
 
 // From descriptors.mlir
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
 !index_pair = !aster_utils.struct<i: index, j: index>
 !index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>

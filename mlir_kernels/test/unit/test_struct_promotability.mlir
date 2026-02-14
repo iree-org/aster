@@ -5,8 +5,8 @@
 // RUN: | FileCheck %s
 
 // From descriptors.mlir
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
+!vx2 = !amdgcn.vgpr<[? + 2]>
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 !future_global_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 

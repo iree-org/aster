@@ -7,8 +7,8 @@
 // of compute, keeping at most 4 loads in flight (2 A + 2 B).
 
 // Type aliases
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
-!vx4 = !amdgcn.vgpr_range<[? + 4]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
 !rt_C_f32 = !vx4
 !write_token = !amdgcn.write_token<flat>
 !future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>

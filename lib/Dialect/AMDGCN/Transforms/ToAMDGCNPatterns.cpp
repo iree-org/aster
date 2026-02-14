@@ -575,8 +575,7 @@ KernelOpPattern::matchAndRewrite(FunctionOpInterface op,
     return rewriter.notifyMatchFailure(op, "invalid host ABI size array");
   if (alignment.size() != type.getNumInputs())
     return rewriter.notifyMatchFailure(op, "invalid host ABI alignment array");
-  if (!llvm::all_of(gpuAbiTy.getInputs(),
-                    llvm::IsaPred<SGPRType, SGPRRangeType>))
+  if (!llvm::all_of(gpuAbiTy.getInputs(), llvm::IsaPred<SGPRType, SGPRType>))
     return rewriter.notifyMatchFailure(op, "expected all inputs to be SGPRs");
 
   // Set Metadata attributes
@@ -1329,11 +1328,8 @@ LogicalResult StoreOpPattern::matchAndRewrite(lsir::StoreOp op,
     }
     offset = getI32Constant(rewriter, loc, off);
 
-    // Convert data to VGPRRangeType if needed
+    // Convert data to VGPRType if needed
     Value dataRange = data;
-    if (isa<VGPRType>(dataTy)) {
-      dataRange = MakeRegisterRangeOp::create(rewriter, loc, dataTy, {data});
-    }
 
     switch (numWords) {
     case 1:
@@ -1509,8 +1505,7 @@ LogicalResult SubIOpPattern::matchAndRewrite(lsir::SubIOp op,
 
   // 64-bit VGPR sub
   Value carry = createAllocation(
-      rewriter, loc,
-      rewriter.getType<SGPRRangeType>(RegisterRange(Register(), 2)));
+      rewriter, loc, rewriter.getType<SGPRType>(RegisterRange(Register(), 2)));
 
   Value lo =
       V_SUB_CO_U32_E64::create(rewriter, loc, getElemOr(dstR, 0, dst), carry,

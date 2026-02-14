@@ -22,7 +22,7 @@ amdgcn.module @test_case8_9_store_x4 target = #amdgcn.target<gfx942> isa = #amdg
     %data_range = amdgcn.make_register_range %data0, %data1, %data2, %data3 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
 
     // Case 8: FLAT_STORE_X4 followed by write to same VGPRs
-    %tok_store = amdgcn.store global_store_dwordx4 data %data_range addr %addr_range : ins(!amdgcn.vgpr_range<[0 : 4]>, !amdgcn.sgpr_range<[0 : 2]>) -> !amdgcn.write_token<flat>
+    %tok_store = amdgcn.store global_store_dwordx4 data %data_range addr %addr_range : ins(!amdgcn.vgpr<[0 : 4]>, !amdgcn.sgpr<[0 : 2]>) -> !amdgcn.write_token<flat>
 
     // Write to VGPRs that overlap with the store's data VGPRs (should trigger case 8)
     // Writing to %data1 (VGPR 1) which is in the store's data range [0:4)
@@ -55,17 +55,17 @@ amdgcn.module @test_case10_valu_sgpr_vmem target = #amdgcn.target<gfx942> isa = 
     %carry1_sgpr = amdgcn.alloca : !amdgcn.sgpr<1>
     %sgpr_carry = amdgcn.make_register_range %carry0_sgpr, %carry1_sgpr : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
     amdgcn.vop2 v_add_co_u32 outs %data0 dst1 = %sgpr_carry ins %data0, %data0
-      : !amdgcn.vgpr<0>, !amdgcn.sgpr_range<[0 : 2]>, !amdgcn.vgpr<0>, !amdgcn.vgpr<0>
+      : !amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<0>, !amdgcn.vgpr<0>
 
     // Use the SGPR carry result in the address range
     // Split the carry range to get individual SGPRs (returns 2 results for size 2)
-    %carry0, %carry1 = amdgcn.split_register_range %sgpr_carry : !amdgcn.sgpr_range<[0 : 2]>
+    %carry0, %carry1 = amdgcn.split_register_range %sgpr_carry : !amdgcn.sgpr<[0 : 2]>
     %addr_range = amdgcn.make_register_range %carry0, %addr1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
 
     // VMEM instruction (global_load) that reads from the SGPR written by VALU
     // This should trigger case 10 (requires 5 NOPs)
     %dst_range = amdgcn.make_register_range %result0 : !amdgcn.vgpr<1>
-    %tok_load = amdgcn.load global_load_dword dest %dst_range addr %addr_range : dps(!amdgcn.vgpr_range<[1 : 2]>) ins(!amdgcn.sgpr_range<[0 : 2]>) -> !amdgcn.read_token<flat>
+    %tok_load = amdgcn.load global_load_dword dest %dst_range addr %addr_range : dps(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
 
     amdgcn.end_kernel
   }
@@ -97,7 +97,7 @@ amdgcn.module @test_case8_no_overlap target = #amdgcn.target<gfx942> isa = #amdg
     %data_range = amdgcn.make_register_range %data0, %data1, %data2 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>
 
     // Case 8: FLAT_STORE_X3
-    %tok_store = amdgcn.store global_store_dwordx3 data %data_range addr %addr_range : ins(!amdgcn.vgpr_range<[0 : 3]>, !amdgcn.sgpr_range<[0 : 2]>) -> !amdgcn.write_token<flat>
+    %tok_store = amdgcn.store global_store_dwordx3 data %data_range addr %addr_range : ins(!amdgcn.vgpr<[0 : 3]>, !amdgcn.sgpr<[0 : 2]>) -> !amdgcn.write_token<flat>
 
     // Write to different VGPRs (no overlap) - should NOT trigger case 8
     // Writing to registers 10-11 which don't overlap with store data range [0:3)
@@ -130,7 +130,7 @@ amdgcn.module @test_case9_no_overlap_valu target = #amdgcn.target<gfx942> isa = 
     %data_range = amdgcn.make_register_range %data0, %data1, %data2 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>
 
     // Case 9: FLAT_STORE_X3
-    %tok_store = amdgcn.store global_store_dwordx3 data %data_range addr %addr_range : ins(!amdgcn.vgpr_range<[0 : 3]>, !amdgcn.sgpr_range<[0 : 2]>) -> !amdgcn.write_token<flat>
+    %tok_store = amdgcn.store global_store_dwordx3 data %data_range addr %addr_range : ins(!amdgcn.vgpr<[0 : 3]>, !amdgcn.sgpr<[0 : 2]>) -> !amdgcn.write_token<flat>
 
     // VALU instruction writing to different VGPRs (no overlap) - should NOT trigger case 9
     // Writing to registers 10-11 which don't overlap with store data range [0:3)
@@ -163,13 +163,13 @@ amdgcn.module @test_case10_no_overlap_sgpr target = #amdgcn.target<gfx942> isa =
     %carry1 = amdgcn.alloca : !amdgcn.sgpr<11>
     %sgpr_carry = amdgcn.make_register_range %carry0, %carry1 : !amdgcn.sgpr<10>, !amdgcn.sgpr<11>
     amdgcn.vop2 v_add_co_u32 outs %data0 dst1 = %sgpr_carry ins %data0, %data0
-      : !amdgcn.vgpr<0>, !amdgcn.sgpr_range<[10 : 12]>, !amdgcn.vgpr<0>, !amdgcn.vgpr<0>
+      : !amdgcn.vgpr<0>, !amdgcn.sgpr<[10 : 12]>, !amdgcn.vgpr<0>, !amdgcn.vgpr<0>
 
     // VMEM instruction reads from different SGPRs (no overlap) - should NOT trigger case 10
     // Reading from SGPRs 0-1, but VALU wrote to SGPR 10
     %addr_range = amdgcn.make_register_range %addr0, %addr1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
     %dst_range = amdgcn.make_register_range %result0 : !amdgcn.vgpr<1>
-    %tok_load = amdgcn.load global_load_dword dest %dst_range addr %addr_range : dps(!amdgcn.vgpr_range<[1 : 2]>) ins(!amdgcn.sgpr_range<[0 : 2]>) -> !amdgcn.read_token<flat>
+    %tok_load = amdgcn.load global_load_dword dest %dst_range addr %addr_range : dps(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
 
     amdgcn.end_kernel
   }
@@ -232,8 +232,8 @@ amdgcn.module @test_case106_scaled_mfma_16x16x128 target = #amdgcn.target<gfx950
     // Scaled MFMA 16x16x128: writes to VGPRs [16:20)
     amdgcn.vop3p.vop3p_scaled_mai <v_mfma_scale_f32_16x16x128_f8f6f4>
       %c_range, %a_range, %b_range, %c_range, %s0, %s1
-      : <[0 : 8]>, <[8 : 16]>, !amdgcn.vgpr_range<[16 : 20]>, !amdgcn.vgpr<32>, !amdgcn.vgpr<33>
-      -> !amdgcn.vgpr_range<[16 : 20]>
+      : <[0 : 8]>, <[8 : 16]>, !amdgcn.vgpr<[16 : 20]>, !amdgcn.vgpr<32>, !amdgcn.vgpr<33>
+      -> !amdgcn.vgpr<[16 : 20]>
 
     // VALU reads from overlapping VGPR (v16) -> triggers case 106
     amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c0, %c0
@@ -316,8 +316,8 @@ amdgcn.module @test_case106_scaled_mfma_32x32x64 target = #amdgcn.target<gfx950>
     // Scaled MFMA 32x32x64: writes to VGPRs [16:32)
     amdgcn.vop3p.vop3p_scaled_mai <v_mfma_scale_f32_32x32x64_f8f6f4>
       %c_range, %a_range, %b_range, %c_range, %s0, %s1
-      : <[0 : 8]>, <[8 : 16]>, !amdgcn.vgpr_range<[16 : 32]>, !amdgcn.vgpr<32>, !amdgcn.vgpr<33>
-      -> !amdgcn.vgpr_range<[16 : 32]>
+      : <[0 : 8]>, <[8 : 16]>, !amdgcn.vgpr<[16 : 32]>, !amdgcn.vgpr<32>, !amdgcn.vgpr<33>
+      -> !amdgcn.vgpr<[16 : 32]>
 
     // VALU reads from overlapping VGPR (v16) -> triggers case 106
     amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c0, %c0

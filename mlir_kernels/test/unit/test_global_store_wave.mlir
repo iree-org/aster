@@ -3,11 +3,11 @@
 // to a global output buffer.
 
 // From descriptors.mlir
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
-!vx3 = !amdgcn.vgpr_range<[? + 3]>
-!vx4 = !amdgcn.vgpr_range<[? + 4]>
+!vx2 = !amdgcn.vgpr<[? + 2]>
+!vx3 = !amdgcn.vgpr<[? + 3]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 
 // A 2D transfer descriptor containing:

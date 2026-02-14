@@ -2,7 +2,7 @@
 // Uses garbage values in registers (no verification).
 
 // From descriptors.mlir
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
+!vx2 = !amdgcn.vgpr<[? + 2]>
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !return_value_descriptor_1d_vx2 = !aster_utils.struct<memref: memref<?x!vx2>, offset: index>
 

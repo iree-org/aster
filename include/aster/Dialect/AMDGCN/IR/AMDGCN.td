@@ -109,22 +109,22 @@ class RegImmOperand<Type validType, int numRegs, bit optional = 0> :
 
 /// SGPR operand constraint.
 class SGPROperand<int numRegs, bit optional = 0, int alignment = -1> :
-    RegisterOperand<[SGPRType, SGPRRangeType], numRegs, alignment, optional> {
+    RegisterOperand<[SGPRType], numRegs, alignment, optional> {
 }
 
 /// VGPR operand constraint.
 class VGPROperand<int numRegs, bit optional = 0, int alignment = -1> :
-    RegisterOperand<[VGPRType, VGPRRangeType], numRegs, alignment, optional> {
+    RegisterOperand<[VGPRType], numRegs, alignment, optional> {
 }
 
 /// ACC operand constraint.
 class AccOperand<int numRegs, bit optional = 0, int alignment = -1> :
-    RegisterOperand<[VGPRType, AGPRType, VGPRRangeType, AGPRRangeType], numRegs, alignment, optional> {
+    RegisterOperand<[VGPRType, AGPRType], numRegs, alignment, optional> {
 }
 
 /// Addr operand constraint.
 class AddrOperand<int numRegs, bit optional = 0, int alignment = -1> :
-    RegisterOperand<[SGPRType, VGPRType, SGPRRangeType, VGPRRangeType], numRegs, alignment, optional> {
+    RegisterOperand<[SGPRType, VGPRType], numRegs, alignment, optional> {
 }
 
 /// The optional value must not be present.

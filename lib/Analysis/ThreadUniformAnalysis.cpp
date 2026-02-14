@@ -61,7 +61,7 @@ static bool isWorkgroupUniform(Operation *op) {
 
   // FromReg ops consuming sgpr types are uniform.
   if (auto fromReg = dyn_cast<lsir::FromRegOp>(op)) {
-    return isa<amdgcn::SGPRType, amdgcn::SGPRRangeType>(
+    return isa<amdgcn::SGPRType, amdgcn::SGPRType>(
         fromReg.getInput().getType());
   }
 
@@ -78,7 +78,7 @@ LogicalResult ThreadUniformAnalysis::visitOperation(
   auto pessimisticSetResults = [&]() {
     for (auto [lattice, result] : llvm::zip(results, op->getResults())) {
       // An sgpr result is always uniform.
-      if (isa<amdgcn::SGPRType, amdgcn::SGPRRangeType>(result.getType())) {
+      if (isa<amdgcn::SGPRType, amdgcn::SGPRType>(result.getType())) {
         propagateIfChanged(lattice, lattice->join(ThreadUniform::getUniform()));
         continue;
       }

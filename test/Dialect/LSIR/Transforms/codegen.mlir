@@ -23,14 +23,14 @@ func.func private @test_add_i16(%arg0: i16, %arg1: i16) -> i16 attributes {abi =
 }
 
 // CHECK-LABEL:   func.func private @test_add_i64(
-// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr_range<[? + 2]>, %[[ARG1:.*]]: !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr_range<[? + 2]> {
-// CHECK:           %[[ALLOCA_0:.*]] = lsir.alloca : !amdgcn.vgpr_range<[? + 2]>
-// CHECK:           %[[ADDI_0:.*]] = lsir.addi i64 %[[ALLOCA_0]], %[[ARG0]], %[[ARG1]] : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr_range<[? + 2]>
-// CHECK:           return %[[ADDI_0]] : !amdgcn.vgpr_range<[? + 2]>
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[ALLOCA_0:.*]] = lsir.alloca : !amdgcn.vgpr<[? + 2]>
+// CHECK:           %[[ADDI_0:.*]] = lsir.addi i64 %[[ALLOCA_0]], %[[ARG0]], %[[ARG1]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>
+// CHECK:           return %[[ADDI_0]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
-func.func private @test_add_i64(%arg0: i64, %arg1: i64) -> i64 attributes {abi = (!amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr_range<[? + 2]>} {
+func.func private @test_add_i64(%arg0: i64, %arg1: i64) -> i64 attributes {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>} {
   %0 = arith.addi %arg0, %arg1 : i64
-  return {abi = (!amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr_range<[? + 2]>} %0 : i64
+  return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>} %0 : i64
 }
 
 // CHECK-LABEL:   func.func private @test_add_chained(
@@ -244,25 +244,25 @@ func.func private @test_trunci(%arg0: i32) -> i16 attributes {abi = (!amdgcn.vgp
 }
 
 // CHECK-LABEL:   func.func private @test_extf(
-// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr_range<[? + 2]> {
-// CHECK:           %[[ALLOCA_0:.*]] = lsir.alloca : !amdgcn.vgpr_range<[? + 2]>
-// CHECK:           %[[EXTF_0:.*]] = lsir.extf f64 from f32 %[[ALLOCA_0]], %[[ARG0]] : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr
-// CHECK:           return %[[EXTF_0]] : !amdgcn.vgpr_range<[? + 2]>
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[ALLOCA_0:.*]] = lsir.alloca : !amdgcn.vgpr<[? + 2]>
+// CHECK:           %[[EXTF_0:.*]] = lsir.extf f64 from f32 %[[ALLOCA_0]], %[[ARG0]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+// CHECK:           return %[[EXTF_0]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
-func.func private @test_extf(%arg0: f32) -> f64 attributes {abi = (!amdgcn.vgpr) -> !amdgcn.vgpr_range<[? + 2]>} {
+func.func private @test_extf(%arg0: f32) -> f64 attributes {abi = (!amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} {
   %0 = arith.extf %arg0 : f32 to f64
-  return {abi = (!amdgcn.vgpr) -> !amdgcn.vgpr_range<[? + 2]>} %0 : f64
+  return {abi = (!amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} %0 : f64
 }
 
 // CHECK-LABEL:   func.func private @test_truncf(
-// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr {
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
 // CHECK:           %[[ALLOCA_0:.*]] = lsir.alloca : !amdgcn.vgpr
-// CHECK:           %[[TRUNCF_0:.*]] = lsir.truncf f32 from f64 %[[ALLOCA_0]], %[[ARG0]] : !amdgcn.vgpr, !amdgcn.vgpr_range<[? + 2]>
+// CHECK:           %[[TRUNCF_0:.*]] = lsir.truncf f32 from f64 %[[ALLOCA_0]], %[[ARG0]] : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>
 // CHECK:           return %[[TRUNCF_0]] : !amdgcn.vgpr
 // CHECK:         }
-func.func private @test_truncf(%arg0: f64) -> f32 attributes {abi = (!amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr} {
+func.func private @test_truncf(%arg0: f64) -> f32 attributes {abi = (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr} {
   %0 = arith.truncf %arg0 : f64 to f32
-  return {abi = (!amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr} %0 : f32
+  return {abi = (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr} %0 : f32
 }
 
 // CHECK-LABEL:   func.func private @test_fptosi(

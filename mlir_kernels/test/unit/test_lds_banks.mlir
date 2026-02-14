@@ -1,7 +1,7 @@
 // From descriptors.mlir
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
-!vx4 = !amdgcn.vgpr_range<[? + 4]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
 !index_pair = !aster_utils.struct<i: index, j: index>
 !index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
 !index_tuple_8 = !aster_utils.struct<b0: index, b1: index, b2: index, b3: index, b4: index, b5: index, b6: index, b7: index>

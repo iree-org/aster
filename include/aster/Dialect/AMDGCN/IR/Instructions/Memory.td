@@ -26,7 +26,7 @@ include "aster/Interfaces/DependentOpInterface.td"
 /// DS ops use a single VGPR for the address, while global ops use a two
 /// word VGPR or SGPR range, and buffer ops use an SGPR range of size 4.
 def AddrOperand :
-  AnyRegOf<[VGPRType, SizedGPRRange<[VGPRRangeType, SGPRRangeType], [2, 4]>]>;
+  AnyRegOf<[SizedGPRRange<[VGPRType, SGPRType], [1, 2, 4]>]>;
 
 /// A load or store offset operand.
 def UniformOffsetOperand : AnyRegOf<[SGPRType]>;
@@ -36,7 +36,7 @@ def DynamicOffsetOperand : AnyRegOf<[VGPRType]>;
 
 /// A load or store data operand.
 def DataOperand : AnyRegOf<[
-  AGPRType, VGPRType, SGPRType, AGPRRangeType, VGPRRangeType, SGPRRangeType
+  AGPRType, VGPRType, SGPRType
 ]>;
 
 //===----------------------------------------------------------------------===//
@@ -271,9 +271,9 @@ class GLoadInst<string _mnemonic, int resultRegs,
       dynamic_offset, constant_offset);
     }]>;
   let asmFormat = [
-    AsmVariant<CPred<"isa<VGPRRangeType>($_self.getAddr().getType())">,
+    AsmVariant<CPred<"isa<VGPRType>($_self.getAddr().getType())">,
       "$dest, $addr, off $constant_offset">,
-    AsmVariant<CPred<"isa<SGPRRangeType>($_self.getAddr().getType())">,
+    AsmVariant<CPred<"isa<SGPRType>($_self.getAddr().getType())">,
       "$dest, $dynamic_offset, $addr $constant_offset">
   ];
 }
@@ -423,9 +423,9 @@ class GStoreInst<string _mnemonic, int dataRegs,
       dynamic_offset, constant_offset);
     }]>;
   let asmFormat = [
-    AsmVariant<CPred<"isa<VGPRRangeType>($_self.getAddr().getType())">,
+    AsmVariant<CPred<"isa<VGPRType>($_self.getAddr().getType())">,
       "$addr, $data, off $constant_offset">,
-    AsmVariant<CPred<"isa<SGPRRangeType>($_self.getAddr().getType())">,
+    AsmVariant<CPred<"isa<SGPRType>($_self.getAddr().getType())">,
       "$dynamic_offset, $data, $addr $constant_offset">
   ];
 }

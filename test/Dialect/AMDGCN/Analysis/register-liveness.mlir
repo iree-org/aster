@@ -256,7 +256,7 @@ amdgcn.kernel @interference_cf {
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: %{{.*}} = amdgcn.make_register_range %{{.*}}, %{{.*}} : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
-// CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}} : (!amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.vgpr<?>) -> ()
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}} : (!amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<?>) -> ()
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
@@ -270,7 +270,7 @@ amdgcn.kernel @test_make_range_liveness {
   %6 = alloca : !amdgcn.vgpr<?>
   test_inst outs %6 ins %4 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   %8 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-  test_inst ins %8, %4 : (!amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.vgpr<?>) -> ()
+  test_inst ins %8, %4 : (!amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<?>) -> ()
   end_kernel
 }
 
@@ -309,7 +309,7 @@ amdgcn.kernel @test_make_range_liveness {
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: %{{.*}} = amdgcn.make_register_range %{{.*}}, %{{.*}} : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
-// CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}} : (!amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.vgpr<?>) -> ()
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}} : (!amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<?>) -> ()
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
@@ -323,7 +323,7 @@ amdgcn.kernel @test_make_range_liveness_1 {
   %6 = alloca : !amdgcn.vgpr<?>
   test_inst outs %6 ins %4 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   %8 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-  test_inst ins %8, %4 : (!amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.vgpr<?>) -> ()
+  test_inst ins %8, %4 : (!amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<?>) -> ()
   end_kernel
 }
 
@@ -364,7 +364,7 @@ amdgcn.kernel @test_make_range_liveness_1 {
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: %{{.*}} = amdgcn.make_register_range %{{.*}}, %{{.*}} : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`]
-// CHECK:  Op: amdgcn.test_inst ins %{{.*}} : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}} : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
@@ -379,7 +379,7 @@ amdgcn.kernel @test_make_range_liveness_2 {
   test_inst outs %6 ins %4 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   test_inst ins %4 : (!amdgcn.vgpr<?>) -> ()
   %8 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-  test_inst ins %8 : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
+  test_inst ins %8 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
   end_kernel
 }
 
@@ -418,7 +418,7 @@ amdgcn.kernel @test_make_range_liveness_2 {
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: %{{.*}} = amdgcn.make_register_range %{{.*}}, %{{.*}} : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
-// CHECK:  Op: amdgcn.test_inst ins %{{.*}} : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}} : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.test_inst ins %{{.*}} : (!amdgcn.vgpr<?>) -> ()
 // CHECK:    LIVE BEFORE: [2 = `%{{.*}}`]
@@ -434,7 +434,7 @@ amdgcn.kernel @test_make_range_liveness_3 {
   %6 = alloca : !amdgcn.vgpr<?>
   test_inst outs %6 ins %4 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   %8 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-  test_inst ins %8 : (!amdgcn.vgpr_range<[? : ? + 2]>) -> ()
+  test_inst ins %8 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
   test_inst ins %4 : (!amdgcn.vgpr<?>) -> ()
   end_kernel
 }

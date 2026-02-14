@@ -107,7 +107,7 @@ func.func @live_range_copy() {
   amdgcn.test_inst outs %s1 : (!amdgcn.vgpr<?>) -> ()
   %target = amdgcn.make_register_range %a0, %a1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
   %source = amdgcn.make_register_range %s0, %s1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-  lsir.copy %target, %source : !amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.vgpr_range<[? : ? + 2]>
+  lsir.copy %target, %source : !amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<[? : ? + 2]>
   amdgcn.test_inst ins %a0, %a1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   return
 }
@@ -130,6 +130,6 @@ func.func @dead_range_copy() {
   amdgcn.test_inst outs %s1 : (!amdgcn.vgpr<?>) -> ()
   %target = amdgcn.make_register_range %a0, %a1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
   %source = amdgcn.make_register_range %s0, %s1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-  lsir.copy %target, %source : !amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.vgpr_range<[? : ? + 2]>
+  lsir.copy %target, %source : !amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<[? : ? + 2]>
   return
 }

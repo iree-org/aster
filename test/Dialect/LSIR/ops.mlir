@@ -135,24 +135,24 @@ func.func @test_copy(%dst: !amdgcn.vgpr, %value: !amdgcn.vgpr) -> !amdgcn.vgpr {
   return %0 : !amdgcn.vgpr
 }
 
-func.func @test_timing_start() -> !amdgcn.sgpr_range<[? + 2]> {
-  %start_time = lsir.timing_start : !amdgcn.sgpr_range<[? + 2]>
-  return %start_time : !amdgcn.sgpr_range<[? + 2]>
+func.func @test_timing_start() -> !amdgcn.sgpr<[? + 2]> {
+  %start_time = lsir.timing_start : !amdgcn.sgpr<[? + 2]>
+  return %start_time : !amdgcn.sgpr<[? + 2]>
 }
 
-func.func @test_timing_stop(%start_time: !amdgcn.sgpr_range<[? + 2]>, %start_buffer: !amdgcn.sgpr_range<[? + 2]>, %end_buffer: !amdgcn.sgpr_range<[? + 2]>) {
+func.func @test_timing_stop(%start_time: !amdgcn.sgpr<[? + 2]>, %start_buffer: !amdgcn.sgpr<[? + 2]>, %end_buffer: !amdgcn.sgpr<[? + 2]>) {
   lsir.timing_stop %start_time, %start_buffer, %end_buffer
-    : !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>
+    : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>
   return
 }
 
 func.func @test_assume_noalias_mixed_types(
-    %sgpr: !amdgcn.sgpr_range<[? + 2]>,
-    %sgpr_2: !amdgcn.sgpr_range<[? + 2]>,
-    %vgpr: !amdgcn.vgpr_range<[? + 4]>) {
+    %sgpr: !amdgcn.sgpr<[? + 2]>,
+    %sgpr_2: !amdgcn.sgpr<[? + 2]>,
+    %vgpr: !amdgcn.vgpr<[? + 4]>) {
   %sgpr_noalias, %sgpr_noalias_2, %vgpr_noalias = lsir.assume_noalias %sgpr, %sgpr_2, %vgpr
-    : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr_range<[? + 4]>)
-    -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr_range<[? + 4]>)
+    : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
+    -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
   return
 }
 
@@ -253,99 +253,99 @@ func.func @test_select(%dst: !amdgcn.vgpr, %cond: !amdgcn.vgpr, %true_val: !amdg
 
 // ...existing code...
 
-func.func @test_load_global(%dst: !amdgcn.vgpr_range<[? + 1]>, %addr: !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr_range<[? + 1]> {
+func.func @test_load_global(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
   %c0 = arith.constant 0 : i32
-  %res, %token = lsir.load #amdgcn.addr_space<global, read_write> %dst, %addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
-  return %res : !amdgcn.vgpr_range<[? + 1]>
+  %res, %token = lsir.load #amdgcn.addr_space<global, read_write> %dst, %addr, %c0, %c0 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32
+  return %res : !amdgcn.vgpr
 }
 
-func.func @test_load_global_with_offset(%dst: !amdgcn.vgpr_range<[? + 4]>, %addr: !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr_range<[? + 4]> {
+func.func @test_load_global_with_offset(%dst: !amdgcn.vgpr<[? + 4]>, %addr: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 4]> {
   %c0 = arith.constant 0 : i32
   %c16 = arith.constant 16 : i32
-  %res, %token = lsir.load #amdgcn.addr_space<global, read_write> %dst, %addr, %c0, %c16 : !amdgcn.vgpr_range<[? + 4]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
-  return %res : !amdgcn.vgpr_range<[? + 4]>
+  %res, %token = lsir.load #amdgcn.addr_space<global, read_write> %dst, %addr, %c0, %c16 : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 2]>, i32, i32
+  return %res : !amdgcn.vgpr<[? + 4]>
 }
 
-func.func @test_load_local(%dst: !amdgcn.vgpr_range<[? + 2]>, %addr: !amdgcn.vgpr) -> !amdgcn.vgpr_range<[? + 2]> {
+func.func @test_load_local(%dst: !amdgcn.vgpr<[? + 2]>, %addr: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
   %c0 = arith.constant 0 : i32
-  %res, %token = lsir.load #amdgcn.addr_space<local, read_write> %dst, %addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr, i32, i32
-  return %res : !amdgcn.vgpr_range<[? + 2]>
+  %res, %token = lsir.load #amdgcn.addr_space<local, read_write> %dst, %addr, %c0, %c0 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32, i32
+  return %res : !amdgcn.vgpr<[? + 2]>
 }
 
-func.func @test_load_smem(%dst: !amdgcn.sgpr_range<[? + 4]>, %addr: !amdgcn.sgpr_range<[? + 2]>) -> !amdgcn.sgpr_range<[? + 4]> {
+func.func @test_load_smem(%dst: !amdgcn.sgpr<[? + 4]>, %addr: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr<[? + 4]> {
   %c0 = arith.constant 0 : i32
-  %res, %token = lsir.load #amdgcn.addr_space<global, read_only> %dst, %addr, %c0, %c0 : !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 2]>, i32, i32
-  return %res : !amdgcn.sgpr_range<[? + 4]>
+  %res, %token = lsir.load #amdgcn.addr_space<global, read_only> %dst, %addr, %c0, %c0 : !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, i32, i32
+  return %res : !amdgcn.sgpr<[? + 4]>
 }
 
-func.func @test_store_global(%data: !amdgcn.vgpr_range<[? + 1]>, %addr: !amdgcn.vgpr_range<[? + 2]>) {
+func.func @test_store_global(%data: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>) {
   %c0 = arith.constant 0 : i32
-  %token = lsir.store #amdgcn.addr_space<global, read_write> %data, %addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
+  %token = lsir.store #amdgcn.addr_space<global, read_write> %data, %addr, %c0, %c0 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32
   return
 }
 
-func.func @test_store_global_with_offset(%data: !amdgcn.vgpr_range<[? + 4]>, %addr: !amdgcn.vgpr_range<[? + 2]>) {
+func.func @test_store_global_with_offset(%data: !amdgcn.vgpr<[? + 4]>, %addr: !amdgcn.vgpr<[? + 2]>) {
   %c0 = arith.constant 0 : i32
   %c32 = arith.constant 32 : i32
-  %token = lsir.store #amdgcn.addr_space<global, read_write> %data, %addr, %c0, %c32 : !amdgcn.vgpr_range<[? + 4]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
+  %token = lsir.store #amdgcn.addr_space<global, read_write> %data, %addr, %c0, %c32 : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 2]>, i32, i32
   return
 }
 
-func.func @test_store_local(%data: !amdgcn.vgpr_range<[? + 2]>, %addr: !amdgcn.vgpr) {
+func.func @test_store_local(%data: !amdgcn.vgpr<[? + 2]>, %addr: !amdgcn.vgpr) {
   %c0 = arith.constant 0 : i32
-  %token = lsir.store #amdgcn.addr_space<local, read_write> %data, %addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr, i32, i32
+  %token = lsir.store #amdgcn.addr_space<local, read_write> %data, %addr, %c0, %c0 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32, i32
   return
 }
 
-func.func @test_store_smem(%data: !amdgcn.sgpr_range<[? + 4]>, %addr: !amdgcn.sgpr_range<[? + 2]>) {
+func.func @test_store_smem(%data: !amdgcn.sgpr<[? + 4]>, %addr: !amdgcn.sgpr<[? + 2]>) {
   %c0 = arith.constant 0 : i32
-  %token = lsir.store #amdgcn.addr_space<global, read_write> %data, %addr, %c0, %c0 : !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 2]>, i32, i32
+  %token = lsir.store #amdgcn.addr_space<global, read_write> %data, %addr, %c0, %c0 : !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, i32, i32
   return
 }
 
-func.func @test_wait_single_load(%dst: !amdgcn.vgpr_range<[? + 1]>, %addr: !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr_range<[? + 1]> {
+func.func @test_wait_single_load(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
   %c0 = arith.constant 0 : i32
-  %res, %token = lsir.load #amdgcn.addr_space<global, read_write> %dst, %addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
+  %res, %token = lsir.load #amdgcn.addr_space<global, read_write> %dst, %addr, %c0, %c0 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32
   lsir.wait %token : !lsir.load_token
-  return %res : !amdgcn.vgpr_range<[? + 1]>
+  return %res : !amdgcn.vgpr
 }
 
-func.func @test_wait_single_store(%data: !amdgcn.vgpr_range<[? + 1]>, %addr: !amdgcn.vgpr_range<[? + 2]>) {
+func.func @test_wait_single_store(%data: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>) {
   %c0 = arith.constant 0 : i32
-  %token = lsir.store #amdgcn.addr_space<global, read_write> %data, %addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
+  %token = lsir.store #amdgcn.addr_space<global, read_write> %data, %addr, %c0, %c0 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32
   lsir.wait %token : !lsir.store_token
   return
 }
 
-func.func @test_wait_multiple_loads(%dst0: !amdgcn.vgpr_range<[? + 1]>, %dst1: !amdgcn.vgpr_range<[? + 1]>, %addr: !amdgcn.vgpr_range<[? + 2]>) -> (!amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 1]>) {
+func.func @test_wait_multiple_loads(%dst0: !amdgcn.vgpr, %dst1: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>) -> (!amdgcn.vgpr, !amdgcn.vgpr) {
   %c0 = arith.constant 0 : i32
   %c4 = arith.constant 4 : i32
-  %res0, %token0 = lsir.load #amdgcn.addr_space<global, read_write> %dst0, %addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
-  %res1, %token1 = lsir.load #amdgcn.addr_space<global, read_write> %dst1, %addr, %c0, %c4 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
+  %res0, %token0 = lsir.load #amdgcn.addr_space<global, read_write> %dst0, %addr, %c0, %c0 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32
+  %res1, %token1 = lsir.load #amdgcn.addr_space<global, read_write> %dst1, %addr, %c0, %c4 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32
   lsir.wait %token0, %token1 : !lsir.load_token, !lsir.load_token
-  return %res0, %res1 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 1]>
+  return %res0, %res1 : !amdgcn.vgpr, !amdgcn.vgpr
 }
 
-func.func @test_wait_mixed_tokens(%dst: !amdgcn.vgpr_range<[? + 1]>, %data: !amdgcn.vgpr_range<[? + 1]>, %load_addr: !amdgcn.vgpr_range<[? + 2]>, %store_addr: !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr_range<[? + 1]> {
+func.func @test_wait_mixed_tokens(%dst: !amdgcn.vgpr, %data: !amdgcn.vgpr, %load_addr: !amdgcn.vgpr<[? + 2]>, %store_addr: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
   %c0 = arith.constant 0 : i32
-  %res, %load_token = lsir.load #amdgcn.addr_space<global, read_write> %dst, %load_addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
-  %store_token = lsir.store #amdgcn.addr_space<global, read_write> %data, %store_addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
+  %res, %load_token = lsir.load #amdgcn.addr_space<global, read_write> %dst, %load_addr, %c0, %c0 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32
+  %store_token = lsir.store #amdgcn.addr_space<global, read_write> %data, %store_addr, %c0, %c0 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32
   lsir.wait %load_token, %store_token : !lsir.load_token, !lsir.store_token
-  return %res : !amdgcn.vgpr_range<[? + 1]>
+  return %res : !amdgcn.vgpr
 }
 
-func.func @test_load_with_dependencies(%dst: !amdgcn.vgpr_range<[? + 1]>, %addr: !amdgcn.vgpr_range<[? + 2]>, %data: !amdgcn.vgpr_range<[? + 1]>) -> !amdgcn.vgpr_range<[? + 1]> {
+func.func @test_load_with_dependencies(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>, %data: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %c0 = arith.constant 0 : i32
-  %store_token = lsir.store #amdgcn.addr_space<global, read_write> %data, %addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
-  %res, %load_token = lsir.load #amdgcn.addr_space<global, read_write> %dst, %addr, %c0, %c0 dependencies %store_token : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32, !lsir.store_token
-  return %res : !amdgcn.vgpr_range<[? + 1]>
+  %store_token = lsir.store #amdgcn.addr_space<global, read_write> %data, %addr, %c0, %c0 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32
+  %res, %load_token = lsir.load #amdgcn.addr_space<global, read_write> %dst, %addr, %c0, %c0 dependencies %store_token : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32, !lsir.store_token
+  return %res : !amdgcn.vgpr
 }
 
-func.func @test_store_with_dependencies(%data0: !amdgcn.vgpr_range<[? + 1]>, %data1: !amdgcn.vgpr_range<[? + 1]>, %addr: !amdgcn.vgpr_range<[? + 2]>) {
+func.func @test_store_with_dependencies(%data0: !amdgcn.vgpr, %data1: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>) {
   %c0 = arith.constant 0 : i32
   %c4 = arith.constant 4 : i32
-  %token0 = lsir.store #amdgcn.addr_space<global, read_write> %data0, %addr, %c0, %c0 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32
-  %token1 = lsir.store #amdgcn.addr_space<global, read_write> %data1, %addr, %c0, %c4 dependencies %token0 : !amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>, i32, i32, !lsir.store_token
+  %token0 = lsir.store #amdgcn.addr_space<global, read_write> %data0, %addr, %c0, %c0 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32
+  %token1 = lsir.store #amdgcn.addr_space<global, read_write> %data1, %addr, %c0, %c4 dependencies %token0 : !amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32, i32, !lsir.store_token
   lsir.wait %token1 : !lsir.store_token
   return
 }

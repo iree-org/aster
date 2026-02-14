@@ -2,7 +2,7 @@
 // Uses garbage values in LDS (no verification).
 
 // From descriptors.mlir
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
+!vx2 = !amdgcn.vgpr<[? + 2]>
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {

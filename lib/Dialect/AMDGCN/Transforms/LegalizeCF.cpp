@@ -141,7 +141,7 @@ LogicalResult LegalizeCF::lowerCondBranch(cf::CondBranchOp condBr) {
        {condBr.getTrueDestOperands(), condBr.getFalseDestOperands()}) {
     for (Value operand : brOpRange) {
       Type type = operand.getType();
-      if (!isa<SGPRType, VGPRType, SGPRRangeType, VGPRRangeType>(type)) {
+      if (!isa<SGPRType, VGPRType, SGPRType, VGPRType>(type)) {
         return condBr.emitError()
                << "cf.br operand must have an allocated register type";
       }
@@ -197,7 +197,7 @@ LogicalResult LegalizeCF::lowerBranch(cf::BranchOp br) {
   // a side-effecting representation of instructions without return values.
   for (Value operand : br.getDestOperands()) {
     Type type = operand.getType();
-    if (!isa<SGPRType, VGPRType, SGPRRangeType, VGPRRangeType>(type)) {
+    if (!isa<SGPRType, VGPRType, SGPRType, VGPRType>(type)) {
       return br.emitError()
              << "cf.br operand must have an allocated register type";
     }

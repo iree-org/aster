@@ -7,20 +7,20 @@
 
 // From descriptors.mlir
 !s   = !amdgcn.sgpr
-!sx1 = !amdgcn.sgpr_range<[? + 1]>
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
-!sx3 = !amdgcn.sgpr_range<[? + 3]>
-!sx4 = !amdgcn.sgpr_range<[? + 4]>
+!sx1 = !amdgcn.sgpr
+!sx2 = !amdgcn.sgpr<[? + 2]>
+!sx3 = !amdgcn.sgpr<[? + 3]>
+!sx4 = !amdgcn.sgpr<[? + 4]>
 !v   = !amdgcn.vgpr
-!vx1 = !amdgcn.vgpr_range<[? + 1]>
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
-!vx3 = !amdgcn.vgpr_range<[? + 3]>
-!vx4 = !amdgcn.vgpr_range<[? + 4]>
+!vx1 = !amdgcn.vgpr
+!vx2 = !amdgcn.vgpr<[? + 2]>
+!vx3 = !amdgcn.vgpr<[? + 3]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
 !a   = !amdgcn.agpr
-!ax1 = !amdgcn.agpr_range<[? + 1]>
-!ax2 = !amdgcn.agpr_range<[? + 2]>
-!ax3 = !amdgcn.agpr_range<[? + 3]>
-!ax4 = !amdgcn.agpr_range<[? + 4]>
+!ax1 = !amdgcn.agpr
+!ax2 = !amdgcn.agpr<[? + 2]>
+!ax3 = !amdgcn.agpr<[? + 3]>
+!ax4 = !amdgcn.agpr<[? + 4]>
 !index_pair = !aster_utils.struct<i: index, j: index>
 !index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>
 !index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>

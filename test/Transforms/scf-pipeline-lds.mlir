@@ -132,7 +132,7 @@ func.func @lds_write_read_two_stage(%data_in: !amdgcn.vgpr, %addr: !amdgcn.vgpr)
 // CHECK:       amdgcn.dealloc_lds %[[B1]]
 // CHECK:       return
 
-func.func @double_lds_three_stage(%gaddr: !amdgcn.vgpr_range<[? + 2]>, %data_in: !amdgcn.vgpr) {
+func.func @double_lds_three_stage(%gaddr: !amdgcn.vgpr<[? + 2]>, %data_in: !amdgcn.vgpr) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %c6 = arith.constant 6 : index
@@ -221,7 +221,7 @@ func.func @double_lds_three_stage(%gaddr: !amdgcn.vgpr_range<[? + 2]>, %data_in:
 // CHECK:       amdgcn.dealloc_lds %[[LDS1]]
 // CHECK:       return
 
-func.func @global_to_lds_to_compute(%gaddr: !amdgcn.vgpr_range<[? + 2]>) {
+func.func @global_to_lds_to_compute(%gaddr: !amdgcn.vgpr<[? + 2]>) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %c6 = arith.constant 6 : index
@@ -230,7 +230,7 @@ func.func @global_to_lds_to_compute(%gaddr: !amdgcn.vgpr_range<[? + 2]>) {
   %s_out = amdgcn.alloca : !amdgcn.vgpr
   scf.for %i = %c0 to %c6 step %c1 {
     // Stage 0: async global load
-    %gdata, %gtok = amdgcn.load global_load_dword dest %g_dest addr %gaddr {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.read_token<flat>
+    %gdata, %gtok = amdgcn.load global_load_dword dest %g_dest addr %gaddr {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
 
     // Stage 1: wait for global load, write to LDS
     amdgcn.wait deps %gtok {sched.stage = 1 : i32} : !amdgcn.read_token<flat>

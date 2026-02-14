@@ -161,7 +161,7 @@ func.func @test_make_register_ranges() -> (!amdgcn.vgpr<2>, !amdgcn.vgpr<3>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr<2>
   %1 = amdgcn.alloca : !amdgcn.vgpr<3>
   %2 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
-  %4, %5 = amdgcn.split_register_range %2 : !amdgcn.vgpr_range<[2 : 4]>
+  %4, %5 = amdgcn.split_register_range %2 : !amdgcn.vgpr<[2 : 4]>
   return %4, %5: !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
 }
 
@@ -169,7 +169,7 @@ func.func @test_make_register_ranges_relocatable() -> (!amdgcn.vgpr, !amdgcn.vgp
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
   %2 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr, !amdgcn.vgpr
-  %4, %5 = amdgcn.split_register_range %2 : !amdgcn.vgpr_range<[? + 2]>
+  %4, %5 = amdgcn.split_register_range %2 : !amdgcn.vgpr<[? + 2]>
   return %4, %5: !amdgcn.vgpr, !amdgcn.vgpr
 }
 
@@ -229,45 +229,45 @@ func.func @test_waits(
 //===----------------------------------------------------------------------===//
 
 func.func @test_make_buffer_rsrc(
-    %base : !amdgcn.sgpr_range<[? + 2]>,
+    %base : !amdgcn.sgpr<[? + 2]>,
     %num_records : !amdgcn.sgpr) {
   // Raw buffer (stride=0, no swizzle)
   %stride = arith.constant 0 : i32
   %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
     cache_swizzle = false, swizzle_enable = false, flags = 0
-    : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+    : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr<[? + 4]>
   return
 }
 
 func.func @test_make_buffer_rsrc_with_stride(
-    %base : !amdgcn.sgpr_range<[? + 2]>,
+    %base : !amdgcn.sgpr<[? + 2]>,
     %num_records : !amdgcn.sgpr) {
   // Structured buffer with 16-byte stride (e.g., float4 elements)
   %stride = arith.constant 16 : i32
   %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
     cache_swizzle = false, swizzle_enable = false, flags = 131076
-    : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+    : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr<[? + 4]>
   return
 }
 
 func.func @test_make_buffer_rsrc_swizzled(
-    %base : !amdgcn.sgpr_range<[? + 2]>,
+    %base : !amdgcn.sgpr<[? + 2]>,
     %num_records : !amdgcn.sgpr) {
   // Swizzled buffer access with stride=4 (f32 elements)
   %stride = arith.constant 4 : i32
   %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
     cache_swizzle = true, swizzle_enable = true, flags = 0
-    : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+    : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr<[? + 4]>
   return
 }
 
 func.func @test_make_buffer_rsrc_allocated(
-    %base : !amdgcn.sgpr_range<[0 : 2]>,
+    %base : !amdgcn.sgpr<[0 : 2]>,
     %num_records : !amdgcn.sgpr<2>) {
   %stride = arith.constant 0 : i32
   %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %stride,
     cache_swizzle = false, swizzle_enable = false, flags = 0
-    : (!amdgcn.sgpr_range<[0 : 2]>, !amdgcn.sgpr<2>, i32) -> !amdgcn.sgpr_range<[? + 4]>
+    : (!amdgcn.sgpr<[0 : 2]>, !amdgcn.sgpr<2>, i32) -> !amdgcn.sgpr<[? + 4]>
   return
 }
 
@@ -277,104 +277,104 @@ func.func @test_make_buffer_rsrc_allocated(
 
 func.func @test_buffer_load_dword(
     %dest : !amdgcn.vgpr,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %result, %tok = amdgcn.load buffer_load_dword dest %dest addr %rsrc
     offset u(%soffset) + d(%vaddr) + c(%off)
-    : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.read_token<flat>
   return
 }
 
 func.func @test_buffer_load_dwordx2(
-    %dest : !amdgcn.vgpr_range<[? + 2]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %dest : !amdgcn.vgpr<[? + 2]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %result, %tok = amdgcn.load buffer_load_dwordx2 dest %dest addr %rsrc
     offset u(%soffset) + d(%vaddr) + c(%off)
-    : dps(!amdgcn.vgpr_range<[? + 2]>) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.read_token<flat>
   return
 }
 
 func.func @test_buffer_load_dwordx3(
-    %dest : !amdgcn.vgpr_range<[? + 3]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %dest : !amdgcn.vgpr<[? + 3]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %result, %tok = amdgcn.load buffer_load_dwordx3 dest %dest addr %rsrc
     offset u(%soffset) + d(%vaddr) + c(%off)
-    : dps(!amdgcn.vgpr_range<[? + 3]>) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : dps(!amdgcn.vgpr<[? + 3]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.read_token<flat>
   return
 }
 
 func.func @test_buffer_load_dwordx4(
-    %dest : !amdgcn.vgpr_range<[? + 4]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %dest : !amdgcn.vgpr<[? + 4]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %result, %tok = amdgcn.load buffer_load_dwordx4 dest %dest addr %rsrc
     offset u(%soffset) + d(%vaddr) + c(%off)
-    : dps(!amdgcn.vgpr_range<[? + 4]>) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : dps(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.read_token<flat>
   return
 }
 
 func.func @test_buffer_store_dword(
     %data : !amdgcn.vgpr,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %tok = amdgcn.store buffer_store_dword data %data addr %rsrc
     offset u(%soffset) + d(%vaddr) + c(%off)
-    : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.write_token<flat>
   return
 }
 
 func.func @test_buffer_store_dwordx2(
-    %data : !amdgcn.vgpr_range<[? + 2]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %data : !amdgcn.vgpr<[? + 2]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %tok = amdgcn.store buffer_store_dwordx2 data %data addr %rsrc
     offset u(%soffset) + d(%vaddr) + c(%off)
-    : ins(!amdgcn.vgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.write_token<flat>
   return
 }
 
 func.func @test_buffer_store_dwordx3(
-    %data : !amdgcn.vgpr_range<[? + 3]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %data : !amdgcn.vgpr<[? + 3]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %tok = amdgcn.store buffer_store_dwordx3 data %data addr %rsrc
     offset u(%soffset) + d(%vaddr) + c(%off)
-    : ins(!amdgcn.vgpr_range<[? + 3]>, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : ins(!amdgcn.vgpr<[? + 3]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.write_token<flat>
   return
 }
 
 func.func @test_buffer_store_dwordx4(
-    %data : !amdgcn.vgpr_range<[? + 4]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %data : !amdgcn.vgpr<[? + 4]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %tok = amdgcn.store buffer_store_dwordx4 data %data addr %rsrc
     offset u(%soffset) + d(%vaddr) + c(%off)
-    : ins(!amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.write_token<flat>
   return
 }
@@ -383,104 +383,104 @@ func.func @test_buffer_store_dwordx4(
 
 func.func @test_buffer_load_dword_idxen(
     %dest : !amdgcn.vgpr,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %result, %tok = amdgcn.load buffer_load_dword_idxen dest %dest addr %rsrc
     offset u(%soffset) + d(%vindex) + c(%off)
-    : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.read_token<flat>
   return
 }
 
 func.func @test_buffer_load_dwordx2_idxen(
-    %dest : !amdgcn.vgpr_range<[? + 2]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %dest : !amdgcn.vgpr<[? + 2]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %result, %tok = amdgcn.load buffer_load_dwordx2_idxen dest %dest addr %rsrc
     offset u(%soffset) + d(%vindex) + c(%off)
-    : dps(!amdgcn.vgpr_range<[? + 2]>) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.read_token<flat>
   return
 }
 
 func.func @test_buffer_load_dwordx3_idxen(
-    %dest : !amdgcn.vgpr_range<[? + 3]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %dest : !amdgcn.vgpr<[? + 3]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %result, %tok = amdgcn.load buffer_load_dwordx3_idxen dest %dest addr %rsrc
     offset u(%soffset) + d(%vindex) + c(%off)
-    : dps(!amdgcn.vgpr_range<[? + 3]>) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : dps(!amdgcn.vgpr<[? + 3]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.read_token<flat>
   return
 }
 
 func.func @test_buffer_load_dwordx4_idxen(
-    %dest : !amdgcn.vgpr_range<[? + 4]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %dest : !amdgcn.vgpr<[? + 4]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %result, %tok = amdgcn.load buffer_load_dwordx4_idxen dest %dest addr %rsrc
     offset u(%soffset) + d(%vindex) + c(%off)
-    : dps(!amdgcn.vgpr_range<[? + 4]>) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : dps(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.read_token<flat>
   return
 }
 
 func.func @test_buffer_store_dword_idxen(
     %data : !amdgcn.vgpr,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %tok = amdgcn.store buffer_store_dword_idxen data %data addr %rsrc
     offset u(%soffset) + d(%vindex) + c(%off)
-    : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.write_token<flat>
   return
 }
 
 func.func @test_buffer_store_dwordx2_idxen(
-    %data : !amdgcn.vgpr_range<[? + 2]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %data : !amdgcn.vgpr<[? + 2]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %tok = amdgcn.store buffer_store_dwordx2_idxen data %data addr %rsrc
     offset u(%soffset) + d(%vindex) + c(%off)
-    : ins(!amdgcn.vgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.write_token<flat>
   return
 }
 
 func.func @test_buffer_store_dwordx3_idxen(
-    %data : !amdgcn.vgpr_range<[? + 3]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %data : !amdgcn.vgpr<[? + 3]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %tok = amdgcn.store buffer_store_dwordx3_idxen data %data addr %rsrc
     offset u(%soffset) + d(%vindex) + c(%off)
-    : ins(!amdgcn.vgpr_range<[? + 3]>, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : ins(!amdgcn.vgpr<[? + 3]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.write_token<flat>
   return
 }
 
 func.func @test_buffer_store_dwordx4_idxen(
-    %data : !amdgcn.vgpr_range<[? + 4]>,
-    %rsrc : !amdgcn.sgpr_range<[? + 4]>,
+    %data : !amdgcn.vgpr<[? + 4]>,
+    %rsrc : !amdgcn.sgpr<[? + 4]>,
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
   %tok = amdgcn.store buffer_store_dwordx4_idxen data %data addr %rsrc
     offset u(%soffset) + d(%vindex) + c(%off)
-    : ins(!amdgcn.vgpr_range<[? + 4]>, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+    : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
       -> !amdgcn.write_token<flat>
   return
 }

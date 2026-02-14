@@ -21,7 +21,7 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 // SOP2Op Operation
 //===----------------------------------------------------------------------===//
 
-def SOP2SSrc : RegOrImm<[SGPRType, SGPRRangeType], [I32]>;
+def SOP2SSrc : RegOrImm<[SGPRType], [I32]>;
 
 def SOP2Op : AMDGCN_InstOp<"sop2", [PureInst, InstInferType]> {
   let summary = "SOP2 (Scalar Operations with 2 operands) operation";
@@ -31,7 +31,7 @@ def SOP2Op : AMDGCN_InstOp<"sop2", [PureInst, InstInferType]> {
   }];
   let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let inputs = (ins SOP2SSrc:$src0, SOP2SSrc:$src1);
-  let outputs = (ins OptionalReg<AnyRegOf<[SGPRType, SGPRRangeType]>>:$sdst);
+  let outputs = (ins OptionalReg<AnyRegOf<[SGPRType]>>:$sdst);
   // TODO: add modifiers.
   let assemblyFormat = [{
     custom<Opcode>($opcode) (`outs` $sdst^)? `ins` $src0 `,` $src1 attr-dict
@@ -45,7 +45,7 @@ class SOP2Constraints<int sz, bit hasSdst> {
       RegImmOperand<SOP2SSrc, sz>:$src0,
       RegImmOperand<SOP2SSrc, sz>:$src1,
     /*outs=*/
-      !if(hasSdst, RegImmOperand<AnyRegOf<[SGPRType, SGPRRangeType]>, sz>, NotPresent):$sdst
+      !if(hasSdst, RegImmOperand<AnyRegOf<[SGPRType]>, sz>, NotPresent):$sdst
   );
 }
 

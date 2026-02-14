@@ -3,9 +3,9 @@
 // to a global output buffer.
 
 // Type aliases
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
-!vx4 = !amdgcn.vgpr_range<[? + 4]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 
 amdgcn.module @test_store_global_C_fragment_transposed target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {

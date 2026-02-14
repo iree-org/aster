@@ -42,13 +42,13 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa
   // Load the three pointer args from the kernarg segment, then dereference
   // the params pointer to get the scalar values (num_records are byte counts).
   func.func private @load_kernargs()
-      -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
+      -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
           !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr) {
     // Load the three 64-bit pointers from kernarg segment
     // Order: src(0), params(1), dst(2) -- matches input_args + output_args
-    %src_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
-    %params_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr_range<[? + 2]>
-    %dst_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr_range<[? + 2]>
+    %src_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
+    %params_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
+    %dst_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr<[? + 2]>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
     // Dereference params_ptr to load [src_num_elements, dst_num_elements, soffset]
@@ -59,25 +59,25 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa
     %snelems_dest = amdgcn.alloca : !amdgcn.sgpr
     %src_nelems, %t0 = amdgcn.load s_load_dword dest %snelems_dest addr %params_ptr
       offset c(%c0)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr_range<[? + 2]>, i32)
+      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
         -> !amdgcn.read_token<constant>
 
     %dnelems_dest = amdgcn.alloca : !amdgcn.sgpr
     %dst_nelems, %t1 = amdgcn.load s_load_dword dest %dnelems_dest addr %params_ptr
       offset c(%c4)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr_range<[? + 2]>, i32)
+      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
         -> !amdgcn.read_token<constant>
 
     %soff_dest = amdgcn.alloca : !amdgcn.sgpr
     %soffset, %t2 = amdgcn.load s_load_dword dest %soff_dest addr %params_ptr
       offset c(%c8)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr_range<[? + 2]>, i32)
+      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
         -> !amdgcn.read_token<constant>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
     return %src_ptr, %dst_ptr, %src_nelems, %dst_nelems, %soffset
-      : !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
+      : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
         !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
   }
 
@@ -90,7 +90,7 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa
     // Load kernel arguments (3 pointers; scalars come from params buffer)
     %src_ptr, %dst_ptr, %src_nelems, %dst_nelems, %soffset =
       func.call @load_kernargs()
-        : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
+        : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
                  !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr)
 
     // Build buffer descriptors with stride=0 (raw mode).
@@ -99,10 +99,10 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa
     %c0_stride = arith.constant 0 : i32
     %src_rsrc = amdgcn.make_buffer_rsrc %src_ptr, %src_nelems, %c0_stride,
       cache_swizzle = false, swizzle_enable = false, flags = 131072
-      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+      : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr<[? + 4]>
     %dst_rsrc = amdgcn.make_buffer_rsrc %dst_ptr, %dst_nelems, %c0_stride,
       cache_swizzle = false, swizzle_enable = false, flags = 131072
-      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+      : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr<[? + 4]>
 
     // v0 = threadidx.x (hardware-initialized)
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
@@ -120,7 +120,7 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
     %loaded, %tok_ld = amdgcn.load buffer_load_dword dest %load_dest addr %src_rsrc
       offset u(%soffset) + d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
 
     // Wait for buffer load
@@ -130,7 +130,7 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa
     // OOB stores (voffset + soffset >= num_records) are silently dropped
     %tok_st = amdgcn.store buffer_store_dword data %loaded addr %dst_rsrc
       offset u(%soffset) + d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
 
     // Wait for buffer store

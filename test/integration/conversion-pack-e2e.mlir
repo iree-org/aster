@@ -14,24 +14,24 @@
 amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
   func.func private @load_two_ptrs()
-      -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>) {
-    %src_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
-    %dst_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr_range<[? + 2]>
+      -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>) {
+    %src_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
+    %dst_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     return %src_ptr, %dst_ptr
-      : !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>
+      : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>
   }
 
   func.func private @load_three_ptrs()
-      -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
-          !amdgcn.sgpr_range<[? + 2]>) {
-    %src0_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
-    %src1_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr_range<[? + 2]>
-    %dst_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr_range<[? + 2]>
+      -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
+          !amdgcn.sgpr<[? + 2]>) {
+    %src0_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
+    %src1_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
+    %dst_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr<[? + 2]>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     return %src0_ptr, %src1_ptr, %dst_ptr
-      : !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
-        !amdgcn.sgpr_range<[? + 2]>
+      : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
+        !amdgcn.sgpr<[? + 2]>
   }
 
   // ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %src_ptr, %dst_ptr = func.call @load_two_ptrs()
-      : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>)
+      : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>)
 
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
@@ -55,7 +55,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
     %loaded, %tok_ld = amdgcn.load global_load_dword dest %load_dest addr %src_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
@@ -65,7 +65,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
@@ -80,7 +80,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %src_ptr, %dst_ptr = func.call @load_two_ptrs()
-      : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>)
+      : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>)
 
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
@@ -92,7 +92,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
     %loaded, %tok_ld = amdgcn.load global_load_dword dest %load_dest addr %src_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
@@ -102,7 +102,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
@@ -117,7 +117,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %src_ptr, %dst_ptr = func.call @load_two_ptrs()
-      : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>)
+      : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>)
 
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
@@ -129,7 +129,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
     %loaded, %tok_ld = amdgcn.load global_load_dword dest %load_dest addr %src_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
@@ -139,7 +139,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
@@ -154,7 +154,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %src_ptr, %dst_ptr = func.call @load_two_ptrs()
-      : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>)
+      : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>)
 
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
@@ -166,7 +166,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
     %loaded, %tok_ld = amdgcn.load global_load_dword dest %load_dest addr %src_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
@@ -176,7 +176,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
@@ -191,7 +191,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %src_ptr, %dst_ptr = func.call @load_two_ptrs()
-      : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>)
+      : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>)
 
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
@@ -203,7 +203,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
     %loaded, %tok_ld = amdgcn.load global_load_dword dest %load_dest addr %src_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
@@ -213,7 +213,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
@@ -228,7 +228,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %src_ptr, %dst_ptr = func.call @load_two_ptrs()
-      : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>)
+      : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>)
 
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
@@ -240,7 +240,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
     %loaded, %tok_ld = amdgcn.load global_load_dword dest %load_dest addr %src_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
@@ -250,7 +250,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
@@ -266,8 +266,8 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %src0_ptr, %src1_ptr, %dst_ptr = func.call @load_three_ptrs()
-      : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
-               !amdgcn.sgpr_range<[? + 2]>)
+      : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
+               !amdgcn.sgpr<[? + 2]>)
 
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
@@ -279,13 +279,13 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     %load0_dest = amdgcn.alloca : !amdgcn.vgpr
     %src0_val, %tok0 = amdgcn.load global_load_dword dest %load0_dest addr %src0_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
 
     %load1_dest = amdgcn.alloca : !amdgcn.vgpr
     %src1_val, %tok1 = amdgcn.load global_load_dword dest %load1_dest addr %src1_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -296,7 +296,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
 
     %tok_st = amdgcn.store global_store_dword data %packed addr %dst_ptr
       offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
@@ -312,8 +312,8 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %src0_ptr, %src1_ptr, %dst_ptr = func.call @load_three_ptrs()
-      : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
-               !amdgcn.sgpr_range<[? + 2]>)
+      : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
+               !amdgcn.sgpr<[? + 2]>)
 
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
@@ -325,13 +325,13 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     %load0_dest = amdgcn.alloca : !amdgcn.vgpr
     %src0_val, %tok0 = amdgcn.load global_load_dword dest %load0_dest addr %src0_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
 
     %load1_dest = amdgcn.alloca : !amdgcn.vgpr
     %src1_val, %tok1 = amdgcn.load global_load_dword dest %load1_dest addr %src1_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -342,7 +342,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
@@ -358,8 +358,8 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %src0_ptr, %src1_ptr, %dst_ptr = func.call @load_three_ptrs()
-      : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
-               !amdgcn.sgpr_range<[? + 2]>)
+      : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
+               !amdgcn.sgpr<[? + 2]>)
 
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
@@ -371,13 +371,13 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
     %load0_dest = amdgcn.alloca : !amdgcn.vgpr
     %src0_val, %tok0 = amdgcn.load global_load_dword dest %load0_dest addr %src0_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
 
     %load1_dest = amdgcn.alloca : !amdgcn.vgpr
     %src1_val, %tok1 = amdgcn.load global_load_dword dest %load1_dest addr %src1_ptr
       offset d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -388,7 +388,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel

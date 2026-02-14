@@ -1,4 +1,4 @@
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
 
 // Two-stage pipeline with gap: stages {0, 2}.

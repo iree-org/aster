@@ -30,6 +30,8 @@ llvm::raw_ostream &mlir::aster::operator<<(llvm::raw_ostream &os,
 
 llvm::raw_ostream &mlir::aster::operator<<(llvm::raw_ostream &os,
                                            const RegisterRange &range) {
+  if (range.size() == 1 && range.alignment() == 1)
+    return os << range.begin();
   os << "[";
 
   switch (range.getSemantics()) {
@@ -71,9 +73,13 @@ FailureOr<Register> Register::parse(AsmParser &parser) {
 }
 
 FailureOr<RegisterRange> RegisterRange::parse(AsmParser &parser) {
-  // Parse opening bracket
-  if (parser.parseLSquare())
-    return failure();
+  // Try to parse `[`, if failed, parse a single register.
+  if (failed(parser.parseOptionalLSquare())) {
+    FailureOr<Register> reg = Register::parse(parser);
+    if (failed(reg))
+      return failure();
+    return RegisterRange(reg.value(), 1);
+  }
 
   // Check for unallocated or value range (starts with '?')
   if (succeeded(parser.parseOptionalQuestion())) {

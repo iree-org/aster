@@ -22,8 +22,8 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 // VOP3P Operation
 //===----------------------------------------------------------------------===//
 
-def VOP3PSrc : RegOrImm<[VGPRType, VGPRRangeType, AGPRType, AGPRRangeType], [I32, F32]>;
-def VOP3PDst : AnyRegOf<[VGPRType, VGPRRangeType, AGPRType, AGPRRangeType]>;
+def VOP3PSrc : RegOrImm<[VGPRType, AGPRType], [I32, F32]>;
+def VOP3PDst : AnyRegOf<[VGPRType, AGPRType]>;
 
 def VOP3POp : AMDGCN_InstOp<"vop3p", [PureInst, InstInferType]> {
   let summary = "VOP3P operation";
@@ -142,7 +142,7 @@ def VOP3PMAIOp : AMDGCN_InstOp<"vop3p.vop3p_mai", [
   }];
   let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let outputs = (ins VGPROrAGPRType:$vdst);
-  let inputs = (ins VGPRRangeType:$a, VGPRRangeType:$b, VGPROrAGPRType:$c);
+  let inputs = (ins VGPRType:$a, VGPRType:$b, VGPROrAGPRType:$c);
   let trailingArguments = (ins
     CBSZAttr:$cbsz,
     ABIDAttr:$abid,
@@ -246,8 +246,8 @@ def VOP3PScaledMAIOp : AMDGCN_InstOp<"vop3p.vop3p_scaled_mai", [
   let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let outputs = (ins VGPROrAGPRType:$vdst);
   let inputs = (ins
-    VGPRRangeType:$a,
-    VGPRRangeType:$b,
+    VGPRType:$a,
+    VGPRType:$b,
     VGPROrAGPRType:$c,
     ScaleSrc:$scale_src0,
     ScaleSrc:$scale_src1

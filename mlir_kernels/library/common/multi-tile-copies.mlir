@@ -41,8 +41,8 @@
 // RUN: | FileCheck %s
 
 // From descriptors.mlir
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
+!vx2 = !amdgcn.vgpr<[? + 2]>
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>

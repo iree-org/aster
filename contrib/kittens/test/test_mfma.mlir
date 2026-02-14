@@ -2,10 +2,10 @@
 // Verifies MFMA correctness: D = A @ B^T + C
 
 // Type aliases
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
-!vx4 = !amdgcn.vgpr_range<[? + 4]>
+!vx2 = !amdgcn.vgpr<[? + 2]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
 !rt_A_f16 = !vx2
 !rt_B_f16 = !vx2
 !rt_C_f32 = !vx4

@@ -61,7 +61,7 @@ bool mlir::aster::amdgcn::compareLessAMDGCNRegisterTypes(
 
 bool amdgcn::hasSize(Type type, ArrayRef<int32_t> size) {
   auto rangeType = dyn_cast<AMDGCNRegisterTypeInterface>(type);
-  if (!rangeType || !rangeType.isRegisterRange())
+  if (!rangeType)
     return false;
 
   RegisterRange range = rangeType.getAsRange();
@@ -73,60 +73,33 @@ bool amdgcn::hasSize(Type type, ArrayRef<int32_t> size) {
 //===----------------------------------------------------------------------===//
 
 LogicalResult AGPRType::verify(function_ref<InFlightDiagnostic()> emitError,
-                               Register reg) {
-  if (!reg.isValid())
-    return emitError() << "AGPR must be non-negative";
-  return success();
-}
-
-LogicalResult
-AGPRRangeType::verify(function_ref<InFlightDiagnostic()> emitError,
-                      RegisterRange range) {
+                               RegisterRange range) {
   return verifyRegisterRange(emitError, range, "AGPR");
 }
 
 Resource *AGPRType::getResource() const { return AGPRResource::get(); }
-Resource *AGPRRangeType::getResource() const { return AGPRResource::get(); }
 
 //===----------------------------------------------------------------------===//
 // SGPR types
 //===----------------------------------------------------------------------===//
 
 LogicalResult SGPRType::verify(function_ref<InFlightDiagnostic()> emitError,
-                               Register reg) {
-  if (!reg.isValid())
-    return emitError() << "SGPR must be non-negative";
-  return success();
-}
-
-LogicalResult
-SGPRRangeType::verify(function_ref<InFlightDiagnostic()> emitError,
-                      RegisterRange range) {
+                               RegisterRange range) {
   return verifyRegisterRange(emitError, range, "SGPR");
 }
 
 Resource *SGPRType::getResource() const { return SGPRResource::get(); }
-Resource *SGPRRangeType::getResource() const { return SGPRResource::get(); }
 
 //===----------------------------------------------------------------------===//
 // VGPR types
 //===----------------------------------------------------------------------===//
 
 LogicalResult VGPRType::verify(function_ref<InFlightDiagnostic()> emitError,
-                               Register reg) {
-  if (!reg.isValid())
-    return emitError() << "VGPR must be non-negative";
-  return success();
-}
-
-LogicalResult
-VGPRRangeType::verify(function_ref<InFlightDiagnostic()> emitError,
-                      RegisterRange range) {
+                               RegisterRange range) {
   return verifyRegisterRange(emitError, range, "VGPR");
 }
 
 Resource *VGPRType::getResource() const { return VGPRResource::get(); }
-Resource *VGPRRangeType::getResource() const { return VGPRResource::get(); }
 
 //===----------------------------------------------------------------------===//
 // SREG types

@@ -60,23 +60,19 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
   // Determine the best load instruction to use.
   if (szWordsFloor % 16 == 0) {
     numWords = 16;
-    loadTy =
-        rewriter.getType<SGPRRangeType>(RegisterRange(Register(), numWords));
+    loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
     createOp = S_LOAD_DWORDX16::create;
   } else if (szWordsFloor % 8 == 0) {
     numWords = 8;
-    loadTy =
-        rewriter.getType<SGPRRangeType>(RegisterRange(Register(), numWords));
+    loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
     createOp = S_LOAD_DWORDX8::create;
   } else if (szWordsFloor % 4 == 0) {
     numWords = 4;
-    loadTy =
-        rewriter.getType<SGPRRangeType>(RegisterRange(Register(), numWords));
+    loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
     createOp = S_LOAD_DWORDX4::create;
   } else if (szWordsFloor % 2 == 0) {
     numWords = 2;
-    loadTy =
-        rewriter.getType<SGPRRangeType>(RegisterRange(Register(), numWords));
+    loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
     createOp = S_LOAD_DWORDX2::create;
   } else {
     numWords = 1;
@@ -136,8 +132,8 @@ static LogicalResult handleArgs(RewriterBase &rewriter, KernelOp op,
   // Get the alloca for the kernel arguments.
   Value kenArgPtr = createAllocation(
       rewriter, op.getLoc(),
-      amdgcn::SGPRRangeType::get(rewriter.getContext(),
-                                 RegisterRange(Register(offset), 2)));
+      amdgcn::SGPRType::get(rewriter.getContext(),
+                            RegisterRange(Register(offset), 2)));
   rewriter.setInsertionPointAfter(kenArgPtr.getDefiningOp());
 
   // Handle each LoadArgOp.
@@ -159,8 +155,8 @@ static LogicalResult handleArgs(RewriterBase &rewriter, KernelOp op,
     // Create the allocation for the loaded argument.
     Value alloc = createAllocation(
         rewriter, arg.getLoc(),
-        amdgcn::SGPRRangeType::get(rewriter.getContext(),
-                                   RegisterRange(Register(), (size + 3) / 4)));
+        amdgcn::SGPRType::get(rewriter.getContext(),
+                              RegisterRange(Register(), (size + 3) / 4)));
     // Load the argument from the kernel argument pointer.
     Value loadedArg =
         loadArgument(rewriter, kenArgPtr, alloc, size, argInfo.offsets[index]);

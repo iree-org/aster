@@ -47,11 +47,11 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
 
   // Load kernel args: three pointers, then dereference params to get scalars.
   func.func private @load_kernargs()
-      -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
+      -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
           !amdgcn.sgpr, !amdgcn.sgpr) {
-    %src_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
-    %params_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr_range<[? + 2]>
-    %dst_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr_range<[? + 2]>
+    %src_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
+    %params_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
+    %dst_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr<[? + 2]>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
     // params layout: [num_records (i32), soffset (i32)]
@@ -61,19 +61,19 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %nrec_dest = amdgcn.alloca : !amdgcn.sgpr
     %num_records, %t0 = amdgcn.load s_load_dword dest %nrec_dest addr %params_ptr
       offset c(%c0)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr_range<[? + 2]>, i32)
+      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
         -> !amdgcn.read_token<constant>
 
     %soff_dest = amdgcn.alloca : !amdgcn.sgpr
     %soffset, %t1 = amdgcn.load s_load_dword dest %soff_dest addr %params_ptr
       offset c(%c4)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr_range<[? + 2]>, i32)
+      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
         -> !amdgcn.read_token<constant>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
     return %src_ptr, %dst_ptr, %num_records, %soffset
-      : !amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
+      : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
         !amdgcn.sgpr, !amdgcn.sgpr
   }
 
@@ -87,17 +87,17 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
 
     %src_ptr, %dst_ptr, %num_records, %soffset =
       func.call @load_kernargs()
-        : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
+        : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
                  !amdgcn.sgpr, !amdgcn.sgpr)
 
     // stride=4: each element is one dword. address = base + index * 4.
     %c4_stride = arith.constant 4 : i32
     %src_rsrc = amdgcn.make_buffer_rsrc %src_ptr, %num_records, %c4_stride,
       cache_swizzle = false, swizzle_enable = false, flags = 131072
-      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+      : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr<[? + 4]>
     %dst_rsrc = amdgcn.make_buffer_rsrc %dst_ptr, %num_records, %c4_stride,
       cache_swizzle = false, swizzle_enable = false, flags = 131072
-      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+      : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr<[? + 4]>
 
     %vindex = amdgcn.alloca : !amdgcn.vgpr<0>
     %c0 = arith.constant 0 : i32
@@ -105,14 +105,14 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
     %loaded, %tok_ld = amdgcn.load buffer_load_dword_idxen dest %load_dest addr %src_rsrc
       offset u(%soffset) + d(%vindex) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
         -> !amdgcn.read_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %tok_st = amdgcn.store buffer_store_dword_idxen data %loaded addr %dst_rsrc
       offset u(%soffset) + d(%vindex) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
         -> !amdgcn.write_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -134,7 +134,7 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
 
     %src_ptr, %dst_ptr, %num_records, %soffset =
       func.call @load_kernargs()
-        : () -> (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr_range<[? + 2]>,
+        : () -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
                  !amdgcn.sgpr, !amdgcn.sgpr)
 
     // stride=1024: each element is 1024 bytes. address = base + index * 1024.
@@ -142,10 +142,10 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %c1024_stride = arith.constant 1024 : i32
     %src_rsrc = amdgcn.make_buffer_rsrc %src_ptr, %num_records, %c1024_stride,
       cache_swizzle = false, swizzle_enable = false, flags = 131072
-      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+      : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr<[? + 4]>
     %dst_rsrc = amdgcn.make_buffer_rsrc %dst_ptr, %num_records, %c1024_stride,
       cache_swizzle = false, swizzle_enable = false, flags = 131072
-      : (!amdgcn.sgpr_range<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr_range<[? + 4]>
+      : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr<[? + 4]>
 
     %vindex = amdgcn.alloca : !amdgcn.vgpr<0>
     %c0 = arith.constant 0 : i32
@@ -153,14 +153,14 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
     %loaded, %tok_ld = amdgcn.load buffer_load_dword_idxen dest %load_dest addr %src_rsrc
       offset u(%soffset) + d(%vindex) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
         -> !amdgcn.read_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %tok_st = amdgcn.store buffer_store_dword_idxen data %loaded addr %dst_rsrc
       offset u(%soffset) + d(%vindex) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
         -> !amdgcn.write_token<flat>
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0

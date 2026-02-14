@@ -219,7 +219,7 @@ def AMDGCN_LoadArgOp : AMDGCN_Op<"load_arg", [Pure]> {
     Loads a kernel argument by index.
   }];
   let arguments = (ins I64Attr:$index);
-  let results = (outs AnyRegOf<[SGPRType, SGPRRangeType]>:$result);
+  let results = (outs AnyRegOf<[SGPRType]>:$result);
   let assemblyFormat = "$index attr-dict `:` type($result)";
 }
 
@@ -259,14 +259,14 @@ def AMDGCN_MakeBufferRsrcOp : AMDGCN_Op<"make_buffer_rsrc", [Pure]> {
     ```
   }];
   let arguments = (ins
-    AnyRegOf<[SGPRType, SGPRRangeType]>:$base_addr,
+    AnyRegOf<[SGPRType]>:$base_addr,
     SGPRType:$num_records,
     I32:$stride,
     BoolAttr:$cache_swizzle,
     BoolAttr:$swizzle_enable,
     I32Attr:$flags
   );
-  let results = (outs SGPRRangeType:$result);
+  let results = (outs SGPRType:$result);
   let assemblyFormat = [{
     $base_addr `,` $num_records `,` $stride `,`
     `cache_swizzle` `=` $cache_swizzle `,`

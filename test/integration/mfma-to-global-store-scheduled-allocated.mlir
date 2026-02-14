@@ -33,35 +33,35 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %m: index,
     %n: index,
     %k: index,
-    %a_memref: memref<?x?x!amdgcn.vgpr_range<[? + 2]>>,
-    %b_memref: memref<?x?x!amdgcn.vgpr_range<[? + 2]>>,
-    %c_memref: memref<?x?x!amdgcn.agpr_range<[? + 4]>>
+    %a_memref: memref<?x?x!amdgcn.vgpr<[? + 2]>>,
+    %b_memref: memref<?x?x!amdgcn.vgpr<[? + 2]>>,
+    %c_memref: memref<?x?x!amdgcn.agpr<[? + 4]>>
   ) {
     // Load register ranges from memrefs at specified indices for SROA + MEM2REG
-    %a = memref.load %a_memref[%m, %k] : memref<?x?x!amdgcn.vgpr_range<[? + 2]>>
-    %b = memref.load %b_memref[%k, %n] : memref<?x?x!amdgcn.vgpr_range<[? + 2]>>
-    %c = memref.load %c_memref[%m, %n] : memref<?x?x!amdgcn.agpr_range<[? + 4]>>
+    %a = memref.load %a_memref[%m, %k] : memref<?x?x!amdgcn.vgpr<[? + 2]>>
+    %b = memref.load %b_memref[%k, %n] : memref<?x?x!amdgcn.vgpr<[? + 2]>>
+    %c = memref.load %c_memref[%m, %n] : memref<?x?x!amdgcn.agpr<[? + 4]>>
 
     // Perform MFMA operation: C = A * B + C
     %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
-      %c, %a, %b, %c : <[? + 2]>, <[? + 2]>, !amdgcn.agpr_range<[? + 4]>
-      -> !amdgcn.agpr_range<[? + 4]>
+      %c, %a, %b, %c : <[? + 2]>, <[? + 2]>, !amdgcn.agpr<[? + 4]>
+      -> !amdgcn.agpr<[? + 4]>
 
     // Only schedule this operation and let autoschedule handle the rest.
     // Store result back to memref at [m, n] for SROA + MEM2REG
     memref.store %result, %c_memref[%m, %n]
         {sched.delay = 1 : i64, sched.rate = 2 : i64, sched.permutation = array<i64: 0, 2, 1>}
-      : memref<?x?x!amdgcn.agpr_range<[? + 4]>>
+      : memref<?x?x!amdgcn.agpr<[? + 4]>>
 
     return
   }
 
   // Main function that allocates memrefs and loops over MxNxK
-  func.func private @matmul_loop(%M: index, %N: index, %K: index, %c_global: !amdgcn.vgpr_range<[10 : 12]>) {
+  func.func private @matmul_loop(%M: index, %N: index, %K: index, %c_global: !amdgcn.vgpr<[10 : 12]>) {
     // Allocate memrefs for A, B, and C matrices
-    %a_memref = memref.alloca(%M, %K) : memref<?x?x!amdgcn.vgpr_range<[? + 2]>>
-    %b_memref = memref.alloca(%K, %N) : memref<?x?x!amdgcn.vgpr_range<[? + 2]>>
-    %c_memref = memref.alloca(%M, %N) : memref<?x?x!amdgcn.agpr_range<[? + 4]>>
+    %a_memref = memref.alloca(%M, %K) : memref<?x?x!amdgcn.vgpr<[? + 2]>>
+    %b_memref = memref.alloca(%K, %N) : memref<?x?x!amdgcn.vgpr<[? + 2]>>
+    %c_memref = memref.alloca(%M, %N) : memref<?x?x!amdgcn.agpr<[? + 4]>>
 
     // Constants for loop
     %c0 = arith.constant 0 : index
@@ -78,9 +78,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       // Call simple_mfma with delinearized indices
       func.call @simple_mfma(%m, %n, %k, %a_memref, %b_memref, %c_memref)
         : (index, index, index,
-           memref<?x?x!amdgcn.vgpr_range<[? + 2]>>,
-           memref<?x?x!amdgcn.vgpr_range<[? + 2]>>,
-           memref<?x?x!amdgcn.agpr_range<[? + 4]>>) -> ()
+           memref<?x?x!amdgcn.vgpr<[? + 2]>>,
+           memref<?x?x!amdgcn.vgpr<[? + 2]>>,
+           memref<?x?x!amdgcn.agpr<[? + 4]>>) -> ()
 
       // If last K iteration, load from c_memref and store to global memory
       %k_minus_1 = arith.subi %K, %c1  : index
@@ -89,10 +89,10 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       scf.if %is_last_k {
         // Load from c_memref for SROA + MEM2REG
         %c_value = memref.load %c_memref[%m, %n]
-        : memref<?x?x!amdgcn.agpr_range<[? + 4]>>
+        : memref<?x?x!amdgcn.agpr<[? + 4]>>
         // Store AGPR range directly to global memory
         %c0_gs = arith.constant 0 : i32
-        %tok = amdgcn.store global_store_dwordx4 data %c_value addr %c_global offset c(%c0_gs) : ins(!amdgcn.agpr_range<[? + 4]>, !amdgcn.vgpr_range<[10 : 12]>, i32) -> !amdgcn.write_token<flat>
+        %tok = amdgcn.store global_store_dwordx4 data %c_value addr %c_global offset c(%c0_gs) : ins(!amdgcn.agpr<[? + 4]>, !amdgcn.vgpr<[10 : 12]>, i32) -> !amdgcn.write_token<flat>
       } {sched.delay = 10 : i64, sched.rate = 2 : i64, sched.permutation = array<i64: 0, 2, 1>}
 
     } {sched.dims = array<i64: 4, 1, 3>}
@@ -102,8 +102,8 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // Test function that calls matmul_loop with specific dimensions
   func.func private @test_matmul() {
-    %c_memref = memref.alloca() : memref<!amdgcn.vgpr_range<[10 : 12]>>
-    %c_global = memref.load %c_memref[] : memref<!amdgcn.vgpr_range<[10 : 12]>>
+    %c_memref = memref.alloca() : memref<!amdgcn.vgpr<[10 : 12]>>
+    %c_global = memref.load %c_memref[] : memref<!amdgcn.vgpr<[10 : 12]>>
 
     // Set dimensions: M=4, N=1, K=3
     %c1 = arith.constant 1 : index
@@ -112,7 +112,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %c4 = arith.constant 4 : index
 
     // Call matmul_loop with these dimensions
-    func.call @matmul_loop(%c4, %c1, %c3, %c_global) : (index, index, index, !amdgcn.vgpr_range<[10 : 12]>) -> ()
+    func.call @matmul_loop(%c4, %c1, %c3, %c_global) : (index, index, index, !amdgcn.vgpr<[10 : 12]>) -> ()
 
     return
   }

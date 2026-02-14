@@ -69,14 +69,14 @@ func.func @two_stage_dps() {
 // CHECK:       amdgcn.test_inst outs %{{.*}} ins %[[KER]]#1
 // CHECK:       return
 
-func.func @two_stage_load_compute(%addr: !amdgcn.vgpr_range<[? + 2]>) {
+func.func @two_stage_load_compute(%addr: !amdgcn.vgpr<[? + 2]>) {
   %dest = amdgcn.alloca : !amdgcn.vgpr
   %s_compute = amdgcn.alloca : !amdgcn.vgpr
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %c4 = arith.constant 4 : index
   scf.for %i = %c0 to %c4 step %c1 {
-    %data, %tok = amdgcn.load global_load_dword dest %dest addr %addr {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.read_token<flat>
+    %data, %tok = amdgcn.load global_load_dword dest %dest addr %addr {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
     amdgcn.wait deps %tok {sched.stage = 1 : i32} : !amdgcn.read_token<flat>
     %result = amdgcn.test_inst outs %s_compute ins %data {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
   }

@@ -16,8 +16,8 @@
 // CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_6]], %[[ALLOCA_7]] : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:           %[[MAKE_REGISTER_RANGE_1:.*]] = amdgcn.make_register_range %[[ALLOCA_6]], %[[ALLOCA_7]], %[[ALLOCA_2]], %[[ALLOCA_3]] : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:           %[[MAKE_REGISTER_RANGE_2:.*]] = amdgcn.make_register_range %[[ALLOCA_4]], %[[ALLOCA_5]] : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-// CHECK:           amdgcn.test_inst outs %[[MAKE_REGISTER_RANGE_0]] ins %[[MAKE_REGISTER_RANGE_2]] : (!amdgcn.vgpr_range<[? : ? + 2]>, !amdgcn.vgpr_range<[? : ? + 2]>) -> ()
-// CHECK:           amdgcn.test_inst ins %[[MAKE_REGISTER_RANGE_1]] : (!amdgcn.vgpr_range<[? : ? + 4]>) -> ()
+// CHECK:           amdgcn.test_inst outs %[[MAKE_REGISTER_RANGE_0]] ins %[[MAKE_REGISTER_RANGE_2]] : (!amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<[? : ? + 2]>) -> ()
+// CHECK:           amdgcn.test_inst ins %[[MAKE_REGISTER_RANGE_1]] : (!amdgcn.vgpr<[? : ? + 4]>) -> ()
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_1]] : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
 // CHECK:           return
 // CHECK:         }
@@ -37,8 +37,8 @@ func.func @range_amdgcn.allocations() {
   %12 = amdgcn.make_register_range %7, %10 : !amdgcn.vgpr, !amdgcn.vgpr
   %13 = amdgcn.make_register_range %7, %10, %2, %3 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
   %14 = amdgcn.make_register_range %4, %5 : !amdgcn.vgpr, !amdgcn.vgpr
-  %15 = amdgcn.test_inst outs %12 ins %14 : (!amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr_range<[? + 2]>
-  amdgcn.test_inst ins %13 : (!amdgcn.vgpr_range<[? + 4]>) -> ()
+  %15 = amdgcn.test_inst outs %12 ins %14 : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>
+  amdgcn.test_inst ins %13 : (!amdgcn.vgpr<[? + 4]>) -> ()
   amdgcn.test_inst ins %8, %11 : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
   func.return
 }
@@ -282,7 +282,7 @@ func.func @interference_cf_with_values() {
 // CHECK:           amdgcn.test_inst outs %[[ALLOCA_0]] ins %[[ALLOCA_2]], %[[ALLOCA_5]] : (!amdgcn.vgpr<0>, !amdgcn.sgpr<0>, !amdgcn.vgpr<?>) -> ()
 // CHECK:           amdgcn.test_inst outs %[[ALLOCA_1]] ins %[[ALLOCA_3]], %[[ALLOCA_6]] : (!amdgcn.vgpr<1>, !amdgcn.sgpr<2>, !amdgcn.vgpr<?>) -> ()
 // CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_9]], %[[ALLOCA_10]], %[[ALLOCA_11]], %[[ALLOCA_12]] : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
-// CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_1]], %[[ALLOCA_7]], %[[ALLOCA_8]], %[[ALLOCA_4]], %[[ALLOCA_5]], %[[ALLOCA_6]], %[[ALLOCA_2]], %[[ALLOCA_3]], %[[MAKE_REGISTER_RANGE_0]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<5>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.sgpr<0>, !amdgcn.sgpr<2>, !amdgcn.sgpr_range<[? : ? + 4]>) -> ()
+// CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_1]], %[[ALLOCA_7]], %[[ALLOCA_8]], %[[ALLOCA_4]], %[[ALLOCA_5]], %[[ALLOCA_6]], %[[ALLOCA_2]], %[[ALLOCA_3]], %[[MAKE_REGISTER_RANGE_0]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<5>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.sgpr<0>, !amdgcn.sgpr<2>, !amdgcn.sgpr<[? : ? + 4]>) -> ()
 // CHECK:           return
 // CHECK:         }
 func.func @existing_regs_with_values() {
@@ -307,7 +307,7 @@ func.func @existing_regs_with_values() {
   amdgcn.test_inst outs %0 ins %2, %14#0 : (!amdgcn.vgpr<0>, !amdgcn.sgpr<0>, !amdgcn.vgpr) -> ()
   amdgcn.test_inst outs %1 ins %3, %14#1 : (!amdgcn.vgpr<1>, !amdgcn.sgpr<2>, !amdgcn.vgpr) -> ()
   %20 = amdgcn.make_register_range %16#0, %16#1, %17#0, %17#1 : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
-  amdgcn.test_inst ins %0, %1, %15#0, %15#1, %4, %14#0, %14#1, %2, %3, %20 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr<5>, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr<0>, !amdgcn.sgpr<2>, !amdgcn.sgpr_range<[? + 4]>) -> ()
+  amdgcn.test_inst ins %0, %1, %15#0, %15#1, %4, %14#0, %14#1, %2, %3, %20 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr<5>, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr<0>, !amdgcn.sgpr<2>, !amdgcn.sgpr<[? + 4]>) -> ()
   func.return
 }
 
@@ -365,14 +365,14 @@ func.func @reg_interference_with_values() {
 // CHECK-DAG:       %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.sgpr<1>
 // CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_1]], %[[ALLOCA_2]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
 // CHECK-DAG:       %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.sgpr<?>
-// CHECK:           %[[LOAD_0:.*]] = amdgcn.load s_load_dword dest %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr<?>) ins(!amdgcn.sgpr_range<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:           %[[LOAD_0:.*]] = amdgcn.load s_load_dword dest %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr<?>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
 // CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0 expcnt = 0 lgkmcnt = 0
 // CHECK-DAG:       %[[ALLOCA_4:.*]] = amdgcn.alloca : !amdgcn.sgpr<?>
 // CHECK:           amdgcn.sop2 s_and_b32 outs %[[ALLOCA_4]] ins %[[ALLOCA_3]], %[[CONSTANT_0]] : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, i32
 // CHECK-DAG:       %[[ALLOCA_5:.*]] = amdgcn.alloca : !amdgcn.sgpr<?>
 // CHECK-DAG:       %[[ALLOCA_6:.*]] = amdgcn.alloca : !amdgcn.sgpr<?>
 // CHECK:           %[[MAKE_REGISTER_RANGE_1:.*]] = amdgcn.make_register_range %[[ALLOCA_5]], %[[ALLOCA_6]] : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
-// CHECK:           %[[LOAD_1:.*]] = amdgcn.load s_load_dwordx2 dest %[[MAKE_REGISTER_RANGE_1]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr_range<[? : ? + 2]>) ins(!amdgcn.sgpr_range<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:           %[[LOAD_1:.*]] = amdgcn.load s_load_dwordx2 dest %[[MAKE_REGISTER_RANGE_1]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr<[? : ? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_4]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<?>) -> ()
 // CHECK:           return
 // CHECK:         }
@@ -384,14 +384,14 @@ func.func @test_index_bxmxnxk() {
   %2 = amdgcn.alloca : !amdgcn.sgpr<1>
   %3 = amdgcn.make_register_range %1, %2 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
   %4 = amdgcn.alloca : !amdgcn.sgpr
-  %result, %token = amdgcn.load s_load_dword dest %4 addr %3 offset c(%c42_i32) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr_range<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+  %result, %token = amdgcn.load s_load_dword dest %4 addr %3 offset c(%c42_i32) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
   amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0 expcnt = 0 lgkmcnt = 0
   %5 = amdgcn.alloca : !amdgcn.sgpr
   %6 = amdgcn.sop2 s_and_b32 outs %5 ins %result, %c42_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
   %7 = amdgcn.alloca : !amdgcn.sgpr
   %8 = amdgcn.alloca : !amdgcn.sgpr
   %9 = amdgcn.make_register_range %7, %8 : !amdgcn.sgpr, !amdgcn.sgpr
-  %result_0, %token_1 = amdgcn.load s_load_dwordx2 dest %9 addr %3 offset c(%c42_i32) : dps(!amdgcn.sgpr_range<[? + 2]>) ins(!amdgcn.sgpr_range<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+  %result_0, %token_1 = amdgcn.load s_load_dwordx2 dest %9 addr %3 offset c(%c42_i32) : dps(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
   amdgcn.test_inst ins %0, %6 : (!amdgcn.sgpr<2>, !amdgcn.sgpr) -> ()
   func.return
 }
@@ -409,7 +409,7 @@ func.func private @rand() -> i1
 // CHECK:           amdgcn.test_inst outs %[[ALLOCA_1]] ins %[[ALLOCA_2]] : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
 // CHECK:           cf.cond_br %[[VAL_0]], ^bb1, ^bb2
 // CHECK:         ^bb1:
-// CHECK:           amdgcn.test_inst outs %[[ALLOCA_3]] ins %[[MAKE_REGISTER_RANGE_0]] : (!amdgcn.vgpr<?>, !amdgcn.vgpr_range<[? : ? + 2]>) -> ()
+// CHECK:           amdgcn.test_inst outs %[[ALLOCA_3]] ins %[[MAKE_REGISTER_RANGE_0]] : (!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> ()
 // CHECK:           cf.br ^bb3
 // CHECK:         ^bb2:
 // CHECK:           amdgcn.test_inst outs %[[ALLOCA_4]] ins %[[ALLOCA_1]] : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
@@ -430,13 +430,13 @@ func.func @split_range() {
   %8 = amdgcn.test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
   cf.cond_br %0, ^bb1, ^bb2
 ^bb1:  // pred: ^bb0
-  %9 = amdgcn.test_inst outs %5 ins %7 : (!amdgcn.vgpr, !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.vgpr
+  %9 = amdgcn.test_inst outs %5 ins %7 : (!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr
   cf.br ^bb3
 ^bb2:  // pred: ^bb0
   %10 = amdgcn.test_inst outs %6 ins %8 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
   cf.br ^bb3
 ^bb3:  // 2 preds: ^bb1, ^bb2
-  %11, %12 = amdgcn.split_register_range %7 : !amdgcn.vgpr_range<[? + 2]>
+  %11, %12 = amdgcn.split_register_range %7 : !amdgcn.vgpr<[? + 2]>
   amdgcn.test_inst ins %5, %6, %11, %12 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
   func.return
 }

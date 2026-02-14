@@ -21,8 +21,8 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 // SOP1Op Operation
 //===----------------------------------------------------------------------===//
 
-def SOP1SSrc : RegOrImm<[SGPRType, SGPRRangeType], [I32]>;
-def SOP1SDst : AnyRegOf<[SGPRType, SGPRRangeType]>;
+def SOP1SSrc : RegOrImm<[SGPRType], [I32]>;
+def SOP1SDst : AnyRegOf<[SGPRType]>;
 
 def SOP1Op : AMDGCN_InstOp<"sop1", [PureInst, InstInferType]> {
   let summary = "SOP1 (Scalar Operations with 1 operands) operation";

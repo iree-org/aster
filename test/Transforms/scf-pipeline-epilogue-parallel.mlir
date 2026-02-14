@@ -38,18 +38,18 @@
 // CHECK:       amdgcn.store global_store_dword
 // CHECK:       return
 
-func.func @epilogue_parallel_lanes(%addr: !amdgcn.vgpr_range<[? + 2]>) {
+func.func @epilogue_parallel_lanes(%addr: !amdgcn.vgpr<[? + 2]>) {
   %dest = amdgcn.alloca : !amdgcn.vgpr
   %s_compute = amdgcn.alloca : !amdgcn.vgpr
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %c6 = arith.constant 6 : index
   scf.for %i = %c0 to %c6 step %c1 {
-    %data, %rtok = amdgcn.load global_load_dword dest %dest addr %addr {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.read_token<flat>
+    %data, %rtok = amdgcn.load global_load_dword dest %dest addr %addr {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
     amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<flat>
     %computed = amdgcn.test_inst outs %s_compute ins %data {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     %dr = amdgcn.make_register_range %computed {sched.stage = 2 : i32} : !amdgcn.vgpr
-    %wtok = amdgcn.store global_store_dword data %dr addr %addr {sched.stage = 2 : i32} : ins(!amdgcn.vgpr_range<[? + 1]>, !amdgcn.vgpr_range<[? + 2]>) -> !amdgcn.write_token<flat>
+    %wtok = amdgcn.store global_store_dword data %dr addr %addr {sched.stage = 2 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.write_token<flat>
   }
   return
 }

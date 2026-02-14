@@ -22,8 +22,8 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 // VOP3 Operation
 //===----------------------------------------------------------------------===//
 
-def VOP3Src : RegOrImm<[SGPRType, VGPRType, SGPRRangeType, VGPRRangeType], [I32]>;
-def VOP3Dst : AnyRegOf<[VGPRType, VGPRRangeType]>;
+def VOP3Src : RegOrImm<[SGPRType, VGPRType], [I32]>;
+def VOP3Dst : AnyRegOf<[VGPRType]>;
 
 def VOP3Op : AMDGCN_InstOp<"vop3", [
     PureInst, InstInferType
@@ -34,7 +34,7 @@ def VOP3Op : AMDGCN_InstOp<"vop3", [
   }];
   let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
   let inputs = (ins VOP3Src:$src0, VOP3Src:$src1, OptionalReg<VOP3Src>:$src2);
-  let outputs = (ins VOP3Dst:$vdst0, OptionalReg<SGPRRangeType>:$dst1);
+  let outputs = (ins VOP3Dst:$vdst0, OptionalReg<SGPRType>:$dst1);
   // TODO: add declarative assembly format, currently it's impossible to do due
   // to a bug in MLIR tblgen when there are inferred types and op attr results.
   let hasCustomAssemblyFormat = 1;
@@ -49,7 +49,7 @@ class VOP3Constraints<int words, int dst1_w, int src2_w> {
       !if(!gt(src2_w, 0), RegImmOperand<VOP3Src, src2_w>, NotPresent):$src2,
     /*outs=*/
       RegImmOperand<VOP3Dst, words>:$vdst0,
-      !if(!gt(dst1_w, 0), RegImmOperand<SGPRRangeType, dst1_w>, NotPresent):$dst1
+      !if(!gt(dst1_w, 0), RegImmOperand<SGPRType, dst1_w>, NotPresent):$dst1
   );
 }
 
@@ -295,7 +295,7 @@ defvar VMad64Constraint = (ins
       RegImmOperand<VOP3Src, 2>:$src2,
     /*outs=*/
       RegImmOperand<VOP3Dst, 2>:$vdst0,
-      RegImmOperand<SGPRRangeType, 2>:$dst1
+      RegImmOperand<SGPRType, 2>:$dst1
   );
 
 def VMadU64U32 : VOP3Inst<"v_mad_u64_u32", [CDNA3, CDNA4]> {

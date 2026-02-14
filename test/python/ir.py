@@ -26,21 +26,21 @@ with ir.Context() as ctx, ir.Location.unknown() as loc:
     print(str(a_d.SGPRType.get(ctx, None)))
 
     # Test register range types with default alignment
-    # CHECK-NEXT: vgpr_range<[0 : 4]>
-    # CHECK-NEXT: sgpr_range<[0 : 3]>
-    # CHECK-NEXT: agpr_range<[0 : 2]>
+    # CHECK-NEXT: vgpr<[0 : 4]>
+    # CHECK-NEXT: sgpr<[0 : 3]>
+    # CHECK-NEXT: agpr<[0 : 2]>
     print(str(a_d.VGPRRangeType.get(ctx, 4, 0)))
     print(str(a_d.SGPRRangeType.get(ctx, 3, 0)))
     print(str(a_d.AGPRRangeType.get(ctx, 2, 0)))
 
     # Test register range types with explicit alignment (different from default)
-    # CHECK-NEXT: vgpr_range<[0 : 4 align 8]>
-    # CHECK-NEXT: sgpr_range<[0 : 3 align 8]>
+    # CHECK-NEXT: vgpr<[0 : 4 align 8]>
+    # CHECK-NEXT: sgpr<[0 : 3 align 8]>
     print(str(a_d.VGPRRangeType.get(ctx, 4, 0, 8)))
     print(str(a_d.SGPRRangeType.get(ctx, 3, 0, 8)))
 
     # Test relocatable register range types
-    # CHECK-NEXT: vgpr_range<[? + 4]>
-    # CHECK-NEXT: agpr_range<[? + 2]>
+    # CHECK-NEXT: vgpr<[? + 4]>
+    # CHECK-NEXT: agpr<[? + 2]>
     print(str(a_d.VGPRRangeType.get(ctx, 4, None)))
     print(str(a_d.AGPRRangeType.get(ctx, 2, None)))

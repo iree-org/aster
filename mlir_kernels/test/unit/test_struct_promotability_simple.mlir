@@ -15,7 +15,7 @@ amdgcn.module @test_struct_promotability_simple target = #amdgcn.target<gfx942> 
   amdgcn.kernel @test_store_load_struct arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
-    %out_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
+    %out_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
@@ -43,9 +43,9 @@ amdgcn.module @test_struct_promotability_simple target = #amdgcn.target<gfx942> 
     // Store i and j values to output buffer
     %i_i32 = arith.index_cast %i_val : index to i32
     %j_i32 = arith.index_cast %j_val : index to i32
-    amdgcn.store global_store_dword data %i_i32 addr %out_ptr offset d(%c0) + c(%c0) : ins(i32, !amdgcn.sgpr_range<[? + 2]>, i32)
+    amdgcn.store global_store_dword data %i_i32 addr %out_ptr offset d(%c0) + c(%c0) : ins(i32, !amdgcn.sgpr<[? + 2]>, i32)
     %c4 = arith.constant 4 : index
-    amdgcn.store global_store_dword data %j_i32 addr %out_ptr offset d(%c0) + c(%c4) : ins(i32, !amdgcn.sgpr_range<[? + 2]>, i32)
+    amdgcn.store global_store_dword data %j_i32 addr %out_ptr offset d(%c0) + c(%c4) : ins(i32, !amdgcn.sgpr<[? + 2]>, i32)
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel

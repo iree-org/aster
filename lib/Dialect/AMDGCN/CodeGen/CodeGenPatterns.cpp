@@ -85,18 +85,18 @@ static Type convertAttrConstraintToType(Attribute constraint,
   case amdgcn::RegisterKind::SGPR:
     if (numWords == 1)
       return amdgcn::SGPRType::get(kind.getContext(), Register());
-    return amdgcn::SGPRRangeType::get(kind.getContext(),
-                                      RegisterRange(Register(), numWords));
+    return amdgcn::SGPRType::get(kind.getContext(),
+                                 RegisterRange(Register(), numWords));
   case amdgcn::RegisterKind::VGPR:
     if (numWords == 1)
       return amdgcn::VGPRType::get(kind.getContext(), Register());
-    return amdgcn::VGPRRangeType::get(kind.getContext(),
-                                      RegisterRange(Register(), numWords));
+    return amdgcn::VGPRType::get(kind.getContext(),
+                                 RegisterRange(Register(), numWords));
   case amdgcn::RegisterKind::AGPR:
     if (numWords == 1)
       return amdgcn::AGPRType::get(kind.getContext(), Register());
-    return amdgcn::AGPRRangeType::get(kind.getContext(),
-                                      RegisterRange(Register(), numWords));
+    return amdgcn::AGPRType::get(kind.getContext(),
+                                 RegisterRange(Register(), numWords));
   default:
     assert(false && "nyi register kind");
   }
@@ -127,13 +127,13 @@ static Type convertTypeImpl(Value value, const CodeGenConverter &converter) {
 
   if (isUniform.has_value() && *isUniform) {
     if (numWords > 1)
-      return amdgcn::SGPRRangeType::get(value.getContext(),
-                                        RegisterRange(Register(), numWords));
+      return amdgcn::SGPRType::get(value.getContext(),
+                                   RegisterRange(Register(), numWords));
     return amdgcn::SGPRType::get(value.getContext(), Register());
   }
   if (numWords > 1)
-    return amdgcn::VGPRRangeType::get(value.getContext(),
-                                      RegisterRange(Register(), numWords));
+    return amdgcn::VGPRType::get(value.getContext(),
+                                 RegisterRange(Register(), numWords));
   return amdgcn::VGPRType::get(value.getContext(), Register());
 }
 
@@ -143,8 +143,8 @@ static Type convertTypeImpl(Type type, const CodeGenConverter &converter) {
   int64_t typeSize = converter.getTypeSize(type);
   int64_t numWords = (typeSize + 3) / 4;
   if (numWords > 1)
-    return amdgcn::VGPRRangeType::get(type.getContext(),
-                                      RegisterRange(Register(), numWords));
+    return amdgcn::VGPRType::get(type.getContext(),
+                                 RegisterRange(Register(), numWords));
   return amdgcn::VGPRType::get(type.getContext(), Register());
 }
 

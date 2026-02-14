@@ -170,10 +170,10 @@ private:
   Register regBegin;
 
   /// The size of the range.
-  int16_t rangeSize = 0;
+  int16_t rangeSize = 1;
 
   /// The alignment of the range.
-  int16_t indexAlignment = 0;
+  int16_t indexAlignment = 1;
 };
 
 /// Print a Register to a raw_ostream.

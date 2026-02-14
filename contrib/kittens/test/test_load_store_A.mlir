@@ -2,9 +2,9 @@
 // Verifies round-trip: load from global -> store to global produces same data.
 
 // Type aliases
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
-!vx2 = !amdgcn.vgpr_range<[? + 2]>
+!vx2 = !amdgcn.vgpr<[? + 2]>
 !rt_A_f16 = !vx2
 !write_token = !amdgcn.write_token<flat>
 !future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>

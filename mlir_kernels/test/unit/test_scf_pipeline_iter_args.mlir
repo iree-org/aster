@@ -2,7 +2,7 @@
 // Four small kernels covering {with,without} IV x {scalar,vgpr} iter_args.
 // VGPR iter_args exercise the bufferization pass.
 
-!sx2 = !amdgcn.sgpr_range<[? + 2]>
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
 
 // 2-stage, scalar iter_arg, no iv.
@@ -177,7 +177,7 @@ amdgcn.module @test_iter_args_vgpr_with_iv target = <gfx942> isa = <cdna3> {
 // stage 5: accumulate constant 5 into scalar iter_arg.
 amdgcn.module @test_scf_pipeline_iter_args target = <gfx942> isa = <cdna3> {
   kernel @test_iter_args arguments <[#amdgcn.buffer_arg<address_space = generic>]> {
-    %out = load_arg 0 : !amdgcn.sgpr_range<[? + 2]>
+    %out = load_arg 0 : !amdgcn.sgpr<[? + 2]>
     wait lgkm_cnt 0
 
     %c0 = arith.constant 0 : index
@@ -215,7 +215,7 @@ amdgcn.module @test_scf_pipeline_iter_args target = <gfx942> isa = <cdna3> {
     %s = lsir.to_reg %result : i32 -> !amdgcn.sgpr
     %d = amdgcn.alloca : !amdgcn.vgpr
     %v = amdgcn.vop1.vop1 <v_mov_b32_e32> %d, %s : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-    %tok = amdgcn.store global_store_dword data %v addr %out offset d(%v) : ins(!amdgcn.vgpr, !amdgcn.sgpr_range<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
+    %tok = amdgcn.store global_store_dword data %v addr %out offset d(%v) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
     end_kernel
   }
 }

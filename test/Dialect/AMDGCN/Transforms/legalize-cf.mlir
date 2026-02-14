@@ -87,11 +87,11 @@ amdgcn.module @ds_kernels target = <gfx942> isa = <cdna3> {
 
     %11 = make_register_range %0, %1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
     %12 = make_register_range %2, %3 : !amdgcn.sgpr<2>, !amdgcn.sgpr<3>
-    %token = load s_load_dwordx2 dest %12 addr %11 offset c(%c0_i32) : dps(!amdgcn.sgpr_range<[2 : 4]>) ins(!amdgcn.sgpr_range<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+    %token = load s_load_dwordx2 dest %12 addr %11 offset c(%c0_i32) : dps(!amdgcn.sgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
     %13 = make_register_range %4, %5 : !amdgcn.sgpr<4>, !amdgcn.sgpr<5>
-    %token_1 = load s_load_dwordx2 dest %13 addr %11 offset c(%c8_i32) : dps(!amdgcn.sgpr_range<[4 : 6]>) ins(!amdgcn.sgpr_range<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+    %token_1 = load s_load_dwordx2 dest %13 addr %11 offset c(%c8_i32) : dps(!amdgcn.sgpr<[4 : 6]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
     amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0
-    %token_3 = load s_load_dword dest %6 addr %12 : dps(!amdgcn.sgpr<6>) ins(!amdgcn.sgpr_range<[2 : 4]>) -> !amdgcn.read_token<constant>
+    %token_3 = load s_load_dword dest %6 addr %12 : dps(!amdgcn.sgpr<6>) ins(!amdgcn.sgpr<[2 : 4]>) -> !amdgcn.read_token<constant>
     amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0
     //
     // Loop start cond:
@@ -102,7 +102,7 @@ amdgcn.module @ds_kernels target = <gfx942> isa = <cdna3> {
   ^bb1(%18: !amdgcn.sgpr<7>):  // 2 preds: ^bb0, ^bb1
     sop2 s_lshl_b32 outs %8 ins %18, %c2_i32 : !amdgcn.sgpr<8>, !amdgcn.sgpr<7>, i32
     amdgcn.vop1.vop1 <v_mov_b32_e32> %9, %8 : (!amdgcn.vgpr<0>, !amdgcn.sgpr<8>) -> ()
-    %21 = store global_store_dword data %9 addr %13 offset d(%9) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr_range<[4 : 6]>, !amdgcn.vgpr<0>) -> !amdgcn.write_token<flat>
+    %21 = store global_store_dword data %9 addr %13 offset d(%9) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[4 : 6]>, !amdgcn.vgpr<0>) -> !amdgcn.write_token<flat>
     //
     // Loop iv increment: sgpr<7>
     sop2 s_add_u32 outs %7 ins %18, %c1_i32 : !amdgcn.sgpr<7>, !amdgcn.sgpr<7>, i32
@@ -152,20 +152,20 @@ amdgcn.module @test_br_vgpr_range target = <gfx942> isa = <cdna3> {
 
     // Branch with range as operand
     // CHECK:       branch s_branch ^bb1
-    cf.br ^bb1(%range : !amdgcn.vgpr_range<[0 : 4]>)
+    cf.br ^bb1(%range : !amdgcn.vgpr<[0 : 4]>)
 
     // Block argument should be removed, range reconstructed
     // CHECK:       ^bb1:
     // CHECK-NOT:     ^bb1(%
     // Verify no duplicate allocas created
     // CHECK-NOT:     alloca
-  ^bb1(%arg: !amdgcn.vgpr_range<[0 : 4]>):
+  ^bb1(%arg: !amdgcn.vgpr<[0 : 4]>):
     // Range should be reconstructed from SAME allocas at block entry
     // CHECK:       %[[RECONSTRUCTED:.*]] = make_register_range %[[V0]], %[[V1]], %[[V2]], %[[V3]]
 
     // Split the range - verify 4 results
     // CHECK:       %{{.*}}:4 = split_register_range %[[RECONSTRUCTED]]
-    %split:4 = split_register_range %arg : !amdgcn.vgpr_range<[0 : 4]>
+    %split:4 = split_register_range %arg : !amdgcn.vgpr<[0 : 4]>
 
     // CHECK:       end_kernel
     end_kernel
@@ -220,14 +220,14 @@ amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
 
     // Branch to loop - passes counter (SGPR) and accumulator (VGPR range)
     // CHECK:       branch s_branch ^bb1
-    cf.br ^bb1(%s8, %acc_init : !amdgcn.sgpr<8>, !amdgcn.vgpr_range<[4 : 8]>)
+    cf.br ^bb1(%s8, %acc_init : !amdgcn.sgpr<8>, !amdgcn.vgpr<[4 : 8]>)
 
     // Loop header - block arguments should be removed
     // CHECK:       ^bb1:
     // CHECK-NOT:     ^bb1(%
     // Verify no duplicate allocas - counter flows through %[[S8]], accumulator through %[[V4]]-[[V7]]
     // CHECK-NOT:     alloca
-  ^bb1(%counter: !amdgcn.sgpr<8>, %acc: !amdgcn.vgpr_range<[4 : 8]>):
+  ^bb1(%counter: !amdgcn.sgpr<8>, %acc: !amdgcn.vgpr<[4 : 8]>):
     // Accumulator range should be reconstructed from SAME allocas at loop entry
     // CHECK:       %[[ACC_RECON:.*]] = make_register_range %[[V4]], %[[V5]], %[[V6]], %[[V7]]
 
@@ -241,7 +241,7 @@ amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
 
     // MFMA: new_acc = MFMA(a, b, acc) - accumulator is both input and output
     // CHECK:       vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %[[ACC_RECON]]
-    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %acc, %dummy_a, %dummy_b, %acc : <[16 : 18]>, <[18 : 20]>, !amdgcn.vgpr_range<[4 : 8]> -> !amdgcn.vgpr_range<[4 : 8]>
+    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %acc, %dummy_a, %dummy_b, %acc : <[16 : 18]>, <[18 : 20]>, !amdgcn.vgpr<[4 : 8]> -> !amdgcn.vgpr<[4 : 8]>
 
     // Increment counter - writes to %[[S8]] alloca
     // CHECK:       sop2 s_add_u32 outs %[[S8]] ins %[[S8]]
@@ -253,18 +253,18 @@ amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
 
     // Loop backedge - passes updated counter and accumulator to both loop and exit
     // CHECK:       cbranch s_cbranch_scc1 {{.*}} ^bb1 fallthrough(^bb2)
-    cf.cond_br %cond, ^bb1(%s8, %acc : !amdgcn.sgpr<8>, !amdgcn.vgpr_range<[4 : 8]>), ^bb2(%acc : !amdgcn.vgpr_range<[4 : 8]>)
+    cf.cond_br %cond, ^bb1(%s8, %acc : !amdgcn.sgpr<8>, !amdgcn.vgpr<[4 : 8]>), ^bb2(%acc : !amdgcn.vgpr<[4 : 8]>)
 
     // Exit block - receives final accumulator from loop
     // CHECK:       ^bb2:
     // CHECK-NOT:     ^bb2(%
     // CHECK-NOT:     alloca
-  ^bb2(%final_acc: !amdgcn.vgpr_range<[4 : 8]>):
+  ^bb2(%final_acc: !amdgcn.vgpr<[4 : 8]>):
     // Reconstruct range at exit from SAME allocas
     // CHECK:       %[[FINAL_RECON:.*]] = make_register_range %[[V4]], %[[V5]], %[[V6]], %[[V7]]
     // Extract final values - verify 4 results
     // CHECK:       %{{.*}}:4 = split_register_range %[[FINAL_RECON]]
-    %final:4 = split_register_range %final_acc : !amdgcn.vgpr_range<[4 : 8]>
+    %final:4 = split_register_range %final_acc : !amdgcn.vgpr<[4 : 8]>
 
     // CHECK:       end_kernel
     end_kernel
