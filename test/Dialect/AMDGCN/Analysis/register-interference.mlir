@@ -243,7 +243,6 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   7 [label="7
 // CHECK:   8 [label="8
 // CHECK:   0 -- 1;
-// CHECK:   2 -- 3;
 // CHECK: }
 amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
   kernel @phi_coalescing_2 {
@@ -288,7 +287,6 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   0 -- 1;
 // CHECK:   0 -- 4;
 // CHECK:   1 -- 4;
-// CHECK:   2 -- 3;
 // CHECK: }
 amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
   kernel @phi_coalescing_3 {

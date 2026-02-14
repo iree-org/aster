@@ -60,6 +60,8 @@ private:
 
   /// Add edges between all the related pairs of allocations in the given list.
   void addEdges(SmallVectorImpl<Value> &allocas);
+  /// Add edges between the outs and the live values in the after set.
+  void addEdges(SmallVectorImpl<Value> &outs, SmallVectorImpl<Value> &live);
 
   /// Get or create a node ID for an allocation.
   NodeID getOrCreateNodeId(Value allocation);
