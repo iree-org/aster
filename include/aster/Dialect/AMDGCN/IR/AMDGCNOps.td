@@ -24,6 +24,7 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 include "aster/Interfaces/AllocaOpInterface.td"
 include "aster/Interfaces/DependentOpInterface.td"
 include "aster/Interfaces/GPUFuncInterface.td"
+include "aster/Interfaces/LivenessOpInterface.td"
 include "aster/Interfaces/ModuleOpInterface.td"
 include "aster/Interfaces/OperandBundleOpInterface.td"
 include "mlir/Interfaces/CallInterfaces.td"
@@ -436,6 +437,7 @@ def AMDGCN_KernelOp : AMDGCN_Op<"kernel", [
 //===----------------------------------------------------------------------===//
 
 def AMDGCN_MakeRegisterRangeOp : AMDGCN_Op<"make_register_range", [
+    DeclareOpInterfaceMethods<LivenessOpInterface>,
     OperandBundleOpInterface,
     DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>,
     Pure
@@ -462,7 +464,9 @@ def InterferanceOperands : Variadic<RegisterTypeInterface> {
   let minSize = 2;
 }
 
-def AMDGCN_RegInterferenceOp : AMDGCN_Op<"reg_interference"> {
+def AMDGCN_RegInterferenceOp : AMDGCN_Op<"reg_interference", [
+    DeclareOpInterfaceMethods<LivenessOpInterface>
+  ]> {
   let summary = "Add register interference between values";
   let description = [{
     The `amdgcn.reg_interference` operation adds register interference between
@@ -484,6 +488,7 @@ def AMDGCN_RegInterferenceOp : AMDGCN_Op<"reg_interference"> {
 //===----------------------------------------------------------------------===//
 
 def AMDGCN_SplitRegisterRangeOp : AMDGCN_Op<"split_register_range", [
+    DeclareOpInterfaceMethods<LivenessOpInterface>,
     DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>,
     Pure
   ]> {
@@ -667,6 +672,15 @@ def AMDGCN_TestInstOp : AMDGCN_Op<"test_inst", [
     /// Get the operand and result information for the instruction.
     InstOpInfo getInstInfo() {
       return getInstInfoImpl(*this);
+    }
+
+    /// Computes liveness transfer function for the instruction.
+    ::mlir::LogicalResult livenessTransferFunction(
+        LivenessCallback insertCallback,
+        LivenessCallback removeCallback,
+        IsLiveCallback isLiveCallback) {
+      return ::mlir::aster::detail::livenessTransferFunctionImpl(
+        *this, insertCallback, removeCallback, isLiveCallback);
     }
   }];
 }

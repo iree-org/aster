@@ -187,3 +187,44 @@ FailureOr<ValueRange> mlir::aster::getAllocasOrFailure(Value value) {
   // Fail in all other cases.
   return failure();
 }
+
+static LogicalResult getInstUsedValuesImpl(InstOpInterface op,
+                                           LivenessCallback callback) {
+  for (Value value : op.getInstIns()) {
+    if (auto regTy = dyn_cast<RegisterTypeInterface>(value.getType());
+        regTy && regTy.hasValueSemantics()) {
+      callback(value);
+      continue;
+    }
+    FailureOr<ValueRange> allocas = getAllocasOrFailure(value);
+    if (failed(allocas))
+      return failure();
+    callback(*allocas);
+  }
+  return mlir::success();
+}
+
+static LogicalResult getInstDefinedValuesImpl(InstOpInterface op,
+                                              LivenessCallback callback) {
+  for (auto [out, res] : TiedInstOutsRange(op)) {
+    Value value = res ? res : out;
+    if (auto regTy = dyn_cast<RegisterTypeInterface>(value.getType());
+        regTy && regTy.hasValueSemantics()) {
+      callback(value);
+      continue;
+    }
+    FailureOr<ValueRange> allocas = getAllocasOrFailure(value);
+    if (failed(allocas))
+      return failure();
+    callback(*allocas);
+  }
+  return mlir::success();
+}
+
+LogicalResult mlir::aster::detail::livenessTransferFunctionImpl(
+    InstOpInterface op, LivenessCallback insertCallback,
+    LivenessCallback removeCallback, IsLiveCallback isLiveCallback) {
+  if (failed(getInstDefinedValuesImpl(op, removeCallback)))
+    return failure();
+  return getInstUsedValuesImpl(op, insertCallback);
+}

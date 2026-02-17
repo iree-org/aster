@@ -203,6 +203,15 @@ class InstTrait<InstInfo info> : NativeOpTrait<"InstTrait"> {
     InstOpInfo getInstInfo() {
       return getInstInfoImpl(*this);
     }
+
+    /// Get the defined values of the instruction.
+    ::mlir::LogicalResult livenessTransferFunction(
+        LivenessCallback insertCallback,
+        LivenessCallback removeCallback,
+        IsLiveCallback isLiveCallback) {
+      return ::mlir::aster::detail::livenessTransferFunctionImpl(
+        *this, insertCallback, removeCallback, isLiveCallback);
+    }
   }], [
     IntRepl<"kInsSize", info.inputsInfo.numArgs>,
     IntRepl<"kOutsSize", info.outputsInfo.numArgs>,

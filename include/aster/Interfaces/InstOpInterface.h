@@ -16,6 +16,7 @@
 #define ASTER_INTERFACES_INSTOPINTERFACE_H
 
 #include "aster/IR/OpSupport.h"
+#include "aster/Interfaces/LivenessOpInterface.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"

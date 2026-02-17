@@ -587,6 +587,18 @@ LogicalResult MakeRegisterRangeOp::inferReturnTypes(
   return success();
 }
 
+LogicalResult
+MakeRegisterRangeOp::livenessTransferFunction(LivenessCallback insertCallback,
+                                              LivenessCallback removeCallback,
+                                              IsLiveCallback isLiveCallback) {
+  Value result = getResult();
+  // If the result is live, propagate the liveness to the inputs.
+  if (isLiveCallback(result))
+    insertCallback(getInputs());
+  removeCallback(result);
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // SplitRegisterRangeOp
 //===----------------------------------------------------------------------===//
@@ -626,6 +638,30 @@ LogicalResult SplitRegisterRangeOp::inferReturnTypes(
   for (int i = 0; i < size; ++i) {
     inferredReturnTypes.push_back(makeRegister(Register(begin + i)));
   }
+  return success();
+}
+
+LogicalResult
+SplitRegisterRangeOp::livenessTransferFunction(LivenessCallback insertCallback,
+                                               LivenessCallback removeCallback,
+                                               IsLiveCallback isLiveCallback) {
+  ValueRange results = getResults();
+  // If any of the results are live, propagate the liveness to the input.
+  if (llvm::any_of(results, isLiveCallback))
+    insertCallback(getInput());
+  removeCallback(results);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// RegInterferenceOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+RegInterferenceOp::livenessTransferFunction(LivenessCallback insertCallback,
+                                            LivenessCallback removeCallback,
+                                            IsLiveCallback isLiveCallback) {
+  // This operation doesn't modify liveness.
   return success();
 }
 
