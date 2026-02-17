@@ -293,6 +293,26 @@ inline TiedInstOutsRange::iterator begin(TiedInstOutsRange &r) {
   return r.begin();
 }
 inline TiedInstOutsRange::iterator end(TiedInstOutsRange &r) { return r.end(); }
+
+/// Get all allocas behind a value, using the following rules:
+/// - If the value is not a register, it returns an empty range.
+/// - If the value is an alloca, it returns the alloca.
+/// - If value is an operand bundle without value semantics it checks the inputs
+/// and if all the inputs are alloca, it returns them.
+/// - Otherwise, it returns failure.
+FailureOr<ValueRange> getAllocasOrFailure(Value value);
+
+/// Similar to `getAllocasOrFailure` but for a range of values.
+inline LogicalResult getAllocasOrFailure(ValueRange values,
+                                         SmallVectorImpl<Value> &allocas) {
+  for (Value value : values) {
+    FailureOr<ValueRange> result = getAllocasOrFailure(value);
+    if (failed(result))
+      return failure();
+    llvm::append_range(allocas, *result);
+  }
+  return success();
+}
 } // namespace mlir::aster
 
 #endif // ASTER_IR_INSTIMPL_H
