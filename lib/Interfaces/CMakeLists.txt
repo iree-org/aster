@@ -6,6 +6,7 @@ set(LLVM_OPTIONAL_SOURCES
   InstOpInterface.cpp
   MemorySpaceConstraints.cpp
   ModuleOpInterface.cpp
+  OperandBundleOpInterface.cpp
   RegisterType.cpp
   ResourceInterfaces.cpp
   VerifierAttr.cpp
@@ -18,6 +19,7 @@ add_mlir_library(AsterInterfaces
   InstOpInterface.cpp
   MemorySpaceConstraints.cpp
   ModuleOpInterface.cpp
+  OperandBundleOpInterface.cpp
   RegisterType.cpp
   ResourceInterfaces.cpp
   VerifierAttr.cpp
