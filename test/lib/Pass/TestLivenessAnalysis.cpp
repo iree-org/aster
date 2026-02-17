@@ -1,4 +1,4 @@
-//===- TestAMDGCNLivenessAnalysis.cpp - Test AMDGCN Liveness Analysis -----===//
+//===- TestLivenessAnalysis.cpp - Test Liveness Analysis ------------------===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,11 +8,11 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements a test pass for AMDGCN liveness analysis.
+// This file implements a test pass for liveness analysis.
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/Analysis/RegisterLiveness.h"
+#include "aster/Analysis/LivenessAnalysis.h"
 #include "aster/IR/PrintingUtils.h"
 #include "aster/IR/SSAMap.h"
 #include "aster/Support/PrefixedOstream.h"
@@ -23,23 +23,22 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir::aster::test {
-#define GEN_PASS_DEF_TESTAMDGCNLIVENESSANALYSIS
+#define GEN_PASS_DEF_TESTLIVENESSANALYSIS
 #include "Passes.h.inc"
 } // namespace mlir::aster::test
 
 using namespace mlir;
 using namespace mlir::aster;
-using namespace mlir::aster::amdgcn;
 
 namespace {
 //===----------------------------------------------------------------------===//
-// TestAMDGCNLivenessAnalysis pass
+// TestLivenessAnalysis pass
 //===----------------------------------------------------------------------===//
-class TestAMDGCNLivenessAnalysis
-    : public mlir::aster::test::impl::TestAMDGCNLivenessAnalysisBase<
-          TestAMDGCNLivenessAnalysis> {
+class TestLivenessAnalysis
+    : public mlir::aster::test::impl::TestLivenessAnalysisBase<
+          TestLivenessAnalysis> {
 public:
-  using TestAMDGCNLivenessAnalysisBase::TestAMDGCNLivenessAnalysisBase;
+  using TestLivenessAnalysisBase::TestLivenessAnalysisBase;
 
   void runOnOperation() override {
     Operation *op = getOperation();
@@ -48,7 +47,7 @@ public:
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
     SymbolTableCollection symbolTable;
     dataflow::loadBaselineAnalyses(solver);
-    solver.load<RegisterLiveness>(symbolTable);
+    solver.load<LivenessAnalysis>(symbolTable);
 
     // Initialize and run the solver
     if (failed(solver.initializeAndRun(op))) {
@@ -62,7 +61,7 @@ public:
 
     // Create the output stream and print the results.
     raw_prefixed_ostream os(llvm::outs(), "// ");
-    os << "=== AMDGCN Liveness Analysis Results ===\n";
+    os << "=== Liveness Analysis Results ===\n";
     os << "SSA map:\n";
     ssaMap.printMapMembers(os);
     os << "\n";
@@ -76,9 +75,9 @@ public:
          << "\n";
 
       // Get the liveness state before and after this operation
-      auto *beforeState = solver.lookupState<RegisterLivenessState>(
+      auto *beforeState = solver.lookupState<LivenessState>(
           solver.getProgramPointBefore(operation));
-      auto *afterState = solver.lookupState<RegisterLivenessState>(
+      auto *afterState = solver.lookupState<LivenessState>(
           solver.getProgramPointAfter(operation));
 
       os.indent();

@@ -1,4 +1,4 @@
-//===- RegisterLiveness.h - Register liveness analysis -----------*- C++-*-===//
+//===- LivenessAnalysis.h - Liveness analysis --------------------*- C++-*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,9 +8,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ASTER_DIALECT_AMDGCN_ANALYSIS_REGISTERLIVENESS_H
-#define ASTER_DIALECT_AMDGCN_ANALYSIS_REGISTERLIVENESS_H
+#ifndef ASTER_ANALYSIS_LIVENESSANALYSIS_H
+#define ASTER_ANALYSIS_LIVENESSANALYSIS_H
 
+#include "aster/Interfaces/LivenessOpInterface.h"
 #include "mlir/Analysis/DataFlow/DenseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Support/TypeID.h"
@@ -18,16 +19,15 @@
 
 namespace mlir::aster {
 class SSAMap;
-namespace amdgcn {
 
 //===----------------------------------------------------------------------===//
-// RegisterLivenessState
+// LivenessState
 //===----------------------------------------------------------------------===//
 
-/// This lattice represents register liveness information.
-struct RegisterLivenessState : dataflow::AbstractDenseLattice {
+/// This lattice represents liveness information.
+struct LivenessState : dataflow::AbstractDenseLattice {
   using ValueSet = llvm::SmallPtrSet<Value, 4>;
-  RegisterLivenessState(LatticeAnchor anchor)
+  LivenessState(LatticeAnchor anchor)
       : AbstractDenseLattice(anchor), liveValues(ValueSet()) {}
 
   /// Whether the state is the top state.
@@ -57,9 +57,9 @@ struct RegisterLivenessState : dataflow::AbstractDenseLattice {
   void print(raw_ostream &os, const SSAMap &ssaMap) const;
 
   /// Meet operation for the lattice.
-  ChangeResult meet(const RegisterLivenessState &lattice);
+  ChangeResult meet(const LivenessState &lattice);
   ChangeResult meet(const AbstractDenseLattice &lattice) final {
-    return meet(static_cast<const RegisterLivenessState &>(lattice));
+    return meet(static_cast<const LivenessState &>(lattice));
   }
 
   /// Get the live values. Returns nullptr if the state is top.
@@ -76,61 +76,56 @@ private:
 };
 
 //===----------------------------------------------------------------------===//
-// RegisterLiveness
+// LivenessAnalysis
 //===----------------------------------------------------------------------===//
 
 /// An analysis that, by going backwards along the dataflow graph, computes
-/// register liveness information.
-class RegisterLiveness
-    : public dataflow::DenseBackwardDataFlowAnalysis<RegisterLivenessState> {
+/// liveness information.
+class LivenessAnalysis
+    : public dataflow::DenseBackwardDataFlowAnalysis<LivenessState> {
 public:
-  RegisterLiveness(DataFlowSolver &solver, SymbolTableCollection &symbolTable)
+  LivenessAnalysis(DataFlowSolver &solver, SymbolTableCollection &symbolTable)
       : DenseBackwardDataFlowAnalysis(solver, symbolTable) {}
 
   /// Visit an operation and update the lattice state.
-  LogicalResult visitOperation(Operation *op,
-                               const RegisterLivenessState &after,
-                               RegisterLivenessState *before) override;
+  LogicalResult visitOperation(Operation *op, const LivenessState &after,
+                               LivenessState *before) override;
 
   /// Visit a block transfer and update the lattice state.
   void visitBlockTransfer(Block *block, ProgramPoint *point, Block *successor,
-                          const RegisterLivenessState &after,
-                          RegisterLivenessState *before) override;
+                          const LivenessState &after,
+                          LivenessState *before) override;
 
   /// Visit a call control flow transfer and update the lattice state.
   void visitCallControlFlowTransfer(CallOpInterface call,
                                     dataflow::CallControlFlowAction action,
-                                    const RegisterLivenessState &after,
-                                    RegisterLivenessState *before) override;
+                                    const LivenessState &after,
+                                    LivenessState *before) override;
 
   /// Visit a region branch control flow transfer and update the lattice state.
-  void visitRegionBranchControlFlowTransfer(
-      RegionBranchOpInterface branch, RegionBranchPoint regionFrom,
-      RegionSuccessor regionTo, const RegisterLivenessState &after,
-      RegisterLivenessState *before) override;
+  void visitRegionBranchControlFlowTransfer(RegionBranchOpInterface branch,
+                                            RegionBranchPoint regionFrom,
+                                            RegionSuccessor regionTo,
+                                            const LivenessState &after,
+                                            LivenessState *before) override;
 
   /// Set the lattice to the exit state.
-  void setToExitState(RegisterLivenessState *lattice) override;
-
-  /// Return true if the liveness analysis is incomplete. This is raised if
-  /// value semantics are detected.
-  bool isIncompleteLiveness() const { return incompleteLiveness; }
+  void setToExitState(LivenessState *lattice) override;
 
 private:
   /// Handle propagation when either of the states are top. Returns true if
   /// either state is top.
-  bool handleTopPropagation(const RegisterLivenessState &after,
-                            RegisterLivenessState *before);
+  bool handleTopPropagation(const LivenessState &after, LivenessState *before);
 
   /// Transfer function for liveness analysis.
-  void transferFunction(const RegisterLivenessState &after,
-                        RegisterLivenessState *before, ValueRange deadValues,
-                        ValueRange inValues);
-  bool incompleteLiveness = false;
+  void transferFunction(const LivenessState &after, LivenessState *before,
+                        ValueRange deadValues, ValueRange inValues);
+  LogicalResult transferFunction(const LivenessState &after,
+                                 LivenessState *before,
+                                 LivenessOpInterface livenessOp);
 };
-} // namespace amdgcn
 } // namespace mlir::aster
 
-MLIR_DECLARE_EXPLICIT_TYPE_ID(mlir::aster::amdgcn::RegisterLivenessState)
+MLIR_DECLARE_EXPLICIT_TYPE_ID(mlir::aster::LivenessState)
 
-#endif // ASTER_DIALECT_AMDGCN_ANALYSIS_REGISTERLIVENESS_H
+#endif // ASTER_ANALYSIS_LIVENESSANALYSIS_H

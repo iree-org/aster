@@ -9,7 +9,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/Analysis/RegisterLiveness.h"
+#include "aster/Analysis/LivenessAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
@@ -69,9 +69,9 @@ void amdgcn::registerDCE(Operation *op, DataFlowSolver &solver) {
       return;
 
     // Get the liveness state after the operation.
-    const auto *state = solver.lookupState<RegisterLivenessState>(
+    const auto *state = solver.lookupState<LivenessState>(
         solver.getProgramPointAfter(operation));
-    const RegisterLivenessState::ValueSet *liveValues =
+    const LivenessState::ValueSet *liveValues =
         state ? state->getLiveValues() : nullptr;
     if (!liveValues)
       return;
@@ -102,16 +102,10 @@ void RegisterDCE::runOnOperation() {
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
   SymbolTableCollection symbolTable;
   dataflow::loadBaselineAnalyses(solver);
-  auto *liveness = solver.load<RegisterLiveness>(symbolTable);
+  solver.load<LivenessAnalysis>(symbolTable);
 
   if (failed(solver.initializeAndRun(op))) {
-    op->emitError() << "failed to run RegisterLiveness analysis";
-    return signalPassFailure();
-  }
-
-  if (liveness->isIncompleteLiveness()) {
-    op->emitError()
-        << "failed to run RegisterDCE due to incomplete liveness analysis";
+    op->emitError() << "failed to run LivenessAnalysis";
     return signalPassFailure();
   }
 
