@@ -16,12 +16,13 @@
 #define ASTER_INTERFACES_INSTOPINTERFACE_TD
 
 include "mlir/IR/OpBase.td"
+include "aster/Interfaces/LivenessOpInterface.td"
 
 //===----------------------------------------------------------------------===//
 // InstOp Interface
 //===----------------------------------------------------------------------===//
 
-def InstOpInterface : OpInterface<"InstOpInterface"> {
+def InstOpInterface : OpInterface<"InstOpInterface", [LivenessOpInterface]> {
   let description = [{
     Interface for instruction operations. This interface expects that for
     each output operand there is a corresponding result, and that they appear in

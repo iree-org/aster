@@ -117,6 +117,12 @@ OpTy cloneInstImpl(OpTy op, OpBuilder &builder, ValueRange outs,
   return OpTy::create(builder, op.getLoc(), resultTypes, operands, properties,
                       attributes);
 }
+
+/// Computes liveness transfer function for the instruction.
+LogicalResult livenessTransferFunctionImpl(InstOpInterface op,
+                                           LivenessCallback insertCallback,
+                                           LivenessCallback removeCallback,
+                                           IsLiveCallback isLiveCallback);
 } // namespace detail
 
 /// Trait to provide utility methods for instruction operations.
