@@ -25,6 +25,7 @@ include "aster/Interfaces/AllocaOpInterface.td"
 include "aster/Interfaces/DependentOpInterface.td"
 include "aster/Interfaces/GPUFuncInterface.td"
 include "aster/Interfaces/ModuleOpInterface.td"
+include "aster/Interfaces/OperandBundleOpInterface.td"
 include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/FunctionInterfaces.td"
@@ -435,6 +436,7 @@ def AMDGCN_KernelOp : AMDGCN_Op<"kernel", [
 //===----------------------------------------------------------------------===//
 
 def AMDGCN_MakeRegisterRangeOp : AMDGCN_Op<"make_register_range", [
+    OperandBundleOpInterface,
     DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>,
     Pure
   ]> {
@@ -445,6 +447,11 @@ def AMDGCN_MakeRegisterRangeOp : AMDGCN_Op<"make_register_range", [
   let arguments = (ins Variadic<RegisterLike>:$inputs);
   let results = (outs RegisterRangeLike:$result);
   let assemblyFormat = "$inputs attr-dict `:` type($inputs)";
+  let extraClassDeclaration = [{
+    ::mlir::ValueRange unpackBundle() {
+      return getInputs();
+    }
+  }];
 }
 
 //===----------------------------------------------------------------------===//
