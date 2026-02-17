@@ -4,7 +4,6 @@ add_mlir_library(
   LDSInterferenceGraph.cpp
   RangeConstraintAnalysis.cpp
   RegisterInterferenceGraph.cpp
-  RegisterLiveness.cpp
   WaitAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -12,10 +11,9 @@ add_mlir_library(
 
   LINK_LIBS PUBLIC
   AMDGCNDialect
+  ASTERAnalysis
   ASTERIR
   ASTERSupport
-
-  AMDGCNDialect
   MLIRAnalysis
   MLIRIR
   MLIRSupport

@@ -23,12 +23,12 @@ class SymbolTableCollection;
 
 namespace mlir::aster::amdgcn {
 /// Register interference graph for AMDGCN register allocation. This analysis
-/// uses the RegisterLiveness analysis to build an interference graph where
+/// uses the LivenessAnalysis to build an interference graph where
 /// nodes represent allocations and edges connect allocations that overlap in
 /// time.
 struct RegisterInterferenceGraph : public Graph {
   /// Create the interference graph for the given operation.
-  /// This will load and run RegisterLiveness internally.
+  /// This will load and run LivenessAnalysis internally.
   static FailureOr<RegisterInterferenceGraph>
   create(Operation *op, DataFlowSolver &solver,
          SymbolTableCollection &symbolTable);

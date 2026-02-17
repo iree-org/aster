@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
-#include "aster/Dialect/AMDGCN/Analysis/RegisterLiveness.h"
+#include "aster/Analysis/LivenessAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -152,9 +152,9 @@ void RegisterInterferenceGraph::addEdges(SmallVectorImpl<Value> &outs,
 LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
                                                   DataFlowSolver &solver) {
   // Get the liveness state after the operation.
-  const auto *state = solver.lookupState<RegisterLivenessState>(
-      solver.getProgramPointAfter(op));
-  const RegisterLivenessState::ValueSet *liveness =
+  const auto *state =
+      solver.lookupState<LivenessState>(solver.getProgramPointAfter(op));
+  const LivenessState::ValueSet *liveness =
       state ? state->getLiveValues() : nullptr;
 
   // Add the alloca to the graph.
@@ -236,19 +236,12 @@ FailureOr<RegisterInterferenceGraph>
 RegisterInterferenceGraph::create(Operation *op, DataFlowSolver &solver,
                                   SymbolTableCollection &symbolTable) {
   // Load the register liveness analysis.
-  auto *liveness = solver.load<RegisterLiveness>(symbolTable);
+  solver.load<LivenessAnalysis>(symbolTable);
   mlir::dataflow::loadBaselineAnalyses(solver);
 
   // Initialize and run the solver.
   if (failed(solver.initializeAndRun(op))) {
     LDBG() << "failed to run register liveness analysis";
-    return failure();
-  }
-
-  // Check if the liveness analysis is incomplete.
-  if (liveness->isIncompleteLiveness()) {
-    LDBG() << "failed to create register interference graph due to incomplete "
-              "liveness analysis";
     return failure();
   }
 

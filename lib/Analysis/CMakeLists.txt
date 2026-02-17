@@ -1,5 +1,6 @@
 add_mlir_library(
   ASTERAnalysis
+  LivenessAnalysis.cpp
   MemoryDependenceAnalysis.cpp
   RegisterConstraints.cpp
   ThreadUniformAnalysis.cpp
@@ -9,8 +10,10 @@ add_mlir_library(
 
   LINK_LIBS PUBLIC
   AMDGCNDialect
+  AsterInterfaces
 
   ASTERSupport
+  AsterInterfaces
   MLIRAnalysis
   MLIRGPUDialect
   MLIRIR

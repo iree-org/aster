@@ -1,4 +1,4 @@
-// RUN: aster-opt --split-input-file --test-amdgcn-liveness-analysis %s | FileCheck %s
+// RUN: aster-opt --split-input-file --test-liveness-analysis %s | FileCheck %s
 
 // CHECK-LABEL:  SSA map:
 // CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
@@ -690,4 +690,75 @@ amdgcn.kernel @phi_coalescing_3 {
 ^bb3:  // CHECK: 2 preds: ^bb1, ^bb2
   test_inst ins %7, %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   end_kernel
+}
+
+// -----
+
+// CHECK-LABEL:  SSA map:
+// CHECK-NOT: LIVE BEFORE: [{{.+}}]
+// CHECK-NOT: LIVE  AFTER: [{{.+}}]
+func.func @test_no_live_values(%0: !amdgcn.vgpr) {
+  amdgcn.test_inst outs %0 : (!amdgcn.vgpr) -> (!amdgcn.vgpr)
+  return
+}
+
+func.func @test_no_live_values_make_register_range(%0: !amdgcn.vgpr, %1: !amdgcn.vgpr) {
+  %2 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr, !amdgcn.vgpr
+  amdgcn.test_inst outs %2 : (!amdgcn.vgpr<[? + 2]>) -> (!amdgcn.vgpr<[? + 2]>)
+  return
+}
+
+func.func @test_no_live_values_split_register_range(%0: !amdgcn.vgpr<[? + 2]>) {
+  %1, %2 = amdgcn.split_register_range %0 : !amdgcn.vgpr<[? + 2]>
+  amdgcn.test_inst outs %1, %2 : (!amdgcn.vgpr, !amdgcn.vgpr) -> (!amdgcn.vgpr, !amdgcn.vgpr)
+  return
+}
+
+// -----
+// CHECK-LABEL: Symbol: test_live_values_split_register_range
+// CHECK:  Op: %{{.*}} = amdgcn.split_register_range %{{.*}} : !amdgcn.vgpr<[? + 2]>
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}} : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: func.return
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+func.func @test_live_values_split_register_range(%0: !amdgcn.vgpr<[? + 2]>) {
+  %1, %2 = amdgcn.split_register_range %0 : !amdgcn.vgpr<[? + 2]>
+  amdgcn.test_inst ins %1, %2 : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+  return
+}
+
+// CHECK-LABEL: Symbol: test_live_values_make_register_range
+// CHECK:  Op: %{{.*}} = amdgcn.make_register_range %{{.*}}, %{{.*}} : !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:    LIVE BEFORE: [3 = `%{{.*}}`, 4 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [5 = `%{{.*}}`]
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}} : (!amdgcn.vgpr<[? + 2]>) -> ()
+// CHECK:    LIVE BEFORE: [5 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: func.return
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+func.func @test_live_values_make_register_range(%0: !amdgcn.vgpr, %1: !amdgcn.vgpr) {
+  %2 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr, !amdgcn.vgpr
+  amdgcn.test_inst ins %2 : (!amdgcn.vgpr<[? + 2]>) -> ()
+  return
+}
+
+// CHECK-LABEL: Symbol: test_mixed
+// CHECK:  Op: %{{.*}} = amdgcn.make_register_range %{{.*}}, %{{.*}} : !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:    LIVE BEFORE: [6 = `%{{.*}}`, 7 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [8 = `%{{.*}}`]
+// CHECK:  Op: %{{.*}} = amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>
+// CHECK:    LIVE BEFORE: [8 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: func.return
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+func.func @test_mixed(%0: !amdgcn.vgpr, %1: !amdgcn.vgpr) {
+  %2 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr, !amdgcn.vgpr
+  amdgcn.test_inst outs %2 ins %2 : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> (!amdgcn.vgpr<[? + 2]>)
+  return
 }
