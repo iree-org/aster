@@ -4,6 +4,7 @@ set(LLVM_OPTIONAL_SOURCES
   DependentOpInterface.cpp
   GPUFuncInterface.cpp
   InstOpInterface.cpp
+  LivenessOpInterface.cpp
   MemorySpaceConstraints.cpp
   ModuleOpInterface.cpp
   OperandBundleOpInterface.cpp
@@ -17,6 +18,7 @@ add_mlir_library(AsterInterfaces
   GPUFuncInterface.cpp
   DependentOpInterface.cpp
   InstOpInterface.cpp
+  LivenessOpInterface.cpp
   MemorySpaceConstraints.cpp
   ModuleOpInterface.cpp
   OperandBundleOpInterface.cpp
