@@ -10,7 +10,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/RegisterLiveness.h"
-#include "aster/Dialect/AMDGCN/Analysis/Utils.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Transforms.h"

@@ -9,9 +9,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/IR/InstImpl.h"
+#include "aster/Interfaces/AllocaOpInterface.h"
+#include "aster/Interfaces/OperandBundleOpInterface.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/InterleavedRange.h"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -157,4 +158,32 @@ LogicalResult aster::detail::cloneInstOperandsResultsImpl(
   // Append the trailing results.
   llvm::append_range(newResultTypes, trailingResults);
   return success();
+}
+
+FailureOr<ValueRange> mlir::aster::getAllocasOrFailure(Value value) {
+  // If the value is not a register, return an empty range.
+  if (!isa<RegisterTypeInterface>(value.getType()))
+    return ValueRange{};
+
+  // Handle alloca operations.
+  if (auto allocaOp = value.getDefiningOp<AllocaOpInterface>())
+    return allocaOp->getResults();
+
+  // Handle operand bundle operations.
+  if (auto bundleOp = value.getDefiningOp<OperandBundleOpInterface>()) {
+    ValueRange result = bundleOp.unpackBundle();
+    if (!llvm::all_of(result, [](Value value) {
+          auto allocaOp = value.getDefiningOp<AllocaOpInterface>();
+          if (!allocaOp)
+            return false;
+          auto regTy =
+              dyn_cast<RegisterTypeInterface>(allocaOp.getAlloca().getType());
+          return regTy && !regTy.hasValueSemantics();
+        }))
+      return failure();
+    return result;
+  }
+
+  // Fail in all other cases.
+  return failure();
 }

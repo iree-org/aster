@@ -5,7 +5,6 @@ add_mlir_library(
   RangeConstraintAnalysis.cpp
   RegisterInterferenceGraph.cpp
   RegisterLiveness.cpp
-  Utils.cpp
   WaitAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS

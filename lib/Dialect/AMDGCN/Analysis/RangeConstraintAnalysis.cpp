@@ -9,7 +9,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
-#include "aster/Dialect/AMDGCN/Analysis/Utils.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/IR/PrintingUtils.h"
 #include "aster/IR/SSAMap.h"
