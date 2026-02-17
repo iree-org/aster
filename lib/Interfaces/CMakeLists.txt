@@ -1,5 +1,6 @@
 set(LLVM_OPTIONAL_SOURCES
   UpstreamModelsImpl.cpp
+  AllocaOpInterface.cpp
   DependentOpInterface.cpp
   GPUFuncInterface.cpp
   InstOpInterface.cpp
@@ -11,6 +12,7 @@ set(LLVM_OPTIONAL_SOURCES
 )
 
 add_mlir_library(AsterInterfaces
+  AllocaOpInterface.cpp
   GPUFuncInterface.cpp
   DependentOpInterface.cpp
   InstOpInterface.cpp

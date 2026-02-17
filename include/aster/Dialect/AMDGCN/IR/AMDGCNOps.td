@@ -21,6 +21,7 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
+include "aster/Interfaces/AllocaOpInterface.td"
 include "aster/Interfaces/DependentOpInterface.td"
 include "aster/Interfaces/GPUFuncInterface.td"
 include "aster/Interfaces/ModuleOpInterface.td"
@@ -42,6 +43,7 @@ include "mlir/IR/SymbolInterfaces.td"
 //===----------------------------------------------------------------------===//
 
 def AMDGCN_AllocaOp : AMDGCN_Op<"alloca", [
+    AllocaOpInterface,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
@@ -52,6 +54,9 @@ def AMDGCN_AllocaOp : AMDGCN_Op<"alloca", [
   let arguments = (ins);
   let results = (outs RegisterLike:$result);
   let assemblyFormat = "attr-dict `:` type($result)";
+  let extraClassDeclaration = [{
+    ::mlir::Value getAlloca() { return getResult(); }
+  }];
 }
 
 //===----------------------------------------------------------------------===//

@@ -1,3 +1,6 @@
+set(LLVM_TARGET_DEFINITIONS AllocaOpInterface.td)
+mlir_tablegen(AllocaOpInterface.h.inc -gen-op-interface-decls)
+mlir_tablegen(AllocaOpInterface.cpp.inc -gen-op-interface-defs)
 set(LLVM_TARGET_DEFINITIONS DependentOpInterface.td)
 mlir_tablegen(DependentTokenTypeInterface.h.inc -gen-type-interface-decls)
 mlir_tablegen(DependentTokenTypeInterface.cpp.inc -gen-type-interface-defs)
