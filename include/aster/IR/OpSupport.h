@@ -60,4 +60,38 @@ MutableArrayRef<int32_t> getResultSegmentSizes(OpaqueProperties properties) {
 }
 } // namespace mlir::aster
 
+namespace llvm {
+/// DenseMapInfo for ValueRange, this implementation is adapted from the
+/// ArrayRef implementation.
+template <>
+struct DenseMapInfo<mlir::ValueRange> {
+  using PtrType = llvm::PointerUnion<const mlir::Value *, mlir::OpOperand *,
+                                     mlir::detail::OpResultImpl *>;
+  static inline mlir::ValueRange getEmptyKey() {
+    return mlir::ValueRange(DenseMapInfo<PtrType>::getEmptyKey(), 0);
+  }
+
+  static inline mlir::ValueRange getTombstoneKey() {
+    return mlir::ValueRange(DenseMapInfo<PtrType>::getTombstoneKey(), 0);
+  }
+
+  static unsigned getHashValue(const mlir::ValueRange &range) {
+    assert(range.getBase() != getEmptyKey().getBase() &&
+           "Cannot hash the empty key!");
+    assert(range.getBase() != getTombstoneKey().getBase() &&
+           "Cannot hash the tombstone key!");
+    return (unsigned)(hash_value(range));
+  }
+
+  static bool isEqual(const mlir::ValueRange &lhs,
+                      const mlir::ValueRange &rhs) {
+    if (rhs.getBase() == getEmptyKey().getBase())
+      return lhs.getBase() == getEmptyKey().getBase();
+    if (rhs.getBase() == getTombstoneKey().getBase())
+      return lhs.getBase() == getTombstoneKey().getBase();
+    return lhs == rhs;
+  }
+};
+} // namespace llvm
+
 #endif // ASTER_IR_OPSUPPORT_H

@@ -52,6 +52,14 @@ def TestLivenessAnalysis : Pass<"test-liveness-analysis"> {
   }];
 }
 
+def TestDPSAnalysis : Pass<"test-dps-analysis"> {
+  let summary = "Test pass for DPS analysis";
+  let description = [{
+    This pass runs DPS analysis and prints the DPS alias equivalence
+    classes and value provenance for block arguments.
+  }];
+}
+
 def TestBufferAnalysis : Pass<"test-buffer-analysis"> {
   let summary = "Test pass for buffer analysis";
   let description = [{

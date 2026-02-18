@@ -53,7 +53,6 @@ public:
   /// Get IDs for the given values, appending to the output vector.
   template <typename RangeTy>
   void getIds(RangeTy &&values, llvm::SmallVectorImpl<int64_t> &out) const {
-    out.reserve(out.size() + values.size());
     for (Value value : values) {
       auto it = valueToId.find(value);
       out.push_back(it != valueToId.end() ? it->second : -1);
@@ -62,7 +61,6 @@ public:
   template <typename RangeTy>
   void getIds(RangeTy &&values,
               llvm::SmallVectorImpl<std::pair<Value, int64_t>> &out) const {
-    out.reserve(out.size() + values.size());
     for (Value value : values) {
       auto it = valueToId.find(value);
       out.push_back({value, it != valueToId.end() ? it->second : -1});
