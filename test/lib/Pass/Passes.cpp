@@ -8,20 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Pass/Pass.h"
+#include "Passes.h"
 
 namespace mlir::aster {
-namespace test {
-/// Generate the code for declaring the passes.
-#define GEN_PASS_DECL
-#include "Passes.h.inc"
-
-/// Generate the code for registering passes.
-#define GEN_PASS_REGISTRATION
-#include "Passes.h.inc"
-} // namespace test
-
 void registerTestPasses() { test::registerPasses(); }
 } // namespace mlir::aster

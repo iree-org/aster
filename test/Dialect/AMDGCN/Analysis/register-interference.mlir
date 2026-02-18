@@ -1,4 +1,5 @@
 // RUN: aster-opt %s --test-amdgcn-interference-analysis --split-input-file 2>&1 | FileCheck %s
+// RUN: aster-opt %s --test-amdgcn-interference-analysis=mode=full --split-input-file 2>&1 | FileCheck %s --check-prefix=FULL
 
 // CHECK-LABEL: no_interference
 // CHECK: graph RegisterInterference {
@@ -325,6 +326,33 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
     test_inst outs %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+// CHECK-LABEL: full_interference
+// FULL-LABEL: full_interference
+// CHECK: graph RegisterInterference {
+// CHECK:   0 [label="0, %0"];
+// CHECK:   1 [label="1, %1"];
+// CHECK:   2 [label="2, %2"];
+// CHECK:   3 [label="3, %3"];
+// CHECK:   0 -- 1;
+// CHECK:   0 -- 2;
+// CHECK:   0 -- 3;
+// CHECK:   1 -- 2;
+// CHECK:   1 -- 3;
+// FULL:  2 -- 3;
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  kernel @full_interference {
+    %0 = alloca : !amdgcn.vgpr<?>
+    %1 = alloca : !amdgcn.vgpr<?>
+    %3 = alloca : !amdgcn.vgpr<?>
+    %4 = alloca : !amdgcn.vgpr<?>
+    test_inst outs %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+    test_inst ins %3, %4 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     end_kernel
   }
 }

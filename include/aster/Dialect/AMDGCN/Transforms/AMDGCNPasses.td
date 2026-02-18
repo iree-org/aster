@@ -70,6 +70,10 @@ def RegisterColoring : Pass<"amdgcn-register-coloring"> {
     accordingly. This pass should run after bufferization, and to register semantics.
   }];
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+  let options = [
+    Option<"buildMode", "mode", "std::string", "\"minimal\"",
+           "Graph build mode: \"minimal\" (default) or \"full\"">,
+  ];
 }
 
 def RegisterDealloc : Pass<"amdgcn-register-dealloc"> {

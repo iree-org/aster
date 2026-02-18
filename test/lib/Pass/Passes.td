@@ -24,6 +24,10 @@ def TestAMDGCNInterferenceAnalysis : Pass<"test-amdgcn-interference-analysis"> {
     interference graph in DOT format. Use this to verify that interference
     edges are correctly computed between live values.
   }];
+  let options = [
+    Option<"buildMode", "mode", "std::string", "\"minimal\"",
+           "Graph build mode: \"minimal\" (default) or \"full\"">,
+  ];
 }
 
 def TestAMDGCNRangeAnalysis : Pass<"test-amdgcn-range-analysis"> {

@@ -27,11 +27,16 @@ namespace mlir::aster::amdgcn {
 /// nodes represent allocations and edges connect allocations that overlap in
 /// time.
 struct RegisterInterferenceGraph : public Graph {
+  enum class BuildMode {
+    Minimal, /// Build the minimal graph to meet the liveness requirements.
+    Full,    /// Add extra edges to ensure graph transformations are safe.
+  };
   /// Create the interference graph for the given operation.
   /// This will load and run LivenessAnalysis internally.
   static FailureOr<RegisterInterferenceGraph>
   create(Operation *op, DataFlowSolver &solver,
-         SymbolTableCollection &symbolTable);
+         SymbolTableCollection &symbolTable,
+         BuildMode buildMode = BuildMode::Minimal);
 
   /// Print the interference graph.
   void print(raw_ostream &os) const;
@@ -47,7 +52,8 @@ struct RegisterInterferenceGraph : public Graph {
   MutableArrayRef<Value> getValues() { return values; }
 
 private:
-  RegisterInterferenceGraph() : Graph(/*directed=*/false) {}
+  RegisterInterferenceGraph(BuildMode buildMode)
+      : Graph(/*directed=*/false), buildMode(buildMode) {}
 
   /// Run the interference analysis on the given operation.
   LogicalResult run(Operation *op, DataFlowSolver &solver);
@@ -68,6 +74,7 @@ private:
 
   SmallVector<Value> values;
   llvm::DenseMap<Value, NodeID> valueToNodeId;
+  BuildMode buildMode;
 };
 
 } // namespace mlir::aster::amdgcn

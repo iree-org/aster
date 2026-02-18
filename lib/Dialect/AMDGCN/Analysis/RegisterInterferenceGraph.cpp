@@ -191,6 +191,10 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
     if (failed(getAllocasOrFailure(v, allocas)))
       return op->emitError("IR is not in the `unallocated` normal form");
   }
+  if (buildMode == BuildMode::Full) {
+    // Force all live values to interfere with each other.
+    addEdges(allocas);
+  }
 
   SmallVector<Value, 5> outs;
   if (auto instOp = dyn_cast<InstOpInterface>(op)) {
@@ -237,7 +241,8 @@ LogicalResult RegisterInterferenceGraph::run(Operation *op,
 
 FailureOr<RegisterInterferenceGraph>
 RegisterInterferenceGraph::create(Operation *op, DataFlowSolver &solver,
-                                  SymbolTableCollection &symbolTable) {
+                                  SymbolTableCollection &symbolTable,
+                                  BuildMode buildMode) {
   // Load the register liveness analysis.
   solver.load<LivenessAnalysis>(symbolTable);
   mlir::dataflow::loadBaselineAnalyses(solver);
@@ -249,7 +254,7 @@ RegisterInterferenceGraph::create(Operation *op, DataFlowSolver &solver,
   }
 
   // Build the graph.
-  RegisterInterferenceGraph graph;
+  RegisterInterferenceGraph graph(buildMode);
   if (failed(graph.run(op, solver)))
     return failure();
 

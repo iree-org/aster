@@ -533,13 +533,25 @@ LogicalResult SOP1OpPattern::matchAndRewrite(inst::SOP1Op op,
 //===----------------------------------------------------------------------===//
 
 LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
+  // Parse build mode option.
+  RegisterInterferenceGraph::BuildMode buildMode;
+  if (this->buildMode == "full") {
+    buildMode = RegisterInterferenceGraph::BuildMode::Full;
+  } else if (this->buildMode == "minimal") {
+    buildMode = RegisterInterferenceGraph::BuildMode::Minimal;
+  } else {
+    return funcOp.emitError()
+           << "build-mode must be \"full\" or \"minimal\", got \""
+           << this->buildMode << "\"";
+  }
+
   // Create the dataflow solver and load the liveness analysis.
   SymbolTableCollection symbolTable;
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
 
   // Create the interference graph.
   FailureOr<RegisterInterferenceGraph> graph =
-      RegisterInterferenceGraph::create(funcOp, solver, symbolTable);
+      RegisterInterferenceGraph::create(funcOp, solver, symbolTable, buildMode);
   if (failed(graph)) {
     return funcOp.emitError() << "failed to create register interference graph";
   }

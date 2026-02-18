@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "Passes.h"
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/SymbolTable.h"
@@ -40,6 +41,18 @@ struct TestAMDGCNInterferenceAnalysis
   void runOnOperation() override {
     Operation *op = getOperation();
 
+    // Parse build mode option.
+    RegisterInterferenceGraph::BuildMode buildMode;
+    if (this->buildMode == "full") {
+      buildMode = RegisterInterferenceGraph::BuildMode::Full;
+    } else if (this->buildMode == "minimal") {
+      buildMode = RegisterInterferenceGraph::BuildMode::Minimal;
+    } else {
+      op->emitError() << "build-mode must be \"full\" or \"minimal\", got \""
+                      << this->buildMode << "\"";
+      return signalPassFailure();
+    }
+
     // Walk through kernels and run analysis on each one.
     op->walk([&](FunctionOpInterface kernel) {
       llvm::outs() << "// Function: " << kernel.getName() << "\n";
@@ -48,7 +61,8 @@ struct TestAMDGCNInterferenceAnalysis
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       SymbolTableCollection symbolTable;
       FailureOr<RegisterInterferenceGraph> graph =
-          RegisterInterferenceGraph::create(kernel, solver, symbolTable);
+          RegisterInterferenceGraph::create(kernel, solver, symbolTable,
+                                            buildMode);
       if (failed(graph)) {
         kernel.emitError() << "Failed to build interference graph";
         return signalPassFailure();
