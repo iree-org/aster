@@ -1,5 +1,6 @@
 add_mlir_library(
   ASTERAnalysis
+  DPSAnalysis.cpp
   LivenessAnalysis.cpp
   MemoryDependenceAnalysis.cpp
   RegisterConstraints.cpp

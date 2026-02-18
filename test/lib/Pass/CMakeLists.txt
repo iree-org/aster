@@ -6,6 +6,7 @@ add_mlir_library(ASTERTestPass
   Passes.cpp
   TestAMDGCNInterferenceAnalysis.cpp
   TestCFGWalker.cpp
+  TestDPSAnalysis.cpp
   TestLivenessAnalysis.cpp
   TestAMDGCNRangeAnalysis.cpp
   TestBufferAnalysis.cpp
