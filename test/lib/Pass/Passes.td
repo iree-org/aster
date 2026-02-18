@@ -35,6 +35,15 @@ def TestAMDGCNRangeAnalysis : Pass<"test-amdgcn-range-analysis"> {
   }];
 }
 
+def TestCFGWalker : Pass<"test-cfg-walker"> {
+  let summary = "Test pass that walks the CFG and prints IR elements";
+  let description = [{
+    This pass uses the CFG walker to traverse the control flow graph
+    (blocks and region branches) and prints each operation and
+    control flow edge encountered during the walk.
+  }];
+}
+
 def TestLivenessAnalysis : Pass<"test-liveness-analysis"> {
   let summary = "Test pass for liveness analysis";
   let description = [{

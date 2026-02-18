@@ -5,6 +5,7 @@ add_public_tablegen_target(ASTERTestPassesIncGen)
 add_mlir_library(ASTERTestPass
   Passes.cpp
   TestAMDGCNInterferenceAnalysis.cpp
+  TestCFGWalker.cpp
   TestLivenessAnalysis.cpp
   TestAMDGCNRangeAnalysis.cpp
   TestBufferAnalysis.cpp
