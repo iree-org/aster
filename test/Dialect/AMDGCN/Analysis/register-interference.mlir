@@ -311,3 +311,20 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+// -----
+
+// CHECK-LABEL: multi_out
+// CHECK: graph RegisterInterference {
+// CHECK:   0 [label="0, %0"];
+// CHECK:   1 [label="1, %1"];
+// CHECK:   0 -- 1;
+// }
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  kernel @multi_out {
+    %0 = alloca : !amdgcn.vgpr<?>
+    %1 = alloca : !amdgcn.vgpr<?>
+    test_inst outs %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+    end_kernel
+  }
+}

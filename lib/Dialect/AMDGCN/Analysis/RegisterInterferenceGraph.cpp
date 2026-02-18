@@ -198,6 +198,9 @@ LogicalResult RegisterInterferenceGraph::handleOp(Operation *op,
       if (failed(getAllocasOrFailure(out, outs)))
         return op->emitError("IR is not in the `unallocated` normal form");
     }
+    // Force all outs to interfere with each other to avoid reuse of the same
+    // register in the outs of the same operation.
+    addEdges(outs);
   }
 
   // Add edges between the outputs and the live values in the after set.
