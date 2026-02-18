@@ -11,15 +11,16 @@
 #ifndef ASTER_ANALYSIS_DPSANALYSIS_H
 #define ASTER_ANALYSIS_DPSANALYSIS_H
 
-#include "aster/IR/OpSupport.h"
 #include "aster/IR/SSAMap.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/EquivalenceClasses.h"
-#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Allocator.h"
-#include "llvm/Support/LogicalResult.h"
+
+namespace mlir {
+class DataFlowSolver;
+} // namespace mlir
 
 namespace mlir::aster {
 //===----------------------------------------------------------------------===//
@@ -95,6 +96,12 @@ public:
   DenseMap<Value, AllocView> &getAllocViews() { return allocViews; }
   const DenseMap<Value, AllocView> &getAllocViews() const { return allocViews; }
 
+  /// Get the allocation that owns the given ID. Returns nullptr if the ID is
+  /// unknown.
+  const Allocation *getAllocForId(int32_t id) const {
+    return idToAlloc.lookup_or(id, nullptr);
+  }
+
 private:
   /// Allocator for allocations.
   llvm::SpecificBumpPtrAllocator<Allocation> allocAllocator;
@@ -105,9 +112,49 @@ private:
   /// Maps each value to its allocation view.
   DenseMap<Value, AllocView> allocViews;
 
+  /// Inverse mapping from allocation ID to the allocation that owns it.
+  llvm::DenseMap<int32_t, Allocation *> idToAlloc;
+
   /// Maps each control-flow variable to the set of values that constitute its
   /// provenance.
   llvm::DenseMap<Value, ProvenanceSet> valueProvenance;
+};
+
+//===----------------------------------------------------------------------===//
+// DPSLiveness
+//===----------------------------------------------------------------------===//
+
+/// Liveness of DPS allocations at program points. Maps each operation to the
+/// set of allocation IDs that are live at the after program point of that
+/// instruction.
+class DPSLiveness {
+public:
+  using LiveSet = llvm::SmallDenseSet<int32_t, 8>;
+  /// Create a dps-aware liveness analysis. Returns failure if any liveness
+  /// lattice cannot be procured for an operation in the function.
+  static FailureOr<DPSLiveness> create(DPSAnalysis &dpsAnalysis,
+                                       mlir::DataFlowSolver &solver,
+                                       FunctionOpInterface funcOp);
+
+  /// Return true iff any of the allocation IDs for values are live at the after
+  /// program point of op. Return failure if op is not a valid program point
+  /// (no liveness info).
+  FailureOr<bool> areAnyLive(ValueRange values, Operation *op) const;
+
+  /// Optional deterministic order of program points (walk order at creation).
+  /// Empty if not populated.
+  llvm::ArrayRef<Operation *> getOrderedProgramPoints() const {
+    return orderedProgramPoints;
+  }
+
+  /// Print liveness: each program point with its sorted live allocation IDs.
+  void print(llvm::raw_ostream &os, const SSAMap &ssaMap) const;
+
+private:
+  DPSLiveness(DPSAnalysis &dpsAnalysis) : dpsAnalysis(dpsAnalysis) {}
+  DPSAnalysis &dpsAnalysis;
+  llvm::DenseMap<Operation *, LiveSet> livenessInfo;
+  llvm::SmallVector<Operation *, 0> orderedProgramPoints;
 };
 } // end namespace mlir::aster
 

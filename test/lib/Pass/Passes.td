@@ -60,6 +60,14 @@ def TestDPSAnalysis : Pass<"test-dps-analysis"> {
   }];
 }
 
+def TestDPSLiveness : Pass<"test-dps-liveness"> {
+  let summary = "Test pass for DPS liveness analysis";
+  let description = [{
+    This pass runs DPS liveness analysis and prints the live allocation
+    IDs at each program point for kernel functions.
+  }];
+}
+
 def TestBufferAnalysis : Pass<"test-buffer-analysis"> {
   let summary = "Test pass for buffer analysis";
   let description = [{

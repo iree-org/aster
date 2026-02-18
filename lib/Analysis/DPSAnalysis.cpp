@@ -9,15 +9,16 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/DPSAnalysis.h"
+#include "aster/Analysis/LivenessAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/IR/CFG.h"
 #include "aster/IR/InstImpl.h"
 #include "aster/IR/PrintingUtils.h"
 #include "aster/Interfaces/InstOpInterface.h"
+#include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/ValueRange.h"
-#include "mlir/Interfaces/CallInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/Allocator.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/InterleavedRange.h"
 
 using namespace mlir;
@@ -145,6 +146,10 @@ Allocation *DPSAnalysis::getOrCreateAlloc(Value value) {
   int32_t numRegs = regTy.getAsRange().size();
   new (alloc) Allocation(
       value, llvm::to_vector<1>(llvm::seq<int32_t>(nextId, nextId + numRegs)));
+
+  // Map the allocation IDs with the allocation.
+  for (int32_t id : alloc->ids)
+    idToAlloc[id] = alloc;
   nextId += numRegs;
   allocView = AllocView(alloc, alloc->ids);
   return alloc;
@@ -167,7 +172,8 @@ Allocation *DPSAnalysis::getOrCreateRange(Value value, ValueRange range) {
     llvm::append_range(ids, allocView.ids);
   }
 
-  // Create a new allocation for the range.
+  // Create a new allocation for the range. IDs in the range are already
+  // registered in idToAlloc from their original allocations; no new IDs.
   Allocation *alloc = allocAllocator.Allocate(1);
   new (alloc) Allocation(value, std::move(ids));
   allocView = AllocView(alloc, alloc->ids);
@@ -256,5 +262,83 @@ void DPSAnalysis::print(llvm::raw_ostream &os, const SSAMap &ssaMap) const {
     dumpProvenance(variable, provenance);
   }
   os << "  }\n";
+  os << "}";
+}
+
+//===----------------------------------------------------------------------===//
+// DPSLiveness
+//===----------------------------------------------------------------------===//
+
+FailureOr<DPSLiveness> DPSLiveness::create(DPSAnalysis &dpsAnalysis,
+                                           DataFlowSolver &solver,
+                                           FunctionOpInterface funcOp) {
+  DPSLiveness liveness(dpsAnalysis);
+  WalkResult walkResult =
+      funcOp.getFunctionBody().walk([&](InstOpInterface op) {
+        ProgramPoint *afterPoint = solver.getProgramPointAfter(op);
+        const LivenessState *state =
+            solver.lookupState<LivenessState>(afterPoint);
+        if (!state)
+          return WalkResult::interrupt();
+        const LivenessState::ValueSet *liveValues = state->getLiveValues();
+        if (!liveValues)
+          return WalkResult::interrupt();
+        LiveSet &liveIds = liveness.livenessInfo[op];
+        for (Value value : *liveValues) {
+          DPSAnalysis::AllocView allocView = dpsAnalysis.getAllocView(value);
+          assert(allocView.alloc && "expected allocation view to be present");
+          liveIds.insert_range(allocView.ids);
+        }
+        liveness.orderedProgramPoints.push_back(op);
+        return WalkResult::advance();
+      });
+  if (walkResult.wasInterrupted())
+    return failure();
+  return liveness;
+}
+
+FailureOr<bool> DPSLiveness::areAnyLive(ValueRange values,
+                                        Operation *op) const {
+  auto it = livenessInfo.find(op);
+  if (it == livenessInfo.end())
+    return failure();
+  const LiveSet &liveIds = it->second;
+  for (Value value : values) {
+    DPSAnalysis::AllocView allocView = dpsAnalysis.getAllocView(value);
+    assert(allocView.alloc && "expected allocation view to be present");
+    if (llvm::any_of(allocView.ids,
+                     [&](int32_t id) { return liveIds.contains(id); }))
+      return true;
+  }
+  return false;
+}
+
+void DPSLiveness::print(llvm::raw_ostream &os, const SSAMap &ssaMap) const {
+  os << "DPS liveness (after program points) {\n";
+  for (Operation *op : orderedProgramPoints) {
+    auto it = livenessInfo.find(op);
+    assert(it != livenessInfo.end() && "expected liveness info to be present");
+    const LiveSet &liveIds = it->second;
+    SmallPtrSet<Value, 8> values;
+    values.reserve(liveIds.size());
+    for (int32_t id : liveIds) {
+      const Allocation *alloc = dpsAnalysis.getAllocForId(id);
+      assert(alloc && "expected allocation to be present");
+      values.insert(alloc->value);
+    }
+    SmallVector<std::pair<Value, int64_t>> valuesWithIds;
+    ssaMap.getIds(values, valuesWithIds);
+    llvm::sort(valuesWithIds, [](const std::pair<Value, int64_t> &lhs,
+                                 const std::pair<Value, int64_t> &rhs) {
+      return lhs.second < rhs.second;
+    });
+    os << "  " << OpWithFlags(op, OpPrintingFlags().skipRegions()) << " -> {";
+    llvm::interleaveComma(valuesWithIds, os,
+                          [&](const std::pair<Value, int64_t> &entry) {
+                            os << entry.second << " = `"
+                               << ValueWithFlags(entry.first, true) << "`";
+                          });
+    os << "}\n";
+  }
   os << "}";
 }
