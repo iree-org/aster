@@ -28,8 +28,20 @@ namespace mlir::aster {
 //===----------------------------------------------------------------------===//
 
 /// Analysis that tracks DPS provenance.
+/// Creates fresh Alocation objects on AllocaOpInterface, MakeRegisterRangeOp
+/// and control-flow edges. All operations add AllocView on top of existing
+/// Allocation objects. Users of DPSAnalysis only manipulate AllocView.
+/// DPS analysis also records control-flow provenance:
+///   which (branch-point, value) pairs feed each bbarg.
 class DPSAnalysis {
 public:
+  /// Created on every:
+  ///   - AllocaOpInterface
+  ///   - visitControlFlowEdge on Successor inputs
+  ///   - getOrCreateRange on make_register_range
+  /// with 1 value and #ids == register range size.
+  /// Represents the underlying storage for each root allocation.
+  /// Users of DPSAnalysis only manipulate AllocView.
   struct Allocation {
     Allocation(Value value, SmallVector<int32_t, 1> &&ids)
         : value(value), ids(ids) {}
@@ -37,6 +49,11 @@ public:
     SmallVector<int32_t, 1> ids;
   };
 
+  /// Canonical AllocView created along every Allocation.
+  /// Propagated from existing Allocation on either:
+  /// - InstOpInterface TiedInstOutsRange
+  /// - split_register_range (slice)
+  /// Users only need to manipulate AllocView.
   struct AllocView {
     AllocView() = default;
     AllocView(Allocation *alloc, ArrayRef<int32_t> ids)
@@ -81,12 +98,10 @@ public:
 
   /// Get the allocation view for a value.
   AllocView getAllocView(Value value) const { return allocViews.lookup(value); }
-
-  /// Maps a range of values to allocation ids. If value consists of a single
-  /// value, it maps the value to the allocation. Otherwise it performs an
-  /// element-wise mapping, and returns failure if the size of the range does
-  /// not match the size of the allocation.
-  LogicalResult mapAlloc(ValueRange values, Allocation *alloc);
+  /// Set the allocation view for a value.
+  void setAllocView(Value value, AllocView &&allocView) {
+    allocViews[value] = allocView;
+  }
 
   /// Print the analysis results (DPS alias equivalence classes and value
   /// provenance) for debugging and testing.

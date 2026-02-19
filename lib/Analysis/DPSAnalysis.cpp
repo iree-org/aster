@@ -58,8 +58,10 @@ LogicalResult DPSAnalysisImpl::visitOp(Operation *op) {
       if (!res)
         continue;
       AllocView allocView = analysis.getAllocView(out);
-      if (!allocView.alloc || failed(analysis.mapAlloc(res, allocView.alloc)))
+      if (!allocView.alloc)
         return failure();
+      analysis.setAllocView(res,
+                            AllocView(allocView.alloc, allocView.alloc->ids));
     }
     return success();
   }
@@ -77,10 +79,13 @@ LogicalResult DPSAnalysisImpl::visitOp(Operation *op) {
   if (auto splitRegisterRangeOp = dyn_cast<amdgcn::SplitRegisterRangeOp>(op)) {
     AllocView allocView =
         analysis.getAllocView(splitRegisterRangeOp.getInput());
-    if (!allocView.alloc ||
-        failed(analysis.mapAlloc(splitRegisterRangeOp.getResults(),
-                                 allocView.alloc)))
+    if (!allocView.alloc)
       return failure();
+    for (auto &&[result, id] : llvm::zip_equal(
+             splitRegisterRangeOp.getResults(), allocView.alloc->ids)) {
+      analysis.setAllocView(result,
+                            AllocView(allocView.alloc, ArrayRef<int32_t>(id)));
+    }
     return success();
   }
   return success();
@@ -178,21 +183,6 @@ Allocation *DPSAnalysis::getOrCreateRange(Value value, ValueRange range) {
   new (alloc) Allocation(value, std::move(ids));
   allocView = AllocView(alloc, alloc->ids);
   return alloc;
-}
-
-LogicalResult DPSAnalysis::mapAlloc(ValueRange values, Allocation *alloc) {
-  if (values.empty())
-    return success();
-  if (values.size() == 1) {
-    allocViews[values[0]] = AllocView(alloc, alloc->ids);
-    return success();
-  }
-  if (values.size() != alloc->ids.size())
-    return failure();
-  for (auto [value, id] : llvm::zip_equal(values, alloc->ids)) {
-    allocViews[value] = AllocView(alloc, id);
-  }
-  return success();
 }
 
 void DPSAnalysis::print(llvm::raw_ostream &os, const SSAMap &ssaMap) const {
