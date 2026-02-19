@@ -25,7 +25,7 @@ public:
         point.isParent() ? op : point.getTerminatorPredecessorOrNull();
   }
 
-  BranchPoint(BranchOpInterface op, unsigned index) {
+  BranchPoint(BranchOpInterface op, int64_t index) {
     SuccessorOperands succOperands = op.getSuccessorOperands(index);
     producedOperandCount = succOperands.getProducedOperandCount();
     operands = succOperands.getForwardedOperands();
@@ -39,7 +39,7 @@ public:
   ValueRange getOperands() const { return operands; }
 
   /// Get the produced operand count.
-  unsigned getProducedOperandCount() const { return producedOperandCount; }
+  int64_t getProducedOperandCount() const { return producedOperandCount; }
 
   int64_t getNumOperands() const {
     return getProducedOperandCount() + operands.size();
@@ -52,7 +52,7 @@ public:
   bool isEntryPoint() const { return point == nullptr; }
 
 private:
-  unsigned producedOperandCount = 0;
+  int64_t producedOperandCount = 0;
   ValueRange operands;
   Operation *point = nullptr;
 };
