@@ -1,4 +1,4 @@
-//===- OperandBundleOpInterface.td - OperandBundle Op Interface -*- tablegen -*-===//
+//===- OperandBundleOpInterface.td - OperandBundleOp Iface -*- tablegen -*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
