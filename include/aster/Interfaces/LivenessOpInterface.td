@@ -1,4 +1,4 @@
-//===- LivenessOpInterface.td - Liveness Op Interface ---------*- tablegen -*-===//
+//===- LivenessOpInterface.td - Liveness Op Interface ------*- tablegen -*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
