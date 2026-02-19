@@ -27,8 +27,8 @@ amdgcn.module @test_module target = #amdgcn.target<{target}> isa = #amdgcn.isa<{
     %s1 = amdgcn.alloca : !amdgcn.sgpr<5>
     %c42 = arith.constant 42 : i32
     %c7 = arith.constant 7 : i32
-    %a = amdgcn.sop1 s_mov_b32 outs %s0 ins %c42 : !amdgcn.sgpr<4>, i32
-    %b = amdgcn.sop1 s_mov_b32 outs %s1 ins %c7 : !amdgcn.sgpr<5>, i32
+    amdgcn.sop1 s_mov_b32 outs %s0 ins %c42 : !amdgcn.sgpr<4>, i32
+    amdgcn.sop1 s_mov_b32 outs %s1 ins %c7 : !amdgcn.sgpr<5>, i32
     amdgcn.end_kernel
   }}
 }}
