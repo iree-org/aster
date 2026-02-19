@@ -1,5 +1,4 @@
-//===- OperandBundleOpInterface.h - OperandBundle Op Interface ---*- C++
-//-*-===//
+//===- OperandBundleOpInterface.h - OperandBundle Op Interface --*- C++ -*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
