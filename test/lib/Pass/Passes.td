@@ -80,6 +80,18 @@ def TestBufferAnalysis : Pass<"test-buffer-analysis"> {
   }];
 }
 
+def TestReachingDefinitions : Pass<"test-reaching-definitions"> {
+  let summary = "Test pass for reaching definitions analysis";
+  let description = [{
+    This pass runs reaching definitions analysis and prints the analysis
+    results, including reaching definitions before and after each operation.
+  }];
+  let options = [
+    Option<"onlyLoads", "only-loads", "bool", "false",
+           "Only track load operations">,
+  ];
+}
+
 def TestMemoryDependenceAnalysis : Pass<"test-memory-dependence-analysis"> {
   let summary = "Test pass for memory dependence analysis";
   let description = [{

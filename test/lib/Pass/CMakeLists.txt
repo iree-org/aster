@@ -11,6 +11,7 @@ add_mlir_library(ASTERTestPass
   TestLivenessAnalysis.cpp
   TestAMDGCNRangeAnalysis.cpp
   TestBufferAnalysis.cpp
+  TestReachingDefinitions.cpp
   TestLDSInterferenceGraph.cpp
   TestLDSMultibufferPrep.cpp
   TestMemoryDependenceAnalysis.cpp
