@@ -3,6 +3,7 @@ add_mlir_library(
   BufferAnalysis.cpp
   LDSInterferenceGraph.cpp
   RangeConstraintAnalysis.cpp
+  ReachingDefinitions.cpp
   RegisterInterferenceGraph.cpp
   WaitAnalysis.cpp
 
