@@ -80,6 +80,7 @@ def run_kittens_kernel(
         block_dim=(64, 1, 1),
         num_iterations=run_config.num_iterations,
         skip_on_cross_compile=True,
+        print_ir_after_all=True,
     )
 
 

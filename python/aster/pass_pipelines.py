@@ -130,6 +130,8 @@ PHASE_CONVERT_LDS_BUFFERS = (
 PHASE_LOWER_TO_AMDGCN = (
     "aster-to-int-arith",
     "aster-optimize-arith",
+    "canonicalize", "cse",
+    "aster-resolve-any-iter-args",
     "aster-amdgcn-set-abi", # "func.func(aster-amdgcn-set-abi)",
     # Convert SCF control flow to AMDGCN control flow
     # Note: control flow support is very limited atm, add NORMAL FORMS
@@ -238,6 +240,7 @@ def test_scf_pipelining_pass_pipeline(gcd_unroll=False):
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
         phase_scf_pipelining(gcd_unroll=gcd_unroll),
+        "aster-destructure-struct-iter-args", "canonicalize", "cse",
         PHASE_SROA,
         POST_SROA_CLEANUPS,
         "amdgcn-lds-alloc",

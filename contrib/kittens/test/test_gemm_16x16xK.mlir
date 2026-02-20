@@ -1,7 +1,10 @@
 // Kittens GEMM kernel with scf.for K-loop: C = A @ B^T
 // A: 16xK (f16), B: 16xK (f16), C: 16x16 (f32)
 // Uses scf.for loop with iter_args for arbitrary K (must be divisible by 16)
-// Emits actual loop code with branch instructions (NOT compile-time unrolled)
+//
+// Loads at sched.stage=0, compute at sched.stage=4.
+// The SCF pipeliner generates the prefetch prologue and drain epilogue
+// automatically, giving 4 iterations of load-compute overlap.
 //
 // Template parameters:
 //   {{K}}         - K dimension (e.g., 32, 64, 128)
@@ -51,18 +54,21 @@ amdgcn.module @kittens_gemm_16x16xK target = #amdgcn.target<gfx942> isa = #amdgc
     // Initialize accumulator to zero
     %C_init = func.call @zero_C() : () -> !rt_C_f32
 
-    // K-loop with iter_args to carry accumulator across iterations
-    // No {aster.constexpr} - emits actual loop with branch instructions
+    // K-loop: loads at stage 0, compute at stage 4.
+    // The pipeliner will peel 4 prologue iterations (loads only)
+    // and 4 epilogue iterations (compute only).
     %C_final = scf.for %k = %c0 to %K_tiles step %c1 iter_args(%acc = %C_init) -> (!rt_C_f32) {
-      // k_offset = k * 16 (column offset in elements)
       %k_offset = arith.muli %k, %c16 : index
 
-      // Load A[0:16, k*16:(k+1)*16] and B[0:16, k*16:(k+1)*16]
-      %A_fut = func.call @load_A_f16(%A_ptr, %c0, %k_offset, %stride_AB) : (!sx2, index, index, index) -> !future_global_read
-      %B_fut = func.call @load_B_f16(%B_ptr, %c0, %k_offset, %stride_AB) : (!sx2, index, index, index) -> !future_global_read
+      // Stage 0: issue loads
+      %A_fut = func.call @load_A_f16(%A_ptr, %c0, %k_offset, %stride_AB)
+          {sched.stage = 0 : i32} : (!sx2, index, index, index) -> !future_global_read
+      %B_fut = func.call @load_B_f16(%B_ptr, %c0, %k_offset, %stride_AB)
+          {sched.stage = 0 : i32} : (!sx2, index, index, index) -> !future_global_read
 
-      // MFMA: acc += A_tile @ B_tile^T (waits for loads internally)
-      %new_acc = func.call @mfma_f32_16x16x16_f16_future(%A_fut, %B_fut, %acc) : (!future_global_read, !future_global_read, !rt_C_f32) -> !rt_C_f32
+      // Stage 4: wait + MFMA (consumes futures from 4 iterations ago)
+      %new_acc = func.call @mfma_f32_16x16x16_f16_future(%A_fut, %B_fut, %acc)
+          {sched.stage = 4 : i32} : (!future_global_read, !future_global_read, !rt_C_f32) -> !rt_C_f32
 
       scf.yield %new_acc : !rt_C_f32
     }
