@@ -25,6 +25,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
 #include "aster/Transforms/Passes.h"
 #include "aster/Transforms/Transforms.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Utils/Utils.h"
@@ -393,10 +394,11 @@ static Value getOrCreateStageIV(int64_t stage, const LoopPipelineInfo &info,
   auto &iv = cache[stage];
   if (!iv) {
     Location loc = kernelLoop.getLoc();
-    Value offset =
-        arith::ConstantIndexOp::create(builder, loc, stage * info.step);
-    iv = arith::SubIOp::create(builder, loc, kernelLoop.getInductionVar(),
-                               offset);
+    // iv = kernelIV - stage * step
+    auto map =
+        AffineMap::get(1, 0, builder.getAffineDimExpr(0) - stage * info.step);
+    iv = affine::AffineApplyOp::create(builder, loc, map,
+                                       kernelLoop.getInductionVar());
   }
   return iv;
 }
@@ -607,9 +609,8 @@ static void emitEpilogue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
       // IV = ub - (stage - epilogueStage + 1) * step
       // Works for both constant and dynamic upper bounds.
       int64_t offset = (stage - epilogueStage + 1) * info.step;
-      Value iv = arith::SubIOp::create(
-          builder, loc, ubValue,
-          arith::ConstantIndexOp::create(builder, loc, offset));
+      auto map = AffineMap::get(1, 0, builder.getAffineDimExpr(0) - offset);
+      Value iv = affine::AffineApplyOp::create(builder, loc, map, ubValue);
       cloneIntoPrologueOrEpilogue(builder, op, originalForOp, iv, info,
                                   perStageMappings[origIter], epilogueMapping);
     }
@@ -736,6 +737,7 @@ void SCFPipelineAsterSchedPass::runOnOperation() {
   if (walkResult.wasInterrupted())
     return signalPassFailure();
 
+  // TODO: consider adding a Duff device if it helps regalloc + nowait.
   for (auto [loop, factor] : loopsToUnroll) {
     if (failed(mlir::loopUnrollByFactor(loop, factor)))
       return signalPassFailure();

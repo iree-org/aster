@@ -24,7 +24,7 @@
 // CHECK:         %[[K_V:.*]] = amdgcn.test_inst outs %{{.*}}
 
 // Stage 1: adjusted IV = kernelIV - step
-// CHECK:         %[[ADJ:.*]] = arith.subi %[[KI]],
+// CHECK:         %[[ADJ:.*]] = affine.apply {{.*}}(%[[KI]])
 // CHECK:         arith.index_cast %[[ADJ]] : index to i32
 // CHECK:         amdgcn.test_inst outs %{{.*}} ins %[[ARG]]
 // CHECK:         scf.yield %[[K_V]] : !amdgcn.vgpr
@@ -68,7 +68,7 @@ func.func @iv_in_stage1() {
 // CHECK:         %[[K_V:.*]] = amdgcn.test_inst outs %{{.*}}
 
 // Stage 1: adjusted IV = kernelIV - step
-// CHECK:         %[[ADJ:.*]] = arith.subi %[[KI]],
+// CHECK:         %[[ADJ:.*]] = affine.apply {{.*}}(%[[KI]])
 // CHECK:         arith.index_cast %[[ADJ]] : index to i32
 // CHECK:         amdgcn.test_inst outs %{{.*}} ins %[[ARG]]
 // CHECK:         scf.yield %[[K_V]] : !amdgcn.vgpr
@@ -139,12 +139,12 @@ func.func @iv_in_both_stages() {
 // CHECK:         %[[K_V:.*]] = amdgcn.test_inst
 
 // Stage 1: uses kernelIV - step, reads iter_arg A0
-// CHECK:         %[[ADJ1:.*]] = arith.subi %[[KI]],
+// CHECK:         %[[ADJ1:.*]] = affine.apply {{.*}}(%[[KI]])
 // CHECK:         arith.index_cast %[[ADJ1]] : index to i32
 // CHECK:         %[[K_W:.*]] = amdgcn.test_inst outs %{{.*}} ins %[[A0]]
 
 // Stage 2: uses kernelIV - 2*step, reads iter_arg A1
-// CHECK:         %[[ADJ2:.*]] = arith.subi %[[KI]],
+// CHECK:         %[[ADJ2:.*]] = affine.apply {{.*}}(%[[KI]])
 // CHECK:         arith.index_cast %[[ADJ2]] : index to i32
 // CHECK:         amdgcn.test_inst outs %{{.*}} ins %[[A1]]
 // CHECK:         scf.yield %[[K_V]], %[[K_W]] : !amdgcn.vgpr, !amdgcn.vgpr
@@ -199,8 +199,7 @@ func.func @iv_three_stages() {
 // CHECK:         arith.index_cast %[[KI]] : index to i32
 
 // Stage 1: adjusted IV = kernelIV - 2 (step=2, stage=1, so offset = 1*2 = 2)
-// CHECK:         %[[C2:.*]] = arith.constant 2 : index
-// CHECK:         %[[ADJ:.*]] = arith.subi %[[KI]], %[[C2]]
+// CHECK:         %[[ADJ:.*]] = affine.apply {{.*}}(%[[KI]])
 // CHECK:         arith.index_cast %[[ADJ]] : index to i32
 // CHECK:         scf.yield
 

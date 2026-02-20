@@ -67,11 +67,11 @@ func.func @gap_0_3_static_ub() {
 // CHECK:         scf.yield
 
 // Epilogue: three consume ops
-// CHECK:       arith.subi %[[UB]],
+// CHECK:       affine.apply {{.*}}(%[[UB]])
 // CHECK:       amdgcn.test_inst outs %[[S1]] ins
-// CHECK:       arith.subi %[[UB]],
+// CHECK:       affine.apply {{.*}}(%[[UB]])
 // CHECK:       amdgcn.test_inst outs %[[S1]] ins
-// CHECK:       arith.subi %[[UB]],
+// CHECK:       affine.apply {{.*}}(%[[UB]])
 // CHECK:       amdgcn.test_inst outs %[[S1]] ins
 // CHECK:       return
 

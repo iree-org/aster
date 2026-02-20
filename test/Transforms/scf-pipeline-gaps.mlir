@@ -49,7 +49,7 @@ func.func @gap_0_2() {
 // CHECK:         arith.index_cast
 // CHECK:         %[[K_V:.*]] = amdgcn.test_inst outs %[[S0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
 // Stage 2: IV adjusted by -2, index_cast + consume oldest
-// CHECK:         arith.subi
+// CHECK:         affine.apply
 // CHECK:         arith.index_cast
 // CHECK:         amdgcn.test_inst outs %[[S1:.*]] ins %[[A2]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
 // CHECK:         scf.yield %[[K_V]], %[[A1]] : !amdgcn.vgpr, !amdgcn.vgpr

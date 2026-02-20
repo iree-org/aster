@@ -64,6 +64,10 @@ PHASE_SCF_PIPELINING = (
     "aster-scf-pipeline",
 )
 
+PHASE_SCF_PIPELINING_GCD_UNROLL = (
+    "aster-scf-pipeline{gcd-unroll=true}",
+)
+
 # Cleanup after scheduling or initially if scheduling is skipped
 PHASE_POST_SCHEDULING_CLEANUP = (
     "aster-selective-inlining{allow-scheduled-calls=true}",
