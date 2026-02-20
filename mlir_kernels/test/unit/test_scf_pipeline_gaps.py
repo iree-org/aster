@@ -6,13 +6,22 @@ expected values.
 """
 
 import numpy as np
-from aster.pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
+import pytest
+from aster.pass_pipelines import (
+    TEST_SCF_PIPELINING_PASS_PIPELINE,
+    test_scf_pipelining_pass_pipeline as _scf_pipeline,
+)
 
 from aster.testing import compile_and_run
 
 MLIR_FILE = "test_scf_pipeline_gaps.mlir"
 BLOCK = (64, 1, 1)
 NO_LIBS = []
+
+PIPELINES = [
+    pytest.param(TEST_SCF_PIPELINING_PASS_PIPELINE, id="default"),
+    pytest.param(_scf_pipeline(gcd_unroll=True), id="gcd-unroll"),
+]
 
 
 class TestGap02:
@@ -22,7 +31,8 @@ class TestGap02:
     Expected: output[i] = i * 3.
     """
 
-    def test_gap_0_2(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_gap_0_2(self, pipeline):
         num_iters = 8
         output = np.zeros(num_iters, dtype=np.int32)
         compile_and_run(
@@ -30,7 +40,7 @@ class TestGap02:
             "test_gap_0_2",
             output_data=output,
             block_dim=BLOCK,
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=NO_LIBS,
         )
         expected = np.arange(num_iters, dtype=np.int32) * 3
@@ -45,7 +55,8 @@ class TestGap03:
     Expected: output[i] = i * 5.
     """
 
-    def test_gap_0_3(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_gap_0_3(self, pipeline):
         num_iters = 8
         output = np.zeros(num_iters, dtype=np.int32)
         compile_and_run(
@@ -53,7 +64,7 @@ class TestGap03:
             "test_gap_0_3",
             output_data=output,
             block_dim=BLOCK,
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=NO_LIBS,
         )
         expected = np.arange(num_iters, dtype=np.int32) * 5
@@ -67,7 +78,8 @@ class TestGap025:
     Expected: output[i] = i + 10.
     """
 
-    def test_gap_0_2_5(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_gap_0_2_5(self, pipeline):
         num_iters = 10
         output = np.zeros(num_iters, dtype=np.int32)
         compile_and_run(
@@ -75,7 +87,7 @@ class TestGap025:
             "test_gap_0_2_5",
             output_data=output,
             block_dim=BLOCK,
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=NO_LIBS,
         )
         expected = np.arange(num_iters, dtype=np.int32) + 10
@@ -89,21 +101,22 @@ class TestGap02IterArgs:
     6 iterations, init 0 -> final 42.
     """
 
-    def test_gap_0_2_iter_args(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_gap_0_2_iter_args(self, pipeline):
         output = np.zeros(1, dtype=np.int32)
         compile_and_run(
             MLIR_FILE,
             "test_gap_0_2_iter_args",
             output_data=output,
             block_dim=BLOCK,
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=NO_LIBS,
         )
         assert output[0] == 42, f"expected 42, got {output[0]}"
 
 
 if __name__ == "__main__":
-    TestGap02().test_gap_0_2()
-    TestGap03().test_gap_0_3()
-    TestGap025().test_gap_0_2_5()
-    TestGap02IterArgs().test_gap_0_2_iter_args()
+    TestGap02().test_gap_0_2(TEST_SCF_PIPELINING_PASS_PIPELINE)
+    TestGap03().test_gap_0_3(TEST_SCF_PIPELINING_PASS_PIPELINE)
+    TestGap025().test_gap_0_2_5(TEST_SCF_PIPELINING_PASS_PIPELINE)
+    TestGap02IterArgs().test_gap_0_2_iter_args(TEST_SCF_PIPELINING_PASS_PIPELINE)

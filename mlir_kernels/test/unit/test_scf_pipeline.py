@@ -10,9 +10,18 @@ despite being spread across prologue, kernel, and epilogue sections.
 """
 
 import numpy as np
-from aster.pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
+import pytest
+from aster.pass_pipelines import (
+    TEST_SCF_PIPELINING_PASS_PIPELINE,
+    test_scf_pipelining_pass_pipeline as _scf_pipeline,
+)
 
 from aster.testing import compile_and_run
+
+PIPELINES = [
+    pytest.param(TEST_SCF_PIPELINING_PASS_PIPELINE, id="default"),
+    pytest.param(_scf_pipeline(gcd_unroll=True), id="gcd-unroll"),
+]
 
 
 class TestScfPipelineTwoStageNoIV:
@@ -26,14 +35,15 @@ class TestScfPipelineTwoStageNoIV:
     Expected output[0] = 42.
     """
 
-    def test_two_stage_no_iv(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_two_stage_no_iv(self, pipeline):
         output = np.zeros(1, dtype=np.int32)
         compile_and_run(
             "test_scf_pipeline.mlir",
             "test_two_stage_no_iv",
             output_data=output,
             block_dim=(64, 1, 1),
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=[],
         )
         expected = np.array([42], dtype=np.int32)
@@ -50,7 +60,8 @@ class TestScfPipelineTwoStageIVS0Only:
     Expected output[i] = i * 4.
     """
 
-    def test_two_stage_iv_s0_only(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_two_stage_iv_s0_only(self, pipeline):
         num_iters = 8
         output = np.zeros(num_iters, dtype=np.int32)
         compile_and_run(
@@ -58,7 +69,7 @@ class TestScfPipelineTwoStageIVS0Only:
             "test_two_stage_iv_s0_only",
             output_data=output,
             block_dim=(64, 1, 1),
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=[],
         )
         expected = np.arange(num_iters, dtype=np.int32) * 4
@@ -74,7 +85,8 @@ class TestScfPipelineTwoStageIVDep:
     Expected output[i] = i * 3.
     """
 
-    def test_two_stage_iv_dep(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_two_stage_iv_dep(self, pipeline):
         num_iters = 8
         output = np.zeros(num_iters, dtype=np.int32)
         compile_and_run(
@@ -82,7 +94,7 @@ class TestScfPipelineTwoStageIVDep:
             "test_two_stage_iv_dep",
             output_data=output,
             block_dim=(64, 1, 1),
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=[],
         )
         expected = np.arange(num_iters, dtype=np.int32) * 3
@@ -101,7 +113,8 @@ class TestScfPipelineFiveStage:
     Expected output[i] = i + 111.
     """
 
-    def test_five_stage(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_five_stage(self, pipeline):
         num_iters = 10
         output = np.zeros(num_iters, dtype=np.int32)
         compile_and_run(
@@ -109,7 +122,7 @@ class TestScfPipelineFiveStage:
             "test_five_stage",
             output_data=output,
             block_dim=(64, 1, 1),
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=[],
         )
         expected = np.arange(num_iters, dtype=np.int32) + 111
@@ -117,7 +130,13 @@ class TestScfPipelineFiveStage:
 
 
 if __name__ == "__main__":
-    TestScfPipelineTwoStageNoIV().test_two_stage_no_iv()
-    TestScfPipelineTwoStageIVS0Only().test_two_stage_iv_s0_only()
-    TestScfPipelineTwoStageIVDep().test_two_stage_iv_dep()
-    TestScfPipelineFiveStage().test_five_stage()
+    TestScfPipelineTwoStageNoIV().test_two_stage_no_iv(
+        TEST_SCF_PIPELINING_PASS_PIPELINE
+    )
+    TestScfPipelineTwoStageIVS0Only().test_two_stage_iv_s0_only(
+        TEST_SCF_PIPELINING_PASS_PIPELINE
+    )
+    TestScfPipelineTwoStageIVDep().test_two_stage_iv_dep(
+        TEST_SCF_PIPELINING_PASS_PIPELINE
+    )
+    TestScfPipelineFiveStage().test_five_stage(TEST_SCF_PIPELINING_PASS_PIPELINE)

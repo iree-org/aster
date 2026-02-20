@@ -60,13 +60,12 @@ PHASE_SCHEDULING = (
     "aster-op-scheduling",
 )
 
-PHASE_SCF_PIPELINING = (
-    "aster-scf-pipeline",
-)
+def phase_scf_pipelining(gcd_unroll=False):
+    if gcd_unroll:
+        return ("aster-scf-pipeline{gcd-unroll=true}",)
+    return ("aster-scf-pipeline",)
 
-PHASE_SCF_PIPELINING_GCD_UNROLL = (
-    "aster-scf-pipeline{gcd-unroll=true}",
-)
+PHASE_SCF_PIPELINING = phase_scf_pipelining()
 
 # Cleanup after scheduling or initially if scheduling is skipped
 PHASE_POST_SCHEDULING_CLEANUP = (
@@ -265,27 +264,30 @@ TEST_LOOP_PASS_PIPELINE = builtin_module(
 )
 
 # Loop pipelining pass pipeline
-TEST_SCF_PIPELINING_PASS_PIPELINE = builtin_module(
-    PHASE_PRE_SCHEDULING_CLEANUP,
-    PHASE_SCF_PIPELINING,
-    PHASE_SROA,
-    POST_SROA_CLEANUPS,
-    "amdgcn-lds-alloc",
-    PHASE_CONVERT_LDS_BUFFERS,
-    # Note: PHASE_CONVERT_WAITS must run before PHASE_LOWER_TO_AMDGCN because
-    # pipelined loops can have wait tokens as scf.for iter_args (cross-stage
-    # ds_write/global_load tokens). These must be lowered to waitcnts before
-    # amdgcn-convert-scf-control-flow turns them into cf block arguments, which
-    # would crash aster-codegen (write_token has no data layout).
-    PHASE_CONVERT_WAITS,
-    PHASE_LOWER_TO_AMDGCN,
-    PHASE_EXPAND_MD_OPS,
-    PHASE_LOWER_TO_AMDGCN,
-    # TODO: Explain what and why and integrate in the relevant phases.
-    amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-    PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION,
-    phase_nop_insertion(delays=0)
-)
+def test_scf_pipelining_pass_pipeline(gcd_unroll=False):
+    return builtin_module(
+        PHASE_PRE_SCHEDULING_CLEANUP,
+        phase_scf_pipelining(gcd_unroll=gcd_unroll),
+        PHASE_SROA,
+        POST_SROA_CLEANUPS,
+        "amdgcn-lds-alloc",
+        PHASE_CONVERT_LDS_BUFFERS,
+        # Note: PHASE_CONVERT_WAITS must run before PHASE_LOWER_TO_AMDGCN because
+        # pipelined loops can have wait tokens as scf.for iter_args (cross-stage
+        # ds_write/global_load tokens). These must be lowered to waitcnts before
+        # amdgcn-convert-scf-control-flow turns them into cf block arguments, which
+        # would crash aster-codegen (write_token has no data layout).
+        PHASE_CONVERT_WAITS,
+        PHASE_LOWER_TO_AMDGCN,
+        PHASE_EXPAND_MD_OPS,
+        PHASE_LOWER_TO_AMDGCN,
+        # TODO: Explain what and why and integrate in the relevant phases.
+        amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
+        PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION,
+        phase_nop_insertion(delays=0)
+    )
+
+TEST_SCF_PIPELINING_PASS_PIPELINE = test_scf_pipelining_pass_pipeline()
 
 # --------------------------------------------------------------------------- #
 # General pipelines for specific use cases

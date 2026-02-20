@@ -1,9 +1,18 @@
 """Unit tests for SCF pipeline with LDS double-buffering."""
 
 import numpy as np
-from aster.pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
+import pytest
+from aster.pass_pipelines import (
+    TEST_SCF_PIPELINING_PASS_PIPELINE,
+    test_scf_pipelining_pass_pipeline as _scf_pipeline,
+)
 
 from aster.testing import compile_and_run
+
+PIPELINES = [
+    pytest.param(TEST_SCF_PIPELINING_PASS_PIPELINE, id="default"),
+    pytest.param(_scf_pipeline(gcd_unroll=True), id="gcd-unroll"),
+]
 
 
 class TestLdsPipelinePassthrough:
@@ -17,14 +26,15 @@ class TestLdsPipelinePassthrough:
     Expected: output[0] = 42
     """
 
-    def test_lds_passthrough(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_lds_passthrough(self, pipeline):
         output = np.zeros(1, dtype=np.int32)
         compile_and_run(
             "test_scf_pipeline_lds.mlir",
             "test_lds_passthrough",
             output_data=output,
             block_dim=(64, 1, 1),
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=[],
         )
         expected = np.array([42], dtype=np.int32)
@@ -42,7 +52,8 @@ class TestLdsPipelineIVDep:
     Expected: output[i] = i * 7 for i in [0..8)
     """
 
-    def test_lds_iv_dep(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_lds_iv_dep(self, pipeline):
         num_iters = 8
         output = np.zeros(num_iters, dtype=np.int32)
         compile_and_run(
@@ -50,7 +61,7 @@ class TestLdsPipelineIVDep:
             "test_lds_iv_dep",
             output_data=output,
             block_dim=(64, 1, 1),
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=[],
         )
         expected = np.arange(num_iters, dtype=np.int32) * 7
@@ -68,14 +79,15 @@ class TestLdsPipelineAccum:
     Expected: output[0] = 18
     """
 
-    def test_lds_accum(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_lds_accum(self, pipeline):
         output = np.zeros(1, dtype=np.int32)
         compile_and_run(
             "test_scf_pipeline_lds.mlir",
             "test_lds_accum",
             output_data=output,
             block_dim=(64, 1, 1),
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=[],
         )
         assert output[0] == 18, f"expected 18, got {output[0]}"
@@ -94,7 +106,8 @@ class TestLdsPipelineSixStage:
 
     import pytest
 
-    def test_lds_six_stage(self):
+    @pytest.mark.parametrize("pipeline", PIPELINES)
+    def test_lds_six_stage(self, pipeline):
         num_iters = 10
         input_data = np.arange(num_iters, dtype=np.int32) * 11
         output = np.zeros(num_iters, dtype=np.int32)
@@ -104,14 +117,14 @@ class TestLdsPipelineSixStage:
             input_data=input_data,
             output_data=output,
             block_dim=(64, 1, 1),
-            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            pass_pipeline=pipeline,
             library_paths=[],
         )
         np.testing.assert_array_equal(output, input_data)
 
 
 if __name__ == "__main__":
-    TestLdsPipelinePassthrough().test_lds_passthrough()
-    TestLdsPipelineIVDep().test_lds_iv_dep()
-    TestLdsPipelineAccum().test_lds_accum()
-    TestLdsPipelineSixStage().test_lds_six_stage()
+    TestLdsPipelinePassthrough().test_lds_passthrough(TEST_SCF_PIPELINING_PASS_PIPELINE)
+    TestLdsPipelineIVDep().test_lds_iv_dep(TEST_SCF_PIPELINING_PASS_PIPELINE)
+    TestLdsPipelineAccum().test_lds_accum(TEST_SCF_PIPELINING_PASS_PIPELINE)
+    TestLdsPipelineSixStage().test_lds_six_stage(TEST_SCF_PIPELINING_PASS_PIPELINE)
