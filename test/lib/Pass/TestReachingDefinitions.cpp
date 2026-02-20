@@ -54,9 +54,14 @@ public:
 
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
     dataflow::loadBaselineAnalyses(solver);
-    solver.load<ReachingDefinitionsAnalysis>(
-        onlyLoads ? loadFilter : llvm::function_ref<bool(Operation *)>());
 
+    auto analysisOrFailure = ReachingDefinitionsAnalysis::create(
+        solver, op,
+        onlyLoads ? loadFilter : llvm::function_ref<bool(Operation *)>());
+    if (failed(analysisOrFailure)) {
+      op->emitError() << "IR is not in DPS normal form";
+      return signalPassFailure();
+    }
     if (failed(solver.initializeAndRun(op))) {
       op->emitError() << "Failed to run reaching definitions analysis";
       return signalPassFailure();

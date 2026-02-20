@@ -18,9 +18,11 @@
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
+using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 using namespace mlir::dataflow;
 
@@ -119,39 +121,65 @@ LogicalResult ReachingDefinitionsAnalysis::visitOperation(
   // Start with the state before this operation.
   ChangeResult changed = after->join(before);
 
+  auto _ = llvm::make_scope_exit([&]() { propagateIfChanged(after, changed); });
+
   // Only consider InstOpInterface effects.
-  if (auto instOp = dyn_cast<InstOpInterface>(op)) {
-    OperandRange operands = instOp.getInstOuts();
-    if (operands.empty())
-      return success();
-    int64_t startOperand = operands.getBeginOperandIndex();
+  auto instOp = dyn_cast<InstOpInterface>(op);
+  if (!instOp)
+    return success();
 
-    bool filterOut = definitionFilter && !definitionFilter(op);
-    for (OpOperand &operand :
-         op->getOpOperands().slice(startOperand, operands.size())) {
+  OperandRange operands = instOp.getInstOuts();
+  if (operands.empty())
+    return success();
 
-      // If the operand is a register with value semantics, return failure.
-      if (auto regTy = dyn_cast<RegisterTypeInterface>(operand.get().getType());
-          regTy && regTy.hasValueSemantics())
-        return failure();
+  int64_t startOperand = operands.getBeginOperandIndex();
+  bool filterOut = definitionFilter && !definitionFilter(op);
+  for (OpOperand &operand :
+       op->getOpOperands().slice(startOperand, operands.size())) {
 
-      // Get the allocas behind the operand.
-      FailureOr<ValueRange> allocas = getAllocasOrFailure(operand.get());
-      if (failed(allocas))
-        return failure();
+    assert((!isa<RegisterTypeInterface>(operand.get().getType()) ||
+            !cast<RegisterTypeInterface>(operand.get().getType())
+                 .hasValueSemantics()) &&
+           "IR is not in post-to-register-semantics DPS normal form");
 
-      // Kill previous definitions to this allocation, then add this
-      // definition.
-      for (Value alloc : *allocas) {
-        /// NOTE: That we always have to kill definitions, even if we are
-        /// filtering out.
-        changed |= after->killDefinitions(alloc);
-        if (filterOut)
-          continue;
-        changed |= after->addDefinition(Definition{alloc, operand});
-      }
+    // Get the allocas behind the operand.
+    FailureOr<ValueRange> allocas = getAllocasOrFailure(operand.get());
+    if (failed(allocas))
+      return failure();
+
+    // Kill previous definitions to this allocation, then add this definition.
+    for (Value alloc : *allocas) {
+      /// Note: we always have to kill definitions, even if we filter out.
+      changed |= after->killDefinitions(alloc);
+      if (filterOut)
+        continue;
+      changed |= after->addDefinition(Definition{alloc, operand});
     }
   }
-  propagateIfChanged(after, changed);
+
   return success();
+}
+
+/// Verify that all InstOpInterface `outs` operands in `root` are storage-
+/// semantic (not value-semantic). This is the post-to-register-semantics DPS
+/// normal form precondition.
+static LogicalResult
+verifyPostToRegisterSemanticsDPSNormalForm(Operation *root) {
+  WalkResult result = root->walk([](InstOpInterface instOp) -> WalkResult {
+    for (Value operand : instOp.getInstOuts()) {
+      auto regTy = dyn_cast<RegisterTypeInterface>(operand.getType());
+      if (regTy && regTy.hasValueSemantics())
+        return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return failure(result.wasInterrupted());
+}
+
+FailureOr<ReachingDefinitionsAnalysis *> ReachingDefinitionsAnalysis::create(
+    DataFlowSolver &solver, Operation *root,
+    llvm::function_ref<bool(Operation *)> definitionFilter) {
+  if (failed(verifyPostToRegisterSemanticsDPSNormalForm(root)))
+    return failure();
+  return solver.load<ReachingDefinitionsAnalysis>(definitionFilter);
 }

@@ -111,16 +111,32 @@ private:
 // ReachingDefinitionsAnalysis
 //===----------------------------------------------------------------------===//
 
-/// Dense forward dataflow analysis that tracks reaching definitions.
+/// Dense forward dataflow analysis that computes, at each program point, the
+/// set of DPS `outs` operands that may have last written to each allocation.
+///
+/// Precondition: the IR must be in post-bufferization DPS normal form (i.e.
+/// instructions write exclusively through side-effecting `outs` operands with
+/// no SSA results carrying register values). Such a precondition is guaranteed
+/// by the ToRegisterSemantics pass.
+///
+/// An optional `definitionFilter` controls which operations generate
+/// definitions. Filtered-out operations still kill previous definitions to
+/// their `outs` allocations (the write happens regardless), but do not add
+/// themselves to the reaching set. This enables queries like "which loads reach
+/// this point?" while preserving correct kill semantics for intervening
+/// non-load writes.
 class ReachingDefinitionsAnalysis
     : public dataflow::DenseForwardDataFlowAnalysis<ReachingDefinitionsState> {
-public:
   using Base = dataflow::DenseForwardDataFlowAnalysis<ReachingDefinitionsState>;
-  using Base::Base;
-  ReachingDefinitionsAnalysis(
-      DataFlowSolver &solver,
-      llvm::function_ref<bool(Operation *)> definitionFilter)
-      : Base(solver), definitionFilter(definitionFilter) {}
+
+public:
+  /// Verify the DPS normal form precondition on `root`, then load the analysis
+  /// into `solver`. Returns failure if any InstOpInterface `outs` operand has
+  /// value semantics (i.e. the IR has not been through ToRegisterSemantics).
+  /// The caller is responsible for calling `solver.initializeAndRun(root)`.
+  static FailureOr<ReachingDefinitionsAnalysis *>
+  create(DataFlowSolver &solver, Operation *root,
+         llvm::function_ref<bool(Operation *)> definitionFilter = {});
 
   /// Visit an operation and update the reaching definitions state.
   LogicalResult visitOperation(Operation *op,
@@ -131,6 +147,12 @@ public:
   void setToEntryState(ReachingDefinitionsState *lattice) override;
 
 private:
+  friend class ::mlir::DataFlowSolver;
+  ReachingDefinitionsAnalysis(
+      DataFlowSolver &solver,
+      llvm::function_ref<bool(Operation *)> definitionFilter)
+      : Base(solver), definitionFilter(definitionFilter) {}
+
   /// A filter function that determines if a definition should be tracked. This
   /// function should return true if the definition should be tracked, and false
   /// otherwise.
