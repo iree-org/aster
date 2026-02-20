@@ -188,26 +188,12 @@ FailureOr<ValueRange> mlir::aster::getAllocasOrFailure(Value value) {
   return failure();
 }
 
-static LogicalResult getInstUsedValuesImpl(InstOpInterface op,
-                                           LivenessCallback callback) {
-  for (Value value : op.getInstIns()) {
-    if (auto regTy = dyn_cast<RegisterTypeInterface>(value.getType());
-        regTy && regTy.hasValueSemantics()) {
-      callback(value);
-      continue;
-    }
-    FailureOr<ValueRange> allocas = getAllocasOrFailure(value);
-    if (failed(allocas))
-      return failure();
-    callback(*allocas);
-  }
-  return mlir::success();
-}
-
-static LogicalResult getInstDefinedValuesImpl(InstOpInterface op,
-                                              LivenessCallback callback) {
-  for (auto [out, res] : TiedInstOutsRange(op)) {
-    Value value = res ? res : out;
+/// For each value, call back with either the value itself (if it has value
+/// semantics) or its underlying allocas. Returns failure if a
+/// non-value-semantic value cannot be resolved to allocas.
+static LogicalResult forEachLivenessValue(ValueRange values,
+                                          LivenessCallback callback) {
+  for (Value value : values) {
     if (auto regTy = dyn_cast<RegisterTypeInterface>(value.getType());
         regTy && regTy.hasValueSemantics()) {
       callback(value);
@@ -224,7 +210,12 @@ static LogicalResult getInstDefinedValuesImpl(InstOpInterface op,
 LogicalResult mlir::aster::detail::livenessTransferFunctionImpl(
     InstOpInterface op, LivenessCallback insertCallback,
     LivenessCallback removeCallback, IsLiveCallback isLiveCallback) {
-  if (failed(getInstDefinedValuesImpl(op, removeCallback)))
+  // Def: for each tied (out, result) pair, remove the defined value.
+  SmallVector<Value, 4> definedValues;
+  for (auto [out, res] : TiedInstOutsRange(op))
+    definedValues.push_back(res ? res : out);
+  if (failed(forEachLivenessValue(definedValues, removeCallback)))
     return failure();
-  return getInstUsedValuesImpl(op, insertCallback);
+  // Use: for each ins operand, insert as live.
+  return forEachLivenessValue(op.getInstIns(), insertCallback);
 }
