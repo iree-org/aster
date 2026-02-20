@@ -27,12 +27,14 @@
 #include "aster/Transforms/Transforms.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Utils/Utils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/DebugLog.h"
+#include <numeric>
 
 namespace mlir::aster {
 #define GEN_PASS_DEF_SCFPIPELINEASTERSCHED
@@ -97,19 +99,24 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
                                  LoopPipelineInfo &info) {
   auto cstLb =
       originalForOp.getLowerBound().getDefiningOp<arith::ConstantIndexOp>();
-  auto cstUb =
-      originalForOp.getUpperBound().getDefiningOp<arith::ConstantIndexOp>();
   auto cstStep =
       originalForOp.getStep().getDefiningOp<arith::ConstantIndexOp>();
-  if (!cstLb || !cstUb || !cstStep)
+  if (!cstLb || !cstStep)
     return originalForOp.emitError(
-        "aster-scf-pipeline requires constant loop bounds");
+        "aster-scf-pipeline requires constant lower bound and step");
 
-  // Collect loop bounds and step.
+  // Collect loop bounds and step. Upper bound may be dynamic.
   info.lb = cast<IntegerAttr>(cstLb.getValue()).getInt();
-  info.ub = cast<IntegerAttr>(cstUb.getValue()).getInt();
   info.step = cast<IntegerAttr>(cstStep.getValue()).getInt();
-  info.numIters = (info.ub - info.lb + info.step - 1) / info.step;
+  auto cstUb =
+      originalForOp.getUpperBound().getDefiningOp<arith::ConstantIndexOp>();
+  if (cstUb) {
+    info.ub = cast<IntegerAttr>(cstUb.getValue()).getInt();
+    info.numIters = (info.ub - info.lb + info.step - 1) / info.step;
+  } else {
+    info.ub = -1;
+    info.numIters = -1;
+  }
 
   // Collect stage assignments, op program order, and maximum loop stage.
   info.maxStage = 0;
@@ -125,7 +132,8 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
     return success();
 
   // Check if the loop has enough iterations for the pipeline stages.
-  if (info.numIters <= info.maxStage)
+  // Skip when upper bound is dynamic (runtime responsibility).
+  if (info.numIters > 0 && info.numIters <= info.maxStage)
     return originalForOp.emitError("loop has ")
            << info.numIters << " iterations but needs at least "
            << info.maxStage + 1 << " for " << info.maxStage + 1
@@ -586,15 +594,22 @@ static void emitEpilogue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
     }
   }
 
+  Value ubValue = originalForOp.getUpperBound();
   for (int64_t epilogueStage = 1; epilogueStage <= info.maxStage;
        ++epilogueStage) {
     for (Operation *op : info.opOrder) {
       int64_t stage = info.stages.lookup(op);
       if (stage < epilogueStage)
         continue;
-      int64_t origIter = info.numIters - stage + epilogueStage - 1;
-      Value iv = arith::ConstantIndexOp::create(builder, loc,
-                                                info.lb + origIter * info.step);
+      int64_t origIter = info.numIters > 0
+                             ? info.numIters - stage + epilogueStage - 1
+                             : -(stage - epilogueStage + 1);
+      // IV = ub - (stage - epilogueStage + 1) * step
+      // Works for both constant and dynamic upper bounds.
+      int64_t offset = (stage - epilogueStage + 1) * info.step;
+      Value iv = arith::SubIOp::create(
+          builder, loc, ubValue,
+          arith::ConstantIndexOp::create(builder, loc, offset));
       cloneIntoPrologueOrEpilogue(builder, op, originalForOp, iv, info,
                                   perStageMappings[origIter], epilogueMapping);
     }
@@ -612,12 +627,25 @@ struct SCFPipelineAsterSchedPass
   void runOnOperation() override;
 };
 
+/// Compute the GCD of all distinct nonzero stage values in the loop.
+static int64_t computeStageGCD(const LoopPipelineInfo &info) {
+  int64_t g = 0;
+  for (auto [_, stage] : info.stages) {
+    if (stage > 0)
+      g = std::gcd(g, stage);
+  }
+  return g > 0 ? g : 1;
+}
+
 void SCFPipelineAsterSchedPass::runOnOperation() {
   // Prepare LDS buffers for multi-buffering before pipelining. This hoists
   // alloc_lds ops out of loops and adds rotating offset iter_args, so the
   // pipeliner sees only generic iter_args with no LDS-specific logic.
   if (failed(prepareLDSMultibuffers(getOperation())))
     return signalPassFailure();
+
+  // Collect kernel loops to unroll after the walk (unrolling mutates IR).
+  SmallVector<std::pair<scf::ForOp, int64_t>> loopsToUnroll;
 
   auto walkResult =
       getOperation()->walk([&](scf::ForOp originalForOp) -> WalkResult {
@@ -695,11 +723,23 @@ void SCFPipelineAsterSchedPass::runOnOperation() {
               epilogueMapping.lookupOrDefault(blockArg));
 
         originalForOp.erase();
+
+        if (gcdUnroll) {
+          int64_t factor = computeStageGCD(info);
+          if (factor > 1)
+            loopsToUnroll.push_back({kernelLoop, factor});
+        }
+
         return WalkResult::advance();
       });
 
   if (walkResult.wasInterrupted())
-    signalPassFailure();
+    return signalPassFailure();
+
+  for (auto [loop, factor] : loopsToUnroll) {
+    if (failed(mlir::loopUnrollByFactor(loop, factor)))
+      return signalPassFailure();
+  }
 }
 
 } // namespace
