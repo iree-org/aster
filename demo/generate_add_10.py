@@ -30,15 +30,17 @@ def build_add_10_module(ctx: ir.Context, num_add_instructions: int) -> builtin.M
                 # Allocate VGPRs with specific register numbers
                 res, lhs, rhs = [amdgcn.api.alloca_vgpr(reg=i) for i in range(10, 13)]
 
-                # Initialize registers with constants using v_mov_b32_e32
+                # Initialize registers with constants using v_mov_b32_e32.
+                # DPS ops write into the destination register and have no
+                # results; the alloca Values are the register handles.
                 int_type = ir.IntegerType.get_signless(32, ctx)
-                lhs = amdgcn.api.v_mov_b32_e32(lhs, arith.constant(int_type, 1))
-                rhs = amdgcn.api.v_mov_b32_e32(rhs, arith.constant(int_type, 2))
+                amdgcn.api.v_mov_b32_e32(lhs, arith.constant(int_type, 1))
+                amdgcn.api.v_mov_b32_e32(rhs, arith.constant(int_type, 2))
 
                 # Perform sequential adds using VOP2 v_add_u32, DPS style.
-                res = amdgcn.api.v_add_u32(res, lhs, rhs)
+                amdgcn.api.v_add_u32(res, lhs, rhs)
                 for _ in range(num_add_instructions - 1):
-                    res = amdgcn.api.v_add_u32(res, res, rhs)
+                    amdgcn.api.v_add_u32(res, res, rhs)
 
                 # If needed, could do a check of the value against an expected
                 # value and trap. See e.g. test/python/cdna/test_cdna.py
