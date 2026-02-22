@@ -10,6 +10,7 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
 #include "aster/Analysis/LivenessAnalysis.h"
+#include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -65,8 +66,7 @@ void RegisterInterferenceGraph::addEdges(Value lhs, Value rhs) {
   });
 }
 
-/// Helper function to sort and unique a list of values. This is used to
-/// optimize
+/// Helper function to sort and unique a list of values.
 static void sortAndUniqueValues(SmallVectorImpl<Value> &values) {
   llvm::sort(values, [](Value a1, Value a2) {
     return std::make_tuple(a1.getType().getTypeID().getAsOpaquePointer(),
@@ -216,6 +216,26 @@ LogicalResult RegisterInterferenceGraph::run(Operation *op,
                                              DataFlowSolver &solver) {
   LDBG() << "Running register interference analysis on operation: "
          << OpWithFlags(op, OpPrintingFlags().skipRegions());
+
+  // Pre-traverse to count the minimimun number of elements (sum of sizes for
+  // all constraints).
+  int64_t totalSize = 0;
+  for (const RangeConstraint &constraint : rangeAnalysis.getRanges())
+    totalSize += constraint.allocations.size();
+  rangeClasses.grow(totalSize);
+
+  // Set the leader for each range, and populate the equivalence classes.
+  for (const RangeConstraint &constraint : rangeAnalysis.getRanges()) {
+    NodeID leaderId = -1;
+    for (Value alloc : constraint.allocations) {
+      NodeID id = getOrCreateNodeId(alloc);
+      if (leaderId == -1)
+        leaderId = id;
+      else
+        rangeClasses.join(id, leaderId);
+    }
+  }
+
   // Walk the operation tree to build the interference graph.
   WalkResult result = op->walk([&](Operation *wOp) {
     if (op == wOp)
@@ -229,9 +249,14 @@ LogicalResult RegisterInterferenceGraph::run(Operation *op,
   if (result.wasInterrupted())
     return failure();
 
+  // Ensure rangeClasses has capacity for any nodes added during the walk.
+  if (values.size() > 0)
+    rangeClasses.grow(values.size());
+
   // Set the number of nodes and compress the graph.
   setNumNodes(values.size());
   compress();
+  rangeClasses.compress();
   LDBG_OS([&](raw_ostream &os) {
     os << "Register interference graph:\n";
     print(os);
@@ -239,10 +264,9 @@ LogicalResult RegisterInterferenceGraph::run(Operation *op,
   return success();
 }
 
-FailureOr<RegisterInterferenceGraph>
-RegisterInterferenceGraph::create(Operation *op, DataFlowSolver &solver,
-                                  SymbolTableCollection &symbolTable,
-                                  BuildMode buildMode) {
+FailureOr<RegisterInterferenceGraph> RegisterInterferenceGraph::create(
+    Operation *op, DataFlowSolver &solver, SymbolTableCollection &symbolTable,
+    const RangeConstraintAnalysis &rangeAnalysis, BuildMode buildMode) {
   // Load the register liveness analysis.
   solver.load<LivenessAnalysis>(symbolTable);
   mlir::dataflow::loadBaselineAnalyses(solver);
@@ -254,7 +278,7 @@ RegisterInterferenceGraph::create(Operation *op, DataFlowSolver &solver,
   }
 
   // Build the graph.
-  RegisterInterferenceGraph graph(buildMode);
+  RegisterInterferenceGraph graph(rangeAnalysis, buildMode);
   if (failed(graph.run(op, solver)))
     return failure();
 

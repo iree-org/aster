@@ -106,9 +106,8 @@ private:
 /// The allocator traverses nodes in breadth-first order and assigns registers.
 struct RegisterAllocator {
   using NodeId = RegisterInterferenceGraph::NodeID;
-  RegisterAllocator(RegisterInterferenceGraph &graph,
-                    const RangeConstraintAnalysis &analysis, MLIRContext *ctx)
-      : graph(graph), rangeAnalysis(analysis), rewriter(ctx) {}
+  RegisterAllocator(RegisterInterferenceGraph &graph, MLIRContext *ctx)
+      : graph(graph), rewriter(ctx) {}
 
   /// Run the allocator on all nodes, returns failure if an allocation request
   /// cannot be satisfied.
@@ -118,10 +117,9 @@ private:
   /// Collect the allocation constraints for the given node.
   LogicalResult collectConstraints(NodeId nodeId, ArrayRef<Value> nodes);
   /// Allocate memory for a register node.
-  LogicalResult alloc(Value alloca);
+  LogicalResult alloc(NodeId nodeId, Value alloca);
 
   RegisterInterferenceGraph &graph;
-  const RangeConstraintAnalysis &rangeAnalysis;
   AllocConstraints constraints;
   IRRewriter rewriter;
 };
@@ -267,14 +265,15 @@ LogicalResult RegisterAllocator::collectConstraints(NodeId nodeId,
   return success();
 }
 
-LogicalResult RegisterAllocator::alloc(Value alloca) {
+LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
   auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(alloca.getType());
   int64_t numRegs = 1;
   int64_t alignment = 1;
   ValueRange allocas = alloca;
   // If the alloca has a range constraint, use the constraint to allocate the
   // register.
-  if (const RangeConstraint *constraint = rangeAnalysis.lookup(alloca)) {
+  auto [rangeId, constraint] = graph.getRangeInfo(nodeId);
+  if (constraint) {
     numRegs = constraint->allocations.size();
     alignment = constraint->alignment;
     allocas = constraint->allocations;
@@ -336,7 +335,7 @@ LogicalResult RegisterAllocator::run(Operation *op) {
     });
 
     // Allocate the node.
-    if (failed(alloc(node)))
+    if (failed(alloc(i, node)))
       return failure();
 
     LDBG_OS([&](raw_ostream &os) {
@@ -545,24 +544,26 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
            << this->buildMode << "\"";
   }
 
-  // Create the dataflow solver and load the liveness analysis.
-  SymbolTableCollection symbolTable;
-  DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
-
-  // Create the interference graph.
-  FailureOr<RegisterInterferenceGraph> graph =
-      RegisterInterferenceGraph::create(funcOp, solver, symbolTable, buildMode);
-  if (failed(graph)) {
-    return funcOp.emitError() << "failed to create register interference graph";
-  }
   // Create the range constraint analysis.
   FailureOr<RangeConstraintAnalysis> rangeAnalysis =
       RangeConstraintAnalysis::create(funcOp);
   if (failed(rangeAnalysis))
     return funcOp.emitError() << "failed to run range constraint analysis";
 
+  // Create the dataflow solver and load the liveness analysis.
+  SymbolTableCollection symbolTable;
+  DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
+
+  // Create the interference graph.
+  FailureOr<RegisterInterferenceGraph> graph =
+      RegisterInterferenceGraph::create(funcOp, solver, symbolTable,
+                                        *rangeAnalysis, buildMode);
+  if (failed(graph)) {
+    return funcOp.emitError() << "failed to create register interference graph";
+  }
+
   // Create and run the register allocator.
-  RegisterAllocator allocator(*graph, *rangeAnalysis, funcOp->getContext());
+  RegisterAllocator allocator(*graph, funcOp->getContext());
   if (failed(allocator.run(funcOp)))
     return funcOp.emitError() << "failed to run register allocator";
 

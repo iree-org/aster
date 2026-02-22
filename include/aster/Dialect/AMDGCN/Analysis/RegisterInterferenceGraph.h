@@ -11,9 +11,12 @@
 #ifndef ASTER_DIALECT_AMDGCN_ANALYSIS_REGISTERINTERFERENCEGRAPH_H
 #define ASTER_DIALECT_AMDGCN_ANALYSIS_REGISTERINTERFERENCEGRAPH_H
 
+#include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
 #include "aster/Support/Graph.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/IntEqClasses.h"
+#include <optional>
 
 namespace mlir {
 class Operation;
@@ -31,11 +34,14 @@ struct RegisterInterferenceGraph : public Graph {
     Minimal, /// Build the minimal graph to meet the liveness requirements.
     Full,    /// Add extra edges to ensure graph transformations are safe.
   };
+
   /// Create the interference graph for the given operation.
   /// This will load and run LivenessAnalysis internally.
+  /// NOTE: Ranges will have consecutive node IDs, starting from 0.
   static FailureOr<RegisterInterferenceGraph>
   create(Operation *op, DataFlowSolver &solver,
          SymbolTableCollection &symbolTable,
+         const RangeConstraintAnalysis &rangeAnalysis,
          BuildMode buildMode = BuildMode::Minimal);
 
   /// Print the interference graph.
@@ -51,9 +57,18 @@ struct RegisterInterferenceGraph : public Graph {
   ArrayRef<Value> getValues() const { return values; }
   MutableArrayRef<Value> getValues() { return values; }
 
+  /// Get the range information for a node ID. For any node returns the leader
+  /// node ID and the range constraint.
+  std::pair<NodeID, const RangeConstraint *> getRangeInfo(NodeID nodeId) const {
+    NodeID rangeId = rangeClasses[nodeId];
+    return {rangeId, rangeAnalysis.getConstraintOrNull(rangeId)};
+  }
+
 private:
-  RegisterInterferenceGraph(BuildMode buildMode)
-      : Graph(/*directed=*/false), buildMode(buildMode) {}
+  RegisterInterferenceGraph(const RangeConstraintAnalysis &rangeAnalysis,
+                            BuildMode buildMode)
+      : Graph(/*directed=*/false), rangeAnalysis(rangeAnalysis),
+        buildMode(buildMode) {}
 
   /// Run the interference analysis on the given operation.
   LogicalResult run(Operation *op, DataFlowSolver &solver);
@@ -72,8 +87,14 @@ private:
   /// Get or create a node ID for an allocation.
   NodeID getOrCreateNodeId(Value allocation);
 
+  /// The allocations in the graph.
   SmallVector<Value> values;
+  /// Map from values to node IDs.
   llvm::DenseMap<Value, NodeID> valueToNodeId;
+  /// Range constraint analysis.
+  const RangeConstraintAnalysis &rangeAnalysis;
+  /// Equivalence classes for register ranges (leader = start element of range).
+  llvm::IntEqClasses rangeClasses;
   BuildMode buildMode;
 };
 
