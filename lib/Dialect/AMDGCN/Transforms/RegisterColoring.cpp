@@ -9,9 +9,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
+#include "aster/Dialect/AMDGCN/Analysis/ReachingDefinitions.h"
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/Builders.h"
@@ -107,8 +109,10 @@ private:
 /// The allocator traverses nodes in breadth-first order and assigns registers.
 struct RegisterAllocator {
   using NodeId = RegisterInterferenceGraph::NodeID;
-  RegisterAllocator(RegisterInterferenceGraph &graph, MLIRContext *ctx)
-      : graph(graph), rewriter(ctx) {}
+  RegisterAllocator(RegisterInterferenceGraph &graph,
+                    std::optional<IntEquivalenceClasses> &&coalescingClasses,
+                    MLIRContext *ctx)
+      : graph(graph), coalescingClasses(coalescingClasses), rewriter(ctx) {}
 
   /// Run the allocator on all nodes, returns failure if an allocation request
   /// cannot be satisfied.
@@ -122,6 +126,7 @@ private:
 
   RegisterInterferenceGraph &graph;
   AllocConstraints constraints;
+  std::optional<IntEquivalenceClasses> coalescingClasses;
   IRRewriter rewriter;
   /// Insertion point, updated as allocations are inserted.
   OpBuilder::InsertPoint ip;
@@ -246,24 +251,34 @@ LogicalResult RegisterAllocator::collectConstraints(NodeId nodeId,
                                                     ArrayRef<Value> nodes) {
   LDBG() << " Collecting constraints for node[" << nodeId
          << "]: " << nodes[nodeId];
-  for (auto [src, tgt] : graph.edges(nodeId)) {
-    LDBG() << "  Inspecting neighbor[" << tgt << "]: " << nodes[tgt];
-    Value tgtNode = nodes[tgt];
-    AMDGCNRegisterTypeInterface regTy =
-        dyn_cast<AMDGCNRegisterTypeInterface>(tgtNode.getType());
-    // Skip if the node is not a register type.
-    if (!regTy)
-      continue;
 
-    // Error if the node is a value register.
-    if (regTy.hasValueSemantics())
-      return emitError(tgtNode.getLoc()) << "found unexpected value register";
+  // Get the members of the coalescing class. Initialize the member array with
+  // the node id.
+  int32_t scratch = nodeId;
+  ArrayRef<int32_t> members(scratch);
+  if (coalescingClasses)
+    members = coalescingClasses->getMembers(nodeId, scratch);
 
-    // Skip if the node is not an allocated register.
-    if (!regTy.hasAllocatedSemantics())
-      continue;
+  for (int32_t member : members) {
+    for (auto [src, tgt] : graph.edges(member)) {
+      LDBG() << "  Inspecting neighbor[" << tgt << "]: " << nodes[tgt];
+      Value tgtNode = nodes[tgt];
+      AMDGCNRegisterTypeInterface regTy =
+          dyn_cast<AMDGCNRegisterTypeInterface>(tgtNode.getType());
+      // Skip if the node is not a register type.
+      if (!regTy)
+        continue;
 
-    constraints.insert(Allocation(regTy, 1));
+      // Error if the node is a value register.
+      if (regTy.hasValueSemantics())
+        return emitError(tgtNode.getLoc()) << "found unexpected value register";
+
+      // Skip if the node is not an allocated register.
+      if (!regTy.hasAllocatedSemantics())
+        continue;
+
+      constraints.insert(Allocation(regTy, 1));
+    }
   }
   return success();
 }
@@ -315,10 +330,12 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
     ip = rewriter.saveInsertionPoint();
 
     // Update the graph and the IR.
-    rewriter.replaceOp(allocaOp, cOp.getResult(0));
-    NodeId nodeId = graph.getNodeId(alloca);
-    assert(nodeId >= 0 && "node not found in graph");
-    graph.getValues()[nodeId] = newAlloca.getResult();
+    for (int32_t member : members) {
+      rewriter.replaceOp(graph.getValue(member).getDefiningOp(),
+                         cOp.getResult(0));
+      graph.getValues()[member] = newAlloca.getResult();
+      visited.insert(member);
+    }
   }
   return success();
 }
@@ -578,6 +595,8 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
   // Create the dataflow solver and load the liveness analysis.
   SymbolTableCollection symbolTable;
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
+  auto definitionFilter = [](Operation *op) { return isa<amdgcn::LoadOp>(op); };
+  solver.load<ReachingDefinitionsAnalysis>(definitionFilter);
 
   // Create the interference graph.
   FailureOr<RegisterInterferenceGraph> graph =
@@ -587,8 +606,14 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
     return funcOp.emitError() << "failed to create register interference graph";
   }
 
+  // Optionally optimize the graph and get the coalescing classes.
+  std::optional<IntEquivalenceClasses> coalescingClasses;
+  if (optimize)
+    coalescingClasses = optimizeGraph(funcOp, *graph, solver);
+
   // Create and run the register allocator.
-  RegisterAllocator allocator(*graph, funcOp->getContext());
+  RegisterAllocator allocator(*graph, std::move(coalescingClasses),
+                              funcOp->getContext());
   if (failed(allocator.run(funcOp)))
     return funcOp.emitError() << "failed to run register allocator";
 
