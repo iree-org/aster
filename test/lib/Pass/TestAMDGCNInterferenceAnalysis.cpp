@@ -13,7 +13,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "Passes.h"
+#include "aster/Dialect/AMDGCN/Analysis/ReachingDefinitions.h"
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
+#include "aster/Support/PrefixedOstream.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
@@ -55,7 +59,8 @@ struct TestAMDGCNInterferenceAnalysis
 
     // Walk through kernels and run analysis on each one.
     op->walk([&](FunctionOpInterface kernel) {
-      llvm::outs() << "// Function: " << kernel.getName() << "\n";
+      raw_prefixed_ostream os(llvm::outs(), "// ");
+      os << "Function: " << kernel.getName() << "\n";
 
       // Create the range constraint analysis.
       FailureOr<RangeConstraintAnalysis> rangeAnalysis =
@@ -68,17 +73,33 @@ struct TestAMDGCNInterferenceAnalysis
       // Create the interference graph.
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       SymbolTableCollection symbolTable;
+      auto definitionFilter = [](Operation *op) {
+        return isa<amdgcn::LoadOp>(op);
+      };
+      solver.load<ReachingDefinitionsAnalysis>(definitionFilter);
       FailureOr<RegisterInterferenceGraph> graph =
           RegisterInterferenceGraph::create(kernel, solver, symbolTable,
                                             *rangeAnalysis, buildMode);
       if (failed(graph)) {
-        kernel.emitError() << "Failed to build interference graph";
+        kernel.emitError() << "failed to build interference graph";
         return signalPassFailure();
       }
 
-      // Print the interference graph.
-      graph->print(llvm::outs());
-      llvm::outs() << "\n";
+      // Print the interference graph (and optionally the quotient after
+      // running optimizeGraph).
+      std::optional<IntEquivalenceClasses> eqClasses;
+      if (optimize)
+        eqClasses = optimizeGraph(kernel, *graph, solver);
+      if (eqClasses) {
+        graph->print(os);
+        os << "\n";
+        eqClasses->print(os);
+        os << "\n";
+        graph->print(os, *eqClasses);
+      } else {
+        graph->print(os);
+      }
+      os << "\n";
     });
   }
 };

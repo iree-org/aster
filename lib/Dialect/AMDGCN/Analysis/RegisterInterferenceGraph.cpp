@@ -15,6 +15,8 @@
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/IntEqClasses.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -305,6 +307,49 @@ void RegisterInterferenceGraph::print(raw_ostream &os) const {
     if (src > tgt)
       continue;
     os << "  " << src << " -- " << tgt << ";\n";
+  }
+  os << "}";
+}
+
+void RegisterInterferenceGraph::print(
+    raw_ostream &os, const IntEquivalenceClasses &eqClasses) const {
+  assert(isCompressed() && "Graph must be compressed before printing");
+  int64_t numNodes = sizeNodes();
+  if (numNodes == 0)
+    return;
+  os << "graph RegisterInterferenceQuotient {\n";
+  for (NodeID node : nodes()) {
+    int64_t classId = eqClasses[node];
+    // Skip nodes if their class was already printed.
+    // NOTE: This relies on the property that leaders in the compressed
+    // equivalence classes have the smallest class ID.
+    if (classId < node)
+      continue;
+    os << "  " << node << " [label=\"" << node << ", ";
+    values[node].printAsOperand(os, OpPrintingFlags());
+    os << "\"];\n";
+  }
+
+  // Print the edges.
+  DenseSet<std::pair<int32_t, int32_t>> printedEdges;
+  int32_t tmp;
+  for (NodeID node : nodes()) {
+    int64_t classId = eqClasses[node];
+    // Skip nodes if their class was already printed.
+    if (classId < node)
+      continue;
+    ArrayRef<int32_t> members = eqClasses.getMembers(classId, tmp);
+    for (int32_t member : members) {
+      for (auto [src, tgt] : edges(member)) {
+        NodeID srcId = eqClasses.getLeader(src);
+        NodeID tgtId = eqClasses.getLeader(tgt);
+        if (srcId > tgtId)
+          continue;
+        if (!printedEdges.insert({srcId, tgtId}).second)
+          continue;
+        os << "  " << srcId << " -- " << tgtId << ";\n";
+      }
+    }
   }
   os << "}";
 }

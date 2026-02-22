@@ -22,6 +22,7 @@ add_mlir_library(ASTERTestPass
 
   LINK_LIBS PUBLIC
   AMDGCNAnalysis
+  AMDGCNTransforms
   AMDGCNDialect
   ASTERAnalysis
   AsterTransforms

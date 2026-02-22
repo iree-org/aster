@@ -27,6 +27,8 @@ def TestAMDGCNInterferenceAnalysis : Pass<"test-amdgcn-interference-analysis"> {
   let options = [
     Option<"buildMode", "mode", "std::string", "\"minimal\"",
            "Graph build mode: \"minimal\" (default) or \"full\"">,
+    Option<"optimize", "optimize", "bool", "false",
+           "If true, run optimizeGraph on the graph and print the quotient graph">,
   ];
 }
 
