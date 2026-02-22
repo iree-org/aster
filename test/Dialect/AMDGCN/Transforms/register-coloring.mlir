@@ -1,24 +1,22 @@
 // RUN: aster-opt %s --amdgcn-register-coloring --cse --split-input-file | FileCheck %s
 
 // CHECK-LABEL:   amdgcn.kernel @range_allocations {
-// CHECK-DAG:       %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<0>
-// CHECK-DAG:       %[[VAL_1:.*]] = alloca : !amdgcn.vgpr<1>
-// CHECK-DAG:       %[[VAL_2:.*]] = alloca : !amdgcn.vgpr<6>
-// CHECK-DAG:       %[[VAL_3:.*]] = alloca : !amdgcn.vgpr<7>
-// CHECK-DAG:       %[[VAL_4:.*]] = alloca : !amdgcn.vgpr<2>
-// CHECK-DAG:       %[[VAL_5:.*]] = alloca : !amdgcn.vgpr<3>
-// CHECK-DAG:       %[[VAL_6:.*]] = alloca : !amdgcn.vgpr<4>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[VAL_6]], %[[VAL_0]] : (!amdgcn.vgpr<4>, !amdgcn.vgpr<0>) -> ()
-// CHECK:           test_inst outs %[[VAL_0]] : (!amdgcn.vgpr<0>) -> ()
-// CHECK-DAG:       %[[VAL_8:.*]] = alloca : !amdgcn.vgpr<5>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[VAL_8]], %[[VAL_1]] : (!amdgcn.vgpr<5>, !amdgcn.vgpr<1>) -> ()
-// CHECK:           test_inst outs %[[VAL_1]] : (!amdgcn.vgpr<1>) -> ()
-// CHECK:           %[[VAL_10:.*]] = make_register_range %[[VAL_6]], %[[VAL_8]] : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>
-// CHECK:           %[[VAL_11:.*]] = make_register_range %[[VAL_6]], %[[VAL_8]], %[[VAL_2]], %[[VAL_3]] : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
-// CHECK:           %[[VAL_12:.*]] = make_register_range %[[VAL_4]], %[[VAL_5]] : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
-// CHECK:           test_inst outs %[[VAL_10]] ins %[[VAL_12]] : (!amdgcn.vgpr<[4 : 6]>, !amdgcn.vgpr<[2 : 4]>) -> ()
-// CHECK:           test_inst ins %[[VAL_11]] : (!amdgcn.vgpr<[4 : 8]>) -> ()
-// CHECK:           test_inst ins %[[VAL_0]], %[[VAL_1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK-DAG:       %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<4>
+// CHECK-DAG:       %[[VAL_1:.*]] = alloca : !amdgcn.vgpr<5>
+// CHECK-DAG:       %[[VAL_2:.*]] = alloca : !amdgcn.vgpr<2>
+// CHECK-DAG:       %[[VAL_3:.*]] = alloca : !amdgcn.vgpr<3>
+// CHECK-DAG:       %[[VAL_4:.*]] = alloca : !amdgcn.vgpr<0>
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[VAL_4]], %[[VAL_0]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<4>) -> ()
+// CHECK:           test_inst outs %[[VAL_0]] : (!amdgcn.vgpr<4>) -> ()
+// CHECK-DAG:       %[[VAL_5:.*]] = alloca : !amdgcn.vgpr<1>
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[VAL_5]], %[[VAL_1]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<5>) -> ()
+// CHECK:           test_inst outs %[[VAL_1]] : (!amdgcn.vgpr<5>) -> ()
+// CHECK:           %[[VAL_6:.*]] = make_register_range %[[VAL_4]], %[[VAL_5]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:           %[[VAL_7:.*]] = make_register_range %[[VAL_4]], %[[VAL_5]], %[[VAL_2]], %[[VAL_3]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+// CHECK:           %[[VAL_8:.*]] = make_register_range %[[VAL_2]], %[[VAL_3]] : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+// CHECK:           test_inst outs %[[VAL_6]] ins %[[VAL_8]] : (!amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>) -> ()
+// CHECK:           test_inst ins %[[VAL_7]] : (!amdgcn.vgpr<[0 : 4]>) -> ()
+// CHECK:           test_inst ins %[[VAL_0]], %[[VAL_1]] : (!amdgcn.vgpr<4>, !amdgcn.vgpr<5>) -> ()
 // CHECK:           end_kernel
 // CHECK:         }
 amdgcn.kernel @range_allocations {

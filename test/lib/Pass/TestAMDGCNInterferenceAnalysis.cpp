@@ -57,12 +57,20 @@ struct TestAMDGCNInterferenceAnalysis
     op->walk([&](FunctionOpInterface kernel) {
       llvm::outs() << "// Function: " << kernel.getName() << "\n";
 
+      // Create the range constraint analysis.
+      FailureOr<RangeConstraintAnalysis> rangeAnalysis =
+          RangeConstraintAnalysis::create(kernel);
+      if (failed(rangeAnalysis)) {
+        kernel.emitError() << "failed to run range constraint analysis";
+        return signalPassFailure();
+      }
+
       // Create the interference graph.
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       SymbolTableCollection symbolTable;
       FailureOr<RegisterInterferenceGraph> graph =
           RegisterInterferenceGraph::create(kernel, solver, symbolTable,
-                                            buildMode);
+                                            *rangeAnalysis, buildMode);
       if (failed(graph)) {
         kernel.emitError() << "Failed to build interference graph";
         return signalPassFailure();

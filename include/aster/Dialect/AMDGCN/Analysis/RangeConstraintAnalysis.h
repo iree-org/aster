@@ -62,6 +62,17 @@ struct RangeConstraintAnalysis {
     return &constraints[it->second];
   }
 
+  /// Get the number of range constraints.
+  int64_t size() const { return constraints.size(); }
+
+  /// Get the range constraint for a given index. Returns nullptr if the index
+  /// is out of bounds.
+  const RangeConstraint *getConstraintOrNull(int64_t idx) const {
+    if (idx < 0 || idx >= static_cast<int64_t>(constraints.size()))
+      return nullptr;
+    return &constraints[idx];
+  }
+
 private:
   SmallVector<RangeConstraint> constraints;
   DenseMap<Value, int64_t> valueToConstraintIdx;
