@@ -38,6 +38,7 @@ def Legalizer : Pass<"aster-legalizer"> {
     "mlir::memref::MemRefDialect",
     "mlir::ptr::PtrDialect",
     "mlir::vector::VectorDialect",
+    "mlir::DLTIDialect",
     "aster::amdgcn::AMDGCNDialect"
   ];
 }

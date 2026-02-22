@@ -12,13 +12,18 @@
 #include "aster/CodeGen/Passes.h"
 
 #include "aster/Dialect/AMDGCN/CodeGen/CodeGen.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
+#include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/CSE.h"
@@ -85,5 +90,27 @@ void Legalizer::runOnOperation() {
             getOperation(), target,
             FrozenRewritePatternSet(std::move(conversionPatterns)), config)))
       return signalPassFailure();
+  }
+
+  // Attach AMDGCN pointer size data layout to the module.
+  // LDS (local) pointers are 32-bit, global pointers are 64-bit.
+  if (auto moduleOp = dyn_cast<ModuleOp>(op)) {
+    MLIRContext *ctx = &getContext();
+    auto rwAccess = amdgcn::AccessKind::ReadWrite;
+
+    auto localEntry = DataLayoutEntryAttr::get(
+        ptr::PtrType::get(ctx, amdgcn::AddressSpaceAttr::get(
+                                   ctx, amdgcn::AddressSpaceKind::Local,
+                                   rwAccess)),
+        ptr::SpecAttr::get(ctx, /*size=*/32, /*abi=*/32, /*preferred=*/32));
+
+    auto globalEntry = DataLayoutEntryAttr::get(
+        ptr::PtrType::get(ctx, amdgcn::AddressSpaceAttr::get(
+                                   ctx, amdgcn::AddressSpaceKind::Global,
+                                   rwAccess)),
+        ptr::SpecAttr::get(ctx, /*size=*/64, /*abi=*/64, /*preferred=*/64));
+
+    moduleOp->setAttr(DLTIDialect::kDataLayoutAttrName,
+                      DataLayoutSpecAttr::get(ctx, {localEntry, globalEntry}));
   }
 }

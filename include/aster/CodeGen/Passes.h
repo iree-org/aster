@@ -24,6 +24,8 @@ namespace mlir::aster {
 /// Generate the code for registering passes.
 #define GEN_PASS_REGISTRATION
 #include "aster/CodeGen/Passes.h.inc"
+/// Register the CodeGen pass pipeline.
+void registerCodeGenPassPipeline();
 } // namespace mlir::aster
 
 #endif // ASTER_CODEGEN_PASSES_H

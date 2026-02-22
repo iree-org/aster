@@ -387,8 +387,9 @@ void mlir::aster::lsir::populateCodeGenPatterns(CodeGenConverter &converter,
   // Configure the conversion target.
   target.addLegalDialect<lsir::LSIRDialect>();
   target.addIllegalDialect<arith::ArithDialect>();
-  target.addDynamicallyLegalOp<arith::ConstantOp>(
-      [&](arith::ConstantOp op) { return op.getType().isIntOrIndexOrFloat(); });
+  target.addDynamicallyLegalOp<arith::ConstantOp>([&](arith::ConstantOp op) {
+    return getElementTypeOrSelf(op.getType()).isIntOrIndexOrFloat();
+  });
   target.addDynamicallyLegalOp<RegConstraintOp>(
       [&](RegConstraintOp op) { return converter.isLegal(op); });
   target.addIllegalOp<aster_utils::AssumeRangeOp, lsir::FromRegOp,

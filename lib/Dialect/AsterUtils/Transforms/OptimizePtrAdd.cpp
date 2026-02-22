@@ -370,8 +370,17 @@ static void optimizePtrAddOp(ptr::PtrAddOp op, DataFlowSolver &solver) {
   // Analyze the offset expression.
   FailureOr<OffsetComponents> componentsOrErr =
       OffsetComponents::analyzeOffset(offset, solver);
-  if (failed(componentsOrErr))
+  if (failed(componentsOrErr)) {
+    // Analysis failed (e.g., offset not provably non-negative). Still convert
+    // to aster_utils.ptr_add with the whole offset as the dynamic component.
+    IRRewriter rewriter(op);
+    auto constOffsetAttr =
+        rewriter.getIntegerAttr(rewriter.getI64Type(), 0);
+    rewriter.replaceOpWithNewOp<aster_utils::PtrAddOp>(
+        op, op.getResult().getType(), op.getBase(), offset,
+        /*uniformOffset=*/nullptr, constOffsetAttr);
     return;
+  }
 
   OffsetComponents &components = *componentsOrErr;
   AffineMap offsetExpr = components.getOffsetExpression();
