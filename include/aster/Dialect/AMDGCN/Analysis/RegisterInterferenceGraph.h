@@ -60,8 +60,10 @@ struct RegisterInterferenceGraph : public Graph {
   /// Get the range information for a node ID. For any node returns the leader
   /// node ID and the range constraint.
   std::pair<NodeID, const RangeConstraint *> getRangeInfo(NodeID nodeId) const {
-    NodeID rangeId = rangeClasses[nodeId];
-    return {rangeId, rangeAnalysis.getConstraintOrNull(rangeId)};
+    if (nodeId >= static_cast<NodeID>(allocToRange.size()))
+      return {nodeId, nullptr};
+    NodeID rangeId = allocToRange[nodeId];
+    return {rangeLeaders[rangeId], rangeAnalysis.getConstraintOrNull(rangeId)};
   }
 
 private:
@@ -93,8 +95,11 @@ private:
   llvm::DenseMap<Value, NodeID> valueToNodeId;
   /// Range constraint analysis.
   const RangeConstraintAnalysis &rangeAnalysis;
-  /// Equivalence classes for register ranges (leader = start element of range).
-  llvm::IntEqClasses rangeClasses;
+  /// Map from allocations in ranges to range IDs.
+  SmallVector<NodeID> allocToRange;
+  /// Leaders for register ranges (leader = start element of range).
+  SmallVector<NodeID> rangeLeaders;
+  /// Build mode.
   BuildMode buildMode;
 };
 

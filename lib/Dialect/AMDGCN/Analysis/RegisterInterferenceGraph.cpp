@@ -217,22 +217,29 @@ LogicalResult RegisterInterferenceGraph::run(Operation *op,
   LDBG() << "Running register interference analysis on operation: "
          << OpWithFlags(op, OpPrintingFlags().skipRegions());
 
-  // Pre-traverse to count the minimimun number of elements (sum of sizes for
+  // Pre-traverse to count the number of elements (sum of sizes for
   // all constraints).
-  int64_t totalSize = 0;
-  for (const RangeConstraint &constraint : rangeAnalysis.getRanges())
-    totalSize += constraint.allocations.size();
-  rangeClasses.grow(totalSize);
+  {
+    int64_t numAllocInRanges = 0;
+    for (const RangeConstraint &constraint : rangeAnalysis.getRanges())
+      numAllocInRanges += constraint.allocations.size();
+    allocToRange.resize(numAllocInRanges);
+  }
+  rangeLeaders.reserve(rangeAnalysis.size());
 
-  // Set the leader for each range, and populate the equivalence classes.
-  for (const RangeConstraint &constraint : rangeAnalysis.getRanges()) {
-    NodeID leaderId = -1;
-    for (Value alloc : constraint.allocations) {
-      NodeID id = getOrCreateNodeId(alloc);
-      if (leaderId == -1)
-        leaderId = id;
-      else
-        rangeClasses.join(id, leaderId);
+  // Set the leader for each range and populate the allocToRange map.
+  {
+    int64_t allocId = 0;
+    for (const auto &[i, constraint] :
+         llvm::enumerate(rangeAnalysis.getRanges())) {
+      NodeID leaderId = -1;
+      for (Value alloc : constraint.allocations) {
+        NodeID id = getOrCreateNodeId(alloc);
+        if (leaderId == -1)
+          leaderId = id;
+        allocToRange[allocId++] = i;
+      }
+      rangeLeaders.push_back(leaderId);
     }
   }
 
@@ -249,14 +256,9 @@ LogicalResult RegisterInterferenceGraph::run(Operation *op,
   if (result.wasInterrupted())
     return failure();
 
-  // Ensure rangeClasses has capacity for any nodes added during the walk.
-  if (values.size() > 0)
-    rangeClasses.grow(values.size());
-
   // Set the number of nodes and compress the graph.
   setNumNodes(values.size());
   compress();
-  rangeClasses.compress();
   LDBG_OS([&](raw_ostream &os) {
     os << "Register interference graph:\n";
     print(os);
