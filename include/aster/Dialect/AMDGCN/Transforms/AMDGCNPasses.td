@@ -82,6 +82,8 @@ def RegisterColoring : Pass<"amdgcn-register-coloring"> {
   let options = [
     Option<"buildMode", "mode", "std::string", "\"minimal\"",
            "Graph build mode: \"minimal\" (default) or \"full\"">,
+    Option<"optimize", "optimize", "bool", "true",
+           "If true, run optimizeGraph to coalesce non-interfering nodes">,
   ];
 }
 

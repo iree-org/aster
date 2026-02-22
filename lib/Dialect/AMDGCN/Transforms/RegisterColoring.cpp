@@ -9,14 +9,17 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
+#include "aster/Dialect/AMDGCN/Analysis/ReachingDefinitions.h"
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -34,6 +37,7 @@ using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
 namespace {
+using EqClasses = llvm::EquivalenceClasses<int32_t>;
 static constexpr std::string_view kCastOpTag = "__amdgcn_register_coloring__";
 //===----------------------------------------------------------------------===//
 // RegisterColoring pass
@@ -107,8 +111,10 @@ private:
 /// The allocator traverses nodes in breadth-first order and assigns registers.
 struct RegisterAllocator {
   using NodeId = RegisterInterferenceGraph::NodeID;
-  RegisterAllocator(RegisterInterferenceGraph &graph, MLIRContext *ctx)
-      : graph(graph), rewriter(ctx) {}
+  RegisterAllocator(RegisterInterferenceGraph &graph,
+                    std::optional<CoalescingInfo> &&coalescingInfo,
+                    MLIRContext *ctx)
+      : graph(graph), coalescingInfo(coalescingInfo), rewriter(ctx) {}
 
   /// Run the allocator on all nodes, returns failure if an allocation request
   /// cannot be satisfied.
@@ -122,7 +128,9 @@ private:
 
   RegisterInterferenceGraph &graph;
   AllocConstraints constraints;
+  std::optional<CoalescingInfo> coalescingInfo;
   IRRewriter rewriter;
+  llvm::DenseSet<NodeId> visited;
   /// Insertion point, updated as allocations are inserted.
   OpBuilder::InsertPoint ip;
 };
@@ -246,24 +254,41 @@ LogicalResult RegisterAllocator::collectConstraints(NodeId nodeId,
                                                     ArrayRef<Value> nodes) {
   LDBG() << " Collecting constraints for node[" << nodeId
          << "]: " << nodes[nodeId];
-  for (auto [src, tgt] : graph.edges(nodeId)) {
-    LDBG() << "  Inspecting neighbor[" << tgt << "]: " << nodes[tgt];
-    Value tgtNode = nodes[tgt];
-    AMDGCNRegisterTypeInterface regTy =
-        dyn_cast<AMDGCNRegisterTypeInterface>(tgtNode.getType());
-    // Skip if the node is not a register type.
-    if (!regTy)
-      continue;
 
-    // Error if the node is a value register.
-    if (regTy.hasValueSemantics())
-      return emitError(tgtNode.getLoc()) << "found unexpected value register";
+  auto addConstraints = [&](NodeId node) -> LogicalResult {
+    for (auto [src, tgt] : graph.edges(node)) {
+      LDBG() << "  Inspecting neighbor[" << tgt << "]: " << nodes[tgt];
+      Value tgtNode = nodes[tgt];
+      AMDGCNRegisterTypeInterface regTy =
+          dyn_cast<AMDGCNRegisterTypeInterface>(tgtNode.getType());
+      // Skip if the node is not a register type.
+      if (!regTy)
+        continue;
 
-    // Skip if the node is not an allocated register.
-    if (!regTy.hasAllocatedSemantics())
-      continue;
+      // Error if the node is a value register.
+      if (regTy.hasValueSemantics())
+        return emitError(tgtNode.getLoc()) << "found unexpected value register";
 
-    constraints.insert(Allocation(regTy, 1));
+      // Skip if the node is not an allocated register.
+      if (!regTy.hasAllocatedSemantics())
+        continue;
+
+      constraints.insert(Allocation(regTy, 1));
+    }
+    return success();
+  };
+
+  // If there are no coalescing classes, just add the constraints for the node.
+  if (!coalescingInfo) {
+    if (failed(addConstraints(nodeId)))
+      return failure();
+    return success();
+  }
+
+  // Otherwise, add the constraints for all members of the coalescing class.
+  for (int32_t member : coalescingInfo->eqClasses.members(nodeId)) {
+    if (failed(addConstraints(member)))
+      return failure();
   }
   return success();
 }
@@ -275,7 +300,9 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
   ValueRange allocas = alloca;
   // If the alloca has a range constraint, use the constraint to allocate the
   // register.
-  auto [rangeId, constraint] = graph.getRangeInfo(nodeId);
+  auto [rangeId, constraint] = coalescingInfo
+                                   ? coalescingInfo->getRangeInfo(graph, nodeId)
+                                   : graph.getRangeInfo(nodeId);
   if (constraint) {
     numRegs = constraint->allocations.size();
     alignment = constraint->alignment;
@@ -289,8 +316,24 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
   if (failed(alloc))
     return emitError(alloca.getLoc()) << "failed to allocate the registers";
 
+  // Helper to update the IR, and allocator after allocation.
+  auto updateAllocator = [&](NodeId node, Value castValue, Value alloca) {
+    // Update the graph with the new value.
+    Value oldAlloca = std::exchange(graph.getValues()[node], alloca);
+
+    // Replace all uses of the old alloca with the new alloca.
+    rewriter.replaceAllUsesWith(oldAlloca, castValue);
+
+    // Make sure we mark the node as visited since we have already allocated it.
+    visited.insert(node);
+  };
+
   // Replace the alloca with the new alloca.
   for (auto [i, alloca] : llvm::enumerate(allocas)) {
+    // Get the node ID for the alloca, this is the the range leader + the index
+    // of the alloca in the range by construction.
+    NodeId node = rangeId + i;
+
     // Get the alloca and set the insertion point.
     auto allocaOp = cast<AllocaOp>(alloca.getDefiningOp());
 
@@ -314,11 +357,13 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
     rewriter.setInsertionPointAfter(newAlloca.getOperation());
     ip = rewriter.saveInsertionPoint();
 
-    // Update the graph and the IR.
-    rewriter.replaceOp(allocaOp, cOp.getResult(0));
-    NodeId nodeId = graph.getNodeId(alloca);
-    assert(nodeId >= 0 && "node not found in graph");
-    graph.getValues()[nodeId] = newAlloca.getResult();
+    // Update the IR and the allocator.
+    if (!coalescingInfo) {
+      updateAllocator(node, cOp.getResult(0), newAlloca);
+      continue;
+    }
+    for (int32_t member : coalescingInfo->eqClasses.members(node))
+      updateAllocator(member, cOp.getResult(0), newAlloca);
   }
   return success();
 }
@@ -340,7 +385,6 @@ LogicalResult RegisterAllocator::run(FunctionOpInterface op) {
   rewriter.setInsertionPointToStart(entryBlock);
   ip = rewriter.saveInsertionPoint();
 
-  llvm::DenseSet<NodeId> visited;
   ArrayRef<Value> nodes = graph.getValues();
   for (auto [i, node] : llvm::enumerate(nodes)) {
     // Skip already visited or allocated nodes.
@@ -578,6 +622,8 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
   // Create the dataflow solver and load the liveness analysis.
   SymbolTableCollection symbolTable;
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
+  auto definitionFilter = [](Operation *op) { return isa<amdgcn::LoadOp>(op); };
+  solver.load<ReachingDefinitionsAnalysis>(definitionFilter);
 
   // Create the interference graph.
   FailureOr<RegisterInterferenceGraph> graph =
@@ -587,8 +633,14 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
     return funcOp.emitError() << "failed to create register interference graph";
   }
 
+  // Optionally optimize the graph and get the coalescing classes.
+  std::optional<CoalescingInfo> coalescingInfo;
+  if (optimize)
+    coalescingInfo = CoalescingInfo::optimizeGraph(funcOp, *graph, solver);
+
   // Create and run the register allocator.
-  RegisterAllocator allocator(*graph, funcOp->getContext());
+  RegisterAllocator allocator(*graph, std::move(coalescingInfo),
+                              funcOp->getContext());
   if (failed(allocator.run(funcOp)))
     return funcOp.emitError() << "failed to run register allocator";
 

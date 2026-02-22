@@ -1,5 +1,5 @@
 // RUN: aster-opt %s --amdgcn-reg-alloc | FileCheck %s
-// RUN: aster-opt %s --amdgcn-reg-alloc=mode=full | FileCheck %s --check-prefix=CHECK-FULL
+// RUN: aster-opt %s --amdgcn-reg-alloc="mode=full optimize=false" | FileCheck %s --check-prefix=CHECK-FULL
 
 amdgcn.module @reg_alloc target = <gfx942> isa = <cdna3> {
   // CHECK-LABEL: reg_alloc
