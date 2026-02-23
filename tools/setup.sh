@@ -29,10 +29,10 @@ ASTER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # Detect worktree vs main repo
 if [ -d "$ASTER_DIR/.aster-wt-"* ] 2>/dev/null; then
     WORKTREE_NAME="$(basename "$ASTER_DIR")"
-    VENV_DIR="$ASTER_DIR/.aster-wt-$WORKTREE_NAME"
+    VIRTUAL_ENV="$ASTER_DIR/.aster-wt-$WORKTREE_NAME"
     VENV_PROMPT="aster-wt-$WORKTREE_NAME"
 else
-    VENV_DIR="$ASTER_DIR/.aster"
+    VIRTUAL_ENV="$ASTER_DIR/.aster"
     VENV_PROMPT="aster"
 fi
 
@@ -64,11 +64,13 @@ ask()   {
 # ---------------------------------------------------------------------------
 SKIP_LLVM=false
 LLVM_ONLY=false
+WITH_HIP=false
 
 for arg in "$@"; do
     case "$arg" in
         --skip-llvm) SKIP_LLVM=true ;;
         --llvm-only) LLVM_ONLY=true ;;
+        --with-hip)  WITH_HIP=true ;;
         --help|-h)
             echo "Usage: tools/setup.sh [OPTIONS]"
             echo ""
@@ -77,6 +79,7 @@ for arg in "$@"; do
             echo "Options:"
             echo "  --llvm-only   Only set up shared LLVM (skip ASTER build)"
             echo "  --skip-llvm   Skip LLVM verification (assume shared LLVM is correct)"
+            echo "  --with-hip    Install ROCm SDK and build with HIP support (Linux only)"
             echo "  --help        Show this help"
             echo ""
             echo "Environment variables (override defaults):"
@@ -403,11 +406,11 @@ fi
 # ---------------------------------------------------------------------------
 info "Phase 3: Python virtual environment"
 
-if [ -f "$VENV_DIR/bin/python" ]; then
-    ok "venv exists at $VENV_DIR"
+if [ -f "$VIRTUAL_ENV/bin/python" ]; then
+    ok "venv exists at $VIRTUAL_ENV"
 else
-    echo "  Creating venv at $VENV_DIR..."
-    if ! python3 -m venv --prompt "$VENV_PROMPT" "$VENV_DIR" 2>&1; then
+    echo "  Creating venv at $VIRTUAL_ENV..."
+    if ! python3 -m venv --prompt "$VENV_PROMPT" "$VIRTUAL_ENV" 2>&1; then
         err "Failed to create Python venv"
         echo ""
         echo "Common causes:"
@@ -435,22 +438,22 @@ else
 fi
 
 # Verify the venv python is functional
-if ! "$VENV_DIR/bin/python" -c "import sys" 2>/dev/null; then
-    err "venv python is broken at $VENV_DIR/bin/python"
+if ! "$VIRTUAL_ENV/bin/python" -c "import sys" 2>/dev/null; then
+    err "venv python is broken at $VIRTUAL_ENV/bin/python"
     echo ""
     echo "Fix: remove the venv and re-run:"
-    echo "  rm -rf $VENV_DIR"
+    echo "  rm -rf $VIRTUAL_ENV"
     echo "  tools/setup.sh"
     exit 1
 fi
 
 # Install/update requirements (skip if unchanged since last install)
-REQ_STAMP="$VENV_DIR/.requirements-stamp"
+REQ_STAMP="$VIRTUAL_ENV/.requirements-stamp"
 if [ -f "$REQ_STAMP" ] && [ "$REQ_STAMP" -nt "$ASTER_DIR/requirements.txt" ]; then
     ok "requirements up to date"
 else
     echo "  Installing requirements..."
-    if uv pip install --python "$VENV_DIR/bin/python" -r "$ASTER_DIR/requirements.txt" 2>&1; then
+    if uv pip install --python "$VIRTUAL_ENV/bin/python" -r "$ASTER_DIR/requirements.txt" 2>&1; then
         touch "$REQ_STAMP"
         ok "requirements installed"
     else
@@ -462,16 +465,108 @@ else
         echo "  - Missing system libraries for compiled packages"
         echo ""
         echo "Try manually:"
-        echo "  uv pip install --python $VENV_DIR/bin/python -r $ASTER_DIR/requirements.txt"
+        echo "  uv pip install --python $VIRTUAL_ENV/bin/python -r $ASTER_DIR/requirements.txt"
         echo ""
         echo "If uv fails, try with pip directly:"
-        echo "  $VENV_DIR/bin/pip install -r $ASTER_DIR/requirements.txt"
+        echo "  $VIRTUAL_ENV/bin/pip install -r $ASTER_DIR/requirements.txt"
         exit 1
     fi
 fi
 
+# Install ROCm SDK if --with-hip
+if [ "$WITH_HIP" = true ]; then
+    if [ "$(uname)" = "Darwin" ]; then
+        err "--with-hip is only supported on Linux (AMD GPUs require Linux + ROCm)"
+        echo ""
+        echo "On macOS, ASTER builds in cross-compile mode (no GPU execution)."
+        echo "Use a Linux machine with AMD GPUs for --with-hip."
+        exit 1
+    fi
+
+    # Find available ROCm requirements files
+    ROCM_REQ_FILES=()
+    for f in "$ASTER_DIR"/requirements-amd-*.txt; do
+        [ -f "$f" ] && ROCM_REQ_FILES+=("$f")
+    done
+
+    if [ ${#ROCM_REQ_FILES[@]} -eq 0 ]; then
+        err "No requirements-amd-*.txt files found in $ASTER_DIR"
+        echo "Expected files like requirements-amd-gfx94X.txt"
+        exit 1
+    fi
+
+    echo ""
+    echo "  Available ROCm SDK targets:"
+    for i in "${!ROCM_REQ_FILES[@]}"; do
+        BASENAME=$(basename "${ROCM_REQ_FILES[$i]}" .txt)
+        TARGET=${BASENAME#requirements-amd-}
+        echo "    $((i+1))) $TARGET"
+    done
+    echo ""
+    echo -n "  Which target? [1-${#ROCM_REQ_FILES[@]}] "
+    read -r ROCM_CHOICE
+
+    # Validate choice
+    if ! [[ "$ROCM_CHOICE" =~ ^[0-9]+$ ]] || [ "$ROCM_CHOICE" -lt 1 ] || [ "$ROCM_CHOICE" -gt ${#ROCM_REQ_FILES[@]} ]; then
+        err "Invalid choice: $ROCM_CHOICE"
+        exit 1
+    fi
+
+    ROCM_REQ="${ROCM_REQ_FILES[$((ROCM_CHOICE-1))]}"
+    ROCM_TARGET=$(basename "$ROCM_REQ" .txt)
+    ROCM_TARGET=${ROCM_TARGET#requirements-amd-}
+    info "Installing ROCm SDK for $ROCM_TARGET"
+
+    ROCM_STAMP="$VIRTUAL_ENV/.rocm-stamp-$ROCM_TARGET"
+    if [ -f "$ROCM_STAMP" ] && [ "$ROCM_STAMP" -nt "$ROCM_REQ" ]; then
+        ok "ROCm SDK ($ROCM_TARGET) already installed"
+    else
+        echo "  Installing ROCm SDK from $(head -1 "$ROCM_REQ" | sed 's/-i //')..."
+        echo "  This downloads ~2 GB of AMD GPU libraries."
+        echo ""
+        if uv pip install --python "$VIRTUAL_ENV/bin/python" -r "$ROCM_REQ" 2>&1; then
+            # Remove stamps for other targets (only one ROCm target at a time)
+            rm -f "$VIRTUAL_ENV"/.rocm-stamp-* 2>/dev/null
+            touch "$ROCM_STAMP"
+            ok "ROCm SDK ($ROCM_TARGET) installed"
+        else
+            err "Failed to install ROCm SDK"
+            echo ""
+            echo "Common causes:"
+            echo "  - Network issue (large download from AMD nightly index)"
+            echo "  - Platform mismatch (ROCm SDK is Linux x86_64 only)"
+            echo "  - Python version incompatibility"
+            echo ""
+            echo "Try manually:"
+            echo "  uv pip install --python $VIRTUAL_ENV/bin/python -r $ROCM_REQ"
+            exit 1
+        fi
+    fi
+
+    # Verify rocm-sdk is usable
+    if ! "$VIRTUAL_ENV/bin/python" -c "import rocm" 2>/dev/null; then
+        err "ROCm SDK installed but not importable"
+        echo ""
+        echo "Try reinstalling:"
+        echo "  uv pip install --python $VIRTUAL_ENV/bin/python --force-reinstall -r $ROCM_REQ"
+        exit 1
+    fi
+
+    # Verify rocm-sdk path works (needed for cmake to find HIP)
+    if ! "$VIRTUAL_ENV/bin/rocm-sdk" path --cmake >/dev/null 2>&1; then
+        err "rocm-sdk installed but 'rocm-sdk path --cmake' failed"
+        echo ""
+        echo "The ROCm SDK may be corrupt. Try reinstalling:"
+        echo "  uv pip install --python $VIRTUAL_ENV/bin/python --force-reinstall -r $ROCM_REQ"
+        exit 1
+    fi
+    ROCM_CMAKE_PREFIX=$("$VIRTUAL_ENV/bin/rocm-sdk" path --cmake 2>/dev/null)
+    ok "rocm-sdk cmake prefix: $ROCM_CMAKE_PREFIX"
+    echo ""
+fi
+
 # Inject env vars into activate script if not already present
-ACTIVATE="$VENV_DIR/bin/activate"
+ACTIVATE="$VIRTUAL_ENV/bin/activate"
 if ! grep -q "CMAKE_PREFIX_PATH" "$ACTIVATE" 2>/dev/null; then
     echo "  Adding environment variables to activate script..."
 
@@ -517,17 +612,42 @@ mkdir -p "$BUILD_DIR"
 
 # Detect platform and HIP support
 CMAKE_EXTRA_FLAGS=""
-if command -v rocm-sdk >/dev/null 2>&1; then
-    HIP_PREFIX=$(rocm-sdk path --cmake 2>/dev/null)/hip
+if [ "$WITH_HIP" = true ]; then
+    # --with-hip: use the rocm-sdk we installed in the venv
+    HIP_PREFIX="$ROCM_CMAKE_PREFIX/hip"
     if [ -d "$HIP_PREFIX" ]; then
-        CMAKE_EXTRA_FLAGS="-DCMAKE_PREFIX_PATH=\"$HIP_PREFIX\" -DHIP_PLATFORM=amd"
-        ok "ROCm SDK detected, enabling HIP support"
+        CMAKE_EXTRA_FLAGS="-DCMAKE_PREFIX_PATH=$HIP_PREFIX -DHIP_PLATFORM=amd"
+        ok "HIP support enabled (from venv ROCm SDK)"
+    else
+        err "ROCm SDK installed but HIP cmake dir not found at $HIP_PREFIX"
+        echo ""
+        echo "Expected directory: $HIP_PREFIX"
+        echo "rocm-sdk cmake prefix: $ROCM_CMAKE_PREFIX"
+        echo ""
+        echo "Try reinstalling the ROCm SDK:"
+        echo "  uv pip install --python $VIRTUAL_ENV/bin/python --force-reinstall -r $ROCM_REQ"
+        exit 1
+    fi
+elif "$VIRTUAL_ENV/bin/rocm-sdk" path --cmake >/dev/null 2>&1; then
+    # ROCm SDK already in venv from a previous --with-hip run
+    HIP_PREFIX=$("$VIRTUAL_ENV/bin/rocm-sdk" path --cmake 2>/dev/null)/hip
+    if [ -d "$HIP_PREFIX" ]; then
+        CMAKE_EXTRA_FLAGS="-DCMAKE_PREFIX_PATH=$HIP_PREFIX -DHIP_PLATFORM=amd"
+        ok "ROCm SDK detected in venv, enabling HIP support"
     fi
 else
     ok "No ROCm SDK (cross-compile mode, no GPU execution)"
 fi
 
-if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+NEED_RECONFIGURE=false
+if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
+    NEED_RECONFIGURE=true
+elif [ "$WITH_HIP" = true ] && ! grep -q "HIP_PLATFORM" "$BUILD_DIR/CMakeCache.txt" 2>/dev/null; then
+    warn "Existing build lacks HIP support, reconfiguring for --with-hip"
+    NEED_RECONFIGURE=true
+fi
+
+if [ "$NEED_RECONFIGURE" = false ]; then
     ok "cmake already configured (build/CMakeCache.txt exists)"
     echo "     To force reconfigure: rm $BUILD_DIR/CMakeCache.txt && re-run"
 else
@@ -538,10 +658,10 @@ else
         -DCMAKE_C_COMPILER=clang \
         -DCMAKE_CXX_COMPILER=clang++ \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-        -DCMAKE_INSTALL_PREFIX="$VENV_DIR" \
-        -DLLVM_EXTERNAL_LIT="$VENV_DIR/bin/lit" \
-        -DPython_EXECUTABLE="$VENV_DIR/bin/python" \
-        -DPython3_EXECUTABLE="$VENV_DIR/bin/python" \
+        -DCMAKE_INSTALL_PREFIX="$VIRTUAL_ENV" \
+        -DLLVM_EXTERNAL_LIT="$VIRTUAL_ENV/bin/lit" \
+        -DPython_EXECUTABLE="$VIRTUAL_ENV/bin/python" \
+        -DPython3_EXECUTABLE="$VIRTUAL_ENV/bin/python" \
         $CMAKE_EXTRA_FLAGS; then
         ok "cmake configured"
     else
@@ -549,7 +669,7 @@ else
         echo ""
         echo "Common fixes:"
         echo "  - LLVM commit mismatch: rebuild shared LLVM (tools/setup.sh --llvm-only)"
-        echo "  - Python issues: check $VENV_DIR/bin/python exists"
+        echo "  - Python issues: check $VIRTUAL_ENV/bin/python exists"
         exit 1
     fi
 fi
@@ -578,10 +698,10 @@ echo ""
 info "Setup complete!"
 echo ""
 echo "  LLVM:    $LLVM_INSTALL"
-echo "  venv:    $VENV_DIR"
+echo "  venv:    $VIRTUAL_ENV"
 echo "  build:   $BUILD_DIR"
 echo ""
-echo "  Activate the venv:  source $VENV_DIR/bin/activate"
-echo "  Run lit tests:      $VENV_DIR/bin/lit $BUILD_DIR/test -v"
-echo "  Run pytests:        cd $ASTER_DIR && $VENV_DIR/bin/pytest -n 16 ./test ./mlir_kernels ./contrib"
+echo "  Activate the venv:  source $VIRTUAL_ENV/bin/activate"
+echo "  Run lit tests:      $VIRTUAL_ENV/bin/lit $BUILD_DIR/test -v"
+echo "  Run pytests:        cd $ASTER_DIR && $VIRTUAL_ENV/bin/pytest -n 16 ./test ./mlir_kernels ./contrib"
 echo "  Rebuild:            ninja -C $BUILD_DIR install"
