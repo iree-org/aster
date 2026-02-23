@@ -1,28 +1,5 @@
 # Developer Setup: Worktrees and Shared LLVM
 
-## Quick git worktree primer
-
-Git worktrees allow multiple branches checked out simultaneously in separate directories, sharing the same `.git` repository. Useful for working on multiple features/fixes in parallel without stashing or switching branches, and for testing changes across branches without rebuilding everything.
-
-```bash
-# List existing worktrees
-git worktree list
-
-# Create new worktree from existing branch
-git worktree add /path/to/worktree branch-name
-
-# Create new worktree with new branch from on top of another branch (default: main)
-git worktree add -b new-branch /path/to/worktree [base-branch-to-start-from]
-
-# Remove worktree
-git worktree remove /path/to/worktree
-
-# Prune stale worktree references
-git worktree prune
-```
-
-
-
 ## Shared LLVM Build
 
 Build LLVM once in a central location, share across all worktrees. Avoids rebuilding LLVM (90%+ of build time) per worktree.
@@ -32,10 +9,16 @@ Build LLVM once in a central location, share across all worktrees. Avoids rebuil
 | `${HOME}/shared-llvm` | Shared LLVM install prefix |
 | `${HOME}/llvm-build` | LLVM build directory (can delete after install) |
 
-### On-time setup cost: Building shared LLVM
+### One-time setup cost: Building shared LLVM
+
+Clone the LLVM project at the pinned commit and build it:
 
 ```bash
-export LLVM_SRC=${HOME}/aster/llvm/llvm-project/llvm
+LLVM_COMMIT=$(cat llvm/LLVM_COMMIT)
+git clone https://github.com/llvm/llvm-project.git ${HOME}/llvm-project
+git -C ${HOME}/llvm-project checkout ${LLVM_COMMIT}
+
+export LLVM_SRC=${HOME}/llvm-project/llvm
 export LLVM_INSTALL=${HOME}/shared-llvm
 export LLVM_BUILD=${HOME}/llvm-build
 
@@ -75,8 +58,14 @@ cp ${LLVM_BUILD}/bin/not ${LLVM_INSTALL}/bin/not
 cp ${LLVM_BUILD}/bin/llvm-objdump ${LLVM_INSTALL}/bin/llvm-objdump
 ```
 
-Rebuild when LLVM submodule is updated (`git submodule status`) or different build options needed.
-All worktrees must use the same LLVM submodule commit.
+Rebuild when `llvm/LLVM_COMMIT` is updated or you need different build options:
+
+```bash
+LLVM_COMMIT=$(cat llvm/LLVM_COMMIT)
+git -C ${HOME}/llvm-project fetch origin
+git -C ${HOME}/llvm-project checkout ${LLVM_COMMIT}
+cd ${LLVM_BUILD} && ninja install
+```
 
 ### LLVM target support
 
@@ -126,9 +115,10 @@ export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster-wt-${WORKTREE_NAME}/python_package
 
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
 
-export LLVM_SRC=${HOME}/aster/llvm/llvm-project/llvm
+export LLVM_SRC=${HOME}/llvm-project/llvm
 export LLVM_INSTALL=${HOME}/shared-llvm
 export LLVM_BUILD=${HOME}/llvm-build
+export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
 EOF
 
 deactivate ;  unset PYTHONPATH; source .aster-wt-${WORKTREE_NAME}/bin/activate
@@ -146,10 +136,6 @@ deactivate ;  unset PYTHONPATH; source .aster-wt-${WORKTREE_NAME}/bin/activate
     -DCMAKE_CXX_COMPILER=clang++ \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DCMAKE_INSTALL_PREFIX="../.aster-wt-${WORKTREE_NAME}" \
-    -DASTER_EXTERNAL_LLVM=ON \
-    -DLLVM_DIR="$LLVM_INSTALL/lib/cmake/llvm" \
-    -DMLIR_DIR="$LLVM_INSTALL/lib/cmake/mlir" \
-    -DLLD_DIR="$LLVM_INSTALL/lib/cmake/lld" \
     -DLLVM_EXTERNAL_LIT=${VIRTUAL_ENV}/bin/lit \
     -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip" \
     -DHIP_PLATFORM=amd;
@@ -183,3 +169,24 @@ deactivate ;  unset PYTHONPATH; source .aster-wt-${WORKTREE_NAME}/bin/activate
 - Each worktree has own `build/` and `.aster-wt-${WORKTREE_NAME}/` directories
 - All worktrees use same `${HOME}/shared-llvm`
 - Make sure shared LLVM exists and is up to date: `ls ${HOME}/shared-llvm/lib/cmake/llvm`
+
+## Misc: Quick git worktree primer
+
+Git worktrees allow multiple branches checked out simultaneously in separate directories, sharing the same `.git` repository. Useful for working on multiple features/fixes in parallel without stashing or switching branches, and for testing changes across branches without rebuilding everything.
+
+```bash
+# List existing worktrees
+git worktree list
+
+# Create new worktree from existing branch
+git worktree add /path/to/worktree branch-name
+
+# Create new worktree with new branch from on top of another branch (default: main)
+git worktree add -b new-branch /path/to/worktree [base-branch-to-start-from]
+
+# Remove worktree
+git worktree remove /path/to/worktree
+
+# Prune stale worktree references
+git worktree prune
+```

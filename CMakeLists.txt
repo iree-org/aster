@@ -26,8 +26,6 @@ endif()
 
 option(ASTER_ENABLE_PYTHON "Enable building of the ASTER Python bindings" ON)
 
-option(ASTER_EXTERNAL_LLVM "Enable building of the ASTER with an external LLVM" OFF)
-
 ################################################################################
 # ASTER configuration
 ################################################################################

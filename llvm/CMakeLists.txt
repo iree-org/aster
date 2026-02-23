@@ -1,18 +1,33 @@
 # Configure LLVM
 macro(configure_llvm)
-  if(ASTER_EXTERNAL_LLVM)
-    find_package(MLIR REQUIRED CONFIG)
-    find_package(LLD REQUIRED CONFIG)
+  find_package(MLIR REQUIRED CONFIG)
+  find_package(LLD REQUIRED CONFIG)
+
+  # Verify LLVM commit matches the pin in llvm/LLVM_COMMIT.
+  # The installed LLVM embeds its commit in VCSRevision.h.
+  file(STRINGS "${ASTER_SOURCE_DIR}/llvm/LLVM_COMMIT" _ASTER_EXPECTED_LLVM_COMMIT LIMIT_COUNT 1)
+  string(STRIP "${_ASTER_EXPECTED_LLVM_COMMIT}" _ASTER_EXPECTED_LLVM_COMMIT)
+  set(_ASTER_VCS_HEADER "${LLVM_INCLUDE_DIRS}/llvm/Support/VCSRevision.h")
+  if(EXISTS "${_ASTER_VCS_HEADER}")
+    file(STRINGS "${_ASTER_VCS_HEADER}" _ASTER_LLVM_REVISION_LINE REGEX "LLVM_REVISION")
+    string(REGEX MATCH "\"([0-9a-f]+)\"" _ASTER_LLVM_REVISION_MATCH "${_ASTER_LLVM_REVISION_LINE}")
+    set(_ASTER_LLVM_REVISION "${CMAKE_MATCH_1}")
+    if(NOT _ASTER_LLVM_REVISION STREQUAL _ASTER_EXPECTED_LLVM_COMMIT)
+      message(FATAL_ERROR
+        "LLVM commit mismatch!\n"
+        "  Expected (llvm/LLVM_COMMIT): ${_ASTER_EXPECTED_LLVM_COMMIT}\n"
+        "  Found    (VCSRevision.h):    ${_ASTER_LLVM_REVISION}\n"
+        "Rebuild shared LLVM at the pinned commit. See README_devs.md.")
+    endif()
   else()
-    set(_MLIR_CMAKE_DIR "${ASTER_BINARY_DIR}/lib/cmake/mlir")
-    find_package(MLIR REQUIRED CONFIG PATHS ${_MLIR_CMAKE_DIR})
+    message(FATAL_ERROR
+      "Cannot verify LLVM commit: ${_ASTER_VCS_HEADER} not found. "
+      "Expected commit: ${_ASTER_EXPECTED_LLVM_COMMIT}")
   endif()
 
   list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
   list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
-  if(ASTER_EXTERNAL_LLVM)
-    list(APPEND CMAKE_MODULE_PATH "${LLD_CMAKE_DIR}")
-  endif()
+  list(APPEND CMAKE_MODULE_PATH "${LLD_CMAKE_DIR}")
 
   include(TableGen)
   include(AddLLVM)
@@ -26,38 +41,8 @@ macro(configure_llvm)
 
   include_directories(${LLVM_INCLUDE_DIRS})
   include_directories(${MLIR_INCLUDE_DIRS})
-  if(ASTER_EXTERNAL_LLVM)
-    include_directories(${LLD_INCLUDE_DIRS})
-  else()
-    include_directories(${ASTER_BINARY_DIR}/llvm/llvm-project/tools/lld/include)
-    include_directories(${ASTER_SOURCE_DIR}/llvm/llvm-project/lld/include)
-  endif()
+  include_directories(${LLD_INCLUDE_DIRS})
 
   link_directories(${LLVM_BUILD_LIBRARY_DIR})
   add_definitions(${LLVM_DEFINITIONS} -Wno-deprecated-declarations)
 endmacro()
-
-if(ASTER_EXTERNAL_LLVM)
-  return()
-endif()
-
-
-################################################################################
-# Configure the bundled LLVM
-################################################################################
-
-# Configure build options
-set(CMAKE_BUILD_TYPE Release)
-set(LLVM_BUILD_TOOLS ON)
-set(LLVM_ENABLE_PROJECTS "mlir;lld" CACHE STRING "Projects to build")
-# We need to add host here because upstream is broken.
-# TODO: Fix upstream.
-set(LLVM_TARGETS_TO_BUILD "host;AMDGPU" CACHE STRING "Targets to build")
-set(LLVM_ENABLE_ASSERTIONS ON CACHE BOOL "Enable assertions")
-set(LLVM_CCACHE_BUILD ON CACHE BOOL "Use ccache")
-set(CMAKE_CXX_FLAGS "-gmlt" CACHE STRING "CXX flags")
-set(LLVM_INSTALL_UTILS ON CACHE BOOL "Install utilities")
-set(MLIR_ENABLE_BINDINGS_PYTHON ${ASTER_ENABLE_PYTHON} CACHE BOOL "Enable Python bindings")
-
-# Add LLVM subdirectory
-add_subdirectory(llvm-project/llvm EXCLUDE_FROM_ALL)

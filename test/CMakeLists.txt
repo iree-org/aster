@@ -10,18 +10,9 @@ configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.cfg.py
 )
 
-if(NOT ASTER_EXTERNAL_LLVM)
-  set(LLVM_DEPS
-    FileCheck
-    count
-    not
-  )
-endif()
-
 set(ASTER_TEST_DEPENDS
   aster-opt
   aster-translate
-  ${LLVM_DEPS}
 )
 
 if(ASTER_ENABLE_PYTHON)
