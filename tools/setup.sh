@@ -100,22 +100,34 @@ info "Phase 1: Checking prerequisites"
 
 MISSING=()
 
+# Detect platform for install instructions
+if [ "$(uname)" = "Darwin" ]; then
+    PLATFORM="macos"
+elif command -v apt-get >/dev/null 2>&1; then
+    PLATFORM="debian"
+elif command -v dnf >/dev/null 2>&1; then
+    PLATFORM="fedora"
+else
+    PLATFORM="unknown"
+fi
+
 check_cmd() {
-    local cmd="$1" install_hint="$2"
+    local cmd="$1"
     if command -v "$cmd" >/dev/null 2>&1; then
         ok "$cmd ($(command -v "$cmd"))"
     else
         err "$cmd not found"
-        echo "     Install: $install_hint"
         MISSING+=("$cmd")
     fi
 }
 
-check_cmd python3  "https://www.python.org/downloads/ or 'brew install python3'"
-check_cmd git      "'brew install git' or 'apt install git'"
-check_cmd clang    "'brew install llvm' or 'apt install clang'"
-check_cmd clang++  "(installed with clang)"
-check_cmd uv       "'brew install uv' or 'pip install uv' -- https://docs.astral.sh/uv/"
+check_cmd python3
+check_cmd git
+check_cmd cmake
+check_cmd ninja
+check_cmd clang
+check_cmd clang++
+check_cmd uv
 
 # Check python version >= 3.9
 if command -v python3 >/dev/null 2>&1; then
@@ -133,7 +145,30 @@ fi
 if [ ${#MISSING[@]} -gt 0 ]; then
     echo ""
     err "Missing prerequisites: ${MISSING[*]}"
-    echo "Install the above and re-run this script."
+    echo ""
+    echo "To install everything at once:"
+    echo ""
+    case "$PLATFORM" in
+        macos)
+            echo "  brew install python3 git cmake ninja llvm uv"
+            echo ""
+            echo "  If you don't have Homebrew: https://brew.sh"
+            ;;
+        debian)
+            echo "  sudo apt-get update && sudo apt-get install -y python3 python3-venv git cmake ninja-build clang lld"
+            echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+            ;;
+        fedora)
+            echo "  sudo dnf install -y python3 python3-devel git cmake ninja-build clang lld"
+            echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+            ;;
+        *)
+            echo "  Install: python3 (>= 3.9), git, cmake, ninja, clang, uv"
+            echo "  uv: https://docs.astral.sh/uv/"
+            ;;
+    esac
+    echo ""
+    echo "Then re-run: tools/setup.sh"
     exit 1
 fi
 
@@ -329,8 +364,41 @@ if [ -f "$VENV_DIR/bin/python" ]; then
     ok "venv exists at $VENV_DIR"
 else
     echo "  Creating venv at $VENV_DIR..."
-    python3 -m venv --prompt "$VENV_PROMPT" "$VENV_DIR"
+    if ! python3 -m venv --prompt "$VENV_PROMPT" "$VENV_DIR" 2>&1; then
+        err "Failed to create Python venv"
+        echo ""
+        echo "Common causes:"
+        echo "  - Missing python3-venv package (Debian/Ubuntu)"
+        echo "  - Broken python3 installation"
+        echo ""
+        case "$PLATFORM" in
+            debian)
+                echo "Fix: sudo apt-get install -y python3-venv"
+                ;;
+            fedora)
+                echo "Fix: sudo dnf install -y python3-devel"
+                ;;
+            macos)
+                echo "Fix: brew reinstall python3"
+                ;;
+            *)
+                echo "Fix: ensure python3 -m venv works"
+                ;;
+        esac
+        echo "Then re-run: tools/setup.sh"
+        exit 1
+    fi
     ok "venv created"
+fi
+
+# Verify the venv python is functional
+if ! "$VENV_DIR/bin/python" -c "import sys" 2>/dev/null; then
+    err "venv python is broken at $VENV_DIR/bin/python"
+    echo ""
+    echo "Fix: remove the venv and re-run:"
+    echo "  rm -rf $VENV_DIR"
+    echo "  tools/setup.sh"
+    exit 1
 fi
 
 # Install/update requirements (skip if unchanged since last install)
@@ -339,12 +407,22 @@ if [ -f "$REQ_STAMP" ] && [ "$REQ_STAMP" -nt "$ASTER_DIR/requirements.txt" ]; th
     ok "requirements up to date"
 else
     echo "  Installing requirements..."
-    if uv pip install --python "$VENV_DIR/bin/python" -r "$ASTER_DIR/requirements.txt" >/dev/null 2>&1; then
+    if uv pip install --python "$VENV_DIR/bin/python" -r "$ASTER_DIR/requirements.txt" 2>&1; then
         touch "$REQ_STAMP"
         ok "requirements installed"
     else
-        err "Failed to install requirements"
-        echo "Try manually: uv pip install --python $VENV_DIR/bin/python -r $ASTER_DIR/requirements.txt"
+        err "Failed to install Python requirements"
+        echo ""
+        echo "Common causes:"
+        echo "  - Network issue (pip needs to download packages)"
+        echo "  - Incompatible Python version"
+        echo "  - Missing system libraries for compiled packages"
+        echo ""
+        echo "Try manually:"
+        echo "  uv pip install --python $VENV_DIR/bin/python -r $ASTER_DIR/requirements.txt"
+        echo ""
+        echo "If uv fails, try with pip directly:"
+        echo "  $VENV_DIR/bin/pip install -r $ASTER_DIR/requirements.txt"
         exit 1
     fi
 fi
