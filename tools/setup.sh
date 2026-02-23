@@ -271,19 +271,54 @@ else
             exit 1
         fi
 
-        # Create a temporary venv for LLVM's python bindings build
+        # MLIR python bindings require a venv with pybind11/nanobind.
+        # See: https://mlir.llvm.org/docs/Bindings/Python/#building
         LLVM_VENV="$LLVM_BUILD/.venv"
         if [ ! -d "$LLVM_VENV" ]; then
             echo "  Creating LLVM build venv..."
-            uv venv "$LLVM_VENV" --seed -p 3.12 2>/dev/null || \
-                python3 -m venv "$LLVM_VENV"
+            if ! uv venv "$LLVM_VENV" --seed -p 3.12 2>/dev/null; then
+                if ! python3 -m venv "$LLVM_VENV"; then
+                    err "Failed to create LLVM build venv at $LLVM_VENV"
+                    echo ""
+                    case "$PLATFORM" in
+                        debian)  echo "Fix: sudo apt-get install -y python3-venv" ;;
+                        fedora)  echo "Fix: sudo dnf install -y python3-devel" ;;
+                        macos)   echo "Fix: brew reinstall python3" ;;
+                        *)       echo "Fix: ensure python3 -m venv works" ;;
+                    esac
+                    echo "Then re-run: tools/setup.sh"
+                    exit 1
+                fi
+            fi
+            ok "LLVM build venv created"
+        else
+            ok "LLVM build venv exists at $LLVM_VENV"
         fi
 
-        # Install MLIR python build requirements
-        if [ -f "$LLVM_SRC/mlir/python/requirements.txt" ]; then
-            uv pip install --python "$LLVM_VENV/bin/python" \
-                -r "$LLVM_SRC/mlir/python/requirements.txt" 2>/dev/null || \
-            "$LLVM_VENV/bin/pip" install -r "$LLVM_SRC/mlir/python/requirements.txt"
+        # Install MLIR python build requirements (pybind11, nanobind, etc.)
+        MLIR_PYTHON_REQS="$LLVM_PROJECT/mlir/python/requirements.txt"
+        if [ -f "$MLIR_PYTHON_REQS" ]; then
+            echo "  Installing MLIR python requirements..."
+            if ! uv pip install --python "$LLVM_VENV/bin/python" -r "$MLIR_PYTHON_REQS" 2>&1; then
+                warn "uv failed, falling back to pip..."
+                if ! "$LLVM_VENV/bin/pip" install -r "$MLIR_PYTHON_REQS"; then
+                    err "Failed to install MLIR python requirements"
+                    echo ""
+                    echo "MLIR python bindings need packages from:"
+                    echo "  $MLIR_PYTHON_REQS"
+                    echo ""
+                    echo "Try manually:"
+                    echo "  source $LLVM_VENV/bin/activate"
+                    echo "  pip install -r $MLIR_PYTHON_REQS"
+                    echo "Then re-run: tools/setup.sh"
+                    exit 1
+                fi
+            fi
+            ok "MLIR python requirements installed"
+        else
+            warn "MLIR python requirements not found at $MLIR_PYTHON_REQS"
+            echo "     MLIR python bindings may fail to build."
+            echo "     Expected file: $MLIR_PYTHON_REQS"
         fi
 
         # Detect ccache
@@ -307,11 +342,8 @@ else
         echo ""
         info "Building shared LLVM (this will take a while)..."
 
-        # Activate LLVM venv for python bindings
-        # shellcheck disable=SC1091
-        source "$LLVM_VENV/bin/activate"
-
-        cmake -S "$LLVM_SRC" -B "$LLVM_BUILD" -GNinja \
+        # Point cmake at the venv python so it finds pybind11/nanobind
+        if ! cmake -S "$LLVM_SRC" -B "$LLVM_BUILD" -GNinja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_INSTALL_PREFIX="$LLVM_INSTALL" \
             -DCMAKE_C_COMPILER=clang \
@@ -322,13 +354,26 @@ else
             -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
             -DMLIR_ENABLE_EXECUTION_ENGINE=ON \
             -DMLIR_BUILD_MLIR_C_DYLIB=ON \
+            -DPython3_EXECUTABLE="$LLVM_VENV/bin/python" \
             $CCACHE_FLAG \
-            $HIP_FLAGS
+            $HIP_FLAGS; then
+            err "LLVM cmake configure failed"
+            echo ""
+            echo "Common causes:"
+            echo "  - Missing python packages: source $LLVM_VENV/bin/activate && pip install -r $MLIR_PYTHON_REQS"
+            echo "  - Missing system libraries: check cmake output above"
+            echo "Build directory: $LLVM_BUILD"
+            exit 1
+        fi
 
         if ! ninja -C "$LLVM_BUILD" install; then
             err "LLVM build failed"
-            echo "Check the output above for errors."
+            echo ""
+            echo "Check the compiler errors above."
             echo "Build directory: $LLVM_BUILD"
+            echo ""
+            echo "To retry (without re-running cmake):"
+            echo "  ninja -C $LLVM_BUILD install"
             exit 1
         fi
 
@@ -341,8 +386,6 @@ else
                 cp "$LLVM_BUILD/bin/$tool" "$LLVM_INSTALL/bin/$tool"
             fi
         done
-
-        deactivate 2>/dev/null || true
 
         ok "Shared LLVM built and installed at $LLVM_INSTALL"
     fi
