@@ -13,4 +13,4 @@
 /demo/add_10.mlir
 /examples/trace_*
 /examples/*zip
-/llvm/
+/llvm/llvm-project/

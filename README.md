@@ -49,43 +49,7 @@ ASTER is a very young project that we are pre-releasing early to get exposure an
 user feedback while collaborating in the open. At this time, do not expect
 stability of production readiness.
 
-## Building and Testing ASTER
-
-ASTER can be built on macOS and Linux. Windows is also expected to work
-but is less tested at this time. Examples and tests are meant to always
-cross-compile and build valid HSACO on any host machine.
-Integration tests that require execution on actual hardware are filtered with
-appropriate pytest and lit filters.
-
-Generally, once the first LLVM compilation occurred, we aim at keeping builds and
-tests always running within a (parallel) budget of a few seconds.
-
-### Preliminary: venv
-
-We use `uv` to pip install in the new venv, the latency of pure `pip` being too high.
-
-```
-# Create a virtual environment
-python3 -m venv --prompt aster .aster
-
-# Activate the virtual environment
-source .aster/bin/activate
-
-# Install the requirements of the project. This installs cmake, ninja...
-uv pip install -r requirements.txt
-```
-
-### Preliminary note: LLVM requirement
-
-By default we build the project using a bundled version of LLVM.
-Therefore, to build the project one needs to initialize the submodule with:
-
-```bash
-# This pulls a shallow clone
-git submodule update --depth 1 --init
-```
-
-### Supported GPU targets
+## Supported GPU targets
 
 ASTER has early .hsaco generation support for the following targets, which all
 require an appropriate LLVM AMDGPU backend for translating asm to binary:
@@ -104,13 +68,99 @@ ASTER's own IR and ASM translation works regardless of LLVM version.
 Support for newer architectures is very preliminary and subject of active ongoing
 work.
 
-### Preliminary note: theRock installation (recommended) and LLVM Tools Directory Configuration
-For HIP runtime support and LLVM tools with AMDGPU target, you can use theRock which
-provides ROCm as a Python package.
-Install the appropriate version for your GPU from [here](https://github.com/ROCm/TheRock/blob/main/RELEASES.md):
+## Building and Testing ASTER
+
+### Quick start
 
 ```bash
-# For execution tests (optional), choose based on your GPU architecture:
+tools/setup.sh
+```
+
+This handles everything: prerequisites check, shared LLVM build, venv, cmake,
+and build. Run `tools/setup.sh --help` for options. See below for manual steps.
+
+### Manual setup
+
+ASTER can be built on macOS and Linux. Windows is also expected to work
+but is less tested at this time. Examples and tests are meant to always
+cross-compile and build valid HSACO on any host machine.
+Integration tests that require execution on actual hardware are filtered with
+appropriate pytest and lit filters.
+
+Generally, once the first LLVM compilation occurred, we aim at keeping builds and
+tests always running within a (parallel) budget of a few seconds.
+
+
+### Common setup
+
+#### venv
+
+We use `uv` to pip install in the new venv, the latency of pure `pip` being too high.
+
+```bash
+# Create a virtual environment
+python3 -m venv --prompt aster .aster
+
+# Activate the virtual environment
+source .aster/bin/activate
+
+# Install the requirements of the project. This installs cmake, ninja...
+uv pip install -r requirements.txt
+```
+
+#### LLVM requirement
+
+ASTER requires a pre-built LLVM installation with MLIR and LLD.
+See [README_devs.md](README_devs.md) for instructions on building a shared LLVM
+installation.
+
+#### Set useful variables in a Python virtual environment
+
+Set environment variables to load automatically upon venv activation:
+
+```bash
+cat >> .aster/bin/activate << 'EOF'
+
+export PATH=${PWD}/.aster/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):${PATH}
+
+export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+
+export LLVM_INSTALL=${HOME}/shared-llvm
+export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
+EOF
+
+# For good measure, on the first instance do a:
+deactivate
+source .aster/bin/activate
+```
+
+#### Building (macOS and Linux without GPU)
+
+This builds ASTER for cross-compilation only (no HIP runtime, no on-device execution).
+
+```bash
+(
+  mkdir -p build \
+  && cd build \
+  && cmake ../ -GNinja \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+    -DCMAKE_INSTALL_PREFIX="../.aster" \
+    -DLLVM_EXTERNAL_LIT=${VIRTUAL_ENV}/bin/lit \
+  && ninja install
+)
+```
+
+### Linux with AMD GPU support
+
+For HIP runtime support and execution tests on actual hardware, install
+[theRock](https://github.com/ROCm/TheRock/blob/main/RELEASES.md) which provides
+ROCm as a Python package:
+
+```bash
+# Choose based on your GPU architecture:
 
 # For RDNA4 (gfx120x):
 uv pip install -r requirements-amd-gfx120X-all.txt
@@ -121,39 +171,27 @@ uv pip install -r requirements-amd-gfx94X.txt
 # For CDNA4 (MI350, gfx950):
 uv pip install -r requirements-amd-gfx950.txt
 
-# Initialize rocm sdk
+# Initialize and test ROCm
 rocm-sdk init
-
-# Test ROCm installation
 rocm-sdk test
 ```
 
-### Set useful variables in a Python virtual environment
+Add ROCm paths to your venv activation:
 
-You can then set useful environment variables to load automatically upon venv activation:
-
-```
+```bash
 cat >> .aster/bin/activate << 'EOF'
 
-export PATH=${PWD}/.aster/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/bin/:${PATH}
-
-export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-
+export PATH=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/bin/:${PATH}
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
 EOF
 
-
-# For good measure, on the first instance do a:
 deactivate
 source .aster/bin/activate
 ```
 
-### Building
-
-To build the project use:
+Then build with HIP support:
 
 ```bash
-# Build the project (this assumes the requirements have been installed).
 (
   mkdir -p build \
   && cd build \
@@ -166,7 +204,6 @@ To build the project use:
     -DLLVM_EXTERNAL_LIT=${VIRTUAL_ENV}/bin/lit \
     -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip" \
     -DHIP_PLATFORM=amd \
-  && ninja install FileCheck count not llvm-objdump \
   && ninja install
 )
 ```
@@ -175,7 +212,7 @@ To build the project use:
 
 #### Executing all tests
 ```
-(cd build && ninja install) && lit build/test -v && pytest -n 16 ./test ./mlir_kernels ./contrib
+(cd build && ninja install) && lit build/test -v && pytest -n 16 ./test ./mlir_kernels ./contrib ./python
 ```
 
 #### Executing lit tests only
@@ -185,7 +222,7 @@ To build the project use:
 
 #### Executing pytests only
 ```
-(cd build && ninja install) && pytest -n 16 ./test ./mlir_kernels ./contrib
+(cd build && ninja install) && pytest -n 16 ./test ./mlir_kernels ./contrib ./python
 ```
 
 #### Running Python manually
