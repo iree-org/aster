@@ -181,26 +181,30 @@ else
         if [ ! -d "$LLVM_PROJECT/.git" ]; then
             echo ""
             echo "  LLVM source not found at $LLVM_PROJECT"
-            if ! ask "Clone llvm-project? (~2 GB download)"; then
+            if ! ask "Clone llvm-project (shallow, ~500 MB)?"; then
                 echo ""
                 echo "To clone manually:"
-                echo "  git clone https://github.com/llvm/llvm-project.git $LLVM_PROJECT"
-                echo "  git -C $LLVM_PROJECT checkout $EXPECTED_COMMIT"
+                echo "  git init $LLVM_PROJECT"
+                echo "  git -C $LLVM_PROJECT remote add origin https://github.com/llvm/llvm-project.git"
+                echo "  git -C $LLVM_PROJECT fetch --depth 1 origin $EXPECTED_COMMIT"
+                echo "  git -C $LLVM_PROJECT checkout FETCH_HEAD"
                 echo ""
                 echo "Then re-run this script."
                 exit 1
             fi
-            echo "  Cloning llvm-project..."
-            git clone https://github.com/llvm/llvm-project.git "$LLVM_PROJECT"
+            echo "  Cloning llvm-project (shallow fetch of pinned commit)..."
+            git init "$LLVM_PROJECT"
+            git -C "$LLVM_PROJECT" remote add origin https://github.com/llvm/llvm-project.git
+            git -C "$LLVM_PROJECT" fetch --depth 1 origin "$EXPECTED_COMMIT"
+            git -C "$LLVM_PROJECT" checkout FETCH_HEAD
         fi
 
-        # Checkout the right commit
+        # Checkout the right commit (handles existing repo at wrong commit)
         CURRENT_COMMIT=$(git -C "$LLVM_PROJECT" rev-parse HEAD)
         if [ "$CURRENT_COMMIT" != "$EXPECTED_COMMIT" ]; then
-            echo "  Checking out pinned commit..."
-            git -C "$LLVM_PROJECT" fetch origin "$EXPECTED_COMMIT" 2>/dev/null || \
-                git -C "$LLVM_PROJECT" fetch origin
-            git -C "$LLVM_PROJECT" checkout "$EXPECTED_COMMIT"
+            echo "  Fetching pinned commit..."
+            git -C "$LLVM_PROJECT" fetch --depth 1 origin "$EXPECTED_COMMIT"
+            git -C "$LLVM_PROJECT" checkout FETCH_HEAD
         fi
         ok "LLVM source at correct commit"
 
