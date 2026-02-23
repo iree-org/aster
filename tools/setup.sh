@@ -64,23 +64,25 @@ ask()   {
 # ---------------------------------------------------------------------------
 SKIP_LLVM=false
 LLVM_ONLY=false
-WITH_HIP=false
+HIP_EXPLICIT=""
 
 for arg in "$@"; do
     case "$arg" in
-        --skip-llvm) SKIP_LLVM=true ;;
-        --llvm-only) LLVM_ONLY=true ;;
-        --with-hip)  WITH_HIP=true ;;
+        --skip-llvm)   SKIP_LLVM=true ;;
+        --llvm-only)   LLVM_ONLY=true ;;
+        --with-hip)    HIP_EXPLICIT=true ;;
+        --without-hip) HIP_EXPLICIT=false ;;
         --help|-h)
             echo "Usage: tools/setup.sh [OPTIONS]"
             echo ""
             echo "One-stop build script for ASTER. Handles LLVM, venv, cmake, and build."
             echo ""
             echo "Options:"
-            echo "  --llvm-only   Only set up shared LLVM (skip ASTER build)"
-            echo "  --skip-llvm   Skip LLVM verification (assume shared LLVM is correct)"
-            echo "  --with-hip    Install ROCm SDK and build with HIP support (Linux only)"
-            echo "  --help        Show this help"
+            echo "  --llvm-only     Only set up shared LLVM (skip ASTER build)"
+            echo "  --skip-llvm     Skip LLVM verification (assume shared LLVM is correct)"
+            echo "  --with-hip      Install ROCm SDK and build with HIP support (default on Linux)"
+            echo "  --without-hip   Skip ROCm SDK, cross-compile mode only (default on macOS)"
+            echo "  --help          Show this help"
             echo ""
             echo "Environment variables (override defaults):"
             echo "  LLVM_INSTALL  Shared LLVM install prefix  [default: \$HOME/shared-llvm]"
@@ -95,6 +97,17 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# Resolve WITH_HIP: default to true on Linux, false on macOS
+if [ "$HIP_EXPLICIT" = "true" ]; then
+    WITH_HIP=true
+elif [ "$HIP_EXPLICIT" = "false" ]; then
+    WITH_HIP=false
+elif [ "$(uname)" = "Linux" ]; then
+    WITH_HIP=true
+else
+    WITH_HIP=false
+fi
 
 # ---------------------------------------------------------------------------
 # Phase 1: Prerequisites
@@ -543,14 +556,40 @@ if [ "$WITH_HIP" = true ]; then
         fi
     fi
 
-    # Verify rocm-sdk is usable
-    if ! "$VIRTUAL_ENV/bin/python" -c "import rocm" 2>/dev/null; then
-        err "ROCm SDK installed but not importable"
+    # Initialize ROCm SDK (unpacks libraries, sets up paths)
+    echo "  Initializing ROCm SDK..."
+    if ! "$VIRTUAL_ENV/bin/rocm-sdk" init 2>&1; then
+        err "rocm-sdk init failed"
         echo ""
-        echo "Try reinstalling:"
-        echo "  uv pip install --python $VIRTUAL_ENV/bin/python --force-reinstall -r $ROCM_REQ"
+        echo "Common causes:"
+        echo "  - Incomplete download (re-run to retry)"
+        echo "  - Disk space (ROCm SDK needs several GB)"
+        echo ""
+        echo "Try manually:"
+        echo "  $VIRTUAL_ENV/bin/rocm-sdk init"
         exit 1
     fi
+    ok "rocm-sdk initialized"
+
+    # Test ROCm SDK
+    echo "  Testing ROCm SDK..."
+    if ! "$VIRTUAL_ENV/bin/rocm-sdk" test 2>&1; then
+        err "rocm-sdk test failed"
+        echo ""
+        echo "Common causes:"
+        echo "  - No AMD GPU detected (check lspci or rocm-smi)"
+        echo "  - Missing kernel driver (amdgpu)"
+        echo "  - User not in 'render' or 'video' group"
+        echo ""
+        echo "Fix permissions:"
+        echo "  sudo usermod -aG render,video \$USER"
+        echo "  (log out and back in)"
+        echo ""
+        echo "Check GPU status:"
+        echo "  $VIRTUAL_ENV/bin/rocm-sdk test"
+        exit 1
+    fi
+    ok "rocm-sdk test passed"
 
     # Verify rocm-sdk path works (needed for cmake to find HIP)
     if ! "$VIRTUAL_ENV/bin/rocm-sdk" path --cmake >/dev/null 2>&1; then
@@ -558,6 +597,7 @@ if [ "$WITH_HIP" = true ]; then
         echo ""
         echo "The ROCm SDK may be corrupt. Try reinstalling:"
         echo "  uv pip install --python $VIRTUAL_ENV/bin/python --force-reinstall -r $ROCM_REQ"
+        echo "  $VIRTUAL_ENV/bin/rocm-sdk init"
         exit 1
     fi
     ROCM_CMAKE_PREFIX=$("$VIRTUAL_ENV/bin/rocm-sdk" path --cmake 2>/dev/null)
@@ -703,5 +743,5 @@ echo "  build:   $BUILD_DIR"
 echo ""
 echo "  Activate the venv:  source $VIRTUAL_ENV/bin/activate"
 echo "  Run lit tests:      $VIRTUAL_ENV/bin/lit $BUILD_DIR/test -v"
-echo "  Run pytests:        cd $ASTER_DIR && $VIRTUAL_ENV/bin/pytest -n 16 ./test ./mlir_kernels ./contrib"
+echo "  Run pytests:        cd $ASTER_DIR && $VIRTUAL_ENV/bin/pytest -n 16 ./test ./mlir_kernels ./contrib ./python"
 echo "  Rebuild:            ninja -C $BUILD_DIR install"
