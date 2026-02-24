@@ -2,27 +2,22 @@
 
 // Simple diamond CFG: two allocas merge at block argument.
 // The pass should insert copies before each branch.
-// CHECK-LABEL:   amdgcn.module @bufferization_phi_copies_1 target = <gfx942> isa = <cdna3> {
-// CHECK:           func.func private @rand() -> i1
-// CHECK:           kernel @bufferization_phi_copies_1 {
+// CHECK-LABEK: kernel @bufferization_phi_copies_1 {
+// CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
-// CHECK-DAG:         %[[VAL_0:.*]] = alloca : !amdgcn.vgpr
-// CHECK-DAG:         %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
-// CHECK-DAG:         %[[VAL_2:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[VAL_2:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[VAL_3:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             cf.cond_br %[[CALL_0]], ^bb1, ^bb2
 // CHECK:           ^bb1:
-// CHECK:             %[[VAL_3:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_3]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             lsir.copy %[[VAL_2]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_0]], %[[VAL_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb2:
-// CHECK:             %[[VAL_4:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_2:.*]] = lsir.copy %[[VAL_4]], %[[VAL_1]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             lsir.copy %[[VAL_2]], %[[COPY_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_0]], %[[VAL_3]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb3:
-// CHECK:             %[[VAL_5:.*]] = dealloc_cast %[[VAL_2]] : !amdgcn.vgpr<?>
-// CHECK:             %[[VAL_6:.*]] = test_inst outs %[[VAL_5]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
+// CHECK:             %[[VAL_4:.*]] = test_inst outs %[[COPY_0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
 // CHECK:             end_kernel
 // CHECK:           }
 // CHECK:         }
@@ -45,26 +40,21 @@ amdgcn.module @bufferization_phi_copies_1 target = <gfx942> isa = <cdna3> {
 
 // -----
 
-// CHECK-LABEL:   amdgcn.module @bufferization_same_phi_value target = <gfx942> isa = <cdna3> {
-// CHECK:           func.func private @rand() -> i1
-// CHECK:           kernel @bufferization_same_phi_value {
+// CHECK-LABEK: kernel @bufferization_same_phi_value {
+// CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
-// CHECK-DAG:         %[[VAL_0:.*]] = alloca : !amdgcn.vgpr
-// CHECK-DAG:         %[[VAL_1:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[VAL_2:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             cf.cond_br %[[CALL_0]], ^bb1, ^bb2
 // CHECK:           ^bb1:
-// CHECK:             %[[VAL_2:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_2]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             lsir.copy %[[VAL_1]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_0]], %[[VAL_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb2:
-// CHECK:             %[[VAL_3:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_2:.*]] = lsir.copy %[[VAL_3]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             lsir.copy %[[VAL_1]], %[[COPY_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_0]], %[[VAL_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb3:
-// CHECK:             %[[VAL_4:.*]] = dealloc_cast %[[VAL_1]] : !amdgcn.vgpr<?>
-// CHECK:             test_inst ins %[[VAL_4]] : (!amdgcn.vgpr) -> ()
+// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
+// CHECK:             test_inst ins %[[COPY_0]] : (!amdgcn.vgpr) -> ()
 // CHECK:             end_kernel
 // CHECK:           }
 // CHECK:         }
@@ -87,30 +77,26 @@ amdgcn.module @bufferization_same_phi_value target = <gfx942> isa = <cdna3> {
 // -----
 
 // Test SGPR type: should insert copies.
-// CHECK-LABEL:   amdgcn.module @bufferization_sgpr_copies target = <gfx942> isa = <cdna3> {
-// CHECK:           func.func private @rand() -> i1
-// CHECK:           kernel @bufferization_sgpr_copies {
+// CHECK-LABEK: kernel @bufferization_sgpr_copies {
+// CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.sgpr<?>
+// CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.sgpr
 // CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
-// CHECK-DAG:         %[[VAL_0:.*]] = alloca : !amdgcn.sgpr
-// CHECK-DAG:         %[[VAL_1:.*]] = alloca : !amdgcn.sgpr
-// CHECK-DAG:         %[[VAL_2:.*]] = alloca : !amdgcn.sgpr<?>
+// CHECK:             %[[VAL_2:.*]] = alloca : !amdgcn.sgpr
+// CHECK:             %[[VAL_3:.*]] = alloca : !amdgcn.sgpr
 // CHECK:             cf.cond_br %[[CALL_0]], ^bb1, ^bb2
 // CHECK:           ^bb1:
-// CHECK:             %[[VAL_3:.*]] = alloca : !amdgcn.sgpr
-// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_3]], %[[VAL_0]] : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:             lsir.copy %[[VAL_2]], %[[COPY_0]] : !amdgcn.sgpr<?>, !amdgcn.sgpr
+// CHECK:             lsir.copy %[[VAL_0]], %[[VAL_2]] : !amdgcn.sgpr<?>, !amdgcn.sgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb2:
-// CHECK:             %[[VAL_4:.*]] = alloca : !amdgcn.sgpr
-// CHECK:             %[[COPY_2:.*]] = lsir.copy %[[VAL_4]], %[[VAL_1]] : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:             lsir.copy %[[VAL_2]], %[[COPY_2]] : !amdgcn.sgpr<?>, !amdgcn.sgpr
+// CHECK:             lsir.copy %[[VAL_0]], %[[VAL_3]] : !amdgcn.sgpr<?>, !amdgcn.sgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb3:
-// CHECK:             %[[VAL_5:.*]] = dealloc_cast %[[VAL_2]] : !amdgcn.sgpr<?>
-// CHECK:             test_inst ins %[[VAL_5]] : (!amdgcn.sgpr) -> ()
+// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.sgpr, !amdgcn.sgpr<?>
+// CHECK:             test_inst ins %[[COPY_0]] : (!amdgcn.sgpr) -> ()
 // CHECK:             end_kernel
 // CHECK:           }
 // CHECK:         }
+
 amdgcn.module @bufferization_sgpr_copies target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
   kernel @bufferization_sgpr_copies {
@@ -131,30 +117,26 @@ amdgcn.module @bufferization_sgpr_copies target = <gfx942> isa = <cdna3> {
 // -----
 
 // Values derived from allocas (not raw allocas) - should still insert copies.
-// CHECK-LABEL:   amdgcn.module @bufferization_derived_values target = <gfx942> isa = <cdna3> {
-// CHECK:           func.func private @rand() -> i1
-// CHECK:           kernel @bufferization_derived_values {
+
+// CHECK-LABEK: kernel @bufferization_derived_values {
+// CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
-// CHECK-DAG:         %[[VAL_0:.*]] = alloca : !amdgcn.vgpr
-// CHECK-DAG:         %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
-// CHECK-DAG:         %[[VAL_2:.*]] = alloca : !amdgcn.sgpr
-// CHECK:             %[[VAL_3:.*]] = test_inst outs %[[VAL_0]] ins %[[VAL_2]] : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-// CHECK:             %[[VAL_4:.*]] = test_inst outs %[[VAL_1]] ins %[[VAL_2]] : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-// CHECK:             %[[VAL_5:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[VAL_2:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[VAL_3:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[VAL_4:.*]] = alloca : !amdgcn.sgpr
+// CHECK:             %[[VAL_5:.*]] = test_inst outs %[[VAL_2]] ins %[[VAL_4]] : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+// CHECK:             %[[VAL_6:.*]] = test_inst outs %[[VAL_3]] ins %[[VAL_4]] : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
 // CHECK:             cf.cond_br %[[CALL_0]], ^bb1, ^bb2
 // CHECK:           ^bb1:
-// CHECK:             %[[VAL_6:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_6]], %[[VAL_3]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             lsir.copy %[[VAL_5]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_0]], %[[VAL_5]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb2:
-// CHECK:             %[[VAL_7:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_2:.*]] = lsir.copy %[[VAL_7]], %[[VAL_4]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             lsir.copy %[[VAL_5]], %[[COPY_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[VAL_0]], %[[VAL_6]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb3:
-// CHECK:             %[[VAL_8:.*]] = dealloc_cast %[[VAL_5]] : !amdgcn.vgpr<?>
-// CHECK:             test_inst ins %[[VAL_8]] : (!amdgcn.vgpr) -> ()
+// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
+// CHECK:             test_inst ins %[[COPY_0]] : (!amdgcn.vgpr) -> ()
 // CHECK:             end_kernel
 // CHECK:           }
 // CHECK:         }
@@ -182,21 +164,24 @@ amdgcn.module @bufferization_derived_values target = <gfx942> isa = <cdna3> {
 
 // Same alloca written twice in ^bb0; the first value (%v1) is used in a
 // successor block. The clobber copy must replace that cross-block use.
-//
-// CHECK-LABEL:   amdgcn.module @cross_block_clobber target = <gfx942> isa = <cdna3> {
-// CHECK:           kernel @cross_block_clobber {
-// CHECK:             %[[COND:.*]] = func.call @rand() : () -> i1
-// CHECK:             %[[A:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[S:.*]] = alloca : !amdgcn.sgpr
-// CHECK:             %[[COPY_A:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY:.*]] = lsir.copy %[[COPY_A]], %[[A]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[V1:.*]] = test_inst outs %[[A]] ins %[[S]]
-// CHECK:             %[[V2:.*]] = test_inst outs %[[COPY]] ins %[[S]]
-// CHECK:             cf.cond_br %[[COND]], ^bb1, ^bb2
+// CHECK-LABEK: kernel @cross_block_clobber {
+// CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
+// CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.sgpr
+// CHECK:             %[[VAL_2:.*]] = test_inst outs %[[VAL_0]] ins %[[VAL_1]] : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+// CHECK:             %[[VAL_3:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[VAL_4:.*]] = test_inst outs %[[VAL_3]] ins %[[VAL_1]] : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+// CHECK:             cf.cond_br %[[CALL_0]], ^bb1, ^bb2
 // CHECK:           ^bb1:
-// CHECK:             test_inst ins %[[V1]]
+// CHECK:             test_inst ins %[[VAL_2]] : (!amdgcn.vgpr) -> ()
+// CHECK:             cf.br ^bb3
 // CHECK:           ^bb2:
-// CHECK:             test_inst ins %[[V2]]
+// CHECK:             test_inst ins %[[VAL_4]] : (!amdgcn.vgpr) -> ()
+// CHECK:             cf.br ^bb3
+// CHECK:           ^bb3:
+// CHECK:             end_kernel
+// CHECK:           }
+// CHECK:         }
 amdgcn.module @cross_block_clobber target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
   kernel @cross_block_clobber {
@@ -218,18 +203,14 @@ amdgcn.module @cross_block_clobber target = <gfx942> isa = <cdna3> {
 }
 
 // -----
-
-// CHECK-LABEL:   amdgcn.module @too_few_allocas target = <gfx942> isa = <cdna3> {
-// CHECK:           kernel @too_few_allocas {
+// CHECK-LABEK: kernel @too_few_allocas {
 // CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[VAL_2:.*]] = test_inst outs %[[VAL_0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:             %[[VAL_3:.*]] = test_inst outs %[[COPY_0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:             %[[VAL_1:.*]] = test_inst outs %[[VAL_0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:             %[[VAL_2:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[VAL_3:.*]] = test_inst outs %[[VAL_2]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
 // CHECK:             %[[VAL_4:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_1:.*]] = lsir.copy %[[VAL_4]], %[[VAL_2]] : !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:             %[[VAL_5:.*]] = test_inst outs %[[VAL_2]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:             test_inst ins %[[COPY_1]], %[[VAL_3]], %[[VAL_5]] : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
+// CHECK:             %[[VAL_5:.*]] = test_inst outs %[[VAL_4]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:             test_inst ins %[[VAL_1]], %[[VAL_3]], %[[VAL_5]] : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
 // CHECK:             end_kernel
 // CHECK:           }
 // CHECK:         }
