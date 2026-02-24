@@ -30,8 +30,8 @@ void populateToAMDGCNPatterns(RewritePatternSet &patterns);
 // Pass Pipelines
 //===----------------------------------------------------------------------===//
 
-/// Register the RegAlloc pass pipeline.
-void registerRegAllocPassPipeline();
+/// Register all AMDGCN pass pipelines.
+void registerPipelines();
 
 } // namespace amdgcn
 } // namespace mlir::aster

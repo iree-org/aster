@@ -12,13 +12,16 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
 #include "mlir/Pass/PassRegistry.h"
+#include "mlir/Transforms/Passes.h"
 
 using namespace mlir;
+using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
 //===----------------------------------------------------------------------===//
@@ -54,8 +57,63 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
   pm.addPass(createHoistOps());
 }
 
-void mlir::aster::amdgcn::registerRegAllocPassPipeline() {
+static void registerRegAllocPassPipeline() {
   PassPipelineRegistration<RegAllocPipelineOptions>(
       "amdgcn-reg-alloc", "Run the AMDGCN register allocation pipeline",
       buildRegAllocPassPipeline);
+}
+
+//===----------------------------------------------------------------------===//
+// LateWaits Pipeline
+//===----------------------------------------------------------------------===//
+
+static void buildLateWaitsPassPipeline(OpPassManager &pm) {
+  pm.addPass(createWaitInsertion());
+  pm.addPass(mlir::createMem2Reg());
+  pm.addPass(createAMDGCNConvertWaits({true}));
+}
+
+static void registerLateWaitsPassPipeline() {
+  PassPipelineRegistration<>("amdgcn-late-waits",
+                             "Run the late wait insertion pipeline (insert "
+                             "waits, mem2reg, convert waits)",
+                             buildLateWaitsPassPipeline);
+}
+
+//===----------------------------------------------------------------------===//
+// AMDGCN Backend Pipeline
+//===----------------------------------------------------------------------===//
+
+static void buildAMDGCNBackendPassPipeline(OpPassManager &pm) {
+  {
+    OpPassManager &kernelPm = pm.nest<amdgcn::ModuleOp>().nest<KernelOp>();
+    kernelPm.addPass(createCanonicalizerPass());
+    kernelPm.addPass(createCSEPass());
+    kernelPm.addPass(createExpandMetadataOps());
+    kernelPm.addPass(createLegalizeOperands());
+    buildRegAllocPassPipeline(kernelPm, RegAllocPipelineOptions());
+    kernelPm.addPass(createCanonicalizerPass());
+    kernelPm.addPass(createCSEPass());
+  }
+  buildLateWaitsPassPipeline(pm);
+  {
+    OpPassManager &kernelPm = pm.nest<amdgcn::ModuleOp>().nest<KernelOp>();
+    kernelPm.addPass(createLegalizeCF());
+    kernelPm.addPass(createCanonicalizerPass());
+    kernelPm.addPass(createCSEPass());
+  }
+}
+
+static void registerAMDGCNBackendPassPipeline() {
+  PassPipelineRegistration<>(
+      "amdgcn-backend",
+      "Run the AMDGCN backend pipeline (canonicalize, cse, reg-alloc, "
+      "late-waits, legalize cf, canonicalize, cse)",
+      buildAMDGCNBackendPassPipeline);
+}
+
+void mlir::aster::amdgcn::registerPipelines() {
+  registerRegAllocPassPipeline();
+  registerLateWaitsPassPipeline();
+  registerAMDGCNBackendPassPipeline();
 }
