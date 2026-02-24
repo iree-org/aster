@@ -72,9 +72,6 @@ public:
   static FailureOr<DPSAnalysis> create(FunctionOpInterface funcOp);
 
   /// Get the value provenance map.
-  llvm::DenseMap<Value, ProvenanceSet> &getProvenance() {
-    return valueProvenance;
-  }
   const llvm::DenseMap<Value, ProvenanceSet> &getProvenance() const {
     return valueProvenance;
   }
@@ -108,7 +105,6 @@ public:
   void print(llvm::raw_ostream &os, const SSAMap &ssaMap) const;
 
   /// Get the allocation views map.
-  DenseMap<Value, AllocView> &getAllocViews() { return allocViews; }
   const DenseMap<Value, AllocView> &getAllocViews() const { return allocViews; }
 
   /// Get the allocation that owns the given ID. Returns nullptr if the ID is
@@ -122,7 +118,7 @@ private:
   llvm::SpecificBumpPtrAllocator<Allocation> allocAllocator;
 
   /// Next available allocation ID.
-  int64_t nextId = 0;
+  int32_t nextId = 0;
 
   /// Maps each value to its allocation view.
   DenseMap<Value, AllocView> allocViews;

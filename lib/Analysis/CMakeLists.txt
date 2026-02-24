@@ -15,6 +15,7 @@ add_mlir_library(
 
   ASTERSupport
   AsterInterfaces
+  ASTERIR
   MLIRAnalysis
   MLIRGPUDialect
   MLIRIR
