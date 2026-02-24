@@ -301,3 +301,21 @@ module {
     return
   }
 }
+
+// -----
+
+// CHECK-LABEL:  function: "ignore_allocated"
+// CHECK:  DPS analysis {
+// CHECK-NEXT:    value provenance {
+// CHECK-NEXT:    }
+// CHECK-NEXT:    control-flow provenance {
+// CHECK-NEXT:    }
+// CHECK-NEXT:  }
+func.func @ignore_allocated() {
+  %1 = amdgcn.alloca : !amdgcn.vgpr<0>
+  %2 = amdgcn.alloca : !amdgcn.vgpr<1>
+  %3 = amdgcn.make_register_range %1, %2 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+  %4, %5 = amdgcn.split_register_range %3 : !amdgcn.vgpr<[0 : 2]>
+  amdgcn.test_inst ins %3, %1, %2, %4, %5 : (!amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}

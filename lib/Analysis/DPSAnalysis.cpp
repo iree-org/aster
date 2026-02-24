@@ -18,8 +18,10 @@
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/Support/DebugLog.h"
 #include "llvm/Support/InterleavedRange.h"
+
+#define DEBUG_TYPE "aster-dps-analysis"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -54,12 +56,15 @@ LogicalResult DPSAnalysisImpl::visitOp(Operation *op) {
 
   // Handle instruction operations.
   if (auto instOp = dyn_cast<InstOpInterface>(op)) {
+    LDBG() << "- Handling instruction: " << instOp;
     for (auto [out, res] : TiedInstOutsRange(instOp)) {
       if (!res)
         continue;
       AllocView allocView = analysis.getAllocView(out);
-      if (!allocView.alloc)
+      if (!allocView.alloc) {
+        LDBG() << "-- Failed to get alloc view for output: " << out;
         return failure();
+      }
       analysis.setAllocView(res,
                             AllocView(allocView.alloc, allocView.alloc->ids));
     }
@@ -68,23 +73,32 @@ LogicalResult DPSAnalysisImpl::visitOp(Operation *op) {
 
   // Handle make register range operations.
   if (auto makeRegisterRangeOp = dyn_cast<amdgcn::MakeRegisterRangeOp>(op)) {
+    if (!makeRegisterRangeOp.getType().hasValueSemantics())
+      return success();
     Allocation *alloc = analysis.getOrCreateRange(
         makeRegisterRangeOp.getResult(), makeRegisterRangeOp.getInputs());
-    if (!alloc)
+    if (!alloc) {
+      LDBG() << "- Failed to get or create range for: " << makeRegisterRangeOp;
       return failure();
+    }
     return success();
   }
 
   // Handle split register range operations.
   if (auto splitRegisterRangeOp = dyn_cast<amdgcn::SplitRegisterRangeOp>(op)) {
+    if (!splitRegisterRangeOp.getInput().getType().hasValueSemantics())
+      return success();
     AllocView allocView =
         analysis.getAllocView(splitRegisterRangeOp.getInput());
-    if (!allocView.alloc)
+    if (!allocView.alloc) {
+      LDBG() << "- Failed to get alloc view for: "
+             << splitRegisterRangeOp.getInput();
       return failure();
-    for (auto &&[result, id] : llvm::zip_equal(
-             splitRegisterRangeOp.getResults(), allocView.alloc->ids)) {
-      analysis.setAllocView(result,
-                            AllocView(allocView.alloc, ArrayRef<int32_t>(id)));
+    }
+    for (auto [i, result] :
+         llvm::enumerate(splitRegisterRangeOp.getResults())) {
+      analysis.setAllocView(
+          result, AllocView(allocView.alloc, allocView.ids.slice(i, 1)));
     }
     return success();
   }
