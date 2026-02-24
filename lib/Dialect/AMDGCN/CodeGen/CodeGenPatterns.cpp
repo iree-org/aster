@@ -83,23 +83,104 @@ LogicalResult IDDimOpPattern<OpTy, NewOpTy>::matchAndRewrite(
 // Internal helpers
 //===----------------------------------------------------------------------===//
 
-/// Create an i32 constant value.
-static Value getI32Constant(OpBuilder &builder, Location loc, int32_t value) {
-  return arith::ConstantOp::create(
-      builder, loc, builder.getI32Type(),
-      builder.getIntegerAttr(builder.getI32Type(), value));
-}
-
-/// Get the address space kind from a ptr type. Returns std::nullopt for
-/// generic/unknown memory spaces (which default to global).
-static std::optional<AddressSpaceKind>
-getAddressSpaceKind(ptr::PtrType ptrType) {
+/// Returns true if the ptr type has local (LDS) address space.
+static bool isLocalMemory(ptr::PtrType ptrType) {
   auto memSpace = ptrType.getMemorySpace();
   if (!memSpace)
-    return std::nullopt;
-  if (auto addrSpace = dyn_cast<AddressSpaceAttr>(memSpace))
-    return addrSpace.getSpace();
-  return std::nullopt;
+    return false;
+  auto addrSpace = dyn_cast<AddressSpaceAttr>(memSpace);
+  return addrSpace && addrSpace.getSpace() == AddressSpaceKind::Local;
+}
+
+/// Create a DS_READ instruction for the given number of 32-bit words.
+static FailureOr<Value> createDSRead(OpBuilder &rewriter, Location loc,
+                                     Value dst, Value addr, int64_t numWords) {
+  Value offset = arith::ConstantOp::create(
+      rewriter, loc, rewriter.getI32Type(),
+      rewriter.getIntegerAttr(rewriter.getI32Type(), 0));
+  switch (numWords) {
+  case 1:
+    return DS_READ_B32::create(rewriter, loc, dst, addr, offset).getDestRes();
+  case 2:
+    return DS_READ_B64::create(rewriter, loc, dst, addr, offset).getDestRes();
+  case 3:
+    return DS_READ_B96::create(rewriter, loc, dst, addr, offset).getDestRes();
+  case 4:
+    return DS_READ_B128::create(rewriter, loc, dst, addr, offset).getDestRes();
+  default:
+    return failure();
+  }
+}
+
+/// Create a GLOBAL_LOAD instruction for the given number of 32-bit words.
+static FailureOr<Value> createGlobalLoad(OpBuilder &rewriter, Location loc,
+                                         Value dst, Value addr,
+                                         int64_t numWords) {
+  switch (numWords) {
+  case 1:
+    return GLOBAL_LOAD_DWORD::create(rewriter, loc, dst, addr, nullptr, nullptr)
+        .getDestRes();
+  case 2:
+    return GLOBAL_LOAD_DWORDX2::create(rewriter, loc, dst, addr, nullptr,
+                                       nullptr)
+        .getDestRes();
+  case 3:
+    return GLOBAL_LOAD_DWORDX3::create(rewriter, loc, dst, addr, nullptr,
+                                       nullptr)
+        .getDestRes();
+  case 4:
+    return GLOBAL_LOAD_DWORDX4::create(rewriter, loc, dst, addr, nullptr,
+                                       nullptr)
+        .getDestRes();
+  default:
+    return failure();
+  }
+}
+
+/// Create a DS_WRITE instruction for the given number of 32-bit words.
+static LogicalResult createDSWrite(OpBuilder &rewriter, Location loc,
+                                   Value data, Value addr, int64_t numWords) {
+  Value offset = arith::ConstantOp::create(
+      rewriter, loc, rewriter.getI32Type(),
+      rewriter.getIntegerAttr(rewriter.getI32Type(), 0));
+  switch (numWords) {
+  case 1:
+    DS_WRITE_B32::create(rewriter, loc, data, addr, offset);
+    return success();
+  case 2:
+    DS_WRITE_B64::create(rewriter, loc, data, addr, offset);
+    return success();
+  case 3:
+    DS_WRITE_B96::create(rewriter, loc, data, addr, offset);
+    return success();
+  case 4:
+    DS_WRITE_B128::create(rewriter, loc, data, addr, offset);
+    return success();
+  default:
+    return failure();
+  }
+}
+
+/// Create a GLOBAL_STORE instruction for the given number of 32-bit words.
+static LogicalResult createGlobalStore(OpBuilder &rewriter, Location loc,
+                                       Value data, Value addr,
+                                       int64_t numWords) {
+  switch (numWords) {
+  case 1:
+    GLOBAL_STORE_DWORD::create(rewriter, loc, data, addr, nullptr, nullptr);
+    return success();
+  case 2:
+    GLOBAL_STORE_DWORDX2::create(rewriter, loc, data, addr, nullptr, nullptr);
+    return success();
+  case 3:
+    GLOBAL_STORE_DWORDX3::create(rewriter, loc, data, addr, nullptr, nullptr);
+    return success();
+  case 4:
+    GLOBAL_STORE_DWORDX4::create(rewriter, loc, data, addr, nullptr, nullptr);
+    return success();
+  default:
+    return failure();
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -110,76 +191,21 @@ LogicalResult
 PtrLoadOpPattern::matchAndRewrite(ptr::LoadOp op, OpAdaptor adaptor,
                                   ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-
-  // Get the result type and compute the number of 32-bit words needed.
   Type resultType = converter.convertType(op.getResult());
-  int64_t typeSize = converter.getTypeSize(op.getResult().getType());
-  int64_t numWords = (typeSize + 3) / 4;
-
-  // Create the destination register allocation.
+  int64_t numWords = (converter.getTypeSize(op.getResult().getType()) + 3) / 4;
   Value dst = createAlloca(rewriter, loc, resultType);
-
-  // Get the converted address operand.
   Value addr = adaptor.getPtr();
-
-  // Get the memory space from the ptr type.
   auto ptrType = cast<ptr::PtrType>(op.getPtr().getType());
-  std::optional<AddressSpaceKind> space = getAddressSpaceKind(ptrType);
 
-  Value result;
-  // Handle local memory (shared/LDS) with DS_READ instructions.
-  if (space && *space == AddressSpaceKind::Local) {
-    Value offset = getI32Constant(rewriter, loc, 0);
-    switch (numWords) {
-    case 1:
-      result =
-          DS_READ_B32::create(rewriter, loc, dst, addr, offset).getResult();
-      break;
-    case 2:
-      result =
-          DS_READ_B64::create(rewriter, loc, dst, addr, offset).getResult();
-      break;
-    case 3:
-      result =
-          DS_READ_B96::create(rewriter, loc, dst, addr, offset).getResult();
-      break;
-    case 4:
-      result =
-          DS_READ_B128::create(rewriter, loc, dst, addr, offset).getResult();
-      break;
-    default:
-      return rewriter.notifyMatchFailure(
-          op, "unsupported number of words for ptr.load from local memory");
-    }
-  } else {
-    // Default to global memory with GLOBAL_LOAD instructions.
-    switch (numWords) {
-    case 1:
-      result =
-          GLOBAL_LOAD_DWORD::create(rewriter, loc, dst, addr, nullptr, nullptr)
-              .getResult();
-      break;
-    case 2:
-      result = GLOBAL_LOAD_DWORDX2::create(rewriter, loc, dst, addr, nullptr,
-                                           nullptr)
-                   .getResult();
-      break;
-    case 3:
-      result = GLOBAL_LOAD_DWORDX3::create(rewriter, loc, dst, addr, nullptr,
-                                           nullptr)
-                   .getResult();
-      break;
-    case 4:
-      result = GLOBAL_LOAD_DWORDX4::create(rewriter, loc, dst, addr, nullptr,
-                                           nullptr)
-                   .getResult();
-      break;
-    default:
-      return rewriter.notifyMatchFailure(
-          op, "unsupported number of words for ptr.load");
-    }
-  }
-  rewriter.replaceOp(op, result);
+  FailureOr<Value> result =
+      isLocalMemory(ptrType)
+          ? createDSRead(rewriter, loc, dst, addr, numWords)
+          : createGlobalLoad(rewriter, loc, dst, addr, numWords);
+  if (failed(result))
+    return rewriter.notifyMatchFailure(op,
+                                       "unsupported word count for ptr.load");
+
+  rewriter.replaceOp(op, *result);
   return success();
 }
 
@@ -191,59 +217,19 @@ LogicalResult
 PtrStoreOpPattern::matchAndRewrite(ptr::StoreOp op, OpAdaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-
-  // Get the value to store and compute the number of 32-bit words.
   Value data = adaptor.getValue();
-  int64_t typeSize = converter.getTypeSize(op.getValue().getType());
-  int64_t numWords = (typeSize + 3) / 4;
-
-  // Get the converted address operand.
+  int64_t numWords = (converter.getTypeSize(op.getValue().getType()) + 3) / 4;
   Value addr = adaptor.getPtr();
-
-  // Get the memory space from the ptr type.
   auto ptrType = cast<ptr::PtrType>(op.getPtr().getType());
-  std::optional<AddressSpaceKind> space = getAddressSpaceKind(ptrType);
 
-  // Handle local memory (shared/LDS) with DS_WRITE instructions.
-  if (space && *space == AddressSpaceKind::Local) {
-    Value offset = getI32Constant(rewriter, loc, 0);
-    switch (numWords) {
-    case 1:
-      DS_WRITE_B32::create(rewriter, loc, data, addr, offset);
-      break;
-    case 2:
-      DS_WRITE_B64::create(rewriter, loc, data, addr, offset);
-      break;
-    case 3:
-      DS_WRITE_B96::create(rewriter, loc, data, addr, offset);
-      break;
-    case 4:
-      DS_WRITE_B128::create(rewriter, loc, data, addr, offset);
-      break;
-    default:
-      return rewriter.notifyMatchFailure(
-          op, "unsupported number of words for ptr.store to local memory");
-    }
-  } else {
-    // Default to global memory with GLOBAL_STORE instructions.
-    switch (numWords) {
-    case 1:
-      GLOBAL_STORE_DWORD::create(rewriter, loc, data, addr, nullptr, nullptr);
-      break;
-    case 2:
-      GLOBAL_STORE_DWORDX2::create(rewriter, loc, data, addr, nullptr, nullptr);
-      break;
-    case 3:
-      GLOBAL_STORE_DWORDX3::create(rewriter, loc, data, addr, nullptr, nullptr);
-      break;
-    case 4:
-      GLOBAL_STORE_DWORDX4::create(rewriter, loc, data, addr, nullptr, nullptr);
-      break;
-    default:
-      return rewriter.notifyMatchFailure(
-          op, "unsupported number of words for ptr.store");
-    }
-  }
+  LogicalResult created =
+      isLocalMemory(ptrType)
+          ? createDSWrite(rewriter, loc, data, addr, numWords)
+          : createGlobalStore(rewriter, loc, data, addr, numWords);
+  if (failed(created))
+    return rewriter.notifyMatchFailure(op,
+                                       "unsupported word count for ptr.store");
+
   rewriter.eraseOp(op);
   return success();
 }

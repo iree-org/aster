@@ -51,7 +51,8 @@ public:
 // OffsetComponents
 //===----------------------------------------------------------------------===//
 
-/// Represents the decomposed components of an offset expression.
+/// Represents the decomposed (const, uniform, dynamic) components of an offset
+/// expression.
 struct OffsetComponents {
   /// Analyze the given offset value and decompose it into its components.
   static FailureOr<OffsetComponents> analyzeOffset(Value offset,
@@ -71,20 +72,26 @@ private:
     AffineExpr uniformOffset;
     AffineExpr dynamicOffset;
 
-    Offsets(AffineExpr constOffset, AffineExpr uniformOffset,
-            AffineExpr dynamicOffset)
-        : constOffset(constOffset), uniformOffset(uniformOffset),
-          dynamicOffset(dynamicOffset) {}
+    /// Named constructors for common cases.
+    static Offsets cst(AffineExpr expr, MLIRContext *ctx) {
+      auto z = getAffineConstantExpr(0, ctx);
+      return {expr, z, z};
+    }
+    static Offsets uniform(AffineExpr expr, MLIRContext *ctx) {
+      auto z = getAffineConstantExpr(0, ctx);
+      return {z, expr, z};
+    }
+    static Offsets dynamic(AffineExpr expr, MLIRContext *ctx) {
+      auto z = getAffineConstantExpr(0, ctx);
+      return {z, z, expr};
+    }
 
-    /// Get the affine map representing the components.
     AffineMap getAsMap(int32_t numSyms, MLIRContext *context);
 
-    /// Add another set of components to this one. The addition is done
-    /// component-wise.
+    // Component-wise addition.
     void add(const Offsets &other);
 
-    /// Multiply the components by another set of components. The multiplication
-    /// is done distributively.
+    // Cross-component multiplication.
     void mul(const Offsets &other);
   };
 
@@ -109,30 +116,18 @@ private:
 //===----------------------------------------------------------------------===//
 
 /// Returns whether the given value is a valid term for offset analysis.
-/// A valid term is a non-negative integer value of bitwidth up to 64.
-static FailureOr<unsigned> isValidTerm(Value value, DataFlowSolver &solver) {
-  // Bail out if not an integer type.
-  if (!value.getType().isSignlessInteger()) {
-    LDBG() << "  Non-integer offset type in: " << value;
-    return failure();
+/// A valid term is a non-negative signless integer value of bitwidth <= 64.
+static bool isValidTerm(Value value, DataFlowSolver &solver) {
+  if (!value.getType().isSignlessInteger() ||
+      value.getType().getIntOrFloatBitWidth() > 64) {
+    LDBG() << "  Invalid offset type: " << value;
+    return false;
   }
-
-  // Verify non-negativity.
   if (!succeeded(mlir::dataflow::staticallyNonNegative(solver, value))) {
-    LDBG() << "  Non-positive offset in: " << value;
-    return failure();
+    LDBG() << "  Non-positive offset: " << value;
+    return false;
   }
-
-  // Get the bitwidth of the integer type.
-  unsigned bitwidth = value.getType().getIntOrFloatBitWidth();
-
-  // Bail out on unsupported bitwidths.
-  if (bitwidth > 64) {
-    LDBG() << "  Unsupported bitwidth > 64 in: " << value;
-    return failure();
-  }
-
-  return bitwidth;
+  return true;
 }
 
 /// Returns the constant value of the given value if it can be determined.
@@ -194,10 +189,9 @@ AffineExpr OffsetComponents::getAsExpr(Value value) {
     return getAffineConstantExpr(constVal->getSExtValue(), context);
 
   // Get a position for the affine symbol.
-  int64_t pos =
-      valueToAffinePos
-          .insert({value, static_cast<int64_t>(valueToAffinePos.size())})
-          .first->second;
+  auto it = valueToAffinePos.insert(
+      {value, static_cast<int64_t>(valueToAffinePos.size())});
+  int64_t pos = it.first->second;
   return getAffineSymbolExpr(pos, context);
 }
 
@@ -216,32 +210,20 @@ OffsetComponents::analyzeOffset(Value offset, DataFlowSolver &solver) {
 
 FailureOr<OffsetComponents::Offsets>
 OffsetComponents::analyzeTerm(Value value) {
-  // Helper lambda to get offsets for a value.
+  // Classify a leaf value as uniform or dynamic.
   auto getOffsets = [&](Value value, bool isKnownNonUniform = false) {
-    if (!isKnownNonUniform && isUniform(value, solver)) {
-      return Offsets(getAffineConstantExpr(0, context), getAsExpr(value),
-                     getAffineConstantExpr(0, context));
-    }
-    return Offsets(getAffineConstantExpr(0, context),
-                   getAffineConstantExpr(0, context), getAsExpr(value));
+    if (!isKnownNonUniform && isUniform(value, solver))
+      return Offsets::uniform(getAsExpr(value), context);
+    return Offsets::dynamic(getAsExpr(value), context);
   };
 
-  unsigned bitwidth = 0;
-  // Get the bitwidth of the integer type.
-  if (auto bitwidthOrErr = isValidTerm(value, solver);
-      succeeded(bitwidthOrErr)) {
-    bitwidth = *bitwidthOrErr;
-  } else {
+  if (!isValidTerm(value, solver))
     return failure();
-  }
 
   // Check if this is a constant.
-  if (std::optional<APInt> constVal = getConstantValue(value, solver)) {
-    assert(bitwidth == constVal->getBitWidth() && "bitwidth mismatch");
-    return Offsets(getAffineConstantExpr(constVal->getSExtValue(), context),
-                   getAffineConstantExpr(0, context),
-                   getAffineConstantExpr(0, context));
-  }
+  if (std::optional<APInt> constVal = getConstantValue(value, solver))
+    return Offsets::cst(
+        getAffineConstantExpr(constVal->getSExtValue(), context), context);
 
   auto asResult = dyn_cast<OpResult>(value);
   // Handle values not defined by an operation.
@@ -305,9 +287,10 @@ OffsetComponents::analyzeTerm(Value value) {
     if (auto shiftAmt = getConstantValue(shlOp.getRhs(), solver)) {
       int64_t shift = shiftAmt->getSExtValue();
       FailureOr<Offsets> lhs = analyzeTerm(shlOp.getLhs());
-      AffineExpr cExpr = getAffineConstantExpr(1ULL << shift, context);
-      AffineExpr zExpr = getAffineConstantExpr(0, context);
-      lhs->mul(Offsets(cExpr, zExpr, zExpr));
+      if (failed(lhs))
+        return getOffsets(shlOp);
+      lhs->mul(
+          Offsets::cst(getAffineConstantExpr(1ULL << shift, context), context));
       return *lhs;
     }
   }
@@ -406,7 +389,7 @@ static void optimizePtrAddOp(ptr::PtrAddOp op, DataFlowSolver &solver) {
       materializeAffineExpr(rewriter, loc, dynamicExpr, offsetType, operands);
 
   // Build the uniform offset (optional).
-  Value uniformOffset;
+  Value uniformOffset = nullptr;
   if (!isa<AffineConstantExpr>(uniformExpr) ||
       cast<AffineConstantExpr>(uniformExpr).getValue() != 0)
     uniformOffset =
