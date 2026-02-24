@@ -21,6 +21,7 @@
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -77,6 +78,26 @@ struct AmdgpuMFMAOpPattern : public OpCodeGenPattern<amdgpu::MFMAOp> {
   using OpCodeGenPattern::OpCodeGenPattern;
   LogicalResult
   matchAndRewrite(amdgpu::MFMAOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
+// ToElementsOpPattern
+//===----------------------------------------------------------------------===//
+struct ToElementsOpPattern : public OpCodeGenPattern<vector::ToElementsOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
+  LogicalResult
+  matchAndRewrite(vector::ToElementsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
+// FromElementsOpPattern
+//===----------------------------------------------------------------------===//
+struct FromElementsOpPattern : public OpCodeGenPattern<vector::FromElementsOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
+  LogicalResult
+  matchAndRewrite(vector::FromElementsOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
 
@@ -337,6 +358,32 @@ LogicalResult AmdgpuMFMAOpPattern::matchAndRewrite(
 }
 
 //===----------------------------------------------------------------------===//
+// ToElementsOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult ToElementsOpPattern::matchAndRewrite(
+    vector::ToElementsOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  auto splitOp = amdgcn::SplitRegisterRangeOp::create(
+      rewriter, op.getLoc(), adaptor.getSource());
+  rewriter.replaceOp(op, splitOp.getResults());
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// FromElementsOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult FromElementsOpPattern::matchAndRewrite(
+    vector::FromElementsOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  auto makeOp = amdgcn::MakeRegisterRangeOp::create(
+      rewriter, op.getLoc(), adaptor.getElements());
+  rewriter.replaceOp(op, makeOp.getResult());
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Internal functions
 //===----------------------------------------------------------------------===//
 
@@ -459,6 +506,7 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
                       ptr::LoadOp, ptr::StoreOp>();
 
   target.addIllegalOp<amdgpu::MFMAOp>();
+  target.addIllegalOp<vector::ToElementsOp, vector::FromElementsOp>();
 
   // Add the patterns.
   patterns.add<IDDimOpPattern<aster_utils::ThreadIdOp, amdgcn::ThreadIdOp>,
@@ -466,5 +514,6 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
                IDDimOpPattern<aster_utils::BlockDimOp, amdgcn::BlockDimOp>,
                IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>,
                PtrLoadOpPattern, PtrStoreOpPattern, PtrAddOpPattern,
-               AmdgpuMFMAOpPattern>(converter);
+               AmdgpuMFMAOpPattern, ToElementsOpPattern,
+               FromElementsOpPattern>(converter);
 }
