@@ -338,3 +338,107 @@ func.func private @test_to_reg_constant()
   %2 = lsir.to_reg %c42 : i32 -> !amdgcn.sgpr
   return %0, %1, %2 : !amdgcn.sgpr, !amdgcn.vgpr, !amdgcn.sgpr
 }
+
+// CHECK-LABEL:   func.func private @test_global_load_i32(
+// CHECK-SAME:      %[[ADDR:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
+// CHECK:           %[[DST:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.load global_load_dword dest %[[DST]] addr %[[ADDR]]
+// CHECK:           return %[[LOAD]] : !amdgcn.vgpr
+// CHECK:         }
+func.func private @test_global_load_i32(
+    %ptr: !ptr.ptr<#ptr.generic_space>) -> i32
+    attributes {abi = (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr} {
+  %0 = ptr.load %ptr : !ptr.ptr<#ptr.generic_space> -> i32
+  return {abi = (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr} %0 : i32
+}
+
+// CHECK-LABEL:   func.func private @test_global_load_i64(
+// CHECK-SAME:      %[[ADDR:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[DST:.*]] = lsir.alloca : !amdgcn.vgpr<[? + 2]>
+// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.load global_load_dwordx2 dest %[[DST]] addr %[[ADDR]]
+// CHECK:           return %[[LOAD]] : !amdgcn.vgpr<[? + 2]>
+// CHECK:         }
+func.func private @test_global_load_i64(
+    %ptr: !ptr.ptr<#ptr.generic_space>) -> i64
+    attributes {abi = (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>} {
+  %0 = ptr.load %ptr : !ptr.ptr<#ptr.generic_space> -> i64
+  return {abi = (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>} %0 : i64
+}
+
+// CHECK-LABEL:   func.func private @test_global_store_i32(
+// CHECK-SAME:      %[[DATA:.*]]: !amdgcn.vgpr, %[[ADDR:.*]]: !amdgcn.vgpr<[? + 2]>) {
+// CHECK:           {{.*}} = amdgcn.store global_store_dword data %[[DATA]] addr %[[ADDR]]
+// CHECK:           return
+// CHECK:         }
+func.func private @test_global_store_i32(
+    %val: i32, %ptr: !ptr.ptr<#ptr.generic_space>)
+    attributes {abi = (!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) -> ()} {
+  ptr.store %val, %ptr : i32, !ptr.ptr<#ptr.generic_space>
+  return {abi = (!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) -> ()}
+}
+
+// CHECK-LABEL:   func.func private @test_global_store_i64(
+// CHECK-SAME:      %[[DATA:.*]]: !amdgcn.vgpr<[? + 2]>, %[[ADDR:.*]]: !amdgcn.vgpr<[? + 2]>) {
+// CHECK:           {{.*}} = amdgcn.store global_store_dwordx2 data %[[DATA]] addr %[[ADDR]]
+// CHECK:           return
+// CHECK:         }
+func.func private @test_global_store_i64(
+    %val: i64, %ptr: !ptr.ptr<#ptr.generic_space>)
+    attributes {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> ()} {
+  ptr.store %val, %ptr : i64, !ptr.ptr<#ptr.generic_space>
+  return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> ()}
+}
+
+// CHECK-LABEL:   func.func private @test_local_load_i32(
+// CHECK-SAME:      %[[ADDR:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
+// CHECK:           %[[C0:.*]] = arith.constant 0 : i32
+// CHECK:           %[[DST:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.load ds_read_b32 dest %[[DST]] addr %[[ADDR]] offset c(%[[C0]])
+// CHECK:           return %[[LOAD]] : !amdgcn.vgpr
+// CHECK:         }
+func.func private @test_local_load_i32(
+    %ptr: !ptr.ptr<#amdgcn.addr_space<local, read_write>>) -> i32
+    attributes {abi = (!amdgcn.vgpr) -> !amdgcn.vgpr} {
+  %0 = ptr.load %ptr : !ptr.ptr<#amdgcn.addr_space<local, read_write>> -> i32
+  return {abi = (!amdgcn.vgpr) -> !amdgcn.vgpr} %0 : i32
+}
+
+// CHECK-LABEL:   func.func private @test_local_load_i64(
+// CHECK-SAME:      %[[ADDR:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[C0:.*]] = arith.constant 0 : i32
+// CHECK:           %[[DST:.*]] = lsir.alloca : !amdgcn.vgpr<[? + 2]>
+// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.load ds_read_b64 dest %[[DST]] addr %[[ADDR]] offset c(%[[C0]])
+// CHECK:           return %[[LOAD]] : !amdgcn.vgpr<[? + 2]>
+// CHECK:         }
+func.func private @test_local_load_i64(
+    %ptr: !ptr.ptr<#amdgcn.addr_space<local, read_write>>) -> i64
+    attributes {abi = (!amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} {
+  %0 = ptr.load %ptr : !ptr.ptr<#amdgcn.addr_space<local, read_write>> -> i64
+  return {abi = (!amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} %0 : i64
+}
+
+// CHECK-LABEL:   func.func private @test_local_store_i32(
+// CHECK-SAME:      %[[DATA:.*]]: !amdgcn.vgpr, %[[ADDR:.*]]: !amdgcn.vgpr) {
+// CHECK:           %[[C0:.*]] = arith.constant 0 : i32
+// CHECK:           {{.*}} = amdgcn.store ds_write_b32 data %[[DATA]] addr %[[ADDR]] offset c(%[[C0]])
+// CHECK:           return
+// CHECK:         }
+func.func private @test_local_store_i32(
+    %val: i32, %ptr: !ptr.ptr<#amdgcn.addr_space<local, read_write>>)
+    attributes {abi = (!amdgcn.vgpr, !amdgcn.vgpr) -> ()} {
+  ptr.store %val, %ptr : i32, !ptr.ptr<#amdgcn.addr_space<local, read_write>>
+  return {abi = (!amdgcn.vgpr, !amdgcn.vgpr) -> ()}
+}
+
+// CHECK-LABEL:   func.func private @test_local_store_i64(
+// CHECK-SAME:      %[[DATA:.*]]: !amdgcn.vgpr<[? + 2]>, %[[ADDR:.*]]: !amdgcn.vgpr) {
+// CHECK:           %[[C0:.*]] = arith.constant 0 : i32
+// CHECK:           {{.*}} = amdgcn.store ds_write_b64 data %[[DATA]] addr %[[ADDR]] offset c(%[[C0]])
+// CHECK:           return
+// CHECK:         }
+func.func private @test_local_store_i64(
+    %val: i64, %ptr: !ptr.ptr<#amdgcn.addr_space<local, read_write>>)
+    attributes {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> ()} {
+  ptr.store %val, %ptr : i64, !ptr.ptr<#amdgcn.addr_space<local, read_write>>
+  return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> ()}
+}

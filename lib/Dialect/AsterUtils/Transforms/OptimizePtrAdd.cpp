@@ -17,7 +17,7 @@
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
-#include "mlir/IR/AffineMap.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/DebugLog.h"
@@ -52,19 +52,17 @@ public:
 //===----------------------------------------------------------------------===//
 
 /// Represents the decomposed (const, uniform, dynamic) components of an offset
-/// expression.
+/// expression after analysis. constPart is always an AffineConstantExpr.
+/// operands[i] is the Value corresponding to affine symbol s_i.
 struct OffsetComponents {
+  AffineExpr constPart;
+  AffineExpr uniformPart;
+  AffineExpr dynamicPart;
+  SmallVector<Value> operands;
+
   /// Analyze the given offset value and decompose it into its components.
   static FailureOr<OffsetComponents> analyzeOffset(Value offset,
                                                    DataFlowSolver &solver);
-
-  /// Get the affine map representing the offset expression.
-  AffineMap getOffsetExpression() const { return offsetExpression; }
-
-  /// Get the mapping from values to affine symbol positions.
-  ArrayRef<std::pair<Value, int64_t>> getValueToAffinePos() const {
-    return valueToAffinePos.getArrayRef();
-  }
 
 private:
   struct Offsets {
@@ -86,8 +84,6 @@ private:
       return {z, z, expr};
     }
 
-    AffineMap getAsMap(int32_t numSyms, MLIRContext *context);
-
     // Component-wise addition.
     void add(const Offsets &other);
 
@@ -107,7 +103,6 @@ private:
   MLIRContext *context;
   DataFlowSolver &solver;
   llvm::MapVector<Value, int64_t> valueToAffinePos;
-  AffineMap offsetExpression;
 };
 } // namespace
 
@@ -151,12 +146,6 @@ static bool isUniform(Value value, DataFlowSolver &solver) {
 // OffsetComponents::Offsets
 //===----------------------------------------------------------------------===//
 
-AffineMap OffsetComponents::Offsets::getAsMap(int32_t numSyms,
-                                              MLIRContext *context) {
-  return AffineMap::get(/*dimCount=*/0, /*symbolCount=*/numSyms,
-                        {constOffset, uniformOffset, dynamicOffset}, context);
-}
-
 void OffsetComponents::Offsets::add(const Offsets &other) {
   constOffset = constOffset + other.constOffset;
   uniformOffset = uniformOffset + other.uniformOffset;
@@ -199,12 +188,20 @@ FailureOr<OffsetComponents>
 OffsetComponents::analyzeOffset(Value offset, DataFlowSolver &solver) {
   OffsetComponents components(offset.getContext(), solver);
   FailureOr<Offsets> offExpr = components.analyzeTerm(offset);
-  if (!succeeded(offExpr))
+  if (failed(offExpr))
     return failure();
-  components.offsetExpression = offExpr->getAsMap(
-      components.valueToAffinePos.size(), offset.getContext());
-  // Simplify the affine map.
-  components.offsetExpression = simplifyAffineMap(components.offsetExpression);
+
+  int32_t numSyms = components.valueToAffinePos.size();
+  // Simplify each component expression directly.
+  components.constPart = simplifyAffineExpr(offExpr->constOffset, 0, numSyms);
+  components.uniformPart =
+      simplifyAffineExpr(offExpr->uniformOffset, 0, numSyms);
+  components.dynamicPart =
+      simplifyAffineExpr(offExpr->dynamicOffset, 0, numSyms);
+  // Build the operands array ordered by affine symbol position.
+  components.operands.resize(numSyms);
+  for (auto [value, pos] : components.valueToAffinePos)
+    components.operands[pos] = value;
   return components;
 }
 
@@ -361,39 +358,26 @@ static void optimizePtrAddOp(ptr::PtrAddOp op, DataFlowSolver &solver) {
     return;
 
   OffsetComponents &components = *componentsOrErr;
-  AffineMap offsetExpr = components.getOffsetExpression();
 
-  // The map has 3 results: [constOffset, uniformOffset, dynamicOffset]
-  AffineExpr constExpr = offsetExpr.getResult(0);
-  AffineExpr uniformExpr = offsetExpr.getResult(1);
-  AffineExpr dynamicExpr = offsetExpr.getResult(2);
-
-  // Check if the const expression is a constant.
-  auto constCst = dyn_cast<AffineConstantExpr>(constExpr);
+  // Check if the const component is a compile-time constant.
+  auto constCst = dyn_cast<AffineConstantExpr>(components.constPart);
   if (!constCst)
     return;
   int64_t constOffsetVal = constCst.getValue();
-
-  // Build the operands array from the value-to-position mapping.
-  ArrayRef<std::pair<Value, int64_t>> valueToPos =
-      components.getValueToAffinePos();
-  SmallVector<Value> operands(valueToPos.size());
-  for (auto [value, pos] : valueToPos)
-    operands[pos] = value;
 
   IRRewriter rewriter(op);
   Location loc = op.getLoc();
 
   // Build the dynamic offset.
-  Value dynamicOffset =
-      materializeAffineExpr(rewriter, loc, dynamicExpr, offsetType, operands);
+  Value dynamicOffset = materializeAffineExpr(
+      rewriter, loc, components.dynamicPart, offsetType, components.operands);
 
   // Build the uniform offset (optional).
   Value uniformOffset = nullptr;
-  if (!isa<AffineConstantExpr>(uniformExpr) ||
-      cast<AffineConstantExpr>(uniformExpr).getValue() != 0)
-    uniformOffset =
-        materializeAffineExpr(rewriter, loc, uniformExpr, offsetType, operands);
+  if (!isa<AffineConstantExpr>(components.uniformPart) ||
+      cast<AffineConstantExpr>(components.uniformPart).getValue() != 0)
+    uniformOffset = materializeAffineExpr(rewriter, loc, components.uniformPart,
+                                          offsetType, components.operands);
 
   // Create the optimized ptr_add operation.
   auto constOffsetAttr =
