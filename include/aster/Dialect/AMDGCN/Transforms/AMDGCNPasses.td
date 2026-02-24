@@ -24,6 +24,11 @@ def AMDGCNConvertWaits : InterfacePass<"amdgcn-convert-waits", "mlir::aster::Mod
     hardware wait instructions (s_waitcnt) based on the types of dependencies
     being waited on.
   }];
+  let dependentDialects = ["mlir::ub::UBDialect"];
+  let options = [
+    Option<"removeTokenArgs", "remove-cf-args", "bool", "true",
+           "If true, remove token arguments from control-flow arguments">,
+  ];
 }
 
 def LegalizeOperands : Pass<"amdgcn-legalize-operands"> {

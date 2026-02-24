@@ -1,4 +1,5 @@
 // RUN: aster-opt --canonicalize --amdgcn-convert-waits %s | FileCheck %s
+// RUN: aster-opt --canonicalize --amdgcn-convert-waits=remove-cf-args=false %s | FileCheck %s --check-prefix=CHECK-KEEP-ARGS
 
 // CHECK-LABEL:   func.func @test_duplicated_waits() {
 // CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
@@ -18,8 +19,11 @@ func.func @test_duplicated_waits() {
 }
 
 // CHECK-LABEL:   func.func @test_pipelined_pattern(
+// CHECK: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
 // CHECK:             amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 2
 // CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK-KEEP-ARGS-LABEL:   func.func @test_pipelined_pattern(
+// CHECK-KEEP-ARGS: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args{{.*}} -> (!amdgcn.read_token<flat>, !amdgcn.read_token<flat>, !amdgcn.read_token<flat>) {
 func.func @test_pipelined_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -51,6 +55,9 @@ func.func @test_escaped_waits_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 }
 
 // CHECK-LABEL:   func.func @test_if_flow_1(
+// CHECK-KEEP-ARGS-LABEL:   func.func @test_if_flow_1(
+// CHECK: scf.if %{{.*}} {
+// CHECK-KEEP-ARGS: scf.if %{{.*}} -> (!amdgcn.read_token<flat>) {
 // CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
 func.func @test_if_flow_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
@@ -67,6 +74,9 @@ func.func @test_if_flow_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 }
 
 // CHECK-LABEL:   func.func @test_if_flow_2(
+// CHECK-KEEP-ARGS-LABEL:   func.func @test_if_flow_2(
+// CHECK: scf.if %{{.*}} {
+// CHECK-KEEP-ARGS: scf.if %{{.*}} -> (!amdgcn.read_token<flat>) {
 // CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
 func.func @test_if_flow_2(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
@@ -85,6 +95,9 @@ func.func @test_if_flow_2(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 }
 
 // CHECK-LABEL:   func.func @test_if_flow_3(
+// CHECK-KEEP-ARGS-LABEL:   func.func @test_if_flow_3(
+// CHECK: scf.if %{{.*}} {
+// CHECK-KEEP-ARGS: scf.if %{{.*}} -> (!amdgcn.read_token<flat>) {
 // CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 1
 func.func @test_if_flow_3(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
@@ -168,4 +181,36 @@ func.func @test_counts_strength(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %result_8, %token_9 = amdgcn.load global_load_dword dest %0 addr %arg0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
   amdgcn.wait vm_cnt 4 deps %token_5 : !amdgcn.read_token<flat>
   return
+}
+
+
+// CHECK-LABEL:   func.func @cf_args(
+// CHECK: ^{{.*}}:
+// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK: ^{{.*}}:
+// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:           return %{{.*}} : !amdgcn.read_token<flat>
+// CHECK-KEEP-ARGS-LABEL:   func.func @cf_args(
+// CHECK-KEEP-ARGS: cf.cond_br{{.*}}
+// CHECK-KEEP-ARGS: ^{{.*}}(%{{.*}}: !amdgcn.read_token<flat>):
+// CHECK-KEEP-ARGS: cf.cond_br{{.*}}
+// CHECK-KEEP-ARGS: ^{{.*}}(%{{.*}}: !amdgcn.read_token<flat>):
+func.func @cf_args(%arg0: !amdgcn.vgpr<[? + 2]>, %cond: i1)  -> !amdgcn.read_token<flat> {
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  %result, %token = amdgcn.load global_load_dword dest %0 addr %arg0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+  cf.cond_br %cond, ^bb1(%token : !amdgcn.read_token<flat>), ^bb2(%token : !amdgcn.read_token<flat>)
+^bb1(%1: !amdgcn.read_token<flat>):
+  amdgcn.wait deps %1 : !amdgcn.read_token<flat>
+  %result_0, %token_1 = amdgcn.load global_load_dword dest %0 addr %arg0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+  cf.cond_br %cond, ^bb1(%token_1 : !amdgcn.read_token<flat>), ^bb2 (%token_1 : !amdgcn.read_token<flat>)
+^bb2(%2: !amdgcn.read_token<flat>):
+  amdgcn.wait deps %2 : !amdgcn.read_token<flat>
+  %3 = scf.if %cond -> (!amdgcn.read_token<flat>) {
+    %result_2, %token_2 = amdgcn.load global_load_dword dest %0 addr %arg0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+    scf.yield %token_2 : !amdgcn.read_token<flat>
+  } else {
+    %result_2, %token_2 = amdgcn.load global_load_dword dest %0 addr %arg0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+    scf.yield %token_2 : !amdgcn.read_token<flat>
+  }
+  return %3 : !amdgcn.read_token<flat>
 }

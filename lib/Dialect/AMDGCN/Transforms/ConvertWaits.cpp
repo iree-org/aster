@@ -10,11 +10,16 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::aster {
 namespace amdgcn {
@@ -34,6 +39,9 @@ struct AMDGCNConvertWaits
 public:
   using Base::Base;
   void runOnOperation() override;
+
+  /// Remove token arguments from control-flow arguments.
+  LogicalResult removeTokenArguments(FunctionOpInterface funcOp);
 };
 } // namespace
 
@@ -98,4 +106,123 @@ void AMDGCNConvertWaits::runOnOperation() {
       llvm_unreachable("EXPCNT is not supported yet");
     }
   });
+
+  // Check if we should remove token arguments from control-flow arguments.
+  if (!removeTokenArgs)
+    return;
+
+  op->walk([&](FunctionOpInterface funcOp) {
+    if (failed(removeTokenArguments(funcOp))) {
+      signalPassFailure();
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+}
+
+LogicalResult
+AMDGCNConvertWaits::removeTokenArguments(FunctionOpInterface funcOp) {
+  IRRewriter rewriter(funcOp->getContext());
+  Region &region = funcOp.getFunctionBody();
+
+  // Create a helper to get a poison value for a given type, and insert it at
+  // the start of the entry block.
+  Block *block = &region.front();
+  DenseMap<Type, Value> poisonCache;
+  Location loc = funcOp.getLoc();
+  auto getPoison = [&](Type type) -> Value {
+    Value &poison = poisonCache[type];
+    if (poison)
+      return poison;
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(block);
+    poison = ub::PoisonOp::create(rewriter, loc, type);
+    return poison;
+  };
+
+  // Remove token operands from an operation.
+  auto removeTokenOperands = [&](Operation *op) {
+    for (OpOperand &use : op->getOpOperands()) {
+      if (!isa<ReadTokenType, WriteTokenType>(use.get().getType()))
+        continue;
+      use.set(getPoison(use.get().getType()));
+    }
+  };
+
+  // Check if an argument should be removed.
+  auto shouldRemoveArg = +[](Value arg) {
+    return isa<ReadTokenType, WriteTokenType>(arg.getType()) && arg.use_empty();
+  };
+
+  SmallVector<Operation *> opsToCanonicalize;
+  // Walk all blocks and handle token arguments, region branch operands, and
+  // terminator operands.
+  funcOp->walk([&](Block *block) {
+    if (block->empty())
+      return;
+
+    bool changed = false;
+    // Handle block arguments.
+    for (Value arg : block->getArguments()) {
+      if (!isa<ReadTokenType, WriteTokenType>(arg.getType()))
+        continue;
+      rewriter.replaceAllUsesWith(arg, getPoison(arg.getType()));
+      changed = true;
+    }
+
+    // Erase token block arguments if not in the entry block.
+    if (changed && !block->isEntryBlock())
+      block->eraseArguments(shouldRemoveArg);
+
+    // Handle region branch operands.
+    for (auto brOp : block->getOps<RegionBranchOpInterface>()) {
+      opsToCanonicalize.push_back(brOp);
+      removeTokenOperands(brOp);
+    }
+
+    // Handle branch operands.
+    if (auto brOp = dyn_cast<BranchOpInterface>(block->getTerminator())) {
+      for (auto [idx, succ] : llvm::enumerate(brOp->getSuccessors())) {
+        SuccessorOperands succOperands = brOp.getSuccessorOperands(idx);
+        assert(succOperands.getProducedOperandCount() == 0 &&
+               "expected no produced operands");
+        MutableOperandRange forwarded =
+            succOperands.getMutableForwardedOperands();
+        int64_t start = 0;
+        while (start < forwarded.size()) {
+          if (!isa<ReadTokenType, WriteTokenType>(
+                  forwarded[start].get().getType())) {
+            ++start;
+            continue;
+          }
+          forwarded.erase(start);
+        }
+      }
+      return;
+    }
+
+    // Skip function returns.
+    if (isa<FunctionOpInterface>(block->getParentOp()))
+      return;
+
+    // Handle all other terminator operands.
+    removeTokenOperands(block->getTerminator());
+  });
+
+  // Collect all canonicalization patterns for region branch ops.
+  RewritePatternSet patterns(funcOp->getContext());
+  DenseSet<RegisteredOperationName> populatedPatterns;
+  for (Operation *op : opsToCanonicalize) {
+    if (std::optional<RegisteredOperationName> info = op->getRegisteredInfo())
+      if (populatedPatterns.insert(*info).second)
+        info->getCanonicalizationPatterns(patterns, op->getContext());
+  }
+
+  // Canonicalize all region branch ops.
+  if (failed(applyOpPatternsGreedily(opsToCanonicalize, std::move(patterns)))) {
+    funcOp->emitError("greedy pattern rewrite failed to converge");
+    signalPassFailure();
+    return failure();
+  }
+  return success();
 }
