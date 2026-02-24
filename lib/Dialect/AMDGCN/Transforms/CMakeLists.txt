@@ -24,6 +24,7 @@ add_mlir_library(
   ToAMDGCN.cpp
   ToAMDGCNPatterns.cpp
   ToRegisterSemantics.cpp
+  WaitInsertion.cpp
 
   DEPENDS
   AMDGCNPassesIncGen

@@ -50,6 +50,16 @@ struct Definition {
     return Definition{allocation, nullptr};
   }
 
+  /// Create an upper bound definition for the given allocation. Note that this
+  /// is not a valid deffinition and using it for other purposes will result in
+  /// undefined behavior.
+  static Definition createUpperBound(Value allocation) {
+    return Definition{
+        Value::getFromOpaquePointer(
+            reinterpret_cast<int8_t *>(allocation.getAsOpaquePointer()) + 1),
+        nullptr};
+  }
+
   bool operator<(const Definition &other) const {
     return std::make_pair(allocation.getAsOpaquePointer(), definition) <
            std::make_pair(other.allocation.getAsOpaquePointer(),
@@ -101,6 +111,14 @@ struct ReachingDefinitionsState : dataflow::AbstractDenseLattice {
       return ChangeResult::NoChange;
     definitions.clear();
     return ChangeResult::Change;
+  }
+
+  /// Get the range of definitions for the given allocation.
+  llvm::iterator_range<DefinitionSet::const_iterator>
+  getRange(Value allocation) const {
+    auto lb = definitions.lower_bound(Definition::createLowerBound(allocation));
+    auto ub = definitions.upper_bound(Definition::createUpperBound(allocation));
+    return llvm::make_range(lb, ub);
   }
 
 private:

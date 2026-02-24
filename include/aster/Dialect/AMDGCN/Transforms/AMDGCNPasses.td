@@ -231,6 +231,16 @@ def RegisterDCE : Pass<"amdgcn-register-dce"> {
   }];
 }
 
+def WaitInsertion : Pass<"amdgcn-wait-insertion"> {
+  let summary = "Insert wait operations for reaching loads";
+  let description = [{
+    This pass inserts wait operations for loads consumed by instructions.
+    It should run after register allocation, and before convert waits.
+    Further, mem2reg pass must run before convert waits.
+  }];
+  let dependentDialects = ["mlir::memref::MemRefDialect"];
+}
+
 def LDSAlloc : Pass<"amdgcn-lds-alloc"> {
   let summary = "Perform LDS buffer allocation analysis";
   let description = [{
