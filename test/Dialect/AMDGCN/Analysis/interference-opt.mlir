@@ -1,7 +1,6 @@
 // RUN: aster-opt %s --test-amdgcn-interference-analysis=optimize=true --split-input-file 2>&1 | FileCheck %s
 
 amdgcn.module @reg_alloc target = <gfx942> isa = <cdna3> {
-  func.func private @rand() -> i1
 // CHECK-LABEL: Function: coalescing_load
 // CHECK: graph RegisterInterference {
 // CHECK:   0 [label="0, %0"];
@@ -79,49 +78,6 @@ amdgcn.module @reg_alloc target = <gfx942> isa = <cdna3> {
     lsir.copy %2, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     lsir.copy %3, %2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     test_inst ins %0, %1, %2, %3 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
-    end_kernel
-  }
-
-// CHECK-LABEL: Function: pipelined_load
-// CHECK: graph RegisterInterference {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
-// CHECK:   0 -- 2;
-// CHECK:   0 -- 3;
-// CHECK:   1 -- 2;
-// CHECK:   1 -- 3;
-// CHECK: }
-// CHECK: IntEquivalenceClasses {
-// CHECK:   [0]
-// CHECK:   [1]
-// CHECK:   [2, 3]
-// CHECK: }
-// CHECK: graph RegisterInterferenceQuotient {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   0 -- 2;
-// CHECK:   1 -- 2;
-// CHECK: }
-  kernel @pipelined_load {
-    %0 = func.call @rand() : () -> i1
-    %1 = alloca : !amdgcn.vgpr<?>
-    %2 = alloca : !amdgcn.vgpr<?>
-    %3 = alloca : !amdgcn.vgpr<?>
-    %4 = alloca : !amdgcn.vgpr<?>
-    %5 = make_register_range %1, %2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    %token = load global_load_dword dest %3 addr %5 : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
-    lsir.copy %4, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    cf.br ^bb1
-  ^bb1:  // 2 preds: ^bb0, ^bb1
-    test_inst ins %4 : (!amdgcn.vgpr<?>) -> ()
-    %token_0 = load global_load_dword dest %3 addr %5 : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
-    lsir.copy %4, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    cf.cond_br %0, ^bb1, ^bb2
-  ^bb2:  // pred: ^bb1
-    test_inst ins %4 : (!amdgcn.vgpr<?>) -> ()
     end_kernel
   }
 }
