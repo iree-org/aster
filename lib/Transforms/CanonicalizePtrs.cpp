@@ -104,12 +104,19 @@ ExpandTypeOffsetOpPattern::matchAndRewrite(ptr::TypeOffsetOp op,
 
 /// Combine PtrAddFlags from two ptr_add operations.
 /// Returns the intersection (more conservative) of the two flags.
+/// As per:
+/// https://discourse.llvm.org/t/rfc-add-nusw-and-nuw-flags-for-getelementptr/78672
+/// nusw and nuw are independent guarantees; inbounds implies nusw but not nuw.
 static ptr::PtrAddFlags combinePtrAddFlags(ptr::PtrAddFlags lhs,
                                            ptr::PtrAddFlags rhs) {
-  // Return the minimum of the two flags (more restrictive).
-  // none < nusw < nuw < inbounds in terms of guarantees.
-  return static_cast<ptr::PtrAddFlags>(
-      std::min(static_cast<uint32_t>(lhs), static_cast<uint32_t>(rhs)));
+  if (lhs == rhs)
+    return lhs;
+  // inbounds implies nusw, so inbounds ^ nusw = nusw.
+  if ((lhs == ptr::PtrAddFlags::inbounds && rhs == ptr::PtrAddFlags::nusw) ||
+      (lhs == ptr::PtrAddFlags::nusw && rhs == ptr::PtrAddFlags::inbounds))
+    return ptr::PtrAddFlags::nusw;
+  // All other mixed combinations have no common guarantees.
+  return ptr::PtrAddFlags::none;
 }
 
 /// Compute IntegerOverflowFlags for arith::AddIOp based on combined
@@ -117,10 +124,9 @@ static ptr::PtrAddFlags combinePtrAddFlags(ptr::PtrAddFlags lhs,
 static arith::IntegerOverflowFlags
 ptrFlagsToIntegerOverflowFlags(ptr::PtrAddFlags flags) {
   arith::IntegerOverflowFlags result = arith::IntegerOverflowFlags::none;
-  // nuw (2) and inbounds (3) both imply no unsigned wrap.
-  if (flags == ptr::PtrAddFlags::nuw || flags == ptr::PtrAddFlags::inbounds)
+  if (flags == ptr::PtrAddFlags::nuw)
     result |= arith::IntegerOverflowFlags::nuw;
-  // nusw (1) and inbounds (3) both imply no signed wrap.
+  // nusw and inbounds both imply no signed wrap.
   if (flags == ptr::PtrAddFlags::nusw || flags == ptr::PtrAddFlags::inbounds)
     result |= arith::IntegerOverflowFlags::nsw;
   return result;
@@ -156,7 +162,7 @@ PtrAddOpPattern::matchAndRewrite(ptr::PtrAddOp op,
 }
 
 //===----------------------------------------------------------------------===//
-// PtrAddOpPattern
+// PtrAddZeroOpPattern
 //===----------------------------------------------------------------------===//
 
 LogicalResult

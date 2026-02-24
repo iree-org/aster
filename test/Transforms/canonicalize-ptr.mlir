@@ -119,6 +119,106 @@ func.func @fold_nested_chain(%arg0: !ptr, %arg1: i64, %arg2: i64, %arg3: i64, %a
 // -----
 !ptr = !ptr.ptr<#ptr.generic_space>
 
+// Both ptr_adds have nusw -> combined nusw, arith.addi gets nsw.
+// CHECK-LABEL:   func.func @fold_ptr_add_nusw_i32(
+// CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> !ptr.ptr<#ptr.generic_space> {
+// CHECK:           %[[ADDI:.*]] = arith.addi %[[ARG1]], %[[ARG2]] overflow<nsw> : i32
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add nusw %[[ARG0]], %[[ADDI]] : !ptr.ptr<#ptr.generic_space>, i32
+// CHECK:           return %[[PTR]] : !ptr.ptr<#ptr.generic_space>
+func.func @fold_ptr_add_nusw_i32(%arg0: !ptr, %arg1: i32, %arg2: i32) -> !ptr {
+  %0 = ptr.ptr_add nusw %arg0, %arg1 : !ptr, i32
+  %1 = ptr.ptr_add nusw %0, %arg2 : !ptr, i32
+  return %1 : !ptr
+}
+
+// Both ptr_adds have nuw -> combined nuw, arith.addi gets nuw.
+// CHECK-LABEL:   func.func @fold_ptr_add_nuw_i32(
+// CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> !ptr.ptr<#ptr.generic_space> {
+// CHECK:           %[[ADDI:.*]] = arith.addi %[[ARG1]], %[[ARG2]] overflow<nuw> : i32
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add nuw %[[ARG0]], %[[ADDI]] : !ptr.ptr<#ptr.generic_space>, i32
+// CHECK:           return %[[PTR]] : !ptr.ptr<#ptr.generic_space>
+func.func @fold_ptr_add_nuw_i32(%arg0: !ptr, %arg1: i32, %arg2: i32) -> !ptr {
+  %0 = ptr.ptr_add nuw %arg0, %arg1 : !ptr, i32
+  %1 = ptr.ptr_add nuw %0, %arg2 : !ptr, i32
+  return %1 : !ptr
+}
+
+// Both ptr_adds have inbounds -> combined inbounds.
+// inbounds implies nusw (-> nsw) but NOT nuw, so arith.addi gets nsw only.
+// CHECK-LABEL:   func.func @fold_ptr_add_inbounds_i32(
+// CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> !ptr.ptr<#ptr.generic_space> {
+// CHECK:           %[[ADDI:.*]] = arith.addi %[[ARG1]], %[[ARG2]] overflow<nsw> : i32
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[ADDI]] : !ptr.ptr<#ptr.generic_space>, i32
+// CHECK:           return %[[PTR]] : !ptr.ptr<#ptr.generic_space>
+func.func @fold_ptr_add_inbounds_i32(%arg0: !ptr, %arg1: i32, %arg2: i32) -> !ptr {
+  %0 = ptr.ptr_add inbounds %arg0, %arg1 : !ptr, i32
+  %1 = ptr.ptr_add inbounds %0, %arg2 : !ptr, i32
+  return %1 : !ptr
+}
+
+// nusw and nuw are independent guarantees -> intersection is none.
+// CHECK-LABEL:   func.func @fold_ptr_add_mixed_nusw_nuw(
+// CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> !ptr.ptr<#ptr.generic_space> {
+// CHECK:           %[[ADDI:.*]] = arith.addi %[[ARG1]], %[[ARG2]] : i32
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[ADDI]] : !ptr.ptr<#ptr.generic_space>, i32
+// CHECK:           return %[[PTR]] : !ptr.ptr<#ptr.generic_space>
+func.func @fold_ptr_add_mixed_nusw_nuw(%arg0: !ptr, %arg1: i32, %arg2: i32) -> !ptr {
+  %0 = ptr.ptr_add nusw %arg0, %arg1 : !ptr, i32
+  %1 = ptr.ptr_add nuw %0, %arg2 : !ptr, i32
+  return %1 : !ptr
+}
+
+// inbounds has {nusw, inbounds}, nuw has {nuw} -> intersection is none.
+// CHECK-LABEL:   func.func @fold_ptr_add_mixed_inbounds_nuw(
+// CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> !ptr.ptr<#ptr.generic_space> {
+// CHECK:           %[[ADDI:.*]] = arith.addi %[[ARG1]], %[[ARG2]] : i32
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[ADDI]] : !ptr.ptr<#ptr.generic_space>, i32
+// CHECK:           return %[[PTR]] : !ptr.ptr<#ptr.generic_space>
+func.func @fold_ptr_add_mixed_inbounds_nuw(%arg0: !ptr, %arg1: i32, %arg2: i32) -> !ptr {
+  %0 = ptr.ptr_add inbounds %arg0, %arg1 : !ptr, i32
+  %1 = ptr.ptr_add nuw %0, %arg2 : !ptr, i32
+  return %1 : !ptr
+}
+
+// inbounds has {nusw, inbounds}, nusw has {nusw} -> intersection is nusw.
+// CHECK-LABEL:   func.func @fold_ptr_add_mixed_inbounds_nusw(
+// CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> !ptr.ptr<#ptr.generic_space> {
+// CHECK:           %[[ADDI:.*]] = arith.addi %[[ARG1]], %[[ARG2]] overflow<nsw> : i32
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add nusw %[[ARG0]], %[[ADDI]] : !ptr.ptr<#ptr.generic_space>, i32
+// CHECK:           return %[[PTR]] : !ptr.ptr<#ptr.generic_space>
+func.func @fold_ptr_add_mixed_inbounds_nusw(%arg0: !ptr, %arg1: i32, %arg2: i32) -> !ptr {
+  %0 = ptr.ptr_add inbounds %arg0, %arg1 : !ptr, i32
+  %1 = ptr.ptr_add nusw %0, %arg2 : !ptr, i32
+  return %1 : !ptr
+}
+
+// inbounds + none -> none.
+// CHECK-LABEL:   func.func @fold_ptr_add_mixed_inbounds_none(
+// CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> !ptr.ptr<#ptr.generic_space> {
+// CHECK:           %[[ADDI:.*]] = arith.addi %[[ARG1]], %[[ARG2]] : i32
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[ADDI]] : !ptr.ptr<#ptr.generic_space>, i32
+// CHECK:           return %[[PTR]] : !ptr.ptr<#ptr.generic_space>
+func.func @fold_ptr_add_mixed_inbounds_none(%arg0: !ptr, %arg1: i32, %arg2: i32) -> !ptr {
+  %0 = ptr.ptr_add inbounds %arg0, %arg1 : !ptr, i32
+  %1 = ptr.ptr_add %0, %arg2 : !ptr, i32
+  return %1 : !ptr
+}
+
+// Flags with index type (affine.apply path). Combined flag on ptr_add only.
+// CHECK-LABEL:   func.func @fold_ptr_add_nusw_index(
+// CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: index, %[[ARG2:.*]]: index) -> !ptr.ptr<#ptr.generic_space> {
+// CHECK:           %[[APPLY:.*]] = affine.apply #[[$ATTR_0]](){{\[}}%[[ARG1]], %[[ARG2]]]
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add nusw %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
+// CHECK:           return %[[PTR]] : !ptr.ptr<#ptr.generic_space>
+func.func @fold_ptr_add_nusw_index(%arg0: !ptr, %arg1: index, %arg2: index) -> !ptr {
+  %0 = ptr.ptr_add nusw %arg0, %arg1 : !ptr, index
+  %1 = ptr.ptr_add nusw %0, %arg2 : !ptr, index
+  return %1 : !ptr
+}
+
+// -----
+!ptr = !ptr.ptr<#ptr.generic_space>
+
 // CHECK: #[[$ATTR_1:.+]] = affine_map<()[s0, s1, s2] -> (s0 + s1 + s2)>
 // CHECK-LABEL:   func.func @fold_three_consecutive_ptr_add(
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: index, %[[ARG2:.*]]: index, %[[ARG3:.*]]: index) -> !ptr.ptr<#ptr.generic_space> {
