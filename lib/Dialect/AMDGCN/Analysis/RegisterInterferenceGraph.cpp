@@ -16,7 +16,6 @@
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/IntEqClasses.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -312,18 +311,27 @@ void RegisterInterferenceGraph::print(raw_ostream &os) const {
 }
 
 void RegisterInterferenceGraph::print(
-    raw_ostream &os, const IntEquivalenceClasses &eqClasses) const {
+    raw_ostream &os, llvm::EquivalenceClasses<int32_t> &eqClasses) const {
   assert(isCompressed() && "Graph must be compressed before printing");
   int64_t numNodes = sizeNodes();
   if (numNodes == 0)
     return;
+
+  // Build a map from each node to the smallest member in its class. Since we
+  // iterate nodes in order (0..N-1), the first node we see in each class is
+  // the smallest and becomes the canonical representative.
+  SmallVector<int32_t> classRep(numNodes, -1);
+  for (NodeID node : nodes()) {
+    int32_t leader = eqClasses.getLeaderValue(node);
+    if (classRep[leader] == -1)
+      classRep[leader] = node;
+    classRep[node] = classRep[leader];
+  }
+
   os << "graph RegisterInterferenceQuotient {\n";
   for (NodeID node : nodes()) {
-    int64_t classId = eqClasses[node];
-    // Skip nodes if their class was already printed.
-    // NOTE: This relies on the property that leaders in the compressed
-    // equivalence classes have the smallest class ID.
-    if (classId < node)
+    // Only print the canonical representative of each class.
+    if (classRep[node] != node)
       continue;
     os << "  " << node << " [label=\"" << node << ", ";
     values[node].printAsOperand(os, OpPrintingFlags());
@@ -332,22 +340,19 @@ void RegisterInterferenceGraph::print(
 
   // Print the edges.
   DenseSet<std::pair<int32_t, int32_t>> printedEdges;
-  int32_t tmp;
   for (NodeID node : nodes()) {
-    int64_t classId = eqClasses[node];
-    // Skip nodes if their class was already printed.
-    if (classId < node)
+    // Only process each class once (at the canonical representative).
+    if (classRep[node] != node)
       continue;
-    ArrayRef<int32_t> members = eqClasses.getMembers(classId, tmp);
-    for (int32_t member : members) {
+    for (int32_t member : eqClasses.members(node)) {
       for (auto [src, tgt] : edges(member)) {
-        NodeID srcId = eqClasses.getLeader(src);
-        NodeID tgtId = eqClasses.getLeader(tgt);
-        if (srcId > tgtId)
+        int32_t srcRep = classRep[src];
+        int32_t tgtRep = classRep[tgt];
+        if (srcRep > tgtRep)
           continue;
-        if (!printedEdges.insert({srcId, tgtId}).second)
+        if (!printedEdges.insert({srcRep, tgtRep}).second)
           continue;
-        os << "  " << srcId << " -- " << tgtId << ";\n";
+        os << "  " << srcRep << " -- " << tgtRep << ";\n";
       }
     }
   }

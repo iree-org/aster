@@ -13,7 +13,7 @@
 #define ASTER_DIALECT_AMDGCN_TRANSFORMS_TRANSFORMS_H
 
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
-#include "aster/Support/IntEquivalenceClasses.h"
+#include "llvm/ADT/EquivalenceClasses.h"
 
 #include <optional>
 
@@ -31,7 +31,7 @@ void registerDCE(Operation *op, DataFlowSolver &solver);
 /// (e.g. for coalescing). Returns std::nullopt if optimization does not
 /// apply or fails. The dataflow solver is expected to be loaded with the
 /// reaching definitions analysis tracking only loads.
-std::optional<IntEquivalenceClasses>
+std::optional<llvm::EquivalenceClasses<int32_t>>
 optimizeGraph(Operation *op, const RegisterInterferenceGraph &graph,
               DataFlowSolver &solver);
 } // namespace amdgcn

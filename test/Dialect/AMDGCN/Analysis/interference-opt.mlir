@@ -8,7 +8,7 @@ amdgcn.module @reg_alloc target = <gfx942> isa = <cdna3> {
 // CHECK:   2 [label="2, %2"];
 // CHECK:   3 [label="3, %3"];
 // CHECK: }
-// CHECK: IntEquivalenceClasses {
+// CHECK: EquivalenceClasses {
 // CHECK:   [0]
 // CHECK:   [1]
 // CHECK:   [2, 3]
@@ -37,7 +37,7 @@ amdgcn.module @reg_alloc target = <gfx942> isa = <cdna3> {
 // CHECK:   2 [label="2, %2"];
 // CHECK:   3 [label="3, %3"];
 // CHECK: }
-// CHECK: IntEquivalenceClasses {
+// CHECK: EquivalenceClasses {
 // CHECK:   [0, 1, 2, 3]
 // CHECK: }
 // CHECK: graph RegisterInterferenceQuotient {
@@ -68,7 +68,7 @@ amdgcn.module @reg_alloc target = <gfx942> isa = <cdna3> {
 // CHECK:   1 -- 3;
 // CHECK:   2 -- 3;
 // CHECK: }
-// CHECK-NOT: IntEquivalenceClasses {
+// CHECK-NOT: EquivalenceClasses {
   kernel @cannot_coalesce {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -85,7 +85,7 @@ amdgcn.module @reg_alloc target = <gfx942> isa = <cdna3> {
 // -----
 
 // CHECK-LABEL:  Function: incompatible_range_offsets
-// CHECK-NOT: IntEquivalenceClasses
+// CHECK-NOT: EquivalenceClasses
 func.func @incompatible_range_offsets() {
   %0 = amdgcn.alloca : !amdgcn.vgpr<?>
   %1 = amdgcn.alloca : !amdgcn.vgpr<?>
@@ -119,7 +119,7 @@ func.func @incompatible_range_offsets() {
 // CHECK:    7 [label="7, %{{.*}}"];
 // CHECK:    2 -- 3;
 // CHECK:  }
-// CHECK:  IntEquivalenceClasses {
+// CHECK:  EquivalenceClasses {
 // CHECK:    [0, 4]
 // CHECK:    [1, 5]
 // CHECK:    [2, 6]
@@ -158,7 +158,7 @@ func.func @compatible_range_offsets_0() {
 // CHECK:    3 [label="3, %{{.*}}"];
 // CHECK:    4 [label="4, %{{.*}}"];
 // CHECK:  }
-// CHECK:  IntEquivalenceClasses {
+// CHECK:  EquivalenceClasses {
 // CHECK:    [0, 4]
 // CHECK:    [1]
 // CHECK:    [2]
@@ -190,7 +190,7 @@ func.func @compatible_ranges_1() {
 // CHECK:    3 [label="3, %{{.*}}"];
 // CHECK:    4 [label="4, %{{.*}}"];
 // CHECK:  }
-// CHECK:  IntEquivalenceClasses {
+// CHECK:  EquivalenceClasses {
 // CHECK:    [0]
 // CHECK:    [1, 4]
 // CHECK:    [2]
@@ -222,7 +222,7 @@ func.func @compatible_ranges_2() {
 // CHECK:    3 [label="3, %{{.*}}"];
 // CHECK:    4 [label="4, %{{.*}}"];
 // CHECK:  }
-// CHECK:  IntEquivalenceClasses {
+// CHECK:  EquivalenceClasses {
 // CHECK:    [0]
 // CHECK:    [1]
 // CHECK:    [2, 4]
@@ -254,7 +254,7 @@ func.func @compatible_ranges_3() {
 // CHECK:    3 [label="3, %{{.*}}"];
 // CHECK:    4 [label="4, %{{.*}}"];
 // CHECK:  }
-// CHECK:  IntEquivalenceClasses {
+// CHECK:  EquivalenceClasses {
 // CHECK:    [0]
 // CHECK:    [1]
 // CHECK:    [2]
@@ -281,7 +281,7 @@ func.func @compatible_ranges_4() {
 // -----
 
 // CHECK-LABEL:  Function: allocated_regs
-// CHECK-NOT: IntEquivalenceClasses
+// CHECK-NOT: EquivalenceClasses
 func.func @allocated_regs() {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.vgpr<2>
@@ -294,7 +294,7 @@ func.func @allocated_regs() {
 // CHECK:    0 [label="0, %{{.*}}"];
 // CHECK:    1 [label="1, %{{.*}}"];
 // CHECK:  }
-// CHECK:  IntEquivalenceClasses {
+// CHECK:  EquivalenceClasses {
 // CHECK:    [0, 1]
 // CHECK:  }
 // CHECK:  graph RegisterInterferenceQuotient {
@@ -308,7 +308,7 @@ func.func @semi_allocated_regs() {
 }
 
 // CHECK-LABEL:  Function: different_reg_kinds
-// CHECK-NOT: IntEquivalenceClasses
+// CHECK-NOT: EquivalenceClasses
 func.func @different_reg_kinds() {
   %0 = amdgcn.alloca : !amdgcn.vgpr<?>
   %1 = amdgcn.alloca : !amdgcn.sgpr<?>
@@ -324,7 +324,7 @@ func.func @different_reg_kinds() {
 // CHECK:    3 [label="3, %{{.*}}"];
 // CHECK:    0 -- 3;
 // CHECK:  }
-// CHECK:  IntEquivalenceClasses {
+// CHECK:  EquivalenceClasses {
 // CHECK:    [0, 2]
 // CHECK:    [1, 3]
 // CHECK:  }

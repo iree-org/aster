@@ -14,8 +14,8 @@
 #include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/IR/InstImpl.h"
+#include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/Support/DebugLog.h"
-#include "llvm/Support/InterleavedRange.h"
 
 #include <algorithm>
 
@@ -27,6 +27,7 @@ using namespace mlir::aster::amdgcn;
 
 namespace {
 using NodeID = RegisterInterferenceGraph::NodeID;
+using EqClasses = llvm::EquivalenceClasses<int32_t>;
 
 /// Move operation descriptor.
 struct MovDesc {
@@ -46,14 +47,14 @@ struct OptimizeGraphImpl {
       : graph(graph), solver(solver) {}
 
   /// Build equivalence classes for the interference graph.
-  std::optional<IntEquivalenceClasses> run(Operation *root);
+  std::optional<EqClasses> run(Operation *root);
 
   /// Collect a move operation: resolve its allocas and assign a coalescing
   /// priority (0 = load-sourced, preferred; 1 = default).
   LogicalResult collectMov(Operation *op, std::pair<Value, Value> moveInfo);
 
   /// Optimize the graph and populate the equivalence classes.
-  void optimizeGraph(IntEquivalenceClasses &eqClasses);
+  void optimizeGraph(EqClasses &eqClasses);
 
   const RegisterInterferenceGraph &graph;
   DataFlowSolver &solver;
@@ -98,13 +99,12 @@ LogicalResult OptimizeGraphImpl::collectMov(Operation *op,
 }
 
 /// Check if the given classes have an edge between them.
-static bool hasEdge(const Graph &graph, ArrayRef<int32_t> lhs,
-                    ArrayRef<int32_t> rhs, IntEquivalenceClasses &eqClasses) {
-  ArrayRef<int32_t> nodes = lhs.size() < rhs.size() ? lhs : rhs;
-  int32_t leaderOther = lhs.size() < rhs.size() ? rhs[0] : lhs[0];
-  for (int32_t node : nodes) {
-    for (auto [src, tgt] : graph.edges(node)) {
-      if (eqClasses.getLeader(tgt) == leaderOther)
+static bool hasEdge(const Graph &graph, EqClasses &eqClasses, int32_t lhsNode,
+                    int32_t rhsNode) {
+  int32_t rhsLeader = eqClasses.getLeaderValue(rhsNode);
+  for (int32_t member : eqClasses.members(lhsNode)) {
+    for (auto [src, tgt] : graph.edges(member)) {
+      if (eqClasses.getLeaderValue(tgt) == rhsLeader)
         return true;
     }
   }
@@ -113,11 +113,10 @@ static bool hasEdge(const Graph &graph, ArrayRef<int32_t> lhs,
 
 /// Check if the given classes can be coalesced.
 static bool canCoalesce(const RegisterInterferenceGraph &graph,
-                        IntEquivalenceClasses &eqClasses, NodeID src,
-                        NodeID tgt, int32_t size) {
+                        EqClasses &eqClasses, NodeID src, NodeID tgt,
+                        int32_t size) {
   LDBG() << "-- Checking if can coalesce: " << src << " and " << tgt
          << " with size " << size;
-  int32_t tmp0, tmp1;
   for (auto [srcId, tgtId] :
        llvm::zip_equal(llvm::seq<NodeID>(src, src + size),
                        llvm::seq<NodeID>(tgt, tgt + size))) {
@@ -125,19 +124,12 @@ static bool canCoalesce(const RegisterInterferenceGraph &graph,
     if (srcId == tgtId)
       continue;
 
-    // Get the members of the classes.
-    ArrayRef<int32_t> srcMembers = eqClasses.getMembers(srcId, tmp0);
-    ArrayRef<int32_t> tgtMembers = eqClasses.getMembers(tgtId, tmp1);
-
-    LDBG() << "--- Source members: " << llvm::interleaved_array(srcMembers);
-    LDBG() << "--- Target members: " << llvm::interleaved_array(tgtMembers);
-
     // Continue if the classes are the same.
-    if (srcMembers[0] == tgtMembers[0])
+    if (eqClasses.isEquivalent(srcId, tgtId))
       continue;
 
     // Check if the classes have an edge between them.
-    if (hasEdge(graph, srcMembers, tgtMembers, eqClasses)) {
+    if (hasEdge(graph, eqClasses, srcId, tgtId)) {
       LDBG() << "--- Has edge between classes, cannot coalesce";
       return false;
     }
@@ -185,7 +177,7 @@ getRangeBounds(NodeID lhsBegin, int32_t lhsOff, int32_t lhsSize,
 /// NOTE: Given the presence of register ranges, it is not enough to only check
 /// the registers involved in the moves; we need to check that one of the entire
 /// ranges can be coalesced into the other.
-void OptimizeGraphImpl::optimizeGraph(IntEquivalenceClasses &eqClasses) {
+void OptimizeGraphImpl::optimizeGraph(EqClasses &eqClasses) {
   for (const MovDesc &mov : movOps) {
     LDBG() << "Processing move: " << *mov.moveOp;
 
@@ -249,13 +241,13 @@ void OptimizeGraphImpl::optimizeGraph(IntEquivalenceClasses &eqClasses) {
     for (auto [srcId, tgtId] :
          llvm::zip_equal(llvm::seq<NodeID>(lhsStart, lhsStart + size),
                          llvm::seq<NodeID>(rhsStart, rhsStart + size))) {
-      eqClasses.join(srcId, tgtId);
+      eqClasses.unionSets(srcId, tgtId);
       LDBG() << "--- Joined: " << srcId << " and " << tgtId;
     }
   }
 }
 
-std::optional<IntEquivalenceClasses> OptimizeGraphImpl::run(Operation *root) {
+std::optional<EqClasses> OptimizeGraphImpl::run(Operation *root) {
   WalkResult result = root->walk([&](Operation *op) -> WalkResult {
     FailureOr<std::pair<Value, Value>> moveInfo = getMoveInfo(op);
     if (failed(moveInfo))
@@ -288,15 +280,16 @@ std::optional<IntEquivalenceClasses> OptimizeGraphImpl::run(Operation *root) {
 
   // Optimize the graph.
   int64_t numNodes = graph.sizeNodes();
-  IntEquivalenceClasses eqClasses(numNodes);
+  EqClasses eqClasses;
+  for (int32_t i = 0; i < numNodes; ++i)
+    eqClasses.insert(i);
   optimizeGraph(eqClasses);
-  eqClasses.compress();
-  if (eqClasses.getNumClasses() == numNodes)
+  if (eqClasses.getNumClasses() == static_cast<unsigned>(numNodes))
     return std::nullopt;
   return eqClasses;
 }
 
-std::optional<IntEquivalenceClasses>
+std::optional<EqClasses>
 mlir::aster::amdgcn::optimizeGraph(Operation *op,
                                    const RegisterInterferenceGraph &graph,
                                    DataFlowSolver &solver) {

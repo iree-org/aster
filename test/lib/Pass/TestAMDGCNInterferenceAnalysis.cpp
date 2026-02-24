@@ -22,6 +22,9 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::aster::test {
@@ -87,14 +90,27 @@ struct TestAMDGCNInterferenceAnalysis
 
       // Print the interference graph (and optionally the quotient after
       // running optimizeGraph).
-      std::optional<IntEquivalenceClasses> eqClasses;
+      std::optional<llvm::EquivalenceClasses<int32_t>> eqClasses;
       if (optimize)
         eqClasses = optimizeGraph(kernel, *graph, solver);
       if (eqClasses) {
         graph->print(os);
         os << "\n";
-        eqClasses->print(os);
-        os << "\n";
+        // Print equivalence classes sorted by smallest member.
+        int64_t numNodes = graph->sizeNodes();
+        DenseSet<int32_t> printed;
+        os << "EquivalenceClasses {\n";
+        for (int32_t i = 0; i < numNodes; ++i) {
+          int32_t leader = eqClasses->getLeaderValue(i);
+          if (!printed.insert(leader).second)
+            continue;
+          SmallVector<int32_t> members(eqClasses->members(i));
+          llvm::sort(members);
+          os << "  [";
+          llvm::interleave(members, os, [&](int32_t m) { os << m; }, ", ");
+          os << "]\n";
+        }
+        os << "}\n";
         graph->print(os, *eqClasses);
       } else {
         graph->print(os);

@@ -13,10 +13,9 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
 #include "aster/Support/Graph.h"
-#include "aster/Support/IntEquivalenceClasses.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/IntEqClasses.h"
+#include "llvm/ADT/EquivalenceClasses.h"
 
 namespace mlir {
 class Operation;
@@ -49,7 +48,8 @@ struct RegisterInterferenceGraph : public Graph {
 
   /// Print the quotient graph of the interference graph w.r.t. the given
   /// equivalence classes.
-  void print(raw_ostream &os, const IntEquivalenceClasses &eqClasses) const;
+  void print(raw_ostream &os,
+             llvm::EquivalenceClasses<int32_t> &eqClasses) const;
 
   /// Get the node ID for a value. Returns -1 if not found.
   NodeID getNodeId(Value value) const;

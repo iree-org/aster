@@ -19,7 +19,7 @@
 // CHECK:   1 -- 2;
 // CHECK:   1 -- 3;
 // CHECK: }
-// CHECK: IntEquivalenceClasses {
+// CHECK: EquivalenceClasses {
 // CHECK:   [0]
 // CHECK:   [1]
 // CHECK:   [2, 3]
@@ -82,7 +82,7 @@ amdgcn.module @t1 target = <gfx942> isa = <cdna3> {
 // CHECK:   3 -- 4;
 // CHECK:   3 -- 5;
 // CHECK: }
-// CHECK: IntEquivalenceClasses {
+// CHECK: EquivalenceClasses {
 // CHECK:   [0]
 // CHECK:   [1]
 // CHECK:   [2, 3]
@@ -92,11 +92,12 @@ amdgcn.module @t1 target = <gfx942> isa = <cdna3> {
 // CHECK:   0 [label="0, %1"];
 // CHECK:   1 [label="1, %2"];
 // CHECK:   2 [label="2, %3"];
+// CHECK:   4 [label="4, %5"];
 // CHECK:   0 -- 2;
-// CHECK:   0 -- 3;
+// CHECK:   0 -- 4;
 // CHECK:   1 -- 2;
-// CHECK:   1 -- 3;
-// CHECK:   2 -- 3;
+// CHECK:   1 -- 4;
+// CHECK:   2 -- 4;
 // CHECK: }
 amdgcn.module @t2 target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
@@ -153,7 +154,7 @@ amdgcn.module @t2 target = <gfx942> isa = <cdna3> {
 // CHECK:   2 -- 3;
 // CHECK:   4 -- 5;
 // CHECK: }
-// CHECK: IntEquivalenceClasses {
+// CHECK: EquivalenceClasses {
 // CHECK:   [0]
 // CHECK:   [1]
 // CHECK:   [2, 4]
@@ -222,7 +223,7 @@ amdgcn.module @t3 target = <gfx942> isa = <cdna3> {
 // CHECK:   2 -- 4;
 // CHECK:   3 -- 4;
 // CHECK: }
-// CHECK-NOT: IntEquivalenceClasses
+// CHECK-NOT: EquivalenceClasses
 amdgcn.module @t4 target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
   kernel @three_stage_load_compute_store {
@@ -272,7 +273,7 @@ amdgcn.module @t4 target = <gfx942> isa = <cdna3> {
 // CHECK:   1 -- 3;
 // CHECK:   2 -- 3;
 // CHECK: }
-// CHECK-NOT: IntEquivalenceClasses
+// CHECK-NOT: EquivalenceClasses
 amdgcn.module @t5 target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
   kernel @pipeline_copy_interferes {
@@ -324,7 +325,7 @@ amdgcn.module @t5 target = <gfx942> isa = <cdna3> {
 // CHECK:   3 -- 5;
 // CHECK:   4 -- 5;
 // CHECK: }
-// CHECK: IntEquivalenceClasses {
+// CHECK: EquivalenceClasses {
 // CHECK:   [0]
 // CHECK:   [1]
 // CHECK:   [2, 3]
@@ -335,14 +336,17 @@ amdgcn.module @t5 target = <gfx942> isa = <cdna3> {
 // CHECK:   0 [label="0, %1"];
 // CHECK:   1 [label="1, %2"];
 // CHECK:   2 [label="2, %3"];
+// CHECK:   4 [label="4, %5"];
+// CHECK:   5 [label="5, %6"];
 // CHECK:   0 -- 2;
-// CHECK:   0 -- 3;
 // CHECK:   0 -- 4;
+// CHECK:   0 -- 5;
 // CHECK:   1 -- 2;
-// CHECK:   1 -- 3;
 // CHECK:   1 -- 4;
-// CHECK:   2 -- 3;
+// CHECK:   1 -- 5;
 // CHECK:   2 -- 4;
+// CHECK:   2 -- 5;
+// CHECK:   4 -- 5;
 // CHECK: }
 amdgcn.module @t6 target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
@@ -394,7 +398,7 @@ amdgcn.module @t6 target = <gfx942> isa = <cdna3> {
 // CHECK:   1 -- 3;
 // CHECK:   1 -- 4;
 // CHECK: }
-// CHECK: IntEquivalenceClasses {
+// CHECK: EquivalenceClasses {
 // CHECK:   [0]
 // CHECK:   [1]
 // CHECK:   [2, 3, 4]
@@ -480,7 +484,7 @@ amdgcn.module @t7 target = <gfx942> isa = <cdna3> {
 // CHECK:   7 -- 9;
 // CHECK:   8 -- 9;
 // CHECK: }
-// CHECK: IntEquivalenceClasses {
+// CHECK: EquivalenceClasses {
 // CHECK:   [0]
 // CHECK:   [1]
 // CHECK:   [2, 6]
@@ -572,7 +576,7 @@ amdgcn.module @t8 target = <gfx942> isa = <cdna3> {
 // CHECK:   3 -- 4;
 // CHECK:   3 -- 5;
 // CHECK: }
-// CHECK: IntEquivalenceClasses {
+// CHECK: EquivalenceClasses {
 // CHECK:   [0]
 // CHECK:   [1]
 // CHECK:   [2, 3]
@@ -583,13 +587,15 @@ amdgcn.module @t8 target = <gfx942> isa = <cdna3> {
 // CHECK:   0 [label="0, %1"];
 // CHECK:   1 [label="1, %2"];
 // CHECK:   2 [label="2, %3"];
+// CHECK:   4 [label="4, %5"];
+// CHECK:   6 [label="6, %7"];
 // CHECK:   0 -- 2;
-// CHECK:   0 -- 3;
 // CHECK:   0 -- 4;
+// CHECK:   0 -- 6;
 // CHECK:   1 -- 2;
-// CHECK:   1 -- 3;
 // CHECK:   1 -- 4;
-// CHECK:   2 -- 3;
+// CHECK:   1 -- 6;
+// CHECK:   2 -- 4;
 // CHECK: }
 amdgcn.module @t9 target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1
