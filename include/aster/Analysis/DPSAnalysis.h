@@ -159,6 +159,7 @@ public:
 private:
   DPSClobberingAnalysis(DPSAnalysis &dpsAnalysis) : dpsAnalysis(dpsAnalysis) {}
   DPSAnalysis &dpsAnalysis;
+  // For each operation, whether its results clobbers a matching live alloca.
   llvm::DenseMap<Operation *, SmallVector<bool, 4>> clobberingInfo;
 };
 } // end namespace mlir::aster

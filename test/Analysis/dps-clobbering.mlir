@@ -1,5 +1,17 @@
 // RUN: aster-opt -test-dps-clobbering --split-input-file %s 2>&1 | FileCheck %s
 
+// CHECK-LABEL: @test_no_clobbering
+// CHECK:    %{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:      [false]
+func.func @test_no_clobbering() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  %1 = amdgcn.test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+  amdgcn.test_inst ins %1 : (!amdgcn.vgpr) -> ()
+  return
+}
+
+// -----
+
 func.func private @rand() -> i1
 // CHECK-LABEL: @test_control_flow_liveness
 // CHECK-NOT: [{{true|false}}
@@ -204,5 +216,18 @@ func.func @test_multi_results() {
   %1 = amdgcn.alloca : !amdgcn.vgpr
   %2, %3 = amdgcn.test_inst outs %0, %1 : (!amdgcn.vgpr, !amdgcn.vgpr) -> (!amdgcn.vgpr, !amdgcn.vgpr)
   amdgcn.test_inst ins %0, %1, %2, %3 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
+  return
+}
+
+// -----
+
+// CHECK-LABEL: @test_multi_results_asymmetric
+// CHECK:    %{{.*}}:2 = amdgcn.test_inst outs %{{.*}}, %{{.*}} : (!amdgcn.vgpr, !amdgcn.vgpr) -> (!amdgcn.vgpr, !amdgcn.vgpr)
+// CHECK:      [true, false]
+func.func @test_multi_results_asymmetric() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  %1 = amdgcn.alloca : !amdgcn.vgpr
+  %2, %3 = amdgcn.test_inst outs %0, %1 : (!amdgcn.vgpr, !amdgcn.vgpr) -> (!amdgcn.vgpr, !amdgcn.vgpr)
+  amdgcn.test_inst ins %0 : (!amdgcn.vgpr) -> ()
   return
 }
