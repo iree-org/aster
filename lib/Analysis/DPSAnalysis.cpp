@@ -270,15 +270,24 @@ void DPSAnalysis::print(llvm::raw_ostream &os, const SSAMap &ssaMap) const {
 }
 
 //===----------------------------------------------------------------------===//
-// DPSLiveness
+// DPSClobberingAnalysis
 //===----------------------------------------------------------------------===//
 
-FailureOr<DPSLiveness> DPSLiveness::create(DPSAnalysis &dpsAnalysis,
-                                           DataFlowSolver &solver,
-                                           FunctionOpInterface funcOp) {
-  DPSLiveness liveness(dpsAnalysis);
+FailureOr<DPSClobberingAnalysis>
+DPSClobberingAnalysis::create(DPSAnalysis &dpsAnalysis, DataFlowSolver &solver,
+                              FunctionOpInterface funcOp) {
+  DPSClobberingAnalysis analysis(dpsAnalysis);
+  SmallPtrSet<Value, 4> liveScratch;
+  llvm::SmallDenseSet<int32_t, 4> liveIds;
   WalkResult walkResult =
       funcOp.getFunctionBody().walk([&](InstOpInterface op) {
+        // Get the instruction results. If there are no results, skip the
+        // instruction.
+        ResultRange results = op.getInstResults();
+        if (results.empty())
+          return WalkResult::advance();
+
+        // Get the liveness state at the after program point of the instruction.
         ProgramPoint *afterPoint = solver.getProgramPointAfter(op);
         const LivenessState *state =
             solver.lookupState<LivenessState>(afterPoint);
@@ -287,62 +296,45 @@ FailureOr<DPSLiveness> DPSLiveness::create(DPSAnalysis &dpsAnalysis,
         const LivenessState::ValueSet *liveValues = state->getLiveValues();
         if (!liveValues)
           return WalkResult::interrupt();
-        LiveSet &liveIds = liveness.livenessInfo[op];
-        for (Value value : *liveValues) {
+
+        // Get the liveness set minus the instruction results.
+        liveScratch.clear();
+        liveScratch.insert_range(*liveValues);
+        for (OpResult result : results)
+          liveScratch.erase(result);
+
+        // Get the live allocation IDs for values not produced by the
+        // instruction.
+        liveIds.clear();
+        for (Value value : liveScratch) {
+          auto regTy = dyn_cast<RegisterTypeInterface>(value.getType());
+          if (!regTy || !regTy.hasValueSemantics())
+            continue;
           DPSAnalysis::AllocView allocView = dpsAnalysis.getAllocView(value);
           assert(allocView.alloc && "expected allocation view to be present");
           liveIds.insert_range(allocView.ids);
         }
-        liveness.orderedProgramPoints.push_back(op);
+
+        // Determine whether each instruction result with register value
+        // semantics requires de-clobbering based on whether any of its
+        // allocation IDs are live.
+        SmallVectorImpl<bool> &needAlloc = analysis.clobberingInfo[op];
+        needAlloc.reserve(results.size());
+        for (auto [out, res] : TiedInstOutsRange(op)) {
+          if (!res)
+            continue;
+          needAlloc.push_back(false);
+          bool &needAllocForResult = needAlloc.back();
+          DPSAnalysis::AllocView allocView = dpsAnalysis.getAllocView(out);
+          assert(allocView.alloc && "expected allocation view to be present");
+          if (llvm::any_of(allocView.ids,
+                           [&](int32_t id) { return liveIds.contains(id); }))
+            needAllocForResult = true;
+        }
+
         return WalkResult::advance();
       });
   if (walkResult.wasInterrupted())
     return failure();
-  return liveness;
-}
-
-FailureOr<bool> DPSLiveness::areAnyLive(ValueRange values,
-                                        Operation *op) const {
-  auto it = livenessInfo.find(op);
-  if (it == livenessInfo.end())
-    return failure();
-  const LiveSet &liveIds = it->second;
-  for (Value value : values) {
-    DPSAnalysis::AllocView allocView = dpsAnalysis.getAllocView(value);
-    assert(allocView.alloc && "expected allocation view to be present");
-    if (llvm::any_of(allocView.ids,
-                     [&](int32_t id) { return liveIds.contains(id); }))
-      return true;
-  }
-  return false;
-}
-
-void DPSLiveness::print(llvm::raw_ostream &os, const SSAMap &ssaMap) const {
-  os << "DPS liveness (after program points) {\n";
-  for (Operation *op : orderedProgramPoints) {
-    auto it = livenessInfo.find(op);
-    assert(it != livenessInfo.end() && "expected liveness info to be present");
-    const LiveSet &liveIds = it->second;
-    SmallPtrSet<Value, 8> values;
-    values.reserve(liveIds.size());
-    for (int32_t id : liveIds) {
-      const Allocation *alloc = dpsAnalysis.getAllocForId(id);
-      assert(alloc && "expected allocation to be present");
-      values.insert(alloc->value);
-    }
-    SmallVector<std::pair<Value, int64_t>> valuesWithIds;
-    ssaMap.getIds(values, valuesWithIds);
-    llvm::sort(valuesWithIds, [](const std::pair<Value, int64_t> &lhs,
-                                 const std::pair<Value, int64_t> &rhs) {
-      return lhs.second < rhs.second;
-    });
-    os << "  " << OpWithFlags(op, OpPrintingFlags().skipRegions()) << " -> {";
-    llvm::interleaveComma(valuesWithIds, os,
-                          [&](const std::pair<Value, int64_t> &entry) {
-                            os << entry.second << " = `"
-                               << ValueWithFlags(entry.first, true) << "`";
-                          });
-    os << "}\n";
-  }
-  os << "}";
+  return analysis;
 }

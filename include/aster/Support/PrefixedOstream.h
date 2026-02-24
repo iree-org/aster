@@ -34,13 +34,13 @@ public:
 
   /// Decrease indentation by indentSize. Returns *this for chaining.
   raw_prefixed_ostream &unindent(int spaces = 2) {
-    currentIndent = std::max(0, currentIndent - spaces);
+    currentIndent = std::max(currentIndent - std::max(0, spaces), 0);
     return *this;
   }
 
   /// Set indentation level (number of spaces). Returns *this for chaining.
   raw_prefixed_ostream &indent(int spaces = 2) {
-    currentIndent = std::max(0, spaces);
+    currentIndent += std::max(0, spaces);
     return *this;
   }
 

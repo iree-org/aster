@@ -64,11 +64,11 @@ def TestDPSAnalysis : Pass<"test-dps-analysis"> {
   }];
 }
 
-def TestDPSLiveness : Pass<"test-dps-liveness"> {
-  let summary = "Test pass for DPS liveness analysis";
+def TestDPSClobberingAnalysis : Pass<"test-dps-clobbering"> {
+  let summary = "Test pass for DPS clobbering analysis";
   let description = [{
-    This pass runs DPS liveness analysis and prints the live allocation
-    IDs at each program point for kernel functions.
+    This pass runs DPS clobbering analysis and for each instruction prints the
+    results that require de-clobbering.
   }];
 }
 

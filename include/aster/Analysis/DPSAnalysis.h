@@ -12,10 +12,10 @@
 #define ASTER_ANALYSIS_DPSANALYSIS_H
 
 #include "aster/IR/SSAMap.h"
+#include "aster/Interfaces/InstOpInterface.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Allocator.h"
 
 namespace mlir {
@@ -132,40 +132,34 @@ private:
 };
 
 //===----------------------------------------------------------------------===//
-// DPSLiveness
+// DPSClobberingAnalysis
 //===----------------------------------------------------------------------===//
 
-/// Liveness of DPS allocations at program points. Maps each operation to the
-/// set of allocation IDs that are live at the after program point of that
-/// instruction.
-class DPSLiveness {
+/// DPS clobbering analysis. This analysis indicates whether an instruction
+/// result with register value semantics requires de-clobbering.
+class DPSClobberingAnalysis {
 public:
-  using LiveSet = llvm::SmallDenseSet<int32_t, 8>;
-  /// Create a dps-aware liveness analysis. Returns failure if any liveness
-  /// lattice cannot be procured for an operation in the function.
-  static FailureOr<DPSLiveness> create(DPSAnalysis &dpsAnalysis,
-                                       mlir::DataFlowSolver &solver,
-                                       FunctionOpInterface funcOp);
+  /// Create a clobbering analysis from a DPS analysis and a dataflow solver
+  /// with liveness information. Returns failure if the analysis cannot be
+  /// constructed.
+  static FailureOr<DPSClobberingAnalysis> create(DPSAnalysis &dpsAnalysis,
+                                                 mlir::DataFlowSolver &solver,
+                                                 FunctionOpInterface funcOp);
 
-  /// Return true iff any of the allocation IDs for values are live at the after
-  /// program point of op. Return failure if op is not a valid program point
-  /// (no liveness info).
-  FailureOr<bool> areAnyLive(ValueRange values, Operation *op) const;
-
-  /// Optional deterministic order of program points (walk order at creation).
-  /// Empty if not populated.
-  llvm::ArrayRef<Operation *> getOrderedProgramPoints() const {
-    return orderedProgramPoints;
+  /// Returns an array of booleans indicating whether a tied out/result requires
+  /// de-clobbering. The array only contains entries for the instruction
+  /// results.
+  ArrayRef<bool> getClobberingInfo(InstOpInterface op) const {
+    auto it = clobberingInfo.find(op);
+    if (it == clobberingInfo.end())
+      return ArrayRef<bool>();
+    return it->second;
   }
 
-  /// Print liveness: each program point with its sorted live allocation IDs.
-  void print(llvm::raw_ostream &os, const SSAMap &ssaMap) const;
-
 private:
-  DPSLiveness(DPSAnalysis &dpsAnalysis) : dpsAnalysis(dpsAnalysis) {}
+  DPSClobberingAnalysis(DPSAnalysis &dpsAnalysis) : dpsAnalysis(dpsAnalysis) {}
   DPSAnalysis &dpsAnalysis;
-  llvm::DenseMap<Operation *, LiveSet> livenessInfo;
-  llvm::SmallVector<Operation *, 0> orderedProgramPoints;
+  llvm::DenseMap<Operation *, SmallVector<bool, 4>> clobberingInfo;
 };
 } // end namespace mlir::aster
 
