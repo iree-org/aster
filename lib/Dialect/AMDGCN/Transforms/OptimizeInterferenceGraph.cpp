@@ -48,8 +48,9 @@ struct OptimizeGraphImpl {
   /// Build equivalence classes for the interference graph.
   std::optional<IntEquivalenceClasses> run(Operation *root);
 
-  /// Handle a move operation.
-  LogicalResult handleMov(Operation *op, std::pair<Value, Value> moveInfo);
+  /// Collect a move operation: resolve its allocas and assign a coalescing
+  /// priority (0 = load-sourced, preferred; 1 = default).
+  LogicalResult collectMov(Operation *op, std::pair<Value, Value> moveInfo);
 
   /// Optimize the graph and populate the equivalence classes.
   void optimizeGraph(IntEquivalenceClasses &eqClasses);
@@ -60,18 +61,18 @@ struct OptimizeGraphImpl {
 };
 } // namespace
 
-static std::optional<std::pair<Value, Value>> getMoveInfo(Operation *op) {
+static FailureOr<std::pair<Value, Value>> getMoveInfo(Operation *op) {
   if (auto copyOp = dyn_cast<lsir::CopyOp>(op))
-    return std::make_pair(copyOp.getSource(), copyOp.getTarget());
+    return std::pair<Value, Value>(copyOp.getSource(), copyOp.getTarget());
   if (auto vop1 = dyn_cast<inst::VOP1Op>(op))
-    return std::make_pair(vop1.getSrc0(), vop1.getVdst());
+    return std::pair<Value, Value>(vop1.getSrc0(), vop1.getVdst());
   if (auto sop1 = dyn_cast<inst::SOP1Op>(op))
-    return std::make_pair(sop1.getSrc0(), sop1.getSdst());
-  return std::nullopt;
+    return std::pair<Value, Value>(sop1.getSrc0(), sop1.getSdst());
+  return failure();
 }
 
-LogicalResult OptimizeGraphImpl::handleMov(Operation *op,
-                                           std::pair<Value, Value> moveInfo) {
+LogicalResult OptimizeGraphImpl::collectMov(Operation *op,
+                                            std::pair<Value, Value> moveInfo) {
   FailureOr<ValueRange> srcAlloc = getAllocasOrFailure(moveInfo.first);
   if (failed(srcAlloc))
     return failure();
@@ -164,7 +165,7 @@ getRangeBounds(NodeID lhsBegin, int32_t lhsOff, int32_t lhsSize,
   // Get the start of the rhs in the lhs according to the copy offset.
   int32_t rhsInLhsStart = lhsOff - rhsOff;
 
-  // Bail if we cannot fit the elemnents before the rhs offset in the lhs range.
+  // Bail if we cannot fit the elements before the rhs offset in the lhs range.
   if (rhsInLhsStart < 0)
     return failure();
 
@@ -181,20 +182,20 @@ getRangeBounds(NodeID lhsBegin, int32_t lhsOff, int32_t lhsSize,
 }
 
 /// Optimize the graph by coalescing the registers involved in the moves.
-/// NOTE: Given the prescene of register ranges, is not enough to only check the
-/// registers involved in the moves, we need to check that one of the entire
-/// ranges can be coalesced into one of them.
+/// NOTE: Given the presence of register ranges, it is not enough to only check
+/// the registers involved in the moves; we need to check that one of the entire
+/// ranges can be coalesced into the other.
 void OptimizeGraphImpl::optimizeGraph(IntEquivalenceClasses &eqClasses) {
   for (const MovDesc &mov : movOps) {
     LDBG() << "Processing move: " << *mov.moveOp;
 
-    // NOTE: This is safe because the graph provides the guruantee that ranges
+    // NOTE: This is safe because the graph provides the guarantee that ranges
     // are consecutive.
     NodeID srcId = graph.getNodeId(mov.srcAllocas[0]);
     NodeID tgtId = graph.getNodeId(mov.targetAllocas[0]);
     LDBG() << "- Source ID: " << srcId << ", Target ID: " << tgtId;
 
-    // If the source and target are the same, continue.
+    // If srcId == tgtId, this is a trivial self-copy: continue.
     if (srcId == tgtId)
       continue;
 
@@ -256,24 +257,24 @@ void OptimizeGraphImpl::optimizeGraph(IntEquivalenceClasses &eqClasses) {
 
 std::optional<IntEquivalenceClasses> OptimizeGraphImpl::run(Operation *root) {
   WalkResult result = root->walk([&](Operation *op) -> WalkResult {
-    if (std::optional<std::pair<Value, Value>> moveInfo = getMoveInfo(op)) {
-      if (moveInfo->first == moveInfo->second)
-        return WalkResult::advance();
+    FailureOr<std::pair<Value, Value>> moveInfo = getMoveInfo(op);
+    if (failed(moveInfo))
+      return WalkResult::advance();
 
-      auto srcTy = dyn_cast<RegisterTypeInterface>(moveInfo->first.getType());
-      auto tgtTy = dyn_cast<RegisterTypeInterface>(moveInfo->second.getType());
-      // Bail if the source or target are not register types, or if they are not
-      // the same kind of register type.
-      if (!srcTy || !tgtTy || srcTy.getTypeID() != tgtTy.getTypeID())
-        return WalkResult::advance();
+    if (moveInfo->first == moveInfo->second)
+      return WalkResult::advance();
 
-      // Bail if the source and target are both allocated.
-      if (srcTy.hasAllocatedSemantics() && tgtTy.hasAllocatedSemantics())
-        return WalkResult::advance();
+    auto srcTy = dyn_cast<RegisterTypeInterface>(moveInfo->first.getType());
+    auto tgtTy = dyn_cast<RegisterTypeInterface>(moveInfo->second.getType());
+    if (!srcTy || !tgtTy || srcTy.getTypeID() != tgtTy.getTypeID())
+      return WalkResult::advance();
 
-      if (failed(handleMov(op, *moveInfo)))
-        return WalkResult::interrupt();
-    }
+    if (srcTy.hasAllocatedSemantics() && tgtTy.hasAllocatedSemantics())
+      return WalkResult::advance();
+
+    if (failed(collectMov(op, *moveInfo)))
+      return WalkResult::interrupt();
+
     return WalkResult::advance();
   });
   if (result.wasInterrupted())
