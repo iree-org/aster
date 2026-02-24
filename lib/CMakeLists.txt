@@ -33,6 +33,7 @@ add_mlir_library(
   MLIRArithValueBoundsOpInterfaceImpl
   MLIRCastInterfaces
   MLIRControlFlowDialect
+  MLIRDLTIDialect
   MLIRFuncDialect
   MLIRFuncInlinerExtension
   MLIRMemRefDialect

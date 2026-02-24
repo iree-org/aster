@@ -24,6 +24,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -52,6 +53,7 @@ void mlir::aster::initUpstreamMLIRDialects(DialectRegistry &registry) {
   registry.insert<affine::AffineDialect>();
   registry.insert<arith::ArithDialect>();
   registry.insert<cf::ControlFlowDialect>();
+  registry.insert<DLTIDialect>();
   registry.insert<func::FuncDialect>();
   registry.insert<gpu::GPUDialect>();
   registry.insert<index::IndexDialect>();
