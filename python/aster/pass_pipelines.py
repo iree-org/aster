@@ -157,34 +157,13 @@ PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS = (
 # Convert amdgcn.wait ops to s_waitcnt instructions
 PHASE_CONVERT_WAITS = (
     "amdgcn-convert-waits",
+    amdgcn_module(amdgcn_kernel("amdgcn-legalize-cf", "cse")),
 )
 
-# Register allocation
-# Note: this really must happen on amdgcn.kernel within a module to ensure that
-# the interference graph is built correctly..  this should not be the case, reevaluate.
-# Note: `aster-amdgcn-expand-md-ops` again as it is really needed to lower away
-# threadidx etc ops into alloc that can be relocated.
-# TODO: NORMAL FORMS for amdgcn-reg-alloc.
-PHASE_REGISTER_ALLOCATION = amdgcn_module(
-    amdgcn_kernel(
-        "aster-amdgcn-expand-md-ops",
-        "amdgcn-legalize-operands",
-        # TODO: add bufferization here and go towards side-effects.
-        "amdgcn-reg-alloc",
-        "canonicalize", "cse",
-        "amdgcn-legalize-cf",
-    )
-)
-
-PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION = amdgcn_module(
-    amdgcn_kernel(
-        "aster-amdgcn-expand-md-ops",
-        "amdgcn-legalize-operands",
-        "amdgcn-reg-alloc",
-        "canonicalize", "cse",
-        "amdgcn-legalize-cf",
-    )
-)
+# Register allocation, and wait lowering.
+# TODO: Move NOP insertion to backend.
+# TODO: NORMAL FORMS for amdgcn-backend.
+PHASE_AMDGCN_BACKEND = "amdgcn-backend"
 
 # Note: needs to know about instructions and actual register number for WAW
 # dependencies.
@@ -219,8 +198,7 @@ NANOBENCH_PASS_PIPELINE = builtin_module(
     PHASE_CONVERT_LDS_BUFFERS,
     PHASE_EXPAND_MD_OPS,
     PHASE_LOWER_TO_AMDGCN,
-    PHASE_REGISTER_ALLOCATION,
-    PHASE_CONVERT_WAITS,
+    PHASE_AMDGCN_BACKEND,
     phase_nop_insertion(delays=0)
 )
 
@@ -242,8 +220,7 @@ TEST_SYNCHRONOUS_SROA_PASS_PIPELINE = builtin_module(
     # exactly as specified by the programmer.
     # PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS,
     PHASE_LOWER_TO_AMDGCN,
-    PHASE_CONVERT_WAITS,
-    PHASE_REGISTER_ALLOCATION,
+    PHASE_AMDGCN_BACKEND,
     phase_nop_insertion(delays=32)
 )
 
@@ -256,10 +233,9 @@ TEST_LOOP_PASS_PIPELINE = builtin_module(
     PHASE_LOWER_TO_AMDGCN,
     PHASE_EXPAND_MD_OPS,
     PHASE_LOWER_TO_AMDGCN,
-    PHASE_CONVERT_WAITS,
     # TODO: Explain what and why and integrate in the relevant phases.
     amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-    PHASE_REGISTER_ALLOCATION,
+    PHASE_AMDGCN_BACKEND,
     phase_nop_insertion(delays=0)
 )
 
@@ -272,18 +248,12 @@ def test_scf_pipelining_pass_pipeline(gcd_unroll=False):
         POST_SROA_CLEANUPS,
         "amdgcn-lds-alloc",
         PHASE_CONVERT_LDS_BUFFERS,
-        # Note: PHASE_CONVERT_WAITS must run before PHASE_LOWER_TO_AMDGCN because
-        # pipelined loops can have wait tokens as scf.for iter_args (cross-stage
-        # ds_write/global_load tokens). These must be lowered to waitcnts before
-        # amdgcn-convert-scf-control-flow turns them into cf block arguments, which
-        # would crash aster-codegen (write_token has no data layout).
-        PHASE_CONVERT_WAITS,
         PHASE_LOWER_TO_AMDGCN,
         PHASE_EXPAND_MD_OPS,
         PHASE_LOWER_TO_AMDGCN,
         # TODO: Explain what and why and integrate in the relevant phases.
         amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-        PHASE_REGISTER_ALLOCATION_WITH_BUFFERIZATION,
+        PHASE_AMDGCN_BACKEND,
         phase_nop_insertion(delays=0)
     )
 
@@ -317,9 +287,7 @@ DEFAULT_SROA_PASS_PIPELINE = builtin_module(
     PHASE_EXPAND_MD_OPS,
     PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS,
     PHASE_LOWER_TO_AMDGCN,
-    # Convert amdgcn.wait ops to s_waitcnt instructions
-    PHASE_CONVERT_WAITS,
-    PHASE_REGISTER_ALLOCATION,
+    PHASE_AMDGCN_BACKEND,
     phase_nop_insertion(delays=0)
 )
 
@@ -337,9 +305,7 @@ FUTURE_SROA_PASS_PIPELINE = builtin_module(
     PHASE_CONVERT_LDS_BUFFERS,
     PHASE_EXPAND_MD_OPS,
     PHASE_LOWER_TO_AMDGCN,
-    # Convert amdgcn.wait ops to s_waitcnt instructions
-    PHASE_CONVERT_WAITS,
-    PHASE_REGISTER_ALLOCATION,
+    PHASE_AMDGCN_BACKEND,
     phase_nop_insertion(delays=0)
 )
 
