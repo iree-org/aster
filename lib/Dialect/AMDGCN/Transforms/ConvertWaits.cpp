@@ -140,8 +140,8 @@ AMDGCNConvertWaits::removeTokenArguments(FunctionOpInterface funcOp) {
     return poison;
   };
 
-  // Remove token operands from an operation.
-  auto removeTokenOperands = [&](Operation *op) {
+  // Replace token operands with poison values.
+  auto poisonTokenOperands = [&](Operation *op) {
     for (OpOperand &use : op->getOpOperands()) {
       if (!isa<ReadTokenType, WriteTokenType>(use.get().getType()))
         continue;
@@ -177,7 +177,7 @@ AMDGCNConvertWaits::removeTokenArguments(FunctionOpInterface funcOp) {
     // Handle region branch operands.
     for (auto brOp : block->getOps<RegionBranchOpInterface>()) {
       opsToCanonicalize.push_back(brOp);
-      removeTokenOperands(brOp);
+      poisonTokenOperands(brOp);
     }
 
     // Handle branch operands.
@@ -188,14 +188,10 @@ AMDGCNConvertWaits::removeTokenArguments(FunctionOpInterface funcOp) {
                "expected no produced operands");
         MutableOperandRange forwarded =
             succOperands.getMutableForwardedOperands();
-        int64_t start = 0;
-        while (start < forwarded.size()) {
-          if (!isa<ReadTokenType, WriteTokenType>(
-                  forwarded[start].get().getType())) {
-            ++start;
-            continue;
-          }
-          forwarded.erase(start);
+        for (int64_t i = static_cast<int64_t>(forwarded.size()) - 1; i >= 0;
+             --i) {
+          if (isa<ReadTokenType, WriteTokenType>(forwarded[i].get().getType()))
+            forwarded.erase(i);
         }
       }
       return;
@@ -206,7 +202,7 @@ AMDGCNConvertWaits::removeTokenArguments(FunctionOpInterface funcOp) {
       return;
 
     // Handle all other terminator operands.
-    removeTokenOperands(block->getTerminator());
+    poisonTokenOperands(block->getTerminator());
   });
 
   // Collect all canonicalization patterns for region branch ops.
