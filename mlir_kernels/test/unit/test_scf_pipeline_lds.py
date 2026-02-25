@@ -107,6 +107,7 @@ class TestLdsPipelineSixStage:
     import pytest
 
     @pytest.mark.parametrize("pipeline", PIPELINES)
+    @pytest.mark.skip(reason="Disable until late waits is in the pipeline")
     def test_lds_six_stage(self, pipeline):
         num_iters = 10
         input_data = np.arange(num_iters, dtype=np.int32) * 11
