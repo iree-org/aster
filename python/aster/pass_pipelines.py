@@ -154,12 +154,6 @@ PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS = (
     "amdgcn-optimize-straight-line-waits",
 )
 
-# Convert amdgcn.wait ops to s_waitcnt instructions
-PHASE_CONVERT_WAITS = (
-    "amdgcn-convert-waits",
-    amdgcn_module(amdgcn_kernel("amdgcn-legalize-cf", "cse")),
-)
-
 # Register allocation, and wait lowering.
 # TODO: Move NOP insertion to backend.
 # TODO: NORMAL FORMS for amdgcn-backend.

@@ -264,3 +264,108 @@ amdgcn.module @loop_backedge_test target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+// -----
+
+// Note: BBArgs processed in order; later BBArg allocas inserted at entry start,
+// so %y's allocas appear before %x's in the output.
+// CHECK-LABEL: kernel @bufferization_swap {
+// CHECK:             %[[COMMON_Y:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[ARG_Y:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[COMMON_X:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[ARG_X:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[A_ALLOC:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[B_ALLOC:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[SGPR:.*]] = alloca : !amdgcn.sgpr
+// CHECK:             %[[A:.*]] = test_inst outs %[[A_ALLOC]] ins %[[SGPR]]
+// CHECK:             %[[B:.*]] = test_inst outs %[[B_ALLOC]] ins %[[SGPR]]
+// CHECK:             lsir.copy %[[COMMON_X]], %[[A]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[COMMON_Y]], %[[B]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             cf.br ^bb1
+// CHECK:           ^bb1:
+// CHECK:             %[[X:.*]] = lsir.copy %[[ARG_Y]], %[[COMMON_Y]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
+// CHECK:             %[[Y:.*]] = lsir.copy %[[ARG_X]], %[[COMMON_X]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
+// CHECK:             %[[COND:.*]] = func.call @rand() : () -> i1
+// CHECK:             lsir.copy %[[COMMON_X]], %[[X]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[COMMON_Y]], %[[Y]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             cf.cond_br %[[COND]], ^bb1, ^bb2
+// CHECK:           ^bb2:
+// CHECK:             test_inst ins %[[Y]], %[[X]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+// CHECK:             end_kernel
+// CHECK:           }
+// CHECK:         }
+amdgcn.module @swap_test target = <gfx942> isa = <cdna3> {
+  func.func private @rand() -> i1
+  kernel @bufferization_swap {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.vgpr
+    %2 = alloca : !amdgcn.sgpr
+    %a = test_inst outs %0 ins %2 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %b = test_inst outs %1 ins %2 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    cf.br ^loop(%a, %b : !amdgcn.vgpr, !amdgcn.vgpr)
+  ^loop(%x: !amdgcn.vgpr, %y: !amdgcn.vgpr):
+    %cond = func.call @rand() : () -> i1
+    cf.cond_br %cond, ^loop(%y, %x : !amdgcn.vgpr, !amdgcn.vgpr), ^exit
+  ^exit:
+    test_inst ins %x, %y : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+// Note: BBArgs processed in order; later BBArg allocas inserted at entry start,
+// so %y's allocas appear before %x's in the output.
+// CHECK-LABEL: kernel @bufferization_multi_bbarg {
+// CHECK:             %[[COMMON_Y:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[ARG_Y:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[COMMON_X:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[ARG_X:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[A_ALLOC:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[B_ALLOC:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[C_ALLOC:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[D_ALLOC:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[SGPR:.*]] = alloca : !amdgcn.sgpr
+// CHECK:             %[[A:.*]] = test_inst outs %[[A_ALLOC]] ins %[[SGPR]]
+// CHECK:             %[[B:.*]] = test_inst outs %[[B_ALLOC]] ins %[[SGPR]]
+// CHECK:             %[[C:.*]] = test_inst outs %[[C_ALLOC]] ins %[[SGPR]]
+// CHECK:             %[[D:.*]] = test_inst outs %[[D_ALLOC]] ins %[[SGPR]]
+// CHECK:             cf.cond_br %{{.*}}, ^bb1, ^bb2
+// CHECK:           ^bb1:
+// CHECK:             lsir.copy %[[COMMON_X]], %[[A]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[COMMON_Y]], %[[B]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             cf.br ^bb3
+// CHECK:           ^bb2:
+// CHECK:             lsir.copy %[[COMMON_X]], %[[C]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             lsir.copy %[[COMMON_Y]], %[[D]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             cf.br ^bb3
+// CHECK:           ^bb3:
+// CHECK:             %[[RY:.*]] = lsir.copy %[[ARG_Y]], %[[COMMON_Y]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
+// CHECK:             %[[RX:.*]] = lsir.copy %[[ARG_X]], %[[COMMON_X]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
+// CHECK:             test_inst ins %[[RX]], %[[RY]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+// CHECK:             end_kernel
+// CHECK:           }
+// CHECK:         }
+amdgcn.module @multi_bbarg_test target = <gfx942> isa = <cdna3> {
+  func.func private @rand() -> i1
+  kernel @bufferization_multi_bbarg {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.vgpr
+    %2 = alloca : !amdgcn.vgpr
+    %3 = alloca : !amdgcn.vgpr
+    %4 = alloca : !amdgcn.sgpr
+    %a = test_inst outs %0 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %b = test_inst outs %1 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %c = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %d = test_inst outs %3 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %cond = func.call @rand() : () -> i1
+    cf.cond_br %cond, ^left, ^right
+  ^left:
+    cf.br ^merge(%a, %b : !amdgcn.vgpr, !amdgcn.vgpr)
+  ^right:
+    cf.br ^merge(%c, %d : !amdgcn.vgpr, !amdgcn.vgpr)
+  ^merge(%x: !amdgcn.vgpr, %y: !amdgcn.vgpr):
+    test_inst ins %x, %y : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
