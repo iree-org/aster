@@ -183,8 +183,11 @@ amdgcn.library @kittens_tiles_16x16 isa = [#amdgcn.isa<cdna3>] {
   //
   // Returns: !rt_C_f32 - D result (16x16 f32 tile)
   func.func private @mfma_f32_16x16x16_f16(%A: !rt_A_f16, %B: !rt_B_f16, %C: !rt_C_f32) -> !rt_C_f32 {
-    %dst = func.call @alloc_vgprx4() : () -> !vx4
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst, %A, %B, %C
+    // Accumulator-in-place: reuse %C as DPS destination for loop compatibility.
+    // Note: It would not be ok to alloc a new register here: it would make
+    // DPSAliasAnalysis think that the accumulator is merging with a new alloca.
+    // This would be flagged as a conflict that would trip register allocation.
+    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %C, %A, %B, %C
         : !vx2, !vx2, !vx4 -> !vx4
     return %result : !rt_C_f32
   }

@@ -2,7 +2,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional, Dict
 
 import numpy as np
 import pytest
@@ -48,14 +48,31 @@ def get_mlir_file(file_name: str) -> str:
     return os.path.join(os.path.dirname(__file__), file_name)
 
 
-def compile_and_run(mlir_file, kernel_name, pass_pipeline, input_args, output_args):
+def run_kittens_kernel(
+    mlir_file,
+    kernel_name,
+    input_args=None,
+    output_args=None,
+    pass_pipeline=None,
+    template_substitutions=None,
+):
     """Compile an MLIR file to HSACO and execute the kernel on GPU."""
+    preprocess = None
+    if template_substitutions:
+        subs = template_substitutions
+
+        def preprocess(content):
+            for pattern, replacement in subs.items():
+                content = content.replace(pattern, replacement)
+            return content
+
     _compile_and_run(
         file_name=mlir_file,
         kernel_name=kernel_name,
         input_data=input_args,
         output_data=output_args,
         pass_pipeline=pass_pipeline,
+        preprocess=preprocess,
         library_paths=get_kittens_library_paths(),
         mcpu=MCPU,
         wavefront_size=WAVEFRONT_SIZE,
@@ -63,6 +80,7 @@ def compile_and_run(mlir_file, kernel_name, pass_pipeline, input_args, output_ar
         block_dim=(64, 1, 1),
         num_iterations=run_config.num_iterations,
         skip_on_cross_compile=True,
+        print_ir_after_all=True,
     )
 
 
@@ -72,13 +90,14 @@ class TestKittensZeroC:
     def test_zero_C_produces_zeros(self):
         """Zero-initialized C tile should contain all zeros."""
         output = np.zeros(16 * 16, dtype=np.int32)
-        compile_and_run(
-            get_mlir_file("test_zero_C.mlir"),
-            "test_zero_C",
-            TEST_SCF_PIPELINING_PASS_PIPELINE,
+
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_zero_C.mlir"),
+            kernel_name="test_zero_C",
             input_args=[],
             output_args=[output],
         )
+
         expected = np.zeros(16 * 16, dtype=np.int32)
         np.testing.assert_array_equal(output, expected)
 
@@ -92,13 +111,13 @@ class TestKittensLoadStoreA:
         input_data = input_f16.view(np.uint16)
         output_data = np.full(16 * 16, 0xFFFF, dtype=np.uint16)
 
-        compile_and_run(
-            get_mlir_file("test_load_store_A.mlir"),
-            "test_load_store_A",
-            TEST_SCF_PIPELINING_PASS_PIPELINE,
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_load_store_A.mlir"),
+            kernel_name="test_load_store_A",
             input_args=[input_data],
             output_args=[output_data],
         )
+
         np.testing.assert_array_equal(output_data, input_data)
 
 
@@ -111,13 +130,13 @@ class TestKittensMFMA:
         B = np.arange(16 * 16, dtype=np.float16).reshape(16, 16) / 256.0
         D_output = np.zeros(16 * 16, dtype=np.float32)
 
-        compile_and_run(
-            get_mlir_file("test_mfma.mlir"),
-            "test_mfma",
-            TEST_SCF_PIPELINING_PASS_PIPELINE,
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_mfma.mlir"),
+            kernel_name="test_mfma",
             input_args=[A.flatten(), B.flatten()],
             output_args=[D_output],
         )
+
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(D_output, expected, rtol=1e-3, atol=1e-3)
 
@@ -138,13 +157,13 @@ class TestKittensGEMM:
         A, B = _make_gemm_inputs(128)
         C_output = np.zeros(16 * 16, dtype=np.float32)
 
-        compile_and_run(
-            get_mlir_file("test_gemm_16x16x128.mlir"),
-            "gemm_16x16x128",
-            TEST_SCF_PIPELINING_PASS_PIPELINE,
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_gemm_16x16x128.mlir"),
+            kernel_name="gemm_16x16x128",
             input_args=[A.flatten(), B.flatten()],
             output_args=[C_output],
         )
+
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
 
@@ -157,19 +176,77 @@ class TestKittensGEMMSched:
         A, B = _make_gemm_inputs(128)
         C_output = np.zeros(16 * 16, dtype=np.float32)
 
-        compile_and_run(
-            get_mlir_file("test_gemm_16x16x128_with_sched.mlir"),
-            "gemm_16x16x128_sched",
-            FUTURE_SROA_PASS_PIPELINE,
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_gemm_16x16x128_with_sched.mlir"),
+            kernel_name="gemm_16x16x128_sched",
             input_args=[A.flatten(), B.flatten()],
             output_args=[C_output],
+            pass_pipeline=FUTURE_SROA_PASS_PIPELINE,
         )
+
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+
+class TestKittensGEMMLoop:
+    """Test GEMM with scf.for K-loop for arbitrary K values."""
+
+    @pytest.mark.parametrize("k", [128, 4096])
+    def test_gemm_16x16xK(self, k):
+        """GEMM should compute C = A @ B^T for various K values."""
+        k_tiles = k // 16
+        stride_ab = k * 2
+
+        np.random.seed(42 + k)
+        A = (np.random.randn(16, k) * 0.1).astype(np.float16)
+        B = (np.random.randn(16, k) * 0.1).astype(np.float16)
+        C_output = np.zeros(16 * 16, dtype=np.float32)
+
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_gemm_16x16xK.mlir"),
+            kernel_name="gemm_16x16xK",
+            input_args=[A.flatten(), B.flatten()],
+            output_args=[C_output],
+            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            template_substitutions={
+                "{{K}}": str(k),
+                "{{K_TILES}}": str(k_tiles),
+                "{{STRIDE_AB}}": str(stride_ab),
+            },
+        )
+
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
 
 
 if __name__ == "__main__":
     import argparse
+
+    # Registry: (kernel_name, test_fn, args, kwargs)
+    ALL_TESTS = [
+        ("test_zero_C", TestKittensZeroC().test_zero_C_produces_zeros, [], {}),
+        (
+            "test_load_store_A",
+            TestKittensLoadStoreA().test_load_store_roundtrip,
+            [],
+            {},
+        ),
+        ("test_mfma", TestKittensMFMA().test_mfma_matmul, [], {}),
+        ("gemm_16x16x128", TestKittensGEMM().test_gemm_16x16x128, [], {}),
+        (
+            "gemm_16x16x128_sched",
+            TestKittensGEMMSched().test_gemm_16x16x128_sched,
+            [],
+            {},
+        ),
+        ("gemm_16x16xK_k128", TestKittensGEMMLoop().test_gemm_16x16xK, [], {"k": 128}),
+        (
+            "gemm_16x16xK_k4096",
+            TestKittensGEMMLoop().test_gemm_16x16xK,
+            [],
+            {"k": 4096},
+        ),
+    ]
 
     parser = argparse.ArgumentParser(description="Run kittens tests")
     parser.add_argument(
@@ -184,21 +261,34 @@ if __name__ == "__main__":
         default=1,
         help="Number of kernel launches per test (default: 1)",
     )
+    parser.add_argument(
+        "--test",
+        type=str,
+        default=None,
+        help="Run only tests whose name contains this substring (default: all)",
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List available test names and exit",
+    )
     cli_args = parser.parse_args()
 
     # Override module-level config for all compile_and_run calls
     run_config.num_blocks = cli_args.num_blocks
     run_config.num_iterations = cli_args.num_iterations
 
-    def run_test(test_fn, *args, **kwargs):
-        """Run a test, handling pytest.skip gracefully when running without pytest."""
+    tests = ALL_TESTS
+    if cli_args.test:
+        tests = [(n, f, a, kw) for n, f, a, kw in ALL_TESTS if cli_args.test in n]
+        if not tests:
+            print(f"No tests matching '{cli_args.test}'. Available:")
+            for name, _, _, _ in ALL_TESTS:
+                print(f"  {name}")
+            raise SystemExit(1)
+
+    for name, test_fn, args, kwargs in tests:
         try:
             test_fn(*args, **kwargs)
         except pytest.skip.Exception as e:
             print(f"  SKIPPED: {e}")
-
-    run_test(TestKittensZeroC().test_zero_C_produces_zeros)
-    run_test(TestKittensLoadStoreA().test_load_store_roundtrip)
-    run_test(TestKittensMFMA().test_mfma_matmul)
-    run_test(TestKittensGEMM().test_gemm_16x16x128)
-    run_test(TestKittensGEMMSched().test_gemm_16x16x128_sched)
