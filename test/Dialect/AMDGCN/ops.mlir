@@ -495,3 +495,37 @@ func.func @lds_buffer_ops(%arg0: index, %arg1: index) {
   %2 = amdgcn.alloc_lds 32 offset 64
   return
 }
+
+//===----------------------------------------------------------------------===//
+// amdgcn.ptr_add
+//===----------------------------------------------------------------------===//
+
+func.func @test_ptr_add_vgpr(%ptr: !amdgcn.vgpr, %offset: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %result = amdgcn.ptr_add %ptr, %offset : !amdgcn.vgpr, !amdgcn.vgpr
+  return %result : !amdgcn.vgpr
+}
+
+func.func @test_ptr_add_vgpr_range(%ptr: !amdgcn.vgpr<[? + 2]>, %offset: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+  %result = amdgcn.ptr_add %ptr, %offset : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+  return %result : !amdgcn.vgpr<[? + 2]>
+}
+
+func.func @test_ptr_add_sgpr_range(%ptr: !amdgcn.sgpr<[? + 2]>, %offset: !amdgcn.vgpr) -> !amdgcn.sgpr<[? + 2]> {
+  %result = amdgcn.ptr_add %ptr, %offset : !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr
+  return %result : !amdgcn.sgpr<[? + 2]>
+}
+
+func.func @test_ptr_add_with_uniform_offset(%ptr: !amdgcn.vgpr<[? + 2]>, %offset: !amdgcn.vgpr, %uniform: !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]> {
+  %result = amdgcn.ptr_add %ptr, %offset, %uniform : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr
+  return %result : !amdgcn.vgpr<[? + 2]>
+}
+
+func.func @test_ptr_add_with_const_offset(%ptr: !amdgcn.vgpr<[? + 2]>, %offset: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+  %result = amdgcn.ptr_add %ptr, %offset const_offset = 16 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+  return %result : !amdgcn.vgpr<[? + 2]>
+}
+
+func.func @test_ptr_add_all_offsets(%ptr: !amdgcn.vgpr<[? + 2]>, %offset: !amdgcn.vgpr, %uniform: !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]> {
+  %result = amdgcn.ptr_add %ptr, %offset, %uniform const_offset = 32 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr
+  return %result : !amdgcn.vgpr<[? + 2]>
+}
