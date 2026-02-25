@@ -14,6 +14,8 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -36,38 +38,20 @@ static Value computeByteOffset(OpBuilder &builder, Location loc,
                                const aster::MemRefDescriptor &descriptor,
                                ValueRange indices, Type elementType) {
   int64_t rank = descriptor.getNumSizes();
-  MLIRContext *ctx = builder.getContext();
 
-  // Build affine map for linearization: offset + sum(indices[i] * strides[i])
-  // Map: (d0, ..., d_{n-1}, off, s0, ..., s_{n-1})
-  //   -> off + d0*s0 + ... + d_{n-1}*s_{n-1}
-  AffineExpr linearExpr = builder.getAffineDimExpr(rank); // offset dimension
-  for (int64_t i = 0; i < rank; ++i) {
-    AffineExpr idx = builder.getAffineDimExpr(i);
-    AffineExpr stride = builder.getAffineDimExpr(rank + 1 + i);
-    linearExpr = linearExpr + idx * stride;
-  }
+  // Collect strides as OpFoldResults.
+  SmallVector<OpFoldResult> strides;
+  for (int64_t i = 0; i < rank; ++i)
+    strides.push_back(descriptor.getStride(i));
 
-  auto affineMap = AffineMap::get(2 * rank + 1, 0, linearExpr, ctx);
+  // Collect indices as OpFoldResults.
+  SmallVector<OpFoldResult> indexOFRs = getAsOpFoldResult(indices);
 
-  // Build operands: indices..., offset, strides...
-  SmallVector<Value> affineOperands;
-  affineOperands.append(indices.begin(), indices.end());
-
-  // Get offset as Value.
-  Value offsetVal =
-      getValueOrCreateConstantIndexOp(builder, loc, descriptor.getOffset());
-  affineOperands.push_back(offsetVal);
-
-  // Get strides as Values.
-  for (int64_t i = 0; i < rank; ++i) {
-    Value strideVal =
-        getValueOrCreateConstantIndexOp(builder, loc, descriptor.getStride(i));
-    affineOperands.push_back(strideVal);
-  }
-
-  Value linearOffset =
-      builder.create<affine::AffineApplyOp>(loc, affineMap, affineOperands);
+  // Use upstream utility: offset + sum(indices[i] * strides[i]).
+  auto [linearExpr, linearOperands] =
+      computeLinearIndex(descriptor.getOffset(), strides, indexOFRs);
+  OpFoldResult linearOffset = affine::makeComposedFoldedAffineApply(
+      builder, loc, linearExpr, linearOperands);
 
   // Multiply by element size in bytes.
   Type indexType = builder.getIndexType();
@@ -75,10 +59,11 @@ static Value computeByteOffset(OpBuilder &builder, Location loc,
       loc, indexType, TypeAttr::get(elementType));
 
   // byteOffset = linearOffset * typeOffset
-  auto mulMap = AffineMap::get(
-      2, 0, builder.getAffineDimExpr(0) * builder.getAffineDimExpr(1), ctx);
-  return builder.create<affine::AffineApplyOp>(
-      loc, mulMap, ValueRange{linearOffset, typeOffset});
+  AffineExpr d0, d1;
+  bindDims(builder.getContext(), d0, d1);
+  OpFoldResult byteOffset = affine::makeComposedFoldedAffineApply(
+      builder, loc, d0 * d1, {linearOffset, OpFoldResult(typeOffset)});
+  return getValueOrCreateConstantIndexOp(builder, loc, byteOffset);
 }
 
 /// Compute a pointer to the memref element at the given indices.

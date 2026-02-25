@@ -1,7 +1,7 @@
 // RUN: aster-opt --aster-legalizer --canonicalize --cse %s | FileCheck %s
 
 // CHECK: #[[$ATTR_0:.+]] = affine_map<()[s0, s1, s2] -> (s2 * (s0 * 8 + s1))>
-// CHECK: #[[$ATTR_1:.+]] = affine_map<()[s0, s1, s2, s3] -> (s3 * (s1 + s0 * s2))>
+// CHECK: #[[$ATTR_1:.+]] = affine_map<()[s0, s1, s2, s3] -> (s3 * (s2 + s0 * s1))>
 
 // CHECK-LABEL:   func.func @test_dim_static(
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>) -> index {
@@ -79,7 +79,7 @@ func.func @test_load_static(%m : memref<4x8xf32, #ptr.generic_space>, %i: index,
 // CHECK-LABEL:   func.func @test_load_dynamic(
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: index, %[[ARG2:.*]]: index, %[[ARG3:.*]]: index, %[[ARG4:.*]]: index, %[[ARG5:.*]]: index) -> f32 {
 // CHECK:           %[[TYPE_OFFSET_0:.*]] = ptr.type_offset f32 : index
-// CHECK:           %[[APPLY_0:.*]] = affine.apply #[[$ATTR_1]](){{\[}}%[[ARG4]], %[[ARG5]], %[[ARG3]], %[[TYPE_OFFSET_0]]]
+// CHECK:           %[[APPLY_0:.*]] = affine.apply #[[$ATTR_1]](){{\[}}%[[ARG4]], %[[ARG3]], %[[ARG5]], %[[TYPE_OFFSET_0]]]
 // CHECK:           %[[PTR_ADD_0:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY_0]] : !ptr.ptr<#ptr.generic_space>, index
 // CHECK:           %[[LOAD_0:.*]] = ptr.load %[[PTR_ADD_0]] : !ptr.ptr<#ptr.generic_space> -> f32
 // CHECK:           return %[[LOAD_0]] : f32
