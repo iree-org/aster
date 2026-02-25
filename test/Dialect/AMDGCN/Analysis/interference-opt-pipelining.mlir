@@ -10,10 +10,10 @@
 // ============================================================================
 // CHECK-LABEL: Function: two_stage_load_basic
 // CHECK: graph RegisterInterference {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   1 -- 2;
@@ -25,9 +25,9 @@
 // CHECK:   [2, 3]
 // CHECK: }
 // CHECK: graph RegisterInterferenceQuotient {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   1 -- 2;
 // CHECK: }
@@ -64,12 +64,12 @@ amdgcn.module @t1 target = <gfx942> isa = <cdna3> {
 // ============================================================================
 // CHECK-LABEL: Function: two_independent_loads
 // CHECK: graph RegisterInterference {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
-// CHECK:   4 [label="4, %5"];
-// CHECK:   5 [label="5, %6"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
+// CHECK:   5 [label="5, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   0 -- 4;
@@ -89,10 +89,10 @@ amdgcn.module @t1 target = <gfx942> isa = <cdna3> {
 // CHECK:   [4, 5]
 // CHECK: }
 // CHECK: graph RegisterInterferenceQuotient {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   4 [label="4, %5"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 4;
 // CHECK:   1 -- 2;
@@ -137,12 +137,12 @@ amdgcn.module @t2 target = <gfx942> isa = <cdna3> {
 // ============================================================================
 // CHECK-LABEL: Function: two_stage_load_dwordx2
 // CHECK: graph RegisterInterference {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
-// CHECK:   4 [label="4, %5"];
-// CHECK:   5 [label="5, %6"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
+// CHECK:   5 [label="5, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   0 -- 4;
@@ -161,10 +161,10 @@ amdgcn.module @t2 target = <gfx942> isa = <cdna3> {
 // CHECK:   [3, 5]
 // CHECK: }
 // CHECK: graph RegisterInterferenceQuotient {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   1 -- 2;
@@ -208,11 +208,11 @@ amdgcn.module @t3 target = <gfx942> isa = <cdna3> {
 // ============================================================================
 // CHECK-LABEL: Function: three_stage_load_compute_store
 // CHECK: graph RegisterInterference {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
-// CHECK:   4 [label="4, %5"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   0 -- 4;
@@ -263,10 +263,10 @@ amdgcn.module @t4 target = <gfx942> isa = <cdna3> {
 // ============================================================================
 // CHECK-LABEL: Function: pipeline_copy_interferes
 // CHECK: graph RegisterInterference {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   1 -- 2;
@@ -306,12 +306,12 @@ amdgcn.module @t5 target = <gfx942> isa = <cdna3> {
 // ============================================================================
 // CHECK-LABEL: Function: mixed_coalesce_and_no_coalesce
 // CHECK: graph RegisterInterference {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
-// CHECK:   4 [label="4, %5"];
-// CHECK:   5 [label="5, %6"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
+// CHECK:   5 [label="5, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   0 -- 4;
@@ -333,11 +333,11 @@ amdgcn.module @t5 target = <gfx942> isa = <cdna3> {
 // CHECK:   [5]
 // CHECK: }
 // CHECK: graph RegisterInterferenceQuotient {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   4 [label="4, %5"];
-// CHECK:   5 [label="5, %6"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
+// CHECK:   5 [label="5, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 4;
 // CHECK:   0 -- 5;
@@ -386,11 +386,11 @@ amdgcn.module @t6 target = <gfx942> isa = <cdna3> {
 // ============================================================================
 // CHECK-LABEL: Function: pipeline_chain_copies
 // CHECK: graph RegisterInterference {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
-// CHECK:   4 [label="4, %5"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   0 -- 4;
@@ -404,9 +404,9 @@ amdgcn.module @t6 target = <gfx942> isa = <cdna3> {
 // CHECK:   [2, 3, 4]
 // CHECK: }
 // CHECK: graph RegisterInterferenceQuotient {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   1 -- 2;
 // CHECK: }
@@ -445,16 +445,16 @@ amdgcn.module @t7 target = <gfx942> isa = <cdna3> {
 // ============================================================================
 // CHECK-LABEL: Function: two_stage_load_dwordx4
 // CHECK: graph RegisterInterference {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
-// CHECK:   4 [label="4, %5"];
-// CHECK:   5 [label="5, %6"];
-// CHECK:   6 [label="6, %7"];
-// CHECK:   7 [label="7, %8"];
-// CHECK:   8 [label="8, %9"];
-// CHECK:   9 [label="9, %10"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
+// CHECK:   5 [label="5, %{{.*}}"];
+// CHECK:   6 [label="6, %{{.*}}"];
+// CHECK:   7 [label="7, %{{.*}}"];
+// CHECK:   8 [label="8, %{{.*}}"];
+// CHECK:   9 [label="9, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   0 -- 4;
@@ -493,12 +493,12 @@ amdgcn.module @t7 target = <gfx942> isa = <cdna3> {
 // CHECK:   [5, 9]
 // CHECK: }
 // CHECK: graph RegisterInterferenceQuotient {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
-// CHECK:   4 [label="4, %5"];
-// CHECK:   5 [label="5, %6"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
+// CHECK:   5 [label="5, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   0 -- 4;
@@ -555,13 +555,13 @@ amdgcn.module @t8 target = <gfx942> isa = <cdna3> {
 // ============================================================================
 // CHECK-LABEL: Function: two_loads_to_compute
 // CHECK: graph RegisterInterference {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   3 [label="3, %4"];
-// CHECK:   4 [label="4, %5"];
-// CHECK:   5 [label="5, %6"];
-// CHECK:   6 [label="6, %7"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   3 [label="3, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
+// CHECK:   5 [label="5, %{{.*}}"];
+// CHECK:   6 [label="6, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
 // CHECK:   0 -- 4;
@@ -584,11 +584,11 @@ amdgcn.module @t8 target = <gfx942> isa = <cdna3> {
 // CHECK:   [6]
 // CHECK: }
 // CHECK: graph RegisterInterferenceQuotient {
-// CHECK:   0 [label="0, %1"];
-// CHECK:   1 [label="1, %2"];
-// CHECK:   2 [label="2, %3"];
-// CHECK:   4 [label="4, %5"];
-// CHECK:   6 [label="6, %7"];
+// CHECK:   0 [label="0, %{{.*}}"];
+// CHECK:   1 [label="1, %{{.*}}"];
+// CHECK:   2 [label="2, %{{.*}}"];
+// CHECK:   4 [label="4, %{{.*}}"];
+// CHECK:   6 [label="6, %{{.*}}"];
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 4;
 // CHECK:   0 -- 6;

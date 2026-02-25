@@ -141,7 +141,7 @@ static bool canCoalesce(const RegisterInterferenceGraph &graph,
 /// Get the bounds of the ranges to call canCoalesce on. This method returns
 /// failure if the ranges are incompatible.
 /// NOTE: We always try to merge the smallest range into the biggest
-/// one.Otherwise, we would need to create a new range containing both ranges
+/// one. Otherwise, we would need to create a new range containing both ranges
 /// and destroy the current ranges, which also implies a re-numbering of the
 /// nodes in the graph.
 /// TODO: Allow merging with re-numbering.
