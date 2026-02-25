@@ -145,7 +145,28 @@ void WaitInsertion::runOnOperation() {
   dataflow::loadBaselineAnalyses(solver);
   auto loadFilter =
       +[](Operation *o) -> bool { return isa<amdgcn::LoadOp>(o); };
-  solver.load<ReachingDefinitionsAnalysis>(loadFilter);
+
+  // This callback has the effect of killing the loads if they are consumed as
+  // input.
+  auto killCallback =
+      +[](InstOpInterface instOp,
+          ReachingDefinitionsAnalysis::KillDefsFn killDefs) -> LogicalResult {
+    for (Value operand : instOp.getInstIns()) {
+      assert((!isa<RegisterTypeInterface>(operand.getType()) ||
+              !cast<RegisterTypeInterface>(operand.getType())
+                   .hasValueSemantics()) &&
+             "IR is not in post-to-register-semantics DPS normal form");
+
+      // Get the allocas behind the operand.
+      FailureOr<ValueRange> allocas = getAllocasOrFailure(operand);
+      if (failed(allocas))
+        return failure();
+      killDefs(*allocas);
+    }
+    return success();
+  };
+
+  solver.load<ReachingDefinitionsAnalysis>(loadFilter, killCallback);
   if (failed(solver.initializeAndRun(op))) {
     op->emitError() << "Failed to run reaching definitions analysis";
     return signalPassFailure();

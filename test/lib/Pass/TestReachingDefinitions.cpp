@@ -49,15 +49,41 @@ public:
     Operation *op = getOperation();
     auto &domInfo = getAnalysis<DominanceInfo>();
 
+    // Create a filter for load operations.
     auto loadFilter =
         +[](Operation *op) -> bool { return isa<amdgcn::LoadOp>(op); };
+
+    // This callback has the effect of killing the loads if they are consumed as
+    // input.
+    auto killConsumedLoadsCallback =
+        +[](InstOpInterface instOp,
+            ReachingDefinitionsAnalysis::KillDefsFn killDefs) -> LogicalResult {
+      for (Value operand : instOp.getInstIns()) {
+        assert((!isa<RegisterTypeInterface>(operand.getType()) ||
+                !cast<RegisterTypeInterface>(operand.getType())
+                     .hasValueSemantics()) &&
+               "IR is not in post-to-register-semantics DPS normal form");
+        FailureOr<ValueRange> allocas = getAllocasOrFailure(operand);
+        if (failed(allocas))
+          return failure();
+        killDefs(*allocas);
+      }
+      return success();
+    };
+    function_ref<LogicalResult(InstOpInterface,
+                               ReachingDefinitionsAnalysis::KillDefsFn)>
+        killCallback;
+    if (killConsumedLoads)
+      killCallback = killConsumedLoadsCallback;
 
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
     dataflow::loadBaselineAnalyses(solver);
 
     auto analysisOrFailure = ReachingDefinitionsAnalysis::create(
         solver, op,
-        onlyLoads ? loadFilter : llvm::function_ref<bool(Operation *)>());
+        onlyLoads ? loadFilter : llvm::function_ref<bool(Operation *)>(),
+        killCallback);
+
     if (failed(analysisOrFailure)) {
       op->emitError() << "IR is not in DPS normal form";
       return signalPassFailure();
@@ -81,6 +107,18 @@ public:
         auto *afterState = solver.lookupState<ReachingDefinitionsState>(
             solver.getProgramPointAfter(op));
         os.indent();
+
+        if (killCallback) {
+          auto *beforeState = solver.lookupState<ReachingDefinitionsState>(
+              solver.getProgramPointBefore(op));
+          os << "REACHING DEFS BEFORE: ";
+          if (beforeState)
+            beforeState->print(os, ssaMap, domInfo);
+          else
+            os << "<null>";
+          os << "\n";
+        }
+
         os << "REACHING DEFS AFTER: ";
         if (afterState)
           afterState->print(os, ssaMap, domInfo);

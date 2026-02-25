@@ -128,6 +128,17 @@ LogicalResult ReachingDefinitionsAnalysis::visitOperation(
   if (!instOp)
     return success();
 
+  // If provided allow the callback to kill definitions.
+  if (killCallback) {
+    auto killDefs = [&](ValueRange values) {
+      for (Value value : values)
+        changed |= after->killDefinitions(value);
+    };
+
+    if (failed(killCallback(instOp, killDefs)))
+      return failure();
+  }
+
   OperandRange operands = instOp.getInstOuts();
   if (operands.empty())
     return success();
@@ -156,7 +167,6 @@ LogicalResult ReachingDefinitionsAnalysis::visitOperation(
       changed |= after->addDefinition(Definition{alloc, operand});
     }
   }
-
   return success();
 }
 
@@ -178,8 +188,11 @@ verifyPostToRegisterSemanticsDPSNormalForm(Operation *root) {
 
 FailureOr<ReachingDefinitionsAnalysis *> ReachingDefinitionsAnalysis::create(
     DataFlowSolver &solver, Operation *root,
-    llvm::function_ref<bool(Operation *)> definitionFilter) {
+    llvm::function_ref<bool(Operation *)> definitionFilter,
+    llvm::function_ref<LogicalResult(InstOpInterface, KillDefsFn)>
+        killCallback) {
   if (failed(verifyPostToRegisterSemanticsDPSNormalForm(root)))
     return failure();
-  return solver.load<ReachingDefinitionsAnalysis>(definitionFilter);
+  return solver.load<ReachingDefinitionsAnalysis>(definitionFilter,
+                                                  killCallback);
 }
