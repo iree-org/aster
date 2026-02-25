@@ -143,3 +143,25 @@ amdgcn.module @test_select_i1 target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+// -----
+
+// CHECK-LABEL:   func.func @test_token_in_args(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.read_token<flat>) {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
+// CHECK:           %[[CMPI_0:.*]] = lsir.cmpi i32 sgt %[[ARG0]], %[[CONSTANT_0]] : !amdgcn.vgpr, i32
+// CHECK:           cf.cond_br %[[CMPI_0]], ^bb1(%[[ARG1]] : !amdgcn.read_token<flat>), ^bb2
+// CHECK:         ^bb1(%[[VAL_0:.*]]: !amdgcn.read_token<flat>):
+// CHECK:           cf.cond_br %[[CMPI_0]], ^bb1(%[[VAL_0]] : !amdgcn.read_token<flat>), ^bb2
+// CHECK:         ^bb2:
+// CHECK:           return
+// CHECK:         }
+func.func @test_token_in_args(%arg0: i32, %arg1: !amdgcn.read_token<flat>) {
+  %c0_i32 = arith.constant 0 : i32
+  %0 = arith.cmpi sgt, %arg0, %c0_i32 : i32
+  cf.cond_br %0, ^bb1(%arg1 : !amdgcn.read_token<flat>), ^bb2
+^bb1(%1: !amdgcn.read_token<flat>):  // 2 preds: ^bb0, ^bb1
+  cf.cond_br %0, ^bb1(%1 : !amdgcn.read_token<flat>), ^bb2
+^bb2:  // 2 preds: ^bb0, ^bb1
+  return
+}

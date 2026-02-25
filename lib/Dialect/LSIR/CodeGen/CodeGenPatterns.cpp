@@ -391,7 +391,7 @@ void mlir::aster::lsir::populateCodeGenPatterns(CodeGenConverter &converter,
     return llvm::all_of(operands, [&](Value v) {
       Type t = v.getType();
       // Register types are legal
-      if (isa<RegisterTypeInterface>(t))
+      if (isa<RegisterTypeInterface, TokenDependencyTypeInterface>(t))
         return true;
       return false;
     });

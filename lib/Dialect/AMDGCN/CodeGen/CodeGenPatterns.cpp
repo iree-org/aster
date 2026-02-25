@@ -344,6 +344,7 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
       [&converter](Type type) { return convertTypeImpl(type, converter); });
   converter.addConversion(
       [&converter](Value value) { return convertTypeImpl(value, converter); });
+  converter.addConversion([](TokenDependencyTypeInterface tok) { return tok; });
 
   // Configure the conversion target.
   target.addLegalDialect<amdgcn::AMDGCNDialect>();
