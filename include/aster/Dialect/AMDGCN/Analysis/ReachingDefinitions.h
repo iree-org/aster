@@ -16,11 +16,13 @@
 #ifndef ASTER_DIALECT_AMDGCN_ANALYSIS_REACHINGDEFINITIONS_H
 #define ASTER_DIALECT_AMDGCN_ANALYSIS_REACHINGDEFINITIONS_H
 
+#include "aster/Interfaces/InstOpInterface.h"
 #include "mlir/Analysis/DataFlow/DenseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
+#include "llvm/Support/LogicalResult.h"
 #include <functional>
 #include <set>
 #include <utility>
@@ -143,18 +145,27 @@ private:
 /// themselves to the reaching set. This enables queries like "which loads reach
 /// this point?" while preserving correct kill semantics for intervening
 /// non-load writes.
+///
+/// An optional `killCallback` allows the analysis to kill additional
+/// definitions based on analysis semantics. The callback is invoked after
+/// merging the incoming states, but before adding new definitions for the
+/// current operation.
 class ReachingDefinitionsAnalysis
     : public dataflow::DenseForwardDataFlowAnalysis<ReachingDefinitionsState> {
   using Base = dataflow::DenseForwardDataFlowAnalysis<ReachingDefinitionsState>;
 
 public:
+  using KillDefsFn = llvm::function_ref<void(ValueRange)>;
+
   /// Verify the DPS normal form precondition on `root`, then load the analysis
   /// into `solver`. Returns failure if any InstOpInterface `outs` operand has
   /// value semantics (i.e. the IR has not been through ToRegisterSemantics).
   /// The caller is responsible for calling `solver.initializeAndRun(root)`.
   static FailureOr<ReachingDefinitionsAnalysis *>
   create(DataFlowSolver &solver, Operation *root,
-         llvm::function_ref<bool(Operation *)> definitionFilter = {});
+         llvm::function_ref<bool(Operation *)> definitionFilter = {},
+         llvm::function_ref<LogicalResult(InstOpInterface, KillDefsFn)>
+             killCallback = {});
 
   /// Visit an operation and update the reaching definitions state.
   LogicalResult visitOperation(Operation *op,
@@ -168,13 +179,20 @@ private:
   friend class ::mlir::DataFlowSolver;
   ReachingDefinitionsAnalysis(
       DataFlowSolver &solver,
-      llvm::function_ref<bool(Operation *)> definitionFilter)
-      : Base(solver), definitionFilter(definitionFilter) {}
+      llvm::function_ref<bool(Operation *)> definitionFilter,
+      llvm::function_ref<LogicalResult(InstOpInterface, KillDefsFn)>
+          killCallback = {})
+      : Base(solver), definitionFilter(definitionFilter),
+        killCallback(killCallback) {}
 
   /// A filter function that determines if a definition should be tracked. This
   /// function should return true if the definition should be tracked, and false
   /// otherwise.
   llvm::function_ref<bool(Operation *)> definitionFilter;
+
+  /// A function that allows killing additional definitions. This callback is
+  /// invoked before adding new definitions by the operation.
+  llvm::function_ref<LogicalResult(InstOpInterface, KillDefsFn)> killCallback;
 };
 
 } // end namespace mlir::aster::amdgcn

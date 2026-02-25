@@ -91,6 +91,8 @@ def TestReachingDefinitions : Pass<"test-reaching-definitions"> {
   let options = [
     Option<"onlyLoads", "only-loads", "bool", "false",
            "Only track load operations">,
+    Option<"killConsumedLoads", "kill-consumed-loads", "bool", "false",
+           "Kill loads consumed as instruction inputs">,
   ];
 }
 

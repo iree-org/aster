@@ -196,8 +196,6 @@ func.func @no_load_consumption() {
 // CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_2]], %[[ALLOCA_3]] : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:           cf.br ^bb1(%[[CONSTANT_2]] : index)
 // CHECK:         ^bb1(%[[VAL_0:.*]]: index):
-// CHECK:           %[[LOAD_0:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_0]] : !amdgcn.read_token<flat>
 // CHECK:           %[[LOAD_1:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_1]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_1]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[LOAD_2:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
@@ -258,11 +256,7 @@ func.func @ds_load_store() {
 // CHECK:           %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_1]] addr %[[MRR]] : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK-NOT:       memref.store
-// CHECK:           %[[TOK_0:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[TOK_0]] : !amdgcn.read_token<flat>
 // CHECK:           %{{.*}} = amdgcn.store global_store_dword data %[[ALLOCA_1]] addr %[[MRR]] : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
-// CHECK:           %[[TOK_1:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[TOK_1]] : !amdgcn.read_token<flat>
 // CHECK:           lsir.copy %[[ALLOCA_2]], %[[ALLOCA_1]] : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:           return
 // CHECK:         }
@@ -351,5 +345,98 @@ func.func @load_before_branch_consumed_in_both(%cond: i1) {
       : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
   cf.br ^bb3
 ^bb3:
+  return
+}
+
+// CHECK-LABEL:   func.func @load_before_branch_consumed_in_single(
+// CHECK-SAME:      %[[ARG0:.*]]: i1) {
+// CHECK:           %[[ALLOCA_0:.*]] = memref.alloca() : memref<!amdgcn.read_token<flat>>
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_2]], %[[ALLOCA_3]] : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+// CHECK:           %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_1]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
+// CHECK:           cf.cond_br %[[ARG0]], ^bb1, ^bb2
+// CHECK:         ^bb1:
+// CHECK:           %[[LOAD_1:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
+// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dword data %[[ALLOCA_1]] addr %[[MAKE_REGISTER_RANGE_0]] : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
+// CHECK:           cf.br ^bb3
+// CHECK:         ^bb2:
+// CHECK:           cf.br ^bb3
+// CHECK:         ^bb3:
+// CHECK:           %[[LOAD_2:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
+// CHECK:           amdgcn.wait deps %[[LOAD_2]] : !amdgcn.read_token<flat>
+// CHECK:           %[[STORE_1:.*]] = amdgcn.store global_store_dword data %[[ALLOCA_1]] addr %[[MAKE_REGISTER_RANGE_0]] : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
+// CHECK:           return
+// CHECK:         }
+func.func @load_before_branch_consumed_in_single(%cond: i1) {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %2 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %addr = amdgcn.make_register_range %1, %2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %token = amdgcn.load global_load_dword dest %0 addr %addr
+      : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
+  cf.cond_br %cond, ^bb1, ^bb2
+^bb1:
+  %w0 = amdgcn.store global_store_dword data %0 addr %addr
+      : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
+  cf.br ^bb3
+^bb2:
+  cf.br ^bb3
+^bb3:
+  %w1 = amdgcn.store global_store_dword data %0 addr %addr
+      : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
+  return
+}
+
+// CHECK-LABEL:   func.func @load_before_branch_consumed_in_single_clobbered(
+// CHECK-SAME:      %[[ARG0:.*]]: i1) {
+// CHECK:           %[[ALLOCA_0:.*]] = memref.alloca() : memref<!amdgcn.read_token<flat>>
+// CHECK:           %[[ALLOCA_1:.*]] = memref.alloca() : memref<!amdgcn.read_token<flat>>
+// CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[ALLOCA_4:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_3]], %[[ALLOCA_4]] : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+// CHECK:           %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_1]][] : memref<!amdgcn.read_token<flat>>
+// CHECK:           cf.cond_br %[[ARG0]], ^bb1, ^bb2
+// CHECK:         ^bb1:
+// CHECK:           %[[LOAD_1:.*]] = memref.load %[[ALLOCA_1]][] : memref<!amdgcn.read_token<flat>>
+// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dword data %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
+// CHECK:           cf.br ^bb3
+// CHECK:         ^bb2:
+// CHECK:           %[[LOAD_2:.*]] = memref.load %[[ALLOCA_1]][] : memref<!amdgcn.read_token<flat>>
+// CHECK:           amdgcn.wait deps %[[LOAD_2]] : !amdgcn.read_token<flat>
+// CHECK:           %[[LOAD_3:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           memref.store %[[LOAD_3]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
+// CHECK:           cf.br ^bb3
+// CHECK:         ^bb3:
+// CHECK:           %[[LOAD_4:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
+// CHECK:           amdgcn.wait deps %[[LOAD_4]] : !amdgcn.read_token<flat>
+// CHECK:           %[[STORE_1:.*]] = amdgcn.store global_store_dword data %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
+// CHECK:           return
+// CHECK:         }
+func.func @load_before_branch_consumed_in_single_clobbered(%cond: i1) {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %2 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %addr = amdgcn.make_register_range %1, %2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %token = amdgcn.load global_load_dword dest %0 addr %addr
+      : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
+  cf.cond_br %cond, ^bb1, ^bb2
+^bb1:
+  %w0 = amdgcn.store global_store_dword data %0 addr %addr
+      : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
+  cf.br ^bb3
+^bb2:
+  %token_2 = amdgcn.load global_load_dword dest %0 addr %addr
+      : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
+  cf.br ^bb3
+^bb3:
+  %w1 = amdgcn.store global_store_dword data %0 addr %addr
+      : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
   return
 }
