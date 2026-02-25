@@ -183,6 +183,30 @@ func.func @test_counts_strength(%arg0: !amdgcn.vgpr<[? + 2]>) {
   return
 }
 
+// CHECK-LABEL:   func.func @test_mixed_iter_args(
+// CHECK-SAME:      %[[ADDR:.*]]: !amdgcn.vgpr<[? + 2]>) -> index {
+// CHECK:           %[[RESULT:.*]] = scf.for {{.*}} iter_args(%[[ACC:.*]] = %{{.*}}) -> (index) {
+// CHECK-NOT:         !amdgcn.read_token
+// CHECK:             amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:             scf.yield %{{.*}} : index
+// CHECK:           return %[[RESULT]] : index
+// CHECK-KEEP-ARGS-LABEL:   func.func @test_mixed_iter_args(
+// CHECK-KEEP-ARGS:   scf.for {{.*}} iter_args(%{{.*}} = %{{.*}}, %{{.*}} = %{{.*}}) -> (!amdgcn.read_token<flat>, index) {
+func.func @test_mixed_iter_args(%arg0: !amdgcn.vgpr<[? + 2]>) -> index {
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c4 = arith.constant 4 : index
+  %result, %token = amdgcn.load global_load_dword dest %0 addr %arg0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+  %out:2 = scf.for %i = %c0 to %c4 step %c1 iter_args(%tok = %token, %acc = %c0) -> (!amdgcn.read_token<flat>, index) {
+    amdgcn.wait deps %tok : !amdgcn.read_token<flat>
+    %result2, %token2 = amdgcn.load global_load_dword dest %0 addr %arg0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+    %new_acc = arith.addi %acc, %c1 : index
+    scf.yield %token2, %new_acc : !amdgcn.read_token<flat>, index
+  }
+  amdgcn.wait deps %out#0 : !amdgcn.read_token<flat>
+  return %out#1 : index
+}
 
 // CHECK-LABEL:   func.func @cf_args(
 // CHECK: ^{{.*}}:
