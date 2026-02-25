@@ -131,3 +131,105 @@ func.func @test_no_fold_struct_extract_arg(%s: !aster_utils.struct<x: i32, y: f3
   %x = aster_utils.struct_extract %s ["x"] : !aster_utils.struct<x: i32, y: f32> -> i32
   return %x : i32
 }
+
+//===----------------------------------------------------------------------===//
+// AssumeRangeOp canonicalization tests
+//===----------------------------------------------------------------------===//
+
+// No-bounds assume_range is NOT folded to identity (the new fold only handles
+// constant-dynamic-to-static conversion).
+// CHECK-LABEL:   func.func @test_assume_range_no_bounds_persists(
+// CHECK-SAME:      %[[X:.*]]: i64) -> i64 {
+// CHECK:           %[[R:.*]] = aster_utils.assume_range %[[X]]
+// CHECK-SAME:        : i64
+// CHECK:           return %[[R]] : i64
+// CHECK:         }
+func.func @test_assume_range_no_bounds_persists(%x: i64) -> i64 {
+  %0 = aster_utils.assume_range %x : i64
+  return %0 : i64
+}
+
+// Fold constant dynamic min to static min.
+// CHECK-LABEL:   func.func @test_fold_constant_dynamic_min(
+// CHECK-SAME:      %[[X:.*]]: i64) -> i64 {
+// CHECK:           %[[R:.*]] = aster_utils.assume_range %[[X]]
+// CHECK-SAME:        min 0
+// CHECK-SAME:        max 1024 : i64
+// CHECK:           return %[[R]] : i64
+// CHECK:         }
+func.func @test_fold_constant_dynamic_min(%x: i64) -> i64 {
+  %c0 = arith.constant 0 : i64
+  %0 = aster_utils.assume_range %x min %c0 max 1024 : i64
+  return %0 : i64
+}
+
+// Fold constant dynamic max to static max.
+// CHECK-LABEL:   func.func @test_fold_constant_dynamic_max(
+// CHECK-SAME:      %[[X:.*]]: i64) -> i64 {
+// CHECK:           %[[R:.*]] = aster_utils.assume_range %[[X]]
+// CHECK-SAME:        min 0
+// CHECK-SAME:        max 1024 : i64
+// CHECK:           return %[[R]] : i64
+// CHECK:         }
+func.func @test_fold_constant_dynamic_max(%x: i64) -> i64 {
+  %c1024 = arith.constant 1024 : i64
+  %0 = aster_utils.assume_range %x min 0 max %c1024 : i64
+  return %0 : i64
+}
+
+// Fold both constant dynamic bounds to static.
+// CHECK-LABEL:   func.func @test_fold_both_constant_dynamic(
+// CHECK-SAME:      %[[X:.*]]: i64) -> i64 {
+// CHECK:           %[[R:.*]] = aster_utils.assume_range %[[X]]
+// CHECK-SAME:        min 0
+// CHECK-SAME:        max 1024 : i64
+// CHECK:           return %[[R]] : i64
+// CHECK:         }
+func.func @test_fold_both_constant_dynamic(%x: i64) -> i64 {
+  %c0 = arith.constant 0 : i64
+  %c1024 = arith.constant 1024 : i64
+  %0 = aster_utils.assume_range %x min %c0 max %c1024 : i64
+  return %0 : i64
+}
+
+// Non-constant dynamic bounds should NOT be folded.
+// CHECK-LABEL:   func.func @test_no_fold_dynamic_bounds(
+// CHECK-SAME:      %[[X:.*]]: i64, %[[LO:.*]]: i64, %[[HI:.*]]: i64) -> i64 {
+// CHECK:           %[[R:.*]] = aster_utils.assume_range %[[X]]
+// CHECK-SAME:        min %[[LO]]
+// CHECK-SAME:        max %[[HI]] : i64
+// CHECK:           return %[[R]] : i64
+// CHECK:         }
+func.func @test_no_fold_dynamic_bounds(%x: i64, %lo: i64, %hi: i64) -> i64 {
+  %0 = aster_utils.assume_range %x min %lo max %hi : i64
+  return %0 : i64
+}
+
+// Only one dynamic bound is constant - fold just that one.
+// CHECK-LABEL:   func.func @test_fold_partial_constant_dynamic(
+// CHECK-SAME:      %[[X:.*]]: i64, %[[HI:.*]]: i64) -> i64 {
+// CHECK:           %[[R:.*]] = aster_utils.assume_range %[[X]]
+// CHECK-SAME:        min 0
+// CHECK-SAME:        max %[[HI]] : i64
+// CHECK:           return %[[R]] : i64
+// CHECK:         }
+func.func @test_fold_partial_constant_dynamic(%x: i64, %hi: i64) -> i64 {
+  %c0 = arith.constant 0 : i64
+  %0 = aster_utils.assume_range %x min %c0 max %hi : i64
+  return %0 : i64
+}
+
+// i32 type - fold constant dynamic to static.
+// CHECK-LABEL:   func.func @test_fold_constant_dynamic_i32(
+// CHECK-SAME:      %[[X:.*]]: i32) -> i32 {
+// CHECK:           %[[R:.*]] = aster_utils.assume_range %[[X]]
+// CHECK-SAME:        min 0
+// CHECK-SAME:        max 256 : i32
+// CHECK:           return %[[R]] : i32
+// CHECK:         }
+func.func @test_fold_constant_dynamic_i32(%x: i32) -> i32 {
+  %c0 = arith.constant 0 : i32
+  %c256 = arith.constant 256 : i32
+  %0 = aster_utils.assume_range %x min %c0 max %c256 : i32
+  return %0 : i32
+}

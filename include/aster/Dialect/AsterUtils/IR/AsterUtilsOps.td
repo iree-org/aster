@@ -30,19 +30,77 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def AsterUtils_AssumeRangeOp : AsterUtils_Op<"assume_range", [
     Pure, AllTypesMatch<["input", "result"]>,
+    AttrSizedOperandSegments,
+    OptionalTypesMatchWith<"dynamic_min type matches input type",
+                           "input", "dynamic_min", "$_self">,
+    OptionalTypesMatchWith<"dynamic_max type matches input type",
+                           "input", "dynamic_max", "$_self">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
   ]> {
   let summary = "AsterUtils assume int range";
+  let description = [{
+    The `aster_utils.assume_range` operation specifies that the input value
+    is within a given range. The range can be specified either statically
+    (via attributes) or dynamically (via SSA values).
+
+    Example:
+    ```mlir
+    // Static range: value is in [0, 1024)
+    %0 = aster_utils.assume_range %x min 0 max 1024 : i64
+
+    // Dynamic min, static max:
+    %1 = aster_utils.assume_range %x min %min_val max 1024 : i64
+
+    // Fully dynamic range:
+    %2 = aster_utils.assume_range %x min %min_val max %max_val : i64
+    ```
+  }];
   let arguments = (ins
     AnySignlessIntegerOrIndex:$input,
-    OptionalAttr<IndexAttr>:$min,
-    OptionalAttr<IndexAttr>:$max
+    Optional<AnySignlessIntegerOrIndex>:$dynamic_min,
+    Optional<AnySignlessIntegerOrIndex>:$dynamic_max,
+    OptionalAttr<IndexAttr>:$static_min,
+    OptionalAttr<IndexAttr>:$static_max
   );
   let results = (outs AnySignlessIntegerOrIndex:$result);
   let assemblyFormat = [{
-    $input (`min` $min^)? (`max` $max^)? attr-dict `:` type($input)
+    $input
+    custom<AssumeRangeBound>("\"min\"", $dynamic_min, $static_min)
+    custom<AssumeRangeBound>("\"max\"", $dynamic_max, $static_max)
+    attr-dict `:` type($input)
+  }];
+  let extraClassDeclaration = [{
+    /// Get the minimum bound as an OpFoldResult (either static or dynamic).
+    OpFoldResult getMin() {
+      if (getDynamicMin())
+        return getDynamicMin();
+      if (getStaticMin())
+        return getStaticMinAttr();
+      return nullptr;
+    }
+
+    /// Get the maximum bound as an OpFoldResult (either static or dynamic).
+    OpFoldResult getMax() {
+      if (getDynamicMax())
+        return getDynamicMax();
+      if (getStaticMax())
+        return getStaticMaxAttr();
+      return nullptr;
+    }
+
+    /// Returns true if the minimum bound is statically known.
+    bool hasStaticMin() {
+      return !getDynamicMin() && getStaticMin().has_value();
+    }
+
+    /// Returns true if the maximum bound is statically known.
+    bool hasStaticMax() {
+      return !getDynamicMax() && getStaticMax().has_value();
+    }
   }];
   let hasFolder = 1;
+  let hasCanonicalizer = 1;
+  let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//
