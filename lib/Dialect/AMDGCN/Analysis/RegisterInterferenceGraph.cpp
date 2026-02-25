@@ -15,6 +15,7 @@
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -305,6 +306,55 @@ void RegisterInterferenceGraph::print(raw_ostream &os) const {
     if (src > tgt)
       continue;
     os << "  " << src << " -- " << tgt << ";\n";
+  }
+  os << "}";
+}
+
+void RegisterInterferenceGraph::print(
+    raw_ostream &os, llvm::EquivalenceClasses<int32_t> &eqClasses) const {
+  assert(isCompressed() && "Graph must be compressed before printing");
+  int64_t numNodes = sizeNodes();
+  if (numNodes == 0)
+    return;
+
+  // Build a map from each node to the smallest member in its class. Since we
+  // iterate nodes in order (0..N-1), the first node we see in each class is
+  // the smallest and becomes the canonical representative.
+  SmallVector<int32_t> classRep(numNodes, -1);
+  for (NodeID node : nodes()) {
+    int32_t leader = eqClasses.getLeaderValue(node);
+    if (classRep[leader] == -1)
+      classRep[leader] = node;
+    classRep[node] = classRep[leader];
+  }
+
+  os << "graph RegisterInterferenceQuotient {\n";
+  for (NodeID node : nodes()) {
+    // Only print the canonical representative of each class.
+    if (classRep[node] != node)
+      continue;
+    os << "  " << node << " [label=\"" << node << ", ";
+    values[node].printAsOperand(os, OpPrintingFlags());
+    os << "\"];\n";
+  }
+
+  // Print the edges.
+  DenseSet<std::pair<int32_t, int32_t>> printedEdges;
+  for (NodeID node : nodes()) {
+    // Only process each class once (at the canonical representative).
+    if (classRep[node] != node)
+      continue;
+    for (int32_t member : eqClasses.members(node)) {
+      for (auto [src, tgt] : edges(member)) {
+        int32_t srcRep = classRep[src];
+        int32_t tgtRep = classRep[tgt];
+        if (srcRep > tgtRep)
+          continue;
+        if (!printedEdges.insert({srcRep, tgtRep}).second)
+          continue;
+        os << "  " << srcRep << " -- " << tgtRep << ";\n";
+      }
+    }
   }
   os << "}";
 }
