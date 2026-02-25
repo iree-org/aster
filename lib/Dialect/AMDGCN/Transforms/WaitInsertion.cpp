@@ -7,6 +7,39 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+//
+// This pass inserts wait operations using reaching definitions analysis. This
+// is done by:
+// 1. checking if any of the operands of an instruction belong to the current
+// reaching definitions set.
+// 2. if so, insert a wait operation for each of the reaching load operations
+// before the instruction.
+//
+// Reaching definitions is configured to track only load operations. Futher,
+// we provide a callback to kill reaching load operations if they are consumed
+// as instruction inputs. The rationale is that if a load is consumed as an
+// input, it means that the token for that load is dead. This allows us to not
+// insert unnecessary wait operations.
+//
+// Example:
+// clang-format off
+// ```mlir
+// %token = amdgcn.load global_load_dword dest %0 addr %4 offset c(%c0_i32) : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>, i32) -> !amdgcn.read_token<flat>
+// amdgcn.test_inst ins %0 : (!amdgcn.vgpr<?>) -> ()
+// amdgcn.test_inst ins %0 : (!amdgcn.vgpr<?>) -> ()
+// ```
+// After wait insertion:
+// ```mlir
+// %token = amdgcn.load global_load_dword dest %0 addr %3 offset c(%c0_i32) : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>, i32) -> !amdgcn.read_token<flat>
+// memref.store %token, %alloca[] : memref<!amdgcn.read_token<flat>>
+// %4 = memref.load %alloca[] : memref<!amdgcn.read_token<flat>>
+// amdgcn.wait deps %4 : !amdgcn.read_token<flat>
+// amdgcn.test_inst ins %0 : (!amdgcn.vgpr<?>) -> ()
+// NOTE: No wait operation is inserted for the second test_inst, since the token is already consumed by the first test_inst.
+// amdgcn.test_inst ins %0 : (!amdgcn.vgpr<?>) -> ()
+// ```
+// clang-format on
+//===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/ReachingDefinitions.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
@@ -147,7 +180,8 @@ void WaitInsertion::runOnOperation() {
       +[](Operation *o) -> bool { return isa<amdgcn::LoadOp>(o); };
 
   // This callback has the effect of killing the loads if they are consumed as
-  // input.
+  // input, the rationale being that this is equivalent to killing the token
+  // definition, allowing us to not insert unnecessary wait operations.
   auto killCallback =
       +[](InstOpInterface instOp,
           ReachingDefinitionsAnalysis::KillDefsFn killDefs) -> LogicalResult {
