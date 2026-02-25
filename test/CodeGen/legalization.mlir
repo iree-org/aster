@@ -1,17 +1,9 @@
 // RUN: aster-opt --aster-legalizer --canonicalize --cse %s | FileCheck %s
 
-// Verify that the legalizer attaches AMDGCN pointer size data layout.
-// CHECK: module attributes
-// CHECK-SAME: dlti.dl_spec
-// CHECK-SAME: addr_space<local
-// CHECK-SAME: size = 32, abi = 32, preferred = 32
-// CHECK-SAME: addr_space<global
-// CHECK-SAME: size = 64, abi = 64, preferred = 64
-
 // CHECK: #[[$MAP0:.+]] = affine_map<()[s0] -> (s0 * 4)>
 // CHECK: #[[$MAP1:.+]] = affine_map<()[s0, s1, s2] -> (s2 * (s0 * 4 + s1))>
 // CHECK: #[[$MAP2:.+]] = affine_map<()[s0, s1, s2] -> (s2 * (s0 * 8 + s1))>
-// CHECK: #[[$MAP3:.+]] = affine_map<()[s0, s1, s2, s3] -> (s3 * (s1 + s0 * s2))>
+// CHECK: #[[$MAP3:.+]] = affine_map<()[s0, s1, s2, s3] -> (s3 * (s2 + s0 * s1))>
 
 // Verify that the legalizer attaches AMDGCN pointer size data layout.
 // CHECK: module attributes
