@@ -117,6 +117,13 @@ void populateMemOpsConversionPatterns(const TypeConverter &converter,
                                       RewritePatternSet &patterns,
                                       PatternBenefit benefit = 1);
 
+/// Populate patterns to legalize vector operations (extract, insert, broadcast,
+/// strided slice) to element-wise operations using ToElementsOp/FromElementsOp.
+void populateVectorLegalizationPatterns(RewritePatternSet &patterns,
+                                        PatternBenefit benefit = 1);
+void populateVectorTypeLegalizationPatterns(RewritePatternSet &patterns,
+                                            PatternBenefit benefit = 1);
+
 } // namespace aster
 } // namespace mlir
 

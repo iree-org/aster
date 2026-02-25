@@ -4,6 +4,7 @@ set(LLVM_OPTIONAL_SOURCES
   Legalizer.cpp
   MemOpsLegalization.cpp
   TypeConverter.cpp
+  VectorLegalization.cpp
 )
 
 add_mlir_library(AsterCodeGen
@@ -20,6 +21,7 @@ add_mlir_library(AsterCodeGen
 add_mlir_library(AsterLegalizer
   MemOpsLegalization.cpp
   TypeConverter.cpp
+  VectorLegalization.cpp
 
   LINK_LIBS PUBLIC
   AsterTransforms
@@ -32,6 +34,7 @@ add_mlir_library(AsterLegalizer
   MLIRSCFDialect
   MLIRTransformUtils
   MLIRVectorDialect
+  MLIRVectorTransforms
 )
 
 add_mlir_library(AsterCodeGenTransforms
