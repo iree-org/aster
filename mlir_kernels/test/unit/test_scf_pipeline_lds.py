@@ -36,7 +36,6 @@ class TestLdsPipelinePassthrough:
             block_dim=(64, 1, 1),
             pass_pipeline=pipeline,
             library_paths=[],
-            print_ir_after_all=True,
         )
         expected = np.array([42], dtype=np.int32)
         np.testing.assert_array_equal(output, expected)
