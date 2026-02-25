@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
+#include "mlir/Dialect/Ptr/IR/PtrEnums.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -77,7 +78,10 @@ static Value computeElementPtr(OpBuilder &builder, Location loc,
   Value byteOffset =
       computeByteOffset(builder, loc, descriptor, indices, elementType);
 
-  return builder.create<ptr::PtrAddOp>(loc, ptrType, basePtr, byteOffset);
+  // inbounds: memref load/store requires in-bounds indices; out-of-bounds is
+  // UB.
+  return builder.create<ptr::PtrAddOp>(loc, ptrType, basePtr, byteOffset,
+                                       ptr::PtrAddFlags::inbounds);
 }
 
 /// Compute a pointer to the memref element at the given indices.

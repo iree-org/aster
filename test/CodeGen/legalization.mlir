@@ -37,7 +37,7 @@ func.func @element_wise(%lhs: vector<2x2xf32>, %rhs: vector<2x2xf32>, %rhs2: vec
 // CHECK:           %[[TO0:.*]]:2 = vector.to_elements %[[LOAD0]] : vector<2xf32>
 // CHECK:           %[[TOFF:.*]] = ptr.type_offset f32 : index
 // CHECK:           %[[APPLY:.*]] = affine.apply #[[$MAP0]](){{\[}}%[[TOFF]]]
-// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
 // CHECK:           %[[LOAD1:.*]] = ptr.load %[[PTR]] : !ptr.ptr<#ptr.generic_space> -> vector<2xf32>
 // CHECK:           %[[TO1:.*]]:2 = vector.to_elements %[[LOAD1]] : vector<2xf32>
 // CHECK:           %[[FROM:.*]] = vector.from_elements %[[TO0]]#0, %[[TO0]]#1, %[[TO1]]#0, %[[TO1]]#1 : vector<2x2xf32>
@@ -58,7 +58,7 @@ func.func @load(%m : memref<4x4xf32, #ptr.generic_space>) -> vector<2x2xf32> {
 // CHECK:           %[[FROM1:.*]] = vector.from_elements %[[TO]]#2, %[[TO]]#3 : vector<2xf32>
 // CHECK:           %[[TOFF:.*]] = ptr.type_offset f32 : index
 // CHECK:           %[[APPLY:.*]] = affine.apply #[[$MAP0]](){{\[}}%[[TOFF]]]
-// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
 // CHECK:           ptr.store %[[FROM1]], %[[PTR]] : vector<2xf32>, !ptr.ptr<#ptr.generic_space>
 // CHECK:           return
 // CHECK:         }
@@ -74,12 +74,12 @@ func.func @store(%m : memref<4x4xf32, #ptr.generic_space>, %v: vector<2x2xf32>) 
 // CHECK:           %[[C1:.*]] = arith.constant 1 : index
 // CHECK:           %[[TOFF:.*]] = ptr.type_offset f32 : index
 // CHECK:           %[[APPLY0:.*]] = affine.apply #[[$MAP1]](){{\[}}%[[ARG2]], %[[ARG3]], %[[TOFF]]]
-// CHECK:           %[[PTR0:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY0]] : !ptr.ptr<#ptr.generic_space>, index
+// CHECK:           %[[PTR0:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[APPLY0]] : !ptr.ptr<#ptr.generic_space>, index
 // CHECK:           %[[LOAD0:.*]] = ptr.load %[[PTR0]] : !ptr.ptr<#ptr.generic_space> -> vector<2xf32>
 // CHECK:           %[[TO0:.*]]:2 = vector.to_elements %[[LOAD0]] : vector<2xf32>
 // CHECK:           %[[ADDI:.*]] = arith.addi %[[ARG2]], %[[C1]] overflow<nsw> : index
 // CHECK:           %[[APPLY1:.*]] = affine.apply #[[$MAP1]](){{\[}}%[[ADDI]], %[[ARG3]], %[[TOFF]]]
-// CHECK:           %[[PTR1:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY1]] : !ptr.ptr<#ptr.generic_space>, index
+// CHECK:           %[[PTR1:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[APPLY1]] : !ptr.ptr<#ptr.generic_space>, index
 // CHECK:           %[[LOAD1:.*]] = ptr.load %[[PTR1]] : !ptr.ptr<#ptr.generic_space> -> vector<2xf32>
 // CHECK:           %[[TO1:.*]]:2 = vector.to_elements %[[LOAD1]] : vector<2xf32>
 // CHECK:           %[[TO2:.*]]:4 = vector.to_elements %[[ARG1]] : vector<2x2xf32>
@@ -222,7 +222,7 @@ func.func @test_extract_metadata_strided(%m : memref<4x8xf32, strided<[?, 1], of
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: index, %[[ARG2:.*]]: index) -> f32 {
 // CHECK:           %[[TOFF:.*]] = ptr.type_offset f32 : index
 // CHECK:           %[[APPLY:.*]] = affine.apply #[[$MAP2]](){{\[}}%[[ARG1]], %[[ARG2]], %[[TOFF]]]
-// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
 // CHECK:           %[[LOAD:.*]] = ptr.load %[[PTR]] : !ptr.ptr<#ptr.generic_space> -> f32
 // CHECK:           return %[[LOAD]] : f32
 // CHECK:         }
@@ -235,7 +235,7 @@ func.func @test_load_static(%m : memref<4x8xf32, #ptr.generic_space>, %i: index,
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: index, %[[ARG2:.*]]: index, %[[ARG3:.*]]: index, %[[ARG4:.*]]: index, %[[ARG5:.*]]: index) -> f32 {
 // CHECK:           %[[TOFF:.*]] = ptr.type_offset f32 : index
 // CHECK:           %[[APPLY:.*]] = affine.apply #[[$MAP3]](){{\[}}%[[ARG4]], %[[ARG3]], %[[ARG5]], %[[TOFF]]]
-// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
 // CHECK:           %[[LOAD:.*]] = ptr.load %[[PTR]] : !ptr.ptr<#ptr.generic_space> -> f32
 // CHECK:           return %[[LOAD]] : f32
 // CHECK:         }
@@ -248,7 +248,7 @@ func.func @test_load_dynamic(%m : memref<?x?xf32, #ptr.generic_space>, %i: index
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: f32, %[[ARG2:.*]]: index, %[[ARG3:.*]]: index) {
 // CHECK:           %[[TOFF:.*]] = ptr.type_offset f32 : index
 // CHECK:           %[[APPLY:.*]] = affine.apply #[[$MAP2]](){{\[}}%[[ARG2]], %[[ARG3]], %[[TOFF]]]
-// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
 // CHECK:           ptr.store %[[ARG1]], %[[PTR]] : f32, !ptr.ptr<#ptr.generic_space>
 // CHECK:           return
 // CHECK:         }
@@ -261,7 +261,7 @@ func.func @test_store_static(%m : memref<4x8xf32, #ptr.generic_space>, %v: f32, 
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>, %[[ARG1:.*]]: f32, %[[ARG2:.*]]: index, %[[ARG3:.*]]: index) {
 // CHECK:           %[[TOFF:.*]] = ptr.type_offset f32 : index
 // CHECK:           %[[APPLY:.*]] = affine.apply #[[$MAP2]](){{\[}}%[[ARG2]], %[[ARG3]], %[[TOFF]]]
-// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[APPLY]] : !ptr.ptr<#ptr.generic_space>, index
 // CHECK:           ptr.store %[[ARG1]], %[[PTR]] : f32, !ptr.ptr<#ptr.generic_space>
 // CHECK:           return
 // CHECK:         }
@@ -274,7 +274,7 @@ func.func @test_store_default_space(%m : memref<4x8xf32>, %v: f32, %i: index, %j
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#amdgcn.addr_space<global, read_write>>, %[[ARG1:.*]]: f32, %[[ARG2:.*]]: index, %[[ARG3:.*]]: index) {
 // CHECK:           %[[TOFF:.*]] = ptr.type_offset f32 : index
 // CHECK:           %[[APPLY:.*]] = affine.apply #[[$MAP2]](){{\[}}%[[ARG2]], %[[ARG3]], %[[TOFF]]]
-// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY]] : !ptr.ptr<#amdgcn.addr_space<global, read_write>>, index
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[APPLY]] : !ptr.ptr<#amdgcn.addr_space<global, read_write>>, index
 // CHECK:           ptr.store %[[ARG1]], %[[PTR]] : f32, !ptr.ptr<#amdgcn.addr_space<global, read_write>>
 // CHECK:           return
 // CHECK:         }
@@ -287,7 +287,7 @@ func.func @test_store_gpu_global(%m : memref<4x8xf32, #gpu.address_space<global>
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#amdgcn.addr_space<local, read_write>>, %[[ARG1:.*]]: f32, %[[ARG2:.*]]: index, %[[ARG3:.*]]: index) {
 // CHECK:           %[[TOFF:.*]] = ptr.type_offset f32 : index
 // CHECK:           %[[APPLY:.*]] = affine.apply #[[$MAP2]](){{\[}}%[[ARG2]], %[[ARG3]], %[[TOFF]]]
-// CHECK:           %[[PTR:.*]] = ptr.ptr_add %[[ARG0]], %[[APPLY]] : !ptr.ptr<#amdgcn.addr_space<local, read_write>>, index
+// CHECK:           %[[PTR:.*]] = ptr.ptr_add inbounds %[[ARG0]], %[[APPLY]] : !ptr.ptr<#amdgcn.addr_space<local, read_write>>, index
 // CHECK:           ptr.store %[[ARG1]], %[[PTR]] : f32, !ptr.ptr<#amdgcn.addr_space<local, read_write>>
 // CHECK:           return
 // CHECK:         }

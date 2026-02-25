@@ -25,3 +25,38 @@ func.func @test_to_arith(%arg0: index) -> (index, index) {
   %block_dim_y = gpu.block_dim  y
   return %0, %block_dim_y : index, index
 }
+
+// assume_uniform with index type should convert to i32.
+// CHECK-LABEL:   func.func @test_assume_uniform_index(
+// CHECK-SAME:      %[[ARG:.*]]: i32) -> i32 {
+// CHECK:           %[[RES:.*]] = aster_utils.assume_uniform %[[ARG]] : i32
+// CHECK:           return %[[RES]] : i32
+// CHECK:         }
+func.func @test_assume_uniform_index(%arg0: index) -> index {
+  %0 = aster_utils.assume_uniform %arg0 : index
+  return %0 : index
+}
+
+// assume_uniform with non-index type should pass through unchanged.
+// CHECK-LABEL:   func.func @test_assume_uniform_nonindex(
+// CHECK-SAME:      %[[ARG:.*]]: i32) -> i32 {
+// CHECK:           %[[RES:.*]] = aster_utils.assume_uniform %[[ARG]] : i32
+// CHECK:           return %[[RES]] : i32
+// CHECK:         }
+func.func @test_assume_uniform_nonindex(%arg0: i32) -> i32 {
+  %0 = aster_utils.assume_uniform %arg0 : i32
+  return %0 : i32
+}
+
+// assume_range with index type should convert to i32.
+// CHECK-LABEL:   func.func @test_assume_range_index(
+// CHECK-SAME:      %[[ARG:.*]]: i32) -> i32 {
+// CHECK:           %[[RES:.*]] = aster_utils.assume_range %[[ARG]]
+// CHECK-SAME:        min 0
+// CHECK-SAME:        max 1024 : i32
+// CHECK:           return %[[RES]] : i32
+// CHECK:         }
+func.func @test_assume_range_index(%arg0: index) -> index {
+  %0 = aster_utils.assume_range %arg0 min 0 max 1024 : index
+  return %0 : index
+}
