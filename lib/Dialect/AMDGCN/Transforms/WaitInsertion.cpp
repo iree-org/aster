@@ -15,7 +15,7 @@
 // 2. if so, insert a wait operation for each of the reaching load operations
 // before the instruction.
 //
-// Reaching definitions is configured to track only load operations. Futher,
+// Reaching definitions is configured to track only load operations. Further,
 // we provide a callback to kill reaching load operations if they are consumed
 // as instruction inputs. The rationale is that if a load is consumed as an
 // input, it means that the token for that load is dead. This allows us to not
