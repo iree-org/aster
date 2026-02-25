@@ -236,7 +236,7 @@ else
                 echo ""
                 echo "To clone manually:"
                 echo "  git init $LLVM_PROJECT"
-                echo "  git -C $LLVM_PROJECT remote add origin https://github.com/llvm/llvm-project.git"
+                echo "  git -C $LLVM_PROJECT remote add origin https://github.com/nicolasvasilache/llvm-project.git"
                 echo "  git -C $LLVM_PROJECT fetch --depth 1 origin $EXPECTED_COMMIT"
                 echo "  git -C $LLVM_PROJECT checkout FETCH_HEAD"
                 echo ""
@@ -245,7 +245,7 @@ else
             fi
             echo "  Cloning llvm-project (shallow fetch of pinned commit)..."
             git init "$LLVM_PROJECT"
-            git -C "$LLVM_PROJECT" remote add origin https://github.com/llvm/llvm-project.git
+            git -C "$LLVM_PROJECT" remote add origin https://github.com/nicolasvasilache/llvm-project.git
             git -C "$LLVM_PROJECT" fetch --depth 1 origin "$EXPECTED_COMMIT"
             git -C "$LLVM_PROJECT" checkout FETCH_HEAD
         fi

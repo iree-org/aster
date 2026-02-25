@@ -15,7 +15,7 @@ Clone the LLVM project at the pinned commit and build it:
 
 ```bash
 LLVM_COMMIT=$(cat llvm/LLVM_COMMIT)
-git clone https://github.com/llvm/llvm-project.git ${HOME}/llvm-project
+git clone https://github.com/nicolasvasilache/llvm-project.git ${HOME}/llvm-project
 git -C ${HOME}/llvm-project checkout ${LLVM_COMMIT}
 
 export LLVM_SRC=${HOME}/llvm-project/llvm
