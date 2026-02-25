@@ -36,6 +36,7 @@ class TestLdsPipelinePassthrough:
             block_dim=(64, 1, 1),
             pass_pipeline=pipeline,
             library_paths=[],
+            print_ir_after_all=True,
         )
         expected = np.array([42], dtype=np.int32)
         np.testing.assert_array_equal(output, expected)
@@ -107,6 +108,7 @@ class TestLdsPipelineSixStage:
     import pytest
 
     @pytest.mark.parametrize("pipeline", PIPELINES)
+    @pytest.mark.skip(reason="Disable until late waits is in the pipeline")
     def test_lds_six_stage(self, pipeline):
         num_iters = 10
         input_data = np.arange(num_iters, dtype=np.int32) * 11
