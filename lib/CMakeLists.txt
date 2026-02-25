@@ -39,6 +39,7 @@ add_mlir_library(
   MLIRMemRefTransforms
   MLIRPtrDialect
   MLIRSCFDialect
+  MLIRUBDialect
   MLIRIndexDialect
   MLIRGPUDialect
   AsterInterfaces
