@@ -140,7 +140,10 @@ AMDGCNConvertWaits::removeTokenArguments(FunctionOpInterface funcOp) {
     return poison;
   };
 
-  // Replace token operands with poison values.
+  // Replace token operands with poison values which carry MLIR semantics for
+  // "this value is intentionally meaningless".
+  // This is a much simpler alternative to implement than removing all uses,
+  // block args, branch operands, and op signatures in one coordinated pass.
   auto poisonTokenOperands = [&](Operation *op) {
     for (OpOperand &use : op->getOpOperands()) {
       if (!isa<ReadTokenType, WriteTokenType>(use.get().getType()))

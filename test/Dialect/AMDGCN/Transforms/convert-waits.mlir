@@ -209,11 +209,12 @@ func.func @test_mixed_iter_args(%arg0: !amdgcn.vgpr<[? + 2]>) -> index {
 }
 
 // CHECK-LABEL:   func.func @cf_args(
+// CHECK:           %[[POISON:.*]] = ub.poison : !amdgcn.read_token<flat>
 // CHECK: ^{{.*}}:
 // CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
 // CHECK: ^{{.*}}:
 // CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
-// CHECK:           return %{{.*}} : !amdgcn.read_token<flat>
+// CHECK:           return %[[POISON]] : !amdgcn.read_token<flat>
 // CHECK-KEEP-ARGS-LABEL:   func.func @cf_args(
 // CHECK-KEEP-ARGS: cf.cond_br{{.*}}
 // CHECK-KEEP-ARGS: ^{{.*}}(%{{.*}}: !amdgcn.read_token<flat>):
