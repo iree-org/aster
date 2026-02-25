@@ -2,7 +2,7 @@
 
 // Simple diamond CFG: two allocas merge at block argument.
 // The pass should insert copies before each branch.
-// CHECK-LABEK: kernel @bufferization_phi_copies_1 {
+// CHECK-LABEL: kernel @bufferization_phi_copies_1 {
 // CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
 // CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
@@ -40,7 +40,7 @@ amdgcn.module @bufferization_phi_copies_1 target = <gfx942> isa = <cdna3> {
 
 // -----
 
-// CHECK-LABEK: kernel @bufferization_same_phi_value {
+// CHECK-LABEL: kernel @bufferization_same_phi_value {
 // CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
 // CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
@@ -77,7 +77,7 @@ amdgcn.module @bufferization_same_phi_value target = <gfx942> isa = <cdna3> {
 // -----
 
 // Test SGPR type: should insert copies.
-// CHECK-LABEK: kernel @bufferization_sgpr_copies {
+// CHECK-LABEL: kernel @bufferization_sgpr_copies {
 // CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.sgpr<?>
 // CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.sgpr
 // CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
@@ -118,7 +118,7 @@ amdgcn.module @bufferization_sgpr_copies target = <gfx942> isa = <cdna3> {
 
 // Values derived from allocas (not raw allocas) - should still insert copies.
 
-// CHECK-LABEK: kernel @bufferization_derived_values {
+// CHECK-LABEL: kernel @bufferization_derived_values {
 // CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
 // CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
@@ -164,7 +164,7 @@ amdgcn.module @bufferization_derived_values target = <gfx942> isa = <cdna3> {
 
 // Same alloca written twice in ^bb0; the first value (%v1) is used in a
 // successor block. The clobber copy must replace that cross-block use.
-// CHECK-LABEK: kernel @cross_block_clobber {
+// CHECK-LABEL: kernel @cross_block_clobber {
 // CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
 // CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[VAL_1:.*]] = alloca : !amdgcn.sgpr
@@ -203,7 +203,7 @@ amdgcn.module @cross_block_clobber target = <gfx942> isa = <cdna3> {
 }
 
 // -----
-// CHECK-LABEK: kernel @too_few_allocas {
+// CHECK-LABEL: kernel @too_few_allocas {
 // CHECK:             %[[VAL_0:.*]] = alloca : !amdgcn.vgpr
 // CHECK:             %[[VAL_1:.*]] = test_inst outs %[[VAL_0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
 // CHECK:             %[[VAL_2:.*]] = alloca : !amdgcn.vgpr
@@ -221,6 +221,46 @@ amdgcn.module @too_few_allocas target = <gfx942> isa = <cdna3> {
     %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
     %3 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
     test_inst ins %1, %2, %3 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+// CHECK-LABEL: kernel @bufferization_loop_backedge {
+// CHECK:             %[[COMMON:.*]] = alloca : !amdgcn.vgpr<?>
+// CHECK:             %[[ARG_ALLOC:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[INIT_ALLOC:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[SGPR:.*]] = alloca : !amdgcn.sgpr
+// CHECK:             %[[INIT:.*]] = test_inst outs %[[INIT_ALLOC]] ins %[[SGPR]]
+// CHECK:             lsir.copy %[[COMMON]], %[[INIT]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             cf.br ^bb1
+// CHECK:           ^bb1:
+// CHECK:             %[[ACC:.*]] = lsir.copy %[[ARG_ALLOC]], %[[COMMON]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
+// CHECK:             %[[COND:.*]] = func.call @rand() : () -> i1
+// CHECK:             %[[NEXT_ALLOC:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[NEXT:.*]] = test_inst outs %[[NEXT_ALLOC]] ins %[[ACC]]
+// CHECK:             lsir.copy %[[COMMON]], %[[NEXT]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             cf.cond_br %[[COND]], ^bb1, ^bb2
+// CHECK:           ^bb2:
+// CHECK:             test_inst ins %[[ACC]] : (!amdgcn.vgpr) -> ()
+// CHECK:             end_kernel
+// CHECK:           }
+// CHECK:         }
+amdgcn.module @loop_backedge_test target = <gfx942> isa = <cdna3> {
+  func.func private @rand() -> i1
+  kernel @bufferization_loop_backedge {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.sgpr
+    %init = test_inst outs %0 ins %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    cf.br ^header(%init : !amdgcn.vgpr)
+  ^header(%acc: !amdgcn.vgpr):
+    %cond = func.call @rand() : () -> i1
+    %2 = alloca : !amdgcn.vgpr
+    %next = test_inst outs %2 ins %acc : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    cf.cond_br %cond, ^header(%next : !amdgcn.vgpr), ^exit
+  ^exit:
+    test_inst ins %acc : (!amdgcn.vgpr) -> ()
     end_kernel
   }
 }

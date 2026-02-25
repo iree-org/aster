@@ -59,6 +59,10 @@ def AMDGCNBufferization : Pass<"aster-amdgcn-bufferization"> {
     This can be viewed as a "bufferization" pass that prepares the IR to go out
     of DPS semantics towards side-effects and before register allocation.
 
+    Precondition: all structured control flow (scf.for, scf.if, etc.) must be
+    lowered to the cf dialect before this pass runs. The pass uses
+    BranchOpInterface to insert phi-breaking copies at branch points.
+
     This pass should run just before register coloring.
   }];
   let dependentDialects = [

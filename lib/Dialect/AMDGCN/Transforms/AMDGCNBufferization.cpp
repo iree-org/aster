@@ -136,6 +136,8 @@ void BufferizationImpl::handleInstruction(IRRewriter &rewriter,
   ArrayRef<bool> resultInfo = dpsLiveness.getClobberingInfo(instOp);
   assert(results.size() == resultInfo.size() &&
          "expected number of results to match clobbering info size");
+  // `pos` tracks position within register-value-semantic outs only (not all
+  // outs). resultInfo has one entry per value-semantic out, matching results.
   int64_t pos = 0;
   for (auto &&[idx, out] : llvm::enumerate(operands)) {
     auto regTy = dyn_cast<RegisterTypeInterface>(out.get().getType());
