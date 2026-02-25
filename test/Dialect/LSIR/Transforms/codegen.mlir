@@ -442,3 +442,39 @@ func.func private @test_local_store_i64(
   ptr.store %val, %ptr : i64, !ptr.ptr<#amdgcn.addr_space<local, read_write>>
   return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> ()}
 }
+
+// CHECK-LABEL:   func.func private @test_ptr_add_basic(
+// CHECK-SAME:      %[[PTR:.*]]: !amdgcn.vgpr<[? + 2]>, %[[OFF:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]], %[[OFF]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+// CHECK:           return %[[RES]] : !amdgcn.vgpr<[? + 2]>
+// CHECK:         }
+func.func private @test_ptr_add_basic(
+    %ptr: !ptr.ptr<#ptr.generic_space>, %offset: i64) -> !ptr.ptr<#ptr.generic_space>
+    attributes {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} {
+  %0 = aster_utils.ptr_add %ptr, %offset : <#ptr.generic_space>, i64
+  return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} %0 : !ptr.ptr<#ptr.generic_space>
+}
+
+// CHECK-LABEL:   func.func private @test_ptr_add_with_uniform(
+// CHECK-SAME:      %[[PTR:.*]]: !amdgcn.vgpr<[? + 2]>, %[[OFF:.*]]: !amdgcn.vgpr, %[[UNI:.*]]: !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]], %[[OFF]], %[[UNI]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr
+// CHECK:           return %[[RES]] : !amdgcn.vgpr<[? + 2]>
+// CHECK:         }
+func.func private @test_ptr_add_with_uniform(
+    %ptr: !ptr.ptr<#ptr.generic_space>, %offset: i64, %uniform: i64) -> !ptr.ptr<#ptr.generic_space>
+    attributes {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]>} {
+  %0 = aster_utils.ptr_add %ptr, %offset, %uniform : <#ptr.generic_space>, i64
+  return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]>} %0 : !ptr.ptr<#ptr.generic_space>
+}
+
+// CHECK-LABEL:   func.func private @test_ptr_add_with_const_offset(
+// CHECK-SAME:      %[[PTR:.*]]: !amdgcn.vgpr<[? + 2]>, %[[OFF:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]], %[[OFF]] const_offset = 16 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+// CHECK:           return %[[RES]] : !amdgcn.vgpr<[? + 2]>
+// CHECK:         }
+func.func private @test_ptr_add_with_const_offset(
+    %ptr: !ptr.ptr<#ptr.generic_space>, %offset: i64) -> !ptr.ptr<#ptr.generic_space>
+    attributes {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} {
+  %0 = aster_utils.ptr_add %ptr, %offset const_offset = 16 : <#ptr.generic_space>, i64
+  return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} %0 : !ptr.ptr<#ptr.generic_space>
+}

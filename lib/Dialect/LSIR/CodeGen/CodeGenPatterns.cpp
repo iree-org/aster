@@ -391,8 +391,8 @@ void mlir::aster::lsir::populateCodeGenPatterns(CodeGenConverter &converter,
       [&](arith::ConstantOp op) { return op.getType().isIntOrIndexOrFloat(); });
   target.addDynamicallyLegalOp<RegConstraintOp>(
       [&](RegConstraintOp op) { return converter.isLegal(op); });
-  target.addIllegalOp<aster_utils::AssumeRangeOp, lsir::FromRegOp,
-                      lsir::ToRegOp, lsir::RegConstraintOp>();
+  target.addIllegalOp<aster_utils::AssumeRangeOp, aster_utils::AssumeUniformOp,
+                      lsir::FromRegOp, lsir::ToRegOp, lsir::RegConstraintOp>();
   target.addLegalOp<UnrealizedConversionCastOp>();
 
   // arith.cmpi/cmpf are always converted to lsir counterparts.
@@ -479,8 +479,7 @@ void mlir::aster::lsir::populateCodeGenPatterns(CodeGenConverter &converter,
                // and is only translated to SCC after register allocation,
                // together with cf branch operations.
                ArithCmpIOpPattern, ArithCmpFOpPattern, CFCondBranchOpPattern,
-               CFBranchOpPattern, KernelOpConversion,
-               AssumeUniformOpPattern
+               CFBranchOpPattern, KernelOpConversion, AssumeUniformOpPattern
                // That's all folks!
                >(converter);
   // Special generic pattern: converts operations by converting

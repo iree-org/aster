@@ -730,12 +730,12 @@ def AMDGCN_PtrAddOp : AMDGCN_Op<"ptr_add", [
     ```
   }];
   let arguments = (ins
-    AnyRegOf<[SGPRRangeType, VGPRType, VGPRRangeType]>:$ptr,
+    AnyRegOf<[SGPRType, VGPRType]>:$ptr,
     VGPRType:$offset,
     Optional<SGPRType>:$uniform_offset,
     DefaultValuedAttr<I64Attr, "0">:$const_offset
   );
-  let results = (outs RegisterRangeLike:$result);
+  let results = (outs AnyRegOf<[SGPRType, VGPRType]>:$result);
   let assemblyFormat = [{
     $ptr `,` $offset (`,` $uniform_offset^)? (`const_offset` `=` $const_offset^)?
     attr-dict `:` type($ptr) `,` type($offset) (`,` type($uniform_offset)^)?

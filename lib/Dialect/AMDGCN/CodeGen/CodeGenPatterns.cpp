@@ -379,13 +379,10 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
   target.addLegalDialect<amdgcn::AMDGCNDialect>();
 
   target.addIllegalOp<aster_utils::ThreadIdOp, aster_utils::BlockIdOp,
-                      aster_utils::BlockDimOp, aster_utils::GridDimOp>();
-
-  target.addIllegalOp<aster_utils::ThreadIdOp, aster_utils::BlockIdOp,
                       aster_utils::BlockDimOp, aster_utils::GridDimOp,
-                      aster_utils::AssumeRangeOp, aster_utils::PtrAddOp,
-                      lsir::FromRegOp, lsir::ToRegOp, lsir::RegConstraintOp,
-                      ptr::LoadOp, ptr::StoreOp>();
+                      aster_utils::AssumeRangeOp, aster_utils::AssumeUniformOp,
+                      aster_utils::PtrAddOp, lsir::FromRegOp, lsir::ToRegOp,
+                      lsir::RegConstraintOp, ptr::LoadOp, ptr::StoreOp>();
 
   // Add the patterns.
   patterns.add<IDDimOpPattern<aster_utils::ThreadIdOp, amdgcn::ThreadIdOp>,

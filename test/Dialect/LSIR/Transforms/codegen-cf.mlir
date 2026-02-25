@@ -15,7 +15,6 @@
 // CHECK:           %[[LOAD:.*]] = load_arg 1
 // CHECK:           amdgcn.sopp.s_waitcnt
 // CHECK:           split_register_range
-// CHECK:           assume_uniform
 // CHECK:           %[[CMP_INIT:.*]] = lsir.cmpi i32 sgt %{{.*}}, %[[C0]] : !amdgcn.sgpr, i32
 // CHECK:           %[[ALLOCA_INIT:.*]] = lsir.alloca : !amdgcn.sgpr
 // CHECK:           %[[MOV_INIT:.*]] = lsir.mov %[[ALLOCA_INIT]], %[[C0]]
