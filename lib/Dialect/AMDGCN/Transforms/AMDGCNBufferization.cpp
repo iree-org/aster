@@ -19,6 +19,7 @@
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Support/WalkResult.h"
@@ -59,9 +60,9 @@ public:
 ///   Correctness, Code Quality, and Efficiency. [Research Report] 2008, pp.14.
 ///   ⟨inria-00349925v1⟩
 struct BufferizationImpl {
-  BufferizationImpl(DPSAnalysis &dpsAnalysis,
+  BufferizationImpl(DominanceInfo &domInfo, DPSAnalysis &dpsAnalysis,
                     DPSClobberingAnalysis &dpsLiveness)
-      : dpsAnalysis(dpsAnalysis), dpsLiveness(dpsLiveness) {}
+      : domInfo(domInfo), dpsAnalysis(dpsAnalysis), dpsLiveness(dpsLiveness) {}
 
   /// Run the bufferization transform.
   void run(FunctionOpInterface op);
@@ -76,6 +77,10 @@ struct BufferizationImpl {
   void handleBlocksAndTerminators(IRRewriter &rewriter,
                                   ArrayRef<Block *> blocks);
 
+  /// Optimize the live ranges of the copy operations.
+  void optimizeLiveRanges(IRRewriter &rewriter);
+
+  DominanceInfo &domInfo;
   /// The entry block of the function.
   Block *entryBlock = nullptr;
   /// The DPS analysis.
@@ -86,6 +91,8 @@ struct BufferizationImpl {
   DenseSet<BranchOpInterface> branchOps;
   /// The set of phi-node replacements.
   SmallVector<std::pair<BlockArgument, Value>> phiReplacements;
+  /// The set of inserted copy operations.
+  SmallVector<lsir::CopyOp> copyOps;
 };
 } // namespace
 
@@ -119,6 +126,7 @@ void BufferizationImpl::run(FunctionOpInterface op) {
   });
 
   handleBlocksAndTerminators(rewriter, blocksToUpdate);
+  optimizeLiveRanges(rewriter);
 }
 
 void BufferizationImpl::handleInstruction(IRRewriter &rewriter,
@@ -171,7 +179,8 @@ void BufferizationImpl::handleBlockArgument(IRRewriter &rewriter,
   for (auto [branchOp, value] : *provenance) {
     rewriter.setInsertionPoint(branchOp);
     branchOps.insert(cast<BranchOpInterface>(branchOp));
-    lsir::CopyOp::create(rewriter, loc, commonAlloc, value);
+    auto cpy = lsir::CopyOp::create(rewriter, loc, commonAlloc, value);
+    copyOps.push_back(cpy);
   }
 
   // Insert a copy at the start of the block to handle the phi-node.
@@ -216,12 +225,35 @@ void BufferizationImpl::handleBlocksAndTerminators(IRRewriter &rewriter,
     block->eraseArguments(isRegValType);
 }
 
+void BufferizationImpl::optimizeLiveRanges(IRRewriter &rewriter) {
+  for (lsir::CopyOp cpy : copyOps) {
+    Value source = cpy.getSource();
+    for (OpOperand &use : source.getUses()) {
+      Operation *user = use.getOwner();
+      if (!domInfo.properlyDominates(cpy, user))
+        continue;
+      auto instOp = dyn_cast<InstOpInterface>(user);
+      if (!instOp)
+        continue;
+      OperandRange ins = instOp.getInstIns();
+      if (ins.empty())
+        continue;
+      int64_t start = ins.getBeginOperandIndex();
+      int64_t end = start + ins.size();
+      if (use.getOperandNumber() < start || use.getOperandNumber() >= end)
+        continue;
+      use.set(cpy.getTarget());
+    }
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // AMDGCNBufferization pass
 //===----------------------------------------------------------------------===//
 
 void AMDGCNBufferization::runOnOperation() {
   Operation *moduleOp = getOperation();
+  auto &domInfo = getAnalysis<DominanceInfo>();
 
   // Create the dataflow solver and load the liveness analysis.
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
@@ -256,7 +288,7 @@ void AMDGCNBufferization::runOnOperation() {
     }
 
     // Run the bufferization transform.
-    BufferizationImpl impl(*dpsResult, *livenessResult);
+    BufferizationImpl impl(domInfo, *dpsResult, *livenessResult);
     impl.run(op);
 
     return WalkResult::advance();
@@ -265,7 +297,6 @@ void AMDGCNBufferization::runOnOperation() {
     return signalPassFailure();
 
   // Run CSE to clean up any redundant copies inserted by bufferization.
-  auto &domInfo = getAnalysis<DominanceInfo>();
   IRRewriter rewriter(moduleOp->getContext());
   mlir::eliminateCommonSubExpressions(rewriter, domInfo, moduleOp);
 }
