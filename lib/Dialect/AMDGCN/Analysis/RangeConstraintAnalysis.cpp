@@ -393,6 +393,44 @@ LogicalResult RangeConstraintAnalysisImpl::setAlignment(RangeInfo &range) {
 // RangeConstraintAnalysis
 //===----------------------------------------------------------------------===//
 
+/// Stable sort constraints by size (allocations.size()) and alignment in
+/// descending order.
+static void sortConstraintsBySizeAndAlignment(
+    SmallVector<RangeConstraint> &constraints,
+    DenseMap<Value, int64_t> &valueToConstraintIdx) {
+  int64_t n = constraints.size();
+  if (n == 0)
+    return;
+
+  // Initialize the permutation vector.
+  SmallVector<int64_t> perm(n);
+  std::iota(perm.begin(), perm.end(), int64_t(0));
+
+  // Sort the permutation vector by the size and alignment of the constraints.
+  llvm::sort(perm, [&](int64_t a, int64_t b) {
+    return std::make_pair(constraints[a].allocations.size(),
+                          constraints[a].alignment) >
+           std::make_pair(constraints[b].allocations.size(),
+                          constraints[b].alignment);
+  });
+
+  // Create the inverse permutation vector.
+  SmallVector<int64_t> invPerm(n);
+  for (int64_t i = 0; i < n; ++i)
+    invPerm[perm[i]] = i;
+
+  // Create the sorted constraints.
+  SmallVector<RangeConstraint> sortedConstraints;
+  sortedConstraints.reserve(n);
+  for (int64_t i : perm)
+    sortedConstraints.push_back(std::move(constraints[i]));
+  constraints = std::move(sortedConstraints);
+
+  // Remap the value to constraint index.
+  for (auto &&[_, idx] : valueToConstraintIdx)
+    idx = invPerm[idx];
+}
+
 FailureOr<RangeConstraintAnalysis>
 RangeConstraintAnalysis::create(Operation *topOp) {
   if (!topOp)
@@ -402,5 +440,7 @@ RangeConstraintAnalysis::create(Operation *topOp) {
                                    analysis.valueToConstraintIdx);
   if (failed(impl.run(topOp)))
     return failure();
+  sortConstraintsBySizeAndAlignment(analysis.constraints,
+                                    analysis.valueToConstraintIdx);
   return analysis;
 }
