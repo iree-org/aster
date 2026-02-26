@@ -455,64 +455,64 @@ amdgcn.module @t7 target = <gfx942> isa = <cdna3> {
 // CHECK:   7 [label="7, %{{.*}}"];
 // CHECK:   8 [label="8, %{{.*}}"];
 // CHECK:   9 [label="9, %{{.*}}"];
+// CHECK:   0 -- 1;
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
-// CHECK:   0 -- 4;
-// CHECK:   0 -- 5;
-// CHECK:   0 -- 6;
-// CHECK:   0 -- 7;
 // CHECK:   0 -- 8;
 // CHECK:   0 -- 9;
 // CHECK:   1 -- 2;
 // CHECK:   1 -- 3;
-// CHECK:   1 -- 4;
-// CHECK:   1 -- 5;
-// CHECK:   1 -- 6;
-// CHECK:   1 -- 7;
 // CHECK:   1 -- 8;
 // CHECK:   1 -- 9;
 // CHECK:   2 -- 3;
-// CHECK:   2 -- 4;
-// CHECK:   2 -- 5;
-// CHECK:   3 -- 4;
-// CHECK:   3 -- 5;
+// CHECK:   2 -- 8;
+// CHECK:   2 -- 9;
+// CHECK:   3 -- 8;
+// CHECK:   3 -- 9;
 // CHECK:   4 -- 5;
+// CHECK:   4 -- 6;
+// CHECK:   4 -- 7;
+// CHECK:   4 -- 8;
+// CHECK:   4 -- 9;
+// CHECK:   5 -- 6;
+// CHECK:   5 -- 7;
+// CHECK:   5 -- 8;
+// CHECK:   5 -- 9;
 // CHECK:   6 -- 7;
 // CHECK:   6 -- 8;
 // CHECK:   6 -- 9;
 // CHECK:   7 -- 8;
 // CHECK:   7 -- 9;
-// CHECK:   8 -- 9;
 // CHECK: }
 // CHECK: EquivalenceClasses {
-// CHECK:   [0]
-// CHECK:   [1]
+// CHECK:   [0, 4]
+// CHECK:   [1, 5]
 // CHECK:   [2, 6]
 // CHECK:   [3, 7]
-// CHECK:   [4, 8]
-// CHECK:   [5, 9]
+// CHECK:   [8]
+// CHECK:   [9]
 // CHECK: }
 // CHECK: graph RegisterInterferenceQuotient {
 // CHECK:   0 [label="0, %{{.*}}"];
 // CHECK:   1 [label="1, %{{.*}}"];
 // CHECK:   2 [label="2, %{{.*}}"];
 // CHECK:   3 [label="3, %{{.*}}"];
-// CHECK:   4 [label="4, %{{.*}}"];
-// CHECK:   5 [label="5, %{{.*}}"];
+// CHECK:   8 [label="8, %{{.*}}"];
+// CHECK:   9 [label="9, %{{.*}}"];
+// CHECK:   0 -- 1;
 // CHECK:   0 -- 2;
 // CHECK:   0 -- 3;
-// CHECK:   0 -- 4;
-// CHECK:   0 -- 5;
+// CHECK:   0 -- 8;
+// CHECK:   0 -- 9;
 // CHECK:   1 -- 2;
 // CHECK:   1 -- 3;
-// CHECK:   1 -- 4;
-// CHECK:   1 -- 5;
+// CHECK:   1 -- 8;
+// CHECK:   1 -- 9;
 // CHECK:   2 -- 3;
-// CHECK:   2 -- 4;
-// CHECK:   2 -- 5;
-// CHECK:   3 -- 4;
-// CHECK:   3 -- 5;
-// CHECK:   4 -- 5;
+// CHECK:   2 -- 8;
+// CHECK:   2 -- 9;
+// CHECK:   3 -- 8;
+// CHECK:   3 -- 9;
 // CHECK: }
 amdgcn.module @t8 target = <gfx942> isa = <cdna3> {
   func.func private @rand() -> i1

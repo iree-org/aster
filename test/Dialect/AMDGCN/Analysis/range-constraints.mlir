@@ -383,3 +383,25 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+
+// -----
+
+//CHECK-LABEL: Symbol: constraintrs_descending_order
+//CHECK: Range constraints:
+//CHECK:   Constraint 0: range_constraint<alignment = 4, allocations = [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`, 3 = `%{{.*}}`]>
+//CHECK:   Constraint 1: range_constraint<alignment = 2, allocations = [4 = `%{{.*}}`, 5 = `%{{.*}}`]>
+amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+  kernel @constraintrs_descending_order {
+    %0 = alloca : !amdgcn.vgpr<?>
+    %1 = alloca : !amdgcn.vgpr<?>
+    %2 = alloca : !amdgcn.vgpr<?>
+    %3 = alloca : !amdgcn.vgpr<?>
+    %4 = alloca : !amdgcn.vgpr<?>
+    %5 = alloca : !amdgcn.vgpr<?>
+    %6 = make_register_range %4, %5 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+    %7 = make_register_range %0, %1, %2, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+    test_inst ins %6, %7 : (!amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<[? : ? + 4]>) -> ()
+    end_kernel
+  }
+}
