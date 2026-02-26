@@ -14,6 +14,7 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
@@ -111,7 +112,7 @@ struct RegisterAllocator {
 
   /// Run the allocator on all nodes, returns failure if an allocation request
   /// cannot be satisfied.
-  LogicalResult run(Operation *op);
+  LogicalResult run(FunctionOpInterface op);
 
 private:
   /// Collect the allocation constraints for the given node.
@@ -122,6 +123,8 @@ private:
   RegisterInterferenceGraph &graph;
   AllocConstraints constraints;
   IRRewriter rewriter;
+  /// Insertion point, updated as allocations are inserted.
+  OpBuilder::InsertPoint ip;
 };
 
 //===----------------------------------------------------------------------===//
@@ -279,6 +282,8 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
     allocas = constraint->allocations;
   }
 
+  OpBuilder::InsertionGuard guard(rewriter);
+
   // Try to allocate the registers.
   FailureOr<Allocation> alloc = constraints.alloc(regTy, numRegs, alignment);
   if (failed(alloc))
@@ -288,7 +293,10 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
   for (auto [i, alloca] : llvm::enumerate(allocas)) {
     // Get the alloca and set the insertion point.
     auto allocaOp = cast<AllocaOp>(alloca.getDefiningOp());
-    rewriter.setInsertionPoint(allocaOp);
+
+    // Set the insertion point to the last saved position.
+    assert(ip.isSet() && "insertion point is not set");
+    rewriter.restoreInsertionPoint(ip);
 
     // Create the new alloca.
     Register reg = alloc->getBegin().getWithOffset(i);
@@ -299,6 +307,12 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
     auto cOp = UnrealizedConversionCastOp::create(rewriter, allocaOp.getLoc(),
                                                   regTy, newAlloca.getResult());
     cOp->setAttr(kCastOpTag, rewriter.getUnitAttr());
+
+    // Update the insertion point to the new alloca.
+    // NOTE: This checkpoint has to happen after the creation of the cast
+    // operation so that the iteration is never invalid.
+    rewriter.setInsertionPointAfter(newAlloca.getOperation());
+    ip = rewriter.saveInsertionPoint();
 
     // Update the graph and the IR.
     rewriter.replaceOp(allocaOp, cOp.getResult(0));
@@ -314,7 +328,18 @@ static bool needsAllocation(Value node) {
   return regTy && !regTy.hasAllocatedSemantics();
 }
 
-LogicalResult RegisterAllocator::run(Operation *op) {
+LogicalResult RegisterAllocator::run(FunctionOpInterface op) {
+  Region &body = op.getFunctionBody();
+  if (body.empty())
+    return success();
+
+  // Set the insertion point to the start of the entry block. This is used to
+  // insert the allocas at the correct position and in the order they are
+  // allocated.
+  Block *entryBlock = &body.front();
+  rewriter.setInsertionPointToStart(entryBlock);
+  ip = rewriter.saveInsertionPoint();
+
   llvm::DenseSet<NodeId> visited;
   ArrayRef<Value> nodes = graph.getValues();
   for (auto [i, node] : llvm::enumerate(nodes)) {
