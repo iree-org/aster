@@ -9,7 +9,7 @@
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 
 amdgcn.module @test_kittens_zero_C target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  // From kittens/tiles_16x16.mlir
+  // From kittens/global_16x16_f16.mlir
   func.func private @zero_C() -> !rt_C_f32
   // From copies.mlir
   func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !tensor_position_descriptor_2level_2d, i1)

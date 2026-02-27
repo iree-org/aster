@@ -25,7 +25,7 @@ amdgcn.module @kittens_gemm_4wave target = #amdgcn.target<gfx942> isa = #amdgcn.
   // From mlir_kernels/library/common/indexing.mlir
   func.func private @wave_id() -> index
 
-  // From contrib/kittens/library/tiles_16x16.mlir
+  // From kittens/global_16x16_f16.mlir
   func.func private @load_A_f16(!sx2, index, index, index) -> !future_global_read
   func.func private @load_B_f16(!sx2, index, index, index) -> !future_global_read
   func.func private @zero_C() -> !rt_C_f32

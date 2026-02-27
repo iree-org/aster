@@ -1,4 +1,4 @@
-// Kittens GEMM kernel with double-buffer LDS (ping-pong): C = A @ B^T
+// Kittens GEMM kernel with double-buffer LDS: C = A @ B^T
 // A: 16xK (f16), B: 16xK (f16), C: 16x16 (f32)
 //
 // This implements latency hiding through double buffering:
@@ -19,28 +19,31 @@
 !rt_B_f16 = !vx2
 !rt_C_f32 = !vx4
 !write_token = !amdgcn.write_token<flat>
+!lds_write_token = !amdgcn.write_token<shared>
+!future_lds_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
 
 amdgcn.module @kittens_gemm_16x16xK_lds_2buf target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  // From kittens/tiles_16x16.mlir
+  // From kittens/global_16x16_f16.mlir
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
   func.func private @store_C_f32(!rt_C_f32, !sx2, index, index, index) -> !write_token
 
-  // From kittens/lds_16x16.mlir
-  func.func private @alloc_lds_2buffer() -> (index, index, index, index)
-  func.func private @lds_barrier()
+  // From kittens/lds_16x16_f16.mlir
+  func.func private @alloc_lds_2buffer_padded() -> (index, index, index, index)
 
-  // From kittens/lds_transfers.mlir
-  func.func private @load_global_to_lds_f16(index, !sx2, index, index, index)
-  func.func private @load_lds_to_register_A_f16(index) -> !rt_A_f16
-  func.func private @load_lds_to_register_B_f16(index) -> !rt_B_f16
+  // From kittens/lds_16x16_f16.mlir
+  func.func private @load_global_to_lds_f16(index, !sx2, index, index, index) -> !lds_write_token
+  func.func private @load_lds_A_f16(index) -> !future_lds_read
+  func.func private @load_lds_B_f16(index) -> !future_lds_read
+  func.func private @get_lds_A_f16(!future_lds_read) -> !rt_A_f16
+  func.func private @get_lds_B_f16(!future_lds_read) -> !rt_B_f16
 
   // GEMM kernel: C[16x16] = A[16xK] @ B[16xK]^T using double-buffer LDS
   //
   // Memory flow (steady state):
-  //   Cycle 0:    Prefetch k+1: Global → LDS[pong] (async, 400 cycles)
+  //   Cycle 0:    Prefetch k+1: Global -> LDS[pong] (async, 400 cycles)
   //   Cycle 0:    Wait for k's data in LDS[ping]
-  //   Cycle 10:   Load k: LDS[ping] → Register (~10 cycles)
+  //   Cycle 10:   Load k: LDS[ping] -> Register (~10 cycles)
   //   Cycle 20:   Compute k: MFMA (~16 cycles)
   //   Cycle 36:   Next iteration
   //   (Background: k+1 load completes by cycle 400, ready for next iteration)
@@ -69,10 +72,10 @@ amdgcn.module @kittens_gemm_16x16xK_lds_2buf target = #amdgcn.target<gfx942> isa
     // Number of K tiles (K / 16)
     %K_tiles = arith.constant {{K_TILES}} : index
 
-    // Allocate LDS: double buffer (ping-pong) for A and B tiles
+    // Allocate LDS: double buffer for A and B tiles
     // A[0], B[0]: ping buffers (offsets 0, 544)
     // A[1], B[1]: pong buffers (offsets 1088, 1632)
-    %lds_A0, %lds_B0, %lds_A1, %lds_B1 = func.call @alloc_lds_2buffer()
+    %lds_A0, %lds_B0, %lds_A1, %lds_B1 = func.call @alloc_lds_2buffer_padded()
         : () -> (index, index, index, index)
 
     // Initialize accumulator to zero
@@ -80,10 +83,12 @@ amdgcn.module @kittens_gemm_16x16xK_lds_2buf target = #amdgcn.target<gfx942> isa
 
     // === Prefetch iteration 0 ===
     // Load first iteration's data into buffer 0 (ping)
-    func.call @load_global_to_lds_f16(%lds_A0, %A_ptr, %c0, %c0, %stride_AB)
-        : (index, !sx2, index, index, index) -> ()
-    func.call @load_global_to_lds_f16(%lds_B0, %B_ptr, %c0, %c0, %stride_AB)
-        : (index, !sx2, index, index, index) -> ()
+    %pf_tok_A0 = func.call @load_global_to_lds_f16(%lds_A0, %A_ptr, %c0, %c0, %stride_AB)
+        : (index, !sx2, index, index, index) -> !lds_write_token
+    amdgcn.wait deps %pf_tok_A0 : !lds_write_token
+    %pf_tok_B0 = func.call @load_global_to_lds_f16(%lds_B0, %B_ptr, %c0, %c0, %stride_AB)
+        : (index, !sx2, index, index, index) -> !lds_write_token
+    amdgcn.wait deps %pf_tok_B0 : !lds_write_token
 
     // K-loop: double-buffered iteration over K dimension
     %C_final = scf.for %k = %c0 to %K_tiles step %c1 iter_args(%acc = %C_init) -> (!rt_C_f32) {
@@ -108,23 +113,29 @@ amdgcn.module @kittens_gemm_16x16xK_lds_2buf target = #amdgcn.target<gfx942> isa
         // Compute k+1 offset
         %k_next_offset = arith.muli %k_next, %c16 : index
 
-        // Async load k+1 to next buffer (runs in background)
-        func.call @load_global_to_lds_f16(%lds_A_next, %A_ptr, %c0, %k_next_offset, %stride_AB)
-            : (index, !sx2, index, index, index) -> ()
-        func.call @load_global_to_lds_f16(%lds_B_next, %B_ptr, %c0, %k_next_offset, %stride_AB)
-            : (index, !sx2, index, index, index) -> ()
+        // Load k+1 to next buffer (wait immediately for sync behavior)
+        %pf_tok_A = func.call @load_global_to_lds_f16(%lds_A_next, %A_ptr, %c0, %k_next_offset, %stride_AB)
+            : (index, !sx2, index, index, index) -> !lds_write_token
+        amdgcn.wait deps %pf_tok_A : !lds_write_token
+        %pf_tok_B = func.call @load_global_to_lds_f16(%lds_B_next, %B_ptr, %c0, %k_next_offset, %stride_AB)
+            : (index, !sx2, index, index, index) -> !lds_write_token
+        amdgcn.wait deps %pf_tok_B : !lds_write_token
       }
 
-      // === Wait for current iteration k's data ===
-      // Barrier: ensure all threads completed their LDS writes for iteration k
-      func.call @lds_barrier() : () -> ()
+      // When we have multi-waves we should also barrier but we'll need to be
+      // careful about impacts on pipelining + async.
+      //   amdgcn.sopp.sopp <s_barrier>
 
-      // === Load LDS → Register ===
+      // === Load LDS -> Register ===
       // Each thread loads its portion from current LDS buffer
-      %A_tile = func.call @load_lds_to_register_A_f16(%lds_A_cur)
-          : (index) -> !rt_A_f16
-      %B_tile = func.call @load_lds_to_register_B_f16(%lds_B_cur)
-          : (index) -> !rt_B_f16
+      %A_future = func.call @load_lds_A_f16(%lds_A_cur)
+          : (index) -> !future_lds_read
+      %A_tile = func.call @get_lds_A_f16(%A_future)
+          : (!future_lds_read) -> !rt_A_f16
+      %B_future = func.call @load_lds_B_f16(%lds_B_cur)
+          : (index) -> !future_lds_read
+      %B_tile = func.call @get_lds_B_f16(%B_future)
+          : (!future_lds_read) -> !rt_B_f16
 
       // === Compute ===
       // MFMA: acc += A_tile @ B_tile^T

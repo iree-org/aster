@@ -1,4 +1,5 @@
-// Kittens-style 16x16 tile abstractions for MFMA operations.
+// Kittens-style 16x16_f16 tile abstractions for global load/store feeding into
+// MFMA operations.
 // Provides high-level primitives for register tiles used in GEMM kernels.
 
 // Register types from common library
@@ -27,7 +28,7 @@
 !rt_B_f16 = !vx2
 !rt_C_f32 = !vx4
 
-amdgcn.library @kittens_tiles_16x16 isa = [#amdgcn.isa<cdna3>] {
+amdgcn.library @kittens_global_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
   // From register-init.mlir
   func.func private @init_vgprx4(i32) -> !vx4
   func.func private @alloc_vgprx2() -> !vx2

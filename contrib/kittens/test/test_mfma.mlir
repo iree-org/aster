@@ -13,7 +13,7 @@
 !future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 
 amdgcn.module @test_kittens_mfma target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  // From kittens/tiles_16x16.mlir
+  // From kittens/global_16x16_f16.mlir
   func.func private @load_A_f16(!sx2, index, index, index) -> !future_global_read
   func.func private @load_B_f16(!sx2, index, index, index) -> !future_global_read
   func.func private @get_A_f16(!future_global_read) -> !rt_A_f16

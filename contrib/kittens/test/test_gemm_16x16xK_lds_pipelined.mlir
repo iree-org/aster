@@ -7,11 +7,11 @@
 //
 // 2-stage pipeline (equivalent to 2buf):
 //   stage 0: load_global_to_lds (async prefetch)
-//   stage 1: lds_to_reg + mfma (consume + compute)
+//   stage 1: get_lds + mfma (consume + compute)
 //
 // 3-stage pipeline (equivalent to 3buf):
 //   stage 0: load_global_to_lds (async prefetch)
-//   stage 1: lds_to_reg (consume)
+//   stage 1: get_lds (consume)
 //   stage 2: mfma (compute)
 //
 // Template parameters:
@@ -31,17 +31,21 @@
 !rt_B_f16 = !vx2
 !rt_C_f32 = !vx4
 !write_token = !amdgcn.write_token<flat>
+!lds_write_token = !amdgcn.write_token<shared>
+!future_lds_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
 
 amdgcn.module @kittens_gemm_16x16xK_lds_pipelined target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  // From kittens/tiles_16x16.mlir
+  // From kittens/global_16x16_f16.mlir
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
   func.func private @store_C_f32(!rt_C_f32, !sx2, index, index, index) -> !write_token
 
-  // From kittens/lds_transfers.mlir - XOR swizzle mode
-  func.func private @load_global_to_lds_xor_swizzle_f16(index, !sx2, index, index, index)
-  func.func private @load_lds_to_register_A_xor_swizzle_f16(index) -> !rt_A_f16
-  func.func private @load_lds_to_register_B_xor_swizzle_f16(index) -> !rt_B_f16
+  // From kittens/lds_16x16_f16.mlir - XOR swizzle mode (async by default)
+  func.func private @load_global_to_lds_xor_swizzle_f16(index, !sx2, index, index, index) -> !lds_write_token
+  func.func private @load_lds_A_xor_swizzle_f16(index) -> !future_lds_read
+  func.func private @load_lds_B_xor_swizzle_f16(index) -> !future_lds_read
+  func.func private @get_lds_A_f16(!future_lds_read) -> !rt_A_f16
+  func.func private @get_lds_B_f16(!future_lds_read) -> !rt_B_f16
 
   // GEMM kernel with pipeline scheduling annotations.
   //
@@ -93,23 +97,37 @@ amdgcn.module @kittens_gemm_16x16xK_lds_pipelined target = #amdgcn.target<gfx942
       %lds_A = amdgcn.get_lds_offset %lds_a_handle {sched.stage = {{STAGE_LOAD}} : i32} : index
       %lds_B = amdgcn.get_lds_offset %lds_b_handle {sched.stage = {{STAGE_LOAD}} : i32} : index
 
-      // === Stage 0: Cooperative load Global -> LDS ===
-      func.call @load_global_to_lds_xor_swizzle_f16(%lds_A, %A_ptr, %c0, %k_offset, %stride_AB)
+      // === Stage LOAD: Cooperative load Global -> LDS (async) ===
+      // Returns write tokens -- LDS writes are in-flight, not yet visible.
+      %tok_A = func.call @load_global_to_lds_xor_swizzle_f16(%lds_A, %A_ptr, %c0, %k_offset, %stride_AB)
           {sched.stage = {{STAGE_LOAD}} : i32}
-          : (index, !sx2, index, index, index) -> ()
-      func.call @load_global_to_lds_xor_swizzle_f16(%lds_B, %B_ptr, %c0, %k_offset, %stride_AB)
+          : (index, !sx2, index, index, index) -> !lds_write_token
+      %tok_B = func.call @load_global_to_lds_xor_swizzle_f16(%lds_B, %B_ptr, %c0, %k_offset, %stride_AB)
           {sched.stage = {{STAGE_LOAD}} : i32}
-          : (index, !sx2, index, index, index) -> ()
+          : (index, !sx2, index, index, index) -> !lds_write_token
 
-      // === Stage SYNC: LDS -> Register ===
-      %A_tile = func.call @load_lds_to_register_A_xor_swizzle_f16(%lds_A)
+      // === Stage SYNC: Wait for LDS writes + load LDS -> Register ===
+      // Wait on both tokens to ensure this thread's LDS writes completed.
+      amdgcn.wait deps %tok_A {sched.stage = {{STAGE_SYNC}} : i32} : !lds_write_token
+      amdgcn.wait deps %tok_B {sched.stage = {{STAGE_SYNC}} : i32} : !lds_write_token
+      // When we have multi-waves we should also barrier but we'll need to be
+      // careful about impacts on pipelining + async.
+      //   amdgcn.sopp.sopp <s_barrier>
+
+      %A_future = func.call @load_lds_A_xor_swizzle_f16(%lds_A)
           {sched.stage = {{STAGE_SYNC}} : i32}
-          : (index) -> !rt_A_f16
-      %B_tile = func.call @load_lds_to_register_B_xor_swizzle_f16(%lds_B)
+          : (index) -> !future_lds_read
+      %B_future = func.call @load_lds_B_xor_swizzle_f16(%lds_B)
           {sched.stage = {{STAGE_SYNC}} : i32}
-          : (index) -> !rt_B_f16
+          : (index) -> !future_lds_read
 
       // === Stage COMPUTE: MFMA ===
+      %A_tile = func.call @get_lds_A_f16(%A_future)
+          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          : (!future_lds_read) -> !rt_A_f16
+      %B_tile = func.call @get_lds_B_f16(%B_future)
+          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          : (!future_lds_read) -> !rt_B_f16
       %new_acc = func.call @mfma_f32_16x16x16_f16(%A_tile, %B_tile, %acc)
           {sched.stage = {{STAGE_COMPUTE}} : i32}
           : (!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32

@@ -6,16 +6,43 @@
 !vx2 = !amdgcn.vgpr<[? + 2]>
 !rt_A_f16 = !vx2
 !write_token = !amdgcn.write_token<flat>
+!lds_write_token = !amdgcn.write_token<shared>
+!future_lds_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
 
 amdgcn.module @test_kittens_lds_roundtrip target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  // From kittens/tiles_16x16.mlir
+  // From kittens/global_16x16_f16.mlir
   func.func private @store_A_f16(!rt_A_f16, !sx2, index, index, index) -> !write_token
 
-  // From kittens/lds_transfers.mlir
-  func.func private @load_global_to_register_A_via_lds_f16(index, !sx2, index, index, index) -> !rt_A_f16
+  // From kittens/lds_16x16_f16.mlir
+  func.func private @load_global_to_lds_f16(index, !sx2, index, index, index) -> !lds_write_token
+  func.func private @load_lds_A_f16(index) -> !future_lds_read
+  func.func private @get_lds_A_f16(!future_lds_read) -> !rt_A_f16
 
-  // From kittens/lds_16x16.mlir
-  func.func private @alloc_lds_1buffer() -> (index, index)
+  // From kittens/lds_16x16_f16.mlir
+  func.func private @alloc_lds_1buffer_padded() -> (index, index)
+
+  // Convenience wrapper: Global -> LDS -> Register in one call.
+  // Single-buffer, no latency hiding -- for testing only.
+  func.func private @load_global_to_register_A_via_lds_f16(
+      %lds_tile_base: index,
+      %global_ptr: !sx2,
+      %m: index,
+      %n: index,
+      %stride: index
+  ) -> !rt_A_f16 {
+    %tok = func.call @load_global_to_lds_f16(%lds_tile_base, %global_ptr, %m, %n, %stride)
+        : (index, !sx2, index, index, index) -> !lds_write_token
+    amdgcn.wait deps %tok : !lds_write_token
+    // When we have multi-waves we should also barrier but we'll need to be
+    // careful about impacts on pipelining + async.
+    //   amdgcn.sopp.sopp <s_barrier>
+
+    %future = func.call @load_lds_A_f16(%lds_tile_base)
+        : (index) -> !future_lds_read
+    %result = func.call @get_lds_A_f16(%future)
+        : (!future_lds_read) -> !rt_A_f16
+    return %result : !rt_A_f16
+  }
 
   // Load 16x16 f16 tile: Global -> LDS -> Register, then store back to Global.
   // Input: 16x16 f16 matrix (row-major, stride = 32 bytes)
@@ -31,7 +58,7 @@ amdgcn.module @test_kittens_lds_roundtrip target = #amdgcn.target<gfx942> isa = 
     %c0 = arith.constant 0 : index
     %stride = arith.constant 32 : index  // 16 * 2 bytes
 
-    %lds_A, %lds_B = func.call @alloc_lds_1buffer() : () -> (index, index)
+    %lds_A, %lds_B = func.call @alloc_lds_1buffer_padded() : () -> (index, index)
 
     // Global -> LDS -> Register (via convenience wrapper)
     %tile = func.call @load_global_to_register_A_via_lds_f16(%lds_A, %in_ptr, %c0, %c0, %stride)

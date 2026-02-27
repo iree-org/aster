@@ -1,4 +1,4 @@
-"""Unit tests for kittens/tiles_16x16.mlir library functions."""
+"""Unit tests for kittens library functions."""
 
 import os
 from dataclasses import dataclass
@@ -38,9 +38,8 @@ def get_kittens_library_paths() -> List[str]:
     base_paths = get_library_paths()
     kittens_dir = os.path.join(os.path.dirname(__file__), "..", "library")
     kittens_paths = [
-        os.path.join(kittens_dir, "tiles_16x16.mlir"),
-        os.path.join(kittens_dir, "lds_16x16.mlir"),
-        os.path.join(kittens_dir, "lds_transfers.mlir"),
+        os.path.join(kittens_dir, "global_16x16_f16.mlir"),
+        os.path.join(kittens_dir, "lds_16x16_f16.mlir"),
     ]
     return base_paths + kittens_paths
 
@@ -88,7 +87,7 @@ def run_kittens_kernel(
 
 
 class TestKittensZeroC:
-    """Test @zero_C function from kittens/tiles_16x16.mlir."""
+    """Test @zero_C function from kittens/global_16x16_f16.mlir."""
 
     def test_zero_C_produces_zeros(self):
         """Zero-initialized C tile should contain all zeros."""
@@ -106,7 +105,7 @@ class TestKittensZeroC:
 
 
 class TestKittensLoadStoreA:
-    """Test @load_A_f16 and @store_A_f16 functions from kittens/tiles_16x16.mlir."""
+    """Test @load_A_f16 and @store_A_f16 functions from kittens/global_16x16_f16.mlir."""
 
     def test_load_store_roundtrip(self):
         """Load A tile and store it back - should preserve original data."""
@@ -125,7 +124,7 @@ class TestKittensLoadStoreA:
 
 
 class TestKittensMFMA:
-    """Test @mfma_f32_16x16x16_f16 function from kittens/tiles_16x16.mlir."""
+    """Test @mfma_f32_16x16x16_f16 function from kittens/global_16x16_f16.mlir."""
 
     def test_mfma_matmul(self):
         """MFMA should compute D = A @ B^T correctly."""
