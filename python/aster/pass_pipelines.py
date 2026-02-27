@@ -118,12 +118,7 @@ PHASE_EXPAND_MD_OPS = amdgcn_module(
 
 # Convert LDS buffer operations (alloc_lds, get_lds_offset) to constants.
 # Must run after SROA has inlined everything and before lowering to AMDGCN.
-# amdgcn-lds-alloc assigns byte offsets to alloc_lds ops; amdgcn-convert-lds-buffers
-# then replaces get_lds_offset with the assigned constants. Both must run together.
-# amdgcn-lds-alloc is idempotent (skips already-allocated nodes), so it is safe
-# to include here even in pipelines that also add it explicitly (e.g. SCF pipelining).
 PHASE_CONVERT_LDS_BUFFERS = (
-    "amdgcn-lds-alloc",
     "amdgcn-convert-lds-buffers",
     "canonicalize", "cse",
 )
@@ -225,6 +220,28 @@ TEST_SYNCHRONOUS_SROA_PASS_PIPELINE = builtin_module(
     phase_nop_insertion(delays=32)
 )
 
+# Synchronous pipeline with LDS allocation. Same as TEST_SYNCHRONOUS_SROA but
+# includes amdgcn-lds-alloc before PHASE_CONVERT_LDS_BUFFERS. Needed for
+# kernels that use alloc_lds/get_lds_offset (kittens LDS tests).
+# Cannot add amdgcn-lds-alloc to TEST_SYNCHRONOUS_SROA because it breaks
+# non-LDS mlir_kernels/ execution tests.
+TEST_SYNCHRONOUS_LDS_PASS_PIPELINE = builtin_module(
+    PHASE_PRE_SCHEDULING_CLEANUP,
+    PHASE_SCHEDULING,
+    PHASE_POST_SCHEDULING_CLEANUP,
+    PHASE_SROA,
+    POST_SROA_CLEANUPS,
+    PHASE_AFFINE_EXPANSION,
+    PHASE_SROA,
+    POST_SROA_CLEANUPS,
+    "amdgcn-lds-alloc",
+    PHASE_CONVERT_LDS_BUFFERS,
+    PHASE_EXPAND_MD_OPS,
+    PHASE_LOWER_TO_AMDGCN,
+    PHASE_AMDGCN_BACKEND,
+    phase_nop_insertion(delays=32)
+)
+
 # Loop pass pipeline
 TEST_LOOP_PASS_PIPELINE = builtin_module(
     PHASE_PRE_SCHEDULING_CLEANUP,
@@ -248,6 +265,7 @@ def test_scf_pipelining_pass_pipeline(gcd_unroll=False):
         "aster-destructure-struct-iter-args", "canonicalize", "cse",
         PHASE_SROA,
         POST_SROA_CLEANUPS,
+        "amdgcn-lds-alloc",
         PHASE_CONVERT_LDS_BUFFERS,
         PHASE_LOWER_TO_AMDGCN,
         PHASE_EXPAND_MD_OPS,
@@ -284,6 +302,10 @@ DEFAULT_SROA_PASS_PIPELINE = builtin_module(
     PHASE_AFFINE_EXPANSION,
     PHASE_SROA,
     POST_SROA_CLEANUPS,
+    # NOT included: "amdgcn-lds-alloc" -- this pipeline is used by non-LDS
+    # integration tests (e.g. mlir_kernels/) and amdgcn-lds-alloc crashes on
+    # IR that has no LDS ops. Only add it in pipelines that explicitly handle
+    # LDS kernels (TEST_SYNCHRONOUS_SROA, test_scf_pipelining, etc.).
     PHASE_CONVERT_LDS_BUFFERS,
     PHASE_EXPAND_MD_OPS,
     PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS,
