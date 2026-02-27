@@ -14,8 +14,6 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
-#include "mlir/Support/LLVM.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -269,7 +267,7 @@ LogicalResult RegisterInterferenceGraph::run(Operation *op,
 
 FailureOr<RegisterInterferenceGraph> RegisterInterferenceGraph::create(
     Operation *op, DataFlowSolver &solver, SymbolTableCollection &symbolTable,
-    const RangeConstraintAnalysis &rangeAnalysis, BuildMode buildMode) {
+    RangeConstraintAnalysis &rangeAnalysis, BuildMode buildMode) {
   // Load the register liveness analysis.
   solver.load<LivenessAnalysis>(symbolTable);
   mlir::dataflow::loadBaselineAnalyses(solver);
