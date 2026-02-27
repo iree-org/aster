@@ -1,3 +1,19 @@
+// RUN: aster-opt %s \
+// RUN:   --inline \
+// RUN: | aster-opt \
+// RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops)))" \
+// RUN: | aster-opt \
+// RUN:   --amdgcn-reg-alloc --symbol-dce \
+// RUN: | FileCheck %s
+//
+// RUN: aster-opt %s \
+// RUN:   --inline \
+// RUN: | aster-opt \
+// RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops)))" \
+// RUN: | aster-opt \
+// RUN:   --amdgcn-reg-alloc --symbol-dce | aster-translate --mlir-to-asm \
+// RUN: | FileCheck %s --check-prefix=ASM
+
 // Conversion and pack operation e2e kernels.
 //
 // Each kernel: global_load src -> convert/pack -> global_store dst
@@ -11,6 +27,47 @@
 //   arg0: src0 pointer (8 bytes) -- input
 //   arg1: src1 pointer (8 bytes) -- input
 //   arg2: dst pointer (8 bytes)  -- output
+
+// CHECK-LABEL: amdgcn.module
+//   CHECK-NOT:   load_two_ptrs
+//   CHECK-NOT:   load_three_ptrs
+
+// ASM-LABEL: cvt_f32_f16_kernel:
+//       ASM:   v_cvt_f32_f16
+//       ASM:   s_endpgm
+
+// ASM-LABEL: cvt_f16_f32_kernel:
+//       ASM:   v_cvt_f16_f32
+//       ASM:   s_endpgm
+
+// ASM-LABEL: cvt_f32_u32_kernel:
+//       ASM:   v_cvt_f32_u32
+//       ASM:   s_endpgm
+
+// ASM-LABEL: cvt_f32_i32_kernel:
+//       ASM:   v_cvt_f32_i32
+//       ASM:   s_endpgm
+
+// ASM-LABEL: cvt_u32_f32_kernel:
+//       ASM:   v_cvt_u32_f32
+//       ASM:   s_endpgm
+
+// ASM-LABEL: cvt_i32_f32_kernel:
+//       ASM:   v_cvt_i32_f32
+//       ASM:   s_endpgm
+
+// ASM-LABEL: pack_b32_f16_kernel:
+//       ASM:   v_pack_b32_f16
+//       ASM:   s_endpgm
+
+// ASM-LABEL: cvt_pk_fp8_f32_kernel:
+//       ASM:   v_cvt_pk_fp8_f32
+//       ASM:   s_endpgm
+
+// ASM-LABEL: cvt_pk_bf8_f32_kernel:
+//       ASM:   v_cvt_pk_bf8_f32
+//       ASM:   s_endpgm
+
 amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
   func.func private @load_two_ptrs()
