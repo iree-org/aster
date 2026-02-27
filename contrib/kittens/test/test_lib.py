@@ -433,6 +433,52 @@ class TestKittensLDSRoundtripXorSwizzle:
         np.testing.assert_array_equal(output_data, input_data)
 
 
+PIPELINE_STAGE_CONFIGS = {
+    # num_stages: (STAGE_LOAD, STAGE_SYNC, STAGE_COMPUTE)
+    2: (0, 1, 1),
+    3: (0, 1, 2),
+}
+
+
+def pipelined_substitutions(k, num_stages):
+    """Build template substitutions for pipelined GEMM tests (xor_swizzle only)."""
+    k_tiles = k // 16
+    stride_ab = k * 2
+    stage_load, stage_sync, stage_compute = PIPELINE_STAGE_CONFIGS[num_stages]
+    return {
+        "{{K}}": str(k),
+        "{{K_TILES}}": str(k_tiles),
+        "{{STRIDE_AB}}": str(stride_ab),
+        "{{STAGE_LOAD}}": str(stage_load),
+        "{{STAGE_SYNC}}": str(stage_sync),
+        "{{STAGE_COMPUTE}}": str(stage_compute),
+    }
+
+
+class TestKittensGEMMLDSPipelined:
+    """Test GEMM via aster-scf-pipeline (single source -> 2/3-stage pipeline)."""
+
+    @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("k", [64, 128])
+    def test_gemm_lds_pipelined(self, k, num_stages):
+        np.random.seed(42 + k)
+        A = (np.random.randn(16, k) * 0.1).astype(np.float16)
+        B = (np.random.randn(16, k) * 0.1).astype(np.float16)
+        C_output = np.zeros(16 * 16, dtype=np.float32)
+
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_gemm_16x16xK_lds_pipelined.mlir"),
+            kernel_name="gemm_16x16xK_lds_pipelined",
+            input_args=[A.flatten(), B.flatten()],
+            output_args=[C_output],
+            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            template_substitutions=pipelined_substitutions(k, num_stages),
+        )
+
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -467,16 +513,90 @@ if __name__ == "__main__":
         ("gemm_4wave_k64", TestKittensGEMM4Wave().test_gemm_4wave, [], {"k": 64}),
         ("gemm_4wave_k128", TestKittensGEMM4Wave().test_gemm_4wave, [], {"k": 128}),
         ("lds_roundtrip", TestKittensLDSRoundtrip().test_lds_roundtrip_f16, [], {}),
-        ("lds_roundtrip_xor_swizzle", TestKittensLDSRoundtripXorSwizzle().test_lds_roundtrip_xor_swizzle_f16, [], {}),
-        ("gemm_lds_1buf_k32", TestKittensGEMMLDS1Buffer().test_gemm_lds_1buf, [], {"k": 32}),
-        ("gemm_lds_1buf_k64", TestKittensGEMMLDS1Buffer().test_gemm_lds_1buf, [], {"k": 64}),
-        ("gemm_lds_1buf_k128", TestKittensGEMMLDS1Buffer().test_gemm_lds_1buf, [], {"k": 128}),
-        ("gemm_lds_2buf_k32", TestKittensGEMMLDS2Buffer().test_gemm_lds_2buf, [], {"k": 32}),
-        ("gemm_lds_2buf_k64", TestKittensGEMMLDS2Buffer().test_gemm_lds_2buf, [], {"k": 64}),
-        ("gemm_lds_2buf_k128", TestKittensGEMMLDS2Buffer().test_gemm_lds_2buf, [], {"k": 128}),
-        ("gemm_lds_3buf_k48", TestKittensGEMMLDS3Buffer().test_gemm_lds_3buf, [], {"k": 48}),
-        ("gemm_lds_3buf_k64", TestKittensGEMMLDS3Buffer().test_gemm_lds_3buf, [], {"k": 64}),
-        ("gemm_lds_3buf_k96", TestKittensGEMMLDS3Buffer().test_gemm_lds_3buf, [], {"k": 96}),
+        (
+            "lds_roundtrip_xor_swizzle",
+            TestKittensLDSRoundtripXorSwizzle().test_lds_roundtrip_xor_swizzle_f16,
+            [],
+            {},
+        ),
+        (
+            "gemm_lds_1buf_k32",
+            TestKittensGEMMLDS1Buffer().test_gemm_lds_1buf,
+            [],
+            {"k": 32},
+        ),
+        (
+            "gemm_lds_1buf_k64",
+            TestKittensGEMMLDS1Buffer().test_gemm_lds_1buf,
+            [],
+            {"k": 64},
+        ),
+        (
+            "gemm_lds_1buf_k128",
+            TestKittensGEMMLDS1Buffer().test_gemm_lds_1buf,
+            [],
+            {"k": 128},
+        ),
+        (
+            "gemm_lds_2buf_k32",
+            TestKittensGEMMLDS2Buffer().test_gemm_lds_2buf,
+            [],
+            {"k": 32},
+        ),
+        (
+            "gemm_lds_2buf_k64",
+            TestKittensGEMMLDS2Buffer().test_gemm_lds_2buf,
+            [],
+            {"k": 64},
+        ),
+        (
+            "gemm_lds_2buf_k128",
+            TestKittensGEMMLDS2Buffer().test_gemm_lds_2buf,
+            [],
+            {"k": 128},
+        ),
+        (
+            "gemm_lds_3buf_k48",
+            TestKittensGEMMLDS3Buffer().test_gemm_lds_3buf,
+            [],
+            {"k": 48},
+        ),
+        (
+            "gemm_lds_3buf_k64",
+            TestKittensGEMMLDS3Buffer().test_gemm_lds_3buf,
+            [],
+            {"k": 64},
+        ),
+        (
+            "gemm_lds_3buf_k96",
+            TestKittensGEMMLDS3Buffer().test_gemm_lds_3buf,
+            [],
+            {"k": 96},
+        ),
+        (
+            "gemm_lds_pipelined_2stage_k64",
+            TestKittensGEMMLDSPipelined().test_gemm_lds_pipelined,
+            [],
+            {"k": 64, "num_stages": 2},
+        ),
+        (
+            "gemm_lds_pipelined_2stage_k128",
+            TestKittensGEMMLDSPipelined().test_gemm_lds_pipelined,
+            [],
+            {"k": 128, "num_stages": 2},
+        ),
+        (
+            "gemm_lds_pipelined_3stage_k64",
+            TestKittensGEMMLDSPipelined().test_gemm_lds_pipelined,
+            [],
+            {"k": 64, "num_stages": 3},
+        ),
+        (
+            "gemm_lds_pipelined_3stage_k128",
+            TestKittensGEMMLDSPipelined().test_gemm_lds_pipelined,
+            [],
+            {"k": 128, "num_stages": 3},
+        ),
     ]
 
     parser = argparse.ArgumentParser(description="Run kittens tests")
