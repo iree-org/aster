@@ -150,13 +150,13 @@ First build after cmake configure is fast since LLVM is pre-built.
 
 ```bash
 # All tests (lit + pytest)
-ninja -C build install && lit build/test -v && pytest -n 16 ./test ./mlir_kernels ./contrib
+ninja -C build install && lit build/test -v && pytest -n 16
 
 # Lit tests only (IR roundtrip + ASM checks, includes integration/)
-ninja -C build install && lit build/test -v
+lit build/test -v
 
 # Pytest only (execution on GPU)
-ninja -C build install && pytest -n 16 ./test ./mlir_kernels ./contrib
+pytest -n 16
 
 # Single lit test
 lit build/test/integration/conversion-pack-e2e.mlir -s -v
@@ -164,6 +164,9 @@ lit build/test/integration/conversion-pack-e2e.mlir -s -v
 # Single pytest file
 pytest test/integration/test_mfma_e2e.py -s -v
 ```
+
+Test paths (`test/`, `mlir_kernels/`, `contrib/`) are configured in `pyproject.toml`
+so bare `pytest` discovers everything.
 
 Integration tests in `test/integration/` have both lit RUN directives (ASM verification)
 and pytest files (GPU execution). Lit tests run cross-platform; pytest requires a GPU.
