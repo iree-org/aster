@@ -1,6 +1,3 @@
-set(LLVM_TARGET_DEFINITIONS AsterUtilsEnums.td)
-mlir_tablegen(AsterUtilsEnums.h.inc -gen-enum-decls)
-mlir_tablegen(AsterUtilsEnums.cpp.inc -gen-enum-defs)
 set(LLVM_TARGET_DEFINITIONS AsterUtilsOps.td)
 mlir_tablegen(AsterUtilsDialect.h.inc -gen-dialect-decls -dialect=aster_utils)
 mlir_tablegen(AsterUtilsDialect.cpp.inc -gen-dialect-defs -dialect=aster_utils)
@@ -10,5 +7,9 @@ mlir_tablegen(AsterUtilsAttrs.h.inc -gen-attrdef-decls -dialect=aster_utils -att
 mlir_tablegen(AsterUtilsAttrs.cpp.inc -gen-attrdef-defs -dialect=aster_utils -attrdefs-dialect=aster_utils)
 mlir_tablegen(AsterUtilsOps.h.inc -gen-op-decls)
 mlir_tablegen(AsterUtilsOps.cpp.inc -gen-op-defs)
-add_mlir_doc(AsterUtilsOps AsterUtilsOps dialects/ -gen-op-doc)
 add_public_tablegen_target(AsterUtilsOpsIncGen)
+
+set(LLVM_TARGET_DEFINITIONS AsterUtilsEnums.td)
+mlir_tablegen(AsterUtilsEnums.h.inc -gen-enum-decls)
+mlir_tablegen(AsterUtilsEnums.cpp.inc -gen-enum-defs)
+add_public_tablegen_target(AsterUtilsEnumsIncGen)

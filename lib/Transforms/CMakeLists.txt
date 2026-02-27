@@ -14,11 +14,14 @@ add_mlir_library(AsterTransforms
 
   LINK_LIBS PUBLIC
   AMDGCNDialect
+  AsterInterfaces
+  AsterUtilsDialect
+  LSIRDialect
   MLIRAffineDialect
-  MLIRArithDialect
-  MLIRAffineTransforms
-  MLIRArithTransforms
   MLIRAffineToStandard
+  MLIRAffineTransforms
+  MLIRArithDialect
+  MLIRArithTransforms
   MLIRFuncDialect
   MLIRGPUDialect
   MLIRIR
@@ -27,8 +30,8 @@ add_mlir_library(AsterTransforms
   MLIRPtrDialect
   MLIRSCFDialect
   MLIRSCFUtils
-  MLIRUBDialect
   MLIRTransformUtils
+  MLIRUBDialect
   MLIRVectorDialect
   MLIRVectorTransforms
 )

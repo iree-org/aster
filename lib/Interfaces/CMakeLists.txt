@@ -1,5 +1,4 @@
 set(LLVM_OPTIONAL_SOURCES
-  UpstreamModelsImpl.cpp
   AllocaOpInterface.cpp
   DependentOpInterface.cpp
   GPUFuncInterface.cpp
@@ -10,13 +9,14 @@ set(LLVM_OPTIONAL_SOURCES
   OperandBundleOpInterface.cpp
   RegisterType.cpp
   ResourceInterfaces.cpp
+  UpstreamModelsImpl.cpp
   VerifierAttr.cpp
 )
 
 add_mlir_library(AsterInterfaces
   AllocaOpInterface.cpp
-  GPUFuncInterface.cpp
   DependentOpInterface.cpp
+  GPUFuncInterface.cpp
   InstOpInterface.cpp
   LivenessOpInterface.cpp
   MemorySpaceConstraints.cpp
@@ -26,14 +26,25 @@ add_mlir_library(AsterInterfaces
   ResourceInterfaces.cpp
   VerifierAttr.cpp
 
-  ADDITIONAL_HEADER_DIRS
-  ${ASTER_INCLUDE_DIR}/aster/Interfaces
-
   DEPENDS
+  AllocaOpInterfaceIncGen
   AsterInterfacesIncGen
+  GPUFuncInterfaceIncGen
+  InstOpInterfaceIncGen
+  LivenessOpInterfaceIncGen
+  MemorySpaceConstraintsIncGen
+  ModuleOpInterfaceIncGen
+  OperandBundleOpInterfaceIncGen
+  RegisterSemanticsIncGen
+  RegisterTypeIncGen
+  ResourceInterfacesIncGen
+  VerifierAttrIncGen
 
   LINK_LIBS PUBLIC
+  ASTERSupport
   MLIRIR
+  MLIRPass
+  MLIRSideEffectInterfaces
   MLIRSupport
 )
 
@@ -41,7 +52,7 @@ add_mlir_library(AsterUpstreamModelsImpl
   UpstreamModelsImpl.cpp
 
   LINK_LIBS PUBLIC
+  AsterInterfaces
   MLIRFuncDialect
   MLIRGPUDialect
-  AsterInterfaces
 )

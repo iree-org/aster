@@ -12,8 +12,8 @@ add_mlir_library(AsterCodeGen
 
   LINK_LIBS PUBLIC
   ASTERAnalysis
-  LSIRDialect
   AsterInterfaces
+  LSIRDialect
   MLIRIR
   MLIRTransformUtils
 )
@@ -26,9 +26,9 @@ add_mlir_library(AsterLegalizer
   LINK_LIBS PUBLIC
   AsterTransforms
   MLIRAffineDialect
+  MLIRAffineTransforms
   MLIRArithDialect
   MLIRArithUtils
-  MLIRAffineTransforms
   MLIRMemRefDialect
   MLIRPtrDialect
   MLIRSCFDialect
@@ -49,7 +49,6 @@ add_mlir_library(AsterCodeGenTransforms
   AsterLegalizer
   AsterTransforms
   MLIRPass
-  # TODO: Remove these when we use interfaces ala ConvertToLLVM.
-  AsterLSIRCodeGen
   AsterAMDGCNCodeGen
+  AsterLSIRCodeGen
 )

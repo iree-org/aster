@@ -8,20 +8,22 @@ set(LLVM_LINK_COMPONENTS
 add_tablegen(amdgcn-tblgen Aster
   DESTINATION "${ASTER_TOOLS_INSTALL_DIR}"
   EXPORT Aster
-  main.cpp
   Dump.cpp
-  Instruction.cpp
   InstAsmFormat.cpp
   InstBindings.cpp
   InstCommon.cpp
+  InstCommon.h
   InstGen.cpp
+  Instruction.cpp
+  Instruction.h
+  main.cpp
   OpGen.cpp
 )
 
 target_link_libraries(amdgcn-tblgen
   PRIVATE
-  MLIRTableGen
   ASTERSupport
+  MLIRTableGen
 )
 
 mlir_check_all_link_libraries(amdgcn-tblgen)

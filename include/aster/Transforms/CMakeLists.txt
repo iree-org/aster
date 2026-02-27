@@ -1,3 +1,3 @@
 set(LLVM_TARGET_DEFINITIONS Passes.td)
-mlir_tablegen(Passes.h.inc -gen-pass-decls -name Aster)
+mlir_tablegen(Passes.h.inc -gen-pass-decls -name=Aster)
 add_public_tablegen_target(AsterPassesIncGen)

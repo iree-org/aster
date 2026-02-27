@@ -1,15 +1,13 @@
-add_mlir_library(
-  AMDGCNTransforms
-
-  AMDGCNNopInsertion.cpp
+add_mlir_library(AMDGCNTransforms
   AMDGCNBufferization.cpp
+  AMDGCNNopInsertion.cpp
   AMDGCNOptimizeStraightLineWaits.cpp
   ConvertLDSBuffers.cpp
   ConvertSCFControlFlow.cpp
   ConvertWaits.cpp
   ExpandMetadataOps.cpp
-  InstructionSchedulingAutoschedulePass.cpp
   HoistOps.cpp
+  InstructionSchedulingAutoschedulePass.cpp
   LDSAlloc.cpp
   LegalizeCF.cpp
   LegalizeOperands.cpp
@@ -18,8 +16,8 @@ add_mlir_library(
   Pipelines.cpp
   PreloadLibrary.cpp
   RegisterColoring.cpp
-  RegisterDealloc.cpp
   RegisterDCE.cpp
+  RegisterDealloc.cpp
   RemoveTestInst.cpp
   SetABI.cpp
   ToAMDGCN.cpp
@@ -31,18 +29,17 @@ add_mlir_library(
   AMDGCNPassesIncGen
 
   LINK_LIBS PUBLIC
-  AMDGCNDialect
   AMDGCNAnalysis
+  AMDGCNDialect
   ASTERAnalysis
   AsterTransforms
-
   MLIRControlFlowDialect
   MLIRFuncDialect
   MLIRIR
-  MLIRPass
   MLIRParser
-  MLIRTransforms
+  MLIRPass
   MLIRSCFDialect
   MLIRSCFUtils
+  MLIRTransforms
   MLIRUBDialect
 )

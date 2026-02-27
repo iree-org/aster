@@ -1,20 +1,18 @@
-set(LLVM_LINK_COMPONENTS
-  Support
-  )
-
-add_mlir_tool(aster-translate
-  aster-translate.cpp
-  )
-llvm_update_compile_flags(aster-translate)
-mlir_target_link_libraries(aster-translate
-  PRIVATE
+set(LIBS
   ASTERInit
+  AsterExportASM
   MLIRIR
   MLIRParser
   MLIRPass
-  MLIRTranslateLib
   MLIRSupport
-  AsterExportASM
-  )
+  MLIRTranslateLib
+)
 
-mlir_check_link_libraries(aster-translate)
+add_llvm_executable(aster-translate
+  aster-translate.cpp
+)
+
+llvm_update_compile_flags(aster-translate)
+target_link_libraries(aster-translate PRIVATE ${LIBS})
+mlir_check_all_link_libraries(aster-translate)
+install(TARGETS aster-translate)

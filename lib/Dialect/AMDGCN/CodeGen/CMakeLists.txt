@@ -3,9 +3,11 @@ add_mlir_library(AsterAMDGCNCodeGen
   Legalizer.cpp
 
   LINK_LIBS PUBLIC
+  AMDGCNDialect
   AsterCodeGen
   AsterLegalizer
-  AMDGCNDialect
+  AsterUtilsDialect
+  LSIRDialect
   MLIRIR
   MLIRTransformUtils
 )
