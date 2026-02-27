@@ -8,6 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
 #include "aster/Dialect/AMDGCN/Analysis/ReachingDefinitions.h"
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
@@ -15,9 +16,8 @@
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/IR/InstImpl.h"
 #include "llvm/ADT/EquivalenceClasses.h"
+#include "llvm/ADT/IntEqClasses.h"
 #include "llvm/Support/DebugLog.h"
-
-#include <algorithm>
 
 #define DEBUG_TYPE "amdgcn-interference-opt"
 
@@ -42,22 +42,25 @@ struct MovDesc {
 };
 
 struct OptimizeGraphImpl {
-  OptimizeGraphImpl(const RegisterInterferenceGraph &graph,
-                    DataFlowSolver &solver)
-      : graph(graph), solver(solver) {}
+  OptimizeGraphImpl(RegisterInterferenceGraph &graph, DataFlowSolver &solver,
+                    EqClasses &eqClasses, llvm::IntEqClasses &nodeClasses)
+      : graph(graph), solver(solver), eqClasses(eqClasses),
+        nodeClasses(nodeClasses) {}
 
   /// Build equivalence classes for the interference graph.
-  std::optional<EqClasses> run(Operation *root);
+  bool run(Operation *root);
 
   /// Collect a move operation: resolve its allocas and assign a coalescing
   /// priority (0 = load-sourced, preferred; 1 = default).
   LogicalResult collectMov(Operation *op, std::pair<Value, Value> moveInfo);
 
   /// Optimize the graph and populate the equivalence classes.
-  void optimizeGraph(EqClasses &eqClasses);
+  void optimizeGraph();
 
-  const RegisterInterferenceGraph &graph;
+  RegisterInterferenceGraph &graph;
   DataFlowSolver &solver;
+  EqClasses &eqClasses;
+  llvm::IntEqClasses &nodeClasses;
   SmallVector<MovDesc> movOps;
 };
 } // namespace
@@ -141,15 +144,16 @@ static bool canCoalesce(const RegisterInterferenceGraph &graph,
 /// Get the bounds of the ranges to call canCoalesce on. This method returns
 /// failure if the ranges are incompatible.
 /// NOTE: We always try to merge the smallest range into the biggest
-/// one. Otherwise, we would need to create a new range containing both ranges
-/// and destroy the current ranges, which also implies a re-numbering of the
-/// nodes in the graph.
+/// one, or if they have the same size, to the one with the largest alignment.
+/// Otherwise, we would need to create a new range containing both ranges and
+/// destroy the current ranges, which also implies a re-numbering of the nodes
+/// in the graph.
 /// TODO: Allow merging with re-numbering.
-static FailureOr<std::tuple<NodeID, NodeID, int32_t>>
+static FailureOr<std::tuple<NodeID, NodeID, int32_t, int32_t>>
 getRangeBounds(NodeID lhsBegin, int32_t lhsOff, int32_t lhsSize,
                int32_t lhsAlignment, NodeID rhsBegin, int32_t rhsOff,
                int32_t rhsSize, int32_t rhsAlignment) {
-  /// Swap so that the lhs is the larger range.
+  // Swap so that the lhs is the larger range.
   if (lhsSize < rhsSize)
     return getRangeBounds(rhsBegin, rhsOff, rhsSize, rhsAlignment, lhsBegin,
                           lhsOff, lhsSize, lhsAlignment);
@@ -165,45 +169,48 @@ getRangeBounds(NodeID lhsBegin, int32_t lhsOff, int32_t lhsSize,
   if (rhsInLhsStart + rhsSize > lhsSize)
     return failure();
 
-  // Bail if the alignment is not compatible.
+  assert(lhsAlignment > 0 && "alignment must be positive");
+  assert(rhsAlignment > 0 && "alignment must be positive");
+
+  // Bail if the start position of rhs side doesn't satisfy it's alignment
+  // requirement.
   if (rhsInLhsStart % rhsAlignment != 0)
     return failure();
 
+  // Get the new alignment for the coalesced range.
+  int32_t newAlignment = std::lcm(lhsAlignment, rhsAlignment);
+
   return std::make_tuple(static_cast<NodeID>(rhsInLhsStart + lhsBegin),
-                         rhsBegin, rhsSize);
+                         rhsBegin, rhsSize, newAlignment);
 }
 
 /// Optimize the graph by coalescing the registers involved in the moves.
 /// NOTE: Given the presence of register ranges, it is not enough to only check
 /// the registers involved in the moves; we need to check that one of the entire
 /// ranges can be coalesced into the other.
-void OptimizeGraphImpl::optimizeGraph(EqClasses &eqClasses) {
+void OptimizeGraphImpl::optimizeGraph() {
   for (const MovDesc &mov : movOps) {
     LDBG() << "Processing move: " << *mov.moveOp;
 
     // NOTE: This is safe because the graph provides the guarantee that ranges
     // are consecutive.
-    NodeID srcId = graph.getNodeId(mov.srcAllocas[0]);
-    NodeID tgtId = graph.getNodeId(mov.targetAllocas[0]);
+    NodeID srcId = nodeClasses.findLeader(graph.getNodeId(mov.srcAllocas[0]));
+    NodeID tgtId =
+        nodeClasses.findLeader(graph.getNodeId(mov.targetAllocas[0]));
     LDBG() << "- Source ID: " << srcId << ", Target ID: " << tgtId;
 
     // If srcId == tgtId, this is a trivial self-copy: continue.
     if (srcId == tgtId)
       continue;
 
-    auto [srcRangeId, srcRange] = graph.getRangeInfo(srcId);
-    auto [tgtRangeId, tgtRange] = graph.getRangeInfo(tgtId);
-    LDBG() << "- Source range ID: " << srcRangeId
-           << ", Target range ID: " << tgtRangeId;
-
-    // If the source and target are in the same range, continue. We cannot
-    // coalesce members of the same range.
-    if (srcRangeId == tgtRangeId)
-      continue;
+    auto [srcLeaderId, srcRange] = graph.getRangeInfo(srcId);
+    auto [tgtLeaderId, tgtRange] = graph.getRangeInfo(tgtId);
+    LDBG() << "- Source leader range ID: " << srcLeaderId
+           << ", Target leader range ID: " << tgtLeaderId;
 
     // Get the start of the copy offsets.
-    int32_t srcOffset = srcId - srcRangeId;
-    int32_t tgtOffset = tgtId - tgtRangeId;
+    int32_t srcOffset = srcId - srcLeaderId;
+    int32_t tgtOffset = tgtId - tgtLeaderId;
     LDBG() << "- Source offset: " << srcOffset
            << ", Target offset: " << tgtOffset;
 
@@ -221,15 +228,15 @@ void OptimizeGraphImpl::optimizeGraph(EqClasses &eqClasses) {
 
     // Get the bounds for the range coalescing, bail if the ranges are
     // incompatible.
-    FailureOr<std::tuple<NodeID, NodeID, int32_t>> bounds =
-        getRangeBounds(srcRangeId, srcOffset, srcRangeSize, srcRangeAlignment,
-                       tgtRangeId, tgtOffset, tgtRangeSize, tgtRangeAlignment);
+    FailureOr<std::tuple<NodeID, NodeID, int32_t, int32_t>> bounds =
+        getRangeBounds(srcLeaderId, srcOffset, srcRangeSize, srcRangeAlignment,
+                       tgtLeaderId, tgtOffset, tgtRangeSize, tgtRangeAlignment);
     if (failed(bounds)) {
       LDBG() << "--- Ranges are incompatible";
       continue;
     }
 
-    auto [lhsStart, rhsStart, size] = *bounds;
+    auto [lhsStart, rhsStart, size, newAlignment] = *bounds;
     LDBG() << "- Left start: " << lhsStart << ", Right start: " << rhsStart
            << ", Size: " << size;
 
@@ -242,12 +249,19 @@ void OptimizeGraphImpl::optimizeGraph(EqClasses &eqClasses) {
          llvm::zip_equal(llvm::seq<NodeID>(lhsStart, lhsStart + size),
                          llvm::seq<NodeID>(rhsStart, rhsStart + size))) {
       eqClasses.unionSets(srcId, tgtId);
+      nodeClasses.join(srcId, tgtId);
       LDBG() << "--- Joined: " << srcId << " and " << tgtId;
     }
+
+    // Update the alignment of the ranges.
+    if (srcRange)
+      srcRange->alignment = newAlignment;
+    if (tgtRange)
+      tgtRange->alignment = newAlignment;
   }
 }
 
-std::optional<EqClasses> OptimizeGraphImpl::run(Operation *root) {
+bool OptimizeGraphImpl::run(Operation *root) {
   WalkResult result = root->walk([&](Operation *op) -> WalkResult {
     FailureOr<std::pair<Value, Value>> moveInfo = getMoveInfo(op);
     if (failed(moveInfo))
@@ -270,7 +284,7 @@ std::optional<EqClasses> OptimizeGraphImpl::run(Operation *root) {
     return WalkResult::advance();
   });
   if (result.wasInterrupted())
-    return std::nullopt;
+    return false;
 
   // Sort the moves by priority. Stable sort is used to preserve the order of
   // moves with the same priority.
@@ -280,21 +294,28 @@ std::optional<EqClasses> OptimizeGraphImpl::run(Operation *root) {
 
   // Optimize the graph.
   int64_t numNodes = graph.sizeNodes();
-  EqClasses eqClasses;
+  nodeClasses.grow(numNodes);
   for (int32_t i = 0; i < numNodes; ++i)
     eqClasses.insert(i);
-  optimizeGraph(eqClasses);
+  optimizeGraph();
   if (eqClasses.getNumClasses() == static_cast<unsigned>(numNodes))
-    return std::nullopt;
-  return eqClasses;
+    return false;
+
+  // Compress and uncompress the leader classes for faster lookup. Note that we
+  // can't use a compress class as it would point to a class rather than a node.
+  nodeClasses.compress();
+  nodeClasses.uncompress();
+  return true;
 }
 
-std::optional<EqClasses>
-mlir::aster::amdgcn::optimizeGraph(Operation *op,
-                                   const RegisterInterferenceGraph &graph,
-                                   DataFlowSolver &solver) {
+std::optional<CoalescingInfo>
+CoalescingInfo::optimizeGraph(Operation *op, RegisterInterferenceGraph &graph,
+                              DataFlowSolver &solver) {
   if (!graph.isCompressed())
     return std::nullopt;
-  OptimizeGraphImpl impl(graph, solver);
-  return impl.run(op);
+  CoalescingInfo info;
+  OptimizeGraphImpl impl(graph, solver, info.eqClasses, info.nodeClasses);
+  if (!impl.run(op))
+    return std::nullopt;
+  return info;
 }
