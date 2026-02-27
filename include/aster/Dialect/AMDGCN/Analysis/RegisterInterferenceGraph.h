@@ -40,7 +40,7 @@ struct RegisterInterferenceGraph : public Graph {
   static FailureOr<RegisterInterferenceGraph>
   create(Operation *op, DataFlowSolver &solver,
          SymbolTableCollection &symbolTable,
-         const RangeConstraintAnalysis &rangeAnalysis,
+         RangeConstraintAnalysis &rangeAnalysis,
          BuildMode buildMode = BuildMode::Minimal);
 
   /// Print the interference graph.
@@ -62,8 +62,14 @@ struct RegisterInterferenceGraph : public Graph {
   MutableArrayRef<Value> getValues() { return values; }
 
   /// Get the range information for a node ID. For any node returns the leader
-  /// node ID and the range constraint.
+  /// node ID, and the range constraint.
   std::pair<NodeID, const RangeConstraint *> getRangeInfo(NodeID nodeId) const {
+    if (nodeId >= static_cast<NodeID>(allocToRange.size()))
+      return {nodeId, nullptr};
+    NodeID rangeId = allocToRange[nodeId];
+    return {rangeLeaders[rangeId], rangeAnalysis.getConstraintOrNull(rangeId)};
+  }
+  std::pair<NodeID, RangeConstraint *> getRangeInfo(NodeID nodeId) {
     if (nodeId >= static_cast<NodeID>(allocToRange.size()))
       return {nodeId, nullptr};
     NodeID rangeId = allocToRange[nodeId];
@@ -71,7 +77,7 @@ struct RegisterInterferenceGraph : public Graph {
   }
 
 private:
-  RegisterInterferenceGraph(const RangeConstraintAnalysis &rangeAnalysis,
+  RegisterInterferenceGraph(RangeConstraintAnalysis &rangeAnalysis,
                             BuildMode buildMode)
       : Graph(/*directed=*/false), rangeAnalysis(rangeAnalysis),
         buildMode(buildMode) {}
@@ -98,9 +104,9 @@ private:
   /// Map from values to node IDs.
   llvm::DenseMap<Value, NodeID> valueToNodeId;
   /// Range constraint analysis.
-  const RangeConstraintAnalysis &rangeAnalysis;
+  RangeConstraintAnalysis &rangeAnalysis;
   /// Map from allocations in ranges to range IDs.
-  SmallVector<NodeID> allocToRange;
+  SmallVector<int32_t> allocToRange;
   /// Leaders for register ranges (leader = start element of range).
   SmallVector<NodeID> rangeLeaders;
   /// Build mode.
