@@ -39,11 +39,11 @@
 // CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(1)
 // CHECK:   ds_write_b64 [[tidx_times_8]], [[B]] offset: 512
 // CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(1)
-// CHECK:   ds_read_b64 [[A]], [[tidx_times_8]]
+// CHECK:   ds_read_b64 [[A_lds:v\[.*\]]], [[tidx_times_8]]
 // CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(1)
-// CHECK:   ds_read_b64 [[B]], [[tidx_times_8]] offset: 512
+// CHECK:   ds_read_b64 [[B_lds:v\[.*\]]], [[tidx_times_8]] offset: 512
 // CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-// CHECK:   v_mfma_f32_16x16x16_f16 [[C:v\[.*\]]], [[A]], [[B]], [[C]]
+// CHECK:   v_mfma_f32_16x16x16_f16 [[C:v\[.*\]]], [[A_lds]], [[B_lds]], [[C]]
 // CHECK:   v_lshlrev_b32_e64 [[tidx_times_16:.*]], 4, v0
 // CHECK:   global_store_dwordx4 [[tidx_times_16]], [[C]], [[C_ptr]]
 // CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)

@@ -44,7 +44,6 @@ config.excludes = [
     "lit.cfg.py",
     "lit.site.cfg.py",
     "__init__.py",
-    "integration",
 ]
 
 # test_exec_root: The root path where tests should be run.
