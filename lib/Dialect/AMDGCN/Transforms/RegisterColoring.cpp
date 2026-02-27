@@ -19,6 +19,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -36,6 +37,7 @@ using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
 namespace {
+using EqClasses = llvm::EquivalenceClasses<int32_t>;
 static constexpr std::string_view kCastOpTag = "__amdgcn_register_coloring__";
 //===----------------------------------------------------------------------===//
 // RegisterColoring pass
@@ -110,9 +112,9 @@ private:
 struct RegisterAllocator {
   using NodeId = RegisterInterferenceGraph::NodeID;
   RegisterAllocator(RegisterInterferenceGraph &graph,
-                    std::optional<IntEquivalenceClasses> &&coalescingClasses,
+                    std::optional<CoalescingInfo> &&coalescingInfo,
                     MLIRContext *ctx)
-      : graph(graph), coalescingClasses(coalescingClasses), rewriter(ctx) {}
+      : graph(graph), coalescingInfo(coalescingInfo), rewriter(ctx) {}
 
   /// Run the allocator on all nodes, returns failure if an allocation request
   /// cannot be satisfied.
@@ -126,8 +128,9 @@ private:
 
   RegisterInterferenceGraph &graph;
   AllocConstraints constraints;
-  std::optional<IntEquivalenceClasses> coalescingClasses;
+  std::optional<CoalescingInfo> coalescingInfo;
   IRRewriter rewriter;
+  llvm::DenseSet<NodeId> visited;
   /// Insertion point, updated as allocations are inserted.
   OpBuilder::InsertPoint ip;
 };
@@ -252,15 +255,8 @@ LogicalResult RegisterAllocator::collectConstraints(NodeId nodeId,
   LDBG() << " Collecting constraints for node[" << nodeId
          << "]: " << nodes[nodeId];
 
-  // Get the members of the coalescing class. Initialize the member array with
-  // the node id.
-  int32_t scratch = nodeId;
-  ArrayRef<int32_t> members(scratch);
-  if (coalescingClasses)
-    members = coalescingClasses->getMembers(nodeId, scratch);
-
-  for (int32_t member : members) {
-    for (auto [src, tgt] : graph.edges(member)) {
+  auto addConstraints = [&](NodeId node) -> LogicalResult {
+    for (auto [src, tgt] : graph.edges(node)) {
       LDBG() << "  Inspecting neighbor[" << tgt << "]: " << nodes[tgt];
       Value tgtNode = nodes[tgt];
       AMDGCNRegisterTypeInterface regTy =
@@ -279,6 +275,20 @@ LogicalResult RegisterAllocator::collectConstraints(NodeId nodeId,
 
       constraints.insert(Allocation(regTy, 1));
     }
+    return success();
+  };
+
+  // If there are no coalescing classes, just add the constraints for the node.
+  if (!coalescingInfo) {
+    if (failed(addConstraints(nodeId)))
+      return failure();
+    return success();
+  }
+
+  // Otherwise, add the constraints for all members of the coalescing class.
+  for (int32_t member : coalescingInfo->eqClasses.members(nodeId)) {
+    if (failed(addConstraints(member)))
+      return failure();
   }
   return success();
 }
@@ -290,7 +300,9 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
   ValueRange allocas = alloca;
   // If the alloca has a range constraint, use the constraint to allocate the
   // register.
-  auto [rangeId, constraint] = graph.getRangeInfo(nodeId);
+  auto [rangeId, constraint] = coalescingInfo
+                                   ? coalescingInfo->getRangeInfo(graph, nodeId)
+                                   : graph.getRangeInfo(nodeId);
   if (constraint) {
     numRegs = constraint->allocations.size();
     alignment = constraint->alignment;
@@ -304,8 +316,24 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
   if (failed(alloc))
     return emitError(alloca.getLoc()) << "failed to allocate the registers";
 
+  // Helper to update the IR, and allocator after allocation.
+  auto updateAllocator = [&](NodeId node, Value castValue, Value alloca) {
+    // Update the graph with the new value.
+    Value oldAlloca = std::exchange(graph.getValues()[node], alloca);
+
+    // Replace all uses of the old alloca with the new alloca.
+    rewriter.replaceAllUsesWith(oldAlloca, castValue);
+
+    // Make sure we mark the node as visited since we have already allocated it.
+    visited.insert(node);
+  };
+
   // Replace the alloca with the new alloca.
   for (auto [i, alloca] : llvm::enumerate(allocas)) {
+    // Get the node ID for the alloca, this is the the range leader + the index
+    // of the alloca in the range by construction.
+    NodeId node = rangeId + i;
+
     // Get the alloca and set the insertion point.
     auto allocaOp = cast<AllocaOp>(alloca.getDefiningOp());
 
@@ -329,13 +357,13 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
     rewriter.setInsertionPointAfter(newAlloca.getOperation());
     ip = rewriter.saveInsertionPoint();
 
-    // Update the graph and the IR.
-    for (int32_t member : members) {
-      rewriter.replaceOp(graph.getValue(member).getDefiningOp(),
-                         cOp.getResult(0));
-      graph.getValues()[member] = newAlloca.getResult();
-      visited.insert(member);
+    // Update the IR and the allocator.
+    if (!coalescingInfo) {
+      updateAllocator(node, cOp.getResult(0), newAlloca);
+      continue;
     }
+    for (int32_t member : coalescingInfo->eqClasses.members(node))
+      updateAllocator(member, cOp.getResult(0), newAlloca);
   }
   return success();
 }
@@ -357,7 +385,6 @@ LogicalResult RegisterAllocator::run(FunctionOpInterface op) {
   rewriter.setInsertionPointToStart(entryBlock);
   ip = rewriter.saveInsertionPoint();
 
-  llvm::DenseSet<NodeId> visited;
   ArrayRef<Value> nodes = graph.getValues();
   for (auto [i, node] : llvm::enumerate(nodes)) {
     // Skip already visited or allocated nodes.
@@ -607,12 +634,12 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
   }
 
   // Optionally optimize the graph and get the coalescing classes.
-  std::optional<IntEquivalenceClasses> coalescingClasses;
+  std::optional<CoalescingInfo> coalescingInfo;
   if (optimize)
-    coalescingClasses = optimizeGraph(funcOp, *graph, solver);
+    coalescingInfo = CoalescingInfo::optimizeGraph(funcOp, *graph, solver);
 
   // Create and run the register allocator.
-  RegisterAllocator allocator(*graph, std::move(coalescingClasses),
+  RegisterAllocator allocator(*graph, std::move(coalescingInfo),
                               funcOp->getContext());
   if (failed(allocator.run(funcOp)))
     return funcOp.emitError() << "failed to run register allocator";
