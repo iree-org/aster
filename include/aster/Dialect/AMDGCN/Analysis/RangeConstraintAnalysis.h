@@ -53,15 +53,6 @@ struct RangeConstraintAnalysis {
   /// Get the range constraints.
   ArrayRef<RangeConstraint> getRanges() const { return constraints; }
 
-  /// Lookup the range constraint for a given value. Returns nullptr if the
-  /// value is not in any range.
-  const RangeConstraint *lookup(Value value) const {
-    auto it = valueToConstraintIdx.find(value);
-    if (it == valueToConstraintIdx.end())
-      return nullptr;
-    return &constraints[it->second];
-  }
-
   /// Get the number of range constraints.
   int64_t size() const { return constraints.size(); }
 
@@ -72,10 +63,14 @@ struct RangeConstraintAnalysis {
       return nullptr;
     return &constraints[idx];
   }
+  RangeConstraint *getConstraintOrNull(int64_t idx) {
+    if (idx < 0 || idx >= static_cast<int64_t>(constraints.size()))
+      return nullptr;
+    return &constraints[idx];
+  }
 
 private:
   SmallVector<RangeConstraint> constraints;
-  DenseMap<Value, int64_t> valueToConstraintIdx;
 };
 
 } // end namespace mlir::aster::amdgcn

@@ -39,9 +39,8 @@ struct RangeInfo {
 
 /// Implements the range constraint analysis.
 struct RangeConstraintAnalysisImpl {
-  RangeConstraintAnalysisImpl(SmallVector<RangeConstraint> &constraints,
-                              DenseMap<Value, int64_t> &valueToConstraintIdx)
-      : constraints(constraints), valueToConstraintIdx(valueToConstraintIdx) {}
+  RangeConstraintAnalysisImpl(SmallVector<RangeConstraint> &constraints)
+      : constraints(constraints) {}
 
   /// Run the analysis on the given operation. Returns failure if the analysis
   /// fails.
@@ -58,12 +57,12 @@ private:
 
   /// Set the alignment for the given range. Returns failure if the alignment
   /// constraint is unsatisfiable.
-  LogicalResult setAlignment(RangeInfo &range);
+  LogicalResult checkAlignment(RangeInfo &range);
 
   Operation *topOp;
   SmallVector<RangeInfo> rangeOps;
   SmallVector<RangeConstraint> &constraints;
-  DenseMap<Value, int64_t> &valueToConstraintIdx;
+  DenseMap<Value, int64_t> valueToConstraintIdx;
 };
 } // namespace
 
@@ -144,7 +143,7 @@ static FailureOr<bool> merge(RangeConstraint &constraint, ValueRange allocas,
 
   // If the constraint is empty, set the alignment and append the allocas.
   if (constraint.allocations.empty()) {
-    constraint.alignment = std::max(alignment, constraint.alignment);
+    constraint.alignment = alignment;
     llvm::append_range(constraint.allocations, allocas);
     allocationsSet.insert_range(allocas);
     LDBG() << "  - Successfully merged";
@@ -152,11 +151,11 @@ static FailureOr<bool> merge(RangeConstraint &constraint, ValueRange allocas,
   }
 
   // Get the common subrange of the allocas and the constraint.
-  auto [startAllocas, startConstraint, commonSize] =
+  auto [allocSubOff, cstrSubOff, commonSize] =
       commonSubrange(allocas, constraint.allocations, allocationsSet);
 
-  LDBG() << "  Common subrange: " << startAllocas << " - " << startConstraint
-         << " - " << commonSize;
+  LDBG() << "  Common subrange: " << allocSubOff << " - " << cstrSubOff << " - "
+         << commonSize;
 
   // If there's no common subrange, return false as there's no enough
   // information to merge.
@@ -167,52 +166,55 @@ static FailureOr<bool> merge(RangeConstraint &constraint, ValueRange allocas,
     return false;
   }
 
-  int64_t allocSize = allocas.size();
-  int64_t constraintSize = constraint.allocations.size();
+  // If the common subrange is not at the beginning of either range, we cannot
+  // merge.
+  if (allocSubOff != 0 && cstrSubOff != 0) {
+    LDBG() << "  - Failed to merge: common subrange is not at the beginning of "
+              "either range";
+    return failure();
+  }
 
-  // If the size of the common subrange is equal to the size of the allocas,
-  // then the range was already in the constraint.
-  if (allocSize == commonSize) {
+  // Get the start of the allocas and constraints in the merged range,
+  // NOTE: If for a range, `off == 0` then there might be new elements to the
+  // left in the merged range. Otherwise, the range lies at the beginning of the
+  // merged range.
+  int64_t allocOffInRange = allocSubOff == 0 ? cstrSubOff : 0;
+  int64_t cstrOffInRange = cstrSubOff == 0 ? allocSubOff : 0;
+
+  // Check the alignments can be respected in the merged range.
+  if (allocOffInRange % alignment != 0 ||
+      cstrOffInRange % constraint.alignment != 0) {
+    LDBG() << "  - Failed to merge: alignments prevent merging the ranges";
+    return failure();
+  }
+
+  // Make sure the merged range always respects both range alignments.
+  constraint.alignment = std::lcm(alignment, constraint.alignment);
+
+  // Get the allocas to the left and right of the common subrange.
+  ValueRange lhsAllocas = allocas.slice(0, allocSubOff);
+  ValueRange rhsAllocas = allocas.drop_front(allocSubOff + commonSize);
+
+  // In this case the allocas are already in the constraint.
+  if (lhsAllocas.empty() && rhsAllocas.empty()) {
     LDBG() << "  - Success, range was already in the constraint";
     return true;
   }
 
-  // If the size of the common subrange is equal to the size of the
-  // constraint, then the incoming allocas dominate the constraint.
-  if (constraintSize == commonSize) {
-    LDBG() << "  - Success, incoming allocas dominate the constraint";
-    constraint.allocations.clear();
-    llvm::append_range(constraint.allocations, allocas);
-    allocationsSet.insert_range(allocas);
-    constraint.alignment = std::max(alignment, constraint.alignment);
-    return true;
-  }
-
-  // If the allocas partially overlap with the beginning of the constraint, then
-  // prepend the remaining allocas to the constraint.
-  if (startAllocas + commonSize >= allocSize && startConstraint == 0) {
-    LDBG() << "  - Success, merged the remaining allocas at beginning";
+  // If there are allocas to the left and right, then the allocas contain the
+  // constraint, therefore prefer vector.assign.
+  if (!lhsAllocas.empty() && !rhsAllocas.empty()) {
+    constraint.allocations.assign(allocas.begin(), allocas.end());
+  } else {
     constraint.allocations.insert(constraint.allocations.begin(),
-                                  allocas.begin(),
-                                  allocas.begin() + (allocSize - commonSize));
-    allocationsSet.insert_range(allocas);
-    constraint.alignment = std::max(alignment, constraint.alignment);
-    return true;
-  }
-
-  // If the allocas partially overlap with the end of the constraint, then
-  // append the remaining allocas to the constraint.
-  if (startConstraint + commonSize >= constraintSize && startAllocas == 0) {
-    LDBG() << "  - Success, merged the remaining allocas at end";
+                                  lhsAllocas.begin(), lhsAllocas.end());
     constraint.allocations.insert(constraint.allocations.end(),
-                                  allocas.begin() + commonSize, allocas.end());
-    allocationsSet.insert_range(allocas);
-    return true;
+                                  rhsAllocas.begin(), rhsAllocas.end());
   }
-
-  LDBG() << "  - Failed to merge: " << llvm::interleaved_array(allocas)
-         << " and " << llvm::interleaved_array(constraint.allocations);
-  return failure();
+  allocationsSet.insert_range(lhsAllocas);
+  allocationsSet.insert_range(rhsAllocas);
+  LDBG() << "  - Success, merged the ranges";
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -260,11 +262,12 @@ LogicalResult RangeConstraintAnalysisImpl::run(Operation *op) {
   if (failed(mergeClasses(numEqClasses)))
     return failure();
 
-  // Verify and update alignment constraints.
-  for (RangeInfo &range : rangeOps) {
-    if (failed(setAlignment(range)))
-      return failure();
-  }
+  // Assert the alignment constraints are satisfiable.
+  assert(llvm::all_of(rangeOps,
+                      [&](RangeInfo &range) {
+                        return succeeded(checkAlignment(range));
+                      }) &&
+         "alignment constraints should be satisfiable by construction");
   return success();
 }
 
@@ -359,7 +362,7 @@ LogicalResult RangeConstraintAnalysisImpl::mergeClasses(int64_t numEqClasses) {
   return success();
 }
 
-LogicalResult RangeConstraintAnalysisImpl::setAlignment(RangeInfo &range) {
+LogicalResult RangeConstraintAnalysisImpl::checkAlignment(RangeInfo &range) {
   int32_t alignCtr = range.op.getType().getAsRange().alignment();
   if (alignCtr <= 1)
     return success();
@@ -377,13 +380,14 @@ LogicalResult RangeConstraintAnalysisImpl::setAlignment(RangeInfo &range) {
     return range.op.emitError() << "leading allocation not found in constraint";
   ptrdiff_t pos = std::distance(allocations.begin(), it);
 
-  // Check if the alignment is satisfiable.
-  for (int32_t a = 1; a <= alignCtr; ++a) {
-    if ((pos + constraint.alignment * a) % alignCtr == 0) {
-      constraint.alignment = a * constraint.alignment;
-      return success();
-    }
-  }
+  // If we are checking the leading allocation, check the alignment constraint
+  // is compatible.
+  if (pos == 0 && constraint.alignment % alignCtr == 0)
+    return success();
+
+  // Check the alignment of the alloca itself is satisfiable.
+  if (pos % alignCtr == 0)
+    return success();
 
   return range.op.emitError()
          << "Unsatisfiable alignment constraint from: " << range.op.getResult();
@@ -393,54 +397,22 @@ LogicalResult RangeConstraintAnalysisImpl::setAlignment(RangeInfo &range) {
 // RangeConstraintAnalysis
 //===----------------------------------------------------------------------===//
 
-/// Stable sort constraints by size (allocations.size()) and alignment in
-/// descending order.
-static void sortConstraintsBySizeAndAlignment(
-    SmallVector<RangeConstraint> &constraints,
-    DenseMap<Value, int64_t> &valueToConstraintIdx) {
-  int64_t n = constraints.size();
-  if (n == 0)
-    return;
-
-  // Initialize the permutation vector.
-  SmallVector<int64_t> perm(n);
-  std::iota(perm.begin(), perm.end(), int64_t(0));
-
-  // Sort the permutation vector by the size and alignment of the constraints.
-  llvm::sort(perm, [&](int64_t a, int64_t b) {
-    return std::make_pair(constraints[a].allocations.size(),
-                          constraints[a].alignment) >
-           std::make_pair(constraints[b].allocations.size(),
-                          constraints[b].alignment);
-  });
-
-  // Create the inverse permutation vector.
-  SmallVector<int64_t> invPerm(n);
-  for (int64_t i = 0; i < n; ++i)
-    invPerm[perm[i]] = i;
-
-  // Create the sorted constraints.
-  SmallVector<RangeConstraint> sortedConstraints;
-  sortedConstraints.reserve(n);
-  for (int64_t i : perm)
-    sortedConstraints.push_back(std::move(constraints[i]));
-  constraints = std::move(sortedConstraints);
-
-  // Remap the value to constraint index.
-  for (auto &&[_, idx] : valueToConstraintIdx)
-    idx = invPerm[idx];
-}
-
 FailureOr<RangeConstraintAnalysis>
 RangeConstraintAnalysis::create(Operation *topOp) {
   if (!topOp)
     return failure();
   RangeConstraintAnalysis analysis;
-  RangeConstraintAnalysisImpl impl(analysis.constraints,
-                                   analysis.valueToConstraintIdx);
+  RangeConstraintAnalysisImpl impl(analysis.constraints);
   if (failed(impl.run(topOp)))
     return failure();
-  sortConstraintsBySizeAndAlignment(analysis.constraints,
-                                    analysis.valueToConstraintIdx);
+
+  // Sort the constraints by the number of allocations and alignment, so that
+  // the constraints with more allocations and stricter alignment are allocated
+  // first.
+  llvm::stable_sort(analysis.constraints, [](const RangeConstraint &lhs,
+                                             const RangeConstraint &rhs) {
+    return std::make_pair(lhs.allocations.size(), lhs.alignment) >
+           std::make_pair(rhs.allocations.size(), rhs.alignment);
+  });
   return analysis;
 }
