@@ -59,7 +59,7 @@ struct AllocConstraints {
 
   /// Allocate memory for a given node, returns failure if no suitable region
   /// could be found.
-  FailureOr<Allocation> alloc(LDSAllocNode alloc);
+  FailureOr<Allocation> alloc(LDSAllocNode alloc, int64_t startPos);
 
   /// Clear all allocations.
   void clear();
@@ -93,6 +93,7 @@ private:
 
   const LDSInterferenceGraph &graph;
   AllocConstraints constraints;
+  int64_t startPos = 0;
   int64_t totalSize = 0;
 };
 
@@ -155,8 +156,9 @@ LogicalResult AllocConstraints::insert(Allocation alloc) {
   return success(allocations.insert(alloc).second);
 }
 
-FailureOr<Allocation> AllocConstraints::alloc(LDSAllocNode node) {
-  int64_t start = 0;
+FailureOr<Allocation> AllocConstraints::alloc(LDSAllocNode node,
+                                              int64_t startPos) {
+  int64_t start = startPos;
 
   auto getStartAligned = [&](int64_t addr) {
     return ((addr + node.alignment - 1) / node.alignment) * node.alignment;
@@ -205,6 +207,8 @@ LogicalResult LDSAllocator::collectConstraints(NodeId nodeId,
     int64_t offset = getOffset(nodes[tgt].allocOp);
     if (offset < 0)
       continue;
+    // Update the total size to reflect preallocated buffers.
+    totalSize = std::max(totalSize, offset + nodes[tgt].size);
     if (failed(constraints.insert({offset, offset + nodes[tgt].size}))) {
       AllocLDSOp allocOp = nodes[tgt].allocOp;
       return allocOp.emitError()
@@ -216,7 +220,7 @@ LogicalResult LDSAllocator::collectConstraints(NodeId nodeId,
 }
 
 LogicalResult LDSAllocator::alloc(LDSAllocNode node) {
-  FailureOr<Allocation> alloc = constraints.alloc(node);
+  FailureOr<Allocation> alloc = constraints.alloc(node, startPos);
   if (failed(alloc)) {
     return node.allocOp.emitError()
            << "failed to allocate LDS buffer of size " << node.size
@@ -230,6 +234,14 @@ LogicalResult LDSAllocator::alloc(LDSAllocNode node) {
 LogicalResult LDSAllocator::run(aster::GPUFuncInterface kernOp) {
   llvm::DenseSet<NodeId> visited;
   ArrayRef<LDSAllocNode> nodes = graph.getAllocNodes();
+  if (nodes.empty())
+    return success();
+
+  // Get the current total size of preallocated buffers to set the starting
+  // position for allocation. This ensures we don't allocate over existing
+  // buffers.
+  startPos = kernOp.getSharedMemorySize();
+  assert(startPos >= 0 && "Shared memory size must be non-negative");
   for (auto [i, node] : llvm::enumerate(nodes)) {
     // Skip already visited or allocated nodes.
     if (visited.insert(i).second == false || getOffset(node.allocOp) >= 0)
