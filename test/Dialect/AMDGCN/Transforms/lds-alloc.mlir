@@ -210,3 +210,32 @@ func.func @impossible_to_satisfy_alloc() {
   %1 = amdgcn.alloc_lds 32000
   return
 }
+
+// -----
+
+func.func @mixed_pre_alloc_lds_alloc() attributes {gpu.shared_memory_size = 256 : i32} {
+  %0 = amdgcn.alloc_lds 128 alignment 8 offset 512
+  %1 = amdgcn.alloc_lds 16 offset 256
+  %2 = amdgcn.alloc_lds 64 alignment 8
+  %3 = amdgcn.get_lds_offset %0 : index
+  %4 = amdgcn.get_lds_offset %1 : index
+  %5 = amdgcn.get_lds_offset %2 : index
+  return
+}
+
+func.func @no_lds_alloc() attributes {gpu.shared_memory_size = 256 : i32} {
+  return
+}
+
+// -----
+
+func.func @aliased() {
+  %0 = amdgcn.alloc_lds 128 alignment 8 offset 256
+  //  expected-error@+1 {{conflicting allocation constraints for LDS buffer of size 128 at offset 320}}
+  %1 = amdgcn.alloc_lds 128 alignment 8 offset 320
+  %2 = amdgcn.alloc_lds 16
+  %3 = amdgcn.get_lds_offset %0 : index
+  %4 = amdgcn.get_lds_offset %1 : index
+  %5 = amdgcn.get_lds_offset %2 : index
+  return
+}

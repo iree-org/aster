@@ -10,7 +10,6 @@ import pytest
 from aster.testing import compile_and_run as _compile_and_run
 from aster.pass_pipelines import (
     TEST_SCF_PIPELINING_PASS_PIPELINE,
-    TEST_SYNCHRONOUS_LDS_PASS_PIPELINE,
     FUTURE_SROA_PASS_PIPELINE,
 )
 from mlir_kernels.common import get_library_paths
@@ -310,7 +309,6 @@ class TestKittensLDSRoundtrip:
             kernel_name="test_lds_roundtrip",
             input_args=[input_data],
             output_args=[output_data],
-            pass_pipeline=TEST_SYNCHRONOUS_LDS_PASS_PIPELINE,
         )
 
         np.testing.assert_array_equal(output_data, input_data)
@@ -429,7 +427,6 @@ class TestKittensLDSRoundtripXorSwizzle:
             kernel_name="test_lds_roundtrip_xor_swizzle",
             input_args=[input_data],
             output_args=[output_data],
-            pass_pipeline=TEST_SYNCHRONOUS_LDS_PASS_PIPELINE,
         )
 
         np.testing.assert_array_equal(output_data, input_data)
