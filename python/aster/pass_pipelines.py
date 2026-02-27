@@ -118,7 +118,12 @@ PHASE_EXPAND_MD_OPS = amdgcn_module(
 
 # Convert LDS buffer operations (alloc_lds, get_lds_offset) to constants.
 # Must run after SROA has inlined everything and before lowering to AMDGCN.
+# amdgcn-lds-alloc assigns byte offsets to alloc_lds ops; amdgcn-convert-lds-buffers
+# then replaces get_lds_offset with the assigned constants. Both must run together.
+# amdgcn-lds-alloc is idempotent (skips already-allocated nodes), so it is safe
+# to include here even in pipelines that also add it explicitly (e.g. SCF pipelining).
 PHASE_CONVERT_LDS_BUFFERS = (
+    "amdgcn-lds-alloc",
     "amdgcn-convert-lds-buffers",
     "canonicalize", "cse",
 )
@@ -243,7 +248,6 @@ def test_scf_pipelining_pass_pipeline(gcd_unroll=False):
         "aster-destructure-struct-iter-args", "canonicalize", "cse",
         PHASE_SROA,
         POST_SROA_CLEANUPS,
-        "amdgcn-lds-alloc",
         PHASE_CONVERT_LDS_BUFFERS,
         PHASE_LOWER_TO_AMDGCN,
         PHASE_EXPAND_MD_OPS,
