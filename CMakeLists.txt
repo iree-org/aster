@@ -126,6 +126,7 @@ if ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
 else()
   set(ASTER_ENABLE_TARGET 0)
 endif()
+add_compile_definitions(ASTER_ENABLE_TARGET=${ASTER_ENABLE_TARGET})
 
 add_subdirectory(include)
 add_subdirectory(lib)

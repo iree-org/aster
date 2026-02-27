@@ -2,12 +2,12 @@ add_mlir_library(AsterLSIRCodeGen
   CodeGenPatterns.cpp
 
   LINK_LIBS PUBLIC
-  AsterCodeGen
   AMDGCNDialect
-  AsterUtilsDialect
-  LSIRDialect
+  AsterCodeGen
   AsterInterfaces
   AsterTransforms
+  AsterUtilsDialect
+  LSIRDialect
   MLIRArithDialect
   MLIRIR
   MLIRTransformUtils

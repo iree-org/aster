@@ -1,18 +1,20 @@
 add_mlir_dialect_library(AsterUtilsDialect
+  AsterUtilsAttrs.cpp
   AsterUtilsOps.cpp
   AsterUtilsTypes.cpp
-  AsterUtilsAttrs.cpp
   IntRangeImpl.cpp
 
-  ADDITIONAL_HEADER_DIRS
-  ${ASTER_INCLUDE_DIR}/Dialect/AsterUtils/IR
-
   DEPENDS
+  AsterUtilsEnumsIncGen
   AsterUtilsOpsIncGen
 
   LINK_LIBS PUBLIC
+  AsterInterfaces
+  MLIRControlFlowInterfaces
   MLIRIR
   MLIRInferIntRangeInterface
   MLIRInferTypeOpInterface
+  MLIRPtrDialect
   MLIRSideEffectInterfaces
+  MLIRTransformUtils
 )

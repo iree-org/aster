@@ -1,48 +1,43 @@
-add_subdirectory(Analysis)
 add_subdirectory(API)
-add_subdirectory(IR)
+add_subdirectory(Analysis)
 add_subdirectory(CodeGen)
 add_subdirectory(Dialect)
+add_subdirectory(IR)
 add_subdirectory(Interfaces)
 add_subdirectory(Support)
 add_subdirectory(Target)
 add_subdirectory(Transforms)
 
-add_mlir_library(
-  ASTERInit
+add_mlir_library(ASTERInit
   Init.cpp
-  ENABLE_AGGREGATION
 
-  DEPENDS
-  AMDGCNOpsIncGen
-  AMDGCNPassesIncGen
-  AsterCodeGenPassesIncGen
-
-  LINK_LIBS PRIVATE
+  LINK_LIBS PUBLIC
   AMDGCNDialect
   AMDGCNTransforms
   AsterCodeGenTransforms
-  LSIRDialect
+  AsterInterfaces
+  AsterUpstreamModelsImpl
   AsterUtilsDialect
   AsterUtilsTransforms
-  ASTERIR
-
+  LSIRDialect
   MLIRAffineDialect
   MLIRAffineTransforms
   MLIRArithDialect
   MLIRArithValueBoundsOpInterfaceImpl
+  MLIRCAPIIR
   MLIRCastInterfaces
   MLIRControlFlowDialect
   MLIRDLTIDialect
   MLIRFuncDialect
   MLIRFuncInlinerExtension
+  MLIRGPUDialect
+  MLIRIndexDialect
+  MLIRLLVMDialect
+  MLIRLLVMIRTransforms
   MLIRMemRefDialect
   MLIRMemRefTransforms
   MLIRPtrDialect
   MLIRSCFDialect
   MLIRUBDialect
-  MLIRIndexDialect
-  MLIRGPUDialect
-  AsterInterfaces
-  AsterUpstreamModelsImpl
+  MLIRVectorDialect
 )
