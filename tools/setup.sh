@@ -144,18 +144,32 @@ check_cmd ninja
 check_cmd clang
 check_cmd clang++
 check_cmd uv
+check_cmd ccache
 
-# Check python version >= 3.9
-if command -v python3 >/dev/null 2>&1; then
+# Resolve Python 3.12 via uv (preferred) or system python3
+# uv manages its own python installs; we want 3.12 consistently everywhere.
+PYTHON=""
+if command -v uv >/dev/null 2>&1; then
+    PYTHON=$(uv python find 3.12 2>/dev/null || true)
+    if [ -n "$PYTHON" ]; then
+        ok "python 3.12 via uv ($PYTHON)"
+    fi
+fi
+if [ -z "$PYTHON" ] && command -v python3 >/dev/null 2>&1; then
+    PYTHON=$(python3 -c "import sys; print(sys.executable)")
     PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
     PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
     PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
     if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 9 ]; then
-        ok "python3 version $PY_VERSION (>= 3.9)"
+        ok "python3 $PY_VERSION ($PYTHON)"
     else
         err "python3 version $PY_VERSION is too old (need >= 3.9)"
         MISSING+=("python3>=3.9")
     fi
+fi
+if [ -z "$PYTHON" ]; then
+    err "No suitable python found"
+    MISSING+=("python3>=3.9")
 fi
 
 if [ ${#MISSING[@]} -gt 0 ]; then
@@ -166,20 +180,20 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     echo ""
     case "$PLATFORM" in
         macos)
-            echo "  brew install python3 git cmake ninja llvm uv"
+            echo "  brew install python3 git cmake ninja llvm uv ccache"
             echo ""
             echo "  If you don't have Homebrew: https://brew.sh"
             ;;
         debian)
-            echo "  sudo apt-get update && sudo apt-get install -y python3 python3-venv git cmake ninja-build clang lld"
+            echo "  sudo apt-get update && sudo apt-get install -y python3 python3-venv git cmake ninja-build clang lld ccache"
             echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
             ;;
         fedora)
-            echo "  sudo dnf install -y python3 python3-devel git cmake ninja-build clang lld"
+            echo "  sudo dnf install -y python3 python3-devel git cmake ninja-build clang lld ccache"
             echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
             ;;
         *)
-            echo "  Install: python3 (>= 3.9), git, cmake, ninja, clang, uv"
+            echo "  Install: python3 (>= 3.9), git, cmake, ninja, clang, uv, ccache"
             echo "  uv: https://docs.astral.sh/uv/"
             ;;
     esac
@@ -224,6 +238,17 @@ else
         fi
     else
         warn "No shared LLVM found at $LLVM_INSTALL"
+    fi
+
+    # Always ensure the LLVM build venv has required deps (even if
+    # LLVM_OK=true, a prior partial build may have left deps missing)
+    LLVM_VENV="$LLVM_BUILD/.venv"
+    if [ -d "$LLVM_VENV" ]; then
+        if ! "$LLVM_VENV/bin/python" -c "import typing_extensions" 2>/dev/null; then
+            echo "  Installing typing_extensions (needed by nanobind stubgen)..."
+            uv pip install --python "$LLVM_VENV/bin/python" "typing_extensions>=4.1" 2>&1 \
+                || "$LLVM_VENV/bin/pip" install "typing_extensions>=4.1"
+        fi
     fi
 
     if [ "$LLVM_OK" = false ]; then
@@ -291,20 +316,13 @@ else
         # See: https://mlir.llvm.org/docs/Bindings/Python/#building
         LLVM_VENV="$LLVM_BUILD/.venv"
         if [ ! -d "$LLVM_VENV" ]; then
-            echo "  Creating LLVM build venv..."
-            if ! uv venv "$LLVM_VENV" --seed -p 3.12 2>/dev/null; then
-                if ! python3 -m venv "$LLVM_VENV"; then
-                    err "Failed to create LLVM build venv at $LLVM_VENV"
-                    echo ""
-                    case "$PLATFORM" in
-                        debian)  echo "Fix: sudo apt-get install -y python3-venv" ;;
-                        fedora)  echo "Fix: sudo dnf install -y python3-devel" ;;
-                        macos)   echo "Fix: brew reinstall python3" ;;
-                        *)       echo "Fix: ensure python3 -m venv works" ;;
-                    esac
-                    echo "Then re-run: tools/setup.sh"
-                    exit 1
-                fi
+            echo "  Creating LLVM build venv with $PYTHON..."
+            if ! uv venv "$LLVM_VENV" --seed --python "$PYTHON"; then
+                err "Failed to create LLVM build venv at $LLVM_VENV"
+                echo ""
+                echo "Fix: uv python install 3.12"
+                echo "Then re-run: tools/setup.sh"
+                exit 1
             fi
             ok "LLVM build venv created"
         else
@@ -422,13 +440,13 @@ info "Phase 3: Python virtual environment"
 if [ -f "$VIRTUAL_ENV/bin/python" ]; then
     ok "venv exists at $VIRTUAL_ENV"
 else
-    echo "  Creating venv at $VIRTUAL_ENV..."
-    if ! python3 -m venv --prompt "$VENV_PROMPT" "$VIRTUAL_ENV" 2>&1; then
+    echo "  Creating venv at $VIRTUAL_ENV with $PYTHON..."
+    if ! uv venv "$VIRTUAL_ENV" --seed --python "$PYTHON" --prompt "$VENV_PROMPT"; then
         err "Failed to create Python venv"
         echo ""
         echo "Common causes:"
-        echo "  - Missing python3-venv package (Debian/Ubuntu)"
-        echo "  - Broken python3 installation"
+        echo "  - Missing python 3.12: uv python install 3.12"
+        echo "  - Broken uv installation"
         echo ""
         case "$PLATFORM" in
             debian)
@@ -680,7 +698,7 @@ else
 fi
 
 NEED_RECONFIGURE=false
-if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
+if [ ! -f "$BUILD_DIR/CMakeCache.txt" ] || [ ! -f "$BUILD_DIR/build.ninja" ]; then
     NEED_RECONFIGURE=true
 elif [ "$WITH_HIP" = true ] && ! grep -q "HIP_PLATFORM" "$BUILD_DIR/CMakeCache.txt" 2>/dev/null; then
     warn "Existing build lacks HIP support, reconfiguring for --with-hip"
@@ -692,7 +710,7 @@ if [ "$NEED_RECONFIGURE" = false ]; then
     echo "     To force reconfigure: rm $BUILD_DIR/CMakeCache.txt && re-run"
 else
     echo "  Configuring cmake..."
-    if CMAKE_PREFIX_PATH="$LLVM_INSTALL" cmake \
+    if CMAKE_PREFIX_PATH="$LLVM_INSTALL" "$VIRTUAL_ENV/bin/cmake" \
         -S "$ASTER_DIR" -B "$BUILD_DIR" -GNinja \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_C_COMPILER=clang \
@@ -722,7 +740,7 @@ echo ""
 info "Phase 5: Build"
 
 echo "  Running ninja install..."
-if ninja -C "$BUILD_DIR" install; then
+if "$VIRTUAL_ENV/bin/ninja" -C "$BUILD_DIR" install; then
     ok "ASTER built and installed"
 else
     err "Build failed"
