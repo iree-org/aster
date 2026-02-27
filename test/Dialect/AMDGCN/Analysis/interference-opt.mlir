@@ -119,6 +119,9 @@ func.func @incompatible_range_offsets() {
 // CHECK:    7 [label="7, %{{.*}}"];
 // CHECK:    2 -- 3;
 // CHECK:  }
+// CHECK:  Range constraints:
+// CHECK:  [0-3] alignment = 4
+// CHECK:  [4-7] alignment = 4
 // CHECK:  EquivalenceClasses {
 // CHECK:    [0, 4]
 // CHECK:    [1, 5]
@@ -132,6 +135,9 @@ func.func @incompatible_range_offsets() {
 // CHECK:    3 [label="3, %{{.*}}"];
 // CHECK:    2 -- 3;
 // CHECK:  }
+// CHECK:  Post range constraints:
+// CHECK:  [0-3] alignment = 4
+// CHECK-NOT:  [4-7] alignment = 4
 func.func @compatible_range_offsets_0() {
   %0 = amdgcn.alloca : !amdgcn.vgpr<?>
   %1 = amdgcn.alloca : !amdgcn.vgpr<?>
@@ -324,6 +330,9 @@ func.func @different_reg_kinds() {
 // CHECK:    3 [label="3, %{{.*}}"];
 // CHECK:    0 -- 3;
 // CHECK:  }
+// CHECK:  Range constraints:
+// CHECK:  [0-1] alignment = 2
+// CHECK:  [2-3] alignment = 2
 // CHECK:  EquivalenceClasses {
 // CHECK:    [0, 2]
 // CHECK:    [1, 3]
@@ -333,6 +342,9 @@ func.func @different_reg_kinds() {
 // CHECK:    1 [label="1, %{{.*}}"];
 // CHECK:    0 -- 1;
 // CHECK:  }
+// CHECK:  Post range constraints:
+// CHECK:  [0-1] alignment = 2
+// CHECK-NOT:  [2-3] alignment = 2
 func.func @disassembled_copies() {
   %0 = amdgcn.alloca : !amdgcn.vgpr<?>
   %1 = amdgcn.alloca : !amdgcn.vgpr<?>
