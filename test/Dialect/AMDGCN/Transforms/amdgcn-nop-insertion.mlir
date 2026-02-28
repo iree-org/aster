@@ -326,3 +326,52 @@ amdgcn.module @test_case106_scaled_mfma_32x32x64 target = #amdgcn.target<gfx950>
     amdgcn.end_kernel
   }
 }
+
+// -----
+
+// Case 106 for CDNA3 FP8 MFMA 16x16x32 (2-pass): MFMA write VGPR -> VALU read/write overlapping vDst
+// Expects 7 v_nop insertions (conservative for 2-pass)
+// CHECK-LABEL: kernel @test_kernel
+//       CHECK:   amdgcn.vop3p.vop3p_mai
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//  CHECK-NEXT:   v_mov_b32_e32
+amdgcn.module @test_case106_fp8_mfma_16x16x32 target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  amdgcn.kernel @test_kernel {
+    // A operands: 2 VGPRs [0:2)
+    %a0 = amdgcn.alloca : !amdgcn.vgpr<0>
+    %a1 = amdgcn.alloca : !amdgcn.vgpr<1>
+    %a_range = amdgcn.make_register_range %a0, %a1
+      : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+
+    // B operands: 2 VGPRs [2:4)
+    %b0 = amdgcn.alloca : !amdgcn.vgpr<2>
+    %b1 = amdgcn.alloca : !amdgcn.vgpr<3>
+    %b_range = amdgcn.make_register_range %b0, %b1
+      : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+
+    // C/D operands: 4 VGPRs [4:8)
+    %c0 = amdgcn.alloca : !amdgcn.vgpr<4>
+    %c1 = amdgcn.alloca : !amdgcn.vgpr<5>
+    %c2 = amdgcn.alloca : !amdgcn.vgpr<6>
+    %c3 = amdgcn.alloca : !amdgcn.vgpr<7>
+    %c_range = amdgcn.make_register_range %c0, %c1, %c2, %c3
+      : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
+
+    // FP8 MFMA 16x16x32: writes to VGPRs [4:8)
+    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x32_fp8_fp8>
+      %c_range, %a_range, %b_range, %c_range
+      : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[4 : 8]> -> !amdgcn.vgpr<[4 : 8]>
+
+    // VALU reads from overlapping VGPR (v4) -> triggers case 106
+    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c0, %c0
+      : (!amdgcn.vgpr<4>, !amdgcn.vgpr<4>) -> ()
+
+    amdgcn.end_kernel
+  }
+}
