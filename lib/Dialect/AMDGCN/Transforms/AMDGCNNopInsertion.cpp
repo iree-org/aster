@@ -549,6 +549,10 @@ static NopInsertionCaseDef getCase106Definition() {
     case OpCode::V_MFMA_F32_16X16X16_F16:
     case OpCode::V_MFMA_F32_16X16X16_BF16:
     case OpCode::V_MFMA_F16_16X16X16_F16:
+    case OpCode::V_MFMA_F32_16X16X32_FP8_FP8:
+    case OpCode::V_MFMA_F32_16X16X32_FP8_BF8:
+    case OpCode::V_MFMA_F32_16X16X32_BF8_FP8:
+    case OpCode::V_MFMA_F32_16X16X32_BF8_BF8:
     case OpCode::V_MFMA_SCALE_F32_16X16X128_F8F6F4:
       // 2-pass MFMA: this is likely adding more waits than needed.
       // TODO: properly handle this.
