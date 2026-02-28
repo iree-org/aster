@@ -170,6 +170,27 @@ amdgcn.library @common_indexing {
     return %result : !index_pair
   }
 
+  // MFMA indexing function for accessing the `A` 16x32xfp8 fragment
+  // FP8 16x16x32: Lane L loads row = L % 16, col = (L / 16) * 8
+  // Each lane holds 8 consecutive fp8 elements (8 bytes = dwordx2)
+  func.func private @mfma_index_A_16x16xfp8() -> !index_pair {
+    %lane_id = func.call @lane_id() : () -> index
+    %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
+    %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 8))>()[%lane_id]
+    %result = aster_utils.struct_create(%row, %col) : (index, index) -> !index_pair
+    return %result : !index_pair
+  }
+
+  // MFMA indexing function for accessing the `B` 32x16xfp8 fragment
+  // Same physical layout as A; MFMA handles the transpose internally
+  func.func private @mfma_index_B_16x16xfp8() -> !index_pair {
+    %lane_id = func.call @lane_id() : () -> index
+    %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
+    %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 8))>()[%lane_id]
+    %result = aster_utils.struct_create(%col, %row) : (index, index) -> !index_pair
+    return %result : !index_pair
+  }
+
   // MFMA indexing function for accessing the `C` 16x16xf32 fragment
   func.func private @mfma_index_C_16x16xf32() -> !index_pair {
     %lane_id = func.call @lane_id() : () -> index

@@ -40,6 +40,8 @@ def get_kittens_library_paths() -> List[str]:
     kittens_paths = [
         os.path.join(kittens_dir, "global_16x16_f16.mlir"),
         os.path.join(kittens_dir, "lds_16x16_f16.mlir"),
+        os.path.join(kittens_dir, "tiles_16x16_fp8.mlir"),
+        os.path.join(kittens_dir, "lds_16x16_fp8.mlir"),
     ]
     return base_paths + kittens_paths
 
