@@ -516,6 +516,42 @@ class TestKittensGEMMLDSPipelined:
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
 
 
+class TestKittensGEMMMultiTileDirect:
+    """Test single-wave multi-tile GEMM: C[32x32] = A[32xK] @ B[32xK]^T.
+
+    One wave computes a 2x2 grid of 16x16 MFMA tiles using 4 iter_args.
+    Per K iteration: 4 loads (2 A + 2 B), 4 MFMAs.
+    A/B reuse: A[i] reused across N, B[j] reused across M.
+    """
+
+    @pytest.mark.parametrize("k", [32, 64, 128])
+    def test_gemm_multitile_direct(self, k):
+        """Single-wave 2x2 multi-tile GEMM should match reference."""
+        k_tiles = k // 16
+        stride_ab = k * 2
+
+        np.random.seed(42 + k)
+        A = (np.random.randn(32, k) * 0.1).astype(np.float16)
+        B = (np.random.randn(32, k) * 0.1).astype(np.float16)
+        C_output = np.zeros(32 * 32, dtype=np.float32)
+
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_gemm_multitile_direct.mlir"),
+            kernel_name="gemm_multitile_direct",
+            input_args=[A.flatten(), B.flatten()],
+            output_args=[C_output],
+            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            template_substitutions={
+                "{{K}}": str(k),
+                "{{K_TILES}}": str(k_tiles),
+                "{{STRIDE_AB}}": str(stride_ab),
+            },
+        )
+
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+
 class TestKittensGEMM4WaveLDSPipelined:
     """Test 4-wave GEMM with pipelined LDS: C[32x32] = A[32xK] @ B[32xK]^T.
 
@@ -580,6 +616,24 @@ if __name__ == "__main__":
         ("gemm_4wave_k32", TestKittensGEMM4Wave().test_gemm_4wave, [], {"k": 32}),
         ("gemm_4wave_k64", TestKittensGEMM4Wave().test_gemm_4wave, [], {"k": 64}),
         ("gemm_4wave_k128", TestKittensGEMM4Wave().test_gemm_4wave, [], {"k": 128}),
+        (
+            "gemm_multitile_direct_k32",
+            TestKittensGEMMMultiTileDirect().test_gemm_multitile_direct,
+            [],
+            {"k": 32},
+        ),
+        (
+            "gemm_multitile_direct_k64",
+            TestKittensGEMMMultiTileDirect().test_gemm_multitile_direct,
+            [],
+            {"k": 64},
+        ),
+        (
+            "gemm_multitile_direct_k128",
+            TestKittensGEMMMultiTileDirect().test_gemm_multitile_direct,
+            [],
+            {"k": 128},
+        ),
         ("lds_roundtrip", TestKittensLDSRoundtrip().test_lds_roundtrip_f16, [], {}),
         (
             "lds_roundtrip_xor_swizzle",
