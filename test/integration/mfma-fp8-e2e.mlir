@@ -10,12 +10,15 @@
 
 // End-to-end tests for CDNA3 FP8 MFMA (v_mfma_f32_16x16x32_fp8_fp8) on gfx942.
 //
+// NOTE: CDNA3 uses FP8 E4M3FNUZ format (bias=8), NOT OCP E4M3 (bias=7).
+// Value = 2^(E-8) * (1 + M/8) for E>0, or 2^(-7) * (M/8) for E=0.
+//
 // Kernel 1 (mfma_fp8_ones):
-//   A = FP8 E4M3 1.0 (0x38), B = FP8 E4M3 1.0 (0x38), C = 0
+//   A = FP8 E4M3FNUZ 1.0 (0x40), B = FP8 E4M3FNUZ 1.0 (0x40), C = 0
 //   D = sum_{k=0}^{31} 1.0 * 1.0 + 0 = 32.0
 //
 // Kernel 2 (mfma_fp8_with_accum):
-//   A = FP8 E4M3 1.5 (0x3C), B = FP8 E4M3 2.0 (0x40), C = 10.0 (f32)
+//   A = FP8 E4M3FNUZ 1.5 (0x44), B = FP8 E4M3FNUZ 2.0 (0x48), C = 10.0 (f32)
 //   D = sum_{k=0}^{31} 1.5 * 2.0 + 10.0 = 96.0 + 10.0 = 106.0
 
 // CHECK-LABEL: mfma_fp8_ones:
@@ -42,15 +45,16 @@ amdgcn.module @mfma_fp8_e2e_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
   }
 
   // --- Kernel 1: A = 1.0, B = 1.0, C = 0 -> D = 32.0 ---
-  // FP8 E4M3 1.0 = 0x38, packed 4 per dword: 0x38383838 = 943208504
+  // FP8 E4M3FNUZ 1.0: S=0, E=8(1000), M=0(000) -> 0100 0000 = 0x40
+  // Packed 4 per dword: 0x40404040 = 1077952576
   amdgcn.kernel @mfma_fp8_ones arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %c_ptr = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
 
-    // A: FP8 E4M3 1.0 = 0x38, packed: 0x38383838 = 943208504
-    %fp8_10 = arith.constant 943208504 : i32
+    // A: FP8 E4M3FNUZ 1.0 = 0x40, packed: 0x40404040 = 1077952576
+    %fp8_10 = arith.constant 1077952576 : i32
     %a = func.call @init_vgprx2(%fp8_10) : (i32) -> (!amdgcn.vgpr<[? + 2]>)
 
     // B: same as A
@@ -80,8 +84,10 @@ amdgcn.module @mfma_fp8_e2e_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
   }
 
   // --- Kernel 2: A = 1.5, B = 2.0, C = 10.0 -> D = 106.0 ---
-  // FP8 E4M3 1.5 = 0x3C, packed: 0x3C3C3C3C = 1010580540
-  // FP8 E4M3 2.0 = 0x40, packed: 0x40404040 = 1077952576
+  // FP8 E4M3FNUZ 1.5: S=0, E=8(1000), M=4(100) -> 0100 0100 = 0x44
+  // Packed: 0x44444444 = 1145324612
+  // FP8 E4M3FNUZ 2.0: S=0, E=9(1001), M=0(000) -> 0100 1000 = 0x48
+  // Packed: 0x48484848 = 1212696648
   // f32 10.0 = 0x41200000 = 1092616192
   amdgcn.kernel @mfma_fp8_with_accum arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
@@ -89,12 +95,12 @@ amdgcn.module @mfma_fp8_e2e_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %c_ptr = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
 
-    // A: FP8 E4M3 1.5 = 0x3C, packed: 0x3C3C3C3C = 1010580540
-    %fp8_15 = arith.constant 1010580540 : i32
+    // A: FP8 E4M3FNUZ 1.5 = 0x44, packed: 0x44444444 = 1145324612
+    %fp8_15 = arith.constant 1145324612 : i32
     %a = func.call @init_vgprx2(%fp8_15) : (i32) -> (!amdgcn.vgpr<[? + 2]>)
 
-    // B: FP8 E4M3 2.0 = 0x40, packed: 0x40404040 = 1077952576
-    %fp8_20 = arith.constant 1077952576 : i32
+    // B: FP8 E4M3FNUZ 2.0 = 0x48, packed: 0x48484848 = 1212696648
+    %fp8_20 = arith.constant 1212696648 : i32
     %b = func.call @init_vgprx2(%fp8_20) : (i32) -> (!amdgcn.vgpr<[? + 2]>)
 
     // C accumulator: 10.0 as f32 = 0x41200000 = 1092616192

@@ -1,14 +1,17 @@
 """Integration tests for CDNA3 FP8 MFMA (v_mfma_f32_16x16x32_fp8_fp8) on gfx942.
 
+NOTE: CDNA3 uses FP8 E4M3FNUZ format (bias=8), NOT OCP E4M3 (bias=7).
+Value = 2^(E-8) * (1 + M/8) for E>0, or 2^(-7) * (M/8) for E=0.
+
 Two kernels test distinct failure modes:
 
 Kernel 1 (mfma_fp8_ones):
-  A = FP8 E4M3 1.0, B = FP8 E4M3 1.0, C = 0
+  A = FP8 E4M3FNUZ 1.0 (0x40), B = FP8 E4M3FNUZ 1.0 (0x40), C = 0
   Expected: sum_{k=0}^{31} 1.0 * 1.0 = 32.0
   Tests: basic FP8 MFMA produces correct dot product
 
 Kernel 2 (mfma_fp8_with_accum):
-  A = FP8 E4M3 1.5, B = FP8 E4M3 2.0, C = 10.0 (f32)
+  A = FP8 E4M3FNUZ 1.5 (0x44), B = FP8 E4M3FNUZ 2.0 (0x48), C = 10.0 (f32)
   Expected: sum_{k=0}^{31} 1.5 * 2.0 + 10.0 = 96.0 + 10.0 = 106.0
   Tests: non-trivial FP8 values + f32 accumulation
 """
