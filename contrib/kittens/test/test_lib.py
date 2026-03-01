@@ -516,6 +516,104 @@ class TestKittensGEMMLDSPipelined:
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
 
 
+class TestKittensGEMMMultiTileDirect:
+    """Test single-wave multi-tile GEMM: C[32x32] = A[32xK] @ B[32xK]^T.
+
+    One wave computes a 2x2 grid of 16x16 MFMA tiles using 4 iter_args.
+    Per K iteration: 4 loads (2 A + 2 B), 4 MFMAs.
+    A/B reuse: A[i] reused across N, B[j] reused across M.
+    """
+
+    @pytest.mark.parametrize("k", [32, 64, 128])
+    def test_gemm_multitile_direct(self, k):
+        """Single-wave 2x2 multi-tile GEMM should match reference."""
+        k_tiles = k // 16
+        stride_ab = k * 2
+
+        np.random.seed(42 + k)
+        A = (np.random.randn(32, k) * 0.1).astype(np.float16)
+        B = (np.random.randn(32, k) * 0.1).astype(np.float16)
+        C_output = np.zeros(32 * 32, dtype=np.float32)
+
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_gemm_multitile_direct.mlir"),
+            kernel_name="gemm_multitile_direct",
+            input_args=[A.flatten(), B.flatten()],
+            output_args=[C_output],
+            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            template_substitutions={
+                "{{K}}": str(k),
+                "{{K_TILES}}": str(k_tiles),
+                "{{STRIDE_AB}}": str(stride_ab),
+            },
+        )
+
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+
+class TestKittensGEMMMultiTileLDSPipelined:
+    """Test single-wave 2x2 multi-tile GEMM with pipelined LDS:
+    C[32x32] = A[32xK] @ B[32xK]^T.
+
+    One wave computes a 2x2 grid of 16x16 MFMA tiles using LDS staging
+    with XOR swizzle and sched.stage annotations for automatic pipelining.
+    4 LDS tiles per stage (2 A + 2 B), 4 MFMAs per K iteration.
+    """
+
+    @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("k", [64, 128])
+    def test_gemm_multitile_lds_pipelined(self, k, num_stages):
+        """Single-wave 2x2 multi-tile LDS pipelined GEMM should match reference."""
+        np.random.seed(42 + k)
+        A = (np.random.randn(32, k) * 0.1).astype(np.float16)
+        B = (np.random.randn(32, k) * 0.1).astype(np.float16)
+        C_output = np.zeros(32 * 32, dtype=np.float32)
+
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_gemm_multitile_lds_pipelined.mlir"),
+            kernel_name="gemm_multitile_lds_pipelined",
+            input_args=[A.flatten(), B.flatten()],
+            output_args=[C_output],
+            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            template_substitutions=pipelined_substitutions(k, num_stages),
+        )
+
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+
+class TestKittensGEMMMultiTile4x4LDSPipelined:
+    """Test single-wave 4x4 multi-tile GEMM with pipelined LDS:
+    C[64x64] = A[64xK] @ B[64xK]^T.
+
+    One wave computes a 4x4 grid of 16x16 MFMA tiles using LDS staging.
+    8 LDS tiles per stage (4 A + 4 B), 16 MFMAs per K iteration.
+    Tests register pressure limits: 64 VGPRs for accumulators alone.
+    """
+
+    @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("k", [64, 128])
+    def test_gemm_multitile_4x4_lds_pipelined(self, k, num_stages):
+        """Single-wave 4x4 multi-tile LDS pipelined GEMM should match reference."""
+        np.random.seed(42 + k)
+        A = (np.random.randn(64, k) * 0.1).astype(np.float16)
+        B = (np.random.randn(64, k) * 0.1).astype(np.float16)
+        C_output = np.zeros(64 * 64, dtype=np.float32)
+
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_gemm_multitile_4x4_lds_pipelined.mlir"),
+            kernel_name="gemm_multitile_4x4_lds_pipelined",
+            input_args=[A.flatten(), B.flatten()],
+            output_args=[C_output],
+            pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
+            template_substitutions=pipelined_substitutions(k, num_stages),
+        )
+
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+
 class TestKittensGEMM4WaveLDSPipelined:
     """Test 4-wave GEMM with pipelined LDS: C[32x32] = A[32xK] @ B[32xK]^T.
 
@@ -580,6 +678,24 @@ if __name__ == "__main__":
         ("gemm_4wave_k32", TestKittensGEMM4Wave().test_gemm_4wave, [], {"k": 32}),
         ("gemm_4wave_k64", TestKittensGEMM4Wave().test_gemm_4wave, [], {"k": 64}),
         ("gemm_4wave_k128", TestKittensGEMM4Wave().test_gemm_4wave, [], {"k": 128}),
+        (
+            "gemm_multitile_direct_k32",
+            TestKittensGEMMMultiTileDirect().test_gemm_multitile_direct,
+            [],
+            {"k": 32},
+        ),
+        (
+            "gemm_multitile_direct_k64",
+            TestKittensGEMMMultiTileDirect().test_gemm_multitile_direct,
+            [],
+            {"k": 64},
+        ),
+        (
+            "gemm_multitile_direct_k128",
+            TestKittensGEMMMultiTileDirect().test_gemm_multitile_direct,
+            [],
+            {"k": 128},
+        ),
         ("lds_roundtrip", TestKittensLDSRoundtrip().test_lds_roundtrip_f16, [], {}),
         (
             "lds_roundtrip_xor_swizzle",
@@ -658,6 +774,54 @@ if __name__ == "__main__":
             TestKittensGEMM2WaveLDS().test_gemm_2wave_lds,
             [],
             {"k": 128},
+        ),
+        (
+            "gemm_multitile_lds_pipelined_2stage_k64",
+            TestKittensGEMMMultiTileLDSPipelined().test_gemm_multitile_lds_pipelined,
+            [],
+            {"k": 64, "num_stages": 2},
+        ),
+        (
+            "gemm_multitile_lds_pipelined_2stage_k128",
+            TestKittensGEMMMultiTileLDSPipelined().test_gemm_multitile_lds_pipelined,
+            [],
+            {"k": 128, "num_stages": 2},
+        ),
+        (
+            "gemm_multitile_lds_pipelined_3stage_k64",
+            TestKittensGEMMMultiTileLDSPipelined().test_gemm_multitile_lds_pipelined,
+            [],
+            {"k": 64, "num_stages": 3},
+        ),
+        (
+            "gemm_multitile_lds_pipelined_3stage_k128",
+            TestKittensGEMMMultiTileLDSPipelined().test_gemm_multitile_lds_pipelined,
+            [],
+            {"k": 128, "num_stages": 3},
+        ),
+        (
+            "gemm_multitile_4x4_lds_pipelined_2stage_k64",
+            TestKittensGEMMMultiTile4x4LDSPipelined().test_gemm_multitile_4x4_lds_pipelined,
+            [],
+            {"k": 64, "num_stages": 2},
+        ),
+        (
+            "gemm_multitile_4x4_lds_pipelined_2stage_k128",
+            TestKittensGEMMMultiTile4x4LDSPipelined().test_gemm_multitile_4x4_lds_pipelined,
+            [],
+            {"k": 128, "num_stages": 2},
+        ),
+        (
+            "gemm_multitile_4x4_lds_pipelined_3stage_k64",
+            TestKittensGEMMMultiTile4x4LDSPipelined().test_gemm_multitile_4x4_lds_pipelined,
+            [],
+            {"k": 64, "num_stages": 3},
+        ),
+        (
+            "gemm_multitile_4x4_lds_pipelined_3stage_k128",
+            TestKittensGEMMMultiTile4x4LDSPipelined().test_gemm_multitile_4x4_lds_pipelined,
+            [],
+            {"k": 128, "num_stages": 3},
         ),
         (
             "gemm_lds_pipelined_2stage_k64",
