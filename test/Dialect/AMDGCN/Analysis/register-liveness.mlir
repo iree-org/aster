@@ -762,3 +762,245 @@ func.func @test_mixed(%0: !amdgcn.vgpr, %1: !amdgcn.vgpr) {
   amdgcn.test_inst outs %2 ins %2 : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> (!amdgcn.vgpr<[? + 2]>)
   return
 }
+
+// -----
+// Test: Empty kernel - no register operations, only end_kernel.
+// CHECK-LABEL: Symbol: test_empty_kernel
+// CHECK:  Op: amdgcn.end_kernel
+// CHECK:    LIVE BEFORE: []
+amdgcn.kernel @test_empty_kernel {
+  end_kernel
+}
+
+// -----
+// Test: Non-register values (i32, i1) are filtered from liveness - only
+// RegisterType values appear in the live set.
+// CHECK-LABEL: Symbol: test_non_register_filtered
+// CHECK:  Op: %{{.*}} = arith.constant 0 : i32
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.sgpr<?>
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Op: %{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, i32
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`]
+// CHECK:  Op: cf.cond_br %{{.*}}, ^bb1, ^bb2
+// CHECK:    LIVE BEFORE: []
+amdgcn.kernel @test_non_register_filtered {
+  %c0 = arith.constant 0 : i32
+  %0 = alloca : !amdgcn.sgpr<?>
+  %cond = lsir.cmpi i32 eq %0, %c0 : !amdgcn.sgpr<?>, i32
+  cf.cond_br %cond, ^bb1, ^bb2
+^bb1:
+  end_kernel
+^bb2:
+  end_kernel
+}
+
+// -----
+// Test: Long def-use chain - verify backward liveness propagates correctly
+// through many operations.
+// CHECK-LABEL: Symbol: test_long_chain
+// CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`]
+// CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`]
+// CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} :
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`, 3 = `%{{.*}}`]
+amdgcn.kernel @test_long_chain {
+  %0 = alloca : !amdgcn.vgpr<?>
+  %1 = alloca : !amdgcn.vgpr<?>
+  %2 = alloca : !amdgcn.vgpr<?>
+  %3 = alloca : !amdgcn.vgpr<?>
+  test_inst outs %1 ins %0 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  test_inst outs %2 ins %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  test_inst outs %3 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  test_inst ins %0, %1, %2, %3 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  end_kernel
+}
+
+// -----
+// Test: Triple branch merge - three predecessors merging into one block.
+// Verifies that liveness correctly unions live values from all predecessors.
+func.func private @rand() -> i1
+// CHECK-LABEL: Symbol: test_triple_merge
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}}, %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
+amdgcn.kernel @test_triple_merge {
+  %0 = alloca : !amdgcn.vgpr<?>
+  %1 = alloca : !amdgcn.vgpr<?>
+  %2 = alloca : !amdgcn.vgpr<?>
+  %cond = func.call @rand() : () -> i1
+  cf.cond_br %cond, ^bb1, ^bb2
+^bb1:
+  test_inst outs %0 ins %0 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  cf.br ^bb3
+^bb2:
+  %cond2 = func.call @rand() : () -> i1
+  cf.cond_br %cond2, ^bb3_alt, ^bb3_other
+^bb3_alt:
+  test_inst outs %1 ins %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  cf.br ^bb3
+^bb3_other:
+  test_inst outs %2 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  cf.br ^bb3
+^bb3:
+  test_inst ins %0, %1, %2 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  end_kernel
+}
+
+// -----
+
+// CHECK-LABEL:  SSA map:
+// CHECK:  Operation: `%{{.*}} = arith.constant 0 : index`
+// CHECK:    results: [0 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = arith.constant 1 : index`
+// CHECK:    results: [1 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = arith.constant 10 : index`
+// CHECK:    results: [2 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr`
+// CHECK:    results: [3 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr`
+// CHECK:    results: [4 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}}:2 = scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%{{.*}} = %{{.*}}, %{{.*}} = %{{.*}}) -> (!amdgcn.vgpr, !amdgcn.vgpr) {...}`
+// CHECK:    results: [5 = `%{{.*}}#0`, 6 = `%{{.*}}#1`]
+// CHECK:  Block: Block<op = %{{.*}}:2 = scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%{{.*}} = %{{.*}}, %{{.*}} = %{{.*}}) -> (!amdgcn.vgpr, !amdgcn.vgpr) {...}, region = 0, bb = ^bb0, args = [%{{.*}}, %{{.*}}, %{{.*}}]>
+// CHECK:    arguments: [7 = `%{{.*}}`, 8 = `%{{.*}}`, 9 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr) -> !amdgcn.vgpr`
+// CHECK:    results: [10 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr) -> !amdgcn.vgpr`
+// CHECK:    results: [11 = `%{{.*}}`]
+// CHECK:  Op: module {...}
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Symbol: scf_value_liveness
+// CHECK:  Op: func.func @scf_value_liveness() {...}
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: %{{.*}} = arith.constant 0 : index
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: %{{.*}} = arith.constant 1 : index
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: %{{.*}} = arith.constant 10 : index
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: [3 = `%{{.*}}`]
+// CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:    LIVE BEFORE: [3 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [3 = `%{{.*}}`, 4 = `%{{.*}}`]
+// CHECK:  Op: %{{.*}}:2 = scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args(%{{.*}} = %{{.*}}, %{{.*}} = %{{.*}}) -> (!amdgcn.vgpr, !amdgcn.vgpr) {...}
+// CHECK:    LIVE BEFORE: [3 = `%{{.*}}`, 4 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [5 = `%{{.*}}#0`, 6 = `%{{.*}}#1`]
+// CHECK:  Op: %{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: [10 = `%{{.*}}`]
+// CHECK:  Op: %{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:    LIVE BEFORE: [10 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [10 = `%{{.*}}`, 11 = `%{{.*}}`]
+// CHECK:  Op: scf.yield %{{.*}}, %{{.*}} : !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:    LIVE BEFORE: [10 = `%{{.*}}`, 11 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [10 = `%{{.*}}`, 11 = `%{{.*}}`]
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}}#0, %{{.*}}#1 : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+// CHECK:    LIVE BEFORE: [5 = `%{{.*}}#0`, 6 = `%{{.*}}#1`]
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: func.return
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+
+func.func @scf_value_liveness() {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c10 = arith.constant 10 : index
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  %1 = amdgcn.alloca : !amdgcn.vgpr
+  %2:2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %0, %arg2 = %1) -> (!amdgcn.vgpr, !amdgcn.vgpr) {
+    %4 = amdgcn.test_inst outs %arg1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %5 = amdgcn.test_inst outs %arg2 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    scf.yield %4, %5 : !amdgcn.vgpr, !amdgcn.vgpr
+  }
+  amdgcn.test_inst ins %2#0, %2#1 : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+  return
+}
+
+// -----
+
+// CHECK-LABEL:  Block: Block<op = func.func @bb_value_liveness
+// CHECK-SAME:   (%{{.*}}: i1) {...}, region = 0, bb = ^bb0, args = [%{{.*}}]>
+// CHECK:    arguments: [0 = `%{{.*}}`]
+// CHECK:  Block: Block<op = func.func @bb_value_liveness(%{{.*}}: i1) {...}, region = 0, bb = ^bb1, args = [%{{.*}}, %{{.*}}]>
+// CHECK:    arguments: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr`
+// CHECK:    results: [3 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr`
+// CHECK:    results: [4 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.make_register_range %{{.*}}, %{{.*}} : !amdgcn.vgpr, !amdgcn.vgpr`
+// CHECK:    results: [5 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>`
+// CHECK:    results: [6 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>`
+// CHECK:    results: [7 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>`
+// CHECK:    results: [8 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}}:2 = amdgcn.test_inst outs %{{.*}}, %{{.*}} ins %{{.*}}, %{{.*}} : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>)`
+// CHECK:    results: [9 = `%{{.*}}#0`, 10 = `%{{.*}}#1`]
+// CHECK:  Op: module {...}
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Symbol: bb_value_liveness
+// CHECK:  Op: func.func @bb_value_liveness(%{{.*}}: i1) {...}
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: %{{.*}} = amdgcn.make_register_range %{{.*}}, %{{.*}} : !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: %{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: [6 = `%{{.*}}`]
+// CHECK:  Op: %{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>
+// CHECK:    LIVE BEFORE: [6 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [6 = `%{{.*}}`, 7 = `%{{.*}}`]
+// CHECK:  Op: cf.br ^bb1(%{{.*}}, %{{.*}} : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>)
+// CHECK:    LIVE BEFORE: [6 = `%{{.*}}`, 7 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [6 = `%{{.*}}`, 7 = `%{{.*}}`]
+// CHECK:  Op: %{{.*}} = amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [2 = `%{{.*}}`, 8 = `%{{.*}}`]
+// CHECK:  Op: cf.cond_br %{{.*}}, ^bb1(%{{.*}}, %{{.*}} : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>), ^bb2
+// CHECK:    LIVE BEFORE: [2 = `%{{.*}}`, 8 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [2 = `%{{.*}}`, 8 = `%{{.*}}`]
+// CHECK:  Op: %{{.*}}:2 = amdgcn.test_inst outs %{{.*}}, %{{.*}} ins %{{.*}}, %{{.*}} : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>)
+// CHECK:    LIVE BEFORE: [2 = `%{{.*}}`, 8 = `%{{.*}}`]
+// CHECK:    LIVE  AFTER: [9 = `%{{.*}}#0`, 10 = `%{{.*}}#1`]
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}}#0, %{{.*}}#1 : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> ()
+// CHECK:    LIVE BEFORE: [9 = `%{{.*}}#0`, 10 = `%{{.*}}#1`]
+// CHECK:    LIVE  AFTER: []
+// CHECK:  Op: func.return
+// CHECK:    LIVE BEFORE: []
+// CHECK:    LIVE  AFTER: []
+func.func @bb_value_liveness(%arg0: i1) {
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  %1 = amdgcn.alloca : !amdgcn.vgpr
+  %2 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr, !amdgcn.vgpr
+  %3 = amdgcn.test_inst outs %2 : (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>
+  %4 = amdgcn.test_inst outs %2 : (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>
+  cf.br ^bb1(%3, %4 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>)
+^bb1(%5: !amdgcn.vgpr<[? + 2]>, %6: !amdgcn.vgpr<[? + 2]>):  // 2 preds: ^bb0, ^bb1
+  %7 = amdgcn.test_inst outs %2 ins %5 : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>
+  cf.cond_br %arg0, ^bb1(%6, %7 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>), ^bb2
+^bb2:  // pred: ^bb1
+  %8, %9 = amdgcn.test_inst outs %6, %7 ins %6, %7 : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>)
+  amdgcn.test_inst ins %8, %9 : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> ()
+  return
+}

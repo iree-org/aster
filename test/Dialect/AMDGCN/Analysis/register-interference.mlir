@@ -332,6 +332,40 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 
 // -----
 
+// Test block-level interference: at bb3 entry, %1, %2, %3 are all live (from
+// different predecessors).
+// CHECK-LABEL: block_entry_interference
+// CHECK: graph RegisterInterference {
+// CHECK:   0 [label="0
+// CHECK:   1 [label="1
+// CHECK:   2 [label="2
+// CHECK:   0 -- 1;
+// CHECK:   0 -- 2;
+// CHECK:   1 -- 2;
+// CHECK: }
+amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+  func.func private @rand() -> i1
+  kernel @block_entry_interference {
+    %0 = func.call @rand() : () -> i1
+    %1 = alloca : !amdgcn.vgpr<?>
+    %2 = alloca : !amdgcn.vgpr<?>
+    %3 = alloca : !amdgcn.vgpr<?>
+    test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
+    cf.cond_br %0, ^bb1, ^bb2
+  ^bb1:
+    test_inst outs %2 : (!amdgcn.vgpr<?>) -> ()
+    cf.br ^bb3
+  ^bb2:
+    test_inst outs %3 : (!amdgcn.vgpr<?>) -> ()
+    cf.br ^bb3
+  ^bb3:
+    test_inst ins %1, %2, %3 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
 // CHECK-LABEL: full_interference
 // FULL-LABEL: full_interference
 // CHECK: graph RegisterInterference {

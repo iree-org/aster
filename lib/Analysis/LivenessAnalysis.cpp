@@ -231,8 +231,20 @@ void LivenessAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   if (handleTopPropagation(after, before))
     return;
 
-  // Kill the block arguments. Blocks themselves don't produce live values.
-  transferFunction(after, before, successor->getArguments(), {});
+  // Get the values flowing from block to successor, as they are live at the end
+  // of block.
+  SmallVector<Value> live;
+  if (auto brOp = dyn_cast<BranchOpInterface>(block->getTerminator())) {
+    for (auto [i, succ] : llvm::enumerate(brOp->getSuccessors())) {
+      if (succ != successor)
+        continue;
+      llvm::append_range(live,
+                         brOp.getSuccessorOperands(i).getForwardedOperands());
+    }
+  }
+
+  // Kill the block arguments, and add the terminator operands.
+  transferFunction(after, before, successor->getArguments(), live);
 }
 
 void LivenessAnalysis::visitCallControlFlowTransfer(
@@ -258,6 +270,20 @@ void LivenessAnalysis::visitRegionBranchControlFlowTransfer(
   // Handle top propagation.
   if (handleTopPropagation(after, before))
     return;
+
+  LDBG_OS([&](raw_ostream &os) {
+    os << "  Region from: ";
+    if (regionFrom.isParent())
+      os << "<parent>";
+    else
+      os << OpWithFlags(regionFrom.getTerminatorPredecessorOrNull(),
+                        OpPrintingFlags().skipRegions());
+    os << "\n  Region to: ";
+    if (regionTo.isParent())
+      os << "<parent>";
+    else
+      os << "<region>:" << regionTo.getSuccessor()->getRegionNumber();
+  });
 
   // Kill the region inputs and use the region operands as live values.
   ValueRange inputs = branch.getSuccessorInputs(regionTo);
