@@ -566,12 +566,16 @@ static NopInsertionCaseDef getCase106Definition() {
       auto rTy = dyn_cast<RegisterTypeInterface>(operand.getType());
       if (!rTy)
         continue;
+      if (rTy.getTypeID() != vdst1.getType().getTypeID())
+        continue;
       if (registerRangesOverlap(*vdst1Range, rTy.getAsRange()))
         return numNops;
     }
     for (Value operand : op2.getInstOuts()) {
       auto rTy = dyn_cast<RegisterTypeInterface>(operand.getType());
       if (!rTy)
+        continue;
+      if (rTy.getTypeID() != vdst1.getType().getTypeID())
         continue;
       if (registerRangesOverlap(*vdst1Range, rTy.getAsRange()))
         return numNops;

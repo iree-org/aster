@@ -144,6 +144,32 @@ void RegisterInterferenceGraph::addEdges(SmallVectorImpl<Value> &outs,
   }
 }
 
+static LogicalResult
+addBlockEdges(Block *block, DataFlowSolver &solver,
+              function_ref<void(SmallVectorImpl<Value> &)> addEdges) {
+  auto add = [&](ProgramPoint *pp) {
+    const auto *state = solver.lookupState<LivenessState>(pp);
+    const LivenessState::ValueSet *liveness =
+        state ? state->getLiveValues() : nullptr;
+    // Skip blocks with top liveness (e.g., unreachable blocks).
+    if (!liveness)
+      return success();
+    SmallVector<Value> liveValues;
+    for (Value v : *liveness) {
+      // Get the allocas in the liveness set.
+      if (failed(getAllocasOrFailure(v, liveValues)))
+        return failure();
+    }
+    addEdges(liveValues);
+    return success();
+  };
+  if (failed(add(solver.getProgramPointBefore(block))))
+    return failure();
+  if (failed(add(solver.getProgramPointAfter(block))))
+    return failure();
+  return success();
+}
+
 /// NOTE: We use the liveness set after the operation to build the interference
 /// graph. The reason being that output registers must interfere with the set of
 /// live registers after the instruction, as they will be written at the end of
@@ -238,15 +264,20 @@ LogicalResult RegisterInterferenceGraph::run(Operation *op,
           leaderId = id;
         allocToRange[allocId++] = i;
       }
+      assert(leaderId != -1 && "empty range constraint");
       rangeLeaders.push_back(leaderId);
     }
   }
 
   // Walk the operation tree to build the interference graph.
-  WalkResult result = op->walk([&](Operation *wOp) {
-    if (op == wOp)
-      return WalkResult::advance();
-    if (failed(handleOp(wOp, solver)))
+  WalkResult result = op->walk([&](Block *block) {
+    for (Operation &nestedOp : *block) {
+      if (failed(handleOp(&nestedOp, solver)))
+        return WalkResult::interrupt();
+    }
+    if (failed(addBlockEdges(
+            block, solver,
+            [&](SmallVectorImpl<Value> &liveValues) { addEdges(liveValues); })))
       return WalkResult::interrupt();
     return WalkResult::advance();
   });

@@ -273,22 +273,34 @@ LogicalResult RegisterAllocator::collectConstraints(NodeId nodeId,
       if (!regTy.hasAllocatedSemantics())
         continue;
 
-      constraints.insert(Allocation(regTy, 1));
+      int16_t neighborSize = regTy.getAsRange().size();
+      assert(neighborSize == 1 && "expected single register");
+      constraints.insert(Allocation(regTy, neighborSize));
     }
     return success();
   };
 
-  // If there are no coalescing classes, just add the constraints for the node.
-  if (!coalescingInfo) {
-    if (failed(addConstraints(nodeId)))
-      return failure();
-    return success();
-  }
+  auto [rangeId, constraint] = coalescingInfo
+                                   ? coalescingInfo->getRangeInfo(graph, nodeId)
+                                   : graph.getRangeInfo(nodeId);
 
-  // Otherwise, add the constraints for all members of the coalescing class.
-  for (int32_t member : coalescingInfo->eqClasses.members(nodeId)) {
-    if (failed(addConstraints(member)))
-      return failure();
+  for (int32_t
+           nodeId = rangeId,
+           end = rangeId + (constraint ? constraint->allocations.size() : 1);
+       nodeId < end; ++nodeId) {
+    // If there are no coalescing classes, just add the constraints for the
+    // node.
+    if (!coalescingInfo) {
+      if (failed(addConstraints(nodeId)))
+        return failure();
+      continue;
+    }
+
+    // Otherwise, add the constraints for all members of the coalescing class.
+    for (int32_t member : coalescingInfo->eqClasses.members(nodeId)) {
+      if (failed(addConstraints(member)))
+        return failure();
+    }
   }
   return success();
 }
@@ -330,7 +342,7 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
 
   // Replace the alloca with the new alloca.
   for (auto [i, alloca] : llvm::enumerate(allocas)) {
-    // Get the node ID for the alloca, this is the the range leader + the index
+    // Get the node ID for the alloca, this is the range leader + the index
     // of the alloca in the range by construction.
     NodeId node = rangeId + i;
 

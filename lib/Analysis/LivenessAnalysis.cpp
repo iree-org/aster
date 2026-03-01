@@ -231,8 +231,18 @@ void LivenessAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
   if (handleTopPropagation(after, before))
     return;
 
+  SmallVector<Value> live;
+  if (auto brOp = dyn_cast<BranchOpInterface>(block->getTerminator())) {
+    for (auto [i, succ] : llvm::enumerate(brOp->getSuccessors())) {
+      if (succ != successor)
+        continue;
+      llvm::append_range(live,
+                         brOp.getSuccessorOperands(i).getForwardedOperands());
+    }
+  }
+
   // Kill the block arguments. Blocks themselves don't produce live values.
-  transferFunction(after, before, successor->getArguments(), {});
+  transferFunction(after, before, successor->getArguments(), live);
 }
 
 void LivenessAnalysis::visitCallControlFlowTransfer(

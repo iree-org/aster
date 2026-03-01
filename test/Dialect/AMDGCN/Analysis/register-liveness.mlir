@@ -762,3 +762,91 @@ func.func @test_mixed(%0: !amdgcn.vgpr, %1: !amdgcn.vgpr) {
   amdgcn.test_inst outs %2 ins %2 : (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> (!amdgcn.vgpr<[? + 2]>)
   return
 }
+
+// -----
+// Test: Empty kernel - no register operations, only end_kernel.
+// CHECK-LABEL: Symbol: test_empty_kernel
+// CHECK:  Op: amdgcn.end_kernel
+// CHECK:    LIVE BEFORE: []
+amdgcn.kernel @test_empty_kernel {
+  end_kernel
+}
+
+// -----
+// Test: Non-register values (i32, i1) are filtered from liveness - only
+// RegisterType values appear in the live set.
+// CHECK-LABEL: Symbol: test_non_register_filtered
+// CHECK:  Op: %{{.*}} = arith.constant 0 : i32
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.sgpr<?>
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Op: %{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, i32
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`]
+// CHECK:  Op: cf.cond_br %{{.*}}, ^bb1, ^bb2
+// CHECK:    LIVE BEFORE: []
+amdgcn.kernel @test_non_register_filtered {
+  %c0 = arith.constant 0 : i32
+  %0 = alloca : !amdgcn.sgpr<?>
+  %cond = lsir.cmpi i32 eq %0, %c0 : !amdgcn.sgpr<?>, i32
+  cf.cond_br %cond, ^bb1, ^bb2
+^bb1:
+  end_kernel
+^bb2:
+  end_kernel
+}
+
+// -----
+// Test: Long def-use chain - verify backward liveness propagates correctly
+// through many operations.
+// CHECK-LABEL: Symbol: test_long_chain
+// CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`]
+// CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`]
+// CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} :
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`, 3 = `%{{.*}}`]
+amdgcn.kernel @test_long_chain {
+  %0 = alloca : !amdgcn.vgpr<?>
+  %1 = alloca : !amdgcn.vgpr<?>
+  %2 = alloca : !amdgcn.vgpr<?>
+  %3 = alloca : !amdgcn.vgpr<?>
+  test_inst outs %1 ins %0 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  test_inst outs %2 ins %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  test_inst outs %3 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  test_inst ins %0, %1, %2, %3 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  end_kernel
+}
+
+// -----
+// Test: Triple branch merge - three predecessors merging into one block.
+// Verifies that liveness correctly unions live values from all predecessors.
+func.func private @rand() -> i1
+// CHECK-LABEL: Symbol: test_triple_merge
+// CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}}, %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
+amdgcn.kernel @test_triple_merge {
+  %0 = alloca : !amdgcn.vgpr<?>
+  %1 = alloca : !amdgcn.vgpr<?>
+  %2 = alloca : !amdgcn.vgpr<?>
+  %cond = func.call @rand() : () -> i1
+  cf.cond_br %cond, ^bb1, ^bb2
+^bb1:
+  test_inst outs %0 ins %0 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  cf.br ^bb3
+^bb2:
+  %cond2 = func.call @rand() : () -> i1
+  cf.cond_br %cond2, ^bb3_alt, ^bb3_other
+^bb3_alt:
+  test_inst outs %1 ins %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  cf.br ^bb3
+^bb3_other:
+  test_inst outs %2 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  cf.br ^bb3
+^bb3:
+  test_inst ins %0, %1, %2 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  end_kernel
+}
