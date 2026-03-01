@@ -1079,3 +1079,31 @@ func.func @disassembled_copies() {
   lsir.copy %1, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
   return
 }
+
+// -----
+// This test verifies that when allocating a range we collect constraints from all the registers in the range.
+// CHECK-LABEL:   func.func @range_interference() {
+// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<4>
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<5>
+// CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr<6>
+// CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr<7>
+// CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_0]], %[[ALLOCA_1]], %[[ALLOCA_2]], %[[ALLOCA_3]] : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
+// CHECK:           %[[ALLOCA_4:.*]] = amdgcn.alloca : !amdgcn.vgpr<2>
+// CHECK:           %[[ALLOCA_5:.*]] = amdgcn.alloca : !amdgcn.vgpr<3>
+// CHECK:           %[[MAKE_REGISTER_RANGE_1:.*]] = amdgcn.make_register_range %[[ALLOCA_4]], %[[ALLOCA_5]] : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+// CHECK:           amdgcn.test_inst ins %[[MAKE_REGISTER_RANGE_0]], %[[MAKE_REGISTER_RANGE_1]] : (!amdgcn.vgpr<[4 : 8]>, !amdgcn.vgpr<[2 : 4]>) -> ()
+// CHECK:           return
+// CHECK:         }
+func.func @range_interference() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %2 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %3 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %4 = amdgcn.make_register_range %0, %1, %2, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  %5 = amdgcn.alloca : !amdgcn.vgpr<2>
+  %6 = amdgcn.alloca : !amdgcn.vgpr<3>
+  %7 = amdgcn.make_register_range %5, %6 : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+  amdgcn.test_inst ins %4, %7 : (!amdgcn.vgpr<[? : ? + 4]>, !amdgcn.vgpr<[2 : 4]>) -> ()
+  amdgcn.reg_interference %0, %5 : !amdgcn.vgpr<?>, !amdgcn.vgpr<2>
+  return
+}
