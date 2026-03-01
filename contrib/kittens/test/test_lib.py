@@ -40,6 +40,8 @@ def get_kittens_library_paths() -> List[str]:
     kittens_paths = [
         os.path.join(kittens_dir, "global_16x16_f16.mlir"),
         os.path.join(kittens_dir, "lds_16x16_f16.mlir"),
+        os.path.join(kittens_dir, "tiles_16x16_fp8.mlir"),
+        os.path.join(kittens_dir, "lds_16x16_fp8.mlir"),
     ]
     return base_paths + kittens_paths
 
@@ -82,7 +84,7 @@ def run_kittens_kernel(
         block_dim=block_dim,
         num_iterations=run_config.num_iterations,
         skip_on_cross_compile=True,
-        print_ir_after_all=True,
+        # print_ir_after_all=True,
     )
 
 
