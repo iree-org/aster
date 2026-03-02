@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Support/Graph.h"
-#include "llvm/Support/InterleavedRange.h"
+#include "llvm/ADT/IntEqClasses.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
@@ -101,4 +101,24 @@ FailureOr<SmallVector<int32_t>> Graph::topologicalSort() const {
     return failure();
 
   return result;
+}
+
+LogicalResult Graph::computeQuotient(const llvm::IntEqClasses &eqClasses) {
+  if (!eqClasses.getNumClasses())
+    return failure();
+
+  DenseSet<Edge> newEdgeSet;
+  for (const Edge &e : edgeSet) {
+    int32_t srcClass = static_cast<int32_t>(eqClasses[e.first]);
+    int32_t tgtClass = static_cast<int32_t>(eqClasses[e.second]);
+    newEdgeSet.insert({srcClass, tgtClass});
+  }
+
+  edgeSet = std::move(newEdgeSet);
+  edgeVector.clear();
+  for (const Edge &e : edgeSet)
+    edgeVector.push_back(e);
+  numNodes = static_cast<int>(eqClasses.getNumClasses());
+  compress();
+  return success();
 }

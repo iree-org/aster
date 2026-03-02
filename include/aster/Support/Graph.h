@@ -19,10 +19,9 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator_range.h"
 
-#include <cassert>
-#include <cstddef>
-#include <cstdint>
-#include <utility>
+namespace llvm {
+class IntEqClasses;
+} // end namespace llvm
 
 namespace mlir::aster {
 
@@ -158,6 +157,12 @@ struct Graph {
   /// Compute topological sort of the graph. Returns the sorted nodes or
   /// failure if the graph contains a cycle. Only works for directed graphs.
   FailureOr<SmallVector<int32_t>> topologicalSort() const;
+
+  /// Compute the quotient graph with respect to the given equivalence classes.
+  /// Returns failure if eqClasses is not compressed. Otherwise, maps each edge
+  /// (src, tgt) to (eqClass[src], eqClass[tgt]), replaces the graph's edges
+  /// with the quotient edges, and compresses the graph.
+  LogicalResult computeQuotient(const llvm::IntEqClasses &eqClasses);
 
 protected:
   /// Insert a directed edge.
