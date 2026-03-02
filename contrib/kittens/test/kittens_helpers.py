@@ -62,6 +62,7 @@ def run_kittens_kernel(
     pass_pipeline=None,
     template_substitutions=None,
     block_dim=(64, 1, 1),
+    print_ir_after_all=False,
 ):
     """Compile an MLIR file to HSACO and execute the kernel on GPU."""
     preprocess = None
@@ -87,7 +88,7 @@ def run_kittens_kernel(
         block_dim=block_dim,
         num_iterations=run_config.num_iterations,
         skip_on_cross_compile=True,
-        # print_ir_after_all=True,
+        print_ir_after_all=print_ir_after_all,
     )
 
 
