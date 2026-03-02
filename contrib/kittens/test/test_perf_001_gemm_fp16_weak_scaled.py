@@ -27,20 +27,27 @@ class WeakScaleConfig:
     n_tiles: int
     num_stages: int
     k: int
-    num_workgroups: int
+    wg_m: int  # workgroups along M
+    wg_n: int  # workgroups along N
+
+    @property
+    def num_workgroups(self):
+        return self.wg_m * self.wg_n
 
     @property
     def m_dim(self):
-        return self.m_tiles * 16
+        """Total M dimension = WG_M * M_T * 16."""
+        return self.wg_m * self.m_tiles * 16
 
     @property
     def n_dim(self):
-        return self.n_tiles * 16
+        """Total N dimension = WG_N * N_T * 16."""
+        return self.wg_n * self.n_tiles * 16
 
     @property
     def total_flops(self):
-        """2*M*N*K per workgroup, times num_workgroups."""
-        return 2 * self.m_dim * self.n_dim * self.k * self.num_workgroups
+        """2*M*N*K for the full output matrix."""
+        return 2 * self.m_dim * self.n_dim * self.k
 
     @property
     def lds_bytes(self):
@@ -50,7 +57,7 @@ class WeakScaleConfig:
     def label(self):
         return (
             f"{self.m_tiles}x{self.n_tiles}_s{self.num_stages}"
-            f"_K{self.k}_wg{self.num_workgroups}"
+            f"_K{self.k}_wg{self.wg_m}x{self.wg_n}"
         )
 
 
@@ -66,17 +73,27 @@ NUM_ITERATIONS = 12
 WARMUP_ITERATIONS = 2
 
 
-def _run_timed(m_tiles, n_tiles, k, num_stages, num_workgroups, num_iterations):
-    """Run a constexpr GEMM and return (C_output, iteration_times_ns)."""
-    cfg = WeakScaleConfig(m_tiles, n_tiles, num_stages, k, num_workgroups)
+def _run_timed(m_tiles, n_tiles, k, num_stages, wg_m, wg_n, num_iterations):
+    """Run a multi-WG constexpr GEMM and return (C_output, iteration_times_ns).
+
+    A is [m_dim x K], B is [n_dim x K], C is [m_dim x n_dim]. num_blocks = wg_m * wg_n;
+    each WG computes its (M, N) tile slice.
+    """
+    cfg = WeakScaleConfig(m_tiles, n_tiles, num_stages, k, wg_m, wg_n)
     np.random.seed(42)
     A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
     B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
     C_output = np.zeros(cfg.m_dim * cfg.n_dim, dtype=np.float32)
 
+    subs = constexpr_substitutions(m_tiles, n_tiles, k, num_stages)
+    subs["{{WG_M}}"] = str(wg_m)
+    subs["{{WG_N}}"] = str(wg_n)
+    # Override STRIDE_C: row stride of the full C matrix (not per-WG).
+    subs["{{STRIDE_C}}"] = str(cfg.n_dim * 4)
+
     orig_blocks = run_config.num_blocks
     orig_iters = run_config.num_iterations
-    run_config.num_blocks = num_workgroups
+    run_config.num_blocks = cfg.num_workgroups
     run_config.num_iterations = num_iterations
     try:
         times_ns = run_kittens_kernel(
@@ -85,9 +102,7 @@ def _run_timed(m_tiles, n_tiles, k, num_stages, num_workgroups, num_iterations):
             input_args=[A.flatten(), B.flatten()],
             output_args=[C_output],
             pass_pipeline=TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
-            template_substitutions=constexpr_substitutions(
-                m_tiles, n_tiles, k, num_stages
-            ),
+            template_substitutions=subs,
         )
     finally:
         run_config.num_blocks = orig_blocks
@@ -106,9 +121,9 @@ class TestWeakScaleCorrectness:
         ids=["1x1", "2x2", "4x4"],
     )
     def test_correctness(self, m_tiles, n_tiles, num_stages):
-        """Constexpr GEMM at K=128, 1 WG, verified against numpy."""
+        """Constexpr GEMM at K=128, 1x1 WG grid, verified against numpy."""
         k = 128
-        C_output, _ = _run_timed(m_tiles, n_tiles, k, num_stages, 1, 1)
+        C_output, _ = _run_timed(m_tiles, n_tiles, k, num_stages, 1, 1, 1)
 
         m_dim = m_tiles * 16
         n_dim = n_tiles * 16

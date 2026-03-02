@@ -1,5 +1,12 @@
-// Constexpr multi-tile GEMM with LDS + pipelining:
-// C[{{M_DIM}}x{{N_DIM}}] = A[{{M_DIM}}xK] @ B[{{N_DIM}}xK]^T
+// Multi-workgroup constexpr GEMM with LDS + pipelining:
+// C[M_DIM x N_DIM] = A[M_DIM x K] @ B[N_DIM x K]^T
+//
+// M and N dimensions mapped across workgroups:
+//   M_DIM = WG_M * M_T * 16,  N_DIM = WG_N * N_T * 16
+//   num_blocks = WG_M * WG_N (set on host)
+//   flat_id = gpu.block_id x -> (wg_m, wg_n) via delinearize with WG_N
+//   Each WG computes C[wg_m*M_T*16 : (wg_m+1)*M_T*16, wg_n*N_T*16 : (wg_n+1)*N_T*16]
+//   A[M_DIM x K] read-only, B[N_DIM x K] read-only, C[M_DIM x N_DIM] write.
 //
 // Unified template for arbitrary M_T x N_T tile grids (1x1 through 4x4+).
 // ALL loops are constexpr -- zero structural markers, only scalar substitutions.
@@ -16,8 +23,8 @@
 //     load_global_to_lds_xor_swizzle_f16.
 //
 // Scalar substitutions:
-//   M_T, N_T, MN  - tile dimensions and product
-//   M_DIM, N_DIM  - output matrix dimensions (M_T*16, N_T*16)
+//   M_T, N_T, MN  - per-WG tile dimensions and product
+//   WG_M, WG_N     - workgroup grid dimensions (for delinearizing flat block ID)
 //   K, K_TILES, STRIDE_AB, STRIDE_C, SHARED_MEM
 //   STAGE_GLOBAL_LOAD, STAGE_DS_WRITE, STAGE_DS_READ, STAGE_COMPUTE
 
@@ -114,14 +121,15 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
   }
 
   // Issue global loads for A tiles (no wait, returns futures).
+  // m_base: WG's starting tile index in M (= wg_id * M_T).
   func.func private @k_load_a_from_global(%m_t: index,
-      %A_ptr: !sx2, %k_offset: index, %stride_AB: index)
+      %A_ptr: !sx2, %k_offset: index, %stride_AB: index, %m_base: index)
       -> !gfut_a_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %gfut_a = memref.alloca() : !gfut_a_buf
     scf.for %i = %c0 to %m_t step %c1 {
-      %m_off = affine.apply affine_map<(d0) -> (d0 * 16)>(%i)
+      %m_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 16)>(%i)[%m_base]
       %fut = func.call @load_global_tile_f16(%A_ptr, %m_off, %k_offset, %stride_AB)
           {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
           : (!sx2, index, index, index) -> !future_global_read
@@ -131,14 +139,15 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
   }
 
   // Issue global loads for B tiles (no wait, returns futures).
+  // n_base: WG's starting tile index in N (= wg_n * N_T).
   func.func private @k_load_b_from_global(%n_t: index,
-      %B_ptr: !sx2, %k_offset: index, %stride_AB: index)
+      %B_ptr: !sx2, %k_offset: index, %stride_AB: index, %n_base: index)
       -> !gfut_b_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %gfut_b = memref.alloca() : !gfut_b_buf
     scf.for %i = %c0 to %n_t step %c1 {
-      %n_off = affine.apply affine_map<(d0) -> (d0 * 16)>(%i)
+      %n_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 16)>(%i)[%n_base]
       %fut = func.call @load_global_tile_f16(%B_ptr, %n_off, %k_offset, %stride_AB)
           {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
           : (!sx2, index, index, index) -> !future_global_read
@@ -294,16 +303,18 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
   }
 
   // Store C accumulator tiles to global memory.
+  // m_base/n_base: WG's starting tile indices (= wg_m * M_T, wg_n * N_T).
   func.func private @store_c_tiles(%m_t: index, %n_t: index,
-      %c_buf: !c_buf, %C_ptr: !sx2, %stride_C: index) {
+      %c_buf: !c_buf, %C_ptr: !sx2, %stride_C: index,
+      %m_base: index, %n_base: index) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     scf.for %mt = %c0 to %m_t step %c1 {
       scf.for %nt = %c0 to %n_t step %c1 {
         %idx = affine.apply affine_map<(d0, d1) -> (d0 * {{N_T}} + d1)>(%mt, %nt)
         %c_tile = memref.load %c_buf[%idx] : !c_buf
-        %m_off = affine.apply affine_map<(d0) -> (d0 * 16)>(%mt)
-        %n_off = affine.apply affine_map<(d0) -> (d0 * 16)>(%nt)
+        %m_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 16)>(%mt)[%m_base]
+        %n_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 16)>(%nt)[%n_base]
         %tok = func.call @store_C_f32(%c_tile, %C_ptr, %m_off, %n_off, %stride_C)
             : (!rt_C_f32, !sx2, index, index, index) -> !write_token
         amdgcn.wait deps %tok : !write_token
@@ -312,7 +323,8 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     return
   }
 
-  // Single-wave multi-tile GEMM with pipelined LDS (64 threads = 1 wave)
+  // Multi-WG single-wave GEMM with pipelined LDS (64 threads = 1 wave per WG)
+  // num_blocks = WG_M * WG_N; flat block ID delinearized into (wg_m, wg_n).
   amdgcn.kernel @gemm_f16_weak_scaled arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
@@ -333,6 +345,15 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     %stride_C = arith.constant {{STRIDE_C}} : index
     %K_tiles = arith.constant {{K_TILES}} : index
 
+    // Delinearize flat block ID into (wg_m, wg_n) workgroup coordinates.
+    // flat_id = wg_m * WG_N + wg_n, num_blocks = WG_M * WG_N
+    %flat_id = gpu.block_id x
+    %c_WG_M = arith.constant {{WG_M}} : index
+    %c_WG_N = arith.constant {{WG_N}} : index
+    %wg_m, %wg_n = affine.delinearize_index %flat_id into (%c_WG_M, %c_WG_N) : index, index
+    %m_base = affine.apply affine_map<(d0)[s0] -> (d0 * s0)>(%wg_m)[%c_M_T]
+    %n_base = affine.apply affine_map<(d0)[s0] -> (d0 * s0)>(%wg_n)[%c_N_T]
+
     // === Initialize accumulators (constexpr over M_T*N_T) ===
     // Stored in memref -- promote-loop-carried-memrefs converts to iter_args.
     %C_buf = memref.alloca() : !c_buf
@@ -352,10 +373,10 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
           : (index, !lds_a_buf) -> !off_a_buf
       %b_off = func.call @k_get_lds_offsets_b(%c_N_T, %lds_b)
           : (index, !lds_b_buf) -> !off_b_buf
-      %gfut_a = func.call @k_load_a_from_global(%c_M_T, %A_ptr, %k_offset, %stride_AB)
-          : (index, !sx2, index, index) -> !gfut_a_buf
-      %gfut_b = func.call @k_load_b_from_global(%c_N_T, %B_ptr, %k_offset, %stride_AB)
-          : (index, !sx2, index, index) -> !gfut_b_buf
+      %gfut_a = func.call @k_load_a_from_global(%c_M_T, %A_ptr, %k_offset, %stride_AB, %m_base)
+          : (index, !sx2, index, index, index) -> !gfut_a_buf
+      %gfut_b = func.call @k_load_b_from_global(%c_N_T, %B_ptr, %k_offset, %stride_AB, %n_base)
+          : (index, !sx2, index, index, index) -> !gfut_b_buf
 
       // Stage DS_WRITE: wait for globals, store to LDS
       %tok_a = func.call @k_store_a_to_lds(%c_M_T, %a_off, %gfut_a)
@@ -385,8 +406,8 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     }
 
     // === Store results ===
-    func.call @store_c_tiles(%c_M_T, %c_N_T, %C_buf, %C_ptr, %stride_C)
-        : (index, index, !c_buf, !sx2, index) -> ()
+    func.call @store_c_tiles(%c_M_T, %c_N_T, %C_buf, %C_ptr, %stride_C, %m_base, %n_base)
+        : (index, index, !c_buf, !sx2, index, index, index) -> ()
 
     amdgcn.end_kernel
   }
