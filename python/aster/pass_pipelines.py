@@ -260,6 +260,38 @@ def test_scf_pipelining_pass_pipeline(gcd_unroll=False):
 
 TEST_SCF_PIPELINING_PASS_PIPELINE = test_scf_pipelining_pass_pipeline()
 
+# Constexpr expansion phase: unroll constexpr tile loops + promote to SSA.
+# Must run BEFORE pipelining so the output looks like hand-written kernels.
+# Includes upstream mem2reg for index-type memrefs (amdgcn-mem2reg only
+# handles register types, token types, and struct wrappers).
+PHASE_CONSTEXPR_EXPANSION = (
+    "aster-constexpr-expansion", "canonicalize",
+    "sroa", "mem2reg", "amdgcn-mem2reg",
+    "aster-promote-loop-carried-memrefs",
+    "canonicalize",
+)
+
+# Constexpr + pipelining pass pipeline: expand constexpr tile loops first,
+# then proceed with normal pipelining.
+def test_constexpr_pipelining_pass_pipeline(gcd_unroll=False):
+    return builtin_module(
+        PHASE_PRE_SCHEDULING_CLEANUP,
+        PHASE_CONSTEXPR_EXPANSION,
+        phase_scf_pipelining(gcd_unroll=gcd_unroll),
+        "aster-destructure-struct-iter-args", "canonicalize", "cse",
+        PHASE_SROA,
+        POST_SROA_CLEANUPS,
+        PHASE_CONVERT_LDS_BUFFERS,
+        PHASE_LOWER_TO_AMDGCN,
+        PHASE_EXPAND_MD_OPS,
+        PHASE_LOWER_TO_AMDGCN,
+        amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
+        PHASE_AMDGCN_BACKEND,
+        phase_nop_insertion(delays=0)
+    )
+
+TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE = test_constexpr_pipelining_pass_pipeline()
+
 # --------------------------------------------------------------------------- #
 # General pipelines for specific use cases
 # --------------------------------------------------------------------------- #
@@ -324,6 +356,7 @@ PASS_PIPELINES = {
     "nanobench": NANOBENCH_PASS_PIPELINE,
     "synchronous": TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
     "scf-pipelining": TEST_SCF_PIPELINING_PASS_PIPELINE,
+    "constexpr-pipelining": TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
 }
 
 
