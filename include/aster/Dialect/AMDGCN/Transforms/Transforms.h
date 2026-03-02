@@ -30,8 +30,6 @@ void registerDCE(Operation *op, DataFlowSolver &solver);
 
 /// Class holding coalescing information for register coloring.
 struct CoalescingInfo {
-  using NodeID = RegisterInterferenceGraph::NodeID;
-
   /// Optimize the register interference graph and return equivalence classes
   /// (e.g. for coalescing). Returns std::nullopt if optimization does not
   /// apply or fails. The dataflow solver is expected to be loaded with the
@@ -42,13 +40,13 @@ struct CoalescingInfo {
 
   /// Get the range information for a node ID. For any node returns the leader
   /// node ID, and the range constraint.
-  std::pair<NodeID, RangeConstraint *>
-  getRangeInfo(RegisterInterferenceGraph &graph, NodeID nodeId) {
+  std::pair<int32_t, RangeConstraint *>
+  getRangeInfo(RegisterInterferenceGraph &graph, int32_t nodeId) {
     return graph.getRangeInfo(nodeClasses.findLeader(nodeId));
   }
 
   /// Get the leader of the equivalence class for the given node ID.
-  NodeID getLeader(NodeID nodeId) const {
+  int32_t getLeader(int32_t nodeId) const {
     return nodeClasses.findLeader(nodeId);
   }
 

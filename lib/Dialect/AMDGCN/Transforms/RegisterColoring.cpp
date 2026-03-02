@@ -110,7 +110,6 @@ private:
 /// A greedy allocator for registers based on the interference graph.
 /// The allocator traverses nodes in breadth-first order and assigns registers.
 struct RegisterAllocator {
-  using NodeId = RegisterInterferenceGraph::NodeID;
   RegisterAllocator(RegisterInterferenceGraph &graph,
                     std::optional<CoalescingInfo> &&coalescingInfo,
                     MLIRContext *ctx)
@@ -122,15 +121,15 @@ struct RegisterAllocator {
 
 private:
   /// Collect the allocation constraints for the given node.
-  LogicalResult collectConstraints(NodeId nodeId, ArrayRef<Value> nodes);
+  LogicalResult collectConstraints(int32_t nodeId, ArrayRef<Value> nodes);
   /// Allocate memory for a register node.
-  LogicalResult alloc(NodeId nodeId, Value alloca);
+  LogicalResult alloc(int32_t nodeId, Value alloca);
 
   RegisterInterferenceGraph &graph;
   AllocConstraints constraints;
   std::optional<CoalescingInfo> coalescingInfo;
   IRRewriter rewriter;
-  llvm::DenseSet<NodeId> visited;
+  llvm::DenseSet<int32_t> visited;
   /// Insertion point, updated as allocations are inserted.
   OpBuilder::InsertPoint ip;
 };
@@ -250,12 +249,12 @@ void AllocConstraints::print(raw_ostream &os) const {
 // RegisterAllocator
 //===----------------------------------------------------------------------===//
 
-LogicalResult RegisterAllocator::collectConstraints(NodeId nodeId,
+LogicalResult RegisterAllocator::collectConstraints(int32_t nodeId,
                                                     ArrayRef<Value> nodes) {
   LDBG() << " Collecting constraints for node[" << nodeId
          << "]: " << nodes[nodeId];
 
-  auto addConstraints = [&](NodeId node) -> LogicalResult {
+  auto addConstraints = [&](int32_t node) -> LogicalResult {
     for (auto [src, tgt] : graph.edges(node)) {
       LDBG() << "  Inspecting neighbor[" << tgt << "]: " << nodes[tgt];
       Value tgtNode = nodes[tgt];
@@ -304,7 +303,7 @@ LogicalResult RegisterAllocator::collectConstraints(NodeId nodeId,
   return success();
 }
 
-LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
+LogicalResult RegisterAllocator::alloc(int32_t nodeId, Value alloca) {
   auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(alloca.getType());
   int64_t numRegs = 1;
   int64_t alignment = 1;
@@ -328,7 +327,7 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
     return emitError(alloca.getLoc()) << "failed to allocate the registers";
 
   // Helper to update the IR, and allocator after allocation.
-  auto updateAllocator = [&](NodeId node, Value castValue, Value alloca) {
+  auto updateAllocator = [&](int32_t node, Value castValue, Value alloca) {
     // Update the graph with the new value.
     Value oldAlloca = std::exchange(graph.getValues()[node], alloca);
 
@@ -343,7 +342,7 @@ LogicalResult RegisterAllocator::alloc(NodeId nodeId, Value alloca) {
   for (auto [i, alloca] : llvm::enumerate(allocas)) {
     // Get the node ID for the alloca, this is the range leader + the index
     // of the alloca in the range by construction.
-    NodeId node = rangeId + i;
+    int32_t node = rangeId + i;
 
     // Get the alloca and set the insertion point.
     auto allocaOp = cast<AllocaOp>(alloca.getDefiningOp());

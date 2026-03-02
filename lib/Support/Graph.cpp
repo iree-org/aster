@@ -16,7 +16,7 @@ using namespace mlir;
 using namespace mlir::aster;
 
 /// Default node printer.
-static void defaultNodePrinter(raw_ostream &os, const Graph::NodeID &node) {
+static void defaultNodePrinter(raw_ostream &os, const int32_t &node) {
   os << "label = \"" << node << "\"";
 }
 
@@ -27,7 +27,7 @@ static void defaultEdgePrinter(raw_ostream &os, const Graph::Edge &edge) {
 
 void Graph::print(
     raw_ostream &os, llvm::StringRef name,
-    function_ref<void(raw_ostream &os, const NodeID &)> nodePrinter,
+    function_ref<void(raw_ostream &os, const int32_t &)> nodePrinter,
     function_ref<void(raw_ostream &os, const Edge &)> edgePrinter) const {
   assert(compressed && "Graph must be compressed before printing");
   if (!nodePrinter)
@@ -37,7 +37,7 @@ void Graph::print(
   os << (isDirected() ? "digraph " : "graph ") << name.str() << " {\n";
   llvm::interleave(
       nodes(), os,
-      [&](NodeID node) {
+      [&](int32_t node) {
         os << "  " << node << " [";
         nodePrinter(os, node);
         os << "];";
@@ -46,8 +46,8 @@ void Graph::print(
   os << "\n";
   StringRef edgeKind = isDirected() ? " -> " : " -- ";
   for (const Edge &edge : edges()) {
-    NodeID src = edge.first;
-    NodeID tgt = edge.second;
+    int32_t src = edge.first;
+    int32_t tgt = edge.second;
     if (!isDirected() && src > tgt)
       continue;
     os << "  " << src << edgeKind << tgt << " [";
@@ -65,31 +65,31 @@ SmallVector<int32_t> Graph::getInDegree() const {
   return inDegree;
 }
 
-FailureOr<SmallVector<Graph::NodeID>> Graph::topologicalSort() const {
+FailureOr<SmallVector<int32_t>> Graph::topologicalSort() const {
   assert(compressed && "Graph must be compressed before topological sort");
   assert(isDirected() && "Topological sort only works for directed graphs");
 
-  SmallVector<NodeID> result;
+  SmallVector<int32_t> result;
   result.reserve(numNodes);
 
   // Count in-degrees for each node
   SmallVector<int32_t> inDegree = getInDegree();
 
   // Queue of nodes with in-degree 0
-  SmallVector<NodeID> queue;
-  for (NodeID node : nodes()) {
+  SmallVector<int32_t> queue;
+  for (int32_t node : nodes()) {
     if (inDegree[node] == 0)
       queue.push_back(node);
   }
 
   // Process nodes with in-degree 0
   while (!queue.empty()) {
-    NodeID node = queue.pop_back_val();
+    int32_t node = queue.pop_back_val();
     result.push_back(node);
 
     // Reduce in-degree for neighbors
     for (const Edge &edge : edges(node)) {
-      NodeID neighbor = edge.second;
+      int32_t neighbor = edge.second;
       --inDegree[neighbor];
       if (inDegree[neighbor] == 0)
         queue.push_back(neighbor);

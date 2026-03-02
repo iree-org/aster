@@ -53,8 +53,6 @@ struct LDSAllocNode {
 /// 3. Adding edges between buffers that are live at the same program point
 class LDSInterferenceGraph : public Graph {
 public:
-  using NodeId = Graph::NodeID;
-
   LDSInterferenceGraph() : Graph(/*directed=*/false) {}
 
   /// Create the interference graph from an operation.
@@ -66,7 +64,7 @@ public:
                                                 DominanceInfo &domInfo);
 
   /// Get the node ID for a buffer value. Returns -1 if not found.
-  NodeId getNodeId(Value buffer) const;
+  int32_t getNodeId(Value buffer) const;
 
   /// Get the allocation nodes in the graph.
   ArrayRef<LDSAllocNode> getAllocNodes() const { return allocNodes; }
@@ -76,13 +74,13 @@ public:
 
 private:
   /// Add an allocation node to the graph. Returns the node ID.
-  NodeId addNode(AllocLDSOp allocOp, int64_t size, int64_t alignment);
+  int32_t addNode(AllocLDSOp allocOp, int64_t size, int64_t alignment);
 
   /// Verify liveness constraints and build interference edges.
   LogicalResult buildAndVerify(Operation *op, DataFlowSolver &solver);
 
   SmallVector<LDSAllocNode> allocNodes;
-  llvm::DenseMap<Value, NodeId> allocToNodeId;
+  llvm::DenseMap<Value, int32_t> allocToNodeId;
 };
 
 } // namespace mlir::aster::amdgcn

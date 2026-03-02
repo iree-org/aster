@@ -52,10 +52,10 @@ struct RegisterInterferenceGraph : public Graph {
              llvm::EquivalenceClasses<int32_t> &eqClasses) const;
 
   /// Get the node ID for a value. Returns -1 if not found.
-  NodeID getNodeId(Value value) const;
+  int32_t getNodeId(Value value) const;
 
   /// Get the value for a node ID.
-  Value getValue(NodeID nodeId) const;
+  Value getValue(int32_t nodeId) const;
 
   /// Get all values in the graph.
   ArrayRef<Value> getValues() const { return values; }
@@ -63,16 +63,17 @@ struct RegisterInterferenceGraph : public Graph {
 
   /// Get the range information for a node ID. For any node returns the leader
   /// node ID, and the range constraint.
-  std::pair<NodeID, const RangeConstraint *> getRangeInfo(NodeID nodeId) const {
-    if (nodeId >= static_cast<NodeID>(allocToRange.size()))
+  std::pair<int32_t, const RangeConstraint *>
+  getRangeInfo(int32_t nodeId) const {
+    if (nodeId >= static_cast<int32_t>(allocToRange.size()))
       return {nodeId, nullptr};
-    NodeID rangeId = allocToRange[nodeId];
+    int32_t rangeId = allocToRange[nodeId];
     return {rangeLeaders[rangeId], rangeAnalysis.getConstraintOrNull(rangeId)};
   }
-  std::pair<NodeID, RangeConstraint *> getRangeInfo(NodeID nodeId) {
-    if (nodeId >= static_cast<NodeID>(allocToRange.size()))
+  std::pair<int32_t, RangeConstraint *> getRangeInfo(int32_t nodeId) {
+    if (nodeId >= static_cast<int32_t>(allocToRange.size()))
       return {nodeId, nullptr};
-    NodeID rangeId = allocToRange[nodeId];
+    int32_t rangeId = allocToRange[nodeId];
     return {rangeLeaders[rangeId], rangeAnalysis.getConstraintOrNull(rangeId)};
   }
 
@@ -97,18 +98,18 @@ private:
   void addEdges(SmallVectorImpl<Value> &outs, SmallVectorImpl<Value> &live);
 
   /// Get or create a node ID for an allocation.
-  NodeID getOrCreateNodeId(Value allocation);
+  int32_t getOrCreateNodeId(Value allocation);
 
   /// The allocations in the graph.
   SmallVector<Value> values;
   /// Map from values to node IDs.
-  llvm::DenseMap<Value, NodeID> valueToNodeId;
+  llvm::DenseMap<Value, int32_t> valueToNodeId;
   /// Range constraint analysis.
   RangeConstraintAnalysis &rangeAnalysis;
   /// Map from allocations in ranges to range IDs.
   SmallVector<int32_t> allocToRange;
   /// Leaders for register ranges (leader = start element of range).
-  SmallVector<NodeID> rangeLeaders;
+  SmallVector<int32_t> rangeLeaders;
   /// Build mode.
   BuildMode buildMode;
 };

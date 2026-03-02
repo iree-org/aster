@@ -26,7 +26,6 @@ using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
 namespace {
-using NodeID = RegisterInterferenceGraph::NodeID;
 using EqClasses = llvm::EquivalenceClasses<int32_t>;
 
 /// Move operation descriptor.
@@ -116,13 +115,13 @@ static bool hasEdge(const Graph &graph, EqClasses &eqClasses, int32_t lhsNode,
 
 /// Check if the given classes can be coalesced.
 static bool canCoalesce(const RegisterInterferenceGraph &graph,
-                        EqClasses &eqClasses, NodeID src, NodeID tgt,
+                        EqClasses &eqClasses, int32_t src, int32_t tgt,
                         int32_t size) {
   LDBG() << "-- Checking if can coalesce: " << src << " and " << tgt
          << " with size " << size;
   for (auto [srcId, tgtId] :
-       llvm::zip_equal(llvm::seq<NodeID>(src, src + size),
-                       llvm::seq<NodeID>(tgt, tgt + size))) {
+       llvm::zip_equal(llvm::seq<int32_t>(src, src + size),
+                       llvm::seq<int32_t>(tgt, tgt + size))) {
     // If the nodes are the same continue.
     if (srcId == tgtId)
       continue;
@@ -149,9 +148,9 @@ static bool canCoalesce(const RegisterInterferenceGraph &graph,
 /// destroy the current ranges, which also implies a re-numbering of the nodes
 /// in the graph.
 /// TODO: Allow merging with re-numbering.
-static FailureOr<std::tuple<NodeID, NodeID, int32_t, int32_t>>
-getRangeBounds(NodeID lhsBegin, int32_t lhsOff, int32_t lhsSize,
-               int32_t lhsAlignment, NodeID rhsBegin, int32_t rhsOff,
+static FailureOr<std::tuple<int32_t, int32_t, int32_t, int32_t>>
+getRangeBounds(int32_t lhsBegin, int32_t lhsOff, int32_t lhsSize,
+               int32_t lhsAlignment, int32_t rhsBegin, int32_t rhsOff,
                int32_t rhsSize, int32_t rhsAlignment) {
   // Swap so that the lhs is the larger range.
   if (lhsSize < rhsSize)
@@ -180,7 +179,7 @@ getRangeBounds(NodeID lhsBegin, int32_t lhsOff, int32_t lhsSize,
   // Get the new alignment for the coalesced range.
   int32_t newAlignment = std::lcm(lhsAlignment, rhsAlignment);
 
-  return std::make_tuple(static_cast<NodeID>(rhsInLhsStart + lhsBegin),
+  return std::make_tuple(static_cast<int32_t>(rhsInLhsStart + lhsBegin),
                          rhsBegin, rhsSize, newAlignment);
 }
 
@@ -194,8 +193,8 @@ void OptimizeGraphImpl::optimizeGraph() {
 
     // NOTE: This is safe because the graph provides the guarantee that ranges
     // are consecutive.
-    NodeID srcId = nodeClasses.findLeader(graph.getNodeId(mov.srcAllocas[0]));
-    NodeID tgtId =
+    int32_t srcId = nodeClasses.findLeader(graph.getNodeId(mov.srcAllocas[0]));
+    int32_t tgtId =
         nodeClasses.findLeader(graph.getNodeId(mov.targetAllocas[0]));
     LDBG() << "- Source ID: " << srcId << ", Target ID: " << tgtId;
 
@@ -228,7 +227,7 @@ void OptimizeGraphImpl::optimizeGraph() {
 
     // Get the bounds for the range coalescing, bail if the ranges are
     // incompatible.
-    FailureOr<std::tuple<NodeID, NodeID, int32_t, int32_t>> bounds =
+    FailureOr<std::tuple<int32_t, int32_t, int32_t, int32_t>> bounds =
         getRangeBounds(srcLeaderId, srcOffset, srcRangeSize, srcRangeAlignment,
                        tgtLeaderId, tgtOffset, tgtRangeSize, tgtRangeAlignment);
     if (failed(bounds)) {
@@ -246,8 +245,8 @@ void OptimizeGraphImpl::optimizeGraph() {
 
     // Coalesce the ranges.
     for (auto [srcId, tgtId] :
-         llvm::zip_equal(llvm::seq<NodeID>(lhsStart, lhsStart + size),
-                         llvm::seq<NodeID>(rhsStart, rhsStart + size))) {
+         llvm::zip_equal(llvm::seq<int32_t>(lhsStart, lhsStart + size),
+                         llvm::seq<int32_t>(rhsStart, rhsStart + size))) {
       eqClasses.unionSets(srcId, tgtId);
       nodeClasses.join(srcId, tgtId);
       LDBG() << "--- Joined: " << srcId << " and " << tgtId;

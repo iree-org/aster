@@ -23,24 +23,22 @@ using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
-RegisterInterferenceGraph::NodeID
-RegisterInterferenceGraph::getOrCreateNodeId(Value value) {
+int32_t RegisterInterferenceGraph::getOrCreateNodeId(Value value) {
   auto it = valueToNodeId.find(value);
   if (it != valueToNodeId.end())
     return it->second;
 
-  NodeID id = values.size();
+  int32_t id = values.size();
   values.push_back(value);
   valueToNodeId[value] = id;
   return id;
 }
 
-RegisterInterferenceGraph::NodeID
-RegisterInterferenceGraph::getNodeId(Value value) const {
+int32_t RegisterInterferenceGraph::getNodeId(Value value) const {
   return valueToNodeId.lookup_or(value, -1);
 }
 
-Value RegisterInterferenceGraph::getValue(NodeID nodeId) const {
+Value RegisterInterferenceGraph::getValue(int32_t nodeId) const {
   if (nodeId < 0 || static_cast<size_t>(nodeId) >= values.size())
     return nullptr;
   return values[nodeId];
@@ -50,8 +48,8 @@ void RegisterInterferenceGraph::addEdges(Value lhs, Value rhs) {
   if (lhs == rhs)
     return;
 
-  NodeID lhsId = getOrCreateNodeId(lhs);
-  NodeID rhsId = getOrCreateNodeId(rhs);
+  int32_t lhsId = getOrCreateNodeId(lhs);
+  int32_t rhsId = getOrCreateNodeId(rhs);
 
   if (lhsId != rhsId)
     addEdge(lhsId, rhsId);
@@ -231,9 +229,9 @@ LogicalResult RegisterInterferenceGraph::run(Operation *op,
     int64_t allocId = 0;
     for (const auto &[i, constraint] :
          llvm::enumerate(rangeAnalysis.getRanges())) {
-      NodeID leaderId = -1;
+      int32_t leaderId = -1;
       for (Value alloc : constraint.allocations) {
-        NodeID id = getOrCreateNodeId(alloc);
+        int32_t id = getOrCreateNodeId(alloc);
         if (leaderId == -1)
           leaderId = id;
         allocToRange[allocId++] = i;
@@ -291,7 +289,7 @@ void RegisterInterferenceGraph::print(raw_ostream &os) const {
   os << "graph RegisterInterference {\n";
   llvm::interleave(
       nodes(), os,
-      [&](NodeID node) {
+      [&](int32_t node) {
         os << "  " << node << " [label=\"" << node << ", ";
         values[node].printAsOperand(os, OpPrintingFlags());
         os << "\"];";
@@ -299,8 +297,8 @@ void RegisterInterferenceGraph::print(raw_ostream &os) const {
       "\n");
   os << "\n";
   for (const Edge &edge : edges()) {
-    NodeID src = edge.first;
-    NodeID tgt = edge.second;
+    int32_t src = edge.first;
+    int32_t tgt = edge.second;
     if (src > tgt)
       continue;
     os << "  " << src << " -- " << tgt << ";\n";
@@ -319,7 +317,7 @@ void RegisterInterferenceGraph::print(
   // iterate nodes in order (0..N-1), the first node we see in each class is
   // the smallest and becomes the canonical representative.
   SmallVector<int32_t> classRep(numNodes, -1);
-  for (NodeID node : nodes()) {
+  for (int32_t node : nodes()) {
     int32_t leader = eqClasses.getLeaderValue(node);
     if (classRep[leader] == -1)
       classRep[leader] = node;
@@ -327,7 +325,7 @@ void RegisterInterferenceGraph::print(
   }
 
   os << "graph RegisterInterferenceQuotient {\n";
-  for (NodeID node : nodes()) {
+  for (int32_t node : nodes()) {
     // Only print the canonical representative of each class.
     if (classRep[node] != node)
       continue;
@@ -338,7 +336,7 @@ void RegisterInterferenceGraph::print(
 
   // Print the edges.
   DenseSet<std::pair<int32_t, int32_t>> printedEdges;
-  for (NodeID node : nodes()) {
+  for (int32_t node : nodes()) {
     // Only process each class once (at the canonical representative).
     if (classRep[node] != node)
       continue;

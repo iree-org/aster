@@ -69,9 +69,8 @@ static LogicalResult checkGetLDSOffset(GetLDSOffsetOp getLDSOffsetOp,
 }
 
 /// Add interference edges between all pairs of live buffers.
-static void
-addInterferenceEdges(ArrayRef<LDSInterferenceGraph::NodeId> liveNodes,
-                     LDSInterferenceGraph &graph) {
+static void addInterferenceEdges(ArrayRef<int32_t> liveNodes,
+                                 LDSInterferenceGraph &graph) {
   for (int i = 0, end = static_cast<int>(liveNodes.size()); i < end; ++i) {
     for (int j = i + 1; j < end; ++j) {
       if (liveNodes[i] == liveNodes[j])
@@ -87,17 +86,15 @@ addInterferenceEdges(ArrayRef<LDSInterferenceGraph::NodeId> liveNodes,
 // LDSInterferenceGraph
 //===----------------------------------------------------------------------===//
 
-LDSInterferenceGraph::NodeId LDSInterferenceGraph::addNode(AllocLDSOp allocOp,
-                                                           int64_t size,
-                                                           int64_t alignment) {
-  NodeId id = allocNodes.size();
+int32_t LDSInterferenceGraph::addNode(AllocLDSOp allocOp, int64_t size,
+                                      int64_t alignment) {
+  int32_t id = allocNodes.size();
   allocNodes.emplace_back(allocOp, size, alignment);
   allocToNodeId[allocOp.getBuffer()] = id;
   return id;
 }
 
-LDSInterferenceGraph::NodeId
-LDSInterferenceGraph::getNodeId(Value buffer) const {
+int32_t LDSInterferenceGraph::getNodeId(Value buffer) const {
   return allocToNodeId.lookup_or(buffer, -1);
 }
 
@@ -147,11 +144,10 @@ LogicalResult LDSInterferenceGraph::buildAndVerify(Operation *op,
                << OpWithFlags(operation, OpPrintingFlags().skipRegions())
                << "\n  with state: " << *afterState;
         // Collect live buffers and add interference edges.
-        SmallVector<LDSInterferenceGraph::NodeId> liveNodes;
+        SmallVector<int32_t> liveNodes;
         for (auto [buffer, state] : afterState->getBuffers()) {
           if (state == BufferState::State::Live) {
-            if (LDSInterferenceGraph::NodeId nodeId = getNodeId(buffer);
-                nodeId >= 0)
+            if (int32_t nodeId = getNodeId(buffer); nodeId >= 0)
               liveNodes.push_back(nodeId);
           }
         }
@@ -190,7 +186,7 @@ void LDSInterferenceGraph::print(raw_ostream &os) const {
   os << "graph LDSInterferenceGraph {\n";
   llvm::interleave(
       nodes(), os,
-      [&](NodeID node) {
+      [&](int32_t node) {
         const LDSAllocNode &allocNode = allocNodes[node];
         AllocLDSOp allocOp = allocNode.allocOp;
         os << "  " << node << " [label=\"" << node << ": ";
@@ -201,8 +197,8 @@ void LDSInterferenceGraph::print(raw_ostream &os) const {
       "\n");
   os << "\n";
   for (const Edge &edge : edges()) {
-    NodeID src = edge.first;
-    NodeID tgt = edge.second;
+    int32_t src = edge.first;
+    int32_t tgt = edge.second;
     if (src > tgt)
       continue;
     os << "  " << src << " -- " << tgt << ";\n";

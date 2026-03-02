@@ -30,8 +30,7 @@ namespace mlir::aster {
 /// identified by integer IDs, and are expected to be dense, contiguous and
 /// starting on 0.
 struct Graph {
-  using NodeID = int32_t;
-  using Edge = std::pair<NodeID, NodeID>;
+  using Edge = std::pair<int32_t, int32_t>;
   using NodeIterator = llvm::detail::index_iterator;
   using EdgeIterator = typename SmallVector<Edge>::const_iterator;
 
@@ -55,7 +54,7 @@ struct Graph {
   }
 
   /// Add an edge to the graph.
-  void addEdge(NodeID src, NodeID tgt) {
+  void addEdge(int32_t src, int32_t tgt) {
     bool inserted = insertEdge(src, tgt);
     if (!directed && inserted)
       insertEdge(tgt, src);
@@ -72,10 +71,10 @@ struct Graph {
   }
 
   /// Check if the graph has a given node.
-  bool hasNode(NodeID node) const { return node >= 0 && node < numNodes; }
+  bool hasNode(int32_t node) const { return node >= 0 && node < numNodes; }
 
   /// Check if the graph has an edge between src and tgt.
-  bool hasEdge(NodeID src, NodeID tgt) const {
+  bool hasEdge(int32_t src, int32_t tgt) const {
     return edgeSet.contains({src, tgt});
   }
 
@@ -150,7 +149,7 @@ struct Graph {
   /// Print the graph.
   void print(
       raw_ostream &os, llvm::StringRef name = "Graph",
-      function_ref<void(raw_ostream &os, const NodeID &)> nodePrinter = {},
+      function_ref<void(raw_ostream &os, const int32_t &)> nodePrinter = {},
       function_ref<void(raw_ostream &os, const Edge &)> edgePrinter = {}) const;
 
   /// Computes the in degree of each node.
@@ -158,11 +157,11 @@ struct Graph {
 
   /// Compute topological sort of the graph. Returns the sorted nodes or
   /// failure if the graph contains a cycle. Only works for directed graphs.
-  FailureOr<SmallVector<NodeID>> topologicalSort() const;
+  FailureOr<SmallVector<int32_t>> topologicalSort() const;
 
 protected:
   /// Insert a directed edge.
-  bool insertEdge(NodeID src, NodeID tgt) {
+  bool insertEdge(int32_t src, int32_t tgt) {
     assert(src >= 0 && tgt >= 0 && "Node IDs must be non-negative");
     numNodes = std::max({numNodes, src, tgt + 1});
     if (!edgeSet.insert({src, tgt}).second)

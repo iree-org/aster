@@ -75,7 +75,6 @@ private:
 /// The allocator traverses nodes in breadth-first order and assigns offsets
 /// to buffers.
 struct LDSAllocator {
-  using NodeId = LDSInterferenceGraph::NodeId;
   LDSAllocator(const LDSInterferenceGraph &graph) : graph(graph) {}
 
   /// Get the total LDS memory used.
@@ -87,7 +86,8 @@ struct LDSAllocator {
 
 private:
   /// Collect the allocation constraints for the given node.
-  LogicalResult collectConstraints(NodeId nodeId, ArrayRef<LDSAllocNode> nodes);
+  LogicalResult collectConstraints(int32_t nodeId,
+                                   ArrayRef<LDSAllocNode> nodes);
   /// Allocate memory for a buffer node.
   LogicalResult alloc(LDSAllocNode node);
 
@@ -201,7 +201,7 @@ static int64_t getOffset(AllocLDSOp allocOp) {
   return allocOp.getOffset() ? static_cast<int64_t>(*allocOp.getOffset()) : -1;
 }
 
-LogicalResult LDSAllocator::collectConstraints(NodeId nodeId,
+LogicalResult LDSAllocator::collectConstraints(int32_t nodeId,
                                                ArrayRef<LDSAllocNode> nodes) {
   for (auto [src, tgt] : graph.edges(nodeId)) {
     int64_t offset = getOffset(nodes[tgt].allocOp);
@@ -232,7 +232,7 @@ LogicalResult LDSAllocator::alloc(LDSAllocNode node) {
 }
 
 LogicalResult LDSAllocator::run(aster::GPUFuncInterface kernOp) {
-  llvm::DenseSet<NodeId> visited;
+  llvm::DenseSet<int32_t> visited;
   ArrayRef<LDSAllocNode> nodes = graph.getAllocNodes();
   if (nodes.empty())
     return success();
