@@ -73,7 +73,7 @@ def run_kittens_kernel(
                 content = content.replace(pattern, replacement)
             return content
 
-    _compile_and_run(
+    return _compile_and_run(
         file_name=mlir_file,
         kernel_name=kernel_name,
         input_data=input_args,
@@ -103,6 +103,8 @@ PIPELINE_STAGE_CONFIGS = {
     # num_stages: (STAGE_LOAD, STAGE_SYNC, STAGE_COMPUTE)
     2: (0, 1, 1),
     3: (0, 1, 2),
+    4: (0, 2, 3),
+    5: (0, 3, 4),
 }
 
 

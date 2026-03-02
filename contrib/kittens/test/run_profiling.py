@@ -47,6 +47,10 @@ from test_021_gemm_fp8_loop import TestKittensGEMMFP8 as FP8
 from test_022_gemm_fp8_2wave import TestKittensGEMMFP8_2Wave as FP82W
 from test_023_gemm_fp8_4wave import TestKittensGEMMFP8_4Wave as FP84W
 from test_024_gemm_fp8_lds_1buf import TestKittensGEMMFP8_LDS1Buf as FP8LDS
+from test_perf_001_gemm_fp16_weak_scaled import (
+    TestWeakScaleCorrectness as WSCorr,
+    TestWeakScalePerf as WSPerf,
+)
 
 # Registry: (kernel_name, test_fn, args, kwargs)
 # fmt: off
@@ -116,6 +120,11 @@ ALL_TESTS = [
     ("gemm_fp8_4wave_k128",                      FP84W().test_gemm_fp8_4wave,                     [], {"k": 128}),
     ("gemm_fp8_lds_1buf_k64",                    FP8LDS().test_gemm_fp8_lds_1buf,                 [], {"k": 64}),
     ("gemm_fp8_lds_1buf_k128",                   FP8LDS().test_gemm_fp8_lds_1buf,                 [], {"k": 128}),
+    # Weak-scaling correctness (representative configs)
+    ("ws_correctness_1x1_2s",                    WSCorr().test_correctness,                       [], {"m_tiles": 1, "n_tiles": 1, "num_stages": 2}),
+    ("ws_correctness_4x4_3s",                    WSCorr().test_correctness,                       [], {"m_tiles": 4, "n_tiles": 4, "num_stages": 3}),
+    # Weak-scaling perf sweep (runs all 24 configs)
+    ("ws_perf_sweep",                            WSPerf().test_perf_sweep,                        [], {}),
 ]
 # fmt: on
 
