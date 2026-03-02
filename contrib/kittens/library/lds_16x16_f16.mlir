@@ -32,6 +32,9 @@
 // Future type for async LDS reads (mirrors !future_global_read from global_16x16_f16.mlir)
 !future_lds_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
 
+// Future type for async global reads (mirrors !future_global_read from global_16x16_f16.mlir)
+!future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
+
 // Descriptor types from indexing.mlir
 !index_pair = !aster_utils.struct<i: index, j: index>
 !index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
@@ -45,6 +48,7 @@ amdgcn.library @kittens_lds_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
   func.func private @alloc_vgprx2() -> !vx2
 
   // From futures.mlir
+  func.func private @get_global_load_value_vx2(!future_global_read) -> !vx2
   func.func private @get_lds_read_value_vx2(!future_lds_read) -> !vx2
 
   //===--------------------------------------------------------------------===//
@@ -309,6 +313,56 @@ amdgcn.library @kittens_lds_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
 
     %c0_i32_2 = arith.constant 0 : i32
     %tok_lds = amdgcn.store ds_write_b64 data %loaded addr %lds_addr offset c(%c0_i32_2)
+        : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
+
+    return %tok_lds : !future_lds_write
+  }
+
+  // Issue global load for a 16x16xf16 tile, return future.
+  // Uses thread_lds_slice indexing (contiguous fill pattern for LDS).
+  func.func private @load_global_tile_f16(
+      %global_ptr: !sx2,
+      %m: index,
+      %n: index,
+      %stride: index
+  ) -> !future_global_read {
+    // TODO: single tile is not coalesced.
+    %row, %col = func.call @thread_lds_slice() : () -> (index, index)
+
+    %elt_size = arith.constant 2 : index
+    %desc = aster_utils.struct_create(%m, %n, %row, %col, %stride, %elt_size)
+        : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
+    %global_off_vgpr = func.call @tiled_matrix_offset(%desc)
+        : (!index_descriptor_2level_2d) -> !v
+
+    %c0_i32 = arith.constant 0 : i32
+    %tmp_reg = func.call @alloc_vgprx2() : () -> !vx2
+    %loaded, %tok_global = amdgcn.load global_load_dwordx2 dest %tmp_reg addr %global_ptr
+        offset d(%global_off_vgpr) + c(%c0_i32)
+        : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+
+    %value_any = aster_utils.to_any %loaded : !vx2
+    %future = aster_utils.struct_create(%value_any, %tok_global)
+        : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read
+    return %future : !future_global_read
+  }
+
+  // Wait for global load and write to LDS with xor swizzle.
+  func.func private @store_global_tile_to_lds_xor_swizzle_f16(
+      %lds_tile_base: index,
+      %global_future: !future_global_read
+  ) -> !future_lds_write {
+    %loaded = func.call @get_global_load_value_vx2(%global_future)
+        : (!future_global_read) -> !vx2
+
+    %row, %col = func.call @thread_lds_slice() : () -> (index, index)
+    %lds_offset_idx = func.call @lds_element_offset_xor_swizzle(%lds_tile_base, %row, %col)
+        : (index, index, index) -> index
+    %lds_offset_i32 = arith.index_cast %lds_offset_idx : index to i32
+    %lds_addr = lsir.to_reg %lds_offset_i32 : i32 -> !v
+
+    %c0_i32 = arith.constant 0 : i32
+    %tok_lds = amdgcn.store ds_write_b64 data %loaded addr %lds_addr offset c(%c0_i32)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
     return %tok_lds : !future_lds_write

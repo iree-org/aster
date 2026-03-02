@@ -11,12 +11,15 @@
 //     produces IR identical to hand-written reference kernels.
 //   - K-loop body factored into helper functions; aster-selective-inlining
 //     expands them before constexpr-expansion runs.
+//   - Global loads split from LDS stores: issue all global_loads first (no wait),
+//     then wait + ds_write. Avoids serialization from internal wait in
+//     load_global_to_lds_xor_swizzle_f16.
 //
 // Scalar substitutions:
 //   M_T, N_T, MN  - tile dimensions and product
 //   M_DIM, N_DIM  - output matrix dimensions (M_T*16, N_T*16)
 //   K, K_TILES, STRIDE_AB, STRIDE_C, SHARED_MEM
-//   STAGE_LOAD, STAGE_SYNC, STAGE_COMPUTE
+//   STAGE_GLOBAL_LOAD, STAGE_DS_WRITE, STAGE_DS_READ, STAGE_COMPUTE
 
 // Register type aliases
 !sx2 = !amdgcn.sgpr<[? + 2]>
@@ -29,12 +32,15 @@
 !write_token = !amdgcn.write_token<flat>
 !lds_write_token = !amdgcn.write_token<shared>
 !future_lds_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
+!future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 
 // Memref buffer type aliases (used in helper function signatures)
 !lds_a_buf = memref<{{M_T}} x !amdgcn.lds_buffer>
 !lds_b_buf = memref<{{N_T}} x !amdgcn.lds_buffer>
 !off_a_buf = memref<{{M_T}} x index>
 !off_b_buf = memref<{{N_T}} x index>
+!gfut_a_buf = memref<{{M_T}} x !future_global_read>
+!gfut_b_buf = memref<{{N_T}} x !future_global_read>
 !tok_a_buf = memref<{{M_T}} x !lds_write_token>
 !tok_b_buf = memref<{{N_T}} x !lds_write_token>
 !fut_a_buf = memref<{{M_T}} x !future_lds_read>
@@ -48,7 +54,8 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
   func.func private @store_C_f32(!rt_C_f32, !sx2, index, index, index) -> !write_token
-  func.func private @load_global_to_lds_xor_swizzle_f16(index, !sx2, index, index, index) -> !lds_write_token
+  func.func private @load_global_tile_f16(!sx2, index, index, index) -> !future_global_read
+  func.func private @store_global_tile_to_lds_xor_swizzle_f16(index, !future_global_read) -> !lds_write_token
   func.func private @load_lds_A_xor_swizzle_f16(index) -> !future_lds_read
   func.func private @load_lds_B_xor_swizzle_f16(index) -> !future_lds_read
   func.func private @get_lds_A_f16(!future_lds_read) -> !rt_A_f16
@@ -56,109 +63,166 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
 
   // === K-loop helper functions (inlined before constexpr expansion) ===
 
-  // Allocate LDS handles for A and B tiles.
-  func.func private @k_alloc_lds(%m_t: index, %n_t: index) -> (!lds_a_buf, !lds_b_buf) {
+  // Allocate LDS handles for A tiles.
+  func.func private @k_alloc_lds_a(%m_t: index) -> !lds_a_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %a = memref.alloca() : !lds_a_buf
     scf.for %i = %c0 to %m_t step %c1 {
-      %h = amdgcn.alloc_lds 512 {sched.stage = {{STAGE_LOAD}} : i32}
+      %h = amdgcn.alloc_lds 512 {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
       memref.store %h, %a[%i] : !lds_a_buf
     } {aster.constexpr}
-    %b = memref.alloca() : !lds_b_buf
-    scf.for %i = %c0 to %n_t step %c1 {
-      %h = amdgcn.alloc_lds 512 {sched.stage = {{STAGE_LOAD}} : i32}
-      memref.store %h, %b[%i] : !lds_b_buf
-    } {aster.constexpr}
-    return %a, %b : !lds_a_buf, !lds_b_buf
+    return %a : !lds_a_buf
   }
 
-  // Extract LDS offsets from handles.
-  func.func private @k_get_lds_offsets(%m_t: index, %n_t: index,
-      %lds_a: !lds_a_buf, %lds_b: !lds_b_buf) -> (!off_a_buf, !off_b_buf) {
+  // Allocate LDS handles for B tiles.
+  func.func private @k_alloc_lds_b(%n_t: index) -> !lds_b_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %b = memref.alloca() : !lds_b_buf
+    scf.for %i = %c0 to %n_t step %c1 {
+      %h = amdgcn.alloc_lds 512 {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+      memref.store %h, %b[%i] : !lds_b_buf
+    } {aster.constexpr}
+    return %b : !lds_b_buf
+  }
+
+  // Extract LDS offsets from A handles.
+  func.func private @k_get_lds_offsets_a(%m_t: index, %lds_a: !lds_a_buf) -> !off_a_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %a_off = memref.alloca() : !off_a_buf
     scf.for %i = %c0 to %m_t step %c1 {
       %h = memref.load %lds_a[%i] : !lds_a_buf
-      %off = amdgcn.get_lds_offset %h {sched.stage = {{STAGE_LOAD}} : i32} : index
+      %off = amdgcn.get_lds_offset %h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
       memref.store %off, %a_off[%i] : !off_a_buf
     } {aster.constexpr}
+    return %a_off : !off_a_buf
+  }
+
+  // Extract LDS offsets from B handles.
+  func.func private @k_get_lds_offsets_b(%n_t: index, %lds_b: !lds_b_buf) -> !off_b_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     %b_off = memref.alloca() : !off_b_buf
     scf.for %i = %c0 to %n_t step %c1 {
       %h = memref.load %lds_b[%i] : !lds_b_buf
-      %off = amdgcn.get_lds_offset %h {sched.stage = {{STAGE_LOAD}} : i32} : index
+      %off = amdgcn.get_lds_offset %h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
       memref.store %off, %b_off[%i] : !off_b_buf
     } {aster.constexpr}
-    return %a_off, %b_off : !off_a_buf, !off_b_buf
+    return %b_off : !off_b_buf
   }
 
-  // Load A and B tiles from global memory into LDS.
-  func.func private @k_load_tiles_to_lds(%m_t: index, %n_t: index,
-      %a_off: !off_a_buf, %b_off: !off_b_buf,
-      %A_ptr: !sx2, %B_ptr: !sx2, %k_offset: index, %stride_AB: index)
-      -> (!tok_a_buf, !tok_b_buf) {
+  // Issue global loads for A tiles (no wait, returns futures).
+  func.func private @k_load_a_from_global(%m_t: index,
+      %A_ptr: !sx2, %k_offset: index, %stride_AB: index)
+      -> !gfut_a_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %gfut_a = memref.alloca() : !gfut_a_buf
+    scf.for %i = %c0 to %m_t step %c1 {
+      %m_off = affine.apply affine_map<(d0) -> (d0 * 16)>(%i)
+      %fut = func.call @load_global_tile_f16(%A_ptr, %m_off, %k_offset, %stride_AB)
+          {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+          : (!sx2, index, index, index) -> !future_global_read
+      memref.store %fut, %gfut_a[%i] : !gfut_a_buf
+    } {aster.constexpr}
+    return %gfut_a : !gfut_a_buf
+  }
+
+  // Issue global loads for B tiles (no wait, returns futures).
+  func.func private @k_load_b_from_global(%n_t: index,
+      %B_ptr: !sx2, %k_offset: index, %stride_AB: index)
+      -> !gfut_b_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %gfut_b = memref.alloca() : !gfut_b_buf
+    scf.for %i = %c0 to %n_t step %c1 {
+      %n_off = affine.apply affine_map<(d0) -> (d0 * 16)>(%i)
+      %fut = func.call @load_global_tile_f16(%B_ptr, %n_off, %k_offset, %stride_AB)
+          {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+          : (!sx2, index, index, index) -> !future_global_read
+      memref.store %fut, %gfut_b[%i] : !gfut_b_buf
+    } {aster.constexpr}
+    return %gfut_b : !gfut_b_buf
+  }
+
+  // Wait for A global loads and store to LDS with xor swizzle.
+  func.func private @k_store_a_to_lds(%m_t: index,
+      %a_off: !off_a_buf, %gfut_a: !gfut_a_buf) -> !tok_a_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %tok_a = memref.alloca() : !tok_a_buf
     scf.for %i = %c0 to %m_t step %c1 {
       %off = memref.load %a_off[%i] : !off_a_buf
-      %m_off = affine.apply affine_map<(d0) -> (d0 * 16)>(%i)
-      %tok = func.call @load_global_to_lds_xor_swizzle_f16(%off, %A_ptr, %m_off, %k_offset, %stride_AB)
-          {sched.stage = {{STAGE_LOAD}} : i32}
-          : (index, !sx2, index, index, index) -> !lds_write_token
+      %gfut = memref.load %gfut_a[%i] : !gfut_a_buf
+      %tok = func.call @store_global_tile_to_lds_xor_swizzle_f16(%off, %gfut)
+          {sched.stage = {{STAGE_DS_WRITE}} : i32}
+          : (index, !future_global_read) -> !lds_write_token
       memref.store %tok, %tok_a[%i] : !tok_a_buf
     } {aster.constexpr}
+    return %tok_a : !tok_a_buf
+  }
+
+  // Wait for B global loads and store to LDS with xor swizzle.
+  func.func private @k_store_b_to_lds(%n_t: index,
+      %b_off: !off_b_buf, %gfut_b: !gfut_b_buf) -> !tok_b_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     %tok_b = memref.alloca() : !tok_b_buf
     scf.for %i = %c0 to %n_t step %c1 {
       %off = memref.load %b_off[%i] : !off_b_buf
-      %n_off = affine.apply affine_map<(d0) -> (d0 * 16)>(%i)
-      %tok = func.call @load_global_to_lds_xor_swizzle_f16(%off, %B_ptr, %n_off, %k_offset, %stride_AB)
-          {sched.stage = {{STAGE_LOAD}} : i32}
-          : (index, !sx2, index, index, index) -> !lds_write_token
+      %gfut = memref.load %gfut_b[%i] : !gfut_b_buf
+      %tok = func.call @store_global_tile_to_lds_xor_swizzle_f16(%off, %gfut)
+          {sched.stage = {{STAGE_DS_WRITE}} : i32}
+          : (index, !future_global_read) -> !lds_write_token
       memref.store %tok, %tok_b[%i] : !tok_b_buf
     } {aster.constexpr}
-    return %tok_a, %tok_b : !tok_a_buf, !tok_b_buf
+    return %tok_b : !tok_b_buf
   }
 
-  // Wait for LDS writes then load tiles from LDS into register futures.
-  func.func private @k_sync_and_read_lds(%m_t: index, %n_t: index,
-      %tok_a: !tok_a_buf, %tok_b: !tok_b_buf,
-      %a_off: !off_a_buf, %b_off: !off_b_buf)
-      -> (!fut_a_buf, !fut_b_buf) {
+  // Wait for A LDS writes then load A tiles from LDS into register futures.
+  func.func private @k_sync_and_read_lds_a(%m_t: index,
+      %tok_a: !tok_a_buf, %a_off: !off_a_buf) -> !fut_a_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     scf.for %i = %c0 to %m_t step %c1 {
       %tok = memref.load %tok_a[%i] : !tok_a_buf
-      amdgcn.wait deps %tok {sched.stage = {{STAGE_SYNC}} : i32} : !lds_write_token
-    } {aster.constexpr}
-    scf.for %i = %c0 to %n_t step %c1 {
-      %tok = memref.load %tok_b[%i] : !tok_b_buf
-      amdgcn.wait deps %tok {sched.stage = {{STAGE_SYNC}} : i32} : !lds_write_token
+      amdgcn.wait deps %tok {sched.stage = {{STAGE_DS_READ}} : i32} : !lds_write_token
     } {aster.constexpr}
     %a_fut = memref.alloca() : !fut_a_buf
     scf.for %i = %c0 to %m_t step %c1 {
       %off = memref.load %a_off[%i] : !off_a_buf
       %fut = func.call @load_lds_A_xor_swizzle_f16(%off)
-          {sched.stage = {{STAGE_SYNC}} : i32}
+          {sched.stage = {{STAGE_DS_READ}} : i32}
           : (index) -> !future_lds_read
       memref.store %fut, %a_fut[%i] : !fut_a_buf
+    } {aster.constexpr}
+    return %a_fut : !fut_a_buf
+  }
+
+  // Wait for B LDS writes then load B tiles from LDS into register futures.
+  func.func private @k_sync_and_read_lds_b(%n_t: index,
+      %tok_b: !tok_b_buf, %b_off: !off_b_buf) -> !fut_b_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    scf.for %i = %c0 to %n_t step %c1 {
+      %tok = memref.load %tok_b[%i] : !tok_b_buf
+      amdgcn.wait deps %tok {sched.stage = {{STAGE_DS_READ}} : i32} : !lds_write_token
     } {aster.constexpr}
     %b_fut = memref.alloca() : !fut_b_buf
     scf.for %i = %c0 to %n_t step %c1 {
       %off = memref.load %b_off[%i] : !off_b_buf
       %fut = func.call @load_lds_B_xor_swizzle_f16(%off)
-          {sched.stage = {{STAGE_SYNC}} : i32}
+          {sched.stage = {{STAGE_DS_READ}} : i32}
           : (index) -> !future_lds_read
       memref.store %fut, %b_fut[%i] : !fut_b_buf
     } {aster.constexpr}
-    return %a_fut, %b_fut : !fut_a_buf, !fut_b_buf
+    return %b_fut : !fut_b_buf
   }
 
-  // Extract register values from LDS read futures.
-  func.func private @k_extract_lds_values(%m_t: index, %n_t: index,
-      %a_fut: !fut_a_buf, %b_fut: !fut_b_buf)
-      -> (!vals_a_buf, !vals_b_buf) {
+  // Extract A register values from LDS read futures.
+  func.func private @k_extract_lds_values_a(%m_t: index, %a_fut: !fut_a_buf) -> !vals_a_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %a_vals = memref.alloca() : !vals_a_buf
@@ -169,6 +233,13 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
           : (!future_lds_read) -> !rt_A_f16
       memref.store %a, %a_vals[%i] : !vals_a_buf
     } {aster.constexpr}
+    return %a_vals : !vals_a_buf
+  }
+
+  // Extract B register values from LDS read futures.
+  func.func private @k_extract_lds_values_b(%n_t: index, %b_fut: !fut_b_buf) -> !vals_b_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     %b_vals = memref.alloca() : !vals_b_buf
     scf.for %i = %c0 to %n_t step %c1 {
       %fut = memref.load %b_fut[%i] : !fut_b_buf
@@ -177,7 +248,7 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
           : (!future_lds_read) -> !rt_B_f16
       memref.store %b, %b_vals[%i] : !vals_b_buf
     } {aster.constexpr}
-    return %a_vals, %b_vals : !vals_a_buf, !vals_b_buf
+    return %b_vals : !vals_b_buf
   }
 
   // Compute MFMAs: accumulate A*B into C tiles.
@@ -200,15 +271,21 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     return
   }
 
-  // Deallocate LDS handles.
-  func.func private @k_dealloc_lds(%m_t: index, %n_t: index,
-      %lds_a: !lds_a_buf, %lds_b: !lds_b_buf) {
+  // Deallocate A LDS handles.
+  func.func private @k_dealloc_lds_a(%m_t: index, %lds_a: !lds_a_buf) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     scf.for %i = %c0 to %m_t step %c1 {
       %h = memref.load %lds_a[%i] : !lds_a_buf
       amdgcn.dealloc_lds %h {sched.stage = {{STAGE_COMPUTE}} : i32}
     } {aster.constexpr}
+    return
+  }
+
+  // Deallocate B LDS handles.
+  func.func private @k_dealloc_lds_b(%n_t: index, %lds_b: !lds_b_buf) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     scf.for %i = %c0 to %n_t step %c1 {
       %h = memref.load %lds_b[%i] : !lds_b_buf
       amdgcn.dealloc_lds %h {sched.stage = {{STAGE_COMPUTE}} : i32}
@@ -268,34 +345,43 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     scf.for %k = %c0 to %K_tiles step %c1 {
       %k_offset = affine.apply affine_map<(k) -> (k * 16)>(%k)
 
-      // Stage LOAD: allocate LDS, get offsets, load global -> LDS
-      %lds_a, %lds_b = func.call @k_alloc_lds(%c_M_T, %c_N_T)
-          : (index, index) -> (!lds_a_buf, !lds_b_buf)
-      %a_off, %b_off = func.call @k_get_lds_offsets(%c_M_T, %c_N_T, %lds_a, %lds_b)
-          : (index, index, !lds_a_buf, !lds_b_buf) -> (!off_a_buf, !off_b_buf)
-      %tok_a, %tok_b = func.call @k_load_tiles_to_lds(
-          %c_M_T, %c_N_T, %a_off, %b_off, %A_ptr, %B_ptr, %k_offset, %stride_AB)
-          : (index, index, !off_a_buf, !off_b_buf, !sx2, !sx2, index, index)
-          -> (!tok_a_buf, !tok_b_buf)
+      // Stage GLOBAL_LOAD: allocate LDS, get offsets, issue global loads
+      %lds_a = func.call @k_alloc_lds_a(%c_M_T) : (index) -> !lds_a_buf
+      %lds_b = func.call @k_alloc_lds_b(%c_N_T) : (index) -> !lds_b_buf
+      %a_off = func.call @k_get_lds_offsets_a(%c_M_T, %lds_a)
+          : (index, !lds_a_buf) -> !off_a_buf
+      %b_off = func.call @k_get_lds_offsets_b(%c_N_T, %lds_b)
+          : (index, !lds_b_buf) -> !off_b_buf
+      %gfut_a = func.call @k_load_a_from_global(%c_M_T, %A_ptr, %k_offset, %stride_AB)
+          : (index, !sx2, index, index) -> !gfut_a_buf
+      %gfut_b = func.call @k_load_b_from_global(%c_N_T, %B_ptr, %k_offset, %stride_AB)
+          : (index, !sx2, index, index) -> !gfut_b_buf
 
-      // Stage SYNC: wait for LDS writes, load LDS -> register futures
-      %a_fut, %b_fut = func.call @k_sync_and_read_lds(
-          %c_M_T, %c_N_T, %tok_a, %tok_b, %a_off, %b_off)
-          : (index, index, !tok_a_buf, !tok_b_buf, !off_a_buf, !off_b_buf)
-          -> (!fut_a_buf, !fut_b_buf)
+      // Stage DS_WRITE: wait for globals, store to LDS
+      %tok_a = func.call @k_store_a_to_lds(%c_M_T, %a_off, %gfut_a)
+          : (index, !off_a_buf, !gfut_a_buf) -> !tok_a_buf
+      %tok_b = func.call @k_store_b_to_lds(%c_N_T, %b_off, %gfut_b)
+          : (index, !off_b_buf, !gfut_b_buf) -> !tok_b_buf
+
+      // Stage DS_READ: wait for LDS writes, load LDS -> register futures
+      %a_fut = func.call @k_sync_and_read_lds_a(%c_M_T, %tok_a, %a_off)
+          : (index, !tok_a_buf, !off_a_buf) -> !fut_a_buf
+      %b_fut = func.call @k_sync_and_read_lds_b(%c_N_T, %tok_b, %b_off)
+          : (index, !tok_b_buf, !off_b_buf) -> !fut_b_buf
 
       // Stage COMPUTE: extract register values from futures
-      %a_vals, %b_vals = func.call @k_extract_lds_values(
-          %c_M_T, %c_N_T, %a_fut, %b_fut)
-          : (index, index, !fut_a_buf, !fut_b_buf) -> (!vals_a_buf, !vals_b_buf)
+      %a_vals = func.call @k_extract_lds_values_a(%c_M_T, %a_fut)
+          : (index, !fut_a_buf) -> !vals_a_buf
+      %b_vals = func.call @k_extract_lds_values_b(%c_N_T, %b_fut)
+          : (index, !fut_b_buf) -> !vals_b_buf
 
       // Stage COMPUTE: MFMAs (constexpr over M_T x N_T)
       func.call @k_compute_mfmas(%c_M_T, %c_N_T, %a_vals, %b_vals, %C_buf)
           : (index, index, !vals_a_buf, !vals_b_buf, !c_buf) -> ()
 
       // Stage COMPUTE: deallocate LDS
-      func.call @k_dealloc_lds(%c_M_T, %c_N_T, %lds_a, %lds_b)
-          : (index, index, !lds_a_buf, !lds_b_buf) -> ()
+      func.call @k_dealloc_lds_a(%c_M_T, %lds_a) : (index, !lds_a_buf) -> ()
+      func.call @k_dealloc_lds_b(%c_N_T, %lds_b) : (index, !lds_b_buf) -> ()
     }
 
     // === Store results ===

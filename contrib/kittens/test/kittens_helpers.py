@@ -101,10 +101,22 @@ def _make_gemm_inputs(K):
 
 PIPELINE_STAGE_CONFIGS = {
     # num_stages: (STAGE_LOAD, STAGE_SYNC, STAGE_COMPUTE)
+    # Used by 3-stage templates (test_014 through test_019).
     2: (0, 1, 1),
     3: (0, 1, 2),
     4: (0, 2, 3),
     5: (0, 3, 4),
+}
+
+PIPELINE_STAGE_CONFIGS_4 = {
+    # num_stages: (STAGE_GLOBAL_LOAD, STAGE_DS_WRITE, STAGE_DS_READ, STAGE_COMPUTE)
+    # 4-stage split: separates global load from DS write for better pipelining.
+    # For 2/3-stage, DS_WRITE == GLOBAL_LOAD (combined load + store can't split).
+    # For 4+, all 4 stages are distinct.
+    2: (0, 0, 1, 1),
+    3: (0, 0, 1, 2),
+    4: (0, 1, 2, 3),
+    5: (0, 1, 3, 4),
 }
 
 
@@ -264,6 +276,7 @@ def constexpr_substitutions(m_tiles, n_tiles, k, num_stages):
     stride_c = n_tiles * 16 * 4
     shared_mem = (m_tiles + n_tiles) * 512
     stage_load, stage_sync, stage_compute = PIPELINE_STAGE_CONFIGS[num_stages]
+    stage_gl, stage_dw, stage_dr, stage_c = PIPELINE_STAGE_CONFIGS_4[num_stages]
 
     return {
         "{{M_T}}": str(m_tiles),
@@ -276,7 +289,12 @@ def constexpr_substitutions(m_tiles, n_tiles, k, num_stages):
         "{{STRIDE_AB}}": str(stride_ab),
         "{{STRIDE_C}}": str(stride_c),
         "{{SHARED_MEM}}": str(shared_mem),
+        # 3-stage names (backward compat with test_019)
         "{{STAGE_LOAD}}": str(stage_load),
         "{{STAGE_SYNC}}": str(stage_sync),
-        "{{STAGE_COMPUTE}}": str(stage_compute),
+        # 4-stage names (perf_001 split template)
+        "{{STAGE_GLOBAL_LOAD}}": str(stage_gl),
+        "{{STAGE_DS_WRITE}}": str(stage_dw),
+        "{{STAGE_DS_READ}}": str(stage_dr),
+        "{{STAGE_COMPUTE}}": str(stage_c),
     }
