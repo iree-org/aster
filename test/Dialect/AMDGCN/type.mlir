@@ -15,3 +15,6 @@ func.func private @test(
   !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? : ? + 4]>, !amdgcn.vgpr<[0 : 4]>,
   !amdgcn.vgpr<[? + 4 align 8]>, !amdgcn.vgpr<[? : ? + 4 align 8]>, !amdgcn.vgpr<[0 : 4 align 8]>
 )
+
+// lds_buffer as memref element type (enabled by MemRefElementTypeInterface)
+func.func private @test_lds_buffer_memref(memref<2 x !amdgcn.lds_buffer>)

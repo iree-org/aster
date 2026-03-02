@@ -269,7 +269,8 @@ class SReg<string name> : Type<CPred<"::mlir::isa<::mlir::aster::amdgcn::" # nam
 // Misc types
 //===----------------------------------------------------------------------===//
 
-def LDSBufferType : AMDGCN_Type<"LDSBuffer", "lds_buffer"> {
+def LDSBufferType : AMDGCN_Type<"LDSBuffer", "lds_buffer",
+    [MemRefElementTypeInterface]> {
   let summary = "LDS buffer type";
   let description = [{
     A type representing a buffer allocated in the Local Data Store (LDS).
