@@ -3,6 +3,7 @@ add_mlir_library(AsterTransforms
   ConstexprExpansion.cpp
   LDSMultibufferPrep.cpp
   OpScheduling.cpp
+  PromoteLoopCarriedMemrefs.cpp
   OptimizeArith.cpp
   ReplaceConstantGPUDims.cpp
   SCFPipelineAsterSched.cpp
