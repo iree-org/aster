@@ -109,6 +109,17 @@ mlir::aster::amdgcn::tblgen::getISAVersionList(const AMDInst &inst) {
   return tgts.str;
 }
 
+/// Get the list of instruction prop names for the given instruction.
+std::string mlir::aster::amdgcn::tblgen::getInstPropList(const AMDInst &inst) {
+  SmallVector<InstProp> flags = inst.getInstProp();
+  StrStream str;
+  llvm::interleaveComma(flags, str.os, [&](const InstProp &flag) {
+    str.os << "::mlir::aster::amdgcn::InstProp::" +
+                  flag.getAsEnumCase().getIdentifier();
+  });
+  return str.str;
+}
+
 /// Populate the format context with common substitutions.
 void mlir::aster::amdgcn::tblgen::populateFmtContext(
     const AMDInst &inst, mlir::tblgen::FmtContext &ctx) {
@@ -121,4 +132,6 @@ void mlir::aster::amdgcn::tblgen::populateFmtContext(
   ctx.addSubst("_mnemonic", inst.getMnemonic());
   ctx.addSubst("_isa", getISAVersionList(inst));
   ctx.addSubst("_numISAVersions", std::to_string(inst.getISAVersions().size()));
+  ctx.addSubst("_props", getInstPropList(inst));
+  ctx.addSubst("_numProps", std::to_string(inst.getInstProp().size()));
 }

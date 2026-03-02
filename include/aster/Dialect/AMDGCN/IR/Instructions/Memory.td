@@ -259,7 +259,7 @@ def S_LOAD_DWORDX16_INST : SLoadInst<
 
 class GLoadInst<string _mnemonic, int resultRegs,
                      list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa, [IsVMem]> {
   let constraints = (ins AccOperand<resultRegs>:$dest,
                          AddrOperand<2>:$addr,
                          NotPresent:$uniform_offset,

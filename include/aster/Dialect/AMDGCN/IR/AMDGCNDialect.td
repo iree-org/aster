@@ -60,6 +60,9 @@ class AMDGCN_Op<string mnemonic, list<Trait> traits = []>
 // Instruction infrastructure definitions
 //===----------------------------------------------------------------------===//
 
+/// AMDGCN instruction property.
+class InstProp<string sym> : PrettyEnumCaseInfo<sym>;
+
 /// AMDGCN ISA version spec.
 class ISAVersion<string sym, string id = ""> : EnumCaseInfo<sym, id>;
 
@@ -108,7 +111,8 @@ class AsmVariant<Pred pred, code format> {
 }
 
 /// AMDGCN instruction definition.
-class AMDInst<string _mnemonic, string sym, InstOp _instOp, list<ISAVersion> _isa>
+class AMDInst<string _mnemonic, string sym, InstOp _instOp, list<ISAVersion> _isa,
+              list<InstProp> _props = []>
     : EnumCaseInfo<sym, ""> {
   // The summary description of the instruction.
   code summary = "AMDGCN instruction `" # _mnemonic # "`.";
@@ -117,6 +121,8 @@ class AMDInst<string _mnemonic, string sym, InstOp _instOp, list<ISAVersion> _is
   string mnemonic = _mnemonic;
   // The AMDGCN ISA this instruction is valid for.
   list<ISAVersion> isa = _isa;
+  // The instruction properties.
+  list<InstProp> props = _props;
   // The assembly format variants for this instruction.
   list<AsmVariant> asmFormat = ?;
   // The C++ namespace where the instruction op is defined.

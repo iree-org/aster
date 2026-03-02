@@ -186,4 +186,12 @@ def AMDGCNTargets
 
 def AMDGCNTargetAttr : AMDGCN_EnumAttr<"Target", "target", AMDGCNTargets>;
 
+//===----------------------------------------------------------------------===//
+// Instruction properties definitions
+//===----------------------------------------------------------------------===//
+
+def IsVALU : InstProp<"is_valu">;
+
+def IsVMem : InstProp<"is_vmem">;
+
 #endif // ASTER_AMDGCN_TD

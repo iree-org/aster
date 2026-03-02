@@ -837,4 +837,16 @@ def OpCodeEnum : AutoI64EnumCases<"OpCode", "AMDGCN Operation Codes",
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
+//===----------------------------------------------------------------------===//
+// AMDGCN Instruction properties.
+//===----------------------------------------------------------------------===//
+
+def InstPropEnum : AutoI32EnumCases<"InstProp",
+  "AMDGCN instruction properties", !instances<InstProp>() # [
+    PrettyEnumCaseInfo<"last_prop">
+  ]> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+}
+
+
 #endif // ASTER_AMDGCN_OPS

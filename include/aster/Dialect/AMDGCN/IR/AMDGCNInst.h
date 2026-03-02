@@ -15,10 +15,12 @@
 #ifndef ASTER_DIALECT_AMDGCN_IR_AMDGCNINST_H
 #define ASTER_DIALECT_AMDGCN_IR_AMDGCNINST_H
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/Hashing.h"
+#include <bitset>
 
 namespace mlir::aster::amdgcn {
 class AMDGCNDialect;
@@ -52,15 +54,35 @@ public:
   /// Verify the instruction instance.
   virtual LogicalResult verify(Operation *op) const = 0;
 
+  /// Check if the instruction has the given property.
+  bool hasProp(InstProp prop) const {
+    return prop < InstProp::LastProp && props[static_cast<int32_t>(prop)];
+  }
+
+  /// Check if the instruction has all of the given properties.
+  bool hasProps(ArrayRef<InstProp> props) const {
+    return llvm::all_of(props, [this](InstProp prop) { return hasProp(prop); });
+  }
+
+  /// Check if the instruction has any of the given properties.
+  bool hasAnyProps(ArrayRef<InstProp> props) const {
+    return llvm::any_of(props, [this](InstProp prop) { return hasProp(prop); });
+  }
+
 protected:
-  InstMetadata(OpCode opCode, ArrayRef<ISAVersion> isaVersions)
-      : opCode(opCode), isaVersions(isaVersions) {}
+  InstMetadata(OpCode opCode, ArrayRef<ISAVersion> isaVersions,
+               ArrayRef<InstProp> props)
+      : opCode(opCode), isaVersions(isaVersions) {
+    for (InstProp prop : props)
+      this->props.set(static_cast<size_t>(prop), true);
+  }
   virtual void initialize(MLIRContext *ctx) {}
   friend struct amdgcn::detail::InstAttrStorage;
 
 private:
   OpCode opCode;
   ArrayRef<ISAVersion> isaVersions;
+  std::bitset<static_cast<size_t>(InstProp::LastProp)> props;
 };
 
 /// CRTP helper class for defining instructions.
@@ -68,7 +90,8 @@ template <typename ConcreteTy>
 class InstMD : public InstMetadata {
 public:
   using Base = InstMD;
-  InstMD() : InstMetadata(ConcreteTy::kOpCode, ConcreteTy::isa) {}
+  InstMD()
+      : InstMetadata(ConcreteTy::kOpCode, ConcreteTy::isa, ConcreteTy::props) {}
   /// Classof method for LLVM-style RTTI.
   static bool classof(const InstMetadata *md) {
     return md->getOpCode() == ConcreteTy::kOpCode;

@@ -201,6 +201,14 @@ struct ISAVersion : public RecordMixin<ISAVersion> {
   EnumCaseInfo getAsEnumCase() const { return EnumCaseInfo(def); }
 };
 
+/// AMDGCN instruction property definition.
+struct InstProp : public RecordMixin<InstProp> {
+  using Base::Base;
+  static constexpr llvm::StringRef ClassType = "InstProp";
+  /// Get as enum case.
+  EnumCaseInfo getAsEnumCase() const { return EnumCaseInfo(def); }
+};
+
 /// AMDGCN instruction op type name.
 static constexpr std::string_view InstOpClassType = "InstOp";
 
@@ -268,6 +276,11 @@ struct AMDInst : public RecordMixin<AMDInst> {
   /// Get the list of ISA versions this instruction is available on.
   SmallVector<ISAVersion> getISAVersions() const {
     return getRecordList<ISAVersion>("isa");
+  }
+
+  /// Get the list of instruction properties.
+  SmallVector<InstProp> getInstProp() const {
+    return getRecordList<InstProp>("props");
   }
 
   /// Get the assembly format variants.
@@ -342,6 +355,9 @@ std::string genArgList(const Builder &b, mlir::tblgen::FmtContext &ctx,
 
 /// Get the list of isa version names for the given instruction.
 std::string getISAVersionList(const AMDInst &inst);
+
+/// Get the list of instruction property names for the given instruction.
+std::string getInstPropList(const AMDInst &inst);
 
 /// Populate the format context with common substitutions.
 void populateFmtContext(const AMDInst &inst, mlir::tblgen::FmtContext &ctx);
