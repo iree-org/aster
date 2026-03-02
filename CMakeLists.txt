@@ -25,6 +25,7 @@ endif()
 ################################################################################
 
 option(ASTER_ENABLE_PYTHON "Enable building of the ASTER Python bindings" ON)
+option(ASTER_ENABLE_UNIT_TESTS "Enable C++ unit tests" ON)
 
 ################################################################################
 # ASTER configuration
@@ -131,6 +132,7 @@ add_compile_definitions(ASTER_ENABLE_TARGET=${ASTER_ENABLE_TARGET})
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(tools)
+add_subdirectory(unittests)
 
 if(ASTER_ENABLE_PYTHON)
   message(STATUS "ASTER Python bindings enabled")

@@ -10,6 +10,15 @@ configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.cfg.py
 )
 
+# Unit tests: C++ Google Test executables run via lit.
+# Adapted from LLVM/MLIR upstream (mlir/test/CMakeLists.txt Unit config).
+configure_lit_site_cfg(
+  ${CMAKE_CURRENT_SOURCE_DIR}/Unit/lit.site.cfg.py.in
+  ${CMAKE_CURRENT_BINARY_DIR}/Unit/lit.site.cfg.py
+  MAIN_CONFIG
+  ${CMAKE_CURRENT_SOURCE_DIR}/Unit/lit.cfg.py
+)
+
 set(ASTER_TEST_DEPENDS
   aster-opt
   aster-translate
@@ -20,6 +29,10 @@ if(ASTER_ENABLE_PYTHON)
 endif()
 
 add_subdirectory(lib)
+
+if(TARGET ASTERUnitTests)
+  list(APPEND ASTER_TEST_DEPENDS ASTERUnitTests)
+endif()
 
 add_lit_testsuite(check-aster "Running the aster regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
