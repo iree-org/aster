@@ -63,7 +63,7 @@ def SCmpI32Operand :  RegOrImm<[
   ], [I32]>;
 
 class SOPCmpIInst<string _mnemonic, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_CmpIOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_CmpIOp, _isa, [IsSALU, IsSOPC]> {
   let summary = "SOPC compare instruction setting SCC";
   // Default constraints - 2 scalar inputs, 1 SCC output.
   let constraints = (ins
@@ -199,7 +199,7 @@ def VOPCCmpI32Operand :  RegOrImm<[
 //===----------------------------------------------------------------------===//
 // Base class for VAlu compare instructions on 32 bits.
 class VOPCE32CmpIInst<string _mnemonic, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_CmpIOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_CmpIOp, _isa, [IsVALU, IsVOPC]> {
   let summary = "VOPC compare instruction setting VCC";
   // Default constraints - 2 scalar inputs, 1 VCC output.
   let constraints = (ins
@@ -227,7 +227,8 @@ def VCmpEqI32 : VOPCE32CmpIInst<"v_cmp_eq_i32", [CDNA3, CDNA4, RDNA4]> {
 // 64 bit encoding
 //===----------------------------------------------------------------------===//
 // VAlu compare instructions on 64 bit encoding.
-class VOPCE64CmpIInst<string _mnemonic, list<ISAVersion> _isa> : VOPCE32CmpIInst<_mnemonic, _isa> {
+class VOPCE64CmpIInst<string _mnemonic, list<ISAVersion> _isa>
+    : VOPCE32CmpIInst<_mnemonic, _isa> {
   let summary = "VOPC compare instruction (64-bit)";
   // Override constraints - 2 scalar inputs, 1 VCC output.
   let constraints = (ins

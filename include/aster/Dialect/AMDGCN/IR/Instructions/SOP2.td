@@ -50,7 +50,7 @@ class SOP2Constraints<int sz, bit hasSdst> {
 }
 
 class SOP2Inst<string _mnemonic, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, SOP2Op, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, SOP2Op, _isa, [IsSALU, IsSOP2]> {
   // Default constraints.
   let constraints = SOP2Constraints<1, 1>.constraints;
   // Default builders.

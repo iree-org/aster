@@ -52,7 +52,7 @@ class VOP3PConstraints<int dst_size, int src0_size, int src1_size, int src2_size
 }
 
 class VOP3PInst<string _mnemonic, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, VOP3POp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, VOP3POp, _isa, [IsVALU, IsVOP3P]> {
   // Default builders.
   let cppBuilder = OpBuilder<(ins
     CppValue:$vdst, CppValue:$src0, CppValue:$src1, CppValue:$src2), [{
@@ -161,7 +161,7 @@ def VOP3PMAIOp : AMDGCN_InstOp<"vop3p.vop3p_mai", [
 
 class MFMAInst<string _mnemonic, string sym, int aRegs, int bRegs, int cRegs,
       int dstRegs, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, sym, VOP3PMAIOp, _isa> {
+    : AMDInst<_mnemonic, sym, VOP3PMAIOp, _isa, [IsVALU, IsVOP3P, IsMMA]> {
   let constraints = (ins
       /*outs=*/AccOperand<dstRegs>:$vdst,
       /*ins=*/ VGPROperand<aRegs>:$a, VGPROperand<bRegs>:$b,
@@ -329,7 +329,7 @@ def VOP3PScaledMAIOp : AMDGCN_InstOp<"vop3p.vop3p_scaled_mai", [
 
 class ScaledMFMAInst<string _mfma_mnemonic, string sym, int aRegs, int bRegs,
       int cRegs, int dstRegs, list<ISAVersion> _isa>
-    : AMDInst<_mfma_mnemonic, sym, VOP3PScaledMAIOp, _isa> {
+    : AMDInst<_mfma_mnemonic, sym, VOP3PScaledMAIOp, _isa, [IsVALU, IsVOP3P, IsMMA, IsScaledMMA]> {
   let constraints = (ins
       /*outs=*/AccOperand<dstRegs>:$vdst,
       /*ins=*/ VGPROperand<aRegs>:$a, VGPROperand<bRegs>:$b,

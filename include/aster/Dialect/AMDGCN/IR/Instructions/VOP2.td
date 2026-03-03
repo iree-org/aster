@@ -54,7 +54,7 @@ class VOP2Constraints<int sz, bit hasDst1, bit hasSrc2> {
 }
 
 class VOP2Inst<string _mnemonic, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, VOP2Op, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, VOP2Op, _isa, [IsVALU, IsVOP2]> {
   // Default constraints.
   let constraints = VOP2Constraints<1, /*dst1=*/0, /*src2=*/0>.constraints;
   // Default builders.

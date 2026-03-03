@@ -194,4 +194,34 @@ def IsVALU : InstProp<"is_valu">;
 
 def IsVMem : InstProp<"is_vmem">;
 
+// Scalar ALU encoding families
+def IsSALU : InstProp<"salu">;
+def IsSOP1 : InstProp<"sop1">;
+def IsSOP2 : InstProp<"sop2">;
+def IsSOPC : InstProp<"sopc">;
+def IsSOPK : InstProp<"sopk">;
+def IsSOPP : InstProp<"sopp">;
+
+// Memory encoding families
+def IsSMEM : InstProp<"smem">;
+def IsDSMEM : InstProp<"dsmem">;
+def IsFlat : InstProp<"flat">;
+def IsScratch : InstProp<"scratch">;
+def IsBuffer : InstProp<"buffer">;
+def IsGlobal : InstProp<"global">;
+
+// Control flow
+def IsControlFlow : InstProp<"control_flow">;
+
+// Matrix multiply-accumulate
+def IsMMA : InstProp<"mma">;
+def IsScaledMMA : InstProp<"scaled_mma">;
+
+// Vector ALU encoding families
+def IsVOP1 : InstProp<"vop1">;
+def IsVOP2 : InstProp<"vop2">;
+def IsVOP3 : InstProp<"vop3">;
+def IsVOP3P : InstProp<"vop3p">;
+def IsVOPC : InstProp<"vopc">;
+
 #endif // ASTER_AMDGCN_TD

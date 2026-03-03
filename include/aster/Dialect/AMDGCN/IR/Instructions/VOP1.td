@@ -36,7 +36,7 @@ def VOP1NopOp : AMDGCN_InstOp<"vop1.v_nop"> {
 
 def V_NOP_INST : AMDInst<
   /*mnemonic=*/"v_nop", /*symbol=*/"v_nop",
-  /*instOp=*/VOP1NopOp, /*isa=*/[CDNA3, CDNA4]> {
+  /*instOp=*/VOP1NopOp, /*isa=*/[CDNA3, CDNA4], [IsVALU, IsVOP1]> {
   let summary = "VOP1 NOP";
   let description = [{
     Do nothing. This is a vector no-op instruction that occupies a VALU slot.
@@ -81,7 +81,7 @@ def VOP1Op : AMDGCN_InstOp<"vop1.vop1", [
 }
 
 class VOP1Inst<string _mnemonic, string sym, InstOp _instOp, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, sym, _instOp, _isa> {
+    : AMDInst<_mnemonic, sym, _instOp, _isa, [IsVALU, IsVOP1]> {
   let constraints = (ins
       /*outs=*/VGPROperand<1>:$vdst);
   let pythonBuilder = DefaultPyBuilder<(ins

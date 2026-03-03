@@ -54,7 +54,7 @@ class VOP3Constraints<int words, int dst1_w, int src2_w> {
 }
 
 class VOP3Inst<string _mnemonic, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, VOP3Op, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, VOP3Op, _isa, [IsVALU, IsVOP3]> {
   // Default constraints.
   let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/0, /*src2_w=*/0>.constraints;
   // Default builders.

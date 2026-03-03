@@ -197,7 +197,7 @@ def AMDGCN_StoreOp : AMDGCN_InstOp<"store", [
 //===----------------------------------------------------------------------===//
 
 class SLoadInst<string _mnemonic, int resultRegs, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa, [IsSMEM]> {
   let constraints = (ins SGPROperand<resultRegs>:$dest,
                          SGPROperand<2>:$addr,
                          SGPROperand<1, 1>:$uniform_offset,
@@ -259,7 +259,7 @@ def S_LOAD_DWORDX16_INST : SLoadInst<
 
 class GLoadInst<string _mnemonic, int resultRegs,
                      list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa, [IsVMem]> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa, [IsVMem, IsFlat, IsGlobal]> {
   let constraints = (ins AccOperand<resultRegs>:$dest,
                          AddrOperand<2>:$addr,
                          NotPresent:$uniform_offset,
@@ -315,7 +315,7 @@ def GLOBAL_LOAD_DWORDX4_INST : GLoadInst<
 //===----------------------------------------------------------------------===//
 
 class DReadInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa, [IsDSMEM]> {
   let constraints = (ins AccOperand<dataRegs>:$dest,
                          VGPROperand<1>:$addr,
                          NotPresent:$uniform_offset,
@@ -365,7 +365,7 @@ def DS_READ_B128_INST : DReadInst<
 //===----------------------------------------------------------------------===//
 
 class SStoreInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_StoreOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_StoreOp, _isa, [IsSMEM]> {
   let constraints = (ins SGPROperand<dataRegs>:$data,
                          SGPROperand<2>:$addr,
                          SGPROperand<1, 1>:$uniform_offset,
@@ -411,7 +411,7 @@ def S_STORE_DWORDX4_INST : SStoreInst<
 
 class GStoreInst<string _mnemonic, int dataRegs,
                       list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_StoreOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_StoreOp, _isa, [IsVMem, IsFlat, IsGlobal]> {
   let constraints = (ins AccOperand<dataRegs>:$data,
                          AddrOperand<2>:$addr,
                          NotPresent:$uniform_offset,
@@ -467,7 +467,7 @@ def GLOBAL_STORE_DWORDX4_INST : GStoreInst<
 //===----------------------------------------------------------------------===//
 
 class BLoadInst<string _mnemonic, int resultRegs, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa, [IsVMem, IsBuffer]> {
   let constraints = (ins AccOperand<resultRegs>:$dest,
                          SGPROperand<4, 0, 4>:$addr,
                          SGPROperand<1, 1>:$uniform_offset,
@@ -522,7 +522,7 @@ def BUFFER_LOAD_DWORDX4_INST : BLoadInst<
 //===----------------------------------------------------------------------===//
 
 class BStoreInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_StoreOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_StoreOp, _isa, [IsVMem, IsBuffer]> {
   let constraints = (ins AccOperand<dataRegs>:$data,
                          SGPROperand<4, 0, 4>:$addr,
                          SGPROperand<1, 1>:$uniform_offset,
@@ -590,7 +590,7 @@ def BUFFER_STORE_DWORDX4_INST : BStoreInst<
 //
 // TODO: add a BufferOpInterface for shared queries (get descriptor, soffset, etc).
 class BLoadIdxInst<string _mnemonic, int resultRegs, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic # "_idxen", AMDGCN_LoadOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic # "_idxen", AMDGCN_LoadOp, _isa, [IsVMem, IsBuffer]> {
   let constraints = (ins AccOperand<resultRegs>:$dest,
                          SGPROperand<4, 0, 4>:$addr,
                          SGPROperand<1, 1>:$uniform_offset,
@@ -649,7 +649,7 @@ def BUFFER_LOAD_DWORDX4_IDXEN_INST : BLoadIdxInst<
 //===----------------------------------------------------------------------===//
 
 class BStoreIdxInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic # "_idxen", AMDGCN_StoreOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic # "_idxen", AMDGCN_StoreOp, _isa, [IsVMem, IsBuffer]> {
   let constraints = (ins AccOperand<dataRegs>:$data,
                          SGPROperand<4, 0, 4>:$addr,
                          SGPROperand<1, 1>:$uniform_offset,
@@ -708,7 +708,7 @@ def BUFFER_STORE_DWORDX4_IDXEN_INST : BStoreIdxInst<
 //===----------------------------------------------------------------------===//
 
 class DWriteInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, _mnemonic, AMDGCN_StoreOp, _isa> {
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_StoreOp, _isa, [IsDSMEM]> {
   let constraints = (ins VGPROperand<dataRegs>:$data,
                          VGPROperand<1>:$addr,
                          NotPresent:$uniform_offset,

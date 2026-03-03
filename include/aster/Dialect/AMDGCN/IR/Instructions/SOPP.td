@@ -41,7 +41,7 @@ def SOPPOp : AMDGCN_InstOp<"sopp.sopp"> {
 }
 
 class SOPPInst<string _mnemonic, string sym, InstOp _instOp, list<ISAVersion> _isa>
-    : AMDInst<_mnemonic, sym, _instOp, _isa> {
+    : AMDInst<_mnemonic, sym, _instOp, _isa, [IsSALU, IsSOPP]> {
   let pythonBuilder = DefaultPyBuilder<(ins)>;
   let asmFormat = [SingleAsmVariant<"$imm">];
 }
@@ -119,7 +119,7 @@ def SWaitcntOp : AMDGCN_InstOp<"sopp.s_waitcnt"> {
 
 def S_WAITCNT_INST : AMDInst<
   /*mnemonic=*/"s_waitcnt", /*symbol=*/"s_waitcnt",
-  /*instOp=*/SWaitcntOp, /*isa=*/[CDNA3, CDNA4]> {
+  /*instOp=*/SWaitcntOp, /*isa=*/[CDNA3, CDNA4], [IsSALU, IsSOPP]> {
   let summary = "S_WAITCNT instruction";
   let description = [{
     Wait for counts of outstanding lds, vector-memory and export/vmem-write-data to be at or below specified levels.

@@ -34,7 +34,7 @@ def AMDGCN_EndKernelOp : AMDGCN_InstOp<"end_kernel", [
 
 def EndKernelInst : AMDInst<
   /*mnemonic=*/"s_endpgm", /*symbol=*/"s_endpgm",
-  /*instOp=*/AMDGCN_EndKernelOp, /*isa=*/[]> {
+  /*instOp=*/AMDGCN_EndKernelOp, /*isa=*/[], [IsControlFlow, IsSOPP]> {
   let summary = "End kernel instruction";
   let description = [{
     End kernel instruction that terminates a kernel function.
@@ -107,7 +107,7 @@ def AMDGCN_CBranchOp : AMDGCN_InstOp<"cbranch", [
 }
 
 def BranchInst : AMDInst</*mnemonic=*/"s_branch", /*symbol=*/"s_branch",
-    /*instOp=*/AMDGCN_BranchOp, /*targets=*/[]> {
+    /*instOp=*/AMDGCN_BranchOp, /*targets=*/[], [IsControlFlow, IsSOPP]> {
   let summary = "Unconditional Branch instruction";
   let description = [{
     Branch instruction that performs unconditional branching.
@@ -122,7 +122,7 @@ def BranchInst : AMDInst</*mnemonic=*/"s_branch", /*symbol=*/"s_branch",
 }
 
 class CBranchInst<string _mnemonic, string sym>
-  : AMDInst<_mnemonic, sym, /*instOp=*/AMDGCN_CBranchOp, /*isa=*/[]> {
+  : AMDInst<_mnemonic, sym, /*instOp=*/AMDGCN_CBranchOp, /*isa=*/[], [IsControlFlow, IsSOPP]> {
   let cppBuilder = OpBuilder<(ins "Value":$cond, "Block *":$dest, "Block *":$fallthrough), [{
     return $_create($_builder, $_loc, $_opcode, cond, dest, fallthrough);
   }]>;
