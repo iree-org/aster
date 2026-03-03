@@ -131,8 +131,4 @@ class TestScfPipelineIterArgs:
 
 
 if __name__ == "__main__":
-    TestIterArgsScalarNoIV().test_scalar_no_iv(TEST_SCF_PIPELINING_PASS_PIPELINE)
-    TestIterArgsScalarWithIV().test_scalar_with_iv(TEST_SCF_PIPELINING_PASS_PIPELINE)
-    TestIterArgsVgprNoIV().test_vgpr_no_iv(TEST_SCF_PIPELINING_PASS_PIPELINE)
-    TestIterArgsVgprWithIV().test_vgpr_with_iv(TEST_SCF_PIPELINING_PASS_PIPELINE)
-    TestScfPipelineIterArgs().test_iter_args(TEST_SCF_PIPELINING_PASS_PIPELINE)
+    pytest.main([__file__, "-v", "-s"])

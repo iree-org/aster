@@ -116,7 +116,4 @@ class TestGap02IterArgs:
 
 
 if __name__ == "__main__":
-    TestGap02().test_gap_0_2(TEST_SCF_PIPELINING_PASS_PIPELINE)
-    TestGap03().test_gap_0_3(TEST_SCF_PIPELINING_PASS_PIPELINE)
-    TestGap025().test_gap_0_2_5(TEST_SCF_PIPELINING_PASS_PIPELINE)
-    TestGap02IterArgs().test_gap_0_2_iter_args(TEST_SCF_PIPELINING_PASS_PIPELINE)
+    pytest.main([__file__, "-v", "-s"])

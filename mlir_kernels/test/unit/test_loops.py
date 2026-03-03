@@ -1,6 +1,7 @@
 """Unit tests for loop execution."""
 
 import numpy as np
+import pytest
 from aster.pass_pipelines import TEST_LOOP_PASS_PIPELINE
 
 from aster.testing import compile_and_run
@@ -29,4 +30,4 @@ class TestUniformLoopLowering:
 
 
 if __name__ == "__main__":
-    TestUniformLoopLowering().test_uniform_loop()
+    pytest.main([__file__, "-v", "-s"])

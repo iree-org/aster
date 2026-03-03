@@ -1,6 +1,7 @@
 """Unit tests for LDS bank conflict analysis using indexing.mlir functions."""
 
 import numpy as np
+import pytest
 
 from aster.testing import compile_and_run, make_grid_block_preprocess
 
@@ -130,5 +131,4 @@ class TestLdsBanks:
 
 
 if __name__ == "__main__":
-    # TestLdsBanks().test_lds_banks_A_16x16xf16()
-    TestLdsBanks().test_lds_banks_swizzled_A_16x16xf16()
+    pytest.main([__file__, "-v", "-s"])

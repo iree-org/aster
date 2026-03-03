@@ -1,6 +1,7 @@
 """Unit tests for indexing.mlir library functions."""
 
 import numpy as np
+import pytest
 
 from aster.testing import compile_and_run, make_grid_block_preprocess
 
@@ -570,9 +571,4 @@ class TestIndexBxMxNxK:
 
 
 if __name__ == "__main__":
-    TestMfmaIndexA16x16xf16().test_mfma_index_A_16x16xf16()
-    TestMfmaIndexB16x16xf16().test_mfma_index_B_16x16xf16()
-    TestMfmaIndexC16x16xf32().test_mfma_index_C_16x16xf32()
-    TestSwizzledMfmaIndexA16x16xf16().test_swizzled_mfma_index_A()
-    TestSwizzledMfmaIndexB16x16xf16().test_swizzled_mfma_index_B()
-    TestSwizzledMfmaIndexC16x16xf32().test_swizzled_mfma_index_C()
+    pytest.main([__file__, "-v", "-s"])

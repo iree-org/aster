@@ -1,6 +1,7 @@
 """Unit tests for copies.mlir library functions."""
 
 import numpy as np
+import pytest
 
 from aster.testing import compile_and_run
 
@@ -140,9 +141,4 @@ class TestGlobalLoadMultiTile:
 
 
 if __name__ == "__main__":
-    # Run all tests
-    TestStoreToGlobalDwordWait().test_store_dword()
-    TestStoreToGlobalDwordx2Wait().test_store_dwordx2()
-    TestStoreToGlobalDwordx3Wait().test_store_dwordx3()
-    TestStoreToGlobalDwordx4Wait().test_store_dwordx4()
-    TestGlobalLoadMultiTile().test_load_multi_tile_2x4_with_offsets()
+    pytest.main([__file__, "-v", "-s"])

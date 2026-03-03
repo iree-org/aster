@@ -1,6 +1,7 @@
 """Unit tests for copies.mlir library functions."""
 
 import numpy as np
+import pytest
 
 from aster.testing import compile_and_run
 
@@ -46,5 +47,4 @@ class TestGlobalToLdsAndBack16x16:
 
 
 if __name__ == "__main__":
-    # Run all tests
-    TestGlobalToLdsAndBack16x16().test_copy_tile_at_position_3_5()
+    pytest.main([__file__, "-v", "-s"])

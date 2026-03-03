@@ -124,7 +124,4 @@ class TestLdsPipelineSixStage:
 
 
 if __name__ == "__main__":
-    TestLdsPipelinePassthrough().test_lds_passthrough(TEST_SCF_PIPELINING_PASS_PIPELINE)
-    TestLdsPipelineIVDep().test_lds_iv_dep(TEST_SCF_PIPELINING_PASS_PIPELINE)
-    TestLdsPipelineAccum().test_lds_accum(TEST_SCF_PIPELINING_PASS_PIPELINE)
-    TestLdsPipelineSixStage().test_lds_six_stage(TEST_SCF_PIPELINING_PASS_PIPELINE)
+    pytest.main([__file__, "-v", "-s"])

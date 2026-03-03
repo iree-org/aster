@@ -1,6 +1,7 @@
 """Unit tests for copies.mlir library functions."""
 
 import numpy as np
+import pytest
 
 from aster.testing import compile_and_run
 
@@ -46,5 +47,4 @@ class TestLoadAndReadLdsAFragmentWait:
 
 
 if __name__ == "__main__":
-    # Run all tests
-    TestLoadAndReadLdsAFragmentWait().test_read_mfma_A_fragment()
+    pytest.main([__file__, "-v", "-s"])

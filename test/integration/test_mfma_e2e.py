@@ -54,12 +54,4 @@ def test_mfma_e2e_kernel(
 
 
 if __name__ == "__main__":
-    test_mfma_e2e_kernel(
-        mlir_filename="mfma-to-global-store-scheduled-allocated-1x1x1.mlir",
-        kernel_name="test_matmul_kernel",
-        m=16,
-        n=16,
-        k=16,
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
-        mcpu="gfx942",
-    )
+    pytest.main([__file__, "-v", "-s"])

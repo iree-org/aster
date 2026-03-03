@@ -1,6 +1,7 @@
 """Unit tests for global_load_wave library functions."""
 
 import numpy as np
+import pytest
 
 from aster.testing import compile_and_run
 
@@ -31,5 +32,4 @@ class TestGlobalLoadWave:
 
 
 if __name__ == "__main__":
-    # Run a specific test for debugging
-    TestGlobalLoadWave().test_global_load_ds_write()
+    pytest.main([__file__, "-v", "-s"])

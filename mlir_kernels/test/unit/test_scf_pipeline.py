@@ -130,13 +130,4 @@ class TestScfPipelineFiveStage:
 
 
 if __name__ == "__main__":
-    TestScfPipelineTwoStageNoIV().test_two_stage_no_iv(
-        TEST_SCF_PIPELINING_PASS_PIPELINE
-    )
-    TestScfPipelineTwoStageIVS0Only().test_two_stage_iv_s0_only(
-        TEST_SCF_PIPELINING_PASS_PIPELINE
-    )
-    TestScfPipelineTwoStageIVDep().test_two_stage_iv_dep(
-        TEST_SCF_PIPELINING_PASS_PIPELINE
-    )
-    TestScfPipelineFiveStage().test_five_stage(TEST_SCF_PIPELINING_PASS_PIPELINE)
+    pytest.main([__file__, "-v", "-s"])

@@ -204,4 +204,4 @@ class TestBufferIdxenStride1024:
 
 
 if __name__ == "__main__":
-    TestBufferOffen().test_offen_copy_all_in_bounds()
+    pytest.main([__file__, "-v", "-s"])

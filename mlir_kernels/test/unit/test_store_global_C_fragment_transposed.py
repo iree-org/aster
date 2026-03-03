@@ -1,6 +1,7 @@
 """Unit tests for copies.mlir library functions."""
 
 import numpy as np
+import pytest
 
 from aster.testing import compile_and_run
 
@@ -47,5 +48,4 @@ class TestStoreGlobalCFragmentWaitTransposed:
 
 
 if __name__ == "__main__":
-    # Run all tests
-    TestStoreGlobalCFragmentWaitTransposed().test_store_MFMA_C_fragment_transposed()
+    pytest.main([__file__, "-v", "-s"])
