@@ -628,11 +628,9 @@ def compile_and_run(
         with hsaco_file(hsaco_path):
             if not utils.system_has_mcpu(mcpu=mcpu):
                 if skip_on_cross_compile:
-                    print(module_after_passes)
-                print(asm_complete)
-                pytest.skip(
-                    f"GPU {mcpu} not available, but cross-compilation to HSACO succeeded"
-                )
+                    pytest.skip(
+                        f"GPU {mcpu} not available, but cross-compilation to HSACO succeeded"
+                    )
 
             iteration_times = execute_kernel_and_verify(
                 hsaco_path=hsaco_path,
