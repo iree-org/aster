@@ -28,6 +28,7 @@ declare_mlir_python_sources(ASTERPythonSources.core
   SOURCES
     __init__.py
     utils.py
+    hip.py
     pass_pipelines.py
     testing/__init__.py
     testing/flush_llc.py

@@ -22,20 +22,6 @@ MCPU = "gfx942"
 WAVEFRONT_SIZE = 64
 
 
-@dataclass
-class KittensRunConfig:
-    """Runtime config for kernel launches.
-
-    Mutated from run_profiling.py for profiling.
-    """
-
-    num_blocks: int = 1
-    num_iterations: int = 1
-
-
-run_config = KittensRunConfig()
-
-
 def get_kittens_library_paths() -> List[str]:
     """Get paths to all required library files including kittens."""
     base_paths = get_library_paths()
@@ -61,7 +47,9 @@ def run_kittens_kernel(
     output_args=None,
     pass_pipeline=None,
     template_substitutions=None,
+    grid_dim=(1, 1, 1),
     block_dim=(64, 1, 1),
+    num_iterations=1,
     print_ir_after_all=False,
 ):
     """Compile an MLIR file to HSACO and execute the kernel on GPU."""
@@ -84,9 +72,9 @@ def run_kittens_kernel(
         library_paths=get_kittens_library_paths(),
         mcpu=MCPU,
         wavefront_size=WAVEFRONT_SIZE,
-        grid_dim=(run_config.num_blocks, 1, 1),
+        grid_dim=grid_dim,
         block_dim=block_dim,
-        num_iterations=run_config.num_iterations,
+        num_iterations=num_iterations,
         skip_on_cross_compile=True,
         print_ir_after_all=print_ir_after_all,
     )

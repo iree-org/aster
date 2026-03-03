@@ -7,15 +7,20 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
+import tempfile
 
 from aster.pass_pipelines import TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE
 
 from kittens_helpers import (
-    run_kittens_kernel,
     get_mlir_file,
+    get_kittens_library_paths,
     constexpr_substitutions,
-    run_config,
+    MCPU,
+    WAVEFRONT_SIZE,
 )
+
+KERNEL_NAME = "gemm_f16_weak_scaled"
+MLIR_FILE = "test_perf_001_gemm_fp16_weak_scaled.mlir"
 
 
 @dataclass
@@ -30,10 +35,19 @@ class WeakScaleConfig:
     n_tiles: int
     num_stages: int
     k: int
+    k_tiles: int = 1  # TODO: extend this
 
     @property
     def num_workgroups(self):
         return self.m_wg * self.n_wg
+
+    @property
+    def num_waves(self):
+        return self.m_waves * self.n_waves
+
+    @property
+    def num_threads(self):
+        return self.num_waves * 64
 
     @property
     def m_dim(self):
@@ -50,12 +64,15 @@ class WeakScaleConfig:
         """2*M*N*K for the full output matrix."""
         return 2 * self.m_dim * self.n_dim * self.k
 
+    # Note: this is a rather gross approximation, A and B could be pipelined differently.
+    # TODO: let the resource allocation pass figure this out.
     @property
     def lds_bytes(self):
-        """LDS per pipeline stage: (M_WAVES * M_T + N_WAVES * N_T) * 512."""
+        """LDS per pipeline stage: num_waves * (M_T * K_T + K_T * N_T) * (16 * 16 * 2)."""
         return (
             self.num_stages
-            * (self.m_waves * self.m_tiles + self.n_waves * self.n_tiles)
+            * self.num_waves
+            * (self.m_tiles * self.k_tiles + self.k_tiles * self.n_tiles)
             * 512
         )
 
@@ -68,64 +85,85 @@ class WeakScaleConfig:
         )
 
 
-def run_weak_scaled_gemm(
-    m_wg,
-    n_wg,
-    m_waves,
-    n_waves,
-    m_tiles,
-    n_tiles,
-    num_stages,
-    k,
-    num_iterations,
-    print_ir_after_all=False,
-):
-    """Run a multi-WG multi-wave constexpr GEMM and return (C_output, iteration_times_ns).
+def _make_substitutions(cfg):
+    """Build template substitutions dict for a WeakScaleConfig."""
+    subs = constexpr_substitutions(cfg.m_tiles, cfg.n_tiles, cfg.k, cfg.num_stages)
+    subs["{{M_WG}}"] = str(cfg.m_wg)
+    subs["{{N_WG}}"] = str(cfg.n_wg)
+    subs["{{M_WAVES}}"] = str(cfg.m_waves)
+    subs["{{N_WAVES}}"] = str(cfg.n_waves)
+    subs["{{A_LDS_BYTES}}"] = str(cfg.m_waves * cfg.m_tiles * cfg.k_tiles * 512)
+    subs["{{B_LDS_BYTES}}"] = str(cfg.n_waves * cfg.n_tiles * cfg.k_tiles * 512)
+    subs["{{STRIDE_C}}"] = str(cfg.n_dim * 4)  # f32 = 4 bytes
+    subs["{{SHARED_MEM}}"] = str(cfg.lds_bytes)
+    subs["{{NUM_THREADS}}"] = str(cfg.num_threads)
+    subs["{{NUM_BLOCKS}}"] = str(cfg.num_workgroups)
+    return subs
 
-    A is [m_dim x K], B is [n_dim x K], C is [m_dim x n_dim]. num_blocks = m_wg * n_wg;
-    block_dim = (m_waves * n_waves * 64, 1, 1). Each wave within a WG computes M_T x N_T
-    tiles at its (wave_m, wave_n) offset.
+
+def compile_weak_scaled_gemm(cfg, output_hsaco_path):
+    """Compile a weak-scaled GEMM config to HSACO. Returns the hsaco path.
+
+    This is the CPU-only compilation step (no GPU needed). Safe to run in parallel
+    across configs.
     """
-    cfg = WeakScaleConfig(m_wg, n_wg, m_waves, n_waves, m_tiles, n_tiles, num_stages, k)
-    np.random.seed(42)
-    A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
-    B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
+    from aster import ir, utils
+    from aster.testing import compile_mlir_file_to_asm
+
+    subs = _make_substitutions(cfg)
+
+    def preprocess(content):
+        for pattern, replacement in subs.items():
+            content = content.replace(pattern, replacement)
+        return content
+
+    ctx = ir.Context()
+    ctx.__enter__()
+    try:
+        asm, _ = compile_mlir_file_to_asm(
+            get_mlir_file(MLIR_FILE),
+            KERNEL_NAME,
+            TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
+            ctx,
+            library_paths=get_kittens_library_paths(),
+            preprocess=preprocess,
+        )
+        path = utils.assemble_to_hsaco(
+            asm,
+            target=MCPU,
+            wavefront_size=WAVEFRONT_SIZE,
+            output_path=output_hsaco_path,
+        )
+        assert path is not None, "assemble_to_hsaco returned None"
+        return path
+    finally:
+        ctx.__exit__(None, None, None)
+
+
+def execute_weak_scaled_hsaco(cfg, hsaco_path, num_iterations, A, B):
+    """Execute a pre-compiled HSACO for a weak-scaled GEMM config.
+
+    Returns (C_output, times_ns). Must run sequentially on GPU. Skips (pytest.skip) if
+    the target GPU is not available.
+
+    Uses aster.hip (MLIR/LLVM-free) for rocprofv3 compatibility.
+    """
+    from aster.hip import system_has_gpu, execute_hsaco
+
+    if not system_has_gpu(MCPU):
+        pytest.skip(f"GPU {MCPU} not available (cross-compilation succeeded)")
+
     C_output = np.zeros(cfg.m_dim * cfg.n_dim, dtype=np.float32)
 
-    subs = constexpr_substitutions(m_tiles, n_tiles, k, num_stages)
-    subs["{{M_WG}}"] = str(m_wg)
-    subs["{{N_WG}}"] = str(n_wg)
-    subs["{{M_WAVES}}"] = str(m_waves)
-    subs["{{N_WAVES}}"] = str(n_waves)
-    subs["{{A_LDS_BYTES}}"] = str(m_waves * m_tiles * 512)
-    subs["{{B_LDS_BYTES}}"] = str(n_waves * n_tiles * 512)
-    # Override STRIDE_C: row stride of the full C matrix (not per-WG).
-    subs["{{STRIDE_C}}"] = str(cfg.n_dim * 4)
-    # Override SHARED_MEM: (M_WAVES * M_T + N_WAVES * N_T) * 512 per pipeline stage.
-    subs["{{SHARED_MEM}}"] = str((m_waves * m_tiles + n_waves * n_tiles) * 512)
-    # Override NUM_THREADS/NUM_BLOCKS for multi-wave multi-WG launch config.
-    subs["{{NUM_THREADS}}"] = str(m_waves * n_waves * 64)
-    subs["{{NUM_BLOCKS}}"] = str(cfg.num_workgroups)
-
-    orig_blocks = run_config.num_blocks
-    orig_iters = run_config.num_iterations
-    run_config.num_blocks = cfg.num_workgroups
-    run_config.num_iterations = num_iterations
-    try:
-        times_ns = run_kittens_kernel(
-            mlir_file=get_mlir_file("test_perf_001_gemm_fp16_weak_scaled.mlir"),
-            kernel_name="gemm_f16_weak_scaled",
-            input_args=[A.flatten(), B.flatten()],
-            output_args=[C_output],
-            pass_pipeline=TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
-            template_substitutions=subs,
-            block_dim=(m_waves * n_waves * 64, 1, 1),
-            print_ir_after_all=print_ir_after_all,
-        )
-    finally:
-        run_config.num_blocks = orig_blocks
-        run_config.num_iterations = orig_iters
-
+    times_ns = execute_hsaco(
+        hsaco_path=hsaco_path,
+        kernel_name=KERNEL_NAME,
+        input_arrays=[A.flatten(), B.flatten()],
+        output_arrays=[C_output],
+        grid_dim=(cfg.num_workgroups, 1, 1),
+        block_dim=(cfg.num_threads, 1, 1),
+        num_iterations=num_iterations,
+    )
     return C_output, times_ns
 
 
@@ -137,8 +175,8 @@ class TestWeakScaleCorrectness:
         # note: most minor dimension must be power of 2 to delinearize from 1-D
         # as aster does not yet support general divisions.
         # alternatively the kernel could use block_id x and block_id y
-        [(19, 4)],
-        ids=["wg4x19"],
+        [(1, 1), (19, 4)],
+        ids=["wg1x1", "wg4x19"],
     )
     @pytest.mark.parametrize(
         "m_waves,n_waves",
@@ -156,25 +194,18 @@ class TestWeakScaleCorrectness:
     ):
         """Constexpr GEMM at K=128, verified against numpy."""
         k = 128
-        C_output, _ = run_weak_scaled_gemm(
-            m_wg,
-            n_wg,
-            m_waves,
-            n_waves,
-            m_tiles,
-            n_tiles,
-            num_stages,
-            k,
-            1,
-            print_ir_after_all=False,
-        )
-
         cfg = WeakScaleConfig(
             m_wg, n_wg, m_waves, n_waves, m_tiles, n_tiles, num_stages, k
         )
+        # Note: conservative for now, seems we get burned when flying too close to the sky.
+        if cfg.lds_bytes >= 2**16 * 0.75:
+            pytest.skip(f"LDS {cfg.lds_bytes} >= 2 ** 15 for {cfg.label}")
         np.random.seed(42)
         A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
         B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
+        with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
+            compile_weak_scaled_gemm(cfg, tmp.name)
+            C_output, _ = execute_weak_scaled_hsaco(cfg, tmp.name, 1, A, B)
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
