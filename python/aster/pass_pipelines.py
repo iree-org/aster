@@ -283,8 +283,11 @@ def test_constexpr_pipelining_pass_pipeline(gcd_unroll=False):
         POST_SROA_CLEANUPS,
         PHASE_CONVERT_LDS_BUFFERS,
         PHASE_LOWER_TO_AMDGCN,
-        PHASE_EXPAND_MD_OPS,
-        PHASE_LOWER_TO_AMDGCN,
+        # WARNING: PHASE_EXPAND_MD_OPS is NOT idempotent -- running it twice
+        # clobbers enable_workgroup_id_x to false (see expand-md-ops-idempotent.mlir).
+        # amdgcn-backend already runs expand-md-ops internally, so skip it here.
+        # PHASE_EXPAND_MD_OPS,
+        # PHASE_LOWER_TO_AMDGCN,
         amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
         PHASE_AMDGCN_BACKEND,
         phase_nop_insertion(delays=0)

@@ -47,10 +47,8 @@ from test_021_gemm_fp8_loop import TestKittensGEMMFP8 as FP8
 from test_022_gemm_fp8_2wave import TestKittensGEMMFP8_2Wave as FP82W
 from test_023_gemm_fp8_4wave import TestKittensGEMMFP8_4Wave as FP84W
 from test_024_gemm_fp8_lds_1buf import TestKittensGEMMFP8_LDS1Buf as FP8LDS
-from test_perf_001_gemm_fp16_weak_scaled import (
-    TestWeakScaleCorrectness as WSCorr,
-    TestWeakScalePerf as WSPerf,
-)
+from test_perf_001_gemm_fp16_weak_scaled import TestWeakScaleCorrectness as WSCorr
+from bench_perf_sweep_001_gemm_fp16_weak_scaled import TestWeakScalePerf as WSPerf
 
 # Registry: (kernel_name, test_fn, args, kwargs)
 # fmt: off

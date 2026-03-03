@@ -2,16 +2,16 @@
 // C[M_DIM x N_DIM] = A[M_DIM x K] @ B[N_DIM x K]^T
 //
 // Two-level parallelism:
-//   Workgroup grid: WG_M x WG_N workgroups, num_blocks = WG_M * WG_N
+//   Workgroup grid: M_WG x N_WG workgroups, num_blocks = M_WG * N_WG
 //   Wave grid:      M_WAVES x N_WAVES waves per WG
-//   M_DIM = WG_M * M_WAVES * M_T * 16
-//   N_DIM = WG_N * N_WAVES * N_T * 16
+//   M_DIM = M_WG * M_WAVES * M_T * 16
+//   N_DIM = N_WG * N_WAVES * N_T * 16
 //
 // Each WG has M_WAVES * N_WAVES waves (threads = that * 64).
 // wave_id delinearized into (wave_m, wave_n) via (M_WAVES, N_WAVES).
-// Wave (wm, wn) within WG (wg_m, wg_n) computes M_T x N_T tiles at:
-//   m_base = (wg_m * M_WAVES + wave_m) * M_T  (tile units)
-//   n_base = (wg_n * N_WAVES + wave_n) * N_T  (tile units)
+// Wave (wm, wn) within WG (m_wg, n_wg) computes M_T x N_T tiles at:
+//   m_base = (m_wg * M_WAVES + wave_m) * M_T  (tile units)
+//   n_base = (n_wg * N_WAVES + wave_n) * N_T  (tile units)
 //
 // LDS layout per K-iteration (single large allocations):
 //   A: A_LDS_BYTES = M_WAVES * M_T * 512 bytes
@@ -24,7 +24,7 @@
 //
 // Scalar substitutions:
 //   M_T, N_T, MN             - per-wave tile dimensions and product
-//   WG_M, WG_N               - workgroup grid dimensions
+//   M_WG, N_WG               - workgroup grid dimensions
 //   M_WAVES, N_WAVES  - wave grid dimensions within each WG
 //   A_LDS_BYTES, B_LDS_BYTES  - LDS allocation sizes
 //   K, K_TILES, STRIDE_AB, STRIDE_C, SHARED_MEM
@@ -89,7 +89,7 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
   }
 
   // Issue global loads for B tiles (no wait, returns futures).
-  // n_base: WG's starting tile index in N (= wg_n * N_T).
+  // n_base: WG's starting tile index in N (= n_wg * N_T).
   func.func private @k_load_b_from_global(%n_t: index,
       %B_ptr: !sx2, %k_offset: index, %stride_AB: index, %n_base: index)
       -> !gfut_b_buf {
@@ -241,7 +241,7 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
   }
 
   // Store C accumulator tiles to global memory.
-  // m_base/n_base: WG's starting tile indices (= wg_m * M_T, wg_n * N_T).
+  // m_base/n_base: WG's starting tile indices (= m_wg * M_T, n_wg * N_T).
   func.func private @store_c_tiles(%m_t: index, %n_t: index,
       %c_buf: !c_buf, %C_ptr: !sx2, %stride_C: index,
       %m_base: index, %n_base: index) {
@@ -263,13 +263,13 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
 
   // Multi-WG multi-wave GEMM with pipelined LDS
   // M_WAVES * N_WAVES waves per WG; block_dim = (M_WAVES * N_WAVES * 64, 1, 1).
-  // num_blocks = WG_M * WG_N; flat block ID delinearized into (wg_m, wg_n).
+  // num_blocks = M_WG * N_WG; flat block ID delinearized into (m_wg, n_wg).
   // wave_id delinearized into (wave_m, wave_n) via (M_WAVES, N_WAVES).
   amdgcn.kernel @gemm_f16_weak_scaled arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
-  ]> attributes {shared_memory_size = {{SHARED_MEM}} : i32} {
+  ]> attributes {shared_memory_size = {{SHARED_MEM}} : i32, block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>} {
     %A_ptr = amdgcn.load_arg 0 : !sx2
     %B_ptr = amdgcn.load_arg 1 : !sx2
     %C_ptr = amdgcn.load_arg 2 : !sx2
@@ -285,11 +285,11 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     %stride_C = arith.constant {{STRIDE_C}} : index
     %K_tiles = arith.constant {{K_TILES}} : index
 
-    // Delinearize flat block ID into (wg_m, wg_n) workgroup coordinates.
+    // Delinearize flat block ID into (m_wg, n_wg) workgroup coordinates.
     %flat_id = gpu.block_id x
-    %c_WG_M = arith.constant {{WG_M}} : index
-    %c_WG_N = arith.constant {{WG_N}} : index
-    %wg_m, %wg_n = affine.delinearize_index %flat_id into (%c_WG_M, %c_WG_N) : index, index
+    %c_M_WG = arith.constant {{M_WG}} : index
+    %c_N_WG = arith.constant {{N_WG}} : index
+    %m_wg, %n_wg = affine.delinearize_index %flat_id into (%c_M_WG, %c_N_WG) : index, index
 
     // Wave position within WG: delinearize wave_id into (wave_m, wave_n)
     %wid = func.call @wave_id() : () -> index
@@ -297,14 +297,14 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     %c_N_WAVES = arith.constant {{N_WAVES}} : index
     %wave_m, %wave_n = affine.delinearize_index %wid into (%c_M_WAVES, %c_N_WAVES) : index, index
 
-    // m_base = (wg_m * M_WAVES + wave_m) * M_T  (tile units, for global A/C addressing)
-    // n_base = (wg_n * N_WAVES + wave_n) * N_T  (tile units, for global B/C addressing)
+    // m_base = (m_wg * M_WAVES + wave_m) * M_T  (tile units, for global A/C addressing)
+    // n_base = (n_wg * N_WAVES + wave_n) * N_T  (tile units, for global B/C addressing)
     // wave_a_base = wave_m * M_T                     (tile index, for LDS A offset arithmetic)
     // wave_b_base = wave_n * N_T                     (tile index, for LDS B offset arithmetic)
-    %m_base = affine.apply affine_map<(wgm, wm)[mt, nw] -> ((wgm * nw + wm) * mt)>
-        (%wg_m, %wave_m)[%c_M_T, %c_M_WAVES]
-    %n_base = affine.apply affine_map<(wgn, wn)[nt, nw] -> ((wgn * nw + wn) * nt)>
-        (%wg_n, %wave_n)[%c_N_T, %c_N_WAVES]
+    %m_base = affine.apply affine_map<(mwg, wm)[mt, nw] -> ((mwg * nw + wm) * mt)>
+        (%m_wg, %wave_m)[%c_M_T, %c_M_WAVES]
+    %n_base = affine.apply affine_map<(nwg, wn)[nt, nw] -> ((nwg * nw + wn) * nt)>
+        (%n_wg, %wave_n)[%c_N_T, %c_N_WAVES]
     %wave_a_base = affine.apply affine_map<(wm)[mt] -> (wm * mt)>(%wave_m)[%c_M_T]
     %wave_b_base = affine.apply affine_map<(wn)[nt] -> (wn * nt)>(%wave_n)[%c_N_T]
 
