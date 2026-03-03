@@ -123,7 +123,6 @@ def test_gemm_e2e_kernel(
             wavefront_size=wavefront_size,
             preprocess=preprocess,
             library_paths=get_library_paths(),
-            skip_on_cross_compile=True,
             print_ir_after_all=False,
         )
 

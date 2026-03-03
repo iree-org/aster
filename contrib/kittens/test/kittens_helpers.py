@@ -75,7 +75,6 @@ def run_kittens_kernel(
         grid_dim=grid_dim,
         block_dim=block_dim,
         num_iterations=num_iterations,
-        skip_on_cross_compile=True,
         print_ir_after_all=print_ir_after_all,
     )
 

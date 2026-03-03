@@ -63,7 +63,6 @@ class TestScaledMfmaF8f6f4:
             pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
             verify_fn=verify,
             library_paths=[_REGISTER_INIT],
-            skip_on_cross_compile=True,
         )
 
     def test_split_k_with_accumulator(self):
@@ -93,7 +92,6 @@ class TestScaledMfmaF8f6f4:
             pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
             verify_fn=verify,
             library_paths=[_REGISTER_INIT],
-            skip_on_cross_compile=True,
         )
 
 

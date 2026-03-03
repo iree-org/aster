@@ -31,7 +31,6 @@ def _run(mlir_file, kernel_name, input_data, output_data, verify_fn):
         block_dim=(TOTAL_LANES, 1, 1),
         verify_fn=verify_fn,
         library_paths=[],
-        skip_on_cross_compile=True,
     )
 
 

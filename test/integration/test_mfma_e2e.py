@@ -50,7 +50,6 @@ def test_mfma_e2e_kernel(
         wavefront_size=wavefront_size,
         verify_fn=verify_fn,
         library_paths=[_REGISTER_INIT],
-        skip_on_cross_compile=True,
     )
 
 

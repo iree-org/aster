@@ -526,7 +526,6 @@ def compile_and_run(
     num_iterations: int = 1,
     print_timings: bool = False,
     print_preprocessed_ir: bool = False,
-    skip_on_cross_compile: bool = False,
     mlir_dir: Optional[str] = None,
     ctx=None,
 ):
@@ -554,7 +553,6 @@ def compile_and_run(
         num_iterations: Number of kernel executions (default: 1).
         print_timings: Whether to print pass timings.
         print_preprocessed_ir: Whether to print preprocessed IR.
-        skip_on_cross_compile: If True, print IR+ASM before skipping on missing GPU.
         mlir_dir: Directory to resolve relative file_name against. Defaults to
             the caller's directory (via inspect.stack).
         ctx: MLIR context. If None, one is created internally.
@@ -627,10 +625,9 @@ def compile_and_run(
 
         with hsaco_file(hsaco_path):
             if not utils.system_has_mcpu(mcpu=mcpu):
-                if skip_on_cross_compile:
-                    pytest.skip(
-                        f"GPU {mcpu} not available, but cross-compilation to HSACO succeeded"
-                    )
+                pytest.skip(
+                    f"GPU {mcpu} not available, but cross-compilation to HSACO succeeded"
+                )
 
             iteration_times = execute_kernel_and_verify(
                 hsaco_path=hsaco_path,
