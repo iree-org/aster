@@ -506,12 +506,22 @@ LogicalResult TranslateModuleImpl::emitKernelEpilogue(KernelOp kernel,
              static_cast<int32_t>(kernel.getWorkitemIdMode()),
              static_cast<int32_t>(WorkitemIDMode::X));
 
-  os << ".amdhsa_next_free_vgpr " << regUsage.maxVGPR << "\n";
-  os << ".amdhsa_next_free_sgpr " << regUsage.maxSGPR << "\n";
+  // On CDNA3, ArchVGPRs and AccVGPRs share a unified register file.
+  // amdhsa_next_free_vgpr must cover the full allocation block:
+  //   total = align4(ArchVGPRs) + AccVGPRs   (when AccVGPRs are used)
+  // The accum_offset marks where AccVGPRs begin in this block.
   if (hasAGPR) {
     unsigned accumOffset =
         regUsage.maxVGPR > 0 ? ((regUsage.maxVGPR + 3) & ~3) : 4;
-    os << ".amdhsa_accum_offset " << accumOffset << "\n";
+    int32_t nextFreeVGPR = regUsage.maxVGPR;
+    if (regUsage.maxAGPR > 0)
+      nextFreeVGPR = accumOffset + regUsage.maxAGPR;
+    printField(".amdhsa_next_free_vgpr", nextFreeVGPR);
+    printField(".amdhsa_next_free_sgpr", regUsage.maxSGPR);
+    printField(".amdhsa_accum_offset", static_cast<int32_t>(accumOffset));
+  } else {
+    printField(".amdhsa_next_free_vgpr", regUsage.maxVGPR);
+    printField(".amdhsa_next_free_sgpr", regUsage.maxSGPR);
   }
 
   printField(".amdhsa_float_round_mode_32",

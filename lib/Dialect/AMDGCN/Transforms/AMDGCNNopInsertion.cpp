@@ -110,6 +110,19 @@ static bool isVALUInstruction(Operation *op) {
          opName.starts_with("amdgcn.vop3p");
 }
 
+/// Get the AGPR range from a value if it's an AGPR range type.
+static std::optional<RegisterRange> getAGPRRange(Value value) {
+  Type type = value.getType();
+  auto regType = dyn_cast<AMDGCNRegisterTypeInterface>(type);
+  if (!regType)
+    return std::nullopt;
+
+  if (regType.getRegisterKind() != RegisterKind::AGPR)
+    return std::nullopt;
+
+  return regType.getAsRange();
+}
+
 /// Get the SGPR range from a value if it's an SGPR range type.
 static std::optional<RegisterRange> getSGPRRange(Value value) {
   Type type = value.getType();
@@ -541,9 +554,16 @@ static NopInsertionCaseDef getCase106Definition() {
       maiOp = scaledMai.getOpcode();
     }
     auto op2 = cast<AMDGCNInstOpInterface>(inst2);
-    // Get the VGPR output range from inst1
+    // Get the output register range from inst1 (VGPR or AGPR).
+    // Case 106 applies to both VGPR destinations ("XDL Write VGPR") and
+    // AGPR destinations -- any subsequent instruction that reads the MFMA
+    // output registers needs wait states for the MFMA to complete.
     auto vdst1Range = getVGPRRange(vdst1);
-    assert(vdst1Range && "VGPR range should be valid");
+    auto adst1Range = getAGPRRange(vdst1);
+    if (!vdst1Range && !adst1Range)
+      return 0;
+    auto dst1Range = vdst1Range ? *vdst1Range : *adst1Range;
+    RegisterKind dstKind = vdst1Range ? RegisterKind::VGPR : RegisterKind::AGPR;
     int32_t numNops = -1;
     switch (maiOp) {
     case OpCode::V_MFMA_F32_16X16X16_F16:
@@ -565,19 +585,22 @@ static NopInsertionCaseDef getCase106Definition() {
     default:
       break;
     }
-    assert(numNops != -1 && "Uninplemented opcode for Case 106");
+    assert(numNops != -1 && "Unimplemented opcode for Case 106");
+    // Check if inst2 reads/writes registers of the SAME kind that overlap
+    // with the MFMA destination. Kind-aware check prevents false positives
+    // from VGPR operands sharing register numbers with AGPR destinations.
     for (Value operand : op2.getInstIns()) {
-      auto rTy = dyn_cast<RegisterTypeInterface>(operand.getType());
-      if (!rTy)
+      auto regType = dyn_cast<AMDGCNRegisterTypeInterface>(operand.getType());
+      if (!regType || regType.getRegisterKind() != dstKind)
         continue;
-      if (registerRangesOverlap(*vdst1Range, rTy.getAsRange()))
+      if (registerRangesOverlap(dst1Range, regType.getAsRange()))
         return numNops;
     }
     for (Value operand : op2.getInstOuts()) {
-      auto rTy = dyn_cast<RegisterTypeInterface>(operand.getType());
-      if (!rTy)
+      auto regType = dyn_cast<AMDGCNRegisterTypeInterface>(operand.getType());
+      if (!regType || regType.getRegisterKind() != dstKind)
         continue;
-      if (registerRangesOverlap(*vdst1Range, rTy.getAsRange()))
+      if (registerRangesOverlap(dst1Range, regType.getAsRange()))
         return numNops;
     }
     return 0;
