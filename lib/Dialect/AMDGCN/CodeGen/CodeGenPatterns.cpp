@@ -18,6 +18,7 @@
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/IR/Matchers.h"
@@ -68,6 +69,17 @@ struct PtrAddOpPattern : public OpCodeGenPattern<aster_utils::PtrAddOp> {
   matchAndRewrite(aster_utils::PtrAddOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
+
+//===----------------------------------------------------------------------===//
+// AmdgpuMFMAOpPattern
+//===----------------------------------------------------------------------===//
+struct AmdgpuMFMAOpPattern : public OpCodeGenPattern<amdgpu::MFMAOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
+  LogicalResult
+  matchAndRewrite(amdgpu::MFMAOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -264,6 +276,79 @@ PtrAddOpPattern::matchAndRewrite(aster_utils::PtrAddOp op, OpAdaptor adaptor,
 }
 
 //===----------------------------------------------------------------------===//
+// AmdgpuMFMAOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult AmdgpuMFMAOpPattern::matchAndRewrite(
+    amdgpu::MFMAOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  if (op.getReducePrecision() || op.getNegateA() || op.getNegateB() ||
+      op.getNegateC())
+    return op.emitOpError("reducePrecision and negate flags are not supported");
+
+  // Get the converted operands.
+  Value lhs = adaptor.getSourceA();
+  Value rhs = adaptor.getSourceB();
+  Value acc = adaptor.getDestC();
+
+  uint32_t m = op.getM(), n = op.getN(), k = op.getK(), b = op.getBlocks();
+
+  Type srcAElemTy = getElementTypeOrSelf(op.getSourceA().getType());
+  Type srcBElemTy = getElementTypeOrSelf(op.getSourceB().getType());
+  Type destElemTy = getElementTypeOrSelf(op.getDestC().getType());
+
+  bool srcAIsF8 = srcAElemTy.isFloat8E4M3FNUZ();
+  bool srcAIsBF8 = srcAElemTy.isFloat8E5M2FNUZ();
+  bool srcBIsF8 = srcBElemTy.isFloat8E4M3FNUZ();
+  bool srcBIsBF8 = srcBElemTy.isFloat8E5M2FNUZ();
+
+  OpCode opcode;
+  if (srcAElemTy.isF16() && destElemTy.isF32()) {
+    if (m == 16 && n == 16 && k == 16 && b == 1)
+      opcode = OpCode::V_MFMA_F32_16X16X16_F16;
+    else
+      return failure();
+  } else if (srcAElemTy.isBF16() && destElemTy.isF32()) {
+    if (m == 16 && n == 16 && k == 16 && b == 1)
+      opcode = OpCode::V_MFMA_F32_16X16X16_BF16;
+    else
+      return failure();
+  } else if (srcAIsF8 && srcBIsF8 && destElemTy.isF32()) {
+    if (m == 16 && n == 16 && k == 32 && b == 1)
+      opcode = OpCode::V_MFMA_F32_16X16X32_FP8_FP8;
+    else
+      return failure();
+  } else if (srcAIsF8 && srcBIsBF8 && destElemTy.isF32()) {
+    if (m == 16 && n == 16 && k == 32 && b == 1)
+      opcode = OpCode::V_MFMA_F32_16X16X32_FP8_BF8;
+    else
+      return failure();
+  } else if (srcAIsBF8 && srcBIsF8 && destElemTy.isF32()) {
+    if (m == 16 && n == 16 && k == 32 && b == 1)
+      opcode = OpCode::V_MFMA_F32_16X16X32_BF8_FP8;
+    else
+      return failure();
+  } else if (srcAIsBF8 && srcBIsBF8 && destElemTy.isF32()) {
+    if (m == 16 && n == 16 && k == 32 && b == 1)
+      opcode = OpCode::V_MFMA_F32_16X16X32_BF8_BF8;
+    else
+      return failure();
+  } else {
+    return failure();
+  }
+
+  uint8_t cbsz = op.getCbsz();
+  uint16_t abid = op.getAbid();
+  // MFMAPermB is an I32EnumAttr with values 0-7, safe to narrow.
+  uint8_t blgp = static_cast<uint32_t>(op.getBlgp());
+
+  Value result = inst::VOP3PMAIOp::create(rewriter, op.getLoc(), opcode, acc,
+                                          lhs, rhs, acc, cbsz, abid, blgp);
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Internal functions
 //===----------------------------------------------------------------------===//
 
@@ -367,7 +452,6 @@ void mlir::aster::amdgcn::getDependentCodeGenDialects(
 void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
                                                   RewritePatternSet &patterns,
                                                   ConversionTarget &target) {
-
   // Add the type conversions.
   converter.addConversion(
       [&converter](Type type) { return convertTypeImpl(type, converter); });
@@ -384,10 +468,13 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
                       aster_utils::PtrAddOp, lsir::FromRegOp, lsir::ToRegOp,
                       lsir::RegConstraintOp, ptr::LoadOp, ptr::StoreOp>();
 
+  target.addIllegalOp<amdgpu::MFMAOp>();
+
   // Add the patterns.
   patterns.add<IDDimOpPattern<aster_utils::ThreadIdOp, amdgcn::ThreadIdOp>,
                IDDimOpPattern<aster_utils::BlockIdOp, amdgcn::BlockIdOp>,
                IDDimOpPattern<aster_utils::BlockDimOp, amdgcn::BlockDimOp>,
                IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>,
-               PtrLoadOpPattern, PtrStoreOpPattern, PtrAddOpPattern>(converter);
+               PtrLoadOpPattern, PtrStoreOpPattern, PtrAddOpPattern,
+               AmdgpuMFMAOpPattern>(converter);
 }
