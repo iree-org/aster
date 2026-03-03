@@ -136,6 +136,7 @@ class TestGlobalLoadMultiTile:
                 print(f"Differences found at indices: {diff_indices}")
                 print(f"Output: {output[diff_indices]}")
                 print(f"Expected: {input_data[diff_indices]}")
+            np.testing.assert_array_equal(output, input_data)
 
 
 if __name__ == "__main__":

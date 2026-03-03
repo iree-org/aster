@@ -44,7 +44,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
   amdgcn.kernel @test_global_load_multi_tile arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
-  ]> attributes {shared_memory_size = 4352 : i32} {
+  ]> attributes {shared_memory_size = 8192 : i32} {
     %in_ptr = amdgcn.load_arg 0 : !sx2
     %out_ptr = amdgcn.load_arg 1 : !sx2
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
@@ -73,26 +73,25 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         %m_pos = affine.apply affine_map<()[pm] -> (pm * 32)>()[%pm]
         %n_pos = affine.apply affine_map<()[pn] -> (pn * 64)>()[%pn]
 
-        // Compute minor-tile base positions for this iteration
-        // These offset the starting position within each major tile region
-        %mm_pos_base = affine.apply affine_map<()[pm] -> (pm * 2)>()[%pm]
-        %nn_pos_base = affine.apply affine_map<()[pn] -> (pn * 4)>()[%pn]
+        // Minor tile base is always (0, 0) - m_pos/n_pos already encode the
+        // major tile position, so the inner tiles start from element 0 within
+        // each 32x64 region.
 
         // Create return value descriptor: memref + offset=0
         %result_desc = aster_utils.struct_create(%memref, %c0) : (memref<?x!vx2>, index) -> !return_value_descriptor_1d_vx2
 
         // Multi-tile global load: 2 tiles in M, 4 tiles in N (32x64 region)
-        // Create 2-level descriptor: m_pos/n_pos=major tile pos, mm_pos/nn_pos=minor tile base
-        %global_load_desc = aster_utils.struct_create(%in_ptr, %m_pos, %n_pos, %c256, %mm_pos_base, %nn_pos_base, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
+        // Create 2-level descriptor: m_pos/n_pos=major tile pos, mm_pos/nn_pos=0 (start of region)
+        %global_load_desc = aster_utils.struct_create(%in_ptr, %m_pos, %n_pos, %c256, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
         func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
           %global_load_desc,          // tensor_position_descriptor_2level_2d
           %c2, %c4,                   // m_tiles=2, n_tiles=4
           %result_desc                // return value descriptor
         ) : (!tensor_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2) -> ()
 
-        // Write all tiles to LDS using multi-tile LDS write (with non-zero base offset)
-        // Create 2-level LDS descriptor: lds_base=0, mm_pos/nn_pos=minor tile base
-        %lds_write_desc = aster_utils.struct_create(%c0, %mm_pos_base, %nn_pos_base, %c256, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
+        // Write all tiles to LDS using multi-tile LDS write
+        // Create 2-level LDS descriptor: lds_base=0, mm_pos/nn_pos=0 (start of LDS region)
+        %lds_write_desc = aster_utils.struct_create(%c0, %c0, %c0, %c256, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
         func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
           %lds_write_desc,            // lds_position_descriptor_2level_2d
           %c2, %c4,                   // m_tiles=2, n_tiles=4
@@ -102,9 +101,9 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         // Read back from LDS and store to output for each tile using lds_to_global
         scf.for %mt = %c0 to %c2 step %c1 {
           scf.for %nt = %c0 to %c4 step %c1 {
-            // LDS tile position = mm_pos_base + mt*16, nn_pos_base + nt*16
-            %lds_m = affine.apply affine_map<()[base, mt] -> (base + mt * 16)>()[%mm_pos_base, %mt]
-            %lds_n = affine.apply affine_map<()[base, nt] -> (base + nt * 16)>()[%nn_pos_base, %nt]
+            // LDS tile position = mt*16, nt*16
+            %lds_m = affine.apply affine_map<()[mt] -> (mt * 16)>()[%mt]
+            %lds_n = affine.apply affine_map<()[nt] -> (nt * 16)>()[%nt]
 
             // Global tile position = m_pos + mt*16, n_pos + nt*16
             %global_m = affine.apply affine_map<()[base, mt] -> (base + mt * 16)>()[%m_pos, %mt]
