@@ -32,6 +32,7 @@ add_mlir_library(AMDGCNTransforms
   LINK_LIBS PUBLIC
   AMDGCNAnalysis
   AMDGCNDialect
+  MLIRNormalFormDialect
   ASTERAnalysis
   AsterTransforms
   AsterInterfaces

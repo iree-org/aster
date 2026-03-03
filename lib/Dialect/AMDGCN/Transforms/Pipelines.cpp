@@ -54,6 +54,8 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
                                       const RegAllocPipelineOptions &options) {
   pm.addPass(createAMDGCNBufferization());
   pm.addPass(createToRegisterSemantics());
+  // Post-condition of to-register-semantics is now enforced by
+  // KernelOp::verifyRegions() via the normal_forms attribute set by the pass.
   pm.addPass(createRegisterDCE());
   RegisterColoringOptions coloringOpts;
   coloringOpts.buildMode = options.buildMode;

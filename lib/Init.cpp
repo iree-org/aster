@@ -15,6 +15,8 @@
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
 #include "aster/Dialect/AsterUtils/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
+#include "aster/Dialect/NormalForm/IR/NormalFormDialect.h"
+#include "aster/Dialect/NormalForm/Transforms/Passes.h"
 #include "aster/Interfaces/UpstreamExternalModels.h"
 #include "aster/Transforms/Passes.h"
 #include "mlir/CAPI/IR.h"
@@ -379,6 +381,7 @@ void mlir::aster::initDialects(DialectRegistry &registry) {
   registry.insert<amdgcn::AMDGCNDialect>();
   registry.insert<lsir::LSIRDialect>();
   registry.insert<aster_utils::AsterUtilsDialect>();
+  registry.insert<normalform::NormalFormDialect>();
   registerUpstreamExternalModels(registry);
 }
 
@@ -388,6 +391,7 @@ void mlir::aster::registerPasses() {
   aster_utils::registerAsterUtilsPasses();
   aster::registerAsterPasses();
   aster::registerCodeGenPasses();
+  normalform::registerNormalFormPasses();
 }
 
 ///

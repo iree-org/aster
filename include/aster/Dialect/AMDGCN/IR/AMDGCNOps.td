@@ -356,13 +356,15 @@ def AMDGCN_KernelOp : AMDGCN_Op<"kernel", [
     Dim3DAttr:$grid_dims,
     Dim3DAttr:$block_dims,
     ArgResAttr:$arg_attrs,
-    ArgResAttr:$res_attrs
+    ArgResAttr:$res_attrs,
+    OptionalNormalFormAttrArray:$normal_forms
   );
   let regions = (region MinSizedRegion<1>:$body_region);
   let assemblyFormat = [{
     $sym_name (`arguments` $arguments^)? attr-dict-with-keyword $body_region
   }];
   let hasVerifier = 1;
+  let hasRegionVerifier = 1;
   let extraClassDeclaration = [{
     //===------------------------------------------------------------------===//
     // OpAsmOpInterface Methods
@@ -430,6 +432,18 @@ def AMDGCN_KernelOp : AMDGCN_Op<"kernel", [
                     ArrayRef<int32_t> alignInBytes) {
       assert(false && "not yet implemented");
     }
+
+    //===------------------------------------------------------------------===//
+    // Normal form methods
+    //===------------------------------------------------------------------===//
+
+    /// Adds normal form attributes. Returns true if the op was changed.
+    bool addNormalForms(
+        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
+
+    /// Removes normal form attributes. Returns true if the op was changed.
+    bool removeNormalForms(
+        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
   }];
 }
 
@@ -515,12 +529,14 @@ def AMDGCN_ModuleOp : AMDGCN_Op<"module", [
     An AMDGCN module.
   }];
   let arguments = (ins AMDGCNTargetAttr:$target, IsaVersionAttr:$isa_version,
-      SymbolNameAttr:$sym_name, OptionalAttr<StrAttr>:$sym_visibility);
+      SymbolNameAttr:$sym_name, OptionalAttr<StrAttr>:$sym_visibility,
+      OptionalNormalFormAttrArray:$normal_forms);
   let regions = (region SizedRegion<1>:$body_region);
   let assemblyFormat = [{
     $sym_name `target` `=` $target `isa` `=` $isa_version
     attr-dict-with-keyword $body_region
   }];
+  let hasRegionVerifier = 1;
   let extraClassDeclaration = [{
     //===------------------------------------------------------------------===//
     // SymbolOpInterface Methods
@@ -536,6 +552,18 @@ def AMDGCN_ModuleOp : AMDGCN_Op<"module", [
     static ::llvm::StringRef getDefaultDialect() {
       return "amdgcn";
     }
+
+    //===------------------------------------------------------------------===//
+    // Normal form methods
+    //===------------------------------------------------------------------===//
+
+    /// Adds normal form attributes. Returns true if the op was changed.
+    bool addNormalForms(
+        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
+
+    /// Removes normal form attributes. Returns true if the op was changed.
+    bool removeNormalForms(
+        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
   }];
 }
 

@@ -12,6 +12,7 @@
 // updates InstOpInterface operations to use make_register_range.
 //
 //===----------------------------------------------------------------------===//
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
@@ -407,4 +408,8 @@ void ToRegisterSemantics::runOnOperation() {
     op->emitError("failed to apply register semantics patterns");
     return signalPassFailure();
   }
+
+  // Set post-condition: no value-semantic registers remain.
+  if (auto kernelOp = dyn_cast<KernelOp>(op))
+    kernelOp.addNormalForms({NoValueSemanticRegistersAttr::get(ctx)});
 }

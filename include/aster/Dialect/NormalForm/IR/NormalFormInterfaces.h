@@ -17,6 +17,17 @@
 
 #include "aster/Dialect/NormalForm/IR/NormalFormAttrInterfaces.h.inc"
 
+namespace normalform {
+
+/// Verify that all IR nested under `root` satisfies the given normal form.
+/// If `emitDiagnostics` is true, errors are reported; otherwise the check
+/// is silent (useful for inferNormalForms).
+::llvm::LogicalResult verifyNormalForm(::mlir::Operation *root,
+                                       NormalFormAttrInterface normalForm,
+                                       bool emitDiagnostics);
+
+} // namespace normalform
+
 namespace llvm {
 template <>
 struct PointerLikeTypeTraits<normalform::NormalFormAttrInterface>

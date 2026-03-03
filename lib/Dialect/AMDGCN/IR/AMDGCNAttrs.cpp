@@ -12,6 +12,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
+#include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -186,3 +187,21 @@ AddressSpaceAttr::getSupportedOpWidths(Type type, Value addr, Value offset,
 
 #define GET_ATTRDEF_CLASSES
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// NoValueSemanticRegistersAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult NoValueSemanticRegistersAttr::verifyType(
+    function_ref<InFlightDiagnostic()> emitError, Type type) const {
+  auto regType = dyn_cast<RegisterTypeInterface>(type);
+  if (!regType)
+    return success();
+
+  if (regType.hasValueSemantics())
+    return emitError() << "normal form violation: register types with value "
+                          "semantics are disallowed but found: "
+                       << type;
+
+  return success();
+}

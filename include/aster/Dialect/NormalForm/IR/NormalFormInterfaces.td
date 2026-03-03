@@ -13,6 +13,7 @@
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/OpBase.td"
+include "mlir/IR/CommonAttrConstraints.td"
 
 //===----------------------------------------------------------------------===//
 // Normal form attribute interface.
@@ -70,6 +71,21 @@ def NormalFormAttrInterface : AttrInterface<"NormalFormAttrInterface"> {
       }]
     >,
   ];
+}
+
+//===----------------------------------------------------------------------===//
+// Normal form attribute array constraints.
+//===----------------------------------------------------------------------===//
+
+/// An array of attributes implementing NormalFormAttrInterface.
+def NormalFormAttrArray : TypedArrayAttrBase<NormalFormAttrInterface,
+    "array of NormalFormAttrInterface">;
+
+/// Optional normal form array: omitted when empty, prints in attr-dict.
+def OptionalNormalFormAttrArray
+    : DefaultValuedAttr<NormalFormAttrArray, "::ArrayRef<Attribute>()"> {
+  let constBuilderCall = "$_builder.getArrayAttr($0)";
+  let isOptional = true;
 }
 
 

@@ -2,6 +2,7 @@ set(LIBS
   AMDGCNTransforms
   ASTERInit
   ASTERTestPass
+  MLIRAsterTestDialect
   MLIROptLib
 )
 

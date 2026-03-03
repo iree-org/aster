@@ -17,6 +17,7 @@
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/IR/ParsePrintUtils.h"
+#include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
@@ -36,6 +37,7 @@
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/LogicalResult.h"
@@ -879,6 +881,116 @@ LogicalResult KernelOp::verify() {
     return emitError("kernel must have at least one EndKernelOp terminator");
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Normal form helpers (shared by ModuleOp and KernelOp)
+//===----------------------------------------------------------------------===//
+
+/// Verify all normal forms attached to an operation via its normal_forms attr.
+static LogicalResult verifyNormalFormsRegions(Operation *op,
+                                              ArrayAttr normalFormsAttr) {
+  if (!normalFormsAttr || normalFormsAttr.empty())
+    return success();
+  for (Attribute attr : normalFormsAttr) {
+    auto nf = cast<normalform::NormalFormAttrInterface>(attr);
+    if (failed(normalform::verifyNormalForm(op, nf, /*emitDiagnostics=*/true)))
+      return failure();
+  }
+  return success();
+}
+
+/// Add normal forms to an operation's normal_forms attribute using set
+/// semantics. Returns true if the attribute was changed.
+static bool
+addNormalFormsImpl(Operation *op, StringRef attrName, ArrayAttr currentAttr,
+                   ArrayRef<normalform::NormalFormAttrInterface> nfs,
+                   function_ref<void(ArrayAttr)> setter) {
+  if (nfs.empty())
+    return false;
+
+  SetVector<Attribute> nfSet;
+  if (currentAttr)
+    nfSet.insert_range(currentAttr.getValue());
+
+  bool changed = false;
+  for (normalform::NormalFormAttrInterface nf : nfs)
+    changed |= nfSet.insert(nf);
+
+  if (!changed)
+    return false;
+
+  OpBuilder builder(op->getContext());
+  setter(builder.getArrayAttr(nfSet.getArrayRef()));
+  return true;
+}
+
+/// Remove normal forms from an operation's normal_forms attribute.
+/// Returns true if the attribute was changed.
+static bool
+removeNormalFormsImpl(Operation *op, ArrayAttr currentAttr,
+                      ArrayRef<normalform::NormalFormAttrInterface> nfs,
+                      function_ref<void(ArrayAttr)> setter) {
+  if (nfs.empty() || !currentAttr || currentAttr.empty())
+    return false;
+
+  SetVector<Attribute> nfSet;
+  nfSet.insert_range(currentAttr.getValue());
+
+  bool changed = false;
+  for (normalform::NormalFormAttrInterface nf : nfs)
+    changed |= nfSet.remove(nf);
+
+  if (!changed)
+    return false;
+
+  OpBuilder builder(op->getContext());
+  setter(builder.getArrayAttr(nfSet.getArrayRef()));
+  return true;
+}
+
+//===----------------------------------------------------------------------===//
+// ModuleOp Normal Forms
+//===----------------------------------------------------------------------===//
+
+LogicalResult amdgcn::ModuleOp::verifyRegions() {
+  return verifyNormalFormsRegions(getOperation(), getNormalFormsAttr());
+}
+
+bool amdgcn::ModuleOp::addNormalForms(
+    ArrayRef<normalform::NormalFormAttrInterface> normalForms) {
+  return addNormalFormsImpl(getOperation(), getNormalFormsAttrName(),
+                            getNormalFormsAttr(), normalForms,
+                            [&](ArrayAttr attr) { setNormalFormsAttr(attr); });
+}
+
+bool amdgcn::ModuleOp::removeNormalForms(
+    ArrayRef<normalform::NormalFormAttrInterface> normalForms) {
+  return removeNormalFormsImpl(
+      getOperation(), getNormalFormsAttr(), normalForms,
+      [&](ArrayAttr attr) { setNormalFormsAttr(attr); });
+}
+
+//===----------------------------------------------------------------------===//
+// KernelOp Normal Forms
+//===----------------------------------------------------------------------===//
+
+LogicalResult KernelOp::verifyRegions() {
+  return verifyNormalFormsRegions(getOperation(), getNormalFormsAttr());
+}
+
+bool KernelOp::addNormalForms(
+    ArrayRef<normalform::NormalFormAttrInterface> normalForms) {
+  return addNormalFormsImpl(getOperation(), getNormalFormsAttrName(),
+                            getNormalFormsAttr(), normalForms,
+                            [&](ArrayAttr attr) { setNormalFormsAttr(attr); });
+}
+
+bool KernelOp::removeNormalForms(
+    ArrayRef<normalform::NormalFormAttrInterface> normalForms) {
+  return removeNormalFormsImpl(
+      getOperation(), getNormalFormsAttr(), normalForms,
+      [&](ArrayAttr attr) { setNormalFormsAttr(attr); });
 }
 
 //===----------------------------------------------------------------------===//

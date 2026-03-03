@@ -60,11 +60,9 @@ normalform::ModuleOp::create(Location loc,
   return ModuleOp::create(builder, loc, normalForms, name);
 }
 
-LogicalResult
-normalform::ModuleOp::verifyNormalForm(NormalFormAttrInterface normalForm,
-                                       bool emitDiagnostics) {
-  Operation *root = getOperation();
-
+LogicalResult normalform::verifyNormalForm(Operation *root,
+                                           NormalFormAttrInterface normalForm,
+                                           bool emitDiagnostics) {
   SmallPtrSet<Type, 16> seenTypes;
   SmallPtrSet<Attribute, 16> seenAttrs;
   Location loc = root->getLoc();
@@ -141,6 +139,13 @@ normalform::ModuleOp::verifyNormalForm(NormalFormAttrInterface normalForm,
   WalkResult walkResult = root->walk<WalkOrder::PreOrder>(visitOp);
 
   return llvm::failure(walkResult.wasInterrupted());
+}
+
+LogicalResult
+normalform::ModuleOp::verifyNormalForm(NormalFormAttrInterface normalForm,
+                                       bool emitDiagnostics) {
+  return normalform::verifyNormalForm(getOperation(), normalForm,
+                                      emitDiagnostics);
 }
 
 bool normalform::ModuleOp::inferNormalForms(

@@ -20,6 +20,7 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/HazardAttrInterface.td"
 include "aster/Dialect/AMDGCN/IR/Hazards.td"
+include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.td"
 include "aster/Interfaces/MemorySpaceConstraints.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
 
@@ -239,6 +240,24 @@ def KernelArgumentsAttr
   let defaultValue = "{}";
   let assemblyFormat = [{
     `<`(`[` $value^ `]`)? `>`
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Normal form attributes
+//===----------------------------------------------------------------------===//
+
+def NoValueSemanticRegistersAttr : AMDGCN_Attr<
+    "NoValueSemanticRegisters", "no_value_semantic_registers",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyType"]>]> {
+  let summary = "Normal form: no register types with value semantics";
+  let description = [{
+    Verifies that no register types in the IR have value semantics.
+    This is the post-condition of the `amdgcn-to-register-semantics` pass,
+    which converts all value-semantic allocas to unallocated register semantics.
+
+    After this normal form holds, every `RegisterTypeInterface` type in the
+    module has either `Unallocated` or `Allocated` semantics -- never `Value`.
   }];
 }
 

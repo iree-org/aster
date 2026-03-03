@@ -31,14 +31,6 @@ class NormalFormOp<string mnemonic, list<Trait> traits = []> :
     Op<NormalFormDialect, mnemonic, traits>;
 
 //-----------------------------------------------------------------------------
-// Attribute constraints.
-//-----------------------------------------------------------------------------
-
-/// An array of attributes implementing NormalFormAttrInterface.
-def NormalFormAttrArray : TypedArrayAttrBase<NormalFormAttrInterface,
-    "array of NormalFormAttrInterface">;
-
-//-----------------------------------------------------------------------------
 // Structure Ops
 //-----------------------------------------------------------------------------
 
