@@ -137,7 +137,7 @@ struct Record {
   template <typename RecordTy>
   SmallVector<RecordTy> getRecordList(StringRef field) const {
     return llvm::map_to_vector(
-        def->getValueAsListInit(field)->getValues(),
+        def->getValueAsListInit(field)->getElements(),
         [&](const llvm::Init *init) {
           auto record = dyn_cast<llvm::DefInit>(init);
           if (!record) {
