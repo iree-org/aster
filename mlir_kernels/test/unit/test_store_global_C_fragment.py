@@ -44,8 +44,6 @@ class TestStoreGlobalCFragmentWait:
         # fmt: on
 
         with np.printoptions(threshold=np.inf, linewidth=np.inf):
-            print(output)
-            print(expected)
             np.testing.assert_array_equal(output, expected)
 
 
