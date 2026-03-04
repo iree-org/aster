@@ -3,6 +3,7 @@ add_mlir_dialect_library(AMDGCNDialect
   AMDGCNAttrs.cpp
   AMDGCNTypes.cpp
   AMDGCNVerifiers.cpp
+  InstAttr.cpp
   Utils.cpp
 
   DEPENDS
