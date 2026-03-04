@@ -31,19 +31,32 @@ from typing import List, Optional, Tuple
 def system_has_gpu(mcpu: str) -> bool:
     """Check if a GPU matching mcpu is available via rocminfo.
 
-    Does NOT import aster/MLIR/LLVM.
+    Does NOT import aster/MLIR/LLVM. This is the single canonical
+    implementation -- aster.utils.system_has_mcpu delegates here.
     """
+    base_mcpu = mcpu.split(":")[0]
     try:
         result = subprocess.run(
             ["rocminfo"], capture_output=True, text=True, timeout=10
         )
-        archs = set(
-            a.split(":")[0]
-            for a in re.findall(r"gfx[0-9]{3,4}[a-z0-9]*", result.stdout)
+    except FileNotFoundError:
+        print(
+            "WARNING: rocminfo not found on PATH. "
+            "Install ROCm or add its bin/ directory to PATH."
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        archs = set()
-    return mcpu in archs
+        return False
+    except subprocess.TimeoutExpired:
+        print("WARNING: rocminfo timed out after 10s.")
+        return False
+
+    if result.returncode != 0:
+        print(f"WARNING: rocminfo exited with code {result.returncode}.")
+        return False
+
+    archs = set(
+        a.split(":")[0] for a in re.findall(r"gfx[0-9]{3,4}[a-z0-9]*", result.stdout)
+    )
+    return base_mcpu in archs
 
 
 def _capsule(ptr):

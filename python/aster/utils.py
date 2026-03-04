@@ -225,38 +225,11 @@ def create_kernel_args_capsule_from_numpy(*arrays, device_id: Optional[int] = No
 ################################################################################
 # Runtime CLI utils.
 ################################################################################
-def _detect_gfx_archs_via_rocminfo(rocm_path: Optional[Path]) -> List[str]:
-    import subprocess
-    import re
-
-    archs = set()
-    candidates = []
-    if rocm_path is not None:
-        candidates.append(rocm_path / "bin" / "rocminfo")
-    candidates.append(Path("rocminfo"))
-
-    for exe in candidates:
-        try:
-            result = subprocess.run(
-                [str(exe)], capture_output=True, text=True, timeout=10
-            )
-            if result.returncode != 0:
-                continue
-            found = re.findall(r"gfx[0-9]{3,4}[a-z0-9]*", result.stdout)
-            archs.update(a.split(":")[0] for a in found)
-            if archs:
-                break
-        except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError):
-            continue
-    return sorted(archs)
-
-
 def system_has_mcpu(mcpu: str, rocm_path: Optional[Path] = None) -> bool:
-    archs = set()
-    for arch in _detect_gfx_archs_via_rocminfo(rocm_path):
-        archs.add(arch)
-    base_mcpu = mcpu.split(":")[0]
-    return base_mcpu in archs
+    """Delegate to aster.hip.system_has_gpu (the single canonical impl)."""
+    from aster.hip import system_has_gpu
+
+    return system_has_gpu(mcpu)
 
 
 def compile_to_hsaco(

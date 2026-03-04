@@ -151,7 +151,7 @@ def execute_weak_scaled_hsaco(cfg, hsaco_path, num_iterations, A, B):
     from aster.hip import system_has_gpu, execute_hsaco
 
     if not system_has_gpu(MCPU):
-        pytest.skip(f"GPU {MCPU} not available (cross-compilation succeeded)")
+        pytest.skip(f"GPU {MCPU} not available, skip execution")
 
     C_output = np.zeros(cfg.m_dim * cfg.n_dim, dtype=np.float32)
 
