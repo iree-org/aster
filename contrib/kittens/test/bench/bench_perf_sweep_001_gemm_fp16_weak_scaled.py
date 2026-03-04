@@ -67,6 +67,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from test_perf_001_gemm_fp16_weak_scaled import (
+    KERNEL_NAME,
     WeakScaleConfig,
     compile_weak_scaled_gemm,
     execute_weak_scaled_hsaco,
@@ -177,8 +178,10 @@ def _compile_one(
 ):
     """Compile a single config to HSACO.
 
-    Called in worker process.
+    Called in worker process. Returns (label, hsaco_path, KernelResources|None).
     """
+    from aster.hip import parse_asm_kernel_resources
+
     cfg = WeakScaleConfig(
         m_wg,
         n_wg,
@@ -191,25 +194,38 @@ def _compile_one(
         k,
     )
     output_path = os.path.join(hsaco_dir, f"{label}.hsaco")
-    compile_weak_scaled_gemm(cfg, output_path)
-    return label, output_path
+    _, asm = compile_weak_scaled_gemm(cfg, output_path)
+    # Save ASM alongside HSACO for later inspection / resource parsing.
+    asm_path = output_path.replace(".hsaco", ".s")
+    with open(asm_path, "w") as f:
+        f.write(asm)
+    res = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME).get(KERNEL_NAME)
+    return label, output_path, res
 
 
-def _print_summary_table(results, failed, skipped_labels):
+def _print_summary_table(results, failed, skipped_labels, resources_map=None):
     """Print sorted results table, repro commands, and failure summary."""
+    if resources_map is None:
+        resources_map = {}
     if not results and not failed:
         print("\nNo configs were run.")
         return
 
     if results:
         results.sort(key=lambda r: r[2], reverse=True)
-        hdr = f"{'#':>3} {'Config':<60} | {'Time ms':>8} | {'TFLOPS':>8} | {'% Peak':>7} | {'LDS':>6}"
+        hdr = (
+            f"{'#':>3} {'Config':<60} | {'Time ms':>8} | {'TFLOPS':>8} "
+            f"| {'% Peak':>7} | {'LDS':>6} | {'Resources'}"
+        )
         sep = "-" * len(hdr)
         print(f"\n{hdr}\n{sep}")
         for rank, (cfg, ms, tflops, pct) in enumerate(results, 1):
-            lds_kb = cfg.lds_bytes / 1024
+            res = resources_map.get(cfg.label)
+            lds_kb = (res.lds_bytes if res else cfg.lds_bytes) / 1024
+            res_str = res.registers_str if res else ""
             print(
-                f"{rank:>3} {cfg.label:<60} | {ms:>8.2f} | {tflops:>8.1f} | {pct:>6.1f}% | {lds_kb:>4.0f}KB"
+                f"{rank:>3} {cfg.label:<60} | {ms:>8.2f} | {tflops:>8.1f} "
+                f"| {pct:>6.1f}% | {lds_kb:>4.0f}KB | {res_str}"
             )
 
     print(
@@ -307,6 +323,7 @@ def bench_perf_sweep(full_sweep=False):
     sys.stdout.flush()
 
     hsaco_paths = {}  # label -> path
+    resources_map = {}  # label -> KernelResources
     compile_failed = {}  # label -> error string
     with ProcessPoolExecutor(max_workers=COMPILE_WORKERS) as pool:
         futures = {}
@@ -330,9 +347,11 @@ def bench_perf_sweep(full_sweep=False):
         for fut in as_completed(futures):
             cfg = futures[fut]
             try:
-                label, path = fut.result()
+                label, path, res = fut.result()
                 hsaco_paths[label] = path
-                print(f"  COMPILED {cfg.label}")
+                if res:
+                    resources_map[label] = res
+                print(f"  COMPILED {cfg.label}  [{res or '?'}]")
             except Exception as e:
                 err = str(e).split("\n")[0][:120]
                 compile_failed[cfg.label] = err
@@ -360,8 +379,9 @@ def bench_perf_sweep(full_sweep=False):
     for i, cfg in enumerate(exec_active):
         tag = f"[{i + 1}/{len(exec_active)}] {cfg.label}"
         hsaco_path = hsaco_paths[cfg.label]
+        res = resources_map.get(cfg.label)
         print(f"\nStart sweep atom: {cfg.label}")
-        print(f"  RUN   {tag}")
+        print(f"  RUN   {tag}  [{res or '?'}]")
         print(f"        {_repro_cmd(cfg, NUM_ITERATIONS)}")
         print(f'        exclude: "{cfg.label}"')
         sys.stdout.flush()
@@ -417,7 +437,7 @@ def bench_perf_sweep(full_sweep=False):
         print(f"  OK    {tag}: {min_ms:.2f} ms  {tflops:.1f} TFLOPS  ({pct_peak:.1f}%)")
         sys.stdout.flush()
 
-    _print_summary_table(results, failed, skipped_labels)
+    _print_summary_table(results, failed, skipped_labels, resources_map)
 
     if not results:
         print("\nNo configs succeeded.")
@@ -426,6 +446,26 @@ def bench_perf_sweep(full_sweep=False):
     print(f"\nBest {min(20, len(results))} configs:")
     for rank, (cfg, ms, tflops, pct) in enumerate(results[:20], 1):
         print(f"  #{rank} {cfg.label}: {tflops:.1f} TFLOPS ({pct:.1f}% peak)")
+
+
+def _print_config(cfg, iterations, resources=None):
+    """Print config summary.
+
+    Called after compilation so ASM-level resource usage is available. resources is a
+    KernelResources object (or None if unavailable).
+    """
+    print(f"Config: {cfg.label}")
+    print(f"  M={cfg.m_dim}, N={cfg.n_dim}, K={cfg.k}")
+    print(f"  workgroups={cfg.num_workgroups}, threads={cfg.num_threads}")
+    if resources:
+        print(
+            f"  LDS={resources.lds_bytes} bytes ({resources.lds_bytes / 1024:.0f} KB)"
+        )
+        print(f"  registers: {resources.registers_str}")
+        if resources.scratch_bytes > 0:
+            print(f"  scratch={resources.scratch_bytes} bytes")
+    print(f"  iterations={iterations}, warmup={WARMUP_ITERATIONS}")
+    sys.stdout.flush()
 
 
 def _run_single(args):
@@ -444,18 +484,14 @@ def _run_single(args):
         args.stages,
         args.k,
     )
-    print(f"Config: {cfg.label}")
-    print(f"  M={cfg.m_dim}, N={cfg.n_dim}, K={cfg.k}")
-    print(f"  workgroups={cfg.num_workgroups}, threads={cfg.num_threads}")
-    print(f"  LDS={cfg.lds_bytes} bytes ({cfg.lds_bytes / 1024:.0f} KB)")
-    print(f"  iterations={args.iterations}, warmup={WARMUP_ITERATIONS}")
-    sys.stdout.flush()
 
     if args.compile_only:
         if not args.hsaco:
             print("Error: --compile-only requires --hsaco <output_path>")
             raise SystemExit(1)
-        compile_weak_scaled_gemm(cfg, args.hsaco)
+        _, asm = compile_weak_scaled_gemm(cfg, args.hsaco)
+        resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
+        _print_config(cfg, args.iterations, resources.get(KERNEL_NAME))
         print(f"  Compiled: {args.hsaco}")
         return
 
@@ -463,8 +499,15 @@ def _run_single(args):
 
     if args.hsaco:
         # Execute pre-compiled HSACO (used by sweep phase 2 / rocprofv3).
-        # Skip GPU check: if caller provided an HSACO they know the GPU is there,
-        # and rocminfo hangs under rocprofv3.
+        # Read companion .s file if available (written at compile time).
+        asm_path = args.hsaco.replace(".hsaco", ".s")
+        res = None
+        if os.path.exists(asm_path):
+            with open(asm_path) as f:
+                res = parse_asm_kernel_resources(f.read(), kernel_name=KERNEL_NAME).get(
+                    KERNEL_NAME
+                )
+        _print_config(cfg, args.iterations, res)
         _, times_ns = execute_weak_scaled_hsaco(
             cfg, args.hsaco, args.iterations, A, B, skip_gpu_check=True
         )
@@ -473,7 +516,9 @@ def _run_single(args):
         import tempfile as _tempfile
 
         with _tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-            compile_weak_scaled_gemm(cfg, tmp.name)
+            _, asm = compile_weak_scaled_gemm(cfg, tmp.name)
+            resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
+            _print_config(cfg, args.iterations, resources.get(KERNEL_NAME))
             _, times_ns = execute_weak_scaled_hsaco(
                 cfg, tmp.name, args.iterations, A, B
             )

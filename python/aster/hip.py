@@ -6,7 +6,7 @@ libraries, making it safe to use under rocprofv3 (which crashes when LLVM.so
 is loaded alongside its own LLVM).
 
 Usage:
-    from aster.hip import execute_hsaco, system_has_gpu
+    from aster.hip import execute_hsaco, system_has_gpu, parse_asm_kernel_resources
 
     if not system_has_gpu("gfx942"):
         pytest.skip("no GPU")
@@ -25,7 +25,132 @@ Usage:
 import ctypes
 import re
 import subprocess
-from typing import List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
+
+@dataclass
+class KernelResources:
+    """Resource usage extracted from AMDGPU assembly metadata.
+
+    This is the ground truth for what the hardware will actually use, as emitted by the
+    ASTER compiler in .amdgpu_metadata.
+    """
+
+    # Registers
+    vgpr_count: int = 0
+    sgpr_count: int = 0
+    agpr_count: int = 0
+    vgpr_spill_count: int = 0
+    sgpr_spill_count: int = 0
+
+    # Memory
+    lds_bytes: int = 0  # .group_segment_fixed_size
+    scratch_bytes: int = 0  # .private_segment_fixed_size
+    kernarg_bytes: int = 0  # .kernarg_segment_size
+
+    # Workgroup
+    max_flat_workgroup_size: int = 0
+    wavefront_size: int = 64
+
+    @property
+    def registers_str(self):
+        """Compact register summary."""
+        parts = [f"vgpr={self.vgpr_count}", f"sgpr={self.sgpr_count}"]
+        if self.agpr_count > 0:
+            parts.append(f"agpr={self.agpr_count}")
+        if self.vgpr_spill_count > 0:
+            parts.append(f"vgpr_spill={self.vgpr_spill_count}")
+        if self.sgpr_spill_count > 0:
+            parts.append(f"sgpr_spill={self.sgpr_spill_count}")
+        return ", ".join(parts)
+
+    def __str__(self):
+        parts = [self.registers_str]
+        parts.append(f"lds={self.lds_bytes}")
+        if self.scratch_bytes > 0:
+            parts.append(f"scratch={self.scratch_bytes}")
+        return ", ".join(parts)
+
+
+# All integer fields we extract from .amdgpu_metadata YAML.
+_METADATA_FIELDS = [
+    (r"\.vgpr_count:\s*(\d+)", "vgpr_count"),
+    (r"\.sgpr_count:\s*(\d+)", "sgpr_count"),
+    (r"\.agpr_count:\s*(\d+)", "agpr_count"),
+    (r"\.vgpr_spill_count:\s*(\d+)", "vgpr_spill_count"),
+    (r"\.sgpr_spill_count:\s*(\d+)", "sgpr_spill_count"),
+    (r"\.group_segment_fixed_size:\s*(\d+)", "lds_bytes"),
+    (r"\.private_segment_fixed_size:\s*(\d+)", "scratch_bytes"),
+    (r"\.kernarg_segment_size:\s*(\d+)", "kernarg_bytes"),
+    (r"\.max_flat_workgroup_size:\s*(\d+)", "max_flat_workgroup_size"),
+    (r"\.wavefront_size:\s*(\d+)", "wavefront_size"),
+]
+
+
+def _parse_metadata_yaml(
+    meta_text: str, kernel_name: Optional[str] = None
+) -> Dict[str, KernelResources]:
+    """Parse the amdhsa.kernels YAML body into KernelResources.
+
+    meta_text is everything between the --- delimiters in .amdgpu_metadata.
+    """
+    results = {}
+
+    # Split into per-kernel blocks. Each kernel starts with "  - .agpr_count:" or
+    # "  - .name:" -- we split on the "  - ." pattern that starts a new kernel entry.
+    kernel_blocks = re.split(r"\n  - \.", meta_text)
+    # First element is "amdhsa.kernels:\n" header, skip it.
+
+    for i, block in enumerate(kernel_blocks):
+        if i == 0:
+            continue
+        # Re-add the leading "." that was consumed by the split
+        block = "." + block
+
+        name_match = re.search(r"\.name:\s*(\S+)", block)
+        if not name_match:
+            continue
+        name = name_match.group(1)
+
+        if kernel_name is not None and name != kernel_name:
+            continue
+
+        res = KernelResources()
+        for pattern, attr in _METADATA_FIELDS:
+            m = re.search(pattern, block)
+            if m:
+                setattr(res, attr, int(m.group(1)))
+
+        results[name] = res
+
+    return results
+
+
+def parse_asm_kernel_resources(
+    asm: str, kernel_name: Optional[str] = None
+) -> Dict[str, KernelResources]:
+    """Parse kernel resource usage from AMDGPU assembly text.
+
+    Extracts register counts, LDS size, scratch size, and workgroup limits
+    from the .amdgpu_metadata YAML section emitted by the ASTER compiler.
+
+    Args:
+        asm: Assembly text containing .amdgpu_metadata section.
+        kernel_name: If provided, only return resources for this kernel.
+            If None, return resources for all kernels found.
+
+    Returns:
+        Dict mapping kernel name to KernelResources.
+    """
+    meta_match = re.search(
+        r"\.amdgpu_metadata\s*\n---\s*\n(.*?)\n---\s*\n\s*\.end_amdgpu_metadata",
+        asm,
+        re.DOTALL,
+    )
+    if not meta_match:
+        return {}
+    return _parse_metadata_yaml(meta_match.group(1), kernel_name)
 
 
 def system_has_gpu(mcpu: str) -> bool:

@@ -106,10 +106,10 @@ def _make_substitutions(cfg):
 
 
 def compile_weak_scaled_gemm(cfg, output_hsaco_path):
-    """Compile a weak-scaled GEMM config to HSACO. Returns the hsaco path.
+    """Compile a weak-scaled GEMM config to HSACO.
 
-    This is the CPU-only compilation step (no GPU needed). Safe to run in parallel
-    across configs.
+    Returns (hsaco_path, asm_str). This is the CPU-only compilation step (no GPU
+    needed). Safe to run in parallel across configs.
     """
     from aster import ir, utils
     from aster.testing import compile_mlir_file_to_asm
@@ -139,7 +139,7 @@ def compile_weak_scaled_gemm(cfg, output_hsaco_path):
             output_path=output_hsaco_path,
         )
         assert path is not None, "assemble_to_hsaco returned None"
-        return path
+        return path, asm
     finally:
         ctx.__exit__(None, None, None)
 
@@ -223,7 +223,7 @@ class TestWeakScaleCorrectness:
         A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
         B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
         with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-            compile_weak_scaled_gemm(cfg, tmp.name)
+            compile_weak_scaled_gemm(cfg, tmp.name)  # asm unused in correctness tests
             C_output, _ = execute_weak_scaled_hsaco(cfg, tmp.name, 1, A, B)
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
