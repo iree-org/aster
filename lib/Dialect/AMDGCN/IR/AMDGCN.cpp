@@ -1297,6 +1297,8 @@ inferTypesImpl(MLIRContext *ctx, std::optional<Location> &loc,
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.cpp.inc"
 
+#include "aster/Dialect/AMDGCN/IR/Interfaces/HazardAttrInterface.cpp.inc"
+
 #include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.cpp.inc"
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.cpp.inc"

@@ -1,5 +1,6 @@
 add_mlir_library(AMDGCNAnalysis
   BufferAnalysis.cpp
+  HazardAnalysis.cpp
   LDSInterferenceGraph.cpp
   RangeConstraintAnalysis.cpp
   ReachingDefinitions.cpp
@@ -10,6 +11,7 @@ add_mlir_library(AMDGCNAnalysis
   AMDGCNDialect
   ASTERAnalysis
   ASTERIR
+  AsterInterfaces
   ASTERSupport
   MLIRAnalysis
   MLIRIR

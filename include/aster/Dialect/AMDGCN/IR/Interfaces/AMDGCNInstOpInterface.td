@@ -33,6 +33,14 @@ def AMDGCNInstOpInterface :
       "::mlir::aster::amdgcn::InstAttr", "getOpcodeAttr"
     >
   ];
+  let extraSharedClassDeclaration = [{
+    /// Get the instruction metadata for the instruction or nullptr if the
+    /// instruction has no opcode attribute.
+    const ::mlir::aster::amdgcn::InstMetadata* getInstMetadata() {
+      ::mlir::aster::amdgcn::InstAttr attr = $_op.getOpcodeAttr();
+      return attr ? attr.getMetadata() : nullptr;
+    }
+  }];
 }
 
 #endif // ASTER_AMDGCN_INSTOPINTERFACE
