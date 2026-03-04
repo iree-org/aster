@@ -17,7 +17,7 @@
 
 include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
-include "aster/Dialect/AMDGCN/IR/AMDGCNTypeInterfaces.td"
+include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNRegisterTypeInterface.td"
 include "aster/Interfaces/DependentOpInterface.td"
 
 //===----------------------------------------------------------------------===//

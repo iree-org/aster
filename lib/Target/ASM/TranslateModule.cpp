@@ -14,8 +14,8 @@
 
 #include "aster/Target/ASM/TranslateModule.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "aster/Target/ASM/AsmPrinter.h"

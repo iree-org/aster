@@ -16,13 +16,12 @@
 #define ASTER_DIALECT_AMDGCN_IR_AMDGCNTYPES_H
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNRegisterTypeInterface.h"
 #include "aster/Interfaces/DependentOpInterface.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
-
-#include "aster/Dialect/AMDGCN/IR/AMDGCNTypeInterfaces.h.inc"
 
 namespace mlir::aster::amdgcn {
 /// SREG register resource.
