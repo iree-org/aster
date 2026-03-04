@@ -412,6 +412,14 @@ def _run_single(args):
     print(f"  iterations={args.iterations}, warmup={WARMUP_ITERATIONS}")
     sys.stdout.flush()
 
+    if args.compile_only:
+        if not args.hsaco:
+            print("Error: --compile-only requires --hsaco <output_path>")
+            raise SystemExit(1)
+        compile_weak_scaled_gemm(cfg, args.hsaco)
+        print(f"  Compiled: {args.hsaco}")
+        return
+
     A, B = _make_inputs(cfg)
 
     if args.hsaco:
@@ -482,5 +490,10 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Path to pre-compiled HSACO (skips compilation)",
+    )
+    parser.add_argument(
+        "--compile-only",
+        action="store_true",
+        help="Compile HSACO and exit (requires --hsaco for output path)",
     )
     _run_single(parser.parse_args())
