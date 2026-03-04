@@ -4,14 +4,17 @@ add_mlir_dialect_library(AMDGCNDialect
   AMDGCNTypes.cpp
   AMDGCNVerifiers.cpp
   InstAttr.cpp
+  Hazards.cpp
   Utils.cpp
 
   DEPENDS
   KernelArgInterfaceIncGen
+  HazardAttrInterfaceIncGen
   AMDGCNInstOpInterfaceIncGen
   AMDGCNInstsIncGen
   AMDGCNOpsIncGen
   AMDGCNRegisterTypeInterfaceIncGen
+  HazardAttrInterfaceIncGen
 
   LINK_LIBS PUBLIC
   ASTERIR

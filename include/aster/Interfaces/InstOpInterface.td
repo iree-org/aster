@@ -45,7 +45,7 @@ def InstOpInterface : OpInterface<"InstOpInterface", [LivenessOpInterface]> {
       }]
     >,
     InterfaceMethod<
-      "Returns true if the instruction has been register allocated",
+      "Returns true if the instruction has pure value semantics",
       "bool", "hasPureValueSemantics", (ins), [{}], [{
         return ::mlir::aster::detail::hasPureValueSemanticsImpl($_op);
       }]

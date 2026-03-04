@@ -112,6 +112,14 @@ def TestWaitAnalysis : Pass<"test-wait-analysis"> {
   }];
 }
 
+def TestHazardAnalysis : Pass<"test-hazard-analysis"> {
+  let summary = "Test pass for hazard analysis";
+  let description = [{
+    This pass runs hazard analysis and prints the hazard state
+    (active and consumed hazards) before and after each operation.
+  }];
+}
+
 def TestLDSInterferenceGraph
     : InterfacePass<"test-lds-interference-graph", "::mlir::FunctionOpInterface"> {
   let summary = "Test pass that prints the LDS interference graph";
