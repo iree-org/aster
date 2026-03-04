@@ -352,4 +352,14 @@ def ToRegisterSemantics : Pass<"amdgcn-to-register-semantics"> {
   ];
 }
 
+def AMDGCNHazards : Pass<"amdgcn-hazards"> {
+  let summary = "Resolve hazards for AMDGCN instructions  ";
+  let description = [{
+    This pass resolves hazards for AMDGCN instructions. It runs the hazard analysis
+    on AMDGCN operations and inserts NOPs or wait instructions to resolve the hazards.
+    It should run after register allocation, and before convert waits.
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+}
+
 #endif // AMDGCN_PASSES
