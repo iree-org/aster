@@ -1,0 +1,238 @@
+// RUN: aster-opt %s --test-hazard-analysis --split-input-file | FileCheck %s
+
+// CHECK-LABEL: Symbol: test_store_hazard
+// CHECK: Op: func.func @test_store_hazard(%{{.*}}: !amdgcn.vgpr<0>, %{{.*}}: !amdgcn.vgpr<[4 : 6]>, %{{.*}}: !amdgcn.vgpr<1>) {...}
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = []
+// CHECK:     nop counts = {v:2, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: func.return
+// CHECK:   HAZARD STATE AFTER: <Empty>
+func.func @test_store_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>) {
+  %0 = amdgcn.store global_store_dword data %arg0 addr %arg1 : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %arg2 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}
+
+// -----
+// CHECK-LABEL: Symbol: test_store_no_hazard
+// CHECK: Op: func.func @test_store_no_hazard(%{{.*}}: !amdgcn.vgpr<0>, %{{.*}}: !amdgcn.vgpr<[4 : 6]>, %{{.*}}: !amdgcn.vgpr<1>) {...}
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.v_nop
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.v_nop
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: func.return
+// CHECK:   HAZARD STATE AFTER: <Empty>
+func.func @test_store_no_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>) {
+  // Check that there are no hazards because there are two valu ops in between.
+  %0 = amdgcn.store global_store_dword data %arg0 addr %arg1 : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  amdgcn.vop1.v_nop
+  amdgcn.vop1.v_nop
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %arg2 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}
+
+// -----
+// CHECK-LABEL: Symbol: test_cf_hazard
+// CHECK: Op: func.func @test_cf_hazard(%{{.*}}: !amdgcn.vgpr<0>, %{{.*}}: !amdgcn.vgpr<[4 : 6]>, %{{.*}}: !amdgcn.vgpr<1>, %{{.*}}: i1) {...}
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: cf.cond_br %{{.*}}, ^bb1, ^bb2
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: cf.br ^bb2
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = []
+// CHECK:     nop counts = {v:2, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: func.return
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// This test checks that hazards propagate through control-flow.
+func.func @test_cf_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>, %arg3: i1) {
+  cf.cond_br %arg3, ^bb1, ^bb2
+^bb1:  // pred: ^bb0
+  %0 = amdgcn.store global_store_dword data %arg0 addr %arg1 : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  cf.br ^bb2
+^bb2:  // 2 preds: ^bb0, ^bb1
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %arg2 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}
+
+// -----
+// CHECK-LABEL: Symbol: test_cf_diamond_hazard
+// CHECK: Op: func.func @test_cf_diamond_hazard(%{{.*}}: !amdgcn.vgpr<0>, %{{.*}}: !amdgcn.vgpr<[4 : 6]>, %{{.*}}: !amdgcn.vgpr<1>, %{{.*}}: i1) {...}
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: cf.cond_br %{{.*}}, ^bb1, ^bb2
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = []
+// CHECK:     nop counts = {v:2, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: cf.br ^bb3
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: amdgcn.vop1.v_nop
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: cf.br ^bb3
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = []
+// CHECK:     nop counts = {v:1, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: func.return
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// This test checks that hazards propagate through control-flow, but that counts are optimal.
+func.func @test_cf_diamond_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>, %arg3: i1) {
+  %0 = amdgcn.store global_store_dword data %arg0 addr %arg1 : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  cf.cond_br %arg3, ^bb1, ^bb2
+^bb1:  // pred: ^bb0
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %arg2 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  cf.br ^bb3
+^bb2:  // pred: ^bb0
+  amdgcn.vop1.v_nop
+  cf.br ^bb3
+^bb3:  // 2 preds: ^bb1, ^bb2
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %arg2 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}
+
+// -----
+// CHECK-LABEL: Symbol: test_cf_no_hazard
+// CHECK: Op: func.func @test_cf_no_hazard(%{{.*}}: !amdgcn.vgpr<0>, %{{.*}}: !amdgcn.vgpr<[4 : 6]>, %{{.*}}: !amdgcn.vgpr<1>, %{{.*}}: i1) {...}
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: cf.cond_br %{{.*}}, ^bb1, ^bb2
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.v_nop
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: cf.br ^bb2
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.v_nop
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: func.return
+// CHECK:   HAZARD STATE AFTER: <Empty>
+func.func @test_cf_no_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>, %arg3: i1) {
+  cf.cond_br %arg3, ^bb1, ^bb2
+^bb1:  // pred: ^bb0
+  %0 = amdgcn.store global_store_dword data %arg0 addr %arg1 : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  amdgcn.vop1.v_nop
+  cf.br ^bb2
+^bb2:  // 2 preds: ^bb0, ^bb1
+  amdgcn.vop1.v_nop
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %arg2 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}
+
+// -----
+// CHECK-LABEL: Symbol: test_hazard_optimality
+// CHECK: Op: func.func @test_hazard_optimality(%{{.*}}: !amdgcn.vgpr<0>, %{{.*}}: !amdgcn.vgpr<1>, %{{.*}}: !amdgcn.vgpr<[4 : 6]>, %{{.*}}: !amdgcn.vgpr<1>) {...}
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<1>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}},
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.store global_store_dword data %{{.*}} addr %{{.*}} : ins(!amdgcn.vgpr<1>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:     ]
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = []
+// CHECK:     nop counts = {v:1, s:0, ds:0}
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// CHECK: Op: func.return
+// CHECK:   HAZARD STATE AFTER: <Empty>
+// This test checks that the second v_mov has no hazards, as the nops required to resolve the first hazard are factored into state for the second v_mov.
+func.func @test_hazard_optimality(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<1>, %arg2: !amdgcn.vgpr<[4 : 6]>, %arg3: !amdgcn.vgpr<1>) {
+  %0 = amdgcn.store global_store_dword data %arg0 addr %arg2 : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  %1 = amdgcn.store global_store_dword data %arg1 addr %arg2 : ins(!amdgcn.vgpr<1>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %arg3 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg1, %arg3 : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
+  return
+}

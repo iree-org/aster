@@ -18,6 +18,8 @@
 include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.td"
+include "aster/Dialect/AMDGCN/IR/Interfaces/HazardAttrInterface.td"
+include "aster/Dialect/AMDGCN/IR/Hazards.td"
 include "aster/Interfaces/MemorySpaceConstraints.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
 

@@ -16,6 +16,7 @@ add_mlir_library(ASTERTestPass
   TestLDSMultibufferPrep.cpp
   TestMemoryDependenceAnalysis.cpp
   TestWaitAnalysis.cpp
+  TestHazardAnalysis.cpp
 
   DEPENDS
   ASTERTestPassesIncGen
