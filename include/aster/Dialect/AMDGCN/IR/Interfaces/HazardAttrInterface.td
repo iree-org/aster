@@ -24,6 +24,14 @@ def HazardRaiserAttrInterface : AttrInterface<"HazardRaiserAttrInterface"> {
   }];
   let methods = [
     InterfaceMethod<[{
+      Determine whether populateHazardsFor should be called based on InstMetadata
+      and ISA version alone.
+    }],
+    "bool", "matchInst",
+    (ins "const ::mlir::aster::amdgcn::InstMetadata *":$md,
+         "::mlir::aster::amdgcn::ISAVersion":$isaVer)
+    >,
+    InterfaceMethod<[{
       Populate the hazards vector with hazards raised by the given instruction.
     }],
     "void", "populateHazardsFor",
