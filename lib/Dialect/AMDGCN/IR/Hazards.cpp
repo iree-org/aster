@@ -17,6 +17,7 @@
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
 
 using namespace mlir;
@@ -64,6 +65,16 @@ static bool isVccOrExecKind(RegisterKind kind) {
 /// Check if a register kind is VCCZ or EXECZ (read by second instruction).
 static bool isVcczOrExeczKind(RegisterKind kind) {
   return kind == RegisterKind::VCCZ || kind == RegisterKind::EXECZ;
+}
+
+/// Check if the instruction supports the given ISA version.
+static bool instSupportsIsa(const InstMetadata *md, ISAVersion isaVer) {
+  if (!md)
+    return false;
+  ArrayRef<ISAVersion> isas = md->getISAVersions();
+  if (isas.empty())
+    return true; // Available on all targets.
+  return llvm::is_contained(isas, isaVer);
 }
 
 /// Check if a VMEM instruction reads from SGPRs overlapping the given type.
@@ -131,6 +142,11 @@ bool Hazard::compare(const Hazard &other, DominanceInfo &domInfo) const {
 //===----------------------------------------------------------------------===//
 // Case 1: SetRegGetRegHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3SetRegGetRegHazardAttr::matchInst(const InstMetadata *,
+                                            ISAVersion) const {
+  return false; // TODO: S_SETREG and S_GETREG not implemented.
+}
+
 void CDNA3SetRegGetRegHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -142,6 +158,11 @@ bool CDNA3SetRegGetRegHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 2: SetRegSetRegHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3SetRegSetRegHazardAttr::matchInst(const InstMetadata *,
+                                            ISAVersion) const {
+  return false; // TODO: S_SETREG not implemented.
+}
+
 void CDNA3SetRegSetRegHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -153,6 +174,11 @@ bool CDNA3SetRegSetRegHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 3: SetVskipGetRegHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3SetVskipGetRegHazardAttr::matchInst(const InstMetadata *,
+                                              ISAVersion) const {
+  return false; // TODO: SET_VSKIP and S_GETREG not implemented.
+}
+
 void CDNA3SetVskipGetRegHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -164,6 +190,11 @@ bool CDNA3SetVskipGetRegHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 4: SetRegVskipVectorHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3SetRegVskipVectorHazardAttr::matchInst(const InstMetadata *,
+                                                 ISAVersion) const {
+  return false; // TODO: S_SETREG not implemented.
+}
+
 void CDNA3SetRegVskipVectorHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -175,6 +206,11 @@ bool CDNA3SetRegVskipVectorHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 5: VccExecVcczExeczHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3VccExecVcczExeczHazardAttr::matchInst(const InstMetadata *md,
+                                                ISAVersion isaVer) const {
+  return md && instSupportsIsa(md, isaVer) && md->hasProp(InstProp::IsValu);
+}
+
 void CDNA3VccExecVcczExeczHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
   const InstMetadata *metadata = instOp.getInstMetadata();
@@ -211,6 +247,11 @@ bool CDNA3VccExecVcczExeczHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 6: ValuSgprReadlaneHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3ValuSgprReadlaneHazardAttr::matchInst(const InstMetadata *,
+                                                ISAVersion) const {
+  return false; // TODO: V_READLANE, V_WRITELANE not implemented.
+}
+
 void CDNA3ValuSgprReadlaneHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -222,6 +263,11 @@ bool CDNA3ValuSgprReadlaneHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 7: VccDivFmasHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3VccDivFmasHazardAttr::matchInst(const InstMetadata *,
+                                          ISAVersion) const {
+  return false; // TODO: V_DIV_FMAS not implemented.
+}
+
 void CDNA3VccDivFmasHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -233,6 +279,25 @@ bool CDNA3VccDivFmasHazardAttr::isHazardTriggered(const Hazard &,
 //===----------------------------------------------------------------------===//
 // Case 8: StoreWriteDataHazard
 //===----------------------------------------------------------------------===//
+
+bool CDNA3StoreWriteDataHazardAttr::matchInst(const InstMetadata *md,
+                                              ISAVersion isaVer) const {
+  if (!md || !instSupportsIsa(md, isaVer))
+    return false;
+  OpCode op = md->getOpCode();
+  if (md->hasProp(InstProp::Global))
+    return true;
+  if (md->hasProp(InstProp::Buffer) &&
+      llvm::is_contained({OpCode::BUFFER_STORE_DWORDX3,
+                          OpCode::BUFFER_STORE_DWORDX4,
+                          OpCode::BUFFER_STORE_DWORDX3_IDXEN,
+                          OpCode::BUFFER_STORE_DWORDX4_IDXEN},
+                         op)) {
+    return true;
+  }
+  return false;
+}
+
 void CDNA3StoreWriteDataHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
   auto storeOp = dyn_cast<StoreOp>(instOp.getOperation());
@@ -290,6 +355,24 @@ bool CDNA3StoreWriteDataHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 9: StoreHazard
 //===----------------------------------------------------------------------===//
+
+bool CDNA3StoreHazardAttr::matchInst(const InstMetadata *md,
+                                     ISAVersion isaVer) const {
+  if (!md || !instSupportsIsa(md, isaVer))
+    return false;
+  OpCode op = md->getOpCode();
+  if (md->hasProp(InstProp::Global))
+    return true;
+  if (md->hasProp(InstProp::Buffer) &&
+      llvm::is_contained({OpCode::BUFFER_STORE_DWORDX3,
+                          OpCode::BUFFER_STORE_DWORDX4,
+                          OpCode::BUFFER_STORE_DWORDX3_IDXEN,
+                          OpCode::BUFFER_STORE_DWORDX4_IDXEN},
+                         op)) {
+    return true;
+  }
+  return false;
+}
 
 void CDNA3StoreHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
@@ -356,6 +439,11 @@ bool CDNA3StoreHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 10: ValuSgprVmemHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3ValuSgprVmemHazardAttr::matchInst(const InstMetadata *md,
+                                            ISAVersion isaVer) const {
+  return md && instSupportsIsa(md, isaVer) && md->hasProp(InstProp::IsValu);
+}
+
 void CDNA3ValuSgprVmemHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
   const InstMetadata *metadata = instOp.getInstMetadata();
@@ -396,6 +484,11 @@ bool CDNA3ValuSgprVmemHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 11: SaluM0GdsSendmsgHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3SaluM0GdsSendmsgHazardAttr::matchInst(const InstMetadata *,
+                                                ISAVersion) const {
+  return false; // TODO: GDS and S_SENDMSG not implemented.
+}
+
 void CDNA3SaluM0GdsSendmsgHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -407,6 +500,11 @@ bool CDNA3SaluM0GdsSendmsgHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 12: ValuVgprDppHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3ValuVgprDppHazardAttr::matchInst(const InstMetadata *,
+                                           ISAVersion) const {
+  return false; // TODO: DPP modifier not implemented.
+}
+
 void CDNA3ValuVgprDppHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -418,6 +516,10 @@ bool CDNA3ValuVgprDppHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 13: ExecDppHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3ExecDppHazardAttr::matchInst(const InstMetadata *, ISAVersion) const {
+  return false; // TODO: DPP modifier not implemented.
+}
+
 void CDNA3ExecDppHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -429,6 +531,11 @@ bool CDNA3ExecDppHazardAttr::isHazardTriggered(const Hazard &,
 //===----------------------------------------------------------------------===//
 // Case 14: MixedVccConstantHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3MixedVccConstantHazardAttr::matchInst(const InstMetadata *,
+                                                ISAVersion) const {
+  return false; // TODO: VCC/SGPR alias tracking not implemented.
+}
+
 void CDNA3MixedVccConstantHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -440,6 +547,11 @@ bool CDNA3MixedVccConstantHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 15: SetRegTrapstsRfeHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3SetRegTrapstsRfeHazardAttr::matchInst(const InstMetadata *,
+                                                ISAVersion) const {
+  return false; // TODO: S_SETREG, RFE, RFE_restore not implemented.
+}
+
 void CDNA3SetRegTrapstsRfeHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -451,6 +563,11 @@ bool CDNA3SetRegTrapstsRfeHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 16: SaluM0LdsHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3SaluM0LdsHazardAttr::matchInst(const InstMetadata *,
+                                         ISAVersion) const {
+  return false; // TODO: LDS add-TID, buffer_store_LDS not implemented.
+}
+
 void CDNA3SaluM0LdsHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -462,6 +579,11 @@ bool CDNA3SaluM0LdsHazardAttr::isHazardTriggered(const Hazard &,
 //===----------------------------------------------------------------------===//
 // Case 17: SaluM0MoverelHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3SaluM0MoverelHazardAttr::matchInst(const InstMetadata *,
+                                             ISAVersion) const {
+  return false; // TODO: S_MOVEREL not implemented.
+}
+
 void CDNA3SaluM0MoverelHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -473,6 +595,11 @@ bool CDNA3SaluM0MoverelHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 18: ValuSgprValuReadHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3ValuSgprValuReadHazardAttr::matchInst(const InstMetadata *,
+                                                ISAVersion) const {
+  return false; // TODO: SGPR/VCC dependency tracking not implemented.
+}
+
 void CDNA3ValuSgprValuReadHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -484,6 +611,11 @@ bool CDNA3ValuSgprValuReadHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 19: ValuVgprReadlaneHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3ValuVgprReadlaneHazardAttr::matchInst(const InstMetadata *,
+                                                ISAVersion) const {
+  return false; // TODO: V_READLANE not implemented.
+}
+
 void CDNA3ValuVgprReadlaneHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -495,6 +627,11 @@ bool CDNA3ValuVgprReadlaneHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 20: OpselSdwaHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3OpselSdwaHazardAttr::matchInst(const InstMetadata *,
+                                         ISAVersion) const {
+  return false; // TODO: OPSEL and SDWA modifiers not implemented.
+}
+
 void CDNA3OpselSdwaHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
@@ -506,6 +643,10 @@ bool CDNA3OpselSdwaHazardAttr::isHazardTriggered(const Hazard &,
 //===----------------------------------------------------------------------===//
 // Case 21: TransOpHazard
 //===----------------------------------------------------------------------===//
+bool CDNA3TransOpHazardAttr::matchInst(const InstMetadata *, ISAVersion) const {
+  return false; // TODO: Trans op detection not implemented.
+}
+
 void CDNA3TransOpHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
