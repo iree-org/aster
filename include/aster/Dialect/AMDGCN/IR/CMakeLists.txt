@@ -1,3 +1,6 @@
+set(LLVM_TARGET_DEFINITIONS InstAttr.td)
+mlir_tablegen(InstAttr.h.inc -gen-attrdef-decls -dialect=amdgcn)
+mlir_tablegen(InstAttr.cpp.inc -gen-attrdef-defs -dialect=amdgcn)
 set(LLVM_TARGET_DEFINITIONS AMDGCNOps.td)
 mlir_tablegen(AMDGCNDialect.h.inc -gen-dialect-decls -dialect=amdgcn)
 mlir_tablegen(AMDGCNDialect.cpp.inc -gen-dialect-defs -dialect=amdgcn)

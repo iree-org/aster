@@ -33,7 +33,6 @@ def AMDGCN_Dialect : Dialect {
     AMDGCN dialect.
   }];
   let useDefaultTypePrinterParser = 1;
-  let useDefaultAttributePrinterParser = 1;
   let usePropertiesForAttributes = 1;
   let extraClassDeclaration = [{
     /// Maximum number of SGPR registers supported by this dialect
@@ -43,9 +42,19 @@ def AMDGCN_Dialect : Dialect {
     /// Maximum number of AGPR registers supported by this dialect
     static constexpr int16_t maxAGPRRegisters = 256;
 
+    /// Parse an attribute registered to this dialect.
+    ::mlir::Attribute parseAttribute(::mlir::DialectAsmParser &parser,
+                        ::mlir::Type type) const override;
+
+    /// Print an attribute registered to this dialect.
+    void printAttribute(::mlir::Attribute attr,
+        ::mlir::DialectAsmPrinter &os) const override;
+
   private:
     /// Initialize the dialect's attributes.
     void initializeAttributes();
+    /// Initialize the InstAttr attribute.
+    void initializeInstAttr();
   }];
 }
 

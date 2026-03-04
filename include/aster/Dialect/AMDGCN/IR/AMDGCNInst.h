@@ -109,4 +109,7 @@ public:
 };
 } // namespace mlir::aster::amdgcn
 
+#define GET_ATTRDEF_CLASSES
+#include "aster/Dialect/AMDGCN/IR/InstAttr.h.inc"
+
 #endif // ASTER_DIALECT_AMDGCN_IR_AMDGCNINST_H

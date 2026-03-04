@@ -16,6 +16,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
+#include "aster/IR/ParsePrintUtils.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
@@ -277,7 +278,30 @@ void AMDGCNDialect::initialize() {
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.cpp.inc"
       >();
   initializeAttributes();
+  initializeInstAttr();
   addInterfaces<AMDGCNInlinerInterface>();
+}
+
+Attribute AMDGCNDialect::parseAttribute(DialectAsmParser &parser,
+                                        Type type) const {
+  return parseDialectAttributes<
+#define GET_ATTRDEF_LIST
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.cpp.inc"
+      ,
+#define GET_ATTRDEF_LIST
+#include "aster/Dialect/AMDGCN/IR/InstAttr.cpp.inc"
+      >(parser, type, getDialectNamespace());
+}
+
+void AMDGCNDialect::printAttribute(Attribute attr,
+                                   DialectAsmPrinter &os) const {
+  return printDialectAttributes<
+#define GET_ATTRDEF_LIST
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.cpp.inc"
+      ,
+#define GET_ATTRDEF_LIST
+#include "aster/Dialect/AMDGCN/IR/InstAttr.cpp.inc"
+      >(attr, os);
 }
 
 //===----------------------------------------------------------------------===//

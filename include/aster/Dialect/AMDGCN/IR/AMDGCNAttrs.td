@@ -39,28 +39,15 @@ def AddressSpaceAttr : AMDGCN_Attr<"AddressSpace", "addr_space", [
 // Inst attribute
 //===----------------------------------------------------------------------===//
 
-/// AMDGCN instruction attribute.
-def AMDGCN_InstAttr : AMDGCN_Attr<"Inst", "inst"> {
-  let summary = "AMDGCN instruction attribute";
-  let description = [{
-    Attribute representing an AMDGCN instruction opcode.
-
-    Example:
-
-    ```mlir
-    #amdgcn.inst<v_move_b32>
-    ```
-  }];
-  let parameters = (ins "mlir::aster::amdgcn::OpCode":$value);
+/// Attribute constraint for AMDGCN's InstAttr attribute.
+def AMDGCN_InstAttr :
+  Attr<CPred<"isa<::mlir::aster::amdgcn::InstAttr>($_self)">,
+    "AMDGCN instruction attribute"> {
+  let storageType = "::mlir::aster::amdgcn::InstAttr";
   let constBuilderCall =
-      cppNamespace#"::"#cppClassName#"::get($_builder.getContext(), $0)";
-  let returnType = cppNamespace#"::OpCode";
+      "::mlir::aster::amdgcn::InstAttr::get($_builder.getContext(), $0)";
+  let returnType = "::mlir::aster::amdgcn::OpCode";
   let convertFromStorage = "$_self.getValue()";
-  let genStorageClass = 0;
-  let assemblyFormat = [{ `<` $value `>` }];
-  let extraClassDeclaration = [{
-    const mlir::aster::amdgcn::InstMetadata* getMetadata() const;
-  }];
 }
 
 //===----------------------------------------------------------------------===//
