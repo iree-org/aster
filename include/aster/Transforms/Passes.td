@@ -202,4 +202,26 @@ def SCFPipelineAsterSched : Pass<"aster-scf-pipeline"> {
   ];
 }
 
+//===----------------------------------------------------------------------===//
+// ForwardStoreToLoad
+//===----------------------------------------------------------------------===//
+
+def ForwardStoreToLoad : Pass<"aster-forward-store-to-load"> {
+  let summary = "Forward scalar memref stores to subsequent loads in the same "
+                "block";
+  let description = [{
+    Per-block reaching-def analysis on scalar memref.alloca ops.
+    When a store to a scalar alloca is followed by a load from the same alloca
+    with no intervening aliasing operation, the load is replaced by the stored
+    value. Dead stores (overwritten before any read) are also eliminated.
+    This pass is meant to be used with and to augment SROA / mem2reg and
+    PromoteLoopCarriedMemrefs to support more cases.
+    The pass only looks at memref.alloca of memref<ty> or memref<1xty> and does
+    not perform any cross-block analysis for now.
+  }];
+  let dependentDialects = [
+    "mlir::memref::MemRefDialect",
+  ];
+}
+
 #endif // ASTER_TRANSFORMS_PASSES_TD

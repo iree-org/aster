@@ -1,6 +1,7 @@
 add_mlir_library(AsterTransforms
   CanonicalizePtrs.cpp
   ConstexprExpansion.cpp
+  ForwardStoreToLoad.cpp
   LDSMultibufferPrep.cpp
   OpScheduling.cpp
   PromoteLoopCarriedMemrefs.cpp
