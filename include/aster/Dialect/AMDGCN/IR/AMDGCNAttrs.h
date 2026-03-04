@@ -18,6 +18,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.h"
 #include "aster/Interfaces/MemorySpaceConstraints.h"
 #include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.h"
 #include "mlir/IR/Attributes.h"
@@ -31,8 +32,6 @@ struct InstAttrStorage;
 } // namespace detail
 } // namespace aster::amdgcn
 } // namespace mlir
-
-#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrInterfaces.h.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h.inc"

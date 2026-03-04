@@ -7,11 +7,11 @@ add_mlir_dialect_library(AMDGCNDialect
   Utils.cpp
 
   DEPENDS
-  AMDGCNAttrInterfacesIncGen
+  KernelArgInterfaceIncGen
   AMDGCNInstOpInterfaceIncGen
   AMDGCNInstsIncGen
   AMDGCNOpsIncGen
-  AMDGCNTypeInterfacesIncGen
+  AMDGCNRegisterTypeInterfaceIncGen
 
   LINK_LIBS PUBLIC
   ASTERIR

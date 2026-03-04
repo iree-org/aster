@@ -1,4 +1,4 @@
-//===-- AMDGCNTypeInterfaces.td - AMDGCN type interfaces ------------------===//
+//===-- AMDGCNRegisterTypeInterface.td - AMDGCN register type interface -*- tablegen -*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,8 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ASTER_AMDGCN_TYPEINTERFACES
-#define ASTER_AMDGCN_TYPEINTERFACES
+#ifndef ASTER_AMDGCN_AMDGCNREGISTERTYPEINTERFACE_TD
+#define ASTER_AMDGCN_AMDGCNREGISTERTYPEINTERFACE_TD
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/Interfaces.td"
@@ -30,4 +30,4 @@ def AMDGCNRegisterTypeInterface : TypeInterface<"AMDGCNRegisterTypeInterface", [
   ];
 }
 
-#endif // ASTER_AMDGCN_TYPEINTERFACES
+#endif // ASTER_AMDGCN_AMDGCNREGISTERTYPEINTERFACE_TD

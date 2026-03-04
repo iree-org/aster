@@ -11,10 +11,10 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/IR/ParsePrintUtils.h"
 #include "aster/Interfaces/RegisterType.h"
@@ -1297,13 +1297,13 @@ inferTypesImpl(MLIRContext *ctx, std::optional<Location> &loc,
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.cpp.inc"
 
-#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrInterfaces.cpp.inc"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.cpp.inc"
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.cpp.inc"
 
-#include "aster/Dialect/AMDGCN/IR/AMDGCNInstOpInterface.cpp.inc"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.cpp.inc"
 
-#include "aster/Dialect/AMDGCN/IR/AMDGCNTypeInterfaces.cpp.inc"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNRegisterTypeInterface.cpp.inc"
 
 #define GET_TYPEDEF_CLASSES
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.cpp.inc"

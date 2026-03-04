@@ -17,7 +17,7 @@
 
 include "mlir/IR/OpBase.td"
 include "aster/IR/InstBase.td"
-include "aster/Dialect/AMDGCN/IR/AMDGCNInstOpInterface.td"
+include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.td"
 include "aster/Support/EnumBase.td"
 include "aster/Support/Utils.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"

@@ -1,4 +1,4 @@
-//===-- AMDGCNAttrInterfaces.td - AMDGCN attr interfaces ------------------===//
+//===-- KernelArgInterface.td - Kernel argument attribute interface -*- tablegen -*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,8 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ASTER_AMDGCN_ATTRINTERFACES
-#define ASTER_AMDGCN_ATTRINTERFACES
+#ifndef ASTER_AMDGCN_KERNELARGINTERFACE_TD
+#define ASTER_AMDGCN_KERNELARGINTERFACE_TD
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/Interfaces.td"
@@ -80,4 +80,4 @@ def KernelArgInterface : AttrInterface<"KernelArgAttrInterface"> {
   ];
 }
 
-#endif // ASTER_AMDGCN_ATTRINTERFACES
+#endif // ASTER_AMDGCN_KERNELARGINTERFACE_TD

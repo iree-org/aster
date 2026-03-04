@@ -17,7 +17,7 @@
 
 include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
-include "aster/Dialect/AMDGCN/IR/AMDGCNAttrInterfaces.td"
+include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.td"
 include "aster/Interfaces/MemorySpaceConstraints.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
 
