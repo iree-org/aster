@@ -13,12 +13,16 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
+#include "aster/Dialect/AMDGCN/IR/HazardManager.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/ScopeExit.h"
+#include "llvm/Support/DebugLog.h"
+
+#define DEBUG_TYPE "amdgcn-hazards"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -659,29 +663,110 @@ bool CDNA3TransOpHazardAttr::isHazardTriggered(const Hazard &,
 // Hazard manager implementation
 //===----------------------------------------------------------------------===//
 
-void CDNA3Hazards::initialize() {
-  MLIRContext *ctx = getTopOp()->getContext();
-  hazardAttrs.push_back(CDNA3StoreHazardAttr::get(ctx));
-  hazardAttrs.push_back(CDNA3StoreWriteDataHazardAttr::get(ctx));
-  hazardAttrs.push_back(CDNA3VccExecVcczExeczHazardAttr::get(ctx));
-  hazardAttrs.push_back(CDNA3ValuSgprVmemHazardAttr::get(ctx));
+void HazardManager::getHazardRaisersFor(
+    ISAVersion version,
+    SmallVectorImpl<HazardRaiserAttrInterface> &hazardRaisers) {
+  hazardRaisers.clear();
+  if (version == ISAVersion::CDNA3) {
+    MLIRContext *ctx = getTopOp()->getContext();
+    hazardRaisers.push_back(CDNA3StoreHazardAttr::get(ctx));
+    hazardRaisers.push_back(CDNA3StoreWriteDataHazardAttr::get(ctx));
+    hazardRaisers.push_back(CDNA3VccExecVcczExeczHazardAttr::get(ctx));
+    hazardRaisers.push_back(CDNA3ValuSgprVmemHazardAttr::get(ctx));
+  }
 }
 
-LogicalResult CDNA3Hazards::getHazards(AMDGCNInstOpInterface instOp,
-                                       SmallVectorImpl<Hazard> &hazards) {
-  // Check if all output and input operands have allocated semantics.
+void HazardManager::populateHazardsFor(ISAVersion version) {
+  hazardAttrs.clear();
+  opcodeToHazardAttrs.clear();
+
+  // Collect all hazard raisers for the given ISA version.
+  SmallVector<HazardRaiserAttrInterface> hazardRaisers;
+  getHazardRaisersFor(version, hazardRaisers);
+
+  // Since we are matching by opcode, we don't need to visit the same opcode
+  // twice.
+  llvm::SmallDenseSet<OpCode> seen;
+
+  // Walk the top operation and populate the hazard raisers by opcode.
+  getTopOp()->walk([&](AMDGCNInstOpInterface instOp) {
+    const InstMetadata *md = instOp.getInstMetadata();
+
+    // Skip instructions that don't have metadata or have already been visited.
+    if (!md || !seen.insert(md->getOpCode()).second)
+      return;
+
+    // Check if the instruction has a hazard raiser.
+    OpCode opcode = md->getOpCode();
+    for (HazardRaiserAttrInterface hazardRaiser : hazardRaisers) {
+      if (!hazardRaiser.matchInst(md, version))
+        continue;
+      hazardAttrs.push_back({opcode, hazardRaiser});
+    }
+  });
+
+  // Sort the hazard raisers by opcode and attribute pointer.
+  llvm::sort(hazardAttrs,
+             [](const std::pair<OpCode, HazardRaiserAttrInterface> &a,
+                const std::pair<OpCode, HazardRaiserAttrInterface> &b) {
+               return std::make_pair(a.first, a.second.getAsOpaquePointer()) <
+                      std::make_pair(b.first, b.second.getAsOpaquePointer());
+             });
+
+  // Populate the opcode to hazard attrs map.
+  for (int32_t i = 0, e = hazardAttrs.size(); i < e;) {
+    OpCode opcode = hazardAttrs[i].first;
+    int32_t start = i;
+    while (i < e && hazardAttrs[i].first == opcode)
+      ++i;
+    opcodeToHazardAttrs[opcode] = {start, i};
+  }
+
+  LDBG_OS([&](llvm::raw_ostream &os) {
+    os << "Hazards patterns for " << stringifyISAVersion(version) << ":\n";
+    for (auto [opcode, hazardRaiser] : hazardAttrs) {
+      os << "  " << stringifyOpCode(opcode) << ": " << hazardRaiser << "\n";
+    }
+  });
+}
+
+LogicalResult HazardManager::getHazards(AMDGCNInstOpInterface instOp,
+                                        SmallVectorImpl<Hazard> &hazards) {
+  LDBG() << "Getting hazards for instruction: "
+         << OpWithFlags(instOp, OpPrintingFlags().skipRegions());
+  const InstMetadata *md = instOp.getInstMetadata();
+  if (!md) {
+    LDBG() << "- no metadata for instruction";
+    return success();
+  }
+
+  // Lookup if there are any hazard raisers for the given instruction.
+  auto [start, end] = opcodeToHazardAttrs.lookup_or(md->getOpCode(), {-1, -1});
+  if (start == -1 || end == -1) {
+    LDBG() << "- no hazard patterns for instruction";
+    return success();
+  }
+
+  // Check if all output and input operands have allocated semantics, bail if
+  // not.
   auto isAllocType = [](Type out) {
     auto regTy = dyn_cast<RegisterTypeInterface>(out);
     return regTy && regTy.hasAllocatedSemantics();
   };
+
   if (!llvm::all_of(TypeRange(instOp.getInstOuts()), isAllocType))
     return instOp.emitError("output operands must have allocated semantics");
   if (!llvm::all_of(TypeRange(instOp.getInstIns()), isAllocType))
     return instOp.emitError("input operands must have allocated semantics");
 
-  // TODO: Do per-inst hazard retrieval or a better hazard manager
-  // implementation instead of checking all hazards.
-  for (HazardRaiserAttrInterface hazardAttr : hazardAttrs)
-    hazardAttr.populateHazardsFor(instOp, hazards);
+  // Populate the hazards for the given instruction.
+  for (int32_t i = start; i < end; ++i)
+    hazardAttrs[i].second.populateHazardsFor(instOp, hazards);
+
+  LDBG_OS([&](llvm::raw_ostream &os) {
+    os << "- Collected hazards: ";
+    for (const Hazard &hazard : hazards)
+      os << " - " << hazard << "\n";
+  });
   return success();
 }

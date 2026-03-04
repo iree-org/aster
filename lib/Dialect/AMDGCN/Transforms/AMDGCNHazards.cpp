@@ -10,7 +10,8 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/HazardAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
-#include "aster/Dialect/AMDGCN/IR/Hazards.h"
+#include "aster/Dialect/AMDGCN/IR/HazardManager.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -44,8 +45,15 @@ struct AMDGCNHazards : public amdgcn::impl::AMDGCNHazardsBase<AMDGCNHazards> {
 void AMDGCNHazards::runOnOperation() {
   Operation *op = getOperation();
 
+  // Get ISA version from the module, default to CDNA3 if not found.
+  ISAVersion isaVersion = ISAVersion::CDNA3;
+  if (auto moduleOp = op->getParentOfType<amdgcn::ModuleOp>())
+    isaVersion = getIsaForTarget(moduleOp.getTarget());
+
+  HazardManager hazardManager(op);
+  hazardManager.populateHazardsFor(isaVersion);
+
   // Run hazard analysis.
-  CDNA3Hazards hazardManager(op);
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
   dataflow::loadBaselineAnalyses(solver);
   solver.load<HazardAnalysis>(hazardManager);

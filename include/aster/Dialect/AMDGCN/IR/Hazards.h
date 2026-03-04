@@ -221,52 +221,6 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const Hazard &h) {
   return os;
 }
 
-/// A hazard manager is responsible for computing the hazards for a given
-/// operation.
-struct HazardManager {
-  /// Create a new hazard manager for the given top operation.
-  HazardManager(Operation *topOp) : topOp(topOp) {
-    assert(topOp != nullptr && "topOp cannot be nullptr");
-  }
-
-  virtual ~HazardManager() = default;
-
-  /// Initialize the hazard manager.
-  virtual void initialize() {}
-
-  /// Get the hazards for the given operation. Returns failure if the hazards
-  /// cannot be computed.
-  virtual LogicalResult getHazards(Operation *op,
-                                   SmallVectorImpl<Hazard> &hazards) = 0;
-
-  /// Get the top operation of the hazard manager.
-  Operation *getTopOp() const { return topOp; }
-
-private:
-  Operation *topOp;
-};
-
-/// Hazard manager for CDNA3 (GFX940/GFX942) architectures. Computes
-/// instruction hazards specific to the CDNA3 ISA.
-struct CDNA3Hazards : HazardManager {
-  CDNA3Hazards(Operation *topOp) : HazardManager(topOp) { initialize(); }
-
-  void initialize() override;
-
-  /// Get the hazards for the given operation.
-  LogicalResult getHazards(Operation *op,
-                           SmallVectorImpl<Hazard> &hazards) override {
-    if (auto amdgcnInstOp = dyn_cast<AMDGCNInstOpInterface>(op))
-      return getHazards(amdgcnInstOp, hazards);
-    return success();
-  }
-  LogicalResult getHazards(AMDGCNInstOpInterface instOp,
-                           SmallVectorImpl<Hazard> &hazards);
-
-private:
-  /// Cache the hazard attributes.
-  SmallVector<HazardRaiserAttrInterface> hazardAttrs;
-};
 } // namespace aster::amdgcn
 } // namespace mlir
 
