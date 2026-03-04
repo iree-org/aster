@@ -148,3 +148,124 @@ func.func @test_hazard_optimality(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<1>
   amdgcn.vop1.vop1 <v_mov_b32_e32> %arg1, %arg3 : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
   return
 }
+
+// -----
+
+// CHECK-LABEL:   func.func @test_backedge_hazard(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<0>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[4 : 6]>,
+// CHECK-SAME:      %[[ARG2:.*]]: !amdgcn.vgpr<1>,
+// CHECK-SAME:      %[[ARG3:.*]]: i1) {
+// CHECK:           cf.br ^bb1
+// CHECK:         ^bb1:
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ARG0]], %[[ARG2]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dword data %[[ARG0]] addr %[[ARG1]] : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:           cf.cond_br %[[ARG3]], ^bb1, ^bb2
+// CHECK:         ^bb2:
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ARG0]], %[[ARG2]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           return
+// CHECK:         }
+func.func @test_backedge_hazard(%data: !amdgcn.vgpr<0>, %addr: !amdgcn.vgpr<[4 : 6]>, %value: !amdgcn.vgpr<1>, %cond: i1) {
+  cf.br ^bb1
+^bb1:
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %data, %value : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  %token = amdgcn.store global_store_dword data %data addr %addr : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  cf.cond_br %cond , ^bb1, ^bb2
+^bb2:
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %data, %value : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}
+
+// CHECK-LABEL:   func.func @test_backedge_no_hazard(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<0>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[4 : 6]>,
+// CHECK-SAME:      %[[ARG2:.*]]: !amdgcn.vgpr<1>,
+// CHECK-SAME:      %[[ARG3:.*]]: i1) {
+// CHECK:           cf.br ^bb1
+// CHECK:         ^bb1:
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ARG0]], %[[ARG2]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dword data %[[ARG0]] addr %[[ARG1]] : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           cf.cond_br %[[ARG3]], ^bb1, ^bb2
+// CHECK:         ^bb2:
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ARG0]], %[[ARG2]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           return
+// CHECK:         }
+func.func @test_backedge_no_hazard(%data: !amdgcn.vgpr<0>, %addr: !amdgcn.vgpr<[4 : 6]>, %value: !amdgcn.vgpr<1>, %cond: i1) {
+  cf.br ^bb1
+^bb1:
+  amdgcn.vop1.v_nop
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %data, %value : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  %token = amdgcn.store global_store_dword data %data addr %addr : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  amdgcn.vop1.v_nop
+  cf.cond_br %cond , ^bb1, ^bb2
+^bb2:
+  amdgcn.vop1.v_nop
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %data, %value : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}
+
+// CHECK-LABEL:   func.func @test_backedge_exit_hazard(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<0>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[4 : 6]>,
+// CHECK-SAME:      %[[ARG2:.*]]: !amdgcn.vgpr<1>,
+// CHECK-SAME:      %[[ARG3:.*]]: i1) {
+// CHECK:           cf.br ^bb1
+// CHECK:         ^bb1:
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ARG0]], %[[ARG2]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dword data %[[ARG0]] addr %[[ARG1]] : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           cf.cond_br %[[ARG3]], ^bb1, ^bb2
+// CHECK:         ^bb2:
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ARG0]], %[[ARG2]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           return
+// CHECK:         }
+func.func @test_backedge_exit_hazard(%data: !amdgcn.vgpr<0>, %addr: !amdgcn.vgpr<[4 : 6]>, %value: !amdgcn.vgpr<1>, %cond: i1) {
+  cf.br ^bb1
+^bb1:
+  amdgcn.vop1.v_nop
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %data, %value : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  %token = amdgcn.store global_store_dword data %data addr %addr : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  amdgcn.vop1.v_nop
+  cf.cond_br %cond , ^bb1, ^bb2
+^bb2:
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %data, %value : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}
+
+// CHECK-LABEL:   func.func @test_backedge_no_exit_hazard(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<0>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[4 : 6]>,
+// CHECK-SAME:      %[[ARG2:.*]]: !amdgcn.vgpr<1>,
+// CHECK-SAME:      %[[ARG3:.*]]: i1) {
+// CHECK:           cf.br ^bb1
+// CHECK:         ^bb1:
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ARG0]], %[[ARG2]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dword data %[[ARG0]] addr %[[ARG1]] : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop1.v_nop
+// CHECK:           cf.cond_br %[[ARG3]], ^bb1, ^bb2
+// CHECK:         ^bb2:
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ARG0]], %[[ARG2]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           return
+// CHECK:         }
+func.func @test_backedge_no_exit_hazard(%data: !amdgcn.vgpr<0>, %addr: !amdgcn.vgpr<[4 : 6]>, %value: !amdgcn.vgpr<1>, %cond: i1) {
+  cf.br ^bb1
+^bb1:
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %data, %value : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  %token = amdgcn.store global_store_dword data %data addr %addr : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  amdgcn.vop1.v_nop
+  amdgcn.vop1.v_nop
+  cf.cond_br %cond , ^bb1, ^bb2
+^bb2:
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %data, %value : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}

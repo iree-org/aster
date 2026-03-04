@@ -15,6 +15,8 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/ScopeExit.h"
 
 using namespace mlir;
@@ -24,6 +26,12 @@ using namespace mlir::aster::amdgcn;
 //===----------------------------------------------------------------------===//
 // Helper functions
 //===----------------------------------------------------------------------===//
+
+static MutableArrayRef<OpOperand> getOpOperands(OperandRange operands) {
+  if (operands.empty())
+    return {};
+  return MutableArrayRef<OpOperand>(operands.getBase(), operands.size());
+}
 
 /// Check if two register types overlap.
 static bool checkOverlap(AMDGCNRegisterTypeInterface lhs,
@@ -43,6 +51,34 @@ static bool checkOverlap(AMDGCNRegisterTypeInterface lhs,
 
   // Check if the ranges overlap.
   return lhsEnd > rhsBegin && rhsEnd > lhsBegin;
+}
+
+/// Check if a register kind is VCC or EXEC (written by first instruction).
+static bool isVccOrExecKind(RegisterKind kind) {
+  return llvm::is_contained({RegisterKind::VCC, RegisterKind::VCC_LO,
+                             RegisterKind::VCC_HI, RegisterKind::EXEC,
+                             RegisterKind::EXEC_LO, RegisterKind::EXEC_HI},
+                            kind);
+}
+
+/// Check if a register kind is VCCZ or EXECZ (read by second instruction).
+static bool isVcczOrExeczKind(RegisterKind kind) {
+  return kind == RegisterKind::VCCZ || kind == RegisterKind::EXECZ;
+}
+
+/// Check if a VMEM instruction reads from SGPRs overlapping the given type.
+static bool vmemReadsFromSgprType(AMDGCNInstOpInterface instOp,
+                                  AMDGCNRegisterTypeInterface targetRegTy) {
+  if (!targetRegTy || targetRegTy.getRegisterKind() != RegisterKind::SGPR)
+    return false;
+
+  for (Value input : instOp.getInstIns()) {
+    auto inputRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(input.getType());
+    if (inputRegTy && inputRegTy.getRegisterKind() == RegisterKind::SGPR &&
+        checkOverlap(inputRegTy, targetRegTy))
+      return true;
+  }
+  return false;
 }
 
 //===----------------------------------------------------------------------===//
@@ -92,10 +128,71 @@ bool Hazard::compare(const Hazard &other, DominanceInfo &domInfo) const {
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
-// Hazard attributes
+// Case 1: SetRegGetRegHazard
 //===----------------------------------------------------------------------===//
+void CDNA3SetRegGetRegHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
-bool CDNA3StoreHazardAttr::isHazardTriggered(
+bool CDNA3SetRegGetRegHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 2: SetRegSetRegHazard
+//===----------------------------------------------------------------------===//
+void CDNA3SetRegSetRegHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3SetRegSetRegHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 3: SetVskipGetRegHazard
+//===----------------------------------------------------------------------===//
+void CDNA3SetVskipGetRegHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3SetVskipGetRegHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 4: SetRegVskipVectorHazard
+//===----------------------------------------------------------------------===//
+void CDNA3SetRegVskipVectorHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3SetRegVskipVectorHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 5: VccExecVcczExeczHazard
+//===----------------------------------------------------------------------===//
+void CDNA3VccExecVcczExeczHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
+  const InstMetadata *metadata = instOp.getInstMetadata();
+  if (!metadata || !metadata->hasProp(InstProp::IsValu))
+    return;
+
+  // Check if any output writes VCC or EXEC.
+  bool writesVccOrExec = llvm::any_of(instOp.getInstOuts(), [](Value out) {
+    auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(out.getType());
+    return regTy && isVccOrExecKind(regTy.getRegisterKind());
+  });
+  if (!writesVccOrExec)
+    return;
+
+  hazards.push_back(Hazard(
+      *this, instOp.getOperation(),
+      InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+}
+bool CDNA3VccExecVcczExeczHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
   assert(hazard.getHazard() == *this && "Hazard mismatch");
 
@@ -103,17 +200,95 @@ bool CDNA3StoreHazardAttr::isHazardTriggered(
   if (!metadata || !metadata->hasProp(InstProp::IsValu))
     return false;
 
+  // Check if any input reads VCCZ or EXECZ as data source.
+  return llvm::any_of(instOp.getInstIns(), [](Value input) {
+    auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(input.getType());
+    return regTy && isVcczOrExeczKind(regTy.getRegisterKind());
+  });
+}
+
+//===----------------------------------------------------------------------===//
+// Case 6: ValuSgprReadlaneHazard
+//===----------------------------------------------------------------------===//
+void CDNA3ValuSgprReadlaneHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3ValuSgprReadlaneHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 7: VccDivFmasHazard
+//===----------------------------------------------------------------------===//
+void CDNA3VccDivFmasHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3VccDivFmasHazardAttr::isHazardTriggered(const Hazard &,
+                                                  AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 8: StoreWriteDataHazard
+//===----------------------------------------------------------------------===//
+void CDNA3StoreWriteDataHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
+  auto storeOp = dyn_cast<StoreOp>(instOp.getOperation());
+  if (!storeOp)
+    return;
+  RegisterTypeInterface regTy = storeOp.getData().getType();
+  if (!regTy)
+    return;
+  const InstMetadata *metadata = storeOp.getInstMetadata();
+  if (!metadata)
+    return;
+
+  if (llvm::is_contained({OpCode::BUFFER_STORE_DWORDX3,
+                          OpCode::BUFFER_STORE_DWORDX4,
+                          OpCode::BUFFER_STORE_DWORDX3_IDXEN,
+                          OpCode::BUFFER_STORE_DWORDX4_IDXEN},
+                         metadata->getOpCode())) {
+    // If the dynamic offset is not set, there is no hazard.
+    if (!storeOp.getDynamicOffset())
+      return;
+    hazards.push_back(Hazard(
+        *this, storeOp.getDataMutable(),
+        InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+    return;
+  }
+  if (metadata->hasProp(InstProp::Global)) {
+    hazards.push_back(Hazard(
+        *this, storeOp.getDataMutable(),
+        InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+    return;
+  }
+  // TODO: FLAT_ATOMIC_[F]CMPSWAP_X2, BUFFER_STORE_FORMAT_XYZ/XYZW,
+  // BUFFER_ATOMIC_[F]CMPSWAP_X2 not implemented in AMDGCN.
+}
+
+bool CDNA3StoreWriteDataHazardAttr::isHazardTriggered(
+    const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
+  assert(hazard.getHazard() == *this && "Hazard mismatch");
+  // Case 8: Any instruction that writes to writedata VGPRs (non-VALU gets 1
+  // wait). Case 9 (CDNA3StoreHazard) handles VALU with 2 waits.
+  const InstMetadata *metadata = instOp.getInstMetadata();
+  if (!metadata || metadata->hasProp(InstProp::IsValu))
+    return false; // VALU is handled by CDNA3StoreHazard
+
   auto storeOp = cast<StoreOp>(hazard.getOp());
   AMDGCNRegisterTypeInterface writeRegTy = storeOp.getData().getType();
+  if (!writeRegTy.hasAllocatedSemantics())
+    return false;
 
-  assert(writeRegTy.hasAllocatedSemantics() &&
-         "Write register type must have allocated semantics");
-
-  // Check if the VALU instruction writes to the same register as the store.
   return llvm::any_of(TypeRange(instOp.getInstOuts()), [&](Type out) {
     return checkOverlap(dyn_cast<AMDGCNRegisterTypeInterface>(out), writeRegTy);
   });
 }
+
+//===----------------------------------------------------------------------===//
+// Case 9: StoreHazard
+//===----------------------------------------------------------------------===//
 
 void CDNA3StoreHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
@@ -136,28 +311,235 @@ void CDNA3StoreHazardAttr::populateHazardsFor(
                           OpCode::BUFFER_STORE_DWORDX3_IDXEN,
                           OpCode::BUFFER_STORE_DWORDX4_IDXEN},
                          metadata->getOpCode())) {
-    if (!storeOp.getDynamicOffset()) {
-      hazards.push_back(Hazard(
-          *this, storeOp.getDataMutable(),
-          InstCounts(/*v_nops=*/requiredWaits, /*s_nops=*/0, /*ds_nops=*/0)));
-    }
+
+    // If the dynamic offset is not set, there is no hazard.
+    if (!storeOp.getDynamicOffset())
+      return;
+    hazards.push_back(Hazard(
+        *this, storeOp.getDataMutable(),
+        InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+    return;
   }
 
   // Handle global ops.
   if (metadata->hasProp(InstProp::Global)) {
     hazards.push_back(Hazard(
         *this, storeOp.getDataMutable(),
-        InstCounts(/*v_nops=*/requiredWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+        InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+    return;
   }
+  // TODO: FLAT_ATOMIC_[F]CMPSWAP_X2, BUFFER_STORE_FORMAT_XYZ/XYZW,
+  // BUFFER_ATOMIC_[F]CMPSWAP_X2 not implemented in AMDGCN.
+}
+
+bool CDNA3StoreHazardAttr::isHazardTriggered(
+    const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
+  assert(hazard.getHazard() == *this && "Hazard mismatch");
+
+  const InstMetadata *metadata = instOp.getInstMetadata();
+  if (!metadata || !metadata->hasProp(InstProp::IsValu))
+    return false;
+
+  auto storeOp = cast<StoreOp>(hazard.getOp());
+  AMDGCNRegisterTypeInterface writeRegTy = storeOp.getData().getType();
+
+  assert(writeRegTy.hasAllocatedSemantics() &&
+         "Write register type must have allocated semantics");
+
+  // Check if the VALU instruction writes to the same register as the store.
+  return llvm::any_of(TypeRange(instOp.getInstOuts()), [&](Type out) {
+    return checkOverlap(dyn_cast<AMDGCNRegisterTypeInterface>(out), writeRegTy);
+  });
+}
+
+//===----------------------------------------------------------------------===//
+// Case 10: ValuSgprVmemHazard
+//===----------------------------------------------------------------------===//
+void CDNA3ValuSgprVmemHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
+  const InstMetadata *metadata = instOp.getInstMetadata();
+  if (!metadata || !metadata->hasProp(InstProp::IsValu))
+    return;
+
+  for (OpOperand &operand : getOpOperands(instOp.getInstOuts())) {
+    auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(operand.get().getType());
+    if (!regTy || regTy.getRegisterKind() != RegisterKind::SGPR)
+      continue;
+
+    hazards.push_back(Hazard(
+        *this, operand,
+        InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+  }
+}
+
+bool CDNA3ValuSgprVmemHazardAttr::isHazardTriggered(
+    const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
+  assert(hazard.getHazard() == *this && "Hazard mismatch");
+
+  const InstMetadata *metadata = instOp.getInstMetadata();
+  if (!metadata || !metadata->hasProp(InstProp::IsVmem))
+    return false;
+
+  OpOperand *sgprOperand = hazard.getOperand();
+  if (!sgprOperand)
+    return false;
+
+  auto sgprRegTy =
+      dyn_cast<AMDGCNRegisterTypeInterface>(sgprOperand->get().getType());
+  if (!sgprRegTy || sgprRegTy.getRegisterKind() != RegisterKind::SGPR)
+    return false;
+
+  return vmemReadsFromSgprType(instOp, sgprRegTy);
+}
+
+//===----------------------------------------------------------------------===//
+// Case 11: SaluM0GdsSendmsgHazard
+//===----------------------------------------------------------------------===//
+void CDNA3SaluM0GdsSendmsgHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3SaluM0GdsSendmsgHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 12: ValuVgprDppHazard
+//===----------------------------------------------------------------------===//
+void CDNA3ValuVgprDppHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3ValuVgprDppHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 13: ExecDppHazard
+//===----------------------------------------------------------------------===//
+void CDNA3ExecDppHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3ExecDppHazardAttr::isHazardTriggered(const Hazard &,
+                                               AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 14: MixedVccConstantHazard
+//===----------------------------------------------------------------------===//
+void CDNA3MixedVccConstantHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3MixedVccConstantHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 15: SetRegTrapstsRfeHazard
+//===----------------------------------------------------------------------===//
+void CDNA3SetRegTrapstsRfeHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3SetRegTrapstsRfeHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 16: SaluM0LdsHazard
+//===----------------------------------------------------------------------===//
+void CDNA3SaluM0LdsHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3SaluM0LdsHazardAttr::isHazardTriggered(const Hazard &,
+                                                 AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 17: SaluM0MoverelHazard
+//===----------------------------------------------------------------------===//
+void CDNA3SaluM0MoverelHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3SaluM0MoverelHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 18: ValuSgprValuReadHazard
+//===----------------------------------------------------------------------===//
+void CDNA3ValuSgprValuReadHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3ValuSgprValuReadHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 19: ValuVgprReadlaneHazard
+//===----------------------------------------------------------------------===//
+void CDNA3ValuVgprReadlaneHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3ValuVgprReadlaneHazardAttr::isHazardTriggered(
+    const Hazard &, AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 20: OpselSdwaHazard
+//===----------------------------------------------------------------------===//
+void CDNA3OpselSdwaHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3OpselSdwaHazardAttr::isHazardTriggered(const Hazard &,
+                                                 AMDGCNInstOpInterface) const {
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
+// Case 21: TransOpHazard
+//===----------------------------------------------------------------------===//
+void CDNA3TransOpHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+
+bool CDNA3TransOpHazardAttr::isHazardTriggered(const Hazard &,
+                                               AMDGCNInstOpInterface) const {
+  return false;
 }
 
 //===----------------------------------------------------------------------===//
 // Hazard manager implementation
 //===----------------------------------------------------------------------===//
 
+void CDNA3Hazards::initialize() {
+  MLIRContext *ctx = getTopOp()->getContext();
+  hazardAttrs.push_back(CDNA3StoreHazardAttr::get(ctx));
+  hazardAttrs.push_back(CDNA3StoreWriteDataHazardAttr::get(ctx));
+  hazardAttrs.push_back(CDNA3VccExecVcczExeczHazardAttr::get(ctx));
+  hazardAttrs.push_back(CDNA3ValuSgprVmemHazardAttr::get(ctx));
+}
+
 LogicalResult CDNA3Hazards::getHazards(AMDGCNInstOpInterface instOp,
                                        SmallVectorImpl<Hazard> &hazards) {
-  CDNA3StoreHazardAttr::get(instOp.getContext())
-      .populateHazardsFor(instOp, hazards);
+  // Check if all output and input operands have allocated semantics.
+  auto isAllocType = [](Type out) {
+    auto regTy = dyn_cast<RegisterTypeInterface>(out);
+    return regTy && regTy.hasAllocatedSemantics();
+  };
+  if (!llvm::all_of(TypeRange(instOp.getInstOuts()), isAllocType))
+    return instOp.emitError("output operands must have allocated semantics");
+  if (!llvm::all_of(TypeRange(instOp.getInstIns()), isAllocType))
+    return instOp.emitError("input operands must have allocated semantics");
+
+  // TODO: Do per-inst hazard retrieval or a better hazard manager
+  // implementation instead of checking all hazards.
+  for (HazardAttrInterface hazardAttr : hazardAttrs)
+    hazardAttr.populateHazardsFor(instOp, hazards);
   return success();
 }

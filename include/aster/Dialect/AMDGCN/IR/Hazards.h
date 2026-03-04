@@ -225,9 +225,14 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const Hazard &h) {
 /// operation.
 struct HazardManager {
   /// Create a new hazard manager for the given top operation.
-  HazardManager(Operation *topOp) : topOp(topOp) {}
+  HazardManager(Operation *topOp) : topOp(topOp) {
+    assert(topOp != nullptr && "topOp cannot be nullptr");
+  }
 
   virtual ~HazardManager() = default;
+
+  /// Initialize the hazard manager.
+  virtual void initialize() {}
 
   /// Get the hazards for the given operation. Returns failure if the hazards
   /// cannot be computed.
@@ -244,7 +249,9 @@ private:
 /// Hazard manager for CDNA3 (GFX940/GFX942) architectures. Computes
 /// instruction hazards specific to the CDNA3 ISA.
 struct CDNA3Hazards : HazardManager {
-  using HazardManager::HazardManager;
+  CDNA3Hazards(Operation *topOp) : HazardManager(topOp) { initialize(); }
+
+  void initialize() override;
 
   /// Get the hazards for the given operation.
   LogicalResult getHazards(Operation *op,
@@ -255,6 +262,10 @@ struct CDNA3Hazards : HazardManager {
   }
   LogicalResult getHazards(AMDGCNInstOpInterface instOp,
                            SmallVectorImpl<Hazard> &hazards);
+
+private:
+  /// Cache the hazard attributes.
+  SmallVector<HazardAttrInterface> hazardAttrs;
 };
 } // namespace aster::amdgcn
 } // namespace mlir
