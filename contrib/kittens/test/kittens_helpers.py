@@ -101,10 +101,11 @@ PIPELINE_STAGE_CONFIGS_4 = {
     # 4-stage split: separates global load from DS write for better pipelining.
     # For 2/3-stage, DS_WRITE == GLOBAL_LOAD (combined load + store can't split).
     # For 4+, all 4 stages are distinct.
-    2: (0, 0, 1, 1),
-    3: (0, 0, 1, 2),
+    2: (0, 1, 1, 1),
+    3: (0, 1, 2, 2),
     4: (0, 1, 2, 3),
-    5: (0, 1, 3, 4),
+    5: (0, 2, 3, 4),
+    6: (0, 3, 4, 5),
 }
 
 
