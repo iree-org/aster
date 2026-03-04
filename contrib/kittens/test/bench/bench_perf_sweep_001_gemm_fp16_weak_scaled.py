@@ -423,8 +423,12 @@ def _run_single(args):
     A, B = _make_inputs(cfg)
 
     if args.hsaco:
-        # Execute pre-compiled HSACO (used by sweep phase 2).
-        _, times_ns = execute_weak_scaled_hsaco(cfg, args.hsaco, args.iterations, A, B)
+        # Execute pre-compiled HSACO (used by sweep phase 2 / rocprofv3).
+        # Skip GPU check: if caller provided an HSACO they know the GPU is there,
+        # and rocminfo hangs under rocprofv3.
+        _, times_ns = execute_weak_scaled_hsaco(
+            cfg, args.hsaco, args.iterations, A, B, skip_gpu_check=True
+        )
     else:
         # Full compile + execute (used for standalone repro).
         import tempfile as _tempfile

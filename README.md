@@ -125,6 +125,8 @@ export PATH=${PWD}/.aster/bin/:$(python -c "import sysconfig; print(sysconfig.ge
 
 export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
 
+export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_core/lib:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
+
 export LLVM_INSTALL=${HOME}/shared-llvm
 export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
 EOF

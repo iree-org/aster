@@ -80,6 +80,7 @@ echo "  trace:    $TRACE_DIR"
     --att \
     --att-perfcounter-ctrl 10 \
     --att-perfcounters "$PERF_COUNTERS" \
+    --kernel-iteration-range "[3-3]" \
     -d "$TRACE_DIR" \
     $EXTRA_ROCPROFV3_ARGS \
     -- \
@@ -87,5 +88,5 @@ echo "  trace:    $TRACE_DIR"
     --iterations "$ITERATIONS" --hsaco "$HSACO_PATH"
 
 echo ""
-echo "Done. Trace: $TRACE_DIR"
+echo "Done. Trace: $(pwd)/$TRACE_DIR"
 echo "      HSACO: $HSACO_PATH"

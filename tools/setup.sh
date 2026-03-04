@@ -634,8 +634,9 @@ if ! grep -q "CMAKE_PREFIX_PATH" "$ACTIVATE" 2>/dev/null; then
         cat >> "$ACTIVATE" << 'ACTIVATE_EOF'
 
 # --- ASTER setup (added by tools/setup.sh) ---
-export PATH=${PWD}/.aster/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):${PATH}
+export PATH=${PWD}/.aster/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/bin/:${PATH}
 export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
 export LLVM_INSTALL=${HOME}/shared-llvm
 export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
 # --- end ASTER setup ---
@@ -646,8 +647,9 @@ ACTIVATE_EOF
 
 # --- ASTER setup (added by tools/setup.sh) ---
 export WORKTREE_NAME=$(basename $(pwd))
-export PATH=${PWD}/.aster-wt-${WORKTREE_NAME}/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):${PATH}
+export PATH=${PWD}/.aster-wt-${WORKTREE_NAME}/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/bin/:${PATH}
 export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster-wt-${WORKTREE_NAME}/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
 export LLVM_INSTALL=${HOME}/shared-llvm
 export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
 # --- end ASTER setup ---

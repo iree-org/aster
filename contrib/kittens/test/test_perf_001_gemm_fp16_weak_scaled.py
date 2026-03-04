@@ -140,17 +140,21 @@ def compile_weak_scaled_gemm(cfg, output_hsaco_path):
         ctx.__exit__(None, None, None)
 
 
-def execute_weak_scaled_hsaco(cfg, hsaco_path, num_iterations, A, B):
+def execute_weak_scaled_hsaco(
+    cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=False
+):
     """Execute a pre-compiled HSACO for a weak-scaled GEMM config.
 
     Returns (C_output, times_ns). Must run sequentially on GPU. Skips (pytest.skip) if
     the target GPU is not available.
 
-    Uses aster.hip (MLIR/LLVM-free) for rocprofv3 compatibility.
+    Uses aster.hip (MLIR/LLVM-free) for rocprofv3 compatibility. Set skip_gpu_check=True
+    when running under rocprofv3 (rocminfo hangs because rocprofv3 intercepts child
+    processes).
     """
     from aster.hip import system_has_gpu, execute_hsaco
 
-    if not system_has_gpu(MCPU):
+    if not skip_gpu_check and not system_has_gpu(MCPU):
         pytest.skip(f"GPU {MCPU} not available, skip execution")
 
     C_output = np.zeros(cfg.m_dim * cfg.n_dim, dtype=np.float32)
