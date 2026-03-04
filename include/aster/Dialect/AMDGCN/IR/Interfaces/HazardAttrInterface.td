@@ -1,4 +1,4 @@
-//===-- HazardAttrInterface.td - Hazard attribute interface -----*- tablegen -*-===//
+//===-- HazardAttrInterface.td - Hazard attribute interfaces ---*- tablegen -*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -16,12 +16,28 @@ include "mlir/IR/Interfaces.td"
 include "aster/Interfaces/InstOpInterface.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.td"
 
-def HazardAttrInterface : AttrInterface<"HazardAttrInterface"> {
+def HazardRaiserAttrInterface : AttrInterface<"HazardRaiserAttrInterface"> {
   let cppNamespace = "::mlir::aster";
   let description = [{
-    Interface for attributes that define hazards. This attribute models a hazard
-    that can be raised by an operation or operand, and an instruction that can
-    trigger the hazard.
+    Interface for attributes that define hazards raised by instructions.
+    Populates the hazards vector with hazards raised by the given instruction.
+  }];
+  let methods = [
+    InterfaceMethod<[{
+      Populate the hazards vector with hazards raised by the given instruction.
+    }],
+    "void", "populateHazardsFor",
+    (ins "::mlir::aster::amdgcn::AMDGCNInstOpInterface":$instOp,
+         "::llvm::SmallVectorImpl<::mlir::aster::amdgcn::Hazard> &":$hazards)
+    >
+  ];
+}
+
+def HazardCheckerAttrInterface : AttrInterface<"HazardCheckerAttrInterface"> {
+  let cppNamespace = "::mlir::aster";
+  let description = [{
+    Interface for attributes that define when hazards are triggered.
+    Checks if the hazard is triggered by the given instruction.
   }];
   let methods = [
     InterfaceMethod<[{
@@ -30,13 +46,6 @@ def HazardAttrInterface : AttrInterface<"HazardAttrInterface"> {
     "bool", "isHazardTriggered",
     (ins "const ::mlir::aster::amdgcn::Hazard &":$hazard,
          "::mlir::aster::amdgcn::AMDGCNInstOpInterface":$instOp)
-    >,
-    InterfaceMethod<[{
-      Populate the hazards vector with hazards raised by the given instruction.
-    }],
-    "void", "populateHazardsFor",
-    (ins "::mlir::aster::amdgcn::AMDGCNInstOpInterface":$instOp,
-         "::llvm::SmallVectorImpl<::mlir::aster::amdgcn::Hazard> &":$hazards)
     >
   ];
 }

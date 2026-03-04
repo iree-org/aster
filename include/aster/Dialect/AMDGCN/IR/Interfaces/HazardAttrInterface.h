@@ -8,7 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines the HazardAttrInterface for hazard attributes.
+// This file defines the HazardRaiserAttrInterface and
+// HazardCheckerAttrInterface for hazard attributes.
 //
 //===----------------------------------------------------------------------===//
 

@@ -116,12 +116,12 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 /// state of a hazard and handle it when it is triggered.
 struct Hazard {
   Hazard() = default;
-  Hazard(HazardAttrInterface hazard, Operation *op,
+  Hazard(HazardCheckerAttrInterface hazard, Operation *op,
          const InstCounts &instCounts)
       : hazard(hazard), opOrOperand(op), instCounts(instCounts) {
     assert(op != nullptr && "op cannot be nullptr");
   }
-  Hazard(HazardAttrInterface hazard, OpOperand &operand,
+  Hazard(HazardCheckerAttrInterface hazard, OpOperand &operand,
          const InstCounts &instCounts)
       : hazard(hazard), opOrOperand(&operand), instCounts(instCounts) {
     assert(operand.getOwner() != nullptr && "operand cannot be nullptr");
@@ -165,7 +165,7 @@ struct Hazard {
   }
 
   /// Get the hazard attribute.
-  HazardAttrInterface getHazard() const { return hazard; }
+  HazardCheckerAttrInterface getHazard() const { return hazard; }
 
   /// Get the operation that raises the hazard.
   Operation *getOp() const {
@@ -209,7 +209,7 @@ struct Hazard {
 
 private:
   /// The raised hazard.
-  HazardAttrInterface hazard;
+  HazardCheckerAttrInterface hazard;
   /// The operation or operand that raises the hazard.
   llvm::PointerUnion<Operation *, OpOperand *> opOrOperand;
   /// The instruction counts required to resolve the hazard.
@@ -265,7 +265,7 @@ struct CDNA3Hazards : HazardManager {
 
 private:
   /// Cache the hazard attributes.
-  SmallVector<HazardAttrInterface> hazardAttrs;
+  SmallVector<HazardRaiserAttrInterface> hazardAttrs;
 };
 } // namespace aster::amdgcn
 } // namespace mlir

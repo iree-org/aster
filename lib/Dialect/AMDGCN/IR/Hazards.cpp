@@ -86,7 +86,8 @@ static bool vmemReadsFromSgprType(AMDGCNInstOpInterface instOp,
 //===----------------------------------------------------------------------===//
 
 bool Hazard::compare(const Hazard &other, DominanceInfo &domInfo) const {
-  auto cmpAttr = [](HazardAttrInterface lhs, HazardAttrInterface rhs) {
+  auto cmpAttr = [](HazardCheckerAttrInterface lhs,
+                    HazardCheckerAttrInterface rhs) {
     // If they are the same, return false because this is checking `<`.
     if (lhs == rhs)
       return false;
@@ -189,7 +190,7 @@ void CDNA3VccExecVcczExeczHazardAttr::populateHazardsFor(
     return;
 
   hazards.push_back(Hazard(
-      *this, instOp.getOperation(),
+      cast<HazardCheckerAttrInterface>(*this), instOp.getOperation(),
       InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
 }
 bool CDNA3VccExecVcczExeczHazardAttr::isHazardTriggered(
@@ -253,13 +254,13 @@ void CDNA3StoreWriteDataHazardAttr::populateHazardsFor(
     if (!storeOp.getDynamicOffset())
       return;
     hazards.push_back(Hazard(
-        *this, storeOp.getDataMutable(),
+        cast<HazardCheckerAttrInterface>(*this), storeOp.getDataMutable(),
         InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
     return;
   }
   if (metadata->hasProp(InstProp::Global)) {
     hazards.push_back(Hazard(
-        *this, storeOp.getDataMutable(),
+        cast<HazardCheckerAttrInterface>(*this), storeOp.getDataMutable(),
         InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
     return;
   }
@@ -316,7 +317,7 @@ void CDNA3StoreHazardAttr::populateHazardsFor(
     if (!storeOp.getDynamicOffset())
       return;
     hazards.push_back(Hazard(
-        *this, storeOp.getDataMutable(),
+        cast<HazardCheckerAttrInterface>(*this), storeOp.getDataMutable(),
         InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
     return;
   }
@@ -324,7 +325,7 @@ void CDNA3StoreHazardAttr::populateHazardsFor(
   // Handle global ops.
   if (metadata->hasProp(InstProp::Global)) {
     hazards.push_back(Hazard(
-        *this, storeOp.getDataMutable(),
+        cast<HazardCheckerAttrInterface>(*this), storeOp.getDataMutable(),
         InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
     return;
   }
@@ -367,7 +368,7 @@ void CDNA3ValuSgprVmemHazardAttr::populateHazardsFor(
       continue;
 
     hazards.push_back(Hazard(
-        *this, operand,
+        cast<HazardCheckerAttrInterface>(*this), operand,
         InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
   }
 }
@@ -539,7 +540,7 @@ LogicalResult CDNA3Hazards::getHazards(AMDGCNInstOpInterface instOp,
 
   // TODO: Do per-inst hazard retrieval or a better hazard manager
   // implementation instead of checking all hazards.
-  for (HazardAttrInterface hazardAttr : hazardAttrs)
+  for (HazardRaiserAttrInterface hazardAttr : hazardAttrs)
     hazardAttr.populateHazardsFor(instOp, hazards);
   return success();
 }
