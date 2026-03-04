@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/HazardAnalysis.h"
-#include "aster/Dialect/AMDGCN/IR/Hazards.h"
+#include "aster/Dialect/AMDGCN/IR/HazardManager.h"
 #include "aster/Support/PrefixedOstream.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -42,8 +42,9 @@ public:
     Operation *op = getOperation();
 
     // Create hazard manager and data flow solver.
-    // TODO: Don't hardcode CDNA3 hazards, make it configurable.
-    CDNA3Hazards hazardManager(op);
+    // TODO: Don't hardcode CDNA3, make it configurable from module target.
+    HazardManager hazardManager(op);
+    hazardManager.populateHazardsFor(ISAVersion::CDNA3);
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
     dataflow::loadBaselineAnalyses(solver);
     solver.load<HazardAnalysis>(hazardManager);

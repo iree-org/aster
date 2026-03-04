@@ -16,6 +16,7 @@
 #ifndef ASTER_DIALECT_AMDGCN_ANALYSIS_HAZARDANALYSIS_H
 #define ASTER_DIALECT_AMDGCN_ANALYSIS_HAZARDANALYSIS_H
 
+#include "aster/Dialect/AMDGCN/IR/HazardManager.h"
 #include "aster/Dialect/AMDGCN/IR/Hazards.h"
 #include "mlir/Analysis/DataFlow/DenseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
