@@ -81,7 +81,20 @@ MI300X_PEAK_TFLOPS_F16 = 1307.0
 # Sweep grid
 # Note: we delinearize 2-D along workgroups and waves. Aster does not yet support
 # arbitrary integer division so we need a most-minor power of 2.
-TILE_CONFIGS = [(1, 1), (1, 2), (2, 1), (2, 2), (2, 3), (3, 2), (3, 3), (4, 4)]
+TILE_CONFIGS = [
+    (1, 1, 1),
+    (1, 2, 1),
+    (2, 1, 1),
+    (2, 2, 1),
+    (2, 3, 1),
+    (3, 2, 1),
+    (3, 3, 1),
+    (4, 4, 1),
+    (1, 2, 2),
+    (1, 4, 2),
+    (2, 2, 2),
+    (2, 4, 2),
+]
 STAGE_CONFIGS = [2, 3, 4, 5]
 WAVE_CONFIGS = [(2, 2), (3, 2), (3, 4), (4, 4)]
 WG_GRIDS = [(19, 16), (38, 32)]  # 304, 1216 total WGs for 304 CUs
@@ -102,7 +115,7 @@ def _repro_cmd(cfg, num_iterations):
         f"python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
-        f" --m-tiles {cfg.m_tiles} --n-tiles {cfg.n_tiles}"
+        f" --m-tiles {cfg.m_tiles} --n-tiles {cfg.n_tiles} --k-tiles {cfg.k_tiles}"
         f" --stages {cfg.num_stages} --k {cfg.k}"
         f" --iterations {num_iterations}"
     )
@@ -129,6 +142,8 @@ def _exec_cmd_list(cfg, hsaco_path, num_iterations):
         str(cfg.num_stages),
         "--k",
         str(cfg.k),
+        "--k-tiles",
+        str(cfg.k_tiles),
         "--iterations",
         str(num_iterations),
         "--hsaco",
@@ -148,13 +163,33 @@ def _parse_result_from_output(stdout):
 
 
 def _compile_one(
-    label, m_wg, n_wg, m_waves, n_waves, m_tiles, n_tiles, num_stages, k, hsaco_dir
+    label,
+    m_wg,
+    n_wg,
+    m_waves,
+    n_waves,
+    m_tiles,
+    n_tiles,
+    k_tiles,
+    num_stages,
+    k,
+    hsaco_dir,
 ):
     """Compile a single config to HSACO.
 
     Called in worker process.
     """
-    cfg = WeakScaleConfig(m_wg, n_wg, m_waves, n_waves, m_tiles, n_tiles, num_stages, k)
+    cfg = WeakScaleConfig(
+        m_wg,
+        n_wg,
+        m_waves,
+        n_waves,
+        m_tiles,
+        n_tiles,
+        k_tiles,
+        num_stages,
+        k,
+    )
     output_path = os.path.join(hsaco_dir, f"{label}.hsaco")
     compile_weak_scaled_gemm(cfg, output_path)
     return label, output_path
@@ -224,11 +259,11 @@ def bench_perf_sweep(full_sweep=False):
     known_broken_set = set(KNOWN_BROKEN)
 
     configs = [
-        WeakScaleConfig(m_wg, n_wg, m_w, n_w, m_t, n_t, stages, k)
+        WeakScaleConfig(m_wg, n_wg, m_w, n_w, m_t, n_t, k_t, stages, k)
         for k in PERF_K
         for m_wg, n_wg in WG_GRIDS
         for m_w, n_w in WAVE_CONFIGS
-        for m_t, n_t in TILE_CONFIGS
+        for m_t, n_t, k_t in TILE_CONFIGS
         for stages in STAGE_CONFIGS
     ]
 
@@ -238,7 +273,9 @@ def bench_perf_sweep(full_sweep=False):
     active = [
         c
         for c in configs
-        if c.label not in known_broken_set and c.lds_bytes < LDS_LIMIT
+        if c.label not in known_broken_set
+        and c.lds_bytes < LDS_LIMIT
+        and c.k % (16 * c.k_tiles) == 0
     ]
 
     # Filter to TOP_K_TO_RUN unless empty or --full-sweep.
@@ -283,6 +320,7 @@ def bench_perf_sweep(full_sweep=False):
                 cfg.n_waves,
                 cfg.m_tiles,
                 cfg.n_tiles,
+                cfg.k_tiles,
                 cfg.num_stages,
                 cfg.k,
                 hsaco_dir,
@@ -402,6 +440,7 @@ def _run_single(args):
         args.n_waves,
         args.m_tiles,
         args.n_tiles,
+        args.k_tiles,
         args.stages,
         args.k,
     )
@@ -480,6 +519,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--n-tiles", type=int, required=True, help="Tiles per wave along N"
+    )
+    parser.add_argument(
+        "--k-tiles", type=int, required=True, help="Tiles per wave along K"
     )
     parser.add_argument("--stages", type=int, required=True, help="Pipeline stages")
     parser.add_argument("--k", type=int, required=True, help="K dimension")

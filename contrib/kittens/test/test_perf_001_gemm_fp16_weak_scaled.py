@@ -33,9 +33,9 @@ class WeakScaleConfig:
     n_waves: int  # waves per WG along N
     m_tiles: int
     n_tiles: int
+    k_tiles: int
     num_stages: int
     k: int
-    k_tiles: int = 1  # TODO: extend this
 
     @property
     def num_workgroups(self):
@@ -78,10 +78,11 @@ class WeakScaleConfig:
 
     @property
     def label(self):
+        tile_str = f"_t{self.m_tiles}x{self.n_tiles}x{self.k_tiles}"
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
             f"_wg{self.m_wg}x{self.n_wg}_w{self.m_waves}x{self.n_waves}"
-            f"_t{self.m_tiles}x{self.n_tiles}_s{self.num_stages}"
+            f"{tile_str}_s{self.num_stages}"
         )
 
 
@@ -98,6 +99,9 @@ def _make_substitutions(cfg):
     subs["{{SHARED_MEM}}"] = str(cfg.lds_bytes)
     subs["{{NUM_THREADS}}"] = str(cfg.num_threads)
     subs["{{NUM_BLOCKS}}"] = str(cfg.num_workgroups)
+    subs["{{K_T}}"] = str(cfg.k_tiles)
+    subs["{{A_TILES_PER_SLICE}}"] = str(cfg.m_waves * cfg.m_tiles)
+    subs["{{B_TILES_PER_SLICE}}"] = str(cfg.n_waves * cfg.n_tiles)
     return subs
 
 
@@ -188,18 +192,29 @@ class TestWeakScaleCorrectness:
         ids=["waves_1x1", "waves_2x2", "waves_2x4", "waves_4x4"],
     )
     @pytest.mark.parametrize(
-        "m_tiles,n_tiles",
-        [(1, 1), (2, 2), (2, 4)],
-        ids=["tiles_1x1", "tiles_2x2", "tiles_2x4"],
+        "m_tiles,n_tiles,k_tiles",
+        [(1, 1, 1), (2, 2, 1), (1, 4, 2)],
+        ids=["tiles_1x1x1", "tiles_2x2x1", "tiles_1x4x2"],
     )
     @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
     def test_correctness(
-        self, m_wg, n_wg, m_waves, n_waves, m_tiles, n_tiles, num_stages
+        self, m_wg, n_wg, m_waves, n_waves, m_tiles, n_tiles, k_tiles, num_stages
     ):
         """Constexpr GEMM at K=128, verified against numpy."""
         k = 128
+        assert (
+            k % (16 * k_tiles) == 0
+        ), f"K={k} not divisible by 16*k_tiles={16*k_tiles}"
         cfg = WeakScaleConfig(
-            m_wg, n_wg, m_waves, n_waves, m_tiles, n_tiles, num_stages, k
+            m_wg,
+            n_wg,
+            m_waves,
+            n_waves,
+            m_tiles,
+            n_tiles,
+            k_tiles,
+            num_stages,
+            k,
         )
         # Note: conservative for now, seems we get burned when flying too close to the sky.
         if cfg.lds_bytes >= 2**16 * 0.75:

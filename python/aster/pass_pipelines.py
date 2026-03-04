@@ -263,6 +263,7 @@ TEST_SCF_PIPELINING_PASS_PIPELINE = test_scf_pipelining_pass_pipeline()
 PHASE_CONSTEXPR_EXPANSION = (
     "aster-constexpr-expansion", "canonicalize",
     "sroa", "mem2reg", "amdgcn-mem2reg",
+    "aster-forward-store-to-load",
     "aster-promote-loop-carried-memrefs",
     "canonicalize",
 )
