@@ -145,7 +145,7 @@ struct Hazard {
   /// sorting.
   bool compare(const Hazard &other, DominanceInfo &domInfo) const;
 
-  /// Check of the hazard is valid.
+  /// Check if the hazard is valid.
   bool isValid() const { return hazard != nullptr && !opOrOperand.isNull(); }
 
   /// Check if the hazard is active.

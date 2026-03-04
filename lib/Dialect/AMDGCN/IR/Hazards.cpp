@@ -45,21 +45,13 @@ static bool checkOverlap(AMDGCNRegisterTypeInterface lhs,
   return lhsEnd > rhsBegin && rhsEnd > lhsBegin;
 }
 
-/// Get the instruction metadata from an AMDGCN instruction operation.
-const InstMetadata *getInstMetadata(AMDGCNInstOpInterface instOp) {
-  InstAttr opcode = instOp.getOpcodeAttr();
-  if (!opcode)
-    return nullptr;
-  return opcode.getMetadata();
-}
-
 //===----------------------------------------------------------------------===//
 // Hazard
 //===----------------------------------------------------------------------===//
 
 bool Hazard::compare(const Hazard &other, DominanceInfo &domInfo) const {
   auto cmpAttr = [](HazardAttrInterface lhs, HazardAttrInterface rhs) {
-    // If the are the same, return false because this is checking `<`.
+    // If they are the same, return false because this is checking `<`.
     if (lhs == rhs)
       return false;
     return lhs.getAbstractAttribute().getName() <
@@ -91,7 +83,7 @@ bool Hazard::compare(const Hazard &other, DominanceInfo &domInfo) const {
   if (domInfo.properlyDominates(opB, opA))
     return false;
 
-  // 3. Tiebreaker: hazard.
+  // 4. Tiebreaker: hazard.
   return cmpAttr(getHazard(), other.getHazard());
 }
 
@@ -107,7 +99,7 @@ bool CDNA3StoreHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
   assert(hazard.getHazard() == *this && "Hazard mismatch");
 
-  const InstMetadata *metadata = getInstMetadata(instOp);
+  const InstMetadata *metadata = instOp.getInstMetadata();
   if (!metadata || !metadata->hasProp(InstProp::IsValu))
     return false;
 
@@ -134,7 +126,7 @@ void CDNA3StoreHazardAttr::populateHazardsFor(
   if (!regTy || !regTy.hasAllocatedSemantics())
     return;
 
-  const InstMetadata *metadata = getInstMetadata(storeOp);
+  const InstMetadata *metadata = storeOp.getInstMetadata();
   if (!metadata)
     return;
 
@@ -145,15 +137,17 @@ void CDNA3StoreHazardAttr::populateHazardsFor(
                           OpCode::BUFFER_STORE_DWORDX4_IDXEN},
                          metadata->getOpCode())) {
     if (!storeOp.getDynamicOffset()) {
-      hazards.push_back(Hazard(*this, storeOp.getDataMutable(),
-                               InstCounts(requiredWaits, 0, 0)));
+      hazards.push_back(Hazard(
+          *this, storeOp.getDataMutable(),
+          InstCounts(/*v_nops=*/requiredWaits, /*s_nops=*/0, /*ds_nops=*/0)));
     }
   }
 
   // Handle global ops.
   if (metadata->hasProp(InstProp::Global)) {
-    hazards.push_back(Hazard(*this, storeOp.getDataMutable(),
-                             InstCounts(requiredWaits, 0, 0)));
+    hazards.push_back(Hazard(
+        *this, storeOp.getDataMutable(),
+        InstCounts(/*v_nops=*/requiredWaits, /*s_nops=*/0, /*ds_nops=*/0)));
   }
 }
 
