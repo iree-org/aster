@@ -1,7 +1,6 @@
 add_mlir_library(AMDGCNTransforms
   AMDGCNBufferization.cpp
   AMDGCNHazards.cpp
-  AMDGCNNopInsertion.cpp
   AMDGCNOptimizeStraightLineWaits.cpp
   ConvertLDSBuffers.cpp
   ConvertSCFControlFlow.cpp
@@ -34,6 +33,7 @@ add_mlir_library(AMDGCNTransforms
   AMDGCNDialect
   ASTERAnalysis
   AsterTransforms
+  AsterInterfaces
   MLIRControlFlowDialect
   MLIRFuncDialect
   MLIRIR

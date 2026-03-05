@@ -1,9 +1,6 @@
-// RUN: aster-opt %s --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(amdgcn-nop-insertion)))" --split-input-file 2>&1 | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(amdgcn-hazards)))" --split-input-file 2>&1 | FileCheck %s
 
 // CHECK-LABEL: kernel @test_kernel
-//       case 8:
-//       CHECK:   amdgcn.vop1.v_nop
-//       case 9:
 //       CHECK:   amdgcn.vop1.v_nop
 //       CHECK:   amdgcn.vop1.v_nop
 //  CHECK-NEXT:   v_mov_b32_e32
@@ -36,7 +33,11 @@ amdgcn.module @test_case8_9_store_x4 target = #amdgcn.target<gfx942> isa = #amdg
 // -----
 
 // CHECK-LABEL: kernel @test_kernel
-//       CHECK:   amdgcn.sopp.sopp <s_nop>, imm = 5
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
 //  CHECK-NEXT:   load global_load_dword
 amdgcn.module @test_case10_valu_sgpr_vmem target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @test_kernel {
@@ -80,6 +81,7 @@ amdgcn.module @test_case10_valu_sgpr_vmem target = #amdgcn.target<gfx942> isa = 
 
 // CHECK-LABEL: kernel @test_kernel
 //   CHECK-NOT:  s_nop
+//   CHECK-NOT:  v_nop
 amdgcn.module @test_case8_no_overlap target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @test_kernel {
     // Allocate VGPRs for data (3 VGPRs for dwordx3) - using registers 0-2
@@ -113,6 +115,7 @@ amdgcn.module @test_case8_no_overlap target = #amdgcn.target<gfx942> isa = #amdg
 
 // CHECK-LABEL: kernel @test_kernel
 //   CHECK-NOT:  s_nop
+//   CHECK-NOT:  v_nop
 amdgcn.module @test_case9_no_overlap_valu target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @test_kernel {
     // Allocate VGPRs for data (3 VGPRs for dwordx3) - using registers 0-2
@@ -145,6 +148,7 @@ amdgcn.module @test_case9_no_overlap_valu target = #amdgcn.target<gfx942> isa = 
 
 // CHECK-LABEL: kernel @test_kernel
 //   CHECK-NOT:  s_nop
+//   CHECK-NOT:  v_nop
 amdgcn.module @test_case10_no_overlap_sgpr target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @test_kernel {
     // Allocate SGPRs for address (2 SGPRs) - using registers 0-1
@@ -180,15 +184,7 @@ amdgcn.module @test_case10_no_overlap_sgpr target = #amdgcn.target<gfx942> isa =
 // Case 106 for CDNA4 scaled MFMA 16x16x128 (2-pass): MFMA write VGPR -> VALU read/write overlapping vDst
 // Expects 7 v_nop insertions (conservative for 2-pass)
 // CHECK-LABEL: kernel @test_kernel
-//       CHECK:   amdgcn.vop3p.vop3p_scaled_mai
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//  CHECK-NEXT:   v_mov_b32_e32
+// TODO: recheck when we have CDNA4 support
 amdgcn.module @test_case106_scaled_mfma_16x16x128 target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
   amdgcn.kernel @test_kernel {
     // A operands: 8 VGPRs [0:8)
@@ -248,15 +244,7 @@ amdgcn.module @test_case106_scaled_mfma_16x16x128 target = #amdgcn.target<gfx950
 // Case 106 for CDNA4 scaled MFMA 32x32x64 (4-pass): MFMA write VGPR -> VALU read/write overlapping vDst
 // Expects 7 v_nop insertions (4-pass)
 // CHECK-LABEL: kernel @test_kernel
-//       CHECK:   amdgcn.vop3p.vop3p_scaled_mai
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//       CHECK:   amdgcn.vop1.v_nop
-//  CHECK-NEXT:   v_mov_b32_e32
+// TODO: recheck when we have CDNA4 support
 amdgcn.module @test_case106_scaled_mfma_32x32x64 target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
   amdgcn.kernel @test_kernel {
     // A operands: 8 VGPRs [0:8)

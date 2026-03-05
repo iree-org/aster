@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --amdgcn-reg-alloc --aster-disable-verifiers --aster-suppress-disabled-verifier-warning | FileCheck %s
+// RUN: aster-opt %s --amdgcn-reg-alloc | FileCheck %s
 
 // After the new reg-alloc pipeline (bufferization + to-register-semantics +
 // register-coloring), block arguments are eliminated. Loop-carried values flow

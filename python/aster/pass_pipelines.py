@@ -168,18 +168,14 @@ PHASE_AMDGCN_BACKEND = "amdgcn-backend"
 
 # Note: needs to know about instructions and actual register number for WAW
 # dependencies.
-# TODO: NORMAL FORMS for amdgcn-nop-insertion.
+# TODO: NORMAL FORMS for amdgcn-hazards.
 def phase_nop_insertion(delays=0):
     return (
         # Note: test_inst is added here but it is only relevant for nanobenchmarks.
-        # But it is tightly coupled to `amdgcn-nop-insertion`.
-        # When we have normal forms we can separate.
-        # Note: removal of test_inst must happen before nop insertion. If it were to
-        # happen after, nop insertion could potentially be tripped by test_inst
-        # operations that do not materialize in the final asm.
+        # Note: removal of test_inst must happen before nop insertion.
         # TODO: use proper interfaces to avoid this concern.
         "amdgcn-remove-test-inst",
-        f"amdgcn-nop-insertion{{conservative-extra-delays={delays}}}",
+        f"amdgcn-hazards{{v_nops={delays} s_nops={delays}}}",
     )
 
 # --------------------------------------------------------------------------- #

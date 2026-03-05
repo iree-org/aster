@@ -160,27 +160,6 @@ def AMDGCNOptimizeStraightLineWaits : Pass<"amdgcn-optimize-straight-line-waits"
   ];
 }
 
-def AMDGCNNopInsertion : Pass<"amdgcn-nop-insertion"> {
-  let summary = "Insert NOP instructions in AMDGCN kernels";
-  let description = [{
-    This pass inserts NOP instructions in AMDGCN kernels.
-
-    Section "4.5. Manually Inserted Wait States (NOPs)" of the "AMD Instinct MI300"
-    Instruction Set Architecture manual lists the following dependencies that must
-    be resolved by inserting NOPs or independent instructions.
-
-    This pass inserts such dependencies.
-  }];
-  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
-  let options = [
-    Option<"conservativeExtraDelays",
-           "conservative-extra-delays",
-           "unsigned",
-           "0",
-           "If non-zero, insert this many NOPs after each MFMA, global_load, ds_read, global_store, ds_write operation">
-  ];
-}
-
 def HoistOps : Pass<"aster-hoist-ops"> {
   let summary = "Hoist special AMDGCN operations to the entry block";
 }

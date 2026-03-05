@@ -23,12 +23,12 @@
 using namespace mlir;
 using namespace mlir::aster;
 
-llvm::cl::opt<bool>
+static llvm::cl::opt<bool>
     clDisableVerifiers("aster-disable-verifiers",
                        llvm::cl::desc("Disable ASTER verifiers"),
                        llvm::cl::init(false));
 
-llvm::cl::opt<bool> clSuppressDisabledVerifierWarning(
+static llvm::cl::opt<bool> clSuppressDisabledVerifierWarning(
     "aster-suppress-disabled-verifier-warning",
     llvm::cl::desc("Suppress warnings for disabled ASTER verifiers"),
     llvm::cl::init(false));

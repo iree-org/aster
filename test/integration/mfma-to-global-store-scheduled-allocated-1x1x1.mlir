@@ -21,7 +21,7 @@
 // RUN: | aster-opt \
 // RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops,amdgcn-reg-alloc)))" \
 // RUN: | aster-opt \
-// RUN:   --amdgcn-nop-insertion \
+// RUN:   --amdgcn-hazards \
 // RUN: | aster-translate --mlir-to-asm \
 // RUN: | FileCheck %s
 
