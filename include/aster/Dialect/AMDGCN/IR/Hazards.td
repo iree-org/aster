@@ -397,4 +397,274 @@ def CDNA3_TransOpHazard : HazardAttr<"CDNA3TransOpHazard",
   ];
 }
 
+//===----------------------------------------------------------------------===//
+// CDNA3 Section 7.5 - Dependency Resolution: Required Independent Instructions
+// (Matrix operations - VOP3P-Matrix, XDL, SGEMM, DGEMM)
+//===----------------------------------------------------------------------===//
+
+//--- Table 37: Non-DLops VALU Write VGPR -> V_MFMA* read VGPR OR V_SMFMA* read VGPR (2 V_NOPs) ---
+def CDNA3_NonDLOpsValuMfmaHazard : HazardAttr<"CDNA3NonDLOpsValuMfmaHazard",
+    "cdna3_nondlops_valu_mfma_hazard"> {
+  let summary = "CDNA3 Non-DLops VALU Write VGPR followed by V_MFMA*/V_SMFMA* read VGPR";
+  let description = [{
+    Non-DLops VALU Write VGPR followed by V_MFMA* read VGPR OR V_SMFMA* read VGPR
+    requires 2 wait states. No internal 4 & 8 cycle forwarding path.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/2, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 37: DL ops Write VGPR (3 subcases: SrcC same opcode 0, SrcA/B same opcode 3, RAW+WAW diff opcode 3) ---
+def CDNA3_DLOpsWriteVgprHazard : HazardAttr<"CDNA3DLOpsWriteVgprHazard",
+    "cdna3_dlops_write_vgpr_hazard"> {
+  let summary = "CDNA3 DL ops Write VGPR followed by DLops read/write VGPR";
+  let description = [{
+    DL ops Write VGPR followed by: (case 0) DLops read VGPR as SrcC, same opcode - 0 waits;
+    (case 1) DLops read VGPR as SrcA/B, same opcode - 3 waits; (case 2) Any opcode read/write
+    VGPR RAW+WAW different from 1st DLops - 3 waits.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/0, /*s_nops=*/0, /*ds_nops=*/0>,   // SrcC same opcode
+    HazardCase</*v_nops=*/3, /*s_nops=*/0, /*ds_nops=*/0>,   // SrcA/B same opcode
+    HazardCase</*v_nops=*/3, /*s_nops=*/0, /*ds_nops=*/0>    // RAW+WAW diff opcode
+  ];
+}
+
+//--- Table 37: XDL Write VGPR or V_SMFMA* Write VGPR -> XDL read VGPR as Source C exactly same (2/0/0/0 by passes) ---
+def CDNA3_XdlWriteVgprXdlReadSrcCExactHazard : HazardAttr<"CDNA3XdlWriteVgprXdlReadSrcCExactHazard",
+    "cdna3_xdl_write_vgpr_xdl_read_srcc_exact_hazard"> {
+  let summary = "CDNA3 XDL/V_SMFMA* Write VGPR followed by XDL read VGPR as SrcC exactly same";
+  let description = [{
+    XDL Write VGPR or V_SMFMA* Write VGPR followed by XDL read VGPR as Source C exactly
+    same with 1st vDst. Case 0: 2 passes - 2 waits; Case 1: 4 passes - 0; Case 2: 8 - 0; Case 3: 16 - 0.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/2, /*s_nops=*/0, /*ds_nops=*/0>,   // 2 passes
+    HazardCase</*v_nops=*/0, /*s_nops=*/0, /*ds_nops=*/0>,   // 4 passes
+    HazardCase</*v_nops=*/0, /*s_nops=*/0, /*ds_nops=*/0>,   // 8 passes
+    HazardCase</*v_nops=*/0, /*s_nops=*/0, /*ds_nops=*/0>    // 16 passes
+  ];
+}
+
+//--- Table 37: XDL Write VGPR or V_SMFMA* Write VGPR -> XDL read VGPR as Source C overlapped (3/5/9/17 by passes) ---
+def CDNA3_XdlWriteVgprXdlReadSrcCOverlapHazard : HazardAttr<"CDNA3XdlWriteVgprXdlReadSrcCOverlapHazard",
+    "cdna3_xdl_write_vgpr_xdl_read_srcc_overlap_hazard"> {
+  let summary = "CDNA3 XDL/V_SMFMA* Write VGPR followed by XDL read VGPR as SrcC overlapped";
+  let description = [{
+    XDL Write VGPR or V_SMFMA* Write VGPR followed by XDL read VGPR as Source C overlapped
+    with 1st vDst. Case 0: 2 passes - 3 waits; Case 1: 4 - 5; Case 2: 8 - 9; Case 3: 16 - 17.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/3, /*s_nops=*/0, /*ds_nops=*/0>,   // 2 passes
+    HazardCase</*v_nops=*/5, /*s_nops=*/0, /*ds_nops=*/0>,   // 4 passes
+    HazardCase</*v_nops=*/9, /*s_nops=*/0, /*ds_nops=*/0>,   // 8 passes
+    HazardCase</*v_nops=*/17, /*s_nops=*/0, /*ds_nops=*/0>  // 16 passes
+  ];
+}
+
+//--- Table 37: XDL Write VGPR or V_SMFMA* Write VGPR -> S/DGEMM read VGPR as Source C (3/5/9/17 by passes) ---
+def CDNA3_XdlWriteVgprSdgemmReadSrcCHazard : HazardAttr<"CDNA3XdlWriteVgprSdgemmReadSrcCHazard",
+    "cdna3_xdl_write_vgpr_sdgemm_read_srcc_hazard"> {
+  let summary = "CDNA3 XDL/V_SMFMA* Write VGPR followed by S/DGEMM read VGPR as Source C";
+  let description = [{
+    XDL Write VGPR or V_SMFMA* Write VGPR followed by S/DGEMM read VGPR as Source C overlapped.
+    Case 0: 2 passes - 3; Case 1: 4 - 5; Case 2: 8 - 9; Case 3: 16 - 17.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/3, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/5, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/9, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/17, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 37: XDL Write VGPR or V_SMFMA* Write VGPR -> V_MFMA read VGPR as SrcA/SrcB (5/7/11/19 by passes) ---
+def CDNA3_XdlWriteVgprMfmaReadSrcABHazard : HazardAttr<"CDNA3XdlWriteVgprMfmaReadSrcABHazard",
+    "cdna3_xdl_write_vgpr_mfma_read_srcab_hazard"> {
+  let summary = "CDNA3 XDL/V_SMFMA* Write VGPR followed by V_MFMA read VGPR as SrcA/SrcB";
+  let description = [{
+    XDL Write VGPR or V_SMFMA* Write VGPR followed by V_MFMA read VGPR as SrcA or SrcB
+    OR V_SMFMA* read VGPR as SrcA or SrcB or Index SrcC. No internal forwarding path.
+    Case 0: 2 passes - 5; Case 1: 4 - 7; Case 2: 8 - 11; Case 3: 16 - 19.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/5, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/7, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/11, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/19, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 37: XDL Write VGPR or V_SMFMA* Write VGPR -> VM/L/GDS/FLAT/Export Read VGPR or VALU RAW+WAW (5/7/11/19 by passes) ---
+def CDNA3_XdlWriteVgprVmemValuHazard : HazardAttr<"CDNA3XdlWriteVgprVmemValuHazard",
+    "cdna3_xdl_write_vgpr_vmem_valu_hazard"> {
+  let summary = "CDNA3 XDL/V_SMFMA* Write VGPR followed by VM/LDS/FLAT/Export Read or VALU RAW+WAW";
+  let description = [{
+    XDL Write VGPR or V_SMFMA* Write VGPR followed by (1) VM, L/GDS, FLAT, Export Read VGPR
+    overlapped with 1st vDst, or (2) VALU read/write VGPR (RAW+WAW). Case 0: 2 passes - 5;
+    Case 1: 4 - 7; Case 2: 8 - 11; Case 3: 16 - 19.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/5, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/7, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/11, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/19, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 37: SGEMM Write VGPR -> XDL read VGPR as Source C exactly same (0 waits) ---
+def CDNA3_SgemmWriteVgprXdlReadSrcCExactHazard : HazardAttr<"CDNA3SgemmWriteVgprXdlReadSrcCExactHazard",
+    "cdna3_sgemm_write_vgpr_xdl_read_srcc_exact_hazard"> {
+  let summary = "CDNA3 SGEMM Write VGPR followed by XDL read VGPR as SrcC exactly same";
+  let description = [{
+    SGEMM Write VGPR followed by XDL read VGPR as Source C exactly same with 1st vDst.
+    The two V_MFMA must be same number passes, vDst and vSrc from same offset and VGPR size.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/0, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 37: SGEMM Write VGPR -> XDL read VGPR as Source C overlapped (2/4/8/16 by passes) ---
+def CDNA3_SgemmWriteVgprXdlReadSrcCOverlapHazard : HazardAttr<"CDNA3SgemmWriteVgprXdlReadSrcCOverlapHazard",
+    "cdna3_sgemm_write_vgpr_xdl_read_srcc_overlap_hazard"> {
+  let summary = "CDNA3 SGEMM Write VGPR followed by XDL read VGPR as SrcC overlapped";
+  let description = [{
+    SGEMM Write VGPR followed by XDL read VGPR as Source C overlapped with 1st vDst.
+    Case 0: 2 passes - 2; Case 1: 4 - 4; Case 2: 8 - 8; Case 3: 16 - 16.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/2, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/4, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/8, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/16, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 37: SGEMM Write VGPR -> S/DGEMM read VGPR as Source C (2/4/8/16 by passes) ---
+def CDNA3_SgemmWriteVgprSdgemmReadSrcCHazard : HazardAttr<"CDNA3SgemmWriteVgprSdgemmReadSrcCHazard",
+    "cdna3_sgemm_write_vgpr_sdgemm_read_srcc_hazard"> {
+  let summary = "CDNA3 SGEMM Write VGPR followed by S/DGEMM read VGPR as Source C";
+  let description = [{
+    SGEMM Write VGPR followed by S/DGEMM read VGPR as Source C overlapped.
+    Case 0: 2 passes - 2; Case 1: 4 - 4; Case 2: 8 - 8; Case 3: 16 - 16.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/2, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/4, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/8, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/16, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 37: SGEMM Write VGPR -> V_MFMA read VGPR as SrcA/SrcB (4/6/10/18 by passes) ---
+def CDNA3_SgemmWriteVgprMfmaReadSrcABHazard : HazardAttr<"CDNA3SgemmWriteVgprMfmaReadSrcABHazard",
+    "cdna3_sgemm_write_vgpr_mfma_read_srcab_hazard"> {
+  let summary = "CDNA3 SGEMM Write VGPR followed by V_MFMA read VGPR as SrcA/SrcB";
+  let description = [{
+    SGEMM Write VGPR followed by V_MFMA read VGPR as SrcA or SrcB OR V_SMFMA* read VGPR
+    as SrcA or SrcB or Index SrcC. No internal forwarding path. Case 0: 2 - 4; Case 1: 4 - 6;
+    Case 2: 8 - 10; Case 3: 16 - 18.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/4, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/6, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/10, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/18, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 37: SGEMM Write VGPR -> VM/L/GDS/FLAT/Export Read VGPR or VALU RAW+WAW (4/6/10/18 by passes) ---
+def CDNA3_SgemmWriteVgprVmemValuHazard : HazardAttr<"CDNA3SgemmWriteVgprVmemValuHazard",
+    "cdna3_sgemm_write_vgpr_vmem_valu_hazard"> {
+  let summary = "CDNA3 SGEMM Write VGPR followed by VM/LDS/FLAT/Export Read or VALU RAW+WAW";
+  let description = [{
+    SGEMM Write VGPR followed by (1) VM, L/GDS, FLAT, Export Read VGPR overlapped with 1st
+    vDst, or (2) VALU read/write VGPR (RAW+WAW). Case 0: 2 - 4; Case 1: 4 - 6; Case 2: 8 - 10;
+    Case 3: 16 - 18.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/4, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/6, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/10, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/18, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 37: V_MFMA_16x16x4_F64 Write VGPR (multiple subcases) ---
+def CDNA3_Mfma16x16x4F64WriteVgprHazard : HazardAttr<"CDNA3Mfma16x16x4F64WriteVgprHazard",
+    "cdna3_mfma_16x16x4_f64_write_vgpr_hazard"> {
+  let summary = "CDNA3 V_MFMA_16x16x4_F64 Write VGPR followed by various consumers";
+  let description = [{
+    V_MFMA_16x16x4_F64 Write VGPR followed by: (0) same MFMA read SrcC exactly same - 0;
+    (1) S/DGEMM read SrcC overlapped - 9; (2) XDL read SrcC overlapped - 0; (3) V_SMFMA* Matrix C overlapped - 0;
+    (4) S/DGEMM read SrcA/SrcB - 11; (5) XDL read SrcA/SrcB - 11; (6) V_SMFMA* SrcA/SrcB/Index SrcC - 11;
+    (7) VALU RAW+WAW - 11; (8) VM/L/GDS/FLAT/Export Read overlapped - 18.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/0, /*s_nops=*/0, /*ds_nops=*/0>,   // same MFMA SrcC exact
+    HazardCase</*v_nops=*/9, /*s_nops=*/0, /*ds_nops=*/0>,   // S/DGEMM SrcC overlap
+    HazardCase</*v_nops=*/0, /*s_nops=*/0, /*ds_nops=*/0>,   // XDL SrcC overlap
+    HazardCase</*v_nops=*/0, /*s_nops=*/0, /*ds_nops=*/0>,   // V_SMFMA* Matrix C overlap
+    HazardCase</*v_nops=*/11, /*s_nops=*/0, /*ds_nops=*/0>,  // S/DGEMM SrcA/SrcB
+    HazardCase</*v_nops=*/11, /*s_nops=*/0, /*ds_nops=*/0>,  // XDL SrcA/SrcB
+    HazardCase</*v_nops=*/11, /*s_nops=*/0, /*ds_nops=*/0>,  // V_SMFMA* SrcA/SrcB/Index
+    HazardCase</*v_nops=*/11, /*s_nops=*/0, /*ds_nops=*/0>,  // VALU RAW+WAW
+    HazardCase</*v_nops=*/18, /*s_nops=*/0, /*ds_nops=*/0>   // VM/L/GDS/FLAT/Export
+  ];
+}
+
+//--- Table 37: V_MFMA_4x4x4_F64 Write VGPR (multiple subcases) ---
+def CDNA3_Mfma4x4x4F64WriteVgprHazard : HazardAttr<"CDNA3Mfma4x4x4F64WriteVgprHazard",
+    "cdna3_mfma_4x4x4_f64_write_vgpr_hazard"> {
+  let summary = "CDNA3 V_MFMA_4x4x4_F64 Write VGPR followed by various consumers";
+  let description = [{
+    V_MFMA_4x4x4_F64 Write VGPR followed by: (0) same MFMA read SrcC exactly same - 4;
+    (1) S/DGEMM read SrcC overlapped - 4; (2) XDL read SrcC overlapped - 0; (3) V_SMFMA Matrix C overlapped - 0;
+    (4) S/DGEMM read SrcA/SrcB - 6; (5) XDL read SrcA/SrcB - 6; (6) V_SMFMA* SrcA/SrcB/Index - 6;
+    (7) VALU RAW+WAW - 6; (8) VM/L/GDS/FLAT/Export Read overlapped - 9.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/4, /*s_nops=*/0, /*ds_nops=*/0>,   // same MFMA SrcC exact
+    HazardCase</*v_nops=*/4, /*s_nops=*/0, /*ds_nops=*/0>,   // S/DGEMM SrcC overlap
+    HazardCase</*v_nops=*/0, /*s_nops=*/0, /*ds_nops=*/0>,   // XDL SrcC overlap
+    HazardCase</*v_nops=*/0, /*s_nops=*/0, /*ds_nops=*/0>,   // V_SMFMA Matrix C overlap
+    HazardCase</*v_nops=*/6, /*s_nops=*/0, /*ds_nops=*/0>,   // S/DGEMM SrcA/SrcB
+    HazardCase</*v_nops=*/6, /*s_nops=*/0, /*ds_nops=*/0>,  // XDL SrcA/SrcB
+    HazardCase</*v_nops=*/6, /*s_nops=*/0, /*ds_nops=*/0>,  // V_SMFMA* SrcA/SrcB/Index
+    HazardCase</*v_nops=*/6, /*s_nops=*/0, /*ds_nops=*/0>,  // VALU RAW+WAW
+    HazardCase</*v_nops=*/9, /*s_nops=*/0, /*ds_nops=*/0>   // VM/L/GDS/FLAT/Export
+  ];
+}
+
+//--- Table 37: V_CMPX* write EXEC MASK -> V_MFMA* (4 V_NOPs) ---
+def CDNA3_VcmpxExecMfmaHazard : HazardAttr<"CDNA3VcmpxExecMfmaHazard",
+    "cdna3_vcmpx_exec_mfma_hazard"> {
+  let summary = "CDNA3 V_CMPX* write EXEC MASK followed by V_MFMA*";
+  let description = [{
+    V_CMPX* write EXEC MASK followed by V_MFMA* requires 4 wait states.
+    CDNA does not support execution mask forwarding with XDL/DGEMM.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/4, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 37: XDL/SMFMA Read VGPR SrcC -> VALU write VGPR (WAR, Co-Execution Anti-Dependency) (1/3/7/15 by passes) ---
+def CDNA3_XdlSmfmaReadSrcCValuWriteHazard : HazardAttr<"CDNA3XdlSmfmaReadSrcCValuWriteHazard",
+    "cdna3_xdl_smfma_read_srcc_valu_write_hazard"> {
+  let summary = "CDNA3 XDL/SMFMA Read VGPR SrcC followed by VALU write VGPR (WAR)";
+  let description = [{
+    XDL/SMFMA Read VGPR SrcC followed by VALU write VGPR (WAR), Co-Execution Anti-Dependency
+    for overlapping with 1st SrcC. Case 0: 2 passes - 1; Case 1: 4 - 3; Case 2: 8 - 7; Case 3: 16 - 15.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/1, /*s_nops=*/0, /*ds_nops=*/0>,   // 2 passes
+    HazardCase</*v_nops=*/3, /*s_nops=*/0, /*ds_nops=*/0>,  // 4 passes
+    HazardCase</*v_nops=*/7, /*s_nops=*/0, /*ds_nops=*/0>,  // 8 passes
+    HazardCase</*v_nops=*/15, /*s_nops=*/0, /*ds_nops=*/0>  // 16 passes
+  ];
+}
+
 #endif // ASTER_AMDGCN_HAZARDS_TD

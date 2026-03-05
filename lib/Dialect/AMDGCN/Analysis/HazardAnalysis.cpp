@@ -265,9 +265,13 @@ LogicalResult HazardAnalysis::visitOperation(Operation *op,
   if (failed(hazardManager.getHazards(instOp, hazards)))
     return failure();
 
-  // TODO: Consider adding a expensive check mode, and move this there.
-  assert(llvm::all_of(hazards, [](const Hazard &h) { return h.isActive(); }) &&
-         "hazards should be active");
+  // Remove the inactive hazards.
+  hazards.erase(
+      llvm::remove_if(hazards, [](const Hazard &h) { return !h.isActive(); }),
+      hazards.end());
+
+  // Sort the hazards for the merge sort.
+  llvm::sort(hazards);
 
   changed |= after->addHazards(hazards);
 

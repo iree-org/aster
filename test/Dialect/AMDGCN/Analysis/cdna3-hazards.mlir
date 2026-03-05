@@ -17,7 +17,9 @@
 // CHECK:   }
 // CHECK: Op: amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
 // CHECK:   HAZARD STATE AFTER: {
-// CHECK:     active = []
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_nondlops_valu_mfma_hazard, amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> (), 0, {v:2, s:0, ds:0}}
+// CHECK:     ]
 // CHECK:     nop counts = {v:2, s:0, ds:0}
 // CHECK:   }
 func.func @cdna3_store_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>) {
