@@ -11,6 +11,7 @@
 #include "aster/Dialect/AMDGCN/Analysis/HazardAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/HazardManager.h"
+#include "aster/Dialect/AMDGCN/IR/Hazards.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
@@ -42,6 +43,7 @@ struct AMDGCNHazards : public amdgcn::impl::AMDGCNHazardsBase<AMDGCNHazards> {
 //===----------------------------------------------------------------------===//
 // AMDGCNHazards pass
 //===----------------------------------------------------------------------===//
+
 void AMDGCNHazards::runOnOperation() {
   Operation *op = getOperation();
 
@@ -50,8 +52,26 @@ void AMDGCNHazards::runOnOperation() {
   if (auto moduleOp = op->getParentOfType<amdgcn::ModuleOp>())
     isaVersion = getIsaForTarget(moduleOp.getTarget());
 
+  if (extraVNops > 128) {
+    op->emitError() << "extraVNops must be between 0 and 128, got "
+                    << extraVNops;
+    return signalPassFailure();
+  }
+
+  if (extraSNops > 128) {
+    op->emitError() << "extraSNops must be between 0 and 128, got "
+                    << extraSNops;
+    return signalPassFailure();
+  }
+
   HazardManager hazardManager(op);
-  hazardManager.populateHazardsFor(isaVersion);
+  SmallVector<HazardRaiserAttrInterface, 1> additionalHazardRaisers;
+  if (extraVNops > 0 || extraSNops > 0) {
+    additionalHazardRaisers.push_back(
+        AllHazardAttr::get(op->getContext(), static_cast<int16_t>(extraVNops),
+                           static_cast<int16_t>(extraSNops)));
+  }
+  hazardManager.populateHazardsFor(isaVersion, additionalHazardRaisers);
 
   // Run hazard analysis.
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));

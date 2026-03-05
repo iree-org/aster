@@ -156,6 +156,25 @@ bool Hazard::compare(const Hazard &other, DominanceInfo &domInfo) const {
 }
 
 //===----------------------------------------------------------------------===//
+// AllHazard
+//===----------------------------------------------------------------------===//
+
+bool AllHazardAttr::matchInst(const InstMetadata *, ISAVersion) const {
+  return true;
+}
+
+void AllHazardAttr::populateHazardsFor(AMDGCNInstOpInterface op,
+                                       SmallVectorImpl<Hazard> &hazards) const {
+  hazards.push_back(
+      Hazard(*this, op.getOperation(), InstCounts(getVNops(), getSNops(), 0)));
+}
+
+bool AllHazardAttr::isHazardTriggered(const Hazard &,
+                                      AMDGCNInstOpInterface) const {
+  return true;
+}
+
+//===----------------------------------------------------------------------===//
 // CDNA3 Hazards
 //===----------------------------------------------------------------------===//
 
@@ -1227,13 +1246,16 @@ void HazardManager::getHazardRaisersFor(
   }
 }
 
-void HazardManager::populateHazardsFor(ISAVersion version) {
+void HazardManager::populateHazardsFor(
+    ISAVersion version,
+    ArrayRef<HazardRaiserAttrInterface> additionalHazardRaisers) {
   hazardAttrs.clear();
   opcodeToHazardAttrs.clear();
 
   // Collect all hazard raisers for the given ISA version.
   SmallVector<HazardRaiserAttrInterface> hazardRaisers;
   getHazardRaisersFor(version, hazardRaisers);
+  llvm::append_range(hazardRaisers, additionalHazardRaisers);
 
   // Since we are matching by opcode, we don't need to visit the same opcode
   // twice.

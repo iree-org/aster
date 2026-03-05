@@ -91,6 +91,16 @@ class HazardAttr<string name, string attrMnemonic, list<HazardCase> _hazardCases
 }
 
 //===----------------------------------------------------------------------===//
+// AllHazardAttr
+//===----------------------------------------------------------------------===//
+
+def AllHazardAttr : HazardAttrBase<"AllHazard", "all_hazard"> {
+  let summary = "Hazard that matches all instructions";
+  let parameters = (ins "int16_t":$v_nops, "int16_t":$s_nops);
+  let assemblyFormat = "`<` struct($v_nops, $s_nops) `>`";
+}
+
+//===----------------------------------------------------------------------===//
 // CDNA3 Hazards (CDNA3 ISA Section 4.5 - Manually Inserted Wait States)
 //===----------------------------------------------------------------------===//
 

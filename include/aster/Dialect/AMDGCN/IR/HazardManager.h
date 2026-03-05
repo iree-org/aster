@@ -32,7 +32,9 @@ struct HazardManager {
   }
 
   /// Populate hazard attributes for the given ISA version.
-  void populateHazardsFor(ISAVersion version);
+  void populateHazardsFor(
+      ISAVersion version,
+      ArrayRef<HazardRaiserAttrInterface> additionalHazardRaisers = {});
 
   /// Get the hazards for the given operation. Returns failure if the hazards
   /// cannot be computed.

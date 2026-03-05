@@ -360,6 +360,12 @@ def AMDGCNHazards : Pass<"amdgcn-hazards"> {
     It should run after register allocation, and convert waits.
   }];
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+  let options = [
+    Option<"extraVNops", "v_nops", "unsigned", "0",
+           "Extra vector NOPs to insert before every instruction">,
+    Option<"extraSNops", "s_nops", "unsigned", "0",
+           "Extra scalar NOPs to insert before every instruction">
+  ];
 }
 
 #endif // AMDGCN_PASSES
