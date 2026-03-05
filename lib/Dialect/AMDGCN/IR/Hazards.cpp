@@ -16,10 +16,12 @@
 #include "aster/Dialect/AMDGCN/IR/HazardManager.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/DebugLog.h"
 
 #define DEBUG_TYPE "amdgcn-hazards"
@@ -1300,14 +1302,16 @@ LogicalResult HazardManager::getHazards(AMDGCNInstOpInterface instOp,
 
   // Check if all output and input operands have allocated semantics, bail if
   // not.
-  auto isAllocType = [](Type out) {
-    auto regTy = dyn_cast<RegisterTypeInterface>(out);
+  auto isValidOperand = [](Value v) {
+    if (Operation *op = v.getDefiningOp(); op && m_Constant().match(op))
+      return true; // Constants are always valid.
+    auto regTy = dyn_cast<RegisterTypeInterface>(v.getType());
     return regTy && regTy.hasAllocatedSemantics();
   };
 
-  if (!llvm::all_of(TypeRange(instOp.getInstOuts()), isAllocType))
+  if (!llvm::all_of(instOp.getInstOuts(), isValidOperand))
     return instOp.emitError("output operands must have allocated semantics");
-  if (!llvm::all_of(TypeRange(instOp.getInstIns()), isAllocType))
+  if (!llvm::all_of(instOp.getInstIns(), isValidOperand))
     return instOp.emitError("input operands must have allocated semantics");
 
   // Populate the hazards for the given instruction.

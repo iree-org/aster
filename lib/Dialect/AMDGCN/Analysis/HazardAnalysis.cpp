@@ -263,7 +263,7 @@ LogicalResult HazardAnalysis::visitOperation(Operation *op,
   SmallVector<Hazard, 4> hazards;
   // Add the new hazards.
   if (failed(hazardManager.getHazards(instOp, hazards)))
-    return failure();
+    return instOp.emitError() << "failed to get hazards for instruction";
 
   // Remove the inactive hazards.
   hazards.erase(

@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --test-hazard-analysis --split-input-file | FileCheck %s
+// RUN: aster-opt %s --test-hazard-analysis --split-input-file --verify-diagnostics | FileCheck %s
 
 // CHECK-LABEL: Symbol: test_store_hazard
 // CHECK: Op: func.func @test_store_hazard(%{{.*}}: !amdgcn.vgpr<0>, %{{.*}}: !amdgcn.vgpr<[4 : 6]>, %{{.*}}: !amdgcn.vgpr<1>) {...}
@@ -305,5 +305,25 @@ func.func @test_hazard_optimality(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<1>
   %1 = amdgcn.store global_store_dword data %arg1 addr %arg2 : ins(!amdgcn.vgpr<1>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
   amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %arg3 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
   amdgcn.vop1.vop1 <v_mov_b32_e32> %arg1, %arg3 : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
+  return
+}
+
+// -----
+// CHECK-LABEL: Symbol: test_store_hazard
+// This a regression test for a bug where the analysis failed because it ddidn't handle constants.
+func.func @test_store_hazard_const(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>) {
+  %c42 = arith.constant 42 : i32
+  %0 = amdgcn.store global_store_dword data %arg0 addr %arg1 : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %c42 : (!amdgcn.vgpr<0>, i32) -> ()
+  return
+}
+
+// -----
+// expected-error@above {{failed to run hazard analysis}}
+func.func @test_non_alloc_registers(%arg0: !amdgcn.vgpr<?>) {
+  %c42 = arith.constant 42 : i32
+  // expected-error@+2 {{output operands must have allocated semantics}}
+  // expected-error@+1 {{failed to get hazards for instruction}}
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %c42 : (!amdgcn.vgpr<?>, i32) -> ()
   return
 }
