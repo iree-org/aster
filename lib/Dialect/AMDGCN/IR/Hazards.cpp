@@ -229,9 +229,8 @@ void CDNA3VccExecVcczExeczHazardAttr::populateHazardsFor(
   if (!writesVccOrExec)
     return;
 
-  hazards.push_back(Hazard(
-      cast<HazardCheckerAttrInterface>(*this), instOp.getOperation(),
-      InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+  hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
+                           instOp.getOperation(), getInstCounts(0)));
 }
 bool CDNA3VccExecVcczExeczHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
@@ -322,15 +321,13 @@ void CDNA3StoreWriteDataHazardAttr::populateHazardsFor(
     // If the dynamic offset is not set, there is no hazard.
     if (!storeOp.getDynamicOffset())
       return;
-    hazards.push_back(Hazard(
-        cast<HazardCheckerAttrInterface>(*this), storeOp.getDataMutable(),
-        InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+    hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
+                             storeOp.getDataMutable(), getInstCounts(0)));
     return;
   }
   if (metadata->hasProp(InstProp::Global)) {
-    hazards.push_back(Hazard(
-        cast<HazardCheckerAttrInterface>(*this), storeOp.getDataMutable(),
-        InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+    hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
+                             storeOp.getDataMutable(), getInstCounts(0)));
     return;
   }
   // TODO: FLAT_ATOMIC_[F]CMPSWAP_X2, BUFFER_STORE_FORMAT_XYZ/XYZW,
@@ -403,17 +400,15 @@ void CDNA3StoreHazardAttr::populateHazardsFor(
     // If the dynamic offset is not set, there is no hazard.
     if (!storeOp.getDynamicOffset())
       return;
-    hazards.push_back(Hazard(
-        cast<HazardCheckerAttrInterface>(*this), storeOp.getDataMutable(),
-        InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+    hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
+                             storeOp.getDataMutable(), getInstCounts(0)));
     return;
   }
 
   // Handle global ops.
   if (metadata->hasProp(InstProp::Global)) {
-    hazards.push_back(Hazard(
-        cast<HazardCheckerAttrInterface>(*this), storeOp.getDataMutable(),
-        InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+    hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
+                             storeOp.getDataMutable(), getInstCounts(0)));
     return;
   }
   // TODO: FLAT_ATOMIC_[F]CMPSWAP_X2, BUFFER_STORE_FORMAT_XYZ/XYZW,
@@ -459,9 +454,8 @@ void CDNA3ValuSgprVmemHazardAttr::populateHazardsFor(
     if (!regTy || regTy.getRegisterKind() != RegisterKind::SGPR)
       continue;
 
-    hazards.push_back(Hazard(
-        cast<HazardCheckerAttrInterface>(*this), operand,
-        InstCounts(/*v_nops=*/requiredVWaits, /*s_nops=*/0, /*ds_nops=*/0)));
+    hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this), operand,
+                             getInstCounts(0)));
   }
 }
 

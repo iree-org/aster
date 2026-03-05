@@ -24,12 +24,9 @@ class DominanceInfo;
 namespace aster::amdgcn {
 /// Object to model instruction counts required to resolve a hazard.
 struct InstCounts {
-  InstCounts(int8_t numVector = 0, int8_t numScalar = 0,
-             int8_t numDataShare = 0)
+  constexpr InstCounts(int8_t numVector = 0, int8_t numScalar = 0,
+                       int8_t numDataShare = 0)
       : numVector(numVector), numScalar(numScalar), numDataShare(numDataShare) {
-    assert(numVector >= 0 && "numVector cannot be negative");
-    assert(numScalar >= 0 && "numScalar cannot be negative");
-    assert(numDataShare >= 0 && "numDataShare cannot be negative");
   }
 
   bool operator==(const InstCounts &other) const {
@@ -41,6 +38,11 @@ struct InstCounts {
     return std::make_tuple(numVector, numScalar, numDataShare) <
            std::make_tuple(other.numVector, other.numScalar,
                            other.numDataShare);
+  }
+
+  /// Check if the instruction counts are valid.
+  bool isValid() const {
+    return numVector >= 0 && numScalar >= 0 && numDataShare >= 0;
   }
 
   /// Check if there are no instructions required.
@@ -120,11 +122,13 @@ struct Hazard {
          const InstCounts &instCounts)
       : hazard(hazard), opOrOperand(op), instCounts(instCounts) {
     assert(op != nullptr && "op cannot be nullptr");
+    assert(instCounts.isValid() && "instCounts must be valid");
   }
   Hazard(HazardCheckerAttrInterface hazard, OpOperand &operand,
          const InstCounts &instCounts)
       : hazard(hazard), opOrOperand(&operand), instCounts(instCounts) {
     assert(operand.getOwner() != nullptr && "operand cannot be nullptr");
+    assert(instCounts.isValid() && "instCounts must be valid");
   }
 
   bool operator==(const Hazard &other) const {
