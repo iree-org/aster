@@ -22,7 +22,8 @@ include "aster/Support/Utils.td"
 
 class HazardAttr<string name, string attrMnemonic> :
   AMDGCN_Attr<name, attrMnemonic, [
-    DeclareAttrInterfaceMethods<HazardAttrInterface>
+    DeclareAttrInterfaceMethods<HazardRaiserAttrInterface>,
+    DeclareAttrInterfaceMethods<HazardCheckerAttrInterface>
   ]> {
 }
 
@@ -30,7 +31,8 @@ class HazardAttr<string name, string attrMnemonic> :
 /// CDNA3 ISA Table 11: Most hazards use V_NOPs; SALU-related hazards use S_NOPs.
 class HazardAttrWithWaits<string name, string attrMnemonic, int vWaits, int sWaits> :
   AMDGCN_Attr<name, attrMnemonic, [
-    DeclareAttrInterfaceMethods<HazardAttrInterface>
+    DeclareAttrInterfaceMethods<HazardRaiserAttrInterface>,
+    DeclareAttrInterfaceMethods<HazardCheckerAttrInterface>
   ]> {
   let extraClassDeclaration = StrSubst<[{
     static constexpr int32_t requiredVWaits = $vWaits;
