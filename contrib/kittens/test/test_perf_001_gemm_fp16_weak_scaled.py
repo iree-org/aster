@@ -96,7 +96,10 @@ def _make_substitutions(cfg):
     subs["{{A_LDS_BYTES}}"] = str(cfg.m_waves * cfg.m_tiles * cfg.k_tiles * 512)
     subs["{{B_LDS_BYTES}}"] = str(cfg.n_waves * cfg.n_tiles * cfg.k_tiles * 512)
     subs["{{STRIDE_C}}"] = str(cfg.n_dim * 4)  # f32 = 4 bytes
-    subs["{{SHARED_MEM}}"] = str(cfg.lds_bytes)
+    # shared_memory_size must be 0: all LDS is managed by alloc_lds/dealloc_lds.
+    # The LDS allocator uses shared_memory_size as startPos, so any non-zero value
+    # wastes that many bytes of LDS (offsets start after the pre-reserved region).
+    subs["{{SHARED_MEM}}"] = "0"
     subs["{{NUM_THREADS}}"] = str(cfg.num_threads)
     subs["{{NUM_BLOCKS}}"] = str(cfg.num_workgroups)
     subs["{{K_T}}"] = str(cfg.k_tiles)

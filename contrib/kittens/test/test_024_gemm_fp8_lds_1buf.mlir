@@ -46,7 +46,7 @@ amdgcn.module @kittens_gemm_fp8_16x16xK_lds_1buf target = #amdgcn.target<gfx942>
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
-  ]> attributes {shared_memory_size = 1088 : i32} {
+  ]> attributes {shared_memory_size = 0 : i32} {
     %A_ptr = amdgcn.load_arg 0 : !sx2
     %B_ptr = amdgcn.load_arg 1 : !sx2
     %C_ptr = amdgcn.load_arg 2 : !sx2

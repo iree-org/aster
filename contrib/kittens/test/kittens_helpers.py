@@ -263,7 +263,10 @@ def constexpr_substitutions(m_tiles, n_tiles, k, num_stages):
     k_tiles = k // 16
     stride_ab = k * 2
     stride_c = n_tiles * 16 * 4
-    shared_mem = (m_tiles + n_tiles) * 512
+    # shared_memory_size must be 0: all LDS is managed by alloc_lds/dealloc_lds.
+    # The LDS allocator uses shared_memory_size as startPos, so any non-zero value
+    # wastes that many bytes of dead LDS (offsets start after the pre-reserved region).
+    shared_mem = 0
     stage_load, stage_sync, stage_compute = PIPELINE_STAGE_CONFIGS[num_stages]
     stage_gl, stage_dw, stage_dr, stage_c = PIPELINE_STAGE_CONFIGS_4[num_stages]
 

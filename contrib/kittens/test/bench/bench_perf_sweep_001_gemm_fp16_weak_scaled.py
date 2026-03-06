@@ -283,15 +283,11 @@ def bench_perf_sweep(full_sweep=False):
         for stages in STAGE_CONFIGS
     ]
 
-    # Note: conservative for now, seems we get burned when flying too close to the sky.
-    LDS_LIMIT = int(2**16 * 0.75)
     skipped_labels = [c.label for c in configs if c.label in known_broken_set]
     active = [
         c
         for c in configs
-        if c.label not in known_broken_set
-        and c.lds_bytes < LDS_LIMIT
-        and c.k % (16 * c.k_tiles) == 0
+        if c.label not in known_broken_set and c.k % (16 * c.k_tiles) == 0
     ]
 
     # Filter to TOP_K_TO_RUN unless empty or --full-sweep.
