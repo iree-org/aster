@@ -302,3 +302,9 @@ func.func @test_store_gpu_shared(%m : memref<4x8xf32, #gpu.address_space<workgro
   memref.store %v, %m[%i, %j] : memref<4x8xf32, #gpu.address_space<workgroup>>
   return
 }
+
+// CHECK-LABEL:   func.func @tes_ptr_conversion(
+// CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#amdgcn.addr_space<global, read_write>>, %[[ARG1:.*]]: !ptr.ptr<#amdgcn.addr_space<local, read_write>>) {
+func.func @tes_ptr_conversion(%m : !ptr.ptr<#gpu.address_space<global>>, %l : !ptr.ptr<#gpu.address_space<workgroup>>) {
+  return
+}

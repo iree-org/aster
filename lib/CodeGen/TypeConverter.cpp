@@ -133,6 +133,38 @@ OpFoldResult MemRefDescriptor::getStride(int64_t i) const {
 // LegalizerTypeConverter
 //===----------------------------------------------------------------------===//
 
+/// Convert gpu memory space attributes to amdgcn equivalents.
+static LegalizerTypeConverter::AttributeConversionResult
+convertMemorySpace(Attribute memorySpaceAttr) {
+  // Convert gpu memory space attributes to amdgcn equivalents.
+  if (auto space = dyn_cast<gpu::AddressSpaceAttr>(memorySpaceAttr)) {
+    auto rwAccess = amdgcn::AccessKind::ReadWrite;
+    if (space.getValue() == gpu::AddressSpace::Private) {
+      return amdgcn::AddressSpaceAttr::get(memorySpaceAttr.getContext(),
+                                           amdgcn::AddressSpaceKind::Private,
+                                           rwAccess);
+    }
+    if (space.getValue() == gpu::AddressSpace::Global) {
+      return amdgcn::AddressSpaceAttr::get(memorySpaceAttr.getContext(),
+                                           amdgcn::AddressSpaceKind::Global,
+                                           rwAccess);
+    }
+    if (space.getValue() == gpu::AddressSpace::Workgroup) {
+      return amdgcn::AddressSpaceAttr::get(memorySpaceAttr.getContext(),
+                                           amdgcn::AddressSpaceKind::Local,
+                                           rwAccess);
+    }
+  }
+
+  // Preserve ptr memory space attributes.
+  if (auto memSpace =
+          dyn_cast<ptr::MemorySpaceAttrInterface>(memorySpaceAttr)) {
+    return memSpace;
+  }
+
+  return LegalizerTypeConverter::AttributeConversionResult::abort();
+}
+
 LegalizerTypeConverter::LegalizerTypeConverter(MLIRContext *ctx) {
   // Default: keep types as-is.
   addConversion([](Type type) { return type; });
@@ -141,34 +173,24 @@ LegalizerTypeConverter::LegalizerTypeConverter(MLIRContext *ctx) {
   addTypeAttributeConversion(
       [](BaseMemRefType type,
          Attribute memorySpaceAttr) -> AttributeConversionResult {
-        // Preserve ptr memory space attributes.
-        if (auto memSpace =
-                dyn_cast<ptr::MemorySpaceAttrInterface>(memorySpaceAttr)) {
-          return memSpace;
-        }
-
-        // Convert gpu memory space attributes to amdgcn equivalents.
-        if (auto space = dyn_cast<gpu::AddressSpaceAttr>(memorySpaceAttr)) {
-          auto rwAccess = amdgcn::AccessKind::ReadWrite;
-          if (space.getValue() == gpu::AddressSpace::Private) {
-            return amdgcn::AddressSpaceAttr::get(
-                type.getContext(), amdgcn::AddressSpaceKind::Private, rwAccess);
-          }
-          if (space.getValue() == gpu::AddressSpace::Global) {
-            return amdgcn::AddressSpaceAttr::get(
-                type.getContext(), amdgcn::AddressSpaceKind::Global, rwAccess);
-          }
-          if (space.getValue() == gpu::AddressSpace::Workgroup) {
-            return amdgcn::AddressSpaceAttr::get(
-                type.getContext(), amdgcn::AddressSpaceKind::Local, rwAccess);
-          }
-        }
-        return AttributeConversionResult::abort();
+        return convertMemorySpace(memorySpaceAttr);
+      });
+  addTypeAttributeConversion(
+      [](ptr::PtrType type,
+         Attribute memorySpaceAttr) -> AttributeConversionResult {
+        return convertMemorySpace(memorySpaceAttr);
       });
 
   // MemRef 1-to-N conversion.
   addConversion([&](MemRefType type, SmallVectorImpl<Type> &results) {
     return MemRefDescriptor::convertType(*this, type, results);
+  });
+
+  addConversion([&](ptr::PtrType type) {
+    // This should never assert.
+    auto memSpace = cast<ptr::MemorySpaceAttrInterface>(
+        convertTypeAttribute(type, type.getMemorySpace()).value_or(nullptr));
+    return ptr::PtrType::get(type.getContext(), memSpace);
   });
 
   addSourceMaterialization([&](OpBuilder &builder, Type resultType,
