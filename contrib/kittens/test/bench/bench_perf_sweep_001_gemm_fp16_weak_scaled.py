@@ -4,54 +4,47 @@ Phase 1: Parallel compilation (MLIR -> HSACO) across all configs.
 Phase 2: Sequential GPU execution with subprocess isolation per config.
 Individual configs that fail at either phase are skipped gracefully.
 
-Usage (single config repro via CLI):
-    python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
+Usage (partial sweep / full sweep):
+    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep
+    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --full-sweep
+
+Usage (single config compile + run):
+    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
         --m-wg 19 --n-wg 16 --m-waves 3 --n-waves 4 \
-        --m-tiles 2 --n-tiles 3 --stages 4 --k 4096
+        --m-tiles 2 --n-tiles 3 --k-tiles 2 --stages 3 --k 4096
+
+Usage (compile only, produce HSACO):
+    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
+        --m-wg 19 --n-wg 16 --m-waves 3 --n-waves 4 \
+        --m-tiles 2 --n-tiles 3 --k-tiles 2 --stages 3 --k 4096 \
+        --compile-only --hsaco /tmp/output.hsaco
 
 Usage (execute a pre-compiled HSACO):
-    python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
+    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
         --m-wg 19 --n-wg 16 --m-waves 3 --n-waves 4 \
-        --m-tiles 2 --n-tiles 3 --stages 4 --k 4096 \
-        --hsaco /tmp/bench_hsaco/label.hsaco
+        --m-tiles 2 --n-tiles 3 --k-tiles 2 --stages 3 --k 4096 \
+        --hsaco /tmp/output.hsaco
 """
 
 # IMPORTANT: Top configs to run by default. If non-empty, only these labels are run
 # unless --full-sweep is passed. Empty list = full sweep by default.
 TOP_K_TO_RUN = [
-    "m2432xn3072xk8192_wg38x32_w2x2_t2x3_s2",
-    "m2432xn3072xk4096_wg38x32_w2x2_t2x3_s2",
-    "m3648xn2048xk8192_wg38x32_w2x2_t3x2_s2",
-    "m4864xn4096xk4096_wg38x32_w2x2_t4x4_s2",
-    "m3648xn2048xk4096_wg38x32_w2x2_t3x2_s2",
-    "m2432xn2048xk8192_wg38x32_w2x2_t2x2_s2",
-    "m4864xn4096xk8192_wg38x32_w2x2_t4x4_s2",
-    "m2432xn2048xk4096_wg19x16_w2x2_t4x4_s2",
-    "m2432xn2048xk4096_wg38x32_w2x2_t2x2_s2",
-    "m2736xn1536xk8192_wg19x16_w3x2_t3x3_s2",
+    "m2432xn3072xk8192_wg38x32_w2x2_t2x3x1_s2",
+    "m2432xn3072xk4096_wg38x32_w2x2_t2x3x1_s2",
+    "m3648xn2048xk8192_wg38x32_w2x2_t3x2x1_s2",
+    "m4864xn4096xk4096_wg38x32_w2x2_t4x4x1_s2",
+    "m3648xn2048xk4096_wg38x32_w2x2_t3x2x1_s2",
+    "m2432xn2048xk8192_wg38x32_w2x2_t2x2x1_s2",
+    "m4864xn4096xk8192_wg38x32_w2x2_t4x4x1_s2",
+    "m2432xn2048xk4096_wg19x16_w2x2_t4x4x1_s2",
+    "m2432xn2048xk4096_wg38x32_w2x2_t2x2x1_s2",
+    "m2736xn1536xk8192_wg19x16_w3x2_t3x3x1_s2",
 ]
 
 
 # Known-broken configs: add labels here to skip them during the sweep.
 # Copy from the "Add to KNOWN_BROKEN" section printed at the end of a run.
-KNOWN_BROKEN = [
-    "m1824xn512xk4096_wg19x16_w3x2_t2x1_s5",  # compile: cannot pickle 'aster._mlir_libs._mlir.ir.DiagnosticInfo' object
-    # python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --m-wg 19 --n-wg 16 --m-waves 3 --n-waves 2 --m-tiles 2 --n-tiles 1 --stages 5 --k 4096 --iterations 5
-    "m2736xn1024xk4096_wg19x16_w3x2_t3x2_s3",  # compile: cannot pickle 'aster._mlir_libs._mlir.ir.DiagnosticInfo' object
-    # python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --m-wg 19 --n-wg 16 --m-waves 3 --n-waves 2 --m-tiles 3 --n-tiles 2 --stages 3 --k 4096 --iterations 5
-    "m3648xn1024xk4096_wg38x32_w3x2_t2x1_s5",  # compile: cannot pickle 'aster._mlir_libs._mlir.ir.DiagnosticInfo' object
-    # python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --m-wg 38 --n-wg 32 --m-waves 3 --n-waves 2 --m-tiles 2 --n-tiles 1 --stages 5 --k 4096 --iterations 5
-    "m5472xn2048xk4096_wg38x32_w3x2_t3x2_s3",  # compile: cannot pickle 'aster._mlir_libs._mlir.ir.DiagnosticInfo' object
-    # python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --m-wg 38 --n-wg 32 --m-waves 3 --n-waves 2 --m-tiles 3 --n-tiles 2 --stages 3 --k 4096 --iterations 5
-    "m1824xn512xk8192_wg19x16_w3x2_t2x1_s5",  # compile: cannot pickle 'aster._mlir_libs._mlir.ir.DiagnosticInfo' object
-    # python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --m-wg 19 --n-wg 16 --m-waves 3 --n-waves 2 --m-tiles 2 --n-tiles 1 --stages 5 --k 8192 --iterations 5
-    "m2736xn1024xk8192_wg19x16_w3x2_t3x2_s3",  # compile: cannot pickle 'aster._mlir_libs._mlir.ir.DiagnosticInfo' object
-    # python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --m-wg 19 --n-wg 16 --m-waves 3 --n-waves 2 --m-tiles 3 --n-tiles 2 --stages 3 --k 8192 --iterations 5
-    "m3648xn1024xk8192_wg38x32_w3x2_t2x1_s5",  # compile: cannot pickle 'aster._mlir_libs._mlir.ir.DiagnosticInfo' object
-    # python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --m-wg 38 --n-wg 32 --m-waves 3 --n-waves 2 --m-tiles 2 --n-tiles 1 --stages 5 --k 8192 --iterations 5
-    "m5472xn2048xk8192_wg38x32_w3x2_t3x2_s3",  # compile: cannot pickle 'aster._mlir_libs._mlir.ir.DiagnosticInfo' object
-    # python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --m-wg 38 --n-wg 32 --m-waves 3 --n-waves 2 --m-tiles 3 --n-tiles 2 --stages 3 --k 8192 --iterations 5
-]
+KNOWN_BROKEN = []
 
 import argparse
 import json
@@ -65,6 +58,8 @@ import numpy as np
 
 # Parent directory contains the test modules and kittens_helpers.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Worktree root contains mlir_kernels (used by library preloading).
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 from test_perf_001_gemm_fp16_weak_scaled import (
     KERNEL_NAME,
@@ -83,23 +78,23 @@ MI300X_PEAK_TFLOPS_F16 = 1307.0
 # Note: we delinearize 2-D along workgroups and waves. Aster does not yet support
 # arbitrary integer division so we need a most-minor power of 2.
 TILE_CONFIGS = [
-    (1, 1, 1),
-    (1, 2, 1),
-    (2, 1, 1),
-    (2, 2, 1),
-    (2, 3, 1),
-    (3, 2, 1),
-    (3, 3, 1),
-    (4, 4, 1),
-    (1, 2, 2),
-    (1, 4, 2),
     (2, 2, 2),
     (2, 4, 2),
+    (2, 2, 4),
+    (2, 4, 4),
+    (3, 2, 2),
+    (3, 4, 2),
+    (3, 2, 4),
+    (3, 4, 4),
+    (4, 2, 2),
+    (4, 4, 2),
+    (4, 2, 4),
+    (4, 4, 4),
 ]
 STAGE_CONFIGS = [2, 3, 4, 5]
 WAVE_CONFIGS = [(2, 2), (3, 2), (3, 4), (4, 4)]
 WG_GRIDS = [(19, 16), (38, 32)]  # 304, 1216 total WGs for 304 CUs
-PERF_K = [4096, 8192]
+K_SCALING_FACTORS = [128, 256]  # K = factor * k_tiles * 16
 NUM_ITERATIONS = 5
 WARMUP_ITERATIONS = 2
 SUBPROCESS_TIMEOUT = 120  # seconds per execution
@@ -469,6 +464,8 @@ def _run_single(args):
 
     Emits BENCH_RESULT_JSON for sweep parsing.
     """
+    from aster.hip import parse_asm_kernel_resources
+
     cfg = WeakScaleConfig(
         args.m_wg,
         args.n_wg,
@@ -545,27 +542,29 @@ def _run_single(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run a single weak-scaled GEMM config for repro/profiling",
+        description="Weak-scaled GEMM benchmark: sweep or single-config repro",
     )
-    parser.add_argument("--m-wg", type=int, required=True, help="Workgroups along M")
-    parser.add_argument("--n-wg", type=int, required=True, help="Workgroups along N")
+    # Sweep mode
     parser.add_argument(
-        "--m-waves", type=int, required=True, help="Waves per WG along M"
-    )
-    parser.add_argument(
-        "--n-waves", type=int, required=True, help="Waves per WG along N"
+        "--sweep",
+        action="store_true",
+        help="Run the benchmark sweep (TOP_K_TO_RUN by default)",
     )
     parser.add_argument(
-        "--m-tiles", type=int, required=True, help="Tiles per wave along M"
+        "--full-sweep",
+        action="store_true",
+        help="Run all configs in the sweep grid (implies --sweep)",
     )
-    parser.add_argument(
-        "--n-tiles", type=int, required=True, help="Tiles per wave along N"
-    )
-    parser.add_argument(
-        "--k-tiles", type=int, required=True, help="Tiles per wave along K"
-    )
-    parser.add_argument("--stages", type=int, required=True, help="Pipeline stages")
-    parser.add_argument("--k", type=int, required=True, help="K dimension")
+    # Single-config args (required unless --sweep)
+    parser.add_argument("--m-wg", type=int, help="Workgroups along M")
+    parser.add_argument("--n-wg", type=int, help="Workgroups along N")
+    parser.add_argument("--m-waves", type=int, help="Waves per WG along M")
+    parser.add_argument("--n-waves", type=int, help="Waves per WG along N")
+    parser.add_argument("--m-tiles", type=int, help="Tiles per wave along M")
+    parser.add_argument("--n-tiles", type=int, help="Tiles per wave along N")
+    parser.add_argument("--k-tiles", type=int, help="Tiles per wave along K")
+    parser.add_argument("--stages", type=int, help="Pipeline stages")
+    parser.add_argument("--k", type=int, help="K dimension")
     parser.add_argument(
         "--iterations",
         type=int,
@@ -583,4 +582,25 @@ if __name__ == "__main__":
         action="store_true",
         help="Compile HSACO and exit (requires --hsaco for output path)",
     )
-    _run_single(parser.parse_args())
+
+    args = parser.parse_args()
+    if args.full_sweep or args.sweep:
+        bench_perf_sweep(full_sweep=args.full_sweep)
+    else:
+        # Validate required args for single-config mode.
+        required = [
+            "m_wg",
+            "n_wg",
+            "m_waves",
+            "n_waves",
+            "m_tiles",
+            "n_tiles",
+            "k_tiles",
+            "stages",
+            "k",
+        ]
+        missing = [a for a in required if getattr(args, a) is None]
+        if missing:
+            flags = ", ".join(f"--{a.replace('_', '-')}" for a in missing)
+            parser.error(f"Single-config mode requires: {flags}")
+        _run_single(args)
