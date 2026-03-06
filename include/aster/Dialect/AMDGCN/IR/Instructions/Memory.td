@@ -704,6 +704,129 @@ def BUFFER_STORE_DWORDX4_IDXEN_INST : BStoreIdxInst<
 }
 
 //===----------------------------------------------------------------------===//
+// LoadToLDSOp (Global-to-LDS / Direct-to-LDS)
+//===----------------------------------------------------------------------===//
+
+/// M0 operand for G2S instructions. M0 holds the LDS destination offset.
+def M0InputOperand : AnyRegOf<[SReg<"M0">]>;
+
+/// M0 constraint for instruction definitions.
+def M0Constraint : InstConstraint<[SReg<"M0">]>;
+
+def AMDGCN_LoadToLDSOp : AMDGCN_InstOp<"load_lds", [
+    ConditionallySpeculatable, MemoryEffectsOpInterface,
+    DeclareOpInterfaceMethods<DependentOpInterface>,
+    DeclareOpInterfaceMethods<InferTypeOpInterface>
+  ]> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+  let summary = "AMDGCN load-to-LDS (G2S) operation";
+  let description = [{
+    The `load_lds` operation loads data from global memory directly into LDS
+    without going through VGPRs. This is the "Global-to-Shared" (G2S) DMA
+    path available on CDNA4 GPUs.
+
+    The M0 register holds the LDS destination base offset. The hardware computes
+    the per-lane LDS address as: M0[17:0] + inst_offset + TID*stride.
+
+    These are MUBUF instructions with the LDS flag set (encoding bit [16]).
+    Completion is tracked by vmcnt (not lgkmcnt).
+
+    Operands:
+    - opcode: The instruction opcode
+    - m0: M0 register holding LDS destination offset
+    - addr: Buffer descriptor (4-SGPR range)
+    - uniform_offset[optional]: Scalar offset register (SGPR)
+    - dynamic_offset[optional]: Dynamic offset register (VGPR, OFFEN mode)
+    - constant_offset[optional]: Constant offset (i32)
+
+    Results:
+    - token: A write token for vmcnt tracking
+
+    Syntax:
+
+    ```mlir
+    amdgcn.load_lds <opcode> m0 <m0> addr <addr>
+    offset u(<uniform_offset>)? + d(<dynamic_offset>)? + c(<constant_offset>)?
+    : ins(types) -> token
+    ```
+  }];
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
+  // No outputs - data goes directly to LDS, not to a register destination.
+  let inputs = (ins
+    M0InputOperand:$m0,
+    AddrOperand:$addr,
+    OptionalReg<UniformOffsetOperand>:$uniform_offset,
+    OptionalReg<DynamicOffsetOperand>:$dynamic_offset
+  );
+  let trailingArguments = (ins OptionalOffsetType:$constant_offset);
+  let leadingResults = (outs WriteTokenType:$token);
+  let assemblyFormat = [{
+    custom<Opcode>($opcode) `m0` $m0 `addr` $addr ``
+    custom<Offsets>($uniform_offset, $dynamic_offset, $constant_offset)
+    attr-dict `:`
+    `ins` `` `(` type($m0) `,` type($addr) ``
+    custom<OffsetTypes>(
+      ref($uniform_offset), ref($dynamic_offset), ref($constant_offset),
+      type($uniform_offset), type($dynamic_offset), type($constant_offset))
+    `)` `->` qualified(type($token))
+  }];
+  let extraClassDeclaration = [{
+    MemoryInstructionKind getInstKind() {
+      return getMemoryInstructionKind(getOpcode());
+    }
+    /// Returns the speculatability of the operation.
+    Speculation::Speculatability getSpeculatability() {
+      return aster::detail::getInstSpeculatabilityImpl(*this);
+    }
+    /// Returns the memory effects of the operation.
+    void getEffects(
+        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+            &effects);
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Buffer Load-to-LDS Instructions (MUBUF + LDS flag)
+//===----------------------------------------------------------------------===//
+
+class BLoadLDSInst<string _mnemonic, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, _mnemonic # "_lds", AMDGCN_LoadToLDSOp, _isa, [IsVMem, IsBuffer]> {
+  let constraints = (ins M0Constraint:$m0,
+                         SGPROperand<4, 0, 4>:$addr,
+                         SGPROperand<1, 1>:$uniform_offset,
+                         VGPROperand<1, 1>:$dynamic_offset);
+  let cppBuilder = OpBuilder<(ins
+    CppValue:$m0, CppValue:$addr,
+    CppValue:$uniform_offset, CppValue:$dynamic_offset,
+    CppValue:$constant_offset), [{
+    return $_create($_builder, $_loc, $_opcode, m0, addr, uniform_offset,
+      dynamic_offset, constant_offset);
+    }]>;
+  let asmFormat = [
+    SingleAsmVariant<
+      "$dynamic_offset, $addr, $uniform_offset offen lds $constant_offset">
+  ];
+}
+
+def BUFFER_LOAD_DWORD_LDS_INST : BLoadLDSInst<
+  /*mnemonic=*/"buffer_load_dword", /*isa=*/[CDNA4]> {
+  let summary = "Buffer load 32-bit to LDS (G2S)";
+  let description = [{
+    MUBUF load with LDS flag. Loads a 32-bit value from global memory directly
+    into LDS at the address specified by M0 + inst_offset + TID*stride.
+  }];
+}
+
+def BUFFER_LOAD_DWORDX4_LDS_INST : BLoadLDSInst<
+  /*mnemonic=*/"buffer_load_dwordx4", /*isa=*/[CDNA4]> {
+  let summary = "Buffer load 128-bit to LDS (G2S)";
+  let description = [{
+    MUBUF load with LDS flag. Loads a 128-bit value from global memory directly
+    into LDS at the address specified by M0 + inst_offset + TID*stride.
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // DS Write Instructions
 //===----------------------------------------------------------------------===//
 

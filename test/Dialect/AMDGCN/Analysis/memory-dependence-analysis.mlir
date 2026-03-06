@@ -140,3 +140,54 @@ amdgcn.module @test_memory_dependence target = #amdgcn.target<gfx942> isa = #amd
     amdgcn.end_kernel { test.end_noalias_tag }
   }
 }
+
+// Test LoadToLDSOp (G2S buffer_load with LDS flag) tracking.
+// The G2S reads from global memory (tracked by vmcnt) but writes to LDS.
+// A subsequent ds_read from LDS must wait for the G2S to complete.
+// The analysis detects this cross-resource dependency: LoadToLDSOp
+// conservatively aliases with all LDS operations.
+//   CHECK-LABEL: Kernel: test_g2s_lds_dep
+amdgcn.module @test_g2s_lds_dep target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+  amdgcn.kernel @test_g2s_lds_dep {
+    %m0 = amdgcn.alloca : !amdgcn.m0
+    %s0 = amdgcn.alloca : !amdgcn.sgpr
+    %s1 = amdgcn.alloca : !amdgcn.sgpr
+    %s2 = amdgcn.alloca : !amdgcn.sgpr
+    %s3 = amdgcn.alloca : !amdgcn.sgpr
+    %soff = amdgcn.alloca : !amdgcn.sgpr
+    %voff = amdgcn.alloca : !amdgcn.vgpr
+    %v0 = amdgcn.alloca : !amdgcn.vgpr
+    %v1 = amdgcn.alloca : !amdgcn.vgpr
+    %rsrc = amdgcn.make_register_range %s0, %s1, %s2, %s3
+      : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+    %c0 = arith.constant 0 : i32
+
+    // Set M0 for LDS base offset
+    amdgcn.sop1 s_mov_b32 outs %m0 ins %c0 : !amdgcn.m0, i32
+
+    // G2S: buffer_load_dword with LDS flag - writes to LDS
+    // CHECK: Operation: {{.*}}load_lds{{.*}}test.g2s_tag
+    // CHECK-NEXT: PENDING BEFORE: 0:
+    // CHECK-NEXT: MUST FLUSH NOW: 0:
+    %tok_g2s = amdgcn.load_lds buffer_load_dword_lds m0 %m0 addr %rsrc
+        offset u(%soff) + d(%voff) + c(%c0) { test.g2s_tag }
+        : ins(!amdgcn.m0, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+        -> !amdgcn.write_token<flat>
+
+    // ds_read from LDS - the G2S must be flushed first because LoadToLDSOp
+    // conservatively aliases with LDS operations (cross-resource dependency).
+    // CHECK: Operation: {{.*}}ds_read{{.*}}test.ds_read_after_g2s
+    // CHECK-NEXT: PENDING BEFORE: 1: test.g2s_tag,
+    // CHECK-NEXT: MUST FLUSH NOW: 1: test.g2s_tag,
+    %dst_range = amdgcn.make_register_range %v0 : !amdgcn.vgpr
+    %lds_val, %tok_lds = amdgcn.load ds_read_b32 dest %dst_range addr %voff
+      offset c(%c0) { test.ds_read_after_g2s }
+      : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, i32)
+        -> !amdgcn.read_token<shared>
+
+    // CHECK: Operation: {{.*}}end_kernel{{.*}}
+    // CHECK-NEXT: PENDING BEFORE: 1: test.ds_read_after_g2s,
+    // CHECK-NEXT: MUST FLUSH NOW: 1: test.ds_read_after_g2s,
+    amdgcn.end_kernel { test.end_g2s_tag }
+  }
+}

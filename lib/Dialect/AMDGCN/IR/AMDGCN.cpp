@@ -370,6 +370,8 @@ mlir::aster::amdgcn::getMemoryInstructionKind(OpCode opCode) {
   case OpCode::BUFFER_STORE_DWORDX2_IDXEN:
   case OpCode::BUFFER_STORE_DWORDX3_IDXEN:
   case OpCode::BUFFER_STORE_DWORDX4_IDXEN:
+  case OpCode::BUFFER_LOAD_DWORD_LDS:
+  case OpCode::BUFFER_LOAD_DWORDX4_LDS:
     return MemoryInstructionKind::Flat;
   default:
     return MemoryInstructionKind::None;
@@ -727,6 +729,37 @@ void StoreOp::getEffects(
   default:
     break;
   }
+}
+
+//===----------------------------------------------------------------------===//
+// LoadToLDSOp
+//===----------------------------------------------------------------------===//
+
+MutableOperandRange LoadToLDSOp::getDependenciesMutable() {
+  return MutableOperandRange(getOperation(), 0, 0);
+}
+
+Value LoadToLDSOp::getOutDependency() { return getToken(); }
+
+LogicalResult LoadToLDSOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  // LoadToLDSOp has no register destination (no DPS results).
+  // Only result is the write token for vmcnt tracking.
+  inferredReturnTypes.push_back(getTokType(
+      context, properties.as<Properties *>()->getOpcode().getValue(), false));
+  return success();
+}
+
+void LoadToLDSOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  // Read from global memory (via buffer descriptor).
+  effects.emplace_back(MemoryEffects::Read::get(), &getAddrMutable());
+  effects.emplace_back(MemoryEffects::Read::get(), GlobalMemoryResource::get());
+  // Write to LDS.
+  effects.emplace_back(MemoryEffects::Write::get(), LDSMemoryResource::get());
 }
 
 //===----------------------------------------------------------------------===//

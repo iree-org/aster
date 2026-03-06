@@ -78,9 +78,21 @@ bool MemoryLocation::mayAlias(const MemoryLocation &other) const {
     return resourceType == other.resourceType;
   }
 
-  // Different resource types never alias
-  if (resourceType != other.resourceType)
-    return false;
+  // Different resource types normally never alias, but LoadToLDSOp is a
+  // cross-resource op: it reads from global memory (GlobalMemoryResource) but
+  // writes to LDS. It must conservatively alias with LDS operations so that
+  // a subsequent ds_read correctly waits for the G2S to complete.
+  if (resourceType != other.resourceType) {
+    bool crossResource = (op && isa<LoadToLDSOp>(op) &&
+                          other.resourceType == LDSMemoryResource::get()) ||
+                         (other.op && isa<LoadToLDSOp>(other.op) &&
+                          resourceType == LDSMemoryResource::get());
+    if (!crossResource)
+      return false;
+    // Conservative: LoadToLDSOp's LDS destination address is derived from M0
+    // and thread ID, which we can't statically compare with ds_read addresses.
+    return true;
+  }
 
   // Check if both addresses come from different results of the same
   // lsir.assume_noalias op
@@ -214,6 +226,17 @@ MemoryLocation MemoryDependenceAnalysis::getMemoryLocation(Operation *op) {
     offset = !store.getConstantOffset()
                  ? 0
                  : cast<ValueOrI32>(store.getConstantOffset())
+                       .getConst()
+                       .value_or(0);
+  } else if (auto loadLds = dyn_cast<amdgcn::LoadToLDSOp>(op)) {
+    // G2S: reads from global memory, writes to LDS.
+    // The addr/offsets describe the global memory source.
+    address = loadLds.getAddr();
+    vgprOffset = loadLds.getDynamicOffset();
+    sgprOffset = loadLds.getUniformOffset();
+    offset = !loadLds.getConstantOffset()
+                 ? 0
+                 : cast<ValueOrI32>(loadLds.getConstantOffset())
                        .getConst()
                        .value_or(0);
   } else {
