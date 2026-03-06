@@ -57,23 +57,20 @@ from bench_harness import (
     NUM_ITERATIONS,
 )
 
-# Sweep grid
+# Sweep grid -- 16 VGPRs per C tile (vx16), same constraints as perf_002.
 STAGE_CONFIGS = [2, 3, 4, 5]
 WAVE_CONFIGS = [(2, 2), (3, 2), (3, 4), (4, 4)]
-# (m_tiles_wg, n_tiles_wg, k_tiles) -- per-workgroup tile counts.
-# Per-wave tiles derived as m_tiles_wg // m_waves; combos where this is not
-# an integer are filtered out in _generate_configs.
-# Generated: for each wave config, take 1-5x multiples in each dimension,
-# crossed with k_tiles 2..7.
-_MULTIPLES = range(1, 6)
-_K_TILES_RANGE = range(2, 8)
+# Per-workgroup tile counts. Per-wave tiles derived as m_tiles_wg // m_waves.
+# Max 1-3x multiples since each C tile is 16 VGPRs.
+_MULTIPLES = range(1, 4)
+_K_TILES_RANGE = range(1, 4)
 _tile_wg_pairs = {
     (mw * mm, nw * nm)
     for (mw, nw), mm, nm in itertools.product(WAVE_CONFIGS, _MULTIPLES, _MULTIPLES)
 }
 TILE_WG_CONFIGS = sorted((m, n, k) for m, n in _tile_wg_pairs for k in _K_TILES_RANGE)
 WG_GRIDS = [(19, 16), (38, 32)]
-K_SCALING_FACTORS = [128, 256]
+K_SCALING_FACTORS = [64, 128, 256]
 SKIP_FIRST_N_CONFIGS = 0
 
 
@@ -81,7 +78,7 @@ def _generate_configs():
     """Generate the full sweep grid, filtering for divisibility."""
     return [
         WeakScaleConfig(
-            m_wg, n_wg, m_w, n_w, m_twg, n_twg, k_t, stages, k_factor * k_t * 16
+            m_wg, n_wg, m_w, n_w, m_twg, n_twg, k_t, stages, k_factor * k_t * 32
         )
         for k_factor in K_SCALING_FACTORS
         for m_wg, n_wg in WG_GRIDS
@@ -94,7 +91,7 @@ def _generate_configs():
 
 def _repro_cmd(cfg, num_iterations):
     """Return a CLI command to reproduce a single config."""
-    k_factor = cfg.k // (cfg.k_tiles * 16)
+    k_factor = cfg.k // (cfg.k_tiles * 32)
     return (
         f"python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
@@ -107,7 +104,7 @@ def _repro_cmd(cfg, num_iterations):
 
 def _cfg_to_cli_args(cfg):
     """Serialize config to CLI args for subprocess invocation."""
-    k_factor = cfg.k // (cfg.k_tiles * 16)
+    k_factor = cfg.k // (cfg.k_tiles * 32)
     return [
         "--m-wg",
         str(cfg.m_wg),
@@ -132,7 +129,7 @@ def _cfg_to_cli_args(cfg):
 
 def _make_config_from_args(args):
     """Construct a WeakScaleConfig from parsed CLI args."""
-    k = args.k_scaling_factor * args.k_tiles * 16
+    k = args.k_scaling_factor * args.k_tiles * 32
     return WeakScaleConfig(
         args.m_wg,
         args.n_wg,
@@ -163,7 +160,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--k-scaling-factor",
         type=int,
-        help="K scaling factor (K = factor * k_tiles * 16)",
+        help="K scaling factor (K = factor * k_tiles * 32)",
     )
     add_single_cli_args(parser)
 

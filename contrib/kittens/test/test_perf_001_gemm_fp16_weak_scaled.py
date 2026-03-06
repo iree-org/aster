@@ -1,6 +1,8 @@
-"""Test: Correctness gate for weak-scaled constexpr GEMM.
+"""Test: Correctness gate for weak-scaled constexpr GEMM (16x16x16 MFMA, 32x32 tiles).
 
 Verifies multi-WG, multi-wave, multi-tile GEMM at K=128 against numpy reference.
+Uses v_mfma_f32_16x16x16_f16 with 32x32 transfer tiles (coalesced dwordx4 loads).
+Each 32x32 tile pair -> 8 MFMAs (2x2 spatial x 2 K passes).
 
 Tiles are specified per-workgroup (m_tiles_wg, n_tiles_wg). Per-wave tile counts
 are derived: m_tiles = m_tiles_wg // m_waves.
@@ -16,8 +18,8 @@ from aster.pass_pipelines import TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE
 
 from kittens_helpers import (
     get_mlir_file,
-    get_kittens_library_paths,
-    constexpr_substitutions,
+    get_kittens_32x32_library_paths,
+    constexpr_substitutions_32x32,
     MCPU,
     LDS_SIZE,
     WAVEFRONT_SIZE,
@@ -79,13 +81,13 @@ class WeakScaleConfig:
 
     @property
     def m_dim(self):
-        """Total M = M_WG * M_TILES_WG * 16."""
-        return self.m_wg * self.m_tiles_wg * 16
+        """Total M = M_WG * M_TILES_WG * 32."""
+        return self.m_wg * self.m_tiles_wg * 32
 
     @property
     def n_dim(self):
-        """Total N = N_WG * N_TILES_WG * 16."""
-        return self.n_wg * self.n_tiles_wg * 16
+        """Total N = N_WG * N_TILES_WG * 32."""
+        return self.n_wg * self.n_tiles_wg * 32
 
     @property
     def total_flops(self):
@@ -94,12 +96,11 @@ class WeakScaleConfig:
 
     @property
     def lds_bytes(self):
-        """LDS per pipeline stage: num_waves * (M_T * K_T + K_T * N_T) * (16 * 16 * 2)."""
+        """LDS per pipeline stage: num_stages * (m_tiles_wg * k_tiles + n_tiles_wg * k_tiles) * 2048."""
         return (
             self.num_stages
-            * self.num_waves
-            * (self.m_tiles * self.k_tiles + self.k_tiles * self.n_tiles)
-            * 512
+            * (self.m_tiles_wg * self.k_tiles + self.n_tiles_wg * self.k_tiles)
+            * 2048
         )
 
     @property
@@ -121,11 +122,9 @@ def _load_k_loop_helpers():
 
 def _make_substitutions(cfg):
     """Build template substitutions dict for a WeakScaleConfig."""
-    # K_LOOP_HELPERS must be first: it injects text containing {{STAGE_...}} markers
-    # that subsequent substitutions need to replace.
     subs = {"{{K_LOOP_HELPERS}}": _load_k_loop_helpers()}
     subs.update(
-        constexpr_substitutions(cfg.m_tiles, cfg.n_tiles, cfg.k, cfg.num_stages)
+        constexpr_substitutions_32x32(cfg.m_tiles, cfg.n_tiles, cfg.k, cfg.num_stages)
     )
     subs["{{M_WG}}"] = str(cfg.m_wg)
     subs["{{N_WG}}"] = str(cfg.n_wg)
@@ -133,12 +132,9 @@ def _make_substitutions(cfg):
     subs["{{N_WAVES}}"] = str(cfg.n_waves)
     subs["{{M_TILES_WG}}"] = str(cfg.m_tiles_wg)
     subs["{{N_TILES_WG}}"] = str(cfg.n_tiles_wg)
-    subs["{{A_LDS_BYTES}}"] = str(cfg.m_tiles_wg * cfg.k_tiles * 512)
-    subs["{{B_LDS_BYTES}}"] = str(cfg.n_tiles_wg * cfg.k_tiles * 512)
+    subs["{{A_LDS_BYTES}}"] = str(cfg.m_tiles_wg * cfg.k_tiles * 2048)
+    subs["{{B_LDS_BYTES}}"] = str(cfg.n_tiles_wg * cfg.k_tiles * 2048)
     subs["{{STRIDE_C}}"] = str(cfg.n_dim * 4)  # f32 = 4 bytes
-    # shared_memory_size must be 0: all LDS is managed by alloc_lds/dealloc_lds.
-    # The LDS allocator uses shared_memory_size as startPos, so any non-zero value
-    # wastes that many bytes of LDS (offsets start after the pre-reserved region).
     subs["{{SHARED_MEM}}"] = "0"
     subs["{{NUM_THREADS}}"] = str(cfg.num_threads)
     subs["{{NUM_BLOCKS}}"] = str(cfg.num_workgroups)
@@ -172,7 +168,7 @@ def compile_weak_scaled_gemm(cfg, output_hsaco_path, print_ir_after_all=False):
             KERNEL_NAME,
             TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
             ctx,
-            library_paths=get_kittens_library_paths(),
+            library_paths=get_kittens_32x32_library_paths(),
             preprocess=preprocess,
             print_ir_after_all=print_ir_after_all,
         )
@@ -232,13 +228,13 @@ class TestWeakScaleCorrectness:
     )
     @pytest.mark.parametrize(
         "m_waves,n_waves",
-        [(1, 1), (2, 2), (2, 4), (4, 4)],
-        ids=["waves_1x1", "waves_2x2", "waves_2x4", "waves_4x4"],
+        [(1, 1), (2, 2), (2, 4)],
+        ids=["waves_1x1", "waves_2x2", "waves_2x4"],
     )
     @pytest.mark.parametrize(
         "m_tiles_wg,n_tiles_wg",
-        [(2, 2), (4, 4), (4, 8)],
-        ids=["twg_2x2", "twg_4x4", "twg_4x8"],
+        [(2, 2), (4, 4)],
+        ids=["twg_2x2", "twg_4x4"],
     )
     @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
     def test_correctness(
@@ -262,10 +258,10 @@ class TestWeakScaleCorrectness:
             num_stages,
             k,
         )
-        # Per-wave tile product > 16 requires too many registers.
-        if cfg.m_tiles * cfg.n_tiles > 16:
+        # 16 VGPRs per C tile: max per-wave tile product ~ 8.
+        if cfg.m_tiles * cfg.n_tiles > 8:
             pytest.skip(
-                f"per-wave tiles {cfg.m_tiles}x{cfg.n_tiles} product > 16 for {cfg.label}"
+                f"per-wave tiles {cfg.m_tiles}x{cfg.n_tiles} product > 8 for {cfg.label}"
             )
         # Avoid unfeasible LDS sizes
         if cfg.lds_bytes >= LDS_SIZE:

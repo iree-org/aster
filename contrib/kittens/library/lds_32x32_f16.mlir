@@ -38,6 +38,7 @@
 !rt_C_f32 = !vx16
 
 // Future/token types
+!write_token = !amdgcn.write_token<flat>
 !future_lds_write = !amdgcn.write_token<shared>
 !future_lds_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
 !future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
@@ -362,6 +363,256 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
 
   //===--------------------------------------------------------------------===//
   // Compute (4 MFMAs from LDS read futures)
+  //===--------------------------------------------------------------------===//
+
+  //===--------------------------------------------------------------------===//
+  // 16x16x16 MFMA variant: read 16x16 sub-tiles from 32x32 swizzled LDS
+  //===--------------------------------------------------------------------===//
+  //
+  // A 32x32 LDS tile decomposes into 2x2 sub-tiles of 16x16:
+  //   [m_sub][k_sub] for A, [n_sub][k_sub] for B (m_sub,n_sub,k_sub in {0,1}).
+  // Each 16x16 sub-tile feeds one v_mfma_f32_16x16x16_f16.
+  // Total: 8 MFMAs per pair of 32x32 tiles (2x2 output x 2 K passes).
+  //
+  // Output: 4 x vx4 sub-tile accumulators packed into vx16:
+  //   [0:3]=C[0][0], [4:7]=C[0][1], [8:11]=C[1][0], [12:15]=C[1][1]
+
+  // 16x16 MFMA indexing from common library
+  func.func private @mfma_index_A_16x16xf16() -> !index_pair
+  func.func private @mfma_index_C_16x16xf32() -> !index_pair
+
+  // Read 4 MFMA A fragments (16x16) from a 32x32 XOR-swizzled tile in LDS.
+  // 2x2 loop over [ms, ks]: row = ms*16 + mfma_row, byte = ks*32 + mfma_col*2.
+  // Returns: A[m0k0, m0k1, m1k0, m1k1].
+  func.func private @load_lds_A_32x32_m16_f16(%lds_base: index)
+      -> (!future_lds_read, !future_lds_read, !future_lds_read, !future_lds_read) {
+    %mfma_idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
+    %mfma_row, %mfma_col = aster_utils.struct_extract %mfma_idx ["i", "j"]
+        : !index_pair -> index, index
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %c3 = arith.constant 3 : index
+    %c0_i32 = arith.constant 0 : i32
+
+    %buf = memref.alloca() : memref<4x!future_lds_read>
+    scf.for %ms = %c0 to %c2 step %c1 {
+      scf.for %ks = %c0 to %c2 step %c1 {
+        %row = affine.apply affine_map<(s, r) -> (s * 16 + r)>(%ms, %mfma_row)
+        %byte = affine.apply affine_map<(s, c) -> (s * 32 + c * 2)>(%ks, %mfma_col)
+        %off = func.call @lds_swizzle_addr(%lds_base, %row, %byte)
+            : (index, index, index) -> index
+        %off_i32 = arith.index_cast %off : index to i32
+        %addr = lsir.to_reg %off_i32 : i32 -> !v
+        %dst = func.call @alloc_vgprx2() : () -> !vx2
+        %result, %tok = amdgcn.load ds_read_b64 dest %dst addr %addr offset c(%c0_i32)
+            : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
+        %val = aster_utils.to_any %result : !vx2
+        %f = aster_utils.struct_create(%val, %tok)
+            : (!aster_utils.any, !amdgcn.read_token<shared>) -> !future_lds_read
+        %idx = affine.linearize_index [%ms, %ks] by (%c2, %c2) : index
+        memref.store %f, %buf[%idx] : memref<4x!future_lds_read>
+      } {aster.constexpr}
+    } {aster.constexpr}
+
+    %f0 = memref.load %buf[%c0] : memref<4x!future_lds_read>
+    %f1 = memref.load %buf[%c1] : memref<4x!future_lds_read>
+    %f2 = memref.load %buf[%c2] : memref<4x!future_lds_read>
+    %f3 = memref.load %buf[%c3] : memref<4x!future_lds_read>
+    return %f0, %f1, %f2, %f3
+        : !future_lds_read, !future_lds_read, !future_lds_read, !future_lds_read
+  }
+
+  // Read 4 MFMA B fragments (16x16) from a 32x32 XOR-swizzled tile in LDS.
+  // Same addressing as A -- MFMA handles B transpose internally.
+  // Returns: B[n0k0, n0k1, n1k0, n1k1].
+  func.func private @load_lds_B_32x32_m16_f16(%lds_base: index)
+      -> (!future_lds_read, !future_lds_read, !future_lds_read, !future_lds_read) {
+    %mfma_idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
+    %mfma_row, %mfma_col = aster_utils.struct_extract %mfma_idx ["i", "j"]
+        : !index_pair -> index, index
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %c3 = arith.constant 3 : index
+    %c0_i32 = arith.constant 0 : i32
+
+    %buf = memref.alloca() : memref<4x!future_lds_read>
+    scf.for %ns = %c0 to %c2 step %c1 {
+      scf.for %ks = %c0 to %c2 step %c1 {
+        %row = affine.apply affine_map<(s, r) -> (s * 16 + r)>(%ns, %mfma_row)
+        %byte = affine.apply affine_map<(s, c) -> (s * 32 + c * 2)>(%ks, %mfma_col)
+        %off = func.call @lds_swizzle_addr(%lds_base, %row, %byte)
+            : (index, index, index) -> index
+        %off_i32 = arith.index_cast %off : index to i32
+        %addr = lsir.to_reg %off_i32 : i32 -> !v
+        %dst = func.call @alloc_vgprx2() : () -> !vx2
+        %result, %tok = amdgcn.load ds_read_b64 dest %dst addr %addr offset c(%c0_i32)
+            : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
+        %val = aster_utils.to_any %result : !vx2
+        %f = aster_utils.struct_create(%val, %tok)
+            : (!aster_utils.any, !amdgcn.read_token<shared>) -> !future_lds_read
+        %idx = affine.linearize_index [%ns, %ks] by (%c2, %c2) : index
+        memref.store %f, %buf[%idx] : memref<4x!future_lds_read>
+      } {aster.constexpr}
+    } {aster.constexpr}
+
+    %f0 = memref.load %buf[%c0] : memref<4x!future_lds_read>
+    %f1 = memref.load %buf[%c1] : memref<4x!future_lds_read>
+    %f2 = memref.load %buf[%c2] : memref<4x!future_lds_read>
+    %f3 = memref.load %buf[%c3] : memref<4x!future_lds_read>
+    return %f0, %f1, %f2, %f3
+        : !future_lds_read, !future_lds_read, !future_lds_read, !future_lds_read
+  }
+
+  // Chain 8 MFMAs (16x16x16): C[ms][ns] += A[ms][ks] * B[ns][ks] for ms,ns,ks in {0,1}.
+  // A/B futures indexed as [ms*2+ks] and [ns*2+ks].
+  // acc vx16 packed as 4 x vx4: C[0][0], C[0][1], C[1][0], C[1][1].
+  func.func private @compute_mfmas_32x32_m16(
+      %a0_fut: !future_lds_read, %a1_fut: !future_lds_read,
+      %a2_fut: !future_lds_read, %a3_fut: !future_lds_read,
+      %b0_fut: !future_lds_read, %b1_fut: !future_lds_read,
+      %b2_fut: !future_lds_read, %b3_fut: !future_lds_read,
+      %acc: !rt_C_f32
+  ) -> !rt_C_f32 {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %c3 = arith.constant 3 : index
+
+    // Store A/B futures into indexable buffers
+    %a_buf = memref.alloca() : memref<4x!future_lds_read>
+    memref.store %a0_fut, %a_buf[%c0] : memref<4x!future_lds_read>
+    memref.store %a1_fut, %a_buf[%c1] : memref<4x!future_lds_read>
+    memref.store %a2_fut, %a_buf[%c2] : memref<4x!future_lds_read>
+    memref.store %a3_fut, %a_buf[%c3] : memref<4x!future_lds_read>
+    %b_buf = memref.alloca() : memref<4x!future_lds_read>
+    memref.store %b0_fut, %b_buf[%c0] : memref<4x!future_lds_read>
+    memref.store %b1_fut, %b_buf[%c1] : memref<4x!future_lds_read>
+    memref.store %b2_fut, %b_buf[%c2] : memref<4x!future_lds_read>
+    memref.store %b3_fut, %b_buf[%c3] : memref<4x!future_lds_read>
+
+    // Split vx16 acc into 4 x vx4 sub-tile accumulators stored in buffer
+    %r:16 = amdgcn.split_register_range %acc : !vx16
+    %c_buf = memref.alloca() : memref<4x!vx4>
+    %ci0 = amdgcn.make_register_range %r#0, %r#1, %r#2, %r#3 : !v, !v, !v, !v
+    %ci1 = amdgcn.make_register_range %r#4, %r#5, %r#6, %r#7 : !v, !v, !v, !v
+    %ci2 = amdgcn.make_register_range %r#8, %r#9, %r#10, %r#11 : !v, !v, !v, !v
+    %ci3 = amdgcn.make_register_range %r#12, %r#13, %r#14, %r#15 : !v, !v, !v, !v
+    memref.store %ci0, %c_buf[%c0] : memref<4x!vx4>
+    memref.store %ci1, %c_buf[%c1] : memref<4x!vx4>
+    memref.store %ci2, %c_buf[%c2] : memref<4x!vx4>
+    memref.store %ci3, %c_buf[%c3] : memref<4x!vx4>
+
+    // 8 MFMAs via 2x2x2 constexpr loop
+    scf.for %ms = %c0 to %c2 step %c1 {
+      scf.for %ns = %c0 to %c2 step %c1 {
+        %c_idx = affine.linearize_index [%ms, %ns] by (%c2, %c2) : index
+        scf.for %ks = %c0 to %c2 step %c1 {
+          %a_idx = affine.linearize_index [%ms, %ks] by (%c2, %c2) : index
+          %b_idx = affine.linearize_index [%ns, %ks] by (%c2, %c2) : index
+          %af = memref.load %a_buf[%a_idx] : memref<4x!future_lds_read>
+          %bf = memref.load %b_buf[%b_idx] : memref<4x!future_lds_read>
+          %a_v = func.call @get_lds_read_value_vx2(%af) : (!future_lds_read) -> !vx2
+          %b_v = func.call @get_lds_read_value_vx2(%bf) : (!future_lds_read) -> !vx2
+          %c_old = memref.load %c_buf[%c_idx] : memref<4x!vx4>
+          %c_new = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %c_old, %a_v, %b_v, %c_old
+              : !vx2, !vx2, !vx4 -> !vx4
+          memref.store %c_new, %c_buf[%c_idx] : memref<4x!vx4>
+        } {aster.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
+
+    // Recombine 4 x vx4 into vx16
+    %r0 = memref.load %c_buf[%c0] : memref<4x!vx4>
+    %r1 = memref.load %c_buf[%c1] : memref<4x!vx4>
+    %r2 = memref.load %c_buf[%c2] : memref<4x!vx4>
+    %r3 = memref.load %c_buf[%c3] : memref<4x!vx4>
+    %s0:4 = amdgcn.split_register_range %r0 : !vx4
+    %s1:4 = amdgcn.split_register_range %r1 : !vx4
+    %s2:4 = amdgcn.split_register_range %r2 : !vx4
+    %s3:4 = amdgcn.split_register_range %r3 : !vx4
+    %result = amdgcn.make_register_range %s0#0, %s0#1, %s0#2, %s0#3, %s1#0, %s1#1, %s1#2, %s1#3, %s2#0, %s2#1, %s2#2, %s2#3, %s3#0, %s3#1, %s3#2, %s3#3 : !v, !v, !v, !v, !v, !v, !v, !v, !v, !v, !v, !v, !v, !v, !v, !v
+
+    return %result : !rt_C_f32
+  }
+
+  // Store a 32x32 f32 C tile from 16x16 MFMA layout to global memory.
+  // vx16 packed as 4 x vx4: C[ms][ns] for ms,ns in {0,1}.
+  // 16x16 C layout: col = lane%16, row_base = (lane/16)*4, 4 VGPRs per sub-tile.
+  // 2x2 constexpr loop over sub-tiles, 4 rows each.
+  func.func private @store_C_32x32_m16_f32(
+      %tile: !rt_C_f32, %ptr: !sx2, %m: index, %n: index, %stride: index
+  ) -> !write_token {
+    %mfma_idx = func.call @mfma_index_C_16x16xf32() : () -> !index_pair
+    %col_sub, %row_base_sub = aster_utils.struct_extract %mfma_idx ["i", "j"]
+        : !index_pair -> index, index
+    %elt_size = arith.constant 4 : index
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %c3 = arith.constant 3 : index
+    %c0_i32 = arith.constant 0 : i32
+
+    // Split vx16 into 4 x vx4 sub-tiles stored in buffer
+    %r:16 = amdgcn.split_register_range %tile : !vx16
+    %sub_buf = memref.alloca() : memref<4x!vx4>
+    %st0 = amdgcn.make_register_range %r#0, %r#1, %r#2, %r#3 : !v, !v, !v, !v
+    %st1 = amdgcn.make_register_range %r#4, %r#5, %r#6, %r#7 : !v, !v, !v, !v
+    %st2 = amdgcn.make_register_range %r#8, %r#9, %r#10, %r#11 : !v, !v, !v, !v
+    %st3 = amdgcn.make_register_range %r#12, %r#13, %r#14, %r#15 : !v, !v, !v, !v
+    memref.store %st0, %sub_buf[%c0] : memref<4x!vx4>
+    memref.store %st1, %sub_buf[%c1] : memref<4x!vx4>
+    memref.store %st2, %sub_buf[%c2] : memref<4x!vx4>
+    memref.store %st3, %sub_buf[%c3] : memref<4x!vx4>
+
+    // 2x2 loop over sub-tiles, 4 stores each
+    %tok_buf = memref.alloca() : memref<1x!write_token>
+    scf.for %ms = %c0 to %c2 step %c1 {
+      scf.for %ns = %c0 to %c2 step %c1 {
+        %sub_idx = affine.linearize_index [%ms, %ns] by (%c2, %c2) : index
+        %sub_tile = memref.load %sub_buf[%sub_idx] : memref<4x!vx4>
+        %sr:4 = amdgcn.split_register_range %sub_tile : !vx4
+        %col = affine.apply affine_map<(s, c) -> (s * 16 + c)>(%ns, %col_sub)
+
+        %row0 = affine.apply affine_map<(s, rb) -> (s * 16 + rb)>(%ms, %row_base_sub)
+        %desc0 = aster_utils.struct_create(%m, %n, %row0, %col, %stride, %elt_size)
+            : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
+        %off0 = func.call @tiled_matrix_offset(%desc0) : (!index_descriptor_2level_2d) -> !v
+        %tok0 = amdgcn.store global_store_dword data %sr#0 addr %ptr offset d(%off0) + c(%c0_i32)
+            : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+
+        %row1 = affine.apply affine_map<(s, rb) -> (s * 16 + rb + 1)>(%ms, %row_base_sub)
+        %desc1 = aster_utils.struct_create(%m, %n, %row1, %col, %stride, %elt_size)
+            : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
+        %off1 = func.call @tiled_matrix_offset(%desc1) : (!index_descriptor_2level_2d) -> !v
+        %tok1 = amdgcn.store global_store_dword data %sr#1 addr %ptr offset d(%off1) + c(%c0_i32)
+            : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+
+        %row2 = affine.apply affine_map<(s, rb) -> (s * 16 + rb + 2)>(%ms, %row_base_sub)
+        %desc2 = aster_utils.struct_create(%m, %n, %row2, %col, %stride, %elt_size)
+            : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
+        %off2 = func.call @tiled_matrix_offset(%desc2) : (!index_descriptor_2level_2d) -> !v
+        %tok2 = amdgcn.store global_store_dword data %sr#2 addr %ptr offset d(%off2) + c(%c0_i32)
+            : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+
+        %row3 = affine.apply affine_map<(s, rb) -> (s * 16 + rb + 3)>(%ms, %row_base_sub)
+        %desc3 = aster_utils.struct_create(%m, %n, %row3, %col, %stride, %elt_size)
+            : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
+        %off3 = func.call @tiled_matrix_offset(%desc3) : (!index_descriptor_2level_2d) -> !v
+        %tok3 = amdgcn.store global_store_dword data %sr#3 addr %ptr offset d(%off3) + c(%c0_i32)
+            : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+
+        memref.store %tok3, %tok_buf[%c0] : memref<1x!write_token>
+      } {aster.constexpr}
+    } {aster.constexpr}
+
+    %last_tok = memref.load %tok_buf[%c0] : memref<1x!write_token>
+    return %last_tok : !write_token
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Compute (4 MFMAs from LDS read futures, 32x32x8 variant)
   //===--------------------------------------------------------------------===//
 
   // Chain 4 MFMAs: extract values from LDS read futures and accumulate.
