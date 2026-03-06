@@ -69,6 +69,16 @@ struct PtrAddOpPattern : public OpCodeGenPattern<aster_utils::PtrAddOp> {
   matchAndRewrite(aster_utils::PtrAddOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
+
+//===----------------------------------------------------------------------===//
+// PtrPtrAddOpPattern (ptr::PtrAddOp -> amdgcn::PtrAddOp)
+//===----------------------------------------------------------------------===//
+struct PtrPtrAddOpPattern : public OpCodeGenPattern<ptr::PtrAddOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
+  LogicalResult
+  matchAndRewrite(ptr::PtrAddOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -275,7 +285,7 @@ PtrAddOpPattern::matchAndRewrite(aster_utils::PtrAddOp op, OpAdaptor adaptor,
 //===----------------------------------------------------------------------===//
 
 /// Untagle unrealized conversion casts to find the original value.
-static Value untagleConvertValue(Value value) {
+static Value untangleConvertValue(Value value) {
   if (isa<RegisterTypeInterface>(value.getType()))
     return value;
   auto cOp =
@@ -321,7 +331,7 @@ static Type convertTypeImpl(Value value, const CodeGenConverter &converter) {
   if (Operation *defOp = value.getDefiningOp();
       defOp && m_Constant().match(value.getDefiningOp()))
     return value.getType();
-  value = untagleConvertValue(value);
+  value = untangleConvertValue(value);
   if (isa<RegisterTypeInterface>(value.getType()))
     return value.getType();
 
@@ -363,6 +373,43 @@ static Type convertTypeImpl(Type type, const CodeGenConverter &converter) {
 }
 
 //===----------------------------------------------------------------------===//
+// PtrPtrAddOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+PtrPtrAddOpPattern::matchAndRewrite(ptr::PtrAddOp op, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const {
+  Value ptr = adaptor.getBase();
+  Value offset = adaptor.getOffset();
+  Type resultType = converter.convertType(op.getResult());
+
+  Value dynamicOffset;
+  Value uniformOffset;
+  int64_t constOffset = 0;
+
+  llvm::APInt constAttr;
+  if (Operation *defOp = offset.getDefiningOp();
+      defOp && m_ConstantInt(&constAttr).match(defOp)) {
+    constOffset = constAttr.getSExtValue();
+  } else {
+    if (isVGPR(offset.getType(), 0)) {
+      dynamicOffset = offset;
+    } else if (isSGPR(offset.getType(), 0)) {
+      uniformOffset = offset;
+      // Result type must match ptr when using uniform_offset (amdgcn.ptr_add
+      // infers from ptr operand).
+      resultType = ptr.getType();
+    } else {
+      return rewriter.notifyMatchFailure(op, "invalid offset");
+    }
+  }
+
+  rewriter.replaceOpWithNewOp<amdgcn::PtrAddOp>(
+      op, resultType, ptr, dynamicOffset, uniformOffset, constOffset);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // API
 //===----------------------------------------------------------------------===//
 
@@ -389,12 +436,14 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
                       aster_utils::BlockDimOp, aster_utils::GridDimOp,
                       aster_utils::AssumeRangeOp, aster_utils::AssumeUniformOp,
                       aster_utils::PtrAddOp, lsir::FromRegOp, lsir::ToRegOp,
-                      lsir::RegConstraintOp, ptr::LoadOp, ptr::StoreOp>();
+                      lsir::RegConstraintOp, ptr::LoadOp, ptr::StoreOp,
+                      ptr::PtrAddOp>();
 
   // Add the patterns.
   patterns.add<IDDimOpPattern<aster_utils::ThreadIdOp, amdgcn::ThreadIdOp>,
                IDDimOpPattern<aster_utils::BlockIdOp, amdgcn::BlockIdOp>,
                IDDimOpPattern<aster_utils::BlockDimOp, amdgcn::BlockDimOp>,
                IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>,
-               PtrLoadOpPattern, PtrStoreOpPattern, PtrAddOpPattern>(converter);
+               PtrLoadOpPattern, PtrStoreOpPattern, PtrAddOpPattern,
+               PtrPtrAddOpPattern>(converter);
 }
