@@ -176,6 +176,26 @@ struct ShLIOpPattern : public OpRewritePattern<lsir::ShLIOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// ExtSIOpPattern
+//===----------------------------------------------------------------------===//
+
+struct ExtSIOpPattern : public OpRewritePattern<lsir::ExtSIOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::ExtSIOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
+// ExtUIOpPattern
+//===----------------------------------------------------------------------===//
+
+struct ExtUIOpPattern : public OpRewritePattern<lsir::ExtUIOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::ExtUIOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
 // ShRSIOpPattern
 //===----------------------------------------------------------------------===//
 
@@ -1257,6 +1277,95 @@ LogicalResult ShRUIOpPattern::matchAndRewrite(lsir::ShRUIOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// ExtSIOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult ExtSIOpPattern::matchAndRewrite(lsir::ExtSIOp op,
+                                              PatternRewriter &rewriter) const {
+  unsigned srcWidth = op.getSrcType().getWidth();
+  unsigned tgtWidth = op.getTgtType().getWidth();
+  if (srcWidth != 32 || tgtWidth != 64)
+    return rewriter.notifyMatchFailure(
+        op, "only i32 to i64 and u32 to u64 sign extension is supported");
+
+  RegisterTypeInterface oTy = op.getDst().getType();
+  Value dst = op.getDst();
+  Value value = op.getValue();
+  OperandKind kind = getOperandKind(oTy);
+
+  if (!isAMDReg(oTy))
+    return rewriter.notifyMatchFailure(op, "dst must be AMDGCN register type");
+  if (kind != OperandKind::SGPR && kind != OperandKind::VGPR)
+    return rewriter.notifyMatchFailure(op, "only SGPR and VGPR are supported");
+  if (oTy.getAsRange().size() != 2)
+    return rewriter.notifyMatchFailure(
+        op, "dst must be a 2-register range for i64");
+
+  Location loc = op.getLoc();
+  ValueRange dstR = splitRange(rewriter, loc, dst);
+  if (dstR.size() != 2)
+    return rewriter.notifyMatchFailure(op, "dst must be a splittable range");
+
+  Value dstLo = dstR[0];
+  Value dstHi = dstR[1];
+
+  // Sign extension: lo = value, hi = sign_extend(value) = shrsi(value, 31)
+  Value shiftAmount = getI32Constant(rewriter, loc, 31);
+  auto i32Semantics = TypeAttr::get(rewriter.getI32Type());
+  Value lo = lsir::CopyOp::create(rewriter, loc, dstLo, value).getTargetRes();
+  Value hi = lsir::ShRSIOp::create(rewriter, loc, i32Semantics, dstHi, value,
+                                   shiftAmount)
+                 .getDstRes();
+
+  Value result = MakeRegisterRangeOp::create(rewriter, loc, oTy, {lo, hi});
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ExtUIOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult ExtUIOpPattern::matchAndRewrite(lsir::ExtUIOp op,
+                                              PatternRewriter &rewriter) const {
+  unsigned srcWidth = op.getSrcType().getWidth();
+  unsigned tgtWidth = op.getTgtType().getWidth();
+  if (srcWidth != 32 || tgtWidth != 64)
+    return rewriter.notifyMatchFailure(
+        op, "only i32 to i64 and u32 to u64 zero extension is supported");
+
+  RegisterTypeInterface oTy = op.getDst().getType();
+  Value dst = op.getDst();
+  Value value = op.getValue();
+  OperandKind kind = getOperandKind(oTy);
+
+  if (!isAMDReg(oTy))
+    return rewriter.notifyMatchFailure(op, "dst must be AMDGCN register type");
+  if (kind != OperandKind::SGPR && kind != OperandKind::VGPR)
+    return rewriter.notifyMatchFailure(op, "only SGPR and VGPR are supported");
+  if (oTy.getAsRange().size() != 2)
+    return rewriter.notifyMatchFailure(
+        op, "dst must be a 2-register range for i64");
+
+  Location loc = op.getLoc();
+  ValueRange dstR = splitRange(rewriter, loc, dst);
+  if (dstR.size() != 2)
+    return rewriter.notifyMatchFailure(op, "dst must be a splittable range");
+
+  Value dstLo = dstR[0];
+  Value dstHi = dstR[1];
+
+  // Zero extension: mov 0 -> hi, copy value -> lo
+  Value zero = getI32Constant(rewriter, loc, 0);
+  Value hi = lsir::MovOp::create(rewriter, loc, dstHi, zero).getDstRes();
+  Value lo = lsir::CopyOp::create(rewriter, loc, dstLo, value).getTargetRes();
+
+  Value result = MakeRegisterRangeOp::create(rewriter, loc, oTy, {lo, hi});
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // StoreOpPattern
 //===----------------------------------------------------------------------===//
 
@@ -1625,9 +1734,9 @@ LogicalResult WaitOpPattern::matchAndRewrite(lsir::WaitOp op,
 void mlir::aster::amdgcn::populateToAMDGCNPatterns(
     RewritePatternSet &patterns) {
   patterns.add<AddIOpPattern, AllocaOpPattern, AssumeNoaliasOpPattern,
-               AndIOpPattern, KernelOpPattern, LoadOpPattern, MovOpPattern,
-               MulIOpPattern, OrIOpPattern, XOrIOpPattern, RegCastOpPattern,
-               ReturnOpPattern, ShLIOpPattern, ShRSIOpPattern, ShRUIOpPattern,
-               StoreOpPattern, SubIOpPattern, WaitOpPattern>(
-      patterns.getContext());
+               AndIOpPattern, ExtSIOpPattern, ExtUIOpPattern, KernelOpPattern,
+               LoadOpPattern, MovOpPattern, MulIOpPattern, OrIOpPattern,
+               XOrIOpPattern, RegCastOpPattern, ReturnOpPattern, ShLIOpPattern,
+               ShRSIOpPattern, ShRUIOpPattern, StoreOpPattern, SubIOpPattern,
+               WaitOpPattern>(patterns.getContext());
 }
