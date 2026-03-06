@@ -236,14 +236,14 @@ amdgcn.module @too_few_allocas target = <gfx942> isa = <cdna3> {
 // CHECK:             lsir.copy %[[COMMON]], %[[INIT]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb1
 // CHECK:           ^bb1:
-// CHECK:             %[[CALL_0:.*]] = func.call @rand() : () -> i1
-// CHECK:             %[[VAL_5:.*]] = alloca : !amdgcn.vgpr
-// CHECK:             %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
-// CHECK:             %[[VAL_6:.*]] = test_inst outs %[[VAL_5]] ins %[[COPY_0]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:             lsir.copy %[[VAL_0]], %[[VAL_6]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:             cf.cond_br %[[CALL_0]], ^bb1, ^bb2
+// CHECK:             %[[ACC:.*]] = lsir.copy %[[ARG_ALLOC]], %[[COMMON]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
+// CHECK:             %[[COND:.*]] = func.call @rand() : () -> i1
+// CHECK:             %[[NEXT_ALLOC:.*]] = alloca : !amdgcn.vgpr
+// CHECK:             %[[NEXT:.*]] = test_inst outs %[[NEXT_ALLOC]] ins %[[ACC]]
+// CHECK:             lsir.copy %[[COMMON]], %[[NEXT]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
+// CHECK:             cf.cond_br %[[COND]], ^bb1, ^bb2
 // CHECK:           ^bb2:
-// CHECK:             test_inst ins %[[COPY_0]] : (!amdgcn.vgpr) -> ()
+// CHECK:             test_inst ins %[[ACC]] : (!amdgcn.vgpr) -> ()
 // CHECK:             end_kernel
 // CHECK:           }
 // CHECK:         }
@@ -290,7 +290,7 @@ amdgcn.module @loop_backedge_test target = <gfx942> isa = <cdna3> {
 // CHECK:             lsir.copy %[[COMMON_Y]], %[[Y]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.cond_br %[[COND]], ^bb1, ^bb2
 // CHECK:           ^bb2:
-// CHECK:             test_inst ins %[[COMMON_Y]], %[[COMMON_X]] : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:             test_inst ins %[[Y]], %[[X]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
 // CHECK:             end_kernel
 // CHECK:           }
 // CHECK:         }
@@ -340,8 +340,8 @@ amdgcn.module @swap_test target = <gfx942> isa = <cdna3> {
 // CHECK:             lsir.copy %[[COMMON_Y]], %[[D]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:             cf.br ^bb3
 // CHECK:           ^bb3:
-// CHECK:             %[[RX:.*]] = lsir.copy %[[ARG_X]], %[[COMMON_X]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
 // CHECK:             %[[RY:.*]] = lsir.copy %[[ARG_Y]], %[[COMMON_Y]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
+// CHECK:             %[[RX:.*]] = lsir.copy %[[ARG_X]], %[[COMMON_X]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
 // CHECK:             test_inst ins %[[RX]], %[[RY]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
 // CHECK:             end_kernel
 // CHECK:           }
@@ -368,77 +368,4 @@ amdgcn.module @multi_bbarg_test target = <gfx942> isa = <cdna3> {
     test_inst ins %x, %y : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
     end_kernel
   }
-}
-
-// -----
-
-func.func private @rand() -> i1
-
-// CHECK-LABEL:   func.func @test_copy_loc() {
-// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
-// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
-// CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[ALLOCA_4:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[ALLOCA_5:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[TEST_INST_0:.*]] = amdgcn.test_inst outs %[[ALLOCA_4]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:           %[[TEST_INST_1:.*]] = amdgcn.test_inst outs %[[ALLOCA_5]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:           lsir.copy %[[ALLOCA_2]], %[[TEST_INST_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           lsir.copy %[[ALLOCA_0]], %[[TEST_INST_1]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb1
-// CHECK:         ^bb1:
-// CHECK:           %[[COPY_0:.*]] = lsir.copy %[[ALLOCA_1]], %[[ALLOCA_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
-// CHECK:           amdgcn.test_inst ins %[[COPY_0]] : (!amdgcn.vgpr) -> ()
-// CHECK:           %[[COPY_1:.*]] = lsir.copy %[[ALLOCA_3]], %[[ALLOCA_2]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
-// CHECK:           amdgcn.test_inst ins %[[COPY_1]] : (!amdgcn.vgpr) -> ()
-// CHECK:           return
-// CHECK:         }
-func.func @test_copy_loc() {
-  // This test checks that copies are inserted right before their first use.
-  // This corresponds to the insertion point used in the `handleBlockArgument` function.
-  %0 = amdgcn.alloca : !amdgcn.vgpr
-  %1 = amdgcn.alloca : !amdgcn.vgpr
-  %2 = amdgcn.test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-  %3 = amdgcn.test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-  cf.br ^bb1(%2, %3 : !amdgcn.vgpr, !amdgcn.vgpr)
-^bb1(%4: !amdgcn.vgpr, %5: !amdgcn.vgpr):  // pred: ^bb0
-  amdgcn.test_inst ins %5 : (!amdgcn.vgpr) -> ()
-  amdgcn.test_inst ins %4 : (!amdgcn.vgpr) -> ()
-  return
-}
-
-// CHECK-LABEL:   func.func @test_copy_edge_liveness() {
-// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
-// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[TEST_INST_0:.*]] = amdgcn.test_inst outs %[[ALLOCA_2]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:           lsir.copy %[[ALLOCA_0]], %[[TEST_INST_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb1
-// CHECK:         ^bb1:
-// CHECK:           %[[COPY_0:.*]] = lsir.copy %[[ALLOCA_1]], %[[ALLOCA_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
-// CHECK:           %[[VAL_0:.*]] = call @rand() : () -> i1
-// CHECK:           lsir.copy %[[ALLOCA_0]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.cond_br %[[VAL_0]], ^bb1, ^bb2
-// CHECK:         ^bb2:
-// CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[TEST_INST_1:.*]] = amdgcn.test_inst outs %[[ALLOCA_3]] ins %[[ALLOCA_0]] : (!amdgcn.vgpr, !amdgcn.vgpr<?>) -> !amdgcn.vgpr
-// CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]] : (!amdgcn.vgpr<?>) -> ()
-// CHECK:           return
-// CHECK:         }
-func.func @test_copy_edge_liveness() {
-  // This test checks that in the exit block we use the copy target instead of
-  // the original source. This corrresponds to the `optimizeLiveRanges` function.
-  // Further, it tests that the target allocation is not clobbered nor used as
-  // an output operand.
-  %0 = amdgcn.alloca : !amdgcn.vgpr
-  %1 = amdgcn.alloca : !amdgcn.vgpr
-  %2 = amdgcn.test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-  cf.br ^bb1(%2 : !amdgcn.vgpr)
-^bb1(%3: !amdgcn.vgpr):  // 2 preds: ^bb0, ^bb1
-  %4 = call @rand() : () -> i1
-  cf.cond_br %4, ^bb1(%3 : !amdgcn.vgpr), ^bb2
-^bb2:  // pred: ^bb1
-  %5 = amdgcn.test_inst outs %3 ins %3 : (!amdgcn.vgpr, !amdgcn.vgpr) -> (!amdgcn.vgpr)
-  amdgcn.test_inst ins %3 : (!amdgcn.vgpr) -> ()
-  return
 }

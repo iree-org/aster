@@ -17,11 +17,11 @@
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
-#include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
+#include "mlir/Support/WalkResult.h"
 #include "mlir/Transforms/CSE.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -59,9 +59,9 @@ public:
 ///   Correctness, Code Quality, and Efficiency. [Research Report] 2008, pp.14.
 ///   ⟨inria-00349925v1⟩
 struct BufferizationImpl {
-  BufferizationImpl(DominanceInfo &domInfo, DPSAnalysis &dpsAnalysis,
+  BufferizationImpl(DPSAnalysis &dpsAnalysis,
                     DPSClobberingAnalysis &dpsLiveness)
-      : domInfo(domInfo), dpsAnalysis(dpsAnalysis), dpsLiveness(dpsLiveness) {}
+      : dpsAnalysis(dpsAnalysis), dpsLiveness(dpsLiveness) {}
 
   /// Run the bufferization transform.
   void run(FunctionOpInterface op);
@@ -76,10 +76,6 @@ struct BufferizationImpl {
   void handleBlocksAndTerminators(IRRewriter &rewriter,
                                   ArrayRef<Block *> blocks);
 
-  /// Optimize the live ranges of the copy operations.
-  void optimizeLiveRanges(IRRewriter &rewriter);
-
-  DominanceInfo &domInfo;
   /// The entry block of the function.
   Block *entryBlock = nullptr;
   /// The DPS analysis.
@@ -90,8 +86,6 @@ struct BufferizationImpl {
   DenseSet<BranchOpInterface> branchOps;
   /// The set of phi-node replacements.
   SmallVector<std::pair<BlockArgument, Value>> phiReplacements;
-  /// The set of inserted copy operations.
-  SmallVector<lsir::CopyOp> copyOps;
 };
 } // namespace
 
@@ -125,7 +119,6 @@ void BufferizationImpl::run(FunctionOpInterface op) {
   });
 
   handleBlocksAndTerminators(rewriter, blocksToUpdate);
-  optimizeLiveRanges(rewriter);
 }
 
 void BufferizationImpl::handleInstruction(IRRewriter &rewriter,
@@ -174,58 +167,15 @@ void BufferizationImpl::handleBlockArgument(IRRewriter &rewriter,
   Value commonAlloc = createAllocation(rewriter, loc, regTy.getAsUnallocated());
   Value argAlloc = createAllocation(rewriter, loc, regTy);
 
-  // Add copies at the end of each provenance point. This might introduce a copy
-  // in the block itself when the block is a successor of itself, save it.
-  lsir::CopyOp cpyInBlck = nullptr;
+  // Add copies at the end of each provenance point.
   for (auto [branchOp, value] : *provenance) {
     rewriter.setInsertionPoint(branchOp);
     branchOps.insert(cast<BranchOpInterface>(branchOp));
-    auto cpy = lsir::CopyOp::create(rewriter, loc, commonAlloc, value);
-    if (branchOp->getBlock() == block) {
-      assert(!cpyInBlck && "expected only one copy in block");
-      cpyInBlck = cpy;
-      copyOps.push_back(cpy);
-    }
+    lsir::CopyOp::create(rewriter, loc, commonAlloc, value);
   }
 
-  // Insert a copy at the start of the block to handle the phi-node, or as near
-  // as possible to its first use.
+  // Insert a copy at the start of the block to handle the phi-node.
   rewriter.setInsertionPointToStart(block);
-  {
-    SmallVector<Block::iterator> possibleIps;
-
-    // If it exists, inspect the copy to the block itself and add its source as
-    // a possible insertion point. This is necessary to ensure correctness.
-    if (Value cpySrc = cpyInBlck ? cpyInBlck.getSource() : nullptr) {
-      if (auto bbArg = dyn_cast<BlockArgument>(cpySrc)) {
-        if (bbArg.getOwner() == block)
-          possibleIps.push_back(bbArg.getOwner()->begin());
-      } else {
-        Operation *cpySrcOp = cpySrc.getDefiningOp();
-        if (cpySrcOp->getBlock() == block)
-          possibleIps.push_back(Block::iterator(cpySrcOp));
-      }
-    }
-
-    // Get all the uses of the argument and add them if they are in the same
-    // block.
-    for (OpOperand &use : arg.getUses()) {
-      if (use.getOwner()->getBlock() != block)
-        continue;
-      possibleIps.push_back(Block::iterator(use.getOwner()));
-    }
-
-    // Sort the possible insertion points based on dominance order, so that we
-    // can insert the copy as close as possible to the first use.
-    llvm::sort(possibleIps, [&](Block::iterator lhs, Block::iterator rhs) {
-      return domInfo.properlyDominates(block, lhs, block, rhs);
-    });
-
-    // If there are possible insertion points, insert the copy before the first
-    // one.
-    if (!possibleIps.empty())
-      rewriter.setInsertionPoint(block, possibleIps.front());
-  }
   auto cpy = lsir::CopyOp::create(rewriter, loc, argAlloc, commonAlloc);
   phiReplacements.push_back({arg, cpy.getTargetRes()});
 }
@@ -266,51 +216,12 @@ void BufferizationImpl::handleBlocksAndTerminators(IRRewriter &rewriter,
     block->eraseArguments(isRegValType);
 }
 
-void BufferizationImpl::optimizeLiveRanges(IRRewriter &rewriter) {
-  // All the copies being processed here are copies at the end of a block that
-  // can flow into a different block.
-  // NOTE: The best way to optimize the live ranges of these copies is by
-  // splitting the block and make copies only happen in the split block.
-  // TODO: Implement this.
-  for (lsir::CopyOp cpy : copyOps) {
-    Value source = cpy.getSource();
-    // Go through each use of the source of the copy, as we are going to replace
-    // the use with the target of the copy.
-    // NOTE: This is safe because bufferization made sure there's no clobbering
-    // issues, so as long target is used as an input operand (read-only), we can
-    // replace the use with the target.
-    for (OpOperand &use : llvm::make_early_inc_range(source.getUses())) {
-      Operation *user = use.getOwner();
-
-      // Make sure the user is properly dominated by the copy, this is to
-      // preserve copy ordering and value flow.
-      if (!domInfo.properlyDominates(cpy, user))
-        continue;
-      auto instOp = dyn_cast<InstOpInterface>(user);
-      if (!instOp)
-        continue;
-      OperandRange ins = instOp.getInstIns();
-      if (ins.empty())
-        continue;
-
-      // Update the operand.
-      int64_t start = ins.getBeginOperandIndex();
-      int64_t end = start + ins.size();
-      if (use.getOperandNumber() < start || use.getOperandNumber() >= end)
-        continue;
-      rewriter.setInsertionPoint(user);
-      use.set(cpy.getTarget());
-    }
-  }
-}
-
 //===----------------------------------------------------------------------===//
 // AMDGCNBufferization pass
 //===----------------------------------------------------------------------===//
 
 void AMDGCNBufferization::runOnOperation() {
   Operation *moduleOp = getOperation();
-  auto &domInfo = getAnalysis<DominanceInfo>();
 
   // Create the dataflow solver and load the liveness analysis.
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
@@ -345,7 +256,7 @@ void AMDGCNBufferization::runOnOperation() {
     }
 
     // Run the bufferization transform.
-    BufferizationImpl impl(domInfo, *dpsResult, *livenessResult);
+    BufferizationImpl impl(*dpsResult, *livenessResult);
     impl.run(op);
 
     return WalkResult::advance();
@@ -354,6 +265,7 @@ void AMDGCNBufferization::runOnOperation() {
     return signalPassFailure();
 
   // Run CSE to clean up any redundant copies inserted by bufferization.
+  auto &domInfo = getAnalysis<DominanceInfo>();
   IRRewriter rewriter(moduleOp->getContext());
   mlir::eliminateCommonSubExpressions(rewriter, domInfo, moduleOp);
 }
