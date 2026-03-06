@@ -55,4 +55,5 @@ add_mlir_library(AsterUpstreamModelsImpl
   AsterInterfaces
   MLIRFuncDialect
   MLIRGPUDialect
+  MLIRPtrDialect
 )
