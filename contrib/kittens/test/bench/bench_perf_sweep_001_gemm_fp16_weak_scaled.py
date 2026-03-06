@@ -1,12 +1,14 @@
 """Benchmark: Weak-scaling TFLOPS sweep for constexpr GEMM.
 
 Phase 1: Parallel compilation (MLIR -> HSACO) across all configs.
-Phase 2: Sequential GPU execution with subprocess isolation per config.
+Phase 2: Parallel GPU execution with round-robin across available GPUs,
+         each config in its own subprocess for crash isolation.
 Individual configs that fail at either phase are skipped gracefully.
 
 Usage (partial sweep / full sweep):
     python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep
     python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --full-sweep
+    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --num-gpus 8
 
 Usage (single config compile + run):
     python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
@@ -45,7 +47,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 import numpy as np
 
@@ -96,6 +98,19 @@ COMPILE_WORKERS = 16  # parallel compilation processes
 # Skip the first N active configs (after excluding KNOWN_BROKEN).
 # Useful when iterating: set to the index of the last config you saw.
 SKIP_FIRST_N_CONFIGS = 0
+
+
+def _detect_num_gpus():
+    """Detect number of available GPUs via HIP.
+
+    Returns 1 if detection fails (safe fallback to sequential execution).
+    """
+    try:
+        from aster.testing import hip_get_device_count
+
+        return max(1, hip_get_device_count())
+    except Exception:
+        return 1
 
 
 def _repro_cmd(cfg, num_iterations):
@@ -243,6 +258,53 @@ def _print_summary_table(results, failed, skipped_labels, resources_map=None):
             print(f'    "{cfg.label}",  # {first_line}')
 
 
+def _exec_one_config(cfg, hsaco_path, num_iterations, test_dir, gpu_id):
+    """Execute a single config in a subprocess pinned to a specific GPU.
+
+    Returns (cfg, result_data, error_string). On success error_string is None; on
+    failure result_data is None.
+    """
+    cmd = _exec_cmd_list(cfg, hsaco_path, num_iterations)
+    env = os.environ.copy()
+    env["HIP_VISIBLE_DEVICES"] = str(gpu_id)
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT,
+            cwd=test_dir,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return cfg, None, f"timeout after {SUBPROCESS_TIMEOUT}s"
+
+    if proc.returncode != 0:
+        stderr_lines = proc.stderr.strip().splitlines()
+        err = stderr_lines[-1][:120] if stderr_lines else "unknown error"
+        if proc.returncode < 0:
+            import signal
+
+            sig = -proc.returncode
+            sig_name = (
+                signal.Signals(sig).name
+                if sig in signal.Signals._value2member_map_
+                else str(sig)
+            )
+            err = f"killed by {sig_name}: {err}"
+        return cfg, None, f"exit {proc.returncode}: {err}"
+
+    result_data = _parse_result_from_output(proc.stdout)
+    if result_data is None:
+        tail = ""
+        if proc.stdout.strip():
+            tail = "\n".join(proc.stdout.strip().splitlines()[-5:])
+        return cfg, None, f"no result line in subprocess output\n{tail}"
+
+    return cfg, result_data, None
+
+
 def _make_inputs(cfg):
     """Create random f16 test matrices for a given config."""
     np.random.seed(42)
@@ -251,15 +313,18 @@ def _make_inputs(cfg):
     return A, B
 
 
-def bench_perf_sweep(full_sweep=False):
+def bench_perf_sweep(full_sweep=False, num_gpus=None):
     """Weak-scaling TFLOPS sweep across tile/stage/wave/workgroup configs.
 
     Phase 1: Parallel compilation (MLIR -> HSACO) using ProcessPoolExecutor.
-    Phase 2: Sequential GPU execution in subprocesses for crash isolation.
+    Phase 2: Parallel GPU execution across available GPUs (round-robin),
+             each config in its own subprocess for crash isolation.
 
     If TOP_K_TO_RUN is non-empty and full_sweep is False, only those labels
     are run. Otherwise runs the full grid minus KNOWN_BROKEN.
     """
+    if num_gpus is None:
+        num_gpus = _detect_num_gpus()
     results = []
     failed = []
     known_broken_set = set(KNOWN_BROKEN)
@@ -295,7 +360,7 @@ def bench_perf_sweep(full_sweep=False):
         f"x {len(TILE_CONFIGS)} tile x {len(STAGE_CONFIGS)} stage"
     )
     print(f"  iterations={NUM_ITERATIONS}, warmup={WARMUP_ITERATIONS}")
-    print(f"  compile_workers={COMPILE_WORKERS}")
+    print(f"  compile_workers={COMPILE_WORKERS}, exec_gpus={num_gpus}")
     sys.stdout.flush()
 
     # -- Phase 1: Parallel compilation ---------------------------------
@@ -350,76 +415,56 @@ def bench_perf_sweep(full_sweep=False):
     )
     sys.stdout.flush()
 
-    # -- Phase 2: Sequential execution in subprocesses -----------------
+    # -- Phase 2: Parallel execution across GPUs -------------------------
     exec_active = [c for c in active if c.label in hsaco_paths]
     print(
-        f"\n--- Phase 2: Executing {len(exec_active)} configs (sequential, subprocess-isolated) ---"
+        f"\n--- Phase 2: Executing {len(exec_active)} configs "
+        f"({num_gpus} GPU(s), subprocess-isolated) ---"
     )
     sys.stdout.flush()
 
     # cwd for subprocesses: parent of bench/ so kittens_helpers resolves.
     test_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
-    for i, cfg in enumerate(exec_active):
-        tag = f"[{i + 1}/{len(exec_active)}] {cfg.label}"
-        hsaco_path = hsaco_paths[cfg.label]
-        res = resources_map.get(cfg.label)
-        print(f"\nStart sweep atom: {cfg.label}")
-        print(f"  RUN   {tag}  [{res or '?'}]")
-        print(f"        {_repro_cmd(cfg, NUM_ITERATIONS)}")
-        print(f'        exclude: "{cfg.label}"')
-        sys.stdout.flush()
-
-        cmd = _exec_cmd_list(cfg, hsaco_path, NUM_ITERATIONS)
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=SUBPROCESS_TIMEOUT,
-                cwd=test_dir,
+    # Use threads to manage concurrent subprocesses (one per GPU, round-robin).
+    # Each subprocess is pinned to a GPU via HIP_VISIBLE_DEVICES.
+    with ThreadPoolExecutor(max_workers=num_gpus) as exec_pool:
+        future_to_info = {}
+        for i, cfg in enumerate(exec_active):
+            gpu_id = i % num_gpus
+            hsaco_path = hsaco_paths[cfg.label]
+            res = resources_map.get(cfg.label)
+            tag = f"[{i + 1}/{len(exec_active)}] {cfg.label}"
+            print(f"  SUBMIT {tag} -> GPU {gpu_id}  [{res or '?'}]")
+            sys.stdout.flush()
+            fut = exec_pool.submit(
+                _exec_one_config,
+                cfg,
+                hsaco_path,
+                NUM_ITERATIONS,
+                test_dir,
+                gpu_id,
             )
-        except subprocess.TimeoutExpired:
-            failed.append((cfg, f"timeout after {SUBPROCESS_TIMEOUT}s"))
-            print(f"  FAIL  {tag}: timeout after {SUBPROCESS_TIMEOUT}s")
+            future_to_info[fut] = (i, tag)
+
+        for fut in as_completed(future_to_info):
+            idx, tag = future_to_info[fut]
+            cfg, result_data, err = fut.result()
+            if err is not None:
+                failed.append((cfg, err))
+                print(f"  FAIL  {tag}: {err.splitlines()[0]}")
+                sys.stdout.flush()
+                continue
+
+            min_ms = result_data["min_ms"]
+            tflops = result_data["tflops"]
+            pct_peak = result_data["pct_peak"]
+
+            results.append((cfg, min_ms, tflops, pct_peak))
+            print(
+                f"  OK    {tag}: {min_ms:.2f} ms  {tflops:.1f} TFLOPS  ({pct_peak:.1f}%)"
+            )
             sys.stdout.flush()
-            continue
-
-        if proc.returncode != 0:
-            stderr_lines = proc.stderr.strip().splitlines()
-            err = stderr_lines[-1][:120] if stderr_lines else "unknown error"
-            if proc.returncode < 0:
-                import signal
-
-                sig = -proc.returncode
-                sig_name = (
-                    signal.Signals(sig).name
-                    if sig in signal.Signals._value2member_map_
-                    else str(sig)
-                )
-                err = f"killed by {sig_name}: {err}"
-            failed.append((cfg, err))
-            print(f"  FAIL  {tag}: exit {proc.returncode}: {err}")
-            sys.stdout.flush()
-            continue
-
-        result_data = _parse_result_from_output(proc.stdout)
-        if result_data is None:
-            failed.append((cfg, "no result line in subprocess output"))
-            print(f"  FAIL  {tag}: no result line in subprocess output")
-            if proc.stdout.strip():
-                for line in proc.stdout.strip().splitlines()[-5:]:
-                    print(f"        stdout: {line}")
-            sys.stdout.flush()
-            continue
-
-        min_ms = result_data["min_ms"]
-        tflops = result_data["tflops"]
-        pct_peak = result_data["pct_peak"]
-
-        results.append((cfg, min_ms, tflops, pct_peak))
-        print(f"  OK    {tag}: {min_ms:.2f} ms  {tflops:.1f} TFLOPS  ({pct_peak:.1f}%)")
-        sys.stdout.flush()
 
     _print_summary_table(results, failed, skipped_labels, resources_map)
 
@@ -549,6 +594,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Run all configs in the sweep grid (implies --sweep)",
     )
+    parser.add_argument(
+        "--num-gpus",
+        type=int,
+        default=None,
+        help="Number of GPUs for parallel execution (default: auto-detect)",
+    )
     # Single-config args (required unless --sweep)
     parser.add_argument("--m-wg", type=int, help="Workgroups along M")
     parser.add_argument("--n-wg", type=int, help="Workgroups along N")
@@ -583,7 +634,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     if args.full_sweep or args.sweep:
-        bench_perf_sweep(full_sweep=args.full_sweep)
+        bench_perf_sweep(full_sweep=args.full_sweep, num_gpus=args.num_gpus)
     else:
         # Validate required args for single-config mode.
         required = [

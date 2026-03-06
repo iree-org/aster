@@ -40,5 +40,5 @@ rm -rf "$(dirname "$HSACO_TMP")"
 
 echo ""
 echo "To run the full benchmark sweep (expensive, requires GPU):"
-echo "  $PYTHON $BENCH --sweep            # TOP_K configs only"
-echo "  $PYTHON $BENCH --full-sweep       # all configs in the grid"
+echo "  $PYTHON $BENCH --sweep [--num-gpus 1]       # TOP_K configs only"
+echo "  $PYTHON $BENCH --full-sweep [--num-gpus 1]  # all configs in the grid"
