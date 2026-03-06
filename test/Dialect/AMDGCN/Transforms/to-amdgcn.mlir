@@ -925,3 +925,67 @@ func.func @test_mov_constant_to_vgpr(%dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %res = lsir.mov %dst, %c42 : !amdgcn.vgpr, i32
   return %res : !amdgcn.vgpr
 }
+
+// Test ExtSIOp (sign extension i32->i64) - SGPR
+// CHECK-LABEL:   func.func @test_extsi_i32_to_i64_sgpr(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 2]>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.sgpr) -> !amdgcn.sgpr<[? + 2]> {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 31 : i32
+// CHECK:           %[[SPLIT_REGISTER_RANGE_0:.*]]:2 = amdgcn.split_register_range %[[ARG0]] : !amdgcn.sgpr<[? + 2]>
+// CHECK:           %[[COPY_0:.*]] = lsir.copy %[[SPLIT_REGISTER_RANGE_0]]#0, %[[ARG1]] : !amdgcn.sgpr, !amdgcn.sgpr
+// CHECK:           %[[VAL_0:.*]] = amdgcn.sop2 s_ashr_i32 outs %[[SPLIT_REGISTER_RANGE_0]]#1 ins %[[ARG1]], %[[CONSTANT_0]] : !amdgcn.sgpr, !amdgcn.sgpr, i32
+// CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[COPY_0]], %[[VAL_0]] : !amdgcn.sgpr, !amdgcn.sgpr
+// CHECK:           return %[[MAKE_REGISTER_RANGE_0]] : !amdgcn.sgpr<[? + 2]>
+// CHECK:         }
+func.func @test_extsi_i32_to_i64_sgpr(%dst: !amdgcn.sgpr<[? + 2]>, %value: !amdgcn.sgpr) -> !amdgcn.sgpr<[? + 2]> {
+  %res = lsir.extsi i64 from i32 %dst, %value : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr
+  return %res : !amdgcn.sgpr<[? + 2]>
+}
+
+// Test ExtSIOp (sign extension i32->i64) - VGPR
+// CHECK-LABEL:   func.func @test_extsi_i32_to_i64_vgpr(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 31 : i32
+// CHECK:           %[[SPLIT_REGISTER_RANGE_0:.*]]:2 = amdgcn.split_register_range %[[ARG0]] : !amdgcn.vgpr<[? + 2]>
+// CHECK:           %[[COPY_0:.*]] = lsir.copy %[[SPLIT_REGISTER_RANGE_0]]#0, %[[ARG1]] : !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[VAL_0:.*]] = amdgcn.vop3 v_ashrrev_i32_e64 outs %[[SPLIT_REGISTER_RANGE_0]]#1 ins %[[CONSTANT_0]], %[[ARG1]] : !amdgcn.vgpr, i32, !amdgcn.vgpr
+// CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[COPY_0]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           return %[[MAKE_REGISTER_RANGE_0]] : !amdgcn.vgpr<[? + 2]>
+// CHECK:         }
+func.func @test_extsi_i32_to_i64_vgpr(%dst: !amdgcn.vgpr<[? + 2]>, %value: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+  %res = lsir.extsi i64 from i32 %dst, %value : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr<[? + 2]>
+}
+
+// Test ExtUIOp (zero extension i32->i64) - SGPR
+// CHECK-LABEL:   func.func @test_extui_i32_to_i64_sgpr(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 2]>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.sgpr) -> !amdgcn.sgpr<[? + 2]> {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
+// CHECK:           %[[SPLIT_REGISTER_RANGE_0:.*]]:2 = amdgcn.split_register_range %[[ARG0]] : !amdgcn.sgpr<[? + 2]>
+// CHECK:           %[[VAL_0:.*]] = amdgcn.sop1 s_mov_b32 outs %[[SPLIT_REGISTER_RANGE_0]]#1 ins %[[CONSTANT_0]] : !amdgcn.sgpr, i32
+// CHECK:           %[[COPY_0:.*]] = lsir.copy %[[SPLIT_REGISTER_RANGE_0]]#0, %[[ARG1]] : !amdgcn.sgpr, !amdgcn.sgpr
+// CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[COPY_0]], %[[VAL_0]] : !amdgcn.sgpr, !amdgcn.sgpr
+// CHECK:           return %[[MAKE_REGISTER_RANGE_0]] : !amdgcn.sgpr<[? + 2]>
+// CHECK:         }
+func.func @test_extui_i32_to_i64_sgpr(%dst: !amdgcn.sgpr<[? + 2]>, %value: !amdgcn.sgpr) -> !amdgcn.sgpr<[? + 2]> {
+  %res = lsir.extui i64 from i32 %dst, %value : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr
+  return %res : !amdgcn.sgpr<[? + 2]>
+}
+
+// Test ExtUIOp (zero extension i32->i64) - VGPR
+// CHECK-LABEL:   func.func @test_extui_i32_to_i64_vgpr(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
+// CHECK:           %[[SPLIT_REGISTER_RANGE_0:.*]]:2 = amdgcn.split_register_range %[[ARG0]] : !amdgcn.vgpr<[? + 2]>
+// CHECK:           %[[VAL_0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[SPLIT_REGISTER_RANGE_0]]#1, %[[CONSTANT_0]] : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+// CHECK:           %[[COPY_0:.*]] = lsir.copy %[[SPLIT_REGISTER_RANGE_0]]#0, %[[ARG1]] : !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[COPY_0]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           return %[[MAKE_REGISTER_RANGE_0]] : !amdgcn.vgpr<[? + 2]>
+// CHECK:         }
+func.func @test_extui_i32_to_i64_vgpr(%dst: !amdgcn.vgpr<[? + 2]>, %value: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+  %res = lsir.extui i64 from i32 %dst, %value : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr<[? + 2]>
+}
