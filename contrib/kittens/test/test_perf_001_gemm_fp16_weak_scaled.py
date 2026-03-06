@@ -196,18 +196,18 @@ class TestWeakScaleCorrectness:
     )
     @pytest.mark.parametrize(
         "m_tiles,n_tiles,k_tiles",
-        [(1, 1, 1), (2, 2, 1), (1, 4, 2)],
-        ids=["tiles_1x1x1", "tiles_2x2x1", "tiles_1x4x2"],
+        [(1, 1, 1), (2, 2, 1), (1, 4, 2), (2, 1, 3), (1, 2, 4)],
+        ids=["tiles_1x1x1", "tiles_2x2x1", "tiles_1x4x2", "tiles_2x1x3", "tiles_1x2x4"],
     )
     @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
     def test_correctness(
         self, m_wg, n_wg, m_waves, n_waves, m_tiles, n_tiles, k_tiles, num_stages
     ):
-        """Constexpr GEMM at K=128, verified against numpy."""
-        k = 128
-        assert (
-            k % (16 * k_tiles) == 0
-        ), f"K={k} not divisible by 16*k_tiles={16*k_tiles}"
+        """Constexpr GEMM verified against numpy.
+
+        K = 4 * k_tiles * 16.
+        """
+        k = 4 * k_tiles * 16
         cfg = WeakScaleConfig(
             m_wg,
             n_wg,
@@ -219,9 +219,6 @@ class TestWeakScaleCorrectness:
             num_stages,
             k,
         )
-        # Note: conservative for now, seems we get burned when flying too close to the sky.
-        if cfg.lds_bytes >= 2**16 * 0.75:
-            pytest.skip(f"LDS {cfg.lds_bytes} >= 2 ** 15 for {cfg.label}")
         np.random.seed(42)
         A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
         B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)

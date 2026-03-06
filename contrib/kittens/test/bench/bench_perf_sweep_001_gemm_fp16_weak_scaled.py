@@ -11,40 +11,33 @@ Usage (partial sweep / full sweep):
 Usage (single config compile + run):
     python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
         --m-wg 19 --n-wg 16 --m-waves 3 --n-waves 4 \
-        --m-tiles 2 --n-tiles 3 --k-tiles 2 --stages 3 --k 4096
+        --m-tiles 2 --n-tiles 3 --k-tiles 1 --stages 4 --k-scaling-factor 256
 
 Usage (compile only, produce HSACO):
     python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
         --m-wg 19 --n-wg 16 --m-waves 3 --n-waves 4 \
-        --m-tiles 2 --n-tiles 3 --k-tiles 2 --stages 3 --k 4096 \
+        --m-tiles 2 --n-tiles 3 --k-tiles 1 --stages 4 --k-scaling-factor 256 \
         --compile-only --hsaco /tmp/output.hsaco
 
 Usage (execute a pre-compiled HSACO):
     python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
         --m-wg 19 --n-wg 16 --m-waves 3 --n-waves 4 \
-        --m-tiles 2 --n-tiles 3 --k-tiles 2 --stages 3 --k 4096 \
+        --m-tiles 2 --n-tiles 3 --k-tiles 1 --stages 4 --k-scaling-factor 256 \
         --hsaco /tmp/output.hsaco
 """
 
 # IMPORTANT: Top configs to run by default. If non-empty, only these labels are run
 # unless --full-sweep is passed. Empty list = full sweep by default.
 TOP_K_TO_RUN = [
-    "m2432xn3072xk8192_wg38x32_w2x2_t2x3x1_s2",
-    "m2432xn3072xk4096_wg38x32_w2x2_t2x3x1_s2",
-    "m3648xn2048xk8192_wg38x32_w2x2_t3x2x1_s2",
-    "m4864xn4096xk4096_wg38x32_w2x2_t4x4x1_s2",
-    "m3648xn2048xk4096_wg38x32_w2x2_t3x2x1_s2",
-    "m2432xn2048xk8192_wg38x32_w2x2_t2x2x1_s2",
-    "m4864xn4096xk8192_wg38x32_w2x2_t4x4x1_s2",
-    "m2432xn2048xk4096_wg19x16_w2x2_t4x4x1_s2",
-    "m2432xn2048xk4096_wg38x32_w2x2_t2x2x1_s2",
-    "m2736xn1536xk8192_wg19x16_w3x2_t3x3x1_s2",
+    # Populate after a full sweep with the new K = factor * k_tiles * 16 grid.
 ]
 
 
 # Known-broken configs: add labels here to skip them during the sweep.
 # Copy from the "Add to KNOWN_BROKEN" section printed at the end of a run.
-KNOWN_BROKEN = []
+KNOWN_BROKEN = [
+    # Populate after a full sweep with the new K = factor * k_tiles * 16 grid.
+]
 
 import argparse
 import json
@@ -107,18 +100,20 @@ SKIP_FIRST_N_CONFIGS = 0
 
 def _repro_cmd(cfg, num_iterations):
     """Return a CLI command to reproduce a single config."""
+    k_factor = cfg.k // (cfg.k_tiles * 16)
     return (
         f"python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
         f" --m-tiles {cfg.m_tiles} --n-tiles {cfg.n_tiles} --k-tiles {cfg.k_tiles}"
-        f" --stages {cfg.num_stages} --k {cfg.k}"
+        f" --stages {cfg.num_stages} --k-scaling-factor {k_factor}"
         f" --iterations {num_iterations}"
     )
 
 
 def _exec_cmd_list(cfg, hsaco_path, num_iterations):
     """Return subprocess command list for executing a pre-compiled HSACO."""
+    k_factor = cfg.k // (cfg.k_tiles * 16)
     return [
         sys.executable,
         __file__,
@@ -136,10 +131,10 @@ def _exec_cmd_list(cfg, hsaco_path, num_iterations):
         str(cfg.n_tiles),
         "--stages",
         str(cfg.num_stages),
-        "--k",
-        str(cfg.k),
         "--k-tiles",
         str(cfg.k_tiles),
+        "--k-scaling-factor",
+        str(k_factor),
         "--iterations",
         str(num_iterations),
         "--hsaco",
@@ -270,8 +265,10 @@ def bench_perf_sweep(full_sweep=False):
     known_broken_set = set(KNOWN_BROKEN)
 
     configs = [
-        WeakScaleConfig(m_wg, n_wg, m_w, n_w, m_t, n_t, k_t, stages, k)
-        for k in PERF_K
+        WeakScaleConfig(
+            m_wg, n_wg, m_w, n_w, m_t, n_t, k_t, stages, k_factor * k_t * 16
+        )
+        for k_factor in K_SCALING_FACTORS
         for m_wg, n_wg in WG_GRIDS
         for m_w, n_w in WAVE_CONFIGS
         for m_t, n_t, k_t in TILE_CONFIGS
@@ -279,11 +276,7 @@ def bench_perf_sweep(full_sweep=False):
     ]
 
     skipped_labels = [c.label for c in configs if c.label in known_broken_set]
-    active = [
-        c
-        for c in configs
-        if c.label not in known_broken_set and c.k % (16 * c.k_tiles) == 0
-    ]
+    active = [c for c in configs if c.label not in known_broken_set]
 
     # Filter to TOP_K_TO_RUN unless empty or --full-sweep.
     if TOP_K_TO_RUN and not full_sweep:
@@ -298,7 +291,7 @@ def bench_perf_sweep(full_sweep=False):
         f"({len(skipped_labels)} excluded, {SKIP_FIRST_N_CONFIGS} skipped by SKIP_FIRST_N_CONFIGS)"
     )
     print(
-        f"  grid: {len(PERF_K)} K x {len(WG_GRIDS)} WG x {len(WAVE_CONFIGS)} wave "
+        f"  grid: {len(K_SCALING_FACTORS)} K_factor x {len(WG_GRIDS)} WG x {len(WAVE_CONFIGS)} wave "
         f"x {len(TILE_CONFIGS)} tile x {len(STAGE_CONFIGS)} stage"
     )
     print(f"  iterations={NUM_ITERATIONS}, warmup={WARMUP_ITERATIONS}")
@@ -466,6 +459,7 @@ def _run_single(args):
     """
     from aster.hip import parse_asm_kernel_resources
 
+    k = args.k_scaling_factor * args.k_tiles * 16
     cfg = WeakScaleConfig(
         args.m_wg,
         args.n_wg,
@@ -475,7 +469,7 @@ def _run_single(args):
         args.n_tiles,
         args.k_tiles,
         args.stages,
-        args.k,
+        k,
     )
 
     if args.compile_only:
@@ -564,7 +558,11 @@ if __name__ == "__main__":
     parser.add_argument("--n-tiles", type=int, help="Tiles per wave along N")
     parser.add_argument("--k-tiles", type=int, help="Tiles per wave along K")
     parser.add_argument("--stages", type=int, help="Pipeline stages")
-    parser.add_argument("--k", type=int, help="K dimension")
+    parser.add_argument(
+        "--k-scaling-factor",
+        type=int,
+        help="K scaling factor (K = factor * k_tiles * 16)",
+    )
     parser.add_argument(
         "--iterations",
         type=int,
@@ -597,7 +595,7 @@ if __name__ == "__main__":
             "n_tiles",
             "k_tiles",
             "stages",
-            "k",
+            "k_scaling_factor",
         ]
         missing = [a for a in required if getattr(args, a) is None]
         if missing:

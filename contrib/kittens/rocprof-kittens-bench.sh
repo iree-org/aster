@@ -15,12 +15,12 @@
 # Examples:
 #   contrib/kittens/rocprof-kittens-bench.sh bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
 #       --m-wg 38 --n-wg 32 --m-waves 2 --n-waves 2 \
-#       --m-tiles 2 --n-tiles 3 --stages 2 --k 8192
+#       --m-tiles 2 --n-tiles 3 --k-tiles 1 --stages 2 --k-scaling-factor 256
 #
 #   ITERATIONS=5 PERF_COUNTERS="SQ_INSTS_VALU SQ_INSTS_VMEM" \
 #       contrib/kittens/rocprof-kittens-bench.sh bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
 #           --m-wg 19 --n-wg 16 --m-waves 2 --n-waves 2 \
-#           --m-tiles 4 --n-tiles 4 --stages 2 --k 4096
+#           --m-tiles 4 --n-tiles 4 --k-tiles 1 --stages 2 --k-scaling-factor 256
 #
 # Environment variables:
 #   ROCPROFV3            - path to rocprofv3 (default: auto-detected via which)
