@@ -30,8 +30,17 @@ Usage (execute a pre-compiled HSACO):
 
 # IMPORTANT: Top configs to run by default. If non-empty, only these labels are run
 # unless --full-sweep is passed. Empty list = full sweep by default.
-TOP_K_TO_RUN = [
-    # Populate after a full sweep with the new K = factor * k_tiles * 16 grid.
+TOP_K_TO_RUN = [  
+    "m4864xn4096xk8192_wg38x32_w2x2_t4x4x2_s2",
+    "m4864xn4096xk4096_wg38x32_w2x2_t4x4x2_s2",
+    "m3648xn4096xk4096_wg38x32_w2x2_t3x4x2_s2",
+    "m3648xn4096xk8192_wg38x32_w2x2_t3x4x2_s2",
+    "m2432xn4096xk8192_wg38x32_w2x2_t2x4x2_s2",
+    "m4864xn2048xk8192_wg38x32_w2x2_t4x2x2_s2",
+    "m3648xn2048xk8192_wg19x16_w3x2_t4x4x2_s2",
+    "m2432xn4096xk4096_wg38x32_w2x2_t2x4x2_s2",
+    "m4864xn2048xk4096_wg38x32_w2x2_t4x2x2_s2",
+    " m3648xn2048xk4096_wg38x32_w2x2_t3x2x2_s3",
 ]
 
 
