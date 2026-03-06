@@ -7,12 +7,20 @@
 //   8 threads per row -> 32 f16 per row -> full 64-byte cache line coalescing.
 //   4 load/store cycles per thread to cover 32 rows (groups of 8).
 //
-// LDS layout: 32x32 row-major, stride = 64 bytes per row.
+// LDS layout: 32x32 row-major with XOR swizzle, stride = 64 bytes per row.
 // Total: 2048 bytes per tile. 4 MFMAs per tile (32x32x8 each).
 //
-// MFMA A/B fragment read from 32x32 LDS layout:
+// XOR swizzle for bank-conflict-free LDS access:
+//   swizzled_byte = byte_in_row XOR (((row / 2) % 8) * 8)
+//   Permutes bits [5:3] of byte_in_row based on row index.
+//   Achieves optimal 2-way bank conflicts for MFMA ds_read_b64 (theoretical min).
+//   Zero bank conflicts on cooperative fill writes.
+//
+// MFMA A/B fragment read from 32x32 swizzled LDS layout:
 //   For sub-tile k (0..3), K cols k*8..k*8+7:
-//     offset = base + mfma_row * 64 + k*16 + mfma_col * 2
+//     byte_in_row = k*16 + mfma_col * 2
+//     swizzled_byte = byte_in_row XOR (((mfma_row / 2) % 8) * 8)
+//     offset = base + mfma_row * 64 + swizzled_byte
 
 // Register types
 !sx2 = !amdgcn.sgpr<[? + 2]>
@@ -50,6 +58,23 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   func.func private @mfma_f32_32x32x8_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
 
   //===--------------------------------------------------------------------===//
+  // XOR swizzle helper
+  //===--------------------------------------------------------------------===//
+
+  // Compute swizzled LDS address: base + row*64 + (byte_in_row XOR mask).
+  // mask = ((row / 2) % 8) * 8 -- permutes bits [5:3] based on row.
+  // Uses arith.xori since affine_map cannot express XOR.
+  func.func private @lds_swizzle_addr(%base: index, %row: index, %byte_in_row: index) -> index {
+    %mask = affine.apply affine_map<(r) -> (((r floordiv 2) mod 8) * 8)>(%row)
+    %mask_i32 = arith.index_cast %mask : index to i32
+    %byte_i32 = arith.index_cast %byte_in_row : index to i32
+    %swizzled_i32 = arith.xori %byte_i32, %mask_i32 : i32
+    %swizzled = arith.index_cast %swizzled_i32 : i32 to index
+    %addr = affine.apply affine_map<()[b, r, s] -> (b + r * 64 + s)>()[%base, %row, %swizzled]
+    return %addr : index
+  }
+
+  //===--------------------------------------------------------------------===//
   // Thread mapping for 32x32 cooperative fill
   //===--------------------------------------------------------------------===//
 
@@ -72,6 +97,7 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   // Issue 4 global loads for a 32x32 f16 tile with coalesced access.
   // Each load covers 8 rows (8 threads/row * 4 f16/thread = full 32-element row).
   // Returns 4 futures: row groups 0-7, 8-15, 16-23, 24-31.
+  // Global memory is NOT swizzled -- coalesced row-major layout.
   func.func private @load_global_tile_32x32_f16(
       %ptr: !sx2, %m: index, %k_base: index, %stride: index
   ) -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read) {
@@ -131,12 +157,13 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // LDS Store (32x32 tile, row-major, stride = 64 bytes/row)
+  // LDS Store (32x32 tile, XOR-swizzled row-major, stride = 64 bytes/row)
   //===--------------------------------------------------------------------===//
 
-  // Store 4 global load futures to LDS as a 32x32 row-major tile.
+  // Store 4 global load futures to LDS as a 32x32 XOR-swizzled tile.
   // Future i contains data for row group i (rows i*8..i*8+7).
-  // LDS layout: row r, col c -> offset = base + r * 64 + c * 2.
+  // LDS layout: row r, col c -> offset = base + r*64 + swizzle(c*2, r).
+  // Swizzle: byte_in_row XOR (((row/2) % 8) * 8).
   func.func private @store_global_tile_to_lds_32x32_f16(
       %lds_base: index,
       %gf0: !future_global_read, %gf1: !future_global_read,
@@ -144,40 +171,45 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   ) -> (!future_lds_write, !future_lds_write, !future_lds_write, !future_lds_write) {
     %row_in_group, %col = func.call @thread_tile_pos_32x32() : () -> (index, index)
     %c0_i32 = arith.constant 0 : i32
+    // byte_in_row for this thread's column (same for all row groups)
+    %byte_in_row = affine.apply affine_map<(c) -> (c * 2)>(%col)
 
     // Row group 0: rows 0-7
     %loaded0 = func.call @get_global_load_value_vx2(%gf0) : (!future_global_read) -> !vx2
-    %off0 = affine.apply affine_map<()[base, rig, col] -> (base + rig * 64 + col * 2)>
-        ()[%lds_base, %row_in_group, %col]
-    %off0_i32 = arith.index_cast %off0 : index to i32
-    %addr0 = lsir.to_reg %off0_i32 : i32 -> !v
+    %addr0_idx = func.call @lds_swizzle_addr(%lds_base, %row_in_group, %byte_in_row)
+        : (index, index, index) -> index
+    %addr0_i32 = arith.index_cast %addr0_idx : index to i32
+    %addr0 = lsir.to_reg %addr0_i32 : i32 -> !v
     %tok0 = amdgcn.store ds_write_b64 data %loaded0 addr %addr0 offset c(%c0_i32)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
     // Row group 1: rows 8-15
     %loaded1 = func.call @get_global_load_value_vx2(%gf1) : (!future_global_read) -> !vx2
-    %off1 = affine.apply affine_map<()[base, rig, col] -> (base + (rig + 8) * 64 + col * 2)>
-        ()[%lds_base, %row_in_group, %col]
-    %off1_i32 = arith.index_cast %off1 : index to i32
-    %addr1 = lsir.to_reg %off1_i32 : i32 -> !v
+    %row1 = affine.apply affine_map<()[rig] -> (rig + 8)>()[%row_in_group]
+    %addr1_idx = func.call @lds_swizzle_addr(%lds_base, %row1, %byte_in_row)
+        : (index, index, index) -> index
+    %addr1_i32 = arith.index_cast %addr1_idx : index to i32
+    %addr1 = lsir.to_reg %addr1_i32 : i32 -> !v
     %tok1 = amdgcn.store ds_write_b64 data %loaded1 addr %addr1 offset c(%c0_i32)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
     // Row group 2: rows 16-23
     %loaded2 = func.call @get_global_load_value_vx2(%gf2) : (!future_global_read) -> !vx2
-    %off2 = affine.apply affine_map<()[base, rig, col] -> (base + (rig + 16) * 64 + col * 2)>
-        ()[%lds_base, %row_in_group, %col]
-    %off2_i32 = arith.index_cast %off2 : index to i32
-    %addr2 = lsir.to_reg %off2_i32 : i32 -> !v
+    %row2 = affine.apply affine_map<()[rig] -> (rig + 16)>()[%row_in_group]
+    %addr2_idx = func.call @lds_swizzle_addr(%lds_base, %row2, %byte_in_row)
+        : (index, index, index) -> index
+    %addr2_i32 = arith.index_cast %addr2_idx : index to i32
+    %addr2 = lsir.to_reg %addr2_i32 : i32 -> !v
     %tok2 = amdgcn.store ds_write_b64 data %loaded2 addr %addr2 offset c(%c0_i32)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
     // Row group 3: rows 24-31
     %loaded3 = func.call @get_global_load_value_vx2(%gf3) : (!future_global_read) -> !vx2
-    %off3 = affine.apply affine_map<()[base, rig, col] -> (base + (rig + 24) * 64 + col * 2)>
-        ()[%lds_base, %row_in_group, %col]
-    %off3_i32 = arith.index_cast %off3 : index to i32
-    %addr3 = lsir.to_reg %off3_i32 : i32 -> !v
+    %row3 = affine.apply affine_map<()[rig] -> (rig + 24)>()[%row_in_group]
+    %addr3_idx = func.call @lds_swizzle_addr(%lds_base, %row3, %byte_in_row)
+        : (index, index, index) -> index
+    %addr3_i32 = arith.index_cast %addr3_idx : index to i32
+    %addr3 = lsir.to_reg %addr3_i32 : i32 -> !v
     %tok3 = amdgcn.store ds_write_b64 data %loaded3 addr %addr3 offset c(%c0_i32)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
@@ -198,13 +230,14 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // LDS Read for MFMA (32x8 fragments from 32x32 row-major LDS)
+  // LDS Read for MFMA (32x8 fragments from 32x32 XOR-swizzled LDS)
   //===--------------------------------------------------------------------===//
 
-  // Read 4 MFMA A fragments from a 32x32 tile stored row-major in LDS.
+  // Read 4 MFMA A fragments from a 32x32 XOR-swizzled tile in LDS.
   // Sub-tile k (0..3) reads K cols k*8..k*8+7.
   // Thread t: mfma_row = t%32, mfma_col = (t/32)*4 (from mfma_index_A).
-  // LDS offset for sub-tile k: base + mfma_row * 64 + k*16 + mfma_col * 2.
+  // byte_in_row for sub-tile k = k*16 + mfma_col*2.
+  // Swizzle applied via @lds_swizzle_addr.
   func.func private @load_lds_A_32x32_f16(%lds_base: index)
       -> (!future_lds_read, !future_lds_read, !future_lds_read, !future_lds_read) {
     %mfma_idx = func.call @mfma_index_A_32x32xf16() : () -> !index_pair
@@ -212,10 +245,11 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
         : !index_pair -> index, index
     %c0 = arith.constant 0 : i32
 
-    // Sub-tile 0: K cols 0-7
-    %off0 = affine.apply affine_map<()[base, row, col] -> (base + row * 64 + col * 2)>
-        ()[%lds_base, %row, %col]
-    %off0_i32 = arith.index_cast %off0 : index to i32
+    // Sub-tile 0: K cols 0-7, byte_in_row = col*2
+    %byte0 = affine.apply affine_map<(c) -> (c * 2)>(%col)
+    %off0_idx = func.call @lds_swizzle_addr(%lds_base, %row, %byte0)
+        : (index, index, index) -> index
+    %off0_i32 = arith.index_cast %off0_idx : index to i32
     %addr0 = lsir.to_reg %off0_i32 : i32 -> !v
     %dst0 = func.call @alloc_vgprx2() : () -> !vx2
     %result0, %tok0 = amdgcn.load ds_read_b64 dest %dst0 addr %addr0 offset c(%c0)
@@ -224,10 +258,11 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %f0 = aster_utils.struct_create(%val0, %tok0)
         : (!aster_utils.any, !amdgcn.read_token<shared>) -> !future_lds_read
 
-    // Sub-tile 1: K cols 8-15 (+16 bytes within each row)
-    %off1 = affine.apply affine_map<()[base, row, col] -> (base + row * 64 + 16 + col * 2)>
-        ()[%lds_base, %row, %col]
-    %off1_i32 = arith.index_cast %off1 : index to i32
+    // Sub-tile 1: K cols 8-15, byte_in_row = 16 + col*2
+    %byte1 = affine.apply affine_map<(c) -> (16 + c * 2)>(%col)
+    %off1_idx = func.call @lds_swizzle_addr(%lds_base, %row, %byte1)
+        : (index, index, index) -> index
+    %off1_i32 = arith.index_cast %off1_idx : index to i32
     %addr1 = lsir.to_reg %off1_i32 : i32 -> !v
     %dst1 = func.call @alloc_vgprx2() : () -> !vx2
     %result1, %tok1 = amdgcn.load ds_read_b64 dest %dst1 addr %addr1 offset c(%c0)
@@ -236,10 +271,11 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %f1 = aster_utils.struct_create(%val1, %tok1)
         : (!aster_utils.any, !amdgcn.read_token<shared>) -> !future_lds_read
 
-    // Sub-tile 2: K cols 16-23 (+32 bytes)
-    %off2 = affine.apply affine_map<()[base, row, col] -> (base + row * 64 + 32 + col * 2)>
-        ()[%lds_base, %row, %col]
-    %off2_i32 = arith.index_cast %off2 : index to i32
+    // Sub-tile 2: K cols 16-23, byte_in_row = 32 + col*2
+    %byte2 = affine.apply affine_map<(c) -> (32 + c * 2)>(%col)
+    %off2_idx = func.call @lds_swizzle_addr(%lds_base, %row, %byte2)
+        : (index, index, index) -> index
+    %off2_i32 = arith.index_cast %off2_idx : index to i32
     %addr2 = lsir.to_reg %off2_i32 : i32 -> !v
     %dst2 = func.call @alloc_vgprx2() : () -> !vx2
     %result2, %tok2 = amdgcn.load ds_read_b64 dest %dst2 addr %addr2 offset c(%c0)
@@ -248,10 +284,11 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %f2 = aster_utils.struct_create(%val2, %tok2)
         : (!aster_utils.any, !amdgcn.read_token<shared>) -> !future_lds_read
 
-    // Sub-tile 3: K cols 24-31 (+48 bytes)
-    %off3 = affine.apply affine_map<()[base, row, col] -> (base + row * 64 + 48 + col * 2)>
-        ()[%lds_base, %row, %col]
-    %off3_i32 = arith.index_cast %off3 : index to i32
+    // Sub-tile 3: K cols 24-31, byte_in_row = 48 + col*2
+    %byte3 = affine.apply affine_map<(c) -> (48 + c * 2)>(%col)
+    %off3_idx = func.call @lds_swizzle_addr(%lds_base, %row, %byte3)
+        : (index, index, index) -> index
+    %off3_i32 = arith.index_cast %off3_idx : index to i32
     %addr3 = lsir.to_reg %off3_i32 : i32 -> !v
     %dst3 = func.call @alloc_vgprx2() : () -> !vx2
     %result3, %tok3 = amdgcn.load ds_read_b64 dest %dst3 addr %addr3 offset c(%c0)
@@ -264,8 +301,8 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
         : !future_lds_read, !future_lds_read, !future_lds_read, !future_lds_read
   }
 
-  // Read 4 MFMA B fragments from a 32x32 tile stored row-major in LDS.
-  // Same LDS offset formula as A, but using B indexing (reversed i/j extraction).
+  // Read 4 MFMA B fragments from a 32x32 XOR-swizzled tile in LDS.
+  // Same swizzle formula as A, but using B indexing (reversed i/j extraction).
   func.func private @load_lds_B_32x32_f16(%lds_base: index)
       -> (!future_lds_read, !future_lds_read, !future_lds_read, !future_lds_read) {
     %mfma_idx = func.call @mfma_index_B_32x32xf16() : () -> !index_pair
@@ -273,10 +310,11 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
         : !index_pair -> index, index
     %c0 = arith.constant 0 : i32
 
-    // Sub-tile 0: K cols 0-7
-    %off0 = affine.apply affine_map<()[base, row, col] -> (base + row * 64 + col * 2)>
-        ()[%lds_base, %row, %col]
-    %off0_i32 = arith.index_cast %off0 : index to i32
+    // Sub-tile 0: K cols 0-7, byte_in_row = col*2
+    %byte0 = affine.apply affine_map<(c) -> (c * 2)>(%col)
+    %off0_idx = func.call @lds_swizzle_addr(%lds_base, %row, %byte0)
+        : (index, index, index) -> index
+    %off0_i32 = arith.index_cast %off0_idx : index to i32
     %addr0 = lsir.to_reg %off0_i32 : i32 -> !v
     %dst0 = func.call @alloc_vgprx2() : () -> !vx2
     %result0, %tok0 = amdgcn.load ds_read_b64 dest %dst0 addr %addr0 offset c(%c0)
@@ -285,10 +323,11 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %f0 = aster_utils.struct_create(%val0, %tok0)
         : (!aster_utils.any, !amdgcn.read_token<shared>) -> !future_lds_read
 
-    // Sub-tile 1: K cols 8-15
-    %off1 = affine.apply affine_map<()[base, row, col] -> (base + row * 64 + 16 + col * 2)>
-        ()[%lds_base, %row, %col]
-    %off1_i32 = arith.index_cast %off1 : index to i32
+    // Sub-tile 1: K cols 8-15, byte_in_row = 16 + col*2
+    %byte1 = affine.apply affine_map<(c) -> (16 + c * 2)>(%col)
+    %off1_idx = func.call @lds_swizzle_addr(%lds_base, %row, %byte1)
+        : (index, index, index) -> index
+    %off1_i32 = arith.index_cast %off1_idx : index to i32
     %addr1 = lsir.to_reg %off1_i32 : i32 -> !v
     %dst1 = func.call @alloc_vgprx2() : () -> !vx2
     %result1, %tok1 = amdgcn.load ds_read_b64 dest %dst1 addr %addr1 offset c(%c0)
@@ -297,10 +336,11 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %f1 = aster_utils.struct_create(%val1, %tok1)
         : (!aster_utils.any, !amdgcn.read_token<shared>) -> !future_lds_read
 
-    // Sub-tile 2: K cols 16-23
-    %off2 = affine.apply affine_map<()[base, row, col] -> (base + row * 64 + 32 + col * 2)>
-        ()[%lds_base, %row, %col]
-    %off2_i32 = arith.index_cast %off2 : index to i32
+    // Sub-tile 2: K cols 16-23, byte_in_row = 32 + col*2
+    %byte2 = affine.apply affine_map<(c) -> (32 + c * 2)>(%col)
+    %off2_idx = func.call @lds_swizzle_addr(%lds_base, %row, %byte2)
+        : (index, index, index) -> index
+    %off2_i32 = arith.index_cast %off2_idx : index to i32
     %addr2 = lsir.to_reg %off2_i32 : i32 -> !v
     %dst2 = func.call @alloc_vgprx2() : () -> !vx2
     %result2, %tok2 = amdgcn.load ds_read_b64 dest %dst2 addr %addr2 offset c(%c0)
@@ -309,10 +349,11 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %f2 = aster_utils.struct_create(%val2, %tok2)
         : (!aster_utils.any, !amdgcn.read_token<shared>) -> !future_lds_read
 
-    // Sub-tile 3: K cols 24-31
-    %off3 = affine.apply affine_map<()[base, row, col] -> (base + row * 64 + 48 + col * 2)>
-        ()[%lds_base, %row, %col]
-    %off3_i32 = arith.index_cast %off3 : index to i32
+    // Sub-tile 3: K cols 24-31, byte_in_row = 48 + col*2
+    %byte3 = affine.apply affine_map<(c) -> (48 + c * 2)>(%col)
+    %off3_idx = func.call @lds_swizzle_addr(%lds_base, %row, %byte3)
+        : (index, index, index) -> index
+    %off3_i32 = arith.index_cast %off3_idx : index to i32
     %addr3 = lsir.to_reg %off3_i32 : i32 -> !v
     %dst3 = func.call @alloc_vgprx2() : () -> !vx2
     %result3, %tok3 = amdgcn.load ds_read_b64 dest %dst3 addr %addr3 offset c(%c0)
