@@ -131,7 +131,8 @@ def ToAMDGCN : InterfacePass<"aster-to-amdgcn", "mlir::aster::ModuleOpInterface"
     "mlir::aster::amdgcn::AMDGCNDialect",
     "mlir::pdl::PDLDialect",
     "mlir::pdl_interp::PDLInterpDialect",
-    "mlir::arith::ArithDialect"
+    "mlir::arith::ArithDialect",
+    "mlir::aster::lsir::LSIRDialect"
   ];
   let options = [
     Option<"inputFile",
