@@ -23,11 +23,11 @@ amdgcn.module @kittens_gemm_32x32xK_lds target = #amdgcn.target<gfx942> isa = #a
   func.func private @zero_C_32x32() -> !rt_C_f32
   func.func private @store_C_32x32_f32(!rt_C_f32, !sx2, index, index, index) -> !write_token
 
-  // From kittens/lds_32x32_f16.mlir (32x32 composite primitives)
+  // From kittens/lds_32x32_f16.mlir (32x32 composite primitives, dwordx4 loads)
   func.func private @load_global_tile_32x32_f16(!sx2, index, index, index)
-      -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read)
+      -> (!future_global_read, !future_global_read)
   func.func private @store_global_tile_to_lds_32x32_f16(index,
-      !future_global_read, !future_global_read, !future_global_read, !future_global_read)
+      !future_global_read, !future_global_read)
       -> (!lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
   func.func private @wait_lds_writes_32x32(
       !lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
@@ -70,18 +70,18 @@ amdgcn.module @kittens_gemm_32x32xK_lds target = #amdgcn.target<gfx942> isa = #a
       %lds_B = amdgcn.get_lds_offset %lds_b_h : index
 
       // Global load -> LDS store -> wait -> LDS read -> compute
-      %af0, %af1, %af2, %af3 = func.call @load_global_tile_32x32_f16(%A_ptr, %c0, %k_base, %stride_AB)
+      %af0, %af1 = func.call @load_global_tile_32x32_f16(%A_ptr, %c0, %k_base, %stride_AB)
           : (!sx2, index, index, index)
-          -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read)
-      %bf0, %bf1, %bf2, %bf3 = func.call @load_global_tile_32x32_f16(%B_ptr, %c0, %k_base, %stride_AB)
+          -> (!future_global_read, !future_global_read)
+      %bf0, %bf1 = func.call @load_global_tile_32x32_f16(%B_ptr, %c0, %k_base, %stride_AB)
           : (!sx2, index, index, index)
-          -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read)
+          -> (!future_global_read, !future_global_read)
 
-      %at0, %at1, %at2, %at3 = func.call @store_global_tile_to_lds_32x32_f16(%lds_A, %af0, %af1, %af2, %af3)
-          : (index, !future_global_read, !future_global_read, !future_global_read, !future_global_read)
+      %at0, %at1, %at2, %at3 = func.call @store_global_tile_to_lds_32x32_f16(%lds_A, %af0, %af1)
+          : (index, !future_global_read, !future_global_read)
           -> (!lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
-      %bt0, %bt1, %bt2, %bt3 = func.call @store_global_tile_to_lds_32x32_f16(%lds_B, %bf0, %bf1, %bf2, %bf3)
-          : (index, !future_global_read, !future_global_read, !future_global_read, !future_global_read)
+      %bt0, %bt1, %bt2, %bt3 = func.call @store_global_tile_to_lds_32x32_f16(%lds_B, %bf0, %bf1)
+          : (index, !future_global_read, !future_global_read)
           -> (!lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
 
       func.call @wait_lds_writes_32x32(%at0, %at1, %at2, %at3)

@@ -2,10 +2,10 @@
 //
 // All transfers use 32x32 tile granularity for coalesced global memory access.
 // Thread mapping for cooperative fill (64 lanes, 32x32 tile):
-//   row_in_group = lane_id / 8 (0..7), col = (lane_id % 8) * 4 (0,4,...,28)
-//   Each thread loads/stores 4 consecutive f16 values (8 bytes = dwordx2).
-//   8 threads per row -> 32 f16 per row -> full 64-byte cache line coalescing.
-//   4 load/store cycles per thread to cover 32 rows (groups of 8).
+//   row_in_group = lane_id / 4 (0..15), col = (lane_id % 4) * 8 (0,8,16,24)
+//   Each thread loads 8 consecutive f16 values (16 bytes = dwordx4).
+//   4 threads per row -> 32 f16 per row -> full 64-byte cache line coalescing.
+//   2 load cycles per thread to cover 32 rows (groups of 16).
 //
 // LDS layout: 32x32 row-major with XOR swizzle, stride = 64 bytes per row.
 // Total: 2048 bytes per tile. 4 MFMAs per tile (32x32x8 each).
@@ -15,6 +15,9 @@
 //   Permutes bits [5:3] of byte_in_row based on row index.
 //   Achieves optimal 2-way bank conflicts for MFMA ds_read_b64 (theoretical min).
 //   Zero bank conflicts on cooperative fill writes.
+//
+// Global loads use dwordx4 (16 bytes/thread, 2 loads per tile).
+// LDS writes split each dwordx4 into 2 x ds_write_b64 with independent swizzle.
 //
 // MFMA A/B fragment read from 32x32 swizzled LDS layout:
 //   For sub-tile k (0..3), K cols k*8..k*8+7:
@@ -26,6 +29,7 @@
 !sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr<[? + 2]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
 !vx16 = !amdgcn.vgpr<[? + 16]>
 
 // Kittens register tile types
@@ -49,13 +53,26 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   func.func private @mfma_index_B_32x32xf16() -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @alloc_vgprx2() -> !vx2
+  func.func private @alloc_vgprx4() -> !vx4
 
   // From futures.mlir
-  func.func private @get_global_load_value_vx2(!future_global_read) -> !vx2
   func.func private @get_lds_read_value_vx2(!future_lds_read) -> !vx2
 
   // From global_32x32_f16.mlir
   func.func private @mfma_f32_32x32x8_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
+
+  //===--------------------------------------------------------------------===//
+  // Future value extraction for dwordx4 global loads
+  //===--------------------------------------------------------------------===//
+
+  // Wait on a global read future and extract the vx4 value.
+  func.func private @get_global_load_value_vx4(%future: !future_global_read) -> !vx4 {
+    %value_any, %token = aster_utils.struct_extract %future ["value", "token"]
+        : !future_global_read -> !aster_utils.any, !amdgcn.read_token<flat>
+    amdgcn.wait deps %token : !amdgcn.read_token<flat>
+    %value = aster_utils.from_any %value_any : !vx4
+    return %value : !vx4
+  }
 
   //===--------------------------------------------------------------------===//
   // XOR swizzle helper
@@ -75,142 +92,119 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // Thread mapping for 32x32 cooperative fill
+  // Thread mapping for 32x32 cooperative fill (dwordx4)
   //===--------------------------------------------------------------------===//
 
   // Map lane ID to (row_in_group, col) for 32x32 tile cooperative fill.
-  // 64 lanes, 8 threads per row, 4 f16 elements per thread:
-  //   row_in_group = lane_id / 8 (0..7)
-  //   col = (lane_id % 8) * 4 (0, 4, 8, ..., 28)
-  // 4 load/store cycles cover all 32 rows (row groups 0-7, 8-15, 16-23, 24-31).
+  // 64 lanes, 4 threads per row, 8 f16 elements per thread (dwordx4):
+  //   row_in_group = lane_id / 4 (0..15)
+  //   col = (lane_id % 4) * 8 (0, 8, 16, 24)
+  // 2 load/store cycles cover all 32 rows (row groups 0-15, 16-31).
   func.func private @thread_tile_pos_32x32() -> (index, index) {
     %lane = func.call @lane_id() : () -> index
-    %row = affine.apply affine_map<()[lid] -> (lid floordiv 8)>()[%lane]
-    %col = affine.apply affine_map<()[lid] -> ((lid mod 8) * 4)>()[%lane]
+    %row = affine.apply affine_map<()[lid] -> (lid floordiv 4)>()[%lane]
+    %col = affine.apply affine_map<()[lid] -> ((lid mod 4) * 8)>()[%lane]
     return %row, %col : index, index
   }
 
   //===--------------------------------------------------------------------===//
-  // Global Load (32x32 tile, 4 coalesced row-group loads)
+  // Global Load (32x32 tile, 2 coalesced dwordx4 row-group loads)
   //===--------------------------------------------------------------------===//
 
-  // Issue 4 global loads for a 32x32 f16 tile with coalesced access.
-  // Each load covers 8 rows (8 threads/row * 4 f16/thread = full 32-element row).
-  // Returns 4 futures: row groups 0-7, 8-15, 16-23, 24-31.
+  // Issue 2 global loads for a 32x32 f16 tile with coalesced access.
+  // Each load covers 16 rows (4 threads/row * 16 bytes/thread = full 64-byte row).
+  // Returns 2 futures: row groups 0-15 and 16-31.
   // Global memory is NOT swizzled -- coalesced row-major layout.
   func.func private @load_global_tile_32x32_f16(
       %ptr: !sx2, %m: index, %k_base: index, %stride: index
-  ) -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read) {
+  ) -> (!future_global_read, !future_global_read) {
     %row_in_group, %col = func.call @thread_tile_pos_32x32() : () -> (index, index)
     %elt_size = arith.constant 2 : index
     %c0_i32 = arith.constant 0 : i32
 
-    // Row group 0: rows 0-7
+    // Row group 0: rows 0-15
     %desc0 = aster_utils.struct_create(%m, %k_base, %row_in_group, %col, %stride, %elt_size)
         : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
     %off0 = func.call @tiled_matrix_offset(%desc0) : (!index_descriptor_2level_2d) -> !v
-    %tmp0 = func.call @alloc_vgprx2() : () -> !vx2
-    %loaded0, %tok0 = amdgcn.load global_load_dwordx2 dest %tmp0 addr %ptr
-        offset d(%off0) + c(%c0_i32) : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
-    %val0 = aster_utils.to_any %loaded0 : !vx2
+    %tmp0 = func.call @alloc_vgprx4() : () -> !vx4
+    %loaded0, %tok0 = amdgcn.load global_load_dwordx4 dest %tmp0 addr %ptr
+        offset d(%off0) + c(%c0_i32) : dps(!vx4) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+    %val0 = aster_utils.to_any %loaded0 : !vx4
     %f0 = aster_utils.struct_create(%val0, %tok0)
         : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read
 
-    // Row group 1: rows 8-15
-    %row1 = affine.apply affine_map<()[rig] -> (rig + 8)>()[%row_in_group]
+    // Row group 1: rows 16-31
+    %row1 = affine.apply affine_map<()[rig] -> (rig + 16)>()[%row_in_group]
     %desc1 = aster_utils.struct_create(%m, %k_base, %row1, %col, %stride, %elt_size)
         : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
     %off1 = func.call @tiled_matrix_offset(%desc1) : (!index_descriptor_2level_2d) -> !v
-    %tmp1 = func.call @alloc_vgprx2() : () -> !vx2
-    %loaded1, %tok1 = amdgcn.load global_load_dwordx2 dest %tmp1 addr %ptr
-        offset d(%off1) + c(%c0_i32) : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
-    %val1 = aster_utils.to_any %loaded1 : !vx2
+    %tmp1 = func.call @alloc_vgprx4() : () -> !vx4
+    %loaded1, %tok1 = amdgcn.load global_load_dwordx4 dest %tmp1 addr %ptr
+        offset d(%off1) + c(%c0_i32) : dps(!vx4) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+    %val1 = aster_utils.to_any %loaded1 : !vx4
     %f1 = aster_utils.struct_create(%val1, %tok1)
         : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read
 
-    // Row group 2: rows 16-23
-    %row2 = affine.apply affine_map<()[rig] -> (rig + 16)>()[%row_in_group]
-    %desc2 = aster_utils.struct_create(%m, %k_base, %row2, %col, %stride, %elt_size)
-        : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
-    %off2 = func.call @tiled_matrix_offset(%desc2) : (!index_descriptor_2level_2d) -> !v
-    %tmp2 = func.call @alloc_vgprx2() : () -> !vx2
-    %loaded2, %tok2 = amdgcn.load global_load_dwordx2 dest %tmp2 addr %ptr
-        offset d(%off2) + c(%c0_i32) : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
-    %val2 = aster_utils.to_any %loaded2 : !vx2
-    %f2 = aster_utils.struct_create(%val2, %tok2)
-        : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read
-
-    // Row group 3: rows 24-31
-    %row3 = affine.apply affine_map<()[rig] -> (rig + 24)>()[%row_in_group]
-    %desc3 = aster_utils.struct_create(%m, %k_base, %row3, %col, %stride, %elt_size)
-        : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
-    %off3 = func.call @tiled_matrix_offset(%desc3) : (!index_descriptor_2level_2d) -> !v
-    %tmp3 = func.call @alloc_vgprx2() : () -> !vx2
-    %loaded3, %tok3 = amdgcn.load global_load_dwordx2 dest %tmp3 addr %ptr
-        offset d(%off3) + c(%c0_i32) : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
-    %val3 = aster_utils.to_any %loaded3 : !vx2
-    %f3 = aster_utils.struct_create(%val3, %tok3)
-        : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read
-
-    return %f0, %f1, %f2, %f3
-        : !future_global_read, !future_global_read, !future_global_read, !future_global_read
+    return %f0, %f1 : !future_global_read, !future_global_read
   }
 
   //===--------------------------------------------------------------------===//
-  // LDS Store (32x32 tile, XOR-swizzled row-major, stride = 64 bytes/row)
+  // LDS Store (32x32 tile, XOR-swizzled, from dwordx4 global loads)
   //===--------------------------------------------------------------------===//
 
-  // Store 4 global load futures to LDS as a 32x32 XOR-swizzled tile.
-  // Future i contains data for row group i (rows i*8..i*8+7).
-  // LDS layout: row r, col c -> offset = base + r*64 + swizzle(c*2, r).
-  // Swizzle: byte_in_row XOR (((row/2) % 8) * 8).
+  // Store 2 dwordx4 global load futures to LDS as a 32x32 XOR-swizzled tile.
+  // Each future contains 16 bytes (vx4). Split into 2 x vx2 for swizzled writes.
+  // Future 0: row group 0-15, Future 1: row group 16-31.
+  // Returns 4 write tokens (2 per future, lo/hi halves).
   func.func private @store_global_tile_to_lds_32x32_f16(
       %lds_base: index,
-      %gf0: !future_global_read, %gf1: !future_global_read,
-      %gf2: !future_global_read, %gf3: !future_global_read
+      %gf0: !future_global_read, %gf1: !future_global_read
   ) -> (!future_lds_write, !future_lds_write, !future_lds_write, !future_lds_write) {
     %row_in_group, %col = func.call @thread_tile_pos_32x32() : () -> (index, index)
     %c0_i32 = arith.constant 0 : i32
-    // byte_in_row for this thread's column (same for all row groups)
-    %byte_in_row = affine.apply affine_map<(c) -> (c * 2)>(%col)
+    // byte_in_row: lo = col*2, hi = col*2+8 (each vx2 covers 8 bytes)
+    %byte_lo = affine.apply affine_map<(c) -> (c * 2)>(%col)
+    %byte_hi = affine.apply affine_map<(c) -> (c * 2 + 8)>(%col)
 
-    // Row group 0: rows 0-7
-    %loaded0 = func.call @get_global_load_value_vx2(%gf0) : (!future_global_read) -> !vx2
-    %addr0_idx = func.call @lds_swizzle_addr(%lds_base, %row_in_group, %byte_in_row)
+    // Future 0: rows 0-15 -- split vx4 into lo/hi vx2
+    %data0 = func.call @get_global_load_value_vx4(%gf0) : (!future_global_read) -> !vx4
+    %r0:4 = amdgcn.split_register_range %data0 : !vx4
+    %lo0 = amdgcn.make_register_range %r0#0, %r0#1 : !v, !v
+    %hi0 = amdgcn.make_register_range %r0#2, %r0#3 : !v, !v
+
+    %addr0_lo_idx = func.call @lds_swizzle_addr(%lds_base, %row_in_group, %byte_lo)
         : (index, index, index) -> index
-    %addr0_i32 = arith.index_cast %addr0_idx : index to i32
-    %addr0 = lsir.to_reg %addr0_i32 : i32 -> !v
-    %tok0 = amdgcn.store ds_write_b64 data %loaded0 addr %addr0 offset c(%c0_i32)
+    %addr0_lo_i32 = arith.index_cast %addr0_lo_idx : index to i32
+    %addr0_lo = lsir.to_reg %addr0_lo_i32 : i32 -> !v
+    %tok0 = amdgcn.store ds_write_b64 data %lo0 addr %addr0_lo offset c(%c0_i32)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
-    // Row group 1: rows 8-15
-    %loaded1 = func.call @get_global_load_value_vx2(%gf1) : (!future_global_read) -> !vx2
-    %row1 = affine.apply affine_map<()[rig] -> (rig + 8)>()[%row_in_group]
-    %addr1_idx = func.call @lds_swizzle_addr(%lds_base, %row1, %byte_in_row)
+    %addr0_hi_idx = func.call @lds_swizzle_addr(%lds_base, %row_in_group, %byte_hi)
         : (index, index, index) -> index
-    %addr1_i32 = arith.index_cast %addr1_idx : index to i32
-    %addr1 = lsir.to_reg %addr1_i32 : i32 -> !v
-    %tok1 = amdgcn.store ds_write_b64 data %loaded1 addr %addr1 offset c(%c0_i32)
+    %addr0_hi_i32 = arith.index_cast %addr0_hi_idx : index to i32
+    %addr0_hi = lsir.to_reg %addr0_hi_i32 : i32 -> !v
+    %tok1 = amdgcn.store ds_write_b64 data %hi0 addr %addr0_hi offset c(%c0_i32)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
-    // Row group 2: rows 16-23
-    %loaded2 = func.call @get_global_load_value_vx2(%gf2) : (!future_global_read) -> !vx2
-    %row2 = affine.apply affine_map<()[rig] -> (rig + 16)>()[%row_in_group]
-    %addr2_idx = func.call @lds_swizzle_addr(%lds_base, %row2, %byte_in_row)
+    // Future 1: rows 16-31 -- split vx4 into lo/hi vx2
+    %data1 = func.call @get_global_load_value_vx4(%gf1) : (!future_global_read) -> !vx4
+    %r1:4 = amdgcn.split_register_range %data1 : !vx4
+    %lo1 = amdgcn.make_register_range %r1#0, %r1#1 : !v, !v
+    %hi1 = amdgcn.make_register_range %r1#2, %r1#3 : !v, !v
+
+    %row1 = affine.apply affine_map<()[rig] -> (rig + 16)>()[%row_in_group]
+    %addr1_lo_idx = func.call @lds_swizzle_addr(%lds_base, %row1, %byte_lo)
         : (index, index, index) -> index
-    %addr2_i32 = arith.index_cast %addr2_idx : index to i32
-    %addr2 = lsir.to_reg %addr2_i32 : i32 -> !v
-    %tok2 = amdgcn.store ds_write_b64 data %loaded2 addr %addr2 offset c(%c0_i32)
+    %addr1_lo_i32 = arith.index_cast %addr1_lo_idx : index to i32
+    %addr1_lo = lsir.to_reg %addr1_lo_i32 : i32 -> !v
+    %tok2 = amdgcn.store ds_write_b64 data %lo1 addr %addr1_lo offset c(%c0_i32)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
-    // Row group 3: rows 24-31
-    %loaded3 = func.call @get_global_load_value_vx2(%gf3) : (!future_global_read) -> !vx2
-    %row3 = affine.apply affine_map<()[rig] -> (rig + 24)>()[%row_in_group]
-    %addr3_idx = func.call @lds_swizzle_addr(%lds_base, %row3, %byte_in_row)
+    %addr1_hi_idx = func.call @lds_swizzle_addr(%lds_base, %row1, %byte_hi)
         : (index, index, index) -> index
-    %addr3_i32 = arith.index_cast %addr3_idx : index to i32
-    %addr3 = lsir.to_reg %addr3_i32 : i32 -> !v
-    %tok3 = amdgcn.store ds_write_b64 data %loaded3 addr %addr3 offset c(%c0_i32)
+    %addr1_hi_i32 = arith.index_cast %addr1_hi_idx : index to i32
+    %addr1_hi = lsir.to_reg %addr1_hi_i32 : i32 -> !v
+    %tok3 = amdgcn.store ds_write_b64 data %hi1 addr %addr1_hi offset c(%c0_i32)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
     return %tok0, %tok1, %tok2, %tok3

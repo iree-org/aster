@@ -1,38 +1,35 @@
   // === K-loop helper functions for 32x32 transfer tiles (32x32x8 MFMA) ===
   // When k_t > 1, each pipeline stage processes multiple 32x32 K-tiles.
-  // Each 32x32 tile = 4 contiguous 32x8 sub-tiles (2048 bytes in LDS).
-  // Buffers store 4 sub-components per tile: size = k_t * dim_t * 4.
+  // Each 32x32 tile = 2048 bytes in LDS.
+  // Global loads use dwordx4: 2 futures per tile (was 4 with dwordx2).
+  // LDS writes: 4 tokens per tile (split each dwordx4 into 2 x ds_write_b64).
   //
   // Uses 32x32 composite library functions:
   //   load_global_tile_32x32_f16, store_global_tile_to_lds_32x32_f16,
   //   wait_lds_writes_32x32, load_lds_A/B_32x32_f16, compute_mfmas_32x32
 
   // Issue global loads for A tiles across k_t 32x32 K-tiles.
-  // Each load returns 4 sub-tile futures stored at consecutive buffer indices.
+  // Each load returns 2 dwordx4 futures stored at consecutive buffer indices.
   func.func private @k_load_a_from_global(%m_t: index, %k_t: index,
       %A_ptr: !sx2, %k: index, %stride_AB: index, %m_base: index)
       -> !gfut_a_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %buf_size = affine.apply affine_map<()[s0, s1] -> (s0 * s1 * 4)>()[%k_t, %m_t]
+    %buf_size = affine.apply affine_map<()[s0, s1] -> (s0 * s1 * 2)>()[%k_t, %m_t]
     %gfut_a = memref.alloca(%buf_size) : !gfut_a_buf
     scf.for %kt = %c0 to %k_t step %c1 {
       %k_offset = affine.apply affine_map<(kt)[kb] -> ((kb + kt) * 32)>(%kt)[%k]
       scf.for %i = %c0 to %m_t step %c1 {
         %m_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 32)>(%i)[%m_base]
-        %f0, %f1, %f2, %f3 = func.call @load_global_tile_32x32_f16(%A_ptr, %m_off, %k_offset, %stride_AB)
+        %f0, %f1 = func.call @load_global_tile_32x32_f16(%A_ptr, %m_off, %k_offset, %stride_AB)
             {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
             : (!sx2, index, index, index)
-            -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read)
+            -> (!future_global_read, !future_global_read)
         %base = affine.linearize_index [%kt, %i] by (%k_t, %m_t) : index
-        %idx0 = affine.apply affine_map<(b) -> (b * 4)>(%base)
-        %idx1 = affine.apply affine_map<(b) -> (b * 4 + 1)>(%base)
-        %idx2 = affine.apply affine_map<(b) -> (b * 4 + 2)>(%base)
-        %idx3 = affine.apply affine_map<(b) -> (b * 4 + 3)>(%base)
+        %idx0 = affine.apply affine_map<(b) -> (b * 2)>(%base)
+        %idx1 = affine.apply affine_map<(b) -> (b * 2 + 1)>(%base)
         memref.store %f0, %gfut_a[%idx0] : !gfut_a_buf
         memref.store %f1, %gfut_a[%idx1] : !gfut_a_buf
-        memref.store %f2, %gfut_a[%idx2] : !gfut_a_buf
-        memref.store %f3, %gfut_a[%idx3] : !gfut_a_buf
       } {aster.constexpr}
     } {aster.constexpr}
     return %gfut_a : !gfut_a_buf
@@ -44,59 +41,56 @@
       -> !gfut_b_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %buf_size = affine.apply affine_map<()[s0, s1] -> (s0 * s1 * 4)>()[%k_t, %n_t]
+    %buf_size = affine.apply affine_map<()[s0, s1] -> (s0 * s1 * 2)>()[%k_t, %n_t]
     %gfut_b = memref.alloca(%buf_size) : !gfut_b_buf
     scf.for %kt = %c0 to %k_t step %c1 {
       %k_offset = affine.apply affine_map<(kt)[kb] -> ((kb + kt) * 32)>(%kt)[%k]
       scf.for %i = %c0 to %n_t step %c1 {
         %n_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 32)>(%i)[%n_base]
-        %f0, %f1, %f2, %f3 = func.call @load_global_tile_32x32_f16(%B_ptr, %n_off, %k_offset, %stride_AB)
+        %f0, %f1 = func.call @load_global_tile_32x32_f16(%B_ptr, %n_off, %k_offset, %stride_AB)
             {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
             : (!sx2, index, index, index)
-            -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read)
+            -> (!future_global_read, !future_global_read)
         %base = affine.linearize_index [%kt, %i] by (%k_t, %n_t) : index
-        %idx0 = affine.apply affine_map<(b) -> (b * 4)>(%base)
-        %idx1 = affine.apply affine_map<(b) -> (b * 4 + 1)>(%base)
-        %idx2 = affine.apply affine_map<(b) -> (b * 4 + 2)>(%base)
-        %idx3 = affine.apply affine_map<(b) -> (b * 4 + 3)>(%base)
+        %idx0 = affine.apply affine_map<(b) -> (b * 2)>(%base)
+        %idx1 = affine.apply affine_map<(b) -> (b * 2 + 1)>(%base)
         memref.store %f0, %gfut_b[%idx0] : !gfut_b_buf
         memref.store %f1, %gfut_b[%idx1] : !gfut_b_buf
-        memref.store %f2, %gfut_b[%idx2] : !gfut_b_buf
-        memref.store %f3, %gfut_b[%idx3] : !gfut_b_buf
       } {aster.constexpr}
     } {aster.constexpr}
     return %gfut_b : !gfut_b_buf
   }
 
   // Store A global load futures to LDS as 32x32 tiles (2048 bytes each).
+  // Each tile has 2 global futures -> 4 LDS write tokens.
   func.func private @k_store_a_to_lds(%m_t: index, %k_t: index,
       %base_a: index, %wave_a_base: index, %tiles_per_slice: index,
       %gfut_a: !gfut_a_buf) -> !tok_a_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %buf_size = affine.apply affine_map<()[s0, s1] -> (s0 * s1 * 4)>()[%k_t, %m_t]
-    %tok_a = memref.alloca(%buf_size) : !tok_a_buf
+    %tok_buf_size = affine.apply affine_map<()[s0, s1] -> (s0 * s1 * 4)>()[%k_t, %m_t]
+    %tok_a = memref.alloca(%tok_buf_size) : !tok_a_buf
     scf.for %kt = %c0 to %k_t step %c1 {
       scf.for %i = %c0 to %m_t step %c1 {
         %off = affine.apply affine_map<(kt, i)[base, wab, tps] -> (base + (kt * tps + wab + i) * 2048)>
             (%kt, %i)[%base_a, %wave_a_base, %tiles_per_slice]
-        %base = affine.linearize_index [%kt, %i] by (%k_t, %m_t) : index
-        %idx0 = affine.apply affine_map<(b) -> (b * 4)>(%base)
-        %idx1 = affine.apply affine_map<(b) -> (b * 4 + 1)>(%base)
-        %idx2 = affine.apply affine_map<(b) -> (b * 4 + 2)>(%base)
-        %idx3 = affine.apply affine_map<(b) -> (b * 4 + 3)>(%base)
-        %gf0 = memref.load %gfut_a[%idx0] : !gfut_a_buf
-        %gf1 = memref.load %gfut_a[%idx1] : !gfut_a_buf
-        %gf2 = memref.load %gfut_a[%idx2] : !gfut_a_buf
-        %gf3 = memref.load %gfut_a[%idx3] : !gfut_a_buf
-        %t0, %t1, %t2, %t3 = func.call @store_global_tile_to_lds_32x32_f16(%off, %gf0, %gf1, %gf2, %gf3)
+        %gbase = affine.linearize_index [%kt, %i] by (%k_t, %m_t) : index
+        %gidx0 = affine.apply affine_map<(b) -> (b * 2)>(%gbase)
+        %gidx1 = affine.apply affine_map<(b) -> (b * 2 + 1)>(%gbase)
+        %gf0 = memref.load %gfut_a[%gidx0] : !gfut_a_buf
+        %gf1 = memref.load %gfut_a[%gidx1] : !gfut_a_buf
+        %t0, %t1, %t2, %t3 = func.call @store_global_tile_to_lds_32x32_f16(%off, %gf0, %gf1)
             {sched.stage = {{STAGE_DS_WRITE}} : i32}
-            : (index, !future_global_read, !future_global_read, !future_global_read, !future_global_read)
+            : (index, !future_global_read, !future_global_read)
             -> (!lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
-        memref.store %t0, %tok_a[%idx0] : !tok_a_buf
-        memref.store %t1, %tok_a[%idx1] : !tok_a_buf
-        memref.store %t2, %tok_a[%idx2] : !tok_a_buf
-        memref.store %t3, %tok_a[%idx3] : !tok_a_buf
+        %tidx0 = affine.apply affine_map<(b) -> (b * 4)>(%gbase)
+        %tidx1 = affine.apply affine_map<(b) -> (b * 4 + 1)>(%gbase)
+        %tidx2 = affine.apply affine_map<(b) -> (b * 4 + 2)>(%gbase)
+        %tidx3 = affine.apply affine_map<(b) -> (b * 4 + 3)>(%gbase)
+        memref.store %t0, %tok_a[%tidx0] : !tok_a_buf
+        memref.store %t1, %tok_a[%tidx1] : !tok_a_buf
+        memref.store %t2, %tok_a[%tidx2] : !tok_a_buf
+        memref.store %t3, %tok_a[%tidx3] : !tok_a_buf
       } {aster.constexpr}
     } {aster.constexpr}
     return %tok_a : !tok_a_buf
@@ -108,29 +102,29 @@
       %gfut_b: !gfut_b_buf) -> !tok_b_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %buf_size = affine.apply affine_map<()[s0, s1] -> (s0 * s1 * 4)>()[%k_t, %n_t]
-    %tok_b = memref.alloca(%buf_size) : !tok_b_buf
+    %tok_buf_size = affine.apply affine_map<()[s0, s1] -> (s0 * s1 * 4)>()[%k_t, %n_t]
+    %tok_b = memref.alloca(%tok_buf_size) : !tok_b_buf
     scf.for %kt = %c0 to %k_t step %c1 {
       scf.for %i = %c0 to %n_t step %c1 {
         %off = affine.apply affine_map<(kt, i)[base, wbb, tps] -> (base + (kt * tps + wbb + i) * 2048)>
             (%kt, %i)[%base_b, %wave_b_base, %tiles_per_slice]
-        %base = affine.linearize_index [%kt, %i] by (%k_t, %n_t) : index
-        %idx0 = affine.apply affine_map<(b) -> (b * 4)>(%base)
-        %idx1 = affine.apply affine_map<(b) -> (b * 4 + 1)>(%base)
-        %idx2 = affine.apply affine_map<(b) -> (b * 4 + 2)>(%base)
-        %idx3 = affine.apply affine_map<(b) -> (b * 4 + 3)>(%base)
-        %gf0 = memref.load %gfut_b[%idx0] : !gfut_b_buf
-        %gf1 = memref.load %gfut_b[%idx1] : !gfut_b_buf
-        %gf2 = memref.load %gfut_b[%idx2] : !gfut_b_buf
-        %gf3 = memref.load %gfut_b[%idx3] : !gfut_b_buf
-        %t0, %t1, %t2, %t3 = func.call @store_global_tile_to_lds_32x32_f16(%off, %gf0, %gf1, %gf2, %gf3)
+        %gbase = affine.linearize_index [%kt, %i] by (%k_t, %n_t) : index
+        %gidx0 = affine.apply affine_map<(b) -> (b * 2)>(%gbase)
+        %gidx1 = affine.apply affine_map<(b) -> (b * 2 + 1)>(%gbase)
+        %gf0 = memref.load %gfut_b[%gidx0] : !gfut_b_buf
+        %gf1 = memref.load %gfut_b[%gidx1] : !gfut_b_buf
+        %t0, %t1, %t2, %t3 = func.call @store_global_tile_to_lds_32x32_f16(%off, %gf0, %gf1)
             {sched.stage = {{STAGE_DS_WRITE}} : i32}
-            : (index, !future_global_read, !future_global_read, !future_global_read, !future_global_read)
+            : (index, !future_global_read, !future_global_read)
             -> (!lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
-        memref.store %t0, %tok_b[%idx0] : !tok_b_buf
-        memref.store %t1, %tok_b[%idx1] : !tok_b_buf
-        memref.store %t2, %tok_b[%idx2] : !tok_b_buf
-        memref.store %t3, %tok_b[%idx3] : !tok_b_buf
+        %tidx0 = affine.apply affine_map<(b) -> (b * 4)>(%gbase)
+        %tidx1 = affine.apply affine_map<(b) -> (b * 4 + 1)>(%gbase)
+        %tidx2 = affine.apply affine_map<(b) -> (b * 4 + 2)>(%gbase)
+        %tidx3 = affine.apply affine_map<(b) -> (b * 4 + 3)>(%gbase)
+        memref.store %t0, %tok_b[%tidx0] : !tok_b_buf
+        memref.store %t1, %tok_b[%tidx1] : !tok_b_buf
+        memref.store %t2, %tok_b[%tidx2] : !tok_b_buf
+        memref.store %t3, %tok_b[%tidx3] : !tok_b_buf
       } {aster.constexpr}
     } {aster.constexpr}
     return %tok_b : !tok_b_buf

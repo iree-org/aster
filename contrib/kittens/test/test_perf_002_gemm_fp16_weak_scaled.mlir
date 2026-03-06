@@ -57,11 +57,11 @@ amdgcn.module @kittens_gemm_f16_32x32_weak_scaled target = #amdgcn.target<gfx942
   func.func private @zero_C_32x32() -> !rt_C_f32
   func.func private @store_C_32x32_f32(!rt_C_f32, !sx2, index, index, index) -> !write_token
 
-  // 32x32 composite primitives (from lds_32x32_f16.mlir)
+  // 32x32 composite primitives (from lds_32x32_f16.mlir, dwordx4 loads)
   func.func private @load_global_tile_32x32_f16(!sx2, index, index, index)
-      -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read)
+      -> (!future_global_read, !future_global_read)
   func.func private @store_global_tile_to_lds_32x32_f16(index,
-      !future_global_read, !future_global_read, !future_global_read, !future_global_read)
+      !future_global_read, !future_global_read)
       -> (!lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
   func.func private @wait_lds_writes_32x32(
       !lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)

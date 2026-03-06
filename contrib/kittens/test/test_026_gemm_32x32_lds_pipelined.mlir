@@ -31,11 +31,11 @@ amdgcn.module @kittens_gemm_32x32xK_lds_pipelined target = #amdgcn.target<gfx942
   func.func private @zero_C_32x32() -> !rt_C_f32
   func.func private @store_C_32x32_f32(!rt_C_f32, !sx2, index, index, index) -> !write_token
 
-  // From kittens/lds_32x32_f16.mlir (32x32 composite primitives)
+  // From kittens/lds_32x32_f16.mlir (32x32 composite primitives, dwordx4 loads)
   func.func private @load_global_tile_32x32_f16(!sx2, index, index, index)
-      -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read)
+      -> (!future_global_read, !future_global_read)
   func.func private @store_global_tile_to_lds_32x32_f16(index,
-      !future_global_read, !future_global_read, !future_global_read, !future_global_read)
+      !future_global_read, !future_global_read)
       -> (!lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
   func.func private @wait_lds_writes_32x32(
       !lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
@@ -77,23 +77,23 @@ amdgcn.module @kittens_gemm_32x32xK_lds_pipelined target = #amdgcn.target<gfx942
       %lds_b_h = amdgcn.alloc_lds 2048 {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
       %lds_B = amdgcn.get_lds_offset %lds_b_h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
 
-      %af0, %af1, %af2, %af3 = func.call @load_global_tile_32x32_f16(%A_ptr, %c0, %k_base, %stride_AB)
+      %af0, %af1 = func.call @load_global_tile_32x32_f16(%A_ptr, %c0, %k_base, %stride_AB)
           {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
           : (!sx2, index, index, index)
-          -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read)
-      %bf0, %bf1, %bf2, %bf3 = func.call @load_global_tile_32x32_f16(%B_ptr, %c0, %k_base, %stride_AB)
+          -> (!future_global_read, !future_global_read)
+      %bf0, %bf1 = func.call @load_global_tile_32x32_f16(%B_ptr, %c0, %k_base, %stride_AB)
           {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
           : (!sx2, index, index, index)
-          -> (!future_global_read, !future_global_read, !future_global_read, !future_global_read)
+          -> (!future_global_read, !future_global_read)
 
       // === Stage DS_WRITE: store global data to LDS ===
-      %at0, %at1, %at2, %at3 = func.call @store_global_tile_to_lds_32x32_f16(%lds_A, %af0, %af1, %af2, %af3)
+      %at0, %at1, %at2, %at3 = func.call @store_global_tile_to_lds_32x32_f16(%lds_A, %af0, %af1)
           {sched.stage = {{STAGE_DS_WRITE}} : i32}
-          : (index, !future_global_read, !future_global_read, !future_global_read, !future_global_read)
+          : (index, !future_global_read, !future_global_read)
           -> (!lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
-      %bt0, %bt1, %bt2, %bt3 = func.call @store_global_tile_to_lds_32x32_f16(%lds_B, %bf0, %bf1, %bf2, %bf3)
+      %bt0, %bt1, %bt2, %bt3 = func.call @store_global_tile_to_lds_32x32_f16(%lds_B, %bf0, %bf1)
           {sched.stage = {{STAGE_DS_WRITE}} : i32}
-          : (index, !future_global_read, !future_global_read, !future_global_read, !future_global_read)
+          : (index, !future_global_read, !future_global_read)
           -> (!lds_write_token, !lds_write_token, !lds_write_token, !lds_write_token)
 
       // === Stage DS_READ: wait for LDS writes, read MFMA fragments ===
