@@ -8,7 +8,7 @@ Individual configs that fail at either phase are skipped gracefully.
 Usage (partial sweep / full sweep):
     python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep
     python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --full-sweep
-    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --num-gpus 8
+    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --num-gpus 8 --compile-workers 16
 
 Usage (single config compile + run):
     python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
@@ -93,7 +93,7 @@ K_SCALING_FACTORS = [128, 256]  # K = factor * k_tiles * 16
 NUM_ITERATIONS = 5
 WARMUP_ITERATIONS = 2
 SUBPROCESS_TIMEOUT = 120  # seconds per execution
-COMPILE_WORKERS = 16  # parallel compilation processes
+COMPILE_WORKERS = 8  # parallel compilation processes
 
 # Skip the first N active configs (after excluding KNOWN_BROKEN).
 # Useful when iterating: set to the index of the last config you saw.
@@ -366,7 +366,7 @@ def _make_inputs(cfg):
     return A, B
 
 
-def bench_perf_sweep(full_sweep=False, num_gpus=None):
+def bench_perf_sweep(full_sweep=False, num_gpus=None, compile_workers=None):
     """Weak-scaling TFLOPS sweep across tile/stage/wave/workgroup configs.
 
     Phase 1: Parallel compilation (MLIR -> HSACO) using ProcessPoolExecutor.
@@ -378,6 +378,8 @@ def bench_perf_sweep(full_sweep=False, num_gpus=None):
     """
     if num_gpus is None:
         num_gpus = _detect_num_gpus()
+    if compile_workers is None:
+        compile_workers = COMPILE_WORKERS
     results = []
     failed = []
     known_broken_set = set(KNOWN_BROKEN)
@@ -413,13 +415,13 @@ def bench_perf_sweep(full_sweep=False, num_gpus=None):
         f"x {len(TILE_CONFIGS)} tile x {len(STAGE_CONFIGS)} stage"
     )
     print(f"  iterations={NUM_ITERATIONS}, warmup={WARMUP_ITERATIONS}")
-    print(f"  compile_workers={COMPILE_WORKERS}, exec_gpus={num_gpus}")
+    print(f"  compile_workers={compile_workers}, exec_gpus={num_gpus}")
     sys.stdout.flush()
 
     # -- Phase 1: Parallel compilation ---------------------------------
     hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
     print(
-        f"\n--- Phase 1: Compiling {len(active)} configs ({COMPILE_WORKERS} workers) ---"
+        f"\n--- Phase 1: Compiling {len(active)} configs ({compile_workers} workers) ---"
     )
     print(f"  hsaco_dir: {hsaco_dir}")
     sys.stdout.flush()
@@ -427,7 +429,7 @@ def bench_perf_sweep(full_sweep=False, num_gpus=None):
     hsaco_paths = {}  # label -> path
     resources_map = {}  # label -> KernelResources
     compile_failed = {}  # label -> error string
-    with ProcessPoolExecutor(max_workers=COMPILE_WORKERS) as pool:
+    with ProcessPoolExecutor(max_workers=compile_workers) as pool:
         futures = {}
         for cfg in active:
             fut = pool.submit(
@@ -654,6 +656,12 @@ if __name__ == "__main__":
         default=None,
         help="Number of GPUs for parallel execution (default: auto-detect)",
     )
+    parser.add_argument(
+        "--compile-workers",
+        type=int,
+        default=COMPILE_WORKERS,
+        help=f"Parallel compilation processes (default: {COMPILE_WORKERS})",
+    )
     # Single-config args (required unless --sweep)
     parser.add_argument("--m-wg", type=int, help="Workgroups along M")
     parser.add_argument("--n-wg", type=int, help="Workgroups along N")
@@ -688,7 +696,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     if args.full_sweep or args.sweep:
-        bench_perf_sweep(full_sweep=args.full_sweep, num_gpus=args.num_gpus)
+        bench_perf_sweep(
+            full_sweep=args.full_sweep,
+            num_gpus=args.num_gpus,
+            compile_workers=args.compile_workers,
+        )
     else:
         # Validate required args for single-config mode.
         required = [
