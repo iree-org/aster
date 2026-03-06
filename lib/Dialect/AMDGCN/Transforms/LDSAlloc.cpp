@@ -64,6 +64,9 @@ struct AllocConstraints {
   /// Clear all allocations.
   void clear();
 
+  /// Get the total bytes currently allocated.
+  int64_t getAllocatedBytes() const;
+
   /// Print the allocation constraints.
   void print(raw_ostream &os) const;
 
@@ -184,6 +187,13 @@ FailureOr<Allocation> AllocConstraints::alloc(LDSAllocNode node,
   return failure();
 }
 
+int64_t AllocConstraints::getAllocatedBytes() const {
+  int64_t total = 0;
+  for (const Allocation &alloc : allocations)
+    total += alloc.end - alloc.begin;
+  return total;
+}
+
 void AllocConstraints::print(raw_ostream &os) const {
   os << "{";
   llvm::interleaveComma(allocations, os, [&](const Allocation &alloc) {
@@ -224,7 +234,10 @@ LogicalResult LDSAllocator::alloc(LDSAllocNode node) {
   if (failed(alloc)) {
     return node.allocOp.emitError()
            << "failed to allocate LDS buffer of size " << node.size
-           << " with alignment " << node.alignment;
+           << " with alignment " << node.alignment << "; would exceed "
+           << AllocConstraints::kMaxMemory << " bytes (already allocated "
+           << constraints.getAllocatedBytes() << ", startPos=" << startPos
+           << ")";
   }
   node.allocOp.setOffset(alloc->begin);
   totalSize = std::max(totalSize, alloc->end);
