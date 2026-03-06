@@ -324,11 +324,20 @@ class AnyRegOf<list<Type> types> : AnyTypeOf<types, "register type",
   let asmPrinter = "$_printer.printOperand($_self);";
 }
 
-/// A sized SGPR range.
+/// A sized GPR range.
 class SizedGPRRange<list<Type> types, list<int> size> :
   ConfinedType<AnyRegOf<types>, [
     CPred<"::mlir::aster::amdgcn::hasSize($_self, {" # !interleave(size, ", ") # "})">
   ], "sized GPR range">, AsmArgFormat {
+  let asmParser = "$_parser.parseOperand($_self);";
+  let asmPrinter = "$_printer.printOperand($_self);";
+}
+
+/// A sized GPR range.
+class SizedGPRRangeOf<Type type, list<int> size> :
+  ConfinedType<type, [
+    CPred<"::mlir::aster::amdgcn::hasSize($_self, {" # !interleave(size, ", ") # "})">
+  ], "sized GPR range of " # type.summary>, AsmArgFormat {
   let asmParser = "$_parser.parseOperand($_self);";
   let asmPrinter = "$_printer.printOperand($_self);";
 }

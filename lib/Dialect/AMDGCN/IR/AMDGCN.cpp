@@ -910,6 +910,39 @@ LogicalResult LibraryOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// PtrAddOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+PtrAddOp::inferReturnTypes(MLIRContext *context,
+                           std::optional<Location> location, Adaptor adaptor,
+                           SmallVectorImpl<Type> &inferredReturnTypes) {
+  auto ptrType =
+      dyn_cast<AMDGCNRegisterTypeInterface>(adaptor.getPtr().getType());
+  if (!ptrType || !llvm::is_contained({RegisterKind::SGPR, RegisterKind::VGPR},
+                                      ptrType.getRegisterKind())) {
+    if (location)
+      mlir::emitError(*location)
+          << "expected ptr to be a SGPR or VGPR register type";
+    return failure();
+  }
+  // If the op has a dynamic offset, the result is always a VGPR type, otherwise
+  // it is the same as the ptr type.
+  if (adaptor.getDynamicOffset())
+    ptrType = VGPRType::get(context, ptrType.getAsRange());
+  inferredReturnTypes.push_back(ptrType);
+  return success();
+}
+
+OpFoldResult PtrAddOp::fold(FoldAdaptor adaptor) {
+  // If dynamic_offset and uniform_offset are not present and const_offset is 0,
+  // fold to the ptr.
+  if (!getDynamicOffset() && !getUniformOffset() && getConstOffset() == 0)
+    return getPtr();
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
 // WaitOp
 //===----------------------------------------------------------------------===//
 

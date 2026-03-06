@@ -49,3 +49,12 @@ func.func @lds_buffer_folding(%arg0: index) -> (!amdgcn.lds_buffer, !amdgcn.lds_
   %2 = amdgcn.alloc_lds 32
   return %0, %1, %2 : !amdgcn.lds_buffer, !amdgcn.lds_buffer, !amdgcn.lds_buffer
 }
+
+// CHECK-LABEL:   func.func @ptr_add_no_offset_fold(
+// CHECK-SAME:      %[[PTR:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           return %[[PTR]] : !amdgcn.vgpr<[? + 2]>
+// CHECK:         }
+func.func @ptr_add_no_offset_fold(%ptr: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]> {
+  %result = amdgcn.ptr_add %ptr : !amdgcn.vgpr<[? + 2]>
+  return %result : !amdgcn.vgpr<[? + 2]>
+}

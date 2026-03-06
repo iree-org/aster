@@ -445,7 +445,7 @@ func.func private @test_local_store_i64(
 
 // CHECK-LABEL:   func.func private @test_ptr_add_basic(
 // CHECK-SAME:      %[[PTR:.*]]: !amdgcn.vgpr<[? + 2]>, %[[OFF:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
-// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]], %[[OFF]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]] d_off = %[[OFF]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
 // CHECK:           return %[[RES]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
 func.func private @test_ptr_add_basic(
@@ -457,7 +457,7 @@ func.func private @test_ptr_add_basic(
 
 // CHECK-LABEL:   func.func private @test_ptr_add_with_uniform(
 // CHECK-SAME:      %[[PTR:.*]]: !amdgcn.vgpr<[? + 2]>, %[[OFF:.*]]: !amdgcn.vgpr, %[[UNI:.*]]: !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]> {
-// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]], %[[OFF]], %[[UNI]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr
+// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]] d_off = %[[OFF]] u_off = %[[UNI]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr
 // CHECK:           return %[[RES]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
 func.func private @test_ptr_add_with_uniform(
@@ -469,7 +469,7 @@ func.func private @test_ptr_add_with_uniform(
 
 // CHECK-LABEL:   func.func private @test_ptr_add_with_const_offset(
 // CHECK-SAME:      %[[PTR:.*]]: !amdgcn.vgpr<[? + 2]>, %[[OFF:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
-// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]], %[[OFF]] const_offset = 16 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]] d_off = %[[OFF]] c_off = 16 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
 // CHECK:           return %[[RES]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
 func.func private @test_ptr_add_with_const_offset(

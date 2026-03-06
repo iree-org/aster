@@ -705,41 +705,44 @@ def AMDGCN_ThreadIdOp : AMDGCN_Op<"thread_id", [Pure]> {
 
 def AMDGCN_PtrAddOp : AMDGCN_Op<"ptr_add", [
     Pure,
-    AllTypesMatch<["ptr", "result"]>
+    InferTypeOpAdaptor,
+    AttrSizedOperandSegments
   ]> {
   let summary = "Add register offsets to a pointer";
   let description = [{
     The `amdgcn.ptr_add` operation computes a new pointer by adding register
     offsets to an existing pointer. The operation supports multiple offset
     components:
-    - `offset`: A dynamic (potentially non-uniform) register offset (VGPR)
+    - `dynamic_offset`: An optional dynamic (potentially non-uniform) register offset (VGPR)
     - `uniform_offset`: An optional uniform register offset (SGPR)
     - `const_offset`: A constant offset attribute (defaults to 0)
 
     The final address is computed as:
-      result = ptr + offset + uniform_offset + const_offset
+      result = ptr + dynamic_offset + uniform_offset + const_offset
 
     This operation is similar to `aster_utils.ptr_add` but operates on
     AMDGCN register types instead of integer values.
 
     Example:
     ```mlir
-    %new_ptr = amdgcn.ptr_add %ptr, %vgpr_offset : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr
-    %new_ptr = amdgcn.ptr_add %ptr, %vgpr_offset, %sgpr_offset : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr
-    %new_ptr = amdgcn.ptr_add %ptr, %vgpr_offset const_offset = 16 : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr
+    %new_ptr = amdgcn.ptr_add %ptr : !amdgcn.vgpr_range<[? + 2]>
+    %new_ptr = amdgcn.ptr_add %ptr d_off = %vgpr_offset : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr
+    %new_ptr = amdgcn.ptr_add %ptr d_off = %vgpr_offset u_off = %sgpr_offset : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr
+    %new_ptr = amdgcn.ptr_add %ptr d_off = %vgpr_offset c_off = 16 : !amdgcn.vgpr_range<[? + 2]>, !amdgcn.vgpr
     ```
   }];
   let arguments = (ins
-    AnyRegOf<[SGPRType, VGPRType]>:$ptr,
-    VGPRType:$offset,
-    Optional<SGPRType>:$uniform_offset,
+    AnyRegOf<[SizedGPRRangeOf<SGPRType, [2]>, SizedGPRRangeOf<VGPRType, [1, 2]>]>:$ptr,
+    Optional<SizedGPRRangeOf<VGPRType, [1]>>:$dynamic_offset,
+    Optional<SizedGPRRangeOf<SGPRType, [1]>>:$uniform_offset,
     DefaultValuedAttr<I64Attr, "0">:$const_offset
   );
   let results = (outs AnyRegOf<[SGPRType, VGPRType]>:$result);
   let assemblyFormat = [{
-    $ptr `,` $offset (`,` $uniform_offset^)? (`const_offset` `=` $const_offset^)?
-    attr-dict `:` type($ptr) `,` type($offset) (`,` type($uniform_offset)^)?
+    $ptr (`d_off` `=` $dynamic_offset^)? (`u_off` `=` $uniform_offset^)? (`c_off` `=` $const_offset^)?
+    attr-dict `:` type(operands)
   }];
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//

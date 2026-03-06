@@ -15,6 +15,7 @@
 #include "aster/CodeGen/CodeGen.h"
 #include "aster/Dialect/AMDGCN/CodeGen/CodeGen.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
@@ -253,13 +254,19 @@ PtrAddOpPattern::matchAndRewrite(aster_utils::PtrAddOp op, OpAdaptor adaptor,
                                  ConversionPatternRewriter &rewriter) const {
   // Get the converted operands.
   Value ptr = adaptor.getPtr();
-  Value offset = adaptor.getOffset();
+  Value dynamicOffset = adaptor.getOffset();
   Value uniformOffset = adaptor.getUniformOffset();
   int64_t constOffset = op.getConstOffset();
+  if (dynamicOffset && !isVGPR(dynamicOffset.getType(), 1))
+    return rewriter.notifyMatchFailure(op,
+                                       "dynamic offset must be a VGPR type");
+  if (uniformOffset && !isSGPR(uniformOffset.getType(), 1))
+    return rewriter.notifyMatchFailure(op,
+                                       "uniform offset must be a SGPR type");
 
   // Create the AMDGCN ptr_add operation.
-  rewriter.replaceOpWithNewOp<amdgcn::PtrAddOp>(op, ptr.getType(), ptr, offset,
-                                                uniformOffset, constOffset);
+  rewriter.replaceOpWithNewOp<amdgcn::PtrAddOp>(
+      op, ptr.getType(), ptr, dynamicOffset, uniformOffset, constOffset);
   return success();
 }
 
