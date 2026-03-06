@@ -12,6 +12,8 @@
 #include "aster/Interfaces/ModuleOpInterface.h"
 #include "aster/Interfaces/UpstreamExternalModels.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinDialect.h"
@@ -140,6 +142,47 @@ struct ModuleOpModuleOpInterfaceImpl
                                               mlir::ModuleOp> {
   // No methods to implement - this is a marker interface.
 };
+
+//===----------------------------------------------------------------------===//
+// MemorySpaceAttrInterface implementation for gpu::AddressSpaceAttr
+//===----------------------------------------------------------------------===//
+
+/// External model for gpu::AddressSpaceAttr implementing
+/// ptr::MemorySpaceAttrInterface. Allows all operations (load, store, atomic,
+/// addrspace cast, ptr-int cast).
+struct GPUAddressSpaceAttrMemorySpaceInterfaceImpl
+    : public ptr::MemorySpaceAttrInterface::ExternalModel<
+          GPUAddressSpaceAttrMemorySpaceInterfaceImpl, gpu::AddressSpaceAttr> {
+  bool isValidLoad(Attribute, Type, ptr::AtomicOrdering, std::optional<int64_t>,
+                   const DataLayout *,
+                   function_ref<InFlightDiagnostic()>) const {
+    return true;
+  }
+  bool isValidStore(Attribute, Type, ptr::AtomicOrdering,
+                    std::optional<int64_t>, const DataLayout *,
+                    function_ref<InFlightDiagnostic()>) const {
+    return true;
+  }
+  bool isValidAtomicOp(Attribute, ptr::AtomicBinOp, Type, ptr::AtomicOrdering,
+                       std::optional<int64_t>, const DataLayout *,
+                       function_ref<InFlightDiagnostic()>) const {
+    return true;
+  }
+  bool isValidAtomicXchg(Attribute, Type, ptr::AtomicOrdering,
+                         ptr::AtomicOrdering, std::optional<int64_t>,
+                         const DataLayout *,
+                         function_ref<InFlightDiagnostic()>) const {
+    return true;
+  }
+  bool isValidAddrSpaceCast(Attribute, Type, Type,
+                            function_ref<InFlightDiagnostic()>) const {
+    return true;
+  }
+  bool isValidPtrIntCast(Attribute, Type, Type,
+                         function_ref<InFlightDiagnostic()>) const {
+    return true;
+  }
+};
 } // namespace
 
 void mlir::aster::registerUpstreamExternalModels(DialectRegistry &registry) {
@@ -149,5 +192,10 @@ void mlir::aster::registerUpstreamExternalModels(DialectRegistry &registry) {
   });
   registry.addExtension(+[](MLIRContext *ctx, BuiltinDialect *dialect) {
     mlir::ModuleOp::attachInterface<ModuleOpModuleOpInterfaceImpl>(*ctx);
+  });
+  registry.insert<gpu::GPUDialect>();
+  registry.addExtension(+[](MLIRContext *ctx, gpu::GPUDialect *dialect) {
+    gpu::AddressSpaceAttr::attachInterface<
+        GPUAddressSpaceAttrMemorySpaceInterfaceImpl>(*ctx);
   });
 }
