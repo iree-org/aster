@@ -17,3 +17,26 @@ func.func @sop1_mov_immediate(%sdst: !amdgcn.sgpr) -> !amdgcn.sgpr {
     : !amdgcn.sgpr, i32
   return %result : !amdgcn.sgpr
 }
+
+func.func @sop1_mov_to_m0(%m0: !amdgcn.m0, %src: !amdgcn.sgpr) {
+  // s_mov_b32 - SOP1 move SGPR value to M0 register.
+  // M0 has Allocated semantics (fixed physical register), so no SSA result.
+  amdgcn.sop1 s_mov_b32 outs %m0 ins %src
+    : !amdgcn.m0, !amdgcn.sgpr
+  return
+}
+
+func.func @sop1_mov_imm_to_m0(%m0: !amdgcn.m0) {
+  // s_mov_b32 - SOP1 move immediate to M0 register
+  %imm = arith.constant 1024 : i32
+  amdgcn.sop1 s_mov_b32 outs %m0 ins %imm
+    : !amdgcn.m0, i32
+  return
+}
+
+func.func @sop1_mov_m0_to_sgpr(%sdst: !amdgcn.sgpr, %m0: !amdgcn.m0) -> !amdgcn.sgpr {
+  // s_mov_b32 - SOP1 read M0 back into an SGPR
+  %result = amdgcn.sop1 s_mov_b32 outs %sdst ins %m0
+    : !amdgcn.sgpr, !amdgcn.m0
+  return %result : !amdgcn.sgpr
+}

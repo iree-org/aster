@@ -21,8 +21,13 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 // SOP1Op Operation
 //===----------------------------------------------------------------------===//
 
-def SOP1SSrc : RegOrImm<[SGPRType], [I32]>;
-def SOP1SDst : AnyRegOf<[SGPRType]>;
+def SOP1SSrc : RegOrImm<[SGPRType, SReg<"M0">], [I32]>;
+def SOP1SDst : AnyTypeOf<[SGPRType, SReg<"M0">], "scalar destination",
+    "::mlir::aster::amdgcn::AMDGCNRegisterTypeInterface"
+  >, AsmArgFormat {
+  let asmParser = "$_parser.parseOperand($_self);";
+  let asmPrinter = "$_printer.printOperand($_self);";
+}
 
 def SOP1Op : AMDGCN_InstOp<"sop1", [PureInst, InstInferType]> {
   let summary = "SOP1 (Scalar Operations with 1 operands) operation";
