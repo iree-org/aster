@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
@@ -54,7 +55,8 @@ static bool isWorkgroupUniform(Operation *op) {
   if (isa<gpu::BlockDimOp, gpu::BlockIdOp, aster_utils::GridDimOp,
           aster_utils::BlockIdOp, aster_utils::BlockDimOp,
           lsir::AssumeNoaliasOp, aster_utils::AssumeRangeOp,
-          aster_utils::AssumeUniformOp>(op))
+          aster_utils::AssumeUniformOp, aster_utils::PtrAddOp, ptr::PtrAddOp>(
+          op))
     return true;
   if (isa<affine::AffineDialect>(op->getDialect()))
     return !isa<affine::AffineDmaStartOp, affine::AffineDmaWaitOp>(op);
