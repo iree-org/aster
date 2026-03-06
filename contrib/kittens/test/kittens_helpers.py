@@ -52,6 +52,7 @@ def run_kittens_kernel(
     block_dim=(64, 1, 1),
     num_iterations=1,
     print_ir_after_all=False,
+    library_paths=None,
 ):
     """Compile an MLIR file to HSACO and execute the kernel on GPU."""
     preprocess = None
@@ -63,6 +64,9 @@ def run_kittens_kernel(
                 content = content.replace(pattern, replacement)
             return content
 
+    if library_paths is None:
+        library_paths = get_kittens_library_paths()
+
     return _compile_and_run(
         file_name=mlir_file,
         kernel_name=kernel_name,
@@ -70,7 +74,7 @@ def run_kittens_kernel(
         output_data=output_args,
         pass_pipeline=pass_pipeline,
         preprocess=preprocess,
-        library_paths=get_kittens_library_paths(),
+        library_paths=library_paths,
         mcpu=MCPU,
         wavefront_size=WAVEFRONT_SIZE,
         grid_dim=grid_dim,
@@ -124,6 +128,24 @@ def pipelined_substitutions(k, num_stages):
         "{{STAGE_LOAD}}": str(stage_load),
         "{{STAGE_SYNC}}": str(stage_sync),
         "{{STAGE_COMPUTE}}": str(stage_compute),
+    }
+
+
+def pipelined_substitutions_32x32(k, num_stages, k_per_tile=8):
+    """Build template substitutions for pipelined 32x32x8 GEMM tests.
+
+    k_per_tile: K elements per outer loop iteration (8 for 32x8 tiles, 32 for 32x32 tiles).
+    """
+    k_tiles = k // k_per_tile
+    stride_ab = k * 2
+    stage_gl, stage_dw, stage_dr, stage_c = PIPELINE_STAGE_CONFIGS_4[num_stages]
+    return {
+        "{{K_TILES}}": str(k_tiles),
+        "{{STRIDE_AB}}": str(stride_ab),
+        "{{STAGE_GLOBAL_LOAD}}": str(stage_gl),
+        "{{STAGE_DS_WRITE}}": str(stage_dw),
+        "{{STAGE_DS_READ}}": str(stage_dr),
+        "{{STAGE_COMPUTE}}": str(stage_c),
     }
 
 
@@ -253,6 +275,49 @@ def _make_fp8_inputs(M, K, seed=42):
     A_f32 = (np.random.randn(M, K) * 0.5).astype(np.float32)
     A_fp8 = float_to_fp8_e4m3fnuz(A_f32)
     return A_fp8
+
+
+def get_kittens_32x32_library_paths() -> List[str]:
+    """Get paths to all required library files including 32x32 kittens."""
+    base_paths = get_library_paths()
+    kittens_dir = os.path.join(os.path.dirname(__file__), "..", "library")
+    kittens_paths = [
+        os.path.join(kittens_dir, "global_32x32_f16.mlir"),
+        os.path.join(kittens_dir, "lds_32x32_f16.mlir"),
+    ]
+    return base_paths + kittens_paths
+
+
+def constexpr_substitutions_32x32(m_tiles, n_tiles, k, num_stages):
+    """Build scalar-only template substitutions for constexpr 32x32x8 multi-tile GEMM.
+
+    Like constexpr_substitutions but for v_mfma_f32_32x32x8_f16:
+      - 32x32 transfer tiles: K=32 per outer iteration (4 MFMAs each)
+      - M/N per tile = 32 (was 16)
+    """
+    mn = m_tiles * n_tiles
+    k_tiles = k // 32  # 32x32 transfer tiles: K=32 per tile
+    stride_ab = k * 2
+    stride_c = n_tiles * 32 * 4  # 32 cols per tile, f32 = 4 bytes
+    shared_mem = 0
+    stage_gl, stage_dw, stage_dr, stage_c = PIPELINE_STAGE_CONFIGS_4[num_stages]
+
+    return {
+        "{{M_T}}": str(m_tiles),
+        "{{N_T}}": str(n_tiles),
+        "{{MN}}": str(mn),
+        "{{M_DIM}}": str(m_tiles * 32),
+        "{{N_DIM}}": str(n_tiles * 32),
+        "{{K}}": str(k),
+        "{{K_TILES}}": str(k_tiles),
+        "{{STRIDE_AB}}": str(stride_ab),
+        "{{STRIDE_C}}": str(stride_c),
+        "{{SHARED_MEM}}": str(shared_mem),
+        "{{STAGE_GLOBAL_LOAD}}": str(stage_gl),
+        "{{STAGE_DS_WRITE}}": str(stage_dw),
+        "{{STAGE_DS_READ}}": str(stage_dr),
+        "{{STAGE_COMPUTE}}": str(stage_c),
+    }
 
 
 def constexpr_substitutions(m_tiles, n_tiles, k, num_stages):

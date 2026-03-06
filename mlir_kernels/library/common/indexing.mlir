@@ -258,6 +258,44 @@ amdgcn.library @common_indexing {
   }
 
   //===--------------------------------------------------------------------===//
+  // 32x32x8 MFMA indexing functions (CDNA3/4)
+  //===--------------------------------------------------------------------===//
+
+  // MFMA indexing for A 32x32x8 f16 fragment.
+  // Lane l holds row l%32 of A, cols [(l/32)*4, (l/32)*4+3].
+  // Returns (row, col_start).
+  func.func private @mfma_index_A_32x32xf16() -> !index_pair {
+    %lane_id = func.call @lane_id() : () -> index
+    %row = affine.apply affine_map<()[lid] -> (lid mod 32)>()[%lane_id]
+    %col = affine.apply affine_map<()[lid] -> ((lid floordiv 32) * 4)>()[%lane_id]
+    %result = aster_utils.struct_create(%row, %col) : (index, index) -> !index_pair
+    return %result : !index_pair
+  }
+
+  // MFMA indexing for B 32x32x8 f16 fragment.
+  // Same physical layout as A; returns (col, row) for transposed access.
+  func.func private @mfma_index_B_32x32xf16() -> !index_pair {
+    %lane_id = func.call @lane_id() : () -> index
+    %row = affine.apply affine_map<()[lid] -> (lid mod 32)>()[%lane_id]
+    %col = affine.apply affine_map<()[lid] -> ((lid floordiv 32) * 4)>()[%lane_id]
+    %result = aster_utils.struct_create(%col, %row) : (index, index) -> !index_pair
+    return %result : !index_pair
+  }
+
+  // MFMA indexing for C/D 32x32 f32 output fragment.
+  // Returns (col_pos, row_base) where:
+  //   col_pos = lane_id % 32 (column in output matrix)
+  //   row_base = (lane_id / 32) * 4 (0 for lanes 0-31, 4 for lanes 32-63)
+  // Full row for register r: row_base + 8*(r/4) + r%4
+  func.func private @mfma_index_C_32x32xf32() -> !index_pair {
+    %lane_id = func.call @lane_id() : () -> index
+    %col = affine.apply affine_map<()[lid] -> (lid mod 32)>()[%lane_id]
+    %row_base = affine.apply affine_map<()[lid] -> ((lid floordiv 32) * 4)>()[%lane_id]
+    %result = aster_utils.struct_create(%col, %row_base) : (index, index) -> !index_pair
+    return %result : !index_pair
+  }
+
+  //===--------------------------------------------------------------------===//
   // LDS bank computation functions for debugging bank conflicts.
   // AMD GPUs have 32 banks with 2 bytes per bank (64-byte bank cycle).
   // For a byte at address A: bank = (A / 2) % 32

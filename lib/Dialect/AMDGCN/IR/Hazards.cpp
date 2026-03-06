@@ -71,7 +71,9 @@ static int16_t getMfmaPassCase(OpCode op) {
   case OpCode::V_MFMA_F32_16X16X32_BF8_FP8:
   case OpCode::V_MFMA_F32_16X16X32_BF8_BF8:
     return 1; // 4 passes
-  // 32 cycles -> 8 passes (case 2), per Table 28: 32x32x16; 32x32x64 scaled
+  // 32 cycles -> 8 passes (case 2), per Table 28: 32x32x8, 32x32x16; 32x32x64
+  // scaled
+  case OpCode::V_MFMA_F32_32X32X8_F16:
   case OpCode::V_MFMA_SCALE_F32_32X32X64_F8F6F4:
     return 2; // 8 passes
   // 64 cycles -> 16 passes (case 3), 16x16x128 has 4x K of 16x16x32
