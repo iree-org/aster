@@ -121,8 +121,8 @@ ALL_TESTS = [
     ("gemm_fp8_lds_1buf_k64",                    FP8LDS().test_gemm_fp8_lds_1buf,                 [], {"k": 64}),
     ("gemm_fp8_lds_1buf_k128",                   FP8LDS().test_gemm_fp8_lds_1buf,                 [], {"k": 128}),
     # Weak-scaling correctness (representative configs)
-    ("ws_correctness_1x1_2s",                    WSCorr().test_correctness,                       [], {"m_tiles": 1, "n_tiles": 1, "num_stages": 2}),
-    ("ws_correctness_4x4_3s",                    WSCorr().test_correctness,                       [], {"m_tiles": 4, "n_tiles": 4, "num_stages": 3}),
+    ("ws_correctness_2x2_2s",                    WSCorr().test_correctness,                       [], {"m_wg": 1, "n_wg": 1, "m_waves": 1, "n_waves": 1, "m_tiles_wg": 2, "n_tiles_wg": 2, "num_stages": 2}),
+    ("ws_correctness_4x4_3s",                    WSCorr().test_correctness,                       [], {"m_wg": 1, "n_wg": 1, "m_waves": 2, "n_waves": 2, "m_tiles_wg": 4, "n_tiles_wg": 4, "num_stages": 3}),
     # Weak-scaling perf sweep (runs all 24 configs)
     ("ws_perf_sweep",                            _bench_perf_sweep,                               [], {}),
 ]

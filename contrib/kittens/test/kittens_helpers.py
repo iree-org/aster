@@ -19,6 +19,7 @@ from mlir_kernels.common import get_library_paths
 
 # Test configuration
 MCPU = "gfx942"
+LDS_SIZE = 2**16
 WAVEFRONT_SIZE = 64
 
 
@@ -90,6 +91,7 @@ def _make_gemm_inputs(K):
 PIPELINE_STAGE_CONFIGS = {
     # num_stages: (STAGE_LOAD, STAGE_SYNC, STAGE_COMPUTE)
     # Used by 3-stage templates (test_014 through test_019).
+    1: (0, 0, 0),
     2: (0, 1, 1),
     3: (0, 1, 2),
     4: (0, 2, 3),
@@ -101,6 +103,7 @@ PIPELINE_STAGE_CONFIGS_4 = {
     # 4-stage split: separates global load from DS write for better pipelining.
     # For 2/3-stage, DS_WRITE == GLOBAL_LOAD (combined load + store can't split).
     # For 4+, all 4 stages are distinct.
+    1: (0, 0, 0, 0),
     2: (0, 1, 1, 1),
     3: (0, 1, 2, 2),
     4: (0, 1, 2, 3),
