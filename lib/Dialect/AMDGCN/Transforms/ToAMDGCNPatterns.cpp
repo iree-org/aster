@@ -15,6 +15,8 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNRegisterTypeInterface.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
@@ -24,16 +26,9 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Ptr/IR/PtrTypes.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Types.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
-#include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 
@@ -262,6 +257,16 @@ struct TimingStopOpPattern : public OpRewritePattern<lsir::TimingStopOp> {
 struct WaitOpPattern : public OpRewritePattern<lsir::WaitOp> {
   using Base::Base;
   LogicalResult matchAndRewrite(lsir::WaitOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
+// PtrAddOpPattern
+//===----------------------------------------------------------------------===//
+
+struct PtrAddOpPattern : public OpRewritePattern<PtrAddOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(PtrAddOp op,
                                 PatternRewriter &rewriter) const override;
 };
 } // namespace
@@ -1728,6 +1733,139 @@ LogicalResult WaitOpPattern::matchAndRewrite(lsir::WaitOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// PtrAddOpPattern
+//===----------------------------------------------------------------------===//
+
+/// Create ptr + offset with sign-extension to i64.
+static Value addPtrWithSignExtend(PatternRewriter &rewriter, Location loc,
+                                  Value ptr, Value offset,
+                                  RegisterTypeInterface resultTy,
+                                  RegisterTypeInterface extDstTy) {
+  auto i64Semantics = TypeAttr::get(rewriter.getI64Type());
+  auto i32Semantics = TypeAttr::get(rewriter.getI32Type());
+  Value extDst = createAllocation(rewriter, loc, extDstTy);
+  Value extVal = lsir::ExtSIOp::create(rewriter, loc, i64Semantics,
+                                       i32Semantics, extDst, offset)
+                     .getDstRes();
+  Value addDst = createAllocation(rewriter, loc, resultTy);
+  return lsir::AddIOp::create(rewriter, loc, i64Semantics, addDst, ptr, extVal)
+      .getDstRes();
+}
+
+/// Create ptr + offset (no extension, i32).
+static Value addPtrNoExtend(PatternRewriter &rewriter, Location loc, Value ptr,
+                            Value offset, RegisterTypeInterface resultTy) {
+  auto i32Semantics = TypeAttr::get(rewriter.getI32Type());
+  Value addDst = createAllocation(rewriter, loc, resultTy);
+  return lsir::AddIOp::create(rewriter, loc, i32Semantics, addDst, ptr, offset)
+      .getDstRes();
+}
+
+LogicalResult
+PtrAddOpPattern::matchAndRewrite(PtrAddOp op, PatternRewriter &rewriter) const {
+  TypedValue<AMDGCNRegisterTypeInterface> ptr = op.getPtr();
+  TypedValue<VGPRType> dynamicOffset = op.getDynamicOffset();
+  TypedValue<SGPRType> uniformOffset = op.getUniformOffset();
+  int64_t constOffset = op.getConstOffset();
+
+  // Bail if the offsets are not 32-bit.
+  if (uniformOffset && uniformOffset.getType().getAsRange().size() != 1) {
+    return rewriter.notifyMatchFailure(
+        op, "uniform offset must have register size 1");
+  }
+  if (dynamicOffset && dynamicOffset.getType().getAsRange().size() != 1) {
+    return rewriter.notifyMatchFailure(
+        op, "dynamic offset must have register size 1");
+  }
+
+  // Trivial case: no offsets.
+  if (!dynamicOffset && !uniformOffset && constOffset == 0) {
+    rewriter.replaceOp(op, ptr);
+    return success();
+  }
+
+  // Get the types and context.
+  AMDGCNRegisterTypeInterface ptrTy = ptr.getType();
+  Location loc = op.getLoc();
+  MLIRContext *ctx = rewriter.getContext();
+  RegisterTypeInterface resultTy = op.getResult().getType();
+  bool ptrIsSGPR = ptrTy.getRegisterKind() == RegisterKind::SGPR;
+  auto i32Semantics = TypeAttr::get(rewriter.getI32Type());
+
+  // Compute uniform + const (i32) or null.
+  Value uniformVal;
+  if (uniformOffset && constOffset != 0) {
+    Value cst =
+        getI32Constant(rewriter, loc, static_cast<int32_t>(constOffset));
+    Value dst = createAllocation(rewriter, loc, getSGPR(ctx, 1));
+    uniformVal = lsir::AddIOp::create(rewriter, loc, i32Semantics, dst,
+                                      uniformOffset, cst)
+                     .getDstRes();
+  } else if (uniformOffset) {
+    uniformVal = uniformOffset;
+  } else if (constOffset != 0) {
+    uniformVal =
+        getI32Constant(rewriter, loc, static_cast<int32_t>(constOffset));
+  }
+
+  // If ptr is SGPR, compute (ptr + signExtendToI64(uniform + const)) + dynamic.
+  // TODO: Add flags to `ptr_add` as we then could avoid sign extension.
+  if (ptrIsSGPR) {
+    Value base = ptr;
+    if (uniformVal) {
+      // If the offset is a signless integer, we need to put it in an SGPR.
+      if (uniformVal.getType().isSignlessInteger()) {
+        Value alloc = createAllocation(rewriter, loc, getSGPR(ctx, 1));
+        uniformVal =
+            lsir::MovOp::create(rewriter, loc, alloc, uniformVal).getDstRes();
+      }
+      base = addPtrWithSignExtend(rewriter, loc, base, uniformVal, ptrTy,
+                                  getSGPR(ctx, 2));
+    }
+    if (dynamicOffset) {
+      base = addPtrWithSignExtend(rewriter, loc, base, dynamicOffset, resultTy,
+                                  getVGPR(ctx, 2));
+    }
+    rewriter.replaceOp(op, base);
+    return success();
+  }
+
+  // The ptr is a VGPR, compute (ptr + ((uniform + const) + dynamic)).
+  Value offsetVal = uniformVal;
+
+  if (offsetVal && dynamicOffset) {
+    offsetVal =
+        lsir::AddIOp::create(rewriter, loc, i32Semantics,
+                             createAllocation(rewriter, loc, getVGPR(ctx, 1)),
+                             offsetVal, dynamicOffset)
+            .getDstRes();
+  } else if (dynamicOffset) {
+    offsetVal = dynamicOffset;
+  }
+  assert(offsetVal && "offsetVal must be non-null");
+
+  // If the ptr is a single VGPR we do a simple addition without sign extension.
+  if (ptrTy.getAsRange().size() == 1) {
+    Value result = addPtrNoExtend(rewriter, loc, ptr, offsetVal, resultTy);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+  // If the offset is a signless integer, we need to put it in an SGPR.
+  if (offsetVal.getType().isSignlessInteger()) {
+    Value alloc = createAllocation(rewriter, loc, getSGPR(ctx, 1));
+    offsetVal =
+        lsir::MovOp::create(rewriter, loc, alloc, offsetVal).getDstRes();
+  }
+
+  // Compute the result.
+  Value result = addPtrWithSignExtend(rewriter, loc, ptr, offsetVal, resultTy,
+                                      getVGPR(ctx, 2));
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ToAMDGCNPass patterns
 //===----------------------------------------------------------------------===//
 
@@ -1736,7 +1874,8 @@ void mlir::aster::amdgcn::populateToAMDGCNPatterns(
   patterns.add<AddIOpPattern, AllocaOpPattern, AssumeNoaliasOpPattern,
                AndIOpPattern, ExtSIOpPattern, ExtUIOpPattern, KernelOpPattern,
                LoadOpPattern, MovOpPattern, MulIOpPattern, OrIOpPattern,
-               XOrIOpPattern, RegCastOpPattern, ReturnOpPattern, ShLIOpPattern,
-               ShRSIOpPattern, ShRUIOpPattern, StoreOpPattern, SubIOpPattern,
-               WaitOpPattern>(patterns.getContext());
+               PtrAddOpPattern, XOrIOpPattern, RegCastOpPattern,
+               ReturnOpPattern, ShLIOpPattern, ShRSIOpPattern, ShRUIOpPattern,
+               StoreOpPattern, SubIOpPattern, WaitOpPattern>(
+      patterns.getContext());
 }

@@ -11,6 +11,7 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/PDL/IR/PDL.h"
 #include "mlir/Dialect/PDLInterp/IR/PDLInterp.h"
