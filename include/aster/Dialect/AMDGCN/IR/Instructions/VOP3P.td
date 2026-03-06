@@ -173,6 +173,38 @@ class MFMAInst<string _mnemonic, string sym, int aRegs, int bRegs, int cRegs,
   )>;
 }
 
+//===----------------------------------------------------------------------===//
+// 32x32 MFMA Instructions (f16)
+//===----------------------------------------------------------------------===//
+// 32x32 MFMA: larger tile sizes that compute 4x more FLOPs per instruction
+// compared to 16x16 variants. Use 16 accumulator registers per lane.
+//
+// Lane-to-element mapping for 32x32 accumulator (16 VGPRs):
+//   row = lane_id % 32
+//   col = (lane_id / 32) * 16 + agpr_index
+
+def V_MFMA_F32_32X32X8_F16 : MFMAInst<
+  /*mnemonic=*/"v_mfma_f32_32x32x8_f16", /*symbol=*/"v_mfma_f32_32x32x8_f16",
+  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/16, /*dstRegs=*/16, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "MFMA f32 32x32x8 with f16 inputs";
+  let description = [{
+    MFMA instruction performing 32x32x8 matrix multiply-accumulate with
+    f16 inputs and f32 accumulator. 16-pass instruction using 16 accumulator
+    registers per lane. Available on both CDNA3 and CDNA4.
+  }];
+}
+
+def V_MFMA_F32_32X32X16_F16 : MFMAInst<
+  /*mnemonic=*/"v_mfma_f32_32x32x16_f16", /*symbol=*/"v_mfma_f32_32x32x16_f16",
+  /*aRegs=*/8, /*bRegs=*/8, /*cRegs=*/16, /*dstRegs=*/16, /*isa=*/[CDNA4]> {
+  let summary = "MFMA f32 32x32x16 with f16 inputs (CDNA4)";
+  let description = [{
+    MFMA instruction performing 32x32x16 matrix multiply-accumulate with
+    f16 inputs and f32 accumulator. 16-pass instruction using 16 accumulator
+    registers and 8 input VGPRs per operand. CDNA4-only.
+  }];
+}
+
 def V_MFMA_F32_16X16X16_F16 : MFMAInst<
   /*mnemonic=*/"v_mfma_f32_16x16x16_f16", /*symbol=*/"v_mfma_f32_16x16x16_f16",
   /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {

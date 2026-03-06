@@ -137,3 +137,27 @@ func.func @test_scaled_mfma_all_modifiers(
       -> !amdgcn.vgpr<[? + 4]>
   return
 }
+
+//===----------------------------------------------------------------------===//
+// CDNA4 32x32x16 MFMA (f16 inputs, f32 accumulator)
+//===----------------------------------------------------------------------===//
+// v_mfma_f32_32x32x16_f16 is CDNA4-only. 16-pass instruction with 8 input
+// VGPRs per operand and 16 accumulator VGPRs.
+
+func.func @test_mfma_32x32x16_f16_basic(
+    %a: !amdgcn.vgpr<[? + 8]>, %b: !amdgcn.vgpr<[? + 8]>,
+    %c: !amdgcn.vgpr<[? + 16]>, %dst: !amdgcn.vgpr<[? + 16]>) {
+  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x16_f16> %dst, %a, %b, %c
+      : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 16]>
+    -> !amdgcn.vgpr<[? + 16]>
+  return
+}
+
+func.func @test_mfma_32x32x16_f16_agpr(
+    %a: !amdgcn.vgpr<[? + 8]>, %b: !amdgcn.vgpr<[? + 8]>,
+    %c: !amdgcn.agpr<[? + 16]>, %dst: !amdgcn.agpr<[? + 16]>) {
+  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x16_f16> %dst, %a, %b, %c
+      : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.agpr<[? + 16]>
+    -> !amdgcn.agpr<[? + 16]>
+  return
+}

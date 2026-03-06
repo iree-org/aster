@@ -14,6 +14,26 @@ func.func @test_vop3p_mai_basic(%a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? +
   return
 }
 
+// 32x32x8 f16 MFMA - CDNA3+CDNA4 (16 accumulator VGPRs)
+func.func @test_vop3p_mai_32x32x8_f16(
+    %a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>,
+    %c: !amdgcn.vgpr<[? + 16]>, %dst: !amdgcn.vgpr<[? + 16]>) {
+  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x8_f16> %dst, %a, %b, %c
+      : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 16]>
+    -> !amdgcn.vgpr<[? + 16]>
+  return
+}
+
+// 32x32x8 f16 MFMA with AGPR accumulators
+func.func @test_vop3p_mai_32x32x8_f16_agpr(
+    %a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>,
+    %c: !amdgcn.agpr<[? + 16]>, %dst: !amdgcn.agpr<[? + 16]>) {
+  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x8_f16> %dst, %a, %b, %c
+      : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 16]>
+    -> !amdgcn.agpr<[? + 16]>
+  return
+}
+
 func.func @test_vop3p_mai_with_agprs(%a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>, %c: !amdgcn.agpr<[? + 4]>, %dst: !amdgcn.agpr<[? + 4]>) {
   %result = "amdgcn.vop3p.vop3p_mai"(%dst, %a, %b, %c) {
     opcode = #amdgcn.inst<v_mfma_f32_16x16x16_f16>,
