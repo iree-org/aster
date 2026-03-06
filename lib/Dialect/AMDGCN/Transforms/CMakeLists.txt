@@ -12,6 +12,7 @@ add_mlir_library(AMDGCNTransforms
   LegalizeCF.cpp
   LegalizeOperands.cpp
   Mem2Reg.cpp
+  OptimizeAMDGCN.cpp
   OptimizeInterferenceGraph.cpp
   Pipelines.cpp
   PreloadLibrary.cpp
