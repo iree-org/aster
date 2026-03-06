@@ -624,13 +624,16 @@ KernelOpPattern::matchAndRewrite(FunctionOpInterface op,
   Block *entry = &kOp.getBodyRegion().front();
   // Replace arguments with LoadArgOps
   rewriter.setInsertionPointToStart(entry);
-  for (auto [i, arg] : llvm::reverse(llvm::enumerate(entry->getArguments()))) {
+  int64_t numArgs = op.getNumArguments();
+  for (auto [i, arg] : llvm::enumerate(llvm::reverse(entry->getArguments()))) {
+    int64_t idx = numArgs - i - 1;
+    assert(idx >= 0 && idx < numArgs && "invalid argument index");
     if (arg.use_empty())
       continue;
-    Value rA = LoadArgOp::create(rewriter, op.getLoc(), arg.getType(), i);
+    Value rA = LoadArgOp::create(rewriter, op.getLoc(), arg.getType(), idx);
     rewriter.replaceAllUsesWith(arg, rA);
   }
-  entry->eraseArguments(0, op.getNumArguments());
+  entry->eraseArguments(0, numArgs);
 
   // Replace the function op with the kernel op
   rewriter.replaceOp(op, kOp);

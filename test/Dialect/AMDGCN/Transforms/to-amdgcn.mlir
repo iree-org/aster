@@ -1,4 +1,4 @@
-// RUN: aster-opt %s -aster-to-amdgcn | FileCheck %s
+// RUN: aster-opt %s -aster-to-amdgcn --split-input-file | FileCheck %s
 
 // CHECK-LABEL:   func.func @test_assume_noalias(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 2]>, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>) {
@@ -1324,4 +1324,33 @@ func.func @ptr_add_vgpr_i64_all(%ptr: !amdgcn.vgpr<[? + 2]>, %d_off: !amdgcn.vgp
 func.func @ptr_add_sgpr_i64_all(%ptr: !amdgcn.sgpr<[? + 2]>, %d_off: !amdgcn.vgpr, %u_off: !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]> {
   %0 = amdgcn.ptr_add %ptr d_off = %d_off u_off = %u_off c_off = 8 : !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr
   return %0 : !amdgcn.vgpr<[? + 2]>
+}
+
+// -----
+
+// This test checks a regression where the arguments where getting invalid indices.
+// CHECK-LABEL: kernel @test_load
+// CHECK: load_arg 0 : !amdgcn.sgpr<[? + 2]>
+module attributes {dlti.dl_spec = #dlti.dl_spec<!ptr.ptr<#amdgcn.addr_space<local, read_write>> = #ptr.spec<size = 32, abi = 32, preferred = 32>, !ptr.ptr<#amdgcn.addr_space<global, read_write>> = #ptr.spec<size = 64, abi = 64, preferred = 64>>} {
+  amdgcn.module @test_module target = <gfx942> isa = <cdna3> {
+    func.func @test_load(%arg0: !amdgcn.sgpr<[? + 2]>) attributes {gpu.host_abi = {align = array<i32: 8>, size = array<i32: 8>, type = (!ptr.ptr<#amdgcn.addr_space<global, read_write>>) -> ()}, gpu.kernel} {
+      %c10_i32 = arith.constant 10 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %c64_i32 = arith.constant 64 : i32
+      %0 = amdgcn.thread_id  x : !amdgcn.vgpr
+      %1 = amdgcn.block_id  x : !amdgcn.sgpr
+      %2 = lsir.alloca : !amdgcn.vgpr
+      %3 = lsir.shli i32 %2, %0, %c2_i32 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+      %4 = lsir.alloca : !amdgcn.sgpr
+      %5 = lsir.shli i32 %4, %1, %c10_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
+      %6 = lsir.alloca : !amdgcn.vgpr
+      %7 = lsir.addi i32 %6, %3, %5 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr
+      %8 = lsir.alloca : !amdgcn.vgpr
+      %9 = lsir.addi i32 %8, %7, %c64_i32 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+      %10 = amdgcn.alloca : !amdgcn.vgpr
+      %dest_res, %token = amdgcn.load global_load_dword dest %10 addr %arg0 offset d(%9) : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.read_token<flat>
+      amdgcn.test_inst ins %dest_res : (!amdgcn.vgpr) -> ()
+      return
+    }
+  }
 }
