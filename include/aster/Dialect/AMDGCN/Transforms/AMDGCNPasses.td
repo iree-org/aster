@@ -331,6 +331,22 @@ def ToRegisterSemantics : Pass<"amdgcn-to-register-semantics"> {
   ];
 }
 
+def OptimizeAMDGCN : Pass<"amdgcn-optimize"> {
+  let summary = "Optimize AMDGCN dialect operations";
+  let description = [{
+    This pass applies optimization patterns to AMDGCN dialect operations using
+    the greedy pattern rewriter. It includes canonicalization patterns for
+    LSIR and AMDGCN dialects and operations.
+
+    Thhis pass should run before register allocation. After this pass,
+    it might be necessary to run to-amdgcn pass.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::aster::lsir::LSIRDialect"
+  ];
+}
+
 def AMDGCNHazards : Pass<"amdgcn-hazards"> {
   let summary = "Resolve hazards for AMDGCN instructions";
   let description = [{
