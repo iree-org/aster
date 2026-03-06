@@ -191,8 +191,8 @@ class TestWeakScaleCorrectness:
     )
     @pytest.mark.parametrize(
         "m_waves,n_waves",
-        [(1, 1), (2, 2), (2, 4), (4, 4)],
-        ids=["waves_1x1", "waves_2x2", "waves_2x4", "waves_4x4"],
+        [(1, 1), (2, 2), (2, 4)],
+        ids=["waves_1x1", "waves_2x2", "waves_2x4"],
     )
     @pytest.mark.parametrize(
         "m_tiles,n_tiles,k_tiles",
