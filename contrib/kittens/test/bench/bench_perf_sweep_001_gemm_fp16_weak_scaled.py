@@ -168,6 +168,30 @@ def _parse_result_from_output(stdout):
     return None
 
 
+def _format_mlir_error(e):
+    """Extract actionable diagnostics from an MLIRError.
+
+    MLIR pass failures raise ir.MLIRError whose str() is just "MLIRError". The actual
+    diagnostics (LDS allocation failure, regalloc failure, etc.) are in
+    e.error_diagnostics[].message and .notes[].message.
+    """
+    parts = []
+    diagnostics = getattr(e, "error_diagnostics", None)
+    if diagnostics:
+        for diag in diagnostics:
+            msg = getattr(diag, "message", "")
+            if msg:
+                parts.append(msg)
+            for note in getattr(diag, "notes", []):
+                note_msg = getattr(note, "message", "")
+                if note_msg:
+                    parts.append(f"  note: {note_msg}")
+    if parts:
+        return "\n".join(parts)
+    # Fallback: use full str(e) which may at least have the exception type.
+    return str(e) or type(e).__name__
+
+
 def _compile_one(
     label,
     m_wg,
@@ -183,7 +207,8 @@ def _compile_one(
 ):
     """Compile a single config to HSACO.
 
-    Called in worker process. Returns (label, hsaco_path, KernelResources|None).
+    Called in worker process. Returns (label, hsaco_path, KernelResources|None). Raises
+    RuntimeError with actionable diagnostics on failure.
     """
     from aster.hip import parse_asm_kernel_resources
 
@@ -199,7 +224,11 @@ def _compile_one(
         k,
     )
     output_path = os.path.join(hsaco_dir, f"{label}.hsaco")
-    _, asm = compile_weak_scaled_gemm(cfg, output_path)
+    try:
+        _, asm = compile_weak_scaled_gemm(cfg, output_path)
+    except Exception as e:
+        # Re-raise with actionable diagnostics extracted from MLIRError.
+        raise RuntimeError(_format_mlir_error(e)) from None
     # Save ASM alongside HSACO for later inspection / resource parsing.
     asm_path = output_path.replace(".hsaco", ".s")
     with open(asm_path, "w") as f:
@@ -245,11 +274,35 @@ def _print_summary_table(results, failed, skipped_labels, resources_map=None):
             print(f"    {_repro_cmd(cfg, NUM_ITERATIONS)}")
 
     if failed:
-        print(f"\nFailed configs ({len(failed)}):")
+        # Categorize failures for actionable summary.
+        categories = {}
         for cfg, err in failed:
-            first_line = err.split("\n")[0][:120]
-            print(f"  {cfg.label}: {first_line}")
-            print(f"    {_repro_cmd(cfg, NUM_ITERATIONS)}")
+            # Classify by first diagnostic line.
+            first_line = err.split("\n")[0]
+            if "failed to allocate LDS" in err or "LDS" in first_line:
+                cat = "LDS_ALLOC"
+            elif (
+                "failed to run register allocator" in err
+                or "register" in first_line.lower()
+            ):
+                cat = "REGALLOC"
+            elif "compile:" in err:
+                cat = "COMPILE"
+            else:
+                cat = "RUNTIME"
+            categories.setdefault(cat, []).append((cfg, err))
+
+        print(f"\nFailed configs ({len(failed)}):")
+        for cat, items in sorted(categories.items()):
+            print(f"\n  [{cat}] ({len(items)} configs):")
+            for cfg, err in items:
+                first_line = err.split("\n")[0][:200]
+                print(f"    {cfg.label}: {first_line}")
+                # Show additional diagnostic lines (notes) indented.
+                for extra_line in err.split("\n")[1:3]:
+                    if extra_line.strip():
+                        print(f"      {extra_line.strip()}")
+                print(f"      repro: {_repro_cmd(cfg, NUM_ITERATIONS)}")
 
         # Print copy-pasteable exclusion list
         print("\n# Add to KNOWN_BROKEN to skip these next run:")
@@ -402,10 +455,11 @@ def bench_perf_sweep(full_sweep=False, num_gpus=None):
                     resources_map[label] = res
                 print(f"  COMPILED {cfg.label}  [{res or '?'}]")
             except Exception as e:
-                err = str(e).split("\n")[0][:120]
+                err = str(e)
+                first_line = err.split("\n")[0][:200]
                 compile_failed[cfg.label] = err
                 failed.append((cfg, f"compile: {err}"))
-                print(f"  COMPILE_FAIL {cfg.label}: {err}")
+                print(f"  COMPILE_FAIL {cfg.label}: {first_line}")
             sys.stdout.flush()
 
     compiled_count = len(hsaco_paths)
