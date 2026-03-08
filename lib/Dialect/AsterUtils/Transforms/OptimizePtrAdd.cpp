@@ -21,6 +21,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/DebugLog.h"
+#include "llvm/Support/InterleavedRange.h"
 
 #define DEBUG_TYPE "optimize-ptr-add"
 
@@ -154,14 +155,18 @@ void OffsetComponents::Offsets::add(const Offsets &other) {
 
 void OffsetComponents::Offsets::mul(const Offsets &other) {
   // Distributive multiplication:
-  // (c1 + u1 + d1) * (c2 + u2 + d2)
+  // (c1 + u1 + d1) * (c2 + u2 + d2) =
+  //   (c1 * c2) +
+  //   (c1 * u2 + u1 * c2 + u1 * u2) +
+  //   (c1 * d2 + d1 * c2 + d1 * u2 + d1 * d2 + u1 * d2)
   AffineExpr newConst = constOffset * other.constOffset;
   AffineExpr newUniform = constOffset * other.uniformOffset +
                           uniformOffset * other.constOffset +
                           uniformOffset * other.uniformOffset;
-  AffineExpr newDynamic = dynamicOffset * other.constOffset +
-                          dynamicOffset * other.uniformOffset +
-                          dynamicOffset * other.dynamicOffset;
+  AffineExpr newDynamic =
+      dynamicOffset *
+          (other.constOffset + other.uniformOffset + other.dynamicOffset) +
+      other.dynamicOffset * (constOffset + uniformOffset);
 
   constOffset = newConst;
   uniformOffset = newUniform;
@@ -208,14 +213,18 @@ OffsetComponents::analyzeOffset(Value offset, DataFlowSolver &solver) {
 FailureOr<OffsetComponents::Offsets>
 OffsetComponents::analyzeTerm(Value value) {
   // Classify a leaf value as uniform or dynamic.
-  auto getOffsets = [&](Value value, bool isKnownNonUniform = false) {
-    if (!isKnownNonUniform && isUniform(value, solver))
+  auto getOffsets = [&](Value value) {
+    if (isUniform(value, solver))
       return Offsets::uniform(getAsExpr(value), context);
     return Offsets::dynamic(getAsExpr(value), context);
   };
 
-  if (!isValidTerm(value, solver))
+  LDBG() << "Analyzing term: " << value;
+
+  if (!isValidTerm(value, solver)) {
+    LDBG() << "  Invalid term: " << value;
     return failure();
+  }
 
   // Check if this is a constant.
   if (std::optional<APInt> constVal = getConstantValue(value, solver))
@@ -258,10 +267,6 @@ OffsetComponents::analyzeTerm(Value value) {
 
   // Handle multiplicative operations.
   if (auto mulOp = dyn_cast<arith::MulIOp>(defOp)) {
-    // If the multiplication result is not uniform, bail out as we can't split.
-    if (!isUniform(mulOp, solver))
-      return getOffsets(mulOp, true);
-
     FailureOr<Offsets> lhs = analyzeTerm(mulOp.getLhs());
     // If the left-hand side analysis failed, bail out and treat the mul as a
     // single term.
@@ -306,6 +311,9 @@ OffsetComponents::analyzeTerm(Value value) {
 static Value materializeAffineExpr(IRRewriter &rewriter, Location loc,
                                    AffineExpr expr, Type resultType,
                                    ArrayRef<Value> operands) {
+  LDBG() << "Materializing affine expression: " << expr
+         << " with result type: " << resultType
+         << " and operands: " << llvm::interleaved_array(operands);
   // Handle constant expression.
   if (auto cst = dyn_cast<AffineConstantExpr>(expr)) {
     return arith::ConstantIntOp::create(rewriter, loc, resultType,
@@ -344,10 +352,10 @@ static Value materializeAffineExpr(IRRewriter &rewriter, Location loc,
   llvm_unreachable("unexpected affine expr");
 }
 
-static void optimizePtrAddOp(ptr::PtrAddOp op, DataFlowSolver &solver) {
-  if (op.getFlags() == ptr::PtrAddFlags::none)
-    return;
-
+/// Optimizes the given ptr_add operation by splitting the offset expression
+/// into const, uniform, and dynamic components.
+static void optimizePtrAddOp(IRRewriter &rewriter, ptr::PtrAddOp op,
+                             DataFlowSolver &solver) {
   Value offset = op.getOffset();
   Type offsetType = offset.getType();
 
@@ -359,13 +367,15 @@ static void optimizePtrAddOp(ptr::PtrAddOp op, DataFlowSolver &solver) {
 
   OffsetComponents &components = *componentsOrErr;
 
+  LDBG() << "Components: " << components.constPart << ", "
+         << components.uniformPart << ", " << components.dynamicPart;
+
   // Check if the const component is a compile-time constant.
   auto constCst = dyn_cast<AffineConstantExpr>(components.constPart);
   if (!constCst)
     return;
   int64_t constOffsetVal = constCst.getValue();
 
-  IRRewriter rewriter(op);
   Location loc = op.getLoc();
 
   // Build the dynamic offset.
@@ -404,5 +414,10 @@ void OptimizePtrAdd::runOnOperation() {
   if (failed(solver.initializeAndRun(op)))
     return signalPassFailure();
 
-  op->walk([&](ptr::PtrAddOp ptrAddOp) { optimizePtrAddOp(ptrAddOp, solver); });
+  IRRewriter rewriter(op);
+  op->walk([&](ptr::PtrAddOp ptrAddOp) {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(ptrAddOp);
+    optimizePtrAddOp(rewriter, ptrAddOp, solver);
+  });
 }
