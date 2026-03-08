@@ -159,6 +159,79 @@ struct OptimizeCmpIOp : public OpRewritePattern<arith::CmpIOp> {
 
   const DataFlowSolver &s;
 };
+
+/// Add overflow flags (nsw/nuw) to ops implementing
+/// ArithIntegerOverflowFlagsInterface when the int range lattice proves the
+/// result is strictly contained in the max signed/unsigned range. Only looks at
+/// the result range.
+struct AddOverflowFlagsFromRange
+    : public OpInterfaceRewritePattern<
+          arith::ArithIntegerOverflowFlagsInterface> {
+  AddOverflowFlagsFromRange(const DataFlowSolver &solver, MLIRContext *context)
+      : OpInterfaceRewritePattern(context), solver(solver) {}
+
+  LogicalResult matchAndRewrite(arith::ArithIntegerOverflowFlagsInterface iface,
+                                PatternRewriter &rewriter) const override {
+    Operation *op = iface.getOperation();
+
+    // Skip if no result.
+    if (op->getNumResults() == 0)
+      return failure();
+
+    // Skip if already has both flags.
+    bool hasNoSignedWrap = iface.hasNoSignedWrap();
+    bool hasNoUnsignedWrap = iface.hasNoUnsignedWrap();
+    if (hasNoSignedWrap && hasNoUnsignedWrap)
+      return failure();
+
+    // Helper lambda to check if a value is strictly bounded within the max
+    // signed/unsigned range.
+    auto isNoOverflow = [&](Value value) -> std::pair<bool, bool> {
+      auto *lattice =
+          solver.lookupState<dataflow::IntegerValueRangeLattice>(value);
+
+      if (!lattice || lattice->getValue().isUninitialized())
+        return {false, false};
+
+      const ConstantIntRanges &range = lattice->getValue().getValue();
+      return {!range.smin().isMinSignedValue() ||
+                  !range.smax().isMaxSignedValue(),
+              !range.umin().isMinValue() || !range.umax().isMaxValue()};
+    };
+
+    bool addNsw = true;
+    bool addNuw = true;
+
+    // Check if all results are strictly bounded within the max signed/unsigned
+    // range.
+    for (Value operand : op->getResults()) {
+      auto [nsw, nuw] = isNoOverflow(operand);
+      addNsw &= nsw;
+      addNuw &= nuw;
+    }
+
+    // Skip if the flags are already set to the correct value.
+    if (addNsw == hasNoSignedWrap && addNuw == hasNoUnsignedWrap)
+      return failure();
+
+    // Get the new flags.
+    arith::IntegerOverflowFlags newFlags = iface.getOverflowAttr().getValue();
+    if (addNsw)
+      newFlags = bitEnumSet(newFlags, arith::IntegerOverflowFlags::nsw);
+    if (addNuw)
+      newFlags = bitEnumSet(newFlags, arith::IntegerOverflowFlags::nuw);
+
+    // Set the new flags.
+    rewriter.modifyOpInPlace(op, [&]() {
+      op->setAttr(
+          iface.getIntegerOverflowAttrName(),
+          arith::IntegerOverflowFlagsAttr::get(op->getContext(), newFlags));
+    });
+    return success();
+  }
+
+  const DataFlowSolver &solver;
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -240,7 +313,8 @@ void OptimizeArith::runOnOperation() {
       return signalPassFailure();
     if (failed(runGreedyRewriter([&](RewritePatternSet &patterns) {
           arith::populateIntRangeOptimizationsPatterns(patterns, solver);
-          patterns.add<OptimizeCmpIOp>(solver, &getContext());
+          patterns.add<OptimizeCmpIOp, AddOverflowFlagsFromRange>(
+              solver, &getContext());
         })))
       return signalPassFailure();
   }
