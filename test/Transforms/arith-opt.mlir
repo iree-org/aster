@@ -293,3 +293,124 @@ func.func @test_reassociate_addi_nuw(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 
   %3 = arith.addi %2, %c4 overflow<nuw> : i32
   return %3 : i32
 }
+
+// CHECK-LABEL:   func.func @test_reassociate_muli(
+// CHECK-SAME:      %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 12 : i32
+// CHECK:           %[[MULI_0:.*]] = arith.muli %[[ARG0]], %[[ARG1]] overflow<nsw, nuw> : i32
+// CHECK:           %[[MULI_1:.*]] = arith.muli %[[MULI_0]], %[[ARG2]] overflow<nsw, nuw> : i32
+// CHECK:           %[[MULI_2:.*]] = arith.muli %[[MULI_1]], %[[CONSTANT_0]] overflow<nsw, nuw> : i32
+// CHECK:           return %[[MULI_2]] : i32
+// CHECK:         }
+func.func @test_reassociate_muli(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  %0 = arith.muli %arg0, %c3 overflow<nsw, nuw> : i32
+  %1 = arith.muli %0, %arg1 overflow<nsw, nuw> : i32
+  %2 = arith.muli %1, %arg2 overflow<nsw, nuw> : i32
+  %3 = arith.muli %2, %c4 overflow<nsw, nuw> : i32
+  return %3 : i32
+}
+
+// CHECK-LABEL:   func.func @test_reassociate_muli_nsw(
+// CHECK-SAME:      %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 12 : i32
+// CHECK:           %[[MULI_0:.*]] = arith.muli %[[ARG0]], %[[ARG1]] overflow<nsw> : i32
+// CHECK:           %[[MULI_1:.*]] = arith.muli %[[MULI_0]], %[[ARG2]] overflow<nsw> : i32
+// CHECK:           %[[MULI_2:.*]] = arith.muli %[[MULI_1]], %[[CONSTANT_0]] overflow<nsw> : i32
+// CHECK:           return %[[MULI_2]] : i32
+// CHECK:         }
+func.func @test_reassociate_muli_nsw(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  %0 = arith.muli %arg0, %c3 overflow<nsw> : i32
+  %1 = arith.muli %0, %arg1 overflow<nsw> : i32
+  %2 = arith.muli %1, %arg2 overflow<nsw, nuw> : i32
+  %3 = arith.muli %2, %c4 overflow<nsw, nuw> : i32
+  return %3 : i32
+}
+
+// CHECK-LABEL:   func.func @test_reassociate_muli_nuw(
+// CHECK-SAME:      %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 12 : i32
+// CHECK:           %[[MULI_0:.*]] = arith.muli %[[ARG0]], %[[ARG1]] overflow<nuw> : i32
+// CHECK:           %[[MULI_1:.*]] = arith.muli %[[MULI_0]], %[[ARG2]] overflow<nuw> : i32
+// CHECK:           %[[MULI_2:.*]] = arith.muli %[[MULI_1]], %[[CONSTANT_0]] overflow<nuw> : i32
+// CHECK:           return %[[MULI_2]] : i32
+// CHECK:         }
+func.func @test_reassociate_muli_nuw(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  %0 = arith.muli %arg0, %c3 overflow<nsw, nuw> : i32
+  %1 = arith.muli %0, %arg1 overflow<nuw> : i32
+  %2 = arith.muli %1, %arg2 overflow<nsw, nuw> : i32
+  %3 = arith.muli %2, %c4 overflow<nuw> : i32
+  return %3 : i32
+}
+
+// CHECK-LABEL:   func.func @test_reassociate_muli_invalid_flags(
+// CHECK-SAME:      %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 2 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 3 : i32
+// CHECK:           %[[MULI_0:.*]] = arith.muli %[[ARG0]], %[[CONSTANT_1]] overflow<nuw> : i32
+// CHECK:           %[[MULI_1:.*]] = arith.muli %[[MULI_0]], %[[ARG1]] overflow<nsw> : i32
+// CHECK:           %[[MULI_2:.*]] = arith.muli %[[MULI_1]], %[[ARG2]] overflow<nsw, nuw> : i32
+// CHECK:           %[[SHLI_0:.*]] = arith.shli %[[MULI_2]], %[[CONSTANT_0]] : i32
+// CHECK:           return %[[SHLI_0]] : i32
+// CHECK:         }
+func.func @test_reassociate_muli_invalid_flags(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  %0 = arith.muli %arg0, %c3 overflow<nuw> : i32
+  %1 = arith.muli %0, %arg1 overflow<nsw> : i32
+  %2 = arith.muli %1, %arg2 overflow<nsw, nuw> : i32
+  %3 = arith.muli %2, %c4 overflow<nsw, nuw> : i32
+  return %3 : i32
+}
+
+// CHECK-LABEL:   func.func @test_reassociate_muli_no_flags(
+// CHECK-SAME:      %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 2 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 3 : i32
+// CHECK:           %[[MULI_0:.*]] = arith.muli %[[ARG0]], %[[CONSTANT_1]] : i32
+// CHECK:           %[[MULI_1:.*]] = arith.muli %[[MULI_0]], %[[ARG1]] : i32
+// CHECK:           %[[MULI_2:.*]] = arith.muli %[[MULI_1]], %[[ARG2]] : i32
+// CHECK:           %[[SHLI_0:.*]] = arith.shli %[[MULI_2]], %[[CONSTANT_0]] : i32
+// CHECK:           return %[[SHLI_0]] : i32
+// CHECK:         }
+func.func @test_reassociate_muli_no_flags(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  %0 = arith.muli %arg0, %c3 : i32
+  %1 = arith.muli %0, %arg1 : i32
+  %2 = arith.muli %1, %arg2 : i32
+  %3 = arith.muli %2, %c4 : i32
+  return %3 : i32
+}
+
+// CHECK-LABEL:   func.func @test_reassociate_muli_all_constants() -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 60 : i32
+// CHECK:           return %[[CONSTANT_0]] : i32
+// CHECK:         }
+func.func @test_reassociate_muli_all_constants() -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  %c5 = arith.constant 5 : i32
+  %0 = arith.muli %c3, %c4 overflow<nsw, nuw> : i32
+  %1 = arith.muli %0, %c5 overflow<nsw, nuw> : i32
+  return %1 : i32
+}
+
+// CHECK-LABEL:   func.func @test_reassociate_muli_single_constant(
+// CHECK-SAME:      %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 3 : i32
+// CHECK:           %[[MULI_0:.*]] = arith.muli %[[ARG0]], %[[CONSTANT_0]] overflow<nsw, nuw> : i32
+// CHECK:           %[[MULI_1:.*]] = arith.muli %[[MULI_0]], %[[ARG1]] overflow<nsw, nuw> : i32
+// CHECK:           return %[[MULI_1]] : i32
+// CHECK:         }
+func.func @test_reassociate_muli_single_constant(%arg0: i32, %arg1: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %0 = arith.muli %arg0, %c3 overflow<nsw, nuw> : i32
+  %1 = arith.muli %0, %arg1 overflow<nsw, nuw> : i32
+  return %1 : i32
+}
