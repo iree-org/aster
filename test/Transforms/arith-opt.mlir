@@ -414,3 +414,101 @@ func.func @test_reassociate_muli_single_constant(%arg0: i32, %arg1: i32) -> i32 
   %1 = arith.muli %0, %arg1 overflow<nsw, nuw> : i32
   return %1 : i32
 }
+
+// CHECK-LABEL:   func.func @test_combine_shl(
+// CHECK-SAME:      %[[ARG0:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 5 : i32
+// CHECK:           %[[SHLI_0:.*]] = arith.shli %[[ARG0]], %[[CONSTANT_0]] : i32
+// CHECK:           return %[[SHLI_0]] : i32
+// CHECK:         }
+func.func @test_combine_shl(%arg0: i32) -> i32 {
+  %c2 = arith.constant 2 : i32
+  %c3 = arith.constant 3 : i32
+  %0 = arith.shli %arg0, %c3 : i32
+  %1 = arith.shli %0, %c2 : i32
+  return %1 : i32
+}
+
+// CHECK-LABEL:   func.func @test_combine_shl_chain(
+// CHECK-SAME:      %[[ARG0:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 6 : i32
+// CHECK:           %[[SHLI_0:.*]] = arith.shli %[[ARG0]], %[[CONSTANT_0]] : i32
+// CHECK:           return %[[SHLI_0]] : i32
+// CHECK:         }
+func.func @test_combine_shl_chain(%arg0: i32) -> i32 {
+  %c1 = arith.constant 1 : i32
+  %c2 = arith.constant 2 : i32
+  %c3 = arith.constant 3 : i32
+  %0 = arith.shli %arg0, %c1 : i32
+  %1 = arith.shli %0, %c2 : i32
+  %2 = arith.shli %1, %c3 : i32
+  return %2 : i32
+}
+
+// CHECK-LABEL:   func.func @test_combine_shru(
+// CHECK-SAME:      %[[ARG0:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 5 : i32
+// CHECK:           %[[SHRUI_0:.*]] = arith.shrui %[[ARG0]], %[[CONSTANT_0]] : i32
+// CHECK:           return %[[SHRUI_0]] : i32
+// CHECK:         }
+func.func @test_combine_shru(%arg0: i32) -> i32 {
+  %c2 = arith.constant 2 : i32
+  %c3 = arith.constant 3 : i32
+  %0 = arith.shrui %arg0, %c3 : i32
+  %1 = arith.shrui %0, %c2 : i32
+  return %1 : i32
+}
+
+// CHECK-LABEL:   func.func @test_combine_shrs(
+// CHECK-SAME:      %[[ARG0:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 5 : i32
+// CHECK:           %[[SHRSI_0:.*]] = arith.shrsi %[[ARG0]], %[[CONSTANT_0]] : i32
+// CHECK:           return %[[SHRSI_0]] : i32
+// CHECK:         }
+func.func @test_combine_shrs(%arg0: i32) -> i32 {
+  %c2 = arith.constant 2 : i32
+  %c3 = arith.constant 3 : i32
+  %0 = arith.shrsi %arg0, %c3 : i32
+  %1 = arith.shrsi %0, %c2 : i32
+  return %1 : i32
+}
+
+// CHECK-LABEL:   func.func @test_combine_shl_single(
+// CHECK-SAME:      %[[ARG0:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 3 : i32
+// CHECK:           %[[SHLI_0:.*]] = arith.shli %[[ARG0]], %[[CONSTANT_0]] : i32
+// CHECK:           return %[[SHLI_0]] : i32
+// CHECK:         }
+func.func @test_combine_shl_single(%arg0: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %0 = arith.shli %arg0, %c3 : i32
+  return %0 : i32
+}
+
+// CHECK-LABEL:   func.func @test_combine_shl_i64(
+// CHECK-SAME:      %[[ARG0:.*]]: i64) -> i64 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 9 : i64
+// CHECK:           %[[SHLI_0:.*]] = arith.shli %[[ARG0]], %[[CONSTANT_0]] : i64
+// CHECK:           return %[[SHLI_0]] : i64
+// CHECK:         }
+func.func @test_combine_shl_i64(%arg0: i64) -> i64 {
+  %c4 = arith.constant 4 : i64
+  %c5 = arith.constant 5 : i64
+  %0 = arith.shli %arg0, %c4 : i64
+  %1 = arith.shli %0, %c5 : i64
+  return %1 : i64
+}
+
+// CHECK-LABEL:   func.func @test_shift_combine_non_const(
+// CHECK-SAME:      %[[ARG0:.*]]: i64, %[[ARG1:.*]]: i64) -> i64 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : i64
+// CHECK:           %[[SHLI_0:.*]] = arith.shli %[[ARG0]], %[[CONSTANT_0]] : i64
+// CHECK:           %[[SHLI_1:.*]] = arith.shli %[[SHLI_0]], %[[ARG1]] : i64
+// CHECK:           return %[[SHLI_1]] : i64
+// CHECK:         }
+func.func @test_shift_combine_non_const(%arg0: i64, %arg1: i64) -> i64 {
+  %c4 = arith.constant 4 : i64
+  %0 = arith.shli %arg0, %c4 : i64
+  %1 = arith.shli %0, %arg1 : i64
+  return %1 : i64
+}

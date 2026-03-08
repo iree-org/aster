@@ -417,6 +417,90 @@ struct ReassociateMulI : public OpRewritePattern<arith::MulIOp> {
     return success();
   }
 };
+
+/// Helper to combine chained shifts. Walks the chain on the LHS, collects
+/// constant RHS values, sums them, replaces with a single shift by the sum.
+template <typename ShiftOpTy, typename CreateShiftFn>
+static LogicalResult combineChainedShift(ShiftOpTy op,
+                                         PatternRewriter &rewriter,
+                                         CreateShiftFn createShift) {
+  if (!isa<IntegerType>(op.getType()))
+    return failure();
+
+  APInt rootShift;
+  if (!matchPattern(op.getRhs(), m_ConstantInt(&rootShift)))
+    return failure();
+  int64_t totalShift = rootShift.getZExtValue();
+
+  Value current = op.getLhs();
+  auto shiftOp = current.getDefiningOp<ShiftOpTy>();
+  if (!shiftOp)
+    return failure();
+
+  while (shiftOp) {
+    APInt shiftAmt;
+    if (!matchPattern(shiftOp.getRhs(), m_ConstantInt(&shiftAmt)))
+      return failure();
+    totalShift += shiftAmt.getZExtValue();
+    current = shiftOp.getLhs();
+    shiftOp = current.getDefiningOp<ShiftOpTy>();
+  }
+
+  Location loc = op.getLoc();
+  Type resultType = op.getType();
+  auto shiftConst =
+      arith::ConstantIntOp::create(rewriter, loc, resultType, totalShift);
+  rewriter.replaceOp(op, createShift(rewriter, loc, current,
+                                     shiftConst.getResult(), resultType)
+                             .getResult());
+  return success();
+}
+
+/// Combine chained shift left: (a << 3) << 2 -> a << 5.
+struct CombineChainedShL : public OpRewritePattern<arith::ShLIOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(arith::ShLIOp op,
+                                PatternRewriter &rewriter) const override {
+    return combineChainedShift<arith::ShLIOp>(
+        op, rewriter,
+        [&](PatternRewriter &r, Location loc, Value base, Value shiftAmount,
+            Type resultType) {
+          return arith::ShLIOp::create(r, loc, base, shiftAmount);
+        });
+  }
+};
+
+/// Combine chained unsigned shift right: (a >>u 3) >>u 2 -> a >>u 5.
+struct CombineChainedShRU : public OpRewritePattern<arith::ShRUIOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(arith::ShRUIOp op,
+                                PatternRewriter &rewriter) const override {
+    return combineChainedShift<arith::ShRUIOp>(
+        op, rewriter,
+        [&](PatternRewriter &r, Location loc, Value base, Value shiftAmount,
+            Type resultType) {
+          return arith::ShRUIOp::create(r, loc, base, shiftAmount);
+        });
+  }
+};
+
+/// Combine chained signed shift right: (a >>s 3) >>s 2 -> a >>s 5.
+struct CombineChainedShRS : public OpRewritePattern<arith::ShRSIOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(arith::ShRSIOp op,
+                                PatternRewriter &rewriter) const override {
+    return combineChainedShift<arith::ShRSIOp>(
+        op, rewriter,
+        [&](PatternRewriter &r, Location loc, Value base, Value shiftAmount,
+            Type resultType) {
+          return arith::ShRSIOp::create(r, loc, base, shiftAmount);
+        });
+  }
+};
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -469,7 +553,8 @@ void OptimizeArith::runOnOperation() {
       patterns.add<DivToShift<arith::DivUIOp, arith::ShRUIOp>,
                    DivToShift<arith::DivSIOp, arith::ShRSIOp>, MulToShift,
                    RemToAnd<arith::RemSIOp>, RemToAnd<arith::RemUIOp>,
-                   ReassociateAddI>(&getContext());
+                   ReassociateAddI, CombineChainedShL, CombineChainedShRU,
+                   CombineChainedShRS>(&getContext());
       // Add the pattern with higher benefit so that it preempts the shift
       // patterns.
       patterns.add<ReassociateMulI>(&getContext(), 10);
