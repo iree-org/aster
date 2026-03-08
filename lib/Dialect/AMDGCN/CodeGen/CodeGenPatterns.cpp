@@ -20,6 +20,7 @@
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Ptr/IR/PtrEnums.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -275,8 +276,9 @@ PtrAddOpPattern::matchAndRewrite(aster_utils::PtrAddOp op, OpAdaptor adaptor,
                                        "uniform offset must be a SGPR type");
 
   // Create the AMDGCN ptr_add operation.
-  rewriter.replaceOpWithNewOp<amdgcn::PtrAddOp>(
-      op, ptr.getType(), ptr, dynamicOffset, uniformOffset, constOffset);
+  auto newOp = rewriter.replaceOpWithNewOp<amdgcn::PtrAddOp>(
+      op, ptr, dynamicOffset, uniformOffset, constOffset);
+  newOp.setFlags(op.getFlags());
   return success();
 }
 
@@ -404,8 +406,9 @@ PtrPtrAddOpPattern::matchAndRewrite(ptr::PtrAddOp op, OpAdaptor adaptor,
     }
   }
 
-  rewriter.replaceOpWithNewOp<amdgcn::PtrAddOp>(
+  auto newOp = rewriter.replaceOpWithNewOp<amdgcn::PtrAddOp>(
       op, resultType, ptr, dynamicOffset, uniformOffset, constOffset);
+  newOp.setFlags(op.getFlags());
   return success();
 }
 

@@ -534,3 +534,8 @@ func.func @test_ptr_add_all_offsets(%ptr: !amdgcn.vgpr<[? + 2]>, %offset: !amdgc
   %result = amdgcn.ptr_add %ptr d_off = %offset u_off = %uniform c_off = 32 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr
   return %result : !amdgcn.vgpr<[? + 2]>
 }
+
+func.func @test_ptr_add_inbounds(%ptr: !amdgcn.vgpr<[? + 2]>, %offset: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+  %result = amdgcn.ptr_add inbounds %ptr d_off = %offset : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+  return %result : !amdgcn.vgpr<[? + 2]>
+}

@@ -19,6 +19,7 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
+include "aster/IR/CommonProps.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 include "aster/Interfaces/AllocaOpInterface.td"
@@ -735,11 +736,12 @@ def AMDGCN_PtrAddOp : AMDGCN_Op<"ptr_add", [
     AnyRegOf<[SizedGPRRangeOf<SGPRType, [2]>, SizedGPRRangeOf<VGPRType, [1, 2]>]>:$ptr,
     Optional<SizedGPRRangeOf<VGPRType, [1]>>:$dynamic_offset,
     Optional<SizedGPRRangeOf<SGPRType, [1]>>:$uniform_offset,
-    DefaultValuedAttr<I64Attr, "0">:$const_offset
+    DefaultValuedAttr<I64Attr, "0">:$const_offset,
+    DefaultValuedProp<PtrAddFlagsProp, "ptr::PtrAddFlags::none">:$flags
   );
   let results = (outs AnyRegOf<[SGPRType, VGPRType]>:$result);
   let assemblyFormat = [{
-    $ptr (`d_off` `=` $dynamic_offset^)? (`u_off` `=` $uniform_offset^)? (`c_off` `=` $const_offset^)?
+    ($flags^)? $ptr (`d_off` `=` $dynamic_offset^)? (`u_off` `=` $uniform_offset^)? (`c_off` `=` $const_offset^)?
     attr-dict `:` type(operands)
   }];
   let hasFolder = 1;

@@ -3,7 +3,7 @@
 // CHECK-LABEL:   func.func @test_const_offset(
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>) -> !ptr.ptr<#ptr.generic_space> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i64
-// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add %[[ARG0]], %[[CONSTANT_0]] const_offset = 42 : <#ptr.generic_space>, i64
+// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add nuw %[[ARG0]], %[[CONSTANT_0]] const_offset = 42 : <#ptr.generic_space>, i64
 // CHECK:           return %[[PTR_ADD_0]] : !ptr.ptr<#ptr.generic_space>
 // CHECK:         }
 func.func @test_const_offset(%arg0: !ptr.ptr<#ptr.generic_space>) -> !ptr.ptr<#ptr.generic_space> {
@@ -17,7 +17,7 @@ func.func @test_const_offset(%arg0: !ptr.ptr<#ptr.generic_space>) -> !ptr.ptr<#p
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i64
 // CHECK:           %[[ASSUME_UNIFORM_0:.*]] = aster_utils.assume_uniform %[[ARG1]] : i64
 // CHECK:           %[[ASSUME_RANGE_0:.*]] = aster_utils.assume_range %[[ASSUME_UNIFORM_0]] min 0 max 1024 : i64
-// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add %[[ARG0]], %[[CONSTANT_0]], %[[ASSUME_RANGE_0]] : <#ptr.generic_space>, i64
+// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add nuw %[[ARG0]], %[[CONSTANT_0]], %[[ASSUME_RANGE_0]] : <#ptr.generic_space>, i64
 // CHECK:           return %[[PTR_ADD_0]] : !ptr.ptr<#ptr.generic_space>
 // CHECK:         }
 func.func @test_uniform_offset(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i64) -> !ptr.ptr<#ptr.generic_space> {
@@ -32,7 +32,7 @@ func.func @test_uniform_offset(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i64) 
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i64
 // CHECK:           %[[ASSUME_UNIFORM_0:.*]] = aster_utils.assume_uniform %[[ARG1]] : i64
 // CHECK:           %[[ASSUME_RANGE_0:.*]] = aster_utils.assume_range %[[ASSUME_UNIFORM_0]] min 0 max 1024 : i64
-// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add %[[ARG0]], %[[CONSTANT_0]], %[[ASSUME_RANGE_0]] const_offset = 16 : <#ptr.generic_space>, i64
+// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add nuw %[[ARG0]], %[[CONSTANT_0]], %[[ASSUME_RANGE_0]] const_offset = 16 : <#ptr.generic_space>, i64
 // CHECK:           return %[[PTR_ADD_0]] : !ptr.ptr<#ptr.generic_space>
 // CHECK:         }
 func.func @test_const_plus_uniform(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i64) -> !ptr.ptr<#ptr.generic_space> {
@@ -51,7 +51,7 @@ func.func @test_const_plus_uniform(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i
 // CHECK:           %[[ASSUME_UNIFORM_0:.*]] = aster_utils.assume_uniform %[[ARG1]] : i64
 // CHECK:           %[[ASSUME_RANGE_0:.*]] = aster_utils.assume_range %[[ASSUME_UNIFORM_0]] min 0 max 1024 : i64
 // CHECK:           %[[MULI_0:.*]] = arith.muli %[[ASSUME_RANGE_0]], %[[CONSTANT_1]] overflow<nsw, nuw> : i64
-// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add %[[ARG0]], %[[CONSTANT_0]], %[[MULI_0]] : <#ptr.generic_space>, i64
+// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add nuw %[[ARG0]], %[[CONSTANT_0]], %[[MULI_0]] : <#ptr.generic_space>, i64
 // CHECK:           return %[[PTR_ADD_0]] : !ptr.ptr<#ptr.generic_space>
 // CHECK:         }
 func.func @test_uniform_mul_const(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i64) -> !ptr.ptr<#ptr.generic_space> {
@@ -70,7 +70,7 @@ func.func @test_uniform_mul_const(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i6
 // CHECK:           %[[ASSUME_UNIFORM_0:.*]] = aster_utils.assume_uniform %[[ARG1]] : i64
 // CHECK:           %[[ASSUME_RANGE_0:.*]] = aster_utils.assume_range %[[ASSUME_UNIFORM_0]] min 0 max 1024 : i64
 // CHECK:           %[[MULI_0:.*]] = arith.muli %[[ASSUME_RANGE_0]], %[[CONSTANT_0]] overflow<nsw, nuw> : i64
-// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add %[[ARG0]], %[[CONSTANT_1]], %[[MULI_0]] : <#ptr.generic_space>, i64
+// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add nuw %[[ARG0]], %[[CONSTANT_1]], %[[MULI_0]] : <#ptr.generic_space>, i64
 // CHECK:           return %[[PTR_ADD_0]] : !ptr.ptr<#ptr.generic_space>
 // CHECK:         }
 func.func @test_shift_left(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i64) -> !ptr.ptr<#ptr.generic_space> {
@@ -89,7 +89,7 @@ func.func @test_shift_left(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i64) -> !
 // CHECK:           %[[ASSUME_UNIFORM_0:.*]] = aster_utils.assume_uniform %[[ARG1]] : i64
 // CHECK:           %[[ASSUME_RANGE_0:.*]] = aster_utils.assume_range %[[ASSUME_UNIFORM_0]] min 0 max 1024 : i64
 // CHECK:           %[[MULI_0:.*]] = arith.muli %[[ASSUME_RANGE_0]], %[[CONSTANT_1]] overflow<nsw, nuw> : i64
-// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add %[[ARG0]], %[[CONSTANT_0]], %[[MULI_0]] const_offset = 16 : <#ptr.generic_space>, i64
+// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add nuw %[[ARG0]], %[[CONSTANT_0]], %[[MULI_0]] const_offset = 16 : <#ptr.generic_space>, i64
 // CHECK:           return %[[PTR_ADD_0]] : !ptr.ptr<#ptr.generic_space>
 // CHECK:         }
 func.func @test_complex_uniform(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i64) -> !ptr.ptr<#ptr.generic_space> {
@@ -112,7 +112,7 @@ func.func @test_complex_uniform(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i64)
 // CHECK:           %[[ASSUME_UNIFORM_1:.*]] = aster_utils.assume_uniform %[[ARG2]] : i64
 // CHECK:           %[[ASSUME_RANGE_1:.*]] = aster_utils.assume_range %[[ASSUME_UNIFORM_1]] min 0 max 1024 : i64
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[ASSUME_RANGE_0]], %[[ASSUME_RANGE_1]] overflow<nsw, nuw> : i64
-// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add %[[ARG0]], %[[CONSTANT_0]], %[[ADDI_0]] : <#ptr.generic_space>, i64
+// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add nuw %[[ARG0]], %[[CONSTANT_0]], %[[ADDI_0]] : <#ptr.generic_space>, i64
 // CHECK:           return %[[PTR_ADD_0]] : !ptr.ptr<#ptr.generic_space>
 // CHECK:         }
 func.func @test_multiple_uniforms(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i64, %arg2: i64) -> !ptr.ptr<#ptr.generic_space> {
@@ -137,7 +137,7 @@ func.func @test_no_flags(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i64) -> !pt
 // CHECK-LABEL:   func.func @test_nested_add_const(
 // CHECK-SAME:      %[[ARG0:.*]]: !ptr.ptr<#ptr.generic_space>) -> !ptr.ptr<#ptr.generic_space> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i64
-// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add %[[ARG0]], %[[CONSTANT_0]] const_offset = 30 : <#ptr.generic_space>, i64
+// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add nuw %[[ARG0]], %[[CONSTANT_0]] const_offset = 30 : <#ptr.generic_space>, i64
 // CHECK:           return %[[PTR_ADD_0]] : !ptr.ptr<#ptr.generic_space>
 // CHECK:         }
 func.func @test_nested_add_const(%arg0: !ptr.ptr<#ptr.generic_space>) -> !ptr.ptr<#ptr.generic_space> {
@@ -153,7 +153,7 @@ func.func @test_nested_add_const(%arg0: !ptr.ptr<#ptr.generic_space>) -> !ptr.pt
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[ASSUME_UNIFORM_0:.*]] = aster_utils.assume_uniform %[[ARG1]] : i32
 // CHECK:           %[[ASSUME_RANGE_0:.*]] = aster_utils.assume_range %[[ASSUME_UNIFORM_0]] min 0 max 1024 : i32
-// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add %[[ARG0]], %[[CONSTANT_0]], %[[ASSUME_RANGE_0]] const_offset = 8 : <#ptr.generic_space>, i32
+// CHECK:           %[[PTR_ADD_0:.*]] = aster_utils.ptr_add nuw %[[ARG0]], %[[CONSTANT_0]], %[[ASSUME_RANGE_0]] const_offset = 8 : <#ptr.generic_space>, i32
 // CHECK:           return %[[PTR_ADD_0]] : !ptr.ptr<#ptr.generic_space>
 // CHECK:         }
 func.func @test_i32_offset(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i32) -> !ptr.ptr<#ptr.generic_space> {

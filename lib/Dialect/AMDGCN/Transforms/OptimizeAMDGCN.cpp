@@ -133,9 +133,11 @@ static LogicalResult optimizeMemOpOffsets(Operation *op, const InstMetadata *md,
   llvm::scope_exit atExit([&]() {
     if (!changed)
       return;
+    ptr::PtrAddFlags flags = ptrAdd.getFlags();
     ptrAdd = amdgcn::PtrAddOp::create(rewriter, op->getLoc(), ptrAdd.getPtr(),
                                       newDynOff, ptrAdd.getUniformOffset(),
                                       /*const_offset=*/newConstOff);
+    ptrAdd.setFlags(flags);
     rewriter.modifyOpInPlace(op, [&] { addrMutable().assign(ptrAdd); });
   });
 

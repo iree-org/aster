@@ -382,9 +382,10 @@ static void optimizePtrAddOp(ptr::PtrAddOp op, DataFlowSolver &solver) {
   // Create the optimized ptr_add operation.
   auto constOffsetAttr =
       rewriter.getIntegerAttr(rewriter.getI64Type(), constOffsetVal);
-  rewriter.replaceOpWithNewOp<aster_utils::PtrAddOp>(
+  auto newOp = rewriter.replaceOpWithNewOp<aster_utils::PtrAddOp>(
       op, op.getResult().getType(), op.getBase(), dynamicOffset, uniformOffset,
       constOffsetAttr);
+  newOp.setFlags(op.getFlags());
 }
 
 //===----------------------------------------------------------------------===//

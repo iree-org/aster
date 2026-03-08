@@ -18,6 +18,7 @@
 include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.td"
 include "aster/Dialect/AsterUtils/IR/AsterUtilsAttrs.td"
 include "aster/Dialect/AsterUtils/IR/AsterUtilsTypes.td"
+include "aster/IR/CommonProps.td"
 include "mlir/Dialect/Ptr/IR/PtrDialect.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
@@ -294,11 +295,12 @@ def AsterUtils_PtrAddOp : AsterUtils_Op<"ptr_add", [
     Ptr_PtrType:$ptr,
     AnySignlessInteger:$offset,
     Optional<AnySignlessInteger>:$uniform_offset,
-    DefaultValuedAttr<I64Attr, "0">:$const_offset
+    DefaultValuedAttr<I64Attr, "0">:$const_offset,
+    DefaultValuedProp<PtrAddFlagsProp, "ptr::PtrAddFlags::none">:$flags
   );
   let results = (outs Ptr_PtrType:$result);
   let assemblyFormat = [{
-    $ptr `,` $offset (`,` $uniform_offset^)? (`const_offset` `=` $const_offset^)?
+    ($flags^)? $ptr `,` $offset (`,` $uniform_offset^)? (`const_offset` `=` $const_offset^)?
     attr-dict `:` type($ptr) `,` type($offset)
   }];
 }
