@@ -205,3 +205,16 @@ func.func @test_nsw_nuw(%arg0: i8, %arg1: i8) -> i8 {
   %3 = arith.addi %1, %2 : i8
   return %3 : i8
 }
+
+// CHECK-LABEL:   func.func @test_flags_nsw(
+// This test checks a regression where a pattern applied infinitely many times,
+// due to the flags not being different from the original flags.
+func.func @test_flags_nsw(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  %0 = arith.addi %arg0, %c3 overflow<nsw> : i32
+  %1 = arith.addi %0, %arg1 overflow<nsw> : i32
+  %2 = arith.addi %1, %arg2 overflow<nsw, nuw> : i32
+  %3 = arith.addi %2, %c4 overflow<nsw, nuw> : i32
+  return %3 : i32
+}

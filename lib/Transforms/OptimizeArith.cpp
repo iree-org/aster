@@ -210,16 +210,17 @@ struct AddOverflowFlagsFromRange
       addNuw &= nuw;
     }
 
-    // Skip if the flags are already set to the correct value.
-    if (addNsw == hasNoSignedWrap && addNuw == hasNoUnsignedWrap)
-      return failure();
-
     // Get the new flags.
-    arith::IntegerOverflowFlags newFlags = iface.getOverflowAttr().getValue();
+    arith::IntegerOverflowFlags oldFlags = iface.getOverflowAttr().getValue();
+    arith::IntegerOverflowFlags newFlags = oldFlags;
     if (addNsw)
       newFlags = bitEnumSet(newFlags, arith::IntegerOverflowFlags::nsw);
     if (addNuw)
       newFlags = bitEnumSet(newFlags, arith::IntegerOverflowFlags::nuw);
+
+    // Bail if the flags are already set to the correct value.
+    if (newFlags == oldFlags)
+      return failure();
 
     // Set the new flags.
     rewriter.modifyOpInPlace(op, [&]() {
