@@ -233,6 +233,98 @@ struct AddOverflowFlagsFromRange
 
   const DataFlowSolver &solver;
 };
+
+/// Reassociate chained arith.addi to collect constants: (((a + 3) + b) + c) + 4
+/// -> ((a + b) + c) + 7. Requires at least one of nsw or nuw on the root; uses
+/// the intersection of flags across the chain and bails if that intersection is
+/// empty.
+struct ReassociateAddI : public OpRewritePattern<arith::AddIOp> {
+  using OpRewritePattern::OpRewritePattern;
+  arith::IntegerOverflowFlags
+  collectOperands(Value value, arith::IntegerOverflowFlags commonFlags,
+                  SmallVectorImpl<APInt> &constants,
+                  SmallVectorImpl<Value> &nonConsts) const {
+    APInt cst;
+    // Early return if the value is a constant.
+    if (matchPattern(value, m_ConstantInt(&cst))) {
+      constants.push_back(cst);
+      return commonFlags;
+    }
+
+    auto innerAdd = value.getDefiningOp<arith::AddIOp>();
+
+    // Bail if not an add.
+    if (!innerAdd) {
+      nonConsts.push_back(value);
+      return commonFlags;
+    }
+
+    // Get the common flags from the inner add.
+    arith::IntegerOverflowFlags innerFlags =
+        innerAdd.getOverflowFlagsAttr().getValue() & commonFlags;
+
+    // Bail if the flags are not compatible.
+    if (innerFlags == arith::IntegerOverflowFlags::none) {
+      nonConsts.push_back(value);
+      return commonFlags;
+    }
+
+    // Recurse on the operands.
+    innerFlags =
+        collectOperands(innerAdd.getLhs(), innerFlags, constants, nonConsts);
+    innerFlags =
+        collectOperands(innerAdd.getRhs(), innerFlags, constants, nonConsts);
+    return innerFlags;
+  }
+
+  LogicalResult matchAndRewrite(arith::AddIOp op,
+                                PatternRewriter &rewriter) const override {
+    // Bail if neither nsw or nuw is set on the root.
+    if (!op.hasNoSignedWrap() && !op.hasNoUnsignedWrap())
+      return failure();
+
+    arith::IntegerOverflowFlags commonFlags =
+        op.getOverflowFlagsAttr().getValue();
+
+    // Collect the operands and constants.
+    SmallVector<APInt> constants;
+    SmallVector<Value> nonConsts;
+    commonFlags =
+        collectOperands(op.getLhs(), commonFlags, constants, nonConsts);
+    commonFlags =
+        collectOperands(op.getRhs(), commonFlags, constants, nonConsts);
+
+    // Bail if not enough constants to fold.
+    if (constants.size() <= 1)
+      return failure();
+
+    Location loc = op.getLoc();
+    Type resultType = op.getType();
+
+    // Sum all constants.
+    APInt constantSum = constants.front();
+    for (auto it = constants.begin() + 1; it != constants.end(); ++it)
+      constantSum += *it;
+
+    auto cstOp =
+        arith::ConstantIntOp::create(rewriter, loc, resultType, constantSum);
+
+    Value result;
+    if (nonConsts.empty()) {
+      rewriter.replaceOp(op, cstOp);
+      return success();
+    }
+
+    // Build (nonConst0 + nonConst1 + ... + nonConstN) + constantSum.
+    Value sum = nonConsts.front();
+    for (auto it = nonConsts.begin() + 1; it != nonConsts.end(); ++it)
+      sum = arith::AddIOp::create(rewriter, loc, sum, *it, commonFlags);
+
+    result = arith::AddIOp::create(rewriter, loc, sum, cstOp, commonFlags);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -284,8 +376,8 @@ void OptimizeArith::runOnOperation() {
     return runGreedyRewriter([&](RewritePatternSet &patterns) {
       patterns.add<DivToShift<arith::DivUIOp, arith::ShRUIOp>,
                    DivToShift<arith::DivSIOp, arith::ShRSIOp>, MulToShift,
-                   RemToAnd<arith::RemSIOp>, RemToAnd<arith::RemUIOp>>(
-          &getContext());
+                   RemToAnd<arith::RemSIOp>, RemToAnd<arith::RemUIOp>,
+                   ReassociateAddI>(&getContext());
     });
   };
 

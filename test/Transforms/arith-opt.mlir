@@ -218,3 +218,78 @@ func.func @test_flags_nsw(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
   %3 = arith.addi %2, %c4 overflow<nsw, nuw> : i32
   return %3 : i32
 }
+
+// CHECK-LABEL:   func.func @test_reassociate_addi(
+// CHECK-SAME:      %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 7 : i32
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[ARG0]], %[[ARG1]] overflow<nsw, nuw> : i32
+// CHECK:           %[[ADDI_1:.*]] = arith.addi %[[ADDI_0]], %[[ARG2]] overflow<nsw, nuw> : i32
+// CHECK:           %[[ADDI_2:.*]] = arith.addi %[[ADDI_1]], %[[CONSTANT_0]] overflow<nsw, nuw> : i32
+// CHECK:           return %[[ADDI_2]] : i32
+// CHECK:         }
+func.func @test_reassociate_addi(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  %0 = arith.addi %arg0, %c3 overflow<nsw, nuw> : i32
+  %1 = arith.addi %0, %arg1 overflow<nsw, nuw> : i32
+  %2 = arith.addi %1, %arg2 overflow<nsw, nuw> : i32
+  %3 = arith.addi %2, %c4 overflow<nsw, nuw> : i32
+  return %3 : i32
+}
+
+// CHECK-LABEL:   func.func @test_reassociate_addi_nsw(
+// CHECK-SAME:      %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 7 : i32
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[ARG0]], %[[ARG1]] overflow<nsw> : i32
+// CHECK:           %[[ADDI_1:.*]] = arith.addi %[[ADDI_0]], %[[ARG2]] overflow<nsw> : i32
+// CHECK:           %[[ADDI_2:.*]] = arith.addi %[[ADDI_1]], %[[CONSTANT_0]] overflow<nsw> : i32
+// CHECK:           return %[[ADDI_2]] : i32
+// CHECK:         }
+func.func @test_reassociate_addi_nsw(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  %0 = arith.addi %arg0, %c3 overflow<nsw> : i32
+  %1 = arith.addi %0, %arg1 overflow<nsw> : i32
+  %2 = arith.addi %1, %arg2 overflow<nsw, nuw> : i32
+  %3 = arith.addi %2, %c4 overflow<nsw, nuw> : i32
+  return %3 : i32
+}
+
+// CHECK-LABEL:   func.func @test_reassociate_addi_invalid_flags(
+// CHECK-SAME:      %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 3 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : i32
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[ARG0]], %[[CONSTANT_0]] overflow<nuw> : i32
+// CHECK:           %[[ADDI_1:.*]] = arith.addi %[[ADDI_0]], %[[ARG1]] overflow<nsw> : i32
+// CHECK:           %[[ADDI_2:.*]] = arith.addi %[[ADDI_1]], %[[ARG2]] overflow<nsw, nuw> : i32
+// CHECK:           %[[ADDI_3:.*]] = arith.addi %[[ADDI_2]], %[[CONSTANT_1]] overflow<nsw, nuw> : i32
+// CHECK:           return %[[ADDI_3]] : i32
+// CHECK:         }
+func.func @test_reassociate_addi_invalid_flags(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  // We cannot merge because this first add has nuw but all other adds have nsw.
+  %0 = arith.addi %arg0, %c3 overflow<nuw> : i32
+  %1 = arith.addi %0, %arg1 overflow<nsw> : i32
+  %2 = arith.addi %1, %arg2 overflow<nsw, nuw> : i32
+  %3 = arith.addi %2, %c4 overflow<nsw, nuw> : i32
+  return %3 : i32
+}
+
+// CHECK-LABEL:   func.func @test_reassociate_addi_nuw(
+// CHECK-SAME:      %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i32) -> i32 {
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 7 : i32
+// CHECK:           %[[ADDI_0:.*]] = arith.addi %[[ARG0]], %[[ARG1]] overflow<nuw> : i32
+// CHECK:           %[[ADDI_1:.*]] = arith.addi %[[ADDI_0]], %[[ARG2]] overflow<nuw> : i32
+// CHECK:           %[[ADDI_2:.*]] = arith.addi %[[ADDI_1]], %[[CONSTANT_0]] overflow<nuw> : i32
+// CHECK:           return %[[ADDI_2]] : i32
+// CHECK:         }
+func.func @test_reassociate_addi_nuw(%arg0: i32, %arg1: i32, %arg2: i32) -> i32 {
+  %c3 = arith.constant 3 : i32
+  %c4 = arith.constant 4 : i32
+  %0 = arith.addi %arg0, %c3 overflow<nsw, nuw> : i32
+  %1 = arith.addi %0, %arg1 overflow<nuw> : i32
+  %2 = arith.addi %1, %arg2 overflow<nsw, nuw> : i32
+  %3 = arith.addi %2, %c4 overflow<nuw> : i32
+  return %3 : i32
+}
