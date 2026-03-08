@@ -325,6 +325,98 @@ struct ReassociateAddI : public OpRewritePattern<arith::AddIOp> {
     return success();
   }
 };
+
+/// Reassociate chained arith.muli to collect constants: (((a * 3) * b) * c) * 4
+/// -> ((a * b) * c) * 12. Requires at least one of nsw or nuw on the root; uses
+/// the intersection of flags across the chain and bails if that intersection is
+/// empty.
+struct ReassociateMulI : public OpRewritePattern<arith::MulIOp> {
+  using OpRewritePattern::OpRewritePattern;
+  arith::IntegerOverflowFlags
+  collectOperands(Value value, arith::IntegerOverflowFlags commonFlags,
+                  SmallVectorImpl<APInt> &constants,
+                  SmallVectorImpl<Value> &nonConsts) const {
+    APInt cst;
+    // Early return if the value is a constant.
+    if (matchPattern(value, m_ConstantInt(&cst))) {
+      constants.push_back(cst);
+      return commonFlags;
+    }
+
+    auto innerMul = value.getDefiningOp<arith::MulIOp>();
+
+    // Bail if not a mul.
+    if (!innerMul) {
+      nonConsts.push_back(value);
+      return commonFlags;
+    }
+
+    // Get the common flags from the inner mul.
+    arith::IntegerOverflowFlags innerFlags =
+        innerMul.getOverflowFlagsAttr().getValue() & commonFlags;
+
+    // Bail if the flags are not compatible.
+    if (innerFlags == arith::IntegerOverflowFlags::none) {
+      nonConsts.push_back(value);
+      return commonFlags;
+    }
+
+    // Recurse on the operands.
+    innerFlags =
+        collectOperands(innerMul.getLhs(), innerFlags, constants, nonConsts);
+    innerFlags =
+        collectOperands(innerMul.getRhs(), innerFlags, constants, nonConsts);
+    return innerFlags;
+  }
+
+  LogicalResult matchAndRewrite(arith::MulIOp op,
+                                PatternRewriter &rewriter) const override {
+    // Bail if neither nsw or nuw is set on the root.
+    if (!op.hasNoSignedWrap() && !op.hasNoUnsignedWrap())
+      return failure();
+
+    arith::IntegerOverflowFlags commonFlags =
+        op.getOverflowFlagsAttr().getValue();
+
+    // Collect the operands and constants.
+    SmallVector<APInt> constants;
+    SmallVector<Value> nonConsts;
+    commonFlags =
+        collectOperands(op.getLhs(), commonFlags, constants, nonConsts);
+    commonFlags =
+        collectOperands(op.getRhs(), commonFlags, constants, nonConsts);
+
+    // Bail if not enough constants to fold.
+    if (constants.size() <= 1)
+      return failure();
+
+    Location loc = op.getLoc();
+    Type resultType = op.getType();
+
+    // Multiply all constants.
+    APInt constantProduct = constants.front();
+    for (auto it = constants.begin() + 1; it != constants.end(); ++it)
+      constantProduct *= *it;
+
+    auto cstOp = arith::ConstantIntOp::create(rewriter, loc, resultType,
+                                              constantProduct);
+
+    Value result;
+    if (nonConsts.empty()) {
+      rewriter.replaceOp(op, cstOp);
+      return success();
+    }
+
+    // Build (nonConst0 * nonConst1 * ... * nonConstN) * constantProduct.
+    Value product = nonConsts.front();
+    for (auto it = nonConsts.begin() + 1; it != nonConsts.end(); ++it)
+      product = arith::MulIOp::create(rewriter, loc, product, *it, commonFlags);
+
+    result = arith::MulIOp::create(rewriter, loc, product, cstOp, commonFlags);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -378,6 +470,9 @@ void OptimizeArith::runOnOperation() {
                    DivToShift<arith::DivSIOp, arith::ShRSIOp>, MulToShift,
                    RemToAnd<arith::RemSIOp>, RemToAnd<arith::RemUIOp>,
                    ReassociateAddI>(&getContext());
+      // Add the pattern with higher benefit so that it preempts the shift
+      // patterns.
+      patterns.add<ReassociateMulI>(&getContext(), 10);
     });
   };
 
