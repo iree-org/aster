@@ -59,16 +59,11 @@ def AsterUtils_AssumeRangeOp : AsterUtils_Op<"assume_range", [
     AnySignlessIntegerOrIndex:$input,
     Optional<AnySignlessIntegerOrIndex>:$dynamic_min,
     Optional<AnySignlessIntegerOrIndex>:$dynamic_max,
-    OptionalAttr<IndexAttr>:$static_min,
-    OptionalAttr<IndexAttr>:$static_max
+    OptionalAttr<APIntAttr>:$static_min,
+    OptionalAttr<APIntAttr>:$static_max
   );
   let results = (outs AnySignlessIntegerOrIndex:$result);
-  let assemblyFormat = [{
-    $input
-    custom<AssumeRangeBound>("\"min\"", $dynamic_min, $static_min)
-    custom<AssumeRangeBound>("\"max\"", $dynamic_max, $static_max)
-    attr-dict `:` type($input)
-  }];
+  let hasCustomAssemblyFormat = 1;
   let extraClassDeclaration = [{
     /// Get the minimum bound as an OpFoldResult (either static or dynamic).
     OpFoldResult getMin() {

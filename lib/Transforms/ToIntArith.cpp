@@ -68,6 +68,18 @@ public:
   matchAndRewrite(Op op, typename Op::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
+
+//===----------------------------------------------------------------------===//
+// AssumeRangeOpConversion
+//===----------------------------------------------------------------------===//
+class AssumeRangeOpConversion
+    : public OpConversionPattern<aster_utils::AssumeRangeOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(aster_utils::AssumeRangeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -107,6 +119,61 @@ LogicalResult IdDimOpConversion<Op, COp>::matchAndRewrite(
   res = arith::IndexCastOp::create(rewriter, op.getLoc(),
                                    rewriter.getIndexType(), res);
   rewriter.replaceOp(op, res);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AssumeRangeOpConversion
+//===----------------------------------------------------------------------===//
+
+LogicalResult AssumeRangeOpConversion::matchAndRewrite(
+    aster_utils::AssumeRangeOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  // Bail out if the operation is already legal.
+  if (getTypeConverter()->isLegal(op.getOperation()))
+    return failure();
+
+  // Convert the result type.
+  Type resultType = getTypeConverter()->convertType(op.getType());
+  if (!resultType)
+    return failure();
+
+  aster_utils::AssumeRangeOp::Properties props = op.getProperties();
+
+  // Track if the conversion is lossy.
+  bool lossyConversion = false;
+
+  // Helper lambda to convert an integer attribute to the target type.
+  auto convertIntAttr = [&](IntegerAttr attr) -> IntegerAttr {
+    llvm::APInt attrVal = attr.getValue();
+    llvm::APInt convertedVal =
+        attrVal.sextOrTrunc(resultType.getIntOrFloatBitWidth());
+    // Check if the conversion is lossy.
+    lossyConversion |=
+        convertedVal.sextOrTrunc(attrVal.getBitWidth()) != attrVal;
+    return lossyConversion ? IntegerAttr()
+                           : rewriter.getIntegerAttr(resultType, convertedVal);
+  };
+
+  // Convert static_min attribute to target type if present.
+  if (IntegerAttr staticMin = op.getStaticMinAttr())
+    props.static_min = convertIntAttr(staticMin);
+
+  // Convert static_max attribute to target type if present.
+  if (IntegerAttr staticMax = op.getStaticMaxAttr())
+    props.static_max = convertIntAttr(staticMax);
+
+  // Return a match failure if the conversion is lossy.
+  if (lossyConversion) {
+    return rewriter.notifyMatchFailure(op,
+                                       "lossy integer attribute conversion");
+  }
+
+  // Create the new operation.
+  auto newOp = aster_utils::AssumeRangeOp::create(
+      rewriter, op.getLoc(), resultType, adaptor.getOperands(), props,
+      op->getDiscardableAttrDictionary().getValue());
+  rewriter.replaceOp(op, newOp);
   return success();
 }
 
@@ -180,7 +247,7 @@ void ToIntArith::runOnOperation() {
            IdDimOpConversion<gpu::BlockDimOp, aster_utils::BlockDimOp>,
            IdDimOpConversion<gpu::ThreadIdOp, aster_utils::ThreadIdOp>,
            IdDimOpConversion<gpu::GridDimOp, aster_utils::GridDimOp>,
-           GenericOpConversion<aster_utils::AssumeRangeOp>,
+           AssumeRangeOpConversion,
            GenericOpConversion<aster_utils::AssumeUniformOp>>(converter,
                                                               &getContext());
   ConversionConfig config;

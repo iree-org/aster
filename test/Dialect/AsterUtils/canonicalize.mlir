@@ -140,9 +140,7 @@ func.func @test_no_fold_struct_extract_arg(%s: !aster_utils.struct<x: i32, y: f3
 // constant-dynamic-to-static conversion).
 // CHECK-LABEL:   func.func @test_assume_range_no_bounds_persists(
 // CHECK-SAME:      %[[X:.*]]: i64) -> i64 {
-// CHECK:           %[[R:.*]] = aster_utils.assume_range %[[X]]
-// CHECK-SAME:        : i64
-// CHECK:           return %[[R]] : i64
+// CHECK:           return %[[X]] : i64
 // CHECK:         }
 func.func @test_assume_range_no_bounds_persists(%x: i64) -> i64 {
   %0 = aster_utils.assume_range %x : i64

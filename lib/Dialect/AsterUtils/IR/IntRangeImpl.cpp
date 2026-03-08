@@ -10,10 +10,10 @@
 
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Interfaces/GPUFuncInterface.h"
-#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
-#include "llvm/ADT/APInt.h"
-#include <limits>
+#include "llvm/Support/DebugLog.h"
+
+#define DEBUG_TYPE "int-range-analysis"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -99,53 +99,55 @@ void ThreadIdOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
                                           llvm::APInt(32, size, false), false));
 }
 
+/// Infer the result ranges of the assume_range operation.
 void AssumeRangeOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                       SetIntRangeFn setResultRange) {
   // Get min/max bounds - for dynamic bounds, we need to use the input range
   // from dataflow analysis. For static bounds, use the attribute value.
-  std::optional<APInt> min;
-  std::optional<APInt> max;
 
-  // Check for static min bound
-  if (hasStaticMin())
-    min = getStaticMinAttr().getValue();
-  else if (getDynamicMin() && ranges.size() > 1)
-    min = ranges[1].smin(); // Use the min from dataflow analysis
+  unsigned width = getResult().getType().getIntOrFloatBitWidth();
 
-  // Check for static max bound (index into ranges depends on whether
-  // dynamic_min exists)
+  llvm::APInt umin = llvm::APInt::getMinValue(width);
+  llvm::APInt umax = llvm::APInt::getMaxValue(width);
+  llvm::APInt smin = llvm::APInt::getSignedMinValue(width);
+  llvm::APInt smax = llvm::APInt::getSignedMaxValue(width);
+
+  // Get the min range.
+  if (hasStaticMin()) {
+    umin = getStaticMinAttr().getValue();
+    smin = getStaticMinAttr().getValue();
+  } else if (getDynamicMin()) {
+    umin = ranges[1].umin();
+    smin = ranges[1].smin();
+  }
+
+  // Get the max range.
   if (hasStaticMax()) {
-    max = getStaticMaxAttr().getValue();
+    umax = getStaticMaxAttr().getValue();
+    smax = getStaticMaxAttr().getValue();
   } else if (getDynamicMax()) {
     size_t maxIdx = getDynamicMin() ? 2 : 1;
-    if (ranges.size() > maxIdx)
-      max = ranges[maxIdx].smax(); // Use the max from dataflow analysis
+    if (ranges.size() > maxIdx) {
+      umax = ranges[maxIdx].umax();
+      smax = ranges[maxIdx].smax();
+    }
   }
 
-  if (!min && !max) {
-    setResultRange(getResult(), ranges.front());
-    return;
+  // If the unsigned range is invalid, set it to max range.
+  if (umin.ugt(umax)) {
+    LDBG() << " - Invalid unsigned range, setting to max range";
+    umin = llvm::APInt::getMinValue(width);
+    umax = llvm::APInt::getMaxValue(width);
   }
-  unsigned width = getResult().getType().getIntOrFloatBitWidth();
-  ConstantIntRanges inRange = ranges.front();
-  if (max)
-    max = max->sextOrTrunc(width);
-  if (min)
-    min = min->sextOrTrunc(width);
-  if (!min) {
-    setResultRange(getResult(),
-                   inRange.intersection(ConstantIntRanges::fromSigned(
-                       APInt::getSignedMinValue(width), *max)));
-    return;
+
+  // If the signed range is invalid, set it to max range.
+  if (smin.sgt(smax)) {
+    LDBG() << " - Invalid signed range, setting to max range";
+    smin = llvm::APInt::getSignedMinValue(width);
+    smax = llvm::APInt::getSignedMaxValue(width);
   }
-  if (!max) {
-    setResultRange(getResult(),
-                   inRange.intersection(ConstantIntRanges::fromSigned(
-                       *min, APInt::getSignedMaxValue(width))));
-    return;
-  }
-  setResultRange(getResult(), inRange.intersection(
-                                  ConstantIntRanges::fromSigned(*min, *max)));
+
+  setResultRange(getResult(), ConstantIntRanges(umin, umax, smin, smax));
 }
 
 void AssumeUniformOp::inferResultRangesFromOptional(

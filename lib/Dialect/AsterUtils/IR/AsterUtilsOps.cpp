@@ -14,13 +14,15 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/InliningUtils.h"
+#include "llvm/ADT/APInt.h"
+#include "llvm/Support/SMLoc.h"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -78,22 +80,22 @@ void AsterUtilsDialect::initialize() {
 static ParseResult
 parseAssumeRangeBound(OpAsmParser &parser, StringRef keyword,
                       std::optional<OpAsmParser::UnresolvedOperand> &dynamic,
-                      IntegerAttr &staticVal) {
+                      std::optional<int64_t> &staticVal) {
   // Check if the keyword is present.
   if (failed(parser.parseOptionalKeyword(keyword))) {
     dynamic = std::nullopt;
-    staticVal = nullptr;
+    staticVal = std::nullopt;
     return success();
   }
 
   // Try to parse an integer first (static bound).
-  int64_t intVal;
+  int64_t intVal = 0;
   auto intRes = parser.parseOptionalInteger(intVal);
   if (intRes.has_value()) {
     if (failed(*intRes))
       return failure();
-    staticVal = parser.getBuilder().getIndexAttr(intVal);
     dynamic = std::nullopt;
+    staticVal = intVal;
     return success();
   }
 
@@ -102,49 +104,135 @@ parseAssumeRangeBound(OpAsmParser &parser, StringRef keyword,
   if (parser.parseOperand(operand))
     return failure();
   dynamic = operand;
-  staticVal = nullptr;
+  staticVal = std::nullopt;
   return success();
 }
 
-/// Print a bound that can be either static or dynamic.
-static void printAssumeRangeBound(OpAsmPrinter &printer, Operation *,
-                                  StringRef keyword, Value dynamic,
-                                  IntegerAttr staticVal) {
-  if (!dynamic && !staticVal)
-    return;
-  printer << " " << keyword << " ";
-  if (dynamic) {
-    printer.printOperand(dynamic);
-    return;
+ParseResult AssumeRangeOp::parse(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::UnresolvedOperand input;
+  Type inputType;
+
+  if (parser.parseOperand(input))
+    return failure();
+
+  // Parse min bound.
+  std::optional<OpAsmParser::UnresolvedOperand> dynamicMin;
+  std::optional<int64_t> staticMin;
+  if (failed(parseAssumeRangeBound(parser, "min", dynamicMin, staticMin)))
+    return failure();
+
+  // Parse max bound.
+  std::optional<OpAsmParser::UnresolvedOperand> dynamicMax;
+  std::optional<int64_t> staticMax;
+  if (failed(parseAssumeRangeBound(parser, "max", dynamicMax, staticMax)))
+    return failure();
+
+  // Parse attributes.
+  if (parser.parseOptionalAttrDict(result.attributes))
+    return failure();
+
+  // Parse type.
+  llvm::SMLoc currentLoc = parser.getCurrentLocation();
+  if (parser.parseColonType(inputType))
+    return failure();
+
+  if (!inputType || !inputType.isIntOrIndex())
+    return parser.emitError(currentLoc, "expected integer or index type");
+
+  // Add types.
+  result.addTypes(inputType);
+
+  // Add operands.
+  SmallVector<OpAsmParser::UnresolvedOperand, 3> operands = {input};
+  SmallVector<Type, 3> operandTypes = {inputType};
+  if (dynamicMin) {
+    operands.push_back(*dynamicMin);
+    operandTypes.push_back(inputType);
   }
-  printer << staticVal.getInt();
+  if (dynamicMax) {
+    operands.push_back(*dynamicMax);
+    operandTypes.push_back(inputType);
+  }
+
+  // Resolve operands.
+  if (parser.resolveOperands(operands, operandTypes,
+                             parser.getCurrentLocation(), result.operands))
+    return failure();
+
+  // Add properties.
+  auto &props = result.getOrAddProperties<AssumeRangeOp::Properties>();
+  props.operandSegmentSizes = {1, dynamicMin ? 1 : 0, dynamicMax ? 1 : 0};
+  if (staticMin) {
+    props.static_min =
+        parser.getBuilder().getIntegerAttr(inputType, staticMin.value());
+  }
+  if (staticMax) {
+    props.static_max =
+        parser.getBuilder().getIntegerAttr(inputType, staticMax.value());
+  }
+
+  return success();
+}
+
+void AssumeRangeOp::print(OpAsmPrinter &printer) {
+  printer << " ";
+  printer.printOperand(getInput());
+  if (Value dynamicMin = getDynamicMin()) {
+    printer << " min ";
+    printer.printOperand(dynamicMin);
+  } else if (IntegerAttr staticMin = getStaticMinAttr()) {
+    printer << " min " << staticMin.getInt();
+  }
+  if (Value dynamicMax = getDynamicMax()) {
+    printer << " max ";
+    printer.printOperand(dynamicMax);
+  } else if (IntegerAttr staticMax = getStaticMaxAttr()) {
+    printer << " max " << staticMax.getInt();
+  }
+  printer.printOptionalAttrDict(
+      (*this)->getAttrs(), {"static_min", "static_max", "operandSegmentSizes"});
+  printer << " : " << getInput().getType();
 }
 
 LogicalResult AssumeRangeOp::verify() {
+  Type intTy = getType();
   // Cannot have both static and dynamic min.
   if (getDynamicMin() && getStaticMin())
-    return emitOpError("cannot have both static and dynamic min");
+    return emitError("cannot have both static and dynamic min");
   // Cannot have both static and dynamic max.
   if (getDynamicMax() && getStaticMax())
-    return emitOpError("cannot have both static and dynamic max");
+    return emitError("cannot have both static and dynamic max");
+
+  // Check the attributes types.
+  if (IntegerAttr staticMin = getStaticMinAttr();
+      staticMin && staticMin.getType() != intTy) {
+    return emitError("static min type mismatch: expected ")
+           << intTy << ", got " << staticMin.getType();
+  }
+  if (IntegerAttr staticMax = getStaticMaxAttr();
+      staticMax && staticMax.getType() != intTy) {
+    return emitError("static max type mismatch: expected ")
+           << intTy << ", got " << staticMax.getType();
+  }
   return success();
 }
 
 OpFoldResult AssumeRangeOp::fold(FoldAdaptor adaptor) {
   bool changed = false;
-  if (auto attr = dyn_cast_if_present<IntegerAttr>(adaptor.getDynamicMax());
-      attr && attr.getType().getIntOrFloatBitWidth() <= 64) {
+  Type intTy = getType();
+  if (auto attr = dyn_cast_if_present<IntegerAttr>(adaptor.getDynamicMax())) {
     getDynamicMaxMutable().clear();
-    setStaticMaxAttr(IntegerAttr::get(IndexType::get(getContext()),
-                                      attr.getValue().getSExtValue()));
+    setStaticMaxAttr(IntegerAttr::get(intTy, attr.getValue().getSExtValue()));
     changed = true;
   }
-  if (auto attr = dyn_cast_if_present<IntegerAttr>(adaptor.getDynamicMin());
-      attr && attr.getType().getIntOrFloatBitWidth() <= 64) {
+  if (auto attr = dyn_cast_if_present<IntegerAttr>(adaptor.getDynamicMin())) {
     getDynamicMinMutable().clear();
-    setStaticMinAttr(IntegerAttr::get(IndexType::get(getContext()),
-                                      attr.getValue().getSExtValue()));
+    setStaticMinAttr(IntegerAttr::get(intTy, attr.getValue().getSExtValue()));
     changed = true;
+  }
+  if (!hasStaticMin() && !hasStaticMax() && !getDynamicMin() &&
+      !getDynamicMax()) {
+    return getInput();
   }
   return changed ? OpFoldResult(getResult()) : OpFoldResult();
 }
@@ -161,26 +249,27 @@ struct FoldConstantAssumeRangeBounds : public OpRewritePattern<AssumeRangeOp> {
     IntegerAttr staticMax = op.getStaticMaxAttr();
     Value dynamicMin = op.getDynamicMin();
     Value dynamicMax = op.getDynamicMax();
+    Type type = op.getType();
 
     // Try to fold constant dynamic min.
     if (dynamicMin) {
-      if (auto constOp = dynamicMin.getDefiningOp<arith::ConstantOp>()) {
-        if (auto intAttr = dyn_cast<IntegerAttr>(constOp.getValue())) {
-          staticMin = rewriter.getIndexAttr(intAttr.getInt());
-          dynamicMin = nullptr;
-          changed = true;
-        }
+      llvm::APInt intVal;
+      if (Operation *op = dynamicMin.getDefiningOp();
+          op && m_ConstantInt(&intVal).match(op)) {
+        staticMin = rewriter.getIntegerAttr(type, intVal);
+        dynamicMin = nullptr;
+        changed = true;
       }
     }
 
     // Try to fold constant dynamic max.
     if (dynamicMax) {
-      if (auto constOp = dynamicMax.getDefiningOp<arith::ConstantOp>()) {
-        if (auto intAttr = dyn_cast<IntegerAttr>(constOp.getValue())) {
-          staticMax = rewriter.getIndexAttr(intAttr.getInt());
-          dynamicMax = nullptr;
-          changed = true;
-        }
+      llvm::APInt intVal;
+      if (Operation *op = dynamicMax.getDefiningOp();
+          op && m_ConstantInt(&intVal).match(op)) {
+        staticMax = rewriter.getIntegerAttr(type, intVal);
+        dynamicMax = nullptr;
+        changed = true;
       }
     }
 
