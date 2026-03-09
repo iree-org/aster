@@ -255,3 +255,23 @@ NoCfBranchesAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
 
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// NoRegisterBlockArgsAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult NoRegisterBlockArgsAttr::verifyOperation(
+    function_ref<InFlightDiagnostic()> emitError, Operation *op) const {
+  for (Region &region : op->getRegions()) {
+    for (Block &block : region) {
+      for (BlockArgument arg : block.getArguments()) {
+        if (isa<RegisterTypeInterface>(arg.getType()))
+          return emitError()
+                 << "normal form violation: block arguments with register "
+                    "types are disallowed but found: "
+                 << arg.getType();
+      }
+    }
+  }
+  return success();
+}

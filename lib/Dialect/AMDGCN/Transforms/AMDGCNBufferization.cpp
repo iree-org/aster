@@ -10,6 +10,7 @@
 
 #include "aster/Analysis/DPSAnalysis.h"
 #include "aster/Analysis/LivenessAnalysis.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
@@ -356,4 +357,9 @@ void AMDGCNBufferization::runOnOperation() {
   // Run CSE to clean up any redundant copies inserted by bufferization.
   IRRewriter rewriter(moduleOp->getContext());
   mlir::eliminateCommonSubExpressions(rewriter, domInfo, moduleOp);
+
+  // Set post-condition: no register-typed block arguments remain.
+  if (auto kernelOp = dyn_cast<KernelOp>(moduleOp))
+    kernelOp.addNormalForms(
+        {NoRegisterBlockArgsAttr::get(moduleOp->getContext())});
 }

@@ -63,6 +63,8 @@ def AMDGCNBufferization : Pass<"aster-amdgcn-bufferization"> {
     lowered to the cf dialect before this pass runs. The pass uses
     BranchOpInterface to insert phi-breaking copies at branch points.
 
+    Post-condition: #amdgcn.no_register_block_args
+
     This pass should run just before register coloring.
   }];
   let dependentDialects = [

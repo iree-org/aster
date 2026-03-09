@@ -301,4 +301,16 @@ def NoCfBranchesAttr : AMDGCN_Attr<
   }];
 }
 
+def NoRegisterBlockArgsAttr : AMDGCN_Attr<
+    "NoRegisterBlockArgs", "no_register_block_args",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: no block arguments with register types";
+  let description = [{
+    Verifies that no block arguments have register types
+    (`RegisterTypeInterface`). This is the post-condition of the
+    `aster-amdgcn-bufferization` pass, which replaces register-typed
+    phi-nodes with alloca + copy pairs.
+  }];
+}
+
 #endif // ASTER_AMDGCN_ATTRS_TD
