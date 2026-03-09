@@ -203,6 +203,28 @@ def SCFPipelineAsterSched : Pass<"aster-scf-pipeline"> {
 }
 
 //===----------------------------------------------------------------------===//
+// SimplifyAllocaIterArgs
+//===----------------------------------------------------------------------===//
+
+def SimplifyAllocaIterArgs : Pass<"aster-simplify-alloca-iter-args"> {
+  let summary = "Fold memref.cast on scf.for iter_args and deduplicate";
+  let description = [{
+    Folds memref.cast on scf.for iter_args when the source type is strictly
+    more static than the dest type (e.g., memref<4xf32> -> memref<?xf32>).
+    Combined with upstream folds (foldMemRefCast on loads/stores, cast-chain
+    folding) and RemoveDuplicateSuccessorInputUses, this deduplicates paired
+    alloca+cast iter_args created by the SCF pipeliner into a single
+    static-typed iter_arg.
+
+    This is the memref analogue of upstream's ForOpTensorCastFolder.
+  }];
+  let dependentDialects = [
+    "mlir::memref::MemRefDialect",
+    "mlir::scf::SCFDialect",
+  ];
+}
+
+//===----------------------------------------------------------------------===//
 // ForwardStoreToLoad
 //===----------------------------------------------------------------------===//
 
