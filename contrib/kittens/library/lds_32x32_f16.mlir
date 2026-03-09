@@ -1,12 +1,10 @@
 // Kittens LDS primitives for 32x32 f16 tiles (feeding 32x32x8 MFMA).
 //
-// All transfers use 32x32 tile granularity for coalesced global memory access.
+// Uses lsir.alloca for load destinations. Address computation stays as index
+// until the final lsir.to_reg at the load/store site.
 //
-// LDS layout: 32x32 row-major with XOR swizzle, stride = 64 bytes per row.
-// Total: 2048 bytes per tile. 4 MFMAs per tile (32x32x8 each).
-//
-// All composite functions use memref<?x...> buffer signatures for composability
-// with the k-loop.
+// LDS addressing is flat (no base pointer), so amdgcn.ptr_add does not apply.
+// The entire address is a byte offset in VGPR computed via XOR swizzle.
 
 // Register types
 !sx2 = !amdgcn.sgpr<[? + 2]>
@@ -31,7 +29,6 @@
 
 // Descriptor types from indexing.mlir
 !index_pair = !aster_utils.struct<i: index, j: index>
-!index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
 
 amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   // From indexing.mlir
@@ -39,8 +36,8 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   func.func private @mfma_index_B_32x32xf16() -> !index_pair
   func.func private @thread_tile_pos_32x32() -> (index, index)
   func.func private @lds_xor_swizzled_addr_32x32(index, index, index) -> index
-  // From register-init.mlir
-  func.func private @alloc_vgprx2() -> !vx2
+  // From indexing_ptr.mlir
+  func.func private @index_to_vgpr_i32(index) -> !v
   // From futures.mlir
   func.func private @get_global_load_value_vx2(!future_global_read) -> !vx2
 
@@ -68,8 +65,7 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
       %row = affine.apply affine_map<(g)[rig] -> (rig + g * 8)>(%g)[%row_in_group]
       %addr_idx = func.call @lds_xor_swizzled_addr_32x32(%lds_base, %row, %byte_in_row)
           : (index, index, index) -> index
-      %addr_i32 = arith.index_cast %addr_idx : index to i32
-      %addr = lsir.to_reg %addr_i32 : i32 -> !v
+      %addr = func.call @index_to_vgpr_i32(%addr_idx) : (index) -> !v
       %tok = amdgcn.store ds_write_b64 data %loaded addr %addr offset c(%c0_i32)
           : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
       memref.store %tok, %tok_buf[%g] : !lds_wtok_buf
@@ -112,9 +108,8 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
       %byte = affine.apply affine_map<(k, c) -> (k * 16 + c * 2)>(%k, %col)
       %off_idx = func.call @lds_xor_swizzled_addr_32x32(%lds_base, %row, %byte)
           : (index, index, index) -> index
-      %off_i32 = arith.index_cast %off_idx : index to i32
-      %addr = lsir.to_reg %off_i32 : i32 -> !v
-      %dst = func.call @alloc_vgprx2() : () -> !vx2
+      %addr = func.call @index_to_vgpr_i32(%off_idx) : (index) -> !v
+      %dst = lsir.alloca : !vx2
       %result, %tok = amdgcn.load ds_read_b64 dest %dst addr %addr offset c(%c0_i32)
           : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
       %val = aster_utils.to_any %result : !vx2
@@ -143,9 +138,8 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
       %byte = affine.apply affine_map<(k, c) -> (k * 16 + c * 2)>(%k, %col)
       %off_idx = func.call @lds_xor_swizzled_addr_32x32(%lds_base, %row, %byte)
           : (index, index, index) -> index
-      %off_i32 = arith.index_cast %off_idx : index to i32
-      %addr = lsir.to_reg %off_i32 : i32 -> !v
-      %dst = func.call @alloc_vgprx2() : () -> !vx2
+      %addr = func.call @index_to_vgpr_i32(%off_idx) : (index) -> !v
+      %dst = lsir.alloca : !vx2
       %result, %tok = amdgcn.load ds_read_b64 dest %dst addr %addr offset c(%c0_i32)
           : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
       %val = aster_utils.to_any %result : !vx2

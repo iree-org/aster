@@ -162,6 +162,7 @@ PHASE_LOWER_TO_AMDGCN = (
     "canonicalize", "cse",
     "aster-codegen",
     "canonicalize", "cse", "canonicalize",
+    "amdgcn-optimize",
     "aster-to-amdgcn",
 )
 

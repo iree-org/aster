@@ -37,10 +37,18 @@ def get_kittens_library_paths() -> List[str]:
 
 
 def get_kittens_32x32_library_paths() -> List[str]:
-    """Get paths to all required library files including 32x32 kittens."""
+    """Get paths to all required library files including 32x32 kittens.
+
+    Uses ptr-based addressing: indexing_ptr.mlir for index-based offset computation,
+    lsir.alloca for load destinations, amdgcn.ptr_add for global addressing.
+    """
     base_paths = get_library_paths()
+    common_dir = os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "mlir_kernels", "library", "common"
+    )
     kittens_dir = os.path.join(os.path.dirname(__file__), "..", "library")
     kittens_paths = [
+        os.path.join(common_dir, "indexing_ptr.mlir"),
         os.path.join(kittens_dir, "global_32x32_f16.mlir"),
         os.path.join(kittens_dir, "lds_32x32_f16.mlir"),
         os.path.join(kittens_dir, "compute_32x32_f16.mlir"),

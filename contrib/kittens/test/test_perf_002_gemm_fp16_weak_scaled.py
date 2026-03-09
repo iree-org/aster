@@ -158,6 +158,8 @@ def compile_weak_scaled_gemm(cfg, output_hsaco_path, print_ir_after_all=False):
             content = content.replace(pattern, replacement)
         return content
 
+    lib_paths = get_kittens_32x32_library_paths()
+
     ctx = ir.Context()
     ctx.__enter__()
     try:
@@ -166,7 +168,7 @@ def compile_weak_scaled_gemm(cfg, output_hsaco_path, print_ir_after_all=False):
             KERNEL_NAME,
             TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
             ctx,
-            library_paths=get_kittens_32x32_library_paths(),
+            library_paths=lib_paths,
             preprocess=preprocess,
             print_ir_after_all=print_ir_after_all,
         )

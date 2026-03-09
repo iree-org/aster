@@ -1,9 +1,9 @@
-// Kittens-style 32x32_f16 tile abstractions for global load/store feeding into
-// MFMA 32x32x8 operations.
-// Provides high-level primitives for register tiles used in GEMM kernels.
+// Kittens 32x32_f16 tile abstractions for global load/store.
+// Uses amdgcn.ptr_add with dynamic VGPR offsets and lsir.alloca for destinations.
 
-// Register types from common library
+// Register types
 !sx2 = !amdgcn.sgpr<[? + 2]>
+!s   = !amdgcn.sgpr
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr<[? + 2]>
 !vx16 = !amdgcn.vgpr<[? + 16]>
@@ -16,30 +16,29 @@
 !future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 !gfut_buf = memref<?x!future_global_read>
 
-// Descriptor types from indexing.mlir
+// Descriptor types
 !index_pair = !aster_utils.struct<i: index, j: index>
-!index_descriptor_2level_2d = !aster_utils.struct<i: index, j: index, ii: index, jj: index, stride: index, elt_size_b: index>
+!index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>
 
 // Kittens register tile type aliases for 32x32x8 MFMA
-!rt_A_f16 = !vx2
-!rt_B_f16 = !vx2
 !rt_C_f32 = !vx16
 
 amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   // From register-init.mlir
   func.func private @init_vgprx16(i32) -> !vx16
-  func.func private @alloc_vgprx2() -> !vx2
-  // From indexing.mlir
+  // From indexing.mlir (non-ptr versions still needed for MFMA indexing)
   func.func private @mfma_index_C_32x32xf32() -> !index_pair
   func.func private @mfma_c_row_32x32xf32(index, index) -> index
-  func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @thread_tile_pos_32x32() -> (index, index)
+  // From indexing_ptr.mlir
+  func.func private @matrix_offset_idx(!index_descriptor_2d) -> index
+  func.func private @tile_thread_offset_idx(!index_descriptor_2d, index) -> index
+  func.func private @index_to_vgpr_i32(index) -> !v
 
   //===--------------------------------------------------------------------===//
   // Tile initialization
   //===--------------------------------------------------------------------===//
 
-  // Initialize a 32x32 f32 accumulator tile to zero.
   func.func private @zero_C_32x32() -> !rt_C_f32 {
     %c0 = arith.constant 0 : i32
     %result = func.call @init_vgprx16(%c0) : (i32) -> !vx16
@@ -47,13 +46,12 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // Global Load (32x32 tile, 4 coalesced row-group loads)
+  // Global Load (32x32 tile, ptr-based addressing)
   //===--------------------------------------------------------------------===//
 
-  // Issue 4 global loads for a 32x32 f16 tile with coalesced access.
-  // Each load covers 8 rows (8 threads/row * 4 f16/thread = full 32-element row).
-  // Returns memref<?x!future_global_read> with 4 entries (row groups 0-7, 8-15, 16-23, 24-31).
-  // TODO: Generalize beyond %c4 and pass index as a function arg for reuse.
+  // Issue 4 global loads for a 32x32 f16 tile using ptr_add addressing.
+  // Each load computes a total byte offset = tile_offset + thread_offset,
+  // converts to a VGPR, and uses amdgcn.ptr_add to form the address.
   func.func private @load_global_tile_32x32_f16(
       %ptr: !sx2, %m: index, %k_base: index, %stride: index
   ) -> !gfut_buf {
@@ -62,17 +60,27 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c4 = arith.constant 4 : index
-    %c0_i32 = arith.constant 0 : i32
+
+    // Thread-level offset components (per-lane from lane_id)
+    %d_desc = aster_utils.struct_create(%row_in_group, %col, %stride, %elt_size)
+        : (index, index, index, index) -> !index_descriptor_2d
+    %d_off = func.call @matrix_offset_idx(%d_desc) : (!index_descriptor_2d) -> index
 
     %buf = memref.alloca(%c4) : !gfut_buf
     scf.for %g = %c0 to %c4 step %c1 {
-      %row = affine.apply affine_map<(g)[rig] -> (rig + g * 8)>(%g)[%row_in_group]
-      %desc = aster_utils.struct_create(%m, %k_base, %row, %col, %stride, %elt_size)
-          : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
-      %off = func.call @tiled_matrix_offset(%desc) : (!index_descriptor_2level_2d) -> !v
-      %tmp = func.call @alloc_vgprx2() : () -> !vx2
-      %loaded, %tok = amdgcn.load global_load_dwordx2 dest %tmp addr %ptr
-          offset d(%off) + c(%c0_i32) : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+      // source address calculation
+      %tile_row = affine.apply affine_map<(g)[m] -> (m + g * 8)>(%g)[%m]
+      %u_desc = aster_utils.struct_create(%tile_row, %k_base, %stride, %elt_size)
+          : (index, index, index, index) -> !index_descriptor_2d
+      %total_off = func.call @tile_thread_offset_idx(%u_desc, %d_off)
+          : (!index_descriptor_2d, index) -> index
+      %total_reg = func.call @index_to_vgpr_i32(%total_off) : (index) -> !v
+      %addr = amdgcn.ptr_add %ptr d_off = %total_reg : !sx2, !v
+
+      // load
+      %tmp = lsir.alloca : !vx2
+      %loaded, %tok = amdgcn.load global_load_dwordx2 dest %tmp addr %addr
+          : dps(!vx2) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
       %val = aster_utils.to_any %loaded : !vx2
       %f = aster_utils.struct_create(%val, %tok)
           : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read
@@ -83,21 +91,15 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // Global memory store for C tile (32x32 f32)
+  // Global Store (C tile 32x32 f32, ptr-based addressing)
   //===--------------------------------------------------------------------===//
 
-  // Store a 32x32 f32 C tile to global memory from MFMA C fragment layout.
-  // Each thread holds 16xf32 across 16 VGPRs.
-  //
-  // split_register_range produces 16 separate SSA values that must be stored
-  // to a buffer before they can be iterated in a constexpr loop.
-  // After constexpr expansion + SROA + mem2reg, the buffers disappear.
+  // Store a 32x32 f32 C tile using ptr_add addressing.
+  // Each store computes total byte offset = tile_off + thread_off + reg_off.
   func.func private @store_C_32x32_f32(%tile: !rt_C_f32, %ptr: !sx2, %m: index, %n: index, %stride: index) -> !wtok_buf {
     %mfma_idx = func.call @mfma_index_C_32x32xf32() : () -> !index_pair
     %col, %row_base = aster_utils.struct_extract %mfma_idx ["i", "j"] : !index_pair -> index, index
 
-    // Note: this manual unrolling is unfortunately necessary because of the !vx16 data type for %tile: !rt_C_f32.
-    // TODO: revisit whether we can pass memref<?x!v>
     %c0  = arith.constant 0 : index
     %c1  = arith.constant 1 : index
     %c2  = arith.constant 2 : index
@@ -152,19 +154,30 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     memref.store %a14, %reg_buf[%c14] : memref<?x!aster_utils.any>
     memref.store %a15, %reg_buf[%c15] : memref<?x!aster_utils.any>
 
-    // Iterate over all 16 registers, compute row from fragment layout, store to global.
+    // Thread-level offset: row_base * stride + col * elt_size (per-lane)
     %elt_size = arith.constant 4 : index
-    %c0_i32 = arith.constant 0 : i32
+    %d_desc = aster_utils.struct_create(%row_base, %col, %stride, %elt_size)
+        : (index, index, index, index) -> !index_descriptor_2d
+    %d_off = func.call @matrix_offset_idx(%d_desc) : (!index_descriptor_2d) -> index
+
     %tok_buf = memref.alloca(%c16) : memref<?x!write_token>
     scf.for %i = %c0 to %c16 step %c1 {
       %any_reg = memref.load %reg_buf[%i] : memref<?x!aster_utils.any>
       %reg = aster_utils.from_any %any_reg : !v
-      %row = func.call @mfma_c_row_32x32xf32(%row_base, %i) : (index, index) -> index
-      %desc = aster_utils.struct_create(%m, %n, %row, %col, %stride, %elt_size)
-          : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
-      %off = func.call @tiled_matrix_offset(%desc) : (!index_descriptor_2level_2d) -> !v
-      %tok = amdgcn.store global_store_dword data %reg addr %ptr offset d(%off) + c(%c0_i32)
-          : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+
+      // target address calculation
+      %reg_row_const = func.call @mfma_c_row_32x32xf32(%c0, %i) : (index, index) -> index
+      %tile_row = affine.apply affine_map<()[m, rrc] -> (m + rrc)>()[%m, %reg_row_const]
+      %u_desc = aster_utils.struct_create(%tile_row, %n, %stride, %elt_size)
+          : (index, index, index, index) -> !index_descriptor_2d
+      %total_off = func.call @tile_thread_offset_idx(%u_desc, %d_off)
+          : (!index_descriptor_2d, index) -> index
+      %total_reg = func.call @index_to_vgpr_i32(%total_off) : (index) -> !v
+      %addr = amdgcn.ptr_add %ptr d_off = %total_reg : !sx2, !v
+
+      // store
+      %tok = amdgcn.store global_store_dword data %reg addr %addr
+          : ins(!v, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.write_token<flat>
       memref.store %tok, %tok_buf[%i] : memref<?x!write_token>
     } {aster.constexpr}
 
