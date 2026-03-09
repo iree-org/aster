@@ -390,12 +390,14 @@ static void optimizePtrAddOp(IRRewriter &rewriter, ptr::PtrAddOp op,
                                           offsetType, components.operands);
 
   // Create the optimized ptr_add operation.
+  // Save flags before replaceOpWithNewOp erases op.
+  auto flags = op.getFlags();
   auto constOffsetAttr =
       rewriter.getIntegerAttr(rewriter.getI64Type(), constOffsetVal);
   auto newOp = rewriter.replaceOpWithNewOp<aster_utils::PtrAddOp>(
       op, op.getResult().getType(), op.getBase(), dynamicOffset, uniformOffset,
       constOffsetAttr);
-  newOp.setFlags(op.getFlags());
+  newOp.setFlags(flags);
 }
 
 //===----------------------------------------------------------------------===//
