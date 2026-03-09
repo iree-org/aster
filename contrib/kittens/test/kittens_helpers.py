@@ -36,6 +36,18 @@ def get_kittens_library_paths() -> List[str]:
     return base_paths + kittens_paths
 
 
+def get_kittens_32x32_library_paths() -> List[str]:
+    """Get paths to all required library files including 32x32 kittens."""
+    base_paths = get_library_paths()
+    kittens_dir = os.path.join(os.path.dirname(__file__), "..", "library")
+    kittens_paths = [
+        os.path.join(kittens_dir, "global_32x32_f16.mlir"),
+        os.path.join(kittens_dir, "lds_32x32_f16.mlir"),
+        os.path.join(kittens_dir, "compute_32x32_f16.mlir"),
+    ]
+    return base_paths + kittens_paths
+
+
 def get_mlir_file(file_name: str) -> str:
     """Get path to a test MLIR file in the kittens test directory."""
     return os.path.join(os.path.dirname(__file__), file_name)
@@ -48,6 +60,7 @@ def run_kittens_kernel(
     output_args=None,
     pass_pipeline=None,
     template_substitutions=None,
+    library_paths=None,
     grid_dim=(1, 1, 1),
     block_dim=(64, 1, 1),
     num_iterations=1,
@@ -70,7 +83,7 @@ def run_kittens_kernel(
         output_data=output_args,
         pass_pipeline=pass_pipeline,
         preprocess=preprocess,
-        library_paths=get_kittens_library_paths(),
+        library_paths=library_paths or get_kittens_library_paths(),
         mcpu=MCPU,
         wavefront_size=WAVEFRONT_SIZE,
         grid_dim=grid_dim,
@@ -124,6 +137,22 @@ def pipelined_substitutions(k, num_stages):
         "{{STAGE_LOAD}}": str(stage_load),
         "{{STAGE_SYNC}}": str(stage_sync),
         "{{STAGE_COMPUTE}}": str(stage_compute),
+    }
+
+
+def pipelined_substitutions_32x32(k, num_stages, k_per_tile=32):
+    """Build template substitutions for 32x32 pipelined GEMM tests (4-stage)."""
+    k_tiles = k // k_per_tile
+    stride_ab = k * 2
+    stage_gl, stage_dw, stage_dr, stage_c = PIPELINE_STAGE_CONFIGS_4[num_stages]
+    return {
+        "{{K}}": str(k),
+        "{{K_TILES}}": str(k_tiles),
+        "{{STRIDE_AB}}": str(stride_ab),
+        "{{STAGE_GLOBAL_LOAD}}": str(stage_gl),
+        "{{STAGE_DS_WRITE}}": str(stage_dw),
+        "{{STAGE_DS_READ}}": str(stage_dr),
+        "{{STAGE_COMPUTE}}": str(stage_c),
     }
 
 
