@@ -252,16 +252,17 @@ func.func @unpaired_dead_post_loop_stores(%v0: f32, %v1: f32, %lb: index, %ub: i
 
 // Non-constant store index: forwarding bails out.
 // SimplifyAllocaIterArgs deduplicates (1 iter_arg instead of 2).
-// Stores and iter_arg remain because the dynamic index prevents forwarding.
+// In-loop stores are erased (dead after dedup), but the memref iter_arg
+// survives because the post-loop load uses the result.
 
 // CHECK-LABEL: func.func @negative_nonconstant_store
-// CHECK-SAME:    (%[[V0:[^:]*]]: f32, %[[IDX:[^:]*]]: index,
 // CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:         scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
-// CHECK:           memref.store %[[V0]], %[[BUF]][%[[IDX]]] : memref<2xf32>
-// CHECK:           memref.store %[[V0]], %[[BUF]][%{{.*}}] : memref<2xf32>
-// CHECK:           scf.yield %{{.*}} : memref<2xf32>
-func.func @negative_nonconstant_store(%v0: f32, %idx: index, %lb: index, %ub: index, %step: index) {
+// CHECK:         %[[RES:.*]] = scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
+// CHECK:           %[[NEW:.*]] = memref.alloca() : memref<2xf32>
+// CHECK:           scf.yield %[[NEW]] : memref<2xf32>
+// CHECK:         %[[LD:.*]] = memref.load %[[RES]]
+// CHECK:         return %[[LD]]
+func.func @negative_nonconstant_store(%v0: f32, %idx: index, %lb: index, %ub: index, %step: index) -> f32 {
   %c0 = arith.constant 0 : index
   %alloca = memref.alloca() : memref<2xf32>
   %cast = memref.cast %alloca : memref<2xf32> to memref<?xf32>
@@ -274,20 +275,24 @@ func.func @negative_nonconstant_store(%v0: f32, %idx: index, %lb: index, %ub: in
     %new_cast = memref.cast %new_alloca : memref<2xf32> to memref<?xf32>
     scf.yield %new_alloca, %new_cast : memref<2xf32>, memref<?xf32>
   }
-  return
+  %val = memref.load %res#0[%c0] : memref<2xf32>
+  return %val : f32
 }
 
 // -----
 
 // Load before store (dominance violation): forwarding bails out.
-// After dedup, loads become unused (no post-loop consumers), stores also dead.
-// Canonicalization removes everything.
+// In-loop stores are erased (dead after dedup), but the memref iter_arg
+// survives because the post-loop load uses the result.
 
 // CHECK-LABEL: func.func @negative_load_before_store
-// CHECK-NOT:     memref
-// CHECK-NOT:     scf.for
-// CHECK:         return
-func.func @negative_load_before_store(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) {
+// CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<2xf32>
+// CHECK:         %[[RES:.*]] = scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
+// CHECK:           %[[NEW:.*]] = memref.alloca() : memref<2xf32>
+// CHECK:           scf.yield %[[NEW]] : memref<2xf32>
+// CHECK:         %[[LD:.*]] = memref.load %[[RES]]
+// CHECK:         return %[[LD]]
+func.func @negative_load_before_store(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) -> f32 {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %alloca = memref.alloca() : memref<2xf32>
@@ -302,21 +307,24 @@ func.func @negative_load_before_store(%v0: f32, %v1: f32, %lb: index, %ub: index
     %new_cast = memref.cast %new_alloca : memref<2xf32> to memref<?xf32>
     scf.yield %new_alloca, %new_cast : memref<2xf32>, memref<?xf32>
   }
-  return
+  %val = memref.load %res#0[%c0] : memref<2xf32>
+  return %val : f32
 }
 
 // -----
 
 // Multiple stores to same index: forwarding bails out.
-// Stores and iter_arg remain because duplicate index prevents forwarding.
+// In-loop stores are erased (dead after dedup), but the memref iter_arg
+// survives because the post-loop load uses the result.
 
 // CHECK-LABEL: func.func @negative_duplicate_store_index
 // CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:         scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
-// CHECK:           memref.store {{.*}}, %[[BUF]][%{{.*}}] : memref<2xf32>
-// CHECK:           memref.store {{.*}}, %[[BUF]][%{{.*}}] : memref<2xf32>
-// CHECK:           scf.yield %{{.*}} : memref<2xf32>
-func.func @negative_duplicate_store_index(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) {
+// CHECK:         %[[RES:.*]] = scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
+// CHECK:           %[[NEW:.*]] = memref.alloca() : memref<2xf32>
+// CHECK:           scf.yield %[[NEW]] : memref<2xf32>
+// CHECK:         %[[LD:.*]] = memref.load %[[RES]]
+// CHECK:         return %[[LD]]
+func.func @negative_duplicate_store_index(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) -> f32 {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %alloca = memref.alloca() : memref<2xf32>
@@ -330,7 +338,8 @@ func.func @negative_duplicate_store_index(%v0: f32, %v1: f32, %lb: index, %ub: i
     %new_cast = memref.cast %new_alloca : memref<2xf32> to memref<?xf32>
     scf.yield %new_alloca, %new_cast : memref<2xf32>, memref<?xf32>
   }
-  return
+  %val = memref.load %res#0[%c0] : memref<2xf32>
+  return %val : f32
 }
 
 // -----
