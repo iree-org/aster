@@ -9,6 +9,7 @@ add_mlir_library(AsterTransforms
   OpScheduling.cpp
   PromoteLoopCarriedMemrefs.cpp
   OptimizeArith.cpp
+  PropagateConstantOffsets.cpp
   ReplaceConstantGPUDims.cpp
   SCFPipelineAsterSched.cpp
   SimplifyAllocaIterArgs.cpp

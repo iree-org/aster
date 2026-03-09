@@ -152,6 +152,10 @@ PHASE_LOWER_TO_AMDGCN = (
     # (which composes affine chains) and before aster-to-int-arith (which
     # lowers affine to arith). Upstream: affine::decompose().
     "aster-decompose-affine-apply",
+    # Extract constant offsets from affine.apply maps and fold constant
+    # arith.addi operands back into maps. Separates constant address offsets
+    # from dynamic index computations for better CSE/LICM.
+    "aster-propagate-constant-offsets",
     "aster-to-int-arith",
     "aster-optimize-arith",
     "aster-optimize-ptr-add",

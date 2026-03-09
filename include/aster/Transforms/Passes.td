@@ -305,4 +305,34 @@ def ForwardStoreToLoad : Pass<"aster-forward-store-to-load"> {
   ];
 }
 
+//===----------------------------------------------------------------------===//
+// PropagateConstantOffsets
+//===----------------------------------------------------------------------===//
+
+def PropagateConstantOffsets : Pass<"aster-propagate-constant-offsets"> {
+  let summary = "Propagate constant offsets through affine.apply operations";
+  let description = [{
+    Extracts constant terms from affine.apply maps into explicit arith.addi
+    operations, and folds arith.addi(x, C) operands back into affine maps.
+    This separates constant address offsets from dynamic index computations,
+    enabling better CSE, LICM, and constant folding.
+
+    Two key rewrites applied as a fixed-point iteration:
+
+    1. Extract constant offset:
+       affine.apply<expr + C>(...)  -->  arith.addi(affine.apply<expr>(...), C)
+
+    2. Fold constant add into map:
+       affine.apply<f(d0)>(%x + C)  -->  affine.apply<f(d0 + C)>(%x)
+
+    Note: canonicalization composes affine.apply chains, undoing some
+    decomposition. This pass is designed to run after canonicalization
+    and before lowering affine to arith.
+  }];
+  let dependentDialects = [
+    "mlir::affine::AffineDialect",
+    "mlir::arith::ArithDialect",
+  ];
+}
+
 #endif // ASTER_TRANSFORMS_PASSES_TD
