@@ -146,24 +146,6 @@ def ToAMDGCN : InterfacePass<"aster-to-amdgcn", "mlir::aster::ModuleOpInterface"
   ];
 }
 
-def AMDGCNOptimizeStraightLineWaits : Pass<"amdgcn-optimize-straight-line-waits"> {
-  let summary = "Optimize straight-line waits between first load and last store";
-  let description = [{
-    This pass identifies top-level blocks (not in loops) and finds the first load
-    operation and last store operation in each block. All operations within the
-    first-load, last-write range must be operations without regions and only
-    AMDGCN operations.
-  }];
-  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
-  let options = [
-    Option<"flushAllMemoryOnExit",
-           "flush-all-memory-on-exit",
-           "bool",
-           "true",
-           "If true, flush all pending memory operations before end_kernel">
-  ];
-}
-
 def HoistOps : Pass<"aster-hoist-ops"> {
   let summary = "Hoist special AMDGCN operations to the entry block";
 }

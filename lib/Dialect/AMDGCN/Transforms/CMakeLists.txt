@@ -1,7 +1,6 @@
 add_mlir_library(AMDGCNTransforms
   AMDGCNBufferization.cpp
   AMDGCNHazards.cpp
-  AMDGCNOptimizeStraightLineWaits.cpp
   ConvertLDSBuffers.cpp
   ConvertSCFControlFlow.cpp
   ConvertWaits.cpp

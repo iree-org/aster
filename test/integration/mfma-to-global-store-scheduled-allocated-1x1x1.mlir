@@ -10,7 +10,6 @@
 // RUN: | aster-opt \
 // RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops)))" \
 // RUN: | aster-opt \
-// RUN:   --amdgcn-optimize-straight-line-waits \
 // RUN:   --aster-to-int-arith \
 // RUN:   --aster-optimize-arith \
 // RUN:   --aster-amdgcn-set-abi \
@@ -18,8 +17,7 @@
 // RUN:   --canonicalize \
 // RUN:   --canonicalize \
 // RUN:   --aster-to-amdgcn \
-// RUN: | aster-opt \
-// RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops,amdgcn-reg-alloc)))" \
+// RUN:   --amdgcn-backend \
 // RUN: | aster-opt \
 // RUN:   --amdgcn-hazards \
 // RUN: | aster-translate --mlir-to-asm \
@@ -30,23 +28,20 @@
 // CHECK:   s_load_dwordx2 [[A_ptr:.*]], s[0:1], 0
 // CHECK:   s_load_dwordx2 [[B_ptr:.*]], s[0:1], 8
 // CHECK:   s_load_dwordx2 [[C_ptr:.*]], s[0:1], 16
-// CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 // CHECK:   v_lshlrev_b32_e64 [[tidx_times_8:.*]], 3, v0
+// CHECK:   s_waitcnt lgkmcnt(0)
 // CHECK:   global_load_dwordx2 [[A:v\[.*\]]], [[tidx_times_8]], [[A_ptr]]
 // CHECK:   global_load_dwordx2 [[B:v\[.*\]]], [[tidx_times_8]], [[B_ptr]]
-// CHECK:   s_waitcnt vmcnt(1) expcnt(0) lgkmcnt(0)
+// CHECK:   s_waitcnt vmcnt(1)
 // CHECK:   ds_write_b64 [[tidx_times_8]], [[A]]
-// CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(1)
 // CHECK:   ds_write_b64 [[tidx_times_8]], [[B]] offset: 512
-// CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(1)
+// CHECK:   s_waitcnt lgkmcnt(0)
 // CHECK:   ds_read_b64 [[A_lds:v\[.*\]]], [[tidx_times_8]]
-// CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(1)
 // CHECK:   ds_read_b64 [[B_lds:v\[.*\]]], [[tidx_times_8]] offset: 512
-// CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+// CHECK:   s_waitcnt lgkmcnt(0)
 // CHECK:   v_mfma_f32_16x16x16_f16 [[C:v\[.*\]]], [[A_lds]], [[B_lds]], [[C]]
 // CHECK:   v_lshlrev_b32_e64 [[tidx_times_16:.*]], 4, v0
 // CHECK:   global_store_dwordx4 [[tidx_times_16]], [[C]], [[C_ptr]]
-// CHECK:   s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 // CHECK:   s_endpgm
 
 amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
@@ -74,9 +69,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // Global load
     %c0_load = arith.constant 0 : i32
     %loaded, %tok = amdgcn.load global_load_dwordx2 dest %range addr %global offset d(%offset_vgpr) + c(%c0_load) : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.read_token<flat>
-
-    // Wait for load completion
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     // Store loaded value to memref for use in next block
     memref.store %loaded, %memref[%sz0, %sz1] : memref<?x?x!amdgcn.vgpr<[? + 2]>>
@@ -127,9 +119,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // DS read from LDS
     %from_lds, %tok = amdgcn.load ds_read_b64 dest %range addr %offset_vgpr offset c(%lds_offset) : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
 
-    // Wait for LDS read
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-
     // Store to memref for later use
     memref.store %from_lds, %memref[%sz0, %sz1] : memref<?x?x!amdgcn.vgpr<[? + 2]>>
     return
@@ -155,9 +144,6 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
     // DS write to LDS
     %tok = amdgcn.store ds_write_b64 data %loaded addr %offset_vgpr offset c(%lds_offset) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
-
-    // Wait for LDS write
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     return
   }
 
@@ -242,6 +228,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       func.call @ds_write_body(%threadidx_x, %k, %n, %N, %b_memref, %c512_i32)
         : (index, index, index, index, memref<?x?x!amdgcn.vgpr<[? + 2]>>, i32) -> ()
 
+      amdgcn.wait lgkm_cnt 0
       // Part 1c: DS read for A
       func.call @ds_read_body(%threadidx_x, %m, %k, %K, %a_memref, %c0_i32)
         : (index, index, index, index, memref<?x?x!amdgcn.vgpr<[? + 2]>>, i32) -> ()

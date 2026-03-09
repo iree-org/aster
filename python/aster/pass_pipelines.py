@@ -123,8 +123,6 @@ PHASE_AFFINE_EXPANSION = (
 # that the pass happens correctly.. this should not be the case, reevaluate.
 # Note: aster-amdgcn-expand-md-ops allocates special registers and does not yet
 # work correctly across function calls.
-# This is really needed before optimizing straight-line waits otherwise we
-# may miss some dependencies (e.g. s_load_dwordx2 does not yet exist).
 # TODO: NORMAL FORMS for `aster-amdgcn-expand-md-ops`.
 PHASE_EXPAND_MD_OPS = amdgcn_module(
     amdgcn_kernel(
@@ -146,7 +144,6 @@ PHASE_CONVERT_LDS_BUFFERS = (
 )
 
 # Lowering to LSIR and then AMDGCN
-# Note: convert to lsir and AMDGCN after straight-line wait optimization.
 # Note: aster-to-int-arith contains lower-affine without linking in and
 # cargo-culting the whole conversion library.
 PHASE_LOWER_TO_AMDGCN = (
@@ -164,19 +161,6 @@ PHASE_LOWER_TO_AMDGCN = (
     "canonicalize", "cse", "canonicalize",
     "amdgcn-optimize",
     "aster-to-amdgcn",
-)
-
-# Optimize straight-line waits
-# Note: this must have a aster-amdgcn-expand-md-ops run before to expose
-# s_load_dwordx2.
-# TODO: NORMAL FORMS or include in pass.
-# Note: going to lsir early will make memory dependency more conservative,
-# resulting in more waits during amdgcn-optimize-straight-line-waits.
-# TODO: NORMAL FORMS or include in pass.
-# IMPORTANT: this is on a path to deprecation in favor of `amdgcn.wait` usage
-# and `PHASE_CONVERT_WAITS` to support a future-based ASM programming model.
-PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS = (
-    "amdgcn-optimize-straight-line-waits",
 )
 
 # Register allocation, and wait lowering.
@@ -231,9 +215,6 @@ TEST_SYNCHRONOUS_SROA_PASS_PIPELINE = builtin_module(
     POST_SROA_CLEANUPS,
     PHASE_CONVERT_LDS_BUFFERS,
     PHASE_EXPAND_MD_OPS,
-    # In synchronous mode we do not optimize straight-line waits, we want them
-    # exactly as specified by the programmer.
-    # PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS,
     PHASE_LOWER_TO_AMDGCN,
     PHASE_AMDGCN_BACKEND,
     phase_nop_insertion(delays=32)
@@ -336,7 +317,6 @@ DEFAULT_SROA_PASS_PIPELINE = builtin_module(
     POST_SROA_CLEANUPS,
     PHASE_CONVERT_LDS_BUFFERS,
     PHASE_EXPAND_MD_OPS,
-    PHASE_OPTIMIZE_STRAIGHT_LINE_WAITS,
     PHASE_LOWER_TO_AMDGCN,
     PHASE_AMDGCN_BACKEND,
     phase_nop_insertion(delays=0)
