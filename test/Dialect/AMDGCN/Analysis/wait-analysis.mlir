@@ -405,3 +405,17 @@ func.func @test_counts_strength(%arg0: !amdgcn.vgpr<[? + 2]>) {
   amdgcn.wait vm_cnt 4 deps %token_5 : !amdgcn.read_token<flat>
   return
 }
+
+// CHECK-LABEL: Symbol: test_smem_zero
+// CHECK: amdgcn.wait deps
+// CHECK-NEXT: WAIT STATE BEFORE: unhandled tokens = [{%{{.*}}, {{.*}}, 1, constant}, {%{{.*}}, {{.*}}, 0, constant}]
+// CHECK-NEXT: WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: nowait, lgkm_cnt: 0}
+func.func @test_smem_zero(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vgpr, %arg2: !amdgcn.vgpr<[? + 2]>) {
+  %0 = amdgcn.alloca : !amdgcn.sgpr
+  %1 = amdgcn.alloca : !amdgcn.vgpr
+  // If there are any SMEM loads, flush them.
+  %dest_res, %token = amdgcn.load s_load_dword dest %0 addr %arg0 : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<constant>
+  %dest_res1, %token_1 = amdgcn.load s_load_dword dest %0 addr %arg0 : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<constant>
+  amdgcn.wait deps %token : !amdgcn.read_token<constant>
+  return
+}
