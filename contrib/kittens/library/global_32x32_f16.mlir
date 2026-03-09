@@ -3,6 +3,10 @@
 // decompose offsets into const/uniform/dynamic components for optimal codegen.
 // Accumulators (C tiles) use AGPRs: on gfx942 MFMAs write directly to AGPRs
 // and global_store_dword can read directly from AGPRs.
+//
+// Library functions are split into Phase 1 (VALU) and Phase 2 (MEM) halves
+// to enable kernel-level FU type batching. Combined wrappers are provided
+// for callers that don't need the split (e.g. unit tests).
 
 // Register types
 !sx2 = !amdgcn.sgpr<[? + 2]>
@@ -53,16 +57,14 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // Global Load (32x32 tile, ptr-based addressing)
+  // Global Load - Split API (32x32 tile, ptr-based addressing)
   //===--------------------------------------------------------------------===//
 
-  // Issue 4 global loads for a 32x32 f16 tile using ptr.ptr_add addressing.
-  // The offset stays as index until the final ptr.ptr_add, which takes i32.
-  // aster-optimize-ptr-add decomposes the offset into const/uniform/dynamic,
-  // then aster-codegen lowers to amdgcn.ptr_add with proper register classes.
-  func.func private @load_global_tile_32x32_f16(
+  // Phase 1 (VALU): Compute 4 global load addresses + allocate destinations.
+  // Returns (addr_buf[4], dst_buf[4]).
+  func.func private @compute_global_load_addrs_32x32_f16(
       %ptr: !sx2, %m: index, %k_base: index, %stride: index
-  ) -> !gfut_buf {
+  ) -> (memref<?x!vx2>, memref<?x!vx2>) {
     %row_in_group, %col = func.call @thread_tile_pos_32x32() : () -> (index, index)
     %elt_size = arith.constant 2 : index
     %c0 = arith.constant 0 : index
@@ -76,9 +78,10 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
 
     // Bridge from register-level SGPR pair to ptr dialect type
     %gptr = lsir.from_reg %ptr : !sx2 -> !gptr
-    %buf = memref.alloca(%c4) : !gfut_buf
+
+    %addr_buf = memref.alloca(%c4) : memref<?x!vx2>
+    %dst_buf = memref.alloca(%c4) : memref<?x!vx2>
     scf.for %g = %c0 to %c4 step %c1 {
-      // source address calculation
       %tile_row = affine.apply affine_map<(g)[m] -> (m + g * 8)>(%g)[%m]
       %u_desc = aster_utils.struct_create(%tile_row, %k_base, %stride, %elt_size)
           : (index, index, index, index) -> !index_descriptor_2d
@@ -87,9 +90,26 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
 
       %addr = func.call @global_addr_from_offset(%gptr, %total_off)
           : (!gptr, index) -> !vx2
-
-      // load
+      memref.store %addr, %addr_buf[%g] : memref<?x!vx2>
       %tmp = lsir.alloca : !vx2
+      memref.store %tmp, %dst_buf[%g] : memref<?x!vx2>
+    } {aster.constexpr}
+
+    return %addr_buf, %dst_buf : memref<?x!vx2>, memref<?x!vx2>
+  }
+
+  // Phase 2 (VMEM): Issue 4 global loads from pre-computed addresses.
+  func.func private @issue_global_loads_32x32_f16(
+      %addr_buf: memref<?x!vx2>, %dst_buf: memref<?x!vx2>
+  ) -> !gfut_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c4 = arith.constant 4 : index
+
+    %buf = memref.alloca(%c4) : !gfut_buf
+    scf.for %g = %c0 to %c4 step %c1 {
+      %addr = memref.load %addr_buf[%g] : memref<?x!vx2>
+      %tmp = memref.load %dst_buf[%g] : memref<?x!vx2>
       %loaded, %tok = amdgcn.load global_load_dwordx2 dest %tmp addr %addr
           : dps(!vx2) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
       %val = aster_utils.to_any %loaded : !vx2
@@ -98,6 +118,18 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
       memref.store %f, %buf[%g] : !gfut_buf
     } {aster.constexpr}
 
+    return %buf : !gfut_buf
+  }
+
+  // Combined wrapper (calls Phase 1 + Phase 2). Used by unit tests.
+  func.func private @load_global_tile_32x32_f16(
+      %ptr: !sx2, %m: index, %k_base: index, %stride: index
+  ) -> !gfut_buf {
+    %addr_buf, %dst_buf = func.call @compute_global_load_addrs_32x32_f16(
+        %ptr, %m, %k_base, %stride)
+        : (!sx2, index, index, index) -> (memref<?x!vx2>, memref<?x!vx2>)
+    %buf = func.call @issue_global_loads_32x32_f16(%addr_buf, %dst_buf)
+        : (memref<?x!vx2>, memref<?x!vx2>) -> !gfut_buf
     return %buf : !gfut_buf
   }
 
@@ -173,12 +205,10 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
 
     // Bridge from register-level SGPR pair to ptr dialect type
     %gptr = lsir.from_reg %ptr : !sx2 -> !gptr
-    %tok_buf = memref.alloca(%c16) : memref<?x!write_token>
-    scf.for %i = %c0 to %c16 step %c1 {
-      %any_reg = memref.load %reg_buf[%i] : memref<?x!aster_utils.any>
-      %reg = aster_utils.from_any %any_reg : !a
 
-      // target address calculation
+    // Phase 1: compute all 16 addresses (VALU)
+    %addr_buf = memref.alloca(%c16) : memref<?x!vx2>
+    scf.for %i = %c0 to %c16 step %c1 {
       %reg_row_const = func.call @mfma_c_row_32x32xf32(%c0, %i) : (index, index) -> index
       %tile_row = affine.apply affine_map<()[m, rrc] -> (m + rrc)>()[%m, %reg_row_const]
       %u_desc = aster_utils.struct_create(%tile_row, %n, %stride, %elt_size)
@@ -188,8 +218,15 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
 
       %addr = func.call @global_addr_from_offset(%gptr, %total_off)
           : (!gptr, index) -> !vx2
+      memref.store %addr, %addr_buf[%i] : memref<?x!vx2>
+    } {aster.constexpr}
 
-      // store from AGPR (gfx942 reads AGPRs directly for global_store)
+    // Phase 2: issue all 16 global stores (VMEM unit)
+    %tok_buf = memref.alloca(%c16) : memref<?x!write_token>
+    scf.for %i = %c0 to %c16 step %c1 {
+      %any_reg = memref.load %reg_buf[%i] : memref<?x!aster_utils.any>
+      %reg = aster_utils.from_any %any_reg : !a
+      %addr = memref.load %addr_buf[%i] : memref<?x!vx2>
       %tok = amdgcn.store global_store_dword data %reg addr %addr
           : ins(!amdgcn.agpr, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.write_token<flat>
       memref.store %tok, %tok_buf[%i] : memref<?x!write_token>

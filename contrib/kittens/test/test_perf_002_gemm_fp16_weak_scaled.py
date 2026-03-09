@@ -135,8 +135,6 @@ def _make_substitutions(cfg):
     subs["{{B_LDS_BYTES}}"] = str(cfg.n_tiles_wg * cfg.k_tiles * 2048)
     subs["{{STRIDE_C}}"] = str(cfg.n_dim * 4)  # f32 = 4 bytes
     subs["{{SHARED_MEM}}"] = "0"
-    subs["{{NUM_THREADS}}"] = str(cfg.num_threads)
-    subs["{{NUM_BLOCKS}}"] = str(cfg.num_workgroups)
     subs["{{K_T}}"] = str(cfg.k_tiles)
     subs["{{A_TILES_PER_SLICE}}"] = str(cfg.m_tiles_wg)
     subs["{{B_TILES_PER_SLICE}}"] = str(cfg.n_tiles_wg)
@@ -203,8 +201,8 @@ def execute_weak_scaled_hsaco(
         kernel_name=KERNEL_NAME,
         input_arrays=[A.flatten(), B.flatten()],
         output_arrays=[C_output],
-        grid_dim=(cfg.num_workgroups, 1, 1),
-        block_dim=(cfg.num_threads, 1, 1),
+        grid_dim=(cfg.m_wg, cfg.n_wg, 1),
+        block_dim=(64, cfg.m_waves, cfg.n_waves),
         num_iterations=num_iterations,
     )
     return C_output, times_ns
