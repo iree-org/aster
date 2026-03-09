@@ -1,24 +1,13 @@
 // RUN: aster-opt %s --aster-simplify-alloca-iter-args --aster-decompose-memref-iter-args --split-input-file | FileCheck %s
 
-// -----
-
 // Basic 2-stage: 2 iter_args (alloca + cast) deduped to 1 static iter_arg,
 // in-loop loads forwarded to stored values, post-loop loads forwarded.
+// Everything dead is cleaned up: stores, allocas, iter_args, constants.
 
 // CHECK-LABEL: func.func @paired_basic_2stage
-// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32, %[[LB:.*]]: index, %[[UB:.*]]: index, %[[STEP:.*]]: index)
-// CHECK-DAG:     %[[C0:.*]] = arith.constant 0 : index
-// CHECK-DAG:     %[[C1:.*]] = arith.constant 1 : index
-// CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:         %[[FOR:.*]] = scf.for %{{.*}} = %[[LB]] to %[[UB]] step %[[STEP]] iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
-// CHECK:           memref.store %[[V0]], %[[BUF]][%[[C0]]] : memref<2xf32>
-// CHECK:           memref.store %[[V1]], %[[BUF]][%[[C1]]] : memref<2xf32>
-// CHECK-NOT:       memref.load
-// CHECK:           %[[NEW:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:           scf.yield %[[NEW]] : memref<2xf32>
-// CHECK:         }
-// CHECK-NOT:     memref.load
-// CHECK-NOT:     memref.store
+// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32,
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
 // CHECK:         return %[[V0]], %[[V1]] : f32, f32
 func.func @paired_basic_2stage(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) -> (f32, f32) {
   %c0 = arith.constant 0 : index
@@ -48,20 +37,8 @@ func.func @paired_basic_2stage(%v0: f32, %v1: f32, %lb: index, %ub: index, %step
 
 // CHECK-LABEL: func.func @paired_four_elements
 // CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32, %[[V2:.*]]: f32, %[[V3:.*]]: f32,
-// CHECK-DAG:     %[[C0:.*]] = arith.constant 0 : index
-// CHECK-DAG:     %[[C1:.*]] = arith.constant 1 : index
-// CHECK-DAG:     %[[C2:.*]] = arith.constant 2 : index
-// CHECK-DAG:     %[[C3:.*]] = arith.constant 3 : index
-// CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<4xf32>
-// CHECK:         scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<4xf32>)
-// CHECK:           memref.store %[[V0]], %[[BUF]][%[[C0]]] : memref<4xf32>
-// CHECK:           memref.store %[[V1]], %[[BUF]][%[[C1]]] : memref<4xf32>
-// CHECK:           memref.store %[[V2]], %[[BUF]][%[[C2]]] : memref<4xf32>
-// CHECK:           memref.store %[[V3]], %[[BUF]][%[[C3]]] : memref<4xf32>
-// CHECK-NOT:       memref.load
-// CHECK:           scf.yield %{{.*}} : memref<4xf32>
-// CHECK:         }
-// CHECK-NOT:     memref.load
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
 // CHECK:         return %[[V0]], %[[V1]], %[[V2]], %[[V3]] : f32, f32, f32, f32
 func.func @paired_four_elements(%v0: f32, %v1: f32, %v2: f32, %v3: f32,
                                  %lb: index, %ub: index, %step: index) -> (f32, f32, f32, f32) {
@@ -98,23 +75,13 @@ func.func @paired_four_elements(%v0: f32, %v1: f32, %v2: f32, %v3: f32,
 
 // -----
 
-// Multiple pairs (f32 + i32): 4 iter_args deduped to 2, loads forwarded.
+// Multiple pairs (f32 + i32): 4 iter_args deduped to 2, loads forwarded,
+// everything cleaned up.
 
 // CHECK-LABEL: func.func @paired_multiple_pairs
-// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32, %[[W0:.*]]: i32, %[[W1:.*]]: i32,
-// CHECK-DAG:     %[[C0:.*]] = arith.constant 0 : index
-// CHECK-DAG:     %[[C1:.*]] = arith.constant 1 : index
-// CHECK:         %[[AF:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:         %[[AI:.*]] = memref.alloca() : memref<2xi32>
-// CHECK:         %{{.*}}:2 = scf.for {{.*}} iter_args(%[[BF:.*]] = %[[AF]], %[[BI:.*]] = %[[AI]]) -> (memref<2xf32>, memref<2xi32>)
-// CHECK:           memref.store %[[V0]], %[[BF]][%[[C0]]] : memref<2xf32>
-// CHECK:           memref.store %[[V1]], %[[BF]][%[[C1]]] : memref<2xf32>
-// CHECK:           memref.store %[[W0]], %[[BI]][%[[C0]]] : memref<2xi32>
-// CHECK:           memref.store %[[W1]], %[[BI]][%[[C1]]] : memref<2xi32>
-// CHECK-NOT:       memref.load
-// CHECK:           scf.yield %{{.*}}, %{{.*}} : memref<2xf32>, memref<2xi32>
-// CHECK:         }
-// CHECK-NEXT:    return
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
+// CHECK:         return
 func.func @paired_multiple_pairs(%v0: f32, %v1: f32, %w0: i32, %w1: i32,
                                   %lb: index, %ub: index, %step: index) {
   %c0 = arith.constant 0 : index
@@ -151,16 +118,9 @@ func.func @paired_multiple_pairs(%v0: f32, %v1: f32, %w0: i32, %w1: i32,
 
 // CHECK-LABEL: func.func @paired_duplicate_loads
 // CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32,
-// CHECK-DAG:     %[[C0:.*]] = arith.constant 0 : index
-// CHECK-DAG:     %[[C1:.*]] = arith.constant 1 : index
-// CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:         scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
-// CHECK:           memref.store %[[V0]], %[[BUF]][%[[C0]]] : memref<2xf32>
-// CHECK:           memref.store %[[V1]], %[[BUF]][%[[C1]]] : memref<2xf32>
-// CHECK-NOT:       memref.load
-// CHECK:           scf.yield %{{.*}} : memref<2xf32>
-// CHECK:         }
-// CHECK-NEXT:    return %[[V0]], %[[V1]] : f32, f32
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
+// CHECK:         return %[[V0]], %[[V1]] : f32, f32
 func.func @paired_duplicate_loads(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) -> (f32, f32) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
@@ -187,18 +147,8 @@ func.func @paired_duplicate_loads(%v0: f32, %v1: f32, %lb: index, %ub: index, %s
 
 // CHECK-LABEL: func.func @paired_rotation_3stage
 // CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32,
-// CHECK-DAG:     %[[C0:.*]] = arith.constant 0 : index
-// CHECK-DAG:     %[[C1:.*]] = arith.constant 1 : index
-// CHECK:         %[[AA:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:         %[[AB:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:         %{{.*}}:2 = scf.for {{.*}} iter_args(%[[BA:.*]] = %[[AA]], %[[BB:.*]] = %[[AB]]) -> (memref<2xf32>, memref<2xf32>)
-// CHECK:           memref.store %[[V0]], %[[BB]][%[[C0]]] : memref<2xf32>
-// CHECK:           memref.store %[[V1]], %[[BB]][%[[C1]]] : memref<2xf32>
-// CHECK-NOT:       memref.load
-// CHECK:           %[[NEW:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:           scf.yield %[[NEW]], %[[BA]] : memref<2xf32>, memref<2xf32>
-// CHECK:         }
-// CHECK-NOT:     memref.load
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
 // CHECK:         return %[[V0]], %[[V1]] : f32, f32
 func.func @paired_rotation_3stage(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) -> (f32, f32) {
   %c0 = arith.constant 0 : index
@@ -238,21 +188,12 @@ func.func @paired_rotation_3stage(%v0: f32, %v1: f32, %lb: index, %ub: index, %s
 //===----------------------------------------------------------------------===//
 
 // Unpaired iter_arg: stores and loads target the same block arg (no cast).
-// In-loop and post-loop stores+loads are forwarded. Pre-loop stores erased.
+// In-loop and post-loop stores+loads are forwarded. Everything cleaned up.
 
 // CHECK-LABEL: func.func @unpaired_self_forwarding
 // CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32,
-// CHECK-DAG:     %[[C0:.*]] = arith.constant 0 : index
-// CHECK-DAG:     %[[C1:.*]] = arith.constant 1 : index
-// CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:         scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
-// CHECK:           memref.store %[[V0]], %[[BUF]][%[[C0]]] : memref<2xf32>
-// CHECK:           memref.store %[[V1]], %[[BUF]][%[[C1]]] : memref<2xf32>
-// CHECK-NOT:       memref.load
-// CHECK:           scf.yield %{{.*}} : memref<2xf32>
-// CHECK:         }
-// CHECK-NOT:     memref.load
-// CHECK-NOT:     memref.store
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
 // CHECK:         return %[[V0]], %[[V1]] : f32, f32
 func.func @unpaired_self_forwarding(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) -> (f32, f32) {
   %c0 = arith.constant 0 : index
@@ -279,21 +220,12 @@ func.func @unpaired_self_forwarding(%v0: f32, %v1: f32, %lb: index, %ub: index, 
 // -----
 
 // Unpaired with dead post-loop stores only (no post-loop loads).
-// In-loop loads forwarded, post-loop stores erased (dead -- no loads).
+// In-loop loads forwarded, post-loop stores erased, everything cleaned up.
 
 // CHECK-LABEL: func.func @unpaired_dead_post_loop_stores
-// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32,
-// CHECK-DAG:     %[[C0:.*]] = arith.constant 0 : index
-// CHECK-DAG:     %[[C1:.*]] = arith.constant 1 : index
-// CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<2xf32>
-// CHECK:         scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
-// CHECK:           memref.store %[[V0]], %[[BUF]][%[[C0]]] : memref<2xf32>
-// CHECK:           memref.store %[[V1]], %[[BUF]][%[[C1]]] : memref<2xf32>
-// CHECK-NOT:       memref.load
-// CHECK:           scf.yield %{{.*}} : memref<2xf32>
-// CHECK:         }
-// CHECK-NOT:     memref.store
-// CHECK-NEXT:    return
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
+// CHECK:         return
 func.func @unpaired_dead_post_loop_stores(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
@@ -319,7 +251,8 @@ func.func @unpaired_dead_post_loop_stores(%v0: f32, %v1: f32, %lb: index, %ub: i
 //===----------------------------------------------------------------------===//
 
 // Non-constant store index: forwarding bails out.
-// SimplifyAllocaIterArgs still deduplicates iter_args (1 instead of 2).
+// SimplifyAllocaIterArgs deduplicates (1 iter_arg instead of 2).
+// Stores and iter_arg remain because the dynamic index prevents forwarding.
 
 // CHECK-LABEL: func.func @negative_nonconstant_store
 // CHECK-SAME:    (%[[V0:[^:]*]]: f32, %[[IDX:[^:]*]]: index,
@@ -347,19 +280,13 @@ func.func @negative_nonconstant_store(%v0: f32, %idx: index, %lb: index, %ub: in
 // -----
 
 // Load before store (dominance violation): forwarding bails out.
-// After cast folding, loads and stores target the same iter_arg but
-// stores still come after loads, so forwarding correctly bails out.
-// Note: the loads get removed because they are unused after dedup,
-// but the stores remain.
+// After dedup, loads become unused (no post-loop consumers), stores also dead.
+// Canonicalization removes everything.
 
 // CHECK-LABEL: func.func @negative_load_before_store
-// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32,
-// CHECK:         scf.for {{.*}} iter_args(%[[BUF:.*]] = %{{.*}}) -> (memref<2xf32>)
-// CHECK:           memref.store %[[V0]], %[[BUF]][%{{.*}}] : memref<2xf32>
-// CHECK:           memref.store %[[V1]], %[[BUF]][%{{.*}}] : memref<2xf32>
-// CHECK:           scf.yield %{{.*}} : memref<2xf32>
-// CHECK:         }
-// CHECK-NEXT:    return
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
+// CHECK:         return
 func.func @negative_load_before_store(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
@@ -381,15 +308,14 @@ func.func @negative_load_before_store(%v0: f32, %v1: f32, %lb: index, %ub: index
 // -----
 
 // Multiple stores to same index: forwarding bails out.
+// Stores and iter_arg remain because duplicate index prevents forwarding.
 
 // CHECK-LABEL: func.func @negative_duplicate_store_index
-// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32,
-// CHECK:         scf.for {{.*}} iter_args(%[[BUF:.*]] = %{{.*}}) -> (memref<2xf32>)
-// CHECK:           memref.store %[[V0]], %[[BUF]][%{{.*}}] : memref<2xf32>
-// CHECK:           memref.store %[[V1]], %[[BUF]][%{{.*}}] : memref<2xf32>
+// CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<2xf32>
+// CHECK:         scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
+// CHECK:           memref.store {{.*}}, %[[BUF]][%{{.*}}] : memref<2xf32>
+// CHECK:           memref.store {{.*}}, %[[BUF]][%{{.*}}] : memref<2xf32>
 // CHECK:           scf.yield %{{.*}} : memref<2xf32>
-// CHECK:         }
-// CHECK-NEXT:    return
 func.func @negative_duplicate_store_index(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
@@ -410,14 +336,13 @@ func.func @negative_duplicate_store_index(%v0: f32, %v1: f32, %lb: index, %ub: i
 // -----
 
 // Load at index with no corresponding store: forwarding bails out.
+// After dedup, load becomes unused (no post-loop consumers), store also dead.
+// Canonicalization removes everything.
 
 // CHECK-LABEL: func.func @negative_missing_store_for_load
-// CHECK-SAME:    (%[[V0:.*]]: f32,
-// CHECK:         scf.for {{.*}} iter_args(%[[BUF:.*]] = %{{.*}}) -> (memref<2xf32>)
-// CHECK:           memref.store %[[V0]], %[[BUF]][%{{.*}}] : memref<2xf32>
-// CHECK:           scf.yield %{{.*}} : memref<2xf32>
-// CHECK:         }
-// CHECK-NEXT:    return
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
+// CHECK:         return
 func.func @negative_missing_store_for_load(%v0: f32, %lb: index, %ub: index, %step: index) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index

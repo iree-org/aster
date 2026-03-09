@@ -20,8 +20,10 @@
 #include "aster/Transforms/MemRefUtils.h"
 #include "aster/Transforms/Passes.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -63,10 +65,10 @@ static void forwardStaticAllocaStores(scf::ForOp forOp) {
     LDBG() << "  Forwarded iter_arg #" << i << " (" << numElements
            << " elements)";
 
-    // Best-effort post-loop cleanup: the primary in-loop forwarding already
-    // succeeded above. These may fail if the post-loop result or init don't
-    // match the expected pattern (e.g., no stores, or still has loads) -- that
-    // is expected and not a pass failure.
+    // Best-effort cleanup: erase dead stores on the block arg (loads were
+    // forwarded or didn't exist), the for-op result, and the init alloca.
+    // These may fail if the pattern doesn't match -- that is expected.
+    (void)eraseDeadMemrefStores(rewriter, ba);
     Value result = forOp.getResult(i);
     (void)forwardConstantIndexStores(rewriter, result, result, numElements);
     (void)eraseDeadMemrefStores(rewriter, result);
@@ -95,4 +97,12 @@ void DecomposeMemrefIterArgs::runOnOperation() {
 
   for (scf::ForOp forOp : forOps)
     forwardStaticAllocaStores(forOp);
+
+  // Clean up: remove unused iter_args, dead allocas, dead constants.
+  MLIRContext *ctx = rootOp->getContext();
+  RewritePatternSet patterns(ctx);
+  scf::ForOp::getCanonicalizationPatterns(patterns, ctx);
+  memref::AllocaOp::getCanonicalizationPatterns(patterns, ctx);
+  arith::ConstantOp::getCanonicalizationPatterns(patterns, ctx);
+  (void)applyPatternsAndFoldGreedily(rootOp, std::move(patterns));
 }
