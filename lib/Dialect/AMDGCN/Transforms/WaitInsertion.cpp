@@ -49,6 +49,11 @@
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/DebugLog.h"
+#include "llvm/Support/InterleavedRange.h"
+
+#define DEBUG_TYPE "wait-insertion"
 
 namespace mlir::aster {
 namespace amdgcn {
@@ -105,6 +110,10 @@ void WaitTransformImpl::collectDefinitions(InstOpInterface instOp) {
   assert(reachingDefinitions &&
          "expected valid reaching definitions state before inst op");
 
+  LDBG_OS([&](llvm::raw_ostream &os) {
+    os << "  Reaching definitions state: " << *reachingDefinitions;
+  });
+
   // Get the operands of the instruction.
   OperandRange outs = instOp.getInstOuts();
   OperandRange ins = instOp.getInstIns();
@@ -118,9 +127,14 @@ void WaitTransformImpl::collectDefinitions(InstOpInterface instOp) {
       auto regTy = dyn_cast<RegisterTypeInterface>(operand.get().getType());
       if (!regTy || regTy.hasValueSemantics())
         continue;
-      auto range = reachingDefinitions->getRange(operand.get());
-      for (Definition definition : range)
-        definitions.insert(cast<LoadOp>(definition.definition->getOwner()));
+      FailureOr<ValueRange> allocasOrFailure =
+          getAllocasOrFailure(operand.get());
+      assert(succeeded(allocasOrFailure) &&
+             "expected to find allocas for operand in reaching definitions");
+      for (Value alloc : *allocasOrFailure) {
+        for (Definition definition : reachingDefinitions->getRange(alloc))
+          definitions.insert(cast<LoadOp>(definition.definition->getOwner()));
+      }
     }
   };
 
@@ -164,8 +178,17 @@ void WaitTransformImpl::run(FunctionOpInterface funcOp) {
     return;
   entryBlock = &body.front();
   funcOp.walk([this](InstOpInterface instOp) {
+    // Erase s_waitcnt operations that are not immutable.
+    if (auto wOp = dyn_cast<inst::SWaitcntOp>(instOp.getOperation());
+        wOp && !wOp.getImmutable()) {
+      rewriter.eraseOp(instOp);
+      return;
+    }
+    LDBG() << "Handling instruction: " << instOp;
     definitions.clear();
     collectDefinitions(instOp);
+    LDBG() << "  Reaching definitions: "
+           << llvm::interleaved_array(definitions);
     handleDefinitions(instOp);
   });
 }

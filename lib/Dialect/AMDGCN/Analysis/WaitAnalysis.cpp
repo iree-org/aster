@@ -208,7 +208,6 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
     }
   }
 
-  bool hasDstoks = false;
   bool hasSmemToks = false;
 
   // If there are LGKM tokens, count the number of DS and SMEM tokens in the
@@ -216,19 +215,17 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
   if (hasLgkmDeps) {
     for (const TokenState &tok : reachingTokens) {
       // End early if both types have been found.
-      if (hasDstoks && hasSmemToks)
+      if (hasSmemToks)
         break;
 
       if (tok.getKind() == MemoryInstructionKind::Constant)
         hasSmemToks = true;
-      else if (tok.getKind() == MemoryInstructionKind::Shared)
-        hasDstoks = true;
     }
   }
 
-  // If there are both DS and SMEM tokens, the only consistent wait is to wait
-  // for all lgkm tokens.
-  if (hasDstoks && hasSmemToks)
+  // If there are SMEM tokens, the only consistent wait is to wait or all lgkm
+  // tokens as they return out of order.
+  if (hasSmemToks)
     lgkmCnt = 0;
 
   // Update the wait counts based on the waited tokens.
