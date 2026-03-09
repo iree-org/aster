@@ -40,12 +40,25 @@ using namespace mlir::aster;
 namespace {
 
 /// Forward stores-to-loads for static alloca iter_args (memref<NxT>).
-/// These are iter_args where stores and loads both target the same block arg
-/// at constant indices. After self-forwarding, erases dead stores on both the
-/// block arg and the for-op result.
+///
+/// Two patterns are handled:
+///
+/// Pattern 1 - Self-forwarding: stores and loads both target the same block
+/// arg at constant indices (typical after SimplifyAllocaIterArgs dedup).
+///
+/// Pattern 2 - Cross-iteration forwarding: stores go to a NEW alloca that is
+/// yielded, loads come from the BLOCK ARG (previous iteration's yield).
+/// This is the natural pattern from pipelined loops with buffer APIs:
+///   scf.for iter_args(%ba = %alloca) {
+///     %new = memref.alloca()
+///     store %v, %new[0]       // stores to yield value
+///     load %ba[0]             // loads from block arg
+///     yield %new
+///   }
 static void forwardStaticAllocaStores(scf::ForOp forOp) {
   int64_t numArgs = forOp.getNumRegionIterArgs();
   IRRewriter rewriter(forOp.getContext());
+  auto yieldOp = cast<scf::YieldOp>(forOp.getBody()->getTerminator());
 
   for (int64_t i = 0; i < numArgs; ++i) {
     Value init = forOp.getInitArgs()[i];
@@ -57,20 +70,36 @@ static void forwardStaticAllocaStores(scf::ForOp forOp) {
     int64_t numElements = memrefType.getShape()[0];
     BlockArgument ba = forOp.getRegionIterArgs()[i];
 
-    // Self-forward: stores and loads target the same block arg.
-    if (failed(forwardConstantIndexStores(rewriter, ba, ba, numElements))) {
-      LDBG() << "  SKIP iter_arg #" << i << ": self-forwarding failed";
-      continue;
+    // Try self-forwarding first (Pattern 1).
+    if (succeeded(forwardConstantIndexStores(rewriter, ba, ba, numElements))) {
+      LDBG() << "  Self-forwarded iter_arg #" << i << " (" << numElements
+             << " elements)";
+    } else {
+      // Try cross-iteration forwarding (Pattern 2): stores to yield value,
+      // loads from block arg.
+      Value yieldVal = yieldOp.getOperand(i);
+      if (yieldVal == ba) {
+        LDBG() << "  SKIP iter_arg #" << i << ": yield == ba, no forwarding";
+        continue;
+      }
+      if (failed(forwardConstantIndexStores(rewriter, yieldVal, ba,
+                                            numElements))) {
+        LDBG() << "  SKIP iter_arg #" << i << ": cross-iteration failed";
+        continue;
+      }
+      LDBG() << "  Cross-forwarded iter_arg #" << i << " (" << numElements
+             << " elements)";
     }
-    LDBG() << "  Forwarded iter_arg #" << i << " (" << numElements
-           << " elements)";
 
     // Best-effort cleanup: erase dead stores on the block arg (loads were
     // forwarded or didn't exist), the for-op result, and the init alloca.
     // These may fail if the pattern doesn't match -- that is expected.
     (void)eraseDeadMemrefStores(rewriter, ba);
     Value result = forOp.getResult(i);
+    // Try self-forwarding on result, then cross-forwarding from init to
+    // result (init stores dominate post-loop result loads in the same block).
     (void)forwardConstantIndexStores(rewriter, result, result, numElements);
+    (void)forwardConstantIndexStores(rewriter, init, result, numElements);
     (void)eraseDeadMemrefStores(rewriter, result);
     (void)eraseDeadMemrefStores(rewriter, init);
   }
