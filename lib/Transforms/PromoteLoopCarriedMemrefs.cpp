@@ -29,6 +29,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Transforms/MemRefUtils.h"
 #include "aster/Transforms/Passes.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -61,15 +62,6 @@ struct LoopCarriedAlloca {
   /// The enclosing scf.for.
   scf::ForOp forOp;
 };
-
-/// Check if a memref type is a scalar memref (0-d or 1-element 1-d).
-static bool isScalarMemRef(MemRefType type) {
-  if (type.getRank() == 0)
-    return true;
-  if (type.getRank() == 1 && type.getShape()[0] == 1)
-    return true;
-  return false;
-}
 
 /// Check if an operation is directly inside the body of the given scf.for
 /// (not nested inside an scf.if or other op with regions).

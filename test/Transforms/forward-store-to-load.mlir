@@ -4,8 +4,6 @@
 
 // CHECK-LABEL: func.func @basic_forwarding
 // CHECK-SAME:    (%[[VAL:.*]]: f32)
-// CHECK-NEXT:    %[[ALLOCA:.*]] = memref.alloca() : memref<f32>
-// CHECK-NEXT:    memref.store %[[VAL]], %[[ALLOCA]][] : memref<f32>
 // CHECK-NEXT:    return %[[VAL]] : f32
 func.func @basic_forwarding(%val: f32) -> f32 {
   %alloca = memref.alloca() : memref<f32>
@@ -18,8 +16,6 @@ func.func @basic_forwarding(%val: f32) -> f32 {
 
 // CHECK-LABEL: func.func @chain_forwarding
 // CHECK-SAME:    (%[[V1:.*]]: f32, %[[V2:.*]]: f32)
-// CHECK-NEXT:    %[[ALLOCA:.*]] = memref.alloca() : memref<f32>
-// CHECK-NEXT:    memref.store %[[V2]], %[[ALLOCA]][] : memref<f32>
 // CHECK-NEXT:    return %[[V1]], %[[V2]] : f32, f32
 func.func @chain_forwarding(%v1: f32, %v2: f32) -> (f32, f32) {
   %alloca = memref.alloca() : memref<f32>
@@ -34,10 +30,6 @@ func.func @chain_forwarding(%v1: f32, %v2: f32) -> (f32, f32) {
 
 // CHECK-LABEL: func.func @interleaved_allocas
 // CHECK-SAME:    (%[[VA:.*]]: f32, %[[VB:.*]]: f32)
-// CHECK-NEXT:    %[[AA:.*]] = memref.alloca() : memref<f32>
-// CHECK-NEXT:    memref.store %[[VA]], %[[AA]][] : memref<f32>
-// CHECK-NEXT:    %[[AB:.*]] = memref.alloca() : memref<f32>
-// CHECK-NEXT:    memref.store %[[VB]], %[[AB]][] : memref<f32>
 // CHECK-NEXT:    return %[[VA]], %[[VB]] : f32, f32
 func.func @interleaved_allocas(%va: f32, %vb: f32) -> (f32, f32) {
   %alloca_a = memref.alloca() : memref<f32>
@@ -53,8 +45,6 @@ func.func @interleaved_allocas(%va: f32, %vb: f32) -> (f32, f32) {
 
 // CHECK-LABEL: func.func @dead_store_elimination
 // CHECK-SAME:    (%[[V1:.*]]: f32, %[[V2:.*]]: f32)
-// CHECK-NEXT:    %[[ALLOCA:.*]] = memref.alloca() : memref<f32>
-// CHECK-NEXT:    memref.store %[[V2]], %[[ALLOCA]][] : memref<f32>
 // CHECK-NEXT:    return
 func.func @dead_store_elimination(%v1: f32, %v2: f32) {
   %alloca = memref.alloca() : memref<f32>
@@ -82,10 +72,12 @@ func.func @no_cross_block(%val: f32, %cond: i1) -> f32 {
 
 // -----
 
-// CHECK-LABEL: func.func @non_scalar_memref
-// CHECK:         memref.store
-// CHECK-NEXT:    %{{.*}} = memref.load
-func.func @non_scalar_memref(%val: f32) -> f32 {
+// Indexed memref forwarding: rank-1 with static shape and constant indices.
+// CHECK-LABEL: func.func @indexed_forwarding
+// CHECK-SAME:    (%[[VAL:.*]]: f32)
+// CHECK-NEXT:    %[[C0:.*]] = arith.constant 0 : index
+// CHECK-NEXT:    return %[[VAL]] : f32
+func.func @indexed_forwarding(%val: f32) -> f32 {
   %c0 = arith.constant 0 : index
   %alloca = memref.alloca() : memref<4xf32>
   memref.store %val, %alloca[%c0] : memref<4xf32>
@@ -97,7 +89,7 @@ func.func @non_scalar_memref(%val: f32) -> f32 {
 
 // CHECK-LABEL: func.func @rank1_scalar
 // CHECK-SAME:    (%[[VAL:.*]]: f32)
-// CHECK:         memref.store %[[VAL]], %{{.*}}[%{{.*}}] : memref<1xf32>
+// CHECK-NEXT:    %[[C0:.*]] = arith.constant 0 : index
 // CHECK-NEXT:    return %[[VAL]] : f32
 func.func @rank1_scalar(%val: f32) -> f32 {
   %c0 = arith.constant 0 : index
@@ -135,10 +127,8 @@ func.func @no_forwarding_across_loop(%init: f32) -> f32 {
 
 // CHECK-LABEL: func.func @mfma_accumulator_kt2
 // CHECK-SAME:    (%[[INIT:.*]]: f32, %[[A0:.*]]: f32, %[[A1:.*]]: f32)
-// CHECK-NEXT:    %[[ALLOCA:.*]] = memref.alloca() : memref<f32>
 // CHECK-NEXT:    %[[R0:.*]] = arith.addf %[[INIT]], %[[A0]] : f32
 // CHECK-NEXT:    %[[R1:.*]] = arith.addf %[[R0]], %[[A1]] : f32
-// CHECK-NEXT:    memref.store %[[R1]], %[[ALLOCA]][] : memref<f32>
 // CHECK-NEXT:    return %[[R1]] : f32
 func.func @mfma_accumulator_kt2(%init: f32, %a0: f32, %a1: f32) -> f32 {
   %alloca = memref.alloca() : memref<f32>
@@ -154,4 +144,43 @@ func.func @mfma_accumulator_kt2(%init: f32, %a0: f32, %a1: f32) -> f32 {
   // Post-loop load
   %final = memref.load %alloca[] : memref<f32>
   return %final : f32
+}
+
+// -----
+
+// Multi-index forwarding: stores and loads to different constant indices
+// in a rank-1 memref with static shape.
+// CHECK-LABEL: func.func @multi_index_forwarding
+// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32, %[[V2:.*]]: f32)
+// CHECK-NOT:     memref.store
+// CHECK-NOT:     memref.load
+// CHECK:         return %[[V0]], %[[V1]], %[[V2]] : f32, f32, f32
+func.func @multi_index_forwarding(%v0: f32, %v1: f32, %v2: f32) -> (f32, f32, f32) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c2 = arith.constant 2 : index
+  %alloca = memref.alloca() : memref<4xf32>
+  memref.store %v0, %alloca[%c0] : memref<4xf32>
+  memref.store %v1, %alloca[%c1] : memref<4xf32>
+  memref.store %v2, %alloca[%c2] : memref<4xf32>
+  %l0 = memref.load %alloca[%c0] : memref<4xf32>
+  %l1 = memref.load %alloca[%c1] : memref<4xf32>
+  %l2 = memref.load %alloca[%c2] : memref<4xf32>
+  return %l0, %l1, %l2 : f32, f32, f32
+}
+
+// -----
+
+// WAW dead store elimination for indexed memrefs.
+// CHECK-LABEL: func.func @indexed_dead_store
+// CHECK-SAME:    (%[[V1:.*]]: f32, %[[V2:.*]]: f32)
+// CHECK-NOT:     memref.store
+// CHECK-NOT:     memref.alloca
+// CHECK:         return
+func.func @indexed_dead_store(%v1: f32, %v2: f32) {
+  %c0 = arith.constant 0 : index
+  %alloca = memref.alloca() : memref<4xf32>
+  memref.store %v1, %alloca[%c0] : memref<4xf32>
+  memref.store %v2, %alloca[%c0] : memref<4xf32>
+  return
 }

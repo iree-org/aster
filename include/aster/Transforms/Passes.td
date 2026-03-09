@@ -42,6 +42,34 @@ def ConstexprExpansion : Pass<"aster-constexpr-expansion"> {
 }
 
 //===----------------------------------------------------------------------===//
+// DecomposeMemrefIterArgs
+//===----------------------------------------------------------------------===//
+
+def DecomposeMemrefIterArgs
+    : Pass<"aster-decompose-memref-iter-args"> {
+  let summary = "Decompose memref iter_args into individual scalar iter_args";
+  let description = [{
+    Decomposes scf.for iter_args of type memref<?xT> (or memref<NxT>) into N
+    individual scalar iter_args of type T. This handles rotating-buffer patterns
+    post inlining and canonicalization simplications:
+
+    - The init value is a memref.cast from a static memref.alloca with
+      constant-index stores.
+    - The yield value is a memref.cast from a static memref.alloca with
+      constant-index stores.
+    - In-loop and post-loop uses are all memref.load with constant indices.
+
+    After decomposition, the memref allocas, casts, stores, and loads are
+    replaced by direct scalar values flowing through iter_args. This enables
+    subsequent SROA/mem2reg/canonicalize to further simplify the IR.
+  }];
+  let dependentDialects = [
+    "mlir::memref::MemRefDialect",
+    "mlir::scf::SCFDialect",
+  ];
+}
+
+//===----------------------------------------------------------------------===//
 // PromoteLoopCarriedMemrefs
 //===----------------------------------------------------------------------===//
 
@@ -229,17 +257,18 @@ def SimplifyAllocaIterArgs : Pass<"aster-simplify-alloca-iter-args"> {
 //===----------------------------------------------------------------------===//
 
 def ForwardStoreToLoad : Pass<"aster-forward-store-to-load"> {
-  let summary = "Forward scalar memref stores to subsequent loads in the same "
-                "block";
+  let summary = "Forward memref stores to subsequent loads in the same block";
   let description = [{
-    Per-block reaching-def analysis on scalar memref.alloca ops.
-    When a store to a scalar alloca is followed by a load from the same alloca
-    with no intervening aliasing operation, the load is replaced by the stored
-    value. Dead stores (overwritten before any read) are also eliminated.
+    Per-block reaching-def analysis on memref values (allocas and block args).
+    Handles both scalar memrefs (rank-0 or [1]) and indexed memrefs (rank-1
+    with static shape and constant indices), tracking reaching definitions per
+    (memref, index) slot.
+    When a store is followed by a load from the same slot with no interleaved
+    aliasing operation, the load is replaced by the stored value. Dead stores
+    (overwritten before any read) are also eliminated, along with dead allocas
+    and dead stores to memref values with no load users.
     This pass is meant to be used with and to augment SROA / mem2reg and
     PromoteLoopCarriedMemrefs to support more cases.
-    The pass only looks at memref.alloca of memref<ty> or memref<1xty> and does
-    not perform any cross-block analysis for now.
   }];
   let dependentDialects = [
     "mlir::memref::MemRefDialect",
