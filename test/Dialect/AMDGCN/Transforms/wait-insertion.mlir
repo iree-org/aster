@@ -53,9 +53,9 @@ func.func @load_then_vop() {
 // CHECK-LABEL:   func.func @multiple_loads_multiple_consumers() {
 // CHECK:           %[[ALLOCA_0:.*]] = memref.alloca() : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[ALLOCA_1:.*]] = memref.alloca() : memref<!amdgcn.read_token<flat>>
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 8 : i32
-// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 4 : i32
-// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : i32
+// CHECK-DAG:       %[[CONSTANT_0:.*]] = arith.constant 8 : i32
+// CHECK-DAG:       %[[CONSTANT_1:.*]] = arith.constant 4 : i32
+// CHECK-DAG:       %[[CONSTANT_2:.*]] = arith.constant 0 : i32
 // CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[ALLOCA_4:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
@@ -187,9 +187,9 @@ func.func @no_load_consumption() {
 
 // CHECK-LABEL:   func.func @load_in_loop() {
 // CHECK:           %[[ALLOCA_0:.*]] = memref.alloca() : memref<!amdgcn.read_token<flat>>
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4 : index
-// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
-// CHECK:           %[[CONSTANT_2:.*]] = arith.constant 0 : index
+// CHECK-DAG:       %[[CONSTANT_0:.*]] = arith.constant 4 : index
+// CHECK-DAG:       %[[CONSTANT_1:.*]] = arith.constant 1 : index
+// CHECK-DAG:       %[[CONSTANT_2:.*]] = arith.constant 0 : index
 // CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
@@ -438,5 +438,15 @@ func.func @load_before_branch_consumed_in_single_clobbered(%cond: i1) {
 ^bb3:
   %w1 = amdgcn.store global_store_dword data %0 addr %addr
       : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
+  return
+}
+
+// CHECK-LABEL:   func.func @remove_waits() {
+// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 2 expcnt = 2 lgkmcnt = 2 immutable
+// CHECK:           return
+// CHECK:         }
+func.func @remove_waits() {
+  amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0 expcnt = 0 lgkmcnt = 0
+  amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 2 expcnt = 2 lgkmcnt = 2 immutable
   return
 }
