@@ -27,8 +27,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # Worktree root contains mlir_kernels (used by library preloading).
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
-from test_perf_001_gemm_fp16_weak_scaled import KERNEL_NAME
-
 # Sentinel prefix for machine-readable result line in subprocess output.
 RESULT_SENTINEL = "BENCH_RESULT_JSON:"
 
@@ -89,7 +87,7 @@ def parse_result_from_output(stdout):
     return None
 
 
-def compile_one(cfg, hsaco_dir, compile_fn):
+def compile_one(cfg, hsaco_dir, compile_fn, kernel_name):
     """Compile a single config to HSACO.
 
     Called in worker process. Returns (label, hsaco_path, KernelResources|None). Raises
@@ -105,7 +103,7 @@ def compile_one(cfg, hsaco_dir, compile_fn):
     asm_path = output_path.replace(".hsaco", ".s")
     with open(asm_path, "w") as f:
         f.write(asm)
-    res = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME).get(KERNEL_NAME)
+    res = parse_asm_kernel_resources(asm, kernel_name=kernel_name).get(kernel_name)
     return cfg.label, output_path, res
 
 
@@ -257,6 +255,7 @@ def bench_perf_sweep(
     cfg_to_cli_args,
     repro_cmd_fn,
     script_path,
+    kernel_name,
     top_k_to_run=None,
     known_broken=None,
     skip_first_n=0,
@@ -339,23 +338,27 @@ def bench_perf_sweep(
     with ProcessPoolExecutor(max_workers=compile_workers) as pool:
         futures = {}
         for cfg in active:
-            fut = pool.submit(compile_one, cfg, hsaco_dir, compile_fn)
+            fut = pool.submit(compile_one, cfg, hsaco_dir, compile_fn, kernel_name)
             futures[fut] = cfg
 
+        total_compile = len(futures)
+        done_compile = 0
         for fut in as_completed(futures):
             cfg = futures[fut]
+            done_compile += 1
+            progress = f"[{done_compile}/{total_compile}]"
             try:
                 label, path, res = fut.result()
                 hsaco_paths[label] = path
                 if res:
                     resources_map[label] = res
-                print(f"  COMPILED {cfg.label}  [{res or '?'}]")
+                print(f"  {progress} COMPILED {cfg.label}  [{res or '?'}]")
             except Exception as e:
                 err = str(e)
                 first_line = err.split("\n")[0][:200]
                 compile_failed[cfg.label] = err
                 failed.append((cfg, f"compile: {err}"))
-                print(f"  COMPILE_FAIL {cfg.label}: {first_line}")
+                print(f"  {progress} COMPILE_FAIL {cfg.label}: {first_line}")
             sys.stdout.flush()
 
     compiled_count = len(hsaco_paths)
@@ -446,21 +449,20 @@ def print_config(cfg, iterations, resources=None):
     sys.stdout.flush()
 
 
-def run_single(cfg, compile_fn, args):
+def run_single(cfg, compile_fn, args, kernel_name, execute_fn):
     """Run a single config from CLI args.
 
     Emits BENCH_RESULT_JSON for sweep parsing.
     """
     from aster.hip import parse_asm_kernel_resources
-    from test_perf_001_gemm_fp16_weak_scaled import execute_weak_scaled_hsaco
 
     if args.compile_only:
         if not args.hsaco:
             print("Error: --compile-only requires --hsaco <output_path>")
             raise SystemExit(1)
         _, asm = compile_fn(cfg, args.hsaco)
-        resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
-        print_config(cfg, args.iterations, resources.get(KERNEL_NAME))
+        resources = parse_asm_kernel_resources(asm, kernel_name=kernel_name)
+        print_config(cfg, args.iterations, resources.get(kernel_name))
         print(f"  Compiled: {args.hsaco}")
         return
 
@@ -471,11 +473,11 @@ def run_single(cfg, compile_fn, args):
         res = None
         if os.path.exists(asm_path):
             with open(asm_path) as f:
-                res = parse_asm_kernel_resources(f.read(), kernel_name=KERNEL_NAME).get(
-                    KERNEL_NAME
+                res = parse_asm_kernel_resources(f.read(), kernel_name=kernel_name).get(
+                    kernel_name
                 )
         print_config(cfg, args.iterations, res)
-        _, times_ns = execute_weak_scaled_hsaco(
+        _, times_ns = execute_fn(
             cfg, args.hsaco, args.iterations, A, B, skip_gpu_check=True
         )
     else:
@@ -483,11 +485,9 @@ def run_single(cfg, compile_fn, args):
 
         with _tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
             _, asm = compile_fn(cfg, tmp.name)
-            resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
-            print_config(cfg, args.iterations, resources.get(KERNEL_NAME))
-            _, times_ns = execute_weak_scaled_hsaco(
-                cfg, tmp.name, args.iterations, A, B
-            )
+            resources = parse_asm_kernel_resources(asm, kernel_name=kernel_name)
+            print_config(cfg, args.iterations, resources.get(kernel_name))
+            _, times_ns = execute_fn(cfg, tmp.name, args.iterations, A, B)
 
     measured = times_ns[WARMUP_ITERATIONS:]
     min_ns = min(measured)
