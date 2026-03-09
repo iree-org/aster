@@ -204,9 +204,9 @@ func.func @cant_promote_across_unknown_op() attributes {sched = #sched} {
 }
 
 // CHECK-LABEL:   func.func @promote_pure_op_forward() {
-// CHECK:           %[[ALLOCA_0:.*]] = lsir.alloca : !amdgcn.vgpr<[? + 2]>
-// CHECK:           %[[ALLOCA_1:.*]] = lsir.alloca : !amdgcn.vgpr
-// CHECK:           %[[ALLOCA_2:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[ALLOCA_0:.*]] = lsir.alloca {sched.stage = 0 : i32} : !amdgcn.vgpr<[? + 2]>
+// CHECK:           %[[ALLOCA_1:.*]] = lsir.alloca {sched.stage = 0 : i32} : !amdgcn.vgpr
+// CHECK:           %[[ALLOCA_2:.*]] = lsir.alloca {sched.stage = 0 : i32} : !amdgcn.vgpr
 // CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
 // CHECK:           %[[STORE_0:.*]] = amdgcn.store ds_write_b32 data %[[VAL_0]] addr %[[ALLOCA_1]] {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.write_token<shared>
 // CHECK:           amdgcn.wait lgkm_cnt 0 {sched.stage = 0 : i32}
@@ -217,9 +217,9 @@ func.func @cant_promote_across_unknown_op() attributes {sched = #sched} {
 // CHECK:           return
 // CHECK:         }
 func.func @promote_pure_op_forward() attributes {sched = #sched} {
-  %0 = lsir.alloca : !amdgcn.vgpr<[? + 2]>
-  %1 = lsir.alloca : !amdgcn.vgpr
-  %2 = lsir.alloca : !amdgcn.vgpr
+  %0 = lsir.alloca {sched.stage = 0 : i32} : !amdgcn.vgpr<[? + 2]>
+  %1 = lsir.alloca {sched.stage = 0 : i32} : !amdgcn.vgpr
+  %2 = lsir.alloca {sched.stage = 0 : i32} : !amdgcn.vgpr
   %c0 = arith.constant {sched.stage = 4 : i32} 0 : i32
   %dest_res, %token = amdgcn.load global_load_dword dest %2 addr %0 {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
   %dest_res_0, %token_1 = amdgcn.load global_load_dword dest %2 addr %0 {sched.stage = 1 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>

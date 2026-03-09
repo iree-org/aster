@@ -18,6 +18,7 @@
 include "aster/Dialect/LSIR/IR/LSIRDialect.td"
 include "aster/Dialect/LSIR/IR/LSIRAttrs.td"
 include "aster/Dialect/LSIR/IR/LSIRTypes.td"
+include "aster/Interfaces/AllocaOpInterface.td"
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
@@ -100,18 +101,20 @@ def LSIR_AddIOp : BinaryIOp<"addi"> {
 // AllocaOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_AllocaOp : LSIR_Op<"alloca"> {
+def LSIR_AllocaOp : LSIR_Op<"alloca", [Pure, AllocaOpInterface]> {
   let summary = "LSIR alloca operation";
   let description = [{
     Allocates a register-like type.
+
+    NOTE: This operation is pure, as such it's not suitable to be used in
+    conjunction with `amdgcn.make_register_range`.
   }];
   let arguments = (ins);
-  let results = (outs
-    Res<RegType, "", [
-      MemAlloc<AutomaticAllocationScopeResource, 0, FullEffect>
-    ]>:$result
-  );
+  let results = (outs RegType:$result);
   let assemblyFormat = "attr-dict `:` type($result)";
+  let extraClassDeclaration = [{
+    ::mlir::Value getAlloca() { return getResult(); }
+  }];
 }
 
 //===----------------------------------------------------------------------===//
