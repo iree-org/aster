@@ -14,6 +14,7 @@
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/RegisterType.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -237,5 +238,20 @@ NoRegCastOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
                           "survive past aster-to-amdgcn; this indicates an "
                           "incorrect lsir.to_reg or lsir.from_reg surviving "
                           "from high-level (hand-authored ?) IR";
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// NoCfBranchesAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+NoCfBranchesAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
+                                  Operation *op) const {
+  if (isa<cf::BranchOp, cf::CondBranchOp>(op))
+    return emitError() << "normal form violation: cf.br/cf.cond_br operations "
+                          "are disallowed but found: "
+                       << op->getName();
+
   return success();
 }

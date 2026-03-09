@@ -508,6 +508,10 @@ void LegalizeCF::runOnOperation() {
     }
     return WalkResult::advance();
   });
+
+  // Set post-condition: no CF branches remain.
+  if (auto kernelOp = dyn_cast<KernelOp>(op))
+    kernelOp.addNormalForms({NoCfBranchesAttr::get(op->getContext())});
 }
 
 } // namespace

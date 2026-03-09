@@ -289,4 +289,16 @@ def NoRegCastOpsAttr : AMDGCN_Attr<
   }];
 }
 
+def NoCfBranchesAttr : AMDGCN_Attr<
+    "NoCfBranches", "no_cf_branches",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: no CF dialect branch operations";
+  let description = [{
+    Verifies that no `cf.br` or `cf.cond_br` operations exist in the IR.
+    This is the post-condition of the `amdgcn-legalize-cf` pass, which
+    lowers CF dialect branches to AMDGCN scalar branch instructions
+    (`s_branch`, `s_cbranch_scc0/1`).
+  }];
+}
+
 #endif // ASTER_AMDGCN_ATTRS_TD

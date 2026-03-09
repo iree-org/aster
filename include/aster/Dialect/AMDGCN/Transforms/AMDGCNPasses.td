@@ -298,6 +298,7 @@ def LegalizeCF : Pass<"amdgcn-legalize-cf"> {
     - cf.br -> s_branch
 
     Pre-condition: #amdgcn.all_registers_allocated
+    Post-condition: #amdgcn.no_cf_branches
     Additional prerequisites:
     - Block arguments must have been eliminated
 
