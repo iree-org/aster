@@ -242,6 +242,54 @@ NoRegCastOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
 }
 
 //===----------------------------------------------------------------------===//
+// NoLsirOpsAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+NoLsirOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
+                               Operation *op) const {
+  if (op->getDialect() && op->getDialect()->getNamespace() == "lsir")
+    return emitError() << "normal form violation: LSIR dialect operations "
+                          "are disallowed but found: "
+                       << op->getName();
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// NoLsirComputeOpsAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult NoLsirComputeOpsAttr::verifyOperation(
+    function_ref<InFlightDiagnostic()> emitError, Operation *op) const {
+  if (!op->getDialect() || op->getDialect()->getNamespace() != "lsir")
+    return success();
+
+  // Allow control-flow ops (lowered by LegalizeCF) and copy (regalloc
+  // primitive).
+  if (isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp, lsir::CopyOp>(op))
+    return success();
+
+  return emitError() << "normal form violation: LSIR compute/memory "
+                        "operations are disallowed but found: "
+                     << op->getName();
+}
+
+//===----------------------------------------------------------------------===//
+// NoLsirControlOpsAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult NoLsirControlOpsAttr::verifyOperation(
+    function_ref<InFlightDiagnostic()> emitError, Operation *op) const {
+  if (isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp>(op))
+    return emitError() << "normal form violation: LSIR control-flow "
+                          "operations are disallowed but found: "
+                       << op->getName();
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // NoScfOpsAttr
 //===----------------------------------------------------------------------===//
 

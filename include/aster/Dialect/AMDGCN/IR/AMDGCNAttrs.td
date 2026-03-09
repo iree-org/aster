@@ -313,6 +313,53 @@ def NoScfOpsAttr : AMDGCN_Attr<
   }];
 }
 
+def NoLsirOpsAttr : AMDGCN_Attr<
+    "NoLsirOps", "no_lsir_ops",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: no LSIR dialect operations";
+  let description = [{
+    Verifies that no LSIR dialect operations exist in the IR.
+    This is the combined form of `no_lsir_compute_ops` and
+    `no_lsir_control_ops`. Set at the end of the `amdgcn-backend` pipeline
+    after `LegalizeCF` has lowered the last surviving LSIR ops.
+  }];
+}
+
+def NoLsirComputeOpsAttr : AMDGCN_Attr<
+    "NoLsirComputeOps", "no_lsir_compute_ops",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: no LSIR compute/memory operations";
+  let description = [{
+    Verifies that no LSIR arithmetic, memory, or utility operations exist in
+    the IR. This includes all LSIR ops except the control-flow-related ops
+    (`lsir.cmpi`, `lsir.cmpf`, `lsir.select`) and the regalloc primitive
+    (`lsir.copy`).
+
+    Set at the entry of the `amdgcn-backend` pipeline, after `aster-to-amdgcn`
+    and canonicalize/CSE have eliminated all compute LSIR ops.
+
+    Allowed ops (not checked by this form):
+    - `lsir.cmpi`, `lsir.cmpf`, `lsir.select` -- lowered by `LegalizeCF`
+    - `lsir.copy` -- created by bufferization, consumed by register coloring
+  }];
+}
+
+def NoLsirControlOpsAttr : AMDGCN_Attr<
+    "NoLsirControlOps", "no_lsir_control_ops",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: no LSIR control-flow operations";
+  let description = [{
+    Verifies that no LSIR control-flow-related operations (`lsir.cmpi`,
+    `lsir.cmpf`, `lsir.select`) exist in the IR.
+
+    These ops survive through `aster-to-amdgcn` because they operate on i1
+    conditions and SCC flags, which are only lowered by `amdgcn-legalize-cf`
+    after register allocation.
+
+    Set after `LegalizeCF` in the `amdgcn-backend` pipeline.
+  }];
+}
+
 def NoRegisterBlockArgsAttr : AMDGCN_Attr<
     "NoRegisterBlockArgs", "no_register_block_args",
     [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {

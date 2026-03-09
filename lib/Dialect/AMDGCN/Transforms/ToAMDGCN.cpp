@@ -10,6 +10,7 @@
 
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -75,6 +76,10 @@ void ToAMDGCN::runOnOperation() {
     return signalPassFailure();
 
   // Set post-condition: no reg_cast ops remain.
+  // Note: no_lsir_ops is NOT set here because some ToAMDGCN patterns
+  // (ExtSI, ExtUI, PtrAdd) create new LSIR ops as intermediaries, and
+  // in pipelined loop bodies these may not all get cleaned up within
+  // the greedy rewrite.
   op->walk([&](amdgcn::ModuleOp moduleOp) {
     moduleOp.addNormalForms({NoRegCastOpsAttr::get(&getContext())});
   });

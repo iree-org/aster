@@ -132,6 +132,16 @@ def SetABI : Pass<"aster-amdgcn-set-abi"> {
 
 def ToAMDGCN : InterfacePass<"aster-to-amdgcn", "mlir::aster::ModuleOpInterface"> {
   let summary = "Convert operations to AMDGCN dialect";
+  let description = [{
+    This pass converts LSIR dialect operations to their AMDGCN equivalents
+    using pattern-based rewriting.
+
+    Post-condition: #amdgcn.no_reg_cast_ops (set on amdgcn.module)
+
+    Note: #amdgcn.no_lsir_ops is NOT set because some lowering patterns
+    (ExtSI, ExtUI, PtrAdd) create new LSIR ops as intermediaries that
+    may not fully resolve in pipelined loop bodies.
+  }];
   let dependentDialects = [
     "mlir::aster::amdgcn::AMDGCNDialect",
     "mlir::pdl::PDLDialect",
@@ -345,6 +355,32 @@ def OptimizeAMDGCN : Pass<"amdgcn-optimize"> {
   let dependentDialects = [
     "mlir::aster::amdgcn::AMDGCNDialect",
     "mlir::aster::lsir::LSIRDialect"
+  ];
+}
+
+def SetNormalForms : Pass<"amdgcn-set-normal-forms"> {
+  let summary = "Assert and set normal form attributes on container ops";
+  let description = [{
+    This pass sets normal form attributes on amdgcn.module and/or amdgcn.kernel
+    container ops. It is used as a pipeline checkpoint to assert that certain
+    invariants hold at a specific point in the compilation pipeline.
+
+    Normal form attributes are specified by their mnemonic name (without the
+    `#amdgcn.` prefix). Module-level forms are set on amdgcn.module ops,
+    kernel-level forms are set on amdgcn.kernel ops.
+
+    Once set, MLIR's built-in verifyRegions() will enforce the constraints
+    on all subsequent passes.
+
+    Example usage:
+      amdgcn-set-normal-forms{module-forms=no_lsir_ops kernel-forms=no_scf_ops}
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+  let options = [
+    ListOption<"moduleForms", "module-forms", "std::string",
+               "Normal form mnemonics to set on amdgcn.module ops">,
+    ListOption<"kernelForms", "kernel-forms", "std::string",
+               "Normal form mnemonics to set on amdgcn.kernel ops">
   ];
 }
 

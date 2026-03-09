@@ -20,6 +20,7 @@ add_mlir_library(AMDGCNTransforms
   RegisterDealloc.cpp
   RemoveTestInst.cpp
   SetABI.cpp
+  SetNormalForms.cpp
   ToAMDGCN.cpp
   ToAMDGCNPatterns.cpp
   ToRegisterSemantics.cpp

@@ -92,6 +92,13 @@ static void registerLateWaitsPassPipeline() {
 //===----------------------------------------------------------------------===//
 
 static void buildAMDGCNBackendPassPipeline(OpPassManager &pm) {
+  // Assert no LSIR compute/memory ops remain at backend entry.
+  // Only lsir.cmpi/cmpf/select survive (lowered by LegalizeCF later).
+  {
+    SetNormalFormsOptions nfOpts;
+    nfOpts.moduleForms = {"no_lsir_compute_ops"};
+    pm.addPass(createSetNormalForms(nfOpts));
+  }
   {
     OpPassManager &kernelPm = pm.nest<amdgcn::ModuleOp>().nest<KernelOp>();
     kernelPm.addPass(createCanonicalizerPass());
@@ -108,6 +115,13 @@ static void buildAMDGCNBackendPassPipeline(OpPassManager &pm) {
     kernelPm.addPass(createLegalizeCF());
     kernelPm.addPass(createCanonicalizerPass());
     kernelPm.addPass(createCSEPass());
+  }
+  // Assert all LSIR ops are gone. LegalizeCF lowered the last ones
+  // (lsir.cmpi, lsir.cmpf, lsir.select).
+  {
+    SetNormalFormsOptions nfOpts;
+    nfOpts.moduleForms = {"no_lsir_ops", "no_lsir_control_ops"};
+    pm.addPass(createSetNormalForms(nfOpts));
   }
 }
 
