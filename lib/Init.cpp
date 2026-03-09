@@ -99,6 +99,21 @@ struct IndexInlinerInterface : public DialectInlinerInterface {
     return true;
   }
 };
+
+/// Inliner interface for Ptr dialect operations.
+struct PtrInlinerInterface : public DialectInlinerInterface {
+  using DialectInlinerInterface::DialectInlinerInterface;
+
+  /// All Ptr operations can be inlined.
+  bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final {
+    return true;
+  }
+
+  /// All Ptr regions can be inlined.
+  bool isLegalToInline(Region *, Region *, bool, IRMapping &) const final {
+    return true;
+  }
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -194,6 +209,9 @@ void mlir::aster::registerUpstreamMLIRInterfaces(DialectRegistry &registry) {
   });
   registry.addExtension(+[](MLIRContext *ctx, index::IndexDialect *dialect) {
     dialect->addInterfaces<IndexInlinerInterface>();
+  });
+  registry.addExtension(+[](MLIRContext *ctx, ptr::PtrDialect *dialect) {
+    dialect->addInterfaces<PtrInlinerInterface>();
   });
 
   // Register all conversions to LLVM extensions.
