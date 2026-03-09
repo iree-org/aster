@@ -261,4 +261,18 @@ def NoValueSemanticRegistersAttr : AMDGCN_Attr<
   }];
 }
 
+def AllRegistersAllocatedAttr : AMDGCN_Attr<
+    "AllRegistersAllocated", "all_registers_allocated",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyType"]>]> {
+  let summary = "Normal form: all register types have allocated semantics";
+  let description = [{
+    Verifies that every register type in the IR has allocated semantics
+    (i.e., has been assigned a concrete physical register).
+    This is the post-condition of the `amdgcn-register-coloring` pass.
+
+    After this normal form holds, no `RegisterTypeInterface` type has
+    `Value` or `Unallocated` semantics -- all are `Allocated`.
+  }];
+}
+
 #endif // ASTER_AMDGCN_ATTRS_TD

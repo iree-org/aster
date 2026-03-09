@@ -205,3 +205,21 @@ LogicalResult NoValueSemanticRegistersAttr::verifyType(
 
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// AllRegistersAllocatedAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult AllRegistersAllocatedAttr::verifyType(
+    function_ref<InFlightDiagnostic()> emitError, Type type) const {
+  auto regType = dyn_cast<RegisterTypeInterface>(type);
+  if (!regType)
+    return success();
+
+  if (!regType.hasAllocatedSemantics())
+    return emitError() << "normal form violation: all registers must have "
+                          "allocated semantics but found: "
+                       << type;
+
+  return success();
+}

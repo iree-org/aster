@@ -11,6 +11,7 @@
 #include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
 #include "aster/Dialect/AMDGCN/Analysis/ReachingDefinitions.h"
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
@@ -678,4 +679,8 @@ void RegisterColoring::runOnOperation() {
       });
   if (walkResult.wasInterrupted())
     return signalPassFailure();
+
+  // Set post-condition: all registers have allocated semantics.
+  if (auto kernelOp = dyn_cast<KernelOp>(op))
+    kernelOp.addNormalForms({AllRegistersAllocatedAttr::get(&getContext())});
 }
