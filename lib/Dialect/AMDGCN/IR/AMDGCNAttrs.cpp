@@ -12,6 +12,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -221,5 +222,20 @@ LogicalResult AllRegistersAllocatedAttr::verifyType(
                           "allocated semantics but found: "
                        << type;
 
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// NoRegCastOpsAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+NoRegCastOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
+                                  Operation *op) const {
+  if (isa<lsir::RegCastOp>(op))
+    return emitError() << "normal form violation: lsir.reg_cast should not "
+                          "survive past aster-to-amdgcn; this indicates an "
+                          "incorrect lsir.to_reg or lsir.from_reg surviving "
+                          "from high-level (hand-authored ?) IR";
   return success();
 }

@@ -73,4 +73,9 @@ void ToAMDGCN::runOnOperation() {
                                        .enableConstantCSE()
                                        .enableFolding())))
     return signalPassFailure();
+
+  // Set post-condition: no reg_cast ops remain.
+  op->walk([&](amdgcn::ModuleOp moduleOp) {
+    moduleOp.addNormalForms({NoRegCastOpsAttr::get(&getContext())});
+  });
 }

@@ -21,3 +21,16 @@ amdgcn.module @nf_sgpr target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> 
     amdgcn.end_kernel
   }
 }
+
+// -----
+
+// Normal form violation: lsir.reg_cast surviving past aster-to-amdgcn.
+amdgcn.module @nf_reg_cast target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> attributes {normal_forms = [#amdgcn.no_reg_cast_ops]} {
+  amdgcn.kernel @k {
+  ^bb0:
+    %0 = amdgcn.alloca : !amdgcn.vgpr<0>
+    // expected-error @below {{normal form violation: lsir.reg_cast should not survive past aster-to-amdgcn}}
+    %1 = lsir.reg_cast %0 : !amdgcn.vgpr<0> -> !amdgcn.sgpr<0>
+    amdgcn.end_kernel
+  }
+}

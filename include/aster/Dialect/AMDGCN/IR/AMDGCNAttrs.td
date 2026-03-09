@@ -275,4 +275,18 @@ def AllRegistersAllocatedAttr : AMDGCN_Attr<
   }];
 }
 
+def NoRegCastOpsAttr : AMDGCN_Attr<
+    "NoRegCastOps", "no_reg_cast_ops",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: no lsir.reg_cast operations";
+  let description = [{
+    Verifies that no `lsir.reg_cast` operations exist in the IR.
+    This is the post-condition of the `aster-to-amdgcn` pass.
+
+    A surviving `lsir.reg_cast` indicates an incorrect `lsir.to_reg` or
+    `lsir.from_reg` remaining from above, potentially from high-level authored
+    IR.
+  }];
+}
+
 #endif // ASTER_AMDGCN_ATTRS_TD
