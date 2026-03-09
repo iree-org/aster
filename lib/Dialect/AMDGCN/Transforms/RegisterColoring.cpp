@@ -163,6 +163,24 @@ struct RegInterferenceOpPattern : public OpRewritePattern<RegInterferenceOp> {
 struct CopyOpPattern : public OpRewritePattern<lsir::CopyOp> {
   using Base::Base;
 
+  /// Find the max allocated VGPR register number in the enclosing function.
+  /// Returns -1 if no allocated VGPRs are found.
+  static int findMaxAllocatedVGPR(Operation *op) {
+    int maxVGPR = -1;
+    auto funcOp = op->getParentOfType<FunctionOpInterface>();
+    if (!funcOp)
+      return maxVGPR;
+    funcOp->walk([&](AllocaOp alloca) {
+      if (auto vgprTy = dyn_cast<VGPRType>(alloca.getType())) {
+        if (vgprTy.hasAllocatedSemantics()) {
+          int regNum = vgprTy.getReg().getRegister();
+          maxVGPR = std::max(maxVGPR, regNum);
+        }
+      }
+    });
+    return maxVGPR;
+  }
+
   LogicalResult matchAndRewrite(lsir::CopyOp op,
                                 PatternRewriter &rewriter) const override;
 };
@@ -548,17 +566,45 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
     return rewriter.notifyMatchFailure(
         op, "cannot copy between non-sgpr type to an sgpr type");
   }
-  if (!llvm::is_contained({RegisterKind::SGPR, RegisterKind::VGPR},
-                          srcTy.getRegisterKind()) ||
-      !llvm::is_contained({RegisterKind::SGPR, RegisterKind::VGPR},
-                          tgtTy.getRegisterKind())) {
+  if (!llvm::is_contained(
+          {RegisterKind::SGPR, RegisterKind::VGPR, RegisterKind::AGPR},
+          srcTy.getRegisterKind()) ||
+      !llvm::is_contained(
+          {RegisterKind::SGPR, RegisterKind::VGPR, RegisterKind::AGPR},
+          tgtTy.getRegisterKind())) {
     return rewriter.notifyMatchFailure(
-        op, "cannot copy if data type is not SGPR or VGPR");
+        op, "cannot copy if data type is not SGPR, VGPR, or AGPR");
+  }
+  // AGPR copies: only AGPR->AGPR is supported (via v_accvgpr_write_b32).
+  if (tgtTy.getRegisterKind() == RegisterKind::AGPR &&
+      srcTy.getRegisterKind() != RegisterKind::AGPR) {
+    return rewriter.notifyMatchFailure(
+        op,
+        "cannot copy non-AGPR to AGPR (use v_accvgpr_write_b32 explicitly)");
+  }
+  if (srcTy.getRegisterKind() == RegisterKind::AGPR &&
+      tgtTy.getRegisterKind() != RegisterKind::AGPR) {
+    return rewriter.notifyMatchFailure(
+        op, "cannot copy AGPR to non-AGPR (use v_accvgpr_read_b32 explicitly)");
   }
 
   auto copyReg = [&](Value src, Value tgt) {
     if (tgtTy.getRegisterKind() == RegisterKind::SGPR) {
       S_MOV_B32::create(rewriter, tgt.getLoc(), tgt, src);
+      return;
+    }
+    if (tgtTy.getRegisterKind() == RegisterKind::AGPR) {
+      // AGPR->AGPR copy: no direct instruction on CDNA3/CDNA4.
+      // Must go through VGPR intermediate: read AGPR->VGPR, write VGPR->AGPR.
+      // Allocate a scratch VGPR past all used VGPRs to avoid conflicts.
+      // TODO: evaluate whether this would be too prohibitive a use case and
+      // whether we'd prefer to fail hard and tell user to get a better
+      // schedule.
+      int scratchReg = findMaxAllocatedVGPR(op) + 1;
+      auto vtmpTy = VGPRType::get(rewriter.getContext(), Register(scratchReg));
+      auto vtmp = AllocaOp::create(rewriter, tgt.getLoc(), vtmpTy);
+      V_ACCVGPR_READ_B32::create(rewriter, tgt.getLoc(), vtmp, src);
+      V_ACCVGPR_WRITE_B32::create(rewriter, tgt.getLoc(), tgt, vtmp);
       return;
     }
     V_MOV_B32_E32::create(rewriter, tgt.getLoc(), tgt, src);
