@@ -35,7 +35,286 @@ TOP_K_TO_RUN = [
 ]
 
 # Known-broken configs: add labels here to skip them during the sweep.
-KNOWN_BROKEN = []
+KNOWN_BROKEN = [
+    "m3648xn3072xk2048_wg19x16_w2x2_twg6x6x1_s2",  # compile: failed to allocate the registers
+    "m3648xn4096xk2048_wg19x16_w2x2_twg6x8x1_s2",  # compile: failed to allocate the registers
+    "m2432xn6144xk2048_wg19x16_w2x2_twg4x12x1_s2",  # compile: failed to allocate the registers
+    "m7296xn2048xk2048_wg19x16_w2x2_twg12x4x1_s2",  # compile: failed to allocate the registers
+    "m5472xn3072xk2048_wg19x16_w3x2_twg9x6x1_s2",  # compile: failed to allocate the registers
+    "m4864xn4096xk2048_wg19x16_w2x2_twg8x8x1_s2",  # compile: failed to allocate the registers
+    "m1216xn3072xk4096_wg19x16_w2x2_twg2x6x2_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn1024xk4096_wg19x16_w2x2_twg6x2x2_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn1024xk2048_wg19x16_w2x2_twg6x2x1_s4",  # compile: assemble_to_hsaco returned None
+    "m1216xn3072xk2048_wg19x16_w2x2_twg2x6x1_s4",  # compile: assemble_to_hsaco returned None
+    "m3648xn3072xk2048_wg19x16_w3x2_twg6x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn3072xk2048_wg19x16_w2x2_twg4x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn2048xk2048_wg19x16_w2x2_twg6x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn2048xk4096_wg19x16_w2x2_twg4x4x2_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn2048xk2048_wg19x16_w2x2_twg4x4x1_s4",  # compile: assemble_to_hsaco returned None
+    "m7296xn6144xk2048_wg38x32_w2x2_twg6x6x1_s2",  # compile: failed to allocate the registers
+    "m5472xn2048xk2048_wg19x16_w3x2_twg9x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn12288xk2048_wg38x32_w2x2_twg4x12x1_s2",  # compile: failed to allocate the registers
+    "m7296xn8192xk2048_wg38x32_w2x2_twg6x8x1_s2",  # compile: failed to allocate the registers
+    "m1824xn6144xk2048_wg19x16_w3x2_twg3x12x1_s2",  # compile: assemble_to_hsaco returned None
+    "m14592xn4096xk2048_wg38x32_w2x2_twg12x4x1_s2",  # compile: failed to allocate the registers
+    "m2432xn3072xk2048_wg19x16_w2x2_twg4x6x1_s3",  # compile: assemble_to_hsaco returned None
+    "m3648xn2048xk2048_wg19x16_w2x2_twg6x4x1_s3",  # compile: assemble_to_hsaco returned None
+    "m10944xn6144xk2048_wg38x32_w3x2_twg9x6x1_s2",  # compile: failed to allocate the registers
+    "m2432xn6144xk4096_wg38x32_w2x2_twg2x6x2_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn6144xk2048_wg38x32_w2x2_twg2x6x1_s4",  # compile: assemble_to_hsaco returned None
+    "m9728xn8192xk2048_wg38x32_w2x2_twg8x8x1_s2",  # compile: failed to allocate the registers
+    "m3648xn4096xk2048_wg19x16_w3x2_twg6x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn2048xk2048_wg19x16_w2x2_twg8x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn4096xk2048_wg19x16_w2x2_twg4x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk4096_wg38x32_w2x2_twg6x2x2_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk2048_wg38x32_w2x2_twg6x2x1_s4",  # compile: assemble_to_hsaco returned None
+    "m4864xn6144xk2048_wg38x32_w2x2_twg4x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn4096xk2048_wg38x32_w2x2_twg6x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn4096xk2048_wg38x32_w2x2_twg4x4x1_s4",  # compile: assemble_to_hsaco returned None
+    "m4864xn4096xk4096_wg38x32_w2x2_twg4x4x2_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk2048_wg19x16_w3x2_twg12x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn3072xk4096_wg19x16_w2x2_twg6x6x1_s2",  # compile: failed to allocate the registers
+    "m4864xn6144xk2048_wg38x32_w2x2_twg4x6x1_s3",  # compile: assemble_to_hsaco returned None
+    "m7296xn6144xk2048_wg38x32_w3x2_twg6x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m10944xn4096xk2048_wg38x32_w3x2_twg9x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn6144xk4096_wg19x16_w2x2_twg4x12x1_s2",  # compile: failed to allocate the registers
+    "m3648xn4096xk4096_wg19x16_w2x2_twg6x8x1_s2",  # compile: failed to allocate the registers
+    "m7296xn4096xk2048_wg38x32_w2x2_twg6x4x1_s3",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk4096_wg19x16_w2x2_twg12x4x1_s2",  # compile: failed to allocate the registers
+    "m4864xn8192xk2048_wg38x32_w2x2_twg4x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m5472xn3072xk4096_wg19x16_w3x2_twg9x6x1_s2",  # compile: failed to allocate the registers
+    "m3648xn12288xk2048_wg38x32_w3x2_twg3x12x1_s2",  # compile: assemble_to_hsaco returned None
+    "m9728xn4096xk2048_wg38x32_w2x2_twg8x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m1216xn3072xk4096_wg19x16_w2x2_twg2x6x1_s4",  # compile: assemble_to_hsaco returned None
+    "m1216xn3072xk8192_wg19x16_w2x2_twg2x6x2_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn4096xk4096_wg19x16_w2x2_twg8x8x1_s2",  # compile: failed to allocate the registers
+    "m3648xn1024xk8192_wg19x16_w2x2_twg6x2x2_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn1024xk4096_wg19x16_w2x2_twg6x2x1_s4",  # compile: assemble_to_hsaco returned None
+    "m2432xn3072xk4096_wg19x16_w2x2_twg4x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn2048xk8192_wg19x16_w2x2_twg4x4x2_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn2048xk4096_wg19x16_w2x2_twg6x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn2048xk4096_wg19x16_w2x2_twg4x4x1_s4",  # compile: assemble_to_hsaco returned None
+    "m7296xn8192xk2048_wg38x32_w3x2_twg6x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m14592xn4096xk2048_wg38x32_w3x2_twg12x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn6144xk4096_wg38x32_w2x2_twg6x6x1_s2",  # compile: failed to allocate the registers
+    "m3648xn3072xk4096_wg19x16_w3x2_twg6x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn3072xk4096_wg19x16_w2x2_twg4x6x1_s3",  # compile: assemble_to_hsaco returned None
+    "m7296xn8192xk4096_wg38x32_w2x2_twg6x8x1_s2",  # compile: failed to allocate the registers
+    "m4864xn12288xk4096_wg38x32_w2x2_twg4x12x1_s2",  # compile: failed to allocate the registers
+    "m5472xn2048xk4096_wg19x16_w3x2_twg9x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn2048xk4096_wg19x16_w2x2_twg6x4x1_s3",  # compile: assemble_to_hsaco returned None
+    "m14592xn4096xk4096_wg38x32_w2x2_twg12x4x1_s2",  # compile: failed to allocate the registers
+    "m1824xn6144xk4096_wg19x16_w3x2_twg3x12x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn4096xk4096_wg19x16_w2x2_twg4x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m10944xn6144xk4096_wg38x32_w3x2_twg9x6x1_s2",  # compile: failed to allocate the registers
+    "m9728xn8192xk4096_wg38x32_w2x2_twg8x8x1_s2",  # compile: failed to allocate the registers
+    "m4864xn2048xk4096_wg19x16_w2x2_twg8x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn6144xk8192_wg38x32_w2x2_twg2x6x2_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn6144xk4096_wg38x32_w2x2_twg2x6x1_s4",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk4096_wg38x32_w2x2_twg6x2x1_s4",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk8192_wg38x32_w2x2_twg6x2x2_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn6144xk4096_wg38x32_w2x2_twg4x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn4096xk4096_wg38x32_w2x2_twg6x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn4096xk4096_wg19x16_w3x2_twg6x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn4096xk4096_wg38x32_w2x2_twg4x4x1_s4",  # compile: assemble_to_hsaco returned None
+    "m4864xn4096xk8192_wg38x32_w2x2_twg4x4x2_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk4096_wg19x16_w3x2_twg12x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn3072xk8192_wg19x16_w2x2_twg6x6x1_s2",  # compile: failed to allocate the registers
+    "m4864xn6144xk4096_wg38x32_w2x2_twg4x6x1_s3",  # compile: assemble_to_hsaco returned None
+    "m7296xn6144xk4096_wg38x32_w3x2_twg6x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn4096xk8192_wg19x16_w2x2_twg6x8x1_s2",  # compile: failed to allocate the registers
+    "m7296xn4096xk4096_wg38x32_w2x2_twg6x4x1_s3",  # compile: assemble_to_hsaco returned None
+    "m2432xn6144xk8192_wg19x16_w2x2_twg4x12x1_s2",  # compile: failed to allocate the registers
+    "m10944xn4096xk4096_wg38x32_w3x2_twg9x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk8192_wg19x16_w2x2_twg12x4x1_s2",  # compile: failed to allocate the registers
+    "m5472xn3072xk8192_wg19x16_w3x2_twg9x6x1_s2",  # compile: failed to allocate the registers
+    "m3648xn12288xk4096_wg38x32_w3x2_twg3x12x1_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn8192xk4096_wg38x32_w2x2_twg4x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn4096xk8192_wg19x16_w2x2_twg8x8x1_s2",  # compile: failed to allocate the registers
+    "m1216xn3072xk8192_wg19x16_w2x2_twg2x6x1_s4",  # compile: assemble_to_hsaco returned None
+    "m9728xn4096xk4096_wg38x32_w2x2_twg8x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m1216xn3072xk16384_wg19x16_w2x2_twg2x6x2_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn1024xk8192_wg19x16_w2x2_twg6x2x1_s4",  # compile: assemble_to_hsaco returned None
+    "m2432xn2048xk16384_wg19x16_w2x2_twg4x4x2_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn8192xk4096_wg38x32_w3x2_twg6x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn1024xk16384_wg19x16_w2x2_twg6x2x2_s2",  # compile: assemble_to_hsaco returned None
+    "m14592xn4096xk4096_wg38x32_w3x2_twg12x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn3072xk8192_wg19x16_w2x2_twg4x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn2048xk8192_wg19x16_w2x2_twg6x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn6144xk8192_wg38x32_w2x2_twg6x6x1_s2",  # compile: failed to allocate the registers
+    "m2432xn2048xk8192_wg19x16_w2x2_twg4x4x1_s4",  # compile: assemble_to_hsaco returned None
+    "m4864xn12288xk8192_wg38x32_w2x2_twg4x12x1_s2",  # compile: failed to allocate the registers
+    "m2432xn3072xk8192_wg19x16_w2x2_twg4x6x1_s3",  # compile: assemble_to_hsaco returned None
+    "m7296xn8192xk8192_wg38x32_w2x2_twg6x8x1_s2",  # compile: failed to allocate the registers
+    "m2432xn4096xk8192_wg19x16_w2x2_twg4x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m14592xn4096xk8192_wg38x32_w2x2_twg12x4x1_s2",  # compile: failed to allocate the registers
+    "m10944xn6144xk8192_wg38x32_w3x2_twg9x6x1_s2",  # compile: failed to allocate the registers
+    "m2432xn6144xk8192_wg38x32_w2x2_twg2x6x1_s4",  # compile: assemble_to_hsaco returned None
+    "m3648xn3072xk8192_wg19x16_w3x2_twg6x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m2432xn6144xk16384_wg38x32_w2x2_twg2x6x2_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn2048xk8192_wg19x16_w2x2_twg6x4x1_s3",  # compile: assemble_to_hsaco returned None
+    "m1824xn6144xk8192_wg19x16_w3x2_twg3x12x1_s2",  # compile: assemble_to_hsaco returned None
+    "m5472xn2048xk8192_wg19x16_w3x2_twg9x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk16384_wg38x32_w2x2_twg6x2x2_s2",  # compile: assemble_to_hsaco returned None
+    "m9728xn8192xk8192_wg38x32_w2x2_twg8x8x1_s2",  # compile: failed to allocate the registers
+    "m4864xn6144xk8192_wg38x32_w2x2_twg4x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn4096xk8192_wg38x32_w2x2_twg4x4x1_s4",  # compile: assemble_to_hsaco returned None
+    "m7296xn4096xk8192_wg38x32_w2x2_twg6x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk8192_wg38x32_w2x2_twg6x2x1_s4",  # compile: assemble_to_hsaco returned None
+    "m4864xn2048xk8192_wg19x16_w2x2_twg8x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn4096xk16384_wg38x32_w2x2_twg4x4x2_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn2048xk8192_wg19x16_w3x2_twg12x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn6144xk8192_wg38x32_w2x2_twg4x6x1_s3",  # compile: assemble_to_hsaco returned None
+    "m3648xn4096xk8192_wg19x16_w3x2_twg6x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn6144xk8192_wg38x32_w3x2_twg6x6x1_s2",  # compile: assemble_to_hsaco returned None
+    "m10944xn4096xk8192_wg38x32_w3x2_twg9x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn4096xk8192_wg38x32_w2x2_twg6x4x1_s3",  # compile: assemble_to_hsaco returned None
+    "m9728xn4096xk8192_wg38x32_w2x2_twg8x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m3648xn12288xk8192_wg38x32_w3x2_twg3x12x1_s2",  # compile: assemble_to_hsaco returned None
+    "m4864xn8192xk8192_wg38x32_w2x2_twg4x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m14592xn4096xk8192_wg38x32_w3x2_twg12x4x1_s2",  # compile: assemble_to_hsaco returned None
+    "m7296xn8192xk8192_wg38x32_w3x2_twg6x8x1_s2",  # compile: assemble_to_hsaco returned None
+    "m1824xn2048xk2048_wg19x16_w3x2_twg3x4x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn2048xk4096_wg19x16_w3x2_twg3x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn3072xk2048_wg19x16_w3x2_twg3x6x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn3072xk2048_wg19x16_w3x2_twg3x6x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn4096xk2048_wg19x16_w3x2_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn1024xk4096_wg19x16_w3x2_twg6x2x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk2048_wg19x16_w3x2_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk2048_wg19x16_w3x2_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m5472xn1024xk2048_wg19x16_w3x2_twg9x2x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn4096xk2048_wg19x16_w3x4_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk2048_wg19x16_w3x4_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn6144xk2048_wg19x16_w3x4_twg3x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk2048_wg19x16_w3x4_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn4096xk2048_wg19x16_w3x4_twg6x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m5472xn2048xk2048_wg19x16_w3x4_twg9x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk2048_wg19x16_w3x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn2048xk2048_wg19x16_w4x4_twg4x4x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn2048xk4096_wg19x16_w4x4_twg4x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn2048xk2048_wg19x16_w4x4_twg8x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn4096xk2048_wg19x16_w4x4_twg4x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn6144xk2048_wg19x16_w4x4_twg4x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn4096xk2048_wg19x16_w4x4_twg8x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk2048_wg19x16_w4x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn4096xk2048_wg38x32_w3x2_twg3x4x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn6144xk2048_wg38x32_w3x2_twg3x6x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn4096xk4096_wg38x32_w3x2_twg3x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn6144xk2048_wg38x32_w3x2_twg3x6x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn8192xk2048_wg38x32_w3x2_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk2048_wg38x32_w3x2_twg6x2x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk2048_wg38x32_w3x2_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk2048_wg38x32_w3x2_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk4096_wg38x32_w3x2_twg6x2x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m10944xn2048xk2048_wg38x32_w3x2_twg9x2x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn8192xk2048_wg38x32_w3x4_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk2048_wg38x32_w3x4_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn12288xk2048_wg38x32_w3x4_twg3x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk2048_wg38x32_w3x4_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn8192xk2048_wg38x32_w3x4_twg6x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m10944xn4096xk2048_wg38x32_w3x4_twg9x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m14592xn4096xk2048_wg38x32_w3x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn4096xk2048_wg38x32_w4x4_twg4x4x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn4096xk4096_wg38x32_w4x4_twg4x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn8192xk2048_wg38x32_w4x4_twg4x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m9728xn4096xk2048_wg38x32_w4x4_twg8x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn12288xk2048_wg38x32_w4x4_twg4x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m9728xn8192xk2048_wg38x32_w4x4_twg8x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m14592xn4096xk2048_wg38x32_w4x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn3072xk4096_wg19x16_w3x2_twg3x6x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn2048xk8192_wg19x16_w3x2_twg3x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn3072xk4096_wg19x16_w3x2_twg3x6x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn4096xk4096_wg19x16_w3x2_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn1024xk4096_wg19x16_w3x2_twg6x2x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk4096_wg19x16_w3x2_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk4096_wg19x16_w3x2_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn1024xk8192_wg19x16_w3x2_twg6x2x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m5472xn1024xk4096_wg19x16_w3x2_twg9x2x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn4096xk4096_wg19x16_w3x4_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk4096_wg19x16_w3x4_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn6144xk4096_wg19x16_w3x4_twg3x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk4096_wg19x16_w3x4_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn4096xk4096_wg19x16_w3x4_twg6x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m5472xn2048xk4096_wg19x16_w3x4_twg9x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk4096_wg19x16_w3x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn2048xk4096_wg19x16_w4x4_twg4x4x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn2048xk8192_wg19x16_w4x4_twg4x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn4096xk4096_wg19x16_w4x4_twg4x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn2048xk4096_wg19x16_w4x4_twg8x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn4096xk4096_wg19x16_w4x4_twg8x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn6144xk4096_wg19x16_w4x4_twg4x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk4096_wg19x16_w4x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn4096xk4096_wg38x32_w3x2_twg3x4x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn6144xk4096_wg38x32_w3x2_twg3x6x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn4096xk8192_wg38x32_w3x2_twg3x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn6144xk4096_wg38x32_w3x2_twg3x6x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn8192xk4096_wg38x32_w3x2_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk4096_wg38x32_w3x2_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk4096_wg38x32_w3x2_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk8192_wg38x32_w3x2_twg6x2x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m10944xn2048xk4096_wg38x32_w3x2_twg9x2x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn8192xk4096_wg38x32_w3x4_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk4096_wg38x32_w3x4_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn12288xk4096_wg38x32_w3x4_twg3x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk4096_wg38x32_w3x4_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m10944xn4096xk4096_wg38x32_w3x4_twg9x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn8192xk4096_wg38x32_w3x4_twg6x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m14592xn4096xk4096_wg38x32_w3x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn4096xk4096_wg38x32_w4x4_twg4x4x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn4096xk8192_wg38x32_w4x4_twg4x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn8192xk4096_wg38x32_w4x4_twg4x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m9728xn4096xk4096_wg38x32_w4x4_twg8x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn12288xk4096_wg38x32_w4x4_twg4x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m9728xn8192xk4096_wg38x32_w4x4_twg8x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m14592xn4096xk4096_wg38x32_w4x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn2048xk8192_wg19x16_w3x2_twg3x4x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn3072xk8192_wg19x16_w3x2_twg3x6x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn2048xk16384_wg19x16_w3x2_twg3x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn3072xk8192_wg19x16_w3x2_twg3x6x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn4096xk8192_wg19x16_w3x2_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn1024xk8192_wg19x16_w3x2_twg6x2x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk8192_wg19x16_w3x2_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk8192_wg19x16_w3x2_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn1024xk16384_wg19x16_w3x2_twg6x2x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m5472xn1024xk8192_wg19x16_w3x2_twg9x2x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn4096xk8192_wg19x16_w3x4_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk8192_wg19x16_w3x4_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m1824xn6144xk8192_wg19x16_w3x4_twg3x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn2048xk8192_wg19x16_w3x4_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn4096xk8192_wg19x16_w3x4_twg6x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m5472xn2048xk8192_wg19x16_w3x4_twg9x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk8192_wg19x16_w3x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn2048xk8192_wg19x16_w4x4_twg4x4x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn4096xk8192_wg19x16_w4x4_twg4x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn2048xk16384_wg19x16_w4x4_twg4x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn2048xk8192_wg19x16_w4x4_twg8x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m2432xn6144xk8192_wg19x16_w4x4_twg4x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn4096xk8192_wg19x16_w4x4_twg8x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk8192_wg19x16_w4x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn6144xk8192_wg38x32_w3x2_twg3x6x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn4096xk16384_wg38x32_w3x2_twg3x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn6144xk8192_wg38x32_w3x2_twg3x6x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk8192_wg38x32_w3x2_twg6x2x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn8192xk8192_wg38x32_w3x2_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk8192_wg38x32_w3x2_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk8192_wg38x32_w3x2_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn2048xk16384_wg38x32_w3x2_twg6x2x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m10944xn2048xk8192_wg38x32_w3x2_twg9x2x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn8192xk8192_wg38x32_w3x4_twg3x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk8192_wg38x32_w3x4_twg6x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn4096xk8192_wg38x32_w3x4_twg6x4x1_s3",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m3648xn12288xk8192_wg38x32_w3x4_twg3x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m7296xn8192xk8192_wg38x32_w3x4_twg6x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m10944xn4096xk8192_wg38x32_w3x4_twg9x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m14592xn4096xk8192_wg38x32_w3x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn4096xk8192_wg38x32_w4x4_twg4x4x1_s4",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn8192xk8192_wg38x32_w4x4_twg4x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn4096xk16384_wg38x32_w4x4_twg4x4x2_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m9728xn4096xk8192_wg38x32_w4x4_twg8x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m4864xn12288xk8192_wg38x32_w4x4_twg4x12x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m9728xn8192xk8192_wg38x32_w4x4_twg8x8x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+    "m14592xn4096xk8192_wg38x32_w4x4_twg12x4x1_s2",  # exit 1: HIP error at /home/nico/aster/python/lib/RuntimeModule.cpp:182 - invalid
+]
 
 import argparse
 import itertools
