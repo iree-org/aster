@@ -1,5 +1,6 @@
 // Kittens 32x32_f16 tile abstractions for global load/store.
-// Uses amdgcn.ptr_add with dynamic VGPR offsets and lsir.alloca for destinations.
+// Uses ptr.ptr_add for address computation, letting aster-optimize-ptr-add
+// decompose offsets into const/uniform/dynamic components for optimal codegen.
 // Accumulators (C tiles) use AGPRs: on gfx942 MFMAs write directly to AGPRs
 // and global_store_dword can read directly from AGPRs.
 
@@ -10,6 +11,9 @@
 !vx2 = !amdgcn.vgpr<[? + 2]>
 !a   = !amdgcn.agpr
 !ax16 = !amdgcn.agpr<[? + 16]>
+
+// Ptr type for generic-space pointers (64-bit on AMDGCN)
+!gptr = !ptr.ptr<#ptr.generic_space>
 
 // Token types for async memory operations
 !write_token = !amdgcn.write_token<flat>
@@ -36,7 +40,7 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   // From indexing_ptr.mlir
   func.func private @matrix_offset_idx(!index_descriptor_2d) -> index
   func.func private @tile_thread_offset_idx(!index_descriptor_2d, index) -> index
-  func.func private @index_to_vgpr_i32(index) -> !v
+  func.func private @global_addr_from_offset(!gptr, index) -> !vx2
 
   //===--------------------------------------------------------------------===//
   // AGPR Tile initialization
@@ -52,9 +56,10 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   // Global Load (32x32 tile, ptr-based addressing)
   //===--------------------------------------------------------------------===//
 
-  // Issue 4 global loads for a 32x32 f16 tile using ptr_add addressing.
-  // Each load computes a total byte offset = tile_offset + thread_offset,
-  // converts to a VGPR, and uses amdgcn.ptr_add to form the address.
+  // Issue 4 global loads for a 32x32 f16 tile using ptr.ptr_add addressing.
+  // The offset stays as index until the final ptr.ptr_add, which takes i32.
+  // aster-optimize-ptr-add decomposes the offset into const/uniform/dynamic,
+  // then aster-codegen lowers to amdgcn.ptr_add with proper register classes.
   func.func private @load_global_tile_32x32_f16(
       %ptr: !sx2, %m: index, %k_base: index, %stride: index
   ) -> !gfut_buf {
@@ -69,6 +74,8 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
         : (index, index, index, index) -> !index_descriptor_2d
     %d_off = func.call @matrix_offset_idx(%d_desc) : (!index_descriptor_2d) -> index
 
+    // Bridge from register-level SGPR pair to ptr dialect type
+    %gptr = lsir.from_reg %ptr : !sx2 -> !gptr
     %buf = memref.alloca(%c4) : !gfut_buf
     scf.for %g = %c0 to %c4 step %c1 {
       // source address calculation
@@ -77,8 +84,9 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
           : (index, index, index, index) -> !index_descriptor_2d
       %total_off = func.call @tile_thread_offset_idx(%u_desc, %d_off)
           : (!index_descriptor_2d, index) -> index
-      %total_reg = func.call @index_to_vgpr_i32(%total_off) : (index) -> !v
-      %addr = amdgcn.ptr_add %ptr d_off = %total_reg : !sx2, !v
+
+      %addr = func.call @global_addr_from_offset(%gptr, %total_off)
+          : (!gptr, index) -> !vx2
 
       // load
       %tmp = lsir.alloca : !vx2
@@ -97,7 +105,7 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   // Global Store (C tile 32x32 f32 from AGPRs, ptr-based addressing)
   //===--------------------------------------------------------------------===//
 
-  // Store a 32x32 f32 C tile from AGPRs using ptr_add addressing.
+  // Store a 32x32 f32 C tile from AGPRs using ptr.ptr_add addressing.
   // On gfx942, global_store_dword can read directly from AGPRs.
   func.func private @store_C_32x32_f32(%tile: !rt_C_f32, %ptr: !sx2, %m: index, %n: index, %stride: index) -> !wtok_buf {
     %mfma_idx = func.call @mfma_index_C_32x32xf32() : () -> !index_pair
@@ -163,6 +171,8 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
         : (index, index, index, index) -> !index_descriptor_2d
     %d_off = func.call @matrix_offset_idx(%d_desc) : (!index_descriptor_2d) -> index
 
+    // Bridge from register-level SGPR pair to ptr dialect type
+    %gptr = lsir.from_reg %ptr : !sx2 -> !gptr
     %tok_buf = memref.alloca(%c16) : memref<?x!write_token>
     scf.for %i = %c0 to %c16 step %c1 {
       %any_reg = memref.load %reg_buf[%i] : memref<?x!aster_utils.any>
@@ -175,8 +185,9 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
           : (index, index, index, index) -> !index_descriptor_2d
       %total_off = func.call @tile_thread_offset_idx(%u_desc, %d_off)
           : (!index_descriptor_2d, index) -> index
-      %total_reg = func.call @index_to_vgpr_i32(%total_off) : (index) -> !v
-      %addr = amdgcn.ptr_add %ptr d_off = %total_reg : !sx2, !v
+
+      %addr = func.call @global_addr_from_offset(%gptr, %total_off)
+          : (!gptr, index) -> !vx2
 
       // store from AGPR (gfx942 reads AGPRs directly for global_store)
       %tok = amdgcn.store global_store_dword data %reg addr %addr

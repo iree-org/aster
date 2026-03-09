@@ -152,6 +152,7 @@ PHASE_CONVERT_LDS_BUFFERS = (
 PHASE_LOWER_TO_AMDGCN = (
     "aster-to-int-arith",
     "aster-optimize-arith",
+    "aster-optimize-ptr-add",
     "canonicalize", "cse",
     "aster-resolve-any-iter-args",
     "aster-amdgcn-set-abi", # "func.func(aster-amdgcn-set-abi)",
