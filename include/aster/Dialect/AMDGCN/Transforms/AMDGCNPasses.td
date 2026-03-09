@@ -76,7 +76,10 @@ def RegisterColoring : Pass<"amdgcn-register-coloring"> {
   let description = [{
     This pass performs register coloring on functions. It uses liveness analysis
     to determine live ranges, create the interference graph, and assign registers
-    accordingly. This pass should run after bufferization, and to register semantics.
+    accordingly. This pass should run after bufferization and to-register-semantics.
+
+    Pre-condition: #amdgcn.no_value_semantic_registers
+    Post-condition: #amdgcn.all_registers_allocated
   }];
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
   let options = [
@@ -296,7 +299,7 @@ def LegalizeCF : Pass<"amdgcn-legalize-cf"> {
   let description = [{
     This pass legalizes CF dialect operations (cf.cond_br, cf.br) and lsir.cmpi
     to AMDGCN scalar branch and compare instructions. It runs after register
-    allocation when operands are in physical registers and values from through
+    allocation when operands are in physical registers and values flow through
     side effects.
 
     Transformations:
@@ -304,8 +307,8 @@ def LegalizeCF : Pass<"amdgcn-legalize-cf"> {
     - cf.cond_br -> s_cbranch_scc1 / scc0 + s_branch
     - cf.br -> s_branch
 
-    Prerequisites:
-    - Register allocation must have run (all operands must be in allocatedSGPRs)
+    Pre-condition: #amdgcn.all_registers_allocated
+    Additional prerequisites:
     - Block arguments must have been eliminated
 
     TODO: AMDGCN supports only a very limited form of branches. At this time,
@@ -323,9 +326,11 @@ def ToRegisterSemantics : Pass<"amdgcn-to-register-semantics"> {
   let summary = "Propagate non-value register semantics through the IR";
   let description = [{
     This pass propagates non-value register semantics through the IR. It converts
-    value allocas to unallocated allocas, and propogates them through the IR.
-    After this pass, no instruction resuls should be used other operations.
+    value allocas to unallocated allocas, and propagates them through the IR.
+    After this pass, no instruction results should be used by other operations.
     This pass should run after bufferization, and before register coloring.
+
+    Post-condition: #amdgcn.no_value_semantic_registers
   }];
   let dependentDialects = [
     "mlir::aster::amdgcn::AMDGCNDialect"
@@ -353,7 +358,9 @@ def AMDGCNHazards : Pass<"amdgcn-hazards"> {
   let description = [{
     This pass resolves hazards for AMDGCN instructions. It runs the hazard analysis
     on AMDGCN operations and inserts NOP instructions to resolve the hazards.
-    It should run after register allocation, and convert waits.
+    It should run after register allocation and convert-waits.
+
+    Pre-condition: #amdgcn.all_registers_allocated
   }];
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
   let options = [

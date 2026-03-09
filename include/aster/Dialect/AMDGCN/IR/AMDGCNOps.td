@@ -437,6 +437,12 @@ def AMDGCN_KernelOp : AMDGCN_Op<"kernel", [
     // Normal form methods
     //===------------------------------------------------------------------===//
 
+    /// Returns true if the op has the given normal form attribute.
+    bool hasNormalForm(::mlir::Attribute nf) {
+      auto nfs = getNormalFormsAttr();
+      return nfs && llvm::is_contained(nfs, nf);
+    }
+
     /// Adds normal form attributes. Returns true if the op was changed.
     bool addNormalForms(
         ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
@@ -556,6 +562,12 @@ def AMDGCN_ModuleOp : AMDGCN_Op<"module", [
     //===------------------------------------------------------------------===//
     // Normal form methods
     //===------------------------------------------------------------------===//
+
+    /// Returns true if the op has the given normal form attribute.
+    bool hasNormalForm(::mlir::Attribute nf) {
+      auto nfs = getNormalFormsAttr();
+      return nfs && llvm::is_contained(nfs, nf);
+    }
 
     /// Adds normal form attributes. Returns true if the op was changed.
     bool addNormalForms(

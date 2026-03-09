@@ -19,6 +19,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
@@ -324,6 +325,16 @@ LogicalResult LegalizeCF::verifyI1Lifetimes(Operation *op) {
 
 void LegalizeCF::runOnOperation() {
   Operation *op = getOperation();
+
+  // Pre-condition: all registers must be allocated before CF legalization.
+  if (auto kernelOp = dyn_cast<KernelOp>(op)) {
+    if (!kernelOp.hasNormalForm(
+            AllRegistersAllocatedAttr::get(op->getContext()))) {
+      op->emitError() << "amdgcn-legalize-cf requires "
+                         "#amdgcn.all_registers_allocated normal form";
+      return signalPassFailure();
+    }
+  }
 
   // Precondition: verify i1 lifetimes are non-overlapping and block-local.
   // SCC is a single physical bit with no spill capability, so overlapping

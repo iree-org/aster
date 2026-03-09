@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/HazardAnalysis.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/HazardManager.h"
 #include "aster/Dialect/AMDGCN/IR/Hazards.h"
@@ -46,6 +47,16 @@ struct AMDGCNHazards : public amdgcn::impl::AMDGCNHazardsBase<AMDGCNHazards> {
 
 void AMDGCNHazards::runOnOperation() {
   Operation *op = getOperation();
+
+  // Pre-condition: all registers must be allocated before NOP insertion.
+  if (auto kernelOp = dyn_cast<KernelOp>(op)) {
+    if (!kernelOp.hasNormalForm(
+            AllRegistersAllocatedAttr::get(op->getContext()))) {
+      op->emitError() << "amdgcn-hazards requires "
+                         "#amdgcn.all_registers_allocated normal form";
+      return signalPassFailure();
+    }
+  }
 
   // Get ISA version from the module, default to CDNA3 if not found.
   ISAVersion isaVersion = ISAVersion::CDNA3;

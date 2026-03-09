@@ -5,7 +5,7 @@
 //       CHECK:   amdgcn.vop1.v_nop
 //  CHECK-NEXT:   v_mov_b32_e32
 amdgcn.module @test_case8_9_store_x4 target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  amdgcn.kernel @test_kernel {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
     // Allocate VGPRs for data (4 VGPRs for dwordx4) - using registers 0-3
     %data0 = amdgcn.alloca : !amdgcn.vgpr<0>
     %data1 = amdgcn.alloca : !amdgcn.vgpr<1>
@@ -40,7 +40,7 @@ amdgcn.module @test_case8_9_store_x4 target = #amdgcn.target<gfx942> isa = #amdg
 //       CHECK:   amdgcn.vop1.v_nop
 //  CHECK-NEXT:   load global_load_dword
 amdgcn.module @test_case10_valu_sgpr_vmem target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  amdgcn.kernel @test_kernel {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
     // Allocate SGPRs for address (2 SGPRs) - using registers 0-1
     %addr0 = amdgcn.alloca : !amdgcn.sgpr<0>
     %addr1 = amdgcn.alloca : !amdgcn.sgpr<1>
@@ -83,7 +83,7 @@ amdgcn.module @test_case10_valu_sgpr_vmem target = #amdgcn.target<gfx942> isa = 
 //   CHECK-NOT:  s_nop
 //   CHECK-NOT:  v_nop
 amdgcn.module @test_case8_no_overlap target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  amdgcn.kernel @test_kernel {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
     // Allocate VGPRs for data (3 VGPRs for dwordx3) - using registers 0-2
     %data0 = amdgcn.alloca : !amdgcn.vgpr<0>
     %data1 = amdgcn.alloca : !amdgcn.vgpr<1>
@@ -117,7 +117,7 @@ amdgcn.module @test_case8_no_overlap target = #amdgcn.target<gfx942> isa = #amdg
 //   CHECK-NOT:  s_nop
 //   CHECK-NOT:  v_nop
 amdgcn.module @test_case9_no_overlap_valu target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  amdgcn.kernel @test_kernel {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
     // Allocate VGPRs for data (3 VGPRs for dwordx3) - using registers 0-2
     %data0 = amdgcn.alloca : !amdgcn.vgpr<0>
     %data1 = amdgcn.alloca : !amdgcn.vgpr<1>
@@ -150,7 +150,7 @@ amdgcn.module @test_case9_no_overlap_valu target = #amdgcn.target<gfx942> isa = 
 //   CHECK-NOT:  s_nop
 //   CHECK-NOT:  v_nop
 amdgcn.module @test_case10_no_overlap_sgpr target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  amdgcn.kernel @test_kernel {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
     // Allocate SGPRs for address (2 SGPRs) - using registers 0-1
     %addr0 = amdgcn.alloca : !amdgcn.sgpr<0>
     %addr1 = amdgcn.alloca : !amdgcn.sgpr<1>
@@ -186,7 +186,7 @@ amdgcn.module @test_case10_no_overlap_sgpr target = #amdgcn.target<gfx942> isa =
 // CHECK-LABEL: kernel @test_kernel
 // TODO: recheck when we have CDNA4 support
 amdgcn.module @test_case106_scaled_mfma_16x16x128 target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
-  amdgcn.kernel @test_kernel {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
     // A operands: 8 VGPRs [0:8)
     %a0 = amdgcn.alloca : !amdgcn.vgpr<0>
     %a1 = amdgcn.alloca : !amdgcn.vgpr<1>
@@ -246,7 +246,7 @@ amdgcn.module @test_case106_scaled_mfma_16x16x128 target = #amdgcn.target<gfx950
 // CHECK-LABEL: kernel @test_kernel
 // TODO: recheck when we have CDNA4 support
 amdgcn.module @test_case106_scaled_mfma_32x32x64 target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
-  amdgcn.kernel @test_kernel {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
     // A operands: 8 VGPRs [0:8)
     %a0 = amdgcn.alloca : !amdgcn.vgpr<0>
     %a1 = amdgcn.alloca : !amdgcn.vgpr<1>
@@ -330,7 +330,7 @@ amdgcn.module @test_case106_scaled_mfma_32x32x64 target = #amdgcn.target<gfx950>
 //       CHECK:   amdgcn.vop1.v_nop
 //  CHECK-NEXT:   v_mov_b32_e32
 amdgcn.module @test_case106_fp8_mfma_16x16x32 target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  amdgcn.kernel @test_kernel {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
     // A operands: 2 VGPRs [0:2)
     %a0 = amdgcn.alloca : !amdgcn.vgpr<0>
     %a1 = amdgcn.alloca : !amdgcn.vgpr<1>
