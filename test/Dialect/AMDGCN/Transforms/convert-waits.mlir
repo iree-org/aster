@@ -117,6 +117,7 @@ func.func @test_if_flow_3(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 }
 
 // CHECK-LABEL:   func.func @test_passthrough_pattern(
+// CHECK-NOT:       amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 2
 // CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
 func.func @test_passthrough_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
@@ -303,5 +304,38 @@ func.func @for_with_poison_init(%arg0: !amdgcn.vgpr<[? + 2]>) {
     scf.yield %token : !amdgcn.read_token<flat>
   }
   amdgcn.wait deps %out : !amdgcn.read_token<flat>
+  return
+}
+
+// CHECK-LABEL:   func.func @test_wait_canonicalization(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr) {
+// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_0]] addr %[[ARG0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_1:.*]], %[[LOAD_1:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_0]] addr %[[ARG0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_2:.*]], %[[LOAD_2:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_0]] addr %[[ARG0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_3:.*]], %[[LOAD_3:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_0]] addr %[[ARG0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 2
+// CHECK:           amdgcn.test_inst : () -> ()
+// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 1
+// CHECK:           amdgcn.test_inst : () -> ()
+// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0
+// CHECK:           return
+// CHECK:         }
+func.func @test_wait_canonicalization(%addr: !amdgcn.vgpr) {
+  %1 = amdgcn.alloca : !amdgcn.vgpr
+  %result_0, %token = amdgcn.load ds_read_b32 dest %1 addr %addr : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+  %2 = amdgcn.alloca : !amdgcn.vgpr
+  %result_1, %token_1 = amdgcn.load ds_read_b32 dest %1 addr %addr : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+  %3 = amdgcn.alloca : !amdgcn.vgpr
+  %result_2, %token_2 = amdgcn.load ds_read_b32 dest %1 addr %addr : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+  %4 = amdgcn.alloca : !amdgcn.vgpr
+  %result_3, %token_3 = amdgcn.load ds_read_b32 dest %1 addr %addr : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+  // These 2 waits can be canonicalized into a single wait with lgkmcnt = 2.
+  amdgcn.wait deps %token : !amdgcn.read_token<shared>
+  amdgcn.wait deps %token_1 : !amdgcn.read_token<shared>
+  amdgcn.test_inst : () -> ()
+  amdgcn.wait deps %token_2 : !amdgcn.read_token<shared>
+  amdgcn.test_inst : () -> ()
+  amdgcn.wait deps %token_3 : !amdgcn.read_token<shared>
   return
 }
