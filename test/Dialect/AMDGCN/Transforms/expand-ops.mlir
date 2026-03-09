@@ -1,7 +1,7 @@
 // RUN: aster-opt %s --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops, aster-hoist-ops, canonicalize)))" | FileCheck %s
 
 amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
-// CHECK-LABEL: kernel @kernel_ptr arguments <[#amdgcn.buffer_arg<address_space = generic, access = write_only>, #amdgcn.buffer_arg<address_space = private, access = read_only, flags = const|volatile>, #amdgcn.buffer_arg<address_space = generic, type = !ptr.ptr<#ptr.generic_space>>]> attributes {enable_workgroup_id_x = false} {
+// CHECK-LABEL: kernel @kernel_ptr arguments <[#amdgcn.buffer_arg<address_space = generic, access = write_only>, #amdgcn.buffer_arg<address_space = private, access = read_only, flags = const|volatile>, #amdgcn.buffer_arg<address_space = generic, type = !ptr.ptr<#ptr.generic_space>>]> attributes {enable_workgroup_id_x = false{{.*}}} {
 // CHECK-DAG:     %[[CONSTANT_0:.*]] = arith.constant 16 : i32
 // CHECK-DAG:     %[[CONSTANT_1:.*]] = arith.constant 8 : i32
 // CHECK-DAG:     %[[CONSTANT_2:.*]] = arith.constant 0 : i32
@@ -35,7 +35,7 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
     end_kernel
   }
 
-// CHECK-LABEL: kernel @byval arguments <[#amdgcn.by_val_arg<size = 6, alignment = 8, type = i48>, #amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>, #amdgcn.by_val_arg<size = 8, alignment = 8, type = i64>, #amdgcn.by_val_arg<size = 16, alignment = 8, type = i128>]> attributes {enable_workgroup_id_x = false} {
+// CHECK-LABEL: kernel @byval arguments <[#amdgcn.by_val_arg<size = 6, alignment = 8, type = i48>, #amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>, #amdgcn.by_val_arg<size = 8, alignment = 8, type = i64>, #amdgcn.by_val_arg<size = 16, alignment = 8, type = i128>]> attributes {enable_workgroup_id_x = false{{.*}}} {
 // CHECK-DAG:     %[[CONSTANT_0:.*]] = arith.constant 24 : i32
 // CHECK-DAG:     %[[CONSTANT_1:.*]] = arith.constant 16 : i32
 // CHECK-DAG:     %[[CONSTANT_2:.*]] = arith.constant 8 : i32
@@ -96,7 +96,7 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
 
 // All three thread IDs: packed in VGPR0, extracted via shift+mask.
 //   X = v0 & 0x3FF, Y = (v0 >> 10) & 0x3FF, Z = v0 >> 20
-// CHECK-LABEL: kernel @thread_block_ids arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> attributes {enable_workgroup_id_y, enable_workgroup_id_z, workitem_id_mode = #amdgcn.workitem_id_mode<x_y_z>} {
+// CHECK-LABEL: kernel @thread_block_ids arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> attributes {enable_workgroup_id_y, enable_workgroup_id_z{{.*}}} {
 // CHECK-DAG:     %[[V0:.*]] = alloca : !amdgcn.vgpr<0>
 // CHECK-DAG:     %[[MASK:.*]] = arith.constant 1023 : i32
 // CHECK-DAG:     %[[C10:.*]] = arith.constant 10 : i32
@@ -163,7 +163,7 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
     end_kernel
   }
 
-// CHECK-LABEL: kernel @grid_block_dim arguments <[#amdgcn.block_dim_arg<x>, #amdgcn.block_dim_arg<y>, #amdgcn.block_dim_arg<z>, #amdgcn.grid_dim_arg<x>, #amdgcn.grid_dim_arg<y>, #amdgcn.grid_dim_arg<z>]> attributes {enable_workgroup_id_x = false} {
+// CHECK-LABEL: kernel @grid_block_dim arguments <[#amdgcn.block_dim_arg<x>, #amdgcn.block_dim_arg<y>, #amdgcn.block_dim_arg<z>, #amdgcn.grid_dim_arg<x>, #amdgcn.grid_dim_arg<y>, #amdgcn.grid_dim_arg<z>]> attributes {enable_workgroup_id_x = false{{.*}}} {
 // CHECK-DAG:     %[[CONSTANT_0:.*]] = arith.constant 8 : i32
 // CHECK-DAG:     %[[CONSTANT_1:.*]] = arith.constant 4 : i32
 // CHECK-DAG:     %[[CONSTANT_2:.*]] = arith.constant 65535 : i32

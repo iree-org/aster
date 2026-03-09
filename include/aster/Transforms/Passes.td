@@ -178,6 +178,12 @@ def ReplaceConstantGPUDims : InterfacePass<"aster-replace-constant-gpu-dims",
 def ToIntArith
     : InterfacePass<"aster-to-int-arith", "mlir::aster::ModuleOpInterface"> {
   let summary = "Convert index operations to integer operations";
+  let description = [{
+    This pass lowers affine dialect operations to standard arith operations
+    and converts index types to integer types of the specified bitwidth.
+
+    Post-condition: #amdgcn.no_affine_ops (set on amdgcn.module)
+  }];
   let dependentDialects = [
     "mlir::arith::ArithDialect",
   ];

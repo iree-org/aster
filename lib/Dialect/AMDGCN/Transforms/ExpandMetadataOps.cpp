@@ -542,4 +542,10 @@ void ExpandMetadataOps::runOnOperation() {
   handleThreadId(rewriter, op, threadIds, threadIdSeen, packedTID);
 
   handleMakeBufferRsrc(rewriter, makeBufferRsrcs);
+
+  // Note: we do NOT set #amdgcn.no_metadata_ops here because the pipeline
+  // may run expand-md-ops multiple times with aster-codegen in between
+  // (which re-introduces metadata ops from gpu.thread_id lowering).
+  // The normal form can be set externally when the pipeline ordering ensures
+  // expand-md-ops is truly the final expansion.
 }

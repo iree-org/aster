@@ -10,6 +10,8 @@
 
 #include "aster/Transforms/Passes.h"
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Interfaces/ModuleOpInterface.h"
@@ -261,4 +263,9 @@ void ToIntArith::runOnOperation() {
   if (failed(canonicalize(false)))
     return signalPassFailure();
   cse();
+
+  // Set post-condition: no affine ops remain.
+  if (auto amdgcnModule = dyn_cast<amdgcn::ModuleOp>(getOperation()))
+    amdgcnModule.addNormalForms(
+        {amdgcn::NoAffineOpsAttr::get(op->getContext())});
 }

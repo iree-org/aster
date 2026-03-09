@@ -164,6 +164,15 @@ def HoistOps : Pass<"aster-hoist-ops"> {
 
 def ExpandMetadataOps : Pass<"aster-amdgcn-expand-md-ops", "::mlir::aster::amdgcn::KernelOp"> {
   let summary = "Expand special AMDGCN metadata operations";
+  let description = [{
+    This pass expands high-level AMDGCN metadata operations (load_arg,
+    thread_id, block_dim, block_id, grid_dim, make_buffer_rsrc) into
+    concrete hardware instructions.
+
+    Related normal form: #amdgcn.no_metadata_ops (not auto-set because the
+    pipeline may run this pass multiple times with intervening codegen that
+    re-introduces metadata ops)
+  }];
   let dependentDialects = [
     "mlir::arith::ArithDialect"
   ];

@@ -338,3 +338,34 @@ LogicalResult NoRegisterBlockArgsAttr::verifyOperation(
   }
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// NoAffineOpsAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+NoAffineOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
+                                 Operation *op) const {
+  if (op->getDialect() && op->getDialect()->getNamespace() == "affine")
+    return emitError() << "normal form violation: affine dialect operations "
+                          "are disallowed but found: "
+                       << op->getName();
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// NoMetadataOpsAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+NoMetadataOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
+                                   Operation *op) const {
+  if (isa<LoadArgOp, ThreadIdOp, BlockDimOp, BlockIdOp, GridDimOp,
+          MakeBufferRsrcOp>(op))
+    return emitError() << "normal form violation: AMDGCN metadata operations "
+                          "are disallowed but found: "
+                       << op->getName();
+
+  return success();
+}

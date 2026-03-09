@@ -372,4 +372,30 @@ def NoRegisterBlockArgsAttr : AMDGCN_Attr<
   }];
 }
 
+def NoAffineOpsAttr : AMDGCN_Attr<
+    "NoAffineOps", "no_affine_ops",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: no affine dialect operations";
+  let description = [{
+    Verifies that no affine dialect operations (`affine.apply`, `affine.for`,
+    etc.) exist in the IR. This is the post-condition of the
+    `aster-to-int-arith` pass, which lowers affine operations to standard
+    arith operations and converts index types to integer types.
+  }];
+}
+
+def NoMetadataOpsAttr : AMDGCN_Attr<
+    "NoMetadataOps", "no_metadata_ops",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: no AMDGCN metadata operations";
+  let description = [{
+    Verifies that no AMDGCN metadata operations remain in the IR.
+    This includes `amdgcn.load_arg`, `amdgcn.thread_id`, `amdgcn.block_dim`,
+    `amdgcn.block_id`, `amdgcn.grid_dim`, and `amdgcn.make_buffer_rsrc`.
+    This is the post-condition of the `aster-amdgcn-expand-md-ops` pass,
+    which expands these high-level metadata operations into concrete
+    hardware instructions.
+  }];
+}
+
 #endif // ASTER_AMDGCN_ATTRS_TD
