@@ -301,6 +301,18 @@ def NoCfBranchesAttr : AMDGCN_Attr<
   }];
 }
 
+def NoScfOpsAttr : AMDGCN_Attr<
+    "NoScfOps", "no_scf_ops",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: no SCF dialect operations";
+  let description = [{
+    Verifies that no SCF dialect operations (`scf.for`, `scf.if`, `scf.while`,
+    etc.) exist in the IR. This is the post-condition of the
+    `amdgcn-convert-scf-control-flow` pass, which lowers SCF structured
+    control flow to CF dialect branches and AMDGCN compare instructions.
+  }];
+}
+
 def NoRegisterBlockArgsAttr : AMDGCN_Attr<
     "NoRegisterBlockArgs", "no_register_block_args",
     [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {

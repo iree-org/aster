@@ -17,7 +17,9 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 
 #include "aster/Analysis/ABIAnalysis.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
@@ -288,6 +290,10 @@ void ConvertSCFControlFlow::runOnOperation() {
       signalPassFailure();
     }
   });
+
+  // Set post-condition: no SCF ops remain.
+  if (auto kernelOp = dyn_cast<amdgcn::KernelOp>(op))
+    kernelOp.addNormalForms({amdgcn::NoScfOpsAttr::get(op->getContext())});
 }
 
 } // namespace

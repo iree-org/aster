@@ -278,6 +278,8 @@ def ConvertSCFControlFlow : Pass<"amdgcn-convert-scf-control-flow"> {
 
     This pass should run after the ABI has been set and before register
     allocation.
+
+    Post-condition: #amdgcn.no_scf_ops
   }];
   let dependentDialects = [
     "mlir::aster::amdgcn::AMDGCNDialect",

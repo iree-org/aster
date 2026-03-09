@@ -242,6 +242,21 @@ NoRegCastOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
 }
 
 //===----------------------------------------------------------------------===//
+// NoScfOpsAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+NoScfOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
+                              Operation *op) const {
+  if (op->getDialect() && op->getDialect()->getNamespace() == "scf")
+    return emitError() << "normal form violation: SCF dialect operations "
+                          "are disallowed but found: "
+                       << op->getName();
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // NoCfBranchesAttr
 //===----------------------------------------------------------------------===//
 
