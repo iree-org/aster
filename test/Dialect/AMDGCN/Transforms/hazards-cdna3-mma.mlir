@@ -315,3 +315,45 @@ func.func @mma_valu_then_mfma_chain(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !amdgcn
   amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %arg4, %arg0, %arg1, %arg3 : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[8 : 12]> -> !amdgcn.vgpr<[12 : 16]>
   return
 }
+
+// -----
+
+// 32x32x8 MFMA is 8-pass (case 2): VALU read of MFMA result needs 11 NOPs.
+// CHECK-LABEL:   func.func @mma_32x32x8_xdl_write_valu_hazard(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[0 : 2]>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[2 : 4]>,
+// CHECK-SAME:      %[[ARG2:.*]]: !amdgcn.vgpr<[16 : 32]>,
+// CHECK-SAME:      %[[ARG3:.*]]: !amdgcn.vgpr<[32 : 48]>,
+// CHECK-SAME:      %[[ARG4:.*]]: !amdgcn.vgpr<48>) {
+// CHECK:           amdgcn.vop3p.vop3p_mai <v_mfma_f32_32x32x8_f16> %[[ARG3]], %[[ARG0]], %[[ARG1]], %[[ARG2]] : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[16 : 32]> -> !amdgcn.vgpr<[32 : 48]>
+// CHECK:           %[[SPLIT:.*]]:16 = amdgcn.split_register_range %[[ARG3]] : !amdgcn.vgpr<[32 : 48]>
+// CHECK-COUNT-11:  amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ARG4]], %[[SPLIT]]#0 : (!amdgcn.vgpr<48>, !amdgcn.vgpr<32>) -> ()
+// CHECK:           return
+// CHECK:         }
+func.func @mma_32x32x8_xdl_write_valu_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !amdgcn.vgpr<[2 : 4]>, %arg2: !amdgcn.vgpr<[16 : 32]>, %arg3: !amdgcn.vgpr<[32 : 48]>, %arg4: !amdgcn.vgpr<48>) {
+  amdgcn.vop3p.vop3p_mai <v_mfma_f32_32x32x8_f16> %arg3, %arg0, %arg1, %arg2 : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[16 : 32]> -> !amdgcn.vgpr<[32 : 48]>
+  %0:16 = amdgcn.split_register_range %arg3 : !amdgcn.vgpr<[32 : 48]>
+  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg4, %0#0 : (!amdgcn.vgpr<48>, !amdgcn.vgpr<32>) -> ()
+  return
+}
+
+// -----
+
+// 32x32x8 MFMA chained: SrcC exactly same -> 0 NOPs needed (case 2).
+// CHECK-LABEL:   func.func @mma_32x32x8_xdl_write_xdl_read_srcc_exact(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[0 : 2]>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[2 : 4]>,
+// CHECK-SAME:      %[[ARG2:.*]]: !amdgcn.vgpr<[16 : 32]>,
+// CHECK-SAME:      %[[ARG3:.*]]: !amdgcn.vgpr<[32 : 48]>,
+// CHECK-SAME:      %[[ARG4:.*]]: !amdgcn.vgpr<[48 : 64]>) {
+// CHECK:           amdgcn.vop3p.vop3p_mai <v_mfma_f32_32x32x8_f16> %[[ARG3]], %[[ARG0]], %[[ARG1]], %[[ARG2]] : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[16 : 32]> -> !amdgcn.vgpr<[32 : 48]>
+// CHECK-NOT:       amdgcn.vop1.v_nop
+// CHECK:           amdgcn.vop3p.vop3p_mai <v_mfma_f32_32x32x8_f16> %[[ARG4]], %[[ARG0]], %[[ARG1]], %[[ARG3]] : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[32 : 48]> -> !amdgcn.vgpr<[48 : 64]>
+// CHECK:           return
+// CHECK:         }
+func.func @mma_32x32x8_xdl_write_xdl_read_srcc_exact(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !amdgcn.vgpr<[2 : 4]>, %arg2: !amdgcn.vgpr<[16 : 32]>, %arg3: !amdgcn.vgpr<[32 : 48]>, %arg4: !amdgcn.vgpr<[48 : 64]>) {
+  amdgcn.vop3p.vop3p_mai <v_mfma_f32_32x32x8_f16> %arg3, %arg0, %arg1, %arg2 : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[16 : 32]> -> !amdgcn.vgpr<[32 : 48]>
+  amdgcn.vop3p.vop3p_mai <v_mfma_f32_32x32x8_f16> %arg4, %arg0, %arg1, %arg3 : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[32 : 48]> -> !amdgcn.vgpr<[48 : 64]>
+  return
+}
