@@ -5,6 +5,10 @@
 //
 // LDS addressing is flat (no base pointer), so amdgcn.ptr_add does not apply.
 // The entire address is a byte offset in VGPR computed via XOR swizzle.
+//
+// Each function is split into two phases to avoid FU type switches:
+//   Phase 1: compute all addresses (VALU)
+//   Phase 2: issue all LDS ops (DS unit)
 
 // Register types
 !sx2 = !amdgcn.sgpr<[? + 2]>
@@ -58,14 +62,25 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %c0_i32 = arith.constant 0 : i32
     %byte_in_row = affine.apply affine_map<(c) -> (c * 2)>(%col)
 
-    %tok_buf = memref.alloca(%c4) : !lds_wtok_buf
+    // Phase 1: extract data from global futures + compute all LDS addresses (VALU)
+    %data_buf = memref.alloca(%c4) : memref<?x!vx2>
+    %addr_buf = memref.alloca(%c4) : memref<?x!v>
     scf.for %g = %c0 to %c4 step %c1 {
       %gf = memref.load %gf_buf[%g] : !gfut_buf
       %loaded = func.call @get_global_load_value_vx2(%gf) : (!future_global_read) -> !vx2
+      memref.store %loaded, %data_buf[%g] : memref<?x!vx2>
       %row = affine.apply affine_map<(g)[rig] -> (rig + g * 8)>(%g)[%row_in_group]
       %addr_idx = func.call @lds_xor_swizzled_addr_32x32(%lds_base, %row, %byte_in_row)
           : (index, index, index) -> index
       %addr = func.call @index_to_vgpr_i32(%addr_idx) : (index) -> !v
+      memref.store %addr, %addr_buf[%g] : memref<?x!v>
+    } {aster.constexpr}
+
+    // Phase 2: issue all LDS writes (DS unit)
+    %tok_buf = memref.alloca(%c4) : !lds_wtok_buf
+    scf.for %g = %c0 to %c4 step %c1 {
+      %loaded = memref.load %data_buf[%g] : memref<?x!vx2>
+      %addr = memref.load %addr_buf[%g] : memref<?x!v>
       %tok = amdgcn.store ds_write_b64 data %loaded addr %addr offset c(%c0_i32)
           : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
       memref.store %tok, %tok_buf[%g] : !lds_wtok_buf
@@ -103,13 +118,24 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %c4 = arith.constant 4 : index
     %c0_i32 = arith.constant 0 : i32
 
-    %buf = memref.alloca(%c4) : !lds_rfut_buf
+    // Phase 1: compute all LDS addresses + allocate destinations (VALU)
+    %addr_buf = memref.alloca(%c4) : memref<?x!v>
+    %dst_buf = memref.alloca(%c4) : memref<?x!vx2>
     scf.for %k = %c0 to %c4 step %c1 {
       %byte = affine.apply affine_map<(k, c) -> (k * 16 + c * 2)>(%k, %col)
       %off_idx = func.call @lds_xor_swizzled_addr_32x32(%lds_base, %row, %byte)
           : (index, index, index) -> index
       %addr = func.call @index_to_vgpr_i32(%off_idx) : (index) -> !v
+      memref.store %addr, %addr_buf[%k] : memref<?x!v>
       %dst = lsir.alloca : !vx2
+      memref.store %dst, %dst_buf[%k] : memref<?x!vx2>
+    } {aster.constexpr}
+
+    // Phase 2: issue all LDS reads (DS unit)
+    %buf = memref.alloca(%c4) : !lds_rfut_buf
+    scf.for %k = %c0 to %c4 step %c1 {
+      %addr = memref.load %addr_buf[%k] : memref<?x!v>
+      %dst = memref.load %dst_buf[%k] : memref<?x!vx2>
       %result, %tok = amdgcn.load ds_read_b64 dest %dst addr %addr offset c(%c0_i32)
           : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
       %val = aster_utils.to_any %result : !vx2
@@ -133,13 +159,24 @@ amdgcn.library @kittens_lds_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %c4 = arith.constant 4 : index
     %c0_i32 = arith.constant 0 : i32
 
-    %buf = memref.alloca(%c4) : !lds_rfut_buf
+    // Phase 1: compute all LDS addresses + allocate destinations (VALU)
+    %addr_buf = memref.alloca(%c4) : memref<?x!v>
+    %dst_buf = memref.alloca(%c4) : memref<?x!vx2>
     scf.for %k = %c0 to %c4 step %c1 {
       %byte = affine.apply affine_map<(k, c) -> (k * 16 + c * 2)>(%k, %col)
       %off_idx = func.call @lds_xor_swizzled_addr_32x32(%lds_base, %row, %byte)
           : (index, index, index) -> index
       %addr = func.call @index_to_vgpr_i32(%off_idx) : (index) -> !v
+      memref.store %addr, %addr_buf[%k] : memref<?x!v>
       %dst = lsir.alloca : !vx2
+      memref.store %dst, %dst_buf[%k] : memref<?x!vx2>
+    } {aster.constexpr}
+
+    // Phase 2: issue all LDS reads (DS unit)
+    %buf = memref.alloca(%c4) : !lds_rfut_buf
+    scf.for %k = %c0 to %c4 step %c1 {
+      %addr = memref.load %addr_buf[%k] : memref<?x!v>
+      %dst = memref.load %dst_buf[%k] : memref<?x!vx2>
       %result, %tok = amdgcn.load ds_read_b64 dest %dst addr %addr offset c(%c0_i32)
           : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
       %val = aster_utils.to_any %result : !vx2
