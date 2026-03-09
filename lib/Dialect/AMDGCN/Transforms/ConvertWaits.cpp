@@ -48,6 +48,21 @@ public:
 void AMDGCNConvertWaits::runOnOperation() {
   Operation *op = getOperation();
 
+  // Apply canonicalization patterns to clean up wait operations.
+  RewritePatternSet patterns(op->getContext());
+  WaitOp::getCanonicalizationPatterns(patterns, op->getContext());
+  if (failed(applyPatternsGreedily(
+          op, std::move(patterns),
+          GreedyRewriteConfig()
+              .enableFolding(true)
+              .enableConstantCSE(true)
+              .setUseTopDownTraversal(true)
+              .setRegionSimplificationLevel(
+                  GreedySimplifyRegionLevel::Disabled)))) {
+    op->emitError() << "Failed to apply wait op canonicalization patterns";
+    return signalPassFailure();
+  }
+
   // Get dominance info for the analysis.
   auto &domInfo = getAnalysis<DominanceInfo>();
 
