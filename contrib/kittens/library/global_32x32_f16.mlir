@@ -1,12 +1,15 @@
 // Kittens 32x32_f16 tile abstractions for global load/store.
 // Uses amdgcn.ptr_add with dynamic VGPR offsets and lsir.alloca for destinations.
+// Accumulators (C tiles) use AGPRs: on gfx942 MFMAs write directly to AGPRs
+// and global_store_dword can read directly from AGPRs.
 
 // Register types
 !sx2 = !amdgcn.sgpr<[? + 2]>
 !s   = !amdgcn.sgpr
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr<[? + 2]>
-!vx16 = !amdgcn.vgpr<[? + 16]>
+!a   = !amdgcn.agpr
+!ax16 = !amdgcn.agpr<[? + 16]>
 
 // Token types for async memory operations
 !write_token = !amdgcn.write_token<flat>
@@ -20,12 +23,12 @@
 !index_pair = !aster_utils.struct<i: index, j: index>
 !index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>
 
-// Kittens register tile type aliases for 32x32x8 MFMA
-!rt_C_f32 = !vx16
+// Kittens register tile type aliases for 32x32x8 MFMA (AGPR accumulators)
+!rt_C_f32 = !ax16
 
 amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   // From register-init.mlir
-  func.func private @init_vgprx16(i32) -> !vx16
+  func.func private @init_agprx16(i32) -> !ax16
   // From indexing.mlir (non-ptr versions still needed for MFMA indexing)
   func.func private @mfma_index_C_32x32xf32() -> !index_pair
   func.func private @mfma_c_row_32x32xf32(index, index) -> index
@@ -36,12 +39,12 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   func.func private @index_to_vgpr_i32(index) -> !v
 
   //===--------------------------------------------------------------------===//
-  // Tile initialization
+  // AGPR Tile initialization
   //===--------------------------------------------------------------------===//
 
   func.func private @zero_C_32x32() -> !rt_C_f32 {
     %c0 = arith.constant 0 : i32
-    %result = func.call @init_vgprx16(%c0) : (i32) -> !vx16
+    %result = func.call @init_agprx16(%c0) : (i32) -> !ax16
     return %result : !rt_C_f32
   }
 
@@ -91,11 +94,11 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
   }
 
   //===--------------------------------------------------------------------===//
-  // Global Store (C tile 32x32 f32, ptr-based addressing)
+  // Global Store (C tile 32x32 f32 from AGPRs, ptr-based addressing)
   //===--------------------------------------------------------------------===//
 
-  // Store a 32x32 f32 C tile using ptr_add addressing.
-  // Each store computes total byte offset = tile_off + thread_off + reg_off.
+  // Store a 32x32 f32 C tile from AGPRs using ptr_add addressing.
+  // On gfx942, global_store_dword can read directly from AGPRs.
   func.func private @store_C_32x32_f32(%tile: !rt_C_f32, %ptr: !sx2, %m: index, %n: index, %stride: index) -> !wtok_buf {
     %mfma_idx = func.call @mfma_index_C_32x32xf32() : () -> !index_pair
     %col, %row_base = aster_utils.struct_extract %mfma_idx ["i", "j"] : !index_pair -> index, index
@@ -118,25 +121,25 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %c15 = arith.constant 15 : index
     %c16 = arith.constant 16 : index
 
-    // Split !vx16 into 16 individual VGPRs and pack into buffer for iteration.
-    %r:16 = amdgcn.split_register_range %tile : !vx16
+    // Split !ax16 into 16 individual AGPRs and pack into buffer for iteration.
+    %r:16 = amdgcn.split_register_range %tile : !ax16
     %reg_buf = memref.alloca(%c16) : memref<?x!aster_utils.any>
-    %a0  = aster_utils.to_any %r#0  : !v
-    %a1  = aster_utils.to_any %r#1  : !v
-    %a2  = aster_utils.to_any %r#2  : !v
-    %a3  = aster_utils.to_any %r#3  : !v
-    %a4  = aster_utils.to_any %r#4  : !v
-    %a5  = aster_utils.to_any %r#5  : !v
-    %a6  = aster_utils.to_any %r#6  : !v
-    %a7  = aster_utils.to_any %r#7  : !v
-    %a8  = aster_utils.to_any %r#8  : !v
-    %a9  = aster_utils.to_any %r#9  : !v
-    %a10 = aster_utils.to_any %r#10 : !v
-    %a11 = aster_utils.to_any %r#11 : !v
-    %a12 = aster_utils.to_any %r#12 : !v
-    %a13 = aster_utils.to_any %r#13 : !v
-    %a14 = aster_utils.to_any %r#14 : !v
-    %a15 = aster_utils.to_any %r#15 : !v
+    %a0  = aster_utils.to_any %r#0  : !a
+    %a1  = aster_utils.to_any %r#1  : !a
+    %a2  = aster_utils.to_any %r#2  : !a
+    %a3  = aster_utils.to_any %r#3  : !a
+    %a4  = aster_utils.to_any %r#4  : !a
+    %a5  = aster_utils.to_any %r#5  : !a
+    %a6  = aster_utils.to_any %r#6  : !a
+    %a7  = aster_utils.to_any %r#7  : !a
+    %a8  = aster_utils.to_any %r#8  : !a
+    %a9  = aster_utils.to_any %r#9  : !a
+    %a10 = aster_utils.to_any %r#10 : !a
+    %a11 = aster_utils.to_any %r#11 : !a
+    %a12 = aster_utils.to_any %r#12 : !a
+    %a13 = aster_utils.to_any %r#13 : !a
+    %a14 = aster_utils.to_any %r#14 : !a
+    %a15 = aster_utils.to_any %r#15 : !a
     memref.store %a0,  %reg_buf[%c0]  : memref<?x!aster_utils.any>
     memref.store %a1,  %reg_buf[%c1]  : memref<?x!aster_utils.any>
     memref.store %a2,  %reg_buf[%c2]  : memref<?x!aster_utils.any>
@@ -163,7 +166,7 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
     %tok_buf = memref.alloca(%c16) : memref<?x!write_token>
     scf.for %i = %c0 to %c16 step %c1 {
       %any_reg = memref.load %reg_buf[%i] : memref<?x!aster_utils.any>
-      %reg = aster_utils.from_any %any_reg : !v
+      %reg = aster_utils.from_any %any_reg : !a
 
       // target address calculation
       %reg_row_const = func.call @mfma_c_row_32x32xf32(%c0, %i) : (index, index) -> index
@@ -175,9 +178,9 @@ amdgcn.library @kittens_global_32x32_f16 isa = [#amdgcn.isa<cdna3>] {
       %total_reg = func.call @index_to_vgpr_i32(%total_off) : (index) -> !v
       %addr = amdgcn.ptr_add %ptr d_off = %total_reg : !sx2, !v
 
-      // store
+      // store from AGPR (gfx942 reads AGPRs directly for global_store)
       %tok = amdgcn.store global_store_dword data %reg addr %addr
-          : ins(!v, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.write_token<flat>
+          : ins(!amdgcn.agpr, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.write_token<flat>
       memref.store %tok, %tok_buf[%i] : memref<?x!write_token>
     } {aster.constexpr}
 

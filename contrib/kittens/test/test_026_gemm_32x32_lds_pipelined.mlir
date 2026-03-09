@@ -19,8 +19,8 @@
 
 // Type aliases
 !sx2 = !amdgcn.sgpr<[? + 2]>
-!vx16 = !amdgcn.vgpr<[? + 16]>
-!rt_C_f32 = !vx16
+!ax16 = !amdgcn.agpr<[? + 16]>
+!rt_C_f32 = !ax16
 !write_token = !amdgcn.write_token<flat>
 !lds_write_token = !amdgcn.write_token<shared>
 !future_lds_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>

@@ -10,12 +10,12 @@
 !sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr<[? + 2]>
-!vx16 = !amdgcn.vgpr<[? + 16]>
+!ax16 = !amdgcn.agpr<[? + 16]>
 
 // Kittens register tile types
 !rt_A_f16 = !vx2
 !rt_B_f16 = !vx2
-!rt_C_f32 = !vx16
+!rt_C_f32 = !ax16
 
 // Future/token types
 !future_lds_write = !amdgcn.write_token<shared>

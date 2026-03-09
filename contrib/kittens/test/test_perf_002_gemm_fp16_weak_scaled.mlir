@@ -1,9 +1,10 @@
 // Multi-workgroup multi-wave constexpr GEMM with LDS + pipelining (32x32x8 MFMA)
+// Accumulators in AGPRs: frees VGPRs for A/B data and LDS traffic.
 
 // Register type aliases
 !sx2 = !amdgcn.sgpr<[? + 2]>
-!vx16 = !amdgcn.vgpr<[? + 16]>
-!rt_C_f32 = !vx16
+!ax16 = !amdgcn.agpr<[? + 16]>
+!rt_C_f32 = !ax16
 !write_token = !amdgcn.write_token<flat>
 !wtok_buf = memref<?x!write_token>
 !lds_write_token = !amdgcn.write_token<shared>

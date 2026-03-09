@@ -19,6 +19,7 @@
 !ax2 = !amdgcn.agpr<[? + 2]>
 !ax3 = !amdgcn.agpr<[? + 3]>
 !ax4 = !amdgcn.agpr<[? + 4]>
+!ax16 = !amdgcn.agpr<[? + 16]>
 
 amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
 
@@ -338,6 +339,48 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     %a3 = amdgcn.vop3p v_accvgpr_write_b32 outs %r3 ins %cst : !amdgcn.agpr, i32
     %range = amdgcn.make_register_range %a0, %a1, %a2, %a3 : !a, !a, !a, !a
     return %range : !ax4
+  }
+
+  // Initialize an AGPRx16 range to %cst (for 32x32 MFMA accumulators)
+  func.func private @init_agprx16(%cst: i32) -> !ax16 {
+    %r0  = amdgcn.alloca : !a
+    %r1  = amdgcn.alloca : !a
+    %r2  = amdgcn.alloca : !a
+    %r3  = amdgcn.alloca : !a
+    %r4  = amdgcn.alloca : !a
+    %r5  = amdgcn.alloca : !a
+    %r6  = amdgcn.alloca : !a
+    %r7  = amdgcn.alloca : !a
+    %r8  = amdgcn.alloca : !a
+    %r9  = amdgcn.alloca : !a
+    %r10 = amdgcn.alloca : !a
+    %r11 = amdgcn.alloca : !a
+    %r12 = amdgcn.alloca : !a
+    %r13 = amdgcn.alloca : !a
+    %r14 = amdgcn.alloca : !a
+    %r15 = amdgcn.alloca : !a
+    %a0  = amdgcn.vop3p v_accvgpr_write_b32 outs %r0  ins %cst : !amdgcn.agpr, i32
+    %a1  = amdgcn.vop3p v_accvgpr_write_b32 outs %r1  ins %cst : !amdgcn.agpr, i32
+    %a2  = amdgcn.vop3p v_accvgpr_write_b32 outs %r2  ins %cst : !amdgcn.agpr, i32
+    %a3  = amdgcn.vop3p v_accvgpr_write_b32 outs %r3  ins %cst : !amdgcn.agpr, i32
+    %a4  = amdgcn.vop3p v_accvgpr_write_b32 outs %r4  ins %cst : !amdgcn.agpr, i32
+    %a5  = amdgcn.vop3p v_accvgpr_write_b32 outs %r5  ins %cst : !amdgcn.agpr, i32
+    %a6  = amdgcn.vop3p v_accvgpr_write_b32 outs %r6  ins %cst : !amdgcn.agpr, i32
+    %a7  = amdgcn.vop3p v_accvgpr_write_b32 outs %r7  ins %cst : !amdgcn.agpr, i32
+    %a8  = amdgcn.vop3p v_accvgpr_write_b32 outs %r8  ins %cst : !amdgcn.agpr, i32
+    %a9  = amdgcn.vop3p v_accvgpr_write_b32 outs %r9  ins %cst : !amdgcn.agpr, i32
+    %a10 = amdgcn.vop3p v_accvgpr_write_b32 outs %r10 ins %cst : !amdgcn.agpr, i32
+    %a11 = amdgcn.vop3p v_accvgpr_write_b32 outs %r11 ins %cst : !amdgcn.agpr, i32
+    %a12 = amdgcn.vop3p v_accvgpr_write_b32 outs %r12 ins %cst : !amdgcn.agpr, i32
+    %a13 = amdgcn.vop3p v_accvgpr_write_b32 outs %r13 ins %cst : !amdgcn.agpr, i32
+    %a14 = amdgcn.vop3p v_accvgpr_write_b32 outs %r14 ins %cst : !amdgcn.agpr, i32
+    %a15 = amdgcn.vop3p v_accvgpr_write_b32 outs %r15 ins %cst : !amdgcn.agpr, i32
+    %range = amdgcn.make_register_range
+      %a0, %a1, %a2, %a3, %a4, %a5, %a6, %a7,
+      %a8, %a9, %a10, %a11, %a12, %a13, %a14, %a15
+      : !a, !a, !a, !a, !a, !a, !a, !a,
+        !a, !a, !a, !a, !a, !a, !a, !a
+    return %range : !ax16
   }
 
   // TODO: SGPR initialization requires s_mov_b32 (SOP1) which is not yet implemented
