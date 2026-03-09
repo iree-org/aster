@@ -221,6 +221,28 @@ func.func @test_multi_results() {
 
 // -----
 
+// Verify that lsir.reg_cast doesn't crash DPS clobbering analysis and that
+// reg_cast results (with separate allocation IDs) don't falsely trigger
+// clobbering on VGPR instructions.
+// CHECK-LABEL: @test_reg_cast_clobbering
+// CHECK:    %{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:      [false]
+// CHECK:    %{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:      [false]
+func.func @test_reg_cast_clobbering() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  %1 = amdgcn.test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+  // reg_cast to SGPR gets its own allocation ID, separate from VGPR %0/%1.
+  %2 = lsir.reg_cast %1 : !amdgcn.vgpr -> !amdgcn.sgpr
+  // %2 (SGPR, alloc ID 1) is live here but the instruction writes to
+  // alloc ID 0 (VGPR), so no clobbering.
+  %3 = amdgcn.test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+  amdgcn.test_inst ins %2, %3 : (!amdgcn.sgpr, !amdgcn.vgpr) -> ()
+  return
+}
+
+// -----
+
 // CHECK-LABEL: @test_multi_results_asymmetric
 // CHECK:    %{{.*}}:2 = amdgcn.test_inst outs %{{.*}}, %{{.*}} : (!amdgcn.vgpr, !amdgcn.vgpr) -> (!amdgcn.vgpr, !amdgcn.vgpr)
 // CHECK:      [true, false]

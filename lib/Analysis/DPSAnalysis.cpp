@@ -12,6 +12,7 @@
 #include "aster/Analysis/LivenessAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/IR/CFG.h"
 #include "aster/IR/InstImpl.h"
 #include "aster/IR/PrintingUtils.h"
@@ -82,6 +83,15 @@ LogicalResult DPSAnalysisImpl::visitOp(Operation *op) {
       LDBG() << "- Failed to get or create range for: " << makeRegisterRangeOp;
       return failure();
     }
+    return success();
+  }
+
+  // Handle register cast operations. reg_cast changes register kind
+  // (e.g. VGPR -> SGPR) so the result needs its own allocation.
+  if (auto regCastOp = dyn_cast<lsir::RegCastOp>(op)) {
+    auto regTy = dyn_cast<RegisterTypeInterface>(regCastOp.getType());
+    if (regTy && regTy.hasValueSemantics())
+      analysis.getOrCreateAlloc(regCastOp.getResult());
     return success();
   }
 

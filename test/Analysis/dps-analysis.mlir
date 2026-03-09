@@ -244,6 +244,35 @@ func.func @test_phi_coalescing_with_intermediates() {
 
 // -----
 
+// Verify that lsir.reg_cast gets its own allocation ID, separate from the
+// VGPR input. This is needed because reg_cast changes register kind
+// (e.g. VGPR -> SGPR), so the result occupies a different physical register.
+// CHECK-LABEL:  function: "test_reg_cast_allocation"
+// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr`
+// CHECK:    results: [0 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr) -> !amdgcn.vgpr`
+// CHECK:    results: [1 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = lsir.reg_cast %{{.*}} : !amdgcn.vgpr -> !amdgcn.sgpr`
+// CHECK:    results: [2 = `%{{.*}}`]
+// CHECK:  DPS analysis {
+// CHECK:    value provenance {
+// CHECK:      0 = `%{{.*}}` -> [0]
+// CHECK:      1 = `%{{.*}}` -> [0]
+// CHECK:      2 = `%{{.*}}` -> [1]
+// CHECK:    }
+// CHECK:    control-flow provenance {
+// CHECK:    }
+// CHECK:  }
+func.func @test_reg_cast_allocation() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  %1 = amdgcn.test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+  %2 = lsir.reg_cast %1 : !amdgcn.vgpr -> !amdgcn.sgpr
+  amdgcn.test_inst ins %2 : (!amdgcn.sgpr) -> ()
+  return
+}
+
+// -----
+
 module {
 // CHECK-LABEL: function: "test_structured_control_flow_provenance_ping_pong"
 // CHECK:Operation: `%{{.*}} = arith.constant 0 : index`
