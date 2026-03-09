@@ -91,9 +91,26 @@ PHASE_SROA = (
 )
 
 # Intermediate cleanup and expansion (Default/Sync version)
+# After constexpr expansion, loops are unrolled and canonicalize folds
+# memref.alloca(%cN) to memref<Nx...> (static). The same promotion sequence
+# as PHASE_CONSTEXPR_EXPANSION must run to promote these back to SSA before
+# they reach DPS analysis: sroa splits multi-element memrefs into scalar
+# slots, mem2reg promotes them, then to_any/from_any chains fold away.
 POST_SROA_CLEANUPS = (
     "cse", "canonicalize", "symbol-dce",
-    "aster-constexpr-expansion", "cse", "canonicalize",
+    "aster-constexpr-expansion", "canonicalize",
+    # Fold memref.cast on iter_args and forward indexed stores to loads.
+    # Must run after constexpr expansion (which unrolls library loops, making
+    # constant-index stores visible) and before sroa/mem2reg.
+    "aster-simplify-alloca-iter-args",
+    "aster-decompose-memref-iter-args",
+    # The decomposed scalar iter_args may be struct types (futures) that need
+    # further destructuring into individual fields.
+    "aster-destructure-struct-iter-args", "canonicalize", "cse",
+    "sroa", "mem2reg", "amdgcn-mem2reg",
+    "aster-forward-store-to-load",
+    "aster-promote-loop-carried-memrefs",
+    "cse", "canonicalize",
 )
 
 # Affine expansion

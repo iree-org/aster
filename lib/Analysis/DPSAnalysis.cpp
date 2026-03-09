@@ -11,6 +11,7 @@
 #include "aster/Analysis/DPSAnalysis.h"
 #include "aster/Analysis/LivenessAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/IR/CFG.h"
 #include "aster/IR/InstImpl.h"
 #include "aster/IR/PrintingUtils.h"
@@ -102,6 +103,7 @@ LogicalResult DPSAnalysisImpl::visitOp(Operation *op) {
     }
     return success();
   }
+
   return success();
 }
 
@@ -311,7 +313,15 @@ DPSClobberingAnalysis::create(DPSAnalysis &dpsAnalysis, DataFlowSolver &solver,
           if (!regTy || !regTy.hasValueSemantics())
             continue;
           DPSAnalysis::AllocView allocView = dpsAnalysis.getAllocView(value);
-          assert(allocView.alloc && "expected allocation view to be present");
+          if (!allocView.alloc) {
+            // Value is a register-typed result from an op that DPS does not
+            // track (e.g. aster_utils.from_any type cast). These don't
+            // correspond to physical register allocations, so skip them.
+            assert(isa<aster_utils::FromAnyOp>(value.getDefiningOp()) &&
+                   "unexpected untracked register-typed live value");
+            LDBG() << "-- Skipping untracked live value: " << value;
+            continue;
+          }
           liveIds.insert_range(allocView.ids);
         }
 
