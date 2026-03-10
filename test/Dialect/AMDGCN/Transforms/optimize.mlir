@@ -156,3 +156,86 @@ func.func @test_load_boundary_4096(%arg0: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr
   %dest_res, %token = amdgcn.load global_load_dword dest %1 addr %0 : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<flat>
   return %dest_res : !amdgcn.vgpr
 }
+
+// -----
+
+// DS write with lsir.addi constant offset: fold constant into ds_write offset.
+// This is the pattern from kittens 32x32 GEMM LDS writes where intra-tile
+// row offsets (512, 1024, 1536) are added via lsir.addi but could be absorbed
+// into the ds_write_b64 offset field (16-bit unsigned, max 65535).
+// CHECK-LABEL:   func.func @test_ds_write_addi_const(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
+// CHECK:           %[[C512:.*]] = arith.constant 512 : i32
+// CHECK:           %[[TOKEN:.*]] = amdgcn.store ds_write_b64 data %[[ARG1]] addr %[[ARG0]] offset c(%[[C512]])
+// CHECK:           return
+// CHECK:         }
+func.func @test_ds_write_addi_const(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr<[? + 2]>) {
+  %c512 = arith.constant 512 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %1 = lsir.addi i32 %0, %arg0, %c512 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c0 = arith.constant 0 : i32
+  %token = amdgcn.store ds_write_b64 data %arg1 addr %1 offset c(%c0) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+  return
+}
+
+// -----
+
+// DS read with lsir.addi constant offset: fold into ds_read offset.
+// CHECK-LABEL:   func.func @test_ds_read_addi_const(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
+// CHECK:           %[[C1024:.*]] = arith.constant 1024 : i32
+// CHECK:           %[[ALLOCA:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL:.*]], %[[TOKEN:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA]] addr %[[ARG0]] offset c(%[[C1024]])
+// CHECK:           return %[[VAL]]
+// CHECK:         }
+func.func @test_ds_read_addi_const(%arg0: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %c1024 = arith.constant 1024 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %1 = lsir.addi i32 %0, %arg0, %c1024 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %2 = amdgcn.alloca : !amdgcn.vgpr
+  %c0 = arith.constant 0 : i32
+  %dest_res, %token = amdgcn.load ds_read_b32 dest %2 addr %1 offset c(%c0) : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+  return %dest_res : !amdgcn.vgpr
+}
+
+// -----
+
+// DS write lsir.addi: merge constant with existing non-zero offset.
+// CHECK-LABEL:   func.func @test_ds_write_addi_merge(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
+// CHECK:           %[[C1544:.*]] = arith.constant 1544 : i32
+// CHECK:           %[[TOKEN:.*]] = amdgcn.store ds_write_b64 data %[[ARG1]] addr %[[ARG0]] offset c(%[[C1544]])
+// CHECK:           return
+// CHECK:         }
+func.func @test_ds_write_addi_merge(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr<[? + 2]>) {
+  %c1536 = arith.constant 1536 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %1 = lsir.addi i32 %0, %arg0, %c1536 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c8 = arith.constant 8 : i32
+  %token = amdgcn.store ds_write_b64 data %arg1 addr %1 offset c(%c8) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+  return
+}
+
+// -----
+
+// DS write lsir.addi: constant too large for 16-bit unsigned offset (>65535),
+// should NOT fold.
+// CHECK-LABEL:   func.func @test_ds_write_addi_too_large(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
+// CHECK:           %[[C70000:.*]] = arith.constant 70000 : i32
+// CHECK:           %[[ALLOCA:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[ADDR:.*]] = lsir.addi i32 %[[ALLOCA]], %[[ARG0]], %[[C70000]]
+// CHECK:           %[[TOKEN:.*]] = amdgcn.store ds_write_b64 data %[[ARG1]] addr %[[ADDR]]
+// CHECK:           return
+// CHECK:         }
+func.func @test_ds_write_addi_too_large(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr<[? + 2]>) {
+  %c70000 = arith.constant 70000 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %1 = lsir.addi i32 %0, %arg0, %c70000 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c0 = arith.constant 0 : i32
+  %token = amdgcn.store ds_write_b64 data %arg1 addr %1 offset c(%c0) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+  return
+}

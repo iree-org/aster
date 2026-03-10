@@ -19,6 +19,7 @@
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/IR/RewriteUtils.h"
 #include "aster/IR/ValueOrConst.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -76,7 +77,10 @@ struct OptimizeAMDGCN
 
 /// Max cst offset for global memory instructions (13b signed: [-4096, 4095]).
 // TODO: Op properties, not hardcoded.
-constexpr int64_t kMaxConstOffset = (1 << 12) - 1;
+constexpr int64_t kMaxGlobalConstOffset = (1 << 12) - 1;
+
+/// Max cst offset for DS (LDS) instructions (16b unsigned: [0, 65535]).
+constexpr int64_t kMaxDSConstOffset = (1 << 16) - 1;
 
 static Value getI32Constant(OpBuilder &builder, Location loc, int32_t value) {
   return arith::ConstantOp::create(
@@ -142,10 +146,14 @@ static LogicalResult optimizeMemOpOffsets(Operation *op, const InstMetadata *md,
     rewriter.modifyOpInPlace(op, [&] { addrMutable().assign(ptrAdd); });
   });
 
+  // Use the correct max offset for the instruction type.
+  int64_t maxConstOff =
+      md->hasProp(InstProp::Dsmem) ? kMaxDSConstOffset : kMaxGlobalConstOffset;
+
   // When possible, merge the constant offset from the ptr_add operation and the
   // mem op.
   int64_t constOff = ptrAddOff + memOpOff;
-  if (ptrAddOff != 0 && constOff >= 0 && constOff <= kMaxConstOffset) {
+  if (ptrAddOff != 0 && constOff >= 0 && constOff <= maxConstOff) {
     constantOffsetMutable().assign(
         getI32Constant(rewriter, op->getLoc(), static_cast<int32_t>(constOff)));
     newConstOff = 0;
@@ -170,6 +178,79 @@ static LogicalResult optimizeMemOpOffsets(Operation *op, const InstMetadata *md,
   return success(changed);
 }
 
+/// Optimize DS memory operations whose address is produced by lsir.addi with
+/// a constant operand. Folds the constant into the DS instruction's
+/// constant_offset field (16-bit unsigned, max 65535).
+///
+/// Pattern:
+///   %addr = lsir.addi i32 %dst, %base, %const
+///   amdgcn.store ds_write_b64 data %data addr %addr offset c(%c0)
+/// ->
+///   amdgcn.store ds_write_b64 data %data addr %base offset c(%const)
+///
+/// This eliminates a v_add_u32 per DS operation by absorbing the constant
+/// offset into the instruction encoding.
+static LogicalResult optimizeDSAddiOffsets(Operation *op,
+                                           const InstMetadata *md, Value addr,
+                                           Value constantOffset,
+                                           GetOperandsFn addrMutable,
+                                           GetOperandsFn constantOffsetMutable,
+                                           PatternRewriter &rewriter) {
+  // Only apply to DS (LDS) memory operations.
+  if (!md || !md->hasProp(InstProp::Dsmem))
+    return rewriter.notifyMatchFailure(op, "not a DS memory operation");
+
+  // Check if addr is produced by lsir.addi.
+  auto addi = addr.getDefiningOp<lsir::AddIOp>();
+  if (!addi)
+    return rewriter.notifyMatchFailure(op, "addr not produced by lsir.addi");
+
+  // Check if one of the addi operands is a constant i32.
+  // Guard: only call getConstant on integer-typed values (not register types).
+  Value lhs = addi.getLhs();
+  Value rhs = addi.getRhs();
+  Value base = nullptr;
+  int64_t addiConst = 0;
+
+  auto tryGetConst = [](Value v) -> std::optional<int32_t> {
+    if (!isa<IntegerType>(v.getType()))
+      return std::nullopt;
+    return ValueOrI32::getConstant(v);
+  };
+
+  if (auto cst = tryGetConst(rhs)) {
+    base = lhs;
+    addiConst = *cst;
+  } else if (auto cst = tryGetConst(lhs)) {
+    base = rhs;
+    addiConst = *cst;
+  } else {
+    return rewriter.notifyMatchFailure(op, "neither addi operand is constant");
+  }
+
+  // Get the existing constant offset from the mem op.
+  int32_t memOpOff = 0;
+  if (constantOffset) {
+    std::optional<int32_t> c = ValueOrI32::getConstant(constantOffset);
+    if (!c)
+      return rewriter.notifyMatchFailure(op, "expected constant offset");
+    memOpOff = *c;
+  }
+
+  // Compute merged offset. DS instructions use 16-bit unsigned offsets.
+  int64_t mergedOff = addiConst + memOpOff;
+  if (mergedOff < 0 || mergedOff > kMaxDSConstOffset)
+    return rewriter.notifyMatchFailure(op, "merged offset out of DS range");
+
+  // Fold: use the non-constant addi operand as addr, put constant in offset.
+  rewriter.modifyOpInPlace(op, [&] {
+    addrMutable().assign(base);
+    constantOffsetMutable().assign(getI32Constant(
+        rewriter, op->getLoc(), static_cast<int32_t>(mergedOff)));
+  });
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // LoadOpPattern
 //===----------------------------------------------------------------------===//
@@ -185,10 +266,15 @@ LogicalResult LoadOpPattern::matchAndRewrite(amdgcn::LoadOp op,
   auto getDynamicOffset = [&]() -> MutableOperandRange {
     return op.getDynamicOffsetMutable();
   };
-  return optimizeMemOpOffsets(op.getOperation(), md, op.getAddr(),
-                              op.getConstantOffset(), op.getDynamicOffset(),
-                              getAddr, getConstantOffset, getDynamicOffset,
-                              rewriter);
+  // Try ptr_add pattern first, then lsir.addi pattern for DS ops.
+  if (succeeded(optimizeMemOpOffsets(
+          op.getOperation(), md, op.getAddr(), op.getConstantOffset(),
+          op.getDynamicOffset(), getAddr, getConstantOffset, getDynamicOffset,
+          rewriter)))
+    return success();
+  return optimizeDSAddiOffsets(op.getOperation(), md, op.getAddr(),
+                               op.getConstantOffset(), getAddr,
+                               getConstantOffset, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
@@ -206,10 +292,15 @@ LogicalResult StoreOpPattern::matchAndRewrite(amdgcn::StoreOp op,
   auto getDynamicOffset = [&]() -> MutableOperandRange {
     return op.getDynamicOffsetMutable();
   };
-  return optimizeMemOpOffsets(op.getOperation(), md, op.getAddr(),
-                              op.getConstantOffset(), op.getDynamicOffset(),
-                              getAddr, getConstantOffset, getDynamicOffset,
-                              rewriter);
+  // Try ptr_add pattern first, then lsir.addi pattern for DS ops.
+  if (succeeded(optimizeMemOpOffsets(
+          op.getOperation(), md, op.getAddr(), op.getConstantOffset(),
+          op.getDynamicOffset(), getAddr, getConstantOffset, getDynamicOffset,
+          rewriter)))
+    return success();
+  return optimizeDSAddiOffsets(op.getOperation(), md, op.getAddr(),
+                               op.getConstantOffset(), getAddr,
+                               getConstantOffset, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
