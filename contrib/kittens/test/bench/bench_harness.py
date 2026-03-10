@@ -456,27 +456,36 @@ def run_single(cfg, compile_fn, args, kernel_name, execute_fn):
     """
     from aster.hip import parse_asm_kernel_resources
 
+    print_ir = getattr(args, "print_ir_after_all", False)
+    print_asm = getattr(args, "print_asm", False)
+
     if args.compile_only:
         if not args.hsaco:
             print("Error: --compile-only requires --hsaco <output_path>")
             raise SystemExit(1)
-        _, asm = compile_fn(cfg, args.hsaco)
+        _, asm = compile_fn(cfg, args.hsaco, print_ir_after_all=print_ir)
         resources = parse_asm_kernel_resources(asm, kernel_name=kernel_name)
         print_config(cfg, args.iterations, resources.get(kernel_name))
         print(f"  Compiled: {args.hsaco}")
+        if print_asm:
+            print(f"\n--- Assembly ---\n{asm}")
         return
 
     A, B = make_inputs(cfg)
 
     if args.hsaco:
         asm_path = args.hsaco.replace(".hsaco", ".s")
+        asm_content = None
         res = None
         if os.path.exists(asm_path):
             with open(asm_path) as f:
-                res = parse_asm_kernel_resources(f.read(), kernel_name=kernel_name).get(
-                    kernel_name
-                )
+                asm_content = f.read()
+                res = parse_asm_kernel_resources(
+                    asm_content, kernel_name=kernel_name
+                ).get(kernel_name)
         print_config(cfg, args.iterations, res)
+        if print_asm and asm_content:
+            print(f"\n--- Assembly ---\n{asm_content}")
         _, times_ns = execute_fn(
             cfg, args.hsaco, args.iterations, A, B, skip_gpu_check=True
         )
@@ -484,9 +493,11 @@ def run_single(cfg, compile_fn, args, kernel_name, execute_fn):
         import tempfile as _tempfile
 
         with _tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-            _, asm = compile_fn(cfg, tmp.name)
+            _, asm = compile_fn(cfg, tmp.name, print_ir_after_all=print_ir)
             resources = parse_asm_kernel_resources(asm, kernel_name=kernel_name)
             print_config(cfg, args.iterations, resources.get(kernel_name))
+            if print_asm:
+                print(f"\n--- Assembly ---\n{asm}")
             _, times_ns = execute_fn(cfg, tmp.name, args.iterations, A, B)
 
     measured = times_ns[WARMUP_ITERATIONS:]
@@ -556,4 +567,14 @@ def add_single_cli_args(parser, num_iterations=NUM_ITERATIONS):
         "--compile-only",
         action="store_true",
         help="Compile HSACO and exit (requires --hsaco for output path)",
+    )
+    parser.add_argument(
+        "--print-ir-after-all",
+        action="store_true",
+        help="Print MLIR IR after each pass (single-config mode only)",
+    )
+    parser.add_argument(
+        "--print-asm",
+        action="store_true",
+        help="Print generated assembly to stdout (single-config mode only)",
     )
