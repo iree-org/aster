@@ -1,15 +1,22 @@
-"""Test: 2-wave GEMM with LDS (XOR swizzle)."""
+"""Test: 2-wave GEMM with LDS (XOR swizzle) + AGPR accumulators."""
 
 import numpy as np
 import pytest
 
 from aster.pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
 
-from kittens_helpers import run_kittens_kernel, get_mlir_file
+from kittens_helpers import (
+    run_kittens_kernel,
+    get_mlir_file,
+    get_kittens_16x16_lds_library_paths,
+)
 
 
-class TestKittensGEMM2WaveLDS:
-    """Test 2-wave GEMM with LDS: C[32x16] = A[32xK] @ B[16xK]^T.
+class TestKittensGEMM2WaveLDS_AGPR:
+    """Test 2-wave GEMM with LDS + AGPR: C[32x16] = A[32xK] @ B[16xK]^T.
+
+    Mirrors TestKittensGEMM2WaveLDS but uses AGPR accumulators and
+    fire-and-forget store (no write_token).
 
     2x1 wave grid with LDS (XOR swizzle):
       - Each wave loads its own A tile into per-wave LDS buffer
@@ -19,8 +26,8 @@ class TestKittensGEMM2WaveLDS:
 
     @pytest.mark.parametrize("k", [32, 64, 128])
     def test_gemm_2wave_lds(self, k):
-        """2-wave LDS GEMM should compute C = A @ B^T correctly."""
-        k_tiles = k // 16
+        """2-wave LDS GEMM with AGPR should compute C = A @ B^T correctly."""
+        k_tiles = k // 32
         stride_ab = k * 2
 
         np.random.seed(42 + k)
@@ -40,6 +47,7 @@ class TestKittensGEMM2WaveLDS:
                 "{{K_TILES}}": str(k_tiles),
                 "{{STRIDE_AB}}": str(stride_ab),
             },
+            library_paths=get_kittens_16x16_lds_library_paths(),
         )
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()

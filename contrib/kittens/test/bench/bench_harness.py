@@ -430,11 +430,13 @@ def bench_perf_sweep(
 
     if not results:
         print("\nNo configs succeeded.")
-        return
+        return results
 
     print(f"\nBest {min(20, len(results))} configs:")
     for rank, (cfg, ms, tflops, pct) in enumerate(results[:20], 1):
         print(f"  #{rank} {cfg.label}: {tflops:.1f} TFLOPS ({pct:.1f}% peak)")
+
+    return results
 
 
 def print_config(cfg, iterations, resources=None):

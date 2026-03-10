@@ -35,18 +35,9 @@ from test_015_gemm_fp16_multitile_direct import (
 from test_016_gemm_fp16_multitile_lds_pipelined import (
     TestKittensGEMMMultiTileLDSPipelined as MTLDSP,
 )
-from test_017_gemm_fp16_multitile_4x4_lds_pipelined import (
-    TestKittensGEMMMultiTile4x4LDSPipelined as MT4x4,
-)
 from test_018_gemm_fp16_4wave_lds_pipelined import (
     TestKittensGEMM4WaveLDSPipelined as G4WLDSP,
 )
-from test_019_gemm_fp16_constexpr import TestKittensGEMMConstexpr as Constexpr
-from test_020_fp8_conversion import TestFP8E4M3FNUZConversion as FP8Conv
-from test_021_gemm_fp8_loop import TestKittensGEMMFP8 as FP8
-from test_022_gemm_fp8_2wave import TestKittensGEMMFP8_2Wave as FP82W
-from test_023_gemm_fp8_4wave import TestKittensGEMMFP8_4Wave as FP84W
-from test_024_gemm_fp8_lds_1buf import TestKittensGEMMFP8_LDS1Buf as FP8LDS
 from test_perf_001_gemm_fp16_weak_scaled import TestWeakScaleCorrectness as WSCorr
 from bench.bench_perf_sweep_001_gemm_fp16_weak_scaled import (
     bench_perf_sweep as _bench_perf_sweep,
@@ -89,10 +80,6 @@ ALL_TESTS = [
     ("gemm_fp16_mt_lds_pipe_2s_k128",            MTLDSP().test_gemm_multitile_lds_pipelined,      [], {"k": 128, "num_stages": 2}),
     ("gemm_fp16_mt_lds_pipe_3s_k64",             MTLDSP().test_gemm_multitile_lds_pipelined,      [], {"k": 64, "num_stages": 3}),
     ("gemm_fp16_mt_lds_pipe_3s_k128",            MTLDSP().test_gemm_multitile_lds_pipelined,      [], {"k": 128, "num_stages": 3}),
-    ("gemm_fp16_mt4x4_lds_pipe_2s_k64",          MT4x4().test_gemm_multitile_4x4_lds_pipelined,   [], {"k": 64, "num_stages": 2}),
-    ("gemm_fp16_mt4x4_lds_pipe_2s_k128",         MT4x4().test_gemm_multitile_4x4_lds_pipelined,   [], {"k": 128, "num_stages": 2}),
-    ("gemm_fp16_mt4x4_lds_pipe_3s_k64",          MT4x4().test_gemm_multitile_4x4_lds_pipelined,   [], {"k": 64, "num_stages": 3}),
-    ("gemm_fp16_mt4x4_lds_pipe_3s_k128",         MT4x4().test_gemm_multitile_4x4_lds_pipelined,   [], {"k": 128, "num_stages": 3}),
     ("gemm_fp16_lds_pipe_2s_k64",                LDSP().test_gemm_lds_pipelined,                   [], {"k": 64, "num_stages": 2}),
     ("gemm_fp16_lds_pipe_2s_k128",               LDSP().test_gemm_lds_pipelined,                   [], {"k": 128, "num_stages": 2}),
     ("gemm_fp16_lds_pipe_3s_k64",                LDSP().test_gemm_lds_pipelined,                   [], {"k": 64, "num_stages": 3}),
@@ -101,25 +88,6 @@ ALL_TESTS = [
     ("gemm_fp16_4wave_lds_pipe_2s_k128",         G4WLDSP().test_gemm_4wave_lds_pipelined,          [], {"k": 128, "num_stages": 2}),
     ("gemm_fp16_4wave_lds_pipe_3s_k64",          G4WLDSP().test_gemm_4wave_lds_pipelined,          [], {"k": 64, "num_stages": 3}),
     ("gemm_fp16_4wave_lds_pipe_3s_k128",         G4WLDSP().test_gemm_4wave_lds_pipelined,          [], {"k": 128, "num_stages": 3}),
-    # FP8 host-side conversion tests
-    ("fp8_known_values",                         FP8Conv().test_known_values,                      [], {}),
-    ("fp8_roundtrip",                            FP8Conv().test_roundtrip,                         [], {}),
-    ("fp8_zero",                                 FP8Conv().test_zero,                              [], {}),
-    ("fp8_nan",                                  FP8Conv().test_nan,                               [], {}),
-    ("fp8_max_value",                            FP8Conv().test_max_value,                         [], {}),
-    ("fp8_clamp_overflow",                       FP8Conv().test_clamp_overflow,                    [], {}),
-    ("fp8_negative",                             FP8Conv().test_negative,                          [], {}),
-    ("fp8_not_ocp",                              FP8Conv().test_not_ocp,                           [], {}),
-    # FP8 GPU GEMM tests
-    ("gemm_fp8_k64",                             FP8().test_gemm_fp8_16x16xK,                     [], {"k": 64}),
-    ("gemm_fp8_k128",                            FP8().test_gemm_fp8_16x16xK,                     [], {"k": 128}),
-    ("gemm_fp8_k256",                            FP8().test_gemm_fp8_16x16xK,                     [], {"k": 256}),
-    ("gemm_fp8_2wave_k64",                       FP82W().test_gemm_fp8_2wave,                     [], {"k": 64}),
-    ("gemm_fp8_2wave_k128",                      FP82W().test_gemm_fp8_2wave,                     [], {"k": 128}),
-    ("gemm_fp8_4wave_k64",                       FP84W().test_gemm_fp8_4wave,                     [], {"k": 64}),
-    ("gemm_fp8_4wave_k128",                      FP84W().test_gemm_fp8_4wave,                     [], {"k": 128}),
-    ("gemm_fp8_lds_1buf_k64",                    FP8LDS().test_gemm_fp8_lds_1buf,                 [], {"k": 64}),
-    ("gemm_fp8_lds_1buf_k128",                   FP8LDS().test_gemm_fp8_lds_1buf,                 [], {"k": 128}),
     # Weak-scaling correctness (representative configs)
     ("ws_correctness_2x2_2s",                    WSCorr().test_correctness,                       [], {"m_wg": 1, "n_wg": 1, "m_waves": 1, "n_waves": 1, "m_tiles_wg": 2, "n_tiles_wg": 2, "num_stages": 2}),
     ("ws_correctness_4x4_3s",                    WSCorr().test_correctness,                       [], {"m_wg": 1, "n_wg": 1, "m_waves": 2, "n_waves": 2, "m_tiles_wg": 4, "n_tiles_wg": 4, "num_stages": 3}),

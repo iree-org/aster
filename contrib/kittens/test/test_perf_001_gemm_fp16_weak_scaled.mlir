@@ -1,16 +1,20 @@
-// Multi-workgroup multi-wave constexpr GEMM with LDS + pipelining (16x16x16 MFMA)
+// Multi-workgroup multi-wave constexpr GEMM with LDS + pipelining
+// Uses 16x16x16 MFMA with dwordx4 global loads (16x32 transfer tiles).
+// Each 16x32 tile yields 2 MFMA K-steps: 2x global load throughput vs dwordx2.
 
 // Register type aliases
 !sx2 = !amdgcn.sgpr<[? + 2]>
 !vx2 = !amdgcn.vgpr<[? + 2]>
 !vx4 = !amdgcn.vgpr<[? + 4]>
+!ax4 = !amdgcn.agpr<[? + 4]>
 !rt_A_f16 = !vx2
 !rt_B_f16 = !vx2
-!rt_C_f32 = !vx4
+!rt_C_f32 = !ax4
 !write_token = !amdgcn.write_token<flat>
 !lds_write_token = !amdgcn.write_token<shared>
 !future_lds_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
 !future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
+!index_pair = !aster_utils.struct<i: index, j: index>
 
 // Memref buffer type aliases (used in helper function signatures)
 // Dynamic sizes -- SROA + constexpr expansion specialize to static.
@@ -27,23 +31,18 @@
 amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Library functions (external, provided by preload library)
   func.func private @wave_id() -> index
+  // From compute_16x16_f16.mlir (AGPR MFMA and fire-and-forget C tile store)
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
-  func.func private @store_C_f32(!rt_C_f32, !sx2, index, index, index) -> !write_token
-  func.func private @load_global_tile_f16(!sx2, index, index, index) -> !future_global_read
-  func.func private @store_global_tile_to_lds_xor_swizzle_f16(index, !future_global_read) -> !lds_write_token
-  func.func private @load_lds_A_xor_swizzle_f16(index) -> !future_lds_read
-  func.func private @load_lds_B_xor_swizzle_f16(index) -> !future_lds_read
-  func.func private @get_lds_A_f16(!future_lds_read) -> !rt_A_f16
-  func.func private @get_lds_B_f16(!future_lds_read) -> !rt_B_f16
+  func.func private @store_global_C_mfma_f32_16x16x16_f16(!rt_C_f32, !sx2, index, index, index)
+  // From global_16x64_b.mlir / lds_16x64_b.mlir (dwordx4 global load + 16x32 LDS operations)
+  func.func private @load_global_tile_16x64_b(!sx2, index, index, index) -> !future_global_read
+  func.func private @store_global_tile_to_lds_16x64_b(index, !future_global_read) -> (!lds_write_token, !lds_write_token)
+  func.func private @get_lds_read_value_vx2(!future_lds_read) -> !vx2
 
-  // Note: this is unfortunate but necessary to avoid copy-pasta of a lot of code
-  // that itself needs constexpr substitution (gemm_f16_32x32_k_loop_helpers.mlir)
-  // A solution could be to have multi-stage constexpr but that feels overkill atm.
-  // TODO: revisit when stabilized.
 {{K_LOOP_HELPERS}}
 
-  // Multi-WG multi-wave GEMM with pipelined LDS
+  // Multi-WG multi-wave GEMM with pipelined LDS (16x16x16 MFMA, dwordx4 loads)
   // M_WAVES * N_WAVES waves per WG; block_dim = (M_WAVES * N_WAVES * 64, 1, 1).
   // num_blocks = M_WG * N_WG; flat block ID delinearized into (m_wg, n_wg).
   // wave_id delinearized into (wave_m, wave_n) via (M_WAVES, N_WAVES).
@@ -59,6 +58,7 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
 
     // Constants
     %c0 = arith.constant 0 : index
+    %c2 = arith.constant 2 : index  // bytes per f16 element
     %c1 = arith.constant 1 : index
     %c_M_T = arith.constant {{M_T}} : index
     %c_N_T = arith.constant {{N_T}} : index
@@ -84,10 +84,6 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     %wave_m, %wave_n = affine.delinearize_index %wid into (%c_M_WAVES, %c_N_WAVES) : index, index
 
     // WG owns M_TILES_WG tiles; wave_m maps to M_T consecutive tiles within the WG.
-    // m_base = m_wg * M_TILES_WG + wave_m * M_T  (tile units, for global A/C addressing)
-    // n_base = n_wg * N_TILES_WG + wave_n * N_T  (tile units, for global B/C addressing)
-    // wave_a_base = wave_m * M_T                  (tile index, for LDS A offset arithmetic)
-    // wave_b_base = wave_n * N_T                  (tile index, for LDS B offset arithmetic)
     %m_base = affine.apply affine_map<(mwg, wm)[mt_wg, mt] -> (mwg * mt_wg + wm * mt)>
         (%m_wg, %wave_m)[%c_M_TILES_WG, %c_M_T]
     %n_base = affine.apply affine_map<(nwg, wn)[nt_wg, nt] -> (nwg * nt_wg + wn * nt)>
@@ -96,7 +92,6 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     %wave_b_base = affine.apply affine_map<(wn)[nt] -> (wn * nt)>(%wave_n)[%c_N_T]
 
     // === Initialize accumulators (constexpr over M_T*N_T) ===
-    // Stored in memref -- promote-loop-carried-memrefs converts to iter_args.
     %mn = affine.apply affine_map<()[m, n] -> (m * n)>()[%c_M_T, %c_N_T]
     %C_buf = memref.alloca(%mn) : !c_buf
     scf.for %i = %c0 to %mn step %c1 {
@@ -105,35 +100,32 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     } {aster.constexpr}
 
     // === K-loop (no iter_args -- accumulators live in C_buf) ===
-    // Each iteration processes K_T K-tiles. Loop steps by K_T over K_TILES.
-    // %k is directly the starting tile index (k_base_tiles).
     scf.for %k = %c0 to %K_tiles step %c_K_T {
 
-      // Stage GLOBAL_LOAD: allocate LDS.
-      // A: A_LDS_BYTES = M_WAVES * M_T * K_T * 512.
-      // B: B_LDS_BYTES = N_WAVES * N_T * K_T * 512.
+      // Stage GLOBAL_LOAD: allocate LDS (1024 bytes per 16x32 tile).
       %lds_a_h = amdgcn.alloc_lds {{A_LDS_BYTES}} {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
       %base_a = amdgcn.get_lds_offset %lds_a_h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
       %lds_b_h = amdgcn.alloc_lds {{B_LDS_BYTES}} {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
       %base_b = amdgcn.get_lds_offset %lds_b_h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
 
-      // Issue global loads for K_T batches of tiles.
-      %gfut_a = func.call @k_load_a_from_global(%c_M_T, %c_K_T, %A_ptr, %k, %stride_AB, %m_base)
+      // Issue dwordx4 global loads for K_T batches of 16x32 tiles.
+      %gfut_a = func.call @k_load_a_16x32_from_global(%c_M_T, %c_K_T, %A_ptr, %k, %stride_AB, %m_base)
           : (index, index, !sx2, index, index, index) -> !gfut_a_buf
-      %gfut_b = func.call @k_load_b_from_global(%c_N_T, %c_K_T, %B_ptr, %k, %stride_AB, %n_base)
+      %gfut_b = func.call @k_load_b_16x32_from_global(%c_N_T, %c_K_T, %B_ptr, %k, %stride_AB, %n_base)
           : (index, index, !sx2, index, index, index) -> !gfut_b_buf
 
-      // Stage DS_WRITE: store K_T batches to LDS.
-      %tok_a = func.call @k_store_a_to_lds(%c_M_T, %c_K_T, %base_a, %wave_a_base, %tiles_per_slice_a, %gfut_a)
+      // Stage DS_WRITE: store K_T batches to LDS (ds_write_b128).
+      %tok_a = func.call @k_store_a_16x32_to_lds(%c_M_T, %c_K_T, %base_a, %wave_a_base, %tiles_per_slice_a, %gfut_a)
           : (index, index, index, index, index, !gfut_a_buf) -> !tok_a_buf
-      %tok_b = func.call @k_store_b_to_lds(%c_N_T, %c_K_T, %base_b, %wave_b_base, %tiles_per_slice_b, %gfut_b)
+      %tok_b = func.call @k_store_b_16x32_to_lds(%c_N_T, %c_K_T, %base_b, %wave_b_base, %tiles_per_slice_b, %gfut_b)
           : (index, index, index, index, index, !gfut_b_buf) -> !tok_b_buf
 
-      // Stage DS_READ: wait all tokens, barrier, read all tiles.
-      func.call @k_wait_lds_writes_a(%c_M_T, %c_K_T, %tok_a)
-          : (index, index, !tok_a_buf) -> ()
-      func.call @k_wait_lds_writes_b(%c_N_T, %c_K_T, %tok_b)
-          : (index, index, !tok_b_buf) -> ()
+      // Stage DS_READ: wait all tokens, barrier, read K0+K1 sub-tiles.
+      func.call @k_wait_lds_writes(%tok_a)
+          : (memref<?x!lds_write_token>) -> ()
+      func.call @k_wait_lds_writes(%tok_b)
+          : (memref<?x!lds_write_token>) -> ()
+
       // Cross-wave barrier: all waves must complete LDS writes before any reads.
       amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32}
       %a_fut = func.call @k_read_lds_a(%c_M_T, %c_K_T, %base_a, %wave_a_base, %tiles_per_slice_a)
@@ -142,16 +134,17 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
           : (index, index, index, index, index) -> !fut_b_buf
 
       // Stage COMPUTE: extract register values from futures
-      %a_vals = func.call @k_extract_lds_values_a(%c_M_T, %c_K_T, %a_fut)
-          : (index, index, !fut_a_buf) -> !vals_a_buf
-      %b_vals = func.call @k_extract_lds_values_b(%c_N_T, %c_K_T, %b_fut)
-          : (index, index, !fut_b_buf) -> !vals_b_buf
+      %a_vals = func.call @k_extract_lds_values_a(%a_fut)
+          : (!fut_a_buf) -> !vals_a_buf
+      %b_vals = func.call @k_extract_lds_values_b(%b_fut)
+          : (!fut_b_buf) -> !vals_b_buf
 
-      // Stage COMPUTE: MFMAs (constexpr over K_T x M_T x N_T)
-      func.call @k_compute_mfmas(%c_M_T, %c_N_T, %c_K_T, %a_vals, %b_vals, %C_buf)
+      // Stage COMPUTE: MFMAs (constexpr over M_T x (K_T*2) x N_T)
+      %c_K_MFMA = affine.apply affine_map<()[k] -> (k * 2)>()[%c_K_T]
+      func.call @k_compute_mfmas(%c_M_T, %c_N_T, %c_K_MFMA, %a_vals, %b_vals, %C_buf)
           : (index, index, index, !vals_a_buf, !vals_b_buf, !c_buf) -> ()
 
-      // Stage COMPUTE: deallocate LDS
+      // Deallocate LDS at COMPUTE stage.
       amdgcn.dealloc_lds %lds_a_h {sched.stage = {{STAGE_COMPUTE}} : i32}
       amdgcn.dealloc_lds %lds_b_h {sched.stage = {{STAGE_COMPUTE}} : i32}
     }

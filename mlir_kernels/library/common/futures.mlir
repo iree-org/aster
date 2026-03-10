@@ -7,6 +7,7 @@
 
 // Vector General Purpose Registers (VGPR)
 !vx2 = !amdgcn.vgpr<[? + 2]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
 
 // Future types
 !future_global_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
@@ -51,6 +52,13 @@ amdgcn.library @common_futures isa = [#amdgcn.isa<cdna3>] {
     amdgcn.wait deps %token : !amdgcn.read_token<shared>
     %value = aster_utils.from_any %value_any : !vx2
     return %value : !vx2
+  }
+
+  func.func private @get_global_load_value_vx4(%future: !future_global_read_any) -> !vx4 {
+    %value_any, %token = aster_utils.struct_extract %future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
+    amdgcn.wait deps %token : !amdgcn.read_token<flat>
+    %value = aster_utils.from_any %value_any : !vx4
+    return %value : !vx4
   }
 
   func.func private @wait_lds_write(%token: !future_lds_write) {

@@ -406,7 +406,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
-  func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
+  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
   func.func private @mfma_index_A_16x16xf16() -> !index_pair
   func.func private @mfma_index_C_16x16xf32() -> !index_pair
   // From above library.
@@ -681,7 +681,7 @@ amdgcn.library @single_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
-  func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
+  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
   func.func private @mfma_index_A_16x16xf16() -> !index_pair
   func.func private @mfma_index_C_16x16xf32() -> !index_pair
   // From above library.
@@ -771,7 +771,7 @@ amdgcn.library @single_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn
 // parameterizable by !lds_position_descriptor_2d.
 //
 // Reads 16x16xf16 tiles via ds_read_b64 with XOR swizzling to reduce bank conflicts.
-// Thread mapping: @mfma_index_A_16x16xf16() → @xor_swizzled_mfma_index_16xf16().
+// Thread mapping: @mfma_index_A_16x16xf16() → @swizzled_mfma_index_16xf16().
 //===-----------------------------------------------------------------------===//
 amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From register-init.mlir
@@ -783,7 +783,7 @@ amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa =
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
-  func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
+  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
   func.func private @mfma_index_A_16x16xf16() -> !index_pair
   func.func private @mfma_index_C_16x16xf32() -> !index_pair
   // From above library.
@@ -808,11 +808,11 @@ amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa =
   //   - lds_stride_in_bytes: row stride in LDS
   //   - elt_size: element size in bytes (2 for f16)
   //
-  // Swizzling is applied via @xor_swizzled_mfma_index_16xf16() to reduce LDS
+  // Swizzling is applied via @swizzled_mfma_index_16xf16() to reduce LDS
   // bank conflicts. The swizzle pattern XORs row bits into column bits, spreading
   // thread accesses across different banks.
   //
-  // Thread mapping: @mfma_index_A_16x16xf16() → @xor_swizzled_mfma_index_16xf16()
+  // Thread mapping: @mfma_index_A_16x16xf16() → @swizzled_mfma_index_16xf16()
   //   Each thread's swizzled (row, col) determines its 4xf16 slice within the tile.
   //
   // Returns a future containing the loaded !vx2 value and read token.
@@ -823,7 +823,7 @@ amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa =
 
     // Apply A-matrix swizzle
     %mfma_idx_A = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
-    %swizzled_idx = func.call @xor_swizzled_mfma_index_16xf16(%mfma_idx_A) : (!index_pair) -> !index_pair
+    %swizzled_idx = func.call @swizzled_mfma_index_16xf16(%mfma_idx_A) : (!index_pair) -> !index_pair
     %swizzled_row, %swizzled_col = aster_utils.struct_extract %swizzled_idx ["i", "j"] : !index_pair -> index, index
     %desc = aster_utils.struct_create(%m_pos, %n_pos, %swizzled_row, %swizzled_col, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
     %off_lds = func.call @tiled_matrix_offset(%desc) : (!index_descriptor_2level_2d) -> !v
@@ -878,7 +878,7 @@ amdgcn.library @single_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
-  func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
+  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
   func.func private @mfma_index_A_16x16xf16() -> !index_pair
   func.func private @mfma_index_C_16x16xf32() -> !index_pair
   // From above library.
@@ -994,7 +994,7 @@ amdgcn.library @single_global_store_mfma_fragment_single_wave isa = [#amdgcn.isa
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
-  func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
+  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
   func.func private @mfma_index_A_16x16xf16() -> !index_pair
   func.func private @mfma_index_C_16x16xf32() -> !index_pair
   // From above library.

@@ -12,7 +12,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   // From indexing.mlir
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @mfma_index_A_16x16xf16() -> !index_pair
-  func.func private @xor_swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
+  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
   func.func private @lds_banks_for_transfer(index, index) -> !index_tuple_8
   // From copies.mlir
   func.func private @store_to_global_dwordx4_wait(!vx4, !tensor_position_descriptor_2d)
@@ -96,7 +96,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
 
     // Apply XOR swizzle to avoid bank conflicts
-    %swizzled_idx = func.call @xor_swizzled_mfma_index_16xf16(%idx) : (!index_pair) -> !index_pair
+    %swizzled_idx = func.call @swizzled_mfma_index_16xf16(%idx) : (!index_pair) -> !index_pair
     %swizzled_row, %swizzled_col = aster_utils.struct_extract %swizzled_idx ["i", "j"] : !index_pair -> index, index
 
     // Compute byte address in LDS: address = m_pos=0, n_pos=0 + swizzled position

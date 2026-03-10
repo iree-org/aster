@@ -3,6 +3,7 @@
 // Offset computation stays as index for composability; @index_to_vgpr_i32
 // converts the final result to a 32-bit !v for amdgcn.ptr_add or LDS addr.
 
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !v = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr<[? + 2]>
 !gptr = !ptr.ptr<#ptr.generic_space>
@@ -41,14 +42,15 @@ amdgcn.library @common_indexing_ptr {
     return %reg : !v
   }
 
-  // Compute a global address from a base ptr and an index byte offset.
-  // Uses ptr.ptr_add so aster-optimize-ptr-add can decompose the offset
-  // into const/uniform/dynamic components for optimal codegen.
-  // Returns !vx2 (VGPR pair) ready for amdgcn.load/store addr operand.
+  // Compute a global address from an SGPR base pointer and an index byte offset.
+  // Converts the SGPR pair to a generic pointer, applies the offset via ptr.ptr_add
+  // so aster-optimize-ptr-add can decompose it into const/uniform/dynamic components,
+  // and returns a !vx2 (VGPR pair) ready for amdgcn.load/store addr operand.
   func.func private @global_addr_from_offset(
-      %base: !gptr, %byte_off: index) -> !vx2 {
+      %base: !sx2, %byte_off: index) -> !vx2 {
+    %gptr = lsir.from_reg %base : !sx2 -> !gptr
     %off_i32 = arith.index_cast %byte_off : index to i32
-    %addr_ptr = ptr.ptr_add %base, %off_i32 : !gptr, i32
+    %addr_ptr = ptr.ptr_add %gptr, %off_i32 : !gptr, i32
     %addr = lsir.to_reg %addr_ptr : !gptr -> !vx2
     return %addr : !vx2
   }
