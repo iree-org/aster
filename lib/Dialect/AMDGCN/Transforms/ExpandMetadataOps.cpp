@@ -310,19 +310,89 @@ static void handleMakeBufferRsrc(RewriterBase &rewriter,
 }
 
 /// Handle the ThreadIdOps in a kernel.
+///
+/// Two conventions exist depending on the GPU ISA (see LLVM's FeaturePackedTID
+/// and ISA manual Section 3.13):
+///
+/// Packed (CDNA3/CDNA4/RDNA3+): All workitem IDs are packed into VGPR0:
+/// Extraction:
+///   X = v0 & 0x3FF           (bits 0-9)
+///   Y = (v0 >> 10) & 0x3FF   (bits 10-19)
+///   Z = v0 >> 20             (bits 20-29, top 2 bits are zero)
+///
+/// Unpacked (CDNA1/CDNA2/GFX9/RDNA1/RDNA2): Each dimension is in its own VGPR:
+/// X=VGPR0, Y=VGPR1, Z=VGPR2.
 static void handleThreadId(RewriterBase &rewriter, KernelOp op,
-                           ArrayRef<ThreadIdOp> ops) {
-  // Get the entry block.
+                           ArrayRef<ThreadIdOp> ops,
+                           const std::array<bool, 3> &threadIdSeen,
+                           bool packedTID) {
+  if (ops.empty())
+    return;
+
   Block *entry = &op.getBodyRegion().front();
   rewriter.setInsertionPointToStart(entry);
 
-  // Handle each thread id.
+  auto vgprTy = [&]() {
+    return VGPRType::get(rewriter.getContext(), Register());
+  };
+
+  if (!packedTID) {
+    // Unpacked path: each dimension is in its own VGPR (0, 1, 2).
+    for (ThreadIdOp threadId : ops) {
+      rewriter.setInsertionPoint(threadId);
+      int32_t dim = static_cast<int32_t>(threadId.getDim());
+      Value vgpr =
+          createAllocation(rewriter, op.getLoc(),
+                           VGPRType::get(rewriter.getContext(), Register(dim)));
+      rewriter.replaceOp(threadId, vgpr);
+    }
+    return;
+  }
+
+  // Packed path: all thread IDs come from VGPR0.
+  Value packedV0 = createAllocation(
+      rewriter, op.getLoc(), VGPRType::get(rewriter.getContext(), Register(0)));
+
+  // Determine if we need to mask X (only needed when Y or Z are also used,
+  // since the upper bits of v0 would contain Y/Z data).
+  bool needMaskX = threadIdSeen[1] || threadIdSeen[2];
+
   for (ThreadIdOp threadId : ops) {
+    rewriter.setInsertionPoint(threadId);
     int32_t dim = static_cast<int32_t>(threadId.getDim());
-    Value id =
-        createAllocation(rewriter, threadId.getLoc(),
-                         VGPRType::get(rewriter.getContext(), Register(dim)));
-    rewriter.replaceOp(threadId, id);
+    Location loc = threadId.getLoc();
+    Value result;
+
+    if (dim == 0) {
+      // X = v0 & 0x3FF (or directly v0 if only X is used).
+      if (needMaskX) {
+        Value maskAlloc = AllocaOp::create(rewriter, loc, vgprTy());
+        Value mask = arith::ConstantIntOp::create(rewriter, loc, 0x3FF, 32);
+        result = V_AND_B32::create(rewriter, loc, maskAlloc, mask, packedV0)
+                     .getVdst0Res();
+      } else {
+        result = packedV0;
+      }
+    } else if (dim == 1) {
+      // Y = (v0 >> 10) & 0x3FF
+      Value shiftAlloc = AllocaOp::create(rewriter, loc, vgprTy());
+      Value ten = arith::ConstantIntOp::create(rewriter, loc, 10, 32);
+      Value shifted =
+          V_LSHRREV_B32::create(rewriter, loc, shiftAlloc, ten, packedV0)
+              .getVdst0Res();
+      Value maskAlloc = AllocaOp::create(rewriter, loc, vgprTy());
+      Value mask = arith::ConstantIntOp::create(rewriter, loc, 0x3FF, 32);
+      result = V_AND_B32::create(rewriter, loc, maskAlloc, mask, shifted)
+                   .getVdst0Res();
+    } else {
+      // Z = v0 >> 20 (bits 30-31 are always zero, no mask needed).
+      Value shiftAlloc = AllocaOp::create(rewriter, loc, vgprTy());
+      Value twenty = arith::ConstantIntOp::create(rewriter, loc, 20, 32);
+      result =
+          V_LSHRREV_B32::create(rewriter, loc, shiftAlloc, twenty, packedV0)
+              .getVdst0Res();
+    }
+    rewriter.replaceOp(threadId, result);
   }
 }
 
@@ -432,18 +502,44 @@ void ExpandMetadataOps::runOnOperation() {
   if (loadArgs.size() > 0 && failed(handleArgs(rewriter, op, loadArgs)))
     return signalPassFailure();
 
-  // Handle the block and thread ids.
-  op.setEnableWorkgroupIdX(blockIdSeen[0]);
-  op.setEnableWorkgroupIdY(blockIdSeen[1]);
-  op.setEnableWorkgroupIdZ(blockIdSeen[2]);
-  if (threadIdSeen[2])
-    op.setWorkitemIdMode(WorkitemIDMode::XYZ);
-  else if (threadIdSeen[1])
-    op.setWorkitemIdMode(WorkitemIDMode::XY);
-  else if (threadIdSeen[0])
-    op.setWorkitemIdMode(WorkitemIDMode::X);
+  // Only modify kernel attributes when unexpanded metadata ops are present,
+  // indicating this is the first run. On a second run (e.g., from
+  // amdgcn-backend after PHASE_EXPAND_MD_OPS), all ops have been expanded
+  // away, so we skip attribute modification to avoid clobbering.
+  //
+  // Note: we can't guard per-category (block_id vs thread_id) because the
+  // *absence* of block_id ops is meaningful -- it means enable_workgroup_id_x
+  // should be set to false to save an SGPR. So we guard on "any metadata ops
+  // present" as a proxy for "first run."
+  bool hasMetadataOps = !threadIds.empty() || !blockIds.empty() ||
+                        !loadArgs.empty() || !blockDims.empty() ||
+                        !gridDims.empty() || !makeBufferRsrcs.empty();
+  if (hasMetadataOps) {
+    op.setEnableWorkgroupIdX(blockIdSeen[0]);
+    op.setEnableWorkgroupIdY(blockIdSeen[1]);
+    op.setEnableWorkgroupIdZ(blockIdSeen[2]);
+    if (threadIdSeen[2])
+      op.setWorkitemIdMode(WorkitemIDMode::XYZ);
+    else if (threadIdSeen[1])
+      op.setWorkitemIdMode(WorkitemIDMode::XY);
+    else if (threadIdSeen[0])
+      op.setWorkitemIdMode(WorkitemIDMode::X);
+  }
 
   handleBlockId(rewriter, op, blockIds);
-  handleThreadId(rewriter, op, threadIds);
+
+  // Determine packed TID mode from ISA (all current targets use packed TID).
+  // The force-unpacked-tid option overrides for testing the legacy path without
+  // having to explicitly insert attributes for older ISAs that we do not intend
+  // to support atm (which would be misleading).
+  bool packedTID = true;
+  if (forceUnpackedTID) {
+    packedTID = false;
+  } else if (auto moduleOp = op->getParentOfType<amdgcn::ModuleOp>()) {
+    ISAVersion isa = getIsaForTarget(moduleOp.getTarget());
+    packedTID = hasPackedTID(isa);
+  }
+  handleThreadId(rewriter, op, threadIds, threadIdSeen, packedTID);
+
   handleMakeBufferRsrc(rewriter, makeBufferRsrcs);
 }

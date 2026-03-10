@@ -139,6 +139,18 @@ ISAVersion mlir::aster::amdgcn::getIsaForTarget(Target target) {
   llvm_unreachable("unknown target");
 }
 
+bool mlir::aster::amdgcn::hasPackedTID(ISAVersion isa) {
+  switch (isa) {
+  case ISAVersion::CDNA3:
+  case ISAVersion::CDNA4:
+  case ISAVersion::RDNA4:
+    return true;
+  case ISAVersion::Invalid:
+    return false;
+  }
+  llvm_unreachable("unknown ISA version");
+}
+
 bool mlir::aster::amdgcn::isOpcodeValidForAllIsas(OpCode opcode,
                                                   ArrayRef<ISAVersion> isas,
                                                   MLIRContext *ctx) {

@@ -155,6 +155,14 @@ def ExpandMetadataOps : Pass<"aster-amdgcn-expand-md-ops", "::mlir::aster::amdgc
   let dependentDialects = [
     "mlir::arith::ArithDialect"
   ];
+  let options = [
+    Option<"forceUnpackedTID",
+           "force-unpacked-tid",
+           "bool",
+           "false",
+           "Force unpacked workitem ID mode (X=VGPR0, Y=VGPR1, Z=VGPR2) "
+           "regardless of the ISA version. Used for testing the legacy path.">,
+  ];
 }
 
 def PreloadLibrary : Pass<"amdgcn-preload-library", "mlir::ModuleOp"> {
