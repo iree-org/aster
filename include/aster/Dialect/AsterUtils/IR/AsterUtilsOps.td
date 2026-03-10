@@ -23,6 +23,7 @@ include "mlir/Dialect/Ptr/IR/PtrDialect.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
+include "mlir/Interfaces/ValueBoundsOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
@@ -36,7 +37,8 @@ def AsterUtils_AssumeRangeOp : AsterUtils_Op<"assume_range", [
                            "input", "dynamic_min", "$_self">,
     OptionalTypesMatchWith<"dynamic_max type matches input type",
                            "input", "dynamic_max", "$_self">,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>,
+    DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForIndexValue"]>
   ]> {
   let summary = "AsterUtils assume int range";
   let description = [{

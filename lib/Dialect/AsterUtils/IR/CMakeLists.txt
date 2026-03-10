@@ -13,6 +13,7 @@ add_mlir_dialect_library(AsterUtilsDialect
   MLIRControlFlowInterfaces
   MLIRIR
   MLIRInferIntRangeInterface
+  MLIRValueBoundsOpInterface
   MLIRInferTypeOpInterface
   MLIRPtrDialect
   MLIRSideEffectInterfaces
