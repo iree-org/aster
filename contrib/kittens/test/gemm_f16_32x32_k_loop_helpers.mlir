@@ -284,9 +284,9 @@
         %c_tile = memref.load %c_buf[%idx] : !c_buf
         %m_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 32)>(%mt)[%m_base]
         %n_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 32)>(%nt)[%n_base]
-        %tok_buf = func.call @store_C_32x32_f32(%c_tile, %C_ptr, %m_off, %n_off, %stride_C)
+        // Store tile; no explicit wait needed -- s_endpgm drains all outstanding stores.
+        func.call @store_C_32x32_f32(%c_tile, %C_ptr, %m_off, %n_off, %stride_C)
             : (!rt_C_f32, !sx2, index, index, index) -> !wtok_buf
-        func.call @wait_global_writes_32x32(%tok_buf) : (!wtok_buf) -> ()
       } {aster.constexpr}
     } {aster.constexpr}
     return
