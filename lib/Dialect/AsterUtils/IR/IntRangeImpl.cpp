@@ -57,9 +57,10 @@ void BlockIdOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
   int32_t size = gridDims.size() > static_cast<size_t>(dim)
                      ? gridDims[static_cast<int32_t>(dim)]
                      : 1;
-  setResultRange(getResult(),
-                 ConstantIntRanges::range(llvm::APInt(32, 0, false),
-                                          llvm::APInt(32, size, false), false));
+  // block_id ranges [0, gridDims[dim] - 1] (0-indexed).
+  setResultRange(getResult(), ConstantIntRanges::range(
+                                  llvm::APInt(32, 0, false),
+                                  llvm::APInt(32, size - 1, false), false));
 }
 
 void GridDimOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
@@ -94,9 +95,10 @@ void ThreadIdOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
   int32_t size = blockDims.size() > static_cast<size_t>(dim)
                      ? blockDims[static_cast<int32_t>(dim)]
                      : 1;
-  setResultRange(getResult(),
-                 ConstantIntRanges::range(llvm::APInt(32, 0, false),
-                                          llvm::APInt(32, size, false), false));
+  // thread_id ranges [0, blockDims[dim] - 1] (0-indexed).
+  setResultRange(getResult(), ConstantIntRanges::range(
+                                  llvm::APInt(32, 0, false),
+                                  llvm::APInt(32, size - 1, false), false));
 }
 
 /// Infer the result ranges of the assume_range operation.

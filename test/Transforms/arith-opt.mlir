@@ -512,3 +512,50 @@ func.func @test_shift_combine_non_const(%arg0: i64, %arg1: i64) -> i64 {
   %1 = arith.shli %0, %arg1 : i64
   return %1 : i64
 }
+
+// thread_id range is [0, blockDims[dim] - 1].
+// With block_dims=(64, 4, 1), thread_id y is in [0, 3] and remsi is eliminated.
+// CHECK-LABEL:   func.func @test_thread_id_y_range()
+//   CHECK-NOT:     remsi
+func.func @test_thread_id_y_range() -> i32 attributes {gpu.block_dims = array<i32: 64, 4, 1>, gpu.grid_dims = array<i32: 1, 1, 1>, gpu.kernel} {
+  %c0 = arith.constant 0 : i32
+  %c4 = arith.constant 4 : i32
+  %tid_y = aster_utils.thread_id y
+  %rem = arith.remsi %tid_y, %c4 : i32
+  %neg = arith.cmpi slt, %rem, %c0 : i32
+  %add = arith.addi %rem, %c4 : i32
+  %res = arith.select %neg, %add, %rem : i32
+  return %res : i32
+}
+
+// block_id range is [0, gridDims[dim] - 1]
+// With grid_dims=(8, 2, 1), block_id x is in [0, 7], and remsi is eliminated.
+// CHECK-LABEL:   func.func @test_block_id_x_range() -> i32
+//   CHECK-NOT:     remsi
+func.func @test_block_id_x_range() -> i32 attributes {gpu.block_dims = array<i32: 64, 1, 1>, gpu.grid_dims = array<i32: 8, 2, 1>, gpu.kernel} {
+  %c0 = arith.constant 0 : i32
+  %c8 = arith.constant 8 : i32
+  %bid_x = aster_utils.block_id x
+  %rem = arith.remsi %bid_x, %c8 : i32
+  %neg = arith.cmpi slt, %rem, %c0 : i32
+  %add = arith.addi %rem, %c8 : i32
+  %res = arith.select %neg, %add, %rem : i32
+  return %res : i32
+}
+
+// block_dims=(64, 2, 3), grid_dims=(4, 5, 1)
+// thread_id y in [0, 1], block_id y in [0, 4], sum in [0, 5] < 6 -> remsi eliminated.
+// CHECK-LABEL:   func.func @test_3d_dispatch_ranges() -> i32
+//   CHECK-NOT:     remsi
+func.func @test_3d_dispatch_ranges() -> i32 attributes {gpu.block_dims = array<i32: 64, 2, 3>, gpu.grid_dims = array<i32: 4, 5, 1>, gpu.kernel} {
+  %c0 = arith.constant 0 : i32
+  %c6 = arith.constant 6 : i32
+  %tid_y = aster_utils.thread_id y
+  %bid_y = aster_utils.block_id y
+  %sum = arith.addi %tid_y, %bid_y : i32
+  %rem = arith.remsi %sum, %c6 : i32
+  %neg = arith.cmpi slt, %rem, %c0 : i32
+  %add = arith.addi %rem, %c6 : i32
+  %res = arith.select %neg, %add, %rem : i32
+  return %res : i32
+}
