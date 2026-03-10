@@ -114,6 +114,47 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
     end_kernel
   }
 
+// Packed block IDs: only y and z used (x disabled). System SGPRs are packed,
+// so y gets offset+0 and z gets offset+1 (not offset+1 and offset+2).
+// CHECK-LABEL: kernel @block_id_yz_only arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> attributes {enable_workgroup_id_x = false, enable_workgroup_id_y, enable_workgroup_id_z} {
+// CHECK-DAG:     %[[BID_Y:.*]] = alloca : !amdgcn.sgpr<2>
+// CHECK-DAG:     %[[BID_Z:.*]] = alloca : !amdgcn.sgpr<3>
+// CHECK:         test_inst ins %[[BID_Y]], %[[BID_Z]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<3>) -> ()
+// CHECK:         end_kernel
+// CHECK:       }
+  kernel @block_id_yz_only arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
+    %0 = block_id  y : !amdgcn.sgpr
+    %1 = block_id  z : !amdgcn.sgpr
+    test_inst ins %0, %1 : (!amdgcn.sgpr, !amdgcn.sgpr) -> ()
+    end_kernel
+  }
+
+// Packed block IDs: only x and z used (y disabled). z gets offset+1.
+// CHECK-LABEL: kernel @block_id_xz_only arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> attributes {enable_workgroup_id_z} {
+// CHECK-DAG:     %[[BID_X:.*]] = alloca : !amdgcn.sgpr<2>
+// CHECK-DAG:     %[[BID_Z:.*]] = alloca : !amdgcn.sgpr<3>
+// CHECK:         test_inst ins %[[BID_X]], %[[BID_Z]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<3>) -> ()
+// CHECK:         end_kernel
+// CHECK:       }
+  kernel @block_id_xz_only arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
+    %0 = block_id  x : !amdgcn.sgpr
+    %1 = block_id  z : !amdgcn.sgpr
+    test_inst ins %0, %1 : (!amdgcn.sgpr, !amdgcn.sgpr) -> ()
+    end_kernel
+  }
+
+// Packed block IDs: only z used. z gets offset+0 (the very first slot).
+// CHECK-LABEL: kernel @block_id_z_only arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> attributes {enable_workgroup_id_x = false, enable_workgroup_id_z} {
+// CHECK-DAG:     %[[BID_Z:.*]] = alloca : !amdgcn.sgpr<2>
+// CHECK:         test_inst ins %[[BID_Z]] : (!amdgcn.sgpr<2>) -> ()
+// CHECK:         end_kernel
+// CHECK:       }
+  kernel @block_id_z_only arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
+    %0 = block_id  z : !amdgcn.sgpr
+    test_inst ins %0 : (!amdgcn.sgpr) -> ()
+    end_kernel
+  }
+
 // CHECK-LABEL: kernel @grid_block_dim arguments <[#amdgcn.block_dim_arg<x>, #amdgcn.block_dim_arg<y>, #amdgcn.block_dim_arg<z>, #amdgcn.grid_dim_arg<x>, #amdgcn.grid_dim_arg<y>, #amdgcn.grid_dim_arg<z>]> attributes {enable_workgroup_id_x = false} {
 // CHECK-DAG:     %[[CONSTANT_0:.*]] = arith.constant 8 : i32
 // CHECK-DAG:     %[[CONSTANT_1:.*]] = arith.constant 4 : i32

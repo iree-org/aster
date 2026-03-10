@@ -177,12 +177,24 @@ static void handleBlockId(RewriterBase &rewriter, KernelOp op,
   offset += op.getEnableKernargSegmentPtr() ? 2 : 0;
   offset += op.getEnableDispatchPtr() ? 2 : 0;
 
+  // System SGPRs for workgroup IDs are packed: only enabled dimensions get
+  // slots, assigned in order (x, then y if enabled, then z if enabled).
+  // Compute the packed SGPR index for each dimension by counting how many
+  // lower dimensions are enabled.
+  std::array<bool, 3> enabled = {op.getEnableWorkgroupIdX(),
+                                 op.getEnableWorkgroupIdY(),
+                                 op.getEnableWorkgroupIdZ()};
+
   // Handle each block id.
   for (BlockIdOp blockId : ops) {
     int32_t dim = static_cast<int32_t>(blockId.getDim());
+    // Count enabled dimensions below this one to get the packed index.
+    int32_t packedIdx = 0;
+    for (int32_t d = 0; d < dim; ++d)
+      packedIdx += enabled[d] ? 1 : 0;
     Value id = createAllocation(
         rewriter, blockId.getLoc(),
-        SGPRType::get(rewriter.getContext(), Register(offset + dim)));
+        SGPRType::get(rewriter.getContext(), Register(offset + packedIdx)));
     rewriter.replaceOp(blockId, id);
   }
 }
