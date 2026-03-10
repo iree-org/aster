@@ -74,8 +74,9 @@ struct OptimizeAMDGCN
 // Internal constants and functions
 //===----------------------------------------------------------------------===//
 
-/// This is a conservative limit for the constant offset.
-constexpr int64_t kMaxConstOffset = 1 << 12;
+/// Max cst offset for global memory instructions (13b signed: [-4096, 4095]).
+// TODO: Op properties, not hardcoded.
+constexpr int64_t kMaxConstOffset = (1 << 12) - 1;
 
 static Value getI32Constant(OpBuilder &builder, Location loc, int32_t value) {
   return arith::ConstantOp::create(
