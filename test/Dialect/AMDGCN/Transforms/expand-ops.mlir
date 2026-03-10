@@ -80,10 +80,11 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
     end_kernel
   }
 
+// Thread X only: no masking needed (v0 used directly since Y/Z not present).
 // CHECK-LABEL: kernel @thread_block_x arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
-// CHECK-DAG:     %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<0>
-// CHECK-DAG:     %[[VAL_1:.*]] = alloca : !amdgcn.sgpr<2>
-// CHECK:         test_inst ins %[[VAL_0]], %[[VAL_1]] : (!amdgcn.vgpr<0>, !amdgcn.sgpr<2>) -> ()
+// CHECK-DAG:     %[[V0:.*]] = alloca : !amdgcn.vgpr<0>
+// CHECK-DAG:     %[[BID:.*]] = alloca : !amdgcn.sgpr<2>
+// CHECK:         test_inst ins %[[V0]], %[[BID]] : (!amdgcn.vgpr<0>, !amdgcn.sgpr<2>) -> ()
 // CHECK:         end_kernel
 // CHECK:       }
   kernel @thread_block_x arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
@@ -93,14 +94,21 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
     end_kernel
   }
 
+// All three thread IDs: packed in VGPR0, extracted via shift+mask.
+//   X = v0 & 0x3FF, Y = (v0 >> 10) & 0x3FF, Z = v0 >> 20
 // CHECK-LABEL: kernel @thread_block_ids arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> attributes {enable_workgroup_id_y, enable_workgroup_id_z, workitem_id_mode = #amdgcn.workitem_id_mode<x_y_z>} {
-// CHECK-DAG:     %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<0>
-// CHECK-DAG:     %[[VAL_1:.*]] = alloca : !amdgcn.vgpr<1>
-// CHECK-DAG:     %[[VAL_2:.*]] = alloca : !amdgcn.vgpr<2>
-// CHECK-DAG:     %[[VAL_3:.*]] = alloca : !amdgcn.sgpr<2>
-// CHECK-DAG:     %[[VAL_4:.*]] = alloca : !amdgcn.sgpr<3>
-// CHECK-DAG:     %[[VAL_5:.*]] = alloca : !amdgcn.sgpr<4>
-// CHECK:         test_inst ins %[[VAL_0]], %[[VAL_1]], %[[VAL_2]], %[[VAL_3]], %[[VAL_4]], %[[VAL_5]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.sgpr<2>, !amdgcn.sgpr<3>, !amdgcn.sgpr<4>) -> ()
+// CHECK-DAG:     %[[V0:.*]] = alloca : !amdgcn.vgpr<0>
+// CHECK-DAG:     %[[MASK:.*]] = arith.constant 1023 : i32
+// CHECK-DAG:     %[[C10:.*]] = arith.constant 10 : i32
+// CHECK-DAG:     %[[C20:.*]] = arith.constant 20 : i32
+// CHECK-DAG:     %[[BID_X:.*]] = alloca : !amdgcn.sgpr<2>
+// CHECK-DAG:     %[[BID_Y:.*]] = alloca : !amdgcn.sgpr<3>
+// CHECK-DAG:     %[[BID_Z:.*]] = alloca : !amdgcn.sgpr<4>
+// CHECK:         %[[TID_X:.*]] = vop2 v_and_b32 outs %{{.*}} ins %[[MASK]], %[[V0]]
+// CHECK:         %[[SHIFTED_Y:.*]] = vop2 v_lshrrev_b32 outs %{{.*}} ins %[[C10]], %[[V0]]
+// CHECK:         %[[TID_Y:.*]] = vop2 v_and_b32 outs %{{.*}} ins %[[MASK]], %[[SHIFTED_Y]]
+// CHECK:         %[[TID_Z:.*]] = vop2 v_lshrrev_b32 outs %{{.*}} ins %[[C20]], %[[V0]]
+// CHECK:         test_inst ins %[[TID_X]], %[[TID_Y]], %[[TID_Z]], %[[BID_X]], %[[BID_Y]], %[[BID_Z]]
 // CHECK:         end_kernel
 // CHECK:       }
   kernel @thread_block_ids arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {

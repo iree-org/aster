@@ -1,5 +1,4 @@
-//===- Utils.h - AMDGCN utils ------------------------------------*- C++
-//-*-===//
+//===- Utils.h - AMDGCN utils -----------------------------------*- C++ -*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -87,6 +86,13 @@ bool isAMDReg(Type regTy);
 
 /// Get the ISA version for the given target.
 ISAVersion getIsaForTarget(Target target);
+
+/// Check if the given ISA version uses packed workitem IDs. On CDNA3/4/RDNA4
+/// (FeaturePackedTID), all workitem IDs are packed into VGPR0. On older
+/// architectures (CDNA1, CDNA2, GFX9, RDNA1/2), workitem IDs are in separate
+/// VGPRs: X=VGPR0, Y=VGPR1, Z=VGPR2.
+/// See LLVM's FeaturePackedTID and ISA manual Section 3.13.
+bool hasPackedTID(ISAVersion isa);
 
 /// Check if an instruction opcode is valid for all the given ISA versions.
 /// Returns true if the instruction is valid for ALL ISAs in the list.
