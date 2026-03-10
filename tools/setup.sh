@@ -143,6 +143,7 @@ check_cmd cmake
 check_cmd ninja
 check_cmd clang
 check_cmd clang++
+check_cmd lld
 check_cmd uv
 check_cmd ccache
 
@@ -160,11 +161,11 @@ if [ -z "$PYTHON" ] && command -v python3 >/dev/null 2>&1; then
     PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
     PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
     PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-    if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 9 ]; then
+    if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 12 ]; then
         ok "python3 $PY_VERSION ($PYTHON)"
     else
-        err "python3 version $PY_VERSION is too old (need >= 3.9)"
-        MISSING+=("python3>=3.9")
+        err "python3 version $PY_VERSION is too old (need >= 3.12)"
+        MISSING+=("python3>=3.12")
     fi
 fi
 if [ -z "$PYTHON" ]; then
@@ -186,14 +187,16 @@ if [ ${#MISSING[@]} -gt 0 ]; then
             ;;
         debian)
             echo "  sudo apt-get update && sudo apt-get install -y python3 python3-venv git cmake ninja-build clang lld ccache"
+            echo "  uv python install 3.12"
             echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
             ;;
         fedora)
             echo "  sudo dnf install -y python3 python3-devel git cmake ninja-build clang lld ccache"
+            echo "  uv python install 3.12"
             echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
             ;;
         *)
-            echo "  Install: python3 (>= 3.9), git, cmake, ninja, clang, uv, ccache"
+            echo "  Install: python3 (>= 3.12), git, cmake, ninja, clang, lld, uv, ccache"
             echo "  uv: https://docs.astral.sh/uv/"
             ;;
     esac
@@ -240,14 +243,30 @@ else
         warn "No shared LLVM found at $LLVM_INSTALL"
     fi
 
-    # Always ensure the LLVM build venv has required deps (even if
-    # LLVM_OK=true, a prior partial build may have left deps missing)
+    # Ensure LLVM build venv uses Python >= 3.12 (nanobind stubgen fails on <3.11)
     LLVM_VENV="$LLVM_BUILD/.venv"
     if [ -d "$LLVM_VENV" ]; then
-        if ! "$LLVM_VENV/bin/python" -c "import typing_extensions" 2>/dev/null; then
-            echo "  Installing typing_extensions (needed by nanobind stubgen)..."
-            uv pip install --python "$LLVM_VENV/bin/python" "typing_extensions>=4.1" 2>&1 \
-                || "$LLVM_VENV/bin/pip" install "typing_extensions>=4.1"
+        LLVM_VENV_PY_MINOR=$("$LLVM_VENV/bin/python" -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
+        if [ "$LLVM_VENV_PY_MINOR" -lt 12 ]; then
+            warn "LLVM build venv uses Python 3.$LLVM_VENV_PY_MINOR (need >= 3.12), recreating..."
+            rm -rf "$LLVM_VENV"
+            if ! uv venv "$LLVM_VENV" --seed --python "$PYTHON"; then
+                err "Failed to recreate LLVM build venv with Python >= 3.12"
+                echo ""
+                echo "Fix: uv python install 3.12"
+                echo "Then re-run: tools/setup.sh"
+                exit 1
+            fi
+            # Reinstall MLIR python requirements in the new venv
+            MLIR_PYTHON_REQS="$LLVM_PROJECT/mlir/python/requirements.txt"
+            if [ -f "$MLIR_PYTHON_REQS" ]; then
+                echo "  Reinstalling MLIR python requirements in new venv..."
+                uv pip install --python "$LLVM_VENV/bin/python" -r "$MLIR_PYTHON_REQS" 2>&1 \
+                    || "$LLVM_VENV/bin/pip" install -r "$MLIR_PYTHON_REQS"
+            fi
+            # Force cmake reconfigure since Python changed
+            LLVM_OK=false
+            ok "LLVM build venv recreated with Python >= 3.12"
         fi
     fi
 
@@ -301,6 +320,7 @@ else
             echo "    -DLLVM_ENABLE_PROJECTS='mlir;lld' \\"
             echo "    -DLLVM_TARGETS_TO_BUILD='AMDGPU' \\"
             echo "    -DLLVM_ENABLE_ASSERTIONS=ON \\"
+            echo "    -DLLVM_USE_LINKER=lld \\"
             echo "    -DMLIR_ENABLE_BINDINGS_PYTHON=ON \\"
             echo "    -DMLIR_ENABLE_EXECUTION_ENGINE=ON \\"
             echo "    -DMLIR_BUILD_MLIR_C_DYLIB=ON \\"
@@ -377,6 +397,16 @@ else
         info "Building shared LLVM (this will take a while)..."
 
         # Point cmake at the venv python so it finds pybind11/nanobind
+        # Use lld for faster link times if available
+        LINKER_FLAG=""
+        if command -v ld.lld >/dev/null 2>&1; then
+            LINKER_FLAG="-DLLVM_USE_LINKER=lld"
+            ok "lld found, using for faster link times"
+        elif command -v ld.mold >/dev/null 2>&1; then
+            LINKER_FLAG="-DLLVM_USE_LINKER=mold"
+            ok "mold found, using for faster link times"
+        fi
+
         if ! cmake -S "$LLVM_SRC" -B "$LLVM_BUILD" -GNinja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_INSTALL_PREFIX="$LLVM_INSTALL" \
@@ -388,8 +418,10 @@ else
             -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
             -DMLIR_ENABLE_EXECUTION_ENGINE=ON \
             -DMLIR_BUILD_MLIR_C_DYLIB=ON \
+            -DPython_EXECUTABLE="$LLVM_VENV/bin/python" \
             -DPython3_EXECUTABLE="$LLVM_VENV/bin/python" \
             $CCACHE_FLAG \
+            $LINKER_FLAG \
             $HIP_FLAGS; then
             err "LLVM cmake configure failed"
             echo ""
@@ -574,6 +606,15 @@ if [ "$WITH_HIP" = true ]; then
         fi
     fi
 
+    # Isolate from any system ROCm at /opt/rocm*
+    ROCM_DEVEL=$("$VIRTUAL_ENV/bin/python" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel
+    export ROCM_PATH="$ROCM_DEVEL"
+    export HIP_PATH="$ROCM_DEVEL"
+    # Strip /opt/rocm* from PATH so system hipconfig/rocm-smi are never found
+    CLEAN_PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '^/opt/rocm' | tr '\n' ':' | sed 's/:$//')
+    export PATH="$ROCM_DEVEL/bin:$CLEAN_PATH"
+    ok "Isolated from system ROCm (ROCM_PATH=$ROCM_DEVEL)"
+
     # Initialize ROCm SDK (unpacks libraries, sets up paths)
     echo "  Initializing ROCm SDK..."
     if ! "$VIRTUAL_ENV/bin/rocm-sdk" init 2>&1; then
@@ -722,6 +763,7 @@ else
         -DLLVM_EXTERNAL_LIT="$VIRTUAL_ENV/bin/lit" \
         -DPython_EXECUTABLE="$VIRTUAL_ENV/bin/python" \
         -DPython3_EXECUTABLE="$VIRTUAL_ENV/bin/python" \
+        -DLLVM_CCACHE_BUILD=ON \
         $CMAKE_EXTRA_FLAGS; then
         ok "cmake configured"
     else
