@@ -773,7 +773,7 @@ else
         -DLLVM_EXTERNAL_LIT="$VIRTUAL_ENV/bin/lit" \
         -DPython_EXECUTABLE="$VIRTUAL_ENV/bin/python" \
         -DPython3_EXECUTABLE="$VIRTUAL_ENV/bin/python" \
-        -DLLVM_CCACHE_BUILD=ON \
+        -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=aster \
         $ASTER_LINKER_FLAGS \
         $CMAKE_EXTRA_FLAGS; then
         ok "cmake configured"
