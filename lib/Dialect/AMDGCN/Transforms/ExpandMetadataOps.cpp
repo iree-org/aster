@@ -502,16 +502,29 @@ void ExpandMetadataOps::runOnOperation() {
   if (loadArgs.size() > 0 && failed(handleArgs(rewriter, op, loadArgs)))
     return signalPassFailure();
 
-  // Handle the block and thread ids.
-  op.setEnableWorkgroupIdX(blockIdSeen[0]);
-  op.setEnableWorkgroupIdY(blockIdSeen[1]);
-  op.setEnableWorkgroupIdZ(blockIdSeen[2]);
-  if (threadIdSeen[2])
-    op.setWorkitemIdMode(WorkitemIDMode::XYZ);
-  else if (threadIdSeen[1])
-    op.setWorkitemIdMode(WorkitemIDMode::XY);
-  else if (threadIdSeen[0])
-    op.setWorkitemIdMode(WorkitemIDMode::X);
+  // Only modify kernel attributes when unexpanded metadata ops are present,
+  // indicating this is the first run. On a second run (e.g., from
+  // amdgcn-backend after PHASE_EXPAND_MD_OPS), all ops have been expanded
+  // away, so we skip attribute modification to avoid clobbering.
+  //
+  // Note: we can't guard per-category (block_id vs thread_id) because the
+  // *absence* of block_id ops is meaningful -- it means enable_workgroup_id_x
+  // should be set to false to save an SGPR. So we guard on "any metadata ops
+  // present" as a proxy for "first run."
+  bool hasMetadataOps = !threadIds.empty() || !blockIds.empty() ||
+                        !loadArgs.empty() || !blockDims.empty() ||
+                        !gridDims.empty() || !makeBufferRsrcs.empty();
+  if (hasMetadataOps) {
+    op.setEnableWorkgroupIdX(blockIdSeen[0]);
+    op.setEnableWorkgroupIdY(blockIdSeen[1]);
+    op.setEnableWorkgroupIdZ(blockIdSeen[2]);
+    if (threadIdSeen[2])
+      op.setWorkitemIdMode(WorkitemIDMode::XYZ);
+    else if (threadIdSeen[1])
+      op.setWorkitemIdMode(WorkitemIDMode::XY);
+    else if (threadIdSeen[0])
+      op.setWorkitemIdMode(WorkitemIDMode::X);
+  }
 
   handleBlockId(rewriter, op, blockIds);
 
