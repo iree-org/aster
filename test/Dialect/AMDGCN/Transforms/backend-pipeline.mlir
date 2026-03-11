@@ -48,3 +48,28 @@ amdgcn.module @test_load_store target = <gfx942> isa = <cdna3> {
     amdgcn.end_kernel
   }
 }
+
+// -----
+
+// Verify cache modifiers survive the full backend pipeline (regalloc, waits, etc.)
+// CHECK-LABEL: kernel @load_store_cache_modifiers
+// CHECK:         load global_load_dword dest {{.*}} {glc = true}
+// CHECK:         amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:         store global_store_dword data {{.*}} {slc = true}
+// CHECK:         end_kernel
+amdgcn.module @test_cache_mods target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @load_store_cache_modifiers arguments <[
+      #amdgcn.buffer_arg<address_space = generic, access = read_only>,
+      #amdgcn.buffer_arg<address_space = generic>
+    ]> {
+    %src = amdgcn.load_arg 0 : !amdgcn.sgpr<[? : ? + 2]>
+    %dst = amdgcn.load_arg 1 : !amdgcn.sgpr<[? : ? + 2]>
+    %data = amdgcn.alloca : !amdgcn.vgpr
+    %data_val, %tok = amdgcn.load global_load_dword dest %data addr %src {glc = true}
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
+    amdgcn.wait deps %tok : !amdgcn.read_token<flat>
+    %wtok = amdgcn.store global_store_dword data %data_val addr %dst {slc = true}
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
+    amdgcn.end_kernel
+  }
+}

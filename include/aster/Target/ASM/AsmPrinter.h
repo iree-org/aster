@@ -65,6 +65,12 @@ public:
   /// name(value)?
   void printParenIntModifier(StringRef modifier, int64_t value,
                              int64_t defaultValue);
+  /// Print a boolean keyword modifier (e.g., glc, slc, scc).
+  /// Only prints the keyword if value is true.
+  void printKeywordModifier(StringRef keyword, bool value) {
+    if (value)
+      printKeyword(keyword);
+  }
 
   /// RAII guard for printing an instruction.
   struct PrintGuard {

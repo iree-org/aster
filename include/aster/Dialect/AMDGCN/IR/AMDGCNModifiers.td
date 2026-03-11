@@ -126,4 +126,30 @@ def VmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxVal
   let summary = "VMCNT wait count modifier";
 }
 
+// Instruction modifier for boolean keyword flags of the form:
+//  ($name)?
+// E.g., glc, slc, scc
+// If the value is false (default), the modifier is omitted.
+class KeywordModifier<string name>
+    : DefaultValuedAttr<BoolAttr, "false">, AsmArgFormat,
+      BuiltinAttrBuilder<BoolAttr, (ins "bool":$value)> {
+  let asmParser = "$_parser.parseKeywordModifier(\"" # name # "\", $_self);";
+  let asmPrinter = "$_printer.printKeywordModifier(\"" # name # "\", $_self);";
+}
+
+// GLC attribute (Global Line Coherent / SC0)
+def GlcAttr : KeywordModifier<"glc"> {
+  let summary = "Global cache / scope 0 modifier";
+}
+
+// SLC attribute (System Level Coherent / Non-Temporal)
+def SlcAttr : KeywordModifier<"slc"> {
+  let summary = "System-level cache / non-temporal modifier";
+}
+
+// SCC attribute (System Coherent Cache / SC1)
+def SccAttr : KeywordModifier<"scc"> {
+  let summary = "System coherent cache / scope 1 modifier";
+}
+
 #endif // ASTER_AMDGCN_AMDGCNMODIFIERS_TD

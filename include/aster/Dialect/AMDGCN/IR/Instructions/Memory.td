@@ -16,6 +16,7 @@
 #define AMDGCN_INST_MEMORY_TD
 
 include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
+include "aster/Dialect/AMDGCN/IR/AMDGCNModifiers.td"
 include "aster/Interfaces/DependentOpInterface.td"
 
 //===----------------------------------------------------------------------===//
@@ -89,7 +90,10 @@ def AMDGCN_LoadOp : AMDGCN_InstOp<"load", [
     OptionalReg<UniformOffsetOperand>:$uniform_offset,
     OptionalReg<DynamicOffsetOperand>:$dynamic_offset
   );
-  let trailingArguments = (ins OptionalOffsetType:$constant_offset);
+  let trailingArguments = (ins
+    OptionalOffsetType:$constant_offset,
+    GlcAttr:$glc, SlcAttr:$slc, SccAttr:$scc
+  );
   let trailingResults = (outs ReadTokenType:$token);
   let assemblyFormat = [{
     custom<Opcode>($opcode) `dest` $dest `addr` $addr ``
@@ -165,7 +169,10 @@ def AMDGCN_StoreOp : AMDGCN_InstOp<"store", [
     OptionalReg<UniformOffsetOperand>:$uniform_offset,
     OptionalReg<DynamicOffsetOperand>:$dynamic_offset
   );
-  let trailingArguments = (ins OptionalOffsetType:$constant_offset);
+  let trailingArguments = (ins
+    OptionalOffsetType:$constant_offset,
+    GlcAttr:$glc, SlcAttr:$slc, SccAttr:$scc
+  );
   let leadingResults = (outs WriteTokenType:$token);
   let assemblyFormat = [{
     custom<Opcode>($opcode) `data` $data `addr` $addr ``
@@ -272,9 +279,9 @@ class GLoadInst<string _mnemonic, int resultRegs,
     }]>;
   let asmFormat = [
     AsmVariant<CPred<"isa<VGPRType>($_self.getAddr().getType())">,
-      "$dest, $addr, off $constant_offset">,
+      "$dest, $addr, off $glc $slc $scc $constant_offset">,
     AsmVariant<CPred<"isa<SGPRType>($_self.getAddr().getType())">,
-      "$dest, $dynamic_offset, $addr $constant_offset">
+      "$dest, $dynamic_offset, $addr $glc $slc $scc $constant_offset">
   ];
 }
 
@@ -424,9 +431,9 @@ class GStoreInst<string _mnemonic, int dataRegs,
     }]>;
   let asmFormat = [
     AsmVariant<CPred<"isa<VGPRType>($_self.getAddr().getType())">,
-      "$addr, $data, off $constant_offset">,
+      "$addr, $data, off $glc $slc $scc $constant_offset">,
     AsmVariant<CPred<"isa<SGPRType>($_self.getAddr().getType())">,
-      "$dynamic_offset, $data, $addr $constant_offset">
+      "$dynamic_offset, $data, $addr $glc $slc $scc $constant_offset">
   ];
 }
 
@@ -481,7 +488,7 @@ class BLoadInst<string _mnemonic, int resultRegs, list<ISAVersion> _isa>
     }]>;
   let asmFormat = [
     SingleAsmVariant<
-      "$dest, $dynamic_offset, $addr, $uniform_offset offen $constant_offset">
+      "$dest, $dynamic_offset, $addr, $uniform_offset offen $glc $slc $scc $constant_offset">
   ];
 }
 
@@ -536,7 +543,7 @@ class BStoreInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
     }]>;
   let asmFormat = [
     SingleAsmVariant<
-      "$data, $dynamic_offset, $addr, $uniform_offset offen $constant_offset">
+      "$data, $dynamic_offset, $addr, $uniform_offset offen $glc $slc $scc $constant_offset">
   ];
 }
 
@@ -604,7 +611,7 @@ class BLoadIdxInst<string _mnemonic, int resultRegs, list<ISAVersion> _isa>
     }]>;
   let asmFormat = [
     SingleAsmVariant<
-      "$dest, $dynamic_offset, $addr, $uniform_offset idxen $constant_offset">
+      "$dest, $dynamic_offset, $addr, $uniform_offset idxen $glc $slc $scc $constant_offset">
   ];
 }
 
@@ -663,7 +670,7 @@ class BStoreIdxInst<string _mnemonic, int dataRegs, list<ISAVersion> _isa>
     }]>;
   let asmFormat = [
     SingleAsmVariant<
-      "$data, $dynamic_offset, $addr, $uniform_offset idxen $constant_offset">
+      "$data, $dynamic_offset, $addr, $uniform_offset idxen $glc $slc $scc $constant_offset">
   ];
 }
 
@@ -758,7 +765,10 @@ def AMDGCN_LoadToLDSOp : AMDGCN_InstOp<"load_lds", [
     OptionalReg<UniformOffsetOperand>:$uniform_offset,
     OptionalReg<DynamicOffsetOperand>:$dynamic_offset
   );
-  let trailingArguments = (ins OptionalOffsetType:$constant_offset);
+  let trailingArguments = (ins
+    OptionalOffsetType:$constant_offset,
+    GlcAttr:$glc, SlcAttr:$slc, SccAttr:$scc
+  );
   let leadingResults = (outs WriteTokenType:$token);
   let assemblyFormat = [{
     custom<Opcode>($opcode) `m0` $m0 `addr` $addr ``
@@ -804,7 +814,7 @@ class BLoadLDSInst<string _mnemonic, list<ISAVersion> _isa>
     }]>;
   let asmFormat = [
     SingleAsmVariant<
-      "$dynamic_offset, $addr, $uniform_offset offen lds $constant_offset">
+      "$dynamic_offset, $addr, $uniform_offset offen $glc $slc $scc lds $constant_offset">
   ];
 }
 

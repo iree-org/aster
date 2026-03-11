@@ -194,3 +194,68 @@ amdgcn.module @buffer_idxen_test target = #amdgcn.target<gfx942> isa = #amdgcn.i
     amdgcn.end_kernel
   }
 }
+
+// Test cache modifiers on buffer ops (offen and idxen)
+// CHECK-LABEL:Module: buffer_cache_mod_test
+// CHECK:    .globl test_buffer_cache_mods
+// CHECK:  test_buffer_cache_mods:
+// CHECK:    buffer_load_dword v1, v0, s[0:3], s4 offen glc
+// CHECK:    buffer_load_dwordx4 v[4:7], v0, s[0:3], s4 offen slc scc offset: 64
+// CHECK:    buffer_store_dword v1, v0, s[0:3], s4 offen glc slc
+// CHECK:    buffer_load_dword v8, v0, s[0:3], s4 idxen scc
+// CHECK:    buffer_store_dwordx4 v[4:7], v0, s[0:3], s4 idxen glc scc offset: 64
+// CHECK:    s_endpgm
+amdgcn.module @buffer_cache_mod_test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  amdgcn.kernel @test_buffer_cache_mods {
+    %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
+    %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
+    %s2 = amdgcn.alloca : !amdgcn.sgpr<2>
+    %s3 = amdgcn.alloca : !amdgcn.sgpr<3>
+    %rsrc = amdgcn.make_register_range %s0, %s1, %s2, %s3
+      : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>, !amdgcn.sgpr<2>, !amdgcn.sgpr<3>
+    %soffset = amdgcn.alloca : !amdgcn.sgpr<4>
+    %vaddr = amdgcn.alloca : !amdgcn.vgpr<0>
+    %c0 = arith.constant 0 : i32
+    %c64 = arith.constant 64 : i32
+
+    // buffer_load_dword offen glc
+    %ld1_dest = amdgcn.alloca : !amdgcn.vgpr<1>
+    %lt1 = amdgcn.load buffer_load_dword dest %ld1_dest addr %rsrc
+      offset u(%soffset) + d(%vaddr) + c(%c0) {glc = true}
+      : dps(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
+        -> !amdgcn.read_token<flat>
+
+    // buffer_load_dwordx4 offen slc scc (4-aligned start at v4)
+    %ld4a = amdgcn.alloca : !amdgcn.vgpr<4>
+    %ld4b = amdgcn.alloca : !amdgcn.vgpr<5>
+    %ld4c = amdgcn.alloca : !amdgcn.vgpr<6>
+    %ld4d = amdgcn.alloca : !amdgcn.vgpr<7>
+    %ld4_dest = amdgcn.make_register_range %ld4a, %ld4b, %ld4c, %ld4d
+      : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
+    %lt2 = amdgcn.load buffer_load_dwordx4 dest %ld4_dest addr %rsrc
+      offset u(%soffset) + d(%vaddr) + c(%c64) {slc = true, scc = true}
+      : dps(!amdgcn.vgpr<[4 : 8]>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
+        -> !amdgcn.read_token<flat>
+
+    // buffer_store_dword offen glc slc
+    %st1 = amdgcn.store buffer_store_dword data %ld1_dest addr %rsrc
+      offset u(%soffset) + d(%vaddr) + c(%c0) {glc = true, slc = true}
+      : ins(!amdgcn.vgpr<1>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
+        -> !amdgcn.write_token<flat>
+
+    // buffer_load_dword idxen scc
+    %ld5_dest = amdgcn.alloca : !amdgcn.vgpr<8>
+    %lt3 = amdgcn.load buffer_load_dword_idxen dest %ld5_dest addr %rsrc
+      offset u(%soffset) + d(%vaddr) + c(%c0) {scc = true}
+      : dps(!amdgcn.vgpr<8>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
+        -> !amdgcn.read_token<flat>
+
+    // buffer_store_dwordx4 idxen glc scc
+    %st2 = amdgcn.store buffer_store_dwordx4_idxen data %ld4_dest addr %rsrc
+      offset u(%soffset) + d(%vaddr) + c(%c64) {glc = true, scc = true}
+      : ins(!amdgcn.vgpr<[4 : 8]>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
+        -> !amdgcn.write_token<flat>
+
+    amdgcn.end_kernel
+  }
+}
