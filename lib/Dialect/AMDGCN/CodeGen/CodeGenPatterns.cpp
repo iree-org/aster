@@ -62,19 +62,9 @@ struct PtrStoreOpPattern : public OpCodeGenPattern<ptr::StoreOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// PtrAddOpPattern
+// PtrAddOpPattern (ptr::PtrAddOp -> amdgcn::PtrAddOp)
 //===----------------------------------------------------------------------===//
-struct PtrAddOpPattern : public OpCodeGenPattern<aster_utils::PtrAddOp> {
-  using OpCodeGenPattern::OpCodeGenPattern;
-  LogicalResult
-  matchAndRewrite(aster_utils::PtrAddOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override;
-};
-
-//===----------------------------------------------------------------------===//
-// PtrPtrAddOpPattern (ptr::PtrAddOp -> amdgcn::PtrAddOp)
-//===----------------------------------------------------------------------===//
-struct PtrPtrAddOpPattern : public OpCodeGenPattern<ptr::PtrAddOp> {
+struct PtrAddOpPattern : public OpCodeGenPattern<ptr::PtrAddOp> {
   using OpCodeGenPattern::OpCodeGenPattern;
   LogicalResult
   matchAndRewrite(ptr::PtrAddOp op, OpAdaptor adaptor,
@@ -257,32 +247,6 @@ PtrStoreOpPattern::matchAndRewrite(ptr::StoreOp op, OpAdaptor adaptor,
 }
 
 //===----------------------------------------------------------------------===//
-// PtrAddOpPattern
-//===----------------------------------------------------------------------===//
-
-LogicalResult
-PtrAddOpPattern::matchAndRewrite(aster_utils::PtrAddOp op, OpAdaptor adaptor,
-                                 ConversionPatternRewriter &rewriter) const {
-  // Get the converted operands.
-  Value ptr = adaptor.getPtr();
-  Value dynamicOffset = adaptor.getOffset();
-  Value uniformOffset = adaptor.getUniformOffset();
-  int64_t constOffset = op.getConstOffset();
-  if (dynamicOffset && !isVGPR(dynamicOffset.getType(), 1))
-    return rewriter.notifyMatchFailure(op,
-                                       "dynamic offset must be a VGPR type");
-  if (uniformOffset && !isSGPR(uniformOffset.getType(), 1))
-    return rewriter.notifyMatchFailure(op,
-                                       "uniform offset must be a SGPR type");
-
-  // Create the AMDGCN ptr_add operation.
-  auto newOp = rewriter.replaceOpWithNewOp<amdgcn::PtrAddOp>(
-      op, ptr, dynamicOffset, uniformOffset, constOffset);
-  newOp.setFlags(op.getFlags());
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // Internal functions
 //===----------------------------------------------------------------------===//
 
@@ -375,12 +339,12 @@ static Type convertTypeImpl(Type type, const CodeGenConverter &converter) {
 }
 
 //===----------------------------------------------------------------------===//
-// PtrPtrAddOpPattern
+// PtrAddOpPattern
 //===----------------------------------------------------------------------===//
 
 LogicalResult
-PtrPtrAddOpPattern::matchAndRewrite(ptr::PtrAddOp op, OpAdaptor adaptor,
-                                    ConversionPatternRewriter &rewriter) const {
+PtrAddOpPattern::matchAndRewrite(ptr::PtrAddOp op, OpAdaptor adaptor,
+                                 ConversionPatternRewriter &rewriter) const {
   Value ptr = adaptor.getBase();
   Value offset = adaptor.getOffset();
   Type resultType = converter.convertType(op.getResult());
@@ -438,15 +402,13 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
   target.addIllegalOp<aster_utils::ThreadIdOp, aster_utils::BlockIdOp,
                       aster_utils::BlockDimOp, aster_utils::GridDimOp,
                       aster_utils::AssumeRangeOp, aster_utils::AssumeUniformOp,
-                      aster_utils::PtrAddOp, lsir::FromRegOp, lsir::ToRegOp,
-                      lsir::RegConstraintOp, ptr::LoadOp, ptr::StoreOp,
-                      ptr::PtrAddOp>();
+                      lsir::FromRegOp, lsir::ToRegOp, lsir::RegConstraintOp,
+                      ptr::LoadOp, ptr::StoreOp, ptr::PtrAddOp>();
 
   // Add the patterns.
   patterns.add<IDDimOpPattern<aster_utils::ThreadIdOp, amdgcn::ThreadIdOp>,
                IDDimOpPattern<aster_utils::BlockIdOp, amdgcn::BlockIdOp>,
                IDDimOpPattern<aster_utils::BlockDimOp, amdgcn::BlockDimOp>,
                IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>,
-               PtrLoadOpPattern, PtrStoreOpPattern, PtrAddOpPattern,
-               PtrPtrAddOpPattern>(converter);
+               PtrLoadOpPattern, PtrStoreOpPattern, PtrAddOpPattern>(converter);
 }

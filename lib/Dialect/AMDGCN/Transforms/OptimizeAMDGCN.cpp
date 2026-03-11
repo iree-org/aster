@@ -181,13 +181,46 @@ static LogicalResult optimizeMemOpOffsets(Operation *op, const InstMetadata *md,
   // not a VGPR.
   bool isVGPRAddr = isVGPR(ptrAdd.getPtr().getType(), 0);
 
-  // If the dynamic offset is not set, and the address is not a VGPR, we can
+  // If the dynamic offset is set, and the address is a VGPR, we cannot
   // move the dynamic offset to the mem op.
-  if (!dynamicOffset && ptrAdd.getDynamicOffset() && !isVGPRAddr) {
-    dynamicOffsetMutable().assign(ptrAdd.getDynamicOffset());
-    newDynOff = nullptr;
-    changed = true;
+  if (dynamicOffset || isVGPRAddr)
+    return success(changed);
+
+  Value dynOff = ptrAdd.getDynamicOffset();
+
+  // If there's no dynamic offset and the constant offset is already merged,
+  // we're done.
+  if (!dynOff && newConstOff <= 0)
+    return success(changed);
+
+  // Create the constant offset.
+  Value cst =
+      getI32Constant(rewriter, op->getLoc(), static_cast<int32_t>(newConstOff));
+
+  // If we don't have a dynamic offset, use the constant offset as the dynamic
+  // offset and set the constant offset to 0.
+  if (!dynOff) {
+    Value dst = createAllocation(rewriter, op->getLoc(),
+                                 getVGPR(rewriter.getContext(), 1));
+    dynOff = lsir::MovOp::create(rewriter, op->getLoc(), dst, cst).getDstRes();
+    newConstOff = 0;
   }
+
+  // If we have a non-trivial constant offset, add it to the dynamic offset to
+  // avoid i64 additions.
+  if (newConstOff > 0) {
+    Value dst = createAllocation(rewriter, op->getLoc(),
+                                 getVGPR(rewriter.getContext(), 1));
+    dynOff = lsir::AddIOp::create(rewriter, op->getLoc(),
+                                  TypeAttr::get(rewriter.getI32Type()), dst,
+                                  dynOff, cst)
+                 .getDstRes();
+    newConstOff = 0;
+  }
+  dynamicOffsetMutable().assign(dynOff);
+  newDynOff = nullptr;
+  changed = true;
+
   return success(changed);
 }
 

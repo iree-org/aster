@@ -94,22 +94,3 @@ func.func @test_assume_range_index_dynamic(%x: index, %lo: index, %hi: index) ->
   %0 = aster_utils.assume_range %x min %lo max %hi : index
   return %0 : index
 }
-
-//===----------------------------------------------------------------------===//
-// PtrAddOp roundtrip tests
-//===----------------------------------------------------------------------===//
-
-func.func @test_ptr_add_basic(%ptr: !ptr.ptr<#ptr.generic_space>, %offset: i64) -> !ptr.ptr<#ptr.generic_space> {
-  %0 = aster_utils.ptr_add %ptr, %offset : !ptr.ptr<#ptr.generic_space>, i64
-  return %0 : !ptr.ptr<#ptr.generic_space>
-}
-
-func.func @test_ptr_add_inbounds(%ptr: !ptr.ptr<#ptr.generic_space>, %offset: i64) -> !ptr.ptr<#ptr.generic_space> {
-  %0 = aster_utils.ptr_add inbounds %ptr, %offset : !ptr.ptr<#ptr.generic_space>, i64
-  return %0 : !ptr.ptr<#ptr.generic_space>
-}
-
-func.func @test_ptr_add_nuw(%ptr: !ptr.ptr<#ptr.generic_space>, %offset: i64) -> !ptr.ptr<#ptr.generic_space> {
-  %0 = aster_utils.ptr_add nuw %ptr, %offset : !ptr.ptr<#ptr.generic_space>, i64
-  return %0 : !ptr.ptr<#ptr.generic_space>
-}

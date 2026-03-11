@@ -444,37 +444,40 @@ func.func private @test_local_store_i64(
 }
 
 // CHECK-LABEL:   func.func private @test_ptr_add_basic(
-// CHECK-SAME:      %[[PTR:.*]]: !amdgcn.vgpr<[? + 2]>, %[[OFF:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
-// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]] d_off = %[[OFF]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
-// CHECK:           return %[[RES]] : !amdgcn.vgpr<[? + 2]>
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[PTR_ADD_0:.*]] = amdgcn.ptr_add %[[ARG0]] d_off = %[[ARG1]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
+// CHECK:           return %[[PTR_ADD_0]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
 func.func private @test_ptr_add_basic(
     %ptr: !ptr.ptr<#ptr.generic_space>, %offset: i64) -> !ptr.ptr<#ptr.generic_space>
     attributes {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} {
-  %0 = aster_utils.ptr_add %ptr, %offset : <#ptr.generic_space>, i64
+  %0 = ptr.ptr_add %ptr, %offset : !ptr.ptr<#ptr.generic_space>, i64
   return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} %0 : !ptr.ptr<#ptr.generic_space>
 }
 
 // CHECK-LABEL:   func.func private @test_ptr_add_with_uniform(
-// CHECK-SAME:      %[[PTR:.*]]: !amdgcn.vgpr<[? + 2]>, %[[OFF:.*]]: !amdgcn.vgpr, %[[UNI:.*]]: !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]> {
-// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]] d_off = %[[OFF]] u_off = %[[UNI]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr
-// CHECK:           return %[[RES]] : !amdgcn.vgpr<[? + 2]>
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[PTR_ADD_0:.*]] = amdgcn.ptr_add %[[ARG0]] u_off = %[[ARG1]] : !amdgcn.vgpr<[? + 2]>, !amdgcn.sgpr
+// CHECK:           return %[[PTR_ADD_0]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
 func.func private @test_ptr_add_with_uniform(
-    %ptr: !ptr.ptr<#ptr.generic_space>, %offset: i64, %uniform: i64) -> !ptr.ptr<#ptr.generic_space>
-    attributes {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]>} {
-  %0 = aster_utils.ptr_add %ptr, %offset, %uniform : <#ptr.generic_space>, i64
-  return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]>} %0 : !ptr.ptr<#ptr.generic_space>
+    %ptr: !ptr.ptr<#ptr.generic_space>, %uniform: i64) -> !ptr.ptr<#ptr.generic_space>
+    attributes {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]>} {
+  %0 = ptr.ptr_add %ptr, %uniform : !ptr.ptr<#ptr.generic_space>, i64
+  return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.sgpr) -> !amdgcn.vgpr<[? + 2]>} %0 : !ptr.ptr<#ptr.generic_space>
 }
 
 // CHECK-LABEL:   func.func private @test_ptr_add_with_const_offset(
-// CHECK-SAME:      %[[PTR:.*]]: !amdgcn.vgpr<[? + 2]>, %[[OFF:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
-// CHECK:           %[[RES:.*]] = amdgcn.ptr_add %[[PTR]] d_off = %[[OFF]] c_off = 16 : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr
-// CHECK:           return %[[RES]] : !amdgcn.vgpr<[? + 2]>
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]> {
+// CHECK:           %[[PTR_ADD_0:.*]] = amdgcn.ptr_add %[[ARG0]] c_off = 16 : !amdgcn.vgpr<[? + 2]>
+// CHECK:           return %[[PTR_ADD_0]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
 func.func private @test_ptr_add_with_const_offset(
-    %ptr: !ptr.ptr<#ptr.generic_space>, %offset: i64) -> !ptr.ptr<#ptr.generic_space>
-    attributes {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} {
-  %0 = aster_utils.ptr_add %ptr, %offset const_offset = 16 : <#ptr.generic_space>, i64
-  return {abi = (!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]>} %0 : !ptr.ptr<#ptr.generic_space>
+    %ptr: !ptr.ptr<#ptr.generic_space>) -> !ptr.ptr<#ptr.generic_space>
+    attributes {abi = (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>} {
+  %c16 = arith.constant 16 : i64
+  %0 = ptr.ptr_add %ptr, %c16 : !ptr.ptr<#ptr.generic_space>, i64
+  return {abi = (!amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]>} %0 : !ptr.ptr<#ptr.generic_space>
 }

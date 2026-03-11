@@ -16,6 +16,7 @@
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Ptr/IR/PtrEnums.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/PatternMatch.h"
@@ -391,13 +392,20 @@ static void optimizePtrAddOp(IRRewriter &rewriter, ptr::PtrAddOp op,
 
   // Create the optimized ptr_add operation.
   // Save flags before replaceOpWithNewOp erases op.
-  auto flags = op.getFlags();
-  auto constOffsetAttr =
-      rewriter.getIntegerAttr(rewriter.getI64Type(), constOffsetVal);
-  auto newOp = rewriter.replaceOpWithNewOp<aster_utils::PtrAddOp>(
-      op, op.getResult().getType(), op.getBase(), dynamicOffset, uniformOffset,
-      constOffsetAttr);
-  newOp.setFlags(flags);
+  ptr::PtrAddFlags flags = op.getFlags();
+
+  // Build the decomposed ptr_add operations.
+  Value result = op.getBase();
+  if (uniformOffset)
+    result = ptr::PtrAddOp::create(rewriter, loc, result, uniformOffset, flags);
+  if (dynamicOffset)
+    result = ptr::PtrAddOp::create(rewriter, loc, result, dynamicOffset, flags);
+  if (constOffsetVal != 0) {
+    auto constOffset =
+        arith::ConstantIntOp::create(rewriter, loc, offsetType, constOffsetVal);
+    result = ptr::PtrAddOp::create(rewriter, loc, result, constOffset, flags);
+  }
+  rewriter.replaceOp(op, result);
 }
 
 //===----------------------------------------------------------------------===//

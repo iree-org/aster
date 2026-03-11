@@ -98,9 +98,11 @@ func.func @test_load_const_only(%arg0: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr {
 // No update: constant offset exceeds limit (4096). ptr_add remains unchanged.
 // CHECK-LABEL:   func.func @test_load_large_const_no_fold(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr {
-// CHECK:           %[[PTR_ADD_0:.*]] = amdgcn.ptr_add %[[ARG0]] c_off = 5000 : !amdgcn.sgpr<[? + 2]>
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 5000 : i32
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_0]] addr %[[PTR_ADD_0]] : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[MOV_0:.*]] = lsir.mov %[[ALLOCA_1]], %[[CONSTANT_0]] : !amdgcn.vgpr, i32
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_0]] addr %[[ARG0]] offset d(%[[MOV_0]]) : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.read_token<flat>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr
 // CHECK:         }
 func.func @test_load_large_const_no_fold(%arg0: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr {
@@ -113,10 +115,12 @@ func.func @test_load_large_const_no_fold(%arg0: !amdgcn.sgpr<[? + 2]>) -> !amdgc
 // No update: merged constant would exceed limit (4096 + 8 = 4104).
 // CHECK-LABEL:   func.func @test_load_merge_exceeds_limit(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 8 : i32
-// CHECK:           %[[PTR_ADD_0:.*]] = amdgcn.ptr_add %[[ARG0]] c_off = 4096 : !amdgcn.sgpr<[? + 2]>
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4096 : i32
+// CHECK:           %[[CONSTANT_1:.*]] = arith.constant 8 : i32
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_0]] addr %[[PTR_ADD_0]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, i32) -> !amdgcn.read_token<flat>
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[MOV_0:.*]] = lsir.mov %[[ALLOCA_1]], %[[CONSTANT_0]] : !amdgcn.vgpr, i32
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_0]] addr %[[ARG0]] offset d(%[[MOV_0]]) + c(%[[CONSTANT_1]]) : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.read_token<flat>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr
 // CHECK:         }
 func.func @test_load_merge_exceeds_limit(%arg0: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr {
@@ -142,12 +146,14 @@ func.func @test_load_boundary_4095(%arg0: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr
   return %dest_res : !amdgcn.vgpr
 }
 
-// Boundary: 4096 overflows 13-bit signed offset, must NOT fold.
+// Boundary: 4096 overflows 13-bit signed offset.
 // CHECK-LABEL:   func.func @test_load_boundary_4096(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr {
-// CHECK:           %[[PTR_ADD_0:.*]] = amdgcn.ptr_add %[[ARG0]] c_off = 4096 : !amdgcn.sgpr<[? + 2]>
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 4096 : i32
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_0]] addr %[[PTR_ADD_0]] : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[MOV_0:.*]] = lsir.mov %[[ALLOCA_1]], %[[CONSTANT_0]] : !amdgcn.vgpr, i32
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_0]] addr %[[ARG0]] offset d(%[[MOV_0]]) : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.read_token<flat>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr
 // CHECK:         }
 func.func @test_load_boundary_4096(%arg0: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr {
