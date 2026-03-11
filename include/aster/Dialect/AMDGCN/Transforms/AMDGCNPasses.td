@@ -209,6 +209,7 @@ def PreloadLibrary : Pass<"amdgcn-preload-library", "mlir::ModuleOp"> {
     "mlir::func::FuncDialect",
     "mlir::gpu::GPUDialect",
     "mlir::memref::MemRefDialect",
+    "mlir::ptr::PtrDialect",
     "mlir::scf::SCFDialect"
   ];
   let options = [

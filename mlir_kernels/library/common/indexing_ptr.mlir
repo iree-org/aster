@@ -3,7 +3,9 @@
 // Offset computation stays as index for composability; @index_to_vgpr_i32
 // converts the final result to a 32-bit !v for amdgcn.ptr_add or LDS addr.
 
+!s = !amdgcn.sgpr
 !sx2 = !amdgcn.sgpr<[? + 2]>
+!sx4 = !amdgcn.sgpr<[? + 4]>
 !v = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr<[? + 2]>
 !gptr = !ptr.ptr<#ptr.generic_space>
@@ -53,5 +55,18 @@ amdgcn.library @common_indexing_ptr {
     %addr_ptr = ptr.ptr_add %gptr, %off_i32 : !gptr, i32
     %addr = lsir.to_reg %addr_ptr : !gptr -> !vx2
     return %addr : !vx2
+  }
+
+  // Construct a raw buffer resource descriptor (SRD) from an SGPR base pointer.
+  // Uses stride=0 (raw/OFFEN mode) and num_records=0xFFFFFFFF (no bounds check).
+  // flags=131072 (0x20000) sets DATA_FORMAT=4 (32-bit), required for GFX9 buffer ops.
+  func.func private @make_raw_buffer_rsrc(%base: !sx2) -> !sx4 {
+    %max_bytes = arith.constant -1 : i32
+    %num_records = lsir.to_reg %max_bytes : i32 -> !s
+    %c0_stride = arith.constant 0 : i32
+    %rsrc = amdgcn.make_buffer_rsrc %base, %num_records, %c0_stride,
+      cache_swizzle = false, swizzle_enable = false, flags = 131072
+      : (!sx2, !s, i32) -> !sx4
+    return %rsrc : !sx4
   }
 }
