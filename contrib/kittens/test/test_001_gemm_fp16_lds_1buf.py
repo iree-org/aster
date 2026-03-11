@@ -1,4 +1,4 @@
-"""Test: Double-buffer LDS GEMM with AGPR accumulators (lds_16x32 tiles).
+"""Test: Single-buffer LDS GEMM with AGPR accumulators (lds_16x32 tiles).
 
 Uses lds_16x32_f16.mlir: dwordx4 global loads, XOR-swizzled LDS.
 Each 16x32 tile covers K=32, yielding 2 MFMA K-steps per iteration.
@@ -16,12 +16,12 @@ from kittens_helpers import (
 )
 
 
-class TestKittensGEMMLDS2Buffer_AGPR:
-    """Test GEMM with double-buffer LDS (16x32 tiles) + AGPR accumulators."""
+class TestKittensGEMMLDS1Buffer_AGPR:
+    """Test GEMM with single-buffer LDS (16x32 tiles) + AGPR accumulators."""
 
     @pytest.mark.parametrize("k", [32, 64, 128])
-    def test_gemm_lds_2buf(self, k):
-        """GEMM with double-buffer LDS + AGPR should match reference."""
+    def test_gemm_lds_1buf(self, k):
+        """GEMM with single-buffer LDS + AGPR should match reference."""
         k_tiles = k // 32
         stride_ab = k * 2
 
@@ -31,8 +31,8 @@ class TestKittensGEMMLDS2Buffer_AGPR:
         C_output = np.zeros(16 * 16, dtype=np.float32)
 
         run_kittens_kernel(
-            mlir_file=get_mlir_file("test_010_gemm_fp16_lds_2buf.mlir"),
-            kernel_name="gemm_16x16xK_lds_2buf",
+            mlir_file=get_mlir_file("test_001_gemm_fp16_lds_1buf.mlir"),
+            kernel_name="gemm_16x16xK_lds_1buf",
             input_args=[A.flatten(), B.flatten()],
             output_args=[C_output],
             pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,

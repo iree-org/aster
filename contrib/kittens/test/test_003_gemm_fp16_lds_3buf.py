@@ -1,4 +1,8 @@
-"""Test: 2-wave GEMM with LDS (XOR swizzle) + AGPR accumulators."""
+"""Test: Triple-buffer LDS GEMM with AGPR accumulators (lds_16x32 tiles).
+
+Uses lds_16x32_f16.mlir: dwordx4 global loads, XOR-swizzled LDS.
+Each 16x32 tile covers K=32, yielding 2 MFMA K-steps per iteration.
+"""
 
 import numpy as np
 import pytest
@@ -12,36 +16,26 @@ from kittens_helpers import (
 )
 
 
-class TestKittensGEMM2WaveLDS_AGPR:
-    """Test 2-wave GEMM with LDS + AGPR: C[32x16] = A[32xK] @ B[16xK]^T.
-
-    Mirrors TestKittensGEMM2WaveLDS but uses AGPR accumulators and
-    fire-and-forget store (no write_token).
-
-    2x1 wave grid with LDS (XOR swizzle):
-      - Each wave loads its own A tile into per-wave LDS buffer
-      - Both waves redundantly load shared B tile
-      - s_barrier synchronizes before LDS reads
-    """
+class TestKittensGEMMLDS3Buffer_AGPR:
+    """Test GEMM with triple-buffer LDS (16x32 tiles) + AGPR accumulators."""
 
     @pytest.mark.parametrize("k", [32, 64, 128])
-    def test_gemm_2wave_lds(self, k):
-        """2-wave LDS GEMM with AGPR should compute C = A @ B^T correctly."""
+    def test_gemm_lds_3buf(self, k):
+        """GEMM with triple-buffer LDS + AGPR should match reference."""
         k_tiles = k // 32
         stride_ab = k * 2
 
         np.random.seed(42 + k)
-        A = (np.random.randn(32, k) * 0.1).astype(np.float16)
+        A = (np.random.randn(16, k) * 0.1).astype(np.float16)
         B = (np.random.randn(16, k) * 0.1).astype(np.float16)
-        C_output = np.zeros(32 * 16, dtype=np.float32)
+        C_output = np.zeros(16 * 16, dtype=np.float32)
 
         run_kittens_kernel(
-            mlir_file=get_mlir_file("test_013_gemm_fp16_2wave_lds.mlir"),
-            kernel_name="gemm_2wave_lds",
+            mlir_file=get_mlir_file("test_003_gemm_fp16_lds_3buf.mlir"),
+            kernel_name="gemm_16x16xK_lds_3buf",
             input_args=[A.flatten(), B.flatten()],
             output_args=[C_output],
             pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
-            block_dim=(128, 1, 1),
             template_substitutions={
                 "{{K}}": str(k),
                 "{{K_TILES}}": str(k_tiles),

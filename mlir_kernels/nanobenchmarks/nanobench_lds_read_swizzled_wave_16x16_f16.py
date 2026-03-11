@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Nanobenchmark for @lds_read_swizzled_wave_16x16xf16_fragment_wait."""
+"""Nanobenchmark for @lds_read_swizzled_wave_16x16_f16_fragment_wait."""
 
 import argparse
 import os
@@ -13,21 +13,21 @@ from utils import (
     print_per_call_stats,
 )
 
-KERNEL_NAME = "nanobench_lds_read_swizzled_wave_16x16xf16"
+KERNEL_NAME = "nanobench_lds_read_swizzled_wave_16x16_f16"
 LDS_SIZE = 16384
 CALLS_PER_ITER = 4 * 8  # II=4, JJ=8
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Nanobenchmark for LDS read swizzled wave 16x16xf16 fragment"
+        description="Nanobenchmark for LDS read swizzled wave 16x16_f16 fragment"
     )
     add_common_args(parser)
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     mlir_file = os.path.join(
-        script_dir, "nanobench_lds_read_swizzled_wave_16x16xf16.mlir"
+        script_dir, "nanobench_lds_read_swizzled_wave_16x16_f16.mlir"
     )
 
     def preprocess(x):
@@ -41,7 +41,7 @@ def main():
         kernel_name=KERNEL_NAME,
         mlir_file=mlir_file,
         pass_pipeline=NANOBENCH_PASS_PIPELINE,
-        description="LDS read swizzled wave 16x16xf16 benchmark",
+        description="LDS read swizzled wave 16x16_f16 benchmark",
         num_blocks=args.num_blocks,
         num_threads=WAVEFRONT_SIZE,
         num_iters=args.num_iters,

@@ -43,7 +43,7 @@ def analyze_bank_conflicts(banks, title=""):
 class TestLdsBanks:
     """Test LDS bank computation functions for debugging bank conflicts."""
 
-    def test_lds_banks_A_16x16xf16(self):
+    def test_lds_banks_A_16x16_f16(self):
         """Test banks for non-swizzled MFMA A matrix pattern."""
         num_threads = 64
         grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
@@ -51,7 +51,7 @@ class TestLdsBanks:
         output = np.zeros(num_threads * 4, dtype=np.int32)
         compile_and_run(
             "test_lds_banks.mlir",
-            "test_lds_banks_A_16x16xf16",
+            "test_lds_banks_A_16x16_f16",
             output_data=output,
             grid_dim=grid_dim,
             block_dim=block_dim,
@@ -81,16 +81,16 @@ class TestLdsBanks:
         # fmt: on
         np.testing.assert_array_equal(banks, expected, "Non-swizzled bank mismatch")
 
-        analyze_bank_conflicts(banks, "Non-swizzled MFMA A 16x16xf16 (b64)")
+        analyze_bank_conflicts(banks, "Non-swizzled MFMA A 16x16_f16 (b64)")
 
-    def test_lds_banks_swizzled_A_16x16xf16(self):
+    def test_lds_banks_swizzled_A_16x16_f16(self):
         """Test banks for swizzled MFMA A matrix pattern."""
         num_threads = 64
         grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads * 4, dtype=np.int32)
         compile_and_run(
             "test_lds_banks.mlir",
-            "test_lds_banks_swizzled_A_16x16xf16",
+            "test_lds_banks_swizzled_A_16x16_f16",
             output_data=output,
             grid_dim=grid_dim,
             block_dim=block_dim,
@@ -127,7 +127,7 @@ class TestLdsBanks:
         # fmt: on
         np.testing.assert_array_equal(banks, expected, "Swizzled bank mismatch")
 
-        analyze_bank_conflicts(banks, "Swizzled MFMA A 16x16xf16 (b64)")
+        analyze_bank_conflicts(banks, "Swizzled MFMA A 16x16_f16 (b64)")
 
 
 if __name__ == "__main__":

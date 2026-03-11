@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Nanobenchmark for @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait."""
+"""Nanobenchmark for @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait."""
 
 import argparse
 import os

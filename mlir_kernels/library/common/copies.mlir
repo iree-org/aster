@@ -393,7 +393,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
 // Wave-level, single global load (TODO: store) instruction, parameterizable by
 // !tensor_position_descriptor_2level_2d and !transfer_descriptor_2d.
 //
-// Allows moving 128xf16, 256xf16, 384xf16, 512xf16 via (resp.) dword, x2, x3, x4
+// Allows moving 128_f16, 256_f16, 384_f16, 512_f16 via (resp.) dword, x2, x3, x4
 // as a 2-D matrix with num_rows defined by !transfer_descriptor_2d.
 //===-----------------------------------------------------------------------===//
 amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<cdna3>] {
@@ -406,9 +406,9 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
-  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
-  func.func private @mfma_index_A_16x16xf16() -> !index_pair
-  func.func private @mfma_index_C_16x16xf32() -> !index_pair
+  func.func private @swizzled_mfma_index_16_f16(!index_pair) -> !index_pair
+  func.func private @mfma_index_A_16x16_f16() -> !index_pair
+  func.func private @mfma_index_C_16x16_f32() -> !index_pair
   // From above library.
   func.func private @store_to_global_dword_wait(%value: !v, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx2_wait(%value: !vx2, %pos_desc: !tensor_position_descriptor_2d) -> ()
@@ -417,7 +417,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
 
   //===--------------------------------------------------------------------===//
   // Global loads 2-level 2d tiles w/ internal reshape
-  //   128xf16, 256xf16, 384xf16, 512xf16 via dword, dwordx2, dwordx3, dwordx4
+  //   128_f16, 256_f16, 384_f16, 512_f16 via dword, dwordx2, dwordx3, dwordx4
   // (wait, nowait and future variants)
   //===--------------------------------------------------------------------===//
   // Loads from global memory to VGPRs cooperatively across a wave.
@@ -443,9 +443,9 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
   //   Each thread loads transfer_size bytes at position (lane / num_cols, lane % num_cols)
   //
   // Example: wave_size=64, elt_size=2 (f16), transfer_size=8 (dwordx2):
-  //   num_rows= 1: 1x64 threads, each loads 4xf16 → tile is  1x256xf16
-  //   num_rows=16: 16x4 threads, each loads 4xf16 → tile is 16x16xf16
-  //   num_rows=64: 64x1 threads, each loads 4xf16 → tile is 64x4xf16
+  //   num_rows= 1: 1x64 threads, each loads 4_f16 → tile is  1x256_f16
+  //   num_rows=16: 16x4 threads, each loads 4_f16 → tile is 16x16_f16
+  //   num_rows=64: 64x1 threads, each loads 4_f16 → tile is 64x4_f16
   //
   // Choosing num_rows for coalescing:
   //   - num_rows=1: best when global_stride_in_bytes >= wave_size * transfer_size
@@ -539,7 +539,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
 
   // Wait variants - call future variant and wait via s_waitcnt (no amdgcn-convert-waits for now)
   // TODO: use only amdgcn-convert-waits pass
-  func.func private @global_load_wave_128xf16_via_dword_wait(
+  func.func private @global_load_wave_128_f16_via_dword_wait(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !vx1 {
@@ -550,7 +550,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
     return %res : !vx1
   }
 
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(
+  func.func private @global_load_wave_256_f16_via_dwordx2_wait(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !vx2 {
@@ -561,7 +561,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
     return %res : !vx2
   }
 
-  func.func private @global_load_wave_384xf16_via_dwordx3_wait(
+  func.func private @global_load_wave_384_f16_via_dwordx3_wait(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !vx3 {
@@ -572,7 +572,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
     return %res : !vx3
   }
 
-  func.func private @global_load_wave_512xf16_via_dwordx4_wait(
+  func.func private @global_load_wave_512_f16_via_dwordx4_wait(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !vx4 {
@@ -585,7 +585,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
 
   // Token-returning variants for explicit wait control.
   // These return the future directly, allowing callers to use amdgcn.wait.
-  func.func private @global_load_wave_128xf16_via_dword_future(
+  func.func private @global_load_wave_128_f16_via_dword_future(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !future_global_read_any {
@@ -593,7 +593,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
     return %future : !future_global_read_any
   }
 
-  func.func private @global_load_wave_256xf16_via_dwordx2_future(
+  func.func private @global_load_wave_256_f16_via_dwordx2_future(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !future_global_read_any {
@@ -601,7 +601,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
     return %future : !future_global_read_any
   }
 
-  func.func private @global_load_wave_384xf16_via_dwordx3_future(
+  func.func private @global_load_wave_384_f16_via_dwordx3_future(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !future_global_read_any {
@@ -609,7 +609,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
     return %future : !future_global_read_any
   }
 
-  func.func private @global_load_wave_512xf16_via_dwordx4_future(
+  func.func private @global_load_wave_512_f16_via_dwordx4_future(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !future_global_read_any {
@@ -619,7 +619,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
 
   // Legacy nowait variants (return value only, token discarded).
   // Prefer _future variants for explicit wait control.
-  func.func private @global_load_wave_128xf16_via_dword_nowait(
+  func.func private @global_load_wave_128_f16_via_dword_nowait(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !vx1 {
@@ -630,7 +630,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
     return %res : !vx1
   }
 
-  func.func private @global_load_wave_256xf16_via_dwordx2_nowait(
+  func.func private @global_load_wave_256_f16_via_dwordx2_nowait(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !vx2 {
@@ -641,7 +641,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
     return %res : !vx2
   }
 
-  func.func private @global_load_wave_384xf16_via_dwordx3_nowait(
+  func.func private @global_load_wave_384_f16_via_dwordx3_nowait(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !vx3 {
@@ -652,7 +652,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
     return %res : !vx3
   }
 
-  func.func private @global_load_wave_512xf16_via_dwordx4_nowait(
+  func.func private @global_load_wave_512_f16_via_dwordx4_nowait(
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d
   ) -> !vx4 {
@@ -668,8 +668,8 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
 // Wave-level, single LDS read instruction for MFMA fragment layouts,
 // parameterizable by !lds_position_descriptor_2d and %transposed flag.
 //
-// Reads 16x16xf16 tiles via ds_read_b64 into MFMA "A" fragment layout.
-// Thread mapping follows @mfma_index_A_16x16xf16(); %transposed swaps row/col.
+// Reads 16x16_f16 tiles via ds_read_b64 into MFMA "A" fragment layout.
+// Thread mapping follows @mfma_index_A_16x16_f16(); %transposed swaps row/col.
 //===-----------------------------------------------------------------------===//
 amdgcn.library @single_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From register-init.mlir
@@ -681,23 +681,23 @@ amdgcn.library @single_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
-  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
-  func.func private @mfma_index_A_16x16xf16() -> !index_pair
-  func.func private @mfma_index_C_16x16xf32() -> !index_pair
+  func.func private @swizzled_mfma_index_16_f16(!index_pair) -> !index_pair
+  func.func private @mfma_index_A_16x16_f16() -> !index_pair
+  func.func private @mfma_index_C_16x16_f32() -> !index_pair
   // From above library.
   func.func private @store_to_global_dword_wait(%value: !v, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx2_wait(%value: !vx2, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx3_wait(%value: !vx3, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx4_wait(%value: !vx4, %pos_desc: !tensor_position_descriptor_2d) -> ()
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc: !tensor_position_descriptor_2level_2d, %transfer_desc: !transfer_descriptor_2d) -> !vx2
+  func.func private @global_load_wave_256_f16_via_dwordx2_wait(%pos_desc: !tensor_position_descriptor_2level_2d, %transfer_desc: !transfer_descriptor_2d) -> !vx2
 
   //===--------------------------------------------------------------------===//
   // MFMA fragment A ds_read 2-level 2d tiles w/ internal reshape
-  //   16x16xf16 via ds_read_b64
+  //   16x16_f16 via ds_read_b64
   // (wait and future variants)
   //===--------------------------------------------------------------------===//
-  // Reads a 16x16xf16 tile from LDS into MFMA "A" fragment layout in VGPRs.
-  // Each thread reads 4xf16 (8 bytes) via ds_read_b64, totaling 256 f16 elements
+  // Reads a 16x16_f16 tile from LDS into MFMA "A" fragment layout in VGPRs.
+  // Each thread reads 4_f16 (8 bytes) via ds_read_b64, totaling 256 f16 elements
   // across 64 threads.
   //
   // Parameters from !lds_position_descriptor_2d:
@@ -710,16 +710,16 @@ amdgcn.library @single_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn
   //   - false: standard A matrix layout (row-major access)
   //   - true: transposed layout (column-major access, for B matrix as A^T)
   //
-  // Thread mapping follows MFMA 16x16 layout from @mfma_index_A_16x16xf16():
-  //   Each thread's (mm_pos, nn_pos) determines its 4xf16 slice within the tile.
+  // Thread mapping follows MFMA 16x16 layout from @mfma_index_A_16x16_f16():
+  //   Each thread's (mm_pos, nn_pos) determines its 4_f16 slice within the tile.
   //
   // Returns a future containing the loaded !vx2 value and read token.
-  func.func private @lds_read_A_wave_16x16xf16_fragment_impl(
+  func.func private @lds_read_A_wave_16x16_f16_fragment_impl(
     %pos_desc: !lds_position_descriptor_2d, %transposed: i1
   ) -> !future_lds_read_any {
     %lds_base, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["lds_base", "m_pos", "n_pos", "lds_stride_in_bytes", "elt_size"] : !lds_position_descriptor_2d -> index, index, index, index, index
     // Compute the MFMA positions
-    %mfma_idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
+    %mfma_idx = func.call @mfma_index_A_16x16_f16() : () -> !index_pair
     %mm_pos_raw, %nn_pos_raw = aster_utils.struct_extract %mfma_idx ["i", "j"] : !index_pair -> index, index
     %mm_pos, %nn_pos = scf.if %transposed -> (index, index) {
       scf.yield %nn_pos_raw, %mm_pos_raw : index, index
@@ -739,15 +739,15 @@ amdgcn.library @single_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn
     return %future : !future_lds_read_any
   }
 
-  // Read the `A` fragment (16x16xf16) from LDS to VGPRs, in a **synchronized
+  // Read the `A` fragment (16x16_f16) from LDS to VGPRs, in a **synchronized
   // fashion** (i.e. waitcnt 0 is inserted after the ds_read).
   // Wait variants - call future variant and wait via s_waitcnt (no amdgcn-convert-waits for now)
   // TODO: use only amdgcn-convert-waits pass
-  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
+  func.func private @lds_read_A_wave_16x16_f16_fragment_wait(
     %pos_desc: !lds_position_descriptor_2d,
     %transposed: i1
   ) -> !vx2 {
-    %future = func.call @lds_read_A_wave_16x16xf16_fragment_impl(%pos_desc, %transposed) : (!lds_position_descriptor_2d, i1) -> !future_lds_read_any
+    %future = func.call @lds_read_A_wave_16x16_f16_fragment_impl(%pos_desc, %transposed) : (!lds_position_descriptor_2d, i1) -> !future_lds_read_any
     %loaded, %token = aster_utils.struct_extract %future ["value", "token"] : !future_lds_read_any -> !aster_utils.any, !amdgcn.read_token<shared>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     %res = aster_utils.from_any %loaded : !vx2
@@ -756,11 +756,11 @@ amdgcn.library @single_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn
 
   // Token-returning variant for explicit wait control.
   // Returns the future directly, allowing callers to use amdgcn.wait.
-  func.func private @lds_read_A_wave_16x16xf16_fragment_future(
+  func.func private @lds_read_A_wave_16x16_f16_fragment_future(
     %pos_desc: !lds_position_descriptor_2d,
     %transposed: i1
   ) -> !future_lds_read_any {
-    %future = func.call @lds_read_A_wave_16x16xf16_fragment_impl(%pos_desc, %transposed) : (!lds_position_descriptor_2d, i1) -> !future_lds_read_any
+    %future = func.call @lds_read_A_wave_16x16_f16_fragment_impl(%pos_desc, %transposed) : (!lds_position_descriptor_2d, i1) -> !future_lds_read_any
     return %future : !future_lds_read_any
   }
 
@@ -770,8 +770,8 @@ amdgcn.library @single_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn
 // Wave-level, single LDS read instruction for swizzled MFMA fragment layouts,
 // parameterizable by !lds_position_descriptor_2d.
 //
-// Reads 16x16xf16 tiles via ds_read_b64 with XOR swizzling to reduce bank conflicts.
-// Thread mapping: @mfma_index_A_16x16xf16() → @swizzled_mfma_index_16xf16().
+// Reads 16x16_f16 tiles via ds_read_b64 with XOR swizzling to reduce bank conflicts.
+// Thread mapping: @mfma_index_A_16x16_f16() → @swizzled_mfma_index_16_f16().
 //===-----------------------------------------------------------------------===//
 amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From register-init.mlir
@@ -783,23 +783,23 @@ amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa =
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
-  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
-  func.func private @mfma_index_A_16x16xf16() -> !index_pair
-  func.func private @mfma_index_C_16x16xf32() -> !index_pair
+  func.func private @swizzled_mfma_index_16_f16(!index_pair) -> !index_pair
+  func.func private @mfma_index_A_16x16_f16() -> !index_pair
+  func.func private @mfma_index_C_16x16_f32() -> !index_pair
   // From above library.
   func.func private @store_to_global_dword_wait(%value: !v, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx2_wait(%value: !vx2, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx3_wait(%value: !vx3, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx4_wait(%value: !vx4, %pos_desc: !tensor_position_descriptor_2d) -> ()
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc: !tensor_position_descriptor_2level_2d, %transfer_desc: !transfer_descriptor_2d) -> !vx2
+  func.func private @global_load_wave_256_f16_via_dwordx2_wait(%pos_desc: !tensor_position_descriptor_2level_2d, %transfer_desc: !transfer_descriptor_2d) -> !vx2
 
   //===--------------------------------------------------------------------===//
   // Swizzled MFMA fragment A ds_read 2-level 2d tiles w/ internal reshape
-  //   16x16xf16 via ds_read_b64
+  //   16x16_f16 via ds_read_b64
   // (wait and future variants)
   //===--------------------------------------------------------------------===//
-  // Reads a 16x16xf16 tile from LDS into MFMA "A" fragment layout with XOR swizzling.
-  // Each thread reads 4xf16 (8 bytes) via ds_read_b64, totaling 256 f16 elements
+  // Reads a 16x16_f16 tile from LDS into MFMA "A" fragment layout with XOR swizzling.
+  // Each thread reads 4_f16 (8 bytes) via ds_read_b64, totaling 256 f16 elements
   // across 64 threads.
   //
   // Parameters from !lds_position_descriptor_2d:
@@ -808,22 +808,22 @@ amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa =
   //   - lds_stride_in_bytes: row stride in LDS
   //   - elt_size: element size in bytes (2 for f16)
   //
-  // Swizzling is applied via @swizzled_mfma_index_16xf16() to reduce LDS
+  // Swizzling is applied via @swizzled_mfma_index_16_f16() to reduce LDS
   // bank conflicts. The swizzle pattern XORs row bits into column bits, spreading
   // thread accesses across different banks.
   //
-  // Thread mapping: @mfma_index_A_16x16xf16() → @swizzled_mfma_index_16xf16()
-  //   Each thread's swizzled (row, col) determines its 4xf16 slice within the tile.
+  // Thread mapping: @mfma_index_A_16x16_f16() → @swizzled_mfma_index_16_f16()
+  //   Each thread's swizzled (row, col) determines its 4_f16 slice within the tile.
   //
   // Returns a future containing the loaded !vx2 value and read token.
-  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_impl(
+  func.func private @lds_read_swizzled_wave_16x16_f16_fragment_impl(
     %pos_desc: !lds_position_descriptor_2d
   ) -> !future_lds_read_any {
     %lds_base, %m_pos, %n_pos, %LDS_STRIDE_IN_BYTES, %elt_size = aster_utils.struct_extract %pos_desc ["lds_base", "m_pos", "n_pos", "lds_stride_in_bytes", "elt_size"] : !lds_position_descriptor_2d -> index, index, index, index, index
 
     // Apply A-matrix swizzle
-    %mfma_idx_A = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
-    %swizzled_idx = func.call @swizzled_mfma_index_16xf16(%mfma_idx_A) : (!index_pair) -> !index_pair
+    %mfma_idx_A = func.call @mfma_index_A_16x16_f16() : () -> !index_pair
+    %swizzled_idx = func.call @swizzled_mfma_index_16_f16(%mfma_idx_A) : (!index_pair) -> !index_pair
     %swizzled_row, %swizzled_col = aster_utils.struct_extract %swizzled_idx ["i", "j"] : !index_pair -> index, index
     %desc = aster_utils.struct_create(%m_pos, %n_pos, %swizzled_row, %swizzled_col, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index, index) -> !index_descriptor_2level_2d
     %off_lds = func.call @tiled_matrix_offset(%desc) : (!index_descriptor_2level_2d) -> !v
@@ -837,14 +837,14 @@ amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa =
     return %future : !future_lds_read_any
   }
 
-  // Read the `A` fragment (16x16xf16) from LDS to VGPRs with swizzling, in a
+  // Read the `A` fragment (16x16_f16) from LDS to VGPRs with swizzling, in a
   // **synchronized fashion** (i.e. waitcnt 0 is inserted after the ds_read).
   // Wait variants - call future variant and wait via s_waitcnt (no amdgcn-convert-waits for now)
   // TODO: use only amdgcn-convert-waits pass
-  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(
+  func.func private @lds_read_swizzled_wave_16x16_f16_fragment_wait(
     %pos_desc: !lds_position_descriptor_2d
   ) -> !vx2 {
-    %future = func.call @lds_read_swizzled_wave_16x16xf16_fragment_impl(%pos_desc) : (!lds_position_descriptor_2d) -> !future_lds_read_any
+    %future = func.call @lds_read_swizzled_wave_16x16_f16_fragment_impl(%pos_desc) : (!lds_position_descriptor_2d) -> !future_lds_read_any
     %loaded, %token = aster_utils.struct_extract %future ["value", "token"] : !future_lds_read_any -> !aster_utils.any, !amdgcn.read_token<shared>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     %res = aster_utils.from_any %loaded : !vx2
@@ -853,10 +853,10 @@ amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa =
 
   // Token-returning variant for explicit wait control.
   // Returns the future directly, allowing callers to use amdgcn.wait.
-  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_future(
+  func.func private @lds_read_swizzled_wave_16x16_f16_fragment_future(
     %pos_desc: !lds_position_descriptor_2d
   ) -> !future_lds_read_any {
-    %future = func.call @lds_read_swizzled_wave_16x16xf16_fragment_impl(%pos_desc) : (!lds_position_descriptor_2d) -> !future_lds_read_any
+    %future = func.call @lds_read_swizzled_wave_16x16_f16_fragment_impl(%pos_desc) : (!lds_position_descriptor_2d) -> !future_lds_read_any
     return %future : !future_lds_read_any
   }
 }
@@ -865,7 +865,7 @@ amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa =
 // Wave-level, single LDS write instruction, parameterizable by
 // !lds_position_descriptor_2level_2d and !transfer_descriptor_2d.
 //
-// Writes 256xf16 tiles via ds_write_b64 as a 2-D matrix with num_rows
+// Writes 256_f16 tiles via ds_write_b64 as a 2-D matrix with num_rows
 // defined by !transfer_descriptor_2d (typically matches producer global load).
 //===-----------------------------------------------------------------------===//
 amdgcn.library @single_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
@@ -878,19 +878,19 @@ amdgcn.library @single_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
-  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
-  func.func private @mfma_index_A_16x16xf16() -> !index_pair
-  func.func private @mfma_index_C_16x16xf32() -> !index_pair
+  func.func private @swizzled_mfma_index_16_f16(!index_pair) -> !index_pair
+  func.func private @mfma_index_A_16x16_f16() -> !index_pair
+  func.func private @mfma_index_C_16x16_f32() -> !index_pair
   // From above library.
   func.func private @store_to_global_dword_wait(%value: !v, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx2_wait(%value: !vx2, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx3_wait(%value: !vx3, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx4_wait(%value: !vx4, %pos_desc: !tensor_position_descriptor_2d) -> ()
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc: !tensor_position_descriptor_2level_2d, %transfer_desc: !transfer_descriptor_2d) -> !vx2
+  func.func private @global_load_wave_256_f16_via_dwordx2_wait(%pos_desc: !tensor_position_descriptor_2level_2d, %transfer_desc: !transfer_descriptor_2d) -> !vx2
 
   //===--------------------------------------------------------------------===//
   // LDS write 2-level 2d tiles w/ internal reshape
-  //   256xf16 via ds_write_b64
+  //   256_f16 via ds_write_b64
   // (wait and future variants)
   //===--------------------------------------------------------------------===//
   // Writes %value to LDS cooperatively across a wave, returning a write token.
@@ -915,14 +915,14 @@ amdgcn.library @single_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   //   Each thread writes transfer_size bytes at position (lane / num_cols, lane % num_cols)
   //
   // Example: wave_size=64, elt_size=2 (f16), transfer_size=8 (dwordx2):
-  //   num_rows= 1: 1x64 threads, each writes 4xf16 → tile is  1x256xf16
-  //   num_rows=16: 16x4 threads, each writes 4xf16 → tile is 16x16xf16
-  //   num_rows=64: 64x1 threads, each writes 4xf16 → tile is 64x4xf16
+  //   num_rows= 1: 1x64 threads, each writes 4_f16 → tile is  1x256_f16
+  //   num_rows=16: 16x4 threads, each writes 4_f16 → tile is 16x16_f16
+  //   num_rows=64: 64x1 threads, each writes 4_f16 → tile is 64x4_f16
   //
   // Typically num_rows should match the producer global load to preserve layout.
   //
   // Note: positions (mm_pos, nn_pos) are in element counts, not bytes.
-  func.func private @lds_write_wave_256xf16_via_dwordx2_impl(
+  func.func private @lds_write_wave_256_f16_via_dwordx2_impl(
     %pos_desc: !lds_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d,
     %value: !vx2                 // The value to write to LDS
@@ -955,24 +955,24 @@ amdgcn.library @single_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   // inserted after ds_write).
   // Wait variants - call future variant and wait via s_waitcnt (no amdgcn-convert-waits for now)
   // TODO: use only amdgcn-convert-waits pass
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
+  func.func private @lds_write_wave_256_f16_via_dwordx2_wait(
     %pos_desc: !lds_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d,
     %value: !vx2
   ) {
-    %_token = func.call @lds_write_wave_256xf16_via_dwordx2_impl(%pos_desc, %transfer_desc, %value) : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
+    %_token = func.call @lds_write_wave_256_f16_via_dwordx2_impl(%pos_desc, %transfer_desc, %value) : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
     return
   }
 
   // Token-returning variant for explicit wait control.
   // Returns the future directly, allowing callers to use amdgcn.wait.
-  func.func private @lds_write_wave_256xf16_via_dwordx2_future(
+  func.func private @lds_write_wave_256_f16_via_dwordx2_future(
     %pos_desc: !lds_position_descriptor_2level_2d,
     %transfer_desc: !transfer_descriptor_2d,
     %value: !vx2
   ) -> !future_lds_write {
-    %future = func.call @lds_write_wave_256xf16_via_dwordx2_impl(%pos_desc, %transfer_desc, %value) : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
+    %future = func.call @lds_write_wave_256_f16_via_dwordx2_impl(%pos_desc, %transfer_desc, %value) : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
     return %future : !future_lds_write
   }
 }
@@ -981,8 +981,8 @@ amdgcn.library @single_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
 // Wave-level, global store instruction for MFMA C fragment layouts,
 // parameterizable by !tensor_position_descriptor_2level_2d and %transposed flag.
 //
-// Stores 16x16xf32 MFMA "C" accumulator tiles via global_store_dword (4 per thread).
-// Thread mapping follows @mfma_index_C_16x16xf32(); %transposed swaps row/col.
+// Stores 16x16_f32 MFMA "C" accumulator tiles via global_store_dword (4 per thread).
+// Thread mapping follows @mfma_index_C_16x16_f32(); %transposed swaps row/col.
 //===-----------------------------------------------------------------------===//
 amdgcn.library @single_global_store_mfma_fragment_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From register-init.mlir
@@ -994,23 +994,23 @@ amdgcn.library @single_global_store_mfma_fragment_single_wave isa = [#amdgcn.isa
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
   func.func private @tiledx2_matrix_offset(!index_descriptor_3level_2d) -> !v
-  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
-  func.func private @mfma_index_A_16x16xf16() -> !index_pair
-  func.func private @mfma_index_C_16x16xf32() -> !index_pair
+  func.func private @swizzled_mfma_index_16_f16(!index_pair) -> !index_pair
+  func.func private @mfma_index_A_16x16_f16() -> !index_pair
+  func.func private @mfma_index_C_16x16_f32() -> !index_pair
   // From above library.
   func.func private @store_to_global_dword_wait(%value: !v, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx2_wait(%value: !vx2, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx3_wait(%value: !vx3, %pos_desc: !tensor_position_descriptor_2d) -> ()
   func.func private @store_to_global_dwordx4_wait(%value: !vx4, %pos_desc: !tensor_position_descriptor_2d) -> ()
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc: !tensor_position_descriptor_2level_2d, %transfer_desc: !transfer_descriptor_2d) -> !vx2
+  func.func private @global_load_wave_256_f16_via_dwordx2_wait(%pos_desc: !tensor_position_descriptor_2level_2d, %transfer_desc: !transfer_descriptor_2d) -> !vx2
 
   //===--------------------------------------------------------------------===//
   // MFMA fragment C global_store 2-level 2d tiles w/ internal reshape
-  //   16x16xf32 via global_store_dword (4 stores per thread)
+  //   16x16_f32 via global_store_dword (4 stores per thread)
   // (wait variant only)
   //===--------------------------------------------------------------------===//
-  // Stores a 16x16xf32 MFMA "C" accumulator fragment from VGPRs to global memory.
-  // Each thread stores 4xf32 (16 bytes) via 4 separate global_store_dword ops,
+  // Stores a 16x16_f32 MFMA "C" accumulator fragment from VGPRs to global memory.
+  // Each thread stores 4_f32 (16 bytes) via 4 separate global_store_dword ops,
   // totaling 256 f32 elements across 64 threads.
   //
   // Parameters:
@@ -1023,11 +1023,11 @@ amdgcn.library @single_global_store_mfma_fragment_single_wave isa = [#amdgcn.isa
   //     - elt_size: element size in bytes (4 for f32)
   //   %transposed: i1 - swaps row/col indexing for transposed output layout
   //
-  // Thread mapping follows MFMA 16x16 C layout from @mfma_index_C_16x16xf32():
+  // Thread mapping follows MFMA 16x16 C layout from @mfma_index_C_16x16_f32():
   //   Each thread's (mmm_pos, nnn_pos) + loop over 4 elements determines store positions.
   //
   // Synchronization: inserts s_waitcnt vmcnt=0 after all stores complete.
-  func.func private @global_store_wave_16x16xf32_C_fragment_wait(
+  func.func private @global_store_wave_16x16_f32_C_fragment_wait(
     %acc: !vx4,                     // The accumulator fragment to store
     %pos_desc: !tensor_position_descriptor_2level_2d,
     %transposed: i1                 // Whether to transpose the indexing
@@ -1050,7 +1050,7 @@ amdgcn.library @single_global_store_mfma_fragment_single_wave isa = [#amdgcn.isa
       memref.store %v3, %C_fragment[%c3] : memref<4x!v>
 
       // Compute the transposed MFMA positions.
-      %mfma_idx_C = func.call @mfma_index_C_16x16xf32() : () -> !index_pair
+      %mfma_idx_C = func.call @mfma_index_C_16x16_f32() : () -> !index_pair
       %nnn_pos, %mmm_pos = aster_utils.struct_extract %mfma_idx_C ["i", "j"] : !index_pair -> index, index
 
       // Calculate global j position
@@ -1074,7 +1074,7 @@ amdgcn.library @single_global_store_mfma_fragment_single_wave isa = [#amdgcn.isa
       } {aster.constexpr}
     } else {
       // Compute the MFMA positions
-      %mfma_idx_C2 = func.call @mfma_index_C_16x16xf32() : () -> !index_pair
+      %mfma_idx_C2 = func.call @mfma_index_C_16x16_f32() : () -> !index_pair
       %mmm_pos, %nnn_pos = aster_utils.struct_extract %mfma_idx_C2 ["i", "j"] : !index_pair -> index, index
 
       // Calculate global j position
@@ -1102,20 +1102,20 @@ amdgcn.library @single_global_store_mfma_fragment_single_wave isa = [#amdgcn.isa
 // Wave-level, global→LDS copy instruction, parameterizable by
 // !tensor_position_descriptor_2level_2d and LDS offset/stride.
 //
-// Copies 16x16xf16 tiles via dwordx2 global load + ds_write_b64.
+// Copies 16x16_f16 tiles via dwordx2 global load + ds_write_b64.
 // Fixed num_rows=16 layout preserving 16x16 tile shape; synchronized with waitcnt.
 //===-----------------------------------------------------------------------===//
 amdgcn.library @single_global_load_to_lds_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From copies.mlir (@common_copies)
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx2
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2)
+  func.func private @global_load_wave_256_f16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx2
+  func.func private @lds_write_wave_256_f16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2)
 
   //===--------------------------------------------------------------------===//
-  // Global load to LDS write: 16x16xf16 tile copy
+  // Global load to LDS write: 16x16_f16 tile copy
   // (wait variant only)
   //===--------------------------------------------------------------------===//
-  // Copies a 16x16xf16 tile from global memory to LDS within a single wave.
-  // Each thread loads/stores 4xf16 (8 bytes) via dwordx2, totaling 256 f16 elements
+  // Copies a 16x16_f16 tile from global memory to LDS within a single wave.
+  // Each thread loads/stores 4_f16 (8 bytes) via dwordx2, totaling 256 f16 elements
   // across 64 threads.
   //
   // Parameters:
@@ -1138,9 +1138,9 @@ amdgcn.library @single_global_load_to_lds_single_wave isa = [#amdgcn.isa<cdna3>]
     %transfer_size = arith.constant 8 : index // dwordx2 size in bytes
     %wave_size = arith.constant 64 : index    // 64 threads per wave
     %transfer_desc = aster_utils.struct_create(%num_rows, %transfer_size, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
-    %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
+    %loaded = func.call @global_load_wave_256_f16_via_dwordx2_wait(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
     %lds_pos_desc = aster_utils.struct_create(%lds_base_off, %mm_pos, %nn_pos, %LDS_STRIDE_IN_BYTES, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
-    func.call @lds_write_wave_256xf16_via_dwordx2_wait(%lds_pos_desc, %transfer_desc, %loaded)
+    func.call @lds_write_wave_256_f16_via_dwordx2_wait(%lds_pos_desc, %transfer_desc, %loaded)
       : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
     return
   }

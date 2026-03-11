@@ -23,7 +23,7 @@ def get_mlir_kernels_library_path(relative: str) -> str:
 
 
 def get_kittens_16x16_lds_library_paths() -> List[str]:
-    """Get paths for 16x16 MFMA with AGPR accumulators + 16x64b LDS (dwordx4, XOR swizzle).
+    """Get paths for 16x16 MFMA with AGPR accumulators + 16x64_b LDS (dwordx4, XOR swizzle).
 
     Uses global_16x64_b for dwordx4 global loads, lds_16x64_b for XOR-swizzled LDS
     transfers, and compute_16x16_f16 for AGPR MFMA and fire-and-forget C stores.

@@ -11,8 +11,8 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   //===--------------------------------------------------------------------===//
   // From indexing.mlir
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v
-  func.func private @mfma_index_A_16x16xf16() -> !index_pair
-  func.func private @swizzled_mfma_index_16xf16(!index_pair) -> !index_pair
+  func.func private @mfma_index_A_16x16_f16() -> !index_pair
+  func.func private @swizzled_mfma_index_16_f16(!index_pair) -> !index_pair
   func.func private @lds_banks_for_transfer(index, index) -> !index_tuple_8
   // From copies.mlir
   func.func private @store_to_global_dwordx4_wait(!vx4, !tensor_position_descriptor_2d)
@@ -23,7 +23,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // Test LDS banks for NON-swizzled MFMA A matrix pattern (for comparison).
   // Shows what banks would be accessed without swizzling.
-  amdgcn.kernel @test_lds_banks_A_16x16xf16 arguments <[
+  amdgcn.kernel @test_lds_banks_A_16x16_f16 arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32,
                  block_dims = array<i32: {{NUM_THREADS}}, 1, 1>,
@@ -37,7 +37,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[elt_size] -> (elt_size * 16)>()[%elt_size]
 
     // Get MFMA A indexing pattern WITHOUT swizzle
-    %idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
+    %idx = func.call @mfma_index_A_16x16_f16() : () -> !index_pair
     %row, %col = aster_utils.struct_extract %idx ["i", "j"] : !index_pair -> index, index
 
     // Compute byte address in LDS directly (no swizzle)
@@ -73,11 +73,11 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     amdgcn.end_kernel
   }
 
-  // Test LDS banks for swizzled MFMA A matrix pattern (16x16xf16).
+  // Test LDS banks for swizzled MFMA A matrix pattern (16x16_f16).
   // Each thread outputs 4 banks accessed by a dwordx2 (8-byte) load at its swizzled address.
   // Output layout: tid * 16 bytes -> [bank0, bank1, bank2, bank3] (4 x i32)
   // This helps debug bank conflicts in swizzled LDS access patterns.
-  amdgcn.kernel @test_lds_banks_swizzled_A_16x16xf16 arguments <[
+  amdgcn.kernel @test_lds_banks_swizzled_A_16x16_f16 arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32,
                  block_dims = array<i32: {{NUM_THREADS}}, 1, 1>,
@@ -93,10 +93,10 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[elt_size] -> (elt_size * 16)>()[%elt_size]
 
     // Get MFMA A indexing pattern: returns (row, col) for this lane
-    %idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
+    %idx = func.call @mfma_index_A_16x16_f16() : () -> !index_pair
 
     // Apply XOR swizzle to avoid bank conflicts
-    %swizzled_idx = func.call @swizzled_mfma_index_16xf16(%idx) : (!index_pair) -> !index_pair
+    %swizzled_idx = func.call @swizzled_mfma_index_16_f16(%idx) : (!index_pair) -> !index_pair
     %swizzled_row, %swizzled_col = aster_utils.struct_extract %swizzled_idx ["i", "j"] : !index_pair -> index, index
 
     // Compute byte address in LDS: address = m_pos=0, n_pos=0 + swizzled position

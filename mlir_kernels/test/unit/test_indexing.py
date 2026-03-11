@@ -297,20 +297,20 @@ class TestTiledx2MatrixOffset:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestMfmaIndexA16x16xf16:
-    """Test @mfma_index_A_16x16xf16 function."""
+class TestMfmaIndexA16x16_f16:
+    """Test @mfma_index_A_16x16_f16 function."""
 
-    def test_mfma_index_A_16x16xf16(self):
+    def test_mfma_index_A_16x16_f16(self):
         """MFMA indexing for A fragment.
 
-        That is, for each lane, the (row, col) to load 4xf16 (dwordx2) values of A.
+        That is, for each lane, the (row, col) to load 4_f16 (dwordx2) values of A.
         """
         num_threads = 64
         grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads * 2, dtype=np.int32).reshape(16, 4, 2)
         compile_and_run(
             "test_indexing.mlir",
-            "test_mfma_index_A_16x16xf16",
+            "test_mfma_index_A_16x16_f16",
             output_data=output,
             grid_dim=grid_dim,
             block_dim=block_dim,
@@ -334,20 +334,20 @@ class TestMfmaIndexA16x16xf16:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestMfmaIndexB16x16xf16:
-    """Test @mfma_index_B_16x16xf16 function."""
+class TestMfmaIndexB16x16_f16:
+    """Test @mfma_index_B_16x16_f16 function."""
 
-    def test_mfma_index_B_16x16xf16(self):
+    def test_mfma_index_B_16x16_f16(self):
         """MFMA indexing for B fragment.
 
-        That is, for each lane, the (row, col) to load 4xf16 (dwordx2) values of B.
+        That is, for each lane, the (row, col) to load 4_f16 (dwordx2) values of B.
         """
         num_threads = 64
         grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads * 2, dtype=np.int32).reshape(16, 4, 2)
         compile_and_run(
             "test_indexing.mlir",
-            "test_mfma_index_B_16x16xf16",
+            "test_mfma_index_B_16x16_f16",
             output_data=output,
             grid_dim=grid_dim,
             block_dim=block_dim,
@@ -371,20 +371,20 @@ class TestMfmaIndexB16x16xf16:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestMfmaIndexC16x16xf32:
-    """Test @mfma_index_C_16x16xf32 function."""
+class TestMfmaIndexC16x16_f32:
+    """Test @mfma_index_C_16x16_f32 function."""
 
-    def test_mfma_index_C_16x16xf32(self):
+    def test_mfma_index_C_16x16_f32(self):
         """MFMA indexing for C fragment.
 
-        That is, for each lane, the (row, col) to load 4xf32 (dwordx4) values of C.
+        That is, for each lane, the (row, col) to load 4_f32 (dwordx4) values of C.
         """
         num_threads = 64
         grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
         output = np.zeros(num_threads * 2, dtype=np.int32).reshape(16, 4, 2)
         compile_and_run(
             "test_indexing.mlir",
-            "test_mfma_index_C_16x16xf32",
+            "test_mfma_index_C_16x16_f32",
             output_data=output,
             grid_dim=grid_dim,
             block_dim=block_dim,
@@ -408,8 +408,8 @@ class TestMfmaIndexC16x16xf32:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestSwizzledMfmaIndexA16x16xf16:
-    """Test @swizzled_mfma_index_A_16x16xf16 function."""
+class TestSwizzledMfmaIndexA16x16_f16:
+    """Test @swizzled_mfma_index_A_16x16_f16 function."""
 
     def test_swizzled_mfma_index_A(self):
         """Swizzled MFMA indexing for A fragment (XOR swizzle)."""
@@ -418,7 +418,7 @@ class TestSwizzledMfmaIndexA16x16xf16:
         output = np.zeros(num_threads, dtype=np.int32).reshape(4, 4, 4)
         compile_and_run(
             "test_indexing.mlir",
-            "test_swizzled_mfma_index_A_16x16xf16",
+            "test_swizzled_mfma_index_A_16x16_f16",
             output_data=output,
             grid_dim=grid_dim,
             block_dim=block_dim,
@@ -447,8 +447,8 @@ class TestSwizzledMfmaIndexA16x16xf16:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestSwizzledMfmaIndexB16x16xf16:
-    """Test @swizzled_mfma_index_B_16x16xf16 function."""
+class TestSwizzledMfmaIndexB16x16_f16:
+    """Test @swizzled_mfma_index_B_16x16_f16 function."""
 
     def test_swizzled_mfma_index_B(self):
         """Swizzled MFMA indexing for B fragment (XOR swizzle)."""
@@ -457,7 +457,7 @@ class TestSwizzledMfmaIndexB16x16xf16:
         output = np.zeros(num_threads, dtype=np.int32).reshape(4, 4, 4)
         compile_and_run(
             "test_indexing.mlir",
-            "test_swizzled_mfma_index_B_16x16xf16",
+            "test_swizzled_mfma_index_B_16x16_f16",
             output_data=output,
             grid_dim=grid_dim,
             block_dim=block_dim,
@@ -486,8 +486,8 @@ class TestSwizzledMfmaIndexB16x16xf16:
             np.testing.assert_array_equal(output, expected)
 
 
-class TestSwizzledMfmaIndexC16x16xf32:
-    """Test @swizzled_mfma_index_C_16x16xf32 function."""
+class TestSwizzledMfmaIndexC16x16_f32:
+    """Test @swizzled_mfma_index_C_16x16_f32 function."""
 
     def test_swizzled_mfma_index_C(self):
         """Swizzled MFMA indexing for C fragment (XOR swizzle, same as A)."""
@@ -496,7 +496,7 @@ class TestSwizzledMfmaIndexC16x16xf32:
         output = np.zeros(num_threads, dtype=np.int32).reshape(4, 4, 4)
         compile_and_run(
             "test_indexing.mlir",
-            "test_swizzled_mfma_index_C_16x16xf32",
+            "test_swizzled_mfma_index_C_16x16_f32",
             output_data=output,
             grid_dim=grid_dim,
             block_dim=block_dim,

@@ -1,13 +1,13 @@
 #!/bin/bash
-# Profiling script for nanobench_lds_read_swizzled_wave_16x16xf16
+# Profiling script for nanobench_lds_read_swizzled_wave_16x16_f16
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/utils.sh"
 
 check_venv
 
-KERNEL_NAME="nanobench_lds_read_swizzled_wave_16x16xf16"
-TEST_SCRIPT="${SCRIPT_DIR}/nanobench_lds_read_swizzled_wave_16x16xf16.py"
+KERNEL_NAME="nanobench_lds_read_swizzled_wave_16x16_f16"
+TEST_SCRIPT="${SCRIPT_DIR}/nanobench_lds_read_swizzled_wave_16x16_f16.py"
 PERF_COUNTERS="SQ_LDS_BANK_CONFLICT SQ_INSTS_LDS SQ_WAIT_INST_LDS"
 
 profile_kernel() {

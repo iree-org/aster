@@ -14,10 +14,10 @@ amdgcn.module @test_store_global_C_fragment_transposed target = #amdgcn.target<g
   // From indexing.mlir
   func.func private @lane_id() -> index
   // From copies.mlir
-  func.func private @global_store_wave_16x16xf32_C_fragment_wait(!vx4, !tensor_position_descriptor_2level_2d, i1)
+  func.func private @global_store_wave_16x16_f32_C_fragment_wait(!vx4, !tensor_position_descriptor_2level_2d, i1)
 
 
-  // Test @global_store_wave_16x16xf32_C_fragment_wait_transposed: store C fragment to global
+  // Test @global_store_wave_16x16_f32_C_fragment_wait_transposed: store C fragment to global
   // Initialize accumulators with known values, then store using MFMA function
   amdgcn.kernel @test_store_global_C_fragment_wait_transposed arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
@@ -39,7 +39,7 @@ amdgcn.module @test_store_global_C_fragment_transposed target = #amdgcn.target<g
     %elt_size = arith.constant 4 : index
     %pos_desc = aster_utils.struct_create(%out_ptr, %c0, %c0, %c64, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
     %true = arith.constant true
-    func.call @global_store_wave_16x16xf32_C_fragment_wait(%acc, %pos_desc, %true) : (!vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
+    func.call @global_store_wave_16x16_f32_C_fragment_wait(%acc, %pos_desc, %true) : (!vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
 
     amdgcn.end_kernel
   }

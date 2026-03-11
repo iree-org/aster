@@ -24,14 +24,14 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
   // Library function declarations
   //===--------------------------------------------------------------------===//
   // From multi-tile-copies.mlir
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
+  func.func private @global_load_wave_multi_tile_256_f16_via_dwordx2_future(
     !tensor_position_descriptor_2level_2d, index, index,
     !future_global_read_descriptor_1d)
 
   // From copies.mlir - single-tile variants
-  func.func private @lds_write_wave_256xf16_via_dwordx2_future(
+  func.func private @lds_write_wave_256_f16_via_dwordx2_future(
     !lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
-  func.func private @lds_read_A_wave_16x16xf16_fragment_future(
+  func.func private @lds_read_A_wave_16x16_f16_fragment_future(
     !lds_position_descriptor_2d, i1) -> !future_lds_read_any
 
   // From futures.mlir - wait helpers
@@ -83,7 +83,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
       // Step 1: Issue ALL global loads (no waits between them)
       //-----------------------------------------------------------
       %tensor_desc = aster_utils.struct_create(%arg0_raw, %c0, %c0, %global_stride_bytes, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-      func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
+      func.call @global_load_wave_multi_tile_256_f16_via_dwordx2_future(
         %tensor_desc, %NUM_TILES_I, %NUM_TILES_J, %load_futures_desc)
         : (!tensor_position_descriptor_2level_2d, index, index, !future_global_read_descriptor_1d) -> ()
 
@@ -110,7 +110,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
         %transfer_desc = aster_utils.struct_create(%num_rows, %transfer_size, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
         %loaded = func.call @get_global_load_value_vx2_1d(%load_futures_1d, %idx)
           : (memref<?x!future_global_read_any>, index) -> !vx2
-        %write_future = func.call @lds_write_wave_256xf16_via_dwordx2_future(
+        %write_future = func.call @lds_write_wave_256_f16_via_dwordx2_future(
           %lds_write_desc, %transfer_desc, %loaded)
             {sched.delay = 0 : i64, sched.rate = 1 : i64}
           : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
@@ -121,7 +121,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           : (!future_lds_write) -> ()
         %lds_read_desc = aster_utils.struct_create(%c0, %m_pos, %n_pos, %lds_stride_bytes, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
         %transposed = arith.constant false
-        %read_future = func.call @lds_read_A_wave_16x16xf16_fragment_future(%lds_read_desc, %transposed)
+        %read_future = func.call @lds_read_A_wave_16x16_f16_fragment_future(%lds_read_desc, %transposed)
             {sched.delay = 8 : i64, sched.rate = 1 : i64}
           : (!lds_position_descriptor_2d, i1) -> !future_lds_read_any
 

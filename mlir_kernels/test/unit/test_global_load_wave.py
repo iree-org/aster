@@ -7,7 +7,7 @@ from aster.testing import compile_and_run
 
 
 class TestGlobalLoadWave:
-    """Test @global_load_wave_256xf16_via_dwordx2_wait function."""
+    """Test @global_load_wave_256_f16_via_dwordx2_wait function."""
 
     def test_global_load_ds_write(self):
         input = np.arange(1024, dtype=np.uint8)

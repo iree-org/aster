@@ -27,16 +27,16 @@
 
 amdgcn.module @test_lds_read_swizzled_A_fragment target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // From simple-copies.mlir
-  func.func private @simple_global_to_lds_wave_16x16xf16_wait(!tensor_position_descriptor_2d, !lds_position_descriptor_2d)
-  func.func private @simple_global_store_wave_16x16xf16_wait(!vx2, !tensor_position_descriptor_2d)
+  func.func private @simple_global_to_lds_wave_16x16_f16_wait(!tensor_position_descriptor_2d, !lds_position_descriptor_2d)
+  func.func private @simple_global_store_wave_16x16_f16_wait(!vx2, !tensor_position_descriptor_2d)
   // From copies.mlir
-  func.func private @lds_read_swizzled_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d) -> !vx2
+  func.func private @lds_read_swizzled_wave_16x16_f16_fragment_wait(!lds_position_descriptor_2d) -> !vx2
 
 
-  // Test @lds_read_swizzled_wave_16x16xf16_fragment_wait with XOR swizzling: read MFMA A fragment from LDS
+  // Test @lds_read_swizzled_wave_16x16_f16_fragment_wait with XOR swizzling: read MFMA A fragment from LDS
   // Tests 2x3 tiles of 16x16, each tile contains iota 0-255
   // First populate LDS with known data, then read using the XOR-swizzled MFMA function
-  amdgcn.kernel @test_lds_read_swizzled_A_wave_16x16xf16_fragment_wait arguments <[
+  amdgcn.kernel @test_lds_read_swizzled_A_wave_16x16_f16_fragment_wait arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 4096 : i32} {
@@ -64,7 +64,7 @@ amdgcn.module @test_lds_read_swizzled_A_fragment target = #amdgcn.target<gfx942>
         %j_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
         %global_pos_desc_load = aster_utils.struct_create(%in_ptr, %i_pos, %j_pos, %GLOBAL_STRIDE, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
         %lds_pos_desc_load = aster_utils.struct_create(%c0, %i_pos, %j_pos, %LDS_STRIDE, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-        func.call @simple_global_to_lds_wave_16x16xf16_wait(%global_pos_desc_load, %lds_pos_desc_load)
+        func.call @simple_global_to_lds_wave_16x16_f16_wait(%global_pos_desc_load, %lds_pos_desc_load)
           : (!tensor_position_descriptor_2d, !lds_position_descriptor_2d) -> ()
       } {aster.constexpr}
     } {aster.constexpr}
@@ -77,13 +77,13 @@ amdgcn.module @test_lds_read_swizzled_A_fragment target = #amdgcn.target<gfx942>
         %n_pos = affine.apply affine_map<()[jj] -> (jj * 16)>()[%jj]
 
         %lds_pos_desc = aster_utils.struct_create(%c0, %m_pos, %n_pos, %LDS_STRIDE, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-        %fragment = func.call @lds_read_swizzled_wave_16x16xf16_fragment_wait(%lds_pos_desc)
+        %fragment = func.call @lds_read_swizzled_wave_16x16_f16_fragment_wait(%lds_pos_desc)
           : (!lds_position_descriptor_2d) -> !vx2
 
-        // Store fragment to output using simple_global_store_wave_16x16xf16_wait
+        // Store fragment to output using simple_global_store_wave_16x16_f16_wait
         // Output buffer is treated as II*16 rows x JJ*16 columns with stride JJ*32 bytes
         %global_pos_desc_store = aster_utils.struct_create(%out_ptr, %m_pos, %n_pos, %GLOBAL_STRIDE, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
-        func.call @simple_global_store_wave_16x16xf16_wait(%fragment, %global_pos_desc_store)
+        func.call @simple_global_store_wave_16x16_f16_wait(%fragment, %global_pos_desc_store)
           : (!vx2, !tensor_position_descriptor_2d) -> ()
       } {aster.constexpr}
     } {aster.constexpr}

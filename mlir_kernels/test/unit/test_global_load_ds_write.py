@@ -7,7 +7,7 @@ from aster.testing import compile_and_run
 
 
 class TestGlobalLoadDsWrite:
-    """Test @global_load_wave_256xf16_via_dwordx2_wait + @ds_write_dwordx2_wait functions."""
+    """Test @global_load_wave_256_f16_via_dwordx2_wait + @ds_write_dwordx2_wait functions."""
 
     def test_decoupled_load_store(self):
         """Load from global via memref, write to LDS, verify roundtrip."""

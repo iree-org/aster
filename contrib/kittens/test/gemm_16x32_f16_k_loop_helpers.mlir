@@ -14,7 +14,7 @@
   //      LDS read futures: 2 * k_t * dim_t (two per tile: K0, K1)
   //       Register values: 2 * k_t * dim_t (two per tile: K0, K1)
   //
-  // LDS tile size: 1024 bytes (16x64b layout: 16 rows x 64 bytes, K0 at byte-offset 0, K1 at 32).
+  // LDS tile size: 1024 bytes (16x64_b layout: 16 rows x 64 bytes, K0 at byte-offset 0, K1 at 32).
 
   // Issue dwordx4 global loads for A tiles across k_t K-tiles.
   // Each tile covers a 16x64_b = 32 K-elements (for f16).

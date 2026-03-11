@@ -28,16 +28,16 @@
 
 amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // From simple-copies.mlir
-  func.func private @simple_lds_to_global_wave_16x16xf16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
+  func.func private @simple_lds_to_global_wave_16x16_f16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
   // From multi-tile-copies.mlir (1D linearized memrefs)
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2)
-  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2)
+  func.func private @global_load_wave_multi_tile_256_f16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2)
+  func.func private @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2)
 
   //===--------------------------------------------------------------------===//
   // Global <-> LDS
   //===--------------------------------------------------------------------===//
 
-  // Test @global_load_wave_multi_tile_256xf16_via_dwordx2_wait and @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait
+  // Test @global_load_wave_multi_tile_256_f16_via_dwordx2_wait and @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait
   // Use a larger 64x128 input array and load 2x4 tiles at 4 different offsets (2x2 loop)
   // This tests that m_off and n_off are computed correctly for non-zero positions
   // LDS base offset is non-zero (256 bytes) to test offset handling
@@ -83,7 +83,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         // Multi-tile global load: 2 tiles in M, 4 tiles in N (32x64 region)
         // Create 2-level descriptor: m_pos/n_pos=major tile pos, mm_pos/nn_pos=0 (start of region)
         %global_load_desc = aster_utils.struct_create(%in_ptr, %m_pos, %n_pos, %c256, %c0, %c0, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-        func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
+        func.call @global_load_wave_multi_tile_256_f16_via_dwordx2_wait(
           %global_load_desc,          // tensor_position_descriptor_2level_2d
           %c2, %c4,                   // m_tiles=2, n_tiles=4
           %result_desc                // return value descriptor
@@ -92,7 +92,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
         // Write all tiles to LDS using multi-tile LDS write
         // Create 2-level LDS descriptor: lds_base=0, mm_pos/nn_pos=0 (start of LDS region)
         %lds_write_desc = aster_utils.struct_create(%c0, %c0, %c0, %c256, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
-        func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+        func.call @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait(
           %lds_write_desc,            // lds_position_descriptor_2level_2d
           %c2, %c4,                   // m_tiles=2, n_tiles=4
           %result_desc                // return value descriptor (same memref, offset=0)
@@ -112,7 +112,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
             // Copy from LDS to global using simple function
             %lds_pos_out = aster_utils.struct_create(%c0, %lds_m, %lds_n, %c256, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
             %global_pos_out = aster_utils.struct_create(%out_ptr, %global_m, %global_n, %c256, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
-            func.call @simple_lds_to_global_wave_16x16xf16_wait(%lds_pos_out, %global_pos_out)
+            func.call @simple_lds_to_global_wave_16x16_f16_wait(%lds_pos_out, %global_pos_out)
               : (!lds_position_descriptor_2d, !tensor_position_descriptor_2d) -> ()
           } {aster.constexpr}
         } {aster.constexpr}
