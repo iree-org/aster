@@ -26,6 +26,7 @@
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 
 #define GET_OP_CLASSES
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h.inc"

@@ -259,6 +259,28 @@ def SimplifyAllocaIterArgs : Pass<"aster-simplify-alloca-iter-args"> {
 }
 
 //===----------------------------------------------------------------------===//
+// AffineOptimizePtrAdd
+//===----------------------------------------------------------------------===//
+
+def AffineOptimizePtrAdd : Pass<"aster-affine-optimize-ptr-add"> {
+  let summary = "Optimize ptr.ptr_add with affine_apply offsets using ValueBounds";
+  let description = [{
+    This pass optimizes `ptr.ptr_add` operations when the offset is produced by
+    `affine.apply`. It decomposes the affine expression into const, uniform, and
+    dynamic components using ValueBounds analysis (instead of IntRange) for
+    constant detection, and ThreadUniformAnalysis for uniformity.
+  }];
+  let options = [
+    Option<"assumePositive", "assume-positive", "bool", "false",
+           "If true, assume all offset components are non-negative">,
+  ];
+  let dependentDialects = [
+    "mlir::arith::ArithDialect",
+    "mlir::affine::AffineDialect"
+  ];
+}
+
+//===----------------------------------------------------------------------===//
 // ForwardStoreToLoad
 //===----------------------------------------------------------------------===//
 

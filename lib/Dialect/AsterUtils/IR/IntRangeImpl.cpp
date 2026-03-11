@@ -11,6 +11,7 @@
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Interfaces/GPUFuncInterface.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
+#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "llvm/Support/DebugLog.h"
 
 #define DEBUG_TYPE "int-range-analysis"
@@ -107,7 +108,9 @@ void AssumeRangeOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
   // Get min/max bounds - for dynamic bounds, we need to use the input range
   // from dataflow analysis. For static bounds, use the attribute value.
 
-  unsigned width = getResult().getType().getIntOrFloatBitWidth();
+  unsigned width = IndexType::kInternalStorageBitWidth;
+  if (getResult().getType().isSignlessInteger())
+    width = getResult().getType().getIntOrFloatBitWidth();
 
   llvm::APInt umin = llvm::APInt::getMinValue(width);
   llvm::APInt umax = llvm::APInt::getMaxValue(width);
@@ -150,6 +153,18 @@ void AssumeRangeOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
   }
 
   setResultRange(getResult(), ConstantIntRanges(umin, umax, smin, smax));
+}
+
+void AssumeRangeOp::populateBoundsForIndexValue(
+    Value value, ValueBoundsConstraintSet &cstr) {
+  assert(value == getResult() &&
+         "inferring for value that isn't the assume_range op's result");
+  if (!value.getType().isIndex())
+    return;
+  if (OpFoldResult min = getMin())
+    cstr.bound(value) >= min;
+  if (OpFoldResult max = getMax())
+    cstr.bound(value) <= max;
 }
 
 void AssumeUniformOp::inferResultRangesFromOptional(
