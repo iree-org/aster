@@ -16,8 +16,8 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
-#include "aster/IR/ParsePrintUtils.h"
 #include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
+#include "aster/IR/ParsePrintUtils.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
@@ -41,6 +41,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/LogicalResult.h"
+#include <cstdint>
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -1052,6 +1053,43 @@ OpFoldResult PtrAddOp::fold(FoldAdaptor adaptor) {
   if (!getDynamicOffset() && !getUniformOffset() && getConstOffset() == 0)
     return getPtr();
   return nullptr;
+}
+
+LogicalResult PtrAddOp::canonicalize(PtrAddOp op, PatternRewriter &rewriter) {
+  auto ptrBase = op.getPtr().getDefiningOp<PtrAddOp>();
+  if (!ptrBase)
+    return failure();
+
+  // Bail if the flags don't match.
+  if (ptrBase.getFlags() != op.getFlags())
+    return failure();
+
+  // Bail if either op has a uniform offset.
+  if (op.getUniformOffset() || ptrBase.getUniformOffset())
+    return failure();
+
+  // Bail if both ops have dynamic offsets.
+  if (op.getDynamicOffset() && ptrBase.getDynamicOffset())
+    return failure();
+
+  // Get the dynamic offset.
+  Value dynOff = op.getDynamicOffset();
+  if (!dynOff)
+    dynOff = ptrBase.getDynamicOffset();
+
+  int64_t ptrBaseConstOff = ptrBase.getConstOffset();
+  int64_t opConstOff = op.getConstOffset();
+  // Bail if any of the offsets are negative
+  if (opConstOff < 0 || ptrBaseConstOff < 0)
+    return failure();
+
+  // Get the constant offset.
+  int64_t constOffset = opConstOff + ptrBaseConstOff;
+  auto newAdd =
+      PtrAddOp::create(rewriter, op.getLoc(), ptrBase.getPtr(), dynOff,
+                       /*uniformOffset=*/nullptr, constOffset, op.getFlags());
+  rewriter.replaceOp(op, newAdd.getResult());
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

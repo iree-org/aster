@@ -785,6 +785,7 @@ def AMDGCN_PtrAddOp : AMDGCN_Op<"ptr_add", [
     attr-dict `:` type(operands)
   }];
   let hasFolder = 1;
+  let hasCanonicalizeMethod = 1;
 }
 
 //===----------------------------------------------------------------------===//
