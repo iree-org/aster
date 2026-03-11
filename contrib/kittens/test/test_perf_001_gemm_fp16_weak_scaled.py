@@ -26,8 +26,14 @@ from kittens_helpers import (
 )
 
 KERNEL_NAME = "gemm_f16_weak_scaled"
-MLIR_FILE = "test_perf_001_gemm_fp16_weak_scaled.mlir"
-K_LOOP_HELPERS_FILE = "gemm_16x32_f16_k_loop_helpers.mlir"
+MLIR_FILES = {
+    False: "test_perf_001_gemm_fp16_weak_scaled.mlir",  # flat (original)
+    True: "test_perf_001_gemm_fp16_weak_scaled_buf.mlir",  # buffer
+}
+K_LOOP_HELPERS_FILES = {
+    False: "gemm_16x32_f16_k_loop_helpers.mlir",  # flat (original)
+    True: "gemm_16x32_f16_k_loop_helpers_buf.mlir",  # buffer
+}
 
 
 @dataclass
@@ -48,6 +54,8 @@ class WeakScaleConfig:
     k_tiles: int
     num_stages: int
     k: int
+    use_buffer: bool = True
+    _label_suffix: str = ""
 
     def __post_init__(self):
         assert (
@@ -109,20 +117,20 @@ class WeakScaleConfig:
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
             f"_wg{self.m_wg}x{self.n_wg}_w{self.m_waves}x{self.n_waves}"
-            f"{tile_str}_s{self.num_stages}"
+            f"{tile_str}_s{self.num_stages}{self._label_suffix}"
         )
 
 
-def _load_k_loop_helpers():
+def _load_k_loop_helpers(use_buffer=True):
     """Read the shared K-loop helper functions MLIR fragment."""
-    helpers_path = get_mlir_file(K_LOOP_HELPERS_FILE)
+    helpers_path = get_mlir_file(K_LOOP_HELPERS_FILES[use_buffer])
     with open(helpers_path) as f:
         return f.read()
 
 
-def _make_substitutions(cfg):
+def _make_substitutions(cfg, use_buffer=True):
     """Build template substitutions dict for a WeakScaleConfig."""
-    subs = {"{{K_LOOP_HELPERS}}": _load_k_loop_helpers()}
+    subs = {"{{K_LOOP_HELPERS}}": _load_k_loop_helpers(use_buffer)}
     subs.update(
         constexpr_substitutions_16x32(cfg.m_tiles, cfg.n_tiles, cfg.k, cfg.num_stages)
     )
@@ -144,16 +152,20 @@ def _make_substitutions(cfg):
     return subs
 
 
-def compile_weak_scaled_gemm(cfg, output_hsaco_path, print_ir_after_all=False):
+def compile_weak_scaled_gemm(
+    cfg, output_hsaco_path, use_buffer=True, print_ir_after_all=False
+):
     """Compile a weak-scaled GEMM config to HSACO.
 
     Returns (hsaco_path, asm_str). This is the CPU-only compilation step (no GPU
     needed). Safe to run in parallel across configs.
+
+    use_buffer: True for buffer_load/buffer_store (MUBUF), False for global_load/global_store (flat).
     """
     from aster import ir, utils
     from aster.testing import compile_mlir_file_to_asm
 
-    subs = _make_substitutions(cfg)
+    subs = _make_substitutions(cfg, use_buffer=use_buffer)
 
     def preprocess(content):
         for pattern, replacement in subs.items():
@@ -164,11 +176,11 @@ def compile_weak_scaled_gemm(cfg, output_hsaco_path, print_ir_after_all=False):
     ctx.__enter__()
     try:
         asm, _ = compile_mlir_file_to_asm(
-            get_mlir_file(MLIR_FILE),
+            get_mlir_file(MLIR_FILES[use_buffer]),
             KERNEL_NAME,
             TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
             ctx,
-            library_paths=get_kittens_16x16_lds_library_paths(),
+            library_paths=get_kittens_16x16_lds_library_paths(use_buffer=use_buffer),
             preprocess=preprocess,
             print_ir_after_all=print_ir_after_all,
         )
@@ -218,35 +230,46 @@ def execute_weak_scaled_hsaco(
 class TestWeakScaleCorrectness:
     """Correctness gate: must pass before perf sweep runs."""
 
+    # Problem sizes > 4000 in each dimension.
+    # M = m_wg * m_tiles_wg * 16, N = n_wg * n_tiles_wg * 16.
+    # n_wg must be power of 2 (delinearize from 1-D block ID).
     @pytest.mark.parametrize(
-        "m_wg,n_wg",
-        # note: most minor dimension must be power of 2 to delinearize from 1-D
-        # as aster does not yet support general divisions.
-        # alternatively the kernel could use block_id x and block_id y
-        [(1, 1), (19, 4)],
-        ids=["wg1x1", "wg4x19"],
-    )
-    @pytest.mark.parametrize(
-        "m_waves,n_waves",
-        [(1, 1), (2, 2), (2, 4), (4, 4)],
-        ids=["waves_1x1", "waves_2x2", "waves_2x4", "waves_4x4"],
-    )
-    @pytest.mark.parametrize(
-        "m_tiles_wg,n_tiles_wg",
-        [(2, 2), (4, 4), (4, 8)],
-        ids=["twg_2x2", "twg_4x4", "twg_4x8"],
+        "m_wg,n_wg,m_tiles_wg,n_tiles_wg,m_waves,n_waves",
+        [
+            # 2048x2048: 32 WG x 4 tiles/WG x 16 = 2048
+            (32, 32, 4, 4, 2, 2),  # 2x2 waves, 2x2 tiles/wave
+            (32, 32, 4, 4, 4, 4),  # 4x4 waves, 1x1 tiles/wave
+            (16, 16, 8, 8, 4, 4),  # 4x4 waves, 2x2 tiles/wave
+            (16, 16, 8, 8, 2, 2),  # 2x2 waves, 4x4 tiles/wave
+            # 2048x4096: rectangular
+            (32, 64, 4, 4, 2, 2),
+            (32, 64, 4, 4, 4, 4),
+        ],
+        ids=[
+            "2kx2k_wg32_twg4_w2x2",
+            "2kx2k_wg32_twg4_w4x4",
+            "2kx2k_wg16_twg8_w4x4",
+            "2kx2k_wg16_twg8_w2x2",
+            "2kx4k_wg32x64_twg4_w2x2",
+            "2kx4k_wg32x64_twg4_w4x4",
+        ],
     )
     @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("use_buffer", [False, True], ids=["flat", "buffer"])
     def test_correctness(
-        self, m_wg, n_wg, m_waves, n_waves, m_tiles_wg, n_tiles_wg, num_stages
+        self,
+        m_wg,
+        n_wg,
+        m_tiles_wg,
+        n_tiles_wg,
+        m_waves,
+        n_waves,
+        num_stages,
+        use_buffer,
     ):
         """Constexpr GEMM verified against numpy."""
         k = 128
         k_tiles = 1
-        if m_tiles_wg % m_waves != 0 or n_tiles_wg % n_waves != 0:
-            pytest.skip(
-                f"twg {m_tiles_wg}x{n_tiles_wg} not divisible by waves {m_waves}x{n_waves}"
-            )
         cfg = WeakScaleConfig(
             m_wg,
             n_wg,
@@ -270,7 +293,7 @@ class TestWeakScaleCorrectness:
         A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
         B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
         with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-            compile_weak_scaled_gemm(cfg, tmp.name)
+            compile_weak_scaled_gemm(cfg, tmp.name, use_buffer=use_buffer)
             C_output, _ = execute_weak_scaled_hsaco(cfg, tmp.name, 1, A, B)
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
@@ -324,7 +347,20 @@ if __name__ == "__main__":
         action="store_true",
         help="Print IR after each pass",
     )
+    parser.add_argument(
+        "--use-buffer",
+        action="store_true",
+        default=True,
+        help="Use buffer_load/buffer_store (MUBUF) instead of global_load/global_store (flat)",
+    )
+    parser.add_argument(
+        "--use-flat",
+        action="store_true",
+        help="Use global_load/global_store (flat) instead of buffer_load/buffer_store",
+    )
     a = parser.parse_args()
+    if a.use_flat:
+        a.use_buffer = False
 
     cfg = WeakScaleConfig(
         a.m_wg,
@@ -340,7 +376,10 @@ if __name__ == "__main__":
 
     from aster.hip import parse_asm_kernel_resources
 
-    print(f"Config: {cfg.label}")
+    use_buffer = a.use_buffer
+    mem_mode = "buffer" if use_buffer else "flat"
+
+    print(f"Config: {cfg.label} ({mem_mode})")
     print(f"  M={cfg.m_dim}, N={cfg.n_dim}, K={cfg.k}")
     print(f"  workgroups={cfg.num_workgroups}, threads={cfg.num_threads}")
     print(f"  per-wave tiles: {cfg.m_tiles}x{cfg.n_tiles}, LDS={cfg.lds_bytes}")
@@ -350,7 +389,7 @@ if __name__ == "__main__":
             print("Error: --compile-only requires --hsaco <output_path>")
             raise SystemExit(1)
         _, asm = compile_weak_scaled_gemm(
-            cfg, a.hsaco, print_ir_after_all=a.print_ir_after_all
+            cfg, a.hsaco, use_buffer=use_buffer, print_ir_after_all=a.print_ir_after_all
         )
         resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
         res = resources.get(KERNEL_NAME)
@@ -369,7 +408,10 @@ if __name__ == "__main__":
         else:
             with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
                 _, asm = compile_weak_scaled_gemm(
-                    cfg, tmp.name, print_ir_after_all=a.print_ir_after_all
+                    cfg,
+                    tmp.name,
+                    use_buffer=use_buffer,
+                    print_ir_after_all=a.print_ir_after_all,
                 )
                 resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
                 res = resources.get(KERNEL_NAME)

@@ -22,20 +22,22 @@ def get_mlir_kernels_library_path(relative: str) -> str:
     )
 
 
-def get_kittens_16x16_lds_library_paths() -> List[str]:
+def get_kittens_16x16_lds_library_paths(use_buffer: bool = False) -> List[str]:
     """Get paths for 16x16 MFMA with AGPR accumulators + 16x64_b LDS (dwordx4, XOR swizzle).
 
-    Uses global_16x64_b for dwordx4 global loads, lds_16x64_b for XOR-swizzled LDS
-    transfers, and compute_16x16_f16 for AGPR MFMA and fire-and-forget C stores.
+    When use_buffer=False (default): uses global_load/global_store (flat) with 2-SGPR
+    pointer pairs. When use_buffer=True: uses buffer_load/buffer_store (MUBUF OFFEN
+    mode) with 4-SGPR buffer resource descriptors (files with _buf suffix).
     """
+    suffix = "_buf" if use_buffer else ""
     base_paths = get_library_paths()
     kittens_dir = os.path.join(os.path.dirname(__file__), "..", "library")
     kittens_paths = [
         get_mlir_kernels_library_path("common/indexing_ptr.mlir"),
-        os.path.join(kittens_dir, "global_16x64_b.mlir"),
-        os.path.join(kittens_dir, "lds_16x64_b.mlir"),
+        os.path.join(kittens_dir, f"global_16x64_b{suffix}.mlir"),
+        os.path.join(kittens_dir, f"lds_16x64_b{suffix}.mlir"),
         os.path.join(kittens_dir, "lds_mfma_16x64_b.mlir"),
-        os.path.join(kittens_dir, "compute_16x16_f16.mlir"),
+        os.path.join(kittens_dir, f"compute_16x16_f16{suffix}.mlir"),
     ]
     return base_paths + kittens_paths
 
