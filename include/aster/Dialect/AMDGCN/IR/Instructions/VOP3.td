@@ -531,7 +531,7 @@ def VSubrevU32E64 : VOP3Inst<"v_subrev_u32_e64", [CDNA3, CDNA4]> {
 
 def VLshlAddU64 : VOP3Inst<"v_lshl_add_u64", [CDNA3, CDNA4]> {
   let summary = "VOP3 lshl add 64-bit integers";
-  let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1">];
+  let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1, $src2">];
   let constraints = VOP3Constraints</*words=*/2, /*dst1_w=*/0, /*src2_w=*/2>.constraints;
   let cppBuilder = OpBuilder<(ins
     CppValue:$vdst, CppValue:$src0, CppValue:$src1, CppValue:$src2), [{
