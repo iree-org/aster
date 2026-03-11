@@ -101,6 +101,38 @@ func.func @test_ds_read_b128(%addr: !amdgcn.vgpr, %dst4: !amdgcn.vgpr<[? + 4]>) 
 }
 
 //===----------------------------------------------------------------------===//
+// CDNA3 DS Permute Operations
+//===----------------------------------------------------------------------===//
+
+func.func @test_ds_bpermute_b32(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %offset = arith.constant 0 : i32
+  %result, %tok = amdgcn.load ds_bpermute_b32 dest %dst addr %addr offset d(%data) + c(%offset) : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
+  return %0 : !amdgcn.vgpr
+}
+
+func.func @test_ds_bpermute_b32_with_offset(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %offset = arith.constant 4 : i32
+  %result, %tok = amdgcn.load ds_bpermute_b32 dest %dst addr %addr offset d(%data) + c(%offset) : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
+  return %0 : !amdgcn.vgpr
+}
+
+func.func @test_ds_permute_b32(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %offset = arith.constant 0 : i32
+  %result, %tok = amdgcn.load ds_permute_b32 dest %dst addr %addr offset d(%data) + c(%offset) : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
+  return %0 : !amdgcn.vgpr
+}
+
+func.func @test_ds_permute_b32_with_offset(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %offset = arith.constant 4 : i32
+  %result, %tok = amdgcn.load ds_permute_b32 dest %dst addr %addr offset d(%data) + c(%offset) : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
+  return %0 : !amdgcn.vgpr
+}
+
+//===----------------------------------------------------------------------===//
 // CDNA3 DS Write Operations
 //===----------------------------------------------------------------------===//
 

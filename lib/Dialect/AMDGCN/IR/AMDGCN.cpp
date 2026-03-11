@@ -363,6 +363,8 @@ mlir::aster::amdgcn::getMemoryInstructionKind(OpCode opCode) {
   case OpCode::DS_WRITE_B64:
   case OpCode::DS_WRITE_B96:
   case OpCode::DS_WRITE_B128:
+  case OpCode::DS_BPERMUTE_B32:
+  case OpCode::DS_PERMUTE_B32:
     return MemoryInstructionKind::Shared;
   case OpCode::S_LOAD_DWORD:
   case OpCode::S_LOAD_DWORDX2:

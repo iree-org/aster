@@ -876,4 +876,54 @@ def DS_WRITE_B128_INST : DWriteInst<
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// DS Permute Instructions
+//===----------------------------------------------------------------------===//
+
+// ds_bpermute_b32 uses LDS hardware for arbitrary lane permutation without
+// accessing LDS memory. No LDS allocation is needed. Each destination lane
+// reads a 32-bit value from a source lane selected by its address operand.
+//
+// Semantics: for each lane i, VDST[i] = DATA0[ADDR[i]/4 % 64]
+// Increments LGKM_CNT by 1 (uses the LDS crossbar hardware).
+//
+// ASM syntax: ds_bpermute_b32 vdst, addr, data0 [offset:N]
+class DPermInst<string _mnemonic, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, _mnemonic, AMDGCN_LoadOp, _isa, [IsDSMEM]> {
+  let constraints = (ins AccOperand<1>:$dest,
+                         VGPROperand<1>:$addr,
+                         NotPresent:$uniform_offset,
+                         VGPROperand<1>:$dynamic_offset);
+  let cppBuilder = OpBuilder<(ins
+    CppValue:$dest, CppValue:$addr, CppValue:$data,
+    CppValue:$constant_offset), [{
+    return $_create($_builder, $_loc, $_opcode, dest, addr, nullptr,
+      data, constant_offset);
+    }]>;
+  let asmFormat = [SingleAsmVariant<"$dest, $addr, $dynamic_offset $constant_offset">];
+}
+
+def DS_PERMUTE_B32_INST : DPermInst<
+  /*mnemonic=*/"ds_permute_b32", /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "DS forward permute 32-bit";
+  let description = [{
+    Cross-lane data permutation using LDS hardware without accessing LDS memory.
+    Each lane writes a 32-bit value to a destination lane specified by its
+    address operand: VDST[ADDR[i]/4 % 64] = DATA0[i]. The address is a byte
+    address (destination lane index * 4). No LDS allocation is needed.
+  }];
+}
+
+def DS_BPERMUTE_B32_INST : DPermInst<
+  /*mnemonic=*/"ds_bpermute_b32", /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "DS backward permute 32-bit";
+  let description = [{
+    Cross-lane data permutation using LDS hardware without accessing LDS memory.
+    Each lane reads a 32-bit value from a source lane specified by its address
+    operand: VDST[i] = DATA0[ADDR[i]/4 % 64]. The address is a byte address
+    (source lane index * 4). No LDS allocation is needed.
+    Inverse of ds_permute_b32: bpermute(permute(data, addr), addr) = data.
+  }];
+}
+
 #endif // AMDGCN_INST_MEMORY_TD
