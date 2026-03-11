@@ -2,6 +2,7 @@ add_mlir_library(AsterTransforms
   AffineOptimizePtrAdd.cpp
   CanonicalizePtrs.cpp
   ConstexprExpansion.cpp
+  DecomposeAffineApply.cpp
   DecomposeMemrefIterArgs.cpp
   ForwardStoreToLoad.cpp
   LDSMultibufferPrep.cpp

@@ -156,3 +156,201 @@ func.func @test_load_boundary_4096(%arg0: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr
   %dest_res, %token = amdgcn.load global_load_dword dest %1 addr %0 : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<flat>
   return %dest_res : !amdgcn.vgpr
 }
+
+// -----
+
+// DS write with lsir.addi constant offset: fold constant into ds_write offset.
+// This is the pattern from kittens 32x32 GEMM LDS writes where intra-tile
+// row offsets (512, 1024, 1536) are added via lsir.addi but could be absorbed
+// into the ds_write_b64 offset field (16-bit unsigned, max 65535).
+// CHECK-LABEL:   func.func @test_ds_write_addi_const(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
+// CHECK:           %[[C512:.*]] = arith.constant 512 : i32
+// CHECK:           %[[TOKEN:.*]] = amdgcn.store ds_write_b64 data %[[ARG1]] addr %[[ARG0]] offset c(%[[C512]])
+// CHECK:           return
+// CHECK:         }
+func.func @test_ds_write_addi_const(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr<[? + 2]>) {
+  %c512 = arith.constant 512 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %1 = lsir.addi i32 %0, %arg0, %c512 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c0 = arith.constant 0 : i32
+  %token = amdgcn.store ds_write_b64 data %arg1 addr %1 offset c(%c0) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+  return
+}
+
+// -----
+
+// DS read with lsir.addi constant offset: fold into ds_read offset.
+// CHECK-LABEL:   func.func @test_ds_read_addi_const(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
+// CHECK:           %[[C1024:.*]] = arith.constant 1024 : i32
+// CHECK:           %[[ALLOCA:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL:.*]], %[[TOKEN:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA]] addr %[[ARG0]] offset c(%[[C1024]])
+// CHECK:           return %[[VAL]]
+// CHECK:         }
+func.func @test_ds_read_addi_const(%arg0: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %c1024 = arith.constant 1024 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %1 = lsir.addi i32 %0, %arg0, %c1024 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %2 = amdgcn.alloca : !amdgcn.vgpr
+  %c0 = arith.constant 0 : i32
+  %dest_res, %token = amdgcn.load ds_read_b32 dest %2 addr %1 offset c(%c0) : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+  return %dest_res : !amdgcn.vgpr
+}
+
+// -----
+
+// DS write lsir.addi: merge constant with existing non-zero offset.
+// CHECK-LABEL:   func.func @test_ds_write_addi_merge(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
+// CHECK:           %[[C1544:.*]] = arith.constant 1544 : i32
+// CHECK:           %[[TOKEN:.*]] = amdgcn.store ds_write_b64 data %[[ARG1]] addr %[[ARG0]] offset c(%[[C1544]])
+// CHECK:           return
+// CHECK:         }
+func.func @test_ds_write_addi_merge(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr<[? + 2]>) {
+  %c1536 = arith.constant 1536 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %1 = lsir.addi i32 %0, %arg0, %c1536 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c8 = arith.constant 8 : i32
+  %token = amdgcn.store ds_write_b64 data %arg1 addr %1 offset c(%c8) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+  return
+}
+
+// -----
+
+// DS write lsir.addi: constant too large for 16-bit unsigned offset (>65535),
+// should NOT fold.
+// CHECK-LABEL:   func.func @test_ds_write_addi_too_large(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr,
+// CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
+// CHECK:           %[[C70000:.*]] = arith.constant 70000 : i32
+// CHECK:           %[[ALLOCA:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[ADDR:.*]] = lsir.addi i32 %[[ALLOCA]], %[[ARG0]], %[[C70000]]
+// CHECK:           %[[TOKEN:.*]] = amdgcn.store ds_write_b64 data %[[ARG1]] addr %[[ADDR]]
+// CHECK:           return
+// CHECK:         }
+func.func @test_ds_write_addi_too_large(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr<[? + 2]>) {
+  %c70000 = arith.constant 70000 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %1 = lsir.addi i32 %0, %arg0, %c70000 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c0 = arith.constant 0 : i32
+  %token = amdgcn.store ds_write_b64 data %arg1 addr %1 offset c(%c0) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+  return
+}
+
+// -----
+
+// Buffer load with lsir.addi on voffset: fold constant into c() offset.
+// Pattern: voffset = lsir.addi(base, 512) -> use base as voffset, 512 as c().
+// CHECK-LABEL:   func.func @test_buffer_load_addi_const(
+// CHECK-SAME:      %[[RSRC:.*]]: !amdgcn.sgpr<[? + 4]>,
+// CHECK-SAME:      %[[SOFF:.*]]: !amdgcn.sgpr,
+// CHECK-SAME:      %[[VOFF:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
+// CHECK:           %[[C512:.*]] = arith.constant 512 : i32
+// CHECK:           %[[DEST:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL:.*]], %[[TOK:.*]] = amdgcn.load buffer_load_dword dest %[[DEST]] addr %[[RSRC]]
+// CHECK-SAME:        offset u(%[[SOFF]]) + d(%[[VOFF]]) + c(%[[C512]])
+// CHECK:           return %[[VAL]]
+// CHECK:         }
+func.func @test_buffer_load_addi_const(
+    %rsrc: !amdgcn.sgpr<[? + 4]>, %soff: !amdgcn.sgpr, %voff: !amdgcn.vgpr
+) -> !amdgcn.vgpr {
+  %c512 = arith.constant 512 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %voff2 = lsir.addi i32 %0, %voff, %c512 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c0 = arith.constant 0 : i32
+  %dest = amdgcn.alloca : !amdgcn.vgpr
+  %result, %tok = amdgcn.load buffer_load_dword dest %dest addr %rsrc
+      offset u(%soff) + d(%voff2) + c(%c0)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
+  return %result : !amdgcn.vgpr
+}
+
+// -----
+
+// Buffer load with lsir.addi: merge with existing non-zero c() offset.
+// CHECK-LABEL:   func.func @test_buffer_load_addi_merge(
+// CHECK-SAME:      %[[RSRC:.*]]: !amdgcn.sgpr<[? + 4]>,
+// CHECK-SAME:      %[[SOFF:.*]]: !amdgcn.sgpr,
+// CHECK-SAME:      %[[VOFF:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
+// CHECK:           %[[C520:.*]] = arith.constant 520 : i32
+// CHECK:           %[[DEST:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL:.*]], %[[TOK:.*]] = amdgcn.load buffer_load_dword dest %[[DEST]] addr %[[RSRC]]
+// CHECK-SAME:        offset u(%[[SOFF]]) + d(%[[VOFF]]) + c(%[[C520]])
+// CHECK:           return %[[VAL]]
+// CHECK:         }
+func.func @test_buffer_load_addi_merge(
+    %rsrc: !amdgcn.sgpr<[? + 4]>, %soff: !amdgcn.sgpr, %voff: !amdgcn.vgpr
+) -> !amdgcn.vgpr {
+  %c512 = arith.constant 512 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %voff2 = lsir.addi i32 %0, %voff, %c512 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c8 = arith.constant 8 : i32
+  %dest = amdgcn.alloca : !amdgcn.vgpr
+  %result, %tok = amdgcn.load buffer_load_dword dest %dest addr %rsrc
+      offset u(%soff) + d(%voff2) + c(%c8)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
+  return %result : !amdgcn.vgpr
+}
+
+// -----
+
+// Buffer load: constant exceeds 4095 (12-bit unsigned max), should NOT fold.
+// CHECK-LABEL:   func.func @test_buffer_load_addi_too_large(
+// CHECK-SAME:      %[[RSRC:.*]]: !amdgcn.sgpr<[? + 4]>,
+// CHECK-SAME:      %[[SOFF:.*]]: !amdgcn.sgpr,
+// CHECK-SAME:      %[[VOFF:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
+// CHECK:           %[[C5000:.*]] = arith.constant 5000 : i32
+// CHECK:           %[[ALLOCA:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[VOFF2:.*]] = lsir.addi i32 %[[ALLOCA]], %[[VOFF]], %[[C5000]]
+// CHECK:           %[[DEST:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL:.*]], %[[TOK:.*]] = amdgcn.load buffer_load_dword dest %[[DEST]] addr %[[RSRC]]
+// CHECK-SAME:        offset u(%[[SOFF]]) + d(%[[VOFF2]]) + c(
+// CHECK:           return %[[VAL]]
+// CHECK:         }
+func.func @test_buffer_load_addi_too_large(
+    %rsrc: !amdgcn.sgpr<[? + 4]>, %soff: !amdgcn.sgpr, %voff: !amdgcn.vgpr
+) -> !amdgcn.vgpr {
+  %c5000 = arith.constant 5000 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %voff2 = lsir.addi i32 %0, %voff, %c5000 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c0 = arith.constant 0 : i32
+  %dest = amdgcn.alloca : !amdgcn.vgpr
+  %result, %tok = amdgcn.load buffer_load_dword dest %dest addr %rsrc
+      offset u(%soff) + d(%voff2) + c(%c0)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
+  return %result : !amdgcn.vgpr
+}
+
+// -----
+
+// Buffer load: boundary test - 4095 should fold (max 12-bit unsigned).
+// CHECK-LABEL:   func.func @test_buffer_load_boundary_4095(
+// CHECK-SAME:      %[[RSRC:.*]]: !amdgcn.sgpr<[? + 4]>,
+// CHECK-SAME:      %[[SOFF:.*]]: !amdgcn.sgpr,
+// CHECK-SAME:      %[[VOFF:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
+// CHECK:           %[[C4095:.*]] = arith.constant 4095 : i32
+// CHECK:           %[[DEST:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL:.*]], %[[TOK:.*]] = amdgcn.load buffer_load_dword dest %[[DEST]] addr %[[RSRC]]
+// CHECK-SAME:        offset u(%[[SOFF]]) + d(%[[VOFF]]) + c(%[[C4095]])
+// CHECK:           return %[[VAL]]
+// CHECK:         }
+func.func @test_buffer_load_boundary_4095(
+    %rsrc: !amdgcn.sgpr<[? + 4]>, %soff: !amdgcn.sgpr, %voff: !amdgcn.vgpr
+) -> !amdgcn.vgpr {
+  %c4095 = arith.constant 4095 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %voff2 = lsir.addi i32 %0, %voff, %c4095 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c0 = arith.constant 0 : i32
+  %dest = amdgcn.alloca : !amdgcn.vgpr
+  %result, %tok = amdgcn.load buffer_load_dword dest %dest addr %rsrc
+      offset u(%soff) + d(%voff2) + c(%c0)
+      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
+  return %result : !amdgcn.vgpr
+}

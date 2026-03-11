@@ -147,6 +147,20 @@ PHASE_CONVERT_LDS_BUFFERS = (
 # Note: aster-to-int-arith contains lower-affine without linking in and
 # cargo-culting the whole conversion library.
 PHASE_LOWER_TO_AMDGCN = (
+    # Decompose large affine.apply ops into smaller reusable pieces for
+    # better LICM, CSE, and int-range analysis. Must run after canonicalize
+    # (which composes affine chains) and before aster-to-int-arith (which
+    # lowers affine to arith). Upstream: affine::decompose().
+    "aster-decompose-affine-apply",
+    # Hoist loop-invariant decomposed affine sub-expressions and deduplicate.
+    # No canonicalize here: it would re-compose the affine chains we just split.
+    "loop-invariant-code-motion", "cse",
+    # Decompose ptr.ptr_add(affine.apply) into const/uniform/dynamic
+    # components using ValueBounds + ThreadUniformAnalysis.
+    "aster-affine-optimize-ptr-add",
+    # Hoist loop-invariant decomposed affine sub-expressions and deduplicate.
+    # No canonicalize here: it would re-compose the affine chains we just split.
+    "loop-invariant-code-motion", "cse",
     "aster-to-int-arith",
     "aster-optimize-arith",
     "aster-optimize-ptr-add",

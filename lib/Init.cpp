@@ -30,6 +30,7 @@
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/GPU/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -279,7 +280,7 @@ void mlir::aster::registerUpstreamMLIRExternalModels(
   // cf::registerBufferizableOpInterfaceExternalModels(registry);
   // cf::registerBufferDeallocationOpInterfaceExternalModels(registry);
   // gpu::registerBufferDeallocationOpInterfaceExternalModels(registry);
-  // gpu::registerValueBoundsOpInterfaceExternalModels(registry);
+  gpu::registerValueBoundsOpInterfaceExternalModels(registry);
   // LLVM::registerInlinerInterface(registry);
   // NVVM::registerInlinerInterface(registry);
   // linalg::registerAllDialectInterfaceImplementations(registry);
