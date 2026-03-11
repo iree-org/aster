@@ -519,6 +519,36 @@ amdgcn.library @common_indexing {
     return %row, %col_byte : index, index
   }
 
+  // Compute ds_bpermute byte address to rearrange a 16x64_b cooperative fill
+  // into an MFMA A fragment for v_mfma_f32_16x16x16_f16.
+  //
+  // Cooperative fill: lane i holds row=i/4, cols [(i%4)*8..(i%4)*8+7] (f16 elts).
+  // MFMA A fragment:  lane d needs row=d%16, cols [(d/16)*4..(d/16)*4+3].
+  // Source lane: src(d, k_sel) = 4*(d%16) + (d/32) + k_sel*2
+  // Bpermute addr (bytes): 4 * src = 16*(d%16) + 4*(d/32) + 8*k_sel
+  //
+  // k_sel: 0 for K0 (columns 0-15), 1 for K1 (columns 16-31).
+  func.func private @bpermute_addr_A_16x16_f16(%k_sel: index) -> index {
+    %lane = func.call @lane_id() : () -> index
+    %addr = affine.apply affine_map<(lid)[ks] -> (
+        (lid mod 16) * 16 + (lid floordiv 32) * 4 + ks * 8
+    )>(%lane)[%k_sel]
+    return %addr : index
+  }
+
+  // Compute the VGPR-pair select mask for A fragment extraction from 16x64_b.
+  //
+  // After ds_bpermute of all 4 source VGPRs, we need to select the correct pair:
+  //   vbase = ((lane_id/16) % 2) -- 0 for lanes [0-15,32-47], 1 for [16-31,48-63]
+  //
+  // Returns 0 or 1 as an index. Caller uses v_cmp_eq_i32_e64 to build a lane mask:
+  //   mask = (vbase == 0) -> cndmask picks bp[i] (lo pair) or bp[i+2] (hi pair).
+  func.func private @vbase_select_A_16x16_f16() -> index {
+    %lane = func.call @lane_id() : () -> index
+    %vbase = affine.apply affine_map<(lid) -> ((lid floordiv 16) mod 2)>(%lane)
+    return %vbase : index
+  }
+
   // Compute XOR-swizzled LDS byte address for a 16-row tile with 64-byte row stride.
   // Swizzle: base + row*64 + (byte_in_row XOR mask)
   //   mask = ((row / 2) % 8) * 8

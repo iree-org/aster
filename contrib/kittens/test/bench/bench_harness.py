@@ -87,7 +87,7 @@ def parse_result_from_output(stdout):
     return None
 
 
-def compile_one(cfg, hsaco_dir, compile_fn, kernel_name):
+def compile_one(cfg, hsaco_dir, compile_fn):
     """Compile a single config to HSACO.
 
     Called in worker process. Returns (label, hsaco_path, KernelResources|None). Raises
@@ -95,6 +95,7 @@ def compile_one(cfg, hsaco_dir, compile_fn, kernel_name):
     """
     from aster.hip import parse_asm_kernel_resources
 
+    kname = cfg.kernel_name
     output_path = os.path.join(hsaco_dir, f"{cfg.label}.hsaco")
     try:
         _, asm = compile_fn(cfg, output_path)
@@ -103,7 +104,7 @@ def compile_one(cfg, hsaco_dir, compile_fn, kernel_name):
     asm_path = output_path.replace(".hsaco", ".s")
     with open(asm_path, "w") as f:
         f.write(asm)
-    res = parse_asm_kernel_resources(asm, kernel_name=kernel_name).get(kernel_name)
+    res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
     return cfg.label, output_path, res
 
 
@@ -255,7 +256,6 @@ def bench_perf_sweep(
     cfg_to_cli_args,
     repro_cmd_fn,
     script_path,
-    kernel_name,
     top_k_to_run=None,
     known_broken=None,
     skip_first_n=0,
@@ -338,7 +338,7 @@ def bench_perf_sweep(
     with ProcessPoolExecutor(max_workers=compile_workers) as pool:
         futures = {}
         for cfg in active:
-            fut = pool.submit(compile_one, cfg, hsaco_dir, compile_fn, kernel_name)
+            fut = pool.submit(compile_one, cfg, hsaco_dir, compile_fn)
             futures[fut] = cfg
 
         total_compile = len(futures)
@@ -451,13 +451,14 @@ def print_config(cfg, iterations, resources=None):
     sys.stdout.flush()
 
 
-def run_single(cfg, compile_fn, args, kernel_name, execute_fn):
+def run_single(cfg, compile_fn, args, execute_fn):
     """Run a single config from CLI args.
 
     Emits BENCH_RESULT_JSON for sweep parsing.
     """
     from aster.hip import parse_asm_kernel_resources
 
+    kname = cfg.kernel_name
     print_ir = getattr(args, "print_ir_after_all", False)
     print_asm = getattr(args, "print_asm", False)
 
@@ -466,8 +467,8 @@ def run_single(cfg, compile_fn, args, kernel_name, execute_fn):
             print("Error: --compile-only requires --hsaco <output_path>")
             raise SystemExit(1)
         _, asm = compile_fn(cfg, args.hsaco, print_ir_after_all=print_ir)
-        resources = parse_asm_kernel_resources(asm, kernel_name=kernel_name)
-        print_config(cfg, args.iterations, resources.get(kernel_name))
+        resources = parse_asm_kernel_resources(asm, kernel_name=kname)
+        print_config(cfg, args.iterations, resources.get(kname))
         print(f"  Compiled: {args.hsaco}")
         if print_asm:
             print(f"\n--- Assembly ---\n{asm}")
@@ -482,9 +483,9 @@ def run_single(cfg, compile_fn, args, kernel_name, execute_fn):
         if os.path.exists(asm_path):
             with open(asm_path) as f:
                 asm_content = f.read()
-                res = parse_asm_kernel_resources(
-                    asm_content, kernel_name=kernel_name
-                ).get(kernel_name)
+                res = parse_asm_kernel_resources(asm_content, kernel_name=kname).get(
+                    kname
+                )
         print_config(cfg, args.iterations, res)
         if print_asm and asm_content:
             print(f"\n--- Assembly ---\n{asm_content}")
@@ -496,8 +497,8 @@ def run_single(cfg, compile_fn, args, kernel_name, execute_fn):
 
         with _tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
             _, asm = compile_fn(cfg, tmp.name, print_ir_after_all=print_ir)
-            resources = parse_asm_kernel_resources(asm, kernel_name=kernel_name)
-            print_config(cfg, args.iterations, resources.get(kernel_name))
+            resources = parse_asm_kernel_resources(asm, kernel_name=kname)
+            print_config(cfg, args.iterations, resources.get(kname))
             if print_asm:
                 print(f"\n--- Assembly ---\n{asm}")
             _, times_ns = execute_fn(cfg, tmp.name, args.iterations, A, B)

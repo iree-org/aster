@@ -25,9 +25,22 @@ from kittens_helpers import (
     WAVEFRONT_SIZE,
 )
 
-KERNEL_NAME = "gemm_f16_weak_scaled"
-MLIR_FILE = "test_perf_001_gemm_fp16_weak_scaled.mlir"
-K_LOOP_HELPERS_FILE = "gemm_16x32_f16_k_loop_helpers.mlir"
+# Keyed by (a_path, load_type). a_path: "lds" or "direct". load_type: "flat" or "buffer".
+KERNEL_NAMES = {
+    "lds": "gemm_f16_weak_scaled",
+    "direct": "gemm_f16_direct_a",
+}
+MLIR_FILES = {
+    ("lds", "flat"): "test_perf_001_gemm_fp16_weak_scaled.mlir",
+    ("lds", "buffer"): "test_perf_001_gemm_fp16_weak_scaled.mlir",
+    ("direct", "flat"): "test_perf_002_gemm_fp16_direct_a.mlir",
+}
+# Both flat and buffer use the same helpers: after PR #418 the _buf helpers were
+# unified into the flat helpers file via !aster_utils.any type-erasure.
+K_LOOP_HELPERS_FILES = {
+    "flat": "gemm_16x32_f16_k_loop_helpers.mlir",
+    "buffer": "gemm_16x32_f16_k_loop_helpers.mlir",
+}
 
 
 @dataclass
@@ -48,7 +61,8 @@ class WeakScaleConfig:
     k_tiles: int
     num_stages: int
     k: int
-    use_buffer: bool = True
+    load_type: str = "flat"  # "flat" or "buffer"
+    a_path: str = "lds"  # "lds" or "direct" (bpermute, A bypasses LDS)
     _label_suffix: str = ""
 
     def __post_init__(self):
@@ -97,13 +111,26 @@ class WeakScaleConfig:
         return 2 * self.m_dim * self.n_dim * self.k
 
     @property
+    def use_buffer(self):
+        return self.load_type == "buffer"
+
+    @property
+    def direct_a(self):
+        return self.a_path == "direct"
+
+    @property
+    def kernel_name(self):
+        return KERNEL_NAMES[self.a_path]
+
+    @property
     def lds_bytes(self):
-        """LDS per pipeline stage: num_stages * (m_tiles_wg * k_tiles + n_tiles_wg * k_tiles) * 1024."""
-        return (
-            self.num_stages
-            * (self.m_tiles_wg * self.k_tiles + self.n_tiles_wg * self.k_tiles)
-            * 1024
-        )
+        """LDS per pipeline stage.
+
+        Direct-A uses LDS only for B.
+        """
+        a_tiles = 0 if self.direct_a else self.m_tiles_wg * self.k_tiles
+        b_tiles = self.n_tiles_wg * self.k_tiles
+        return self.num_stages * (a_tiles + b_tiles) * 1024
 
     @property
     def label(self):
@@ -115,16 +142,21 @@ class WeakScaleConfig:
         )
 
 
-def _load_k_loop_helpers():
+def _load_k_loop_helpers(load_type="flat", a_path="lds"):
     """Read the shared K-loop helper functions MLIR fragment."""
-    helpers_path = get_mlir_file(K_LOOP_HELPERS_FILE)
+    helpers_path = get_mlir_file(K_LOOP_HELPERS_FILES[load_type])
     with open(helpers_path) as f:
-        return f.read()
+        helpers = f.read()
+    if a_path == "direct":
+        direct_path = get_mlir_file("gemm_16x32_f16_k_loop_helpers_direct_a.mlir")
+        with open(direct_path) as f:
+            helpers += "\n" + f.read()
+    return helpers
 
 
 def _make_substitutions(cfg):
     """Build template substitutions dict for a WeakScaleConfig."""
-    subs = {"{{K_LOOP_HELPERS}}": _load_k_loop_helpers()}
+    subs = {"{{K_LOOP_HELPERS}}": _load_k_loop_helpers(cfg.load_type, cfg.a_path)}
     subs.update(
         constexpr_substitutions_16x32(cfg.m_tiles, cfg.n_tiles, cfg.k, cfg.num_stages)
     )
@@ -146,15 +178,11 @@ def _make_substitutions(cfg):
     return subs
 
 
-def compile_weak_scaled_gemm(
-    cfg, output_hsaco_path, use_buffer=True, print_ir_after_all=False
-):
-    """Compile a weak-scaled GEMM config to HSACO.
+def compile_gemm(cfg, output_hsaco_path, print_ir_after_all=False):
+    """Compile a GEMM config to HSACO.
 
-    Returns (hsaco_path, asm_str). This is the CPU-only compilation step (no GPU
-    needed). Safe to run in parallel across configs.
-
-    use_buffer: True for buffer_load/buffer_store (MUBUF), False for global_load/global_store (flat).
+    Returns (hsaco_path, asm_str). Handles a_path (lds/direct) and load_type
+    (flat/buffer) via cfg fields.
     """
     from aster import ir, utils
     from aster.testing import compile_mlir_file_to_asm
@@ -166,15 +194,21 @@ def compile_weak_scaled_gemm(
             content = content.replace(pattern, replacement)
         return content
 
+    mlir_key = (cfg.a_path, cfg.load_type)
+    mlir_file = MLIR_FILES[mlir_key]
+    lib_paths = get_kittens_16x16_lds_library_paths(
+        use_buffer=cfg.use_buffer, direct_a=cfg.direct_a
+    )
+
     ctx = ir.Context()
     ctx.__enter__()
     try:
         asm, _ = compile_mlir_file_to_asm(
-            get_mlir_file(MLIR_FILE),
-            KERNEL_NAME,
+            get_mlir_file(mlir_file),
+            cfg.kernel_name,
             TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
             ctx,
-            library_paths=get_kittens_16x16_lds_library_paths(use_buffer=use_buffer),
+            library_paths=lib_paths,
             preprocess=preprocess,
             print_ir_after_all=print_ir_after_all,
         )
@@ -190,17 +224,16 @@ def compile_weak_scaled_gemm(
         ctx.__exit__(None, None, None)
 
 
-def execute_weak_scaled_hsaco(
-    cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=False
-):
-    """Execute a pre-compiled HSACO for a weak-scaled GEMM config.
+def execute_gemm_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=False):
+    """Execute a pre-compiled HSACO for a GEMM config.
 
-    Returns (C_output, times_ns). Must run sequentially on GPU. Skips (pytest.skip) if
-    the target GPU is not available.
+    Returns (C_output, times_ns).
 
     Uses aster.hip (MLIR/LLVM-free) for rocprofv3 compatibility. Set skip_gpu_check=True
     when running under rocprofv3 (rocminfo hangs because rocprofv3 intercepts child
     processes).
+
+    Skips (pytest.skip) if target GPU unavailable.
     """
     from aster.hip import system_has_gpu, execute_hsaco
 
@@ -211,7 +244,7 @@ def execute_weak_scaled_hsaco(
 
     times_ns = execute_hsaco(
         hsaco_path=hsaco_path,
-        kernel_name=KERNEL_NAME,
+        kernel_name=cfg.kernel_name,
         input_arrays=[A.flatten(), B.flatten()],
         output_arrays=[C_output],
         grid_dim=(cfg.num_workgroups, 1, 1),
@@ -249,7 +282,8 @@ class TestWeakScaleCorrectness:
         ],
     )
     @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
-    @pytest.mark.parametrize("use_buffer", [False, True], ids=["flat", "buffer"])
+    @pytest.mark.parametrize("load_type", ["flat", "buffer"], ids=["flat", "buffer"])
+    @pytest.mark.parametrize("a_path", ["lds", "direct"], ids=["lds", "direct"])
     def test_correctness(
         self,
         m_wg,
@@ -259,9 +293,12 @@ class TestWeakScaleCorrectness:
         m_waves,
         n_waves,
         num_stages,
-        use_buffer,
+        load_type,
+        a_path,
     ):
         """Constexpr GEMM verified against numpy."""
+        if (a_path, load_type) not in MLIR_FILES:
+            pytest.skip(f"({a_path}, {load_type}) not yet implemented")
         k = 128
         k_tiles = 1
         cfg = WeakScaleConfig(
@@ -274,6 +311,8 @@ class TestWeakScaleCorrectness:
             k_tiles,
             num_stages,
             k,
+            load_type=load_type,
+            a_path=a_path,
         )
         # Per-wave tile product > 16 requires too many registers.
         if cfg.m_tiles * cfg.n_tiles > 16:
@@ -287,8 +326,8 @@ class TestWeakScaleCorrectness:
         A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
         B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
         with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-            compile_weak_scaled_gemm(cfg, tmp.name, use_buffer=use_buffer)
-            C_output, _ = execute_weak_scaled_hsaco(cfg, tmp.name, 1, A, B)
+            compile_gemm(cfg, tmp.name)
+            C_output, _ = execute_gemm_hsaco(cfg, tmp.name, 1, A, B)
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
@@ -374,8 +413,14 @@ if __name__ == "__main__":
         action="store_true",
         help="Use global_load/global_store (flat) instead of buffer_load/buffer_store",
     )
+    parser.add_argument(
+        "--direct-a",
+        action="store_true",
+        help="A operand via bpermute (LDS bypass) instead of LDS",
+    )
     a = parser.parse_args()
-    use_buffer = not a.use_flat
+    load_type = "buffer" if a.use_buffer else "flat"
+    a_path = "direct" if a.direct_a else "lds"
     k = a.k_scaling_factor * a.k_tiles * 32
 
     cfg = WeakScaleConfig(
@@ -388,13 +433,15 @@ if __name__ == "__main__":
         a.k_tiles,
         a.stages,
         k,
+        load_type=load_type,
+        a_path=a_path,
     )
 
     from aster.hip import parse_asm_kernel_resources
 
-    mem_mode = "buffer" if use_buffer else "flat"
+    a_mode = f" direct-A" if cfg.direct_a else ""
 
-    print(f"Config: {cfg.label} ({mem_mode})")
+    print(f"Config: {cfg.label} ({cfg.load_type}{a_mode})")
     print(f"  M={cfg.m_dim}, N={cfg.n_dim}, K={cfg.k}")
     print(f"  workgroups={cfg.num_workgroups}, threads={cfg.num_threads}")
     print(f"  per-wave tiles: {cfg.m_tiles}x{cfg.n_tiles}, LDS={cfg.lds_bytes}")
@@ -403,14 +450,9 @@ if __name__ == "__main__":
         if not a.hsaco:
             print("Error: --compile-only requires --hsaco <output_path>")
             raise SystemExit(1)
-        _, asm = compile_weak_scaled_gemm(
-            cfg,
-            a.hsaco,
-            use_buffer=use_buffer,
-            print_ir_after_all=a.print_ir_after_all,
-        )
-        resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
-        res = resources.get(KERNEL_NAME)
+        _, asm = compile_gemm(cfg, a.hsaco, print_ir_after_all=a.print_ir_after_all)
+        resources = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name)
+        res = resources.get(cfg.kernel_name)
         if res:
             print(f"  resources: {res}")
         if a.print_asm:
@@ -422,24 +464,21 @@ if __name__ == "__main__":
         B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
 
         if a.hsaco:
-            C_output, times_ns = execute_weak_scaled_hsaco(
+            C_output, times_ns = execute_gemm_hsaco(
                 cfg, a.hsaco, a.iterations, A, B, skip_gpu_check=True
             )
         else:
             with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-                _, asm = compile_weak_scaled_gemm(
-                    cfg,
-                    tmp.name,
-                    use_buffer=use_buffer,
-                    print_ir_after_all=a.print_ir_after_all,
+                _, asm = compile_gemm(
+                    cfg, tmp.name, print_ir_after_all=a.print_ir_after_all
                 )
-                resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
-                res = resources.get(KERNEL_NAME)
+                resources = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name)
+                res = resources.get(cfg.kernel_name)
                 if res:
                     print(f"  resources: {res}")
                 if a.print_asm:
                     print(asm)
-                C_output, times_ns = execute_weak_scaled_hsaco(
+                C_output, times_ns = execute_gemm_hsaco(
                     cfg, tmp.name, a.iterations, A, B
                 )
 

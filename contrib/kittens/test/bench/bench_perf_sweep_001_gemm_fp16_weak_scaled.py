@@ -4,19 +4,24 @@ Phase 1: Parallel compilation (MLIR -> HSACO) across all configs.
 Phase 2: Parallel GPU execution with round-robin across available GPUs,
          each config in its own subprocess for crash isolation.
 
-Usage (sweep -- both buffer and flat by default):
-    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep
-    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --full-sweep
-    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --use-buffer  # buffer only
-    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --use-flat    # flat only
-    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --num-gpus 8 --compile-workers 16
+Sweep axes: load_type (flat/buffer) x a_path (lds/direct).
+By default sweeps all implemented (a_path, load_type) combos.
 
-Usage (single config compile + run):
-    python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
+Usage (sweep):
+    python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep
+    python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --full-sweep
+    python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --use-buffer   # buffer only
+    python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --use-flat     # flat only
+    python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --direct-a     # direct-A only
+    python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --num-gpus 8 --compile-workers 16
+
+Usage (single config):
+    python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
         --m-wg 38 --n-wg 32 --m-waves 2 --n-waves 2 \
         --m-tiles-wg 4 --n-tiles-wg 4 --k-tiles 1 --stages 2 --k-scaling-factor 128
-    ... --use-flat    # Use global_load/global_store instead of buffer ops
-    ... --use-buffer  # Use buffer_load/buffer_store (default for single-config)
+    ... --use-flat      # flat memory ops (default)
+    ... --use-buffer    # buffer memory ops
+    ... --direct-a      # A via bpermute (LDS bypass)
 
 Usage (compile only / execute pre-compiled HSACO):
     ... --compile-only --hsaco /tmp/output.hsaco
@@ -25,7 +30,7 @@ Usage (compile only / execute pre-compiled HSACO):
 
 # IMPORTANT: Top configs to run by default. If non-empty, only these labels are run
 # unless --full-sweep is passed. Empty list = full sweep (need to populate after first sweep).
-# Labels must include _buf/_flat suffix (used to filter by --use-buffer/--use-flat).
+# Label suffix scheme: _flat, _buf (LDS path), _direct_flat, _direct_buf (direct-A path).
 _TOP_K_BASE = [
     "m9728xn8192xk8192_wg38x32_w2x2_twg16x16x1_s2_flat",
     "m9728xn8192xk8192_wg38x32_w2x2_twg16x16x1_s2_buf",
@@ -204,7 +209,6 @@ KNOWN_BROKEN = [
 ]
 
 import argparse
-import functools
 import itertools
 import os
 import sys
@@ -213,10 +217,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 from test_perf_001_gemm_fp16_weak_scaled import (
-    KERNEL_NAME,
+    MLIR_FILES,
     WeakScaleConfig,
-    compile_weak_scaled_gemm,
-    execute_weak_scaled_hsaco,
+    compile_gemm,
+    execute_gemm_hsaco,
 )
 from bench_harness import (
     add_sweep_cli_args,
@@ -248,18 +252,26 @@ SKIP_FIRST_N_CONFIGS = 0
 MIN_DIM = 3000  # Skip configs where M, N, or K < 3000
 
 
+def _make_label_suffix(a_path, load_type):
+    """Build label suffix from a_path and load_type, e.g. '_flat', '_buf', '_direct_flat'."""
+    lt = "buf" if load_type == "buffer" else "flat"
+    return f"_direct_{lt}" if a_path == "direct" else f"_{lt}"
+
+
 def _generate_configs(variants=None):
     """Generate the full sweep grid, filtering for divisibility and minimum dimensions.
 
     Args:
-        variants: list of bools for use_buffer (e.g. [True, False] for both).
-            Defaults to [True, False] (sweep both).
+        variants: list of (a_path, load_type) tuples to sweep.
+            Defaults to all implemented combos from MLIR_FILES.
     """
     if variants is None:
-        variants = [True, False]
+        variants = list(MLIR_FILES.keys())
     configs = []
-    for use_buf in variants:
-        suffix = "_buf" if use_buf else "_flat"
+    for a_path, load_type in variants:
+        if (a_path, load_type) not in MLIR_FILES:
+            continue
+        suffix = _make_label_suffix(a_path, load_type)
         for k_factor in K_SCALING_FACTORS:
             for m_wg, n_wg in WG_GRIDS:
                 for m_w, n_w in WAVE_CONFIGS:
@@ -278,7 +290,8 @@ def _generate_configs(variants=None):
                                 k_t,
                                 stages,
                                 k,
-                                use_buffer=use_buf,
+                                load_type=load_type,
+                                a_path=a_path,
                                 _label_suffix=suffix,
                             )
                             if (
@@ -295,13 +308,14 @@ def _repro_cmd(cfg, num_iterations):
     """Return a CLI command to reproduce a single config."""
     k_factor = cfg.k // (cfg.k_tiles * 32)
     buf_flag = " --use-buffer" if cfg.use_buffer else " --use-flat"
+    direct_flag = " --direct-a" if cfg.direct_a else ""
     return (
         f"python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
         f" --m-tiles-wg {cfg.m_tiles_wg} --n-tiles-wg {cfg.n_tiles_wg} --k-tiles {cfg.k_tiles}"
         f" --stages {cfg.num_stages} --k-scaling-factor {k_factor}"
-        f"{buf_flag}"
+        f"{buf_flag}{direct_flag}"
         f" --iterations {num_iterations}"
     )
 
@@ -330,13 +344,15 @@ def _cfg_to_cli_args(cfg):
         str(k_factor),
     ]
     args.append("--use-buffer" if cfg.use_buffer else "--use-flat")
+    if cfg.direct_a:
+        args.append("--direct-a")
     return args
 
 
-def _make_config_from_args(args, use_buffer):
+def _make_config_from_args(args, load_type, a_path):
     """Construct a WeakScaleConfig from parsed CLI args."""
     k = args.k_scaling_factor * args.k_tiles * 32
-    suffix = "_buf" if use_buffer else "_flat"
+    suffix = _make_label_suffix(a_path, load_type)
     return WeakScaleConfig(
         args.m_wg,
         args.n_wg,
@@ -347,16 +363,15 @@ def _make_config_from_args(args, use_buffer):
         args.k_tiles,
         args.stages,
         k,
-        use_buffer=use_buffer,
+        load_type=load_type,
+        a_path=a_path,
         _label_suffix=suffix,
     )
 
 
 def _compile_fn(cfg, output_hsaco_path, **kwargs):
-    """Compile wrapper that reads use_buffer from cfg."""
-    return compile_weak_scaled_gemm(
-        cfg, output_hsaco_path, use_buffer=cfg.use_buffer, **kwargs
-    )
+    """Compile wrapper -- cfg carries load_type and a_path."""
+    return compile_gemm(cfg, output_hsaco_path, **kwargs)
 
 
 CORRECTNESS_K = 128  # Small K for fast compile+execute correctness checks.
@@ -367,7 +382,6 @@ def verify_top_configs(results, num_configs=CORRECTNESS_TOP_N):
     """Phase 3: Verify correctness of the top N configs from the sweep.
 
     Recompiles each config at K=128 (fast), executes, and checks against numpy.
-    use_buffer is read from each config's use_buffer field.
     """
     import tempfile
     import numpy as np
@@ -393,7 +407,8 @@ def verify_top_configs(results, num_configs=CORRECTNESS_TOP_N):
             cfg.k_tiles,
             cfg.num_stages,
             CORRECTNESS_K,
-            use_buffer=cfg.use_buffer,
+            load_type=cfg.load_type,
+            a_path=cfg.a_path,
             _label_suffix=cfg._label_suffix,
         )
         tag = f"[{rank}/{len(top)}] {cfg.label}"
@@ -402,8 +417,8 @@ def verify_top_configs(results, num_configs=CORRECTNESS_TOP_N):
             A = (np.random.randn(small_cfg.m_dim, small_cfg.k) * 0.1).astype(np.float16)
             B = (np.random.randn(small_cfg.n_dim, small_cfg.k) * 0.1).astype(np.float16)
             with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-                compile_weak_scaled_gemm(small_cfg, tmp.name, use_buffer=cfg.use_buffer)
-                C_output, _ = execute_weak_scaled_hsaco(
+                compile_gemm(small_cfg, tmp.name)
+                C_output, _ = execute_gemm_hsaco(
                     small_cfg, tmp.name, 1, A, B, skip_gpu_check=True
                 )
             expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
@@ -457,33 +472,54 @@ if __name__ == "__main__":
         action="store_true",
         help="Sweep global_load/global_store only",
     )
+    parser.add_argument(
+        "--direct-a",
+        action="store_true",
+        help="A operand via bpermute (LDS bypass) instead of LDS",
+    )
 
     args = parser.parse_args()
 
-    # Determine which variants to sweep: both by default, or one if specified.
+    # Determine a_path
+    a_path = "direct" if args.direct_a else "lds"
+
+    # Determine load_type variants to sweep.
     if args.use_buffer:
-        variants = [True]
+        load_types = ["buffer"]
     elif args.use_flat:
-        variants = [False]
+        load_types = ["flat"]
     else:
-        variants = [True, False]
+        load_types = ["flat", "buffer"]
 
-    # For single-config mode, default to buffer.
-    use_buffer = not args.use_flat
+    # Build (a_path, load_type) variant list.
+    # In sweep mode without --direct-a, sweep all implemented combos.
+    # With --direct-a, sweep only direct combos.
+    if args.full_sweep or args.sweep:
+        if args.direct_a:
+            variants = [(a_path, lt) for lt in load_types]
+        else:
+            # Sweep all a_path values for each load_type
+            variants = [(ap, lt) for lt in load_types for ap in ["lds", "direct"]]
+    else:
+        variants = [(a_path, lt) for lt in load_types]
 
-    # TOP_K labels already include _buf/_flat suffix -- filter to selected variants.
+    # Filter to implemented combos
+    variants = [(ap, lt) for ap, lt in variants if (ap, lt) in MLIR_FILES]
+
+    # For single-config mode
+    load_type = "buffer" if args.use_buffer else "flat"
+
+    # TOP_K labels include suffix -- filter to selected variants.
+    variant_suffixes = {_make_label_suffix(ap, lt) for ap, lt in variants}
     top_k_to_run = [
         label
         for label in _TOP_K_BASE
-        if any(
-            label.endswith("_buf") and v or label.endswith("_flat") and not v
-            for v in variants
-        )
+        if any(label.endswith(s) for s in variant_suffixes)
     ]
 
     if args.full_sweep or args.sweep:
-        variant_str = ", ".join("buffer" if v else "flat" for v in variants)
-        print(f"Memory ops variant(s): {variant_str}")
+        variant_str = ", ".join(f"{ap}/{lt}" for ap, lt in variants)
+        print(f"Variants: {variant_str}")
         results = bench_perf_sweep(
             configs=_generate_configs(variants),
             compile_fn=_compile_fn,
@@ -496,7 +532,6 @@ if __name__ == "__main__":
             full_sweep=args.full_sweep,
             num_gpus=args.num_gpus,
             compile_workers=args.compile_workers,
-            kernel_name=KERNEL_NAME,
         )
         verify_top_configs(results)
     else:
@@ -515,11 +550,9 @@ if __name__ == "__main__":
         if missing:
             flags = ", ".join(f"--{a.replace('_', '-')}" for a in missing)
             parser.error(f"Single-config mode requires: {flags}")
-        compile_fn = functools.partial(compile_weak_scaled_gemm, use_buffer=use_buffer)
         run_single(
-            _make_config_from_args(args, use_buffer),
-            compile_fn,
+            _make_config_from_args(args, load_type, a_path),
+            compile_gemm,
             args,
-            kernel_name=KERNEL_NAME,
-            execute_fn=execute_weak_scaled_hsaco,
+            execute_fn=execute_gemm_hsaco,
         )
