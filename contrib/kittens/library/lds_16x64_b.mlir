@@ -20,8 +20,8 @@ amdgcn.library @kittens_lds_16x64_b isa = [#amdgcn.isa<cdna3>] {
   func.func private @alloc_vgprx2() -> !vx2
   func.func private @alloc_vgprx4() -> !vx4
   // From indexing.mlir
-  func.func private @thread_tile_pos_16x64b() -> (index, index)
-  func.func private @lds_swizzled_addr_16x64b(index, index, index) -> index
+  func.func private @thread_tile_pos_16x64_b() -> (index, index)
+  func.func private @lds_swizzled_addr_16x64_b(index, index, index) -> index
   // From futures.mlir
   func.func private @get_global_load_value_vx4(!future_global_read) -> !vx4
   func.func private @get_lds_read_value_vx2(!future_lds_read) -> !vx2
@@ -36,7 +36,7 @@ amdgcn.library @kittens_lds_16x64_b isa = [#amdgcn.isa<cdna3>] {
   func.func private @write_vx2_to_lds(
       %data: !vx2, %tile_base: index, %row: index, %byte_in_row: index
   ) -> !future_lds_write {
-    %addr_idx = func.call @lds_swizzled_addr_16x64b(%tile_base, %row, %byte_in_row)
+    %addr_idx = func.call @lds_swizzled_addr_16x64_b(%tile_base, %row, %byte_in_row)
         : (index, index, index) -> index
     %addr_i32 = arith.index_cast %addr_idx : index to i32
     %lds_addr = lsir.to_reg %addr_i32 : i32 -> !v
@@ -58,7 +58,7 @@ amdgcn.library @kittens_lds_16x64_b isa = [#amdgcn.isa<cdna3>] {
     %lo = amdgcn.make_register_range %v0, %v1 : !v, !v
     %hi = amdgcn.make_register_range %v2, %v3 : !v, !v
 
-    %row, %col_byte = func.call @thread_tile_pos_16x64b() : () -> (index, index)
+    %row, %col_byte = func.call @thread_tile_pos_16x64_b() : () -> (index, index)
     %col_byte_hi = affine.apply affine_map<()[c] -> (c + 8)>()[%col_byte]
 
     %tok_lo = func.call @write_vx2_to_lds(%lo, %tile_base, %row, %col_byte)
@@ -88,7 +88,7 @@ amdgcn.library @kittens_lds_16x64_b isa = [#amdgcn.isa<cdna3>] {
   func.func private @read_vx2_from_lds(
       %tile_base: index, %row: index, %byte_in_row: index
   ) -> !future_lds_read {
-    %addr_idx = func.call @lds_swizzled_addr_16x64b(%tile_base, %row, %byte_in_row)
+    %addr_idx = func.call @lds_swizzled_addr_16x64_b(%tile_base, %row, %byte_in_row)
         : (index, index, index) -> index
     %addr_i32 = arith.index_cast %addr_idx : index to i32
     %lds_addr = lsir.to_reg %addr_i32 : i32 -> !v

@@ -7,7 +7,7 @@ from aster.testing import compile_and_run
 
 
 class TestStoreGlobalCFragmentWait:
-    """Test @global_store_wave_16x16xf32_C_fragment_wait function."""
+    """Test @global_store_wave_16x16_f32_C_fragment_wait function."""
 
     def test_store_MFMA_C_fragment(self):
         """Store C fragment to global with MFMA C access pattern."""

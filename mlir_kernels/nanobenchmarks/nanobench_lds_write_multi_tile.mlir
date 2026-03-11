@@ -1,4 +1,4 @@
-// Nanobenchmark for @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait
+// Nanobenchmark for @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait
 // Uses garbage values in registers (no verification).
 
 // From descriptors.mlir
@@ -8,7 +8,7 @@
 
 amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // From multi-tile-copies.mlir
-  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+  func.func private @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait(
     !lds_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2)
 
   amdgcn.kernel @nanobench_lds_write_multi_tile
@@ -42,7 +42,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
     // Outer timing loop - repeat the tile iterations NUM_ITERS times
     scf.for %iter = %c0 to %NUM_ITERS step %c1 {
       // Call the LDS write function with garbage register values
-      func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+      func.call @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait(
         %lds_desc, %NT_I, %NT_J, %result_desc)
         : (!lds_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2) -> ()
     } {aster.constexpr}

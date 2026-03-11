@@ -1,4 +1,4 @@
-// Unit test for @simple_global_to_lds_wave_16x16xf16_wait and @simple_lds_to_global_wave_16x16xf16_wait
+// Unit test for @simple_global_to_lds_wave_16x16_f16_wait and @simple_lds_to_global_wave_16x16_f16_wait
 // Copy a single 16x16 tile from global to LDS and back
 
 // Type aliases
@@ -8,13 +8,13 @@
 
 amdgcn.module @test_global_to_lds_and_back target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // From simple-copies.mlir
-  func.func private @simple_global_to_lds_wave_16x16xf16_wait(!tensor_position_descriptor_2d, !lds_position_descriptor_2d)
-  func.func private @simple_lds_to_global_wave_16x16xf16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
+  func.func private @simple_global_to_lds_wave_16x16_f16_wait(!tensor_position_descriptor_2d, !lds_position_descriptor_2d)
+  func.func private @simple_lds_to_global_wave_16x16_f16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
 
-  // Test @simple_global_to_lds_wave_16x16xf16_wait: copy a single 16x16 tile from global to LDS
+  // Test @simple_global_to_lds_wave_16x16_f16_wait: copy a single 16x16 tile from global to LDS
   // Input: 64x96 array, copy tile at position (3,5) = element (48, 80)
   // Verifies position handling by checking only the correct tile is copied
-  amdgcn.kernel @test_global_to_lds_and_back_wave_16x16xf16_wait arguments <[
+  amdgcn.kernel @test_global_to_lds_and_back_wave_16x16_f16_wait arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 20000 : i32} {
@@ -32,12 +32,12 @@ amdgcn.module @test_global_to_lds_and_back target = #amdgcn.target<gfx942> isa =
     // Copy tile at (48, 80) from global to LDS at base 0
     %global_pos_desc = aster_utils.struct_create(%in_ptr, %c16, %c32, %c120, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
     %lds_pos_desc = aster_utils.struct_create(%c0, %c16, %c32, %c32_2, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-    func.call @simple_global_to_lds_wave_16x16xf16_wait(%global_pos_desc, %lds_pos_desc)
+    func.call @simple_global_to_lds_wave_16x16_f16_wait(%global_pos_desc, %lds_pos_desc)
       : (!tensor_position_descriptor_2d, !lds_position_descriptor_2d) -> ()
 
     // Copy from LDS to global at position (48, 80)
     %global_pos_desc_out = aster_utils.struct_create(%out_ptr, %c16, %c32, %c120, %elt_size) : (!sx2, index, index, index, index) -> !tensor_position_descriptor_2d
-    func.call @simple_lds_to_global_wave_16x16xf16_wait(%lds_pos_desc, %global_pos_desc_out)
+    func.call @simple_lds_to_global_wave_16x16_f16_wait(%lds_pos_desc, %global_pos_desc_out)
       : (!lds_position_descriptor_2d, !tensor_position_descriptor_2d) -> ()
 
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0

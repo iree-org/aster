@@ -18,11 +18,11 @@ amdgcn.module @test_global_load_ds_write target = #amdgcn.target<gfx942> isa = #
   func.func private @lane_id() -> index
   func.func private @lane_delinearize_2d(!index_pair) -> !index_pair
   // From copies.mlir
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
+  func.func private @global_load_wave_256_f16_via_dwordx2_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
+  func.func private @lds_write_wave_256_f16_via_dwordx2_wait(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
 
 
-  // Test @global_load_wave_256xf16_via_dwordx2_wait + @lds_write_wave_256xf16_via_dwordx2_wait: decoupled global load and LDS write
+  // Test @global_load_wave_256_f16_via_dwordx2_wait + @lds_write_wave_256_f16_via_dwordx2_wait: decoupled global load and LDS write
   // Load from global to memref, then write from memref to LDS, then read back from LDS
   amdgcn.kernel @test_global_load_ds_write arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
@@ -48,12 +48,12 @@ amdgcn.module @test_global_load_ds_write target = #amdgcn.target<gfx942> isa = #
     %transfer_size_load = arith.constant 8 : index // dwordx2
     %wave_size_load = arith.constant 64 : index
     %transfer_desc_load = aster_utils.struct_create(%c16, %transfer_size_load, %wave_size_load) : (index, index, index) -> !transfer_descriptor_2d
-    %loaded = func.call @global_load_wave_256xf16_via_dwordx2_wait(%pos_desc, %transfer_desc_load) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
+    %loaded = func.call @global_load_wave_256_f16_via_dwordx2_wait(%pos_desc, %transfer_desc_load) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
 
     // DS write from memref to LDS
     %lds_pos_desc_write = aster_utils.struct_create(%c0, %c0, %c0, %c32, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
     %transfer_desc_write = aster_utils.struct_create(%c1, %transfer_size_load, %wave_size_load) : (index, index, index) -> !transfer_descriptor_2d
-    func.call @lds_write_wave_256xf16_via_dwordx2_wait(%lds_pos_desc_write, %transfer_desc_write, %loaded)
+    func.call @lds_write_wave_256_f16_via_dwordx2_wait(%lds_pos_desc_write, %transfer_desc_write, %loaded)
       : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
 
     // Read back from LDS and store to output

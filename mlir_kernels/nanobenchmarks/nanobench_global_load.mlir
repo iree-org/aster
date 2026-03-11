@@ -20,13 +20,13 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index
   // From copies.mlir
-  func.func private @global_load_wave_128xf16_via_dword_nowait(
+  func.func private @global_load_wave_128_f16_via_dword_nowait(
     !tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx1
-  func.func private @global_load_wave_256xf16_via_dwordx2_nowait(
+  func.func private @global_load_wave_256_f16_via_dwordx2_nowait(
     !tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx2
-  func.func private @global_load_wave_384xf16_via_dwordx3_nowait(
+  func.func private @global_load_wave_384_f16_via_dwordx3_nowait(
     !tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx3
-  func.func private @global_load_wave_512xf16_via_dwordx4_nowait(
+  func.func private @global_load_wave_512_f16_via_dwordx4_nowait(
     !tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx4
 
   amdgcn.kernel @nanobench_global_load arguments <[
@@ -77,7 +77,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           %wave_size_vx1 = arith.constant 64 : index
           %pos_desc_vx1 = aster_utils.struct_create(%ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
           %transfer_desc_vx1 = aster_utils.struct_create(%c1, %transfer_size_vx1, %wave_size_vx1) : (index, index, index) -> !transfer_descriptor_2d
-          %result_vx1 = func.call @global_load_wave_128xf16_via_dword_nowait(%pos_desc_vx1, %transfer_desc_vx1) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx1
+          %result_vx1 = func.call @global_load_wave_128_f16_via_dword_nowait(%pos_desc_vx1, %transfer_desc_vx1) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx1
           amdgcn.test_inst ins %result_vx1 : (!vx1) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -99,7 +99,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           %wave_size_vx2 = arith.constant 64 : index
           %pos_desc_vx2 = aster_utils.struct_create(%ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
           %transfer_desc_vx2 = aster_utils.struct_create(%c1, %transfer_size_vx2, %wave_size_vx2) : (index, index, index) -> !transfer_descriptor_2d
-          %result_vx2 = func.call @global_load_wave_256xf16_via_dwordx2_nowait(%pos_desc_vx2, %transfer_desc_vx2) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx2
+          %result_vx2 = func.call @global_load_wave_256_f16_via_dwordx2_nowait(%pos_desc_vx2, %transfer_desc_vx2) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx2
           amdgcn.test_inst ins %result_vx2 : (!vx2) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -121,7 +121,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           %wave_size_vx3 = arith.constant 64 : index
           %pos_desc_vx3 = aster_utils.struct_create(%ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
           %transfer_desc_vx3 = aster_utils.struct_create(%c1, %transfer_size_vx3, %wave_size_vx3) : (index, index, index) -> !transfer_descriptor_2d
-          %result_vx3 = func.call @global_load_wave_384xf16_via_dwordx3_nowait(%pos_desc_vx3, %transfer_desc_vx3) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx3
+          %result_vx3 = func.call @global_load_wave_384_f16_via_dwordx3_nowait(%pos_desc_vx3, %transfer_desc_vx3) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx3
           amdgcn.test_inst ins %result_vx3 : (!vx3) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
@@ -143,7 +143,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.is
           %wave_size_vx4 = arith.constant 64 : index
           %pos_desc_vx4 = aster_utils.struct_create(%ptr, %c0, %n_pos, %c0, %c0, %nn_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
           %transfer_desc_vx4 = aster_utils.struct_create(%c1, %transfer_size_vx4, %wave_size_vx4) : (index, index, index) -> !transfer_descriptor_2d
-          %result_vx4 = func.call @global_load_wave_512xf16_via_dwordx4_nowait(%pos_desc_vx4, %transfer_desc_vx4) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx4
+          %result_vx4 = func.call @global_load_wave_512_f16_via_dwordx4_nowait(%pos_desc_vx4, %transfer_desc_vx4) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx4
           amdgcn.test_inst ins %result_vx4 : (!vx4) -> ()
         } {aster.constexpr}
         amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0

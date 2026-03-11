@@ -28,18 +28,18 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
   // From register-init.mlir
   func.func private @init_vgprx4(i32) -> !vx4
   // From copies.mlir
-  func.func private @global_load_wave_256xf16_via_dwordx2_wait(
+  func.func private @global_load_wave_256_f16_via_dwordx2_wait(
     !tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx2)
-  func.func private @lds_write_wave_256xf16_via_dwordx2_wait(
+  func.func private @lds_write_wave_256_f16_via_dwordx2_wait(
     !lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> ()
-  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(
+  func.func private @lds_read_A_wave_16x16_f16_fragment_wait(
     !lds_position_descriptor_2d, i1) -> !vx2
-  func.func private @global_store_wave_16x16xf32_C_fragment_wait(
+  func.func private @global_store_wave_16x16_f32_C_fragment_wait(
     !vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
   // From multi-tile-copies.mlir
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
+  func.func private @global_load_wave_multi_tile_256_f16_via_dwordx2_wait(
     !tensor_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2)
-  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+  func.func private @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait(
     !lds_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2)
 
   // Perform MFMA: load fragments, compute, store result fragment
@@ -156,7 +156,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %mm_pos_load = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
             %kk_pos_load = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
             %tensor_desc_a = aster_utils.struct_create(%a_global, %m_pos, %k_pos, %global_stride_a, %mm_pos_load, %kk_pos_load, %elt_size_a) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-            func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
+            func.call @global_load_wave_multi_tile_256_f16_via_dwordx2_wait(
               %tensor_desc_a, %NT_M, %NT_K, %a_result_desc)
               : (!tensor_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2) -> ()
           }
@@ -176,7 +176,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %nn_pos_load = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
             %kk_pos_load_b = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
             %tensor_desc_b = aster_utils.struct_create(%b_global, %n_pos, %k_pos, %global_stride_b, %nn_pos_load, %kk_pos_load_b, %elt_size_b) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
-            func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
+            func.call @global_load_wave_multi_tile_256_f16_via_dwordx2_wait(
               %tensor_desc_b, %NT_N, %NT_K, %b_result_desc)
               : (!tensor_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2) -> ()
           }
@@ -192,7 +192,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %mm_pos_lds = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
             %kk_pos_lds = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
             %lds_desc_a = aster_utils.struct_create(%lds_a_base_off, %mm_pos_lds, %kk_pos_lds, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
-            func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+            func.call @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait(
               %lds_desc_a, %NT_M, %NT_K, %a_result_desc)
               : (!lds_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2) -> ()
           }
@@ -203,7 +203,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %nn_pos_lds = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
             %kk_pos_lds_b = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
             %lds_desc_b = aster_utils.struct_create(%lds_b_base_off, %nn_pos_lds, %kk_pos_lds_b, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2level_2d
-            func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+            func.call @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait(
               %lds_desc_b, %NT_N, %NT_K, %b_result_desc)
               : (!lds_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2) -> ()
           }
@@ -223,7 +223,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %mm_pos_a = affine.apply affine_map<()[mm] -> (mm * 16)>()[%mm]
             %kk_pos_a = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
             %lds_desc_read_a = aster_utils.struct_create(%lds_a_base_off, %mm_pos_a, %kk_pos_a, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-            %a_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+            %a_frag = func.call @lds_read_A_wave_16x16_f16_fragment_wait(
               %lds_desc_read_a, %false)
               {sched.delay = 4 : i64, sched.rate = 1 : i64}
               : (!lds_position_descriptor_2d, i1) -> !vx2
@@ -235,7 +235,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             %nn_pos_b = affine.apply affine_map<()[nn] -> (nn * 16)>()[%nn]
             %kk_pos_b = affine.apply affine_map<()[kk] -> (kk * 16)>()[%kk]
             %lds_desc_read_b = aster_utils.struct_create(%lds_b_base_off, %nn_pos_b, %kk_pos_b, %lds_stride_bytes, %elt_size_lds) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-            %b_frag = func.call @lds_read_A_wave_16x16xf16_fragment_wait(
+            %b_frag = func.call @lds_read_A_wave_16x16_f16_fragment_wait(
               %lds_desc_read_b, %false)
               {sched.delay = 4 : i64, sched.rate = 1 : i64}
               : (!lds_position_descriptor_2d, i1) -> !vx2
@@ -264,7 +264,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
             // not consecutive columns. The "transposed" path does individual dword stores
             // with proper row offsets.
             %true_store = arith.constant true
-            func.call @global_store_wave_16x16xf32_C_fragment_wait(%acc, %tensor_desc_c, %true_store)
+            func.call @global_store_wave_16x16_f32_C_fragment_wait(%acc, %tensor_desc_c, %true_store)
                 {sched.delay = 12 : i64, sched.rate = 1 : i64}
               : (!vx4, !tensor_position_descriptor_2level_2d, i1) -> ()
           } {sched.delay = 12 : i64, sched.rate = 1 : i64}

@@ -12,16 +12,16 @@
 amdgcn.module @test_load_and_lds_read_A_fragment target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // From copies.mlir
   func.func private @global_load_to_lds_wave_16x16_f16_wait(!tensor_position_descriptor_2level_2d, index, index)
-  func.func private @lds_read_A_wave_16x16xf16_fragment_wait(!lds_position_descriptor_2d, i1) -> !vx2
+  func.func private @lds_read_A_wave_16x16_f16_fragment_wait(!lds_position_descriptor_2d, i1) -> !vx2
 
 
   //===--------------------------------------------------------------------===//
   // Global <-> LDS
   //===--------------------------------------------------------------------===//
 
-  // Test @lds_read_A_wave_16x16xf16_fragment_wait: read MFMA A fragment from LDS
+  // Test @lds_read_A_wave_16x16_f16_fragment_wait: read MFMA A fragment from LDS
   // First populate LDS with known data, then read using the MFMA function
-  amdgcn.kernel @test_load_and_lds_read_A_wave_16x16xf16_fragment_wait arguments <[
+  amdgcn.kernel @test_load_and_lds_read_A_wave_16x16_f16_fragment_wait arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 512 : i32} {
@@ -41,7 +41,7 @@ amdgcn.module @test_load_and_lds_read_A_fragment target = #amdgcn.target<gfx942>
     // i_pos=0, j_pos=0
     %false = arith.constant false
     %lds_pos_desc = aster_utils.struct_create(%c0, %c0, %c0, %c32, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-    %fragment = func.call @lds_read_A_wave_16x16xf16_fragment_wait(%lds_pos_desc, %false)
+    %fragment = func.call @lds_read_A_wave_16x16_f16_fragment_wait(%lds_pos_desc, %false)
       : (!lds_position_descriptor_2d, i1) -> !vx2
 
     // Store fragment to output (each thread writes 8 bytes)

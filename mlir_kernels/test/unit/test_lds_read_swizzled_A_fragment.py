@@ -7,7 +7,7 @@ from aster.testing import compile_and_run
 
 
 class TestLdsReadSwizzledFragmentWaitXorSwizzled:
-    """Test @lds_read_A_wave_16x16xf16_fragment_wait function with XOR swizzling."""
+    """Test @lds_read_A_wave_16x16_f16_fragment_wait function with XOR swizzling."""
 
     def test_read_mfma_A_fragment_xor_swizzled(self):
         """Read A fragment from LDS with XOR-swizzled MFMA A access pattern.
@@ -30,7 +30,7 @@ class TestLdsReadSwizzledFragmentWaitXorSwizzled:
 
         compile_and_run(
             "test_lds_read_swizzled_A_fragment.mlir",
-            "test_lds_read_swizzled_A_wave_16x16xf16_fragment_wait",
+            "test_lds_read_swizzled_A_wave_16x16_f16_fragment_wait",
             [input_2d.flatten()],
             output,
         )

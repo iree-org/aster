@@ -7,7 +7,7 @@ from aster.testing import compile_and_run
 
 
 class TestGlobalToLdsAndBack16x16:
-    """Test @global_to_lds_and_back_wave_16x16xf16_wait function."""
+    """Test @global_to_lds_and_back_wave_16x16_f16_wait function."""
 
     def test_copy_tile_at_position_3_5(self):
         """Copy a single 16x16 tile from position (3,5) in a 64x96 array.
@@ -25,7 +25,7 @@ class TestGlobalToLdsAndBack16x16:
 
         compile_and_run(
             "test_global_to_lds_and_back.mlir",
-            "test_global_to_lds_and_back_wave_16x16xf16_wait",
+            "test_global_to_lds_and_back_wave_16x16_f16_wait",
             [input_data],
             output,
         )

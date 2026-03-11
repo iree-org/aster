@@ -152,8 +152,8 @@ amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // Reusable MFMA memory access indexing functions.
   //===--------------------------------------------------------------------===//
-  // MFMA indexing function for accessing the `A` 16x16xf16 fragment
-  func.func private @mfma_index_A_16x16xf16() -> !index_pair {
+  // MFMA indexing function for accessing the `A` 16x16_f16 fragment
+  func.func private @mfma_index_A_16x16_f16() -> !index_pair {
     %lane_id = func.call @lane_id() : () -> index
     %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
     %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
@@ -161,8 +161,8 @@ amdgcn.library @common_indexing {
     return %result : !index_pair
   }
 
-  // MFMA indexing function for accessing the `B` 16x16xf16 fragment
-  func.func private @mfma_index_B_16x16xf16() -> !index_pair {
+  // MFMA indexing function for accessing the `B` 16x16_f16 fragment
+  func.func private @mfma_index_B_16x16_f16() -> !index_pair {
     %lane_id = func.call @lane_id() : () -> index
     %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
     %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
@@ -191,8 +191,8 @@ amdgcn.library @common_indexing {
     return %result : !index_pair
   }
 
-  // MFMA indexing function for accessing the `C` 16x16xf32 fragment
-  func.func private @mfma_index_C_16x16xf32() -> !index_pair {
+  // MFMA indexing function for accessing the `C` 16x16_f32 fragment
+  func.func private @mfma_index_C_16x16_f32() -> !index_pair {
     %lane_id = func.call @lane_id() : () -> index
     %row = affine.apply affine_map<()[lid] -> (lid mod 16)>()[%lane_id]
     %col = affine.apply affine_map<()[lid] -> (((lid floordiv 16) * 4))>()[%lane_id]
@@ -208,7 +208,7 @@ amdgcn.library @common_indexing {
   // Output: (row, swizzled_col) for LDS access
   // Formula: swizzled_col = col XOR (row / 4)
   // We XOR the high 2 bits of col (col / 4) with row_group (row / 4)
-  func.func private @swizzled_mfma_index_16xf16(%idx: !index_pair) -> !index_pair {
+  func.func private @swizzled_mfma_index_16_f16(%idx: !index_pair) -> !index_pair {
     %row, %col = aster_utils.struct_extract %idx ["i", "j"] : !index_pair -> index, index
     // row_group = row / 4 (values 0, 1, 2, 3 for rows 0, 4, 8, 12)
     %row_group = affine.apply affine_map<()[row] -> (row floordiv 4)>()[%row]
@@ -231,29 +231,29 @@ amdgcn.library @common_indexing {
     return %result : !index_pair
   }
 
-  // Swizzle for `A` 16x16xf16 fragment with bank conflict avoidance
+  // Swizzle for `A` 16x16_f16 fragment with bank conflict avoidance
   // A matrix is accessed with transposed pattern (col-major in LDS)
   // Returns (row, swizzled_col) for LDS access
-  func.func private @swizzled_mfma_index_A_16x16xf16() -> !index_pair {
-    %idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
-    %result = func.call @swizzled_mfma_index_16xf16(%idx) : (!index_pair) -> !index_pair
+  func.func private @swizzled_mfma_index_A_16x16_f16() -> !index_pair {
+    %idx = func.call @mfma_index_A_16x16_f16() : () -> !index_pair
+    %result = func.call @swizzled_mfma_index_16_f16(%idx) : (!index_pair) -> !index_pair
     return %result : !index_pair
   }
 
-  // Swizzle for `B` 16x16xf16 fragment with bank conflict avoidance
+  // Swizzle for `B` 16x16_f16 fragment with bank conflict avoidance
   // Returns (row, swizzled_col) for LDS access
-  func.func private @swizzled_mfma_index_B_16x16xf16() -> !index_pair {
-    %idx = func.call @mfma_index_B_16x16xf16() : () -> !index_pair
-    %result = func.call @swizzled_mfma_index_16xf16(%idx) : (!index_pair) -> !index_pair
+  func.func private @swizzled_mfma_index_B_16x16_f16() -> !index_pair {
+    %idx = func.call @mfma_index_B_16x16_f16() : () -> !index_pair
+    %result = func.call @swizzled_mfma_index_16_f16(%idx) : (!index_pair) -> !index_pair
     return %result : !index_pair
   }
 
-  // Swizzle for `C` 16x16xf32 fragment with bank conflict avoidance
+  // Swizzle for `C` 16x16_f32 fragment with bank conflict avoidance
   // For f32: each element is 4 bytes = 1 bank width
   // Returns (row, swizzled_col) for LDS access
-  func.func private @swizzled_mfma_index_C_16x16xf32() -> !index_pair {
-    %idx = func.call @mfma_index_C_16x16xf32() : () -> !index_pair
-    %result = func.call @swizzled_mfma_index_16xf16(%idx) : (!index_pair) -> !index_pair
+  func.func private @swizzled_mfma_index_C_16x16_f32() -> !index_pair {
+    %idx = func.call @mfma_index_C_16x16_f32() : () -> !index_pair
+    %result = func.call @swizzled_mfma_index_16_f16(%idx) : (!index_pair) -> !index_pair
     return %result : !index_pair
   }
 
@@ -264,7 +264,7 @@ amdgcn.library @common_indexing {
   // MFMA indexing for A 32x32x8 f16 fragment.
   // Lane l holds row l%32 of A, cols [(l/32)*4, (l/32)*4+3].
   // Returns (row, col_start).
-  func.func private @mfma_index_A_32x32xf16() -> !index_pair {
+  func.func private @mfma_index_A_32x32_f16() -> !index_pair {
     %lane_id = func.call @lane_id() : () -> index
     %row = affine.apply affine_map<()[lid] -> (lid mod 32)>()[%lane_id]
     %col = affine.apply affine_map<()[lid] -> ((lid floordiv 32) * 4)>()[%lane_id]
@@ -274,7 +274,7 @@ amdgcn.library @common_indexing {
 
   // MFMA indexing for B 32x32x8 f16 fragment.
   // Same physical layout as A; returns (col, row) for transposed access.
-  func.func private @mfma_index_B_32x32xf16() -> !index_pair {
+  func.func private @mfma_index_B_32x32_f16() -> !index_pair {
     %lane_id = func.call @lane_id() : () -> index
     %row = affine.apply affine_map<()[lid] -> (lid mod 32)>()[%lane_id]
     %col = affine.apply affine_map<()[lid] -> ((lid floordiv 32) * 4)>()[%lane_id]
@@ -287,7 +287,7 @@ amdgcn.library @common_indexing {
   //   col_pos = lane_id % 32 (column in output matrix)
   //   row_base = (lane_id / 32) * 4 (0 for lanes 0-31, 4 for lanes 32-63)
   // Full row for register r: row_base + 8*(r/4) + r%4
-  func.func private @mfma_index_C_32x32xf32() -> !index_pair {
+  func.func private @mfma_index_C_32x32_f32() -> !index_pair {
     %lane_id = func.call @lane_id() : () -> index
     %col = affine.apply affine_map<()[lid] -> (lid mod 32)>()[%lane_id]
     %row_base = affine.apply affine_map<()[lid] -> ((lid floordiv 32) * 4)>()[%lane_id]
@@ -297,13 +297,13 @@ amdgcn.library @common_indexing {
 
   // Compute the row index for register r in a 32x32 MFMA C fragment.
   // Formula: row_base + 8*(r floordiv 4) + r mod 4
-  // Where row_base comes from @mfma_index_C_32x32xf32 (j field).
+  // Where row_base comes from @mfma_index_C_32x32_f32 (j field).
   // 4 groups of 4 consecutive rows, spaced 8 apart:
   //   r=0..3  -> row_base+0..3
   //   r=4..7  -> row_base+8..11
   //   r=8..11 -> row_base+16..19
   //   r=12..15 -> row_base+24..27
-  func.func private @mfma_c_row_32x32xf32(%row_base: index, %reg_idx: index) -> index {
+  func.func private @mfma_c_row_32x32_f32(%row_base: index, %reg_idx: index) -> index {
     %row = affine.apply affine_map<(rb, r) -> (rb + 8 * (r floordiv 4) + r mod 4)>(%row_base, %reg_idx)
     return %row : index
   }
@@ -324,9 +324,9 @@ amdgcn.library @common_indexing {
 
   // Byte offset for register i (0..3) of the MFMA 16x16 f32 C fragment.
   // Each thread holds 4 consecutive output rows: row_base+0, row_base+1, row_base+2, row_base+3.
-  // row_base and col come from @mfma_index_C_16x16xf32 ({i: col, j: row_base}).
+  // row_base and col come from @mfma_index_C_16x16_f32 ({i: col, j: row_base}).
   // Formula: (m + row_base + i) * stride + (n + col) * elt_size
-  func.func private @mfma_c_16x16xf32_byte_offset(
+  func.func private @mfma_c_16x16_f32_byte_offset(
       %m: index, %n: index, %row_base: index, %col: index,
       %stride: index, %elt_size: index, %i: index
   ) -> index {
@@ -450,7 +450,7 @@ amdgcn.library @common_indexing {
   // Swizzle: base + row*64 + (byte_in_row XOR mask)
   //   mask = ((row / 2) % 8) * 8 -- permutes bits [5:3] based on row.
   // Uses arith.xori since affine_map cannot express XOR.
-  // NOTE: different from @swizzled_mfma_index_16xf16 which XORs column-level
+  // NOTE: different from @swizzled_mfma_index_16_f16 which XORs column-level
   // indices (row/4) for 16-col tiles. This operates on byte addresses with
   // (row/2)%8 for 32-col tiles.
   func.func private @lds_swizzled_addr_32x32(%base: index, %row: index, %byte_in_row: index) -> index {
@@ -503,7 +503,7 @@ amdgcn.library @common_indexing {
   }
 
   //===--------------------------------------------------------------------===//
-  // 16x64b tile cooperative thread mapping and LDS swizzle (dwordx4, full 16x32 f16 in one tile).
+  // 16x64_b tile cooperative thread mapping and LDS swizzle (dwordx4, full 16x32 f16 in one tile).
   //===--------------------------------------------------------------------===//
 
   // Map lane ID to (row, col_byte) for cooperative fill of a 16x32 f16 tile via dwordx4 loads.
@@ -512,7 +512,7 @@ amdgcn.library @common_indexing {
   //   col_byte = (lane_id % 4) * 16  (0, 16, 32, 48)
   // Each thread covers 16 consecutive bytes in its row: col_byte..col_byte+15.
   // Two ds_write_b64 per thread: lo at col_byte, hi at col_byte+8.
-  func.func private @thread_tile_pos_16x64b() -> (index, index) {
+  func.func private @thread_tile_pos_16x64_b() -> (index, index) {
     %lane = func.call @lane_id() : () -> index
     %row = affine.apply affine_map<()[lid] -> (lid floordiv 4)>()[%lane]
     %col_byte = affine.apply affine_map<()[lid] -> ((lid mod 4) * 16)>()[%lane]
@@ -525,7 +525,7 @@ amdgcn.library @common_indexing {
   // For 16 rows: mask cycles through 8 distinct values (0,8,16,...,56), each used for 2 rows.
   // This is identical in formula to @lds_swizzled_addr_32x32; named separately for clarity.
   // Uses arith.xori since affine_map cannot express XOR.
-  func.func private @lds_swizzled_addr_16x64b(%base: index, %row: index, %byte_in_row: index) -> index {
+  func.func private @lds_swizzled_addr_16x64_b(%base: index, %row: index, %byte_in_row: index) -> index {
     %mask = affine.apply affine_map<(r) -> (((r floordiv 2) mod 8) * 8)>(%row)
     %mask_i32 = arith.index_cast %mask : index to i32
     %byte_i32 = arith.index_cast %byte_in_row : index to i32

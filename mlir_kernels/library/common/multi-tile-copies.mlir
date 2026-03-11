@@ -59,7 +59,7 @@
 // Wave-level, multi-tile global load instructions, parameterizable by
 // !tensor_position_descriptor_2level_2d and tile counts (m_tiles, n_tiles).
 //
-// Loads m_tiles x n_tiles 16x16xf16 tiles (256xf16 each) via dwordx2.
+// Loads m_tiles x n_tiles 16x16_f16 tiles (256_f16 each) via dwordx2.
 //
 // Return value design: Results stored in linearized 1D memref via descriptor.
 // The 2D tile indices (i, j) are linearized to (i * n_tiles + j) + offset.
@@ -68,15 +68,15 @@
 //===-----------------------------------------------------------------------===//
 amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From copies.mlir
-  func.func private @global_load_wave_256xf16_via_dwordx2_future(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !future_global_read_any
+  func.func private @global_load_wave_256_f16_via_dwordx2_future(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !future_global_read_any
 
   //===--------------------------------------------------------------------===//
   // Multi-tile global loads via dwordx2
-  //   m_tiles x n_tiles 16x16xf16 tiles (256xf16 each)
+  //   m_tiles x n_tiles 16x16_f16 tiles (256_f16 each)
   // (future + wait variants)
   //===--------------------------------------------------------------------===//
-  // Loads multiple 16x16xf16 tiles from global memory to VGPRs cooperatively.
-  // Each tile is 256 f16 elements loaded via dwordx2 (4xf16 per thread, 64 threads).
+  // Loads multiple 16x16_f16 tiles from global memory to VGPRs cooperatively.
+  // Each tile is 256 f16 elements loaded via dwordx2 (4_f16 per thread, 64 threads).
   //
   // Parameters:
   //   %tensor_desc: !tensor_position_descriptor_2level_2d (2D position for memory access)
@@ -96,8 +96,8 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
   // IMPORTANT: Return descriptors are always 1D linearized (not 2D) to enable
   // SROA/mem2reg and composable offset-based API patterns.
 
-  // CHECK-LABEL: func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
+  // CHECK-LABEL: func.func private @global_load_wave_multi_tile_256_f16_via_dwordx2_future
+  func.func private @global_load_wave_multi_tile_256_f16_via_dwordx2_future(
     %tensor_desc: !tensor_position_descriptor_2level_2d,
     %m_tiles: index,
     %n_tiles: index,
@@ -135,7 +135,7 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
         // Load the tile and get future
         %pos_desc = aster_utils.struct_create(%ptr, %m_pos_base, %n_pos_base, %global_stride_in_bytes, %mm_pos, %nn_pos, %elt_size) : (!sx2, index, index, index, index, index, index) -> !tensor_position_descriptor_2level_2d
         %transfer_desc = aster_utils.struct_create(%n_rows, %transfer_size, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
-        %future = func.call @global_load_wave_256xf16_via_dwordx2_future(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !future_global_read_any
+        %future = func.call @global_load_wave_256_f16_via_dwordx2_future(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !future_global_read_any
 
         // Store future using linearized index with offset
         %idx = affine.apply affine_map<()[i, j, n] -> (i * n + j)>()[%i, %j, %n_tiles]
@@ -146,8 +146,8 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
     return
   }
 
-  // CHECK-LABEL: func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait
-  func.func private @global_load_wave_multi_tile_256xf16_via_dwordx2_wait(
+  // CHECK-LABEL: func.func private @global_load_wave_multi_tile_256_f16_via_dwordx2_wait
+  func.func private @global_load_wave_multi_tile_256_f16_via_dwordx2_wait(
     %tensor_desc: !tensor_position_descriptor_2level_2d,
     %m_tiles: index,
     %n_tiles: index,
@@ -168,7 +168,7 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
     %future_desc = aster_utils.struct_create(%future_memref, %c0) : (memref<?x!future_global_read_any>, index) -> !future_global_read_descriptor_1d
 
     // Call future variant to issue all loads
-    func.call @global_load_wave_multi_tile_256xf16_via_dwordx2_future(
+    func.call @global_load_wave_multi_tile_256_f16_via_dwordx2_future(
       %tensor_desc, %m_tiles, %n_tiles, %future_desc)
       : (!tensor_position_descriptor_2level_2d, index, index, !future_global_read_descriptor_1d) -> ()
 
@@ -195,7 +195,7 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
 // Wave-level, multi-tile LDS read instructions for MFMA fragment layouts,
 // parameterizable by !lds_position_descriptor_2level_2d, tile counts, and %transposed.
 //
-// Reads m_tiles x n_tiles 16x16xf16 tiles from LDS into MFMA "A" fragment layout.
+// Reads m_tiles x n_tiles 16x16_f16 tiles from LDS into MFMA "A" fragment layout.
 //
 // Return value design: Results stored in linearized 1D memref via descriptor.
 // The 2D tile indices (i, j) are linearized to (i * n_tiles + j) + offset.
@@ -204,15 +204,15 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
 //===-----------------------------------------------------------------------===//
 amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From copies.mlir
-  func.func private @lds_read_A_wave_16x16xf16_fragment_future(!lds_position_descriptor_2d, i1) -> !future_lds_read_any
+  func.func private @lds_read_A_wave_16x16_f16_fragment_future(!lds_position_descriptor_2d, i1) -> !future_lds_read_any
 
   //===--------------------------------------------------------------------===//
   // Multi-tile LDS reads for MFMA fragment A
-  //   m_tiles x n_tiles 16x16xf16 tiles via ds_read_b64
+  //   m_tiles x n_tiles 16x16_f16 tiles via ds_read_b64
   // (future + wait variants)
   //===--------------------------------------------------------------------===//
-  // Reads multiple 16x16xf16 tiles from LDS into MFMA "A" fragment layout.
-  // Each tile is 256 f16 elements read via ds_read_b64 (4xf16 per thread, 64 threads).
+  // Reads multiple 16x16_f16 tiles from LDS into MFMA "A" fragment layout.
+  // Each tile is 256 f16 elements read via ds_read_b64 (4_f16 per thread, 64 threads).
   //
   // Parameters:
   //   %lds_desc: !lds_position_descriptor_2level_2d (2D position for LDS access)
@@ -226,7 +226,7 @@ amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#am
   //     - memref: output storage for m_tiles * n_tiles elements
   //     - offset: base index for this call (enables K-loop composition)
   //
-  // Thread mapping follows MFMA 16x16 layout from @mfma_index_A_16x16xf16().
+  // Thread mapping follows MFMA 16x16 layout from @mfma_index_A_16x16_f16().
   //
   // The _future variant issues all reads without waiting, storing futures.
   // The _wait variant calls _future, waits via s_waitcnt, then extracts values.
@@ -234,8 +234,8 @@ amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#am
   // IMPORTANT: Return descriptors are always 1D linearized (not 2D) to enable
   // SROA/mem2reg and composable offset-based API patterns.
 
-  // CHECK-LABEL: func.func private @lds_read_wave_multi_tile_16x16xf16_fragment_future
-  func.func private @lds_read_wave_multi_tile_16x16xf16_fragment_future(
+  // CHECK-LABEL: func.func private @lds_read_wave_multi_tile_16x16_f16_fragment_future
+  func.func private @lds_read_wave_multi_tile_16x16_f16_fragment_future(
     %lds_desc: !lds_position_descriptor_2level_2d,
     %m_tiles: index,
     %n_tiles: index,
@@ -269,7 +269,7 @@ amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#am
 
         // Create 1-level descriptor for the read primitive
         %lds_read_desc = aster_utils.struct_create(%lds_base_off, %mm_pos, %nn_pos, %lds_stride_in_bytes, %elt_size) : (index, index, index, index, index) -> !lds_position_descriptor_2d
-        %future = func.call @lds_read_A_wave_16x16xf16_fragment_future(%lds_read_desc, %transposed)
+        %future = func.call @lds_read_A_wave_16x16_f16_fragment_future(%lds_read_desc, %transposed)
           : (!lds_position_descriptor_2d, i1) -> !future_lds_read_any
 
         // Store future using linearized index with offset
@@ -281,8 +281,8 @@ amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#am
     return
   }
 
-  // CHECK-LABEL: func.func private @lds_read_wave_multi_tile_16x16xf16_fragment_wait
-  func.func private @lds_read_wave_multi_tile_16x16xf16_fragment_wait(
+  // CHECK-LABEL: func.func private @lds_read_wave_multi_tile_16x16_f16_fragment_wait
+  func.func private @lds_read_wave_multi_tile_16x16_f16_fragment_wait(
     %lds_desc: !lds_position_descriptor_2level_2d,
     %m_tiles: index,
     %n_tiles: index,
@@ -304,7 +304,7 @@ amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#am
     %future_desc = aster_utils.struct_create(%future_memref, %c0) : (memref<?x!future_lds_read_any>, index) -> !future_lds_read_descriptor_1d
 
     // Call future variant to issue all reads
-    func.call @lds_read_wave_multi_tile_16x16xf16_fragment_future(
+    func.call @lds_read_wave_multi_tile_16x16_f16_fragment_future(
       %lds_desc, %m_tiles, %n_tiles, %transposed, %future_desc)
       : (!lds_position_descriptor_2level_2d, index, index, i1, !future_lds_read_descriptor_1d) -> ()
 
@@ -331,7 +331,7 @@ amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#am
 // Wave-level, multi-tile LDS write instructions, parameterizable by
 // !lds_position_descriptor_2level_2d and tile counts (m_tiles, n_tiles).
 //
-// Writes m_tiles x n_tiles 16x16xf16 tiles (256xf16 each) via ds_write_b64.
+// Writes m_tiles x n_tiles 16x16_f16 tiles (256_f16 each) via ds_write_b64.
 //
 // Return value design: Input values and output tokens use linearized 1D memrefs
 // via descriptors. The 2D tile indices (i, j) are linearized to
@@ -341,15 +341,15 @@ amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#am
 //===-----------------------------------------------------------------------===//
 amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   // From copies.mlir
-  func.func private @lds_write_wave_256xf16_via_dwordx2_future(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
+  func.func private @lds_write_wave_256_f16_via_dwordx2_future(!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
 
   //===--------------------------------------------------------------------===//
   // Multi-tile LDS writes via ds_write_b64
-  //   m_tiles x n_tiles 16x16xf16 tiles (256xf16 each)
+  //   m_tiles x n_tiles 16x16_f16 tiles (256_f16 each)
   // (future + wait variants)
   //===--------------------------------------------------------------------===//
-  // Writes multiple 16x16xf16 tiles from VGPRs to LDS cooperatively.
-  // Each tile is 256 f16 elements written via ds_write_b64 (4xf16 per thread, 64 threads).
+  // Writes multiple 16x16_f16 tiles from VGPRs to LDS cooperatively.
+  // Each tile is 256 f16 elements written via ds_write_b64 (4_f16 per thread, 64 threads).
   //
   // Parameters:
   //   %lds_desc: !lds_position_descriptor_2level_2d (2D position for LDS access)
@@ -371,8 +371,8 @@ amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
   // IMPORTANT: Value and token descriptors are always 1D linearized (not 2D)
   // to enable SROA/mem2reg and composable offset-based API patterns.
 
-  // CHECK-LABEL: func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_future
-  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_future(
+  // CHECK-LABEL: func.func private @lds_write_wave_multi_tile_256_f16_via_dwordx2_future
+  func.func private @lds_write_wave_multi_tile_256_f16_via_dwordx2_future(
     %lds_desc: !lds_position_descriptor_2level_2d,
     %m_tiles: index,
     %n_tiles: index,
@@ -420,7 +420,7 @@ amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
         %transfer_size = arith.constant 8 : index
         %wave_size = arith.constant 64 : index
         %transfer_desc = aster_utils.struct_create(%n_rows, %transfer_size, %wave_size) : (index, index, index) -> !transfer_descriptor_2d
-        %token = func.call @lds_write_wave_256xf16_via_dwordx2_future(%lds_pos_desc, %transfer_desc, %value)
+        %token = func.call @lds_write_wave_256_f16_via_dwordx2_future(%lds_pos_desc, %transfer_desc, %value)
           : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
 
         // Store token (with offset)
@@ -431,8 +431,8 @@ amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
     return
   }
 
-  // CHECK-LABEL: func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait
-  func.func private @lds_write_wave_multi_tile_256xf16_via_dwordx2_wait(
+  // CHECK-LABEL: func.func private @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait
+  func.func private @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait(
     %lds_desc: !lds_position_descriptor_2level_2d,
     %m_tiles: index,
     %n_tiles: index,
@@ -449,7 +449,7 @@ amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
     %token_desc = aster_utils.struct_create(%token_memref, %c0) : (memref<?x!future_lds_write>, index) -> !write_token_descriptor_1d
 
     // Call future variant to issue all writes
-    func.call @lds_write_wave_multi_tile_256xf16_via_dwordx2_future(
+    func.call @lds_write_wave_multi_tile_256_f16_via_dwordx2_future(
       %lds_desc, %m_tiles, %n_tiles, %values_desc, %token_desc)
       : (!lds_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2, !write_token_descriptor_1d) -> ()
 

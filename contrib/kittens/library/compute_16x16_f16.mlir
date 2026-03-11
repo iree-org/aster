@@ -18,8 +18,8 @@ amdgcn.library @kittens_compute_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
   // From register-init.mlir
   func.func private @init_agprx4(i32) -> !ax4
   // From indexing.mlir
-  func.func private @mfma_index_C_16x16xf32() -> !index_pair
-  func.func private @mfma_c_16x16xf32_byte_offset(index, index, index, index, index, index, index) -> index
+  func.func private @mfma_index_C_16x16_f32() -> !index_pair
+  func.func private @mfma_c_16x16_f32_byte_offset(index, index, index, index, index, index, index) -> index
   // From indexing_ptr.mlir
   func.func private @global_addr_from_offset(!sx2, index) -> !vx2
 
@@ -51,7 +51,7 @@ amdgcn.library @kittens_compute_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
   //===--------------------------------------------------------------------===//
 
   // Store a 16x16 f32 C tile from AGPRs to global memory in MFMA C fragment layout.
-  // Each thread holds 4xf32 at 4 consecutive rows in the same column.
+  // Each thread holds 4_f32 at 4 consecutive rows in the same column.
   // Fire-and-forget: no tokens returned. s_endpgm drains all outstanding stores.
   func.func private @store_global_C_mfma_f32_16x16x16_f16(%tile: !rt_C_f32, %ptr: !sx2, %m: index, %n: index, %stride: index) {
     // Note: hardcoded element size is related to layout and producing mfma variant.
@@ -59,7 +59,7 @@ amdgcn.library @kittens_compute_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
     %elt_size = arith.constant 4 : index
 
     // C fragment layout: Lane l holds C[(l/16)*4 : (l/16)*4+4, l%16]
-    %mfma_idx = func.call @mfma_index_C_16x16xf32() : () -> !index_pair
+    %mfma_idx = func.call @mfma_index_C_16x16_f32() : () -> !index_pair
     %col, %row_base = aster_utils.struct_extract %mfma_idx ["i", "j"] : !index_pair -> index, index
 
     %c0 = arith.constant 0 : index
@@ -82,7 +82,7 @@ amdgcn.library @kittens_compute_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
     // Compute byte offsets and addresses for 4 consecutive rows.
     %addr_buf = memref.alloca(%c4) : memref<?x!vx2>
     scf.for %i = %c0 to %c4 step %c1 {
-      %off = func.call @mfma_c_16x16xf32_byte_offset(%m, %n, %row_base, %col, %stride, %elt_size, %i)
+      %off = func.call @mfma_c_16x16_f32_byte_offset(%m, %n, %row_base, %col, %stride, %elt_size, %i)
           : (index, index, index, index, index, index, index) -> index
       %addr = func.call @global_addr_from_offset(%ptr, %off) : (!sx2, index) -> !vx2
       memref.store %addr, %addr_buf[%i] : memref<?x!vx2>

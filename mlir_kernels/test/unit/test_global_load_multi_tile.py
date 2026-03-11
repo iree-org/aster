@@ -98,7 +98,7 @@ class TestStoreToGlobalDwordx4Wait:
 
 
 class TestGlobalLoadMultiTile:
-    """Test @global_load_wave_multi_tile_256xf16_via_dwordx2_wait function."""
+    """Test @global_load_wave_multi_tile_256_f16_via_dwordx2_wait function."""
 
     def test_load_multi_tile_2x4_with_offsets(self):
         """Load 2x4 tiles at 4 different positions (2x2 loop) from a 64x128 array.

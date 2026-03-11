@@ -27,7 +27,7 @@ from kittens_helpers import (
 
 KERNEL_NAME = "gemm_f16_weak_scaled"
 MLIR_FILE = "test_perf_001_gemm_fp16_weak_scaled.mlir"
-K_LOOP_HELPERS_FILE = "gemm_f16_16x32_k_loop_helpers.mlir"
+K_LOOP_HELPERS_FILE = "gemm_16x32_f16_k_loop_helpers.mlir"
 
 
 @dataclass

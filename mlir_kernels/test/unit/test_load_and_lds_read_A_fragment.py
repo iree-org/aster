@@ -7,7 +7,7 @@ from aster.testing import compile_and_run
 
 
 class TestLoadAndReadLdsAFragmentWait:
-    """Test @lds_read_A_wave_16x16xf16_fragment_wait function."""
+    """Test @lds_read_A_wave_16x16_f16_fragment_wait function."""
 
     def test_read_mfma_A_fragment(self):
         """Read A fragment from LDS with MFMA A access pattern."""
@@ -20,7 +20,7 @@ class TestLoadAndReadLdsAFragmentWait:
 
         compile_and_run(
             "test_load_and_lds_read_A_fragment.mlir",
-            "test_load_and_lds_read_A_wave_16x16xf16_fragment_wait",
+            "test_load_and_lds_read_A_wave_16x16_f16_fragment_wait",
             [input_data],
             output,
         )

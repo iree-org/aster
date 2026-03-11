@@ -15,7 +15,7 @@ amdgcn.library @kittens_global_16x64_b isa = [#amdgcn.isa<cdna3>] {
   // From register-init.mlir
   func.func private @alloc_vgprx4() -> !vx4
   // From indexing.mlir
-  func.func private @thread_tile_pos_16x64b() -> (index, index)
+  func.func private @thread_tile_pos_16x64_b() -> (index, index)
   func.func private @tiled_row_byte_off(index, index, index, index, index, index) -> index
   // From indexing_ptr.mlir
   func.func private @global_addr_from_offset(!sx2, index) -> !vx2
@@ -24,7 +24,7 @@ amdgcn.library @kittens_global_16x64_b isa = [#amdgcn.isa<cdna3>] {
   func.func private @load_global_tile_16x64_b(
       %global_ptr: !sx2, %m: index, %n: index, %stride: index
   ) -> !future_global_read {
-    %row, %col_byte = func.call @thread_tile_pos_16x64b() : () -> (index, index)
+    %row, %col_byte = func.call @thread_tile_pos_16x64_b() : () -> (index, index)
     %elt_size = arith.constant 2 : index
     %byte_off = func.call @tiled_row_byte_off(%m, %row, %n, %col_byte, %stride, %elt_size)
         : (index, index, index, index, index, index) -> index

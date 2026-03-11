@@ -14,8 +14,8 @@
 
 amdgcn.library @kittens_lds_mfma_16x64_b isa = [#amdgcn.isa<cdna3>] {
   // From indexing.mlir
-  func.func private @mfma_index_A_16x16xf16() -> !index_pair
-  func.func private @mfma_index_B_16x16xf16() -> !index_pair
+  func.func private @mfma_index_A_16x16_f16() -> !index_pair
+  func.func private @mfma_index_B_16x16_f16() -> !index_pair
   // From lds_16x64_b.mlir
   func.func private @read_vx2_from_lds(index, index, index) -> !future_lds_read
 
@@ -24,7 +24,7 @@ amdgcn.library @kittens_lds_mfma_16x64_b isa = [#amdgcn.isa<cdna3>] {
   func.func private @load_lds_A_swizzled(
       %tile_base: index, %k_byte_offset: index, %elt_size: index
   ) -> !future_lds_read {
-    %mfma_idx = func.call @mfma_index_A_16x16xf16() : () -> !index_pair
+    %mfma_idx = func.call @mfma_index_A_16x16_f16() : () -> !index_pair
     %row, %col_elt = aster_utils.struct_extract %mfma_idx ["i", "j"]
         : !index_pair -> index, index
     %byte_in_row = affine.apply affine_map<()[ce, koff, eb] -> (ce * eb + koff)>()
@@ -39,7 +39,7 @@ amdgcn.library @kittens_lds_mfma_16x64_b isa = [#amdgcn.isa<cdna3>] {
   func.func private @load_lds_B_swizzled(
       %tile_base: index, %k_byte_offset: index, %elt_size: index
   ) -> !future_lds_read {
-    %mfma_idx = func.call @mfma_index_B_16x16xf16() : () -> !index_pair
+    %mfma_idx = func.call @mfma_index_B_16x16_f16() : () -> !index_pair
     %col_elt, %row = aster_utils.struct_extract %mfma_idx ["i", "j"]
         : !index_pair -> index, index
     %byte_in_row = affine.apply affine_map<()[ce, koff, eb] -> (ce * eb + koff)>()
