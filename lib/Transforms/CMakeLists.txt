@@ -1,4 +1,5 @@
 add_mlir_library(AsterTransforms
+  AffineOptimizePtrAdd.cpp
   CanonicalizePtrs.cpp
   ConstexprExpansion.cpp
   DecomposeMemrefIterArgs.cpp
@@ -18,6 +19,7 @@ add_mlir_library(AsterTransforms
   AsterPassesIncGen
 
   LINK_LIBS PUBLIC
+  ASTERAnalysis
   AMDGCNDialect
   AsterInterfaces
   AsterUtilsDialect
@@ -37,6 +39,7 @@ add_mlir_library(AsterTransforms
   MLIRSCFUtils
   MLIRTransformUtils
   MLIRUBDialect
+  MLIRValueBoundsOpInterface
   MLIRVectorDialect
   MLIRVectorTransforms
 )
