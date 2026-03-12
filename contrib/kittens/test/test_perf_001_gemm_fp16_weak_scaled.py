@@ -293,7 +293,9 @@ class TestWeakScaleCorrectness:
         A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
         B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
         with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-            compile_weak_scaled_gemm(cfg, tmp.name, use_buffer=use_buffer)
+            compile_weak_scaled_gemm(
+                cfg, tmp.name, use_buffer=use_buffer, print_ir_after_all=True
+            )
             C_output, _ = execute_weak_scaled_hsaco(cfg, tmp.name, 1, A, B)
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()

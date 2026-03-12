@@ -42,7 +42,13 @@ class TestKittensGEMMLDS2Buffer_AGPR:
                 "{{STRIDE_AB}}": str(stride_ab),
             },
             library_paths=get_kittens_16x16_lds_library_paths(),
+            print_ir_after_all=True,
         )
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+
+if __name__ == "__main__":
+    TestKittensGEMMLDS2Buffer_AGPR().test_gemm_lds_2buf(k=32)
+    print("PASS")

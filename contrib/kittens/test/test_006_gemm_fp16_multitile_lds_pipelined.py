@@ -43,7 +43,15 @@ class TestKittensGEMMMultiTileLDSPipelined_AGPR:
             pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
             template_substitutions=pipelined_substitutions_16x32(k, num_stages),
             library_paths=get_kittens_16x16_lds_library_paths(),
+            print_ir_after_all=True,
         )
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+
+if __name__ == "__main__":
+    TestKittensGEMMMultiTileLDSPipelined_AGPR().test_gemm_multitile_lds_pipelined(
+        k=96, num_stages=2
+    )
+    print("PASS")
