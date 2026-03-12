@@ -128,6 +128,36 @@ StageTopoSortSchedAttr::createSched(const SchedGraph &schedGraph,
 }
 
 //===----------------------------------------------------------------------===//
+// BenefitSchedAttr - SchedBuilderAttrInterface
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+BenefitSchedAttr::createSched(const SchedGraph &schedGraph,
+                              SmallVectorImpl<int32_t> &sched) const {
+  if (!schedGraph.isCompressed())
+    return failure();
+
+  // Use topologicalSched with a benefit-aware selection function.
+  // Given ready nodes, pick the one with highest label; ties by node ID.
+  auto schedFn = [&](ArrayRef<int32_t> ready) -> int32_t {
+    int32_t bestIdx = 0;
+    int32_t bestLabel = schedGraph.getLabel(ready[0]);
+    int32_t bestNode = ready[0];
+    for (size_t i = 1; i < ready.size(); ++i) {
+      int32_t label = schedGraph.getLabel(ready[i]);
+      if (label > bestLabel || (label == bestLabel && ready[i] < bestNode)) {
+        bestIdx = i;
+        bestLabel = label;
+        bestNode = ready[i];
+      }
+    }
+    return bestIdx;
+  };
+
+  return schedGraph.topologicalSched(schedFn, sched);
+}
+
+//===----------------------------------------------------------------------===//
 // GenericSchedulerAttr - SchedAttrInterface
 //===----------------------------------------------------------------------===//
 
