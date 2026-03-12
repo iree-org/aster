@@ -58,6 +58,7 @@ void Graph::print(
 }
 
 SmallVector<int32_t> Graph::getInDegree() const {
+  assert(compressed && "Graph must be compressed before getting in-degree");
   // Count in-degrees for each node
   SmallVector<int32_t> inDegree(numNodes, 0);
   for (const Edge &edge : edges())

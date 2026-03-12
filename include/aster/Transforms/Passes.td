@@ -311,6 +311,28 @@ def AffineOptimizePtrAdd : Pass<"aster-affine-optimize-ptr-add"> {
 }
 
 //===----------------------------------------------------------------------===//
+// ApplySched
+//===----------------------------------------------------------------------===//
+
+def ApplySched : Pass<"aster-apply-sched"> {
+  let summary = "Apply scheduling attributes to blocks";
+  let description = [{
+    This pass collects SchedAttrInterface attributes from the discardable
+    attribute dictionaries of operations (walking in preorder with regions),
+    then applies each requested schedule in order.
+    Note, that schedules are applied only to the immediately nested blocks.
+    The discardable attribute is removed from the operation after the schedule
+    is applied.
+
+    If no schedules are requested, the pass errors out.
+  }];
+  let options = [
+    ListOption<"scheds", "scheds", "std::string",
+               "List of schedule attribute names to apply (in order)">
+  ];
+}
+
+//===----------------------------------------------------------------------===//
 // ForwardStoreToLoad
 //===----------------------------------------------------------------------===//
 

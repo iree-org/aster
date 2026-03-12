@@ -61,3 +61,8 @@ set(LLVM_TARGET_DEFINITIONS RegisterSemantics.td)
 mlir_tablegen(RegisterSemantics.h.inc -gen-enum-decls)
 mlir_tablegen(RegisterSemantics.cpp.inc -gen-enum-defs)
 add_public_tablegen_target(RegisterSemanticsIncGen)
+
+set(LLVM_TARGET_DEFINITIONS SchedInterfaces.td)
+mlir_tablegen(SchedInterfaces.h.inc -gen-attr-interface-decls)
+mlir_tablegen(SchedInterfaces.cpp.inc -gen-attr-interface-defs)
+add_public_tablegen_target(SchedInterfacesIncGen)

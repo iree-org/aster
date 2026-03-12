@@ -16,6 +16,7 @@
 #define ASTER_DIALECT_ASTERUTILS_IR_ASTERUTILSATTRS_H
 
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsEnums.h"
+#include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/IR/Attributes.h"
 
 #define GET_ATTRDEF_CLASSES

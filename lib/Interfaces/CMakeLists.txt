@@ -9,6 +9,7 @@ set(LLVM_OPTIONAL_SOURCES
   OperandBundleOpInterface.cpp
   RegisterType.cpp
   ResourceInterfaces.cpp
+  SchedInterfaces.cpp
   UpstreamModelsImpl.cpp
   VerifierAttr.cpp
 )
@@ -24,6 +25,7 @@ add_mlir_library(AsterInterfaces
   OperandBundleOpInterface.cpp
   RegisterType.cpp
   ResourceInterfaces.cpp
+  SchedInterfaces.cpp
   VerifierAttr.cpp
 
   DEPENDS
@@ -38,6 +40,7 @@ add_mlir_library(AsterInterfaces
   RegisterSemanticsIncGen
   RegisterTypeIncGen
   ResourceInterfacesIncGen
+  SchedInterfacesIncGen
   VerifierAttrIncGen
 
   LINK_LIBS PUBLIC

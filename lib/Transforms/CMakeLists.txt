@@ -1,4 +1,5 @@
 add_mlir_library(AsterTransforms
+  ApplySched.cpp
   AffineOptimizePtrAdd.cpp
   CanonicalizePtrs.cpp
   ConstexprExpansion.cpp
