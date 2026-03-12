@@ -99,11 +99,6 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
 
     ValueRange deps = op->getOperands();
 
-    // If the operation is an instruction, use the instruction inputs instead of
-    // the operands.
-    if (auto instOp = dyn_cast<InstOpInterface>(op))
-      deps = instOp.getInstIns();
-
     // Add edges for the dependencies.
     for (Value operand : deps) {
       Operation *producer = operand.getDefiningOp();
