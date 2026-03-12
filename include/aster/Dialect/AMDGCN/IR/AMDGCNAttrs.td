@@ -67,10 +67,6 @@ def ValueSchedulerAttr : AMDGCN_Attr<"ValueScheduler", "value_scheduler", [
     edges from each op to all ops that produce its input operands. This builder
     is also aware of wait and barrier operations. Unknown non-pure ops
     are treated as possible sync points.
-
-    This scheduler respects the Inst ins/outs distinction, which is important
-    for AMDGCN instructions where outs are pre-allocated and ins are the actual
-    data dependencies.
   }];
 }
 

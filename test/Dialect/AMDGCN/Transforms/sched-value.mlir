@@ -203,7 +203,7 @@ func.func @cant_promote_across_unknown_op() attributes {sched = #sched} {
   return
 }
 
-// CHECK-LABEL:   func.func @promote_vmem_forward() {
+// CHECK-LABEL:   func.func @promote_pure_op_forward() {
 // CHECK:           %[[ALLOCA_0:.*]] = lsir.alloca : !amdgcn.vgpr<[? + 2]>
 // CHECK:           %[[ALLOCA_1:.*]] = lsir.alloca : !amdgcn.vgpr
 // CHECK:           %[[ALLOCA_2:.*]] = lsir.alloca : !amdgcn.vgpr
@@ -270,5 +270,28 @@ func.func @advanced_sched() attributes {
   %dest_res_1, %token_2 = amdgcn.load ds_read_b32 dest %2 addr %vdst0_res_0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
   %dest_res_3, %token_4 = amdgcn.load ds_read_b32 dest %2 addr %vdst0_res : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
   %dest_res_5, %token_6 = amdgcn.load global_load_dword dest %2 addr %0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+  return
+}
+
+// CHECK-LABEL:   func.func @ssa_chain() {
+// CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL_0:.*]] = amdgcn.vop2 v_add_u32 outs %[[ALLOCA_2]] ins %[[ALLOCA_1]], %[[ALLOCA_0]] {sched.stage = 2 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL_1:.*]] = amdgcn.vop2 v_add_u32 outs %[[ALLOCA_3]] ins %[[ALLOCA_1]], %[[ALLOCA_0]] {sched.stage = 1 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[VAL_2:.*]] = amdgcn.vop2 v_add_u32 outs %[[ALLOCA_2]] ins %[[VAL_0]], %[[VAL_1]] {sched.stage = 0 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           return
+// CHECK:         }
+// This test checks a regression in the value scheduler, the SSA chain always
+// has to be respected, it doesn't matter if the value is an in or out.
+func.func @ssa_chain() attributes {sched = #sched} {
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  %1 = amdgcn.alloca : !amdgcn.vgpr
+  %2 = amdgcn.alloca : !amdgcn.vgpr
+  %3 = amdgcn.alloca : !amdgcn.vgpr
+  %4 = amdgcn.vop2 v_add_u32 outs %2 ins %1, %0 {sched.stage = 2 : i32}  : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  %5 = amdgcn.vop2 v_add_u32 outs %3 ins %1, %0 {sched.stage = 1 : i32}  : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  %6 = amdgcn.vop2 v_add_u32 outs %2 ins %4, %5 {sched.stage = 0 : i32}  : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
   return
 }
