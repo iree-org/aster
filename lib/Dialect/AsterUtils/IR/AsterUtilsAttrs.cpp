@@ -52,6 +52,36 @@ SSASchedulerAttr::createGraph(Block *block, const SchedAnalysis &) const {
 }
 
 //===----------------------------------------------------------------------===//
+// OpNameLabelerAttr - SchedLabelerAttrInterface
+//===----------------------------------------------------------------------===//
+
+int32_t OpNameLabelerAttr::getLabel(Operation *op, int32_t,
+                                    const SchedGraph &) const {
+  ArrayRef<StringAttr> matcher = getOpNameMatcher();
+  if (matcher.empty())
+    return getStage();
+  StringAttr opName = op->getName().getIdentifier();
+  if (!llvm::any_of(matcher,
+                    [&](StringAttr nameAttr) { return nameAttr == opName; }))
+    return -1;
+  return getStage();
+}
+
+//===----------------------------------------------------------------------===//
+// SchedListLabelerAttr - SchedLabelerAttrInterface
+//===----------------------------------------------------------------------===//
+
+int32_t SchedListLabelerAttr::getLabel(Operation *op, int32_t nodeId,
+                                       const SchedGraph &graph) const {
+  for (SchedLabelerAttrInterface labeler : getLabelers()) {
+    int32_t label = labeler.getLabel(op, nodeId, graph);
+    if (label >= 0)
+      return label;
+  }
+  return -1;
+}
+
+//===----------------------------------------------------------------------===//
 // SchedStageLabelerAttr - SchedLabelerAttrInterface
 //===----------------------------------------------------------------------===//
 

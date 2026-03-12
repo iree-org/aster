@@ -229,3 +229,46 @@ func.func @promote_pure_op_forward() attributes {sched = #sched} {
   %dest_res_2, %token_3 = amdgcn.load ds_read_b32 dest %2 addr %1 {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
   return
 }
+
+// CHECK-LABEL:   func.func @advanced_sched() {
+// CHECK:           %[[ALLOCA_0:.*]] = lsir.alloca : !amdgcn.vgpr<[? + 2]>
+// CHECK:           %[[ALLOCA_1:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[ALLOCA_2:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           %[[VAL_1:.*]] = amdgcn.vop2 v_add_u32 outs %[[ALLOCA_1]] ins %[[VAL_0]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[VAL_2:.*]], %[[LOAD_1:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.store ds_write_b32 data %[[VAL_0]] addr %[[ALLOCA_1]] : ins(!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.write_token<shared>
+// CHECK:           amdgcn.wait lgkm_cnt 0
+// CHECK:           amdgcn.sopp.sopp <s_barrier>
+// CHECK:           %[[VAL_3:.*]], %[[LOAD_2:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_2]] addr %[[VAL_1]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_4:.*]] = amdgcn.vop2 v_add_i32 outs %[[ALLOCA_1]] ins %[[VAL_0]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[VAL_5:.*]], %[[LOAD_3:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_2]] addr %[[VAL_4]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
+// CHECK:           return
+// CHECK:         }
+func.func @advanced_sched() attributes {
+    sched = #aster_utils.generic_scheduler<#amdgcn.value_scheduler,
+      #aster_utils.sched_list_labeler<[
+        #amdgcn.opcode_labeler<[s_barrier], 0>,
+        #aster_utils.op_name_labeler<["arith.constant"], 4>,
+        #amdgcn.opcode_labeler<[v_add_i32], 3>,
+        #amdgcn.inst_prop_labeler<[is_vmem, is_valu], 1>,
+        #amdgcn.inst_prop_labeler<[dsmem], 2>
+      ]>,
+      #aster_utils.stage_topo_sort_sched>
+  } {
+  %0 = lsir.alloca : !amdgcn.vgpr<[? + 2]>
+  %1 = lsir.alloca : !amdgcn.vgpr
+  %2 = lsir.alloca : !amdgcn.vgpr
+  %c0 = arith.constant 0 : i32
+  %dest_res, %token = amdgcn.load global_load_dword dest %2 addr %0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+  %vdst0_res = amdgcn.vop2 v_add_i32 outs %1 ins %dest_res, %dest_res : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  %3 = amdgcn.store ds_write_b32 data %dest_res addr %1 : ins(!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.write_token<shared>
+  amdgcn.wait lgkm_cnt 0
+  amdgcn.sopp.sopp <s_barrier>
+  %vdst0_res_0 = amdgcn.vop2 v_add_u32 outs %1 ins %dest_res, %dest_res : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  %dest_res_1, %token_2 = amdgcn.load ds_read_b32 dest %2 addr %vdst0_res_0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+  %dest_res_3, %token_4 = amdgcn.load ds_read_b32 dest %2 addr %vdst0_res : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+  %dest_res_5, %token_6 = amdgcn.load global_load_dword dest %2 addr %0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+  return
+}

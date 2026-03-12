@@ -52,6 +52,37 @@ def SchedStageLabelerAttr : AsterUtils_Attr<"SchedStageLabeler", "sched_stage_la
   }];
 }
 
+def SchedListLabelerAttr : AsterUtils_Attr<"SchedListLabeler", "sched_list_labeler", [
+    DeclareAttrInterfaceMethods<SchedLabelerAttrInterface>
+  ]> {
+  let summary = "Label nodes by trying labelers in order";
+  let description = [{
+    Tries each labeler in the array in order and returns the first label that
+    is not negative. If all labelers return negative, returns a negative value.
+  }];
+  let parameters = (ins
+    ArrayRefParameter<"::mlir::aster::SchedLabelerAttrInterface", "sched labelers">:$labelers
+  );
+  let assemblyFormat = "`<` `[` $labelers `]` `>`";
+}
+
+def OpNameLabelerAttr : AsterUtils_Attr<"OpNameLabeler", "op_name_labeler", [
+    DeclareAttrInterfaceMethods<SchedLabelerAttrInterface>
+  ]> {
+  let summary = "Label nodes by operation name";
+  let description = [{
+    Labels nodes with the given stage if the operation's name is in the
+    specified list of op names. Returns -1 if the operation does not match.
+
+    If the list is empty, it matches all operations.
+  }];
+  let parameters = (ins
+    ArrayRefParameter<"::mlir::StringAttr", "op names">:$opNameMatcher,
+    "uint16_t":$stage
+  );
+  let assemblyFormat = "`<` `[` $opNameMatcher `]` `,` $stage `>`";
+}
+
 def StageTopoSortSchedAttr : AsterUtils_Attr<"StageTopoSortSched", "stage_topo_sort_sched", [
     DeclareAttrInterfaceMethods<SchedBuilderAttrInterface>
   ]> {

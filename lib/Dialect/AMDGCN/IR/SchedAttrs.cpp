@@ -82,7 +82,7 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
   for (auto opIndex : llvm::enumerate(graph.getOps())) {
     Operation *op = opIndex.value();
     int64_t i = opIndex.index();
-    
+
     LDBG() << "Processing operation: " << i << " "
            << OpWithFlags(op, OpPrintingFlags().skipRegions());
 
@@ -240,7 +240,7 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
     // If there's no metadata, add an edge from the barrier to the operation.
     if (!metadata) {
       if (!isPure(op))
-      addEdge(op, i);
+        addEdge(op, i);
       continue;
     }
 
@@ -268,4 +268,41 @@ ValueSchedulerAttr::createGraph(Block *block,
     return failure();
   graph.compress();
   return graph;
+}
+
+//===----------------------------------------------------------------------===//
+// InstPropLabelerAttr - SchedLabelerAttrInterface
+//===----------------------------------------------------------------------===//
+
+int32_t InstPropLabelerAttr::getLabel(Operation *op, int32_t,
+                                      const SchedGraph &) const {
+  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
+  const InstMetadata *metadata = instOp ? instOp.getInstMetadata() : nullptr;
+  if (!metadata)
+    return -1;
+  ArrayRef<InstProp> matcher = getInstMatcher();
+  if (matcher.empty())
+    return getStage();
+  if (!metadata->hasAnyProps(matcher))
+    return -1;
+  return getStage();
+}
+
+//===----------------------------------------------------------------------===//
+// OpCodeLabelerAttr - SchedLabelerAttrInterface
+//===----------------------------------------------------------------------===//
+
+int32_t OpCodeLabelerAttr::getLabel(Operation *op, int32_t,
+                                    const SchedGraph &) const {
+  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
+  const InstMetadata *metadata = instOp ? instOp.getInstMetadata() : nullptr;
+  if (!metadata)
+    return -1;
+  ArrayRef<OpCode> matcher = getOpCodeMatcher();
+  if (matcher.empty())
+    return getStage();
+  OpCode opcode = metadata->getOpCode();
+  if (!llvm::is_contained(matcher, opcode))
+    return -1;
+  return getStage();
 }

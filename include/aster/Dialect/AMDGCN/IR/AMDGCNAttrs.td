@@ -74,6 +74,40 @@ def ValueSchedulerAttr : AMDGCN_Attr<"ValueScheduler", "value_scheduler", [
   }];
 }
 
+def InstPropLabelerAttr : AMDGCN_Attr<"InstPropLabeler", "inst_prop_labeler", [
+    DeclareAttrInterfaceMethods<SchedLabelerAttrInterface>
+  ]> {
+  let summary = "Label nodes by instruction properties";
+  let description = [{
+    Labels nodes with the given stage if the operation has any of the specified
+    instruction properties. Returns -1 if the operation does not match.
+
+    If the list is empty, it matches all instructions.
+  }];
+  let parameters = (ins
+    ArrayRefParameter<"::mlir::aster::amdgcn::InstProp", "instruction properties">:$instMatcher,
+    "uint16_t":$stage
+  );
+  let assemblyFormat = "`<` `[` $instMatcher `]` `,` $stage `>`";
+}
+
+def OpCodeLabelerAttr : AMDGCN_Attr<"OpCodeLabeler", "opcode_labeler", [
+    DeclareAttrInterfaceMethods<SchedLabelerAttrInterface>
+  ]> {
+  let summary = "Label nodes by opcode";
+  let description = [{
+    Labels nodes with the given stage if the operation's opcode is in the
+    specified list. Returns -1 if the operation does not match.
+
+    If the list is empty, it matches all instructions.
+  }];
+  let parameters = (ins
+    ArrayRefParameter<"::mlir::aster::amdgcn::OpCode", "opcodes">:$opCodeMatcher,
+    "uint16_t":$stage
+  );
+  let assemblyFormat = "`<` `[` $opCodeMatcher `]` `,` $stage `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // Kernel argument attributes
 //===----------------------------------------------------------------------===//
