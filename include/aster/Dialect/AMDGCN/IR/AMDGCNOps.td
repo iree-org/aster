@@ -116,7 +116,7 @@ def AMDGCN_BlockIdOp : AMDGCN_Op<"block_id", [Pure]> {
   }];
   let arguments = (ins DimAttr:$dim);
   let results = (outs SGPRType:$result);
-  let assemblyFormat = "$dim attr-dict `:` type($result)";
+  let assemblyFormat = "custom<DimAttr>($dim) attr-dict `:` type($result)";
 }
 
 //===----------------------------------------------------------------------===//
@@ -130,7 +130,7 @@ def AMDGCN_BlockDimOp : AMDGCN_Op<"block_dim", [Pure]> {
   }];
   let arguments = (ins DimAttr:$dim);
   let results = (outs SGPRType:$result);
-  let assemblyFormat = "$dim attr-dict `:` type($result)";
+  let assemblyFormat = "custom<DimAttr>($dim) attr-dict `:` type($result)";
 }
 
 //===----------------------------------------------------------------------===//
@@ -214,7 +214,7 @@ def AMDGCN_GridDimOp : AMDGCN_Op<"grid_dim", [Pure]> {
   }];
   let arguments = (ins DimAttr:$dim);
   let results = (outs SGPRType:$result);
-  let assemblyFormat = "$dim attr-dict `:` type($result)";
+  let assemblyFormat = "custom<DimAttr>($dim) attr-dict `:` type($result)";
 }
 
 //===----------------------------------------------------------------------===//
@@ -737,7 +737,7 @@ def AMDGCN_ThreadIdOp : AMDGCN_Op<"thread_id", [Pure]> {
   }];
   let arguments = (ins DimAttr:$dim);
   let results = (outs VGPRType:$result);
-  let assemblyFormat = "$dim attr-dict `:` type($result)";
+  let assemblyFormat = "custom<DimAttr>($dim) attr-dict `:` type($result)";
 }
 
 //===----------------------------------------------------------------------===//

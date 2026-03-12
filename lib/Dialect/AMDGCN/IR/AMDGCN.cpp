@@ -72,6 +72,30 @@ static void printOpcode(OpAsmPrinter &printer, Operation *, InstAttr opcode) {
 }
 
 //===----------------------------------------------------------------------===//
+// DimAttr Parsing/Printing
+//===----------------------------------------------------------------------===//
+
+/// Parse a DimAttr from a keyword (x, y, or z).
+static ParseResult parseDimAttr(OpAsmParser &parser, DimAttr &attr) {
+  StringRef keyword;
+  if (parser.parseKeyword(&keyword))
+    return failure();
+
+  auto dimOpt = symbolizeDim(keyword);
+  if (!dimOpt)
+    return parser.emitError(parser.getCurrentLocation(), "invalid dimension: ")
+           << keyword;
+
+  attr = DimAttr::get(parser.getBuilder().getContext(), *dimOpt);
+  return success();
+}
+
+/// Print a DimAttr as a keyword.
+static void printDimAttr(OpAsmPrinter &printer, Operation *, DimAttr attr) {
+  printer << stringifyDim(attr.getValue());
+}
+
+//===----------------------------------------------------------------------===//
 // Offset Parsing/Printing
 //===----------------------------------------------------------------------===//
 
