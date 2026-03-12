@@ -93,6 +93,18 @@ def StageTopoSortSchedAttr : AsterUtils_Attr<"StageTopoSortSched", "stage_topo_s
   }];
 }
 
+def BenefitSchedAttr : AsterUtils_Attr<"BenefitSched", "benefit_sched", [
+    DeclareAttrInterfaceMethods<SchedBuilderAttrInterface>
+  ]> {
+  let summary = "Benefit-aware topological sort scheduler";
+  let description = [{
+    Sorts the scheduling graph in topological order and emits ops in that order,
+    with the constraint that ops with higher labels are scheduled first (benefit
+    scheduling). When multiple nodes are ready, the one with the highest label
+    is selected; ties are broken by node ID.
+  }];
+}
+
 def GenericSchedulerAttr : AsterUtils_Attr<"GenericScheduler", "generic_scheduler", [
     DeclareAttrInterfaceMethods<SchedAttrInterface>
   ]> {
