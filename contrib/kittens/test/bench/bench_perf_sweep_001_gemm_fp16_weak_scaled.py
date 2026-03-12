@@ -25,7 +25,7 @@ Usage (compile only / execute pre-compiled HSACO):
 
 # IMPORTANT: Top configs to run by default. If non-empty, only these labels are run
 # unless --full-sweep is passed. Empty list = full sweep (need to populate after first sweep).
-# Labels include _buf/_flat suffix to distinguish memory op variants.
+# Labels must include _buf/_flat suffix (used to filter by --use-buffer/--use-flat).
 _TOP_K_BASE = [
     "m9728xn8192xk8192_wg38x32_w2x2_twg16x16x1_s2_flat",
     "m9728xn8192xk8192_wg38x32_w2x2_twg16x16x1_s2_buf",
@@ -471,11 +471,15 @@ if __name__ == "__main__":
     # For single-config mode, default to buffer.
     use_buffer = not args.use_flat
 
-    # TOP_K includes both variants (or just the selected one).
-    top_k_to_run = []
-    for v in variants:
-        suffix = "_buf" if v else "_flat"
-        top_k_to_run.extend(label + suffix for label in _TOP_K_BASE)
+    # TOP_K labels already include _buf/_flat suffix -- filter to selected variants.
+    top_k_to_run = [
+        label
+        for label in _TOP_K_BASE
+        if any(
+            label.endswith("_buf") and v or label.endswith("_flat") and not v
+            for v in variants
+        )
+    ]
 
     if args.full_sweep or args.sweep:
         variant_str = ", ".join("buffer" if v else "flat" for v in variants)
