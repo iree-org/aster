@@ -140,3 +140,4 @@ if(ASTER_ENABLE_PYTHON)
 endif()
 
 add_subdirectory(test)
+add_subdirectory(contrib)

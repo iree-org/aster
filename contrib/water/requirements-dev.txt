@@ -1,0 +1,8 @@
+# Development requirements for building Python bindings
+nanobind~=2.9.2
+numpy
+lit
+pytest
+pytest-xdist
+pytest-timeout
+sympy

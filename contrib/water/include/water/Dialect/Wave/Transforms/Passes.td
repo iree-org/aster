@@ -1,0 +1,215 @@
+// Copyright 2025 The Wave Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#ifndef WATER_DIALECT_WAVE_TRANSFORMS_PASSES
+#define WATER_DIALECT_WAVE_TRANSFORMS_PASSES
+
+include "mlir/Pass/PassBase.td"
+
+def LowerWaveToMLIRPass : Pass<"lower-wave-to-mlir", "::normalform::ModuleOp"> {
+  let summary = "Lower Wave dialect to upstream MLIR dialects";
+  let description = [{
+    This pass lowers operations from the Wave dialect to upstream MLIR
+    dialects, notably arith and vector.
+
+    This pass operates on `normalform.module` operations, which define the
+    expected normal form for the contained Wave operations.
+  }];
+  let dependentDialects = [
+    "::mlir::arith::ArithDialect",
+    "::mlir::math::MathDialect",
+    "::mlir::vector::VectorDialect",
+    "::mlir::memref::MemRefDialect",
+    "::normalform::NormalFormDialect",
+  ];
+}
+
+def WaterWaveDetectNormalFormsPass : Pass<"water-wave-detect-normal-forms"> {
+  let summary = "Detect the normal forms satisfied by each module";
+  let description = [{
+    For each module encountered, wraps its contents in a normalform module and
+    infers which Wave dialect normal forms are satisfied. The resulting
+    normalform module will have the applicable normal form attributes attached.
+  }];
+
+  let dependentDialects = [
+    "::wave::WaveDialect",
+    "::normalform::NormalFormDialect"
+  ];
+}
+
+def WaterWaveInferIndexExprsPass : Pass<"water-wave-infer-index-exprs", "::normalform::ModuleOp"> {
+  let summary = "Infer index expressions for Wave operations";
+  let description = [{
+    Performs forward and backward sparse dataflow analysis to infer index
+    expressions for wave-tensor typed operations when possible. Index
+    expressions indicate how the index space of the tensor is distributed
+    across devices, workgroups, workitems and registers within a single
+    workitem. They take the form of a dictionary with symbols used in the
+    shape of the tensor-typed value as keys and triples of affine functions
+    of device, workgroup, workitem and register identifiers as results.
+    The elements of the triple indicate:
+
+      - the offset of the first accessed element along the dimension by
+        the workitem;
+      - the total number of elements accessed;
+      - the step between elements accessed by the same workitem.
+
+    Index expressions are a property of a value. As the result of this pass,
+    they will be attached as the `index` attribute of the operation producing
+    the value. Some operations, namely MmaOp and WriteOp, may additionally
+    contain indexes of their operands for legacy reasons.
+
+    The inference starts by initializing the indexes based on the
+    `wave.constraints` attribute for special operations, currently:
+
+      - MMA operations
+
+    to ensure the data is distributed to registers in a way that is expected
+    by the matrix multiplication engine. It then propagates index expressions
+    forward and backward by JOINing them. The JOIN function is as follows:
+
+      - lattice top and bottom have the conventional neutral and saturating
+        semantics;
+      - two non-identical index expressions may be joined if their
+        coefficients for device and workgroup indices are identical and
+        one of them does not depend on workitem or register indices;
+        the result of such JOIN is the expression that does depend on
+        workitem or register indices;
+      - all other index expressions are deemed incompatible and JOINing
+        them immediately reaches lattice top.
+
+    The pass reports when the index expression lattice reaches top for the
+    first time for some value, which is indicative of a conflict. This means
+    the program is semantically invalid and must be updated to ensure
+    compatible indexing, e.g., by storing intermediate values into memory
+    with one index expression, synchronizing, and reading back with another.
+  }];
+}
+
+def WaterWaveInferTypesPass : Pass<"water-wave-infer-types", "::normalform::ModuleOp"> {
+  let summary = "Infer fully-specified Wave dialect types";
+  let description = [{
+    Performs forward and backward sparse dataflow analysis propagating shape
+    information for Wave tensor types. All operations using these types are
+    expected to implement WaveInferTypeOpInterface to indicate rules for shape
+    propagation across them. Traits provide implementations for common cases.
+
+    Reports errors if a type conflict is detected, for example, if a value with
+    `any` shape would need two different concrete shapes based on propagation
+    from different control flow paths or from different directions.
+  }];
+
+  let options = [
+    Option</*varName=*/"force",
+           /*arg=*/"force",
+           /*valueType=*/"bool",
+           /*default=*/"false",
+           "Keep processing after error emission without updating the type. "
+           "May construct invalid IR useful for debugging">,
+    Option</*varName=*/"partial",
+           /*arg=*/"partial",
+           /*valueType=*/"bool",
+           /*default=*/"false",
+           "Allow some types to remain underspecified.">
+  ];
+}
+
+def WaterWavePropagateElementsPerThreadPass
+    : Pass<"water-wave-propagate-elements-per-thread", "::normalform::ModuleOp"> {
+  let summary = "Replace register-resident tensor types with vector types";
+  let description = [{
+    Performs forward and backward sparse dataflow analysis propagating
+    information necessary to deduce the number of elements that each operation
+    processes per thread. This information comes from either:
+
+      * TODO: specialized operations that have constraints on elements owned by
+        each thread, such as MMA;
+      * memory access operations with dedicated attributes;
+      * TODO: compilation options.
+
+    All operations using register-resident Wave dialect tensor types are
+    expected to implement WaveElementsPerThreadOpInterface or have the
+    NoOpElementsPerThreadOpTrait to propagate this information. Other traits
+    provide implementations for common cases.
+
+    Reports errors if a conflict is detected, for example, if a value is read
+    with 4 elements per thread and then written with 8 elements per thread or
+    used in a context where a different number is expected.
+
+    Rewrites the IR to replace register-resident tensor types with vector types
+    indicating the number of elements processed by each thread.
+  }];
+}
+
+def WaterWavePropagateDefaultsFromConstraintsPass
+    : Pass<"water-wave-propagate-defaults-from-constraints"> {
+  let summary = "Propagate default values from constraints to operations where "
+                "they are not set.";
+  let description = [{
+    Propagates the following values:
+     - `mma_type` is propagate to mma operations that have no `mma_kind` set.
+  }];
+}
+
+def WaterWaveResolveDistributedAllocationsPass
+    : Pass<"water-wave-resolve-distributed-allocations", "::normalform::ModuleOp"> {
+  let summary = "Resolve distributed shapes in allocate operations";
+  let description = [{
+    This pass transforms wave.allocate operations that have a distributed_shape
+    attribute from returning WaveTensorType to returning MemRefType with the
+    resolved distributed shape. This makes the physical memory layout explicit
+    in the type system before lowering.
+
+    The pass also updates all users of the allocation (wave.read and wave.write
+    operations) to use the new memref-typed value.
+
+    This pass must run before LowerWaveToMLIR to ensure that read/write
+    operations can directly use the distributed memref without needing to look
+    through unrealized_conversion_cast operations.
+  }];
+
+  let dependentDialects = [
+    "::mlir::gpu::GPUDialect"
+  ];
+}
+
+def WaterWaveExpandVariadicReductionsPass
+    : Pass<"water-wave-expand-variadic-reductions"> {
+  let summary = "Expand variadic reduction inputs into chained single-input "
+                "reductions";
+  let description = [{
+    Rewrites reduction operations (e.g. wave.sum, wave.max_element) that have
+    multiple inputs into chains of single-input reductions. For example:
+
+      %r = wave.sum %a, %b, %c init(%init) <scope>
+
+    becomes:
+
+      %0 = wave.sum %a init(%init) <scope>
+      %1 = wave.sum %b init(%0) <scope>
+      %r = wave.sum %c init(%1) <scope>
+
+    Variadic inputs arise from the Python-side graph expansion pass, which
+    tiles the reduction dimension into multiple slices. The Wave dialect
+    supports variadic inputs for faithful roundtripping with the Python
+    representation. This pass normalizes them before lowering, which
+    requires single-input reductions.
+
+    This corresponds to the "source reduce" step (step 1) of the Python-side
+    `decompose_reduce_ops` pass, which additionally performs local element
+    reduction, cross-thread butterfly shuffles, and accumulator combination.
+  }];
+}
+
+def WaterWaveAsterizePass : Pass<"water-wave-asterize"> {
+  let summary = "Asterize operations in the Wave dialect";
+  let description = [{
+    This pass asterizes operations within the Wave dialect.
+  }];
+}
+
+#endif // WATER_DIALECT_WAVE_TRANSFORMS_PASSES
