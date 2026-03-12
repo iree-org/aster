@@ -56,10 +56,9 @@ SchedGraph::topologicalSched(function_ref<int32_t(ArrayRef<int32_t>)> schedFn,
       queue.push_back(node);
   }
 
-  LDBG() << "Start queue: " << llvm::interleaved_array(queue);
-
   // Process nodes with in-degree 0
   while (!queue.empty()) {
+    LDBG() << "Queue: " << llvm::interleaved_array(queue);
     int64_t nextNodePos = schedFn(queue);
     assert(nextNodePos >= 0 &&
            nextNodePos < static_cast<int64_t>(queue.size()) &&

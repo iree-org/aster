@@ -202,3 +202,30 @@ func.func @cant_promote_across_unknown_op() attributes {sched = #sched} {
   %dest_res_2, %token_3 = amdgcn.load global_load_dword dest %2 addr %0 {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
   return
 }
+
+// CHECK-LABEL:   func.func @promote_vmem_forward() {
+// CHECK:           %[[ALLOCA_0:.*]] = lsir.alloca : !amdgcn.vgpr<[? + 2]>
+// CHECK:           %[[ALLOCA_1:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[ALLOCA_2:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.store ds_write_b32 data %[[VAL_0]] addr %[[ALLOCA_1]] {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.write_token<shared>
+// CHECK:           amdgcn.wait lgkm_cnt 0 {sched.stage = 0 : i32}
+// CHECK:           amdgcn.sopp.sopp <s_barrier> {sched.stage = 0 : i32}
+// CHECK:           %[[VAL_1:.*]], %[[LOAD_1:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_2]] addr %[[ALLOCA_1]] {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_2:.*]], %[[LOAD_2:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] {sched.stage = 1 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant {sched.stage = 4 : i32} 0 : i32
+// CHECK:           return
+// CHECK:         }
+func.func @promote_pure_op_forward() attributes {sched = #sched} {
+  %0 = lsir.alloca : !amdgcn.vgpr<[? + 2]>
+  %1 = lsir.alloca : !amdgcn.vgpr
+  %2 = lsir.alloca : !amdgcn.vgpr
+  %c0 = arith.constant {sched.stage = 4 : i32} 0 : i32
+  %dest_res, %token = amdgcn.load global_load_dword dest %2 addr %0 {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+  %dest_res_0, %token_1 = amdgcn.load global_load_dword dest %2 addr %0 {sched.stage = 1 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+  %3 = amdgcn.store ds_write_b32 data %dest_res addr %1 {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.write_token<shared>
+  amdgcn.wait lgkm_cnt 0 {sched.stage = 0 : i32}
+  amdgcn.sopp.sopp <s_barrier> {sched.stage = 0 : i32}
+  %dest_res_2, %token_3 = amdgcn.load ds_read_b32 dest %2 addr %1 {sched.stage = 0 : i32} : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+  return
+}

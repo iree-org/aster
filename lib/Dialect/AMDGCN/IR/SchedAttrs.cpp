@@ -13,6 +13,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Interfaces/AllocaOpInterface.h"
 #include "aster/Interfaces/InstOpInterface.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -20,7 +21,10 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/DebugLog.h"
 #include <cstdint>
+
+#define DEBUG_TYPE "aster-sched"
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -78,12 +82,20 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
   for (auto opIndex : llvm::enumerate(graph.getOps())) {
     Operation *op = opIndex.value();
     int64_t i = opIndex.index();
+    
+    LDBG() << "Processing operation: " << i << " "
+           << OpWithFlags(op, OpPrintingFlags().skipRegions());
+
     bool hasEffects = op->hasTrait<OpTrait::HasRecursiveMemoryEffects>() ||
                       op->hasTrait<MemoryEffectOpInterface::Trait>();
+
     // If the operation has no side-effect we need to treat it as a possible
     // sync point. Same for non-pure operations.
-    if ((!hasEffects || !mlir::isPure(op)) && !isa<LoadOp, StoreOp>(op))
+    if ((!hasEffects || !mlir::isPure(op)) &&
+        !isa<LoadOp, StoreOp, AllocaOpInterface>(op)) {
+      LDBG() << "Adding sync point: " << i;
       syncPoints.push_back(i);
+    }
 
     ValueRange deps = op->getOperands();
 
@@ -227,6 +239,7 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
 
     // If there's no metadata, add an edge from the barrier to the operation.
     if (!metadata) {
+      if (!isPure(op))
       addEdge(op, i);
       continue;
     }
