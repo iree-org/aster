@@ -1,6 +1,7 @@
 add_mlir_dialect_library(AMDGCNDialect
   AMDGCN.cpp
   AMDGCNAttrs.cpp
+  SchedAttrs.cpp
   AMDGCNTypes.cpp
   AMDGCNVerifiers.cpp
   InstAttr.cpp
@@ -11,6 +12,7 @@ add_mlir_dialect_library(AMDGCNDialect
   KernelArgInterfaceIncGen
   HazardAttrInterfaceIncGen
   AMDGCNInstOpInterfaceIncGen
+  SchedInterfacesIncGen
   AMDGCNInstsIncGen
   AMDGCNOpsIncGen
   AMDGCNRegisterTypeInterfaceIncGen

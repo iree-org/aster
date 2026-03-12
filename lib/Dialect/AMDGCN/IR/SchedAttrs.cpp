@@ -1,0 +1,258 @@
+//===- SchedAttrs.cpp - AMDGCN scheduling attribute implementations -------===//
+//
+// Copyright 2025 The ASTER Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Interfaces/InstOpInterface.h"
+#include "aster/Interfaces/SchedInterfaces.h"
+#include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/IR/Block.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "llvm/ADT/STLExtras.h"
+#include <cstdint>
+
+using namespace mlir;
+using namespace mlir::aster;
+using namespace mlir::aster::amdgcn;
+
+//===----------------------------------------------------------------------===//
+// ValueSchedulerAttr - SchedGraphAttrInterface
+//===----------------------------------------------------------------------===//
+
+namespace {
+struct GraphBuilder {
+  GraphBuilder(Block *block, const DataFlowSolver &solver)
+      : block(block), solver(const_cast<DataFlowSolver &>(solver)) {
+    assert(block && "expected a valid block");
+  }
+
+  /// Run the graph builder on the given block, adding edges between operations.
+  LogicalResult run(SchedGraph &graph);
+
+private:
+  /// Build the SSA dependencies for the graph.
+  void buildSSADeps(SchedGraph &graph);
+
+  /// Build the non-SSA dependencies for the graph.
+  void buildNonSSADeps(SchedGraph &graph);
+
+  /// Handle a wait operation.
+  void handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait);
+
+  /// Handle a barrier operation. With barriers we must add dependencies before
+  /// and after if the operation affects SALU or SGPRs.
+  void handleBarrier(SchedGraph &graph, int64_t pos, Operation *barrier);
+
+  Block *block;
+  SmallVector<int64_t> syncPoints;
+  DataFlowSolver &solver;
+};
+} // namespace
+
+LogicalResult
+ValueSchedulerAttr::initializeAnalyses(SchedAnalysis &analysis) const {
+  // Load the wait analysis.
+  analysis.getSolver().load<WaitAnalysis>(analysis.getDomInfo());
+  analysis.setRunDataflowAnalyses();
+  return success();
+}
+
+LogicalResult GraphBuilder::run(SchedGraph &graph) {
+  buildSSADeps(graph);
+  buildNonSSADeps(graph);
+  return success();
+}
+
+void GraphBuilder::buildSSADeps(SchedGraph &graph) {
+  for (auto opIndex : llvm::enumerate(graph.getOps())) {
+    Operation *op = opIndex.value();
+    int64_t i = opIndex.index();
+    bool hasEffects = op->hasTrait<OpTrait::HasRecursiveMemoryEffects>() ||
+                      op->hasTrait<MemoryEffectOpInterface::Trait>();
+    // If the operation has no side-effect we need to treat it as a possible
+    // sync point. Same for non-pure operations.
+    if ((!hasEffects || !mlir::isPure(op)) && !isa<LoadOp, StoreOp>(op))
+      syncPoints.push_back(i);
+
+    ValueRange deps = op->getOperands();
+
+    // If the operation is an instruction, use the instruction inputs instead of
+    // the operands.
+    if (auto instOp = dyn_cast<InstOpInterface>(op))
+      deps = instOp.getInstIns();
+
+    // Add edges for the dependencies.
+    for (Value operand : deps) {
+      Operation *producer = operand.getDefiningOp();
+      if (producer && producer->getBlock() == block)
+        graph.addEdge(producer, op);
+    }
+  }
+}
+
+void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
+  ArrayRef<Operation *> ops = graph.getOps();
+  for (int64_t &i : syncPoints) {
+    Operation *op = ops[i];
+    if (auto waitOp = dyn_cast<WaitOp>(op)) {
+      handleWaitOp(graph, i, waitOp);
+      // Mark the sync point as processed.
+      i = -1;
+      continue;
+    }
+    if (auto barrierOp = dyn_cast<inst::SOPPOp>(op);
+        barrierOp && barrierOp.getOpcode() == amdgcn::OpCode::S_BARRIER) {
+      handleBarrier(graph, i, barrierOp);
+      // Mark the sync point as processed.
+      i = -1;
+      continue;
+    }
+  }
+
+  // Erase all the processed sync points.
+  llvm::erase(syncPoints, -1);
+
+  // If there are no sync points, return.
+  if (syncPoints.empty())
+    return;
+
+  // Add edges between all the ops before a sync point and the sync point, and
+  // between the sync point and all the ops after it.
+  for (auto [i, syncPoint] : llvm::enumerate(syncPoints)) {
+    int64_t prevSyncPoint = i > 0 ? syncPoints[i - 1] : 0;
+    int64_t nextSyncPoint =
+        i < (syncPoints.size() - 1) ? syncPoints[i + 1] + 1 : ops.size();
+    for (int64_t point = prevSyncPoint; point < syncPoint; point++)
+      graph.addEdge(point, syncPoint);
+    for (int64_t point = syncPoint + 1; point < nextSyncPoint; point++)
+      graph.addEdge(syncPoint, point);
+  }
+}
+
+void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
+  // Get the wait state.
+  const WaitState *state =
+      solver.lookupState<WaitState>(solver.getProgramPointAfter(wait));
+  assert(state && "expected valid wait state");
+
+  // Collect all the operations that sync at this point.
+  SetVector<Operation *> waitedOps;
+  for (const TokenState &token : state->waitOpInfo->waitedTokens) {
+    Operation *op = token.getToken().getDefiningOp();
+    if (!op || op->getBlock() != block)
+      continue;
+    waitedOps.insert(op);
+  }
+  for (const TokenState &token : state->waitOpInfo->impliedTokens) {
+    Operation *op = token.getToken().getDefiningOp();
+    if (!op || op->getBlock() != block)
+      continue;
+    waitedOps.insert(op);
+  }
+
+  // Add edges for the waited operations.
+  for (Operation *op : waitedOps)
+    graph.addEdge(op, wait);
+
+  auto isTokenKind = [](Type type, MemoryInstructionKind kind) {
+    if (auto tokType = dyn_cast<ReadTokenType>(type))
+      return tokType.getKind() == kind;
+    if (auto tokType = dyn_cast<WriteTokenType>(type))
+      return tokType.getKind() == kind;
+    return false;
+  };
+
+  // Add edges for the operations that are after this wait operation that wait
+  // on the same tokens.
+  bool waitsVM = wait.getVmCnt() != WaitOp::kNoWaitCount;
+  bool waitsLgkm = wait.getLgkmCnt() != WaitOp::kNoWaitCount;
+  for (Operation *op : graph.getOps().drop_front(pos + 1)) {
+    ValueRange operands = op->getOperands();
+    for (Value operand : operands) {
+      Operation *producer = operand.getDefiningOp();
+      if (!producer || producer->getBlock() != block)
+        continue;
+      if (waitedOps.contains(producer))
+        graph.addEdge(wait, op);
+    }
+
+    // Prevent operations producing tokens moving before a wait operation.
+    bool producesVM = llvm::any_of(TypeRange(op->getResults()), [&](Type type) {
+      return isTokenKind(type, MemoryInstructionKind::Flat);
+    });
+    bool producesLgkm =
+        llvm::any_of(TypeRange(op->getResults()), [&](Type type) {
+          return isTokenKind(type, MemoryInstructionKind::Shared) ||
+                 isTokenKind(type, MemoryInstructionKind::Constant);
+        });
+    if (waitsVM && producesVM)
+      graph.addEdge(wait, op);
+    if (waitsLgkm && producesLgkm)
+      graph.addEdge(wait, op);
+  }
+}
+
+void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
+                                 Operation *barrier) {
+  // Helper function to add an edge between an operation and the barrier.
+  auto addEdge = [&](Operation *op, int64_t i) {
+    if (i < pos)
+      graph.addEdge(op, barrier);
+    if (i > pos)
+      graph.addEdge(barrier, op);
+  };
+
+  // Iterate over all the operations in the graph.
+  for (auto opIndex : llvm::enumerate(graph.getOps())) {
+    Operation *op = opIndex.value();
+    int64_t i = opIndex.index();
+
+    // Skip itself.
+    if (op == barrier)
+      continue;
+
+    auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
+    const InstMetadata *metadata = instOp ? instOp.getInstMetadata() : nullptr;
+
+    // If there's no metadata, add an edge from the barrier to the operation.
+    if (!metadata) {
+      addEdge(op, i);
+      continue;
+    }
+
+    // If the operation has any SALU or SMEM properties, add an edge.
+    if (metadata->hasAnyProps({InstProp::Salu, InstProp::Smem})) {
+      addEdge(op, i);
+      continue;
+    }
+
+    // If the operation has any SGPR outputs, add an edge.
+    bool hasSGPROut = llvm::any_of(instOp->getResults(), [](Value result) {
+      return isa<SGPRType>(result.getType());
+    });
+    if (hasSGPROut)
+      addEdge(op, i);
+  }
+}
+
+FailureOr<SchedGraph>
+ValueSchedulerAttr::createGraph(Block *block,
+                                const SchedAnalysis &analysis) const {
+  SchedGraph graph(block);
+  GraphBuilder builder(block, analysis.getSolver());
+  if (failed(builder.run(graph)))
+    return failure();
+  graph.compress();
+  return graph;
+}

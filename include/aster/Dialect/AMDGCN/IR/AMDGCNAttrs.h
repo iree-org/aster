@@ -22,6 +22,7 @@
 #include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.h"
 #include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
 #include "aster/Interfaces/MemorySpaceConstraints.h"
+#include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.h"
 #include "mlir/IR/Attributes.h"
 

@@ -22,6 +22,7 @@ include "aster/Dialect/AMDGCN/IR/Interfaces/HazardAttrInterface.td"
 include "aster/Dialect/AMDGCN/IR/Hazards.td"
 include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.td"
 include "aster/Interfaces/MemorySpaceConstraints.td"
+include "aster/Interfaces/SchedInterfaces.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
 
 //===----------------------------------------------------------------------===//
@@ -51,6 +52,26 @@ def AMDGCN_InstAttr :
       "::mlir::aster::amdgcn::InstAttr::get($_builder.getContext(), $0)";
   let returnType = "::mlir::aster::amdgcn::OpCode";
   let convertFromStorage = "$_self.getValue()";
+}
+
+//===----------------------------------------------------------------------===//
+// Scheduling attributes
+//===----------------------------------------------------------------------===//
+
+def ValueSchedulerAttr : AMDGCN_Attr<"ValueScheduler", "value_scheduler", [
+    DeclareAttrInterfaceMethods<SchedGraphAttrInterface>
+  ]> {
+  let summary = "Value-based scheduling graph builder for AMDGCN instructions";
+  let description = [{
+    Builds a scheduling graph by iterating over ops in the block and adding
+    edges from each op to all ops that produce its input operands. This builder
+    is also aware of wait and barrier operations. Unknown non-pure ops
+    are treated as possible sync points.
+
+    This scheduler respects the Inst ins/outs distinction, which is important
+    for AMDGCN instructions where outs are pre-allocated and ins are the actual
+    data dependencies.
+  }];
 }
 
 //===----------------------------------------------------------------------===//

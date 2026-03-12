@@ -45,6 +45,7 @@ public:
   const DataFlowSolver &getSolver() const { return solver; }
 
   /// Get the dominance information.
+  DominanceInfo &getDomInfo() { return domInfo; }
   const DominanceInfo &getDomInfo() const { return domInfo; }
 
   /// Get the root operation.
@@ -111,6 +112,7 @@ public:
       return;
     Graph::addEdge(srcId, tgtId);
   }
+  using Graph::addEdge;
 
   /// Check if the graph has an edge between src and tgt.
   bool hasEdge(Operation *src, Operation *tgt) const {
@@ -120,6 +122,7 @@ public:
       return false;
     return Graph::hasEdge(srcId, tgtId);
   }
+  using Graph::hasEdge;
 
   /// Produce a topologically sorted schedule for the graph using the given
   /// scheduling function.
