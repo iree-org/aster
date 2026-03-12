@@ -306,25 +306,42 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run a single weak-scaled GEMM config",
     )
-    parser.add_argument("--m-wg", type=int, required=True, help="Workgroups along M")
-    parser.add_argument("--n-wg", type=int, required=True, help="Workgroups along N")
     parser.add_argument(
-        "--m-waves", type=int, required=True, help="Waves per WG along M"
+        "--m-wg", type=int, default=1, help="Workgroups along M (default: 1)"
     )
     parser.add_argument(
-        "--n-waves", type=int, required=True, help="Waves per WG along N"
+        "--n-wg", type=int, default=1, help="Workgroups along N (default: 1)"
     )
     parser.add_argument(
-        "--m-tiles-wg", type=int, required=True, help="Tiles per workgroup along M"
+        "--m-waves", type=int, default=1, help="Waves per WG along M (default: 1)"
     )
     parser.add_argument(
-        "--n-tiles-wg", type=int, required=True, help="Tiles per workgroup along N"
+        "--n-waves", type=int, default=1, help="Waves per WG along N (default: 1)"
     )
     parser.add_argument(
-        "--k-tiles", type=int, required=True, help="Tiles per wave along K"
+        "--m-tiles-wg",
+        type=int,
+        default=1,
+        help="Tiles per workgroup along M (default: 1)",
     )
-    parser.add_argument("--stages", type=int, required=True, help="Pipeline stages")
-    parser.add_argument("--k", type=int, required=True, help="K dimension")
+    parser.add_argument(
+        "--n-tiles-wg",
+        type=int,
+        default=1,
+        help="Tiles per workgroup along N (default: 1)",
+    )
+    parser.add_argument(
+        "--k-tiles", type=int, default=1, help="Tiles per wave along K (default: 1)"
+    )
+    parser.add_argument(
+        "--stages", type=int, default=2, help="Pipeline stages (default: 2)"
+    )
+    parser.add_argument(
+        "--k-scaling-factor",
+        type=int,
+        default=4,
+        help="K scaling factor (K = factor * k_tiles * 32, default: 4)",
+    )
     parser.add_argument(
         "--iterations",
         type=int,
@@ -348,19 +365,24 @@ if __name__ == "__main__":
         help="Print IR after each pass",
     )
     parser.add_argument(
+        "--print-asm",
+        action="store_true",
+        help="Print generated assembly to stdout",
+    )
+    buf_group = parser.add_mutually_exclusive_group()
+    buf_group.add_argument(
         "--use-buffer",
         action="store_true",
-        default=True,
         help="Use buffer_load/buffer_store (MUBUF) instead of global_load/global_store (flat)",
     )
-    parser.add_argument(
+    buf_group.add_argument(
         "--use-flat",
         action="store_true",
         help="Use global_load/global_store (flat) instead of buffer_load/buffer_store",
     )
     a = parser.parse_args()
-    if a.use_flat:
-        a.use_buffer = False
+    use_buffer = not a.use_flat
+    k = a.k_scaling_factor * a.k_tiles * 32
 
     cfg = WeakScaleConfig(
         a.m_wg,
@@ -371,12 +393,11 @@ if __name__ == "__main__":
         a.n_tiles_wg,
         a.k_tiles,
         a.stages,
-        a.k,
+        k,
     )
 
     from aster.hip import parse_asm_kernel_resources
 
-    use_buffer = a.use_buffer
     mem_mode = "buffer" if use_buffer else "flat"
 
     print(f"Config: {cfg.label} ({mem_mode})")
@@ -395,6 +416,8 @@ if __name__ == "__main__":
         res = resources.get(KERNEL_NAME)
         if res:
             print(f"  resources: {res}")
+        if a.print_asm:
+            print(asm)
         print(f"  Compiled: {a.hsaco}")
     else:
         np.random.seed(42)
@@ -417,6 +440,8 @@ if __name__ == "__main__":
                 res = resources.get(KERNEL_NAME)
                 if res:
                     print(f"  resources: {res}")
+                if a.print_asm:
+                    print(asm)
                 C_output, times_ns = execute_weak_scaled_hsaco(
                     cfg, tmp.name, a.iterations, A, B
                 )

@@ -20,7 +20,7 @@ class TestKittensGEMMLDS2Buffer_AGPR:
     """Test GEMM with double-buffer LDS (16x32 tiles) + AGPR accumulators."""
 
     @pytest.mark.parametrize("k", [32, 64, 128])
-    def test_gemm_lds_2buf(self, k):
+    def test_gemm_lds_2buf(self, k, print_ir_after_all=False):
         """GEMM with double-buffer LDS + AGPR should match reference."""
         k_tiles = k // 32
         stride_ab = k * 2
@@ -42,7 +42,20 @@ class TestKittensGEMMLDS2Buffer_AGPR:
                 "{{STRIDE_AB}}": str(stride_ab),
             },
             library_paths=get_kittens_16x16_lds_library_paths(),
+            print_ir_after_all=print_ir_after_all,
         )
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--k-scaling-factor", type=int, default=4)
+    parser.add_argument("--print-ir-after-all", action="store_true")
+    a = parser.parse_args()
+    TestKittensGEMMLDS2Buffer_AGPR().test_gemm_lds_2buf(
+        a.k_scaling_factor * 32, print_ir_after_all=a.print_ir_after_all
+    )

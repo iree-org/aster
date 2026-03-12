@@ -25,7 +25,7 @@ class TestKittensGEMM2WaveLDS_AGPR:
     """
 
     @pytest.mark.parametrize("k", [32, 64, 128])
-    def test_gemm_2wave_lds(self, k):
+    def test_gemm_2wave_lds(self, k, print_ir_after_all=False):
         """2-wave LDS GEMM with AGPR should compute C = A @ B^T correctly."""
         k_tiles = k // 32
         stride_ab = k * 2
@@ -48,7 +48,20 @@ class TestKittensGEMM2WaveLDS_AGPR:
                 "{{STRIDE_AB}}": str(stride_ab),
             },
             library_paths=get_kittens_16x16_lds_library_paths(),
+            print_ir_after_all=print_ir_after_all,
         )
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--k-scaling-factor", type=int, default=4)
+    parser.add_argument("--print-ir-after-all", action="store_true")
+    a = parser.parse_args()
+    TestKittensGEMM2WaveLDS_AGPR().test_gemm_2wave_lds(
+        a.k_scaling_factor * 32, print_ir_after_all=a.print_ir_after_all
+    )
