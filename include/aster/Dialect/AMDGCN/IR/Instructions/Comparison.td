@@ -226,19 +226,21 @@ def VCmpEqI32 : VOPCE32CmpIInst<"v_cmp_eq_i32", [CDNA3, CDNA4, RDNA4]> {
 //===----------------------------------------------------------------------===//
 // 64 bit encoding
 //===----------------------------------------------------------------------===//
-// VAlu compare instructions on 64 bit encoding.
+// VALU compare instructions on 64 bit encoding.
 class VOPCE64CmpIInst<string _mnemonic, list<ISAVersion> _isa>
     : VOPCE32CmpIInst<_mnemonic, _isa> {
   let summary = "VOPC compare instruction (64-bit)";
-  // Override constraints - 2 scalar inputs, 1 VCC output.
+  // Override constraints - 2 scalar inputs, SGPR pair output (64-bit lane mask).
   let constraints = (ins
     /*ins=*/
       RegImmOperand<VOPCCmpI32Operand, 1>:$lhs,
       RegImmOperand<VOPCCmpI32Operand, 1>:$rhs,
     /*outs=*/
-      RegImmOperand<AnyRegOf<[SReg<"VCC">, SGPRType]>, 1>:$dest,
+      RegImmOperand<AnyRegOf<[SReg<"VCC">, SGPRType]>, 2>:$dest,
       NotPresent:$exec
   );
+  // E64 encoding: dest is explicit (unlike VOPC 32-bit where VCC is implicit).
+  let asmFormat = [SingleAsmVariant<"$dest, $lhs, $rhs">];
 }
 
 def VCmpEqI32E64 : VOPCE64CmpIInst<"v_cmp_eq_i32_e64", [CDNA3, CDNA4, RDNA4]> {
