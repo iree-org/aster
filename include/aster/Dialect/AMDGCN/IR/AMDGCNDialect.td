@@ -33,7 +33,6 @@ def AMDGCN_Dialect : Dialect {
     AMDGCN dialect.
   }];
   let useDefaultTypePrinterParser = 1;
-  let usePropertiesForAttributes = 1;
   let extraClassDeclaration = [{
     /// Maximum number of SGPR registers supported by this dialect
     static constexpr int16_t maxSGPRRegisters = 102;

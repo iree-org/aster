@@ -88,13 +88,13 @@ LogicalResult mlir::aster::amdgcn::target::compileAsm(
 
   // Create register info, asm info, and subtarget info
   std::unique_ptr<llvm::MCRegisterInfo> mri(
-      target->createMCRegInfo(targetTriple.str()));
+      target->createMCRegInfo(targetTriple));
   assert(mri && "failed to create MCRegisterInfo");
   std::unique_ptr<llvm::MCAsmInfo> mai(
-      target->createMCAsmInfo(*mri, targetTriple.str(), mcOptions));
+      target->createMCAsmInfo(*mri, targetTriple, mcOptions));
   assert(mai && "failed to create MCAsmInfo");
   std::unique_ptr<llvm::MCSubtargetInfo> sti(
-      target->createMCSubtargetInfo(targetTriple.str(), chip, features));
+      target->createMCSubtargetInfo(targetTriple, chip, features));
   assert(sti && "failed to create MCSubtargetInfo");
 
   // Create MC context

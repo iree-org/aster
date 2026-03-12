@@ -88,8 +88,8 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
 // CHECK:         end_kernel
 // CHECK:       }
   kernel @thread_block_x arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
-    %0 = thread_id  x : !amdgcn.vgpr
-    %1 = block_id  x : !amdgcn.sgpr
+    %0 = thread_id <x> : !amdgcn.vgpr
+    %1 = block_id <x> : !amdgcn.sgpr
     test_inst ins %0, %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> ()
     end_kernel
   }
@@ -112,12 +112,12 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
 // CHECK:         end_kernel
 // CHECK:       }
   kernel @thread_block_ids arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
-    %0 = thread_id  x : !amdgcn.vgpr
-    %1 = thread_id  y : !amdgcn.vgpr
-    %2 = thread_id  z : !amdgcn.vgpr
-    %3 = block_id  x : !amdgcn.sgpr
-    %4 = block_id  y : !amdgcn.sgpr
-    %5 = block_id  z : !amdgcn.sgpr
+    %0 = thread_id <x> : !amdgcn.vgpr
+    %1 = thread_id <y> : !amdgcn.vgpr
+    %2 = thread_id <z> : !amdgcn.vgpr
+    %3 = block_id <x> : !amdgcn.sgpr
+    %4 = block_id <y> : !amdgcn.sgpr
+    %5 = block_id <z> : !amdgcn.sgpr
     test_inst ins %0, %1, %2, %3, %4, %5 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr) -> ()
     end_kernel
   }
@@ -131,8 +131,8 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
 // CHECK:         end_kernel
 // CHECK:       }
   kernel @block_id_yz_only arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
-    %0 = block_id  y : !amdgcn.sgpr
-    %1 = block_id  z : !amdgcn.sgpr
+    %0 = block_id <y> : !amdgcn.sgpr
+    %1 = block_id <z> : !amdgcn.sgpr
     test_inst ins %0, %1 : (!amdgcn.sgpr, !amdgcn.sgpr) -> ()
     end_kernel
   }
@@ -145,8 +145,8 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
 // CHECK:         end_kernel
 // CHECK:       }
   kernel @block_id_xz_only arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
-    %0 = block_id  x : !amdgcn.sgpr
-    %1 = block_id  z : !amdgcn.sgpr
+    %0 = block_id <x> : !amdgcn.sgpr
+    %1 = block_id <z> : !amdgcn.sgpr
     test_inst ins %0, %1 : (!amdgcn.sgpr, !amdgcn.sgpr) -> ()
     end_kernel
   }
@@ -158,7 +158,7 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
 // CHECK:         end_kernel
 // CHECK:       }
   kernel @block_id_z_only arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
-    %0 = block_id  z : !amdgcn.sgpr
+    %0 = block_id <z> : !amdgcn.sgpr
     test_inst ins %0 : (!amdgcn.sgpr) -> ()
     end_kernel
   }
@@ -199,12 +199,12 @@ amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
 // CHECK:         end_kernel
 // CHECK:       }
   kernel @grid_block_dim {
-    %0 = grid_dim  x : !amdgcn.sgpr
-    %1 = grid_dim  y : !amdgcn.sgpr
-    %2 = grid_dim  z : !amdgcn.sgpr
-    %3 = block_dim  x : !amdgcn.sgpr
-    %4 = block_dim  y : !amdgcn.sgpr
-    %5 = block_dim  z : !amdgcn.sgpr
+    %0 = grid_dim <x> : !amdgcn.sgpr
+    %1 = grid_dim <y> : !amdgcn.sgpr
+    %2 = grid_dim <z> : !amdgcn.sgpr
+    %3 = block_dim <x> : !amdgcn.sgpr
+    %4 = block_dim <y> : !amdgcn.sgpr
+    %5 = block_dim <z> : !amdgcn.sgpr
     test_inst ins %0, %1, %2, %3, %4, %5 : (!amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr) -> ()
     end_kernel
   }

@@ -399,7 +399,7 @@ void ToRegisterSemantics::runOnOperation() {
            SplitRegisterRangePattern, GenericOpPattern<lsir::CmpIOp>,
            GenericOpPattern<amdgcn::RegInterferenceOp>, DeallocCastOpPattern>(
           ctx);
-  if (failed(applyPatternsAndFoldGreedily(
+  if (failed(applyPatternsGreedily(
           op, std::move(patterns),
           GreedyRewriteConfig()
               .setUseTopDownTraversal(true)

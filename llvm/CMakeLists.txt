@@ -10,8 +10,9 @@ macro(configure_llvm)
   set(_ASTER_VCS_HEADER "${LLVM_INCLUDE_DIRS}/llvm/Support/VCSRevision.h")
   if(EXISTS "${_ASTER_VCS_HEADER}")
     file(STRINGS "${_ASTER_VCS_HEADER}" _ASTER_LLVM_REVISION_LINE REGEX "LLVM_REVISION")
-    string(REGEX MATCH "\"([0-9a-f]+)\"" _ASTER_LLVM_REVISION_MATCH "${_ASTER_LLVM_REVISION_LINE}")
-    set(_ASTER_LLVM_REVISION "${CMAKE_MATCH_1}")
+    # Handle both regular strings ("hash") and raw string literals (R"(hash)").
+    # Match 12+ hex chars to skip short matches like "def" in "#define".
+    string(REGEX MATCH "[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+" _ASTER_LLVM_REVISION "${_ASTER_LLVM_REVISION_LINE}")
     if(NOT _ASTER_LLVM_REVISION STREQUAL _ASTER_EXPECTED_LLVM_COMMIT)
       message(FATAL_ERROR
         "LLVM commit mismatch!\n"

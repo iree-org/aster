@@ -133,5 +133,5 @@ void DecomposeMemrefIterArgs::runOnOperation() {
   scf::ForOp::getCanonicalizationPatterns(patterns, ctx);
   memref::AllocaOp::getCanonicalizationPatterns(patterns, ctx);
   arith::ConstantOp::getCanonicalizationPatterns(patterns, ctx);
-  (void)applyPatternsAndFoldGreedily(rootOp, std::move(patterns));
+  (void)applyPatternsGreedily(rootOp, std::move(patterns));
 }

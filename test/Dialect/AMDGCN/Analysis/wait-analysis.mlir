@@ -52,7 +52,7 @@ func.func @test_duplicated_waits() {
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, flat}, {%[[R_5]], {{[0-9]*}}, 1, flat}, {%[[R_7]], {{[0-9]*}}, 0, flat}]
 // CHECK:       Op: %[[R_8:.*]]:3 = scf.for %[[R_9:.*]] = %[[R_10:.*]] to %[[R_11:.*]] step %[[R_12:.*]] iter_args(%[[R_13:.*]] = %[[R_2]], %[[R_14:.*]] = %[[R_5]], %[[R_15:.*]] = %[[R_7]]) -> (!amdgcn.read_token<flat>, !amdgcn.read_token<flat>, !amdgcn.read_token<flat>) {...}
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, flat}, {%[[R_5]], {{[0-9]*}}, 1, flat}, {%[[R_7]], {{[0-9]*}}, 0, flat}]
-// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, flat}, {%[[R_5]], {{[0-9]*}}, 1, flat}, {%[[R_7]], {{[0-9]*}}, 0, flat}, {%[[R_16:.*]], {{[0-9]*}}, 0, flat}, {%[[R_17:.*]], {{[0-9]*}}, 2, flat}, {%[[R_18:.*]], {{[0-9]*}}, 1, flat}]
+// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 2, flat}, {%[[R_7]], {{[0-9]*}}, 1, flat}, {%[[R_16:.*]], {{[0-9]*}}, 0, flat}, {%[[R_17:.*]], {{[0-9]*}}, 2, flat}, {%[[R_18:.*]], {{[0-9]*}}, 1, flat}]
 // CHECK:       Op: amdgcn.wait deps %[[R_13]] : !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, flat}, {%[[R_5]], {{[0-9]*}}, 1, flat}, {%[[R_7]], {{[0-9]*}}, 0, flat}, {%[[R_13]], {{[0-9]*}}, 2, flat}, {%[[R_14]], {{[0-9]*}}, 1, flat}, {%[[R_15]], {{[0-9]*}}, 0, flat}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 1, flat}, {%[[R_7]], {{[0-9]*}}, 0, flat}, {%[[R_14]], {{[0-9]*}}, 1, flat}, {%[[R_15]], {{[0-9]*}}, 0, flat}], wait information = {counts: {vm_cnt: 2, lgkm_cnt: nowait}, waited_tokens: [{%[[R_13]], {{[0-9]*}}, 2, flat}], implied_tokens: [{%[[R_2]], {{[0-9]*}}, 2, flat}, {%[[R_13]], {{[0-9]*}}, 2, flat}]}
@@ -63,10 +63,10 @@ func.func @test_duplicated_waits() {
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 2, flat}, {%[[R_7]], {{[0-9]*}}, 1, flat}, {%[[R_14]], {{[0-9]*}}, 2, flat}, {%[[R_15]], {{[0-9]*}}, 1, flat}, {%[[R_20]], {{[0-9]*}}, 0, flat}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 2, flat}, {%[[R_7]], {{[0-9]*}}, 1, flat}, {%[[R_14]], {{[0-9]*}}, 2, flat}, {%[[R_15]], {{[0-9]*}}, 1, flat}, {%[[R_20]], {{[0-9]*}}, 0, flat}]
 // CHECK:       Op: amdgcn.wait deps %[[R_16]] : !amdgcn.read_token<flat>
-// CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, flat}, {%[[R_5]], {{[0-9]*}}, 1, flat}, {%[[R_7]], {{[0-9]*}}, 0, flat}, {%[[R_16]], {{[0-9]*}}, 0, flat}, {%[[R_17]], {{[0-9]*}}, 2, flat}, {%[[R_18]], {{[0-9]*}}, 1, flat}]
-// CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_2]], {{[0-9]*}}, 2, flat}, {%[[R_5]], {{[0-9]*}}, 1, flat}, {%[[R_7]], {{[0-9]*}}, 0, flat}, {%[[R_16]], {{[0-9]*}}, 0, flat}, {%[[R_17]], {{[0-9]*}}, 2, flat}, {%[[R_18]], {{[0-9]*}}, 1, flat}]}
+// CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 2, flat}, {%[[R_7]], {{[0-9]*}}, 1, flat}, {%[[R_16]], {{[0-9]*}}, 0, flat}, {%[[R_17]], {{[0-9]*}}, 2, flat}, {%[[R_18]], {{[0-9]*}}, 1, flat}]
+// CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_5]], {{[0-9]*}}, 2, flat}, {%[[R_7]], {{[0-9]*}}, 1, flat}, {%[[R_16]], {{[0-9]*}}, 0, flat}, {%[[R_17]], {{[0-9]*}}, 2, flat}, {%[[R_18]], {{[0-9]*}}, 1, flat}]}
 // CHECK:       Op: func.return
-// CHECK:       	WAIT STATE BEFORE: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_2]], {{[0-9]*}}, 2, flat}, {%[[R_5]], {{[0-9]*}}, 1, flat}, {%[[R_7]], {{[0-9]*}}, 0, flat}, {%[[R_16]], {{[0-9]*}}, 0, flat}, {%[[R_17]], {{[0-9]*}}, 2, flat}, {%[[R_18]], {{[0-9]*}}, 1, flat}]}
+// CHECK:       	WAIT STATE BEFORE: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_5]], {{[0-9]*}}, 2, flat}, {%[[R_7]], {{[0-9]*}}, 1, flat}, {%[[R_16]], {{[0-9]*}}, 0, flat}, {%[[R_17]], {{[0-9]*}}, 2, flat}, {%[[R_18]], {{[0-9]*}}, 1, flat}]}
 // CHECK:       	WAIT STATE AFTER: <Empty>
 func.func @test_pipelined_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr

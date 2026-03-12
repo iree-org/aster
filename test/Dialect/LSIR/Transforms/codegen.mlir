@@ -61,20 +61,20 @@ func.func private @test_add_constant(%arg0: i32) -> i32 attributes {abi = (!amdg
 }
 
 // CHECK-LABEL:   func.func private @test_thread_id() -> !amdgcn.vgpr {
-// CHECK:           %[[THREAD_ID_0:.*]] = amdgcn.thread_id  x : !amdgcn.vgpr
+// CHECK:           %[[THREAD_ID_0:.*]] = amdgcn.thread_id <x> : !amdgcn.vgpr
 // CHECK:           return %[[THREAD_ID_0]] : !amdgcn.vgpr
 // CHECK:         }
 func.func private @test_thread_id() -> i32 attributes {abi = () -> !amdgcn.vgpr} {
-  %0 = aster_utils.thread_id  x
+  %0 = aster_utils.thread_id x
   return {abi = () -> !amdgcn.vgpr} %0 : i32
 }
 
 // CHECK-LABEL:   func.func private @test_block_id() -> !amdgcn.sgpr {
-// CHECK:           %[[BLOCK_ID_0:.*]] = amdgcn.block_id  x : !amdgcn.sgpr
+// CHECK:           %[[BLOCK_ID_0:.*]] = amdgcn.block_id <x> : !amdgcn.sgpr
 // CHECK:           return %[[BLOCK_ID_0]] : !amdgcn.sgpr
 // CHECK:         }
 func.func private @test_block_id() -> i32 attributes {abi = () -> !amdgcn.sgpr} {
-  %0 = aster_utils.block_id  x
+  %0 = aster_utils.block_id x
   return {abi = () -> !amdgcn.sgpr} %0 : i32
 }
 

@@ -99,8 +99,7 @@ void SimplifyAllocaIterArgs::runOnOperation() {
   patterns.add<ForOpMemRefCastFolder>(&getContext());
   populateRegionBranchOpInterfaceCanonicalizationPatterns(
       patterns, scf::ForOp::getOperationName());
-  if (failed(
-          applyPatternsAndFoldGreedily(getOperation(), std::move(patterns)))) {
+  if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
     getOperation()->emitWarning("greedy rewrite failed");
     return signalPassFailure();
   }

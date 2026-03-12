@@ -416,7 +416,7 @@ void OptimizeAMDGCN::runOnOperation() {
   // Add custom optimization patterns.
   patterns.add<LoadOpPattern, StoreOpPattern>(context);
 
-  if (failed(applyPatternsAndFoldGreedily(
+  if (failed(applyPatternsGreedily(
           op, FrozenRewritePatternSet(std::move(patterns)),
           GreedyRewriteConfig().setUseTopDownTraversal(true)))) {
     return signalPassFailure();

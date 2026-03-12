@@ -20,7 +20,6 @@
 // CHECK:      scf.yield
 // CHECK:  cfg: scf.yield -> Block<op = scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}}  : i32 {...}, region = 0, bb = ^bb0, args = [%{{.*}}]>
 // CHECK:  cfg: scf.yield -> scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}}  : i32 {...}
-// CHECK:  cfg: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}}  : i32 {...} -> scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}}  : i32 {...}
 // CHECK:      cf.br ^bb1
 // CHECK:  cfg: cf.br ^bb1 -> Block<op = func.func @cfg() {...}, region = 0, bb = ^bb1, args = []>
 // CHECK:      %{{.*}} = func.call @rand() : () -> i1

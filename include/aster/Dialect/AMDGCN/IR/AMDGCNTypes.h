@@ -27,7 +27,7 @@ namespace mlir::aster::amdgcn {
 /// SREG register resource.
 class SREGResource : public SideEffects::Resource::Base<SREGResource> {
 public:
-  StringRef getName() override { return "amdgcn.special_register"; }
+  StringRef getName() const override { return "amdgcn.special_register"; }
 };
 
 /// Returns true if it's a register type with size 1.
@@ -41,19 +41,19 @@ namespace mlir::aster::amdgcn {
 /// SGPR register resource.
 class SGPRResource : public SideEffects::Resource::Base<SGPRResource> {
 public:
-  StringRef getName() override { return SGPRType::name; }
+  StringRef getName() const override { return SGPRType::name; }
 };
 
 /// VGPR register resource.
 class VGPRResource : public SideEffects::Resource::Base<VGPRResource> {
 public:
-  StringRef getName() override { return VGPRType::name; }
+  StringRef getName() const override { return VGPRType::name; }
 };
 
 /// AGPR register resource.
 class AGPRResource : public SideEffects::Resource::Base<AGPRResource> {
 public:
-  StringRef getName() override { return AGPRType::name; }
+  StringRef getName() const override { return AGPRType::name; }
 };
 
 /// Get the register kind as an integer from the given register type.

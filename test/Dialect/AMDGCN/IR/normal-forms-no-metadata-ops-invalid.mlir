@@ -19,7 +19,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @k attributes {normal_forms = [#amdgcn.no_metadata_ops]} {
   ^bb0:
     // expected-error @below {{normal form violation: AMDGCN metadata operations are disallowed but found}}
-    %0 = amdgcn.thread_id x : !amdgcn.vgpr
+    %0 = amdgcn.thread_id <x> : !amdgcn.vgpr
     amdgcn.end_kernel
   }
 }
@@ -31,7 +31,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @k attributes {normal_forms = [#amdgcn.no_metadata_ops]} {
   ^bb0:
     // expected-error @below {{normal form violation: AMDGCN metadata operations are disallowed but found}}
-    %0 = amdgcn.block_id x : !amdgcn.sgpr
+    %0 = amdgcn.block_id <x> : !amdgcn.sgpr
     amdgcn.end_kernel
   }
 }

@@ -53,7 +53,7 @@ amdgcn.module @mfma_32x32_e2e_mod target = #amdgcn.target<gfx942> isa = #amdgcn.
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %c_ptr = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
-    %tid = amdgcn.thread_id x : !amdgcn.vgpr
+    %tid = amdgcn.thread_id <x> : !amdgcn.vgpr
 
     // A: f16 1.0 packed = 0x3C003C00 = 1006648320
     %f16_10 = arith.constant 1006648320 : i32

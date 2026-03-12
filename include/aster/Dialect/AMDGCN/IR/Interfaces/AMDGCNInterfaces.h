@@ -26,14 +26,14 @@ namespace mlir::aster::amdgcn {
 class GlobalMemoryResource
     : public SideEffects::Resource::Base<GlobalMemoryResource> {
 public:
-  StringRef getName() override { return "amdgcn.global_memory"; }
+  StringRef getName() const override { return "amdgcn.global_memory"; }
 };
 
 /// LDS memory resource (LDS - Local Data Share).
 class LDSMemoryResource
     : public SideEffects::Resource::Base<LDSMemoryResource> {
 public:
-  StringRef getName() override { return "amdgcn.lds_memory"; }
+  StringRef getName() const override { return "amdgcn.lds_memory"; }
 };
 } // namespace mlir::aster::amdgcn
 

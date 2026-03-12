@@ -3,7 +3,7 @@
 // E2E test: verify packed workitem ID extraction and block ID handling.
 //
 // On CDNA3/CDNA4, workitem IDs are packed in VGPR0 as {Z[9:0], Y[9:0], X[9:0]}.
-// This test verifies that thread_id x/y/z and block_id x/y/z are correctly
+// This test verifies that thread_id <x>/y/z and block_id <x>/y/z are correctly
 // extracted and stored to global memory via linear indexing.
 //
 // Test values:
@@ -19,14 +19,14 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     return %out_ptr : !amdgcn.sgpr<[? + 2]>
   }
 
-  // ----- Test 1: thread_id x only (no masking needed) -----
+  // ----- Test 1: thread_id <x> only (no masking needed) -----
   // block=(64,1,1), grid=(1,1,1). Output: 64 dwords.
   // Each thread stores tid_x at output[tid_x].
   amdgcn.kernel @tid_x_only arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %out_ptr = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
-    %tid_x = amdgcn.thread_id x : !amdgcn.vgpr
+    %tid_x = amdgcn.thread_id <x> : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
     %c0 = arith.constant 0 : i32
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
@@ -40,7 +40,7 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-  // ----- Test 2: thread_id x, y (packed extraction with mask) -----
+  // ----- Test 2: thread_id <x>, y (packed extraction with mask) -----
   // block=(64,8,1), grid=(1,1,1). Output: 512*2 = 1024 dwords.
   // Each thread stores [tid_x, tid_y] at output[linear*2..linear*2+1]
   // where linear = (tid_y << 6) | tid_x.
@@ -48,8 +48,8 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %out_ptr = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
-    %tid_x = amdgcn.thread_id x : !amdgcn.vgpr
-    %tid_y = amdgcn.thread_id y : !amdgcn.vgpr
+    %tid_x = amdgcn.thread_id <x> : !amdgcn.vgpr
+    %tid_y = amdgcn.thread_id <y> : !amdgcn.vgpr
     %c0 = arith.constant 0 : i32
     %c4 = arith.constant 4 : i32
 
@@ -80,7 +80,7 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-  // ----- Test 3: thread_id x, y, z (full packed extraction) -----
+  // ----- Test 3: thread_id <x>, y, z (full packed extraction) -----
   // block=(16,8,8), grid=(1,1,1). Output: 1024*3 = 3072 dwords.
   // Each thread stores [tid_x, tid_y, tid_z] at output[linear*3..linear*3+2]
   // where linear = (tid_z << 7) | (tid_y << 4) | tid_x.
@@ -89,9 +89,9 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %out_ptr = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
-    %tid_x = amdgcn.thread_id x : !amdgcn.vgpr
-    %tid_y = amdgcn.thread_id y : !amdgcn.vgpr
-    %tid_z = amdgcn.thread_id z : !amdgcn.vgpr
+    %tid_x = amdgcn.thread_id <x> : !amdgcn.vgpr
+    %tid_y = amdgcn.thread_id <y> : !amdgcn.vgpr
+    %tid_z = amdgcn.thread_id <z> : !amdgcn.vgpr
     %c0 = arith.constant 0 : i32
     %c4 = arith.constant 4 : i32
     %c8 = arith.constant 8 : i32
@@ -134,7 +134,7 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-  // ----- Test 4: block_id x, y, z (SGPR system registers) -----
+  // ----- Test 4: block_id <x>, y, z (SGPR system registers) -----
   // grid=(43,6,8), block=(64,1,1). Output: 2064*3 = 6192 dwords.
   // Each WG stores [bid_x, bid_y, bid_z] at output[linear_bid*3..+2]
   // where linear_bid = bid_x + 43 * (bid_y + 6 * bid_z).
@@ -143,9 +143,9 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %out_ptr = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
-    %bid_x = amdgcn.block_id x : !amdgcn.sgpr
-    %bid_y = amdgcn.block_id y : !amdgcn.sgpr
-    %bid_z = amdgcn.block_id z : !amdgcn.sgpr
+    %bid_x = amdgcn.block_id <x> : !amdgcn.sgpr
+    %bid_y = amdgcn.block_id <y> : !amdgcn.sgpr
+    %bid_z = amdgcn.block_id <z> : !amdgcn.sgpr
 
     // Broadcast block IDs to VGPRs for arithmetic and store.
     %vbx_a = amdgcn.alloca : !amdgcn.vgpr
@@ -201,7 +201,7 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     amdgcn.end_kernel
   }
 
-  // ----- Test 5: thread_id x + block_id x (combined) -----
+  // ----- Test 5: thread_id <x> + block_id <x> (combined) -----
   // grid=(43,1,1), block=(64,1,1). Output: 43*64*2 = 5504 dwords.
   // Each thread stores [tid_x, bid_x] at output[linear*2..linear*2+1]
   // where linear = (bid_x << 6) | tid_x.
@@ -209,8 +209,8 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> {
     %out_ptr = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
-    %tid_x = amdgcn.thread_id x : !amdgcn.vgpr
-    %bid_x = amdgcn.block_id x : !amdgcn.sgpr
+    %tid_x = amdgcn.thread_id <x> : !amdgcn.vgpr
+    %bid_x = amdgcn.block_id <x> : !amdgcn.sgpr
 
     %vbx_a = amdgcn.alloca : !amdgcn.vgpr
     %v_bid_x = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vbx_a, %bid_x

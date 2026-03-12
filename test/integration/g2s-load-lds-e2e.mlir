@@ -91,7 +91,7 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdn
       : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> !amdgcn.sgpr<[? + 4]>
 
     // Thread ID
-    %tid = amdgcn.thread_id x : !amdgcn.vgpr
+    %tid = amdgcn.thread_id <x> : !amdgcn.vgpr
 
     // Compute byte offset for global memory: tid * 4
     %voff_alloc = func.call @alloc_vgpr() : () -> !amdgcn.vgpr

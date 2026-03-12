@@ -9,9 +9,9 @@
 // CHECK-DAG:       %[[LOAD_ARG_0:.*]] = amdgcn.load_arg 0 : !amdgcn.sgpr
 // CHECK-DAG:       %[[LOAD_ARG_1:.*]] = amdgcn.load_arg 2 : !amdgcn.sgpr
 // CHECK-DAG:       %[[LOAD_ARG_2:.*]] = amdgcn.load_arg 1 : !amdgcn.sgpr
-// CHECK-DAG:       %[[THREAD_ID_0:.*]] = amdgcn.thread_id  x : !amdgcn.vgpr
-// CHECK-DAG:       %[[BLOCK_ID_0:.*]] = amdgcn.block_id  y : !amdgcn.sgpr
-// CHECK-DAG:       %[[THREAD_ID_1:.*]] = amdgcn.thread_id  y : !amdgcn.vgpr
+// CHECK-DAG:       %[[THREAD_ID_0:.*]] = amdgcn.thread_id <x> : !amdgcn.vgpr
+// CHECK-DAG:       %[[BLOCK_ID_0:.*]] = amdgcn.block_id <y> : !amdgcn.sgpr
+// CHECK-DAG:       %[[THREAD_ID_1:.*]] = amdgcn.thread_id <y> : !amdgcn.vgpr
 // CHECK-DAG:       %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.sgpr
 // CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_0]] to %[[ARG0]] step %[[CONSTANT_1]] {
 // CHECK:             scf.if %[[ARG1]] {
@@ -38,7 +38,7 @@ func.func @test_func(%arg0: index, %arg1: i1) -> (!amdgcn.sgpr, !amdgcn.sgpr) {
     %5 = amdgcn.load_arg 0 : !amdgcn.sgpr
     scf.if %arg1 {
       %6 = amdgcn.load_arg 1 : !amdgcn.sgpr
-      %7 = amdgcn.thread_id  x : !amdgcn.vgpr
+      %7 = amdgcn.thread_id <x> : !amdgcn.vgpr
       amdgcn.test_inst ins %5, %6, %7 : (!amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.vgpr) -> ()
     } else {
       %6 = amdgcn.load_arg 2 : !amdgcn.sgpr
@@ -47,12 +47,12 @@ func.func @test_func(%arg0: index, %arg1: i1) -> (!amdgcn.sgpr, !amdgcn.sgpr) {
   }
   cf.cond_br %arg1, ^bb1, ^bb2
 ^bb1:  // pred: ^bb0
-  %1 = amdgcn.thread_id  y : !amdgcn.vgpr
+  %1 = amdgcn.thread_id <y> : !amdgcn.vgpr
   amdgcn.test_inst ins %1 : (!amdgcn.vgpr) -> ()
   cf.br ^bb3
 ^bb2:  // pred: ^bb0
-  %2 = amdgcn.block_id  y : !amdgcn.sgpr
-  %3 = amdgcn.thread_id  x : !amdgcn.vgpr
+  %2 = amdgcn.block_id <y> : !amdgcn.sgpr
+  %3 = amdgcn.thread_id <x> : !amdgcn.vgpr
   amdgcn.test_inst ins %2, %3 : (!amdgcn.sgpr, !amdgcn.vgpr) -> ()
   cf.br ^bb3
 ^bb3:  // 2 preds: ^bb1, ^bb2
@@ -69,9 +69,9 @@ func.func @test_func(%arg0: index, %arg1: i1) -> (!amdgcn.sgpr, !amdgcn.sgpr) {
 // CHECK-DAG:       %[[LOAD_ARG_0:.*]] = amdgcn.load_arg 0 : !amdgcn.sgpr
 // CHECK-DAG:       %[[LOAD_ARG_1:.*]] = amdgcn.load_arg 2 : !amdgcn.sgpr
 // CHECK-DAG:       %[[LOAD_ARG_2:.*]] = amdgcn.load_arg 1 : !amdgcn.sgpr
-// CHECK-DAG:       %[[THREAD_ID_0:.*]] = amdgcn.thread_id  x : !amdgcn.vgpr
-// CHECK-DAG:       %[[BLOCK_ID_0:.*]] = amdgcn.block_id  y : !amdgcn.sgpr
-// CHECK-DAG:       %[[THREAD_ID_1:.*]] = amdgcn.thread_id  y : !amdgcn.vgpr
+// CHECK-DAG:       %[[THREAD_ID_0:.*]] = amdgcn.thread_id <x> : !amdgcn.vgpr
+// CHECK-DAG:       %[[BLOCK_ID_0:.*]] = amdgcn.block_id <y> : !amdgcn.sgpr
+// CHECK-DAG:       %[[THREAD_ID_1:.*]] = amdgcn.thread_id <y> : !amdgcn.vgpr
 // CHECK:           scf.for %[[VAL_0:.*]] = %[[CONSTANT_0]] to %[[ARG0]] step %[[CONSTANT_1]] {
 // CHECK:             scf.if %[[ARG1]] {
 // CHECK:               amdgcn.test_inst ins %[[LOAD_ARG_0]], %[[LOAD_ARG_2]], %[[THREAD_ID_0]] : (!amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.vgpr) -> ()
@@ -97,7 +97,7 @@ func.func @test_func_allocated(%arg0: index, %arg1: i1) -> (!amdgcn.sgpr<1>,!amd
     %5 = amdgcn.load_arg 0 : !amdgcn.sgpr
     scf.if %arg1 {
       %6 = amdgcn.load_arg 1 : !amdgcn.sgpr
-      %7 = amdgcn.thread_id  x : !amdgcn.vgpr
+      %7 = amdgcn.thread_id <x> : !amdgcn.vgpr
       amdgcn.test_inst ins %5, %6, %7 : (!amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.vgpr) -> ()
     } else {
       %6 = amdgcn.load_arg 2 : !amdgcn.sgpr
@@ -106,12 +106,12 @@ func.func @test_func_allocated(%arg0: index, %arg1: i1) -> (!amdgcn.sgpr<1>,!amd
   }
   cf.cond_br %arg1, ^bb1, ^bb2
 ^bb1:  // pred: ^bb0
-  %1 = amdgcn.thread_id  y : !amdgcn.vgpr
+  %1 = amdgcn.thread_id <y> : !amdgcn.vgpr
   amdgcn.test_inst ins %1 : (!amdgcn.vgpr) -> ()
   cf.br ^bb3
 ^bb2:  // pred: ^bb0
-  %2 = amdgcn.block_id  y : !amdgcn.sgpr
-  %3 = amdgcn.thread_id  x : !amdgcn.vgpr
+  %2 = amdgcn.block_id <y> : !amdgcn.sgpr
+  %3 = amdgcn.thread_id <x> : !amdgcn.vgpr
   amdgcn.test_inst ins %2, %3 : (!amdgcn.sgpr, !amdgcn.vgpr) -> ()
   cf.br ^bb3
 ^bb3:  // 2 preds: ^bb1, ^bb2

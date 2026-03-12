@@ -75,11 +75,10 @@ public:
                  ArrayRef<ThreadUniformLattice *> results) override;
 
   /// Handles the uniformity of control-flow arguments and results.
-  void
-  visitNonControlFlowArguments(Operation *op, const RegionSuccessor &successor,
-                               ValueRange successorInputs,
-                               ArrayRef<ThreadUniformLattice *> argLattices,
-                               unsigned firstIndex) override;
+  void visitNonControlFlowArguments(
+      Operation *op, const RegionSuccessor &successor,
+      ValueRange nonSuccessorInputs,
+      ArrayRef<ThreadUniformLattice *> nonSuccessorInputLattices) override;
 
   /// Visits a callable operation.
   void visitCallableOperation(

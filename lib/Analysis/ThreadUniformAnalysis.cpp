@@ -117,14 +117,15 @@ LogicalResult ThreadUniformAnalysis::visitOperation(
 }
 
 void ThreadUniformAnalysis::visitNonControlFlowArguments(
-    Operation *op, const RegionSuccessor &successor, ValueRange successorInputs,
-    ArrayRef<ThreadUniformLattice *> argLattices, unsigned firstIndex) {
+    Operation *op, const RegionSuccessor &successor,
+    ValueRange nonSuccessorInputs,
+    ArrayRef<ThreadUniformLattice *> nonSuccessorInputLattices) {
   auto loop = dyn_cast<LoopLikeOpInterface>(op);
 
   // Be pessimistic about non loop ops.
   if (!loop) {
     SparseForwardDataFlowAnalysis::visitNonControlFlowArguments(
-        op, successor, successorInputs, argLattices, firstIndex);
+        op, successor, nonSuccessorInputs, nonSuccessorInputLattices);
     return;
   }
 
@@ -133,25 +134,19 @@ void ThreadUniformAnalysis::visitNonControlFlowArguments(
   std::optional<SmallVector<Value>> iV = loop.getLoopInductionVars();
   if (!iV) {
     SparseForwardDataFlowAnalysis::visitNonControlFlowArguments(
-        op, successor, successorInputs, argLattices, firstIndex);
+        op, successor, nonSuccessorInputs, nonSuccessorInputLattices);
     return;
   }
 
-  // Get the inits.
-  OperandRange inits = loop.getInits();
-  assert((iV->size() + inits.size() == argLattices.size() ||
-          inits.size() == argLattices.size()) &&
-         "unsupported loop-like op");
+  // In the new dataflow API, nonSuccessorInputLattices contains only the
+  // non-successor-input block arguments (i.e., induction variables).
+  // Iter args are handled by the framework through successor propagation.
 
   // Get the loop structure.
   std::optional<SmallVector<OpFoldResult>> lb = loop.getLoopLowerBounds();
   std::optional<SmallVector<OpFoldResult>> ub = loop.getLoopUpperBounds();
   std::optional<SmallVector<OpFoldResult>> sv = loop.getLoopSteps();
   assert(lb && ub && sv && "unsupported loop-like op");
-  assert((iV->front() == argLattices.front()->getAnchor() ||
-          (inits.empty() ||
-           op->getResult(0) == argLattices.front()->getAnchor())) &&
-         "unsupported loop-like op");
 
   // Helper function to get the state of an op fold result.
   auto getState = [&](OpFoldResult ofr) {
@@ -162,32 +157,25 @@ void ThreadUniformAnalysis::visitNonControlFlowArguments(
   };
 
   // Get whether the loop is thread uniform based on the structure.
-  ThreadUniform value;
+  ThreadUniform boundsUniformity;
   for (auto [lv, uv, s] : llvm::zip(*lb, *ub, *sv)) {
-    value = ThreadUniform::join(value, getState(lv));
-    value = ThreadUniform::join(value, getState(uv));
-    value = ThreadUniform::join(value, getState(s));
+    boundsUniformity = ThreadUniform::join(boundsUniformity, getState(lv));
+    boundsUniformity = ThreadUniform::join(boundsUniformity, getState(uv));
+    boundsUniformity = ThreadUniform::join(boundsUniformity, getState(s));
   }
 
-  // This is needed because dataflow is broken, and will call this function to
-  // check the results of a control-flow op. TODO: fix dataflow upstream.
-  if (inits.size() == argLattices.size()) {
-    for (auto [lattice, operand] :
-         llvm::zip(argLattices, loop.getRegionIterArgs())) {
-      join(lattice, *getLatticeElement(operand));
-      propagateIfChanged(lattice, lattice->join(value));
-    }
-    return;
+  // Propagate bounds uniformity to induction variable lattices.
+  for (ThreadUniformLattice *lattice : nonSuccessorInputLattices) {
+    propagateIfChanged(lattice, lattice->join(boundsUniformity));
   }
 
-  // Propagate the state.
-  for (ThreadUniformLattice *lattice : argLattices.take_front(iV->size())) {
-    propagateIfChanged(lattice, lattice->join(value));
-  }
-  for (auto [lattice, operand] :
-       llvm::zip(argLattices.drop_front(iV->size()), inits)) {
-    join(lattice, *getLatticeElement(operand));
-    propagateIfChanged(lattice, lattice->join(value));
+  // If the loop bounds are non-uniform, iter_args are also non-uniform:
+  // different threads may execute different iteration counts, so the final
+  // values diverge even if per-iteration yields are uniform. Pessimistically
+  // propagate bounds uniformity to iter_arg lattices.
+  for (Value iterArg : loop.getRegionIterArgs()) {
+    ThreadUniformLattice *lattice = getLatticeElement(iterArg);
+    propagateIfChanged(lattice, lattice->join(boundsUniformity));
   }
 }
 

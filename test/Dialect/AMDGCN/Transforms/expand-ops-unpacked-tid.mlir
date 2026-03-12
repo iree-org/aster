@@ -15,7 +15,7 @@ amdgcn.module @unpacked_tid_test target = <gfx942> isa = <cdna3> {
 // CHECK:         test_inst ins %[[V0]] : (!amdgcn.vgpr<0>) -> ()
 // CHECK:         end_kernel
   kernel @thread_x_unpacked arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
-    %0 = thread_id  x : !amdgcn.vgpr
+    %0 = thread_id <x> : !amdgcn.vgpr
     test_inst ins %0 : (!amdgcn.vgpr) -> ()
     end_kernel
   }
@@ -28,8 +28,8 @@ amdgcn.module @unpacked_tid_test target = <gfx942> isa = <cdna3> {
 // CHECK:         test_inst ins %[[V0]], %[[V1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
 // CHECK:         end_kernel
   kernel @thread_xy_unpacked arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
-    %0 = thread_id  x : !amdgcn.vgpr
-    %1 = thread_id  y : !amdgcn.vgpr
+    %0 = thread_id <x> : !amdgcn.vgpr
+    %1 = thread_id <y> : !amdgcn.vgpr
     test_inst ins %0, %1 : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
     end_kernel
   }
@@ -47,12 +47,12 @@ amdgcn.module @unpacked_tid_test target = <gfx942> isa = <cdna3> {
 // CHECK:         test_inst ins %[[V0]], %[[V1]], %[[V2]], %[[BID_X]], %[[BID_Y]], %[[BID_Z]]
 // CHECK:         end_kernel
   kernel @thread_xyz_unpacked arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
-    %0 = thread_id  x : !amdgcn.vgpr
-    %1 = thread_id  y : !amdgcn.vgpr
-    %2 = thread_id  z : !amdgcn.vgpr
-    %3 = block_id  x : !amdgcn.sgpr
-    %4 = block_id  y : !amdgcn.sgpr
-    %5 = block_id  z : !amdgcn.sgpr
+    %0 = thread_id <x> : !amdgcn.vgpr
+    %1 = thread_id <y> : !amdgcn.vgpr
+    %2 = thread_id <z> : !amdgcn.vgpr
+    %3 = block_id <x> : !amdgcn.sgpr
+    %4 = block_id <y> : !amdgcn.sgpr
+    %5 = block_id <z> : !amdgcn.sgpr
     test_inst ins %0, %1, %2, %3, %4, %5 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr) -> ()
     end_kernel
   }
@@ -65,7 +65,7 @@ amdgcn.module @unpacked_tid_test target = <gfx942> isa = <cdna3> {
 // CHECK:         test_inst ins %[[V1]] : (!amdgcn.vgpr<1>) -> ()
 // CHECK:         end_kernel
   kernel @thread_y_only_unpacked arguments <[#amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>]> {
-    %0 = thread_id  y : !amdgcn.vgpr
+    %0 = thread_id <y> : !amdgcn.vgpr
     test_inst ins %0 : (!amdgcn.vgpr) -> ()
     end_kernel
   }

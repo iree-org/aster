@@ -21,7 +21,7 @@ amdgcn.module @m0_roundtrip_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
     %out_ptr = func.call @load_output_ptr()
       : () -> !amdgcn.sgpr<[? + 2]>
 
-    %tid = amdgcn.thread_id x : !amdgcn.vgpr
+    %tid = amdgcn.thread_id <x> : !amdgcn.vgpr
 
     // Compute per-lane byte offset: threadidx.x * 4
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
