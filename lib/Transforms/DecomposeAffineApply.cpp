@@ -42,7 +42,8 @@ struct DecomposeAffineApply
     getOperation()->walk([&](AffineApplyOp op) {
       rewriter.setInsertionPoint(op);
       reorderOperandsByHoistability(rewriter, op);
-      (void)decompose(rewriter, op);
+      (void)decompose(rewriter, op,
+                      /* mode= */ DecomposeAffineApplyMode::CSEFriendly);
     });
   }
 };
