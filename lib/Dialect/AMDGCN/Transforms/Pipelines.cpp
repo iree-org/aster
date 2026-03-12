@@ -98,7 +98,7 @@ static void buildAMDGCNBackendPassPipeline(OpPassManager &pm) {
   // Only lsir.cmpi/cmpf/select survive (lowered by LegalizeCF later).
   {
     SetNormalFormsOptions nfOpts;
-    nfOpts.moduleForms = {"no_lsir_compute_ops"};
+    nfOpts.moduleForms = {"no_lsir_compute_ops", "no_unresolved_any_types"};
     pm.addPass(createSetNormalForms(nfOpts));
   }
   {

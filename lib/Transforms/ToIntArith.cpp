@@ -266,8 +266,9 @@ void ToIntArith::runOnOperation() {
     return signalPassFailure();
   cse();
 
-  // Set post-condition: no affine ops remain.
+  // Set post-conditions: no affine ops and no index types remain.
   if (auto amdgcnModule = dyn_cast<amdgcn::ModuleOp>(getOperation()))
     amdgcnModule.addNormalForms(
-        {amdgcn::NoAffineOpsAttr::get(op->getContext())});
+        {amdgcn::NoAffineOpsAttr::get(op->getContext()),
+         amdgcn::NoIndexTypesAttr::get(op->getContext())});
 }
