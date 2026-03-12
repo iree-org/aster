@@ -44,6 +44,7 @@ def FloatDenormModeAttr : AMDGCN_EnumAttr<"FloatDenormMode", "float_denorm_mode"
 
 def DimAttr : AMDGCN_EnumAttr<"Dim", "dim", DimEnum> {
   let summary = "AMDGCN dimension identifier attribute";
+  let assemblyFormat = "$value";
 }
 
 #endif // ASTER_AMDGCN_ENUMATTRS_TD
