@@ -108,3 +108,41 @@ func.func @test_passthrough_with_tag(%x: index) -> index {
   %0 = aster_utils.passthrough %x tag = "debug_point" : index
   return %0 : index
 }
+
+//===----------------------------------------------------------------------===//
+// AddiOp roundtrip tests
+//===----------------------------------------------------------------------===//
+
+func.func @test_addi_two(%a: index, %b: index) -> index {
+  %0 = aster_utils.addi %a, %b : index
+  return %0 : index
+}
+
+func.func @test_addi_three(%a: index, %b: index, %c: index) -> index {
+  %0 = aster_utils.addi %a, %b, %c : index
+  return %0 : index
+}
+
+func.func @test_addi_four(%a: index, %b: index, %c: index, %d: index) -> index {
+  %0 = aster_utils.addi %a, %b, %c, %d : index
+  return %0 : index
+}
+
+//===----------------------------------------------------------------------===//
+// MuliOp roundtrip tests
+//===----------------------------------------------------------------------===//
+
+func.func @test_muli_two(%a: index, %b: index) -> index {
+  %0 = aster_utils.muli %a, %b : index
+  return %0 : index
+}
+
+func.func @test_muli_three(%a: index, %b: index, %c: index) -> index {
+  %0 = aster_utils.muli %a, %b, %c : index
+  return %0 : index
+}
+
+func.func @test_muli_four(%a: index, %b: index, %c: index, %d: index) -> index {
+  %0 = aster_utils.muli %a, %b, %c, %d : index
+  return %0 : index
+}

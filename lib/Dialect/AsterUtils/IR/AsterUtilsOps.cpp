@@ -452,6 +452,28 @@ void StructExtractOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
 }
 
 //===----------------------------------------------------------------------===//
+// AddiOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult AddiOp::verify() {
+  if (getInputs().size() < 2)
+    return emitOpError("requires at least 2 operands, but got ")
+           << getInputs().size();
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MuliOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult MuliOp::verify() {
+  if (getInputs().size() < 2)
+    return emitOpError("requires at least 2 operands, but got ")
+           << getInputs().size();
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // IncGen
 //===----------------------------------------------------------------------===//
 

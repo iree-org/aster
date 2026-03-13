@@ -349,6 +349,62 @@ def AsterUtils_StructExtractOp : AsterUtils_Op<"struct_extract", [Pure]> {
 }
 
 //===----------------------------------------------------------------------===//
+// AddiOp
+//===----------------------------------------------------------------------===//
+
+def AsterUtils_AddiOp : AsterUtils_Op<"addi", [
+    Pure,
+    SameOperandsAndResultType
+  ]> {
+  let summary = "N-ary index addition";
+  let description = [{
+    The `aster_utils.addi` operation computes the sum of a variadic number of
+    index operands. At least 2 operands must be provided. All operands and
+    the result have type `index`.
+
+    Example:
+    ```mlir
+    %0 = aster_utils.addi %a, %b : index
+    %1 = aster_utils.addi %a, %b, %c, %d : index
+    ```
+  }];
+  let arguments = (ins Variadic<Index>:$inputs);
+  let results = (outs Index:$result);
+  let assemblyFormat = [{
+    $inputs attr-dict `:` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// MuliOp
+//===----------------------------------------------------------------------===//
+
+def AsterUtils_MuliOp : AsterUtils_Op<"muli", [
+    Pure,
+    SameOperandsAndResultType
+  ]> {
+  let summary = "N-ary index multiplication";
+  let description = [{
+    The `aster_utils.muli` operation computes the product of a variadic number
+    of index operands. At least 2 operands must be provided. All operands and
+    the result have type `index`.
+
+    Example:
+    ```mlir
+    %0 = aster_utils.muli %a, %b : index
+    %1 = aster_utils.muli %a, %b, %c, %d : index
+    ```
+  }];
+  let arguments = (ins Variadic<Index>:$inputs);
+  let results = (outs Index:$result);
+  let assemblyFormat = [{
+    $inputs attr-dict `:` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
 // YieldOp
 //===----------------------------------------------------------------------===//
 
