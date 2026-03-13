@@ -171,3 +171,17 @@ void AssumeUniformOp::inferResultRangesFromOptional(
     ArrayRef<IntegerValueRange> ranges, SetIntLatticeFn setResultRange) {
   setResultRange(getResult(), ranges.front());
 }
+
+void PassthroughOp::inferResultRangesFromOptional(
+    ArrayRef<IntegerValueRange> ranges, SetIntLatticeFn setResultRange) {
+  setResultRange(getResult(), ranges.front());
+}
+
+void PassthroughOp::populateBoundsForIndexValue(
+    Value value, ValueBoundsConstraintSet &cstr) {
+  assert(value == getResult() &&
+         "inferring for value that isn't the passthrough op's result");
+  if (!value.getType().isIndex())
+    return;
+  cstr.bound(value) == getInput();
+}

@@ -55,7 +55,8 @@ static bool isWorkgroupUniform(Operation *op) {
   if (isa<gpu::BlockDimOp, gpu::BlockIdOp, aster_utils::GridDimOp,
           aster_utils::BlockIdOp, aster_utils::BlockDimOp,
           lsir::AssumeNoaliasOp, aster_utils::AssumeRangeOp,
-          aster_utils::AssumeUniformOp, ptr::PtrAddOp>(op))
+          aster_utils::PassthroughOp, aster_utils::AssumeUniformOp,
+          ptr::PtrAddOp>(op))
     return true;
   if (isa<affine::AffineDialect>(op->getDialect()))
     return !isa<affine::AffineDmaStartOp, affine::AffineDmaWaitOp>(op);
