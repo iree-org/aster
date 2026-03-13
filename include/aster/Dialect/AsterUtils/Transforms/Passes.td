@@ -110,6 +110,42 @@ def FromAnyToPoison : Pass<"aster-from-any-to-poison"> {
   ];
 }
 
+def RemoveAssumeOps : Pass<"aster-remove-assume-ops", "mlir::ModuleOp"> {
+  let summary = "Remove assume_uniform, assume_range, and passthrough operations";
+  let description = [{
+    This pass removes aster_utils assume and passthrough operations by replacing
+    them with their input values. Options control which op kinds are removed:
+
+    - remove-uniform: remove all aster_utils.assume_uniform ops
+    - remove-range: remove all aster_utils.assume_range ops
+    - remove-passthrough: remove all aster_utils.passthrough ops
+    - tag-regex: remove passthrough ops whose tag attribute matches the regex
+      (LLVM regex syntax). Only applies to passthrough ops that have a tag.
+  }];
+  let options = [
+    Option<"removeUniform",
+           "remove-uniform",
+           "bool",
+           "false",
+           "Remove all aster_utils.assume_uniform operations">,
+    Option<"removeRange",
+           "remove-range",
+           "bool",
+           "false",
+           "Remove all aster_utils.assume_range operations">,
+    Option<"removePassthrough",
+           "remove-passthrough",
+           "bool",
+           "false",
+           "Remove all aster_utils.passthrough operations">,
+    Option<"tagRegex",
+           "tag-regex",
+           "std::string",
+           "\"\"",
+           "Remove passthrough ops with tags matching this regex (LLVM regex)">,
+  ];
+}
+
 def OptimizePtrAdd : Pass<"aster-optimize-ptr-add"> {
   let summary = "Optimize ptr.ptr_add operations by splitting offsets";
   let description = [{
