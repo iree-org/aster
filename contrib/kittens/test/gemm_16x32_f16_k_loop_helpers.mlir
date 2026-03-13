@@ -3,7 +3,7 @@
   func.func private @load_lds_B_swizzled(index, index, index) -> !future_lds_read
   // Decoupled address computation functions
   func.func private @compute_global_byte_off_16x64_b(index, index, index) -> index
-  func.func private @load_global_at_byte_off(!sx2, index) -> !future_global_read
+  func.func private @load_global_at_byte_off(!aster_utils.any, index) -> !future_global_read
   func.func private @compute_lds_write_addrs_16x64_b(index) -> (index, index)
   func.func private @get_global_load_value_vx4(!future_global_read) -> !vx4
   func.func private @write_vx4_to_lds_at(!vx4, index, index) -> (!lds_write_token, !lds_write_token)
@@ -33,7 +33,7 @@
   // Issue dwordx4 global loads for A tiles across k_t K-tiles.
   // Each tile covers a 16x64_b = 32 K-elements (for f16).
   func.func private @k_load_a_16x32_from_global(%m_t: index, %k_t: index,
-      %A_ptr: !sx2, %k: index, %stride_AB: index, %m_base: index)
+      %A_ptr: !aster_utils.any, %k: index, %stride_AB: index, %m_base: index)
       -> !gfut_a_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -46,7 +46,7 @@
         %idx = affine.linearize_index [%kt, %i] by (%k_t, %m_t) : index
         %fut = func.call @load_global_tile_16x64_b(%A_ptr, %m_off, %k_offset, %stride_AB)
             {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-            : (!sx2, index, index, index) -> !future_global_read
+            : (!aster_utils.any, index, index, index) -> !future_global_read
         memref.store %fut, %gfut_a[%idx] : !gfut_a_buf
       } {aster.constexpr}
     } {aster.constexpr}
@@ -56,7 +56,7 @@
   // Issue dwordx4 global loads for B tiles across k_t K-tiles.
   // Each tile covers a 16x64_b = 32 K-elements (for f16).
   func.func private @k_load_b_16x32_from_global(%n_t: index, %k_t: index,
-      %B_ptr: !sx2, %k: index, %stride_AB: index, %n_base: index)
+      %B_ptr: !aster_utils.any, %k: index, %stride_AB: index, %n_base: index)
       -> !gfut_b_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -69,7 +69,7 @@
         %idx = affine.linearize_index [%kt, %i] by (%k_t, %n_t) : index
         %fut = func.call @load_global_tile_16x64_b(%B_ptr, %n_off, %k_offset, %stride_AB)
             {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-            : (!sx2, index, index, index) -> !future_global_read
+            : (!aster_utils.any, index, index, index) -> !future_global_read
         memref.store %fut, %gfut_b[%idx] : !gfut_b_buf
       } {aster.constexpr}
     } {aster.constexpr}
@@ -120,7 +120,7 @@
 
   // Issue global loads at pre-computed byte offsets for A tiles.
   func.func private @k_issue_global_loads_a(%addrs: memref<?xindex>,
-      %A_ptr: !sx2) -> !gfut_a_buf {
+      %A_ptr: !aster_utils.any) -> !gfut_a_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %buf_size = memref.dim %addrs, %c0 : memref<?xindex>
@@ -129,7 +129,7 @@
       %byte_off = memref.load %addrs[%idx] : memref<?xindex>
       %fut = func.call @load_global_at_byte_off(%A_ptr, %byte_off)
           {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-          : (!sx2, index) -> !future_global_read
+          : (!aster_utils.any, index) -> !future_global_read
       memref.store %fut, %gfut_a[%idx] : !gfut_a_buf
     } {aster.constexpr}
     return %gfut_a : !gfut_a_buf
@@ -137,7 +137,7 @@
 
   // Issue global loads at pre-computed byte offsets for B tiles.
   func.func private @k_issue_global_loads_b(%addrs: memref<?xindex>,
-      %B_ptr: !sx2) -> !gfut_b_buf {
+      %B_ptr: !aster_utils.any) -> !gfut_b_buf {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %buf_size = memref.dim %addrs, %c0 : memref<?xindex>
@@ -146,7 +146,7 @@
       %byte_off = memref.load %addrs[%idx] : memref<?xindex>
       %fut = func.call @load_global_at_byte_off(%B_ptr, %byte_off)
           {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-          : (!sx2, index) -> !future_global_read
+          : (!aster_utils.any, index) -> !future_global_read
       memref.store %fut, %gfut_b[%idx] : !gfut_b_buf
     } {aster.constexpr}
     return %gfut_b : !gfut_b_buf
@@ -581,7 +581,7 @@
   // Store C accumulator tiles to global memory.
   // m_base/n_base: WG's starting tile indices.
   func.func private @store_c_tiles(%m_t: index, %n_t: index,
-      %c_buf: !c_buf, %C_ptr: !sx2, %stride_C: index,
+      %c_buf: !c_buf, %C_ptr: !aster_utils.any, %stride_C: index,
       %m_base: index, %n_base: index) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -593,7 +593,7 @@
         %n_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 16)>(%nt)[%n_base]
         // Store tile; no explicit wait needed -- s_endpgm drains all outstanding stores.
         func.call @store_global_C_mfma_f32_16x16x16_f16(%c_tile, %C_ptr, %m_off, %n_off, %stride_C)
-            : (!rt_C_f32, !sx2, index, index, index) -> ()
+            : (!rt_C_f32, !aster_utils.any, index, index, index) -> ()
       } {aster.constexpr}
     } {aster.constexpr}
     return

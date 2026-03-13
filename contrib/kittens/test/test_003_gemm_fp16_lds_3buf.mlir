@@ -26,10 +26,11 @@ amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> isa
   // From compute_16x16_f16.mlir (AGPR)
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
-  func.func private @store_global_C_mfma_f32_16x16x16_f16(!rt_C_f32, !sx2, index, index, index)
+  func.func private @store_global_C_mfma_f32_16x16x16_f16(!rt_C_f32, !aster_utils.any, index, index, index)
+  func.func private @prepare_ptr(!sx2) -> !aster_utils.any
 
   // From lds_16x64_b.mlir
-  func.func private @load_global_tile_16x64_b(!sx2, index, index, index) -> !future_global_read
+  func.func private @load_global_tile_16x64_b(!aster_utils.any, index, index, index) -> !future_global_read
   func.func private @store_global_tile_to_lds_16x64_b(index, !future_global_read) -> (!lds_write_token, !lds_write_token)
   func.func private @load_lds_A_swizzled(index, index, index) -> !future_lds_read
   func.func private @load_lds_B_swizzled(index, index, index) -> !future_lds_read
@@ -41,10 +42,13 @@ amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> isa
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> attributes {shared_memory_size = 0 : i32} {
-    %A_ptr = amdgcn.load_arg 0 : !sx2
-    %B_ptr = amdgcn.load_arg 1 : !sx2
-    %C_ptr = amdgcn.load_arg 2 : !sx2
+    %A_raw = amdgcn.load_arg 0 : !sx2
+    %B_raw = amdgcn.load_arg 1 : !sx2
+    %C_raw = amdgcn.load_arg 2 : !sx2
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %A_ptr = func.call @prepare_ptr(%A_raw) : (!sx2) -> !aster_utils.any
+    %B_ptr = func.call @prepare_ptr(%B_raw) : (!sx2) -> !aster_utils.any
+    %C_ptr = func.call @prepare_ptr(%C_raw) : (!sx2) -> !aster_utils.any
 
     // Constants
     %c0 = arith.constant 0 : index
@@ -80,9 +84,9 @@ amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> isa
     // === Prologue: prefetch iterations 0 and 1 ===
     // Prefetch iteration 0 into buffer 0
     %pf0_A_gfut = func.call @load_global_tile_16x64_b(%A_ptr, %c0, %c0, %stride_AB)
-        : (!sx2, index, index, index) -> !future_global_read
+        : (!aster_utils.any, index, index, index) -> !future_global_read
     %pf0_B_gfut = func.call @load_global_tile_16x64_b(%B_ptr, %c0, %c0, %stride_AB)
-        : (!sx2, index, index, index) -> !future_global_read
+        : (!aster_utils.any, index, index, index) -> !future_global_read
     %pf0_At0, %pf0_At1 = func.call @store_global_tile_to_lds_16x64_b(%lds_A0, %pf0_A_gfut)
         : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
     %pf0_Bt0, %pf0_Bt1 = func.call @store_global_tile_to_lds_16x64_b(%lds_B0, %pf0_B_gfut)
@@ -96,9 +100,9 @@ amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> isa
     %has_iter1 = arith.cmpi ugt, %K_tiles, %c1 : index
     scf.if %has_iter1 {
       %pf1_A_gfut = func.call @load_global_tile_16x64_b(%A_ptr, %c0, %c32, %stride_AB)
-          : (!sx2, index, index, index) -> !future_global_read
+          : (!aster_utils.any, index, index, index) -> !future_global_read
       %pf1_B_gfut = func.call @load_global_tile_16x64_b(%B_ptr, %c0, %c32, %stride_AB)
-          : (!sx2, index, index, index) -> !future_global_read
+          : (!aster_utils.any, index, index, index) -> !future_global_read
       %pf1_At0, %pf1_At1 = func.call @store_global_tile_to_lds_16x64_b(%lds_A1, %pf1_A_gfut)
           : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
       %pf1_Bt0, %pf1_Bt1 = func.call @store_global_tile_to_lds_16x64_b(%lds_B1, %pf1_B_gfut)
@@ -136,9 +140,9 @@ amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> isa
         %pf_B = arith.select %pf_is_buf0, %lds_B0, %pf_B_12 : index
         %pf_offset = affine.apply affine_map<(k) -> (k * 32)>(%k_plus2)
         %pf_A_gfut = func.call @load_global_tile_16x64_b(%A_ptr, %c0, %pf_offset, %stride_AB)
-            : (!sx2, index, index, index) -> !future_global_read
+            : (!aster_utils.any, index, index, index) -> !future_global_read
         %pf_B_gfut = func.call @load_global_tile_16x64_b(%B_ptr, %c0, %pf_offset, %stride_AB)
-            : (!sx2, index, index, index) -> !future_global_read
+            : (!aster_utils.any, index, index, index) -> !future_global_read
         %pf_At0, %pf_At1 = func.call @store_global_tile_to_lds_16x64_b(%pf_A, %pf_A_gfut)
             : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
         %pf_Bt0, %pf_Bt1 = func.call @store_global_tile_to_lds_16x64_b(%pf_B, %pf_B_gfut)
@@ -175,7 +179,7 @@ amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> isa
 
     // Fire-and-forget store (s_endpgm drains outstanding stores)
     func.call @store_global_C_mfma_f32_16x16x16_f16(%C_final, %C_ptr, %c0, %c0, %stride_C)
-        : (!rt_C_f32, !sx2, index, index, index) -> ()
+        : (!rt_C_f32, !aster_utils.any, index, index, index) -> ()
 
     amdgcn.end_kernel
   }

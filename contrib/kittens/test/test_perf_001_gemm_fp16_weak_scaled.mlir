@@ -4,6 +4,7 @@
 
 // Register type aliases
 !sx2 = !amdgcn.sgpr<[? + 2]>
+!sx4 = !amdgcn.sgpr<[? + 4]>
 !vx2 = !amdgcn.vgpr<[? + 2]>
 !vx4 = !amdgcn.vgpr<[? + 4]>
 !ax4 = !amdgcn.agpr<[? + 4]>
@@ -34,12 +35,13 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
   // From compute_16x16_f16.mlir (AGPR MFMA and fire-and-forget C tile store)
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
-  func.func private @store_global_C_mfma_f32_16x16x16_f16(!rt_C_f32, !sx2, index, index, index)
+  func.func private @store_global_C_mfma_f32_16x16x16_f16(!rt_C_f32, !aster_utils.any, index, index, index)
   // From global_16x64_b.mlir / lds_16x64_b.mlir (dwordx4 global load + 16x32 LDS operations)
-  func.func private @load_global_tile_16x64_b(!sx2, index, index, index) -> !future_global_read
+  func.func private @load_global_tile_16x64_b(!aster_utils.any, index, index, index) -> !future_global_read
   func.func private @store_global_tile_to_lds_16x64_b(index, !future_global_read) -> (!lds_write_token, !lds_write_token)
   func.func private @get_lds_read_value_vx2(!future_lds_read) -> !vx2
-
+  // From global_16x64_b[_buf].mlir -- type-erases raw !sx2 arg to !aster_utils.any
+  func.func private @prepare_ptr(!sx2) -> !aster_utils.any
 {{K_LOOP_HELPERS}}
 
   // Multi-WG multi-wave GEMM with pipelined LDS (16x16x16 MFMA, dwordx4 loads)
@@ -51,11 +53,13 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> attributes {shared_memory_size = {{SHARED_MEM}} : i32, block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>} {
-    %A_ptr = amdgcn.load_arg 0 : !sx2
-    %B_ptr = amdgcn.load_arg 1 : !sx2
-    %C_ptr = amdgcn.load_arg 2 : !sx2
+    %A_raw = amdgcn.load_arg 0 : !sx2
+    %B_raw = amdgcn.load_arg 1 : !sx2
+    %C_raw = amdgcn.load_arg 2 : !sx2
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
-
+    %A_rsrc = func.call @prepare_ptr(%A_raw) : (!sx2) -> !aster_utils.any
+    %B_rsrc = func.call @prepare_ptr(%B_raw) : (!sx2) -> !aster_utils.any
+    %C_rsrc = func.call @prepare_ptr(%C_raw) : (!sx2) -> !aster_utils.any
     // Constants
     %c0 = arith.constant 0 : index
     %c2 = arith.constant 2 : index  // bytes per f16 element
@@ -117,15 +121,15 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     //       : (index, index, index, index, index) -> memref<?xindex>
 
     //   // --- Issue global loads at pre-computed offsets ---
-    //   %gfut_a = func.call @k_issue_global_loads_a(%gl_addrs_a, %A_ptr)
+    //   %gfut_a = func.call @k_issue_global_loads_a(%gl_addrs_a, %A_rsrc)
     //       : (memref<?xindex>, !sx2) -> !gfut_a_buf
-    //   %gfut_b = func.call @k_issue_global_loads_b(%gl_addrs_b, %B_ptr)
+    //   %gfut_b = func.call @k_issue_global_loads_b(%gl_addrs_b, %B_rsrc)
     //       : (memref<?xindex>, !sx2) -> !gfut_b_buf
 
-      %gfut_a = func.call @k_load_a_16x32_from_global(%c_M_T, %c_K_T, %A_ptr, %k, %stride_AB, %m_base)
-          : (index, index, !sx2, index, index, index) -> !gfut_a_buf
-      %gfut_b = func.call @k_load_b_16x32_from_global(%c_N_T, %c_K_T, %B_ptr, %k, %stride_AB, %n_base)
-          : (index, index, !sx2, index, index, index) -> !gfut_b_buf
+      %gfut_a = func.call @k_load_a_16x32_from_global(%c_M_T, %c_K_T, %A_rsrc, %k, %stride_AB, %m_base)
+          : (index, index, !aster_utils.any, index, index, index) -> !gfut_a_buf
+      %gfut_b = func.call @k_load_b_16x32_from_global(%c_N_T, %c_K_T, %B_rsrc, %k, %stride_AB, %n_base)
+          : (index, index, !aster_utils.any, index, index, index) -> !gfut_b_buf
 
 
       // --- Compute LDS write addresses (overlaps with global load latency) ---
@@ -170,8 +174,8 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     }
 
     // === Store results ===
-    func.call @store_c_tiles(%c_M_T, %c_N_T, %C_buf, %C_ptr, %stride_C, %m_base, %n_base)
-        : (index, index, !c_buf, !sx2, index, index, index) -> ()
+    func.call @store_c_tiles(%c_M_T, %c_N_T, %C_buf, %C_rsrc, %stride_C, %m_base, %n_base)
+        : (index, index, !c_buf, !aster_utils.any, index, index, index) -> ()
 
     amdgcn.end_kernel
   }

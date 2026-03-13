@@ -38,10 +38,11 @@ amdgcn.module @kittens_gemm_multitile_lds_pipelined target = #amdgcn.target<gfx9
   // From compute_16x16_f16.mlir (AGPR)
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
-  func.func private @store_global_C_mfma_f32_16x16x16_f16(!rt_C_f32, !sx2, index, index, index)
+  func.func private @store_global_C_mfma_f32_16x16x16_f16(!rt_C_f32, !aster_utils.any, index, index, index)
+  func.func private @prepare_ptr(!sx2) -> !aster_utils.any
 
   // From lds_16x64_b.mlir
-  func.func private @load_global_tile_16x64_b(!sx2, index, index, index) -> !future_global_read
+  func.func private @load_global_tile_16x64_b(!aster_utils.any, index, index, index) -> !future_global_read
   func.func private @store_global_tile_to_lds_16x64_b(index, !future_global_read) -> (!lds_write_token, !lds_write_token)
   func.func private @load_lds_A_swizzled(index, index, index) -> !future_lds_read
   func.func private @load_lds_B_swizzled(index, index, index) -> !future_lds_read
@@ -52,10 +53,13 @@ amdgcn.module @kittens_gemm_multitile_lds_pipelined target = #amdgcn.target<gfx9
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
   ]> attributes {shared_memory_size = 0 : i32} {
-    %A_ptr = amdgcn.load_arg 0 : !sx2
-    %B_ptr = amdgcn.load_arg 1 : !sx2
-    %C_ptr = amdgcn.load_arg 2 : !sx2
+    %A_raw = amdgcn.load_arg 0 : !sx2
+    %B_raw = amdgcn.load_arg 1 : !sx2
+    %C_raw = amdgcn.load_arg 2 : !sx2
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    %A_ptr = func.call @prepare_ptr(%A_raw) : (!sx2) -> !aster_utils.any
+    %B_ptr = func.call @prepare_ptr(%B_raw) : (!sx2) -> !aster_utils.any
+    %C_ptr = func.call @prepare_ptr(%C_raw) : (!sx2) -> !aster_utils.any
 
     %c0 = arith.constant 0 : index
     %c2 = arith.constant 2 : index  // bytes per f16 element
@@ -85,16 +89,16 @@ amdgcn.module @kittens_gemm_multitile_lds_pipelined target = #amdgcn.target<gfx9
 
       %A0_gfut = func.call @load_global_tile_16x64_b(%A_ptr, %c0, %k_offset, %stride_AB)
           {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-          : (!sx2, index, index, index) -> !future_global_read
+          : (!aster_utils.any, index, index, index) -> !future_global_read
       %A1_gfut = func.call @load_global_tile_16x64_b(%A_ptr, %c16, %k_offset, %stride_AB)
           {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-          : (!sx2, index, index, index) -> !future_global_read
+          : (!aster_utils.any, index, index, index) -> !future_global_read
       %B0_gfut = func.call @load_global_tile_16x64_b(%B_ptr, %c0, %k_offset, %stride_AB)
           {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-          : (!sx2, index, index, index) -> !future_global_read
+          : (!aster_utils.any, index, index, index) -> !future_global_read
       %B1_gfut = func.call @load_global_tile_16x64_b(%B_ptr, %c16, %k_offset, %stride_AB)
           {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-          : (!sx2, index, index, index) -> !future_global_read
+          : (!aster_utils.any, index, index, index) -> !future_global_read
 
       // === Stage DS_WRITE: Store to LDS (2 tokens per tile = 8 total) ===
       %lds_A0 = amdgcn.get_lds_offset %lds_a0_h {sched.stage = {{STAGE_DS_WRITE}} : i32} : index
@@ -198,13 +202,13 @@ amdgcn.module @kittens_gemm_multitile_lds_pipelined target = #amdgcn.target<gfx9
 
     // Fire-and-forget store 4 output tiles
     func.call @store_global_C_mfma_f32_16x16x16_f16(%C00_final, %C_ptr, %c0, %c0, %stride_C)
-        : (!rt_C_f32, !sx2, index, index, index) -> ()
+        : (!rt_C_f32, !aster_utils.any, index, index, index) -> ()
     func.call @store_global_C_mfma_f32_16x16x16_f16(%C01_final, %C_ptr, %c0, %c16, %stride_C)
-        : (!rt_C_f32, !sx2, index, index, index) -> ()
+        : (!rt_C_f32, !aster_utils.any, index, index, index) -> ()
     func.call @store_global_C_mfma_f32_16x16x16_f16(%C10_final, %C_ptr, %c16, %c0, %stride_C)
-        : (!rt_C_f32, !sx2, index, index, index) -> ()
+        : (!rt_C_f32, !aster_utils.any, index, index, index) -> ()
     func.call @store_global_C_mfma_f32_16x16x16_f16(%C11_final, %C_ptr, %c16, %c16, %stride_C)
-        : (!rt_C_f32, !sx2, index, index, index) -> ()
+        : (!rt_C_f32, !aster_utils.any, index, index, index) -> ()
 
     amdgcn.end_kernel
   }

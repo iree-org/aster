@@ -26,14 +26,8 @@ from kittens_helpers import (
 )
 
 KERNEL_NAME = "gemm_f16_weak_scaled"
-MLIR_FILES = {
-    False: "test_perf_001_gemm_fp16_weak_scaled.mlir",  # flat (original)
-    True: "test_perf_001_gemm_fp16_weak_scaled_buf.mlir",  # buffer
-}
-K_LOOP_HELPERS_FILES = {
-    False: "gemm_16x32_f16_k_loop_helpers.mlir",  # flat (original)
-    True: "gemm_16x32_f16_k_loop_helpers_buf.mlir",  # buffer
-}
+MLIR_FILE = "test_perf_001_gemm_fp16_weak_scaled.mlir"
+K_LOOP_HELPERS_FILE = "gemm_16x32_f16_k_loop_helpers.mlir"
 
 
 @dataclass
@@ -121,16 +115,16 @@ class WeakScaleConfig:
         )
 
 
-def _load_k_loop_helpers(use_buffer=True):
+def _load_k_loop_helpers():
     """Read the shared K-loop helper functions MLIR fragment."""
-    helpers_path = get_mlir_file(K_LOOP_HELPERS_FILES[use_buffer])
+    helpers_path = get_mlir_file(K_LOOP_HELPERS_FILE)
     with open(helpers_path) as f:
         return f.read()
 
 
-def _make_substitutions(cfg, use_buffer=True):
+def _make_substitutions(cfg):
     """Build template substitutions dict for a WeakScaleConfig."""
-    subs = {"{{K_LOOP_HELPERS}}": _load_k_loop_helpers(use_buffer)}
+    subs = {"{{K_LOOP_HELPERS}}": _load_k_loop_helpers()}
     subs.update(
         constexpr_substitutions_16x32(cfg.m_tiles, cfg.n_tiles, cfg.k, cfg.num_stages)
     )
@@ -165,7 +159,7 @@ def compile_weak_scaled_gemm(
     from aster import ir, utils
     from aster.testing import compile_mlir_file_to_asm
 
-    subs = _make_substitutions(cfg, use_buffer=use_buffer)
+    subs = _make_substitutions(cfg)
 
     def preprocess(content):
         for pattern, replacement in subs.items():
@@ -176,7 +170,7 @@ def compile_weak_scaled_gemm(
     ctx.__enter__()
     try:
         asm, _ = compile_mlir_file_to_asm(
-            get_mlir_file(MLIR_FILES[use_buffer]),
+            get_mlir_file(MLIR_FILE),
             KERNEL_NAME,
             TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
             ctx,
@@ -410,7 +404,10 @@ if __name__ == "__main__":
             print("Error: --compile-only requires --hsaco <output_path>")
             raise SystemExit(1)
         _, asm = compile_weak_scaled_gemm(
-            cfg, a.hsaco, use_buffer=use_buffer, print_ir_after_all=a.print_ir_after_all
+            cfg,
+            a.hsaco,
+            use_buffer=use_buffer,
+            print_ir_after_all=a.print_ir_after_all,
         )
         resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
         res = resources.get(KERNEL_NAME)

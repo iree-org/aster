@@ -53,7 +53,8 @@ amdgcn.library @kittens_compute_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
   // Store a 16x16 f32 C tile from AGPRs to global memory in MFMA C fragment layout.
   // Each thread holds 4_f32 at 4 consecutive rows in the same column.
   // Fire-and-forget: no tokens returned. s_endpgm drains all outstanding stores.
-  func.func private @store_global_C_mfma_f32_16x16x16_f16(%tile: !rt_C_f32, %ptr: !sx2, %m: index, %n: index, %stride: index) {
+  func.func private @store_global_C_mfma_f32_16x16x16_f16(%tile: !rt_C_f32, %global_ptr: !aster_utils.any, %m: index, %n: index, %stride: index) {
+    %global_ptr_sx2 = aster_utils.from_any %global_ptr : !sx2
     // Note: hardcoded element size is related to layout and producing mfma variant.
     // Cannot just be generalized without more effort.
     %elt_size = arith.constant 4 : index
@@ -84,7 +85,7 @@ amdgcn.library @kittens_compute_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
     scf.for %i = %c0 to %c4 step %c1 {
       %off = func.call @mfma_c_16x16_f32_byte_offset(%m, %n, %row_base, %col, %stride, %elt_size, %i)
           : (index, index, index, index, index, index, index) -> index
-      %addr = func.call @global_addr_from_offset(%ptr, %off) : (!sx2, index) -> !vx2
+      %addr = func.call @global_addr_from_offset(%global_ptr_sx2, %off) : (!sx2, index) -> !vx2
       memref.store %addr, %addr_buf[%i] : memref<?x!vx2>
     } {aster.constexpr}
 

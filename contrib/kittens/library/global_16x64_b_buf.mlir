@@ -8,6 +8,7 @@
 
 // Register types
 !s = !amdgcn.sgpr
+!sx2 = !amdgcn.sgpr<[? + 2]>
 !sx4 = !amdgcn.sgpr<[? + 4]>
 !v = !amdgcn.vgpr
 !vx4 = !amdgcn.vgpr<[? + 4]>
@@ -39,8 +40,9 @@ amdgcn.library @kittens_global_16x64_b isa = [#amdgcn.isa<cdna3>] {
   // Issue dwordx4 buffer load at a pre-computed byte offset.
   // Uses MUBUF OFFEN mode: SRD base + voffset (all offset in VGPR).
   func.func private @load_global_at_byte_off(
-      %rsrc: !sx4, %byte_off: index
+      %buffer_resource: !aster_utils.any, %byte_off: index
   ) -> !future_global_read {
+    %buffer_resource_sx4 = aster_utils.from_any %buffer_resource : !sx4
     %voffset = func.call @index_to_vgpr_i32(%byte_off) : (index) -> !v
 
     // soffset = 0 (all offset in voffset for now; optimizer can split later)
@@ -48,7 +50,7 @@ amdgcn.library @kittens_global_16x64_b isa = [#amdgcn.isa<cdna3>] {
     %soffset = lsir.to_reg %c0 : i32 -> !s
 
     %tmp_reg = func.call @alloc_vgprx4() : () -> !vx4
-    %loaded, %tok_global = amdgcn.load buffer_load_dwordx4 dest %tmp_reg addr %rsrc
+    %loaded, %tok_global = amdgcn.load buffer_load_dwordx4 dest %tmp_reg addr %buffer_resource_sx4
         offset u(%soffset) + d(%voffset) + c(%c0)
         : dps(!vx4) ins(!sx4, !s, !v, i32) -> !amdgcn.read_token<flat>
 
@@ -60,13 +62,23 @@ amdgcn.library @kittens_global_16x64_b isa = [#amdgcn.isa<cdna3>] {
 
   // Convenience wrapper: compute byte offset + issue load in one call.
   func.func private @load_global_tile_16x64_b(
-      %rsrc: !sx4, %m: index, %n: index, %stride: index
+      %buffer_resource: !aster_utils.any, %m: index, %n: index, %stride: index
   ) -> !future_global_read {
     %byte_off = func.call @compute_global_byte_off_16x64_b(%m, %n, %stride)
         : (index, index, index) -> index
-    %future = func.call @load_global_at_byte_off(%rsrc, %byte_off)
-        : (!sx4, index) -> !future_global_read
+    %future = func.call @load_global_at_byte_off(%buffer_resource, %byte_off)
+        : (!aster_utils.any, index) -> !future_global_read
     return %future : !future_global_read
+  }
+
+  // Construct !sx4 buffer resource from raw !sx2 kernel arg, then type-erase.
+  // From indexing_ptr.mlir
+  func.func private @make_raw_buffer_rsrc(!sx2) -> !sx4
+
+  func.func private @prepare_ptr(%raw: !sx2) -> !aster_utils.any {
+    %buffer_resource = func.call @make_raw_buffer_rsrc(%raw) : (!sx2) -> !sx4
+    %erased = aster_utils.to_any %buffer_resource : !sx4
+    return %erased : !aster_utils.any
   }
 
   // Note: store_global depends on the shape / layout after computation, see

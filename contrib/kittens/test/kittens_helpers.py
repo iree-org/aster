@@ -35,7 +35,7 @@ def get_kittens_16x16_lds_library_paths(use_buffer: bool = False) -> List[str]:
     kittens_paths = [
         get_mlir_kernels_library_path("common/indexing_ptr.mlir"),
         os.path.join(kittens_dir, f"global_16x64_b{suffix}.mlir"),
-        os.path.join(kittens_dir, f"lds_16x64_b{suffix}.mlir"),
+        os.path.join(kittens_dir, "lds_16x64_b.mlir"),
         os.path.join(kittens_dir, "lds_mfma_16x64_b.mlir"),
         os.path.join(kittens_dir, f"compute_16x16_f16{suffix}.mlir"),
     ]

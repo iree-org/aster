@@ -5,7 +5,6 @@
 // XOR swizzle: mask = ((row/2)%8)*8, addr = tile_base + row*64 + (byte_in_row XOR mask).
 
 // Register types
-!sx2 = !amdgcn.sgpr<[? + 2]>
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr<[? + 2]>
 !vx4 = !amdgcn.vgpr<[? + 4]>
@@ -25,8 +24,8 @@ amdgcn.library @kittens_lds_16x64_b isa = [#amdgcn.isa<cdna3>] {
   // From futures.mlir
   func.func private @get_global_load_value_vx4(!future_global_read) -> !vx4
   func.func private @get_lds_read_value_vx2(!future_lds_read) -> !vx2
-  // From global_16x64_b.mlir
-  func.func private @load_global_tile_16x64_b(!sx2, index, index, index) -> !future_global_read
+  // From global_16x64_b[_buf].mlir
+  func.func private @load_global_tile_16x64_b(!aster_utils.any, index, index, index) -> !future_global_read
 
   //===--------------------------------------------------------------------===//
   // Global -> LDS transfers for 16x64_b tiles
