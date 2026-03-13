@@ -333,6 +333,35 @@ def ApplySched : Pass<"aster-apply-sched"> {
 }
 
 //===----------------------------------------------------------------------===//
+// LoopUnroll
+//===----------------------------------------------------------------------===//
+
+def LoopUnroll : Pass<"aster-loop-unroll"> {
+  let summary = "Unroll scf.for loops by the largest applicable unroll factor";
+  let description = [{
+    This pass unrolls scf.for loops using the largest unroll factor that
+    evenly divides the loop's trip count.
+
+    For each loop, unrolling factors are determined as follows:
+    1. If the loop has an "unroll_factor" attribute, it is tried first. The
+       attribute may be either:
+       - A single integer (e.g. unroll_factor = 4 : i64)
+       - A dense int array (e.g. unroll_factor = array<i64: 2, 4, 8>)
+       For an array, factors are tried in descending order; the first factor
+       that divides the trip count is used.
+    2. Otherwise, the pass uses the factors from the --unroll-factors option,
+       tried in descending order.
+
+    If loopUnrollByFactor fails, the pass fails.
+  }];
+  let options = [
+    ListOption<"unrollFactors", "unroll-factors", "int64_t",
+               "Unrolling factors to try (largest matching factor is used)">,
+  ];
+  let dependentDialects = ["mlir::scf::SCFDialect"];
+}
+
+//===----------------------------------------------------------------------===//
 // ForwardStoreToLoad
 //===----------------------------------------------------------------------===//
 

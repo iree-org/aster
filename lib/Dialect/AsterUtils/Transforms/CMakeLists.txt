@@ -1,4 +1,5 @@
 add_mlir_library(AsterUtilsTransforms
+  RemoveAssumeOps.cpp
   AsterSelectiveInlining.cpp
   DestructureStructIterArgs.cpp
   FromAnyToPoison.cpp

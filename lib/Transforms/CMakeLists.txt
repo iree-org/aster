@@ -7,6 +7,7 @@ add_mlir_library(AsterTransforms
   DecomposeMemrefIterArgs.cpp
   ForwardStoreToLoad.cpp
   LDSMultibufferPrep.cpp
+  LoopUnroll.cpp
   MemRefUtils.cpp
   OpScheduling.cpp
   PromoteLoopCarriedMemrefs.cpp

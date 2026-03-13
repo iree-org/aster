@@ -119,6 +119,38 @@ def AsterUtils_AssumeUniformOp : AsterUtils_Op<"assume_uniform", [
 }
 
 //===----------------------------------------------------------------------===//
+// PassthroughOp
+//===----------------------------------------------------------------------===//
+
+def AsterUtils_PassthroughOp : AsterUtils_Op<"passthrough", [
+    Pure, AllTypesMatch<["input", "result"]>,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>,
+    DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForIndexValue"]>
+  ]> {
+  let summary = "Passthrough value to prevent optimizations";
+  let description = [{
+    The `aster_utils.passthrough` operation receives a single value and outputs
+    the same value. It is meant to prevent optimizations from removing or
+    transforming the value. An optional `tag` attribute can be used for
+    debugging or identification purposes.
+
+    Example:
+    ```mlir
+    %0 = aster_utils.passthrough %x : i32
+    %1 = aster_utils.passthrough %y tag = "debug_point" : index
+    ```
+  }];
+  let arguments = (ins
+    AnyType:$input,
+    OptionalAttr<StrAttr>:$tag
+  );
+  let results = (outs AnyType:$result);
+  let assemblyFormat = [{
+    $input (`tag` `=` $tag^)? attr-dict `:` type($input)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // BlockDimOp
 //===----------------------------------------------------------------------===//
 

@@ -235,7 +235,8 @@ void ToIntArith::runOnOperation() {
   target.addLegalDialect<arith::ArithDialect, aster_utils::AsterUtilsDialect,
                          ptr::PtrDialect>();
   target.addDynamicallyLegalOp<aster_utils::AssumeRangeOp,
-                               aster_utils::AssumeUniformOp>(
+                               aster_utils::AssumeUniformOp,
+                               aster_utils::PassthroughOp>(
       [&](Operation *op) -> std::optional<bool> {
         return converter.isLegal(op);
       });
@@ -250,8 +251,9 @@ void ToIntArith::runOnOperation() {
            IdDimOpConversion<gpu::ThreadIdOp, aster_utils::ThreadIdOp>,
            IdDimOpConversion<gpu::GridDimOp, aster_utils::GridDimOp>,
            AssumeRangeOpConversion,
-           GenericOpConversion<aster_utils::AssumeUniformOp>>(converter,
-                                                              &getContext());
+           GenericOpConversion<aster_utils::AssumeUniformOp>,
+           GenericOpConversion<aster_utils::PassthroughOp>>(converter,
+                                                            &getContext());
   ConversionConfig config;
   config.allowPatternRollback = false;
   if (failed(applyPartialConversion(

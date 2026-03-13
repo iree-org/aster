@@ -94,3 +94,17 @@ func.func @test_assume_range_index_dynamic(%x: index, %lo: index, %hi: index) ->
   %0 = aster_utils.assume_range %x min %lo max %hi : index
   return %0 : index
 }
+
+//===----------------------------------------------------------------------===//
+// PassthroughOp roundtrip tests
+//===----------------------------------------------------------------------===//
+
+func.func @test_passthrough_i32(%x: i32) -> i32 {
+  %0 = aster_utils.passthrough %x : i32
+  return %0 : i32
+}
+
+func.func @test_passthrough_with_tag(%x: index) -> index {
+  %0 = aster_utils.passthrough %x tag = "debug_point" : index
+  return %0 : index
+}
