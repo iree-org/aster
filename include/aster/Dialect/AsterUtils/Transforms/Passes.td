@@ -146,6 +146,34 @@ def RemoveAssumeOps : Pass<"aster-remove-assume-ops", "mlir::ModuleOp"> {
   ];
 }
 
+def ExpandAffineApply : Pass<"aster-expand-affine-apply"> {
+  let summary = "Expand affine.apply into aster_utils n-ary addi/muli operations";
+  let description = [{
+    This pass converts `affine.apply` operations into trees of
+    `aster_utils.addi` and `aster_utils.muli` by traversing the affine
+    expression tree. Consecutive additions and multiplications are collected
+    into flat n-ary operand lists instead of binary chains.
+
+    Constant sub-expressions are materialized as `arith.constant` index ops.
+    Add and mul sub-expressions are expanded; mod, floordiv, and ceildiv remain
+    as `affine.apply`.
+
+    Example:
+    ```mlir
+    // Before:
+    %r = affine.apply affine_map<()[s0, s1, s2, s3] -> (s0 + s1 + s2 + s3)>()
+                      [%a, %b, %c, %d]
+
+    // After:
+    %r = aster_utils.addi %a, %b, %c, %d : index
+    ```
+  }];
+  let dependentDialects = [
+    "mlir::aster::aster_utils::AsterUtilsDialect",
+    "mlir::arith::ArithDialect"
+  ];
+}
+
 def OptimizePtrAdd : Pass<"aster-optimize-ptr-add"> {
   let summary = "Optimize ptr.ptr_add operations by splitting offsets";
   let description = [{

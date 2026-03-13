@@ -2,6 +2,7 @@ add_mlir_library(AsterUtilsTransforms
   RemoveAssumeOps.cpp
   AsterSelectiveInlining.cpp
   DestructureStructIterArgs.cpp
+  ExpandAffineApply.cpp
   FromAnyToPoison.cpp
   InlineExecuteRegion.cpp
   OptimizePtrAdd.cpp
@@ -16,6 +17,7 @@ add_mlir_library(AsterUtilsTransforms
   ASTERAnalysis
   AsterTransforms
   AsterUtilsDialect
+  MLIRAffineDialect
   MLIRArithDialect
   MLIRFuncDialect
   MLIRIR
