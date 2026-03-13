@@ -408,6 +408,30 @@ def LoopUnroll : Pass<"aster-loop-unroll"> {
 }
 
 //===----------------------------------------------------------------------===//
+// FactorizeAffineExpr
+//===----------------------------------------------------------------------===//
+
+def FactorizeAffineExpr : Pass<"aster-factorize-affine-expr"> {
+  let summary = "Factorize affine expressions to minimize multiplications";
+  let description = [{
+    Rewrites the affine expression inside each affine.apply op to minimize the
+    number of multiplications via aggressive polynomial factorization.
+
+    The algorithm expands the affine expression into a sum-of-monomials
+    polynomial, then greedily extracts the most-frequent variable as a common
+    factor, recursing on the quotient and remainder.  A post-processing pass
+    then extracts any remaining common multiplicative factors shared across all
+    addends of each addition node, and the two phases repeat until fixpoint.
+
+    Examples:
+      x * y + z * y  →  (x + z) * y
+      x*y + z*y + x*w + z*w  →  (x + z) * (y + w)
+      a*x*y + b*x*y + c*x + c*y  →  ((a + b) * y + c) * x + c * y
+  }];
+  let dependentDialects = ["mlir::affine::AffineDialect"];
+}
+
+//===----------------------------------------------------------------------===//
 // ForwardStoreToLoad
 //===----------------------------------------------------------------------===//
 

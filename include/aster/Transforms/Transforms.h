@@ -17,10 +17,21 @@
 #ifndef ASTER_TRANSFORMS_TRANSFORMS_H
 #define ASTER_TRANSFORMS_TRANSFORMS_H
 
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LogicalResult.h"
 
 namespace mlir::aster {
+
+/// Factorize an affine expression to minimize the number of multiplications.
+///
+/// Expands the expression into a sum-of-monomials polynomial, greedily
+/// extracts the most-frequent variable as a common factor, then post-processes
+/// to extract any remaining shared multiplicative factors across addends.
+/// The two phases repeat until fixpoint.  Mod/FloorDiv/CeilDiv sub-expressions
+/// are recursively factorized but treated as atomic during polynomial
+/// expansion.
+AffineExpr factorizeAffineExpr(AffineExpr expr);
 
 /// Prepare LDS buffers for multi-buffering in all scf.for loops under `op`.
 ///
