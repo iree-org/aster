@@ -10,7 +10,7 @@
 #include "mlir/Pass/Pass.h"
 #include <memory>
 
-namespace normalform {
+namespace water_normalform {
 
 #define GEN_PASS_DECL
 #include "water/Dialect/NormalForm/Transforms/Passes.h.inc"
@@ -18,6 +18,6 @@ namespace normalform {
 #define GEN_PASS_REGISTRATION
 #include "water/Dialect/NormalForm/Transforms/Passes.h.inc"
 
-} // namespace normalform
+} // namespace water_normalform
 
 #endif // WATER_DIALECT_NORMALFORM_TRANSFORMS_PASSES_H

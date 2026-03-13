@@ -661,9 +661,9 @@ public:
   using WaterWaveInferTypesPassBase::WaterWaveInferTypesPassBase;
 
   void runOnOperation() override {
-    if (llvm::failed(verifyNormalFormPassPrecondition(
-            wave::WaveNormalForm::FunctionBoundarySpecified, getOperation(),
-            getArgument())))
+    if (llvm::failed(verifyWaterNormalFormPassPrecondition(
+            wave::WaveWaterNormalForm::FunctionBoundarySpecified,
+            getOperation(), getArgument())))
       return signalPassFailure();
 
     // Configure the analyses. The dead code and SCP analyses are required by
@@ -715,8 +715,8 @@ public:
       return signalPassFailure();
 
     if (!partial) {
-      llvm::LogicalResult result = setNormalFormPassPostcondition(
-          wave::WaveNormalForm::AllTypesSpecified, getOperation());
+      llvm::LogicalResult result = setWaterNormalFormPassPostcondition(
+          wave::WaveWaterNormalForm::AllTypesSpecified, getOperation());
       if (llvm::failed(result) && !force)
         return signalPassFailure();
     }
@@ -1197,8 +1197,8 @@ public:
       WaterWavePropagateElementsPerThreadPassBase;
 
   void runOnOperation() override {
-    if (failed(wave::verifyNormalFormPassPrecondition(
-            wave::WaveNormalForm::AllTypesSpecified, getOperation(),
+    if (failed(wave::verifyWaterNormalFormPassPrecondition(
+            wave::WaveWaterNormalForm::AllTypesSpecified, getOperation(),
             getArgument())))
       return signalPassFailure();
 
@@ -1270,8 +1270,8 @@ public:
         return signalPassFailure();
     }
 
-    if (llvm::failed(wave::setNormalFormPassPostcondition(
-            wave::WaveNormalForm::MemoryOnlyTypes, getOperation())))
+    if (llvm::failed(wave::setWaterNormalFormPassPostcondition(
+            wave::WaveWaterNormalForm::MemoryOnlyTypes, getOperation())))
       return signalPassFailure();
   }
 };
@@ -1874,8 +1874,8 @@ public:
   using Base::Base;
 
   void runOnOperation() override {
-    if (llvm::failed(verifyNormalFormPassPrecondition(
-            wave::WaveNormalForm::AllTypesSpecified, getOperation(),
+    if (llvm::failed(verifyWaterNormalFormPassPrecondition(
+            wave::WaveWaterNormalForm::AllTypesSpecified, getOperation(),
             getArgument())))
       return signalPassFailure();
 
@@ -1904,8 +1904,8 @@ public:
       iterateOp.makeNonIsolated(rewriter);
     });
 
-    if (llvm::failed(wave::setNormalFormPassPostcondition(
-            wave::WaveNormalForm::IndexExprsSpecified, getOperation())))
+    if (llvm::failed(wave::setWaterNormalFormPassPostcondition(
+            wave::WaveWaterNormalForm::IndexExprsSpecified, getOperation())))
       return signalPassFailure();
   }
 };

@@ -15,11 +15,11 @@
 
 namespace llvm {
 template <>
-struct PointerLikeTypeTraits<normalform::NormalFormAttrInterface>
+struct PointerLikeTypeTraits<water_normalform::WaterNormalFormAttrInterface>
     : public PointerLikeTypeTraits<mlir::Attribute> {
-  static inline normalform::NormalFormAttrInterface
+  static inline water_normalform::WaterNormalFormAttrInterface
   getFromVoidPointer(void *p) {
-    return normalform::NormalFormAttrInterface(
+    return water_normalform::WaterNormalFormAttrInterface(
         mlir::Attribute::getFromOpaquePointer(p));
   }
 };

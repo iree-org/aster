@@ -43,71 +43,74 @@ llvm::LogicalResult wave::collectWaveConstraints(
 }
 
 llvm::LogicalResult
-wave::setNormalFormPassPostcondition(wave::WaveNormalForm form, Operation *root,
-                                     bool preserve) {
-  auto module = llvm::dyn_cast<normalform::ModuleOp>(root);
+wave::setWaterNormalFormPassPostcondition(wave::WaveWaterNormalForm form,
+                                          Operation *root, bool preserve) {
+  auto module = llvm::dyn_cast<water_normalform::ModuleOp>(root);
   if (!module)
-    return root->emitError() << "expected normalform.module";
+    return root->emitError() << "expected water_normalform.module";
 
-  wave::WaveNormalForm finalForm = form;
-  auto normalforms =
-      module.getNormalForms().getAsRange<normalform::NormalFormAttrInterface>();
+  wave::WaveWaterNormalForm finalForm = form;
+  auto water_normalforms =
+      module.getNormalForms()
+          .getAsRange<water_normalform::WaterNormalFormAttrInterface>();
 
-  SmallVector<normalform::NormalFormAttrInterface> waveNormalForms =
-      llvm::filter_to_vector(normalforms,
-                             llvm::IsaPred<wave::WaveNormalFormAttr>);
+  SmallVector<water_normalform::WaterNormalFormAttrInterface>
+      waveWaterNormalForms = llvm::filter_to_vector(
+          water_normalforms, llvm::IsaPred<wave::WaveWaterNormalFormAttr>);
 
   if (preserve) {
     // Merge all existing normal forms with the new form.
-    for (auto nf : waveNormalForms) {
-      wave::WaveNormalForm currentForm =
-          cast<WaveNormalFormAttr>(nf).getValue();
+    for (auto nf : waveWaterNormalForms) {
+      wave::WaveWaterNormalForm currentForm =
+          cast<WaveWaterNormalFormAttr>(nf).getValue();
       finalForm = finalForm | currentForm;
     }
   }
 
-  if (!waveNormalForms.empty())
-    module.removeNormalForms(waveNormalForms);
+  if (!waveWaterNormalForms.empty())
+    module.removeWaterNormalForms(waveWaterNormalForms);
 
-  module.addNormalForms(
-      {wave::WaveNormalFormAttr::get(root->getContext(), finalForm)});
+  module.addWaterNormalForms(
+      {wave::WaveWaterNormalFormAttr::get(root->getContext(), finalForm)});
 
-  // We rely on the pass manager to call verifyRegion on the normalform.module
-  // after the pass
-
-  return llvm::success();
-}
-
-llvm::LogicalResult wave::clearNormalFormPassPostcondition(Operation *root) {
-  auto module = llvm::dyn_cast<normalform::ModuleOp>(root);
-  if (!module)
-    return root->emitError()
-           << "expected << " << normalform::ModuleOp::getOperationName();
-
-  auto normalforms =
-      module.getNormalForms().getAsRange<normalform::NormalFormAttrInterface>();
-
-  SmallVector<normalform::NormalFormAttrInterface> toRemove =
-      llvm::filter_to_vector(normalforms, llvm::IsaPred<WaveNormalFormAttr>);
-
-  module.removeNormalForms(toRemove);
+  // We rely on the pass manager to call verifyRegion on the
+  // water_normalform.module after the pass
 
   return llvm::success();
 }
 
 llvm::LogicalResult
-wave::verifyNormalFormPassPrecondition(WaveNormalForm form, Operation *root,
-                                       llvm::StringRef passName) {
-  auto module = llvm::dyn_cast<normalform::ModuleOp>(root);
+wave::clearWaterNormalFormPassPostcondition(Operation *root) {
+  auto module = llvm::dyn_cast<water_normalform::ModuleOp>(root);
   if (!module)
     return root->emitError()
-           << "expected << " << normalform::ModuleOp::getOperationName();
+           << "expected << " << water_normalform::ModuleOp::getOperationName();
 
-  ArrayRef<Attribute> normalforms = module.getNormalForms().getValue();
-  WaveNormalForm expectedForm = WaveNormalForm::None;
+  auto water_normalforms =
+      module.getNormalForms()
+          .getAsRange<water_normalform::WaterNormalFormAttrInterface>();
+
+  SmallVector<water_normalform::WaterNormalFormAttrInterface> toRemove =
+      llvm::filter_to_vector(water_normalforms,
+                             llvm::IsaPred<WaveWaterNormalFormAttr>);
+
+  module.removeWaterNormalForms(toRemove);
+
+  return llvm::success();
+}
+
+llvm::LogicalResult wave::verifyWaterNormalFormPassPrecondition(
+    WaveWaterNormalForm form, Operation *root, llvm::StringRef passName) {
+  auto module = llvm::dyn_cast<water_normalform::ModuleOp>(root);
+  if (!module)
+    return root->emitError()
+           << "expected << " << water_normalform::ModuleOp::getOperationName();
+
+  ArrayRef<Attribute> water_normalforms = module.getNormalForms().getValue();
+  WaveWaterNormalForm expectedForm = WaveWaterNormalForm::None;
   for (Attribute form : llvm::make_filter_range(
-           normalforms, llvm::IsaPred<WaveNormalFormAttr>)) {
-    expectedForm |= cast<WaveNormalFormAttr>(form).getValue();
+           water_normalforms, llvm::IsaPred<WaveWaterNormalFormAttr>)) {
+    expectedForm |= cast<WaveWaterNormalFormAttr>(form).getValue();
   }
 
   if (wave::bitEnumContainsAll(expectedForm, form))

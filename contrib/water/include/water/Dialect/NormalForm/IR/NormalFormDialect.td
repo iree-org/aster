@@ -9,15 +9,15 @@
 
 include "mlir/IR/DialectBase.td"
 
-def NormalFormDialect : Dialect {
-  let name = "normalform";
+def WaterNormalFormDialect : Dialect {
+  let name = "water_normalform";
   let summary = "Dialect for normal form IR verification";
 
   let description = [{
-    The NormalForm dialect provides infrastructure for defining and verifying
-    normal forms of IR. It uses the `normalform.module` operation as a
+    The WaterNormalForm dialect provides infrastructure for defining and verifying
+    normal forms of IR. It uses the `water_normalform.module` operation as a
     container that specifies the expected normal forms through an array of
-    attributes implementing the NormalFormAttrInterface.
+    attributes implementing the WaterNormalFormAttrInterface.
   }];
 }
 

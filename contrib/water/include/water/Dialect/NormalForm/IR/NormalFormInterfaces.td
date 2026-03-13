@@ -13,19 +13,19 @@ include "mlir/IR/OpBase.td"
 //===----------------------------------------------------------------------===//
 // Normal form attribute interface.
 //===----------------------------------------------------------------------===//
-def NormalFormAttrInterface : AttrInterface<"NormalFormAttrInterface"> {
+def WaterNormalFormAttrInterface : AttrInterface<"WaterNormalFormAttrInterface"> {
   let description = [{
     Interface for attributes that define normal form constraints on IR.
 
     A normal form attribute specifies invariants that types, attributes, and
-    operations must satisfy. When attached to a `normalform.module`, all
+    operations must satisfy. When attached to a `water_normalform.module`, all
     contained IR is verified against the constraints defined by the attribute.
 
     Implementers should override one or more of `verifyType`, `verifyAttribute`,
     or `verifyOperation` to define custom verification logic. The default
     implementations return success.
   }];
-  let cppNamespace = "::normalform";
+  let cppNamespace = "::water_normalform";
   let methods = [
     InterfaceMethod<
       /*desc=*/[{

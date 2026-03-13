@@ -14,7 +14,7 @@ using namespace mlir;
 
 #include "water/Dialect/NormalForm/IR/NormalFormDialect.cpp.inc"
 
-void normalform::NormalFormDialect::initialize() {
+void water_normalform::WaterNormalFormDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "water/Dialect/NormalForm/IR/NormalFormOps.cpp.inc"

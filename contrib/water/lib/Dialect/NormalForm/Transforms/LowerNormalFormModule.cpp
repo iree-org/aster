@@ -16,7 +16,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include <utility>
 
-#define GEN_PASS_DEF_LOWERNORMALFORMMODULEPASS
+#define GEN_PASS_DEF_LOWERWATERNORMALFORMMODULEPASS
 #include "water/Dialect/NormalForm/Transforms/Passes.h.inc"
 
 using namespace mlir;
@@ -24,17 +24,17 @@ using namespace mlir;
 namespace {
 
 //===----------------------------------------------------------------------===//
-// LowerNormalFormModulePattern
+// LowerWaterNormalFormModulePattern
 //===----------------------------------------------------------------------===//
 
-/// Lower `normalform.module` to `builtin.module`, discarding normal form
+/// Lower `water_normalform.module` to `builtin.module`, discarding normal form
 /// attributes.
-class LowerNormalFormModulePattern
-    : public OpRewritePattern<normalform::ModuleOp> {
+class LowerWaterNormalFormModulePattern
+    : public OpRewritePattern<water_normalform::ModuleOp> {
 public:
-  using OpRewritePattern<normalform::ModuleOp>::OpRewritePattern;
+  using OpRewritePattern<water_normalform::ModuleOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(normalform::ModuleOp nfModule,
+  LogicalResult matchAndRewrite(water_normalform::ModuleOp nfModule,
                                 PatternRewriter &rewriter) const override {
     // Check if parent is a builtin module - if so, inline contents into parent.
     if (auto parentModule = dyn_cast<ModuleOp>(nfModule->getParentOp())) {
@@ -49,7 +49,7 @@ public:
     ModuleOp builtinModule =
         ModuleOp::create(rewriter, nfModule.getLoc(), nfModule.getName());
 
-    // Move all blocks from the normalform module to the builtin module.
+    // Move all blocks from the water_normalform module to the builtin module.
     rewriter.inlineRegionBefore(nfModule.getRegion(), builtinModule.getBody());
 
     // Remove the empty terminator block that was automatically added by the
@@ -62,30 +62,31 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
-// LowerNormalFormModulePass
+// LowerWaterNormalFormModulePass
 //===----------------------------------------------------------------------===//
 
-struct LowerNormalFormModulePass
-    : public ::impl::LowerNormalFormModulePassBase<LowerNormalFormModulePass> {
-  using LowerNormalFormModulePassBase::LowerNormalFormModulePassBase;
+struct LowerWaterNormalFormModulePass
+    : public ::impl::LowerWaterNormalFormModulePassBase<
+          LowerWaterNormalFormModulePass> {
+  using LowerWaterNormalFormModulePassBase::LowerWaterNormalFormModulePassBase;
 
   void runOnOperation() override {
     Operation *root = getOperation();
 
     if (auto rootModule = dyn_cast<ModuleOp>(root)) {
       int64_t count = llvm::count_if(rootModule.getBody()->getOperations(),
-                                     llvm::IsaPred<normalform::ModuleOp>);
+                                     llvm::IsaPred<water_normalform::ModuleOp>);
 
       if (count > 1) {
-        rootModule.emitError()
-            << "expected at most one top-level "
-            << normalform::ModuleOp::getOperationName() << ", found " << count;
+        rootModule.emitError() << "expected at most one top-level "
+                               << water_normalform::ModuleOp::getOperationName()
+                               << ", found " << count;
         return signalPassFailure();
       }
     }
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<LowerNormalFormModulePattern>(&getContext());
+    patterns.add<LowerWaterNormalFormModulePattern>(&getContext());
 
     walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
@@ -93,6 +94,6 @@ struct LowerNormalFormModulePass
 
 } // namespace
 
-std::unique_ptr<Pass> normalform::createLowerNormalFormModulePass() {
-  return std::make_unique<LowerNormalFormModulePass>();
+std::unique_ptr<Pass> water_normalform::createLowerWaterNormalFormModulePass() {
+  return std::make_unique<LowerWaterNormalFormModulePass>();
 }

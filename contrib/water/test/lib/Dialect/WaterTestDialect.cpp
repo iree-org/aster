@@ -21,7 +21,7 @@ using namespace mlir;
 
 // Test normal form attribute.
 #define GET_ATTRDEF_CLASSES
-#include "TestNormalFormAttr.cpp.inc"
+#include "TestWaterNormalFormAttr.cpp.inc"
 
 void mlir::water::test::WaterTestDialect::initialize() {
   addOperations<
@@ -31,7 +31,7 @@ void mlir::water::test::WaterTestDialect::initialize() {
 
   addAttributes<
 #define GET_ATTRDEF_LIST
-#include "TestNormalFormAttr.cpp.inc"
+#include "TestWaterNormalFormAttr.cpp.inc"
       >();
 };
 

@@ -20,32 +20,32 @@ include "mlir/IR/SymbolInterfaces.td"
 #define WATER_DIALECT_NORMALFORM_NORMALFORMOPS
 
 //-----------------------------------------------------------------------------
-// Base class for all NormalForm operations.
+// Base class for all WaterNormalForm operations.
 //-----------------------------------------------------------------------------
 
-class NormalFormOp<string mnemonic, list<Trait> traits = []> :
-    Op<NormalFormDialect, mnemonic, traits>;
+class WaterNormalFormOp<string mnemonic, list<Trait> traits = []> :
+    Op<WaterNormalFormDialect, mnemonic, traits>;
 
 //-----------------------------------------------------------------------------
 // Attribute constraints.
 //-----------------------------------------------------------------------------
 
-/// An array of attributes implementing NormalFormAttrInterface.
-def NormalFormAttrArray : TypedArrayAttrBase<NormalFormAttrInterface,
-    "array of NormalFormAttrInterface">;
+/// An array of attributes implementing WaterNormalFormAttrInterface.
+def WaterNormalFormAttrArray : TypedArrayAttrBase<WaterNormalFormAttrInterface,
+    "array of WaterNormalFormAttrInterface">;
 
 //-----------------------------------------------------------------------------
 // Structure Ops
 //-----------------------------------------------------------------------------
 
-def ModuleOp : NormalFormOp<"module", [
+def ModuleOp : WaterNormalFormOp<"module", [
     IsolatedFromAbove, NoRegionArguments, SymbolTable, Symbol,
   ] # GraphRegionNoTerminator.traits> {
   let summary = "A container that enforces IR invariants specified by normal form attributes.";
   let description = [{
-    The `normalform.module` operation defines a scoped region whose contents must
+    The `water_normalform.module` operation defines a scoped region whose contents must
     satisfy the constraints specified by the attached normal form attributes. Each
-    attribute must implement `NormalFormAttrInterface`, which provides hooks for
+    attribute must implement `WaterNormalFormAttrInterface`, which provides hooks for
     verifying types, attributes, and operations within the module.
 
     During region verification, the module walks all nested operations and
@@ -59,21 +59,21 @@ def ModuleOp : NormalFormOp<"module", [
 
     ```mlir
     // Enforce that all tensor types are fully specified.
-    normalform.module @my_kernel [#wave.normal_form<full_types>] {
+    water_normalform.module @my_kernel [#wave.normal_form<full_types>] {
       func.func @compute(%arg: !wave.tensor<[64, 128] of f32>) {
         return
       }
     }
 
     // Multiple normal form attributes from different dialects.
-    normalform.module @validated [#wave.normal_form<full_types>, #other.normal_form] {
+    water_normalform.module @validated [#wave.normal_form<full_types>, #other.normal_form] {
       func.func @compute(%arg: !wave.tensor<[64, 128] of f32>) {
         return
       }
     }
     ```
   }];
-  let arguments = (ins NormalFormAttrArray:$normal_forms, OptionalAttr<SymbolNameAttr>:$sym_name);
+  let arguments = (ins WaterNormalFormAttrArray:$normal_forms, OptionalAttr<SymbolNameAttr>:$sym_name);
   let regions = (region SizedRegion<1>:$bodyRegion);
   let assemblyFormat = [{
     ($sym_name^)? $normal_forms attr-dict-with-keyword $bodyRegion
@@ -81,14 +81,14 @@ def ModuleOp : NormalFormOp<"module", [
 
   let builders = [
     OpBuilder<(ins
-      CArg<"::llvm::ArrayRef<NormalFormAttrInterface>">:$normal_forms,
+      CArg<"::llvm::ArrayRef<WaterNormalFormAttrInterface>">:$normal_forms,
       CArg<"std::optional<::llvm::StringRef>", "{}">:$name)>
   ];
 
   let extraClassDeclaration = [{
     /// Construct a module from the given location with an optional name.
     static ModuleOp create(::mlir::Location loc,
-                           ::llvm::ArrayRef<NormalFormAttrInterface> normalForms,
+                           ::llvm::ArrayRef<WaterNormalFormAttrInterface> normalForms,
                            std::optional<::llvm::StringRef> name = {});
 
     /// Return the name of this module if present.
@@ -96,17 +96,17 @@ def ModuleOp : NormalFormOp<"module", [
 
     /// Checks whether the normal forms passed in `normalForms` apply to this
     /// module and attaches them to the module if true. Returns true if the module was changed.
-    bool inferNormalForms(::llvm::ArrayRef<NormalFormAttrInterface> normalForms);
+    bool inferWaterNormalForms(::llvm::ArrayRef<WaterNormalFormAttrInterface> normalForms);
 
     /// Checks wheter a given normal form applies to this module.
     ::llvm::LogicalResult
-    verifyNormalForm(NormalFormAttrInterface normalForm, bool emitDiagnostics);
+    verifyWaterNormalForm(WaterNormalFormAttrInterface normalForm, bool emitDiagnostics);
 
     /// Adds normal form attributes to the module. Returns true if the module was changed.
-    bool addNormalForms(::llvm::ArrayRef<NormalFormAttrInterface> normalForms);
+    bool addWaterNormalForms(::llvm::ArrayRef<WaterNormalFormAttrInterface> normalForms);
 
     /// Removes normal form attributes from the module. Returns true if the module was changed.
-    bool removeNormalForms(::llvm::ArrayRef<NormalFormAttrInterface> normalForms);
+    bool removeWaterNormalForms(::llvm::ArrayRef<WaterNormalFormAttrInterface> normalForms);
 
     //===------------------------------------------------------------------===//
     // SymbolOpInterface Methods

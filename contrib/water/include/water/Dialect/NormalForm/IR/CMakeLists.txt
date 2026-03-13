@@ -1,8 +1,8 @@
 add_custom_target(MLIRWaterNormalFormIncGen)
 
 set(LLVM_TARGET_DEFINITIONS NormalFormDialect.td)
-mlir_tablegen(NormalFormDialect.h.inc -gen-dialect-decls -dialect=normalform)
-mlir_tablegen(NormalFormDialect.cpp.inc -gen-dialect-defs -dialect=normalform)
+mlir_tablegen(NormalFormDialect.h.inc -gen-dialect-decls -dialect=water_normalform)
+mlir_tablegen(NormalFormDialect.cpp.inc -gen-dialect-defs -dialect=water_normalform)
 add_public_tablegen_target(MLIRWaterNormalFormDialectIncGen)
 
 set(LLVM_TARGET_DEFINITIONS NormalFormOps.td)
@@ -20,4 +20,4 @@ add_mlir_doc(WaterNormalFormInterfaces WaterNormalFormAttrInterfaces Dialects/ -
 
 add_dependencies(mlir-headers MLIRWaterNormalFormIncGen)
 
-add_mlir_doc(WaterNormalForm WaterNormalForm Dialects/ -gen-dialect-doc -dialect normalform)
+add_mlir_doc(WaterNormalForm WaterNormalForm Dialects/ -gen-dialect-doc -dialect water_normalform)

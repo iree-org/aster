@@ -23,7 +23,7 @@
 #include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;
-using namespace normalform;
+using namespace water_normalform;
 
 #define GET_OP_CLASSES
 #include "water/Dialect/NormalForm/IR/NormalFormOps.cpp.inc"
@@ -32,9 +32,10 @@ using namespace normalform;
 // ModuleOp
 //-----------------------------------------------------------------------------
 
-void normalform::ModuleOp::build(OpBuilder &builder, OperationState &state,
-                                 ArrayRef<NormalFormAttrInterface> normalForms,
-                                 std::optional<llvm::StringRef> name) {
+void water_normalform::ModuleOp::build(
+    OpBuilder &builder, OperationState &state,
+    ArrayRef<WaterNormalFormAttrInterface> normalForms,
+    std::optional<llvm::StringRef> name) {
   state.addRegion()->emplaceBlock();
   ArrayRef<Attribute> attributeArray =
       ArrayRef<Attribute>(normalForms.begin(), normalForms.end());
@@ -48,17 +49,15 @@ void normalform::ModuleOp::build(OpBuilder &builder, OperationState &state,
 }
 
 /// Construct a module from the given context.
-normalform::ModuleOp
-normalform::ModuleOp::create(Location loc,
-                             ArrayRef<NormalFormAttrInterface> normalForms,
-                             std::optional<StringRef> name) {
+water_normalform::ModuleOp water_normalform::ModuleOp::create(
+    Location loc, ArrayRef<WaterNormalFormAttrInterface> normalForms,
+    std::optional<StringRef> name) {
   OpBuilder builder(loc->getContext());
   return ModuleOp::create(builder, loc, normalForms, name);
 }
 
-LogicalResult
-normalform::ModuleOp::verifyNormalForm(NormalFormAttrInterface normalForm,
-                                       bool emitDiagnostics) {
+LogicalResult water_normalform::ModuleOp::verifyWaterNormalForm(
+    WaterNormalFormAttrInterface normalForm, bool emitDiagnostics) {
   Operation *root = getOperation();
 
   SmallPtrSet<Type, 16> seenTypes;
@@ -102,8 +101,8 @@ normalform::ModuleOp::verifyNormalForm(NormalFormAttrInterface normalForm,
   auto visitOp = [&](Operation *op) {
     loc = op->getLoc();
 
-    // TODO: skip when we reach another normalform.module which has normalform
-    // in its attributes
+    // TODO: skip when we reach another water_normalform.module which has
+    // water_normalform in its attributes
     if (llvm::failed(normalForm.verifyOperation(emitLocError, op)))
       return WalkResult::interrupt();
 
@@ -139,18 +138,18 @@ normalform::ModuleOp::verifyNormalForm(NormalFormAttrInterface normalForm,
   return llvm::failure(walkResult.wasInterrupted());
 }
 
-bool normalform::ModuleOp::inferNormalForms(
-    ArrayRef<NormalFormAttrInterface> normalForms) {
-  ArrayRef<Attribute> currentNormalForms = getNormalFormsAttr().getValue();
+bool water_normalform::ModuleOp::inferWaterNormalForms(
+    ArrayRef<WaterNormalFormAttrInterface> normalForms) {
+  ArrayRef<Attribute> currentWaterNormalForms = getNormalFormsAttr().getValue();
   SetVector<Attribute> normalFormSet;
-  normalFormSet.insert_range(currentNormalForms);
+  normalFormSet.insert_range(currentWaterNormalForms);
 
   bool changed = false;
-  for (NormalFormAttrInterface nf : normalForms) {
+  for (WaterNormalFormAttrInterface nf : normalForms) {
     if (normalFormSet.contains(nf))
       continue;
 
-    if (llvm::succeeded(verifyNormalForm(nf, /*emitDiagnostics*/ false))) {
+    if (llvm::succeeded(verifyWaterNormalForm(nf, /*emitDiagnostics*/ false))) {
       normalFormSet.insert(nf);
       changed = true;
     }
@@ -160,59 +159,59 @@ bool normalform::ModuleOp::inferNormalForms(
     return false;
 
   OpBuilder builder(getContext());
-  ArrayAttr newNormalFormsAttr =
+  ArrayAttr newWaterNormalFormsAttr =
       builder.getArrayAttr(normalFormSet.getArrayRef());
-  setNormalFormsAttr(newNormalFormsAttr);
+  setNormalFormsAttr(newWaterNormalFormsAttr);
   return true;
 }
 
-bool normalform::ModuleOp::addNormalForms(
-    ArrayRef<NormalFormAttrInterface> normalForms) {
+bool water_normalform::ModuleOp::addWaterNormalForms(
+    ArrayRef<WaterNormalFormAttrInterface> normalForms) {
   if (normalForms.empty())
     return false;
 
-  ArrayRef<Attribute> currentNormalForms = getNormalFormsAttr().getValue();
+  ArrayRef<Attribute> currentWaterNormalForms = getNormalFormsAttr().getValue();
   SetVector<Attribute> normalFormSet;
-  normalFormSet.insert_range(currentNormalForms);
+  normalFormSet.insert_range(currentWaterNormalForms);
 
   bool changed = false;
-  for (NormalFormAttrInterface nf : normalForms)
+  for (WaterNormalFormAttrInterface nf : normalForms)
     changed |= normalFormSet.insert(nf);
 
   if (!changed)
     return false;
 
   OpBuilder builder(getContext());
-  ArrayAttr newNormalFormsAttr =
+  ArrayAttr newWaterNormalFormsAttr =
       builder.getArrayAttr(normalFormSet.getArrayRef());
-  setNormalFormsAttr(newNormalFormsAttr);
+  setNormalFormsAttr(newWaterNormalFormsAttr);
   return true;
 }
 
-bool normalform::ModuleOp::removeNormalForms(
-    ArrayRef<NormalFormAttrInterface> normalForms) {
+bool water_normalform::ModuleOp::removeWaterNormalForms(
+    ArrayRef<WaterNormalFormAttrInterface> normalForms) {
   if (normalForms.empty())
     return false;
 
-  ArrayRef<Attribute> currentNormalForms = getNormalFormsAttr().getValue();
+  ArrayRef<Attribute> currentWaterNormalForms = getNormalFormsAttr().getValue();
   SetVector<Attribute> normalFormSet;
-  normalFormSet.insert_range(currentNormalForms);
+  normalFormSet.insert_range(currentWaterNormalForms);
 
   bool changed = false;
-  for (NormalFormAttrInterface nf : normalForms)
+  for (WaterNormalFormAttrInterface nf : normalForms)
     changed |= normalFormSet.remove(nf);
 
   if (!changed)
     return false;
 
   OpBuilder builder(getContext());
-  ArrayAttr newNormalFormsAttr =
+  ArrayAttr newWaterNormalFormsAttr =
       builder.getArrayAttr(normalFormSet.getArrayRef());
-  setNormalFormsAttr(newNormalFormsAttr);
+  setNormalFormsAttr(newWaterNormalFormsAttr);
   return true;
 }
 
-LogicalResult normalform::ModuleOp::verify() {
+LogicalResult water_normalform::ModuleOp::verify() {
   // Verify that normal form attributes are unique (set semantics).
   ArrayAttr normalForms = getNormalFormsAttr();
   SmallPtrSet<Attribute, 4> seenForms;
@@ -225,13 +224,14 @@ LogicalResult normalform::ModuleOp::verify() {
   return llvm::success();
 }
 
-LogicalResult normalform::ModuleOp::verifyRegions() {
+LogicalResult water_normalform::ModuleOp::verifyRegions() {
   ArrayRef<Attribute> normalFormsAttrs = getNormalForms().getValue();
-  auto normalFormRange =
-      llvm::map_range(normalFormsAttrs, llvm::CastTo<NormalFormAttrInterface>);
+  auto normalFormRange = llvm::map_range(
+      normalFormsAttrs, llvm::CastTo<WaterNormalFormAttrInterface>);
 
-  for (NormalFormAttrInterface normalForm : normalFormRange) {
-    if (llvm::failed(verifyNormalForm(normalForm, /*emitDiagnostics*/ true))) {
+  for (WaterNormalFormAttrInterface normalForm : normalFormRange) {
+    if (llvm::failed(
+            verifyWaterNormalForm(normalForm, /*emitDiagnostics*/ true))) {
       return llvm::failure();
     }
   }

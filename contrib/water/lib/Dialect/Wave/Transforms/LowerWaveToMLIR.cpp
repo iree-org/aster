@@ -53,12 +53,12 @@ struct LowerWaveToMLIRPass
     MLIRContext *ctx = &getContext();
     Operation *op = getOperation();
 
-    if (failed(wave::verifyNormalFormPassPrecondition(
-            wave::WaveNormalForm::AllTypesSpecified |
-                wave::WaveNormalForm::MemoryOnlyTypes |
-                wave::WaveNormalForm::ResolvedAllocations |
-                wave::WaveNormalForm::IndexExprsSpecified |
-                wave::WaveNormalForm::OrderedSymsSpecified,
+    if (failed(wave::verifyWaterNormalFormPassPrecondition(
+            wave::WaveWaterNormalForm::AllTypesSpecified |
+                wave::WaveWaterNormalForm::MemoryOnlyTypes |
+                wave::WaveWaterNormalForm::ResolvedAllocations |
+                wave::WaveWaterNormalForm::IndexExprsSpecified |
+                wave::WaveWaterNormalForm::OrderedSymsSpecified,
             op, getPassName())))
       return signalPassFailure();
 
@@ -99,7 +99,7 @@ struct LowerWaveToMLIRPass
         getOperation()->walk<WalkOrder::PreOrder>([&](Operation *op) {
           // We shouldn't hit standalone Wave dialect operations as we are
           // walking in preorder.
-          // TODO: consider turning this into a normalform.
+          // TODO: consider turning this into a water_normalform.
           if (op->getDialect() == waveDialect) {
             op->emitError() << "wave dialect operation with no hyperparameters "
                                "provided by any ancestor";
@@ -141,7 +141,7 @@ struct LowerWaveToMLIRPass
     if (walkResult.wasInterrupted())
       return signalPassFailure();
 
-    if (failed(wave::clearNormalFormPassPostcondition(op)))
+    if (failed(wave::clearWaterNormalFormPassPostcondition(op)))
       return signalPassFailure();
   }
 };

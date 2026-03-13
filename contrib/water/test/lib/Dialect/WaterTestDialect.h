@@ -18,7 +18,7 @@
 
 // Test normal form attribute.
 #define GET_ATTRDEF_CLASSES
-#include "TestNormalFormAttr.h.inc"
+#include "TestWaterNormalFormAttr.h.inc"
 
 #define GET_OP_CLASSES
 #include "WaterTestDialectOps.h.inc"

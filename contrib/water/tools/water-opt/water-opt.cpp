@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
   registerSCFToControlFlowPass();
   registerSymbolDCEPass();
   transform::registerTransformPasses();
-  normalform::registerNormalFormPasses();
+  water_normalform::registerWaterNormalFormPasses();
   water::registerPasses();
   water::test::registerAllPasses();
   wave::registerPasses();
@@ -88,7 +88,7 @@ int main(int argc, char **argv) {
       func::FuncDialect,
       gpu::GPUDialect,
       memref::MemRefDialect,
-      normalform::NormalFormDialect,
+      water_normalform::WaterNormalFormDialect,
       scf::SCFDialect,
       transform::TransformDialect,
       vector::VectorDialect,

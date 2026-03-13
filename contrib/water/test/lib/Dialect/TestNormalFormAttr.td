@@ -19,46 +19,46 @@ def WaterTestDialect : Dialect {
 }
 
 //-----------------------------------------------------------------------------
-// Test normal form attributes for testing NormalFormAttrInterface.
+// Test normal form attributes for testing WaterNormalFormAttrInterface.
 // Each attribute tests a single invariant.
 //-----------------------------------------------------------------------------
 
 def NoIndexTypesAttr : AttrDef<WaterTestDialect, "NoIndexTypes",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyType"]>]> {
+    [DeclareAttrInterfaceMethods<WaterNormalFormAttrInterface, ["verifyType"]>]> {
   let mnemonic = "no_index_types";
   let summary = "Normal form attribute that prohibits index types";
   let description = [{
-    A test attribute implementing NormalFormAttrInterface that verifies
+    A test attribute implementing WaterNormalFormAttrInterface that verifies
     no index types are used in operations, block arguments, or results.
   }];
 }
 
 def NoInvalidOpsAttr : AttrDef<WaterTestDialect, "NoInvalidOps",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<WaterNormalFormAttrInterface, ["verifyOperation"]>]> {
   let mnemonic = "no_invalid_ops";
   let summary = "Normal form attribute that prohibits division operations";
   let description = [{
-    A test attribute implementing NormalFormAttrInterface that verifies
+    A test attribute implementing WaterNormalFormAttrInterface that verifies
     no division operations (arith.divf, arith.divsi, arith.divui) are present.
   }];
 }
 
 def NoInvalidAttrsAttr : AttrDef<WaterTestDialect, "NoInvalidAttrs",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyAttribute"]>]> {
+    [DeclareAttrInterfaceMethods<WaterNormalFormAttrInterface, ["verifyAttribute"]>]> {
   let mnemonic = "no_invalid_attrs";
   let summary = "Normal form attribute that prohibits 'invalid' string values";
   let description = [{
-    A test attribute implementing NormalFormAttrInterface that verifies
+    A test attribute implementing WaterNormalFormAttrInterface that verifies
     no string attributes have the value "invalid".
   }];
 }
 
 def NoForbiddenSymbolsAttr : AttrDef<WaterTestDialect, "NoForbiddenSymbols",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyAttribute"]>]> {
+    [DeclareAttrInterfaceMethods<WaterNormalFormAttrInterface, ["verifyAttribute"]>]> {
   let mnemonic = "no_forbidden_symbols";
   let summary = "Normal form attribute that prohibits WaveSymbolAttr with name 'forbidden'";
   let description = [{
-    A test attribute implementing NormalFormAttrInterface that verifies
+    A test attribute implementing WaterNormalFormAttrInterface that verifies
     no WaveSymbolAttr has the name "forbidden". This is used to test that
     attributes embedded within types (like WaveTensorType's shape) are verified.
   }];

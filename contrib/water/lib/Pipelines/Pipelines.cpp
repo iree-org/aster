@@ -20,13 +20,13 @@ void mlir::water::registerWaterPipelines() {
       "water-middle-end-lowering",
       "Lower Wave dialect through normal forms to upstream MLIR dialects.",
       [](OpPassManager &pm) {
-        pm.addPass(wave::createWaterWaveDetectNormalFormsPass());
-        OpPassManager &nfPM = pm.nest<normalform::ModuleOp>();
+        pm.addPass(wave::createWaterWaveDetectWaterNormalFormsPass());
+        OpPassManager &nfPM = pm.nest<water_normalform::ModuleOp>();
         nfPM.addPass(wave::createWaterWavePropagateElementsPerThreadPass());
         nfPM.addPass(wave::createWaterWaveResolveDistributedAllocationsPass());
-        nfPM.addPass(wave::createWaterWaveDetectNormalFormsPass());
+        nfPM.addPass(wave::createWaterWaveDetectWaterNormalFormsPass());
         nfPM.addPass(wave::createLowerWaveToMLIRPass());
-        pm.addPass(normalform::createLowerNormalFormModulePass());
+        pm.addPass(water_normalform::createLowerWaterNormalFormModulePass());
         pm.addPass(createCanonicalizerPass());
         pm.addPass(createCSEPass());
       });

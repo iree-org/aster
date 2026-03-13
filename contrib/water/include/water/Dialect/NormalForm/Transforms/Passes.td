@@ -9,10 +9,10 @@
 
 include "mlir/Pass/PassBase.td"
 
-def LowerNormalFormModulePass : Pass<"lower-normalform-module"> {
-  let summary = "Lower normalform.module to builtin.module";
+def LowerWaterNormalFormModulePass : Pass<"lower-water_normalform-module"> {
+  let summary = "Lower water_normalform.module to builtin.module";
   let description = [{
-    This pass converts `normalform.module` operations to `builtin.module`
+    This pass converts `water_normalform.module` operations to `builtin.module`
     operations. The normal form attributes are not retained on the resulting
     module.
   }];

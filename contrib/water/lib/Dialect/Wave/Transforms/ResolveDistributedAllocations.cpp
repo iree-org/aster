@@ -149,9 +149,9 @@ struct ResolveDistributedAllocations
     if (walkResult.wasInterrupted())
       return signalPassFailure();
 
-    if (llvm::failed(wave::setNormalFormPassPostcondition(
-            wave::WaveNormalForm::ResolvedAllocations |
-                wave::WaveNormalForm::OrderedSymsSpecified,
+    if (llvm::failed(wave::setWaterNormalFormPassPostcondition(
+            wave::WaveWaterNormalForm::ResolvedAllocations |
+                wave::WaveWaterNormalForm::OrderedSymsSpecified,
             getOperation())))
       return signalPassFailure();
   }
