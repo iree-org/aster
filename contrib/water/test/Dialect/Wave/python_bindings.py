@@ -419,45 +419,49 @@ with ir.Context() as ctx:
     print(tiling_constr.tile_size)
 
     # CHECK: #wave.normal_form<none>
-    normal_form_attr = wave.WaveNormalFormAttr.get(wave.WaveNormalForm.None_)
+    normal_form_attr = wave.WaveWaterNormalFormAttr.get(wave.WaveWaterNormalForm.None_)
     print(normal_form_attr)
 
-    # CHECK: WaveNormalForm.None_
+    # CHECK: WaveWaterNormalForm.None_
     print(normal_form_attr.value)
 
     # CHECK: #wave.normal_form<full_func_boundary>
-    print(wave.WaveNormalFormAttr.get(wave.WaveNormalForm.FunctionBoundarySpecified))
+    print(
+        wave.WaveWaterNormalFormAttr.get(
+            wave.WaveWaterNormalForm.FunctionBoundarySpecified
+        )
+    )
 
     # CHECK: #wave.normal_form<full_op_types>
-    print(wave.WaveNormalFormAttr.get(wave.WaveNormalForm.OpTypesSpecified))
+    print(wave.WaveWaterNormalFormAttr.get(wave.WaveWaterNormalForm.OpTypesSpecified))
 
     # CHECK: #wave.normal_form<index_exprs>
-    print(wave.WaveNormalFormAttr.get(wave.WaveNormalForm.IndexExprsSpecified))
+    print(
+        wave.WaveWaterNormalFormAttr.get(wave.WaveWaterNormalForm.IndexExprsSpecified)
+    )
 
     # CHECK: #wave.normal_form<memory_only_types>
-    print(wave.WaveNormalFormAttr.get(wave.WaveNormalForm.MemoryOnlyTypes))
+    print(wave.WaveWaterNormalFormAttr.get(wave.WaveWaterNormalForm.MemoryOnlyTypes))
 
     # CHECK: #wave.normal_form<full_types>
-    print(wave.WaveNormalFormAttr.get(wave.WaveNormalForm.AllTypesSpecified))
+    print(wave.WaveWaterNormalFormAttr.get(wave.WaveWaterNormalForm.AllTypesSpecified))
 
     try:
-        wave.WaveNormalFormAttr.get(100)
+        wave.WaveWaterNormalFormAttr.get(100)
     except TypeError as e:
         assert "incompatible function arguments" in str(e)
     else:
         assert False, "Expected to fail with TypeError."
 
     # Invoke a pass using transform dialect. This should not fail.
-    transform_module = ir.Module.parse(
-        """
+    transform_module = ir.Module.parse("""
 module attributes {transform.with_named_sequence} {
   transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
     transform.apply_registered_pass "water-wave-detect-normal-forms" to %arg0
       : (!transform.any_op) -> !transform.any_op
     transform.yield
   }
-}"""
-    )
+}""")
     payload_module = ir.Module.parse("module {}")
     ops = list(transform_module.body.operations)
     entry_op = ops[0]
@@ -469,8 +473,8 @@ module attributes {transform.with_named_sequence} {
 
     # The pass must have applied and inferred normal forms. We don't care which
     # ones here, this is tested separately, just checking the fact that the pass
-    # applied. The pass wraps content in a normalform.module.
-    # CHECK: normalform.module
+    # applied. The pass wraps content in a water_normalform.module.
+    # CHECK: water_normalform.module
     # CHECK-SAME: #wave.normal_form<
     print(payload_module)
 

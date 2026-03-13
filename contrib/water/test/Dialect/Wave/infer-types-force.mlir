@@ -1,6 +1,6 @@
 // RUN: water-opt %s --water-wave-infer-types='force=1' --split-input-file --verify-diagnostics
 
-normalform.module [#wave.normal_form<full_func_boundary>] {
+water_normalform.module [#wave.normal_form<full_func_boundary>] {
   // expected-error @below {{type conflict was detected for argument #0 of block #0 in region #0}}
   func.func @iterate_conflict(%arg0: !wave.tensor<[@A] of f32>) {
     // expected-error @below {{normal form requires tensor types to be fully specified}}

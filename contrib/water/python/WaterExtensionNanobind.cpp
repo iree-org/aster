@@ -348,37 +348,37 @@ struct PyWaveHyperparameterAttr
 };
 
 //===---------------------------------------------------------------------===//
-// WaveNormalFormAttr
+// WaveWaterNormalFormAttr
 //===---------------------------------------------------------------------===//
 
-struct PyWaveNormalFormAttr
+struct PyWaveWaterNormalFormAttr
     : mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyConcreteAttribute<
-          PyWaveNormalFormAttr> {
+          PyWaveWaterNormalFormAttr> {
   static constexpr IsAFunctionTy isaFunction =
-      mlirAttributeIsAWaveNormalFormAttr;
+      mlirAttributeIsAWaveWaterNormalFormAttr;
   static constexpr GetTypeIDFunctionTy getTypeIdFunction =
-      mlirWaveNormalFormAttrGetTypeID;
-  static constexpr const char *pyClassName = "WaveNormalFormAttr";
+      mlirWaveWaterNormalFormAttrGetTypeID;
+  static constexpr const char *pyClassName = "WaveWaterNormalFormAttr";
   using PyConcreteAttribute::PyConcreteAttribute;
 
   static void bindDerived(ClassTy &c) {
     c.def_static(
         "get",
-        [](WaveNormalForm value,
+        [](WaveWaterNormalForm value,
            mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::DefaultingPyMlirContext
                context) {
-          return PyWaveNormalFormAttr(
+          return PyWaveWaterNormalFormAttr(
               context->getRef(),
-              mlirWaveNormalFormAttrGet(context->get(),
-                                        static_cast<uint32_t>(value)));
+              mlirWaveWaterNormalFormAttrGet(context->get(),
+                                             static_cast<uint32_t>(value)));
         },
         nb::arg("value"), nb::arg("context") = nb::none(),
-        "Gets a wave.WaveNormalFormAttr from a normal form enum value.");
+        "Gets a wave.WaveWaterNormalFormAttr from a normal form enum value.");
     c.def_prop_ro(
         "value",
         [](MlirAttribute self) {
-          return static_cast<WaveNormalForm>(
-              mlirWaveNormalFormAttrGetValue(self));
+          return static_cast<WaveWaterNormalForm>(
+              mlirWaveWaterNormalFormAttrGetValue(self));
         },
         "Returns the normal form enum value.");
   }
@@ -1052,14 +1052,14 @@ NB_MODULE(_waterDialects, m) {
       .value("THREAD_2", WaveIndexSymbol_THREAD_2)
       .value("GPR_NUMBER", WaveIndexSymbol_GPR_NUMBER);
 
-  nb::enum_<WaveNormalForm>(d, "WaveNormalForm")
-      .value("None_", WaveNormalFormNone)
+  nb::enum_<WaveWaterNormalForm>(d, "WaveWaterNormalForm")
+      .value("None_", WaveWaterNormalFormNone)
       .value("FunctionBoundarySpecified",
-             WaveNormalFormFunctionBoundarySpecified)
-      .value("OpTypesSpecified", WaveNormalFormOpTypesSpecified)
-      .value("IndexExprsSpecified", WaveNormalFormIndexExprsSpecified)
-      .value("MemoryOnlyTypes", WaveNormalFormMemoryOnlyTypes)
-      .value("AllTypesSpecified", WaveNormalFormAllTypesSPecified);
+             WaveWaterNormalFormFunctionBoundarySpecified)
+      .value("OpTypesSpecified", WaveWaterNormalFormOpTypesSpecified)
+      .value("IndexExprsSpecified", WaveWaterNormalFormIndexExprsSpecified)
+      .value("MemoryOnlyTypes", WaveWaterNormalFormMemoryOnlyTypes)
+      .value("AllTypesSpecified", WaveWaterNormalFormAllTypesSPecified);
 
   nb::enum_<WaveWorkgroupDim>(d, "WaveWorkgroupDim")
       .value("X", WaveWorkgroupDimX)
@@ -1121,7 +1121,7 @@ NB_MODULE(_waterDialects, m) {
   PyWaveIndexSymbolAttr::bind(d);
   PyWaveIndexMappingAttr::bind(d);
   PyWaveHyperparameterAttr::bind(d);
-  PyWaveNormalFormAttr::bind(d);
+  PyWaveWaterNormalFormAttr::bind(d);
   PyWaveWorkgroupDimAttr::bind(d);
   PyWaveReductionScopeAttr::bind(d);
   PyWaveAddressSpaceAttr::bind(d);

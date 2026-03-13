@@ -6,9 +6,9 @@
 //-----------------------------------------------------------------------------
 
 // no_index_types passes when no index types are used.
-// CHECK-LABEL: normalform.module @no_index_types_valid
+// CHECK-LABEL: water_normalform.module @no_index_types_valid
 // CHECK-SAME:  [#water_test.no_index_types]
-normalform.module @no_index_types_valid [#water_test.no_index_types] {
+water_normalform.module @no_index_types_valid [#water_test.no_index_types] {
   func.func @f(%arg: i32) -> f32 {
     %cst = arith.constant 0.0 : f32
     return %cst : f32
@@ -16,9 +16,9 @@ normalform.module @no_index_types_valid [#water_test.no_index_types] {
 }
 
 // no_invalid_ops passes when no division operations are present.
-// CHECK-LABEL: normalform.module @no_invalid_ops_valid
+// CHECK-LABEL: water_normalform.module @no_invalid_ops_valid
 // CHECK-SAME:  [#water_test.no_invalid_ops]
-normalform.module @no_invalid_ops_valid [#water_test.no_invalid_ops] {
+water_normalform.module @no_invalid_ops_valid [#water_test.no_invalid_ops] {
   func.func @f(%a: f32, %b: f32) -> f32 {
     %0 = arith.mulf %a, %b : f32
     return %0 : f32
@@ -26,9 +26,9 @@ normalform.module @no_invalid_ops_valid [#water_test.no_invalid_ops] {
 }
 
 // no_invalid_attrs passes when no "invalid" string attributes are present.
-// CHECK-LABEL: normalform.module @no_invalid_attrs_valid
+// CHECK-LABEL: water_normalform.module @no_invalid_attrs_valid
 // CHECK-SAME:  [#water_test.no_invalid_attrs]
-normalform.module @no_invalid_attrs_valid [#water_test.no_invalid_attrs] {
+water_normalform.module @no_invalid_attrs_valid [#water_test.no_invalid_attrs] {
   func.func @f() attributes {foo = "valid", bar = 42 : i32} {
     return
   }
@@ -37,9 +37,9 @@ normalform.module @no_invalid_attrs_valid [#water_test.no_invalid_attrs] {
 // no_invalid_ops passes with scf.for block arguments (iter_args and induction
 // variable). This tests that block arguments in nested regions are properly
 // walked and verified.
-// CHECK-LABEL: normalform.module @no_invalid_ops_nested_block_args
+// CHECK-LABEL: water_normalform.module @no_invalid_ops_nested_block_args
 // CHECK-SAME:  [#water_test.no_invalid_ops]
-normalform.module @no_invalid_ops_nested_block_args [#water_test.no_invalid_ops] {
+water_normalform.module @no_invalid_ops_nested_block_args [#water_test.no_invalid_ops] {
   func.func @f() -> f32 {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -59,18 +59,18 @@ normalform.module @no_invalid_ops_nested_block_args [#water_test.no_invalid_ops]
 //-----------------------------------------------------------------------------
 
 // Two attributes pass with valid IR.
-// CHECK-LABEL: normalform.module @two_attrs_valid
+// CHECK-LABEL: water_normalform.module @two_attrs_valid
 // CHECK-SAME:  [#water_test.no_index_types, #water_test.no_invalid_ops]
-normalform.module @two_attrs_valid [#water_test.no_index_types, #water_test.no_invalid_ops] {
+water_normalform.module @two_attrs_valid [#water_test.no_index_types, #water_test.no_invalid_ops] {
   func.func @f(%arg: i32) {
     return
   }
 }
 
 // All three attributes pass with valid IR.
-// CHECK-LABEL: normalform.module @all_attrs_valid
+// CHECK-LABEL: water_normalform.module @all_attrs_valid
 // CHECK-SAME:  [#water_test.no_index_types, #water_test.no_invalid_ops, #water_test.no_invalid_attrs]
-normalform.module @all_attrs_valid [#water_test.no_index_types, #water_test.no_invalid_ops, #water_test.no_invalid_attrs] {
+water_normalform.module @all_attrs_valid [#water_test.no_index_types, #water_test.no_invalid_ops, #water_test.no_invalid_attrs] {
   func.func @f(%arg: i32) attributes {foo = "valid"} {
     return
   }
@@ -81,8 +81,8 @@ normalform.module @all_attrs_valid [#water_test.no_index_types, #water_test.no_i
 //-----------------------------------------------------------------------------
 
 // Anonymous module with single attribute.
-// CHECK-LABEL: normalform.module [#water_test.no_invalid_ops]
-normalform.module [#water_test.no_invalid_ops] {
+// CHECK-LABEL: water_normalform.module [#water_test.no_invalid_ops]
+water_normalform.module [#water_test.no_invalid_ops] {
   func.func @f() {
     return
   }

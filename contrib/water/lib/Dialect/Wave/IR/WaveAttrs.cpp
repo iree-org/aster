@@ -1028,17 +1028,17 @@ static llvm::LogicalResult visitOpRelatedTypes(Operation *op,
 // Normal Form attributes
 //-----------------------------------------------------------------------------
 
-LogicalResult WaveNormalFormAttr::verifyOperation(
+LogicalResult WaveWaterNormalFormAttr::verifyOperation(
     function_ref<InFlightDiagnostic()> emitError, Operation *op) const {
-  WaveNormalForm form = getValue();
+  WaveWaterNormalForm form = getValue();
 
   // No normal form required.
-  if (form == wave::WaveNormalForm::None)
+  if (form == wave::WaveWaterNormalForm::None)
     return llvm::success();
 
   if (auto func = llvm::dyn_cast<FunctionOpInterface>(op)) {
     if (wave::bitEnumContainsAll(
-            form, wave::WaveNormalForm::FunctionBoundarySpecified)) {
+            form, wave::WaveWaterNormalForm::FunctionBoundarySpecified)) {
       constexpr llvm::StringLiteral kMessage =
           "normal form requires tensor types to be fully specified at "
           "function boundaries";
@@ -1052,7 +1052,8 @@ LogicalResult WaveNormalFormAttr::verifyOperation(
     }
   }
 
-  if (wave::bitEnumContainsAll(form, wave::WaveNormalForm::OpTypesSpecified)) {
+  if (wave::bitEnumContainsAll(form,
+                               wave::WaveWaterNormalForm::OpTypesSpecified)) {
     constexpr llvm::StringLiteral kMessage =
         "normal form requires tensor types to be fully specified";
     if (llvm::failed(visitOpRelatedTypes(op, verifyTypesFullySpecified,
@@ -1062,7 +1063,8 @@ LogicalResult WaveNormalFormAttr::verifyOperation(
     }
   }
 
-  if (wave::bitEnumContainsAll(form, wave::WaveNormalForm::MemoryOnlyTypes)) {
+  if (wave::bitEnumContainsAll(form,
+                               wave::WaveWaterNormalForm::MemoryOnlyTypes)) {
     constexpr llvm::StringLiteral kMessage =
         "normal form requires tensor types to have only memory address spaces "
         "(elements per thread propagation missing?)";
@@ -1073,8 +1075,8 @@ LogicalResult WaveNormalFormAttr::verifyOperation(
     }
   }
 
-  if (wave::bitEnumContainsAll(form,
-                               wave::WaveNormalForm::IndexExprsSpecified)) {
+  if (wave::bitEnumContainsAll(
+          form, wave::WaveWaterNormalForm::IndexExprsSpecified)) {
     if (op->hasTrait<wave::HasWaveIndexMapping>() &&
         !op->getAttr(wave::WaveDialect::kIndexWaveExprListAttrName)) {
       // Only require index expressions for read/write ops, or ops with
@@ -1106,8 +1108,8 @@ LogicalResult WaveNormalFormAttr::verifyOperation(
     }
   }
 
-  if (wave::bitEnumContainsAll(form,
-                               wave::WaveNormalForm::ResolvedAllocations)) {
+  if (wave::bitEnumContainsAll(
+          form, wave::WaveWaterNormalForm::ResolvedAllocations)) {
     if (auto allocOp = llvm::dyn_cast<wave::AllocateOp>(op)) {
       if (!llvm::isa<MemRefType>(allocOp.getResult().getType()))
         return emitError() << "normal form requires all wave.allocate "

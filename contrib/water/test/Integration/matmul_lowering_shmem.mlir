@@ -9,7 +9,7 @@
 // tests cover individual transformations and verifiers.
 
 // CHECK-NOT: wave.
-// CHECK-NOT: normalform
+// CHECK-NOT: water_normalform
 
 func.func @kernel(%arg0: !wave.tensor<[@M, @K] of f16, <global>>, %arg1: !wave.tensor<[@N, @K] of f16, <global>>, %arg2: !wave.tensor<[@M, @N] of f32, <global>>) attributes {wave.constraints = [#wave.workgroup_constraint<dim = <"M">, tile_size = <[#wave.symbol<"BLOCK_M">] -> (BLOCK_M)>, workgroup_dim = <x>>, #wave.workgroup_constraint<dim = <"N">, tile_size = <[#wave.symbol<"BLOCK_N">] -> (BLOCK_N)>, workgroup_dim = <y>>, #wave.tiling_constraint<dim = <"K">, tile_size = <[#wave.symbol<"BLOCK_K">] -> (BLOCK_K)>>, #wave.wave_constraint<dim = <"M">, tile_size = <[#wave.symbol<"BLOCK_M">] -> (BLOCK_M floordiv 2)>>, #wave.wave_constraint<dim = <"N">, tile_size = <[#wave.symbol<"BLOCK_N">] -> (BLOCK_N floordiv 2)>>, #wave.hardware_constraint<threads_per_wave = 64, waves_per_block = [2, 2, 1], mma_type = <f32_32x32x8_f16>>], wave.hyperparameters = #wave.hyperparameters<{"$GLOBAL_MEMORY_UNITS" = 4 : i64, "$GLOBAL_TO_SHARED_DELAY" = 1 : i64, "$MMA_DELAY" = 1 : i64, "$MMA_UNITS" = 4 : i64, "$READ_GLOBAL_DELAY" = 2 : i64, "$READ_SHARED_DELAY" = 1 : i64, "$SHARED_MEMORY_UNITS" = 4 : i64, "$SHUFFLE_DELAY" = 1 : i64, "$SHUFFLE_UNITS" = 2 : i64, "$VALU_DELAY" = 1 : i64, "$VALU_UNITS" = 2 : i64, "$WRITE_GLOBAL_DELAY" = 2 : i64, "$WRITE_SHARED_DELAY" = 1 : i64, BLOCK_K = 32 : i64, BLOCK_M = 64 : i64, BLOCK_N = 64 : i64, K = 640 : i64, M = 1024 : i64, N = 5120 : i64}>} {
   %0 = wave.allocate {distributed_shape = #wave.expr_list<[] -> (9216)>} : !wave.tensor<[@N, @K, @M] of i8, <shared>>

@@ -373,33 +373,36 @@ MLIR_CAPI_EXPORTED uint32_t mlirWaveMmaKindAttrGetValue(MlirAttribute attr);
 MLIR_CAPI_EXPORTED MlirTypeID mlirWaveMmaKindAttrGetTypeID();
 
 //===---------------------------------------------------------------------===//
-// WaveNormalFormAttr
+// WaveWaterNormalFormAttr
 //===---------------------------------------------------------------------===//
 
 /// Normal forms, this must remain consistent with WaveAttrs.td.
-enum WaveNormalForm {
-  WaveNormalFormNone = 0,
-  WaveNormalFormFunctionBoundarySpecified = 1,
-  WaveNormalFormOpTypesSpecified = 2,
-  WaveNormalFormIndexExprsSpecified = 4,
-  WaveNormalFormMemoryOnlyTypes = 8,
+enum WaveWaterNormalForm {
+  WaveWaterNormalFormNone = 0,
+  WaveWaterNormalFormFunctionBoundarySpecified = 1,
+  WaveWaterNormalFormOpTypesSpecified = 2,
+  WaveWaterNormalFormIndexExprsSpecified = 4,
+  WaveWaterNormalFormMemoryOnlyTypes = 8,
 
-  WaveNormalFormAllTypesSPecified =
-      WaveNormalFormFunctionBoundarySpecified | WaveNormalFormOpTypesSpecified
+  WaveWaterNormalFormAllTypesSPecified =
+      WaveWaterNormalFormFunctionBoundarySpecified |
+      WaveWaterNormalFormOpTypesSpecified
 };
 
-/// Checks whether the given MLIR attribute is a WaveNormalFormAttr.
-MLIR_CAPI_EXPORTED bool mlirAttributeIsAWaveNormalFormAttr(MlirAttribute attr);
+/// Checks whether the given MLIR attribute is a WaveWaterNormalFormAttr.
+MLIR_CAPI_EXPORTED bool
+mlirAttributeIsAWaveWaterNormalFormAttr(MlirAttribute attr);
 
-/// Creates a new WaveNormalFormAttr with the given mapping attribute.
-MLIR_CAPI_EXPORTED MlirAttribute mlirWaveNormalFormAttrGet(MlirContext ctx,
-                                                           uint32_t value);
+/// Creates a new WaveWaterNormalFormAttr with the given mapping attribute.
+MLIR_CAPI_EXPORTED MlirAttribute mlirWaveWaterNormalFormAttrGet(MlirContext ctx,
+                                                                uint32_t value);
 
-/// Get the value from a WaveNormalFormAttr.
-MLIR_CAPI_EXPORTED uint32_t mlirWaveNormalFormAttrGetValue(MlirAttribute attr);
+/// Get the value from a WaveWaterNormalFormAttr.
+MLIR_CAPI_EXPORTED uint32_t
+mlirWaveWaterNormalFormAttrGetValue(MlirAttribute attr);
 
-/// Returns the typeID of a WaveNormalFormAttr.
-MLIR_CAPI_EXPORTED MlirTypeID mlirWaveNormalFormAttrGetTypeID();
+/// Returns the typeID of a WaveWaterNormalFormAttr.
+MLIR_CAPI_EXPORTED MlirTypeID mlirWaveWaterNormalFormAttrGetTypeID();
 
 //===---------------------------------------------------------------------===//
 // WaveExprListAttr

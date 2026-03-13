@@ -703,25 +703,26 @@ MlirAttribute mlirTilingConstraintAttrGetTileSize(MlirAttribute attr) {
 }
 
 //===---------------------------------------------------------------------===//
-// WaveNormalFormAttr
+// WaveWaterNormalFormAttr
 //===---------------------------------------------------------------------===//
 
-bool mlirAttributeIsAWaveNormalFormAttr(MlirAttribute attr) {
-  return llvm::isa<wave::WaveNormalFormAttr>(unwrap(attr));
+bool mlirAttributeIsAWaveWaterNormalFormAttr(MlirAttribute attr) {
+  return llvm::isa<wave::WaveWaterNormalFormAttr>(unwrap(attr));
 }
 
-MlirAttribute mlirWaveNormalFormAttrGet(MlirContext mlirCtx, uint32_t value) {
-  return wrap(wave::WaveNormalFormAttr::get(
-      unwrap(mlirCtx), static_cast<wave::WaveNormalForm>(value)));
+MlirAttribute mlirWaveWaterNormalFormAttrGet(MlirContext mlirCtx,
+                                             uint32_t value) {
+  return wrap(wave::WaveWaterNormalFormAttr::get(
+      unwrap(mlirCtx), static_cast<wave::WaveWaterNormalForm>(value)));
 }
 
-uint32_t mlirWaveNormalFormAttrGetValue(MlirAttribute attr) {
+uint32_t mlirWaveWaterNormalFormAttrGetValue(MlirAttribute attr) {
   return static_cast<uint32_t>(
-      llvm::cast<wave::WaveNormalFormAttr>(unwrap(attr)).getValue());
+      llvm::cast<wave::WaveWaterNormalFormAttr>(unwrap(attr)).getValue());
 }
 
-MlirTypeID mlirWaveNormalFormAttrGetTypeID() {
-  return wrap(TypeID::get<wave::WaveNormalFormAttr>());
+MlirTypeID mlirWaveWaterNormalFormAttrGetTypeID() {
+  return wrap(TypeID::get<wave::WaveWaterNormalFormAttr>());
 }
 
 //===---------------------------------------------------------------------===//

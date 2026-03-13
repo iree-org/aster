@@ -22,7 +22,7 @@ using namespace mlir;
 using namespace wave;
 
 namespace wave {
-#define GEN_PASS_DEF_WATERWAVEDETECTNORMALFORMSPASS
+#define GEN_PASS_DEF_WATERWAVEDETECTWATERNORMALFORMSPASS
 #include "water/Dialect/Wave/Transforms/Passes.h.inc"
 } // namespace wave
 
@@ -31,14 +31,14 @@ namespace wave {
 //===----------------------------------------------------------------------===//
 
 /// Collect all Wave dialect normal forms that can be inferred.
-static SmallVector<normalform::NormalFormAttrInterface>
-collectWaveNormalForms(MLIRContext *ctx) {
-  SmallVector<normalform::NormalFormAttrInterface> normalForms;
-  for (unsigned bit = 0, lastBit = WaveNormalFormAttr::getLastSetBit();
+static SmallVector<water_normalform::WaterNormalFormAttrInterface>
+collectWaveWaterNormalForms(MLIRContext *ctx) {
+  SmallVector<water_normalform::WaterNormalFormAttrInterface> normalForms;
+  for (unsigned bit = 0, lastBit = WaveWaterNormalFormAttr::getLastSetBit();
        bit <= lastBit; ++bit) {
-    WaveNormalForm form =
-        static_cast<WaveNormalForm>(static_cast<uint32_t>(1) << bit);
-    normalForms.push_back(WaveNormalFormAttr::get(ctx, form));
+    WaveWaterNormalForm form =
+        static_cast<WaveWaterNormalForm>(static_cast<uint32_t>(1) << bit);
+    normalForms.push_back(WaveWaterNormalFormAttr::get(ctx, form));
   }
   return normalForms;
 }
@@ -46,12 +46,12 @@ collectWaveNormalForms(MLIRContext *ctx) {
 namespace {
 
 //===----------------------------------------------------------------------===//
-// DetectNormalFormsPattern
+// DetectWaterNormalFormsPattern
 //===----------------------------------------------------------------------===//
 
-/// Wrap a builtin module in a normalform module and infer which Wave normal
-/// forms apply.
-class DetectNormalFormsPattern : public OpRewritePattern<ModuleOp> {
+/// Wrap a builtin module in a water_normalform module and infer which Wave
+/// normal forms apply.
+class DetectWaterNormalFormsPattern : public OpRewritePattern<ModuleOp> {
 public:
   using OpRewritePattern<ModuleOp>::OpRewritePattern;
 
@@ -60,14 +60,14 @@ public:
     MLIRContext *ctx = module.getContext();
     Location loc = module.getLoc();
 
-    normalform::ModuleOp nfModule =
-        normalform::ModuleOp::create(loc, {}, module.getName());
+    water_normalform::ModuleOp nfModule =
+        water_normalform::ModuleOp::create(loc, {}, module.getName());
 
     Block &nfBody = nfModule.getBodyRegion().front();
     Block &moduleBody = module.getBodyRegion().front();
     rewriter.inlineBlockBefore(&moduleBody, &nfBody, nfBody.end());
 
-    nfModule.inferNormalForms(collectWaveNormalForms(ctx));
+    nfModule.inferWaterNormalForms(collectWaveWaterNormalForms(ctx));
 
     rewriter.setInsertionPoint(module);
     rewriter.insert(nfModule);
@@ -77,38 +77,39 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
-// WaterWaveDetectNormalFormsPass
+// WaterWaveDetectWaterNormalFormsPass
 //===----------------------------------------------------------------------===//
 
-struct WaterWaveDetectNormalFormsPass
-    : public wave::impl::WaterWaveDetectNormalFormsPassBase<
-          WaterWaveDetectNormalFormsPass> {
+struct WaterWaveDetectWaterNormalFormsPass
+    : public wave::impl::WaterWaveDetectWaterNormalFormsPassBase<
+          WaterWaveDetectWaterNormalFormsPass> {
   void runOnOperation() override {
     Operation *rootOp = getOperation();
     MLIRContext *ctx = rootOp->getContext();
 
-    // update exisiting normalform Modules
-    rootOp->walk([&](normalform::ModuleOp nfModule) {
-      nfModule.inferNormalForms(collectWaveNormalForms(ctx));
+    // update exisiting water_normalform Modules
+    rootOp->walk([&](water_normalform::ModuleOp nfModule) {
+      nfModule.inferWaterNormalForms(collectWaveWaterNormalForms(ctx));
     });
 
     // Run the pattern rewriter on any nested builtin modules.
     RewritePatternSet patterns(&getContext());
-    patterns.add<DetectNormalFormsPattern>(&getContext());
+    patterns.add<DetectWaterNormalFormsPattern>(&getContext());
     walkAndApplyPatterns(getOperation(), std::move(patterns));
 
-    // If the root operation is a ModuleOp, wrap its contents in a normalform
-    // module. Only the root module can be a builtin module at this point.
-    // If all contained operations are already normalform module operations,
-    // we don't need to wrap the root modules body in another normalform.module.
+    // If the root operation is a ModuleOp, wrap its contents in a
+    // water_normalform module. Only the root module can be a builtin module at
+    // this point. If all contained operations are already water_normalform
+    // module operations, we don't need to wrap the root modules body in another
+    // water_normalform.module.
     if (auto rootModule = dyn_cast<ModuleOp>(rootOp)) {
       auto ops = rootModule.getBodyRegion().getOps();
       if (!ops.empty() &&
-          llvm::all_of(ops, llvm::IsaPred<normalform::ModuleOp>))
+          llvm::all_of(ops, llvm::IsaPred<water_normalform::ModuleOp>))
         return;
 
-      normalform::ModuleOp nfModule =
-          normalform::ModuleOp::create(rootModule.getLoc(), {});
+      water_normalform::ModuleOp nfModule =
+          water_normalform::ModuleOp::create(rootModule.getLoc(), {});
 
       Block *currentBlock = rootModule.getBody();
       Block *newBlock = nfModule.getBody();
@@ -117,7 +118,7 @@ struct WaterWaveDetectNormalFormsPass
                                        currentBlock->getOperations());
 
       rootModule.getBody()->push_back(nfModule);
-      nfModule.inferNormalForms(collectWaveNormalForms(ctx));
+      nfModule.inferWaterNormalForms(collectWaveWaterNormalForms(ctx));
     }
   }
 };

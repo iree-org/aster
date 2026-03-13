@@ -3,7 +3,7 @@
 // None of the ops inside are wave ops, so full types are specified.
 // None of the ops need index expressions, meaning that form is also specified.
 // CHECK-LABEL: module @full_func_boundary_satisfied_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<full_func_boundary>
 // CHECK-SAME: #wave.normal_form<full_op_types>
 // CHECK-SAME: #wave.normal_form<index_exprs>
@@ -19,7 +19,7 @@ module @full_func_boundary_satisfied_module {
 
 // None of the ops need index expressions, meaning that form is also specified.
 // CHECK-LABEL: module @full_func_boundary_not_satisfied_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<index_exprs>
 // CHECK-SAME: #wave.normal_form<resolved_allocations>
 // CHECK-SAME: #wave.normal_form<ordered_syms>
@@ -35,7 +35,7 @@ module @full_func_boundary_not_satisfied_module {
 
 // Explicit index expressions are provided.
 // CHECK-LABEL: module @index_exprs_satisfied_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<full_func_boundary>
 // CHECK-SAME: #wave.normal_form<full_op_types>
 // CHECK-SAME: #wave.normal_form<index_exprs>
@@ -57,7 +57,7 @@ module @index_exprs_satisfied_module {
 // -----
 
 // CHECK-LABEL: module @index_exprs_not_satisfied_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<full_func_boundary>
 // CHECK-SAME: #wave.normal_form<full_op_types>
 // CHECK-NOT: #wave.normal_form<index_exprs>
@@ -74,7 +74,7 @@ module @index_exprs_not_satisfied_module {
 // -----
 
 // CHECK-LABEL: module @memory_only_types_satisfied_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<full_func_boundary>
 // CHECK-SAME: #wave.normal_form<full_op_types>
 // CHECK-SAME: #wave.normal_form<memory_only_types>
@@ -89,7 +89,7 @@ module @memory_only_types_satisfied_module {
 // -----
 
 // CHECK-LABEL: module @memory_only_types_not_satisfied_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<full_func_boundary>
 // CHECK-SAME: #wave.normal_form<full_op_types>
 // CHECK-SAME: #wave.normal_form<resolved_allocations>
@@ -106,7 +106,7 @@ module @memory_only_types_not_satisfied_module {
 // -----
 
 // CHECK-LABEL: module @multiple_ops_with_index_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<full_func_boundary>
 // CHECK-SAME: #wave.normal_form<full_op_types>
 // CHECK-SAME: #wave.normal_form<index_exprs>
@@ -129,7 +129,7 @@ module @multiple_ops_with_index_module {
 
 // Empty module: all normal forms trivially satisfied, needs wave dialect to be registered.
 // CHECK-LABEL: module @empty_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<full_func_boundary>
 // CHECK-SAME: #wave.normal_form<full_op_types>
 // CHECK-SAME: #wave.normal_form<index_exprs>
@@ -144,7 +144,7 @@ module @empty_module {
 // wave.allocate returns memref, so resolved_allocations is satisfied.
 // index_exprs is also trivially satisfied since wave.allocate doesn't require index expressions.
 // CHECK-LABEL: module @resolved_allocations_satisfied_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<full_func_boundary>
 // CHECK-SAME: #wave.normal_form<full_op_types>
 // CHECK-SAME: #wave.normal_form<index_exprs>
@@ -163,7 +163,7 @@ module @resolved_allocations_satisfied_module {
 
 // Parent allocations (no operands) don't require index expressions.
 // CHECK-LABEL: module @parent_allocation_no_index_exprs_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<index_exprs>
 module @parent_allocation_no_index_exprs_module {
   func.func @parent_allocation_no_index_exprs() {
@@ -177,7 +177,7 @@ module @parent_allocation_no_index_exprs_module {
 
 // wave.allocate returns WaveTensorType, so resolved_allocations is NOT satisfied.
 // CHECK-LABEL: module @resolved_allocations_not_satisfied_module
-// CHECK: normalform.module
+// CHECK: water_normalform.module
 // CHECK-SAME: #wave.normal_form<full_func_boundary>
 // CHECK-SAME: #wave.normal_form<full_op_types>
 // CHECK-SAME: #wave.normal_form<memory_only_types>
@@ -194,7 +194,7 @@ module @resolved_allocations_not_satisfied_module {
 // -----
 
 // CHECK: module
-// CHECK-NEXT: normalform.module
+// CHECK-NEXT: water_normalform.module
 // CHECK-NEXT: func.func @foo
 module {
     module {
@@ -209,8 +209,8 @@ module {
 // -----
 
 // CHECK: module
-// CHECK-NEXT: normalform.module
-// CHECK-NEXT: normalform.module
+// CHECK-NEXT: water_normalform.module
+// CHECK-NEXT: water_normalform.module
 // CHECK-NEXT: func.func @foo
 // CHECK: func.func @bar
 module {
@@ -232,16 +232,16 @@ module {
 // -----
 
 // CHECK: module
-// CHECK-NEXT: normalform.module
+// CHECK-NEXT: water_normalform.module
 module {
-    normalform.module [] {
+    water_normalform.module [] {
     }
 }
 
 // -----
 
 // CHECK: module
-// CHECK-NEXT: normalform.module
-normalform.module [] {
+// CHECK-NEXT: water_normalform.module
+water_normalform.module [] {
 
 }

@@ -127,7 +127,7 @@ def NORMAL_FORM_FULL_TYPES : I32BitEnumAttrCaseGroup<
     ], "full_types">;
 
 // When anything changes below, also update the C and Python API.
-def WaveNormalFormEnum : I32BitEnumAttr<"WaveNormalForm", "", [
+def WaveWaterNormalFormEnum : I32BitEnumAttr<"WaveWaterNormalForm", "", [
   I32BitEnumAttrCaseNone<"None", "none">,
   // Bits.
   NORMAL_FORM_FUNC_BOUNDARY,
@@ -146,14 +146,14 @@ def WaveNormalFormEnum : I32BitEnumAttr<"WaveNormalForm", "", [
   let printBitEnumPrimaryGroups = 1;
 }
 
-def WaveNormalFormAttr
-    : EnumAttr<WaveDialect, WaveNormalFormEnum, "normal_form", [
-      DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>
+def WaveWaterNormalFormAttr
+    : EnumAttr<WaveDialect, WaveWaterNormalFormEnum, "normal_form", [
+      DeclareAttrInterfaceMethods<WaterNormalFormAttrInterface, ["verifyOperation"]>
     ]> {
   let assemblyFormat = "`<` $value `>`";
   let extraClassDeclaration = [{
     static unsigned getLastSetBit() {
-      return ::llvm::bit_width_constexpr<unsigned>(}] # !cast<BitEnumBase>(WaveNormalFormEnum).validBits # [{) - 1;
+      return ::llvm::bit_width_constexpr<unsigned>(}] # !cast<BitEnumBase>(WaveWaterNormalFormEnum).validBits # [{) - 1;
     }
   }];
 }
