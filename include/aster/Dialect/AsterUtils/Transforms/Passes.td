@@ -146,6 +146,19 @@ def RemoveAssumeOps : Pass<"aster-remove-assume-ops", "mlir::ModuleOp"> {
   ];
 }
 
+
+def RaiseToAffine : Pass<"aster-raise-to-affine"> {
+  let summary = "Raise aster_utils.addi and muli to affine.apply";
+  let description = [{
+    This pass converts `aster_utils.addi` and `aster_utils.muli` operations
+    to `affine.apply` operations, and applies affine canonicalization patterns
+    greedily to simplify the resulting affine expressions.
+  }];
+  let dependentDialects = [
+    "mlir::affine::AffineDialect"
+  ];
+}
+
 def ExpandAffineApply : Pass<"aster-expand-affine-apply"> {
   let summary = "Expand affine.apply into aster_utils n-ary addi/muli operations";
   let description = [{
