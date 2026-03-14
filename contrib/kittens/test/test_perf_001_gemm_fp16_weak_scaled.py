@@ -14,12 +14,15 @@ import numpy as np
 import pytest
 import tempfile
 
-from aster.pass_pipelines import TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE
+from aster.pass_pipelines import (
+    test_constexpr_pipelining_pass_pipeline as _make_pipeline,
+)
 
 from kittens_helpers import (
     get_mlir_file,
     get_kittens_16x16_lds_library_paths,
     constexpr_substitutions_16x32,
+    PIPELINE_STAGE_CONFIGS_4,
     MCPU,
     LDS_SIZE,
     WAVEFRONT_SIZE,
@@ -63,6 +66,7 @@ class WeakScaleConfig:
     k: int
     load_type: str = "flat"  # "flat" or "buffer"
     a_path: str = "lds"  # "lds" or "direct" (bpermute, A bypasses LDS)
+    scf_rotate: bool = True  # enable scf-rotate (move MFMA to loop top)
     _label_suffix: str = ""
 
     def __post_init__(self):
@@ -135,10 +139,11 @@ class WeakScaleConfig:
     @property
     def label(self):
         tile_str = f"_twg{self.m_tiles_wg}x{self.n_tiles_wg}x{self.k_tiles}"
+        rotate_str = "_scfrotate" if self.scf_rotate else ""
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
             f"_wg{self.m_wg}x{self.n_wg}_w{self.m_waves}x{self.n_waves}"
-            f"{tile_str}_s{self.num_stages}{self._label_suffix}"
+            f"{tile_str}_s{self.num_stages}{self._label_suffix}{rotate_str}"
         )
 
 
@@ -182,7 +187,7 @@ def compile_gemm(cfg, output_hsaco_path, print_ir_after_all=False):
     """Compile a GEMM config to HSACO.
 
     Returns (hsaco_path, asm_str). Handles a_path (lds/direct) and load_type
-    (flat/buffer) via cfg fields.
+    (flat/buffer) via cfg fields. cfg.scf_rotate controls scf-rotate pass.
     """
     from aster import ir, utils
     from aster.testing import compile_mlir_file_to_asm
@@ -200,13 +205,22 @@ def compile_gemm(cfg, output_hsaco_path, print_ir_after_all=False):
         use_buffer=cfg.use_buffer, direct_a=cfg.direct_a
     )
 
+    # COMPUTE must be a distinct stage from DS_READ so the pipeliner turns
+    # ds_read results into iter_args (cross-stage values). Without this,
+    # the rotation pass cannot move MFMA before ds_read (same-stage dep).
+    stage_gl, stage_dw, stage_dr, stage_c = PIPELINE_STAGE_CONFIGS_4[cfg.num_stages]
+    if stage_c == stage_dr:
+        stage_c = max(stage_gl, stage_dw, stage_dr) + 1
+    subs["{{STAGE_COMPUTE}}"] = str(stage_c)
+    pipeline = _make_pipeline(rotate=cfg.scf_rotate)
+
     ctx = ir.Context()
     ctx.__enter__()
     try:
         asm, _ = compile_mlir_file_to_asm(
             get_mlir_file(mlir_file),
             cfg.kernel_name,
-            TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
+            pipeline,
             ctx,
             library_paths=lib_paths,
             preprocess=preprocess,
@@ -418,6 +432,12 @@ if __name__ == "__main__":
         action="store_true",
         help="A operand via bpermute (LDS bypass) instead of LDS",
     )
+    parser.add_argument(
+        "--scf-rotate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable scf-rotate (move MFMA to loop top). --no-scf-rotate to disable.",
+    )
     a = parser.parse_args()
     load_type = "buffer" if a.use_buffer else "flat"
     a_path = "direct" if a.direct_a else "lds"
@@ -435,6 +455,7 @@ if __name__ == "__main__":
         k,
         load_type=load_type,
         a_path=a_path,
+        scf_rotate=a.scf_rotate,
     )
 
     from aster.hip import parse_asm_kernel_resources
@@ -470,7 +491,9 @@ if __name__ == "__main__":
         else:
             with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
                 _, asm = compile_gemm(
-                    cfg, tmp.name, print_ir_after_all=a.print_ir_after_all
+                    cfg,
+                    tmp.name,
+                    print_ir_after_all=a.print_ir_after_all,
                 )
                 resources = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name)
                 res = resources.get(cfg.kernel_name)

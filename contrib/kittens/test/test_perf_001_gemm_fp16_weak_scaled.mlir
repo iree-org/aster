@@ -164,13 +164,18 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
           : (memref<?xindex>) -> !fut_b_buf
 
       // Stage COMPUTE: fused wait + MFMA (constexpr over M_T x (K_T*2) x N_T)
+      // Inner ops have sched.rotate_head: after pipelining, the rotation pass
+      // moves MFMA ops to the loop body top so issue latency is hidden behind
+      // subsequent global loads and LDS ops. No sched.stage here -- inner ops
+      // already have it, and putting it on the call site blocks inlining.
       %c_K_MFMA = affine.apply affine_map<()[k] -> (k * 2)>()[%c_K_T]
       func.call @k_wait_and_compute_mfmas(%c_M_T, %c_N_T, %c_K_MFMA, %a_fut, %b_fut, %C_buf)
           : (index, index, index, !fut_a_buf, !fut_b_buf, !c_buf) -> ()
 
-      // Deallocate LDS at COMPUTE stage.
-      amdgcn.dealloc_lds %lds_a_h {sched.stage = {{STAGE_COMPUTE}} : i32}
-      amdgcn.dealloc_lds %lds_b_h {sched.stage = {{STAGE_COMPUTE}} : i32}
+      // Deallocate LDS after reads complete. Compatible with post-pipeline
+      // rotation (dealloc stays with DS_READ, not moved with COMPUTE).
+      amdgcn.dealloc_lds %lds_a_h {sched.stage = {{STAGE_DS_READ}} : i32}
+      amdgcn.dealloc_lds %lds_b_h {sched.stage = {{STAGE_DS_READ}} : i32}
     }
 
     // === Store results ===

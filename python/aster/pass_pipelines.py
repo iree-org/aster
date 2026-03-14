@@ -250,10 +250,26 @@ TEST_LOOP_PASS_PIPELINE = builtin_module(
     phase_nop_insertion(delays=0)
 )
 
+# Constexpr expansion phase: unroll constexpr tile loops + promote to SSA.
+# Must run before pipelining so the output looks like hand-written kernels.
+# Includes upstream mem2reg for index-type memrefs (amdgcn-mem2reg only
+# handles register types, token types, and struct wrappers).
+PHASE_CONSTEXPR_EXPANSION = (
+    "aster-constexpr-expansion", "canonicalize",
+    "sroa", "mem2reg", "amdgcn-mem2reg",
+    "aster-forward-store-to-load",
+    "aster-promote-loop-carried-memrefs",
+    "canonicalize",
+)
+
 # Loop pipelining pass pipeline
+# Both pipelines now run PHASE_CONSTEXPR_EXPANSION before pipelining so that
+# memref iter_args are decomposed to scalars before the pipeliner sees them.
+# This avoids the need for post-pipeline memref decomposition (Strategy 2).
 def test_scf_pipelining_pass_pipeline(gcd_unroll=False):
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
+        PHASE_CONSTEXPR_EXPANSION,
         phase_scf_pipelining(gcd_unroll=gcd_unroll),
         "aster-destructure-struct-iter-args", "canonicalize", "cse",
         PHASE_SROA,
@@ -270,25 +286,16 @@ def test_scf_pipelining_pass_pipeline(gcd_unroll=False):
 
 TEST_SCF_PIPELINING_PASS_PIPELINE = test_scf_pipelining_pass_pipeline()
 
-# Constexpr expansion phase: unroll constexpr tile loops + promote to SSA.
-# Must run BEFORE pipelining so the output looks like hand-written kernels.
-# Includes upstream mem2reg for index-type memrefs (amdgcn-mem2reg only
-# handles register types, token types, and struct wrappers).
-PHASE_CONSTEXPR_EXPANSION = (
-    "aster-constexpr-expansion", "canonicalize",
-    "sroa", "mem2reg", "amdgcn-mem2reg",
-    "aster-forward-store-to-load",
-    "aster-promote-loop-carried-memrefs",
-    "canonicalize",
-)
-
 # Constexpr + pipelining pass pipeline: expand constexpr tile loops first,
 # then proceed with normal pipelining.
-def test_constexpr_pipelining_pass_pipeline(gcd_unroll=False):
+def test_constexpr_pipelining_pass_pipeline(gcd_unroll=False, rotate=True):
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
         PHASE_CONSTEXPR_EXPANSION,
         phase_scf_pipelining(gcd_unroll=gcd_unroll),
+        # Move sched.rotate_head ops to earliest valid position.
+        # No-op if no ops have the attribute.
+        "aster-scf-rotate" if rotate else "",
         "aster-destructure-struct-iter-args", "canonicalize", "cse",
         PHASE_SROA,
         POST_SROA_CLEANUPS,
