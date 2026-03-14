@@ -12,7 +12,7 @@
 // stores and loads target the same block arg at constant indices. After
 // forwarding, erases dead stores so canonicalize can remove unused iter_args.
 //
-// First, use aster-simplify-alloca-iter-args first to fold casts and dedup
+// First, use aster-simplify-alloca-iter-args to fold casts and dedup
 // iter_args, then this pass handles the forwarding.
 //
 //===----------------------------------------------------------------------===//
@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/DebugLog.h"
