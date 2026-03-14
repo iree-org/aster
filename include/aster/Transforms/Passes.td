@@ -267,6 +267,52 @@ def SCFPipelineAsterSched : Pass<"aster-scf-pipeline"> {
 }
 
 //===----------------------------------------------------------------------===//
+// SCFRotate
+//===----------------------------------------------------------------------===//
+
+def SCFRotate : Pass<"aster-scf-rotate"> {
+  let summary = "Rotate loop body around the most dominating insertion point";
+  let description = [{
+    This pass moves operations marked with sched.rotate_head -- together
+    with their transitive in-block dependencies -- to the front of scf.for
+    loop bodies, then strips the attribute.
+
+    The "most dominating insertion point" is the earliest transitive
+    dependency of any rotate_head op. After rotation, that dependency
+    becomes the first op in the loop body, followed by the rest of the
+    dependency subgraph and the rotate_head ops, all preserving their
+    original relative order.
+
+    Designed to run after aster-scf-pipeline. The input IR places
+    sched.rotate_head on ops that should execute first in the loop body
+    (e.g., MFMA to hide latency).
+
+    Example (deps already iter_args):
+      Before: for k iter_args(C, ds_carry) {
+                alloc; load; ds_write; barrier; ds_read;
+                MFMA(C, ds_carry) {sched.rotate_head};
+              }
+      After:  for k iter_args(C, ds_carry) {
+                MFMA(C, ds_carry);
+                alloc; load; ds_write; barrier; ds_read;
+              }
+
+    Example (in-block dep pulled along):
+      Before: for k iter_args(C) {
+                other_work;
+                ds_read -> val;
+                MFMA(C, val) {sched.rotate_head};
+              }
+      After:  for k iter_args(C) {
+                ds_read -> val;
+                MFMA(C, val);
+                other_work;
+              }
+  }];
+  let dependentDialects = [];
+}
+
+//===----------------------------------------------------------------------===//
 // SimplifyAllocaIterArgs
 //===----------------------------------------------------------------------===//
 
