@@ -104,6 +104,15 @@ declare_mlir_dialect_python_bindings(
     dialects/AMDGCNOps.td
 )
 
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT ASTERPythonSources
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/aster"
+  TD_FILE dialects/LSIROps.td
+  SOURCES
+    dialects/lsir.py
+  DIALECT_NAME lsir
+)
+
 ################################################################################
 # Generate the instruction bindings
 ################################################################################
@@ -132,8 +141,11 @@ set(_SOURCE_COMPONENTS
   ASTERPythonSources
 
   MLIRPythonSources.Core
+  MLIRPythonSources.Dialects.affine
   MLIRPythonSources.Dialects.arith
   MLIRPythonSources.Dialects.builtin
+  MLIRPythonSources.Dialects.func
+  MLIRPythonSources.Dialects.gpu
   MLIRPythonExtension.Core.type_stub_gen
   # DO NOT register all indiscriminately.
   # MLIRPythonExtension.RegisterEverything

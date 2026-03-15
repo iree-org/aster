@@ -22,6 +22,10 @@ The returned module can be passed directly to aster.testing compile_kernel_modul
 from typing import List, Optional
 
 from .. import ir
+from . import arith
+from . import affine as affine_dialect
+from . import func as func_dialect
+from ._gpu_ops_gen import ThreadIdOp as _GPUThreadIdOp, BlockIdOp as _GPUBlockIdOp
 from ._amdgcn_ops_gen import (
     AllocaOp,
     EndKernelOp,
@@ -43,13 +47,19 @@ from .._mlir_libs._amdgcn import (
     VGPRType,
 )
 from . import api
+from . import lsir as lsir_dialect
 from .amdgcn import (
     AccessKind,
     AddressSpaceKind,
     KernelArgumentFlags,
     get_buffer_argument,
     get_kernel_arguments,
+    vop2 as _amdgcn_vop2,
 )
+
+
+def _i8(value: int, ctx: ir.Context) -> ir.IntegerAttr:
+    return ir.IntegerAttr.get(ir.IntegerType.get_signless(8, ctx), value)
 
 
 def _i32(value: int, ctx: ir.Context) -> ir.IntegerAttr:
@@ -155,21 +165,13 @@ class KernelBuilder:
         )
 
         # Build func.func private before the kernel.
-        # insert at the beginning of the module block -- kernel is always last.
+        # Insert at the beginning of the module block -- kernel is always last.
         func_type = ir.FunctionType.get([], ret_types)
         before_ip = ir.InsertionPoint.at_block_begin(self._mod_block)
-        func_op = ir.Operation.create(
-            "func.func",
-            attributes={
-                "sym_name": ir.StringAttr.get(fn_name),
-                "function_type": ir.TypeAttr.get(func_type),
-                "sym_visibility": ir.StringAttr.get("private"),
-            },
-            regions=1,
-            loc=self._loc,
-            ip=before_ip,
+        fn_op = func_dialect.FuncOp(
+            fn_name, func_type, visibility="private", loc=self._loc, ip=before_ip
         )
-        func_block = ir.Block.create_at_start(func_op.regions[0], [])
+        func_block = ir.Block.create_at_start(fn_op.body, [])
         func_ip = ir.InsertionPoint(func_block)
         loaded = []
         for i in range(n):
@@ -180,17 +182,12 @@ class KernelBuilder:
                 ip=func_ip,
             )
             loaded.append(la.result)
-        SWaitcntOp(lgkmcnt=0, loc=self._loc, ip=func_ip)
-        ir.Operation.create("func.return", operands=loaded, loc=self._loc, ip=func_ip)
+        SWaitcntOp(lgkmcnt=_i8(0, self._ctx), loc=self._loc, ip=func_ip)
+        func_dialect.ReturnOp(loaded, loc=self._loc, ip=func_ip)
 
         # Emit func.call inside the kernel body.
-        call_op = ir.Operation.create(
-            "func.call",
-            attributes={"callee": ir.FlatSymbolRefAttr.get(fn_name)},
-            operands=[],
-            results=ret_types,
-            loc=self._loc,
-            ip=self._kip,
+        call_op = func_dialect.CallOp(
+            ret_types, fn_name, [], loc=self._loc, ip=self._kip
         )
         return list(call_op.results)
 
@@ -204,15 +201,8 @@ class KernelBuilder:
         Emits gpu.thread_id x which returns index type and is lowered through the ASTER
         pass pipeline (aster-to-int-arith -> aster-codegen -> expand-md-ops).
         """
-        idx_type = ir.IndexType.get(self._ctx)
-        op = ir.Operation.create(
-            "gpu.thread_id",
-            attributes={"dimension": ir.Attribute.parse("#gpu<dim x>")},
-            results=[idx_type],
-            loc=self._loc,
-            ip=self._kip,
-        )
-        return op.results[0]
+        dim_x = ir.Attribute.parse("#gpu<dim x>")
+        return _GPUThreadIdOp(dim_x, loc=self._loc, ip=self._kip).result
 
     def block_id_x(self) -> ir.Value:
         """Get workgroup (block) ID x as index.
@@ -220,15 +210,8 @@ class KernelBuilder:
         Emits gpu.block_id x which returns index type and is lowered through the ASTER
         pass pipeline (aster-to-int-arith -> aster-codegen -> expand-md-ops).
         """
-        idx_type = ir.IndexType.get(self._ctx)
-        op = ir.Operation.create(
-            "gpu.block_id",
-            attributes={"dimension": ir.Attribute.parse("#gpu<dim x>")},
-            results=[idx_type],
-            loc=self._loc,
-            ip=self._kip,
-        )
-        return op.results[0]
+        dim_x = ir.Attribute.parse("#gpu<dim x>")
+        return _GPUBlockIdOp(dim_x, loc=self._loc, ip=self._kip).result
 
     @staticmethod
     def _as_value(v) -> ir.Value:
@@ -238,63 +221,26 @@ class KernelBuilder:
         return v.results[0]
 
     def _index_to_vgpr(self, val: ir.Value) -> ir.Value:
-        """Convert an index value to a VGPR via affine.apply + arith.index_cast + lsir.to_reg.
-
-        Pattern validated by working MLIR kernels (test_global_load_wave.mlir):   %off =
-        affine.apply affine_map<(d0) -> (d0 * 1)>(val)   %i32 = arith.index_cast %off :
-        index to i32   %vgpr = lsir.to_reg %i32 : i32 -> !amdgcn.vgpr The lsir.to_reg
-        bridge is handled by FromToRegOpPattern in aster-codegen.
-        """
-        idx_type = ir.IndexType.get(self._ctx)
-        idx_val = ir.Operation.create(
-            "affine.apply",
-            results=[idx_type],
-            operands=[val],
-            attributes={"map": ir.Attribute.parse("affine_map<(d0) -> (d0)>")},
-            loc=self._loc,
-            ip=self._kip,
-        ).results[0]
+        """Convert an index value to a VGPR via affine.apply + arith.index_cast + lsir.to_reg."""
+        identity_map = ir.Attribute.parse("affine_map<(d0) -> (d0)>")
+        idx_val = affine_dialect.apply(identity_map, [val], loc=self._loc, ip=self._kip)
         i32_type = ir.IntegerType.get_signless(32, self._ctx)
-        i32_val = ir.Operation.create(
-            "arith.index_cast",
-            results=[i32_type],
-            operands=[idx_val],
-            loc=self._loc,
-            ip=self._kip,
-        ).results[0]
+        i32_val = arith.index_cast(i32_type, idx_val, loc=self._loc, ip=self._kip)
         vgpr_type = VGPRType.get(self._ctx, reg=None)
-        return ir.Operation.create(
-            "lsir.to_reg",
-            results=[vgpr_type],
-            operands=[i32_val],
-            loc=self._loc,
-            ip=self._kip,
-        ).results[0]
+        return lsir_dialect.to_reg(vgpr_type, i32_val, loc=self._loc, ip=self._kip)
 
     def _emit_vop2(self, opcode_str: str, dest: ir.Value, src0, src1) -> ir.Value:
-        """Emit amdgcn.vop2 with correct resultSegmentSizes = [1, 0].
+        """Emit amdgcn.vop2 via module-level _amdgcn_vop2 helper.
 
-        The ODS-generated VOP2Op has _ODS_RESULT_SEGMENTS = [0, 0] which is wrong
-        for DPS-style ops with InstInferType: the verifier requires resultSegmentSizes
-        to match the actual result count (1 for vdst0, 0 for optional dst1 = [1, 0]).
-        This helper bypasses the ODS wrapper and creates the op directly.
+        Uses a dedicated helper because the ODS-generated VOP2Op has incorrect
+        _ODS_RESULT_SEGMENTS for DPS-style ops.
         """
         dest_v = self._as_value(dest)
         src0_v = self._as_value(src0)
         src1_v = self._as_value(src1)
-        op = ir.Operation.create(
-            "amdgcn.vop2",
-            [dest_v.type],
-            [dest_v, src0_v, src1_v],
-            {
-                "opcode": ir.Attribute.parse(f"#amdgcn.inst<{opcode_str}>"),
-                "operandSegmentSizes": ir.DenseI32ArrayAttr.get([1, 0, 1, 1, 0]),
-                "resultSegmentSizes": ir.DenseI32ArrayAttr.get([1, 0]),
-            },
-            loc=self._loc,
-            ip=self._kip,
+        return _amdgcn_vop2(
+            opcode_str, dest_v, src0_v, src1_v, loc=self._loc, ip=self._kip
         )
-        return op.results[0]
 
     # ---------------------------------------------------------------------------
     # Register allocation
@@ -345,8 +291,6 @@ class KernelBuilder:
 
     def constant_i32(self, value: int) -> ir.Value:
         """Emit an i32 constant."""
-        from . import arith
-
         return arith.constant(
             ir.IntegerType.get_signless(32, self._ctx),
             value,
@@ -384,10 +328,9 @@ class KernelBuilder:
         dest = self.alloca_vgpr()
         return self._emit_vop2(opcode, dest, src0, src1)
 
-    def v_add_u32(self, sgpr_val: ir.Value, vgpr_val: ir.Value) -> ir.Value:
-        """VOP2 v_add_u32: SGPR + VGPR -> VGPR."""
-        dest = self.alloca_vgpr()
-        return self._emit_vop2("v_add_u32", dest, sgpr_val, vgpr_val)
+    def v_add_u32(self, src0: ir.Value, src1: ir.Value) -> ir.Value:
+        """VOP2 v_add_u32: src0 + src1 -> VGPR."""
+        return self.vop2("v_add_u32", src0, src1)
 
     def byte_offset(self, tid: ir.Value, elem_bytes: int = 4) -> ir.Value:
         """Compute byte offset = tid * elem_bytes.
@@ -397,39 +340,21 @@ class KernelBuilder:
         For VGPR inputs: uses v_lshlrev_b32_e32 (shift).
         """
         if isinstance(tid.type, ir.IndexType):
-            idx_type = ir.IndexType.get(self._ctx)
-            offset_idx = ir.Operation.create(
-                "affine.apply",
-                results=[idx_type],
-                operands=[tid],
-                attributes={
-                    "map": ir.Attribute.parse(
-                        f"affine_map<(d0) -> (d0 * {elem_bytes})>"
-                    )
-                },
-                loc=self._loc,
-                ip=self._kip,
-            ).results[0]
+            scale_map = ir.Attribute.parse(f"affine_map<(d0) -> (d0 * {elem_bytes})>")
+            offset_idx = affine_dialect.apply(
+                scale_map, [tid], loc=self._loc, ip=self._kip
+            )
             i32_type = ir.IntegerType.get_signless(32, self._ctx)
-            offset_i32 = ir.Operation.create(
-                "arith.index_cast",
-                results=[i32_type],
-                operands=[offset_idx],
-                loc=self._loc,
-                ip=self._kip,
-            ).results[0]
+            offset_i32 = arith.index_cast(
+                i32_type, offset_idx, loc=self._loc, ip=self._kip
+            )
             vgpr_type = VGPRType.get(self._ctx, reg=None)
-            return ir.Operation.create(
-                "lsir.to_reg",
-                results=[vgpr_type],
-                operands=[offset_i32],
-                loc=self._loc,
-                ip=self._kip,
-            ).results[0]
+            return lsir_dialect.to_reg(
+                vgpr_type, offset_i32, loc=self._loc, ip=self._kip
+            )
         shift = {1: 0, 2: 1, 4: 2, 8: 3, 16: 4, 32: 5, 64: 6}[elem_bytes]
-        dest = self.alloca_vgpr()
         c_shift = self.constant_i32(shift)
-        return self._emit_vop2("v_lshlrev_b32_e32", dest, c_shift, tid)
+        return self.vop2("v_lshlrev_b32_e32", c_shift, tid)
 
     # ---------------------------------------------------------------------------
     # MFMA
@@ -651,11 +576,11 @@ class KernelBuilder:
 
     def wait_vmcnt(self, count: int = 0):
         """Insert s_waitcnt vmcnt=count."""
-        SWaitcntOp(vmcnt=count, loc=self._loc, ip=self._kip)
+        SWaitcntOp(vmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
 
     def wait_lgkmcnt(self, count: int = 0):
         """Insert s_waitcnt lgkmcnt=count."""
-        SWaitcntOp(lgkmcnt=count, loc=self._loc, ip=self._kip)
+        SWaitcntOp(lgkmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # Build

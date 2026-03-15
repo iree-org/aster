@@ -324,8 +324,7 @@ def test_kernel_builder_tiledmma_structure():
         asm = compile_to_asm(module)
         assert "v_mfma_f32_16x16x16_f16" in asm
         assert "buffer_load_dwordx2" in asm
-        return asm
 
 
 if __name__ == "__main__":
-    print(test_kernel_builder_tiledmma_structure())
+    test_kernel_builder_tiledmma_structure()

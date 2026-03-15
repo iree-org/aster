@@ -7,6 +7,7 @@ set(amdgcn_libs
 # get_property(_capi_libraries GLOBAL PROPERTY MLIR_UPSTREAM_CAPI_LIBS)
 set(_capi_libraries
   MLIRCAPIIR
+  MLIRCAPIGPU
   MLIRCAPITransforms
   MLIRCAPIDebug
   MLIRCAPIInterfaces
