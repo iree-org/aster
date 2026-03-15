@@ -32,6 +32,10 @@ declare_mlir_python_sources(ASTERPythonSources.core
     pass_pipelines.py
     testing/__init__.py
     testing/flush_llc.py
+    layout/__init__.py
+    layout/int_tuple.py
+    layout/algebra.py
+    layout/codegen.py
 )
 
 declare_mlir_python_extension(ASTERPythonExtensions._amdgcn
@@ -103,6 +107,15 @@ declare_mlir_dialect_python_bindings(
   GEN_ENUM_BINDINGS_TD_FILE
     dialects/AMDGCNOps.td
 )
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT ASTERPythonSources
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/aster"
+  TD_FILE dialects/PtrOps.td
+  SOURCES
+    dialects/ptr.py
+  DIALECT_NAME ptr
+  GEN_ENUM_BINDINGS)
 
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT ASTERPythonSources

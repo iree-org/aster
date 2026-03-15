@@ -73,6 +73,9 @@ If you need to modify LLVM and build test it:
 ```bash
 export LLVM_BUILD=${HOME}/llvm-build
 export LLVM_VENV=${LLVM_BUILD}/.venv
+export LLVM_INSTALL=${HOME}/shared-llvm
+deactivate
+source ${LLVM_VENV}/bin/activate
 
 # build mlir-opt and runn all tests
 cd ${HOME}/llvm-build && ninja mlir-opt && ninja check-mlir

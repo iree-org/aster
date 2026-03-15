@@ -1,6 +1,8 @@
-#  Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-#  See https://llvm.org/LICENSE.txt for license information.
-#  SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+# Copyright 2026 The ASTER Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 """High-level Python API for building AMDGCN kernel IR.
 
 Usage::
@@ -19,12 +21,17 @@ Usage::
 The returned module can be passed directly to aster.testing compile_kernel_module.
 """
 
-from typing import List, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, List, Optional
 
 from .. import ir
+
+if TYPE_CHECKING:
+    from ..layout import Layout
 from . import arith
-from . import affine as affine_dialect
-from . import func as func_dialect
+from . import affine as affined
+from . import func as funcd
 from ._gpu_ops_gen import ThreadIdOp as _GPUThreadIdOp, BlockIdOp as _GPUBlockIdOp
 from ._amdgcn_ops_gen import (
     AllocaOp,
@@ -47,7 +54,7 @@ from .._mlir_libs._amdgcn import (
     VGPRType,
 )
 from . import api
-from . import lsir as lsir_dialect
+from . import lsir as lsird
 from .amdgcn import (
     AccessKind,
     AddressSpaceKind,
@@ -56,6 +63,7 @@ from .amdgcn import (
     get_kernel_arguments,
     vop2 as _amdgcn_vop2,
 )
+from . import ptr as ptrd
 
 
 def _i8(value: int, ctx: ir.Context) -> ir.IntegerAttr:
@@ -168,7 +176,7 @@ class KernelBuilder:
         # Insert at the beginning of the module block -- kernel is always last.
         func_type = ir.FunctionType.get([], ret_types)
         before_ip = ir.InsertionPoint.at_block_begin(self._mod_block)
-        fn_op = func_dialect.FuncOp(
+        fn_op = funcd.FuncOp(
             fn_name, func_type, visibility="private", loc=self._loc, ip=before_ip
         )
         func_block = ir.Block.create_at_start(fn_op.body, [])
@@ -183,12 +191,10 @@ class KernelBuilder:
             )
             loaded.append(la.result)
         SWaitcntOp(lgkmcnt=_i8(0, self._ctx), loc=self._loc, ip=func_ip)
-        func_dialect.ReturnOp(loaded, loc=self._loc, ip=func_ip)
+        funcd.ReturnOp(loaded, loc=self._loc, ip=func_ip)
 
         # Emit func.call inside the kernel body.
-        call_op = func_dialect.CallOp(
-            ret_types, fn_name, [], loc=self._loc, ip=self._kip
-        )
+        call_op = funcd.CallOp(ret_types, fn_name, [], loc=self._loc, ip=self._kip)
         return list(call_op.results)
 
     # ---------------------------------------------------------------------------
@@ -223,11 +229,11 @@ class KernelBuilder:
     def _index_to_vgpr(self, val: ir.Value) -> ir.Value:
         """Convert an index value to a VGPR via affine.apply + arith.index_cast + lsir.to_reg."""
         identity_map = ir.Attribute.parse("affine_map<(d0) -> (d0)>")
-        idx_val = affine_dialect.apply(identity_map, [val], loc=self._loc, ip=self._kip)
+        idx_val = affined.apply(identity_map, [val], loc=self._loc, ip=self._kip)
         i32_type = ir.IntegerType.get_signless(32, self._ctx)
         i32_val = arith.index_cast(i32_type, idx_val, loc=self._loc, ip=self._kip)
         vgpr_type = VGPRType.get(self._ctx, reg=None)
-        return lsir_dialect.to_reg(vgpr_type, i32_val, loc=self._loc, ip=self._kip)
+        return lsird.to_reg(vgpr_type, i32_val, loc=self._loc, ip=self._kip)
 
     def _emit_vop2(self, opcode_str: str, dest: ir.Value, src0, src1) -> ir.Value:
         """Emit amdgcn.vop2 via module-level _amdgcn_vop2 helper.
@@ -341,20 +347,101 @@ class KernelBuilder:
         """
         if isinstance(tid.type, ir.IndexType):
             scale_map = ir.Attribute.parse(f"affine_map<(d0) -> (d0 * {elem_bytes})>")
-            offset_idx = affine_dialect.apply(
-                scale_map, [tid], loc=self._loc, ip=self._kip
-            )
+            offset_idx = affined.apply(scale_map, [tid], loc=self._loc, ip=self._kip)
             i32_type = ir.IntegerType.get_signless(32, self._ctx)
             offset_i32 = arith.index_cast(
                 i32_type, offset_idx, loc=self._loc, ip=self._kip
             )
             vgpr_type = VGPRType.get(self._ctx, reg=None)
-            return lsir_dialect.to_reg(
-                vgpr_type, offset_i32, loc=self._loc, ip=self._kip
-            )
+            return lsird.to_reg(vgpr_type, offset_i32, loc=self._loc, ip=self._kip)
         shift = {1: 0, 2: 1, 4: 2, 8: 3, 16: 4, 32: 5, 64: 6}[elem_bytes]
         c_shift = self.constant_i32(shift)
         return self.vop2("v_lshlrev_b32_e32", c_shift, tid)
+
+    def layout_byte_offset(self, tid: ir.Value, layout: "Layout") -> ir.Value:
+        """Compute byte offset from thread ID using affine.delinearize + linearize.
+
+        Emits:
+          %coords:N = affine.delinearize_index %tid into (shape...)
+          %offset   = affine.linearize_index [%coords...] by (stride...)
+
+        Returns an index-typed value. The ASTER pipeline
+        (aster-affine-optimize-ptr-add, aster-to-int-arith) lowers these.
+        """
+        from ..layout.codegen import Delinearize, Linearize, layout_to_ops
+
+        assert isinstance(
+            tid.type, ir.IndexType
+        ), "layout_byte_offset expects index-typed tid (from thread_id_x())"
+
+        ops = layout_to_ops(layout)
+        idx_type = ir.IndexType.get(self._ctx)
+        val: ir.Value = tid
+        coords: list[ir.Value] = []
+
+        for op in ops:
+            if isinstance(op, Delinearize):
+                shape_attr = ir.DenseI64ArrayAttr.get(list(op.basis), self._ctx)
+                result = affined.delinearize_index(
+                    [idx_type] * len(op.basis),
+                    val,
+                    [],
+                    shape_attr,
+                    loc=self._loc,
+                    ip=self._kip,
+                )
+                coords = list(result) if len(op.basis) > 1 else [result]
+            elif isinstance(op, Linearize):
+                stride_attr = ir.DenseI64ArrayAttr.get(list(op.basis), self._ctx)
+                val = affined.linearize_index(
+                    coords,
+                    [],
+                    stride_attr,
+                    False,
+                    loc=self._loc,
+                    ip=self._kip,
+                )
+            else:
+                raise TypeError(f"Unknown layout op: {type(op)}")
+
+        return val
+
+    def index_cast_i32(self, index_val: ir.Value) -> ir.Value:
+        """Cast an index value to i32."""
+        i32_type = ir.IntegerType.get_signless(32, self._ctx)
+        return arith.index_cast(i32_type, index_val, loc=self._loc, ip=self._kip)
+
+    # ---------------------------------------------------------------------------
+    # Pointer arithmetic (ptr dialect)
+    # ---------------------------------------------------------------------------
+
+    def flat_global_addr(self, sgpr_ptr: ir.Value, byte_offset: ir.Value) -> ir.Value:
+        """Compute a flat global address from SGPR pointer + index byte offset.
+
+        Uses lsir.from_reg -> ptr.ptr_add -> lsir.to_reg. The ASTER pipeline
+        (aster-affine-optimize-ptr-add) decomposes the ptr.ptr_add offset into
+        const/uniform/dynamic components automatically.
+
+        Args:
+            sgpr_ptr: base pointer as SGPRx2
+            byte_offset: byte offset as index type
+        Returns:
+            VGPRx2 containing the 64-bit flat global address
+        """
+        gptr_type = ir.Type.parse("!ptr.ptr<#ptr.generic_space>")
+        gptr = lsird.from_reg(gptr_type, sgpr_ptr, loc=self._loc, ip=self._kip)
+
+        off_i32 = self.index_cast_i32(byte_offset)
+        addr_ptr = ptrd.ptr_add(
+            gptr,
+            off_i32,
+            ptrd.PtrAddFlags.none,
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+        vx2_type = VGPRRangeType.get(self._ctx, size=2)
+        return lsird.to_reg(vx2_type, addr_ptr, loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # MFMA
@@ -569,6 +656,79 @@ class KernelBuilder:
             ip=self._kip,
         )
         return op.results[0]
+
+    # ---------------------------------------------------------------------------
+    # Flat global memory operations (ptr dialect path)
+    # ---------------------------------------------------------------------------
+
+    def _flat_global_load(
+        self,
+        opcode: str,
+        dest: ir.Value,
+        addr: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+    ) -> ir.Value:
+        """Flat global load using a pre-computed 64-bit address (VGPRx2)."""
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        # Global loads need a dynamic_offset operand (zero for flat addr path).
+        c0 = self.constant_i32(0)
+        zero_v = lsird.to_reg(VGPRType.get(self._ctx), c0, loc=self._loc, ip=self._kip)
+        read_tok_type = ir.Type.parse("!amdgcn.read_token<flat>")
+        op = LoadOp(
+            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+            dest=dest,
+            addr=addr,
+            dynamic_offset=zero_v,
+            constant_offset=const_offset,
+            results=[dest.type, read_tok_type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
+
+    def flat_global_load_dwordx4(
+        self,
+        addr: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+    ) -> ir.Value:
+        """Flat global load of 4 dwords from a 64-bit address (VGPRx2)."""
+        dest = self.alloc_vgprx4()
+        return self._flat_global_load("global_load_dwordx4", dest, addr, const_offset)
+
+    def _flat_global_store(
+        self,
+        opcode: str,
+        data: ir.Value,
+        addr: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+    ) -> ir.Value:
+        """Flat global store using a pre-computed 64-bit address (VGPRx2)."""
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        c0 = self.constant_i32(0)
+        zero_v = lsird.to_reg(VGPRType.get(self._ctx), c0, loc=self._loc, ip=self._kip)
+        write_tok_type = ir.Type.parse("!amdgcn.write_token<flat>")
+        op = StoreOp(
+            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+            data=data,
+            addr=addr,
+            dynamic_offset=zero_v,
+            constant_offset=const_offset,
+            results=[write_tok_type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
+
+    def flat_global_store_dwordx4(
+        self,
+        data: ir.Value,
+        addr: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+    ) -> ir.Value:
+        """Flat global store of 4 dwords to a 64-bit address (VGPRx2)."""
+        return self._flat_global_store("global_store_dwordx4", data, addr, const_offset)
 
     # ---------------------------------------------------------------------------
     # Synchronization
