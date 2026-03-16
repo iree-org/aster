@@ -22,13 +22,13 @@ export LLVM_SRC=${HOME}/llvm-project/llvm
 export LLVM_INSTALL=${HOME}/shared-llvm
 export LLVM_BUILD=${HOME}/llvm-build
 
-mkdir -p "$LLVM_BUILD" && cd "$LLVM_BUILD"
-
 # MLIR recommended setup for python bindings
 export LLVM_VENV=${LLVM_BUILD}/.venv
 uv venv ${LLVM_VENV} --seed -p 3.12
 source ${LLVM_VENV}/bin/activate
-uv pip install -r ${LLVM_SRC}/mlir/python/requirements.txt
+uv pip install -r ${LLVM_SRC}/../mlir/python/requirements.txt
+
+mkdir -p "$LLVM_BUILD" && cd "$LLVM_BUILD"
 
 cmake "$LLVM_SRC" -GNinja \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -41,10 +41,17 @@ cmake "$LLVM_SRC" -GNinja \
   -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
   -DMLIR_ENABLE_EXECUTION_ENGINE=ON \
   -DMLIR_BUILD_MLIR_C_DYLIB=ON \
-  -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip" \
-  -DHIP_PLATFORM=amd \
-  -DLLVM_CCACHE_BUILD=ON \
-  -DLLVM_USE_LINKER=lld
+  -DPython_EXECUTABLE="${LLVM_VENV}/bin/python" \
+  -DPython3_EXECUTABLE="${LLVM_VENV}/bin/python" \
+  -DLLVM_CCACHE_BUILD=ON
+
+# On Linux with lld or mold available, add for faster link times:
+#   -DLLVM_USE_LINKER=lld
+# On macOS the system linker is already fast so this is not needed.
+
+# On Linux with ROCm SDK installed (optional, for HIP-aware LLVM):
+#   -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip" \
+#   -DHIP_PLATFORM=amd
 
 ninja install
 
@@ -62,6 +69,9 @@ cp ${LLVM_BUILD}/bin/llvm-objdump ${LLVM_INSTALL}/bin/llvm-objdump
 Rebuild when `llvm/LLVM_COMMIT` is updated or you need different build options:
 
 ```bash
+export LLVM_BUILD=${HOME}/llvm-build
+export LLVM_VENV=${LLVM_BUILD}/.venv
+export LLVM_INSTALL=${HOME}/shared-llvm
 LLVM_COMMIT=$(cat llvm/LLVM_COMMIT)
 git -C ${HOME}/llvm-project fetch origin
 git -C ${HOME}/llvm-project checkout ${LLVM_COMMIT}
@@ -101,10 +111,99 @@ recognize the target chip. If your LLVM build does not support a given target
 (e.g. gfx950 requires a recent LLVM with CDNA4 support), the HSACO step will
 be skipped. ASTER's own IR translation will work regardless of LLVM version.
 
+## Manual Setup
+
+We use `uv pip install` for requirements.
+
+### venv
+
+```bash
+python3 -m venv --prompt aster .aster
+source .aster/bin/activate
+uv pip install -r requirements.txt
+```
+
+### Set useful variables in the venv activation script
+
+```bash
+cat >> .aster/bin/activate << 'EOF'
+
+# --- ASTER setup ---
+export PATH=${PWD}/.aster/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):${PATH}
+
+export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+
+export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
+
+export LLVM_INSTALL=${HOME}/shared-llvm
+
+export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
+# --- end ASTER setup ---
+EOF
+
+deactivate
+source .aster/bin/activate
+```
+
+### Building ASTER (macOS and Linux without GPU)
+
+This builds ASTER for cross-compilation only (no HIP runtime, no on-device
+execution). If you have a stale `build/CMakeCache.txt` from a previous
+configure (e.g. with a different venv), delete it first: `rm build/CMakeCache.txt`.
+
+```bash
+(
+  mkdir -p build && cd build
+
+  CMAKE_PREFIX_PATH="${LLVM_INSTALL}" \
+  cmake .. -GNinja \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+    -DCMAKE_INSTALL_PREFIX="../.aster" \
+    -DLLVM_EXTERNAL_LIT="${VIRTUAL_ENV}/bin/lit" \
+    -DPython_EXECUTABLE="${VIRTUAL_ENV}/bin/python" \
+    -DPython3_EXECUTABLE="${VIRTUAL_ENV}/bin/python" \
+    -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=aster
+
+  ninja install
+)
+```
+
+### Linux with AMD GPU support
+
+For HIP runtime support and execution tests on actual hardware, install
+[theRock](https://github.com/ROCm/TheRock/blob/main/RELEASES.md) which provides
+ROCm as a Python package:
+
+```bash
+# Choose based on your GPU architecture:
+
+# For RDNA4 (gfx120x):
+uv pip install -r requirements-amd-gfx120X-all.txt
+
+# For CDNA3 (MI300, gfx94x):
+uv pip install -r requirements-amd-gfx94X.txt
+
+# For CDNA4 (MI350, gfx950):
+uv pip install -r requirements-amd-gfx950.txt
+
+# Initialize and test ROCm
+rocm-sdk init
+rocm-sdk test
+```
+
+Then build with HIP support (add these flags to the cmake command above):
+
+```bash
+    -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip" \
+    -DHIP_PLATFORM=amd
+```
+
 ## Worktree Setup
 
 Each worktree needs its own build directory and venv, but shares LLVM.
-We use `uv` to pip install in the new venv, the latency of pure `pip` being too high.
 
 ### venv
 
@@ -118,47 +217,56 @@ source .aster-wt-${WORKTREE_NAME}/bin/activate
 uv pip install -r requirements.txt
 ```
 
-### Set useful variables in a Python virtual environment
+### Set useful variables in the venv activation script
 
 ```bash
 export WORKTREE_NAME=$(basename $(pwd))
 cat >> .aster-wt-${WORKTREE_NAME}/bin/activate << 'EOF'
 
+# --- ASTER worktree setup ---
 export WORKTREE_NAME=$(basename $(pwd))
-
 export PATH=${PWD}/.aster-wt-${WORKTREE_NAME}/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/bin/:${PATH}
-
 export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster-wt-${WORKTREE_NAME}/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
-
 export LLVM_SRC=${HOME}/llvm-project/llvm
 export LLVM_INSTALL=${HOME}/shared-llvm
 export LLVM_BUILD=${HOME}/llvm-build
 export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
+# --- end ASTER worktree setup ---
 EOF
 
-deactivate ;  unset PYTHONPATH; source .aster-wt-${WORKTREE_NAME}/bin/activate
+deactivate ; unset PYTHONPATH; source .aster-wt-${WORKTREE_NAME}/bin/activate
 ```
 
 ### Building with shared LLVM
 
 ```bash
 (
-  mkdir -p build && cd build;
+  mkdir -p build && cd build
 
+  CMAKE_PREFIX_PATH="${LLVM_INSTALL}" \
   cmake .. -GNinja \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DCMAKE_INSTALL_PREFIX="../.aster-wt-${WORKTREE_NAME}" \
-    -DLLVM_EXTERNAL_LIT=${VIRTUAL_ENV}/bin/lit \
-    -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip" \
-    -DHIP_PLATFORM=amd \
-    -DLLVM_USE_LINKER=lld;
+    -DLLVM_EXTERNAL_LIT="${VIRTUAL_ENV}/bin/lit" \
+    -DPython_EXECUTABLE="${VIRTUAL_ENV}/bin/python" \
+    -DPython3_EXECUTABLE="${VIRTUAL_ENV}/bin/python" \
+    -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=aster
 
-  ninja install;
+  # On Linux with lld or mold available, add for faster link times:
+  #   -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
+  #   -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld
+  #   -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld
+  # On macOS the system linker is already fast so this is not needed.
+
+  # On Linux with ROCm SDK installed, add:
+  #   -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip"
+  #   -DHIP_PLATFORM=amd
+
+  ninja install
 )
 ```
 
@@ -191,11 +299,8 @@ and pytest files (GPU execution). Lit tests run cross-platform; pytest requires 
 
 ## Notes
 
-- Linker: Both cmake commands above pass `-DLLVM_USE_LINKER=lld` which uses the
-  LLVM linker. This is much faster than the default GNU `ld` on Linux (link times
-  drop from minutes to seconds). Alternatively, `mold` is even faster:
-  `-DLLVM_USE_LINKER=mold` (install via `apt install mold` or `dnf install mold`).
-  On macOS the system linker is already fast so this flag is a no-op.
+- Linker: On Linux, use `lld` or `mold` for faster link times (link times drop
+  from minutes to seconds). On macOS the system linker is already fast.
 - ccache: Never clean it (incremental builds)
 - Each worktree has own `build/` and `.aster-wt-${WORKTREE_NAME}/` directories
 - All worktrees use same `${HOME}/shared-llvm`
