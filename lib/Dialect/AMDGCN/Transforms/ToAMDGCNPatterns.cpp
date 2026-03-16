@@ -44,6 +44,12 @@ namespace {
 // AddIOpPattern
 //===----------------------------------------------------------------------===//
 
+struct AddFOpPattern : public OpRewritePattern<lsir::AddFOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::AddFOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
 struct AddIOpPattern : public OpRewritePattern<lsir::AddIOp> {
   using Base::Base;
   LogicalResult matchAndRewrite(lsir::AddIOp op,
@@ -103,6 +109,24 @@ struct LoadOpPattern : public OpRewritePattern<lsir::LoadOp> {
 //===----------------------------------------------------------------------===//
 // MulIOpPattern
 //===----------------------------------------------------------------------===//
+
+struct MaximumFOpPattern : public OpRewritePattern<lsir::MaximumFOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::MaximumFOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+struct MinimumFOpPattern : public OpRewritePattern<lsir::MinimumFOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::MinimumFOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+struct MulFOpPattern : public OpRewritePattern<lsir::MulFOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::MulFOp op,
+                                PatternRewriter &rewriter) const override;
+};
 
 struct MulIOpPattern : public OpRewritePattern<lsir::MulIOp> {
   using Base::Base;
@@ -223,6 +247,12 @@ struct StoreOpPattern : public OpRewritePattern<lsir::StoreOp> {
 //===----------------------------------------------------------------------===//
 // SubIOpPattern
 //===----------------------------------------------------------------------===//
+
+struct SubFOpPattern : public OpRewritePattern<lsir::SubFOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::SubFOp op,
+                                PatternRewriter &rewriter) const override;
+};
 
 struct SubIOpPattern : public OpRewritePattern<lsir::SubIOp> {
   using Base::Base;
@@ -467,6 +497,89 @@ LogicalResult AddIOpPattern::matchAndRewrite(lsir::AddIOp op,
                      .getVdst0Res();
   rewriter.replaceOp(op, result);
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Float binary op patterns (AddF, SubF, MulF, MaximumF, MinimumF)
+//===----------------------------------------------------------------------===//
+
+/// Generic lowering for lsir binary float ops -> VOP2/VOP3.
+/// Float ops are always VGPR (no SGPR float arithmetic on AMD GPUs).
+template <typename LsirOp, OpCode vop2Code, OpCode vop3Code, OpCode vop2Code16,
+          OpCode vop3Code16>
+static LogicalResult lowerBinaryFloatOp(LsirOp op, PatternRewriter &rewriter) {
+  RegisterTypeInterface oTy = op.getDst().getType();
+  OperandKind kind = getOperandKind(oTy);
+  if (kind != OperandKind::VGPR)
+    return rewriter.notifyMatchFailure(op, "float ops require VGPR dest");
+
+  unsigned width = op.getSemantics().getWidth();
+  Value dst = op.getDst();
+  Value lhs = op.getLhs();
+  Value rhs = op.getRhs();
+  Location loc = op.getLoc();
+
+  OperandKind rhsKind = getOperandKind(rhs.getType());
+  bool isVOp3 = rhsKind == OperandKind::SGPR;
+
+  // Commute if rhs is immediate/SGPR (VOP2 src0 can be SGPR, src1 must be VGPR)
+  OperandKind lhsKind = getOperandKind(lhs.getType());
+  if (kind == OperandKind::VGPR &&
+      isOperand(rhsKind, {OperandKind::IntImm, OperandKind::SGPR})) {
+    std::swap(lhs, rhs);
+    std::swap(lhsKind, rhsKind);
+  }
+
+  if (width <= 16) {
+    Value result =
+        createVOP<vop2Code16, vop3Code16>(isVOp3, rewriter, loc, dst, lhs, rhs);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+  if (width <= 32) {
+    Value result =
+        createVOP<vop2Code, vop3Code>(isVOp3, rewriter, loc, dst, lhs, rhs);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+  return rewriter.notifyMatchFailure(op, "64-bit float VOP not supported");
+}
+
+LogicalResult AddFOpPattern::matchAndRewrite(lsir::AddFOp op,
+                                             PatternRewriter &rewriter) const {
+  return lowerBinaryFloatOp<lsir::AddFOp, OpCode::V_ADD_F32,
+                            OpCode::V_ADD_F32_E64, OpCode::V_ADD_F16,
+                            OpCode::V_ADD_F16_E64>(op, rewriter);
+}
+
+LogicalResult SubFOpPattern::matchAndRewrite(lsir::SubFOp op,
+                                             PatternRewriter &rewriter) const {
+  return lowerBinaryFloatOp<lsir::SubFOp, OpCode::V_SUB_F32,
+                            OpCode::V_SUB_F32_E64, OpCode::V_SUB_F32,
+                            OpCode::V_SUB_F32_E64>(op, rewriter);
+}
+
+LogicalResult MulFOpPattern::matchAndRewrite(lsir::MulFOp op,
+                                             PatternRewriter &rewriter) const {
+  return lowerBinaryFloatOp<lsir::MulFOp, OpCode::V_MUL_F32,
+                            OpCode::V_MUL_F32_E64, OpCode::V_MUL_F16,
+                            OpCode::V_MUL_F16_E64>(op, rewriter);
+}
+
+LogicalResult
+MaximumFOpPattern::matchAndRewrite(lsir::MaximumFOp op,
+                                   PatternRewriter &rewriter) const {
+  return lowerBinaryFloatOp<lsir::MaximumFOp, OpCode::V_MAX_F32,
+                            OpCode::V_MAX_F32_E64, OpCode::V_MAX_F32,
+                            OpCode::V_MAX_F32_E64>(op, rewriter);
+}
+
+LogicalResult
+MinimumFOpPattern::matchAndRewrite(lsir::MinimumFOp op,
+                                   PatternRewriter &rewriter) const {
+  return lowerBinaryFloatOp<lsir::MinimumFOp, OpCode::V_MIN_F32,
+                            OpCode::V_MIN_F32_E64, OpCode::V_MIN_F32,
+                            OpCode::V_MIN_F32_E64>(op, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1874,11 +1987,19 @@ PtrAddOpPattern::matchAndRewrite(PtrAddOp op, PatternRewriter &rewriter) const {
 
 void mlir::aster::amdgcn::populateToAMDGCNPatterns(
     RewritePatternSet &patterns) {
-  patterns.add<AddIOpPattern, AllocaOpPattern, AssumeNoaliasOpPattern,
-               AndIOpPattern, ExtSIOpPattern, ExtUIOpPattern, KernelOpPattern,
-               LoadOpPattern, MovOpPattern, MulIOpPattern, OrIOpPattern,
-               PtrAddOpPattern, XOrIOpPattern, RegCastOpPattern,
-               ReturnOpPattern, ShLIOpPattern, ShRSIOpPattern, ShRUIOpPattern,
-               StoreOpPattern, SubIOpPattern, WaitOpPattern>(
-      patterns.getContext());
+  patterns.add< // Arithmetic ops.
+      AddFOpPattern, AddIOpPattern, AndIOpPattern, ExtSIOpPattern,
+      ExtUIOpPattern, MaximumFOpPattern, MinimumFOpPattern, MulFOpPattern,
+      MulIOpPattern, OrIOpPattern, ShLIOpPattern, ShRSIOpPattern,
+      ShRUIOpPattern, SubFOpPattern, SubIOpPattern, XOrIOpPattern,
+      // Memory ops.
+      AllocaOpPattern, AssumeNoaliasOpPattern, LoadOpPattern, StoreOpPattern,
+      // Data movement ops.
+      MovOpPattern, RegCastOpPattern,
+      // Pointer ops.
+      PtrAddOpPattern,
+      // Control ops.
+      KernelOpPattern, ReturnOpPattern,
+      // Synchronization ops.
+      WaitOpPattern>(patterns.getContext());
 }

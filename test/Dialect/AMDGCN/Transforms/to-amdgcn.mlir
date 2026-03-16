@@ -1354,3 +1354,83 @@ module attributes {dlti.dl_spec = #dlti.dl_spec<!ptr.ptr<#amdgcn.addr_space<loca
     }
   }
 }
+
+// -----
+
+// CHECK-LABEL: func.func @test_addf_f32
+// CHECK-SAME: (%[[DST:.*]]: !amdgcn.vgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.vgpr)
+// CHECK: vop2 v_add_f32 outs %[[DST]] ins %[[LHS]], %[[RHS]]
+func.func @test_addf_f32(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %res = lsir.addf f32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr
+}
+
+// -----
+
+// CHECK-LABEL: func.func @test_subf_f32
+// CHECK-SAME: (%[[DST:.*]]: !amdgcn.vgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.vgpr)
+// CHECK: vop2 v_sub_f32 outs %[[DST]] ins %[[LHS]], %[[RHS]]
+func.func @test_subf_f32(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %res = lsir.subf f32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr
+}
+
+// -----
+
+// CHECK-LABEL: func.func @test_mulf_f32
+// CHECK-SAME: (%[[DST:.*]]: !amdgcn.vgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.vgpr)
+// CHECK: vop2 v_mul_f32 outs %[[DST]] ins %[[LHS]], %[[RHS]]
+func.func @test_mulf_f32(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %res = lsir.mulf f32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr
+}
+
+// -----
+
+// CHECK-LABEL: func.func @test_maxf_f32
+// CHECK-SAME: (%[[DST:.*]]: !amdgcn.vgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.vgpr)
+// CHECK: vop2 v_max_f32 outs %[[DST]] ins %[[LHS]], %[[RHS]]
+func.func @test_maxf_f32(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %res = lsir.maximumf f32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr
+}
+
+// -----
+
+// CHECK-LABEL: func.func @test_minf_f32
+// CHECK-SAME: (%[[DST:.*]]: !amdgcn.vgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.vgpr)
+// CHECK: vop2 v_min_f32 outs %[[DST]] ins %[[LHS]], %[[RHS]]
+func.func @test_minf_f32(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %res = lsir.minimumf f32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr
+}
+
+// -----
+
+// CHECK-LABEL: func.func @test_addf_f16
+// CHECK-SAME: (%[[DST:.*]]: !amdgcn.vgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.vgpr)
+// CHECK: vop2 v_add_f16 outs %[[DST]] ins %[[LHS]], %[[RHS]]
+func.func @test_addf_f16(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %res = lsir.addf f16 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr
+}
+
+// -----
+
+// CHECK-LABEL: func.func @test_mulf_f16
+// CHECK-SAME: (%[[DST:.*]]: !amdgcn.vgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.vgpr)
+// CHECK: vop2 v_mul_f16 outs %[[DST]] ins %[[LHS]], %[[RHS]]
+func.func @test_mulf_f16(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %res = lsir.mulf f16 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr
+}
+
+// -----
+
+// CHECK-LABEL: func.func @test_addf_sgpr_rhs
+// CHECK-SAME: (%[[DST:.*]]: !amdgcn.vgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.sgpr)
+// CHECK: vop3 v_add_f32_e64 outs %[[DST]] ins %[[RHS]], %[[LHS]]
+func.func @test_addf_sgpr_rhs(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.sgpr) -> !amdgcn.vgpr {
+  %res = lsir.addf f32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr
+  return %res : !amdgcn.vgpr
+}
