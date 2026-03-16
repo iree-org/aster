@@ -132,18 +132,15 @@ amdgcn.module @kittens_gemm_f16_direct_a target = #amdgcn.target<gfx942> isa = #
       %b_fut = func.call @k_read_lds_at_addrs_b(%lds_r_addrs_b)
           : (memref<?xindex>) -> !fut_b_buf
 
-      // A: extract directly from global loads via bpermute (no LDS).
-      %a_vals = func.call @k_extract_direct_a_values(%c_M_T, %c_K_T, %gfut_a)
-          : (index, index, !gfut_a_buf) -> !vals_a_buf
+      // A: issue bpermute permutations, returning futures (no waits yet).
+      %a_fut = func.call @k_extract_direct_a_futures(%c_M_T, %c_K_T, %gfut_a)
+          : (index, index, !gfut_a_buf) -> !fut_a_buf
 
-      // B: extract from LDS read futures.
-      %b_vals = func.call @k_extract_lds_values_b(%b_fut)
-          : (!fut_b_buf) -> !vals_b_buf
-
-      // MFMA compute.
+      // Wait + compute: resolves A (bpermute) and B (LDS) futures
+      // interleaved with MFMAs for maximum latency hiding.
       %c_K_MFMA = affine.apply affine_map<()[k] -> (k * 2)>()[%c_K_T]
-      func.call @k_compute_mfmas(%c_M_T, %c_N_T, %c_K_MFMA, %a_vals, %b_vals, %C_buf)
-          : (index, index, index, !vals_a_buf, !vals_b_buf, !c_buf) -> ()
+      func.call @k_wait_and_compute_mfmas_direct_a(%c_M_T, %c_N_T, %c_K_MFMA, %a_fut, %b_fut, %C_buf)
+          : (index, index, index, !fut_a_buf, !fut_b_buf, !c_buf) -> ()
 
       // Deallocate B LDS.
       amdgcn.dealloc_lds %lds_b_h {sched.stage = {{STAGE_COMPUTE}} : i32}
