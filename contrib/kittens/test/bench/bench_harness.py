@@ -263,6 +263,7 @@ def bench_perf_sweep(
     num_gpus=None,
     compile_workers=None,
     num_iterations=NUM_ITERATIONS,
+    post_compile_filter=None,
 ):
     """Run Phase 1 (parallel compile) + Phase 2 (parallel GPU exec) sweep.
 
@@ -368,6 +369,23 @@ def bench_perf_sweep(
     )
     sys.stdout.flush()
 
+    # -- Post-compile filter (e.g. VGPR occupancy check) ------------------
+    if post_compile_filter is not None:
+        before = len(hsaco_paths)
+        filtered_labels = []
+        for c in active:
+            if c.label not in hsaco_paths:
+                continue
+            res = resources_map.get(c.label)
+            if res and not post_compile_filter(c, res):
+                filtered_labels.append(c.label)
+                del hsaco_paths[c.label]
+        if filtered_labels:
+            print(
+                f"\nPost-compile filter: {len(filtered_labels)} configs "
+                f"skipped (e.g. VGPR limit)"
+            )
+
     # -- Phase 2: Parallel execution across GPUs -------------------------
     exec_active = [c for c in active if c.label in hsaco_paths]
     print(
@@ -468,7 +486,11 @@ def run_single(cfg, compile_fn, args, execute_fn):
             raise SystemExit(1)
         _, asm = compile_fn(cfg, args.hsaco, print_ir_after_all=print_ir)
         resources = parse_asm_kernel_resources(asm, kernel_name=kname)
-        print_config(cfg, args.iterations, resources.get(kname))
+        res = resources.get(kname)
+        print_config(cfg, args.iterations, res)
+        if res:
+            for v in res.check_occupancy(cfg.num_threads):
+                print(f"  OCCUPANCY ERROR: {v}")
         print(f"  Compiled: {args.hsaco}")
         if print_asm:
             print(f"\n--- Assembly ---\n{asm}")
@@ -498,7 +520,14 @@ def run_single(cfg, compile_fn, args, execute_fn):
         with _tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
             _, asm = compile_fn(cfg, tmp.name, print_ir_after_all=print_ir)
             resources = parse_asm_kernel_resources(asm, kernel_name=kname)
-            print_config(cfg, args.iterations, resources.get(kname))
+            res = resources.get(kname)
+            print_config(cfg, args.iterations, res)
+            if res:
+                violations = res.check_occupancy(cfg.num_threads)
+                for v in violations:
+                    print(f"  OCCUPANCY ERROR: {v}")
+                if violations and not getattr(args, "force", False):
+                    raise SystemExit(1)
             if print_asm:
                 print(f"\n--- Assembly ---\n{asm}")
             _, times_ns = execute_fn(cfg, tmp.name, args.iterations, A, B)
@@ -580,4 +609,9 @@ def add_single_cli_args(parser, num_iterations=NUM_ITERATIONS):
         "--print-asm",
         action="store_true",
         help="Print generated assembly to stdout (single-config mode only)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Run despite occupancy violations (use to confirm HIP will crash)",
     )

@@ -72,6 +72,70 @@ class KernelResources:
             parts.append(f"scratch={self.scratch_bytes}")
         return ", ".join(parts)
 
+    def check_occupancy(self, num_threads: int, mcpu: str = "gfx942") -> List[str]:
+        """Return a list of occupancy violations for the given target.
+
+        Returns an empty list if the kernel can launch.
+        """
+        if mcpu in ("gfx940", "gfx942"):
+            return self._check_occupancy_cdna3(num_threads)
+        if mcpu in ("gfx950",):
+            return self._check_occupancy_cdna4(num_threads)
+        return []
+
+    def _check_occupancy_cdna3(
+        self, num_threads: int, lds_per_cu: int = 65536
+    ) -> List[str]:
+        """CDNA3 occupancy rules (also used as base for CDNA4 with overrides).
+
+        Register rules (per wave, ISA 3.6.4):
+          - Per thread:  vgpr <= 256,  agpr <= 256
+          - Per wave:    vgpr + agpr <= 512
+        Per-SIMD file limits (512 VGPR + 512 AGPR per SIMD, 4 SIMDs per CU):
+          - vgpr * waves_per_simd <= 512
+          - agpr * waves_per_simd <= 512
+        LDS:
+          - lds_bytes <= lds_per_cu
+        """
+        _NUM_SIMDS = 4
+        num_waves = (num_threads + self.wavefront_size - 1) // self.wavefront_size
+        max_waves_per_simd = (num_waves + _NUM_SIMDS - 1) // _NUM_SIMDS
+        violations = []
+
+        if self.vgpr_count > 256:
+            violations.append(f"vgpr per thread {self.vgpr_count} > 256")
+        if self.agpr_count > 256:
+            violations.append(f"agpr per thread {self.agpr_count} > 256")
+        total_wave = self.vgpr_count + self.agpr_count
+        if total_wave > 512:
+            violations.append(
+                f"(vgpr+agpr) per wave {self.vgpr_count}+{self.agpr_count}={total_wave} > 512"
+            )
+        vgpr_simd = self.vgpr_count * max_waves_per_simd
+        if vgpr_simd > 512:
+            violations.append(
+                f"vgpr per SIMD {self.vgpr_count}*{max_waves_per_simd}={vgpr_simd} > 512"
+            )
+        agpr_simd = self.agpr_count * max_waves_per_simd
+        if agpr_simd > 512:
+            violations.append(
+                f"agpr per SIMD {self.agpr_count}*{max_waves_per_simd}={agpr_simd} > 512"
+            )
+        if self.lds_bytes > lds_per_cu:
+            violations.append(f"LDS per workgroup {self.lds_bytes} > {lds_per_cu}")
+        return violations
+
+    def _check_occupancy_cdna4(self, num_threads: int) -> List[str]:
+        """Gfx950 (CDNA4) occupancy rules.
+
+        Uses CDNA3 rules with CDNA4 overrides:
+          - LDS: 256KB per CU (vs 64KB on CDNA3)
+          - TODO: VGPR/AGPR per-thread limits for CDNA4
+          - TODO: SIMD count / waves-per-SIMD limits for CDNA4
+          - TODO: per-workgroup register budget for CDNA4
+        """
+        return self._check_occupancy_cdna3(num_threads, lds_per_cu=262144)
+
 
 # All integer fields we extract from .amdgpu_metadata YAML.
 _METADATA_FIELDS = [
