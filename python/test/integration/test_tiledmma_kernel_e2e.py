@@ -25,26 +25,14 @@ from aster import ir, utils
 from aster.testing import execute_kernel_and_verify, hsaco_file
 
 
-@pytest.mark.parametrize(
-    "mcpu",
-    [
-        "gfx942",
-    ],
-)
-@pytest.mark.parametrize(
-    "wavefront_size",
-    [
-        64,
-    ],
-)
+@pytest.mark.parametrize("mcpu", ["gfx942"])
+@pytest.mark.parametrize("wavefront_size", [64])
 def test_tiledmma_executes_correctly(mcpu, wavefront_size):
     """KernelBuilder tiledmma kernel result matches np.matmul."""
-    n_threads = wavefront_size  # one wavefront
-
     # n_threads x 4 f16 for A and B (viewed as 16x16 f16 matrix)
-    A = (np.random.randn(n_threads * 4) * 0.1).astype(np.float16)
-    B = (np.random.randn(n_threads * 4) * 0.1).astype(np.float16)
-    C = np.zeros(n_threads * 4, dtype=np.float32)
+    A = (np.random.randn(16 * 16) * 0.1).astype(np.float16)
+    B = (np.random.randn(16 * 16) * 0.1).astype(np.float16)
+    C = np.zeros(16 * 16, dtype=np.float32)
 
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
@@ -68,15 +56,14 @@ def test_tiledmma_executes_correctly(mcpu, wavefront_size):
             mcpu=mcpu,
             wavefront_size=wavefront_size,
             grid_dim=(1, 1, 1),
-            block_dim=(n_threads, 1, 1),
+            block_dim=(wavefront_size, 1, 1),
         )
 
-    # C.reshape(n_threads, 4): each thread's 4 accumulators
-    # Reference: A.reshape(16, 16) @ B.reshape(16, 16) -> 16x16 f32 matrix
-    A_mat = A.reshape(16, 16).astype(np.float32)
-    B_mat = B.reshape(16, 16).astype(np.float32)
-    expected = (A_mat @ B_mat).flatten()
-    np.testing.assert_allclose(C, expected, rtol=1e-2, atol=1e-2)
+    # MFMA 16x16x16 computes D = A @ B^T (both stored row-major [16][16] f16,
+    # MFMA treats B as B[N][K] so mathematical matmul is A[M][K] @ B[N][K]^T).
+    D = A.reshape(16, 16) @ B.reshape(16, 16).T
+
+    np.testing.assert_allclose(C.reshape(16, 16), D.T, rtol=1e-2, atol=1e-2)
 
 
 if __name__ == "__main__":

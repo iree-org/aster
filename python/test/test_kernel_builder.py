@@ -265,12 +265,20 @@ def compile_to_asm(module: ir.Module) -> str:
 
 
 def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Module:
-    """Build a tiledmma kernel: A[64x4 f16] x B[64x4 f16] -> C[64x4 f32].
+    """Build a tiledmma kernel: A[16x16 f16] x B[16x16 f16]^T -> C[16x16 f32].
+
+    Uses MFMA register-to-matrix layout (ISA Section 7.1.4) for loads/stores:
+      A/B: row = tid%16, col_group = tid//16, 4 consecutive K elements per lane
+      C:   n = tid%16, m_group = tid//16, 4 consecutive M elements per lane
+
+    A and B are both stored row-major [16][16] f16. The MFMA treats B as B[N][K]
+    so the mathematical computation is D = A @ B^T.
 
     Shared helper used by the unit structure test and the E2E execution test.
     Must be called inside an active ``with ctx:`` block.
     """
     from aster.dialects.amdgcn import AccessKind
+    from aster.layout import Layout
 
     b = KernelBuilder("tiledmma_mod", "tiledmma", target=target, isa=isa)
     b.add_ptr_arg(AccessKind.ReadOnly)  # A matrix ptr
@@ -280,8 +288,7 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
     a_ptr, b_ptr, c_ptr = b.load_args()
 
     tid = b.thread_id_x()  # index -- lowered by pipeline
-    ab_voff = b.byte_offset(tid, 8)  # 4 f16 = 8 bytes per thread
-    c_voff = b.byte_offset(tid, 16)  # 4 f32 = 16 bytes per thread
+
     num_records = b.s_mov_b32(65536)
     stride = b.constant_i32(0)
     soffset = b.s_mov_b32(0)
@@ -290,6 +297,9 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
     b_rsrc = b.make_buffer_rsrc(b_ptr, num_records, stride)
     c_rsrc = b.make_buffer_rsrc(c_ptr, num_records, stride)
 
+    # MFMA 16x16x16 fragment layout for f16 row-major [16][16] (B pre-transposed)
+    mfma_ab_layout = Layout(sizes=(4, 16), strides=(8, 32))
+    ab_voff = b._index_to_vgpr(b.layout_byte_offset(tid, mfma_ab_layout))
     a_frag = b.buffer_load_dwordx2(a_rsrc, soffset, ab_voff)
     b_frag = b.buffer_load_dwordx2(b_rsrc, soffset, ab_voff)
     b.wait_vmcnt(0)
@@ -297,6 +307,10 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
     acc = b.init_agprx4(b.constant_i32(0))
     acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
 
+    # MFMA output layout for f32 [16][16]
+    mfma_c_layout = Layout(sizes=(4, 16), strides=(16, 64))
+    c_voff = b._index_to_vgpr(b.layout_byte_offset(tid, mfma_c_layout))
+    # Note: mfma layout is transposed if we store back by 4.
     b.buffer_store_dwordx4(acc, c_rsrc, soffset, c_voff)
     b.wait_vmcnt(0)
 
