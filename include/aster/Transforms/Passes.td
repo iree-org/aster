@@ -454,4 +454,25 @@ def ForwardStoreToLoad : Pass<"aster-forward-store-to-load"> {
   ];
 }
 
+//===----------------------------------------------------------------------===//
+// CFGSimplification
+//===----------------------------------------------------------------------===//
+
+def CFGSimplification : Pass<"aster-cfg-simplification"> {
+  let summary = "Simplify the control flow graph";
+  let description = [{
+    This pass performs two CFG simplification transformations:
+
+    1. Block merging: if a block BBSucc has BBPred as its only predecessor and
+       BBPred has BBSucc as its only successor, BBSucc is merged into BBPred.
+
+    2. Empty block elimination: if a block contains only a single-successor
+       terminator, all predecessors are redirected to branch directly to the
+       successor and the now-unreachable block is removed.
+
+    Both transformations are applied to fixpoint within each region.
+  }];
+  let dependentDialects = [];
+}
+
 #endif // ASTER_TRANSFORMS_PASSES_TD

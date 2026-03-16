@@ -1,5 +1,6 @@
 add_mlir_library(AsterTransforms
   ApplySched.cpp
+  CFGSimplification.cpp
   AffineOptimizePtrAdd.cpp
   CanonicalizePtrs.cpp
   ConstexprExpansion.cpp
@@ -34,6 +35,7 @@ add_mlir_library(AsterTransforms
   MLIRAffineTransforms
   MLIRArithDialect
   MLIRArithTransforms
+  MLIRControlFlowInterfaces
   MLIRFuncDialect
   MLIRGPUDialect
   MLIRIR
