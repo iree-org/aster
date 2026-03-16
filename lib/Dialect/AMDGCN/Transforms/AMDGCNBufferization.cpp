@@ -18,13 +18,17 @@
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
-#include "mlir/Analysis/TopologicalSortUtils.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Transforms/CSE.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/DebugLog.h"
+#include <cstdint>
+#include <tuple>
 
 #define DEBUG_TYPE "amdgcn-bufferization"
 
@@ -73,12 +77,15 @@ struct BufferizationImpl {
   /// Insert phi-breaking copies for the given block argument.
   void handleBlockArgument(IRRewriter &rewriter, BlockArgument arg);
 
+  /// Insert phi-forwards.
+  void handlePhiForwards(IRRewriter &rewriter);
+
+  /// Insert phi-forwards for a group of phi-forwards.
+  void handlePhiForwardGroup(IRRewriter &rewriter, int64_t start, int64_t end);
+
   /// Remove register values from the terminators and the given blocks.
   void handleBlocksAndTerminators(IRRewriter &rewriter,
                                   ArrayRef<Block *> blocks);
-
-  /// Optimize the live ranges of the copy operations.
-  void optimizeLiveRanges(IRRewriter &rewriter);
 
   DominanceInfo &domInfo;
   /// The entry block of the function.
@@ -91,8 +98,14 @@ struct BufferizationImpl {
   DenseSet<BranchOpInterface> branchOps;
   /// The set of phi-node replacements.
   SmallVector<std::pair<BlockArgument, Value>> phiReplacements;
-  /// The set of inserted copy operations.
-  SmallVector<lsir::CopyOp> copyOps;
+  /// A list containing, the branch operation to forward from, the successor
+  /// index, the value to forward, the block to forward to, the allocation to
+  /// use, and the argument number.
+  SmallVector<
+      std::tuple<BranchOpInterface, int32_t, Value, Block *, Value, int64_t>>
+      phiForwards;
+  /// A map from the processed block to a unique deterministic ID.
+  DenseMap<Block *, int64_t> blockToId;
 };
 } // namespace
 
@@ -112,6 +125,7 @@ void BufferizationImpl::run(FunctionOpInterface op) {
   SmallVector<Block *> blocksToUpdate;
   // Insert phi-breaking copies for all blocks that needed.
   op.walk([&](Block *block) {
+    blockToId[block] = blockToId.size();
     rewriter.setInsertionPointToStart(block);
     bool needsUpdate = false;
     for (BlockArgument arg : block->getArguments()) {
@@ -124,9 +138,8 @@ void BufferizationImpl::run(FunctionOpInterface op) {
     if (needsUpdate)
       blocksToUpdate.push_back(block);
   });
-
+  handlePhiForwards(rewriter);
   handleBlocksAndTerminators(rewriter, blocksToUpdate);
-  optimizeLiveRanges(rewriter);
 }
 
 void BufferizationImpl::handleInstruction(IRRewriter &rewriter,
@@ -171,43 +184,25 @@ void BufferizationImpl::handleBlockArgument(IRRewriter &rewriter,
   Block *block = arg.getOwner();
 
   // Insert allocas to handle the breakage of the phi-node.
+  OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointToStart(entryBlock);
   Value commonAlloc = createAllocation(rewriter, loc, regTy.getAsUnallocated());
   Value argAlloc = createAllocation(rewriter, loc, regTy);
 
-  // Add copies at the end of each provenance point. This might introduce a copy
-  // in the block itself when the block is a successor of itself, save it.
-  lsir::CopyOp cpyInBlck = nullptr;
-  for (auto [branchOp, value] : *provenance) {
-    rewriter.setInsertionPoint(branchOp);
-    branchOps.insert(cast<BranchOpInterface>(branchOp));
-    auto cpy = lsir::CopyOp::create(rewriter, loc, commonAlloc, value);
-    if (branchOp->getBlock() == block) {
-      assert(!cpyInBlck && "expected only one copy in block");
-      cpyInBlck = cpy;
-      copyOps.push_back(cpy);
-    }
+  // Save the branch, value to forward, destination block and allocation for
+  // each phi-node to handle later.
+  for (auto [branchOp, value, index] : *provenance) {
+    auto brOp = cast<BranchOpInterface>(branchOp);
+    branchOps.insert(brOp);
+    phiForwards.push_back(
+        {brOp, index, value, block, commonAlloc, arg.getArgNumber()});
   }
 
-  // Insert a copy at the start of the block to handle the phi-node, or as near
-  // as possible to its first use.
-  rewriter.setInsertionPointToStart(block);
+  // Insert a copy at the first possible insertion point in the block, which is
+  // either before the first use or before the terminator if there are no uses.
+  rewriter.setInsertionPoint(block->getTerminator());
   {
     SmallVector<Block::iterator> possibleIps;
-
-    // If it exists, inspect the copy to the block itself and add its source as
-    // a possible insertion point. This is necessary to ensure correctness.
-    if (Value cpySrc = cpyInBlck ? cpyInBlck.getSource() : nullptr) {
-      if (auto bbArg = dyn_cast<BlockArgument>(cpySrc)) {
-        if (bbArg.getOwner() == block)
-          possibleIps.push_back(bbArg.getOwner()->begin());
-      } else {
-        Operation *cpySrcOp = cpySrc.getDefiningOp();
-        if (cpySrcOp->getBlock() == block)
-          possibleIps.push_back(Block::iterator(cpySrcOp));
-      }
-    }
-
     // Get all the uses of the argument and add them if they are in the same
     // block.
     for (OpOperand &use : arg.getUses()) {
@@ -227,8 +222,80 @@ void BufferizationImpl::handleBlockArgument(IRRewriter &rewriter,
     if (!possibleIps.empty())
       rewriter.setInsertionPoint(block, possibleIps.front());
   }
+
   auto cpy = lsir::CopyOp::create(rewriter, loc, argAlloc, commonAlloc);
   phiReplacements.push_back({arg, cpy.getTargetRes()});
+}
+
+void BufferizationImpl::handlePhiForwards(IRRewriter &rewriter) {
+  auto getCmpTuple = [&](const std::tuple<BranchOpInterface, int32_t, Value,
+                                          Block *, Value, int64_t> &elem) {
+    BranchOpInterface brOp = std::get<0>(elem);
+    int32_t index = std::get<1>(elem);
+    Block *block = std::get<3>(elem);
+    int64_t argNum = std::get<5>(elem);
+    return std::make_tuple(brOp.getOperation(), index, blockToId[block],
+                           argNum);
+  };
+
+  // Sort the phiForwards by the branch operation, the successor index, the
+  // block to forward to, and the argument number.
+  llvm::sort(phiForwards,
+             [&](const std::tuple<BranchOpInterface, int32_t, Value, Block *,
+                                  Value, int64_t> &a,
+                 const std::tuple<BranchOpInterface, int32_t, Value, Block *,
+                                  Value, int64_t> &b) {
+               return getCmpTuple(a) < getCmpTuple(b);
+             });
+
+  auto it = phiForwards.begin();
+  while (it != phiForwards.end()) {
+    // Get the iterator to the first element with a different branch operation
+    // or block.
+    auto nextIt = it;
+    while (++nextIt != phiForwards.end() &&
+           std::get<0>(*nextIt) == std::get<0>(*it) &&
+           std::get<1>(*nextIt) == std::get<1>(*it)) {
+    }
+    // Insert phi-forwards for the group.
+    handlePhiForwardGroup(rewriter, it - phiForwards.begin(),
+                          nextIt - phiForwards.begin());
+    it = nextIt;
+  }
+}
+
+void BufferizationImpl::handlePhiForwardGroup(IRRewriter &rewriter,
+                                              int64_t start, int64_t end) {
+  // Get the origin block and region.
+  Block *prdBlock = std::get<0>(phiForwards[start])->getBlock();
+  Region *prdRegion = prdBlock->getParent();
+
+  SuccessorOperands succOperands =
+      std::get<0>(phiForwards[start])
+          .getSuccessorOperands(std::get<1>(phiForwards[start]));
+
+  SmallVector<Value> fwdValues = llvm::to_vector(
+      llvm::make_filter_range(succOperands.getForwardedOperands(), [](Value v) {
+        auto regTy = dyn_cast<RegisterTypeInterface>(v.getType());
+        return !regTy || !regTy.hasValueSemantics();
+      }));
+  succOperands.getMutableForwardedOperands().clear();
+
+  // Create a new block to insert the phi-forwards.
+  Block *newBlock =
+      rewriter.createBlock(prdRegion, ++Region::iterator(prdBlock));
+  rewriter.setInsertionPointToEnd(newBlock);
+
+  // Create copies and set the successors.
+  for (int64_t i = start; i < end; ++i) {
+    auto [brOp, index, value, block, alloc, argNum] = phiForwards[i];
+    lsir::CopyOp::create(rewriter, alloc.getLoc(), alloc, value);
+    brOp->setSuccessor(newBlock, index);
+  }
+
+  // Create a branch op to the block to forward to.
+  cf::BranchOp::create(rewriter, std::get<0>(phiForwards[start])->getLoc(),
+                       std::get<3>(phiForwards[start]), fwdValues);
 }
 
 void BufferizationImpl::handleBlocksAndTerminators(IRRewriter &rewriter,
@@ -265,44 +332,6 @@ void BufferizationImpl::handleBlocksAndTerminators(IRRewriter &rewriter,
   // Erase block arguments with register value semantics.
   for (Block *block : blocks)
     block->eraseArguments(isRegValType);
-}
-
-void BufferizationImpl::optimizeLiveRanges(IRRewriter &rewriter) {
-  // All the copies being processed here are copies at the end of a block that
-  // can flow into a different block.
-  // NOTE: The best way to optimize the live ranges of these copies is by
-  // splitting the block and make copies only happen in the split block.
-  // TODO: Implement this.
-  for (lsir::CopyOp cpy : copyOps) {
-    Value source = cpy.getSource();
-    // Go through each use of the source of the copy, as we are going to replace
-    // the use with the target of the copy.
-    // NOTE: This is safe because bufferization made sure there's no clobbering
-    // issues, so as long target is used as an input operand (read-only), we can
-    // replace the use with the target.
-    for (OpOperand &use : llvm::make_early_inc_range(source.getUses())) {
-      Operation *user = use.getOwner();
-
-      // Make sure the user is properly dominated by the copy, this is to
-      // preserve copy ordering and value flow.
-      if (!domInfo.properlyDominates(cpy, user))
-        continue;
-      auto instOp = dyn_cast<InstOpInterface>(user);
-      if (!instOp)
-        continue;
-      OperandRange ins = instOp.getInstIns();
-      if (ins.empty())
-        continue;
-
-      // Update the operand.
-      int64_t start = ins.getBeginOperandIndex();
-      int64_t end = start + ins.size();
-      if (use.getOperandNumber() < start || use.getOperandNumber() >= end)
-        continue;
-      rewriter.setInsertionPoint(user);
-      use.set(cpy.getTarget());
-    }
-  }
 }
 
 //===----------------------------------------------------------------------===//

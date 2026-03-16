@@ -14,6 +14,7 @@
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Transforms/Passes.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
@@ -62,6 +63,7 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
   coloringOpts.optimize = options.optimize;
   pm.addPass(createRegisterColoring(coloringOpts));
   pm.addPass(createHoistOps());
+  pm.addPass(createCFGSimplification());
 }
 
 static void registerRegAllocPassPipeline() {

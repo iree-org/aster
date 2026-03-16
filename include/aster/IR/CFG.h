@@ -28,6 +28,11 @@ public:
   BranchPoint(BranchOpInterface op, int64_t index) {
     SuccessorOperands succOperands = op.getSuccessorOperands(index);
     producedOperandCount = succOperands.getProducedOperandCount();
+    successorIndex = index;
+    assert(successorIndex < std::numeric_limits<int32_t>::max() &&
+           "index is out of range");
+    assert(producedOperandCount < std::numeric_limits<int32_t>::max() &&
+           "produced operand count is out of range");
     operands = succOperands.getForwardedOperands();
     point = op;
   }
@@ -51,8 +56,12 @@ public:
   /// Check if the branch point is the entry point.
   bool isEntryPoint() const { return point == nullptr; }
 
+  /// Get the successor index.
+  int32_t getSuccessorIndex() const { return successorIndex; }
+
 private:
-  int64_t producedOperandCount = 0;
+  int32_t producedOperandCount = 0;
+  int32_t successorIndex = 0;
   ValueRange operands;
   Operation *point = nullptr;
 };
