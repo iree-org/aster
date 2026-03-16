@@ -392,15 +392,17 @@ class KernelBuilder:
                 )
                 coords = list(result) if len(op.basis) > 1 else [result]
             elif isinstance(op, Linearize):
-                stride_attr = ir.DenseI64ArrayAttr.get(list(op.basis), self._ctx)
-                val = affined.linearize_index(
-                    coords,
-                    [],
-                    stride_attr,
-                    False,
-                    loc=self._loc,
-                    ip=self._kip,
-                )
+                # affine.linearize_index treats basis as sizes (suffix-product
+                # strides), NOT as explicit strides. Use affine.apply with an
+                # explicit affine_map to get the correct dot product:
+                #   offset = c0 * s0 + c1 * s1 + ...
+                strides = op.basis
+                n = len(strides)
+                dims = ", ".join(f"d{i}" for i in range(n))
+                terms = " + ".join(f"d{i} * {strides[i]}" for i in range(n))
+                map_str = f"affine_map<({dims}) -> ({terms})>"
+                amap = ir.Attribute.parse(map_str)
+                val = affined.apply(amap, coords, loc=self._loc, ip=self._kip)
             else:
                 raise TypeError(f"Unknown layout op: {type(op)}")
 

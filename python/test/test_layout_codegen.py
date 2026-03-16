@@ -105,16 +105,14 @@ def test_build_copy_kernel_ir():
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        module = build_copy_kernel(
-            "copy_test", Layout(sizes=(4, 16), strides=(16, 64))
-        )
+        module = build_copy_kernel("copy_test", Layout(sizes=(4, 16), strides=(16, 64)))
         text = str(module)
         assert "amdgcn.module" in text
         assert "global_load_dwordx4" in text
         assert "global_store_dwordx4" in text
         assert "ptr.ptr_add" in text
         assert "affine.delinearize_index" in text
-        assert "affine.linearize_index" in text
+        assert "affine.apply" in text
 
 
 def test_build_copy_kernel_asm():

@@ -27,9 +27,11 @@ class Delinearize:
 
 @dataclass(frozen=True, slots=True)
 class Linearize:
-    """Combine multi-dim coordinates into a 1-D offset with strides.
+    """Combine multi-dim coordinates into a 1-D offset with explicit strides.
 
-    Corresponds to affine.linearize_index [coords...] by (basis...).
+    Lowered via affine.apply with map: (d0, d1, ...) -> (d0*s0 + d1*s1 + ...).
+    Note: affine.linearize_index cannot be used here because it interprets its
+    basis as sizes (computing strides as suffix products), not as explicit strides.
     """
 
     basis: tuple[int, ...]
