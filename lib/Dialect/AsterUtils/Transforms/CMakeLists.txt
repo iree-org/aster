@@ -1,6 +1,7 @@
 add_mlir_library(AsterUtilsTransforms
   RaiseToAffine.cpp
   DecomposeByLoopInvariant.cpp
+  DecomposeByCSE.cpp
   RemoveAssumeOps.cpp
   AsterSelectiveInlining.cpp
   DestructureStructIterArgs.cpp

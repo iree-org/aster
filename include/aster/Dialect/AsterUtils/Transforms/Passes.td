@@ -187,6 +187,35 @@ def DecomposeByLoopInvariant : Pass<"aster-decompose-by-loop-invariant"> {
   ];
 }
 
+def DecomposeByCSE : Pass<"aster-decompose-by-cse"> {
+  let summary = "Decompose addi/muli ops by common sub-expression extraction";
+  let description = [{
+    This pass performs block-level common sub-expression decomposition on
+    `aster_utils.addi` and `aster_utils.muli` operations. It finds the most
+    profitable pair of operands shared across multiple ops in a block and
+    factors them out into a separate op guarded by a
+    `aster_utils.passthrough` barrier, repeating until no profitable pair
+    remains.
+
+    For example:
+
+    ```mlir
+    // Before:
+    %r0 = aster_utils.addi %a, %b, %c : index
+    %r1 = aster_utils.addi %a, %b, %d : index
+
+    // After:
+    %t0 = aster_utils.addi %a, %b : index
+    %t1 = aster_utils.passthrough %t0 : index
+    %r0 = aster_utils.addi %t1, %c : index
+    %r1 = aster_utils.addi %t1, %d : index
+    ```
+  }];
+  let dependentDialects = [
+    "mlir::aster::aster_utils::AsterUtilsDialect"
+  ];
+}
+
 
 def ExpandAffineApply : Pass<"aster-expand-affine-apply"> {
   let summary = "Expand affine.apply into aster_utils n-ary addi/muli operations";
