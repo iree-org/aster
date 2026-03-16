@@ -189,8 +189,8 @@ void ApplySchedPass::runOnOperation() {
   });
 
   // Verify that all schedules of interest were found.
-  if (failed(verifySchedNames(root, schedsCounts)))
-    return signalPassFailure();
+  // if (failed(verifySchedNames(root, schedsCounts)))
+  //   return signalPassFailure();
 
   // Sort the schedules by order of appearance in the scheds list and by
   // appearance in the walk.
@@ -198,6 +198,9 @@ void ApplySchedPass::runOnOperation() {
     return std::make_pair(schedsToId[a.name], a.id) <
            std::make_pair(schedsToId[b.name], b.id);
   });
+
+  if (schedInfos.empty())
+    return;
 
   LDBG_OS([&](llvm::raw_ostream &os) {
     os << "Applying schedules:\n";

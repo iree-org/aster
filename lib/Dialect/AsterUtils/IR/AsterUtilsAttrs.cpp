@@ -14,6 +14,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include <cstdint>
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -109,18 +110,36 @@ StageTopoSortSchedAttr::createSched(const SchedGraph &schedGraph,
 
   // Use topologicalSched with a stage-aware selection function.
   // Given ready nodes, pick the one with smallest stage label; ties by node ID.
+  int32_t currStage = 1;
   auto schedFn = [&](ArrayRef<int32_t> ready) -> int32_t {
-    int32_t bestIdx = 0;
-    int32_t bestLabel = schedGraph.getLabel(ready[0]);
-    int32_t bestNode = ready[0];
+    auto it = llvm::find(ready, 0);
+    if (it != ready.end())
+      return it - ready.begin();
+
+    int32_t bestIdx = 0, stageIdx = -1;
     for (size_t i = 1; i < ready.size(); ++i) {
       int32_t label = schedGraph.getLabel(ready[i]);
-      if (label < bestLabel || (label == bestLabel && ready[i] < bestNode)) {
+      int32_t bestLabel = schedGraph.getLabel(ready[bestIdx]);
+      if (label < bestLabel ||
+          (label == bestLabel && ready[i] < ready[bestIdx]))
         bestIdx = i;
-        bestLabel = label;
-        bestNode = ready[i];
+
+      if (label >= currStage) {
+        if (stageIdx == -1) {
+          stageIdx = i;
+          continue;
+        }
+        if (label < schedGraph.getLabel(ready[stageIdx]) ||
+            (label == schedGraph.getLabel(ready[stageIdx]) &&
+             ready[i] < ready[stageIdx]))
+          stageIdx = i;
       }
     }
+    if (stageIdx != -1) {
+      currStage = schedGraph.getLabel(ready[stageIdx]) + 1;
+      return stageIdx;
+    }
+    currStage = 1;
     return bestIdx;
   };
 

@@ -152,11 +152,15 @@ struct WaitCnt {
   /// Given a set of reaching tokens and token dependencies, compute the waited
   /// and implied tokens, the new reaching tokens after the wait, and update the
   /// wait counts so that they are consistent.
+  /// If `nonBlockingWait` is true, then implied tokens are added with respect
+  /// to the wait counts coming from the op, not the counts based on the waited
+  /// tokens.
   void handleWait(ArrayRef<TokenState> reachingTokens, ValueRange dependencies,
                   SmallVectorImpl<TokenState> &waitedTokens,
                   SmallVectorImpl<TokenState> &impliedTokens,
                   SmallVectorImpl<TokenState> &nextReachingTokens,
-                  llvm::function_ref<TokenState(Value)> getState);
+                  llvm::function_ref<TokenState(Value)> getState,
+                  bool nonBlockingWait);
   /// Print the wait counts.
   void print(llvm::raw_ostream &os) const;
 
@@ -224,7 +228,8 @@ struct WaitState : dataflow::AbstractDenseLattice {
   /// Dedicated join for wait operations.
   ChangeResult joinWait(ValueRange deps, const WaitState &before,
                         WaitCnt waitCounts,
-                        llvm::function_ref<TokenState(Value)> getState);
+                        llvm::function_ref<TokenState(Value)> getState,
+                        bool nonBlockingWait);
   /// Add tokens to the reaching set.
   ChangeResult addTokens(ArrayRef<TokenState> tokens);
   /// Print the lattice element.
@@ -244,12 +249,14 @@ struct WaitState : dataflow::AbstractDenseLattice {
 /// operations implementing DependentOpInterface. The analysis computes the
 /// set of pending (not-yet-waited-on) dependency tokens at each program point.
 class WaitAnalysis : public dataflow::DenseForwardDataFlowAnalysis<WaitState> {
-public:
   using dataflow::DenseForwardDataFlowAnalysis<
       WaitState>::DenseForwardDataFlowAnalysis;
-  WaitAnalysis(DataFlowSolver &solver, DominanceInfo &domInfo)
+
+public:
+  WaitAnalysis(DataFlowSolver &solver, DominanceInfo &domInfo,
+               bool nonBlockingWait = false)
       : dataflow::DenseForwardDataFlowAnalysis<WaitState>(solver),
-        domInfo(domInfo) {}
+        domInfo(domInfo), nonBlockingWait(nonBlockingWait) {}
 
   /// Visit an operation and update the lattice state.
   LogicalResult visitOperation(Operation *op, const WaitState &before,
@@ -284,6 +291,10 @@ private:
 
   /// Temporary storage for escaped tokens during control flow transfer.
   llvm::SmallVector<TokenState> escapedTokens;
+
+  /// Determines whether implied tokens are computed with respect to the wait
+  /// counts coming from the op, or the counts based on the waited tokens.
+  bool nonBlockingWait = false;
 
   /// Get the unique ID for a given token value.
   TokenState::ID getID(Value token) {

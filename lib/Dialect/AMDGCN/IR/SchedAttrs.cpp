@@ -67,7 +67,8 @@ private:
 LogicalResult
 ValueSchedulerAttr::initializeAnalyses(SchedAnalysis &analysis) const {
   // Load the wait analysis.
-  analysis.getSolver().load<WaitAnalysis>(analysis.getDomInfo());
+  analysis.getSolver().load<WaitAnalysis>(analysis.getDomInfo(),
+                                          /*nonBlockingWait=*/true);
   analysis.setRunDataflowAnalyses();
   return success();
 }

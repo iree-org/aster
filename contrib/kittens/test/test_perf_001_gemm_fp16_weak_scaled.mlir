@@ -29,6 +29,17 @@
 !vals_b_buf = memref<?x!rt_B_f16>
 !c_buf = memref<?x!rt_C_f32>
 
+#sched = #aster_utils.generic_scheduler<#amdgcn.value_scheduler,
+      #aster_utils.sched_list_labeler<[
+        #amdgcn.inst_prop_labeler<[mma], 2>,
+        #amdgcn.inst_prop_labeler<[is_vmem], 7>,
+        #amdgcn.opcode_labeler<[ds_write_b64], 8>,
+        #amdgcn.inst_prop_labeler<[dsmem], 2>,
+        #amdgcn.inst_prop_labeler<[is_valu], 9>,
+        #aster_utils.op_name_labeler<["arith.constant", "amdgcn.alloca", "amdgcn.make_register_range", "amdgcn.split_register_range"], 0>
+      ]>,
+      #aster_utils.stage_topo_sort_sched>
+
 amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Library functions (external, provided by preload library)
   func.func private @wave_id() -> index
@@ -52,7 +63,7 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
-  ]> attributes {shared_memory_size = {{SHARED_MEM}} : i32, block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>} {
+  ]> attributes {shared_memory_size = {{SHARED_MEM}} : i32, block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>, sched = #sched} {
     %A_raw = amdgcn.load_arg 0 : !sx2
     %B_raw = amdgcn.load_arg 1 : !sx2
     %C_raw = amdgcn.load_arg 2 : !sx2
@@ -151,11 +162,11 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
           : (memref<?xindex>, index, index, !gfut_b_buf) -> !tok_b_buf
 
       // --- Barrier then wait all LDS write tokens ---
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32}
       func.call @k_wait_lds_writes(%tok_a)
           : (memref<?x!lds_write_token>) -> ()
       func.call @k_wait_lds_writes(%tok_b)
           : (memref<?x!lds_write_token>) -> ()
+      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32}
 
       // --- Issue LDS reads at pre-computed addresses ---
       %a_fut = func.call @k_read_lds_at_addrs_a(%lds_r_addrs_a)

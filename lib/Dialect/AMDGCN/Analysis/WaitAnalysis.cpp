@@ -181,11 +181,13 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
                          SmallVectorImpl<TokenState> &waitedTokens,
                          SmallVectorImpl<TokenState> &impliedTokens,
                          SmallVectorImpl<TokenState> &nextReachingTokens,
-                         llvm::function_ref<TokenState(Value)> getState) {
+                         llvm::function_ref<TokenState(Value)> getState,
+                         bool nonBlockingWait) {
   // Clear the waited tokens.
   waitedTokens.clear();
 
   bool hasLgkmDeps = false;
+  WaitCnt currCounts = *this;
 
   // Compute which dependencies are in the reaching set.
   for (Value v : dependencies) {
@@ -258,6 +260,11 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
     if (token.getPosition() < count)
       nextReachingTokens.push_back(token);
 
+    // If we are treating the wait as non-blocking, then we need to use the
+    // original wait count coming from the op.
+    if (nonBlockingWait)
+      count = currCounts.getCount(token.getKind());
+
     // Collect implied tokens.
     if (token.getPosition() >= count)
       impliedTokens.push_back(token);
@@ -302,10 +309,10 @@ ChangeResult WaitState::join(const WaitState &lattice) {
                                                        : ChangeResult::NoChange;
 }
 
-ChangeResult
-WaitState::joinWait(ValueRange deps, const WaitState &before,
-                    WaitCnt waitCounts,
-                    llvm::function_ref<TokenState(Value)> getState) {
+ChangeResult WaitState::joinWait(ValueRange deps, const WaitState &before,
+                                 WaitCnt waitCounts,
+                                 llvm::function_ref<TokenState(Value)> getState,
+                                 bool nonBlockingWait) {
   // Get a fingerprint for change detection.
   auto oldFingerprint = getStateFingerprint(*this);
   LDBG_OS([&](raw_ostream &os) {
@@ -329,7 +336,7 @@ WaitState::joinWait(ValueRange deps, const WaitState &before,
   SmallVector<TokenState> newReachingToks;
   waitOpInfo->counts.handleWait(
       before.reachingTokens, deps, waitOpInfo->waitedTokens,
-      waitOpInfo->impliedTokens, newReachingToks, getState);
+      waitOpInfo->impliedTokens, newReachingToks, getState, nonBlockingWait);
   bool changed = oldFingerprint != getStateFingerprint(*this);
 
   // Update the reaching tokens.
@@ -509,9 +516,9 @@ LogicalResult WaitAnalysis::visitOperation(Operation *op,
   // Handle a wait op.
   if (auto waitOp = dyn_cast<WaitOp>(op)) {
     auto getState = [&](Value token) { return this->getState(token, 0); };
-    propagateIfChanged(after,
-                       after->joinWait(waitOp.getDependencies(), before,
-                                       WaitCnt::fromOp(waitOp), getState));
+    propagateIfChanged(after, after->joinWait(waitOp.getDependencies(), before,
+                                              WaitCnt::fromOp(waitOp), getState,
+                                              nonBlockingWait));
     return success();
   }
 
