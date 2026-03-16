@@ -159,6 +159,35 @@ def RaiseToAffine : Pass<"aster-raise-to-affine"> {
   ];
 }
 
+def DecomposeByLoopInvariant : Pass<"aster-decompose-by-loop-invariant"> {
+  let summary = "Split loop-invariant operands of addi/muli ops into inner ops";
+  let description = [{
+    This pass splits the loop-invariant operands of `aster_utils.addi` and
+    `aster_utils.muli` operations into a separate op of the same kind, inserting
+    an `aster_utils.passthrough` barrier between the two ops to prevent the
+    optimizer from re-merging them.
+
+    For example, if `%a` and `%b` are defined outside the enclosing loop:
+
+    ```mlir
+    // Before:
+    %r = aster_utils.addi %a, %b, %c : index
+
+    // After:
+    %t0 = aster_utils.addi %a, %b : index
+    %t1 = aster_utils.passthrough %t0 : index
+    %r  = aster_utils.addi %t1, %c : index
+    ```
+
+    After this transformation, standard LICM can hoist `%t0` and `%t1` out of
+    the loop, leaving only `%r` inside.
+  }];
+  let dependentDialects = [
+    "mlir::aster::aster_utils::AsterUtilsDialect"
+  ];
+}
+
+
 def ExpandAffineApply : Pass<"aster-expand-affine-apply"> {
   let summary = "Expand affine.apply into aster_utils n-ary addi/muli operations";
   let description = [{
