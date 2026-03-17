@@ -60,7 +60,7 @@ PHASE_SCHEDULING = (
     "aster-op-scheduling",
 )
 
-def phase_scf_pipelining(lcm_unroll=False):
+def phase_scf_pipelining(lcm_unroll=True):
     if lcm_unroll:
         return ("aster-scf-pipeline{lcm-unroll=true}",)
     return ("aster-scf-pipeline",)
@@ -151,17 +151,29 @@ PHASE_LOWER_TO_AMDGCN = (
     # better LICM, CSE, and int-range analysis. Must run after canonicalize
     # (which composes affine chains) and before aster-to-int-arith (which
     # lowers affine to arith). Upstream: affine::decompose().
+    "affine-expand-index-ops-as-affine",
+    "canonicalize", "cse",
     "aster-decompose-affine-apply",
+    "loop-invariant-code-motion", "cse",
+    "aster-decompose-by-loop-invariant",
+    "canonicalize", "cse", "loop-invariant-code-motion",
+    "aster-decompose-by-cse", "cse",
+    "aster-raise-to-affine",
+    "canonicalize", "cse",
     # Hoist loop-invariant decomposed affine sub-expressions and deduplicate.
     # No canonicalize here: it would re-compose the affine chains we just split.
     "loop-invariant-code-motion", "cse",
     # Decompose ptr.ptr_add(affine.apply) into const/uniform/dynamic
     # components using ValueBounds + ThreadUniformAnalysis.
-    "aster-affine-optimize-ptr-add",
+    "aster-affine-optimize-ptr-add{assume-positive=true}",
+    "canonicalize",
     # Hoist loop-invariant decomposed affine sub-expressions and deduplicate.
     # No canonicalize here: it would re-compose the affine chains we just split.
     "loop-invariant-code-motion", "cse",
+    "canonicalize",
+    "aster-factorize-affine-expr",
     "aster-to-int-arith",
+    "aster-remove-assume-ops{remove-passthrough=true}",
     "aster-optimize-arith",
     "aster-optimize-ptr-add",
     "canonicalize", "cse",
@@ -176,6 +188,11 @@ PHASE_LOWER_TO_AMDGCN = (
     "canonicalize", "cse", "canonicalize",
     "amdgcn-optimize",
     "aster-to-amdgcn",
+    amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
+    "canonicalize", "cse",
+    # TODO: currently busted
+    # "aster-apply-sched{scheds=sched}",
+    "canonicalize",
 )
 
 # Register allocation, and wait lowering.
@@ -297,7 +314,7 @@ PHASE_CONSTEXPR_EXPANSION = (
 # then proceed with normal pipelining.
 def make_constexpr_pipelining_pass_pipeline(
     lcm_unroll=False, num_vgprs=256, num_agprs=256
-):
+) -> str:
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
         PHASE_CONSTEXPR_EXPANSION,
