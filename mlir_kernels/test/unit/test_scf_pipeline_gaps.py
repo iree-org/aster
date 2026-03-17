@@ -20,7 +20,7 @@ NO_LIBS = []
 
 PIPELINES = [
     pytest.param(TEST_SCF_PIPELINING_PASS_PIPELINE, id="default"),
-    pytest.param(_scf_pipeline(gcd_unroll=True), id="gcd-unroll"),
+    pytest.param(_scf_pipeline(lcm_unroll=True), id="lcm-unroll"),
 ]
 
 
