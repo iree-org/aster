@@ -141,6 +141,8 @@ PHASE_CONVERT_LDS_BUFFERS = (
     "amdgcn-lds-alloc",
     "amdgcn-convert-lds-buffers",
     "canonicalize", "cse",
+    # Assert: no alloc_lds/get_lds_offset/dealloc_lds remain.
+    'amdgcn-set-normal-forms{module-forms=no_lds_buffer_ops}',
 )
 
 # Lowering to LSIR and then AMDGCN
@@ -167,9 +169,8 @@ PHASE_LOWER_TO_AMDGCN = (
     "canonicalize", "cse",
     "aster-resolve-any-iter-args",
     "aster-amdgcn-set-abi", # "func.func(aster-amdgcn-set-abi)",
-    # Convert SCF control flow to AMDGCN control flow
-    # Note: control flow support is very limited atm, add NORMAL FORMS
-    # to harden invariants.
+    # Convert SCF control flow to AMDGCN control flow.
+    # Post-condition: #amdgcn.no_scf_ops (set by the pass itself).
     "amdgcn-convert-scf-control-flow",
     "canonicalize", "cse",
     "aster-codegen",
@@ -180,7 +181,9 @@ PHASE_LOWER_TO_AMDGCN = (
 
 # Register allocation, and wait lowering.
 # TODO: Move NOP insertion to backend.
-# TODO: NORMAL FORMS for amdgcn-backend.
+# Normal forms enforced by amdgcn-backend internally (see Pipelines.cpp):
+#   entry: #amdgcn.no_lsir_compute_ops
+#   exit:  #amdgcn.no_lsir_ops, #amdgcn.no_lsir_control_ops
 PHASE_AMDGCN_BACKEND = "amdgcn-backend"
 
 # Note: needs to know about instructions and actual register number for WAW

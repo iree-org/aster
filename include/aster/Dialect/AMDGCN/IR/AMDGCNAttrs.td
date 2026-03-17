@@ -435,6 +435,44 @@ def NoAffineOpsAttr : AMDGCN_Attr<
   }];
 }
 
+def NoIndexTypesAttr : AMDGCN_Attr<
+    "NoIndexTypes", "no_index_types",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyType"]>]> {
+  let summary = "Normal form: no index types";
+  let description = [{
+    Verifies that no `index` types exist in the IR. This is the post-condition
+    of the `aster-to-int-arith` pass, which converts all `index` types to
+    concrete integer types (typically i32). An `index` type surviving into the
+    AMDGCN backend would crash register allocation or produce wrong code.
+  }];
+}
+
+def NoLdsBufferOpsAttr : AMDGCN_Attr<
+    "NoLdsBufferOps", "no_lds_buffer_ops",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: no LDS buffer operations";
+  let description = [{
+    Verifies that no LDS buffer management operations remain in the IR.
+    This includes `amdgcn.alloc_lds`, `amdgcn.dealloc_lds`, and
+    `amdgcn.get_lds_offset`. These must be lowered to constants by the
+    `amdgcn-lds-alloc` + `amdgcn-convert-lds-buffers` passes before the
+    AMDGCN backend.
+  }];
+}
+
+def NoUnresolvedAnyTypesAttr : AMDGCN_Attr<
+    "NoUnresolvedAnyTypes", "no_unresolved_any_types",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyType"]>]> {
+  let summary = "Normal form: no unresolved any types";
+  let description = [{
+    Verifies that no `!aster_utils.any` types exist in the IR. These are
+    type-erased wrappers used by the SCF pipeliner for iter_args. They must
+    be resolved to concrete types by `aster-resolve-any-iter-args` before
+    lowering to AMDGCN. An unresolved `any` type reaching register allocation
+    or codegen would crash.
+  }];
+}
+
 def NoMetadataOpsAttr : AMDGCN_Attr<
     "NoMetadataOps", "no_metadata_ops",
     [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {

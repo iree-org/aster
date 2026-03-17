@@ -12,6 +12,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
+#include "aster/Dialect/AsterUtils/IR/AsterUtilsTypes.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
@@ -22,6 +23,7 @@
 using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
+using namespace mlir::aster::aster_utils;
 
 //===----------------------------------------------------------------------===//
 // AMDGCN dialect
@@ -336,6 +338,46 @@ LogicalResult NoRegisterBlockArgsAttr::verifyOperation(
       }
     }
   }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// NoIndexTypesAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+NoIndexTypesAttr::verifyType(function_ref<InFlightDiagnostic()> emitError,
+                             Type type) const {
+  if (type.isIndex())
+    return emitError() << "normal form violation: index types are disallowed "
+                          "but found: "
+                       << type;
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// NoLdsBufferOpsAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult NoLdsBufferOpsAttr::verifyOperation(
+    function_ref<InFlightDiagnostic()> emitError, Operation *op) const {
+  if (isa<AllocLDSOp, DeallocLDSOp, GetLDSOffsetOp>(op))
+    return emitError() << "normal form violation: LDS buffer operations "
+                          "are disallowed but found: "
+                       << op->getName();
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// NoUnresolvedAnyTypesAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult NoUnresolvedAnyTypesAttr::verifyType(
+    function_ref<InFlightDiagnostic()> emitError, Type type) const {
+  if (isa<aster_utils::AnyTypeType>(type))
+    return emitError() << "normal form violation: unresolved any types are "
+                          "disallowed but found: "
+                       << type;
   return success();
 }
 

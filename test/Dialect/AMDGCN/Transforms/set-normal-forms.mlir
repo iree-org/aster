@@ -1,6 +1,7 @@
 // RUN: aster-opt %s --amdgcn-set-normal-forms='module-forms=no_lsir_ops' | FileCheck %s --check-prefix=MODULE
 // RUN: aster-opt %s --amdgcn-set-normal-forms='kernel-forms=no_scf_ops' | FileCheck %s --check-prefix=KERNEL
 // RUN: aster-opt %s --amdgcn-set-normal-forms='module-forms=no_lsir_ops kernel-forms=no_scf_ops,no_cf_branches' | FileCheck %s --check-prefix=BOTH
+// RUN: aster-opt %s --amdgcn-set-normal-forms='module-forms=no_lds_buffer_ops,no_index_types,no_unresolved_any_types' | FileCheck %s --check-prefix=NEW
 
 // MODULE: amdgcn.module @test
 // MODULE-SAME: attributes {normal_forms = [#amdgcn.no_lsir_ops]}
@@ -16,6 +17,9 @@
 // BOTH-SAME: attributes {normal_forms = [#amdgcn.no_lsir_ops]}
 // BOTH:       kernel @k
 // BOTH-SAME:  normal_forms = [#amdgcn.no_scf_ops, #amdgcn.no_cf_branches]
+
+// NEW: amdgcn.module @test
+// NEW-SAME: attributes {normal_forms = [#amdgcn.no_lds_buffer_ops, #amdgcn.no_index_types, #amdgcn.no_unresolved_any_types]}
 
 amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @k {
