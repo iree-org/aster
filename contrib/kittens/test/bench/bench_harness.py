@@ -165,17 +165,27 @@ def _verify_worker(args):
 
 
 def _gpu_init(gpu_id):
-    """Process pool initializer: pin this worker to a specific GPU.
+    """Process pool initializer: pin worker to a GPU and silence all native output.
 
-    Redirects C-level stderr (fd 2) to /dev/null for the lifetime of this worker
-    process. HIP/HSA runtime prints crash and queue-reset messages to fd 2 both
-    synchronously and asynchronously; per-call redirects miss the async ones.
-    Error information is captured via Python exceptions instead.
+    HIP/HSA runtime prints crash, queue-reset, and debug messages through multiple
+    channels (fd 1, fd 2, AMD logging, HSA tools). We suppress all of them here so
+    nothing leaks to the parent terminal. Error info comes back via Python exceptions.
     """
+    import io
+
     os.environ["HIP_VISIBLE_DEVICES"] = str(gpu_id)
+    # Suppress AMD/HIP/HSA logging at the source.
+    os.environ["AMD_LOG_LEVEL"] = "0"
+    os.environ["HIP_TRACE_API"] = "0"
+    os.environ["HSA_TOOLS_LIB"] = ""
+    # Redirect both C-level stdout (fd 1) and stderr (fd 2) to /dev/null.
     _devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(_devnull, 1)
     os.dup2(_devnull, 2)
     os.close(_devnull)
+    # Also redirect Python-level streams (some libraries use sys.stderr directly).
+    sys.stdout = io.StringIO()
+    sys.stderr = io.StringIO()
 
 
 def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
