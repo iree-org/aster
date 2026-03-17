@@ -28,9 +28,9 @@ namespace nb = nanobind;
   do {                                                                         \
     hipError_t err = call;                                                     \
     if (err != hipSuccess) {                                                   \
-      std::cerr << "HIP error at " << __FILE__ << ":" << __LINE__ << " - "     \
-                << hipGetErrorString(err) << std::endl;                        \
-      exit(1);                                                                 \
+      throw std::runtime_error(std::string("HIP error at ") + __FILE__ + ":" + \
+                               std::to_string(__LINE__) + " - " +              \
+                               hipGetErrorString(err));                        \
     }                                                                          \
   } while (0)
 
@@ -151,6 +151,8 @@ NB_MODULE(_runtime_module, m) {
   m.def("hip_set_device",
         [](int device_id) { hipCheck(hipSetDevice(device_id)); });
 
+  m.def("hip_device_reset", []() { hipCheck(hipDeviceReset()); });
+
   m.def("hip_get_device", []() -> int {
     int device_id = 0;
     hipCheck(hipGetDevice(&device_id));
@@ -174,7 +176,7 @@ NB_MODULE(_runtime_module, m) {
 
   m.def("hip_event_record", [](void *event) {
     hipEvent_t *e = reinterpret_cast<hipEvent_t *>(event);
-    hipCheck(hipEventRecord(*e, 0)); // 0 = default stream
+    hipCheck(hipEventRecord(*e, 0));
   });
 
   m.def("hip_event_synchronize", [](void *event) {
@@ -259,6 +261,10 @@ NB_MODULE(_runtime_module, m) {
     printf("Warning: HIP support is not available, using a noop stub\n");
   });
 
+  m.def("hip_device_reset", []() {
+    printf("Warning: HIP support is not available, using a noop stub\n");
+  });
+
   m.def("hip_get_device", []() -> int {
     printf("Warning: HIP support is not available, using a noop stub\n");
     return 0;
@@ -285,5 +291,6 @@ NB_MODULE(_runtime_module, m) {
     printf("Warning: HIP support is not available, using a noop stub\n");
     return 0.0f;
   });
+
 #endif // HAS_HIP_SUPPORT
 }

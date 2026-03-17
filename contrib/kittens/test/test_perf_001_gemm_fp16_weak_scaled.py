@@ -147,9 +147,9 @@ class WeakScaleConfig:
         # LDS read buffers: one stage worth of tiles (direct-A skips LDS for A)
         a_lds_read = 0 if self.direct_a else self.m_tiles * self.k_tiles * 4
         lds_read = a_lds_read + self.n_tiles * self.k_tiles * 4
-        # 10% margin on structural count + fixed overhead for addresses/loop vars.
+        # Fixed overhead for addresses/loop vars.
         # direct-A adds bpermute scratch VGPRs.
-        structural = int((a_bufs + b_bufs + lds_read) * 1.1)
+        structural = a_bufs + b_bufs + lds_read
         overhead = 30 if self.direct_a else 10
         return structural + overhead
 

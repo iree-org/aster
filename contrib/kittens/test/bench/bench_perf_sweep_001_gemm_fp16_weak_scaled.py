@@ -86,9 +86,9 @@ from bench_harness import (
 # More tiles feasible per wave, so wider multiples than 32x32 variant.
 STAGE_CONFIGS = [2, 3, 4, 5]
 # Wave configs: multiples-of-4 wave counts split across MxN.
-# Base shapes (1,4), (2,2), (4,1) scaled by (k1,k2) with
-# m_waves <= 6, n_waves <= 6, total waves <= 16, total divisible by 4.
+# n_waves must be a power of 2 (delinearize from 1-D block ID).
 _WAVE_BASES = [(1, 4), (2, 2), (4, 1)]
+_is_po2 = lambda x: x > 0 and (x & (x - 1)) == 0
 WAVE_CONFIGS = sorted(
     {
         (bm * k1, bn * k2)
@@ -96,18 +96,20 @@ WAVE_CONFIGS = sorted(
         for k1 in range(1, 7)
         for k2 in range(1, 7)
         if bm * k1 <= 6
-        and bn * k2 <= 6
+        and _is_po2(bn * k2)
+        and bn * k2 <= 8
         and bm * k1 * bn * k2 <= 16
         and (bm * k1 * bn * k2) % 4 == 0
     }
 )
 # Per-workgroup tile counts. Per-wave tiles derived as m_tiles_wg // m_waves.
-# Max 1-5x multiples: 4 VGPRs per C tile allows more tiles per wave.
-_MULTIPLES = range(1, 6)
+# N-dimension multiples must be powers of 2 (delinearize from 1-D block ID).
+_M_MULTIPLES = range(1, 6)
+_N_MULTIPLES = [1, 2, 4]  # powers of 2
 _K_TILES_RANGE = range(1, 4)
 _tile_wg_pairs = {
     (mw * mm, nw * nm)
-    for (mw, nw), mm, nm in itertools.product(WAVE_CONFIGS, _MULTIPLES, _MULTIPLES)
+    for (mw, nw), mm, nm in itertools.product(WAVE_CONFIGS, _M_MULTIPLES, _N_MULTIPLES)
 }
 TILE_WG_CONFIGS = sorted((m, n, k) for m, n in _tile_wg_pairs for k in _K_TILES_RANGE)
 _WG_BASE = (19, 16)
@@ -116,7 +118,7 @@ _NUM_SIMDS = 4
 # derive num_wg_per_cu and the M-dimension WG multiplier. See _generate_configs.
 OCCUPANCY_TARGETS = [1, 2, 3, 4]
 # N-dimension workgroup multipliers (independent of occupancy, for problem size variety).
-N_WG_MULTIPLIERS = [1, 2, 3]
+N_WG_MULTIPLIERS = [1, 2, 4]  # must be powers of 2
 # K = k_scaling_factor * k_tiles * 32 (each 16x32 transfer tile = 32 K elements).
 K_SCALING_FACTORS = [64, 128, 256]
 
@@ -269,35 +271,6 @@ def _repro_cmd(cfg, num_iterations):
     )
 
 
-def _cfg_to_cli_args(cfg):
-    """Serialize config to CLI args for subprocess invocation."""
-    k_factor = cfg.k // (cfg.k_tiles * 32)
-    args = [
-        "--m-wg",
-        str(cfg.m_wg),
-        "--n-wg",
-        str(cfg.n_wg),
-        "--m-waves",
-        str(cfg.m_waves),
-        "--n-waves",
-        str(cfg.n_waves),
-        "--m-tiles-wg",
-        str(cfg.m_tiles_wg),
-        "--n-tiles-wg",
-        str(cfg.n_tiles_wg),
-        "--k-tiles",
-        str(cfg.k_tiles),
-        "--stages",
-        str(cfg.num_stages),
-        "--k-scaling-factor",
-        str(k_factor),
-    ]
-    args.append("--use-buffer" if cfg.use_buffer else "--use-flat")
-    if cfg.direct_a:
-        args.append("--direct-a")
-    return args
-
-
 def _make_config_from_args(args, load_type, a_path):
     """Construct a WeakScaleConfig from parsed CLI args."""
     k = args.k_scaling_factor * args.k_tiles * 32
@@ -323,90 +296,42 @@ def _compile_fn(cfg, output_hsaco_path, **kwargs):
     return compile_gemm(cfg, output_hsaco_path, **kwargs)
 
 
-CORRECTNESS_K = 128  # Small K for fast compile+execute correctness checks.
-CORRECTNESS_TOP_N = 20  # Number of top configs to verify after a sweep.
+CORRECTNESS_K = 2048  # Small K for fast compile+execute correctness checks.
+CORRECTNESS_TOP_N = 100  # Number of top configs to verify after a sweep.
 
 
-def verify_top_configs(results, num_configs=CORRECTNESS_TOP_N):
-    """Phase 3: Verify correctness of the top N configs from the sweep.
-
-    Recompiles each config at K=128 (fast), executes, and checks against numpy.
-    Caches reference results by (m_dim, n_dim) to avoid redundant numpy GEMMs.
-    """
-    import tempfile
-    import numpy as np
-    from tqdm import tqdm
-    from aster.hip import compute_register_budget
+def verify_top_configs(
+    results, hsaco_paths, num_configs=CORRECTNESS_TOP_N, num_gpus=None
+):
+    """Phase 3: Verify top N configs using same subprocess pattern as execution."""
+    from bench_harness import (
+        check_numpy_blas,
+        _save_tmpfile,
+        detect_num_gpus,
+        verify_on_gpus,
+    )
 
     if not results:
         return
+    if num_gpus is None:
+        num_gpus = detect_num_gpus()
     top = results[:num_configs]
+    to_verify = [c for c, *_ in top if c.label in hsaco_paths]
+    if not to_verify:
+        return
     print(
-        f"\n--- Phase 3: Correctness verification (top {len(top)} configs, K={CORRECTNESS_K}) ---"
+        f"\n--- Phase 3: Correctness ({len(to_verify)} configs, {num_gpus} GPU(s)) ---"
     )
-    sys.stdout.flush()
+    check_numpy_blas(label="correctness")
 
-    passed = 0
-    failed_labels = []
-    # Cache: (m_dim, n_dim) -> (A, B, expected)
-    ref_cache = {}
-    pbar = tqdm(top, desc="Verifying", unit="cfg")
-    for rank, (cfg, ms, tflops, pct) in enumerate(pbar, 1):
-        small_cfg = WeakScaleConfig(
-            cfg.m_wg,
-            cfg.n_wg,
-            cfg.m_waves,
-            cfg.n_waves,
-            cfg.m_tiles_wg,
-            cfg.n_tiles_wg,
-            cfg.k_tiles,
-            cfg.num_stages,
-            CORRECTNESS_K,
-            load_type=cfg.load_type,
-            a_path=cfg.a_path,
-            num_wg_per_cu=cfg.num_wg_per_cu,
-            _label_suffix=cfg._label_suffix,
-        )
-        dims_key = (small_cfg.m_dim, small_cfg.n_dim)
-        if dims_key not in ref_cache:
-            np.random.seed(42)
-            A = (np.random.randn(small_cfg.m_dim, small_cfg.k) * 0.1).astype(np.float16)
-            B = (np.random.randn(small_cfg.n_dim, small_cfg.k) * 0.1).astype(np.float16)
-            expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
-            ref_cache[dims_key] = (A, B, expected)
-        A, B, expected = ref_cache[dims_key]
+    passed, errors = verify_on_gpus(to_verify, hsaco_paths, num_gpus)
 
-        num_wg_per_cu = getattr(cfg, "num_wg_per_cu", 1) or 1
-        bv, ba, _ = compute_register_budget(
-            cfg.num_threads, mcpu="gfx942", num_wg_per_cu=num_wg_per_cu
-        )
-        import time
-
-        t0 = time.time()
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-                compile_gemm(small_cfg, tmp.name, num_vgprs=bv, num_agprs=ba)
-                C_output, _ = execute_gemm_hsaco(
-                    small_cfg, tmp.name, 1, A, B, skip_gpu_check=True
-                )
-            np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
-            passed += 1
-        except Exception as e:
-            failed_labels.append(cfg.label)
-        elapsed = time.time() - t0
-        pbar.set_postfix_str(
-            f"pass={passed}, fail={len(failed_labels)}, last={elapsed:.1f}s"
-        )
-    pbar.close()
-
-    print(f"\nCorrectness: {passed}/{len(top)} passed", end="")
-    if failed_labels:
-        print(f", {len(failed_labels)} FAILED:")
-        for label in failed_labels:
-            print(f"  {label}")
+    print(f"\nCorrectness: {passed}/{len(to_verify)} passed", end="")
+    if errors:
+        path = _save_tmpfile("bench_verify_", errors)
+        print(f", {len(errors)} FAILED (details in {path})")
     else:
         print(" -- all correct")
-    sys.stdout.flush()
 
 
 if __name__ == "__main__":
@@ -500,9 +425,7 @@ if __name__ == "__main__":
                 check_regs=not getattr(args, "no_reg_filter", False),
             ),
             compile_fn=_compile_fn,
-            cfg_to_cli_args=_cfg_to_cli_args,
             repro_cmd_fn=_repro_cmd,
-            script_path=__file__,
             top_k_to_run=top_k_to_run,
             full_sweep=args.full_sweep,
             num_gpus=args.num_gpus,
@@ -510,7 +433,8 @@ if __name__ == "__main__":
             post_compile_filter=_post_compile_filter,
             exec_sample=getattr(args, "exec_sample", 2000),
         )
-        verify_top_configs(results)
+        results, hsaco_map = results
+        verify_top_configs(results, hsaco_map, num_gpus=args.num_gpus)
     else:
         required = [
             "m_wg",
