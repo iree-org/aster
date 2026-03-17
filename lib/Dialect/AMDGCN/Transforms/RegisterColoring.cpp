@@ -82,6 +82,9 @@ struct Allocation {
 
 /// The allocation constraints.
 struct AllocConstraints {
+  AllocConstraints(int32_t numVGPR = 256, int32_t numAGPR = 256)
+      : numVGPR(numVGPR), numAGPR(numAGPR) {}
+
   /// Insert a given allocation.
   void insert(Allocation alloc);
 
@@ -97,13 +100,12 @@ struct AllocConstraints {
   void print(raw_ostream &os) const;
 
 private:
-  /// TODO: Get these from the target machine.
   /// The number of SGPRs.
   const int32_t numSGPR = 102;
   /// The number of VGPRs.
-  const int32_t numVGPR = 256;
+  const int32_t numVGPR;
   /// The number of AGPRs.
-  const int32_t numAGPR = 256;
+  const int32_t numAGPR;
   /// The allocation constraints.
   std::set<Allocation> constraints;
 };
@@ -113,8 +115,10 @@ private:
 struct RegisterAllocator {
   RegisterAllocator(RegisterInterferenceGraph &graph,
                     std::optional<CoalescingInfo> &&coalescingInfo,
-                    MLIRContext *ctx)
-      : graph(graph), coalescingInfo(coalescingInfo), rewriter(ctx) {}
+                    MLIRContext *ctx, int32_t numVGPRs = 256,
+                    int32_t numAGPRs = 256)
+      : graph(graph), constraints(numVGPRs, numAGPRs),
+        coalescingInfo(coalescingInfo), rewriter(ctx) {}
 
   /// Run the allocator on all nodes, returns failure if an allocation request
   /// cannot be satisfied.
@@ -697,7 +701,7 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
 
   // Create and run the register allocator.
   RegisterAllocator allocator(*graph, std::move(coalescingInfo),
-                              funcOp->getContext());
+                              funcOp->getContext(), numVGPRs, numAGPRs);
   if (failed(allocator.run(funcOp)))
     return funcOp.emitError() << "failed to run register allocator";
 

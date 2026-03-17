@@ -14,7 +14,10 @@ import numpy as np
 import pytest
 import tempfile
 
-from aster.pass_pipelines import TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE
+from aster.pass_pipelines import (
+    TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
+    test_constexpr_pipelining_pass_pipeline,
+)
 
 from kittens_helpers import (
     get_mlir_file,
@@ -63,6 +66,7 @@ class WeakScaleConfig:
     k: int
     load_type: str = "flat"  # "flat" or "buffer"
     a_path: str = "lds"  # "lds" or "direct" (bpermute, A bypasses LDS)
+    num_wg_per_cu: int = 1  # target workgroups per CU for register budget
     _label_suffix: str = ""
 
     def __post_init__(self):
@@ -135,10 +139,11 @@ class WeakScaleConfig:
     @property
     def label(self):
         tile_str = f"_twg{self.m_tiles_wg}x{self.n_tiles_wg}x{self.k_tiles}"
+        occ = f"_occ{self.num_wg_per_cu}" if self.num_wg_per_cu > 1 else ""
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
             f"_wg{self.m_wg}x{self.n_wg}_w{self.m_waves}x{self.n_waves}"
-            f"{tile_str}_s{self.num_stages}{self._label_suffix}"
+            f"{tile_str}_s{self.num_stages}{occ}{self._label_suffix}"
         )
 
 
@@ -178,7 +183,13 @@ def _make_substitutions(cfg):
     return subs
 
 
-def compile_gemm(cfg, output_hsaco_path, print_ir_after_all=False):
+def compile_gemm(
+    cfg,
+    output_hsaco_path,
+    print_ir_after_all=False,
+    num_vgprs=256,
+    num_agprs=256,
+):
     """Compile a GEMM config to HSACO.
 
     Returns (hsaco_path, asm_str). Handles a_path (lds/direct) and load_type
@@ -200,13 +211,20 @@ def compile_gemm(cfg, output_hsaco_path, print_ir_after_all=False):
         use_buffer=cfg.use_buffer, direct_a=cfg.direct_a
     )
 
+    if num_vgprs != 256 or num_agprs != 256:
+        pipeline = test_constexpr_pipelining_pass_pipeline(
+            num_vgprs=num_vgprs, num_agprs=num_agprs
+        )
+    else:
+        pipeline = TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE
+
     ctx = ir.Context()
     ctx.__enter__()
     try:
         asm, _ = compile_mlir_file_to_asm(
             get_mlir_file(mlir_file),
             cfg.kernel_name,
-            TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
+            pipeline,
             ctx,
             library_paths=lib_paths,
             preprocess=preprocess,

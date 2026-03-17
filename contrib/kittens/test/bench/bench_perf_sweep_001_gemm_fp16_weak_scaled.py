@@ -32,32 +32,32 @@ Usage (compile only / execute pre-compiled HSACO):
 # unless --full-sweep is passed. Empty list = full sweep (need to populate after first sweep).
 # Label suffix scheme: _flat, _buf (LDS path), _direct_flat, _direct_buf (direct-A path).
 _TOP_K_BASE = [
-  "m6080xn3072xk8192_wg19x16_w2x2_twg20x12x1_s2_buf",
-  "m4864xn4096xk8192_wg19x16_w2x2_twg16x16x1_s2_buf",
-  "m6080xn3072xk8192_wg19x16_w2x2_twg20x12x1_s2_flat",
-  "m3648xn4096xk8192_wg19x16_w2x2_twg12x16x1_s2_buf",
-  "m3648xn3072xk8192_wg19x16_w2x2_twg12x12x1_s2_buf",
-  "m3648xn5120xk8192_wg19x16_w2x2_twg12x20x1_s2_buf",
-  "m3648xn4096xk8192_wg19x16_w2x2_twg12x16x1_s3_direct_flat",
-  "m3648xn5120xk4096_wg19x16_w2x2_twg12x20x1_s3_direct_flat",
-  "m4864xn4096xk8192_wg19x16_w2x2_twg16x16x1_s2_flat",
-  "m3648xn5120xk8192_wg19x16_w2x2_twg12x20x1_s2_direct_flat",
-  "m3648xn4096xk8192_wg19x16_w2x2_twg12x16x1_s2_flat",
-  "m3648xn5120xk8192_wg19x16_w2x2_twg12x20x1_s3_direct_flat",
-  "m3648xn3072xk8192_wg19x16_w3x4_twg12x12x1_s2_buf",
-  "m4864xn3072xk8192_wg19x16_w2x2_twg16x12x1_s2_buf",
-  "m4864xn4096xk8192_wg19x16_w2x2_twg16x16x1_s2_direct_flat",
-  "m3648xn3072xk8192_wg19x16_w3x4_twg12x12x1_s2_flat",
-  "m3648xn4096xk4096_wg19x16_w2x2_twg12x16x1_s2_buf",
-  "m4864xn3072xk8192_wg19x16_w2x2_twg16x12x1_s2_flat",
-  "m3648xn3072xk8192_wg19x16_w2x2_twg12x12x1_s3_direct_flat",
-  "m3648xn3072xk8192_wg19x16_w2x2_twg12x12x1_s2_flat",
+    "m6080xn3072xk8192_wg19x16_w2x2_twg20x12x1_s2_buf",
+    "m4864xn4096xk8192_wg19x16_w2x2_twg16x16x1_s2_buf",
+    "m6080xn3072xk8192_wg19x16_w2x2_twg20x12x1_s2_flat",
+    "m3648xn4096xk8192_wg19x16_w2x2_twg12x16x1_s2_buf",
+    "m3648xn3072xk8192_wg19x16_w2x2_twg12x12x1_s2_buf",
+    "m3648xn5120xk8192_wg19x16_w2x2_twg12x20x1_s2_buf",
+    "m3648xn4096xk8192_wg19x16_w2x2_twg12x16x1_s3_direct_flat",
+    "m3648xn5120xk4096_wg19x16_w2x2_twg12x20x1_s3_direct_flat",
+    "m4864xn4096xk8192_wg19x16_w2x2_twg16x16x1_s2_flat",
+    "m3648xn5120xk8192_wg19x16_w2x2_twg12x20x1_s2_direct_flat",
+    "m3648xn4096xk8192_wg19x16_w2x2_twg12x16x1_s2_flat",
+    "m3648xn5120xk8192_wg19x16_w2x2_twg12x20x1_s3_direct_flat",
+    "m3648xn3072xk8192_wg19x16_w3x4_twg12x12x1_s2_buf",
+    "m4864xn3072xk8192_wg19x16_w2x2_twg16x12x1_s2_buf",
+    "m4864xn4096xk8192_wg19x16_w2x2_twg16x16x1_s2_direct_flat",
+    "m3648xn3072xk8192_wg19x16_w3x4_twg12x12x1_s2_flat",
+    "m3648xn4096xk4096_wg19x16_w2x2_twg12x16x1_s2_buf",
+    "m4864xn3072xk8192_wg19x16_w2x2_twg16x12x1_s2_flat",
+    "m3648xn3072xk8192_wg19x16_w2x2_twg12x12x1_s3_direct_flat",
+    "m3648xn3072xk8192_wg19x16_w2x2_twg12x12x1_s2_flat",
 ]
 
 # Known-broken configs: add labels here to skip them during the sweep.
 # Most hardware-infeasible configs are filtered by _fits_on_cu() below.
 KNOWN_BROKEN = [
-        "m2432xn2048xk6144_wg19x16_w2x2_twg8x8x3_s2_direct_flat",  # compile: failed to allocate the registers
+    "m2432xn2048xk6144_wg19x16_w2x2_twg8x8x3_s2_direct_flat",  # compile: failed to allocate the registers
     "m2432xn2560xk4096_wg19x16_w2x2_twg8x10x2_s3_direct_flat",  # compile: failed to allocate the registers
     "m2432xn2048xk4096_wg19x16_w2x2_twg8x8x2_s4_direct_flat",  # compile: failed to allocate the registers
     "m2432xn3072xk2048_wg19x16_w2x2_twg8x12x1_s5_direct_flat",  # compile: failed to allocate the registers
@@ -658,7 +658,6 @@ from test_perf_001_gemm_fp16_weak_scaled import (
     compile_gemm,
     execute_gemm_hsaco,
 )
-from kittens_helpers import LDS_SIZE
 from bench_harness import (
     add_sweep_cli_args,
     add_single_cli_args,
@@ -680,7 +679,11 @@ _tile_wg_pairs = {
     for (mw, nw), mm, nm in itertools.product(WAVE_CONFIGS, _MULTIPLES, _MULTIPLES)
 }
 TILE_WG_CONFIGS = sorted((m, n, k) for m, n in _tile_wg_pairs for k in _K_TILES_RANGE)
-WG_GRIDS = [(19, 16)]  # single WG / CU for now
+_WG_BASE = (19, 16)
+_NUM_SIMDS = 4
+# Occupancy targets = desired waves per SIMD. From this + the wave config we
+# derive num_wg_per_cu and the M-dimension WG multiplier. See _generate_configs.
+OCCUPANCY_TARGETS = [1, 2, 3, 4]
 # K = k_scaling_factor * k_tiles * 32 (each 16x32 transfer tile = 32 K elements).
 K_SCALING_FACTORS = [64, 128, 256]
 SKIP_FIRST_N_CONFIGS = 0
@@ -692,9 +695,15 @@ def _fits_on_cu_precompile(cfg):
     """Pre-compilation filter: reject configs that exceed LDS hardware limits.
 
     VGPR filtering is done post-compilation using actual vgpr_count from
-    the compiled assembly metadata (see fits_on_cu_vgprs).
+    the compiled assembly metadata (see fits_on_cu_post_compile).
     """
-    return cfg.lds_bytes <= LDS_SIZE
+    from aster.hip import compute_register_budget
+
+    num_wg_per_cu = getattr(cfg, "num_wg_per_cu", 1) or 1
+    _v, _a, lds_per_wg = compute_register_budget(
+        cfg.num_threads, mcpu="gfx942", num_wg_per_cu=num_wg_per_cu
+    )
+    return cfg.lds_bytes <= lds_per_wg
 
 
 def fits_on_cu_post_compile(cfg, res):
@@ -717,13 +726,18 @@ def _make_label_suffix(a_path, load_type):
     return f"_direct_{lt}" if a_path == "direct" else f"_{lt}"
 
 
-def _generate_configs(variants=None):
+def _generate_configs(variants=None, sample_size=3000):
     """Generate the full sweep grid, filtering for divisibility and minimum dimensions.
 
     Args:
         variants: list of (a_path, load_type) tuples to sweep.
             Defaults to all implemented combos from MLIR_FILES.
+        sample_size: If > 0, randomly sample this many configs from the full grid.
+            Set to 0 to return all configs.
     """
+    import math
+    import random
+
     if variants is None:
         variants = list(MLIR_FILES.keys())
     configs = []
@@ -732,8 +746,17 @@ def _generate_configs(variants=None):
             continue
         suffix = _make_label_suffix(a_path, load_type)
         for k_factor in K_SCALING_FACTORS:
-            for m_wg, n_wg in WG_GRIDS:
-                for m_w, n_w in WAVE_CONFIGS:
+            for m_w, n_w in WAVE_CONFIGS:
+                num_waves = m_w * n_w
+                waves_per_simd = math.ceil(num_waves / _NUM_SIMDS)
+                for occ_target in OCCUPANCY_TARGETS:
+                    # Derive num_wg_per_cu from occupancy target.
+                    if occ_target % waves_per_simd != 0:
+                        continue
+                    num_wg_per_cu = occ_target // waves_per_simd
+                    # M workgroups scale with num_wg_per_cu.
+                    m_wg = _WG_BASE[0] * num_wg_per_cu
+                    n_wg = _WG_BASE[1]
                     for m_twg, n_twg, k_t in TILE_WG_CONFIGS:
                         if m_twg % m_w != 0 or n_twg % n_w != 0:
                             continue
@@ -751,6 +774,7 @@ def _generate_configs(variants=None):
                                 k,
                                 load_type=load_type,
                                 a_path=a_path,
+                                num_wg_per_cu=num_wg_per_cu,
                                 _label_suffix=suffix,
                             )
                             if (
@@ -762,6 +786,12 @@ def _generate_configs(variants=None):
                             if not _fits_on_cu_precompile(cfg):
                                 continue
                             configs.append(cfg)
+    total = len(configs)
+    if sample_size > 0 and total > sample_size:
+        configs = random.sample(configs, sample_size)
+        print(f"Sampled {sample_size} configs from {total} total")
+    else:
+        print(f"Full grid: {total} configs")
     return configs
 
 
@@ -987,7 +1017,10 @@ if __name__ == "__main__":
             return fits_on_cu_post_compile(cfg, res)
 
         results = bench_perf_sweep(
-            configs=_generate_configs(variants),
+            configs=_generate_configs(
+                variants,
+                sample_size=getattr(args, "compile_sample", 3000),
+            ),
             compile_fn=_compile_fn,
             cfg_to_cli_args=_cfg_to_cli_args,
             repro_cmd_fn=_repro_cmd,
@@ -999,6 +1032,7 @@ if __name__ == "__main__":
             num_gpus=args.num_gpus,
             compile_workers=args.compile_workers,
             post_compile_filter=_post_compile_filter,
+            exec_sample=getattr(args, "exec_sample", 2000),
         )
         verify_top_configs(results)
     else:

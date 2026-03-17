@@ -90,6 +90,10 @@ def RegisterColoring : Pass<"amdgcn-register-coloring"> {
            "Graph build mode: \"minimal\" (default) or \"full\"">,
     Option<"optimize", "optimize", "bool", "true",
            "If true, run optimizeGraph to coalesce non-interfering nodes">,
+    Option<"numVGPRs", "num-vgprs", "int32_t", "256",
+           "Maximum number of VGPRs available for allocation (default 256)">,
+    Option<"numAGPRs", "num-agprs", "int32_t", "256",
+           "Maximum number of AGPRs available for allocation (default 256)">,
   ];
 }
 

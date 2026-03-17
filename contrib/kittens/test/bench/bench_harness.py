@@ -93,12 +93,22 @@ def compile_one(cfg, hsaco_dir, compile_fn):
     Called in worker process. Returns (label, hsaco_path, KernelResources|None). Raises
     RuntimeError with actionable diagnostics on failure.
     """
-    from aster.hip import parse_asm_kernel_resources
+    from aster.hip import parse_asm_kernel_resources, compute_register_budget
 
     kname = cfg.kernel_name
     output_path = os.path.join(hsaco_dir, f"{cfg.label}.hsaco")
+
+    # Compute register budget from config's occupancy target.
+    num_wg_per_cu = getattr(cfg, "num_wg_per_cu", 1) or 1
+    mcpu = getattr(cfg, "mcpu", "gfx942")
+    budget_vgprs, budget_agprs, _lds = compute_register_budget(
+        cfg.num_threads, mcpu=mcpu, num_wg_per_cu=num_wg_per_cu
+    )
+
     try:
-        _, asm = compile_fn(cfg, output_path)
+        _, asm = compile_fn(
+            cfg, output_path, num_vgprs=budget_vgprs, num_agprs=budget_agprs
+        )
     except Exception as e:
         raise RuntimeError(format_mlir_error(e)) from None
     asm_path = output_path.replace(".hsaco", ".s")
@@ -264,6 +274,7 @@ def bench_perf_sweep(
     compile_workers=None,
     num_iterations=NUM_ITERATIONS,
     post_compile_filter=None,
+    exec_sample=0,
 ):
     """Run Phase 1 (parallel compile) + Phase 2 (parallel GPU exec) sweep.
 
@@ -388,6 +399,13 @@ def bench_perf_sweep(
 
     # -- Phase 2: Parallel execution across GPUs -------------------------
     exec_active = [c for c in active if c.label in hsaco_paths]
+    if exec_sample > 0 and len(exec_active) > exec_sample:
+        import random
+
+        exec_active = random.sample(exec_active, exec_sample)
+        print(
+            f"\nExec sample: {exec_sample} of {len([c for c in active if c.label in hsaco_paths])} compiled"
+        )
     print(
         f"\n--- Phase 2: Executing {len(exec_active)} configs "
         f"({num_gpus} GPU(s), subprocess-isolated) ---"
@@ -474,17 +492,34 @@ def run_single(cfg, compile_fn, args, execute_fn):
 
     Emits BENCH_RESULT_JSON for sweep parsing.
     """
-    from aster.hip import parse_asm_kernel_resources
+    from aster.hip import parse_asm_kernel_resources, compute_register_budget
 
     kname = cfg.kernel_name
     print_ir = getattr(args, "print_ir_after_all", False)
     print_asm = getattr(args, "print_asm", False)
 
+    # Compute register budget from occupancy target.
+    num_wg_per_cu = getattr(args, "num_wg_per_cu", 1) or 1
+    mcpu = getattr(cfg, "mcpu", "gfx942")
+    budget_vgprs, budget_agprs, _lds = compute_register_budget(
+        cfg.num_threads, mcpu=mcpu, num_wg_per_cu=num_wg_per_cu
+    )
+    num_vgprs = getattr(args, "num_vgprs", None) or budget_vgprs
+    num_agprs = getattr(args, "num_agprs", None) or budget_agprs
+
+    compile_kwargs = dict(
+        print_ir_after_all=print_ir, num_vgprs=num_vgprs, num_agprs=num_agprs
+    )
+    print(
+        f"  register budget: vgpr={num_vgprs}, agpr={num_agprs}"
+        f" (wg_per_cu={num_wg_per_cu})"
+    )
+
     if args.compile_only:
         if not args.hsaco:
             print("Error: --compile-only requires --hsaco <output_path>")
             raise SystemExit(1)
-        _, asm = compile_fn(cfg, args.hsaco, print_ir_after_all=print_ir)
+        _, asm = compile_fn(cfg, args.hsaco, **compile_kwargs)
         resources = parse_asm_kernel_resources(asm, kernel_name=kname)
         res = resources.get(kname)
         print_config(cfg, args.iterations, res)
@@ -518,7 +553,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
         import tempfile as _tempfile
 
         with _tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-            _, asm = compile_fn(cfg, tmp.name, print_ir_after_all=print_ir)
+            _, asm = compile_fn(cfg, tmp.name, **compile_kwargs)
             resources = parse_asm_kernel_resources(asm, kernel_name=kname)
             res = resources.get(kname)
             print_config(cfg, args.iterations, res)
@@ -568,6 +603,18 @@ def add_sweep_cli_args(parser, default_compile_workers=DEFAULT_COMPILE_WORKERS):
         help="Run all configs in the sweep grid (implies --sweep)",
     )
     parser.add_argument(
+        "--compile-sample",
+        type=int,
+        default=3000,
+        help="Random sample of configs to compile (0 = all, default: 3000)",
+    )
+    parser.add_argument(
+        "--exec-sample",
+        type=int,
+        default=2000,
+        help="Random sample of compiled configs to execute (0 = all, default: 2000)",
+    )
+    parser.add_argument(
         "--num-gpus",
         type=int,
         default=None,
@@ -614,4 +661,22 @@ def add_single_cli_args(parser, num_iterations=NUM_ITERATIONS):
         "--force",
         action="store_true",
         help="Run despite occupancy violations (use to confirm HIP will crash)",
+    )
+    parser.add_argument(
+        "--num-vgprs",
+        type=int,
+        default=None,
+        help="Max VGPRs for register allocation (default: computed from occupancy)",
+    )
+    parser.add_argument(
+        "--num-agprs",
+        type=int,
+        default=None,
+        help="Max AGPRs for register allocation (default: computed from occupancy)",
+    )
+    parser.add_argument(
+        "--num-wg-per-cu",
+        type=int,
+        default=1,
+        help="Target workgroups per CU for register/LDS budget (default: 1)",
     )

@@ -181,6 +181,17 @@ PHASE_LOWER_TO_AMDGCN = (
 # Register allocation, and wait lowering.
 # TODO: Move NOP insertion to backend.
 # TODO: NORMAL FORMS for amdgcn-backend.
+def phase_amdgcn_backend(num_vgprs=256, num_agprs=256):
+    """Build the amdgcn-backend pipeline string with optional register limits."""
+    opts = []
+    if num_vgprs != 256:
+        opts.append(f"num-vgprs={num_vgprs}")
+    if num_agprs != 256:
+        opts.append(f"num-agprs={num_agprs}")
+    if opts:
+        return f"amdgcn-backend{{{' '.join(opts)}}}"
+    return "amdgcn-backend"
+
 PHASE_AMDGCN_BACKEND = "amdgcn-backend"
 
 # Note: needs to know about instructions and actual register number for WAW
@@ -284,7 +295,9 @@ PHASE_CONSTEXPR_EXPANSION = (
 
 # Constexpr + pipelining pass pipeline: expand constexpr tile loops first,
 # then proceed with normal pipelining.
-def test_constexpr_pipelining_pass_pipeline(lcm_unroll=False):
+def test_constexpr_pipelining_pass_pipeline(
+    lcm_unroll=False, num_vgprs=256, num_agprs=256
+):
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
         PHASE_CONSTEXPR_EXPANSION,
@@ -300,7 +313,7 @@ def test_constexpr_pipelining_pass_pipeline(lcm_unroll=False):
         # PHASE_EXPAND_MD_OPS,
         # PHASE_LOWER_TO_AMDGCN,
         amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-        PHASE_AMDGCN_BACKEND,
+        phase_amdgcn_backend(num_vgprs=num_vgprs, num_agprs=num_agprs),
         phase_nop_insertion(delays=0)
     )
 

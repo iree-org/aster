@@ -40,6 +40,14 @@ struct RegAllocPipelineOptions
       *this, "optimize",
       llvm::cl::desc("Run optimizeGraph to coalesce non-interfering nodes"),
       llvm::cl::init(true)};
+  mlir::detail::PassOptions::Option<int32_t> numVGPRs{
+      *this, "num-vgprs",
+      llvm::cl::desc("Maximum VGPRs for allocation (default 256)"),
+      llvm::cl::init(256)};
+  mlir::detail::PassOptions::Option<int32_t> numAGPRs{
+      *this, "num-agprs",
+      llvm::cl::desc("Maximum AGPRs for allocation (default 256)"),
+      llvm::cl::init(256)};
 };
 
 /// Build the RegAlloc pass pipeline.
@@ -61,6 +69,8 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
   RegisterColoringOptions coloringOpts;
   coloringOpts.buildMode = options.buildMode;
   coloringOpts.optimize = options.optimize;
+  coloringOpts.numVGPRs = options.numVGPRs;
+  coloringOpts.numAGPRs = options.numAGPRs;
   pm.addPass(createRegisterColoring(coloringOpts));
   pm.addPass(createHoistOps());
   pm.addPass(createCFGSimplification());
@@ -93,7 +103,21 @@ static void registerLateWaitsPassPipeline() {
 // AMDGCN Backend Pipeline
 //===----------------------------------------------------------------------===//
 
-static void buildAMDGCNBackendPassPipeline(OpPassManager &pm) {
+struct AMDGCNBackendPipelineOptions
+    : public PassPipelineOptions<AMDGCNBackendPipelineOptions> {
+  mlir::detail::PassOptions::Option<int32_t> numVGPRs{
+      *this, "num-vgprs",
+      llvm::cl::desc("Maximum VGPRs for allocation (default 256)"),
+      llvm::cl::init(256)};
+  mlir::detail::PassOptions::Option<int32_t> numAGPRs{
+      *this, "num-agprs",
+      llvm::cl::desc("Maximum AGPRs for allocation (default 256)"),
+      llvm::cl::init(256)};
+};
+
+static void
+buildAMDGCNBackendPassPipeline(OpPassManager &pm,
+                               const AMDGCNBackendPipelineOptions &options) {
   // Assert no LSIR compute/memory ops remain at backend entry.
   // Only lsir.cmpi/cmpf/select survive (lowered by LegalizeCF later).
   {
@@ -107,7 +131,10 @@ static void buildAMDGCNBackendPassPipeline(OpPassManager &pm) {
     kernelPm.addPass(createCSEPass());
     kernelPm.addPass(createExpandMetadataOps());
     kernelPm.addPass(createLegalizeOperands());
-    buildRegAllocPassPipeline(kernelPm, RegAllocPipelineOptions());
+    RegAllocPipelineOptions regAllocOpts;
+    regAllocOpts.numVGPRs = options.numVGPRs;
+    regAllocOpts.numAGPRs = options.numAGPRs;
+    buildRegAllocPassPipeline(kernelPm, regAllocOpts);
     kernelPm.addPass(createCanonicalizerPass());
     kernelPm.addPass(createCSEPass());
   }
@@ -128,7 +155,7 @@ static void buildAMDGCNBackendPassPipeline(OpPassManager &pm) {
 }
 
 static void registerAMDGCNBackendPassPipeline() {
-  PassPipelineRegistration<>(
+  PassPipelineRegistration<AMDGCNBackendPipelineOptions>(
       "amdgcn-backend",
       "Run the AMDGCN backend pipeline (canonicalize, cse, reg-alloc, "
       "late-waits, legalize cf, canonicalize, cse)",

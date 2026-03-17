@@ -137,6 +137,71 @@ class KernelResources:
         return self._check_occupancy_cdna3(num_threads, lds_per_cu=262144)
 
 
+# -- Hardware constants per target ------------------------------------------
+
+_TARGET_PARAMS = {
+    "gfx940": {
+        "lds_per_cu": 65536,
+        "vgprs_per_simd": 512,
+        "agprs_per_simd": 512,
+        "num_simds": 4,
+        "max_vgprs_per_wave": 256,
+        "max_agprs_per_wave": 256,
+        "wavefront_size": 64,
+    },
+    "gfx942": {
+        "lds_per_cu": 65536,
+        "vgprs_per_simd": 512,
+        "agprs_per_simd": 512,
+        "num_simds": 4,
+        "max_vgprs_per_wave": 256,
+        "max_agprs_per_wave": 256,
+        "wavefront_size": 64,
+    },
+    "gfx950": {
+        "lds_per_cu": 262144,
+        "vgprs_per_simd": 512,
+        "agprs_per_simd": 512,
+        "num_simds": 4,
+        "max_vgprs_per_wave": 256,
+        "max_agprs_per_wave": 256,
+        "wavefront_size": 64,
+    },
+}
+
+
+def compute_register_budget(
+    num_threads: int,
+    mcpu: str = "gfx942",
+    num_wg_per_cu: int = 1,
+) -> Tuple[int, int, int]:
+    """Compute per-wave VGPR/AGPR limits and per-WG LDS limit from occupancy target.
+
+    Args:
+        num_threads: Number of threads per workgroup.
+        mcpu: Target GPU (e.g. "gfx942", "gfx950").
+        num_wg_per_cu: Number of workgroups sharing a CU (default 1).
+
+    Returns:
+        (max_vgprs, max_agprs, lds_per_wg) tuple.
+    """
+    params = _TARGET_PARAMS.get(mcpu, _TARGET_PARAMS["gfx942"])
+    wf = params["wavefront_size"]
+    num_waves = (num_threads + wf - 1) // wf
+    total_waves = num_waves * num_wg_per_cu
+    waves_per_simd = (total_waves + params["num_simds"] - 1) // params["num_simds"]
+    max_vgprs = min(
+        params["max_vgprs_per_wave"],
+        params["vgprs_per_simd"] // waves_per_simd,
+    )
+    max_agprs = min(
+        params["max_agprs_per_wave"],
+        params["agprs_per_simd"] // waves_per_simd,
+    )
+    lds_per_wg = params["lds_per_cu"] // num_wg_per_cu
+    return max_vgprs, max_agprs, lds_per_wg
+
+
 # All integer fields we extract from .amdgpu_metadata YAML.
 _METADATA_FIELDS = [
     (r"\.vgpr_count:\s*(\d+)", "vgpr_count"),
