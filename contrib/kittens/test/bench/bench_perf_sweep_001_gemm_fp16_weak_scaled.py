@@ -477,6 +477,7 @@ if __name__ == "__main__":
             full_sweep=args.full_sweep,
             num_gpus=args.num_gpus,
             compile_workers=args.compile_workers,
+            compile_timeout=getattr(args, "compile_timeout", 60),
             post_compile_filter=_post_compile_filter,
             exec_sample=getattr(args, "exec_sample", 2000),
         )

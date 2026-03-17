@@ -7,6 +7,7 @@ Phase 3: Correctness verification (ProcessPoolExecutor).
 
 import json
 import os
+import signal
 import sys
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -21,6 +22,7 @@ MI300X_PEAK_TFLOPS_F16 = 1307.0
 NUM_ITERATIONS = 5
 WARMUP_ITERATIONS = 2
 DEFAULT_COMPILE_WORKERS = 8
+DEFAULT_COMPILE_TIMEOUT = 60  # seconds per kernel
 
 
 # -- Helpers ---------------------------------------------------------------
@@ -82,25 +84,40 @@ def format_mlir_error_oneline(e):
 # -- Compilation (subprocess) ----------------------------------------------
 
 
-def compile_one(cfg, hsaco_dir, compile_fn):
-    """Compile one config to HSACO (called in worker process)."""
+def compile_one(cfg, hsaco_dir, compile_fn, timeout=DEFAULT_COMPILE_TIMEOUT):
+    """Compile one config to HSACO (called in worker process).
+
+    Uses signal.alarm for a hard per-kernel timeout. Safe because this runs in the main
+    thread of a ProcessPoolExecutor worker process.
+    """
     from aster.hip import parse_asm_kernel_resources, compute_register_budget
 
-    output = os.path.join(hsaco_dir, f"{cfg.label}.hsaco")
-    wg = getattr(cfg, "num_wg_per_cu", 1) or 1
-    bv, ba, _ = compute_register_budget(
-        cfg.num_threads, mcpu=getattr(cfg, "mcpu", "gfx942"), num_wg_per_cu=wg
-    )
+    def _alarm_handler(signum, frame):
+        raise TimeoutError(f"compilation timed out after {timeout}s")
+
+    prev_handler = signal.signal(signal.SIGALRM, _alarm_handler)
+    signal.alarm(timeout)
     try:
-        _, asm = compile_fn(cfg, output, num_vgprs=bv, num_agprs=ba)
-    except Exception as e:
-        raise RuntimeError(format_mlir_error_oneline(e)) from None
-    with open(output.replace(".hsaco", ".s"), "w") as f:
-        f.write(asm)
-    res = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name).get(
-        cfg.kernel_name
-    )
-    return cfg.label, output, res
+        output = os.path.join(hsaco_dir, f"{cfg.label}.hsaco")
+        wg = getattr(cfg, "num_wg_per_cu", 1) or 1
+        bv, ba, _ = compute_register_budget(
+            cfg.num_threads, mcpu=getattr(cfg, "mcpu", "gfx942"), num_wg_per_cu=wg
+        )
+        try:
+            _, asm = compile_fn(cfg, output, num_vgprs=bv, num_agprs=ba)
+        except TimeoutError:
+            raise
+        except Exception as e:
+            raise RuntimeError(format_mlir_error_oneline(e)) from None
+        with open(output.replace(".hsaco", ".s"), "w") as f:
+            f.write(asm)
+        res = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name).get(
+            cfg.kernel_name
+        )
+        return cfg.label, output, res
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, prev_handler)
 
 
 # -- GPU execution (subprocess, crash-isolated) ----------------------------
@@ -347,6 +364,7 @@ def bench_perf_sweep(
     full_sweep=False,
     num_gpus=None,
     compile_workers=None,
+    compile_timeout=DEFAULT_COMPILE_TIMEOUT,
     num_iterations=NUM_ITERATIONS,
     post_compile_filter=None,
     exec_sample=0,
@@ -377,7 +395,10 @@ def bench_perf_sweep(
     hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
     hsaco_paths, resources_map, failed = {}, {}, []
     with ProcessPoolExecutor(max_workers=compile_workers) as pool:
-        futs = {pool.submit(compile_one, c, hsaco_dir, compile_fn): c for c in active}
+        futs = {
+            pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c
+            for c in active
+        }
         pbar = tqdm(total=len(futs), desc="Compiling", unit="cfg")
         for fut in as_completed(futs):
             cfg = futs[fut]
@@ -594,6 +615,12 @@ def add_sweep_cli_args(parser):
     a("--exec-sample", type=int, default=2048, help="Configs to execute (0=all)")
     a("--num-gpus", type=int, default=None, help="GPUs (default: auto)")
     a("--compile-workers", type=int, default=DEFAULT_COMPILE_WORKERS)
+    a(
+        "--compile-timeout",
+        type=int,
+        default=DEFAULT_COMPILE_TIMEOUT,
+        help=f"Per-kernel compile timeout in seconds (default: {DEFAULT_COMPILE_TIMEOUT})",
+    )
     a("--no-reg-filter", action="store_true", help="Disable register estimate filter")
 
 
