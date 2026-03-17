@@ -69,7 +69,8 @@ def AMDGCNBufferization : Pass<"aster-amdgcn-bufferization"> {
   }];
   let dependentDialects = [
     "mlir::aster::amdgcn::AMDGCNDialect",
-    "mlir::aster::lsir::LSIRDialect"
+    "mlir::aster::lsir::LSIRDialect",
+    "mlir::cf::ControlFlowDialect"
   ];
 }
 

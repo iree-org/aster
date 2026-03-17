@@ -133,7 +133,8 @@ DPSAnalysisImpl::visitControlFlowEdge(const BranchPoint &branchPoint,
     if (auto regTy = dyn_cast<RegisterTypeInterface>(variable.getType());
         !regTy || !regTy.hasValueSemantics())
       continue;
-    valueProvenance[variable].insert({branchPoint.getPoint(), value});
+    valueProvenance[variable].insert(
+        {branchPoint.getPoint(), value, branchPoint.getSuccessorIndex()});
   }
   return success();
 }
@@ -248,7 +249,7 @@ void DPSAnalysis::print(llvm::raw_ostream &os, const SSAMap &ssaMap) const {
     SmallVector<std::pair<Value, int64_t>> provenanceOrder;
     ssaMap.getIds(llvm::map_range(*provenance,
                                   [](const Provenance &provenance) {
-                                    return provenance.second;
+                                    return std::get<1>(provenance);
                                   }),
                   provenanceOrder);
     llvm::sort(provenanceOrder, [](const std::pair<Value, int64_t> &lhs,
@@ -278,7 +279,7 @@ void DPSAnalysis::print(llvm::raw_ostream &os, const SSAMap &ssaMap) const {
 FailureOr<DPSClobberingAnalysis>
 DPSClobberingAnalysis::create(DPSAnalysis &dpsAnalysis, DataFlowSolver &solver,
                               FunctionOpInterface funcOp) {
-  DPSClobberingAnalysis analysis(dpsAnalysis);
+  DPSClobberingAnalysis analysis;
   SmallPtrSet<Value, 4> liveScratch;
   llvm::SmallDenseSet<int32_t, 4> liveIds;
   WalkResult walkResult =

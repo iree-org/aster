@@ -62,9 +62,9 @@ public:
     ArrayRef<int32_t> ids;
   };
 
-  /// Provenance pair, the first element is the branching point operation, the
-  /// second element is the value.
-  using Provenance = std::pair<Operation *, Value>;
+  /// Provenance tuple, the first element is the branching point operation, the
+  /// second element is the value, the third element is the successor index.
+  using Provenance = std::tuple<Operation *, Value, int32_t>;
   using ProvenanceSet = llvm::SmallDenseSet<Provenance, 4>;
 
   /// Create a DPSAnalysis from an operation and dominance info.
@@ -157,8 +157,7 @@ public:
   }
 
 private:
-  DPSClobberingAnalysis(DPSAnalysis &dpsAnalysis) : dpsAnalysis(dpsAnalysis) {}
-  DPSAnalysis &dpsAnalysis;
+  DPSClobberingAnalysis() = default;
   // For each operation, whether its results clobbers a matching live alloca.
   llvm::DenseMap<Operation *, SmallVector<bool, 4>> clobberingInfo;
 };
