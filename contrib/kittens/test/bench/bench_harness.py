@@ -175,6 +175,9 @@ def exec_one_config(
     return cfg, result_data, None
 
 
+_ERROR_REPRO_FILE = "/tmp/yyy"
+
+
 def print_summary_table(
     results,
     failed,
@@ -184,7 +187,7 @@ def print_summary_table(
     repro_cmd_fn,
     num_iterations,
 ):
-    """Print sorted results table, repro commands, and failure summary."""
+    """Print sorted results table and save error repros to file."""
     if not results and not failed:
         print("\nNo configs were run.")
         return
@@ -211,45 +214,16 @@ def print_summary_table(
         f", {len(skipped_broken)} broken, {len(skipped_lds)} LDS exceeded"
     )
 
-    if results:
-        print(f"\nRepro commands (top {min(10, len(results))}):")
-        for rank, (cfg, ms, tflops, pct) in enumerate(results[:10], 1):
-            print(f"  #{rank} {cfg.label}:")
-            print(f"    {repro_cmd_fn(cfg, num_iterations)}")
-
     if failed:
-        # Categorize failures for actionable summary.
-        categories = {}
-        for cfg, err in failed:
-            first_line = err.split("\n")[0]
-            if "failed to allocate LDS" in err or "LDS" in first_line:
-                cat = "LDS_ALLOC"
-            elif (
-                "failed to run register allocator" in err
-                or "register" in first_line.lower()
-            ):
-                cat = "REGALLOC"
-            elif "compile:" in err:
-                cat = "COMPILE"
-            else:
-                cat = "RUNTIME"
-            categories.setdefault(cat, []).append((cfg, err))
-
-        print(f"\nFailed configs ({len(failed)}):")
-        for cat, items in sorted(categories.items()):
-            print(f"\n  [{cat}] ({len(items)} configs):")
-            for cfg, err in items:
+        with open(_ERROR_REPRO_FILE, "w") as f:
+            for cfg, err in failed:
                 first_line = err.split("\n")[0][:200]
-                print(f"    {cfg.label}: {first_line}")
-                for extra_line in err.split("\n")[1:3]:
-                    if extra_line.strip():
-                        print(f"      {extra_line.strip()}")
-                print(f"      repro: {repro_cmd_fn(cfg, num_iterations)}")
-
-        print("\n# Add to KNOWN_BROKEN to skip these next run:")
-        for cfg, err in failed:
-            first_line = err.split("\n")[0][:80]
-            print(f'    "{cfg.label}",  # {first_line}')
+                f.write(f"{cfg.label}: {first_line}\n")
+                f.write(f"  {repro_cmd_fn(cfg, num_iterations)}\n\n")
+        print(
+            f"\n{len(failed)} compilation/occupancy/execution errors "
+            f"repros saved in {_ERROR_REPRO_FILE}"
+        )
 
 
 def make_inputs(cfg):

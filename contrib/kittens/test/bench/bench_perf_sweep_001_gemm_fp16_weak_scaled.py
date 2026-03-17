@@ -28,6 +28,11 @@ Usage (compile only / execute pre-compiled HSACO):
     ... --hsaco /tmp/output.hsaco
 """
 
+import os
+
+os.environ.setdefault("OPENBLAS_NUM_THREADS", str(os.cpu_count() or 4))
+os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
+
 # IMPORTANT: Top configs to run by default. If non-empty, only these labels are run
 # unless --full-sweep is passed. Empty list = full sweep (need to populate after first sweep).
 # Label suffix scheme: _flat, _buf (LDS path), _direct_flat, _direct_buf (direct-A path).
@@ -890,9 +895,12 @@ def verify_top_configs(results, num_configs=CORRECTNESS_TOP_N):
     """Phase 3: Verify correctness of the top N configs from the sweep.
 
     Recompiles each config at K=128 (fast), executes, and checks against numpy.
+    Caches reference results by (m_dim, n_dim) to avoid redundant numpy GEMMs.
     """
     import tempfile
     import numpy as np
+    from tqdm import tqdm
+    from aster.hip import compute_register_budget
 
     if not results:
         return
@@ -904,7 +912,10 @@ def verify_top_configs(results, num_configs=CORRECTNESS_TOP_N):
 
     passed = 0
     failed_labels = []
-    for rank, (cfg, ms, tflops, pct) in enumerate(top, 1):
+    # Cache: (m_dim, n_dim) -> (A, B, expected)
+    ref_cache = {}
+    pbar = tqdm(top, desc="Verifying", unit="cfg")
+    for rank, (cfg, ms, tflops, pct) in enumerate(pbar, 1):
         small_cfg = WeakScaleConfig(
             cfg.m_wg,
             cfg.n_wg,
@@ -917,27 +928,40 @@ def verify_top_configs(results, num_configs=CORRECTNESS_TOP_N):
             CORRECTNESS_K,
             load_type=cfg.load_type,
             a_path=cfg.a_path,
+            num_wg_per_cu=cfg.num_wg_per_cu,
             _label_suffix=cfg._label_suffix,
         )
-        tag = f"[{rank}/{len(top)}] {cfg.label}"
-        try:
+        dims_key = (small_cfg.m_dim, small_cfg.n_dim)
+        if dims_key not in ref_cache:
             np.random.seed(42)
             A = (np.random.randn(small_cfg.m_dim, small_cfg.k) * 0.1).astype(np.float16)
             B = (np.random.randn(small_cfg.n_dim, small_cfg.k) * 0.1).astype(np.float16)
+            expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+            ref_cache[dims_key] = (A, B, expected)
+        A, B, expected = ref_cache[dims_key]
+
+        num_wg_per_cu = getattr(cfg, "num_wg_per_cu", 1) or 1
+        bv, ba, _ = compute_register_budget(
+            cfg.num_threads, mcpu="gfx942", num_wg_per_cu=num_wg_per_cu
+        )
+        import time
+
+        t0 = time.time()
+        try:
             with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-                compile_gemm(small_cfg, tmp.name)
+                compile_gemm(small_cfg, tmp.name, num_vgprs=bv, num_agprs=ba)
                 C_output, _ = execute_gemm_hsaco(
                     small_cfg, tmp.name, 1, A, B, skip_gpu_check=True
                 )
-            expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
             np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
             passed += 1
-            print(f"  PASS  {tag}")
         except Exception as e:
             failed_labels.append(cfg.label)
-            err_line = str(e).split("\n")[0][:120]
-            print(f"  FAIL  {tag}: {err_line}")
-        sys.stdout.flush()
+        elapsed = time.time() - t0
+        pbar.set_postfix_str(
+            f"pass={passed}, fail={len(failed_labels)}, last={elapsed:.1f}s"
+        )
+    pbar.close()
 
     print(f"\nCorrectness: {passed}/{len(top)} passed", end="")
     if failed_labels:
