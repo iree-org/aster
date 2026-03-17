@@ -669,7 +669,22 @@ from bench_harness import (
 # Sweep grid -- 16x16 MFMA with dwordx4: 4 VGPRs per C tile (vs 16 for 32x32).
 # More tiles feasible per wave, so wider multiples than 32x32 variant.
 STAGE_CONFIGS = [2, 3, 4, 5]
-WAVE_CONFIGS = [(2, 2), (3, 2), (3, 4), (4, 4)]
+# Wave configs: multiples-of-4 wave counts split across MxN.
+# Base shapes (1,4), (2,2), (4,1) scaled by (k1,k2) with
+# m_waves <= 6, n_waves <= 6, total waves <= 16, total divisible by 4.
+_WAVE_BASES = [(1, 4), (2, 2), (4, 1)]
+WAVE_CONFIGS = sorted(
+    {
+        (bm * k1, bn * k2)
+        for bm, bn in _WAVE_BASES
+        for k1 in range(1, 7)
+        for k2 in range(1, 7)
+        if bm * k1 <= 6
+        and bn * k2 <= 6
+        and bm * k1 * bn * k2 <= 16
+        and (bm * k1 * bn * k2) % 4 == 0
+    }
+)
 # Per-workgroup tile counts. Per-wave tiles derived as m_tiles_wg // m_waves.
 # Max 1-5x multiples: 4 VGPRs per C tile allows more tiles per wave.
 _MULTIPLES = range(1, 6)
@@ -684,6 +699,8 @@ _NUM_SIMDS = 4
 # Occupancy targets = desired waves per SIMD. From this + the wave config we
 # derive num_wg_per_cu and the M-dimension WG multiplier. See _generate_configs.
 OCCUPANCY_TARGETS = [1, 2, 3, 4]
+# N-dimension workgroup multipliers (independent of occupancy, for problem size variety).
+N_WG_MULTIPLIERS = [1, 2, 3]
 # K = k_scaling_factor * k_tiles * 32 (each 16x32 transfer tile = 32 K elements).
 K_SCALING_FACTORS = [64, 128, 256]
 SKIP_FIRST_N_CONFIGS = 0
@@ -756,42 +773,42 @@ def _generate_configs(variants=None, sample_size=3000):
                     num_wg_per_cu = occ_target // waves_per_simd
                     # M workgroups scale with num_wg_per_cu.
                     m_wg = _WG_BASE[0] * num_wg_per_cu
-                    n_wg = _WG_BASE[1]
-                    for m_twg, n_twg, k_t in TILE_WG_CONFIGS:
-                        if m_twg % m_w != 0 or n_twg % n_w != 0:
-                            continue
-                        for stages in STAGE_CONFIGS:
-                            k = k_factor * k_t * 32
-                            cfg = WeakScaleConfig(
-                                m_wg,
-                                n_wg,
-                                m_w,
-                                n_w,
-                                m_twg,
-                                n_twg,
-                                k_t,
-                                stages,
-                                k,
-                                load_type=load_type,
-                                a_path=a_path,
-                                num_wg_per_cu=num_wg_per_cu,
-                                _label_suffix=suffix,
-                            )
-                            if (
-                                cfg.m_dim < MIN_DIM
-                                or cfg.n_dim < MIN_DIM
-                                or cfg.k < MIN_DIM
-                            ):
+                    for n_mult in N_WG_MULTIPLIERS:
+                        n_wg = _WG_BASE[1] * n_mult
+                        for m_twg, n_twg, k_t in TILE_WG_CONFIGS:
+                            if m_twg % m_w != 0 or n_twg % n_w != 0:
                                 continue
-                            if not _fits_on_cu_precompile(cfg):
-                                continue
-                            configs.append(cfg)
+                            for stages in STAGE_CONFIGS:
+                                k = k_factor * k_t * 32
+                                cfg = WeakScaleConfig(
+                                    m_wg,
+                                    n_wg,
+                                    m_w,
+                                    n_w,
+                                    m_twg,
+                                    n_twg,
+                                    k_t,
+                                    stages,
+                                    k,
+                                    load_type=load_type,
+                                    a_path=a_path,
+                                    num_wg_per_cu=num_wg_per_cu,
+                                    _label_suffix=suffix,
+                                )
+                                if (
+                                    cfg.m_dim < MIN_DIM
+                                    or cfg.n_dim < MIN_DIM
+                                    or cfg.k < MIN_DIM
+                                ):
+                                    continue
+                                if not _fits_on_cu_precompile(cfg):
+                                    continue
+                                configs.append(cfg)
     total = len(configs)
-    if sample_size > 0 and total > sample_size:
-        configs = random.sample(configs, sample_size)
-        print(f"Sampled {sample_size} configs from {total} total")
-    else:
-        print(f"Full grid: {total} configs")
+    n = min(sample_size, total) if sample_size > 0 else total
+    if n < total:
+        configs = random.sample(configs, n)
+    print(f"Compiling {n} / {total} configs")
     return configs
 
 

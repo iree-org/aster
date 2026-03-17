@@ -337,6 +337,8 @@ def bench_perf_sweep(
     sys.stdout.flush()
 
     # -- Phase 1: Parallel compilation ---------------------------------
+    from tqdm import tqdm
+
     hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
     print(
         f"\n--- Phase 1: Compiling {len(active)} configs ({compile_workers} workers) ---"
@@ -354,28 +356,25 @@ def bench_perf_sweep(
             futures[fut] = cfg
 
         total_compile = len(futures)
-        done_compile = 0
+        pbar = tqdm(total=total_compile, desc="Compiling", unit="cfg")
         for fut in as_completed(futures):
             cfg = futures[fut]
-            done_compile += 1
-            progress = f"[{done_compile}/{total_compile}]"
             try:
                 label, path, res = fut.result()
                 hsaco_paths[label] = path
                 if res:
                     resources_map[label] = res
-                print(f"  {progress} COMPILED {cfg.label}  [{res or '?'}]")
             except Exception as e:
                 err = str(e)
-                first_line = err.split("\n")[0][:200]
                 compile_failed[cfg.label] = err
                 failed.append((cfg, f"compile: {err}"))
-                print(f"  {progress} COMPILE_FAIL {cfg.label}: {first_line}")
-            sys.stdout.flush()
+            pbar.update(1)
+            pbar.set_postfix(ok=len(hsaco_paths), fail=len(compile_failed))
+        pbar.close()
 
     compiled_count = len(hsaco_paths)
     print(
-        f"\nCompilation done: {compiled_count} succeeded, "
+        f"Compilation done: {compiled_count} succeeded, "
         f"{len(compile_failed)} failed"
     )
     sys.stdout.flush()
@@ -398,31 +397,28 @@ def bench_perf_sweep(
             )
 
     # -- Phase 2: Parallel execution across GPUs -------------------------
-    exec_active = [c for c in active if c.label in hsaco_paths]
+    all_compiled = [c for c in active if c.label in hsaco_paths]
+    exec_active = all_compiled
     if exec_sample > 0 and len(exec_active) > exec_sample:
         import random
 
         exec_active = random.sample(exec_active, exec_sample)
-        print(
-            f"\nExec sample: {exec_sample} of {len([c for c in active if c.label in hsaco_paths])} compiled"
-        )
     print(
-        f"\n--- Phase 2: Executing {len(exec_active)} configs "
-        f"({num_gpus} GPU(s), subprocess-isolated) ---"
+        f"\n--- Phase 2: Executing {len(exec_active)} / {len(all_compiled)} compiled "
+        f"({num_gpus} GPU(s)) ---"
     )
     sys.stdout.flush()
 
     test_dir = os.path.join(os.path.dirname(os.path.abspath(script_path)), "..")
+    best_tflops = 0.0
+    best_pct = 0.0
+    exec_fail = 0
 
     with ThreadPoolExecutor(max_workers=num_gpus) as exec_pool:
-        future_to_info = {}
+        future_to_cfg = {}
         for i, cfg in enumerate(exec_active):
             gpu_id = i % num_gpus
             hsaco_path = hsaco_paths[cfg.label]
-            res = resources_map.get(cfg.label)
-            tag = f"[{i + 1}/{len(exec_active)}] {cfg.label}"
-            print(f"  SUBMIT {tag} -> GPU {gpu_id}  [{res or '?'}]")
-            sys.stdout.flush()
             fut = exec_pool.submit(
                 exec_one_config,
                 cfg,
@@ -433,26 +429,28 @@ def bench_perf_sweep(
                 cfg_to_cli_args,
                 script_path,
             )
-            future_to_info[fut] = (i, tag)
+            future_to_cfg[fut] = cfg
 
-        for fut in as_completed(future_to_info):
-            idx, tag = future_to_info[fut]
-            cfg, result_data, err = fut.result()
+        pbar = tqdm(total=len(exec_active), desc="Executing", unit="cfg")
+        for fut in as_completed(future_to_cfg):
+            cfg = future_to_cfg[fut]
+            cfg_ret, result_data, err = fut.result()
             if err is not None:
                 failed.append((cfg, err))
-                print(f"  FAIL  {tag}: {err.splitlines()[0]}")
-                sys.stdout.flush()
-                continue
-
-            min_ms = result_data["min_ms"]
-            tflops = result_data["tflops"]
-            pct_peak = result_data["pct_peak"]
-
-            results.append((cfg, min_ms, tflops, pct_peak))
-            print(
-                f"  OK    {tag}: {min_ms:.2f} ms  {tflops:.1f} TFLOPS  ({pct_peak:.1f}%)"
+                exec_fail += 1
+            else:
+                min_ms = result_data["min_ms"]
+                tflops = result_data["tflops"]
+                pct_peak = result_data["pct_peak"]
+                results.append((cfg, min_ms, tflops, pct_peak))
+                if tflops > best_tflops:
+                    best_tflops = tflops
+                    best_pct = pct_peak
+            pbar.update(1)
+            pbar.set_postfix_str(
+                f"best {best_tflops:.1f} TF ({best_pct:.1f}% peak), fail={exec_fail}"
             )
-            sys.stdout.flush()
+        pbar.close()
 
     print_summary_table(
         results,
@@ -605,14 +603,14 @@ def add_sweep_cli_args(parser, default_compile_workers=DEFAULT_COMPILE_WORKERS):
     parser.add_argument(
         "--compile-sample",
         type=int,
-        default=3000,
-        help="Random sample of configs to compile (0 = all, default: 3000)",
+        default=4096,
+        help="Random sample of configs to compile (0 = all, default: 4096)",
     )
     parser.add_argument(
         "--exec-sample",
         type=int,
-        default=2000,
-        help="Random sample of compiled configs to execute (0 = all, default: 2000)",
+        default=2048,
+        help="Random sample of compiled configs to execute (0 = all, default: 2048)",
     )
     parser.add_argument(
         "--num-gpus",
