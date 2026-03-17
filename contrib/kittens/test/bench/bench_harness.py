@@ -40,6 +40,49 @@ SUBPROCESS_TIMEOUT = 120  # seconds per execution
 DEFAULT_COMPILE_WORKERS = 8
 
 
+def check_numpy_blas(num_threads=None):
+    """Smoke-check that numpy BLAS is multithreaded.
+
+    Runs a 4096^2 x 4096 matmul and checks it completes in reasonable time. Assumes ~50
+    GFLOPS/thread/s for a well-configured BLAS. Prints a warning and returns False if
+    too slow.
+    """
+    import time
+
+    if num_threads is None:
+        num_threads = os.cpu_count() or 4
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", str(num_threads))
+    os.environ.setdefault("MKL_NUM_THREADS", str(num_threads))
+
+    N = 4096
+    flops = 2.0 * N * N * N
+    # 50 GFLOPS/thread/s is conservative for modern x86 with AVX2/AVX-512
+    expected_gflops = 50.0 * num_threads
+    max_ms = flops / (expected_gflops * 1e9) * 1000 * 3  # 3x margin
+
+    A = np.random.randn(N, N).astype(np.float32)
+    B = np.random.randn(N, N).astype(np.float32)
+    t0 = time.time()
+    _ = A @ B
+    elapsed_ms = (time.time() - t0) * 1000
+    actual_gflops = flops / (elapsed_ms * 1e6)
+
+    ok = elapsed_ms < max_ms
+    if not ok:
+        print(
+            f"WARNING: numpy BLAS is slow! 4k matmul: {elapsed_ms:.0f} ms "
+            f"({actual_gflops:.0f} GFLOPS), expected < {max_ms:.0f} ms "
+            f"({expected_gflops:.0f} GFLOPS with {num_threads} threads).\n"
+            f"  Check OPENBLAS_NUM_THREADS or install a fast BLAS (openblas, mkl)."
+        )
+    else:
+        print(
+            f"numpy BLAS ok: 4k matmul {elapsed_ms:.0f} ms "
+            f"({actual_gflops:.0f} GFLOPS, {num_threads} threads)"
+        )
+    return ok
+
+
 def detect_num_gpus():
     """Detect number of available GPUs via HIP.
 
@@ -175,9 +218,6 @@ def exec_one_config(
     return cfg, result_data, None
 
 
-_ERROR_REPRO_FILE = "/tmp/yyy"
-
-
 def print_summary_table(
     results,
     failed,
@@ -215,14 +255,17 @@ def print_summary_table(
     )
 
     if failed:
-        with open(_ERROR_REPRO_FILE, "w") as f:
+        import tempfile as _tmp
+
+        fd, repro_path = _tmp.mkstemp(prefix="bench_errors_", suffix=".txt", dir="/tmp")
+        with os.fdopen(fd, "w") as f:
             for cfg, err in failed:
                 first_line = err.split("\n")[0][:200]
                 f.write(f"{cfg.label}: {first_line}\n")
                 f.write(f"  {repro_cmd_fn(cfg, num_iterations)}\n\n")
         print(
             f"\n{len(failed)} compilation/occupancy/execution errors "
-            f"repros saved in {_ERROR_REPRO_FILE}"
+            f"repros saved in {repro_path}"
         )
 
 
@@ -270,6 +313,7 @@ def bench_perf_sweep(
         num_gpus = detect_num_gpus()
     if compile_workers is None:
         compile_workers = DEFAULT_COMPILE_WORKERS
+    check_numpy_blas(num_threads=compile_workers)
     if top_k_to_run is None:
         top_k_to_run = []
     if known_broken is None:
@@ -597,6 +641,11 @@ def add_sweep_cli_args(parser, default_compile_workers=DEFAULT_COMPILE_WORKERS):
         type=int,
         default=default_compile_workers,
         help=f"Parallel compilation processes (default: {default_compile_workers})",
+    )
+    parser.add_argument(
+        "--no-reg-filter",
+        action="store_true",
+        help="Disable pre-compile register estimate filter (may cause many regalloc failures)",
     )
 
 

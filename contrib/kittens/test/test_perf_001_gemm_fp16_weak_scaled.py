@@ -127,6 +127,33 @@ class WeakScaleConfig:
         return KERNEL_NAMES[self.a_path]
 
     @property
+    def estimated_agprs(self):
+        """Coarse AGPR estimate: 4 AGPRs per 16x16 output tile per wave."""
+        return self.m_tiles * self.n_tiles * 4
+
+    @property
+    def estimated_vgprs(self):
+        """Coarse VGPR estimate: pipeline buffers + overhead.
+
+        Each transfer tile is dwordx4 (4 VGPRs). Per stage we load
+        m_tiles*k_tiles A tiles and n_tiles*k_tiles B tiles per wave.
+        Add overhead for: LDS read buffers (~same as load buffers for one
+        stage), loop counters, addresses, base pointers, bpermute scratch.
+        Calibrated against actual compiler output (e.g. 242 VGPRs for
+        m_tiles=4 n_tiles=6 k_tiles=2 stages=2).
+        """
+        a_bufs = self.m_tiles * self.k_tiles * self.num_stages * 4
+        b_bufs = self.n_tiles * self.k_tiles * self.num_stages * 4
+        # LDS read buffers: one stage worth of tiles (direct-A skips LDS for A)
+        a_lds_read = 0 if self.direct_a else self.m_tiles * self.k_tiles * 4
+        lds_read = a_lds_read + self.n_tiles * self.k_tiles * 4
+        # 10% margin on structural count + fixed overhead for addresses/loop vars.
+        # direct-A adds bpermute scratch VGPRs.
+        structural = int((a_bufs + b_bufs + lds_read) * 1.1)
+        overhead = 30 if self.direct_a else 10
+        return structural + overhead
+
+    @property
     def lds_bytes(self):
         """LDS per pipeline stage.
 

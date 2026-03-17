@@ -713,19 +713,22 @@ SKIP_FIRST_N_CONFIGS = 0
 MIN_DIM = 2000  # Skip configs where M, N, or K < 3000
 
 
-def _fits_on_cu_precompile(cfg):
-    """Pre-compilation filter: reject configs that exceed LDS hardware limits.
-
-    VGPR filtering is done post-compilation using actual vgpr_count from
-    the compiled assembly metadata (see fits_on_cu_post_compile).
-    """
+def _precompile_reject_reason(cfg, check_regs=True):
+    """Return rejection reason string, or None if config passes pre-compile filter."""
     from aster.hip import compute_register_budget
 
     num_wg_per_cu = getattr(cfg, "num_wg_per_cu", 1) or 1
-    _v, _a, lds_per_wg = compute_register_budget(
+    max_v, max_a, lds_per_wg = compute_register_budget(
         cfg.num_threads, mcpu="gfx942", num_wg_per_cu=num_wg_per_cu
     )
-    return cfg.lds_bytes <= lds_per_wg
+    if cfg.lds_bytes > lds_per_wg:
+        return f"LDS {cfg.lds_bytes} > {lds_per_wg}"
+    if check_regs:
+        if cfg.estimated_vgprs > max_v:
+            return f"est_vgpr {cfg.estimated_vgprs} > {max_v}"
+        if cfg.estimated_agprs > max_a:
+            return f"est_agpr {cfg.estimated_agprs} > {max_a}"
+    return None
 
 
 def fits_on_cu_post_compile(cfg, res):
@@ -748,7 +751,7 @@ def _make_label_suffix(a_path, load_type):
     return f"_direct_{lt}" if a_path == "direct" else f"_{lt}"
 
 
-def _generate_configs(variants=None, sample_size=3000):
+def _generate_configs(variants=None, sample_size=3000, check_regs=True):
     """Generate the full sweep grid, filtering for divisibility and minimum dimensions.
 
     Args:
@@ -756,6 +759,8 @@ def _generate_configs(variants=None, sample_size=3000):
             Defaults to all implemented combos from MLIR_FILES.
         sample_size: If > 0, randomly sample this many configs from the full grid.
             Set to 0 to return all configs.
+        check_regs: If True, pre-filter configs whose estimated VGPR/AGPR usage
+            exceeds the occupancy-derived register budget.
     """
     import math
     import random
@@ -763,6 +768,7 @@ def _generate_configs(variants=None, sample_size=3000):
     if variants is None:
         variants = list(MLIR_FILES.keys())
     configs = []
+    filtered = []
     for a_path, load_type in variants:
         if (a_path, load_type) not in MLIR_FILES:
             continue
@@ -806,14 +812,34 @@ def _generate_configs(variants=None, sample_size=3000):
                                     or cfg.k < MIN_DIM
                                 ):
                                     continue
-                                if not _fits_on_cu_precompile(cfg):
+                                reason = _precompile_reject_reason(
+                                    cfg, check_regs=check_regs
+                                )
+                                if reason is not None:
+                                    filtered.append((cfg.label, reason))
                                     continue
                                 configs.append(cfg)
+
+    # Save filtered configs to temp file.
+    if filtered:
+        import tempfile as _tmp
+
+        fd, filt_path = _tmp.mkstemp(
+            prefix="bench_filtered_", suffix=".txt", dir="/tmp"
+        )
+        with os.fdopen(fd, "w") as f:
+            for label, reason in filtered:
+                f.write(f"{label}: {reason}\n")
+        print(
+            f"{len(filtered)} configs skipped by pre-compile filter "
+            f"(details in {filt_path})"
+        )
+
     total = len(configs)
     n = min(sample_size, total) if sample_size > 0 else total
     if n < total:
         configs = random.sample(configs, n)
-    print(f"Compiling {n} / {total} configs")
+    print(f"Compiling {n} / {total} eligible configs")
     return configs
 
 
@@ -1060,7 +1086,8 @@ if __name__ == "__main__":
         results = bench_perf_sweep(
             configs=_generate_configs(
                 variants,
-                sample_size=getattr(args, "compile_sample", 3000),
+                sample_size=getattr(args, "compile_sample", 4096),
+                check_regs=not getattr(args, "no_reg_filter", False),
             ),
             compile_fn=_compile_fn,
             cfg_to_cli_args=_cfg_to_cli_args,
