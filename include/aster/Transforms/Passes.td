@@ -257,6 +257,11 @@ def SCFPipelineAsterSched : Pass<"aster-scf-pipeline"> {
   let options = [
     Option<"lcmUnroll", "lcm-unroll", "bool", /*default=*/"false",
            "Unroll the kernel loop by the LCM of the pipeline stage values">,
+    Option<"unrollFactorMultiplier", "unroll-factor-multiplier", "int64_t",
+           /*default=*/"1",
+           "Multiplier for the LCM unroll factor (effective = lcm * multiplier)">,
+    Option<"epiloguePeeling", "epilogue-peeling", "bool", /*default=*/"false",
+           "Fully unroll the cleanup epilogue loop after LCM unrolling">,
   ];
   let dependentDialects = [
     "mlir::affine::AffineDialect",

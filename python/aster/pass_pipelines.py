@@ -60,9 +60,17 @@ PHASE_SCHEDULING = (
     "aster-op-scheduling",
 )
 
-def phase_scf_pipelining(lcm_unroll=True):
+def phase_scf_pipelining(lcm_unroll=True, unroll_factor_multiplier=1,
+                         epilogue_peeling=True):
+    opts = []
     if lcm_unroll:
-        return ("aster-scf-pipeline{lcm-unroll=true}",)
+        opts.append("lcm-unroll=true")
+    if unroll_factor_multiplier > 1:
+        opts.append(f"unroll-factor-multiplier={unroll_factor_multiplier}")
+    if not epilogue_peeling:
+        opts.append("epilogue-peeling=false")
+    if opts:
+        return (f"aster-scf-pipeline{{{' '.join(opts)}}}",)
     return ("aster-scf-pipeline",)
 
 PHASE_SCF_PIPELINING = phase_scf_pipelining()
@@ -279,10 +287,11 @@ TEST_LOOP_PASS_PIPELINE = builtin_module(
 )
 
 # Loop pipelining pass pipeline
-def make_scf_pipelining_pass_pipeline(lcm_unroll=False):
+def make_scf_pipelining_pass_pipeline(lcm_unroll=False, unroll_factor_multiplier=1):
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
-        phase_scf_pipelining(lcm_unroll=lcm_unroll),
+        phase_scf_pipelining(lcm_unroll=lcm_unroll,
+                             unroll_factor_multiplier=unroll_factor_multiplier),
         "aster-destructure-struct-iter-args", "canonicalize", "cse",
         PHASE_SROA,
         POST_SROA_CLEANUPS,
@@ -313,12 +322,13 @@ PHASE_CONSTEXPR_EXPANSION = (
 # Constexpr + pipelining pass pipeline: expand constexpr tile loops first,
 # then proceed with normal pipelining.
 def make_constexpr_pipelining_pass_pipeline(
-    lcm_unroll=False, num_vgprs=256, num_agprs=256
+    lcm_unroll=False, num_vgprs=256, num_agprs=256, unroll_factor_multiplier=1
 ) -> str:
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
         PHASE_CONSTEXPR_EXPANSION,
-        phase_scf_pipelining(lcm_unroll=lcm_unroll),
+        phase_scf_pipelining(lcm_unroll=lcm_unroll,
+                             unroll_factor_multiplier=unroll_factor_multiplier),
         "aster-destructure-struct-iter-args", "canonicalize", "cse",
         PHASE_SROA,
         POST_SROA_CLEANUPS,

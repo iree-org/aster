@@ -4,7 +4,7 @@ Phase 1: Parallel compilation (MLIR -> HSACO) across all configs.
 Phase 2: Parallel GPU execution with round-robin across available GPUs,
          each config in its own subprocess for crash isolation.
 
-Sweep axes: load_type (flat/buffer) x a_path (lds/direct).
+Sweep axes: load_type (flat/buffer) x a_path (lds/direct) x unroll_multiplier (1,2,3).
 By default sweeps all implemented (a_path, load_type) combos.
 
 Usage (sweep):
@@ -37,26 +37,26 @@ os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
 # unless --full-sweep is passed. Empty list = full sweep (need to populate after first sweep).
 # Label suffix scheme: _flat, _buf (LDS path), _direct_flat, _direct_buf (direct-A path).
 _TOP_K_BASE = [
-  "m3648xn4096xk4096_wg38x16_w2x2_twg6x16x1_s2_occ2_direct_flat",
-  "m4864xn4096xk8192_wg38x32_w2x2_twg8x8x1_s2_occ2_direct_flat",
-  "m3648xn8192xk8192_wg19x32_w2x2_twg12x16x1_s2_direct_flat",
-  "m3040xn16384xk4096_wg19x64_w2x4_twg10x16x1_s2_buf",
-  "m4864xn2048xk8192_wg38x32_w4x1_twg8x4x1_s4_occ2_direct_flat",
-  "m7296xn2048xk4096_wg19x16_w4x2_twg24x8x1_s2_flat",
-  "m4560xn8192xk4096_wg19x64_w3x4_twg15x8x1_s2_flat",
-  "m3040xn16384xk4096_wg19x64_w2x4_twg10x16x1_s3_direct_flat",
-  "m3648xn4096xk4096_wg19x32_w6x2_twg12x8x1_s3_buf",
-  "m6080xn2048xk8192_wg19x16_w2x2_twg20x8x1_s2_flat",
-  "m9728xn4096xk2048_wg76x64_w2x2_twg8x4x1_s3_occ4_direct_flat",
-  "m3040xn16384xk8192_wg19x64_w1x4_twg10x16x1_s3_direct_flat",
-  "m2432xn8192xk8192_wg19x64_w2x4_twg8x8x1_s2_flat",
-  "m4864xn4096xk8192_wg38x16_w1x4_twg8x16x1_s2_occ2_direct_flat",
-  "m2432xn2048xk8192_wg19x16_w2x4_twg8x8x2_s2_flat",
-  "m2432xn4096xk8192_wg19x32_w2x4_twg8x8x1_s4_buf",
-  "m2432xn4096xk4096_wg38x32_w1x4_twg4x8x1_s4_occ2_direct_flat",
-  "m2432xn8192xk16384_wg38x64_w2x2_twg4x8x2_s2_occ2_direct_flat",
-  "m9728xn2048xk4096_wg38x16_w2x2_twg16x8x1_s2_occ2_direct_flat",
-  "m3040xn2048xk2048_wg19x16_w2x2_twg10x8x1_s3_flat",
+    "m3648xn4096xk4096_wg38x16_w2x2_twg6x16x1_s2_occ2_direct_flat",
+    "m4864xn4096xk8192_wg38x32_w2x2_twg8x8x1_s2_occ2_direct_flat",
+    "m3648xn8192xk8192_wg19x32_w2x2_twg12x16x1_s2_direct_flat",
+    "m3040xn16384xk4096_wg19x64_w2x4_twg10x16x1_s2_buf",
+    "m4864xn2048xk8192_wg38x32_w4x1_twg8x4x1_s4_occ2_direct_flat",
+    "m7296xn2048xk4096_wg19x16_w4x2_twg24x8x1_s2_flat",
+    "m4560xn8192xk4096_wg19x64_w3x4_twg15x8x1_s2_flat",
+    "m3040xn16384xk4096_wg19x64_w2x4_twg10x16x1_s3_direct_flat",
+    "m3648xn4096xk4096_wg19x32_w6x2_twg12x8x1_s3_buf",
+    "m6080xn2048xk8192_wg19x16_w2x2_twg20x8x1_s2_flat",
+    "m9728xn4096xk2048_wg76x64_w2x2_twg8x4x1_s3_occ4_direct_flat",
+    "m3040xn16384xk8192_wg19x64_w1x4_twg10x16x1_s3_direct_flat",
+    "m2432xn8192xk8192_wg19x64_w2x4_twg8x8x1_s2_flat",
+    "m4864xn4096xk8192_wg38x16_w1x4_twg8x16x1_s2_occ2_direct_flat",
+    "m2432xn2048xk8192_wg19x16_w2x4_twg8x8x2_s2_flat",
+    "m2432xn4096xk8192_wg19x32_w2x4_twg8x8x1_s4_buf",
+    "m2432xn4096xk4096_wg38x32_w1x4_twg4x8x1_s4_occ2_direct_flat",
+    "m2432xn8192xk16384_wg38x64_w2x2_twg4x8x2_s2_occ2_direct_flat",
+    "m9728xn2048xk4096_wg38x16_w2x2_twg16x8x1_s2_occ2_direct_flat",
+    "m3040xn2048xk2048_wg19x16_w2x2_twg10x8x1_s3_flat",
 ]
 
 
@@ -121,6 +121,8 @@ OCCUPANCY_TARGETS = [1, 2, 3, 4]
 N_WG_MULTIPLIERS = [1, 2, 4]  # must be powers of 2
 # K = k_scaling_factor * k_tiles * 32 (each 16x32 transfer tile = 32 K elements).
 K_SCALING_FACTORS = [64, 128, 256]
+# Unroll factor multipliers: scale the LCM unroll factor by this amount.
+UNROLL_MULTIPLIERS = [1, 2, 3]
 
 MIN_DIM = 2000  # Skip configs where M, N, or K < 3000
 
@@ -202,35 +204,37 @@ def _generate_configs(variants=None, sample_size=3000, check_regs=True):
                             if m_twg % m_w != 0 or n_twg % n_w != 0:
                                 continue
                             for stages in STAGE_CONFIGS:
-                                k = k_factor * k_t * 32
-                                cfg = WeakScaleConfig(
-                                    m_wg,
-                                    n_wg,
-                                    m_w,
-                                    n_w,
-                                    m_twg,
-                                    n_twg,
-                                    k_t,
-                                    stages,
-                                    k,
-                                    load_type=load_type,
-                                    a_path=a_path,
-                                    num_wg_per_cu=num_wg_per_cu,
-                                    _label_suffix=suffix,
-                                )
-                                if (
-                                    cfg.m_dim < MIN_DIM
-                                    or cfg.n_dim < MIN_DIM
-                                    or cfg.k < MIN_DIM
-                                ):
-                                    continue
-                                reason = _precompile_reject_reason(
-                                    cfg, check_regs=check_regs
-                                )
-                                if reason is not None:
-                                    filtered.append((cfg.label, reason))
-                                    continue
-                                configs.append(cfg)
+                                for um in UNROLL_MULTIPLIERS:
+                                    k = k_factor * k_t * 32
+                                    cfg = WeakScaleConfig(
+                                        m_wg,
+                                        n_wg,
+                                        m_w,
+                                        n_w,
+                                        m_twg,
+                                        n_twg,
+                                        k_t,
+                                        stages,
+                                        k,
+                                        load_type=load_type,
+                                        a_path=a_path,
+                                        num_wg_per_cu=num_wg_per_cu,
+                                        unroll_factor_multiplier=um,
+                                        _label_suffix=suffix,
+                                    )
+                                    if (
+                                        cfg.m_dim < MIN_DIM
+                                        or cfg.n_dim < MIN_DIM
+                                        or cfg.k < MIN_DIM
+                                    ):
+                                        continue
+                                    reason = _precompile_reject_reason(
+                                        cfg, check_regs=check_regs
+                                    )
+                                    if reason is not None:
+                                        filtered.append((cfg.label, reason))
+                                        continue
+                                    configs.append(cfg)
 
     # Save filtered configs to temp file.
     if filtered:
@@ -260,13 +264,18 @@ def _repro_cmd(cfg, num_iterations):
     k_factor = cfg.k // (cfg.k_tiles * 32)
     buf_flag = " --use-buffer" if cfg.use_buffer else " --use-flat"
     direct_flag = " --direct-a" if cfg.direct_a else ""
+    um_flag = (
+        f" --unroll-multiplier {cfg.unroll_factor_multiplier}"
+        if cfg.unroll_factor_multiplier > 1
+        else ""
+    )
     return (
         f"python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
         f" --m-tiles-wg {cfg.m_tiles_wg} --n-tiles-wg {cfg.n_tiles_wg} --k-tiles {cfg.k_tiles}"
         f" --stages {cfg.num_stages} --k-scaling-factor {k_factor}"
-        f"{buf_flag}{direct_flag}"
+        f"{buf_flag}{direct_flag}{um_flag}"
         f" --iterations {num_iterations}"
     )
 
@@ -287,13 +296,19 @@ def _make_config_from_args(args, load_type, a_path):
         k,
         load_type=load_type,
         a_path=a_path,
+        unroll_factor_multiplier=getattr(args, "unroll_multiplier", 1) or 1,
         _label_suffix=suffix,
     )
 
 
 def _compile_fn(cfg, output_hsaco_path, **kwargs):
-    """Compile wrapper -- cfg carries load_type and a_path."""
-    return compile_gemm(cfg, output_hsaco_path, **kwargs)
+    """Compile wrapper -- cfg carries load_type, a_path, and unroll_factor_multiplier."""
+    return compile_gemm(
+        cfg,
+        output_hsaco_path,
+        unroll_factor_multiplier=cfg.unroll_factor_multiplier,
+        **kwargs,
+    )
 
 
 CORRECTNESS_K = 2048  # Small K for fast compile+execute correctness checks.
@@ -369,6 +384,12 @@ if __name__ == "__main__":
         "--direct-a",
         action="store_true",
         help="A operand via bpermute (LDS bypass) instead of LDS",
+    )
+    parser.add_argument(
+        "--unroll-multiplier",
+        type=int,
+        default=1,
+        help="Unroll factor multiplier (scales LCM unroll factor, default: 1)",
     )
 
     args = parser.parse_args()

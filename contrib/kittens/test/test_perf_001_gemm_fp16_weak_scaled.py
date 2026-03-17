@@ -67,6 +67,7 @@ class WeakScaleConfig:
     load_type: str = "flat"  # "flat" or "buffer"
     a_path: str = "lds"  # "lds" or "direct" (bpermute, A bypasses LDS)
     num_wg_per_cu: int = 1  # target workgroups per CU for register budget
+    unroll_factor_multiplier: int = 1  # extra unroll on top of LCM
     _label_suffix: str = ""
 
     def __post_init__(self):
@@ -167,10 +168,15 @@ class WeakScaleConfig:
     def label(self):
         tile_str = f"_twg{self.m_tiles_wg}x{self.n_tiles_wg}x{self.k_tiles}"
         occ = f"_occ{self.num_wg_per_cu}" if self.num_wg_per_cu > 1 else ""
+        um = (
+            f"_um{self.unroll_factor_multiplier}"
+            if self.unroll_factor_multiplier > 1
+            else ""
+        )
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
             f"_wg{self.m_wg}x{self.n_wg}_w{self.m_waves}x{self.n_waves}"
-            f"{tile_str}_s{self.num_stages}{occ}{self._label_suffix}"
+            f"{tile_str}_s{self.num_stages}{occ}{um}{self._label_suffix}"
         )
 
 
@@ -216,6 +222,7 @@ def compile_gemm(
     print_ir_after_all=False,
     num_vgprs=256,
     num_agprs=256,
+    unroll_factor_multiplier=1,
 ):
     """Compile a GEMM config to HSACO.
 
@@ -238,9 +245,11 @@ def compile_gemm(
         use_buffer=cfg.use_buffer, direct_a=cfg.direct_a
     )
 
-    if num_vgprs != 256 or num_agprs != 256:
+    if num_vgprs != 256 or num_agprs != 256 or unroll_factor_multiplier > 1:
         pipeline = make_constexpr_pipelining_pass_pipeline(
-            num_vgprs=num_vgprs, num_agprs=num_agprs
+            num_vgprs=num_vgprs,
+            num_agprs=num_agprs,
+            unroll_factor_multiplier=unroll_factor_multiplier,
         )
     else:
         pipeline = TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE

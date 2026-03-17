@@ -727,10 +727,13 @@ void SCFPipelineAsterSchedPass::runOnOperation() {
         originalForOp.erase();
 
         if (lcmUnroll) {
-          int64_t factor = computeStageLCM(info);
+          int64_t factor = computeStageLCM(info) *
+                           std::max<int64_t>(unrollFactorMultiplier, 1);
           LLVM_DEBUG({
             llvm::dbgs() << "LCM unroll: factor=" << factor
-                         << " (maxStage=" << info.maxStage << ")\n";
+                         << " (lcm=" << computeStageLCM(info)
+                         << ", multiplier=" << unrollFactorMultiplier
+                         << ", maxStage=" << info.maxStage << ")\n";
           });
           if (factor > 1)
             loopsToUnroll.push_back({kernelLoop, factor});
@@ -749,8 +752,18 @@ void SCFPipelineAsterSchedPass::runOnOperation() {
       loop.print(llvm::dbgs(), OpPrintingFlags().skipRegions());
       llvm::dbgs() << "\n";
     });
-    if (failed(mlir::loopUnrollByFactor(loop, factor)))
+    auto unrollResult = mlir::loopUnrollByFactor(loop, factor);
+    if (failed(unrollResult))
       return signalPassFailure();
+
+    // Fully unroll the cleanup epilogue loop to eliminate branch overhead.
+    if (epiloguePeeling) {
+      if (auto epilogueLoop = unrollResult->epilogueLoopOp) {
+        LLVM_DEBUG(llvm::dbgs() << "Peeling epilogue cleanup loop\n");
+        if (failed(mlir::loopUnrollFull(*epilogueLoop)))
+          return signalPassFailure();
+      }
+    }
   }
 }
 
