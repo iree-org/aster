@@ -628,14 +628,15 @@ struct SCFPipelineAsterSchedPass
   void runOnOperation() override;
 };
 
-/// Compute the GCD of all distinct nonzero stage values in the loop.
-static int64_t computeStageGCD(const LoopPipelineInfo &info) {
-  int64_t g = 0;
+/// Compute the LCM of all distinct nonzero stage values in the loop.
+static int64_t computeStageLCM(const LoopPipelineInfo &info) {
+  int64_t l = 0;
   for (auto [_, stage] : info.stages) {
-    if (stage > 0)
-      g = std::gcd(g, stage);
+    if (stage > 0) {
+      l = l ? std::lcm(l, stage) : stage;
+    }
   }
-  return g > 0 ? g : 1;
+  return l > 0 ? l : 1;
 }
 
 void SCFPipelineAsterSchedPass::runOnOperation() {
@@ -725,8 +726,12 @@ void SCFPipelineAsterSchedPass::runOnOperation() {
 
         originalForOp.erase();
 
-        if (gcdUnroll) {
-          int64_t factor = computeStageGCD(info);
+        if (lcmUnroll) {
+          int64_t factor = computeStageLCM(info);
+          LLVM_DEBUG({
+            llvm::dbgs() << "LCM unroll: factor=" << factor
+                         << " (maxStage=" << info.maxStage << ")\n";
+          });
           if (factor > 1)
             loopsToUnroll.push_back({kernelLoop, factor});
         }
@@ -739,6 +744,11 @@ void SCFPipelineAsterSchedPass::runOnOperation() {
 
   // TODO: consider adding a Duff device if it helps regalloc + nowait.
   for (auto [loop, factor] : loopsToUnroll) {
+    LLVM_DEBUG({
+      llvm::dbgs() << "LCM unrolling loop by " << factor << ": ";
+      loop.print(llvm::dbgs(), OpPrintingFlags().skipRegions());
+      llvm::dbgs() << "\n";
+    });
     if (failed(mlir::loopUnrollByFactor(loop, factor)))
       return signalPassFailure();
   }

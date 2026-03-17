@@ -1,4 +1,4 @@
-// RUN: aster-opt '--pass-pipeline=builtin.module(aster-scf-pipeline{gcd-unroll=true})' %s | FileCheck %s
+// RUN: aster-opt '--pass-pipeline=builtin.module(aster-scf-pipeline{lcm-unroll=true})' %s | FileCheck %s
 
 // CHECK-LABEL: func.func @gap_0_3_static_ub
 
