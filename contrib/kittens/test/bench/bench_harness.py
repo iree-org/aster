@@ -72,6 +72,13 @@ def format_mlir_error(e):
     return "\n".join(parts) if parts else (str(e) or type(e).__name__)
 
 
+def format_mlir_error_oneline(e):
+    """Extract a single-line error summary from an MLIR exception."""
+    full = format_mlir_error(e)
+    first = full.split("\n")[0].strip()
+    return first[:200] if first else type(e).__name__
+
+
 # -- Compilation (subprocess) ----------------------------------------------
 
 
@@ -87,7 +94,7 @@ def compile_one(cfg, hsaco_dir, compile_fn):
     try:
         _, asm = compile_fn(cfg, output, num_vgprs=bv, num_agprs=ba)
     except Exception as e:
-        raise RuntimeError(format_mlir_error(e)) from None
+        raise RuntimeError(format_mlir_error_oneline(e)) from None
     with open(output.replace(".hsaco", ".s"), "w") as f:
         f.write(asm)
     res = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name).get(
@@ -102,7 +109,7 @@ def compile_one(cfg, hsaco_dir, compile_fn):
 def _exec_worker(args):
     """Run one HSACO in a subprocess.
 
-    HIP_VISIBLE_DEVICES must be set by initializer.
+    HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init initializer.
     """
     from aster.hip import execute_hsaco
 
@@ -128,7 +135,7 @@ def _exec_worker(args):
 def _verify_worker(args):
     """Run one HSACO + compare against numpy.
 
-    HIP_VISIBLE_DEVICES set by initializer.
+    HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init initializer.
     """
     from aster.hip import execute_hsaco
 
@@ -158,15 +165,24 @@ def _verify_worker(args):
 
 
 def _gpu_init(gpu_id):
-    """Process pool initializer: pin this worker to a specific GPU."""
+    """Process pool initializer: pin this worker to a specific GPU.
+
+    Redirects C-level stderr (fd 2) to /dev/null for the lifetime of this worker
+    process. HIP/HSA runtime prints crash and queue-reset messages to fd 2 both
+    synchronously and asynchronously; per-call redirects miss the async ones.
+    Error information is captured via Python exceptions instead.
+    """
     os.environ["HIP_VISIBLE_DEVICES"] = str(gpu_id)
+    _devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(_devnull, 2)
+    os.close(_devnull)
 
 
 def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
-    """Execute configs in subprocesses, one pool per GPU (crash-isolated).
+    """Execute configs in subprocesses, all GPUs concurrently (crash-isolated).
 
-    Each GPU gets a dedicated process pool. Workers within a pool are pinned to that GPU
-    via HIP_VISIBLE_DEVICES set in the initializer.
+    Each GPU gets a dedicated process pool with max_workers=1. All pools run
+    concurrently and results are collected as they complete across all GPUs.
     """
     import multiprocessing as mp
     from tqdm import tqdm
@@ -197,87 +213,115 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
     pbar = tqdm(total=total, desc=desc, unit="cfg")
     ctx = mp.get_context("spawn")
 
-    for gpu_id in range(num_gpus):
-        if not per_gpu[gpu_id]:
-            continue
-        with ProcessPoolExecutor(
-            max_workers=1,
-            mp_context=ctx,
-            initializer=_gpu_init,
-            initargs=(gpu_id,),
-        ) as pool:
-            futs = {pool.submit(_exec_worker, a): a[0] for a in per_gpu[gpu_id]}
-            for fut in as_completed(futs):
-                label = futs[fut]
-                cfg = cfg_by_label[label]
-                try:
-                    _, times, err = fut.result()
-                except Exception as e:
-                    err = str(e).split("\n")[0][:200]
-                    times = None
-                if err or times is None:
-                    failed.append((cfg, err or "unknown"))
-                else:
-                    ns = min(times[WARMUP_ITERATIONS:])
-                    tf = cfg.total_flops / ns * 1e-3
-                    pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
-                    results.append((cfg, ns / 1e6, tf, pct))
-                    if tf > best_tf:
-                        best_tf = tf
-                pbar.update(1)
-                pbar.set_postfix_str(f"best {best_tf:.1f} TF, fail={len(failed)}")
+    # Launch all GPU pools concurrently.
+    pools = []
+    all_futs = {}
+    try:
+        for gpu_id in range(num_gpus):
+            if not per_gpu[gpu_id]:
+                continue
+            pool = ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=ctx,
+                initializer=_gpu_init,
+                initargs=(gpu_id,),
+            )
+            pools.append(pool)
+            for a in per_gpu[gpu_id]:
+                all_futs[pool.submit(_exec_worker, a)] = a[0]
+
+        for fut in as_completed(all_futs):
+            label = all_futs[fut]
+            cfg = cfg_by_label[label]
+            try:
+                _, times, err = fut.result()
+            except Exception as e:
+                err = str(e).split("\n")[0][:200]
+                times = None
+            if err or times is None:
+                failed.append((cfg, err or "unknown"))
+            else:
+                ns = min(times[WARMUP_ITERATIONS:])
+                tf = cfg.total_flops / ns * 1e-3
+                pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
+                results.append((cfg, ns / 1e6, tf, pct))
+                if tf > best_tf:
+                    best_tf = tf
+            pbar.update(1)
+            pbar.set_postfix_str(f"best {best_tf:.1f} TF, fail={len(failed)}")
+    finally:
+        for pool in pools:
+            pool.shutdown(wait=True)
     pbar.close()
     return results, failed
 
 
 def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
-    """Verify configs against numpy in subprocesses (same spawn pattern as run_on_gpus)."""
+    """Verify configs against numpy in subprocesses, all GPUs concurrently.
+
+    Each worker computes its own reference matmul (no large-array IPC needed). With
+    concurrent GPU pools, CPU reference work on one GPU's worker overlaps with GPU
+    execution on other GPUs.
+    """
     import multiprocessing as mp
     from tqdm import tqdm
 
+    # Build lightweight work items (no precomputed arrays -- workers handle it).
     per_gpu = [[] for _ in range(num_gpus)]
-    for i, cfg in enumerate(configs):
-        if cfg.label in hsaco_paths:
-            per_gpu[i % num_gpus].append(
-                (
-                    cfg.label,
-                    hsaco_paths[cfg.label],
-                    cfg.kernel_name,
-                    cfg.num_workgroups,
-                    cfg.num_threads,
-                    cfg.m_dim,
-                    cfg.n_dim,
-                    cfg.k,
-                )
-            )
+    idx = 0
+    for cfg in configs:
+        if cfg.label not in hsaco_paths:
+            continue
+        item = (
+            cfg.label,
+            hsaco_paths[cfg.label],
+            cfg.kernel_name,
+            cfg.num_workgroups,
+            cfg.num_threads,
+            cfg.m_dim,
+            cfg.n_dim,
+            cfg.k,
+        )
+        per_gpu[idx % num_gpus].append(item)
+        idx += 1
 
     total = sum(len(g) for g in per_gpu)
     passed, errors = 0, []
     pbar = tqdm(total=total, desc=desc, unit="cfg")
     ctx = mp.get_context("spawn")
 
-    for gpu_id in range(num_gpus):
-        if not per_gpu[gpu_id]:
-            continue
-        with ProcessPoolExecutor(
-            max_workers=1,
-            mp_context=ctx,
-            initializer=_gpu_init,
-            initargs=(gpu_id,),
-        ) as pool:
-            futs = {pool.submit(_verify_worker, a): a[0] for a in per_gpu[gpu_id]}
-            for fut in as_completed(futs):
-                label = futs[fut]
-                try:
-                    _, err = fut.result()
-                except Exception as e:
-                    err = str(e).split("\n")[0][:200]
-                if err:
-                    errors.append(f"{label}: {err}")
-                else:
-                    passed += 1
-                pbar.update(1)
-                pbar.set_postfix_str(f"pass={passed}, fail={len(errors)}")
+    # Launch all GPU pools concurrently.
+    pools = []
+    all_futs = {}
+    try:
+        for gpu_id in range(num_gpus):
+            if not per_gpu[gpu_id]:
+                continue
+            pool = ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=ctx,
+                initializer=_gpu_init,
+                initargs=(gpu_id,),
+            )
+            pools.append(pool)
+            for a in per_gpu[gpu_id]:
+                all_futs[pool.submit(_verify_worker, a)] = a[0]
+
+        for fut in as_completed(all_futs):
+            label = all_futs[fut]
+            try:
+                _, err = fut.result()
+            except Exception as e:
+                err = str(e).split("\n")[0][:200]
+            if err:
+                errors.append(f"{label}: {err}")
+            else:
+                passed += 1
+            pbar.update(1)
+            pbar.set_postfix_str(f"pass={passed}, fail={len(errors)}")
+    finally:
+        for pool in pools:
+            pool.shutdown(wait=True)
     pbar.close()
     return passed, errors
 
@@ -333,7 +377,10 @@ def bench_perf_sweep(
                 if res:
                     resources_map[label] = res
             except Exception as e:
-                failed.append((cfg, f"compile: {e}"))
+                err_line = str(e).split("\n")[0].strip()[:200]
+                if not err_line:
+                    err_line = type(e).__name__
+                failed.append((cfg, f"compile: {err_line}"))
             pbar.update(1)
             pbar.set_postfix(ok=len(hsaco_paths), fail=len(failed))
         pbar.close()
@@ -371,25 +418,54 @@ def bench_perf_sweep(
     results.sort(key=lambda r: r[2], reverse=True)
     compile_errs = [(c, e) for c, e in failed if e.startswith("compile:")]
     exec_errs = [(c, e) for c, e in failed if not e.startswith("compile:")]
+    saved_files = []
 
     if results:
         lines = [
             f"#{i+1:>3} {tf:>7.1f} TF {pct:>5.1f}% {ms:>8.2f}ms {c.label}"
             for i, (c, ms, tf, pct) in enumerate(results)
         ]
-        print(
-            f"\nResults ({len(results)}) saved in {_save_tmpfile('bench_results_', lines)}"
-        )
+        p = _save_tmpfile("bench_results_", lines)
+        saved_files.append(p)
+        print(f"\nResults ({len(results)}) saved in {p}")
     if compile_errs:
-        lines = [f"{c.label}: {e}" for c, e in compile_errs]
-        print(
-            f"{len(compile_errs)} compile errors in {_save_tmpfile('bench_compile_errors_', lines)}"
-        )
+        from collections import Counter
+
+        err_counts = Counter(e for _, e in compile_errs)
+        header = [
+            f"# {len(compile_errs)} compile failures, {len(err_counts)} unique errors",
+            "#",
+        ]
+        for msg, cnt in err_counts.most_common(10):
+            header.append(f"# {cnt:>5}x {msg}")
+        header.append("#")
+        detail = []
+        for c, e in compile_errs:
+            repro = ""
+            if repro_cmd_fn:
+                try:
+                    repro = f" | repro: {repro_cmd_fn(c, num_iterations)}"
+                except Exception:
+                    pass
+            detail.append(f"{c.label}: {e}{repro}")
+        p = _save_tmpfile("bench_compile_errors_", header + detail)
+        saved_files.append(p)
+        print(f"{len(compile_errs)} compile errors in {p}")
     if exec_errs:
-        lines = [f"{c.label}: {e}" for c, e in exec_errs]
-        print(
-            f"{len(exec_errs)} exec errors in {_save_tmpfile('bench_exec_errors_', lines)}"
-        )
+        from collections import Counter
+
+        exec_counts = Counter(e for _, e in exec_errs)
+        header = [
+            f"# {len(exec_errs)} exec failures, {len(exec_counts)} unique errors",
+            "#",
+        ]
+        for msg, cnt in exec_counts.most_common(10):
+            header.append(f"# {cnt:>5}x {msg}")
+        header.append("#")
+        detail = [f"{c.label}: {e}" for c, e in exec_errs]
+        p = _save_tmpfile("bench_exec_errors_", header + detail)
+        saved_files.append(p)
+        print(f"{len(exec_errs)} exec errors in {p}")
 
     print(
         f"\nSummary: {len(results)} ok, {len(compile_errs)} compile fail, {len(exec_errs)} exec fail"
@@ -399,6 +475,10 @@ def bench_perf_sweep(
         print(f"Top {top_n}:")
         for i, (c, ms, tf, pct) in enumerate(results[:top_n]):
             print(f"  #{i+1} {c.label}: {tf:.1f} TF ({pct:.1f}%)")
+    if saved_files:
+        print(f"\nSaved files:")
+        for f in saved_files:
+            print(f"  {f}")
 
     return results, hsaco_paths
 
