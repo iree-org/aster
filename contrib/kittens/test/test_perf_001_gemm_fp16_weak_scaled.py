@@ -67,7 +67,9 @@ class WeakScaleConfig:
     load_type: str = "flat"  # "flat" or "buffer"
     a_path: str = "lds"  # "lds" or "direct" (bpermute, A bypasses LDS)
     num_wg_per_cu: int = 1  # target workgroups per CU for register budget
+    lcm_unroll: bool = True  # LCM-based kernel loop unrolling
     unroll_factor_multiplier: int = 1  # extra unroll on top of LCM
+    epilogue_peeling: bool = True  # fully unroll cleanup loop after LCM unrolling
     _label_suffix: str = ""
 
     def __post_init__(self):
@@ -168,15 +170,17 @@ class WeakScaleConfig:
     def label(self):
         tile_str = f"_twg{self.m_tiles_wg}x{self.n_tiles_wg}x{self.k_tiles}"
         occ = f"_occ{self.num_wg_per_cu}" if self.num_wg_per_cu > 1 else ""
+        lcm = "" if self.lcm_unroll else "_nolcm"
         um = (
             f"_um{self.unroll_factor_multiplier}"
             if self.unroll_factor_multiplier > 1
             else ""
         )
+        peel = "" if self.epilogue_peeling else "_nopeel"
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
             f"_wg{self.m_wg}x{self.n_wg}_w{self.m_waves}x{self.n_waves}"
-            f"{tile_str}_s{self.num_stages}{occ}{um}{self._label_suffix}"
+            f"{tile_str}_s{self.num_stages}{occ}{lcm}{um}{peel}{self._label_suffix}"
         )
 
 
@@ -223,6 +227,7 @@ def compile_gemm(
     num_vgprs=256,
     num_agprs=256,
     unroll_factor_multiplier=1,
+    epilogue_peeling=True,
 ):
     """Compile a GEMM config to HSACO.
 
@@ -245,11 +250,20 @@ def compile_gemm(
         use_buffer=cfg.use_buffer, direct_a=cfg.direct_a
     )
 
-    if num_vgprs != 256 or num_agprs != 256 or unroll_factor_multiplier > 1:
+    lcm_unroll = getattr(cfg, "lcm_unroll", True)
+    if (
+        num_vgprs != 256
+        or num_agprs != 256
+        or unroll_factor_multiplier > 1
+        or not lcm_unroll
+        or not epilogue_peeling
+    ):
         pipeline = make_constexpr_pipelining_pass_pipeline(
+            lcm_unroll=lcm_unroll,
             num_vgprs=num_vgprs,
             num_agprs=num_agprs,
             unroll_factor_multiplier=unroll_factor_multiplier,
+            epilogue_peeling=epilogue_peeling,
         )
     else:
         pipeline = TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE

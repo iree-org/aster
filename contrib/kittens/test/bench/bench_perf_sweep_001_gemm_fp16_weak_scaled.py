@@ -121,8 +121,13 @@ OCCUPANCY_TARGETS = [1, 2, 3, 4]
 N_WG_MULTIPLIERS = [1, 2, 4]  # must be powers of 2
 # K = k_scaling_factor * k_tiles * 32 (each 16x32 transfer tile = 32 K elements).
 K_SCALING_FACTORS = [64, 128, 256]
+# LCM unroll on/off sweep. When True, also sweeps unroll multipliers.
+LCM_UNROLL_CONFIGS = [True, False]
 # Unroll factor multipliers: scale the LCM unroll factor by this amount.
+# Only swept when lcm_unroll=True; pinned to [1] when False.
 UNROLL_MULTIPLIERS = [1, 2, 3]
+# Epilogue peeling: fully unroll cleanup loop after LCM unrolling.
+EPILOGUE_PEELING_CONFIGS = [True, False]
 
 MIN_DIM = 2000  # Skip configs where M, N, or K < 3000
 
@@ -204,37 +209,41 @@ def _generate_configs(variants=None, sample_size=3000, check_regs=True):
                             if m_twg % m_w != 0 or n_twg % n_w != 0:
                                 continue
                             for stages in STAGE_CONFIGS:
-                                for um in UNROLL_MULTIPLIERS:
-                                    k = k_factor * k_t * 32
-                                    cfg = WeakScaleConfig(
-                                        m_wg,
-                                        n_wg,
-                                        m_w,
-                                        n_w,
-                                        m_twg,
-                                        n_twg,
-                                        k_t,
-                                        stages,
-                                        k,
-                                        load_type=load_type,
-                                        a_path=a_path,
-                                        num_wg_per_cu=num_wg_per_cu,
-                                        unroll_factor_multiplier=um,
-                                        _label_suffix=suffix,
-                                    )
-                                    if (
-                                        cfg.m_dim < MIN_DIM
-                                        or cfg.n_dim < MIN_DIM
-                                        or cfg.k < MIN_DIM
-                                    ):
-                                        continue
-                                    reason = _precompile_reject_reason(
-                                        cfg, check_regs=check_regs
-                                    )
-                                    if reason is not None:
-                                        filtered.append((cfg.label, reason))
-                                        continue
-                                    configs.append(cfg)
+                                for lcm in LCM_UNROLL_CONFIGS:
+                                    for um in (UNROLL_MULTIPLIERS if lcm else [1]):
+                                        for ep in EPILOGUE_PEELING_CONFIGS:
+                                            k = k_factor * k_t * 32
+                                            cfg = WeakScaleConfig(
+                                                m_wg,
+                                                n_wg,
+                                                m_w,
+                                                n_w,
+                                                m_twg,
+                                                n_twg,
+                                                k_t,
+                                                stages,
+                                                k,
+                                                load_type=load_type,
+                                                a_path=a_path,
+                                                num_wg_per_cu=num_wg_per_cu,
+                                                lcm_unroll=lcm,
+                                                unroll_factor_multiplier=um,
+                                                epilogue_peeling=ep,
+                                                _label_suffix=suffix,
+                                            )
+                                            if (
+                                                cfg.m_dim < MIN_DIM
+                                                or cfg.n_dim < MIN_DIM
+                                                or cfg.k < MIN_DIM
+                                            ):
+                                                continue
+                                            reason = _precompile_reject_reason(
+                                                cfg, check_regs=check_regs
+                                            )
+                                            if reason is not None:
+                                                filtered.append((cfg.label, reason))
+                                                continue
+                                            configs.append(cfg)
 
     # Save filtered configs to temp file.
     if filtered:
@@ -264,18 +273,20 @@ def _repro_cmd(cfg, num_iterations):
     k_factor = cfg.k // (cfg.k_tiles * 32)
     buf_flag = " --use-buffer" if cfg.use_buffer else " --use-flat"
     direct_flag = " --direct-a" if cfg.direct_a else ""
+    lcm_flag = "" if cfg.lcm_unroll else " --no-lcm-unroll"
     um_flag = (
         f" --unroll-multiplier {cfg.unroll_factor_multiplier}"
         if cfg.unroll_factor_multiplier > 1
         else ""
     )
+    peel_flag = "" if cfg.epilogue_peeling else " --no-epilogue-peeling"
     return (
         f"python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
         f" --m-tiles-wg {cfg.m_tiles_wg} --n-tiles-wg {cfg.n_tiles_wg} --k-tiles {cfg.k_tiles}"
         f" --stages {cfg.num_stages} --k-scaling-factor {k_factor}"
-        f"{buf_flag}{direct_flag}{um_flag}"
+        f"{buf_flag}{direct_flag}{lcm_flag}{um_flag}{peel_flag}"
         f" --iterations {num_iterations}"
     )
 
@@ -296,17 +307,20 @@ def _make_config_from_args(args, load_type, a_path):
         k,
         load_type=load_type,
         a_path=a_path,
+        lcm_unroll=getattr(args, "lcm_unroll", True),
         unroll_factor_multiplier=getattr(args, "unroll_multiplier", 1) or 1,
+        epilogue_peeling=getattr(args, "epilogue_peeling", True),
         _label_suffix=suffix,
     )
 
 
 def _compile_fn(cfg, output_hsaco_path, **kwargs):
-    """Compile wrapper -- cfg carries load_type, a_path, and unroll_factor_multiplier."""
+    """Compile wrapper -- cfg carries load_type, a_path, unroll and peeling config."""
     return compile_gemm(
         cfg,
         output_hsaco_path,
         unroll_factor_multiplier=cfg.unroll_factor_multiplier,
+        epilogue_peeling=cfg.epilogue_peeling,
         **kwargs,
     )
 
@@ -386,13 +400,25 @@ if __name__ == "__main__":
         help="A operand via bpermute (LDS bypass) instead of LDS",
     )
     parser.add_argument(
+        "--no-lcm-unroll",
+        action="store_true",
+        help="Disable LCM-based kernel loop unrolling",
+    )
+    parser.add_argument(
         "--unroll-multiplier",
         type=int,
         default=1,
         help="Unroll factor multiplier (scales LCM unroll factor, default: 1)",
     )
+    parser.add_argument(
+        "--no-epilogue-peeling",
+        action="store_true",
+        help="Disable epilogue peeling (keep cleanup loop after LCM unrolling)",
+    )
 
     args = parser.parse_args()
+    args.lcm_unroll = not args.no_lcm_unroll
+    args.epilogue_peeling = not args.no_epilogue_peeling
 
     # Determine a_path
     a_path = "direct" if args.direct_a else "lds"
