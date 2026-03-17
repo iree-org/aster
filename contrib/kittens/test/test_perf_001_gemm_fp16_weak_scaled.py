@@ -16,7 +16,7 @@ import tempfile
 
 from aster.pass_pipelines import (
     TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
-    test_constexpr_pipelining_pass_pipeline,
+    make_constexpr_pipelining_pass_pipeline,
 )
 
 from kittens_helpers import (
@@ -239,7 +239,7 @@ def compile_gemm(
     )
 
     if num_vgprs != 256 or num_agprs != 256:
-        pipeline = test_constexpr_pipelining_pass_pipeline(
+        pipeline = make_constexpr_pipelining_pass_pipeline(
             num_vgprs=num_vgprs, num_agprs=num_agprs
         )
     else:

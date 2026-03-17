@@ -262,7 +262,7 @@ TEST_LOOP_PASS_PIPELINE = builtin_module(
 )
 
 # Loop pipelining pass pipeline
-def test_scf_pipelining_pass_pipeline(lcm_unroll=False):
+def make_scf_pipelining_pass_pipeline(lcm_unroll=False):
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
         phase_scf_pipelining(lcm_unroll=lcm_unroll),
@@ -279,7 +279,7 @@ def test_scf_pipelining_pass_pipeline(lcm_unroll=False):
         phase_nop_insertion(delays=0)
     )
 
-TEST_SCF_PIPELINING_PASS_PIPELINE = test_scf_pipelining_pass_pipeline()
+TEST_SCF_PIPELINING_PASS_PIPELINE = make_scf_pipelining_pass_pipeline()
 
 # Constexpr expansion phase: unroll constexpr tile loops + promote to SSA.
 # Must run BEFORE pipelining so the output looks like hand-written kernels.
@@ -295,7 +295,7 @@ PHASE_CONSTEXPR_EXPANSION = (
 
 # Constexpr + pipelining pass pipeline: expand constexpr tile loops first,
 # then proceed with normal pipelining.
-def test_constexpr_pipelining_pass_pipeline(
+def make_constexpr_pipelining_pass_pipeline(
     lcm_unroll=False, num_vgprs=256, num_agprs=256
 ):
     return builtin_module(
@@ -317,7 +317,7 @@ def test_constexpr_pipelining_pass_pipeline(
         phase_nop_insertion(delays=0)
     )
 
-TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE = test_constexpr_pipelining_pass_pipeline()
+TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE = make_constexpr_pipelining_pass_pipeline()
 
 # --------------------------------------------------------------------------- #
 # General pipelines for specific use cases
