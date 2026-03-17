@@ -468,7 +468,12 @@ def run_single(cfg, compile_fn, args, execute_fn):
             raise SystemExit(1)
         _, asm = compile_fn(cfg, args.hsaco, print_ir_after_all=print_ir)
         resources = parse_asm_kernel_resources(asm, kernel_name=kname)
-        print_config(cfg, args.iterations, resources.get(kname))
+        res = resources.get(kname)
+        print_config(cfg, args.iterations, res)
+        if res:
+            violations = res.check_gfx942_occupancy(cfg.num_threads)
+            for v in violations:
+                print(f"  OCCUPANCY ERROR: {v}")
         print(f"  Compiled: {args.hsaco}")
         if print_asm:
             print(f"\n--- Assembly ---\n{asm}")

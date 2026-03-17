@@ -370,9 +370,10 @@ PtrAddOpPattern::matchAndRewrite(ptr::PtrAddOp op, OpAdaptor adaptor,
     }
   }
 
+  auto flags = op.getFlags();
   auto newOp = rewriter.replaceOpWithNewOp<amdgcn::PtrAddOp>(
       op, resultType, ptr, dynamicOffset, uniformOffset, constOffset);
-  newOp.setFlags(op.getFlags());
+  newOp.setFlags(flags);
   return success();
 }
 

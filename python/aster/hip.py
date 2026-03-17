@@ -72,6 +72,40 @@ class KernelResources:
             parts.append(f"scratch={self.scratch_bytes}")
         return ", ".join(parts)
 
+    def check_gfx942_occupancy(self, num_threads: int) -> List[str]:
+        """Return a list of occupancy violations for gfx942 (CDNA3).
+
+        Rules (unified VGPR+AGPR budget per workgroup):
+          - Per wave:      vgpr <= 256,  agpr <= 256
+          - Per workgroup: vgpr * waves <= 512,  agpr * waves <= 512
+          - Per workgroup: (vgpr + agpr) * waves <= 1024
+
+        Returns an empty list if the kernel can launch.
+        """
+        num_waves = (num_threads + self.wavefront_size - 1) // self.wavefront_size
+        violations = []
+
+        if self.vgpr_count > 256:
+            violations.append(f"vgpr per wave {self.vgpr_count} > 256")
+        if self.agpr_count > 256:
+            violations.append(f"agpr per wave {self.agpr_count} > 256")
+        vgpr_wg = self.vgpr_count * num_waves
+        if vgpr_wg > 512:
+            violations.append(
+                f"vgpr per workgroup {self.vgpr_count}*{num_waves}={vgpr_wg} > 512"
+            )
+        agpr_wg = self.agpr_count * num_waves
+        if agpr_wg > 512:
+            violations.append(
+                f"agpr per workgroup {self.agpr_count}*{num_waves}={agpr_wg} > 512"
+            )
+        total_wg = (self.vgpr_count + self.agpr_count) * num_waves
+        if total_wg > 1024:
+            violations.append(
+                f"(vgpr+agpr) per workgroup ({self.vgpr_count}+{self.agpr_count})*{num_waves}={total_wg} > 1024"
+            )
+        return violations
+
 
 # All integer fields we extract from .amdgpu_metadata YAML.
 _METADATA_FIELDS = [
