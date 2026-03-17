@@ -60,7 +60,7 @@ PHASE_SCHEDULING = (
     "aster-op-scheduling",
 )
 
-def phase_scf_pipelining(lcm_unroll=False):
+def phase_scf_pipelining(lcm_unroll=True):
     if lcm_unroll:
         return ("aster-scf-pipeline{lcm-unroll=true}",)
     return ("aster-scf-pipeline",)
@@ -262,7 +262,7 @@ TEST_LOOP_PASS_PIPELINE = builtin_module(
 )
 
 # Loop pipelining pass pipeline
-def make_scf_pipelining_pass_pipeline(lcm_unroll=False):
+def make_scf_pipelining_pass_pipeline(lcm_unroll=True):
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
         phase_scf_pipelining(lcm_unroll=lcm_unroll),
@@ -296,7 +296,7 @@ PHASE_CONSTEXPR_EXPANSION = (
 # Constexpr + pipelining pass pipeline: expand constexpr tile loops first,
 # then proceed with normal pipelining.
 def make_constexpr_pipelining_pass_pipeline(
-    lcm_unroll=False, num_vgprs=256, num_agprs=256
+    lcm_unroll=True, num_vgprs=256, num_agprs=256
 ):
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
