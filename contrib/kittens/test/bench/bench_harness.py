@@ -20,8 +20,6 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 
 import numpy as np
 
-from kittens_helpers import LDS_SIZE
-
 # Parent directory contains the test modules and kittens_helpers.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # Worktree root contains mlir_kernels (used by library preloading).
@@ -221,8 +219,6 @@ def exec_one_config(
 def print_summary_table(
     results,
     failed,
-    skipped_broken,
-    skipped_lds,
     resources_map,
     repro_cmd_fn,
     num_iterations,
@@ -249,10 +245,7 @@ def print_summary_table(
                 f"| {pct:>6.1f}% | {lds_kb:>4.0f}KB | {res_str}"
             )
 
-    print(
-        f"\nSummary: {len(results)} passed, {len(failed)} failed"
-        f", {len(skipped_broken)} broken, {len(skipped_lds)} LDS exceeded"
-    )
+    print(f"\nSummary: {len(results)} passed, {len(failed)} failed")
 
     if failed:
         import tempfile as _tmp
@@ -284,8 +277,6 @@ def bench_perf_sweep(
     repro_cmd_fn,
     script_path,
     top_k_to_run=None,
-    known_broken=None,
-    skip_first_n=0,
     full_sweep=False,
     num_gpus=None,
     compile_workers=None,
@@ -302,8 +293,6 @@ def bench_perf_sweep(
         repro_cmd_fn: (cfg, num_iterations) -> str for human-readable repro
         script_path: __file__ of the calling bench script (for subprocess re-entry)
         top_k_to_run: Labels to run by default (empty/None = full sweep)
-        known_broken: Labels to always skip
-        skip_first_n: Skip first N active configs
         full_sweep: Ignore top_k_to_run filter
         num_gpus: GPUs for Phase 2 (None = auto-detect)
         compile_workers: Parallel compile processes (None = default)
@@ -316,40 +305,17 @@ def bench_perf_sweep(
     check_numpy_blas(num_threads=compile_workers)
     if top_k_to_run is None:
         top_k_to_run = []
-    if known_broken is None:
-        known_broken = []
 
     results = []
     failed = []
-    known_broken_set = set(known_broken)
-
-    skipped_broken = []
-    skipped_lds = []
-    active = []
-    known_broken_set = set(known_broken)
-    for c in configs:
-        if c.label in known_broken_set:
-            print(f"skip known broken config {c.label}")
-            skipped_broken.append(c)
-        elif c.lds_bytes > LDS_SIZE:
-            print(
-                f"skip config {c.label} that overflows LDS {c.lds_bytes} > {LDS_SIZE}"
-            )
-            skipped_lds.append(c)
-        else:
-            active.append(c)
+    active = list(configs)
 
     if top_k_to_run and not full_sweep:
         top_set = set(top_k_to_run)
         active = [c for c in active if c.label in top_set]
 
-    active = active[skip_first_n:]
-
     total = len(configs)
-    print(
-        f"\nRunning {len(active)}/{total} configs "
-        f"({len(skipped_broken)} broken, {len(skipped_lds)} LDS exceeded, {skip_first_n} skipped)"
-    )
+    print(f"\nRunning {len(active)}/{total} configs")
     print(f"  iterations={num_iterations}, warmup={WARMUP_ITERATIONS}")
     print(f"  compile_workers={compile_workers}, exec_gpus={num_gpus}")
     sys.stdout.flush()
@@ -473,8 +439,6 @@ def bench_perf_sweep(
     print_summary_table(
         results,
         failed,
-        skipped_broken,
-        skipped_lds,
         resources_map,
         repro_cmd_fn,
         num_iterations,
