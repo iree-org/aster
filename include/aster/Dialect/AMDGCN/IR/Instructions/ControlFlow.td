@@ -47,7 +47,7 @@ def EndKernelInst : AMDInst<
 // BranchOp/CondBranchOp
 //===----------------------------------------------------------------------===//
 
-def BranchOperand : AnyRegOf<[SReg<"SCC">, SReg<"VCCZ">, SReg<"EXECZ">]>;
+def BranchOperand : AnyRegOf<[SReg<"SCC">, SReg<"VCC">, SReg<"VCCZ">, SReg<"EXECZ">]>;
 
 def AMDGCN_BranchOp : AMDGCN_InstOp<"branch", [
     PureInst, Terminator, BranchOpInterface
