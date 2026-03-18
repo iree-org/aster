@@ -14,7 +14,7 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN "ON")
 # TODO: Add an upstream cmake param for this vs having a global here.
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=aster.")
 
-set(_PYTHON_BUILD_PREFIX "${POSEIDON_BINARY_DIR}/python_packages/")
+set(_PYTHON_BUILD_PREFIX "${ASTER_BINARY_DIR}/python_packages/")
 set(_PYTHON_INSTALL_PREFIX "python_packages/aster")
 
 set(CMAKE_PLATFORM_NO_VERSIONED_SONAME 1)
@@ -59,6 +59,35 @@ declare_mlir_python_extension(ASTERPythonExtensions._site_initialize_0
     site_init.cpp
   EMBED_CAPI_LINK_LIBS
     ASTER
+)
+
+################################################################################
+# Generate upstream stubs
+################################################################################
+
+set(_core_type_stub_sources
+  _mlir/__init__.pyi
+  _mlir/ir.pyi
+  _mlir/passmanager.pyi
+  _mlir/rewrite.pyi
+)
+get_target_property(_core_extension_srcs MLIRPythonExtension.Core INTERFACE_SOURCES)
+mlir_generate_type_stubs(
+  MODULE_NAME _mlir
+  DEPENDS_TARGETS ASTERPythonModules.extension._mlir.dso
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/type_stubs/_mlir_libs"
+  OUTPUTS "${_core_type_stub_sources}"
+  DEPENDS_TARGET_SRC_DEPS "${_core_extension_srcs}"
+  IMPORT_PATHS "${ASTER_BINARY_DIR}/${_PYTHON_INSTALL_PREFIX}/_mlir_libs"
+)
+set(_mlir_typestub_gen_target "${NB_STUBGEN_CUSTOM_TARGET}")
+
+list(TRANSFORM _core_type_stub_sources PREPEND "_mlir_libs/")
+declare_mlir_python_sources(
+  ASTERPythonExtensions.type_stub_gen
+  ADD_TO_PARENT ASTERPythonExtensions
+  ROOT_DIR "${CMAKE_CURRENT_BINARY_DIR}/type_stubs"
+  SOURCES "${_core_type_stub_sources}"
 )
 
 ################################################################################
@@ -159,7 +188,6 @@ set(_SOURCE_COMPONENTS
   MLIRPythonSources.Dialects.builtin
   MLIRPythonSources.Dialects.func
   MLIRPythonSources.Dialects.gpu
-  MLIRPythonExtension.Core.type_stub_gen
   # DO NOT register all indiscriminately.
   # MLIRPythonExtension.RegisterEverything
 )
