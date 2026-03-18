@@ -84,11 +84,18 @@ static void collectSchedAttrs(Operation *root,
 }
 
 /// Verify that all names in scheds appear in the map.
-static LogicalResult
-verifySchedNames(Operation *root, const DenseMap<StringAttr, int32_t> &map) {
+static LogicalResult verifySchedNames(Operation *root,
+                                      const DenseMap<StringAttr, int32_t> &map,
+                                      bool silentMode) {
   for (const auto &[key, count] : map) {
     if (count != 0)
       continue;
+    if (silentMode) {
+      LDBG() << "schedule '" << key.strref()
+             << "' not found. Expected a SchedAttrInterface attribute "
+                "with this name in a discardable attribute dictionary.";
+      continue;
+    }
     return root->emitError()
            << "schedule '" << key.strref()
            << "' not found. Expected a SchedAttrInterface attribute "
@@ -163,11 +170,12 @@ static LogicalResult applySched(SchedInfo sched, SchedAnalysis &analysis,
 void ApplySchedPass::runOnOperation() {
   Operation *root = getOperation();
 
-  // Error out if there are no schedules to apply.
-  if (scheds.empty()) {
-    root->emitError() << "no schedules to apply";
-    return signalPassFailure();
-  }
+  // Use "aster.sched" as the default schedule name if no schedules are
+  // requested.
+  const SmallVector<std::string, 1> defaultScheds = {"aster.sched"};
+  ArrayRef<std::string> schedList = scheds.empty()
+                                        ? ArrayRef<std::string>(defaultScheds)
+                                        : ArrayRef<std::string>(scheds);
 
   IRRewriter rewriter(root->getContext());
   SmallVector<SchedInfo> schedInfos;
@@ -175,7 +183,7 @@ void ApplySchedPass::runOnOperation() {
   // Initialize the counts for the schedules of interest.
   DenseMap<StringAttr, int32_t> schedsCounts;
   DenseMap<StringAttr, int64_t> schedsToId;
-  for (const auto &[id, name] : llvm::enumerate(scheds)) {
+  for (const auto &[id, name] : llvm::enumerate(schedList)) {
     StringAttr key = StringAttr::get(root->getContext(), name);
     schedsCounts[key] = 0;
     schedsToId[key] = id;
@@ -185,11 +193,11 @@ void ApplySchedPass::runOnOperation() {
   collectSchedAttrs(root, schedInfos, schedsCounts);
 
   LDBG_OS([&](llvm::raw_ostream &os) {
-    os << "Requested schedules: " << llvm::interleaved_array(scheds);
+    os << "Requested schedules: " << llvm::interleaved_array(schedList);
   });
 
   // Verify that all schedules of interest were found.
-  if (failed(verifySchedNames(root, schedsCounts)))
+  if (failed(verifySchedNames(root, schedsCounts, silentMode)))
     return signalPassFailure();
 
   // Sort the schedules by order of appearance in the scheds list and by
