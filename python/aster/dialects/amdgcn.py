@@ -4,11 +4,12 @@
 
 from aster.dialects._amdgcn_ops_gen import *
 from aster.dialects._amdgcn_enum_gen import *
+from aster.dialects._amdgcn_inst_gen import *
 from aster.dialects._ods_common import _cext as _ods_cext
 
 _ods_ir = _ods_cext.ir
 
-# Import register types from C++ bindings
+from aster import ir
 from aster._mlir_libs._amdgcn import (
     AGPRType,
     AGPRRangeType,
@@ -18,22 +19,30 @@ from aster._mlir_libs._amdgcn import (
     VGPRRangeType,
 )
 
-# Import API functions
-from aster.dialects import api
-
-__all__ = [
-    "AGPRType",
-    "AGPRRangeType",
-    "SGPRType",
-    "SGPRRangeType",
-    "VGPRType",
-    "VGPRRangeType",
-    "api",
-]
-
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from aster.ir import register_attribute_builder
+
+
+def alloca_vgpr(reg: Optional[int] = None) -> ir.Value:
+    """Allocate a VGPR register."""
+    return AllocaOp(VGPRType.get(ir.Context.current, reg)).result
+
+
+def alloca_sgpr(reg: Optional[int] = None) -> ir.Value:
+    """Allocate an SGPR register."""
+    return AllocaOp(SGPRType.get(ir.Context.current, reg)).result
+
+
+def alloca_agpr(reg: Optional[int] = None) -> ir.Value:
+    """Allocate an AGPR register."""
+    return AllocaOp(AGPRType.get(ir.Context.current, reg)).result
+
+
+def make_register_range(inputs: List[ir.Value], *, results=None) -> ir.Value:
+    """Create a register range from a list of registers."""
+    input_values = [inp.result if hasattr(inp, "result") else inp for inp in inputs]
+    return MakeRegisterRangeOp(inputs=input_values, results=results).result
 
 
 @register_attribute_builder("AMDGCN_InstAttr")

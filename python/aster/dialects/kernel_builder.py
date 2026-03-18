@@ -56,7 +56,7 @@ from aster._mlir_libs._amdgcn import (
     VGPRRangeType,
     VGPRType,
 )
-from aster.dialects import api
+from aster.dialects import _amdgcn_inst_gen as _inst
 from aster.dialects import lsir as lsird
 from aster.dialects.amdgcn import (
     AccessKind,
@@ -287,7 +287,7 @@ class KernelBuilder:
     def init_agprx4(self, init_val: ir.Value) -> ir.Value:
         """Allocate and initialize a 4-AGPR register range."""
         inited = [
-            api.v_accvgpr_write_b32(
+            _inst.v_accvgpr_write_b32(
                 self.alloca_agpr(), init_val, loc=self._loc, ip=self._kip
             )
             for _ in range(4)
@@ -311,7 +311,7 @@ class KernelBuilder:
         """Move an i32 immediate into an SGPR via s_mov_b32."""
         dest = self.alloca_sgpr()
         c = self.constant_i32(value)
-        return api.s_mov_b32(dest, c, loc=self._loc, ip=self._kip)
+        return _inst.s_mov_b32(dest, c, loc=self._loc, ip=self._kip)
 
     def sop2(self, opcode: str, src0: ir.Value, src1: ir.Value) -> ir.Value:
         """Scalar ALU 2-operand operation (SOP2)."""
@@ -463,7 +463,7 @@ class KernelBuilder:
 
         opcode: e.g. "v_mfma_f32_16x16x16_f16"
         """
-        fn = getattr(api, opcode, None)
+        fn = getattr(_inst, opcode, None)
         if fn is not None:
             return fn(acc, a, b, acc, loc=self._loc, ip=self._kip)
         raise ValueError(f"Unknown MFMA opcode: {opcode}")

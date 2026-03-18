@@ -35,28 +35,24 @@ def build_mfma_10_module(
                     # Allocate registers for MFMA: A (2), B (2), C (4), D (4)
                     # Each iteration uses new registers starting at 8 + i * 12
                     base_reg = 8 + i * 12
-                    a1, a2 = [
-                        amdgcn.api.alloca_vgpr(base_reg + idx) for idx in range(2)
-                    ]
+                    a1, a2 = [amdgcn.alloca_vgpr(base_reg + idx) for idx in range(2)]
                     b1, b2 = [
-                        amdgcn.api.alloca_vgpr(base_reg + 2 + idx) for idx in range(2)
+                        amdgcn.alloca_vgpr(base_reg + 2 + idx) for idx in range(2)
                     ]
                     c1, c2, c3, c4 = [
-                        amdgcn.api.alloca_vgpr(base_reg + 4 + idx) for idx in range(4)
+                        amdgcn.alloca_vgpr(base_reg + 4 + idx) for idx in range(4)
                     ]
                     # Allocate indepedent destination range for this MFMA
                     d1, d2, d3, d4 = [
-                        amdgcn.api.alloca_vgpr(base_reg + 8 + idx) for idx in range(4)
+                        amdgcn.alloca_vgpr(base_reg + 8 + idx) for idx in range(4)
                     ]
-                    a_range = amdgcn.api.make_register_range([a1, a2])
-                    b_range = amdgcn.api.make_register_range([b1, b2])
-                    c_range = amdgcn.api.make_register_range([c1, c2, c3, c4])
-                    d_range = amdgcn.api.make_register_range([d1, d2, d3, d4])
+                    a_range = amdgcn.make_register_range([a1, a2])
+                    b_range = amdgcn.make_register_range([b1, b2])
+                    c_range = amdgcn.make_register_range([c1, c2, c3, c4])
+                    d_range = amdgcn.make_register_range([d1, d2, d3, d4])
 
                     # MFMA: D = A * B + C (each operation is independent)
-                    amdgcn.api.v_mfma_f32_16x16x16_f16(
-                        d_range, a_range, b_range, c_range
-                    )
+                    amdgcn.v_mfma_f32_16x16x16_f16(d_range, a_range, b_range, c_range)
 
                 # If needed, could do a check of the value against an expected
                 # value and trap. See e.g. test/python/cdna/test_cdna.py

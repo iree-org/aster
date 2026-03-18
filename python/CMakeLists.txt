@@ -102,7 +102,6 @@ declare_mlir_dialect_python_bindings(
   TD_FILE dialects/AMDGCNOps.td
   SOURCES
     dialects/amdgcn.py
-    dialects/api.py
     dialects/kernel_builder.py
   DIALECT_NAME amdgcn
   GEN_ENUM_BINDINGS_TD_FILE
