@@ -281,7 +281,7 @@ def _repro_cmd(cfg, num_iterations):
     )
     peel_flag = "" if cfg.epilogue_peeling else " --no-epilogue-peeling"
     return (
-        f"python bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
+        f"python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
         f" --m-tiles-wg {cfg.m_tiles_wg} --n-tiles-wg {cfg.n_tiles_wg} --k-tiles {cfg.k_tiles}"
@@ -344,6 +344,9 @@ def verify_top_configs(
         return
     if num_gpus is None:
         num_gpus = detect_num_gpus()
+    if num_gpus == 0:
+        print("\nNo GPUs detected -- skipping correctness verification.")
+        return
     top = results[:num_configs]
     to_verify = [c for c, *_ in top if c.label in hsaco_paths]
     if not to_verify:

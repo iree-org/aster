@@ -35,6 +35,49 @@ def _save_tmpfile(prefix, lines):
     return path
 
 
+def _save_error_file(prefix, phase, errors, repro_cmd_fn=None, num_iterations=None):
+    """Save errors grouped by category for easy debugging.
+
+    Output format:
+      - Top-level summary (total count, unique categories)
+      - One section per category, most frequent first
+      - Each section has a header and all configs in that category
+    """
+    from collections import defaultdict
+
+    by_category = defaultdict(list)
+    for c, e, full in errors:
+        by_category[e].append((c, full))
+
+    lines = [
+        f"# {len(errors)} {phase} failures, {len(by_category)} unique errors",
+        "#",
+    ]
+    for msg, entries in sorted(by_category.items(), key=lambda kv: -len(kv[1])):
+        lines.append(f"# {len(entries):>5}x {msg}")
+    lines.append("")
+
+    for msg, entries in sorted(by_category.items(), key=lambda kv: -len(kv[1])):
+        lines.append("=" * 78)
+        lines.append(f"[{len(entries)}x] {msg}")
+        lines.append("=" * 78)
+        lines.append("")
+        for c, full in entries:
+            repro = ""
+            if repro_cmd_fn:
+                try:
+                    repro = f" | repro: {repro_cmd_fn(c, num_iterations)}"
+                except Exception:
+                    pass
+            lines.append(f"  {c.label}{repro}")
+            if full and full != msg.removeprefix(f"{phase}: "):
+                for fline in full.split("\n"):
+                    lines.append(f"    {fline}")
+        lines.append("")
+
+    return _save_tmpfile(prefix, lines)
+
+
 def check_numpy_blas(label=""):
     import time
 
@@ -54,12 +97,17 @@ def check_numpy_blas(label=""):
 
 
 def detect_num_gpus():
+    """Return the number of available GPUs, or 0 if none are present."""
     try:
+        from aster.hip import system_has_gpu
+
+        if not system_has_gpu("gfx942"):
+            return 0
         from aster.testing import hip_get_device_count
 
         return max(1, hip_get_device_count())
     except Exception:
-        return 1
+        return 0
 
 
 def format_mlir_error(e):
@@ -501,14 +549,18 @@ def bench_perf_sweep(
 
         exec_active = random.sample(exec_active, exec_sample)
 
-    print(f"\n--- Executing {len(exec_active)} configs ({num_gpus} GPU(s)) ---")
-    results, exec_failed = run_on_gpus(
-        exec_active,
-        hsaco_paths,
-        num_iterations,
-        num_gpus,
-        desc="Executing",
-    )
+    if num_gpus == 0:
+        print("\nNo GPUs detected -- skipping execution phase.")
+        results, exec_failed = [], []
+    else:
+        print(f"\n--- Executing {len(exec_active)} configs ({num_gpus} GPU(s)) ---")
+        results, exec_failed = run_on_gpus(
+            exec_active,
+            hsaco_paths,
+            num_iterations,
+            num_gpus,
+            desc="Executing",
+        )
     failed.extend((c, e, "") for c, e in exec_failed)
 
     # Summary: separate files for compile errors vs exec errors.
@@ -526,44 +578,17 @@ def bench_perf_sweep(
         saved_files.append(p)
         print(f"\nResults ({len(results)}) saved in {p}")
     if compile_errs:
-        from collections import Counter
-
-        err_counts = Counter(e for _, e, _ in compile_errs)
-        header = [
-            f"# {len(compile_errs)} compile failures, {len(err_counts)} unique errors",
-            "#",
-        ]
-        for msg, cnt in err_counts.most_common(10):
-            header.append(f"# {cnt:>5}x {msg}")
-        header.append("#")
-        detail = []
-        for c, e, full in compile_errs:
-            repro = ""
-            if repro_cmd_fn:
-                try:
-                    repro = f" | repro: {repro_cmd_fn(c, num_iterations)}"
-                except Exception:
-                    pass
-            detail.append(f"{c.label}: {e}{repro}")
-            if full and full != e.removeprefix("compile: "):
-                for line in full.split("\n"):
-                    detail.append(f"  {line}")
-        p = _save_tmpfile("bench_compile_errors_", header + detail)
+        p = _save_error_file(
+            "bench_compile_errors_",
+            "compile",
+            compile_errs,
+            repro_cmd_fn,
+            num_iterations,
+        )
         saved_files.append(p)
         print(f"{len(compile_errs)} compile errors in {p}")
     if exec_errs:
-        from collections import Counter
-
-        exec_counts = Counter(e for _, e, _ in exec_errs)
-        header = [
-            f"# {len(exec_errs)} exec failures, {len(exec_counts)} unique errors",
-            "#",
-        ]
-        for msg, cnt in exec_counts.most_common(10):
-            header.append(f"# {cnt:>5}x {msg}")
-        header.append("#")
-        detail = [f"{c.label}: {e}" for c, e, _ in exec_errs]
-        p = _save_tmpfile("bench_exec_errors_", header + detail)
+        p = _save_error_file("bench_exec_errors_", "exec", exec_errs)
         saved_files.append(p)
         print(f"{len(exec_errs)} exec errors in {p}")
 
@@ -631,9 +656,13 @@ def run_single(cfg, compile_fn, args, execute_fn):
             print(f"\n--- Assembly ---\n{asm}")
         return
 
-    A, B = make_inputs(cfg)
+    has_gpu = detect_num_gpus() > 0
 
     if args.hsaco:
+        if not has_gpu:
+            print("No GPUs detected -- skipping execution.")
+            return
+        A, B = make_inputs(cfg)
         print_config(cfg, args.iterations)
         _, times_ns = execute_fn(
             cfg, args.hsaco, args.iterations, A, B, skip_gpu_check=True
@@ -653,6 +682,10 @@ def run_single(cfg, compile_fn, args, execute_fn):
                     raise SystemExit(1)
             if print_asm:
                 print(f"\n--- Assembly ---\n{asm}")
+            if not has_gpu:
+                print("No GPUs detected -- skipping execution.")
+                return
+            A, B = make_inputs(cfg)
             _, times_ns = execute_fn(cfg, tmp.name, args.iterations, A, B)
 
     measured = times_ns[WARMUP_ITERATIONS:]
