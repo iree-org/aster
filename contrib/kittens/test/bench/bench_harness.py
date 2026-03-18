@@ -390,9 +390,13 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
                     best_tf = tf
             pbar.update(1)
             pbar.set_postfix_str(f"best {best_tf:.1f} TF, fail={len(failed)}")
+    except KeyboardInterrupt:
+        print("\nCtrl+C -- stopping execution, moving to reporting...")
+        for f in all_futs:
+            f.cancel()
     finally:
         for pool in pools:
-            pool.shutdown(wait=True)
+            pool.shutdown(wait=False, cancel_futures=True)
     pbar.close()
     return results, failed
 
@@ -460,9 +464,13 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
                 passed += 1
             pbar.update(1)
             pbar.set_postfix_str(f"pass={passed}, fail={len(errors)}")
+    except KeyboardInterrupt:
+        print("\nCtrl+C -- stopping verification, reporting partial results...")
+        for f in all_futs:
+            f.cancel()
     finally:
         for pool in pools:
-            pool.shutdown(wait=True)
+            pool.shutdown(wait=False, cancel_futures=True)
     pbar.close()
     return passed, errors
 
@@ -511,12 +519,13 @@ def bench_perf_sweep(
     hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
     hsaco_paths, resources_map, failed = {}, {}, []
     spawn_ctx = mp.get_context("spawn")
-    with ProcessPoolExecutor(max_workers=compile_workers, mp_context=spawn_ctx) as pool:
-        futs = {
-            pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c
-            for c in active
-        }
-        pbar = tqdm(total=len(futs), desc="Compiling", unit="cfg")
+    pool = ProcessPoolExecutor(max_workers=compile_workers, mp_context=spawn_ctx)
+    futs = {
+        pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c
+        for c in active
+    }
+    pbar = tqdm(total=len(futs), desc="Compiling", unit="cfg")
+    try:
         for fut in as_completed(futs):
             cfg = futs[fut]
             try:
@@ -532,7 +541,13 @@ def bench_perf_sweep(
                 failed.append((cfg, f"compile: {short}", full_err))
             pbar.update(1)
             pbar.set_postfix(ok=len(hsaco_paths), fail=len(failed))
-        pbar.close()
+    except KeyboardInterrupt:
+        print("\nCtrl+C -- stopping compilation, moving to execution phase...")
+        for f in futs:
+            f.cancel()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    pbar.close()
     print(f"Compiled: {len(hsaco_paths)} ok, {len(failed)} failed")
 
     # Post-compile filter.
