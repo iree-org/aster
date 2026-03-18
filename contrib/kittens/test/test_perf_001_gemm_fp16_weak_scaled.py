@@ -232,6 +232,7 @@ def compile_gemm(
     cfg,
     output_hsaco_path,
     print_ir_after_all=False,
+    print_asm=False,
     num_vgprs=256,
     num_agprs=256,
     unroll_factor_multiplier=1,
@@ -278,6 +279,7 @@ def compile_gemm(
             library_paths=lib_paths,
             preprocess=preprocess,
             print_ir_after_all=print_ir_after_all,
+            print_asm=print_asm,
         )
         path = utils.assemble_to_hsaco(
             asm,
@@ -517,13 +519,13 @@ if __name__ == "__main__":
         if not a.hsaco:
             print("Error: --compile-only requires --hsaco <output_path>")
             raise SystemExit(1)
-        _, asm = compile_gemm(cfg, a.hsaco, print_ir_after_all=a.print_ir_after_all)
+        _, asm = compile_gemm(
+            cfg, a.hsaco, print_ir_after_all=a.print_ir_after_all, print_asm=a.print_asm
+        )
         resources = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name)
         res = resources.get(cfg.kernel_name)
         if res:
             print(f"  resources: {res}")
-        if a.print_asm:
-            print(asm)
         print(f"  Compiled: {a.hsaco}")
     else:
         np.random.seed(42)
@@ -537,14 +539,15 @@ if __name__ == "__main__":
         else:
             with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
                 _, asm = compile_gemm(
-                    cfg, tmp.name, print_ir_after_all=a.print_ir_after_all
+                    cfg,
+                    tmp.name,
+                    print_ir_after_all=a.print_ir_after_all,
+                    print_asm=a.print_asm,
                 )
                 resources = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name)
                 res = resources.get(cfg.kernel_name)
                 if res:
                     print(f"  resources: {res}")
-                if a.print_asm:
-                    print(asm)
                 C_output, times_ns = execute_gemm_hsaco(
                     cfg, tmp.name, a.iterations, A, B
                 )

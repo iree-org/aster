@@ -15,7 +15,10 @@ Usage:
     )
 """
 
+import datetime
 import os
+import pathlib
+import tempfile
 import time
 import logging
 import numpy as np
@@ -49,6 +52,42 @@ from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 from aster.test_pass_pipelines import TEST_SYNCHRONOUS_PASS_PIPELINE
 
 # ---------------------------------------------------------------------------
+# Environment variable helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_bool_env(value: str) -> bool:
+    """Parse a boolean-like environment variable string.
+
+    Accepts '1', 'true', 'on' as True and '0', 'false', 'off' as False (case-
+    insensitive). Raises ValueError for unrecognized values.
+    """
+    normalized = value.strip().lower()
+    if normalized in ("1", "true", "on"):
+        return True
+    if normalized in ("0", "false", "off"):
+        return False
+    raise ValueError(
+        f"invalid boolean environment variable value: {value!r}. "
+        "Expected one of: 1, true, on, 0, false, off."
+    )
+
+
+def _get_env_or_default(name: str, default: Optional[Any] = None) -> Any:
+    """Return the value of environment variable *name*, or *default* if unset.
+
+    When *default* is a bool the raw string is parsed with :func:`_parse_bool_env`.
+    Otherwise the raw string value is returned as-is.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    if isinstance(default, bool):
+        return _parse_bool_env(raw)
+    return raw
+
+
+# ---------------------------------------------------------------------------
 # Logging helpers
 # ---------------------------------------------------------------------------
 
@@ -80,7 +119,7 @@ def _get_logger():
 
 def _should_log():
     """Check if logging is enabled via ASTER_LOGGING environment variable."""
-    return bool(os.getenv("ASTER_LOGGING"))
+    return _get_env_or_default("ASTER_LOGGING", False)
 
 
 def _log_with_device(logger, device_id, message):
@@ -167,6 +206,8 @@ def compile_mlir_file_to_asm(
     print_preprocessed_ir: bool = False,
     library_paths: Optional[List[str]] = None,
     print_timings: bool = False,
+    print_asm: bool = False,
+    print_root_dir: Optional[str] = None,
 ) -> Tuple[str, Any]:
     """Compile MLIR file to assembly and extract kernel name.
 
@@ -176,15 +217,44 @@ def compile_mlir_file_to_asm(
         pass_pipeline: Pass pipeline string
         ctx: MLIR context
         preprocess: Optional function to preprocess the MLIR string before parsing
-        print_ir_after_all: If True, print the IR after all passes have been applied
+        print_ir_after_all: If True, print the IR after all passes have been applied.
+            Can be overridden by the ASTER_PRINT_IR_AFTER_ALL environment variable.
         library_paths: Optional list of paths to AMDGCN library files to preload
         print_timings: If True, enable pass timing
+        print_asm: If True, print the generated assembly to stdout.
+            Can be overridden by the ASTER_PRINT_ASM environment variable.
+        print_root_dir: If set, a unique subdirectory named
+            ``<kernel_name>_DDMMYY_HHMMSS_<salt>`` is created inside this root
+            and the final ASM and intermediate IR files are written there.
+            The root must either not exist or refer to a directory.
+            Can be overridden by the ASTER_PRINT_DIR environment variable.
 
     Returns:
         Tuple of (asm_code, module) where module is the MLIR module after passes
     """
+    # Apply environment variable overrides.
+    print_ir_after_all = _get_env_or_default(
+        "ASTER_PRINT_IR_AFTER_ALL", print_ir_after_all
+    )
+    print_asm = _get_env_or_default("ASTER_PRINT_ASM", print_asm)
+    print_root_dir = _get_env_or_default("ASTER_PRINT_DIR", print_root_dir)
+
+    # Validate the root and create a unique timestamped subdirectory.
+    print_dir_path: Optional[pathlib.Path] = None
+    if print_root_dir is not None and (print_asm or print_ir_after_all):
+        root = pathlib.Path(print_root_dir)
+        if root.exists() and not root.is_dir():
+            raise ValueError(
+                f"print_root_dir must be a directory, not a file: {print_root_dir}"
+            )
+        root.mkdir(parents=True, exist_ok=True)
+        now = datetime.datetime.now()
+        prefix = f"{kernel_name}_{now.strftime('%d%m%y_%H%M%S')}_"
+        print_dir_path = pathlib.Path(tempfile.mkdtemp(prefix=prefix, dir=root))
+        print(f"Printing results to directory: {print_dir_path}", flush=True)
+
     logger = _get_logger()
-    _log_info(logger, f"[COMPILE] Loading MLIR file: {os.path.basename(mlir_file)}")
+    _log_info(logger, f"[COMPILE] Loading MLIR file: {pathlib.Path(mlir_file).name}")
 
     module = load_mlir_module_from_file(
         mlir_file, ctx, preprocess, print_preprocessed_ir
@@ -208,12 +278,20 @@ def compile_mlir_file_to_asm(
         )
         pm = passmanager.PassManager.parse(preload_pass, ctx)
         pm.run(module.operation)
+    if print_dir_path is not None:
+        (print_dir_path / "pipeline.txt").write_text(pass_pipeline)
+        (print_dir_path / "preprocessed.mlir").write_text(str(module))
 
     _log_info(logger, f"[COMPILE] Applying pass pipeline")
     pm = passmanager.PassManager.parse(pass_pipeline, ctx)
     # Leave this here, it's useful for debugging.
     if print_ir_after_all:
-        pm.enable_ir_printing()
+        if print_dir_path is not None:
+            pm.enable_ir_printing(
+                print_after_all=True, tree_printing_dir_path=str(print_dir_path)
+            )
+        else:
+            pm.enable_ir_printing(print_after_all=True)
     if print_timings:
         pm.enable_timing()
     pm.run(module.operation)
@@ -247,7 +325,15 @@ def compile_mlir_file_to_asm(
     )
     _log_info(logger, f"[COMPILE] Assembly generation completed")
 
-    # print(asm_complete)
+    if print_asm:
+        if print_dir_path is not None:
+            (print_dir_path / "kernel.s").write_text(asm_complete)
+        else:
+            print(asm_complete, flush=True)
+
+    if print_dir_path is not None:
+        (print_dir_path / "output.mlir").write_text(str(module))
+
     return asm_complete, module
 
 
@@ -328,7 +414,7 @@ def execute_kernel_and_verify(
         module = hip_module_load_data(hsaco_binary)
         function = hip_module_get_function(module, kernel_name.encode())
         _log_with_device(
-            logger, actual_device_id, f"Loaded HSACO: {os.path.basename(hsaco_path)}"
+            logger, actual_device_id, f"Loaded HSACO: {pathlib.Path(hsaco_path).name}"
         )
 
         all_arrays = input_args + output_args

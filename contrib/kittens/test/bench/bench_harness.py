@@ -688,7 +688,9 @@ def run_single(cfg, compile_fn, args, execute_fn):
     )
     nv = getattr(args, "num_vgprs", None) or bv
     na = getattr(args, "num_agprs", None) or ba
-    compile_kw = dict(print_ir_after_all=print_ir, num_vgprs=nv, num_agprs=na)
+    compile_kw = dict(
+        print_ir_after_all=print_ir, print_asm=print_asm, num_vgprs=nv, num_agprs=na
+    )
     print(f"  register budget: vgpr={nv}, agpr={na} (wg_per_cu={wg})")
 
     if args.compile_only:
@@ -701,8 +703,6 @@ def run_single(cfg, compile_fn, args, execute_fn):
             for v in res.check_occupancy(cfg.num_threads):
                 print(f"  OCCUPANCY ERROR: {v}")
         print(f"  Compiled: {args.hsaco}")
-        if print_asm:
-            print(f"\n--- Assembly ---\n{asm}")
         return
 
     has_gpu = detect_num_gpus() > 0
@@ -729,8 +729,6 @@ def run_single(cfg, compile_fn, args, execute_fn):
                     print(f"  OCCUPANCY ERROR: {v}")
                 if violations and not getattr(args, "force", False):
                     raise SystemExit(1)
-            if print_asm:
-                print(f"\n--- Assembly ---\n{asm}")
             if not has_gpu:
                 print("No GPUs detected -- skipping execution.")
                 return

@@ -102,10 +102,8 @@ def compile_kernel(
             library_paths=library_paths,
             print_timings=config.print_timings,
             print_ir_after_all=config.print_ir_after_all,
+            print_asm=config.print_asm,
         )
-
-        if config.print_asm:
-            print(asm_complete)
 
         hsaco_path = utils.assemble_to_hsaco(
             asm_complete, target=MCPU, wavefront_size=WAVEFRONT_SIZE
