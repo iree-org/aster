@@ -1,53 +1,34 @@
 #!/usr/bin/env python3
-"""Demo: construct add_10 kernel IR programmatically using the Python API."""
+"""Demo: construct add_10 kernel IR programmatically using KernelBuilder."""
 
 import argparse
 
-
 from aster import ir
-from aster.dialects import amdgcn, arith, builtin
-
-KERNEL_NAME = "kernel"
+from aster.dialects.kernel_builder import KernelBuilder
 
 
-def build_add_10_module(ctx: ir.Context, num_add_instructions: int) -> builtin.ModuleOp:
+def build_add_10_module(ctx: ir.Context, num_add_instructions: int) -> ir.Module:
     """Build the add_10 kernel module programmatically."""
-    module = builtin.ModuleOp()
+    b = KernelBuilder("add_10_module", "kernel", target="gfx942", isa="cdna3")
 
-    with ir.InsertionPoint(module.body):
-        # Create amdgcn.module with target gfx942 and CDNA3 ISA
-        amdgcn_mod = amdgcn.ModuleOp(
-            amdgcn.Target.GFX942, amdgcn.ISAVersion.CDNA3, "add_10_module"
-        )
-        amdgcn_mod.body_region.blocks.append()
+    # Allocate VGPRs
+    res = b.alloca_vgpr()
+    lhs = b.alloca_vgpr()
+    rhs = b.alloca_vgpr()
 
-        with ir.InsertionPoint(amdgcn_mod.body_region.blocks[0]):
-            # Create the kernel
-            kernel = amdgcn.KernelOp(KERNEL_NAME)
-            kernel.body_region.blocks.append()
+    # Initialize with constants via v_add_u32 (lhs = 0 + 1, rhs = 0 + 2)
+    c1 = b.constant_i32(1)
+    c2 = b.constant_i32(2)
+    b.vop2("v_add_u32", c1, lhs)
+    b.vop2("v_add_u32", c2, rhs)
 
-            with ir.InsertionPoint(kernel.body_region.blocks[0]):
-                # Allocate VGPRs with specific register numbers
-                res, lhs, rhs = [amdgcn.alloca_vgpr(reg=i) for i in range(10, 13)]
+    # Perform sequential adds
+    b.v_add_u32(lhs, rhs)
+    for _ in range(num_add_instructions - 1):
+        b.v_add_u32(res, rhs)
 
-                # Initialize registers with constants using v_mov_b32_e32.
-                # DPS ops write into the destination register and have no
-                # results; the alloca Values are the register handles.
-                int_type = ir.IntegerType.get_signless(32, ctx)
-                amdgcn.v_mov_b32_e32(lhs, arith.constant(int_type, 1))
-                amdgcn.v_mov_b32_e32(rhs, arith.constant(int_type, 2))
-
-                # Perform sequential adds using VOP2 v_add_u32, DPS style.
-                amdgcn.v_add_u32(res, lhs, rhs)
-                for _ in range(num_add_instructions - 1):
-                    amdgcn.v_add_u32(res, res, rhs)
-
-                # If needed, could do a check of the value against an expected
-                # value and trap. See e.g. test/python/cdna/test_cdna.py
-
-                amdgcn.EndKernelOp()
-
-    module.verify()
+    module = b.build()
+    module.operation.verify()
     return module
 
 
