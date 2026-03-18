@@ -169,9 +169,15 @@ class WeakScaleConfig:
         return self.num_stages * (a_tiles + b_tiles) * 1024
 
     @property
+    def simd_occupancy(self):
+        """Waves per SIMD (= num_wg_per_cu * ceil(num_waves / NUM_SIMDS))."""
+        import math
+
+        return self.num_wg_per_cu * math.ceil(self.num_waves / 4)
+
+    @property
     def label(self):
         tile_str = f"_twg{self.m_tiles_wg}x{self.n_tiles_wg}x{self.k_tiles}"
-        occ = f"_occ{self.num_wg_per_cu}" if self.num_wg_per_cu > 1 else ""
         lcm = "" if self.lcm_unroll else "_nolcm"
         um = (
             f"_um{self.unroll_factor_multiplier}"
@@ -182,7 +188,7 @@ class WeakScaleConfig:
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
             f"_wg{self.m_wg}x{self.n_wg}_w{self.m_waves}x{self.n_waves}"
-            f"{tile_str}_s{self.num_stages}{occ}{lcm}{um}{peel}{self._label_suffix}"
+            f"{tile_str}_s{self.num_stages}{lcm}{um}{peel}{self._label_suffix}"
         )
 
 
