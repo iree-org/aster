@@ -14,7 +14,7 @@ from aster.testing import (
     _get_logger,
     _log_info,
 )
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 from aster.test_pass_pipelines import TEST_SYNCHRONOUS_PASS_PIPELINE
 from mlir_kernels.benchmarks.benchmark_utils import (
     BenchmarkResult,
@@ -266,7 +266,7 @@ def main() -> None:
                         num_waves=num_waves,
                         mlir_file=mlir_file,
                         # pass_pipeline=TEST_SYNCHRONOUS_PASS_PIPELINE,
-                        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+                        pass_pipeline=TEST_SROA_PASS_PIPELINE,
                     )
                     all_configs.append(config)
                 except ValueError:

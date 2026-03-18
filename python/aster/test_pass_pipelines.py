@@ -2,7 +2,7 @@
 
 These pipelines are used for specific bringup scenarios, debugging, and
 benchmarking. The production pipeline lives in pass_pipelines.py as
-DEFAULT_SROA_PASS_PIPELINE.
+DEFAULT_PASS_PIPELINE.
 
 Naming convention:
   Python constants: TEST_<NAME>_PASS_PIPELINE
@@ -24,11 +24,47 @@ from aster.pass_pipelines import (
     PHASE_EXPAND_MD_OPS,
     PHASE_LOWER_TO_AMDGCN,
     PHASE_AMDGCN_BACKEND,
-    PHASE_CONSTEXPR_EXPANSION,
     phase_scf_pipelining,
-    phase_amdgcn_backend,
     phase_nop_insertion,
 )
+
+# --------------------------------------------------------------------------- #
+# Empty and minimal pipelines
+# --------------------------------------------------------------------------- #
+
+# Empty pass pipeline from low-level scheduled assembly, translate to asm only.
+TEST_EMPTY_PASS_PIPELINE = builtin_module()
+
+# Minimal pass pipeline from low-level scheduled assembly, assuming we want the
+# user not to worry about NOP insertion and automate that process for them.
+TEST_MINIMAL_PASS_PIPELINE = builtin_module(
+    phase_nop_insertion(delays=0),
+)
+
+# --------------------------------------------------------------------------- #
+# SROA test pipeline (non-pipelined, scheduling-based)
+# --------------------------------------------------------------------------- #
+
+# Used by integration tests for non-pipelined kernels (MFMA, buffer ops, etc.).
+TEST_SROA_PASS_PIPELINE = builtin_module(
+    PHASE_PRE_SCHEDULING_CLEANUP,
+    PHASE_SCHEDULING,
+    PHASE_POST_SCHEDULING_CLEANUP,
+    # Note: this is run twice with affine expansion in between, revisit need.
+    PHASE_SROA,
+    POST_SROA_CLEANUPS,
+    PHASE_AFFINE_EXPANSION,
+    PHASE_SROA,
+    POST_SROA_CLEANUPS,
+    PHASE_CONVERT_LDS_BUFFERS,
+    PHASE_EXPAND_MD_OPS,
+    PHASE_LOWER_TO_AMDGCN,
+    PHASE_AMDGCN_BACKEND,
+    phase_nop_insertion(delays=0),
+)
+
+# Backwards compatibility alias
+DEFAULT_SROA_PASS_PIPELINE = TEST_SROA_PASS_PIPELINE
 
 # --------------------------------------------------------------------------- #
 # Nanobenchmark pipeline
@@ -125,43 +161,3 @@ def make_test_scf_pipelining_pass_pipeline(
 
 
 TEST_SCF_PIPELINING_PASS_PIPELINE = make_test_scf_pipelining_pass_pipeline()
-
-# --------------------------------------------------------------------------- #
-# Constexpr pipelining test pipeline
-# --------------------------------------------------------------------------- #
-
-
-def make_test_constexpr_pipelining_pass_pipeline(
-    lcm_unroll=False,
-    num_vgprs=256,
-    num_agprs=256,
-    unroll_factor_multiplier=1,
-    epilogue_peeling=True,
-) -> str:
-    return builtin_module(
-        PHASE_PRE_SCHEDULING_CLEANUP,
-        PHASE_CONSTEXPR_EXPANSION,
-        phase_scf_pipelining(
-            lcm_unroll=lcm_unroll,
-            unroll_factor_multiplier=unroll_factor_multiplier,
-            epilogue_peeling=epilogue_peeling,
-        ),
-        "aster-destructure-struct-iter-args",
-        "canonicalize",
-        "cse",
-        PHASE_SROA,
-        POST_SROA_CLEANUPS,
-        PHASE_CONVERT_LDS_BUFFERS,
-        PHASE_LOWER_TO_AMDGCN,
-        # WARNING: PHASE_EXPAND_MD_OPS is NOT idempotent -- running it twice
-        # clobbers enable_workgroup_id_x to false (see expand-md-ops-idempotent.mlir).
-        # amdgcn-backend already runs expand-md-ops internally, so skip it here.
-        # PHASE_EXPAND_MD_OPS,
-        # PHASE_LOWER_TO_AMDGCN,
-        amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-        phase_amdgcn_backend(num_vgprs=num_vgprs, num_agprs=num_agprs),
-        phase_nop_insertion(delays=0),
-    )
-
-
-TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE = make_test_constexpr_pipelining_pass_pipeline()

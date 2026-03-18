@@ -44,7 +44,9 @@ from mlir_kernels.test.test_utils import (
     ],
     # fmt: on
 )
-@pytest.mark.parametrize("pass_pipeline_name", ["default", "synchronous", "future"])
+@pytest.mark.parametrize(
+    "pass_pipeline_name", ["test-sroa", "test-synchronous", "test-sroa"]
+)
 @pytest.mark.parametrize("mcpu", ["gfx942"])
 def test_gemm_e2e_kernel(
     mlir_filename: str,
@@ -148,6 +150,6 @@ if __name__ == "__main__":
         m_tile=args.m_tile,
         n_tile=args.n_tile,
         k_tile=args.k_tile,
-        pass_pipeline_name="default",
+        pass_pipeline_name="test-sroa",
         mcpu=args.mcpu,
     )

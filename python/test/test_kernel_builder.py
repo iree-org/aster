@@ -13,7 +13,7 @@ import aster.ir as ir
 from aster import utils
 from aster.dialects import amdgcn as amdgcn_dialect
 from aster.dialects.kernel_builder import KernelBuilder
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 # ---------------------------------------------------------------------------
 # Layer 1: Attribute constructor roundtrips
@@ -245,14 +245,14 @@ def test_kernel_builder_with_ptr_args():
 
 
 def compile_to_asm(module: ir.Module) -> str:
-    """Run DEFAULT_SROA_PASS_PIPELINE and return the assembly string.
+    """Run TEST_SROA_PASS_PIPELINE and return the assembly string.
 
     Must be called inside an active ``with ctx:`` block.
     """
     from aster._mlir_libs._mlir import passmanager
 
     ctx = ir.Context.current
-    pm = passmanager.PassManager.parse(DEFAULT_SROA_PASS_PIPELINE, ctx)
+    pm = passmanager.PassManager.parse(TEST_SROA_PASS_PIPELINE, ctx)
     pm.run(module.operation)
 
     amdgcn_mod = None

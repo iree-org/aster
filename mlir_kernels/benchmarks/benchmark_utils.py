@@ -9,7 +9,7 @@ from typing import Callable, Optional, List, Tuple, TypeVar
 
 from tqdm.auto import tqdm
 from aster.testing import hip_get_device_count
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 
 @dataclass
@@ -34,7 +34,7 @@ class BaseConfig:
     )
     wavefront_size: int = 64
     kernel_name: str = ""
-    pass_pipeline: str = DEFAULT_SROA_PASS_PIPELINE
+    pass_pipeline: str = TEST_SROA_PASS_PIPELINE
     mcpu: str = "gfx942"
     shader_clock_mhz: float = 2100.0
     peak_gbps: float = 5300.0

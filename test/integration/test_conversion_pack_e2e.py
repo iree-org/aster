@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from aster.testing import compile_and_run
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 TARGET_CONFIGS = [
     ("gfx942", "cdna3"),
@@ -42,7 +42,7 @@ def _run(mcpu, isa, kernel_name, input_data, output_data, verify_fn):
         kernel_name,
         input_data=input_data,
         output_data=output_data,
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline=TEST_SROA_PASS_PIPELINE,
         mcpu=mcpu,
         wavefront_size=WAVEFRONT_SIZE,
         block_dim=(TOTAL_LANES, 1, 1),

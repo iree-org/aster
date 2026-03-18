@@ -65,11 +65,11 @@ def compile_to_asm(module, print_ir_after_all: bool = False) -> str:
     """Run the full pass pipeline and translate to assembly."""
     from aster import ir, utils
     from aster._mlir_libs._mlir import passmanager
-    from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+    from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
     from aster.dialects import amdgcn
 
     ctx = ir.Context.current
-    pm = passmanager.PassManager.parse(DEFAULT_SROA_PASS_PIPELINE, ctx)
+    pm = passmanager.PassManager.parse(TEST_SROA_PASS_PIPELINE, ctx)
     if print_ir_after_all:
         pm.enable_ir_printing()
     pm.run(module.operation)

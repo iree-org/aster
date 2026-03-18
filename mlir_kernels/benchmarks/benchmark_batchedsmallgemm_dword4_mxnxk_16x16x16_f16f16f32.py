@@ -15,7 +15,7 @@ from aster.testing import (
     _get_logger,
     _log_info,
 )
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 from mlir_kernels.benchmarks.benchmark_utils import (
     BenchmarkResult,
     BaseConfig,
@@ -239,7 +239,7 @@ def main() -> None:
             num_workgroups=wg,
             num_waves=waves,
             mlir_file=mlir_file,
-            pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+            pass_pipeline=TEST_SROA_PASS_PIPELINE,
         )
         for m, n, k, wg, waves in itertools.product(
             m_values, n_values, k_values, num_workgroups_values, num_waves_values

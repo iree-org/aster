@@ -14,10 +14,7 @@ import numpy as np
 import pytest
 import tempfile
 
-from aster.test_pass_pipelines import (
-    TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
-    make_test_constexpr_pipelining_pass_pipeline,
-)
+from aster.pass_pipelines import make_default_pass_pipeline
 
 from kittens_helpers import (
     get_mlir_file,
@@ -251,22 +248,13 @@ def compile_gemm(
     )
 
     lcm_unroll = getattr(cfg, "lcm_unroll", True)
-    if (
-        num_vgprs != 256
-        or num_agprs != 256
-        or unroll_factor_multiplier > 1
-        or not lcm_unroll
-        or not epilogue_peeling
-    ):
-        pipeline = make_test_constexpr_pipelining_pass_pipeline(
-            lcm_unroll=lcm_unroll,
-            num_vgprs=num_vgprs,
-            num_agprs=num_agprs,
-            unroll_factor_multiplier=unroll_factor_multiplier,
-            epilogue_peeling=epilogue_peeling,
-        )
-    else:
-        pipeline = TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE
+    pipeline = make_default_pass_pipeline(
+        lcm_unroll=lcm_unroll,
+        num_vgprs=num_vgprs,
+        num_agprs=num_agprs,
+        unroll_factor_multiplier=unroll_factor_multiplier,
+        epilogue_peeling=epilogue_peeling,
+    )
 
     ctx = ir.Context()
     ctx.__enter__()

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from aster.testing import compile_and_run
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIBRARY_DIR = os.path.join(_THIS_DIR, "..", "..", "mlir_kernels", "library", "common")
@@ -17,9 +17,9 @@ _REGISTER_INIT = os.path.join(_LIBRARY_DIR, "register-init.mlir")
     # fmt: off
     "mlir_filename,kernel_name,m,n,k,pass_pipeline",
     [
-        ("mfma-e2e.mlir", "compute_kernel", 16, 16, 16, DEFAULT_SROA_PASS_PIPELINE),
+        ("mfma-e2e.mlir", "compute_kernel", 16, 16, 16, TEST_SROA_PASS_PIPELINE),
         ("mfma-to-global-store-scheduled-allocated-1x1x1.mlir", "test_matmul_kernel",
-         16, 16, 16, DEFAULT_SROA_PASS_PIPELINE),
+         16, 16, 16, TEST_SROA_PASS_PIPELINE),
     ],
     # fmt: on
 )

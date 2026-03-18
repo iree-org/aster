@@ -45,7 +45,7 @@ from aster._mlir_libs._runtime_module import (
     hip_event_synchronize,
     hip_event_elapsed_time,
 )
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 from aster.test_pass_pipelines import TEST_SYNCHRONOUS_PASS_PIPELINE
 
 # ---------------------------------------------------------------------------

@@ -244,35 +244,41 @@ PHASE_CONSTEXPR_EXPANSION = (
 )
 
 # --------------------------------------------------------------------------- #
-# General pipelines for specific use cases
+# Production pipeline: constexpr expansion + SCF pipelining
 # --------------------------------------------------------------------------- #
 
-# Empty pass pipeline from low-level scheduled assembly, translate to asm only.
-EMPTY_PASS_PIPELINE = builtin_module()
-
-# Minimal pass pipeline from low-level scheduled assembly, assuming we want the
-# user not to worry about NOP insertion and automate that process for them.
-MINIMAL_PASS_PIPELINE = builtin_module(
-    phase_nop_insertion(delays=0)
-)
-
-# Production pass pipeline for integration tests and general use.
-DEFAULT_SROA_PASS_PIPELINE = builtin_module(
-    PHASE_PRE_SCHEDULING_CLEANUP,
-    PHASE_SCHEDULING,
-    PHASE_POST_SCHEDULING_CLEANUP,
-    # Note: this is run twice with affine expansion in between, revisit need.
-    PHASE_SROA,
-    POST_SROA_CLEANUPS,
-    PHASE_AFFINE_EXPANSION,
-    PHASE_SROA,
-    POST_SROA_CLEANUPS,
-    PHASE_CONVERT_LDS_BUFFERS,
-    PHASE_EXPAND_MD_OPS,
-    PHASE_LOWER_TO_AMDGCN,
-    PHASE_AMDGCN_BACKEND,
-    phase_nop_insertion(delays=0)
-)
+def make_default_pass_pipeline(
+    lcm_unroll=False,
+    num_vgprs=256,
+    num_agprs=256,
+    unroll_factor_multiplier=1,
+    epilogue_peeling=True,
+) -> str:
+    """Build the production pass pipeline with configurable pipelining options."""
+    return builtin_module(
+        PHASE_PRE_SCHEDULING_CLEANUP,
+        PHASE_CONSTEXPR_EXPANSION,
+        phase_scf_pipelining(
+            lcm_unroll=lcm_unroll,
+            unroll_factor_multiplier=unroll_factor_multiplier,
+            epilogue_peeling=epilogue_peeling,
+        ),
+        "aster-destructure-struct-iter-args",
+        "canonicalize",
+        "cse",
+        PHASE_SROA,
+        POST_SROA_CLEANUPS,
+        PHASE_CONVERT_LDS_BUFFERS,
+        PHASE_LOWER_TO_AMDGCN,
+        # WARNING: PHASE_EXPAND_MD_OPS is NOT idempotent -- running it twice
+        # clobbers enable_workgroup_id_x to false (see expand-md-ops-idempotent.mlir).
+        # amdgcn-backend already runs expand-md-ops internally, so skip it here.
+        # PHASE_EXPAND_MD_OPS,
+        # PHASE_LOWER_TO_AMDGCN,
+        amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
+        phase_amdgcn_backend(num_vgprs=num_vgprs, num_agprs=num_agprs),
+        phase_nop_insertion(delays=0),
+    )
 
 # --------------------------------------------------------------------------- #
 # Pass pipeline registry for pytest parametrization
@@ -283,43 +289,28 @@ _PASS_PIPELINES = None
 
 def _build_registry():
     from aster.test_pass_pipelines import (
-        TEST_NANOBENCH_PASS_PIPELINE,
-        TEST_SYNCHRONOUS_PASS_PIPELINE,
+        TEST_EMPTY_PASS_PIPELINE,
         TEST_LOOP_PASS_PIPELINE,
+        TEST_MINIMAL_PASS_PIPELINE,
+        TEST_NANOBENCH_PASS_PIPELINE,
         TEST_SCF_PIPELINING_PASS_PIPELINE,
-        TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
+        TEST_SROA_PASS_PIPELINE,
+        TEST_SYNCHRONOUS_PASS_PIPELINE,
     )
     return {
-        "default": DEFAULT_SROA_PASS_PIPELINE,
-        "empty": EMPTY_PASS_PIPELINE,
-        "future": DEFAULT_SROA_PASS_PIPELINE,  # alias: was identical to default
-        "minimal": MINIMAL_PASS_PIPELINE,
-        "test-constexpr-pipelining": TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
+        "default": make_default_pass_pipeline(),
+        "test-empty": TEST_EMPTY_PASS_PIPELINE,
         "test-loop": TEST_LOOP_PASS_PIPELINE,
+        "test-minimal": TEST_MINIMAL_PASS_PIPELINE,
         "test-nanobench": TEST_NANOBENCH_PASS_PIPELINE,
         "test-scf-pipelining": TEST_SCF_PIPELINING_PASS_PIPELINE,
+        "test-sroa": TEST_SROA_PASS_PIPELINE,
         "test-synchronous": TEST_SYNCHRONOUS_PASS_PIPELINE,
-        # Backwards compatibility aliases (old registry keys)
-        "constexpr-pipelining": TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
-        "loop": TEST_LOOP_PASS_PIPELINE,
-        "nanobench": TEST_NANOBENCH_PASS_PIPELINE,
-        "scf-pipelining": TEST_SCF_PIPELINING_PASS_PIPELINE,
-        "synchronous": TEST_SYNCHRONOUS_PASS_PIPELINE,
     }
 
 
 def get_pass_pipeline(name: str) -> str:
-    """Get a pass pipeline by its short name.
-
-    Args:
-        name: Short name of the pipeline (e.g., 'default', 'test-synchronous')
-
-    Returns:
-        The actual pass pipeline string
-
-    Raises:
-        KeyError: If the pipeline name is not found
-    """
+    """Get a pass pipeline by its short name."""
     global _PASS_PIPELINES
     if _PASS_PIPELINES is None:
         _PASS_PIPELINES = _build_registry()

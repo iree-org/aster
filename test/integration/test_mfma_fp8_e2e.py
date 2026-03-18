@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 
 from aster.testing import compile_and_run
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIBRARY_DIR = os.path.join(_THIS_DIR, "..", "..", "mlir_kernels", "library", "common")
@@ -60,7 +60,7 @@ class TestMfmaFp8:
             output_data=[c_data],
             mcpu=MCPU,
             wavefront_size=WAVEFRONT_SIZE,
-            pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+            pass_pipeline=TEST_SROA_PASS_PIPELINE,
             verify_fn=verify,
             library_paths=[_REGISTER_INIT],
         )
@@ -89,7 +89,7 @@ class TestMfmaFp8:
             output_data=[c_data],
             mcpu=MCPU,
             wavefront_size=WAVEFRONT_SIZE,
-            pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+            pass_pipeline=TEST_SROA_PASS_PIPELINE,
             verify_fn=verify,
             library_paths=[_REGISTER_INIT],
         )

@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from aster.testing import compile_and_run
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 MCPU = "gfx942"
 WAVEFRONT_SIZE = 64
@@ -45,7 +45,7 @@ def test_tid_x_only():
         "tid_x_only",
         input_data=[],
         output_data=[output],
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline=TEST_SROA_PASS_PIPELINE,
         mcpu=MCPU,
         wavefront_size=WAVEFRONT_SIZE,
         block_dim=block,
@@ -88,7 +88,7 @@ def test_tid_xy():
         "tid_xy",
         input_data=[],
         output_data=[output],
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline=TEST_SROA_PASS_PIPELINE,
         mcpu=MCPU,
         wavefront_size=WAVEFRONT_SIZE,
         block_dim=block,
@@ -140,7 +140,7 @@ def test_tid_xyz():
         "tid_xyz",
         input_data=[],
         output_data=[output],
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline=TEST_SROA_PASS_PIPELINE,
         mcpu=MCPU,
         wavefront_size=WAVEFRONT_SIZE,
         block_dim=block,
@@ -193,7 +193,7 @@ def test_bid_xyz():
         "bid_xyz",
         input_data=[],
         output_data=[output],
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline=TEST_SROA_PASS_PIPELINE,
         mcpu=MCPU,
         wavefront_size=WAVEFRONT_SIZE,
         block_dim=block,
@@ -240,7 +240,7 @@ def test_tid_x_bid_x():
         "tid_x_bid_x",
         input_data=[],
         output_data=[output],
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline=TEST_SROA_PASS_PIPELINE,
         mcpu=MCPU,
         wavefront_size=WAVEFRONT_SIZE,
         block_dim=block,

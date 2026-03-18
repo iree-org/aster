@@ -149,14 +149,14 @@ def execute_copy_1d_kernel(
     # fmt: off
     "mlir_filename,kernel_name,num_workgroups,num_waves,num_elements_per_thread,element_size,sched_delay_store,pass_pipeline_name",
     [
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 1, 1, 1, 16, 0, "default"),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 1, 1, 6, 16, 3, "default"),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 2, 2, 6, 16, 4, "default"),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 3, 3, 16, 16, 11, "default"),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 5, 7, 3, 16, 2, "default"),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 5, 7, 7, 16, 5, "default"),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 304, 10, 16, 16, 0, "default"),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 608, 10, 16, 16, 7, "default"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 1, 1, 1, 16, 0, "test-sroa"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 1, 1, 6, 16, 3, "test-sroa"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 2, 2, 6, 16, 4, "test-sroa"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 3, 3, 16, 16, 11, "test-sroa"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 5, 7, 3, 16, 2, "test-sroa"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 5, 7, 7, 16, 5, "test-sroa"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 304, 10, 16, 16, 0, "test-sroa"),
+        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 608, 10, 16, 16, 7, "test-sroa"),
     ],
     # fmt: on
 )
@@ -326,7 +326,7 @@ if __name__ == "__main__":
         num_waves=args.num_waves,
         element_size=args.element_size,
         sched_delay_store=args.sched_delay_store,
-        pass_pipeline_name="default",
+        pass_pipeline_name="test-sroa",
         mcpu=args.mcpu,
         wavefront_size=args.wavefront_size,
         padding_bytes=args.padding_bytes,

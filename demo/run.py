@@ -9,7 +9,7 @@ from aster.testing import (
     execute_kernel_and_verify,
     hsaco_file,
 )
-from aster.pass_pipelines import EMPTY_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_TEST_EMPTY_PASS_PIPELINE
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 KERNEL_NAME = "kernel"
@@ -54,7 +54,7 @@ def main():
         asm_complete, _ = compile_mlir_file_to_asm(
             args.mlir_file,
             KERNEL_NAME,
-            EMPTY_PASS_PIPELINE,
+            TEST_EMPTY_PASS_PIPELINE,
             ctx,
         )
         print(asm_complete)

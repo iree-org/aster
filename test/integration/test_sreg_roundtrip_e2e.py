@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from aster.testing import compile_and_run
-from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 MCPU = "gfx942"
 TOTAL_LANES = 64
@@ -27,7 +27,7 @@ def test_sreg_roundtrip():
         "m0_roundtrip_kernel",
         input_data=[],
         output_data=[output],
-        pass_pipeline=DEFAULT_SROA_PASS_PIPELINE,
+        pass_pipeline=TEST_SROA_PASS_PIPELINE,
         mcpu=MCPU,
         wavefront_size=TOTAL_LANES,
         block_dim=(TOTAL_LANES, 1, 1),
