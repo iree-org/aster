@@ -33,7 +33,9 @@ def VOP2Op : AMDGCN_InstOp<"vop2",  [
     The VOP2 operation performs vector operations with two source operands.
   }];
   let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
-  let inputs = (ins VOP2Src:$src0, VOP2Src1:$src1, OptionalReg<SGPRType>:$src2);
+  // src2 accepts SGPR or VCC (v_cndmask_b32 reads VCC implicitly in 32-bit).
+  let inputs = (ins VOP2Src:$src0, VOP2Src1:$src1,
+                    OptionalReg<AnyRegOf<[SGPRType, SReg<"VCC">]>>:$src2);
   let outputs = (ins VOP2Dst:$vdst0, OptionalReg<SGPRType>:$dst1);
   // TODO: add declarative assembly format, currently it's impossible to do due
   // to a bug in MLIR tblgen when there are inferred types and op attr results.
@@ -91,7 +93,16 @@ def VLshlrevB32E32 : VOP2Inst<"v_lshlrev_b32_e32", [CDNA3, CDNA4]> {
 def VCndmaskB32 : VOP2Inst<"v_cndmask_b32", [CDNA3, CDNA4]> {
   let summary = "VOP2 conditional mask";
   let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1, $src2">];
-  let constraints = VOP2Constraints<1, /*dst1=*/0, /*src2=*/1>.constraints;
+  // src2 is VCC (implicit in 32-bit encoding). VCC is 1 special register.
+  let constraints = (ins
+    /*ins=*/
+      RegImmOperand<VOP2Src, 1>:$src0,
+      RegImmOperand<VOP2Src1, 1>:$src1,
+      RegImmOperand<AnyRegOf<[SReg<"VCC">, SGPRType]>, 1>:$src2,
+    /*outs=*/
+      RegImmOperand<VOP2Dst, 1>:$vdst0,
+      NotPresent:$dst1
+  );
   // Default builders.
   let cppBuilder = OpBuilder<(ins
     CppValue:$vdst, CppValue:$src0, CppValue:$src1, CppValue:$src2), [{

@@ -51,13 +51,19 @@ LogicalResult mlir::aster::detail::verifyInstImpl(InstOpInterface op) {
 }
 
 bool mlir::aster::detail::hasPureValueSemanticsImpl(InstOpInterface op) {
-  /// Lambda to check if a type has value semantics.
-  auto hasValueSemantics = +[](Type type) {
+  /// Lambda to check if a type is compatible with value semantics.
+  /// Non-register types (i1, i32, etc.) are transparent -- they don't break
+  /// value-semantic purity. Only register types with non-value semantics
+  /// (allocated registers) break purity.
+  auto isValueSemanticsCompatible = +[](Type type) {
     auto regType = dyn_cast<RegisterTypeInterface>(type);
-    return regType && regType.hasValueSemantics();
+    if (!regType)
+      return true;
+    return regType.hasValueSemantics();
   };
-  return llvm::all_of(TypeRange(op.getInstOuts()), hasValueSemantics) &&
-         llvm::all_of(TypeRange(op.getInstIns()), hasValueSemantics);
+  return llvm::all_of(TypeRange(op.getInstOuts()),
+                      isValueSemanticsCompatible) &&
+         llvm::all_of(TypeRange(op.getInstIns()), isValueSemanticsCompatible);
 }
 
 Speculation::Speculatability

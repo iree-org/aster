@@ -13,8 +13,9 @@
 // allocation when operands are in physical registers.
 //
 // Transformations:
-//   - lsir.cmpi (i32 operands) -> s_cmp_* (sets SCC flag)
-//   - cf.cond_br -> s_cbranch_scc1/scc0 + s_branch
+//   - lsir.cmpi (SGPR/i32 operands) -> s_cmp_* (sets SCC flag)
+//   - lsir.cmpi (VGPR operands) -> v_cmp_* (sets VCC flag)
+//   - cf.cond_br -> s_cbranch_scc1/scc0 or s_cbranch_vccnz/vccz + s_branch
 //   - cf.br -> s_branch
 //
 //===----------------------------------------------------------------------===//
@@ -53,15 +54,17 @@ public:
   void runOnOperation() override;
 
 private:
-  /// Verify i1 lifetime constraints for SCC register:
-  /// 1. No i1 value is used across block boundaries (SCC not preserved).
+  /// Verify i1 lifetime constraints for SCC/VCC registers:
+  /// 1. No i1 value is used across block boundaries (flag reg not preserved).
   /// 2. No two lsir.cmp ops have overlapping lifetimes within a block
   /// (clobber).
   LogicalResult verifyI1Lifetimes(Operation *op);
 
-  /// Get or create the lowered amdgcn.cmpi + alloca:scc for an lsir.cmpi.
+  /// Get or create the lowered amdgcn.cmpi + alloca for an lsir.cmpi.
+  /// Selects s_cmp_* (SCC) for scalar operands, v_cmp_* (VCC) for vector.
   /// On first call for a given cmpOp, creates the alloca and cmpi at the
-  /// original lsir.cmpi location. On subsequent calls, returns the cached SCC.
+  /// original lsir.cmpi location. On subsequent calls, returns the cached
+  /// result.
   Value getOrCreateLoweredCmp(lsir::CmpIOp cmpOp, IRRewriter &rewriter);
 
   /// Lower lsir.cmpi + cf.cond_br pattern to AMDGCN compare + branch.
@@ -70,16 +73,17 @@ private:
   /// Lower cf.br to s_branch.
   LogicalResult lowerBranch(cf::BranchOp br);
 
-  /// Lower lsir.cmpi + lsir.select(i1) pattern to s_cmp + s_cselect_b32.
+  /// Lower lsir.cmpi + lsir.select(i1) pattern to s_cmp + s_cselect_b32
+  /// or v_cmp + v_cndmask_b32.
   LogicalResult lowerSelect(lsir::SelectOp selectOp);
 
-  /// Map from original lsir.cmpi to the SCC alloca value from the lowered
+  /// Map from original lsir.cmpi to the SCC/VCC alloca value from the lowered
   /// amdgcn.cmpi. Used to deduplicate compare lowering on fan-out.
   DenseMap<Operation *, Value> loweredCmpMap;
 };
 
-/// Map arith::CmpIPredicate to the appropriate s_cmp_* opcode.
-static OpCode getCompareOpCode(arith::CmpIPredicate predicate) {
+/// Map arith::CmpIPredicate to the appropriate s_cmp_* opcode (scalar).
+static OpCode getScalarCompareOpCode(arith::CmpIPredicate predicate) {
   switch (predicate) {
   case arith::CmpIPredicate::eq:
     return OpCode::S_CMP_EQ_I32;
@@ -105,6 +109,68 @@ static OpCode getCompareOpCode(arith::CmpIPredicate predicate) {
   llvm_unreachable("Unknown CmpIPredicate");
 }
 
+/// Map arith::CmpIPredicate to the appropriate v_cmp_* opcode (vector, 32-bit
+/// encoding). The 32-bit VOPC encoding requires rhs (src1) to be a VGPR.
+/// If operands need swapping, the predicate should be flipped first.
+static OpCode getVectorCompareOpCode(arith::CmpIPredicate predicate) {
+  switch (predicate) {
+  case arith::CmpIPredicate::eq:
+    return OpCode::V_CMP_EQ_I32;
+  case arith::CmpIPredicate::ne:
+    return OpCode::V_CMP_NE_I32;
+  case arith::CmpIPredicate::slt:
+    return OpCode::V_CMP_LT_I32;
+  case arith::CmpIPredicate::sle:
+    return OpCode::V_CMP_LE_I32;
+  case arith::CmpIPredicate::sgt:
+    return OpCode::V_CMP_GT_I32;
+  case arith::CmpIPredicate::sge:
+    return OpCode::V_CMP_GE_I32;
+  case arith::CmpIPredicate::ult:
+    return OpCode::V_CMP_LT_U32;
+  case arith::CmpIPredicate::ule:
+    return OpCode::V_CMP_LE_U32;
+  case arith::CmpIPredicate::ugt:
+    return OpCode::V_CMP_GT_U32;
+  case arith::CmpIPredicate::uge:
+    return OpCode::V_CMP_GE_U32;
+  }
+  llvm_unreachable("Unknown CmpIPredicate");
+}
+
+/// Swap a comparison predicate (a < b becomes b > a).
+static arith::CmpIPredicate swapPredicate(arith::CmpIPredicate pred) {
+  switch (pred) {
+  case arith::CmpIPredicate::eq:
+    return arith::CmpIPredicate::eq;
+  case arith::CmpIPredicate::ne:
+    return arith::CmpIPredicate::ne;
+  case arith::CmpIPredicate::slt:
+    return arith::CmpIPredicate::sgt;
+  case arith::CmpIPredicate::sle:
+    return arith::CmpIPredicate::sge;
+  case arith::CmpIPredicate::sgt:
+    return arith::CmpIPredicate::slt;
+  case arith::CmpIPredicate::sge:
+    return arith::CmpIPredicate::sle;
+  case arith::CmpIPredicate::ult:
+    return arith::CmpIPredicate::ugt;
+  case arith::CmpIPredicate::ule:
+    return arith::CmpIPredicate::uge;
+  case arith::CmpIPredicate::ugt:
+    return arith::CmpIPredicate::ult;
+  case arith::CmpIPredicate::uge:
+    return arith::CmpIPredicate::ule;
+  }
+  llvm_unreachable("Unknown CmpIPredicate");
+}
+
+/// Returns true if either operand of the compare is a VGPR.
+static bool hasVGPROperand(lsir::CmpIOp cmpOp) {
+  return isa<VGPRType>(cmpOp.getLhs().getType()) ||
+         isa<VGPRType>(cmpOp.getRhs().getType());
+}
+
 Value LegalizeCF::getOrCreateLoweredCmp(lsir::CmpIOp cmpOp,
                                         IRRewriter &rewriter) {
   auto it = loweredCmpMap.find(cmpOp);
@@ -115,9 +181,33 @@ Value LegalizeCF::getOrCreateLoweredCmp(lsir::CmpIOp cmpOp,
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(cmpOp);
   Location loc = cmpOp.getLoc();
+
+  bool isVector = hasVGPROperand(cmpOp);
+  if (isVector) {
+    // Vector compare: v_cmp_* writes to VCC.
+    // The 32-bit VOPC encoding requires src1 (rhs) to be a VGPR.
+    // If rhs is not a VGPR, swap operands and flip the predicate.
+    Value lhs = cmpOp.getLhs();
+    Value rhs = cmpOp.getRhs();
+    arith::CmpIPredicate pred = cmpOp.getPredicate();
+    if (!isa<VGPRType>(rhs.getType())) {
+      assert(isa<VGPRType>(lhs.getType()) &&
+             "at least one operand must be a VGPR for vector compare");
+      std::swap(lhs, rhs);
+      pred = swapPredicate(pred);
+    }
+    Type vccType = VCCType::get(rewriter.getContext());
+    Value vcc = AllocaOp::create(rewriter, loc, vccType);
+    OpCode cmpOpCode = getVectorCompareOpCode(pred);
+    amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, vcc, lhs, rhs);
+    loweredCmpMap[cmpOp] = vcc;
+    return vcc;
+  }
+
+  // Scalar compare: s_cmp_* writes to SCC.
   Type sccType = SCCType::get(rewriter.getContext());
   Value scc = AllocaOp::create(rewriter, loc, sccType);
-  OpCode cmpOpCode = getCompareOpCode(cmpOp.getPredicate());
+  OpCode cmpOpCode = getScalarCompareOpCode(cmpOp.getPredicate());
   amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),
                          cmpOp.getRhs());
 
@@ -152,7 +242,8 @@ LogicalResult LegalizeCF::lowerCondBranch(cf::CondBranchOp condBr) {
   IRRewriter rewriter(condBr);
   rewriter.setInsertionPoint(condBr);
 
-  Value scc = getOrCreateLoweredCmp(cmpOp, rewriter);
+  Value flagReg = getOrCreateLoweredCmp(cmpOp, rewriter);
+  bool isVector = isa<VCCType>(flagReg.getType());
 
   // Create conditional branch based on which destination is the next physical
   // block. The fallthrough target must be the next block.
@@ -162,17 +253,21 @@ LogicalResult LegalizeCF::lowerCondBranch(cf::CondBranchOp condBr) {
   Block *currentBlock = condBr->getBlock();
   Block *nextBlock = currentBlock->getNextNode();
 
+  // Select branch opcodes based on whether the compare wrote SCC or VCC.
+  OpCode branchTrue =
+      isVector ? OpCode::S_CBRANCH_VCCNZ : OpCode::S_CBRANCH_SCC1;
+  OpCode branchFalse =
+      isVector ? OpCode::S_CBRANCH_VCCZ : OpCode::S_CBRANCH_SCC0;
+
   // amdgcn::CBranchOp takes a label; later, the actual 16-bit PC-relative
   // offset is computed by the LLVM assembler (MC layer) when it assembles this
   // text into binary machine code. This is happening outside of aster.
   if (falseDest == nextBlock) {
-    // Use S_CBRANCH_SCC1: branch to trueDest if SCC=1, fallthrough to falseDest
-    CBranchOp::create(rewriter, loc, OpCode::S_CBRANCH_SCC1, scc, trueDest,
-                      falseDest);
+    // Branch to trueDest if flag set, fallthrough to falseDest
+    CBranchOp::create(rewriter, loc, branchTrue, flagReg, trueDest, falseDest);
   } else if (trueDest == nextBlock) {
-    // Use S_CBRANCH_SCC0: branch to falseDest if SCC=0, fallthrough to trueDest
-    CBranchOp::create(rewriter, loc, OpCode::S_CBRANCH_SCC0, scc, falseDest,
-                      trueDest);
+    // Branch to falseDest if flag clear, fallthrough to trueDest
+    CBranchOp::create(rewriter, loc, branchFalse, flagReg, falseDest, trueDest);
   } else {
     // TODO: neither destination is the next block, we need more sophisticated
     // logic to insert explicit branch and create a new block. For this to
@@ -234,20 +329,29 @@ LogicalResult LegalizeCF::lowerSelect(lsir::SelectOp selectOp) {
   IRRewriter rewriter(selectOp);
   rewriter.setInsertionPoint(selectOp);
 
-  // Ensure the compare is lowered. s_cselect_b32 implicitly reads SCC.
-  (void)getOrCreateLoweredCmp(cmpOp, rewriter);
+  // Ensure the compare is lowered.
+  Value flagReg = getOrCreateLoweredCmp(cmpOp, rewriter);
+  bool isVector = isa<VCCType>(flagReg.getType());
 
-  // Create s_cselect_b32: sdst = SCC ? src0 : src1.
-  // src0 = true_value (selected when SCC=1), src1 = false_value.
-  Value sdst = selectOp.getDst();
-  amdgcn::inst::SOP2Op::create(rewriter, loc, OpCode::S_CSELECT_B32, sdst,
-                               selectOp.getTrueValue(),
-                               selectOp.getFalseValue());
+  Value dst = selectOp.getDst();
+  if (isVector) {
+    // v_cndmask_b32: vdst = VCC[lane] ? src1 : src0 (note: reversed order!)
+    // src0 = false_value, src1 = true_value, src2 = VCC
+    amdgcn::inst::VOP2Op::create(rewriter, loc, OpCode::V_CNDMASK_B32, dst,
+                                 /*dst1=*/nullptr, selectOp.getFalseValue(),
+                                 selectOp.getTrueValue(), flagReg);
+  } else {
+    // s_cselect_b32: sdst = SCC ? src0 : src1.
+    // src0 = true_value (selected when SCC=1), src1 = false_value.
+    amdgcn::inst::SOP2Op::create(rewriter, loc, OpCode::S_CSELECT_B32, dst,
+                                 selectOp.getTrueValue(),
+                                 selectOp.getFalseValue());
+  }
 
   // Replace uses of the select result with the dst (which now holds the
-  // s_cselect result via side effect).
+  // s_cselect_b32 or v_cndmask_b32 result via side effect).
   if (selectOp->getNumResults() > 0)
-    rewriter.replaceOp(selectOp, sdst);
+    rewriter.replaceOp(selectOp, dst);
   else
     rewriter.eraseOp(selectOp);
 
@@ -285,24 +389,24 @@ LogicalResult LegalizeCF::verifyI1Lifetimes(Operation *op) {
         continue;
 
       // Check cross-block usage: all users of this cmpi must be in the same
-      // block. SCC is not preserved across block boundaries.
+      // block. SCC/VCC are not preserved across block boundaries.
       for (Operation *user : i1.getUsers()) {
         if (user->getBlock() != block) {
           innerOp.emitError()
-              << "has consumer in a different block; SCC is not preserved "
-                 "across block boundaries";
+              << "has consumer in a different block; flag register (SCC/VCC) "
+                 "is not preserved across block boundaries";
           result = failure();
           return WalkResult::interrupt();
         }
       }
 
-      // Check overlap: any cmpi (even dead ones) clobbers SCC, so if a
-      // previous i1 is still live, this is an error.
+      // Check overlap: any cmpi (even dead ones) clobbers the flag register,
+      // so if a previous i1 is still live, this is an error.
       if (activeI1Op && activeI1OpLastUserOp &&
           !activeI1OpLastUserOp->isBeforeInBlock(&innerOp)) {
         innerOp.emitError()
-            << "would clobber SCC from earlier compare; i1 lifetimes must "
-               "not overlap";
+            << "would clobber flag register from earlier compare; i1 "
+               "lifetimes must not overlap";
         result = failure();
         return WalkResult::interrupt();
       }
@@ -337,8 +441,9 @@ void LegalizeCF::runOnOperation() {
   }
 
   // Precondition: verify i1 lifetimes are non-overlapping and block-local.
-  // SCC is a single physical bit with no spill capability, so overlapping
-  // lifetimes or cross-block usage would produce silent miscompilation.
+  // SCC/VCC are implicit flag registers with no spill capability, so
+  // overlapping lifetimes or cross-block usage would produce silent
+  // miscompilation.
   if (failed(verifyI1Lifetimes(op))) {
     signalPassFailure();
     return;

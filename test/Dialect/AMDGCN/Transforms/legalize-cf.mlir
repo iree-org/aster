@@ -455,7 +455,7 @@ amdgcn.module @test_overlap_mod target = <gfx942> isa = <cdna3> {
     amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
     amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
     %cmp1 = lsir.cmpi i32 eq %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    // expected-error @+1 {{would clobber SCC from earlier compare; i1 lifetimes must not overlap}}
+    // expected-error @+1 {{would clobber flag register from earlier compare; i1 lifetimes must not overlap}}
     %cmp2 = lsir.cmpi i32 slt %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
     lsir.select %alloc2, %cmp1, %c42, %c99 : !amdgcn.sgpr<2>, i1, i32, i32
     amdgcn.end_kernel
@@ -464,8 +464,8 @@ amdgcn.module @test_overlap_mod target = <gfx942> isa = <cdna3> {
 
 // -----
 
-// Cross-block i1 usage: SCC is not preserved across block boundaries
-// (any branch clobbers it).
+// Cross-block i1 usage: flag register (SCC/VCC) is not preserved across
+// block boundaries (any branch clobbers it).
 
 amdgcn.module @test_crossblock_mod target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @test_cross_block_i1 {
@@ -478,11 +478,105 @@ amdgcn.module @test_crossblock_mod target = <gfx942> isa = <cdna3> {
     %alloc2 = amdgcn.alloca : !amdgcn.sgpr<2>
     amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
     amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
-    // expected-error @+1 {{has consumer in a different block; SCC is not preserved across block boundaries}}
+    // expected-error @+1 {{has consumer in a different block; flag register (SCC/VCC) is not preserved across block boundaries}}
     %cmp = lsir.cmpi i32 eq %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
     cf.br ^bb1
   ^bb1:
     lsir.select %alloc2, %cmp, %c42, %c99 : !amdgcn.sgpr<2>, i1, i32, i32
     amdgcn.end_kernel
+  }
+}
+
+// -----
+
+// VOPC path: lsir.cmpi with VGPR operand (imm vs VGPR) -> v_cmp_lt_i32 (VCC)
+// Branch uses s_cbranch_vccz since ^bb1 (trueDest) is the next physical block.
+
+// CHECK-LABEL: kernel @test_vopc_cond_branch
+// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc
+// CHECK:         cmpi v_cmp_lt_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
+// CHECK:         cbranch s_cbranch_vccz %[[VCC]] ^bb2 fallthrough(^bb1) : !amdgcn.vcc
+// CHECK:       ^bb1:
+// CHECK:         end_kernel
+// CHECK:       ^bb2:
+// CHECK:         end_kernel
+amdgcn.module @test_vopc_mod target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @test_vopc_cond_branch {
+    %c0_i32 = arith.constant 0 : i32
+    %v0 = alloca : !amdgcn.vgpr<0>
+    // VGPR on rhs forces vector compare path
+    %cmp = lsir.cmpi i32 slt %c0_i32, %v0 : i32, !amdgcn.vgpr<0>
+    cf.cond_br %cmp, ^bb1, ^bb2
+  ^bb1:
+    end_kernel
+  ^bb2:
+    end_kernel
+  }
+}
+
+// -----
+
+// VOPC operand swap: VGPR on lhs, imm on rhs.
+// VOPC 32-bit encoding requires rhs (src1) to be VGPR, so operands are swapped
+// and predicate is flipped: slt(v0, 32) -> gt(32, v0).
+
+// CHECK-LABEL: kernel @test_vopc_operand_swap
+// CHECK:         cmpi v_cmp_gt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
+// CHECK:         cbranch s_cbranch_vccz %{{.*}} ^bb2 fallthrough(^bb1) : !amdgcn.vcc
+amdgcn.module @test_vopc_swap_mod target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @test_vopc_operand_swap {
+    %c32_i32 = arith.constant 32 : i32
+    %v0 = alloca : !amdgcn.vgpr<0>
+    // lhs=VGPR, rhs=imm -> swap + flip: slt -> gt
+    %cmp = lsir.cmpi i32 slt %v0, %c32_i32 : !amdgcn.vgpr<0>, i32
+    cf.cond_br %cmp, ^bb1, ^bb2
+  ^bb1:
+    end_kernel
+  ^bb2:
+    end_kernel
+  }
+}
+
+// -----
+
+// VOPC with two VGPR operands: no swap needed, rhs already a VGPR.
+
+// CHECK-LABEL: kernel @test_vopc_two_vgprs
+// CHECK:         cmpi v_cmp_eq_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK:         cbranch s_cbranch_vccz %{{.*}} ^bb2 fallthrough(^bb1) : !amdgcn.vcc
+amdgcn.module @test_vopc_vv_mod target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @test_vopc_two_vgprs {
+    %v0 = alloca : !amdgcn.vgpr<0>
+    %v1 = alloca : !amdgcn.vgpr<1>
+    %cmp = lsir.cmpi i32 eq %v0, %v1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+    cf.cond_br %cmp, ^bb1, ^bb2
+  ^bb1:
+    end_kernel
+  ^bb2:
+    end_kernel
+  }
+}
+
+// -----
+
+// VOPC select: lsir.cmpi with VGPR + lsir.select -> v_cmp_* + v_cndmask_b32.
+// v_cndmask_b32: vdst = VCC[lane] ? src1 : src0 (reversed operand order).
+// src0/src1 must be register-typed (VOP2 constraint), so we use VGPRs.
+
+// CHECK-LABEL: kernel @test_vopc_select
+// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc
+// CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
+// CHECK:         end_kernel
+amdgcn.module @test_vopc_select_mod target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @test_vopc_select {
+    %v0 = alloca : !amdgcn.vgpr<0>
+    %v1 = alloca : !amdgcn.vgpr<1>
+    %v2 = alloca : !amdgcn.vgpr<2>
+    %v3 = alloca : !amdgcn.vgpr<3>
+    %cmp = lsir.cmpi i32 eq %v0, %v1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+    // true_value=%v2, false_value=%v3, dst=%v3 (v_cndmask reads VCC)
+    lsir.select %v3, %cmp, %v2, %v3 : !amdgcn.vgpr<3>, i1, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+    end_kernel
   }
 }
