@@ -37,25 +37,25 @@ os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
 # unless --full-sweep is passed. Empty list = full sweep (need to populate after first sweep).
 # Label suffix scheme: _flat, _buf (LDS path), _direct_flat, _direct_buf (direct-A path).
 _TOP_K_BASE = [
-    "m3648xn4096xk4096_wg38x16_w2x2_twg6x16x1_s2_occ2_direct_flat",
-    "m4864xn4096xk8192_wg38x32_w2x2_twg8x8x1_s2_occ2_direct_flat",
+    "m3648xn4096xk4096_wg38x16_w2x2_twg6x16x1_s2_direct_flat",
+    "m4864xn4096xk8192_wg38x32_w2x2_twg8x8x1_s2_direct_flat",
     "m3648xn8192xk8192_wg19x32_w2x2_twg12x16x1_s2_direct_flat",
     "m3040xn16384xk4096_wg19x64_w2x4_twg10x16x1_s2_buf",
-    "m4864xn2048xk8192_wg38x32_w4x1_twg8x4x1_s4_occ2_direct_flat",
+    "m4864xn2048xk8192_wg38x32_w4x1_twg8x4x1_s4_direct_flat",
     "m7296xn2048xk4096_wg19x16_w4x2_twg24x8x1_s2_flat",
     "m4560xn8192xk4096_wg19x64_w3x4_twg15x8x1_s2_flat",
     "m3040xn16384xk4096_wg19x64_w2x4_twg10x16x1_s3_direct_flat",
     "m3648xn4096xk4096_wg19x32_w6x2_twg12x8x1_s3_buf",
     "m6080xn2048xk8192_wg19x16_w2x2_twg20x8x1_s2_flat",
-    "m9728xn4096xk2048_wg76x64_w2x2_twg8x4x1_s3_occ4_direct_flat",
+    "m9728xn4096xk2048_wg76x64_w2x2_twg8x4x1_s3_direct_flat",
     "m3040xn16384xk8192_wg19x64_w1x4_twg10x16x1_s3_direct_flat",
     "m2432xn8192xk8192_wg19x64_w2x4_twg8x8x1_s2_flat",
-    "m4864xn4096xk8192_wg38x16_w1x4_twg8x16x1_s2_occ2_direct_flat",
+    "m4864xn4096xk8192_wg38x16_w1x4_twg8x16x1_s2_direct_flat",
     "m2432xn2048xk8192_wg19x16_w2x4_twg8x8x2_s2_flat",
     "m2432xn4096xk8192_wg19x32_w2x4_twg8x8x1_s4_buf",
-    "m2432xn4096xk4096_wg38x32_w1x4_twg4x8x1_s4_occ2_direct_flat",
-    "m2432xn8192xk16384_wg38x64_w2x2_twg4x8x2_s2_occ2_direct_flat",
-    "m9728xn2048xk4096_wg38x16_w2x2_twg16x8x1_s2_occ2_direct_flat",
+    "m2432xn4096xk4096_wg38x32_w1x4_twg4x8x1_s4_direct_flat",
+    "m2432xn8192xk16384_wg38x64_w2x2_twg4x8x2_s2_direct_flat",
+    "m9728xn2048xk4096_wg38x16_w2x2_twg16x8x1_s2_direct_flat",
     "m3040xn2048xk2048_wg19x16_w2x2_twg10x8x1_s3_flat",
 ]
 
@@ -428,6 +428,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable epilogue peeling (keep cleanup loop after LCM unrolling)",
     )
+    parser.add_argument(
+        "--desired-simd-occupancy",
+        type=int,
+        default=None,
+        help="Filter sweep to configs with this SIMD occupancy (waves per SIMD)",
+    )
 
     args = parser.parse_args()
     args.lcm_unroll = not args.no_lcm_unroll
@@ -486,6 +492,7 @@ if __name__ == "__main__":
             "stages": "num_stages",
             "k_scaling_factor": "k_scaling_factor",
             "unroll_multiplier": "unroll_factor_multiplier",
+            "desired_simd_occupancy": "simd_occupancy",
         }
         sweep_filter = make_sweep_filter(args, _SWEEP_ATTR_MAP)
 

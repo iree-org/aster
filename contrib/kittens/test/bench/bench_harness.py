@@ -614,10 +614,15 @@ def bench_perf_sweep(
     saved_files = []
 
     if results:
-        lines = [
-            f"#{i+1:>3} {tf:>7.1f} TF {pct:>5.1f}% {ms:>8.2f}ms {c.label}"
-            for i, (c, ms, tf, pct) in enumerate(results)
-        ]
+        lines = []
+        for i, (c, ms, tf, pct) in enumerate(results):
+            line = f"#{i+1:>3} {tf:>7.1f} TF {pct:>5.1f}% {ms:>8.2f}ms {c.label}"
+            if repro_cmd_fn:
+                try:
+                    line += f" | repro: {repro_cmd_fn(c, num_iterations)}"
+                except Exception:
+                    pass
+            lines.append(line)
         p = _save_tmpfile("bench_results_", lines)
         saved_files.append(p)
         print(f"\nResults ({len(results)}) saved in {p}")
