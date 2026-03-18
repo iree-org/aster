@@ -119,6 +119,11 @@ class WeakScaleConfig:
         return self.load_type == "buffer"
 
     @property
+    def k_scaling_factor(self):
+        """K = k_scaling_factor * k_tiles * 32."""
+        return self.k // (self.k_tiles * 32)
+
+    @property
     def direct_a(self):
         return self.a_path == "direct"
 

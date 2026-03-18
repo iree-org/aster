@@ -78,6 +78,31 @@ def _save_error_file(prefix, phase, errors, repro_cmd_fn=None, num_iterations=No
     return _save_tmpfile(prefix, lines)
 
 
+def make_sweep_filter(args, attr_map):
+    """Build a config filter from CLI args that pin sweep dimensions.
+
+    Args:
+        args: Parsed argparse namespace.
+        attr_map: Dict mapping argparse attribute names to config attribute names.
+            E.g. {"stages": "num_stages", "m_waves": "m_waves"}.
+            If a CLI arg is None, it is ignored (not pinned).
+
+    Returns:
+        A predicate (cfg) -> bool that returns True if cfg matches all pinned values,
+        or None if no dimensions are pinned.
+    """
+    pins = {}
+    for arg_name, cfg_attr in attr_map.items():
+        val = getattr(args, arg_name, None)
+        if val is not None:
+            pins[cfg_attr] = val
+    if not pins:
+        return None
+    desc = ", ".join(f"{k}={v}" for k, v in pins.items())
+    print(f"Sweep filter: {desc}")
+    return lambda cfg: all(getattr(cfg, k) == v for k, v in pins.items())
+
+
 def check_numpy_blas(label=""):
     import time
 
@@ -187,9 +212,10 @@ def compile_one(cfg, hsaco_dir, compile_fn, timeout=DEFAULT_COMPILE_TIMEOUT):
     """
     import multiprocessing as mp
 
+    ctx = mp.get_context("spawn")
     stderr_path = os.path.join(hsaco_dir, f"{cfg.label}.stderr")
-    parent_conn, child_conn = mp.Pipe(duplex=False)
-    p = mp.Process(
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    p = ctx.Process(
         target=_compile_inner,
         args=(cfg, hsaco_dir, compile_fn, child_conn, stderr_path),
     )
@@ -389,9 +415,13 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
                     best_tf = tf
             pbar.update(1)
             pbar.set_postfix_str(f"best {best_tf:.1f} TF, fail={len(failed)}")
+    except KeyboardInterrupt:
+        print("\nCtrl+C -- stopping execution, moving to reporting...")
+        for f in all_futs:
+            f.cancel()
     finally:
         for pool in pools:
-            pool.shutdown(wait=True)
+            pool.shutdown(wait=False, cancel_futures=True)
     pbar.close()
     return results, failed
 
@@ -459,9 +489,13 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
                 passed += 1
             pbar.update(1)
             pbar.set_postfix_str(f"pass={passed}, fail={len(errors)}")
+    except KeyboardInterrupt:
+        print("\nCtrl+C -- stopping verification, reporting partial results...")
+        for f in all_futs:
+            f.cancel()
     finally:
         for pool in pools:
-            pool.shutdown(wait=True)
+            pool.shutdown(wait=False, cancel_futures=True)
     pbar.close()
     return passed, errors
 
@@ -505,14 +539,18 @@ def bench_perf_sweep(
     sys.stdout.flush()
 
     # Phase 1: compile.
+    import multiprocessing as mp
+
     hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
     hsaco_paths, resources_map, failed = {}, {}, []
-    with ProcessPoolExecutor(max_workers=compile_workers) as pool:
-        futs = {
-            pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c
-            for c in active
-        }
-        pbar = tqdm(total=len(futs), desc="Compiling", unit="cfg")
+    spawn_ctx = mp.get_context("spawn")
+    pool = ProcessPoolExecutor(max_workers=compile_workers, mp_context=spawn_ctx)
+    futs = {
+        pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c
+        for c in active
+    }
+    pbar = tqdm(total=len(futs), desc="Compiling", unit="cfg")
+    try:
         for fut in as_completed(futs):
             cfg = futs[fut]
             try:
@@ -528,7 +566,13 @@ def bench_perf_sweep(
                 failed.append((cfg, f"compile: {short}", full_err))
             pbar.update(1)
             pbar.set_postfix(ok=len(hsaco_paths), fail=len(failed))
-        pbar.close()
+    except KeyboardInterrupt:
+        print("\nCtrl+C -- stopping compilation, moving to execution phase...")
+        for f in futs:
+            f.cancel()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    pbar.close()
     print(f"Compiled: {len(hsaco_paths)} ok, {len(failed)} failed")
 
     # Post-compile filter.
