@@ -375,11 +375,18 @@ def ApplySched : Pass<"aster-apply-sched"> {
     The discardable attribute is removed from the operation after the schedule
     is applied.
 
-    If no schedules are requested, the pass errors out.
+    If no schedules are requested, the pass uses "aster.sched" as the default
+    schedule name.
+
+    If a requested schedule is not found and silent-mode is true, the pass
+    continues without erroring out. Otherwise, the pass errors out.
   }];
   let options = [
     ListOption<"scheds", "scheds", "std::string",
-               "List of schedule attribute names to apply (in order)">
+               "List of schedule attribute names to apply (in order)">,
+    Option<"silentMode", "silent-mode", "bool", "true",
+           "If true, missing schedules are silently ignored instead of "
+           "erroring out">
   ];
 }
 
