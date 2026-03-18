@@ -352,25 +352,27 @@ the complex things manageable.
 
 ```python
 from aster import ir
-from aster.dialects import api
+from aster.dialects.kernel_builder import KernelBuilder
 
 with ir.Context() as ctx, ir.Location.unknown():
-    # Build IR using Python
-    module = api.create_kernel(
-        "my_kernel",
-        args=[("input", f32_ptr), ("output", f32_ptr)],
-        num_vgprs=32,
-        num_sgprs=16
-    )
+    # Build a kernel that loads from two pointers (expected to be passed as
+    # arguments to the kernel launch) and adds them.
+    b = KernelBuilder("my_mod", "my_kernel", target="gfx942", isa="cdna3")
+    b.add_ptr_arg()  # input
+    b.add_ptr_arg()  # output
+    [in_ptr, out_ptr] = b.load_args()
 
-    # Translate to assembly
-    asm = utils.translate_module(module)
+    tid = b.thread_id_x()
+    offset = b.byte_offset(tid, elem_bytes=4)
 
-    # Compile to HSACO
-    hsaco = utils.assemble_to_hsaco(asm, target="gfx942")
+    # Load, add, store
+    val = b.buffer_load(in_ptr, b.s_mov_b32(0), offset)
+    result = b.v_add_u32(val, b.constant_i32(42))
+    b.wait_vmcnt(0)
+    b.buffer_store_dword(result, out_ptr, b.s_mov_b32(0), offset)
 
-    # Execute on GPU
-    result = utils.launch_kernel(hsaco, "my_kernel", inputs=[a, b])
+    module = b.build()
+    print(module)
 ```
 
 ## Acknowledgements
