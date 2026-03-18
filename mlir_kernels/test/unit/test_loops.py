@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from aster.pass_pipelines import TEST_LOOP_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_LOOP_PASS_PIPELINE
 
 from aster.testing import compile_and_run
 

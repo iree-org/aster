@@ -6,7 +6,7 @@ Uses lds_16x32_f16.mlir: 4-stage pipeline (GLOBAL_LOAD, DS_WRITE, DS_READ, COMPU
 import numpy as np
 import pytest
 
-from aster.pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
 
 from kittens_helpers import (
     run_kittens_kernel,

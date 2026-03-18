@@ -16,7 +16,9 @@ from aster.testing import (
 )
 from aster.testing.flush_llc import FlushLLC
 from mlir_kernels.common import get_library_paths
-from aster.pass_pipelines import NANOBENCH_PASS_PIPELINE
+from aster.test_pass_pipelines import (
+    TEST_NANOBENCH_PASS_PIPELINE as NANOBENCH_PASS_PIPELINE,
+)
 
 MCPU = "gfx942"
 WAVEFRONT_SIZE = 64

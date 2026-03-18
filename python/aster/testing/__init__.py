@@ -45,10 +45,8 @@ from aster._mlir_libs._runtime_module import (
     hip_event_synchronize,
     hip_event_elapsed_time,
 )
-from aster.pass_pipelines import (
-    DEFAULT_SROA_PASS_PIPELINE,
-    TEST_SYNCHRONOUS_SROA_PASS_PIPELINE,
-)
+from aster.pass_pipelines import DEFAULT_SROA_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SYNCHRONOUS_PASS_PIPELINE
 
 # ---------------------------------------------------------------------------
 # Logging helpers
@@ -546,7 +544,7 @@ def compile_and_run(
         library_paths: Library paths for preload. If None, auto-detected.
         preprocess: Optional preprocessing function for MLIR content.
         print_ir_after_all: Whether to print IR after all passes.
-        pass_pipeline: Pass pipeline string. Defaults to TEST_SYNCHRONOUS_SROA_PASS_PIPELINE.
+        pass_pipeline: Pass pipeline string. Defaults to TEST_SYNCHRONOUS_PASS_PIPELINE.
         verify_fn: Optional verification function(input_args, output_args).
         mcpu: Target GPU architecture (default: "gfx942").
         wavefront_size: Wavefront size (default: 64).
@@ -583,7 +581,7 @@ def compile_and_run(
             library_paths = []
 
     if pass_pipeline is None:
-        pass_pipeline = TEST_SYNCHRONOUS_SROA_PASS_PIPELINE
+        pass_pipeline = TEST_SYNCHRONOUS_PASS_PIPELINE
 
     # Convert single arrays to lists for compatibility
     if input_data is not None and not isinstance(input_data, list):

@@ -14,9 +14,9 @@ import numpy as np
 import pytest
 import tempfile
 
-from aster.pass_pipelines import (
+from aster.test_pass_pipelines import (
     TEST_CONSTEXPR_PIPELINING_PASS_PIPELINE,
-    make_constexpr_pipelining_pass_pipeline,
+    make_test_constexpr_pipelining_pass_pipeline,
 )
 
 from kittens_helpers import (
@@ -258,7 +258,7 @@ def compile_gemm(
         or not lcm_unroll
         or not epilogue_peeling
     ):
-        pipeline = make_constexpr_pipelining_pass_pipeline(
+        pipeline = make_test_constexpr_pipelining_pass_pipeline(
             lcm_unroll=lcm_unroll,
             num_vgprs=num_vgprs,
             num_agprs=num_agprs,

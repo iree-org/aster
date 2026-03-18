@@ -2,9 +2,9 @@
 
 import numpy as np
 import pytest
-from aster.pass_pipelines import (
+from aster.test_pass_pipelines import (
     TEST_SCF_PIPELINING_PASS_PIPELINE,
-    make_scf_pipelining_pass_pipeline as _scf_pipeline,
+    make_test_scf_pipelining_pass_pipeline as _scf_pipeline,
 )
 
 from aster.testing import compile_and_run

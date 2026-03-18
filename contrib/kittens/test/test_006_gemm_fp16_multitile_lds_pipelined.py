@@ -7,7 +7,7 @@ compute_16x16_f16.mlir (AGPR) with fire-and-forget stores.
 import numpy as np
 import pytest
 
-from aster.pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
+from aster.test_pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
 
 from kittens_helpers import (
     run_kittens_kernel,
