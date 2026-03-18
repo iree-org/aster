@@ -35,6 +35,49 @@ def _save_tmpfile(prefix, lines):
     return path
 
 
+def _save_error_file(prefix, phase, errors, repro_cmd_fn=None, num_iterations=None):
+    """Save errors grouped by category for easy debugging.
+
+    Output format:
+      - Top-level summary (total count, unique categories)
+      - One section per category, most frequent first
+      - Each section has a header and all configs in that category
+    """
+    from collections import defaultdict
+
+    by_category = defaultdict(list)
+    for c, e, full in errors:
+        by_category[e].append((c, full))
+
+    lines = [
+        f"# {len(errors)} {phase} failures, {len(by_category)} unique errors",
+        "#",
+    ]
+    for msg, entries in sorted(by_category.items(), key=lambda kv: -len(kv[1])):
+        lines.append(f"# {len(entries):>5}x {msg}")
+    lines.append("")
+
+    for msg, entries in sorted(by_category.items(), key=lambda kv: -len(kv[1])):
+        lines.append("=" * 78)
+        lines.append(f"[{len(entries)}x] {msg}")
+        lines.append("=" * 78)
+        lines.append("")
+        for c, full in entries:
+            repro = ""
+            if repro_cmd_fn:
+                try:
+                    repro = f" | repro: {repro_cmd_fn(c, num_iterations)}"
+                except Exception:
+                    pass
+            lines.append(f"  {c.label}{repro}")
+            if full and full != msg.removeprefix(f"{phase}: "):
+                for fline in full.split("\n"):
+                    lines.append(f"    {fline}")
+        lines.append("")
+
+    return _save_tmpfile(prefix, lines)
+
+
 def check_numpy_blas(label=""):
     import time
 
@@ -535,44 +578,17 @@ def bench_perf_sweep(
         saved_files.append(p)
         print(f"\nResults ({len(results)}) saved in {p}")
     if compile_errs:
-        from collections import Counter
-
-        err_counts = Counter(e for _, e, _ in compile_errs)
-        header = [
-            f"# {len(compile_errs)} compile failures, {len(err_counts)} unique errors",
-            "#",
-        ]
-        for msg, cnt in err_counts.most_common(10):
-            header.append(f"# {cnt:>5}x {msg}")
-        header.append("#")
-        detail = []
-        for c, e, full in compile_errs:
-            repro = ""
-            if repro_cmd_fn:
-                try:
-                    repro = f" | repro: {repro_cmd_fn(c, num_iterations)}"
-                except Exception:
-                    pass
-            detail.append(f"{c.label}: {e}{repro}")
-            if full and full != e.removeprefix("compile: "):
-                for line in full.split("\n"):
-                    detail.append(f"  {line}")
-        p = _save_tmpfile("bench_compile_errors_", header + detail)
+        p = _save_error_file(
+            "bench_compile_errors_",
+            "compile",
+            compile_errs,
+            repro_cmd_fn,
+            num_iterations,
+        )
         saved_files.append(p)
         print(f"{len(compile_errs)} compile errors in {p}")
     if exec_errs:
-        from collections import Counter
-
-        exec_counts = Counter(e for _, e, _ in exec_errs)
-        header = [
-            f"# {len(exec_errs)} exec failures, {len(exec_counts)} unique errors",
-            "#",
-        ]
-        for msg, cnt in exec_counts.most_common(10):
-            header.append(f"# {cnt:>5}x {msg}")
-        header.append("#")
-        detail = [f"{c.label}: {e}" for c, e, _ in exec_errs]
-        p = _save_tmpfile("bench_exec_errors_", header + detail)
+        p = _save_error_file("bench_exec_errors_", "exec", exec_errs)
         saved_files.append(p)
         print(f"{len(exec_errs)} exec errors in {p}")
 
