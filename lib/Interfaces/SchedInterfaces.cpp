@@ -36,47 +36,54 @@ void SchedGraph::initialize() {
   setNumNodes(ops.size());
 }
 
-LogicalResult
-SchedGraph::topologicalSched(function_ref<int32_t(ArrayRef<int32_t>)> schedFn,
-                             SmallVectorImpl<int32_t> &sched) const {
+LogicalResult SchedGraph::topologicalSched(
+    function_ref<void(ArrayRef<int32_t>, llvm::SetVector<int32_t> &)> schedFn,
+    SmallVectorImpl<int32_t> &sched) const {
   assert(compressed && "Graph must be compressed before topological sort");
 
   sched.clear();
   sched.reserve(numNodes);
 
-  // Count in-degrees for each node
+  // Count in-degrees for each node.
   SmallVector<int32_t> inDegree = getInDegree();
 
   LDBG() << "In-degree: " << llvm::interleaved_array(inDegree);
 
-  // Queue of nodes with in-degree 0
+  // Queue of nodes with in-degree 0.
   SmallVector<int32_t> queue;
   for (int32_t node : nodes()) {
     if (inDegree[node] == 0)
       queue.push_back(node);
   }
 
-  // Process nodes with in-degree 0
+  // Process nodes with in-degree 0.
+  llvm::SetVector<int32_t> selectedIndices;
   while (!queue.empty()) {
     LDBG() << "Queue: " << llvm::interleaved_array(queue);
-    int64_t nextNodePos = schedFn(queue);
-    assert(nextNodePos >= 0 &&
-           nextNodePos < static_cast<int64_t>(queue.size()) &&
-           "Invalid next node position");
-    int32_t nextNode = queue[nextNodePos];
-    queue.erase(queue.begin() + nextNodePos);
-    sched.push_back(nextNode);
 
-    LDBG() << "Selected node: " << nextNode << " (position: " << nextNodePos
-           << ")";
+    // Get the next nodes to schedule using the scheduling function.
+    selectedIndices.clear();
+    schedFn(queue, selectedIndices);
+    assert(!selectedIndices.empty() && "schedFn must select at least one node");
 
-    // Reduce in-degree for neighbors
-    for (const Edge &edge : edges(nextNode)) {
-      int32_t neighbor = edge.second;
-      --inDegree[neighbor];
-      if (inDegree[neighbor] == 0)
-        queue.push_back(neighbor);
+    for (int32_t pos : selectedIndices.getArrayRef()) {
+      assert(pos >= 0 && pos < static_cast<int32_t>(queue.size()) &&
+             "invalid position in ready queue");
+      int32_t nextNode = std::exchange(queue[pos], -1);
+      sched.push_back(nextNode);
+      LDBG() << "Selected node: " << nextNode << " (position: " << pos << ")";
+
+      // Reduce in-degree for neighbors.
+      for (const Edge &edge : edges(nextNode)) {
+        int32_t neighbor = edge.second;
+        --inDegree[neighbor];
+        if (inDegree[neighbor] == 0)
+          queue.push_back(neighbor);
+      }
     }
+
+    // Remove the processed nodes from the queue.
+    llvm::erase(queue, -1);
   }
 
   // Check if all nodes were processed (no cycle)

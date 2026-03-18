@@ -22,6 +22,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include <cstdint>
 
@@ -127,11 +128,11 @@ public:
   /// Produce a topologically sorted schedule for the graph using the given
   /// scheduling function.
   /// The scheduling function receives a list of node IDs that are ready to be
-  /// scheduled, and returns the position of the next node to schedule relative
-  /// to the ready nodes.
-  LogicalResult
-  topologicalSched(function_ref<int32_t(ArrayRef<int32_t>)> schedFn,
-                   llvm::SmallVectorImpl<int32_t> &sched) const;
+  /// scheduled, and must populate the indices (relative to the ready nodes) of
+  /// the nodes to schedule next.
+  LogicalResult topologicalSched(
+      function_ref<void(ArrayRef<int32_t>, llvm::SetVector<int32_t> &)> schedFn,
+      llvm::SmallVectorImpl<int32_t> &sched) const;
 
   /// Apply the schedule to the graph using the given rewriter and order.
   static void applySched(const SchedGraph &schedGraph, RewriterBase &rewriter,

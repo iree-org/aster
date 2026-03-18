@@ -109,7 +109,8 @@ StageTopoSortSchedAttr::createSched(const SchedGraph &schedGraph,
 
   // Use topologicalSched with a stage-aware selection function.
   // Given ready nodes, pick the one with smallest stage label; ties by node ID.
-  auto schedFn = [&](ArrayRef<int32_t> ready) -> int32_t {
+  auto schedFn = [&](ArrayRef<int32_t> ready,
+                     llvm::SetVector<int32_t> &selectedIndices) {
     int32_t bestIdx = 0;
     int32_t bestLabel = schedGraph.getLabel(ready[0]);
     int32_t bestNode = ready[0];
@@ -121,7 +122,7 @@ StageTopoSortSchedAttr::createSched(const SchedGraph &schedGraph,
         bestNode = ready[i];
       }
     }
-    return bestIdx;
+    selectedIndices.insert(bestIdx);
   };
 
   return schedGraph.topologicalSched(schedFn, sched);
@@ -139,7 +140,8 @@ BenefitSchedAttr::createSched(const SchedGraph &schedGraph,
 
   // Use topologicalSched with a benefit-aware selection function.
   // Given ready nodes, pick the one with highest label; ties by node ID.
-  auto schedFn = [&](ArrayRef<int32_t> ready) -> int32_t {
+  auto schedFn = [&](ArrayRef<int32_t> ready,
+                     llvm::SetVector<int32_t> &selectedIndices) {
     int32_t bestIdx = 0;
     int32_t bestLabel = schedGraph.getLabel(ready[0]);
     int32_t bestNode = ready[0];
@@ -151,7 +153,7 @@ BenefitSchedAttr::createSched(const SchedGraph &schedGraph,
         bestNode = ready[i];
       }
     }
-    return bestIdx;
+    selectedIndices.insert(bestIdx);
   };
 
   return schedGraph.topologicalSched(schedFn, sched);
