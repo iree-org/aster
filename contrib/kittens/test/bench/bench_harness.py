@@ -81,43 +81,73 @@ def format_mlir_error_oneline(e):
     return first[:200] if first else type(e).__name__
 
 
-# -- Compilation (subprocess) ----------------------------------------------
+# -- Compilation (subprocess, crash-isolated) ------------------------------
 
 
-def compile_one(cfg, hsaco_dir, compile_fn, timeout=DEFAULT_COMPILE_TIMEOUT):
-    """Compile one config to HSACO (called in worker process).
+def _compile_inner(cfg, hsaco_dir, compile_fn, result_pipe):
+    """Run compilation in an isolated child process. Sends result via pipe.
 
-    Uses signal.alarm for a hard per-kernel timeout. Safe because this runs in the main
-    thread of a ProcessPoolExecutor worker process.
+    If this process crashes (segfault, assertion), the parent detects it via exitcode
+    and reports the failure without losing the pool.
     """
-    from aster.hip import parse_asm_kernel_resources, compute_register_budget
-
-    def _alarm_handler(signum, frame):
-        raise TimeoutError(f"compilation timed out after {timeout}s")
-
-    prev_handler = signal.signal(signal.SIGALRM, _alarm_handler)
-    signal.alarm(timeout)
     try:
+        from aster.hip import parse_asm_kernel_resources, compute_register_budget
+
         output = os.path.join(hsaco_dir, f"{cfg.label}.hsaco")
         wg = getattr(cfg, "num_wg_per_cu", 1) or 1
         bv, ba, _ = compute_register_budget(
             cfg.num_threads, mcpu=getattr(cfg, "mcpu", "gfx942"), num_wg_per_cu=wg
         )
-        try:
-            _, asm = compile_fn(cfg, output, num_vgprs=bv, num_agprs=ba)
-        except TimeoutError:
-            raise
-        except Exception as e:
-            raise RuntimeError(format_mlir_error_oneline(e)) from None
+        _, asm = compile_fn(cfg, output, num_vgprs=bv, num_agprs=ba)
         with open(output.replace(".hsaco", ".s"), "w") as f:
             f.write(asm)
         res = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name).get(
             cfg.kernel_name
         )
-        return cfg.label, output, res
+        result_pipe.send(("ok", (cfg.label, output, res)))
+    except Exception as e:
+        result_pipe.send(("error", format_mlir_error_oneline(e)))
     finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, prev_handler)
+        result_pipe.close()
+
+
+def compile_one(cfg, hsaco_dir, compile_fn, timeout=DEFAULT_COMPILE_TIMEOUT):
+    """Compile one config to HSACO in a crash-isolated subprocess.
+
+    Spawns a child process for the actual compilation. If it crashes (segfault,
+    assertion) or exceeds the timeout, the pool worker stays alive and reports the
+    failure.
+    """
+    import multiprocessing as mp
+
+    parent_conn, child_conn = mp.Pipe(duplex=False)
+    p = mp.Process(target=_compile_inner, args=(cfg, hsaco_dir, compile_fn, child_conn))
+    p.start()
+    child_conn.close()
+
+    p.join(timeout=timeout)
+    if p.is_alive():
+        p.kill()
+        p.join()
+        parent_conn.close()
+        raise TimeoutError(f"compilation timed out after {timeout}s")
+
+    if p.exitcode != 0:
+        parent_conn.close()
+        sig = -p.exitcode if p.exitcode < 0 else p.exitcode
+        raise RuntimeError(
+            f"crash (signal {sig})" if p.exitcode < 0 else f"crash (exit {sig})"
+        )
+
+    if not parent_conn.poll():
+        parent_conn.close()
+        raise RuntimeError("compilation produced no result")
+
+    status, payload = parent_conn.recv()
+    parent_conn.close()
+    if status == "error":
+        raise RuntimeError(payload)
+    return payload
 
 
 # -- GPU execution (subprocess, crash-isolated) ----------------------------
