@@ -78,6 +78,31 @@ def _save_error_file(prefix, phase, errors, repro_cmd_fn=None, num_iterations=No
     return _save_tmpfile(prefix, lines)
 
 
+def make_sweep_filter(args, attr_map):
+    """Build a config filter from CLI args that pin sweep dimensions.
+
+    Args:
+        args: Parsed argparse namespace.
+        attr_map: Dict mapping argparse attribute names to config attribute names.
+            E.g. {"stages": "num_stages", "m_waves": "m_waves"}.
+            If a CLI arg is None, it is ignored (not pinned).
+
+    Returns:
+        A predicate (cfg) -> bool that returns True if cfg matches all pinned values,
+        or None if no dimensions are pinned.
+    """
+    pins = {}
+    for arg_name, cfg_attr in attr_map.items():
+        val = getattr(args, arg_name, None)
+        if val is not None:
+            pins[cfg_attr] = val
+    if not pins:
+        return None
+    desc = ", ".join(f"{k}={v}" for k, v in pins.items())
+    print(f"Sweep filter: {desc}")
+    return lambda cfg: all(getattr(cfg, k) == v for k, v in pins.items())
+
+
 def check_numpy_blas(label=""):
     import time
 

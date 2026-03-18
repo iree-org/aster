@@ -78,6 +78,7 @@ from bench_harness import (
     add_sweep_cli_args,
     add_single_cli_args,
     bench_perf_sweep,
+    make_sweep_filter,
     run_single,
     NUM_ITERATIONS,
 )
@@ -170,7 +171,9 @@ def _make_label_suffix(a_path, load_type):
     return f"_direct_{lt}" if a_path == "direct" else f"_{lt}"
 
 
-def _generate_configs(variants=None, sample_size=3000, check_regs=True):
+def _generate_configs(
+    variants=None, sample_size=3000, check_regs=True, sweep_filter=None
+):
     """Generate the full sweep grid, filtering for divisibility and minimum dimensions.
 
     Args:
@@ -180,6 +183,8 @@ def _generate_configs(variants=None, sample_size=3000, check_regs=True):
             Set to 0 to return all configs.
         check_regs: If True, pre-filter configs whose estimated VGPR/AGPR usage
             exceeds the occupancy-derived register budget.
+        sweep_filter: Optional predicate (cfg) -> bool to filter configs before
+            sampling. Used by CLI dimension-pinning (e.g. --n-waves 4).
     """
     import math
     import random
@@ -259,6 +264,11 @@ def _generate_configs(variants=None, sample_size=3000, check_regs=True):
             f"{len(filtered)} configs skipped by pre-compile filter "
             f"(details in {filt_path})"
         )
+
+    if sweep_filter:
+        before = len(configs)
+        configs = [c for c in configs if sweep_filter(c)]
+        print(f"Sweep filter: {before} -> {len(configs)} eligible configs")
 
     total = len(configs)
     n = min(sample_size, total) if sample_size > 0 else total
@@ -410,7 +420,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--unroll-multiplier",
         type=int,
-        default=1,
+        default=None,
         help="Unroll factor multiplier (scales LCM unroll factor, default: 1)",
     )
     parser.add_argument(
@@ -464,16 +474,34 @@ if __name__ == "__main__":
         variant_str = ", ".join(f"{ap}/{lt}" for ap, lt in variants)
         print(f"Variants: {variant_str}")
 
+        # Pin sweep dimensions from CLI args (e.g. --n-waves 4 filters the grid).
+        _SWEEP_ATTR_MAP = {
+            "m_wg": "m_wg",
+            "n_wg": "n_wg",
+            "m_waves": "m_waves",
+            "n_waves": "n_waves",
+            "m_tiles_wg": "m_tiles_wg",
+            "n_tiles_wg": "n_tiles_wg",
+            "k_tiles": "k_tiles",
+            "stages": "num_stages",
+            "k_scaling_factor": "k_scaling_factor",
+            "unroll_multiplier": "unroll_factor_multiplier",
+        }
+        sweep_filter = make_sweep_filter(args, _SWEEP_ATTR_MAP)
+
+        all_configs = _generate_configs(
+            variants,
+            sample_size=getattr(args, "compile_sample", 4096),
+            check_regs=not getattr(args, "no_reg_filter", False),
+            sweep_filter=sweep_filter,
+        )
+
         def _post_compile_filter(cfg, res):
             """Post-compilation filter: reject configs exceeding VGPR or LDS limits."""
             return fits_on_cu_post_compile(cfg, res)
 
         results = bench_perf_sweep(
-            configs=_generate_configs(
-                variants,
-                sample_size=getattr(args, "compile_sample", 4096),
-                check_regs=not getattr(args, "no_reg_filter", False),
-            ),
+            configs=all_configs,
             compile_fn=_compile_fn,
             repro_cmd_fn=_repro_cmd,
             top_k_to_run=top_k_to_run,
