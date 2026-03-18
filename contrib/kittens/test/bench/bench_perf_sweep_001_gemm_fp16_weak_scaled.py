@@ -344,6 +344,9 @@ def verify_top_configs(
         return
     if num_gpus is None:
         num_gpus = detect_num_gpus()
+    if num_gpus == 0:
+        print("\nNo GPUs detected -- skipping correctness verification.")
+        return
     top = results[:num_configs]
     to_verify = [c for c, *_ in top if c.label in hsaco_paths]
     if not to_verify:

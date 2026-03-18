@@ -54,12 +54,17 @@ def check_numpy_blas(label=""):
 
 
 def detect_num_gpus():
+    """Return the number of available GPUs, or 0 if none are present."""
     try:
+        from aster.hip import system_has_gpu
+
+        if not system_has_gpu("gfx942"):
+            return 0
         from aster.testing import hip_get_device_count
 
         return max(1, hip_get_device_count())
     except Exception:
-        return 1
+        return 0
 
 
 def format_mlir_error(e):
@@ -501,14 +506,18 @@ def bench_perf_sweep(
 
         exec_active = random.sample(exec_active, exec_sample)
 
-    print(f"\n--- Executing {len(exec_active)} configs ({num_gpus} GPU(s)) ---")
-    results, exec_failed = run_on_gpus(
-        exec_active,
-        hsaco_paths,
-        num_iterations,
-        num_gpus,
-        desc="Executing",
-    )
+    if num_gpus == 0:
+        print("\nNo GPUs detected -- skipping execution phase.")
+        results, exec_failed = [], []
+    else:
+        print(f"\n--- Executing {len(exec_active)} configs ({num_gpus} GPU(s)) ---")
+        results, exec_failed = run_on_gpus(
+            exec_active,
+            hsaco_paths,
+            num_iterations,
+            num_gpus,
+            desc="Executing",
+        )
     failed.extend((c, e, "") for c, e in exec_failed)
 
     # Summary: separate files for compile errors vs exec errors.
@@ -629,6 +638,10 @@ def run_single(cfg, compile_fn, args, execute_fn):
         print(f"  Compiled: {args.hsaco}")
         if print_asm:
             print(f"\n--- Assembly ---\n{asm}")
+        return
+
+    if detect_num_gpus() == 0:
+        print("No GPUs detected -- skipping execution.")
         return
 
     A, B = make_inputs(cfg)
