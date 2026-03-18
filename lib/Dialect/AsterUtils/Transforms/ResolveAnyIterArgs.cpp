@@ -41,10 +41,13 @@ namespace {
 //===----------------------------------------------------------------------===//
 
 /// Check that all uses of `val` are from_any ops producing type `type`.
-/// Carves out yield ops from the check.
+/// Also allows uses by scf.yield (yield back to loop) and scf.for init_args
+/// (passing the any value into an epilogue loop).
 static bool allUsesAreFromAny(Value val, Type type) {
   return llvm::all_of(val.getUses(), [&](OpOperand &use) {
     if (isa<scf::YieldOp>(use.getOwner()))
+      return true;
+    if (isa<scf::ForOp>(use.getOwner()))
       return true;
     auto fromAny = dyn_cast<FromAnyOp>(use.getOwner());
     return fromAny && fromAny.getResult().getType() == type;
@@ -279,9 +282,10 @@ static LogicalResult rewriteForOp(scf::ForOp forOp) {
       [](int64_t, Value oldBlockArg, Value newBlockArg, IRMapping &mapping,
          DenseSet<Operation *> &skipOps) {
         // Skip from_any ops: map their results directly to the new
-        // concrete-typed block arg.
+        // concrete-typed block arg. Other uses (yield, scf.for init_args)
+        // are handled by mapping or replaceResult.
         for (OpOperand &use : oldBlockArg.getUses()) {
-          if (isa<scf::YieldOp>(use.getOwner()))
+          if (isa<scf::YieldOp, scf::ForOp>(use.getOwner()))
             continue;
           auto fromAny = cast<FromAnyOp>(use.getOwner());
           mapping.map(fromAny.getResult(), newBlockArg);
@@ -297,11 +301,22 @@ static LogicalResult rewriteForOp(scf::ForOp forOp) {
       },
       /*replaceResult=*/
       [](int64_t, Value oldResult, Value newResult) {
-        // Bypass from_any users of the old result.
+        // Bypass from_any users of the old result. For other uses (e.g.,
+        // scf.for init_args in epilogue loops), wrap the concrete result
+        // in to_any so the consumer's type signature stays valid. The
+        // fixpoint iteration will resolve those consumers next.
+        OpBuilder builder(newResult.getContext());
         for (OpOperand &use : llvm::make_early_inc_range(oldResult.getUses())) {
-          auto fromAny = cast<FromAnyOp>(use.getOwner());
-          fromAny.getResult().replaceAllUsesWith(newResult);
-          fromAny.erase();
+          if (auto fromAny = dyn_cast<FromAnyOp>(use.getOwner())) {
+            fromAny.getResult().replaceAllUsesWith(newResult);
+            fromAny.erase();
+          } else {
+            builder.setInsertionPoint(use.getOwner());
+            auto toAny = builder.create<ToAnyOp>(
+                newResult.getLoc(), AnyTypeType::get(newResult.getContext()),
+                newResult);
+            use.set(toAny.getResult());
+          }
         }
       });
 }
