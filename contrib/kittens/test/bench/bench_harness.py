@@ -187,9 +187,10 @@ def compile_one(cfg, hsaco_dir, compile_fn, timeout=DEFAULT_COMPILE_TIMEOUT):
     """
     import multiprocessing as mp
 
+    ctx = mp.get_context("spawn")
     stderr_path = os.path.join(hsaco_dir, f"{cfg.label}.stderr")
-    parent_conn, child_conn = mp.Pipe(duplex=False)
-    p = mp.Process(
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    p = ctx.Process(
         target=_compile_inner,
         args=(cfg, hsaco_dir, compile_fn, child_conn, stderr_path),
     )
@@ -505,9 +506,12 @@ def bench_perf_sweep(
     sys.stdout.flush()
 
     # Phase 1: compile.
+    import multiprocessing as mp
+
     hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
     hsaco_paths, resources_map, failed = {}, {}, []
-    with ProcessPoolExecutor(max_workers=compile_workers) as pool:
+    spawn_ctx = mp.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=compile_workers, mp_context=spawn_ctx) as pool:
         futs = {
             pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c
             for c in active
