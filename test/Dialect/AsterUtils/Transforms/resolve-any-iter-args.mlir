@@ -384,6 +384,70 @@ func.func @cf_and_scf_mixed(%init: i32) -> i32 {
   return %result : i32
 }
 
+// CHECK-LABEL: func.func @epilogue_loop_chain
+// CHECK-SAME:    %[[INIT:.*]]: i32
+// CHECK:         %[[R1:.*]] = scf.for {{.*}} iter_args(%[[A1:.*]] = %[[INIT]]) -> (i32)
+// CHECK:           %[[N1:.*]] = arith.addi %[[A1]], %[[A1]] : i32
+// CHECK:           scf.yield %[[N1]] : i32
+// CHECK:         %[[R2:.*]] = scf.for {{.*}} iter_args(%[[A2:.*]] = %[[R1]]) -> (i32)
+// CHECK:           %[[N2:.*]] = arith.muli %[[A2]], %[[A2]] : i32
+// CHECK:           scf.yield %[[N2]] : i32
+// CHECK:         return %[[R2]] : i32
+func.func @epilogue_loop_chain(%init: i32) -> i32 {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c10 = arith.constant 10 : index
+  %c20 = arith.constant 20 : index
+  %init_any = aster_utils.to_any %init : i32
+  // First loop: any-typed, resolvable.
+  %r1 = scf.for %i = %c0 to %c10 step %c1 iter_args(%arg = %init_any) -> (!aster_utils.any) {
+    %val = aster_utils.from_any %arg : i32
+    %next = arith.addi %val, %val : i32
+    %next_any = aster_utils.to_any %next : i32
+    scf.yield %next_any : !aster_utils.any
+  }
+  // Second loop: init_arg is the first loop's result (no from_any/to_any wrapper).
+  %r2 = scf.for %j = %c10 to %c20 step %c1 iter_args(%arg2 = %r1) -> (!aster_utils.any) {
+    %val2 = aster_utils.from_any %arg2 : i32
+    %next2 = arith.muli %val2, %val2 : i32
+    %next2_any = aster_utils.to_any %next2 : i32
+    scf.yield %next2_any : !aster_utils.any
+  }
+  %result = aster_utils.from_any %r2 : i32
+  return %result : i32
+}
+
+// CHECK-LABEL: func.func @epilogue_loop_mixed
+// CHECK-SAME:    %[[V:.*]]: i32, %[[C:.*]]: f32
+// CHECK:         %[[R1:.*]]:2 = scf.for {{.*}} iter_args(%[[A:.*]] = %[[V]], %[[B:.*]] = %[[C]]) -> (i32, f32)
+// CHECK:           scf.yield
+// CHECK:         %[[R2:.*]]:2 = scf.for {{.*}} iter_args(%[[A2:.*]] = %[[R1]]#0, %[[B2:.*]] = %[[R1]]#1) -> (i32, f32)
+// CHECK:           scf.yield
+// CHECK:         return %[[R2]]#0, %[[R2]]#1 : i32, f32
+func.func @epilogue_loop_mixed(%v: i32, %c: f32) -> (i32, f32) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c5 = arith.constant 5 : index
+  %c10 = arith.constant 10 : index
+  %v_any = aster_utils.to_any %v : i32
+  %r1:2 = scf.for %i = %c0 to %c5 step %c1
+      iter_args(%a = %v_any, %b = %c) -> (!aster_utils.any, f32) {
+    %ai = aster_utils.from_any %a : i32
+    %next = arith.addi %ai, %ai : i32
+    %next_any = aster_utils.to_any %next : i32
+    scf.yield %next_any, %b : !aster_utils.any, f32
+  }
+  %r2:2 = scf.for %j = %c5 to %c10 step %c1
+      iter_args(%a2 = %r1#0, %b2 = %r1#1) -> (!aster_utils.any, f32) {
+    %ai2 = aster_utils.from_any %a2 : i32
+    %next2 = arith.muli %ai2, %ai2 : i32
+    %next2_any = aster_utils.to_any %next2 : i32
+    scf.yield %next2_any, %b2 : !aster_utils.any, f32
+  }
+  %result = aster_utils.from_any %r2#0 : i32
+  return %result, %r2#1 : i32, f32
+}
+
 // CHECK-LABEL: func.func @cf_multi_arg_partial
 // CHECK-SAME:    %[[A:.*]]: i32, %[[B:.*]]: !aster_utils.any
 // CHECK:         cf.br ^bb1(%[[A]], %[[B]] : i32, !aster_utils.any)
