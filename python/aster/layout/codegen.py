@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .algebra import Layout
+from aster.layout.algebra import Layout
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,8 +6,8 @@
 from typing import Optional, List, Union
 
 from aster._mlir_libs._amdgcn import VGPRType, VGPRRangeType, SGPRRangeType
-from .. import ir
-from ._amdgcn_ops_gen import (
+from aster import ir
+from aster.dialects._amdgcn_ops_gen import (
     AllocaOp,
     MakeRegisterRangeOp,
 )
@@ -79,4 +79,4 @@ def make_register_range(inputs: List[ir.Value], *, results=None) -> MakeRegister
     return MakeRegisterRangeOp(inputs=input_values, results=results)
 
 
-from ._amdgcn_inst_gen import *
+from aster.dialects._amdgcn_inst_gen import *

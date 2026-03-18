@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from .int_tuple import IntTuple, product, prefix_product
+from aster.layout.int_tuple import IntTuple, product, prefix_product
 
 
 class Layout:

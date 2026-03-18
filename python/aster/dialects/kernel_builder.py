@@ -25,18 +25,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
 
-from .. import ir
+from aster import ir
 
 if TYPE_CHECKING:
-    from ..layout import Layout
-from . import arith
-from . import affine as affined
-from . import func as funcd
-from ._gpu_ops_gen import (
+    from aster.layout import Layout
+from aster.dialects import arith
+from aster.dialects import affine as affined
+from aster.dialects import func as funcd
+from aster.dialects._gpu_ops_gen import (
     ThreadIdOp as _GPUThreadIdOp,
     BlockIdOp as _GPUBlockIdOp,
 )
-from ._amdgcn_ops_gen import (
+from aster.dialects._amdgcn_ops_gen import (
     AllocaOp,
     EndKernelOp,
     KernelOp,
@@ -48,7 +48,7 @@ from ._amdgcn_ops_gen import (
     LoadOp,
     StoreOp,
 )
-from .._mlir_libs._amdgcn import (
+from aster._mlir_libs._amdgcn import (
     AGPRRangeType,
     AGPRType,
     SGPRRangeType,
@@ -56,9 +56,9 @@ from .._mlir_libs._amdgcn import (
     VGPRRangeType,
     VGPRType,
 )
-from . import api
-from . import lsir as lsird
-from .amdgcn import (
+from aster.dialects import api
+from aster.dialects import lsir as lsird
+from aster.dialects.amdgcn import (
     AccessKind,
     AddressSpaceKind,
     KernelArgumentFlags,
@@ -66,7 +66,7 @@ from .amdgcn import (
     get_kernel_arguments,
     vop2 as _amdgcn_vop2,
 )
-from . import ptr as ptrd
+from aster.dialects import ptr as ptrd
 
 
 def _i8(value: int, ctx: ir.Context) -> ir.IntegerAttr:
@@ -316,7 +316,7 @@ class KernelBuilder:
     def sop2(self, opcode: str, src0: ir.Value, src1: ir.Value) -> ir.Value:
         """Scalar ALU 2-operand operation (SOP2)."""
         dest = self.alloca_sgpr()
-        from ._amdgcn_ops_gen import SOP2Op
+        from aster.dialects._amdgcn_ops_gen import SOP2Op
 
         return SOP2Op(
             result=SGPRType.get(self._ctx),
@@ -371,7 +371,7 @@ class KernelBuilder:
         Returns an index-typed value. The ASTER pipeline
         (aster-affine-optimize-ptr-add, aster-to-int-arith) lowers these.
         """
-        from ..layout.codegen import Delinearize, Linearize, layout_to_ops
+        from aster.layout.codegen import Delinearize, Linearize, layout_to_ops
 
         assert isinstance(
             tid.type, ir.IndexType
