@@ -33,6 +33,8 @@ __all__ = [
 
 from typing import Optional, Union
 
+from ..ir import register_attribute_builder
+
 
 @register_attribute_builder("AMDGCN_InstAttr")
 def _instattr(x, context):

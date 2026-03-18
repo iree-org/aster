@@ -32,7 +32,10 @@ if TYPE_CHECKING:
 from . import arith
 from . import affine as affined
 from . import func as funcd
-from ._gpu_ops_gen import ThreadIdOp as _GPUThreadIdOp, BlockIdOp as _GPUBlockIdOp
+from ._gpu_ops_gen import (
+    ThreadIdOp as _GPUThreadIdOp,
+    BlockIdOp as _GPUBlockIdOp,
+)
 from ._amdgcn_ops_gen import (
     AllocaOp,
     EndKernelOp,

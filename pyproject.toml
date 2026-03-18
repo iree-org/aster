@@ -1,3 +1,9 @@
 [tool.pytest.ini_options]
 testpaths = ["test", "mlir_kernels", "contrib", "python"]
 addopts = "--import-mode=importlib"
+pythonpath = ["contrib/kittens/test"]
+
+[tool.pyrefly]
+search_path = ["build/python_packages"]
+project_includes = ["build/python_packages/aster/**/*.py"]
+project_excludes = ["**/node_modules", "**/__pycache__"]

@@ -6,6 +6,12 @@
 
 # aster.layout -- layout algebra for GPU data mapping.
 
-from .int_tuple import IntTuple, product, prefix_product, delinearize, linearize
+from .int_tuple import (
+    IntTuple,
+    product,
+    prefix_product,
+    delinearize,
+    linearize,
+)
 from .algebra import Layout, make_layout
 from .codegen import Delinearize, Linearize, layout_to_ops
