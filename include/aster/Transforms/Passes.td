@@ -42,36 +42,6 @@ def ConstexprExpansion : Pass<"aster-constexpr-expansion"> {
 }
 
 //===----------------------------------------------------------------------===//
-// DecomposeAffineApply
-//===----------------------------------------------------------------------===//
-
-def DecomposeAffineApply : Pass<"aster-decompose-affine-apply"> {
-  let summary = "Decompose large affine.apply ops into smaller reusable pieces";
-  let description = [{
-    Splits large affine.apply operations into chains of smaller affine.apply
-    ops, reordered from least to most hoistable operands. This exposes more
-    opportunities for LICM, CSE, and int-range-based optimizations.
-
-    Wraps upstream affine::decompose() and reorderOperandsByHoistability().
-
-    Example:
-      %r = affine.apply affine_map<()[s0, s1] -> (s0 * 8 + s1 * 4 + 42)>()[%a, %b]
-    becomes:
-      %c42 = affine.apply affine_map<() -> (42)>()
-      %t0 = affine.apply affine_map<()[s0] -> (s0 * 4)>()[%b]
-      %t1 = affine.apply affine_map<()[s0, s1] -> (s0 + s1)>()[%c42, %t0]
-      %r = affine.apply affine_map<()[s0, s1] -> (s0 * 8 + s1)>()[%a, %t1]
-
-    Note: canonicalization tries to maximally compose chains of affine.apply,
-    undoing this decomposition. Run this pass after canonicalization and before
-    lowering affine to arith.
-  }];
-  let dependentDialects = [
-    "mlir::affine::AffineDialect",
-  ];
-}
-
-//===----------------------------------------------------------------------===//
 // DecomposeMemrefIterArgs
 //===----------------------------------------------------------------------===//
 
