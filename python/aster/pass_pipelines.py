@@ -48,6 +48,7 @@ def amdgcn_kernel(*args):
 # Pre-scheduling cleanup, main purpose is to remove all included libraries that
 # are not needed for a particular kernel.
 PHASE_PRE_SCHEDULING_CLEANUP = (
+    "lower-layout-to-affine",
     "aster-selective-inlining",
     "cse", "canonicalize", "symbol-dce",
 )

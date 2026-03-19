@@ -204,23 +204,23 @@ class KernelBuilder:
     # Thread/block IDs
     # ---------------------------------------------------------------------------
 
-    def thread_id_x(self) -> ir.Value:
-        """Get thread ID x as index.
+    def thread_id(self, dim: str = "x") -> ir.Value:
+        """Get thread ID for the given dimension as index."""
+        d = ir.Attribute.parse(f"#gpu<dim {dim}>")
+        return _GPUThreadIdOp(d, loc=self._loc, ip=self._kip).result
 
-        Emits gpu.thread_id x which returns index type and is lowered through the ASTER
-        pass pipeline (aster-to-int-arith -> aster-codegen -> expand-md-ops).
-        """
-        dim_x = ir.Attribute.parse("#gpu<dim x>")
-        return _GPUThreadIdOp(dim_x, loc=self._loc, ip=self._kip).result
+    def thread_id_x(self) -> ir.Value:
+        """Get thread ID x as index."""
+        return self.thread_id("x")
+
+    def block_id(self, dim: str = "x") -> ir.Value:
+        """Get block (workgroup) ID for the given dimension as index."""
+        d = ir.Attribute.parse(f"#gpu<dim {dim}>")
+        return _GPUBlockIdOp(d, loc=self._loc, ip=self._kip).result
 
     def block_id_x(self) -> ir.Value:
-        """Get workgroup (block) ID x as index.
-
-        Emits gpu.block_id x which returns index type and is lowered through the ASTER
-        pass pipeline (aster-to-int-arith -> aster-codegen -> expand-md-ops).
-        """
-        dim_x = ir.Attribute.parse("#gpu<dim x>")
-        return _GPUBlockIdOp(dim_x, loc=self._loc, ip=self._kip).result
+        """Get block ID x as index."""
+        return self.block_id("x")
 
     @staticmethod
     def _as_value(v) -> ir.Value:
@@ -228,15 +228,6 @@ class KernelBuilder:
         if isinstance(v, ir.Value):
             return v
         return v.results[0]
-
-    def _index_to_vgpr(self, val: ir.Value) -> ir.Value:
-        """Convert an index value to a VGPR via affine.apply + arith.index_cast + lsir.to_reg."""
-        identity_map = ir.Attribute.parse("affine_map<(d0) -> (d0)>")
-        idx_val = affined.apply(identity_map, [val], loc=self._loc, ip=self._kip)
-        i32_type = ir.IntegerType.get_signless(32, self._ctx)
-        i32_val = arith.index_cast(i32_type, idx_val, loc=self._loc, ip=self._kip)
-        vgpr_type = VGPRType.get(self._ctx, reg=None)
-        return lsird.to_reg(vgpr_type, i32_val, loc=self._loc, ip=self._kip)
 
     def _emit_vop2(self, opcode_str: str, dest: ir.Value, src0, src1) -> ir.Value:
         """Emit amdgcn.vop2 via module-level _amdgcn_vop2 helper.
@@ -341,80 +332,31 @@ class KernelBuilder:
         """VOP2 v_add_u32: src0 + src1 -> VGPR."""
         return self.vop2("v_add_u32", src0, src1)
 
-    def byte_offset(self, tid: ir.Value, elem_bytes: int = 4) -> ir.Value:
-        """Compute byte offset = tid * elem_bytes.
-
-        Accepts both index type (from thread_id_x/block_id_x) and VGPR type.
-        For index inputs: uses affine.apply (scale) + arith.index_cast + lsir.to_reg.
-        For VGPR inputs: uses v_lshlrev_b32_e32 (shift).
-        """
-        if isinstance(tid.type, ir.IndexType):
-            scale_map = ir.Attribute.parse(f"affine_map<(d0) -> (d0 * {elem_bytes})>")
-            offset_idx = affined.apply(scale_map, [tid], loc=self._loc, ip=self._kip)
-            i32_type = ir.IntegerType.get_signless(32, self._ctx)
-            offset_i32 = arith.index_cast(
-                i32_type, offset_idx, loc=self._loc, ip=self._kip
-            )
-            vgpr_type = VGPRType.get(self._ctx, reg=None)
-            return lsird.to_reg(vgpr_type, offset_i32, loc=self._loc, ip=self._kip)
-        shift = {1: 0, 2: 1, 4: 2, 8: 3, 16: 4, 32: 5, 64: 6}[elem_bytes]
-        c_shift = self.constant_i32(shift)
-        return self.vop2("v_lshlrev_b32_e32", c_shift, tid)
-
     def layout_byte_offset(self, tid: ir.Value, layout: "Layout") -> ir.Value:
-        """Compute byte offset from thread ID using affine.delinearize + linearize.
-
-        Emits:
-          %coords:N = affine.delinearize_index %tid into (shape...)
-          %offset   = affine.linearize_index [%coords...] by (stride...)
-
-        Returns an index-typed value. The ASTER pipeline
-        (aster-affine-optimize-ptr-add, aster-to-int-arith) lowers these.
-        """
-        from aster.layout.codegen import Delinearize, Linearize, layout_to_ops
+        """Compute byte offset from thread ID using layout.linearize."""
+        from aster.dialects import layout as layout_d
 
         assert isinstance(
             tid.type, ir.IndexType
         ), "layout_byte_offset expects index-typed tid (from thread_id_x())"
 
-        ops = layout_to_ops(layout)
-        idx_type = ir.IndexType.get(self._ctx)
-        val: ir.Value = tid
-        coords: list[ir.Value] = []
-
-        for op in ops:
-            if isinstance(op, Delinearize):
-                shape_attr = ir.DenseI64ArrayAttr.get(list(op.basis), self._ctx)
-                result = affined.delinearize_index(
-                    [idx_type] * len(op.basis),
-                    val,
-                    [],
-                    shape_attr,
-                    loc=self._loc,
-                    ip=self._kip,
-                )
-                coords = list(result) if len(op.basis) > 1 else [result]
-            elif isinstance(op, Linearize):
-                # affine.linearize_index treats basis as sizes (suffix-product
-                # strides), NOT as explicit strides. Use affine.apply with an
-                # explicit affine_map to get the correct dot product:
-                #   offset = c0 * s0 + c1 * s1 + ...
-                strides = op.basis
-                n = len(strides)
-                dims = ", ".join(f"d{i}" for i in range(n))
-                terms = " + ".join(f"d{i} * {strides[i]}" for i in range(n))
-                map_str = f"affine_map<({dims}) -> ({terms})>"
-                amap = ir.Attribute.parse(map_str)
-                val = affined.apply(amap, coords, loc=self._loc, ip=self._kip)
-            else:
-                raise TypeError(f"Unknown layout op: {type(op)}")
-
-        return val
+        sizes = layout.sizes if isinstance(layout.sizes, tuple) else (layout.sizes,)
+        strides = (
+            layout.strides if isinstance(layout.strides, tuple) else (layout.strides,)
+        )
+        attr = layout_d.strided_layout(list(sizes), list(strides), ctx=self._ctx)
+        return layout_d.linearize(tid, attr, loc=self._loc, ip=self._kip)
 
     def index_cast_i32(self, index_val: ir.Value) -> ir.Value:
         """Cast an index value to i32."""
         i32_type = ir.IntegerType.get_signless(32, self._ctx)
         return arith.index_cast(i32_type, index_val, loc=self._loc, ip=self._kip)
+
+    def index_to_vgpr(self, index_val: ir.Value) -> ir.Value:
+        """Convert an index value to a VGPR i32 (for buffer_load/store voffset)."""
+        i32_val = self.index_cast_i32(index_val)
+        vgpr_type = VGPRType.get(self._ctx, reg=None)
+        return lsird.to_reg(vgpr_type, i32_val, loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # Pointer arithmetic (ptr dialect)
@@ -692,6 +634,15 @@ class KernelBuilder:
         )
         return op.results[0]
 
+    def flat_global_load_dword(
+        self,
+        addr: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+    ) -> ir.Value:
+        """Flat global load of 1 dword from a 64-bit address (VGPRx2)."""
+        dest = self._make_register_range([self.alloca_vgpr()])
+        return self._flat_global_load("global_load_dword", dest, addr, const_offset)
+
     def flat_global_load_dwordx4(
         self,
         addr: ir.Value,
@@ -725,6 +676,15 @@ class KernelBuilder:
             ip=self._kip,
         )
         return op.results[0]
+
+    def flat_global_store_dword(
+        self,
+        data: ir.Value,
+        addr: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+    ) -> ir.Value:
+        """Flat global store of 1 dword to a 64-bit address (VGPRx2)."""
+        return self._flat_global_store("global_store_dword", data, addr, const_offset)
 
     def flat_global_store_dwordx4(
         self,

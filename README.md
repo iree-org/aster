@@ -352,6 +352,7 @@ the complex things manageable.
 
 ```python
 from aster import ir
+from aster.layout import Layout
 from aster.dialects.kernel_builder import KernelBuilder
 
 with ir.Context() as ctx, ir.Location.unknown():
@@ -363,7 +364,7 @@ with ir.Context() as ctx, ir.Location.unknown():
     [in_ptr, out_ptr] = b.load_args()
 
     tid = b.thread_id_x()
-    offset = b.byte_offset(tid, elem_bytes=4)
+    offset = b.index_to_vgpr(b.layout_byte_offset(tid, Layout(sizes=64, strides=4)))
 
     # Load, add, store
     val = b.buffer_load(in_ptr, b.s_mov_b32(0), offset)
