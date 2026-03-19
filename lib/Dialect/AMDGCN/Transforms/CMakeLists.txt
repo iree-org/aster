@@ -1,4 +1,5 @@
 add_mlir_library(AMDGCNTransforms
+  AttachScheduler.cpp
   AMDGCNBufferization.cpp
   AMDGCNHazards.cpp
   ConvertLDSBuffers.cpp
@@ -32,6 +33,7 @@ add_mlir_library(AMDGCNTransforms
   LINK_LIBS PUBLIC
   AMDGCNAnalysis
   AMDGCNDialect
+  AsterUtilsDialect
   MLIRNormalFormDialect
   ASTERAnalysis
   AsterTransforms

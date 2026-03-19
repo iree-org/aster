@@ -54,6 +54,9 @@ public:
   /// Verify the instruction instance.
   virtual LogicalResult verify(Operation *op) const = 0;
 
+  /// Returns the TypeID of the operation this instruction applies to.
+  virtual TypeID getOpTypeID() const = 0;
+
   /// Check if the instruction has the given property.
   bool hasProp(InstProp prop) const {
     return prop < InstProp::LastProp && props[static_cast<int32_t>(prop)];
@@ -95,6 +98,11 @@ public:
   /// Classof method for LLVM-style RTTI.
   static bool classof(const InstMetadata *md) {
     return md->getOpCode() == ConcreteTy::kOpCode;
+  }
+
+  /// Returns the TypeID of the operation this instruction applies to.
+  TypeID getOpTypeID() const override {
+    return TypeID::get<typename ConcreteTy::InstOp>();
   }
 
   /// Verify the instruction instance.

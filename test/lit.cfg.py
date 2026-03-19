@@ -52,6 +52,7 @@ config.aster_tools_dir = os.path.join(config.aster_obj_root, "bin")
 config.aster_libs_dir = os.path.join(config.aster_obj_root, "lib")
 
 config.substitutions.append(("%aster_libs", config.aster_libs_dir))
+config.substitutions.append(("%aster_src", config.aster_src_root))
 
 # Allow LLVM_TOOLS_DIR to be overridden from environment
 if os.environ.get("LLVM_TOOLS_DIR"):
