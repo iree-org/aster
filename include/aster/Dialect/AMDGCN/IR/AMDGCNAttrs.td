@@ -104,6 +104,33 @@ def OpCodeLabelerAttr : AMDGCN_Attr<"OpCodeLabeler", "opcode_labeler", [
   let assemblyFormat = "`<` `[` $opCodeMatcher `]` `,` $stage `>`";
 }
 
+def LatencyPipelinerSchedAttr : AMDGCN_Attr<"LatencyPipelinerSched",
+    "latency_pipeliner_sched", [
+    DeclareAttrInterfaceMethods<SchedBuilderAttrInterface>
+  ]> {
+  let summary = "Latency-aware pipelining scheduler";
+  let description = [{
+    Schedules operations in two phases:
+
+    1. If any ready operation has label 0, it is scheduled immediately (these
+       are considered zero-latency or pinned operations).
+
+    2. When no label-0 operations are ready, the scheduler picks the
+       highest-latency (highest-label) operation, preferring a different label
+       than the previously scheduled one in order to interleave distinct
+       instruction types and maximize latency hiding.
+
+    The `schedLimit` parameter controls how many ready operations are scheduled
+    per invocation of the scheduling function. If positive, at most
+    `schedLimit` operations are scheduled per invocation. If non-positive, all
+    ready operations are scheduled.
+  }];
+  let parameters = (ins
+    DefaultValuedParameter<"int32_t", "1">:$schedLimit
+  );
+  let assemblyFormat = "`<` $schedLimit `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // Kernel argument attributes
 //===----------------------------------------------------------------------===//

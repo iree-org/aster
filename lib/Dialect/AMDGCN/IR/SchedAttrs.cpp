@@ -21,6 +21,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Support/DebugLog.h"
 #include <cstdint>
 
@@ -300,4 +301,85 @@ int32_t OpCodeLabelerAttr::getLabel(Operation *op, int32_t,
   if (!llvm::is_contained(matcher, opcode))
     return -1;
   return getStage();
+}
+
+//===----------------------------------------------------------------------===//
+// LatencyPipelinerSchedAttr - SchedBuilderAttrInterface
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+LatencyPipelinerSchedAttr::createSched(const SchedGraph &schedGraph,
+                                       SmallVectorImpl<int32_t> &sched) const {
+  if (!schedGraph.isCompressed())
+    return failure();
+
+  int32_t limit = getSchedLimit();
+  if (limit <= 0)
+    limit = std::numeric_limits<int32_t>::max();
+
+  auto schedFn = [&](ArrayRef<int32_t> ready, SetVector<int32_t> &indices) {
+    bool hasZeroLabel = false;
+    // Phase 1: schedule label-0 ops immediately.
+    for (auto [i, node] : llvm::enumerate(ready)) {
+      if (schedGraph.getLabel(node) == 0) {
+        hasZeroLabel = true;
+        indices.insert(i);
+      }
+    }
+
+    // Early exit if we scheduled any label-0 ops.
+    if (hasZeroLabel)
+      return;
+
+    // Phase 2: interleaved highest-latency scheduling.
+    using IntPair = std::pair<int32_t, int32_t>;
+    SmallVector<IntPair> sortedReady;
+    sortedReady =
+        llvm::map_to_vector(llvm::enumerate(ready), [&](auto indexNode) {
+          auto [i, node] = indexNode;
+          return std::make_pair(node, static_cast<int32_t>(i));
+        });
+    llvm::sort(sortedReady, [&](IntPair a, IntPair b) {
+      int32_t labelA = schedGraph.getLabel(a.first);
+      int32_t labelB = schedGraph.getLabel(b.first);
+      // Sort descending by label; break ties by ascending node ID.
+      if (labelA != labelB)
+        return labelA > labelB;
+      return a.first < b.first;
+    });
+    if (sortedReady.empty())
+      return;
+
+    int32_t numToAdd = std::min<int32_t>(limit, ready.size());
+    int32_t currLabel = schedGraph.getLabel(sortedReady.front().first);
+    int32_t idx = 1;
+    // Schedule the highest-latency op.
+    indices.insert(sortedReady.front().second);
+    --numToAdd;
+
+    // Circular scheduler, always trying to schedule ops with different labels.
+    while (numToAdd > 0) {
+      // Skip already-inserted ops and ops with the same label as the last
+      // scheduled one, advancing the circular index.
+      if (indices.contains(sortedReady[idx].second) ||
+          currLabel == schedGraph.getLabel(sortedReady[idx].first)) {
+        idx = (idx + 1) % sortedReady.size();
+
+        // If we looped, reset the label so in the next iteration we will
+        // schedule the highest-latency op among the remaining ones.
+        if (idx == 0)
+          currLabel = std::numeric_limits<int32_t>::min();
+        continue;
+      }
+      // Schedule the op and update the current label.
+      indices.insert(sortedReady[idx].second);
+      --numToAdd;
+      currLabel = schedGraph.getLabel(sortedReady[idx].first);
+      idx = (idx + 1) % sortedReady.size();
+      if (idx == 0)
+        currLabel = std::numeric_limits<int32_t>::min();
+    }
+  };
+
+  return schedGraph.topologicalSched(schedFn, sched);
 }
