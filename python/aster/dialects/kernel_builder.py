@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, List, Optional
 from aster import ir
 
 if TYPE_CHECKING:
-    from aster.layout import Layout
+    from aster.layout import Layout, Swizzle
 from aster.dialects import arith
 from aster.dialects import affine as affined
 from aster.dialects import func as funcd
@@ -332,8 +332,16 @@ class KernelBuilder:
         """VOP2 v_add_u32: src0 + src1 -> VGPR."""
         return self.vop2("v_add_u32", src0, src1)
 
-    def layout_byte_offset(self, tid: ir.Value, layout: "Layout") -> ir.Value:
-        """Compute byte offset from thread ID using layout.linearize."""
+    def layout_byte_offset(
+        self,
+        tid: ir.Value,
+        layout: "Layout",
+        swizzle: Optional["Swizzle"] = None,
+    ) -> ir.Value:
+        """Compute byte offset from thread ID using layout.linearize.
+
+        If swizzle is provided, applies layout.swizzle to the result.
+        """
         from aster.dialects import layout as layout_d
 
         assert isinstance(
@@ -345,7 +353,17 @@ class KernelBuilder:
             layout.strides if isinstance(layout.strides, tuple) else (layout.strides,)
         )
         attr = layout_d.strided_layout(list(sizes), list(strides), ctx=self._ctx)
-        return layout_d.linearize(tid, attr, loc=self._loc, ip=self._kip)
+        off = layout_d.linearize(tid, attr, loc=self._loc, ip=self._kip)
+        if swizzle is not None:
+            off = layout_d.swizzle(
+                off,
+                bits=swizzle.bits,
+                base=swizzle.base,
+                shift=swizzle.shift,
+                loc=self._loc,
+                ip=self._kip,
+            )
+        return off
 
     def index_cast_i32(self, index_val: ir.Value) -> ir.Value:
         """Cast an index value to i32."""
@@ -694,6 +712,64 @@ class KernelBuilder:
     ) -> ir.Value:
         """Flat global store of 4 dwords to a 64-bit address (VGPRx2)."""
         return self._flat_global_store("global_store_dwordx4", data, addr, const_offset)
+
+    # ---------------------------------------------------------------------------
+    # DS (LDS) operations
+    # ---------------------------------------------------------------------------
+
+    def _ds_write(self, opcode, data, addr, const_offset=None):
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        write_tok_type = ir.Type.parse("!amdgcn.write_token<shared>")
+        op = StoreOp(
+            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+            data=data,
+            addr=addr,
+            constant_offset=const_offset,
+            results=[write_tok_type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
+
+    def _ds_read(self, opcode, dest, addr, const_offset=None):
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        read_tok_type = ir.Type.parse("!amdgcn.read_token<shared>")
+        op = LoadOp(
+            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+            dest=dest,
+            addr=addr,
+            constant_offset=const_offset,
+            results=[dest.type, read_tok_type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
+
+    def ds_write_b32(self, data, addr, const_offset=None):
+        """DS write 32-bit (1 dword) to LDS."""
+        return self._ds_write("ds_write_b32", data, addr, const_offset)
+
+    def ds_write_b64(self, data, addr, const_offset=None):
+        """DS write 64-bit (2 dwords) to LDS."""
+        return self._ds_write("ds_write_b64", data, addr, const_offset)
+
+    def ds_write_b128(self, data, addr, const_offset=None):
+        """DS write 128-bit (4 dwords) to LDS."""
+        return self._ds_write("ds_write_b128", data, addr, const_offset)
+
+    def ds_read_b32(self, addr, const_offset=None):
+        """DS read 32-bit (1 dword) from LDS."""
+        return self._ds_read("ds_read_b32", self.alloca_vgpr(), addr, const_offset)
+
+    def ds_read_b64(self, addr, const_offset=None):
+        """DS read 64-bit (2 dwords) from LDS."""
+        return self._ds_read("ds_read_b64", self.alloc_vgprx2(), addr, const_offset)
+
+    def ds_read_b128(self, addr, const_offset=None):
+        """DS read 128-bit (4 dwords) from LDS."""
+        return self._ds_read("ds_read_b128", self.alloc_vgprx4(), addr, const_offset)
 
     # ---------------------------------------------------------------------------
     # Synchronization
