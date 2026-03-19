@@ -14,7 +14,7 @@ Usage::
         b.add_ptr_arg(AccessKind.ReadOnly)
         b.add_ptr_arg(AccessKind.WriteOnly)
         [a_ptr, b_ptr] = b.load_args()
-        tid = b.thread_id_x()
+        tid = b.thread_id("x")
         ...
         module = b.build()
 
@@ -209,18 +209,68 @@ class KernelBuilder:
         d = ir.Attribute.parse(f"#gpu<dim {dim}>")
         return _GPUThreadIdOp(d, loc=self._loc, ip=self._kip).result
 
-    def thread_id_x(self) -> ir.Value:
-        """Get thread ID x as index."""
-        return self.thread_id("x")
-
     def block_id(self, dim: str = "x") -> ir.Value:
         """Get block (workgroup) ID for the given dimension as index."""
         d = ir.Attribute.parse(f"#gpu<dim {dim}>")
         return _GPUBlockIdOp(d, loc=self._loc, ip=self._kip).result
 
-    def block_id_x(self) -> ir.Value:
-        """Get block ID x as index."""
-        return self.block_id("x")
+    def block_dim(self, dim: str = "x") -> ir.Value:
+        """Get block dimension for the given dimension as index."""
+        from aster.dialects._gpu_ops_gen import BlockDimOp as _GPUBlockDimOp
+
+        d = ir.Attribute.parse(f"#gpu<dim {dim}>")
+        return _GPUBlockDimOp(d, loc=self._loc, ip=self._kip).result
+
+    def grid_dim(self, dim: str = "x") -> ir.Value:
+        """Get grid dimension for the given dimension as index."""
+        from aster.dialects._gpu_ops_gen import GridDimOp as _GPUGridDimOp
+
+        d = ir.Attribute.parse(f"#gpu<dim {dim}>")
+        return _GPUGridDimOp(d, loc=self._loc, ip=self._kip).result
+
+    def linear_thread_id(self) -> ir.Value:
+        """Linearized thread ID within the workgroup: tx + bdx * (ty + bdy * tz)."""
+        tx, ty, tz = self.thread_id("x"), self.thread_id("y"), self.thread_id("z")
+        bdx, bdy = self.block_dim("x"), self.block_dim("y")
+        amap = ir.Attribute.parse(
+            "affine_map<(tx, ty, tz)[bdx, bdy] -> (tx + bdx * (ty + bdy * tz))>"
+        )
+        return affined.apply(
+            amap,
+            [tx, ty, tz, bdx, bdy],
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+    def linear_block_id(self) -> ir.Value:
+        """Linearized block ID across the grid: bx + gdx * (by + gdy * bz)."""
+        bx, by, bz = self.block_id("x"), self.block_id("y"), self.block_id("z")
+        gdx, gdy = self.grid_dim("x"), self.grid_dim("y")
+        amap = ir.Attribute.parse(
+            "affine_map<(bx, by, bz)[gdx, gdy] -> (bx + gdx * (by + gdy * bz))>"
+        )
+        return affined.apply(
+            amap,
+            [bx, by, bz, gdx, gdy],
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+    def global_thread_id(self) -> ir.Value:
+        """Linearized global thread ID: linear_block_id * threads_per_block + linear_thread_id."""
+        ltid = self.linear_thread_id()
+        lbid = self.linear_block_id()
+        bdx, bdy, bdz = self.block_dim("x"), self.block_dim("y"), self.block_dim("z")
+        amap = ir.Attribute.parse(
+            "affine_map<(ltid, lbid)[bdx, bdy, bdz] -> "
+            "(ltid + bdx * bdy * bdz * lbid)>"
+        )
+        return affined.apply(
+            amap,
+            [ltid, lbid, bdx, bdy, bdz],
+            loc=self._loc,
+            ip=self._kip,
+        )
 
     @staticmethod
     def _as_value(v) -> ir.Value:
@@ -346,7 +396,7 @@ class KernelBuilder:
 
         assert isinstance(
             tid.type, ir.IndexType
-        ), "layout_byte_offset expects index-typed tid (from thread_id_x())"
+        ), "layout_byte_offset expects index-typed tid (from thread_id('x'))"
 
         sizes = layout.sizes if isinstance(layout.sizes, tuple) else (layout.sizes,)
         strides = (

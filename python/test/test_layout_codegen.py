@@ -31,7 +31,7 @@ def build_copy_kernel(
     b.add_ptr_arg(AccessKind.WriteOnly)
     src_ptr, dst_ptr = b.load_args()
 
-    tid = b.thread_id_x()
+    tid = b.thread_id("x")
     byte_off = b.layout_byte_offset(tid, thread_layout)
 
     src_addr = b.flat_global_addr(src_ptr, byte_off)

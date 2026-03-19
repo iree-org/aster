@@ -363,7 +363,7 @@ with ir.Context() as ctx, ir.Location.unknown():
     b.add_ptr_arg()  # output
     [in_ptr, out_ptr] = b.load_args()
 
-    tid = b.thread_id_x()
+    tid = b.thread_id("x")
     offset = b.index_to_vgpr(b.layout_byte_offset(tid, Layout(sizes=64, strides=4)))
 
     # Load, add, store

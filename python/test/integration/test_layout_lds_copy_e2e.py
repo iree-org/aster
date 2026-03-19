@@ -1,6 +1,8 @@
-#  Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-#  See https://llvm.org/LICENSE.txt for license information.
-#  SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+# Copyright 2026 The ASTER Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import numpy as np
 import pytest
@@ -41,7 +43,7 @@ def _build_lds_copy_kernel(name, layout, swizzle=None, target=MCPU, isa="cdna3")
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.WriteOnly)
     src_ptr, dst_ptr = b.load_args()
-    tid = b.thread_id_x()
+    tid = b.thread_id("x")
 
     src_voff = b.index_to_vgpr(b.layout_byte_offset(tid, layout))
     lds_voff = b.index_to_vgpr(b.layout_byte_offset(tid, layout, swizzle))
