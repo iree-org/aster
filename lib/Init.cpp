@@ -15,6 +15,7 @@
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
 #include "aster/Dialect/AsterUtils/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
+#include "aster/Dialect/Layout/IR/LayoutDialect.h"
 #include "aster/Dialect/NormalForm/IR/NormalFormDialect.h"
 #include "aster/Dialect/NormalForm/Transforms/Passes.h"
 #include "aster/Interfaces/UpstreamExternalModels.h"
@@ -398,6 +399,7 @@ void mlir::aster::asterRegisterUpstreamMLIRExternalModels(
 ///
 void mlir::aster::initDialects(DialectRegistry &registry) {
   registry.insert<amdgcn::AMDGCNDialect>();
+  registry.insert<layout::LayoutDialect>();
   registry.insert<lsir::LSIRDialect>();
   registry.insert<aster_utils::AsterUtilsDialect>();
   registry.insert<normalform::NormalFormDialect>();

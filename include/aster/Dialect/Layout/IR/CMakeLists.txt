@@ -1,0 +1,8 @@
+set(LLVM_TARGET_DEFINITIONS LayoutOps.td)
+mlir_tablegen(LayoutDialect.h.inc -gen-dialect-decls -dialect=layout)
+mlir_tablegen(LayoutDialect.cpp.inc -gen-dialect-defs -dialect=layout)
+mlir_tablegen(LayoutAttrs.h.inc -gen-attrdef-decls -dialect=layout -attrdefs-dialect=layout)
+mlir_tablegen(LayoutAttrs.cpp.inc -gen-attrdef-defs -dialect=layout -attrdefs-dialect=layout)
+mlir_tablegen(LayoutOps.h.inc -gen-op-decls)
+mlir_tablegen(LayoutOps.cpp.inc -gen-op-defs)
+add_public_tablegen_target(LayoutOpsIncGen)

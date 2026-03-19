@@ -19,6 +19,7 @@ add_mlir_library(ASTERInit
   AsterUpstreamModelsImpl
   AsterUtilsDialect
   AsterUtilsTransforms
+  LayoutDialect
   LSIRDialect
   MLIRNormalFormDialect
   MLIRNormalFormTransforms
