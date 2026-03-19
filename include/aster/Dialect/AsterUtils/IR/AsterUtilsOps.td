@@ -19,7 +19,6 @@ include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.td"
 include "aster/Dialect/AsterUtils/IR/AsterUtilsAttrs.td"
 include "aster/Dialect/AsterUtils/IR/AsterUtilsTypes.td"
 include "aster/IR/CommonProps.td"
-include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/ValueBoundsOpInterface.td"
@@ -182,33 +181,6 @@ def AsterUtils_BlockIdOp : AsterUtils_Op<"block_id", [
   let arguments = (ins DimAttr:$dim);
   let results = (outs I32:$result);
   let assemblyFormat = "$dim attr-dict";
-}
-
-//===----------------------------------------------------------------------===//
-// ExecuteRegionOp
-//===----------------------------------------------------------------------===//
-
-def AsterUtils_ExecuteRegionOp : AsterUtils_Op<"execute_region", [
-    AffineScope, AutomaticAllocationScope, NoRegionArguments,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, [
-      "getSuccessorInputs"
-    ]>,
-    RecursiveMemoryEffects,
-    SingleBlockImplicitTerminator<"aster_utils::YieldOp">,
-  ]> {
-  let summary = "Executes its region once";
-  let description = [{
-    The `aster_utils.execute_region` operation is similar to `scf.execute_region`,
-    executing its single region exactly once. It can be used to isolate a region
-    of code for optimization or analysis purposes.
-    The main difference with `scf.execute_region` is that this operation is
-    also an affine scope, and contains a single block.
-  }];
-  let results = (outs Variadic<AnyType>:$results);
-  let regions = (region SizedRegion<1>:$region);
-  let assemblyFormat = [{
-    attr-dict-with-keyword (`:` type($results)^)? $region
-  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -402,25 +374,6 @@ def AsterUtils_MuliOp : AsterUtils_Op<"muli", [
     $inputs attr-dict `:` type($result)
   }];
   let hasVerifier = 1;
-}
-
-//===----------------------------------------------------------------------===//
-// YieldOp
-//===----------------------------------------------------------------------===//
-
-def AsterUtils_YieldOp : AsterUtils_Op<"yield", [
-    Pure, ReturnLike, Terminator, ParentOneOf<["ExecuteRegionOp"]>
-  ]> {
-  let summary = "Yield operation";
-  let description = [{
-    The `aster_utils.yield` operation yields control-flow and values to the
-    parent operation, similar to `scf.yield`.
-  }];
-  let arguments = (ins Variadic<AnyType>:$results);
-  let builders = [OpBuilder<(ins), [{ /**/ }]>];
-  let assemblyFormat = [{
-    ($results^)?  attr-dict (`:` type($results)^)?
-  }];
 }
 
 #endif // ASTER_DIALECT_ASTERUTILS_IR_ASTERUTILSOPS_TD

@@ -7,11 +7,9 @@ add_mlir_library(AsterUtilsTransforms
   DestructureStructIterArgs.cpp
   ExpandAffineApply.cpp
   FromAnyToPoison.cpp
-  InlineExecuteRegion.cpp
   OptimizePtrAdd.cpp
   ResolveAnyIterArgs.cpp
   Transforms.cpp
-  WrapCallsWithExecuteRegion.cpp
 
   DEPENDS
   AsterUtilsPassIncGen

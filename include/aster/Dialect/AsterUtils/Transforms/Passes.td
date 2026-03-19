@@ -31,28 +31,6 @@ def AsterSelectiveInlining : Pass<"aster-selective-inlining", "mlir::ModuleOp"> 
            "false",
            "If true, allow inlining calls that have sched.* attributes">,
   ];
-  let dependentDialects = [
-    "mlir::aster::aster_utils::AsterUtilsDialect"
-  ];
-}
-
-def InlineExecuteRegion : Pass<"aster-inline-execute-region"> {
-  let summary = "Inline aster_utils.execute_region operations";
-  let description = [{
-    This pass inlines `aster_utils.execute_region` operations by replacing
-    them with the contents of their regions. The yield operation results
-    are replaced with the yielded values.
-  }];
-}
-
-def WrapCallsWithExecuteRegion : Pass<"aster-wrap-calls-with-execute-region"> {
-  let summary = "Wrap function calls with aster_utils.execute_region";
-  let description = [{
-    This pass wraps function calls with `aster_utils.execute_region` operations.
-  }];
-  let dependentDialects = [
-    "mlir::aster::aster_utils::AsterUtilsDialect"
-  ];
 }
 
 def DestructureStructIterArgs : Pass<"aster-destructure-struct-iter-args"> {

@@ -8,9 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
 #include "aster/Dialect/AsterUtils/Transforms/Passes.h"
-#include "aster/Dialect/AsterUtils/Transforms/Transforms.h"
 #include "aster/Transforms/SchedUtils.h"
 
 #include "mlir/Analysis/CallGraph.h"
@@ -63,9 +61,6 @@ void AsterSelectiveInlining::runOnOperation() {
     return signalPassFailure();
   }
 
-  // Wrap all calls with execute_region before inlining.
-  wrapCallsWithExecuteRegion(op);
-
   CallGraph &cg = getAnalysis<CallGraph>();
 
   // Default inliner optimization pipeline (canonicalize)
@@ -91,7 +86,4 @@ void AsterSelectiveInlining::runOnOperation() {
                   config, profitabilityCb);
   if (failed(inliner.doInlining()))
     return signalPassFailure();
-
-  // Inline all execute_region operations after inlining.
-  inlineExecuteRegions(op);
 }
