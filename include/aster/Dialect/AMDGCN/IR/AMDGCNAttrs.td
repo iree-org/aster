@@ -58,6 +58,19 @@ def AMDGCN_InstAttr :
 // Scheduling attributes
 //===----------------------------------------------------------------------===//
 
+def SSASchedulerAttr : AMDGCN_Attr<"SSAScheduler", "ssa_scheduler", [
+    DeclareAttrInterfaceMethods<SchedGraphAttrInterface>
+  ]> {
+  let summary = "SSA-only scheduling graph builder";
+  let description = [{
+    Builds a scheduling graph using only SSA def-use dependencies. Unlike
+    `ValueSchedulerAttr`, this builder does not add sync-point ordering for
+    unknown ops; it trusts explicit `sched.queue`/`sched.exec_latency`
+    attributes to drive scheduling decisions. Useful for unit-testing
+    `QueueAwareSchedAttr` with `amdgcn.test_inst`.
+  }];
+}
+
 def ValueSchedulerAttr : AMDGCN_Attr<"ValueScheduler", "value_scheduler", [
     DeclareAttrInterfaceMethods<SchedGraphAttrInterface>
   ]> {
@@ -127,6 +140,36 @@ def GenericSchedLabelerAttr : AMDGCN_Attr<"GenericSchedLabeler",
   ];
   let assemblyFormat = "`<` $labeler `>`";
   let genVerifyDecl = 1;
+}
+
+def QueueAwareSchedAttr : AMDGCN_Attr<"QueueAwareSched",
+    "queue_aware_sched", [
+    DeclareAttrInterfaceMethods<SchedBuilderAttrInterface>
+  ]> {
+  let summary = "Queue-aware greedy latency-hiding scheduler";
+  let description = [{
+    Implements the same greedy scheduling algorithm as the pre-RA
+    `amdgcn-low-level-scheduler` pass, but expressed as a
+    `SchedBuilderAttrInterface` so it can be composed with the sched
+    attribute framework (`apply-sched`).
+
+    At each step the scheduler scores every ready operation and picks the
+    best one using four heuristics:
+
+    1. **Stall avoidance**: ops that would stall a hardware queue are
+       penalised proportionally to the estimated stall (capped at 32 cycles
+       to avoid starving high-latency ops entirely).
+    2. **Latency hiding**: ops with higher execution latency are scored higher
+       so they are issued early, hiding the latency behind subsequent work.
+    3. **Burst continuity**: consecutive ops targeting the same hardware queue
+       receive a bonus to amortise pipeline switch overhead.
+    4. **Critical path**: ops with more downstream dependents are preferred to
+       unblock the most future work first.
+
+    Queue classification and execution latency are determined from the
+    instruction metadata (`AMDGCNInstOpInterface`) or, when present, the
+    `sched.queue` / `sched.exec_latency` discardable attributes on each op.
+  }];
 }
 
 def LatencyPipelinerSchedAttr : AMDGCN_Attr<"LatencyPipelinerSched",

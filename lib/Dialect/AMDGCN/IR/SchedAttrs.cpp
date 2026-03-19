@@ -13,6 +13,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/QueueTypes.h"
 #include "aster/Interfaces/AllocaOpInterface.h"
 #include "aster/Interfaces/InstOpInterface.h"
 #include "aster/Interfaces/SchedInterfaces.h"
@@ -30,6 +31,32 @@
 using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
+
+//===----------------------------------------------------------------------===//
+// SSASchedulerAttr - SchedGraphAttrInterface
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+SSASchedulerAttr::initializeAnalyses(SchedAnalysis &analysis) const {
+  return success();
+}
+
+FailureOr<SchedGraph>
+SSASchedulerAttr::createGraph(Block *block,
+                              const SchedAnalysis &analysis) const {
+  SchedGraph graph(block);
+  for (Operation &op : *block) {
+    if (op.hasTrait<OpTrait::IsTerminator>())
+      continue;
+    for (Value operand : op.getOperands()) {
+      Operation *producer = operand.getDefiningOp();
+      if (producer && producer->getBlock() == block)
+        graph.addEdge(producer, &op);
+    }
+  }
+  graph.compress();
+  return graph;
+}
 
 //===----------------------------------------------------------------------===//
 // ValueSchedulerAttr - SchedGraphAttrInterface
@@ -301,6 +328,82 @@ int32_t OpCodeLabelerAttr::getLabel(Operation *op, int32_t,
   if (!llvm::is_contained(matcher, opcode))
     return -1;
   return getStage();
+}
+
+//===----------------------------------------------------------------------===//
+// LatencyPipelinerSchedAttr - SchedBuilderAttrInterface
+//===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
+// QueueAwareSchedAttr - SchedBuilderAttrInterface
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+QueueAwareSchedAttr::createSched(const SchedGraph &schedGraph,
+                                 SmallVectorImpl<int32_t> &sched) const {
+  if (!schedGraph.isCompressed())
+    return failure();
+
+  // Precompute successor counts for critical-path scoring.
+  SmallVector<int64_t> succCount(schedGraph.sizeNodes(), 0);
+  for (auto [src, tgt] : schedGraph.edges())
+    ++succCount[src];
+
+  QueueSimulator sim;
+  QueueType lastQueueType = QueueType::Unknown;
+  int64_t burstCount = 0;
+
+  // Scheduling function: pick one ready op per call using the greedy scoring:
+  //   0. Stall avoidance  -- penalise ops stalling a queue (capped at 32cy)
+  //   1. Latency hiding   -- prefer higher exec-latency ops (+execLatency)
+  //   2. Burst continuity -- bonus for same-queue ops (+100)
+  //   3. Critical path    -- prefer more downstream dependents (+successors*10)
+  auto schedFn = [&](ArrayRef<int32_t> ready, SetVector<int32_t> &indices) {
+    int bestScore = std::numeric_limits<int>::min();
+    int32_t bestIdx = -1;
+
+    for (auto [i, nodeId] : llvm::enumerate(ready)) {
+      Operation *op = schedGraph.getOp(nodeId);
+      QueueType qt = classifyOp(op);
+      int64_t execLat = getExecLatency(op, qt);
+
+      int score = 0;
+      int64_t stall = sim.wouldStall(qt);
+      if (stall > 0) {
+        // Penalise stalls but cap so high-latency ops still beat a long
+        // sequence of low-latency ones.
+        int64_t cappedStall = std::min(stall, int64_t{32});
+        score -= static_cast<int>(cappedStall) * 10;
+      }
+      if (qt != QueueType::Unknown && qt == lastQueueType &&
+          burstCount < getQueueDepth(qt))
+        score += 100;
+      score += static_cast<int>(execLat);
+      score += static_cast<int>(succCount[nodeId]) * 10;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = static_cast<int32_t>(i);
+      }
+    }
+
+    if (bestIdx >= 0) {
+      int32_t nodeId = ready[bestIdx];
+      Operation *op = schedGraph.getOp(nodeId);
+      QueueType qt = classifyOp(op);
+      int64_t execLat = getExecLatency(op, qt);
+      sim.issue(qt, execLat);
+      if (qt == lastQueueType)
+        ++burstCount;
+      else {
+        lastQueueType = qt;
+        burstCount = 1;
+      }
+      indices.insert(bestIdx);
+    }
+  };
+
+  return schedGraph.topologicalSched(schedFn, sched);
 }
 
 //===----------------------------------------------------------------------===//
