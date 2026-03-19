@@ -80,7 +80,6 @@ from bench_harness import (
     bench_perf_sweep,
     make_sweep_filter,
     run_single,
-    NUM_ITERATIONS,
 )
 
 # Sweep grid -- 16x16 MFMA with dwordx4: 4 VGPRs per C tile (vs 16 for 32x32).
@@ -290,13 +289,16 @@ def _repro_cmd(cfg, num_iterations):
         else ""
     )
     peel_flag = "" if cfg.epilogue_peeling else " --no-epilogue-peeling"
+    wg_per_cu_flag = (
+        f" --num-wg-per-cu {cfg.num_wg_per_cu}" if cfg.num_wg_per_cu != 1 else ""
+    )
     return (
         f"python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
         f" --m-tiles-wg {cfg.m_tiles_wg} --n-tiles-wg {cfg.n_tiles_wg} --k-tiles {cfg.k_tiles}"
         f" --stages {cfg.num_stages} --k-scaling-factor {k_factor}"
-        f"{buf_flag}{direct_flag}{lcm_flag}{um_flag}{peel_flag}"
+        f"{buf_flag}{direct_flag}{lcm_flag}{um_flag}{peel_flag}{wg_per_cu_flag}"
         f" --iterations {num_iterations}"
     )
 
@@ -317,6 +319,7 @@ def _make_config_from_args(args, load_type, a_path):
         k,
         load_type=load_type,
         a_path=a_path,
+        num_wg_per_cu=getattr(args, "num_wg_per_cu", 1) or 1,
         lcm_unroll=getattr(args, "lcm_unroll", True),
         unroll_factor_multiplier=getattr(args, "unroll_multiplier", 1) or 1,
         epilogue_peeling=getattr(args, "epilogue_peeling", True),

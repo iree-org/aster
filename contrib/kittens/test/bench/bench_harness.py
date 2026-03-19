@@ -271,8 +271,9 @@ def _exec_worker(args):
 
     label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, num_iter = args
     try:
-        A = np.empty(m * k, dtype=np.float16)
-        B = np.empty(n * k, dtype=np.float16)
+        rng = np.random.default_rng(42)
+        A = (rng.standard_normal(m * k) * 0.1).astype(np.float16)
+        B = (rng.standard_normal(n * k) * 0.1).astype(np.float16)
         C = np.zeros(m * n, dtype=np.float32)
         times = execute_hsaco(
             hsaco_path=hsaco_path,
