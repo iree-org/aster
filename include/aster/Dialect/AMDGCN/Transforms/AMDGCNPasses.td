@@ -399,6 +399,25 @@ def SetNormalForms : Pass<"amdgcn-set-normal-forms"> {
   ];
 }
 
+def LowLevelScheduler : Pass<"amdgcn-low-level-scheduler",
+                              "::mlir::aster::amdgcn::KernelOp"> {
+  let summary = "Pre-register-allocation instruction scheduler";
+  let description = [{
+    Reorders instructions within basic blocks to hide issue latency by
+    modeling AMD GPU hardware execution queues (VALU, XDL, SALU, VMEM, LGKM).
+    Uses a greedy algorithm that fills issue slots across queue types to
+    maximize instruction-level parallelism.
+
+    Runs after aster-to-amdgcn and before the register allocation pipeline.
+    Operates on flat basic blocks (post-SCF lowering).
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+  let options = [
+    Option<"debugStalls", "debug-stalls", "bool", "true",
+           "Annotate each op with sched.stall_cycles and sched.stall_reason">,
+  ];
+}
+
 def AMDGCNHazards : Pass<"amdgcn-hazards"> {
   let summary = "Resolve hazards for AMDGCN instructions";
   let description = [{
