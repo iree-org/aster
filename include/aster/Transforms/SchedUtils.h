@@ -23,10 +23,11 @@ constexpr StringLiteral kSchedPermutationAttr = "sched.permutation";
 constexpr StringLiteral kSchedDimsAttr = "sched.dims";
 // Loop pipelining attributes
 constexpr StringLiteral kSchedStageAttr = "sched.stage";
+constexpr StringLiteral kSchedRotateHeadAttr = "sched.rotate_head";
 constexpr StringLiteral knownSchedAttrs[] = {
-    StringLiteral(kSchedDelayAttr), StringLiteral(kSchedRateAttr),
+    StringLiteral(kSchedDelayAttr),       StringLiteral(kSchedRateAttr),
     StringLiteral(kSchedPermutationAttr), StringLiteral(kSchedDimsAttr),
-    StringLiteral(kSchedStageAttr)};
+    StringLiteral(kSchedStageAttr),       StringLiteral(kSchedRotateHeadAttr)};
 
 /// Helper function to check if an operation has any of the known schedule
 /// attributes. This function exhaustively checks all known schedule attribute

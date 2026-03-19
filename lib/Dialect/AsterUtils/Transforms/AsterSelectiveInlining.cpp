@@ -64,6 +64,7 @@ void AsterSelectiveInlining::runOnOperation() {
   }
 
   // Wrap all calls with execute_region before inlining.
+  // Calls with sched.* attrs are skipped (they won't be inlined).
   wrapCallsWithExecuteRegion(op);
 
   CallGraph &cg = getAnalysis<CallGraph>();

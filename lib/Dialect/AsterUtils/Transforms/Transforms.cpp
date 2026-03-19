@@ -20,20 +20,31 @@ using namespace mlir::aster::aster_utils;
 
 void aster_utils::wrapCallsWithExecuteRegion(Operation *op) {
   IRRewriter rewriter(op->getContext());
+  StringRef schedPrefix = "sched.";
   op->walk<WalkOrder::PostOrder>([&](CallOpInterface callOp) {
     if (callOp.getOperation()->getParentOfType<ExecuteRegionOp>())
       return WalkResult::advance();
+
+    // Skip wrapping calls with sched.* attrs -- they won't be inlined
+    // (profitability rejects them) and wrapping causes attr loss.
+    bool hasSched = false;
+    for (NamedAttribute attr : callOp->getAttrs()) {
+      if (attr.getName().strref().starts_with(schedPrefix)) {
+        hasSched = true;
+        break;
+      }
+    }
+    if (hasSched)
+      return WalkResult::advance();
+
     rewriter.setInsertionPoint(callOp);
     Location loc = callOp.getLoc();
 
-    // Create the execute_region operation.
     auto executeRegionOp =
         ExecuteRegionOp::create(rewriter, loc, callOp->getResultTypes());
 
-    // Replace the call uses with the execute_region results.
     rewriter.replaceAllOpUsesWith(callOp, executeRegionOp.getResults());
 
-    // Move the call into the execute_region body.
     Block *block = rewriter.createBlock(&executeRegionOp.getRegion());
     rewriter.moveOpBefore(callOp, block, block->end());
     YieldOp::create(rewriter, loc, callOp->getResults());
