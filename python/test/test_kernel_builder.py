@@ -299,7 +299,7 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
 
     # MFMA 16x16x16 fragment layout for f16 row-major [16][16] (B pre-transposed)
     mfma_ab_layout = Layout(sizes=(4, 16), strides=(8, 32))
-    ab_voff = b._index_to_vgpr(b.layout_byte_offset(tid, mfma_ab_layout))
+    ab_voff = b.index_to_vgpr(b.layout_byte_offset(tid, mfma_ab_layout))
     a_frag = b.buffer_load_dwordx2(a_rsrc, soffset, ab_voff)
     b_frag = b.buffer_load_dwordx2(b_rsrc, soffset, ab_voff)
     b.wait_vmcnt(0)
@@ -309,7 +309,7 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
 
     # MFMA output layout for f32 [16][16]
     mfma_c_layout = Layout(sizes=(4, 16), strides=(16, 64))
-    c_voff = b._index_to_vgpr(b.layout_byte_offset(tid, mfma_c_layout))
+    c_voff = b.index_to_vgpr(b.layout_byte_offset(tid, mfma_c_layout))
     # Note: mfma layout is transposed if we store back by 4.
     b.buffer_store_dwordx4(acc, c_rsrc, soffset, c_voff)
     b.wait_vmcnt(0)
