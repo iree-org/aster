@@ -191,11 +191,17 @@ void DecomposeCSEImpl<OpTy>::expandSubExpression(
     Location loc, int32_t id, SmallVectorImpl<Value> &result,
     const DenseSet<int32_t> &usedExprs,
     DenseMap<int32_t, Value> &barrierPoints) {
-
   int32_t a = subExprs[id].first;
   int32_t b = subExprs[id].second;
   LDBG() << "Expanding sub-expression: " << id << " = (" << a << "," << b
          << ")";
+
+  // If the sub-expression is an identity pair, add the unique value to the
+  // result.
+  if (a == b) {
+    result.push_back(uniqueValues[a]);
+    return;
+  }
 
   // Helper function to get or create a barrier for a sub-expression.
   auto getOrCreateBarrier = [&](int32_t id,
@@ -226,30 +232,9 @@ void DecomposeCSEImpl<OpTy>::expandSubExpression(
     return;
   }
 
-  // If the sub-expression is an identity pair, add the unique value to the
-  // result.
-  if (a == b) {
-    result.push_back(uniqueValues[a]);
-    return;
-  }
-
-  for (int32_t child : {a, b}) {
-    // If the child is an identity pair, add the unique value to the result.
-    if (subExprs[child].first == subExprs[child].second) {
-      result.push_back(uniqueValues[child]);
-      continue;
-    }
-
-    // If the child is a live sub-expression, add the barrier value to the
-    // result.
-    if (usedExprs.contains(child)) {
-      result.push_back(getOrCreateBarrier(child, {child}));
-      continue;
-    }
-
-    // Otherwise, recursively expand the child.
+  // Recursively expand the sub-expressions.
+  for (int32_t child : {a, b})
     expandSubExpression(loc, child, result, usedExprs, barrierPoints);
-  }
 }
 
 template <typename OpTy>
