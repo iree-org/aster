@@ -16,6 +16,7 @@
 #include "aster/Dialect/AsterUtils/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/Layout/IR/LayoutDialect.h"
+#include "aster/Dialect/Layout/Transforms/Passes.h"
 #include "aster/Dialect/NormalForm/IR/NormalFormDialect.h"
 #include "aster/Dialect/NormalForm/Transforms/Passes.h"
 #include "aster/Interfaces/UpstreamExternalModels.h"
@@ -412,6 +413,7 @@ void mlir::aster::registerPasses() {
   aster_utils::registerAsterUtilsPasses();
   aster::registerAsterPasses();
   aster::registerCodeGenPasses();
+  layout::registerLayoutPasses();
   normalform::registerNormalFormPasses();
 }
 
