@@ -252,6 +252,7 @@ def make_default_pass_pipeline(
     num_agprs=256,
     unroll_factor_multiplier=1,
     epilogue_peeling=True,
+    ll_sched=True,
 ) -> str:
     """Build the production pass pipeline with configurable pipelining options."""
     return builtin_module(
@@ -262,6 +263,8 @@ def make_default_pass_pipeline(
             unroll_factor_multiplier=unroll_factor_multiplier,
             epilogue_peeling=epilogue_peeling,
         ),
+        # Rotate sched.rotate_head ops to loop top. No-op if no attrs present.
+        "aster-scf-rotate",
         "aster-destructure-struct-iter-args",
         "canonicalize",
         "cse",
@@ -269,15 +272,14 @@ def make_default_pass_pipeline(
         POST_SROA_CLEANUPS,
         PHASE_CONVERT_LDS_BUFFERS,
         PHASE_LOWER_TO_AMDGCN,
-        # WARNING: PHASE_EXPAND_MD_OPS is NOT idempotent -- running it twice
-        # clobbers enable_workgroup_id_x to false (see expand-md-ops-idempotent.mlir).
-        # amdgcn-backend already runs expand-md-ops internally, so skip it here.
-        # PHASE_EXPAND_MD_OPS,
-        # PHASE_LOWER_TO_AMDGCN,
         amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
+        amdgcn_module(amdgcn_kernel(
+            "amdgcn-low-level-scheduler"
+        )) if ll_sched else "",
         phase_amdgcn_backend(num_vgprs=num_vgprs, num_agprs=num_agprs),
         phase_nop_insertion(delays=0),
     )
+
 
 # --------------------------------------------------------------------------- #
 # Pass pipeline registry for pytest parametrization

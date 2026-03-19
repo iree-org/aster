@@ -501,18 +501,18 @@
       // Wait + extract A and B (redundant waits are no-ops)
       %fut_a = memref.load %a_fut[%a_idx] : !fut_a_buf
       %a = func.call @get_lds_read_value_vx2(%fut_a)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{STAGE_COMPUTE}} : i32, sched.rotate_head}
           : (!future_lds_read) -> !rt_A_f16
       %fut_b = memref.load %b_fut[%b_idx] : !fut_b_buf
       %b = func.call @get_lds_read_value_vx2(%fut_b)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{STAGE_COMPUTE}} : i32, sched.rotate_head}
           : (!future_lds_read) -> !rt_B_f16
 
       // MFMA
       %c_idx = affine.linearize_index [%mt, %nt] by (%m_t, %n_t) : index
       %c_old = memref.load %c_buf[%c_idx] : !c_buf
       %c_new = func.call @mfma_f32_16x16x16_f16(%a, %b, %c_old)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{STAGE_COMPUTE}} : i32, sched.rotate_head}
           : (!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
       memref.store %c_new, %c_buf[%c_idx] : !c_buf
     } {aster.constexpr}

@@ -67,6 +67,7 @@ class WeakScaleConfig:
     lcm_unroll: bool = True  # LCM-based kernel loop unrolling
     unroll_factor_multiplier: int = 1  # extra unroll on top of LCM
     epilogue_peeling: bool = True  # fully unroll cleanup loop after LCM unrolling
+    ll_sched: bool = True
     _label_suffix: str = ""
 
     def __post_init__(self):
@@ -259,13 +260,12 @@ def compile_gemm(
         use_buffer=cfg.use_buffer, direct_a=cfg.direct_a
     )
 
-    lcm_unroll = getattr(cfg, "lcm_unroll", True)
     pipeline = make_default_pass_pipeline(
-        lcm_unroll=lcm_unroll,
         num_vgprs=num_vgprs,
         num_agprs=num_agprs,
         unroll_factor_multiplier=unroll_factor_multiplier,
         epilogue_peeling=epilogue_peeling,
+        ll_sched=getattr(cfg, "ll_sched", True),
     )
 
     ctx = ir.Context()
@@ -487,6 +487,11 @@ if __name__ == "__main__":
         action="store_true",
         help="A operand via bpermute (LDS bypass) instead of LDS",
     )
+    parser.add_argument(
+        "--no-ll-sched",
+        action="store_true",
+        help="Disable low-level instruction scheduler (amdgcn-low-level-scheduler)",
+    )
     a = parser.parse_args()
     load_type = "buffer" if a.use_buffer else "flat"
     a_path = "direct" if a.direct_a else "lds"
@@ -504,6 +509,7 @@ if __name__ == "__main__":
         k,
         load_type=load_type,
         a_path=a_path,
+        ll_sched=not a.no_ll_sched,
     )
 
     from aster.hip import parse_asm_kernel_resources
