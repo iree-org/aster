@@ -915,13 +915,17 @@ LogicalResult KernelOp::verify() {
 //===----------------------------------------------------------------------===//
 
 /// Verify all normal forms attached to an operation via its normal_forms attr.
-static LogicalResult verifyNormalFormsRegions(Operation *op,
-                                              ArrayAttr normalFormsAttr) {
+/// `excludeAttrNames` optionally specifies named attributes whose nested
+/// types should be skipped during verification.
+static LogicalResult verifyNormalFormsRegions(
+    Operation *op, ArrayAttr normalFormsAttr,
+    const DenseSet<StringAttr> *excludeAttrNames = nullptr) {
   if (!normalFormsAttr || normalFormsAttr.empty())
     return success();
   for (Attribute attr : normalFormsAttr) {
     auto nf = cast<normalform::NormalFormAttrInterface>(attr);
-    if (failed(normalform::verifyNormalForm(op, nf, /*emitDiagnostics=*/true)))
+    if (failed(normalform::verifyNormalForm(op, nf, /*emitDiagnostics=*/true,
+                                            excludeAttrNames)))
       return failure();
   }
   return success();
@@ -1003,7 +1007,13 @@ bool amdgcn::ModuleOp::removeNormalForms(
 //===----------------------------------------------------------------------===//
 
 LogicalResult KernelOp::verifyRegions() {
-  return verifyNormalFormsRegions(getOperation(), getNormalFormsAttr());
+  // Exclude 'arguments' attribute from normal form type walking: kernel
+  // argument attrs (by_val_arg, buffer_arg) contain ABI metadata types,
+  // not computational register types in the kernel body.
+  DenseSet<StringAttr> excludeAttrs;
+  excludeAttrs.insert(getArgumentsAttrName());
+  return verifyNormalFormsRegions(getOperation(), getNormalFormsAttr(),
+                                  &excludeAttrs);
 }
 
 bool KernelOp::addNormalForms(

@@ -36,3 +36,17 @@ normalform.module @value_in_func_result [#amdgcn.no_value_semantic_registers] {
     return %0 : !amdgcn.vgpr
   }
 }
+
+// -----
+
+// by_val_arg type is ABI metadata, not a value-semantic register in the body
+amdgcn.module @by_val_arg_metadata target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  amdgcn.kernel @test arguments <[
+    #amdgcn.by_val_arg<size = 4, type = !amdgcn.vgpr>
+  ]> attributes {
+    normal_forms = [#amdgcn.no_value_semantic_registers],
+    shared_memory_size = 0 : i32
+  } {
+    amdgcn.end_kernel
+  }
+}

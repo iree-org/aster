@@ -396,9 +396,14 @@ def execute_kernel_and_verify(
         List of execution times in nanoseconds, one per iteration
     """
 
+    def _is_scalar(arg):
+        return isinstance(arg, (int, float, np.integer, np.floating))
+
     assert all(
-        array.size > 0 for array in input_args + output_args
+        (_is_scalar(arg) or arg.size > 0) for arg in input_args + output_args
     ), "All NP arrays must have > 0 elements"
+
+    has_scalars = any(_is_scalar(arg) for arg in input_args)
 
     if hsaco_path is None:
         raise RuntimeError("Failed to assemble kernel to HSACO")
@@ -452,6 +457,10 @@ def execute_kernel_and_verify(
         has_padding = any(pb > 0 for pb in padding_bytes)
 
         if has_padding:
+            if has_scalars:
+                raise ValueError(
+                    "Padding is not supported with scalar by_val arguments"
+                )
             # Use padded buffers
             padded_buffers = []
             ptr_values = []
@@ -469,13 +478,25 @@ def execute_kernel_and_verify(
             # Create kernel arguments from padded buffer pointers
             params_tuple = utils.create_kernel_args_capsule(ptr_values)
         else:
-            # Use normal buffers
+            # Build kernarg values: scalars packed directly, arrays via GPU ptrs.
+            # Scalar by_val args are stored as c_uint64; HIP reads the correct
+            # number of bytes based on kernel metadata (little-endian safe).
             _log_with_device(
-                logger, actual_device_id, f"Allocating {len(all_arrays)} buffers"
+                logger,
+                actual_device_id,
+                f"Allocating buffers for {len(all_arrays)} args",
             )
-            params_tuple, gpu_ptrs = utils.create_kernel_args_capsule_from_numpy(
-                *all_arrays, device_id=device_id
-            )
+            ptr_values = []
+            gpu_ptrs = []
+            for arg in all_arrays:
+                if _is_scalar(arg):
+                    ptr_values.append(int(arg))
+                else:
+                    base_gpu_ptr, _, ptr_value = utils.copy_array_to_gpu(arg)
+                    gpu_ptrs.append(base_gpu_ptr)
+                    ptr_values.append(ptr_value)
+
+            params_tuple = utils.create_kernel_args_capsule(ptr_values)
 
         iteration_times_ns = []
 
@@ -539,10 +560,13 @@ def execute_kernel_and_verify(
                         pad_bytes = padding_bytes[num_inputs + i]
                         utils.copy_from_gpu_buffer(base_ptr, output_arr, pad_bytes)
                 else:
-                    # Copy from normal buffers
+                    # Copy from normal buffers.
+                    # gpu_ptrs only contains entries for array args (scalars
+                    # are skipped), so compute the offset past input arrays.
                     assert gpu_ptrs is not None
+                    num_input_arrays = sum(1 for a in input_args if not _is_scalar(a))
                     for i, output_arr in enumerate(output_args):
-                        output_ptr = gpu_ptrs[num_inputs + i]
+                        output_ptr = gpu_ptrs[num_input_arrays + i]
                         capsule_output = utils.wrap_pointer_in_capsule(
                             output_arr.ctypes.data
                         )
