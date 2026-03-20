@@ -10,26 +10,16 @@ import pytest
 from aster import ir, utils
 from aster.layout import Layout, Swizzle
 from aster.dialects.kernel_builder import KernelBuilder
-from aster.dialects import amdgcn as amdgcn_dialect
 from aster.dialects.amdgcn import AccessKind
-from aster.testing import execute_kernel_and_verify, hsaco_file
+from aster.testing import (
+    compile_mlir_module_to_asm,
+    execute_kernel_and_verify,
+    hsaco_file,
+)
 
 N_THREADS = 64
 ELEM_BYTES = 8  # 2 f32 per thread (dwordx2 for ds_write_b64)
 MCPU = "gfx942"
-
-
-def _compile_to_asm(module):
-    from aster._mlir_libs._mlir import passmanager
-    from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
-
-    ctx = ir.Context.current
-    pm = passmanager.PassManager.parse(TEST_SROA_PASS_PIPELINE, ctx)
-    pm.run(module.operation)
-    for op in module.body:
-        if isinstance(op, amdgcn_dialect.ModuleOp):
-            return utils.translate_module(op)
-    raise RuntimeError("No amdgcn.module found")
 
 
 LDS_SIZE = N_THREADS * ELEM_BYTES
@@ -81,7 +71,7 @@ def _run_lds_copy_test(name, layout, swizzle=None):
     ctx.allow_unregistered_dialects = True
     with ctx:
         module = _build_lds_copy_kernel(name, layout, swizzle)
-        asm = _compile_to_asm(module)
+        asm = compile_mlir_module_to_asm(module)
 
     path = utils.assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
     if path is None:
