@@ -51,8 +51,7 @@ amdgcn.library @common_indexing_ptr {
   func.func private @global_addr_from_offset(
       %base: !sx2, %byte_off: index) -> !vx2 {
     %gptr = lsir.from_reg %base : !sx2 -> !gptr
-    %off_i32 = arith.index_cast %byte_off : index to i32
-    %addr_ptr = ptr.ptr_add %gptr, %off_i32 : !gptr, i32
+    %addr_ptr = ptr.ptr_add %gptr, %byte_off : !gptr, index
     %addr = lsir.to_reg %addr_ptr : !gptr -> !vx2
     return %addr : !vx2
   }

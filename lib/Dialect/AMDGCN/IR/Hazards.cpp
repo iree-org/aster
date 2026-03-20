@@ -62,7 +62,7 @@ static bool checkOverlap(AMDGCNRegisterTypeInterface lhs,
 
 static int16_t getMfmaPassCase(OpCode op) {
   switch (op) {
-  // 16 cycles -> 4 passes (case 1), per Table 37: 16x16x16, 16x16x32
+  // 16 cycles -> 4 passes (case 1), per Table 37: 16x16x16, 16x16x32.
   case OpCode::V_MFMA_F32_16X16X16_F16:
   case OpCode::V_MFMA_F32_16X16X16_BF16:
   case OpCode::V_MFMA_F16_16X16X16_F16:
@@ -70,17 +70,17 @@ static int16_t getMfmaPassCase(OpCode op) {
   case OpCode::V_MFMA_F32_16X16X32_FP8_BF8:
   case OpCode::V_MFMA_F32_16X16X32_BF8_FP8:
   case OpCode::V_MFMA_F32_16X16X32_BF8_BF8:
-    return 1; // 4 passes
+    return 1; // 4 passes.
   // 32 cycles -> 8 passes (case 2), per Table 37: 32x32x8, 32x32x16; 32x32x64
-  // scaled
+  // scaled.
   case OpCode::V_MFMA_F32_32X32X8_F16:
   case OpCode::V_MFMA_SCALE_F32_32X32X64_F8F6F4:
-    return 2; // 8 passes
-  // 64 cycles -> 16 passes (case 3), 16x16x128 has 4x K of 16x16x32
+    return 2; // 8 passes.
+  // 64 cycles -> 16 passes (case 3), 16x16x128 has 4x K of 16x16x32.
   case OpCode::V_MFMA_SCALE_F32_16X16X128_F8F6F4:
-    return 3; // 16 passes
+    return 3; // 16 passes.
   default:
-    return -1; // unknown or not implemented
+    return -1; // Unknown or not implemented.
   }
 }
 
@@ -270,9 +270,10 @@ void CDNA3VccExecVcczExeczHazardAttr::populateHazardsFor(
   hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
                            instOp.getOperation(), getInstCounts(0)));
 }
+
 bool CDNA3VccExecVcczExeczHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
-  assert(hazard.getHazard() == *this && "Hazard mismatch");
+  assert(hazard.getHazard() == *this && "hazard mismatch");
 
   const InstMetadata *metadata = instOp.getInstMetadata();
   if (!metadata || !metadata->hasProp(InstProp::IsValu))
@@ -373,7 +374,7 @@ void CDNA3StoreWriteDataHazardAttr::populateHazardsFor(
 
 bool CDNA3StoreWriteDataHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
-  assert(hazard.getHazard() == *this && "Hazard mismatch");
+  assert(hazard.getHazard() == *this && "hazard mismatch");
   // Case 8: Any instruction that writes to writedata VGPRs (non-VALU gets 1
   // wait). Case 9 (CDNA3StoreHazard) handles VALU with 2 waits.
   const InstMetadata *metadata = instOp.getInstMetadata();
@@ -454,7 +455,7 @@ void CDNA3StoreHazardAttr::populateHazardsFor(
 
 bool CDNA3StoreHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
-  assert(hazard.getHazard() == *this && "Hazard mismatch");
+  assert(hazard.getHazard() == *this && "hazard mismatch");
 
   const InstMetadata *metadata = instOp.getInstMetadata();
   if (!metadata || !metadata->hasProp(InstProp::IsValu))
@@ -464,7 +465,7 @@ bool CDNA3StoreHazardAttr::isHazardTriggered(
   AMDGCNRegisterTypeInterface writeRegTy = storeOp.getData().getType();
 
   assert(writeRegTy.hasAllocatedSemantics() &&
-         "Write register type must have allocated semantics");
+         "write register type must have allocated semantics");
 
   // Check if the VALU instruction writes to the same register as the store.
   return llvm::any_of(TypeRange(instOp.getInstOuts()), [&](Type out) {
@@ -498,7 +499,7 @@ void CDNA3ValuSgprVmemHazardAttr::populateHazardsFor(
 
 bool CDNA3ValuSgprVmemHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
-  assert(hazard.getHazard() == *this && "Hazard mismatch");
+  assert(hazard.getHazard() == *this && "hazard mismatch");
 
   const InstMetadata *metadata = instOp.getInstMetadata();
   if (!metadata || !metadata->hasProp(InstProp::IsVmem))
@@ -732,7 +733,7 @@ void CDNA3NonDLOpsValuMfmaHazardAttr::populateHazardsFor(
 
 bool CDNA3NonDLOpsValuMfmaHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
-  assert(hazard.getHazard() == *this && "Hazard mismatch");
+  assert(hazard.getHazard() == *this && "hazard mismatch");
 
   const InstMetadata *metadata = instOp.getInstMetadata();
   if (!metadata || !metadata->hasProp(InstProp::Mma))
@@ -806,7 +807,7 @@ void CDNA3XdlWriteVgprXdlReadSrcCExactHazardAttr::populateHazardsFor(
 
 bool CDNA3XdlWriteVgprXdlReadSrcCExactHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
-  assert(hazard.getHazard() == *this && "Hazard mismatch");
+  assert(hazard.getHazard() == *this && "hazard mismatch");
 
   int16_t caseNum = getCaseNum();
 
@@ -821,13 +822,11 @@ bool CDNA3XdlWriteVgprXdlReadSrcCExactHazardAttr::isHazardTriggered(
   else if (auto scaledMai =
                dyn_cast<inst::VOP3PScaledMAIOp>(instOp.getOperation()))
     srcC = scaledMai.getC();
-  else
-    srcC = {};
   if (!srcC)
     return false;
 
   OpOperand *raiserVdst = hazard.getOperand();
-  assert(raiserVdst && "Raiser operand cannot be nullptr");
+  assert(raiserVdst && "raiser operand cannot be nullptr");
 
   if (srcC.getType() != raiserVdst->get().getType())
     return false;
@@ -839,7 +838,7 @@ bool CDNA3XdlWriteVgprXdlReadSrcCExactHazardAttr::isHazardTriggered(
     return false;
 
   const InstMetadata *raiserMetadata = raiserInstOp.getInstMetadata();
-  assert(raiserMetadata && "Raiser metadata cannot be nullptr");
+  assert(raiserMetadata && "raiser metadata cannot be nullptr");
 
   int16_t raiserPassCase = getMfmaPassCase(raiserMetadata->getOpCode());
   return raiserPassCase >= 0 && raiserPassCase == caseNum;
@@ -915,7 +914,7 @@ void CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::populateHazardsFor(
 
 bool CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
-  assert(hazard.getHazard() == *this && "Hazard mismatch");
+  assert(hazard.getHazard() == *this && "hazard mismatch");
 
   int16_t caseNum = getCaseNum();
 
@@ -931,8 +930,6 @@ bool CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::isHazardTriggered(
                  dyn_cast<inst::VOP3PScaledMAIOp>(instOp.getOperation())) {
     srcA = scaledMai.getA();
     srcB = scaledMai.getB();
-  } else {
-    return false;
   }
 
   OpOperand *raiserVdst = hazard.getOperand();
@@ -1004,10 +1001,7 @@ void CDNA3XdlWriteVgprVmemValuHazardAttr::populateHazardsFor(
 
 bool CDNA3XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
-  auto hazardAttr =
-      dyn_cast<CDNA3XdlWriteVgprVmemValuHazardAttr>(hazard.getHazard());
-  if (!hazardAttr)
-    return false;
+  assert(hazard.getHazard() == *this && "hazard mismatch");
 
   // instOp must be VMEM, L/GDS, FLAT, Export, or VALU.
   const InstMetadata *metadata = instOp.getInstMetadata();
@@ -1018,7 +1012,7 @@ bool CDNA3XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
       metadata->hasProp(InstProp::Mma))
     return false;
 
-  int16_t caseNum = hazardAttr.getCaseNum();
+  int16_t caseNum = getCaseNum();
 
   OpOperand *raiserVdst = hazard.getOperand();
   if (!raiserVdst)
@@ -1185,23 +1179,13 @@ bool CDNA3Mfma4x4x4F64WriteVgprHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case VcmpxExecMfmaHazard
 //===----------------------------------------------------------------------===//
-bool CDNA3VcmpxExecMfmaHazardAttr::matchInst(const InstMetadata *md,
-                                             ISAVersion isaVer) const {
-  if (!md || !instSupportsIsa(md, isaVer))
-    return false;
-  // V_CMPX* instructions write EXEC. TODO: Check for V_CMPX* opcode.
-  return md->hasProp(InstProp::IsValu);
+bool CDNA3VcmpxExecMfmaHazardAttr::matchInst(const InstMetadata *,
+                                             ISAVersion) const {
+  return false; // TODO: V_CMPX* not implemented.
 }
 
 void CDNA3VcmpxExecMfmaHazardAttr::populateHazardsFor(
-    AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
-  const InstMetadata *metadata = instOp.getInstMetadata();
-  if (!metadata || !metadata->hasProp(InstProp::IsValu))
-    return;
-  // TODO: Check if instruction is V_CMPX* that writes EXEC.
-  (void)instOp;
-  (void)hazards;
-}
+    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
 
 bool CDNA3VcmpxExecMfmaHazardAttr::isHazardTriggered(
     const Hazard &, AMDGCNInstOpInterface instOp) const {

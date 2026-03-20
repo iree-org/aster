@@ -484,8 +484,10 @@
   // 4. LDS read wait + MFMA + decoupled
   //===--------------------------------------------------------------------===//
 
-  // Fused wait + MFMA: delinearize flat index into (m, k, n), wait for
+  // Fused wait + MFMA: delinearize flat index into (k, m, n), wait for
   // the corresponding A[k,m] and B[k,n] futures, then MFMA.
+  // k is outermost so A[k,m] is reused across all n tiles before advancing k,
+  // and consecutive MFMAs update different C accumulators to hide MFMA latency.
   // Redundant waits on already-completed tokens are free (waitcnt satisfied).
   // k_mfma is the total number of MFMA K-steps (e.g. k_t * 2 for 16x32 tiles).
   func.func private @k_wait_and_compute_mfmas(%m_t: index, %n_t: index, %k_mfma: index,
@@ -494,7 +496,7 @@
     %c1 = arith.constant 1 : index
     %ub = affine.apply affine_map<()[s0, s1, s2] -> (s0 * s1 * s2)>()[%m_t, %k_mfma, %n_t]
     scf.for %idx = %c0 to %ub step %c1 {
-      %mt, %km, %nt = affine.delinearize_index %idx into (%m_t, %k_mfma, %n_t) : index, index, index
+      %km, %mt, %nt = affine.delinearize_index %idx into (%k_mfma, %m_t, %n_t) : index, index, index
       %a_idx = affine.linearize_index [%km, %mt] by (%k_mfma, %m_t) : index
       %b_idx = affine.linearize_index [%km, %nt] by (%k_mfma, %n_t) : index
 
@@ -551,7 +553,7 @@
     return %b_vals : !vals_b_buf
   }
 
-  // Compute MFMAs: m_t * k_mfma * n_t operations.
+  // Compute MFMAs: k_mfma * m_t * n_t operations with k outermost.
   // k_mfma is the total number of MFMA K-steps; caller computes it (e.g. k_t * 2 for 16x32 tiles).
   func.func private @k_compute_mfmas(%m_t: index, %n_t: index, %k_mfma: index,
       %a_vals: !vals_a_buf, %b_vals: !vals_b_buf, %c_buf: !c_buf) {
@@ -559,7 +561,7 @@
     %c1 = arith.constant 1 : index
     %ub = affine.apply affine_map<()[s0, s1, s2] -> (s0 * s1 * s2)>()[%m_t, %k_mfma, %n_t]
     scf.for %idx = %c0 to %ub step %c1 {
-      %mt, %km, %nt = affine.delinearize_index %idx into (%m_t, %k_mfma, %n_t) : index, index, index
+      %km, %mt, %nt = affine.delinearize_index %idx into (%k_mfma, %m_t, %n_t) : index, index, index
       %c_idx = affine.linearize_index [%mt, %nt] by (%m_t, %n_t) : index
       %a_idx = affine.linearize_index [%km, %mt] by (%k_mfma, %m_t) : index
       %b_idx = affine.linearize_index [%km, %nt] by (%k_mfma, %n_t) : index

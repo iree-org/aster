@@ -96,18 +96,13 @@ ChangeResult HazardState::addHazards(ArrayRef<Hazard> hazards) {
   if (hazards.empty())
     return ChangeResult::NoChange;
 
-  ChangeResult changed = ChangeResult::NoChange;
-
   // Merge the hazards into the active hazards.
   SmallVector<Hazard, 4> merged;
-  if (mergeActiveHazards(merged, activeHazards, hazards))
-    changed = ChangeResult::Change;
-
-  if (changed == ChangeResult::NoChange)
-    return changed;
+  if (!mergeActiveHazards(merged, activeHazards, hazards))
+    return ChangeResult::NoChange;
 
   activeHazards = std::move(merged);
-  return changed;
+  return ChangeResult::Change;
 }
 
 /// Helper function to print a hazard state.
@@ -209,9 +204,7 @@ static bool updateHazards(SmallVectorImpl<Hazard> &hazards,
   }
 
   // Remove the inactive hazards, this keeps the active hazards sorted.
-  hazards.erase(
-      llvm::remove_if(hazards, [](const Hazard &h) { return !h.isValid(); }),
-      hazards.end());
+  llvm::erase_if(hazards, [](const Hazard &h) { return !h.isValid(); });
   return changed;
 }
 
@@ -266,9 +259,7 @@ LogicalResult HazardAnalysis::visitOperation(Operation *op,
     return instOp.emitError() << "failed to get hazards for instruction";
 
   // Remove the inactive hazards.
-  hazards.erase(
-      llvm::remove_if(hazards, [](const Hazard &h) { return !h.isActive(); }),
-      hazards.end());
+  llvm::erase_if(hazards, [](const Hazard &h) { return !h.isActive(); });
 
   // Sort the hazards for the merge sort.
   llvm::sort(hazards);
@@ -292,7 +283,7 @@ void HazardAnalysis::visitCallControlFlowTransfer(
     const HazardState &before, HazardState *after) {
   DUMP_STATE_HELPER("call op",
                     OpWithFlags(call, OpPrintingFlags().skipRegions()), {});
-  assert(false && "inter-procedural hazard analysis not supported");
+  llvm_unreachable("inter-procedural hazard analysis not supported");
 }
 
 void HazardAnalysis::visitRegionBranchControlFlowTransfer(
