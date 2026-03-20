@@ -10,10 +10,9 @@ Layer 3: integration test - construct buffer_load + MFMA + buffer_store kernel.
 
 import pytest
 import aster.ir as ir
-from aster import utils
 from aster.dialects import amdgcn as amdgcn_dialect
 from aster.dialects.kernel_builder import KernelBuilder
-from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
+from aster.testing import compile_mlir_module_to_asm
 
 # ---------------------------------------------------------------------------
 # Layer 1: Attribute constructor roundtrips
@@ -244,26 +243,6 @@ def test_kernel_builder_with_ptr_args():
 # ---------------------------------------------------------------------------
 
 
-def compile_to_asm(module: ir.Module) -> str:
-    """Run TEST_SROA_PASS_PIPELINE and return the assembly string.
-
-    Must be called inside an active ``with ctx:`` block.
-    """
-    from aster._mlir_libs._mlir import passmanager
-
-    ctx = ir.Context.current
-    pm = passmanager.PassManager.parse(TEST_SROA_PASS_PIPELINE, ctx)
-    pm.run(module.operation)
-
-    amdgcn_mod = None
-    for op in module.body:
-        if isinstance(op, amdgcn_dialect.ModuleOp):
-            amdgcn_mod = op
-            break
-    assert amdgcn_mod is not None
-    return utils.translate_module(amdgcn_mod)
-
-
 def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Module:
     """Build a tiledmma kernel: A[16x16 f16] x B[16x16 f16]^T -> C[16x16 f32].
 
@@ -274,31 +253,29 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
     A and B are both stored row-major [16][16] f16. The MFMA treats B as B[N][K]
     so the mathematical computation is D = A @ B^T.
 
-    Shared helper used by the unit structure test and the E2E execution test.
     Must be called inside an active ``with ctx:`` block.
     """
     from aster.dialects.amdgcn import AccessKind
     from aster.layout import Layout
 
     b = KernelBuilder("tiledmma_mod", "tiledmma", target=target, isa=isa)
-    b.add_ptr_arg(AccessKind.ReadOnly)  # A matrix ptr
-    b.add_ptr_arg(AccessKind.ReadOnly)  # B matrix ptr
-    b.add_ptr_arg(AccessKind.WriteOnly)  # C (output) ptr
+    b.add_ptr_arg(AccessKind.ReadOnly)  # A
+    b.add_ptr_arg(AccessKind.ReadOnly)  # B
+    b.add_ptr_arg(AccessKind.WriteOnly)  # C/D
 
     a_ptr, b_ptr, c_ptr = b.load_args()
-
-    tid = b.thread_id("x")  # index -- lowered by pipeline
+    tid = b.global_thread_id()
 
     num_records = b.s_mov_b32(65536)
-    stride = b.constant_i32(0)
     soffset = b.s_mov_b32(0)
+    a_rsrc = b.make_buffer_rsrc(a_ptr, num_records, b.constant_i32(0))
+    b_rsrc = b.make_buffer_rsrc(b_ptr, num_records, b.constant_i32(0))
+    c_rsrc = b.make_buffer_rsrc(c_ptr, num_records, b.constant_i32(0))
 
-    a_rsrc = b.make_buffer_rsrc(a_ptr, num_records, stride)
-    b_rsrc = b.make_buffer_rsrc(b_ptr, num_records, stride)
-    c_rsrc = b.make_buffer_rsrc(c_ptr, num_records, stride)
-
-    # MFMA 16x16x16 fragment layout for f16 row-major [16][16] (B pre-transposed)
+    # MFMA 16x16x16 f16 fragment layouts
     mfma_ab_layout = Layout(sizes=(4, 16), strides=(8, 32))
+    mfma_c_layout = Layout(sizes=(4, 16), strides=(16, 64))
+
     ab_voff = b.index_to_vgpr(b.layout_byte_offset(tid, mfma_ab_layout))
     a_frag = b.buffer_load_dwordx2(a_rsrc, soffset, ab_voff)
     b_frag = b.buffer_load_dwordx2(b_rsrc, soffset, ab_voff)
@@ -307,10 +284,7 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
     acc = b.init_agprx4(b.constant_i32(0))
     acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
 
-    # MFMA output layout for f32 [16][16]
-    mfma_c_layout = Layout(sizes=(4, 16), strides=(16, 64))
     c_voff = b.index_to_vgpr(b.layout_byte_offset(tid, mfma_c_layout))
-    # Note: mfma layout is transposed if we store back by 4.
     b.buffer_store_dwordx4(acc, c_rsrc, soffset, c_voff)
     b.wait_vmcnt(0)
 
@@ -335,7 +309,7 @@ def test_kernel_builder_tiledmma_structure():
         assert "vop3p_mai" in text
         assert "buffer_store_dwordx4" in text
 
-        asm = compile_to_asm(module)
+        asm = compile_mlir_module_to_asm(module)
         assert "v_mfma_f32_16x16x16_f16" in asm
         assert "buffer_load_dwordx2" in asm
 

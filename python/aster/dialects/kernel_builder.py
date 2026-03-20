@@ -430,7 +430,7 @@ class KernelBuilder:
     # Pointer arithmetic (ptr dialect)
     # ---------------------------------------------------------------------------
 
-    def flat_global_addr(self, sgpr_ptr: ir.Value, byte_offset: ir.Value) -> ir.Value:
+    def global_addr(self, sgpr_ptr: ir.Value, byte_offset: ir.Value) -> ir.Value:
         """Compute a flat global address from SGPR pointer + index byte offset.
 
         Uses lsir.from_reg -> ptr.ptr_add -> lsir.to_reg. The ASTER pipeline
@@ -623,67 +623,17 @@ class KernelBuilder:
         )
 
     # ---------------------------------------------------------------------------
-    # Global memory operations
+    # Global memory operations (global_load/global_store via 64-bit addr)
     # ---------------------------------------------------------------------------
 
-    def global_load(
-        self,
-        ptr: ir.Value,
-        dyn_offset: ir.Value,
-        const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
-        """Global memory load (global_load_dword) -> single VGPR."""
-        if const_offset is None:
-            const_offset = self.constant_i32(0)
-        dest = AllocaOp(VGPRType.get(self._ctx), loc=self._loc, ip=self._kip).result
-        read_tok_type = ir.Type.parse("!amdgcn.read_token<flat>")
-        op = LoadOp(
-            opcode=ir.Attribute.parse("#amdgcn.inst<global_load_dword>"),
-            dest=dest,
-            addr=ptr,
-            dynamic_offset=dyn_offset,
-            constant_offset=const_offset,
-            results=[dest.type, read_tok_type],
-            loc=self._loc,
-            ip=self._kip,
-        )
-        return op.results[0]
-
-    def global_store(
-        self,
-        data: ir.Value,
-        ptr: ir.Value,
-        dyn_offset: ir.Value,
-        const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
-        """Global memory store (global_store_dword)."""
-        if const_offset is None:
-            const_offset = self.constant_i32(0)
-        write_tok_type = ir.Type.parse("!amdgcn.write_token<flat>")
-        op = StoreOp(
-            opcode=ir.Attribute.parse("#amdgcn.inst<global_store_dword>"),
-            data=data,
-            addr=ptr,
-            dynamic_offset=dyn_offset,
-            constant_offset=const_offset,
-            results=[write_tok_type],
-            loc=self._loc,
-            ip=self._kip,
-        )
-        return op.results[0]
-
-    # ---------------------------------------------------------------------------
-    # Flat global memory operations (ptr dialect path)
-    # ---------------------------------------------------------------------------
-
-    def _flat_global_load(
+    def _global_load(
         self,
         opcode: str,
         dest: ir.Value,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
     ) -> ir.Value:
-        """Flat global load using a pre-computed 64-bit address (VGPRx2)."""
+        """Global load using a pre-computed 64-bit address (VGPRx2)."""
         if const_offset is None:
             const_offset = self.constant_i32(0)
         # Global loads need a dynamic_offset operand (zero for flat addr path).
@@ -702,32 +652,45 @@ class KernelBuilder:
         )
         return op.results[0]
 
-    def flat_global_load_dword(
+    def global_load_dword(
         self,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
     ) -> ir.Value:
-        """Flat global load of 1 dword from a 64-bit address (VGPRx2)."""
+        """Global load of 1 dword from a 64-bit address (VGPRx2)."""
         dest = self._make_register_range([self.alloca_vgpr()])
-        return self._flat_global_load("global_load_dword", dest, addr, const_offset)
+        return self._global_load("global_load_dword", dest, addr, const_offset)
 
-    def flat_global_load_dwordx4(
+    def global_load_dwordx2(
         self,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
     ) -> ir.Value:
-        """Flat global load of 4 dwords from a 64-bit address (VGPRx2)."""
-        dest = self.alloc_vgprx4()
-        return self._flat_global_load("global_load_dwordx4", dest, addr, const_offset)
+        """Global load of 2 dwords from a 64-bit address (VGPRx2).
 
-    def _flat_global_store(
+        Warning: dwordx2 (and dwordx3) limits bandwidth to 2x peak.
+        Prefer dwordx4 for throughput-critical paths.
+        """
+        dest = self.alloc_vgprx2()
+        return self._global_load("global_load_dwordx2", dest, addr, const_offset)
+
+    def global_load_dwordx4(
+        self,
+        addr: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+    ) -> ir.Value:
+        """Global load of 4 dwords from a 64-bit address (VGPRx2)."""
+        dest = self.alloc_vgprx4()
+        return self._global_load("global_load_dwordx4", dest, addr, const_offset)
+
+    def _global_store(
         self,
         opcode: str,
         data: ir.Value,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
     ) -> ir.Value:
-        """Flat global store using a pre-computed 64-bit address (VGPRx2)."""
+        """Global store using a pre-computed 64-bit address (VGPRx2)."""
         if const_offset is None:
             const_offset = self.constant_i32(0)
         c0 = self.constant_i32(0)
@@ -745,23 +708,23 @@ class KernelBuilder:
         )
         return op.results[0]
 
-    def flat_global_store_dword(
+    def global_store_dword(
         self,
         data: ir.Value,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
     ) -> ir.Value:
-        """Flat global store of 1 dword to a 64-bit address (VGPRx2)."""
-        return self._flat_global_store("global_store_dword", data, addr, const_offset)
+        """Global store of 1 dword to a 64-bit address (VGPRx2)."""
+        return self._global_store("global_store_dword", data, addr, const_offset)
 
-    def flat_global_store_dwordx4(
+    def global_store_dwordx4(
         self,
         data: ir.Value,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
     ) -> ir.Value:
-        """Flat global store of 4 dwords to a 64-bit address (VGPRx2)."""
-        return self._flat_global_store("global_store_dwordx4", data, addr, const_offset)
+        """Global store of 4 dwords to a 64-bit address (VGPRx2)."""
+        return self._global_store("global_store_dwordx4", data, addr, const_offset)
 
     # ---------------------------------------------------------------------------
     # DS (LDS) operations
