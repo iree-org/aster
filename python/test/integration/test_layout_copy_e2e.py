@@ -42,9 +42,9 @@ def _build_copy_kernel(
 
     tid = b.global_thread_id()
 
-    src_off = b.layout_byte_offset(tid, src_layout, swizzle)
+    src_off = b.linearize_layout(tid, src_layout, swizzle)
     linear = Layout(sizes=n_threads, strides=ELEM_BYTES)
-    dst_off = b.layout_byte_offset(tid, linear)
+    dst_off = b.linearize_layout(tid, linear)
 
     if use_global:
         src_addr = b.global_addr(src_ptr, src_off)

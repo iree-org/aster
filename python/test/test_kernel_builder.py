@@ -276,7 +276,7 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
     mfma_ab_layout = Layout(sizes=(4, 16), strides=(8, 32))
     mfma_c_layout = Layout(sizes=(4, 16), strides=(16, 64))
 
-    ab_voff = b.index_to_vgpr(b.layout_byte_offset(tid, mfma_ab_layout))
+    ab_voff = b.index_to_vgpr(b.linearize_layout(tid, mfma_ab_layout))
     a_frag = b.buffer_load_dwordx2(a_rsrc, soffset, ab_voff)
     b_frag = b.buffer_load_dwordx2(b_rsrc, soffset, ab_voff)
     b.wait_vmcnt(0)
@@ -284,7 +284,7 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
     acc = b.init_agprx4(b.constant_i32(0))
     acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
 
-    c_voff = b.index_to_vgpr(b.layout_byte_offset(tid, mfma_c_layout))
+    c_voff = b.index_to_vgpr(b.linearize_layout(tid, mfma_c_layout))
     b.buffer_store_dwordx4(acc, c_rsrc, soffset, c_voff)
     b.wait_vmcnt(0)
 

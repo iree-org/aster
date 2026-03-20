@@ -230,23 +230,23 @@ class KernelBuilder:
 
     def lane_id(self, wave_size: int = 64) -> ir.Value:
         """Lane ID within the wave: linear_thread_id % wave_size."""
-        ltid = self.linear_thread_id()
-        return self.affine_apply(f"affine_map<(d0) -> (d0 mod {wave_size})>", [ltid])
+        ltid = ir.AffineExpr.get_dim(0)
+        return self.affine_apply(ltid % wave_size, [self.linear_thread_id()])
 
     def wave_id(self, wave_size: int = 64) -> ir.Value:
         """Wave ID within the workgroup: linear_thread_id // wave_size."""
-        ltid = self.linear_thread_id()
+        ltid = ir.AffineExpr.get_dim(0)
         return self.affine_apply(
-            f"affine_map<(d0) -> (d0 floordiv {wave_size})>", [ltid]
+            ir.AffineExpr.get_floor_div(ltid, wave_size), [self.linear_thread_id()]
         )
 
-    def delinearize_id(self, linear_id, sizes):
-        """Delinearize a flat index into multi-dimensional coordinates.
+    def delinearize_index(self, linear_id, sizes):
+        """Delinearize a linear index into multi-dimensional coordinates.
 
         Wraps affine.delinearize_index with static basis.
 
         Args:
-            linear_id: flat ir.Value index to decompose.
+            linear_id: 1-D ir.Value index to decompose.
             sizes: tuple of ints, the basis sizes (first-mode-slowest).
 
         Returns:
@@ -266,62 +266,66 @@ class KernelBuilder:
         )
         return tuple(delin.results[i] for i in range(n))
 
-    def affine_apply(
-        self, map_str: str, dims: list, symbols: Optional[list] = None
-    ) -> ir.Value:
-        """Apply an affine map to dimension and symbol operands.
+    def linearize_index(self, coords, sizes):
+        """Linearize multi-dimensional coordinates into a linear index.
 
-        Args:
-            map_str: affine map string, e.g. "affine_map<(d0)[s0] -> (d0 + s0)>".
-            dims: dimension operands (positional indices in the map).
-            symbols: symbol operands (bracketed indices in the map). Default [].
+        Inverse of delinearize_index. Uses suffix-product strides of sizes.
         """
-        amap = ir.Attribute.parse(map_str)
+        from aster.dialects._affine_ops_gen import AffineLinearizeIndexByStridesOp
+        from aster.layout.int_tuple import suffix_product
+
+        sizes = sizes if isinstance(sizes, tuple) else (sizes,)
+        return AffineLinearizeIndexByStridesOp(
+            list(coords),
+            [],
+            list(suffix_product(sizes)),
+            loc=self._loc,
+            ip=self._kip,
+        ).result
+
+    def affine_apply(self, expr, dims, symbols=None) -> ir.Value:
+        """Emit affine.apply from an ir.AffineExpr, dims and symbols."""
+        n_dims = len(dims)
+        n_syms = len(symbols) if symbols else 0
+        amap = ir.AffineMap.get(n_dims, n_syms, [expr])
         operands = list(dims) + (symbols or [])
         return affined.apply(amap, operands, loc=self._loc, ip=self._kip)
 
     def linear_thread_id(self) -> ir.Value:
         """Linearized thread ID within the workgroup: tx + bdx * (ty + bdy * tz)."""
-        tx, ty, tz = self.thread_id("x"), self.thread_id("y"), self.thread_id("z")
-        bdx, bdy = self.block_dim("x"), self.block_dim("y")
-        amap = ir.Attribute.parse(
-            "affine_map<(tx, ty, tz)[bdx, bdy] -> (tx + bdx * (ty + bdy * tz))>"
-        )
-        return affined.apply(
-            amap,
-            [tx, ty, tz, bdx, bdy],
-            loc=self._loc,
-            ip=self._kip,
+        tx_v, ty_v, tz_v = self.thread_id("x"), self.thread_id("y"), self.thread_id("z")
+        bdx_v, bdy_v = self.block_dim("x"), self.block_dim("y")
+        tx, ty, tz = (ir.AffineExpr.get_dim(i) for i in range(3))
+        bdx, bdy = (ir.AffineExpr.get_symbol(i) for i in range(2))
+        return self.affine_apply(
+            tx + bdx * (ty + bdy * tz), [tx_v, ty_v, tz_v], [bdx_v, bdy_v]
         )
 
     def linear_block_id(self) -> ir.Value:
         """Linearized workgroup ID across the grid: bx + gdx * (by + gdy * bz)."""
-        bx, by, bz = self.block_id("x"), self.block_id("y"), self.block_id("z")
-        gdx, gdy = self.grid_dim("x"), self.grid_dim("y")
-        amap = ir.Attribute.parse(
-            "affine_map<(bx, by, bz)[gdx, gdy] -> (bx + gdx * (by + gdy * bz))>"
-        )
-        return affined.apply(
-            amap,
-            [bx, by, bz, gdx, gdy],
-            loc=self._loc,
-            ip=self._kip,
+        bx_v, by_v, bz_v = self.block_id("x"), self.block_id("y"), self.block_id("z")
+        gdx_v, gdy_v = self.grid_dim("x"), self.grid_dim("y")
+        bx, by, bz = (ir.AffineExpr.get_dim(i) for i in range(3))
+        gdx, gdy = (ir.AffineExpr.get_symbol(i) for i in range(2))
+        return self.affine_apply(
+            bx + gdx * (by + gdy * bz), [bx_v, by_v, bz_v], [gdx_v, gdy_v]
         )
 
     def global_thread_id(self) -> ir.Value:
         """Linearized global thread ID: linear_workgroup_id * threads_per_workgroup + linear_thread_id."""
-        ltid = self.linear_thread_id()
-        lbid = self.linear_block_id()
-        bdx, bdy, bdz = self.block_dim("x"), self.block_dim("y"), self.block_dim("z")
-        amap = ir.Attribute.parse(
-            "affine_map<(ltid, lbid)[bdx, bdy, bdz] -> "
-            "(ltid + bdx * bdy * bdz * lbid)>"
+        ltid_v = self.linear_thread_id()
+        lbid_v = self.linear_block_id()
+        bdx_v, bdy_v, bdz_v = (
+            self.block_dim("x"),
+            self.block_dim("y"),
+            self.block_dim("z"),
         )
-        return affined.apply(
-            amap,
-            [ltid, lbid, bdx, bdy, bdz],
-            loc=self._loc,
-            ip=self._kip,
+        ltid, lbid = (ir.AffineExpr.get_dim(i) for i in range(2))
+        bdx, bdy, bdz = (ir.AffineExpr.get_symbol(i) for i in range(3))
+        return self.affine_apply(
+            ltid + bdx * bdy * bdz * lbid,
+            [ltid_v, lbid_v],
+            [bdx_v, bdy_v, bdz_v],
         )
 
     @staticmethod
@@ -434,8 +438,8 @@ class KernelBuilder:
         """VOP2 v_add_u32: src0 + src1 -> VGPR."""
         return self.vop2("v_add_u32", src0, src1)
 
-    def _layout_linearize(self, layout, coord, swizzle=None):
-        """Emit layout.linearize (+ optional layout.swizzle) for a flat coord."""
+    def _linearize_layout(self, layout, coord, swizzle=None):
+        """Emit layout.linearize (+ optional layout.swizzle) for a linear coord."""
         from aster.dialects import layout as layout_d
 
         sizes = layout.sizes if isinstance(layout.sizes, tuple) else (layout.sizes,)
@@ -455,43 +459,17 @@ class KernelBuilder:
             ip=self._kip,
         )
 
-    def layout_index_map(
+    def linearize_layout(
         self,
-        coords: list,
+        coord: ir.Value,
         layout: "Layout",
         swizzle: Optional["Swizzle"] = None,
     ) -> ir.Value:
-        """Compute byte offset from N-D coordinates via layout strides (M_I in cute isl parlance).
+        """Emit layout.linearize: linear coord -> byte offset via layout strides.
 
-        Re-linearizes coords into a flat index, then emits layout.linearize. The
-        internal delinearize-linearize pair folds away during lowering. Takes already-
-        delinearized coordinates.
+        Optionally applies layout.swizzle for LDS bank conflict avoidance.
         """
-        from aster.dialects._affine_ops_gen import AffineLinearizeIndexByStridesOp
-        from aster.layout.int_tuple import suffix_product
-
-        sizes = layout.sizes if isinstance(layout.sizes, tuple) else (layout.sizes,)
-        assert len(coords) == len(sizes)
-        flat = AffineLinearizeIndexByStridesOp(
-            list(coords),
-            [],
-            list(suffix_product(sizes)),
-            loc=self._loc,
-            ip=self._kip,
-        ).result
-        return self._layout_linearize(layout, flat, swizzle)
-
-    def layout_byte_offset(
-        self,
-        tid: ir.Value,
-        layout: "Layout",
-        swizzle: Optional["Swizzle"] = None,
-    ) -> ir.Value:
-        """Compute byte offset from a flat index via layout.linearize (M_L in cute isl parlance).
-
-        Convenience for layout_index_map(delinearize_id(tid, sizes), layout).
-        """
-        return self._layout_linearize(layout, tid, swizzle)
+        return self._linearize_layout(layout, coord, swizzle)
 
     def index_cast_i32(self, index_val: ir.Value) -> ir.Value:
         """Cast an index value to i32."""

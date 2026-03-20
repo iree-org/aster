@@ -41,8 +41,8 @@ def _build_mfma_kernel(name, target=MCPU, isa="cdna3"):
     tid = b.global_thread_id()
 
     # Note: global load directly in mfma layout is not coalesced, this is a correctness check.
-    ab_off = b.layout_byte_offset(tid, MFMA_AB_LAYOUT)
-    c_off = b.layout_byte_offset(tid, MFMA_C_LAYOUT)
+    ab_off = b.linearize_layout(tid, MFMA_AB_LAYOUT)
+    c_off = b.linearize_layout(tid, MFMA_C_LAYOUT)
 
     a_addr = b.global_addr(a_ptr, ab_off)
     b_addr = b.global_addr(b_ptr, ab_off)
@@ -120,7 +120,7 @@ def _build_mfma_lds_kernel(name, target=MCPU, isa="cdna3"):
     tid = b.global_thread_id()
 
     # Stage 1: coalesced global load (contiguous 8 bytes/lane)
-    coalesced_off = b.layout_byte_offset(tid, COALESCED_AB)
+    coalesced_off = b.linearize_layout(tid, COALESCED_AB)
     a_addr = b.global_addr(a_ptr, coalesced_off)
     b_addr = b.global_addr(b_ptr, coalesced_off)
     a_data = b.global_load_dwordx2(a_addr)
@@ -128,17 +128,13 @@ def _build_mfma_lds_kernel(name, target=MCPU, isa="cdna3"):
     b.wait_vmcnt(0)
 
     # Stage 2: swizzled LDS write (coalesced layout + swizzle for bank conflict avoidance)
-    lds_write_off = b.index_to_vgpr(
-        b.layout_byte_offset(tid, COALESCED_AB, LDS_SWIZZLE)
-    )
+    lds_write_off = b.index_to_vgpr(b.linearize_layout(tid, COALESCED_AB, LDS_SWIZZLE))
     b.ds_write_b64(a_data, lds_write_off)
     b.ds_write_b64(b_data, lds_write_off, const_offset=b.constant_i32(LDS_B_BASE))
     b.wait_lgkmcnt(0)
 
     # Stage 3: MFMA-layout LDS read (same swizzle)
-    lds_read_off = b.index_to_vgpr(
-        b.layout_byte_offset(tid, MFMA_AB_LAYOUT, LDS_SWIZZLE)
-    )
+    lds_read_off = b.index_to_vgpr(b.linearize_layout(tid, MFMA_AB_LAYOUT, LDS_SWIZZLE))
     a_frag = b.ds_read_b64(lds_read_off)
     b_frag = b.ds_read_b64(lds_read_off, const_offset=b.constant_i32(LDS_B_BASE))
     b.wait_lgkmcnt(0)
@@ -146,7 +142,7 @@ def _build_mfma_lds_kernel(name, target=MCPU, isa="cdna3"):
     # Stage 4: MFMA + global store at MFMA C layout
     acc = b.init_agprx4(b.constant_i32(0))
     acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
-    c_addr = b.global_addr(c_ptr, b.layout_byte_offset(tid, MFMA_C_LAYOUT))
+    c_addr = b.global_addr(c_ptr, b.linearize_layout(tid, MFMA_C_LAYOUT))
     b.global_store_dwordx4(acc, c_addr)
     b.wait_vmcnt(0)
     return b.build()
@@ -227,54 +223,45 @@ def _build_mfma_multiwg_kernel(name, target=MCPU, isa="cdna3"):
     b.add_ptr_arg(AccessKind.WriteOnly)  # C
     a_ptr, b_ptr, c_ptr = b.load_args()
 
-    # M_C: decompose linear_thread_id into (wave_m, wave_n, lane)
-    wv_m, wv_n, lane = b.delinearize_id(b.linear_thread_id(), (N_WV_Y, N_WV_X, 64))
+    # Decompose linear_thread_id into (wave_m, wave_n, lane)
+    wv_m, wv_n, lane = b.delinearize_index(b.linear_thread_id(), (N_WV_Y, N_WV_X, 64))
     wid = b.wave_id()
 
-    # TODO: upstream-like affine builder.
     # Grid composition: tile coords from block_id + wave coords
-    tile_m = b.affine_apply(
-        f"affine_map<(wm)[bid_y] -> (bid_y * {N_WV_Y} + wm)>",
-        dims=[wv_m],
-        symbols=[b.block_id("y")],
-    )
-    tile_n = b.affine_apply(
-        f"affine_map<(wn)[bid_x] -> (bid_x * {N_WV_X} + wn)>",
-        dims=[wv_n],
-        symbols=[b.block_id("x")],
-    )
+    wm = ir.AffineExpr.get_dim(0)
+    bid = ir.AffineExpr.get_symbol(0)
+    tile_m = b.affine_apply(bid * N_WV_Y + wm, [wv_m], [b.block_id("y")])
+    tile_n = b.affine_apply(bid * N_WV_X + wm, [wv_n], [b.block_id("x")])
 
-    # M_I: tile coords + lane -> global byte offsets via Layout strides
+    # Global byte offsets via Layout strides
     a_global = Layout(sizes=(N_TILES_M, 64), strides=(TILE_AB_BYTES, 8))
     b_global = Layout(sizes=(N_TILES_N, 64), strides=(TILE_AB_BYTES, 8))
-    a_off = b.layout_index_map([tile_m, lane], a_global)
-    b_off = b.layout_index_map([tile_n, lane], b_global)
+    a_off = b.linearize_layout(
+        b.linearize_index([tile_m, lane], a_global.sizes), a_global
+    )
+    b_off = b.linearize_layout(
+        b.linearize_index([tile_n, lane], b_global.sizes), b_global
+    )
 
     # Stage 1: coalesced global load
     a_data = b.global_load_dwordx2(b.global_addr(a_ptr, a_off))
     b_data = b.global_load_dwordx2(b.global_addr(b_ptr, b_off))
     b.wait_vmcnt(0)
 
-    # TODO: upstream-like affine builder.
-    # Stage 2: swizzled LDS write (M_L: lane -> LDS offset, then add wave base)
-    lds_write_local = b.layout_byte_offset(lane, COALESCED_AB, LDS_SWIZZLE)
+    # Stage 2: swizzled LDS write
     lds_wave_layout = Layout(sizes=WAVES_PER_WG, strides=LDS_PER_WAVE)
-    lds_write_off = b.affine_apply(
-        "affine_map<(local, base) -> (base + local)>",
-        dims=[lds_write_local, b.layout_index_map([wid], lds_wave_layout)],
-    )
+    local, wave_base = (ir.AffineExpr.get_dim(i) for i in range(2))
+    lds_write_local_v = b.linearize_layout(lane, COALESCED_AB, LDS_SWIZZLE)
+    wave_base_v = b.linearize_layout(wid, lds_wave_layout)
+    lds_write_off = b.affine_apply(local + wave_base, [lds_write_local_v, wave_base_v])
     lds_write_voff = b.index_to_vgpr(lds_write_off)
     b.ds_write_b64(a_data, lds_write_voff)
     b.ds_write_b64(b_data, lds_write_voff, const_offset=b.constant_i32(LDS_B_BASE))
     b.wait_lgkmcnt(0)
 
-    # TODO: upstream-like affine builder.
-    # Stage 3: MFMA-layout LDS read (M_L: lane -> MFMA LDS offset, add wave base)
-    lds_read_local = b.layout_byte_offset(lane, MFMA_AB_LAYOUT, LDS_SWIZZLE)
-    lds_read_off = b.affine_apply(
-        "affine_map<(local, base) -> (base + local)>",
-        dims=[lds_read_local, b.layout_index_map([wid], lds_wave_layout)],
-    )
+    # Stage 3: MFMA-layout LDS read
+    lds_read_local_v = b.linearize_layout(lane, MFMA_AB_LAYOUT, LDS_SWIZZLE)
+    lds_read_off = b.affine_apply(local + wave_base, [lds_read_local_v, wave_base_v])
     lds_read_voff = b.index_to_vgpr(lds_read_off)
     a_frag = b.ds_read_b64(lds_read_voff)
     b_frag = b.ds_read_b64(lds_read_voff, const_offset=b.constant_i32(LDS_B_BASE))
@@ -284,17 +271,16 @@ def _build_mfma_multiwg_kernel(name, target=MCPU, isa="cdna3"):
     acc = b.init_agprx4(b.constant_i32(0))
     acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
 
-    # Stage 5: global store (M_I for tile grid + M_L for intra-tile MFMA layout)
+    # Stage 5: global store
     c_tile_layout = Layout(
         sizes=(N_TILES_M, N_TILES_N), strides=(N_TILES_N * TILE_C_BYTES, TILE_C_BYTES)
     )
-    c_off = b.layout_index_map([tile_m, tile_n], c_tile_layout)
-    c_local_off = b.layout_byte_offset(lane, MFMA_C_LAYOUT)
-    # TODO: upstream-like affine builder.
-    c_total = b.affine_apply(
-        "affine_map<(tile, local) -> (tile + local)>",
-        dims=[c_off, c_local_off],
+    tile_off, local_off = (ir.AffineExpr.get_dim(i) for i in range(2))
+    c_off_v = b.linearize_layout(
+        b.linearize_index([tile_m, tile_n], c_tile_layout.sizes), c_tile_layout
     )
+    c_local_v = b.linearize_layout(lane, MFMA_C_LAYOUT)
+    c_total = b.affine_apply(tile_off + local_off, [c_off_v, c_local_v])
     b.global_store_dwordx4(acc, b.global_addr(c_ptr, c_total))
     b.wait_vmcnt(0)
     return b.build()

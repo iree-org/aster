@@ -32,7 +32,7 @@ def build_copy_kernel(
     src_ptr, dst_ptr = b.load_args()
 
     tid = b.thread_id("x")
-    byte_off = b.layout_byte_offset(tid, thread_layout)
+    byte_off = b.linearize_layout(tid, thread_layout)
 
     src_addr = b.global_addr(src_ptr, byte_off)
     data = b.global_load_dwordx4(src_addr)

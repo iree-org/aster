@@ -35,10 +35,10 @@ def _build_lds_copy_kernel(name, layout, swizzle=None, target=MCPU, isa="cdna3")
     src_ptr, dst_ptr = b.load_args()
     tid = b.thread_id("x")
 
-    src_voff = b.index_to_vgpr(b.layout_byte_offset(tid, layout))
-    lds_voff = b.index_to_vgpr(b.layout_byte_offset(tid, layout, swizzle))
+    src_voff = b.index_to_vgpr(b.linearize_layout(tid, layout))
+    lds_voff = b.index_to_vgpr(b.linearize_layout(tid, layout, swizzle))
 
-    dst_voff = b.index_to_vgpr(b.layout_byte_offset(tid, LINEAR))
+    dst_voff = b.index_to_vgpr(b.linearize_layout(tid, LINEAR))
 
     num_records = b.s_mov_b32(65536)
     soffset = b.s_mov_b32(0)
