@@ -26,13 +26,13 @@ def _build_copy_kernel(
     src_layout,
     n_threads,
     swizzle=None,
-    use_flat_global=False,
+    use_global=False,
     target=MCPU,
     isa="cdna3",
 ):
     """Copy kernel: load dwordx4 at layout(+swizzle) offset, store linear.
 
-    If use_flat_global=True, uses flat global load/store (ptr + offset -> VGPRx2).
+    If use_global=True, uses global load/store (ptr + offset -> VGPRx2).
     Otherwise uses buffer load/store (rsrc + voffset).
     """
     b = KernelBuilder(f"{name}_mod", name, target=target, isa=isa)
@@ -46,12 +46,12 @@ def _build_copy_kernel(
     linear = Layout(sizes=n_threads, strides=ELEM_BYTES)
     dst_off = b.layout_byte_offset(tid, linear)
 
-    if use_flat_global:
-        src_addr = b.flat_global_addr(src_ptr, src_off)
-        dst_addr = b.flat_global_addr(dst_ptr, dst_off)
-        data = b.flat_global_load_dwordx4(src_addr)
+    if use_global:
+        src_addr = b.global_addr(src_ptr, src_off)
+        dst_addr = b.global_addr(dst_ptr, dst_off)
+        data = b.global_load_dwordx4(src_addr)
         b.wait_vmcnt(0)
-        b.flat_global_store_dwordx4(data, dst_addr)
+        b.global_store_dwordx4(data, dst_addr)
     else:
         src_voff = b.index_to_vgpr(src_off)
         dst_voff = b.index_to_vgpr(dst_off)
@@ -74,7 +74,7 @@ def _run_copy_test(
     swizzle=None,
     grid_dim=(1, 1, 1),
     block_dim=(64, 1, 1),
-    use_flat_global=False,
+    use_global=False,
 ):
     elems_per = ELEM_BYTES // 4
     offsets = [swizzle(layout(i)) if swizzle else layout(i) for i in range(n_threads)]
@@ -89,7 +89,7 @@ def _run_copy_test(
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        module = _build_copy_kernel(name, layout, n_threads, swizzle, use_flat_global)
+        module = _build_copy_kernel(name, layout, n_threads, swizzle, use_global)
         asm = compile_mlir_module_to_asm(module)
 
     path = utils.assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
@@ -119,7 +119,7 @@ def _run_copy_test(
             ), f"tid={tid} elem={j}: got {actual}, expected {expected}"
 
 
-@pytest.mark.parametrize("use_flat_global", [False, True], ids=["buffer", "flat"])
+@pytest.mark.parametrize("use_global", [False, True], ids=["buffer", "flat"])
 @pytest.mark.parametrize(
     "name, layout, swizzle",
     [
@@ -137,13 +137,13 @@ def _run_copy_test(
     ],
     ids=lambda x: x if isinstance(x, str) else "",
 )
-def test_copy_single_wg(name, layout, swizzle, use_flat_global):
+def test_copy_single_wg(name, layout, swizzle, use_global):
     _run_copy_test(
         f"cp_{name}",
         layout,
         n_threads=64,
         swizzle=swizzle,
-        use_flat_global=use_flat_global,
+        use_global=use_global,
     )
 
 
@@ -170,7 +170,7 @@ WG_X_S = N_WV_Y * WV_Y_S  # 4096
 WG_Y_S = N_WG_X * WG_X_S  # 8192
 
 
-@pytest.mark.parametrize("use_flat_global", [False, True], ids=["buffer", "flat"])
+@pytest.mark.parametrize("use_global", [False, True], ids=["buffer", "flat"])
 @pytest.mark.parametrize(
     "name, layout",
     [
@@ -242,12 +242,12 @@ WG_Y_S = N_WG_X * WG_X_S  # 8192
     ],
     ids=lambda x: x if isinstance(x, str) else "",
 )
-def test_copy_multiwg_nested(name, layout, use_flat_global):
+def test_copy_multiwg_nested(name, layout, use_global):
     _run_copy_test(
         f"cp_{name}",
         layout,
         n_threads=TOTAL,
         grid_dim=(N_WG_X, N_WG_Y, 1),
         block_dim=(TPW, 1, 1),
-        use_flat_global=use_flat_global,
+        use_global=use_global,
     )
