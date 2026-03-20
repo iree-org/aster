@@ -291,25 +291,6 @@ void AssumeRangeOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
 }
 
 //===----------------------------------------------------------------------===//
-// ExecuteRegionOp
-//===----------------------------------------------------------------------===//
-
-void ExecuteRegionOp::getSuccessorRegions(
-    RegionBranchPoint point, SmallVectorImpl<RegionSuccessor> &regions) {
-  if (point.isParent()) {
-    regions.push_back(RegionSuccessor(&getRegion()));
-    return;
-  }
-  regions.push_back(RegionSuccessor::parent());
-}
-
-ValueRange ExecuteRegionOp::getSuccessorInputs(RegionSuccessor successor) {
-  if (successor.isParent())
-    return getResults();
-  return {};
-}
-
-//===----------------------------------------------------------------------===//
 // FromAnyOp
 //===----------------------------------------------------------------------===//
 

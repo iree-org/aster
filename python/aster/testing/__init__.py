@@ -196,6 +196,78 @@ def load_mlir_module_from_file(
     return module
 
 
+def compile_mlir_module_to_asm(
+    module,
+    pass_pipeline: str = TEST_SROA_PASS_PIPELINE,
+    print_ir_after_all: bool = False,
+    print_timings: bool = False,
+    print_dir_path: Optional[pathlib.Path] = None,
+    library_paths: Optional[List[str]] = None,
+    kernel_name: Optional[str] = None,
+) -> str:
+    """Compile an already-built MLIR module to assembly.
+
+    Runs the pass pipeline, finds the amdgcn.module, and translates to asm. Respects the
+    ASTER_PRINT_IR_AFTER_ALL environment variable.
+    """
+    from aster._mlir_libs._mlir import passmanager
+
+    print_ir_after_all = _get_env_or_default(
+        "ASTER_PRINT_IR_AFTER_ALL", print_ir_after_all
+    )
+
+    ctx = module.context
+
+    if library_paths:
+        for lib_path in library_paths:
+            if not os.path.exists(lib_path):
+                raise FileNotFoundError(f"Library file not found: {lib_path}")
+        paths_str = ",".join(library_paths)
+        preload_pass = (
+            f"builtin.module(amdgcn-preload-library{{library-paths={paths_str}}})"
+        )
+        pm = passmanager.PassManager.parse(preload_pass, ctx)
+        pm.run(module.operation)
+
+    pm = passmanager.PassManager.parse(pass_pipeline, ctx)
+    if print_ir_after_all:
+        if print_dir_path is not None:
+            pm.enable_ir_printing(
+                print_after_all=True, tree_printing_dir_path=str(print_dir_path)
+            )
+        else:
+            pm.enable_ir_printing(print_after_all=True)
+    if print_timings:
+        pm.enable_timing()
+    pm.run(module.operation)
+
+    # Find the amdgcn.module (optionally verify kernel_name).
+    amdgcn_module = None
+    for op in module.body:
+        if not isinstance(op, amdgcn.ModuleOp):
+            continue
+        if kernel_name is None:
+            amdgcn_module = op
+            break
+        for kernel_op in op.body_region.blocks[0].operations:
+            if (
+                isinstance(kernel_op, amdgcn.KernelOp)
+                and kernel_op.sym_name.value == kernel_name
+            ):
+                amdgcn_module = op
+                break
+        if amdgcn_module is not None:
+            break
+
+    assert amdgcn_module is not None, (
+        f"Failed to find kernel {kernel_name}"
+        if kernel_name
+        else "No amdgcn.module found after pipeline"
+    )
+
+    return utils.translate_module(amdgcn_module, debug_print=False)
+
+
 def compile_mlir_file_to_asm(
     mlir_file: str,
     kernel_name: str,
@@ -210,6 +282,8 @@ def compile_mlir_file_to_asm(
     print_root_dir: Optional[str] = None,
 ) -> Tuple[str, Any]:
     """Compile MLIR file to assembly and extract kernel name.
+
+    Loads the file, then delegates to :func:`compile_mlir_module_to_asm`.
 
     Args:
         mlir_file: Path to MLIR file
@@ -253,88 +327,34 @@ def compile_mlir_file_to_asm(
         print_dir_path = pathlib.Path(tempfile.mkdtemp(prefix=prefix, dir=root))
         print(f"Printing results to directory: {print_dir_path}", flush=True)
 
-    logger = _get_logger()
-    _log_info(logger, f"[COMPILE] Loading MLIR file: {pathlib.Path(mlir_file).name}")
-
     module = load_mlir_module_from_file(
         mlir_file, ctx, preprocess, print_preprocessed_ir
     )
 
-    # Apply passes
-    from aster._mlir_libs._mlir import passmanager
-
-    # Pre-apply preload-library pass if library paths are provided
-    if library_paths:
-        # Verify all library files exist
-        for lib_path in library_paths:
-            if not os.path.exists(lib_path):
-                raise FileNotFoundError(
-                    f"Library file not found: {lib_path}. " f"MLIR file: {mlir_file}"
-                )
-        _log_info(logger, f"[COMPILE] Pre-applying preload-library pass")
-        paths_str = ",".join(library_paths)
-        preload_pass = (
-            f"builtin.module(amdgcn-preload-library{{library-paths={paths_str}}})"
-        )
-        pm = passmanager.PassManager.parse(preload_pass, ctx)
-        pm.run(module.operation)
     if print_dir_path is not None:
         (print_dir_path / "pipeline.txt").write_text(pass_pipeline)
         (print_dir_path / "preprocessed.mlir").write_text(str(module))
 
-    _log_info(logger, f"[COMPILE] Applying pass pipeline")
-    pm = passmanager.PassManager.parse(pass_pipeline, ctx)
-    # Leave this here, it's useful for debugging.
-    if print_ir_after_all:
-        if print_dir_path is not None:
-            pm.enable_ir_printing(
-                print_after_all=True, tree_printing_dir_path=str(print_dir_path)
-            )
-        else:
-            pm.enable_ir_printing(print_after_all=True)
-    if print_timings:
-        pm.enable_timing()
-    pm.run(module.operation)
-    _log_info(logger, f"[COMPILE] Pass pipeline completed")
-
-    # Find the amdgcn.kernel inside the proper amdgcn.module
-    _log_info(logger, f"[COMPILE] Searching for kernel: {kernel_name}")
-    amdgcn_module = None
-    found_kernel = False
-    for op in module.body:
-        if not isinstance(op, amdgcn.ModuleOp):
-            continue
-        amdgcn_module = op
-        for kernel_op in amdgcn_module.body_region.blocks[0].operations:
-            if not isinstance(kernel_op, amdgcn.KernelOp):
-                continue
-            if kernel_op.sym_name.value == kernel_name:
-                found_kernel = True
-                break
-        if found_kernel:
-            break
-
-    assert amdgcn_module is not None, "Failed to find any AMDGCN module"
-    assert found_kernel, f"Failed to find kernel {kernel_name}"
-    _log_info(logger, f"[COMPILE] Found kernel: {kernel_name}")
-
-    _log_info(logger, f"[COMPILE] Translating to assembly")
-    asm_complete = utils.translate_module(
-        amdgcn_module,
-        debug_print=False,
+    asm = compile_mlir_module_to_asm(
+        module,
+        pass_pipeline=pass_pipeline,
+        print_ir_after_all=print_ir_after_all,
+        print_timings=print_timings,
+        print_dir_path=print_dir_path,
+        library_paths=library_paths,
+        kernel_name=kernel_name,
     )
-    _log_info(logger, f"[COMPILE] Assembly generation completed")
 
     if print_asm:
         if print_dir_path is not None:
-            (print_dir_path / "kernel.s").write_text(asm_complete)
+            (print_dir_path / "kernel.s").write_text(asm)
         else:
-            print(asm_complete, flush=True)
+            print(asm, flush=True)
 
     if print_dir_path is not None:
         (print_dir_path / "output.mlir").write_text(str(module))
 
-    return asm_complete, module
+    return asm, module
 
 
 def execute_kernel_and_verify(

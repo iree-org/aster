@@ -5,11 +5,11 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 # Tests for layout-driven MLIR code generation.
-# Also exports helpers reused by python/test/integration/test_layout_copy_e2e.py.
 
 from __future__ import annotations
 
 from aster.layout import Layout, product
+from aster.testing import compile_mlir_module_to_asm
 
 # ---------------------------------------------------------------------------
 # Shared helpers (imported by integration/test_layout_copy_e2e.py)
@@ -31,7 +31,7 @@ def build_copy_kernel(
     b.add_ptr_arg(AccessKind.WriteOnly)
     src_ptr, dst_ptr = b.load_args()
 
-    tid = b.thread_id_x()
+    tid = b.thread_id("x")
     byte_off = b.layout_byte_offset(tid, thread_layout)
 
     src_addr = b.flat_global_addr(src_ptr, byte_off)
@@ -45,25 +45,6 @@ def build_copy_kernel(
     return b.build()
 
 
-def compile_to_asm(module, print_ir_after_all: bool = False) -> str:
-    """Run the full pass pipeline and translate to assembly."""
-    from aster import ir, utils
-    from aster._mlir_libs._mlir import passmanager
-    from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
-    from aster.dialects import amdgcn
-
-    ctx = ir.Context.current
-    pm = passmanager.PassManager.parse(TEST_SROA_PASS_PIPELINE, ctx)
-    if print_ir_after_all:
-        pm.enable_ir_printing()
-    pm.run(module.operation)
-
-    for op in module.body:
-        if isinstance(op, amdgcn.ModuleOp):
-            return utils.translate_module(op)
-    raise RuntimeError("No amdgcn.module found after pipeline")
-
-
 def build_and_compile_copy_kernel(
     name: str,
     thread_layout: Layout,
@@ -74,7 +55,7 @@ def build_and_compile_copy_kernel(
     Must be called inside an active ``with ir.Context():`` block.
     """
     module = build_copy_kernel(name, thread_layout)
-    return compile_to_asm(module, print_ir_after_all=print_ir_after_all)
+    return compile_mlir_module_to_asm(module, print_ir_after_all=print_ir_after_all)
 
 
 # ---------------------------------------------------------------------------
@@ -127,5 +108,5 @@ if __name__ == "__main__":
     with ctx:
         module = build_copy_kernel("copy_demo", layout)
         print(module)
-        asm = compile_to_asm(module, print_ir_after_all=True)
+        asm = compile_mlir_module_to_asm(module, print_ir_after_all=True)
         print(asm)

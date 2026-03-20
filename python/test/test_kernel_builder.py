@@ -287,7 +287,7 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
 
     a_ptr, b_ptr, c_ptr = b.load_args()
 
-    tid = b.thread_id_x()  # index -- lowered by pipeline
+    tid = b.thread_id("x")  # index -- lowered by pipeline
 
     num_records = b.s_mov_b32(65536)
     stride = b.constant_i32(0)

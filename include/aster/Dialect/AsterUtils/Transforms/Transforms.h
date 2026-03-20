@@ -19,14 +19,6 @@ class RewritePatternSet;
 namespace mlir::aster {
 namespace aster_utils {
 
-/// Wraps all function calls in the given operation with execute_region
-/// operations. Calls that are already inside an execute_region are skipped.
-void wrapCallsWithExecuteRegion(Operation *op);
-
-/// Inlines all execute_region operations in the given operation, replacing
-/// them with their body contents.
-void inlineExecuteRegions(Operation *op);
-
 /// Populates the pattern set with the FromAnyOp to ub.poison conversion
 /// pattern.
 void populateFromAnyToPoisonPattern(RewritePatternSet &patterns);

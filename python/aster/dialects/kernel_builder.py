@@ -14,7 +14,7 @@ Usage::
         b.add_ptr_arg(AccessKind.ReadOnly)
         b.add_ptr_arg(AccessKind.WriteOnly)
         [a_ptr, b_ptr] = b.load_args()
-        tid = b.thread_id_x()
+        tid = b.thread_id("x")
         ...
         module = b.build()
 
@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, List, Optional
 from aster import ir
 
 if TYPE_CHECKING:
-    from aster.layout import Layout
+    from aster.layout import Layout, Swizzle
 from aster.dialects import arith
 from aster.dialects import affine as affined
 from aster.dialects import func as funcd
@@ -209,18 +209,68 @@ class KernelBuilder:
         d = ir.Attribute.parse(f"#gpu<dim {dim}>")
         return _GPUThreadIdOp(d, loc=self._loc, ip=self._kip).result
 
-    def thread_id_x(self) -> ir.Value:
-        """Get thread ID x as index."""
-        return self.thread_id("x")
-
     def block_id(self, dim: str = "x") -> ir.Value:
         """Get block (workgroup) ID for the given dimension as index."""
         d = ir.Attribute.parse(f"#gpu<dim {dim}>")
         return _GPUBlockIdOp(d, loc=self._loc, ip=self._kip).result
 
-    def block_id_x(self) -> ir.Value:
-        """Get block ID x as index."""
-        return self.block_id("x")
+    def block_dim(self, dim: str = "x") -> ir.Value:
+        """Get block dimension for the given dimension as index."""
+        from aster.dialects._gpu_ops_gen import BlockDimOp as _GPUBlockDimOp
+
+        d = ir.Attribute.parse(f"#gpu<dim {dim}>")
+        return _GPUBlockDimOp(d, loc=self._loc, ip=self._kip).result
+
+    def grid_dim(self, dim: str = "x") -> ir.Value:
+        """Get grid dimension for the given dimension as index."""
+        from aster.dialects._gpu_ops_gen import GridDimOp as _GPUGridDimOp
+
+        d = ir.Attribute.parse(f"#gpu<dim {dim}>")
+        return _GPUGridDimOp(d, loc=self._loc, ip=self._kip).result
+
+    def linear_thread_id(self) -> ir.Value:
+        """Linearized thread ID within the workgroup: tx + bdx * (ty + bdy * tz)."""
+        tx, ty, tz = self.thread_id("x"), self.thread_id("y"), self.thread_id("z")
+        bdx, bdy = self.block_dim("x"), self.block_dim("y")
+        amap = ir.Attribute.parse(
+            "affine_map<(tx, ty, tz)[bdx, bdy] -> (tx + bdx * (ty + bdy * tz))>"
+        )
+        return affined.apply(
+            amap,
+            [tx, ty, tz, bdx, bdy],
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+    def linear_block_id(self) -> ir.Value:
+        """Linearized block ID across the grid: bx + gdx * (by + gdy * bz)."""
+        bx, by, bz = self.block_id("x"), self.block_id("y"), self.block_id("z")
+        gdx, gdy = self.grid_dim("x"), self.grid_dim("y")
+        amap = ir.Attribute.parse(
+            "affine_map<(bx, by, bz)[gdx, gdy] -> (bx + gdx * (by + gdy * bz))>"
+        )
+        return affined.apply(
+            amap,
+            [bx, by, bz, gdx, gdy],
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+    def global_thread_id(self) -> ir.Value:
+        """Linearized global thread ID: linear_block_id * threads_per_block + linear_thread_id."""
+        ltid = self.linear_thread_id()
+        lbid = self.linear_block_id()
+        bdx, bdy, bdz = self.block_dim("x"), self.block_dim("y"), self.block_dim("z")
+        amap = ir.Attribute.parse(
+            "affine_map<(ltid, lbid)[bdx, bdy, bdz] -> "
+            "(ltid + bdx * bdy * bdz * lbid)>"
+        )
+        return affined.apply(
+            amap,
+            [ltid, lbid, bdx, bdy, bdz],
+            loc=self._loc,
+            ip=self._kip,
+        )
 
     @staticmethod
     def _as_value(v) -> ir.Value:
@@ -332,20 +382,38 @@ class KernelBuilder:
         """VOP2 v_add_u32: src0 + src1 -> VGPR."""
         return self.vop2("v_add_u32", src0, src1)
 
-    def layout_byte_offset(self, tid: ir.Value, layout: "Layout") -> ir.Value:
-        """Compute byte offset from thread ID using layout.linearize."""
+    def layout_byte_offset(
+        self,
+        tid: ir.Value,
+        layout: "Layout",
+        swizzle: Optional["Swizzle"] = None,
+    ) -> ir.Value:
+        """Compute byte offset from thread ID using layout.linearize.
+
+        If swizzle is provided, applies layout.swizzle to the result.
+        """
         from aster.dialects import layout as layout_d
 
         assert isinstance(
             tid.type, ir.IndexType
-        ), "layout_byte_offset expects index-typed tid (from thread_id_x())"
+        ), "layout_byte_offset expects index-typed tid (from thread_id('x'))"
 
         sizes = layout.sizes if isinstance(layout.sizes, tuple) else (layout.sizes,)
         strides = (
             layout.strides if isinstance(layout.strides, tuple) else (layout.strides,)
         )
         attr = layout_d.strided_layout(list(sizes), list(strides), ctx=self._ctx)
-        return layout_d.linearize(tid, attr, loc=self._loc, ip=self._kip)
+        off = layout_d.linearize(tid, attr, loc=self._loc, ip=self._kip)
+        if swizzle is not None:
+            off = layout_d.swizzle(
+                off,
+                bits=swizzle.bits,
+                base=swizzle.base,
+                shift=swizzle.shift,
+                loc=self._loc,
+                ip=self._kip,
+            )
+        return off
 
     def index_cast_i32(self, index_val: ir.Value) -> ir.Value:
         """Cast an index value to i32."""
@@ -694,6 +762,64 @@ class KernelBuilder:
     ) -> ir.Value:
         """Flat global store of 4 dwords to a 64-bit address (VGPRx2)."""
         return self._flat_global_store("global_store_dwordx4", data, addr, const_offset)
+
+    # ---------------------------------------------------------------------------
+    # DS (LDS) operations
+    # ---------------------------------------------------------------------------
+
+    def _ds_write(self, opcode, data, addr, const_offset=None):
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        write_tok_type = ir.Type.parse("!amdgcn.write_token<shared>")
+        op = StoreOp(
+            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+            data=data,
+            addr=addr,
+            constant_offset=const_offset,
+            results=[write_tok_type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
+
+    def _ds_read(self, opcode, dest, addr, const_offset=None):
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        read_tok_type = ir.Type.parse("!amdgcn.read_token<shared>")
+        op = LoadOp(
+            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+            dest=dest,
+            addr=addr,
+            constant_offset=const_offset,
+            results=[dest.type, read_tok_type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
+
+    def ds_write_b32(self, data, addr, const_offset=None):
+        """DS write 32-bit (1 dword) to LDS."""
+        return self._ds_write("ds_write_b32", data, addr, const_offset)
+
+    def ds_write_b64(self, data, addr, const_offset=None):
+        """DS write 64-bit (2 dwords) to LDS."""
+        return self._ds_write("ds_write_b64", data, addr, const_offset)
+
+    def ds_write_b128(self, data, addr, const_offset=None):
+        """DS write 128-bit (4 dwords) to LDS."""
+        return self._ds_write("ds_write_b128", data, addr, const_offset)
+
+    def ds_read_b32(self, addr, const_offset=None):
+        """DS read 32-bit (1 dword) from LDS."""
+        return self._ds_read("ds_read_b32", self.alloca_vgpr(), addr, const_offset)
+
+    def ds_read_b64(self, addr, const_offset=None):
+        """DS read 64-bit (2 dwords) from LDS."""
+        return self._ds_read("ds_read_b64", self.alloc_vgprx2(), addr, const_offset)
+
+    def ds_read_b128(self, addr, const_offset=None):
+        """DS read 128-bit (4 dwords) from LDS."""
+        return self._ds_read("ds_read_b128", self.alloc_vgprx4(), addr, const_offset)
 
     # ---------------------------------------------------------------------------
     # Synchronization
