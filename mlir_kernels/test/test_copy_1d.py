@@ -5,13 +5,16 @@ import os
 import pytest
 import numpy as np
 
-from aster import ir, utils
+from aster import ir
 from typing import List
-from aster.testing import (
-    execute_kernel_and_verify,
+from aster.compiler.core import (
     compile_mlir_file_to_asm,
-    hsaco_file,
+    assemble_to_hsaco,
+    load_mlir_module_from_file,
 )
+from aster.execution.core import execute_hsaco
+from aster.execution.helpers import hsaco_file
+from aster.execution.utils import system_has_mcpu
 from aster.pass_pipelines import get_pass_pipeline
 from mlir_kernels.benchmarks.benchmark_utils import (
     format_throughput_stats,
@@ -64,7 +67,7 @@ def compile_copy_1d_kernel(config: Copy1DConfig, mlir_file: str) -> Tuple[str, s
         )
 
         # Assemble to hsaco
-        hsaco_path = utils.assemble_to_hsaco(
+        hsaco_path = assemble_to_hsaco(
             asm_complete, target=config.mcpu, wavefront_size=config.wavefront_size
         )
         if hsaco_path is None:
@@ -110,13 +113,11 @@ def execute_copy_1d_kernel(
             else:
                 assert False, f"Copy kernel failed! Expected {expected}, got {actual}"
 
-    iteration_times_ns = execute_kernel_and_verify(
+    iteration_times_ns = execute_hsaco(
         hsaco_path=hsaco_path,
         kernel_name=config.kernel_name,
-        input_args=[input_data],
-        output_args=[output_data, timing_buffer_begin, timing_buffer_end],
-        mcpu=config.mcpu,
-        wavefront_size=config.wavefront_size,
+        input_arrays=[input_data],
+        output_arrays=[output_data, timing_buffer_begin, timing_buffer_end],
         grid_dim=(config.num_workgroups, 1, 1),
         block_dim=(config.num_threads, 1, 1),
         verify_fn=verify_fn,
@@ -182,7 +183,7 @@ def test_copy_1d_dwordx4(
 
     with hsaco_file(hsaco_path):
         # Skip execution if GPU doesn't match
-        if not utils.system_has_mcpu(mcpu=mcpu):
+        if not system_has_mcpu(mcpu=mcpu):
             # Load module for printing
             with ir.Context() as ctx:
 
@@ -194,8 +195,6 @@ def test_copy_1d_dwordx4(
                     )
                     x = x.replace("{{SCHED_DELAY_STORE}}", str(sched_delay_store))
                     return x
-
-                from aster.testing import load_mlir_module_from_file
 
                 module = load_mlir_module_from_file(
                     mlir_file, ctx, preprocess=preprocess

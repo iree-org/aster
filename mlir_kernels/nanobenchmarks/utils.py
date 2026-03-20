@@ -8,14 +8,16 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from aster import ir, utils
-from aster.compiler import PrintOptions
-from aster.testing import (
+from aster import ir
+from aster.compiler.core import (
+    PrintOptions,
     compile_mlir_file_to_asm,
-    execute_kernel_and_verify,
-    hsaco_file,
+    assemble_to_hsaco,
 )
-from aster.testing.flush_llc import FlushLLC
+from aster.execution.core import execute_hsaco
+from aster.execution.helpers import hsaco_file
+from aster.execution.utils import system_has_mcpu
+from aster.execution.flush_llc import FlushLLC
 from mlir_kernels.common import get_library_paths
 from aster.test_pass_pipelines import (
     TEST_NANOBENCH_PASS_PIPELINE as NANOBENCH_PASS_PIPELINE,
@@ -108,7 +110,7 @@ def compile_kernel(
             ),
         )
 
-        hsaco_path = utils.assemble_to_hsaco(
+        hsaco_path = assemble_to_hsaco(
             asm_complete, target=MCPU, wavefront_size=WAVEFRONT_SIZE
         )
         if hsaco_path is None:
@@ -132,20 +134,18 @@ def run_kernel(
         f"{config.num_blocks} blocks, {config.num_threads} threads/block"
     )
 
-    if not utils.system_has_mcpu(mcpu=MCPU):
+    if not system_has_mcpu(mcpu=MCPU):
         print(f"GPU {MCPU} not available, stopping after cross-compilation")
         return None
 
     flush_llc = FlushLLC(mcpu=MCPU) if config.flush_llc else None
 
     with hsaco_file(hsaco_path):
-        iteration_times_ns = execute_kernel_and_verify(
+        iteration_times_ns = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=config.kernel_name,
-            input_args=config.input_buffers,
-            output_args=config.output_buffers,
-            mcpu=MCPU,
-            wavefront_size=WAVEFRONT_SIZE,
+            input_arrays=config.input_buffers,
+            output_arrays=config.output_buffers,
             grid_dim=(config.num_blocks, 1, 1),
             block_dim=(config.num_threads, 1, 1),
             verify_fn=verify_fn,

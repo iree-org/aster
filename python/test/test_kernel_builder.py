@@ -12,7 +12,7 @@ import pytest
 import aster.ir as ir
 from aster.dialects import amdgcn as amdgcn_dialect
 from aster.dialects.kernel_builder import KernelBuilder
-from aster.testing import compile_mlir_module_to_asm
+from aster.compiler.core import compile_mlir_module_to_asm
 
 # ---------------------------------------------------------------------------
 # Layer 1: Attribute constructor roundtrips

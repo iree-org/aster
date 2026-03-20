@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional, List, Tuple, TypeVar
 
 from tqdm.auto import tqdm
-from aster.testing import hip_get_device_count
+from aster._mlir_libs._runtime_module import hip_get_device_count
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 
@@ -181,7 +181,7 @@ def _worker_init(device_id: int):
     global _worker_device_id
     _worker_device_id = device_id
     # Import here to avoid issues with multiprocessing
-    from aster.testing import hip_init, hip_set_device
+    from aster._mlir_libs._runtime_module import hip_init, hip_set_device
 
     hip_init()
     hip_set_device(device_id)

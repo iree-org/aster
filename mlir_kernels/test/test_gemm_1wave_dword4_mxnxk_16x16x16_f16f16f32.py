@@ -12,7 +12,7 @@ from mlir_kernels.kernel_utils import (
     make_gemm_verify_fn,
     generate_gemm_data,
 )
-from aster.testing import compile_and_run
+from aster.execution.helpers import compile_and_run
 from mlir_kernels.test.test_utils import (
     get_mlir_file_path,
     add_mnk_args,

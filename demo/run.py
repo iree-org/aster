@@ -3,12 +3,11 @@
 import argparse
 import os
 
-from aster import ir, utils
-from aster.testing import (
-    compile_mlir_file_to_asm,
-    execute_kernel_and_verify,
-    hsaco_file,
-)
+from aster import ir
+from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
+from aster.execution.core import execute_hsaco
+from aster.execution.helpers import hsaco_file
+from aster.execution.utils import system_has_mcpu
 from aster.test_pass_pipelines import TEST_TEST_EMPTY_PASS_PIPELINE
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -59,7 +58,7 @@ def main():
         )
         print(asm_complete)
 
-    hsaco_path = utils.assemble_to_hsaco(
+    hsaco_path = assemble_to_hsaco(
         asm_complete, target=mcpu, wavefront_size=wavefront_size
     )
     if hsaco_path is None:
@@ -67,7 +66,7 @@ def main():
     print(f"Compilation successful. HSACO: {hsaco_path}")
 
     # Check if GPU is available
-    if not utils.system_has_mcpu(mcpu=mcpu):
+    if not system_has_mcpu(mcpu=mcpu):
         print(
             f"Warning: GPU {mcpu} not available, stopping after cross-compilation only"
         )
@@ -75,20 +74,17 @@ def main():
 
     # Execute kernel
     with hsaco_file(hsaco_path):
-        iteration_times_ns = execute_kernel_and_verify(
+        iteration_times_ns = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=KERNEL_NAME,
-            input_args=[],
-            output_args=[],
-            mcpu=mcpu,
-            wavefront_size=wavefront_size,
+            input_arrays=[],
+            output_arrays=[],
             # TODO: ideally we'd want to have exactly 1 warp on the whole machine
             # but I don't find the right incantations on CDNA to precisely
             # profile the exact CU on which the kernel will be scheduled.
             # Note: on RDNA this seems more predictable.
             grid_dim=(args.num_cus, 1, 1),
             block_dim=(wavefront_size * args.num_waves_per_cu, 1, 1),
-            verify_fn=None,
             num_iterations=args.num_iterations,
         )
         print("iteration_times_ns: ", iteration_times_ns)

@@ -243,8 +243,8 @@ def compile_gemm(
     Returns (hsaco_path, asm_str). Handles a_path (lds/direct) and load_type
     (flat/buffer) via cfg fields.
     """
-    from aster import ir, utils
-    from aster.testing import compile_mlir_file_to_asm
+    from aster import ir
+    from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
 
     subs = _make_substitutions(cfg)
 
@@ -271,7 +271,7 @@ def compile_gemm(
     ctx = ir.Context()
     ctx.__enter__()
     try:
-        from aster.compiler import PrintOptions
+        from aster.compiler.core import PrintOptions
 
         asm, _ = compile_mlir_file_to_asm(
             get_mlir_file(mlir_file),
@@ -285,7 +285,7 @@ def compile_gemm(
                 print_asm=print_asm,
             ),
         )
-        path = utils.assemble_to_hsaco(
+        path = assemble_to_hsaco(
             asm,
             target=MCPU,
             wavefront_size=WAVEFRONT_SIZE,
@@ -308,7 +308,8 @@ def execute_gemm_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=Fal
 
     Skips (pytest.skip) if target GPU unavailable.
     """
-    from aster.execution.hip import system_has_gpu, execute_hsaco
+    from aster.execution.core import execute_hsaco
+    from aster.execution.utils import system_has_gpu
 
     if not skip_gpu_check and not system_has_gpu(MCPU):
         pytest.skip(f"GPU {MCPU} not available, skip execution")
@@ -510,7 +511,7 @@ if __name__ == "__main__":
         a_path=a_path,
     )
 
-    from aster.execution.hip import parse_asm_kernel_resources
+    from aster.compiler.metadata import parse_asm_kernel_resources
 
     a_mode = f" direct-A" if cfg.direct_a else ""
 

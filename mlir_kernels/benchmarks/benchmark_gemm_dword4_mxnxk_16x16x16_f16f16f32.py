@@ -8,9 +8,9 @@ import multiprocessing
 from typing import List, Tuple, Optional
 
 import numpy as np
-from aster import ir, utils
-from aster.testing import compile_mlir_file_to_asm
-from aster.utils.env import aster_get_logger, aster_log_info
+from aster import ir
+from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
+from aster.utils.logging import aster_get_logger, aster_log_info
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 from aster.test_pass_pipelines import TEST_SYNCHRONOUS_PASS_PIPELINE
 from mlir_kernels.benchmarks.benchmark_utils import (
@@ -28,7 +28,7 @@ from mlir_kernels.kernel_utils import (
     generate_gemm_data,
     LDS_SIZE_LIMIT,
 )
-from aster.testing import execute_kernel_and_verify
+from aster.execution.core import execute_hsaco
 
 # 304 = num CUs on MI300X
 NUM_CU_PER_GPU = 304
@@ -66,7 +66,7 @@ def compile_kernel_worker(
                 f"[COMPILE] Assembling to HSACO: target={config.mcpu}, "
                 f"wavefront_size={config.wavefront_size}",
             )
-            hsaco_path = utils.assemble_to_hsaco(
+            hsaco_path = assemble_to_hsaco(
                 asm_complete, target=config.mcpu, wavefront_size=config.wavefront_size
             )
             if hsaco_path is None:
@@ -115,13 +115,11 @@ def execute_kernel_benchmark(
     )
 
     try:
-        iteration_times_ns: List[int] = execute_kernel_and_verify(
+        iteration_times_ns: List[int] = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=config.kernel_name,
-            input_args=[a_data, b_data],
-            output_args=[c_data],
-            mcpu=config.mcpu,
-            wavefront_size=config.wavefront_size,
+            input_arrays=[a_data, b_data],
+            output_arrays=[c_data],
             grid_dim=(config.num_workgroups, 1, 1),
             block_dim=(config.num_threads, 1, 1),
             verify_fn=verify_fn,

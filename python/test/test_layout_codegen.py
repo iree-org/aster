@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from aster.layout import Layout, product
-from aster.testing import compile_mlir_module_to_asm
+from aster.compiler.core import compile_mlir_module_to_asm
 
 # ---------------------------------------------------------------------------
 # Shared helpers (imported by integration/test_layout_copy_e2e.py)
@@ -54,7 +54,7 @@ def build_and_compile_copy_kernel(
 
     Must be called inside an active ``with ir.Context():`` block.
     """
-    from aster.compiler import PrintOptions
+    from aster.compiler.core import PrintOptions
 
     module = build_copy_kernel(name, thread_layout)
     return compile_mlir_module_to_asm(
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     with ctx:
         module = build_copy_kernel("copy_demo", layout)
         print(module)
-        from aster.compiler import PrintOptions
+        from aster.compiler.core import PrintOptions
 
         asm = compile_mlir_module_to_asm(
             module, print_opts=PrintOptions(print_ir_after_all=True)

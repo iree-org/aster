@@ -176,7 +176,7 @@ def _create_print_dir(kernel_name: str, print_root_dir: str) -> pathlib.Path:
 def _apply_preload_pass(module, library_paths: List[str], mlir_file: str, ctx, logger):
     """Apply the amdgcn-preload-library pass for the given library paths."""
     from aster._mlir_libs._mlir import passmanager
-    from aster.utils.env import aster_log_info
+    from aster.utils.logging import aster_log_info
 
     for lib_path in library_paths:
         if not os.path.exists(lib_path):
@@ -202,7 +202,7 @@ def _run_pass_pipeline(
 ):
     """Apply the pass pipeline with optional IR printing and timing."""
     from aster._mlir_libs._mlir import passmanager
-    from aster.utils.env import aster_log_info
+    from aster.utils.logging import aster_log_info
 
     aster_log_info(logger, "[COMPILE] Applying pass pipeline")
     pm = passmanager.PassManager.parse(pass_pipeline, ctx)
@@ -266,7 +266,7 @@ def compile_mlir_module_to_asm(
     Returns:
         Assembly string.
     """
-    from aster.utils.env import aster_log_info
+    from aster.utils.logging import aster_log_info
 
     if pass_pipeline is None:
         from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
@@ -278,13 +278,13 @@ def compile_mlir_module_to_asm(
 
     logger = None
     if library_paths:
-        from aster.utils.env import aster_get_logger
+        from aster.utils.logging import aster_get_logger
 
         logger = aster_get_logger()
         _apply_preload_pass(module, library_paths, "<module>", ctx, logger)
 
     if logger is None:
-        from aster.utils.env import aster_get_logger
+        from aster.utils.logging import aster_get_logger
 
         logger = aster_get_logger()
 
@@ -324,7 +324,7 @@ def compile_mlir_file_to_asm(
     Returns:
         Tuple of (asm_code, module) where module is the MLIR module after passes.
     """
-    from aster.utils.env import aster_get_logger, aster_log_info
+    from aster.utils.logging import aster_get_logger, aster_log_info
 
     opts = print_opts if print_opts is not None else PrintOptions.from_flags()
 

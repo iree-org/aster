@@ -33,14 +33,15 @@ declare_mlir_python_sources(ASTERPythonSources.core
     core/target.py
     utils/__init__.py
     utils/env.py
-    utils/capsule.py
+    utils/logging.py
     compiler/__init__.py
-    compiler/compile.py
+    compiler/core.py
+    compiler/metadata.py
     execution/__init__.py
-    execution/execution.py
-    execution/hip.py
-    testing/__init__.py
-    testing/flush_llc.py
+    execution/core.py
+    execution/flush_llc.py
+    execution/helpers.py
+    execution/utils.py
     layout/__init__.py
     layout/int_tuple.py
     layout/algebra.py

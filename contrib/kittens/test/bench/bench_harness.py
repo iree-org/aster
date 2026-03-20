@@ -124,11 +124,11 @@ def check_numpy_blas(label=""):
 def detect_num_gpus():
     """Return the number of available GPUs, or 0 if none are present."""
     try:
-        from aster.execution.hip import system_has_gpu
+        from aster.execution.utils import system_has_gpu
 
         if not system_has_gpu("gfx942"):
             return 0
-        from aster.testing import hip_get_device_count
+        from aster._mlir_libs._runtime_module import hip_get_device_count
 
         return max(1, hip_get_device_count())
     except Exception:
@@ -170,7 +170,7 @@ def _compile_inner(cfg, hsaco_dir, compile_fn, result_pipe, stderr_path):
     os.close(stderr_fd)
 
     try:
-        from aster.execution.hip import (
+        from aster.compiler.metadata import (
             parse_asm_kernel_resources,
             compute_register_budget,
         )
@@ -270,7 +270,7 @@ def _exec_worker(args):
 
     HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init initializer.
     """
-    from aster.execution.hip import execute_hsaco
+    from aster.execution.core import execute_hsaco
 
     label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, num_iter = args
     try:
@@ -297,7 +297,7 @@ def _verify_worker(args):
 
     HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init initializer.
     """
-    from aster.execution.hip import execute_hsaco
+    from aster.execution.core import execute_hsaco
 
     label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k = args
     try:
@@ -680,7 +680,10 @@ def print_config(cfg, iterations, resources=None):
 
 
 def run_single(cfg, compile_fn, args, execute_fn):
-    from aster.execution.hip import parse_asm_kernel_resources, compute_register_budget
+    from aster.compiler.metadata import (
+        parse_asm_kernel_resources,
+        compute_register_budget,
+    )
 
     kname = cfg.kernel_name
     print_ir = getattr(args, "print_ir_after_all", False)

@@ -1,53 +1,21 @@
-"""Unified testing utilities for ASTER E2E tests.
-
-This module consolidates compile-and-run infrastructure previously spread across:
-- test/integration/test_utils.py (low-level: load, compile, execute, verify)
-- mlir_kernels/test/unit/test_utils.py (mid-level: compile_and_run)
-
-Usage:
-    from aster.testing import compile_and_run
-
-    compile_and_run(
-        "test_my_kernel.mlir",
-        "my_kernel",
-        [input_data],
-        output,
-    )
-"""
+"""High-level GPU kernel compilation and execution helpers."""
 
 import os
-import numpy as np
 from contextlib import contextmanager
-from typing import Tuple, Callable, Optional, List, Any, Generator
+from typing import Callable, Optional, List, Generator
 
-from aster import utils
-from aster.compiler import (
-    load_mlir_module_from_file,
+from aster.compiler.core import (
     compile_mlir_file_to_asm,
-    compile_mlir_module_to_asm,
     PrintOptions,
+    assemble_to_hsaco,
 )
-from aster.utils.env import (
-    MillisecondFormatter,
-    aster_get_env_or_default,
-    aster_get_logger,
-    aster_log_info,
-    aster_parse_bool_env,
-    aster_should_log,
-)
-from aster.dialects import amdgcn
-from aster._mlir_libs._runtime_module import (
-    hip_init,
-    hip_get_device_count,
-    hip_set_device,
-)
-from aster.execution.hip import execute_hsaco
-from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
+from aster.execution.core import execute_hsaco
+from aster.execution.utils import system_has_mcpu
 from aster.test_pass_pipelines import TEST_SYNCHRONOUS_PASS_PIPELINE
 
-# ---------------------------------------------------------------------------
-# Low-level utilities
-# ---------------------------------------------------------------------------
+# Default test configuration
+MCPU = "gfx942"
+WAVEFRONT_SIZE = 64
 
 
 @contextmanager
@@ -61,82 +29,15 @@ def hsaco_file(path: str) -> Generator[str, None, None]:
         The path to the HSACO file
 
     Example:
-        hsaco_path = utils.assemble_to_hsaco(asm, target=mcpu)
+        hsaco_path = assemble_to_hsaco(asm, target=mcpu)
         with hsaco_file(hsaco_path):
-            execute_kernel_and_verify(hsaco_path=hsaco_path, ...)
+            execute_hsaco(hsaco_path=hsaco_path, ...)
     """
     try:
         yield path
     finally:
         if path and os.path.exists(path):
             os.unlink(path)
-
-
-def execute_kernel_and_verify(
-    hsaco_path: Optional[str],
-    kernel_name: str,
-    input_args: List[np.ndarray],
-    output_args: List[np.ndarray],
-    mcpu: str,
-    wavefront_size: int = 32,
-    grid_dim: Tuple[int, int, int] = (1, 1, 1),
-    block_dim: Tuple[int, int, int] = (64, 1, 1),
-    verify_fn: Optional[Callable[[List[np.ndarray], List[np.ndarray]], None]] = None,
-    num_iterations: int = 1,
-    device_id: Optional[int] = None,
-    flush_llc: Optional[Any] = None,
-) -> List[int]:
-    """Execute a GPU kernel and verify its results.
-
-    Args:
-        hsaco_path: Path to the HSACO file
-        kernel_name: Name of the kernel function
-        input_args: List of input numpy arrays
-        output_args: List of output numpy arrays (will be modified in-place)
-        mcpu: Target GPU architecture (e.g., "gfx942", "gfx1201")
-        wavefront_size: Wavefront size (default: 32)
-        grid_dim: Grid dimensions (default: (1, 1, 1))
-        block_dim: Block dimensions (default: (64, 1, 1))
-        verify_fn: Custom verification function that takes (input_args, output_args).
-                   Only called on first iteration if provided. (default: None)
-        num_iterations: Number of times to execute the kernel (default: 1)
-        device_id: GPU device ID to use. If None, uses current device. (default: None)
-        flush_llc: Optional FlushLLC instance to flush the LLC before each iteration.
-                   Called outside of timing start/stop. Cleanup is handled automatically. (default: None)
-
-    Returns:
-        List of execution times in nanoseconds, one per iteration
-    """
-
-    def _is_scalar(arg):
-        return isinstance(arg, (int, float, np.integer, np.floating))
-
-    assert all(
-        (_is_scalar(arg) or arg.size > 0) for arg in input_args + output_args
-    ), "All NP arrays must have > 0 elements"
-
-    if hsaco_path is None:
-        raise RuntimeError("Failed to assemble kernel to HSACO")
-
-    times_ns = execute_hsaco(
-        hsaco_path,
-        kernel_name,
-        input_args,
-        output_args,
-        grid_dim,
-        block_dim,
-        num_iterations,
-        device_id=device_id,
-        flush_llc=flush_llc,
-    )
-    if verify_fn is not None:
-        verify_fn(input_args, output_args)
-    return times_ns
-
-
-# ---------------------------------------------------------------------------
-# Preprocessing helpers
-# ---------------------------------------------------------------------------
 
 
 def make_grid_block_preprocess(grid_dim, block_dim):
@@ -150,15 +51,6 @@ def make_grid_block_preprocess(grid_dim, block_dim):
         return x
 
     return preprocess
-
-
-# ---------------------------------------------------------------------------
-# High-level compile-and-run
-# ---------------------------------------------------------------------------
-
-# Default test configuration
-MCPU = "gfx942"
-WAVEFRONT_SIZE = 64
 
 
 def compile_and_run(
@@ -271,25 +163,23 @@ def compile_and_run(
             ),
         )
 
-        hsaco_path = utils.assemble_to_hsaco(
+        hsaco_path = assemble_to_hsaco(
             asm_complete, target=mcpu, wavefront_size=wavefront_size
         )
         if hsaco_path is None:
             raise RuntimeError("Failed to assemble kernel to HSACO")
 
         with hsaco_file(hsaco_path):
-            if not utils.system_has_mcpu(mcpu=mcpu):
+            if not system_has_mcpu(mcpu=mcpu):
                 pytest.skip(
                     f"GPU {mcpu} not available, but cross-compilation to HSACO succeeded"
                 )
 
-            iteration_times = execute_kernel_and_verify(
+            iteration_times = execute_hsaco(
                 hsaco_path=hsaco_path,
                 kernel_name=kernel_name,
-                input_args=input_data,
-                output_args=output_data,
-                mcpu=mcpu,
-                wavefront_size=wavefront_size,
+                input_arrays=input_data,
+                output_arrays=output_data,
                 grid_dim=grid_dim,
                 block_dim=block_dim,
                 verify_fn=verify_fn,

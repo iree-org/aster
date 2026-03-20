@@ -9,12 +9,10 @@ from typing import List, Tuple, Optional, Callable
 from dataclasses import dataclass, field
 
 import numpy as np
-from aster import ir, utils
-from aster.testing import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-)
-from aster.testing.flush_llc import FlushLLC
+from aster import ir
+from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
+from aster.execution.core import execute_hsaco
+from aster.execution.flush_llc import FlushLLC
 from mlir_kernels.benchmarks.benchmark_utils import (
     BenchmarkResult,
     BaseConfig,
@@ -93,7 +91,7 @@ def compile_kernel_worker(config: Copy1DConfig) -> Tuple[Copy1DConfig, str]:
                 library_paths=library_paths,
             )
 
-            hsaco_path = utils.assemble_to_hsaco(
+            hsaco_path = assemble_to_hsaco(
                 asm_complete, target=config.mcpu, wavefront_size=config.wavefront_size
             )
             if hsaco_path is None:
@@ -136,13 +134,11 @@ def execute_kernel_benchmark(
                 raise AssertionError("Copy kernel failed!")
 
     try:
-        iteration_times_ns: List[int] = execute_kernel_and_verify(
+        iteration_times_ns: List[int] = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=config.kernel_name,
-            input_args=[input_data],
-            output_args=[output_data, timing_buffer_begin, timing_buffer_end],
-            mcpu=config.mcpu,
-            wavefront_size=config.wavefront_size,
+            input_arrays=[input_data],
+            output_arrays=[output_data, timing_buffer_begin, timing_buffer_end],
             grid_dim=(config.num_workgroups, 1, 1),
             block_dim=(config.num_threads, 1, 1),
             verify_fn=verify_fn if not skip_test else None,
