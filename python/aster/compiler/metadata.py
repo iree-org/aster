@@ -107,7 +107,12 @@ def compute_register_budget(
 
     Args:
         num_threads: Number of threads per workgroup.
-        mcpu: Target GPU (e.g. "gfx942", "gfx950").
+        mcpu: Target GPU (e.g. "gfx942", "gfx950"). If the mcpu is not
+            recognised, the function silently falls back to gfx942 so that
+            callers can always obtain a budget estimate. Use
+            :meth:`KernelResources.check_occupancy` if you need a strict
+            per-architecture check (it returns an empty list for unknown mcpu
+            rather than substituting a default).
         num_wg_per_cu: Number of workgroups sharing a CU (default 1).
 
     Returns:

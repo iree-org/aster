@@ -13,7 +13,6 @@ def system_has_gpu(mcpu: str) -> bool:
     import shutil
 
     base_mcpu = mcpu.split(":")[0]
-    rocminfo_path = shutil.which("rocminfo")
     try:
         result = subprocess.run(
             ["rocminfo"], capture_output=True, text=True, timeout=30
@@ -25,6 +24,7 @@ def system_has_gpu(mcpu: str) -> bool:
         )
         return False
     except subprocess.TimeoutExpired:
+        rocminfo_path = shutil.which("rocminfo")
         print(f"WARNING: rocminfo timed out after 30s (path: {rocminfo_path}).")
         return False
 
@@ -34,14 +34,7 @@ def system_has_gpu(mcpu: str) -> bool:
 
     raw_matches = re.findall(r"gfx[0-9]{3,4}[a-z0-9]*", result.stdout)
     archs = set(a.split(":")[0] for a in raw_matches)
-    found = base_mcpu in archs
-    if not found:
-        print(
-            f"DEBUG system_has_gpu: looking for '{base_mcpu}', "
-            f"rocminfo found archs={sorted(archs)}, "
-            f"raw_matches={raw_matches}"
-        )
-    return found
+    return base_mcpu in archs
 
 
 def system_has_mcpu(mcpu: str) -> bool:

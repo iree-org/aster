@@ -5,6 +5,10 @@ from typing import Tuple, Callable
 
 from aster.compiler.core import assemble_to_hsaco
 from aster.execution.core import unwrap_pointer_from_capsule, create_kernel_args_capsule
+
+# Unlike execution/core.py (which defers all HIP imports to avoid loading
+# LLVM.so under rocprofv3), this module is exclusively HIP-only and is never
+# imported in a rocprofv3 profiling context, so top-level imports are safe.
 from aster._mlir_libs._runtime_module import (
     hip_module_load_data,
     hip_module_get_function,

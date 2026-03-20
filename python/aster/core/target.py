@@ -44,6 +44,8 @@ _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
         vgprs_per_simd=512,
         agprs_per_simd=512,
     ),
+    # GFX940 and GFX942 are different MI300-series SKUs but share identical
+    # register-file and LDS hardware constants.
     GpuArch.GFX942: _ArchParams(
         wavefront_size=64,
         lds_per_cu=65536,

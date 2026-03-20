@@ -214,22 +214,8 @@ def _prepare_kernel_args(
         )
         ptr_values.append(base_val)
 
-    class _Args(ctypes.Structure):
-        _fields_ = [(f"f{i}", ctypes.c_void_p) for i in range(len(ptr_values))]
-
-    kernel_args = _Args()
-    for i, pv in enumerate(ptr_values):
-        setattr(kernel_args, f"f{i}", pv)
-    ptr_arr_t = ctypes.c_void_p * len(ptr_values)
-    ka_addr = ctypes.addressof(kernel_args)
-    kernel_ptr_arr = ptr_arr_t(
-        *[ka_addr + getattr(_Args, f"f{i}").offset for i in range(len(ptr_values))]
-    )
-    return (
-        gpu_ptrs,
-        (kernel_args, kernel_ptr_arr),
-        _capsule(ctypes.addressof(kernel_ptr_arr)),
-    )
+    args_capsule, kernel_args, kernel_ptr_arr = create_kernel_args_capsule(ptr_values)
+    return gpu_ptrs, (kernel_args, kernel_ptr_arr), args_capsule
 
 
 class _TimedLaunch:
@@ -288,6 +274,8 @@ def _copy_outputs_from_gpu(
     """Copy output arrays back from GPU to host (in-place)."""
     from aster._mlir_libs._runtime_module import hip_memcpy_device_to_host
 
+    # _prepare_kernel_args processes input_arrays + output_arrays in order, so
+    # output GPU pointers start at index len(non-scalar inputs) in gpu_ptrs.
     gpu_i = sum(1 for a in input_arrays if not _is_scalar(a))
     for out_arr in output_arrays:
         if _is_scalar(out_arr):
@@ -367,6 +355,8 @@ def execute_hsaco(
     function = hip_module_get_function(module, kernel_name.encode())
 
     gpu_ptrs, keep_alive, args_capsule = _prepare_kernel_args(all_arrays)
+    # keep_alive holds the ctypes structure and pointer array alive for the
+    # duration of all kernel launches; do not remove this assignment.
 
     start_event = hip_event_create()
     stop_event = hip_event_create()

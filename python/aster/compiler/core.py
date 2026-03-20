@@ -266,7 +266,7 @@ def compile_mlir_module_to_asm(
     Returns:
         Assembly string.
     """
-    from aster.utils.logging import aster_log_info
+    from aster.utils.logging import aster_get_logger, aster_log_info
 
     if pass_pipeline is None:
         from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
@@ -275,18 +275,10 @@ def compile_mlir_module_to_asm(
 
     opts = print_opts if print_opts is not None else PrintOptions.from_flags()
     ctx = module.context
+    logger = aster_get_logger()
 
-    logger = None
     if library_paths:
-        from aster.utils.logging import aster_get_logger
-
-        logger = aster_get_logger()
         _apply_preload_pass(module, library_paths, "<module>", ctx, logger)
-
-    if logger is None:
-        from aster.utils.logging import aster_get_logger
-
-        logger = aster_get_logger()
 
     _run_pass_pipeline(module, pass_pipeline, ctx, opts, None, logger)
 
