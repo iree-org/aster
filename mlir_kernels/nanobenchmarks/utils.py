@@ -9,6 +9,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from aster import ir, utils
+from aster.compiler import PrintOptions
 from aster.testing import (
     compile_mlir_file_to_asm,
     execute_kernel_and_verify,
@@ -100,9 +101,11 @@ def compile_kernel(
             ctx,
             preprocess=preprocess,
             library_paths=library_paths,
-            print_timings=config.print_timings,
-            print_ir_after_all=config.print_ir_after_all,
-            print_asm=config.print_asm,
+            print_opts=PrintOptions.from_flags(
+                print_timings=config.print_timings,
+                print_ir_after_all=config.print_ir_after_all,
+                print_asm=config.print_asm,
+            ),
         )
 
         hsaco_path = utils.assemble_to_hsaco(

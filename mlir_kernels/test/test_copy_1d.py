@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 
 from aster import ir, utils
-from typing import List, Optional
+from typing import List
 from aster.testing import (
     execute_kernel_and_verify,
     compile_mlir_file_to_asm,
@@ -61,7 +61,6 @@ def compile_copy_1d_kernel(config: Copy1DConfig, mlir_file: str) -> Tuple[str, s
             ctx,
             preprocess=preprocess,
             library_paths=library_paths,
-            print_ir_after_all=False,
         )
 
         # Assemble to hsaco
@@ -111,20 +110,6 @@ def execute_copy_1d_kernel(
             else:
                 assert False, f"Copy kernel failed! Expected {expected}, got {actual}"
 
-    # Build padding list: [input_padding] + [output_data_padding, 0, 0]
-    # (timing buffers get 0 padding)
-    if config.padding_bytes is None:
-        padding_bytes = [0, 0]
-    elif len(config.padding_bytes) != 2:
-        raise ValueError(
-            f"padding_bytes must have 2 elements [input_padding, output_data_padding], "
-            f"got {len(config.padding_bytes)}"
-        )
-    else:
-        padding_bytes = config.padding_bytes
-
-    per_buffer_padding = [padding_bytes[0]] + [padding_bytes[1], 0, 0]
-
     iteration_times_ns = execute_kernel_and_verify(
         hsaco_path=hsaco_path,
         kernel_name=config.kernel_name,
@@ -135,7 +120,6 @@ def execute_copy_1d_kernel(
         grid_dim=(config.num_workgroups, 1, 1),
         block_dim=(config.num_threads, 1, 1),
         verify_fn=verify_fn,
-        padding_bytes=per_buffer_padding,
         num_iterations=num_iterations,
     )
 
@@ -172,15 +156,9 @@ def test_copy_1d_dwordx4(
     pass_pipeline_name: str,
     mcpu: str,
     wavefront_size: int = 64,
-    padding_bytes: Optional[List[int]] = None,
     num_iterations: int = 1,
 ):
-    """Test minimal 1D copy using dwordx4 (16 bytes per thread).
-
-    Args:
-        padding_bytes: List of padding bytes per buffer [input_padding, output_data_padding].
-                       Timing buffers are excluded and get 0 padding.
-    """
+    """Test minimal 1D copy using dwordx4 (16 bytes per thread)."""
     pass_pipeline = get_pass_pipeline(pass_pipeline_name)
 
     test_dir = os.path.dirname(os.path.abspath(__file__))
@@ -193,7 +171,6 @@ def test_copy_1d_dwordx4(
         num_elements_per_thread=num_elements_per_thread,
         element_size=element_size,
         sched_delay_store=sched_delay_store,
-        padding_bytes=padding_bytes,
         kernel_name=kernel_name,
         pass_pipeline=pass_pipeline,
         mcpu=mcpu,
@@ -295,14 +272,6 @@ if __name__ == "__main__":
         help="Wavefront size (default: 64)",
     )
     parser.add_argument(
-        "--padding-bytes",
-        type=int,
-        nargs="+",
-        default=[0, 0],
-        help="Padding bytes per buffer [input_padding, output_data_padding]. "
-        "Timing buffers are excluded. (default: 0 0)",
-    )
-    parser.add_argument(
         "--num-iterations",
         type=int,
         default=5,
@@ -310,13 +279,6 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-
-    # Validate padding_bytes argument
-    if len(args.padding_bytes) != 2:
-        parser.error(
-            f"--padding-bytes requires exactly 2 values [input_padding, output_data_padding], "
-            f"got {len(args.padding_bytes)}"
-        )
 
     test_copy_1d_dwordx4(
         mlir_filename=args.mlir_filename,
@@ -329,6 +291,5 @@ if __name__ == "__main__":
         pass_pipeline_name="test-sroa",
         mcpu=args.mcpu,
         wavefront_size=args.wavefront_size,
-        padding_bytes=args.padding_bytes,
         num_iterations=args.num_iterations,
     )

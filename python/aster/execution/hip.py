@@ -6,7 +6,7 @@ libraries, making it safe to use under rocprofv3 (which crashes when LLVM.so
 is loaded alongside its own LLVM).
 
 Usage:
-    from aster.hip import execute_hsaco, system_has_gpu, parse_asm_kernel_resources
+    from aster.execution.hip import execute_hsaco, system_has_gpu, parse_asm_kernel_resources
 
     if not system_has_gpu("gfx942"):
         pytest.skip("no GPU")
@@ -26,7 +26,9 @@ import ctypes
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from aster.core.target import Target
 
 
 @dataclass
@@ -75,99 +77,45 @@ class KernelResources:
     def check_occupancy(self, num_threads: int, mcpu: str = "gfx942") -> List[str]:
         """Return a list of occupancy violations for the given target.
 
-        Returns an empty list if the kernel can launch.
+        Returns an empty list if the kernel can launch or the mcpu is unknown.
         """
-        if mcpu in ("gfx940", "gfx942"):
-            return self._check_occupancy_cdna3(num_threads)
-        if mcpu in ("gfx950",):
-            return self._check_occupancy_cdna4(num_threads)
-        return []
-
-    def _check_occupancy_cdna3(
-        self, num_threads: int, lds_per_cu: int = 65536
-    ) -> List[str]:
-        """CDNA3 occupancy rules (also used as base for CDNA4 with overrides).
-
-        Register rules (per wave, ISA 3.6.4):
-          - Per thread:  vgpr <= 256,  agpr <= 256
-          - Per wave:    vgpr + agpr <= 512
-        Per-SIMD file limits (512 VGPR + 512 AGPR per SIMD, 4 SIMDs per CU):
-          - vgpr * waves_per_simd <= 512
-          - agpr * waves_per_simd <= 512
-        LDS:
-          - lds_bytes <= lds_per_cu
-        """
-        _NUM_SIMDS = 4
-        num_waves = (num_threads + self.wavefront_size - 1) // self.wavefront_size
-        max_waves_per_simd = (num_waves + _NUM_SIMDS - 1) // _NUM_SIMDS
+        try:
+            target = Target.from_mcpu(mcpu)
+        except ValueError:
+            return []
+        num_waves = (num_threads + target.wavefront_size - 1) // target.wavefront_size
+        waves_per_simd = (num_waves + target.num_simds - 1) // target.num_simds
         violations = []
 
-        if self.vgpr_count > 256:
-            violations.append(f"vgpr per thread {self.vgpr_count} > 256")
-        if self.agpr_count > 256:
-            violations.append(f"agpr per thread {self.agpr_count} > 256")
-        total_wave = self.vgpr_count + self.agpr_count
-        if total_wave > 512:
+        if self.vgpr_count > target.max_vgprs:
+            violations.append(f"vgpr per thread {self.vgpr_count} > {target.max_vgprs}")
+        if target.max_agprs > 0 and self.agpr_count > target.max_agprs:
+            violations.append(f"agpr per thread {self.agpr_count} > {target.max_agprs}")
+        combined = self.vgpr_count + self.agpr_count
+        combined_max = target.max_vgprs + target.max_agprs
+        if combined > combined_max:
             violations.append(
-                f"(vgpr+agpr) per wave {self.vgpr_count}+{self.agpr_count}={total_wave} > 512"
+                f"(vgpr+agpr) per wave {self.vgpr_count}+{self.agpr_count}"
+                f"={combined} > {combined_max}"
             )
-        vgpr_simd = self.vgpr_count * max_waves_per_simd
-        if vgpr_simd > 512:
+        vgpr_simd = self.vgpr_count * waves_per_simd
+        if vgpr_simd > target.vgprs_per_simd:
             violations.append(
-                f"vgpr per SIMD {self.vgpr_count}*{max_waves_per_simd}={vgpr_simd} > 512"
+                f"vgpr per SIMD {self.vgpr_count}*{waves_per_simd}"
+                f"={vgpr_simd} > {target.vgprs_per_simd}"
             )
-        agpr_simd = self.agpr_count * max_waves_per_simd
-        if agpr_simd > 512:
+        if target.agprs_per_simd > 0:
+            agpr_simd = self.agpr_count * waves_per_simd
+            if agpr_simd > target.agprs_per_simd:
+                violations.append(
+                    f"agpr per SIMD {self.agpr_count}*{waves_per_simd}"
+                    f"={agpr_simd} > {target.agprs_per_simd}"
+                )
+        if self.lds_bytes > target.lds_per_cu:
             violations.append(
-                f"agpr per SIMD {self.agpr_count}*{max_waves_per_simd}={agpr_simd} > 512"
+                f"LDS per workgroup {self.lds_bytes} > {target.lds_per_cu}"
             )
-        if self.lds_bytes > lds_per_cu:
-            violations.append(f"LDS per workgroup {self.lds_bytes} > {lds_per_cu}")
         return violations
-
-    def _check_occupancy_cdna4(self, num_threads: int) -> List[str]:
-        """Gfx950 (CDNA4) occupancy rules.
-
-        Uses CDNA3 rules with CDNA4 overrides:
-          - LDS: 256KB per CU (vs 64KB on CDNA3)
-          - TODO: VGPR/AGPR per-thread limits for CDNA4
-          - TODO: SIMD count / waves-per-SIMD limits for CDNA4
-          - TODO: per-workgroup register budget for CDNA4
-        """
-        return self._check_occupancy_cdna3(num_threads, lds_per_cu=262144)
-
-
-# -- Hardware constants per target ------------------------------------------
-
-_TARGET_PARAMS = {
-    "gfx940": {
-        "lds_per_cu": 65536,
-        "vgprs_per_simd": 512,
-        "agprs_per_simd": 512,
-        "num_simds": 4,
-        "max_vgprs_per_wave": 256,
-        "max_agprs_per_wave": 256,
-        "wavefront_size": 64,
-    },
-    "gfx942": {
-        "lds_per_cu": 65536,
-        "vgprs_per_simd": 512,
-        "agprs_per_simd": 512,
-        "num_simds": 4,
-        "max_vgprs_per_wave": 256,
-        "max_agprs_per_wave": 256,
-        "wavefront_size": 64,
-    },
-    "gfx950": {
-        "lds_per_cu": 262144,
-        "vgprs_per_simd": 512,
-        "agprs_per_simd": 512,
-        "num_simds": 4,
-        "max_vgprs_per_wave": 256,
-        "max_agprs_per_wave": 256,
-        "wavefront_size": 64,
-    },
-}
 
 
 def compute_register_budget(
@@ -185,20 +133,16 @@ def compute_register_budget(
     Returns:
         (max_vgprs, max_agprs, lds_per_wg) tuple.
     """
-    params = _TARGET_PARAMS.get(mcpu, _TARGET_PARAMS["gfx942"])
-    wf = params["wavefront_size"]
-    num_waves = (num_threads + wf - 1) // wf
+    try:
+        target = Target.from_mcpu(mcpu)
+    except ValueError:
+        target = Target.from_mcpu("gfx942")
+    num_waves = (num_threads + target.wavefront_size - 1) // target.wavefront_size
     total_waves = num_waves * num_wg_per_cu
-    waves_per_simd = (total_waves + params["num_simds"] - 1) // params["num_simds"]
-    max_vgprs = min(
-        params["max_vgprs_per_wave"],
-        params["vgprs_per_simd"] // waves_per_simd,
-    )
-    max_agprs = min(
-        params["max_agprs_per_wave"],
-        params["agprs_per_simd"] // waves_per_simd,
-    )
-    lds_per_wg = params["lds_per_cu"] // num_wg_per_cu
+    waves_per_simd = (total_waves + target.num_simds - 1) // target.num_simds
+    max_vgprs = min(target.max_vgprs, target.vgprs_per_simd // waves_per_simd)
+    max_agprs = min(target.max_agprs, target.agprs_per_simd // waves_per_simd)
+    lds_per_wg = target.lds_per_cu // num_wg_per_cu
     return max_vgprs, max_agprs, lds_per_wg
 
 
@@ -338,77 +282,48 @@ def _uncapsule(capsule):
     return PyCapsule_GetPointer(ctypes.py_object(capsule), b"nb_handle")
 
 
-def execute_hsaco(
-    hsaco_path: str,
-    kernel_name: str,
-    input_arrays: list,
-    output_arrays: list,
-    grid_dim: Tuple[int, int, int] = (1, 1, 1),
-    block_dim: Tuple[int, int, int] = (64, 1, 1),
-    num_iterations: int = 1,
-) -> Tuple[List[int]]:
-    """Execute a pre-compiled HSACO kernel on GPU.
-
-    Args:
-        hsaco_path: Path to the .hsaco file.
-        kernel_name: Name of the kernel entry point.
-        input_arrays: List of numpy arrays (copied to GPU, read-only).
-        output_arrays: List of numpy arrays (copied to GPU, results copied
-            back after first iteration).
-        grid_dim: (gridX, gridY, gridZ).
-        block_dim: (blockX, blockY, blockZ).
-        num_iterations: Number of kernel launches (for timing).
-
-    Returns:
-        List of execution times in nanoseconds, one per iteration.
-        output_arrays are modified in-place with results from iteration 0.
-    """
+def _is_scalar(arg: Any) -> bool:
+    """Return true if arg is a Python or numpy scalar (passed by value to the kernel)."""
     import numpy as np
 
-    # HIP-only imports (no MLIR/LLVM).
-    from aster._mlir_libs._runtime_module import (
-        hip_init,
-        hip_malloc,
-        hip_free,
-        hip_memcpy_host_to_device,
-        hip_memcpy_device_to_host,
-        hip_module_load_data,
-        hip_module_get_function,
-        hip_module_launch_kernel,
-        hip_module_unload,
-        hip_function_free,
-        hip_event_create,
-        hip_event_destroy,
-        hip_event_record,
-        hip_event_synchronize,
-        hip_event_elapsed_time,
-    )
+    return isinstance(arg, (int, float, np.integer, np.floating))
 
-    all_arrays = [a.flatten() for a in input_arrays] + [
-        a.flatten() for a in output_arrays
-    ]
-    num_inputs = len(input_arrays)
 
-    hip_init()
+def _prepare_kernel_args(
+    args: List[Any],
+) -> Tuple[List[Any], Tuple[Any, Any], Any]:
+    """Allocate GPU buffers for array args, copy host data, and build the kernel args struct.
 
-    # Load HSACO.
-    with open(hsaco_path, "rb") as f:
-        hsaco_binary = f.read()
-    module = hip_module_load_data(hsaco_binary)
-    function = hip_module_get_function(module, kernel_name.encode())
+    Scalars are packed directly as c_void_p values (by-value passing). Arrays are
+    copied to freshly allocated GPU memory.
 
-    # Allocate GPU buffers and copy data.
-    gpu_ptrs = []
-    ptr_values = []
-    for arr in all_arrays:
-        gpu_ptr = hip_malloc(arr.nbytes)
+    Args:
+        args: Flat list of kernel arguments (scalars or numpy arrays).
+
+    Returns:
+        A (gpu_ptrs, keep_alive, args_capsule) tuple where:
+        - gpu_ptrs: base GPU allocations to free after the kernel finishes.
+        - keep_alive: (kernel_args, kernel_ptr_arr) ctypes objects that must
+          remain alive until hip_module_launch_kernel returns.
+        - args_capsule: PyCapsule to pass to hip_module_launch_kernel.
+    """
+    from aster._mlir_libs._runtime_module import hip_malloc, hip_memcpy_host_to_device
+
+    gpu_ptrs: List[Any] = []
+    ptr_values: List[int] = []
+
+    for arg in args:
+        if _is_scalar(arg):
+            ptr_values.append(int(arg))
+            continue
+        gpu_ptr = hip_malloc(arg.nbytes)
         gpu_ptrs.append(gpu_ptr)
-        ptr_val = _uncapsule(gpu_ptr)
-        ptr_values.append(ptr_val)
-        host_cap = _capsule(arr.ctypes.data)
-        hip_memcpy_host_to_device(gpu_ptr, host_cap, arr.nbytes)
+        base_val = _uncapsule(gpu_ptr)
+        hip_memcpy_host_to_device(
+            _capsule(base_val), _capsule(arg.ctypes.data), arg.nbytes
+        )
+        ptr_values.append(base_val)
 
-    # Build kernel args struct.
     class _Args(ctypes.Structure):
         _fields_ = [(f"f{i}", ctypes.c_void_p) for i in range(len(ptr_values))]
 
@@ -420,40 +335,162 @@ def execute_hsaco(
     kernel_ptr_arr = ptr_arr_t(
         *[ka_addr + getattr(_Args, f"f{i}").offset for i in range(len(ptr_values))]
     )
-    args_capsule = _capsule(ctypes.addressof(kernel_ptr_arr))
+    return (
+        gpu_ptrs,
+        (kernel_args, kernel_ptr_arr),
+        _capsule(ctypes.addressof(kernel_ptr_arr)),
+    )
 
-    # Launch kernel.
+
+class _TimedLaunch:
+    """Context manager that brackets a GPU kernel launch with HIP event timing.
+
+    Records start/stop events around the ``with`` body, synchronizes on exit,
+    and exposes the wall time as ``elapsed_ns``.
+
+    Args:
+        start_event: Pre-created HIP event used as the start marker.
+        stop_event: Pre-created HIP event used as the stop marker.
+        flush_llc: Optional LLC-flush object. ``flush_llc()`` is called before
+            the start event is recorded if provided.
+
+    Example::
+
+        with _TimedLaunch(start_event, stop_event, flush_llc) as t:
+            hip_module_launch_kernel(function, *grid, *block, args_capsule)
+        times_ns.append(t.elapsed_ns)
+    """
+
+    elapsed_ns: int
+
+    def __init__(self, start_event, stop_event, flush_llc=None):
+        self._start = start_event
+        self._stop = stop_event
+        self._flush_llc = flush_llc
+
+    def __enter__(self):
+        from aster._mlir_libs._runtime_module import hip_event_record
+
+        if self._flush_llc is not None:
+            self._flush_llc.flush_llc()
+        hip_event_record(self._start)
+        return self
+
+    def __exit__(self, *_):
+        from aster._mlir_libs._runtime_module import (
+            hip_event_elapsed_time,
+            hip_event_record,
+            hip_event_synchronize,
+        )
+
+        hip_event_record(self._stop)
+        hip_event_synchronize(self._stop)
+        self.elapsed_ns = int(
+            hip_event_elapsed_time(self._start, self._stop) * 1_000_000
+        )
+
+
+def _copy_outputs_from_gpu(
+    gpu_ptrs: List[Any],
+    input_arrays: List[Any],
+    output_arrays: List[Any],
+) -> None:
+    """Copy output arrays back from GPU to host (in-place)."""
+    from aster._mlir_libs._runtime_module import hip_memcpy_device_to_host
+
+    gpu_i = sum(1 for a in input_arrays if not _is_scalar(a))
+    for out_arr in output_arrays:
+        if _is_scalar(out_arr):
+            continue
+        hip_memcpy_device_to_host(
+            _capsule(out_arr.ctypes.data), gpu_ptrs[gpu_i], out_arr.nbytes
+        )
+        gpu_i += 1
+
+
+def execute_hsaco(
+    hsaco_path: str,
+    kernel_name: str,
+    input_arrays: list,
+    output_arrays: list,
+    grid_dim: Tuple[int, int, int] = (1, 1, 1),
+    block_dim: Tuple[int, int, int] = (64, 1, 1),
+    num_iterations: int = 1,
+    device_id: Optional[int] = None,
+    flush_llc: Optional[Any] = None,
+) -> List[int]:
+    """Execute a pre-compiled HSACO kernel on GPU.
+
+    Args:
+        hsaco_path: Path to the .hsaco file.
+        kernel_name: Name of the kernel entry point.
+        input_arrays: List of numpy arrays or scalars (read-only kernel inputs).
+            Scalars (int/float) are passed by value; arrays are copied to GPU.
+        output_arrays: List of numpy arrays (copied to GPU, modified in-place
+            with results after the first iteration).
+        grid_dim: (gridX, gridY, gridZ).
+        block_dim: (blockX, blockY, blockZ).
+        num_iterations: Number of kernel launches (for timing).
+        device_id: GPU device to use. None keeps the current device.
+        flush_llc: Optional object with initialize()/flush_llc()/cleanup()
+            methods called around each iteration for LLC flushing.
+
+    Returns:
+        List of execution times in nanoseconds, one per iteration.
+    """
+    # HIP-only imports (no MLIR/LLVM).
+    from aster._mlir_libs._runtime_module import (
+        hip_init,
+        hip_set_device,
+        hip_free,
+        hip_module_load_data,
+        hip_module_get_function,
+        hip_module_launch_kernel,
+        hip_module_unload,
+        hip_function_free,
+        hip_event_create,
+        hip_event_destroy,
+    )
+
+    all_arrays = input_arrays + output_arrays
+    hip_init()
+    if device_id is not None:
+        hip_set_device(device_id)
+
+    with open(hsaco_path, "rb") as f:
+        hsaco_binary = f.read()
+    module = hip_module_load_data(hsaco_binary)
+    function = hip_module_get_function(module, kernel_name.encode())
+
+    gpu_ptrs, keep_alive, args_capsule = _prepare_kernel_args(all_arrays)
+
     start_event = hip_event_create()
     stop_event = hip_event_create()
     times_ns = []
+
+    if flush_llc is not None:
+        flush_llc.initialize()
+
     try:
         for it in range(num_iterations):
-            hip_event_record(start_event)
-            hip_module_launch_kernel(
-                function,
-                grid_dim[0],
-                grid_dim[1],
-                grid_dim[2],
-                block_dim[0],
-                block_dim[1],
-                block_dim[2],
-                args_capsule,
-            )
-            hip_event_record(stop_event)
-            hip_event_synchronize(stop_event)
-            elapsed_ms = hip_event_elapsed_time(start_event, stop_event)
-            times_ns.append(int(elapsed_ms * 1_000_000))
+            with _TimedLaunch(start_event, stop_event, flush_llc) as t:
+                hip_module_launch_kernel(
+                    function,
+                    grid_dim[0],
+                    grid_dim[1],
+                    grid_dim[2],
+                    block_dim[0],
+                    block_dim[1],
+                    block_dim[2],
+                    args_capsule,
+                )
+            times_ns.append(t.elapsed_ns)
 
-            # Copy outputs back on first iteration for correctness checks.
             if it == 0:
-                for i, out_arr in enumerate(output_arrays):
-                    flat = all_arrays[num_inputs + i]
-                    out_cap = _capsule(flat.ctypes.data)
-                    hip_memcpy_device_to_host(
-                        out_cap, gpu_ptrs[num_inputs + i], flat.nbytes
-                    )
-                    np.copyto(out_arr.reshape(-1), flat)
+                _copy_outputs_from_gpu(gpu_ptrs, input_arrays, output_arrays)
     finally:
+        if flush_llc is not None:
+            flush_llc.cleanup()
         hip_event_destroy(start_event)
         hip_event_destroy(stop_event)
         for gp in gpu_ptrs:

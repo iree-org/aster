@@ -9,12 +9,8 @@ from typing import List, Tuple, Optional
 
 import numpy as np
 from aster import ir, utils
-from aster.testing import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-    _get_logger,
-    _log_info,
-)
+from aster.testing import execute_kernel_and_verify, compile_mlir_file_to_asm
+from aster.utils.env import aster_get_logger, aster_log_info
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 from mlir_kernels.benchmarks.benchmark_utils import (
     BenchmarkResult,
@@ -70,11 +66,10 @@ def compile_kernel_worker(
                 ctx,
                 preprocess=preprocess,
                 library_paths=[library_path],
-                print_ir_after_all=False,
             )
 
-            logger = _get_logger()
-            _log_info(
+            logger = aster_get_logger()
+            aster_log_info(
                 logger,
                 f"[COMPILE] Assembling to HSACO: target={config.mcpu}, "
                 f"wavefront_size={config.wavefront_size}",
@@ -84,7 +79,7 @@ def compile_kernel_worker(
             )
             if hsaco_path is None:
                 raise RuntimeError("Failed to assemble kernel to HSACO")
-            _log_info(
+            aster_log_info(
                 logger,
                 f"[COMPILE] HSACO assembly completed: {os.path.basename(hsaco_path)}",
             )
@@ -107,16 +102,16 @@ def execute_kernel_benchmark(
     device_id: Optional[int] = None,
 ) -> Tuple[Optional[BenchmarkResult], str]:
     """Execute a compiled kernel and return benchmark result with status message."""
-    logger = _get_logger()
+    logger = aster_get_logger()
 
-    _log_info(
+    aster_log_info(
         logger, f"[EXECUTE] Executing kernel: m={config.m}, n={config.n}, k={config.k}"
     )
 
     # Generate data using shared function
     a_data, b_data, c_data = generate_batchedsmallgemm_data(config)
 
-    _log_info(
+    aster_log_info(
         logger,
         f"[EXECUTE] Matrices created: m={config.m}, n={config.n}, k={config.k}, batch={config.batch}",
     )

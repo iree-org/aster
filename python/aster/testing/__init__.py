@@ -15,127 +15,35 @@ Usage:
     )
 """
 
-import datetime
 import os
-import pathlib
-import tempfile
-import time
-import logging
 import numpy as np
 from contextlib import contextmanager
-from typing import Tuple, Callable, Optional, List, Any, Generator, Union
+from typing import Tuple, Callable, Optional, List, Any, Generator
 
 from aster import utils
+from aster.compiler import (
+    load_mlir_module_from_file,
+    compile_mlir_file_to_asm,
+    compile_mlir_module_to_asm,
+    PrintOptions,
+)
+from aster.utils.env import (
+    MillisecondFormatter,
+    aster_get_env_or_default,
+    aster_get_logger,
+    aster_log_info,
+    aster_parse_bool_env,
+    aster_should_log,
+)
 from aster.dialects import amdgcn
 from aster._mlir_libs._runtime_module import (
     hip_init,
-    hip_module_load_data,
-    hip_module_get_function,
-    hip_module_launch_kernel,
-    hip_device_synchronize,
-    hip_free,
-    hip_malloc,
-    hip_memcpy_host_to_device,
-    hip_memcpy_device_to_host,
-    hip_module_unload,
-    hip_function_free,
     hip_get_device_count,
     hip_set_device,
-    hip_get_device,
-    hip_event_create,
-    hip_event_destroy,
-    hip_event_record,
-    hip_event_synchronize,
-    hip_event_elapsed_time,
 )
+from aster.execution.hip import execute_hsaco
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 from aster.test_pass_pipelines import TEST_SYNCHRONOUS_PASS_PIPELINE
-
-# ---------------------------------------------------------------------------
-# Environment variable helpers
-# ---------------------------------------------------------------------------
-
-
-def _parse_bool_env(value: str) -> bool:
-    """Parse a boolean-like environment variable string.
-
-    Accepts '1', 'true', 'on' as True and '0', 'false', 'off' as False (case-
-    insensitive). Raises ValueError for unrecognized values.
-    """
-    normalized = value.strip().lower()
-    if normalized in ("1", "true", "on"):
-        return True
-    if normalized in ("0", "false", "off"):
-        return False
-    raise ValueError(
-        f"invalid boolean environment variable value: {value!r}. "
-        "Expected one of: 1, true, on, 0, false, off."
-    )
-
-
-def _get_env_or_default(name: str, default: Optional[Any] = None) -> Any:
-    """Return the value of environment variable *name*, or *default* if unset.
-
-    When *default* is a bool the raw string is parsed with :func:`_parse_bool_env`.
-    Otherwise the raw string value is returned as-is.
-    """
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    if isinstance(default, bool):
-        return _parse_bool_env(raw)
-    return raw
-
-
-# ---------------------------------------------------------------------------
-# Logging helpers
-# ---------------------------------------------------------------------------
-
-
-class MillisecondFormatter(logging.Formatter):
-    """Formatter that includes milliseconds in timestamps."""
-
-    def formatTime(self, record, datefmt=None):
-        """Format time with millisecond precision."""
-        ct = self.converter(record.created)
-        msecs = int(record.msecs)
-        return f"{ct.tm_hour:02d}:{ct.tm_min:02d}:{ct.tm_sec:02d}.{msecs:03d}"
-
-
-def _get_logger():
-    """Get logger configured for multiprocessing-safe logging."""
-    logger = logging.getLogger("benchmark")
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(
-            MillisecondFormatter(
-                fmt="%(asctime)s [PID:%(process)d] %(message)s",
-            )
-        )
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-    return logger
-
-
-def _should_log():
-    """Check if logging is enabled via ASTER_LOGGING environment variable."""
-    return _get_env_or_default("ASTER_LOGGING", False)
-
-
-def _log_with_device(logger, device_id, message):
-    """Log message with device_id."""
-    if not _should_log():
-        return
-    device_str = f"GPU{device_id}" if device_id is not None else "GPU?"
-    logger.info(f"[{device_str}] {message}")
-
-
-def _log_info(logger, message):
-    """Log info message if logging is enabled."""
-    if not _should_log():
-        return
-    logger.info(message)
-
 
 # ---------------------------------------------------------------------------
 # Low-level utilities
@@ -164,199 +72,6 @@ def hsaco_file(path: str) -> Generator[str, None, None]:
             os.unlink(path)
 
 
-def load_mlir_module_from_file(
-    file_path: str,
-    ctx,
-    preprocess: Optional[Callable[[str], str]] = None,
-    print_preprocessed_ir: bool = False,
-):
-    """Load MLIR module from file.
-
-    Args:
-        file_path: Path to MLIR file
-        ctx: MLIR context
-        preprocess: Optional function to preprocess the MLIR string before parsing
-    """
-    from aster._mlir_libs._mlir import ir as mlir_ir
-
-    with open(file_path, "r") as f:
-        mlir_content = f.read()
-
-    if preprocess is not None:
-        mlir_content = preprocess(mlir_content)
-
-    if print_preprocessed_ir:
-        print(f"Preprocessed IR from {file_path}:\n{mlir_content}", flush=True)
-
-    # Enable unregistered dialects to allow parsing MLIR with unregistered dialects
-    ctx.allow_unregistered_dialects = True
-
-    with mlir_ir.Location.unknown():
-        module = mlir_ir.Module.parse(mlir_content, context=ctx)
-    return module
-
-
-def compile_mlir_module_to_asm(
-    module,
-    pass_pipeline: str = TEST_SROA_PASS_PIPELINE,
-    print_ir_after_all: bool = False,
-    print_timings: bool = False,
-    print_dir_path: Optional[pathlib.Path] = None,
-    library_paths: Optional[List[str]] = None,
-    kernel_name: Optional[str] = None,
-) -> str:
-    """Compile an already-built MLIR module to assembly.
-
-    Runs the pass pipeline, finds the amdgcn.module, and translates to asm. Respects the
-    ASTER_PRINT_IR_AFTER_ALL environment variable.
-    """
-    from aster._mlir_libs._mlir import passmanager
-
-    print_ir_after_all = _get_env_or_default(
-        "ASTER_PRINT_IR_AFTER_ALL", print_ir_after_all
-    )
-
-    ctx = module.context
-
-    if library_paths:
-        for lib_path in library_paths:
-            if not os.path.exists(lib_path):
-                raise FileNotFoundError(f"Library file not found: {lib_path}")
-        paths_str = ",".join(library_paths)
-        preload_pass = (
-            f"builtin.module(amdgcn-preload-library{{library-paths={paths_str}}})"
-        )
-        pm = passmanager.PassManager.parse(preload_pass, ctx)
-        pm.run(module.operation)
-
-    pm = passmanager.PassManager.parse(pass_pipeline, ctx)
-    if print_ir_after_all:
-        if print_dir_path is not None:
-            pm.enable_ir_printing(
-                print_after_all=True, tree_printing_dir_path=str(print_dir_path)
-            )
-        else:
-            pm.enable_ir_printing(print_after_all=True)
-    if print_timings:
-        pm.enable_timing()
-    pm.run(module.operation)
-
-    # Find the amdgcn.module (optionally verify kernel_name).
-    amdgcn_module = None
-    for op in module.body:
-        if not isinstance(op, amdgcn.ModuleOp):
-            continue
-        if kernel_name is None:
-            amdgcn_module = op
-            break
-        for kernel_op in op.body_region.blocks[0].operations:
-            if (
-                isinstance(kernel_op, amdgcn.KernelOp)
-                and kernel_op.sym_name.value == kernel_name
-            ):
-                amdgcn_module = op
-                break
-        if amdgcn_module is not None:
-            break
-
-    assert amdgcn_module is not None, (
-        f"Failed to find kernel {kernel_name}"
-        if kernel_name
-        else "No amdgcn.module found after pipeline"
-    )
-
-    return utils.translate_module(amdgcn_module, debug_print=False)
-
-
-def compile_mlir_file_to_asm(
-    mlir_file: str,
-    kernel_name: str,
-    pass_pipeline: str,
-    ctx,
-    preprocess: Optional[Callable[[str], str]] = None,
-    print_ir_after_all: bool = False,
-    print_preprocessed_ir: bool = False,
-    library_paths: Optional[List[str]] = None,
-    print_timings: bool = False,
-    print_asm: bool = False,
-    print_root_dir: Optional[str] = None,
-) -> Tuple[str, Any]:
-    """Compile MLIR file to assembly and extract kernel name.
-
-    Loads the file, then delegates to :func:`compile_mlir_module_to_asm`.
-
-    Args:
-        mlir_file: Path to MLIR file
-        kernel_name: Name of the kernel function
-        pass_pipeline: Pass pipeline string
-        ctx: MLIR context
-        preprocess: Optional function to preprocess the MLIR string before parsing
-        print_ir_after_all: If True, print the IR after all passes have been applied.
-            Can be overridden by the ASTER_PRINT_IR_AFTER_ALL environment variable.
-        library_paths: Optional list of paths to AMDGCN library files to preload
-        print_timings: If True, enable pass timing
-        print_asm: If True, print the generated assembly to stdout.
-            Can be overridden by the ASTER_PRINT_ASM environment variable.
-        print_root_dir: If set, a unique subdirectory named
-            ``<kernel_name>_DDMMYY_HHMMSS_<salt>`` is created inside this root
-            and the final ASM and intermediate IR files are written there.
-            The root must either not exist or refer to a directory.
-            Can be overridden by the ASTER_PRINT_DIR environment variable.
-
-    Returns:
-        Tuple of (asm_code, module) where module is the MLIR module after passes
-    """
-    # Apply environment variable overrides.
-    print_ir_after_all = _get_env_or_default(
-        "ASTER_PRINT_IR_AFTER_ALL", print_ir_after_all
-    )
-    print_asm = _get_env_or_default("ASTER_PRINT_ASM", print_asm)
-    print_root_dir = _get_env_or_default("ASTER_PRINT_DIR", print_root_dir)
-
-    # Validate the root and create a unique timestamped subdirectory.
-    print_dir_path: Optional[pathlib.Path] = None
-    if print_root_dir is not None and (print_asm or print_ir_after_all):
-        root = pathlib.Path(print_root_dir)
-        if root.exists() and not root.is_dir():
-            raise ValueError(
-                f"print_root_dir must be a directory, not a file: {print_root_dir}"
-            )
-        root.mkdir(parents=True, exist_ok=True)
-        now = datetime.datetime.now()
-        prefix = f"{kernel_name}_{now.strftime('%d%m%y_%H%M%S')}_"
-        print_dir_path = pathlib.Path(tempfile.mkdtemp(prefix=prefix, dir=root))
-        print(f"Printing results to directory: {print_dir_path}", flush=True)
-
-    module = load_mlir_module_from_file(
-        mlir_file, ctx, preprocess, print_preprocessed_ir
-    )
-
-    if print_dir_path is not None:
-        (print_dir_path / "pipeline.txt").write_text(pass_pipeline)
-        (print_dir_path / "preprocessed.mlir").write_text(str(module))
-
-    asm = compile_mlir_module_to_asm(
-        module,
-        pass_pipeline=pass_pipeline,
-        print_ir_after_all=print_ir_after_all,
-        print_timings=print_timings,
-        print_dir_path=print_dir_path,
-        library_paths=library_paths,
-        kernel_name=kernel_name,
-    )
-
-    if print_asm:
-        if print_dir_path is not None:
-            (print_dir_path / "kernel.s").write_text(asm)
-        else:
-            print(asm, flush=True)
-
-    if print_dir_path is not None:
-        (print_dir_path / "output.mlir").write_text(str(module))
-
-    return asm, module
-
-
 def execute_kernel_and_verify(
     hsaco_path: Optional[str],
     kernel_name: str,
@@ -367,7 +82,6 @@ def execute_kernel_and_verify(
     grid_dim: Tuple[int, int, int] = (1, 1, 1),
     block_dim: Tuple[int, int, int] = (64, 1, 1),
     verify_fn: Optional[Callable[[List[np.ndarray], List[np.ndarray]], None]] = None,
-    padding_bytes: Optional[List[int]] = None,
     num_iterations: int = 1,
     device_id: Optional[int] = None,
     flush_llc: Optional[Any] = None,
@@ -385,8 +99,6 @@ def execute_kernel_and_verify(
         block_dim: Block dimensions (default: (64, 1, 1))
         verify_fn: Custom verification function that takes (input_args, output_args).
                    Only called on first iteration if provided. (default: None)
-        padding_bytes: List of padding bytes per buffer, one for each buffer in input_args + output_args.
-                       If None, no padding is applied. (default: None)
         num_iterations: Number of times to execute the kernel (default: 1)
         device_id: GPU device ID to use. If None, uses current device. (default: None)
         flush_llc: Optional FlushLLC instance to flush the LLC before each iteration.
@@ -403,211 +115,23 @@ def execute_kernel_and_verify(
         (_is_scalar(arg) or arg.size > 0) for arg in input_args + output_args
     ), "All NP arrays must have > 0 elements"
 
-    has_scalars = any(_is_scalar(arg) for arg in input_args)
-
     if hsaco_path is None:
         raise RuntimeError("Failed to assemble kernel to HSACO")
 
-    logger = _get_logger()
-
-    # Initialize HIP runtime and set device before any GPU allocations
-    hip_init()
-    if device_id is not None:
-        hip_set_device(device_id)
-
-    gpu_ptrs: Optional[List[Any]] = None
-    padded_buffers: Optional[List[Any]] = None
-    has_padding = False
-    module = None
-    function = None
-    start_event = None
-    stop_event = None
-
-    actual_device_id = device_id if device_id is not None else hip_get_device()
-
-    try:
-        _log_with_device(
-            logger,
-            actual_device_id,
-            f"Starting execution: kernel={kernel_name}, iterations={num_iterations}",
-        )
-
-        # Load hsaco binary
-        with open(hsaco_path, "rb") as f:
-            hsaco_binary = f.read()
-
-        module = hip_module_load_data(hsaco_binary)
-        function = hip_module_get_function(module, kernel_name.encode())
-        _log_with_device(
-            logger, actual_device_id, f"Loaded HSACO: {pathlib.Path(hsaco_path).name}"
-        )
-
-        all_arrays = input_args + output_args
-
-        # Normalize padding_bytes: if None, create list of zeros
-        if padding_bytes is None:
-            padding_bytes = [0] * len(all_arrays)
-        elif len(padding_bytes) != len(all_arrays):
-            raise ValueError(
-                f"padding_bytes must have {len(all_arrays)} elements (one per buffer), "
-                f"got {len(padding_bytes)}"
-            )
-
-        # Check if any buffer needs padding
-        has_padding = any(pb > 0 for pb in padding_bytes)
-
-        if has_padding:
-            if has_scalars:
-                raise ValueError(
-                    "Padding is not supported with scalar by_val arguments"
-                )
-            # Use padded buffers
-            padded_buffers = []
-            ptr_values = []
-
-            # Allocate padded buffers and copy input data
-            _log_with_device(
-                logger, actual_device_id, f"Allocating {len(all_arrays)} padded buffers"
-            )
-            for arr, pad_bytes in zip(all_arrays, padding_bytes):
-                base_ptr, data_ptr, _ = utils.copy_array_to_gpu(arr, pad_bytes)
-                padded_buffers.append(base_ptr)
-                ptr_value = utils.unwrap_pointer_from_capsule(data_ptr)
-                ptr_values.append(ptr_value)
-
-            # Create kernel arguments from padded buffer pointers
-            params_tuple = utils.create_kernel_args_capsule(ptr_values)
-        else:
-            # Build kernarg values: scalars packed directly, arrays via GPU ptrs.
-            # Scalar by_val args are stored as c_uint64; HIP reads the correct
-            # number of bytes based on kernel metadata (little-endian safe).
-            _log_with_device(
-                logger,
-                actual_device_id,
-                f"Allocating buffers for {len(all_arrays)} args",
-            )
-            ptr_values = []
-            gpu_ptrs = []
-            for arg in all_arrays:
-                if _is_scalar(arg):
-                    ptr_values.append(int(arg))
-                else:
-                    base_gpu_ptr, _, ptr_value = utils.copy_array_to_gpu(arg)
-                    gpu_ptrs.append(base_gpu_ptr)
-                    ptr_values.append(ptr_value)
-
-            params_tuple = utils.create_kernel_args_capsule(ptr_values)
-
-        iteration_times_ns = []
-
-        # Create events for GPU-level timing
-        start_event = hip_event_create()
-        stop_event = hip_event_create()
-
-        _log_with_device(
-            logger,
-            actual_device_id,
-            f"Launching kernel: grid={grid_dim}, block={block_dim}",
-        )
-
-        if flush_llc is not None:
-            flush_llc.initialize()
-
-        # Execute kernel multiple times for cache warming
-        for iteration in range(num_iterations):
-            # Flush LLC before each iteration (outside timing)
-            if flush_llc is not None:
-                flush_llc.flush_llc()
-
-            # Record start event
-            hip_event_record(start_event)
-
-            # Launch kernel
-            hip_module_launch_kernel(
-                function,
-                grid_dim[0],
-                grid_dim[1],
-                grid_dim[2],
-                block_dim[0],
-                block_dim[1],
-                block_dim[2],
-                params_tuple[0],
-            )
-
-            # Record stop event and synchronize
-            hip_event_record(stop_event)
-            hip_event_synchronize(stop_event)
-
-            # Get elapsed time in milliseconds, convert to nanoseconds
-            elapsed_ms = hip_event_elapsed_time(start_event, stop_event)
-            elapsed_ns = int(elapsed_ms * 1_000_000)
-            iteration_times_ns.append(elapsed_ns)
-
-            _log_with_device(
-                logger, actual_device_id, f"Iteration {iteration}: {elapsed_ms:.3f}ms"
-            )
-
-            # Verify results only on first iteration
-            if iteration == 0:
-                _log_with_device(logger, actual_device_id, "Verifying results")
-                # Copy results back
-                num_inputs = len(input_args)
-                if has_padding:
-                    # Copy from padded buffers
-                    assert padded_buffers is not None
-                    for i, output_arr in enumerate(output_args):
-                        base_ptr = padded_buffers[num_inputs + i]
-                        pad_bytes = padding_bytes[num_inputs + i]
-                        utils.copy_from_gpu_buffer(base_ptr, output_arr, pad_bytes)
-                else:
-                    # Copy from normal buffers.
-                    # gpu_ptrs only contains entries for array args (scalars
-                    # are skipped), so compute the offset past input arrays.
-                    assert gpu_ptrs is not None
-                    num_input_arrays = sum(1 for a in input_args if not _is_scalar(a))
-                    for i, output_arr in enumerate(output_args):
-                        output_ptr = gpu_ptrs[num_input_arrays + i]
-                        capsule_output = utils.wrap_pointer_in_capsule(
-                            output_arr.ctypes.data
-                        )
-                        hip_memcpy_device_to_host(
-                            capsule_output, output_ptr, output_arr.nbytes
-                        )
-
-                if verify_fn is not None:
-                    verify_fn(input_args, output_args)
-                    _log_with_device(logger, actual_device_id, "Verification passed")
-
-        # Free the GPU buffers
-        avg_time_ms = sum(iteration_times_ns) / len(iteration_times_ns) / 1_000_000
-        _log_with_device(
-            logger,
-            actual_device_id,
-            f"Completed {num_iterations} iterations, avg={avg_time_ms:.3f}ms",
-        )
-
-        return iteration_times_ns
-
-    finally:
-        # Cleanup events
-        if start_event is not None:
-            hip_event_destroy(start_event)
-        if stop_event is not None:
-            hip_event_destroy(stop_event)
-        # Cleanup buffers
-        if padded_buffers is not None:
-            for ptr in padded_buffers:
-                hip_free(ptr)
-        elif gpu_ptrs is not None:
-            for ptr in gpu_ptrs:
-                hip_free(ptr)
-        # Cleanup flush buffer if FlushLLC instance was provided
-        if flush_llc is not None:
-            flush_llc.cleanup()
-        if function is not None:
-            hip_function_free(function)
-        if module is not None:
-            hip_module_unload(module)
+    times_ns = execute_hsaco(
+        hsaco_path,
+        kernel_name,
+        input_args,
+        output_args,
+        grid_dim,
+        block_dim,
+        num_iterations,
+        device_id=device_id,
+        flush_llc=flush_llc,
+    )
+    if verify_fn is not None:
+        verify_fn(input_args, output_args)
+    return times_ns
 
 
 # ---------------------------------------------------------------------------
@@ -739,10 +263,12 @@ def compile_and_run(
             pass_pipeline,
             ctx,
             library_paths=library_paths,
-            print_ir_after_all=print_ir_after_all,
             preprocess=preprocess,
-            print_timings=print_timings,
-            print_preprocessed_ir=print_preprocessed_ir,
+            print_opts=PrintOptions.from_flags(
+                print_ir_after_all=print_ir_after_all,
+                print_timings=print_timings,
+                print_preprocessed_ir=print_preprocessed_ir,
+            ),
         )
 
         hsaco_path = utils.assemble_to_hsaco(

@@ -27,10 +27,18 @@ declare_mlir_python_sources(ASTERPythonSources.core
   ADD_TO_PARENT ASTERPythonSources
   SOURCES
     __init__.py
-    utils.py
-    hip.py
     pass_pipelines.py
     test_pass_pipelines.py
+    core/__init__.py
+    core/target.py
+    utils/__init__.py
+    utils/env.py
+    utils/capsule.py
+    compiler/__init__.py
+    compiler/compile.py
+    execution/__init__.py
+    execution/execution.py
+    execution/hip.py
     testing/__init__.py
     testing/flush_llc.py
     layout/__init__.py

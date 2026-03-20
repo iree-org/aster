@@ -1,0 +1,157 @@
+"""GPU target definitions."""
+
+import enum
+from dataclasses import dataclass
+from typing import Dict, Optional
+
+
+class GpuArch(enum.Enum):
+    """Supported AMDGPU architectures."""
+
+    GFX940 = "gfx940"
+    GFX942 = "gfx942"
+    GFX950 = "gfx950"
+    GFX1201 = "gfx1201"
+
+
+@dataclass(frozen=True)
+class _ArchParams:
+    """Hardware constants for an AMDGPU architecture."""
+
+    wavefront_size: int
+    lds_per_cu: int  # Bytes of LDS per compute unit.
+    max_vgprs: int  # Max VGPRs per thread.
+    max_agprs: int  # Max AGPRs per thread (0 on architectures without matrix cores).
+    max_sgprs: int  # Max SGPRs per wavefront.
+    num_simds: int  # Number of SIMD units per compute unit.
+    vgprs_per_simd: int  # Total VGPR slots per SIMD unit (limits waves * vgprs).
+    agprs_per_simd: int  # Total AGPR slots per SIMD unit (0 on RDNA).
+
+
+# Hardware constants sourced from the AMD ISA reference manuals and verified
+# against LLVM's AMDGPUBaseInfo.cpp (getAddressableNumSGPRs / getTotalNumVGPRs).
+_ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
+    # CDNA3: MI300-series (GFX9-class).
+    # SGPRs: 102 addressable per wavefront (GFX8-9 limit).
+    # VGPRs: 512-entry file shared between VGPRs and AGPRs; 256 max per thread each.
+    GpuArch.GFX940: _ArchParams(
+        wavefront_size=64,
+        lds_per_cu=65536,
+        max_vgprs=256,
+        max_agprs=256,
+        max_sgprs=102,
+        num_simds=4,
+        vgprs_per_simd=512,
+        agprs_per_simd=512,
+    ),
+    GpuArch.GFX942: _ArchParams(
+        wavefront_size=64,
+        lds_per_cu=65536,
+        max_vgprs=256,
+        max_agprs=256,
+        max_sgprs=102,
+        num_simds=4,
+        vgprs_per_simd=512,
+        agprs_per_simd=512,
+    ),
+    # CDNA4: gfx950 (GFX9-class, same register file as CDNA3, larger LDS).
+    GpuArch.GFX950: _ArchParams(
+        wavefront_size=64,
+        lds_per_cu=262144,
+        max_vgprs=256,
+        max_agprs=256,
+        max_sgprs=102,
+        num_simds=4,
+        vgprs_per_simd=512,
+        agprs_per_simd=512,
+    ),
+    # RDNA4: gfx1201 (GFX10+-class, wave32, no AGPRs).
+    # SGPRs: 106 addressable per wavefront (GFX10+ limit).
+    # VGPRs: 1024 addressable per wavefront (wave32, Feature1024AddressableVGPRs).
+    GpuArch.GFX1201: _ArchParams(
+        wavefront_size=32,
+        lds_per_cu=131072,
+        max_vgprs=1024,
+        max_agprs=0,
+        max_sgprs=106,
+        num_simds=4,
+        vgprs_per_simd=1024,
+        agprs_per_simd=0,
+    ),
+}
+
+
+@dataclass
+class Target:
+    """Compilation target: GPU architecture and wavefront size."""
+
+    arch: GpuArch
+    wavefront_size: int
+
+    @property
+    def mcpu(self) -> str:
+        """Return the target architecture string (e.g. 'gfx942')."""
+        return self.arch.value
+
+    @property
+    def lds_per_cu(self) -> int:
+        """Bytes of LDS available per compute unit."""
+        return _ARCH_PARAMS[self.arch].lds_per_cu
+
+    @property
+    def max_vgprs(self) -> int:
+        """Max vector GPRs per thread."""
+        return _ARCH_PARAMS[self.arch].max_vgprs
+
+    @property
+    def max_agprs(self) -> int:
+        """Max accumulation GPRs per thread (0 on architectures without matrix cores)."""
+        return _ARCH_PARAMS[self.arch].max_agprs
+
+    @property
+    def max_sgprs(self) -> int:
+        """Max scalar GPRs per wavefront."""
+        return _ARCH_PARAMS[self.arch].max_sgprs
+
+    @property
+    def num_simds(self) -> int:
+        """Number of SIMD units per compute unit."""
+        return _ARCH_PARAMS[self.arch].num_simds
+
+    @property
+    def vgprs_per_simd(self) -> int:
+        """Total VGPR slots per SIMD unit (limits waves * vgprs_per_wave)."""
+        return _ARCH_PARAMS[self.arch].vgprs_per_simd
+
+    @property
+    def agprs_per_simd(self) -> int:
+        """Total AGPR slots per SIMD unit (0 on RDNA architectures)."""
+        return _ARCH_PARAMS[self.arch].agprs_per_simd
+
+    @classmethod
+    def from_mcpu(cls, mcpu: str, wavefront_size: Optional[int] = None) -> "Target":
+        """Construct a Target from an mcpu string.
+
+        Args:
+            mcpu: Architecture string (e.g. 'gfx942').
+            wavefront_size: Wavefront size. Defaults to the architecture default.
+        """
+        arch = GpuArch(mcpu)
+        wf = (
+            wavefront_size
+            if wavefront_size is not None
+            else _ARCH_PARAMS[arch].wavefront_size
+        )
+        return cls(arch=arch, wavefront_size=wf)
+
+    @classmethod
+    def gfx942(cls, wavefront_size: int = 64) -> "Target":
+        return cls(GpuArch.GFX942, wavefront_size)
+
+    @classmethod
+    def gfx950(cls, wavefront_size: int = 64) -> "Target":
+        return cls(GpuArch.GFX950, wavefront_size)
+
+    @classmethod
+    def gfx1201(cls, wavefront_size: int = 32) -> "Target":
+        return cls(GpuArch.GFX1201, wavefront_size)

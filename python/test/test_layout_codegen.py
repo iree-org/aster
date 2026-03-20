@@ -54,8 +54,13 @@ def build_and_compile_copy_kernel(
 
     Must be called inside an active ``with ir.Context():`` block.
     """
+    from aster.compiler import PrintOptions
+
     module = build_copy_kernel(name, thread_layout)
-    return compile_mlir_module_to_asm(module, print_ir_after_all=print_ir_after_all)
+    return compile_mlir_module_to_asm(
+        module,
+        print_opts=PrintOptions.from_flags(print_ir_after_all=print_ir_after_all),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -108,5 +113,9 @@ if __name__ == "__main__":
     with ctx:
         module = build_copy_kernel("copy_demo", layout)
         print(module)
-        asm = compile_mlir_module_to_asm(module, print_ir_after_all=True)
+        from aster.compiler import PrintOptions
+
+        asm = compile_mlir_module_to_asm(
+            module, print_opts=PrintOptions(print_ir_after_all=True)
+        )
         print(asm)

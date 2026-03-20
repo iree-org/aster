@@ -134,7 +134,7 @@ MIN_DIM = 2000  # Skip configs where M, N, or K < 3000
 
 def _precompile_reject_reason(cfg, check_regs=True):
     """Return rejection reason string, or None if config passes pre-compile filter."""
-    from aster.hip import compute_register_budget
+    from aster.execution.hip import compute_register_budget
 
     num_wg_per_cu = getattr(cfg, "num_wg_per_cu", 1) or 1
     max_v, max_a, lds_per_wg = compute_register_budget(
