@@ -98,8 +98,13 @@ LogicalResult MemRefDescriptor::convertType(const TypeConverter &converter,
     memSpace = ptr::GenericSpaceAttr::get(ctx);
   }
 
-  // 1. Aligned pointer.
-  results.push_back(ptr::PtrType::get(ctx, memSpace));
+  // 1. Aligned pointer. Run through the converter so that target-specific
+  // memory space conversions (e.g., generic -> AMDGCN global) are applied
+  // consistently with the ptr::PtrType conversion registered on the same
+  // converter. Without this, 1-to-N results from MemRefDescriptor would
+  // bypass the ptr::PtrType conversion.
+  auto ptrType = ptr::PtrType::get(ctx, memSpace);
+  results.push_back(converter.convertType(ptrType));
 
   // 2. Dynamic offset (if present).
   if (ShapedType::isDynamic(offset))
@@ -156,7 +161,17 @@ convertMemorySpace(Attribute memorySpaceAttr) {
     }
   }
 
-  // Preserve ptr memory space attributes.
+  // Treat ptr.generic_space as an alias for AMDGCN global. Unqualified
+  // memrefs lower to ptr.ptr<#ptr.generic_space>, and on AMDGCN the flat
+  // (generic) address space is 64-bit and covers global memory, so mapping
+  // it to global here avoids needing a separate DLTI entry.
+  if (isa<ptr::GenericSpaceAttr>(memorySpaceAttr)) {
+    return amdgcn::AddressSpaceAttr::get(memorySpaceAttr.getContext(),
+                                         amdgcn::AddressSpaceKind::Global,
+                                         amdgcn::AccessKind::ReadWrite);
+  }
+
+  // Preserve other ptr memory space attributes.
   if (auto memSpace =
           dyn_cast<ptr::MemorySpaceAttrInterface>(memorySpaceAttr)) {
     return memSpace;

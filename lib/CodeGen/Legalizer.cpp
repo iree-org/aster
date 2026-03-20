@@ -99,15 +99,15 @@ void Legalizer::runOnOperation() {
     auto rwAccess = amdgcn::AccessKind::ReadWrite;
 
     auto localEntry = DataLayoutEntryAttr::get(
-        ptr::PtrType::get(ctx, amdgcn::AddressSpaceAttr::get(
-                                   ctx, amdgcn::AddressSpaceKind::Local,
-                                   rwAccess)),
+        ptr::PtrType::get(ctx,
+                          amdgcn::AddressSpaceAttr::get(
+                              ctx, amdgcn::AddressSpaceKind::Local, rwAccess)),
         ptr::SpecAttr::get(ctx, /*size=*/32, /*abi=*/32, /*preferred=*/32));
 
     auto globalEntry = DataLayoutEntryAttr::get(
-        ptr::PtrType::get(ctx, amdgcn::AddressSpaceAttr::get(
-                                   ctx, amdgcn::AddressSpaceKind::Global,
-                                   rwAccess)),
+        ptr::PtrType::get(ctx,
+                          amdgcn::AddressSpaceAttr::get(
+                              ctx, amdgcn::AddressSpaceKind::Global, rwAccess)),
         ptr::SpecAttr::get(ctx, /*size=*/64, /*abi=*/64, /*preferred=*/64));
 
     moduleOp->setAttr(DLTIDialect::kDataLayoutAttrName,

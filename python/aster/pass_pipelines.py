@@ -156,6 +156,17 @@ PHASE_CONVERT_LDS_BUFFERS = (
 # Note: aster-to-int-arith contains lower-affine without linking in and
 # cargo-culting the whole conversion library.
 PHASE_LOWER_TO_AMDGCN = (
+    # Legalize memref ops to ptr ops before affine passes so that the
+    # affine.apply ops produced by memref decomposition flow through LICM,
+    # CSE, and affine optimization. Also handles func.func with memref args
+    # by expanding them to ptr args (1-to-1 for static shapes).
+    # TODO: The legalizer produces ptr.ptr_add with index offsets that
+    # aster-to-int-arith needs to lower to i32. Ideally the legalizer would
+    # run right before codegen (legalizer -> set-abi -> codegen), but that
+    # requires either splitting the legalizer in two (index-interacting ops
+    # early, rest late) or running it twice. For now it runs first so
+    # aster-to-int-arith handles everything in one shot.
+    "aster-legalizer",
     # Expand affine.apply ops into aster_utils n-ary addi/muli operations.
     # Must run after canonicalize and before aster-to-int-arith.
     "affine-expand-index-ops-as-affine",

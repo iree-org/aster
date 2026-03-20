@@ -1,8 +1,4 @@
 // RUN: aster-opt %s --verify-roundtrip
-//
-// Minimal E2E: load a by_val i32 scalar, broadcast to VGPR, store to output[tid_x].
-// This kernel exercises the by_val_arg path through the full pipeline including
-// the normal form verifier.
 amdgcn.module @by_val_store_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @by_val_store arguments <[
     #amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>,
