@@ -340,3 +340,229 @@ def _run_mfma_multiwg_test(name):
 
 def test_mfma_16x16x16_f16_multiwg():
     _run_mfma_multiwg_test("mfma_mwg")
+
+
+# ---------------------------------------------------------------------------
+# Step 4: L2-aware WG ordering with K-loop (unrolled)
+# ---------------------------------------------------------------------------
+
+TOTAL_K_L2 = 2048
+K_STEPS_L2 = TOTAL_K_L2 // TILE  # 16
+N_WG_X_L2, N_WG_Y_L2 = 128, 128
+N_WG_TOTAL_L2 = N_WG_X_L2 * N_WG_Y_L2
+N_TILES_M_L2 = N_WG_Y_L2 * N_WV_Y
+N_TILES_N_L2 = N_WG_X_L2 * N_WV_X
+TOTAL_M_L2 = N_TILES_M_L2 * TILE
+TOTAL_N_L2 = N_TILES_N_L2 * TILE
+TILE_AB_BYTES_L2 = TILE * TOTAL_K_L2 * 2
+N_XCDS = 8
+
+# Intra-tile coalesced load layout for A/B[M, K_TOTAL] row-major.
+# 16 rows x 4 lanes/row, row stride = K_TOTAL * 2 bytes, lane stride = 8 bytes.
+STRIDED_AB_INTRA = Layout(sizes=(16, 4), strides=(TOTAL_K_L2 * 2, 8))
+
+
+def _morton_permutation(ny, nx):
+    """Build Morton/Z-order permutation table for an ny x nx grid.
+
+    Returns array of length ny*nx where perm[morton_idx] = row_major_idx.
+    Interleaves bits of m and n coords: morton = ...m2.n2.m1.n1.m0.n0
+    """
+
+    def interleave(m, n):
+        result = 0
+        for bit in range(16):
+            result |= ((n >> bit) & 1) << (2 * bit)
+            result |= ((m >> bit) & 1) << (2 * bit + 1)
+        return result
+
+    perm = [0] * (ny * nx)
+    idx = 0
+    for m in range(ny):
+        for n in range(nx):
+            perm[interleave(m, n)] = m * nx + n
+            idx += 1
+    return perm
+
+
+def _remap_wg(b, bid, wg_order):
+    """Remap linear block ID to (wg_m, wg_n) based on ordering strategy."""
+    if wg_order == "row_major":
+        return b.delinearize_index(bid, (N_WG_Y_L2, N_WG_X_L2))
+    elif wg_order == "col_major":
+        wg_n, wg_m = b.delinearize_index(bid, (N_WG_X_L2, N_WG_Y_L2))
+        return wg_m, wg_n
+    elif wg_order == "morton":
+        # Morton/Z-order deinterleave: extract even bits -> wg_n, odd bits -> wg_m.
+        # For 32x32 grid (5-bit coords), all floordivs are powers of 2.
+        d = ir.AffineExpr.get_dim(0)
+        n_bits = 0
+        while (1 << n_bits) < max(N_WG_X_L2, N_WG_Y_L2):
+            n_bits += 1
+        # wg_n = sum of even bits: bit 0, 2, 4, ... weighted by 1, 2, 4, ...
+        wg_n_expr = ir.AffineExpr.get_constant(0)
+        for k in range(n_bits):
+            wg_n_expr = wg_n_expr + ir.AffineExpr.get_floor_div(d, 1 << (2 * k)) % 2 * (
+                1 << k
+            )
+        # wg_m = sum of odd bits: bit 1, 3, 5, ... weighted by 1, 2, 4, ...
+        wg_m_expr = ir.AffineExpr.get_constant(0)
+        for k in range(n_bits):
+            wg_m_expr = wg_m_expr + ir.AffineExpr.get_floor_div(
+                d, 1 << (2 * k + 1)
+            ) % 2 * (1 << k)
+        wg_m = b.affine_apply(wg_m_expr, [bid])
+        wg_n = b.affine_apply(wg_n_expr, [bid])
+        return wg_m, wg_n
+    raise ValueError(f"Unknown wg_order: {wg_order}")
+
+
+def _build_mfma_l2_kernel(name, wg_order, target=MCPU, isa="cdna3"):
+    """Multi-WG MFMA with K-loop and configurable WG ordering for L2 reuse."""
+    b = KernelBuilder(f"{name}_mod", name, target=target, isa=isa)
+    b.set_shared_memory_size(MWG_LDS_SIZE)
+    b.add_ptr_arg(AccessKind.ReadOnly)  # A [TOTAL_M_L2, TOTAL_K_L2] f16
+    b.add_ptr_arg(AccessKind.ReadOnly)  # B [TOTAL_N_L2, TOTAL_K_L2] f16
+    b.add_ptr_arg(AccessKind.WriteOnly)  # C tiled output
+    a_ptr, b_ptr, c_ptr = b.load_args()
+
+    # Thread decomposition
+    wv_m, wv_n, lane = b.delinearize_index(b.linear_thread_id(), (N_WV_Y, N_WV_X, 64))
+    wid = b.wave_id()
+
+    # WG ordering: remap linear bid -> (wg_m, wg_n)
+    bid = b.block_id("x")
+    wg_m, wg_n = _remap_wg(b, bid, wg_order)
+
+    # Tile coords
+    wm = ir.AffineExpr.get_dim(0)
+    bid_expr = ir.AffineExpr.get_symbol(0)
+    tile_m = b.affine_apply(bid_expr * N_WV_Y + wm, [wv_m], [wg_m])
+    tile_n = b.affine_apply(bid_expr * N_WV_X + wm, [wv_n], [wg_n])
+
+    # A/B tile base: tile_m selects row block, tile_n selects row block of B
+    # A[tile_m*16, :] starts at byte tile_m * 16 * TOTAL_K_L2 * 2
+    # B[tile_n*16, :] starts at byte tile_n * 16 * TOTAL_K_L2 * 2
+    tile_m_expr = ir.AffineExpr.get_dim(0)
+    a_row_base = b.affine_apply(tile_m_expr * TILE_AB_BYTES_L2, [tile_m])
+    b_row_base = b.affine_apply(tile_m_expr * TILE_AB_BYTES_L2, [tile_n])
+
+    # Intra-tile offset (strided: rows are TOTAL_K*2 apart)
+    a_intra = b.linearize_layout(lane, STRIDED_AB_INTRA)
+
+    # LDS layouts (same as step 3)
+    lds_wave_layout = Layout(sizes=WAVES_PER_WG, strides=LDS_PER_WAVE)
+    local_expr, wave_base_expr = (ir.AffineExpr.get_dim(i) for i in range(2))
+    wave_base_v = b.linearize_layout(wid, lds_wave_layout)
+
+    # Init accumulator
+    acc = b.init_agprx4(b.constant_i32(0))
+
+    # Unrolled K-loop for now.
+    for k_step in range(K_STEPS_L2):
+        k_byte_off = k_step * TILE * 2  # byte offset for this K tile
+
+        # Global load: A tile base + k offset + intra-tile strided offset
+        base_expr = ir.AffineExpr.get_dim(0)
+        intra_expr = ir.AffineExpr.get_dim(1)
+        k_const = ir.AffineExpr.get_constant(k_byte_off)
+        a_off = b.affine_apply(base_expr + k_const + intra_expr, [a_row_base, a_intra])
+        b_off = b.affine_apply(base_expr + k_const + intra_expr, [b_row_base, a_intra])
+
+        a_data = b.global_load_dwordx2(b.global_addr(a_ptr, a_off))
+        b_data = b.global_load_dwordx2(b.global_addr(b_ptr, b_off))
+        b.wait_vmcnt(0)
+
+        # LDS write (coalesced + swizzle)
+        lds_write_local_v = b.linearize_layout(lane, COALESCED_AB, LDS_SWIZZLE)
+        lds_write_off = b.affine_apply(
+            local_expr + wave_base_expr, [lds_write_local_v, wave_base_v]
+        )
+        lds_write_voff = b.index_to_vgpr(lds_write_off)
+        b.ds_write_b64(a_data, lds_write_voff)
+        b.ds_write_b64(b_data, lds_write_voff, const_offset=b.constant_i32(LDS_B_BASE))
+        b.wait_lgkmcnt(0)
+
+        # LDS read (MFMA layout + swizzle)
+        lds_read_local_v = b.linearize_layout(lane, MFMA_AB_LAYOUT, LDS_SWIZZLE)
+        lds_read_off = b.affine_apply(
+            local_expr + wave_base_expr, [lds_read_local_v, wave_base_v]
+        )
+        lds_read_voff = b.index_to_vgpr(lds_read_off)
+        a_frag = b.ds_read_b64(lds_read_voff)
+        b_frag = b.ds_read_b64(lds_read_voff, const_offset=b.constant_i32(LDS_B_BASE))
+        b.wait_lgkmcnt(0)
+
+        # MFMA accumulate
+        acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
+
+    # Store C (same as step 3)
+    c_tile_layout = Layout(
+        sizes=(N_TILES_M_L2, N_TILES_N_L2),
+        strides=(N_TILES_N_L2 * TILE_C_BYTES, TILE_C_BYTES),
+    )
+    tile_off_expr, local_off_expr = (ir.AffineExpr.get_dim(i) for i in range(2))
+    c_off_v = b.linearize_layout(
+        b.linearize_index([tile_m, tile_n], c_tile_layout.sizes), c_tile_layout
+    )
+    c_local_v = b.linearize_layout(lane, MFMA_C_LAYOUT)
+    c_total = b.affine_apply(tile_off_expr + local_off_expr, [c_off_v, c_local_v])
+    b.global_store_dwordx4(acc, b.global_addr(c_ptr, c_total))
+    b.wait_vmcnt(0)
+    return b.build()
+
+
+def _run_mfma_l2_test(name, wg_order):
+    rng = np.random.default_rng(42)
+    A = (rng.standard_normal(TOTAL_M_L2 * TOTAL_K_L2) * 0.1).astype(np.float16)
+    B = (rng.standard_normal(TOTAL_N_L2 * TOTAL_K_L2) * 0.1).astype(np.float16)
+    C = np.zeros(N_TILES_M_L2 * N_TILES_N_L2 * TILE * TILE, dtype=np.float32)
+
+    input_args = [A, B]
+
+    ctx = ir.Context()
+    ctx.allow_unregistered_dialects = True
+    with ctx:
+        module = _build_mfma_l2_kernel(name, wg_order)
+        asm = compile_mlir_module_to_asm(module)
+
+    path = utils.assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
+    if path is None:
+        pytest.skip(f"LLVM assembler does not support {MCPU}")
+
+    with hsaco_file(path):
+        if not utils.system_has_mcpu(mcpu=MCPU):
+            pytest.skip(f"{MCPU} GPU not available")
+        execute_kernel_and_verify(
+            hsaco_path=path,
+            kernel_name=name,
+            input_args=input_args,
+            output_args=[C],
+            mcpu=MCPU,
+            wavefront_size=64,
+            grid_dim=(N_WG_TOTAL_L2, 1, 1),
+            block_dim=(THREADS_PER_WG, 1, 1),
+        )
+
+    A_mat = A.reshape(TOTAL_M_L2, TOTAL_K_L2)
+    B_mat = B.reshape(TOTAL_N_L2, TOTAL_K_L2)
+
+    for tm in range(N_TILES_M_L2):
+        for tn in range(N_TILES_N_L2):
+            tile_idx = tm * N_TILES_N_L2 + tn
+            c_tile = C[tile_idx * 256 : (tile_idx + 1) * 256].reshape(16, 16)
+            a_tile = A_mat[tm * 16 : (tm + 1) * 16, :]
+            b_tile = B_mat[tn * 16 : (tn + 1) * 16, :]
+            ref = (a_tile.astype(np.float32) @ b_tile.astype(np.float32).T).T
+            np.testing.assert_allclose(
+                c_tile,
+                ref,
+                rtol=5e-2,
+                atol=5e-2,
+                err_msg=f"tile ({tm},{tn}) mismatch, wg_order={wg_order}",
+            )
+
+
+@pytest.mark.parametrize("wg_order", ["row_major", "col_major", "morton"])
+def test_mfma_l2_ordering(wg_order):
+    _run_mfma_l2_test(f"mfma_l2_{wg_order}", wg_order=wg_order)

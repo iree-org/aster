@@ -482,6 +482,13 @@ class KernelBuilder:
         vgpr_type = VGPRType.get(self._ctx, reg=None)
         return lsird.to_reg(vgpr_type, i32_val, loc=self._loc, ip=self._kip)
 
+    def vgpr_to_index(self, vgpr_val: ir.Value) -> ir.Value:
+        """Convert a VGPR i32 to an index value."""
+        i32_type = ir.IntegerType.get_signless(32, self._ctx)
+        i32_val = lsird.from_reg(i32_type, vgpr_val, loc=self._loc, ip=self._kip)
+        idx_type = ir.IndexType.get(self._ctx)
+        return arith.index_cast(idx_type, i32_val, loc=self._loc, ip=self._kip)
+
     # ---------------------------------------------------------------------------
     # Pointer arithmetic (ptr dialect)
     # ---------------------------------------------------------------------------
