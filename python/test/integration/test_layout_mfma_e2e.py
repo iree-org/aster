@@ -19,6 +19,10 @@ from aster.testing import (
 
 MCPU = "gfx942"
 
+# ---------------------------------------------------------------------------
+# Step 1: swizzled global load -> MFMA
+# ---------------------------------------------------------------------------
+
 # MFMA 16x16x16 f16 fragment layouts (first-mode-slowest).
 # A/B: (4 groups of 16 lanes) x 8 bytes per group, 32 bytes between groups.
 MFMA_AB_LAYOUT = Layout(sizes=(4, 16), strides=(8, 32))
@@ -183,3 +187,170 @@ def _run_mfma_lds_test(name):
 
 def test_mfma_16x16x16_f16_lds():
     _run_mfma_lds_test("mfma_lds")
+
+
+# ---------------------------------------------------------------------------
+# Step 3: multi-WG multi-wave MFMA with LDS swizzle relayout
+# ---------------------------------------------------------------------------
+
+# 3x2 waves per WG, 5x8 WGs. Each wave computes one 16x16 MFMA tile.
+# Non-power-of-2 dims (3, 5) appear only in strides, not in delinearize divisors.
+# All tid decompositions use power-of-2: /64 (lane), %2 and /2 (wv_x, wv_y).
+
+N_WV_X, N_WV_Y = 2, 3
+N_WG_X, N_WG_Y = 8, 5
+TILE = 16
+WAVES_PER_WG = N_WV_X * N_WV_Y  # 6
+THREADS_PER_WG = WAVES_PER_WG * 64  # 384
+N_TILES_M = N_WG_Y * N_WV_Y  # 15
+N_TILES_N = N_WG_X * N_WV_X  # 16
+TOTAL_M = N_TILES_M * TILE  # 240
+TOTAL_N = N_TILES_N * TILE  # 256
+TILE_AB_BYTES = TILE * TILE * 2  # 512 (16x16 f16)
+TILE_C_BYTES = TILE * TILE * 4  # 1024 (16x16 f32)
+LDS_PER_WAVE = TILE_AB_BYTES * 2  # 1024 (512 A + 512 B)
+MWG_LDS_SIZE = WAVES_PER_WG * LDS_PER_WAVE  # 6144
+
+
+def _build_mfma_multiwg_kernel(name, target=MCPU, isa="cdna3"):
+    """Multi-WG multi-wave MFMA: coalesced load -> LDS relayout -> MFMA -> store.
+
+    Grid: (N_WG_X, N_WG_Y, 1), Block: (THREADS_PER_WG, 1, 1).
+    A is [TOTAL_M, 16] f16 row-major.  Each wave's A tile: rows [m_start:m_start+16].
+    B is [TOTAL_N, 16] f16 row-major.  Each wave's B tile: rows [n_start:n_start+16].
+    C is tiled: N_TILES_M * N_TILES_N tiles of 16x16 f32, each tile contiguous.
+    """
+    b = KernelBuilder(f"{name}_mod", name, target=target, isa=isa)
+    b.set_shared_memory_size(MWG_LDS_SIZE)
+    b.add_ptr_arg(AccessKind.ReadOnly)  # A
+    b.add_ptr_arg(AccessKind.ReadOnly)  # B
+    b.add_ptr_arg(AccessKind.WriteOnly)  # C
+    a_ptr, b_ptr, c_ptr = b.load_args()
+
+    # M_C: decompose linear_thread_id into (wave_m, wave_n, lane)
+    wv_m, wv_n, lane = b.delinearize_id(b.linear_thread_id(), (N_WV_Y, N_WV_X, 64))
+    wid = b.wave_id()
+
+    # TODO: upstream-like affine builder.
+    # Grid composition: tile coords from block_id + wave coords
+    tile_m = b.affine_apply(
+        f"affine_map<(wm)[bid_y] -> (bid_y * {N_WV_Y} + wm)>",
+        dims=[wv_m],
+        symbols=[b.block_id("y")],
+    )
+    tile_n = b.affine_apply(
+        f"affine_map<(wn)[bid_x] -> (bid_x * {N_WV_X} + wn)>",
+        dims=[wv_n],
+        symbols=[b.block_id("x")],
+    )
+
+    # M_I: tile coords + lane -> global byte offsets via Layout strides
+    a_global = Layout(sizes=(N_TILES_M, 64), strides=(TILE_AB_BYTES, 8))
+    b_global = Layout(sizes=(N_TILES_N, 64), strides=(TILE_AB_BYTES, 8))
+    a_off = b.layout_index_map([tile_m, lane], a_global)
+    b_off = b.layout_index_map([tile_n, lane], b_global)
+
+    # Stage 1: coalesced global load
+    a_data = b.global_load_dwordx2(b.global_addr(a_ptr, a_off))
+    b_data = b.global_load_dwordx2(b.global_addr(b_ptr, b_off))
+    b.wait_vmcnt(0)
+
+    # TODO: upstream-like affine builder.
+    # Stage 2: swizzled LDS write (M_L: lane -> LDS offset, then add wave base)
+    lds_write_local = b.layout_byte_offset(lane, COALESCED_AB, LDS_SWIZZLE)
+    lds_wave_layout = Layout(sizes=WAVES_PER_WG, strides=LDS_PER_WAVE)
+    lds_write_off = b.affine_apply(
+        "affine_map<(local, base) -> (base + local)>",
+        dims=[lds_write_local, b.layout_index_map([wid], lds_wave_layout)],
+    )
+    lds_write_voff = b.index_to_vgpr(lds_write_off)
+    b.ds_write_b64(a_data, lds_write_voff)
+    b.ds_write_b64(b_data, lds_write_voff, const_offset=b.constant_i32(LDS_B_BASE))
+    b.wait_lgkmcnt(0)
+
+    # TODO: upstream-like affine builder.
+    # Stage 3: MFMA-layout LDS read (M_L: lane -> MFMA LDS offset, add wave base)
+    lds_read_local = b.layout_byte_offset(lane, MFMA_AB_LAYOUT, LDS_SWIZZLE)
+    lds_read_off = b.affine_apply(
+        "affine_map<(local, base) -> (base + local)>",
+        dims=[lds_read_local, b.layout_index_map([wid], lds_wave_layout)],
+    )
+    lds_read_voff = b.index_to_vgpr(lds_read_off)
+    a_frag = b.ds_read_b64(lds_read_voff)
+    b_frag = b.ds_read_b64(lds_read_voff, const_offset=b.constant_i32(LDS_B_BASE))
+    b.wait_lgkmcnt(0)
+
+    # Stage 4: MFMA
+    acc = b.init_agprx4(b.constant_i32(0))
+    acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
+
+    # Stage 5: global store (M_I for tile grid + M_L for intra-tile MFMA layout)
+    c_tile_layout = Layout(
+        sizes=(N_TILES_M, N_TILES_N), strides=(N_TILES_N * TILE_C_BYTES, TILE_C_BYTES)
+    )
+    c_off = b.layout_index_map([tile_m, tile_n], c_tile_layout)
+    c_local_off = b.layout_byte_offset(lane, MFMA_C_LAYOUT)
+    # TODO: upstream-like affine builder.
+    c_total = b.affine_apply(
+        "affine_map<(tile, local) -> (tile + local)>",
+        dims=[c_off, c_local_off],
+    )
+    b.global_store_dwordx4(acc, b.global_addr(c_ptr, c_total))
+    b.wait_vmcnt(0)
+    return b.build()
+
+
+def _run_mfma_multiwg_test(name):
+    rng = np.random.default_rng(42)
+    # A: [TOTAL_M, 16] f16, B: [TOTAL_N, 16] f16
+    A = (rng.standard_normal(TOTAL_M * TILE) * 0.1).astype(np.float16)
+    B = (rng.standard_normal(TOTAL_N * TILE) * 0.1).astype(np.float16)
+    # C: tiled, N_TILES_M * N_TILES_N tiles of 256 f32 each
+    C = np.zeros(N_TILES_M * N_TILES_N * TILE * TILE, dtype=np.float32)
+
+    ctx = ir.Context()
+    ctx.allow_unregistered_dialects = True
+    with ctx:
+        module = _build_mfma_multiwg_kernel(name)
+        asm = compile_mlir_module_to_asm(module)
+
+    path = utils.assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
+    if path is None:
+        pytest.skip(f"LLVM assembler does not support {MCPU}")
+
+    with hsaco_file(path):
+        if not utils.system_has_mcpu(mcpu=MCPU):
+            pytest.skip(f"{MCPU} GPU not available")
+        execute_kernel_and_verify(
+            hsaco_path=path,
+            kernel_name=name,
+            input_args=[A, B],
+            output_args=[C],
+            mcpu=MCPU,
+            wavefront_size=64,
+            grid_dim=(N_WG_X, N_WG_Y, 1),
+            block_dim=(THREADS_PER_WG, 1, 1),
+        )
+
+    A_mat = A.reshape(TOTAL_M, TILE)  # [240, 16]
+    B_mat = B.reshape(TOTAL_N, TILE)  # [256, 16]
+
+    for tm in range(N_TILES_M):
+        for tn in range(N_TILES_N):
+            tile_idx = tm * N_TILES_N + tn
+            c_tile = C[tile_idx * 256 : (tile_idx + 1) * 256].reshape(16, 16)
+            a_tile = A_mat[tm * 16 : (tm + 1) * 16, :]
+            b_tile = B_mat[tn * 16 : (tn + 1) * 16, :]
+            # MFMA C layout stores D^T (see step 1 verification)
+            ref = (a_tile @ b_tile.T).T
+            np.testing.assert_allclose(
+                c_tile,
+                ref,
+                rtol=1e-2,
+                atol=1e-2,
+                err_msg=f"tile ({tm},{tn}) mismatch",
+            )
+
+
+def test_mfma_16x16x16_f16_multiwg():
+    _run_mfma_multiwg_test("mfma_mwg")
