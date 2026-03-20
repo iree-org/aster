@@ -134,20 +134,15 @@ MIN_DIM = 2000  # Skip configs where M, N, or K < 3000
 
 def _precompile_reject_reason(cfg, check_regs=True):
     """Return rejection reason string, or None if config passes pre-compile filter."""
-    from aster.compiler.metadata import compute_register_budget
+    from aster.compiler.metadata import KernelResources
 
-    num_wg_per_cu = getattr(cfg, "num_wg_per_cu", 1) or 1
-    max_v, max_a, lds_per_wg = compute_register_budget(
-        cfg.num_threads, mcpu="gfx942", num_wg_per_cu=num_wg_per_cu
+    est = KernelResources(
+        vgpr_count=cfg.estimated_vgprs if check_regs else 0,
+        agpr_count=cfg.estimated_agprs if check_regs else 0,
+        lds_bytes=cfg.lds_bytes,
     )
-    if cfg.lds_bytes > lds_per_wg:
-        return f"LDS {cfg.lds_bytes} > {lds_per_wg}"
-    if check_regs:
-        if cfg.estimated_vgprs > max_v:
-            return f"est_vgpr {cfg.estimated_vgprs} > {max_v}"
-        if cfg.estimated_agprs > max_a:
-            return f"est_agpr {cfg.estimated_agprs} > {max_a}"
-    return None
+    violations = est.check_occupancy(cfg.num_threads)
+    return violations[0] if violations else None
 
 
 def fits_on_cu_post_compile(cfg, res):

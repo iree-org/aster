@@ -54,7 +54,9 @@ class KernelResources:
             parts.append(f"scratch={self.scratch_bytes}")
         return ", ".join(parts)
 
-    def check_occupancy(self, num_threads: int, mcpu: str = "gfx942") -> List[str]:
+    def check_occupancy(
+        self, num_threads: int, mcpu: str = "gfx942", num_wg_per_cu: int = 1
+    ) -> List[str]:
         """Return a list of occupancy violations for the given target.
 
         Returns an empty list if the kernel can launch or the mcpu is unknown.
@@ -64,7 +66,8 @@ class KernelResources:
         except ValueError:
             return []
         num_waves = (num_threads + target.wavefront_size - 1) // target.wavefront_size
-        waves_per_simd = (num_waves + target.num_simds - 1) // target.num_simds
+        total_waves = num_waves * num_wg_per_cu
+        waves_per_simd = (total_waves + target.num_simds - 1) // target.num_simds
         violations = []
 
         if self.vgpr_count > target.max_vgprs:
@@ -78,23 +81,28 @@ class KernelResources:
                 f"(vgpr+agpr) per wave {self.vgpr_count}+{self.agpr_count}"
                 f"={combined} > {combined_max}"
             )
-        vgpr_simd = self.vgpr_count * waves_per_simd
-        if vgpr_simd > target.vgprs_per_simd:
-            violations.append(
-                f"vgpr per SIMD {self.vgpr_count}*{waves_per_simd}"
-                f"={vgpr_simd} > {target.vgprs_per_simd}"
-            )
-        if target.agprs_per_simd > 0:
-            agpr_simd = self.agpr_count * waves_per_simd
-            if agpr_simd > target.agprs_per_simd:
+        if target.unified_reg_file:
+            # CDNA3/CDNA4: VGPRs+AGPRs share a single physical file per SIMD.
+            g = target.vgpr_alloc_granule
+            aligned = (combined + g - 1) // g * g
+            total_simd = aligned * waves_per_simd
+            if total_simd > target.vgprs_per_simd:
                 violations.append(
-                    f"agpr per SIMD {self.agpr_count}*{waves_per_simd}"
-                    f"={agpr_simd} > {target.agprs_per_simd}"
+                    f"unified reg file per SIMD: aligned({self.vgpr_count}"
+                    f"+{self.agpr_count}, {g})={aligned} * {waves_per_simd}"
+                    f" waves = {total_simd} > {target.vgprs_per_simd}"
                 )
-        if self.lds_bytes > target.lds_per_cu:
-            violations.append(
-                f"LDS per workgroup {self.lds_bytes} > {target.lds_per_cu}"
-            )
+        else:
+            # Separate VGPR and AGPR files (RDNA).
+            vgpr_simd = self.vgpr_count * waves_per_simd
+            if vgpr_simd > target.vgprs_per_simd:
+                violations.append(
+                    f"vgpr per SIMD {self.vgpr_count}*{waves_per_simd}"
+                    f"={vgpr_simd} > {target.vgprs_per_simd}"
+                )
+        lds_budget = target.lds_per_cu // num_wg_per_cu
+        if self.lds_bytes > lds_budget:
+            violations.append(f"LDS per workgroup {self.lds_bytes} > {lds_budget}")
         return violations
 
 
@@ -104,6 +112,10 @@ def compute_register_budget(
     num_wg_per_cu: int = 1,
 ) -> Tuple[int, int, int]:
     """Compute per-wave VGPR/AGPR limits and per-WG LDS limit from occupancy target.
+
+    On CDNA3/CDNA4 (unified_reg_file=True), VGPRs and AGPRs share a single
+    physical file per SIMD. The returned max_vgprs reflects the unified budget:
+    vgpr + agpr must not exceed max_vgprs.
 
     Args:
         num_threads: Number of threads per workgroup.
@@ -125,8 +137,14 @@ def compute_register_budget(
     num_waves = (num_threads + target.wavefront_size - 1) // target.wavefront_size
     total_waves = num_waves * num_wg_per_cu
     waves_per_simd = (total_waves + target.num_simds - 1) // target.num_simds
-    max_vgprs = min(target.max_vgprs, target.vgprs_per_simd // waves_per_simd)
-    max_agprs = min(target.max_agprs, target.agprs_per_simd // waves_per_simd)
+    if target.unified_reg_file:
+        # Unified file: total (vgpr+agpr) per wave capped by file / waves.
+        max_total = target.vgprs_per_simd // waves_per_simd
+        max_vgprs = min(target.max_vgprs, max_total)
+        max_agprs = min(target.max_agprs, max_total)
+    else:
+        max_vgprs = min(target.max_vgprs, target.vgprs_per_simd // waves_per_simd)
+        max_agprs = min(target.max_agprs, target.agprs_per_simd // waves_per_simd)
     lds_per_wg = target.lds_per_cu // num_wg_per_cu
     return max_vgprs, max_agprs, lds_per_wg
 

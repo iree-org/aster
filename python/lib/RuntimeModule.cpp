@@ -272,10 +272,7 @@ NB_MODULE(_runtime_module, m) {
     printf("Warning: HIP support is not available, using a noop stub\n");
   });
 
-  m.def("hip_get_device_count", []() -> int {
-    printf("Warning: HIP support is not available, using a noop stub\n");
-    return 1;
-  });
+  m.def("hip_get_device_count", []() -> int { return 0; });
 
   m.def("hip_set_device", [](int device_id) {
     printf("Warning: HIP support is not available, using a noop stub\n");

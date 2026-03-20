@@ -26,6 +26,8 @@ class _ArchParams:
     num_simds: int  # Number of SIMD units per compute unit.
     vgprs_per_simd: int  # Total VGPR slots per SIMD unit (limits waves * vgprs).
     agprs_per_simd: int  # Total AGPR slots per SIMD unit (0 on RDNA).
+    vgpr_alloc_granule: int  # VGPR allocation granularity (registers per block).
+    unified_reg_file: bool  # True if VGPRs+AGPRs share one physical file per SIMD.
 
 
 # Hardware constants sourced from the AMD ISA reference manuals and verified
@@ -33,7 +35,8 @@ class _ArchParams:
 _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
     # CDNA3: MI300-series (GFX9-class).
     # SGPRs: 102 addressable per wavefront (GFX8-9 limit).
-    # VGPRs: 512-entry file shared between VGPRs and AGPRs; 256 max per thread each.
+    # VGPRs+AGPRs: single 512-entry unified physical file per SIMD (ISA 3.6.4).
+    # Allocation granularity: 8 registers (FeatureGFX90AInsts).
     GpuArch.GFX940: _ArchParams(
         wavefront_size=64,
         lds_per_cu=65536,
@@ -43,6 +46,8 @@ _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
         num_simds=4,
         vgprs_per_simd=512,
         agprs_per_simd=512,
+        vgpr_alloc_granule=8,
+        unified_reg_file=True,
     ),
     # GFX940 and GFX942 are different MI300-series SKUs but share identical
     # register-file and LDS hardware constants.
@@ -55,6 +60,8 @@ _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
         num_simds=4,
         vgprs_per_simd=512,
         agprs_per_simd=512,
+        vgpr_alloc_granule=8,
+        unified_reg_file=True,
     ),
     # CDNA4: gfx950 (GFX9-class, same register file as CDNA3, larger LDS).
     GpuArch.GFX950: _ArchParams(
@@ -66,6 +73,8 @@ _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
         num_simds=4,
         vgprs_per_simd=512,
         agprs_per_simd=512,
+        vgpr_alloc_granule=8,
+        unified_reg_file=True,
     ),
     # RDNA4: gfx1201 (GFX10+-class, wave32, no AGPRs).
     # SGPRs: 106 addressable per wavefront (GFX10+ limit).
@@ -79,6 +88,8 @@ _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
         num_simds=4,
         vgprs_per_simd=1024,
         agprs_per_simd=0,
+        vgpr_alloc_granule=8,
+        unified_reg_file=False,
     ),
 }
 
@@ -129,6 +140,16 @@ class Target:
     def agprs_per_simd(self) -> int:
         """Total AGPR slots per SIMD unit (0 on RDNA architectures)."""
         return _ARCH_PARAMS[self.arch].agprs_per_simd
+
+    @property
+    def vgpr_alloc_granule(self) -> int:
+        """VGPR allocation granularity (registers per block)."""
+        return _ARCH_PARAMS[self.arch].vgpr_alloc_granule
+
+    @property
+    def unified_reg_file(self) -> bool:
+        """True if VGPRs and AGPRs share one physical file per SIMD."""
+        return _ARCH_PARAMS[self.arch].unified_reg_file
 
     @classmethod
     def from_mcpu(cls, mcpu: str, wavefront_size: Optional[int] = None) -> "Target":
