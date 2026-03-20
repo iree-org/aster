@@ -21,7 +21,7 @@ import os
 import numpy as np
 import pytest
 
-from aster.testing import compile_and_run
+from aster.execution.helpers import compile_and_run
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))

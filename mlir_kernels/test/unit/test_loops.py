@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from aster.test_pass_pipelines import TEST_LOOP_PASS_PIPELINE
 
-from aster.testing import compile_and_run
+from aster.execution.helpers import compile_and_run
 
 
 class TestUniformLoopLowering:

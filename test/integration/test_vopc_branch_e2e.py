@@ -15,7 +15,7 @@ Three scenarios:
 import numpy as np
 import pytest
 
-from aster.testing import compile_and_run
+from aster.execution.helpers import compile_and_run
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 MCPU = "gfx942"

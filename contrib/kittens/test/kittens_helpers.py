@@ -6,7 +6,7 @@ from typing import List
 import numpy as np
 import pytest
 
-from aster.testing import compile_and_run as _compile_and_run
+from aster.execution.helpers import compile_and_run as _compile_and_run
 from mlir_kernels.common import get_library_paths
 
 # Test configuration

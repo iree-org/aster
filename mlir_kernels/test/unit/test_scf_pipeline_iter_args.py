@@ -15,7 +15,7 @@ from aster.test_pass_pipelines import (
     make_test_scf_pipelining_pass_pipeline as _scf_pipeline,
 )
 
-from aster.testing import compile_and_run
+from aster.execution.helpers import compile_and_run
 
 MLIR_FILE = "test_scf_pipeline_iter_args.mlir"
 BLOCK = (64, 1, 1)

@@ -3,7 +3,8 @@
 import os
 from typing import Tuple, Callable
 
-from aster import utils
+from aster.compiler.core import assemble_to_hsaco
+from aster.execution.core import unwrap_pointer_from_capsule, create_kernel_args_capsule
 from aster._mlir_libs._runtime_module import (
     hip_module_load_data,
     hip_module_get_function,
@@ -143,7 +144,7 @@ amdhsa.version:
             return
 
         # Compile the kernel to HSACO
-        hsaco_path = utils.assemble_to_hsaco(
+        hsaco_path = assemble_to_hsaco(
             self.flush_kernel_asm, target=self.mcpu, wavefront_size=self.wavefront_size
         )
         if hsaco_path is None:
@@ -162,8 +163,8 @@ amdhsa.version:
         self.flush_buffer_ptr = hip_malloc(self.flush_buffer_size)
 
         # Create kernel args (just the buffer pointer)
-        ptr_value = utils.unwrap_pointer_from_capsule(self.flush_buffer_ptr)
-        self.params_tuple = utils.create_kernel_args_capsule([ptr_value])
+        ptr_value = unwrap_pointer_from_capsule(self.flush_buffer_ptr)
+        self.params_tuple = create_kernel_args_capsule([ptr_value])
 
         self.initialized = True
 

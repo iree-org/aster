@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from aster.testing import compile_and_run
+from aster.execution.helpers import compile_and_run
 
 
 class TestLdsReadSwizzledFragmentWaitXorSwizzled:

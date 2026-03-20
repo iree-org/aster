@@ -4,7 +4,8 @@ import os
 
 import pytest
 
-from aster import ir, utils
+from aster import ir
+from aster.compiler.core import translate_module, assemble_to_hsaco
 from aster.dialects import amdgcn
 
 TARGET_CONFIGS = [
@@ -44,7 +45,7 @@ def _run_pipeline(module, ctx):
             break
     assert amdgcn_mod is not None, "Failed to find AMDGCN module"
 
-    return utils.translate_module(amdgcn_mod)
+    return translate_module(amdgcn_mod)
 
 
 @pytest.mark.parametrize(
@@ -73,7 +74,7 @@ def test_assemble_to_hsaco(target, isa):
         module = ir.Module.parse(_build_module_ir(target, isa))
         asm = _run_pipeline(module, ctx)
 
-        hsaco_path = utils.assemble_to_hsaco(asm, target=target)
+        hsaco_path = assemble_to_hsaco(asm, target=target)
         if hsaco_path is None:
             pytest.skip(
                 f"LLVM assembler does not support {target} "

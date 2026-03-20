@@ -9,12 +9,10 @@ from typing import List, Tuple, Optional, Callable
 from dataclasses import dataclass, field
 
 import numpy as np
-from aster import ir, utils
-from aster.testing import (
-    execute_kernel_and_verify,
-    compile_mlir_file_to_asm,
-)
-from aster.testing.flush_llc import FlushLLC
+from aster import ir
+from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
+from aster.execution.core import execute_hsaco
+from aster.execution.flush_llc import FlushLLC
 from mlir_kernels.benchmarks.benchmark_utils import (
     BenchmarkResult,
     BaseConfig,
@@ -30,7 +28,6 @@ class Copy1DConfig(BaseConfig):
     num_elements_per_thread: int = field(default=...)
     element_size: int = 16
     sched_delay_store: int = 3
-    padding_bytes: Optional[List[int]] = None
     kernel_name: str = "copy_1d_dwordx4_static"
     # BaseConfig fields: num_workgroups, num_waves, mlir_file, total_flops, total_bytes,
     # wavefront_size, pass_pipeline, mcpu, shader_clock_mhz, peak_gbps, peak_tflops
@@ -94,7 +91,7 @@ def compile_kernel_worker(config: Copy1DConfig) -> Tuple[Copy1DConfig, str]:
                 library_paths=library_paths,
             )
 
-            hsaco_path = utils.assemble_to_hsaco(
+            hsaco_path = assemble_to_hsaco(
                 asm_complete, target=config.mcpu, wavefront_size=config.wavefront_size
             )
             if hsaco_path is None:
@@ -137,13 +134,11 @@ def execute_kernel_benchmark(
                 raise AssertionError("Copy kernel failed!")
 
     try:
-        iteration_times_ns: List[int] = execute_kernel_and_verify(
+        iteration_times_ns: List[int] = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=config.kernel_name,
-            input_args=[input_data],
-            output_args=[output_data, timing_buffer_begin, timing_buffer_end],
-            mcpu=config.mcpu,
-            wavefront_size=config.wavefront_size,
+            input_arrays=[input_data],
+            output_arrays=[output_data, timing_buffer_begin, timing_buffer_end],
             grid_dim=(config.num_workgroups, 1, 1),
             block_dim=(config.num_threads, 1, 1),
             verify_fn=verify_fn if not skip_test else None,
@@ -168,13 +163,11 @@ def format_copy_failure(
 ) -> str:
     """Format failure message for copy benchmark."""
     device_str = f"GPU{device_id}" if device_id is not None else "GPU?"
-    padding_str = str(config.padding_bytes) if config.padding_bytes else "[0, 0]"
     return (
         f"FAILED [{device_str}] "
         f"wg={config.num_workgroups:5d} waves={config.num_waves:3d} "
         f"elems={config.num_elements_per_thread:4d} "
-        f"delay={config.sched_delay_store} "
-        f"padding={padding_str}: {error_msg}"
+        f"delay={config.sched_delay_store}: {error_msg}"
     )
 
 
@@ -229,28 +222,24 @@ def main() -> None:
         num_waves_values: List[int] = [1]
         num_elements_per_thread_values: List[int] = [4]
         sched_delay_store_values: List[int] = [0]
-        padding_bytes_values: List[List[int]] = [[0, 0]]
     else:
         num_workgroups_values = [1, 304, 608, 3040]
         num_waves_values = [1, 2, 5, 8, 10, 16]
         num_elements_per_thread_values = [1, 4, 6, 8, 12, 16]
         sched_delay_store_values = [0, 3, 8]
-        padding_bytes_values = [[0, 0], [1, 1], [2, 2], [3, 3]]
     configs: List[Copy1DConfig] = [
         Copy1DConfig(
             _num_workgroups=num_workgroups,
             num_waves=num_waves,
             num_elements_per_thread=num_elems,
             sched_delay_store=sched_delay,
-            padding_bytes=padding,
             mlir_file=mlir_file,
         )
-        for num_workgroups, num_waves, num_elems, sched_delay, padding in itertools.product(
+        for num_workgroups, num_waves, num_elems, sched_delay in itertools.product(
             num_workgroups_values,
             num_waves_values,
             num_elements_per_thread_values,
             sched_delay_store_values,
-            padding_bytes_values,
         )
     ]
 
@@ -274,16 +263,12 @@ def main() -> None:
         print("=" * 80, file=sys.stderr)
         for result in results_sorted:
             config: Copy1DConfig = result.config
-            padding_str: str = (
-                str(config.padding_bytes) if config.padding_bytes else "[0, 0]"
-            )
             print(
                 f"GPU{result.device_id} "
                 f"wg={config.num_workgroups:5d}, "
                 f"waves={config.num_waves:3d}, "
                 f"elems={config.num_elements_per_thread:4d}, "
-                f"delay={config.sched_delay_store}, "
-                f"padding={padding_str}: " + format_throughput_stats(result),
+                f"delay={config.sched_delay_store}: " + format_throughput_stats(result),
                 file=sys.stderr,
             )
         print("=" * 80, file=sys.stderr)
@@ -292,14 +277,10 @@ def main() -> None:
         print("\nFailed configurations:", file=sys.stderr)
         print("-" * 80, file=sys.stderr)
         for config, error_msg in failed_configs:
-            padding_str: str = (
-                str(config.padding_bytes) if config.padding_bytes else "[0, 0]"
-            )
             print(
                 f"wg={config.num_workgroups:5d} waves={config.num_waves:3d} "
                 f"elems={config.num_elements_per_thread:4d} "
-                f"delay={config.sched_delay_store} "
-                f"padding={padding_str}: {error_msg}",
+                f"delay={config.sched_delay_store}: {error_msg}",
                 file=sys.stderr,
             )
         print("-" * 80, file=sys.stderr)

@@ -18,7 +18,7 @@ Usage::
         ...
         module = b.build()
 
-The returned module can be passed directly to aster.testing compile_kernel_module.
+The returned module can be passed directly to aster.compiler compile_kernel_module.
 """
 
 from __future__ import annotations

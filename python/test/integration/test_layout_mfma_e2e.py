@@ -7,15 +7,14 @@
 import numpy as np
 import pytest
 
-from aster import ir, utils
+from aster import ir
 from aster.layout import Layout, Swizzle
 from aster.dialects.kernel_builder import KernelBuilder
 from aster.dialects.amdgcn import AccessKind
-from aster.testing import (
-    compile_mlir_module_to_asm,
-    execute_kernel_and_verify,
-    hsaco_file,
-)
+from aster.compiler.core import compile_mlir_module_to_asm, assemble_to_hsaco
+from aster.execution.core import execute_hsaco
+from aster.execution.helpers import hsaco_file
+from aster.execution.utils import system_has_mcpu
 
 MCPU = "gfx942"
 
@@ -71,20 +70,18 @@ def _run_mfma_test(name):
         module = _build_mfma_kernel(name)
         asm = compile_mlir_module_to_asm(module)
 
-    path = utils.assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
+    path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
     if path is None:
         pytest.skip(f"LLVM assembler does not support {MCPU}")
 
     with hsaco_file(path):
-        if not utils.system_has_mcpu(mcpu=MCPU):
+        if not system_has_mcpu(mcpu=MCPU):
             pytest.skip(f"{MCPU} GPU not available")
-        execute_kernel_and_verify(
+        execute_hsaco(
             hsaco_path=path,
             kernel_name=name,
-            input_args=[A, B],
-            output_args=[C],
-            mcpu=MCPU,
-            wavefront_size=64,
+            input_arrays=[A, B],
+            output_arrays=[C],
             grid_dim=(1, 1, 1),
             block_dim=(64, 1, 1),
         )
@@ -159,20 +156,18 @@ def _run_mfma_lds_test(name):
         module = _build_mfma_lds_kernel(name)
         asm = compile_mlir_module_to_asm(module)
 
-    path = utils.assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
+    path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
     if path is None:
         pytest.skip(f"LLVM assembler does not support {MCPU}")
 
     with hsaco_file(path):
-        if not utils.system_has_mcpu(mcpu=MCPU):
+        if not system_has_mcpu(mcpu=MCPU):
             pytest.skip(f"{MCPU} GPU not available")
-        execute_kernel_and_verify(
+        execute_hsaco(
             hsaco_path=path,
             kernel_name=name,
-            input_args=[A, B],
-            output_args=[C],
-            mcpu=MCPU,
-            wavefront_size=64,
+            input_arrays=[A, B],
+            output_arrays=[C],
             grid_dim=(1, 1, 1),
             block_dim=(64, 1, 1),
         )
