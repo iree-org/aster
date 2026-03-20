@@ -60,9 +60,9 @@ normalform::ModuleOp::create(Location loc,
   return ModuleOp::create(builder, loc, normalForms, name);
 }
 
-LogicalResult normalform::verifyNormalForm(Operation *root,
-                                           NormalFormAttrInterface normalForm,
-                                           bool emitDiagnostics) {
+LogicalResult normalform::verifyNormalForm(
+    Operation *root, NormalFormAttrInterface normalForm, bool emitDiagnostics,
+    const DenseSet<StringAttr> *excludeAttrNames) {
   SmallPtrSet<Type, 16> seenTypes;
   SmallPtrSet<Attribute, 16> seenAttrs;
   Location loc = root->getLoc();
@@ -128,6 +128,8 @@ LogicalResult normalform::verifyNormalForm(Operation *root,
     }
 
     for (NamedAttribute attr : op->getAttrs()) {
+      if (excludeAttrNames && excludeAttrNames->contains(attr.getName()))
+        continue;
       WalkResult walkResult = walker.walk(attr.getValue());
       if (walkResult.wasInterrupted())
         return WalkResult::interrupt();

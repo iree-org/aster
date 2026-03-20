@@ -14,6 +14,7 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/DenseSet.h"
 
 #include "aster/Dialect/NormalForm/IR/NormalFormAttrInterfaces.h.inc"
 
@@ -22,9 +23,13 @@ namespace normalform {
 /// Verify that all IR nested under `root` satisfies the given normal form.
 /// If `emitDiagnostics` is true, errors are reported; otherwise the check
 /// is silent (useful for inferNormalForms).
-::llvm::LogicalResult verifyNormalForm(::mlir::Operation *root,
-                                       NormalFormAttrInterface normalForm,
-                                       bool emitDiagnostics);
+/// `excludeAttrNames` optionally specifies named attributes whose nested
+/// types should be skipped during verification (e.g., kernel argument
+/// attributes that contain ABI metadata types, not computational types).
+::llvm::LogicalResult verifyNormalForm(
+    ::mlir::Operation *root, NormalFormAttrInterface normalForm,
+    bool emitDiagnostics,
+    const ::llvm::DenseSet<::mlir::StringAttr> *excludeAttrNames = nullptr);
 
 } // namespace normalform
 
