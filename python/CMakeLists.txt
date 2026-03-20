@@ -36,7 +36,6 @@ declare_mlir_python_sources(ASTERPythonSources.core
     layout/__init__.py
     layout/int_tuple.py
     layout/algebra.py
-    layout/codegen.py
 )
 
 declare_mlir_python_extension(ASTERPythonExtensions._amdgcn
@@ -153,6 +152,15 @@ declare_mlir_dialect_python_bindings(
   SOURCES
     dialects/lsir.py
   DIALECT_NAME lsir
+)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT ASTERPythonSources
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/aster"
+  TD_FILE dialects/LayoutOps.td
+  SOURCES
+    dialects/layout.py
+  DIALECT_NAME layout
 )
 
 ################################################################################

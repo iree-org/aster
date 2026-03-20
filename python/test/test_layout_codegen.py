@@ -9,23 +9,7 @@
 
 from __future__ import annotations
 
-from aster.layout import Layout, Delinearize, Linearize, layout_to_ops, product
-
-
-def test_layout_to_ops_scalar():
-    ops = layout_to_ops(Layout(sizes=4, strides=2))
-    assert ops == [Delinearize(basis=(4,)), Linearize(basis=(2,))]
-
-
-def test_layout_to_ops_2d():
-    ops = layout_to_ops(Layout(sizes=(4, 16), strides=(16, 64)))
-    assert ops == [Delinearize(basis=(4, 16)), Linearize(basis=(16, 64))]
-
-
-def test_layout_to_ops_identity():
-    ops = layout_to_ops(Layout(sizes=64, strides=1))
-    assert ops == [Delinearize(basis=(64,)), Linearize(basis=(1,))]
-
+from aster.layout import Layout, product
 
 # ---------------------------------------------------------------------------
 # Shared helpers (imported by integration/test_layout_copy_e2e.py)
@@ -111,8 +95,7 @@ def test_build_copy_kernel_ir():
         assert "global_load_dwordx4" in text
         assert "global_store_dwordx4" in text
         assert "ptr.ptr_add" in text
-        assert "affine.delinearize_index" in text
-        assert "affine.apply" in text
+        assert "layout.linearize" in text
 
 
 def test_build_copy_kernel_asm():

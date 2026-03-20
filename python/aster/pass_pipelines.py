@@ -48,6 +48,7 @@ def amdgcn_kernel(*args):
 # Pre-scheduling cleanup, main purpose is to remove all included libraries that
 # are not needed for a particular kernel.
 PHASE_PRE_SCHEDULING_CLEANUP = (
+    "lower-layout-to-affine",
     "aster-selective-inlining",
     "cse", "canonicalize", "symbol-dce",
 )
@@ -155,13 +156,11 @@ PHASE_CONVERT_LDS_BUFFERS = (
 # Note: aster-to-int-arith contains lower-affine without linking in and
 # cargo-culting the whole conversion library.
 PHASE_LOWER_TO_AMDGCN = (
-    # Decompose large affine.apply ops into smaller reusable pieces for
-    # better LICM, CSE, and int-range analysis. Must run after canonicalize
-    # (which composes affine chains) and before aster-to-int-arith (which
-    # lowers affine to arith). Upstream: affine::decompose().
+    # Expand affine.apply ops into aster_utils n-ary addi/muli operations.
+    # Must run after canonicalize and before aster-to-int-arith.
     "affine-expand-index-ops-as-affine",
     "canonicalize", "cse",
-    "aster-decompose-affine-apply",
+    "aster-expand-affine-apply",
     "loop-invariant-code-motion", "cse",
     "aster-decompose-by-loop-invariant",
     "canonicalize", "cse", "loop-invariant-code-motion",
