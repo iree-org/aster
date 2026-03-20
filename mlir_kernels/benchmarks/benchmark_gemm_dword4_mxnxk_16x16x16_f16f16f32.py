@@ -28,7 +28,7 @@ from mlir_kernels.kernel_utils import (
     generate_gemm_data,
     LDS_SIZE_LIMIT,
 )
-from aster.execution.core import execute_hsaco
+from aster.execution.core import execute_hsaco, InputArray, OutputArray
 
 # 304 = num CUs on MI300X
 NUM_CU_PER_GPU = 304
@@ -109,17 +109,21 @@ def execute_kernel_benchmark(
         f"[EXECUTE] Matrices created: m={config.m}, n={config.n}, k={config.k}",
     )
 
-    # Use scaled tolerance for large k
-    verify_fn = (
+    # Use scaled tolerance for large k; wrap to match execute_hsaco's arguments signature.
+    _raw_verify = (
         make_gemm_verify_fn(config, scale_with_k=True) if not skip_test else None
     )
+    verify_fn = None
+    if _raw_verify is not None:
+
+        def verify_fn(args, _fn=_raw_verify):
+            _fn([a.array for a in args[:2]], [a.array for a in args[2:]])
 
     try:
         iteration_times_ns: List[int] = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=config.kernel_name,
-            input_arrays=[a_data, b_data],
-            output_arrays=[c_data],
+            arguments=[InputArray(a_data), InputArray(b_data), OutputArray(c_data)],
             grid_dim=(config.num_workgroups, 1, 1),
             block_dim=(config.num_threads, 1, 1),
             verify_fn=verify_fn,

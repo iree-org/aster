@@ -192,6 +192,26 @@ NB_MODULE(_runtime_module, m) {
     return ms;
   });
 
+  // HIP stream functions
+  m.def("hip_stream_create", []() -> void * {
+    hipStream_t *s = new hipStream_t();
+    hipCheck(hipStreamCreate(s));
+    return s;
+  });
+
+  m.def("hip_stream_destroy", [](void *stream) {
+    if (stream != nullptr) {
+      hipStream_t *s = reinterpret_cast<hipStream_t *>(stream);
+      hipCheck(hipStreamDestroy(*s));
+      delete s;
+    }
+  });
+
+  m.def("hip_stream_synchronize", [](void *stream) {
+    hipStream_t *s = reinterpret_cast<hipStream_t *>(stream);
+    hipCheck(hipStreamSynchronize(*s));
+  });
+
 #else
   m.def("hip_init", []() {
     printf("Warning: HIP support is not available, using a noop stub\n");
@@ -290,6 +310,20 @@ NB_MODULE(_runtime_module, m) {
   m.def("hip_event_elapsed_time", [](void *start, void *stop) -> float {
     printf("Warning: HIP support is not available, using a noop stub\n");
     return 0.0f;
+  });
+
+  // HIP stream stubs
+  m.def("hip_stream_create", []() -> void * {
+    printf("Warning: HIP support is not available, using a noop stub\n");
+    return (void *)0xdeadbeef;
+  });
+
+  m.def("hip_stream_destroy", [](void *stream) {
+    printf("Warning: HIP support is not available, using a noop stub\n");
+  });
+
+  m.def("hip_stream_synchronize", [](void *stream) {
+    printf("Warning: HIP support is not available, using a noop stub\n");
   });
 
 #endif // HAS_HIP_SUPPORT

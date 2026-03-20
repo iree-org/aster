@@ -12,7 +12,7 @@ from aster.compiler.core import (
     assemble_to_hsaco,
     load_mlir_module_from_file,
 )
-from aster.execution.core import execute_hsaco
+from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 from aster.pass_pipelines import get_pass_pipeline
@@ -97,9 +97,9 @@ def execute_copy_1d_kernel(
     timing_buffer_begin = np.zeros(1, dtype=np.int64)
     timing_buffer_end = np.zeros(1, dtype=np.int64)
 
-    def verify_fn(input_args, output_args):
-        expected = input_args[0]
-        actual = output_args[0]
+    def verify_fn(arguments):
+        expected = arguments[0].array
+        actual = arguments[1].array
         if not np.array_equal(expected, actual):
             # Find first index where arrays differ
             diff_mask = expected != actual
@@ -116,8 +116,12 @@ def execute_copy_1d_kernel(
     iteration_times_ns = execute_hsaco(
         hsaco_path=hsaco_path,
         kernel_name=config.kernel_name,
-        input_arrays=[input_data],
-        output_arrays=[output_data, timing_buffer_begin, timing_buffer_end],
+        arguments=[
+            InputArray(input_data),
+            OutputArray(output_data),
+            OutputArray(timing_buffer_begin),
+            OutputArray(timing_buffer_end),
+        ],
         grid_dim=(config.num_workgroups, 1, 1),
         block_dim=(config.num_threads, 1, 1),
         verify_fn=verify_fn,

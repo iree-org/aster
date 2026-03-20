@@ -9,7 +9,7 @@ from aster.compiler.core import (
     PrintOptions,
     assemble_to_hsaco,
 )
-from aster.execution.core import execute_hsaco
+from aster.execution.core import execute_hsaco, InputArray, OutputArray, InOutArray
 from aster.execution.utils import system_has_mcpu
 from aster.test_pass_pipelines import TEST_SYNCHRONOUS_PASS_PIPELINE
 
@@ -175,14 +175,34 @@ def compile_and_run(
                     f"GPU {mcpu} not available, but cross-compilation to HSACO succeeded"
                 )
 
+            import numpy as np
+
+            # Only wrap numpy arrays; scalars pass through directly.
+            # Use InOutArray for output_data so initial host values are uploaded
+            # to GPU before the first launch (matching pre-existing behaviour).
+            _n_inputs = sum(1 for a in input_data if isinstance(a, np.ndarray))
+            arguments = [
+                InputArray(a) if isinstance(a, np.ndarray) else a for a in input_data
+            ] + [InOutArray(a) for a in output_data]
+            # Wrap verify_fn to reconstruct the (inputs, outputs) lists that
+            # callers of compile_and_run expect.
+            wrapped_verify_fn = None
+            if verify_fn is not None:
+                _n = _n_inputs
+                _orig = verify_fn
+
+                def wrapped_verify_fn(args, _n=_n, _orig=_orig):
+                    inputs = [a.array for a in args if isinstance(a, InputArray)]
+                    outputs = [a.array for a in args if isinstance(a, InOutArray)]
+                    _orig(inputs, outputs)
+
             iteration_times = execute_hsaco(
                 hsaco_path=hsaco_path,
                 kernel_name=kernel_name,
-                input_arrays=input_data,
-                output_arrays=output_data,
+                arguments=arguments,
                 grid_dim=grid_dim,
                 block_dim=block_dim,
-                verify_fn=verify_fn,
+                verify_fn=wrapped_verify_fn,
                 num_iterations=num_iterations,
             )
 

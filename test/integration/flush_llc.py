@@ -1,5 +1,6 @@
 """Utilities for flushing the Last Level Cache (LLC) on GPU."""
 
+import ctypes
 import os
 from typing import Tuple, Callable
 
@@ -164,7 +165,7 @@ amdhsa.version:
 
         # Create kernel args (just the buffer pointer)
         ptr_value = unwrap_pointer_from_capsule(self.flush_buffer_ptr)
-        self.params_tuple = create_kernel_args_capsule([ptr_value])
+        self.params_tuple = create_kernel_args_capsule(ctypes.c_void_p(ptr_value))
 
         self.initialized = True
 

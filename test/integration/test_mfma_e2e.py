@@ -33,9 +33,8 @@ def test_mfma_e2e_kernel(
     c_data = np.zeros(m * n, dtype=np.float32)
 
     def verify_fn(input_args, output_args):
-        a, b = [np.array(arg).reshape(m, k) for arg in input_args[:1]] + [
-            np.array(arg).reshape(k, n) for arg in input_args[1:2]
-        ]
+        a = np.array(input_args[0]).reshape(m, k)
+        b = np.array(input_args[1]).reshape(k, n)
         c = np.array(output_args[0]).reshape(m, n)
         ref = np.matmul(a, b).astype(np.float32)
         assert np.array_equal(c, ref), f"MFMA kernel failed! c: {c}, ref: {ref}"

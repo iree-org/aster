@@ -5,7 +5,7 @@ import os
 
 from aster import ir
 from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
-from aster.execution.core import execute_hsaco
+from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 from aster.test_pass_pipelines import TEST_TEST_EMPTY_PASS_PIPELINE
@@ -77,8 +77,7 @@ def main():
         iteration_times_ns = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=KERNEL_NAME,
-            input_arrays=[],
-            output_arrays=[],
+            arguments=[],
             # TODO: ideally we'd want to have exactly 1 warp on the whole machine
             # but I don't find the right incantations on CDNA to precisely
             # profile the exact CU on which the kernel will be scheduled.

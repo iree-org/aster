@@ -10,7 +10,7 @@ from typing import List, Tuple, Optional
 import numpy as np
 from aster import ir
 from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
-from aster.execution.core import execute_hsaco
+from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.utils.logging import aster_get_logger, aster_log_info
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 from mlir_kernels.benchmarks.benchmark_utils import (
@@ -121,15 +121,19 @@ def execute_kernel_benchmark(
         sz > 0 for sz in [len(a_data), len(b_data), len(c_data)]
     ), f"All matrix sizes must be > 0 for m={config.m}, n={config.n}, k={config.k} wg={config.num_workgroups} waves={config.num_waves}"
 
-    # Use shared verify function
-    verify_fn = make_batchedsmallgemm_verify_fn(config) if not skip_test else None
+    # Use shared verify function; wrap to match execute_hsaco's arguments signature.
+    _raw_verify = make_batchedsmallgemm_verify_fn(config) if not skip_test else None
+    verify_fn = None
+    if _raw_verify is not None:
+
+        def verify_fn(args, _fn=_raw_verify):
+            _fn([a.array for a in args[:2]], [a.array for a in args[2:]])
 
     try:
         iteration_times_ns: List[int] = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=config.kernel_name,
-            input_arrays=[a_data, b_data],
-            output_arrays=[c_data],
+            arguments=[InputArray(a_data), InputArray(b_data), OutputArray(c_data)],
             grid_dim=(config.num_workgroups, 1, 1),
             block_dim=(config.num_threads, 1, 1),
             verify_fn=verify_fn,

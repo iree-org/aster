@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from aster import ir
 from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
-from aster.execution.core import execute_hsaco
+from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.flush_llc import FlushLLC
 from mlir_kernels.benchmarks.benchmark_utils import (
     BenchmarkResult,
@@ -119,9 +119,9 @@ def execute_kernel_benchmark(
     timing_buffer_begin: np.ndarray = np.zeros(1, dtype=np.int64)
     timing_buffer_end: np.ndarray = np.zeros(1, dtype=np.int64)
 
-    def verify_fn(input_args: List[np.ndarray], output_args: List[np.ndarray]) -> None:
-        expected = input_args[0]
-        actual = output_args[0]
+    def verify_fn(arguments) -> None:
+        expected = arguments[0].array
+        actual = arguments[1].array
         if not np.array_equal(expected, actual):
             diff_indices = np.where(expected != actual)[0]
             first_diff_idx = diff_indices[0] if len(diff_indices) > 0 else None
@@ -137,8 +137,12 @@ def execute_kernel_benchmark(
         iteration_times_ns: List[int] = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=config.kernel_name,
-            input_arrays=[input_data],
-            output_arrays=[output_data, timing_buffer_begin, timing_buffer_end],
+            arguments=[
+                InputArray(input_data),
+                OutputArray(output_data),
+                OutputArray(timing_buffer_begin),
+                OutputArray(timing_buffer_end),
+            ],
             grid_dim=(config.num_workgroups, 1, 1),
             block_dim=(config.num_threads, 1, 1),
             verify_fn=verify_fn if not skip_test else None,

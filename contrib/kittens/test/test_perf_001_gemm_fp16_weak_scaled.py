@@ -308,7 +308,7 @@ def execute_gemm_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=Fal
 
     Skips (pytest.skip) if target GPU unavailable.
     """
-    from aster.execution.core import execute_hsaco
+    from aster.execution.core import execute_hsaco, InputArray, OutputArray
     from aster.execution.utils import system_has_gpu
 
     if not skip_gpu_check and not system_has_gpu(MCPU):
@@ -319,8 +319,11 @@ def execute_gemm_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=Fal
     times_ns = execute_hsaco(
         hsaco_path=hsaco_path,
         kernel_name=cfg.kernel_name,
-        input_arrays=[A.flatten(), B.flatten()],
-        output_arrays=[C_output],
+        arguments=[
+            InputArray(A.flatten()),
+            InputArray(B.flatten()),
+            OutputArray(C_output),
+        ],
         grid_dim=(cfg.num_workgroups, 1, 1),
         block_dim=(cfg.num_threads, 1, 1),
         num_iterations=num_iterations,

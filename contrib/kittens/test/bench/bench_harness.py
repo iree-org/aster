@@ -270,7 +270,7 @@ def _exec_worker(args):
 
     HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init initializer.
     """
-    from aster.execution.core import execute_hsaco
+    from aster.execution.core import execute_hsaco, InputArray, OutputArray
 
     label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, num_iter = args
     try:
@@ -281,8 +281,7 @@ def _exec_worker(args):
         times = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=kernel_name,
-            input_arrays=[A, B],
-            output_arrays=[C],
+            arguments=[InputArray(A), InputArray(B), OutputArray(C)],
             grid_dim=(num_wg, 1, 1),
             block_dim=(num_threads, 1, 1),
             num_iterations=num_iter,
@@ -297,7 +296,7 @@ def _verify_worker(args):
 
     HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init initializer.
     """
-    from aster.execution.core import execute_hsaco
+    from aster.execution.core import execute_hsaco, InputArray, OutputArray
 
     label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k = args
     try:
@@ -308,8 +307,11 @@ def _verify_worker(args):
         execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=kernel_name,
-            input_arrays=[A.flatten(), B.flatten()],
-            output_arrays=[C],
+            arguments=[
+                InputArray(A.flatten()),
+                InputArray(B.flatten()),
+                OutputArray(C),
+            ],
             grid_dim=(num_wg, 1, 1),
             block_dim=(num_threads, 1, 1),
             num_iterations=1,

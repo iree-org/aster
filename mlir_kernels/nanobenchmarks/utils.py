@@ -14,7 +14,7 @@ from aster.compiler.core import (
     compile_mlir_file_to_asm,
     assemble_to_hsaco,
 )
-from aster.execution.core import execute_hsaco
+from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 from aster.execution.flush_llc import FlushLLC
@@ -141,11 +141,13 @@ def run_kernel(
     flush_llc = FlushLLC(mcpu=MCPU) if config.flush_llc else None
 
     with hsaco_file(hsaco_path):
+        arguments = [InputArray(a) for a in config.input_buffers] + [
+            OutputArray(a) for a in config.output_buffers
+        ]
         iteration_times_ns = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=config.kernel_name,
-            input_arrays=config.input_buffers,
-            output_arrays=config.output_buffers,
+            arguments=arguments,
             grid_dim=(config.num_blocks, 1, 1),
             block_dim=(config.num_threads, 1, 1),
             verify_fn=verify_fn,
