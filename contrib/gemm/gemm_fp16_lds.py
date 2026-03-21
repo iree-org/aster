@@ -216,11 +216,13 @@ def _make_substitutions(cfg: GEMMConfig) -> dict:
         "{{A_LDS_BYTES}}": str(cfg.a_lds_bytes),
         "{{B_LDS_BYTES}}": str(cfg.b_lds_bytes),
         "{{K_LOOP_HELPERS}}": _load_k_loop_helpers(),
-        # Stage annotations: all 0 for non-pipelined execution.
+        # Stage annotations: 0..3 for software pipelining (double-buffer LDS).
+        # GLOBAL_LOAD=0 → DS_WRITE=1 → DS_READ=2 → COMPUTE=3.
+        # Set all to 0 to fall back to non-pipelined execution.
         "{{STAGE_GLOBAL_LOAD}}": "0",
-        "{{STAGE_DS_WRITE}}": "0",
-        "{{STAGE_DS_READ}}": "0",
-        "{{STAGE_COMPUTE}}": "0",
+        "{{STAGE_DS_WRITE}}": "1",
+        "{{STAGE_DS_READ}}": "2",
+        "{{STAGE_COMPUTE}}": "3",
     }
 
 
@@ -248,7 +250,7 @@ def run_gemm(
         kernel_name="gemm_fp16_lds",
         input_data=[A.flatten(), B.flatten()],
         output_data=[C_output],
-        pass_pipeline=make_default_pass_pipeline(delays=num_nops),
+        pass_pipeline=make_default_pass_pipeline(lcm_unroll=True),
         preprocess=preprocess,
         library_paths=_get_library_paths(),
         mcpu=MCPU,

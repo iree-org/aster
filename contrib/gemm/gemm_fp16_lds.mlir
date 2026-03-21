@@ -168,14 +168,6 @@ amdgcn.module @gemm_fp16_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %n_global_compute_base = affine.apply
         affine_map<(nwg, wnc)[nt] -> (nwg * nt + wnc)>(%n_wg, %wave_b_compute_base)[%c_N_T]
 
-    // Allocate shared LDS: A tiles for all waves, B tiles for all waves.
-    // Each wave writes its own non-overlapping A region and a disjoint slice of B.
-    // After a barrier, all waves read all B tiles written cooperatively.
-    %lds_a_h = amdgcn.alloc_lds {{A_LDS_BYTES}}
-    %base_a = amdgcn.get_lds_offset %lds_a_h : index
-    %lds_b_h = amdgcn.alloc_lds {{B_LDS_BYTES}}
-    %base_b = amdgcn.get_lds_offset %lds_b_h : index
-
     // K_T*2 MFMA K-steps per outer iteration (2 per 16x32 transfer tile).
     %k_mfma = affine.apply affine_map<()[k] -> (k * 2)>()[%c_K_T]
 
@@ -188,7 +180,16 @@ amdgcn.module @gemm_fp16_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     } {aster.constexpr}
 
     // K outer loop: each step processes K_T * 32 K-elements via K_T LDS tiles.
+    // LDS is allocated inside the loop so the pipeline can double-buffer (depth 2).
     scf.for %k = %c0 to %c_K_TILES step %c_K_T {
+      // === Allocate LDS for this iteration (pipelined: stage GLOBAL_LOAD). ===
+      // Each wave writes its own non-overlapping A region and a disjoint slice of B.
+      // After a barrier, all waves read all B tiles written cooperatively.
+      %lds_a_h = amdgcn.alloc_lds {{A_LDS_BYTES}} {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+      %base_a = amdgcn.get_lds_offset %lds_a_h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
+      %lds_b_h = amdgcn.alloc_lds {{B_LDS_BYTES}} {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+      %base_b = amdgcn.get_lds_offset %lds_b_h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
+
       // === Issue global loads cooperatively: each wave loads its A rows and B slice. ===
       %gfut_a = func.call @k_load_a_16x32_from_global(
           %c_M_T_PER_WAVE, %c_K_T, %A_ptr, %k, %stride_AB, %m_global_load_base)
@@ -213,7 +214,7 @@ amdgcn.module @gemm_fp16_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       // wave reads B tiles written by other waves.
       func.call @k_wait_lds_writes(%tok_a) : (!tok_a_buf) -> ()
       func.call @k_wait_lds_writes(%tok_b) : (!tok_b_buf) -> ()
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier>
+      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32, sched.rotate_head}
 
       // === Read A and B tiles from LDS using 2D compute bases. ===
       // Each wave reads only its M_T_PW_C A rows (at wave_a_compute_base) and
@@ -230,7 +231,13 @@ amdgcn.module @gemm_fp16_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       func.call @k_wait_and_compute_mfmas(
           %c_M_T_PW_C, %c_N_T_PW_C, %k_mfma, %a_fut, %b_fut, %C_buf)
           : (index, index, index, !fut_a_buf, !fut_b_buf, !c_buf) -> ()
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier>
+
+      // Release this iteration's LDS buffers, then sync all waves.
+      // With pipelining the dealloc signals the pipeline that the buffer can be
+      // reused; without pipelining the barrier prevents the next iteration from
+      // writing to the same LDS region before all waves finish reading.
+      amdgcn.dealloc_lds %lds_a_h {sched.stage = {{STAGE_COMPUTE}} : i32}
+      amdgcn.dealloc_lds %lds_b_h {sched.stage = {{STAGE_COMPUTE}} : i32}
     }
 
     // Store this wave's M_T_PW_C x N_T_PW_C output tiles to global C.
