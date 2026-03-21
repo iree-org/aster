@@ -203,9 +203,26 @@ def pipelined_substitutions_16x32(k, a_stages):
         "{{A_STAGE_COMPUTE}}": str(a_compute),
     }
 
+def get_kittens_32x32_lds_library_paths() -> List[str]:
+    """Get paths for 32x32 MFMA with AGPR accumulators + 16x64_b LDS (dwordx4, XOR swizzle).
+
+    Uses v_mfma_f32_32x32x8_f16 with 16 AGPRs per accumulator tile. Each 32-row tile is
+    loaded/stored as two consecutive 16x64_b half-tiles, so global_16x64_b and
+    lds_16x64_b are reused unchanged. compute_32x32_f16 and lds_mfma_32x32_f16 are new.
+    """
+    base_paths = get_library_paths()
+    kittens_dir = os.path.join(os.path.dirname(__file__), "..", "library")
+    return base_paths + [
+        get_mlir_kernels_library_path("common/indexing_ptr.mlir"),
+        os.path.join(kittens_dir, "global_16x64_b.mlir"),
+        os.path.join(kittens_dir, "lds_16x64_b.mlir"),
+        os.path.join(kittens_dir, "lds_mfma_32x32_f16.mlir"),
+        os.path.join(kittens_dir, "compute_32x32_f16.mlir"),
+    ]
+
 
 def constexpr_substitutions_16x32(m_tiles, n_tiles, k, a_stages, b_stages=None):
-    """Build template substitutions for constexpr 16x16 MFMA + 16x32 tiles.
+    """Build scalar-only template substitutions for constexpr 16x16 MFMA + 16x32 tiles.
 
     a_stages: A pipeline depth (LDS path, 1-6).
     b_stages: B pipeline depth (direct_b, 1-3). None = same as a_stages.

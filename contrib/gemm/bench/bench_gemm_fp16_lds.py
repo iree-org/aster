@@ -42,7 +42,9 @@ from gemm_fp16_lds import (
     MCPU,
     WAVEFRONT_SIZE,
     _get_library_paths,
+    _get_library_paths_32x32,
     _make_substitutions,
+    _make_substitutions_32x32,
 )
 from bench_harness import (
     NUM_ITERATIONS,
@@ -54,16 +56,18 @@ from bench_harness import (
 )
 
 KERNEL_NAME = "gemm_fp16_lds"
+KERNEL_NAME_32x32 = "gemm_fp16_lds_32x32"
 _MLIR_FILE = os.path.join(_DIR, "..", "gemm_fp16_lds.mlir")
+_MLIR_FILE_32x32 = os.path.join(_DIR, "..", "gemm_fp16_lds_32x32.mlir")
 
 # ---- Sweep parameters ----------------------------------------------------
 
-# Tile sizes are expressed as multiples of the minimum: 16 * num_waves.
-# This guarantees m_tile % (16 * num_waves) == 0 (and same for n_tile).
+# Tile sizes are expressed as multiples of the minimum: mfma_tile * num_waves.
+# This guarantees m_tile % (mfma_tile * num_waves) == 0 (and same for n_tile).
 _M_TILE_MULTS = [1, 2, 3, 4]
 _N_TILE_MULTS = [1, 2, 4]
 # k_t = k_tile // 32 (k_tile must be a multiple of 32).
-_K_T_VALUES = [2, 4]
+_K_T_VALUES = [1, 2, 4]
 # K = k_factor * k_tile.
 _K_FACTORS = [32, 64, 128]
 # Wave counts to sweep.
@@ -89,17 +93,19 @@ class BenchConfig(GEMMConfig):
     @property
     def label(self) -> str:
         swizzle_str = f"_sw{self.swizzle}" if self.swizzle > 1 else ""
+        variant_str = f"_v{self.mfma_variant}" if self.mfma_variant != "16x16" else ""
         return (
             f"m{self.m}xn{self.n}xk{self.k}"
             f"_mt{self.m_tile}xnt{self.n_tile}_kt{self.k_t}"
             f"_nw{self.num_waves}_mw{self.num_m_waves}"
             f"{swizzle_str}"
+            f"{variant_str}"
             f"{self._label_suffix}"
         )
 
     @property
     def kernel_name(self) -> str:
-        return KERNEL_NAME
+        return KERNEL_NAME_32x32 if self.mfma_variant == "32x32" else KERNEL_NAME
 
     @property
     def num_workgroups(self) -> int:
@@ -119,19 +125,23 @@ class BenchConfig(GEMMConfig):
 
     @property
     def estimated_agprs(self) -> int:
-        """4 AGPRs per 16x16 output tile; each wave owns m_t_pw_c x n_t_pw_c tiles."""
-        return self.m_t_pw_c * self.n_t_pw_c * 4
+        """AGPRs per output tile times tiles per wave: 4 for 16x16, 16 for 32x32."""
+        agprs_per_tile = 16 if self.mfma_variant == "32x32" else 4
+        return self.m_t_pw_c * self.n_t_pw_c * agprs_per_tile
 
     @property
     def estimated_vgprs(self) -> int:
         """Global-load buffers + LDS-read buffers + overhead.
 
-        Each 16x32 f16 transfer tile occupies 4 VGPRs per lane (dwordx4).
+        Global load: each 16-row LDS slot = dwordx4 = 4 VGPRs; 32x32 loads 2 slots
+        per 32-row tile so m_t_ld (16-row units) naturally doubles the count.
+        LDS read: k_mfma reads per k_t (2 for 16x16, 4 for 32x32), each vx2 = 2 VGPRs.
         """
-        a_load = self.m_t_per_wave * self.k_t * 4
-        b_load = self.n_t_per_wave * self.k_t * 4
-        a_lds = self.m_t_pw_c * self.k_t * 4
-        b_lds = self.n_t_pw_c * self.k_t * 4
+        a_load = (self.m_t_ld // self.num_waves) * self.k_t * 4
+        b_load = (self.n_t_ld // self.num_waves) * self.k_t * 4
+        k_mfma_per_k_t = 4 if self.mfma_variant == "32x32" else 2
+        a_lds = self.m_t_pw_c * self.k_t * k_mfma_per_k_t * 2
+        b_lds = self.n_t_pw_c * self.k_t * k_mfma_per_k_t * 2
         return a_load + b_load + a_lds + b_lds + 20  # 20 for addresses/loop vars
 
     @property
@@ -162,7 +172,14 @@ def compile_gemm(
         assemble_to_hsaco,
     )
 
-    subs = _make_substitutions(cfg)
+    if cfg.mfma_variant == "32x32":
+        subs = _make_substitutions_32x32(cfg)
+        lib_paths = _get_library_paths_32x32()
+        mlir_file = _MLIR_FILE_32x32
+    else:
+        subs = _make_substitutions(cfg)
+        lib_paths = _get_library_paths()
+        mlir_file = _MLIR_FILE
 
     def preprocess(content: str) -> str:
         for pattern, replacement in subs.items():
@@ -170,13 +187,12 @@ def compile_gemm(
         return content
 
     pipeline = make_default_pass_pipeline(num_vgprs=num_vgprs, num_agprs=num_agprs)
-    lib_paths = _get_library_paths()
 
     ctx = ir.Context()
     ctx.__enter__()
     try:
         asm, _ = compile_mlir_file_to_asm(
-            _MLIR_FILE,
+            mlir_file,
             cfg.kernel_name,
             pipeline,
             ctx,
@@ -241,19 +257,23 @@ def _wave_grids(num_waves: int):
 
 
 def _generate_configs(
-    sample_size: int = 2000, check_regs: bool = True, sweep_filter=None
+    sample_size: int = 2000,
+    check_regs: bool = True,
+    sweep_filter=None,
+    mfma_variant: str = "16x16",
 ):
     """Generate the sweep grid, pre-filter by register and LDS budget."""
     from aster.compiler.metadata import compute_register_budget
 
+    mfma_tile = 32 if mfma_variant == "32x32" else 16
     configs = []
     filtered = []
 
     for num_waves in _NUM_WAVES_CONFIGS:
         for num_m_waves in _wave_grids(num_waves):
             for m_mult, n_mult in itertools.product(_M_TILE_MULTS, _N_TILE_MULTS):
-                m_tile = m_mult * num_waves * 16
-                n_tile = n_mult * num_waves * 16
+                m_tile = m_mult * num_waves * mfma_tile
+                n_tile = n_mult * num_waves * mfma_tile
                 for k_t in _K_T_VALUES:
                     k_tile = k_t * 32
                     for k_factor in _K_FACTORS:
@@ -276,6 +296,7 @@ def _generate_configs(
                                     num_waves,
                                     swizzle=1,
                                     num_m_waves=num_m_waves,
+                                    mfma_variant=mfma_variant,
                                 )
                             except AssertionError:
                                 continue
@@ -342,12 +363,16 @@ def _generate_configs(
 
 def _repro_cmd(cfg: BenchConfig, num_iterations: int) -> str:
     swizzle_str = f" --swizzle {cfg.swizzle}" if cfg.swizzle > 1 else ""
+    variant_str = (
+        f" --mfma-variant {cfg.mfma_variant}" if cfg.mfma_variant != "16x16" else ""
+    )
     return (
         f"python contrib/gemm/bench/bench_gemm_fp16_lds.py"
         f" --m {cfg.m} --n {cfg.n} --k {cfg.k}"
         f" --m-tile {cfg.m_tile} --n-tile {cfg.n_tile} --k-tile {cfg.k_tile}"
         f" --num-waves {cfg.num_waves} --num-m-waves {cfg.num_m_waves}"
         f"{swizzle_str}"
+        f"{variant_str}"
         f" --iterations {num_iterations}"
     )
 
@@ -383,6 +408,12 @@ if __name__ == "__main__":
         help="Waves in M direction (0 = 1D mode = num_waves)",
     )
     parser.add_argument("--swizzle", type=int, default=1, help="CTA swizzle factor")
+    parser.add_argument(
+        "--mfma-variant",
+        choices=["16x16", "32x32"],
+        default="16x16",
+        help="MFMA variant: 16x16 uses v_mfma_f32_16x16x16_f16, 32x32 uses v_mfma_f32_32x32x8_f16.",
+    )
     add_single_cli_args(parser)
 
     # Sweep-dimension pins (filter the sweep grid to a specific value).
@@ -403,6 +434,7 @@ if __name__ == "__main__":
             sample_size=getattr(args, "compile_sample", 2000),
             check_regs=not getattr(args, "no_reg_filter", False),
             sweep_filter=sweep_filter,
+            mfma_variant=args.mfma_variant,
         )
         bench_perf_sweep(
             configs=all_configs,
@@ -430,6 +462,7 @@ if __name__ == "__main__":
             args.num_waves,
             args.swizzle,
             args.num_m_waves,
+            mfma_variant=args.mfma_variant,
         )
         print(
             f"Config: {cfg.label}"

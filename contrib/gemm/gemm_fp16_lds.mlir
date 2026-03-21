@@ -238,6 +238,7 @@ amdgcn.module @gemm_fp16_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       // writing to the same LDS region before all waves finish reading.
       amdgcn.dealloc_lds %lds_a_h {sched.stage = {{STAGE_COMPUTE}} : i32}
       amdgcn.dealloc_lds %lds_b_h {sched.stage = {{STAGE_COMPUTE}} : i32}
+      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32, sched.rotate_head}
     }
 
     // Store this wave's M_T_PW_C x N_T_PW_C output tiles to global C.
