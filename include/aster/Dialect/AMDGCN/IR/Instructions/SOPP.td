@@ -80,6 +80,42 @@ def SOPP_NOP_INST : SOPPInst<
   let pythonBuilder = DefaultPyBuilder<(ins IntArg<0>:$imm)>;
 }
 
+def SOPP_SETPRIO_INST : SOPPInst<
+  /*mnemonic=*/"s_setprio", /*symbol=*/"s_setprio",
+  /*instOp=*/SOPPOp, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Set wave user priority (0-3)";
+  let description = [{
+    Change wave user priority. SIMM16[1:0] sets the priority:
+    0 = lowest, 3 = highest.
+    The overall wave priority is {SPIPrio[1:0], UserPrio[1:0], WaveAge[3:0]}.
+    Use to bias wave scheduling for VMEM prefetch or LDS phase separation.
+  }];
+  let pythonBuilder = DefaultPyBuilder<(ins IntArg<0>:$imm)>;
+}
+
+def SOPP_SLEEP_INST : SOPPInst<
+  /*mnemonic=*/"s_sleep", /*symbol=*/"s_sleep",
+  /*instOp=*/SOPPOp, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Sleep for approximately SIMM16[2:0]*64 clocks";
+  let description = [{
+    Cause the wave to sleep for approximately SIMM16[2:0]*64 clocks.
+    The wave is removed from the ready pool and will not be scheduled
+    until the sleep expires or it is woken by s_wakeup from another wave
+    in the same workgroup.
+  }];
+  let pythonBuilder = DefaultPyBuilder<(ins IntArg<0>:$imm)>;
+}
+
+def SOPP_WAKEUP_INST : SOPPInst<
+  /*mnemonic=*/"s_wakeup", /*symbol=*/"s_wakeup",
+  /*instOp=*/SOPPOp, /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Wake up all sleeping waves in the workgroup";
+  let description = [{
+    Wake up all waves in the same workgroup that are sleeping due to
+    s_sleep. Used with s_sleep for soft wave coordination without barriers.
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // S_WAITCNT Operation
 //===----------------------------------------------------------------------===//
