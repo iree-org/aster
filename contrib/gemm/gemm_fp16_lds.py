@@ -352,9 +352,12 @@ def _load_k_loop_helpers_32x32() -> str:
 
 
 def _make_substitutions_32x32(cfg: GEMMConfig) -> dict:
-    # Choose pipeline depth based on K-loop trip count (k / k_tile outer iterations).
+    # Cap pipeline depth so that num_stages * total_lds_bytes ≤ 32768 (half the
+    # 64 KB LDS limit), which keeps two workgroups per CU resident and preserves
+    # the natural inter-WG latency-hiding that makes this kernel efficient.
     k_outer_iters = cfg.k // cfg.k_tile
-    num_stages = min(4, max(1, k_outer_iters))
+    max_stages_for_2wg = 32768 // cfg.total_lds_bytes
+    num_stages = min(4, max_stages_for_2wg, max(1, k_outer_iters))
     stage_gl, stage_dw, stage_dr, stage_c = _PIPELINE_STAGE_CONFIGS[num_stages]
     return {
         "{{K}}": str(cfg.k),

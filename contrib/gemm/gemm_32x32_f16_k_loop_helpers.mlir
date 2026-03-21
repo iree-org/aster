@@ -800,8 +800,10 @@
     %ub = affine.apply affine_map<()[mtpw, ntpw, ki] -> (mtpw * ntpw * ki)>()
         [%m_t_per_wave, %n_t_per_wave, %k_inner]
     scf.for %idx = %c0 to %ub step %c1 {
-      %m, %n, %kh = affine.delinearize_index %idx into
-          (%m_t_per_wave, %n_t_per_wave, %k_inner) : index, index, index
+      // k outermost so tiles_per_wave MFMAs separate consecutive updates to the
+      // same AGPR accumulator, hiding the ~16-cycle MFMA RAW latency.
+      %kh, %m, %n = affine.delinearize_index %idx into
+          (%k_inner, %m_t_per_wave, %n_t_per_wave) : index, index, index
       %a_idx = affine.apply affine_map<(m, kh)[ki] -> (m * ki + kh)>(%m, %kh)[%k_inner]
       %b_idx = affine.apply affine_map<(n, kh)[ki] -> (n * ki + kh)>(%n, %kh)[%k_inner]
       %c_idx = affine.apply affine_map<(m, n)[ntpw] -> (m * ntpw + n)>(%m, %n)[%n_t_per_wave]
