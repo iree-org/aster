@@ -355,6 +355,7 @@ def _make_substitutions_32x32(cfg: GEMMConfig) -> dict:
     # Cap pipeline depth so that num_stages * total_lds_bytes ≤ 32768 (half the
     # 64 KB LDS limit), which keeps two workgroups per CU resident and preserves
     # the natural inter-WG latency-hiding that makes this kernel efficient.
+    # For example: k_tile=32 (16 KB LDS) → 2-stage; k_tile=64 (32 KB) → 1-stage.
     k_outer_iters = cfg.k // cfg.k_tile
     max_stages_for_2wg = 32768 // cfg.total_lds_bytes
     num_stages = min(4, max_stages_for_2wg, max(1, k_outer_iters))
