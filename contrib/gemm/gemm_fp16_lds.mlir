@@ -2,11 +2,15 @@
 //
 // Dispatched over a flat grid of M_WG * N_WG workgroups. Each workgroup
 // contains NUM_WAVES wavefronts that cooperatively load and compute one
-// M_TILE x N_TILE output tile:
-//   - Each wave loads M_T_PER_WAVE rows of A (its private slice).
-//   - Each wave loads N_T_PER_WAVE rows of B (a disjoint subset of the B tile).
-// After all LDS writes complete, a single s_barrier synchronizes the waves so
-// that every wave can read all N_T B tiles that were collectively written.
+// M_TILE x N_TILE output tile using a hybrid work distribution:
+//   - Loading (flat): wave wid loads A_PER_WAVE tiles from the flat (K_T * M_T) A-tile
+//     space and B_PER_WAVE tiles from the flat (K_T * N_T) B-tile space.
+//   - A single s_barrier synchronizes all waves.
+//   - Compute (2D): waves are arranged as a NUM_M_WAVES x NUM_N_WAVES grid.
+//     Wave wid maps to (wm = wid / NUM_N_WAVES, wn = wid % NUM_N_WAVES).
+//     Wave (wm, wn) reads A rows [wm*M_T_PER_WAVE, (wm+1)*M_T_PER_WAVE) from LDS,
+//     B cols [wn*N_T_PER_WAVE, (wn+1)*N_T_PER_WAVE) from LDS, and computes the
+//     M_T_PER_WAVE x N_T_PER_WAVE output tiles for its rectangle.
 //
 // CTA swizzle: SWIZZLE consecutive flat block IDs are assigned to the same
 // N-block but different M-blocks, so that those blocks all reuse the same B
@@ -21,26 +25,28 @@
 //   LDS tile:      1024 bytes per 16x32 transfer tile
 //
 // Template parameters:
-//   {{K}}            - K dimension (must be divisible by K_TILE = K_T * 32)
-//   {{K_T}}          - K tiles per outer loop step = K_TILE / 32
-//   {{K_TILES}}      - Total 16x32 K tiles = K / 32 (outer loop bound)
-//   {{M_T}}          - M MFMA tiles per workgroup = M_TILE / 16
-//   {{N_T}}          - N MFMA tiles per workgroup = N_TILE / 16
-//   {{M_T_PER_WAVE}} - M tiles loaded per wave (1D) = M_T / NUM_WAVES
-//   {{N_T_PER_WAVE}} - B tiles loaded per wave (1D) = N_T / NUM_WAVES
-//   {{NUM_WAVES}}    - Number of wavefronts (block_dim = NUM_WAVES * 64)
-//   {{NUM_M_WAVES}}  - Wave groups in M direction (NUM_M_WAVES * NUM_N_WAVES = NUM_WAVES)
-//   {{NUM_N_WAVES}}  - Wave groups in N direction
-//   {{M_T_PW_C}}     - M tiles per wave for compute (2D) = M_T / NUM_M_WAVES
-//   {{N_T_PW_C}}     - N tiles per wave for compute (2D) = N_T / NUM_N_WAVES
-//   {{M_WG}}         - Workgroup grid size in M = M_total / M_TILE
-//   {{N_WG}}         - Workgroup grid size in N = N_total / N_TILE
-//   {{SWIZZLE}}      - CTA swizzle group size (must divide M_WG; 1 = no swizzle)
-//   {{SWIZZLE_NWG}}  - SWIZZLE * N_WG (embedded in affine maps for modulo/div)
-//   {{STRIDE_AB}}    - Row stride for A and B in bytes = K * 2
-//   {{STRIDE_C}}     - Row stride for C in bytes = N_WG * N_TILE * 4
-//   {{A_LDS_BYTES}}  - LDS for all A tiles = K_T * M_T * 1024
-//   {{B_LDS_BYTES}}  - LDS for all B tiles = K_T * N_T * 1024
+//   {{K}}              - K dimension (must be divisible by K_TILE = K_T * 32)
+//   {{K_T}}            - K tiles per outer loop step = K_TILE / 32
+//   {{K_INNER}}        - MFMA K-steps per K_TILE = K_TILE / 16 (= K_T * 2 for 16x16)
+//   {{K_TILES}}        - Total 16x32 K tiles = K / 32 (outer loop bound)
+//   {{M_T}}            - M MFMA tiles per workgroup = M_TILE / 16
+//   {{N_T}}            - N MFMA tiles per workgroup = N_TILE / 16
+//   {{NUM_M_WAVES}}    - Wave grid size in M (num_n_waves = NUM_WAVES / NUM_M_WAVES)
+//   {{NUM_N_WAVES}}    - Wave grid size in N = NUM_WAVES / NUM_M_WAVES
+//   {{M_T_PER_WAVE}}   - M MFMA tiles per wave = M_T / NUM_M_WAVES
+//   {{N_T_PER_WAVE}}   - N MFMA tiles per wave = N_T / NUM_N_WAVES
+//   {{TILES_PER_WAVE}} - Output MMA tiles per wave = M_T_PER_WAVE * N_T_PER_WAVE
+//   {{A_PER_WAVE}}     - A 16-row tiles loaded per wave = M_T * K_T / NUM_WAVES
+//   {{B_PER_WAVE}}     - B 16-row tiles loaded per wave = N_T * K_T / NUM_WAVES
+//   {{NUM_WAVES}}      - Number of wavefronts (block_dim = NUM_WAVES * 64)
+//   {{M_WG}}           - Workgroup grid size in M = M_total / M_TILE
+//   {{N_WG}}           - Workgroup grid size in N = N_total / N_TILE
+//   {{SWIZZLE}}        - CTA swizzle group size (must divide M_WG; 1 = no swizzle)
+//   {{SWIZZLE_NWG}}    - SWIZZLE * N_WG (embedded in affine maps for modulo/div)
+//   {{STRIDE_AB}}      - Row stride for A and B in bytes = K * 2
+//   {{STRIDE_C}}       - Row stride for C in bytes = N_WG * N_TILE * 4
+//   {{A_LDS_BYTES}}    - LDS for all A tiles = K_T * M_T * 1024
+//   {{B_LDS_BYTES}}    - LDS for all B tiles = K_T * N_T * 1024
 //   K_LOOP_HELPERS     - Inlined K-loop helper function definitions
 //
 // Stage annotations (set all to 0 for non-pipelined execution):
@@ -89,10 +95,10 @@ amdgcn.module @gemm_fp16_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
 
   // Multi-CU GEMM kernel.
   // Block (m_wg, n_wg) computes C[m_wg*M_TILE:(m_wg+1)*M_TILE, n_wg*N_TILE:(n_wg+1)*N_TILE].
-  // Loading is 1D: wave wid loads M_T_PER_WAVE A rows and N_T_PER_WAVE B cols.
-  // Compute is 2D: wm = wid / NUM_N_WAVES, wn = wid % NUM_N_WAVES.
-  // Wave (wm, wn) computes the M_T_PW_C x N_T_PW_C sub-tile starting at
-  // (wm*M_T_PW_C, wn*N_T_PW_C) within the block's output tile.
+  // Loading: wave wid loads flat A-tile range [wid*A_PER_WAVE, (wid+1)*A_PER_WAVE) and
+  //          flat B-tile range [wid*B_PER_WAVE, (wid+1)*B_PER_WAVE).
+  // Compute: wave wid -> (wm = wid/NUM_N_WAVES, wn = wid%NUM_N_WAVES) owns the
+  //          M_T_PER_WAVE x N_T_PER_WAVE rectangle of output tiles.
   amdgcn.kernel @gemm_fp16_lds arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
@@ -110,13 +116,16 @@ amdgcn.module @gemm_fp16_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c_K_T = arith.constant {{K_T}} : index
+    %c_K_INNER = arith.constant {{K_INNER}} : index
     %c_K_TILES = arith.constant {{K_TILES}} : index
     %c_M_T = arith.constant {{M_T}} : index
     %c_N_T = arith.constant {{N_T}} : index
+    %c_NUM_N_WAVES = arith.constant {{NUM_N_WAVES}} : index
     %c_M_T_PER_WAVE = arith.constant {{M_T_PER_WAVE}} : index
     %c_N_T_PER_WAVE = arith.constant {{N_T_PER_WAVE}} : index
-    %c_M_T_PW_C = arith.constant {{M_T_PW_C}} : index
-    %c_N_T_PW_C = arith.constant {{N_T_PW_C}} : index
+    %c_TILES_PER_WAVE = arith.constant {{TILES_PER_WAVE}} : index
+    %c_A_PER_WAVE = arith.constant {{A_PER_WAVE}} : index
+    %c_B_PER_WAVE = arith.constant {{B_PER_WAVE}} : index
     %stride_AB = arith.constant {{STRIDE_AB}} : index
     %stride_C = arith.constant {{STRIDE_C}} : index
 
@@ -133,48 +142,22 @@ amdgcn.module @gemm_fp16_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
         affine_map<(fid) -> ((fid mod {{SWIZZLE_NWG}}) floordiv {{SWIZZLE}})>
         (%flat_id)
 
-    // Wave decomposition within the block: wid = wm * NUM_N_WAVES + wn (row-major).
-    // Loading: each wm-group cooperatively loads A[wm*M_T_PW_C .. (wm+1)*M_T_PW_C);
-    //   wn selects the M_T_PER_WAVE-sized slice within that range, giving
-    //   wave_a_base = wm*M_T_PW_C + wn*M_T_PER_WAVE = wid*M_T_PER_WAVE.
-    // Each wn-group cooperatively loads B[wn*N_T_PW_C .. (wn+1)*N_T_PW_C);
-    //   wm selects the N_T_PER_WAVE-sized slice within that range, giving
-    //   wave_b_base = wn*N_T_PW_C + wm*N_T_PER_WAVE (NOT wid*N_T_PER_WAVE).
-    // Compute (2D): wave (wm, wn) reads A rows [wm*M_T_PW_C, ...) and B cols
-    //   [wn*N_T_PW_C, ...) from LDS and computes the M_T_PW_C x N_T_PW_C sub-tile of C.
+    // Wave decomposition: flat loading, 2D compute.
+    // Loading: wid owns flat A range [wid*A_PER_WAVE, (wid+1)*A_PER_WAVE).
+    // Compute: wm = wid / NUM_N_WAVES, wn = wid % NUM_N_WAVES.
     %wid = func.call @wave_id() : () -> index
-    %wm = affine.apply affine_map<(w) -> (w floordiv {{NUM_N_WAVES}})>(%wid)
-    %wn = affine.apply affine_map<(w) -> (w mod {{NUM_N_WAVES}})>(%wid)
-    %wave_a_base = affine.apply affine_map<(w)[m] -> (w * m)>(%wid)[%c_M_T_PER_WAVE]
-    %wave_b_base = affine.apply
-        affine_map<(wn, wm)[npw, nper] -> (wn * npw + wm * nper)>
-        (%wn, %wm)[%c_N_T_PW_C, %c_N_T_PER_WAVE]
-    %wave_a_compute_base = affine.apply affine_map<(w)[mc] -> (w * mc)>(%wm)[%c_M_T_PW_C]
-    %wave_b_compute_base = affine.apply affine_map<(w)[nc] -> (w * nc)>(%wn)[%c_N_T_PW_C]
+    %flat_a_start = affine.apply affine_map<(w)[apw] -> (w * apw)>(%wid)[%c_A_PER_WAVE]
+    %flat_b_start = affine.apply affine_map<(w)[bpw] -> (w * bpw)>(%wid)[%c_B_PER_WAVE]
+    %wm = arith.divui %wid, %c_NUM_N_WAVES : index
+    %wn = arith.remui %wid, %c_NUM_N_WAVES : index
 
-    // Global tile bases for loads: block offset + intra-block 1D wave offset.
-    // m_global_load_base: starting M tile (in 16-row units) for this wave's A load.
-    // n_global_load_base: starting N tile for this wave's B load in global B.
-    %m_global_load_base = affine.apply
-        affine_map<(mwg, wa)[mt] -> (mwg * mt + wa)>(%m_wg, %wave_a_base)[%c_M_T]
-    %n_global_load_base = affine.apply
-        affine_map<(nwg, wb)[nt] -> (nwg * nt + wb)>(%n_wg, %wave_b_base)[%c_N_T]
+    // Global base for loads: block offset in 16-row units (m_t == m_t_ld for 16x16).
+    %m_global_base = affine.apply affine_map<(mwg)[mt] -> (mwg * mt)>(%m_wg)[%c_M_T]
+    %n_global_base = affine.apply affine_map<(nwg)[nt] -> (nwg * nt)>(%n_wg)[%c_N_T]
 
-    // Global tile bases for C store: block offset + intra-block 2D compute offset.
-    // m_global_compute_base: starting M tile for wave (wm, wn)'s C rows.
-    // n_global_compute_base: starting N tile for wave (wm, wn)'s C cols.
-    %m_global_compute_base = affine.apply
-        affine_map<(mwg, wmc)[mt] -> (mwg * mt + wmc)>(%m_wg, %wave_a_compute_base)[%c_M_T]
-    %n_global_compute_base = affine.apply
-        affine_map<(nwg, wnc)[nt] -> (nwg * nt + wnc)>(%n_wg, %wave_b_compute_base)[%c_N_T]
-
-    // K_T*2 MFMA K-steps per outer iteration (2 per 16x32 transfer tile).
-    %k_mfma = affine.apply affine_map<()[k] -> (k * 2)>()[%c_K_T]
-
-    // Allocate and zero accumulator buffer: M_T_PW_C x N_T_PW_C output tiles per wave (2D partition).
-    %mn_per_wave = affine.apply affine_map<()[m, n] -> (m * n)>()[%c_M_T_PW_C, %c_N_T_PW_C]
-    %C_buf = memref.alloca(%mn_per_wave) : !c_buf
-    scf.for %i = %c0 to %mn_per_wave step %c1 {
+    // Allocate and zero accumulator buffer: TILES_PER_WAVE output tiles per wave.
+    %C_buf = memref.alloca(%c_TILES_PER_WAVE) : !c_buf
+    scf.for %i = %c0 to %c_TILES_PER_WAVE step %c1 {
       %z = func.call @zero_C() : () -> !rt_C_f32
       memref.store %z, %C_buf[%i] : !c_buf
     } {aster.constexpr}
@@ -183,69 +166,56 @@ amdgcn.module @gemm_fp16_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
     // LDS is allocated inside the loop so the pipeline can double-buffer (depth 2).
     scf.for %k = %c0 to %c_K_TILES step %c_K_T {
       // === Allocate LDS for this iteration (pipelined: stage GLOBAL_LOAD). ===
-      // Each wave writes its own non-overlapping A region and a disjoint slice of B.
-      // After a barrier, all waves read all B tiles written cooperatively.
       %lds_a_h = amdgcn.alloc_lds {{A_LDS_BYTES}} {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
       %base_a = amdgcn.get_lds_offset %lds_a_h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
       %lds_b_h = amdgcn.alloc_lds {{B_LDS_BYTES}} {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
       %base_b = amdgcn.get_lds_offset %lds_b_h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
 
-      // === Issue global loads cooperatively: each wave loads its A rows and B slice. ===
-      %gfut_a = func.call @k_load_a_16x32_from_global(
-          %c_M_T_PER_WAVE, %c_K_T, %A_ptr, %k, %stride_AB, %m_global_load_base)
-          : (index, index, !aster_utils.any, index, index, index) -> !gfut_a_buf
-      %gfut_b = func.call @k_load_b_16x32_from_global(
-          %c_N_T_PER_WAVE, %c_K_T, %B_ptr, %k, %stride_AB, %n_global_load_base)
-          : (index, index, !aster_utils.any, index, index, index) -> !gfut_b_buf
+      // === Issue global loads: each wave loads its flat slice of A and B tiles. ===
+      %gfut_a = func.call @k_load_a_flat(
+          %c_A_PER_WAVE, %c_K_T, %c_M_T, %A_ptr, %k, %stride_AB, %m_global_base, %flat_a_start)
+          : (index, index, index, !aster_utils.any, index, index, index, index) -> !gfut_a_buf
+      %gfut_b = func.call @k_load_b_flat(
+          %c_B_PER_WAVE, %c_K_T, %c_N_T, %B_ptr, %k, %stride_AB, %n_global_base, %flat_b_start)
+          : (index, index, index, !aster_utils.any, index, index, index, index) -> !gfut_b_buf
 
-      // === Store global data to LDS. ===
-      // A: wave i writes to tiles [wave_a_base, wave_a_base + M_T_PER_WAVE) per K slice.
-      // B: wave i writes to tiles [wave_b_base, wave_b_base + N_T_PER_WAVE) per K slice;
-      //    tiles_per_slice = N_T preserves the shared LDS layout for cross-wave reads.
-      %tok_a = func.call @k_store_a_16x32_to_lds(
-          %c_M_T_PER_WAVE, %c_K_T, %base_a, %wave_a_base, %c_M_T, %gfut_a)
+      // === Store global data to LDS (flat layout, same LDS addresses as before). ===
+      %tok_a = func.call @k_store_a_flat(
+          %c_A_PER_WAVE, %c_K_T, %c_M_T, %base_a, %flat_a_start, %gfut_a)
           : (index, index, index, index, index, !gfut_a_buf) -> !tok_a_buf
-      %tok_b = func.call @k_store_b_16x32_to_lds(
-          %c_N_T_PER_WAVE, %c_K_T, %base_b, %wave_b_base, %c_N_T, %gfut_b)
+      %tok_b = func.call @k_store_b_flat(
+          %c_B_PER_WAVE, %c_K_T, %c_N_T, %base_b, %flat_b_start, %gfut_b)
           : (index, index, index, index, index, !gfut_b_buf) -> !tok_b_buf
 
-      // === Wait for this wave's LDS writes to complete, then barrier. ===
-      // The s_barrier ensures all waves have finished their B slice before any
-      // wave reads B tiles written by other waves.
+      // === Wait for LDS writes, then barrier. ===
       func.call @k_wait_lds_writes(%tok_a) : (!tok_a_buf) -> ()
       func.call @k_wait_lds_writes(%tok_b) : (!tok_b_buf) -> ()
       amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32, sched.rotate_head}
 
-      // === Read A and B tiles from LDS using 2D compute bases. ===
-      // Each wave reads only its M_T_PW_C A rows (at wave_a_compute_base) and
-      // N_T_PW_C B cols (at wave_b_compute_base); tiles_per_slice stays at M_T/N_T
-      // to index into the shared LDS layout written cooperatively by all waves.
-      %a_fut = func.call @k_read_lds_a(
-          %c_M_T_PW_C, %c_K_T, %base_a, %wave_a_compute_base, %c_M_T)
+      // === Read tiles from LDS: wave (wm, wn) reads its M/N rectangle. ===
+      %a_fut = func.call @k_read_lds_a_2d(
+          %c_M_T_PER_WAVE, %c_K_T, %c_M_T, %base_a, %wm)
           : (index, index, index, index, index) -> !fut_a_buf
-      %b_fut = func.call @k_read_lds_b(
-          %c_N_T_PW_C, %c_K_T, %base_b, %wave_b_compute_base, %c_N_T)
+      %b_fut = func.call @k_read_lds_b_2d(
+          %c_N_T_PER_WAVE, %c_K_T, %c_N_T, %base_b, %wn)
           : (index, index, index, index, index) -> !fut_b_buf
 
-      // === Wait for LDS reads and compute M_T_PW_C x N_T_PW_C x k_mfma MFMAs. ===
-      func.call @k_wait_and_compute_mfmas(
-          %c_M_T_PW_C, %c_N_T_PW_C, %k_mfma, %a_fut, %b_fut, %C_buf)
+      // === Wait for LDS reads and compute M_T_PER_WAVE x N_T_PER_WAVE x K_INNER MFMAs. ===
+      func.call @k_wait_and_compute_mfmas_2d(
+          %c_M_T_PER_WAVE, %c_N_T_PER_WAVE, %c_K_INNER, %a_fut, %b_fut, %C_buf)
           : (index, index, index, !fut_a_buf, !fut_b_buf, !c_buf) -> ()
 
       // Release this iteration's LDS buffers, then sync all waves.
-      // With pipelining the dealloc signals the pipeline that the buffer can be
-      // reused; without pipelining the barrier prevents the next iteration from
-      // writing to the same LDS region before all waves finish reading.
       amdgcn.dealloc_lds %lds_a_h {sched.stage = {{STAGE_COMPUTE}} : i32}
       amdgcn.dealloc_lds %lds_b_h {sched.stage = {{STAGE_COMPUTE}} : i32}
       amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32, sched.rotate_head}
     }
 
-    // Store this wave's M_T_PW_C x N_T_PW_C output tiles to global C.
-    // m_base = block offset + wm*M_T_PW_C, n_base = block offset + wn*N_T_PW_C.
-    func.call @store_c_tiles(
-        %c_M_T_PW_C, %c_N_T_PW_C, %C_buf, %C_ptr, %stride_C, %m_global_compute_base, %n_global_compute_base)
-        : (index, index, !c_buf, !aster_utils.any, index, index, index) -> ()
+    // Store this wave's M_T_PER_WAVE x N_T_PER_WAVE output tiles to global C.
+    func.call @store_c_tiles_2d(
+        %c_M_T_PER_WAVE, %c_N_T_PER_WAVE, %C_buf, %C_ptr, %stride_C,
+        %m_wg, %n_wg, %c_M_T, %c_N_T, %wm, %wn)
+        : (index, index, !c_buf, !aster_utils.any, index, index, index, index, index, index, index) -> ()
 
     amdgcn.end_kernel
   }

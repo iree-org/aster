@@ -600,3 +600,350 @@
     } {aster.constexpr}
     return
   }
+
+  //===--------------------------------------------------------------------===//
+  // 6. Flat wave distribution helpers
+  //===--------------------------------------------------------------------===//
+  // Wave wid owns flat A-tile indices [flat_a_start, flat_a_start + a_per_wave)
+  // over the (k_t * m_t_ld) A-tile space, where m_t_ld = m_tile // 16.
+  // Flat index f maps to kt = f / m_t_ld, m_slot = f % m_t_ld.
+  // LDS layout: (kt * m_t_ld + m_slot) * 1024 + base -- identical to old layout.
+
+  // Issue dwordx4 global loads for a flat range of A tiles.
+  func.func private @k_load_a_flat(%a_per_wave: index, %k_t: index, %m_t_ld: index,
+      %A_ptr: !aster_utils.any, %k: index, %stride_AB: index,
+      %m_global_base: index, %flat_a_start: index) -> !gfut_a_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %gfut_a = memref.alloca(%a_per_wave) : !gfut_a_buf
+    scf.for %i = %c0 to %a_per_wave step %c1 {
+      %flat_a = affine.apply affine_map<(i)[s] -> (s + i)>(%i)[%flat_a_start]
+      %kt = arith.divui %flat_a, %m_t_ld : index
+      %m_slot = arith.remui %flat_a, %m_t_ld : index
+      %m_off = affine.apply affine_map<(ms)[mb] -> ((mb + ms) * 16)>(%m_slot)[%m_global_base]
+      %k_offset = affine.apply affine_map<(kt)[kb] -> ((kb + kt) * 32)>(%kt)[%k]
+      %fut = func.call @load_global_tile_16x64_b(%A_ptr, %m_off, %k_offset, %stride_AB)
+          {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+          : (!aster_utils.any, index, index, index) -> !future_global_read
+      memref.store %fut, %gfut_a[%i] : !gfut_a_buf
+    } {aster.constexpr}
+    return %gfut_a : !gfut_a_buf
+  }
+
+  // Issue dwordx4 global loads for a flat range of B tiles.
+  func.func private @k_load_b_flat(%b_per_wave: index, %k_t: index, %n_t_ld: index,
+      %B_ptr: !aster_utils.any, %k: index, %stride_AB: index,
+      %n_global_base: index, %flat_b_start: index) -> !gfut_b_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %gfut_b = memref.alloca(%b_per_wave) : !gfut_b_buf
+    scf.for %i = %c0 to %b_per_wave step %c1 {
+      %flat_b = affine.apply affine_map<(i)[s] -> (s + i)>(%i)[%flat_b_start]
+      %kt = arith.divui %flat_b, %n_t_ld : index
+      %n_slot = arith.remui %flat_b, %n_t_ld : index
+      %n_off = affine.apply affine_map<(ns)[nb] -> ((nb + ns) * 16)>(%n_slot)[%n_global_base]
+      %k_offset = affine.apply affine_map<(kt)[kb] -> ((kb + kt) * 32)>(%kt)[%k]
+      %fut = func.call @load_global_tile_16x64_b(%B_ptr, %n_off, %k_offset, %stride_AB)
+          {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+          : (!aster_utils.any, index, index, index) -> !future_global_read
+      memref.store %fut, %gfut_b[%i] : !gfut_b_buf
+    } {aster.constexpr}
+    return %gfut_b : !gfut_b_buf
+  }
+
+  // Store a flat range of A tiles to LDS.
+  // LDS offset: (kt * m_t_ld + m_slot) * 1024 + base_a.
+  func.func private @k_store_a_flat(%a_per_wave: index, %k_t: index, %m_t_ld: index,
+      %base_a: index, %flat_a_start: index, %gfut_a: !gfut_a_buf) -> !tok_a_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %tok_buf_size = affine.apply affine_map<()[s] -> (s * 2)>()[%a_per_wave]
+    %tok_a = memref.alloca(%tok_buf_size) : !tok_a_buf
+    scf.for %i = %c0 to %a_per_wave step %c1 {
+      %flat_a = affine.apply affine_map<(i)[s] -> (s + i)>(%i)[%flat_a_start]
+      %kt = arith.divui %flat_a, %m_t_ld : index
+      %m_slot = arith.remui %flat_a, %m_t_ld : index
+      %off = affine.apply affine_map<(kt, ms)[base, mtld] -> (base + (kt * mtld + ms) * 1024)>
+          (%kt, %m_slot)[%base_a, %m_t_ld]
+      %gfut = memref.load %gfut_a[%i] : !gfut_a_buf
+      %tok_lo, %tok_hi = func.call @store_global_tile_to_lds_16x64_b(%off, %gfut)
+          {sched.stage = {{STAGE_DS_WRITE}} : i32}
+          : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
+      %tok_idx_lo = affine.apply affine_map<(d0) -> (d0 * 2)>(%i)
+      %tok_idx_hi = affine.apply affine_map<(d0) -> (d0 * 2 + 1)>(%i)
+      memref.store %tok_lo, %tok_a[%tok_idx_lo] : !tok_a_buf
+      memref.store %tok_hi, %tok_a[%tok_idx_hi] : !tok_a_buf
+    } {aster.constexpr}
+    return %tok_a : !tok_a_buf
+  }
+
+  // Store a flat range of B tiles to LDS.
+  func.func private @k_store_b_flat(%b_per_wave: index, %k_t: index, %n_t_ld: index,
+      %base_b: index, %flat_b_start: index, %gfut_b: !gfut_b_buf) -> !tok_b_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %tok_buf_size = affine.apply affine_map<()[s] -> (s * 2)>()[%b_per_wave]
+    %tok_b = memref.alloca(%tok_buf_size) : !tok_b_buf
+    scf.for %i = %c0 to %b_per_wave step %c1 {
+      %flat_b = affine.apply affine_map<(i)[s] -> (s + i)>(%i)[%flat_b_start]
+      %kt = arith.divui %flat_b, %n_t_ld : index
+      %n_slot = arith.remui %flat_b, %n_t_ld : index
+      %off = affine.apply affine_map<(kt, ns)[base, ntld] -> (base + (kt * ntld + ns) * 1024)>
+          (%kt, %n_slot)[%base_b, %n_t_ld]
+      %gfut = memref.load %gfut_b[%i] : !gfut_b_buf
+      %tok_lo, %tok_hi = func.call @store_global_tile_to_lds_16x64_b(%off, %gfut)
+          {sched.stage = {{STAGE_DS_WRITE}} : i32}
+          : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
+      %tok_idx_lo = affine.apply affine_map<(d0) -> (d0 * 2)>(%i)
+      %tok_idx_hi = affine.apply affine_map<(d0) -> (d0 * 2 + 1)>(%i)
+      memref.store %tok_lo, %tok_b[%tok_idx_lo] : !tok_b_buf
+      memref.store %tok_hi, %tok_b[%tok_idx_hi] : !tok_b_buf
+    } {aster.constexpr}
+    return %tok_b : !tok_b_buf
+  }
+
+  // Read A tiles from LDS for a flat range of output tiles.
+  // Wave owns tiles_per_wave output tiles; tile i has m = (flat_c_start + i) / n_t.
+  // Buffer size: tiles_per_wave * k_t * 2 (two MFMA K-steps per K tile).
+  // Buffer indexed as [i * k_inner + kt * 2 + kh].
+  func.func private @k_read_lds_a_flat(%tiles_per_wave: index, %k_t: index, %m_t_ld: index,
+      %base_a: index, %flat_c_start: index, %n_t: index) -> !fut_a_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %k_inner = affine.apply affine_map<()[kt] -> (kt * 2)>()[%k_t]
+    %buf_size = affine.apply affine_map<()[tpw, ki] -> (tpw * ki)>()[%tiles_per_wave, %k_inner]
+    %a_fut = memref.alloca(%buf_size) : !fut_a_buf
+    scf.for %i = %c0 to %tiles_per_wave step %c1 {
+      %flat_c = affine.apply affine_map<(i)[s] -> (s + i)>(%i)[%flat_c_start]
+      %m = arith.divui %flat_c, %n_t : index
+      scf.for %kt = %c0 to %k_t step %c1 {
+        scf.for %kh = %c0 to %c2 step %c1 {
+          %tile_off = affine.apply affine_map<(kt, m)[base, mtld] -> (base + (kt * mtld + m) * 1024)>
+              (%kt, %m)[%base_a, %m_t_ld]
+          %k_byte_offset = affine.apply affine_map<(kh) -> (kh * 32)>(%kh)
+          %ki_idx = affine.apply affine_map<(kt, kh) -> (kt * 2 + kh)>(%kt, %kh)
+          %buf_idx = affine.apply affine_map<(i, ki)[kinr] -> (i * kinr + ki)>(%i, %ki_idx)[%k_inner]
+          %fut = func.call @load_lds_A_swizzled(%tile_off, %k_byte_offset, %c2)
+              {sched.stage = {{STAGE_DS_READ}} : i32}
+              : (index, index, index) -> !future_lds_read
+          memref.store %fut, %a_fut[%buf_idx] : !fut_a_buf
+        } {aster.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
+    return %a_fut : !fut_a_buf
+  }
+
+  // Read B tiles from LDS for a flat range of output tiles.
+  // Wave owns tiles_per_wave output tiles; tile i has n = (flat_c_start + i) % n_t.
+  // Buffer size: tiles_per_wave * k_t * 2.
+  func.func private @k_read_lds_b_flat(%tiles_per_wave: index, %k_t: index, %n_t_ld: index,
+      %base_b: index, %flat_c_start: index, %n_t: index) -> !fut_b_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %k_inner = affine.apply affine_map<()[kt] -> (kt * 2)>()[%k_t]
+    %buf_size = affine.apply affine_map<()[tpw, ki] -> (tpw * ki)>()[%tiles_per_wave, %k_inner]
+    %b_fut = memref.alloca(%buf_size) : !fut_b_buf
+    scf.for %i = %c0 to %tiles_per_wave step %c1 {
+      %flat_c = affine.apply affine_map<(i)[s] -> (s + i)>(%i)[%flat_c_start]
+      %n = arith.remui %flat_c, %n_t : index
+      scf.for %kt = %c0 to %k_t step %c1 {
+        scf.for %kh = %c0 to %c2 step %c1 {
+          %tile_off = affine.apply affine_map<(kt, n)[base, ntld] -> (base + (kt * ntld + n) * 1024)>
+              (%kt, %n)[%base_b, %n_t_ld]
+          %k_byte_offset = affine.apply affine_map<(kh) -> (kh * 32)>(%kh)
+          %ki_idx = affine.apply affine_map<(kt, kh) -> (kt * 2 + kh)>(%kt, %kh)
+          %buf_idx = affine.apply affine_map<(i, ki)[kinr] -> (i * kinr + ki)>(%i, %ki_idx)[%k_inner]
+          %fut = func.call @load_lds_B_swizzled(%tile_off, %k_byte_offset, %c2)
+              {sched.stage = {{STAGE_DS_READ}} : i32}
+              : (index, index, index) -> !future_lds_read
+          memref.store %fut, %b_fut[%buf_idx] : !fut_b_buf
+        } {aster.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
+    return %b_fut : !fut_b_buf
+  }
+
+  // Fused wait + MFMA for flat output tile distribution.
+  // Loop order: (i, kh) with i outermost so consecutive MFMAs update different
+  // C accumulators, maximizing AGPR reuse and hiding MFMA latency.
+  func.func private @k_wait_and_compute_mfmas_flat(%tiles_per_wave: index, %k_inner: index,
+      %a_fut: !fut_a_buf, %b_fut: !fut_b_buf, %c_buf: !c_buf) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %ub = affine.apply affine_map<()[tpw, ki] -> (tpw * ki)>()[%tiles_per_wave, %k_inner]
+    scf.for %idx = %c0 to %ub step %c1 {
+      %i, %kh = affine.delinearize_index %idx into (%tiles_per_wave, %k_inner) : index, index
+      %ak_idx = affine.linearize_index [%i, %kh] by (%tiles_per_wave, %k_inner) : index
+      %fut_a_val = memref.load %a_fut[%ak_idx] : !fut_a_buf
+      %a = func.call @get_lds_read_value_vx2(%fut_a_val)
+          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          : (!future_lds_read) -> !rt_A_f16
+      %fut_b_val = memref.load %b_fut[%ak_idx] : !fut_b_buf
+      %b = func.call @get_lds_read_value_vx2(%fut_b_val)
+          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          : (!future_lds_read) -> !rt_B_f16
+      %c_old = memref.load %c_buf[%i] : !c_buf
+      %c_new = func.call @mfma_f32_16x16x16_f16(%a, %b, %c_old)
+          {sched.stage = {{STAGE_COMPUTE}} : i32, sched.rotate_head}
+          : (!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
+      memref.store %c_new, %c_buf[%i] : !c_buf
+    } {aster.constexpr}
+    return
+  }
+
+  // Store flat range of output tiles to global C.
+  // Tile i: m = (flat_c_start + i) / n_t, n = (flat_c_start + i) % n_t.
+  // Global offsets: m_abs = (m_wg * m_t + m) * 16, n_abs = (n_wg * n_t + n) * 16.
+  func.func private @store_c_tiles_flat(%tiles_per_wave: index,
+      %c_buf: !c_buf, %C_ptr: !aster_utils.any, %stride_C: index,
+      %m_wg: index, %n_wg: index, %m_t: index, %n_t: index, %flat_c_start: index) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    scf.for %i = %c0 to %tiles_per_wave step %c1 {
+      %flat_c = affine.apply affine_map<(i)[s] -> (s + i)>(%i)[%flat_c_start]
+      %m = arith.divui %flat_c, %n_t : index
+      %n = arith.remui %flat_c, %n_t : index
+      %m_abs = affine.apply affine_map<(m)[mwg, mt] -> ((mwg * mt + m) * 16)>(%m)[%m_wg, %m_t]
+      %n_abs = affine.apply affine_map<(n)[nwg, nt] -> ((nwg * nt + n) * 16)>(%n)[%n_wg, %n_t]
+      %c_tile = memref.load %c_buf[%i] : !c_buf
+      // Store tile; no explicit wait needed -- s_endpgm drains all outstanding stores.
+      func.call @store_global_C_mfma_f32_16x16x16_f16(%c_tile, %C_ptr, %m_abs, %n_abs, %stride_C)
+          : (!rt_C_f32, !aster_utils.any, index, index, index) -> ()
+    } {aster.constexpr}
+    return
+  }
+
+  //===--------------------------------------------------------------------===//
+  // 7. 2D compute wave distribution helpers (flat loading, 2D LDS-read/compute)
+  //===--------------------------------------------------------------------===//
+  // Wave (wm, wn) reads A rows [wm*m_t_per_wave, (wm+1)*m_t_per_wave) and
+  // B cols [wn*n_t_per_wave, (wn+1)*n_t_per_wave) from LDS, then computes the
+  // m_t_per_wave x n_t_per_wave rectangle of output tiles.
+  // Loading still uses the flat helpers above; only LDS-read/compute/store are 2D.
+
+  // Read m_t_per_wave A rows from LDS for wave wm.
+  // buf_size = m_t_per_wave * k_inner  (k_inner = k_t * 2 for 16x16).
+  // buf[m * k_inner + kt*2 + kh] = A row (wm*m_t_per_wave + m), k-step (kt, kh).
+  func.func private @k_read_lds_a_2d(%m_t_per_wave: index, %k_t: index, %m_t_ld: index,
+      %base_a: index, %wm: index) -> !fut_a_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %k_inner = affine.apply affine_map<()[kt] -> (kt * 2)>()[%k_t]
+    %buf_size = affine.apply affine_map<()[mtpw, ki] -> (mtpw * ki)>()[%m_t_per_wave, %k_inner]
+    %a_fut = memref.alloca(%buf_size) : !fut_a_buf
+    %wm_base = affine.apply affine_map<(wm)[mtpw] -> (wm * mtpw)>(%wm)[%m_t_per_wave]
+    scf.for %m = %c0 to %m_t_per_wave step %c1 {
+      %m_abs = affine.apply affine_map<(m)[wb] -> (wb + m)>(%m)[%wm_base]
+      scf.for %kt = %c0 to %k_t step %c1 {
+        scf.for %kh = %c0 to %c2 step %c1 {
+          %tile_off = affine.apply affine_map<(kt, mabs)[base, mtld] -> (base + (kt * mtld + mabs) * 1024)>
+              (%kt, %m_abs)[%base_a, %m_t_ld]
+          %k_byte_offset = affine.apply affine_map<(kh) -> (kh * 32)>(%kh)
+          %ki_idx = affine.apply affine_map<(kt, kh) -> (kt * 2 + kh)>(%kt, %kh)
+          %buf_idx = affine.apply affine_map<(m, ki)[kinr] -> (m * kinr + ki)>(%m, %ki_idx)[%k_inner]
+          %fut = func.call @load_lds_A_swizzled(%tile_off, %k_byte_offset, %c2)
+              {sched.stage = {{STAGE_DS_READ}} : i32}
+              : (index, index, index) -> !future_lds_read
+          memref.store %fut, %a_fut[%buf_idx] : !fut_a_buf
+        } {aster.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
+    return %a_fut : !fut_a_buf
+  }
+
+  // Read n_t_per_wave B cols from LDS for wave wn.
+  // buf_size = n_t_per_wave * k_inner.
+  // buf[n * k_inner + kt*2 + kh] = B col (wn*n_t_per_wave + n), k-step (kt, kh).
+  func.func private @k_read_lds_b_2d(%n_t_per_wave: index, %k_t: index, %n_t_ld: index,
+      %base_b: index, %wn: index) -> !fut_b_buf {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %k_inner = affine.apply affine_map<()[kt] -> (kt * 2)>()[%k_t]
+    %buf_size = affine.apply affine_map<()[ntpw, ki] -> (ntpw * ki)>()[%n_t_per_wave, %k_inner]
+    %b_fut = memref.alloca(%buf_size) : !fut_b_buf
+    %wn_base = affine.apply affine_map<(wn)[ntpw] -> (wn * ntpw)>(%wn)[%n_t_per_wave]
+    scf.for %n = %c0 to %n_t_per_wave step %c1 {
+      %n_abs = affine.apply affine_map<(n)[wb] -> (wb + n)>(%n)[%wn_base]
+      scf.for %kt = %c0 to %k_t step %c1 {
+        scf.for %kh = %c0 to %c2 step %c1 {
+          %tile_off = affine.apply affine_map<(kt, nabs)[base, ntld] -> (base + (kt * ntld + nabs) * 1024)>
+              (%kt, %n_abs)[%base_b, %n_t_ld]
+          %k_byte_offset = affine.apply affine_map<(kh) -> (kh * 32)>(%kh)
+          %ki_idx = affine.apply affine_map<(kt, kh) -> (kt * 2 + kh)>(%kt, %kh)
+          %buf_idx = affine.apply affine_map<(n, ki)[kinr] -> (n * kinr + ki)>(%n, %ki_idx)[%k_inner]
+          %fut = func.call @load_lds_B_swizzled(%tile_off, %k_byte_offset, %c2)
+              {sched.stage = {{STAGE_DS_READ}} : i32}
+              : (index, index, index) -> !future_lds_read
+          memref.store %fut, %b_fut[%buf_idx] : !fut_b_buf
+        } {aster.constexpr}
+      } {aster.constexpr}
+    } {aster.constexpr}
+    return %b_fut : !fut_b_buf
+  }
+
+  // Fused wait + MFMA for 2D output tile rectangle (m_t_per_wave x n_t_per_wave).
+  // Loop order: (m, n, kh) with m outermost so consecutive MFMAs over n columns
+  // reuse the same A register, maximising AGPR reuse and hiding MFMA latency.
+  // a_fut[m*k_inner + kh], b_fut[n*k_inner + kh], C_buf[m*n_t_per_wave + n].
+  func.func private @k_wait_and_compute_mfmas_2d(%m_t_per_wave: index, %n_t_per_wave: index,
+      %k_inner: index, %a_fut: !fut_a_buf, %b_fut: !fut_b_buf, %c_buf: !c_buf) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %ub = affine.apply affine_map<()[mtpw, ntpw, ki] -> (mtpw * ntpw * ki)>()
+        [%m_t_per_wave, %n_t_per_wave, %k_inner]
+    scf.for %idx = %c0 to %ub step %c1 {
+      %m, %n, %kh = affine.delinearize_index %idx into
+          (%m_t_per_wave, %n_t_per_wave, %k_inner) : index, index, index
+      %a_idx = affine.apply affine_map<(m, kh)[ki] -> (m * ki + kh)>(%m, %kh)[%k_inner]
+      %b_idx = affine.apply affine_map<(n, kh)[ki] -> (n * ki + kh)>(%n, %kh)[%k_inner]
+      %c_idx = affine.apply affine_map<(m, n)[ntpw] -> (m * ntpw + n)>(%m, %n)[%n_t_per_wave]
+      %fut_a_val = memref.load %a_fut[%a_idx] : !fut_a_buf
+      %a = func.call @get_lds_read_value_vx2(%fut_a_val)
+          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          : (!future_lds_read) -> !rt_A_f16
+      %fut_b_val = memref.load %b_fut[%b_idx] : !fut_b_buf
+      %b = func.call @get_lds_read_value_vx2(%fut_b_val)
+          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          : (!future_lds_read) -> !rt_B_f16
+      %c_old = memref.load %c_buf[%c_idx] : !c_buf
+      %c_new = func.call @mfma_f32_16x16x16_f16(%a, %b, %c_old)
+          {sched.stage = {{STAGE_COMPUTE}} : i32, sched.rotate_head}
+          : (!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
+      memref.store %c_new, %c_buf[%c_idx] : !c_buf
+    } {aster.constexpr}
+    return
+  }
+
+  // Store 2D rectangle of output tiles to global C.
+  // Wave (wm, wn) owns tiles m in [0, m_t_per_wave), n in [0, n_t_per_wave).
+  // Global offsets: m_abs = (m_wg*m_t + wm*m_t_per_wave + m)*16, n_abs similar.
+  func.func private @store_c_tiles_2d(%m_t_per_wave: index, %n_t_per_wave: index,
+      %c_buf: !c_buf, %C_ptr: !aster_utils.any, %stride_C: index,
+      %m_wg: index, %n_wg: index, %m_t: index, %n_t: index, %wm: index, %wn: index) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %ub = affine.apply affine_map<()[mtpw, ntpw] -> (mtpw * ntpw)>()
+        [%m_t_per_wave, %n_t_per_wave]
+    // Pre-compute per-wave M/N base offsets in MFMA-tile units.
+    %block_m_base = affine.apply affine_map<(mwg)[mt] -> (mwg * mt)>(%m_wg)[%m_t]
+    %wave_m_base  = affine.apply affine_map<(wm)[mtpw] -> (wm * mtpw)>(%wm)[%m_t_per_wave]
+    %m_base = arith.addi %block_m_base, %wave_m_base : index
+    %block_n_base = affine.apply affine_map<(nwg)[nt] -> (nwg * nt)>(%n_wg)[%n_t]
+    %wave_n_base  = affine.apply affine_map<(wn)[ntpw] -> (wn * ntpw)>(%wn)[%n_t_per_wave]
+    %n_base = arith.addi %block_n_base, %wave_n_base : index
+    scf.for %i = %c0 to %ub step %c1 {
+      %m, %n = affine.delinearize_index %i into (%m_t_per_wave, %n_t_per_wave) : index, index
+      %c_idx = affine.apply affine_map<(m, n)[ntpw] -> (m * ntpw + n)>(%m, %n)[%n_t_per_wave]
+      %m_abs = affine.apply affine_map<(m)[mb] -> ((mb + m) * 16)>(%m)[%m_base]
+      %n_abs = affine.apply affine_map<(n)[nb] -> ((nb + n) * 16)>(%n)[%n_base]
+      %c_tile = memref.load %c_buf[%c_idx] : !c_buf
+      // Store tile; no explicit wait needed -- s_endpgm drains all outstanding stores.
+      func.call @store_global_C_mfma_f32_16x16x16_f16(%c_tile, %C_ptr, %m_abs, %n_abs, %stride_C)
+          : (!rt_C_f32, !aster_utils.any, index, index, index) -> ()
+    } {aster.constexpr}
+    return
+  }

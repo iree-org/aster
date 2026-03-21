@@ -5,7 +5,7 @@ Phase 2: Parallel GPU execution with round-robin across available GPUs,
          each config in its own subprocess for crash isolation.
 
 Sweep axes:
-  num_waves x num_m_waves (wave grid) x m_tile_mult x n_tile_mult
+  num_waves x m_tile_mult x n_tile_mult
   x k_t (k_tile / 32) x k_factor (K = k_factor * k_tile) x swizzle.
 
 Usage (sweep):
@@ -17,7 +17,7 @@ Usage (single config):
     python .../bench_gemm_fp16_lds.py \\
         --m 4096 --n 4096 --k 4096 \\
         --m-tile 64 --n-tile 64 --k-tile 64 \\
-        --num-waves 4 --num-m-waves 2
+        --num-waves 4
 
 Usage (compile only / execute pre-compiled HSACO):
     ... --compile-only --hsaco /tmp/output.hsaco
@@ -62,8 +62,8 @@ _MLIR_FILE_32x32 = os.path.join(_DIR, "..", "gemm_fp16_lds_32x32.mlir")
 
 # ---- Sweep parameters ----------------------------------------------------
 
-# Tile sizes are expressed as multiples of the minimum: mfma_tile * num_waves.
-# This guarantees m_tile % (mfma_tile * num_waves) == 0 (and same for n_tile).
+# Tile sizes are expressed as multiples of mfma_tile * num_waves (a sufficient
+# but not necessary condition for the flat-wave divisibility constraints).
 _M_TILE_MULTS = [1, 2, 3, 4]
 _N_TILE_MULTS = [1, 2, 4]
 # k_t = k_tile // 32 (k_tile must be a multiple of 32).
@@ -97,7 +97,7 @@ class BenchConfig(GEMMConfig):
         return (
             f"m{self.m}xn{self.n}xk{self.k}"
             f"_mt{self.m_tile}xnt{self.n_tile}_kt{self.k_t}"
-            f"_nw{self.num_waves}_mw{self.num_m_waves}"
+            f"_nw{self.num_waves}"
             f"{swizzle_str}"
             f"{variant_str}"
             f"{self._label_suffix}"
@@ -127,21 +127,19 @@ class BenchConfig(GEMMConfig):
     def estimated_agprs(self) -> int:
         """AGPRs per output tile times tiles per wave: 4 for 16x16, 16 for 32x32."""
         agprs_per_tile = 16 if self.mfma_variant == "32x32" else 4
-        return self.m_t_pw_c * self.n_t_pw_c * agprs_per_tile
+        return self.tiles_per_wave * agprs_per_tile
 
     @property
     def estimated_vgprs(self) -> int:
         """Global-load buffers + LDS-read buffers + overhead.
 
-        Global load: each 16-row LDS slot = dwordx4 = 4 VGPRs; 32x32 loads 2 slots
-        per 32-row tile so m_t_ld (16-row units) naturally doubles the count.
-        LDS read: k_mfma reads per k_t (2 for 16x16, 4 for 32x32), each vx2 = 2 VGPRs.
+        Global load: a_per_wave and b_per_wave 16-row slots, each dwordx4 = 4 VGPRs.
+        LDS read: tiles_per_wave * k_inner reads for A and B, each vx2 = 2 VGPRs.
         """
-        a_load = (self.m_t_ld // self.num_waves) * self.k_t * 4
-        b_load = (self.n_t_ld // self.num_waves) * self.k_t * 4
-        k_mfma_per_k_t = 4 if self.mfma_variant == "32x32" else 2
-        a_lds = self.m_t_pw_c * self.k_t * k_mfma_per_k_t * 2
-        b_lds = self.n_t_pw_c * self.k_t * k_mfma_per_k_t * 2
+        a_load = self.a_per_wave * 4
+        b_load = self.b_per_wave * 4
+        a_lds = self.m_t_per_wave * self.k_inner * 2
+        b_lds = self.n_t_per_wave * self.k_inner * 2
         return a_load + b_load + a_lds + b_lds + 20  # 20 for addresses/loop vars
 
     @property
@@ -227,7 +225,7 @@ def execute_gemm_hsaco(
 
     Returns (C_output, times_ns).
     """
-    from aster.execution.core import execute_hsaco
+    from aster.execution.core import execute_hsaco, InputArray, OutputArray
     from aster.execution.utils import system_has_gpu
 
     if not skip_gpu_check and not system_has_gpu(MCPU):
@@ -239,8 +237,11 @@ def execute_gemm_hsaco(
     times_ns = execute_hsaco(
         hsaco_path=hsaco_path,
         kernel_name=cfg.kernel_name,
-        input_arrays=[A.flatten(), B.flatten()],
-        output_arrays=[C_output],
+        arguments=[
+            InputArray(A.flatten()),
+            InputArray(B.flatten()),
+            OutputArray(C_output),
+        ],
         grid_dim=(cfg.num_workgroups, 1, 1),
         block_dim=(cfg.num_threads, 1, 1),
         num_iterations=num_iterations,
@@ -249,11 +250,6 @@ def execute_gemm_hsaco(
 
 
 # ---- Sweep ---------------------------------------------------------------
-
-
-def _wave_grids(num_waves: int):
-    """Return all valid num_m_waves values for num_waves (every divisor)."""
-    return [mw for mw in range(1, num_waves + 1) if num_waves % mw == 0]
 
 
 def _generate_configs(
@@ -270,20 +266,22 @@ def _generate_configs(
     filtered = []
 
     for num_waves in _NUM_WAVES_CONFIGS:
-        for num_m_waves in _wave_grids(num_waves):
-            for m_mult, n_mult in itertools.product(_M_TILE_MULTS, _N_TILE_MULTS):
-                m_tile = m_mult * num_waves * mfma_tile
-                n_tile = n_mult * num_waves * mfma_tile
-                for k_t in _K_T_VALUES:
-                    k_tile = k_t * 32
-                    for k_factor in _K_FACTORS:
-                        k = k_factor * k_tile
-                        for n_wg_mult in _N_WG_MULTS:
-                            n_wg = _N_WG_BASE * n_wg_mult
-                            m_wg = _M_WG_BASE
-                            m = m_wg * m_tile
-                            n = n_wg * n_tile
-                            if m < MIN_DIM or n < MIN_DIM or k < MIN_DIM:
+        for m_mult, n_mult in itertools.product(_M_TILE_MULTS, _N_TILE_MULTS):
+            m_tile = m_mult * num_waves * mfma_tile
+            n_tile = n_mult * num_waves * mfma_tile
+            for k_t in _K_T_VALUES:
+                k_tile = k_t * 32
+                for k_factor in _K_FACTORS:
+                    k = k_factor * k_tile
+                    for n_wg_mult in _N_WG_MULTS:
+                        n_wg = _N_WG_BASE * n_wg_mult
+                        m_wg = _M_WG_BASE
+                        m = m_wg * m_tile
+                        n = n_wg * n_tile
+                        if m < MIN_DIM or n < MIN_DIM or k < MIN_DIM:
+                            continue
+                        for num_m_waves in range(1, num_waves + 1):
+                            if num_waves % num_m_waves != 0:
                                 continue
                             try:
                                 cfg = BenchConfig(
@@ -294,8 +292,8 @@ def _generate_configs(
                                     n_tile,
                                     k_tile,
                                     num_waves,
+                                    num_m_waves,
                                     swizzle=1,
-                                    num_m_waves=num_m_waves,
                                     mfma_variant=mfma_variant,
                                 )
                             except AssertionError:
@@ -366,11 +364,15 @@ def _repro_cmd(cfg: BenchConfig, num_iterations: int) -> str:
     variant_str = (
         f" --mfma-variant {cfg.mfma_variant}" if cfg.mfma_variant != "16x16" else ""
     )
+    num_m_waves_str = (
+        f" --num-m-waves {cfg.num_m_waves}" if cfg.num_m_waves != 1 else ""
+    )
     return (
         f"python contrib/gemm/bench/bench_gemm_fp16_lds.py"
         f" --m {cfg.m} --n {cfg.n} --k {cfg.k}"
         f" --m-tile {cfg.m_tile} --n-tile {cfg.n_tile} --k-tile {cfg.k_tile}"
-        f" --num-waves {cfg.num_waves} --num-m-waves {cfg.num_m_waves}"
+        f" --num-waves {cfg.num_waves}"
+        f"{num_m_waves_str}"
         f"{swizzle_str}"
         f"{variant_str}"
         f" --iterations {num_iterations}"
@@ -404,8 +406,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-m-waves",
         type=int,
-        default=0,
-        help="Waves in M direction (0 = 1D mode = num_waves)",
+        default=1,
+        help="Wave grid size in M dimension (num_n_waves = num_waves // num_m_waves)",
     )
     parser.add_argument("--swizzle", type=int, default=1, help="CTA swizzle factor")
     parser.add_argument(
@@ -460,8 +462,8 @@ if __name__ == "__main__":
             args.n_tile,
             args.k_tile,
             args.num_waves,
-            args.swizzle,
             args.num_m_waves,
+            args.swizzle,
             mfma_variant=args.mfma_variant,
         )
         print(

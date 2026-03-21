@@ -2,14 +2,15 @@
 
 Dispatched over a flat grid of (M // M_TILE) * (N // N_TILE) workgroups.  Each
 workgroup contains num_waves wavefronts that cooperatively load and compute one
-M_TILE x N_TILE output tile:
-  - Loading is 1D: wave wid loads M_T_PER_WAVE rows of A and N_T_PER_WAVE cols of B.
+M_TILE x N_TILE output tile using a hybrid work distribution:
+  - Loading (flat): wave wid loads a flat range of (K_T * M_T_LD) A-tiles and
+    (K_T * N_T_LD) B-tiles, where M_T_LD = M_TILE // 16, N_T_LD = N_TILE // 16.
   - A single s_barrier synchronizes all waves.
-  - Compute is 2D: wm = wid // num_n_waves, wn = wid % num_n_waves.
-    Wave (wm, wn) reads M_T_PW_C A rows and N_T_PW_C B cols from LDS and computes
-    the M_T_PW_C x N_T_PW_C C sub-tile at row wm*M_T_PW_C, col wn*N_T_PW_C.
-  - num_m_waves=0 (default) selects 1D mode: num_m_waves=num_waves, num_n_waves=1,
-    M_T_PW_C=M_T_PER_WAVE, N_T_PW_C=N_T (all N columns per wave, classic layout).
+  - Compute (2D): waves are arranged as a num_m_waves x num_n_waves grid.
+    Wave wid maps to (wm = wid // num_n_waves, wn = wid % num_n_waves).
+    Wave (wm, wn) reads A rows [wm*m_t_per_wave, (wm+1)*m_t_per_wave) from LDS,
+    B cols [wn*n_t_per_wave, (wn+1)*n_t_per_wave) from LDS, and computes the
+    m_t_per_wave x n_t_per_wave output tiles for its rectangle.
 
 A CTA swizzle groups `swizzle` consecutive flat block IDs onto the same N-block so
 that those blocks reuse the same B tile from L2 before moving to the next N-block.
@@ -17,10 +18,12 @@ swizzle=1 is the default and gives standard row-major dispatch (no swizzle).
 
 Constraints:
   - k % k_tile == 0,  k_tile % 32 == 0
-  - m % m_tile == 0,  n % n_tile == 0
-  - m_tile % (mfma_tile * num_waves) == 0  (mfma_tile=16 for 16x16, 32 for 32x32)
-  - n_tile % (mfma_tile * num_waves) == 0
-  - num_waves % num_m_waves == 0  (num_m_waves=0 is resolved to num_waves)
+  - m % m_tile == 0,  m_tile % mfma_tile == 0  (mfma_tile=16 for 16x16, 32 for 32x32)
+  - n % n_tile == 0,  n_tile % mfma_tile == 0
+  - (m_t_ld * k_t) % num_waves == 0,  (n_t_ld * k_t) % num_waves == 0  (loading)
+  - num_waves % num_m_waves == 0  (num_n_waves = num_waves // num_m_waves)
+  - m_t % num_m_waves == 0,  n_t % num_n_waves == 0  (2D compute decomposition)
+  - (m_t_per_wave * n_t_per_wave * k_inner) is a power of 2  (compute unroll)
   - (m // m_tile) % swizzle == 0
 """
 
@@ -56,16 +59,13 @@ class GEMMConfig:
     n_tile: int
     k_tile: int
     num_waves: int
+    num_m_waves: int = 1
     swizzle: int = 1
-    num_m_waves: int = 0  # 0 = auto (= num_waves, 1D mode); else divides num_waves
     mfma_variant: str = (
         "16x16"  # "16x16" uses v_mfma_f32_16x16x16_f16, "32x32" uses v_mfma_f32_32x32x8_f16
     )
 
     def __post_init__(self):
-        # Resolve num_m_waves: 0 means all waves in M direction (1D mode).
-        if self.num_m_waves == 0:
-            self.num_m_waves = self.num_waves
         assert self.mfma_variant in (
             "16x16",
             "32x32",
@@ -80,16 +80,28 @@ class GEMMConfig:
             self.k % self.k_tile == 0
         ), f"k={self.k} not divisible by k_tile={self.k_tile}"
         assert self.k_tile % 32 == 0, f"k_tile={self.k_tile} not divisible by 32"
+        assert (self.m_t_ld * self.k_t) % self.num_waves == 0, (
+            f"m_t_ld * k_t = {self.m_t_ld * self.k_t} not divisible by"
+            f" num_waves={self.num_waves}"
+        )
+        assert (self.n_t_ld * self.k_t) % self.num_waves == 0, (
+            f"n_t_ld * k_t = {self.n_t_ld * self.k_t} not divisible by"
+            f" num_waves={self.num_waves}"
+        )
         assert (
             self.num_waves % self.num_m_waves == 0
         ), f"num_waves={self.num_waves} not divisible by num_m_waves={self.num_m_waves}"
-        assert self.m_tile % (self.mfma_tile * self.num_waves) == 0, (
-            f"m_tile={self.m_tile} not divisible by"
-            f" mfma_tile * num_waves={self.mfma_tile * self.num_waves}"
-        )
-        assert self.n_tile % (self.mfma_tile * self.num_waves) == 0, (
-            f"n_tile={self.n_tile} not divisible by"
-            f" mfma_tile * num_waves={self.mfma_tile * self.num_waves}"
+        assert (
+            self.m_t % self.num_m_waves == 0
+        ), f"m_t={self.m_t} not divisible by num_m_waves={self.num_m_waves}"
+        assert (
+            self.n_t % self.num_n_waves == 0
+        ), f"n_t={self.n_t} not divisible by num_n_waves={self.num_n_waves}"
+        _q = self.m_t_per_wave * self.n_t_per_wave * self.k_inner
+        assert _q > 0 and (_q & (_q - 1)) == 0, (
+            f"m_t_per_wave * n_t_per_wave * k_inner = {_q} must be a power of 2"
+            f" (m_t_per_wave={self.m_t_per_wave}, n_t_per_wave={self.n_t_per_wave},"
+            f" k_inner={self.k_inner})"
         )
         assert (
             self.m_wg % self.swizzle == 0
@@ -141,29 +153,39 @@ class GEMMConfig:
         return self.n_tile // 16
 
     @property
+    def k_inner(self) -> int:
+        """MFMA k-steps per K_TILE: K_TILE // K_MMA (2 for 16x16, 4 for 32x32)."""
+        return self.k_tile // (8 if self.mfma_variant == "32x32" else 16)
+
+    @property
     def num_n_waves(self) -> int:
-        """Number of wave groups in N direction."""
+        """N-dimension wave count = num_waves // num_m_waves."""
         return self.num_waves // self.num_m_waves
 
     @property
     def m_t_per_wave(self) -> int:
-        """M MFMA tiles loaded per wave (1D loading assignment)."""
-        return self.m_t // self.num_waves
-
-    @property
-    def n_t_per_wave(self) -> int:
-        """B tiles each wave loads (cooperative 1D B loading)."""
-        return self.n_t // self.num_waves
-
-    @property
-    def m_t_pw_c(self) -> int:
-        """M MFMA tiles per wave for compute (2D partition, = m_t / num_m_waves)."""
+        """M MFMA tiles per wave = m_t // num_m_waves."""
         return self.m_t // self.num_m_waves
 
     @property
-    def n_t_pw_c(self) -> int:
-        """N MFMA tiles per wave for compute (2D partition, = n_t / num_n_waves)."""
+    def n_t_per_wave(self) -> int:
+        """N MFMA tiles per wave = n_t // num_n_waves."""
         return self.n_t // self.num_n_waves
+
+    @property
+    def tiles_per_wave(self) -> int:
+        """Output MMA tiles per wave = m_t_per_wave * n_t_per_wave."""
+        return self.m_t_per_wave * self.n_t_per_wave
+
+    @property
+    def a_per_wave(self) -> int:
+        """A 16-row tiles loaded per wave across all K_T steps = M_T_LD * K_T / num_waves."""
+        return self.m_t_ld * self.k_t // self.num_waves
+
+    @property
+    def b_per_wave(self) -> int:
+        """B 16-row tiles loaded per wave across all K_T steps = N_T_LD * K_T / num_waves."""
+        return self.n_t_ld * self.k_t // self.num_waves
 
     @property
     def num_blocks(self) -> int:
@@ -220,18 +242,20 @@ def _make_substitutions(cfg: GEMMConfig) -> dict:
     return {
         "{{K}}": str(cfg.k),
         "{{K_T}}": str(cfg.k_t),
+        "{{K_INNER}}": str(cfg.k_inner),
         "{{K_TILES}}": str(cfg.k_tiles),
         "{{M_T}}": str(cfg.m_t),
         "{{N_T}}": str(cfg.n_t),
+        "{{NUM_M_WAVES}}": str(cfg.num_m_waves),
+        "{{NUM_N_WAVES}}": str(cfg.num_n_waves),
         "{{M_T_PER_WAVE}}": str(cfg.m_t_per_wave),
         "{{N_T_PER_WAVE}}": str(cfg.n_t_per_wave),
+        "{{TILES_PER_WAVE}}": str(cfg.tiles_per_wave),
+        "{{A_PER_WAVE}}": str(cfg.a_per_wave),
+        "{{B_PER_WAVE}}": str(cfg.b_per_wave),
         "{{NUM_WAVES}}": str(cfg.num_waves),
         "{{NUM_THREADS}}": str(cfg.num_threads),
         "{{NUM_BLOCKS}}": str(cfg.num_blocks),
-        "{{NUM_M_WAVES}}": str(cfg.num_m_waves),
-        "{{NUM_N_WAVES}}": str(cfg.num_n_waves),
-        "{{M_T_PW_C}}": str(cfg.m_t_pw_c),
-        "{{N_T_PW_C}}": str(cfg.n_t_pw_c),
         "{{M_WG}}": str(cfg.m_wg),
         "{{N_WG}}": str(cfg.n_wg),
         "{{SWIZZLE}}": str(cfg.swizzle),
@@ -327,20 +351,22 @@ def _make_substitutions_32x32(cfg: GEMMConfig) -> dict:
     return {
         "{{K}}": str(cfg.k),
         "{{K_T}}": str(cfg.k_t),
+        "{{K_INNER}}": str(cfg.k_inner),
         "{{K_TILES}}": str(cfg.k_tiles),
         "{{M_T}}": str(cfg.m_t),
         "{{N_T}}": str(cfg.n_t),
         "{{M_T_LD}}": str(cfg.m_t_ld),
         "{{N_T_LD}}": str(cfg.n_t_ld),
+        "{{NUM_M_WAVES}}": str(cfg.num_m_waves),
+        "{{NUM_N_WAVES}}": str(cfg.num_n_waves),
         "{{M_T_PER_WAVE}}": str(cfg.m_t_per_wave),
         "{{N_T_PER_WAVE}}": str(cfg.n_t_per_wave),
+        "{{TILES_PER_WAVE}}": str(cfg.tiles_per_wave),
+        "{{A_PER_WAVE}}": str(cfg.a_per_wave),
+        "{{B_PER_WAVE}}": str(cfg.b_per_wave),
         "{{NUM_WAVES}}": str(cfg.num_waves),
         "{{NUM_THREADS}}": str(cfg.num_threads),
         "{{NUM_BLOCKS}}": str(cfg.num_blocks),
-        "{{NUM_M_WAVES}}": str(cfg.num_m_waves),
-        "{{NUM_N_WAVES}}": str(cfg.num_n_waves),
-        "{{M_T_PW_C}}": str(cfg.m_t_pw_c),
-        "{{N_T_PW_C}}": str(cfg.n_t_pw_c),
         "{{M_WG}}": str(cfg.m_wg),
         "{{N_WG}}": str(cfg.n_wg),
         "{{SWIZZLE}}": str(cfg.swizzle),
@@ -409,8 +435,8 @@ if __name__ == "__main__":
     parser.add_argument("--n-tile", type=int, default=16)
     parser.add_argument("--k-tile", type=int, default=64)
     parser.add_argument("--num-waves", type=int, default=1)
+    parser.add_argument("--num-m-waves", type=int, default=1)
     parser.add_argument("--swizzle", type=int, default=1)
-    parser.add_argument("--num-m-waves", type=int, default=0)
     parser.add_argument("--print-ir-after-all", action="store_true")
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--num-warmup", type=int, default=0)
@@ -432,8 +458,8 @@ if __name__ == "__main__":
         args.n_tile,
         args.k_tile,
         args.num_waves,
-        args.swizzle,
         args.num_m_waves,
+        args.swizzle,
         mfma_variant=args.mfma_variant,
     )
     variant_tag = "32x32x8" if args.mfma_variant == "32x32" else "16x16x16"

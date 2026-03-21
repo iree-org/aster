@@ -48,18 +48,16 @@ except (ImportError, ModuleNotFoundError):
         k_tile: int
         num_waves: int
         swizzle: int = 1
-        num_m_waves: int = 0
 
         def __post_init__(self):
-            if self.num_m_waves == 0:
-                self.num_m_waves = self.num_waves
             assert self.m % self.m_tile == 0
             assert self.n % self.n_tile == 0
             assert self.k % self.k_tile == 0
             assert self.k_tile % 32 == 0
-            assert self.num_waves % self.num_m_waves == 0
-            assert self.m_tile % (16 * self.num_waves) == 0
-            assert self.n_tile % (16 * self.num_waves) == 0
+            assert (self.m_t * self.k_t) % self.num_waves == 0
+            assert (self.n_t * self.k_t) % self.num_waves == 0
+            _q = self.m_t * self.n_t * self.k_inner // self.num_waves
+            assert _q > 0 and (_q & (_q - 1)) == 0
             assert self.m_wg % self.swizzle == 0
 
         @property
@@ -83,24 +81,20 @@ except (ImportError, ModuleNotFoundError):
             return self.n_tile // 16
 
         @property
-        def num_n_waves(self):
-            return self.num_waves // self.num_m_waves
+        def k_inner(self):
+            return self.k_tile // 16
 
         @property
-        def m_t_per_wave(self):
-            return self.m_t // self.num_waves
+        def tiles_per_wave(self):
+            return self.m_t * self.n_t // self.num_waves
 
         @property
-        def n_t_per_wave(self):
-            return self.n_t // self.num_waves
+        def a_per_wave(self):
+            return self.m_t * self.k_t // self.num_waves
 
         @property
-        def m_t_pw_c(self):
-            return self.m_t // self.num_m_waves
-
-        @property
-        def n_t_pw_c(self):
-            return self.n_t // self.num_n_waves
+        def b_per_wave(self):
+            return self.n_t * self.k_t // self.num_waves
 
         @property
         def a_lds_bytes(self):
@@ -132,10 +126,10 @@ def _lds_occupancy(lds_per_wg: int) -> int:
 
 def _vgpr_occupancy(cfg: GEMMConfig) -> int:
     """Max WGs/CU limited by VGPR budget (coarse estimate)."""
-    a_load = cfg.m_t_per_wave * cfg.k_t * 4
-    b_load = cfg.n_t_per_wave * cfg.k_t * 4
-    a_lds = cfg.m_t_pw_c * cfg.k_t * 4
-    b_lds = cfg.n_t_pw_c * cfg.k_t * 4
+    a_load = cfg.a_per_wave * 4
+    b_load = cfg.b_per_wave * 4
+    a_lds = cfg.tiles_per_wave * cfg.k_inner * 2
+    b_lds = cfg.tiles_per_wave * cfg.k_inner * 2
     vgprs_per_wave = a_load + b_load + a_lds + b_lds + 20
     # Each SIMD has VGPR_PER_LANE VGPRs; 4 SIMDs per CU.
     waves_per_cu = (VGPR_PER_LANE * NUM_SIMDS_PER_CU) // max(vgprs_per_wave, 1)
@@ -150,8 +144,7 @@ def analyze(cfg: GEMMConfig) -> dict:
     occ_pipe = min(_lds_occupancy(lds_pipe), _vgpr_occupancy(cfg))
 
     # MFMAs per wave per K-outer-iteration.
-    k_mfma = cfg.k_t * 2
-    compute_cyc = cfg.m_t_pw_c * cfg.n_t_pw_c * k_mfma * MFMA_CYCLES
+    compute_cyc = cfg.tiles_per_wave * cfg.k_inner * MFMA_CYCLES
 
     # Latency hiding via context-switch (all waves on CU while one waits).
     hide_nopipe = occ_nopipe * cfg.num_waves * compute_cyc
@@ -190,41 +183,39 @@ def sweep():
     counts = dict(total=0, valid=0, mem_bound=0, helps=0)
 
     for num_waves in [1, 2, 4, 8]:
-        for num_m_waves in _divisors(num_waves):
-            for m_mult, n_mult in itertools.product(range(1, 9), range(1, 9)):
-                for k_t in [1, 2, 4, 8]:
-                    m_tile = m_mult * num_waves * 16
-                    n_tile = n_mult * num_waves * 16
-                    k_tile = k_t * 32
-                    # Use dimensions large enough to be representative.
-                    m = m_tile * 32
-                    n = n_tile * 32
-                    k = k_tile * 64
-                    counts["total"] += 1
-                    try:
-                        cfg = GEMMConfig(
-                            m,
-                            n,
-                            k,
-                            m_tile,
-                            n_tile,
-                            k_tile,
-                            num_waves,
-                            swizzle=1,
-                            num_m_waves=num_m_waves,
-                        )
-                    except AssertionError:
-                        continue
+        for m_mult, n_mult in itertools.product(range(1, 9), range(1, 9)):
+            for k_t in [1, 2, 4, 8]:
+                m_tile = m_mult * num_waves * 16
+                n_tile = n_mult * num_waves * 16
+                k_tile = k_t * 32
+                # Use dimensions large enough to be representative.
+                m = m_tile * 32
+                n = n_tile * 32
+                k = k_tile * 64
+                counts["total"] += 1
+                try:
+                    cfg = GEMMConfig(
+                        m,
+                        n,
+                        k,
+                        m_tile,
+                        n_tile,
+                        k_tile,
+                        num_waves,
+                        swizzle=1,
+                    )
+                except AssertionError:
+                    continue
 
-                    r = analyze(cfg)
-                    if r["occ_nopipe"] < 1:
-                        continue  # LDS doesn't fit at all — skip.
-                    counts["valid"] += 1
-                    if r["mem_bound_nopipe"]:
-                        counts["mem_bound"] += 1
-                    if r["helps"]:
-                        counts["helps"] += 1
-                        candidates.append((cfg, r))
+                r = analyze(cfg)
+                if r["occ_nopipe"] < 1:
+                    continue  # LDS doesn't fit at all — skip.
+                counts["valid"] += 1
+                if r["mem_bound_nopipe"]:
+                    counts["mem_bound"] += 1
+                if r["helps"]:
+                    counts["helps"] += 1
+                    candidates.append((cfg, r))
 
     return candidates, counts
 
@@ -264,8 +255,8 @@ For LDS-limited occupancy with square tiles (m_t = n_t = T):
 
   wg_occ_LDS  =  64 KB / (k_t × 2T × 1 KB)  =  32 / (k_t × T)
 
-  compute_cyc  =  m_t_pw_c × n_t_pw_c × k_t × 2 × 8
-               ≈  (T / num_m_waves) × (T / num_n_waves) × k_t × 16
+  compute_cyc  =  tiles_per_wave × k_inner × 8
+               =  (T² / num_waves) × (k_t × 2) × 8
                =  (T² / num_waves) × k_t × 16
 
   hide_nopipe  =  [32 / (k_t × T)] × num_waves × [(T² / num_waves) × k_t × 16]
@@ -321,8 +312,7 @@ def main():
         )
         for cfg, r in by_gap[:20]:
             label = (
-                f"mt{cfg.m_tile}×nt{cfg.n_tile}×kt{cfg.k_tile}"
-                f"_nw{cfg.num_waves}_mw{cfg.num_m_waves}"
+                f"mt{cfg.m_tile}×nt{cfg.n_tile}×kt{cfg.k_tile}" f"_nw{cfg.num_waves}"
             )
             print(
                 f"  {label:<52}"
