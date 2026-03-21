@@ -918,6 +918,115 @@
     return
   }
 
+  // Fused LDS read + MFMA compute with intra-step prefetch for the 2D output
+  // tile rectangle (m_t_per_wave × n_t_per_wave). Issues reads for ki+1 before
+  // resolving ki so only m_t_per_wave + n_t_per_wave reads are in-flight at
+  // each s_waitcnt, instead of k_inner * (m_t_per_wave + n_t_per_wave). This
+  // eliminates the lgkmcnt staircase stall in the unprefetched version and
+  // closes the remaining ~6-8% efficiency gap from theoretical peak.
+  // Replaces k_read_lds_a_2d + k_read_lds_b_2d + k_wait_and_compute_mfmas_2d.
+  func.func private @k_fused_lds_read_compute_2d(
+      %m_t_per_wave: index, %n_t_per_wave: index,
+      %k_t: index, %m_t_ld: index, %n_t_ld: index,
+      %base_a: index, %base_b: index,
+      %wm: index, %wn: index,
+      %c_buf: !c_buf) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %k_inner = affine.apply affine_map<()[kt] -> (kt * 2)>()[%k_t]
+    %wm_base = affine.apply affine_map<(wm)[mtpw] -> (wm * mtpw)>(%wm)[%m_t_per_wave]
+    %wn_base = affine.apply affine_map<(wn)[ntpw] -> (wn * ntpw)>(%wn)[%n_t_per_wave]
+
+    // Double-buffer: cur holds futures for the current ki step, next for ki+1.
+    %a_cur  = memref.alloca(%m_t_per_wave) : !fut_a_buf
+    %b_cur  = memref.alloca(%n_t_per_wave) : !fut_b_buf
+    %a_next = memref.alloca(%m_t_per_wave) : !fut_a_buf
+    %b_next = memref.alloca(%n_t_per_wave) : !fut_b_buf
+
+    // Prologue: issue reads for ki=0 (kt=0, k_byte_offset=0).
+    scf.for %m = %c0 to %m_t_per_wave step %c1 {
+      %m_abs = affine.apply affine_map<(m)[wb] -> (wb + m)>(%m)[%wm_base]
+      %tile_off = affine.apply affine_map<(mabs)[base] -> (base + mabs * 1024)>
+          (%m_abs)[%base_a]
+      %fut = func.call @load_lds_A_swizzled(%tile_off, %c0, %c2)
+          {sched.stage = {{STAGE_DS_READ}} : i32}
+          : (index, index, index) -> !future_lds_read
+      memref.store %fut, %a_cur[%m] : !fut_a_buf
+    } {aster.constexpr}
+    scf.for %n = %c0 to %n_t_per_wave step %c1 {
+      %n_abs = affine.apply affine_map<(n)[wb] -> (wb + n)>(%n)[%wn_base]
+      %tile_off = affine.apply affine_map<(nabs)[base] -> (base + nabs * 1024)>
+          (%n_abs)[%base_b]
+      %fut = func.call @load_lds_B_swizzled(%tile_off, %c0, %c2)
+          {sched.stage = {{STAGE_DS_READ}} : i32}
+          : (index, index, index) -> !future_lds_read
+      memref.store %fut, %b_cur[%n] : !fut_b_buf
+    } {aster.constexpr}
+
+    // Main loop: for each ki step, prefetch ki+1 then resolve ki and compute.
+    scf.for %ki = %c0 to %k_inner step %c1 {
+      %ki1 = arith.addi %ki, %c1 : index
+      %not_last = arith.cmpi slt, %ki1, %k_inner : index
+      // Issue reads for ki+1 before resolving ki to minimise s_waitcnt stall.
+      scf.if %not_last {
+        %kt_next, %half_next = affine.delinearize_index %ki1 into (%k_t, %c2)
+            : index, index
+        %k_byte_next = affine.apply affine_map<(h) -> (h * 32)>(%half_next)
+        scf.for %m = %c0 to %m_t_per_wave step %c1 {
+          %m_abs = affine.apply affine_map<(m)[wb] -> (wb + m)>(%m)[%wm_base]
+          %tile_off = affine.apply
+              affine_map<(kt, mabs)[base, mtld] -> (base + (kt * mtld + mabs) * 1024)>
+              (%kt_next, %m_abs)[%base_a, %m_t_ld]
+          %fut = func.call @load_lds_A_swizzled(%tile_off, %k_byte_next, %c2)
+              {sched.stage = {{STAGE_DS_READ}} : i32}
+              : (index, index, index) -> !future_lds_read
+          memref.store %fut, %a_next[%m] : !fut_a_buf
+        } {aster.constexpr}
+        scf.for %n = %c0 to %n_t_per_wave step %c1 {
+          %n_abs = affine.apply affine_map<(n)[wb] -> (wb + n)>(%n)[%wn_base]
+          %tile_off = affine.apply
+              affine_map<(kt, nabs)[base, ntld] -> (base + (kt * ntld + nabs) * 1024)>
+              (%kt_next, %n_abs)[%base_b, %n_t_ld]
+          %fut = func.call @load_lds_B_swizzled(%tile_off, %k_byte_next, %c2)
+              {sched.stage = {{STAGE_DS_READ}} : i32}
+              : (index, index, index) -> !future_lds_read
+          memref.store %fut, %b_next[%n] : !fut_b_buf
+        } {aster.constexpr}
+      }
+      // Resolve cur reads then compute m_t_per_wave × n_t_per_wave MFMAs.
+      // Loop order: m outermost so each a_val is reused across all n iterations.
+      scf.for %m = %c0 to %m_t_per_wave step %c1 {
+        %fut_a = memref.load %a_cur[%m] : !fut_a_buf
+        %a_val = func.call @get_lds_read_value_vx2(%fut_a)
+            {sched.stage = {{STAGE_COMPUTE}} : i32}
+            : (!future_lds_read) -> !rt_A_f16
+        scf.for %n = %c0 to %n_t_per_wave step %c1 {
+          %fut_b = memref.load %b_cur[%n] : !fut_b_buf
+          %b_val = func.call @get_lds_read_value_vx2(%fut_b)
+              {sched.stage = {{STAGE_COMPUTE}} : i32}
+              : (!future_lds_read) -> !rt_B_f16
+          %c_idx = affine.apply affine_map<(m, n)[ntpw] -> (m * ntpw + n)>(%m, %n)[%n_t_per_wave]
+          %c_old = memref.load %c_buf[%c_idx] : !c_buf
+          %c_new = func.call @mfma_f32_16x16x16_f16(%a_val, %b_val, %c_old)
+              {sched.stage = {{STAGE_COMPUTE}} : i32, sched.rotate_head}
+              : (!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
+          memref.store %c_new, %c_buf[%c_idx] : !c_buf
+        } {aster.constexpr}
+      } {aster.constexpr}
+      // Advance cur <- next for the following ki iteration.
+      scf.for %m = %c0 to %m_t_per_wave step %c1 {
+        %fut = memref.load %a_next[%m] : !fut_a_buf
+        memref.store %fut, %a_cur[%m] : !fut_a_buf
+      } {aster.constexpr}
+      scf.for %n = %c0 to %n_t_per_wave step %c1 {
+        %fut = memref.load %b_next[%n] : !fut_b_buf
+        memref.store %fut, %b_cur[%n] : !fut_b_buf
+      } {aster.constexpr}
+    } {aster.constexpr}
+    return
+  }
+
   // Store 2D rectangle of output tiles to global C.
   // Wave (wm, wn) owns tiles m in [0, m_t_per_wave), n in [0, n_t_per_wave).
   // Global offsets: m_abs = (m_wg*m_t + wm*m_t_per_wave + m)*16, n_abs similar.

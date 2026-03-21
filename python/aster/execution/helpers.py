@@ -70,6 +70,7 @@ def compile_and_run(
     num_iterations: int = 1,
     print_timings: bool = False,
     print_preprocessed_ir: bool = False,
+    print_asm: bool = False,
     mlir_dir: Optional[str] = None,
     ctx=None,
 ):
@@ -160,6 +161,7 @@ def compile_and_run(
                 print_ir_after_all=print_ir_after_all,
                 print_timings=print_timings,
                 print_preprocessed_ir=print_preprocessed_ir,
+                print_asm=print_asm,
             ),
         )
 

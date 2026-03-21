@@ -238,7 +238,26 @@ def _load_k_loop_helpers() -> str:
         return f.read()
 
 
+_PIPELINE_STAGE_CONFIGS = {
+    # num_stages: (STAGE_GLOBAL_LOAD, STAGE_DS_WRITE, STAGE_DS_READ, STAGE_COMPUTE)
+    # The pipeliner requires at least num_stages loop iterations.
+    0: (0, 0, 0, 0),
+    1: (0, 0, 0, 0),
+    2: (0, 1, 1, 1),
+    3: (0, 1, 2, 2),
+    4: (0, 1, 2, 3),
+}
+
+
 def _make_substitutions(cfg: GEMMConfig) -> dict:
+    # Cap pipeline depth so that num_stages * total_lds_bytes ≤ 32768 (half the
+    # 64 KB LDS limit), which keeps two workgroups per CU resident and preserves
+    # the natural inter-WG latency-hiding that makes this kernel efficient.
+    # For example: k_tile=32 (16 KB LDS) → 2-stage; k_tile=64 (32 KB) → 1-stage.
+    k_outer_iters = cfg.k // cfg.k_tile
+    max_stages_for_2wg = 32768 // cfg.total_lds_bytes
+    num_stages = min(4, max_stages_for_2wg, max(1, k_outer_iters))
+    stage_gl, stage_dw, stage_dr, stage_c = _PIPELINE_STAGE_CONFIGS[num_stages]
     return {
         "{{K}}": str(cfg.k),
         "{{K_T}}": str(cfg.k_t),
@@ -265,13 +284,10 @@ def _make_substitutions(cfg: GEMMConfig) -> dict:
         "{{A_LDS_BYTES}}": str(cfg.a_lds_bytes),
         "{{B_LDS_BYTES}}": str(cfg.b_lds_bytes),
         "{{K_LOOP_HELPERS}}": _load_k_loop_helpers(),
-        # Stage annotations: 0..3 for software pipelining (double-buffer LDS).
-        # GLOBAL_LOAD=0 → DS_WRITE=1 → DS_READ=2 → COMPUTE=3.
-        # Set all to 0 to fall back to non-pipelined execution.
-        "{{STAGE_GLOBAL_LOAD}}": "0",
-        "{{STAGE_DS_WRITE}}": "0",
-        "{{STAGE_DS_READ}}": "0",
-        "{{STAGE_COMPUTE}}": "0",
+        "{{STAGE_GLOBAL_LOAD}}": str(stage_gl),
+        "{{STAGE_DS_WRITE}}": str(stage_dw),
+        "{{STAGE_DS_READ}}": str(stage_dr),
+        "{{STAGE_COMPUTE}}": str(stage_c),
     }
 
 
@@ -283,6 +299,7 @@ def run_gemm(
     num_iterations: int = 1,
     num_warmup: int = 0,
     num_nops: int = 0,
+    print_asm: bool = False,
 ) -> np.ndarray:
     """Compile and run the GEMM kernel; return the flat C output buffer."""
     subs = _make_substitutions(cfg)
@@ -308,6 +325,7 @@ def run_gemm(
         block_dim=(cfg.num_threads, 1, 1),
         print_ir_after_all=print_ir_after_all,
         num_iterations=num_iterations,
+        print_asm=print_asm,
     )
     assert num_iterations > num_warmup, "num_iterations must be greater than num_warmup"
     avg_ns = np.mean(times[num_warmup:])
@@ -331,16 +349,6 @@ def _get_library_paths_32x32() -> List[str]:
 def _load_k_loop_helpers_32x32() -> str:
     with open(_HELPERS_FILE_32x32) as f:
         return f.read()
-
-
-_PIPELINE_STAGE_CONFIGS = {
-    # num_stages: (STAGE_GLOBAL_LOAD, STAGE_DS_WRITE, STAGE_DS_READ, STAGE_COMPUTE)
-    # The pipeliner requires at least num_stages loop iterations.
-    1: (0, 0, 0, 0),
-    2: (0, 1, 1, 1),
-    3: (0, 1, 2, 2),
-    4: (0, 1, 2, 3),
-}
 
 
 def _make_substitutions_32x32(cfg: GEMMConfig) -> dict:
@@ -390,6 +398,7 @@ def run_gemm_32x32(
     print_ir_after_all: bool = False,
     num_iterations: int = 1,
     num_warmup: int = 0,
+    print_asm: bool = False,
 ) -> np.ndarray:
     """Compile and run the 32x32x8 GEMM kernel; return the flat C output buffer."""
     subs = _make_substitutions_32x32(cfg)
@@ -415,6 +424,7 @@ def run_gemm_32x32(
         block_dim=(cfg.num_threads, 1, 1),
         print_ir_after_all=print_ir_after_all,
         num_iterations=num_iterations,
+        print_asm=print_asm,
     )
     assert num_iterations > num_warmup, "num_iterations must be greater than num_warmup"
     avg_ns = np.mean(times[num_warmup:])
@@ -438,6 +448,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-m-waves", type=int, default=1)
     parser.add_argument("--swizzle", type=int, default=1)
     parser.add_argument("--print-ir-after-all", action="store_true")
+    parser.add_argument("--print-asm", action="store_true")
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--num-warmup", type=int, default=0)
     parser.add_argument("--num-iterations", type=int, default=1)
@@ -480,6 +491,7 @@ if __name__ == "__main__":
             print_ir_after_all=args.print_ir_after_all,
             num_iterations=args.num_iterations,
             num_warmup=args.num_warmup,
+            print_asm=args.print_asm,
         )
     else:
         C = run_gemm(
@@ -490,6 +502,7 @@ if __name__ == "__main__":
             num_iterations=args.num_iterations,
             num_warmup=args.num_warmup,
             num_nops=args.nops,
+            print_asm=args.print_asm,
         )
     print(f"C[0:4] = {C[:4]}")
     if args.verify:

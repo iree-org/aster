@@ -192,18 +192,13 @@ amdgcn.module @gemm_fp16_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<c
       func.call @k_wait_lds_writes(%tok_b) : (!tok_b_buf) -> ()
       amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32, sched.rotate_head}
 
-      // === Read tiles from LDS: wave (wm, wn) reads its M/N rectangle. ===
-      %a_fut = func.call @k_read_lds_a_2d(
-          %c_M_T_PER_WAVE, %c_K_T, %c_M_T, %base_a, %wm)
-          : (index, index, index, index, index) -> !fut_a_buf
-      %b_fut = func.call @k_read_lds_b_2d(
-          %c_N_T_PER_WAVE, %c_K_T, %c_N_T, %base_b, %wn)
-          : (index, index, index, index, index) -> !fut_b_buf
-
-      // === Wait for LDS reads and compute M_T_PER_WAVE x N_T_PER_WAVE x K_INNER MFMAs. ===
-      func.call @k_wait_and_compute_mfmas_2d(
-          %c_M_T_PER_WAVE, %c_N_T_PER_WAVE, %c_K_INNER, %a_fut, %b_fut, %C_buf)
-          : (index, index, index, !fut_a_buf, !fut_b_buf, !c_buf) -> ()
+      // === Fused LDS read + MFMA with intra-step prefetch (Change 1). ===
+      // Issues reads for ki+1 before resolving ki, reducing in-flight reads at
+      // each s_waitcnt from k_inner*(m+n) to m_t_per_wave+n_t_per_wave.
+      func.call @k_fused_lds_read_compute_2d(
+          %c_M_T_PER_WAVE, %c_N_T_PER_WAVE, %c_K_T, %c_M_T, %c_N_T,
+          %base_a, %base_b, %wm, %wn, %C_buf)
+          : (index, index, index, index, index, index, index, index, index, !c_buf) -> ()
 
       // Release this iteration's LDS buffers, then sync all waves.
       amdgcn.dealloc_lds %lds_a_h {sched.stage = {{STAGE_COMPUTE}} : i32}
