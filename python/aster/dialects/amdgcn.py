@@ -3,6 +3,9 @@
 #  SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from aster.dialects._amdgcn_ops_gen import *
+from aster.dialects._ods_common import (
+    get_default_loc_context as _ods_get_default_loc_context,
+)
 from aster.dialects._amdgcn_enum_gen import *
 from aster.dialects._amdgcn_inst_gen import *
 from aster.dialects._ods_common import _cext as _ods_cext
@@ -108,28 +111,77 @@ def get_kernel_arguments(arguments: list[_ods_ir.Attribute], ctx=None):
     return _ods_ir.AttrBuilder.get("KernelArgumentsAttr")(arguments, ctx)
 
 
-def vop2(opcode, dest, src0, src1, *, dst1=None, src2=None, loc=None, ip=None):
-    """Create amdgcn.vop2 with correct segment sizes.
+def _create_inst_op(name, opcode, outs, ins, *, loc=None, ip=None):
+    """Create a DPS instruction op via ir.Operation.create.
 
-    The ODS-generated VOP2Op has _ODS_RESULT_SEGMENTS = [0, 0] (both optional), so the
-    generic OpView.__init__ cannot infer resultSegmentSizes from just the result types.
-    We use VOP2Op but pass the result types list that encodes the segment sizes
-    implicitly (1 type for vdst0, 0 or 1 for dst1).
+    The ODS-generated Python classes have _ODS_RESULT_SEGMENTS = [0, 0] because DPS
+    results are optional (present only when the register has value semantics). The C++
+    custom parser computes resultSegmentSizes explicitly; we do the same here. All
+    register types constructed from Python have value semantics, so every present output
+    operand produces a result.
     """
-    result_types = [dest.type]
-    if dst1 is not None:
-        result_types.append(dst1.type)
-    return VOP2Op(
-        opcode=opcode,
-        vdst0=dest,
-        src0=src0,
-        src1=src1,
-        dst1=dst1,
-        src2=src2,
+    result_types = []
+    result_segments = []
+    operand_segments = []
+    operands = []
+    for o in outs:
+        if o is not None:
+            operands.append(o)
+            operand_segments.append(1)
+            result_types.append(o.type)
+            result_segments.append(1)
+        else:
+            operand_segments.append(0)
+            result_segments.append(0)
+    for i in ins:
+        if i is not None:
+            operands.append(i)
+            operand_segments.append(1)
+        else:
+            operand_segments.append(0)
+
+    return _ods_ir.Operation.create(
+        name,
         results=result_types,
+        operands=operands,
+        attributes={
+            "opcode": (
+                opcode
+                if isinstance(opcode, _ods_ir.Attribute)
+                else _ods_ir.AttrBuilder.get("AMDGCN_InstAttr")(
+                    opcode, context=_ods_get_default_loc_context(loc)
+                )
+            ),
+            "operandSegmentSizes": _ods_ir.DenseI32ArrayAttr.get(operand_segments),
+            "resultSegmentSizes": _ods_ir.DenseI32ArrayAttr.get(result_segments),
+        },
         loc=loc,
         ip=ip,
-    ).results[0]
+    )
+
+
+def vop2(opcode, dest, src0, src1, *, dst1=None, src2=None, loc=None, ip=None):
+    """Create amdgcn.vop2."""
+    op = _create_inst_op(
+        "amdgcn.vop2", opcode, outs=[dest, dst1], ins=[src0, src1, src2], loc=loc, ip=ip
+    )
+    return op.results[0]
+
+
+def vop3(opcode, dest, src0, src1, *, dst1=None, src2=None, loc=None, ip=None):
+    """Create amdgcn.vop3."""
+    op = _create_inst_op(
+        "amdgcn.vop3", opcode, outs=[dest, dst1], ins=[src0, src1, src2], loc=loc, ip=ip
+    )
+    return op.results[0]
+
+
+def cmpi(opcode, dest, lhs, rhs, *, exec_mask=None, loc=None, ip=None):
+    """Create amdgcn.cmpi."""
+    op = _create_inst_op(
+        "amdgcn.cmpi", opcode, outs=[dest, exec_mask], ins=[lhs, rhs], loc=loc, ip=ip
+    )
+    return op.results[0]
 
 
 def int_to_offset_value(

@@ -12,6 +12,7 @@ import pytest
 import aster.ir as ir
 from aster.dialects import amdgcn as amdgcn_dialect
 from aster.dialects.kernel_builder import KernelBuilder
+from aster.dialects.amdgcn import AccessKind
 from aster.compiler.core import compile_mlir_module_to_asm
 
 # ---------------------------------------------------------------------------
@@ -312,6 +313,76 @@ def test_kernel_builder_tiledmma_structure():
         asm = compile_mlir_module_to_asm(module)
         assert "v_mfma_f32_16x16x16_f16" in asm
         assert "buffer_load_dwordx2" in asm
+
+
+def _kernel_with(fn):
+    """Build a minimal kernel, call fn(builder) inside, return module text."""
+    ctx = _ctx()
+    with ctx:
+        b = KernelBuilder("m", "k", target="gfx942", isa="cdna3")
+        b.add_ptr_arg(AccessKind.ReadOnly)
+        b.load_args()
+        fn(b)
+        return str(b.build())
+
+
+def test_vop2_v_add_u32():
+    """VOP2 via KernelBuilder helper."""
+    text = _kernel_with(lambda b: b.v_add_u32(b.alloca_vgpr(), b.alloca_vgpr()))
+    assert "v_add_u32" in text
+
+
+def test_vop2_direct():
+    """VOP2 via amdgcn.vop2() -- 1 mandatory dest, no optional dst1."""
+    text = _kernel_with(
+        lambda b: amdgcn_dialect.vop2(
+            "v_add_f32",
+            b.alloca_vgpr(),
+            b.alloca_vgpr(),
+            b.alloca_vgpr(),
+            loc=b._loc,
+            ip=b._kip,
+        )
+    )
+    assert "v_add_f32" in text
+
+
+def test_vop3_builder():
+    """VOP3 via KernelBuilder.vop3() helper."""
+    text = _kernel_with(
+        lambda b: b.vop3("v_add_f32_e64", b.alloca_vgpr(), b.alloca_vgpr())
+    )
+    assert "v_add_f32_e64" in text
+
+
+def test_vop3_direct():
+    """VOP3 via amdgcn.vop3() -- 1 mandatory dest, no optional dst1."""
+    text = _kernel_with(
+        lambda b: amdgcn_dialect.vop3(
+            "v_add_f32_e64",
+            b.alloca_vgpr(),
+            b.alloca_vgpr(),
+            b.alloca_vgpr(),
+            loc=b._loc,
+            ip=b._kip,
+        )
+    )
+    assert "v_add_f32_e64" in text
+
+
+def test_cmpi_direct():
+    """CmpI via amdgcn.cmpi() -- 1 mandatory dest, no optional exec."""
+    text = _kernel_with(
+        lambda b: amdgcn_dialect.cmpi(
+            "v_cmp_lt_i32",
+            b.alloca_vgpr(),
+            b.alloca_vgpr(),
+            b.alloca_vgpr(),
+            loc=b._loc,
+            ip=b._kip,
+        )
+    )
+    assert "v_cmp_lt_i32" in text
 
 
 if __name__ == "__main__":

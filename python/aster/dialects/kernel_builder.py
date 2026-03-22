@@ -336,16 +336,16 @@ class KernelBuilder:
         return v.results[0]
 
     def _emit_vop2(self, opcode_str: str, dest: ir.Value, src0, src1) -> ir.Value:
-        """Emit amdgcn.vop2 via module-level _amdgcn_vop2 helper.
+        """Emit amdgcn.vop2."""
+        from aster.dialects.amdgcn import vop2
 
-        Uses a dedicated helper because the ODS-generated VOP2Op has incorrect
-        _ODS_RESULT_SEGMENTS for DPS-style ops.
-        """
-        dest_v = self._as_value(dest)
-        src0_v = self._as_value(src0)
-        src1_v = self._as_value(src1)
-        return _amdgcn_vop2(
-            opcode_str, dest_v, src0_v, src1_v, loc=self._loc, ip=self._kip
+        return vop2(
+            opcode=opcode_str,
+            dest=self._as_value(dest),
+            src0=self._as_value(src0),
+            src1=self._as_value(src1),
+            loc=self._loc,
+            ip=self._kip,
         )
 
     # ---------------------------------------------------------------------------
@@ -437,6 +437,29 @@ class KernelBuilder:
     def v_add_u32(self, src0: ir.Value, src1: ir.Value) -> ir.Value:
         """VOP2 v_add_u32: src0 + src1 -> VGPR."""
         return self.vop2("v_add_u32", src0, src1)
+
+    def _emit_vop3(
+        self, opcode_str: str, dest: ir.Value, src0, src1, *, src2=None
+    ) -> ir.Value:
+        """Emit amdgcn.vop3."""
+        from aster.dialects.amdgcn import vop3
+
+        return vop3(
+            opcode=opcode_str,
+            dest=self._as_value(dest),
+            src0=self._as_value(src0),
+            src1=self._as_value(src1),
+            src2=self._as_value(src2) if src2 is not None else None,
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+    def vop3(
+        self, opcode: str, src0: ir.Value, src1: ir.Value, *, src2: ir.Value = None
+    ) -> ir.Value:
+        """Vector ALU 3-operand operation."""
+        dest = self.alloca_vgpr()
+        return self._emit_vop3(opcode, dest, src0, src1, src2=src2)
 
     def _linearize_layout(self, layout, coord, swizzle=None):
         """Emit layout.linearize (+ optional layout.swizzle) for a linear coord."""
