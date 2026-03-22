@@ -303,6 +303,11 @@ def run_benchmark(
         print("Cross-compilation only, skipping execution.")
         return [], []
 
+    # Skip execution if no GPUs available (e.g. macOS cross-compilation).
+    if hip_get_device_count() < 1:
+        print("No GPUs available, skipping execution.")
+        return [], []
+
     # Create multi-GPU executor.
     executor: MultiGPUExecutor = MultiGPUExecutor()
     print(
