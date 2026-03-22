@@ -1,0 +1,6 @@
+set(LLVM_TARGET_DEFINITIONS SchedOps.td)
+mlir_tablegen(SchedDialect.h.inc -gen-dialect-decls -dialect=sched)
+mlir_tablegen(SchedDialect.cpp.inc -gen-dialect-defs -dialect=sched)
+mlir_tablegen(SchedOps.h.inc -gen-op-decls)
+mlir_tablegen(SchedOps.cpp.inc -gen-op-defs)
+add_public_tablegen_target(SchedOpsIncGen)

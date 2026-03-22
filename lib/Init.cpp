@@ -19,6 +19,8 @@
 #include "aster/Dialect/Layout/Transforms/Passes.h"
 #include "aster/Dialect/NormalForm/IR/NormalFormDialect.h"
 #include "aster/Dialect/NormalForm/Transforms/Passes.h"
+#include "aster/Dialect/Sched/IR/SchedDialect.h"
+#include "aster/Dialect/Sched/Transforms/Passes.h"
 #include "aster/Interfaces/UpstreamExternalModels.h"
 #include "aster/Transforms/Passes.h"
 #include "mlir/CAPI/IR.h"
@@ -404,6 +406,7 @@ void mlir::aster::initDialects(DialectRegistry &registry) {
   registry.insert<lsir::LSIRDialect>();
   registry.insert<aster_utils::AsterUtilsDialect>();
   registry.insert<normalform::NormalFormDialect>();
+  registry.insert<sched::SchedDialect>();
   registerUpstreamExternalModels(registry);
 }
 
@@ -415,6 +418,7 @@ void mlir::aster::registerPasses() {
   aster::registerCodeGenPasses();
   layout::registerLayoutPasses();
   normalform::registerNormalFormPasses();
+  sched::registerSchedPasses();
 }
 
 ///
