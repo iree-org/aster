@@ -272,9 +272,13 @@ FuncOpConversion::matchAndRewrite(FunctionOpInterface funcOp, OpAdaptor adaptor,
     return success();
   }
 
-  // Convert the signature.
+  // Convert entry block signature.
   rewriter.applySignatureConversion(&newFn.getBody().front(), result,
                                     converter);
+  // Convert block argument types in the rest of the body (CF loop headers
+  // from amdgcn-convert-scf-control-flow).
+  if (failed(rewriter.convertRegionTypes(&newFn.getBody(), *converter)))
+    return failure();
   rewriter.eraseOp(funcOp);
   return success();
 }
