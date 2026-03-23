@@ -74,6 +74,7 @@ class WeakScaleConfig:
     lcm_unroll: bool = True  # LCM-based kernel loop unrolling
     unroll_factor_multiplier: int = 1  # extra unroll on top of LCM
     epilogue_peeling: bool = True  # fully unroll cleanup loop after LCM unrolling
+    ll_sched: bool = False
     _label_suffix: str = ""
 
     def __post_init__(self):
@@ -252,12 +253,13 @@ class WeakScaleConfig:
             else ""
         )
         peel = "" if self.epilogue_peeling else "_nopeel"
+        llsched = "_llsched" if self.ll_sched else ""
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
             f"_wg{self.m_wg}x{self.n_wg}_w{self.m_waves}x{self.n_waves}"
             f"{tile_str}_s{self.a_stages}"
             f"{f'_bs{self.b_stages}' if self.b_stages > 0 else ''}"
-            f"{lcm}{um}{peel}{self._label_suffix}"
+            f"{lcm}{um}{peel}{llsched}{self._label_suffix}"
         )
 
 
@@ -355,13 +357,12 @@ def compile_gemm(
     mlir_file = MLIR_FILES[mlir_key]
     lib_paths = get_kittens_16x16_lds_library_paths(use_buffer=cfg.use_buffer)
 
-    lcm_unroll = getattr(cfg, "lcm_unroll", True)
     pipeline = make_default_pass_pipeline(
-        lcm_unroll=lcm_unroll,
         num_vgprs=num_vgprs,
         num_agprs=num_agprs,
         unroll_factor_multiplier=unroll_factor_multiplier,
         epilogue_peeling=epilogue_peeling,
+        ll_sched=getattr(cfg, "ll_sched", True),
     )
 
     ctx = ir.Context()
@@ -599,6 +600,11 @@ if __name__ == "__main__":
         action="store_true",
         help="A operand via bpermute (LDS bypass) instead of LDS",
     )
+    parser.add_argument(
+        "--ll-sched",
+        action="store_true",
+        help="Enable low-level instruction scheduler (off by default)",
+    )
     a = parser.parse_args()
     load_type = "buffer" if a.use_buffer else "flat"
     b_path = "direct_b" if a.direct_b else "lds"
@@ -616,6 +622,7 @@ if __name__ == "__main__":
         k,
         load_type=load_type,
         b_path=b_path,
+        ll_sched=getattr(a, "ll_sched", False),
     )
 
     from aster.compiler.metadata import parse_asm_kernel_resources

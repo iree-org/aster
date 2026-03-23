@@ -48,6 +48,10 @@ struct RegAllocPipelineOptions
       *this, "num-agprs",
       llvm::cl::desc("Maximum AGPRs for allocation (default 256)"),
       llvm::cl::init(256)};
+  mlir::detail::PassOptions::Option<bool> llSched{
+      *this, "ll-sched",
+      llvm::cl::desc("Run low-level scheduler before register semantics"),
+      llvm::cl::init(false)};
 };
 
 /// Build the RegAlloc pass pipeline.
@@ -62,6 +66,8 @@ struct RegAllocPipelineOptions
 static void buildRegAllocPassPipeline(OpPassManager &pm,
                                       const RegAllocPipelineOptions &options) {
   pm.addPass(createAMDGCNBufferization());
+  if (options.llSched)
+    pm.addPass(createLowLevelScheduler());
   pm.addPass(createToRegisterSemantics());
   // Post-condition of to-register-semantics is now enforced by
   // KernelOp::verifyRegions() via the normal_forms attribute set by the pass.
@@ -113,6 +119,10 @@ struct AMDGCNBackendPipelineOptions
       *this, "num-agprs",
       llvm::cl::desc("Maximum AGPRs for allocation (default 256)"),
       llvm::cl::init(256)};
+  mlir::detail::PassOptions::Option<bool> llSched{
+      *this, "ll-sched",
+      llvm::cl::desc("Run low-level scheduler before register allocation"),
+      llvm::cl::init(false)};
 };
 
 static void
@@ -134,6 +144,7 @@ buildAMDGCNBackendPassPipeline(OpPassManager &pm,
     RegAllocPipelineOptions regAllocOpts;
     regAllocOpts.numVGPRs = options.numVGPRs;
     regAllocOpts.numAGPRs = options.numAGPRs;
+    regAllocOpts.llSched = options.llSched;
     buildRegAllocPassPipeline(kernelPm, regAllocOpts);
     kernelPm.addPass(createCanonicalizerPass());
     kernelPm.addPass(createCSEPass());

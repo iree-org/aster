@@ -350,6 +350,7 @@ def _repro_cmd(cfg, num_iterations):
     wg_per_cu_flag = (
         f" --num-wg-per-cu {cfg.num_wg_per_cu}" if cfg.num_wg_per_cu != 1 else ""
     )
+    ll_flag = " --ll-sched" if getattr(cfg, "ll_sched", False) else ""
     return (
         f"python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
@@ -358,6 +359,7 @@ def _repro_cmd(cfg, num_iterations):
         f" --a-stages {cfg.a_stages} --k-scaling-factor {k_factor}"
         f"{f' --b-stages {cfg.b_stages}' if cfg.b_stages > 0 else ''}"
         f"{buf_flag}{direct_flag}{lcm_flag}{um_flag}{peel_flag}{wg_per_cu_flag}"
+        f"{ll_flag}"
         f" --iterations {num_iterations}"
     )
 
@@ -384,6 +386,7 @@ def _make_config_from_args(args, load_type, b_path):
         lcm_unroll=getattr(args, "lcm_unroll", True),
         unroll_factor_multiplier=getattr(args, "unroll_multiplier", 1) or 1,
         epilogue_peeling=getattr(args, "epilogue_peeling", True),
+        ll_sched=getattr(args, "ll_sched", False),
         _label_suffix=suffix,
     )
 
@@ -530,6 +533,11 @@ if __name__ == "__main__":
         default=None,
         help="Filter sweep to configs with this SIMD occupancy (waves per SIMD)",
     )
+    parser.add_argument(
+        "--ll-sched",
+        action="store_true",
+        help="Enable low-level instruction scheduler (off by default)",
+    )
 
     args = parser.parse_args()
     args.lcm_unroll = not args.no_lcm_unroll
@@ -609,6 +617,9 @@ if __name__ == "__main__":
             check_regs=not getattr(args, "no_reg_filter", False),
             sweep_filter=sweep_filter,
         )
+        # Propagate pipeline flags to all generated configs.
+        for cfg in all_configs:
+            cfg.ll_sched = args.ll_sched
 
         def _post_compile_filter(cfg, res):
             """Post-compilation filter: reject configs exceeding VGPR or LDS limits."""

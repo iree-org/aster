@@ -215,13 +215,15 @@ PHASE_LOWER_TO_AMDGCN = (
 # Register allocation, and wait lowering.
 # TODO: Move NOP insertion to backend.
 # TODO: NORMAL FORMS for amdgcn-backend.
-def phase_amdgcn_backend(num_vgprs=256, num_agprs=256):
+def phase_amdgcn_backend(num_vgprs=256, num_agprs=256, ll_sched=False):
     """Build the amdgcn-backend pipeline string with optional register limits."""
     opts = []
     if num_vgprs != 256:
         opts.append(f"num-vgprs={num_vgprs}")
     if num_agprs != 256:
         opts.append(f"num-agprs={num_agprs}")
+    if ll_sched:
+        opts.append("ll-sched=true")
     if opts:
         return f"amdgcn-backend{{{' '.join(opts)}}}"
     return "amdgcn-backend"
@@ -262,6 +264,7 @@ def make_default_pass_pipeline(
     num_agprs=256,
     unroll_factor_multiplier=1,
     epilogue_peeling=True,
+    ll_sched=False,
 ) -> str:
     """Build the production pass pipeline with configurable pipelining options."""
     return builtin_module(
@@ -272,6 +275,9 @@ def make_default_pass_pipeline(
             unroll_factor_multiplier=unroll_factor_multiplier,
             epilogue_peeling=epilogue_peeling,
         ),
+        amdgcn_module(amdgcn_kernel(
+            "amdgcn-low-level-scheduler"
+        )) if ll_sched else "",
         "aster-destructure-struct-iter-args",
         "canonicalize",
         "cse",
@@ -288,6 +294,7 @@ def make_default_pass_pipeline(
         phase_amdgcn_backend(num_vgprs=num_vgprs, num_agprs=num_agprs),
         phase_nop_insertion(delays=0),
     )
+
 
 # --------------------------------------------------------------------------- #
 # Pass pipeline registry for pytest parametrization
