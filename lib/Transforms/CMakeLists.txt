@@ -15,7 +15,6 @@ add_mlir_library(AsterTransforms
   OptimizeArith.cpp
   ReplaceConstantGPUDims.cpp
   SCFPipelineAsterSched.cpp
-  SCFRotate.cpp
   SimplifyAllocaIterArgs.cpp
   ToIntArith.cpp
   Utils.cpp

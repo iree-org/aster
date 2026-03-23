@@ -49,6 +49,7 @@ namespace {
 
 // TODO: when stabilized, promote to a proper dialect attribute.
 constexpr StringLiteral kSchedStageAttr = "sched.stage";
+constexpr StringLiteral kSchedRotateHeadAttr = "sched.rotate_head";
 
 /// Get the pipeline stage for an operation, defaulting to 0.
 static int64_t getStage(Operation *op) {
@@ -561,6 +562,173 @@ static scf::ForOp emitKernel(scf::ForOp originalForOp,
 }
 
 //===----------------------------------------------------------------------===//
+// Kernel rotation
+//===----------------------------------------------------------------------===//
+
+/// Rotate the kernel loop body so that the first op marked with
+/// `sched.rotate_head` appears first in the loop.
+///
+/// The rotate_head attribute marks the first op of the "head" group.
+/// All ops from rotate_head to the yield are the head group; everything
+/// before is the rest group.  Within the pipelined kernel body, cross-stage
+/// deps flow through iter_args, so the groups are SSA-independent.
+///
+/// Returns the original loop unchanged if no rotate_head is found.
+
+/// Find the rotation head and partition the loop body into rest (before)
+/// and rotate (from head onward) groups.  Returns false if no rotation
+/// head is found or if either group is empty.
+static bool partitionAtRotateHead(Block *body, scf::YieldOp yield,
+                                  SmallVectorImpl<Operation *> &restOps,
+                                  SmallVectorImpl<Operation *> &rotateOps,
+                                  DenseSet<Operation *> &rotateSet) {
+  Operation *headOp = nullptr;
+  for (Operation &op : *body) {
+    if (op.hasAttr(kSchedRotateHeadAttr)) {
+      headOp = &op;
+      break;
+    }
+  }
+  if (!headOp)
+    return false;
+
+  bool seenHead = false;
+  for (Operation &op : *body) {
+    if (&op == yield)
+      break;
+    if (&op == headOp)
+      seenHead = true;
+    if (seenHead) {
+      rotateOps.push_back(&op);
+      rotateSet.insert(&op);
+    } else {
+      restOps.push_back(&op);
+    }
+  }
+  return !restOps.empty() && !rotateOps.empty();
+}
+
+/// Build an IRMapping from an old loop's IV and region args to new values.
+static IRMapping buildLoopMapping(scf::ForOp oldLoop, Value newIV,
+                                  ValueRange newRegionArgs) {
+  IRMapping map;
+  map.map(oldLoop.getInductionVar(), newIV);
+  for (auto [oldArg, newArg] :
+       llvm::zip(oldLoop.getRegionIterArgs(), newRegionArgs))
+    map.map(oldArg, newArg);
+  return map;
+}
+
+/// Clone a list of ops using a mapping.
+static void cloneOpsWithMapping(OpBuilder &builder, ArrayRef<Operation *> ops,
+                                IRMapping &mapping) {
+  for (Operation *op : ops)
+    builder.clone(*op, mapping);
+}
+
+/// Collect values defined in restOps and used by rotateOps (crossing values).
+static SmallVector<Value>
+findCrossingValues(ArrayRef<Operation *> rotateOps,
+                   const DenseSet<Operation *> &rotateSet, Block *body) {
+  SmallVector<Value> result;
+  DenseSet<Value> seen;
+  for (Operation *op : rotateOps) {
+    for (Value operand : op->getOperands()) {
+      auto *defOp = operand.getDefiningOp();
+      if (!defOp || defOp->getBlock() != body || rotateSet.contains(defOp))
+        continue;
+      if (seen.insert(operand).second)
+        result.push_back(operand);
+    }
+  }
+  return result;
+}
+
+static scf::ForOp rotateKernelBody(scf::ForOp kernelLoop, OpBuilder &builder) {
+  Block *body = kernelLoop.getBody();
+  auto yield = cast<scf::YieldOp>(body->getTerminator());
+  Location loc = kernelLoop.getLoc();
+
+  SmallVector<Operation *> restOps, rotateOps;
+  DenseSet<Operation *> rotateSet;
+  if (!partitionAtRotateHead(body, yield, restOps, rotateOps, rotateSet))
+    return kernelLoop;
+
+  Value lb = kernelLoop.getLowerBound();
+  Value ub = kernelLoop.getUpperBound();
+  Value step = kernelLoop.getStep();
+  unsigned numOrig = kernelLoop.getInitArgs().size();
+
+  // Step 1. Peeled prologue: clone rest ops with IV = lb.
+  builder.setInsertionPoint(kernelLoop);
+  auto prologueMap = buildLoopMapping(kernelLoop, lb, kernelLoop.getInitArgs());
+  cloneOpsWithMapping(builder, restOps, prologueMap);
+
+  // Crossing values: rest-defined values consumed by rotate ops.
+  auto crossingValues = findCrossingValues(rotateOps, rotateSet, body);
+
+  // New init args: original + crossing values from prologue.
+  SmallVector<Value> newInits(kernelLoop.getInitArgs());
+  for (Value cv : crossingValues)
+    newInits.push_back(prologueMap.lookupOrDefault(cv));
+
+  // Step 2. Rotated kernel: [lb, ub - step).
+  Value ubMinusStep = arith::SubIOp::create(builder, loc, ub, step);
+  auto newLoop =
+      scf::ForOp::create(builder, loc, lb, ubMinusStep, step, newInits);
+  builder.setInsertionPointToStart(newLoop.getBody());
+
+  // Map old block args -> new, including crossing iter_args.
+  auto rotMap =
+      buildLoopMapping(kernelLoop, newLoop.getInductionVar(),
+                       newLoop.getRegionIterArgs().take_front(numOrig));
+  for (auto [cv, newArg] : llvm::zip(
+           crossingValues, newLoop.getRegionIterArgs().drop_front(numOrig)))
+    rotMap.map(cv, newArg);
+
+  // Clone rotate ops first, then rest ops with shifted IV.
+  cloneOpsWithMapping(builder, rotateOps, rotMap);
+  Value kNext =
+      arith::AddIOp::create(builder, loc, newLoop.getInductionVar(), step);
+  IRMapping restMap(rotMap);
+  restMap.map(kernelLoop.getInductionVar(), kNext);
+  cloneOpsWithMapping(builder, restOps, restMap);
+
+  // Yield: pick from rotMap or restMap depending on which group defined it.
+  SmallVector<Value> yieldVals;
+  for (Value yv : yield.getOperands()) {
+    auto *defOp = yv.getDefiningOp();
+    yieldVals.push_back((defOp && rotateSet.contains(defOp))
+                            ? rotMap.lookupOrDefault(yv)
+                            : restMap.lookupOrDefault(yv));
+  }
+  for (Value cv : crossingValues)
+    yieldVals.push_back(restMap.lookupOrDefault(cv));
+  scf::YieldOp::create(builder, loc, yieldVals);
+
+  // Step 3. Peeled epilogue: clone rotate ops using final loop results.
+  builder.setInsertionPointAfter(newLoop);
+  IRMapping epilogueMap;
+  epilogueMap.map(kernelLoop.getInductionVar(), ubMinusStep);
+  for (unsigned i = 0; i < numOrig; ++i)
+    epilogueMap.map(kernelLoop.getRegionIterArgs()[i], newLoop.getResult(i));
+  for (auto [i, cv] : llvm::enumerate(crossingValues))
+    epilogueMap.map(cv, newLoop.getResult(numOrig + i));
+  cloneOpsWithMapping(builder, rotateOps, epilogueMap);
+
+  // Replace uses: rotate-defined results come from epilogue, rest from loop.
+  for (unsigned i = 0; i < numOrig; ++i) {
+    auto *defOp = yield.getOperand(i).getDefiningOp();
+    Value replacement = (defOp && rotateSet.contains(defOp))
+                            ? epilogueMap.lookupOrDefault(yield.getOperand(i))
+                            : newLoop.getResult(i);
+    kernelLoop.getResult(i).replaceAllUsesWith(replacement);
+  }
+  kernelLoop.erase();
+  return newLoop;
+}
+
+//===----------------------------------------------------------------------===//
 // Epilogue
 //===----------------------------------------------------------------------===//
 
@@ -725,6 +893,13 @@ void SCFPipelineAsterSchedPass::runOnOperation() {
               epilogueMapping.lookupOrDefault(blockArg));
 
         originalForOp.erase();
+
+        // Step 5 (optional): Rotate the kernel body so the op marked
+        // with sched.rotate_head fires first.  Only triggers if the
+        // attribute is present in the kernel body.
+        if (rotateKernel) {
+          kernelLoop = rotateKernelBody(kernelLoop, builder);
+        }
 
         if (lcmUnroll) {
           int64_t factor = computeStageLCM(info) *
