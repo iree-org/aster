@@ -223,13 +223,13 @@ class GEMMConfig:
 
 
 def _get_library_paths() -> List[str]:
-    """Library paths for 16x16 MFMA + 16x64_b LDS (dwordx4, XOR swizzle)."""
+    """Library paths for 16x16 MFMA + 16x64_b LDS (buffer loads, XOR swizzle)."""
     return get_library_paths() + [
         os.path.join(_MLIR_KERNELS_LIB, "common", "indexing_ptr.mlir"),
-        os.path.join(_KITTENS_LIB, "global_16x64_b.mlir"),
+        os.path.join(_KITTENS_LIB, "global_16x64_b_buf.mlir"),
         os.path.join(_KITTENS_LIB, "lds_16x64_b.mlir"),
         os.path.join(_KITTENS_LIB, "lds_mfma_16x64_b.mlir"),
-        os.path.join(_KITTENS_LIB, "compute_16x16_f16.mlir"),
+        os.path.join(_KITTENS_LIB, "compute_16x16_f16_buf.mlir"),
     ]
 
 

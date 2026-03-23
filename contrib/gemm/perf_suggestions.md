@@ -122,7 +122,85 @@ cheap to try (same tiles, different block ordering for L2 B-tile reuse).
 
 ---
 
-### 6. Compare against rocBLAS / hipBLASLt baseline
+### 6. Buffer loads (MUBUF) instead of flat loads ✅ applied — +12.5 to +24%
+
+Replaced `global_load_dwordx4` (flat addressing, 2-VGPR address) with
+`buffer_load_dwordx4` (MUBUF, 4-SGPR SRD + 1-VGPR offset) for the A and B
+global-to-register loads and for the C store.
+
+**Files changed:**
+- `_get_library_paths()` in `gemm_fp16_lds.py` switched from
+  `global_16x64_b.mlir` + `compute_16x16_f16.mlir` to
+  `global_16x64_b_buf.mlir` + `compute_16x16_f16_buf.mlir`.
+
+**Results** (4864×4096×8192, swizzle=1):
+
+| Config                                | Before (TFLOPS) | After (TFLOPS) |
+|---------------------------------------|----------------|----------------|
+| mt=128, nt=128, kt=64, nw=4, nm=2     | ~424            | 522–528        |
+| mt=128, nt=64, kt=64, nw=4, nm=2      | ~400            | ~480           |
+
+**Why it helps:**
+- `buffer_load_dwordx4` uses 4 SGPRs (buffer resource descriptor, shared per
+  wavefront) + 1 VGPR offset. `global_load_dwordx4` uses 2 VGPRs per address.
+  For a wave loading 8 tiles (16 `dwordx4` loads), the MUBUF variant frees
+  ~16 VGPRs, relaxing the VGPR pressure and allowing tighter scheduling.
+- MUBUF has shorter hardware descriptor paths (no address computation from two
+  64-bit registers), reducing scheduler pressure.
+
+**Register budget** (confirmed with `compute_register_budget`):
+vgpr + agpr = 131 ≤ 256, LDS = 32 768 bytes → 2 WG/CU fits. The buffer load
+savings help stay within the 256 unified-register limit.
+
+---
+
+### 7. CTA swizzle=2 for L2 B-tile reuse ✅ mixed — problem-size dependent
+
+`swizzle=2` reorders CTA blocks so that 2 consecutive M-blocks share the same
+N-block. This improves L2 hit rate for the B tile (same B columns loaded by
+adjacent CTAs).
+
+**Results** (swizzle=1 → swizzle=2):
+
+| Problem size      | swizzle=1 (TFLOPS) | swizzle=2 (TFLOPS) | Delta  |
+|-------------------|-------------------|-------------------|--------|
+| 4864×4096×8192    | 498               | 525               | +5.4%  |
+| 9728×4096×8192    | ~510              | ~468              | −8%    |
+
+**Why it helps for 4864 but hurts for 9728:**
+- For M=4864 with m_wg=38 CTA columns (38×128=4864), swizzle=2 tiles the
+  M-axis in pairs → each L2 XCD (4 MB) can cache 2 consecutive B strips.
+- For M=9728 (76 columns), the L2 gets thrashed between more CTA groups and
+  the B-tile reuse doesn't fit cleanly in the 4 MB XCD L2.
+
+**Recommendation:** for large square GEMMs (M ≈ N ≈ 4864 on MI300X),
+`swizzle=2` gives ~5% free. For M >> N or M >> 8192, keep `swizzle=1`.
+Valid swizzle values are divisors of `_M_WG_BASE` (38): 1, 2, 19, 38.
+
+---
+
+### 8. Software pipeline depth ≥ 2 ❌ reverted — forces 1 WG/CU
+
+For k_tile=64, LDS = 32 768 bytes per WG. The pipeline-depth cap:
+```python
+max_stages_for_2wg = 32768 // cfg.total_lds_bytes   # = 1 for k_tile=64
+num_stages = min(4, max_stages_for_2wg, ...)
+```
+Allowing depth-2 would require 65 536 bytes of LDS, so only 1 WG/CU fits.
+
+**Measured** (4864×4096×8192, mt=128, nt=128, kt=64):
+- 1 stage (2 WG/CU): **522–528 TFLOPS**
+- 2 stages (1 WG/CU): **334 TFLOPS** (−37%)
+
+**Root cause:** the kernel issues 148 instructions per k-tile iteration; the
+compute phase is ~256 cycles of MFMAs, far below the ~840-cycle HBM latency
+(128 B at 3.35 TB/s). 2 WG/CU is essential to hide this with wave-level
+parallelism. At 1 WG/CU the GPU stalls waiting for HBM regardless of the
+software pipeline depth.
+
+---
+
+### 9. Compare against rocBLAS / hipBLASLt baseline
 
 Typical MI300X fp16 GEMM performance:
 - rocBLAS / hipBLASLt: ~1100–1250 TFLOPS for large square GEMMs.

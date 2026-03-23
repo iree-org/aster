@@ -651,6 +651,49 @@
     return %gfut_b : !gfut_b_buf
   }
 
+  // Issue dwordx4 global loads for a flat range of A tiles into a pre-allocated buffer.
+  // Same as @k_load_a_flat but writes into %out_buf instead of allocating a new one.
+  // Used to overlap global loads for k+1 with the MFMA compute phase for k.
+  func.func private @k_load_a_flat_into(%a_per_wave: index, %k_t: index, %m_t_ld: index,
+      %A_ptr: !aster_utils.any, %k: index, %stride_AB: index,
+      %m_global_base: index, %flat_a_start: index, %out_buf: !gfut_a_buf) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    scf.for %i = %c0 to %a_per_wave step %c1 {
+      %flat_a = affine.apply affine_map<(i)[s] -> (s + i)>(%i)[%flat_a_start]
+      %kt = arith.divui %flat_a, %m_t_ld : index
+      %m_slot = arith.remui %flat_a, %m_t_ld : index
+      %m_off = affine.apply affine_map<(ms)[mb] -> ((mb + ms) * 16)>(%m_slot)[%m_global_base]
+      %k_offset = affine.apply affine_map<(kt)[kb] -> ((kb + kt) * 32)>(%kt)[%k]
+      %fut = func.call @load_global_tile_16x64_b(%A_ptr, %m_off, %k_offset, %stride_AB)
+          {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+          : (!aster_utils.any, index, index, index) -> !future_global_read
+      memref.store %fut, %out_buf[%i] : !gfut_a_buf
+    } {aster.constexpr}
+    return
+  }
+
+  // Issue dwordx4 global loads for a flat range of B tiles into a pre-allocated buffer.
+  // Same as @k_load_b_flat but writes into %out_buf instead of allocating a new one.
+  func.func private @k_load_b_flat_into(%b_per_wave: index, %k_t: index, %n_t_ld: index,
+      %B_ptr: !aster_utils.any, %k: index, %stride_AB: index,
+      %n_global_base: index, %flat_b_start: index, %out_buf: !gfut_b_buf) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    scf.for %i = %c0 to %b_per_wave step %c1 {
+      %flat_b = affine.apply affine_map<(i)[s] -> (s + i)>(%i)[%flat_b_start]
+      %kt = arith.divui %flat_b, %n_t_ld : index
+      %n_slot = arith.remui %flat_b, %n_t_ld : index
+      %n_off = affine.apply affine_map<(ns)[nb] -> ((nb + ns) * 16)>(%n_slot)[%n_global_base]
+      %k_offset = affine.apply affine_map<(kt)[kb] -> ((kb + kt) * 32)>(%kt)[%k]
+      %fut = func.call @load_global_tile_16x64_b(%B_ptr, %n_off, %k_offset, %stride_AB)
+          {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+          : (!aster_utils.any, index, index, index) -> !future_global_read
+      memref.store %fut, %out_buf[%i] : !gfut_b_buf
+    } {aster.constexpr}
+    return
+  }
+
   // Store a flat range of A tiles to LDS.
   // LDS offset: (kt * m_t_ld + m_slot) * 1024 + base_a.
   func.func private @k_store_a_flat(%a_per_wave: index, %k_t: index, %m_t_ld: index,

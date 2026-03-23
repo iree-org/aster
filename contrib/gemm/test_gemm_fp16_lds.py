@@ -27,6 +27,10 @@ class TestGEMMFP16LDS:
             (64, 64, 64, 64, 64, 64, 4, 2, 1),  # 1 block, 4 waves, 2D 2x2 decomp
             # Regression test: config that exposed flat-compute LDS redundancy.
             (128, 64, 64, 128, 64, 32, 4, 2, 1),  # 1 block, 4 waves, 2D 2x2, regression
+            # Regression tests: K/k_tile divisible by 4 exposed OOB early-load bug.
+            (16, 16, 256, 16, 16, 64, 1, 1, 1),  # 1 block, 1 wave, K=256, 4 iters
+            (16, 16, 512, 16, 16, 64, 1, 1, 1),  # 1 block, 1 wave, K=512, 8 iters
+            (32, 32, 256, 32, 32, 64, 4, 2, 1),  # 1 block, 4 waves, K=256, 4 iters
         ],
         ids=[
             "1b-1w-1x1-k64-kt64",
@@ -39,6 +43,9 @@ class TestGEMMFP16LDS:
             "4b-2w-2d-swizzle2",
             "1b-4w-2d-2x2",
             "1b-4w-2d-regression",
+            "1b-1w-1x1-k256-kt64-oob-regression",
+            "1b-1w-1x1-k512-kt64-oob-regression",
+            "1b-4w-2d-2x2-k256-kt64-oob-regression",
         ],
     )
     def test_gemm_fp16_lds(
