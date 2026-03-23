@@ -75,25 +75,23 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     %tiles_per_slice_a = arith.constant {{A_TILES_PER_SLICE}} : index
     %tiles_per_slice_b = arith.constant {{B_TILES_PER_SLICE}} : index
 
-    // Delinearize flat block ID into (m_wg, n_wg) workgroup coordinates.
+    // WG tile offsets via layout
     %flat_id = gpu.block_id x
-    %c_M_WG = arith.constant {{M_WG}} : index
-    %c_N_WG = arith.constant {{N_WG}} : index
-    %m_wg, %n_wg = affine.delinearize_index %flat_id into (%c_M_WG, %c_N_WG) : index, index
+    %wg_m_off = layout.linearize %flat_id,
+        #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [{{M_TILES_WG}}, 0]>
+    %wg_n_off = layout.linearize %flat_id,
+        #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [0, {{N_TILES_WG}}]>
 
-    // Wave position within WG: delinearize wave_id into (wave_m, wave_n)
+    // Wave tile offsets via layout (wave_m_off = wave_a_base, wave_n_off = wave_b_base)
     %wid = func.call @wave_id() : () -> index
-    %c_M_WAVES = arith.constant {{M_WAVES}} : index
-    %c_N_WAVES = arith.constant {{N_WAVES}} : index
-    %wave_m, %wave_n = affine.delinearize_index %wid into (%c_M_WAVES, %c_N_WAVES) : index, index
+    %wave_m_off = layout.linearize %wid,
+        #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [{{M_T}}, 0]>
+    %wave_n_off = layout.linearize %wid,
+        #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [0, {{N_T}}]>
 
-    // WG owns M_TILES_WG tiles; wave_m maps to M_T consecutive tiles within the WG.
-    %m_base = affine.apply affine_map<(mwg, wm)[mt_wg, mt] -> (mwg * mt_wg + wm * mt)>
-        (%m_wg, %wave_m)[%c_M_TILES_WG, %c_M_T]
-    %n_base = affine.apply affine_map<(nwg, wn)[nt_wg, nt] -> (nwg * nt_wg + wn * nt)>
-        (%n_wg, %wave_n)[%c_N_TILES_WG, %c_N_T]
-    %wave_a_base = affine.apply affine_map<(wm)[mt] -> (wm * mt)>(%wave_m)[%c_M_T]
-    %wave_b_base = affine.apply affine_map<(wn)[nt] -> (wn * nt)>(%wave_n)[%c_N_T]
+    // Compose: tile index = WG offset + wave offset
+    %m_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %wave_m_off)
+    %n_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %wave_n_off)
 
     // === Initialize accumulators (constexpr over M_T*N_T) ===
     %mn = affine.apply affine_map<()[m, n] -> (m * n)>()[%c_M_T, %c_N_T]
@@ -109,10 +107,10 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     scf.for %k = %c0 to %K_tiles step %c_K_T {
 
       // Stage GLOBAL_LOAD: allocate LDS (1024 bytes per 16x32 tile).
-      %lds_a_h = amdgcn.alloc_lds {{A_LDS_BYTES}} {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-      %base_a = amdgcn.get_lds_offset %lds_a_h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
-      %lds_b_h = amdgcn.alloc_lds {{B_LDS_BYTES}} {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-      %base_b = amdgcn.get_lds_offset %lds_b_h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
+      %lds_a_h = amdgcn.alloc_lds {{A_LDS_BYTES}} {sched.stage = {{A_STAGE_LOAD}} : i32}
+      %base_a = amdgcn.get_lds_offset %lds_a_h {sched.stage = {{A_STAGE_LOAD}} : i32} : index
+      %lds_b_h = amdgcn.alloc_lds {{B_LDS_BYTES}} {sched.stage = {{A_STAGE_LOAD}} : i32}
+      %base_b = amdgcn.get_lds_offset %lds_b_h {sched.stage = {{A_STAGE_LOAD}} : i32} : index
 
     //   // --- Compute global load addresses ---
     //   %gl_addrs_a = func.call @k_compute_global_addrs_a(%c_M_T, %c_K_T, %k, %stride_AB, %m_base)
@@ -133,15 +131,15 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
 
 
       // --- Compute LDS write addresses (overlaps with global load latency) ---
-      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_a_base, %tiles_per_slice_a)
+      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_m_off, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
-      %lds_w_addrs_b = func.call @k_compute_lds_write_addrs_b(%c_N_T, %c_K_T, %base_b, %wave_b_base, %tiles_per_slice_b)
+      %lds_w_addrs_b = func.call @k_compute_lds_write_addrs_b(%c_N_T, %c_K_T, %base_b, %wave_n_off, %tiles_per_slice_b)
           : (index, index, index, index, index) -> memref<?xindex>
 
       // --- Compute LDS read addresses (overlaps with global load latency) ---
-      %lds_r_addrs_a = func.call @k_compute_lds_read_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_a_base, %tiles_per_slice_a)
+      %lds_r_addrs_a = func.call @k_compute_lds_read_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_m_off, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
-      %lds_r_addrs_b = func.call @k_compute_lds_read_addrs_b(%c_N_T, %c_K_T, %base_b, %wave_b_base, %tiles_per_slice_b)
+      %lds_r_addrs_b = func.call @k_compute_lds_read_addrs_b(%c_N_T, %c_K_T, %base_b, %wave_n_off, %tiles_per_slice_b)
           : (index, index, index, index, index) -> memref<?xindex>
 
       // --- Wait for global loads + store to LDS at pre-computed addresses ---
@@ -151,7 +149,7 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
           : (memref<?xindex>, index, index, !gfut_b_buf) -> !tok_b_buf
 
       // --- Barrier then wait all LDS write tokens ---
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32}
+      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{A_STAGE_READ}} : i32}
       func.call @k_wait_lds_writes(%tok_a)
           : (memref<?x!lds_write_token>) -> ()
       func.call @k_wait_lds_writes(%tok_b)
@@ -169,8 +167,8 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
           : (index, index, index, !fut_a_buf, !fut_b_buf, !c_buf) -> ()
 
       // Deallocate LDS at COMPUTE stage.
-      amdgcn.dealloc_lds %lds_a_h {sched.stage = {{STAGE_COMPUTE}} : i32}
-      amdgcn.dealloc_lds %lds_b_h {sched.stage = {{STAGE_COMPUTE}} : i32}
+      amdgcn.dealloc_lds %lds_a_h {sched.stage = {{A_STAGE_COMPUTE}} : i32}
+      amdgcn.dealloc_lds %lds_b_h {sched.stage = {{A_STAGE_COMPUTE}} : i32}
     }
 
     // === Store results ===

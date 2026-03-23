@@ -1,9 +1,10 @@
-// Multi-workgroup multi-wave constexpr GEMM with direct-A (LDS bypass for A).
-// A operand: global_load_dwordx4 -> ds_bpermute_b32 -> MFMA (no LDS allocation).
-// B operand: global_load_dwordx4 -> LDS -> MFMA (unchanged from perf_001).
+// Multi-workgroup multi-wave constexpr GEMM with direct-B (LDS bypass for B).
+// A operand: global_load_dwordx4 -> LDS -> MFMA (standard path).
+// B operand: buffer_load_dwordx4 -> split vx4 -> MFMA (no LDS, no bpermute).
 // Uses 16x16x16 MFMA with dwordx4 global loads (16x32 transfer tiles).
 
 // Register type aliases
+!v   = !amdgcn.vgpr
 !sx2 = !amdgcn.sgpr<[? + 2]>
 !vx2 = !amdgcn.vgpr<[? + 2]>
 !vx4 = !amdgcn.vgpr<[? + 4]>
@@ -28,7 +29,7 @@
 !vals_b_buf = memref<?x!rt_B_f16>
 !c_buf = memref<?x!rt_C_f32>
 
-amdgcn.module @kittens_gemm_f16_direct_a target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @kittens_gemm_f16_direct_b target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Library functions
   func.func private @wave_id() -> index
   func.func private @zero_C() -> !rt_C_f32
@@ -42,8 +43,8 @@ amdgcn.module @kittens_gemm_f16_direct_a target = #amdgcn.target<gfx942> isa = #
 
 {{K_LOOP_HELPERS}}
 
-  // Multi-WG multi-wave GEMM: A via bpermute (no LDS), B via LDS.
-  amdgcn.kernel @gemm_f16_direct_a arguments <[
+  // Multi-WG multi-wave GEMM: A via LDS, B via bpermute (no LDS).
+  amdgcn.kernel @gemm_f16_direct_b arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = write_only>
@@ -68,25 +69,28 @@ amdgcn.module @kittens_gemm_f16_direct_a target = #amdgcn.target<gfx942> isa = #
     %stride_AB = arith.constant {{STRIDE_AB}} : index
     %stride_C = arith.constant {{STRIDE_C}} : index
     %K_tiles = arith.constant {{K_TILES}} : index
-    %tiles_per_slice_b = arith.constant {{B_TILES_PER_SLICE}} : index
+    %tiles_per_slice_a = arith.constant {{A_TILES_PER_SLICE}} : index
+    // Preshuffle B stride: (K / 32) * 1024 bytes.
+    %stride_n0_bytes = arith.constant {{STRIDE_N0_BYTES}} : index
 
-    // Delinearize flat block ID into (m_wg, n_wg) workgroup coordinates.
+    // WG tile offsets via layout
     %flat_id = gpu.block_id x
-    %c_M_WG = arith.constant {{M_WG}} : index
-    %c_N_WG = arith.constant {{N_WG}} : index
-    %m_wg, %n_wg = affine.delinearize_index %flat_id into (%c_M_WG, %c_N_WG) : index, index
+    %wg_m_off = layout.linearize %flat_id,
+        #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [{{M_TILES_WG}}, 0]>
+    %wg_n_off = layout.linearize %flat_id,
+        #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [0, {{N_TILES_WG}}]>
 
-    // Wave position within WG
+    // Wave tile offsets via layout (wave_m_off = wave_a_base)
     %wid = func.call @wave_id() : () -> index
-    %c_M_WAVES = arith.constant {{M_WAVES}} : index
-    %c_N_WAVES = arith.constant {{N_WAVES}} : index
-    %wave_m, %wave_n = affine.delinearize_index %wid into (%c_M_WAVES, %c_N_WAVES) : index, index
+    %wave_m_off = layout.linearize %wid,
+        #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [{{M_T}}, 0]>
+    %wave_n_off = layout.linearize %wid,
+        #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [0, {{N_T}}]>
 
-    %m_base = affine.apply affine_map<(mwg, wm)[mt_wg, mt] -> (mwg * mt_wg + wm * mt)>
-        (%m_wg, %wave_m)[%c_M_TILES_WG, %c_M_T]
-    %n_base = affine.apply affine_map<(nwg, wn)[nt_wg, nt] -> (nwg * nt_wg + wn * nt)>
-        (%n_wg, %wave_n)[%c_N_TILES_WG, %c_N_T]
-    %wave_b_base = affine.apply affine_map<(wn)[nt] -> (wn * nt)>(%wave_n)[%c_N_T]
+    // Compose: tile index = WG offset + wave offset
+    %m_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %wave_m_off)
+    %n_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %wave_n_off)
+    // wave_m_off doubles as wave_a_base (intra-WG LDS offset for A)
 
     // === Initialize accumulators ===
     %mn = affine.apply affine_map<()[m, n] -> (m * n)>()[%c_M_T, %c_N_T]
@@ -96,54 +100,47 @@ amdgcn.module @kittens_gemm_f16_direct_a target = #amdgcn.target<gfx942> isa = #
       memref.store %z, %C_buf[%i] : !c_buf
     } {aster.constexpr}
 
-    // === K-loop: A via bpermute, B via LDS ===
-    // Address computations are decoupled from memory ops so they can be
-    // repositioned to interleave with MFMA / hide latency.
+    // === K-loop: A via LDS, B direct (preshuffled, no LDS) ===
+    // Pipeline: A and B global loads at A_STAGE_LOAD,
+    //   A LDS write + B wait/split at A_STAGE_WRITE,
+    //   A LDS read at A_STAGE_READ,
+    //   MFMA at A_STAGE_COMPUTE.
     scf.for %k = %c0 to %K_tiles step %c_K_T {
 
-      // LDS only for B (A bypasses LDS entirely).
-      %lds_b_h = amdgcn.alloc_lds {{B_LDS_BYTES}} {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-      %base_b = amdgcn.get_lds_offset %lds_b_h {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32} : index
+      // LDS only for A.
+      %lds_a_h = amdgcn.alloc_lds {{A_LDS_BYTES}} {sched.stage = {{A_STAGE_LOAD}} : i32}
+      %base_a = amdgcn.get_lds_offset %lds_a_h {sched.stage = {{A_STAGE_LOAD}} : i32} : index
 
-      // Issue dwordx4 global loads for both A and B.
+      // --- A_STAGE_LOAD: issue A + B global loads ---
       %gfut_a = func.call @k_load_a_16x32_from_global(%c_M_T, %c_K_T, %A_rsrc, %k, %stride_AB, %m_base)
           : (index, index, !aster_utils.any, index, index, index) -> !gfut_a_buf
-      %gfut_b = func.call @k_load_b_16x32_from_global(%c_N_T, %c_K_T, %B_rsrc, %k, %stride_AB, %n_base)
-          : (index, index, !aster_utils.any, index, index, index) -> !gfut_b_buf
+      %gfut_b = func.call @k_load_b_direct(%c_N_T, %c_K_T, %B_rsrc, %k, %n_base)
+          : (index, index, !aster_utils.any, index, index) -> !gfut_b_buf
 
-      // --- Compute B LDS write addresses (overlaps with global load latency) ---
-      %lds_w_addrs_b = func.call @k_compute_lds_write_addrs_b(%c_N_T, %c_K_T, %base_b, %wave_b_base, %tiles_per_slice_b)
+      // --- A_STAGE_WRITE: A -> LDS write; B -> wait + split vx4 ---
+      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_m_off, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
-
-      // --- Compute B LDS read addresses (overlaps with global load latency) ---
-      %lds_r_addrs_b = func.call @k_compute_lds_read_addrs_b(%c_N_T, %c_K_T, %base_b, %wave_b_base, %tiles_per_slice_b)
+      %lds_r_addrs_a = func.call @k_compute_lds_read_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_m_off, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
+      %tok_a = func.call @k_store_to_lds_at_addrs_a(%lds_w_addrs_a, %c_M_T, %c_K_T, %gfut_a)
+          : (memref<?xindex>, index, index, !gfut_a_buf) -> !tok_a_buf
 
-      // --- Wait for B global loads + store to LDS at pre-computed addresses ---
-      %tok_b = func.call @k_store_to_lds_at_addrs_b(%lds_w_addrs_b, %c_N_T, %c_K_T, %gfut_b)
-          : (memref<?xindex>, index, index, !gfut_b_buf) -> !tok_b_buf
-
-      // --- Barrier then wait B LDS write tokens ---
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32}
-      func.call @k_wait_lds_writes(%tok_b)
+      // --- A_STAGE_READ: A barrier + LDS read ---
+      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{A_STAGE_READ}} : i32}
+      func.call @k_wait_lds_writes(%tok_a)
           : (memref<?x!lds_write_token>) -> ()
+      %a_fut = func.call @k_read_lds_at_addrs_a(%lds_r_addrs_a)
+          : (memref<?xindex>) -> !fut_a_buf
 
-      // --- Issue B LDS reads at pre-computed addresses ---
-      %b_fut = func.call @k_read_lds_at_addrs_b(%lds_r_addrs_b)
-          : (memref<?xindex>) -> !fut_b_buf
-
-      // A: issue bpermute permutations, returning futures (no waits yet).
-      %a_fut = func.call @k_extract_direct_a_futures(%c_M_T, %c_K_T, %gfut_a)
-          : (index, index, !gfut_a_buf) -> !fut_a_buf
-
-      // Wait + compute: resolves A (bpermute) and B (LDS) futures
-      // interleaved with MFMAs for maximum latency hiding.
+      // --- A_STAGE_COMPUTE: B wait+split+MFMA (B wait annotated DS_WRITE, MFMA at COMPUTE) ---
       %c_K_MFMA = affine.apply affine_map<()[k] -> (k * 2)>()[%c_K_T]
-      func.call @k_wait_and_compute_mfmas_direct_a(%c_M_T, %c_N_T, %c_K_MFMA, %a_fut, %b_fut, %C_buf)
-          : (index, index, index, !fut_a_buf, !fut_b_buf, !c_buf) -> ()
+      func.call @k_wait_split_compute_direct_b(%c_M_T, %c_N_T, %c_K_T, %c_K_MFMA,
+          %gfut_b, %a_fut, %C_buf)
+          : (index, index, index, index,
+             !gfut_b_buf, !fut_a_buf, !c_buf) -> ()
 
-      // Deallocate B LDS.
-      amdgcn.dealloc_lds %lds_b_h {sched.stage = {{STAGE_COMPUTE}} : i32}
+      // Deallocate A LDS.
+      amdgcn.dealloc_lds %lds_a_h {sched.stage = {{A_STAGE_COMPUTE}} : i32}
     }
 
     // === Store results ===

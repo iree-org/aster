@@ -7,14 +7,14 @@
 // 2x2 wave grid (waves_m=2, waves_n=2).
 //
 // 4-stage pipeline:
-//   STAGE_GLOBAL_LOAD: alloc + dwordx4 global loads
-//   STAGE_DS_WRITE:    store to LDS (2 tokens per tile)
-//   STAGE_DS_READ:     wait + barrier + read K0/K1 sub-tiles
-//   STAGE_COMPUTE:     2 MFMAs (K0 + K1) + dealloc
+//   A_STAGE_LOAD: alloc + dwordx4 global loads
+//   A_STAGE_WRITE:    store to LDS (2 tokens per tile)
+//   A_STAGE_READ:     wait + barrier + read K0/K1 sub-tiles
+//   A_STAGE_COMPUTE:     2 MFMAs (K0 + K1) + dealloc
 //
 // Template parameters:
 //   {{K}}, {{K_TILES}}, {{STRIDE_AB}}
-//   {{STAGE_GLOBAL_LOAD}}, {{STAGE_DS_WRITE}}, {{STAGE_DS_READ}}, {{STAGE_COMPUTE}}
+//   {{A_STAGE_LOAD}}, {{A_STAGE_WRITE}}, {{A_STAGE_READ}}, {{A_STAGE_COMPUTE}}
 
 // Type aliases
 !sx2 = !amdgcn.sgpr<[? + 2]>
@@ -65,11 +65,12 @@ amdgcn.module @kittens_gemm_4wave_lds_pipelined target = #amdgcn.target<gfx942> 
     %stride_C = arith.constant 128 : index
     %K_tiles = arith.constant {{K_TILES}} : index
 
-    // Wave position in 2x2 grid
+    // Wave tile offsets via layout (2x2 wave grid)
     %wid = func.call @wave_id() : () -> index
+    %m_offset = layout.linearize %wid, #layout.strided_layout<[2, 2] : [16, 0]>
+    %n_offset = layout.linearize %wid, #layout.strided_layout<[2, 2] : [0, 16]>
+    // Wave coordinates for LDS buffer selection (runtime strides)
     %wave_m, %wave_n = affine.delinearize_index %wid into (%c2, %c2) : index, index
-    %m_offset = affine.apply affine_map<()[wm] -> (wm * 16)>()[%wave_m]
-    %n_offset = affine.apply affine_map<()[wn] -> (wn * 16)>()[%wave_n]
 
     %C_init = func.call @zero_C() : () -> !rt_C_f32
 
@@ -77,24 +78,24 @@ amdgcn.module @kittens_gemm_4wave_lds_pipelined target = #amdgcn.target<gfx942> 
       %k_offset = affine.apply affine_map<(k) -> (k * 32)>(%k)
 
       // === Stage GLOBAL_LOAD ===
-      %lds_a0_h = amdgcn.alloc_lds 1024 {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-      %lds_a1_h = amdgcn.alloc_lds 1024 {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-      %lds_b0_h = amdgcn.alloc_lds 1024 {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
-      %lds_b1_h = amdgcn.alloc_lds 1024 {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+      %lds_a0_h = amdgcn.alloc_lds 1024 {sched.stage = {{A_STAGE_LOAD}} : i32}
+      %lds_a1_h = amdgcn.alloc_lds 1024 {sched.stage = {{A_STAGE_LOAD}} : i32}
+      %lds_b0_h = amdgcn.alloc_lds 1024 {sched.stage = {{A_STAGE_LOAD}} : i32}
+      %lds_b1_h = amdgcn.alloc_lds 1024 {sched.stage = {{A_STAGE_LOAD}} : i32}
 
       %A_gfut = func.call @load_global_tile_16x64_b(%A_ptr, %m_offset, %k_offset, %stride_AB)
-          {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+          {sched.stage = {{A_STAGE_LOAD}} : i32}
           : (!aster_utils.any, index, index, index) -> !future_global_read
       %B_gfut = func.call @load_global_tile_16x64_b(%B_ptr, %n_offset, %k_offset, %stride_AB)
-          {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+          {sched.stage = {{A_STAGE_LOAD}} : i32}
           : (!aster_utils.any, index, index, index) -> !future_global_read
 
       // === Stage DS_WRITE ===
       // Select this wave's A/B LDS buffer via wave_m/wave_n
-      %lds_A0 = amdgcn.get_lds_offset %lds_a0_h {sched.stage = {{STAGE_DS_WRITE}} : i32} : index
-      %lds_A1 = amdgcn.get_lds_offset %lds_a1_h {sched.stage = {{STAGE_DS_WRITE}} : i32} : index
-      %lds_B0 = amdgcn.get_lds_offset %lds_b0_h {sched.stage = {{STAGE_DS_WRITE}} : i32} : index
-      %lds_B1 = amdgcn.get_lds_offset %lds_b1_h {sched.stage = {{STAGE_DS_WRITE}} : i32} : index
+      %lds_A0 = amdgcn.get_lds_offset %lds_a0_h {sched.stage = {{A_STAGE_WRITE}} : i32} : index
+      %lds_A1 = amdgcn.get_lds_offset %lds_a1_h {sched.stage = {{A_STAGE_WRITE}} : i32} : index
+      %lds_B0 = amdgcn.get_lds_offset %lds_b0_h {sched.stage = {{A_STAGE_WRITE}} : i32} : index
+      %lds_B1 = amdgcn.get_lds_offset %lds_b1_h {sched.stage = {{A_STAGE_WRITE}} : i32} : index
 
       %lds_A_stride = affine.apply affine_map<()[a0, a1] -> (a1 - a0)>()[%lds_A0, %lds_A1]
       %lds_A = affine.apply affine_map<()[base, wm, stride] -> (base + wm * stride)>
@@ -104,52 +105,52 @@ amdgcn.module @kittens_gemm_4wave_lds_pipelined target = #amdgcn.target<gfx942> 
           ()[%lds_B0, %wave_n, %lds_B_stride]
 
       %tok_A0, %tok_A1 = func.call @store_global_tile_to_lds_16x64_b(%lds_A, %A_gfut)
-          {sched.stage = {{STAGE_DS_WRITE}} : i32}
+          {sched.stage = {{A_STAGE_WRITE}} : i32}
           : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
       %tok_B0, %tok_B1 = func.call @store_global_tile_to_lds_16x64_b(%lds_B, %B_gfut)
-          {sched.stage = {{STAGE_DS_WRITE}} : i32}
+          {sched.stage = {{A_STAGE_WRITE}} : i32}
           : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
 
       // === Stage DS_READ: Wait + barrier + read K0/K1 ===
-      amdgcn.wait deps %tok_A0 {sched.stage = {{STAGE_DS_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tok_A1 {sched.stage = {{STAGE_DS_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tok_B0 {sched.stage = {{STAGE_DS_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tok_B1 {sched.stage = {{STAGE_DS_READ}} : i32} : !lds_write_token
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{STAGE_DS_READ}} : i32}
+      amdgcn.wait deps %tok_A0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
+      amdgcn.wait deps %tok_A1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
+      amdgcn.wait deps %tok_B0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
+      amdgcn.wait deps %tok_B1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
+      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{A_STAGE_READ}} : i32}
 
       // K0 sub-tiles (byte offset 0 within LDS row)
       %A0_fut = func.call @load_lds_A_swizzled(%lds_A, %c0, %c2)
-          {sched.stage = {{STAGE_DS_READ}} : i32} : (index, index, index) -> !future_lds_read
+          {sched.stage = {{A_STAGE_READ}} : i32} : (index, index, index) -> !future_lds_read
       %B0_fut = func.call @load_lds_B_swizzled(%lds_B, %c0, %c2)
-          {sched.stage = {{STAGE_DS_READ}} : i32} : (index, index, index) -> !future_lds_read
+          {sched.stage = {{A_STAGE_READ}} : i32} : (index, index, index) -> !future_lds_read
 
       // K1 sub-tiles (byte offset 32 within LDS row)
       %A1_fut = func.call @load_lds_A_swizzled(%lds_A, %c32, %c2)
-          {sched.stage = {{STAGE_DS_READ}} : i32} : (index, index, index) -> !future_lds_read
+          {sched.stage = {{A_STAGE_READ}} : i32} : (index, index, index) -> !future_lds_read
       %B1_fut = func.call @load_lds_B_swizzled(%lds_B, %c32, %c2)
-          {sched.stage = {{STAGE_DS_READ}} : i32} : (index, index, index) -> !future_lds_read
+          {sched.stage = {{A_STAGE_READ}} : i32} : (index, index, index) -> !future_lds_read
 
       // === Stage COMPUTE: 2 MFMAs (K0 + K1) ===
       %A0 = func.call @get_lds_read_value_vx2(%A0_fut)
-          {sched.stage = {{STAGE_COMPUTE}} : i32} : (!future_lds_read) -> !rt_A_f16
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32} : (!future_lds_read) -> !rt_A_f16
       %B0 = func.call @get_lds_read_value_vx2(%B0_fut)
-          {sched.stage = {{STAGE_COMPUTE}} : i32} : (!future_lds_read) -> !rt_B_f16
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32} : (!future_lds_read) -> !rt_B_f16
       %acc_k0 = func.call @mfma_f32_16x16x16_f16(%A0, %B0, %acc)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32}
           : (!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
 
       %A1 = func.call @get_lds_read_value_vx2(%A1_fut)
-          {sched.stage = {{STAGE_COMPUTE}} : i32} : (!future_lds_read) -> !rt_A_f16
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32} : (!future_lds_read) -> !rt_A_f16
       %B1 = func.call @get_lds_read_value_vx2(%B1_fut)
-          {sched.stage = {{STAGE_COMPUTE}} : i32} : (!future_lds_read) -> !rt_B_f16
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32} : (!future_lds_read) -> !rt_B_f16
       %acc_k1 = func.call @mfma_f32_16x16x16_f16(%A1, %B1, %acc_k0)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32}
           : (!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
 
-      amdgcn.dealloc_lds %lds_a0_h {sched.stage = {{STAGE_COMPUTE}} : i32}
-      amdgcn.dealloc_lds %lds_a1_h {sched.stage = {{STAGE_COMPUTE}} : i32}
-      amdgcn.dealloc_lds %lds_b0_h {sched.stage = {{STAGE_COMPUTE}} : i32}
-      amdgcn.dealloc_lds %lds_b1_h {sched.stage = {{STAGE_COMPUTE}} : i32}
+      amdgcn.dealloc_lds %lds_a0_h {sched.stage = {{A_STAGE_COMPUTE}} : i32}
+      amdgcn.dealloc_lds %lds_a1_h {sched.stage = {{A_STAGE_COMPUTE}} : i32}
+      amdgcn.dealloc_lds %lds_b0_h {sched.stage = {{A_STAGE_COMPUTE}} : i32}
+      amdgcn.dealloc_lds %lds_b1_h {sched.stage = {{A_STAGE_COMPUTE}} : i32}
 
       scf.yield %acc_k1 : !rt_C_f32
     }

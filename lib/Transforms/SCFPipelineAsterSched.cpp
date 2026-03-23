@@ -121,6 +121,7 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
   }
 
   // Collect stage assignments, op program order, and maximum loop stage.
+  // First pass: read explicit sched.stage attributes (default 0).
   info.maxStage = 0;
   for (Operation &op : originalForOp.getBody()->without_terminator()) {
     int64_t stage = getStage(&op);
@@ -132,6 +133,31 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
   // If no stages are assigned, no pipelining is needed.
   if (info.maxStage == 0)
     return success();
+
+  // Second pass: propagate stages to unannotated ops. An op without an
+  // explicit sched.stage inherits the maximum stage of its operands'
+  // defining ops (within the loop body). This prevents pure register ops
+  // like split_register_range / make_register_range from defaulting to
+  // stage 0 when they consume values from later stages.
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (Operation *op : info.opOrder) {
+      if (op->hasAttr(kSchedStageAttr))
+        continue; // explicitly annotated, don't override
+      int64_t maxOperandStage = 0;
+      for (Value operand : op->getOperands()) {
+        auto *defOp = operand.getDefiningOp();
+        if (!defOp || !info.stages.count(defOp))
+          continue;
+        maxOperandStage = std::max(maxOperandStage, info.stages[defOp]);
+      }
+      if (maxOperandStage > info.stages[op]) {
+        info.stages[op] = maxOperandStage;
+        changed = true;
+      }
+    }
+  }
 
   // Check if the loop has enough iterations for the pipeline stages.
   // Skip when upper bound is dynamic (runtime responsibility).

@@ -45,7 +45,7 @@
         %m_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 16)>(%i)[%m_base]
         %idx = affine.linearize_index [%kt, %i] by (%k_t, %m_t) : index
         %fut = func.call @load_global_tile_16x64_b(%A_ptr, %m_off, %k_offset, %stride_AB)
-            {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+            {sched.stage = {{A_STAGE_LOAD}} : i32}
             : (!aster_utils.any, index, index, index) -> !future_global_read
         memref.store %fut, %gfut_a[%idx] : !gfut_a_buf
       } {aster.constexpr}
@@ -68,7 +68,7 @@
         %n_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 16)>(%i)[%n_base]
         %idx = affine.linearize_index [%kt, %i] by (%k_t, %n_t) : index
         %fut = func.call @load_global_tile_16x64_b(%B_ptr, %n_off, %k_offset, %stride_AB)
-            {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+            {sched.stage = {{A_STAGE_LOAD}} : i32}
             : (!aster_utils.any, index, index, index) -> !future_global_read
         memref.store %fut, %gfut_b[%idx] : !gfut_b_buf
       } {aster.constexpr}
@@ -89,7 +89,7 @@
         %m_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 16)>(%i)[%m_base]
         %idx = affine.linearize_index [%kt, %i] by (%k_t, %m_t) : index
         %byte_off = func.call @compute_global_byte_off_16x64_b(%m_off, %k_offset, %stride_AB)
-            {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+            {sched.stage = {{A_STAGE_LOAD}} : i32}
             : (index, index, index) -> index
         memref.store %byte_off, %addrs[%idx] : memref<?xindex>
       } {aster.constexpr}
@@ -110,7 +110,7 @@
         %n_off = affine.apply affine_map<(d0)[s0] -> ((s0 + d0) * 16)>(%i)[%n_base]
         %idx = affine.linearize_index [%kt, %i] by (%k_t, %n_t) : index
         %byte_off = func.call @compute_global_byte_off_16x64_b(%n_off, %k_offset, %stride_AB)
-            {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+            {sched.stage = {{A_STAGE_LOAD}} : i32}
             : (index, index, index) -> index
         memref.store %byte_off, %addrs[%idx] : memref<?xindex>
       } {aster.constexpr}
@@ -128,7 +128,7 @@
     scf.for %idx = %c0 to %buf_size step %c1 {
       %byte_off = memref.load %addrs[%idx] : memref<?xindex>
       %fut = func.call @load_global_at_byte_off(%A_ptr, %byte_off)
-          {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+          {sched.stage = {{A_STAGE_LOAD}} : i32}
           : (!aster_utils.any, index) -> !future_global_read
       memref.store %fut, %gfut_a[%idx] : !gfut_a_buf
     } {aster.constexpr}
@@ -145,7 +145,7 @@
     scf.for %idx = %c0 to %buf_size step %c1 {
       %byte_off = memref.load %addrs[%idx] : memref<?xindex>
       %fut = func.call @load_global_at_byte_off(%B_ptr, %byte_off)
-          {sched.stage = {{STAGE_GLOBAL_LOAD}} : i32}
+          {sched.stage = {{A_STAGE_LOAD}} : i32}
           : (!aster_utils.any, index) -> !future_global_read
       memref.store %fut, %gfut_b[%idx] : !gfut_b_buf
     } {aster.constexpr}
@@ -174,7 +174,7 @@
         %gfut_idx = affine.linearize_index [%kt, %i] by (%k_t, %m_t) : index
         %gfut = memref.load %gfut_a[%gfut_idx] : !gfut_a_buf
         %tok_lo, %tok_hi = func.call @store_global_tile_to_lds_16x64_b(%off, %gfut)
-            {sched.stage = {{STAGE_DS_WRITE}} : i32}
+            {sched.stage = {{A_STAGE_WRITE}} : i32}
             : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
         // Store both tokens at consecutive indices: 2*(kt*m_t+i) and 2*(kt*m_t+i)+1
         %tok_idx_lo = affine.apply affine_map<(d0)[s0] -> (d0 * s0 * 2)>(%kt)[%m_t]
@@ -202,7 +202,7 @@
         %gfut_idx = affine.linearize_index [%kt, %i] by (%k_t, %n_t) : index
         %gfut = memref.load %gfut_b[%gfut_idx] : !gfut_b_buf
         %tok_lo, %tok_hi = func.call @store_global_tile_to_lds_16x64_b(%off, %gfut)
-            {sched.stage = {{STAGE_DS_WRITE}} : i32}
+            {sched.stage = {{A_STAGE_WRITE}} : i32}
             : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
         %tok_idx_lo = affine.apply affine_map<(d0)[s0] -> (d0 * s0 * 2)>(%kt)[%n_t]
         %tok_idx_lo2 = affine.apply affine_map<(d0, d1) -> (d0 + d1 * 2)>(%tok_idx_lo, %i)
@@ -227,7 +227,7 @@
         %off = affine.apply affine_map<(kt, i)[base, wab, tps] -> (base + (kt * tps + wab + i) * 1024)>
             (%kt, %i)[%base_a, %wave_a_base, %tiles_per_slice]
         %addr_lo, %addr_hi = func.call @compute_lds_write_addrs_16x64_b(%off)
-            {sched.stage = {{STAGE_DS_WRITE}} : i32}
+            {sched.stage = {{A_STAGE_WRITE}} : i32}
             : (index) -> (index, index)
         %addr_idx_lo = affine.apply affine_map<(d0)[s0] -> (d0 * s0 * 2)>(%kt)[%m_t]
         %addr_idx_lo2 = affine.apply affine_map<(d0, d1) -> (d0 + d1 * 2)>(%addr_idx_lo, %i)
@@ -251,7 +251,7 @@
         %off = affine.apply affine_map<(kt, i)[base, wbb, tps] -> (base + (kt * tps + wbb + i) * 1024)>
             (%kt, %i)[%base_b, %wave_b_base, %tiles_per_slice]
         %addr_lo, %addr_hi = func.call @compute_lds_write_addrs_16x64_b(%off)
-            {sched.stage = {{STAGE_DS_WRITE}} : i32}
+            {sched.stage = {{A_STAGE_WRITE}} : i32}
             : (index) -> (index, index)
         %addr_idx_lo = affine.apply affine_map<(d0)[s0] -> (d0 * s0 * 2)>(%kt)[%n_t]
         %addr_idx_lo2 = affine.apply affine_map<(d0, d1) -> (d0 + d1 * 2)>(%addr_idx_lo, %i)
@@ -275,7 +275,7 @@
         %gfut_idx = affine.linearize_index [%kt, %i] by (%k_t, %m_t) : index
         %gfut = memref.load %gfut_a[%gfut_idx] : !gfut_a_buf
         %loaded = func.call @get_global_load_value_vx4(%gfut)
-            {sched.stage = {{STAGE_DS_WRITE}} : i32}
+            {sched.stage = {{A_STAGE_WRITE}} : i32}
             : (!future_global_read) -> !vx4
         %tok_idx_lo = affine.apply affine_map<(d0)[s0] -> (d0 * s0 * 2)>(%kt)[%m_t]
         %tok_idx_lo2 = affine.apply affine_map<(d0, d1) -> (d0 + d1 * 2)>(%tok_idx_lo, %i)
@@ -283,7 +283,7 @@
         %addr_lo = memref.load %addrs[%tok_idx_lo2] : memref<?xindex>
         %addr_hi = memref.load %addrs[%tok_idx_hi] : memref<?xindex>
         %tok_lo, %tok_hi = func.call @write_vx4_to_lds_at(%loaded, %addr_lo, %addr_hi)
-            {sched.stage = {{STAGE_DS_WRITE}} : i32}
+            {sched.stage = {{A_STAGE_WRITE}} : i32}
             : (!vx4, index, index) -> (!lds_write_token, !lds_write_token)
         memref.store %tok_lo, %tok_a[%tok_idx_lo2] : !tok_a_buf
         memref.store %tok_hi, %tok_a[%tok_idx_hi] : !tok_a_buf
@@ -304,7 +304,7 @@
         %gfut_idx = affine.linearize_index [%kt, %i] by (%k_t, %n_t) : index
         %gfut = memref.load %gfut_b[%gfut_idx] : !gfut_b_buf
         %loaded = func.call @get_global_load_value_vx4(%gfut)
-            {sched.stage = {{STAGE_DS_WRITE}} : i32}
+            {sched.stage = {{A_STAGE_WRITE}} : i32}
             : (!future_global_read) -> !vx4
         %tok_idx_lo = affine.apply affine_map<(d0)[s0] -> (d0 * s0 * 2)>(%kt)[%n_t]
         %tok_idx_lo2 = affine.apply affine_map<(d0, d1) -> (d0 + d1 * 2)>(%tok_idx_lo, %i)
@@ -312,7 +312,7 @@
         %addr_lo = memref.load %addrs[%tok_idx_lo2] : memref<?xindex>
         %addr_hi = memref.load %addrs[%tok_idx_hi] : memref<?xindex>
         %tok_lo, %tok_hi = func.call @write_vx4_to_lds_at(%loaded, %addr_lo, %addr_hi)
-            {sched.stage = {{STAGE_DS_WRITE}} : i32}
+            {sched.stage = {{A_STAGE_WRITE}} : i32}
             : (!vx4, index, index) -> (!lds_write_token, !lds_write_token)
         memref.store %tok_lo, %tok_b[%tok_idx_lo2] : !tok_b_buf
         memref.store %tok_hi, %tok_b[%tok_idx_hi] : !tok_b_buf
@@ -332,7 +332,7 @@
     %tok_count = memref.dim %tok_buf, %c0 : memref<?x!lds_write_token>
     scf.for %idx = %c0 to %tok_count step %c1 {
       %tok = memref.load %tok_buf[%idx] : memref<?x!lds_write_token>
-      amdgcn.wait deps %tok {sched.stage = {{STAGE_DS_READ}} : i32} : !lds_write_token
+      amdgcn.wait deps %tok {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
     } {aster.constexpr}
     return
   }
@@ -358,7 +358,7 @@
           %k_mfma_idx = affine.apply affine_map<(kt, kh) -> (kt * 2 + kh)>(%kt, %kh)
           %buf_idx = affine.linearize_index [%k_mfma_idx, %i] by (%k_mfma_total, %m_t) : index
           %fut = func.call @load_lds_A_swizzled(%tile_off, %k_byte_offset, %c2)
-              {sched.stage = {{STAGE_DS_READ}} : i32}
+              {sched.stage = {{A_STAGE_READ}} : i32}
               : (index, index, index) -> !future_lds_read
           memref.store %fut, %a_fut[%buf_idx] : !fut_a_buf
         } {aster.constexpr}
@@ -385,7 +385,7 @@
           %k_mfma_idx = affine.apply affine_map<(kt, kh) -> (kt * 2 + kh)>(%kt, %kh)
           %buf_idx = affine.linearize_index [%k_mfma_idx, %i] by (%k_mfma_total, %n_t) : index
           %fut = func.call @load_lds_B_swizzled(%tile_off, %k_byte_offset, %c2)
-              {sched.stage = {{STAGE_DS_READ}} : i32}
+              {sched.stage = {{A_STAGE_READ}} : i32}
               : (index, index, index) -> !future_lds_read
           memref.store %fut, %b_fut[%buf_idx] : !fut_b_buf
         } {aster.constexpr}
@@ -412,7 +412,7 @@
           %k_mfma_idx = affine.apply affine_map<(kt, kh) -> (kt * 2 + kh)>(%kt, %kh)
           %buf_idx = affine.linearize_index [%k_mfma_idx, %i] by (%k_mfma_total, %m_t) : index
           %addr = func.call @compute_lds_read_addr_A(%tile_off, %k_byte_offset, %c2)
-              {sched.stage = {{STAGE_DS_READ}} : i32}
+              {sched.stage = {{A_STAGE_READ}} : i32}
               : (index, index, index) -> index
           memref.store %addr, %addrs[%buf_idx] : memref<?xindex>
         } {aster.constexpr}
@@ -439,7 +439,7 @@
           %k_mfma_idx = affine.apply affine_map<(kt, kh) -> (kt * 2 + kh)>(%kt, %kh)
           %buf_idx = affine.linearize_index [%k_mfma_idx, %i] by (%k_mfma_total, %n_t) : index
           %addr = func.call @compute_lds_read_addr_B(%tile_off, %k_byte_offset, %c2)
-              {sched.stage = {{STAGE_DS_READ}} : i32}
+              {sched.stage = {{A_STAGE_READ}} : i32}
               : (index, index, index) -> index
           memref.store %addr, %addrs[%buf_idx] : memref<?xindex>
         } {aster.constexpr}
@@ -457,7 +457,7 @@
     scf.for %idx = %c0 to %buf_size step %c1 {
       %addr = memref.load %addrs[%idx] : memref<?xindex>
       %fut = func.call @read_vx2_from_lds_at(%addr)
-          {sched.stage = {{STAGE_DS_READ}} : i32}
+          {sched.stage = {{A_STAGE_READ}} : i32}
           : (index) -> !future_lds_read
       memref.store %fut, %a_fut[%idx] : !fut_a_buf
     } {aster.constexpr}
@@ -473,7 +473,7 @@
     scf.for %idx = %c0 to %buf_size step %c1 {
       %addr = memref.load %addrs[%idx] : memref<?xindex>
       %fut = func.call @read_vx2_from_lds_at(%addr)
-          {sched.stage = {{STAGE_DS_READ}} : i32}
+          {sched.stage = {{A_STAGE_READ}} : i32}
           : (index) -> !future_lds_read
       memref.store %fut, %b_fut[%idx] : !fut_b_buf
     } {aster.constexpr}
@@ -501,18 +501,18 @@
       // Wait + extract A and B (redundant waits are no-ops)
       %fut_a = memref.load %a_fut[%a_idx] : !fut_a_buf
       %a = func.call @get_lds_read_value_vx2(%fut_a)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32}
           : (!future_lds_read) -> !rt_A_f16
       %fut_b = memref.load %b_fut[%b_idx] : !fut_b_buf
       %b = func.call @get_lds_read_value_vx2(%fut_b)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32}
           : (!future_lds_read) -> !rt_B_f16
 
       // MFMA
       %c_idx = affine.linearize_index [%mt, %nt] by (%m_t, %n_t) : index
       %c_old = memref.load %c_buf[%c_idx] : !c_buf
       %c_new = func.call @mfma_f32_16x16x16_f16(%a, %b, %c_old)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32}
           : (!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
       memref.store %c_new, %c_buf[%c_idx] : !c_buf
     } {aster.constexpr}
@@ -528,7 +528,7 @@
     scf.for %idx = %c0 to %buf_size step %c1 {
       %fut = memref.load %a_fut[%idx] : !fut_a_buf
       %a = func.call @get_lds_read_value_vx2(%fut)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32}
           : (!future_lds_read) -> !rt_A_f16
       memref.store %a, %a_vals[%idx] : !vals_a_buf
     } {aster.constexpr}
@@ -544,7 +544,7 @@
     scf.for %idx = %c0 to %buf_size step %c1 {
       %fut = memref.load %b_fut[%idx] : !fut_b_buf
       %b = func.call @get_lds_read_value_vx2(%fut)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32}
           : (!future_lds_read) -> !rt_B_f16
       memref.store %b, %b_vals[%idx] : !vals_b_buf
     } {aster.constexpr}
@@ -567,7 +567,7 @@
       %a = memref.load %a_vals[%a_idx] : !vals_a_buf
       %b = memref.load %b_vals[%b_idx] : !vals_b_buf
       %c_new = func.call @mfma_f32_16x16x16_f16(%a, %b, %c_old)
-          {sched.stage = {{STAGE_COMPUTE}} : i32}
+          {sched.stage = {{A_STAGE_COMPUTE}} : i32}
           : (!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
       memref.store %c_new, %c_buf[%c_idx] : !c_buf
     } {aster.constexpr}

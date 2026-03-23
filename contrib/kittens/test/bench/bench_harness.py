@@ -298,11 +298,24 @@ def _verify_worker(args):
     """
     from aster.execution.core import execute_hsaco, InputArray, OutputArray
 
-    label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k = args
+    label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, *extra = args
+    direct_b = extra[0] if extra else False
+    direct_a = extra[1] if len(extra) > 1 else False
     try:
         np.random.seed(42)
         A = (np.random.randn(m, k) * 0.1).astype(np.float16)
         B = (np.random.randn(n, k) * 0.1).astype(np.float16)
+        # Reference uses original row-major A and B.
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        # Preshuffle for GPU (after computing reference).
+        if direct_a:
+            from kittens_helpers import shuffle_weight
+
+            A = shuffle_weight(A)
+        if direct_b:
+            from kittens_helpers import shuffle_weight
+
+            B = shuffle_weight(B)
         C = np.zeros(m * n, dtype=np.float32)
         execute_hsaco(
             hsaco_path=hsaco_path,
@@ -316,7 +329,6 @@ def _verify_worker(args):
             block_dim=(num_threads, 1, 1),
             num_iterations=1,
         )
-        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C, expected, rtol=1e-2, atol=1e-2)
         return label, None
     except AssertionError:
@@ -457,6 +469,8 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
             cfg.m_dim,
             cfg.n_dim,
             cfg.k,
+            getattr(cfg, "direct_b", False),
+            getattr(cfg, "direct_a", False),
         )
         per_gpu[idx % num_gpus].append(item)
         idx += 1

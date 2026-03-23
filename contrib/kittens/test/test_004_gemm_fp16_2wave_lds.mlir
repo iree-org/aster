@@ -71,9 +71,9 @@ amdgcn.module @kittens_gemm_2wave_lds target = #amdgcn.target<gfx942> isa = #amd
     // Number of K tiles (K / 32)
     %K_tiles = arith.constant {{K_TILES}} : index
 
-    // Wave position: m_offset = wave_id * 16
+    // Wave position: layout maps wave_id -> M tile offset
     %wid = func.call @wave_id() : () -> index
-    %m_offset = affine.apply affine_map<()[wid] -> (wid * 16)>()[%wid]
+    %m_offset = layout.linearize %wid, #layout.strided_layout<[2] : [16]>
 
     // Allocate LDS: 3 tiles (A0 for wave 0, A1 for wave 1, B shared)
     %lds_a0_h = amdgcn.alloc_lds 1024

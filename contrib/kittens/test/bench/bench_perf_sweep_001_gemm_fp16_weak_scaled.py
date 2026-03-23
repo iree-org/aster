@@ -4,24 +4,24 @@ Phase 1: Parallel compilation (MLIR -> HSACO) across all configs.
 Phase 2: Parallel GPU execution with round-robin across available GPUs,
          each config in its own subprocess for crash isolation.
 
-Sweep axes: load_type (flat/buffer) x a_path (lds/direct) x unroll_multiplier (1,2,3).
-By default sweeps all implemented (a_path, load_type) combos.
+Sweep axes: load_type (flat/buffer) x b_path (lds/direct) x unroll_multiplier (1,2,3).
+By default sweeps all implemented (b_path, load_type) combos.
 
 Usage (sweep):
     python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep
     python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --full-sweep
     python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --use-buffer   # buffer only
     python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --use-flat     # flat only
-    python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --direct-a     # direct-A only
+    python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --direct-b     # direct-B only
     python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py --sweep --num-gpus 8 --compile-workers 16
 
 Usage (single config):
     python .../bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
         --m-wg 38 --n-wg 32 --m-waves 2 --n-waves 2 \
-        --m-tiles-wg 4 --n-tiles-wg 4 --k-tiles 1 --stages 2 --k-scaling-factor 128
+        --m-tiles-wg 4 --n-tiles-wg 4 --k-tiles 1 --a-stages 2 --k-scaling-factor 128
     ... --use-flat      # flat memory ops (default)
     ... --use-buffer    # buffer memory ops
-    ... --direct-a      # A via bpermute (LDS bypass)
+    ... --direct-b      # B via bpermute (LDS bypass)
 
 Usage (compile only / execute pre-compiled HSACO):
     ... --compile-only --hsaco /tmp/output.hsaco
@@ -35,7 +35,7 @@ os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
 
 # IMPORTANT: Top configs to run by default. If non-empty, only these labels are run
 # unless --full-sweep is passed. Empty list = full sweep (need to populate after first sweep).
-# Label suffix scheme: _flat, _buf (LDS path), _direct_flat, _direct_buf (direct-A path).
+# Label suffix scheme: _flat, _buf (LDS path), _direct_flat, _direct_buf (direct-B path).
 _TOP_K_BASE = [
     "m3648xn4096xk4096_wg38x16_w2x2_twg6x16x1_s2_direct_flat",
     "m4864xn4096xk8192_wg38x32_w2x2_twg8x8x1_s2_direct_flat",
@@ -84,7 +84,11 @@ from bench_harness import (
 
 # Sweep grid -- 16x16 MFMA with dwordx4: 4 VGPRs per C tile (vs 16 for 32x32).
 # More tiles feasible per wave, so wider multiples than 32x32 variant.
-STAGE_CONFIGS = [2, 3, 4, 5]
+STAGE_CONFIGS = [2, 3, 4, 5]  # A pipeline depth (LDS path stages)
+# B pipeline depth for direct_b (independent from A).
+# b_stages = gap between b_load and b_compute + 1.
+# 1 = B not pipelined; 2 = 1 stage lookahead; 3-6 = deeper lookahead.
+B_STAGE_CONFIGS = [1, 2, 3, 4, 5, 6]
 # Wave configs: multiples-of-4 wave counts split across MxN.
 # n_waves must be a power of 2 (delinearize from 1-D block ID).
 _WAVE_BASES = [(1, 4), (2, 2), (4, 1)]
@@ -136,6 +140,11 @@ def _precompile_reject_reason(cfg, check_regs=True):
     """Return rejection reason string, or None if config passes pre-compile filter."""
     from aster.compiler.metadata import KernelResources
 
+    # Pipeline depth must not exceed K-tile iterations.
+    k_iters = cfg.k // (cfg.k_tiles * 32)
+    if k_iters <= cfg.pipeline_depth:
+        return f"K iterations ({k_iters}) <= pipeline depth ({cfg.pipeline_depth})"
+
     est = KernelResources(
         vgpr_count=cfg.estimated_vgprs if check_regs else 0,
         agpr_count=cfg.estimated_agprs if check_regs else 0,
@@ -159,10 +168,10 @@ def fits_on_cu_post_compile(cfg, res):
     return True
 
 
-def _make_label_suffix(a_path, load_type):
-    """Build label suffix from a_path and load_type, e.g. '_flat', '_buf', '_direct_flat'."""
+def _make_label_suffix(b_path, load_type):
+    """Build label suffix from b_path and load_type, e.g. '_flat', '_buf', '_direct_flat'."""
     lt = "buf" if load_type == "buffer" else "flat"
-    return f"_direct_{lt}" if a_path == "direct" else f"_{lt}"
+    return f"_direct_{lt}" if b_path == "direct" else f"_{lt}"
 
 
 def _generate_configs(
@@ -171,7 +180,7 @@ def _generate_configs(
     """Generate the full sweep grid, filtering for divisibility and minimum dimensions.
 
     Args:
-        variants: list of (a_path, load_type) tuples to sweep.
+        variants: list of (b_path, load_type) tuples to sweep.
             Defaults to all implemented combos from MLIR_FILES.
         sample_size: If > 0, randomly sample this many configs from the full grid.
             Set to 0 to return all configs.
@@ -187,10 +196,10 @@ def _generate_configs(
         variants = list(MLIR_FILES.keys())
     configs = []
     filtered = []
-    for a_path, load_type in variants:
-        if (a_path, load_type) not in MLIR_FILES:
+    for b_path, load_type in variants:
+        if (b_path, load_type) not in MLIR_FILES:
             continue
-        suffix = _make_label_suffix(a_path, load_type)
+        suffix = _make_label_suffix(b_path, load_type)
         for k_factor in K_SCALING_FACTORS:
             for m_w, n_w in WAVE_CONFIGS:
                 num_waves = m_w * n_w
@@ -208,41 +217,47 @@ def _generate_configs(
                             if m_twg % m_w != 0 or n_twg % n_w != 0:
                                 continue
                             for stages in STAGE_CONFIGS:
-                                for lcm in LCM_UNROLL_CONFIGS:
-                                    for um in (UNROLL_MULTIPLIERS if lcm else [1]):
-                                        for ep in EPILOGUE_PEELING_CONFIGS:
-                                            k = k_factor * k_t * 32
-                                            cfg = WeakScaleConfig(
-                                                m_wg,
-                                                n_wg,
-                                                m_w,
-                                                n_w,
-                                                m_twg,
-                                                n_twg,
-                                                k_t,
-                                                stages,
-                                                k,
-                                                load_type=load_type,
-                                                a_path=a_path,
-                                                num_wg_per_cu=num_wg_per_cu,
-                                                lcm_unroll=lcm,
-                                                unroll_factor_multiplier=um,
-                                                epilogue_peeling=ep,
-                                                _label_suffix=suffix,
-                                            )
-                                            if (
-                                                cfg.m_dim < MIN_DIM
-                                                or cfg.n_dim < MIN_DIM
-                                                or cfg.k < MIN_DIM
-                                            ):
-                                                continue
-                                            reason = _precompile_reject_reason(
-                                                cfg, check_regs=check_regs
-                                            )
-                                            if reason is not None:
-                                                filtered.append((cfg.label, reason))
-                                                continue
-                                            configs.append(cfg)
+                                # B pipeline depth: sweep independently for direct_b.
+                                b_cfgs = (
+                                    B_STAGE_CONFIGS if b_path == "direct_b" else [0]
+                                )
+                                for b_stg in b_cfgs:
+                                    for lcm in LCM_UNROLL_CONFIGS:
+                                        for um in (UNROLL_MULTIPLIERS if lcm else [1]):
+                                            for ep in EPILOGUE_PEELING_CONFIGS:
+                                                k = k_factor * k_t * 32
+                                                cfg = WeakScaleConfig(
+                                                    m_wg,
+                                                    n_wg,
+                                                    m_w,
+                                                    n_w,
+                                                    m_twg,
+                                                    n_twg,
+                                                    k_t,
+                                                    stages,
+                                                    k,
+                                                    load_type=load_type,
+                                                    b_path=b_path,
+                                                    b_stages=b_stg,
+                                                    num_wg_per_cu=num_wg_per_cu,
+                                                    lcm_unroll=lcm,
+                                                    unroll_factor_multiplier=um,
+                                                    epilogue_peeling=ep,
+                                                    _label_suffix=suffix,
+                                                )
+                                                if (
+                                                    cfg.m_dim < MIN_DIM
+                                                    or cfg.n_dim < MIN_DIM
+                                                    or cfg.k < MIN_DIM
+                                                ):
+                                                    continue
+                                                reason = _precompile_reject_reason(
+                                                    cfg, check_regs=check_regs
+                                                )
+                                                if reason is not None:
+                                                    filtered.append((cfg.label, reason))
+                                                    continue
+                                                configs.append(cfg)
 
     # Save filtered configs to temp file.
     if filtered:
@@ -276,7 +291,12 @@ def _repro_cmd(cfg, num_iterations):
     """Return a CLI command to reproduce a single config."""
     k_factor = cfg.k // (cfg.k_tiles * 32)
     buf_flag = " --use-buffer" if cfg.use_buffer else " --use-flat"
-    direct_flag = " --direct-a" if cfg.direct_a else ""
+    if cfg.direct_a:
+        direct_flag = " --direct-a --direct-b"
+    elif cfg.direct_b:
+        direct_flag = " --direct-b"
+    else:
+        direct_flag = ""
     lcm_flag = "" if cfg.lcm_unroll else " --no-lcm-unroll"
     um_flag = (
         f" --unroll-multiplier {cfg.unroll_factor_multiplier}"
@@ -292,16 +312,18 @@ def _repro_cmd(cfg, num_iterations):
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
         f" --m-tiles-wg {cfg.m_tiles_wg} --n-tiles-wg {cfg.n_tiles_wg} --k-tiles {cfg.k_tiles}"
-        f" --stages {cfg.num_stages} --k-scaling-factor {k_factor}"
+        f" --a-stages {cfg.a_stages} --k-scaling-factor {k_factor}"
+        f"{f' --b-stages {cfg.b_stages}' if cfg.b_stages > 0 else ''}"
         f"{buf_flag}{direct_flag}{lcm_flag}{um_flag}{peel_flag}{wg_per_cu_flag}"
         f" --iterations {num_iterations}"
     )
 
 
-def _make_config_from_args(args, load_type, a_path):
+def _make_config_from_args(args, load_type, b_path):
     """Construct a WeakScaleConfig from parsed CLI args."""
     k = args.k_scaling_factor * args.k_tiles * 32
-    suffix = _make_label_suffix(a_path, load_type)
+    suffix = _make_label_suffix(b_path, load_type)
+    stages = args.a_stages
     return WeakScaleConfig(
         args.m_wg,
         args.n_wg,
@@ -310,10 +332,11 @@ def _make_config_from_args(args, load_type, a_path):
         args.m_tiles_wg,
         args.n_tiles_wg,
         args.k_tiles,
-        args.stages,
+        stages,
         k,
         load_type=load_type,
-        a_path=a_path,
+        b_path=b_path,
+        b_stages=getattr(args, "b_stages", 0) or 0,
         num_wg_per_cu=getattr(args, "num_wg_per_cu", 1) or 1,
         lcm_unroll=getattr(args, "lcm_unroll", True),
         unroll_factor_multiplier=getattr(args, "unroll_multiplier", 1) or 1,
@@ -323,7 +346,7 @@ def _make_config_from_args(args, load_type, a_path):
 
 
 def _compile_fn(cfg, output_hsaco_path, **kwargs):
-    """Compile wrapper -- cfg carries load_type, a_path, unroll and peeling config."""
+    """Compile wrapper -- cfg carries load_type, b_path, unroll and peeling config."""
     return compile_gemm(
         cfg,
         output_hsaco_path,
@@ -387,7 +410,13 @@ if __name__ == "__main__":
     parser.add_argument("--m-tiles-wg", type=int, help="Tiles per workgroup along M")
     parser.add_argument("--n-tiles-wg", type=int, help="Tiles per workgroup along N")
     parser.add_argument("--k-tiles", type=int, help="Tiles per wave along K")
-    parser.add_argument("--stages", type=int, help="Pipeline stages")
+    parser.add_argument("--a-stages", type=int, help="A pipeline stages (LDS path)")
+    parser.add_argument(
+        "--b-stages",
+        type=int,
+        default=0,
+        help="B pipeline stages for direct_b (0=same as A, 1=none, 2=load overlap, 3=full)",
+    )
     parser.add_argument(
         "--k-scaling-factor",
         type=int,
@@ -408,7 +437,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "--direct-a",
         action="store_true",
-        help="A operand via bpermute (LDS bypass) instead of LDS",
+        help="A via preshuffle (LDS bypass). Requires --direct-b.",
+    )
+    parser.add_argument(
+        "--direct-b",
+        action="store_true",
+        help="B via preshuffle (LDS bypass).",
+    )
+    parser.add_argument(
+        "--no-direct-a",
+        action="store_true",
+        help="Exclude direct_ab from sweep (keep lds + direct_b).",
+    )
+    parser.add_argument(
+        "--no-direct-b",
+        action="store_true",
+        help="Exclude direct_b and direct_ab from sweep (keep lds only).",
     )
     parser.add_argument(
         "--no-lcm-unroll",
@@ -437,8 +481,15 @@ if __name__ == "__main__":
     args.lcm_unroll = not args.no_lcm_unroll
     args.epilogue_peeling = not args.no_epilogue_peeling
 
-    # Determine a_path
-    a_path = "direct" if args.direct_a else "lds"
+    # Determine b_path from --direct-a / --direct-b flags.
+    if args.direct_a and not args.direct_b:
+        parser.error("--direct-a requires --direct-b")
+    if args.direct_a and args.direct_b:
+        b_path = "direct_ab"
+    elif args.direct_b:
+        b_path = "direct_b"
+    else:
+        b_path = "lds"
 
     # Determine load_type variants to sweep.
     if args.use_buffer:
@@ -448,26 +499,30 @@ if __name__ == "__main__":
     else:
         load_types = ["flat", "buffer"]
 
-    # Build (a_path, load_type) variant list.
-    # In sweep mode without --direct-a, sweep all implemented combos.
-    # With --direct-a, sweep only direct combos.
+    # Build (b_path, load_type) variant list.
     if args.full_sweep or args.sweep:
-        if args.direct_a:
-            variants = [(a_path, lt) for lt in load_types]
+        if args.direct_a or args.direct_b:
+            # Pinned to the specified path.
+            variants = [(b_path, lt) for lt in load_types]
         else:
-            # Sweep all a_path values for each load_type
-            variants = [(ap, lt) for lt in load_types for ap in ["lds", "direct"]]
+            # Sweep paths, respecting --no-direct-a / --no-direct-b exclusions.
+            all_paths = ["lds", "direct_b", "direct_ab"]
+            if args.no_direct_b:
+                all_paths = ["lds"]
+            elif args.no_direct_a:
+                all_paths = ["lds", "direct_b"]
+            variants = [(bp, lt) for lt in load_types for bp in all_paths]
     else:
-        variants = [(a_path, lt) for lt in load_types]
+        variants = [(b_path, lt) for lt in load_types]
 
     # Filter to implemented combos
-    variants = [(ap, lt) for ap, lt in variants if (ap, lt) in MLIR_FILES]
+    variants = [(bp, lt) for bp, lt in variants if (bp, lt) in MLIR_FILES]
 
     # For single-config mode
     load_type = "buffer" if args.use_buffer else "flat"
 
     # TOP_K labels include suffix -- filter to selected variants.
-    variant_suffixes = {_make_label_suffix(ap, lt) for ap, lt in variants}
+    variant_suffixes = {_make_label_suffix(bp, lt) for bp, lt in variants}
     top_k_to_run = [
         label
         for label in _TOP_K_BASE
@@ -475,7 +530,7 @@ if __name__ == "__main__":
     ]
 
     if args.full_sweep or args.sweep:
-        variant_str = ", ".join(f"{ap}/{lt}" for ap, lt in variants)
+        variant_str = ", ".join(f"{bp}/{lt}" for bp, lt in variants)
         print(f"Variants: {variant_str}")
 
         # Pin sweep dimensions from CLI args (e.g. --n-waves 4 filters the grid).
@@ -487,7 +542,7 @@ if __name__ == "__main__":
             "m_tiles_wg": "m_tiles_wg",
             "n_tiles_wg": "n_tiles_wg",
             "k_tiles": "k_tiles",
-            "stages": "num_stages",
+            "a_stages": "a_stages",
             "k_scaling_factor": "k_scaling_factor",
             "unroll_multiplier": "unroll_factor_multiplier",
             "desired_simd_occupancy": "simd_occupancy",
@@ -528,7 +583,7 @@ if __name__ == "__main__":
             "m_tiles_wg",
             "n_tiles_wg",
             "k_tiles",
-            "stages",
+            "a_stages",
             "k_scaling_factor",
         ]
         missing = [a for a in required if getattr(args, a) is None]
@@ -536,7 +591,7 @@ if __name__ == "__main__":
             flags = ", ".join(f"--{a.replace('_', '-')}" for a in missing)
             parser.error(f"Single-config mode requires: {flags}")
         run_single(
-            _make_config_from_args(args, load_type, a_path),
+            _make_config_from_args(args, load_type, b_path),
             compile_gemm,
             args,
             execute_fn=execute_gemm_hsaco,

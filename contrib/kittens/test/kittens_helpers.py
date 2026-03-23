@@ -22,13 +22,10 @@ def get_mlir_kernels_library_path(relative: str) -> str:
     )
 
 
-def get_kittens_16x16_lds_library_paths(
-    use_buffer: bool = False, direct_a: bool = False
-) -> List[str]:
+def get_kittens_16x16_lds_library_paths(use_buffer: bool = False) -> List[str]:
     """Get paths for 16x16 MFMA with AGPR accumulators + 16x64_b LDS (dwordx4, XOR swizzle).
 
     use_buffer: True for buffer_load/buffer_store (MUBUF), False for flat.
-    direct_a: True to add bpermute library (A bypasses LDS via ds_bpermute_b32).
     """
     suffix = "_buf" if use_buffer else ""
     base_paths = get_library_paths()
@@ -40,8 +37,6 @@ def get_kittens_16x16_lds_library_paths(
         os.path.join(kittens_dir, "lds_mfma_16x64_b.mlir"),
         os.path.join(kittens_dir, f"compute_16x16_f16{suffix}.mlir"),
     ]
-    if direct_a:
-        kittens_paths.append(os.path.join(kittens_dir, "global_direct_a_16x64_b.mlir"))
     return base_paths + kittens_paths
 
 
@@ -90,6 +85,38 @@ def run_kittens_kernel(
     )
 
 
+def shuffle_weight(B):
+    """Preshuffle B[N, K] for MFMA 16x16x16 direct global-to-register loads.
+
+    Packs each lane's 16-byte load with the exact data the MFMA instruction
+    expects: [K-step-0 (4 f16), K-step-1 (4 f16)], accounting for the
+    fragment layout where lane groups access non-contiguous K positions.
+
+    MFMA 16x16x16 f16: lane d needs B[d%16, (d/16)*4 + 0..3] per K-step.
+    A 32-element K-tile gives 2 K-steps (K=0..15 and K=16..31).
+    The K decomposition within a 32-element block:
+      k_local = kh * 16 + lane_group * 4 + k_within
+      where kh in {0,1}, lane_group in {0..3}, k_within in {0..3}
+
+    Original B[N, K] is reshaped to (n_blocks, 16, k_blocks, 2, 4, 4)
+    dims: (nb, n_lane, kb, kh, lane_group, k_within)
+    then transposed to: (nb, kb, lane_group, n_lane, kh, k_within)
+    so that each lane's 8 contiguous elements are [kh=0 kw=0..3, kh=1 kw=0..3].
+    """
+    N, K = B.shape
+    assert N % 16 == 0, f"N={N} must be multiple of 16"
+    assert K % 32 == 0, f"K={K} must be multiple of 32"
+
+    n_blocks = N // 16
+    k_blocks = K // 32
+
+    # Reshape: (nb, n_lane=16, kb, kh=2, lane_group=4, k_within=4)
+    B6 = B.reshape(n_blocks, 16, k_blocks, 2, 4, 4)
+    # Transpose to: (nb, kb, lane_group, n_lane, kh, k_within)
+    B6 = B6.transpose(0, 2, 4, 1, 3, 5)
+    return np.ascontiguousarray(B6).reshape(N, K)
+
+
 def _make_gemm_inputs(K):
     """Create random f16 test matrices for GEMM: A[16xK], B[16xK]."""
     np.random.seed(42)
@@ -98,9 +125,9 @@ def _make_gemm_inputs(K):
     return A, B
 
 
-PIPELINE_STAGE_CONFIGS_4 = {
-    # num_stages: (STAGE_GLOBAL_LOAD, STAGE_DS_WRITE, STAGE_DS_READ, STAGE_COMPUTE)
-    # 4-stage split: separates global load from DS write for better pipelining.
+# A pipeline stage configs (LDS path: 4 phases).
+# a_stages -> (a_load, a_lds_write, a_lds_read, a_compute)
+A_STAGE_CONFIGS = {
     1: (0, 0, 0, 0),
     2: (0, 1, 1, 1),
     3: (0, 1, 2, 2),
@@ -110,41 +137,89 @@ PIPELINE_STAGE_CONFIGS_4 = {
 }
 
 
-def pipelined_substitutions_16x32(k, num_stages):
-    """Build template substitutions for 16x32 pipelined GEMM tests (4-stage).
+def ab_stage_config(a_stages, b_stages):
+    """Compute absolute stage numbers for A (LDS) and B (direct) pipeline phases.
 
-    Uses lds_16x64_b.mlir: K_TILES = K//32, 4-stage pipeline (STAGE_GLOBAL_LOAD,
-    STAGE_DS_WRITE, STAGE_DS_READ, STAGE_COMPUTE).
+    A phases: a_load, a_lds_write, a_lds_read, a_compute.
+    B phases: b_load, b_wait, b_compute.
+    Both share the last stage for compute.
+
+    b_stages controls the gap between b_load and b_compute:
+      b_stages=1: all B at compute (no pipelining).
+      b_stages=2: b_load 1 stage before compute, b_wait at compute.
+      b_stages=3: b_load 2 stages before compute, b_wait 1 stage before.
+      b_stages=N: b_load N-1 stages before compute, b_wait N-2 stages before.
+
+    The combined pipeline depth = max(a_stages, b_stages).
+    Higher b_stages means more B loads in flight (more VGPR pressure,
+    more latency hiding).
     """
+    a_cfg = A_STAGE_CONFIGS[a_stages]
+    a_load, a_lds_write, a_lds_read, a_compute = a_cfg
+
+    # Combined compute stage.
+    compute = max(a_compute, b_stages - 1)
+
+    # Shift A up if B needs a deeper pipeline.
+    if compute > a_compute:
+        offset = compute - a_compute
+        a_load += offset
+        a_lds_write += offset
+        a_lds_read += offset
+        a_compute = compute
+
+    # B: spread b_load and b_wait backwards from compute.
+    # b_load is (b_stages - 1) stages before compute.
+    # b_wait is 1 stage before compute (or at compute if b_stages <= 2).
+    if b_stages <= 1:
+        b_load = compute
+        b_wait = compute
+    elif b_stages == 2:
+        b_load = compute - 1
+        b_wait = compute
+    else:
+        b_load = compute - (b_stages - 1)
+        b_wait = compute - 1
+    b_compute = compute
+
+    return (
+        (a_load, a_lds_write, a_lds_read, a_compute),
+        (b_load, b_wait, b_compute),
+    )
+
+
+def pipelined_substitutions_16x32(k, a_stages):
+    """Build template substitutions for 16x32 pipelined GEMM tests (A-only)."""
     k_tiles = k // 32
     stride_ab = k * 2
-    stage_gl, stage_dw, stage_dr, stage_c = PIPELINE_STAGE_CONFIGS_4[num_stages]
+    a_load, a_lds_write, a_lds_read, a_compute = A_STAGE_CONFIGS[a_stages]
     return {
         "{{K}}": str(k),
         "{{K_TILES}}": str(k_tiles),
         "{{STRIDE_AB}}": str(stride_ab),
-        "{{STAGE_GLOBAL_LOAD}}": str(stage_gl),
-        "{{STAGE_DS_WRITE}}": str(stage_dw),
-        "{{STAGE_DS_READ}}": str(stage_dr),
-        "{{STAGE_COMPUTE}}": str(stage_c),
+        "{{A_STAGE_LOAD}}": str(a_load),
+        "{{A_STAGE_WRITE}}": str(a_lds_write),
+        "{{A_STAGE_READ}}": str(a_lds_read),
+        "{{A_STAGE_COMPUTE}}": str(a_compute),
     }
 
 
-def constexpr_substitutions_16x32(m_tiles, n_tiles, k, num_stages):
-    """Build scalar-only template substitutions for constexpr 16x16 MFMA + 16x32 tiles.
+def constexpr_substitutions_16x32(m_tiles, n_tiles, k, a_stages, b_stages=None):
+    """Build template substitutions for constexpr 16x16 MFMA + 16x32 tiles.
 
-    Uses v_mfma_f32_16x16x16_f16 with dwordx4 global loads (16x32 transfer tiles).
-    Each 16x32 tile covers K=32 (2 MFMA K-steps of 16 each).
-      - M/N per output tile = 16
-      - K per transfer tile = 32
-      - LDS tile size = 1024 bytes (2 x 512-byte XOR-swizzled 16x16 sub-tiles)
+    a_stages: A pipeline depth (LDS path, 1-6).
+    b_stages: B pipeline depth (direct_b, 1-3). None = same as a_stages.
     """
     mn = m_tiles * n_tiles
     k_tiles = k // 32
     stride_ab = k * 2
     stride_c = n_tiles * 16 * 4
     shared_mem = 0
-    stage_gl, stage_dw, stage_dr, stage_c = PIPELINE_STAGE_CONFIGS_4[num_stages]
+
+    effective_b = b_stages if b_stages is not None else a_stages
+    (a_load, a_lds_write, a_lds_read, a_compute), (b_load, b_wait, b_compute) = (
+        ab_stage_config(a_stages, effective_b)
+    )
 
     return {
         "{{M_T}}": str(m_tiles),
@@ -159,8 +234,11 @@ def constexpr_substitutions_16x32(m_tiles, n_tiles, k, num_stages):
         "{{STRIDE_AB}}": str(stride_ab),
         "{{STRIDE_C}}": str(stride_c),
         "{{SHARED_MEM}}": str(shared_mem),
-        "{{STAGE_GLOBAL_LOAD}}": str(stage_gl),
-        "{{STAGE_DS_WRITE}}": str(stage_dw),
-        "{{STAGE_DS_READ}}": str(stage_dr),
-        "{{STAGE_COMPUTE}}": str(stage_c),
+        "{{A_STAGE_LOAD}}": str(a_load),
+        "{{A_STAGE_WRITE}}": str(a_lds_write),
+        "{{A_STAGE_READ}}": str(a_lds_read),
+        "{{A_STAGE_COMPUTE}}": str(a_compute),
+        "{{B_STAGE_LOAD}}": str(b_load),
+        "{{B_STAGE_WAIT}}": str(b_wait),
+        "{{B_A_STAGE_COMPUTE}}": str(b_compute),
     }
