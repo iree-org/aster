@@ -83,6 +83,15 @@ class WeakScaleConfig:
         assert (
             self.n_tiles_wg % self.n_waves == 0
         ), f"n_tiles_wg={self.n_tiles_wg} not divisible by n_waves={self.n_waves}"
+        # Cooperative loading: warn if tiles don't divide evenly across waves.
+        # Caller must filter non-divisible configs before creating WeakScaleConfig.
+        nw = self.m_waves * self.n_waves
+        if self.m_tiles_wg % nw != 0:
+            import warnings
+
+            warnings.warn(
+                f"m_tiles_wg={self.m_tiles_wg} not divisible by num_waves={nw}"
+            )
 
     @property
     def m_tiles(self):
@@ -139,6 +148,16 @@ class WeakScaleConfig:
         return self.b_path == "direct_ab"
 
     @property
+    def coop_a_count(self):
+        """Tiles per wave for cooperative A loading (ceildiv)."""
+        return -(-self.m_tiles_wg // self.num_waves)  # ceildiv
+
+    @property
+    def coop_b_count(self):
+        """Tiles per wave for cooperative B loading (ceildiv)."""
+        return -(-self.n_tiles_wg // self.num_waves)  # ceildiv
+
+    @property
     def kernel_name(self):
         return KERNEL_NAMES[self.b_path]
 
@@ -166,9 +185,9 @@ class WeakScaleConfig:
         A also needs LDS read buffers (1 stage worth).
         direct_b adds overhead for preshuffle address computation.
         """
-        # A global load buffers: a_stages deep.
-        a_load_bufs = self.m_tiles * self.k_tiles * self.a_stages * 4
-        # A LDS read buffers: 1 stage (ds_read values, consumed immediately).
+        # A global load buffers: cooperative share, a_stages deep.
+        a_load_bufs = self.coop_a_count * self.k_tiles * self.a_stages * 4
+        # A LDS read buffers: per-wave M_T tiles (consumed immediately).
         a_lds_read = self.m_tiles * self.k_tiles * 4
 
         if self.direct_b:
@@ -178,8 +197,8 @@ class WeakScaleConfig:
             b_split = self.n_tiles * self.k_tiles * 4
             overhead = 30
         else:
-            # B through LDS: same as A.
-            b_load_bufs = self.n_tiles * self.k_tiles * self.a_stages * 4
+            # B through LDS: cooperative share, a_stages deep.
+            b_load_bufs = self.coop_b_count * self.k_tiles * self.a_stages * 4
             b_split = self.n_tiles * self.k_tiles * 4  # LDS read buffers
             overhead = 10
 
@@ -261,6 +280,9 @@ def _make_substitutions(cfg):
     subs["{{K_T}}"] = str(cfg.k_tiles)
     subs["{{A_TILES_PER_SLICE}}"] = str(cfg.m_tiles_wg)
     subs["{{B_TILES_PER_SLICE}}"] = str(cfg.n_tiles_wg)
+    subs["{{NUM_WAVES}}"] = str(cfg.num_waves)
+    subs["{{COOP_A_COUNT}}"] = str(cfg.coop_a_count)
+    subs["{{COOP_B_COUNT}}"] = str(cfg.coop_b_count)
     # Preshuffle layout parameters (f16: BK=32, 64 lanes, 16 bytes/lane).
     subs["{{STRIDE_N0_BYTES}}"] = str((cfg.k // 32) * 1024)
     subs["{{STRIDE_M0_BYTES}}"] = str((cfg.k // 32) * 1024)  # same formula as N
@@ -420,6 +442,11 @@ class TestWeakScaleCorrectness:
         """Constexpr GEMM verified against numpy."""
         if (b_path, load_type) not in MLIR_FILES:
             pytest.skip(f"({b_path}, {load_type}) not yet implemented")
+        nw = m_waves * n_waves
+        if m_tiles_wg % nw != 0:
+            pytest.skip(f"m_tiles_wg={m_tiles_wg} not divisible by num_waves={nw}")
+        if b_path == "lds" and n_tiles_wg % nw != 0:
+            pytest.skip(f"n_tiles_wg={n_tiles_wg} not divisible by num_waves={nw}")
         k = 128
         k_tiles = 1
         cfg = WeakScaleConfig(

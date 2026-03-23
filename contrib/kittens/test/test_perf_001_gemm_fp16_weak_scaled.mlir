@@ -82,16 +82,25 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     %wg_n_off = layout.linearize %flat_id,
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [0, {{N_TILES_WG}}]>
 
-    // Wave tile offsets via layout (wave_m_off = wave_a_base, wave_n_off = wave_b_base)
+    // Wave COMPUTE distribution: which output tiles does this wave own?
     %wid = func.call @wave_id() : () -> index
     %wave_m_off = layout.linearize %wid,
         #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [{{M_T}}, 0]>
     %wave_n_off = layout.linearize %wid,
         #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [0, {{N_T}}]>
 
-    // Compose: tile index = WG offset + wave offset
+    // Compose: tile index = WG offset + wave offset (for MFMA + C store)
     %m_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %wave_m_off)
     %n_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %wave_n_off)
+
+    // Wave LOAD distribution: each wave cooperatively loads COOP_COUNT tiles.
+    // Requires M_TILES_WG % NUM_WAVES == 0 (enforced by sweep config).
+    %c_COOP_A = arith.constant {{COOP_A_COUNT}} : index
+    %c_COOP_B = arith.constant {{COOP_B_COUNT}} : index
+    %coop_a_start = affine.apply affine_map<(wid)[c] -> (wid * c)>(%wid)[%c_COOP_A]
+    %coop_b_start = affine.apply affine_map<(wid)[c] -> (wid * c)>(%wid)[%c_COOP_B]
+    %coop_a_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %coop_a_start)
+    %coop_b_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %coop_b_start)
 
     // === Initialize accumulators (constexpr over M_T*N_T) ===
     %mn = affine.apply affine_map<()[m, n] -> (m * n)>()[%c_M_T, %c_N_T]
@@ -124,28 +133,28 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     //   %gfut_b = func.call @k_issue_global_loads_b(%gl_addrs_b, %B_rsrc)
     //       : (memref<?xindex>, !sx2) -> !gfut_b_buf
 
-      %gfut_a = func.call @k_load_a_16x32_from_global(%c_M_T, %c_K_T, %A_rsrc, %k, %stride_AB, %m_base)
+      // --- Cooperative global load: each wave loads its share of WG tiles ---
+      %gfut_a = func.call @k_load_a_16x32_from_global(%c_COOP_A, %c_K_T, %A_rsrc, %k, %stride_AB, %coop_a_global)
           : (index, index, !aster_utils.any, index, index, index) -> !gfut_a_buf
-      %gfut_b = func.call @k_load_b_16x32_from_global(%c_N_T, %c_K_T, %B_rsrc, %k, %stride_AB, %n_base)
+      %gfut_b = func.call @k_load_b_16x32_from_global(%c_COOP_B, %c_K_T, %B_rsrc, %k, %stride_AB, %coop_b_global)
           : (index, index, !aster_utils.any, index, index, index) -> !gfut_b_buf
 
-
-      // --- Compute LDS write addresses (overlaps with global load latency) ---
-      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_m_off, %tiles_per_slice_a)
+      // --- Cooperative LDS write: wave writes to its share of full WG LDS ---
+      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_COOP_A, %c_K_T, %base_a, %coop_a_start, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
-      %lds_w_addrs_b = func.call @k_compute_lds_write_addrs_b(%c_N_T, %c_K_T, %base_b, %wave_n_off, %tiles_per_slice_b)
+      %lds_w_addrs_b = func.call @k_compute_lds_write_addrs_b(%c_COOP_B, %c_K_T, %base_b, %coop_b_start, %tiles_per_slice_b)
           : (index, index, index, index, index) -> memref<?xindex>
 
-      // --- Compute LDS read addresses (overlaps with global load latency) ---
+      // --- LDS read: each wave reads M_T/N_T tiles it needs for MFMA ---
       %lds_r_addrs_a = func.call @k_compute_lds_read_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_m_off, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
       %lds_r_addrs_b = func.call @k_compute_lds_read_addrs_b(%c_N_T, %c_K_T, %base_b, %wave_n_off, %tiles_per_slice_b)
           : (index, index, index, index, index) -> memref<?xindex>
 
-      // --- Wait for global loads + store to LDS at pre-computed addresses ---
-      %tok_a = func.call @k_store_to_lds_at_addrs_a(%lds_w_addrs_a, %c_M_T, %c_K_T, %gfut_a)
+      // --- Wait for cooperative loads + store to LDS ---
+      %tok_a = func.call @k_store_to_lds_at_addrs_a(%lds_w_addrs_a, %c_COOP_A, %c_K_T, %gfut_a)
           : (memref<?xindex>, index, index, !gfut_a_buf) -> !tok_a_buf
-      %tok_b = func.call @k_store_to_lds_at_addrs_b(%lds_w_addrs_b, %c_N_T, %c_K_T, %gfut_b)
+      %tok_b = func.call @k_store_to_lds_at_addrs_b(%lds_w_addrs_b, %c_COOP_B, %c_K_T, %gfut_b)
           : (memref<?xindex>, index, index, !gfut_b_buf) -> !tok_b_buf
 
       // --- Barrier then wait all LDS write tokens ---
