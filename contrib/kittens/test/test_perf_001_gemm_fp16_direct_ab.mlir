@@ -32,6 +32,7 @@
 
 amdgcn.module @kittens_gemm_f16_direct_ab target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Library functions
+  func.func private @linear_block_id() -> index
   func.func private @wave_id() -> index
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
@@ -71,13 +72,13 @@ amdgcn.module @kittens_gemm_f16_direct_ab target = #amdgcn.target<gfx942> isa = 
     %K_tiles = arith.constant {{K_TILES}} : index
 
     // WG tile offsets via layout
-    %flat_id = gpu.block_id x
-    %wg_m_off = layout.linearize %flat_id,
+    %bid = func.call @linear_block_id() : () -> index
+    %wg_m_off = layout.linearize %bid,
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [{{M_TILES_WG}}, 0]>
-    %wg_n_off = layout.linearize %flat_id,
+    %wg_n_off = layout.linearize %bid,
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [0, {{N_TILES_WG}}]>
 
-    // Wave tile offsets via layout
+    // Wave COMPUTE distribution (= LOAD distribution for direct path)
     %wid = func.call @wave_id() : () -> index
     %wave_m_off = layout.linearize %wid,
         #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [{{M_T}}, 0]>

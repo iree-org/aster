@@ -36,6 +36,8 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
   func.func private @store_global_C_mfma_f32_16x16x16_f16(!rt_C_f32, !aster_utils.any, index, index, index)
+  // From indexing.mlir
+  func.func private @linear_block_id() -> index
   // From global_16x64_b.mlir / lds_16x64_b.mlir (dwordx4 global load + 16x32 LDS operations)
   func.func private @load_global_tile_16x64_b(!aster_utils.any, index, index, index) -> !future_global_read
   func.func private @store_global_tile_to_lds_16x64_b(index, !future_global_read) -> (!lds_write_token, !lds_write_token)
@@ -72,14 +74,12 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     %stride_AB = arith.constant {{STRIDE_AB}} : index
     %stride_C = arith.constant {{STRIDE_C}} : index
     %K_tiles = arith.constant {{K_TILES}} : index
-    %tiles_per_slice_a = arith.constant {{A_TILES_PER_SLICE}} : index
-    %tiles_per_slice_b = arith.constant {{B_TILES_PER_SLICE}} : index
 
     // WG tile offsets via layout
-    %flat_id = gpu.block_id x
-    %wg_m_off = layout.linearize %flat_id,
+    %bid = func.call @linear_block_id() : () -> index
+    %wg_m_off = layout.linearize %bid,
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [{{M_TILES_WG}}, 0]>
-    %wg_n_off = layout.linearize %flat_id,
+    %wg_n_off = layout.linearize %bid,
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [0, {{N_TILES_WG}}]>
 
     // Wave COMPUTE distribution: which output tiles does this wave own?
@@ -94,13 +94,23 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     %n_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %wave_n_off)
 
     // Wave LOAD distribution: each wave cooperatively loads COOP_COUNT tiles.
-    // Requires M_TILES_WG % NUM_WAVES == 0 (enforced by sweep config).
+    // OOB waves clamp to last valid start (reload last tiles, idempotent LDS write).
     %c_COOP_A = arith.constant {{COOP_A_COUNT}} : index
     %c_COOP_B = arith.constant {{COOP_B_COUNT}} : index
-    %coop_a_start = affine.apply affine_map<(wid)[c] -> (wid * c)>(%wid)[%c_COOP_A]
-    %coop_b_start = affine.apply affine_map<(wid)[c] -> (wid * c)>(%wid)[%c_COOP_B]
+    %c_MAX_A = arith.constant {{MAX_COOP_A_START}} : index
+    %c_MAX_B = arith.constant {{MAX_COOP_B_START}} : index
+    %coop_a_start_raw = layout.linearize %wid,
+        #layout.strided_layout<[{{NUM_WAVES}}] : [{{COOP_A_COUNT}}]>
+    %coop_b_start_raw = layout.linearize %wid,
+        #layout.strided_layout<[{{NUM_WAVES}}] : [{{COOP_B_COUNT}}]>
+    %coop_a_start = arith.minui %coop_a_start_raw, %c_MAX_A : index
+    %coop_b_start = arith.minui %coop_b_start_raw, %c_MAX_B : index
     %coop_a_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %coop_a_start)
     %coop_b_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %coop_b_start)
+    // TODO: for now needs to be static but will have to become dynamic to avoid
+    // over-loading.
+    %tiles_per_slice_a = arith.constant {{A_TILES_PER_SLICE}} : index
+    %tiles_per_slice_b = arith.constant {{B_TILES_PER_SLICE}} : index
 
     // === Initialize accumulators (constexpr over M_T*N_T) ===
     %mn = affine.apply affine_map<()[m, n] -> (m * n)>()[%c_M_T, %c_N_T]
@@ -120,18 +130,6 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
       %base_a = amdgcn.get_lds_offset %lds_a_h {sched.stage = {{A_STAGE_LOAD}} : i32} : index
       %lds_b_h = amdgcn.alloc_lds {{B_LDS_BYTES}} {sched.stage = {{A_STAGE_LOAD}} : i32}
       %base_b = amdgcn.get_lds_offset %lds_b_h {sched.stage = {{A_STAGE_LOAD}} : i32} : index
-
-    //   // --- Compute global load addresses ---
-    //   %gl_addrs_a = func.call @k_compute_global_addrs_a(%c_M_T, %c_K_T, %k, %stride_AB, %m_base)
-    //       : (index, index, index, index, index) -> memref<?xindex>
-    //   %gl_addrs_b = func.call @k_compute_global_addrs_b(%c_N_T, %c_K_T, %k, %stride_AB, %n_base)
-    //       : (index, index, index, index, index) -> memref<?xindex>
-
-    //   // --- Issue global loads at pre-computed offsets ---
-    //   %gfut_a = func.call @k_issue_global_loads_a(%gl_addrs_a, %A_rsrc)
-    //       : (memref<?xindex>, !sx2) -> !gfut_a_buf
-    //   %gfut_b = func.call @k_issue_global_loads_b(%gl_addrs_b, %B_rsrc)
-    //       : (memref<?xindex>, !sx2) -> !gfut_b_buf
 
       // --- Cooperative global load: each wave loads its share of WG tiles ---
       %gfut_a = func.call @k_load_a_16x32_from_global(%c_COOP_A, %c_K_T, %A_rsrc, %k, %stride_AB, %coop_a_global)

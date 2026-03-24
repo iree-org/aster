@@ -31,6 +31,7 @@
 
 amdgcn.module @kittens_gemm_f16_direct_b target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Library functions
+  func.func private @linear_block_id() -> index
   func.func private @wave_id() -> index
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32
@@ -69,28 +70,36 @@ amdgcn.module @kittens_gemm_f16_direct_b target = #amdgcn.target<gfx942> isa = #
     %stride_AB = arith.constant {{STRIDE_AB}} : index
     %stride_C = arith.constant {{STRIDE_C}} : index
     %K_tiles = arith.constant {{K_TILES}} : index
-    %tiles_per_slice_a = arith.constant {{A_TILES_PER_SLICE}} : index
     // Preshuffle B stride: (K / 32) * 1024 bytes.
     %stride_n0_bytes = arith.constant {{STRIDE_N0_BYTES}} : index
 
     // WG tile offsets via layout
-    %flat_id = gpu.block_id x
-    %wg_m_off = layout.linearize %flat_id,
+    %bid = func.call @linear_block_id() : () -> index
+    %wg_m_off = layout.linearize %bid,
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [{{M_TILES_WG}}, 0]>
-    %wg_n_off = layout.linearize %flat_id,
+    %wg_n_off = layout.linearize %bid,
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [0, {{N_TILES_WG}}]>
 
-    // Wave tile offsets via layout (wave_m_off = wave_a_base)
+    // Wave COMPUTE distribution: which output tiles does this wave own?
     %wid = func.call @wave_id() : () -> index
     %wave_m_off = layout.linearize %wid,
         #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [{{M_T}}, 0]>
     %wave_n_off = layout.linearize %wid,
         #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [0, {{N_T}}]>
 
-    // Compose: tile index = WG offset + wave offset
+    // Compose: tile index = WG offset + wave offset (for MFMA + C store)
     %m_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %wave_m_off)
     %n_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %wave_n_off)
-    // wave_m_off doubles as wave_a_base (intra-WG LDS offset for A)
+
+    // Wave LOAD distribution: cooperative for A (LDS), per-wave for B (direct).
+    // OOB waves clamp to last valid A start (reload last tiles).
+    %c_COOP_A = arith.constant {{COOP_A_COUNT}} : index
+    %c_MAX_A = arith.constant {{MAX_COOP_A_START}} : index
+    %coop_a_start_raw = layout.linearize %wid,
+        #layout.strided_layout<[{{NUM_WAVES}}] : [{{COOP_A_COUNT}}]>
+    %coop_a_start = arith.minui %coop_a_start_raw, %c_MAX_A : index
+    %coop_a_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %coop_a_start)
+    %tiles_per_slice_a = arith.constant {{A_TILES_PER_SLICE}} : index
 
     // === Initialize accumulators ===
     %mn = affine.apply affine_map<()[m, n] -> (m * n)>()[%c_M_T, %c_N_T]
@@ -111,18 +120,19 @@ amdgcn.module @kittens_gemm_f16_direct_b target = #amdgcn.target<gfx942> isa = #
       %lds_a_h = amdgcn.alloc_lds {{A_LDS_BYTES}} {sched.stage = {{A_STAGE_LOAD}} : i32}
       %base_a = amdgcn.get_lds_offset %lds_a_h {sched.stage = {{A_STAGE_LOAD}} : i32} : index
 
-      // --- A_STAGE_LOAD: issue A + B global loads ---
-      %gfut_a = func.call @k_load_a_16x32_from_global(%c_M_T, %c_K_T, %A_rsrc, %k, %stride_AB, %m_base)
+      // --- Cooperative A global load + per-wave B direct load ---
+      %gfut_a = func.call @k_load_a_16x32_from_global(%c_COOP_A, %c_K_T, %A_rsrc, %k, %stride_AB, %coop_a_global)
           : (index, index, !aster_utils.any, index, index, index) -> !gfut_a_buf
       %gfut_b = func.call @k_load_b_direct(%c_N_T, %c_K_T, %B_rsrc, %k, %n_base)
           : (index, index, !aster_utils.any, index, index) -> !gfut_b_buf
 
-      // --- A_STAGE_WRITE: A -> LDS write; B -> wait + split vx4 ---
-      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_m_off, %tiles_per_slice_a)
+      // --- Cooperative A LDS write ---
+      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_COOP_A, %c_K_T, %base_a, %coop_a_start, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
+      // --- A LDS read: each wave reads M_T tiles it needs for MFMA ---
       %lds_r_addrs_a = func.call @k_compute_lds_read_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_m_off, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
-      %tok_a = func.call @k_store_to_lds_at_addrs_a(%lds_w_addrs_a, %c_M_T, %c_K_T, %gfut_a)
+      %tok_a = func.call @k_store_to_lds_at_addrs_a(%lds_w_addrs_a, %c_COOP_A, %c_K_T, %gfut_a)
           : (memref<?xindex>, index, index, !gfut_a_buf) -> !tok_a_buf
 
       // --- Wait A LDS writes then barrier (waitcnt before barrier for visibility) ---

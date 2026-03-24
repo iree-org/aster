@@ -24,26 +24,52 @@ amdgcn.library @common_indexing {
   //===--------------------------------------------------------------------===//
   // GPU id functions.
   //===--------------------------------------------------------------------===//
-  // Get the lane id within the wave (0..63)
+  // Linearized thread ID: tx + bdx * (ty + bdy * tz).
+  func.func private @linear_thread_id() -> index {
+    %tx = gpu.thread_id x
+    %ty = gpu.thread_id y
+    %tz = gpu.thread_id z
+    %bdx = gpu.block_dim x
+    %bdy = gpu.block_dim y
+    %ltid = affine.apply affine_map<(tx, ty, tz)[bdx, bdy] -> (tx + bdx * (ty + bdy * tz))>
+        (%tx, %ty, %tz)[%bdx, %bdy]
+    return %ltid : index
+  }
+
+  // Linearized block ID: bx + gdx * (by + gdy * bz).
+  func.func private @linear_block_id() -> index {
+    %bx = gpu.block_id x
+    %by = gpu.block_id y
+    %bz = gpu.block_id z
+    %gdx = gpu.grid_dim x
+    %gdy = gpu.grid_dim y
+    %lbid = affine.apply affine_map<(bx, by, bz)[gdx, gdy] -> (bx + gdx * (by + gdy * bz))>
+        (%bx, %by, %bz)[%gdx, %gdy]
+    return %lbid : index
+  }
+
+  // Lane ID within the wave: linear_thread_id mod 64.
   func.func private @lane_id() -> index {
-    %tid = gpu.thread_id x
-    %lane_id = affine.apply affine_map<()[tid] -> (tid mod 64)>()[%tid]
+    %ltid = func.call @linear_thread_id() : () -> index
+    %lane_id = affine.apply affine_map<()[tid] -> (tid mod 64)>()[%ltid]
     return %lane_id : index
   }
 
-  // Get the wave id within the block.
-  // Note: assumes 1-D thread specification ([num_threads, 1, 1]).
+  // Wave ID within the block: linear_thread_id floordiv 64.
+  // Consistent with KernelBuilder.wave_id().
   func.func private @wave_id() -> index {
-    %tid = gpu.thread_id x
-    %wave_id = affine.apply affine_map<()[tid] -> (tid floordiv 64)>()[%tid]
+    %ltid = func.call @linear_thread_id() : () -> index
+    %wave_id = affine.apply affine_map<()[tid] -> (tid floordiv 64)>()[%ltid]
     return %wave_id : index
   }
 
-  // Get the number of waves in the block.
-  // Note: assumes 1-D thread specification ([num_threads, 1, 1]).
+  // Number of waves in the block.
   func.func private @wave_count() -> index {
-    %bdim = gpu.block_dim x
-    %wave_count = affine.apply affine_map<()[bdim] -> (bdim ceildiv 64)>()[%bdim]
+    %bdx = gpu.block_dim x
+    %bdy = gpu.block_dim y
+    %bdz = gpu.block_dim z
+    %total = affine.apply affine_map<()[x, y, z] -> (x * y * z)>()[%bdx, %bdy, %bdz]
+    %wave_count = affine.apply affine_map<()[t] -> (t ceildiv 64)>()[%total]
     return %wave_count : index
   }
 

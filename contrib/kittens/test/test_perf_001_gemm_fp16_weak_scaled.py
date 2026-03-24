@@ -36,10 +36,10 @@ KERNEL_NAMES = {
 MLIR_FILES = {
     ("lds", "flat"): "test_perf_001_gemm_fp16_weak_scaled.mlir",
     ("lds", "buffer"): "test_perf_001_gemm_fp16_weak_scaled.mlir",
-    ("direct_b", "flat"): "test_perf_003_gemm_fp16_direct_b.mlir",
-    ("direct_b", "buffer"): "test_perf_003_gemm_fp16_direct_b.mlir",
-    ("direct_ab", "flat"): "test_perf_004_gemm_fp16_direct_ab.mlir",
-    ("direct_ab", "buffer"): "test_perf_004_gemm_fp16_direct_ab.mlir",
+    ("direct_b", "flat"): "test_perf_001_gemm_fp16_direct_b.mlir",
+    ("direct_b", "buffer"): "test_perf_001_gemm_fp16_direct_b.mlir",
+    ("direct_ab", "flat"): "test_perf_001_gemm_fp16_direct_ab.mlir",
+    ("direct_ab", "buffer"): "test_perf_001_gemm_fp16_direct_ab.mlir",
 }
 # Both flat and buffer use the same helpers: after PR #418 the _buf helpers were
 # unified into the flat helpers file via !aster_utils.any type-erasure.
@@ -156,6 +156,16 @@ class WeakScaleConfig:
     def coop_b_count(self):
         """Tiles per wave for cooperative B loading (ceildiv)."""
         return -(-self.n_tiles_wg // self.num_waves)  # ceildiv
+
+    @property
+    def padded_m_tiles(self):
+        """LDS-padded A tile count: COOP_A * NUM_WAVES (absorbs excess waves)."""
+        return self.coop_a_count * self.num_waves
+
+    @property
+    def padded_n_tiles(self):
+        """LDS-padded B tile count: COOP_B * NUM_WAVES (absorbs excess waves)."""
+        return self.coop_b_count * self.num_waves
 
     @property
     def kernel_name(self):
@@ -283,6 +293,8 @@ def _make_substitutions(cfg):
     subs["{{NUM_WAVES}}"] = str(cfg.num_waves)
     subs["{{COOP_A_COUNT}}"] = str(cfg.coop_a_count)
     subs["{{COOP_B_COUNT}}"] = str(cfg.coop_b_count)
+    subs["{{MAX_COOP_A_START}}"] = str(max(0, cfg.m_tiles_wg - cfg.coop_a_count))
+    subs["{{MAX_COOP_B_START}}"] = str(max(0, cfg.n_tiles_wg - cfg.coop_b_count))
     # Preshuffle layout parameters (f16: BK=32, 64 lanes, 16 bytes/lane).
     subs["{{STRIDE_N0_BYTES}}"] = str((cfg.k // 32) * 1024)
     subs["{{STRIDE_M0_BYTES}}"] = str((cfg.k // 32) * 1024)  # same formula as N
@@ -406,22 +418,26 @@ class TestWeakScaleCorrectness:
     @pytest.mark.parametrize(
         "m_wg,n_wg,m_tiles_wg,n_tiles_wg,m_waves,n_waves",
         [
-            # 2048x2048: 32 WG x 4 tiles/WG x 16 = 2048
+            # Divisible: M_TILES_WG % NUM_WAVES == 0
             (32, 32, 4, 4, 2, 2),  # 2x2 waves, 2x2 tiles/wave
-            (32, 32, 4, 4, 4, 4),  # 4x4 waves, 1x1 tiles/wave
-            (16, 16, 8, 8, 4, 4),  # 4x4 waves, 2x2 tiles/wave
             (16, 16, 8, 8, 2, 2),  # 2x2 waves, 4x4 tiles/wave
-            # 2048x4096: rectangular
             (32, 64, 4, 4, 2, 2),
-            (32, 64, 4, 4, 4, 4),
+            # OOB: M_TILES_WG % NUM_WAVES != 0 (excess waves load tile-0 region)
+            (64, 64, 2, 2, 2, 2),  # 4 waves, 2 tiles -> coop_a=1, 2 waves OOB
+            (32, 32, 6, 4, 2, 2),  # 4 waves, 6 A-tiles -> coop_a=2, wave3 OOB
+            (32, 32, 4, 6, 2, 2),  # 4 waves, 6 B-tiles -> coop_b=2, wave3 OOB
+            (32, 32, 6, 6, 2, 2),  # 4 waves, 6x6 -> both OOB
+            (32, 64, 4, 4, 2, 4),  # 8 waves, 4 tiles -> coop=1, 4 waves OOB
         ],
         ids=[
-            "2kx2k_wg32_twg4_w2x2",
-            "2kx2k_wg32_twg4_w4x4",
-            "2kx2k_wg16_twg8_w4x4",
-            "2kx2k_wg16_twg8_w2x2",
-            "2kx4k_wg32x64_twg4_w2x2",
-            "2kx4k_wg32x64_twg4_w4x4",
+            "div_2kx2k_twg4_w2x2",
+            "div_2kx2k_twg8_w2x2",
+            "div_2kx4k_twg4_w2x2",
+            "oob_2kx2k_twg2_w2x2",
+            "oob_6x4_twg6x4_w2x2",
+            "oob_4x6_twg4x6_w2x2",
+            "oob_6x6_twg6x6_w2x2",
+            "oob_2kx4k_twg4_w2x4",
         ],
     )
     @pytest.mark.parametrize("a_stages", [2, 3], ids=["2stage", "3stage"])
@@ -442,11 +458,6 @@ class TestWeakScaleCorrectness:
         """Constexpr GEMM verified against numpy."""
         if (b_path, load_type) not in MLIR_FILES:
             pytest.skip(f"({b_path}, {load_type}) not yet implemented")
-        nw = m_waves * n_waves
-        if m_tiles_wg % nw != 0:
-            pytest.skip(f"m_tiles_wg={m_tiles_wg} not divisible by num_waves={nw}")
-        if b_path == "lds" and n_tiles_wg % nw != 0:
-            pytest.skip(f"n_tiles_wg={n_tiles_wg} not divisible by num_waves={nw}")
         k = 128
         k_tiles = 1
         cfg = WeakScaleConfig(
