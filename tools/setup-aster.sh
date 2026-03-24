@@ -347,6 +347,7 @@ phase2_build_shared_llvm_if_needed() {
     export LLVM_BUILD="$LLVM_BUILD"
     export LLVM_INSTALL="$LLVM_INSTALL"
     export LLVM_LINKER_FLAGS="$LLVM_LINKER_FLAGS"
+    export LLVM_ENABLE_ASSERTIONS=ON
     bash "$ASTER_DIR/tools/build-llvm.sh"
     ok "Shared LLVM built and installed at $LLVM_INSTALL"
 }

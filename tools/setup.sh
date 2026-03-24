@@ -26,6 +26,11 @@ LLVM_PROJECT="${LLVM_PROJECT:-$HOME/llvm-project}"
 # Script must be run from the ASTER repo root
 ASTER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# ---------------------------------------------------------------------------
+# Build type resolution (DEBUG=1 / RELEASE=1 / --debug / --release)
+# ---------------------------------------------------------------------------
+BUILD_MODE=""
+
 # Detect worktree vs main repo
 if [ -d "$ASTER_DIR/.aster-wt-"* ] 2>/dev/null; then
     WORKTREE_NAME="$(basename "$ASTER_DIR")"
@@ -70,6 +75,8 @@ for arg in "$@"; do
     case "$arg" in
         --skip-llvm)   SKIP_LLVM=true ;;
         --llvm-only)   LLVM_ONLY=true ;;
+        --debug)       BUILD_MODE="debug" ;;
+        --release)     BUILD_MODE="release" ;;
         --with-hip)    HIP_EXPLICIT=true ;;
         --without-hip) HIP_EXPLICIT=false ;;
         --help|-h)
@@ -78,6 +85,10 @@ for arg in "$@"; do
             echo "One-stop build script for ASTER. Handles LLVM, venv, cmake, and build."
             echo ""
             echo "Options:"
+            echo "  --debug         Build LLVM and ASTER in Debug mode (assertions ON)"
+            echo "  --release       Build LLVM and ASTER in Release mode (fast, no debug info)"
+            echo "                  Default (neither): RelWithDebInfo for ASTER, Release for LLVM"
+            echo "                  Can also set via DEBUG=1 or RELEASE=1 environment variables"
             echo "  --llvm-only     Only set up shared LLVM (skip ASTER build)"
             echo "  --skip-llvm     Skip LLVM verification (assume shared LLVM is correct)"
             echo "  --with-hip      Install ROCm SDK and build with HIP support (default on Linux)"
@@ -97,6 +108,41 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# Resolve build type from CLI flags or env vars
+if [ -z "$BUILD_MODE" ]; then
+    if [ "${DEBUG:-}" = "1" ]; then
+        BUILD_MODE="debug"
+    elif [ "${RELEASE:-}" = "1" ]; then
+        BUILD_MODE="release"
+    fi
+fi
+BUILD_MODE="${BUILD_MODE:-default}"
+
+case "$BUILD_MODE" in
+    debug)
+        ASTER_BUILD_TYPE="Debug"
+        LLVM_BUILD_TYPE="Debug"
+        BUILD_SUFFIX="-debug"
+        ;;
+    release)
+        ASTER_BUILD_TYPE="Release"
+        LLVM_BUILD_TYPE="Release"
+        BUILD_SUFFIX="-release"
+        ;;
+    *)
+        ASTER_BUILD_TYPE="RelWithDebInfo"
+        LLVM_BUILD_TYPE="Release"
+        BUILD_SUFFIX=""
+        ;;
+esac
+
+# Suffix paths for non-default build types so variants coexist
+LLVM_INSTALL="${LLVM_INSTALL}${BUILD_SUFFIX}"
+LLVM_BUILD="${LLVM_BUILD}${BUILD_SUFFIX}"
+
+info "Build type: $ASTER_BUILD_TYPE (ASTER), $LLVM_BUILD_TYPE (LLVM)"
+echo ""
 
 # Resolve WITH_HIP: default to true on Linux, false on macOS
 if [ "$HIP_EXPLICIT" = "true" ]; then
@@ -143,7 +189,9 @@ check_cmd cmake
 check_cmd ninja
 check_cmd clang
 check_cmd clang++
-check_cmd lld
+if [ "$(uname)" = "Linux" ]; then
+    check_cmd lld
+fi
 check_cmd uv
 check_cmd ccache
 
@@ -406,9 +454,6 @@ else
         if [ "$(uname)" = "Linux" ]; then
             LINKER_FLAG="-DLLVM_USE_LINKER=lld"
             ok "Using lld for LLVM link (Linux)"
-        elif command -v ld.lld >/dev/null 2>&1; then
-            LINKER_FLAG="-DLLVM_USE_LINKER=lld"
-            ok "lld found, using for faster link times"
         elif command -v ld.mold >/dev/null 2>&1; then
             LINKER_FLAG="-DLLVM_USE_LINKER=mold"
             ok "mold found, using for faster link times"
@@ -418,7 +463,7 @@ else
         # cmake configs + tblgen + python bindings. Skip 100+ unnecessary
         # binaries (mlir-opt, llc, opt, etc.) saving ~4 GB.
         if ! cmake -S "$LLVM_SRC" -B "$LLVM_BUILD" -GNinja \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_BUILD_TYPE="$LLVM_BUILD_TYPE" \
             -DCMAKE_INSTALL_PREFIX="$LLVM_INSTALL" \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
@@ -739,7 +784,7 @@ echo ""
 # ---------------------------------------------------------------------------
 info "Phase 4: CMake configure"
 
-BUILD_DIR="$ASTER_DIR/build"
+BUILD_DIR="$ASTER_DIR/build${BUILD_SUFFIX}"
 mkdir -p "$BUILD_DIR"
 
 # Detect platform and HIP support
@@ -788,9 +833,6 @@ else
     if [ "$(uname)" = "Linux" ]; then
         ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld"
         ok "Using lld for ASTER link (Linux)"
-    elif command -v ld.lld >/dev/null 2>&1; then
-        ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld"
-        ok "Using lld for ASTER link"
     elif command -v ld.mold >/dev/null 2>&1; then
         ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=mold"
         ok "Using mold for ASTER link"
@@ -799,7 +841,7 @@ else
     echo "  Configuring cmake..."
     if CMAKE_PREFIX_PATH="$LLVM_INSTALL" "$VIRTUAL_ENV/bin/cmake" \
         -S "$ASTER_DIR" -B "$BUILD_DIR" -GNinja \
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_BUILD_TYPE="$ASTER_BUILD_TYPE" \
         -DCMAKE_C_COMPILER=clang \
         -DCMAKE_CXX_COMPILER=clang++ \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \

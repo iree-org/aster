@@ -11,12 +11,21 @@ LLVM_INSTALL="${LLVM_INSTALL:-${HOME}/shared-llvm}"
 LLVM_LINKER_FLAGS="${LLVM_LINKER_FLAGS:-}"
 LLVM_CCACHE_BUILD="${LLVM_CCACHE_BUILD:-ON}"
 LLVM_CLEAN_BUILD="${LLVM_CLEAN_BUILD:-OFF}"
+CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 CC_CMD="${CC:-clang}"
 CXX_CMD="${CXX:-clang++}"
 
 # ===----------------------------------------------------------------------=== #
 # Configurable but better not to touch
 # ===----------------------------------------------------------------------=== #
+
+# In Debug mode, enable assertions unconditionally.
+# In Release mode, disable assertions unless explicitly overridden.
+if [[ "${CMAKE_BUILD_TYPE}" == "Debug" ]]; then
+  LLVM_ENABLE_ASSERTIONS="${LLVM_ENABLE_ASSERTIONS:-ON}"
+elif [[ "${CMAKE_BUILD_TYPE}" == "Release" ]]; then
+  LLVM_ENABLE_ASSERTIONS="${LLVM_ENABLE_ASSERTIONS:-OFF}"
+fi
 
 LLVM_TARGETS_TO_BUILD="${LLVM_TARGETS_TO_BUILD:-AMDGPU}"
 LLVM_ENABLE_PROJECTS="${LLVM_ENABLE_PROJECTS:-mlir;lld}"
@@ -58,7 +67,7 @@ mkdir -p "${LLVM_BUILD}"
 cmake -G Ninja \
     -S "${LLVM_SRC_DIR}" \
     -B "${LLVM_BUILD}" \
-    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
     -DCMAKE_C_COMPILER="${CC_CMD}" \
     -DCMAKE_CXX_COMPILER="${CXX_CMD}" \
     -DLLVM_ENABLE_PROJECTS="${LLVM_ENABLE_PROJECTS}" \
