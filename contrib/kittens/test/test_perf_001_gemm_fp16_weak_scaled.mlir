@@ -93,22 +93,32 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
     %m_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %wave_m_off)
     %n_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %wave_n_off)
 
-    // Wave LOAD distribution: each wave cooperatively loads COOP_COUNT tiles.
-    // OOB waves clamp to last valid start (reload last tiles, idempotent LDS write).
-    %c_COOP_A = arith.constant {{COOP_A_COUNT}} : index
-    %c_COOP_B = arith.constant {{COOP_B_COUNT}} : index
-    %c_MAX_A = arith.constant {{MAX_COOP_A_START}} : index
-    %c_MAX_B = arith.constant {{MAX_COOP_B_START}} : index
-    %coop_a_start_raw = layout.linearize %wid,
-        #layout.strided_layout<[{{NUM_WAVES}}] : [{{COOP_A_COUNT}}]>
-    %coop_b_start_raw = layout.linearize %wid,
-        #layout.strided_layout<[{{NUM_WAVES}}] : [{{COOP_B_COUNT}}]>
-    %coop_a_start = arith.minui %coop_a_start_raw, %c_MAX_A : index
-    %coop_b_start = arith.minui %coop_b_start_raw, %c_MAX_B : index
-    %coop_a_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %coop_a_start)
-    %coop_b_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %coop_b_start)
-    // TODO: for now needs to be static but will have to become dynamic to avoid
-    // over-loading.
+    // Wave LOAD distribution: 2-D cooperative across M x K (and N x K).
+    // waves_m * waves_k = NUM_WAVES. Each wave loads coop_m x coop_k tiles.
+    // OOB waves clamp to last valid start in each dimension.
+    %c_COOP_A_M = arith.constant {{COOP_A_M}} : index
+    %c_COOP_A_K = arith.constant {{COOP_A_K}} : index
+    %c_MAX_A_M = arith.constant {{MAX_COOP_A_M_START}} : index
+    %c_MAX_A_K = arith.constant {{MAX_COOP_A_K_START}} : index
+    // 2-D layout: wid -> (m_start, k_start) via [waves_m, waves_k]:[coop_m, coop_k]
+    %coop_a_m_raw = layout.linearize %wid,
+        #layout.strided_layout<[{{COOP_A_WAVES_M}}, {{COOP_A_WAVES_K}}] : [{{COOP_A_M}}, 0]>
+    %coop_a_k_raw = layout.linearize %wid,
+        #layout.strided_layout<[{{COOP_A_WAVES_M}}, {{COOP_A_WAVES_K}}] : [0, {{COOP_A_K}}]>
+    %coop_a_m_start = arith.minui %coop_a_m_raw, %c_MAX_A_M : index
+    %coop_a_k_start = arith.minui %coop_a_k_raw, %c_MAX_A_K : index
+    %c_COOP_B_N = arith.constant {{COOP_B_N}} : index
+    %c_COOP_B_K = arith.constant {{COOP_B_K}} : index
+    %c_MAX_B_N = arith.constant {{MAX_COOP_B_N_START}} : index
+    %c_MAX_B_K = arith.constant {{MAX_COOP_B_K_START}} : index
+    %coop_b_n_raw = layout.linearize %wid,
+        #layout.strided_layout<[{{COOP_B_WAVES_N}}, {{COOP_B_WAVES_K}}] : [{{COOP_B_N}}, 0]>
+    %coop_b_k_raw = layout.linearize %wid,
+        #layout.strided_layout<[{{COOP_B_WAVES_N}}, {{COOP_B_WAVES_K}}] : [0, {{COOP_B_K}}]>
+    %coop_b_n_start = arith.minui %coop_b_n_raw, %c_MAX_B_N : index
+    %coop_b_k_start = arith.minui %coop_b_k_raw, %c_MAX_B_K : index
+    %coop_a_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %coop_a_m_start)
+    %coop_b_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %coop_b_n_start)
     %tiles_per_slice_a = arith.constant {{A_TILES_PER_SLICE}} : index
     %tiles_per_slice_b = arith.constant {{B_TILES_PER_SLICE}} : index
 
@@ -131,16 +141,22 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
       %lds_b_h = amdgcn.alloc_lds {{B_LDS_BYTES}} {sched.stage = {{A_STAGE_LOAD}} : i32}
       %base_b = amdgcn.get_lds_offset %lds_b_h {sched.stage = {{A_STAGE_LOAD}} : i32} : index
 
-      // --- Cooperative global load: each wave loads its share of WG tiles ---
-      %gfut_a = func.call @k_load_a_16x32_from_global(%c_COOP_A, %c_K_T, %A_rsrc, %k, %stride_AB, %coop_a_global)
+      // --- 2-D cooperative global load: each wave loads coop_m x coop_k tiles ---
+      %k_a = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%k, %coop_a_k_start)
+      %gfut_a = func.call @k_load_a_16x32_from_global(%c_COOP_A_M, %c_COOP_A_K, %A_rsrc, %k_a, %stride_AB, %coop_a_global)
           : (index, index, !aster_utils.any, index, index, index) -> !gfut_a_buf
-      %gfut_b = func.call @k_load_b_16x32_from_global(%c_COOP_B, %c_K_T, %B_rsrc, %k, %stride_AB, %coop_b_global)
+      %k_b = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%k, %coop_b_k_start)
+      %gfut_b = func.call @k_load_b_16x32_from_global(%c_COOP_B_N, %c_COOP_B_K, %B_rsrc, %k_b, %stride_AB, %coop_b_global)
           : (index, index, !aster_utils.any, index, index, index) -> !gfut_b_buf
 
-      // --- Cooperative LDS write: wave writes to its share of full WG LDS ---
-      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_COOP_A, %c_K_T, %base_a, %coop_a_start, %tiles_per_slice_a)
+      // --- 2-D cooperative LDS write: wave_base = k_start * tps + m_start ---
+      %lds_wave_base_a = affine.apply affine_map<(m, k)[tps] -> (k * tps + m)>
+          (%coop_a_m_start, %coop_a_k_start)[%tiles_per_slice_a]
+      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_COOP_A_M, %c_COOP_A_K, %base_a, %lds_wave_base_a, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
-      %lds_w_addrs_b = func.call @k_compute_lds_write_addrs_b(%c_COOP_B, %c_K_T, %base_b, %coop_b_start, %tiles_per_slice_b)
+      %lds_wave_base_b = affine.apply affine_map<(n, k)[tps] -> (k * tps + n)>
+          (%coop_b_n_start, %coop_b_k_start)[%tiles_per_slice_b]
+      %lds_w_addrs_b = func.call @k_compute_lds_write_addrs_b(%c_COOP_B_N, %c_COOP_B_K, %base_b, %lds_wave_base_b, %tiles_per_slice_b)
           : (index, index, index, index, index) -> memref<?xindex>
 
       // --- LDS read: each wave reads M_T/N_T tiles it needs for MFMA ---
@@ -150,9 +166,9 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
           : (index, index, index, index, index) -> memref<?xindex>
 
       // --- Wait for cooperative loads + store to LDS ---
-      %tok_a = func.call @k_store_to_lds_at_addrs_a(%lds_w_addrs_a, %c_COOP_A, %c_K_T, %gfut_a)
+      %tok_a = func.call @k_store_to_lds_at_addrs_a(%lds_w_addrs_a, %c_COOP_A_M, %c_COOP_A_K, %gfut_a)
           : (memref<?xindex>, index, index, !gfut_a_buf) -> !tok_a_buf
-      %tok_b = func.call @k_store_to_lds_at_addrs_b(%lds_w_addrs_b, %c_COOP_B, %c_K_T, %gfut_b)
+      %tok_b = func.call @k_store_to_lds_at_addrs_b(%lds_w_addrs_b, %c_COOP_B_N, %c_COOP_B_K, %gfut_b)
           : (memref<?xindex>, index, index, !gfut_b_buf) -> !tok_b_buf
 
       // --- Wait LDS writes then barrier (waitcnt before barrier for visibility) ---

@@ -147,15 +147,35 @@ class WeakScaleConfig:
     def direct_a(self):
         return self.b_path == "direct_ab"
 
-    @property
-    def coop_a_count(self):
-        """Tiles per wave for cooperative A loading (ceildiv)."""
-        return -(-self.m_tiles_wg // self.num_waves)  # ceildiv
+    def _coop_2d_split(self, spatial_tiles):
+        """Split NUM_WAVES into (waves_spatial, waves_k) for 2-D cooperative loading."""
+        waves_s = min(spatial_tiles, self.num_waves)
+        waves_k = max(1, self.num_waves // waves_s)
+        coop_s = -(-spatial_tiles // waves_s)
+        coop_k = -(-self.k_tiles // waves_k)
+        return waves_s, waves_k, coop_s, coop_k
 
     @property
-    def coop_b_count(self):
-        """Tiles per wave for cooperative B loading (ceildiv)."""
-        return -(-self.n_tiles_wg // self.num_waves)  # ceildiv
+    def coop_a_split(self):
+        """(waves_m, waves_k, coop_m, coop_k) for 2-D cooperative A loading."""
+        return self._coop_2d_split(self.m_tiles_wg)
+
+    @property
+    def coop_b_split(self):
+        """(waves_n, waves_k, coop_n, coop_k) for 2-D cooperative B loading."""
+        return self._coop_2d_split(self.n_tiles_wg)
+
+    @property
+    def coop_a_mk_count(self):
+        """Total tiles per wave for A: coop_m * coop_k."""
+        _, _, coop_m, coop_k = self.coop_a_split
+        return coop_m * coop_k
+
+    @property
+    def coop_b_nk_count(self):
+        """Total tiles per wave for B: coop_n * coop_k."""
+        _, _, coop_n, coop_k = self.coop_b_split
+        return coop_n * coop_k
 
     @property
     def padded_m_tiles(self):
@@ -195,8 +215,8 @@ class WeakScaleConfig:
         A also needs LDS read buffers (1 stage worth).
         direct_b adds overhead for preshuffle address computation.
         """
-        # A global load buffers: cooperative share, a_stages deep.
-        a_load_bufs = self.coop_a_count * self.k_tiles * self.a_stages * 4
+        # A global load buffers: 2-D cooperative share, a_stages deep.
+        a_load_bufs = self.coop_a_mk_count * self.a_stages * 4
         # A LDS read buffers: per-wave M_T tiles (consumed immediately).
         a_lds_read = self.m_tiles * self.k_tiles * 4
 
@@ -207,8 +227,8 @@ class WeakScaleConfig:
             b_split = self.n_tiles * self.k_tiles * 4
             overhead = 30
         else:
-            # B through LDS: cooperative share, a_stages deep.
-            b_load_bufs = self.coop_b_count * self.k_tiles * self.a_stages * 4
+            # B through LDS: 2-D cooperative share, a_stages deep.
+            b_load_bufs = self.coop_b_nk_count * self.a_stages * 4
             b_split = self.n_tiles * self.k_tiles * 4  # LDS read buffers
             overhead = 10
 
@@ -291,10 +311,21 @@ def _make_substitutions(cfg):
     subs["{{A_TILES_PER_SLICE}}"] = str(cfg.m_tiles_wg)
     subs["{{B_TILES_PER_SLICE}}"] = str(cfg.n_tiles_wg)
     subs["{{NUM_WAVES}}"] = str(cfg.num_waves)
-    subs["{{COOP_A_COUNT}}"] = str(cfg.coop_a_count)
-    subs["{{COOP_B_COUNT}}"] = str(cfg.coop_b_count)
-    subs["{{MAX_COOP_A_START}}"] = str(max(0, cfg.m_tiles_wg - cfg.coop_a_count))
-    subs["{{MAX_COOP_B_START}}"] = str(max(0, cfg.n_tiles_wg - cfg.coop_b_count))
+    # 2-D cooperative split: (waves_m, waves_k) for A, (waves_n, waves_k) for B
+    a_wm, a_wk, a_cm, a_ck = cfg.coop_a_split
+    b_wn, b_wk, b_cn, b_ck = cfg.coop_b_split
+    subs["{{COOP_A_WAVES_M}}"] = str(a_wm)
+    subs["{{COOP_A_WAVES_K}}"] = str(a_wk)
+    subs["{{COOP_A_M}}"] = str(a_cm)
+    subs["{{COOP_A_K}}"] = str(a_ck)
+    subs["{{MAX_COOP_A_M_START}}"] = str(max(0, cfg.m_tiles_wg - a_cm))
+    subs["{{MAX_COOP_A_K_START}}"] = str(max(0, cfg.k_tiles - a_ck))
+    subs["{{COOP_B_WAVES_N}}"] = str(b_wn)
+    subs["{{COOP_B_WAVES_K}}"] = str(b_wk)
+    subs["{{COOP_B_N}}"] = str(b_cn)
+    subs["{{COOP_B_K}}"] = str(b_ck)
+    subs["{{MAX_COOP_B_N_START}}"] = str(max(0, cfg.n_tiles_wg - b_cn))
+    subs["{{MAX_COOP_B_K_START}}"] = str(max(0, cfg.k_tiles - b_ck))
     # Preshuffle layout parameters (f16: BK=32, 64 lanes, 16 bytes/lane).
     subs["{{STRIDE_N0_BYTES}}"] = str((cfg.k // 32) * 1024)
     subs["{{STRIDE_M0_BYTES}}"] = str((cfg.k // 32) * 1024)  # same formula as N

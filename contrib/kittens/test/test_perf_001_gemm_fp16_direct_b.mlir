@@ -91,14 +91,19 @@ amdgcn.module @kittens_gemm_f16_direct_b target = #amdgcn.target<gfx942> isa = #
     %m_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %wave_m_off)
     %n_base = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_n_off, %wave_n_off)
 
-    // Wave LOAD distribution: cooperative for A (LDS), per-wave for B (direct).
-    // OOB waves clamp to last valid A start (reload last tiles).
-    %c_COOP_A = arith.constant {{COOP_A_COUNT}} : index
-    %c_MAX_A = arith.constant {{MAX_COOP_A_START}} : index
-    %coop_a_start_raw = layout.linearize %wid,
-        #layout.strided_layout<[{{NUM_WAVES}}] : [{{COOP_A_COUNT}}]>
-    %coop_a_start = arith.minui %coop_a_start_raw, %c_MAX_A : index
-    %coop_a_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %coop_a_start)
+    // Wave LOAD distribution: 2-D cooperative for A (LDS), per-wave for B (direct).
+    // OOB waves clamp to last valid start in each dimension.
+    %c_COOP_A_M = arith.constant {{COOP_A_M}} : index
+    %c_COOP_A_K = arith.constant {{COOP_A_K}} : index
+    %c_MAX_A_M = arith.constant {{MAX_COOP_A_M_START}} : index
+    %c_MAX_A_K = arith.constant {{MAX_COOP_A_K_START}} : index
+    %coop_a_m_raw = layout.linearize %wid,
+        #layout.strided_layout<[{{COOP_A_WAVES_M}}, {{COOP_A_WAVES_K}}] : [{{COOP_A_M}}, 0]>
+    %coop_a_k_raw = layout.linearize %wid,
+        #layout.strided_layout<[{{COOP_A_WAVES_M}}, {{COOP_A_WAVES_K}}] : [0, {{COOP_A_K}}]>
+    %coop_a_m_start = arith.minui %coop_a_m_raw, %c_MAX_A_M : index
+    %coop_a_k_start = arith.minui %coop_a_k_raw, %c_MAX_A_K : index
+    %coop_a_global = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%wg_m_off, %coop_a_m_start)
     %tiles_per_slice_a = arith.constant {{A_TILES_PER_SLICE}} : index
 
     // === Initialize accumulators ===
@@ -120,19 +125,22 @@ amdgcn.module @kittens_gemm_f16_direct_b target = #amdgcn.target<gfx942> isa = #
       %lds_a_h = amdgcn.alloc_lds {{A_LDS_BYTES}} {sched.stage = {{A_STAGE_LOAD}} : i32}
       %base_a = amdgcn.get_lds_offset %lds_a_h {sched.stage = {{A_STAGE_LOAD}} : i32} : index
 
-      // --- Cooperative A global load + per-wave B direct load ---
-      %gfut_a = func.call @k_load_a_16x32_from_global(%c_COOP_A, %c_K_T, %A_rsrc, %k, %stride_AB, %coop_a_global)
+      // --- 2-D cooperative A global load + per-wave B direct load ---
+      %k_a = affine.apply affine_map<(d0, d1) -> (d0 + d1)>(%k, %coop_a_k_start)
+      %gfut_a = func.call @k_load_a_16x32_from_global(%c_COOP_A_M, %c_COOP_A_K, %A_rsrc, %k_a, %stride_AB, %coop_a_global)
           : (index, index, !aster_utils.any, index, index, index) -> !gfut_a_buf
       %gfut_b = func.call @k_load_b_direct(%c_N_T, %c_K_T, %B_rsrc, %k, %n_base)
           : (index, index, !aster_utils.any, index, index) -> !gfut_b_buf
 
-      // --- Cooperative A LDS write ---
-      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_COOP_A, %c_K_T, %base_a, %coop_a_start, %tiles_per_slice_a)
+      // --- 2-D cooperative A LDS write ---
+      %lds_wave_base_a = affine.apply affine_map<(m, k)[tps] -> (k * tps + m)>
+          (%coop_a_m_start, %coop_a_k_start)[%tiles_per_slice_a]
+      %lds_w_addrs_a = func.call @k_compute_lds_write_addrs_a(%c_COOP_A_M, %c_COOP_A_K, %base_a, %lds_wave_base_a, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
-      // --- A LDS read: each wave reads M_T tiles it needs for MFMA ---
+      // --- A LDS read: each wave reads M_T x K_T tiles for MFMA ---
       %lds_r_addrs_a = func.call @k_compute_lds_read_addrs_a(%c_M_T, %c_K_T, %base_a, %wave_m_off, %tiles_per_slice_a)
           : (index, index, index, index, index) -> memref<?xindex>
-      %tok_a = func.call @k_store_to_lds_at_addrs_a(%lds_w_addrs_a, %c_COOP_A, %c_K_T, %gfut_a)
+      %tok_a = func.call @k_store_to_lds_at_addrs_a(%lds_w_addrs_a, %c_COOP_A_M, %c_COOP_A_K, %gfut_a)
           : (memref<?xindex>, index, index, !gfut_a_buf) -> !tok_a_buf
 
       // --- Wait A LDS writes then barrier (waitcnt before barrier for visibility) ---
