@@ -106,6 +106,29 @@ struct KernelOpConversion : public OpCodeGenPattern<amdgcn::KernelOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// ArithMinMaxOpPattern -- lower arith.min/maxui/si to cmpi + select
+//===----------------------------------------------------------------------===//
+template <typename MinMaxOp, arith::CmpIPredicate pred>
+struct ArithMinMaxOpPattern : public OpCodeGenPattern<MinMaxOp> {
+  using OpCodeGenPattern<MinMaxOp>::OpCodeGenPattern;
+  LogicalResult
+  matchAndRewrite(MinMaxOp op, typename MinMaxOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value lhs = adaptor.getLhs(), rhs = adaptor.getRhs();
+    // Lower to lsir.cmpi + lsir.select directly (skip arith intermediates).
+    Type regType = this->converter.convertType(op);
+    Value dst = this->createAlloca(rewriter, loc, regType);
+    Value cmp = lsir::CmpIOp::create(
+        rewriter, loc, rewriter.getI1Type(),
+        TypeAttr::get(op.getLhs().getType()),
+        arith::CmpIPredicateAttr::get(rewriter.getContext(), pred), lhs, rhs);
+    rewriter.replaceOpWithNewOp<lsir::SelectOp>(op, dst, cmp, lhs, rhs);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // ArithSelectOpPattern
 //===----------------------------------------------------------------------===//
 struct ArithSelectOpPattern : public OpCodeGenPattern<arith::SelectOp> {
@@ -466,6 +489,10 @@ void mlir::aster::lsir::populateCodeGenPatterns(CodeGenConverter &converter,
                ArithCastOpPattern<arith::FPToUIOp, lsir::FPToUIOp>,
                ArithCastOpPattern<arith::SIToFPOp, lsir::SIToFPOp>,
                ArithCastOpPattern<arith::UIToFPOp, lsir::UIToFPOp>,
+               ArithMinMaxOpPattern<arith::MinUIOp, arith::CmpIPredicate::ult>,
+               ArithMinMaxOpPattern<arith::MinSIOp, arith::CmpIPredicate::slt>,
+               ArithMinMaxOpPattern<arith::MaxUIOp, arith::CmpIPredicate::ugt>,
+               ArithMinMaxOpPattern<arith::MaxSIOp, arith::CmpIPredicate::sgt>,
                ArithSelectOpPattern,
                // ASTER-specific abstractions used to connect pieces in
                // composable fashion.
