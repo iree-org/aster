@@ -145,6 +145,10 @@ def _precompile_reject_reason(cfg, check_regs=True):
     if k_iters <= cfg.pipeline_depth:
         return f"K iterations ({k_iters}) <= pipeline depth ({cfg.pipeline_depth})"
 
+    # Reject underprovisioned configs: more waves than spatial tiles wastes waves.
+    if cfg.m_tiles_wg < cfg.num_waves:
+        return f"m_tiles_wg={cfg.m_tiles_wg} < num_waves={cfg.num_waves}"
+
     est = KernelResources(
         vgpr_count=cfg.estimated_vgprs if check_regs else 0,
         agpr_count=cfg.estimated_agprs if check_regs else 0,

@@ -83,15 +83,6 @@ class WeakScaleConfig:
         assert (
             self.n_tiles_wg % self.n_waves == 0
         ), f"n_tiles_wg={self.n_tiles_wg} not divisible by n_waves={self.n_waves}"
-        # Cooperative loading: warn if tiles don't divide evenly across waves.
-        # Caller must filter non-divisible configs before creating WeakScaleConfig.
-        nw = self.m_waves * self.n_waves
-        if self.m_tiles_wg % nw != 0:
-            import warnings
-
-            warnings.warn(
-                f"m_tiles_wg={self.m_tiles_wg} not divisible by num_waves={nw}"
-            )
 
     @property
     def m_tiles(self):
