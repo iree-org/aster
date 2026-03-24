@@ -125,10 +125,10 @@ amdgcn.module @kittens_gemm_f16_direct_b target = #amdgcn.target<gfx942> isa = #
       %tok_a = func.call @k_store_to_lds_at_addrs_a(%lds_w_addrs_a, %c_M_T, %c_K_T, %gfut_a)
           : (memref<?xindex>, index, index, !gfut_a_buf) -> !tok_a_buf
 
-      // --- A_STAGE_READ: A barrier + LDS read ---
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{A_STAGE_READ}} : i32}
+      // --- Wait A LDS writes then barrier (waitcnt before barrier for visibility) ---
       func.call @k_wait_lds_writes(%tok_a)
           : (memref<?x!lds_write_token>) -> ()
+      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{A_STAGE_READ}} : i32}
       %a_fut = func.call @k_read_lds_at_addrs_a(%lds_r_addrs_a)
           : (memref<?xindex>) -> !fut_a_buf
 

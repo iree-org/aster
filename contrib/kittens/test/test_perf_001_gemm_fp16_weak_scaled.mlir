@@ -157,12 +157,12 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa 
       %tok_b = func.call @k_store_to_lds_at_addrs_b(%lds_w_addrs_b, %c_COOP_B, %c_K_T, %gfut_b)
           : (memref<?xindex>, index, index, !gfut_b_buf) -> !tok_b_buf
 
-      // --- Barrier then wait all LDS write tokens ---
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{A_STAGE_READ}} : i32}
+      // --- Wait LDS writes then barrier (waitcnt before barrier for visibility) ---
       func.call @k_wait_lds_writes(%tok_a)
           : (memref<?x!lds_write_token>) -> ()
       func.call @k_wait_lds_writes(%tok_b)
           : (memref<?x!lds_write_token>) -> ()
+      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{A_STAGE_READ}} : i32}
 
       // --- Issue LDS reads at pre-computed addresses ---
       %a_fut = func.call @k_read_lds_at_addrs_a(%lds_r_addrs_a)
