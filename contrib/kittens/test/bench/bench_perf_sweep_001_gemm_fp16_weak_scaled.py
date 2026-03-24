@@ -149,6 +149,12 @@ def _precompile_reject_reason(cfg, check_regs=True):
     if cfg.m_tiles_wg < cfg.num_waves:
         return f"m_tiles_wg={cfg.m_tiles_wg} < num_waves={cfg.num_waves}"
 
+    # Deep B pipelining: b_stages that shifts A up causes data hazards atm.
+    # Safe when pipeline_depth == a_stages (B fits within A's depth).
+    # TODO: fix this in the compiler.
+    if cfg.pipeline_depth > cfg.a_stages:
+        return f"b_stages={cfg.b_stages} forces depth={cfg.pipeline_depth} > a_stages={cfg.a_stages}"
+
     est = KernelResources(
         vgpr_count=cfg.estimated_vgprs if check_regs else 0,
         agpr_count=cfg.estimated_agprs if check_regs else 0,
@@ -272,6 +278,8 @@ def _generate_configs(
         mask &= k_iters > pipeline_depth
         # Underprovisioned: m_tiles_wg < num_waves.
         mask &= mtwg >= num_waves
+        # Deep B pipelining: reject if B forces pipeline deeper than A.
+        mask &= pipeline_depth <= stages
 
         total_filtered += int(np.sum(~mask))
 
