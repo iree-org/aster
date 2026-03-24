@@ -24,23 +24,13 @@ include "aster/Interfaces/ResourceInterfaces.td"
 //===----------------------------------------------------------------------===//
 
 def RegisterTypeInterface : TypeInterface<"RegisterTypeInterface", [
-    ResourceTypeInterface
+    ResourceTypeInterface,
   ]> {
   let description = [{
     This interface defines a common API for interacting with register types.
   }];
   let cppNamespace = "::mlir::aster";
   let methods = [
-    InterfaceMethod<[{
-        This method returns whether the register is relocatable.
-      }],
-      "bool", "isRelocatable"
-    >,
-    InterfaceMethod<[{
-        This method returns whether the type is a register range.
-      }],
-      "bool", "isRegisterRange"
-    >,
     InterfaceMethod<[{
         This method returns the register's range.
       }],
@@ -53,24 +43,18 @@ def RegisterTypeInterface : TypeInterface<"RegisterTypeInterface", [
       (ins "::mlir::aster::RegisterRange":$range)
     >,
     InterfaceMethod<[{
-        This method returns a clone of the register.
-      }],
-      "::mlir::aster::RegisterTypeInterface", "cloneRegisterType",
-      (ins "::mlir::aster::Register":$reg)
-    >,
-    InterfaceMethod<[{
-        This method returns the size in bytes of the register(s).
-        Each register is 4 bytes (32-bit). Returns std::nullopt if the type
+        This method returns the size in bits of the register(s).
+        Each register is 32 bits. Returns std::nullopt if the type
         is not a valid register type.
       }],
-      "std::optional<int64_t>", "getSizeInBytes", (ins), [{}], [{
-        return $_type.getAsRange().size() * 4;
+      "std::optional<int64_t>", "getSizeInBits", (ins), [{}], [{
+        return $_type.getAsRange().size() * 32;
       }]
     >
   ];
   let extraTraitClassDeclaration = [{
     bool isAllocatable() const {
-      return $_type.isRelocatable();
+      return !$_type.hasAllocatedSemantics();
     }
   }];
   let extraSharedClassDeclaration = [{
@@ -102,6 +86,17 @@ def RegisterTypeInterface : TypeInterface<"RegisterTypeInterface", [
     /// This method returns a clone of the register type with value semantics.
     ::mlir::aster::RegisterTypeInterface getAsValue() const {
       return $_type.cloneRegisterType($_type.getAsRange().getAsValueRange());
+    }
+
+    /// Returns true if this register type represents a range of registers.
+    bool isRegisterRange() const {
+      return $_type.getAsRange().size() > 1;
+    }
+
+    /// This method returns a clone of the register type using the provided
+    /// register as the base of the range.
+    ::mlir::aster::RegisterTypeInterface cloneRegisterType(::mlir::aster::Register reg) const {
+      return $_type.cloneRegisterType(::mlir::aster::RegisterRange(reg, 1));
     }
   }];
 }

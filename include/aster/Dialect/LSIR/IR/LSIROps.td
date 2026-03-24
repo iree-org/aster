@@ -21,6 +21,7 @@ include "aster/Dialect/LSIR/IR/LSIRTypes.td"
 include "aster/Interfaces/AllocaOpInterface.td"
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
@@ -118,6 +119,90 @@ def LSIR_AllocaOp : LSIR_Op<"alloca", [Pure, AllocaOpInterface]> {
 }
 
 //===----------------------------------------------------------------------===//
+// BrOp
+//===----------------------------------------------------------------------===//
+
+def LSIR_BranchOp : LSIR_Op<"br", [
+    DeclareOpInterfaceMethods<BranchOpInterface, ["getSuccessorForOperands"]>,
+    Pure, Terminator]> {
+  let summary = "Unconditional branch operation";
+  let description = [{
+    The `lsir.br` operation unconditionally branches to a destination block,
+    passing the given operands as block arguments. Unlike `cf.br`, this op is
+    used after codegen when all values are in register types.
+
+    Example:
+    ```mlir
+    lsir.br ^bb1(%val : !amdgcn.sgpr)
+    ```
+  }];
+  let arguments = (ins Variadic<AnyType>:$destOperands);
+  let successors = (successor AnySuccessor:$dest);
+  let builders = [
+    OpBuilder<(ins "::mlir::Block *":$dest,
+                   CArg<"::mlir::ValueRange", "{}">:$destOperands), [{
+      $_state.addSuccessors(dest);
+      $_state.addOperands(destOperands);
+    }]>
+  ];
+  let assemblyFormat = [{
+    $dest (`(` $destOperands^ `:` type($destOperands) `)`)? attr-dict
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// CondBrOp
+//===----------------------------------------------------------------------===//
+
+def LSIR_CondBranchOp : LSIR_Op<"cond_br",
+    [AttrSizedOperandSegments,
+     DeclareOpInterfaceMethods<BranchOpInterface, ["getSuccessorForOperands"]>,
+     Pure, Terminator]> {
+  let summary = "Conditional branch operation";
+  let description = [{
+    The `lsir.cond_br` operation branches conditionally based on a register
+    type (SCC or VCC). Unlike `cf.cond_br` which takes `i1`, this op takes
+    a register type directly. Branches to `trueDest` when the condition
+    register is nonzero, otherwise to `falseDest`.
+
+    Example:
+    ```mlir
+    lsir.cond_br %cond : !amdgcn.scc, ^bb1(%val : !amdgcn.sgpr), ^bb2
+    ```
+  }];
+  let arguments = (ins
+    RegType:$condition,
+    Variadic<AnyType>:$trueDestOperands,
+    Variadic<AnyType>:$falseDestOperands
+  );
+  let successors = (successor AnySuccessor:$trueDest, AnySuccessor:$falseDest);
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$condition,
+                   "::mlir::Block *":$trueDest,
+                   "::mlir::ValueRange":$trueOperands,
+                   "::mlir::Block *":$falseDest,
+                   "::mlir::ValueRange":$falseOperands), [{
+      $_state.addOperands(condition);
+      $_state.addOperands(trueOperands);
+      $_state.addOperands(falseOperands);
+      $_state.addAttribute(
+        getOperandSegmentSizeAttr(),
+        $_builder.getDenseI32ArrayAttr(
+          {1, static_cast<int32_t>(trueOperands.size()),
+           static_cast<int32_t>(falseOperands.size())}));
+      $_state.addSuccessors(trueDest);
+      $_state.addSuccessors(falseDest);
+    }]>
+  ];
+  let assemblyFormat = [{
+    $condition `:` type($condition) `,`
+    $trueDest (`(` $trueDestOperands^ `:` type($trueDestOperands) `)`)? `,`
+    $falseDest (`(` $falseDestOperands^ `:` type($falseDestOperands) `)`)?
+    attr-dict
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // AndIOp
 //===----------------------------------------------------------------------===//
 
@@ -171,26 +256,29 @@ def LSIR_AssumeNoaliasOp : LSIR_Op<"assume_noalias", [
 // CmpFOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CmpFOp : LSIR_InstOp<"cmpf", [PureInst]> {
+def LSIR_CmpFOp : LSIR_InstOp<"cmpf", [InstInferType, PureInst]> {
   let summary = "Floating point comparison operation";
   let description = [{
-    The `lsir.cmpf` operation compares two floating point values and returns i1.
-    The `i1` return value is kept late in the pipeline and is only translated to
-    SCC after register allocation, together with cf branch operations.
+    The `lsir.cmpf` operation compares two floating point values and writes the
+    result to a destination register (VCC for vector operands). Follows
+    destination-passing style: the caller allocates the output register and
+    passes it as `$dst`; the operation returns it.
 
     Example:
     ```mlir
-    %result = lsir.cmpf f32 olt %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+    %result = lsir.cmpf f32 olt %dst, %lhs, %rhs
+                : !amdgcn.sreg<vcc>, !amdgcn.vgpr, !amdgcn.vgpr
     ```
   }];
   let leadingArguments = (ins
     AnyFloatTypeAttr:$semantics,
     Arith_CmpFPredicateAttr:$predicate
   );
+  let outputs = (ins RegType:$dst);
   let inputs = (ins FloatOrRegType:$lhs, FloatOrRegType:$rhs);
-  let leadingResults = (outs I1:$result);
   let assemblyFormat = [{
-    $semantics $predicate $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $semantics $predicate $dst `,` $lhs `,` $rhs attr-dict
+    `:` type($dst) `,` type($lhs) `,` type($rhs)
   }];
 }
 
@@ -198,27 +286,29 @@ def LSIR_CmpFOp : LSIR_InstOp<"cmpf", [PureInst]> {
 // CmpIOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CmpIOp : LSIR_InstOp<"cmpi", [PureInst]> {
+def LSIR_CmpIOp : LSIR_InstOp<"cmpi", [InstInferType, PureInst]> {
   let summary = "Integer comparison operation";
   let description = [{
     The `lsir.cmpi` operation compares two integer operands according to the
-    specified predicate and returns i1.
-    The `i1` return value is kept late in the pipeline and is only translated to
-    SCC after register allocation, together with cf branch operations.
+    specified predicate and writes the result to a destination register (SCC or
+    VCC). Follows destination-passing style: the caller allocates the output
+    register and passes it as `$dst`; the operation returns it.
 
     Example:
     ```mlir
-    %result = lsir.cmpi i32 eq %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr
+    %result = lsir.cmpi i32 eq %dst, %lhs, %rhs
+                : !amdgcn.scc, !amdgcn.sgpr, !amdgcn.sgpr
     ```
   }];
   let leadingArguments = (ins
     AnyIntTypeAttr:$semantics,
     Arith_CmpIPredicateAttr:$predicate
   );
+  let outputs = (ins RegType:$dst);
   let inputs = (ins IntOrRegType:$lhs, IntOrRegType:$rhs);
-  let leadingResults = (outs I1:$result);
   let assemblyFormat = [{
-    $semantics $predicate $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $semantics $predicate $dst `,` $lhs `,` $rhs attr-dict
+    `:` type($dst) `,` type($lhs) `,` type($rhs)
   }];
 }
 
@@ -696,24 +786,19 @@ def LSIR_RemUIOp : BinaryIOp<"remui"> {
 def LSIR_SelectOp : LSIR_InstOp<"select", [PureInst, InstInferType]> {
   let summary = "Select operation";
   let description = [{
-    The `lsir.select` operation selects between two values based on a condition.
-    The condition can be either a register type or i1 (from lsir.cmpi/cmpf).
-
-    When the condition is i1, LegalizeCF fuses the cmpi + select into
-    s_cmp + s_cselect_b32. When the condition is a register, it lowers to
-    a conditional move instruction.
+    The `lsir.select` operation selects between two values based on a register
+    condition (SCC or VCC). LegalizeCF lowers this to s_cselect_b32 (SCC) or
+    v_cndmask_b32 (VCC).
 
     Example:
     ```mlir
     %result = lsir.select %dst, %cond, %tv, %fv
       : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
-    %result = lsir.select %dst, %i1_cond, %tv, %fv
-      : !amdgcn.sgpr, i1, i32, i32
     ```
   }];
   let outputs = (ins RegType:$dst);
   let inputs = (ins
-    IntFloatOrRegType:$condition,
+    RegType:$condition,
     IntFloatOrRegType:$true_value,
     IntFloatOrRegType:$false_value
   );

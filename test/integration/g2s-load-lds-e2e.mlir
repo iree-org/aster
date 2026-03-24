@@ -102,9 +102,9 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdn
     // Set M0 = 44 (non-trivial dword-aligned LDS base offset for coverage).
     // Hardware writes to LDS at M0[17:2]*4 + tid*4 = 44 + tid*4.
     // M0 must be dword-aligned (low 2 bits are masked by hardware).
-    %m0 = amdgcn.alloca : !amdgcn.m0
+    %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %c44 = arith.constant 44 : i32
-    amdgcn.sop1 s_mov_b32 outs %m0 ins %c44 : !amdgcn.m0, i32
+    amdgcn.sop1 s_mov_b32 outs %m0 ins %c44 : !amdgcn.m0<0>, i32
 
     // 1 NOP required after SALU writes M0 before G2S (CDNA4 hazard)
     amdgcn.sopp.sopp #amdgcn.inst<s_nop> , imm = 10
@@ -115,7 +115,7 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdn
     // Each lane loads src[tid] -> LDS[44 + tid*4]
     %tok_g2s = amdgcn.load_lds buffer_load_dword_lds m0 %m0 addr %src_rsrc
         offset u(%soffset) + d(%voffset) + c(%c0)
-        : ins(!amdgcn.m0, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+        : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
 
     // Wait for G2S to complete (vmcnt tracks buffer loads)

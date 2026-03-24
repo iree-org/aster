@@ -294,8 +294,8 @@ void BufferizationImpl::handlePhiForwardGroup(IRRewriter &rewriter,
   }
 
   // Create a branch op to the block to forward to.
-  cf::BranchOp::create(rewriter, std::get<0>(phiForwards[start])->getLoc(),
-                       std::get<3>(phiForwards[start]), fwdValues);
+  lsir::BranchOp::create(rewriter, std::get<0>(phiForwards[start])->getLoc(),
+                         std::get<3>(phiForwards[start]), fwdValues);
 }
 
 void BufferizationImpl::handleBlocksAndTerminators(IRRewriter &rewriter,

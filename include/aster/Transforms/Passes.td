@@ -413,4 +413,24 @@ def CFGSimplification : Pass<"aster-cfg-simplification"> {
   let dependentDialects = [];
 }
 
+//===----------------------------------------------------------------------===//
+// ConvertSCFControlFlow
+//===----------------------------------------------------------------------===//
+
+def ConvertSCFControlFlow : Pass<"aster-convert-scf-control-flow"> {
+  let summary = "Convert SCF control flow to CF dialect with basic block structure";
+  let description = [{
+    Converts scf.for and scf.if to cf dialect operations with explicit basic
+    block structure. Handles both integer and index induction variable types.
+    Does not check for thread uniformity.
+
+    Post-condition: no scf.for or scf.if ops remain.
+  }];
+  let dependentDialects = [
+    "mlir::arith::ArithDialect",
+    "mlir::cf::ControlFlowDialect",
+    "mlir::scf::SCFDialect"
+  ];
+}
+
 #endif // ASTER_TRANSFORMS_PASSES_TD

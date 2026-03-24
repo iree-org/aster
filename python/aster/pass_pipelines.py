@@ -200,7 +200,7 @@ PHASE_LOWER_TO_AMDGCN = (
     # Convert SCF control flow to AMDGCN control flow
     # Note: control flow support is very limited atm, add NORMAL FORMS
     # to harden invariants.
-    "amdgcn-convert-scf-control-flow",
+    "aster-convert-scf-control-flow",
     "canonicalize", "cse",
     "aster-codegen",
     "canonicalize", "cse", "canonicalize",

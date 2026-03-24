@@ -4,6 +4,7 @@ add_mlir_library(AsterTransforms
   AffineOptimizePtrAdd.cpp
   CanonicalizePtrs.cpp
   ConstexprExpansion.cpp
+  ConvertSCFControlFlow.cpp
   FactorizeAffineExpr.cpp
   DecomposeMemrefIterArgs.cpp
   ForwardStoreToLoad.cpp
@@ -33,6 +34,7 @@ add_mlir_library(AsterTransforms
   MLIRAffineTransforms
   MLIRArithDialect
   MLIRArithTransforms
+  MLIRControlFlowDialect
   MLIRControlFlowInterfaces
   MLIRFuncDialect
   MLIRGPUDialect

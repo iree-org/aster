@@ -864,6 +864,31 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
 }
 
 //===----------------------------------------------------------------------===//
+// IsCCOp
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_IsCCOp : AMDGCN_Op<"is_cc", []> {
+  let summary = "Test whether a condition register is zero or nonzero";
+  let description = [{
+    Tests whether the `SCC`, `VCC`, or `EXEC` register is zero (when `nonzero`
+    is absent) or nonzero (when `nonzero` is present). Always returns `i1`.
+
+    Example:
+    ```mlir
+    %cond = amdgcn.is_cc %scc nonzero : !amdgcn.sreg<scc>
+    ```
+  }];
+  let arguments = (ins
+    RegisterLike:$reg,
+    UnitAttr:$nonzero
+  );
+  let results = (outs I1:$result);
+  let assemblyFormat = [{
+    $reg (`nonzero` $nonzero^)? attr-dict `:` type($reg)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // AMDGCN Target Operations
 //===----------------------------------------------------------------------===//
 
