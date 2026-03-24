@@ -186,6 +186,19 @@ void PreloadLibrary::runOnOperation() {
   if (failed(parseLibraries(ctx, parsedModules, libraryFunctions)))
     return signalPassFailure();
 
+  // Also collect functions from in-file amdgcn.library ops.
+  for (amdgcn::LibraryOp library : moduleOp.getOps<amdgcn::LibraryOp>()) {
+    for (Operation &op : library.getBodyRegion().front()) {
+      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+        StringRef name = funcOp.getSymName();
+        auto it = libraryFunctions.find(name);
+        if (it == libraryFunctions.end() ||
+            (it->second.isDeclaration() && !funcOp.isDeclaration()))
+          libraryFunctions[name] = funcOp;
+      }
+    }
+  }
+
   // Process each amdgcn.module in the input.
   for (amdgcn::ModuleOp amdgcnModule : moduleOp.getOps<amdgcn::ModuleOp>()) {
     // Iterate until fixed point (libraries may depend on other libraries).

@@ -528,7 +528,8 @@ def AMDGCN_SplitRegisterRangeOp : AMDGCN_Op<"split_register_range", [
 
 def AMDGCN_ModuleOp : AMDGCN_Op<"module", [
     AffineScope, IsolatedFromAbove, NoRegionArguments, SymbolTable, Symbol,
-    OpAsmOpInterface, SingleBlock, NoTerminator, ModuleOpInterface
+    OpAsmOpInterface, SingleBlock, NoTerminator, HasOnlyGraphRegion,
+    ModuleOpInterface
   ]> {
   let summary = "AMDGCN module operation";
   let description = [{

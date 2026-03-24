@@ -10,9 +10,11 @@
 
 #include "aster/CodeGen/Legalizer.h"
 #include "aster/Dialect/AMDGCN/CodeGen/CodeGen.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 
 #include "aster/Transforms/Utils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -113,6 +115,58 @@ void mlir::aster::amdgcn::populateAMDGPULegalizationPatterns(
   memref::populateFoldMemRefAliasOpPatterns(patterns);
   memref::populateResolveRankedShapedTypeResultDimsPatterns(patterns);
   memref::populateExpandStridedMetadataPatterns(patterns);
+
+  // memref.view(memref.alloca) -> amdgcn.alloc_lds + get_lds_offset +
+  // byte_shift. Only matches when the alloca is in shared (workgroup)
+  // memory space, as set by transform.structured.promote with
+  // memory_space = #gpu.address_space<workgroup>.
+  // High benefit so this fires before upstream expandStridedMetadata
+  // which crashes on memref.view with non-default memory space.
+  patterns.add(
+      +[](memref::ViewOp viewOp, PatternRewriter &rewriter) -> LogicalResult {
+        auto allocaOp = viewOp.getSource().getDefiningOp<memref::AllocaOp>();
+        if (!allocaOp)
+          return failure();
+        auto allocaType = allocaOp.getMemref().getType();
+        if (!allocaType.hasStaticShape() ||
+            !allocaType.getElementType().isInteger(8))
+          return failure();
+        // Only convert shared/workgroup memory to LDS.
+        auto memSpace = allocaType.getMemorySpace();
+        if (!memSpace)
+          return failure();
+        // Accept gpu.address_space<workgroup> (printed as integer 3)
+        // or any integer attr with value 3.
+        if (auto intAttr = dyn_cast<IntegerAttr>(memSpace)) {
+          if (intAttr.getInt() != 3)
+            return failure();
+        } else if (auto gpuAttr = dyn_cast<gpu::AddressSpaceAttr>(memSpace)) {
+          if (gpuAttr.getValue() != gpu::AddressSpace::Workgroup)
+            return failure();
+        } else {
+          return failure();
+        }
+        int64_t sizeBytes = allocaType.getNumElements();
+        Location loc = viewOp.getLoc();
+        // alloc_lds + get_lds_offset -> index (base LDS byte offset).
+        auto ldsAlloc = amdgcn::AllocLDSOp::create(
+            rewriter, loc, /*dynamic_size=*/Value(), sizeBytes,
+            /*alignment=*/16, /*offset=*/IntegerAttr{});
+        auto ldsOffset = amdgcn::GetLDSOffsetOp::create(
+            rewriter, loc, rewriter.getIndexType(), ldsAlloc);
+        // The view's result type is memref<MxNxT>. Replace with a
+        // reinterpret_cast from the LDS offset (treated as a base pointer).
+        // The byte_shift from the view op is added to the LDS offset.
+        Value base = ldsOffset.getResult();
+        Value shift = viewOp.getByteShift();
+        Value addr = rewriter.create<arith::AddIOp>(loc, base, shift);
+        // Cast the LDS index to the view's memref result type so
+        // downstream extract_strided_metadata can decompose it.
+        rewriter.replaceOpWithNewOp<UnrealizedConversionCastOp>(
+            viewOp, viewOp.getResult().getType(), addr);
+        return success();
+      },
+      PatternBenefit(20));
 }
 
 void mlir::aster::amdgcn::populateAMDGPUTypeLegalizationPatterns(
