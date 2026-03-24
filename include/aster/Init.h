@@ -44,6 +44,7 @@ asterRegisterUpstreamMLIRExternalModels(MlirDialectRegistry registry);
 ///
 void initDialects(DialectRegistry &registry);
 void registerPasses();
+void registerContribDialects(void (*fn)(DialectRegistry &));
 
 ///
 /// Aster CAPI stuff

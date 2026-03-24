@@ -8,7 +8,7 @@
 !sx4 = !amdgcn.sgpr<[? + 4]>
 !v = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr<[? + 2]>
-!gptr = !ptr.ptr<#ptr.generic_space>
+!gptr = !ptr.ptr<#amdgcn.addr_space<global, read_write>>
 !index_descriptor_2d = !aster_utils.struct<i: index, j: index, stride: index, elt_size_b: index>
 
 amdgcn.library @common_indexing_ptr {

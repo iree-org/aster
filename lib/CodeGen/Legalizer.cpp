@@ -20,6 +20,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
 #include "mlir/Dialect/Ptr/IR/PtrDialect.h"
+#include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Builders.h"
@@ -90,6 +91,41 @@ void Legalizer::runOnOperation() {
             getOperation(), target,
             FrozenRewritePatternSet(std::move(conversionPatterns)), config)))
       return signalPassFailure();
+  }
+
+  // Fold ptr.to_ptr(materialization_cast(x : ptr -> memref)) to identity.
+  // After type conversion, extract_strided_metadata produces a base memref
+  // from a materialized cast of the already-converted ptr arg. ptr.to_ptr
+  // then converts it right back. With matching address spaces this is a no-op.
+  //
+  // Note: this is currently used when lowering from memref in the mlir-air path
+  // and would ideally be more composable / not use UnrealizedConversionCastOp.
+  // However, removing UnrealizedConversionCastOp here runs into a deeper rabbit
+  // hole where we need to remove UnrealizedConversionCastOp in many other
+  // places in aster that are currently load-bearing.
+  {
+    SmallVector<Operation *> toErase;
+    getOperation()->walk([&](ptr::ToPtrOp toPtrOp) {
+      auto cast = toPtrOp.getPtr().getDefiningOp<UnrealizedConversionCastOp>();
+      if (!cast || cast.getNumOperands() != 1 || cast.getNumResults() != 1)
+        return;
+      if (!isa<MemRefType>(cast.getResultTypes()[0]))
+        return;
+      Value src = cast.getOperand(0);
+      if (src.getType() != toPtrOp.getType())
+        return;
+      toPtrOp.replaceAllUsesWith(src);
+      toErase.push_back(toPtrOp);
+    });
+    for (auto *op : toErase)
+      op->erase();
+    SmallVector<Operation *> deadOps;
+    getOperation()->walk([&](UnrealizedConversionCastOp op) {
+      if (op.use_empty())
+        deadOps.push_back(op);
+    });
+    for (auto *op : deadOps)
+      op->erase();
   }
 
   // Attach AMDGCN pointer size data layout to the module.

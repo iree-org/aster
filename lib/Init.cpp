@@ -51,6 +51,14 @@
 
 using namespace mlir;
 
+// Optional contrib registration hook. Populated by contrib libraries
+// (e.g., mlir-air) when they are linked into the same binary.
+static void (*contribRegisterFn)(DialectRegistry &) = nullptr;
+
+void mlir::aster::registerContribDialects(void (*fn)(DialectRegistry &)) {
+  contribRegisterFn = fn;
+}
+
 ///
 /// Upstream MLIR C++ stuff
 ///
@@ -405,6 +413,8 @@ void mlir::aster::initDialects(DialectRegistry &registry) {
   registry.insert<aster_utils::AsterUtilsDialect>();
   registry.insert<normalform::NormalFormDialect>();
   registerUpstreamExternalModels(registry);
+  if (contribRegisterFn)
+    contribRegisterFn(registry);
 }
 
 void mlir::aster::registerPasses() {

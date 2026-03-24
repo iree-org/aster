@@ -39,6 +39,27 @@ add_mlir_aggregate(ASTER
     MLIRParser
     MLIRAsmParser
 )
+if(ASTER_ENABLE_MLIR_AIR)
+  # Force all objects from MlirAirLib into the shared library so the
+  # static init hook in Init.cpp registers mlir-air dialects/passes.
+  # Raw linker flags bypass CMake dep tracking, so add explicit dep.
+  add_dependencies(ASTER MlirAirLib)
+  if(APPLE)
+    target_link_libraries(ASTER PRIVATE
+      -Wl,-force_load,$<TARGET_FILE:MlirAirLib>)
+  else()
+    target_link_libraries(ASTER PRIVATE
+      -Wl,--whole-archive $<TARGET_FILE:MlirAirLib> -Wl,--no-whole-archive)
+  endif()
+  target_link_libraries(ASTER PRIVATE
+    MLIRLinalgDialect
+    MLIRLinalgTransformOps
+    MLIRLinalgTransforms
+    MLIRTransformDialect
+    MLIRTransformDialectTransforms
+    MLIRSCFTransformOps
+  )
+endif()
 # Place ASTER.dylib/.so alongside the Python extensions in the build tree so
 # that @loader_path RPATH on the extensions resolves at build time (stubgen
 # runs before ninja install).

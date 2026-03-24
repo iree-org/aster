@@ -140,3 +140,9 @@ if(ASTER_ENABLE_PYTHON)
 endif()
 
 add_subdirectory(test)
+
+option(ASTER_ENABLE_MLIR_AIR "Build mlir-air contrib (linalg->AMDGCN)" OFF)
+if(ASTER_ENABLE_MLIR_AIR)
+  message(STATUS "mlir-air enabled")
+  add_subdirectory(contrib/mlir-air)
+endif()
