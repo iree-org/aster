@@ -426,7 +426,18 @@ def verify_top_configs(
 
     print(f"\nCorrectness: {passed}/{len(to_verify)} passed", end="")
     if errors:
-        path = _save_tmpfile("bench_verify_", errors)
+        cfg_map = {c.label: c for c in to_verify}
+        enriched = []
+        for e in errors:
+            label = e.split(":")[0].strip()
+            repro = ""
+            if label in cfg_map:
+                try:
+                    repro = f"\n  repro: {_repro_cmd(cfg_map[label], 1)}"
+                except Exception:
+                    pass
+            enriched.append(f"{e}{repro}")
+        path = _save_tmpfile("bench_verify_", enriched)
         print(f", {len(errors)} FAILED (details in {path})")
     else:
         print(" -- all correct")

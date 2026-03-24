@@ -657,7 +657,9 @@ def bench_perf_sweep(
         saved_files.append(p)
         print(f"{len(compile_errs)} compile errors in {p}")
     if exec_errs:
-        p = _save_error_file("bench_exec_errors_", "exec", exec_errs)
+        p = _save_error_file(
+            "bench_exec_errors_", "exec", exec_errs, repro_cmd_fn, num_iterations
+        )
         saved_files.append(p)
         print(f"{len(exec_errs)} exec errors in {p}")
 
