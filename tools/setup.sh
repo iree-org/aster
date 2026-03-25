@@ -4,46 +4,44 @@
 #
 # Automates the full setup: prerequisites, shared LLVM, venv, cmake, build.
 # Safe to re-run (idempotent). Works on macOS and Linux.
-#
-# Usage:
-#   tools/setup.sh              # Full setup and build
-#   tools/setup.sh --llvm-only  # Only set up shared LLVM
-#   tools/setup.sh --skip-llvm  # Skip LLVM check (assume it's correct)
-#   tools/setup.sh --help       # Show usage
-#
-# Override paths via environment variables:
-#   LLVM_INSTALL=$HOME/shared-llvm    # Where shared LLVM gets installed
-#   LLVM_BUILD=$HOME/llvm-build       # LLVM build directory
-#   LLVM_PROJECT=$HOME/llvm-project   # LLVM source checkout
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Help
 # ---------------------------------------------------------------------------
-LLVM_INSTALL="${LLVM_INSTALL:-$HOME/shared-llvm}"
-LLVM_BUILD="${LLVM_BUILD:-$HOME/llvm-build}"
-LLVM_PROJECT="${LLVM_PROJECT:-$HOME/llvm-project}"
 
-# Script must be run from the ASTER repo root
-ASTER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+print_help() {
+    echo "Usage: tools/setup.sh [OPTIONS]"
+    echo "Examples:"
+    echo "bash tools/setup.sh --with-hip --test-rocm --clang++=clang++-20"
+    echo ""
+    echo "One-stop build script for ASTER. Handles LLVM, venv, cmake, and build."
+    echo ""
+    echo "Options:"
+    echo "  --llvm-only        Only set up shared LLVM (skip ASTER build)"
+    echo "  --skip-llvm        Skip LLVM verification (assume shared LLVM is correct)"
+    echo "  --skip-requirements  Skip Python requirements installation"
+    echo "  --with-hip         Install ROCm SDK and build with HIP support (default on Linux)"
+    echo "  --without-hip      Skip ROCm SDK, cross-compile mode only (default on macOS)"
+    echo "  --rocm-target=T    Select ROCm target non-interactively (e.g. gfx94X)"
+    echo "  --test-rocm        Test ROCm SDK after initialization (default: skip test)"
+    echo "  --clang=PATH       Specify clang compiler    [default: clang]"
+    echo "  --clang++=PATH     Specify clang++ compiler  [default: clang++]"
+    echo "  --lld=PATH         Specify lld linker        [default: lld]"
+    echo "  --python=PATH      Python interpreter to use when creating the environment"
+    echo "  --venv=PATH        Use or create a specific Python environment"
+    echo "  --venv-prompt=NAME Override the shell prompt shown inside the environment"
+    echo "  --help             Show this help"
+    echo ""
+    echo "Environment variables (override defaults):"
+    echo "  LLVM_INSTALL  Shared LLVM install prefix  [default: \$HOME/shared-llvm]"
+    echo "  LLVM_BUILD    LLVM build directory         [default: \$HOME/llvm-build]"
+    echo "  LLVM_PROJECT  LLVM source checkout         [default: \$HOME/llvm-project]"
+}
 
 # ---------------------------------------------------------------------------
-# Build type resolution (DEBUG=1 / RELEASE=1 / --debug / --release)
+# Common helpers
 # ---------------------------------------------------------------------------
-BUILD_MODE=""
 
-# Detect worktree vs main repo
-if [ -d "$ASTER_DIR/.aster-wt-"* ] 2>/dev/null; then
-    WORKTREE_NAME="$(basename "$ASTER_DIR")"
-    VIRTUAL_ENV="$ASTER_DIR/.aster-wt-$WORKTREE_NAME"
-    VENV_PROMPT="aster-wt-$WORKTREE_NAME"
-else
-    VIRTUAL_ENV="$ASTER_DIR/.aster"
-    VENV_PROMPT="aster"
-fi
-
-# ---------------------------------------------------------------------------
-# Formatting
-# ---------------------------------------------------------------------------
 if [ -n "${NO_COLOR:-}" ] || [ ! -t 1 ]; then
     RED="" GREEN="" YELLOW="" BLUE="" BOLD="" RESET=""
 else
@@ -64,221 +62,220 @@ ask()   {
     esac
 }
 
-# ---------------------------------------------------------------------------
-# Parse arguments
-# ---------------------------------------------------------------------------
-SKIP_LLVM=false
-LLVM_ONLY=false
-HIP_EXPLICIT=""
+add_missing() {
+    local item="$1"
+    local existing
+    for existing in "${MISSING[@]}"; do
+        [ "$existing" = "$item" ] && return
+    done
+    MISSING+=("$item")
+}
 
-for arg in "$@"; do
-    case "$arg" in
-        --skip-llvm)   SKIP_LLVM=true ;;
-        --llvm-only)   LLVM_ONLY=true ;;
-        --debug)       BUILD_MODE="debug" ;;
-        --release)     BUILD_MODE="release" ;;
-        --with-hip)    HIP_EXPLICIT=true ;;
-        --without-hip) HIP_EXPLICIT=false ;;
-        --help|-h)
-            echo "Usage: tools/setup.sh [OPTIONS]"
-            echo ""
-            echo "One-stop build script for ASTER. Handles LLVM, venv, cmake, and build."
-            echo ""
-            echo "Options:"
-            echo "  --debug         Build LLVM and ASTER in Debug mode (assertions ON)"
-            echo "  --release       Build LLVM and ASTER in Release mode (fast, no debug info)"
-            echo "                  Default (neither): RelWithDebInfo for ASTER, Release for LLVM"
-            echo "                  Can also set via DEBUG=1 or RELEASE=1 environment variables"
-            echo "  --llvm-only     Only set up shared LLVM (skip ASTER build)"
-            echo "  --skip-llvm     Skip LLVM verification (assume shared LLVM is correct)"
-            echo "  --with-hip      Install ROCm SDK and build with HIP support (default on Linux)"
-            echo "  --without-hip   Skip ROCm SDK, cross-compile mode only (default on macOS)"
-            echo "  --help          Show this help"
-            echo ""
-            echo "Environment variables (override defaults):"
-            echo "  LLVM_INSTALL  Shared LLVM install prefix  [default: \$HOME/shared-llvm]"
-            echo "  LLVM_BUILD    LLVM build directory         [default: \$HOME/llvm-build]"
-            echo "  LLVM_PROJECT  LLVM source checkout         [default: \$HOME/llvm-project]"
-            exit 0
-            ;;
-        *)
-            err "Unknown option: $arg"
-            echo "Run 'tools/setup.sh --help' for usage."
-            exit 1
-            ;;
-    esac
-done
-
-# Resolve build type from CLI flags or env vars
-if [ -z "$BUILD_MODE" ]; then
-    if [ "${DEBUG:-}" = "1" ]; then
-        BUILD_MODE="debug"
-    elif [ "${RELEASE:-}" = "1" ]; then
-        BUILD_MODE="release"
-    fi
-fi
-BUILD_MODE="${BUILD_MODE:-default}"
-
-case "$BUILD_MODE" in
-    debug)
-        ASTER_BUILD_TYPE="Debug"
-        LLVM_BUILD_TYPE="Debug"
-        BUILD_SUFFIX="-debug"
-        ;;
-    release)
-        ASTER_BUILD_TYPE="Release"
-        LLVM_BUILD_TYPE="Release"
-        BUILD_SUFFIX="-release"
-        ;;
-    *)
-        ASTER_BUILD_TYPE="RelWithDebInfo"
-        LLVM_BUILD_TYPE="Release"
-        BUILD_SUFFIX=""
-        ;;
-esac
-
-# Suffix paths for non-default build types so variants coexist
-LLVM_INSTALL="${LLVM_INSTALL}${BUILD_SUFFIX}"
-LLVM_BUILD="${LLVM_BUILD}${BUILD_SUFFIX}"
-
-info "Build type: $ASTER_BUILD_TYPE (ASTER), $LLVM_BUILD_TYPE (LLVM)"
-echo ""
-
-# Resolve WITH_HIP: default to true on Linux, false on macOS
-if [ "$HIP_EXPLICIT" = "true" ]; then
-    WITH_HIP=true
-elif [ "$HIP_EXPLICIT" = "false" ]; then
-    WITH_HIP=false
-elif [ "$(uname)" = "Linux" ]; then
-    WITH_HIP=true
-else
-    WITH_HIP=false
-fi
-
-# ---------------------------------------------------------------------------
-# Phase 1: Prerequisites
-# ---------------------------------------------------------------------------
-info "Phase 1: Checking prerequisites"
-
-MISSING=()
-
-# Detect platform for install instructions
-if [ "$(uname)" = "Darwin" ]; then
-    PLATFORM="macos"
-elif command -v apt-get >/dev/null 2>&1; then
-    PLATFORM="debian"
-elif command -v dnf >/dev/null 2>&1; then
-    PLATFORM="fedora"
-else
-    PLATFORM="unknown"
-fi
-
-check_cmd() {
+check_required_cmd() {
     local cmd="$1"
     if command -v "$cmd" >/dev/null 2>&1; then
         ok "$cmd ($(command -v "$cmd"))"
     else
         err "$cmd not found"
-        MISSING+=("$cmd")
+        add_missing "$cmd"
     fi
 }
 
-check_cmd python3
-check_cmd git
-check_cmd cmake
-check_cmd ninja
-check_cmd clang
-check_cmd clang++
-if [ "$(uname)" = "Linux" ]; then
-    check_cmd lld
-fi
-check_cmd uv
-check_cmd ccache
-
-# Resolve Python 3.12 via uv (preferred) or system python3
-# uv manages its own python installs; we want 3.12 consistently everywhere.
-PYTHON=""
-if command -v uv >/dev/null 2>&1; then
-    PYTHON=$(uv python find 3.12 2>/dev/null || true)
-    if [ -n "$PYTHON" ]; then
-        ok "python 3.12 via uv ($PYTHON)"
-    fi
-fi
-if [ -z "$PYTHON" ] && command -v python3 >/dev/null 2>&1; then
-    PYTHON=$(python3 -c "import sys; print(sys.executable)")
-    PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-    PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
-    PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-    if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 12 ]; then
-        ok "python3 $PY_VERSION ($PYTHON)"
+check_optional_cmd() {
+    local cmd="$1"
+    if command -v "$cmd" >/dev/null 2>&1; then
+        ok "$cmd ($(command -v "$cmd"))"
     else
-        err "python3 version $PY_VERSION is too old (need >= 3.12)"
-        MISSING+=("python3>=3.12")
+        warn "$cmd not found (optional)"
     fi
-fi
-if [ -z "$PYTHON" ]; then
-    err "No suitable python found"
-    MISSING+=("python3>=3.9")
-fi
-
-if [ ${#MISSING[@]} -gt 0 ]; then
-    echo ""
-    err "Missing prerequisites: ${MISSING[*]}"
-    echo ""
-    echo "To install everything at once:"
-    echo ""
-    case "$PLATFORM" in
-        macos)
-            echo "  brew install python3 git cmake ninja llvm uv ccache"
-            echo ""
-            echo "  If you don't have Homebrew: https://brew.sh"
-            ;;
-        debian)
-            echo "  sudo apt-get update && sudo apt-get install -y git cmake ninja-build clang lld ccache"
-            echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
-            echo "  # Update PATH as printed by the uv installer, e.g.:"
-            echo "  source \$HOME/.local/bin/env"
-            echo "  uv python install 3.12"
-            ;;
-        fedora)
-            echo "  sudo dnf install -y git cmake ninja-build clang lld ccache"
-            echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
-            echo "  # Update PATH as printed by the uv installer, e.g.:"
-            echo "  source \$HOME/.local/bin/env"
-            echo "  uv python install 3.12"
-            ;;
-        *)
-            echo "  Install: python3 (>= 3.12), git, cmake, ninja, clang, lld, uv, ccache"
-            echo "  uv: https://docs.astral.sh/uv/"
-            ;;
-    esac
-    echo ""
-    echo "Then re-run: tools/setup.sh"
-    exit 1
-fi
-
-echo ""
+}
 
 # ---------------------------------------------------------------------------
-# Phase 2: Shared LLVM
+# Configuration
 # ---------------------------------------------------------------------------
-if [ "$SKIP_LLVM" = true ]; then
-    info "Phase 2: Shared LLVM (skipped via --skip-llvm)"
-    echo ""
-else
-    info "Phase 2: Shared LLVM"
 
-    # Read expected commit
+# Configurable environment variables (with defaults)
+LLVM_INSTALL="${LLVM_INSTALL:-$HOME/shared-llvm}"
+LLVM_BUILD="${LLVM_BUILD:-$HOME/llvm-build}"
+LLVM_PROJECT="${LLVM_PROJECT:-$HOME/llvm-project}"
+
+# Option variables (may be overridden by command-line arguments)
+SKIP_LLVM=false
+SKIP_REQUIREMENTS=false
+LLVM_ONLY=false
+HIP_EXPLICIT=""
+ROCM_TARGET_EXPLICIT=""
+SKIP_ROCM_TEST=true
+CLANG_CMD="clang"
+CLANGXX_CMD="clang++"
+LLD_CMD="lld"
+VENV_EXPLICIT=""
+VENV_PROMPT_EXPLICIT=""
+PYTHON_EXPLICIT=""
+
+parse_arguments() {
+    for arg in "$@"; do
+        case "$arg" in
+            --skip-llvm)         SKIP_LLVM=true ;;
+            --skip-requirements) SKIP_REQUIREMENTS=true ;;
+            --llvm-only)       LLVM_ONLY=true ;;
+            --with-hip)        HIP_EXPLICIT=true ;;
+            --without-hip)     HIP_EXPLICIT=false ;;
+            --rocm-target=*)   ROCM_TARGET_EXPLICIT="${arg#*=}" ;;
+            --test-rocm)       SKIP_ROCM_TEST=false ;;
+            --clang=*)         CLANG_CMD="${arg#*=}" ;;
+            --clang++=*)       CLANGXX_CMD="${arg#*=}" ;;
+            --lld=*)           LLD_CMD="${arg#*=}" ;;
+            --python=*)        PYTHON_EXPLICIT="${arg#*=}" ;;
+            --venv=*)          VENV_EXPLICIT="${arg#*=}" ;;
+            --venv-prompt=*)   VENV_PROMPT_EXPLICIT="${arg#*=}" ;;
+            --help|-h)
+                print_help
+                exit 0
+                ;;
+            *)
+                err "Unknown option: $arg"
+                echo "Run 'tools/setup.sh --help' for usage."
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Script
+# ---------------------------------------------------------------------------
+
+# Script must be run from the ASTER repo root
+ASTER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ASTER_BUILD_DIR="${ASTER_DIR}/build"
+
+resolve_virtual_env() {
+    # Preserve any environment already active in the calling shell.
+    local shell_virtual_env="${VIRTUAL_ENV:-}"
+
+    VENV_PROMPT="aster"
+    if [ -n "$VENV_EXPLICIT" ]; then
+        VIRTUAL_ENV="$VENV_EXPLICIT"
+    elif [ -n "$shell_virtual_env" ]; then
+        VIRTUAL_ENV="$shell_virtual_env"
+    else
+        local git_dir
+        git_dir="$(git -C "$ASTER_DIR" rev-parse --git-dir 2>/dev/null || true)"
+        if [[ "$git_dir" == */.git/worktrees/* ]]; then
+            local worktree_name
+            worktree_name="$(basename "$ASTER_DIR")"
+            VIRTUAL_ENV="$ASTER_DIR/.aster-wt-$worktree_name"
+            VENV_PROMPT="aster-wt-$worktree_name"
+        else
+            VIRTUAL_ENV="$ASTER_DIR/.aster"
+        fi
+    fi
+    [ -n "$VENV_PROMPT_EXPLICIT" ] && VENV_PROMPT="$VENV_PROMPT_EXPLICIT"
+}
+
+resolve_with_hip() {
+    if [ "$HIP_EXPLICIT" = "true" ]; then
+        WITH_HIP=true
+    elif [ "$HIP_EXPLICIT" = "false" ]; then
+        WITH_HIP=false
+    elif [ "$(uname)" = "Linux" ]; then
+        WITH_HIP=true
+    else
+        WITH_HIP=false
+    fi
+}
+
+phase1_detect_platform() {
+    if [ "$(uname)" = "Darwin" ]; then
+        PLATFORM="macos"
+    elif command -v apt-get >/dev/null 2>&1; then
+        PLATFORM="debian"
+    elif command -v dnf >/dev/null 2>&1; then
+        PLATFORM="fedora"
+    else
+        PLATFORM="unknown"
+    fi
+}
+
+phase1_check_commands() {
+    check_required_cmd git
+    check_required_cmd cmake
+    check_required_cmd ninja
+    check_required_cmd "$CLANG_CMD"
+    check_required_cmd "$CLANGXX_CMD"
+    check_optional_cmd "$LLD_CMD"
+    check_required_cmd uv
+    check_required_cmd ccache
+}
+
+phase1_resolve_python() {
+    if [ -n "$PYTHON_EXPLICIT" ]; then
+        if ! command -v "$PYTHON_EXPLICIT" >/dev/null 2>&1; then
+            err "specified python not found: $PYTHON_EXPLICIT"
+            add_missing "$PYTHON_EXPLICIT"
+            PYTHON=""
+            return
+        fi
+        PYTHON="$PYTHON_EXPLICIT"
+        PY_VERSION=$("$PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+        ok "python $PY_VERSION ($PYTHON) [--python]"
+        return
+    fi
+
+    PYTHON=""
+    if command -v uv >/dev/null 2>&1; then
+        PYTHON=$(uv python find 3.12 2>/dev/null || true)
+        if [ -n "$PYTHON" ]; then
+            ok "python 3.12 via uv ($PYTHON)"
+        fi
+    fi
+
+    if [ -z "$PYTHON" ] && command -v python3 >/dev/null 2>&1; then
+        PYTHON=$(python3 -c "import sys; print(sys.executable)")
+        if python3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)"; then
+            PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+            ok "python3 $PY_VERSION ($PYTHON)"
+        else
+            PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+            err "python3 version $PY_VERSION is too old (need >= 3.12)"
+            add_missing "python3>=3.12"
+            PYTHON=""
+        fi
+    fi
+
+    if [ -z "$PYTHON" ]; then
+        err "No suitable python found"
+        add_missing "python3>=3.12"
+    fi
+}
+
+phase1_prerequisites() {
+    info "Phase 1: Checking prerequisites"
+    MISSING=()
+    phase1_detect_platform
+    phase1_check_commands
+    phase1_resolve_python
+
+    if [ ${#MISSING[@]} -gt 0 ]; then
+        err "Missing prerequisites: ${MISSING[*]}"
+        exit 1
+    fi
+    echo ""
+}
+
+phase2_read_expected_commit() {
     LLVM_COMMIT_FILE="$ASTER_DIR/llvm/LLVM_COMMIT"
     if [ ! -f "$LLVM_COMMIT_FILE" ]; then
         err "Cannot find $LLVM_COMMIT_FILE"
-        echo "Are you running this from the ASTER repo root?"
         exit 1
     fi
+
     EXPECTED_COMMIT=$(head -1 "$LLVM_COMMIT_FILE" | tr -d '[:space:]')
     echo "  Expected LLVM commit: $EXPECTED_COMMIT"
+}
 
-    # Check if shared LLVM exists and has the right commit
+phase2_check_installed_llvm() {
     LLVM_OK=false
     VCS_HEADER="$LLVM_INSTALL/include/llvm/Support/VCSRevision.h"
     if [ -f "$VCS_HEADER" ]; then
@@ -294,335 +291,128 @@ else
     else
         warn "No shared LLVM found at $LLVM_INSTALL"
     fi
+}
 
-    # Ensure LLVM build venv uses Python >= 3.12 (nanobind stubgen fails on <3.11)
-    LLVM_VENV="$LLVM_BUILD/.venv"
-    if [ -d "$LLVM_VENV" ]; then
-        LLVM_VENV_PY_MINOR=$("$LLVM_VENV/bin/python" -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
-        if [ "$LLVM_VENV_PY_MINOR" -lt 12 ]; then
-            warn "LLVM build venv uses Python 3.$LLVM_VENV_PY_MINOR (need >= 3.12), recreating..."
-            rm -rf "$LLVM_VENV"
-            if ! uv venv "$LLVM_VENV" --seed --python "$PYTHON"; then
-                err "Failed to recreate LLVM build venv with Python >= 3.12"
-                echo ""
-                echo "Fix: uv python install 3.12"
-                echo "Then re-run: tools/setup.sh"
-                exit 1
-            fi
-            # Reinstall MLIR python requirements in the new venv
-            MLIR_PYTHON_REQS="$LLVM_PROJECT/mlir/python/requirements.txt"
-            if [ -f "$MLIR_PYTHON_REQS" ]; then
-                echo "  Reinstalling MLIR python requirements in new venv..."
-                uv pip install --python "$LLVM_VENV/bin/python" -r "$MLIR_PYTHON_REQS" 2>&1 \
-                    || "$LLVM_VENV/bin/pip" install -r "$MLIR_PYTHON_REQS"
-            fi
-            # Force cmake reconfigure since Python changed
-            LLVM_OK=false
-            ok "LLVM build venv recreated with Python >= 3.12"
-        fi
-    fi
-
-    if [ "$LLVM_OK" = false ]; then
-        # Ensure LLVM source is cloned and at the right commit
-        LLVM_SRC="$LLVM_PROJECT/llvm"
-        if [ ! -d "$LLVM_PROJECT/.git" ]; then
-            echo ""
-            echo "  LLVM source not found at $LLVM_PROJECT"
-            if ! ask "Clone llvm-project (shallow, ~500 MB)?"; then
-                echo ""
-                echo "To clone manually:"
-                echo "  git init $LLVM_PROJECT"
-                echo "  git -C $LLVM_PROJECT remote add origin https://github.com/nicolasvasilache/llvm-project.git"
-                echo "  git -C $LLVM_PROJECT fetch --depth 1 origin $EXPECTED_COMMIT"
-                echo "  git -C $LLVM_PROJECT checkout FETCH_HEAD"
-                echo ""
-                echo "Then re-run this script."
-                exit 1
-            fi
-            echo "  Cloning llvm-project (shallow fetch of pinned commit)..."
-            git init "$LLVM_PROJECT"
-            git -C "$LLVM_PROJECT" remote add origin https://github.com/nicolasvasilache/llvm-project.git
-            git -C "$LLVM_PROJECT" fetch --depth 1 origin "$EXPECTED_COMMIT"
-            git -C "$LLVM_PROJECT" checkout FETCH_HEAD
-        fi
-
-        # Checkout the right commit (handles existing repo at wrong commit)
-        CURRENT_COMMIT=$(git -C "$LLVM_PROJECT" rev-parse HEAD)
-        if [ "$CURRENT_COMMIT" != "$EXPECTED_COMMIT" ]; then
-            echo "  Fetching pinned commit..."
-            git -C "$LLVM_PROJECT" fetch --depth 1 origin "$EXPECTED_COMMIT"
-            git -C "$LLVM_PROJECT" checkout FETCH_HEAD
-        fi
-        ok "LLVM source at correct commit"
-
-        # Build shared LLVM
-        echo ""
-        echo "  Shared LLVM needs to be built. This takes 30-60+ minutes."
-        echo "  Install prefix: $LLVM_INSTALL"
-        echo "  Build dir:      $LLVM_BUILD"
-        echo ""
-        if ! ask "Build shared LLVM now?"; then
-            echo ""
-            echo "To build manually (see README_devs.md for full instructions):"
-            echo "  mkdir -p $LLVM_BUILD && cd $LLVM_BUILD"
-            echo "  cmake $LLVM_SRC -GNinja \\"
-            echo "    -DCMAKE_BUILD_TYPE=RelWithDebInfo \\"
-            echo "    -DCMAKE_INSTALL_PREFIX=$LLVM_INSTALL \\"
-            echo "    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \\"
-            echo "    -DLLVM_ENABLE_PROJECTS='mlir;lld' \\"
-            echo "    -DLLVM_TARGETS_TO_BUILD='AMDGPU' \\"
-            echo "    -DLLVM_ENABLE_ASSERTIONS=ON \\"
-            echo "    -DLLVM_USE_LINKER=lld \\"
-            echo "    -DMLIR_ENABLE_BINDINGS_PYTHON=ON \\"
-            echo "    -DMLIR_ENABLE_EXECUTION_ENGINE=ON \\"
-            echo "    -DMLIR_BUILD_MLIR_C_DYLIB=ON \\"
-            echo "    -DLLVM_CCACHE_BUILD=ON"
-            echo "  ninja install"
-            echo "  ninja install FileCheck count not llvm-objdump"
-            echo ""
-            echo "Then re-run this script."
+phase2_ensure_source_checkout() {
+    if [ ! -d "$LLVM_PROJECT/.git" ]; then
+        if ! ask "Clone llvm-project (shallow, ~500 MB)?"; then
+            err "LLVM source is missing at $LLVM_PROJECT"
             exit 1
         fi
-
-        # MLIR python bindings require a venv with pybind11/nanobind.
-        # See: https://mlir.llvm.org/docs/Bindings/Python/#building
-        LLVM_VENV="$LLVM_BUILD/.venv"
-        if [ ! -d "$LLVM_VENV" ]; then
-            echo "  Creating LLVM build venv with $PYTHON..."
-            if ! uv venv "$LLVM_VENV" --seed --python "$PYTHON"; then
-                err "Failed to create LLVM build venv at $LLVM_VENV"
-                echo ""
-                echo "Fix: uv python install 3.12"
-                echo "Then re-run: tools/setup.sh"
-                exit 1
-            fi
-            ok "LLVM build venv created"
-        else
-            ok "LLVM build venv exists at $LLVM_VENV"
-        fi
-
-        # Install MLIR python build requirements (pybind11, nanobind, etc.)
-        MLIR_PYTHON_REQS="$LLVM_PROJECT/mlir/python/requirements.txt"
-        if [ -f "$MLIR_PYTHON_REQS" ]; then
-            echo "  Installing MLIR python requirements..."
-            if ! uv pip install --python "$LLVM_VENV/bin/python" -r "$MLIR_PYTHON_REQS" 2>&1; then
-                warn "uv failed, falling back to pip..."
-                if ! "$LLVM_VENV/bin/pip" install -r "$MLIR_PYTHON_REQS"; then
-                    err "Failed to install MLIR python requirements"
-                    echo ""
-                    echo "MLIR python bindings need packages from:"
-                    echo "  $MLIR_PYTHON_REQS"
-                    echo ""
-                    echo "Try manually:"
-                    echo "  source $LLVM_VENV/bin/activate"
-                    echo "  pip install -r $MLIR_PYTHON_REQS"
-                    echo "Then re-run: tools/setup.sh"
-                    exit 1
-                fi
-            fi
-            ok "MLIR python requirements installed"
-        else
-            warn "MLIR python requirements not found at $MLIR_PYTHON_REQS"
-            echo "     MLIR python bindings may fail to build."
-            echo "     Expected file: $MLIR_PYTHON_REQS"
-        fi
-
-        # Detect ccache
-        CCACHE_FLAG=""
-        if command -v ccache >/dev/null 2>&1; then
-            CCACHE_FLAG="-DLLVM_CCACHE_BUILD=ON"
-            ok "ccache found, will use for LLVM build"
-        fi
-
-        # Detect HIP/ROCm for LLVM build (optional)
-        HIP_FLAGS=""
-        if command -v rocm-sdk >/dev/null 2>&1; then
-            HIP_PREFIX=$(rocm-sdk path --cmake 2>/dev/null)/hip
-            if [ -d "$HIP_PREFIX" ]; then
-                HIP_FLAGS="-DCMAKE_PREFIX_PATH=$HIP_PREFIX -DHIP_PLATFORM=amd"
-                ok "ROCm SDK found, including HIP support in LLVM build"
-            fi
-        fi
-
-        mkdir -p "$LLVM_BUILD"
-        echo ""
-        info "Building shared LLVM (this will take a while)..."
-
-        # Point cmake at the venv python so it finds pybind11/nanobind
-        # Use lld on Linux (required prereq), optional on macOS
-        LINKER_FLAG=""
-        if [ "$(uname)" = "Linux" ]; then
-            LINKER_FLAG="-DLLVM_USE_LINKER=lld"
-            ok "Using lld for LLVM link (Linux)"
-        elif command -v ld.mold >/dev/null 2>&1; then
-            LINKER_FLAG="-DLLVM_USE_LINKER=mold"
-            ok "mold found, using for faster link times"
-        fi
-
-        # Only install what ASTER needs: MLIR/LLD/LLVM libraries + headers +
-        # cmake configs + tblgen + python bindings. Skip 100+ unnecessary
-        # binaries (mlir-opt, llc, opt, etc.) saving ~4 GB.
-        if ! cmake -S "$LLVM_SRC" -B "$LLVM_BUILD" -GNinja \
-            -DCMAKE_BUILD_TYPE="$LLVM_BUILD_TYPE" \
-            -DCMAKE_INSTALL_PREFIX="$LLVM_INSTALL" \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DLLVM_ENABLE_PROJECTS="mlir;lld" \
-            -DLLVM_TARGETS_TO_BUILD="AMDGPU" \
-            -DLLVM_ENABLE_ASSERTIONS=ON \
-            -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
-            -DMLIR_ENABLE_EXECUTION_ENGINE=ON \
-            -DMLIR_BUILD_MLIR_C_DYLIB=ON \
-            -DLLVM_INSTALL_UTILS=ON \
-            -DPython_EXECUTABLE="$LLVM_VENV/bin/python" \
-            -DPython3_EXECUTABLE="$LLVM_VENV/bin/python" \
-            $CCACHE_FLAG \
-            $LINKER_FLAG \
-            $HIP_FLAGS; then
-            err "LLVM cmake configure failed"
-            echo ""
-            echo "Common causes:"
-            echo "  - Missing python packages: source $LLVM_VENV/bin/activate && pip install -r $MLIR_PYTHON_REQS"
-            echo "  - Missing system libraries: check cmake output above"
-            echo "Build directory: $LLVM_BUILD"
-            exit 1
-        fi
-
-        # Build and install only what ASTER needs:
-        # - install-mlir-headers, install-mlir-libraries: MLIR headers + static libs
-        # - install-lld-headers, install-lld-libraries: LLD headers + static libs
-        # - install-llvm-headers, install-llvm-libraries: LLVM headers + static libs
-        # - install-cmake-exports: cmake config files for find_package
-        # - install-mlir-tblgen: needed for ASTER tablegen
-        # - install-MLIR-C: MLIR C API dylib (python bindings)
-        # - install-MLIRPythonModules: MLIR python bindings
-        # This skips ~100 unnecessary binaries (mlir-opt, llc, opt, etc.)
-        # saving ~4 GB in the install directory.
-        if ! ninja -C "$LLVM_BUILD" \
-            install-mlir-headers install-mlir-libraries \
-            install-lld-headers install-lld-libraries \
-            install-llvm-headers install-llvm-libraries \
-            install-cmake-exports \
-            install-mlir-tblgen \
-            install-MLIR-C \
-            install-MLIRPythonModules install-MLIRPythonSources \
-            install-lld 2>&1; then
-            # If targeted install fails, fall back to full install
-            warn "Targeted install failed, falling back to full install..."
-            if ! ninja -C "$LLVM_BUILD" install; then
-                err "LLVM build failed"
-                echo ""
-                echo "Check the compiler errors above."
-                echo "Build directory: $LLVM_BUILD"
-                echo ""
-                echo "To retry (without re-running cmake):"
-                echo "  ninja -C $LLVM_BUILD install"
-                exit 1
-            fi
-        fi
-
-        # Install test tools (FileCheck, count, not, llvm-objdump)
-        for tool in FileCheck count not llvm-objdump; do
-            if [ -f "$LLVM_BUILD/bin/$tool" ]; then
-                mkdir -p "$LLVM_INSTALL/bin"
-                cp "$LLVM_BUILD/bin/$tool" "$LLVM_INSTALL/bin/$tool"
-            fi
-        done
-
-        ok "Shared LLVM built and installed at $LLVM_INSTALL"
+        echo "  Cloning llvm-project (shallow fetch of pinned commit)..."
+        git init "$LLVM_PROJECT"
+        git -C "$LLVM_PROJECT" remote add origin https://github.com/nicolasvasilache/llvm-project.git
+        git -C "$LLVM_PROJECT" fetch --depth 1 origin "$EXPECTED_COMMIT"
+        git -C "$LLVM_PROJECT" checkout FETCH_HEAD
     fi
+
+    CURRENT_COMMIT=$(git -C "$LLVM_PROJECT" rev-parse HEAD)
+    if [ "$CURRENT_COMMIT" != "$EXPECTED_COMMIT" ]; then
+        echo "  Fetching pinned commit..."
+        git -C "$LLVM_PROJECT" fetch --depth 1 origin "$EXPECTED_COMMIT"
+        git -C "$LLVM_PROJECT" checkout FETCH_HEAD
+    fi
+
+    ok "LLVM source at correct commit"
+}
+
+phase2_build_shared_llvm_if_needed() {
+    if [ "$LLVM_OK" = true ]; then
+        return
+    fi
+
+    phase2_ensure_source_checkout
     echo ""
-fi
+    echo "  Shared LLVM needs to be built. This takes 30-60+ minutes."
+    echo "  Install prefix: $LLVM_INSTALL"
+    echo "  Build dir:      $LLVM_BUILD"
+    echo ""
+    if ! ask "Build shared LLVM now?"; then
+        err "Shared LLVM build was not confirmed"
+        exit 1
+    fi
 
-# Exit early if --llvm-only
-if [ "$LLVM_ONLY" = true ]; then
-    info "Done (--llvm-only). Shared LLVM is ready at $LLVM_INSTALL"
-    exit 0
-fi
+    LLVM_LINKER_FLAGS=""
+    if command -v "$LLD_CMD" >/dev/null 2>&1; then
+        LLVM_LINKER_FLAGS="-DLLVM_USE_LINKER=${LLD_CMD}"
+        ok "${LLD_CMD} found, using for faster link times"
+    elif command -v ld.mold >/dev/null 2>&1; then
+        LLVM_LINKER_FLAGS="-DLLVM_USE_LINKER=mold"
+        ok "mold found, using for faster link times"
+    fi
 
-# ---------------------------------------------------------------------------
-# Phase 3: Python venv
-# ---------------------------------------------------------------------------
-info "Phase 3: Python virtual environment"
+    export CC="$CLANG_CMD"
+    export CXX="$CLANGXX_CMD"
+    export LLVM_PROJECT="$LLVM_PROJECT"
+    export LLVM_BUILD="$LLVM_BUILD"
+    export LLVM_INSTALL="$LLVM_INSTALL"
+    export LLVM_LINKER_FLAGS="$LLVM_LINKER_FLAGS"
+    export LLVM_ENABLE_ASSERTIONS=ON
+    bash "$ASTER_DIR/tools/build-llvm.sh"
+    ok "Shared LLVM built and installed at $LLVM_INSTALL"
+}
 
-if [ -f "$VIRTUAL_ENV/bin/python" ]; then
-    ok "venv exists at $VIRTUAL_ENV"
-else
+phase2_shared_llvm() {
+    if [ "$SKIP_LLVM" = true ]; then
+        info "Phase 2: Shared LLVM (skipped via --skip-llvm)"
+        echo ""
+        return
+    fi
+
+    info "Phase 2: Shared LLVM"
+    phase2_read_expected_commit
+    phase2_check_installed_llvm
+    phase2_build_shared_llvm_if_needed
+    echo ""
+}
+
+phase3_create_or_reuse_venv() {
+    if [ -f "$VIRTUAL_ENV/bin/python" ]; then
+        ok "venv exists at $VIRTUAL_ENV"
+        return
+    fi
+
     echo "  Creating venv at $VIRTUAL_ENV with $PYTHON..."
     if ! uv venv "$VIRTUAL_ENV" --seed --python "$PYTHON" --prompt "$VENV_PROMPT"; then
         err "Failed to create Python venv"
-        echo ""
-        echo "Common causes:"
-        echo "  - Missing python 3.12: uv python install 3.12"
-        echo "  - Broken uv installation"
-        echo ""
-        case "$PLATFORM" in
-            debian)
-                echo "Fix: sudo apt-get install -y python3-venv"
-                ;;
-            fedora)
-                echo "Fix: sudo dnf install -y python3-devel"
-                ;;
-            macos)
-                echo "Fix: brew reinstall python3"
-                ;;
-            *)
-                echo "Fix: ensure python3 -m venv works"
-                ;;
-        esac
-        echo "Then re-run: tools/setup.sh"
         exit 1
     fi
     ok "venv created"
-fi
+}
 
-# Verify the venv python is functional
-if ! "$VIRTUAL_ENV/bin/python" -c "import sys" 2>/dev/null; then
-    err "venv python is broken at $VIRTUAL_ENV/bin/python"
-    echo ""
-    echo "Fix: remove the venv and re-run:"
-    echo "  rm -rf $VIRTUAL_ENV"
-    echo "  tools/setup.sh"
-    exit 1
-fi
+phase3_verify_venv() {
+    if ! "$VIRTUAL_ENV/bin/python" -c "import sys" 2>/dev/null; then
+        err "venv python is broken at $VIRTUAL_ENV/bin/python"
+        exit 1
+    fi
+}
 
-# Install/update requirements (skip if unchanged since last install)
-REQ_STAMP="$VIRTUAL_ENV/.requirements-stamp"
-if [ -f "$REQ_STAMP" ] && [ "$REQ_STAMP" -nt "$ASTER_DIR/requirements.txt" ]; then
-    ok "requirements up to date"
-else
+phase3_install_requirements() {
+    if [ "$SKIP_REQUIREMENTS" = true ]; then
+        ok "requirements installation skipped (--skip-requirements)"
+        return
+    fi
+    REQ_STAMP="$VIRTUAL_ENV/.requirements-stamp"
+    if [ -f "$REQ_STAMP" ] && [ "$REQ_STAMP" -nt "$ASTER_DIR/requirements.txt" ]; then
+        ok "requirements up to date"
+        return
+    fi
+
     echo "  Installing requirements..."
     if uv pip install --python "$VIRTUAL_ENV/bin/python" -r "$ASTER_DIR/requirements.txt" 2>&1; then
         touch "$REQ_STAMP"
         ok "requirements installed"
     else
         err "Failed to install Python requirements"
-        echo ""
-        echo "Common causes:"
-        echo "  - Network issue (pip needs to download packages)"
-        echo "  - Incompatible Python version"
-        echo "  - Missing system libraries for compiled packages"
-        echo ""
-        echo "Try manually:"
-        echo "  uv pip install --python $VIRTUAL_ENV/bin/python -r $ASTER_DIR/requirements.txt"
-        echo ""
-        echo "If uv fails, try with pip directly:"
-        echo "  $VIRTUAL_ENV/bin/pip install -r $ASTER_DIR/requirements.txt"
         exit 1
     fi
-fi
+}
 
-# Install ROCm SDK if --with-hip
-if [ "$WITH_HIP" = true ]; then
-    if [ "$(uname)" = "Darwin" ]; then
-        err "--with-hip is only supported on Linux (AMD GPUs require Linux + ROCm)"
-        echo ""
-        echo "On macOS, ASTER builds in cross-compile mode (no GPU execution)."
-        echo "Use a Linux machine with AMD GPUs for --with-hip."
-        exit 1
+phase3_select_rocm_target() {
+    if [ "$SKIP_REQUIREMENTS" = true ]; then
+        ok "requirements installation skipped (--skip-requirements)"
+        return
     fi
-
-    # Find available ROCm requirements files
     ROCM_REQ_FILES=()
     for f in "$ASTER_DIR"/requirements-amd-*.txt; do
         [ -f "$f" ] && ROCM_REQ_FILES+=("$f")
@@ -630,7 +420,29 @@ if [ "$WITH_HIP" = true ]; then
 
     if [ ${#ROCM_REQ_FILES[@]} -eq 0 ]; then
         err "No requirements-amd-*.txt files found in $ASTER_DIR"
-        echo "Expected files like requirements-amd-gfx94X.txt"
+        exit 1
+    fi
+
+    if [ -n "$ROCM_TARGET_EXPLICIT" ]; then
+        ROCM_REQ="$ASTER_DIR/requirements-amd-$ROCM_TARGET_EXPLICIT.txt"
+        if [ ! -f "$ROCM_REQ" ]; then
+            err "Unknown ROCm target: $ROCM_TARGET_EXPLICIT"
+            exit 1
+        fi
+        ROCM_TARGET="$ROCM_TARGET_EXPLICIT"
+        return
+    fi
+
+    if [ ${#ROCM_REQ_FILES[@]} -eq 1 ]; then
+        ROCM_REQ="${ROCM_REQ_FILES[0]}"
+        ROCM_TARGET=$(basename "$ROCM_REQ" .txt)
+        ROCM_TARGET=${ROCM_TARGET#requirements-amd-}
+        ok "Using only available ROCm target: $ROCM_TARGET"
+        return
+    fi
+
+    if [ ! -t 0 ]; then
+        err "Cannot prompt for ROCm target in non-interactive mode"
         exit 1
     fi
 
@@ -645,7 +457,6 @@ if [ "$WITH_HIP" = true ]; then
     echo -n "  Which target? [1-${#ROCM_REQ_FILES[@]}] "
     read -r ROCM_CHOICE
 
-    # Validate choice
     if ! [[ "$ROCM_CHOICE" =~ ^[0-9]+$ ]] || [ "$ROCM_CHOICE" -lt 1 ] || [ "$ROCM_CHOICE" -gt ${#ROCM_REQ_FILES[@]} ]; then
         err "Invalid choice: $ROCM_CHOICE"
         exit 1
@@ -654,196 +465,257 @@ if [ "$WITH_HIP" = true ]; then
     ROCM_REQ="${ROCM_REQ_FILES[$((ROCM_CHOICE-1))]}"
     ROCM_TARGET=$(basename "$ROCM_REQ" .txt)
     ROCM_TARGET=${ROCM_TARGET#requirements-amd-}
+}
+
+phase3_install_rocm_sdk() {
+    if [ "$SKIP_REQUIREMENTS" = true ]; then
+        ok "ROCm SDK installation skipped (--skip-requirements)"
+        return
+    fi
     info "Installing ROCm SDK for $ROCM_TARGET"
 
     ROCM_STAMP="$VIRTUAL_ENV/.rocm-stamp-$ROCM_TARGET"
     if [ -f "$ROCM_STAMP" ] && [ "$ROCM_STAMP" -nt "$ROCM_REQ" ]; then
         ok "ROCm SDK ($ROCM_TARGET) already installed"
-    else
-        echo "  Installing ROCm SDK from $(head -1 "$ROCM_REQ" | sed 's/-i //')..."
-        echo "  This downloads ~2 GB of AMD GPU libraries."
-        echo ""
-        if uv pip install --python "$VIRTUAL_ENV/bin/python" -r "$ROCM_REQ" 2>&1; then
-            # Remove stamps for other targets (only one ROCm target at a time)
-            rm -f "$VIRTUAL_ENV"/.rocm-stamp-* 2>/dev/null
-            touch "$ROCM_STAMP"
-            ok "ROCm SDK ($ROCM_TARGET) installed"
-        else
-            err "Failed to install ROCm SDK"
-            echo ""
-            echo "Common causes:"
-            echo "  - Network issue (large download from AMD nightly index)"
-            echo "  - Platform mismatch (ROCm SDK is Linux x86_64 only)"
-            echo "  - Python version incompatibility"
-            echo ""
-            echo "Try manually:"
-            echo "  uv pip install --python $VIRTUAL_ENV/bin/python -r $ROCM_REQ"
-            exit 1
-        fi
+        return
     fi
 
-    # Isolate from any system ROCm at /opt/rocm*
+    echo "  Installing ROCm SDK from $(head -1 "$ROCM_REQ" | sed 's/-i //')..."
+    echo "  This downloads ~2 GB of AMD GPU libraries."
+    echo ""
+    if uv pip install --python "$VIRTUAL_ENV/bin/python" -r "$ROCM_REQ" 2>&1; then
+        rm -f "$VIRTUAL_ENV"/.rocm-stamp-* 2>/dev/null
+        touch "$ROCM_STAMP"
+        ok "ROCm SDK ($ROCM_TARGET) installed"
+    else
+        err "Failed to install ROCm SDK"
+        exit 1
+    fi
+}
+
+phase3_configure_rocm_env() {
     ROCM_DEVEL=$("$VIRTUAL_ENV/bin/python" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel
     export ROCM_PATH="$ROCM_DEVEL"
     export HIP_PATH="$ROCM_DEVEL"
-    # Strip /opt/rocm* from PATH so system hipconfig/rocm-smi are never found
     CLEAN_PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '^/opt/rocm' | tr '\n' ':' | sed 's/:$//')
     export PATH="$ROCM_DEVEL/bin:$CLEAN_PATH"
     ok "Isolated from system ROCm (ROCM_PATH=$ROCM_DEVEL)"
+}
 
-    # Initialize ROCm SDK (unpacks libraries, sets up paths)
+phase3_init_and_test_rocm() {
     echo "  Initializing ROCm SDK..."
     if ! "$VIRTUAL_ENV/bin/rocm-sdk" init 2>&1; then
         err "rocm-sdk init failed"
-        echo ""
-        echo "Common causes:"
-        echo "  - Incomplete download (re-run to retry)"
-        echo "  - Disk space (ROCm SDK needs several GB)"
-        echo ""
-        echo "Try manually:"
-        echo "  $VIRTUAL_ENV/bin/rocm-sdk init"
         exit 1
     fi
     ok "rocm-sdk initialized"
 
-    # Test ROCm SDK
-    echo "  Testing ROCm SDK..."
-    if ! "$VIRTUAL_ENV/bin/rocm-sdk" test 2>&1; then
-        err "rocm-sdk test failed"
-        echo ""
-        echo "Common causes:"
-        echo "  - No AMD GPU detected (check lspci or rocm-smi)"
-        echo "  - Missing kernel driver (amdgpu)"
-        echo "  - User not in 'render' or 'video' group"
-        echo ""
-        echo "Fix permissions:"
-        echo "  sudo usermod -aG render,video \$USER"
-        echo "  (log out and back in)"
-        echo ""
-        echo "Check GPU status:"
-        echo "  $VIRTUAL_ENV/bin/rocm-sdk test"
-        exit 1
+    if [ "$SKIP_ROCM_TEST" = false ]; then
+        echo "  Testing ROCm SDK..."
+        if ! "$VIRTUAL_ENV/bin/rocm-sdk" test 2>&1; then
+            err "rocm-sdk test failed"
+            exit 1
+        fi
+        ok "rocm-sdk test passed"
+    else
+        ok "rocm-sdk test skipped (use --test-rocm to enable)"
     fi
-    ok "rocm-sdk test passed"
 
-    # Verify rocm-sdk path works (needed for cmake to find HIP)
     if ! "$VIRTUAL_ENV/bin/rocm-sdk" path --cmake >/dev/null 2>&1; then
         err "rocm-sdk installed but 'rocm-sdk path --cmake' failed"
-        echo ""
-        echo "The ROCm SDK may be corrupt. Try reinstalling:"
-        echo "  uv pip install --python $VIRTUAL_ENV/bin/python --force-reinstall -r $ROCM_REQ"
-        echo "  $VIRTUAL_ENV/bin/rocm-sdk init"
         exit 1
     fi
     ROCM_CMAKE_PREFIX=$("$VIRTUAL_ENV/bin/rocm-sdk" path --cmake 2>/dev/null)
     ok "rocm-sdk cmake prefix: $ROCM_CMAKE_PREFIX"
-    echo ""
-fi
+}
 
-# Inject env vars into activate script if not already present
-ACTIVATE="$VIRTUAL_ENV/bin/activate"
-if ! grep -q "CMAKE_PREFIX_PATH" "$ACTIVATE" 2>/dev/null; then
-    echo "  Adding environment variables to activate script..."
-
-    # Build the activate snippet based on venv type
-    if [ "$VENV_PROMPT" = "aster" ]; then
-        # Main repo venv
-        cat >> "$ACTIVATE" << 'ACTIVATE_EOF'
-
-# --- ASTER setup (added by tools/setup.sh) ---
-export PATH=${PWD}/.aster/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/bin/:${PATH}
-export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
-export LLVM_INSTALL=${HOME}/shared-llvm
-export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
-# --- end ASTER setup ---
-ACTIVATE_EOF
-    else
-        # Worktree venv
-        cat >> "$ACTIVATE" << 'ACTIVATE_EOF'
-
-# --- ASTER setup (added by tools/setup.sh) ---
-export WORKTREE_NAME=$(basename $(pwd))
-export PATH=${PWD}/.aster-wt-${WORKTREE_NAME}/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/bin/:${PATH}
-export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster-wt-${WORKTREE_NAME}/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
-export LLVM_INSTALL=${HOME}/shared-llvm
-export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
-# --- end ASTER setup ---
-ACTIVATE_EOF
+phase3_maybe_setup_rocm() {
+    if [ "$WITH_HIP" != true ]; then
+        return
     fi
-    ok "activate script updated"
-else
-    ok "activate script already configured"
-fi
 
-echo ""
-
-# ---------------------------------------------------------------------------
-# Phase 4: CMake configure
-# ---------------------------------------------------------------------------
-info "Phase 4: CMake configure"
-
-BUILD_DIR="$ASTER_DIR/build${BUILD_SUFFIX}"
-mkdir -p "$BUILD_DIR"
-
-# Detect platform and HIP support
-CMAKE_EXTRA_FLAGS=""
-if [ "$WITH_HIP" = true ]; then
-    # --with-hip: use the rocm-sdk we installed in the venv
-    HIP_PREFIX="$ROCM_CMAKE_PREFIX/hip"
-    if [ -d "$HIP_PREFIX" ]; then
-        CMAKE_EXTRA_FLAGS="-DCMAKE_PREFIX_PATH=$HIP_PREFIX -DHIP_PLATFORM=amd"
-        ok "HIP support enabled (from venv ROCm SDK)"
-    else
-        err "ROCm SDK installed but HIP cmake dir not found at $HIP_PREFIX"
-        echo ""
-        echo "Expected directory: $HIP_PREFIX"
-        echo "rocm-sdk cmake prefix: $ROCM_CMAKE_PREFIX"
-        echo ""
-        echo "Try reinstalling the ROCm SDK:"
-        echo "  uv pip install --python $VIRTUAL_ENV/bin/python --force-reinstall -r $ROCM_REQ"
+    if [ "$(uname)" = "Darwin" ]; then
+        err "--with-hip is only supported on Linux (AMD GPUs require Linux + ROCm)"
         exit 1
     fi
-elif "$VIRTUAL_ENV/bin/rocm-sdk" path --cmake >/dev/null 2>&1; then
-    # ROCm SDK already in venv from a previous --with-hip run
-    HIP_PREFIX=$("$VIRTUAL_ENV/bin/rocm-sdk" path --cmake 2>/dev/null)/hip
-    if [ -d "$HIP_PREFIX" ]; then
-        CMAKE_EXTRA_FLAGS="-DCMAKE_PREFIX_PATH=$HIP_PREFIX -DHIP_PLATFORM=amd"
-        ok "ROCm SDK detected in venv, enabling HIP support"
+
+    phase3_select_rocm_target
+    phase3_install_rocm_sdk
+    phase3_configure_rocm_env
+    phase3_init_and_test_rocm
+    echo ""
+}
+
+phase3_update_activate_script() {
+    ACTIVATE="$VIRTUAL_ENV/bin/activate"
+    if grep -q "ASTER setup (added by tools/setup.sh)" "$ACTIVATE" 2>/dev/null; then
+        ok "activate script already configured"
+        return
     fi
-else
-    ok "No ROCm SDK (cross-compile mode, no GPU execution)"
+
+    echo "  Adding environment variables to activate script..."
+    # LLVM_INSTALL is expanded now (at setup time) so the activate script is
+    # pinned to the same install that was used to build ASTER.
+    cat >> "$ACTIVATE" << 'ACTIVATE_EOF'
+
+# --- ASTER setup (added by tools/setup.sh) ---
+ACTIVATE_EOF
+    printf 'export LLVM_INSTALL=%s\n' "$LLVM_INSTALL" >> "$ACTIVATE"
+    printf 'export ASTER_SRC_DIR=%s\n' "$ASTER_DIR" >> "$ACTIVATE"
+    cat >> "$ACTIVATE" << 'ACTIVATE_EOF'
+export VENV_PURELIB=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+export PATH=${LLVM_INSTALL}/bin:${VIRTUAL_ENV}/bin:${VENV_PURELIB}/_rocm_sdk_devel/bin:${PATH}
+export PYTHONPATH=${VENV_PURELIB}:${PYTHONPATH}
+export LD_LIBRARY_PATH=${VENV_PURELIB}/_rocm_sdk_devel/lib:${LD_LIBRARY_PATH}
+export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
+# --- end ASTER setup ---
+ACTIVATE_EOF
+
+    ok "activate script updated"
+}
+
+phase3_generate_sandbox_activate() {
+    local sandbox_dir="$ASTER_DIR/sandbox"
+    local sandbox_activate="$sandbox_dir/activate.sh"
+    local sandbox_deactivate="$sandbox_dir/deactivate.sh"
+    mkdir -p "$sandbox_dir"
+
+    cat > "$sandbox_activate" << SANDBOX_EOF
+#!/usr/bin/env bash
+#
+# sandbox/activate.sh - Activate the ASTER venv with sandbox Python paths.
+#
+# Usage:
+#   source sandbox/activate.sh
+#
+# To undo:
+#   source sandbox/deactivate.sh
+
+if [ -n "\${ASTER_SANDBOX_ACTIVE:-}" ]; then
+    echo "sandbox already active (source sandbox/deactivate.sh first)" >&2
+    return 0
 fi
 
-NEED_RECONFIGURE=false
-if [ ! -f "$BUILD_DIR/CMakeCache.txt" ] || [ ! -f "$BUILD_DIR/build.ninja" ]; then
-    NEED_RECONFIGURE=true
-elif [ "$WITH_HIP" = true ] && ! grep -q "HIP_PLATFORM" "$BUILD_DIR/CMakeCache.txt" 2>/dev/null; then
-    warn "Existing build lacks HIP support, reconfiguring for --with-hip"
-    NEED_RECONFIGURE=true
+# shellcheck source=/dev/null
+source "${VIRTUAL_ENV}/bin/activate"
+
+# Save current PYTHONPATH and PATH so deactivate.sh can restore them exactly.
+export _ASTER_OLD_PYTHONPATH="\${PYTHONPATH:-}"
+export _ASTER_OLD_PATH="\${PATH:-}"
+
+# Prepend build-tree and install-tree package directories.
+export PYTHONPATH="${ASTER_BUILD_DIR}/python_packages\${PYTHONPATH:+:\${PYTHONPATH}}"
+export PATH="${ASTER_BUILD_DIR}/bin\${PATH:+:\${PATH}}"
+
+export ASTER_SANDBOX_ACTIVE=1
+SANDBOX_EOF
+
+    cat > "$sandbox_deactivate" << SANDBOX_EOF
+#!/usr/bin/env bash
+#
+# sandbox/deactivate.sh - Undo sandbox/activate.sh.
+#
+# Restores PYTHONPATH to its pre-activation state and deactivates the venv.
+#
+# Usage:
+#   source sandbox/deactivate.sh
+
+if [ -z "\${ASTER_SANDBOX_ACTIVE:-}" ]; then
+    echo "sandbox is not active" >&2
+    return 0
 fi
 
-if [ "$NEED_RECONFIGURE" = false ]; then
-    ok "cmake already configured (build/CMakeCache.txt exists)"
-    echo "     To force reconfigure: rm $BUILD_DIR/CMakeCache.txt && re-run"
+if [ -n "\${_ASTER_OLD_PYTHONPATH}" ]; then
+    export PYTHONPATH="\${_ASTER_OLD_PYTHONPATH}"
 else
-    # Use lld on Linux (required prereq), optional on macOS
+    unset PYTHONPATH
+fi
+if [ -n "\${_ASTER_OLD_PATH}" ]; then
+    export PATH="\${_ASTER_OLD_PATH}"
+else
+    unset PATH
+fi
+unset _ASTER_OLD_PYTHONPATH _ASTER_OLD_PATH ASTER_SANDBOX_ACTIVE
+deactivate 2>/dev/null || true
+SANDBOX_EOF
+
+    ok "sandbox/activate.sh and sandbox/deactivate.sh generated"
+}
+
+phase3_python_venv() {
+    info "Phase 3: Python virtual environment"
+    phase3_create_or_reuse_venv
+    phase3_verify_venv
+    phase3_install_requirements
+    phase3_maybe_setup_rocm
+    phase3_update_activate_script
+    phase3_generate_sandbox_activate
+    echo ""
+}
+
+phase4_detect_hip_support() {
+    CMAKE_EXTRA_FLAGS=""
+    CMAKE_PREFIX_CHAIN="$LLVM_INSTALL"
+
+    if [ "$WITH_HIP" = true ]; then
+        HIP_PREFIX="$ROCM_CMAKE_PREFIX/hip"
+        if [ -d "$HIP_PREFIX" ]; then
+            CMAKE_PREFIX_CHAIN="$CMAKE_PREFIX_CHAIN:$HIP_PREFIX"
+            CMAKE_EXTRA_FLAGS="-DHIP_PLATFORM=amd"
+            ok "HIP support enabled (from venv ROCm SDK)"
+        else
+            err "ROCm SDK installed but HIP cmake dir not found at $HIP_PREFIX"
+            exit 1
+        fi
+        return
+    fi
+
+    if "$VIRTUAL_ENV/bin/rocm-sdk" path --cmake >/dev/null 2>&1; then
+        HIP_PREFIX=$("$VIRTUAL_ENV/bin/rocm-sdk" path --cmake 2>/dev/null)/hip
+        if [ -d "$HIP_PREFIX" ]; then
+            CMAKE_PREFIX_CHAIN="$CMAKE_PREFIX_CHAIN:$HIP_PREFIX"
+            CMAKE_EXTRA_FLAGS="-DHIP_PLATFORM=amd"
+            ok "ROCm SDK detected in venv, enabling HIP support"
+        fi
+    else
+        ok "No ROCm SDK (cross-compile mode, no GPU execution)"
+    fi
+}
+
+phase4_needs_reconfigure() {
+    NEED_RECONFIGURE=false
+    if [ ! -f "$ASTER_BUILD_DIR/CMakeCache.txt" ] || [ ! -f "$ASTER_BUILD_DIR/build.ninja" ]; then
+        NEED_RECONFIGURE=true
+    elif [ "$WITH_HIP" = true ] && ! grep -q "HIP_PLATFORM" "$ASTER_BUILD_DIR/CMakeCache.txt" 2>/dev/null; then
+        warn "Existing build lacks HIP support, reconfiguring for --with-hip"
+        NEED_RECONFIGURE=true
+    fi
+}
+
+phase4_select_linker() {
     ASTER_LINKER_FLAGS=""
-    if [ "$(uname)" = "Linux" ]; then
-        ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld"
-        ok "Using lld for ASTER link (Linux)"
+    if command -v "$LLD_CMD" >/dev/null 2>&1; then
+        ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=${LLD_CMD} -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=${LLD_CMD} -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=${LLD_CMD}"
+        ok "Using ${LLD_CMD} for ASTER link"
     elif command -v ld.mold >/dev/null 2>&1; then
         ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=mold"
         ok "Using mold for ASTER link"
     fi
+}
+
+phase4_configure_cmake() {
+    phase4_select_linker
 
     echo "  Configuring cmake..."
-    if CMAKE_PREFIX_PATH="$LLVM_INSTALL" "$VIRTUAL_ENV/bin/cmake" \
-        -S "$ASTER_DIR" -B "$BUILD_DIR" -GNinja \
-        -DCMAKE_BUILD_TYPE="$ASTER_BUILD_TYPE" \
-        -DCMAKE_C_COMPILER=clang \
-        -DCMAKE_CXX_COMPILER=clang++ \
+    if [ -n "${CMAKE_PREFIX_PATH:-}" ]; then
+        CMAKE_PREFIX_CHAIN="$CMAKE_PREFIX_CHAIN:$CMAKE_PREFIX_PATH"
+    fi
+
+    if CMAKE_PREFIX_PATH="$CMAKE_PREFIX_CHAIN" "$VIRTUAL_ENV/bin/cmake" \
+        -S "$ASTER_DIR" -B "$ASTER_BUILD_DIR" -GNinja \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_C_COMPILER="$CLANG_CMD" \
+        -DCMAKE_CXX_COMPILER="$CLANGXX_CMD" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_INSTALL_PREFIX="$VIRTUAL_ENV" \
         -DLLVM_EXTERNAL_LIT="$VIRTUAL_ENV/bin/lit" \
@@ -855,42 +727,70 @@ else
         ok "cmake configured"
     else
         err "cmake configure failed"
-        echo ""
-        echo "Common fixes:"
-        echo "  - LLVM commit mismatch: rebuild shared LLVM (tools/setup.sh --llvm-only)"
-        echo "  - Python issues: check $VIRTUAL_ENV/bin/python exists"
         exit 1
     fi
-fi
+}
 
-echo ""
+phase4_cmake_configure() {
+    info "Phase 4: CMake configure"
+    mkdir -p "$ASTER_BUILD_DIR"
 
-# ---------------------------------------------------------------------------
-# Phase 5: Build
-# ---------------------------------------------------------------------------
-info "Phase 5: Build"
+    phase4_detect_hip_support
+    phase4_needs_reconfigure
 
-echo "  Running ninja install..."
-if "$VIRTUAL_ENV/bin/ninja" -C "$BUILD_DIR" install; then
-    ok "ASTER built and installed"
-else
-    err "Build failed"
-    echo "Check the output above for errors."
-    exit 1
-fi
+    if [ "$NEED_RECONFIGURE" = false ]; then
+        ok "cmake already configured (build/CMakeCache.txt exists)"
+        echo "     To force reconfigure: rm $ASTER_BUILD_DIR/CMakeCache.txt && re-run"
+        echo ""
+        return
+    fi
 
-echo ""
+    phase4_configure_cmake
+    echo ""
+}
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
-info "Setup complete!"
-echo ""
-echo "  LLVM:    $LLVM_INSTALL"
-echo "  venv:    $VIRTUAL_ENV"
-echo "  build:   $BUILD_DIR"
-echo ""
-echo "  Activate the venv:  source $VIRTUAL_ENV/bin/activate"
-echo "  Run lit tests:      $VIRTUAL_ENV/bin/lit $BUILD_DIR/test -v"
-echo "  Run pytests:        cd $ASTER_DIR && $VIRTUAL_ENV/bin/pytest -n 16 ./test ./mlir_kernels ./contrib ./python"
-echo "  Rebuild:            ninja -C $BUILD_DIR install"
+phase5_build() {
+    info "Phase 5: Build"
+    echo "  Running ninja install..."
+    if "$VIRTUAL_ENV/bin/ninja" -C "$ASTER_BUILD_DIR"; then
+        ok "ASTER built"
+    else
+        err "Build failed"
+        exit 1
+    fi
+    echo ""
+}
+
+print_summary() {
+    info "Setup complete!"
+    echo ""
+    echo "  LLVM:    $LLVM_INSTALL"
+    echo "  venv:    $VIRTUAL_ENV"
+    echo "  build:   $ASTER_BUILD_DIR"
+    echo ""
+    echo "  Activate the venv:  source $ASTER_DIR/sandbox/activate.sh"
+    echo "  Run lit tests:      $VIRTUAL_ENV/bin/lit $ASTER_BUILD_DIR/test -v"
+    echo "  Run pytests:        cd $ASTER_DIR && $VIRTUAL_ENV/bin/pytest -n 16 ./test ./mlir_kernels ./contrib ./python"
+    echo "  Rebuild:            ninja -C $ASTER_BUILD_DIR install"
+}
+
+main() {
+    parse_arguments "$@"
+    resolve_virtual_env
+    resolve_with_hip
+
+    phase1_prerequisites
+    phase2_shared_llvm
+
+    if [ "$LLVM_ONLY" = true ]; then
+        info "Done (--llvm-only). Shared LLVM is ready at $LLVM_INSTALL"
+        exit 0
+    fi
+
+    phase3_python_venv
+    phase4_cmake_configure
+    phase5_build
+    print_summary
+}
+
+main "$@"
