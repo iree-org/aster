@@ -102,9 +102,9 @@ flush_llc_kernel:
     .amdhsa_user_sgpr_count 6
     .amdhsa_user_sgpr_kernarg_segment_ptr 1
     .amdhsa_system_sgpr_workgroup_id_x 1
-    .amdhsa_next_free_vgpr 4
+    .amdhsa_next_free_vgpr 8
     .amdhsa_next_free_sgpr 8
-    .amdhsa_accum_offset 4
+    .amdhsa_accum_offset 8
   .end_amdhsa_kernel
   .text
 .Lfunc_end0:

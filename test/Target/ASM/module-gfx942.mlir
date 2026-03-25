@@ -16,9 +16,9 @@
 // CHECK:      .amdhsa_kernarg_size 56
 // CHECK:      .amdhsa_user_sgpr_count 2
 // CHECK:      .amdhsa_user_sgpr_kernarg_segment_ptr 1
-// CHECK:      .amdhsa_next_free_vgpr 4
+// CHECK:      .amdhsa_next_free_vgpr 8
 // CHECK:      .amdhsa_next_free_sgpr 0
-// CHECK:      .amdhsa_accum_offset 4
+// CHECK:      .amdhsa_accum_offset 8
 // CHECK:    .end_amdhsa_kernel
 // CHECK:    .text
 // CHECK:  .Lfunc_end0
@@ -34,9 +34,9 @@
 // CHECK:    .amdhsa_kernel test_no_args
 // CHECK:      .amdhsa_user_sgpr_count 2
 // CHECK:      .amdhsa_user_sgpr_kernarg_segment_ptr 1
-// CHECK:      .amdhsa_next_free_vgpr 0
+// CHECK:      .amdhsa_next_free_vgpr 8
 // CHECK:      .amdhsa_next_free_sgpr 0
-// CHECK:      .amdhsa_accum_offset 4
+// CHECK:      .amdhsa_accum_offset 8
 // CHECK:    .end_amdhsa_kernel
 // CHECK:    .text
 // CHECK:  .Lfunc_end1

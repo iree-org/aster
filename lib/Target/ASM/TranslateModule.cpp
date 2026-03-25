@@ -506,14 +506,19 @@ LogicalResult TranslateModuleImpl::emitKernelEpilogue(KernelOp kernel,
              static_cast<int32_t>(kernel.getWorkitemIdMode()),
              static_cast<int32_t>(WorkitemIDMode::X));
 
-  // On CDNA3, ArchVGPRs and AccVGPRs share a unified register file.
+  // On CDNA3/CDNA4, ArchVGPRs and AccVGPRs share a unified register file.
   // amdhsa_next_free_vgpr must cover the full allocation block:
-  //   total = align4(ArchVGPRs) + AccVGPRs   (when AccVGPRs are used)
+  //   total = align8(ArchVGPRs) + AccVGPRs   (when AccVGPRs are used)
   // The accum_offset marks where AccVGPRs begin in this block.
+  // accum_offset MUST be aligned to the VGPR allocation granule (8 on gfx942).
+  // The LLVM assembler only checks alignment to 4, but the HIP runtime
+  // enforces alignment to 8 and rejects the kernel with "invalid kernel file".
   if (hasAGPR) {
+    // accumOffset must be aligned to 8 (VGPR alloc granule on gfx942/gfx950).
+    // next_free_vgpr must be >= accumOffset (assembler constraint).
     unsigned accumOffset =
-        regUsage.maxVGPR > 0 ? ((regUsage.maxVGPR + 3) & ~3) : 4;
-    int32_t nextFreeVGPR = regUsage.maxVGPR;
+        regUsage.maxVGPR > 0 ? ((regUsage.maxVGPR + 7) & ~7) : 8;
+    int32_t nextFreeVGPR = accumOffset;
     if (regUsage.maxAGPR > 0)
       nextFreeVGPR = accumOffset + regUsage.maxAGPR;
     printField(".amdhsa_next_free_vgpr", nextFreeVGPR);
