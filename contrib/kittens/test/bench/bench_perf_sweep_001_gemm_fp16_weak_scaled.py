@@ -312,7 +312,7 @@ def _eval_batch(
         a_lds = stages * mtwg * kt * 1024
         b_lds = np.int64(0) if is_direct_b else eff_b_stg * ntwg * kt * 1024
         lds_bytes = a_lds + b_lds
-        lds_budget = np.int64(65536) // num_wg_per_cu
+        lds_budget = np.int64(65536) // np.maximum(num_wg_per_cu, 1)
         mask &= lds_bytes <= lds_budget
 
         # VGPR estimate (vectorized version of estimated_vgprs).
@@ -342,17 +342,10 @@ def _eval_batch(
         est_vgprs = a_load_bufs + a_lds_read + b_load_bufs + b_split + overhead
         est_agprs = mt * nt * 4
 
-        # Per-wave limits.
+        # Per-wave limits (ISA manual: 256 VGPRs, 256 AGPRs, 512 combined).
         mask &= est_vgprs <= 256
         mask &= est_agprs <= 256
-        combined = est_vgprs + est_agprs
-        mask &= combined <= 512
-
-        # Unified register file per SIMD (CDNA3/CDNA4).
-        g = np.int64(8)
-        aligned = ((combined + g - 1) // g) * g
-        total_simd = aligned * waves_per_simd
-        mask &= total_simd <= 512
+        mask &= (est_vgprs + est_agprs) <= 512
 
     # --- Instantiate only fully-passing configs (fast: small survivor set) ---
     configs = []
