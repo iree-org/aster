@@ -541,9 +541,17 @@ phase3_maybe_setup_rocm() {
 
 phase3_update_activate_script() {
     ACTIVATE="$VIRTUAL_ENV/bin/activate"
-    if grep -q "ASTER setup (added by tools/setup.sh)" "$ACTIVATE" 2>/dev/null; then
+    # Regenerate if the block is missing or doesn't include python_packages.
+    if grep -q "python_packages" "$ACTIVATE" 2>/dev/null; then
         ok "activate script already configured"
         return
+    fi
+
+    # Strip any previous ASTER block before rewriting.
+    if grep -q "ASTER setup (added by tools/setup.sh)" "$ACTIVATE" 2>/dev/null; then
+        TMP=$(mktemp)
+        sed '/# --- ASTER setup/,/# --- end ASTER setup ---/d' "$ACTIVATE" > "$TMP"
+        mv "$TMP" "$ACTIVATE"
     fi
 
     echo "  Adding environment variables to activate script..."
@@ -558,7 +566,7 @@ ACTIVATE_EOF
     cat >> "$ACTIVATE" << 'ACTIVATE_EOF'
 export VENV_PURELIB=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
 export PATH=${LLVM_INSTALL}/bin:${VIRTUAL_ENV}/bin:${VENV_PURELIB}/_rocm_sdk_devel/bin:${PATH}
-export PYTHONPATH=${VENV_PURELIB}:${PYTHONPATH}
+export PYTHONPATH=${VIRTUAL_ENV}/python_packages:${VENV_PURELIB}:${PYTHONPATH}
 export LD_LIBRARY_PATH=${VENV_PURELIB}/_rocm_sdk_devel/lib:${LD_LIBRARY_PATH}
 export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
 # --- end ASTER setup ---
