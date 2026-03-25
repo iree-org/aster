@@ -6,12 +6,10 @@ add_mlir_library(AsterTransforms
   ConstexprExpansion.cpp
   FactorizeAffineExpr.cpp
   DecomposeMemrefIterArgs.cpp
-  ForwardStoreToLoad.cpp
   LDSMultibufferPrep.cpp
   LoopUnroll.cpp
   MemRefUtils.cpp
   OpScheduling.cpp
-  PromoteLoopCarriedMemrefs.cpp
   OptimizeArith.cpp
   ReplaceConstantGPUDims.cpp
   SCFPipelineAsterSched.cpp

@@ -117,8 +117,6 @@ POST_SROA_CLEANUPS = (
     # further destructuring into individual fields.
     "aster-destructure-struct-iter-args", "canonicalize", "cse",
     "sroa", "mem2reg", "amdgcn-mem2reg",
-    "aster-forward-store-to-load",
-    "aster-promote-loop-carried-memrefs",
     "cse", "canonicalize",
 )
 
@@ -249,8 +247,6 @@ def phase_nop_insertion(delays=0):
 PHASE_CONSTEXPR_EXPANSION = (
     "aster-constexpr-expansion", "canonicalize",
     "sroa", "mem2reg", "amdgcn-mem2reg",
-    "aster-forward-store-to-load",
-    "aster-promote-loop-carried-memrefs",
     "canonicalize",
 )
 
