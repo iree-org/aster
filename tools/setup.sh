@@ -567,73 +567,6 @@ ACTIVATE_EOF
     ok "activate script updated"
 }
 
-phase3_generate_sandbox_activate() {
-    local sandbox_dir="$ASTER_DIR/sandbox"
-    local sandbox_activate="$sandbox_dir/activate.sh"
-    local sandbox_deactivate="$sandbox_dir/deactivate.sh"
-    mkdir -p "$sandbox_dir"
-
-    cat > "$sandbox_activate" << SANDBOX_EOF
-#!/usr/bin/env bash
-#
-# sandbox/activate.sh - Activate the ASTER venv with sandbox Python paths.
-#
-# Usage:
-#   source sandbox/activate.sh
-#
-# To undo:
-#   source sandbox/deactivate.sh
-
-if [ -n "\${ASTER_SANDBOX_ACTIVE:-}" ]; then
-    echo "sandbox already active (source sandbox/deactivate.sh first)" >&2
-    return 0
-fi
-
-# shellcheck source=/dev/null
-source "${VIRTUAL_ENV}/bin/activate"
-
-# Save current PYTHONPATH and PATH so deactivate.sh can restore them exactly.
-export _ASTER_OLD_PYTHONPATH="\${PYTHONPATH:-}"
-export _ASTER_OLD_PATH="\${PATH:-}"
-
-# Prepend build-tree and install-tree package directories.
-export PYTHONPATH="${ASTER_BUILD_DIR}/python_packages\${PYTHONPATH:+:\${PYTHONPATH}}"
-export PATH="${ASTER_BUILD_DIR}/bin\${PATH:+:\${PATH}}"
-
-export ASTER_SANDBOX_ACTIVE=1
-SANDBOX_EOF
-
-    cat > "$sandbox_deactivate" << SANDBOX_EOF
-#!/usr/bin/env bash
-#
-# sandbox/deactivate.sh - Undo sandbox/activate.sh.
-#
-# Restores PYTHONPATH to its pre-activation state and deactivates the venv.
-#
-# Usage:
-#   source sandbox/deactivate.sh
-
-if [ -z "\${ASTER_SANDBOX_ACTIVE:-}" ]; then
-    echo "sandbox is not active" >&2
-    return 0
-fi
-
-if [ -n "\${_ASTER_OLD_PYTHONPATH}" ]; then
-    export PYTHONPATH="\${_ASTER_OLD_PYTHONPATH}"
-else
-    unset PYTHONPATH
-fi
-if [ -n "\${_ASTER_OLD_PATH}" ]; then
-    export PATH="\${_ASTER_OLD_PATH}"
-else
-    unset PATH
-fi
-unset _ASTER_OLD_PYTHONPATH _ASTER_OLD_PATH ASTER_SANDBOX_ACTIVE
-deactivate 2>/dev/null || true
-SANDBOX_EOF
-
-    ok "sandbox/activate.sh and sandbox/deactivate.sh generated"
-}
 
 phase3_python_venv() {
     info "Phase 3: Python virtual environment"
@@ -642,7 +575,6 @@ phase3_python_venv() {
     phase3_install_requirements
     phase3_maybe_setup_rocm
     phase3_update_activate_script
-    phase3_generate_sandbox_activate
     echo ""
 }
 
@@ -763,7 +695,7 @@ print_summary() {
     echo "  venv:    $VIRTUAL_ENV"
     echo "  build:   $ASTER_BUILD_DIR"
     echo ""
-    echo "  Activate the venv:  source $ASTER_DIR/sandbox/activate.sh"
+    echo "  Activate the venv:  source $VIRTUAL_ENV/bin/activate"
     echo "  Run lit tests:      $VIRTUAL_ENV/bin/lit $ASTER_BUILD_DIR/test -v"
     echo "  Run pytests:        cd $ASTER_DIR && $VIRTUAL_ENV/bin/pytest -n 16 ./test ./mlir_kernels ./contrib ./python"
     echo "  Rebuild:            ninja -C $ASTER_BUILD_DIR install"
