@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --pass-pipeline="builtin.module(func.func(aster-constexpr-expansion,cse,canonicalize,amdgcn-mem2reg))" | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline="builtin.module(func.func(aster-constexpr-expansion,cse,canonicalize,mem2reg,amdgcn-mem2reg))" | FileCheck %s
 
 
 // This test checks perfect interleaving of registers when unrolled.

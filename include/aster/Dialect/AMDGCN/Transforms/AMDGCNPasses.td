@@ -122,10 +122,15 @@ def InstructionSchedulingAutoschedule : Pass<"amdgcn-instruction-scheduling-auto
 }
 
 def Mem2Reg : Pass<"amdgcn-mem2reg"> {
-  let summary = "Promote memory operations to register operations";
+  let summary = "Replace ub.poison of register types with amdgcn.alloca";
   let description = [{
-    This pass promotes memory allocations to register usage where possible,
-    converting load and store operations to direct register operations.
+    Post-processing pass for upstream --mem2reg. Upstream mem2reg promotes
+    memref allocations to SSA values but leaves uninitialized slots as
+    ub.poison. This pass replaces ub.poison of ASTER register types with
+    amdgcn.alloca (and make_register_range for register ranges).
+    Token and struct types are left as poison.
+
+    Must run after upstream --mem2reg.
   }];
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
 }

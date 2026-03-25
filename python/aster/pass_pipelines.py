@@ -95,7 +95,7 @@ PHASE_POST_SCHEDULING_CLEANUP = (
 # TODO: NORMAL FORMS or include in pass.
 PHASE_SROA = (
     "cse", "canonicalize", "sroa",
-    "cse", "canonicalize", "amdgcn-mem2reg",
+    "cse", "canonicalize", "mem2reg", "amdgcn-mem2reg",
     "aster-selective-inlining{allow-scheduled-calls=true}",
 )
 

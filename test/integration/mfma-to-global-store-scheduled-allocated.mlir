@@ -1,7 +1,7 @@
 // RUN: aster-opt %s --inline \
 // RUN:   --amdgcn-instruction-scheduling-autoschedule --aster-op-scheduling \
 // RUN:   --cse --canonicalize --sroa \
-// RUN:   --cse --canonicalize --amdgcn-mem2reg \
+// RUN:   --cse --canonicalize --mem2reg --amdgcn-mem2reg \
 // RUN:   --cse --canonicalize --symbol-dce \
 // RUN:   --amdgcn-reg-alloc \
 // RUN: | aster-translate --mlir-to-asm \

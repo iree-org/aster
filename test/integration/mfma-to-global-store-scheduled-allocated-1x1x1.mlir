@@ -4,7 +4,7 @@
 // RUN:   --aster-op-scheduling \
 // RUN:   --aster-selective-inlining="allow-scheduled-calls=true" \
 // RUN:   --cse --canonicalize --sroa \
-// RUN:   --cse --canonicalize --amdgcn-mem2reg \
+// RUN:   --cse --canonicalize --mem2reg --amdgcn-mem2reg \
 // RUN:   --aster-selective-inlining="allow-scheduled-calls=true" \
 // RUN:   --cse --canonicalize --symbol-dce \
 // RUN: | aster-opt \
