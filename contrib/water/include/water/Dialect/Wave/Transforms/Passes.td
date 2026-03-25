@@ -215,7 +215,11 @@ def WaterWaveAsterizePass : Pass<"water-wave-asterize"> {
     "::mlir::affine::AffineDialect",
     "::mlir::func::FuncDialect",
     "::mlir::scf::SCFDialect",
-    "::mlir::memref::MemRefDialect"
+    "::mlir::memref::MemRefDialect",
+    "::mlir::aster::amdgcn::AMDGCNDialect",
+    "::mlir::aster::aster_utils::AsterUtilsDialect",
+    "::mlir::gpu::GPUDialect",
+    "::mlir::arith::ArithDialect",
   ];
 }
 

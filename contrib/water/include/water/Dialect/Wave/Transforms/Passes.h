@@ -12,6 +12,13 @@
 #include "water/Dialect/NormalForm/IR/NormalFormOps.h"
 #include <memory>
 
+namespace mlir::aster::amdgcn {
+class AMDGCNDialect;
+} // namespace mlir::aster::amdgcn
+namespace mlir::aster::aster_utils {
+class AsterUtilsDialect;
+} // namespace mlir::aster::aster_utils
+
 namespace wave {
 
 #define GEN_PASS_DECL

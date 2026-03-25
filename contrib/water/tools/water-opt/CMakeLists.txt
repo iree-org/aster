@@ -20,6 +20,9 @@ set(LIBS
 
         MLIRWaterTestDialect
         MLIRWaterTestTransforms
+
+        AMDGCNDialect
+        AMDGCNAnalysis
 )
 
 add_llvm_executable(water-opt

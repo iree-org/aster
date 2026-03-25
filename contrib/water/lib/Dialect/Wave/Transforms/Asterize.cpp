@@ -11,8 +11,11 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/Ptr/IR/PtrTypes.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -21,11 +24,15 @@
 #include "water/Dialect/Wave/IR/WaveDialect.h"
 #include "water/Dialect/Wave/IR/WaveInterfaces.h"
 #include "water/Dialect/Wave/IR/WaveOps.h"
+#include "water/Dialect/Wave/IR/WaveTypes.h"
 #include "water/Dialect/Wave/IR/WaveUtils.h"
 #include "water/Dialect/Wave/Transforms/Passes.h"
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
+#include "aster/Dialect/AsterUtils/IR/AsterUtilsTypes.h"
+
 #include "water/Dialect/Wave/Transforms/Utils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVectorExtras.h"
@@ -81,7 +88,41 @@ namespace {
 struct WaterWaveAsterizePass
     : public wave::impl::WaterWaveAsterizePassBase<WaterWaveAsterizePass> {
   void runOnOperation() override {
-    getOperation()->walk([&](func::FuncOp funcOp) {
+    WalkResult walkResult = getOperation()->walk([&](func::FuncOp funcOp) {
+      wave::MmaOp singleMmaOp;
+      WalkResult walkResult = funcOp->walk([&](wave::MmaOp mmaOp) {
+        if (singleMmaOp) {
+          mmaOp.emitError() << "NYI: multiple mmas in the function";
+          return WalkResult::interrupt();
+        }
+        singleMmaOp = mmaOp;
+        return WalkResult::advance();
+      });
+      if (walkResult.wasInterrupted())
+        return WalkResult::interrupt();
+      if (!singleMmaOp) {
+        funcOp.emitError() << "NYI: expected a single mma op in the function";
+        return WalkResult::interrupt();
+      }
+      auto iterateOp = dyn_cast<wave::IterateOp>(singleMmaOp->getParentOp());
+      if (!iterateOp) {
+        singleMmaOp.emitError()
+            << "NYI: expected a mma op to be nested in an iterate op";
+        return WalkResult::interrupt();
+      }
+      wave::WaveSymbolAttr kSymbol = iterateOp.getIterator();
+      auto accumulatorType = dyn_cast<wave::WaveTensorType>(
+          singleMmaOp.getAccumulator().getType());
+      if (!accumulatorType || !accumulatorType.getFullySpecified()) {
+        // TODO: we have a normal form precondition for this.
+        singleMmaOp.emitError() << "expected fully-specified tensor types";
+        return WalkResult::interrupt();
+      }
+      wave::WaveSymbolAttr mSymbol =
+          accumulatorType.getShape().drop_back().back();
+      wave::WaveSymbolAttr nSymbol = accumulatorType.getShape().back();
+      IRMapping valueMap;
+
       OpBuilder builder(funcOp);
       SmallVector<aster::amdgcn::KernelArgAttrInterface> argAttributes;
       argAttributes.reserve(funcOp.getNumArguments());
@@ -100,7 +141,7 @@ struct WaterWaveAsterizePass
                        : (isWriteOnly ? aster::amdgcn::AccessKind::WriteOnly
                                       : aster::amdgcn::AccessKind::ReadWrite),
             aster::amdgcn::KernelArgumentFlags::None,
-            /*name=*/"", builder.getType<mlir::ptr::PtrType>()));
+            /*name=*/"", Type()));
       }
 
       wave::WaveHyperparameterAttr hyper = wave::getHyperparameters(funcOp);
@@ -142,8 +183,6 @@ struct WaterWaveAsterizePass
       assert(hwConstraint && "");
 
       for (auto &&[symbol, constraints] : symbolConstraints) {
-        // TODO: at this point, which symbols are MNK for matmul, only where
-        // they are mapped. That will only come when we hit an mma op.
         auto wgConstraintIt =
             llvm::find_if(constraints, llvm::IsaPred<WorkgroupConstraintAttr>);
         if (wgConstraintIt == constraints.end())
@@ -201,7 +240,7 @@ struct WaterWaveAsterizePass
           blockDims.pop_back();
         }
       }
-      // TODO: later, we can redefine this to be all ones and proceeed
+      // TODO: later, we can redefine this to be all ones and proceed
       assert(!blockDims.empty() && "kernel not mapped to blocks and threads");
       SmallVector<int32_t, 3> gridDims;
       SmallVector<int32_t, 3> numWaves;
@@ -223,6 +262,19 @@ struct WaterWaveAsterizePass
         numWaves.push_back(blockDim / waveDim);
       }
 
+      auto it = llvm::find(blockSymbols, mSymbol);
+      if (it == blockSymbols.end()) {
+        funcOp.emitError() << "expected MMA m dimension to be mapped";
+        return WalkResult::interrupt();
+      }
+      int32_t mMappedDim = std::distance(blockSymbols.begin(), it);
+      it = llvm::find(blockSymbols, nSymbol);
+      if (it == blockSymbols.end()) {
+        funcOp.emitError() << "expected MMA n dimension to be mapped";
+        return WalkResult::interrupt();
+      }
+      int32_t nMappedDim = std::distance(blockSymbols.begin(), it);
+
       // compute m_tiles, n_tiles, k_tiles
       // m_tiles = m_tiles_wg // m_waves
       // m_dim = m_wg * m_tiles_wg * 16
@@ -231,19 +283,36 @@ struct WaterWaveAsterizePass
       // m_waves = waves per WG, can compute from wave constraints, I expect
       // => m_tiles by formula
 
-      // FIXME: XXX: at this point, we don't know which symbols correspond to
-      // MNK, we need some sort of propagation from mma, or some better
-      // reasoning for tile sizes, for now just go ahead and assume M is mapped
-      // to TX and N is mapped to TY.
       assert(gridDims.size() == 2 && "overfit for matmul...");
-      int32_t mWgTiles = *hyper.getSymbolValue(blockSymbols[0].getName());
-      int32_t nWgTiles = *hyper.getSymbolValue(blockSymbols[1].getName());
-      assert((mWgTiles % numWaves[0]) == 0 && "expected divisibility");
-      assert((nWgTiles % numWaves[1]) == 0 && "expected divisibility");
-      int32_t mTiles = mWgTiles / numWaves[0];
-      int32_t nTiles = nWgTiles / numWaves[0];
-
-      // TODO: k_tiles from tiling constraint
+      int32_t mWgTiles = *hyper.getSymbolValue(mSymbol.getName());
+      int32_t nWgTiles = *hyper.getSymbolValue(nSymbol.getName());
+      assert((mWgTiles % numWaves[mMappedDim]) == 0 && "expected divisibility");
+      assert((nWgTiles % numWaves[nMappedDim]) == 0 && "expected divisibility");
+      int32_t mTiles = mWgTiles / numWaves[mMappedDim];
+      int32_t nTiles = nWgTiles / numWaves[nMappedDim];
+      int32_t kSize = *hyper.getSymbolValue(kSymbol.getName());
+      int32_t kTiles = -1;
+      for (Attribute attr : symbolConstraints.lookup(kSymbol)) {
+        if (auto tilingConstraint =
+                dyn_cast<wave::TilingConstraintAttr>(attr)) {
+          if (kTiles != -1) {
+            singleMmaOp.emitError()
+                << "multiple tiling constraints for k dimension";
+            return WalkResult::interrupt();
+          }
+          std::optional<SmallVector<int64_t>> numericTileSize =
+              wave::evaluateMapWithHyperparams(
+                  tilingConstraint.getTileSize().getMap(),
+                  tilingConstraint.getTileSize().getSymbols(), hyper);
+          assert(numericTileSize.has_value() && numericTileSize->size() == 1 &&
+                 "expected tile size to be computable from hyperparameters");
+          kTiles = kSize / (*numericTileSize)[0];
+        }
+      }
+      if (kTiles == -1) {
+        singleMmaOp.emitError() << "no tiling constraint for k dimension";
+        return WalkResult::interrupt();
+      }
 
       // Linearize grids and blocks into one dim, they will be delinearlized
       // later.
@@ -255,17 +324,28 @@ struct WaterWaveAsterizePass
       kernel.setBlockDims(ArrayRef<int32_t>{numThreads, 1, 1});
 
       // Arguments.
-      builder.setInsertionPointToStart(&kernel.getBodyRegion().front());
+
+      kernel.getBodyRegion().takeBody(funcOp.getBody());
+      Block *body = &kernel.getBodyRegion().front();
+      builder.setInsertionPointToStart(body);
       auto sgpr2x = aster::amdgcn::SGPRType::get(builder.getContext(),
                                                  aster::Register(), /*size=*/2);
       SmallVector<Value> kernelArgs;
-      kernelArgs.reserve(funcOp.getNumArguments());
-      for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i) {
+      kernelArgs.reserve(body->getNumArguments());
+      for (unsigned i = 0, e = body->getNumArguments(); i < e; ++i) {
         kernelArgs.push_back(aster::amdgcn::LoadArgOp::create(
-            builder, funcOp.getArgument(i).getLoc(), sgpr2x,
+            builder, body->getArgument(i).getLoc(), sgpr2x,
             /*index=*/i));
       }
       aster::amdgcn::S_WAITCNT::create(builder, kernel.getLoc());
+      for (unsigned i = 0, e = body->getNumArguments(); i < e; ++i) {
+        auto anyType =
+            aster::aster_utils::AnyTypeType::get(builder.getContext());
+        kernelArgs[i] =
+            func::CallOp::create(builder, body->getArgument(i).getLoc(),
+                                 "prepare_ptr", anyType, kernelArgs[i])
+                ->getResult(0);
+      }
 
       // Delinearize block id into workgroup coordinates.
       Value linearBlockId =
@@ -274,8 +354,8 @@ struct WaterWaveAsterizePass
           llvm::map_to_vector<3>(gridDims, [&](int32_t d) -> Value {
             return arith::ConstantIndexOp::create(builder, funcOp.getLoc(), d);
           });
-      affine::AffineDelinearizeIndexOp::create(builder, funcOp.getLoc(),
-                                               linearBlockId, gridSizeBasis);
+      auto wgCoordinates = affine::AffineDelinearizeIndexOp::create(
+          builder, funcOp.getLoc(), linearBlockId, gridSizeBasis);
 
       Value linearThreadId =
           gpu::ThreadIdOp::create(builder, funcOp.getLoc(), gpu::Dimension::x);
@@ -287,13 +367,573 @@ struct WaterWaveAsterizePass
           llvm::map_to_vector<3>(numWaves, [&](int32_t d) -> Value {
             return arith::ConstantIndexOp::create(builder, funcOp.getLoc(), d);
           });
-      affine::AffineDelinearizeIndexOp::create(builder, funcOp.getLoc(),
-                                               linearWaveId, wavesBasis);
+      auto waveCoordinates = affine::AffineDelinearizeIndexOp::create(
+          builder, funcOp.getLoc(), linearWaveId, wavesBasis);
 
-      // TODO: how do we know it's a matmul to start with? do we care?
+      // Prepare "base" values for each dimension.
+      AffineExpr d0, d1;
+      AffineExpr s0, s1;
+      bindDims(builder.getContext(), d0, d1);
+      bindSymbols(builder.getContext(), s0, s1);
+
+      // TODO: let's not restrict this to hardcoded m,n and do it for all
+      // dimensions?
+      struct DimensionIndexing {
+        Value base;
+        Value waveBase;
+        Value wgTiles;
+        Value waveTiles;
+      };
+      DenseMap<int32_t, DimensionIndexing> dimensionIndexing;
+      Location indexingLoc = funcOp.getLoc();
+      for (auto mappedDim : {nMappedDim, mMappedDim}) {
+        dimensionIndexing[mappedDim].wgTiles = arith::ConstantIndexOp::create(
+            builder, indexingLoc,
+            mappedDim == mMappedDim ? mWgTiles : nWgTiles);
+        dimensionIndexing[mappedDim].waveTiles = arith::ConstantIndexOp::create(
+            builder, indexingLoc, numWaves[mappedDim]);
+        dimensionIndexing[mappedDim].base = affine::AffineApplyOp::create(
+            builder, indexingLoc, ArrayRef<AffineExpr>({d0 * s0 + d1 * s1}),
+            {wgCoordinates->getResult(mappedDim),
+             waveCoordinates->getResult(mappedDim),
+             dimensionIndexing[mappedDim].wgTiles,
+             dimensionIndexing[mappedDim].waveTiles});
+        dimensionIndexing[mappedDim].waveBase = affine::AffineApplyOp::create(
+            builder, indexingLoc, ArrayRef<AffineExpr>({d0 * s0}),
+            {waveCoordinates->getResult(mappedDim),
+             dimensionIndexing[mappedDim].waveTiles});
+      }
+
+      // Initialize accumulators.
+      DenseMap<wave::RegisterOp, Value> registers;
+      walkResult = kernel->walk([&](wave::RegisterOp registerOp) {
+        FloatAttr value;
+        if (!matchPattern(registerOp.getInit(), m_Constant(&value))) {
+          registerOp.emitError() << "NYI: non-constant register initializer";
+          return WalkResult::interrupt();
+        }
+        if (!value.getValue().isZero()) {
+          registerOp.emitError() << "NYI: non-zero register initializer";
+          return WalkResult::interrupt();
+        }
+        if (!isa<Float32Type>(wave::getElementType(registerOp.getType()))) {
+          registerOp.emitError() << "NYI: non-f32 register type";
+          return WalkResult::interrupt();
+        }
+        auto registerType =
+            dyn_cast<wave::WaveTensorType>(registerOp.getType());
+        // TODO: we have a normal form for this.
+        if (!registerType || !registerType.getFullySpecified()) {
+          registerOp.emitError() << "expected fully-specified register type";
+          return WalkResult::interrupt();
+        }
+        for (WaveSymbolAttr symbol : registerType.getShape()) {
+          if (symbol != mSymbol && symbol != nSymbol) {
+            // We likely want some generic mapping "symbol -> number of tiles"
+            // for this purpose.
+            registerOp.emitError() << "NYI: non-m/n dimension in register type";
+            return WalkResult::interrupt();
+          }
+        }
+
+        builder.setInsertionPoint(registerOp);
+        Value mTilesVal = arith::ConstantIndexOp::create(
+            builder, registerOp.getLoc(), mTiles);
+        Value nTilesVal = arith::ConstantIndexOp::create(
+            builder, registerOp.getLoc(), nTiles);
+        Value allocationSize = arith::MulIOp::create(
+            builder, registerOp.getLoc(), mTilesVal, nTilesVal);
+
+        // TODO: not sure if this is always 4 agprs.
+        auto agpr4x = aster::amdgcn::AGPRType::get(
+            builder.getContext(), aster::Register(), /*size=*/4);
+        auto memrefType = MemRefType::get({ShapedType::kDynamic}, agpr4x);
+        Value alloca = memref::AllocaOp::create(builder, registerOp.getLoc(),
+                                                memrefType, allocationSize);
+        valueMap.map(registerOp.getResult(), alloca);
+        auto zero =
+            arith::ConstantIndexOp::create(builder, registerOp.getLoc(), 0);
+        auto one =
+            arith::ConstantIndexOp::create(builder, registerOp.getLoc(), 1);
+
+        scf::ForOp forOp = scf::ForOp::create(
+            builder, registerOp.getLoc(),
+            /*lowerBound=*/zero,
+            /*upperBound=*/allocationSize,
+            /*step=*/one,
+            /*initArgs=*/ValueRange{},
+            /*bodyBuilder=*/
+            [alloca, agpr4x](OpBuilder &builder, Location loc, Value iv,
+                             ValueRange) {
+              // TODO: must define this function
+              Value call = func::CallOp::create(builder, loc, "zero_C", agpr4x)
+                               .getResult(0);
+              memref::StoreOp::create(builder, loc, call, alloca, iv);
+              scf::YieldOp::create(builder, loc, ValueRange());
+            });
+        forOp->setAttr("aster.constexpr", builder.getUnitAttr());
+
+        registers.try_emplace(registerOp, alloca);
+        return WalkResult::advance();
+      });
+      if (walkResult.wasInterrupted())
+        return WalkResult::interrupt();
+
+      // K-loop
+      walkResult = kernel->walk([&](wave::IterateOp iterateOp) {
+        builder.setInsertionPoint(iterateOp);
+
+        if (iterateOp.getIterator() != kSymbol) {
+          iterateOp.emitError() << "NYI: non-k dimension in iterate op";
+          return WalkResult::interrupt();
+        }
+
+        Value zero =
+            arith::ConstantIndexOp::create(builder, iterateOp.getLoc(), 0);
+        Value cKT = arith::ConstantIndexOp::create(
+            builder, iterateOp.getLoc(),
+            kTiles); // TODO: IMPORTANT this must be c_K_T equivalent
+        if (*hyper.getSymbolValue(kSymbol.getName()) % 32 != 0) {
+          iterateOp.emitError() << "NYI: k dimension not divisible by 32";
+          return WalkResult::interrupt();
+        }
+        // This is confusingly called K_TILES which is different from K_T that
+        // is set from cfg.k_tiles.
+        Value kTilesForLoop = arith::ConstantIndexOp::create(
+            builder, iterateOp.getLoc(),
+            *hyper.getSymbolValue(kSymbol.getName()) / 32);
+        auto loop = scf::ForOp::create(builder, iterateOp.getLoc(),
+                                       /*lowerBound=*/zero,
+                                       /*upperBound=*/kTilesForLoop,
+                                       /*step=*/cKT);
+
+        loop.getBodyRegion().takeBody(iterateOp.getBody());
+        // FIXME: this should go through a rewriter once there is one. We will
+        // also need to be much smarter about replacing iter args with
+        // essentially a bufferized value.
+        {
+          for (auto [arg, init] : llvm::zip(loop.getBody()->getArguments(),
+                                            iterateOp.getIterArgs())) {
+            arg.replaceAllUsesWith(init);
+          }
+          loop.getBody()->eraseArguments(0, loop.getBody()->getNumArguments());
+          loop.getBody()->addArgument(builder.getIndexType(),
+                                      iterateOp.getLoc());
+
+          Operation *yield = loop.getBody()->getTerminator();
+          builder.setInsertionPoint(yield);
+          scf::YieldOp::create(builder, yield->getLoc(), ValueRange());
+          for (auto [yielded, result] :
+               llvm::zip(yield->getOperands(), iterateOp.getResults())) {
+            auto mmaOp = yielded.getDefiningOp<wave::MmaOp>();
+            if (!mmaOp) {
+              // TODO: this will need some sort of DestinationStyle interface on
+              // ops so we can figure out what the buffer is.
+              yield->emitError() << "NYI: non-mma defining operand of yield op";
+              return WalkResult::interrupt();
+            }
+            result.replaceAllUsesWith(mmaOp.getAccumulator());
+          }
+          yield->erase();
+        }
+
+        iterateOp.erase();
+        return WalkResult::advance();
+      });
+      if (walkResult.wasInterrupted())
+        return WalkResult::interrupt();
+
+      auto isReadingMMAOperand = [](wave::ReadOp readOp, wave::MmaOp mmaOp,
+                                    bool &isA, bool &isB) -> bool {
+        if (!llvm::hasSingleElement(readOp->getUses()))
+          return false;
+        if (cast<WaveTensorType>(readOp.getMemory().getType())
+                .getAddressSpaceValue() != wave::WaveAddressSpace::Shared)
+          return false;
+        for (OpOperand &use : readOp->getUses()) {
+          if (use.getOwner() != mmaOp)
+            return false;
+          if (use.getOperandNumber() ==
+              mmaOp.getLhsMutable().getOperandNumber()) {
+            isA = true;
+            return true;
+          } else if (use.getOperandNumber() ==
+                     mmaOp.getRhsMutable().getOperandNumber()) {
+            isB = true;
+            return true;
+          }
+        }
+        return false;
+      };
+
+      // Collect all reads that need to be marshalled through shared memory.
+      SmallVector<wave::ReadOp> readsThroughSharedMemory;
+      kernel->walk([&](wave::ReadOp readOp) {
+        if (cast<WaveTensorType>(readOp.getMemory().getType())
+                .getAddressSpaceValue() != wave::WaveAddressSpace::Shared)
+          return WalkResult::advance();
+        readsThroughSharedMemory.push_back(readOp);
+        return WalkResult::advance();
+      });
+
+      // Work by groups of reads adjacent in the block, they may share a
+      // barrier.
+      for (auto firstReadIt = readsThroughSharedMemory.begin(),
+                lastReadIt = std::next(firstReadIt),
+                finalReadIt = readsThroughSharedMemory.end();
+           firstReadIt != finalReadIt; firstReadIt = lastReadIt) {
+        lastReadIt = std::next(firstReadIt);
+        for (; lastReadIt != std::prev(finalReadIt) &&
+               lastReadIt != finalReadIt &&
+               (*std::next(lastReadIt))->getPrevNode() == *lastReadIt;
+             ++lastReadIt)
+          ;
+
+        builder.setInsertionPointAfter(*std::prev(lastReadIt));
+        // TODO: IMPORTANT: figure out sched.staged
+        auto barrier = aster::amdgcn::inst::SOPPOp::create(
+            builder, (*firstReadIt)->getLoc(), aster::amdgcn::OpCode::S_BARRIER,
+            0);
+        // TODO: this can be done by some sort of scheduling / interleaving
+        // instead.
+        OperationState dummyOp(builder.getUnknownLoc(),
+                               "waster.insertion_placeholder");
+        builder.setInsertionPoint(barrier);
+        Operation *allocIP = builder.create(dummyOp);
+        Operation *glReadIP = builder.create(dummyOp);
+        Operation *ldsComputeWriteAddrIP = builder.create(dummyOp);
+        Operation *ldsComputeReadAddrIP = builder.create(dummyOp);
+        Operation *ldsStoreIP = builder.create(dummyOp);
+        builder.setInsertionPointAfter(barrier);
+        Operation *waitIP = builder.create(dummyOp);
+        Operation *ldsReadIP = builder.create(dummyOp);
+
+        wave::ReadOp readOp = *firstReadIt;
+        // Index computations are hardcoded specifically for mma in a loop...
+        // Can be used either by a store to LDS or by the MMA.
+        if (!llvm::hasSingleElement(readOp->getUses())) {
+          readOp.emitError() << "NYI: multiple uses of read op";
+          return WalkResult::interrupt();
+        }
+        auto parentLoop = dyn_cast<scf::ForOp>(readOp->getParentOp());
+        if (!parentLoop) {
+          readOp.emitError() << "NYI: read op not nested in a loop";
+          return WalkResult::interrupt();
+        }
+
+        for (auto it = firstReadIt; it != lastReadIt; ++it) {
+          readOp = *it;
+          auto readType = cast<WaveTensorType>(readOp.getMemory().getType());
+          // TODO: we have a normal form for fully-specified types.
+          if (!readType || !readType.getFullySpecified()) {
+            readOp.emitError()
+                << "expected fully-specified tensor type in shared memory";
+            return WalkResult::interrupt();
+          }
+
+          bool isA = false;
+          bool isB = false;
+          bool okay = isReadingMMAOperand(readOp, singleMmaOp, isA, isB);
+          if (!okay || (!isA && !isB)) {
+            InFlightDiagnostic diag =
+                readOp.emitError()
+                << "NYI: read op not reading A or B of the mma";
+            diag.attachNote(singleMmaOp.getLoc()) << "mma op";
+            return WalkResult::interrupt();
+          }
+
+          int32_t mappedDim = isA ? mMappedDim : nMappedDim;
+          if (readType.getShape()[0] != (isA ? mSymbol : nSymbol) ||
+              readType.getShape()[1] != kSymbol) {
+            readOp.emitError()
+                << "NYI: only MK, NK shapes are currently supported";
+            return WalkResult::interrupt();
+          }
+
+          builder.setInsertionPoint(allocIP);
+          // TODO: later, we can define this generically for any dimension by
+          // computing per-dimension tile sizes.
+          int32_t ldsBytes = 1;
+          bool seenK = false;
+          for (WaveSymbolAttr symbol : readType.getShape()) {
+            if (symbol == mSymbol) {
+              ldsBytes *= mWgTiles;
+            } else if (symbol == nSymbol) {
+              ldsBytes *= nWgTiles;
+            } else if (symbol == kSymbol) {
+              seenK = true;
+              ldsBytes *=
+                  kTiles; // TODO: IMPORTANT this must be c_K_T equivalent
+            }
+          }
+          if (!seenK) {
+            // This is likely related to the hardcoded value below.
+            readOp.emitError() << "NYI: k dimension not present in tensor type";
+            return WalkResult::interrupt();
+          }
+          // TODO: this is copied from test_perf_001_gemm_fp16_weak_scaled.py
+          // that doesn't really explain the magic number.
+          ldsBytes *= 1024;
+
+          Value alloc = aster::amdgcn::AllocLDSOp::create(
+              builder, readOp.getLoc(),
+              /*dynamic_size=*/Value(), ldsBytes,
+              /*alignment=*/16,
+              /*offset=*/IntegerAttr());
+          // TODO: IMPORTANT figure this out...
+          // alloc->setAttr("sched.stage");
+          Value sharedBase = aster::amdgcn::GetLDSOffsetOp::create(
+              builder, readOp.getLoc(), builder.getIndexType(), alloc);
+
+          builder.setInsertionPoint(glReadIP);
+          Value wgTilesValue = dimensionIndexing[mappedDim].wgTiles;
+          Value waveTilesValue = dimensionIndexing[mappedDim].waveTiles;
+          Value kTilesValue =
+              arith::ConstantIndexOp::create(builder, readOp.getLoc(), kTiles);
+
+          int32_t kSize = *hyper.getSymbolValue(kSymbol.getName());
+          // TODO: hardcoded for the 16x32 tiles (2 times 16x16x16 mfma).
+          int32_t strideAB = kSize * 2;
+          Value strideABValue = arith::ConstantIndexOp::create(
+              builder, readOp.getLoc(), strideAB);
+
+          Value base = dimensionIndexing[mappedDim].base;
+          Value waveBase = dimensionIndexing[mappedDim].waveBase;
+
+          auto asterAny =
+              aster::aster_utils::AnyTypeType::get(builder.getContext());
+          auto readToken = aster::amdgcn::ReadTokenType::get(
+              builder.getContext(), aster::amdgcn::MemoryInstructionKind::Flat);
+          auto futureGlobalRead = aster::aster_utils::StructType::get(
+              builder.getContext(),
+              {builder.getStringAttr("value"), builder.getStringAttr("token")},
+              {asterAny, readToken});
+          MemRefType resultType =
+              MemRefType::get({ShapedType::kDynamic}, futureGlobalRead);
+
+          auto argIt = llvm::find(body->getArguments(), readOp.getMemory());
+          if (argIt == body->getArguments().end()) {
+            readOp.emitError()
+                << "NYI: global reads from something other than func arguments";
+            return WalkResult::interrupt();
+          }
+          Value rsrc =
+              kernelArgs[std::distance(body->getArguments().begin(), argIt)];
+
+          // Read from global asynchronously.
+          // TODO: hardcoded functions specific to MMA, sad...
+          StringRef funcName =
+              isA ? "k_load_a_16x32_from_global" : "k_load_b_16x32_from_global";
+          Value glReadToken =
+              func::CallOp::create(
+                  builder, readOp.getLoc(), funcName, resultType,
+                  ValueRange({waveTilesValue, kTilesValue, rsrc,
+                              parentLoop.getInductionVar(), strideABValue,
+                              base}))
+                  ->getResult(0);
+
+          // Compute LDS write addresses immediately.
+          builder.setInsertionPoint(ldsComputeWriteAddrIP);
+          StringRef ldsWriteFuncName = isA ? "k_compute_lds_write_addrs_a"
+                                           : "k_compute_lds_write_addrs_b";
+          // XXX: A/B_TILES_PER_SLICE is same as M/N_TILES_WG in
+          // substitutions...
+          Value tilesPerSlice = wgTilesValue;
+          auto memrefOfIndex =
+              MemRefType::get({ShapedType::kDynamic}, builder.getIndexType());
+          Value ldsWriteAddr =
+              func::CallOp::create(
+                  builder, readOp.getLoc(), ldsWriteFuncName, memrefOfIndex,
+                  ValueRange({waveTilesValue, kTilesValue, sharedBase, waveBase,
+                              tilesPerSlice}))
+                  ->getResult(0);
+
+          // Compute LDS read addresses immediately.
+          builder.setInsertionPoint(ldsComputeReadAddrIP);
+          StringRef ldsComputeReadAddrFuncName =
+              isA ? "k_compute_lds_read_addrs_a" : "k_compute_lds_read_addrs_b";
+          Value ldsReadAddr =
+              func::CallOp::create(
+                  builder, readOp.getLoc(), ldsComputeReadAddrFuncName,
+                  memrefOfIndex,
+                  ValueRange({waveTilesValue, kTilesValue, sharedBase, waveBase,
+                              tilesPerSlice}))
+                  ->getResult(0);
+
+          // Wait flor global loads + store to LDS at pre-computed addresses.
+          builder.setInsertionPoint(ldsStoreIP);
+          StringRef ldsStoreToLdsAtAddrsFuncName =
+              isA ? "k_store_to_lds_at_addrs_a" : "k_store_to_lds_at_addrs_b";
+          auto ldsWriteToken = aster::amdgcn::WriteTokenType::get(
+              builder.getContext(),
+              aster::amdgcn::MemoryInstructionKind::Shared);
+          auto ldsWriteTokenBuffer =
+              MemRefType::get({ShapedType::kDynamic}, ldsWriteToken);
+          Value ldsStoreToken =
+              func::CallOp::create(builder, readOp.getLoc(),
+                                   ldsStoreToLdsAtAddrsFuncName,
+                                   ldsWriteTokenBuffer,
+                                   ValueRange({ldsWriteAddr, waveTilesValue,
+                                               kTilesValue, glReadToken}))
+                  ->getResult(0);
+
+          // Wait for LDS write tokens.
+          builder.setInsertionPoint(waitIP);
+          builder.setInsertionPointAfter(barrier);
+          StringRef waitLDSWritesFuncName =
+              isA ? "k_wait_lds_writes_a" : "k_wait_lds_writes_b";
+          func::CallOp::create(builder, readOp.getLoc(), waitLDSWritesFuncName,
+                               TypeRange(), ValueRange({ldsStoreToken}));
+
+          // TODO: IMPORTANT: this should come after all waits.
+          // we can start by injecting fake ops for positions, using them as
+          // insertion keys, then removing them at the end.
+          builder.setInsertionPoint(ldsReadIP);
+          auto ldsReadTokenType = aster::amdgcn::ReadTokenType::get(
+              builder.getContext(),
+              aster::amdgcn::MemoryInstructionKind::Shared);
+          auto ldsReadStruct = aster::aster_utils::StructType::get(
+              builder.getContext(),
+              {builder.getStringAttr("value"), builder.getStringAttr("token")},
+              {asterAny, ldsReadTokenType});
+          auto ldsReadFutureType =
+              MemRefType::get({ShapedType::kDynamic}, ldsReadStruct);
+          StringRef ldsReadFuncName =
+              isA ? "k_read_lds_at_addrs_a" : "k_read_lds_at_addrs_b";
+          Value ldsReadFuture =
+              func::CallOp::create(builder, readOp.getLoc(), ldsReadFuncName,
+                                   ldsReadFutureType, ValueRange({ldsReadAddr}))
+                  ->getResult(0);
+          valueMap.map(readOp.getResult(), ldsReadFuture);
+
+          builder.setInsertionPoint(parentLoop.getBody()->getTerminator());
+          aster::amdgcn::DeallocLDSOp::create(builder, readOp.getLoc(), alloc);
+          // TODO: IMPORTANT set sched.stage
+        }
+
+        ldsReadIP->erase();
+        ldsStoreIP->erase();
+        ldsComputeReadAddrIP->erase();
+        ldsComputeWriteAddrIP->erase();
+        glReadIP->erase();
+        waitIP->erase();
+      }
+
+      builder.setInsertionPoint(singleMmaOp);
+
+      auto parentLoop = dyn_cast<scf::ForOp>(singleMmaOp->getParentOp());
+      assert(parentLoop && "checked above that mma was in a loop, but it "
+                           "wasn't converted/inlined");
+
+      // XXX: the factor of 2 is hardcoded from specific sizes.
+      Value kMfma = affine::AffineApplyOp::create(
+          builder, singleMmaOp.getLoc(), ArrayRef<AffineExpr>({2 * s0}),
+          {parentLoop.getInductionVar()});
+      Value mTilesValue =
+          arith::ConstantIndexOp::create(builder, singleMmaOp.getLoc(), mTiles);
+      Value nTilesValue =
+          arith::ConstantIndexOp::create(builder, singleMmaOp.getLoc(), nTiles);
+      Value aFuture = valueMap.lookupOrNull(singleMmaOp.getLhs());
+      if (!aFuture) {
+        singleMmaOp.emitError() << "NYI: couldn't convert MMA source value";
+        return WalkResult::interrupt();
+      }
+      Value bFuture = valueMap.lookupOrNull(singleMmaOp.getRhs());
+      if (!bFuture) {
+        singleMmaOp.emitError() << "NYI: couldn't convert MMA source value";
+        return WalkResult::interrupt();
+      }
+      Value cBuffer = valueMap.lookupOrNull(singleMmaOp.getAccumulator());
+      if (!cBuffer) {
+        singleMmaOp.emitError() << "NYI: couldn't convert MMA result buffer";
+        return WalkResult::interrupt();
+      }
+      func::CallOp::create(builder, singleMmaOp.getLoc(),
+                           "k_wait_and_compute_mfmas", TypeRange(),
+                           ValueRange({mTilesValue, nTilesValue, kMfma, aFuture,
+                                       bFuture, cBuffer}));
+
+      walkResult = kernel->walk([&](wave::WriteOp writeOp) {
+        if (writeOp.getValueToStore() != singleMmaOp.getAccumulator()) {
+          writeOp.emitError()
+              << "NYI: don't know how to subscript a write that is something "
+                 "else than the result/accumulator of the MMA";
+          return WalkResult::interrupt();
+        }
+        // TODO: go through the mapping...
+        auto argIt = std::find(body->getArguments().begin(),
+                               body->getArguments().end(), writeOp.getMemory());
+        if (argIt == body->getArguments().end()) {
+          writeOp.emitError() << "NYI: don't know how to get a buffer that is "
+                                 "not a function argument";
+          return WalkResult::interrupt();
+        }
+        Value cRsrc =
+            kernelArgs[std::distance(body->getArguments().begin(), argIt)];
+        // XXX: hardcoded for 16x32 tiles (2 times 16x16x16 mfma).
+        int64_t strideC = nTiles * 16 * 4;
+        builder.setInsertionPoint(writeOp);
+        Value strideCValue =
+            arith::ConstantIndexOp::create(builder, writeOp.getLoc(), strideC);
+
+        Value mTilesValue = arith::ConstantIndexOp::create(
+            builder, singleMmaOp.getLoc(), mTiles);
+        Value nTilesValue = arith::ConstantIndexOp::create(
+            builder, singleMmaOp.getLoc(), nTiles);
+        Value cBuffer = valueMap.lookupOrNull(singleMmaOp.getAccumulator());
+        assert(cBuffer && "checked above that cBuffer was in the value map");
+        func::CallOp::create(
+            builder, writeOp.getLoc(), "store_c_tiles", TypeRange(),
+            ValueRange({mTilesValue, nTilesValue, cBuffer, cRsrc, strideCValue,
+                        dimensionIndexing[mMappedDim].base,
+                        dimensionIndexing[nMappedDim].base}));
+
+        writeOp->erase();
+        return WalkResult::advance();
+      });
+      if (walkResult.wasInterrupted())
+        return WalkResult::interrupt();
+
+      singleMmaOp->erase();
+      for (auto readOp : readsThroughSharedMemory) {
+        readOp->erase();
+      }
+
+      // TODO: erase ops here, we shouldn't immediately erase because the
+      // mapping will go stale... If this turns to patterns, this becomes less
+      // of a problem, but we can't really because of the need to group ops
+      // together per kind.
+
+      // Generalization: each tensor has a shape such as MK, NK, MN, etc. These
+      // shapes have certain number of workgroup tiles (?), wave tiles. These
+      // are the values passed into the corresponding
+      // functions-that-should-become-ops. We can compute these values at the
+      // start and carry them around in some sort of context or emit every time
+      // and run CSE. When emitting specific function calls, we look up/generate
+      // the corresponding values based on the tensor shape, as long as we know
+      // the structure of function arguments.
+      //
+      // For strides, we can similarly compute based on shapes.
+
+      if (!body->getTerminator()->getOperands().empty()) {
+        body->getTerminator()->emitError() << "NYI: non-empty yield op";
+        return WalkResult::interrupt();
+      }
+      Operation *yield = body->getTerminator();
+      builder.setInsertionPoint(yield);
+      aster::amdgcn::EndKernelOp::create(builder, kernel.getLoc());
+      yield->erase();
 
       funcOp->erase();
+      for (unsigned i = 0, e = body->getNumArguments(); i < e; ++i) {
+        body->getArgument(i).replaceAllUsesWith(kernelArgs[i]);
+      }
+      body->eraseArguments(0, body->getNumArguments());
+
+      return WalkResult::advance();
     });
+    if (walkResult.wasInterrupted())
+      return signalPassFailure();
   }
 };
 
