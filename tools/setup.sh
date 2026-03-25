@@ -270,7 +270,7 @@ phase2_check_installed_llvm() {
     LLVM_OK=false
     VCS_HEADER="$LLVM_INSTALL/include/llvm/Support/VCSRevision.h"
     if [ -f "$VCS_HEADER" ]; then
-        INSTALLED_COMMIT=$(grep 'LLVM_REVISION' "$VCS_HEADER" | sed 's/.*"\([0-9a-f]*\)".*/\1/')
+        INSTALLED_COMMIT=$(grep -o '[0-9a-f]\{40\}' "$VCS_HEADER" | head -1)
         if [ "$INSTALLED_COMMIT" = "$EXPECTED_COMMIT" ]; then
             ok "Shared LLVM at $LLVM_INSTALL matches expected commit"
             LLVM_OK=true
