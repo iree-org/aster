@@ -160,16 +160,7 @@ resolve_virtual_env() {
     elif [ -n "$shell_virtual_env" ]; then
         VIRTUAL_ENV="$shell_virtual_env"
     else
-        local git_dir
-        git_dir="$(git -C "$ASTER_DIR" rev-parse --git-dir 2>/dev/null || true)"
-        if [[ "$git_dir" == */.git/worktrees/* ]]; then
-            local worktree_name
-            worktree_name="$(basename "$ASTER_DIR")"
-            VIRTUAL_ENV="$ASTER_DIR/.aster-wt-$worktree_name"
-            VENV_PROMPT="aster-wt-$worktree_name"
-        else
-            VIRTUAL_ENV="$ASTER_DIR/.aster"
-        fi
+        VIRTUAL_ENV="$ASTER_DIR/.aster"
     fi
     [ -n "$VENV_PROMPT_EXPLICIT" ] && VENV_PROMPT="$VENV_PROMPT_EXPLICIT"
 }
