@@ -78,8 +78,8 @@ def _save_error_file(prefix, phase, errors, repro_cmd_fn=None, num_iterations=No
     return _save_tmpfile(prefix, lines)
 
 
-def make_sweep_filter(args, attr_map):
-    """Build a config filter from CLI args that pin sweep dimensions.
+def make_sweep_pins(args, attr_map):
+    """Build a pin dict from CLI args for vectorized sweep filtering.
 
     Args:
         args: Parsed argparse namespace.
@@ -88,8 +88,7 @@ def make_sweep_filter(args, attr_map):
             If a CLI arg is None, it is ignored (not pinned).
 
     Returns:
-        A predicate (cfg) -> bool that returns True if cfg matches all pinned values,
-        or None if no dimensions are pinned.
+        A dict {config_attr: value} of pinned dimensions, or None if nothing pinned.
     """
     pins = {}
     for arg_name, cfg_attr in attr_map.items():
@@ -100,6 +99,18 @@ def make_sweep_filter(args, attr_map):
         return None
     desc = ", ".join(f"{k}={v}" for k, v in pins.items())
     print(f"Sweep filter: {desc}")
+    return pins
+
+
+def make_sweep_filter(args, attr_map):
+    """Build a config filter predicate from CLI args that pin sweep dimensions.
+
+    Prefer make_sweep_pins for vectorized filtering. This returns a Python callable for
+    cases that need per-config predicate filtering.
+    """
+    pins = make_sweep_pins(args, attr_map)
+    if pins is None:
+        return None
     return lambda cfg: all(getattr(cfg, k) == v for k, v in pins.items())
 
 

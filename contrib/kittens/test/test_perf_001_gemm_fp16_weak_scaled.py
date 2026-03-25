@@ -230,11 +230,16 @@ class WeakScaleConfig:
     def lds_bytes(self):
         """LDS bytes.
 
-        A uses a_stages buffers. B uses LDS only if not direct_b.
+        A uses a_stages buffers. B uses effective_b_stages buffers (LDS only when not
+        direct_b). Each path has its own pipeline depth.
         """
-        a_tiles = self.m_tiles_wg * self.k_tiles
-        b_tiles = 0 if self.direct_b else self.n_tiles_wg * self.k_tiles
-        return self.a_stages * (a_tiles + b_tiles) * 1024
+        a_lds = self.a_stages * self.m_tiles_wg * self.k_tiles * 1024
+        b_lds = (
+            0
+            if self.direct_b
+            else self.effective_b_stages * self.n_tiles_wg * self.k_tiles * 1024
+        )
+        return a_lds + b_lds
 
     @property
     def simd_occupancy(self):
