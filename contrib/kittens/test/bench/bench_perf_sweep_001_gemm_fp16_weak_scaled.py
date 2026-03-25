@@ -184,135 +184,220 @@ def _make_label_suffix(b_path, load_type):
     return f"_direct_{lt}" if b_path == "direct" else f"_{lt}"
 
 
+def _variant_grid_info(b_path, load_type):
+    """Return (dim_sizes, wave_arr, tile_arr, unroll_cfgs, b_cfgs, suffix) for a variant.
+
+    dim_sizes is a tuple of per-axis lengths for the 8-dim cartesian product:
+      (waves, occupancy, n_mult, tiles, stages, b_stages, k_factors, unroll).
+    """
+    import numpy as np
+
+    suffix = _make_label_suffix(b_path, load_type)
+    b_cfgs = B_STAGE_CONFIGS if b_path == "direct_b" else [0]
+    unroll_cfgs = []
+    for lcm in LCM_UNROLL_CONFIGS:
+        for um in UNROLL_MULTIPLIERS if lcm else [1]:
+            for ep in EPILOGUE_PEELING_CONFIGS:
+                unroll_cfgs.append((lcm, um, ep))
+    wave_arr = np.array(WAVE_CONFIGS)
+    tile_arr = np.array(TILE_WG_CONFIGS)
+    dim_sizes = (
+        len(wave_arr),
+        len(OCCUPANCY_TARGETS),
+        len(N_WG_MULTIPLIERS),
+        len(tile_arr),
+        len(STAGE_CONFIGS),
+        len(b_cfgs),
+        len(K_SCALING_FACTORS),
+        len(unroll_cfgs),
+    )
+    return dim_sizes, wave_arr, tile_arr, unroll_cfgs, b_cfgs, suffix
+
+
+def _eval_batch(
+    flat_indices,
+    wave_arr,
+    tile_arr,
+    unroll_cfgs,
+    b_cfgs,
+    dim_sizes,
+    b_path,
+    load_type,
+    suffix,
+    check_regs,
+):
+    """Evaluate a batch of flat grid indices. Returns list of passing WeakScaleConfigs.
+
+    Unravels flat indices into per-dimension indices, computes derived values, applies
+    vectorized filters, then instantiates only passing configs. O(batch_size) memory,
+    never materializes the full grid.
+    """
+    import numpy as np
+
+    occ_arr = np.array(OCCUPANCY_TARGETS)
+    nm_arr = np.array(N_WG_MULTIPLIERS)
+    stg_arr = np.array(STAGE_CONFIGS)
+    bstg_arr = np.array(b_cfgs)
+    kf_arr = np.array(K_SCALING_FACTORS)
+
+    # Unravel flat indices into per-dimension indices.
+    multi = np.array(np.unravel_index(flat_indices, dim_sizes)).T  # (B, 8)
+    iw, iocc, inm, it, ist, ib, ik, iu = multi.T
+
+    # Look up actual values from per-dimension arrays.
+    mw = wave_arr[iw, 0]
+    nw = wave_arr[iw, 1]
+    occ = occ_arr[iocc]
+    n_mult = nm_arr[inm]
+    mtwg = tile_arr[it, 0]
+    ntwg = tile_arr[it, 1]
+    kt = tile_arr[it, 2]
+    stages = stg_arr[ist]
+    b_stg = bstg_arr[ib]
+    k_factor = kf_arr[ik]
+
+    # Derived quantities (vectorized).
+    num_waves = mw * nw
+    waves_per_simd = (num_waves + _NUM_SIMDS - 1) // _NUM_SIMDS
+    num_wg_per_cu = occ // waves_per_simd
+    m_wg = _WG_BASE[0] * num_wg_per_cu
+    n_wg = _WG_BASE[1] * n_mult
+    k = k_factor * kt * 32
+
+    # Vectorized filters.
+    mask = np.ones(len(flat_indices), dtype=bool)
+    mask &= occ % waves_per_simd == 0
+    mask &= mtwg % mw == 0
+    mask &= ntwg % nw == 0
+    mask &= m_wg * mtwg * 16 >= MIN_DIM
+    mask &= n_wg * ntwg * 16 >= MIN_DIM
+    mask &= k >= MIN_DIM
+    k_iters = k // (kt * 32)
+    eff_b_stg = np.where(b_stg > 0, b_stg, stages)
+    pipeline_depth = np.maximum(stages, eff_b_stg)
+    mask &= k_iters > pipeline_depth
+    mask &= mtwg >= num_waves
+    mask &= pipeline_depth <= stages
+
+    # Instantiate only passing configs.
+    configs = []
+    for i in np.where(mask)[0]:
+        lcm_val, um_val, ep_val = unroll_cfgs[iu[i]]
+        cfg = WeakScaleConfig(
+            int(m_wg[i]),
+            int(n_wg[i]),
+            int(mw[i]),
+            int(nw[i]),
+            int(mtwg[i]),
+            int(ntwg[i]),
+            int(kt[i]),
+            int(stages[i]),
+            int(k[i]),
+            load_type=load_type,
+            b_path=b_path,
+            b_stages=int(b_stg[i]),
+            num_wg_per_cu=int(num_wg_per_cu[i]),
+            lcm_unroll=bool(lcm_val),
+            unroll_factor_multiplier=int(um_val),
+            epilogue_peeling=bool(ep_val),
+            _label_suffix=suffix,
+        )
+        if check_regs:
+            reason = _precompile_reject_reason(cfg, check_regs=True)
+            if reason is not None:
+                continue
+        configs.append(cfg)
+    return configs, int(np.sum(~mask))
+
+
 def _generate_configs(
     variants=None, sample_size=3000, check_regs=True, sweep_filter=None
 ):
-    """Generate the full sweep grid using numpy for fast vectorized filtering.
+    """Generate sweep configs by sampling the grid -- never materializes the full product.
 
-    Builds the full cartesian product as numpy arrays, applies all dimension and
-    occupancy filters vectorized, then only instantiates WeakScaleConfig for rows that
-    pass. ~10x faster than the nested-loop approach.
+    The cartesian product across 8 dimensions can be 38M+ rows per variant.
+    Instead of building it all in memory, we:
+      1. Compute the total grid size per variant (just a product of dim lengths).
+      2. Sample random flat indices into the grid.
+      3. Unravel + compute + filter only the sampled rows.
+      4. Repeat in rounds if the acceptance rate is low.
+
+    O(sample_size) memory, not O(grid_size). Like a DataLoader with shuffled
+    index sampling -- the grid is virtual, only sampled points are materialized.
     """
-    import math
-    import random
-
     import numpy as np
 
     if variants is None:
         variants = list(MLIR_FILES.keys())
 
-    # Build per-variant grids.
+    rng = np.random.default_rng()
     configs = []
     total_filtered = 0
+    total_sampled = 0  # grid points evaluated (for acceptance rate estimate)
+    total_grid = 0  # sum of grid sizes across all variants
+
     for b_path, load_type in variants:
         if (b_path, load_type) not in MLIR_FILES:
             continue
-        suffix = _make_label_suffix(b_path, load_type)
-        b_cfgs = B_STAGE_CONFIGS if b_path == "direct_b" else [0]
-        # Unroll configs: (lcm, um, ep) triples.
-        unroll_cfgs = []
-        for lcm in LCM_UNROLL_CONFIGS:
-            for um in UNROLL_MULTIPLIERS if lcm else [1]:
-                for ep in EPILOGUE_PEELING_CONFIGS:
-                    unroll_cfgs.append((lcm, um, ep))
-
-        # Build all (wave, occ, n_mult, tile, stage, b_stg, unroll) combos as arrays.
-        wave_arr = np.array(WAVE_CONFIGS)  # (W, 2)
-        tile_arr = np.array(TILE_WG_CONFIGS)  # (T, 3)
-        unroll_arr = np.array(unroll_cfgs, dtype=object)  # (U, 3)
-
-        # Meshgrid indices for all dimensions.
-        idx_w = np.arange(len(wave_arr))
-        idx_occ = np.array(OCCUPANCY_TARGETS)
-        idx_nm = np.array(N_WG_MULTIPLIERS)
-        idx_t = np.arange(len(tile_arr))
-        idx_s = np.array(STAGE_CONFIGS)
-        idx_b = np.array(b_cfgs)
-        idx_k = np.array(K_SCALING_FACTORS)
-        idx_u = np.arange(len(unroll_arr))
-
-        # Cartesian product via meshgrid (all 8 dimensions).
-        grids = np.meshgrid(
-            idx_w, idx_occ, idx_nm, idx_t, idx_s, idx_b, idx_k, idx_u, indexing="ij"
+        dim_sizes, wave_arr, tile_arr, unroll_cfgs, b_cfgs, suffix = _variant_grid_info(
+            b_path, load_type
         )
-        flat = [g.ravel() for g in grids]
-        N = len(flat[0])
+        grid_total = int(np.prod(dim_sizes))
+        total_grid += grid_total
 
-        # Expand to actual values.
-        mw = wave_arr[flat[0], 0]
-        nw = wave_arr[flat[0], 1]
-        occ = flat[1]
-        n_mult = flat[2]
-        mtwg = tile_arr[flat[3], 0]
-        ntwg = tile_arr[flat[3], 1]
-        kt = tile_arr[flat[3], 2]
-        stages = flat[4]
-        b_stg = flat[5]
-        k_factor = flat[6]
-        u_idx = flat[7]
-
-        # Derived quantities (vectorized).
-        num_waves = mw * nw
-        waves_per_simd = (num_waves + _NUM_SIMDS - 1) // _NUM_SIMDS
-        num_wg_per_cu = occ // waves_per_simd
-        m_wg = _WG_BASE[0] * num_wg_per_cu
-        n_wg = _WG_BASE[1] * n_mult
-        k = k_factor * kt * 32
-        mt = mtwg // mw  # per-wave M tiles (integer since divisibility checked below)
-        nt = ntwg // nw
-
-        # Vectorized filters.
-        mask = np.ones(N, dtype=bool)
-        mask &= occ % waves_per_simd == 0  # occupancy divisibility
-        mask &= mtwg % mw == 0  # tile divisibility M
-        mask &= ntwg % nw == 0  # tile divisibility N
-        m_dim = m_wg * mtwg * 16
-        n_dim = n_wg * ntwg * 16
-        mask &= m_dim >= MIN_DIM
-        mask &= n_dim >= MIN_DIM
-        mask &= k >= MIN_DIM
-        # Pipeline depth vs K iterations.
-        k_iters = k // (kt * 32)
-        eff_b_stg = np.where(b_stg > 0, b_stg, stages)
-        pipeline_depth = np.maximum(stages, eff_b_stg)
-        mask &= k_iters > pipeline_depth
-        # Underprovisioned: m_tiles_wg < num_waves.
-        mask &= mtwg >= num_waves
-        # Deep B pipelining: reject if B forces pipeline deeper than A.
-        mask &= pipeline_depth <= stages
-
-        total_filtered += int(np.sum(~mask))
-
-        # Instantiate only passing configs.
-        indices = np.where(mask)[0]
-        for i in indices:
-            lcm_val, um_val, ep_val = unroll_cfgs[u_idx[i]]
-            cfg = WeakScaleConfig(
-                int(m_wg[i]),
-                int(n_wg[i]),
-                int(mw[i]),
-                int(nw[i]),
-                int(mtwg[i]),
-                int(ntwg[i]),
-                int(kt[i]),
-                int(stages[i]),
-                int(k[i]),
-                load_type=load_type,
-                b_path=b_path,
-                b_stages=int(b_stg[i]),
-                num_wg_per_cu=int(num_wg_per_cu[i]),
-                lcm_unroll=bool(lcm_val),
-                unroll_factor_multiplier=int(um_val),
-                epilogue_peeling=bool(ep_val),
-                _label_suffix=suffix,
-            )
-            # Fine-grained check (estimated regs) only for surviving configs.
-            if check_regs:
-                reason = _precompile_reject_reason(cfg, check_regs=True)
-                if reason is not None:
-                    total_filtered += 1
-                    continue
-            configs.append(cfg)
+        if sample_size <= 0:
+            # Full sweep: evaluate entire grid in chunks to bound memory.
+            chunk_size = 500_000
+            for start in range(0, grid_total, chunk_size):
+                end = min(start + chunk_size, grid_total)
+                batch_indices = np.arange(start, end)
+                batch_cfgs, nfilt = _eval_batch(
+                    batch_indices,
+                    wave_arr,
+                    tile_arr,
+                    unroll_cfgs,
+                    b_cfgs,
+                    dim_sizes,
+                    b_path,
+                    load_type,
+                    suffix,
+                    check_regs,
+                )
+                configs.extend(batch_cfgs)
+                total_filtered += nfilt
+                total_sampled += len(batch_indices)
+        else:
+            # Sampled sweep: draw random indices in rounds.
+            # Oversample to account for filter rejection, then stop when we
+            # have enough or exhaust the grid.
+            target = sample_size  # per-variant target
+            seen = set()
+            batch_size = min(target * 10, grid_total)
+            max_rounds = 20
+            for _ in range(max_rounds):
+                candidates = rng.choice(grid_total, size=batch_size, replace=False)
+                # Deduplicate across rounds.
+                new = np.array([c for c in candidates if c not in seen])
+                if len(new) == 0:
+                    break
+                seen.update(new.tolist())
+                batch_cfgs, nfilt = _eval_batch(
+                    new,
+                    wave_arr,
+                    tile_arr,
+                    unroll_cfgs,
+                    b_cfgs,
+                    dim_sizes,
+                    b_path,
+                    load_type,
+                    suffix,
+                    check_regs,
+                )
+                total_filtered += nfilt
+                total_sampled += len(new)
+                configs.extend(batch_cfgs)
+                if len(configs) >= target:
+                    break
 
     if total_filtered:
         print(f"{total_filtered} configs skipped by pre-compile filter")
@@ -323,8 +408,20 @@ def _generate_configs(
         print(f"Sweep filter: {before} -> {len(configs)} eligible configs")
 
     total = len(configs)
+    # When sampling, the reported eligible count is only from sampled grid
+    # points. Extrapolate to give the user a sense of the full grid.
+    if sample_size > 0 and total_sampled > 0 and total_sampled < total_grid:
+        accept_rate = total / total_sampled
+        est_eligible = int(accept_rate * total_grid)
+        print(
+            f"Grid: {total_grid} total, sampled {total_sampled}, "
+            f"found {total} eligible (~{accept_rate:.1%} accept rate, "
+            f"~{est_eligible} estimated eligible in full grid)"
+        )
     n = min(sample_size, total) if sample_size > 0 else total
     if n < total:
+        import random
+
         configs = random.sample(configs, n)
     print(f"Compiling {n} / {total} eligible configs")
     return configs
