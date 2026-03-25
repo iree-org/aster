@@ -46,13 +46,6 @@ LogicalResult forwardConstantIndexStores(IRRewriter &rewriter,
 /// (e.g., after forwarding made all loads dead for a specific iter_arg).
 LogicalResult eraseDeadMemrefStores(IRRewriter &rewriter, Value memref);
 
-/// Walk all memref.store ops under `root` and eliminate stores to memref values
-/// that have only store users (no loads, yields, or other escaping uses).
-/// Also erases dead allocas whose only users were the eliminated stores.
-/// More conservative than eraseDeadMemrefStores: a yielded or for-passed memref
-/// is considered live because it may alias a value with loads elsewhere.
-void eliminateDeadMemrefStores(Operation *root);
-
 } // namespace mlir::aster
 
 #endif // ASTER_TRANSFORMS_MEMREFUTILS_H

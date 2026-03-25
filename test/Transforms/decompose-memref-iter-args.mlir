@@ -367,3 +367,182 @@ func.func @negative_missing_store_for_load(%v0: f32, %lb: index, %ub: index, %st
   }
   return
 }
+
+// -----
+
+// CHECK-LABEL: func.func @depth1_basic
+// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32,
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
+// CHECK:         return %[[V0]], %[[V1]] : f32, f32
+func.func @depth1_basic(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) -> (f32, f32) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %init = memref.alloca() : memref<2xf32>
+  memref.store %v0, %init[%c0] : memref<2xf32>
+  memref.store %v1, %init[%c1] : memref<2xf32>
+  %res = scf.for %i = %lb to %ub step %step
+      iter_args(%buf = %init) -> (memref<2xf32>) {
+    %ld0 = memref.load %buf[%c0] : memref<2xf32>
+    %ld1 = memref.load %buf[%c1] : memref<2xf32>
+    %new = memref.alloca() : memref<2xf32>
+    memref.store %ld0, %new[%c0] : memref<2xf32>
+    memref.store %ld1, %new[%c1] : memref<2xf32>
+    scf.yield %new : memref<2xf32>
+  }
+  %r0 = memref.load %res[%c0] : memref<2xf32>
+  %r1 = memref.load %res[%c1] : memref<2xf32>
+  return %r0, %r1 : f32, f32
+}
+
+// -----
+
+// CHECK-LABEL: func.func @depth1_computed_recurrence
+// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32,
+// CHECK-NOT:     memref
+// CHECK:         %[[RES:.*]]:2 = scf.for {{.*}} iter_args(%[[A0:.*]] = %[[V0]], %[[A1:.*]] = %[[V1]]) -> (f32, f32)
+// CHECK:           %[[SUM:.*]] = arith.addf %[[A0]], %[[A1]]
+// CHECK:           %[[DIFF:.*]] = arith.subf %[[A0]], %[[A1]]
+// CHECK:           scf.yield %[[SUM]], %[[DIFF]]
+// CHECK:         return %[[RES]]#0, %[[RES]]#1 : f32, f32
+func.func @depth1_computed_recurrence(%v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) -> (f32, f32) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %init = memref.alloca() : memref<2xf32>
+  memref.store %v0, %init[%c0] : memref<2xf32>
+  memref.store %v1, %init[%c1] : memref<2xf32>
+  %res = scf.for %i = %lb to %ub step %step
+      iter_args(%buf = %init) -> (memref<2xf32>) {
+    %ld0 = memref.load %buf[%c0] : memref<2xf32>
+    %ld1 = memref.load %buf[%c1] : memref<2xf32>
+    %sum = arith.addf %ld0, %ld1 : f32
+    %diff = arith.subf %ld0, %ld1 : f32
+    %new = memref.alloca() : memref<2xf32>
+    memref.store %sum, %new[%c0] : memref<2xf32>
+    memref.store %diff, %new[%c1] : memref<2xf32>
+    scf.yield %new : memref<2xf32>
+  }
+  %r0 = memref.load %res[%c0] : memref<2xf32>
+  %r1 = memref.load %res[%c1] : memref<2xf32>
+  return %r0, %r1 : f32, f32
+}
+
+// -----
+
+// CHECK-LABEL: func.func @depth1_two_independent
+// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32, %[[W0:.*]]: i32, %[[W1:.*]]: i32,
+// CHECK-NOT:     memref
+// CHECK-NOT:     scf.for
+// CHECK:         return %[[V0]], %[[V1]], %[[W0]], %[[W1]] : f32, f32, i32, i32
+func.func @depth1_two_independent(%v0: f32, %v1: f32, %w0: i32, %w1: i32,
+                                   %lb: index, %ub: index, %step: index) -> (f32, f32, i32, i32) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %init_f = memref.alloca() : memref<2xf32>
+  memref.store %v0, %init_f[%c0] : memref<2xf32>
+  memref.store %v1, %init_f[%c1] : memref<2xf32>
+  %init_i = memref.alloca() : memref<2xi32>
+  memref.store %w0, %init_i[%c0] : memref<2xi32>
+  memref.store %w1, %init_i[%c1] : memref<2xi32>
+  %res:2 = scf.for %i = %lb to %ub step %step
+      iter_args(%bf = %init_f, %bi = %init_i) -> (memref<2xf32>, memref<2xi32>) {
+    %lf0 = memref.load %bf[%c0] : memref<2xf32>
+    %lf1 = memref.load %bf[%c1] : memref<2xf32>
+    %li0 = memref.load %bi[%c0] : memref<2xi32>
+    %li1 = memref.load %bi[%c1] : memref<2xi32>
+    %nf = memref.alloca() : memref<2xf32>
+    memref.store %lf0, %nf[%c0] : memref<2xf32>
+    memref.store %lf1, %nf[%c1] : memref<2xf32>
+    %ni = memref.alloca() : memref<2xi32>
+    memref.store %li0, %ni[%c0] : memref<2xi32>
+    memref.store %li1, %ni[%c1] : memref<2xi32>
+    scf.yield %nf, %ni : memref<2xf32>, memref<2xi32>
+  }
+  %rf0 = memref.load %res#0[%c0] : memref<2xf32>
+  %rf1 = memref.load %res#0[%c1] : memref<2xf32>
+  %ri0 = memref.load %res#1[%c0] : memref<2xi32>
+  %ri1 = memref.load %res#1[%c1] : memref<2xi32>
+  return %rf0, %rf1, %ri0, %ri1 : f32, f32, i32, i32
+}
+
+// -----
+
+// CHECK-LABEL: func.func @depth1_mixed_with_scalar
+// CHECK-SAME:    (%[[V0:.*]]: f32, %[[V1:.*]]: f32, %[[ACC:.*]]: f32,
+// CHECK-NOT:     memref
+// CHECK:         scf.for {{.*}} iter_args(%[[CA:.*]] = %[[ACC]]) -> (f32)
+// CHECK:           arith.addf %[[CA]], %[[V0]]
+// CHECK:         return %[[V0]], %[[V1]], {{.*}} : f32, f32, f32
+func.func @depth1_mixed_with_scalar(%v0: f32, %v1: f32, %acc: f32,
+                                     %lb: index, %ub: index, %step: index) -> (f32, f32, f32) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %init = memref.alloca() : memref<2xf32>
+  memref.store %v0, %init[%c0] : memref<2xf32>
+  memref.store %v1, %init[%c1] : memref<2xf32>
+  %res:2 = scf.for %i = %lb to %ub step %step
+      iter_args(%buf = %init, %carry = %acc) -> (memref<2xf32>, f32) {
+    %ld0 = memref.load %buf[%c0] : memref<2xf32>
+    %ld1 = memref.load %buf[%c1] : memref<2xf32>
+    %sum = arith.addf %carry, %ld0 : f32
+    %new = memref.alloca() : memref<2xf32>
+    memref.store %ld0, %new[%c0] : memref<2xf32>
+    memref.store %ld1, %new[%c1] : memref<2xf32>
+    scf.yield %new, %sum : memref<2xf32>, f32
+  }
+  %r0 = memref.load %res#0[%c0] : memref<2xf32>
+  %r1 = memref.load %res#0[%c1] : memref<2xf32>
+  return %r0, %r1, %res#1 : f32, f32, f32
+}
+
+// -----
+
+// CHECK-LABEL: func.func @negative_incomplete_yield_stores
+// CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<2xf32>
+// CHECK:         %[[RES:.*]] = scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
+// CHECK:           %[[NEW:.*]] = memref.alloca() : memref<2xf32>
+// CHECK:           scf.yield %[[NEW]] : memref<2xf32>
+// CHECK:         %[[LD:.*]] = memref.load %[[RES]]
+// CHECK:         return %[[LD]] : f32
+func.func @negative_incomplete_yield_stores(%v0: f32, %lb: index, %ub: index, %step: index) -> f32 {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %init = memref.alloca() : memref<2xf32>
+  memref.store %v0, %init[%c0] : memref<2xf32>
+  memref.store %v0, %init[%c1] : memref<2xf32>
+  %res = scf.for %i = %lb to %ub step %step
+      iter_args(%buf = %init) -> (memref<2xf32>) {
+    %ld0 = memref.load %buf[%c0] : memref<2xf32>
+    %new = memref.alloca() : memref<2xf32>
+    memref.store %ld0, %new[%c0] : memref<2xf32>
+    scf.yield %new : memref<2xf32>
+  }
+  %r = memref.load %res[%c0] : memref<2xf32>
+  return %r : f32
+}
+
+// -----
+
+// CHECK-LABEL: func.func @negative_incomplete_init_stores
+// CHECK:         %[[ALLOCA:.*]] = memref.alloca() : memref<2xf32>
+// CHECK:         %[[RES:.*]] = scf.for {{.*}} iter_args(%[[BUF:.*]] = %[[ALLOCA]]) -> (memref<2xf32>)
+// CHECK:           %[[NEW:.*]] = memref.alloca() : memref<2xf32>
+// CHECK:           scf.yield %[[NEW]] : memref<2xf32>
+// CHECK:         %[[LD:.*]] = memref.load %[[RES]]
+// CHECK:         return %[[LD]] : f32
+func.func @negative_incomplete_init_stores(%v0: f32, %lb: index, %ub: index, %step: index) -> f32 {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %init = memref.alloca() : memref<2xf32>
+  memref.store %v0, %init[%c0] : memref<2xf32>
+  %res = scf.for %i = %lb to %ub step %step
+      iter_args(%buf = %init) -> (memref<2xf32>) {
+    %ld0 = memref.load %buf[%c0] : memref<2xf32>
+    %new = memref.alloca() : memref<2xf32>
+    memref.store %ld0, %new[%c0] : memref<2xf32>
+    memref.store %ld0, %new[%c1] : memref<2xf32>
+    scf.yield %new : memref<2xf32>
+  }
+  %r = memref.load %res[%c0] : memref<2xf32>
+  return %r : f32
+}
