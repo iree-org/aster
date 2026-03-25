@@ -47,8 +47,9 @@ static void addPostSROACleanups(OpPassManager &pm) {
   pm.addPass(mlir::createSROA());
   pm.addPass(mlir::createMem2Reg());
   pm.addPass(amdgcn::createMem2Reg());
-  pm.addPass(aster::createForwardStoreToLoad());
-  pm.addPass(aster::createPromoteLoopCarriedMemrefs());
+  // aster::createForwardStoreToLoad() and
+  // aster::createPromoteLoopCarriedMemrefs() removed: upstream mem2reg with
+  // structured CF support handles these.
   pm.addPass(createCSEPass());
   pm.addPass(createCanonicalizerPass());
 }
@@ -66,8 +67,9 @@ static void buildMlirAirToAsmPipeline(OpPassManager &pm) {
   pm.addPass(mlir::createSROA());
   pm.addPass(mlir::createMem2Reg());
   pm.addPass(amdgcn::createMem2Reg());
-  pm.addPass(aster::createForwardStoreToLoad());
-  pm.addPass(aster::createPromoteLoopCarriedMemrefs());
+  // aster::createForwardStoreToLoad() and
+  // aster::createPromoteLoopCarriedMemrefs() removed: upstream mem2reg with
+  // structured CF support handles these.
   pm.addPass(createCanonicalizerPass());
 
   // SROA + POST_SROA_CLEANUPS

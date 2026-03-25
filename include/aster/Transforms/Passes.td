@@ -70,51 +70,6 @@ def DecomposeMemrefIterArgs
 }
 
 //===----------------------------------------------------------------------===//
-// PromoteLoopCarriedMemrefs
-//===----------------------------------------------------------------------===//
-
-def PromoteLoopCarriedMemrefs
-    : Pass<"aster-promote-loop-carried-memrefs"> {
-  let summary = "Promote scalar memref allocas with loop-carried patterns to "
-                "scf.for iter_args";
-  let description = [{
-    Upstream mem2reg promotes memref allocas to SSA values within
-    straight-line code using dominance. However, it cannot promote across
-    loop boundaries: inside an scf.for body the store from iteration N-1
-    does not dominate the load in iteration N (the body is a nested
-    region). Introducing iter_args + yield requires scf-specific rewriting
-    outside the scope of upstream mem2reg.
-
-    The motivating case is constexpr-expanded GEMM templates. After constexpr
-    expansion + SROA + mem2reg, accumulators that cross the non-constexpr K-loop.
-
-    This pass handles scalar memref allocas (0-d or 1-element) with exactly one
-    pre-loop store, one in-loop load-before-store pair, and one post-loop load:
-
-    ```
-    memref.store %init, %alloca[] : memref<T>
-    scf.for %k = ... {
-      %old = memref.load %alloca[] : memref<T>
-      %new = compute(%old)
-      memref.store %new, %alloca[] : memref<T>
-    }
-    %final = memref.load %alloca[] : memref<T>
-    ```
-    becomes:
-    ```
-    %final = scf.for %k = ... iter_args(%acc = %init) -> (T) {
-      %new = compute(%acc)
-      scf.yield %new : T
-    }
-    ```
-  }];
-  let dependentDialects = [
-    "mlir::memref::MemRefDialect",
-    "mlir::scf::SCFDialect",
-  ];
-}
-
-//===----------------------------------------------------------------------===//
 // OpScheduling
 //===----------------------------------------------------------------------===//
 
@@ -367,29 +322,6 @@ def FactorizeAffineExpr : Pass<"aster-factorize-affine-expr"> {
       a*x*y + b*x*y + c*x + c*y  →  ((a + b) * y + c) * x + c * y
   }];
   let dependentDialects = ["mlir::affine::AffineDialect"];
-}
-
-//===----------------------------------------------------------------------===//
-// ForwardStoreToLoad
-//===----------------------------------------------------------------------===//
-
-def ForwardStoreToLoad : Pass<"aster-forward-store-to-load"> {
-  let summary = "Forward memref stores to subsequent loads in the same block";
-  let description = [{
-    Per-block reaching-def analysis on memref values (allocas and block args).
-    Handles both scalar memrefs (rank-0 or [1]) and indexed memrefs (rank-1
-    with static shape and constant indices), tracking reaching definitions per
-    (memref, index) slot.
-    When a store is followed by a load from the same slot with no interleaved
-    aliasing operation, the load is replaced by the stored value. Dead stores
-    (overwritten before any read) are also eliminated, along with dead allocas
-    and dead stores to memref values with no load users.
-    This pass is meant to be used with and to augment SROA / mem2reg and
-    PromoteLoopCarriedMemrefs to support more cases.
-  }];
-  let dependentDialects = [
-    "mlir::memref::MemRefDialect",
-  ];
 }
 
 //===----------------------------------------------------------------------===//
