@@ -679,7 +679,7 @@ phase4_cmake_configure() {
 phase5_build() {
     info "Phase 5: Build"
     echo "  Running ninja install..."
-    if "$VIRTUAL_ENV/bin/ninja" -C "$ASTER_BUILD_DIR"; then
+    if "$VIRTUAL_ENV/bin/ninja" -C "$ASTER_BUILD_DIR" install; then
         ok "ASTER built"
     else
         err "Build failed"
