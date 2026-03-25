@@ -52,6 +52,19 @@ NB_MODULE(_runtime_module, m) {
     }
   });
 
+  // Clear any sticky HIP error from a previous failed call. Without this,
+  // a failed hipModuleLoadData leaves a deferred error that the next
+  // hipCheck (e.g. on hipMalloc) picks up, cascading failures across
+  // configs in the same subprocess pool.
+  m.def("hip_peek_at_last_error", []() -> std::string {
+    hipError_t err = hipPeekAtLastError();
+    if (err != hipSuccess) {
+      return std::string(hipGetErrorString(err));
+    }
+    return "";
+  });
+  m.def("hip_clear_last_error", []() { (void)hipGetLastError(); });
+
   m.def("hip_module_load_data", [](const nb::bytes &binary) -> void * {
     hipModule_t *m = new hipModule_t();
     hipCheck(hipModuleLoadData(

@@ -628,6 +628,14 @@ def execute_hsaco(
     if device_id is not None:
         hip_set_device(device_id)
 
+    # Clear any sticky HIP error from a previous failed call in this process.
+    try:
+        from aster._mlir_libs._runtime_module import hip_clear_last_error
+
+        hip_clear_last_error()
+    except ImportError:
+        pass
+
     # Normalise raw ndarray → InOutArray.
     arguments = [InOutArray(a) if isinstance(a, np.ndarray) else a for a in arguments]
 
