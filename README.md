@@ -94,6 +94,8 @@ For manual setup (building LLVM, configuring venvs, cmake flags), see
 ### Testing
 
 ```bash
+source .aster/bin/activate
+
 # All tests (lit + pytest)
 ninja -C build install && lit build/test -v && pytest -n 16
 

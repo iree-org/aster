@@ -113,12 +113,13 @@ be skipped. ASTER's own IR translation will work regardless of LLVM version.
 
 ## Manual Setup
 
-We use `uv pip install` for requirements.
+`tools/setup.sh` handles all of the below automatically. The manual steps are
+here as a reference for customized setups.
 
 ### venv
 
 ```bash
-python3 -m venv --prompt aster .aster
+uv venv .aster --seed --python 3.12 --prompt aster
 source .aster/bin/activate
 uv pip install -r requirements.txt
 ```
@@ -126,18 +127,18 @@ uv pip install -r requirements.txt
 ### Set useful variables in the venv activation script
 
 ```bash
-cat >> .aster/bin/activate << 'EOF'
+LLVM_INSTALL="${HOME}/shared-llvm"
+ASTER_DIR="$(pwd)"
+cat >> .aster/bin/activate << EOF
 
-# --- ASTER setup ---
-export PATH=${PWD}/.aster/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):${PATH}
-
-export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-
-export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
-
-export LLVM_INSTALL=${HOME}/shared-llvm
-
-export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
+# --- ASTER setup (added by tools/setup.sh) ---
+export LLVM_INSTALL=${LLVM_INSTALL}
+export ASTER_SRC_DIR=${ASTER_DIR}
+export VENV_PURELIB=\$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+export PATH=\${LLVM_INSTALL}/bin:\${VIRTUAL_ENV}/bin:\${VENV_PURELIB}/_rocm_sdk_devel/bin:\${PATH}
+export PYTHONPATH=\${VIRTUAL_ENV}/python_packages:\${VENV_PURELIB}:\${PYTHONPATH}
+export LD_LIBRARY_PATH=\${VENV_PURELIB}/_rocm_sdk_devel/lib:\${LD_LIBRARY_PATH}
+export CMAKE_PREFIX_PATH=\${LLVM_INSTALL}:\${CMAKE_PREFIX_PATH}
 # --- end ASTER setup ---
 EOF
 
@@ -161,11 +162,17 @@ configure (e.g. with a different venv), delete it first: `rm build/CMakeCache.tx
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    -DCMAKE_INSTALL_PREFIX="../.aster" \
+    -DCMAKE_INSTALL_PREFIX="${VIRTUAL_ENV}" \
     -DLLVM_EXTERNAL_LIT="${VIRTUAL_ENV}/bin/lit" \
     -DPython_EXECUTABLE="${VIRTUAL_ENV}/bin/python" \
     -DPython3_EXECUTABLE="${VIRTUAL_ENV}/bin/python" \
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=aster
+
+  # On Linux, add for faster link times:
+  #   -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
+  #   -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld
+  #   -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld
+  # On macOS use the default system linker (no lld needed).
 
   ninja install
 )
@@ -204,39 +211,24 @@ Then build with HIP support (add these flags to the cmake command above):
 ## Worktree Setup
 
 Each worktree needs its own build directory and venv, but shares LLVM.
+The simplest way is `tools/setup.sh --skip-llvm` run from the worktree directory.
+
+For manual setup:
 
 ### venv
 
 ```bash
 cd /path/to/worktree
 
-export WORKTREE_NAME=$(basename $(pwd))
-deactivate ; unset PYTHONPATH # in case IDE / bash auto-sets these
-python3 -m venv --prompt aster-wt-${WORKTREE_NAME} .aster-wt-${WORKTREE_NAME}
-source .aster-wt-${WORKTREE_NAME}/bin/activate
+deactivate ; unset PYTHONPATH  # clear any active venv state
+uv venv .aster --seed --python 3.12 --prompt aster
+source .aster/bin/activate
 uv pip install -r requirements.txt
 ```
 
 ### Set useful variables in the venv activation script
 
-```bash
-export WORKTREE_NAME=$(basename $(pwd))
-cat >> .aster-wt-${WORKTREE_NAME}/bin/activate << 'EOF'
-
-# --- ASTER worktree setup ---
-export WORKTREE_NAME=$(basename $(pwd))
-export PATH=${PWD}/.aster-wt-${WORKTREE_NAME}/bin/:$(python -c "import sysconfig; print(sysconfig.get_paths()['scripts'])"):$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/bin/:${PATH}
-export PYTHONPATH=${PYTHONPATH}:${PWD}/.aster-wt-${WORKTREE_NAME}/python_packages/:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel/lib
-export LLVM_SRC=${HOME}/llvm-project/llvm
-export LLVM_INSTALL=${HOME}/shared-llvm
-export LLVM_BUILD=${HOME}/llvm-build
-export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
-# --- end ASTER worktree setup ---
-EOF
-
-deactivate ; unset PYTHONPATH; source .aster-wt-${WORKTREE_NAME}/bin/activate
-```
+Same as the main repo setup above — the venv is always named `.aster`.
 
 ### Building with shared LLVM
 
@@ -250,17 +242,17 @@ deactivate ; unset PYTHONPATH; source .aster-wt-${WORKTREE_NAME}/bin/activate
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    -DCMAKE_INSTALL_PREFIX="../.aster-wt-${WORKTREE_NAME}" \
+    -DCMAKE_INSTALL_PREFIX="${VIRTUAL_ENV}" \
     -DLLVM_EXTERNAL_LIT="${VIRTUAL_ENV}/bin/lit" \
     -DPython_EXECUTABLE="${VIRTUAL_ENV}/bin/python" \
     -DPython3_EXECUTABLE="${VIRTUAL_ENV}/bin/python" \
     -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=aster
 
-  # On Linux with lld or mold available, add for faster link times:
+  # On Linux, add for faster link times:
   #   -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
   #   -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld
   #   -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld
-  # On macOS the system linker is already fast so this is not needed.
+  # On macOS use the default system linker (no lld needed).
 
   # On Linux with ROCm SDK installed, add:
   #   -DCMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)/hip"
@@ -275,6 +267,8 @@ First build after cmake configure is fast since LLVM is pre-built.
 ### Testing
 
 ```bash
+source .aster/bin/activate
+
 # All tests (lit + pytest)
 ninja -C build install && lit build/test -v && pytest -n 16
 
@@ -291,19 +285,19 @@ lit build/test/integration/conversion-pack-e2e.mlir -s -v
 pytest test/integration/test_mfma_e2e.py -s -v
 ```
 
-Test paths (`test/`, `mlir_kernels/`, `contrib/`) are configured in `pyproject.toml`
-so bare `pytest` discovers everything.
+Test paths (`test/`, `mlir_kernels/`, `contrib/`, `python/`) are configured in
+`pyproject.toml` so bare `pytest` discovers everything.
 
 Integration tests in `test/integration/` have both lit RUN directives (ASM verification)
 and pytest files (GPU execution). Lit tests run cross-platform; pytest requires a GPU.
 
 ## Notes
 
-- Linker: On Linux, use `lld` or `mold` for faster link times (link times drop
-  from minutes to seconds). On macOS the system linker is already fast.
+- Linker: On Linux, use `lld` for LLVM builds and `lld`/`mold` for ASTER builds
+  (link times drop from minutes to seconds). On macOS use the default system linker.
 - ccache: Never clean it (incremental builds)
-- Each worktree has own `build/` and `.aster-wt-${WORKTREE_NAME}/` directories
-- All worktrees use same `${HOME}/shared-llvm`
+- Each worktree has its own `build/` and `.aster/` directories
+- All worktrees use the same `${HOME}/shared-llvm`
 - Make sure shared LLVM exists and is up to date: `ls ${HOME}/shared-llvm/lib/cmake/llvm`
 
 ## Misc: Quick git worktree primer
