@@ -18,6 +18,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 #include "water/Dialect/Wave/IR/WaveAttrs.h"
@@ -88,6 +89,28 @@ namespace {
 struct WaterWaveAsterizePass
     : public wave::impl::WaterWaveAsterizePassBase<WaterWaveAsterizePass> {
   void runOnOperation() override {
+    SymbolTable symbolTable(getOperation());
+    // Wraps a freshly-created func::CallOp: if the callee has no declaration
+    // in the parent module, inserts a private func.func for it. Returns the
+    // same CallOp so the wrapper can be used inline.
+    auto ensureCalledFuncExists = [&symbolTable, parentOp = getOperation()](
+                                      OpBuilder &builder,
+                                      func::CallOp callOp) -> func::CallOp {
+      OpBuilder::InsertionGuard guard(builder);
+      StringRef funcName = callOp.getCallee();
+      if (!symbolTable.lookup(funcName)) {
+        FunctionType funcType =
+            FunctionType::get(callOp.getContext(), callOp.getOperandTypes(),
+                              callOp.getResultTypes());
+        Block &moduleBody = parentOp->getRegion(0).front();
+        builder.setInsertionPointToEnd(&moduleBody);
+        func::FuncOp funcDecl =
+            func::FuncOp::create(builder, callOp.getLoc(), funcName, funcType);
+        funcDecl.setPrivate();
+        symbolTable.insert(funcDecl);
+      }
+      return callOp;
+    };
     WalkResult walkResult = getOperation()->walk([&](func::FuncOp funcOp) {
       wave::MmaOp singleMmaOp;
       WalkResult walkResult = funcOp->walk([&](wave::MmaOp mmaOp) {
@@ -342,8 +365,10 @@ struct WaterWaveAsterizePass
         auto anyType =
             aster::aster_utils::AnyTypeType::get(builder.getContext());
         kernelArgs[i] =
-            func::CallOp::create(builder, body->getArgument(i).getLoc(),
-                                 "prepare_ptr", anyType, kernelArgs[i])
+            ensureCalledFuncExists(
+                builder,
+                func::CallOp::create(builder, body->getArgument(i).getLoc(),
+                                     "prepare_ptr", anyType, kernelArgs[i]))
                 ->getResult(0);
       }
 
@@ -463,10 +488,11 @@ struct WaterWaveAsterizePass
             /*step=*/one,
             /*initArgs=*/ValueRange{},
             /*bodyBuilder=*/
-            [alloca, agpr4x](OpBuilder &builder, Location loc, Value iv,
-                             ValueRange) {
-              // TODO: must define this function
-              Value call = func::CallOp::create(builder, loc, "zero_C", agpr4x)
+            [alloca, agpr4x, &ensureCalledFuncExists](
+                OpBuilder &builder, Location loc, Value iv, ValueRange) {
+              Value call = ensureCalledFuncExists(
+                               builder, func::CallOp::create(builder, loc,
+                                                             "zero_C", agpr4x))
                                .getResult(0);
               memref::StoreOp::create(builder, loc, call, alloca, iv);
               scf::YieldOp::create(builder, loc, ValueRange());
@@ -725,11 +751,12 @@ struct WaterWaveAsterizePass
           StringRef funcName =
               isA ? "k_load_a_16x32_from_global" : "k_load_b_16x32_from_global";
           Value glReadToken =
-              func::CallOp::create(
-                  builder, readOp.getLoc(), funcName, resultType,
-                  ValueRange({waveTilesValue, kTilesValue, rsrc,
-                              parentLoop.getInductionVar(), strideABValue,
-                              base}))
+              ensureCalledFuncExists(
+                  builder, func::CallOp::create(
+                               builder, readOp.getLoc(), funcName, resultType,
+                               ValueRange({waveTilesValue, kTilesValue, rsrc,
+                                           parentLoop.getInductionVar(),
+                                           strideABValue, base})))
                   ->getResult(0);
 
           // Compute LDS write addresses immediately.
@@ -742,10 +769,12 @@ struct WaterWaveAsterizePass
           auto memrefOfIndex =
               MemRefType::get({ShapedType::kDynamic}, builder.getIndexType());
           Value ldsWriteAddr =
-              func::CallOp::create(
-                  builder, readOp.getLoc(), ldsWriteFuncName, memrefOfIndex,
-                  ValueRange({waveTilesValue, kTilesValue, sharedBase, waveBase,
-                              tilesPerSlice}))
+              ensureCalledFuncExists(
+                  builder,
+                  func::CallOp::create(
+                      builder, readOp.getLoc(), ldsWriteFuncName, memrefOfIndex,
+                      ValueRange({waveTilesValue, kTilesValue, sharedBase,
+                                  waveBase, tilesPerSlice})))
                   ->getResult(0);
 
           // Compute LDS read addresses immediately.
@@ -753,11 +782,13 @@ struct WaterWaveAsterizePass
           StringRef ldsComputeReadAddrFuncName =
               isA ? "k_compute_lds_read_addrs_a" : "k_compute_lds_read_addrs_b";
           Value ldsReadAddr =
-              func::CallOp::create(
-                  builder, readOp.getLoc(), ldsComputeReadAddrFuncName,
-                  memrefOfIndex,
-                  ValueRange({waveTilesValue, kTilesValue, sharedBase, waveBase,
-                              tilesPerSlice}))
+              ensureCalledFuncExists(
+                  builder,
+                  func::CallOp::create(
+                      builder, readOp.getLoc(), ldsComputeReadAddrFuncName,
+                      memrefOfIndex,
+                      ValueRange({waveTilesValue, kTilesValue, sharedBase,
+                                  waveBase, tilesPerSlice})))
                   ->getResult(0);
 
           // Wait flor global loads + store to LDS at pre-computed addresses.
@@ -770,11 +801,13 @@ struct WaterWaveAsterizePass
           auto ldsWriteTokenBuffer =
               MemRefType::get({ShapedType::kDynamic}, ldsWriteToken);
           Value ldsStoreToken =
-              func::CallOp::create(builder, readOp.getLoc(),
-                                   ldsStoreToLdsAtAddrsFuncName,
-                                   ldsWriteTokenBuffer,
-                                   ValueRange({ldsWriteAddr, waveTilesValue,
-                                               kTilesValue, glReadToken}))
+              ensureCalledFuncExists(
+                  builder,
+                  func::CallOp::create(builder, readOp.getLoc(),
+                                       ldsStoreToLdsAtAddrsFuncName,
+                                       ldsWriteTokenBuffer,
+                                       ValueRange({ldsWriteAddr, waveTilesValue,
+                                                   kTilesValue, glReadToken})))
                   ->getResult(0);
 
           // Wait for LDS write tokens.
@@ -782,8 +815,10 @@ struct WaterWaveAsterizePass
           builder.setInsertionPointAfter(barrier);
           StringRef waitLDSWritesFuncName =
               isA ? "k_wait_lds_writes_a" : "k_wait_lds_writes_b";
-          func::CallOp::create(builder, readOp.getLoc(), waitLDSWritesFuncName,
-                               TypeRange(), ValueRange({ldsStoreToken}));
+          ensureCalledFuncExists(
+              builder, func::CallOp::create(builder, readOp.getLoc(),
+                                            waitLDSWritesFuncName, TypeRange(),
+                                            ValueRange({ldsStoreToken})));
 
           // TODO: IMPORTANT: this should come after all waits.
           // we can start by injecting fake ops for positions, using them as
@@ -801,8 +836,10 @@ struct WaterWaveAsterizePass
           StringRef ldsReadFuncName =
               isA ? "k_read_lds_at_addrs_a" : "k_read_lds_at_addrs_b";
           Value ldsReadFuture =
-              func::CallOp::create(builder, readOp.getLoc(), ldsReadFuncName,
-                                   ldsReadFutureType, ValueRange({ldsReadAddr}))
+              ensureCalledFuncExists(
+                  builder, func::CallOp::create(
+                               builder, readOp.getLoc(), ldsReadFuncName,
+                               ldsReadFutureType, ValueRange({ldsReadAddr})))
                   ->getResult(0);
           valueMap.map(readOp.getResult(), ldsReadFuture);
 
@@ -848,10 +885,12 @@ struct WaterWaveAsterizePass
         singleMmaOp.emitError() << "NYI: couldn't convert MMA result buffer";
         return WalkResult::interrupt();
       }
-      func::CallOp::create(builder, singleMmaOp.getLoc(),
-                           "k_wait_and_compute_mfmas", TypeRange(),
-                           ValueRange({mTilesValue, nTilesValue, kMfma, aFuture,
-                                       bFuture, cBuffer}));
+      ensureCalledFuncExists(
+          builder,
+          func::CallOp::create(builder, singleMmaOp.getLoc(),
+                               "k_wait_and_compute_mfmas", TypeRange(),
+                               ValueRange({mTilesValue, nTilesValue, kMfma,
+                                           aFuture, bFuture, cBuffer})));
 
       walkResult = kernel->walk([&](wave::WriteOp writeOp) {
         if (writeOp.getValueToStore() != singleMmaOp.getAccumulator()) {
@@ -882,11 +921,13 @@ struct WaterWaveAsterizePass
             builder, singleMmaOp.getLoc(), nTiles);
         Value cBuffer = valueMap.lookupOrNull(singleMmaOp.getAccumulator());
         assert(cBuffer && "checked above that cBuffer was in the value map");
-        func::CallOp::create(
-            builder, writeOp.getLoc(), "store_c_tiles", TypeRange(),
-            ValueRange({mTilesValue, nTilesValue, cBuffer, cRsrc, strideCValue,
-                        dimensionIndexing[mMappedDim].base,
-                        dimensionIndexing[nMappedDim].base}));
+        ensureCalledFuncExists(
+            builder,
+            func::CallOp::create(
+                builder, writeOp.getLoc(), "store_c_tiles", TypeRange(),
+                ValueRange({mTilesValue, nTilesValue, cBuffer, cRsrc,
+                            strideCValue, dimensionIndexing[mMappedDim].base,
+                            dimensionIndexing[nMappedDim].base})));
 
         writeOp->erase();
         return WalkResult::advance();
