@@ -324,12 +324,14 @@ phase2_build_shared_llvm_if_needed() {
     fi
 
     LLVM_LINKER_FLAGS=""
-    if command -v "$LLD_CMD" >/dev/null 2>&1; then
-        LLVM_LINKER_FLAGS="-DLLVM_USE_LINKER=${LLD_CMD}"
-        ok "${LLD_CMD} found, using for faster link times"
-    elif command -v ld.mold >/dev/null 2>&1; then
-        LLVM_LINKER_FLAGS="-DLLVM_USE_LINKER=mold"
-        ok "mold found, using for faster link times"
+    if [ "$(uname)" = "Linux" ]; then
+        if command -v "$LLD_CMD" >/dev/null 2>&1; then
+            LLVM_LINKER_FLAGS="-DLLVM_USE_LINKER=${LLD_CMD}"
+            ok "${LLD_CMD} found, using for faster link times"
+        elif command -v ld.mold >/dev/null 2>&1; then
+            LLVM_LINKER_FLAGS="-DLLVM_USE_LINKER=mold"
+            ok "mold found, using for faster link times"
+        fi
     fi
 
     export CC="$CLANG_CMD"
@@ -685,12 +687,14 @@ phase4_needs_reconfigure() {
 
 phase4_select_linker() {
     ASTER_LINKER_FLAGS=""
-    if command -v "$LLD_CMD" >/dev/null 2>&1; then
-        ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=${LLD_CMD} -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=${LLD_CMD} -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=${LLD_CMD}"
-        ok "Using ${LLD_CMD} for ASTER link"
-    elif command -v ld.mold >/dev/null 2>&1; then
-        ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=mold"
-        ok "Using mold for ASTER link"
+    if [ "$(uname)" = "Linux" ]; then
+        if command -v "$LLD_CMD" >/dev/null 2>&1; then
+            ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=${LLD_CMD} -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=${LLD_CMD} -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=${LLD_CMD}"
+            ok "Using ${LLD_CMD} for ASTER link"
+        elif command -v ld.mold >/dev/null 2>&1; then
+            ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=mold"
+            ok "Using mold for ASTER link"
+        fi
     fi
 }
 
