@@ -311,6 +311,8 @@ def _eval_batch(
     if sweep_pins:
         simd_occ = num_wg_per_cu * ((num_waves + _NUM_SIMDS - 1) // _NUM_SIMDS)
         um_vals = np.array([unroll_cfgs[i][1] for i in iu])
+        lcm_vals = np.array([unroll_cfgs[i][0] for i in iu])
+        ep_vals = np.array([unroll_cfgs[i][2] for i in iu])
         pin_arrays = {
             "m_wg": m_wg,
             "n_wg": n_wg,
@@ -323,6 +325,8 @@ def _eval_batch(
             "k_scaling_factor": k_factor,
             "simd_occupancy": simd_occ,
             "unroll_factor_multiplier": um_vals,
+            "lcm_unroll": lcm_vals,
+            "epilogue_peeling": ep_vals,
         }
         for attr, val in sweep_pins.items():
             if attr in pin_arrays:
@@ -438,7 +442,9 @@ def _generate_configs(
     total_sampled = 0
     total_grid = 0
 
-    for b_path, load_type in variants:
+    import sys
+
+    for vi, (b_path, load_type) in enumerate(variants):
         if (b_path, load_type) not in MLIR_FILES:
             continue
         dim_sizes, wave_arr, tile_arr, unroll_cfgs, suffix = _variant_grid_info(
@@ -446,6 +452,11 @@ def _generate_configs(
         )
         grid_total = int(np.prod(dim_sizes))
         total_grid += grid_total
+        print(
+            f"  [{vi+1}/{len(variants)}] {b_path}/{load_type}: " f"grid={grid_total:,}",
+            end="",
+            flush=True,
+        )
 
         eval_args = (
             wave_arr,
@@ -459,6 +470,8 @@ def _generate_configs(
             sweep_pins,
         )
 
+        variant_accept = 0
+        variant_reject = 0
         if sample_size <= 0:
             # Full sweep: evaluate entire grid in chunks to bound memory.
             chunk_size = 500_000
@@ -468,10 +481,16 @@ def _generate_configs(
                 configs.extend(batch_cfgs)
                 total_filtered += nfilt
                 total_sampled += end - start
+                variant_accept += len(batch_cfgs)
+                variant_reject += nfilt
+                print(
+                    f"\r  [{vi+1}/{len(variants)}] {b_path}/{load_type}: "
+                    f"grid={grid_total:,}, scanned={end:,}, "
+                    f"accept={variant_accept:,}, reject={variant_reject:,}",
+                    end="",
+                    flush=True,
+                )
         else:
-            # Sampled sweep: draw random indices in rounds.
-            # All filters (including sweep_pins) are vectorized in _eval_batch,
-            # so target means post-all-filter count.
             target = sample_size
             seen = set()
             batch_size = min(target * 10, grid_total)
@@ -492,14 +511,23 @@ def _generate_configs(
                 total_sampled += len(new)
                 eval_count += len(new)
                 accept_count += len(batch_cfgs)
+                variant_accept += len(batch_cfgs)
+                variant_reject += nfilt
                 configs.extend(batch_cfgs)
+                print(
+                    f"\r  [{vi+1}/{len(variants)}] {b_path}/{load_type}: "
+                    f"grid={grid_total:,}, sampled={eval_count:,}, "
+                    f"accept={variant_accept:,}, reject={variant_reject:,}",
+                    end="",
+                    flush=True,
+                )
                 if len(configs) >= target:
                     break
-                # Adapt batch size based on observed acceptance rate.
                 if accept_count > 0 and round_idx >= 1:
                     rate = accept_count / eval_count
                     needed = target - len(configs)
                     batch_size = min(int(needed / rate * 3) + 1000, grid_total)
+        print()  # newline after variant progress
 
     if total_filtered:
         print(f"{total_filtered} configs skipped by pre-compile filter")
@@ -613,25 +641,26 @@ def _stratified_sample(configs, n):
 def _repro_cmd(cfg, num_iterations):
     """Return a CLI command to reproduce a single config."""
     k_factor = cfg.k // (cfg.k_tiles * 32)
-    buf_flag = " --use-buffer" if cfg.use_buffer else " --use-flat"
-    if cfg.direct_a:
-        direct_flag = " --direct-a --direct-b"
-    elif cfg.direct_b:
-        direct_flag = " --direct-b"
-    else:
-        direct_flag = ""
-    lcm_flag = "" if cfg.lcm_unroll else " --no-lcm-unroll"
+    buf_flag = " --use-buffer" if cfg.use_buffer else " --no-use-buffer"
+    flat_flag = " --no-use-flat" if cfg.use_buffer else " --use-flat"
+    direct_b_flag = " --direct-b" if cfg.direct_b else " --no-direct-b"
+    direct_a_flag = " --direct-a" if cfg.direct_a else " --no-direct-a"
+    lcm_flag = " --lcm-unroll" if cfg.lcm_unroll else " --no-lcm-unroll"
     um_flag = (
         f" --unroll-multiplier {cfg.unroll_factor_multiplier}"
         if cfg.unroll_factor_multiplier > 1
         else ""
     )
-    peel_flag = "" if cfg.epilogue_peeling else " --no-epilogue-peeling"
+    peel_flag = (
+        " --epilogue-peeling" if cfg.epilogue_peeling else " --no-epilogue-peeling"
+    )
     wg_per_cu_flag = (
         f" --num-wg-per-cu {cfg.num_wg_per_cu}" if cfg.num_wg_per_cu != 1 else ""
     )
-    ll_flag = " --ll-sched" if getattr(cfg, "ll_sched", False) else ""
-    hw_flag = " --hoist-wait" if getattr(cfg, "hoist_wait", False) else ""
+    ll_flag = " --ll-sched" if getattr(cfg, "ll_sched", False) else " --no-ll-sched"
+    hw_flag = (
+        " --hoist-wait" if getattr(cfg, "hoist_wait", False) else " --no-hoist-wait"
+    )
     ps = getattr(cfg, "pipeline_strategy", -1)
     ps_flag = f" --pipeline-strategy {ps}" if ps >= 0 else ""
     return (
@@ -640,7 +669,8 @@ def _repro_cmd(cfg, num_iterations):
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
         f" --m-tiles-wg {cfg.m_tiles_wg} --n-tiles-wg {cfg.n_tiles_wg} --k-tiles {cfg.k_tiles}"
         f" --pipeline-strategy {cfg.pipeline_strategy} --k-scaling-factor {k_factor}"
-        f"{buf_flag}{direct_flag}{lcm_flag}{um_flag}{peel_flag}{wg_per_cu_flag}"
+        f"{buf_flag}{flat_flag}{direct_b_flag}{direct_a_flag}"
+        f"{lcm_flag}{um_flag}{peel_flag}{wg_per_cu_flag}"
         f"{ll_flag}{hw_flag}"
         f" --iterations {num_iterations}"
     )
@@ -665,11 +695,13 @@ def _make_config_from_args(args, load_type, b_path):
         load_type=load_type,
         b_path=b_path,
         num_wg_per_cu=getattr(args, "num_wg_per_cu", 1) or 1,
-        lcm_unroll=getattr(args, "lcm_unroll", True),
+        lcm_unroll=args.lcm_unroll if args.lcm_unroll is not None else True,
         unroll_factor_multiplier=getattr(args, "unroll_multiplier", 1) or 1,
-        epilogue_peeling=getattr(args, "epilogue_peeling", True),
-        ll_sched=getattr(args, "ll_sched", False),
-        hoist_wait=getattr(args, "hoist_wait", False),
+        epilogue_peeling=(
+            args.epilogue_peeling if args.epilogue_peeling is not None else True
+        ),
+        ll_sched=args.ll_sched if args.ll_sched is not None else False,
+        hoist_wait=args.hoist_wait if args.hoist_wait is not None else False,
         pipeline_strategy=ps,
         _label_suffix=suffix,
     )
@@ -757,41 +789,35 @@ if __name__ == "__main__":
         help="K scaling factor (K = factor * k_tiles * 32, each 16x32 tile = 32 K elements)",
     )
     add_single_cli_args(parser)
-    buf_group = parser.add_mutually_exclusive_group()
-    buf_group.add_argument(
+    parser.add_argument(
         "--use-buffer",
-        action="store_true",
-        help="Sweep buffer_load/buffer_store only",
-    )
-    buf_group.add_argument(
-        "--use-flat",
-        action="store_true",
-        help="Sweep global_load/global_store only",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Buffer load/store (default: sweep both on/off)",
     )
     parser.add_argument(
-        "--direct-a",
-        action="store_true",
-        help="A via preshuffle (LDS bypass). Requires --direct-b.",
+        "--use-flat",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Flat load/store (default: sweep both on/off)",
     )
     parser.add_argument(
         "--direct-b",
-        action="store_true",
-        help="B via preshuffle (LDS bypass).",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="B via preshuffle/LDS bypass (default: sweep both)",
     )
     parser.add_argument(
-        "--no-direct-a",
-        action="store_true",
-        help="Exclude direct_ab from sweep (keep lds + direct_b).",
+        "--direct-a",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="A via preshuffle (default: sweep both). Implies --direct-b.",
     )
     parser.add_argument(
-        "--no-direct-b",
-        action="store_true",
-        help="Exclude direct_b and direct_ab from sweep (keep lds only).",
-    )
-    parser.add_argument(
-        "--no-lcm-unroll",
-        action="store_true",
-        help="Disable LCM-based kernel loop unrolling",
+        "--lcm-unroll",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="LCM-based kernel loop unrolling (default: sweep both on/off)",
     )
     parser.add_argument(
         "--unroll-multiplier",
@@ -800,9 +826,10 @@ if __name__ == "__main__":
         help="Unroll factor multiplier (scales LCM unroll factor, default: 1)",
     )
     parser.add_argument(
-        "--no-epilogue-peeling",
-        action="store_true",
-        help="Disable epilogue peeling (keep cleanup loop after LCM unrolling)",
+        "--epilogue-peeling",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Epilogue peeling after LCM unrolling (default: sweep both on/off)",
     )
     parser.add_argument(
         "--desired-simd-occupancy",
@@ -812,14 +839,15 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--ll-sched",
-        action="store_true",
-        help="Enable low-level instruction scheduler (off by default)",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Low-level instruction scheduler (default: sweep both on/off)",
     )
     parser.add_argument(
         "--hoist-wait",
         action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Hoist iter_arg waits to loop head (--hoist-wait / --no-hoist-wait)",
+        default=None,
+        help="Hoist iter_arg waits to loop head (default: sweep both on/off)",
     )
     parser.add_argument(
         "--pipeline-strategy",
@@ -832,48 +860,44 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    args.lcm_unroll = not args.no_lcm_unroll
-    args.epilogue_peeling = not args.no_epilogue_peeling
 
-    # Determine b_path from --direct-a / --direct-b flags.
-    if args.direct_a and not args.direct_b:
-        parser.error("--direct-a requires --direct-b")
-    if args.direct_a and args.direct_b:
-        b_path = "direct_ab"
-    elif args.direct_b:
-        b_path = "direct_b"
-    else:
-        b_path = "lds"
+    # Build load_type list from --use-buffer and --use-flat.
+    # Both default to None (sweep). Pinned values filter the list.
+    load_types = []
+    if args.use_flat is not False:
+        load_types.append("flat")
+    if args.use_buffer is not False:
+        load_types.append("buffer")
+    if args.use_flat is True:
+        load_types = [lt for lt in load_types if lt == "flat"]
+    if args.use_buffer is True:
+        load_types = [lt for lt in load_types if lt == "buffer"]
 
-    # Determine load_type variants to sweep.
-    if args.use_buffer:
-        load_types = ["buffer"]
-    elif args.use_flat:
-        load_types = ["flat"]
-    else:
-        load_types = ["flat", "buffer"]
+    # Build b_path list: derive from --direct-a / --direct-b tri-state.
+    # direct_a=True implies direct_b=True.
+    if args.direct_a is True and args.direct_b is False:
+        parser.error("--direct-a with --no-direct-b is contradictory")
+    all_paths = ["lds", "direct_b", "direct_ab"]
+    if args.direct_b is False:
+        all_paths = ["lds"]
+    elif args.direct_b is True and args.direct_a is None:
+        all_paths = ["direct_b", "direct_ab"]
+    elif args.direct_b is True and args.direct_a is True:
+        all_paths = ["direct_ab"]
+    elif args.direct_b is True and args.direct_a is False:
+        all_paths = ["direct_b"]
+    elif args.direct_a is True:
+        all_paths = ["direct_ab"]
+    elif args.direct_a is False:
+        all_paths = ["lds", "direct_b"]
+    # else: all_paths stays ["lds", "direct_b", "direct_ab"] (sweep all)
 
-    # Build (b_path, load_type) variant list.
-    if args.full_sweep or args.sweep:
-        if args.direct_a or args.direct_b:
-            # Pinned to the specified path.
-            variants = [(b_path, lt) for lt in load_types]
-        else:
-            # Sweep paths, respecting --no-direct-a / --no-direct-b exclusions.
-            all_paths = ["lds", "direct_b", "direct_ab"]
-            if args.no_direct_b:
-                all_paths = ["lds"]
-            elif args.no_direct_a:
-                all_paths = ["lds", "direct_b"]
-            variants = [(bp, lt) for lt in load_types for bp in all_paths]
-    else:
-        variants = [(b_path, lt) for lt in load_types]
-
-    # Filter to implemented combos
+    variants = [(bp, lt) for lt in load_types for bp in all_paths]
     variants = [(bp, lt) for bp, lt in variants if (bp, lt) in MLIR_FILES]
 
-    # For single-config mode
-    load_type = "buffer" if args.use_buffer else "flat"
+    # For single-config mode, pick first variant.
+    load_type = load_types[0]
+    b_path = all_paths[0]
 
     # TOP_K labels include suffix -- filter to selected variants.
     variant_suffixes = {_make_label_suffix(bp, lt) for bp, lt in variants}
@@ -900,6 +924,14 @@ if __name__ == "__main__":
             "k_scaling_factor": "k_scaling_factor",
             "unroll_multiplier": "unroll_factor_multiplier",
             "desired_simd_occupancy": "simd_occupancy",
+            "use_buffer": "use_buffer",
+            "use_flat": "use_flat",
+            "direct_b": "direct_b",
+            "direct_a": "direct_a",
+            "lcm_unroll": "lcm_unroll",
+            "epilogue_peeling": "epilogue_peeling",
+            "ll_sched": "ll_sched",
+            "hoist_wait": "hoist_wait",
         }
         sweep_pins = make_sweep_pins(args, _SWEEP_ATTR_MAP)
 
@@ -909,10 +941,22 @@ if __name__ == "__main__":
             check_regs=not getattr(args, "no_reg_filter", False),
             sweep_pins=sweep_pins,
         )
-        # Propagate non-sweep pipeline flags to all generated configs.
+        # Propagate pipeline flags. None = sweep both on/off (duplicate configs).
+        # lcm_unroll/epilogue_peeling are already in the grid via unroll_cfgs
+        # and filtered via sweep_pins, so only ll_sched/hoist_wait need expansion.
+        expanded = []
+        ll_vals = [True, False] if args.ll_sched is None else [args.ll_sched]
+        hw_vals = [True, False] if args.hoist_wait is None else [args.hoist_wait]
+        import copy
+
         for cfg in all_configs:
-            cfg.ll_sched = args.ll_sched
-            cfg.hoist_wait = args.hoist_wait
+            for ll in ll_vals:
+                for hw in hw_vals:
+                    c = copy.copy(cfg)
+                    c.ll_sched = ll
+                    c.hoist_wait = hw
+                    expanded.append(c)
+        all_configs = expanded
 
         def _post_compile_filter(cfg, res):
             """Post-compilation filter: reject configs exceeding VGPR or LDS limits."""
