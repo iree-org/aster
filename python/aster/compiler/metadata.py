@@ -93,24 +93,22 @@ class KernelResources:
                 f"(vgpr+agpr) per wave {self.vgpr_count}+{self.agpr_count}"
                 f"={combined} > {combined_max}"
             )
-        # Per-CU register file constraint: the total registers needed by all
-        # waves in the workgroup must fit in the CU's register file.
-        # On gfx942: 2048 arch regs per CU (= regsPerMultiprocessor / warpSize
-        # = 131072 / 64). With 4 SIMDs, that's 512 per SIMD.
-        # align8(regs_per_wave) * total_waves must fit.
-        # The hardware CP rejects the dispatch with EC code 22
-        # (HSA_STATUS_ERROR_INVALID_ISA) if this overflows.
+        # Per-CU register file constraint. The hardware CP rejects the dispatch
+        # (EC code 22, HSA_STATUS_ERROR_INVALID_ISA) when total register lanes
+        # exceed regsPerMultiprocessor (131072 on gfx942).
+        # Total lanes = align(regs_per_wave, granule) * num_waves * wavefront_size.
         # Source: clr/rocclr/device/rocm/rocdevice.cpp:1604.
         if target.unified_reg_file and waves_per_simd > 1:
             g = target.vgpr_alloc_granule
             aligned = (combined + g - 1) // g * g
-            regs_per_cu = aligned * total_waves
-            regs_per_cu_limit = target.vgprs_per_simd * target.num_simds
-            if regs_per_cu > regs_per_cu_limit:
+            wf = target.wavefront_size
+            lanes_needed = aligned * total_waves * wf
+            lanes_available = target.vgprs_per_simd * target.num_simds * wf
+            if lanes_needed > lanes_available:
                 violations.append(
                     f"CU reg file: align{g}({self.vgpr_count}+{self.agpr_count})"
-                    f"={aligned} * {total_waves} waves"
-                    f" = {regs_per_cu} > {regs_per_cu_limit}"
+                    f"={aligned} * {total_waves} waves * {wf} lanes"
+                    f" = {lanes_needed} > regsPerMultiprocessor ({lanes_available})"
                 )
         lds_budget = target.lds_per_cu // num_wg_per_cu
         if self.lds_bytes > lds_budget:

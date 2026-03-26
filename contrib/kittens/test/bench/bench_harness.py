@@ -738,7 +738,9 @@ def run_single(cfg, compile_fn, args, execute_fn):
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
         print_config(cfg, args.iterations, res)
         if res:
-            for v in res.check_occupancy(cfg.num_threads):
+            for v in res.check_occupancy(
+                cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
+            ):
                 print(f"  OCCUPANCY ERROR: {v}")
         print(f"  Compiled: {args.hsaco}")
         return
@@ -762,7 +764,9 @@ def run_single(cfg, compile_fn, args, execute_fn):
             res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
             print_config(cfg, args.iterations, res)
             if res:
-                violations = res.check_occupancy(cfg.num_threads)
+                violations = res.check_occupancy(
+                    cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
+                )
                 for v in violations:
                     print(f"  OCCUPANCY ERROR: {v}")
                 if violations and not getattr(args, "force", False):

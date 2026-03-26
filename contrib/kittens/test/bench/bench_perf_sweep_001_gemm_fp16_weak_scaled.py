@@ -369,14 +369,15 @@ def _eval_batch(
         mask &= est_agprs <= GPU_MAX_AGPRS
         combined = est_vgprs + est_agprs
         mask &= combined <= GPU_VGPRS_PER_SIMD
-        # Per-CU register file: total regs across all waves must fit.
-        # regsPerMultiprocessor / warpSize = 2048 on gfx942 (= 512 * 4 SIMDs).
-        # Hardware CP rejects dispatch if aligned * num_waves > regs_per_cu.
+        # Per-CU register file: total register lanes across all waves must fit
+        # in regsPerMultiprocessor (131072 on gfx942 = 512 * 4 * 64).
+        # lanes = align(regs, granule) * num_waves * warpSize <= regsPerMultiprocessor.
         # Source: clr/rocclr/device/rocm/rocdevice.cpp:1604.
         g = np.int64(GPU_VGPR_GRANULE)
         aligned = ((combined + g - 1) // g) * g
-        regs_per_cu = GPU_VGPRS_PER_SIMD * _NUM_SIMDS  # 512 * 4 = 2048
-        mask &= aligned * num_waves <= regs_per_cu
+        _WARP_SIZE = 64  # TODO: query from device
+        regs_per_mp = GPU_VGPRS_PER_SIMD * _NUM_SIMDS * _WARP_SIZE  # 131072
+        mask &= aligned * num_waves * _WARP_SIZE <= regs_per_mp
 
     # --- Instantiate only fully-passing configs (fast: small survivor set) ---
     configs = []
