@@ -82,6 +82,28 @@ from bench_harness import (
     run_single,
 )
 
+# --- GPU hardware constants ---
+# Query from HIP at runtime when available, fall back to gfx942 defaults for
+# cross-compilation (macOS). Source: aster.core.device -> hipDeviceProp_t.
+try:
+    from aster.core.device import try_query_device
+
+    _dev = try_query_device(0)
+except ImportError:
+    _dev = None
+
+# Per-SIMD register file size (arch VGPRs, 512 on gfx942).
+GPU_VGPRS_PER_SIMD = _dev.vgprs_per_simd if _dev else 512
+# Max addressable VGPRs per wave (256 on gfx942).
+GPU_MAX_VGPRS = min(GPU_VGPRS_PER_SIMD, 256)
+# Max AGPRs per wave (same as VGPRs on CDNA).
+GPU_MAX_AGPRS = GPU_MAX_VGPRS
+# LDS per CU (bytes, 65536 on gfx942, 262144 on gfx950).
+GPU_LDS_PER_CU = _dev.lds_per_cu if _dev else 65536
+# VGPR allocation granularity.
+GPU_VGPR_GRANULE = _dev.vgpr_alloc_granule if _dev else 8
+
+
 # Sweep grid -- 16x16 MFMA with dwordx4: 4 VGPRs per C tile (vs 16 for 32x32).
 # More tiles feasible per wave, so wider multiples than 32x32 variant.
 STAGE_CONFIGS = [2, 3, 4, 5]  # A pipeline depth (LDS path stages)
@@ -312,7 +334,7 @@ def _eval_batch(
         a_lds = stages * mtwg * kt * 1024
         b_lds = np.int64(0) if is_direct_b else eff_b_stg * ntwg * kt * 1024
         lds_bytes = a_lds + b_lds
-        lds_budget = np.int64(65536) // np.maximum(num_wg_per_cu, 1)
+        lds_budget = np.int64(GPU_LDS_PER_CU) // np.maximum(num_wg_per_cu, 1)
         mask &= lds_bytes <= lds_budget
 
         # VGPR estimate (vectorized version of estimated_vgprs).
@@ -342,10 +364,19 @@ def _eval_batch(
         est_vgprs = a_load_bufs + a_lds_read + b_load_bufs + b_split + overhead
         est_agprs = mt * nt * 4
 
-        # Per-wave limits (ISA manual: 256 VGPRs, 256 AGPRs, 512 combined).
-        mask &= est_vgprs <= 256
-        mask &= est_agprs <= 256
-        mask &= (est_vgprs + est_agprs) <= 512
+        # Per-wave limits.
+        mask &= est_vgprs <= GPU_MAX_VGPRS
+        mask &= est_agprs <= GPU_MAX_AGPRS
+        combined = est_vgprs + est_agprs
+        mask &= combined <= GPU_VGPRS_PER_SIMD
+        # Per-CU register file: total regs across all waves must fit.
+        # regsPerMultiprocessor / warpSize = 2048 on gfx942 (= 512 * 4 SIMDs).
+        # Hardware CP rejects dispatch if aligned * num_waves > regs_per_cu.
+        # Source: clr/rocclr/device/rocm/rocdevice.cpp:1604.
+        g = np.int64(GPU_VGPR_GRANULE)
+        aligned = ((combined + g - 1) // g) * g
+        regs_per_cu = GPU_VGPRS_PER_SIMD * _NUM_SIMDS  # 512 * 4 = 2048
+        mask &= aligned * num_waves <= regs_per_cu
 
     # --- Instantiate only fully-passing configs (fast: small survivor set) ---
     configs = []

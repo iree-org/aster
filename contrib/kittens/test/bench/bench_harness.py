@@ -420,6 +420,7 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
                 mp_context=ctx,
                 initializer=_gpu_init,
                 initargs=(gpu_id,),
+                max_tasks_per_child=1,
             )
             pools.append(pool)
             for a in per_gpu[gpu_id]:
@@ -503,6 +504,7 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
                 mp_context=ctx,
                 initializer=_gpu_init,
                 initargs=(gpu_id,),
+                max_tasks_per_child=1,
             )
             pools.append(pool)
             for a in per_gpu[gpu_id]:
