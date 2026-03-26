@@ -32,6 +32,9 @@ class _ArchParams:
 
 # Hardware constants sourced from the AMD ISA reference manuals and verified
 # against LLVM's AMDGPUBaseInfo.cpp (getAddressableNumSGPRs / getTotalNumVGPRs).
+# These are compile-time fallbacks for cross-compilation (macOS -> Linux).
+# At runtime on GPU, use Target.from_device() to get the actual values from HIP
+# (see aster.core.device.query_device).
 _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
     # CDNA3: MI300-series (GFX9-class).
     # SGPRs: 102 addressable per wavefront (GFX8-9 limit).
@@ -166,6 +169,34 @@ class Target:
             else _ARCH_PARAMS[arch].wavefront_size
         )
         return cls(arch=arch, wavefront_size=wf)
+
+    @classmethod
+    def from_device(cls, device_id: int = 0) -> "Target":
+        """Construct a Target from the actual GPU via HIP device properties.
+
+        Queries the hardware at runtime and overrides the hardcoded _ArchParams with the
+        real values. Raises RuntimeError if HIP is unavailable.
+        """
+        from aster.core.device import query_device
+
+        dp = query_device(device_id)
+        arch = GpuArch(dp.gcn_arch_name)
+        # Override the static table with runtime values.
+        _ARCH_PARAMS[arch] = _ArchParams(
+            wavefront_size=dp.warp_size,
+            lds_per_cu=dp.lds_per_cu,
+            max_vgprs=dp.vgprs_per_simd,  # max per wave = file size (at occupancy 1)
+            max_agprs=dp.vgprs_per_simd,  # symmetric on CDNA
+            max_sgprs=_ARCH_PARAMS.get(arch, _ARCH_PARAMS[GpuArch.GFX942]).max_sgprs,
+            num_simds=dp.num_simds,
+            vgprs_per_simd=dp.vgprs_per_simd,
+            agprs_per_simd=dp.vgprs_per_simd,
+            vgpr_alloc_granule=dp.vgpr_alloc_granule,
+            unified_reg_file=not dp.gcn_arch_name.startswith(
+                "gfx12"
+            ),  # CDNA = unified, RDNA4 = separate
+        )
+        return cls(arch=arch, wavefront_size=dp.warp_size)
 
     @classmethod
     def gfx942(cls, wavefront_size: int = 64) -> "Target":

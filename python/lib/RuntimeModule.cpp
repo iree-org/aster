@@ -65,6 +65,30 @@ NB_MODULE(_runtime_module, m) {
   });
   m.def("hip_clear_last_error", []() { (void)hipGetLastError(); });
 
+  // Query all device properties needed for occupancy/resource checks.
+  // Returns a dict with the hardware constants that target.py hardcodes.
+  // Source: clr/rocclr/device/rocm/rocdevice.cpp (lines 1593-1610).
+  m.def("hip_get_device_props", [](int device_id) -> nb::dict {
+    hipDeviceProp_t props;
+    hipCheck(hipGetDeviceProperties(&props, device_id));
+    nb::dict d;
+    d["name"] = std::string(props.name);
+    d["gcn_arch_name"] = std::string(props.gcnArchName);
+    d["warp_size"] = props.warpSize;
+    // LDS per CU (bytes).
+    d["lds_per_cu"] = static_cast<int>(props.sharedMemPerMultiprocessor);
+    // Register file: regsPerMultiprocessor = vgprsPerSimd * simdPerCU *
+    // warpSize e.g. 512 * 4 * 64 = 131072 on gfx942.
+    d["regs_per_multiprocessor"] = props.regsPerMultiprocessor;
+    // CU count.
+    d["multiprocessor_count"] = props.multiProcessorCount;
+    // Max threads per block.
+    d["max_threads_per_block"] = props.maxThreadsPerBlock;
+    // Max threads per multiprocessor (= max waves per CU * warpSize).
+    d["max_threads_per_multiprocessor"] = props.maxThreadsPerMultiProcessor;
+    return d;
+  });
+
   m.def("hip_module_load_data", [](const nb::bytes &binary) -> void * {
     hipModule_t *m = new hipModule_t();
     hipCheck(hipModuleLoadData(

@@ -55,16 +55,26 @@ class KernelResources:
         return ", ".join(parts)
 
     def check_occupancy(
-        self, num_threads: int, mcpu: str = "gfx942", num_wg_per_cu: int = 1
+        self,
+        num_threads: int,
+        mcpu: str = "gfx942",
+        num_wg_per_cu: int = 1,
+        target: "Optional[Target]" = None,
     ) -> List[str]:
         """Return a list of occupancy violations for the given target.
 
+        Args:
+            target: If provided, use this Target directly (e.g. from
+                Target.from_device() with runtime HIP values). Otherwise
+                fall back to Target.from_mcpu(mcpu) with hardcoded constants.
+
         Returns an empty list if the kernel can launch or the mcpu is unknown.
         """
-        try:
-            target = Target.from_mcpu(mcpu)
-        except ValueError:
-            return []
+        if target is None:
+            try:
+                target = Target.from_mcpu(mcpu)
+            except ValueError:
+                return []
         num_waves = (num_threads + target.wavefront_size - 1) // target.wavefront_size
         total_waves = num_waves * num_wg_per_cu
         waves_per_simd = (total_waves + target.num_simds - 1) // target.num_simds
@@ -83,6 +93,25 @@ class KernelResources:
                 f"(vgpr+agpr) per wave {self.vgpr_count}+{self.agpr_count}"
                 f"={combined} > {combined_max}"
             )
+        # Per-CU register file constraint: the total registers needed by all
+        # waves in the workgroup must fit in the CU's register file.
+        # On gfx942: 2048 arch regs per CU (= regsPerMultiprocessor / warpSize
+        # = 131072 / 64). With 4 SIMDs, that's 512 per SIMD.
+        # align8(regs_per_wave) * total_waves must fit.
+        # The hardware CP rejects the dispatch with EC code 22
+        # (HSA_STATUS_ERROR_INVALID_ISA) if this overflows.
+        # Source: clr/rocclr/device/rocm/rocdevice.cpp:1604.
+        if target.unified_reg_file and waves_per_simd > 1:
+            g = target.vgpr_alloc_granule
+            aligned = (combined + g - 1) // g * g
+            regs_per_cu = aligned * total_waves
+            regs_per_cu_limit = target.vgprs_per_simd * target.num_simds
+            if regs_per_cu > regs_per_cu_limit:
+                violations.append(
+                    f"CU reg file: align{g}({self.vgpr_count}+{self.agpr_count})"
+                    f"={aligned} * {total_waves} waves"
+                    f" = {regs_per_cu} > {regs_per_cu_limit}"
+                )
         lds_budget = target.lds_per_cu // num_wg_per_cu
         if self.lds_bytes > lds_budget:
             violations.append(f"LDS per workgroup {self.lds_bytes} > {lds_budget}")
