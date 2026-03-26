@@ -76,9 +76,21 @@ class WeakScaleConfig:
     epilogue_peeling: bool = True  # fully unroll cleanup loop after LCM unrolling
     ll_sched: bool = False
     hoist_wait: bool = False
+    pipeline_strategy: int = -1  # -1 = use a_stages/b_stages directly
     _label_suffix: str = ""
 
+    # a_stages -> default pipeline strategy for backward compat.
+    _A_STAGES_TO_STRATEGY = {1: 0, 2: 1, 3: 3, 4: 5, 5: 7, 6: 9}
+
     def __post_init__(self):
+        if self.pipeline_strategy >= 0:
+            from kittens_helpers import pipeline_strategy_stages
+
+            a, b = pipeline_strategy_stages(self.pipeline_strategy)
+            self.a_stages = a
+            self.b_stages = b
+        else:
+            self.pipeline_strategy = self._A_STAGES_TO_STRATEGY[self.a_stages]
         assert (
             self.m_tiles_wg % self.m_waves == 0
         ), f"m_tiles_wg={self.m_tiles_wg} not divisible by m_waves={self.m_waves}"
@@ -261,12 +273,13 @@ class WeakScaleConfig:
         peel = "" if self.epilogue_peeling else "_nopeel"
         llsched = "_llsched" if self.ll_sched else ""
         hoistwait = "_hoistwait" if self.hoist_wait else ""
+        pstrat = f"_ps{self.pipeline_strategy}" if self.pipeline_strategy >= 0 else ""
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
             f"_wg{self.m_wg}x{self.n_wg}_w{self.m_waves}x{self.n_waves}"
             f"{tile_str}_s{self.a_stages}"
             f"{f'_bs{self.b_stages}' if self.b_stages > 0 else ''}"
-            f"{lcm}{um}{peel}{llsched}{hoistwait}{self._label_suffix}"
+            f"{pstrat}{lcm}{um}{peel}{llsched}{hoistwait}{self._label_suffix}"
         )
 
 
@@ -289,10 +302,9 @@ def _load_k_loop_helpers(load_type="flat", b_path="lds"):
 def _make_substitutions(cfg):
     """Build template substitutions dict for a WeakScaleConfig."""
     subs = {"{{K_LOOP_HELPERS}}": _load_k_loop_helpers(cfg.load_type, cfg.b_path)}
-    effective_b_stages = cfg.b_stages if cfg.b_stages > 0 else None
     subs.update(
         constexpr_substitutions_16x32(
-            cfg.m_tiles, cfg.n_tiles, cfg.k, cfg.a_stages, b_stages=effective_b_stages
+            cfg.m_tiles, cfg.n_tiles, cfg.k, cfg.pipeline_strategy
         )
     )
     subs["{{M_WG}}"] = str(cfg.m_wg)
@@ -619,6 +631,15 @@ if __name__ == "__main__":
         default=False,
         help="Hoist iter_arg waits to loop head (--hoist-wait / --no-hoist-wait)",
     )
+    parser.add_argument(
+        "--pipeline-strategy",
+        type=int,
+        default=-1,
+        choices=range(-1, 11),
+        metavar="{0..10}",
+        help="Pipeline strategy (0=none, 5+=hoist-wait guaranteed, 10=max). "
+        "Overrides --a-stages/--b-stages when >= 0.",
+    )
     a = parser.parse_args()
     load_type = "buffer" if a.use_buffer else "flat"
     b_path = "direct_b" if a.direct_b else "lds"
@@ -638,6 +659,7 @@ if __name__ == "__main__":
         b_path=b_path,
         ll_sched=getattr(a, "ll_sched", False),
         hoist_wait=getattr(a, "hoist_wait", False),
+        pipeline_strategy=getattr(a, "pipeline_strategy", -1),
     )
 
     from aster.compiler.metadata import parse_asm_kernel_resources

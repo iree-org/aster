@@ -634,6 +634,8 @@ def _repro_cmd(cfg, num_iterations):
     )
     ll_flag = " --ll-sched" if getattr(cfg, "ll_sched", False) else ""
     hw_flag = " --hoist-wait" if getattr(cfg, "hoist_wait", False) else ""
+    ps = getattr(cfg, "pipeline_strategy", -1)
+    ps_flag = f" --pipeline-strategy {ps}" if ps >= 0 else ""
     return (
         f"python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
@@ -642,7 +644,7 @@ def _repro_cmd(cfg, num_iterations):
         f" --a-stages {cfg.a_stages} --k-scaling-factor {k_factor}"
         f"{f' --b-stages {cfg.b_stages}' if cfg.b_stages > 0 else ''}"
         f"{buf_flag}{direct_flag}{lcm_flag}{um_flag}{peel_flag}{wg_per_cu_flag}"
-        f"{ll_flag}{hw_flag}"
+        f"{ll_flag}{hw_flag}{ps_flag}"
         f" --iterations {num_iterations}"
     )
 
@@ -671,6 +673,7 @@ def _make_config_from_args(args, load_type, b_path):
         epilogue_peeling=getattr(args, "epilogue_peeling", True),
         ll_sched=getattr(args, "ll_sched", False),
         hoist_wait=getattr(args, "hoist_wait", False),
+        pipeline_strategy=getattr(args, "pipeline_strategy", -1),
         _label_suffix=suffix,
     )
 
@@ -828,6 +831,15 @@ if __name__ == "__main__":
         default=False,
         help="Hoist iter_arg waits to loop head (--hoist-wait / --no-hoist-wait)",
     )
+    parser.add_argument(
+        "--pipeline-strategy",
+        type=int,
+        default=-1,
+        choices=range(-1, 11),
+        metavar="{0..10}",
+        help="Pipeline strategy (0=none, 5+=hoist-wait guaranteed, 10=max). "
+        "Overrides --a-stages when >= 0.",
+    )
 
     args = parser.parse_args()
     args.lcm_unroll = not args.no_lcm_unroll
@@ -911,6 +923,13 @@ if __name__ == "__main__":
         for cfg in all_configs:
             cfg.ll_sched = args.ll_sched
             cfg.hoist_wait = args.hoist_wait
+            if args.pipeline_strategy >= 0:
+                from kittens_helpers import pipeline_strategy_stages
+
+                a, b = pipeline_strategy_stages(args.pipeline_strategy)
+                cfg.a_stages = a
+                cfg.b_stages = b
+                cfg.pipeline_strategy = args.pipeline_strategy
 
         def _post_compile_filter(cfg, res):
             """Post-compilation filter: reject configs exceeding VGPR or LDS limits."""

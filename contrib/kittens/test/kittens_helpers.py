@@ -125,120 +125,97 @@ def _make_gemm_inputs(K):
     return A, B
 
 
-# A pipeline stage configs (LDS path: 4 phases).
-# a_stages -> (a_load, a_lds_write, a_lds_read, a_compute)
-A_STAGE_CONFIGS = {
-    1: (0, 0, 0, 0),
-    2: (0, 1, 1, 1),
-    3: (0, 1, 2, 2),
-    4: (0, 1, 2, 3),
-    5: (0, 2, 3, 4),
-    6: (0, 3, 4, 5),
+# Pipeline strategies: strategy -> dict with named stage assignments.
+# 7 keys: A_LOAD, A_LDS_WRITE, A_LDS_READ, B_LOAD, B_LDS_WRITE, B_LDS_READ, COMPUTE.
+# Some implementations may not use all keys (e.g., direct_b skips B_LDS_WRITE/READ).
+# Strategy >= 5: all A phases in separate stages (hoist-wait hoists all A waits).
+# Strategy >= 6: all A+B phases in separate stages (hoist-wait hoists everything).
+#
+# fmt: off
+PIPELINE_STRATEGIES = {
+    #                  A_LOAD  A_LDS_W A_LDS_R   B_LOAD  B_LDS_W B_LDS_R   COMPUTE
+    0:  dict(A_LOAD=0, A_LDS_WRITE=0, A_LDS_READ=0, B_LOAD=0, B_LDS_WRITE=0, B_LDS_READ=0, COMPUTE=0),
+    1:  dict(A_LOAD=0, A_LDS_WRITE=1, A_LDS_READ=1, B_LOAD=1, B_LDS_WRITE=1, B_LDS_READ=1, COMPUTE=1),
+    2:  dict(A_LOAD=0, A_LDS_WRITE=1, A_LDS_READ=1, B_LOAD=0, B_LDS_WRITE=1, B_LDS_READ=1, COMPUTE=1),
+    3:  dict(A_LOAD=0, A_LDS_WRITE=1, A_LDS_READ=2, B_LOAD=0, B_LDS_WRITE=1, B_LDS_READ=2, COMPUTE=2),
+    4:  dict(A_LOAD=0, A_LDS_WRITE=1, A_LDS_READ=2, B_LOAD=0, B_LDS_WRITE=1, B_LDS_READ=2, COMPUTE=2),
+    5:  dict(A_LOAD=0, A_LDS_WRITE=1, A_LDS_READ=2, B_LOAD=0, B_LDS_WRITE=1, B_LDS_READ=2, COMPUTE=3),
+    6:  dict(A_LOAD=0, A_LDS_WRITE=1, A_LDS_READ=2, B_LOAD=0, B_LDS_WRITE=1, B_LDS_READ=2, COMPUTE=3),
+    7:  dict(A_LOAD=0, A_LDS_WRITE=2, A_LDS_READ=3, B_LOAD=0, B_LDS_WRITE=2, B_LDS_READ=3, COMPUTE=4),
+    8:  dict(A_LOAD=0, A_LDS_WRITE=2, A_LDS_READ=3, B_LOAD=0, B_LDS_WRITE=2, B_LDS_READ=3, COMPUTE=4),
+    9:  dict(A_LOAD=0, A_LDS_WRITE=3, A_LDS_READ=4, B_LOAD=0, B_LDS_WRITE=3, B_LDS_READ=4, COMPUTE=5),
+    10: dict(A_LOAD=0, A_LDS_WRITE=3, A_LDS_READ=4, B_LOAD=0, B_LDS_WRITE=3, B_LDS_READ=4, COMPUTE=5),
 }
+# fmt: on
 
 
-def ab_stage_config(a_stages, b_stages):
-    """Compute absolute stage numbers for A (LDS) and B (direct) pipeline phases.
+def pipeline_strategy_stages(strategy):
+    """Return (a_stages, b_stages) for the given strategy number.
 
-    A phases: a_load, a_lds_write, a_lds_read, a_compute.
-    B phases: b_load, b_wait, b_compute.
-    Both share the last stage for compute.
-
-    b_stages controls the gap between b_load and b_compute:
-      b_stages=1: all B at compute (no pipelining).
-      b_stages=2: b_load 1 stage before compute, b_wait at compute.
-      b_stages=3: b_load 2 stages before compute, b_wait 1 stage before.
-      b_stages=N: b_load N-1 stages before compute, b_wait N-2 stages before.
-
-    The combined pipeline depth = max(a_stages, b_stages).
-    Higher b_stages means more B loads in flight (more VGPR pressure,
-    more latency hiding).
+    Stages = max stage number + 1.
     """
-    a_cfg = A_STAGE_CONFIGS[a_stages]
-    a_load, a_lds_write, a_lds_read, a_compute = a_cfg
-
-    # Combined compute stage.
-    compute = max(a_compute, b_stages - 1)
-
-    # Shift A up if B needs a deeper pipeline.
-    if compute > a_compute:
-        offset = compute - a_compute
-        a_load += offset
-        a_lds_write += offset
-        a_lds_read += offset
-        a_compute = compute
-
-    # B: spread b_load and b_wait backwards from compute.
-    # b_load is (b_stages - 1) stages before compute.
-    # b_wait is 1 stage before compute (or at compute if b_stages <= 2).
-    if b_stages <= 1:
-        b_load = compute
-        b_wait = compute
-    elif b_stages == 2:
-        b_load = compute - 1
-        b_wait = compute
-    else:
-        b_load = compute - (b_stages - 1)
-        b_wait = compute - 1
-    b_compute = compute
-
-    return (
-        (a_load, a_lds_write, a_lds_read, a_compute),
-        (b_load, b_wait, b_compute),
-    )
+    s = PIPELINE_STRATEGIES[strategy]
+    a_max = max(s["A_LOAD"], s["A_LDS_WRITE"], s["A_LDS_READ"], s["COMPUTE"])
+    b_max = max(s["B_LOAD"], s["B_LDS_WRITE"], s["B_LDS_READ"], s["COMPUTE"])
+    return a_max + 1, b_max + 1
 
 
-def pipelined_substitutions_16x32(k, a_stages):
-    """Build template substitutions for 16x32 pipelined GEMM tests (A-only)."""
-    k_tiles = k // 32
-    stride_ab = k * 2
-    a_load, a_lds_write, a_lds_read, a_compute = A_STAGE_CONFIGS[a_stages]
+def pipeline_strategy_substitutions(strategy):
+    """Return template substitution dict for the given strategy number."""
+    s = PIPELINE_STRATEGIES[strategy]
     return {
-        "{{K}}": str(k),
-        "{{K_TILES}}": str(k_tiles),
-        "{{STRIDE_AB}}": str(stride_ab),
-        "{{A_STAGE_LOAD}}": str(a_load),
-        "{{A_STAGE_WRITE}}": str(a_lds_write),
-        "{{A_STAGE_READ}}": str(a_lds_read),
-        "{{A_STAGE_COMPUTE}}": str(a_compute),
+        "{{A_STAGE_LOAD}}": str(s["A_LOAD"]),
+        "{{A_STAGE_WRITE}}": str(s["A_LDS_WRITE"]),
+        "{{A_STAGE_READ}}": str(s["A_LDS_READ"]),
+        "{{A_STAGE_COMPUTE}}": str(s["COMPUTE"]),
+        "{{B_STAGE_LOAD}}": str(s["B_LOAD"]),
+        "{{B_STAGE_WAIT}}": str(s["B_LDS_READ"]),
+        "{{B_A_STAGE_COMPUTE}}": str(s["COMPUTE"]),
     }
 
 
-def constexpr_substitutions_16x32(m_tiles, n_tiles, k, a_stages, b_stages=None):
-    """Build template substitutions for constexpr 16x16 MFMA + 16x32 tiles.
+# Legacy num_stages (1-6) -> pipeline strategy mapping.
+NUM_STAGES_TO_STRATEGY = {1: 0, 2: 1, 3: 3, 4: 5, 5: 7, 6: 9}
 
-    a_stages: A pipeline depth (LDS path, 1-6).
-    b_stages: B pipeline depth (direct_b, 1-3). None = same as a_stages.
-    """
+
+def pipelined_substitutions_16x32(k, pipeline_strategy):
+    """Build template substitutions for 16x32 pipelined GEMM tests (A-only)."""
+    k_tiles = k // 32
+    stride_ab = k * 2
+    subs = pipeline_strategy_substitutions(pipeline_strategy)
+    subs.update(
+        {
+            "{{K}}": str(k),
+            "{{K_TILES}}": str(k_tiles),
+            "{{STRIDE_AB}}": str(stride_ab),
+        }
+    )
+    return subs
+
+
+def constexpr_substitutions_16x32(m_tiles, n_tiles, k, pipeline_strategy):
+    """Build template substitutions for constexpr 16x16 MFMA + 16x32 tiles."""
     mn = m_tiles * n_tiles
     k_tiles = k // 32
     stride_ab = k * 2
     stride_c = n_tiles * 16 * 4
     shared_mem = 0
 
-    effective_b = b_stages if b_stages is not None else a_stages
-    (a_load, a_lds_write, a_lds_read, a_compute), (b_load, b_wait, b_compute) = (
-        ab_stage_config(a_stages, effective_b)
+    subs = pipeline_strategy_substitutions(pipeline_strategy)
+    subs.update(
+        {
+            "{{M_T}}": str(m_tiles),
+            "{{N_T}}": str(n_tiles),
+            "{{M_T2}}": str(2 * m_tiles),
+            "{{N_T2}}": str(2 * n_tiles),
+            "{{MN}}": str(mn),
+            "{{M_DIM}}": str(m_tiles * 16),
+            "{{N_DIM}}": str(n_tiles * 16),
+            "{{K}}": str(k),
+            "{{K_TILES}}": str(k_tiles),
+            "{{STRIDE_AB}}": str(stride_ab),
+            "{{STRIDE_C}}": str(stride_c),
+            "{{SHARED_MEM}}": str(shared_mem),
+        }
     )
-
-    return {
-        "{{M_T}}": str(m_tiles),
-        "{{N_T}}": str(n_tiles),
-        "{{M_T2}}": str(2 * m_tiles),
-        "{{N_T2}}": str(2 * n_tiles),
-        "{{MN}}": str(mn),
-        "{{M_DIM}}": str(m_tiles * 16),
-        "{{N_DIM}}": str(n_tiles * 16),
-        "{{K}}": str(k),
-        "{{K_TILES}}": str(k_tiles),
-        "{{STRIDE_AB}}": str(stride_ab),
-        "{{STRIDE_C}}": str(stride_c),
-        "{{SHARED_MEM}}": str(shared_mem),
-        "{{A_STAGE_LOAD}}": str(a_load),
-        "{{A_STAGE_WRITE}}": str(a_lds_write),
-        "{{A_STAGE_READ}}": str(a_lds_read),
-        "{{A_STAGE_COMPUTE}}": str(a_compute),
-        "{{B_STAGE_LOAD}}": str(b_load),
-        "{{B_STAGE_WAIT}}": str(b_wait),
-        "{{B_A_STAGE_COMPUTE}}": str(b_compute),
-    }
+    return subs
