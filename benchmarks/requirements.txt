@@ -1,0 +1,17 @@
+# PyTorch for ROCm 7.2
+--extra-index-url https://download.pytorch.org/whl/rocm7.2
+torch
+torchvision
+torchaudio
+
+# Triton (ROCm support included in mainline since 3.x)
+triton
+
+# IREE Turbine (nightly)
+--find-links https://iree.dev/pip-release-links.html
+--pre
+iree-turbine
+
+# Testing & display
+pytest
+tabulate
