@@ -115,6 +115,33 @@ static llvm::LogicalResult printInstruction(amdgcn::AsmPrinter &printer,
 }
 
 namespace {
+
+/// Hardware constants per target, mirroring hipDeviceProp_t values.
+/// Source: clr/rocclr/device/rocm/rocdevice.cpp:1593-1610.
+/// On GPU: regsPerMultiprocessor = vgprAllocGranule-aligned regs * simdPerCU *
+/// warpSize. Here we store the architectural (per-lane) constants directly.
+struct TargetHWInfo {
+  int64_t vgprAllocGranule;    // VGPR allocation granularity (8 on GFX9).
+  int64_t sgprEncodingGranule; // SGPR encoding granularity (8 on GFX9).
+  bool hasAccVGPR;             // True if the target has accumulation VGPRs.
+};
+
+static TargetHWInfo getTargetHWInfo(Target target) {
+  switch (target) {
+  case Target::GFX940:
+  case Target::GFX942:
+  case Target::GFX950:
+    return {/*vgprAllocGranule=*/8, /*sgprEncodingGranule=*/8,
+            /*hasAccVGPR=*/true};
+  case Target::GFX1201:
+    return {/*vgprAllocGranule=*/8, /*sgprEncodingGranule=*/8,
+            /*hasAccVGPR=*/false};
+  default:
+    // Conservative defaults.
+    return {8, 8, false};
+  }
+}
+
 /// Structure to hold register usage.
 struct RegisterUsage {
   int32_t maxVGPR = 0;
@@ -457,8 +484,7 @@ LogicalResult TranslateModuleImpl::emitKernelEpilogue(KernelOp kernel,
   RegisterUsage regUsage = kernels[kernelIndex].second;
 
   Target target = module.getTarget();
-  bool hasAGPR = (target == Target::GFX940 || target == Target::GFX942 ||
-                  target == Target::GFX950);
+  TargetHWInfo hwInfo = getTargetHWInfo(target);
 
   // Calculate kernarg segment information
   KernelArgSegmentInfo argInfo = KernelArgSegmentInfo::get(kernel);
@@ -506,27 +532,41 @@ LogicalResult TranslateModuleImpl::emitKernelEpilogue(KernelOp kernel,
              static_cast<int32_t>(kernel.getWorkitemIdMode()),
              static_cast<int32_t>(WorkitemIDMode::X));
 
-  // On CDNA3/CDNA4, ArchVGPRs and AccVGPRs share a unified register file.
-  // amdhsa_next_free_vgpr must cover the full allocation block:
-  //   total = align8(ArchVGPRs) + AccVGPRs   (when AccVGPRs are used)
-  // The accum_offset marks where AccVGPRs begin in this block.
-  // accum_offset MUST be aligned to the VGPR allocation granule (8 on gfx942).
-  // The LLVM assembler only checks alignment to 4, but the HIP runtime
-  // enforces alignment to 8 and rejects the kernel with "invalid kernel file".
-  if (hasAGPR) {
-    // accumOffset must be aligned to 8 (VGPR alloc granule on gfx942/gfx950).
-    // next_free_vgpr must be >= accumOffset (assembler constraint).
-    unsigned accumOffset =
-        regUsage.maxVGPR > 0 ? ((regUsage.maxVGPR + 7) & ~7) : 8;
+  // Round register counts up to hardware allocation granules.
+  // VGPR granule: from TargetHWInfo (= LLVM getVGPRAllocGranule, 8 on GFX9).
+  // SGPR granule: encoding granule (= LLVM getSGPREncodingGranule, 8 on GFX9).
+  // The LLVM assembler only checks accum_offset alignment to 4, but the
+  // hardware CP enforces alignment to the VGPR alloc granule. Misalignment
+  // causes hipErrorInvalidKernelFile at dispatch time.
+  int64_t vG = hwInfo.vgprAllocGranule;
+  int64_t sG = hwInfo.sgprEncodingGranule;
+  int64_t vMask = vG - 1;
+  int64_t sMask = sG - 1;
+  int32_t nextFreeSGPR =
+      static_cast<int32_t>((regUsage.maxSGPR + sMask) & ~sMask);
+
+  if (hwInfo.hasAccVGPR) {
+    // On unified register file targets (CDNA3/CDNA4):
+    //   accum_offset = alignUp(archVGPRs, vgprAllocGranule)
+    //   next_free_vgpr = accum_offset + alignUp(accVGPRs, vgprAllocGranule)
+    // The hardware allocates in blocks of vgprAllocGranule, and the total
+    // per wave * waves per CU must not exceed regsPerMultiprocessor / warpSize.
+    int32_t accumOffset =
+        regUsage.maxVGPR > 0
+            ? static_cast<int32_t>((regUsage.maxVGPR + vMask) & ~vMask)
+            : static_cast<int32_t>(vG);
     int32_t nextFreeVGPR = accumOffset;
     if (regUsage.maxAGPR > 0)
-      nextFreeVGPR = accumOffset + regUsage.maxAGPR;
+      nextFreeVGPR = accumOffset +
+                     static_cast<int32_t>((regUsage.maxAGPR + vMask) & ~vMask);
     printField(".amdhsa_next_free_vgpr", nextFreeVGPR);
-    printField(".amdhsa_next_free_sgpr", regUsage.maxSGPR);
-    printField(".amdhsa_accum_offset", static_cast<int32_t>(accumOffset));
+    printField(".amdhsa_next_free_sgpr", nextFreeSGPR);
+    printField(".amdhsa_accum_offset", accumOffset);
   } else {
-    printField(".amdhsa_next_free_vgpr", regUsage.maxVGPR);
-    printField(".amdhsa_next_free_sgpr", regUsage.maxSGPR);
+    int32_t nextFreeVGPR =
+        static_cast<int32_t>((regUsage.maxVGPR + vMask) & ~vMask);
+    printField(".amdhsa_next_free_vgpr", nextFreeVGPR);
+    printField(".amdhsa_next_free_sgpr", nextFreeSGPR);
   }
 
   printField(".amdhsa_float_round_mode_32",
@@ -572,10 +612,8 @@ LogicalResult TranslateModuleImpl::emitKernelMetadata(KernelOp kernel,
                                                       RegisterUsage &regInfo,
                                                       size_t kernelInde) {
   YAMLList yOs(os);
-  Target target = module.getTarget();
-  bool hasAGPR = (target == Target::GFX940 || target == Target::GFX942 ||
-                  target == Target::GFX950);
-  if (hasAGPR)
+  TargetHWInfo hwInfo = getTargetHWInfo(module.getTarget());
+  if (hwInfo.hasAccVGPR)
     yOs.printField(".agpr_count", regInfo.countAGPR);
 
   // Calculate kernarg segment information
