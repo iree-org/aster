@@ -450,16 +450,32 @@ void LegalizeCF::runOnOperation() {
   }
 
   // Construct allocated register to alloca map.
-  // Assumes all operands are in allocated registers and there is exactly one
-  // alloca per register type.
+  // After canonicalize + CSE (run in the backend pipeline before this pass),
+  // there must be exactly one alloca per concrete register type. CSE
+  // deduplicates allocas of the same type since allocated allocas are Pure.
   DenseMap<RegisterTypeInterface, AllocaOp> allocatedRegisterToAllocaMap;
+  bool hasDuplicates = false;
   op->walk([&](AllocaOp alloca) {
-    auto it = allocatedRegisterToAllocaMap.find(alloca.getType());
-    assert(it == allocatedRegisterToAllocaMap.end() && "Alloca already exists");
-    assert(!cast<RegisterTypeInterface>(alloca.getType()).isRelocatable() &&
-           "Alloca must have a fixed register type");
-    allocatedRegisterToAllocaMap.insert({alloca.getType(), alloca});
+    auto regType = cast<RegisterTypeInterface>(alloca.getType());
+    if (regType.isRelocatable()) {
+      alloca.emitOpError("alloca must have a fixed register type "
+                         "(register coloring must run before LegalizeCF)");
+      hasDuplicates = true;
+      return;
+    }
+    auto [it, inserted] =
+        allocatedRegisterToAllocaMap.try_emplace(regType, alloca);
+    if (!inserted) {
+      alloca.emitOpError("duplicate alloca for register type ")
+          << alloca.getType()
+          << " (canonicalize + CSE should deduplicate allocated allocas)";
+      hasDuplicates = true;
+    }
   });
+  if (hasDuplicates) {
+    signalPassFailure();
+    return;
+  }
 
   // Collect all operations to lower.
   SmallVector<lsir::SelectOp> selects;

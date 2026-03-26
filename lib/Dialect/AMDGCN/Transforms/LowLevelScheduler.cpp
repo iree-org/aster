@@ -18,10 +18,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
+#include "aster/Interfaces/InstOpInterface.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/Debug.h"
@@ -253,107 +257,6 @@ static void addI1SerializationEdges(DependencyDAG &dag, Block &block) {
   }
 }
 
-/// Add token-targeted wait edges and barrier edges.
-///
-/// Dependency model (4 layers, from most to least restrictive):
-///
-/// 1. SSA def-use chains (handled by buildSSADAG, not here).
-///    Tokens are SSA values: load -> token -> wait is already captured.
-///    Store -> token -> wait is already captured. Memory ops that need
-///    ordering are connected through tokens by the authored IR.
-///
-/// 2. Token-targeted wait->consumer edges: for each token that a WaitOp
-///    consumes, trace back to the producing load and add edges from the wait
-///    to every in-block user of that load's non-token results. This ensures
-///    data consumers follow the wait while allowing independent ops to
-///    schedule across the wait freely.
-///
-/// 3. Memory-only barriers: unknown side-effecting ops (s_barrier,
-///    count-based s_waitcnt) are barriers for memory ops only. Count-based
-///    waits (vm_cnt, lgkm_cnt) don't use tokens -- they wait on ALL
-///    outstanding ops in a counter domain, so they must be hard boundaries.
-///    Pure compute (VALU, XDL, SALU) can move across barriers since they
-///    don't touch shared state.
-///
-/// 4. i1 serialization (handled by addI1SerializationEdges, not here).
-///
-/// No per-domain memory chains: tokens already order memory ops that need
-/// ordering. Two loads to independent addresses can freely reorder. Two
-/// stores to the same address are connected via tokens in correctly authored
-/// IR. This gives the scheduler maximum freedom to interleave memory ops
-/// with compute for latency hiding.
-static void addMemoryAndBarrierEdges(DependencyDAG &dag, Block &block) {
-  Operation *lastBarrier = nullptr;
-  // Only memory-related ops participate in barrier ordering.
-  SmallVector<Operation *, 32> memOpsSinceBarrier;
-
-  for (Operation &op : block) {
-    if (op.hasTrait<OpTrait::IsTerminator>())
-      continue;
-    if (!dag.nodes.count(&op))
-      continue;
-
-    QueueType qt = classifyOp(&op);
-
-    // Token-based wait ops: add targeted edges from the wait to users of
-    // the waited-on data. For each token, trace to the producing load and
-    // add wait -> user edges. For cross-block tokens (iter_args), no extra
-    // edges needed -- SSA deps on the corresponding data block arguments
-    // handle it. Token-based waits are NOT barriers -- their ordering is
-    // fully captured by SSA on the token + targeted consumer edges.
-    if (auto waitOp = dyn_cast<WaitOp>(op)) {
-      for (Value tokenArg : waitOp.getDependencies()) {
-        auto *loadOp = tokenArg.getDefiningOp();
-        if (!loadOp || loadOp->getBlock() != &block)
-          continue;
-        for (OpResult result : loadOp->getResults()) {
-          if (isa<TokenDependencyTypeInterface>(result.getType()))
-            continue;
-          for (Operation *user : result.getUsers()) {
-            if (user->getBlock() == &block && user != &op)
-              dag.addEdge(&op, user);
-          }
-        }
-      }
-      // Token-based waits are memory-related for barrier ordering:
-      // they must precede s_barrier to ensure writes are visible.
-      memOpsSinceBarrier.push_back(&op);
-      continue;
-    }
-
-    // Barrier detection: unknown-queue ops (s_barrier, count-based s_waitcnt,
-    // func.call, etc.) are barriers unless known-safe. Count-based waits
-    // don't use tokens -- they implicitly wait on ALL outstanding ops in a
-    // counter domain, so they must be hard boundaries for memory ops.
-    bool isBarrier = false;
-    if (qt == QueueType::Unknown) {
-      bool knownSafe =
-          isa<AllocaOp, MakeRegisterRangeOp, SplitRegisterRangeOp>(op) ||
-          op.hasTrait<OpTrait::ConstantLike>();
-      isBarrier = !knownSafe;
-    }
-
-    bool isMemoryOp = (qt == QueueType::VMEM || qt == QueueType::LGKM);
-
-    if (isBarrier) {
-      // Memory-only barrier: only memory ops before the barrier must precede
-      // it. Pure compute (VALU, XDL, SALU) can move across barriers freely.
-      for (Operation *prev : memOpsSinceBarrier)
-        dag.addEdge(prev, &op);
-      memOpsSinceBarrier.clear();
-      lastBarrier = &op;
-    }
-
-    // After a barrier, only subsequent memory ops and barriers are
-    // constrained to follow it. Pure compute is unconstrained.
-    if (lastBarrier && lastBarrier != &op && (isMemoryOp || isBarrier))
-      dag.addEdge(lastBarrier, &op);
-
-    if (isMemoryOp || isBarrier)
-      memOpsSinceBarrier.push_back(&op);
-  }
-}
-
 /// Build a dependency DAG for pre-regalloc SSA IR.
 /// Dependencies come from SSA def-use chains (including token chains),
 /// targeted wait->consumer edges, memory-only barriers for count-based
@@ -377,8 +280,24 @@ static DependencyDAG buildSSADAG(Block &block) {
     }
   }
 
-  // Token-targeted wait edges and memory-only barriers.
-  addMemoryAndBarrierEdges(dag, block);
+  // Total-order chain: preserves program order for all non-trivial ops.
+  {
+    Operation *lastOp = nullptr;
+    for (Operation &op : block) {
+      if (op.hasTrait<OpTrait::IsTerminator>())
+        continue;
+      if (!dag.nodes.count(&op))
+        continue;
+      bool isTrivial =
+          isa<AllocaOp, MakeRegisterRangeOp, SplitRegisterRangeOp>(op) ||
+          op.hasTrait<OpTrait::ConstantLike>();
+      if (isTrivial)
+        continue;
+      if (lastOp)
+        dag.addEdge(lastOp, &op);
+      lastOp = &op;
+    }
+  }
 
   // i1 serialization: all i1 producers (cmpi/cmpf) write to the same
   // physical flag register (SCC/VCC), so their lifetimes must not overlap.
@@ -588,6 +507,15 @@ struct LowLevelSchedulerPass
   void runOnOperation() override {
     KernelOp kernel = getOperation();
     auto *ctx = kernel.getContext();
+
+    // Pre-condition: all function calls must be inlined before scheduling.
+    if (!skipPrecondition) {
+      auto allInlined = AllInlinedAttr::get(ctx);
+      if (failed(normalform::verifyNormalForm(kernel, allInlined,
+                                              /*emitDiagnostics=*/true)))
+        return signalPassFailure();
+    }
+
     bool failed_ = false;
     kernel->walk([&](Block *block) {
       if (failed_)

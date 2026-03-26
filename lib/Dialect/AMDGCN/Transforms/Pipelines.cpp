@@ -152,6 +152,12 @@ buildAMDGCNBackendPassPipeline(OpPassManager &pm,
   buildLateWaitsPassPipeline(pm);
   {
     OpPassManager &kernelPm = pm.nest<amdgcn::ModuleOp>().nest<KernelOp>();
+    // Canonicalize + CSE before LegalizeCF to deduplicate allocas.
+    // After register coloring, non-interfering values colored to the same
+    // physical register may have separate allocas of the same type.
+    // CSE merges them so LegalizeCF sees exactly one alloca per register.
+    kernelPm.addPass(createCanonicalizerPass());
+    kernelPm.addPass(createCSEPass());
     kernelPm.addPass(createLegalizeCF());
     kernelPm.addPass(createCanonicalizerPass());
     kernelPm.addPass(createCSEPass());

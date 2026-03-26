@@ -16,6 +16,7 @@
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -399,6 +400,22 @@ NoMetadataOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
     return emitError() << "normal form violation: AMDGCN metadata operations "
                           "are disallowed but found: "
                        << op->getName();
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllInlinedAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+AllInlinedAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
+                                Operation *op) const {
+  if (isa<func::CallOp>(op))
+    return emitError() << "normal form violation: func.call operations "
+                          "are disallowed (all functions should be inlined) "
+                          "but found call to '"
+                       << cast<func::CallOp>(op).getCallee() << "'";
 
   return success();
 }

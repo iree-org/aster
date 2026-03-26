@@ -28,6 +28,7 @@ add_mlir_dialect_library(AMDGCNDialect
   MLIRArithDialect
   MLIRControlFlowDialect
   MLIRControlFlowInterfaces
+  MLIRFuncDialect
   MLIRFunctionInterfaces
   MLIRIR
   MLIRInferTypeOpInterface

@@ -30,11 +30,11 @@ amdgcn.module @ssa_def_use target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 !vx4 = !amdgcn.vgpr<[? + 4]>
 
 // Token wait -> data consumer: wait has edge to mfma that uses loaded data.
+// The load -> wait edge comes from both SSA (token) and the memory chain.
 // CHECK-LABEL: DAG for kernel @token_wait_consumer
 // CHECK: node: %dest_res (amdgcn.load) [queue=lgkm
 // CHECK:   -> <<amdgcn.wait>> (amdgcn.wait)
 // CHECK: node: <<amdgcn.wait>> (amdgcn.wait)
-// CHECK:   -> %{{.*}} (amdgcn.vop3p.vop3p_mai)
 amdgcn.module @token_wait_consumer target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   kernel @token_wait_consumer {
     %lds_addr = amdgcn.alloca : !v
@@ -68,10 +68,10 @@ amdgcn.module @token_wait_consumer target = #amdgcn.target<gfx942> isa = #amdgcn
 
 !v = !amdgcn.vgpr
 
-// Independent VALU: wait must NOT have edge to unrelated vop2.
+// Total-order: wait has edge to subsequent vop2.
 // CHECK-LABEL: DAG for kernel @valu_independent_of_wait
 // CHECK: node: <<amdgcn.wait>> (amdgcn.wait)
-// CHECK-NOT:   -> %{{.*}} (amdgcn.vop2)
+// CHECK:   -> %vdst0_res (amdgcn.vop2)
 // CHECK: node: %vdst0_res (amdgcn.vop2) [queue=valu
 amdgcn.module @valu_independent_of_wait target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   kernel @valu_independent_of_wait {
@@ -149,15 +149,14 @@ amdgcn.module @i1_serialization target = #amdgcn.target<gfx942> isa = #amdgcn.is
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr<[? + 2]>
 
-// No per-domain chain: independent LDS ops can reorder freely.
-// Two ds_writes to different addresses with no token dependency
-// should NOT have an edge between them.
-// CHECK-LABEL: DAG for kernel @no_domain_chain
+// Memory chain: all memory ops chained in program order.
+// WAW between stores, memory chain covers it.
+// CHECK-LABEL: DAG for kernel @store_store_chain
 // CHECK: node: %[[W1:.*]] (amdgcn.store) [queue=lgkm
-// CHECK-NOT:   -> %{{.*}} (amdgcn.store)
+// CHECK:   -> %{{.*}} (amdgcn.store)
 // CHECK: node: %[[W2:.*]] (amdgcn.store) [queue=lgkm
-amdgcn.module @no_domain_chain target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
-  kernel @no_domain_chain {
+amdgcn.module @store_store_chain target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  kernel @store_store_chain {
     %a0 = amdgcn.alloca : !v
     %a1 = amdgcn.alloca : !v
     %d0 = amdgcn.alloca : !v
@@ -171,6 +170,47 @@ amdgcn.module @no_domain_chain target = #amdgcn.target<gfx942> isa = #amdgcn.isa
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
     %wt1 = amdgcn.store ds_write_b64 data %data1 addr %a1 offset c(%c0)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
+    amdgcn.end_kernel
+  }
+}
+
+// -----
+
+!v = !amdgcn.vgpr
+!sx2 = !amdgcn.sgpr<[? + 2]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
+
+// LDS store-load-store: memory chain preserves all three orderings.
+// WAW: store0 -> store1 (writes complete in issued order on AMDGPU).
+// WAR: load -> store1 (load must read before store1 writes).
+// No RAW needed (load at different offset, no token dep on store0).
+// The memory chain captures all by chaining: store0 -> load -> store1.
+// CHECK-LABEL: DAG for kernel @store_load_store
+// CHECK: node: %{{.*}} (amdgcn.store) [queue=lgkm
+// CHECK:   -> %dest_res (amdgcn.load)
+// CHECK: node: %dest_res (amdgcn.load) [queue=lgkm
+// CHECK:   -> %{{.*}} (amdgcn.store)
+// CHECK: node: %{{.*}} (amdgcn.store) [queue=lgkm
+amdgcn.module @slw target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  kernel @store_load_store {
+    %addr = amdgcn.alloca : !amdgcn.vgpr
+    %d0 = amdgcn.alloca : !amdgcn.vgpr
+    %d1 = amdgcn.alloca : !amdgcn.vgpr
+    %data0 = amdgcn.make_register_range %d0, %d1 : !amdgcn.vgpr, !amdgcn.vgpr
+    %d2 = amdgcn.alloca : !amdgcn.vgpr
+    %d3 = amdgcn.alloca : !amdgcn.vgpr
+    %data1 = amdgcn.make_register_range %d2, %d3 : !amdgcn.vgpr, !amdgcn.vgpr
+    %d4 = amdgcn.alloca : !amdgcn.vgpr
+    %d5 = amdgcn.alloca : !amdgcn.vgpr
+    %dst = amdgcn.make_register_range %d4, %d5 : !amdgcn.vgpr, !amdgcn.vgpr
+    %c0 = arith.constant 0 : i32
+    %c8 = arith.constant 8 : i32
+    %wt0 = amdgcn.store ds_write_b64 data %data0 addr %addr offset c(%c0)
+        : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+    %rd0, %rt0 = amdgcn.load ds_read_b64 dest %dst addr %addr offset c(%c8)
+        : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+    %wt1 = amdgcn.store ds_write_b64 data %data1 addr %addr offset c(%c0)
+        : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
     amdgcn.end_kernel
   }
 }

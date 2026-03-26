@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(amdgcn-low-level-scheduler{debug-stalls=false})))" | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(amdgcn-low-level-scheduler{debug-stalls=false skip-precondition=true})))" | FileCheck %s
 
 !v   = !amdgcn.vgpr
 !vx2 = !amdgcn.vgpr<[? + 2]>
@@ -114,10 +114,11 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     amdgcn.end_kernel
   }
 
+  // Total-order: program order preserved.
   // CHECK-LABEL: kernel @group_valu_salu
   // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
-  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
   // CHECK:         sop1 s_mov_b32
+  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
   // CHECK:         sop1 s_mov_b32
   // CHECK:         end_kernel
   amdgcn.kernel @group_valu_salu {
@@ -137,10 +138,11 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     amdgcn.end_kernel
   }
 
+  // Total-order: program order preserved.
   // CHECK-LABEL: kernel @respect_data_deps
   // CHECK:         %[[R0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32>
-  // CHECK:         vop2 v_add_u32 outs %{{.*}} ins %[[R0]],
   // CHECK:         sop1 s_mov_b32
+  // CHECK:         vop2 v_add_u32 outs %{{.*}} ins %[[R0]],
   // CHECK:         end_kernel
   amdgcn.kernel @respect_data_deps {
     %v0 = func.call @alloc_vgpr() : () -> !v
@@ -155,14 +157,14 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     amdgcn.end_kernel
   }
 
-  // Burst continuity groups XDL ops then VALU ops.
+  // Total-order: program order preserved.
   // CHECK-LABEL: kernel @mfma_before_valu
+  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
+  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
   // CHECK:         vop3p_mai <v_mfma_f32_16x16x16_f16>
+  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
+  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
   // CHECK:         vop3p_mai <v_mfma_f32_16x16x16_f16>
-  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
-  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
-  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
-  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
   // CHECK:         end_kernel
   amdgcn.kernel @mfma_before_valu {
     %a = func.call @alloc_vgprx2() : () -> !vx2
@@ -234,11 +236,11 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     amdgcn.end_kernel
   }
 
-  // s_waitcnt is a memory-only barrier: VALU ops move before it.
+  // Total-order: program order preserved.
   // CHECK-LABEL: kernel @waitcnt_is_barrier
   // CHECK:         vop2 v_add_u32
-  // CHECK:         vop2 v_add_u32
   // CHECK:         sopp.s_waitcnt
+  // CHECK:         vop2 v_add_u32
   // CHECK:         end_kernel
   amdgcn.kernel @waitcnt_is_barrier {
     %v0 = func.call @alloc_vgpr() : () -> !v
@@ -285,10 +287,10 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     amdgcn.end_kernel
   }
 
-  // Independent LDS ops: load scheduled before writes.
+  // LDS ops: conservative ordering preserves program order.
   // CHECK-LABEL: kernel @lds_ops_ordered
-  // CHECK:         load ds_read_b64
   // CHECK:         store ds_write_b64
+  // CHECK:         load ds_read_b64
   // CHECK:         store ds_write_b64
   // CHECK:         end_kernel
   amdgcn.kernel @lds_ops_ordered {
@@ -307,11 +309,14 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     amdgcn.end_kernel
   }
 
-  // Without per-domain chains, VMEM ops reorder freely (no token deps
-  // between these ops).
+  // VMEM store-load-store: memory chain preserves program order.
+  // No RAW (load doesn't wait for store0's token).
+  // WAW: store0 -> store1 (writes complete in issued order on AMDGPU).
+  // WAR: load -> store1 (load must read before store1 overwrites).
+  // The memory chain captures all three by chaining all mem ops.
   // CHECK-LABEL: kernel @vmem_ops_ordered
-  // CHECK:         load global_load_dwordx4
   // CHECK:         store global_store_dword
+  // CHECK:         load global_load_dwordx4
   // CHECK:         store global_store_dword
   // CHECK:         end_kernel
   amdgcn.kernel @vmem_ops_ordered {

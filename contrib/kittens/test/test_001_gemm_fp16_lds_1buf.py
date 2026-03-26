@@ -7,7 +7,10 @@ Each 16x32 tile covers K=32, yielding 2 MFMA K-steps per iteration.
 import numpy as np
 import pytest
 
-from aster.test_pass_pipelines import TEST_SCF_PIPELINING_PASS_PIPELINE
+from aster.test_pass_pipelines import (
+    TEST_SCF_PIPELINING_PASS_PIPELINE,
+    TEST_SCF_PIPELINING_LL_SCHED_PASS_PIPELINE,
+)
 
 from kittens_helpers import (
     run_kittens_kernel,
@@ -43,6 +46,34 @@ class TestKittensGEMMLDS1Buffer_AGPR:
             },
             library_paths=get_kittens_16x16_lds_library_paths(),
             print_ir_after_all=print_ir_after_all,
+        )
+
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+    @pytest.mark.parametrize("k", [32, 64])
+    def test_gemm_lds_1buf_ll_sched(self, k):
+        """Same as test_gemm_lds_1buf but with ll-sched enabled."""
+        k_tiles = k // 32
+        stride_ab = k * 2
+
+        np.random.seed(42 + k)
+        A = (np.random.randn(16, k) * 0.1).astype(np.float16)
+        B = (np.random.randn(16, k) * 0.1).astype(np.float16)
+        C_output = np.zeros(16 * 16, dtype=np.float32)
+
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_001_gemm_fp16_lds_1buf.mlir"),
+            kernel_name="gemm_16x16xK_lds_1buf",
+            input_args=[A.flatten(), B.flatten()],
+            output_args=[C_output],
+            pass_pipeline=TEST_SCF_PIPELINING_LL_SCHED_PASS_PIPELINE,
+            template_substitutions={
+                "{{K}}": str(k),
+                "{{K_TILES}}": str(k_tiles),
+                "{{STRIDE_AB}}": str(stride_ab),
+            },
+            library_paths=get_kittens_16x16_lds_library_paths(),
         )
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()

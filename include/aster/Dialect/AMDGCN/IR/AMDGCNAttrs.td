@@ -501,4 +501,19 @@ def NoMetadataOpsAttr : AMDGCN_Attr<
   }];
 }
 
+def AllInlinedAttr : AMDGCN_Attr<
+    "AllInlined", "all_inlined",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+  let summary = "Normal form: all function calls inlined";
+  let description = [{
+    Verifies that no `func.call` operations exist in the IR.
+    This is the post-condition of `aster-selective-inlining`, which
+    inlines all function calls within kernels.
+
+    After this point, all library functions have been expanded inline
+    and passes like `amdgcn-low-level-scheduler` can see the full
+    instruction stream without func.call barriers.
+  }];
+}
+
 #endif // ASTER_AMDGCN_ATTRS_TD

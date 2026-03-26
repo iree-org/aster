@@ -24,6 +24,7 @@ from aster.pass_pipelines import (
     PHASE_EXPAND_MD_OPS,
     PHASE_LOWER_TO_AMDGCN,
     PHASE_AMDGCN_BACKEND,
+    phase_amdgcn_backend,
     phase_scf_pipelining,
     phase_nop_insertion,
 )
@@ -135,7 +136,10 @@ TEST_LOOP_PASS_PIPELINE = builtin_module(
 
 
 def make_test_scf_pipelining_pass_pipeline(
-    lcm_unroll=False, unroll_factor_multiplier=1, epilogue_peeling=True
+    lcm_unroll=False,
+    unroll_factor_multiplier=1,
+    epilogue_peeling=True,
+    ll_sched=False,
 ):
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
@@ -155,9 +159,12 @@ def make_test_scf_pipelining_pass_pipeline(
         PHASE_LOWER_TO_AMDGCN,
         # TODO: Explain what and why and integrate in the relevant phases.
         amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-        PHASE_AMDGCN_BACKEND,
+        phase_amdgcn_backend(ll_sched=ll_sched),
         phase_nop_insertion(delays=0),
     )
 
 
 TEST_SCF_PIPELINING_PASS_PIPELINE = make_test_scf_pipelining_pass_pipeline()
+TEST_SCF_PIPELINING_LL_SCHED_PASS_PIPELINE = make_test_scf_pipelining_pass_pipeline(
+    ll_sched=True,
+)

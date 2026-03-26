@@ -271,9 +271,6 @@ def make_default_pass_pipeline(
             unroll_factor_multiplier=unroll_factor_multiplier,
             epilogue_peeling=epilogue_peeling,
         ),
-        amdgcn_module(amdgcn_kernel(
-            "amdgcn-low-level-scheduler"
-        )) if ll_sched else "",
         "aster-destructure-struct-iter-args",
         "canonicalize",
         "cse",
@@ -287,7 +284,7 @@ def make_default_pass_pipeline(
         # PHASE_EXPAND_MD_OPS,
         # PHASE_LOWER_TO_AMDGCN,
         amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-        phase_amdgcn_backend(num_vgprs=num_vgprs, num_agprs=num_agprs),
+        phase_amdgcn_backend(num_vgprs=num_vgprs, num_agprs=num_agprs, ll_sched=ll_sched),
         phase_nop_insertion(delays=0),
     )
 
