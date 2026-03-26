@@ -261,6 +261,7 @@ def make_default_pass_pipeline(
     unroll_factor_multiplier=1,
     epilogue_peeling=True,
     ll_sched=False,
+    hoist_iter_arg_waits=False,
 ) -> str:
     """Build the production pass pipeline with configurable pipelining options."""
     return builtin_module(
@@ -277,6 +278,12 @@ def make_default_pass_pipeline(
         PHASE_SROA,
         POST_SROA_CLEANUPS,
         PHASE_CONVERT_LDS_BUFFERS,
+        # Hoist after inlining: library calls are now expanded,
+        # so waits and barriers are visible as direct ops in the loop body.
+        amdgcn_module(amdgcn_kernel(
+            "amdgcn-hoist-iter-arg-waits"
+        )) if hoist_iter_arg_waits else "",
+        "canonicalize" if hoist_iter_arg_waits else "",
         PHASE_LOWER_TO_AMDGCN,
         # WARNING: PHASE_EXPAND_MD_OPS is NOT idempotent -- running it twice
         # clobbers enable_workgroup_id_x to false (see expand-md-ops-idempotent.mlir).

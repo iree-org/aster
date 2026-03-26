@@ -469,4 +469,28 @@ def AttachScheduler : Pass<"amdgcn-attach-scheduler"> {
   ];
 }
 
+def HoistIterArgWaits : Pass<"amdgcn-hoist-iter-arg-waits"> {
+  let summary = "Hoist iter_arg-dependent waits to loop head";
+  let description = [{
+    After SCF pipelining, loops carry token dependencies (read_token, write_token)
+    as iter_args from previous iterations. The corresponding amdgcn.wait ops are
+    placed near their consumers, deep in the loop body, fragmenting the scheduling
+    window.
+
+    This pass hoists waits whose dependencies are all iter_arg block arguments to
+    the top of the loop body. For waits with mixed dependencies (some iter_arg,
+    some intra-iteration), it clones the wait: one copy at the loop head with only
+    iter_arg deps, the original retains only intra-iteration deps.
+
+    After hoisting, a subsequent canonicalize pass merges adjacent waits at the
+    loop head into a single aggregated wait.
+
+    Runs after aster-scf-pipeline and before amdgcn-low-level-scheduler.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::scf::SCFDialect"
+  ];
+}
+
 #endif // AMDGCN_PASSES

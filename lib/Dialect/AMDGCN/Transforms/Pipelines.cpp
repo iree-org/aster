@@ -65,6 +65,13 @@ struct RegAllocPipelineOptions
 /// 3. RegisterAlloc - performs the actual register allocation
 static void buildRegAllocPassPipeline(OpPassManager &pm,
                                       const RegAllocPipelineOptions &options) {
+<<<<<<< HEAD
+=======
+  if (options.hoistIterArgWaits) {
+    pm.addPass(createHoistIterArgWaits());
+    pm.addPass(createCanonicalizerPass());
+  }
+>>>>>>> 8c5824fe (asd)
   pm.addPass(createAMDGCNBufferization());
   if (options.llSched)
     pm.addPass(createLowLevelScheduler());
