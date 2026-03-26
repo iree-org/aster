@@ -1,4 +1,4 @@
-//===- ConvertSCFControlFlow.cpp - SCF to AMDGCN control flow conversion --===//
+//===- ConvertSCFControlFlow.cpp - SCF to CF control flow conversion ------===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -9,18 +9,12 @@
 //===----------------------------------------------------------------------===//
 //
 // This file implements the pass that converts SCF control flow operations to
-// CF dialect operations with explicit basic block structure. The pass uses
-// thread uniform analysis to ensure loops are uniform before conversion.
+// CF dialect operations with explicit basic block structure.
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Transforms/Passes.h"
 
-#include "aster/Analysis/ABIAnalysis.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
-#include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -29,10 +23,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir::aster {
-namespace amdgcn {
 #define GEN_PASS_DEF_CONVERTSCFCONTROLFLOW
-#include "aster/Dialect/AMDGCN/Transforms/Passes.h.inc"
-} // namespace amdgcn
+#include "aster/Transforms/Passes.h.inc"
 } // namespace mlir::aster
 
 using namespace mlir;
@@ -44,22 +36,20 @@ namespace {
 //===----------------------------------------------------------------------===//
 
 struct ConvertSCFControlFlow
-    : public amdgcn::impl::ConvertSCFControlFlowBase<ConvertSCFControlFlow> {
+    : public aster::impl::ConvertSCFControlFlowBase<ConvertSCFControlFlow> {
 public:
   using Base::Base;
   void runOnOperation() override;
 
 private:
   /// Convert a scf.for operation to CF dialect control flow.
-  LogicalResult convertForOp(scf::ForOp forOp, const ABIAnalysis &abiAnalysis);
+  LogicalResult convertForOp(scf::ForOp forOp);
 
   /// Convert a scf.if operation to CF dialect control flow.
-  LogicalResult convertIfOp(scf::IfOp ifOp, const ABIAnalysis &abiAnalysis);
+  LogicalResult convertIfOp(scf::IfOp ifOp);
 };
 
-LogicalResult
-ConvertSCFControlFlow::convertForOp(scf::ForOp forOp,
-                                    const ABIAnalysis &abiAnalysis) {
+LogicalResult ConvertSCFControlFlow::convertForOp(scf::ForOp forOp) {
   Location loc = forOp.getLoc();
   IRRewriter rewriter(forOp);
 
@@ -69,34 +59,6 @@ ConvertSCFControlFlow::convertForOp(scf::ForOp forOp,
   Value step = forOp.getStep();
 
   Type ivType = forOp.getInductionVar().getType();
-
-  // Check if a value is i32 or index_cast from i32.
-  auto isI32OrCastFromI32 = [](Value v) {
-    if (v.getType().isInteger(32))
-      return true;
-    if (v.getType().isIndex()) {
-      if (auto castOp = v.getDefiningOp<arith::IndexCastOp>())
-        return castOp.getIn().getType().isInteger(32);
-    }
-    return false;
-  };
-
-  // Only i32 (or index_cast from i32) bounds are supported.
-  if (!isI32OrCastFromI32(lowerBound) || !isI32OrCastFromI32(upperBound) ||
-      !isI32OrCastFromI32(step)) {
-    return forOp.emitError()
-           << "only i32 induction variables are supported in this conversion "
-              "(bounds must be i32 or arith.index_cast from i32)";
-  }
-
-  // Check if the loop is thread-uniform.
-  bool isUniform = abiAnalysis.isThreadUniform(lowerBound).value_or(false) &&
-                   abiAnalysis.isThreadUniform(upperBound).value_or(false) &&
-                   abiAnalysis.isThreadUniform(step).value_or(false);
-  if (!isUniform) {
-    return forOp.emitError()
-           << "only thread-uniform loops are supported in this conversion";
-  }
 
   // Get the yield op and its operands before modifying the body.
   auto yieldOp = cast<scf::YieldOp>(forOp.getBody()->getTerminator());
@@ -137,9 +99,6 @@ ConvertSCFControlFlow::convertForOp(scf::ForOp forOp,
     iterArgBlockArgs.push_back(bbBody->getArgument(i + 1));
 
   // Build the mapping from original region args to block args.
-  // This mapping is used by inlineBlockBefore to remap the body, but
-  // yieldOperands may also reference old block args (e.g., swap patterns
-  // like `scf.yield %b, %a`), so we must remap them too.
   SmallVector<Value> bodyArgMapping = {ivBlockArg};
   bodyArgMapping.append(iterArgBlockArgs);
 
@@ -155,9 +114,7 @@ ConvertSCFControlFlow::convertForOp(scf::ForOp forOp,
   rewriter.inlineBlockBefore(forOp.getBody(), bbBody, bbBody->end(),
                              bodyArgMapping);
 
-  // Remap yield operands: they may reference old block args (now dead)
-  // from the original for body. After inlining, those block args have been
-  // replaced, but yieldOperands still holds the old Value references.
+  // Remap yield operands: they may reference old block args (now dead).
   for (Value &val : yieldOperands)
     val = blockArgMapping.lookupOrDefault(val);
 
@@ -181,19 +138,11 @@ ConvertSCFControlFlow::convertForOp(scf::ForOp forOp,
   return success();
 }
 
-LogicalResult
-ConvertSCFControlFlow::convertIfOp(scf::IfOp ifOp,
-                                   const ABIAnalysis &abiAnalysis) {
+LogicalResult ConvertSCFControlFlow::convertIfOp(scf::IfOp ifOp) {
   Location loc = ifOp.getLoc();
   IRRewriter rewriter(ifOp);
 
   Value condition = ifOp.getCondition();
-
-  // Check if the condition is thread-uniform.
-  if (!abiAnalysis.isThreadUniform(condition).value_or(false)) {
-    return ifOp.emitError()
-           << "only thread-uniform conditions are supported in this conversion";
-  }
 
   bool hasElse = !ifOp.getElseRegion().empty();
 
@@ -248,9 +197,6 @@ ConvertSCFControlFlow::convertIfOp(scf::IfOp ifOp,
 void ConvertSCFControlFlow::runOnOperation() {
   Operation *op = getOperation();
 
-  // Get the ABI analysis which includes thread uniform analysis.
-  auto &abiAnalysis = getAnalysis<aster::ABIAnalysis>();
-
   // Collect all SCF operations first to avoid modifying while iterating.
   // Walk is post-order (inner before outer), but we need top-down order
   // (outer before inner) so that converting an outer op inlines the body
@@ -266,9 +212,9 @@ void ConvertSCFControlFlow::runOnOperation() {
   for (Operation *scfOp : scfOps) {
     LogicalResult result = success();
     if (auto forOp = dyn_cast<scf::ForOp>(scfOp))
-      result = convertForOp(forOp, abiAnalysis);
+      result = convertForOp(forOp);
     else if (auto ifOp = dyn_cast<scf::IfOp>(scfOp))
-      result = convertIfOp(ifOp, abiAnalysis);
+      result = convertIfOp(ifOp);
     if (failed(result)) {
       signalPassFailure();
       return;
@@ -290,10 +236,6 @@ void ConvertSCFControlFlow::runOnOperation() {
       signalPassFailure();
     }
   });
-
-  // Set post-condition: no SCF ops remain.
-  if (auto kernelOp = dyn_cast<amdgcn::KernelOp>(op))
-    kernelOp.addNormalForms({amdgcn::NoScfOpsAttr::get(op->getContext())});
 }
 
 } // namespace

@@ -3,10 +3,10 @@
 // CHECK-LABEL: kernel @test_cond_branch_slt
 // CHECK:         sop1 s_mov_b32 outs %[[A:.*]] ins
 // CHECK:         sop1 s_mov_b32 outs %[[B:.*]] ins
-// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc
-// CHECK:         cmpi s_cmp_lt_i32 outs %[[SCC]] ins %[[A]], %[[B]] : outs(!amdgcn.scc) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
+// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc<0>
+// CHECK:         lsir.cmpi i32 slt %[[SCC]], %[[A]], %[[B]] : !amdgcn.scc<0>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
 // Use SCC0 because ^bb1 (trueDest) is the next physical block - branch to ^bb2 if false
-// CHECK:         cbranch s_cbranch_scc0 %[[SCC]] ^bb2 fallthrough(^bb1) : !amdgcn.scc
+// CHECK:         cbranch s_cbranch_scc0 %[[SCC]] ^bb2 fallthrough(^bb1) : !amdgcn.scc<0>
 // CHECK:       ^bb1:
 // CHECK:         end_kernel
 // CHECK:       ^bb2:
@@ -19,8 +19,9 @@ amdgcn.module @test_slt target = <gfx942> isa = <cdna3> {
     %alloc1 = alloca : !amdgcn.sgpr<1>
     sop1 s_mov_b32 outs %alloc0 ins %c0_i32 : !amdgcn.sgpr<0>, i32
     sop1 s_mov_b32 outs %alloc1 ins %c10_i32 : !amdgcn.sgpr<1>, i32
-    %cmp = lsir.cmpi i32 slt %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    cf.cond_br %cmp, ^bb1, ^bb2
+    %scc0 = amdgcn.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 slt %scc0, %alloc0, %alloc1 : !amdgcn.scc<0>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+    lsir.cond_br %scc0 : !amdgcn.scc<0>, ^bb1, ^bb2
   ^bb1:
     end_kernel
   ^bb2:
@@ -36,7 +37,7 @@ amdgcn.module @test_slt target = <gfx942> isa = <cdna3> {
 // CHECK:         end_kernel
 amdgcn.module @test_br target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @test_unconditional_branch {
-    cf.br ^bb1
+    lsir.br ^bb1
   ^bb1:
     end_kernel
   }
@@ -45,7 +46,7 @@ amdgcn.module @test_br target = <gfx942> isa = <cdna3> {
 // -----
 
 // Verify lsir.cmpi is converted to amdgcn.cmpi with allocated operands
-// Verify cf.cond_br is converted to amdgcn.cbranch
+// Verify lsir.cond_br is converted to amdgcn.cbranch
 // Entry check: use s_cbranch_scc0 because ^bb1 (trueDest) is the next physical block
 // Branch to ^bb2 if SCC=0 (condition false), fallthrough to ^bb1 if SCC=1 (true)
 // Verify block argument is removed (^bb1 has no args after legalization)
@@ -54,11 +55,11 @@ amdgcn.module @test_br target = <gfx942> isa = <cdna3> {
 // Branch to ^bb1 if SCC=1 (continue loop), fallthrough to ^bb2 if SCC=0 (exit)
 
 // CHECK-LABEL: kernel @test_cf_cond_br_lsir_cmpi
-//       CHECK:   cmpi s_cmp_gt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.scc) ins(!amdgcn.sgpr<6>, i32)
+//       CHECK:   lsir.cmpi i32 sgt %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.scc<0>, !amdgcn.sgpr<6>, i32
 //       CHECK:   cbranch s_cbranch_scc0 %{{.*}} ^bb2 fallthrough(^bb1)
 //       CHECK:   ^bb1:
 //       CHECK:     sop2 s_add_u32 outs %[[LOOP_ALLOC:.*]] ins %[[LOOP_ALLOC]]
-//       CHECK:     cmpi s_cmp_lt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.scc) ins(!amdgcn.sgpr<7>, !amdgcn.sgpr<6>)
+//       CHECK:     lsir.cmpi i32 slt %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.scc<0>, !amdgcn.sgpr<7>, !amdgcn.sgpr<6>
 //       CHECK:     cbranch s_cbranch_scc1 %{{.*}} ^bb1 fallthrough(^bb2)
 //       CHECK:   ^bb2:
 //       CHECK:     end_kernel
@@ -95,21 +96,23 @@ amdgcn.module @ds_kernels target = <gfx942> isa = <cdna3> {
     amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0
     //
     // Loop start cond:
-    %15 = lsir.cmpi i32 sgt %6, %c0_i32 : !amdgcn.sgpr<6>, i32
+    %scc0 = amdgcn.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 sgt %scc0, %6, %c0_i32 : !amdgcn.scc<0>, !amdgcn.sgpr<6>, i32
     // Loop iv: sgpr<7>
     sop1 s_mov_b32 outs %7 ins %c0_i32 : !amdgcn.sgpr<7>, i32
-    cf.cond_br %15, ^bb1(%7 : !amdgcn.sgpr<7>), ^bb2
-  ^bb1(%18: !amdgcn.sgpr<7>):  // 2 preds: ^bb0, ^bb1
-    sop2 s_lshl_b32 outs %8 ins %18, %c2_i32 : !amdgcn.sgpr<8>, !amdgcn.sgpr<7>, i32
+    lsir.cond_br %scc0 : !amdgcn.scc<0>, ^bb1, ^bb2
+  ^bb1:  // 2 preds: ^bb0, ^bb1
+    sop2 s_lshl_b32 outs %8 ins %7, %c2_i32 : !amdgcn.sgpr<8>, !amdgcn.sgpr<7>, i32
     amdgcn.vop1.vop1 <v_mov_b32_e32> %9, %8 : (!amdgcn.vgpr<0>, !amdgcn.sgpr<8>) -> ()
     %21 = store global_store_dword data %9 addr %13 offset d(%9) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[4 : 6]>, !amdgcn.vgpr<0>) -> !amdgcn.write_token<flat>
     //
     // Loop iv increment: sgpr<7>
-    sop2 s_add_u32 outs %7 ins %18, %c1_i32 : !amdgcn.sgpr<7>, !amdgcn.sgpr<7>, i32
+    sop2 s_add_u32 outs %7 ins %7, %c1_i32 : !amdgcn.sgpr<7>, !amdgcn.sgpr<7>, i32
     // Loop end cond: lsir.cmpi
-    %24 = lsir.cmpi i32 slt %7, %6 : !amdgcn.sgpr<7>, !amdgcn.sgpr<6>
-    // Loop backedge: cf.cond_br
-    cf.cond_br %24, ^bb1(%7 : !amdgcn.sgpr<7>), ^bb2
+    %scc1 = amdgcn.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 slt %scc1, %7, %6 : !amdgcn.scc<0>, !amdgcn.sgpr<7>, !amdgcn.sgpr<6>
+    // Loop backedge: lsir.cond_br
+    lsir.cond_br %scc1 : !amdgcn.scc<0>, ^bb1, ^bb2
   ^bb2:  // 2 preds: ^bb0, ^bb1
     end_kernel
   }
@@ -146,26 +149,21 @@ amdgcn.module @test_br_vgpr_range target = <gfx942> isa = <cdna3> {
     amdgcn.vop1.vop1 <v_mov_b32_e32> %v3, %c0 : (!amdgcn.vgpr<3>, i32) -> ()
 
     // Create range - uses vop1 results (which write to allocas)
-    // CHECK:       make_register_range
+    // CHECK:       %[[RANGE:.*]] = make_register_range
     %range = make_register_range %v0, %v1, %v2, %v3 :
       !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
 
-    // Branch with range as operand
+    // Branch with range as operand - lsir.br is not lowered by this pass
     // CHECK:       branch s_branch ^bb1
-    cf.br ^bb1(%range : !amdgcn.vgpr<[0 : 4]>)
+    lsir.br ^bb1
 
-    // Block argument should be removed, range reconstructed
+    // Block argument remains (lsir.br is not lowered, so block args are preserved)
     // CHECK:       ^bb1:
-    // CHECK-NOT:     ^bb1(%
-    // Verify no duplicate allocas created
-    // CHECK-NOT:     alloca
-  ^bb1(%arg: !amdgcn.vgpr<[0 : 4]>):
-    // Range should be reconstructed from SAME allocas at block entry
-    // CHECK:       %[[RECONSTRUCTED:.*]] = make_register_range %[[V0]], %[[V1]], %[[V2]], %[[V3]]
 
     // Split the range - verify 4 results
-    // CHECK:       %{{.*}}:4 = split_register_range %[[RECONSTRUCTED]]
-    %split:4 = split_register_range %arg : !amdgcn.vgpr<[0 : 4]>
+    // CHECK:       %{{.*}}:4 = split_register_range %[[RANGE]]
+  ^bb1:
+    %split:4 = split_register_range %range : !amdgcn.vgpr<[0 : 4]>
 
     // CHECK:       end_kernel
     end_kernel
@@ -218,18 +216,20 @@ amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
     // CHECK:       sop1 s_mov_b32 outs %[[S8]]
     sop1 s_mov_b32 outs %s8 ins %c0_i32 : !amdgcn.sgpr<8>, i32
 
-    // Branch to loop - passes counter (SGPR) and accumulator (VGPR range)
+    // Branch to loop - counter and accumulator flow through allocas
     // CHECK:       branch s_branch ^bb1
-    cf.br ^bb1(%s8, %acc_init : !amdgcn.sgpr<8>, !amdgcn.vgpr<[4 : 8]>)
+    lsir.br ^bb1
 
-    // Loop header - block arguments should be removed
+    // Loop header - no block arguments (values flow through allocas)
     // CHECK:       ^bb1:
     // CHECK-NOT:     ^bb1(%
     // Verify no duplicate allocas - counter flows through %[[S8]], accumulator through %[[V4]]-[[V7]]
     // CHECK-NOT:     alloca
-  ^bb1(%counter: !amdgcn.sgpr<8>, %acc: !amdgcn.vgpr<[4 : 8]>):
+  ^bb1:
     // Accumulator range should be reconstructed from SAME allocas at loop entry
     // CHECK:       %[[ACC_RECON:.*]] = make_register_range %[[V4]], %[[V5]], %[[V6]], %[[V7]]
+    %acc_loop = make_register_range %v4, %v5, %v6, %v7 :
+      !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
 
     // Dummy operands for MFMA (simplified - real code would have loads)
     %v16 = alloca : !amdgcn.vgpr<16>
@@ -241,27 +241,29 @@ amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
 
     // MFMA: new_acc = MFMA(a, b, acc) - accumulator is both input and output
     // CHECK:       vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %[[ACC_RECON]]
-    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %acc, %dummy_a, %dummy_b, %acc : <[16 : 18]>, <[18 : 20]>, !amdgcn.vgpr<[4 : 8]> -> !amdgcn.vgpr<[4 : 8]>
+    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %acc_loop, %dummy_a, %dummy_b, %acc_loop : <[16 : 18]>, <[18 : 20]>, !amdgcn.vgpr<[4 : 8]> -> !amdgcn.vgpr<[4 : 8]>
 
     // Increment counter - writes to %[[S8]] alloca
     // CHECK:       sop2 s_add_u32 outs %[[S8]] ins %[[S8]]
-    sop2 s_add_u32 outs %s8 ins %counter, %c1_i32 : !amdgcn.sgpr<8>, !amdgcn.sgpr<8>, i32
+    sop2 s_add_u32 outs %s8 ins %s8, %c1_i32 : !amdgcn.sgpr<8>, !amdgcn.sgpr<8>, i32
 
     // Loop condition
-    // CHECK:       cmpi s_cmp_lt_i32
-    %cond = lsir.cmpi i32 slt %s8, %c2_i32 : !amdgcn.sgpr<8>, i32
+    %scc0 = amdgcn.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 slt %scc0, %s8, %c2_i32 : !amdgcn.scc<0>, !amdgcn.sgpr<8>, i32
 
-    // Loop backedge - passes updated counter and accumulator to both loop and exit
+    // Loop backedge - values flow through allocas
     // CHECK:       cbranch s_cbranch_scc1 {{.*}} ^bb1 fallthrough(^bb2)
-    cf.cond_br %cond, ^bb1(%s8, %acc : !amdgcn.sgpr<8>, !amdgcn.vgpr<[4 : 8]>), ^bb2(%acc : !amdgcn.vgpr<[4 : 8]>)
+    lsir.cond_br %scc0 : !amdgcn.scc<0>, ^bb1, ^bb2
 
-    // Exit block - receives final accumulator from loop
+    // Exit block - no block arguments (values flow through allocas)
     // CHECK:       ^bb2:
     // CHECK-NOT:     ^bb2(%
     // CHECK-NOT:     alloca
-  ^bb2(%final_acc: !amdgcn.vgpr<[4 : 8]>):
+  ^bb2:
     // Reconstruct range at exit from SAME allocas
     // CHECK:       %[[FINAL_RECON:.*]] = make_register_range %[[V4]], %[[V5]], %[[V6]], %[[V7]]
+    %final_acc = make_register_range %v4, %v5, %v6, %v7 :
+      !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
     // Extract final values - verify 4 results
     // CHECK:       %{{.*}}:4 = split_register_range %[[FINAL_RECON]]
     %final:4 = split_register_range %final_acc : !amdgcn.vgpr<[4 : 8]>
@@ -278,8 +280,7 @@ amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @test_select_i1
 // CHECK:         sop1 s_mov_b32 outs %[[A:.*]] ins
 // CHECK:         sop1 s_mov_b32 outs %[[B:.*]] ins
-// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc
-// CHECK:         cmpi s_cmp_eq_i32 outs %[[SCC]] ins %[[A]], %[[B]]
+// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc<0>
 // CHECK:         sop2 s_cselect_b32 outs %{{.*}} ins
 // CHECK:         end_kernel
 amdgcn.module @test_select_i1_mod target = <gfx942> isa = <cdna3> {
@@ -293,8 +294,9 @@ amdgcn.module @test_select_i1_mod target = <gfx942> isa = <cdna3> {
     %alloc2 = amdgcn.alloca : !amdgcn.sgpr<2>
     amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
     amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
-    %cmp = lsir.cmpi i32 eq %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    lsir.select %alloc2, %cmp, %c42, %c99 : !amdgcn.sgpr<2>, i1, i32, i32
+    %scc0 = amdgcn.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 eq %scc0, %alloc0, %alloc1 : !amdgcn.scc<0>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+    lsir.select %alloc2, %scc0, %c42, %c99 : !amdgcn.sgpr<2>, !amdgcn.scc<0>, i32, i32
     amdgcn.end_kernel
   }
 }
@@ -307,10 +309,8 @@ amdgcn.module @test_select_i1_mod target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @test_select_fanout
 // CHECK:         sop1 s_mov_b32 outs %[[A:.*]] ins
 // CHECK:         sop1 s_mov_b32 outs %[[B:.*]] ins
-// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc
-// CHECK:         cmpi s_cmp_eq_i32 outs %[[SCC]] ins %[[A]], %[[B]]
-// CHECK-NOT:     alloca : !amdgcn.scc
-// CHECK-NOT:     cmpi
+// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc<0>
+// CHECK-NOT:     alloca : !amdgcn.scc<0>
 // CHECK:         sop2 s_cselect_b32
 // CHECK:         sop2 s_cselect_b32
 // CHECK:         end_kernel
@@ -328,9 +328,10 @@ amdgcn.module @test_select_fanout_mod target = <gfx942> isa = <cdna3> {
     %alloc3 = amdgcn.alloca : !amdgcn.sgpr<3>
     amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
     amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
-    %cmp = lsir.cmpi i32 eq %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    lsir.select %alloc2, %cmp, %c1, %c2 : !amdgcn.sgpr<2>, i1, i32, i32
-    lsir.select %alloc3, %cmp, %c3, %c4 : !amdgcn.sgpr<3>, i1, i32, i32
+    %scc0 = amdgcn.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 eq %scc0, %alloc0, %alloc1 : !amdgcn.scc<0>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+    lsir.select %alloc2, %scc0, %c1, %c2 : !amdgcn.sgpr<2>, !amdgcn.scc<0>, i32, i32
+    lsir.select %alloc3, %scc0, %c3, %c4 : !amdgcn.sgpr<3>, !amdgcn.scc<0>, i32, i32
     amdgcn.end_kernel
   }
 }
@@ -342,10 +343,8 @@ amdgcn.module @test_select_fanout_mod target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @test_mixed_consumers
 // CHECK:         sop1 s_mov_b32 outs %[[A:.*]] ins
 // CHECK:         sop1 s_mov_b32 outs %[[B:.*]] ins
-// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc
-// CHECK:         cmpi s_cmp_eq_i32 outs %[[SCC]] ins %[[A]], %[[B]]
-// CHECK-NOT:     alloca : !amdgcn.scc
-// CHECK-NOT:     cmpi
+// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc<0>
+// CHECK-NOT:     alloca : !amdgcn.scc<0>
 // CHECK:         sop2 s_cselect_b32
 // CHECK:         cbranch s_cbranch_scc0 %[[SCC]]
 // CHECK:       ^bb1:
@@ -363,9 +362,10 @@ amdgcn.module @test_mixed_mod target = <gfx942> isa = <cdna3> {
     %alloc2 = amdgcn.alloca : !amdgcn.sgpr<2>
     amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
     amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
-    %cmp = lsir.cmpi i32 eq %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    lsir.select %alloc2, %cmp, %c42, %c99 : !amdgcn.sgpr<2>, i1, i32, i32
-    cf.cond_br %cmp, ^bb1, ^bb2
+    %scc0 = amdgcn.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 eq %scc0, %alloc0, %alloc1 : !amdgcn.scc<0>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+    lsir.select %alloc2, %scc0, %c42, %c99 : !amdgcn.sgpr<2>, !amdgcn.scc<0>, i32, i32
+    lsir.cond_br %scc0 : !amdgcn.scc<0>, ^bb1, ^bb2
   ^bb1:
     amdgcn.end_kernel
   ^bb2:
@@ -378,11 +378,7 @@ amdgcn.module @test_mixed_mod target = <gfx942> isa = <cdna3> {
 // Sequential non-overlapping i1 lifetimes are fine.
 
 // CHECK-LABEL: kernel @test_sequential_i1
-// CHECK:         cmpi s_cmp_eq_i32
-// CHECK-NOT:     cmpi
 // CHECK:         sop2 s_cselect_b32
-// CHECK:         cmpi s_cmp_lt_i32
-// CHECK-NOT:     cmpi
 // CHECK:         sop2 s_cselect_b32
 // CHECK:         end_kernel
 amdgcn.module @test_sequential_mod target = <gfx942> isa = <cdna3> {
@@ -398,91 +394,13 @@ amdgcn.module @test_sequential_mod target = <gfx942> isa = <cdna3> {
     amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
     amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
     // First compare: consumed immediately by select
-    %cmp1 = lsir.cmpi i32 eq %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    lsir.select %alloc2, %cmp1, %c42, %c99 : !amdgcn.sgpr<2>, i1, i32, i32
+    %scc0 = amdgcn.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 eq %scc0, %alloc0, %alloc1 : !amdgcn.scc<0>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+    lsir.select %alloc2, %scc0, %c42, %c99 : !amdgcn.sgpr<2>, !amdgcn.scc<0>, i32, i32
     // Second compare: starts after first is consumed -- no overlap
-    %cmp2 = lsir.cmpi i32 slt %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    lsir.select %alloc3, %cmp2, %c42, %c99 : !amdgcn.sgpr<3>, i1, i32, i32
-    amdgcn.end_kernel
-  }
-}
-
-// -----
-
-// Dead cmpi won't be lowered and doesn't consume SCC at runtime (would have
-// been DCE'd away)
-
-// CHECK-LABEL: kernel @test_dead_cmpi_then_live
-// CHECK-NOT:     cmpi s_cmp_eq_i32
-// CHECK:         cmpi s_cmp_lt_i32
-// CHECK-NOT:     cmpi
-// CHECK:         sop2 s_cselect_b32
-// CHECK:         end_kernel
-amdgcn.module @test_dead_cmpi_mod target = <gfx942> isa = <cdna3> {
-  amdgcn.kernel @test_dead_cmpi_then_live {
-    %c0 = arith.constant 0 : i32
-    %c10 = arith.constant 10 : i32
-    %c42 = arith.constant 42 : i32
-    %c99 = arith.constant 99 : i32
-    %alloc0 = amdgcn.alloca : !amdgcn.sgpr<0>
-    %alloc1 = amdgcn.alloca : !amdgcn.sgpr<1>
-    %alloc2 = amdgcn.alloca : !amdgcn.sgpr<2>
-    amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
-    amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
-    // Dead compare -- result unused, should be ignored by precondition check
-    %dead = lsir.cmpi i32 eq %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    // Live compare -- consumed by select
-    %live = lsir.cmpi i32 slt %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    lsir.select %alloc2, %live, %c42, %c99 : !amdgcn.sgpr<2>, i1, i32, i32
-    amdgcn.end_kernel
-  }
-}
-
-// -----
-
-// Overlapping i1 lifetimes: cmpi2 executes while cmpi1's result is still live.
-// This would silently clobber SCC.
-
-amdgcn.module @test_overlap_mod target = <gfx942> isa = <cdna3> {
-  amdgcn.kernel @test_overlapping_i1 {
-    %c0 = arith.constant 0 : i32
-    %c10 = arith.constant 10 : i32
-    %c42 = arith.constant 42 : i32
-    %c99 = arith.constant 99 : i32
-    %alloc0 = amdgcn.alloca : !amdgcn.sgpr<0>
-    %alloc1 = amdgcn.alloca : !amdgcn.sgpr<1>
-    %alloc2 = amdgcn.alloca : !amdgcn.sgpr<2>
-    amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
-    amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
-    %cmp1 = lsir.cmpi i32 eq %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    // expected-error @+1 {{would clobber flag register from earlier compare; i1 lifetimes must not overlap}}
-    %cmp2 = lsir.cmpi i32 slt %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    lsir.select %alloc2, %cmp1, %c42, %c99 : !amdgcn.sgpr<2>, i1, i32, i32
-    amdgcn.end_kernel
-  }
-}
-
-// -----
-
-// Cross-block i1 usage: flag register (SCC/VCC) is not preserved across
-// block boundaries (any branch clobbers it).
-
-amdgcn.module @test_crossblock_mod target = <gfx942> isa = <cdna3> {
-  amdgcn.kernel @test_cross_block_i1 {
-    %c0 = arith.constant 0 : i32
-    %c10 = arith.constant 10 : i32
-    %c42 = arith.constant 42 : i32
-    %c99 = arith.constant 99 : i32
-    %alloc0 = amdgcn.alloca : !amdgcn.sgpr<0>
-    %alloc1 = amdgcn.alloca : !amdgcn.sgpr<1>
-    %alloc2 = amdgcn.alloca : !amdgcn.sgpr<2>
-    amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0 : !amdgcn.sgpr<0>, i32
-    amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10 : !amdgcn.sgpr<1>, i32
-    // expected-error @+1 {{has consumer in a different block; flag register (SCC/VCC) is not preserved across block boundaries}}
-    %cmp = lsir.cmpi i32 eq %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    cf.br ^bb1
-  ^bb1:
-    lsir.select %alloc2, %cmp, %c42, %c99 : !amdgcn.sgpr<2>, i1, i32, i32
+    %scc1 = amdgcn.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 slt %scc1, %alloc0, %alloc1 : !amdgcn.scc<0>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+    lsir.select %alloc3, %scc1, %c42, %c99 : !amdgcn.sgpr<3>, !amdgcn.scc<0>, i32, i32
     amdgcn.end_kernel
   }
 }
@@ -494,7 +412,6 @@ amdgcn.module @test_crossblock_mod target = <gfx942> isa = <cdna3> {
 
 // CHECK-LABEL: kernel @test_vopc_cond_branch
 // CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc
-// CHECK:         cmpi v_cmp_lt_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
 // CHECK:         cbranch s_cbranch_vccz %[[VCC]] ^bb2 fallthrough(^bb1) : !amdgcn.vcc
 // CHECK:       ^bb1:
 // CHECK:         end_kernel
@@ -505,8 +422,9 @@ amdgcn.module @test_vopc_mod target = <gfx942> isa = <cdna3> {
     %c0_i32 = arith.constant 0 : i32
     %v0 = alloca : !amdgcn.vgpr<0>
     // VGPR on rhs forces vector compare path
-    %cmp = lsir.cmpi i32 slt %c0_i32, %v0 : i32, !amdgcn.vgpr<0>
-    cf.cond_br %cmp, ^bb1, ^bb2
+    %vcc0 = amdgcn.alloca : !amdgcn.vcc<0>
+    lsir.cmpi i32 slt %vcc0, %c0_i32, %v0 : !amdgcn.vcc<0>, i32, !amdgcn.vgpr<0>
+    lsir.cond_br %vcc0 : !amdgcn.vcc<0>, ^bb1, ^bb2
   ^bb1:
     end_kernel
   ^bb2:
@@ -521,15 +439,15 @@ amdgcn.module @test_vopc_mod target = <gfx942> isa = <cdna3> {
 // and predicate is flipped: slt(v0, 32) -> gt(32, v0).
 
 // CHECK-LABEL: kernel @test_vopc_operand_swap
-// CHECK:         cmpi v_cmp_gt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
 // CHECK:         cbranch s_cbranch_vccz %{{.*}} ^bb2 fallthrough(^bb1) : !amdgcn.vcc
 amdgcn.module @test_vopc_swap_mod target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @test_vopc_operand_swap {
     %c32_i32 = arith.constant 32 : i32
     %v0 = alloca : !amdgcn.vgpr<0>
     // lhs=VGPR, rhs=imm -> swap + flip: slt -> gt
-    %cmp = lsir.cmpi i32 slt %v0, %c32_i32 : !amdgcn.vgpr<0>, i32
-    cf.cond_br %cmp, ^bb1, ^bb2
+    %vcc0 = amdgcn.alloca : !amdgcn.vcc<0>
+    lsir.cmpi i32 slt %vcc0, %v0, %c32_i32 : !amdgcn.vcc<0>, !amdgcn.vgpr<0>, i32
+    lsir.cond_br %vcc0 : !amdgcn.vcc<0>, ^bb1, ^bb2
   ^bb1:
     end_kernel
   ^bb2:
@@ -542,14 +460,14 @@ amdgcn.module @test_vopc_swap_mod target = <gfx942> isa = <cdna3> {
 // VOPC with two VGPR operands: no swap needed, rhs already a VGPR.
 
 // CHECK-LABEL: kernel @test_vopc_two_vgprs
-// CHECK:         cmpi v_cmp_eq_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:         cbranch s_cbranch_vccz %{{.*}} ^bb2 fallthrough(^bb1) : !amdgcn.vcc
 amdgcn.module @test_vopc_vv_mod target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @test_vopc_two_vgprs {
     %v0 = alloca : !amdgcn.vgpr<0>
     %v1 = alloca : !amdgcn.vgpr<1>
-    %cmp = lsir.cmpi i32 eq %v0, %v1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
-    cf.cond_br %cmp, ^bb1, ^bb2
+    %vcc0 = amdgcn.alloca : !amdgcn.vcc<0>
+    lsir.cmpi i32 eq %vcc0, %v0, %v1 : !amdgcn.vcc<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+    lsir.cond_br %vcc0 : !amdgcn.vcc<0>, ^bb1, ^bb2
   ^bb1:
     end_kernel
   ^bb2:
@@ -565,7 +483,6 @@ amdgcn.module @test_vopc_vv_mod target = <gfx942> isa = <cdna3> {
 
 // CHECK-LABEL: kernel @test_vopc_select
 // CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc
-// CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
 // CHECK:         end_kernel
 amdgcn.module @test_vopc_select_mod target = <gfx942> isa = <cdna3> {
@@ -574,9 +491,10 @@ amdgcn.module @test_vopc_select_mod target = <gfx942> isa = <cdna3> {
     %v1 = alloca : !amdgcn.vgpr<1>
     %v2 = alloca : !amdgcn.vgpr<2>
     %v3 = alloca : !amdgcn.vgpr<3>
-    %cmp = lsir.cmpi i32 eq %v0, %v1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+    %vcc0 = amdgcn.alloca : !amdgcn.vcc<0>
+    lsir.cmpi i32 eq %vcc0, %v0, %v1 : !amdgcn.vcc<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
     // true_value=%v2, false_value=%v3, dst=%v3 (v_cndmask reads VCC)
-    lsir.select %v3, %cmp, %v2, %v3 : !amdgcn.vgpr<3>, i1, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+    lsir.select %v3, %vcc0, %v2, %v3 : !amdgcn.vgpr<3>, !amdgcn.vcc<0>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
     end_kernel
   }
 }

@@ -610,6 +610,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable low-level instruction scheduler (off by default)",
     )
+    parser.add_argument(
+        "--direct-b",
+        action="store_true",
+        help="B operand via bpermute (LDS bypass) instead of LDS",
+    )
     a = parser.parse_args()
     load_type = "buffer" if a.use_buffer else "flat"
     b_path = "direct_b" if a.direct_b else "lds"

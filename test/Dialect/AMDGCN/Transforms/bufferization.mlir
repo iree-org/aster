@@ -15,12 +15,12 @@ func.func private @rand() -> i1
 // CHECK:           cf.br ^bb2
 // CHECK:         ^bb2:
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb5
+// CHECK:           lsir.br ^bb5
 // CHECK:         ^bb3:
 // CHECK:           cf.br ^bb4
 // CHECK:         ^bb4:
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_3]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb5
+// CHECK:           lsir.br ^bb5
 // CHECK:         ^bb5:
 // CHECK:           %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
 // CHECK:           %[[VAL_4:.*]] = test_inst outs %[[COPY_0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
@@ -54,12 +54,12 @@ func.func private @rand() -> i1
 // CHECK:           cf.br ^bb2
 // CHECK:         ^bb2:
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb5
+// CHECK:           lsir.br ^bb5
 // CHECK:         ^bb3:
 // CHECK:           cf.br ^bb4
 // CHECK:         ^bb4:
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_2]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb5
+// CHECK:           lsir.br ^bb5
 // CHECK:         ^bb5:
 // CHECK:           %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
 // CHECK:           test_inst ins %[[COPY_0]] : (!amdgcn.vgpr) -> ()
@@ -95,12 +95,12 @@ func.func private @rand() -> i1
 // CHECK:           cf.br ^bb2
 // CHECK:         ^bb2:
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_2]] : !amdgcn.sgpr<?>, !amdgcn.sgpr
-// CHECK:           cf.br ^bb5
+// CHECK:           lsir.br ^bb5
 // CHECK:         ^bb3:
 // CHECK:           cf.br ^bb4
 // CHECK:         ^bb4:
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_3]] : !amdgcn.sgpr<?>, !amdgcn.sgpr
-// CHECK:           cf.br ^bb5
+// CHECK:           lsir.br ^bb5
 // CHECK:         ^bb5:
 // CHECK:           %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.sgpr, !amdgcn.sgpr<?>
 // CHECK:           test_inst ins %[[COPY_0]] : (!amdgcn.sgpr) -> ()
@@ -139,12 +139,12 @@ func.func private @rand() -> i1
 // CHECK:           cf.br ^bb2
 // CHECK:         ^bb2:
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_5]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb5
+// CHECK:           lsir.br ^bb5
 // CHECK:         ^bb3:
 // CHECK:           cf.br ^bb4
 // CHECK:         ^bb4:
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_6]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb5
+// CHECK:           lsir.br ^bb5
 // CHECK:         ^bb5:
 // CHECK:           %[[COPY_0:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
 // CHECK:           test_inst ins %[[COPY_0]] : (!amdgcn.vgpr) -> ()
@@ -241,7 +241,7 @@ func.func private @rand() -> i1
 // CHECK:           cf.br ^bb1
 // CHECK:         ^bb1:
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_4]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb2
+// CHECK:           lsir.br ^bb2
 // CHECK:         ^bb2:
 // CHECK:           %[[CALL_0:.*]] = func.call @rand() : () -> i1
 // CHECK:           %[[VAL_5:.*]] = alloca : !amdgcn.vgpr
@@ -250,7 +250,7 @@ func.func private @rand() -> i1
 // CHECK:           cf.cond_br %[[CALL_0]], ^bb3, ^bb4
 // CHECK:         ^bb3:
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_6]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb2
+// CHECK:           lsir.br ^bb2
 // CHECK:         ^bb4:
 // CHECK:           test_inst ins %[[COPY_0]] : (!amdgcn.vgpr) -> ()
 // CHECK:           end_kernel
@@ -290,7 +290,7 @@ func.func private @rand() -> i1
 // CHECK:         ^bb1:
 // CHECK:           lsir.copy %[[VAL_2]], %[[VAL_7]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_8]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb2
+// CHECK:           lsir.br ^bb2
 // CHECK:         ^bb2:
 // CHECK:           %[[CALL_0:.*]] = func.call @rand() : () -> i1
 // CHECK:           %[[COPY_0:.*]] = lsir.copy %[[VAL_3]], %[[VAL_2]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
@@ -299,7 +299,7 @@ func.func private @rand() -> i1
 // CHECK:         ^bb3:
 // CHECK:           lsir.copy %[[VAL_2]], %[[COPY_1]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:           lsir.copy %[[VAL_0]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb2
+// CHECK:           lsir.br ^bb2
 // CHECK:         ^bb4:
 // CHECK:           test_inst ins %[[COPY_0]], %[[COPY_1]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
 // CHECK:           end_kernel
@@ -346,13 +346,13 @@ func.func private @rand() -> i1
 // CHECK:         ^bb2:
 // CHECK:           lsir.copy %[[VAL_2]], %[[VAL_9]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_10]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb5
+// CHECK:           lsir.br ^bb5
 // CHECK:         ^bb3:
 // CHECK:           cf.br ^bb4
 // CHECK:         ^bb4:
 // CHECK:           lsir.copy %[[VAL_2]], %[[VAL_11]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:           lsir.copy %[[VAL_0]], %[[VAL_12]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb5
+// CHECK:           lsir.br ^bb5
 // CHECK:         ^bb5:
 // CHECK:           %[[COPY_0:.*]] = lsir.copy %[[VAL_3]], %[[VAL_2]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
 // CHECK:           %[[COPY_1:.*]] = lsir.copy %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
@@ -397,7 +397,7 @@ func.func private @rand() -> i1
 // CHECK:         ^bb1:
 // CHECK:           lsir.copy %[[ALLOCA_2]], %[[TEST_INST_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
 // CHECK:           lsir.copy %[[ALLOCA_0]], %[[TEST_INST_1]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb2
+// CHECK:           lsir.br ^bb2
 // CHECK:         ^bb2:
 // CHECK:           %[[COPY_0:.*]] = lsir.copy %[[ALLOCA_1]], %[[ALLOCA_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
 // CHECK:           amdgcn.test_inst ins %[[COPY_0]] : (!amdgcn.vgpr) -> ()
@@ -427,14 +427,14 @@ func.func @test_copy_loc() {
 // CHECK:           cf.br ^bb1
 // CHECK:         ^bb1:
 // CHECK:           lsir.copy %[[ALLOCA_0]], %[[TEST_INST_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb2
+// CHECK:           lsir.br ^bb2
 // CHECK:         ^bb2:
 // CHECK:           %[[VAL_0:.*]] = call @rand() : () -> i1
 // CHECK:           %[[COPY_0:.*]] = lsir.copy %[[ALLOCA_1]], %[[ALLOCA_0]] : !amdgcn.vgpr, !amdgcn.vgpr<?>
 // CHECK:           cf.cond_br %[[VAL_0]], ^bb3, ^bb4
 // CHECK:         ^bb3:
 // CHECK:           lsir.copy %[[ALLOCA_0]], %[[COPY_0]] : !amdgcn.vgpr<?>, !amdgcn.vgpr
-// CHECK:           cf.br ^bb2
+// CHECK:           lsir.br ^bb2
 // CHECK:         ^bb4:
 // CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr
 // CHECK:           %[[TEST_INST_1:.*]] = amdgcn.test_inst outs %[[ALLOCA_3]] ins %[[COPY_0]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr

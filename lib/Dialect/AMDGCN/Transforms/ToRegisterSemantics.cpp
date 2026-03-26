@@ -396,7 +396,8 @@ void ToRegisterSemantics::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns
       .add<AllocaOpPattern, InstOpPattern, MakeRegisterRangePattern,
-           SplitRegisterRangePattern, GenericOpPattern<lsir::CmpIOp>,
+           SplitRegisterRangePattern, GenericOpPattern<lsir::CondBranchOp>,
+           GenericOpPattern<lsir::BranchOp>,
            GenericOpPattern<amdgcn::RegInterferenceOp>, DeallocCastOpPattern>(
           ctx);
   if (failed(applyPatternsGreedily(

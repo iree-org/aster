@@ -3,7 +3,6 @@ add_mlir_library(AMDGCNTransforms
   AMDGCNBufferization.cpp
   AMDGCNHazards.cpp
   ConvertLDSBuffers.cpp
-  ConvertSCFControlFlow.cpp
   ConvertWaits.cpp
   ExpandMetadataOps.cpp
   HoistOps.cpp

@@ -7,7 +7,8 @@ module attributes {dlti.dl_spec = #dlti.dl_spec<
 // CHECK-LABEL: func.func @test_minui(
 // CHECK-SAME:    %[[A:.*]]: !amdgcn.vgpr, %[[B:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr
 // CHECK:         %[[DST:.*]] = lsir.alloca : !amdgcn.vgpr
-// CHECK:         %[[CMP:.*]] = lsir.cmpi i32 ult %[[A]], %[[B]]
+// CHECK:         %[[CMP_DST:.*]] = lsir.alloca : !amdgcn.vcc
+// CHECK:         %[[CMP:.*]] = lsir.cmpi i32 ult %[[CMP_DST]], %[[A]], %[[B]]
 // CHECK:         lsir.select %[[DST]], %[[CMP]], %[[A]], %[[B]]
 func.func @test_minui(%a: i32, %b: i32) -> i32
     attributes {abi = (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr} {
@@ -28,7 +29,8 @@ func.func @test_maxui(%a: i32, %b: i32) -> i32
 // CHECK-LABEL: func.func @test_minsi(
 // CHECK-SAME:    %[[A:.*]]: !amdgcn.vgpr, %[[B:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr
 // CHECK:         %[[DST:.*]] = lsir.alloca : !amdgcn.vgpr
-// CHECK:         %[[CMP:.*]] = lsir.cmpi i32 slt %[[A]], %[[B]]
+// CHECK:         %[[CMP_DST:.*]] = lsir.alloca : !amdgcn.vcc
+// CHECK:         %[[CMP:.*]] = lsir.cmpi i32 slt %[[CMP_DST]], %[[A]], %[[B]]
 // CHECK:         lsir.select %[[DST]], %[[CMP]], %[[A]], %[[B]]
 func.func @test_minsi(%a: i32, %b: i32) -> i32
     attributes {abi = (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr} {

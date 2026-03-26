@@ -79,7 +79,7 @@ static LogicalResult checkOperand(Operation *op, Type type, int32_t pos,
                .attachNote(state.getLoc())
            << "is invalid";
   }
-  if (!allowUnallocated && regTy.isRelocatable()) {
+  if (!allowUnallocated && !regTy.hasAllocatedSemantics()) {
     return (op->emitError(direction + " operand ")
             << pos << " is unallocated register type: " << type)
                .attachNote(state.getLoc())
@@ -99,7 +99,7 @@ static LogicalResult checkValue(Operation *op, Type type, int32_t pos,
                .attachNote(state.getLoc())
            << "is invalid";
   }
-  if (!allowUnallocated && regTy.isRelocatable()) {
+  if (!allowUnallocated && !regTy.hasAllocatedSemantics()) {
     return (op->emitError(direction)
             << pos << " is unallocated register type: " << type)
                .attachNote(state.getLoc())

@@ -31,15 +31,15 @@ amdgcn.module @m0_roundtrip_mod target = #amdgcn.target<gfx942> isa = #amdgcn.is
 
     // Write constant 42 to M0 via s_mov_b32
     // M0 is pre-allocated (fixed physical register), so write has no SSA result.
-    %m0 = amdgcn.alloca : !amdgcn.m0
+    %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %c42 = arith.constant 42 : i32
     amdgcn.sop1 s_mov_b32 outs %m0 ins %c42
-      : !amdgcn.m0, i32
+      : !amdgcn.m0<0>, i32
 
     // Read M0 back into an SGPR via s_mov_b32
     %s_dest = amdgcn.alloca : !amdgcn.sgpr
     %s_val = amdgcn.sop1 s_mov_b32 outs %s_dest ins %m0
-      : !amdgcn.sgpr, !amdgcn.m0
+      : !amdgcn.sgpr, !amdgcn.m0<0>
 
     // Broadcast scalar to all VGPR lanes via v_mov_b32_e32
     %v_dest = amdgcn.alloca : !amdgcn.vgpr

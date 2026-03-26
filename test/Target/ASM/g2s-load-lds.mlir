@@ -19,9 +19,9 @@ amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> 
 
   amdgcn.kernel @test_g2s_dword {
   ^entry:
-    %m0 = amdgcn.alloca : !amdgcn.m0
+    %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %c0 = arith.constant 0 : i32
-    amdgcn.sop1 s_mov_b32 outs %m0 ins %c0 : !amdgcn.m0, i32
+    amdgcn.sop1 s_mov_b32 outs %m0 ins %c0 : !amdgcn.m0<0>, i32
 
     // Buffer descriptor (s[0:3]) and scalar offset (s4)
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
@@ -35,7 +35,7 @@ amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> 
 
     %tok = amdgcn.load_lds buffer_load_dword_lds m0 %m0 addr %rsrc
         offset u(%soff) + d(%voff) + c(%c0)
-        : ins(!amdgcn.m0, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
+        : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel
@@ -43,10 +43,10 @@ amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> 
 
   amdgcn.kernel @test_g2s_dwordx4 {
   ^entry:
-    %m0 = amdgcn.alloca : !amdgcn.m0
+    %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %c0 = arith.constant 0 : i32
     %c64 = arith.constant 64 : i32
-    amdgcn.sop1 s_mov_b32 outs %m0 ins %c0 : !amdgcn.m0, i32
+    amdgcn.sop1 s_mov_b32 outs %m0 ins %c0 : !amdgcn.m0<0>, i32
 
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
     %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
@@ -59,7 +59,7 @@ amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> 
 
     %tok = amdgcn.load_lds buffer_load_dwordx4_lds m0 %m0 addr %rsrc
         offset u(%soff) + d(%voff) + c(%c64)
-        : ins(!amdgcn.m0, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
+        : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
         -> !amdgcn.write_token<flat>
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
     amdgcn.end_kernel

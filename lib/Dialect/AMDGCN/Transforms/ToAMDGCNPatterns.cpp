@@ -291,6 +291,16 @@ struct WaitOpPattern : public OpRewritePattern<lsir::WaitOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// CmpIOpPattern
+//===----------------------------------------------------------------------===//
+
+struct CmpIOpPattern : public OpRewritePattern<lsir::CmpIOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::CmpIOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
 // PtrAddOpPattern
 //===----------------------------------------------------------------------===//
 
@@ -1982,15 +1992,140 @@ PtrAddOpPattern::matchAndRewrite(PtrAddOp op, PatternRewriter &rewriter) const {
 }
 
 //===----------------------------------------------------------------------===//
+// CmpIOpPattern helpers
+//===----------------------------------------------------------------------===//
+
+/// Map arith::CmpIPredicate to the appropriate s_cmp_* opcode (scalar).
+static OpCode getScalarCompareOpCode(arith::CmpIPredicate predicate) {
+  switch (predicate) {
+  case arith::CmpIPredicate::eq:
+    return OpCode::S_CMP_EQ_I32;
+  case arith::CmpIPredicate::ne:
+    return OpCode::S_CMP_LG_I32;
+  case arith::CmpIPredicate::slt:
+    return OpCode::S_CMP_LT_I32;
+  case arith::CmpIPredicate::sle:
+    return OpCode::S_CMP_LE_I32;
+  case arith::CmpIPredicate::sgt:
+    return OpCode::S_CMP_GT_I32;
+  case arith::CmpIPredicate::sge:
+    return OpCode::S_CMP_GE_I32;
+  case arith::CmpIPredicate::ult:
+    return OpCode::S_CMP_LT_U32;
+  case arith::CmpIPredicate::ule:
+    return OpCode::S_CMP_LE_U32;
+  case arith::CmpIPredicate::ugt:
+    return OpCode::S_CMP_GT_U32;
+  case arith::CmpIPredicate::uge:
+    return OpCode::S_CMP_GE_U32;
+  }
+  llvm_unreachable("unknown CmpIPredicate");
+}
+
+/// Map arith::CmpIPredicate to the appropriate v_cmp_* opcode (vector, 32-bit
+/// encoding). The 32-bit VOPC encoding requires rhs (src1) to be a VGPR. If
+/// operands need swapping, the predicate should be flipped first.
+static OpCode getVectorCompareOpCode(arith::CmpIPredicate predicate) {
+  switch (predicate) {
+  case arith::CmpIPredicate::eq:
+    return OpCode::V_CMP_EQ_I32;
+  case arith::CmpIPredicate::ne:
+    return OpCode::V_CMP_NE_I32;
+  case arith::CmpIPredicate::slt:
+    return OpCode::V_CMP_LT_I32;
+  case arith::CmpIPredicate::sle:
+    return OpCode::V_CMP_LE_I32;
+  case arith::CmpIPredicate::sgt:
+    return OpCode::V_CMP_GT_I32;
+  case arith::CmpIPredicate::sge:
+    return OpCode::V_CMP_GE_I32;
+  case arith::CmpIPredicate::ult:
+    return OpCode::V_CMP_LT_U32;
+  case arith::CmpIPredicate::ule:
+    return OpCode::V_CMP_LE_U32;
+  case arith::CmpIPredicate::ugt:
+    return OpCode::V_CMP_GT_U32;
+  case arith::CmpIPredicate::uge:
+    return OpCode::V_CMP_GE_U32;
+  }
+  llvm_unreachable("unknown CmpIPredicate");
+}
+
+/// Swap a comparison predicate (a op b becomes b swapped_op a).
+static arith::CmpIPredicate swapPredicate(arith::CmpIPredicate pred) {
+  switch (pred) {
+  case arith::CmpIPredicate::eq:
+    return arith::CmpIPredicate::eq;
+  case arith::CmpIPredicate::ne:
+    return arith::CmpIPredicate::ne;
+  case arith::CmpIPredicate::slt:
+    return arith::CmpIPredicate::sgt;
+  case arith::CmpIPredicate::sle:
+    return arith::CmpIPredicate::sge;
+  case arith::CmpIPredicate::sgt:
+    return arith::CmpIPredicate::slt;
+  case arith::CmpIPredicate::sge:
+    return arith::CmpIPredicate::sle;
+  case arith::CmpIPredicate::ult:
+    return arith::CmpIPredicate::ugt;
+  case arith::CmpIPredicate::ule:
+    return arith::CmpIPredicate::uge;
+  case arith::CmpIPredicate::ugt:
+    return arith::CmpIPredicate::ult;
+  case arith::CmpIPredicate::uge:
+    return arith::CmpIPredicate::ule;
+  }
+  llvm_unreachable("unknown CmpIPredicate");
+}
+
+//===----------------------------------------------------------------------===//
+// CmpIOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult CmpIOpPattern::matchAndRewrite(lsir::CmpIOp op,
+                                             PatternRewriter &rewriter) const {
+  Value dst = op.getDst();
+  Value lhs = op.getLhs();
+  Value rhs = op.getRhs();
+  arith::CmpIPredicate pred = op.getPredicate();
+  Location loc = op.getLoc();
+
+  if (isa<VCCType>(dst.getType())) {
+    // Vector compare: v_cmp_* writes to VCC. The 32-bit VOPC encoding requires
+    // src1 (rhs) to be a VGPR. If rhs is not a VGPR, swap operands and flip
+    // the predicate.
+    if (!isa<VGPRType>(rhs.getType())) {
+      assert(isa<VGPRType>(lhs.getType()) &&
+             "at least one operand must be a VGPR for vector compare");
+      std::swap(lhs, rhs);
+      pred = swapPredicate(pred);
+    }
+    Value result =
+        amdgcn::CmpIOp::create(rewriter, loc, getVectorCompareOpCode(pred), dst,
+                               lhs, rhs)
+            .getDestRes();
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+  // Scalar compare: s_cmp_* writes to SCC.
+  Value result = amdgcn::CmpIOp::create(
+                     rewriter, loc, getScalarCompareOpCode(pred), dst, lhs, rhs)
+                     .getDestRes();
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ToAMDGCNPass patterns
 //===----------------------------------------------------------------------===//
 
 void mlir::aster::amdgcn::populateToAMDGCNPatterns(
     RewritePatternSet &patterns) {
   patterns.add< // Arithmetic ops.
-      AddFOpPattern, AddIOpPattern, AndIOpPattern, ExtSIOpPattern,
-      ExtUIOpPattern, MaximumFOpPattern, MinimumFOpPattern, MulFOpPattern,
-      MulIOpPattern, OrIOpPattern, ShLIOpPattern, ShRSIOpPattern,
+      AddFOpPattern, AddIOpPattern, AndIOpPattern, CmpIOpPattern,
+      ExtSIOpPattern, ExtUIOpPattern, MaximumFOpPattern, MinimumFOpPattern,
+      MulFOpPattern, MulIOpPattern, OrIOpPattern, ShLIOpPattern, ShRSIOpPattern,
       ShRUIOpPattern, SubFOpPattern, SubIOpPattern, XOrIOpPattern,
       // Memory ops.
       AllocaOpPattern, AssumeNoaliasOpPattern, LoadOpPattern, StoreOpPattern,
