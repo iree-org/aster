@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --amdgcn-mem2reg | FileCheck %s
+// RUN: aster-opt %s --mem2reg --amdgcn-mem2reg | FileCheck %s
 
 // CHECK-LABEL:   func.func @test_struct_promotion(
 // CHECK-NOT:     memref.alloca
