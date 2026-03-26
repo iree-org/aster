@@ -13,18 +13,27 @@ class TestGEMMFP16LDS:
         "m,n,k,m_tile,n_tile,k_tile,num_waves,num_m_waves,swizzle",
         [
             # Single-block cases (one tile = full matrix, swizzle=1).
-            # K_TILE >= 64 (K_T >= 2) is the minimum recommended granularity.
-            (16, 16, 64, 16, 16, 64, 1, 1, 1),  # 1 block, 1 wave, 1x1 MFMA tile, K_T=2
-            (32, 32, 64, 32, 32, 64, 1, 1, 1),  # 1 block, 1 wave, 2x2 MFMA tiles, K_T=2
-            (32, 32, 64, 32, 32, 64, 2, 2, 1),  # 1 block, 2 waves, 2D 2x1 decomp
-            (16, 16, 128, 16, 16, 64, 1, 1, 1),  # 1 block, 1 wave, K=128, K_T=2
-            (32, 32, 128, 32, 32, 128, 1, 1, 1),  # 1 block, 1 wave, K_TILE=128 (K_T=4)
+            # Double-buffering requires K >= 2*k_tile; K values doubled where needed.
+            (16, 16, 128, 16, 16, 64, 1, 1, 1),  # 1 block, 1 wave, 1x1 MFMA tile, K_T=2
+            (
+                32,
+                32,
+                128,
+                32,
+                32,
+                64,
+                1,
+                1,
+                1,
+            ),  # 1 block, 1 wave, 2x2 MFMA tiles, K_T=2
+            (32, 32, 128, 32, 32, 64, 2, 2, 1),  # 1 block, 2 waves, 2D 2x1 decomp
+            (32, 32, 256, 32, 32, 128, 1, 1, 1),  # 1 block, 1 wave, K_TILE=128 (K_T=4)
             # Multi-block cases.
-            (64, 32, 64, 16, 16, 64, 1, 1, 1),  # 8 blocks, row-major (swizzle=1)
-            (64, 32, 64, 16, 16, 64, 1, 1, 4),  # 8 blocks, CTA swizzle=4
-            (64, 64, 64, 32, 32, 64, 2, 2, 2),  # 4 blocks, 2 waves, 2D 2x1 + swizzle
+            (64, 32, 128, 16, 16, 64, 1, 1, 1),  # 8 blocks, row-major (swizzle=1)
+            (64, 32, 128, 16, 16, 64, 1, 1, 4),  # 8 blocks, CTA swizzle=4
+            (64, 64, 128, 32, 32, 64, 2, 2, 2),  # 4 blocks, 2 waves, 2D 2x1 + swizzle
             # 2D wave distribution: 4 waves arranged as 2x2 grid.
-            (64, 64, 64, 64, 64, 64, 4, 2, 1),  # 1 block, 4 waves, 2D 2x2 decomp
+            (64, 64, 128, 64, 64, 64, 4, 2, 1),  # 1 block, 4 waves, 2D 2x2 decomp
             # Regression test: config that exposed flat-compute LDS redundancy.
             (128, 64, 64, 128, 64, 32, 4, 2, 1),  # 1 block, 4 waves, 2D 2x2, regression
             # Regression tests: K/k_tile divisible by 4 exposed OOB early-load bug.
@@ -33,11 +42,10 @@ class TestGEMMFP16LDS:
             (32, 32, 256, 32, 32, 64, 4, 2, 1),  # 1 block, 4 waves, K=256, 4 iters
         ],
         ids=[
-            "1b-1w-1x1-k64-kt64",
-            "1b-1w-2x2-k64-kt64",
-            "1b-2w-2x2-k64-kt64-2d",
             "1b-1w-1x1-k128-kt64",
-            "1b-1w-2x2-k128-kt128",
+            "1b-1w-2x2-k128-kt64",
+            "1b-2w-2x2-k128-kt64-2d",
+            "1b-1w-2x2-k256-kt128",
             "8b-1w-row-major",
             "8b-1w-swizzle4",
             "4b-2w-2d-swizzle2",

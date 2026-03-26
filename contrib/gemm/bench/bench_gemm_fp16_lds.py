@@ -184,7 +184,9 @@ def compile_gemm(
             content = content.replace(pattern, replacement)
         return content
 
-    pipeline = make_default_pass_pipeline(num_vgprs=num_vgprs, num_agprs=num_agprs)
+    pipeline = make_default_pass_pipeline(
+        num_vgprs=num_vgprs, num_agprs=num_agprs, ll_sched=True
+    )
 
     ctx = ir.Context()
     ctx.__enter__()
