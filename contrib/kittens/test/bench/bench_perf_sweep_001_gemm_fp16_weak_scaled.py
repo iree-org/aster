@@ -106,11 +106,10 @@ GPU_VGPR_GRANULE = _dev.vgpr_alloc_granule if _dev else 8
 
 # Sweep grid -- 16x16 MFMA with dwordx4: 4 VGPRs per C tile (vs 16 for 32x32).
 # More tiles feasible per wave, so wider multiples than 32x32 variant.
-STAGE_CONFIGS = [2, 3, 4, 5]  # A pipeline depth (LDS path stages)
-# B pipeline depth for direct_b (independent from A).
-# b_stages = gap between b_load and b_compute + 1.
-# 1 = B not pipelined; 2 = 1 stage lookahead; 3-6 = deeper lookahead.
-B_STAGE_CONFIGS = [1, 2, 3, 4, 5, 6]
+# Pipeline strategies to sweep. Each integer selects from PIPELINE_STRATEGIES
+# in kittens_helpers.py (0=no pipeline, 10=max depth). Higher strategies use
+# more VGPRs and LDS, so fewer configs pass the resource filter.
+PIPELINE_STRATEGY_CONFIGS = [1, 3, 5, 6, 7, 9]
 # Wave configs: multiples-of-4 wave counts split across MxN.
 # n_waves must be a power of 2 (delinearize from 1-D block ID).
 _WAVE_BASES = [(1, 4), (2, 2), (4, 1)]
@@ -207,15 +206,14 @@ def _make_label_suffix(b_path, load_type):
 
 
 def _variant_grid_info(b_path, load_type):
-    """Return (dim_sizes, wave_arr, tile_arr, unroll_cfgs, b_cfgs, suffix) for a variant.
+    """Return (dim_sizes, wave_arr, tile_arr, unroll_cfgs, suffix) for a variant.
 
-    dim_sizes is a tuple of per-axis lengths for the 8-dim cartesian product:
-      (waves, occupancy, n_mult, tiles, stages, b_stages, k_factors, unroll).
+    dim_sizes is a tuple of per-axis lengths for the 7-dim cartesian product:
+      (waves, occupancy, n_mult, tiles, strategy, k_factors, unroll).
     """
     import numpy as np
 
     suffix = _make_label_suffix(b_path, load_type)
-    b_cfgs = B_STAGE_CONFIGS if b_path == "direct_b" else [0]
     unroll_cfgs = []
     for lcm in LCM_UNROLL_CONFIGS:
         for um in UNROLL_MULTIPLIERS if lcm else [1]:
@@ -228,12 +226,11 @@ def _variant_grid_info(b_path, load_type):
         len(OCCUPANCY_TARGETS),
         len(N_WG_MULTIPLIERS),
         len(tile_arr),
-        len(STAGE_CONFIGS),
-        len(b_cfgs),
+        len(PIPELINE_STRATEGY_CONFIGS),
         len(K_SCALING_FACTORS),
         len(unroll_cfgs),
     )
-    return dim_sizes, wave_arr, tile_arr, unroll_cfgs, b_cfgs, suffix
+    return dim_sizes, wave_arr, tile_arr, unroll_cfgs, suffix
 
 
 def _eval_batch(
@@ -241,7 +238,6 @@ def _eval_batch(
     wave_arr,
     tile_arr,
     unroll_cfgs,
-    b_cfgs,
     dim_sizes,
     b_path,
     load_type,
@@ -256,16 +252,24 @@ def _eval_batch(
     even multi-million batches are fast.
     """
     import numpy as np
+    from kittens_helpers import pipeline_strategy_stages
 
     occ_arr = np.array(OCCUPANCY_TARGETS)
     nm_arr = np.array(N_WG_MULTIPLIERS)
-    stg_arr = np.array(STAGE_CONFIGS)
-    bstg_arr = np.array(b_cfgs)
+    strat_arr = np.array(PIPELINE_STRATEGY_CONFIGS)
     kf_arr = np.array(K_SCALING_FACTORS)
 
-    # Unravel flat indices into per-dimension indices.
-    multi = np.array(np.unravel_index(flat_indices, dim_sizes)).T  # (B, 8)
-    iw, iocc, inm, it, ist, ib, ik, iu = multi.T
+    # Pre-compute a_stages and b_stages per strategy (small arrays).
+    strat_a = np.array(
+        [pipeline_strategy_stages(s)[0] for s in PIPELINE_STRATEGY_CONFIGS]
+    )
+    strat_b = np.array(
+        [pipeline_strategy_stages(s)[1] for s in PIPELINE_STRATEGY_CONFIGS]
+    )
+
+    # Unravel flat indices into per-dimension indices (7 dims).
+    multi = np.array(np.unravel_index(flat_indices, dim_sizes)).T
+    iw, iocc, inm, it, istrat, ik, iu = multi.T
 
     # Look up actual values from per-dimension arrays.
     mw = wave_arr[iw, 0]
@@ -275,8 +279,9 @@ def _eval_batch(
     mtwg = tile_arr[it, 0]
     ntwg = tile_arr[it, 1]
     kt = tile_arr[it, 2]
-    stages = stg_arr[ist]
-    b_stg = bstg_arr[ib]
+    strategy = strat_arr[istrat]
+    stages = strat_a[istrat]
+    b_stg = strat_b[istrat]
     k_factor = kf_arr[ik]
 
     # Derived quantities (vectorized).
@@ -288,7 +293,7 @@ def _eval_batch(
     k = k_factor * kt * 32
     mt = np.where(mw > 0, mtwg // np.maximum(mw, 1), 0)
     nt = np.where(nw > 0, ntwg // np.maximum(nw, 1), 0)
-    eff_b_stg = np.where(b_stg > 0, b_stg, stages)
+    pipeline_depth = np.maximum(stages, b_stg)
 
     # --- Vectorized filters (dimension + occupancy) ---
     mask = np.ones(len(flat_indices), dtype=bool)
@@ -299,16 +304,12 @@ def _eval_batch(
     mask &= n_wg * ntwg * 16 >= MIN_DIM
     mask &= k >= MIN_DIM
     k_iters = k // (kt * 32)
-    pipeline_depth = np.maximum(stages, eff_b_stg)
     mask &= k_iters > pipeline_depth
     mask &= mtwg >= num_waves
-    mask &= pipeline_depth <= stages
 
     # --- Vectorized sweep pin filter ---
     if sweep_pins:
-        # Compute derived quantities needed for some pins.
         simd_occ = num_wg_per_cu * ((num_waves + _NUM_SIMDS - 1) // _NUM_SIMDS)
-        # unroll_factor_multiplier is per-config from unroll_cfgs.
         um_vals = np.array([unroll_cfgs[i][1] for i in iu])
         pin_arrays = {
             "m_wg": m_wg,
@@ -318,7 +319,7 @@ def _eval_batch(
             "m_tiles_wg": mtwg,
             "n_tiles_wg": ntwg,
             "k_tiles": kt,
-            "a_stages": stages,
+            "pipeline_strategy": strategy,
             "k_scaling_factor": k_factor,
             "simd_occupancy": simd_occ,
             "unroll_factor_multiplier": um_vals,
@@ -327,18 +328,16 @@ def _eval_batch(
             if attr in pin_arrays:
                 mask &= pin_arrays[attr] == val
 
-    # --- Vectorized LDS + register checks (replaces _precompile_reject_reason) ---
+    # --- Vectorized LDS + register checks ---
     if check_regs:
-        # LDS: a_stages * m_tiles_wg * k_tiles * 1024 + eff_b_stages * n_tiles_wg * k_tiles * 1024
         is_direct_b = b_path in ("direct_b", "direct_ab")
         a_lds = stages * mtwg * kt * 1024
-        b_lds = np.int64(0) if is_direct_b else eff_b_stg * ntwg * kt * 1024
+        b_lds = np.int64(0) if is_direct_b else b_stg * ntwg * kt * 1024
         lds_bytes = a_lds + b_lds
         lds_budget = np.int64(GPU_LDS_PER_CU) // np.maximum(num_wg_per_cu, 1)
         mask &= lds_bytes <= lds_budget
 
-        # VGPR estimate (vectorized version of estimated_vgprs).
-        # Cooperative split for A: coop_m * coop_k
+        # VGPR estimate.
         waves_m = np.minimum(mtwg, num_waves)
         waves_k_a = np.maximum(1, num_waves // np.maximum(waves_m, 1))
         coop_m = (mtwg + waves_m - 1) // np.maximum(waves_m, 1)
@@ -348,7 +347,7 @@ def _eval_batch(
         a_load_bufs = coop_a_mk * stages * 4
         a_lds_read = mt * kt * 4
         if is_direct_b:
-            b_load_bufs = nt * kt * eff_b_stg * 4
+            b_load_bufs = nt * kt * b_stg * 4
             b_split = nt * kt * 4
             overhead = 30
         else:
@@ -357,7 +356,7 @@ def _eval_batch(
             coop_n = (ntwg + waves_n - 1) // np.maximum(waves_n, 1)
             coop_k_b = (kt + waves_k_b - 1) // np.maximum(waves_k_b, 1)
             coop_b_nk = coop_n * coop_k_b
-            b_load_bufs = coop_b_nk * stages * 4
+            b_load_bufs = coop_b_nk * b_stg * 4
             b_split = nt * kt * 4
             overhead = 10
 
@@ -369,7 +368,6 @@ def _eval_batch(
         est_vgprs = (est_vgprs * 6 + 4) // 5 + 16  # ~1.2x + 16, integer only
         est_agprs = mt * nt * 4
 
-        # Per-wave limits.
         mask &= est_vgprs <= GPU_MAX_VGPRS
         mask &= est_agprs <= GPU_MAX_AGPRS
         combined = est_vgprs + est_agprs
@@ -386,7 +384,7 @@ def _eval_batch(
         total_waves = num_waves * num_wg_per_cu
         mask &= aligned * total_waves * _WARP_SIZE <= regs_per_mp
 
-    # --- Instantiate only fully-passing configs (fast: small survivor set) ---
+    # --- Instantiate only fully-passing configs ---
     configs = []
     for i in np.where(mask)[0]:
         lcm_val, um_val, ep_val = unroll_cfgs[iu[i]]
@@ -407,6 +405,7 @@ def _eval_batch(
             lcm_unroll=bool(lcm_val),
             unroll_factor_multiplier=int(um_val),
             epilogue_peeling=bool(ep_val),
+            pipeline_strategy=int(strategy[i]),
             _label_suffix=suffix,
         )
         configs.append(cfg)
@@ -442,7 +441,7 @@ def _generate_configs(
     for b_path, load_type in variants:
         if (b_path, load_type) not in MLIR_FILES:
             continue
-        dim_sizes, wave_arr, tile_arr, unroll_cfgs, b_cfgs, suffix = _variant_grid_info(
+        dim_sizes, wave_arr, tile_arr, unroll_cfgs, suffix = _variant_grid_info(
             b_path, load_type
         )
         grid_total = int(np.prod(dim_sizes))
@@ -452,7 +451,6 @@ def _generate_configs(
             wave_arr,
             tile_arr,
             unroll_cfgs,
-            b_cfgs,
             dim_sizes,
             b_path,
             load_type,
@@ -641,10 +639,9 @@ def _repro_cmd(cfg, num_iterations):
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
         f" --m-tiles-wg {cfg.m_tiles_wg} --n-tiles-wg {cfg.n_tiles_wg} --k-tiles {cfg.k_tiles}"
-        f" --a-stages {cfg.a_stages} --k-scaling-factor {k_factor}"
-        f"{f' --b-stages {cfg.b_stages}' if cfg.b_stages > 0 else ''}"
+        f" --pipeline-strategy {cfg.pipeline_strategy} --k-scaling-factor {k_factor}"
         f"{buf_flag}{direct_flag}{lcm_flag}{um_flag}{peel_flag}{wg_per_cu_flag}"
-        f"{ll_flag}{hw_flag}{ps_flag}"
+        f"{ll_flag}{hw_flag}"
         f" --iterations {num_iterations}"
     )
 
@@ -653,7 +650,8 @@ def _make_config_from_args(args, load_type, b_path):
     """Construct a WeakScaleConfig from parsed CLI args."""
     k = args.k_scaling_factor * args.k_tiles * 32
     suffix = _make_label_suffix(b_path, load_type)
-    stages = args.a_stages
+    # pipeline_strategy is the primary control; a_stages/b_stages derived in __post_init__.
+    ps = getattr(args, "pipeline_strategy", -1)
     return WeakScaleConfig(
         args.m_wg,
         args.n_wg,
@@ -662,18 +660,17 @@ def _make_config_from_args(args, load_type, b_path):
         args.m_tiles_wg,
         args.n_tiles_wg,
         args.k_tiles,
-        stages,
+        2,  # placeholder, overridden by pipeline_strategy in __post_init__
         k,
         load_type=load_type,
         b_path=b_path,
-        b_stages=getattr(args, "b_stages", 0) or 0,
         num_wg_per_cu=getattr(args, "num_wg_per_cu", 1) or 1,
         lcm_unroll=getattr(args, "lcm_unroll", True),
         unroll_factor_multiplier=getattr(args, "unroll_multiplier", 1) or 1,
         epilogue_peeling=getattr(args, "epilogue_peeling", True),
         ll_sched=getattr(args, "ll_sched", False),
         hoist_wait=getattr(args, "hoist_wait", False),
-        pipeline_strategy=getattr(args, "pipeline_strategy", -1),
+        pipeline_strategy=ps,
         _label_suffix=suffix,
     )
 
@@ -754,13 +751,6 @@ if __name__ == "__main__":
     parser.add_argument("--m-tiles-wg", type=int, help="Tiles per workgroup along M")
     parser.add_argument("--n-tiles-wg", type=int, help="Tiles per workgroup along N")
     parser.add_argument("--k-tiles", type=int, help="Tiles per wave along K")
-    parser.add_argument("--a-stages", type=int, help="A pipeline stages (LDS path)")
-    parser.add_argument(
-        "--b-stages",
-        type=int,
-        default=0,
-        help="B pipeline stages for direct_b (0=same as A, 1=none, 2=load overlap, 3=full)",
-    )
     parser.add_argument(
         "--k-scaling-factor",
         type=int,
@@ -906,7 +896,7 @@ if __name__ == "__main__":
             "m_tiles_wg": "m_tiles_wg",
             "n_tiles_wg": "n_tiles_wg",
             "k_tiles": "k_tiles",
-            "a_stages": "a_stages",
+            "pipeline_strategy": "pipeline_strategy",
             "k_scaling_factor": "k_scaling_factor",
             "unroll_multiplier": "unroll_factor_multiplier",
             "desired_simd_occupancy": "simd_occupancy",
@@ -919,17 +909,10 @@ if __name__ == "__main__":
             check_regs=not getattr(args, "no_reg_filter", False),
             sweep_pins=sweep_pins,
         )
-        # Propagate pipeline flags to all generated configs.
+        # Propagate non-sweep pipeline flags to all generated configs.
         for cfg in all_configs:
             cfg.ll_sched = args.ll_sched
             cfg.hoist_wait = args.hoist_wait
-            if args.pipeline_strategy >= 0:
-                from kittens_helpers import pipeline_strategy_stages
-
-                a, b = pipeline_strategy_stages(args.pipeline_strategy)
-                cfg.a_stages = a
-                cfg.b_stages = b
-                cfg.pipeline_strategy = args.pipeline_strategy
 
         def _post_compile_filter(cfg, res):
             """Post-compilation filter: reject configs exceeding VGPR or LDS limits."""
@@ -958,7 +941,6 @@ if __name__ == "__main__":
             "m_tiles_wg",
             "n_tiles_wg",
             "k_tiles",
-            "a_stages",
             "k_scaling_factor",
         ]
         missing = [a for a in required if getattr(args, a) is None]

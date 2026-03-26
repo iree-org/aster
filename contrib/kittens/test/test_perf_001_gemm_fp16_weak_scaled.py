@@ -621,6 +621,11 @@ if __name__ == "__main__":
         help="A operand via bpermute (LDS bypass) instead of LDS",
     )
     parser.add_argument(
+        "--direct-b",
+        action="store_true",
+        help="B operand via bpermute (LDS bypass) instead of LDS",
+    )
+    parser.add_argument(
         "--ll-sched",
         action="store_true",
         help="Enable low-level instruction scheduler (off by default)",
