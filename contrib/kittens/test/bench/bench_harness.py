@@ -1,8 +1,8 @@
 """Shared benchmark harness for weak-scaled GEMM sweeps.
 
 Phase 1: Parallel compilation (ProcessPoolExecutor) -> HSACOs.
-Phase 2: Parallel GPU execution (ProcessPoolExecutor, crash-isolated).
-Phase 3: Correctness verification (ProcessPoolExecutor).
+Phase 2: Parallel GPU execution (per-config subprocess, crash-isolated).
+Phase 3: Correctness verification (per-config subprocess, crash-isolated).
 """
 
 import json
@@ -188,8 +188,12 @@ def _compile_inner(cfg, hsaco_dir, compile_fn, result_pipe, stderr_path):
 
         output = os.path.join(hsaco_dir, f"{cfg.label}.hsaco")
         wg = getattr(cfg, "num_wg_per_cu", 1) or 1
+        agpr_est = getattr(cfg, "estimated_agprs", 0) or 0
         bv, ba, _ = compute_register_budget(
-            cfg.num_threads, mcpu=getattr(cfg, "mcpu", "gfx942"), num_wg_per_cu=wg
+            cfg.num_threads,
+            mcpu=getattr(cfg, "mcpu", "gfx942"),
+            num_wg_per_cu=wg,
+            agpr_hint=agpr_est,
         )
         _, asm = compile_fn(cfg, output, num_vgprs=bv, num_agprs=ba)
         with open(output.replace(".hsaco", ".s"), "w") as f:
@@ -373,13 +377,79 @@ def _gpu_init(gpu_id):
     sys.stderr = io.StringIO()
 
 
+def _exec_child(conn, item, gid):
+    """Child process entry point for isolated execution (module-level for pickling)."""
+    _gpu_init(gid)
+    result = _exec_worker(item)
+    conn.send(result)
+    conn.close()
+
+
+def _verify_child(conn, item, gid):
+    """Child process entry point for isolated verification (module-level for pickling)."""
+    _gpu_init(gid)
+    result = _verify_worker(item)
+    conn.send(result)
+    conn.close()
+
+
+def _exec_one_isolated(work_item, gpu_id, timeout=120):
+    """Execute one config in a fully isolated subprocess.
+
+    Unlike ProcessPoolExecutor, a crash here cannot poison other configs. Returns
+    (label, times, error_string).
+    """
+    import multiprocessing as mp
+
+    ctx = mp.get_context("spawn")
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+
+    p = ctx.Process(target=_exec_child, args=(child_conn, work_item, gpu_id))
+    p.start()
+    child_conn.close()
+
+    p.join(timeout=timeout)
+    if p.is_alive():
+        p.kill()
+        p.join()
+        parent_conn.close()
+        return work_item[0], None, f"execution timed out after {timeout}s"
+
+    if p.exitcode != 0:
+        parent_conn.close()
+        sig = -p.exitcode if p.exitcode < 0 else p.exitcode
+        kind = "signal" if p.exitcode < 0 else "exit"
+        return work_item[0], None, f"worker crash ({kind} {sig})"
+
+    if not parent_conn.poll():
+        parent_conn.close()
+        return work_item[0], None, "execution produced no result"
+
+    result = parent_conn.recv()
+    parent_conn.close()
+    return result
+
+
+def _run_gpu_queue(gpu_id, queue, result_queue, timeout=120):
+    """Process a queue of work items sequentially on one GPU.
+
+    Each config gets its own subprocess via _exec_one_isolated, so a crash cannot affect
+    the next config.  Results are pushed to result_queue (thread-safe) as they complete.
+    """
+    for item in queue:
+        result_queue.put(_exec_one_isolated(item, gpu_id, timeout=timeout))
+
+
 def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
     """Execute configs in subprocesses, all GPUs concurrently (crash-isolated).
 
-    Each GPU gets a dedicated process pool with max_workers=1. All pools run
-    concurrently and results are collected as they complete across all GPUs.
+    Each GPU gets a dedicated thread that processes its queue sequentially.
+    Each config within a queue runs in its own subprocess (via
+    _exec_one_isolated) so a crash (GPU hang, segfault) cannot poison other
+    configs -- the next config starts a fresh process.
     """
-    import multiprocessing as mp
+    import queue
+    import threading
     from tqdm import tqdm
 
     # Round-robin configs across GPUs.
@@ -387,52 +457,53 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
     cfg_by_label = {}
     for i, cfg in enumerate(configs):
         if cfg.label in hsaco_paths:
-            per_gpu[i % num_gpus].append(
-                (
-                    cfg.label,
-                    hsaco_paths[cfg.label],
-                    cfg.kernel_name,
-                    cfg.num_workgroups,
-                    cfg.num_threads,
-                    cfg.m_dim,
-                    cfg.n_dim,
-                    cfg.k,
-                    num_iterations,
-                )
+            gpu_id = i % num_gpus
+            item = (
+                cfg.label,
+                hsaco_paths[cfg.label],
+                cfg.kernel_name,
+                cfg.num_workgroups,
+                cfg.num_threads,
+                cfg.m_dim,
+                cfg.n_dim,
+                cfg.k,
+                num_iterations,
             )
+            per_gpu[gpu_id].append(item)
             cfg_by_label[cfg.label] = cfg
 
     total = sum(len(g) for g in per_gpu)
     results, failed = [], []
     best_tf = 0.0
     pbar = tqdm(total=total, desc=desc, unit="cfg")
-    ctx = mp.get_context("spawn")
+    result_q = queue.Queue()
 
-    # Launch all GPU pools concurrently.
-    pools = []
-    all_futs = {}
+    # One thread per GPU, each processing its queue sequentially.
+    threads = []
+    stop = threading.Event()
+    for gpu_id in range(num_gpus):
+        if not per_gpu[gpu_id]:
+            continue
+        t = threading.Thread(
+            target=_run_gpu_queue,
+            args=(gpu_id, per_gpu[gpu_id], result_q),
+            daemon=True,
+        )
+        t.start()
+        threads.append(t)
+
+    collected = 0
     try:
-        for gpu_id in range(num_gpus):
-            if not per_gpu[gpu_id]:
-                continue
-            pool = ProcessPoolExecutor(
-                max_workers=1,
-                mp_context=ctx,
-                initializer=_gpu_init,
-                initargs=(gpu_id,),
-            )
-            pools.append(pool)
-            for a in per_gpu[gpu_id]:
-                all_futs[pool.submit(_exec_worker, a)] = a[0]
-
-        for fut in as_completed(all_futs):
-            label = all_futs[fut]
-            cfg = cfg_by_label[label]
+        while collected < total:
             try:
-                _, times, err = fut.result()
-            except Exception as e:
-                err = str(e).split("\n")[0][:200]
-                times = None
+                label, times, err = result_q.get(timeout=1.0)
+            except queue.Empty:
+                # Check if all threads died.
+                if not any(t.is_alive() for t in threads):
+                    break
+                continue
+            collected += 1
+            cfg = cfg_by_label[label]
             if err or times is None:
                 failed.append((cfg, err or "unknown"))
             else:
@@ -446,31 +517,68 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
             pbar.set_postfix_str(f"best {best_tf:.1f} TF, fail={len(failed)}")
     except KeyboardInterrupt:
         print("\nCtrl+C -- stopping execution, moving to reporting...")
-        for f in all_futs:
-            f.cancel()
-    finally:
-        for pool in pools:
-            pool.shutdown(wait=False, cancel_futures=True)
     pbar.close()
+
+    for t in threads:
+        t.join(timeout=5.0)
     return results, failed
+
+
+def _verify_one_isolated(work_item, gpu_id, timeout=180):
+    """Verify one config in a fully isolated subprocess."""
+    import multiprocessing as mp
+
+    ctx = mp.get_context("spawn")
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+
+    p = ctx.Process(target=_verify_child, args=(child_conn, work_item, gpu_id))
+    p.start()
+    child_conn.close()
+
+    p.join(timeout=timeout)
+    if p.is_alive():
+        p.kill()
+        p.join()
+        parent_conn.close()
+        return work_item[0], f"verification timed out after {timeout}s"
+
+    if p.exitcode != 0:
+        parent_conn.close()
+        sig = -p.exitcode if p.exitcode < 0 else p.exitcode
+        kind = "signal" if p.exitcode < 0 else "exit"
+        return work_item[0], f"worker crash ({kind} {sig})"
+
+    if not parent_conn.poll():
+        parent_conn.close()
+        return work_item[0], "verification produced no result"
+
+    result = parent_conn.recv()
+    parent_conn.close()
+    return result
+
+
+def _verify_gpu_queue(gpu_id, work_queue, result_queue, timeout=180):
+    """Process a verification queue sequentially on one GPU."""
+    for item in work_queue:
+        result_queue.put(_verify_one_isolated(item, gpu_id, timeout=timeout))
 
 
 def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
     """Verify configs against numpy in subprocesses, all GPUs concurrently.
 
-    Each worker computes its own reference matmul (no large-array IPC needed). With
-    concurrent GPU pools, CPU reference work on one GPU's worker overlaps with GPU
-    execution on other GPUs.
+    Each GPU gets a dedicated thread with a sequential queue.  Each config runs in its
+    own subprocess for full crash isolation.
     """
-    import multiprocessing as mp
+    import queue
+    import threading
     from tqdm import tqdm
 
-    # Build lightweight work items (no precomputed arrays -- workers handle it).
     per_gpu = [[] for _ in range(num_gpus)]
     idx = 0
     for cfg in configs:
         if cfg.label not in hsaco_paths:
             continue
+        gpu_id = idx % num_gpus
         item = (
             cfg.label,
             hsaco_paths[cfg.label],
@@ -483,37 +591,36 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
             getattr(cfg, "direct_b", False),
             getattr(cfg, "direct_a", False),
         )
-        per_gpu[idx % num_gpus].append(item)
+        per_gpu[gpu_id].append(item)
         idx += 1
 
     total = sum(len(g) for g in per_gpu)
     passed, errors = 0, []
     pbar = tqdm(total=total, desc=desc, unit="cfg")
-    ctx = mp.get_context("spawn")
+    result_q = queue.Queue()
 
-    # Launch all GPU pools concurrently.
-    pools = []
-    all_futs = {}
+    threads = []
+    for gpu_id in range(num_gpus):
+        if not per_gpu[gpu_id]:
+            continue
+        t = threading.Thread(
+            target=_verify_gpu_queue,
+            args=(gpu_id, per_gpu[gpu_id], result_q),
+            daemon=True,
+        )
+        t.start()
+        threads.append(t)
+
+    collected = 0
     try:
-        for gpu_id in range(num_gpus):
-            if not per_gpu[gpu_id]:
-                continue
-            pool = ProcessPoolExecutor(
-                max_workers=1,
-                mp_context=ctx,
-                initializer=_gpu_init,
-                initargs=(gpu_id,),
-            )
-            pools.append(pool)
-            for a in per_gpu[gpu_id]:
-                all_futs[pool.submit(_verify_worker, a)] = a[0]
-
-        for fut in as_completed(all_futs):
-            label = all_futs[fut]
+        while collected < total:
             try:
-                _, err = fut.result()
-            except Exception as e:
-                err = str(e).split("\n")[0][:200]
+                label, err = result_q.get(timeout=1.0)
+            except queue.Empty:
+                if not any(t.is_alive() for t in threads):
+                    break
+                continue
+            collected += 1
             if err:
                 errors.append(f"{label}: {err}")
             else:
@@ -522,12 +629,10 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
             pbar.set_postfix_str(f"pass={passed}, fail={len(errors)}")
     except KeyboardInterrupt:
         print("\nCtrl+C -- stopping verification, reporting partial results...")
-        for f in all_futs:
-            f.cancel()
-    finally:
-        for pool in pools:
-            pool.shutdown(wait=False, cancel_futures=True)
     pbar.close()
+
+    for t in threads:
+        t.join(timeout=5.0)
     return passed, errors
 
 
@@ -606,13 +711,20 @@ def bench_perf_sweep(
     pbar.close()
     print(f"Compiled: {len(hsaco_paths)} ok, {len(failed)} failed")
 
-    # Post-compile filter.
+    # Post-compile filter.  Also reject configs where metadata parsing
+    # returned None (can't verify occupancy -> unsafe to execute).
     if post_compile_filter:
         before = len(hsaco_paths)
         for c in active:
+            if c.label not in hsaco_paths:
+                continue
             res = resources_map.get(c.label)
-            if c.label in hsaco_paths and res and not post_compile_filter(c, res):
+            if not res or not post_compile_filter(c, res):
                 del hsaco_paths[c.label]
+                if not res:
+                    failed.append(
+                        (c, "compile: metadata parse failed (no kernel resources)", "")
+                    )
         dropped = before - len(hsaco_paths)
         if dropped:
             print(f"Post-compile filter: {dropped} skipped")
@@ -719,8 +831,12 @@ def run_single(cfg, compile_fn, args, execute_fn):
     print_asm = getattr(args, "print_asm", False)
 
     wg = getattr(args, "num_wg_per_cu", 1) or 1
+    agpr_est = getattr(cfg, "estimated_agprs", 0) or 0
     bv, ba, _ = compute_register_budget(
-        cfg.num_threads, mcpu=getattr(cfg, "mcpu", "gfx942"), num_wg_per_cu=wg
+        cfg.num_threads,
+        mcpu=getattr(cfg, "mcpu", "gfx942"),
+        num_wg_per_cu=wg,
+        agpr_hint=agpr_est,
     )
     nv = getattr(args, "num_vgprs", None) or bv
     na = getattr(args, "num_agprs", None) or ba
