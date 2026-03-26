@@ -120,20 +120,28 @@ def compute_register_budget(
     num_threads: int,
     mcpu: str = "gfx942",
     num_wg_per_cu: int = 1,
+    agpr_hint: int = 0,
 ) -> Tuple[int, int, int]:
     """Compute per-wave VGPR/AGPR limits and per-WG LDS limit.
 
-    Per-wave limits from the ISA manual: 256 VGPRs, 256 AGPRs, 512 combined.
+    On architectures with a unified register file (CDNA), VGPRs and AGPRs
+    share a physical file per SIMD.  When multiple waves occupy a SIMD the
+    per-wave combined budget must be reduced so that::
+
+        align(combined, granule) * waves_per_simd <= vgprs_per_simd
+
+    The returned (max_vgprs, max_agprs) are capped to the tightest of the
+    per-wave ISA limit and the CU register-file constraint.  The split
+    between VGPRs and AGPRs uses *agpr_hint* (expected AGPR usage) to
+    maximise VGPRs after reserving what the accumulator tiles need.
 
     Args:
         num_threads: Number of threads per workgroup.
-        mcpu: Target GPU (e.g. "gfx942", "gfx950"). If the mcpu is not
-            recognised, the function silently falls back to gfx942 so that
-            callers can always obtain a budget estimate. Use
-            :meth:`KernelResources.check_occupancy` if you need a strict
-            per-architecture check (it returns an empty list for unknown mcpu
-            rather than substituting a default).
+        mcpu: Target GPU (e.g. "gfx942", "gfx950").
         num_wg_per_cu: Number of workgroups sharing a CU (default 1).
+        agpr_hint: Expected AGPR usage (e.g. from estimated_agprs).  Used
+            to split the combined budget when there is a CU constraint.
+            Defaults to 0 (fall back to 1/4 of combined budget for AGPRs).
 
     Returns:
         (max_vgprs, max_agprs, lds_per_wg) tuple.
@@ -142,8 +150,29 @@ def compute_register_budget(
         target = Target.from_mcpu(mcpu)
     except ValueError:
         target = Target.from_mcpu("gfx942")
+
     max_vgprs = target.max_vgprs
     max_agprs = target.max_agprs
+
+    # CU register-file constraint: when multiple waves share a SIMD the
+    # per-wave combined budget shrinks.  Round down to the allocation
+    # granule so the compiler never produces an HSACO that exceeds the CU
+    # capacity.
+    if target.unified_reg_file:
+        wf = target.wavefront_size
+        num_waves = (num_threads + wf - 1) // wf
+        total_waves = num_waves * num_wg_per_cu
+        waves_per_simd = (total_waves + target.num_simds - 1) // target.num_simds
+        if waves_per_simd > 1:
+            g = target.vgpr_alloc_granule
+            # Max combined (aligned) registers per wave that fits in the SIMD.
+            max_combined = (target.vgprs_per_simd // waves_per_simd // g) * g
+            # Reserve AGPRs based on hint (or 1/4 of budget as fallback),
+            # then give the rest to VGPRs which handle loads and addresses.
+            agpr_reserve = max(agpr_hint, max_combined // 4)
+            max_agprs = min(max_agprs, agpr_reserve)
+            max_vgprs = min(max_vgprs, max_combined - max_agprs)
+
     lds_per_wg = target.lds_per_cu // num_wg_per_cu
     return max_vgprs, max_agprs, lds_per_wg
 

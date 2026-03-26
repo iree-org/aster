@@ -362,6 +362,11 @@ def _eval_batch(
             overhead = 10
 
         est_vgprs = a_load_bufs + a_lds_read + b_load_bufs + b_split + overhead
+        # Safety margin: the estimate doesn't account for spill slots, address
+        # computation temporaries, or compiler-internal overhead.  Add 20% + 16
+        # to avoid borderline configs that pass the estimate but exceed CU
+        # limits after compilation.
+        est_vgprs = (est_vgprs * 6 + 4) // 5 + 16  # ~1.2x + 16, integer only
         est_agprs = mt * nt * 4
 
         # Per-wave limits.
@@ -371,13 +376,15 @@ def _eval_batch(
         mask &= combined <= GPU_VGPRS_PER_SIMD
         # Per-CU register file: total register lanes across all waves must fit
         # in regsPerMultiprocessor (131072 on gfx942 = 512 * 4 * 64).
-        # lanes = align(regs, granule) * num_waves * warpSize <= regsPerMultiprocessor.
+        # lanes = align(regs, granule) * total_waves * warpSize <= regsPerMultiprocessor.
+        # total_waves = num_waves * num_wg_per_cu (all WGs sharing the CU).
         # Source: clr/rocclr/device/rocm/rocdevice.cpp:1604.
         g = np.int64(GPU_VGPR_GRANULE)
         aligned = ((combined + g - 1) // g) * g
         _WARP_SIZE = 64  # TODO: query from device
         regs_per_mp = GPU_VGPRS_PER_SIMD * _NUM_SIMDS * _WARP_SIZE  # 131072
-        mask &= aligned * num_waves * _WARP_SIZE <= regs_per_mp
+        total_waves = num_waves * num_wg_per_cu
+        mask &= aligned * total_waves * _WARP_SIZE <= regs_per_mp
 
     # --- Instantiate only fully-passing configs (fast: small survivor set) ---
     configs = []
