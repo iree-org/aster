@@ -213,13 +213,17 @@ PHASE_LOWER_TO_AMDGCN = (
 # Register allocation, and wait lowering.
 # TODO: Move NOP insertion to backend.
 # TODO: NORMAL FORMS for amdgcn-backend.
-def phase_amdgcn_backend(num_vgprs=256, num_agprs=256, ll_sched=False):
+def phase_amdgcn_backend(
+    num_vgprs=256, num_agprs=256, ll_sched=False, hoist_iter_arg_waits=False
+):
     """Build the amdgcn-backend pipeline string with optional register limits."""
     opts = []
     if num_vgprs != 256:
         opts.append(f"num-vgprs={num_vgprs}")
     if num_agprs != 256:
         opts.append(f"num-agprs={num_agprs}")
+    if hoist_iter_arg_waits:
+        opts.append("hoist-iter-arg-waits=true")
     if ll_sched:
         opts.append("ll-sched=true")
     if opts:
@@ -278,12 +282,6 @@ def make_default_pass_pipeline(
         PHASE_SROA,
         POST_SROA_CLEANUPS,
         PHASE_CONVERT_LDS_BUFFERS,
-        # Hoist after inlining: library calls are now expanded,
-        # so waits and barriers are visible as direct ops in the loop body.
-        amdgcn_module(amdgcn_kernel(
-            "amdgcn-hoist-iter-arg-waits"
-        )) if hoist_iter_arg_waits else "",
-        "canonicalize" if hoist_iter_arg_waits else "",
         PHASE_LOWER_TO_AMDGCN,
         # WARNING: PHASE_EXPAND_MD_OPS is NOT idempotent -- running it twice
         # clobbers enable_workgroup_id_x to false (see expand-md-ops-idempotent.mlir).
@@ -291,7 +289,11 @@ def make_default_pass_pipeline(
         # PHASE_EXPAND_MD_OPS,
         # PHASE_LOWER_TO_AMDGCN,
         amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-        phase_amdgcn_backend(num_vgprs=num_vgprs, num_agprs=num_agprs, ll_sched=ll_sched),
+        phase_amdgcn_backend(
+            num_vgprs=num_vgprs, num_agprs=num_agprs,
+            ll_sched=ll_sched,
+            hoist_iter_arg_waits=hoist_iter_arg_waits,
+        ),
         phase_nop_insertion(delays=0),
     )
 

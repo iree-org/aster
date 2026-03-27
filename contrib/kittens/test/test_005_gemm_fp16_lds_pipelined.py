@@ -9,6 +9,8 @@ import pytest
 from aster.test_pass_pipelines import (
     TEST_SCF_PIPELINING_PASS_PIPELINE,
     TEST_SCF_PIPELINING_LL_SCHED_PASS_PIPELINE,
+    TEST_SCF_PIPELINING_HOIST_WAIT_PASS_PIPELINE,
+    TEST_SCF_PIPELINING_LL_SCHED_HOIST_WAIT_PASS_PIPELINE,
 )
 
 from kittens_helpers import (
@@ -63,6 +65,54 @@ class TestKittensGEMMLDSPipelined_AGPR:
             output_args=[C_output],
             pass_pipeline=TEST_SCF_PIPELINING_LL_SCHED_PASS_PIPELINE,
             template_substitutions=pipelined_substitutions_16x32(k, num_stages),
+            library_paths=get_kittens_16x16_lds_library_paths(),
+        )
+
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+    @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("k", [96, 128])
+    def test_gemm_lds_pipelined_hoist_wait(self, k, num_stages):
+        """Same as test_gemm_lds_pipelined but with hoist-iter-arg-waits enabled."""
+        np.random.seed(42 + k)
+        A = (np.random.randn(16, k) * 0.1).astype(np.float16)
+        B = (np.random.randn(16, k) * 0.1).astype(np.float16)
+        C_output = np.zeros(16 * 16, dtype=np.float32)
+
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_005_gemm_fp16_lds_pipelined.mlir"),
+            kernel_name="gemm_16x16xK_lds_pipelined",
+            input_args=[A.flatten(), B.flatten()],
+            output_args=[C_output],
+            pass_pipeline=TEST_SCF_PIPELINING_HOIST_WAIT_PASS_PIPELINE,
+            template_substitutions=pipelined_substitutions_16x32(
+                k, NUM_STAGES_TO_STRATEGY[num_stages]
+            ),
+            library_paths=get_kittens_16x16_lds_library_paths(),
+        )
+
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
+    @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("k", [96, 128])
+    def test_gemm_lds_pipelined_ll_sched_hoist_wait(self, k, num_stages):
+        """Both ll-sched and hoist-iter-arg-waits enabled."""
+        np.random.seed(42 + k)
+        A = (np.random.randn(16, k) * 0.1).astype(np.float16)
+        B = (np.random.randn(16, k) * 0.1).astype(np.float16)
+        C_output = np.zeros(16 * 16, dtype=np.float32)
+
+        run_kittens_kernel(
+            mlir_file=get_mlir_file("test_005_gemm_fp16_lds_pipelined.mlir"),
+            kernel_name="gemm_16x16xK_lds_pipelined",
+            input_args=[A.flatten(), B.flatten()],
+            output_args=[C_output],
+            pass_pipeline=TEST_SCF_PIPELINING_LL_SCHED_HOIST_WAIT_PASS_PIPELINE,
+            template_substitutions=pipelined_substitutions_16x32(
+                k, NUM_STAGES_TO_STRATEGY[num_stages]
+            ),
             library_paths=get_kittens_16x16_lds_library_paths(),
         )
 

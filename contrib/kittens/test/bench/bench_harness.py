@@ -678,6 +678,32 @@ def bench_perf_sweep(
     )
     sys.stdout.flush()
 
+    # Write manifest so the user can review/edit before compiling.
+    manifest_fd, manifest_path = tempfile.mkstemp(
+        prefix="bench_manifest_", suffix=".txt"
+    )
+    with os.fdopen(manifest_fd, "w") as f:
+        for c in active:
+            repro = repro_cmd_fn(c, num_iterations) if repro_cmd_fn else c.label
+            f.write(f"{c.label}\t{repro}\n")
+    print(f"\nManifest: {manifest_path}")
+    print(
+        "Review/edit the file to remove lines, then press Enter to compile "
+        "(or Ctrl-C to abort)."
+    )
+    sys.stdout.flush()
+    try:
+        input()
+    except EOFError:
+        pass
+    # Re-read manifest: keep only configs whose label is still present.
+    with open(manifest_path) as f:
+        keep_labels = {line.split("\t")[0] for line in f if line.strip()}
+    before = len(active)
+    active = [c for c in active if c.label in keep_labels]
+    if len(active) < before:
+        print(f"Narrowed {before} -> {len(active)} configs from edited manifest")
+
     # Phase 1: compile.
     import multiprocessing as mp
 

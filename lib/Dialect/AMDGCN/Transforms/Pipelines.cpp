@@ -48,6 +48,10 @@ struct RegAllocPipelineOptions
       *this, "num-agprs",
       llvm::cl::desc("Maximum AGPRs for allocation (default 256)"),
       llvm::cl::init(256)};
+  mlir::detail::PassOptions::Option<bool> hoistIterArgWaits{
+      *this, "hoist-iter-arg-waits",
+      llvm::cl::desc("Hoist iter_arg-dependent waits to loop head"),
+      llvm::cl::init(false)};
   mlir::detail::PassOptions::Option<bool> llSched{
       *this, "ll-sched",
       llvm::cl::desc("Run low-level scheduler before register semantics"),
@@ -65,14 +69,15 @@ struct RegAllocPipelineOptions
 /// 3. RegisterAlloc - performs the actual register allocation
 static void buildRegAllocPassPipeline(OpPassManager &pm,
                                       const RegAllocPipelineOptions &options) {
-<<<<<<< HEAD
-=======
   if (options.hoistIterArgWaits) {
     pm.addPass(createHoistIterArgWaits());
     pm.addPass(createCanonicalizerPass());
   }
->>>>>>> 8c5824fe (asd)
   pm.addPass(createAMDGCNBufferization());
+  if (options.hoistIterArgWaits) {
+    pm.addPass(createHoistIterArgWaits());
+    pm.addPass(createCanonicalizerPass());
+  }
   if (options.llSched)
     pm.addPass(createLowLevelScheduler());
   pm.addPass(createToRegisterSemantics());
@@ -126,6 +131,10 @@ struct AMDGCNBackendPipelineOptions
       *this, "num-agprs",
       llvm::cl::desc("Maximum AGPRs for allocation (default 256)"),
       llvm::cl::init(256)};
+  mlir::detail::PassOptions::Option<bool> hoistIterArgWaits{
+      *this, "hoist-iter-arg-waits",
+      llvm::cl::desc("Hoist iter_arg-dependent waits to loop head"),
+      llvm::cl::init(false)};
   mlir::detail::PassOptions::Option<bool> llSched{
       *this, "ll-sched",
       llvm::cl::desc("Run low-level scheduler before register allocation"),
@@ -151,6 +160,7 @@ buildAMDGCNBackendPassPipeline(OpPassManager &pm,
     RegAllocPipelineOptions regAllocOpts;
     regAllocOpts.numVGPRs = options.numVGPRs;
     regAllocOpts.numAGPRs = options.numAGPRs;
+    regAllocOpts.hoistIterArgWaits = options.hoistIterArgWaits;
     regAllocOpts.llSched = options.llSched;
     buildRegAllocPassPipeline(kernelPm, regAllocOpts);
     kernelPm.addPass(createCanonicalizerPass());
