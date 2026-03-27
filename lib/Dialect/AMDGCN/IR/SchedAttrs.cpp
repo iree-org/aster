@@ -157,12 +157,16 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
   // Collect all the operations that sync at this point.
   SetVector<Operation *> waitedOps;
   for (const TokenState &token : state->waitOpInfo->waitedTokens) {
+    if (!token.getToken())
+      continue;
     Operation *op = token.getToken().getDefiningOp();
     if (!op || op->getBlock() != block)
       continue;
     waitedOps.insert(op);
   }
   for (const TokenState &token : state->waitOpInfo->impliedTokens) {
+    if (!token.getToken())
+      continue;
     Operation *op = token.getToken().getDefiningOp();
     if (!op || op->getBlock() != block)
       continue;
