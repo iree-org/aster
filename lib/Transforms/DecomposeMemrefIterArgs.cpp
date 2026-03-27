@@ -8,12 +8,14 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Forwards stores-to-loads for static alloca iter_args (memref<NxT>) where
-// stores and loads target the same block arg at constant indices. After
-// forwarding, erases dead stores so canonicalize can remove unused iter_args.
+// Decomposes memref<NxT> iter_args into N scalar T iter_args via
+// replaceWithAdditionalYields, then lets canonicalize remove the dead memref
+// iter_args.
 //
-// First, use aster-simplify-alloca-iter-args to fold casts and dedup
-// iter_args, then this pass handles the forwarding.
+// Pattern: yield = fresh alloca with stores at [0, N), loads from block arg.
+// Also handles self-forwarding (stores and loads on the same block arg).
+//
+// Run aster-simplify-alloca-iter-args first to fold casts and dedup.
 //
 //===----------------------------------------------------------------------===//
 
@@ -40,65 +42,170 @@ using namespace mlir::aster;
 
 namespace {
 
-/// Forward stores-to-loads for static alloca iter_args (memref<NxT>).
-///
-/// Two patterns are handled:
-///
-/// Pattern 1 - Self-forwarding: stores and loads both target the same block
-/// arg at constant indices (typical after SimplifyAllocaIterArgs dedup).
-///
-/// Pattern 2 - Cross-iteration forwarding: stores go to a NEW alloca that is
-/// yielded, loads come from the BLOCK ARG (previous iteration's yield).
-/// This is the natural pattern from pipelined loops with buffer APIs:
-///   scf.for iter_args(%ba = %alloca) {
-///     %new = memref.alloca()
-///     store %v, %new[0]       // stores to yield value
-///     load %ba[0]             // loads from block arg
-///     yield %new
-///   }
-static void forwardStaticAllocaStores(scf::ForOp forOp) {
-  int64_t numArgs = forOp.getNumRegionIterArgs();
-  IRRewriter rewriter(forOp.getContext());
-  auto yieldOp = cast<scf::YieldOp>(forOp.getBody()->getTerminator());
+//===----------------------------------------------------------------------===//
+// Helpers
+//===----------------------------------------------------------------------===//
 
-  for (int64_t i = 0; i < numArgs; ++i) {
-    Value init = forOp.getInitArgs()[i];
-    auto memrefType = dyn_cast<MemRefType>(init.getType());
-    if (!memrefType || memrefType.getRank() != 1 ||
-        !memrefType.hasStaticShape())
+/// Collect values stored to `target` at constant indices [0, numElements).
+/// Returns empty vector if any index is missing, duplicated, or non-constant.
+static SmallVector<Value> collectStoredValues(Value target,
+                                              int64_t numElements) {
+  SmallVector<Value> values(numElements, nullptr);
+  for (Operation *user : target.getUsers()) {
+    auto store = dyn_cast<memref::StoreOp>(user);
+    if (!store || store.getMemRef() != target)
+      continue;
+    if (store.getIndices().size() != 1)
+      return {};
+    auto idx = getConstantIntValue(getAsOpFoldResult(store.getIndices()[0]));
+    if (!idx || *idx < 0 || *idx >= numElements)
+      return {};
+    if (values[*idx])
+      return {};
+    values[*idx] = store.getValueToStore();
+  }
+  for (Value v : values)
+    if (!v)
+      return {};
+  return values;
+}
+
+/// Replace all memref.load ops on `memref` with the corresponding value from
+/// `replacements` (indexed by constant load index). Erases the replaced loads.
+static void replaceConstantIndexLoads(IRRewriter &rewriter, Value memref,
+                                      ValueRange replacements) {
+  SmallVector<memref::LoadOp> loads;
+  for (OpOperand &use : memref.getUses())
+    if (auto load = dyn_cast<memref::LoadOp>(use.getOwner()))
+      if (load.getMemRef() == memref)
+        loads.push_back(load);
+
+  for (auto load : loads) {
+    auto idx = getConstantIntValue(getAsOpFoldResult(load.getIndices()[0]));
+    assert(idx && "expected constant index load");
+    rewriter.replaceAllUsesWith(load.getResult(), replacements[*idx]);
+    rewriter.eraseOp(load);
+  }
+}
+
+/// Return the static 1-D memref type of a value, or nullptr.
+static MemRefType getStatic1DMemRefType(Value v) {
+  auto type = dyn_cast<MemRefType>(v.getType());
+  if (type && type.getRank() == 1 && type.hasStaticShape())
+    return type;
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
+// Analysis
+//===----------------------------------------------------------------------===//
+
+struct DecomposableSlot {
+  int64_t argIdx;
+  SmallVector<Value> initValues;
+  SmallVector<Value> yieldValues;
+};
+
+static SmallVector<DecomposableSlot> findDecomposableSlots(scf::ForOp forOp) {
+  auto yieldOp = cast<scf::YieldOp>(forOp.getBody()->getTerminator());
+  SmallVector<DecomposableSlot> slots;
+
+  for (int64_t i = 0, n = forOp.getNumRegionIterArgs(); i < n; ++i) {
+    auto memrefType = getStatic1DMemRefType(forOp.getInitArgs()[i]);
+    if (!memrefType)
+      continue;
+    int64_t numElems = memrefType.getShape()[0];
+
+    Value yieldVal = yieldOp.getOperand(i);
+    if (!yieldVal.getDefiningOp<memref::AllocaOp>())
+      continue;
+    auto ys = collectStoredValues(yieldVal, numElems);
+    if (ys.empty())
+      continue;
+    auto is = collectStoredValues(forOp.getInitArgs()[i], numElems);
+    if (is.empty()) {
+      LDBG() << "  SKIP iter_arg #" << i << ": init lacks complete stores";
+      continue;
+    }
+
+    LDBG() << "  Decomposable iter_arg #" << i << " (" << numElems
+           << " elements)";
+    slots.push_back({i, std::move(is), std::move(ys)});
+  }
+  return slots;
+}
+
+//===----------------------------------------------------------------------===//
+// Decomposition via replaceWithAdditionalYields
+//===----------------------------------------------------------------------===//
+
+static bool decomposeMemrefIterArgs(scf::ForOp forOp) {
+  SmallVector<DecomposableSlot> slots = findDecomposableSlots(forOp);
+  if (slots.empty())
+    return false;
+
+  IRRewriter rewriter(forOp.getContext());
+  int64_t numOldArgs = forOp.getNumRegionIterArgs();
+
+  // Collect scalar init values for all decomposable slots.
+  SmallVector<Value> newInits;
+  for (auto &slot : slots)
+    newInits.append(slot.initValues.begin(), slot.initValues.end());
+
+  // Add scalar iter_args alongside existing memref ones.
+  // The callback returns yield values for the new scalar iter_args (the values
+  // stored to the yield alloca). Called before body is moved.
+  auto yieldFn = [&](OpBuilder &, Location,
+                     ArrayRef<BlockArgument>) -> SmallVector<Value> {
+    SmallVector<Value> yields;
+    for (auto &slot : slots)
+      yields.append(slot.yieldValues.begin(), slot.yieldValues.end());
+    return yields;
+  };
+
+  auto result = forOp.replaceWithAdditionalYields(
+      rewriter, newInits, /*replaceInitOperandUsesInLoop=*/false, yieldFn);
+  assert(succeeded(result));
+  auto newForOp = cast<scf::ForOp>(result->getOperation());
+
+  // Replace memref loads with new scalar block args (in-loop) and scalar
+  // results (post-loop). The dead memref iter_args are removed by canonicalize.
+  int64_t scalarStart = numOldArgs;
+  for (auto &slot : slots) {
+    int64_t n = slot.initValues.size();
+    replaceConstantIndexLoads(
+        rewriter, newForOp.getRegionIterArgs()[slot.argIdx],
+        newForOp.getRegionIterArgs().slice(scalarStart, n));
+    replaceConstantIndexLoads(rewriter, newForOp.getResult(slot.argIdx),
+                              newForOp.getResults().slice(scalarStart, n));
+    (void)eraseDeadMemrefStores(rewriter, newForOp.getResult(slot.argIdx));
+    scalarStart += n;
+  }
+  return true;
+}
+
+//===----------------------------------------------------------------------===//
+// Self-forwarding: stores and loads on the same block arg
+//===----------------------------------------------------------------------===//
+
+static void forwardSameBlockArgStores(scf::ForOp forOp) {
+  IRRewriter rewriter(forOp.getContext());
+
+  for (int64_t i = 0, n = forOp.getNumRegionIterArgs(); i < n; ++i) {
+    auto memrefType = getStatic1DMemRefType(forOp.getInitArgs()[i]);
+    if (!memrefType)
       continue;
 
     int64_t numElements = memrefType.getShape()[0];
     BlockArgument ba = forOp.getRegionIterArgs()[i];
 
-    // Try self-forwarding first (Pattern 1).
-    if (succeeded(forwardConstantIndexStores(rewriter, ba, ba, numElements))) {
-      LDBG() << "  Self-forwarded iter_arg #" << i << " (" << numElements
-             << " elements)";
-    } else {
-      // Try cross-iteration forwarding (Pattern 2): stores to yield value,
-      // loads from block arg.
-      Value yieldVal = yieldOp.getOperand(i);
-      if (yieldVal == ba) {
-        LDBG() << "  SKIP iter_arg #" << i << ": yield == ba, no forwarding";
-        continue;
-      }
-      if (failed(forwardConstantIndexStores(rewriter, yieldVal, ba,
-                                            numElements))) {
-        LDBG() << "  SKIP iter_arg #" << i << ": cross-iteration failed";
-        continue;
-      }
-      LDBG() << "  Cross-forwarded iter_arg #" << i << " (" << numElements
-             << " elements)";
-    }
+    if (failed(forwardConstantIndexStores(rewriter, ba, ba, numElements)))
+      continue;
+    LDBG() << "  Self-forwarded iter_arg #" << i;
 
-    // Best-effort cleanup: erase dead stores on the block arg (loads were
-    // forwarded or didn't exist), the for-op result, and the init alloca.
-    // These may fail if the pattern doesn't match -- that is expected.
     (void)eraseDeadMemrefStores(rewriter, ba);
+    Value init = forOp.getInitArgs()[i];
     Value result = forOp.getResult(i);
-    // Try self-forwarding on result, then cross-forwarding from init to
-    // result (init stores dominate post-loop result loads in the same block).
     (void)forwardConstantIndexStores(rewriter, result, result, numElements);
     (void)forwardConstantIndexStores(rewriter, init, result, numElements);
     (void)eraseDeadMemrefStores(rewriter, result);
@@ -107,7 +214,7 @@ static void forwardStaticAllocaStores(scf::ForOp forOp) {
 }
 
 //===----------------------------------------------------------------------===//
-// DecomposeMemrefIterArgs pass
+// Pass
 //===----------------------------------------------------------------------===//
 
 struct DecomposeMemrefIterArgs
@@ -122,17 +229,26 @@ public:
 
 void DecomposeMemrefIterArgs::runOnOperation() {
   Operation *rootOp = getOperation();
-  SmallVector<scf::ForOp> forOps;
-  rootOp->walk([&](scf::ForOp forOp) { forOps.push_back(forOp); });
 
-  for (scf::ForOp forOp : forOps)
-    forwardStaticAllocaStores(forOp);
+  {
+    SmallVector<scf::ForOp> forOps;
+    rootOp->walk([&](scf::ForOp forOp) { forOps.push_back(forOp); });
+    for (scf::ForOp forOp : forOps)
+      decomposeMemrefIterArgs(forOp);
+  }
 
-  // Clean up: remove unused iter_args, dead allocas, dead constants.
+  {
+    SmallVector<scf::ForOp> forOps;
+    rootOp->walk([&](scf::ForOp forOp) { forOps.push_back(forOp); });
+    for (scf::ForOp forOp : forOps)
+      forwardSameBlockArgStores(forOp);
+  }
+
   MLIRContext *ctx = rootOp->getContext();
   RewritePatternSet patterns(ctx);
   scf::ForOp::getCanonicalizationPatterns(patterns, ctx);
   memref::AllocaOp::getCanonicalizationPatterns(patterns, ctx);
   arith::ConstantOp::getCanonicalizationPatterns(patterns, ctx);
+  memref::StoreOp::getCanonicalizationPatterns(patterns, ctx);
   (void)applyPatternsGreedily(rootOp, std::move(patterns));
 }

@@ -200,6 +200,16 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
     }
   }
 
+  // Diagnostic: log memref-typed CSVs with distance > 1 (shift registers).
+  // These require aster-decompose-memref-iter-args to run after pipelining.
+  for (auto &csv : info.crossStageVals) {
+    if (csv.distance() > 1 && isa<MemRefType>(csv.value.getType())) {
+      LDBG() << "  memref CSV with gap " << csv.distance() << ": " << csv.value
+             << " (stage " << csv.defStage << " -> " << csv.lastUseStage
+             << "); requires decompose-memref-iter-args post-pipeline";
+    }
+  }
+
   return success();
 }
 
