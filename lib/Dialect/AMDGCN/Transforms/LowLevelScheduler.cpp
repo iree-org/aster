@@ -23,6 +23,10 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
 #include "aster/Interfaces/InstOpInterface.h"
+#include "aster/Interfaces/SchedInterfaces.h"
+#include "mlir/Analysis/DataFlow/Utils.h"
+#include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -158,65 +162,15 @@ static StringRef getQueueName(QueueType qt) {
 }
 
 //===----------------------------------------------------------------------===//
-// Dependency DAG (shared infrastructure)
-//===----------------------------------------------------------------------===//
-
-struct DAGNode {
-  Operation *op;
-  QueueType queueType;
-  int64_t execLatency;
-  SmallVector<DAGNode *, 4> successors;
-  int64_t numUnscheduledPreds = 0;
-};
-
-struct DependencyDAG {
-  /// Nodes indexed by operation. Owns the DAGNode memory.
-  DenseMap<Operation *, std::unique_ptr<DAGNode>> nodes;
-
-  DAGNode *getOrCreate(Operation *op) {
-    auto &node = nodes[op];
-    if (!node) {
-      node = std::make_unique<DAGNode>();
-      node->op = op;
-      node->queueType = classifyOp(op);
-      node->execLatency = getExecLatency(op, node->queueType);
-    }
-    return node.get();
-  }
-
-  /// Add a dependency edge: `from` must be scheduled before `to`.
-  /// Returns true if the edge was new (incremented pred count).
-  bool addEdge(Operation *from, Operation *to) {
-    DAGNode *fromNode = getOrCreate(from);
-    DAGNode *toNode = getOrCreate(to);
-    if (llvm::is_contained(fromNode->successors, toNode))
-      return false;
-    fromNode->successors.push_back(toNode);
-    toNode->numUnscheduledPreds++;
-    return true;
-  }
-
-  /// Collect all root nodes (no unscheduled predecessors).
-  SmallVector<DAGNode *> getRoots() const {
-    SmallVector<DAGNode *> roots;
-    for (const auto &[op, node] : nodes) {
-      if (node->numUnscheduledPreds == 0)
-        roots.push_back(node.get());
-    }
-    return roots;
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // DAG builders -- strategy determines how dependencies are discovered
 //===----------------------------------------------------------------------===//
 
 /// Add serialization edges for i1-producing ops within a block.
 /// All i1 producers (lsir.cmpi, lsir.cmpf, etc.) write to the same physical
 /// flag register (SCC or VCC), creating implicit WAW/WAR hazards invisible
-/// to SSA. We ensure ALL consumers of one i1 producer are scheduled before
-/// the next i1 producer fires.
-static void addI1SerializationEdges(DependencyDAG &dag, Block &block) {
+/// to SSA or side effect. We ensure ALL consumers of one i1 producer are
+/// scheduled before the next i1 producer fires.
+static void addI1SerializationEdges(SchedGraph &graph, Block &block) {
   SmallVector<Operation *> prevI1Consumers;
 
   for (Operation &op : block) {
@@ -236,7 +190,7 @@ static void addI1SerializationEdges(DependencyDAG &dag, Block &block) {
     // ALL consumers of the previous i1 producer must be scheduled before
     // this i1 producer to avoid clobbering the flag register.
     for (Operation *consumer : prevI1Consumers)
-      dag.addEdge(consumer, &op);
+      graph.addEdge(consumer, &op);
 
     prevI1Consumers.clear();
     bool hasConsumers = false;
@@ -256,56 +210,6 @@ static void addI1SerializationEdges(DependencyDAG &dag, Block &block) {
       prevI1Consumers.push_back(&op);
   }
 }
-
-/// Build a dependency DAG for pre-regalloc SSA IR.
-/// Dependencies come from SSA def-use chains (including token chains),
-/// targeted wait->consumer edges, memory-only barriers for count-based
-/// waits and s_barrier, and i1 flag register serialization.
-static DependencyDAG buildSSADAG(Block &block) {
-  DependencyDAG dag;
-
-  for (Operation &op : block) {
-    if (op.hasTrait<OpTrait::IsTerminator>())
-      continue;
-
-    dag.getOrCreate(&op);
-
-    // SSA data dependencies: if an operand is defined by an op in this block,
-    // that defining op must be scheduled first.
-    for (Value operand : op.getOperands()) {
-      if (Operation *def = operand.getDefiningOp()) {
-        if (def->getBlock() == &block)
-          dag.addEdge(def, &op);
-      }
-    }
-  }
-
-  // Total-order chain: preserves program order for all non-trivial ops.
-  {
-    Operation *lastOp = nullptr;
-    for (Operation &op : block) {
-      if (op.hasTrait<OpTrait::IsTerminator>())
-        continue;
-      if (!dag.nodes.count(&op))
-        continue;
-      bool isTrivial =
-          isa<AllocaOp, MakeRegisterRangeOp, SplitRegisterRangeOp>(op) ||
-          op.hasTrait<OpTrait::ConstantLike>();
-      if (isTrivial)
-        continue;
-      if (lastOp)
-        dag.addEdge(lastOp, &op);
-      lastOp = &op;
-    }
-  }
-
-  // i1 serialization: all i1 producers (cmpi/cmpf) write to the same
-  // physical flag register (SCC/VCC), so their lifetimes must not overlap.
-  addI1SerializationEdges(dag, block);
-
-  return dag;
-}
-
 //===----------------------------------------------------------------------===//
 // Queue simulator -- tracks slot occupancy per queue to detect stalls
 //===----------------------------------------------------------------------===//
@@ -370,19 +274,31 @@ struct ScheduleResult {
   SmallVector<StringRef> stallReasons; // empty string when no stall
 };
 
-static FailureOr<ScheduleResult> scheduleBlock(DependencyDAG &dag,
+// Uses getInDegree + edges() rather than SchedGraph::topologicalSched because
+// the greedy scorer picks one node at a time with QueueSimulator state.
+static FailureOr<ScheduleResult> scheduleBlock(const SchedGraph &graph,
+                                               ArrayRef<QueueType> queueTypes,
+                                               ArrayRef<int64_t> execLatencies,
                                                Block &block) {
-  if (dag.nodes.empty())
+  if (graph.sizeNodes() == 0)
     return ScheduleResult{};
 
-  SmallVector<DAGNode *> readyList = dag.getRoots();
+  SmallVector<int32_t> inDegree = graph.getInDegree();
+
+  // Collect roots (in-degree 0).
+  SmallVector<int32_t> readyList;
+  for (int32_t i = 0, e = graph.sizeNodes(); i < e; ++i) {
+    if (inDegree[i] == 0)
+      readyList.push_back(i);
+  }
+
   ScheduleResult result;
   QueueType lastQueueType = QueueType::Unknown;
   int64_t burstCount = 0;
   QueueSimulator sim;
 
   while (!readyList.empty()) {
-    DAGNode *best = nullptr;
+    int32_t best = -1;
     int bestScore = std::numeric_limits<int>::min();
 
     // Scoring: stall avoidance + latency-aware interleaving.
@@ -390,55 +306,56 @@ static FailureOr<ScheduleResult> scheduleBlock(DependencyDAG &dag,
     // 1. Stall avoidance: penalize ops that would stall on a full queue.
     // 2. Interleaving bonus: prefer switching queues to overlap execution
     //    (DS/VMEM -> XDL/VALU -> wait pattern).
-    for (DAGNode *node : readyList) {
+    for (int32_t nodeId : readyList) {
       int score = 0;
-      int64_t stall = sim.wouldStall(node->queueType);
+      int64_t stall = sim.wouldStall(queueTypes[nodeId]);
       if (stall > 0) {
         int64_t cappedStall = std::min(stall, int64_t{32});
         score -= static_cast<int>(cappedStall) * 10;
       }
       // Interleaving: prefer switching queues to overlap execution.
-      if (node->queueType != lastQueueType && burstCount > 0)
+      if (queueTypes[nodeId] != lastQueueType && burstCount > 0)
         score += 50;
 
       if (score > bestScore) {
         bestScore = score;
-        best = node;
+        best = nodeId;
       }
     }
 
-    assert(best && "ready list was non-empty but no best found");
+    assert(best >= 0 && "ready list was non-empty but no best found");
 
-    int64_t stall = sim.issue(best->queueType, best->execLatency);
-    result.schedule.push_back(best->op);
+    int64_t stall = sim.issue(queueTypes[best], execLatencies[best]);
+    result.schedule.push_back(graph.getOp(best));
     result.stallCycles.push_back(stall);
     if (stall > 0) {
-      result.stallReasons.push_back(getQueueName(best->queueType));
+      result.stallReasons.push_back(getQueueName(queueTypes[best]));
     } else {
       result.stallReasons.push_back("");
     }
 
-    if (best->queueType == lastQueueType) {
+    if (queueTypes[best] == lastQueueType) {
       burstCount++;
     } else {
-      lastQueueType = best->queueType;
+      lastQueueType = queueTypes[best];
       burstCount = 1;
     }
 
     llvm::erase(readyList, best);
 
-    for (DAGNode *succ : best->successors) {
-      assert(succ->numUnscheduledPreds > 0);
-      succ->numUnscheduledPreds--;
-      if (succ->numUnscheduledPreds == 0)
+    for (const auto &edge : graph.edges(best)) {
+      int32_t succ = edge.second;
+      assert(inDegree[succ] > 0);
+      --inDegree[succ];
+      if (inDegree[succ] == 0)
         readyList.push_back(succ);
     }
   }
 
   // Verify we scheduled everything (no cycles in the DAG).
-  if (result.schedule.size() != dag.nodes.size()) {
+  if (static_cast<int>(result.schedule.size()) != graph.sizeNodes()) {
     LLVM_DEBUG(llvm::dbgs()
-               << "LowLevelScheduler: DAG has " << dag.nodes.size()
+               << "LowLevelScheduler: DAG has " << graph.sizeNodes()
                << " nodes but scheduled " << result.schedule.size() << "\n");
     return failure();
   }
@@ -454,49 +371,6 @@ static FailureOr<ScheduleResult> scheduleBlock(DependencyDAG &dag,
 }
 
 //===----------------------------------------------------------------------===//
-// DAG dump (for testing DAG construction independently of scheduling)
-//===----------------------------------------------------------------------===//
-
-/// Print a concise identifier for an operation: first result SSA name + op
-/// mnemonic. E.g. "%dest_res (load)" or "%vdst0_res (vop2)".
-static void printOpId(llvm::raw_ostream &os, Operation *op) {
-  if (op->getNumResults() > 0) {
-    op->getResult(0).printAsOperand(os, OpPrintingFlags());
-  } else {
-    // No results -- use the op name (e.g. "wait", "end_kernel").
-    os << "<<" << op->getName() << ">>";
-  }
-  os << " (" << op->getName() << ")";
-}
-
-/// Dump the DAG edges and node properties in a FileCheck-friendly format.
-/// Output is buffered per kernel to avoid interleaving when MLIR
-/// parallelizes across KernelOps.
-static void dumpDAG(DependencyDAG &dag, Block &block, KernelOp kernel) {
-  std::string buf;
-  llvm::raw_string_ostream os(buf);
-  os << "DAG for kernel @" << kernel.getSymName() << " {\n";
-
-  // Print nodes in block order for deterministic output.
-  for (Operation &op : block) {
-    auto it = dag.nodes.find(&op);
-    if (it == dag.nodes.end())
-      continue;
-    DAGNode *node = it->second.get();
-    os << "  node: ";
-    printOpId(os, &op);
-    os << " [queue=" << getQueueName(node->queueType) << "]\n";
-    for (DAGNode *succ : node->successors) {
-      os << "    -> ";
-      printOpId(os, succ->op);
-      os << "\n";
-    }
-  }
-  os << "}\n";
-  llvm::errs() << os.str();
-}
-
-//===----------------------------------------------------------------------===//
 // Pre-RA pass: uses SSA def-use chains for dependencies
 //===----------------------------------------------------------------------===//
 
@@ -509,10 +383,21 @@ struct LowLevelSchedulerPass
     auto *ctx = kernel.getContext();
 
     // Pre-condition: all function calls must be inlined before scheduling.
-    if (!skipPrecondition) {
-      auto allInlined = AllInlinedAttr::get(ctx);
-      if (failed(normalform::verifyNormalForm(kernel, allInlined,
-                                              /*emitDiagnostics=*/true)))
+    auto allInlined = AllInlinedAttr::get(ctx);
+    if (failed(normalform::verifyNormalForm(kernel, allInlined,
+                                            /*emitDiagnostics=*/true)))
+      return signalPassFailure();
+
+    // Set up GraphBuilder (SSA deps, wait tokens, barriers).
+    auto graphAttr = ValueSchedulerAttr::get(ctx);
+    DataFlowSolver solver;
+    dataflow::loadBaselineAnalyses(solver);
+    DominanceInfo &domInfo = getAnalysis<DominanceInfo>();
+    SchedAnalysis analysis(kernel, solver, domInfo, getAnalysisManager());
+    if (failed(graphAttr.initializeAnalyses(analysis)))
+      return signalPassFailure();
+    if (analysis.shouldRunDataflowAnalyses()) {
+      if (failed(solver.initializeAndRun(kernel)))
         return signalPassFailure();
     }
 
@@ -520,12 +405,30 @@ struct LowLevelSchedulerPass
     kernel->walk([&](Block *block) {
       if (failed_)
         return;
-      DependencyDAG dag = buildSSADAG(*block);
-      if (dumpDag) {
-        dumpDAG(dag, *block, kernel);
+
+      // Build dependency graph via GraphBuilder.
+      FailureOr<SchedGraph> graphOrFailure =
+          graphAttr.createGraph(block, analysis);
+      if (failed(graphOrFailure)) {
+        failed_ = true;
         return;
       }
-      auto resultOrFailure = scheduleBlock(dag, *block);
+      SchedGraph &graph = *graphOrFailure;
+
+      // i1 serialization: GraphBuilder doesn't handle flag register hazards.
+      addI1SerializationEdges(graph, *block);
+      graph.compress();
+
+      // Build side arrays for queue types and exec latencies.
+      SmallVector<QueueType> queueTypes(graph.sizeNodes());
+      SmallVector<int64_t> execLatencies(graph.sizeNodes());
+      for (auto [i, op] : llvm::enumerate(graph.getOps())) {
+        queueTypes[i] = classifyOp(op);
+        execLatencies[i] = getExecLatency(op, queueTypes[i]);
+      }
+
+      auto resultOrFailure =
+          scheduleBlock(graph, queueTypes, execLatencies, *block);
       if (failed(resultOrFailure)) {
         failed_ = true;
         return;

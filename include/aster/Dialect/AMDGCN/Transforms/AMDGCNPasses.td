@@ -420,10 +420,6 @@ def LowLevelScheduler : Pass<"amdgcn-low-level-scheduler",
   let options = [
     Option<"debugStalls", "debug-stalls", "bool", "false",
            "Annotate each op with sched.stall_cycles and sched.stall_reason">,
-    Option<"dumpDag", "dump-dag", "bool", "false",
-           "Print dependency DAG edges to stderr instead of scheduling">,
-    Option<"skipPrecondition", "skip-precondition", "bool", "false",
-           "Skip the all_inlined normal form check (testing only)">,
   ];
 }
 
