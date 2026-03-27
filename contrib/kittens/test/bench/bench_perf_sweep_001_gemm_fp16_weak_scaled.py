@@ -153,36 +153,12 @@ LCM_UNROLL_CONFIGS = [True, False]
 UNROLL_MULTIPLIERS = [1, 2, 3]
 # Epilogue peeling: fully unroll cleanup loop after LCM unrolling.
 EPILOGUE_PEELING_CONFIGS = [True, False]
+# Low-level instruction scheduler on/off.
+LL_SCHED_CONFIGS = [True, False]
+# Hoist iter_arg waits to loop head on/off.
+HOIST_WAIT_CONFIGS = [True, False]
 
 MIN_DIM = 2000  # Skip configs where M, N, or K < 3000
-
-
-def _precompile_reject_reason(cfg, check_regs=True):
-    """Return rejection reason string, or None if config passes pre-compile filter."""
-    from aster.compiler.metadata import KernelResources
-
-    # Pipeline depth must not exceed K-tile iterations.
-    k_iters = cfg.k // (cfg.k_tiles * 32)
-    if k_iters <= cfg.pipeline_depth:
-        return f"K iterations ({k_iters}) <= pipeline depth ({cfg.pipeline_depth})"
-
-    # Reject underprovisioned configs: more waves than spatial tiles wastes waves.
-    if cfg.m_tiles_wg < cfg.num_waves:
-        return f"m_tiles_wg={cfg.m_tiles_wg} < num_waves={cfg.num_waves}"
-
-    # Deep B pipelining: b_stages that shifts A up causes data hazards atm.
-    # Safe when pipeline_depth == a_stages (B fits within A's depth).
-    # TODO: fix this in the compiler.
-    if cfg.pipeline_depth > cfg.a_stages:
-        return f"b_stages={cfg.b_stages} forces depth={cfg.pipeline_depth} > a_stages={cfg.a_stages}"
-
-    est = KernelResources(
-        vgpr_count=cfg.estimated_vgprs if check_regs else 0,
-        agpr_count=cfg.estimated_agprs if check_regs else 0,
-        lds_bytes=cfg.lds_bytes,
-    )
-    violations = est.check_occupancy(cfg.num_threads, num_wg_per_cu=cfg.num_wg_per_cu)
-    return violations[0] if violations else None
 
 
 def fits_on_cu_post_compile(cfg, res):
@@ -205,437 +181,201 @@ def _make_label_suffix(b_path, load_type):
     return f"_direct_{lt}" if b_path == "direct" else f"_{lt}"
 
 
-def _variant_grid_info(b_path, load_type):
-    """Return (dim_sizes, wave_arr, tile_arr, unroll_cfgs, suffix) for a variant.
-
-    dim_sizes is a tuple of per-axis lengths for the 7-dim cartesian product:
-      (waves, occupancy, n_mult, tiles, strategy, k_factors, unroll).
-    """
-    import numpy as np
-
-    suffix = _make_label_suffix(b_path, load_type)
-    unroll_cfgs = []
-    for lcm in LCM_UNROLL_CONFIGS:
-        for um in UNROLL_MULTIPLIERS if lcm else [1]:
-            for ep in EPILOGUE_PEELING_CONFIGS:
-                unroll_cfgs.append((lcm, um, ep))
-    wave_arr = np.array(WAVE_CONFIGS)
-    tile_arr = np.array(TILE_WG_CONFIGS)
-    dim_sizes = (
-        len(wave_arr),
-        len(OCCUPANCY_TARGETS),
-        len(N_WG_MULTIPLIERS),
-        len(tile_arr),
-        len(PIPELINE_STRATEGY_CONFIGS),
-        len(K_SCALING_FACTORS),
-        len(unroll_cfgs),
-    )
-    return dim_sizes, wave_arr, tile_arr, unroll_cfgs, suffix
-
-
-def _eval_batch(
-    flat_indices,
-    wave_arr,
-    tile_arr,
-    unroll_cfgs,
-    dim_sizes,
-    b_path,
-    load_type,
-    suffix,
-    check_regs,
-    sweep_pins=None,
-):
-    """Evaluate a batch of flat grid indices. Returns list of passing WeakScaleConfigs.
-
-    ALL filtering (dimension, occupancy, LDS, registers, sweep pins) is vectorized in
-    numpy. The Python per-config loop only runs for configs that pass every check, so
-    even multi-million batches are fast.
-    """
-    import numpy as np
-    from kittens_helpers import pipeline_strategy_stages
-
-    occ_arr = np.array(OCCUPANCY_TARGETS)
-    nm_arr = np.array(N_WG_MULTIPLIERS)
-    strat_arr = np.array(PIPELINE_STRATEGY_CONFIGS)
-    kf_arr = np.array(K_SCALING_FACTORS)
-
-    # Pre-compute a_stages and b_stages per strategy (small arrays).
-    strat_a = np.array(
-        [pipeline_strategy_stages(s)[0] for s in PIPELINE_STRATEGY_CONFIGS]
-    )
-    strat_b = np.array(
-        [pipeline_strategy_stages(s)[1] for s in PIPELINE_STRATEGY_CONFIGS]
-    )
-
-    # Unravel flat indices into per-dimension indices (7 dims).
-    multi = np.array(np.unravel_index(flat_indices, dim_sizes)).T
-    iw, iocc, inm, it, istrat, ik, iu = multi.T
-
-    # Look up actual values from per-dimension arrays.
-    mw = wave_arr[iw, 0]
-    nw = wave_arr[iw, 1]
-    occ = occ_arr[iocc]
-    n_mult = nm_arr[inm]
-    mtwg = tile_arr[it, 0]
-    ntwg = tile_arr[it, 1]
-    kt = tile_arr[it, 2]
-    strategy = strat_arr[istrat]
-    stages = strat_a[istrat]
-    b_stg = strat_b[istrat]
-    k_factor = kf_arr[ik]
-
-    # Derived quantities (vectorized).
+def _passes_resource_check(mw, nw, mtwg, ntwg, kt, a_stg, b_stg, nwgcu, is_direct):
+    """Check LDS and VGPR limits without constructing a WeakScaleConfig."""
     num_waves = mw * nw
-    waves_per_simd = (num_waves + _NUM_SIMDS - 1) // _NUM_SIMDS
-    num_wg_per_cu = occ // waves_per_simd
-    m_wg = _WG_BASE[0] * num_wg_per_cu
-    n_wg = _WG_BASE[1] * n_mult
-    k = k_factor * kt * 32
-    mt = np.where(mw > 0, mtwg // np.maximum(mw, 1), 0)
-    nt = np.where(nw > 0, ntwg // np.maximum(nw, 1), 0)
-    pipeline_depth = np.maximum(stages, b_stg)
+    mt, nt = mtwg // mw, ntwg // nw
+    ceildiv = lambda a, b: (a + b - 1) // b
 
-    # --- Vectorized filters (dimension + occupancy) ---
-    mask = np.ones(len(flat_indices), dtype=bool)
-    mask &= occ % waves_per_simd == 0
-    mask &= mtwg % mw == 0
-    mask &= ntwg % nw == 0
-    mask &= m_wg * mtwg * 16 >= MIN_DIM
-    mask &= n_wg * ntwg * 16 >= MIN_DIM
-    mask &= k >= MIN_DIM
-    k_iters = k // (kt * 32)
-    mask &= k_iters > pipeline_depth
-    mask &= mtwg >= num_waves
+    # LDS.
+    a_lds = a_stg * mtwg * kt * 1024
+    b_lds = 0 if is_direct else b_stg * ntwg * kt * 1024
+    if a_lds + b_lds > GPU_LDS_PER_CU // max(nwgcu, 1):
+        return False
 
-    # --- Vectorized sweep pin filter ---
-    if sweep_pins:
-        simd_occ = num_wg_per_cu * ((num_waves + _NUM_SIMDS - 1) // _NUM_SIMDS)
-        um_vals = np.array([unroll_cfgs[i][1] for i in iu])
-        lcm_vals = np.array([unroll_cfgs[i][0] for i in iu])
-        ep_vals = np.array([unroll_cfgs[i][2] for i in iu])
-        pin_arrays = {
-            "m_wg": m_wg,
-            "n_wg": n_wg,
-            "m_waves": mw,
-            "n_waves": nw,
-            "m_tiles_wg": mtwg,
-            "n_tiles_wg": ntwg,
-            "k_tiles": kt,
-            "pipeline_strategy": strategy,
-            "k_scaling_factor": k_factor,
-            "simd_occupancy": simd_occ,
-            "unroll_factor_multiplier": um_vals,
-            "lcm_unroll": lcm_vals,
-            "epilogue_peeling": ep_vals,
-        }
-        for attr, val in sweep_pins.items():
-            if attr in pin_arrays:
-                mask &= pin_arrays[attr] == val
+    # VGPR estimate (same formulas as WeakScaleConfig.estimated_vgprs).
+    waves_m = min(mtwg, num_waves)
+    waves_k_a = max(1, num_waves // max(waves_m, 1))
+    coop_a = ceildiv(mtwg, max(waves_m, 1)) * ceildiv(kt, max(waves_k_a, 1))
+    a_load = coop_a * a_stg * 4
+    a_read = mt * kt * 4
+    if is_direct:
+        b_load = nt * kt * b_stg * 4
+        b_split, overhead = nt * kt * 4, 30
+    else:
+        waves_n = min(ntwg, num_waves)
+        waves_k_b = max(1, num_waves // max(waves_n, 1))
+        coop_b = ceildiv(ntwg, max(waves_n, 1)) * ceildiv(kt, max(waves_k_b, 1))
+        b_load = coop_b * b_stg * 4
+        b_split, overhead = nt * kt * 4, 10
+    # 1.2x + 16 safety margin for spills/temporaries.
+    est_v = (a_load + a_read + b_load + b_split + overhead) * 6 // 5 + 16
+    est_a = mt * nt * 4
 
-    # --- Vectorized LDS + register checks ---
-    if check_regs:
-        is_direct_b = b_path in ("direct_b", "direct_ab")
-        a_lds = stages * mtwg * kt * 1024
-        b_lds = np.int64(0) if is_direct_b else b_stg * ntwg * kt * 1024
-        lds_bytes = a_lds + b_lds
-        lds_budget = np.int64(GPU_LDS_PER_CU) // np.maximum(num_wg_per_cu, 1)
-        mask &= lds_bytes <= lds_budget
-
-        # VGPR estimate.
-        waves_m = np.minimum(mtwg, num_waves)
-        waves_k_a = np.maximum(1, num_waves // np.maximum(waves_m, 1))
-        coop_m = (mtwg + waves_m - 1) // np.maximum(waves_m, 1)
-        coop_k_a = (kt + waves_k_a - 1) // np.maximum(waves_k_a, 1)
-        coop_a_mk = coop_m * coop_k_a
-
-        a_load_bufs = coop_a_mk * stages * 4
-        a_lds_read = mt * kt * 4
-        if is_direct_b:
-            b_load_bufs = nt * kt * b_stg * 4
-            b_split = nt * kt * 4
-            overhead = 30
-        else:
-            waves_n = np.minimum(ntwg, num_waves)
-            waves_k_b = np.maximum(1, num_waves // np.maximum(waves_n, 1))
-            coop_n = (ntwg + waves_n - 1) // np.maximum(waves_n, 1)
-            coop_k_b = (kt + waves_k_b - 1) // np.maximum(waves_k_b, 1)
-            coop_b_nk = coop_n * coop_k_b
-            b_load_bufs = coop_b_nk * b_stg * 4
-            b_split = nt * kt * 4
-            overhead = 10
-
-        est_vgprs = a_load_bufs + a_lds_read + b_load_bufs + b_split + overhead
-        # Safety margin: the estimate doesn't account for spill slots, address
-        # computation temporaries, or compiler-internal overhead.  Add 20% + 16
-        # to avoid borderline configs that pass the estimate but exceed CU
-        # limits after compilation.
-        est_vgprs = (est_vgprs * 6 + 4) // 5 + 16  # ~1.2x + 16, integer only
-        est_agprs = mt * nt * 4
-
-        mask &= est_vgprs <= GPU_MAX_VGPRS
-        mask &= est_agprs <= GPU_MAX_AGPRS
-        combined = est_vgprs + est_agprs
-        mask &= combined <= GPU_VGPRS_PER_SIMD
-        # Per-CU register file: total register lanes across all waves must fit
-        # in regsPerMultiprocessor (131072 on gfx942 = 512 * 4 * 64).
-        # lanes = align(regs, granule) * total_waves * warpSize <= regsPerMultiprocessor.
-        # total_waves = num_waves * num_wg_per_cu (all WGs sharing the CU).
-        # Source: clr/rocclr/device/rocm/rocdevice.cpp:1604.
-        g = np.int64(GPU_VGPR_GRANULE)
-        aligned = ((combined + g - 1) // g) * g
-        _WARP_SIZE = 64  # TODO: query from device
-        regs_per_mp = GPU_VGPRS_PER_SIMD * _NUM_SIMDS * _WARP_SIZE  # 131072
-        total_waves = num_waves * num_wg_per_cu
-        mask &= aligned * total_waves * _WARP_SIZE <= regs_per_mp
-
-    # --- Instantiate only fully-passing configs ---
-    configs = []
-    for i in np.where(mask)[0]:
-        lcm_val, um_val, ep_val = unroll_cfgs[iu[i]]
-        cfg = WeakScaleConfig(
-            int(m_wg[i]),
-            int(n_wg[i]),
-            int(mw[i]),
-            int(nw[i]),
-            int(mtwg[i]),
-            int(ntwg[i]),
-            int(kt[i]),
-            int(stages[i]),
-            int(k[i]),
-            load_type=load_type,
-            b_path=b_path,
-            b_stages=int(b_stg[i]),
-            num_wg_per_cu=int(num_wg_per_cu[i]),
-            lcm_unroll=bool(lcm_val),
-            unroll_factor_multiplier=int(um_val),
-            epilogue_peeling=bool(ep_val),
-            pipeline_strategy=int(strategy[i]),
-            _label_suffix=suffix,
-        )
-        configs.append(cfg)
-    return configs, int(np.sum(~mask))
+    if est_v > GPU_MAX_VGPRS or est_a > GPU_MAX_AGPRS:
+        return False
+    combined = est_v + est_a
+    if combined > GPU_VGPRS_PER_SIMD:
+        return False
+    # Per-CU register file check (clr/rocclr/device/rocm/rocdevice.cpp:1604).
+    aligned = ((combined + GPU_VGPR_GRANULE - 1) // GPU_VGPR_GRANULE) * GPU_VGPR_GRANULE
+    total_waves = num_waves * nwgcu
+    if aligned * total_waves * 64 > GPU_VGPRS_PER_SIMD * _NUM_SIMDS * 64:
+        return False
+    return True
 
 
 def _generate_configs(
     variants=None, sample_size=3000, check_regs=True, sweep_pins=None
 ):
-    """Generate sweep configs by sampling the grid -- never materializes the full product.
+    """Generate eligible configs via nested loops with early rejection.
 
-    The cartesian product across 8 dimensions can be 38M+ rows per variant.
-    Instead of building it all in memory, we:
-      1. Compute the total grid size per variant (just a product of dim lengths).
-      2. Sample random flat indices into the grid.
-      3. Unravel + compute + filter only the sampled rows (ALL filters vectorized).
-      4. Repeat in rounds if the acceptance rate is low.
-
-    sweep_pins is a dict {config_attr: value} applied vectorized in numpy.
-    O(sample_size) memory, not O(grid_size).
+    Filters are applied hierarchically -- dimension checks first, then LDS/register
+    checks -- so the inner loops only run for valid outer combos. Each variant gets an
+    equal share of the sample budget.
     """
-    import numpy as np
+    import random
+    from kittens_helpers import pipeline_strategy_stages
 
     if variants is None:
         variants = list(MLIR_FILES.keys())
-
-    rng = np.random.default_rng()
-    configs = []
-    total_filtered = 0
-    total_sampled = 0
-    total_grid = 0
-
-    import sys
-
-    for vi, (b_path, load_type) in enumerate(variants):
-        if (b_path, load_type) not in MLIR_FILES:
-            continue
-        dim_sizes, wave_arr, tile_arr, unroll_cfgs, suffix = _variant_grid_info(
-            b_path, load_type
-        )
-        grid_total = int(np.prod(dim_sizes))
-        total_grid += grid_total
-        print(
-            f"  [{vi+1}/{len(variants)}] {b_path}/{load_type}: " f"grid={grid_total:,}",
-            end="",
-            flush=True,
-        )
-
-        eval_args = (
-            wave_arr,
-            tile_arr,
-            unroll_cfgs,
-            dim_sizes,
-            b_path,
-            load_type,
-            suffix,
-            check_regs,
-            sweep_pins,
-        )
-
-        variant_accept = 0
-        variant_reject = 0
-        if sample_size <= 0:
-            # Full sweep: evaluate entire grid in chunks to bound memory.
-            chunk_size = 500_000
-            for start in range(0, grid_total, chunk_size):
-                end = min(start + chunk_size, grid_total)
-                batch_cfgs, nfilt = _eval_batch(np.arange(start, end), *eval_args)
-                configs.extend(batch_cfgs)
-                total_filtered += nfilt
-                total_sampled += end - start
-                variant_accept += len(batch_cfgs)
-                variant_reject += nfilt
-                print(
-                    f"\r  [{vi+1}/{len(variants)}] {b_path}/{load_type}: "
-                    f"grid={grid_total:,}, scanned={end:,}, "
-                    f"accept={variant_accept:,}, reject={variant_reject:,}",
-                    end="",
-                    flush=True,
-                )
-        else:
-            target = sample_size
-            seen = set()
-            batch_size = min(target * 10, grid_total)
-            max_rounds = 50
-            accept_count = 0
-            eval_count = 0
-            for round_idx in range(max_rounds):
-                draw_size = min(batch_size, grid_total - len(seen))
-                if draw_size <= 0:
-                    break
-                candidates = rng.choice(grid_total, size=draw_size, replace=False)
-                new = np.array([c for c in candidates if c not in seen])
-                if len(new) == 0:
-                    break
-                seen.update(new.tolist())
-                batch_cfgs, nfilt = _eval_batch(new, *eval_args)
-                total_filtered += nfilt
-                total_sampled += len(new)
-                eval_count += len(new)
-                accept_count += len(batch_cfgs)
-                variant_accept += len(batch_cfgs)
-                variant_reject += nfilt
-                configs.extend(batch_cfgs)
-                print(
-                    f"\r  [{vi+1}/{len(variants)}] {b_path}/{load_type}: "
-                    f"grid={grid_total:,}, sampled={eval_count:,}, "
-                    f"accept={variant_accept:,}, reject={variant_reject:,}",
-                    end="",
-                    flush=True,
-                )
-                if len(configs) >= target:
-                    break
-                if accept_count > 0 and round_idx >= 1:
-                    rate = accept_count / eval_count
-                    needed = target - len(configs)
-                    batch_size = min(int(needed / rate * 3) + 1000, grid_total)
-        print()  # newline after variant progress
-
-    if total_filtered:
-        print(f"{total_filtered} configs skipped by pre-compile filter")
-
-    total = len(configs)
-    # When sampling, the reported eligible count is only from sampled grid
-    # points. Extrapolate to give the user a sense of the full grid.
-    if sample_size > 0 and total_sampled > 0 and total_sampled < total_grid:
-        accept_rate = total / total_sampled
-        est_eligible = int(accept_rate * total_grid)
-        print(
-            f"Grid: {total_grid} total, sampled {total_sampled}, "
-            f"found {total} eligible (~{accept_rate:.1%} accept rate, "
-            f"~{est_eligible} estimated eligible in full grid)"
-        )
-    n = min(sample_size, total) if sample_size > 0 else total
-    if n < total:
-        configs = _stratified_sample(configs, n)
-    shapes = {
-        (c.m_waves, c.n_waves, c.m_tiles_wg, c.n_tiles_wg, c.k_tiles) for c in configs
-    }
-    if n < total:
-        print(
-            f"Compiling {len(configs)} / {total} eligible configs ({len(shapes)} distinct shapes)"
-        )
-    else:
-        print(f"Compiling all {total} eligible configs ({len(shapes)} distinct shapes)")
-    return configs
-
-
-def _stratified_sample(configs, n):
-    """Sample uniformly across structural kernel shapes, then within each.
-
-    The cartesian grid produces many micro-variants (stages, k_factor, unroll) per
-    distinct kernel shape (waves, tiles, k_tiles, path). Flat random.sample over-
-    represents shapes that have many surviving micro-variants. Stratified sampling
-    ensures diverse shape coverage and returns exactly n configs (or all configs if
-    fewer than n exist).
-    """
-    import random
-    from collections import defaultdict
-
-    buckets = defaultdict(list)
-    for cfg in configs:
-        key = (
-            cfg.m_waves,
-            cfg.n_waves,
-            cfg.m_tiles_wg,
-            cfg.n_tiles_wg,
-            cfg.k_tiles,
-            cfg.b_path,
-            cfg.load_type,
-        )
-        buckets[key].append(cfg)
-
-    num_shapes = len(buckets)
-    if num_shapes == 0:
+    active = [(bp, lt) for bp, lt in variants if (bp, lt) in MLIR_FILES]
+    if not active:
         return []
 
-    # Shuffle groups internally so we pick different micro-variants each run.
-    for group in buckets.values():
-        random.shuffle(group)
+    per_variant = max(sample_size // len(active), 1) if sample_size > 0 else 0
 
-    # Round-robin allocation: give each shape a fair base quota, then
-    # redistribute any unfilled slots (small shapes) to larger shapes.
-    remaining = n
-    quotas = {}
-    base = remaining // num_shapes
-    extra = remaining - base * num_shapes
-    keys = list(buckets.keys())
-    random.shuffle(keys)
-    for i, key in enumerate(keys):
-        quotas[key] = base + (1 if i < extra else 0)
+    # Build the "flag" configs: all boolean/unroll combos as a flat list of tuples.
+    flag_cfgs = [
+        (lcm, um, ep, ll, hw)
+        for lcm in LCM_UNROLL_CONFIGS
+        for um in (UNROLL_MULTIPLIERS if lcm else [1])
+        for ep in EPILOGUE_PEELING_CONFIGS
+        for ll in LL_SCHED_CONFIGS
+        for hw in HOIST_WAIT_CONFIGS
+    ]
 
-    # First pass: fill quotas, track underfilled shapes.
-    result = []
-    surplus = 0
-    underfilled = []
-    for key in keys:
-        group = buckets[key]
-        quota = quotas[key]
-        take = min(quota, len(group))
-        result.extend(group[:take])
-        if take < quota:
-            surplus += quota - take
-        else:
-            underfilled.append(key)
+    strat_stages = {s: pipeline_strategy_stages(s) for s in PIPELINE_STRATEGY_CONFIGS}
+    _pin = lambda key, val: (
+        not sweep_pins or key not in sweep_pins or sweep_pins[key] == val
+    )
+    all_configs = []
+    total_eligible = 0
 
-    # Second pass: distribute surplus to shapes that have leftover configs.
-    if surplus > 0:
-        available = [
-            (key, len(buckets[key]) - quotas[key])
-            for key in keys
-            if len(buckets[key]) > quotas[key]
-        ]
-        random.shuffle(available)
-        for key, headroom in available:
-            give = min(surplus, headroom)
-            if give <= 0:
+    for vi, (b_path, load_type) in enumerate(active):
+        suffix = _make_label_suffix(b_path, load_type)
+        is_direct = b_path in ("direct_b", "direct_ab")
+        eligible = []
+
+        for mw, nw in WAVE_CONFIGS:
+            if not (_pin("m_waves", mw) and _pin("n_waves", nw)):
                 continue
-            already = quotas[key]
-            result.extend(buckets[key][already : already + give])
-            surplus -= give
-            if surplus <= 0:
-                break
+            nwaves = mw * nw
+            wps = (nwaves + _NUM_SIMDS - 1) // _NUM_SIMDS
 
-    random.shuffle(result)
-    return result
+            for occ in OCCUPANCY_TARGETS:
+                if occ % wps != 0:
+                    continue
+                nwgcu = occ // wps
+                m_wg = _WG_BASE[0] * nwgcu
+                simd_occ = nwgcu * wps
+                if not (_pin("m_wg", m_wg) and _pin("simd_occupancy", simd_occ)):
+                    continue
+
+                for n_mult in N_WG_MULTIPLIERS:
+                    n_wg = _WG_BASE[1] * n_mult
+                    if not _pin("n_wg", n_wg):
+                        continue
+
+                    for mtwg, ntwg, kt in TILE_WG_CONFIGS:
+                        if (
+                            mtwg % mw != 0
+                            or ntwg % nw != 0
+                            or mtwg < nwaves
+                            or m_wg * mtwg * 16 < MIN_DIM
+                            or n_wg * ntwg * 16 < MIN_DIM
+                        ):
+                            continue
+                        if not (
+                            _pin("m_tiles_wg", mtwg)
+                            and _pin("n_tiles_wg", ntwg)
+                            and _pin("k_tiles", kt)
+                        ):
+                            continue
+
+                        for strategy in PIPELINE_STRATEGY_CONFIGS:
+                            a_stg, b_stg = strat_stages[strategy]
+                            depth = max(a_stg, b_stg)
+                            if depth > a_stg:
+                                continue
+                            if not _pin("pipeline_strategy", strategy):
+                                continue
+                            if check_regs and not _passes_resource_check(
+                                mw,
+                                nw,
+                                mtwg,
+                                ntwg,
+                                kt,
+                                a_stg,
+                                b_stg,
+                                nwgcu,
+                                is_direct,
+                            ):
+                                continue
+
+                            for k_factor in K_SCALING_FACTORS:
+                                k = k_factor * kt * 32
+                                if k < MIN_DIM or k_factor <= depth:
+                                    continue
+                                if not _pin("k_scaling_factor", k_factor):
+                                    continue
+
+                                for lcm, um, ep, ll, hw in flag_cfgs:
+                                    if not (
+                                        _pin("unroll_factor_multiplier", um)
+                                        and _pin("lcm_unroll", lcm)
+                                        and _pin("epilogue_peeling", ep)
+                                        and _pin("ll_sched", ll)
+                                        and _pin("hoist_wait", hw)
+                                    ):
+                                        continue
+                                    eligible.append(
+                                        WeakScaleConfig(
+                                            m_wg,
+                                            n_wg,
+                                            mw,
+                                            nw,
+                                            mtwg,
+                                            ntwg,
+                                            kt,
+                                            a_stg,
+                                            k,
+                                            load_type=load_type,
+                                            b_path=b_path,
+                                            b_stages=b_stg,
+                                            num_wg_per_cu=nwgcu,
+                                            lcm_unroll=lcm,
+                                            unroll_factor_multiplier=um,
+                                            epilogue_peeling=ep,
+                                            ll_sched=ll,
+                                            hoist_wait=hw,
+                                            pipeline_strategy=strategy,
+                                            _label_suffix=suffix,
+                                        )
+                                    )
+
+        n_eligible = len(eligible)
+        total_eligible += n_eligible
+        if per_variant > 0 and n_eligible > per_variant:
+            eligible = random.sample(eligible, per_variant)
+        all_configs.extend(eligible)
+        print(
+            f"  [{vi+1}/{len(active)}] {b_path}/{load_type}: "
+            f"{n_eligible:,} eligible, {len(eligible):,} selected"
+        )
+
+    print(f"Total: {total_eligible:,} eligible, {len(all_configs):,} selected")
+    return all_configs
 
 
 def _repro_cmd(cfg, num_iterations):
@@ -681,7 +421,9 @@ def _make_config_from_args(args, load_type, b_path):
     k = args.k_scaling_factor * args.k_tiles * 32
     suffix = _make_label_suffix(b_path, load_type)
     # pipeline_strategy is the primary control; a_stages/b_stages derived in __post_init__.
-    ps = getattr(args, "pipeline_strategy", -1)
+    ps = getattr(args, "pipeline_strategy", None)
+    if ps is None:
+        ps = 0
     return WeakScaleConfig(
         args.m_wg,
         args.n_wg,
@@ -852,11 +594,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--pipeline-strategy",
         type=int,
-        default=-1,
-        choices=range(-1, 11),
+        default=None,
+        choices=range(0, 11),
         metavar="{0..10}",
         help="Pipeline strategy (0=none, 5+=hoist-wait guaranteed, 10=max). "
-        "Overrides --a-stages when >= 0.",
+        "Default: 0 for single-config, sweep all for --sweep/--full-sweep.",
     )
 
     args = parser.parse_args()
@@ -935,28 +677,14 @@ if __name__ == "__main__":
         }
         sweep_pins = make_sweep_pins(args, _SWEEP_ATTR_MAP)
 
+        compile_budget = getattr(args, "compile_sample", 4096)
+
         all_configs = _generate_configs(
             variants,
-            sample_size=getattr(args, "compile_sample", 4096),
+            sample_size=compile_budget,
             check_regs=not getattr(args, "no_reg_filter", False),
             sweep_pins=sweep_pins,
         )
-        # Propagate pipeline flags. None = sweep both on/off (duplicate configs).
-        # lcm_unroll/epilogue_peeling are already in the grid via unroll_cfgs
-        # and filtered via sweep_pins, so only ll_sched/hoist_wait need expansion.
-        expanded = []
-        ll_vals = [True, False] if args.ll_sched is None else [args.ll_sched]
-        hw_vals = [True, False] if args.hoist_wait is None else [args.hoist_wait]
-        import copy
-
-        for cfg in all_configs:
-            for ll in ll_vals:
-                for hw in hw_vals:
-                    c = copy.copy(cfg)
-                    c.ll_sched = ll
-                    c.hoist_wait = hw
-                    expanded.append(c)
-        all_configs = expanded
 
         def _post_compile_filter(cfg, res):
             """Post-compilation filter: reject configs exceeding VGPR or LDS limits."""
