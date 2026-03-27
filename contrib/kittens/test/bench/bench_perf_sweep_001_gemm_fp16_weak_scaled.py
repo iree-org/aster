@@ -106,11 +106,10 @@ GPU_VGPR_GRANULE = _dev.vgpr_alloc_granule if _dev else 8
 
 # Sweep grid -- 16x16 MFMA with dwordx4: 4 VGPRs per C tile (vs 16 for 32x32).
 # More tiles feasible per wave, so wider multiples than 32x32 variant.
-STAGE_CONFIGS = [2, 3, 4, 5]  # A pipeline depth (LDS path stages)
-# B pipeline depth for direct_b (independent from A).
-# b_stages = gap between b_load and b_compute + 1.
-# 1 = B not pipelined; 2 = 1 stage lookahead; 3-6 = deeper lookahead.
-B_STAGE_CONFIGS = [1, 2, 3, 4, 5, 6]
+# Pipeline strategies to sweep. Each integer selects from PIPELINE_STRATEGIES
+# in kittens_helpers.py (0=no pipeline, 10=max depth). Higher strategies use
+# more VGPRs and LDS, so fewer configs pass the resource filter.
+PIPELINE_STRATEGY_CONFIGS = [1, 3, 5, 6, 7, 9]
 # Wave configs: multiples-of-4 wave counts split across MxN.
 # n_waves must be a power of 2 (delinearize from 1-D block ID).
 _WAVE_BASES = [(1, 4), (2, 2), (4, 1)]
@@ -154,36 +153,12 @@ LCM_UNROLL_CONFIGS = [True, False]
 UNROLL_MULTIPLIERS = [1, 2, 3]
 # Epilogue peeling: fully unroll cleanup loop after LCM unrolling.
 EPILOGUE_PEELING_CONFIGS = [True, False]
+# Low-level instruction scheduler on/off.
+LL_SCHED_CONFIGS = [True, False]
+# Hoist iter_arg waits to loop head on/off.
+HOIST_WAIT_CONFIGS = [True, False]
 
 MIN_DIM = 2000  # Skip configs where M, N, or K < 3000
-
-
-def _precompile_reject_reason(cfg, check_regs=True):
-    """Return rejection reason string, or None if config passes pre-compile filter."""
-    from aster.compiler.metadata import KernelResources
-
-    # Pipeline depth must not exceed K-tile iterations.
-    k_iters = cfg.k // (cfg.k_tiles * 32)
-    if k_iters <= cfg.pipeline_depth:
-        return f"K iterations ({k_iters}) <= pipeline depth ({cfg.pipeline_depth})"
-
-    # Reject underprovisioned configs: more waves than spatial tiles wastes waves.
-    if cfg.m_tiles_wg < cfg.num_waves:
-        return f"m_tiles_wg={cfg.m_tiles_wg} < num_waves={cfg.num_waves}"
-
-    # Deep B pipelining: b_stages that shifts A up causes data hazards atm.
-    # Safe when pipeline_depth == a_stages (B fits within A's depth).
-    # TODO: fix this in the compiler.
-    if cfg.pipeline_depth > cfg.a_stages:
-        return f"b_stages={cfg.b_stages} forces depth={cfg.pipeline_depth} > a_stages={cfg.a_stages}"
-
-    est = KernelResources(
-        vgpr_count=cfg.estimated_vgprs if check_regs else 0,
-        agpr_count=cfg.estimated_agprs if check_regs else 0,
-        lds_bytes=cfg.lds_bytes,
-    )
-    violations = est.check_occupancy(cfg.num_threads, num_wg_per_cu=cfg.num_wg_per_cu)
-    return violations[0] if violations else None
 
 
 def fits_on_cu_post_compile(cfg, res):
@@ -206,442 +181,237 @@ def _make_label_suffix(b_path, load_type):
     return f"_direct_{lt}" if b_path == "direct" else f"_{lt}"
 
 
-def _variant_grid_info(b_path, load_type):
-    """Return (dim_sizes, wave_arr, tile_arr, unroll_cfgs, b_cfgs, suffix) for a variant.
-
-    dim_sizes is a tuple of per-axis lengths for the 8-dim cartesian product:
-      (waves, occupancy, n_mult, tiles, stages, b_stages, k_factors, unroll).
-    """
-    import numpy as np
-
-    suffix = _make_label_suffix(b_path, load_type)
-    b_cfgs = B_STAGE_CONFIGS if b_path == "direct_b" else [0]
-    unroll_cfgs = []
-    for lcm in LCM_UNROLL_CONFIGS:
-        for um in UNROLL_MULTIPLIERS if lcm else [1]:
-            for ep in EPILOGUE_PEELING_CONFIGS:
-                unroll_cfgs.append((lcm, um, ep))
-    wave_arr = np.array(WAVE_CONFIGS)
-    tile_arr = np.array(TILE_WG_CONFIGS)
-    dim_sizes = (
-        len(wave_arr),
-        len(OCCUPANCY_TARGETS),
-        len(N_WG_MULTIPLIERS),
-        len(tile_arr),
-        len(STAGE_CONFIGS),
-        len(b_cfgs),
-        len(K_SCALING_FACTORS),
-        len(unroll_cfgs),
-    )
-    return dim_sizes, wave_arr, tile_arr, unroll_cfgs, b_cfgs, suffix
-
-
-def _eval_batch(
-    flat_indices,
-    wave_arr,
-    tile_arr,
-    unroll_cfgs,
-    b_cfgs,
-    dim_sizes,
-    b_path,
-    load_type,
-    suffix,
-    check_regs,
-    sweep_pins=None,
-):
-    """Evaluate a batch of flat grid indices. Returns list of passing WeakScaleConfigs.
-
-    ALL filtering (dimension, occupancy, LDS, registers, sweep pins) is vectorized in
-    numpy. The Python per-config loop only runs for configs that pass every check, so
-    even multi-million batches are fast.
-    """
-    import numpy as np
-
-    occ_arr = np.array(OCCUPANCY_TARGETS)
-    nm_arr = np.array(N_WG_MULTIPLIERS)
-    stg_arr = np.array(STAGE_CONFIGS)
-    bstg_arr = np.array(b_cfgs)
-    kf_arr = np.array(K_SCALING_FACTORS)
-
-    # Unravel flat indices into per-dimension indices.
-    multi = np.array(np.unravel_index(flat_indices, dim_sizes)).T  # (B, 8)
-    iw, iocc, inm, it, ist, ib, ik, iu = multi.T
-
-    # Look up actual values from per-dimension arrays.
-    mw = wave_arr[iw, 0]
-    nw = wave_arr[iw, 1]
-    occ = occ_arr[iocc]
-    n_mult = nm_arr[inm]
-    mtwg = tile_arr[it, 0]
-    ntwg = tile_arr[it, 1]
-    kt = tile_arr[it, 2]
-    stages = stg_arr[ist]
-    b_stg = bstg_arr[ib]
-    k_factor = kf_arr[ik]
-
-    # Derived quantities (vectorized).
+def _passes_resource_check(mw, nw, mtwg, ntwg, kt, a_stg, b_stg, nwgcu, is_direct):
+    """Check LDS and VGPR limits without constructing a WeakScaleConfig."""
     num_waves = mw * nw
-    waves_per_simd = (num_waves + _NUM_SIMDS - 1) // _NUM_SIMDS
-    num_wg_per_cu = occ // waves_per_simd
-    m_wg = _WG_BASE[0] * num_wg_per_cu
-    n_wg = _WG_BASE[1] * n_mult
-    k = k_factor * kt * 32
-    mt = np.where(mw > 0, mtwg // np.maximum(mw, 1), 0)
-    nt = np.where(nw > 0, ntwg // np.maximum(nw, 1), 0)
-    eff_b_stg = np.where(b_stg > 0, b_stg, stages)
+    mt, nt = mtwg // mw, ntwg // nw
+    ceildiv = lambda a, b: (a + b - 1) // b
 
-    # --- Vectorized filters (dimension + occupancy) ---
-    mask = np.ones(len(flat_indices), dtype=bool)
-    mask &= occ % waves_per_simd == 0
-    mask &= mtwg % mw == 0
-    mask &= ntwg % nw == 0
-    mask &= m_wg * mtwg * 16 >= MIN_DIM
-    mask &= n_wg * ntwg * 16 >= MIN_DIM
-    mask &= k >= MIN_DIM
-    k_iters = k // (kt * 32)
-    pipeline_depth = np.maximum(stages, eff_b_stg)
-    mask &= k_iters > pipeline_depth
-    mask &= mtwg >= num_waves
-    mask &= pipeline_depth <= stages
+    # LDS.
+    a_lds = a_stg * mtwg * kt * 1024
+    b_lds = 0 if is_direct else b_stg * ntwg * kt * 1024
+    if a_lds + b_lds > GPU_LDS_PER_CU // max(nwgcu, 1):
+        return False
 
-    # --- Vectorized sweep pin filter ---
-    if sweep_pins:
-        # Compute derived quantities needed for some pins.
-        simd_occ = num_wg_per_cu * ((num_waves + _NUM_SIMDS - 1) // _NUM_SIMDS)
-        # unroll_factor_multiplier is per-config from unroll_cfgs.
-        um_vals = np.array([unroll_cfgs[i][1] for i in iu])
-        pin_arrays = {
-            "m_wg": m_wg,
-            "n_wg": n_wg,
-            "m_waves": mw,
-            "n_waves": nw,
-            "m_tiles_wg": mtwg,
-            "n_tiles_wg": ntwg,
-            "k_tiles": kt,
-            "a_stages": stages,
-            "k_scaling_factor": k_factor,
-            "simd_occupancy": simd_occ,
-            "unroll_factor_multiplier": um_vals,
-        }
-        for attr, val in sweep_pins.items():
-            if attr in pin_arrays:
-                mask &= pin_arrays[attr] == val
+    # VGPR estimate (same formulas as WeakScaleConfig.estimated_vgprs).
+    waves_m = min(mtwg, num_waves)
+    waves_k_a = max(1, num_waves // max(waves_m, 1))
+    coop_a = ceildiv(mtwg, max(waves_m, 1)) * ceildiv(kt, max(waves_k_a, 1))
+    a_load = coop_a * a_stg * 4
+    a_read = mt * kt * 4
+    if is_direct:
+        b_load = nt * kt * b_stg * 4
+        b_split, overhead = nt * kt * 4, 30
+    else:
+        waves_n = min(ntwg, num_waves)
+        waves_k_b = max(1, num_waves // max(waves_n, 1))
+        coop_b = ceildiv(ntwg, max(waves_n, 1)) * ceildiv(kt, max(waves_k_b, 1))
+        b_load = coop_b * b_stg * 4
+        b_split, overhead = nt * kt * 4, 10
+    # 1.2x + 16 safety margin for spills/temporaries.
+    est_v = (a_load + a_read + b_load + b_split + overhead) * 6 // 5 + 16
+    est_a = mt * nt * 4
 
-    # --- Vectorized LDS + register checks (replaces _precompile_reject_reason) ---
-    if check_regs:
-        # LDS: a_stages * m_tiles_wg * k_tiles * 1024 + eff_b_stages * n_tiles_wg * k_tiles * 1024
-        is_direct_b = b_path in ("direct_b", "direct_ab")
-        a_lds = stages * mtwg * kt * 1024
-        b_lds = np.int64(0) if is_direct_b else eff_b_stg * ntwg * kt * 1024
-        lds_bytes = a_lds + b_lds
-        lds_budget = np.int64(GPU_LDS_PER_CU) // np.maximum(num_wg_per_cu, 1)
-        mask &= lds_bytes <= lds_budget
-
-        # VGPR estimate (vectorized version of estimated_vgprs).
-        # Cooperative split for A: coop_m * coop_k
-        waves_m = np.minimum(mtwg, num_waves)
-        waves_k_a = np.maximum(1, num_waves // np.maximum(waves_m, 1))
-        coop_m = (mtwg + waves_m - 1) // np.maximum(waves_m, 1)
-        coop_k_a = (kt + waves_k_a - 1) // np.maximum(waves_k_a, 1)
-        coop_a_mk = coop_m * coop_k_a
-
-        a_load_bufs = coop_a_mk * stages * 4
-        a_lds_read = mt * kt * 4
-        if is_direct_b:
-            b_load_bufs = nt * kt * eff_b_stg * 4
-            b_split = nt * kt * 4
-            overhead = 30
-        else:
-            waves_n = np.minimum(ntwg, num_waves)
-            waves_k_b = np.maximum(1, num_waves // np.maximum(waves_n, 1))
-            coop_n = (ntwg + waves_n - 1) // np.maximum(waves_n, 1)
-            coop_k_b = (kt + waves_k_b - 1) // np.maximum(waves_k_b, 1)
-            coop_b_nk = coop_n * coop_k_b
-            b_load_bufs = coop_b_nk * stages * 4
-            b_split = nt * kt * 4
-            overhead = 10
-
-        est_vgprs = a_load_bufs + a_lds_read + b_load_bufs + b_split + overhead
-        # Safety margin: the estimate doesn't account for spill slots, address
-        # computation temporaries, or compiler-internal overhead.  Add 20% + 16
-        # to avoid borderline configs that pass the estimate but exceed CU
-        # limits after compilation.
-        est_vgprs = (est_vgprs * 6 + 4) // 5 + 16  # ~1.2x + 16, integer only
-        est_agprs = mt * nt * 4
-
-        # Per-wave limits.
-        mask &= est_vgprs <= GPU_MAX_VGPRS
-        mask &= est_agprs <= GPU_MAX_AGPRS
-        combined = est_vgprs + est_agprs
-        mask &= combined <= GPU_VGPRS_PER_SIMD
-        # Per-CU register file: total register lanes across all waves must fit
-        # in regsPerMultiprocessor (131072 on gfx942 = 512 * 4 * 64).
-        # lanes = align(regs, granule) * total_waves * warpSize <= regsPerMultiprocessor.
-        # total_waves = num_waves * num_wg_per_cu (all WGs sharing the CU).
-        # Source: clr/rocclr/device/rocm/rocdevice.cpp:1604.
-        g = np.int64(GPU_VGPR_GRANULE)
-        aligned = ((combined + g - 1) // g) * g
-        _WARP_SIZE = 64  # TODO: query from device
-        regs_per_mp = GPU_VGPRS_PER_SIMD * _NUM_SIMDS * _WARP_SIZE  # 131072
-        total_waves = num_waves * num_wg_per_cu
-        mask &= aligned * total_waves * _WARP_SIZE <= regs_per_mp
-
-    # --- Instantiate only fully-passing configs (fast: small survivor set) ---
-    configs = []
-    for i in np.where(mask)[0]:
-        lcm_val, um_val, ep_val = unroll_cfgs[iu[i]]
-        cfg = WeakScaleConfig(
-            int(m_wg[i]),
-            int(n_wg[i]),
-            int(mw[i]),
-            int(nw[i]),
-            int(mtwg[i]),
-            int(ntwg[i]),
-            int(kt[i]),
-            int(stages[i]),
-            int(k[i]),
-            load_type=load_type,
-            b_path=b_path,
-            b_stages=int(b_stg[i]),
-            num_wg_per_cu=int(num_wg_per_cu[i]),
-            lcm_unroll=bool(lcm_val),
-            unroll_factor_multiplier=int(um_val),
-            epilogue_peeling=bool(ep_val),
-            _label_suffix=suffix,
-        )
-        configs.append(cfg)
-    return configs, int(np.sum(~mask))
+    if est_v > GPU_MAX_VGPRS or est_a > GPU_MAX_AGPRS:
+        return False
+    combined = est_v + est_a
+    if combined > GPU_VGPRS_PER_SIMD:
+        return False
+    # Per-CU register file check (clr/rocclr/device/rocm/rocdevice.cpp:1604).
+    aligned = ((combined + GPU_VGPR_GRANULE - 1) // GPU_VGPR_GRANULE) * GPU_VGPR_GRANULE
+    total_waves = num_waves * nwgcu
+    if aligned * total_waves * 64 > GPU_VGPRS_PER_SIMD * _NUM_SIMDS * 64:
+        return False
+    return True
 
 
 def _generate_configs(
     variants=None, sample_size=3000, check_regs=True, sweep_pins=None
 ):
-    """Generate sweep configs by sampling the grid -- never materializes the full product.
+    """Generate eligible configs via nested loops with early rejection.
 
-    The cartesian product across 8 dimensions can be 38M+ rows per variant.
-    Instead of building it all in memory, we:
-      1. Compute the total grid size per variant (just a product of dim lengths).
-      2. Sample random flat indices into the grid.
-      3. Unravel + compute + filter only the sampled rows (ALL filters vectorized).
-      4. Repeat in rounds if the acceptance rate is low.
-
-    sweep_pins is a dict {config_attr: value} applied vectorized in numpy.
-    O(sample_size) memory, not O(grid_size).
+    Filters are applied hierarchically -- dimension checks first, then LDS/register
+    checks -- so the inner loops only run for valid outer combos. Each variant gets an
+    equal share of the sample budget.
     """
-    import numpy as np
+    import random
+    from kittens_helpers import pipeline_strategy_stages
 
     if variants is None:
         variants = list(MLIR_FILES.keys())
-
-    rng = np.random.default_rng()
-    configs = []
-    total_filtered = 0
-    total_sampled = 0
-    total_grid = 0
-
-    for b_path, load_type in variants:
-        if (b_path, load_type) not in MLIR_FILES:
-            continue
-        dim_sizes, wave_arr, tile_arr, unroll_cfgs, b_cfgs, suffix = _variant_grid_info(
-            b_path, load_type
-        )
-        grid_total = int(np.prod(dim_sizes))
-        total_grid += grid_total
-
-        eval_args = (
-            wave_arr,
-            tile_arr,
-            unroll_cfgs,
-            b_cfgs,
-            dim_sizes,
-            b_path,
-            load_type,
-            suffix,
-            check_regs,
-            sweep_pins,
-        )
-
-        if sample_size <= 0:
-            # Full sweep: evaluate entire grid in chunks to bound memory.
-            chunk_size = 500_000
-            for start in range(0, grid_total, chunk_size):
-                end = min(start + chunk_size, grid_total)
-                batch_cfgs, nfilt = _eval_batch(np.arange(start, end), *eval_args)
-                configs.extend(batch_cfgs)
-                total_filtered += nfilt
-                total_sampled += end - start
-        else:
-            # Sampled sweep: draw random indices in rounds.
-            # All filters (including sweep_pins) are vectorized in _eval_batch,
-            # so target means post-all-filter count.
-            target = sample_size
-            seen = set()
-            batch_size = min(target * 10, grid_total)
-            max_rounds = 50
-            accept_count = 0
-            eval_count = 0
-            for round_idx in range(max_rounds):
-                draw_size = min(batch_size, grid_total - len(seen))
-                if draw_size <= 0:
-                    break
-                candidates = rng.choice(grid_total, size=draw_size, replace=False)
-                new = np.array([c for c in candidates if c not in seen])
-                if len(new) == 0:
-                    break
-                seen.update(new.tolist())
-                batch_cfgs, nfilt = _eval_batch(new, *eval_args)
-                total_filtered += nfilt
-                total_sampled += len(new)
-                eval_count += len(new)
-                accept_count += len(batch_cfgs)
-                configs.extend(batch_cfgs)
-                if len(configs) >= target:
-                    break
-                # Adapt batch size based on observed acceptance rate.
-                if accept_count > 0 and round_idx >= 1:
-                    rate = accept_count / eval_count
-                    needed = target - len(configs)
-                    batch_size = min(int(needed / rate * 3) + 1000, grid_total)
-
-    if total_filtered:
-        print(f"{total_filtered} configs skipped by pre-compile filter")
-
-    total = len(configs)
-    # When sampling, the reported eligible count is only from sampled grid
-    # points. Extrapolate to give the user a sense of the full grid.
-    if sample_size > 0 and total_sampled > 0 and total_sampled < total_grid:
-        accept_rate = total / total_sampled
-        est_eligible = int(accept_rate * total_grid)
-        print(
-            f"Grid: {total_grid} total, sampled {total_sampled}, "
-            f"found {total} eligible (~{accept_rate:.1%} accept rate, "
-            f"~{est_eligible} estimated eligible in full grid)"
-        )
-    n = min(sample_size, total) if sample_size > 0 else total
-    if n < total:
-        configs = _stratified_sample(configs, n)
-    shapes = {
-        (c.m_waves, c.n_waves, c.m_tiles_wg, c.n_tiles_wg, c.k_tiles) for c in configs
-    }
-    if n < total:
-        print(
-            f"Compiling {len(configs)} / {total} eligible configs ({len(shapes)} distinct shapes)"
-        )
-    else:
-        print(f"Compiling all {total} eligible configs ({len(shapes)} distinct shapes)")
-    return configs
-
-
-def _stratified_sample(configs, n):
-    """Sample uniformly across structural kernel shapes, then within each.
-
-    The cartesian grid produces many micro-variants (stages, k_factor, unroll) per
-    distinct kernel shape (waves, tiles, k_tiles, path). Flat random.sample over-
-    represents shapes that have many surviving micro-variants. Stratified sampling
-    ensures diverse shape coverage and returns exactly n configs (or all configs if
-    fewer than n exist).
-    """
-    import random
-    from collections import defaultdict
-
-    buckets = defaultdict(list)
-    for cfg in configs:
-        key = (
-            cfg.m_waves,
-            cfg.n_waves,
-            cfg.m_tiles_wg,
-            cfg.n_tiles_wg,
-            cfg.k_tiles,
-            cfg.b_path,
-            cfg.load_type,
-        )
-        buckets[key].append(cfg)
-
-    num_shapes = len(buckets)
-    if num_shapes == 0:
+    active = [(bp, lt) for bp, lt in variants if (bp, lt) in MLIR_FILES]
+    if not active:
         return []
 
-    # Shuffle groups internally so we pick different micro-variants each run.
-    for group in buckets.values():
-        random.shuffle(group)
+    per_variant = max(sample_size // len(active), 1) if sample_size > 0 else 0
 
-    # Round-robin allocation: give each shape a fair base quota, then
-    # redistribute any unfilled slots (small shapes) to larger shapes.
-    remaining = n
-    quotas = {}
-    base = remaining // num_shapes
-    extra = remaining - base * num_shapes
-    keys = list(buckets.keys())
-    random.shuffle(keys)
-    for i, key in enumerate(keys):
-        quotas[key] = base + (1 if i < extra else 0)
+    # Build the "flag" configs: all boolean/unroll combos as a flat list of tuples.
+    flag_cfgs = [
+        (lcm, um, ep, ll, hw)
+        for lcm in LCM_UNROLL_CONFIGS
+        for um in (UNROLL_MULTIPLIERS if lcm else [1])
+        for ep in EPILOGUE_PEELING_CONFIGS
+        for ll in LL_SCHED_CONFIGS
+        for hw in HOIST_WAIT_CONFIGS
+    ]
 
-    # First pass: fill quotas, track underfilled shapes.
-    result = []
-    surplus = 0
-    underfilled = []
-    for key in keys:
-        group = buckets[key]
-        quota = quotas[key]
-        take = min(quota, len(group))
-        result.extend(group[:take])
-        if take < quota:
-            surplus += quota - take
-        else:
-            underfilled.append(key)
+    strat_stages = {s: pipeline_strategy_stages(s) for s in PIPELINE_STRATEGY_CONFIGS}
+    _pin = lambda key, val: (
+        not sweep_pins or key not in sweep_pins or sweep_pins[key] == val
+    )
+    all_configs = []
+    total_eligible = 0
 
-    # Second pass: distribute surplus to shapes that have leftover configs.
-    if surplus > 0:
-        available = [
-            (key, len(buckets[key]) - quotas[key])
-            for key in keys
-            if len(buckets[key]) > quotas[key]
-        ]
-        random.shuffle(available)
-        for key, headroom in available:
-            give = min(surplus, headroom)
-            if give <= 0:
+    for vi, (b_path, load_type) in enumerate(active):
+        suffix = _make_label_suffix(b_path, load_type)
+        is_direct = b_path in ("direct_b", "direct_ab")
+        eligible = []
+
+        for mw, nw in WAVE_CONFIGS:
+            if not (_pin("m_waves", mw) and _pin("n_waves", nw)):
                 continue
-            already = quotas[key]
-            result.extend(buckets[key][already : already + give])
-            surplus -= give
-            if surplus <= 0:
-                break
+            nwaves = mw * nw
+            wps = (nwaves + _NUM_SIMDS - 1) // _NUM_SIMDS
 
-    random.shuffle(result)
-    return result
+            for occ in OCCUPANCY_TARGETS:
+                if occ % wps != 0:
+                    continue
+                nwgcu = occ // wps
+                m_wg = _WG_BASE[0] * nwgcu
+                simd_occ = nwgcu * wps
+                if not (_pin("m_wg", m_wg) and _pin("simd_occupancy", simd_occ)):
+                    continue
+
+                for n_mult in N_WG_MULTIPLIERS:
+                    n_wg = _WG_BASE[1] * n_mult
+                    if not _pin("n_wg", n_wg):
+                        continue
+
+                    for mtwg, ntwg, kt in TILE_WG_CONFIGS:
+                        if (
+                            mtwg % mw != 0
+                            or ntwg % nw != 0
+                            or mtwg < nwaves
+                            or m_wg * mtwg * 16 < MIN_DIM
+                            or n_wg * ntwg * 16 < MIN_DIM
+                        ):
+                            continue
+                        if not (
+                            _pin("m_tiles_wg", mtwg)
+                            and _pin("n_tiles_wg", ntwg)
+                            and _pin("k_tiles", kt)
+                        ):
+                            continue
+
+                        for strategy in PIPELINE_STRATEGY_CONFIGS:
+                            a_stg, b_stg = strat_stages[strategy]
+                            depth = max(a_stg, b_stg)
+                            if depth > a_stg:
+                                continue
+                            if not _pin("pipeline_strategy", strategy):
+                                continue
+                            if check_regs and not _passes_resource_check(
+                                mw,
+                                nw,
+                                mtwg,
+                                ntwg,
+                                kt,
+                                a_stg,
+                                b_stg,
+                                nwgcu,
+                                is_direct,
+                            ):
+                                continue
+
+                            for k_factor in K_SCALING_FACTORS:
+                                k = k_factor * kt * 32
+                                if k < MIN_DIM or k_factor <= depth:
+                                    continue
+                                if not _pin("k_scaling_factor", k_factor):
+                                    continue
+
+                                for lcm, um, ep, ll, hw in flag_cfgs:
+                                    if not (
+                                        _pin("unroll_factor_multiplier", um)
+                                        and _pin("lcm_unroll", lcm)
+                                        and _pin("epilogue_peeling", ep)
+                                        and _pin("ll_sched", ll)
+                                        and _pin("hoist_wait", hw)
+                                    ):
+                                        continue
+                                    eligible.append(
+                                        WeakScaleConfig(
+                                            m_wg,
+                                            n_wg,
+                                            mw,
+                                            nw,
+                                            mtwg,
+                                            ntwg,
+                                            kt,
+                                            a_stg,
+                                            k,
+                                            load_type=load_type,
+                                            b_path=b_path,
+                                            b_stages=b_stg,
+                                            num_wg_per_cu=nwgcu,
+                                            lcm_unroll=lcm,
+                                            unroll_factor_multiplier=um,
+                                            epilogue_peeling=ep,
+                                            ll_sched=ll,
+                                            hoist_wait=hw,
+                                            pipeline_strategy=strategy,
+                                            _label_suffix=suffix,
+                                        )
+                                    )
+
+        n_eligible = len(eligible)
+        total_eligible += n_eligible
+        if per_variant > 0 and n_eligible > per_variant:
+            eligible = random.sample(eligible, per_variant)
+        all_configs.extend(eligible)
+        print(
+            f"  [{vi+1}/{len(active)}] {b_path}/{load_type}: "
+            f"{n_eligible:,} eligible, {len(eligible):,} selected"
+        )
+
+    print(f"Total: {total_eligible:,} eligible, {len(all_configs):,} selected")
+    return all_configs
 
 
 def _repro_cmd(cfg, num_iterations):
     """Return a CLI command to reproduce a single config."""
     k_factor = cfg.k // (cfg.k_tiles * 32)
-    buf_flag = " --use-buffer" if cfg.use_buffer else " --use-flat"
-    if cfg.direct_a:
-        direct_flag = " --direct-a --direct-b"
-    elif cfg.direct_b:
-        direct_flag = " --direct-b"
-    else:
-        direct_flag = ""
-    lcm_flag = "" if cfg.lcm_unroll else " --no-lcm-unroll"
+    buf_flag = " --use-buffer" if cfg.use_buffer else " --no-use-buffer"
+    flat_flag = " --no-use-flat" if cfg.use_buffer else " --use-flat"
+    direct_b_flag = " --direct-b" if cfg.direct_b else " --no-direct-b"
+    direct_a_flag = " --direct-a" if cfg.direct_a else " --no-direct-a"
+    lcm_flag = " --lcm-unroll" if cfg.lcm_unroll else " --no-lcm-unroll"
     um_flag = (
         f" --unroll-multiplier {cfg.unroll_factor_multiplier}"
         if cfg.unroll_factor_multiplier > 1
         else ""
     )
-    peel_flag = "" if cfg.epilogue_peeling else " --no-epilogue-peeling"
+    peel_flag = (
+        " --epilogue-peeling" if cfg.epilogue_peeling else " --no-epilogue-peeling"
+    )
     wg_per_cu_flag = (
         f" --num-wg-per-cu {cfg.num_wg_per_cu}" if cfg.num_wg_per_cu != 1 else ""
     )
-    ll_flag = " --ll-sched" if getattr(cfg, "ll_sched", False) else ""
+    ll_flag = " --ll-sched" if getattr(cfg, "ll_sched", False) else " --no-ll-sched"
+    hw_flag = (
+        " --hoist-wait" if getattr(cfg, "hoist_wait", False) else " --no-hoist-wait"
+    )
+    ps = getattr(cfg, "pipeline_strategy", -1)
+    ps_flag = f" --pipeline-strategy {ps}" if ps >= 0 else ""
     return (
         f"python contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py"
         f" --m-wg {cfg.m_wg} --n-wg {cfg.n_wg}"
         f" --m-waves {cfg.m_waves} --n-waves {cfg.n_waves}"
         f" --m-tiles-wg {cfg.m_tiles_wg} --n-tiles-wg {cfg.n_tiles_wg} --k-tiles {cfg.k_tiles}"
-        f" --a-stages {cfg.a_stages} --k-scaling-factor {k_factor}"
-        f"{f' --b-stages {cfg.b_stages}' if cfg.b_stages > 0 else ''}"
-        f"{buf_flag}{direct_flag}{lcm_flag}{um_flag}{peel_flag}{wg_per_cu_flag}"
-        f"{ll_flag}"
+        f" --pipeline-strategy {cfg.pipeline_strategy} --k-scaling-factor {k_factor}"
+        f"{buf_flag}{flat_flag}{direct_b_flag}{direct_a_flag}"
+        f"{lcm_flag}{um_flag}{peel_flag}{wg_per_cu_flag}"
+        f"{ll_flag}{hw_flag}"
         f" --iterations {num_iterations}"
     )
 
@@ -650,7 +420,10 @@ def _make_config_from_args(args, load_type, b_path):
     """Construct a WeakScaleConfig from parsed CLI args."""
     k = args.k_scaling_factor * args.k_tiles * 32
     suffix = _make_label_suffix(b_path, load_type)
-    stages = args.a_stages
+    # pipeline_strategy is the primary control; a_stages/b_stages derived in __post_init__.
+    ps = getattr(args, "pipeline_strategy", None)
+    if ps is None:
+        ps = 0
     return WeakScaleConfig(
         args.m_wg,
         args.n_wg,
@@ -659,16 +432,19 @@ def _make_config_from_args(args, load_type, b_path):
         args.m_tiles_wg,
         args.n_tiles_wg,
         args.k_tiles,
-        stages,
+        2,  # placeholder, overridden by pipeline_strategy in __post_init__
         k,
         load_type=load_type,
         b_path=b_path,
-        b_stages=getattr(args, "b_stages", 0) or 0,
         num_wg_per_cu=getattr(args, "num_wg_per_cu", 1) or 1,
-        lcm_unroll=getattr(args, "lcm_unroll", True),
+        lcm_unroll=args.lcm_unroll if args.lcm_unroll is not None else True,
         unroll_factor_multiplier=getattr(args, "unroll_multiplier", 1) or 1,
-        epilogue_peeling=getattr(args, "epilogue_peeling", True),
-        ll_sched=getattr(args, "ll_sched", False),
+        epilogue_peeling=(
+            args.epilogue_peeling if args.epilogue_peeling is not None else True
+        ),
+        ll_sched=args.ll_sched if args.ll_sched is not None else False,
+        hoist_wait=args.hoist_wait if args.hoist_wait is not None else False,
+        pipeline_strategy=ps,
         _label_suffix=suffix,
     )
 
@@ -749,54 +525,41 @@ if __name__ == "__main__":
     parser.add_argument("--m-tiles-wg", type=int, help="Tiles per workgroup along M")
     parser.add_argument("--n-tiles-wg", type=int, help="Tiles per workgroup along N")
     parser.add_argument("--k-tiles", type=int, help="Tiles per wave along K")
-    parser.add_argument("--a-stages", type=int, help="A pipeline stages (LDS path)")
-    parser.add_argument(
-        "--b-stages",
-        type=int,
-        default=0,
-        help="B pipeline stages for direct_b (0=same as A, 1=none, 2=load overlap, 3=full)",
-    )
     parser.add_argument(
         "--k-scaling-factor",
         type=int,
         help="K scaling factor (K = factor * k_tiles * 32, each 16x32 tile = 32 K elements)",
     )
     add_single_cli_args(parser)
-    buf_group = parser.add_mutually_exclusive_group()
-    buf_group.add_argument(
+    parser.add_argument(
         "--use-buffer",
-        action="store_true",
-        help="Sweep buffer_load/buffer_store only",
-    )
-    buf_group.add_argument(
-        "--use-flat",
-        action="store_true",
-        help="Sweep global_load/global_store only",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Buffer load/store (default: sweep both on/off)",
     )
     parser.add_argument(
-        "--direct-a",
-        action="store_true",
-        help="A via preshuffle (LDS bypass). Requires --direct-b.",
+        "--use-flat",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Flat load/store (default: sweep both on/off)",
     )
     parser.add_argument(
         "--direct-b",
-        action="store_true",
-        help="B via preshuffle (LDS bypass).",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="B via preshuffle/LDS bypass (default: sweep both)",
     )
     parser.add_argument(
-        "--no-direct-a",
-        action="store_true",
-        help="Exclude direct_ab from sweep (keep lds + direct_b).",
+        "--direct-a",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="A via preshuffle (default: sweep both). Implies --direct-b.",
     )
     parser.add_argument(
-        "--no-direct-b",
-        action="store_true",
-        help="Exclude direct_b and direct_ab from sweep (keep lds only).",
-    )
-    parser.add_argument(
-        "--no-lcm-unroll",
-        action="store_true",
-        help="Disable LCM-based kernel loop unrolling",
+        "--lcm-unroll",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="LCM-based kernel loop unrolling (default: sweep both on/off)",
     )
     parser.add_argument(
         "--unroll-multiplier",
@@ -805,9 +568,10 @@ if __name__ == "__main__":
         help="Unroll factor multiplier (scales LCM unroll factor, default: 1)",
     )
     parser.add_argument(
-        "--no-epilogue-peeling",
-        action="store_true",
-        help="Disable epilogue peeling (keep cleanup loop after LCM unrolling)",
+        "--epilogue-peeling",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Epilogue peeling after LCM unrolling (default: sweep both on/off)",
     )
     parser.add_argument(
         "--desired-simd-occupancy",
@@ -817,53 +581,65 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--ll-sched",
-        action="store_true",
-        help="Enable low-level instruction scheduler (off by default)",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Low-level instruction scheduler (default: sweep both on/off)",
+    )
+    parser.add_argument(
+        "--hoist-wait",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Hoist iter_arg waits to loop head (default: sweep both on/off)",
+    )
+    parser.add_argument(
+        "--pipeline-strategy",
+        type=int,
+        default=None,
+        choices=range(0, 11),
+        metavar="{0..10}",
+        help="Pipeline strategy (0=none, 5+=hoist-wait guaranteed, 10=max). "
+        "Default: 0 for single-config, sweep all for --sweep/--full-sweep.",
     )
 
     args = parser.parse_args()
-    args.lcm_unroll = not args.no_lcm_unroll
-    args.epilogue_peeling = not args.no_epilogue_peeling
 
-    # Determine b_path from --direct-a / --direct-b flags.
-    if args.direct_a and not args.direct_b:
-        parser.error("--direct-a requires --direct-b")
-    if args.direct_a and args.direct_b:
-        b_path = "direct_ab"
-    elif args.direct_b:
-        b_path = "direct_b"
-    else:
-        b_path = "lds"
+    # Build load_type list from --use-buffer and --use-flat.
+    # Both default to None (sweep). Pinned values filter the list.
+    load_types = []
+    if args.use_flat is not False:
+        load_types.append("flat")
+    if args.use_buffer is not False:
+        load_types.append("buffer")
+    if args.use_flat is True:
+        load_types = [lt for lt in load_types if lt == "flat"]
+    if args.use_buffer is True:
+        load_types = [lt for lt in load_types if lt == "buffer"]
 
-    # Determine load_type variants to sweep.
-    if args.use_buffer:
-        load_types = ["buffer"]
-    elif args.use_flat:
-        load_types = ["flat"]
-    else:
-        load_types = ["flat", "buffer"]
+    # Build b_path list: derive from --direct-a / --direct-b tri-state.
+    # direct_a=True implies direct_b=True.
+    if args.direct_a is True and args.direct_b is False:
+        parser.error("--direct-a with --no-direct-b is contradictory")
+    all_paths = ["lds", "direct_b", "direct_ab"]
+    if args.direct_b is False:
+        all_paths = ["lds"]
+    elif args.direct_b is True and args.direct_a is None:
+        all_paths = ["direct_b", "direct_ab"]
+    elif args.direct_b is True and args.direct_a is True:
+        all_paths = ["direct_ab"]
+    elif args.direct_b is True and args.direct_a is False:
+        all_paths = ["direct_b"]
+    elif args.direct_a is True:
+        all_paths = ["direct_ab"]
+    elif args.direct_a is False:
+        all_paths = ["lds", "direct_b"]
+    # else: all_paths stays ["lds", "direct_b", "direct_ab"] (sweep all)
 
-    # Build (b_path, load_type) variant list.
-    if args.full_sweep or args.sweep:
-        if args.direct_a or args.direct_b:
-            # Pinned to the specified path.
-            variants = [(b_path, lt) for lt in load_types]
-        else:
-            # Sweep paths, respecting --no-direct-a / --no-direct-b exclusions.
-            all_paths = ["lds", "direct_b", "direct_ab"]
-            if args.no_direct_b:
-                all_paths = ["lds"]
-            elif args.no_direct_a:
-                all_paths = ["lds", "direct_b"]
-            variants = [(bp, lt) for lt in load_types for bp in all_paths]
-    else:
-        variants = [(b_path, lt) for lt in load_types]
-
-    # Filter to implemented combos
+    variants = [(bp, lt) for lt in load_types for bp in all_paths]
     variants = [(bp, lt) for bp, lt in variants if (bp, lt) in MLIR_FILES]
 
-    # For single-config mode
-    load_type = "buffer" if args.use_buffer else "flat"
+    # For single-config mode, pick first variant.
+    load_type = load_types[0]
+    b_path = all_paths[0]
 
     # TOP_K labels include suffix -- filter to selected variants.
     variant_suffixes = {_make_label_suffix(bp, lt) for bp, lt in variants}
@@ -886,22 +662,29 @@ if __name__ == "__main__":
             "m_tiles_wg": "m_tiles_wg",
             "n_tiles_wg": "n_tiles_wg",
             "k_tiles": "k_tiles",
-            "a_stages": "a_stages",
+            "pipeline_strategy": "pipeline_strategy",
             "k_scaling_factor": "k_scaling_factor",
             "unroll_multiplier": "unroll_factor_multiplier",
             "desired_simd_occupancy": "simd_occupancy",
+            "use_buffer": "use_buffer",
+            "use_flat": "use_flat",
+            "direct_b": "direct_b",
+            "direct_a": "direct_a",
+            "lcm_unroll": "lcm_unroll",
+            "epilogue_peeling": "epilogue_peeling",
+            "ll_sched": "ll_sched",
+            "hoist_wait": "hoist_wait",
         }
         sweep_pins = make_sweep_pins(args, _SWEEP_ATTR_MAP)
 
+        compile_budget = getattr(args, "compile_sample", 4096)
+
         all_configs = _generate_configs(
             variants,
-            sample_size=getattr(args, "compile_sample", 4096),
+            sample_size=compile_budget,
             check_regs=not getattr(args, "no_reg_filter", False),
             sweep_pins=sweep_pins,
         )
-        # Propagate pipeline flags to all generated configs.
-        for cfg in all_configs:
-            cfg.ll_sched = args.ll_sched
 
         def _post_compile_filter(cfg, res):
             """Post-compilation filter: reject configs exceeding VGPR or LDS limits."""
@@ -930,7 +713,6 @@ if __name__ == "__main__":
             "m_tiles_wg",
             "n_tiles_wg",
             "k_tiles",
-            "a_stages",
             "k_scaling_factor",
         ]
         missing = [a for a in required if getattr(args, a) is None]

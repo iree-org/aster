@@ -14,6 +14,7 @@ from kittens_helpers import (
     get_mlir_file,
     get_kittens_16x16_lds_library_paths,
     pipelined_substitutions_16x32,
+    NUM_STAGES_TO_STRATEGY,
 )
 
 
@@ -43,7 +44,9 @@ class TestKittensGEMMMultiTileLDSPipelined_AGPR:
             input_args=[A.flatten(), B.flatten()],
             output_args=[C_output],
             pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
-            template_substitutions=pipelined_substitutions_16x32(k, num_stages),
+            template_substitutions=pipelined_substitutions_16x32(
+                k, NUM_STAGES_TO_STRATEGY[num_stages]
+            ),
             library_paths=get_kittens_16x16_lds_library_paths(),
             print_ir_after_all=print_ir_after_all,
         )

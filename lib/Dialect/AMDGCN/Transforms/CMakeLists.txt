@@ -6,6 +6,7 @@ add_mlir_library(AMDGCNTransforms
   ConvertSCFControlFlow.cpp
   ConvertWaits.cpp
   ExpandMetadataOps.cpp
+  HoistIterArgWaits.cpp
   HoistOps.cpp
   InstructionSchedulingAutoschedulePass.cpp
   LDSAlloc.cpp

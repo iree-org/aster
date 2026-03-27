@@ -140,6 +140,7 @@ def make_test_scf_pipelining_pass_pipeline(
     unroll_factor_multiplier=1,
     epilogue_peeling=True,
     ll_sched=False,
+    hoist_iter_arg_waits=False,
 ):
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
@@ -159,7 +160,10 @@ def make_test_scf_pipelining_pass_pipeline(
         PHASE_LOWER_TO_AMDGCN,
         # TODO: Explain what and why and integrate in the relevant phases.
         amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
-        phase_amdgcn_backend(ll_sched=ll_sched),
+        phase_amdgcn_backend(
+            ll_sched=ll_sched,
+            hoist_iter_arg_waits=hoist_iter_arg_waits,
+        ),
         phase_nop_insertion(delays=0),
     )
 
@@ -167,4 +171,13 @@ def make_test_scf_pipelining_pass_pipeline(
 TEST_SCF_PIPELINING_PASS_PIPELINE = make_test_scf_pipelining_pass_pipeline()
 TEST_SCF_PIPELINING_LL_SCHED_PASS_PIPELINE = make_test_scf_pipelining_pass_pipeline(
     ll_sched=True,
+)
+TEST_SCF_PIPELINING_HOIST_WAIT_PASS_PIPELINE = make_test_scf_pipelining_pass_pipeline(
+    hoist_iter_arg_waits=True,
+)
+TEST_SCF_PIPELINING_LL_SCHED_HOIST_WAIT_PASS_PIPELINE = (
+    make_test_scf_pipelining_pass_pipeline(
+        ll_sched=True,
+        hoist_iter_arg_waits=True,
+    )
 )

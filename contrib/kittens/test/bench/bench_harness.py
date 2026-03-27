@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..
 
 RESULT_SENTINEL = "BENCH_RESULT_JSON:"
 MI300X_PEAK_TFLOPS_F16 = 1307.0
-NUM_ITERATIONS = 5
+NUM_ITERATIONS = 100
 WARMUP_ITERATIONS = 2
 DEFAULT_COMPILE_WORKERS = 8
 DEFAULT_COMPILE_TIMEOUT = 60  # seconds per kernel
@@ -507,7 +507,11 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
             if err or times is None:
                 failed.append((cfg, err or "unknown"))
             else:
-                ns = min(times[WARMUP_ITERATIONS:])
+                post_warmup = times[WARMUP_ITERATIONS:]
+                if not post_warmup or min(post_warmup) <= 0:
+                    failed.append((cfg, "no valid measurements"))
+                    continue
+                ns = min(post_warmup)
                 tf = cfg.total_flops / ns * 1e-3
                 pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
                 results.append((cfg, ns / 1e6, tf, pct))
@@ -669,10 +673,36 @@ def bench_perf_sweep(
         active = [c for c in active if c.label in set(top_k_to_run)]
 
     print(
-        f"\nSweep: {len(active)}/{len(configs)} configs, "
+        f"\nCompiling {len(active)}/{len(configs)} configs, "
         f"{compile_workers} workers, {num_gpus} GPU(s)"
     )
     sys.stdout.flush()
+
+    # Write manifest so the user can review/edit before compiling.
+    manifest_fd, manifest_path = tempfile.mkstemp(
+        prefix="bench_manifest_", suffix=".txt"
+    )
+    with os.fdopen(manifest_fd, "w") as f:
+        for c in active:
+            repro = repro_cmd_fn(c, num_iterations) if repro_cmd_fn else c.label
+            f.write(f"{c.label}\t{repro}\n")
+    print(f"\nManifest: {manifest_path}")
+    print(
+        "Review/edit the file to remove lines, then press Enter to compile "
+        "(or Ctrl-C to abort)."
+    )
+    sys.stdout.flush()
+    try:
+        input()
+    except EOFError:
+        pass
+    # Re-read manifest: keep only configs whose label is still present.
+    with open(manifest_path) as f:
+        keep_labels = {line.split("\t")[0] for line in f if line.strip()}
+    before = len(active)
+    active = [c for c in active if c.label in keep_labels]
+    if len(active) < before:
+        print(f"Narrowed {before} -> {len(active)} configs from edited manifest")
 
     # Phase 1: compile.
     import multiprocessing as mp
@@ -892,7 +922,13 @@ def run_single(cfg, compile_fn, args, execute_fn):
             _, times_ns = execute_fn(cfg, tmp.name, args.iterations, A, B)
 
     measured = times_ns[WARMUP_ITERATIONS:]
+    if not measured:
+        print("\nNo measurements after warmup -- increase --iterations")
+        return
     min_ns = min(measured)
+    if min_ns <= 0:
+        print(f"\nInvalid min timing: {min_ns} ns")
+        return
     tf = cfg.total_flops / min_ns * 1e-3
     pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
     print(f"\nMin: {min_ns/1e6:.2f} ms  {tf:.1f} TFLOPS  ({pct:.1f}% peak)")
