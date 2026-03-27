@@ -185,6 +185,13 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
   // on the same tokens.
   bool waitsVM = wait.getVmCnt() != WaitOp::kNoWaitCount;
   bool waitsLgkm = wait.getLgkmCnt() != WaitOp::kNoWaitCount;
+  for (Value dep : wait.getDependencies()) {
+    if (isTokenKind(dep.getType(), MemoryInstructionKind::Flat))
+      waitsVM = true;
+    if (isTokenKind(dep.getType(), MemoryInstructionKind::Shared) ||
+        isTokenKind(dep.getType(), MemoryInstructionKind::Constant))
+      waitsLgkm = true;
+  }
   for (Operation *op : graph.getOps().drop_front(pos + 1)) {
     ValueRange operands = op->getOperands();
     for (Value operand : operands) {

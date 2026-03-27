@@ -246,6 +246,38 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
     amdgcn.end_kernel
   }
 
+  // Regression test, ensuring that the read cannot be scheduled before the write.
+  // CHECK-LABEL: kernel @lgkm_wait_gates_ds_read
+  // CHECK:         store ds_write_b64
+  // CHECK:         wait deps
+  // CHECK:         load ds_read_b64
+  // CHECK:         end_kernel
+  amdgcn.kernel @lgkm_wait_gates_ds_read {
+    // Read-side: only alloca/constant deps → ds_read is SSA-ready early.
+    %rd0 = amdgcn.alloca : !v
+    %rd1 = amdgcn.alloca : !v
+    %raddr = amdgcn.alloca : !v
+    // Write-side: data computed via a VALU chain → ds_write (and wait) is late.
+    %va = amdgcn.alloca : !v
+    %vb = amdgcn.alloca : !v
+    %waddr = amdgcn.alloca : !v
+    %c0 = arith.constant 0 : i32
+    // VALU chain: %wd0 and %wd1 can only be scheduled after %r0.
+    %r0 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %va, %vb : (!v, !v) -> !v
+    %wd0 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %va, %r0 : (!v, !v) -> !v
+    %wd1 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vb, %r0 : (!v, !v) -> !v
+    // %dst becomes ready as soon as rd0/rd1 are scheduled (early), making
+    // ds_read SSA-ready while the VALU chain (%wd0, %wd1) is still in flight.
+    %dst = amdgcn.make_register_range %rd0, %rd1 : !v, !v
+    %data = amdgcn.make_register_range %wd0, %wd1 : !v, !v
+    %wt = amdgcn.store ds_write_b64 data %data addr %waddr offset c(%c0)
+        : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
+    amdgcn.wait deps %wt : !amdgcn.write_token<shared>
+    %rr, %rt = amdgcn.load ds_read_b64 dest %dst addr %raddr offset c(%c0)
+        : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
+    amdgcn.end_kernel
+  }
+
   // VMEM ops: same-queue ties broken by block position.
   // CHECK-LABEL: kernel @vmem_ops_ordered
   // CHECK:         store global_store_dword
