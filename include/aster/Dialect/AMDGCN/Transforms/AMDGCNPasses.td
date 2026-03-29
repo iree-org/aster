@@ -416,7 +416,10 @@ def LowLevelScheduler : Pass<"amdgcn-low-level-scheduler",
     Runs after aster-to-amdgcn and before the register allocation pipeline.
     Operates on flat basic blocks (post-SCF lowering).
   }];
-  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::aster::aster_utils::AsterUtilsDialect"
+  ];
   let options = [
     Option<"debugStalls", "debug-stalls", "bool", "false",
            "Annotate each op with sched.stall_cycles and sched.stall_reason">,

@@ -83,8 +83,8 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Same-queue ops group together (VALU first, then SALU).
   // CHECK-LABEL: kernel @group_valu_salu
   // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
-  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
   // CHECK:         sop1 s_mov_b32
+  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
   // CHECK:         sop1 s_mov_b32
   // CHECK:         end_kernel
   amdgcn.kernel @group_valu_salu {
@@ -106,8 +106,8 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // Data dependency: vop2 depends on vop1 result. SALU is independent.
   // CHECK-LABEL: kernel @respect_data_deps
   // CHECK:         %[[R0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32>
-  // CHECK:         vop2 v_add_u32 outs %{{.*}} ins %[[R0]],
   // CHECK:         sop1 s_mov_b32
+  // CHECK:         vop2 v_add_u32 outs %{{.*}} ins %[[R0]],
   // CHECK:         end_kernel
   amdgcn.kernel @respect_data_deps {
     %v0 = amdgcn.alloca : !v
@@ -124,11 +124,11 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // VALU addr computations batch before VMEM loads (SSA deps).
   // CHECK-LABEL: kernel @vmem_addr_load_interleave
   // CHECK:         vop2 v_add_u32
-  // CHECK:         vop2 v_add_u32
-  // CHECK:         vop2 v_add_u32
+  // CHECK:         load global_load_dwordx4
   // CHECK:         vop2 v_add_u32
   // CHECK:         load global_load_dwordx4
-  // CHECK:         load global_load_dwordx4
+  // CHECK:         vop2 v_add_u32
+  // CHECK:         vop2 v_add_u32
   // CHECK:         load global_load_dwordx4
   // CHECK:         load global_load_dwordx4
   // CHECK:         end_kernel
@@ -181,13 +181,13 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   }
 
   // s_barrier is a workgroup sync point. GraphBuilder treats it as
-  // a sync point but doesn't force LDS ordering within a wavefront.
+  // a sync point and forces LDS ordering within a wavefront.
   // CHECK-LABEL: kernel @barrier_separates_lds
   // CHECK:         store ds_write_b64
   // CHECK:         store ds_write_b64
-  // CHECK:         load ds_read_b64
-  // CHECK:         load ds_read_b64
   // CHECK:         sopp <s_barrier>
+  // CHECK:         load ds_read_b64
+  // CHECK:         load ds_read_b64
   // CHECK:         end_kernel
   amdgcn.kernel @barrier_separates_lds {
     %addr0 = amdgcn.alloca : !v
@@ -221,8 +221,8 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // LDS ops: same-queue ties broken by block position.
   // CHECK-LABEL: kernel @lds_ops_ordered
   // CHECK:         store ds_write_b64
-  // CHECK:         store ds_write_b64
   // CHECK:         load ds_read_b64
+  // CHECK:         store ds_write_b64
   // CHECK:         end_kernel
   amdgcn.kernel @lds_ops_ordered {
     %addr = amdgcn.alloca : !v
@@ -281,8 +281,8 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   // VMEM ops: same-queue ties broken by block position.
   // CHECK-LABEL: kernel @vmem_ops_ordered
   // CHECK:         store global_store_dword
-  // CHECK:         store global_store_dword
   // CHECK:         load global_load_dwordx4
+  // CHECK:         store global_store_dword
   // CHECK:         end_kernel
   amdgcn.kernel @vmem_ops_ordered {
     %sa0 = amdgcn.alloca : !s

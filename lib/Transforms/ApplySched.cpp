@@ -16,6 +16,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Visitors.h"
+#include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/DebugLog.h"
@@ -40,24 +41,13 @@ struct ApplySchedPass : public aster::impl::ApplySchedBase<ApplySchedPass> {
   using ApplySchedBase::ApplySchedBase;
   void runOnOperation() override;
 };
-
-//===----------------------------------------------------------------------===//
-// SchedInfo
-//===----------------------------------------------------------------------===//
-/// SchedInfo is a tuple of the scope operation, the name of the schedule, and
-/// the schedule attribute.
-struct SchedInfo {
-  Operation *scope = nullptr;
-  StringAttr name;
-  SchedAttrInterface schedAttr;
-  int64_t id;
-};
 } // namespace
 
 /// Collect all SchedAttrInterface attributes by walking ops in preorder.
-static void collectSchedAttrs(Operation *root,
-                              SmallVectorImpl<SchedInfo> &schedInfos,
-                              DenseMap<StringAttr, int32_t> &schedsNames) {
+static void
+collectSchedAttrs(Operation *root,
+                  SmallVectorImpl<::mlir::aster::SchedInfo> &schedInfos,
+                  DenseMap<StringAttr, int32_t> &schedsNames) {
   int64_t id = 0;
   root->walk<WalkOrder::PreOrder>([&](Operation *op) {
     if (op->getNumRegions() == 0)
@@ -163,6 +153,42 @@ static LogicalResult applySched(SchedInfo sched, SchedAnalysis &analysis,
   return success();
 }
 
+LogicalResult mlir::aster::applyScheds(Operation *rootOp,
+                                       ArrayRef<SchedInfo> schedsToApply,
+                                       AnalysisManager &analysisManager) {
+  DataFlowSolver solver;
+  dataflow::loadBaselineAnalyses(solver);
+  DominanceInfo &domInfo = analysisManager.getAnalysis<DominanceInfo>();
+  SchedAnalysis analysis(rootOp, solver, domInfo, analysisManager);
+
+  SmallVector<SchedInfo> schedInfos(schedsToApply.begin(), schedsToApply.end());
+
+  for (SchedInfo &schedInfo : schedInfos) {
+    if (failed(schedInfo.schedAttr.getGraph().initializeAnalyses(analysis))) {
+      rootOp->emitError() << "failed to initialize analyses for schedule '"
+                          << schedInfo.name.strref()
+                          << "': " << schedInfo.schedAttr.getGraph();
+      return failure();
+    }
+  }
+
+  if (analysis.shouldRunDataflowAnalyses()) {
+    if (failed(solver.initializeAndRun(rootOp))) {
+      rootOp->emitError() << "failed to run dataflow analyses";
+      return failure();
+    }
+  }
+
+  IRRewriter rewriter(rootOp->getContext());
+
+  for (const SchedInfo &schedInfo : schedInfos) {
+    if (failed(applySched(schedInfo, analysis, rewriter)))
+      return failure();
+  }
+
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // ApplySchedPass
 //===----------------------------------------------------------------------===//
@@ -177,7 +203,6 @@ void ApplySchedPass::runOnOperation() {
                                         ? ArrayRef<std::string>(defaultScheds)
                                         : ArrayRef<std::string>(scheds);
 
-  IRRewriter rewriter(root->getContext());
   SmallVector<SchedInfo> schedInfos;
 
   // Initialize the counts for the schedules of interest.
@@ -220,33 +245,7 @@ void ApplySchedPass::runOnOperation() {
         "\n");
   });
 
-  // Configure the analyses required for scheduling.
-  DataFlowSolver solver;
-  dataflow::loadBaselineAnalyses(solver);
-  DominanceInfo &domInfo = getAnalysis<DominanceInfo>();
   AnalysisManager analysisManager = getAnalysisManager();
-  SchedAnalysis analysis(root, solver, domInfo, analysisManager);
-
-  // Initialize the analyses required for scheduling.
-  for (SchedInfo &schedInfo : schedInfos) {
-    if (failed(schedInfo.schedAttr.getGraph().initializeAnalyses(analysis))) {
-      root->emitError() << "failed to initialize analyses for schedule '"
-                        << schedInfo.name.strref()
-                        << "': " << schedInfo.schedAttr.getGraph();
-      return signalPassFailure();
-    }
-  }
-
-  if (analysis.shouldRunDataflowAnalyses()) {
-    if (failed(solver.initializeAndRun(root))) {
-      root->emitError() << "failed to run dataflow analyses";
-      return signalPassFailure();
-    }
-  }
-
-  // Apply the schedules in order.
-  for (const SchedInfo &schedInfo : schedInfos) {
-    if (failed(applySched(schedInfo, analysis, rewriter)))
-      return signalPassFailure();
-  }
+  if (failed(applyScheds(root, schedInfos, analysisManager)))
+    return signalPassFailure();
 }

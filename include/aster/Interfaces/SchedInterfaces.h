@@ -18,6 +18,7 @@
 
 #include "aster/Support/Graph.h"
 #include "mlir/IR/Block.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/AnalysisManager.h"
@@ -150,5 +151,23 @@ private:
 } // namespace mlir
 
 #include "aster/Interfaces/SchedInterfaces.h.inc"
+
+namespace mlir {
+namespace aster {
+
+/// Carries a schedule attribute attached under a discardable name on `scope`.
+struct SchedInfo {
+  Operation *scope = nullptr;
+  StringAttr name;
+  SchedAttrInterface schedAttr;
+  int64_t id = 0;
+};
+
+/// Apply a list of schedules to a root operation.
+LogicalResult applyScheds(Operation *rootOp, ArrayRef<SchedInfo> schedsToApply,
+                          AnalysisManager &analysisManager);
+
+} // namespace aster
+} // namespace mlir
 
 #endif // ASTER_INTERFACES_SCHEDINTERFACES_H
