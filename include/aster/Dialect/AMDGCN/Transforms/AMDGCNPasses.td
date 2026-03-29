@@ -423,6 +423,8 @@ def LowLevelScheduler : Pass<"amdgcn-low-level-scheduler",
   let options = [
     Option<"debugStalls", "debug-stalls", "bool", "false",
            "Annotate each op with sched.stall_cycles and sched.stall_reason">,
+    Option<"registerSemantics", "register-semantics", "bool", "false",
+           "Use register semantics for scheduling dependencies">,
   ];
 }
 
