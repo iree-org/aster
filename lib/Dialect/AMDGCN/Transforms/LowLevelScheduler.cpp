@@ -47,8 +47,11 @@ struct LowLevelSchedulerPass
                                             /*emitDiagnostics=*/true)))
       return signalPassFailure();
 
+    SchedGraphAttrInterface builderAttr = ValueSchedulerAttr::get(ctx);
+    if (registerSemantics)
+      builderAttr = RegisterSchedulerAttr::get(ctx);
     GenericSchedulerAttr compositeAttr = GenericSchedulerAttr::get(
-        ctx, ValueSchedulerAttr::get(ctx),
+        ctx, builderAttr,
         SchedListLabelerAttr::get(ctx, ArrayRef<SchedLabelerAttrInterface>{}),
         LowLevelSchedulerAttr::get(ctx, debugStalls));
 

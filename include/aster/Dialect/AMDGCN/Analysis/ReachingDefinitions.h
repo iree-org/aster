@@ -179,7 +179,7 @@ private:
   friend class ::mlir::DataFlowSolver;
   ReachingDefinitionsAnalysis(
       DataFlowSolver &solver,
-      llvm::function_ref<bool(Operation *)> definitionFilter,
+      llvm::function_ref<bool(Operation *)> definitionFilter = {},
       llvm::function_ref<LogicalResult(InstOpInterface, KillDefsFn)>
           killCallback = {})
       : Base(solver), definitionFilter(definitionFilter),

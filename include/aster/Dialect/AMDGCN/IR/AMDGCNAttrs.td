@@ -73,6 +73,20 @@ def ValueSchedulerAttr : AMDGCN_Attr<"ValueScheduler", "value_scheduler", [
   }];
 }
 
+def RegisterSchedulerAttr : AMDGCN_Attr<"RegisterScheduler", "register_scheduler", [
+    DeclareAttrInterfaceMethods<SchedGraphAttrInterface>
+  ]> {
+  let summary = "Register-aware scheduling graph builder for AMDGCN instructions";
+  let description = [{
+    Like the value scheduler, builds SSA edges, wait and barrier edges, and i1
+    serialization. Additionally, after non-SSA edges, adds dependencies from
+    reaching definitions for register operands on `InstOpInterface` ins and outs.
+
+    Requires IR in post-ToRegisterSemantics DPS normal form (no value-semantic
+    `outs` on instructions), the same precondition as `ReachingDefinitionsAnalysis`.
+  }];
+}
+
 def InstPropLabelerAttr : AMDGCN_Attr<"InstPropLabeler", "inst_prop_labeler", [
     DeclareAttrInterfaceMethods<SchedLabelerAttrInterface>
   ]> {
