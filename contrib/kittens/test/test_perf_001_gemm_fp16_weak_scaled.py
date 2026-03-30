@@ -611,6 +611,40 @@ class TestWeakScaleCorrectness:
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
 
+    @pytest.mark.parametrize("a_stages", [3, 4, 5], ids=["a3", "a4", "a5"])
+    @pytest.mark.parametrize("b_stages", [1, 3, 5, 6], ids=["b1", "b3", "b5", "b6"])
+    def test_deep_b_pipelining(self, a_stages, b_stages):
+        """Deep B pipelining: b_stages > a_stages produces correct GEMM.
+
+        Exercises shift register iter_args for B load futures crossing
+        multiple pipeline stages (gap > 1). Uses K=4096 to ensure the
+        pipelined loop has a non-trivial steady state (not fully unrolled).
+        """
+        k = 4096
+        cfg = WeakScaleConfig(
+            m_wg=1,
+            n_wg=1,
+            m_waves=1,
+            n_waves=1,
+            m_tiles_wg=2,
+            n_tiles_wg=2,
+            k_tiles=1,
+            a_stages=a_stages,
+            k=k,
+            load_type="flat",
+            b_path="direct_b",
+            b_stages=b_stages,
+        )
+        np.random.seed(42)
+        A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
+        B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
+        with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
+            compile_gemm(cfg, tmp.name)
+            C_output, _ = execute_gemm_hsaco(cfg, tmp.name, 1, A, B)
+
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+
 
 class TestWeakScaleConfigSerde:
     """Round-trip: WeakScaleConfig -> label -> from_label -> label."""
