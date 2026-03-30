@@ -44,7 +44,6 @@ rm -rf "$HSACO_DIR"
 
 echo ""
 echo "To run the full benchmark sweep (expensive, requires GPU):"
-echo "  $PYTHON $BENCH --sweep            # TOP_K configs only"
-echo "  $PYTHON $BENCH --full-sweep       # all configs"
+echo "  $PYTHON $BENCH"
 echo ""
 echo "Options: --num-gpus N (default: auto-detect), --compile-workers N (default: 8)"

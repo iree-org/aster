@@ -7,20 +7,18 @@
 #
 # The target script must support:
 #   --compile-only --hsaco <path>   (phase 1: compile, write HSACO, exit)
-#   --hsaco <path> --iterations N   (phase 2: execute pre-compiled HSACO)
+#   --hsaco <path>                  (phase 2: execute pre-compiled HSACO)
 #
 # Usage:
 #   contrib/kittens/rocprof-kittens-bench.sh <script.py> [script args...]
 #
 # Examples:
-#   contrib/kittens/rocprof-kittens-bench.sh bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
-#       --m-wg 38 --n-wg 32 --m-waves 2 --n-waves 2 \
-#       --m-tiles 2 --n-tiles 3 --k-tiles 1 --stages 2 --k-scaling-factor 256
+#   contrib/kittens/rocprof-kittens-bench.sh bench/bench_perf_001_gemm_fp16_weak_scaled.py \
+#       m4864xn4096xk8192_wg38x32_w2x2_twg8x8x1_s2_bs2_ps1_direct_b_flat
 #
-#   ITERATIONS=5 PERF_COUNTERS="SQ_INSTS_VALU SQ_INSTS_VMEM" \
-#       contrib/kittens/rocprof-kittens-bench.sh bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py \
-#           --m-wg 19 --n-wg 16 --m-waves 2 --n-waves 2 \
-#           --m-tiles 4 --n-tiles 4 --k-tiles 1 --stages 2 --k-scaling-factor 256
+#   ITERATIONS=100 PERF_COUNTERS="SQ_INSTS_VALU SQ_INSTS_VMEM" \
+#       contrib/kittens/rocprof-kittens-bench.sh bench/bench_perf_001_gemm_fp16_weak_scaled.py \
+#           m2432xn2048xk4096_wg19x16_w2x2_twg8x8x1_s2_bs2_ps1_flat
 #
 # Environment variables:
 #   ROCPROFV3            - path to rocprofv3 (default: auto-detected via which)
@@ -42,7 +40,7 @@ if [ -z "$ROCPROFV3" ]; then
     echo "Error: rocprofv3 not found. Set ROCPROFV3=/path/to/rocprofv3"
     exit 1
 fi
-ITERATIONS="${ITERATIONS:-5}"
+export ITERATIONS="${ITERATIONS:-100}"
 PERF_COUNTERS="${PERF_COUNTERS:-SQ_LDS_BANK_CONFLICT SQ_INSTS_LDS SQ_WAIT_INST_LDS}"
 
 if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
@@ -85,7 +83,7 @@ echo "  trace:    $TRACE_DIR"
     $EXTRA_ROCPROFV3_ARGS \
     -- \
     "$PYTHON_BIN" "$PY_SCRIPT" "$@" \
-    --iterations "$ITERATIONS" --hsaco "$HSACO_PATH"
+    --hsaco "$HSACO_PATH"
 
 echo ""
 echo "Done. Trace: $(pwd)/$TRACE_DIR"

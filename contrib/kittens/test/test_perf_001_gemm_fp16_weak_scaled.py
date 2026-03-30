@@ -77,7 +77,6 @@ class WeakScaleConfig:
     ll_sched: bool = False
     hoist_wait: bool = False
     pipeline_strategy: int = -1  # -1 = use a_stages/b_stages directly
-    _label_suffix: str = ""
 
     # a_stages -> default pipeline strategy for backward compat.
     _A_STAGES_TO_STRATEGY = {1: 0, 2: 1, 3: 3, 4: 5, 5: 7, 6: 9}
@@ -261,6 +260,84 @@ class WeakScaleConfig:
 
         return self.num_wg_per_cu * math.ceil(self.num_waves / 4)
 
+    _LABEL_RE = None
+
+    @classmethod
+    def _label_pattern(cls):
+        if cls._LABEL_RE is None:
+            import re
+
+            cls._LABEL_RE = re.compile(
+                r"^m(\d+)xn(\d+)xk(\d+)"
+                r"_wg(\d+)x(\d+)_w(\d+)x(\d+)"
+                r"_twg(\d+)x(\d+)x(\d+)_pipestrat(\d+)"
+                r"(?:_wgcu(\d+))?"
+                r"(_nolcm)?"
+                r"(?:_um(\d+))?"
+                r"(_nopeel)?"
+                r"(_llsched)?"
+                r"(_hoistwait)?"
+                r"_(?:(direct_ab|direct_b)_)?(flat|buf)$"
+            )
+        return cls._LABEL_RE
+
+    @classmethod
+    def from_label(cls, label):
+        """Parse a label string back into a WeakScaleConfig.
+
+        Raises ValueError if the label doesn't match the expected format.
+        """
+        m = cls._label_pattern().match(label)
+        if not m:
+            raise ValueError(f"Cannot parse label: {label}")
+        (
+            _m_dim,
+            _n_dim,
+            k,
+            m_wg,
+            n_wg,
+            m_waves,
+            n_waves,
+            m_tiles_wg,
+            n_tiles_wg,
+            k_tiles,
+            pipestrat,
+            wgcu,
+            nolcm,
+            um,
+            nopeel,
+            llsched,
+            hoistwait,
+            direct,
+            lt,
+        ) = m.groups()
+
+        load_type = "buffer" if lt == "buf" else "flat"
+        b_path = direct if direct else "lds"
+
+        cfg = cls(
+            m_wg=int(m_wg),
+            n_wg=int(n_wg),
+            m_waves=int(m_waves),
+            n_waves=int(n_waves),
+            m_tiles_wg=int(m_tiles_wg),
+            n_tiles_wg=int(n_tiles_wg),
+            k_tiles=int(k_tiles),
+            a_stages=1,  # placeholder, overridden by pipeline_strategy in __post_init__
+            k=int(k),
+            load_type=load_type,
+            b_path=b_path,
+            num_wg_per_cu=int(wgcu) if wgcu else 1,
+            lcm_unroll=nolcm is None,
+            unroll_factor_multiplier=int(um) if um else 1,
+            epilogue_peeling=nopeel is None,
+            ll_sched=llsched is not None,
+            hoist_wait=hoistwait is not None,
+            pipeline_strategy=int(pipestrat),
+        )
+        assert cfg.label == label, f"Round-trip failed: {cfg.label!r} != {label!r}"
+        return cfg
+
     @property
     def label(self):
         tile_str = f"_twg{self.m_tiles_wg}x{self.n_tiles_wg}x{self.k_tiles}"
@@ -273,13 +350,14 @@ class WeakScaleConfig:
         peel = "" if self.epilogue_peeling else "_nopeel"
         llsched = "_llsched" if self.ll_sched else ""
         hoistwait = "_hoistwait" if self.hoist_wait else ""
-        pstrat = f"_ps{self.pipeline_strategy}" if self.pipeline_strategy >= 0 else ""
+        wgcu = f"_wgcu{self.num_wg_per_cu}" if self.num_wg_per_cu != 1 else ""
+        lt = "buf" if self.load_type == "buffer" else "flat"
+        suffix = f"_{self.b_path}_{lt}" if self.b_path != "lds" else f"_{lt}"
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
             f"_wg{self.m_wg}x{self.n_wg}_w{self.m_waves}x{self.n_waves}"
-            f"{tile_str}_s{self.a_stages}"
-            f"{f'_bs{self.b_stages}' if self.b_stages > 0 else ''}"
-            f"{pstrat}{lcm}{um}{peel}{llsched}{hoistwait}{self._label_suffix}"
+            f"{tile_str}_pipestrat{self.pipeline_strategy}"
+            f"{wgcu}{lcm}{um}{peel}{llsched}{hoistwait}{suffix}"
         )
 
 
@@ -354,13 +432,12 @@ def compile_gemm(
     print_asm=False,
     num_vgprs=256,
     num_agprs=256,
-    unroll_factor_multiplier=1,
-    epilogue_peeling=True,
 ):
     """Compile a GEMM config to HSACO.
 
     Returns (hsaco_path, asm_str). Handles b_path (lds/direct) and load_type
-    (flat/buffer) via cfg fields.
+    (flat/buffer) via cfg fields. All compilation options (unroll, peeling, ll_sched,
+    hoist_wait) are read from cfg.
     """
     from aster import ir
     from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
@@ -379,9 +456,9 @@ def compile_gemm(
     pipeline = make_default_pass_pipeline(
         num_vgprs=num_vgprs,
         num_agprs=num_agprs,
-        unroll_factor_multiplier=unroll_factor_multiplier,
-        epilogue_peeling=epilogue_peeling,
-        ll_sched=getattr(cfg, "ll_sched", True),
+        unroll_factor_multiplier=getattr(cfg, "unroll_factor_multiplier", 1),
+        epilogue_peeling=getattr(cfg, "epilogue_peeling", True),
+        ll_sched=getattr(cfg, "ll_sched", False),
         hoist_iter_arg_waits=getattr(cfg, "hoist_wait", False),
     )
 
@@ -535,193 +612,118 @@ class TestWeakScaleCorrectness:
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
 
 
-if __name__ == "__main__":
-    import argparse
+class TestWeakScaleConfigSerde:
+    """Round-trip: WeakScaleConfig -> label -> from_label -> label."""
 
-    parser = argparse.ArgumentParser(
-        description="Run a single weak-scaled GEMM config",
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            dict(),
+            dict(load_type="buffer"),
+            dict(b_path="direct_b"),
+            dict(load_type="buffer", b_path="direct_b"),
+            dict(b_path="direct_ab"),
+            dict(load_type="buffer", b_path="direct_ab"),
+            dict(num_wg_per_cu=2, m_wg=38),
+            dict(num_wg_per_cu=4, m_wg=76),
+            dict(lcm_unroll=False),
+            dict(unroll_factor_multiplier=3),
+            dict(epilogue_peeling=False),
+            dict(ll_sched=True),
+            dict(hoist_wait=True),
+            dict(pipeline_strategy=0),
+            dict(pipeline_strategy=5),
+            dict(pipeline_strategy=9),
+            dict(
+                lcm_unroll=False,
+                unroll_factor_multiplier=2,
+                epilogue_peeling=False,
+                ll_sched=True,
+                hoist_wait=True,
+                num_wg_per_cu=2,
+                m_wg=38,
+                load_type="buffer",
+                b_path="direct_b",
+                pipeline_strategy=7,
+            ),
+        ],
+        ids=[
+            "defaults",
+            "buffer",
+            "direct_b",
+            "buffer_direct_b",
+            "direct_ab",
+            "buffer_direct_ab",
+            "wgcu2",
+            "wgcu4",
+            "nolcm",
+            "um3",
+            "nopeel",
+            "llsched",
+            "hoistwait",
+            "ps0",
+            "ps5",
+            "ps9",
+            "all_flags",
+        ],
     )
-    parser.add_argument(
-        "--m-wg", type=int, default=1, help="Workgroups along M (default: 1)"
-    )
-    parser.add_argument(
-        "--n-wg", type=int, default=1, help="Workgroups along N (default: 1)"
-    )
-    parser.add_argument(
-        "--m-waves", type=int, default=1, help="Waves per WG along M (default: 1)"
-    )
-    parser.add_argument(
-        "--n-waves", type=int, default=1, help="Waves per WG along N (default: 1)"
-    )
-    parser.add_argument(
-        "--m-tiles-wg",
-        type=int,
-        default=1,
-        help="Tiles per workgroup along M (default: 1)",
-    )
-    parser.add_argument(
-        "--n-tiles-wg",
-        type=int,
-        default=1,
-        help="Tiles per workgroup along N (default: 1)",
-    )
-    parser.add_argument(
-        "--k-tiles", type=int, default=1, help="Tiles per wave along K (default: 1)"
-    )
-    parser.add_argument(
-        "--stages", type=int, default=2, help="Pipeline stages (default: 2)"
-    )
-    parser.add_argument(
-        "--k-scaling-factor",
-        type=int,
-        default=4,
-        help="K scaling factor (K = factor * k_tiles * 32, default: 4)",
-    )
-    parser.add_argument(
-        "--iterations",
-        type=int,
-        default=5,
-        help="Kernel launches (default: 5)",
-    )
-    parser.add_argument(
-        "--hsaco",
-        type=str,
-        default=None,
-        help="Path to pre-compiled HSACO (skips compilation)",
-    )
-    parser.add_argument(
-        "--compile-only",
-        action="store_true",
-        help="Compile HSACO and exit (requires --hsaco for output path)",
-    )
-    parser.add_argument(
-        "--print-ir-after-all",
-        action="store_true",
-        help="Print IR after each pass",
-    )
-    parser.add_argument(
-        "--print-asm",
-        action="store_true",
-        help="Print generated assembly to stdout",
-    )
-    buf_group = parser.add_mutually_exclusive_group()
-    buf_group.add_argument(
-        "--use-buffer",
-        action="store_true",
-        help="Use buffer_load/buffer_store (MUBUF) instead of global_load/global_store (flat)",
-    )
-    buf_group.add_argument(
-        "--use-flat",
-        action="store_true",
-        help="Use global_load/global_store (flat) instead of buffer_load/buffer_store",
-    )
-    parser.add_argument(
-        "--direct-a",
-        action="store_true",
-        help="A operand via bpermute (LDS bypass) instead of LDS",
-    )
-    parser.add_argument(
-        "--direct-b",
-        action="store_true",
-        help="B operand via bpermute (LDS bypass) instead of LDS",
-    )
-    parser.add_argument(
-        "--ll-sched",
-        action="store_true",
-        help="Enable low-level instruction scheduler (off by default)",
-    )
-    parser.add_argument(
-        "--hoist-wait",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Hoist iter_arg waits to loop head (--hoist-wait / --no-hoist-wait)",
-    )
-    parser.add_argument(
-        "--pipeline-strategy",
-        type=int,
-        default=-1,
-        choices=range(-1, 11),
-        metavar="{0..10}",
-        help="Pipeline strategy (0=none, 5+=hoist-wait guaranteed, 10=max). "
-        "Overrides --a-stages/--b-stages when >= 0.",
-    )
-    a = parser.parse_args()
-    load_type = "buffer" if a.use_buffer else "flat"
-    b_path = "direct_b" if a.direct_b else "lds"
-    k = a.k_scaling_factor * a.k_tiles * 32
-
-    cfg = WeakScaleConfig(
-        a.m_wg,
-        a.n_wg,
-        a.m_waves,
-        a.n_waves,
-        a.m_tiles_wg,
-        a.n_tiles_wg,
-        a.k_tiles,
-        a.stages,
-        k,
-        load_type=load_type,
-        b_path=b_path,
-        ll_sched=getattr(a, "ll_sched", False),
-        hoist_wait=getattr(a, "hoist_wait", False),
-        pipeline_strategy=getattr(a, "pipeline_strategy", -1),
-    )
-
-    from aster.compiler.metadata import parse_asm_kernel_resources
-
-    a_mode = " direct-B" if cfg.direct_b else ""
-
-    print(f"Config: {cfg.label} ({cfg.load_type}{a_mode})")
-    print(f"  M={cfg.m_dim}, N={cfg.n_dim}, K={cfg.k}")
-    print(f"  workgroups={cfg.num_workgroups}, threads={cfg.num_threads}")
-    print(f"  per-wave tiles: {cfg.m_tiles}x{cfg.n_tiles}, LDS={cfg.lds_bytes}")
-
-    if a.compile_only:
-        if not a.hsaco:
-            print("Error: --compile-only requires --hsaco <output_path>")
-            raise SystemExit(1)
-        _, asm = compile_gemm(
-            cfg, a.hsaco, print_ir_after_all=a.print_ir_after_all, print_asm=a.print_asm
+    def test_label_roundtrip(self, kwargs):
+        base = dict(
+            m_wg=19,
+            n_wg=16,
+            m_waves=2,
+            n_waves=2,
+            m_tiles_wg=8,
+            n_tiles_wg=8,
+            k_tiles=2,
+            a_stages=2,
+            k=8192,
+            pipeline_strategy=1,
         )
-        resources = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name)
-        res = resources.get(cfg.kernel_name)
-        if res:
-            print(f"  resources: {res}")
-        print(f"  Compiled: {a.hsaco}")
-    else:
-        np.random.seed(42)
-        A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
-        B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
+        base.update(kwargs)
+        cfg = WeakScaleConfig(**base)
+        restored = WeakScaleConfig.from_label(cfg.label)
+        assert restored.label == cfg.label
+        for field in [
+            "m_wg",
+            "n_wg",
+            "m_waves",
+            "n_waves",
+            "m_tiles_wg",
+            "n_tiles_wg",
+            "k_tiles",
+            "k",
+            "a_stages",
+            "b_stages",
+            "pipeline_strategy",
+            "load_type",
+            "b_path",
+            "num_wg_per_cu",
+            "lcm_unroll",
+            "unroll_factor_multiplier",
+            "epilogue_peeling",
+            "ll_sched",
+            "hoist_wait",
+            "m_dim",
+            "n_dim",
+            "num_workgroups",
+            "num_threads",
+        ]:
+            assert getattr(restored, field) == getattr(
+                cfg, field
+            ), f"{field}: {getattr(restored, field)} != {getattr(cfg, field)}"
 
-        if a.hsaco:
-            C_output, times_ns = execute_gemm_hsaco(
-                cfg, a.hsaco, a.iterations, A, B, skip_gpu_check=True
-            )
-        else:
-            with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-                _, asm = compile_gemm(
-                    cfg,
-                    tmp.name,
-                    print_ir_after_all=a.print_ir_after_all,
-                    print_asm=a.print_asm,
-                )
-                resources = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name)
-                res = resources.get(cfg.kernel_name)
-                if res:
-                    print(f"  resources: {res}")
-                C_output, times_ns = execute_gemm_hsaco(
-                    cfg, tmp.name, a.iterations, A, B
-                )
+    def test_from_label_rejects_garbage(self):
+        with pytest.raises(ValueError, match="Cannot parse label"):
+            WeakScaleConfig.from_label("not_a_valid_label")
 
-        measured = times_ns[2:]
-        min_ns = min(measured)
-        min_ms = min_ns / 1e6
-        tflops = cfg.total_flops / min_ns * 1e-3
+    def test_from_label_rejects_truncated(self):
+        cfg = WeakScaleConfig(19, 16, 2, 2, 8, 8, 1, 2, 4096, pipeline_strategy=1)
+        with pytest.raises(ValueError):
+            WeakScaleConfig.from_label(cfg.label[:-5])
 
-        print(f"\nAll iterations (ms): {[f'{t/1e6:.2f}' for t in times_ns]}")
-        print(f"Measured (post-warmup): {[f'{t/1e6:.2f}' for t in measured]}")
-        print(f"Min: {min_ms:.2f} ms  {tflops:.1f} TFLOPS")
 
-        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
-        np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
-        print("PASS")
+if __name__ == "__main__":
+    raise SystemExit(
+        "Use bench/bench_perf_001_gemm_fp16_weak_scaled.py <label> for single-config runs."
+    )

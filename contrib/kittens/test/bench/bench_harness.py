@@ -19,8 +19,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..
 
 RESULT_SENTINEL = "BENCH_RESULT_JSON:"
 MI300X_PEAK_TFLOPS_F16 = 1307.0
-NUM_ITERATIONS = 100
-WARMUP_ITERATIONS = 2
+NUM_ITERATIONS = int(os.environ.get("ITERATIONS", "100"))
+WARMUP_ITERATIONS = int(os.environ.get("WARMUP", "20"))
 DEFAULT_COMPILE_WORKERS = 8
 DEFAULT_COMPILE_TIMEOUT = 60  # seconds per kernel
 
@@ -35,7 +35,7 @@ def _save_tmpfile(prefix, lines):
     return path
 
 
-def _save_error_file(prefix, phase, errors, repro_cmd_fn=None, num_iterations=None):
+def _save_error_file(prefix, phase, errors, repro_cmd_fn=None):
     """Save errors grouped by category for easy debugging.
 
     Output format:
@@ -66,7 +66,7 @@ def _save_error_file(prefix, phase, errors, repro_cmd_fn=None, num_iterations=No
             repro = ""
             if repro_cmd_fn:
                 try:
-                    repro = f" | repro: {repro_cmd_fn(c, num_iterations)}"
+                    repro = f" | repro: {repro_cmd_fn(c)}"
                 except Exception:
                     pass
             lines.append(f"  {c.label}{repro}")
@@ -287,16 +287,32 @@ def _exec_worker(args):
     """
     from aster.execution.core import execute_hsaco, InputArray, OutputArray
 
-    label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, num_iter = args
+    label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, num_iter, *extra = (
+        args
+    )
+    direct_b = extra[0] if extra else False
+    direct_a = extra[1] if len(extra) > 1 else False
     try:
-        rng = np.random.default_rng(42)
-        A = (rng.standard_normal(m * k) * 0.1).astype(np.float16)
-        B = (rng.standard_normal(n * k) * 0.1).astype(np.float16)
+        np.random.seed(42)
+        A = (np.random.randn(m, k) * 0.1).astype(np.float16)
+        B = (np.random.randn(n, k) * 0.1).astype(np.float16)
+        if direct_a:
+            from kittens_helpers import shuffle_weight
+
+            A = shuffle_weight(A)
+        if direct_b:
+            from kittens_helpers import shuffle_weight
+
+            B = shuffle_weight(B)
         C = np.zeros(m * n, dtype=np.float32)
         times = execute_hsaco(
             hsaco_path=hsaco_path,
             kernel_name=kernel_name,
-            arguments=[InputArray(A), InputArray(B), OutputArray(C)],
+            arguments=[
+                InputArray(A.flatten()),
+                InputArray(B.flatten()),
+                OutputArray(C),
+            ],
             grid_dim=(num_wg, 1, 1),
             block_dim=(num_threads, 1, 1),
             num_iterations=num_iter,
@@ -468,6 +484,8 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
                 cfg.n_dim,
                 cfg.k,
                 num_iterations,
+                getattr(cfg, "direct_b", False),
+                getattr(cfg, "direct_a", False),
             )
             per_gpu[gpu_id].append(item)
             cfg_by_label[cfg.label] = cfg
@@ -647,12 +665,9 @@ def bench_perf_sweep(
     configs,
     compile_fn,
     repro_cmd_fn,
-    top_k_to_run=None,
-    full_sweep=False,
     num_gpus=None,
     compile_workers=None,
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
-    num_iterations=NUM_ITERATIONS,
     post_compile_filter=None,
     exec_sample=0,
 ):
@@ -669,11 +684,9 @@ def bench_perf_sweep(
     check_numpy_blas(label="sweep")
 
     active = list(configs)
-    if top_k_to_run and not full_sweep:
-        active = [c for c in active if c.label in set(top_k_to_run)]
 
     print(
-        f"\nCompiling {len(active)}/{len(configs)} configs, "
+        f"\nCompiling {len(active)} configs, "
         f"{compile_workers} workers, {num_gpus} GPU(s)"
     )
     sys.stdout.flush()
@@ -684,7 +697,7 @@ def bench_perf_sweep(
     )
     with os.fdopen(manifest_fd, "w") as f:
         for c in active:
-            repro = repro_cmd_fn(c, num_iterations) if repro_cmd_fn else c.label
+            repro = repro_cmd_fn(c) if repro_cmd_fn else c.label
             f.write(f"{c.label}\t{repro}\n")
     print(f"\nManifest: {manifest_path}")
     print(
@@ -774,7 +787,7 @@ def bench_perf_sweep(
         results, exec_failed = run_on_gpus(
             exec_active,
             hsaco_paths,
-            num_iterations,
+            NUM_ITERATIONS,
             num_gpus,
             desc="Executing",
         )
@@ -792,7 +805,7 @@ def bench_perf_sweep(
             line = f"#{i+1:>3} {tf:>7.1f} TF {pct:>5.1f}% {ms:>8.2f}ms {c.label}"
             if repro_cmd_fn:
                 try:
-                    line += f" | repro: {repro_cmd_fn(c, num_iterations)}"
+                    line += f" | repro: {repro_cmd_fn(c)}"
                 except Exception:
                     pass
             lines.append(line)
@@ -801,18 +814,12 @@ def bench_perf_sweep(
         print(f"\nResults ({len(results)}) saved in {p}")
     if compile_errs:
         p = _save_error_file(
-            "bench_compile_errors_",
-            "compile",
-            compile_errs,
-            repro_cmd_fn,
-            num_iterations,
+            "bench_compile_errors_", "compile", compile_errs, repro_cmd_fn
         )
         saved_files.append(p)
         print(f"{len(compile_errs)} compile errors in {p}")
     if exec_errs:
-        p = _save_error_file(
-            "bench_exec_errors_", "exec", exec_errs, repro_cmd_fn, num_iterations
-        )
+        p = _save_error_file("bench_exec_errors_", "exec", exec_errs, repro_cmd_fn)
         saved_files.append(p)
         print(f"{len(exec_errs)} exec errors in {p}")
 
@@ -842,12 +849,38 @@ def make_inputs(cfg):
     return A, B
 
 
-def print_config(cfg, iterations, resources=None):
+def print_config(cfg, resources=None):
     print(f"Config: {cfg.label}")
-    print(f"  M={cfg.m_dim}, N={cfg.n_dim}, K={cfg.k}")
-    print(f"  workgroups={cfg.num_workgroups}, threads={cfg.num_threads}")
+    print(f"  problem:    M={cfg.m_dim}, N={cfg.n_dim}, K={cfg.k}")
+    print(
+        f"  grid:       {cfg.num_workgroups} WGs ({cfg.m_wg}x{cfg.n_wg}), "
+        f"{cfg.num_waves} waves/WG ({cfg.m_waves}x{cfg.n_waves}), "
+        f"{cfg.num_threads} threads"
+    )
+    print(
+        f"  tiles/WG:   {cfg.m_tiles_wg}x{cfg.n_tiles_wg}x{cfg.k_tiles} "
+        f"(per-wave: {cfg.m_tiles}x{cfg.n_tiles}x{cfg.k_tiles})"
+    )
+    print(f"  pipeline:   strategy={cfg.pipeline_strategy}")
+    print(
+        f"  memory:     load_type={cfg.load_type}, b_path={cfg.b_path}, "
+        f"LDS={cfg.lds_bytes} bytes"
+    )
+    lcm = "lcm" if cfg.lcm_unroll else "no-lcm"
+    peel = "peel" if cfg.epilogue_peeling else "no-peel"
+    print(f"  unroll:     {lcm}, multiplier={cfg.unroll_factor_multiplier}, {peel}")
+    sched = []
+    if cfg.ll_sched:
+        sched.append("ll-sched")
+    if cfg.hoist_wait:
+        sched.append("hoist-wait")
+    if cfg.num_wg_per_cu > 1:
+        sched.append(f"wg_per_cu={cfg.num_wg_per_cu}")
+    if sched:
+        print(f"  sched:      {', '.join(sched)}")
+    print(f"  iterations: {NUM_ITERATIONS} (warmup={WARMUP_ITERATIONS})")
     if resources:
-        print(f"  resources: {resources}")
+        print(f"  resources:  {resources}")
 
 
 def run_single(cfg, compile_fn, args, execute_fn):
@@ -880,7 +913,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
             raise SystemExit("--compile-only requires --hsaco")
         _, asm = compile_fn(cfg, args.hsaco, **compile_kw)
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
-        print_config(cfg, args.iterations, res)
+        print_config(cfg, res)
         if res:
             for v in res.check_occupancy(
                 cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
@@ -891,58 +924,82 @@ def run_single(cfg, compile_fn, args, execute_fn):
 
     has_gpu = detect_num_gpus() > 0
 
-    if args.hsaco:
-        if not has_gpu:
-            print("No GPUs detected -- skipping execution.")
-            return
-        A, B = make_inputs(cfg)
-        print_config(cfg, args.iterations)
-        _, times_ns = execute_fn(
-            cfg, args.hsaco, args.iterations, A, B, skip_gpu_check=True
-        )
-    else:
+    # Compile (or use pre-compiled HSACO).
+    hsaco_path = args.hsaco
+    hsaco_tmp = None
+    if not hsaco_path:
         import tempfile as _tmp
 
-        with _tmp.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-            _, asm = compile_fn(cfg, tmp.name, **compile_kw)
-            res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
-            print_config(cfg, args.iterations, res)
-            if res:
-                violations = res.check_occupancy(
-                    cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
-                )
-                for v in violations:
-                    print(f"  OCCUPANCY ERROR: {v}")
-                if violations and not getattr(args, "force", False):
-                    raise SystemExit(1)
-            if not has_gpu:
-                print("No GPUs detected -- skipping execution.")
-                return
-            A, B = make_inputs(cfg)
-            _, times_ns = execute_fn(cfg, tmp.name, args.iterations, A, B)
+        hsaco_tmp = _tmp.NamedTemporaryFile(suffix=".hsaco", delete=False)
+        hsaco_path = hsaco_tmp.name
+        _, asm = compile_fn(cfg, hsaco_path, **compile_kw)
+        res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
+        print_config(cfg, res)
+        if res:
+            violations = res.check_occupancy(
+                cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
+            )
+            for v in violations:
+                print(f"  OCCUPANCY ERROR: {v}")
+            if violations and not getattr(args, "force", False):
+                raise SystemExit(1)
+    else:
+        print_config(cfg)
 
-    measured = times_ns[WARMUP_ITERATIONS:]
-    if not measured:
-        print("\nNo measurements after warmup -- increase --iterations")
+    if not has_gpu:
+        print("No GPUs detected -- skipping execution.")
         return
-    min_ns = min(measured)
-    if min_ns <= 0:
-        print(f"\nInvalid min timing: {min_ns} ns")
-        return
-    tf = cfg.total_flops / min_ns * 1e-3
-    pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
-    print(f"\nMin: {min_ns/1e6:.2f} ms  {tf:.1f} TFLOPS  ({pct:.1f}% peak)")
-    print(
-        RESULT_SENTINEL
-        + json.dumps(
-            {
-                "min_ms": min_ns / 1e6,
-                "tflops": tf,
-                "pct_peak": pct,
-                "times_ms": [t / 1e6 for t in times_ns],
-            }
+
+    try:
+        # Timing.
+        A, B = make_inputs(cfg)
+        _, times_ns = execute_fn(
+            cfg, hsaco_path, NUM_ITERATIONS, A, B, skip_gpu_check=True
         )
-    )
+
+        measured = times_ns[WARMUP_ITERATIONS:]
+        if not measured:
+            print(
+                f"\nNo measurements after warmup ({NUM_ITERATIONS} iterations), "
+                f"use a number > {WARMUP_ITERATIONS} e.g. ITERATIONS=100"
+            )
+            return
+        min_ns = min(measured)
+        if min_ns <= 0:
+            print(f"\nInvalid min timing: {min_ns} ns")
+            return
+        tf = cfg.total_flops / min_ns * 1e-3
+        pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
+        print(f"\nMin: {min_ns/1e6:.2f} ms  {tf:.1f} TFLOPS  ({pct:.1f}% peak)")
+        print(
+            RESULT_SENTINEL
+            + json.dumps(
+                {
+                    "min_ms": min_ns / 1e6,
+                    "tflops": tf,
+                    "pct_peak": pct,
+                    "times_ms": [t / 1e6 for t in times_ns],
+                }
+            )
+        )
+
+        # Correctness: verify against numpy reference.
+        print("\n--- Correctness check ---")
+        A, B = make_inputs(cfg)
+        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+        C_output, _ = execute_fn(cfg, hsaco_path, 1, A, B, skip_gpu_check=True)
+        try:
+            np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
+            print("PASS")
+        except AssertionError:
+            diff = float(np.max(np.abs(C_output - expected)))
+            print(f"FAIL: max_abs_diff={diff:.6g}")
+    finally:
+        if hsaco_tmp:
+            try:
+                os.unlink(hsaco_tmp.name)
+            except OSError:
+                pass
 
 
 # -- CLI args --------------------------------------------------------------
@@ -950,8 +1007,6 @@ def run_single(cfg, compile_fn, args, execute_fn):
 
 def add_sweep_cli_args(parser):
     a = parser.add_argument
-    a("--sweep", action="store_true", help="Run sweep")
-    a("--full-sweep", action="store_true", help="All configs (no top-k filter)")
     a("--compile-sample", type=int, default=4096, help="Configs to compile (0=all)")
     a("--exec-sample", type=int, default=2048, help="Configs to execute (0=all)")
     a("--num-gpus", type=int, default=None, help="GPUs (default: auto)")
@@ -965,9 +1020,8 @@ def add_sweep_cli_args(parser):
     a("--no-reg-filter", action="store_true", help="Disable register estimate filter")
 
 
-def add_single_cli_args(parser, num_iterations=NUM_ITERATIONS):
+def add_single_cli_args(parser):
     a = parser.add_argument
-    a("--iterations", type=int, default=num_iterations)
     a("--hsaco", type=str, default=None, help="Pre-compiled HSACO path")
     a("--compile-only", action="store_true")
     a("--print-ir-after-all", action="store_true")
