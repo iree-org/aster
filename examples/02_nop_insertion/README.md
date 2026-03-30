@@ -42,6 +42,7 @@ and their lowerings.
 ## Run
 
 ```bash
-python run.py                 # execute on GPU
-python run.py --print-asm     # see the inserted NOPs
+python examples/02_nop_insertion/run.py                       # execute on GPU
+python examples/02_nop_insertion/run.py --print-asm           # see the inserted NOPs
+python examples/02_nop_insertion/run.py --print-ir-after-all  # IR after each pass
 ```

@@ -26,5 +26,7 @@ control and can be useful for e.g. hardware validation and debugging.
 ## Run
 
 ```bash
-python run.py
+python examples/01_hello_asm/run.py                       # execute on GPU
+python examples/01_hello_asm/run.py --print-asm           # also print assembly
+python examples/01_hello_asm/run.py --print-ir-after-all  # IR after each pass
 ```
