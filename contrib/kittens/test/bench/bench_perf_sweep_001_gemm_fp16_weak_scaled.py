@@ -73,7 +73,7 @@ GPU_VGPR_GRANULE = _dev.vgpr_alloc_granule if _dev else 8
 # more VGPRs and LDS, so fewer configs pass the resource filter.
 PIPELINE_STRATEGY_CONFIGS = [1, 3, 5, 6, 7, 9]
 # Wave configs: multiples-of-4 wave counts split across MxN.
-# n_waves must be a power of 2 (delinearize from 1-D block ID).
+# waves_per_wg[1] must be a power of 2 (delinearize from 1-D block ID).
 _WAVE_BASES = [(1, 4), (2, 2), (4, 1)]
 _is_po2 = lambda x: x > 0 and (x & (x - 1)) == 0
 WAVE_CONFIGS = sorted(
@@ -89,7 +89,7 @@ WAVE_CONFIGS = sorted(
         and (bm * k1 * bn * k2) % 4 == 0
     }
 )
-# Per-workgroup tile counts. Per-wave tiles derived as m_tiles_wg // m_waves.
+# Per-workgroup tile counts. Per-wave tiles derived as tiles_per_wg // num_waves.
 # N-dimension multiples must be powers of 2 (delinearize from 1-D block ID).
 _M_MULTIPLES = range(1, 6)
 _N_MULTIPLES = [1, 2, 4]  # powers of 2
@@ -223,7 +223,7 @@ def _generate_configs(
         eligible = []
 
         for mw, nw in WAVE_CONFIGS:
-            if not (_pin("m_waves", mw) and _pin("n_waves", nw)):
+            if not (_pin("waves_per_wg_m", mw) and _pin("waves_per_wg_n", nw)):
                 continue
             nwaves = mw * nw
             wps = (nwaves + _NUM_SIMDS - 1) // _NUM_SIMDS
@@ -232,14 +232,16 @@ def _generate_configs(
                 if occ % wps != 0:
                     continue
                 nwgcu = occ // wps
-                m_wg = _WG_BASE[0] * nwgcu
+                wg_m = _WG_BASE[0] * nwgcu
                 simd_occ = nwgcu * wps
-                if not (_pin("m_wg", m_wg) and _pin("simd_occupancy", simd_occ)):
+                if not (
+                    _pin("num_workgroups_m", wg_m) and _pin("simd_occupancy", simd_occ)
+                ):
                     continue
 
                 for n_mult in N_WG_MULTIPLIERS:
-                    n_wg = _WG_BASE[1] * n_mult
-                    if not _pin("n_wg", n_wg):
+                    wg_n = _WG_BASE[1] * n_mult
+                    if not _pin("num_workgroups_n", wg_n):
                         continue
 
                     for mtwg, ntwg, kt in TILE_WG_CONFIGS:
@@ -247,14 +249,14 @@ def _generate_configs(
                             mtwg % mw != 0
                             or ntwg % nw != 0
                             or mtwg < nwaves
-                            or m_wg * mtwg * 16 < MIN_DIM
-                            or n_wg * ntwg * 16 < MIN_DIM
+                            or wg_m * mtwg * 16 < MIN_DIM
+                            or wg_n * ntwg * 16 < MIN_DIM
                         ):
                             continue
                         if not (
-                            _pin("m_tiles_wg", mtwg)
-                            and _pin("n_tiles_wg", ntwg)
-                            and _pin("k_tiles", kt)
+                            _pin("tiles_per_wg_m", mtwg)
+                            and _pin("tiles_per_wg_n", ntwg)
+                            and _pin("tiles_per_wg_k", kt)
                         ):
                             continue
 
@@ -296,13 +298,9 @@ def _generate_configs(
                                         continue
                                     eligible.append(
                                         _make_weak_scaled_mapped_gemm_instance(
-                                            m_wg,
-                                            n_wg,
-                                            mw,
-                                            nw,
-                                            mtwg,
-                                            ntwg,
-                                            kt,
+                                            [wg_m, wg_n, 1],
+                                            [mw, nw, 1],
+                                            [mtwg, ntwg, kt],
                                             k=k,
                                             load_type=load_type,
                                             b_path=b_path,
@@ -396,17 +394,17 @@ def main():
     )
     add_sweep_cli_args(parser)
     # Sweep pinning args: narrow the sweep grid to specific dimension values.
-    parser.add_argument("--m-wg", type=int, help="Pin workgroups along M")
-    parser.add_argument("--n-wg", type=int, help="Pin workgroups along N")
-    parser.add_argument("--m-waves", type=int, help="Pin waves per WG along M")
-    parser.add_argument("--n-waves", type=int, help="Pin waves per WG along N")
+    parser.add_argument("--num-workgroups-m", type=int, help="Pin workgroups along M")
+    parser.add_argument("--num-workgroups-n", type=int, help="Pin workgroups along N")
+    parser.add_argument("--waves-per-wg-m", type=int, help="Pin waves per WG along M")
+    parser.add_argument("--waves-per-wg-n", type=int, help="Pin waves per WG along N")
     parser.add_argument(
-        "--m-tiles-wg", type=int, help="Pin tiles per workgroup along M"
+        "--tiles-per-wg-m", type=int, help="Pin tiles per workgroup along M"
     )
     parser.add_argument(
-        "--n-tiles-wg", type=int, help="Pin tiles per workgroup along N"
+        "--tiles-per-wg-n", type=int, help="Pin tiles per workgroup along N"
     )
-    parser.add_argument("--k-tiles", type=int, help="Pin tiles per wave along K")
+    parser.add_argument("--tiles-per-wg-k", type=int, help="Pin tiles per wave along K")
     parser.add_argument("--k-scaling-factor", type=int, help="Pin K scaling factor")
     parser.add_argument(
         "--use-buffer",
@@ -507,13 +505,13 @@ def main():
     print(f"Variants: {variant_str}")
 
     _SWEEP_ATTR_MAP = {
-        "m_wg": "m_wg",
-        "n_wg": "n_wg",
-        "m_waves": "m_waves",
-        "n_waves": "n_waves",
-        "m_tiles_wg": "m_tiles_wg",
-        "n_tiles_wg": "n_tiles_wg",
-        "k_tiles": "k_tiles",
+        "num_workgroups_m": "num_workgroups_m",
+        "num_workgroups_n": "num_workgroups_n",
+        "waves_per_wg_m": "waves_per_wg_m",
+        "waves_per_wg_n": "waves_per_wg_n",
+        "tiles_per_wg_m": "tiles_per_wg_m",
+        "tiles_per_wg_n": "tiles_per_wg_n",
+        "tiles_per_wg_k": "tiles_per_wg_k",
         "pipeline_strategy": "pipeline_strategy",
         "k_scaling_factor": "k_scaling_factor",
         "unroll_multiplier": "unroll_factor_multiplier",

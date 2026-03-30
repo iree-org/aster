@@ -58,8 +58,8 @@ ALL_TESTS = [
     ("gemm_fp16_4wave_lds_pipe_3s_k64",          G4WLDSP().test_gemm_4wave_lds_pipelined,          [], {"k": 64, "num_stages": 3}),
     ("gemm_fp16_4wave_lds_pipe_3s_k128",         G4WLDSP().test_gemm_4wave_lds_pipelined,          [], {"k": 128, "num_stages": 3}),
     # Weak-scaling correctness (representative configs)
-    ("ws_correctness_2x2_2s",                    WSCorr().test_correctness,                       [], {"m_wg": 1, "n_wg": 1, "m_waves": 1, "n_waves": 1, "m_tiles_wg": 2, "n_tiles_wg": 2, "num_stages": 2}),
-    ("ws_correctness_4x4_3s",                    WSCorr().test_correctness,                       [], {"m_wg": 1, "n_wg": 1, "m_waves": 2, "n_waves": 2, "m_tiles_wg": 4, "n_tiles_wg": 4, "num_stages": 3}),
+    ("ws_correctness_2x2_2s",                    WSCorr().test_correctness,                       [], {"num_workgroups_per_kernel": [1, 1, 1], "num_waves_per_wg": [1, 1, 1], "num_tiles_per_wg": [2, 2, 1], "num_stages": 2}),
+    ("ws_correctness_4x4_3s",                    WSCorr().test_correctness,                       [], {"num_workgroups_per_kernel": [1, 1, 1], "num_waves_per_wg": [2, 2, 1], "num_tiles_per_wg": [4, 4, 1], "num_stages": 3}),
     # Weak-scaling perf sweep (runs all 24 configs)
     ("ws_perf_sweep",                            _bench_perf_sweep,                               [], {}),
 ]

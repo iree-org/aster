@@ -86,7 +86,7 @@ def make_sweep_pins(args, attr_map):
     Args:
         args: Parsed argparse namespace.
         attr_map: Dict mapping argparse attribute names to config attribute names.
-            E.g. {"stages": "num_stages", "m_waves": "m_waves"}.
+            E.g. {"stages": "num_stages", "waves_per_wg_m": "waves_per_wg_m"}.
             If a CLI arg is None, it is ignored (not pinned).
 
     Returns:
@@ -535,7 +535,7 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
                 cfg.num_threads,
                 cfg.m_dim,
                 cfg.n_dim,
-                cfg.k,
+                cfg.k_dim,
                 num_iterations,
                 getattr(cfg, "direct_b", False),
                 getattr(cfg, "direct_a", False),
@@ -681,7 +681,7 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
             cfg.num_threads,
             cfg.m_dim,
             cfg.n_dim,
-            cfg.k,
+            cfg.k_dim,
             getattr(cfg, "direct_b", False),
             getattr(cfg, "direct_a", False),
         )
@@ -933,7 +933,7 @@ def bench_perf_sweep_pipelined(
                         cfg.num_threads,
                         cfg.m_dim,
                         cfg.n_dim,
-                        cfg.k,
+                        cfg.k_dim,
                         NUM_ITERATIONS,
                         getattr(cfg, "direct_b", False),
                         getattr(cfg, "direct_a", False),
@@ -1176,26 +1176,26 @@ def bench_perf_sweep(
 
 def make_inputs(cfg, zero_init=False):
     if zero_init:
-        A = np.zeros((cfg.m_dim, cfg.k), dtype=np.float16)
-        B = np.zeros((cfg.n_dim, cfg.k), dtype=np.float16)
+        A = np.zeros((cfg.m_dim, cfg.k_dim), dtype=np.float16)
+        B = np.zeros((cfg.n_dim, cfg.k_dim), dtype=np.float16)
     else:
         np.random.seed(42)
-        A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
-        B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
+        A = (np.random.randn(cfg.m_dim, cfg.k_dim) * 0.1).astype(np.float16)
+        B = (np.random.randn(cfg.n_dim, cfg.k_dim) * 0.1).astype(np.float16)
     return A, B
 
 
 def print_config(cfg, resources=None):
     print(f"Config: {cfg.label}")
-    print(f"  problem:    M={cfg.m_dim}, N={cfg.n_dim}, K={cfg.k}")
+    print(f"  problem:    M={cfg.m_dim}, N={cfg.n_dim}, K={cfg.k_dim}")
     print(
-        f"  grid:       {cfg.num_workgroups} WGs ({cfg.m_wg}x{cfg.n_wg}), "
-        f"{cfg.num_waves} waves/WG ({cfg.m_waves}x{cfg.n_waves}), "
+        f"  grid:       {cfg.mapping.num_workgroups_per_kernel} WGs, "
+        f"{cfg.mapping.num_waves_per_workgroup} waves/WG, "
         f"{cfg.num_threads} threads"
     )
     print(
-        f"  tiles/WG:   {cfg.m_tiles_wg}x{cfg.n_tiles_wg}x{cfg.k_tiles} "
-        f"(per-wave: {cfg.m_tiles}x{cfg.n_tiles}x{cfg.k_tiles})"
+        f"  tiles/WG:   {cfg.mapping.num_tiles_per_workgroup} "
+        f"(per-wave: {cfg.mapping.num_tiles_per_wave})"
     )
     print(f"  pipeline:   strategy={cfg.pipeline_strategy}")
     print(

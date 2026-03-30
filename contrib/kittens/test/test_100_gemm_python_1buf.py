@@ -22,13 +22,11 @@ from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 
-from kittens.layouts import (
-    TILE_16x64,
-    LDS_SWIZZLE,
-    MFMA_FRAGMENT_IN_TILE,
-    make_global_tile_layout,
-    make_mfma_c_layout,
-)
+from aster.layout import Layout, Swizzle
+
+TILE_16x64 = Layout((16, 4), (64, 16))
+LDS_SWIZZLE = Swizzle(bits=3, base=3, shift=3)
+MFMA_FRAGMENT_IN_TILE = Layout((4, 16), (8, 64))
 
 MCPU = "gfx942"
 
@@ -43,8 +41,8 @@ def _build_gemm_1buf(k, stride_ab):
     k_tiles = k // 32
     stride_c = 16 * 4  # 16 f32 columns * 4 bytes
     d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
-    GLOBAL_LAYOUT = make_global_tile_layout(stride_ab)
-    C_LAYOUT = make_mfma_c_layout(stride_c)
+    GLOBAL_LAYOUT = Layout((16, 4), (stride_ab, 16))
+    C_LAYOUT = Layout((4, 16, 4), (4 * stride_c, 4, stride_c))
 
     b = KernelBuilder("gemm_1buf_mod", "gemm_1buf", target=MCPU, isa="cdna3")
     b.add_ptr_arg(AccessKind.ReadOnly)  # A

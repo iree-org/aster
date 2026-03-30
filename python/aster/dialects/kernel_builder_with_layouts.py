@@ -17,11 +17,11 @@ if TYPE_CHECKING:
 
 
 class KernelBuilderWithLayouts(KernelBuilder):
-    """KernelBuilder with layout-first tile operations.
+    """KernelBuilder with layout-first tile operations."""
 
-    Adds load_tile_from_global, write_tile_to_lds, read_fragment_from_lds, and
-    store_fragment_to_global -- all expressed in terms of Layout objects.
-    """
+    # -----------------------------------------------------------------------
+    # Single-tile ops
+    # -----------------------------------------------------------------------
 
     def load_tile_from_global(
         self,
@@ -35,7 +35,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
         byte_off = self.affine_apply(d0 + d1, [tile_byte_offset, thread_off])
         return self.global_load_dwordx4(self.global_addr(ptr, byte_off))
 
-    # TODO: too hardcoded to the 16x16x16xf16 mfma within 16x16x32 atomic tile, make it more generic.
+    # TODO: still too tied to mfma_f32_16x16x16_f16 layout into a dual-tile of 16x16x32, need to generalize.
     def store_fragment_to_global(
         self,
         acc: ir.Value,
@@ -69,7 +69,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
         addr = self.index_to_vgpr(self.affine_apply(d0 + d1, [lds_base, swizzled]))
         return self.ds_read_b64(addr)
 
-    # TODO: too hardcoded to the 16x16x16xf16 mfma within 16x16x32 atomic tile, make it more generic.
+    # TODO: still too tied to mfma_f32_16x16x16_f16 layout into a dual-tile of 16x16x32, need to generalize.
     def write_tile_to_lds(
         self,
         data: ir.Value,

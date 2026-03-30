@@ -23,13 +23,11 @@ from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 from aster.pass_pipelines import make_default_pass_pipeline
 
-from kittens.layouts import (
-    TILE_16x64,
-    LDS_SWIZZLE,
-    MFMA_FRAGMENT_IN_TILE,
-    make_global_tile_layout,
-    make_mfma_c_layout,
-)
+from aster.layout import Layout, Swizzle
+
+TILE_16x64 = Layout((16, 4), (64, 16))
+LDS_SWIZZLE = Swizzle(bits=3, base=3, shift=3)
+MFMA_FRAGMENT_IN_TILE = Layout((4, 16), (8, 64))
 
 MCPU = "gfx942"
 
@@ -44,8 +42,8 @@ def _build_gemm_pipelined(k, stride_ab):
     k_tiles = k // 32
     stride_c = 16 * 4
     d0 = ir.AffineExpr.get_dim(0)
-    GLOBAL_LAYOUT = make_global_tile_layout(stride_ab)
-    C_LAYOUT = make_mfma_c_layout(stride_c)
+    GLOBAL_LAYOUT = Layout((16, 4), (stride_ab, 16))
+    C_LAYOUT = Layout((4, 16, 4), (4 * stride_c, 4, stride_c))
 
     b = KernelBuilder("gemm_pipe_mod", "gemm_pipelined", target=MCPU, isa="cdna3")
     b.add_ptr_arg(AccessKind.ReadOnly)

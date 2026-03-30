@@ -44,6 +44,18 @@ class OperandPath(Enum):
     DIRECT_AB = "direct_ab"  # both A and B bypass LDS
 
 
+class Operand(Enum):
+    A = "a"
+    B = "b"
+    C = "c"
+
+
+# Shorthand constants for use at call sites.
+A = Operand.A
+B = Operand.B
+C = Operand.C
+
+
 # -----------------------------------------------------------------------
 # Iteration dimension markers
 # -----------------------------------------------------------------------
@@ -60,7 +72,7 @@ DIM_K = 2
 
 @dataclass
 class GemmSpec:
-    """Linalg-style GEMM specification.
+    """Linalg-style GEMM specification, from a "generative" perspective.
 
     Defines C[dm, dn] += A[dm, dk] * B[dn, dk]. Layouts are the source of truth for
     problem dimensions. GEMM_SIZE_M/N/K are derived from layouts.
@@ -92,11 +104,17 @@ class GemmSpec:
 
     def __post_init__(self):
         if self.mfma_tile_bytes_a is None:
-            self.mfma_tile_bytes_a = self.mfma_m * self.mfma_k * self.elt_bytes_a
+            self.mfma_tile_bytes_a = (
+                self.mfma_shape[DIM_M] * self.mfma_shape[DIM_K] * self.elt_bytes_a
+            )
         if self.mfma_tile_bytes_b is None:
-            self.mfma_tile_bytes_b = self.mfma_n * self.mfma_k * self.elt_bytes_b
+            self.mfma_tile_bytes_b = (
+                self.mfma_shape[DIM_K] * self.mfma_shape[DIM_N] * self.elt_bytes_b
+            )
         if self.mfma_tile_bytes_c is None:
-            self.mfma_tile_bytes_c = self.mfma_m * self.mfma_n * self.elt_bytes_c
+            self.mfma_tile_bytes_c = (
+                self.mfma_shape[DIM_M] * self.mfma_shape[DIM_N] * self.elt_bytes_c
+            )
 
     @classmethod
     def from_sizes(
@@ -143,20 +161,6 @@ class GemmSpec:
             **kwargs,
         )
 
-    # --- MFMA shape accessors ---
-
-    @property
-    def mfma_m(self) -> int:
-        return self.mfma_shape[0]
-
-    @property
-    def mfma_n(self) -> int:
-        return self.mfma_shape[1]
-
-    @property
-    def mfma_k(self) -> int:
-        return self.mfma_shape[2]
-
     # --- GEMM problem sizes (derived from layouts) ---
 
     def _layout_sizes(self, layout: Layout) -> tuple[int, ...]:
@@ -167,51 +171,51 @@ class GemmSpec:
         s = layout.strides
         return s if isinstance(s, tuple) else (s,)
 
-    def _dim_from_operand(self, operand: str, dim: int) -> int:
+    def _dim_from_operand(self, operand: Operand, dim: int) -> int:
         dims, layout = self._operand_info(operand)
         return self._layout_sizes(layout)[dims.index(dim)]
 
     @property
     def GEMM_SIZE_M(self) -> int:
-        return self._dim_from_operand("a", DIM_M)
+        return self._dim_from_operand(Operand.A, DIM_M)
 
     @property
     def GEMM_SIZE_N(self) -> int:
-        return self._dim_from_operand("b", DIM_N)
+        return self._dim_from_operand(Operand.B, DIM_N)
 
     @property
     def GEMM_SIZE_K(self) -> int:
-        return self._dim_from_operand("a", DIM_K)
+        return self._dim_from_operand(Operand.A, DIM_K)
 
     # --- Operand queries ---
 
-    def operand_dim_size(self, operand: str, dim: int) -> int:
+    def operand_dim_size(self, operand: Operand, dim: int) -> int:
         return self._dim_from_operand(operand, dim)
 
-    def operand_stride(self, operand: str, dim: int) -> int:
+    def operand_stride(self, operand: Operand, dim: int) -> int:
         dims, layout = self._operand_info(operand)
         return self._layout_strides(layout)[dims.index(dim)]
 
-    def _operand_info(self, operand: str) -> tuple[list[int], Layout]:
-        if operand == "a":
+    def _operand_info(self, operand: Operand) -> tuple[list[int], Layout]:
+        if operand == Operand.A:
             return self.logical_dims_a, self.layout_a
-        elif operand == "b":
+        elif operand == Operand.B:
             return self.logical_dims_b, self.layout_b
-        elif operand == "c":
+        elif operand == Operand.C:
             return self.logical_dims_c, self.layout_c
         raise ValueError(f"Unknown operand: {operand!r}")
 
     @property
     def stride_a(self) -> int:
-        return self.operand_stride("a", self.logical_dims_a[0])
+        return self.operand_stride(Operand.A, self.logical_dims_a[0])
 
     @property
     def stride_b(self) -> int:
-        return self.operand_stride("b", self.logical_dims_b[0])
+        return self.operand_stride(Operand.B, self.logical_dims_b[0])
 
     @property
     def stride_c(self) -> int:
-        return self.operand_stride("c", self.logical_dims_c[0])
+        return self.operand_stride(Operand.C, self.logical_dims_c[0])
 
     @property
     def total_flops(self) -> int:
@@ -227,11 +231,6 @@ class GemmSpec:
 class GemmMappingSpec:
     """Transform-dialect style mapping specification for a Linalg-like GemmSpec.
 
-    Describes how to distribute a GEMM across the GPU hierarchy (workgroups,
-    waves, tiles) and how to schedule the software pipeline. Orthogonal to
-    the GemmSpec problem definition -- the same GemmSpec can be mapped in
-    many different ways.
-
     Analogous to transform.structured.tile_using_forall + pipeline schedule
     annotations: the tiling sizes, distribution strategy, and memory path
     choices are all mapping decisions, not problem properties.
@@ -239,20 +238,16 @@ class GemmMappingSpec:
 
     # --- Distribution ---
 
-    # Workgroup grid: the problem is tiled into m_wg x n_wg workgroups.
-    m_wg: int
-    n_wg: int
+    # Workgroup grid [M, N, K]: number of workgroups along each dimension.
+    # K is always 1 (no K-splitting across workgroups).
+    num_workgroups_per_kernel: list[int]
 
-    # Wave grid within a workgroup.
-    m_waves: int
-    n_waves: int
+    # Wave grid [M, N, K] within a workgroup. K is always 1.
+    num_waves_per_workgroup: list[int]
 
-    # Tiles per wave per K-loop iteration.
-    m_tiles_per_wave: int
-    n_tiles_per_wave: int
-
-    # K-tiles per K-loop iteration (number of transfer tiles along K).
-    k_tiles: int
+    # Tiles per wave [M, N, K] per K-loop iteration.
+    # K dimension is the number of transfer tiles along K.
+    num_tiles_per_wave: list[int]
 
     # --- Pipeline schedule ---
 
@@ -307,22 +302,29 @@ class GemmMappingSpec:
     # --- Derived tile counts ---
 
     @property
-    def m_tiles_wg(self) -> int:
-        return self.m_tiles_per_wave * self.m_waves
-
-    @property
-    def n_tiles_wg(self) -> int:
-        return self.n_tiles_per_wave * self.n_waves
+    def num_tiles_per_workgroup(self) -> list[int]:
+        """[M, N, K] tile counts per workgroup."""
+        wpw = self.num_waves_per_workgroup
+        return [
+            self.num_tiles_per_wave[DIM_M] * wpw[DIM_M],
+            self.num_tiles_per_wave[DIM_N] * wpw[DIM_N],
+            self.num_tiles_per_wave[DIM_K] * wpw[DIM_K],
+        ]
 
     # --- Grid sizes ---
 
     @property
     def num_workgroups(self) -> int:
-        return self.m_wg * self.n_wg
+        return (
+            self.num_workgroups_per_kernel[DIM_M]
+            * self.num_workgroups_per_kernel[DIM_N]
+            * self.num_workgroups_per_kernel[DIM_K]
+        )
 
     @property
     def num_waves(self) -> int:
-        return self.m_waves * self.n_waves
+        wpw = self.num_waves_per_workgroup
+        return wpw[DIM_M] * wpw[DIM_N] * wpw[DIM_K]
 
     @property
     def num_threads(self) -> int:
@@ -344,20 +346,20 @@ class GemmMappingSpec:
 
     # --- Cooperative loading splits ---
 
-    def _coop_2d_split(self, spatial_tiles: int) -> tuple[int, int, int, int]:
-        waves_s = min(spatial_tiles, self.num_waves)
+    def _coop_2d_split(self, num_tiles: int) -> tuple[int, int, int, int]:
+        waves_s = min(num_tiles, self.num_waves)
         waves_k = max(1, self.num_waves // waves_s)
-        coop_s = -(-spatial_tiles // waves_s)
-        coop_k = -(-self.k_tiles // waves_k)
+        coop_s = -(-num_tiles // waves_s)
+        coop_k = -(-self.num_tiles_per_wave[DIM_K] // waves_k)
         return waves_s, waves_k, coop_s, coop_k
 
     @property
     def coop_a_split(self) -> tuple[int, int, int, int]:
-        return self._coop_2d_split(self.m_tiles_wg)
+        return self._coop_2d_split(self.num_tiles_per_workgroup[DIM_M])
 
     @property
     def coop_b_split(self) -> tuple[int, int, int, int]:
-        return self._coop_2d_split(self.n_tiles_wg)
+        return self._coop_2d_split(self.num_tiles_per_workgroup[DIM_N])
 
     @property
     def coop_a_mk_count(self) -> int:
@@ -372,29 +374,31 @@ class GemmMappingSpec:
     # --- Resource estimates ---
 
     def estimated_agprs(self) -> int:
-        return self.m_tiles_per_wave * self.n_tiles_per_wave * 4
+        return self.num_tiles_per_wave[DIM_M] * self.num_tiles_per_wave[DIM_N] * 4
 
     def estimated_vgprs(self) -> int:
+        mt, nt, kt = self.num_tiles_per_wave
         a_load = self.coop_a_mk_count * self.a_stages * 4
-        a_lds_read = self.m_tiles_per_wave * self.k_tiles * 4
+        a_lds_read = mt * kt * 4
 
         if self.direct_b:
-            b_load = self.n_tiles_per_wave * self.k_tiles * self.b_stages * 4
-            b_split = self.n_tiles_per_wave * self.k_tiles * 4
+            b_load = kt * nt * self.b_stages * 4
+            b_split = kt * nt * 4
             overhead = 30
         else:
             b_load = self.coop_b_nk_count * self.a_stages * 4
-            b_split = self.n_tiles_per_wave * self.k_tiles * 4
+            b_split = kt * nt * 4
             overhead = 10
 
         return a_load + a_lds_read + b_load + b_split + overhead
 
     def lds_bytes(self, tile_bytes: int = 1024) -> int:
-        a_lds = self.a_stages * self.m_tiles_wg * self.k_tiles * tile_bytes
+        kt = self.num_tiles_per_wave[DIM_K]
+        a_lds = self.a_stages * self.num_tiles_per_workgroup[DIM_M] * kt * tile_bytes
         b_lds = (
             0
             if self.direct_b
-            else self.b_stages * self.n_tiles_wg * self.k_tiles * tile_bytes
+            else self.b_stages * kt * self.num_tiles_per_workgroup[DIM_N] * tile_bytes
         )
         return a_lds + b_lds
 
@@ -414,8 +418,8 @@ class WeakScaledMappedGemmInstance:
 
     Validates that the GEMM problem dimensions are consistent with the
     weak-scale distribution:
-        GEMM_SIZE_M == m_wg * m_tiles_wg * mfma_m
-        GEMM_SIZE_N == n_wg * n_tiles_wg * mfma_n
+        GEMM_SIZE_M == num_workgroups_per_kernel[M] * num_tiles_per_workgroup[M] * mfma_m
+        GEMM_SIZE_N == num_workgroups_per_kernel[N] * num_tiles_per_workgroup[N] * mfma_n
 
     All attributes delegate to spec or mapping via __getattr__.
     String-valued properties (load_type, b_path) return enum .value
@@ -428,17 +432,21 @@ class WeakScaledMappedGemmInstance:
         self._check_weak_scale()
 
     def _check_weak_scale(self) -> None:
-        expected_m = self.mapping.m_wg * self.mapping.m_tiles_wg * self.spec.mfma_m
-        expected_n = self.mapping.n_wg * self.mapping.n_tiles_wg * self.spec.mfma_n
+        wg = self.mapping.num_workgroups_per_kernel
+        twg = self.mapping.num_tiles_per_workgroup
+        mfma_m = self.spec.mfma_shape[DIM_M]
+        mfma_n = self.spec.mfma_shape[DIM_N]
+        expected_m = wg[DIM_M] * twg[DIM_M] * mfma_m
+        expected_n = wg[DIM_N] * twg[DIM_N] * mfma_n
         assert self.spec.GEMM_SIZE_M == expected_m, (
             f"GEMM_SIZE_M={self.spec.GEMM_SIZE_M} != "
-            f"m_wg({self.mapping.m_wg}) * m_tiles_wg({self.mapping.m_tiles_wg}) "
-            f"* mfma_m({self.spec.mfma_m}) = {expected_m}"
+            f"num_workgroups_per_kernel[M]({wg[DIM_M]}) * num_tiles_per_wg[M]({twg[DIM_M]}) "
+            f"* mfma_m({mfma_m}) = {expected_m}"
         )
         assert self.spec.GEMM_SIZE_N == expected_n, (
             f"GEMM_SIZE_N={self.spec.GEMM_SIZE_N} != "
-            f"n_wg({self.mapping.n_wg}) * n_tiles_wg({self.mapping.n_tiles_wg}) "
-            f"* mfma_n({self.spec.mfma_n}) = {expected_n}"
+            f"num_workgroups_per_kernel[N]({wg[DIM_N]}) * num_tiles_per_wg[N]({twg[DIM_N]}) "
+            f"* mfma_n({mfma_n}) = {expected_n}"
         )
 
     # --- Convenience accessors (backward compat) ---
@@ -465,11 +473,11 @@ class WeakScaledMappedGemmInstance:
 
     @property
     def m_tiles(self) -> int:
-        return self.mapping.m_tiles_per_wave
+        return self.mapping.num_tiles_per_wave[DIM_M]
 
     @property
     def n_tiles(self) -> int:
-        return self.mapping.n_tiles_per_wave
+        return self.mapping.num_tiles_per_wave[DIM_N]
 
     @property
     def estimated_agprs(self) -> int:
@@ -499,7 +507,7 @@ class WeakScaledMappedGemmInstance:
 
     @property
     def k_scaling_factor(self) -> int:
-        return self.k // (self.mapping.k_tiles * 32)
+        return self.k // (self.mapping.num_tiles_per_wave[DIM_K] * 32)
 
     # --- Label serde ---
 
@@ -512,7 +520,7 @@ class WeakScaledMappedGemmInstance:
 
             cls._LABEL_RE = re.compile(
                 r"^m(\d+)xn(\d+)xk(\d+)"
-                r"_wg(\d+)x(\d+)_w(\d+)x(\d+)"
+                r"_wg(\d+)x(\d+)x(\d+)_w(\d+)x(\d+)x(\d+)"
                 r"_twg(\d+)x(\d+)x(\d+)_pipestrat(\d+)"
                 r"(?:_wgcu(\d+))?"
                 r"(_nolcm)?"
@@ -534,13 +542,15 @@ class WeakScaledMappedGemmInstance:
             _m_dim,
             _n_dim,
             k,
-            m_wg,
-            n_wg,
-            m_waves,
-            n_waves,
-            m_tiles_wg,
-            n_tiles_wg,
-            k_tiles,
+            wg_m,
+            wg_n,
+            wg_k,
+            waves_m,
+            waves_n,
+            waves_k,
+            twg_m,
+            twg_n,
+            twg_k,
             pipestrat,
             wgcu,
             nolcm,
@@ -554,18 +564,19 @@ class WeakScaledMappedGemmInstance:
 
         load_type = "buffer" if lt == "buf" else "flat"
         b_path = direct if direct else "lds"
-        mw, nw = int(m_waves), int(n_waves)
-        mtw, ntw = int(m_tiles_wg), int(n_tiles_wg)
+        wg = [int(wg_m), int(wg_n), int(wg_k)]
+        wpw = [int(waves_m), int(waves_n), int(waves_k)]
+        tiles_wg = [int(twg_m), int(twg_n), int(twg_k)]
 
         spec = GemmSpec.from_sizes(int(_m_dim), int(_n_dim), int(k))
         mapping = GemmMappingSpec(
-            m_wg=int(m_wg),
-            n_wg=int(n_wg),
-            m_waves=mw,
-            n_waves=nw,
-            m_tiles_per_wave=mtw // mw,
-            n_tiles_per_wave=ntw // nw,
-            k_tiles=int(k_tiles),
+            num_workgroups_per_kernel=wg,
+            num_waves_per_workgroup=wpw,
+            num_tiles_per_wave=[
+                tiles_wg[DIM_M] // wpw[DIM_M],
+                tiles_wg[DIM_N] // wpw[DIM_N],
+                tiles_wg[DIM_K] // wpw[DIM_K],
+            ],
             pipeline_strategy=int(pipestrat),
             load_type=LoadType(load_type),
             operand_path=OperandPath(b_path),
@@ -582,7 +593,9 @@ class WeakScaledMappedGemmInstance:
 
     @property
     def label(self) -> str:
-        tile_str = f"_twg{self.mapping.m_tiles_wg}x{self.mapping.n_tiles_wg}x{self.mapping.k_tiles}"
+        wg = self.mapping.num_workgroups_per_kernel
+        twg = self.mapping.num_tiles_per_workgroup
+        tile_str = f"_twg{twg[DIM_M]}x{twg[DIM_N]}x{twg[DIM_K]}"
         lcm = "" if self.mapping.lcm_unroll else "_nolcm"
         um = (
             f"_um{self.mapping.unroll_factor_multiplier}"
@@ -601,8 +614,8 @@ class WeakScaledMappedGemmInstance:
         suffix = f"_{self.b_path}_{lt}" if self.b_path != "lds" else f"_{lt}"
         return (
             f"m{self.m_dim}xn{self.n_dim}xk{self.k}"
-            f"_wg{self.mapping.m_wg}x{self.mapping.n_wg}"
-            f"_w{self.mapping.m_waves}x{self.mapping.n_waves}"
+            f"_wg{wg[DIM_M]}x{wg[DIM_N]}x{wg[DIM_K]}"
+            f"_w{self.mapping.num_waves_per_workgroup[DIM_M]}x{self.mapping.num_waves_per_workgroup[DIM_N]}x{self.mapping.num_waves_per_workgroup[DIM_K]}"
             f"{tile_str}_pipestrat{self.mapping.pipeline_strategy}"
             f"{wgcu}{lcm}{um}{peel}{llsched}{hoistwait}{suffix}"
         )
