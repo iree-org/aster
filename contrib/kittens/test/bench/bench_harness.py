@@ -5,6 +5,7 @@ Phase 2: Parallel GPU execution (per-config subprocess, crash-isolated).
 Phase 3: Correctness verification (per-config subprocess, crash-isolated).
 """
 
+import fcntl
 import json
 import os
 import signal
@@ -23,6 +24,7 @@ NUM_ITERATIONS = int(os.environ.get("ITERATIONS", "100"))
 WARMUP_ITERATIONS = int(os.environ.get("WARMUP", "20"))
 DEFAULT_COMPILE_WORKERS = 8
 DEFAULT_COMPILE_TIMEOUT = 60  # seconds per kernel
+DEFAULT_EXEC_TIMEOUT = 120  # seconds per kernel execution
 
 
 # -- Helpers ---------------------------------------------------------------
@@ -393,10 +395,34 @@ def _gpu_init(gpu_id):
     sys.stderr = io.StringIO()
 
 
-def _exec_child(conn, item, gid):
-    """Child process entry point for isolated execution (module-level for pickling)."""
+def _exec_child(conn, item, gid, gpu_lock_path=None):
+    """Child process entry point for isolated execution (module-level for pickling).
+
+    If gpu_lock_path is set, wraps execution in an fcntl file lock that is auto-released
+    by the OS on crash (prevents deadlocks in pipelined mode).
+    """
     _gpu_init(gid)
-    result = _exec_worker(item)
+    if gpu_lock_path:
+        lock_fd = os.open(gpu_lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    try:
+        result = _exec_worker(item)
+    except Exception as e:
+        if gpu_lock_path:
+            try:
+                from aster._mlir_libs._runtime_module import hip_device_reset
+
+                hip_device_reset()
+            except Exception:
+                pass
+        result = (item[0], None, str(e).split("\n")[0][:200])
+    finally:
+        if gpu_lock_path:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                os.close(lock_fd)
+            except OSError:
+                pass
     conn.send(result)
     conn.close()
 
@@ -409,18 +435,22 @@ def _verify_child(conn, item, gid):
     conn.close()
 
 
-def _exec_one_isolated(work_item, gpu_id, timeout=120):
+def _exec_one_isolated(work_item, gpu_id, timeout=120, gpu_lock_path=None):
     """Execute one config in a fully isolated subprocess.
 
-    Unlike ProcessPoolExecutor, a crash here cannot poison other configs. Returns
-    (label, times, error_string).
+    Unlike ProcessPoolExecutor, a crash here cannot poison other configs. If
+    gpu_lock_path is set, the child acquires an fcntl file lock before GPU work (auto-
+    released on crash). Returns (label, times, error_string).
     """
     import multiprocessing as mp
 
     ctx = mp.get_context("spawn")
     parent_conn, child_conn = ctx.Pipe(duplex=False)
 
-    p = ctx.Process(target=_exec_child, args=(child_conn, work_item, gpu_id))
+    p = ctx.Process(
+        target=_exec_child,
+        args=(child_conn, work_item, gpu_id, gpu_lock_path),
+    )
     p.start()
     child_conn.close()
 
@@ -446,14 +476,32 @@ def _exec_one_isolated(work_item, gpu_id, timeout=120):
     return result
 
 
-def _run_gpu_queue(gpu_id, queue, result_queue, timeout=120):
-    """Process a queue of work items sequentially on one GPU.
+def _run_gpu_queue(gpu_id, items, result_queue, timeout=120, gpu_lock_path=None):
+    """Process work items sequentially on one GPU.
 
+    items can be a list (batch mode) or a queue.Queue (pipelined mode, stop on None).
     Each config gets its own subprocess via _exec_one_isolated, so a crash cannot affect
     the next config.  Results are pushed to result_queue (thread-safe) as they complete.
     """
-    for item in queue:
-        result_queue.put(_exec_one_isolated(item, gpu_id, timeout=timeout))
+    import queue as _queue_mod
+
+    if isinstance(items, _queue_mod.Queue):
+        while True:
+            item = items.get()
+            if item is None:
+                break
+            result_queue.put(
+                _exec_one_isolated(
+                    item, gpu_id, timeout=timeout, gpu_lock_path=gpu_lock_path
+                )
+            )
+    else:
+        for item in items:
+            result_queue.put(
+                _exec_one_isolated(
+                    item, gpu_id, timeout=timeout, gpu_lock_path=gpu_lock_path
+                )
+            )
 
 
 def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
@@ -516,7 +564,6 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
             try:
                 label, times, err = result_q.get(timeout=1.0)
             except queue.Empty:
-                # Check if all threads died.
                 if not any(t.is_alive() for t in threads):
                     break
                 continue
@@ -538,11 +585,31 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
             pbar.update(1)
             pbar.set_postfix_str(f"best {best_tf:.1f} TF, fail={len(failed)}")
     except KeyboardInterrupt:
-        print("\nCtrl+C -- stopping execution, moving to reporting...")
+        remaining = total - collected
+        print(
+            f"\nCtrl+C -- stopping execution ({collected}/{total} done, "
+            f"{remaining} skipped). Collecting partial results..."
+        )
     pbar.close()
 
-    for t in threads:
-        t.join(timeout=5.0)
+    alive = [t for t in threads if t.is_alive()]
+    if alive:
+        import time
+
+        print(
+            f"Waiting for {len(alive)} GPU threads to finish current work "
+            f"(timeout 5s)...",
+            end="",
+            flush=True,
+        )
+        t0 = time.monotonic()
+        for t in alive:
+            t.join(timeout=max(0.1, 5.0 - (time.monotonic() - t0)))
+        still = sum(1 for t in threads if t.is_alive())
+        if still:
+            print(f" {still} still busy, moving on.")
+        else:
+            print(" done.")
     return results, failed
 
 
@@ -658,6 +725,298 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
     return passed, errors
 
 
+def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
+    """Print sweep summary and save result/error files (shared by both sweep modes)."""
+    results.sort(key=lambda r: r[2], reverse=True)
+    saved_files = []
+
+    if results:
+        lines = []
+        for i, (c, ms, tf, pct) in enumerate(results):
+            line = f"#{i+1:>3} {tf:>7.1f} TF {pct:>5.1f}% {ms:>8.2f}ms {c.label}"
+            if repro_cmd_fn:
+                try:
+                    line += f" | repro: {repro_cmd_fn(c)}"
+                except Exception:
+                    pass
+            lines.append(line)
+        p = _save_tmpfile("bench_results_", lines)
+        saved_files.append(p)
+        print(f"\nResults ({len(results)}) saved in {p}")
+    if compile_errs:
+        p = _save_error_file(
+            "bench_compile_errors_", "compile", compile_errs, repro_cmd_fn
+        )
+        saved_files.append(p)
+        print(f"{len(compile_errs)} compile errors in {p}")
+    if exec_errs:
+        p = _save_error_file("bench_exec_errors_", "exec", exec_errs, repro_cmd_fn)
+        saved_files.append(p)
+        print(f"{len(exec_errs)} exec errors in {p}")
+
+    print(
+        f"\nSummary: {len(results)} ok, {len(compile_errs)} compile fail, "
+        f"{len(exec_errs)} exec fail"
+    )
+    if results:
+        top_n = min(20, len(results))
+        print(f"Top {top_n}:")
+        for i, (c, ms, tf, pct) in enumerate(results[:top_n]):
+            print(f"  #{i+1} {c.label}: {tf:.1f} TF ({pct:.1f}%)")
+    if saved_files:
+        print(f"\nSaved files:")
+        for f in saved_files:
+            print(f"  {f}")
+
+
+def _drain_exec_results(result_q, cfg_by_label, results, exec_failed):
+    """Drain completed exec results from a queue.
+
+    Returns (n_drained, best_tf).
+    """
+    import queue as _qm
+
+    n = 0
+    best_tf = max((r[2] for r in results), default=0.0)
+    while not result_q.empty():
+        try:
+            label_r, times, err = result_q.get_nowait()
+        except _qm.Empty:
+            break
+        n += 1
+        c = cfg_by_label.get(label_r)
+        if not c:
+            continue
+        if err or times is None:
+            exec_failed.append((c, err or "unknown"))
+        else:
+            post_warmup = times[WARMUP_ITERATIONS:]
+            if post_warmup and min(post_warmup) > 0:
+                ns = min(post_warmup)
+                tf = c.total_flops / ns * 1e-3
+                pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
+                results.append((c, ns / 1e6, tf, pct))
+                if tf > best_tf:
+                    best_tf = tf
+    return n, best_tf
+
+
+def bench_perf_sweep_pipelined(
+    configs,
+    compile_fn,
+    repro_cmd_fn,
+    num_gpus=None,
+    compile_workers=None,
+    compile_timeout=DEFAULT_COMPILE_TIMEOUT,
+    post_compile_filter=None,
+    exec_sample=0,
+):
+    """Pipelined compile+execute: GPU execution starts as HSACOs become available.
+
+    Reuses _run_gpu_queue (with queue.Queue for dynamic item feeding) and
+    _exec_one_isolated (with gpu_lock_path for crash-safe GPU exclusivity).
+
+    Returns (results, hsaco_paths) -- same interface as bench_perf_sweep.
+    """
+    import multiprocessing as mp
+    import queue
+    import threading
+
+    from tqdm import tqdm
+
+    if num_gpus is None:
+        num_gpus = detect_num_gpus()
+    if compile_workers is None:
+        compile_workers = DEFAULT_COMPILE_WORKERS
+    check_numpy_blas(label="sweep")
+
+    active = list(configs)
+
+    # Worker budget: +25% extra processes for execution (data prep is CPU-bound).
+    if num_gpus > 0:
+        n_exec_per_gpu = max(1, max(1, compile_workers // 4) // num_gpus)
+    else:
+        n_exec_per_gpu = 0
+
+    print(
+        f"\nPipelined sweep: {len(active)} configs, "
+        f"{compile_workers} compile + {n_exec_per_gpu * num_gpus} exec workers "
+        f"({n_exec_per_gpu}/GPU), {num_gpus} GPU(s)"
+    )
+    sys.stdout.flush()
+
+    spawn_ctx = mp.get_context("spawn")
+    hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
+
+    # Per-GPU file locks for crash-safe GPU exclusivity.
+    gpu_lock_dir = os.path.join(hsaco_dir, "gpu_locks")
+    os.makedirs(gpu_lock_dir)
+
+    # Per-GPU work queues + threads (reuses _run_gpu_queue with Queue mode).
+    gpu_work_queues = []
+    gpu_threads = []
+    exec_result_q = queue.Queue()
+    for gpu_id in range(num_gpus):
+        lock_path = os.path.join(gpu_lock_dir, f"gpu_{gpu_id}.lock")
+        for _ in range(n_exec_per_gpu):
+            wq = queue.Queue()
+            t = threading.Thread(
+                target=_run_gpu_queue,
+                args=(gpu_id, wq, exec_result_q),
+                kwargs={"gpu_lock_path": lock_path},
+                daemon=True,
+            )
+            t.start()
+            gpu_work_queues.append(wq)
+            gpu_threads.append(t)
+
+    # Compile pool.
+    compile_pool = ProcessPoolExecutor(
+        max_workers=compile_workers, mp_context=spawn_ctx
+    )
+
+    hsaco_paths, resources_map = {}, {}
+    compile_failed, exec_failed = [], []
+    results = []
+    cfg_by_label = {c.label: c for c in active}
+
+    compile_futs = {
+        compile_pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c
+        for c in active
+    }
+    total_compile = len(active)
+    n_compiled, n_exec_submitted, n_exec_done = 0, 0, 0
+    exec_rr = 0
+
+    pbar = tqdm(total=total_compile, desc="Compiling", unit="cfg")
+
+    interrupted = False
+    try:
+        for fut in as_completed(compile_futs):
+            cfg = compile_futs[fut]
+            n_compiled += 1
+            pbar.update(1)
+            try:
+                label, path, res = fut.result()
+                hsaco_paths[label] = path
+                if res:
+                    resources_map[label] = res
+
+                skip_exec = False
+                if post_compile_filter and (
+                    not res or not post_compile_filter(cfg, res)
+                ):
+                    skip_exec = True
+                    if not res:
+                        compile_failed.append(
+                            (cfg, "compile: metadata parse failed", "")
+                        )
+                if (
+                    not skip_exec
+                    and exec_sample > 0
+                    and n_exec_submitted >= exec_sample
+                ):
+                    skip_exec = True
+
+                if not skip_exec and gpu_work_queues:
+                    exec_item = (
+                        label,
+                        path,
+                        cfg.kernel_name,
+                        cfg.num_workgroups,
+                        cfg.num_threads,
+                        cfg.m_dim,
+                        cfg.n_dim,
+                        cfg.k,
+                        NUM_ITERATIONS,
+                        getattr(cfg, "direct_b", False),
+                        getattr(cfg, "direct_a", False),
+                    )
+                    gpu_work_queues[exec_rr % len(gpu_work_queues)].put(exec_item)
+                    exec_rr += 1
+                    n_exec_submitted += 1
+            except Exception as e:
+                full_err = str(e).strip()
+                short = full_err.split("\n")[0].strip()[:200]
+                if not short:
+                    short = type(e).__name__
+                compile_failed.append((cfg, f"compile: {short}", full_err))
+
+            dn, best_tf = _drain_exec_results(
+                exec_result_q, cfg_by_label, results, exec_failed
+            )
+            n_exec_done += dn
+            n_fail = len(compile_failed) + len(exec_failed)
+            pbar.set_postfix_str(
+                f"C={n_compiled}/{total_compile} "
+                f"X={n_exec_done}/{n_exec_submitted} "
+                f"best={best_tf:.1f}TF fail={n_fail}"
+            )
+    except KeyboardInterrupt:
+        interrupted = True
+        pbar.close()
+        pbar = None
+        pending = total_compile - n_compiled
+        in_flight = n_exec_submitted - n_exec_done
+        print(
+            f"\nCtrl+C -- stopping pipeline "
+            f"({pending} compiles pending, {in_flight} execs in flight)"
+        )
+        print("Cancelling pending compilations...", end="", flush=True)
+        for f in compile_futs:
+            f.cancel()
+        print(" done.")
+    finally:
+        compile_pool.shutdown(wait=False, cancel_futures=True)
+    if pbar is not None:
+        pbar.close()
+
+    # Signal exec threads to stop and wait for in-flight work.
+    in_flight = n_exec_submitted - n_exec_done
+    for wq in gpu_work_queues:
+        wq.put(None)
+    if in_flight > 0:
+        import time
+
+        drain_timeout = 10.0 if interrupted else 30.0
+        print(
+            f"Draining {in_flight} in-flight exec results "
+            f"(timeout {drain_timeout:.0f}s)...",
+            end="",
+            flush=True,
+        )
+        t0 = time.monotonic()
+        alive = [t for t in gpu_threads if t.is_alive()]
+        for t in alive:
+            remaining = max(0.1, drain_timeout - (time.monotonic() - t0))
+            t.join(timeout=remaining)
+        elapsed = time.monotonic() - t0
+        dn, _ = _drain_exec_results(exec_result_q, cfg_by_label, results, exec_failed)
+        n_exec_done += dn
+        still_running = sum(1 for t in gpu_threads if t.is_alive())
+        if still_running:
+            print(
+                f" {dn} collected, {still_running} workers still busy "
+                f"({elapsed:.1f}s, giving up)."
+            )
+        else:
+            print(f" done ({dn} collected, {elapsed:.1f}s).")
+    else:
+        for t in gpu_threads:
+            t.join(timeout=5.0)
+
+    print(f"Compiled: {len(hsaco_paths)} ok, {len(compile_failed)} failed")
+    if n_exec_submitted:
+        print(f"Executed: {n_exec_done}/{n_exec_submitted}, {len(exec_failed)} failed")
+    elif num_gpus == 0:
+        print("No GPUs detected -- execution skipped.")
+
+    compile_errs = list(compile_failed)
+    exec_errs = [(c, e, "") for c, e in exec_failed]
+    _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn)
+    return results, hsaco_paths
+
+
 # -- Sweep -----------------------------------------------------------------
 
 
@@ -746,7 +1105,12 @@ def bench_perf_sweep(
             pbar.update(1)
             pbar.set_postfix(ok=len(hsaco_paths), fail=len(failed))
     except KeyboardInterrupt:
-        print("\nCtrl+C -- stopping compilation, moving to execution phase...")
+        pending = len(futs) - len(hsaco_paths) - len(failed)
+        print(
+            f"\nCtrl+C -- stopping compilation "
+            f"({len(hsaco_paths)} compiled, {pending} cancelled). "
+            f"Moving to execution with what we have..."
+        )
         for f in futs:
             f.cancel()
     finally:
@@ -793,48 +1157,9 @@ def bench_perf_sweep(
         )
     failed.extend((c, e, "") for c, e in exec_failed)
 
-    # Summary: separate files for compile errors vs exec errors.
-    results.sort(key=lambda r: r[2], reverse=True)
     compile_errs = [(c, e, full) for c, e, full in failed if e.startswith("compile:")]
     exec_errs = [(c, e, full) for c, e, full in failed if not e.startswith("compile:")]
-    saved_files = []
-
-    if results:
-        lines = []
-        for i, (c, ms, tf, pct) in enumerate(results):
-            line = f"#{i+1:>3} {tf:>7.1f} TF {pct:>5.1f}% {ms:>8.2f}ms {c.label}"
-            if repro_cmd_fn:
-                try:
-                    line += f" | repro: {repro_cmd_fn(c)}"
-                except Exception:
-                    pass
-            lines.append(line)
-        p = _save_tmpfile("bench_results_", lines)
-        saved_files.append(p)
-        print(f"\nResults ({len(results)}) saved in {p}")
-    if compile_errs:
-        p = _save_error_file(
-            "bench_compile_errors_", "compile", compile_errs, repro_cmd_fn
-        )
-        saved_files.append(p)
-        print(f"{len(compile_errs)} compile errors in {p}")
-    if exec_errs:
-        p = _save_error_file("bench_exec_errors_", "exec", exec_errs, repro_cmd_fn)
-        saved_files.append(p)
-        print(f"{len(exec_errs)} exec errors in {p}")
-
-    print(
-        f"\nSummary: {len(results)} ok, {len(compile_errs)} compile fail, {len(exec_errs)} exec fail"
-    )
-    if results:
-        top_n = min(20, len(results))
-        print(f"Top {top_n}:")
-        for i, (c, ms, tf, pct) in enumerate(results[:top_n]):
-            print(f"  #{i+1} {c.label}: {tf:.1f} TF ({pct:.1f}%)")
-    if saved_files:
-        print(f"\nSaved files:")
-        for f in saved_files:
-            print(f"  {f}")
+    _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn)
 
     return results, hsaco_paths
 
