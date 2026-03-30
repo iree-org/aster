@@ -35,12 +35,11 @@ def build_copy_kernel(
     byte_off = b.linearize_layout(tid, thread_layout)
 
     src_addr = b.global_addr(src_ptr, byte_off)
-    data = b.global_load_dwordx4(src_addr)
-    b.wait_vmcnt(0)
+    data, load_tok = b.global_load_dwordx4(src_addr)
+    b.wait_deps(load_tok)
 
     dst_addr = b.global_addr(dst_ptr, byte_off)
     b.global_store_dwordx4(data, dst_addr)
-    b.wait_vmcnt(0)
 
     return b.build()
 

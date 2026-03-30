@@ -23,6 +23,7 @@ The returned module can be passed directly to aster.compiler compile_kernel_modu
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, List, Optional
 
 from aster import ir
@@ -38,13 +39,18 @@ from aster.dialects._gpu_ops_gen import (
 )
 from aster.dialects._amdgcn_ops_gen import (
     AllocaOp,
+    AllocLDSOp,
+    DeallocLDSOp,
     EndKernelOp,
+    GetLDSOffsetOp,
     KernelOp,
     LoadArgOp,
     MakeBufferRsrcOp,
     MakeRegisterRangeOp,
     ModuleOp,
+    SplitRegisterRangeOp,
     SWaitcntOp,
+    WaitOp,
     LoadOp,
     StoreOp,
 )
@@ -132,6 +138,37 @@ class KernelBuilder:
         # Create the kernel body block. All instruction methods insert here.
         self._kernel_block = ir.Block.create_at_start(self._kernel_op.body_region, [])
         self._kip = ir.InsertionPoint(self._kernel_block)
+        self._current_stage: Optional[int] = None
+
+    # ---------------------------------------------------------------------------
+    # Pipeline stage annotation
+    # ---------------------------------------------------------------------------
+
+    @contextmanager
+    def stage(self, stage_id: int):
+        """Context manager: tag all ops emitted within with sched.stage.
+
+        Only scheduler-visible ops (loads, stores, mfma, waits, alloc/dealloc)
+        are tagged. Address computation ops (affine_apply, index_to_vgpr) are
+        not tagged -- the pipeliner moves them freely based on data deps.
+        """
+        prev = self._current_stage
+        self._current_stage = stage_id
+        yield
+        self._current_stage = prev
+
+    def _tag_stage(self, result):
+        """If a pipeline stage is active, tag the defining op."""
+        if self._current_stage is None:
+            return result
+        op = None
+        if hasattr(result, "owner"):
+            op = result.owner
+        elif hasattr(result, "operation"):
+            op = result.operation
+        if op is not None:
+            op.attributes["sched.stage"] = _i32(self._current_stage, self._ctx)
+        return result
 
     # ---------------------------------------------------------------------------
     # Kernel arguments
@@ -494,6 +531,97 @@ class KernelBuilder:
         """
         return self._linearize_layout(layout, coord, swizzle)
 
+    def apply_swizzle(self, offset: ir.Value, swizzle: "Swizzle") -> ir.Value:
+        """Apply XOR swizzle to a byte offset (standalone, without linearize)."""
+        from aster.dialects import layout as layout_d
+
+        return layout_d.swizzle(
+            offset,
+            bits=swizzle.bits,
+            base=swizzle.base,
+            shift=swizzle.shift,
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+    # ---------------------------------------------------------------------------
+    # Tile-level operations (layout-first abstractions)
+    # ---------------------------------------------------------------------------
+
+    def tile_load(
+        self,
+        lane: ir.Value,
+        ptr: ir.Value,
+        tile_byte_offset: ir.Value,
+        tile_layout: "Layout",
+    ) -> tuple[ir.Value, ir.Value]:
+        """Load a tile from global memory using layout for coalescing."""
+        thread_off = self.linearize_layout(lane, tile_layout)
+        d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
+        byte_off = self.affine_apply(d0 + d1, [tile_byte_offset, thread_off])
+        return self.global_load_dwordx4(self.global_addr(ptr, byte_off))
+
+    def tile_to_lds(
+        self,
+        lane: ir.Value,
+        data: ir.Value,
+        lds_base: ir.Value,
+        write_layout: "Layout",
+        swizzle: "Swizzle",
+    ) -> list[ir.Value]:
+        """Write a dwordx4 tile to LDS with swizzled addressing."""
+        d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
+        tile_off = self.linearize_layout(lane, write_layout)
+        tile_off_hi = self.affine_apply(d0 + 8, [tile_off])
+        lo_addr = self.index_to_vgpr(
+            self.affine_apply(
+                d0 + d1, [lds_base, self.apply_swizzle(tile_off, swizzle)]
+            )
+        )
+        hi_addr = self.index_to_vgpr(
+            self.affine_apply(
+                d0 + d1, [lds_base, self.apply_swizzle(tile_off_hi, swizzle)]
+            )
+        )
+        lo, hi = self.split_vx4(data)
+        tok_lo = self.ds_write_b64(lo, lo_addr)
+        tok_hi = self.ds_write_b64(hi, hi_addr)
+        return [tok_lo, tok_hi]
+
+    def frag_from_lds(
+        self,
+        lane: ir.Value,
+        lds_base: ir.Value,
+        frag_layout: "Layout",
+        swizzle: "Swizzle",
+        k_byte_offset: Optional[ir.Value] = None,
+    ) -> tuple[ir.Value, ir.Value]:
+        """Read an MFMA fragment from LDS using fragment layout + swizzle."""
+        d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
+        frag_off = self.linearize_layout(lane, frag_layout)
+        if k_byte_offset is not None:
+            frag_off = self.affine_apply(d0 + d1, [frag_off, k_byte_offset])
+        swizzled = self.apply_swizzle(frag_off, swizzle)
+        addr = self.index_to_vgpr(self.affine_apply(d0 + d1, [lds_base, swizzled]))
+        return self.ds_read_b64(addr)
+
+    def store_c_tile(
+        self,
+        lane: ir.Value,
+        acc: ir.Value,
+        ptr: ir.Value,
+        tile_byte_offset: ir.Value,
+        store_layout: "Layout",
+    ):
+        """Store an MFMA C accumulator tile to global memory."""
+        d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
+        a0, a1, a2, a3 = self.split_ax4(acc)
+        for i, agpr in enumerate([a0, a1, a2, a3]):
+            coord = self.affine_apply(d0 * 4 + i, [lane])
+            off = self.linearize_layout(coord, store_layout)
+            total = self.affine_apply(d0 + d1, [tile_byte_offset, off])
+            self.global_store_dword(agpr, self.global_addr(ptr, total))
+
     def index_cast_i32(self, index_val: ir.Value) -> ir.Value:
         """Cast an index value to i32."""
         i32_type = ir.IntegerType.get_signless(32, self._ctx)
@@ -554,7 +682,9 @@ class KernelBuilder:
         """
         fn = getattr(_inst, opcode, None)
         if fn is not None:
-            return fn(acc, a, b, acc, loc=self._loc, ip=self._kip)
+            result = fn(acc, a, b, acc, loc=self._loc, ip=self._kip)
+            self._tag_stage(result)
+            return result
         raise ValueError(f"Unknown MFMA opcode: {opcode}")
 
     # ---------------------------------------------------------------------------
@@ -705,17 +835,16 @@ class KernelBuilder:
     # Global memory operations (global_load/global_store via 64-bit addr)
     # ---------------------------------------------------------------------------
 
-    def _global_load(
+    def _global_load_op(
         self,
         opcode: str,
         dest: ir.Value,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
-        """Global load using a pre-computed 64-bit address (VGPRx2)."""
+    ):
+        """Global load returning the full LoadOp (for data + token access)."""
         if const_offset is None:
             const_offset = self.constant_i32(0)
-        # Global loads need a dynamic_offset operand (zero for flat addr path).
         c0 = self.constant_i32(0)
         zero_v = lsird.to_reg(VGPRType.get(self._ctx), c0, loc=self._loc, ip=self._kip)
         read_tok_type = ir.Type.parse("!amdgcn.read_token<flat>")
@@ -729,38 +858,41 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        return op.results[0]
+        self._tag_stage(op.results[0])
+        return op
 
     def global_load_dword(
         self,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
-        """Global load of 1 dword from a 64-bit address (VGPRx2)."""
+    ) -> tuple[ir.Value, ir.Value]:
+        """Global load of 1 dword."""
         dest = self._make_register_range([self.alloca_vgpr()])
-        return self._global_load("global_load_dword", dest, addr, const_offset)
+        op = self._global_load_op("global_load_dword", dest, addr, const_offset)
+        return op.results[0], op.results[1]
 
     def global_load_dwordx2(
         self,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
-        """Global load of 2 dwords from a 64-bit address (VGPRx2).
+    ) -> tuple[ir.Value, ir.Value]:
+        """Global load of 2 dwords.
 
-        Warning: dwordx2 (and dwordx3) limits bandwidth to 2x peak.
-        Prefer dwordx4 for throughput-critical paths.
+        Warning: dwordx2 limits bandwidth to ~half peak. Prefer dwordx4.
         """
         dest = self.alloc_vgprx2()
-        return self._global_load("global_load_dwordx2", dest, addr, const_offset)
+        op = self._global_load_op("global_load_dwordx2", dest, addr, const_offset)
+        return op.results[0], op.results[1]
 
     def global_load_dwordx4(
         self,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
-        """Global load of 4 dwords from a 64-bit address (VGPRx2)."""
+    ) -> tuple[ir.Value, ir.Value]:
+        """Global load of 4 dwords."""
         dest = self.alloc_vgprx4()
-        return self._global_load("global_load_dwordx4", dest, addr, const_offset)
+        op = self._global_load_op("global_load_dwordx4", dest, addr, const_offset)
+        return op.results[0], op.results[1]
 
     def _global_store(
         self,
@@ -822,6 +954,7 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
+        self._tag_stage(op.results[0])
         return op.results[0]
 
     def _ds_read(self, opcode, dest, addr, const_offset=None):
@@ -837,7 +970,8 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        return op.results[0]
+        self._tag_stage(op.results[0])
+        return op.results[0], op.results[1]
 
     def ds_write_b32(self, data, addr, const_offset=None):
         """DS write 32-bit (1 dword) to LDS."""
@@ -851,15 +985,15 @@ class KernelBuilder:
         """DS write 128-bit (4 dwords) to LDS."""
         return self._ds_write("ds_write_b128", data, addr, const_offset)
 
-    def ds_read_b32(self, addr, const_offset=None):
+    def ds_read_b32(self, addr, const_offset=None) -> tuple[ir.Value, ir.Value]:
         """DS read 32-bit (1 dword) from LDS."""
         return self._ds_read("ds_read_b32", self.alloca_vgpr(), addr, const_offset)
 
-    def ds_read_b64(self, addr, const_offset=None):
+    def ds_read_b64(self, addr, const_offset=None) -> tuple[ir.Value, ir.Value]:
         """DS read 64-bit (2 dwords) from LDS."""
         return self._ds_read("ds_read_b64", self.alloc_vgprx2(), addr, const_offset)
 
-    def ds_read_b128(self, addr, const_offset=None):
+    def ds_read_b128(self, addr, const_offset=None) -> tuple[ir.Value, ir.Value]:
         """DS read 128-bit (4 dwords) from LDS."""
         return self._ds_read("ds_read_b128", self.alloc_vgprx4(), addr, const_offset)
 
@@ -867,13 +1001,255 @@ class KernelBuilder:
     # Synchronization
     # ---------------------------------------------------------------------------
 
+    def wait_deps(self, *tokens):
+        """Wait for dependency tokens (from global_load or ds_write)."""
+        op = WaitOp(dependencies=list(tokens), loc=self._loc, ip=self._kip)
+        self._tag_stage(op)
+
     def wait_vmcnt(self, count: int = 0):
         """Insert s_waitcnt vmcnt=count."""
-        SWaitcntOp(vmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
+        op = SWaitcntOp(vmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
+        self._tag_stage(op)
 
     def wait_lgkmcnt(self, count: int = 0):
         """Insert s_waitcnt lgkmcnt=count."""
-        SWaitcntOp(lgkmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
+        op = SWaitcntOp(lgkmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
+        self._tag_stage(op)
+
+    # ---------------------------------------------------------------------------
+    # LDS allocation
+    # ---------------------------------------------------------------------------
+
+    def alloc_lds(self, size_bytes: int) -> tuple[ir.Value, ir.Value]:
+        """Allocate LDS buffer."""
+        handle = AllocLDSOp(
+            static_size=_i64(size_bytes, self._ctx),
+            loc=self._loc,
+            ip=self._kip,
+        ).result
+        self._tag_stage(handle)
+        i32_type = ir.IntegerType.get_signless(32, self._ctx)
+        offset_i32 = GetLDSOffsetOp(
+            result=i32_type, buffer=handle, loc=self._loc, ip=self._kip
+        ).result
+        self._tag_stage(offset_i32)
+        idx_type = ir.IndexType.get(self._ctx)
+        offset_idx = arith.index_cast(idx_type, offset_i32, loc=self._loc, ip=self._kip)
+        return handle, offset_idx
+
+    def dealloc_lds(self, handle):
+        """Deallocate an LDS buffer."""
+        op = DeallocLDSOp(buffer=handle, loc=self._loc, ip=self._kip)
+        self._tag_stage(op)
+
+    # ---------------------------------------------------------------------------
+    # Register range splitting
+    # ---------------------------------------------------------------------------
+
+    def split_vx4(self, vx4_val) -> tuple[ir.Value, ir.Value]:
+        """Split a VGPRx4 into two VGPRx2 values."""
+        v_type = VGPRType.get(self._ctx, reg=None)
+        op = SplitRegisterRangeOp(
+            input=vx4_val,
+            results=[v_type, v_type, v_type, v_type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        r = op.results_
+        lo = self._make_register_range([r[0], r[1]])
+        hi = self._make_register_range([r[2], r[3]])
+        return lo, hi
+
+    def split_ax4(self, ax4_val) -> tuple[ir.Value, ir.Value, ir.Value, ir.Value]:
+        """Split an AGPRx4 into four individual AGPRs."""
+        a_type = AGPRType.get(self._ctx, reg=None)
+        op = SplitRegisterRangeOp(
+            input=ax4_val,
+            results=[a_type, a_type, a_type, a_type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        r = op.results_
+        return r[0], r[1], r[2], r[3]
+
+    # ---------------------------------------------------------------------------
+    # Constants
+    # ---------------------------------------------------------------------------
+
+    def constant_index(self, value: int) -> ir.Value:
+        """Create an index-typed constant."""
+        idx_type = ir.IndexType.get(self._ctx)
+        attr = ir.IntegerAttr.get(idx_type, value)
+        return arith.ConstantOp(idx_type, attr, loc=self._loc, ip=self._kip).result
+
+    def constant_f32(self, value: float) -> ir.Value:
+        """Create an f32 constant."""
+        f32_type = ir.F32Type.get(self._ctx)
+        attr = ir.FloatAttr.get(f32_type, value)
+        return arith.ConstantOp(f32_type, attr, loc=self._loc, ip=self._kip).result
+
+    # ---------------------------------------------------------------------------
+    # Structured control flow (scf.for)
+    # ---------------------------------------------------------------------------
+
+    def for_loop(
+        self,
+        lb: ir.Value,
+        ub: ir.Value,
+        step: ir.Value,
+        iter_args: list[ir.Value],
+        body_fn,
+    ) -> list[ir.Value]:
+        """Construct an scf.for loop with iter_args.
+
+        body_fn(iv, *inner_args) -> [new_arg0, new_arg1, ...]
+        """
+        iter_args = list(iter_args) if iter_args else []
+        result_types = [arg.type for arg in iter_args]
+
+        for_op = ir.Operation.create(
+            "scf.for",
+            results=result_types,
+            operands=[lb, ub, step] + iter_args,
+            regions=1,
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+        block_arg_types = [lb.type] + result_types
+        block_arg_locs = [self._loc] * len(block_arg_types)
+        body_block = ir.Block.create_at_start(
+            for_op.regions[0], block_arg_types, block_arg_locs
+        )
+
+        iv = body_block.arguments[0]
+        inner_args = list(body_block.arguments[1:])
+
+        saved_ip = self._kip
+        self._kip = ir.InsertionPoint(body_block)
+
+        new_args = body_fn(iv, *inner_args)
+        new_args = [
+            v.result if hasattr(v, "result") else self._as_value(v) for v in new_args
+        ]
+
+        ir.Operation.create(
+            "scf.yield",
+            operands=new_args,
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+        self._kip = saved_ip
+        return list(for_op.results)
+
+    def static_for(
+        self,
+        lb: ir.Value,
+        ub: ir.Value,
+        step: ir.Value,
+        iter_args: list[ir.Value],
+        body_fn,
+    ) -> list[ir.Value]:
+        """scf.for with {aster.constexpr} -- unrolled by constexpr expansion pass."""
+        results = self.for_loop(lb, ub, step, iter_args, body_fn)
+        # Tag the for_op (last op before current IP) with aster.constexpr.
+        # The for_op is the parent of the body block we just built.
+        # Walk back to find it via the result's defining op.
+        if results:
+            for_op = results[0].owner
+            for_op.attributes["aster.constexpr"] = ir.UnitAttr.get(self._ctx)
+        return results
+
+    def static_for_void(
+        self,
+        lb: ir.Value,
+        ub: ir.Value,
+        step: ir.Value,
+        body_fn,
+    ) -> None:
+        """scf.for with no iter_args + {aster.constexpr}."""
+        for_op = ir.Operation.create(
+            "scf.for",
+            results=[],
+            operands=[lb, ub, step],
+            regions=1,
+            loc=self._loc,
+            ip=self._kip,
+        )
+        block_arg_types = [lb.type]
+        block_arg_locs = [self._loc]
+        body_block = ir.Block.create_at_start(
+            for_op.regions[0], block_arg_types, block_arg_locs
+        )
+        iv = body_block.arguments[0]
+
+        saved_ip = self._kip
+        self._kip = ir.InsertionPoint(body_block)
+        body_fn(iv)
+        ir.Operation.create("scf.yield", operands=[], loc=self._loc, ip=self._kip)
+        self._kip = saved_ip
+        for_op.attributes["aster.constexpr"] = ir.UnitAttr.get(self._ctx)
+
+    # ---------------------------------------------------------------------------
+    # Memref operations (for multi-tile state buffers)
+    # ---------------------------------------------------------------------------
+
+    def memref_alloca(self, size: ir.Value, element_type: ir.Type) -> ir.Value:
+        """Allocate memref<?xT> on stack."""
+        dyn = ir.ShapedType.get_dynamic_size()
+        with self._loc:
+            memref_type = ir.MemRefType.get([dyn], element_type)
+        op = ir.Operation.create(
+            "memref.alloca",
+            results=[memref_type],
+            operands=[size],
+            attributes={
+                "operandSegmentSizes": ir.DenseI32ArrayAttr.get([1, 0], self._ctx),
+            },
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
+
+    def memref_store(self, value, memref: ir.Value, *indices: ir.Value):
+        """Store value into memref at indices."""
+        v = value.result if hasattr(value, "result") else self._as_value(value)
+        ir.Operation.create(
+            "memref.store",
+            operands=[v, memref, *indices],
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+    def memref_load(self, memref: ir.Value, *indices: ir.Value) -> ir.Value:
+        """Load value from memref at indices."""
+        memref_type = ir.MemRefType(memref.type)
+        element_type = memref_type.element_type
+        op = ir.Operation.create(
+            "memref.load",
+            results=[element_type],
+            operands=[memref, *indices],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
+
+    # ---------------------------------------------------------------------------
+    # Arithmetic helpers
+    # ---------------------------------------------------------------------------
+
+    def arith_minui(self, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+        """Unsigned minimum of two index/integer values."""
+        return arith.minui(lhs, rhs, loc=self._loc, ip=self._kip)
+
+    # ---------------------------------------------------------------------------
+    # Barrier
+    # ---------------------------------------------------------------------------
+
+    def s_barrier(self):
+        """Insert s_barrier for workgroup synchronization."""
+        _inst.s_barrier(loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # Build
@@ -882,6 +1258,16 @@ class KernelBuilder:
     def set_shared_memory_size(self, size: int):
         """Set LDS (shared memory) size for the kernel."""
         self._kernel_attrs["shared_memory_size"] = _i32(size, self._ctx)
+
+    def set_block_dims(self, x: int, y: int = 1, z: int = 1):
+        """Set workgroup dimensions."""
+        self._kernel_attrs["block_dims"] = ir.DenseI32ArrayAttr.get(
+            [x, y, z], self._ctx
+        )
+
+    def set_grid_dims(self, x: int, y: int = 1, z: int = 1):
+        """Set grid dimensions."""
+        self._kernel_attrs["grid_dims"] = ir.DenseI32ArrayAttr.get([x, y, z], self._ctx)
 
     def build(self) -> ir.Module:
         """Finalize the kernel and return the outer ir.Module."""

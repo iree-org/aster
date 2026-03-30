@@ -48,8 +48,8 @@ def _build_copy_kernel(
     if use_global:
         src_addr = b.global_addr(src_ptr, src_off)
         dst_addr = b.global_addr(dst_ptr, dst_off)
-        data = b.global_load_dwordx4(src_addr)
-        b.wait_vmcnt(0)
+        data, load_tok = b.global_load_dwordx4(src_addr)
+        b.wait_deps(load_tok)
         b.global_store_dwordx4(data, dst_addr)
     else:
         src_voff = b.index_to_vgpr(src_off)
@@ -93,7 +93,7 @@ def _run_copy_test(
 
     path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
     if path is None:
-        pytest.skip(f"LLVM assembler does not support {MCPU}")
+        pytest.skip(f"LLVM assembler not compiled with {MCPU} support (unknown target)")
 
     with hsaco_file(path):
         if not system_has_mcpu(mcpu=MCPU):

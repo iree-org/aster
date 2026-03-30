@@ -47,15 +47,14 @@ def _build_mfma_kernel(name, target=MCPU, isa="cdna3"):
     b_addr = b.global_addr(b_ptr, ab_off)
     c_addr = b.global_addr(c_ptr, c_off)
 
-    a_frag = b.global_load_dwordx2(a_addr)
-    b_frag = b.global_load_dwordx2(b_addr)
-    b.wait_vmcnt(0)
+    a_frag, a_tok = b.global_load_dwordx2(a_addr)
+    b_frag, b_tok = b.global_load_dwordx2(b_addr)
+    b.wait_deps(a_tok, b_tok)
 
     acc = b.init_agprx4(b.constant_i32(0))
     acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
 
     b.global_store_dwordx4(acc, c_addr)
-    b.wait_vmcnt(0)
     return b.build()
 
 
@@ -72,7 +71,7 @@ def _run_mfma_test(name):
 
     path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
     if path is None:
-        pytest.skip(f"LLVM assembler does not support {MCPU}")
+        pytest.skip(f"LLVM assembler not compiled with {MCPU} support (unknown target)")
 
     with hsaco_file(path):
         if not system_has_mcpu(mcpu=MCPU):
@@ -119,28 +118,31 @@ def _build_mfma_lds_kernel(name, target=MCPU, isa="cdna3"):
     coalesced_off = b.linearize_layout(tid, COALESCED_AB)
     a_addr = b.global_addr(a_ptr, coalesced_off)
     b_addr = b.global_addr(b_ptr, coalesced_off)
-    a_data = b.global_load_dwordx2(a_addr)
-    b_data = b.global_load_dwordx2(b_addr)
-    b.wait_vmcnt(0)
+    a_data, a_tok = b.global_load_dwordx2(a_addr)
+    b_data, b_tok = b.global_load_dwordx2(b_addr)
+    b.wait_deps(a_tok, b_tok)
 
     # Stage 2: swizzled LDS write (coalesced layout + swizzle for bank conflict avoidance)
     lds_write_off = b.index_to_vgpr(b.linearize_layout(tid, COALESCED_AB, LDS_SWIZZLE))
-    b.ds_write_b64(a_data, lds_write_off)
-    b.ds_write_b64(b_data, lds_write_off, const_offset=b.constant_i32(LDS_B_BASE))
-    b.wait_lgkmcnt(0)
+    tok_aw = b.ds_write_b64(a_data, lds_write_off)
+    tok_bw = b.ds_write_b64(
+        b_data, lds_write_off, const_offset=b.constant_i32(LDS_B_BASE)
+    )
+    b.wait_deps(tok_aw, tok_bw)
 
     # Stage 3: MFMA-layout LDS read (same swizzle)
     lds_read_off = b.index_to_vgpr(b.linearize_layout(tid, MFMA_AB_LAYOUT, LDS_SWIZZLE))
-    a_frag = b.ds_read_b64(lds_read_off)
-    b_frag = b.ds_read_b64(lds_read_off, const_offset=b.constant_i32(LDS_B_BASE))
-    b.wait_lgkmcnt(0)
+    a_frag, ar_tok = b.ds_read_b64(lds_read_off)
+    b_frag, br_tok = b.ds_read_b64(
+        lds_read_off, const_offset=b.constant_i32(LDS_B_BASE)
+    )
+    b.wait_deps(ar_tok, br_tok)
 
     # Stage 4: MFMA + global store at MFMA C layout
     acc = b.init_agprx4(b.constant_i32(0))
     acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
     c_addr = b.global_addr(c_ptr, b.linearize_layout(tid, MFMA_C_LAYOUT))
     b.global_store_dwordx4(acc, c_addr)
-    b.wait_vmcnt(0)
     return b.build()
 
 
@@ -157,7 +159,7 @@ def _run_mfma_lds_test(name):
 
     path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
     if path is None:
-        pytest.skip(f"LLVM assembler does not support {MCPU}")
+        pytest.skip(f"LLVM assembler not compiled with {MCPU} support (unknown target)")
 
     with hsaco_file(path):
         if not system_has_mcpu(mcpu=MCPU):
@@ -237,9 +239,9 @@ def _build_mfma_multiwg_kernel(name, target=MCPU, isa="cdna3"):
     )
 
     # Stage 1: coalesced global load
-    a_data = b.global_load_dwordx2(b.global_addr(a_ptr, a_off))
-    b_data = b.global_load_dwordx2(b.global_addr(b_ptr, b_off))
-    b.wait_vmcnt(0)
+    a_data, a_tok = b.global_load_dwordx2(b.global_addr(a_ptr, a_off))
+    b_data, b_tok = b.global_load_dwordx2(b.global_addr(b_ptr, b_off))
+    b.wait_deps(a_tok, b_tok)
 
     # Stage 2: swizzled LDS write
     lds_wave_layout = Layout(sizes=WAVES_PER_WG, strides=LDS_PER_WAVE)
@@ -248,17 +250,21 @@ def _build_mfma_multiwg_kernel(name, target=MCPU, isa="cdna3"):
     wave_base_v = b.linearize_layout(wid, lds_wave_layout)
     lds_write_off = b.affine_apply(local + wave_base, [lds_write_local_v, wave_base_v])
     lds_write_voff = b.index_to_vgpr(lds_write_off)
-    b.ds_write_b64(a_data, lds_write_voff)
-    b.ds_write_b64(b_data, lds_write_voff, const_offset=b.constant_i32(LDS_B_BASE))
-    b.wait_lgkmcnt(0)
+    tok_aw = b.ds_write_b64(a_data, lds_write_voff)
+    tok_bw = b.ds_write_b64(
+        b_data, lds_write_voff, const_offset=b.constant_i32(LDS_B_BASE)
+    )
+    b.wait_deps(tok_aw, tok_bw)
 
     # Stage 3: MFMA-layout LDS read
     lds_read_local_v = b.linearize_layout(lane, MFMA_AB_LAYOUT, LDS_SWIZZLE)
     lds_read_off = b.affine_apply(local + wave_base, [lds_read_local_v, wave_base_v])
     lds_read_voff = b.index_to_vgpr(lds_read_off)
-    a_frag = b.ds_read_b64(lds_read_voff)
-    b_frag = b.ds_read_b64(lds_read_voff, const_offset=b.constant_i32(LDS_B_BASE))
-    b.wait_lgkmcnt(0)
+    a_frag, ar_tok = b.ds_read_b64(lds_read_voff)
+    b_frag, br_tok = b.ds_read_b64(
+        lds_read_voff, const_offset=b.constant_i32(LDS_B_BASE)
+    )
+    b.wait_deps(ar_tok, br_tok)
 
     # Stage 4: MFMA
     acc = b.init_agprx4(b.constant_i32(0))
@@ -275,7 +281,6 @@ def _build_mfma_multiwg_kernel(name, target=MCPU, isa="cdna3"):
     c_local_v = b.linearize_layout(lane, MFMA_C_LAYOUT)
     c_total = b.affine_apply(tile_off + local_off, [c_off_v, c_local_v])
     b.global_store_dwordx4(acc, b.global_addr(c_ptr, c_total))
-    b.wait_vmcnt(0)
     return b.build()
 
 
@@ -295,7 +300,7 @@ def _run_mfma_multiwg_test(name):
 
     path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
     if path is None:
-        pytest.skip(f"LLVM assembler does not support {MCPU}")
+        pytest.skip(f"LLVM assembler not compiled with {MCPU} support (unknown target)")
 
     with hsaco_file(path):
         if not system_has_mcpu(mcpu=MCPU):

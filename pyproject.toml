@@ -1,7 +1,7 @@
 [tool.pytest.ini_options]
 testpaths = ["test", "mlir_kernels", "contrib", "python"]
 addopts = "--import-mode=importlib"
-pythonpath = ["contrib/kittens/test"]
+pythonpath = ["contrib", "contrib/kittens/test"]
 
 [tool.pyrefly]
 search_path = ["build/python_packages"]

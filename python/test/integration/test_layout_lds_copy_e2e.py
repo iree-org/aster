@@ -46,12 +46,11 @@ def _build_lds_copy_kernel(name, layout, swizzle=None, target=MCPU, isa="cdna3")
 
     data = b.buffer_load_dwordx2(src_rsrc, soffset, src_voff)
     b.wait_vmcnt(0)
-    b.ds_write_b64(data, lds_voff)
-    b.wait_lgkmcnt(0)
-    data_from_lds = b.ds_read_b64(lds_voff)
-    b.wait_lgkmcnt(0)
+    tok_w = b.ds_write_b64(data, lds_voff)
+    b.wait_deps(tok_w)
+    data_from_lds, tok_r = b.ds_read_b64(lds_voff)
+    b.wait_deps(tok_r)
     b.buffer_store_dwordx2(data_from_lds, dst_rsrc, soffset, dst_voff)
-    b.wait_vmcnt(0)
     return b.build()
 
 
@@ -74,7 +73,7 @@ def _run_lds_copy_test(name, layout, swizzle=None):
 
     path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
     if path is None:
-        pytest.skip(f"LLVM assembler does not support {MCPU}")
+        pytest.skip(f"LLVM assembler not compiled with {MCPU} support (unknown target)")
 
     with hsaco_file(path):
         if not system_has_mcpu(mcpu=MCPU):
