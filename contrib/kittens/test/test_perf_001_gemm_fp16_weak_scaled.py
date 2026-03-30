@@ -62,8 +62,6 @@ K_LOOP_HELPERS_FILES = {
     "buffer": "gemm_16x32_f16_k_loop_helpers.mlir",
 }
 
-_A_STAGES_TO_STRATEGY = {1: 0, 2: 1, 3: 3, 4: 5, 5: 7, 6: 9}
-
 
 def _make_weak_scaled_mapped_gemm_instance(
     num_workgroups_per_kernel,
@@ -71,8 +69,7 @@ def _make_weak_scaled_mapped_gemm_instance(
     num_tiles_per_wg,
     *,
     k,
-    a_stages=2,
-    pipeline_strategy=-1,
+    pipeline_strategy=1,
     load_type="flat",
     b_path="lds",
     num_wg_per_cu=1,
@@ -82,8 +79,6 @@ def _make_weak_scaled_mapped_gemm_instance(
     """Helper to build a WeakScaledMappedGemmInstance from list weak-scale parameters."""
     if mfma_shape is None:
         mfma_shape = [16, 16, 16]
-    if pipeline_strategy < 0:
-        pipeline_strategy = _A_STAGES_TO_STRATEGY[a_stages]
     M = num_workgroups_per_kernel[DIM_M] * num_tiles_per_wg[DIM_M] * mfma_shape[DIM_M]
     N = num_workgroups_per_kernel[DIM_N] * num_tiles_per_wg[DIM_N] * mfma_shape[DIM_N]
     spec = GemmSpec.from_sizes(M, N, k, mfma_shape=mfma_shape)
@@ -156,9 +151,20 @@ def _make_substitutions(cfg):
     subs["{{A_TILES_PER_SLICE}}"] = str(cfg.mapping.num_tiles_per_workgroup[DIM_M])
     subs["{{B_TILES_PER_SLICE}}"] = str(cfg.mapping.num_tiles_per_workgroup[DIM_N])
     subs["{{NUM_WAVES}}"] = str(cfg.num_waves)
-    # 2-D cooperative split: (waves_m, waves_k) for A, (waves_n, waves_k) for B
-    a_wm, a_wk, a_cm, a_ck = cfg.coop_a_split
-    b_wn, b_wk, b_cn, b_ck = cfg.coop_b_split
+
+    # 2-D cooperative split: (waves_s, waves_k, coop_s, coop_k)
+    def _coop_2d_split(num_tiles, num_waves, kt):
+        waves_s = min(num_tiles, num_waves)
+        waves_k = max(1, num_waves // waves_s)
+        coop_s = -(-num_tiles // waves_s)
+        coop_k = -(-kt // waves_k)
+        return waves_s, waves_k, coop_s, coop_k
+
+    nw = cfg.num_waves
+    kt = cfg.mapping.num_tiles_per_wave[DIM_K]
+    twg = cfg.mapping.num_tiles_per_workgroup
+    a_wm, a_wk, a_cm, a_ck = _coop_2d_split(twg[DIM_M], nw, kt)
+    b_wn, b_wk, b_cn, b_ck = _coop_2d_split(twg[DIM_N], nw, kt)
     subs["{{COOP_A_WAVES_M}}"] = str(a_wm)
     subs["{{COOP_A_WAVES_K}}"] = str(a_wk)
     subs["{{COOP_A_M}}"] = str(a_cm)
@@ -330,7 +336,7 @@ class TestWeakScaleCorrectness:
             "oob_2kx4k_twg4_w2x4",
         ],
     )
-    @pytest.mark.parametrize("a_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
     @pytest.mark.parametrize("load_type", ["flat", "buffer"], ids=["flat", "buffer"])
     @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
     def test_correctness(
@@ -338,7 +344,7 @@ class TestWeakScaleCorrectness:
         num_workgroups_per_kernel,
         num_waves_per_wg,
         num_tiles_per_wg,
-        a_stages,
+        pipeline_strategy,
         load_type,
         b_path,
     ):
@@ -350,7 +356,7 @@ class TestWeakScaleCorrectness:
             num_waves_per_wg,
             num_tiles_per_wg,
             k=128,
-            a_stages=a_stages,
+            pipeline_strategy=pipeline_strategy,
             load_type=load_type,
             b_path=b_path,
         )
@@ -434,7 +440,6 @@ class TestWeakScaledMappedGemmInstanceSerde:
             num_workgroups_per_kernel=[19, 16, 1],
             num_waves_per_wg=[2, 2, 1],
             num_tiles_per_wg=[8, 8, 2],
-            a_stages=2,
             k=8192,
             pipeline_strategy=1,
         )
@@ -444,8 +449,6 @@ class TestWeakScaledMappedGemmInstanceSerde:
         assert restored.label == cfg.label
         for field in [
             "gemm_size",
-            "a_stages",
-            "b_stages",
             "pipeline_strategy",
             "load_type",
             "b_path",
@@ -470,7 +473,7 @@ class TestWeakScaledMappedGemmInstanceSerde:
 
     def test_from_label_rejects_truncated(self):
         cfg = _make_weak_scaled_mapped_gemm_instance(
-            [19, 16, 1], [2, 2, 1], [8, 8, 1], k=4096, a_stages=2, pipeline_strategy=1
+            [19, 16, 1], [2, 2, 1], [8, 8, 1], k=4096, pipeline_strategy=1
         )
         with pytest.raises(ValueError):
             WeakScaledMappedGemmInstance.from_label(cfg.label[:-5])

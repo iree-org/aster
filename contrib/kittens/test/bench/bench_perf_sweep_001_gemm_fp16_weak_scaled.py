@@ -31,10 +31,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
-from kittens.gemm_config import WeakScaledMappedGemmInstance
+from kittens.gemm_config import (
+    GemmSpec,
+    GemmMappingSpec,
+    LoadType,
+    OperandPath,
+    WeakScaledMappedGemmInstance,
+)
 from test_perf_001_gemm_fp16_weak_scaled import (
     MLIR_FILES,
-    _make_weak_scaled_mapped_gemm_instance,
     compile_gemm,
 )
 from bench_harness import (
@@ -137,45 +142,22 @@ def fits_on_cu_post_compile(cfg, res):
     return True
 
 
-def _passes_resource_check(mw, nw, mtwg, ntwg, kt, a_stg, b_stg, nwgcu, is_direct):
-    """Check LDS and VGPR limits without constructing a WeakScaledMappedGemmInstance."""
-    num_waves = mw * nw
-    mt, nt = mtwg // mw, ntwg // nw
-    ceildiv = lambda a, b: (a + b - 1) // b
-
-    # LDS.
-    a_lds = a_stg * mtwg * kt * 1024
-    b_lds = 0 if is_direct else b_stg * ntwg * kt * 1024
-    if a_lds + b_lds > GPU_LDS_PER_CU // max(nwgcu, 1):
+def _passes_resource_check(mapping: GemmMappingSpec) -> bool:
+    """Check LDS and VGPR limits using GemmMappingSpec resource estimates."""
+    nwgcu = mapping.num_wg_per_cu
+    if mapping.lds_bytes() > GPU_LDS_PER_CU // max(nwgcu, 1):
         return False
 
-    # VGPR estimate (same formulas as WeakScaledMappedGemmInstance.estimated_vgprs).
-    waves_m = min(mtwg, num_waves)
-    waves_k_a = max(1, num_waves // max(waves_m, 1))
-    coop_a = ceildiv(mtwg, max(waves_m, 1)) * ceildiv(kt, max(waves_k_a, 1))
-    a_load = coop_a * a_stg * 4
-    a_read = mt * kt * 4
-    if is_direct:
-        b_load = nt * kt * b_stg * 4
-        b_split, overhead = nt * kt * 4, 30
-    else:
-        waves_n = min(ntwg, num_waves)
-        waves_k_b = max(1, num_waves // max(waves_n, 1))
-        coop_b = ceildiv(ntwg, max(waves_n, 1)) * ceildiv(kt, max(waves_k_b, 1))
-        b_load = coop_b * b_stg * 4
-        b_split, overhead = nt * kt * 4, 10
-    # 1.2x + 16 safety margin for spills/temporaries.
-    est_v = (a_load + a_read + b_load + b_split + overhead) * 6 // 5 + 16
-    est_a = mt * nt * 4
+    est_v = mapping.estimated_vgprs() * 6 // 5 + 16
+    est_a = mapping.estimated_agprs()
 
     if est_v > GPU_MAX_VGPRS or est_a > GPU_MAX_AGPRS:
         return False
     combined = est_v + est_a
     if combined > GPU_VGPRS_PER_SIMD:
         return False
-    # Per-CU register file check (clr/rocclr/device/rocm/rocdevice.cpp:1604).
     aligned = ((combined + GPU_VGPR_GRANULE - 1) // GPU_VGPR_GRANULE) * GPU_VGPR_GRANULE
-    total_waves = num_waves * nwgcu
+    total_waves = mapping.num_waves * nwgcu
     if aligned * total_waves * 64 > GPU_VGPRS_PER_SIMD * _NUM_SIMDS * 64:
         return False
     return True
@@ -191,7 +173,9 @@ def _generate_configs(
     equal share of the sample budget.
     """
     import random
-    from kittens_helpers import pipeline_strategy_stages
+    from kittens_helpers import PIPELINE_STRATEGIES
+
+    MFMA_M = 16  # hardcoded for 16x16x16 MFMA
 
     if variants is None:
         variants = list(MLIR_FILES.keys())
@@ -211,7 +195,6 @@ def _generate_configs(
         for hw in HOIST_WAIT_CONFIGS
     ]
 
-    strat_stages = {s: pipeline_strategy_stages(s) for s in PIPELINE_STRATEGY_CONFIGS}
     _pin = lambda key, val: (
         not sweep_pins or key not in sweep_pins or sweep_pins[key] == val
     )
@@ -261,23 +244,22 @@ def _generate_configs(
                             continue
 
                         for strategy in PIPELINE_STRATEGY_CONFIGS:
-                            a_stg, b_stg = strat_stages[strategy]
-                            depth = max(a_stg, b_stg)
-                            if depth > a_stg:
-                                continue
                             if not _pin("pipeline_strategy", strategy):
                                 continue
-                            if check_regs and not _passes_resource_check(
-                                mw,
-                                nw,
-                                mtwg,
-                                ntwg,
-                                kt,
-                                a_stg,
-                                b_stg,
-                                nwgcu,
-                                is_direct,
-                            ):
+                            stg = PIPELINE_STRATEGIES[strategy]
+                            depth = max(stg.values())
+                            # Resource check once per (wave, tile, strategy)
+                            # -- flags don't affect resource usage.
+                            base_mapping = GemmMappingSpec(
+                                num_workgroups_per_kernel=[wg_m, wg_n, 1],
+                                num_waves_per_workgroup=[mw, nw, 1],
+                                num_tiles_per_wave=[mtwg // mw, ntwg // nw, kt],
+                                pipeline_strategy=strategy,
+                                load_type=LoadType(load_type),
+                                operand_path=OperandPath(b_path),
+                                num_wg_per_cu=nwgcu,
+                            )
+                            if check_regs and not _passes_resource_check(base_mapping):
                                 continue
 
                             for k_factor in K_SCALING_FACTORS:
@@ -286,6 +268,9 @@ def _generate_configs(
                                     continue
                                 if not _pin("k_scaling_factor", k_factor):
                                     continue
+                                M = wg_m * mtwg * MFMA_M
+                                N = wg_n * ntwg * MFMA_M
+                                spec = GemmSpec.from_sizes(M, N, k)
 
                                 for lcm, um, ep, ll, hw in flag_cfgs:
                                     if not (
@@ -296,22 +281,22 @@ def _generate_configs(
                                         and _pin("hoist_wait", hw)
                                     ):
                                         continue
+                                    mapping = GemmMappingSpec(
+                                        num_workgroups_per_kernel=[wg_m, wg_n, 1],
+                                        num_waves_per_workgroup=[mw, nw, 1],
+                                        num_tiles_per_wave=[mtwg // mw, ntwg // nw, kt],
+                                        pipeline_strategy=strategy,
+                                        load_type=LoadType(load_type),
+                                        operand_path=OperandPath(b_path),
+                                        num_wg_per_cu=nwgcu,
+                                        lcm_unroll=lcm,
+                                        unroll_factor_multiplier=um,
+                                        epilogue_peeling=ep,
+                                        ll_sched=ll,
+                                        hoist_wait=hw,
+                                    )
                                     eligible.append(
-                                        _make_weak_scaled_mapped_gemm_instance(
-                                            [wg_m, wg_n, 1],
-                                            [mw, nw, 1],
-                                            [mtwg, ntwg, kt],
-                                            k=k,
-                                            load_type=load_type,
-                                            b_path=b_path,
-                                            num_wg_per_cu=nwgcu,
-                                            lcm_unroll=lcm,
-                                            unroll_factor_multiplier=um,
-                                            epilogue_peeling=ep,
-                                            ll_sched=ll,
-                                            hoist_wait=hw,
-                                            pipeline_strategy=strategy,
-                                        )
+                                        WeakScaledMappedGemmInstance(spec, mapping)
                                     )
 
         n_eligible = len(eligible)

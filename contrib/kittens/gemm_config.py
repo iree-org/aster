@@ -72,10 +72,12 @@ DIM_K = 2
 
 @dataclass
 class GemmSpec:
-    """Linalg-style GEMM specification, from a "generative" perspective.
+    """Linalg-style GEMM problem specification, from a "generative / bottom-up compositional" perspective.
 
-    Defines C[dm, dn] += A[dm, dk] * B[dn, dk]. Layouts are the source of truth for
-    problem dimensions. GEMM_SIZE_M/N/K are derived from layouts.
+    Defines C[dm, dn] += A[dm, dk] * B[dn, dk].
+
+    Per-operand queries (operand_layout, operand_memory_layout, operand_logical_dims,
+    operand_shape, operand_elt_bytes) provide uniform access to all operands.
     """
 
     # Per-operand memory layouts (source of truth for sizes and strides).
@@ -83,8 +85,8 @@ class GemmSpec:
     layout_b: Layout
     layout_c: Layout
 
-    # Per-operand logical shapes: list of DIM_* indices mapping iteration
-    # dims to operand axes. Permute for transposed variants.
+    # Per-operand logical shapes, permute for transposed variants.
+    # TODO: Richer semantics via affine exprs.
     logical_dims_a: list[int] = field(default_factory=lambda: [DIM_M, DIM_K])
     logical_dims_b: list[int] = field(default_factory=lambda: [DIM_N, DIM_K])
     logical_dims_c: list[int] = field(default_factory=lambda: [DIM_M, DIM_N])
@@ -97,24 +99,21 @@ class GemmSpec:
     elt_bytes_b: int = 2  # f16
     elt_bytes_c: int = 4  # f32
 
-    # Per-operand MFMA tile byte counts (for subbyte types, set explicitly).
-    mfma_tile_bytes_a: int | None = None
-    mfma_tile_bytes_b: int | None = None
-    mfma_tile_bytes_c: int | None = None
-
     def __post_init__(self):
-        if self.mfma_tile_bytes_a is None:
-            self.mfma_tile_bytes_a = (
-                self.mfma_shape[DIM_M] * self.mfma_shape[DIM_K] * self.elt_bytes_a
-            )
-        if self.mfma_tile_bytes_b is None:
-            self.mfma_tile_bytes_b = (
-                self.mfma_shape[DIM_K] * self.mfma_shape[DIM_N] * self.elt_bytes_b
-            )
-        if self.mfma_tile_bytes_c is None:
-            self.mfma_tile_bytes_c = (
-                self.mfma_shape[DIM_M] * self.mfma_shape[DIM_N] * self.elt_bytes_c
-            )
+        self._operand_layouts = {
+            Operand.A: OperandLayout(
+                self.layout_a, self.logical_dims_a, self.elt_bytes_a, self.mfma_shape
+            ),
+            Operand.B: OperandLayout(
+                self.layout_b, self.logical_dims_b, self.elt_bytes_b, self.mfma_shape
+            ),
+            Operand.C: OperandLayout(
+                self.layout_c, self.logical_dims_c, self.elt_bytes_c, self.mfma_shape
+            ),
+        }
+
+    def operand_layout(self, operand: Operand) -> OperandLayout:
+        return self._operand_layouts[operand]
 
     @classmethod
     def from_sizes(
@@ -161,19 +160,11 @@ class GemmSpec:
             **kwargs,
         )
 
-    # --- GEMM problem sizes (derived from layouts) ---
-
-    def _layout_sizes(self, layout: Layout) -> tuple[int, ...]:
-        s = layout.sizes
-        return s if isinstance(s, tuple) else (s,)
-
-    def _layout_strides(self, layout: Layout) -> tuple[int, ...]:
-        s = layout.strides
-        return s if isinstance(s, tuple) else (s,)
+    # --- GEMM problem sizes (derived from per-operand layouts) ---
 
     def _dim_from_operand(self, operand: Operand, dim: int) -> int:
-        dims, layout = self._operand_info(operand)
-        return self._layout_sizes(layout)[dims.index(dim)]
+        ol = self.operand_layout(operand)
+        return ol.shape[ol.logical_dims.index(dim)]
 
     @property
     def gemm_size(self) -> list[int]:
@@ -184,40 +175,11 @@ class GemmSpec:
             self._dim_from_operand(Operand.A, DIM_K),
         ]
 
-    # --- Operand queries ---
+    # --- Operand queries (delegate to per-operand OperandLayout) ---
 
     def operand_shape(self, operand: Operand) -> tuple[int, ...]:
         """Shape of an operand matrix following its logical_dims ordering."""
-        dims, layout = self._operand_info(operand)
-        return self._layout_sizes(layout)
-
-    def operand_dim_size(self, operand: Operand, dim: int) -> int:
-        return self._dim_from_operand(operand, dim)
-
-    def operand_stride(self, operand: Operand, dim: int) -> int:
-        dims, layout = self._operand_info(operand)
-        return self._layout_strides(layout)[dims.index(dim)]
-
-    def _operand_info(self, operand: Operand) -> tuple[list[int], Layout]:
-        if operand == Operand.A:
-            return self.logical_dims_a, self.layout_a
-        elif operand == Operand.B:
-            return self.logical_dims_b, self.layout_b
-        elif operand == Operand.C:
-            return self.logical_dims_c, self.layout_c
-        raise ValueError(f"Unknown operand: {operand!r}")
-
-    @property
-    def stride_a(self) -> int:
-        return self.operand_stride(Operand.A, self.logical_dims_a[0])
-
-    @property
-    def stride_b(self) -> int:
-        return self.operand_stride(Operand.B, self.logical_dims_b[0])
-
-    @property
-    def stride_c(self) -> int:
-        return self.operand_stride(Operand.C, self.logical_dims_c[0])
+        return self.operand_layout(operand).shape
 
     @property
     def total_flops(self) -> int:
@@ -277,30 +239,10 @@ class GemmMappingSpec:
     num_wg_per_cu: int = 1
     wave_size: int = 64
 
-    # --- Pipeline stages (derived from pipeline_strategy) ---
+    def _pipeline_stage_dict(self) -> dict[str, int]:
+        from kittens_helpers import PIPELINE_STRATEGIES
 
-    @property
-    def a_stages(self) -> int:
-        a, _ = self._pipeline_stages()
-        return a
-
-    @property
-    def b_stages(self) -> int:
-        _, b = self._pipeline_stages()
-        return b
-
-    def _pipeline_stages(self) -> tuple[int, int]:
-        from kittens_helpers import pipeline_strategy_stages
-
-        return pipeline_strategy_stages(self.pipeline_strategy)
-
-    @property
-    def effective_b_stages(self) -> int:
-        return self.b_stages
-
-    @property
-    def pipeline_depth(self) -> int:
-        return max(self.a_stages, self.b_stages)
+        return PIPELINE_STRATEGIES[self.pipeline_strategy]
 
     # --- Derived tile counts ---
 
@@ -347,68 +289,130 @@ class GemmMappingSpec:
     def use_buffer(self) -> bool:
         return self.load_type == LoadType.BUFFER
 
-    # --- Cooperative loading splits ---
-
-    def _coop_2d_split(self, num_tiles: int) -> tuple[int, int, int, int]:
-        waves_s = min(num_tiles, self.num_waves)
-        waves_k = max(1, self.num_waves // waves_s)
-        coop_s = -(-num_tiles // waves_s)
-        coop_k = -(-self.num_tiles_per_wave[DIM_K] // waves_k)
-        return waves_s, waves_k, coop_s, coop_k
-
-    @property
-    def coop_a_split(self) -> tuple[int, int, int, int]:
-        return self._coop_2d_split(self.num_tiles_per_workgroup[DIM_M])
-
-    @property
-    def coop_b_split(self) -> tuple[int, int, int, int]:
-        return self._coop_2d_split(self.num_tiles_per_workgroup[DIM_N])
-
-    @property
-    def coop_a_mk_count(self) -> int:
-        _, _, cm, ck = self.coop_a_split
-        return cm * ck
-
-    @property
-    def coop_b_nk_count(self) -> int:
-        _, _, cn, ck = self.coop_b_split
-        return cn * ck
-
     # --- Resource estimates ---
+    # VGPRs per dwordx4 global load result.
+    VGPRS_PER_LOAD = 4
+    # AGPRs per MFMA C accumulator fragment (f32 4x1).
+    AGPRS_PER_MFMA_RESULT = 4
 
     def estimated_agprs(self) -> int:
-        return self.num_tiles_per_wave[DIM_M] * self.num_tiles_per_wave[DIM_N] * 4
+        return (
+            self.num_tiles_per_wave[DIM_M]
+            * self.num_tiles_per_wave[DIM_N]
+            * self.AGPRS_PER_MFMA_RESULT
+        )
+
+    def _operand_vgpr_depth(self, s: dict[str, int], prefix: str) -> int:
+        """Live-range depth for one operand's global load buffers.
+
+        LDS path: max(LDS_WRITE - GLOBAL_LOAD, COMPUTE - LDS_READ)
+        Direct path: COMPUTE - GLOBAL_LOAD
+        """
+        load = s[f"{prefix}_LOAD"]
+        if prefix == "B" and self.direct_b or prefix == "A" and self.direct_a:
+            return s["COMPUTE"] - load
+        return max(
+            s[f"{prefix}_LDS_WRITE"] - load, s["COMPUTE"] - s[f"{prefix}_LDS_READ"]
+        )
 
     def estimated_vgprs(self) -> int:
         mt, nt, kt = self.num_tiles_per_wave
-        a_load = self.coop_a_mk_count * self.a_stages * 4
-        a_lds_read = mt * kt * 4
-
-        if self.direct_b:
-            b_load = kt * nt * self.b_stages * 4
-            b_split = kt * nt * 4
-            overhead = 30
-        else:
-            b_load = self.coop_b_nk_count * self.a_stages * 4
-            b_split = kt * nt * 4
-            overhead = 10
-
+        twg_m = self.num_tiles_per_workgroup[DIM_M]
+        twg_n = self.num_tiles_per_workgroup[DIM_N]
+        s = self._pipeline_stage_dict()
+        a_depth = self._operand_vgpr_depth(s, "A")
+        b_depth = self._operand_vgpr_depth(s, "B")
+        vpl = self.VGPRS_PER_LOAD
+        a_load = twg_m * kt * max(1, a_depth) * vpl
+        a_lds_read = mt * kt * vpl
+        b_load = kt * (nt if self.direct_b else twg_n) * max(1, b_depth) * vpl
+        b_split = kt * nt * vpl
+        overhead = 30 if self.direct_b else 10
         return a_load + a_lds_read + b_load + b_split + overhead
 
     def lds_bytes(self, tile_bytes: int = 1024) -> int:
+        """LDS budget.
+
+        Depth = COMPUTE - LDS_WRITE + 1 (live from write to last read).
+        """
         kt = self.num_tiles_per_wave[DIM_K]
-        a_lds = self.a_stages * self.num_tiles_per_workgroup[DIM_M] * kt * tile_bytes
-        b_lds = (
-            0
-            if self.direct_b
-            else self.b_stages * kt * self.num_tiles_per_workgroup[DIM_N] * tile_bytes
-        )
+        s = self._pipeline_stage_dict()
+        # TODO: prepare + pipelining + multi-buffering seem too conservative and
+        # to not reuse memory; maybe this is because it requires a dynamic size
+        # for the rotation vs a static constexpr size. Investigate.
+        # a_lds_depth = max(1, s["COMPUTE"] - s["A_LDS_WRITE"] + 1)
+        a_lds_depth = max(1, s["COMPUTE"] + 1)
+        a_lds = a_lds_depth * self.num_tiles_per_workgroup[DIM_M] * kt * tile_bytes
+        if self.direct_b:
+            b_lds = 0
+        else:
+            # TODO: prepare + pipelining + multi-buffering seem too conservative and
+            # to not reuse memory; maybe this is because it requires a dynamic size
+            # for the rotation vs a static constexpr size. Investigate.
+            # b_lds_depth = max(1, s["COMPUTE"] - s["B_LDS_WRITE"] + 1)
+            b_lds_depth = max(1, s["COMPUTE"] + 1)
+            b_lds = b_lds_depth * kt * self.num_tiles_per_workgroup[DIM_N] * tile_bytes
         return a_lds + b_lds
 
     def simd_occupancy(self) -> int:
         import math
 
         return self.num_wg_per_cu * math.ceil(self.num_waves / 4)
+
+
+# -----------------------------------------------------------------------------
+# OperandLayout -- tile geometry and coord layouts at a given MFMA multiplicity
+# -----------------------------------------------------------------------------
+
+
+class OperandLayout:
+    """Per-operand geometry.
+
+    The memory_layout must be flat (non-nested) for now.
+    """
+
+    def __init__(
+        self,
+        memory_layout: Layout,
+        logical_dims: list[int],
+        elt_bytes: int,
+        mfma_shape: list[int],
+    ):
+        assert (
+            memory_layout.is_flat
+        ), f"OperandLayout requires flat memory_layout, got {memory_layout!r}"
+        self.memory_layout = memory_layout
+        self.logical_dims = logical_dims
+        self.elt_bytes = elt_bytes
+        self.mfma_shape = mfma_shape
+
+    @property
+    def rank(self) -> int:
+        """Number of logical dimensions."""
+        return len(self.memory_layout)
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        """Shape of this operand (sizes from the memory layout)."""
+        return (
+            self.memory_layout.sizes
+            if isinstance(self.memory_layout.sizes, tuple)
+            else (self.memory_layout.sizes,)
+        )
+
+    @property
+    def strides(self) -> tuple[int, ...]:
+        """Byte strides from the memory layout."""
+        return (
+            self.memory_layout.strides
+            if isinstance(self.memory_layout.strides, tuple)
+            else (self.memory_layout.strides,)
+        )
+
+    @property
+    def num_elements(self) -> int:
+        """Total number of elements."""
+        return self.memory_layout.size()
 
 
 # -----------------------------------------------------------------------

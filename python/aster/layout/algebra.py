@@ -75,6 +75,13 @@ class Layout:
             return NotImplemented
         return self.sizes == other.sizes and self.strides == other.strides
 
+    @property
+    def is_flat(self) -> bool:
+        """True if all modes are scalar (non-nested)."""
+        if isinstance(self.sizes, int):
+            return True
+        return all(isinstance(s, int) for s in self.sizes)
+
     def __len__(self) -> int:
         if isinstance(self.sizes, tuple):
             return len(self.sizes)
