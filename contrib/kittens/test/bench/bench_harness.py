@@ -294,10 +294,15 @@ def _exec_worker(args):
     )
     direct_b = extra[0] if extra else False
     direct_a = extra[1] if len(extra) > 1 else False
+    use_zero_init = extra[2] if len(extra) > 2 else False
     try:
-        np.random.seed(42)
-        A = (np.random.randn(m, k) * 0.1).astype(np.float16)
-        B = (np.random.randn(n, k) * 0.1).astype(np.float16)
+        if use_zero_init:
+            A = np.zeros((m, k), dtype=np.float16)
+            B = np.zeros((n, k), dtype=np.float16)
+        else:
+            np.random.seed(42)
+            A = (np.random.randn(m, k) * 0.1).astype(np.float16)
+            B = (np.random.randn(n, k) * 0.1).astype(np.float16)
         if direct_a:
             from kittens_helpers import shuffle_weight
 
@@ -810,6 +815,7 @@ def bench_perf_sweep_pipelined(
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
     post_compile_filter=None,
     exec_sample=0,
+    zero_init=False,
 ):
     """Pipelined compile+execute: GPU execution starts as HSACOs become available.
 
@@ -931,6 +937,7 @@ def bench_perf_sweep_pipelined(
                         NUM_ITERATIONS,
                         getattr(cfg, "direct_b", False),
                         getattr(cfg, "direct_a", False),
+                        zero_init,
                     )
                     gpu_work_queues[exec_rr % len(gpu_work_queues)].put(exec_item)
                     exec_rr += 1
@@ -1167,10 +1174,14 @@ def bench_perf_sweep(
 # -- Single-config mode ----------------------------------------------------
 
 
-def make_inputs(cfg):
-    np.random.seed(42)
-    A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
-    B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
+def make_inputs(cfg, zero_init=False):
+    if zero_init:
+        A = np.zeros((cfg.m_dim, cfg.k), dtype=np.float16)
+        B = np.zeros((cfg.n_dim, cfg.k), dtype=np.float16)
+    else:
+        np.random.seed(42)
+        A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
+        B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
     return A, B
 
 
@@ -1277,7 +1288,8 @@ def run_single(cfg, compile_fn, args, execute_fn):
 
     try:
         # Timing.
-        A, B = make_inputs(cfg)
+        zero_init = getattr(args, "zero_init", False)
+        A, B = make_inputs(cfg, zero_init=zero_init)
         _, times_ns = execute_fn(
             cfg, hsaco_path, NUM_ITERATIONS, A, B, skip_gpu_check=True
         )
@@ -1343,6 +1355,14 @@ def add_sweep_cli_args(parser):
         help=f"Per-kernel compile timeout in seconds (default: {DEFAULT_COMPILE_TIMEOUT})",
     )
     a("--no-reg-filter", action="store_true", help="Disable register estimate filter")
+    a(
+        "--zero-init",
+        action="store_true",
+        default=False,
+        help="Use zero-initialized inputs instead of random. "
+        "Isolates power throttling: zeros avoid FP denormal handling "
+        "and reduce switching activity, giving a power-neutral baseline.",
+    )
 
 
 def add_single_cli_args(parser):
@@ -1355,3 +1375,9 @@ def add_single_cli_args(parser):
     a("--num-vgprs", type=int, default=None)
     a("--num-agprs", type=int, default=None)
     a("--num-wg-per-cu", type=int, default=1)
+    a(
+        "--zero-init",
+        action="store_true",
+        default=False,
+        help="Use zero-initialized inputs (power-neutral baseline)",
+    )

@@ -470,7 +470,6 @@ def main():
         metavar="{0..10}",
         help="Pin pipeline strategy",
     )
-
     args = parser.parse_args()
 
     # Build load_type list from --use-buffer and --use-flat.
@@ -550,6 +549,7 @@ def main():
         compile_timeout=getattr(args, "compile_timeout", 60),
         post_compile_filter=_post_compile_filter,
         exec_sample=getattr(args, "exec_sample", 2000),
+        zero_init=args.zero_init,
     )
     results, hsaco_map = results
     verify_top_configs(results, hsaco_map, num_gpus=args.num_gpus)
