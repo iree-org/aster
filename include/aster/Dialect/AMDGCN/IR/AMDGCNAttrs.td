@@ -67,6 +67,9 @@ def ValueSchedulerAttr : AMDGCN_Attr<"ValueScheduler", "value_scheduler", [
     edges from each op to all ops that produce its input operands. This builder
     is also aware of wait and barrier operations. Unknown non-pure ops
     are treated as possible sync points.
+
+    After SSA and sync edges are built, adds serialization edges between
+    i1-producing operations in the block.
   }];
 }
 
@@ -154,6 +157,23 @@ def LatencyPipelinerSchedAttr : AMDGCN_Attr<"LatencyPipelinerSched",
     DefaultValuedParameter<"int32_t", "1">:$schedLimit
   );
   let assemblyFormat = "`<` $schedLimit `>`";
+}
+
+def LowLevelSchedulerAttr : AMDGCN_Attr<"LowLevelScheduler", "low_level_scheduler", [
+    DeclareAttrInterfaceMethods<SchedBuilderAttrInterface>
+  ]> {
+  let summary = "Greedy queue-aware scheduler for AMDGCN";
+  let description = [{
+    Schedules using a hardware queue simulator (VALU, XDL, SALU, VMEM, LGKM)
+    with stall avoidance and interleaving heuristics.
+
+    When `annotateStalls` is true, records per-op stall metadata on the IR
+    during scheduling.
+  }];
+  let parameters = (ins
+    DefaultValuedParameter<"bool", "false">:$annotateStalls
+  );
+  let assemblyFormat = "`<` $annotateStalls `>`";
 }
 
 //===----------------------------------------------------------------------===//

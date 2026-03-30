@@ -9,21 +9,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
-#include "aster/Interfaces/AllocaOpInterface.h"
-#include "aster/Interfaces/InstOpInterface.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
-#include "mlir/IR/Block.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVectorExtras.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/DebugLog.h"
-#include <cstdint>
 
 #define DEBUG_TYPE "aster-sched"
 
@@ -59,6 +51,9 @@ private:
   /// and after if the operation affects SALU or SGPRs.
   void handleBarrier(SchedGraph &graph, int64_t pos, Operation *barrier);
 
+  /// Add serialization edges for i1-producing ops within a block.
+  void addI1SerializationEdges(SchedGraph &graph);
+
   Block *block;
   SmallVector<int64_t> syncPoints;
   DataFlowSolver &solver;
@@ -76,6 +71,7 @@ ValueSchedulerAttr::initializeAnalyses(SchedAnalysis &analysis) const {
 LogicalResult GraphBuilder::run(SchedGraph &graph) {
   buildSSADeps(graph);
   buildNonSSADeps(graph);
+  addI1SerializationEdges(graph);
   return success();
 }
 
@@ -252,7 +248,8 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
     }
 
     // If the operation has any SALU or SMEM properties, add an edge.
-    if (metadata->hasAnyProps({InstProp::Salu, InstProp::Smem})) {
+    if (metadata->hasAnyProps(
+            {InstProp::Salu, InstProp::Smem, InstProp::Dsmem})) {
       addEdge(op, i);
       continue;
     }
@@ -263,6 +260,44 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
     });
     if (hasSGPROut)
       addEdge(op, i);
+  }
+}
+
+void GraphBuilder::addI1SerializationEdges(SchedGraph &graph) {
+  SmallVector<Operation *> prevI1Consumers;
+
+  for (Operation &op : *block) {
+    if (op.hasTrait<OpTrait::IsTerminator>())
+      continue;
+
+    bool producesI1 = false;
+    for (OpResult result : op.getResults()) {
+      if (result.getType().isInteger(1)) {
+        producesI1 = true;
+        break;
+      }
+    }
+    if (!producesI1)
+      continue;
+
+    for (Operation *consumer : prevI1Consumers)
+      graph.addEdge(consumer, &op);
+
+    prevI1Consumers.clear();
+    bool hasConsumers = false;
+    for (OpResult result : op.getResults()) {
+      if (!result.getType().isInteger(1))
+        continue;
+      for (Operation *user : result.getUsers()) {
+        if (user->getBlock() == block) {
+          prevI1Consumers.push_back(user);
+          hasConsumers = true;
+        }
+      }
+    }
+
+    if (!hasConsumers)
+      prevI1Consumers.push_back(&op);
   }
 }
 
@@ -393,4 +428,303 @@ LatencyPipelinerSchedAttr::createSched(const SchedGraph &schedGraph,
   };
 
   return schedGraph.topologicalSched(schedFn, sched);
+}
+
+//===----------------------------------------------------------------------===//
+// LowLevelSchedulerAttr - SchedBuilderAttrInterface
+//===----------------------------------------------------------------------===//
+
+namespace {
+enum class QueueType : uint8_t { VALU, XDL, SALU, VMEM, LGKM, Unknown };
+} // namespace
+
+/// Parse sched.queue attr: "valu", "xdl", "salu", "vmem", "lgkm".
+// TODO: put this in instruction definition directly in tablegen.
+static std::optional<QueueType> parseQueueAttr(Operation *op) {
+  auto attr = op->getAttrOfType<StringAttr>("sched.queue");
+  if (!attr)
+    return std::nullopt;
+  return StringSwitch<std::optional<QueueType>>(attr.getValue())
+      .Case("valu", QueueType::VALU)
+      .Case("xdl", QueueType::XDL)
+      .Case("salu", QueueType::SALU)
+      .Case("vmem", QueueType::VMEM)
+      .Case("lgkm", QueueType::LGKM)
+      .Default(std::nullopt);
+}
+
+// TODO: put this in instruction definition directly in tablegen.
+static QueueType classifyOp(Operation *op) {
+  // sched.queue overrides InstProp classification (useful for test_inst).
+  if (auto qt = parseQueueAttr(op))
+    return *qt;
+
+  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
+  if (!instOp)
+    return QueueType::Unknown;
+  const InstMetadata *md = instOp.getInstMetadata();
+  if (!md)
+    return QueueType::Unknown;
+
+  // SOPP (s_waitcnt, s_barrier, branches) must be scheduling barriers.
+  if (md->hasProp(InstProp::Sopp))
+    return QueueType::Unknown;
+  if (md->hasProp(InstProp::Dsmem))
+    return QueueType::LGKM;
+  if (md->hasProp(InstProp::Smem))
+    return QueueType::LGKM;
+  if (md->hasProp(InstProp::IsVmem))
+    return QueueType::VMEM;
+  // Check before VALU: MFMA ops carry both Mma and IsValu props.
+  if (md->hasAnyProps({InstProp::Mma, InstProp::ScaledMma}))
+    return QueueType::XDL;
+  if (md->hasProp(InstProp::Salu))
+    return QueueType::SALU;
+  if (md->hasProp(InstProp::IsValu))
+    return QueueType::VALU;
+
+  return QueueType::Unknown;
+}
+
+/// Returns exec latency in hw cycles. sched.exec_latency overrides defaults.
+/// Note: these are all approximations atm.
+// TODO: put this in instruction definition directly in tablegen.
+static int64_t getExecLatency(Operation *op, QueueType qt) {
+  if (auto attr = op->getAttrOfType<IntegerAttr>("sched.exec_latency"))
+    return attr.getInt();
+  switch (qt) {
+  case QueueType::VALU:
+    return 4;
+  case QueueType::XDL:
+    return 16;
+  case QueueType::SALU:
+    return 4;
+  case QueueType::VMEM:
+    return 128;
+  case QueueType::LGKM:
+    return 32;
+  case QueueType::Unknown:
+    return 4;
+  }
+  llvm_unreachable("unhandled queue type");
+}
+
+/// Returns the queue depth (number of in-flight slots).
+/// Note: these are all approximations atm.
+/// VMEM is 2-deep (shared per CU across ~4 waves).
+/// All per-SIMD queues are 8-deep.
+// TODO: put this in instruction definition directly in tablegen.
+static int64_t getQueueDepth(QueueType qt) {
+  switch (qt) {
+  case QueueType::VMEM:
+    return 2;
+  default:
+    return 8;
+  }
+}
+
+/// Issue cost in hardware cycles (1 quad = 4 hw cycles).
+static constexpr int64_t kIssueCost = 4;
+
+static StringRef getQueueName(QueueType qt) {
+  switch (qt) {
+  case QueueType::VALU:
+    return "valu";
+  case QueueType::XDL:
+    return "xdl";
+  case QueueType::SALU:
+    return "salu";
+  case QueueType::VMEM:
+    return "vmem";
+  case QueueType::LGKM:
+    return "lgkm";
+  case QueueType::Unknown:
+    return "unknown";
+  }
+  llvm_unreachable("unhandled queue type");
+}
+
+namespace {
+//===----------------------------------------------------------------------===//
+// Queue simulator -- tracks slot occupancy per queue to detect stalls
+//===----------------------------------------------------------------------===//
+
+/// Models the hardware queue state for stall detection.
+/// Each queue has `capacity` slots; issuing an op occupies one slot for
+/// `execLatency` cycles. A stall occurs when all slots are busy.
+struct QueueSimulator {
+  DenseMap<QueueType, SmallVector<int64_t>> slotFreeAt;
+  int64_t currentCycle = 0;
+
+  /// Query how many hw cycles issuing to `qt` would stall.
+  int64_t wouldStall(QueueType qt) const {
+    if (qt == QueueType::Unknown)
+      return 0;
+    auto it = slotFreeAt.find(qt);
+    if (it == slotFreeAt.end())
+      return 0;
+    int64_t depth = getQueueDepth(qt);
+    int64_t occupied = 0;
+    for (int64_t t : it->second) {
+      if (t > currentCycle)
+        occupied++;
+    }
+    if (occupied < depth)
+      return 0;
+    int64_t earliest = *llvm::min_element(it->second);
+    return std::max(int64_t{0}, earliest - currentCycle);
+  }
+
+  /// Issue an op. Returns stall in hw cycles (always a multiple of 4).
+  int64_t issue(QueueType qt, int64_t execLatency) {
+    if (qt == QueueType::Unknown)
+      return 0;
+
+    auto &slots = slotFreeAt[qt];
+    llvm::erase_if(slots, [&](int64_t t) { return t <= currentCycle; });
+
+    int64_t depth = getQueueDepth(qt);
+    int64_t stallCycles = 0;
+    if (static_cast<int64_t>(slots.size()) >= depth) {
+      int64_t earliest = *llvm::min_element(slots);
+      stallCycles = std::max(int64_t{0}, earliest - currentCycle);
+      currentCycle += stallCycles;
+      llvm::erase_if(slots, [&](int64_t t) { return t <= currentCycle; });
+    }
+
+    slots.push_back(currentCycle + execLatency);
+    currentCycle += kIssueCost;
+    return stallCycles;
+  }
+};
+} // namespace
+
+LogicalResult
+LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
+                                   SmallVectorImpl<int32_t> &sched) const {
+  if (!schedGraph.isCompressed())
+    return failure();
+
+  if (schedGraph.getOps().empty())
+    return success();
+
+  // Classify operations into hardware queues and compute their execution
+  // latencies.
+  SmallVector<QueueType> queueTypes(schedGraph.sizeNodes());
+  SmallVector<int64_t> execLatencies(schedGraph.sizeNodes());
+  for (auto [i, op] : llvm::enumerate(schedGraph.getOps())) {
+    queueTypes[i] = classifyOp(op);
+    execLatencies[i] = getExecLatency(op, queueTypes[i]);
+  }
+
+  // Track the last scheduled queue type and the number of consecutive
+  // operations on the same queue.
+  QueueType lastQueueType = QueueType::Unknown;
+  int64_t burstCount = 0;
+  QueueSimulator sim;
+
+  // Track stall cycles and reasons for each operation.
+  SmallVector<int64_t> stallCycles;
+  SmallVector<StringRef> stallReasons;
+
+  // Greedy pick driven by SchedGraph::topologicalSched. When scores tie, prefer
+  // the smallest node id for a stable order. Assigns indices to the scheduled
+  // operations.
+  auto schedFn = [&](ArrayRef<int32_t> ready, SetVector<int32_t> &indices) {
+    int32_t bestIdx = -1;
+    int bestScore = std::numeric_limits<int>::min();
+    bool hasImmSchedOp = false;
+
+    // Scoring: stall avoidance + latency-aware interleaving.
+    //
+    // 1. Stall avoidance: penalize ops that would stall on a full queue.
+    // 2. Interleaving bonus: prefer switching queues to overlap execution
+    //    (DS/VMEM -> XDL/VALU -> wait pattern).
+    for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
+      Operation *op = schedGraph.getOp(ready[i]);
+      // Always schedule all trivial operations first.
+      if (isa<AllocaOpInterface, MakeRegisterRangeOp, SplitRegisterRangeOp>(
+              op) ||
+          op->hasTrait<OpTrait::ConstantLike>()) {
+        indices.insert(i);
+        stallCycles.push_back(0);
+        stallReasons.push_back("");
+        hasImmSchedOp = true;
+        continue;
+      }
+      if (hasImmSchedOp)
+        continue;
+
+      // Compute the score for the current operation.
+      int32_t nodeId = ready[i];
+      int score = 0;
+      int64_t stall = sim.wouldStall(queueTypes[nodeId]);
+      if (stall > 0) {
+        int64_t cappedStall = std::min(stall, int64_t{32});
+        score -= static_cast<int>(cappedStall) * 10;
+      }
+      // Interleaving: prefer switching queues to overlap execution.
+      if (queueTypes[nodeId] != lastQueueType && burstCount > 0)
+        score += 50;
+
+      if (score > bestScore ||
+          (score == bestScore && nodeId < ready[bestIdx])) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+
+    // If we have already scheduled all trivial operations, return. This allows
+    // to see farther in the graph.
+    if (hasImmSchedOp)
+      return;
+
+    assert(bestIdx >= 0 && "schedFn must select a ready node");
+
+    // Record stall cycles and reasons.
+    int32_t chosen = ready[bestIdx];
+    int64_t stall = sim.issue(queueTypes[chosen], execLatencies[chosen]);
+    stallCycles.push_back(stall);
+    stallReasons.push_back(stall > 0 ? getQueueName(queueTypes[chosen]) : "");
+
+    // Update the last scheduled queue type and burst count.
+    if (queueTypes[chosen] == lastQueueType) {
+      burstCount++;
+    } else {
+      lastQueueType = queueTypes[chosen];
+      burstCount = 1;
+    }
+
+    // Add the best operation to the scheduled operations.
+    indices.insert(bestIdx);
+  };
+
+  // Topologically schedule the operations.
+  if (failed(schedGraph.topologicalSched(schedFn, sched)))
+    return failure();
+
+  // If not annotating stalls, return success.
+  if (!getAnnotateStalls())
+    return success();
+
+  assert(stallCycles.size() == sched.size() &&
+         "sched and stallCycles must have the same size");
+  assert(stallReasons.size() == sched.size() &&
+         "sched and stallReasons must have the same size");
+
+  MLIRContext *ctx = schedGraph.getOp(0)->getContext();
+  auto stallAttr = StringAttr::get(ctx, "sched.stall_cycles");
+  auto reasonAttr = StringAttr::get(ctx, "sched.stall_reason");
+  auto i64Ty = IntegerType::get(ctx, 64);
+
+  // Annotate each scheduled op with stall cycles and reasons in schedule order.
+  for (size_t i = 0, n = sched.size(); i < n; ++i) {
+    Operation *op = schedGraph.getOp(sched[i]);
+    int64_t stall = stallCycles[i];
+    StringRef reason = stallReasons[i];
+    op->setAttr(stallAttr, IntegerAttr::get(i64Ty, stall));
+    if (stall > 0)
+      op->setAttr(reasonAttr, StringAttr::get(ctx, (reason + " full").str()));
+  }
+  return success();
 }
