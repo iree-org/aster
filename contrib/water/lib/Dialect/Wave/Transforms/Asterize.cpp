@@ -7,6 +7,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.h"
 #include "aster/Interfaces/RegisterType.h"
+#include "aster/Transforms/SchedUtils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -86,8 +87,36 @@ static wave::HardwareConstraintAttr parseWaveConstraints(
 
 namespace {
 
+struct PipelineStages {
+  int32_t globalLoad;
+  int32_t dsWrite;
+  int32_t dsRead;
+  int32_t compute;
+};
+
+// Returns the pipeline stage indices for the given number of stages.
+static FailureOr<PipelineStages> getPipelineStages(int32_t stages) {
+  switch (stages) {
+  case 1:
+    return PipelineStages{0, 0, 0, 0};
+  case 2:
+    return PipelineStages{0, 1, 1, 1};
+  case 3:
+    return PipelineStages{0, 1, 2, 2};
+  case 4:
+    return PipelineStages{0, 1, 2, 3};
+  case 5:
+    return PipelineStages{0, 2, 3, 4};
+  case 6:
+    return PipelineStages{0, 3, 4, 5};
+  }
+  return failure();
+}
+
 struct WaterWaveAsterizePass
     : public wave::impl::WaterWaveAsterizePassBase<WaterWaveAsterizePass> {
+  using WaterWaveAsterizePassBase::WaterWaveAsterizePassBase;
+
   void runOnOperation() override {
     SymbolTable symbolTable(getOperation());
     // Wraps a freshly-created func::CallOp: if the callee has no declaration
@@ -111,6 +140,14 @@ struct WaterWaveAsterizePass
       }
       return callOp;
     };
+
+    FailureOr<PipelineStages> maybeStages = getPipelineStages(stages);
+    if (failed(maybeStages)) {
+      getOperation()->emitError()
+          << "invalid number of pipeline stages: " << stages;
+      return signalPassFailure();
+    }
+
     WalkResult walkResult = getOperation()->walk([&](func::FuncOp funcOp) {
       wave::MmaOp singleMmaOp;
       WalkResult walkResult = funcOp->walk([&](wave::MmaOp mmaOp) {
@@ -306,14 +343,71 @@ struct WaterWaveAsterizePass
       // m_waves = waves per WG, can compute from wave constraints, I expect
       // => m_tiles by formula
 
+      // Starting, we have MxNxK matmul divided into m_wg, n_wg workgroups
+      // and m_waves, n_waves waves. The size of the workgroup is given by
+      // workgroup constraints.
+      // Each workgroup then has a certain number of 16x16x32 tiles processed by
+      // a single wave, and expects the number of waves. This gives a larger
+      // tile processed by all waves. If tile size is smaller than size of the
+      // workgroup, this creates workgroup tiles.
+      // In the input, we may have wave constraints. We relate those to
+      // workgroup constraints to obtain the number of waves per workgroup. Then
+      // compute the rest.
+
       assert(gridDims.size() == 2 && "overfit for matmul...");
-      int32_t mWgTiles = *hyper.getSymbolValue(mSymbol.getName());
-      int32_t nWgTiles = *hyper.getSymbolValue(nSymbol.getName());
-      assert((mWgTiles % numWaves[mMappedDim]) == 0 && "expected divisibility");
-      assert((nWgTiles % numWaves[nMappedDim]) == 0 && "expected divisibility");
-      int32_t mTiles = mWgTiles / numWaves[mMappedDim];
-      int32_t nTiles = nWgTiles / numWaves[nMappedDim];
+      int32_t mSize = *hyper.getSymbolValue(mSymbol.getName());
+      int32_t nSize = *hyper.getSymbolValue(nSymbol.getName());
       int32_t kSize = *hyper.getSymbolValue(kSymbol.getName());
+      if (mSize % 16 != 0) {
+        singleMmaOp.emitError() << "m dimension not divisible by 16";
+        return WalkResult::interrupt();
+      }
+      if (nSize % 16 != 0) {
+        singleMmaOp.emitError() << "n dimension not divisible by 16";
+        return WalkResult::interrupt();
+      }
+      if (kSize % 32 != 0) {
+        singleMmaOp.emitError() << "k dimension not divisible by 32";
+        return WalkResult::interrupt();
+      }
+
+      if (mSize % gridDims[mMappedDim] != 0) {
+        singleMmaOp.emitError()
+            << "m dimension " << mSize << " not divisible by grid dimension "
+            << gridDims[mMappedDim];
+        return WalkResult::interrupt();
+      }
+      if (nSize % gridDims[nMappedDim] != 0) {
+        singleMmaOp.emitError()
+            << "n dimension " << nSize << "not divisible by grid dimension "
+            << gridDims[nMappedDim];
+        return WalkResult::interrupt();
+      }
+      int32_t mWgTileSize = mSize / gridDims[mMappedDim];
+      int32_t nWgTileSize = nSize / gridDims[nMappedDim];
+      int32_t mAllWaves = numWaves[mMappedDim] * 16;
+      int32_t nAllWaves = numWaves[nMappedDim] * 16;
+      if (mWgTileSize % mAllWaves != 0) {
+        singleMmaOp.emitError()
+            << "m workgroup tile size " << mWgTileSize
+            << " not divisible by the number of elements " << mAllWaves
+            << " processed by all " << numWaves[mMappedDim] << " waves\n";
+        return WalkResult::interrupt();
+      }
+      if (nWgTileSize % nAllWaves != 0) {
+        singleMmaOp.emitError()
+            << "n workgroup tile size " << nWgTileSize
+            << " not divisible by the number of elements " << nAllWaves
+            << " processed by all " << numWaves[nMappedDim] << " waves\n";
+        return WalkResult::interrupt();
+      }
+      int32_t mWgTiles = mWgTileSize / mAllWaves;
+      int32_t nWgTiles = nWgTileSize / nAllWaves;
+      assert(16 * numWaves[mMappedDim] * mWgTiles * gridDims[mMappedDim] ==
+             mSize);
+      assert(16 * numWaves[nMappedDim] * nWgTiles * gridDims[nMappedDim] ==
+             nSize);
+
       int32_t kTiles = -1;
       for (Attribute attr : symbolConstraints.lookup(kSymbol)) {
         if (auto tilingConstraint =
@@ -342,7 +436,8 @@ struct WaterWaveAsterizePass
       int32_t numBlocks =
           llvm::accumulate(gridDims, 1, std::multiplies<int32_t>());
       int32_t numThreads =
-          llvm::accumulate(blockDims, 1, std::multiplies<int32_t>());
+          hwConstraint.getThreadsPerWave() *
+          llvm::accumulate(numWaves, 1, std::multiplies<int32_t>());
       kernel.setGridDims(ArrayRef<int32_t>{numBlocks, 1, 1});
       kernel.setBlockDims(ArrayRef<int32_t>{numThreads, 1, 1});
 
@@ -360,7 +455,10 @@ struct WaterWaveAsterizePass
             builder, body->getArgument(i).getLoc(), sgpr2x,
             /*index=*/i));
       }
-      aster::amdgcn::S_WAITCNT::create(builder, kernel.getLoc());
+      // XXX: need to provide explicit "default" counts for vmcnt and expcnt
+      // because the default builder provides 0, which are *NOT* default values.
+      aster::amdgcn::S_WAITCNT::create(builder, kernel.getLoc(), /*vmcnt=*/64,
+                                       /*expcnt=*/8, /*lgkmcnt=*/0);
       for (unsigned i = 0, e = body->getNumArguments(); i < e; ++i) {
         auto anyType =
             aster::aster_utils::AnyTypeType::get(builder.getContext());
@@ -412,11 +510,11 @@ struct WaterWaveAsterizePass
       DenseMap<int32_t, DimensionIndexing> dimensionIndexing;
       Location indexingLoc = funcOp.getLoc();
       for (auto mappedDim : {nMappedDim, mMappedDim}) {
-        dimensionIndexing[mappedDim].wgTiles = arith::ConstantIndexOp::create(
-            builder, indexingLoc,
-            mappedDim == mMappedDim ? mWgTiles : nWgTiles);
+        int32_t wgTiles = mappedDim == mMappedDim ? mWgTiles : nWgTiles;
+        dimensionIndexing[mappedDim].wgTiles =
+            arith::ConstantIndexOp::create(builder, indexingLoc, wgTiles);
         dimensionIndexing[mappedDim].waveTiles = arith::ConstantIndexOp::create(
-            builder, indexingLoc, numWaves[mappedDim]);
+            builder, indexingLoc, wgTiles / numWaves[mappedDim]);
         dimensionIndexing[mappedDim].base = affine::AffineApplyOp::create(
             builder, indexingLoc, ArrayRef<AffineExpr>({d0 * s0 + d1 * s1}),
             {wgCoordinates->getResult(mappedDim),
@@ -462,12 +560,10 @@ struct WaterWaveAsterizePass
         }
 
         builder.setInsertionPoint(registerOp);
-        Value mTilesVal = arith::ConstantIndexOp::create(
-            builder, registerOp.getLoc(), mTiles);
-        Value nTilesVal = arith::ConstantIndexOp::create(
-            builder, registerOp.getLoc(), nTiles);
-        Value allocationSize = arith::MulIOp::create(
-            builder, registerOp.getLoc(), mTilesVal, nTilesVal);
+        Value allocationSize =
+            arith::MulIOp::create(builder, registerOp.getLoc(),
+                                  dimensionIndexing[mMappedDim].waveTiles,
+                                  dimensionIndexing[nMappedDim].waveTiles);
 
         // TODO: not sure if this is always 4 agprs.
         auto agpr4x = aster::amdgcn::AGPRType::get(
@@ -608,18 +704,21 @@ struct WaterWaveAsterizePass
                 lastReadIt = std::next(firstReadIt),
                 finalReadIt = readsThroughSharedMemory.end();
            firstReadIt != finalReadIt; firstReadIt = lastReadIt) {
-        lastReadIt = std::next(firstReadIt);
-        for (; lastReadIt != std::prev(finalReadIt) &&
-               lastReadIt != finalReadIt &&
-               (*std::next(lastReadIt))->getPrevNode() == *lastReadIt;
-             ++lastReadIt)
-          ;
+        while (true) {
+          if (lastReadIt == finalReadIt)
+            break;
+          if ((*lastReadIt) != (*std::prev(lastReadIt))->getNextNode())
+            break;
+          std::advance(lastReadIt, 1);
+        }
 
         builder.setInsertionPointAfter(*std::prev(lastReadIt));
-        // TODO: IMPORTANT: figure out sched.staged
         auto barrier = aster::amdgcn::inst::SOPPOp::create(
             builder, (*firstReadIt)->getLoc(), aster::amdgcn::OpCode::S_BARRIER,
             0);
+        barrier->setAttr(
+            aster::kSchedStageAttr,
+            IntegerAttr::get(builder.getI32Type(), maybeStages->dsRead));
         // TODO: this can be done by some sort of scheduling / interleaving
         // instead.
         OperationState dummyOp(builder.getUnknownLoc(),
@@ -706,10 +805,14 @@ struct WaterWaveAsterizePass
               /*dynamic_size=*/Value(), ldsBytes,
               /*alignment=*/16,
               /*offset=*/IntegerAttr());
-          // TODO: IMPORTANT figure this out...
-          // alloc->setAttr("sched.stage");
+          alloc.getDefiningOp()->setAttr(
+              aster::kSchedStageAttr,
+              IntegerAttr::get(builder.getI32Type(), maybeStages->globalLoad));
           Value sharedBase = aster::amdgcn::GetLDSOffsetOp::create(
               builder, readOp.getLoc(), builder.getIndexType(), alloc);
+          sharedBase.getDefiningOp()->setAttr(
+              aster::kSchedStageAttr,
+              IntegerAttr::get(builder.getI32Type(), maybeStages->globalLoad));
 
           builder.setInsertionPoint(glReadIP);
           Value wgTilesValue = dimensionIndexing[mappedDim].wgTiles;
@@ -812,17 +915,12 @@ struct WaterWaveAsterizePass
 
           // Wait for LDS write tokens.
           builder.setInsertionPoint(waitIP);
-          builder.setInsertionPointAfter(barrier);
-          StringRef waitLDSWritesFuncName =
-              isA ? "k_wait_lds_writes_a" : "k_wait_lds_writes_b";
+          StringRef waitLDSWritesFuncName = "k_wait_lds_writes";
           ensureCalledFuncExists(
               builder, func::CallOp::create(builder, readOp.getLoc(),
                                             waitLDSWritesFuncName, TypeRange(),
                                             ValueRange({ldsStoreToken})));
 
-          // TODO: IMPORTANT: this should come after all waits.
-          // we can start by injecting fake ops for positions, using them as
-          // insertion keys, then removing them at the end.
           builder.setInsertionPoint(ldsReadIP);
           auto ldsReadTokenType = aster::amdgcn::ReadTokenType::get(
               builder.getContext(),
@@ -844,10 +942,14 @@ struct WaterWaveAsterizePass
           valueMap.map(readOp.getResult(), ldsReadFuture);
 
           builder.setInsertionPoint(parentLoop.getBody()->getTerminator());
-          aster::amdgcn::DeallocLDSOp::create(builder, readOp.getLoc(), alloc);
-          // TODO: IMPORTANT set sched.stage
+          auto deallocOp = aster::amdgcn::DeallocLDSOp::create(
+              builder, readOp.getLoc(), alloc);
+          deallocOp->setAttr(
+              aster::kSchedStageAttr,
+              IntegerAttr::get(builder.getI32Type(), maybeStages->compute));
         }
 
+        allocIP->erase();
         ldsReadIP->erase();
         ldsStoreIP->erase();
         ldsComputeReadAddrIP->erase();
@@ -863,13 +965,12 @@ struct WaterWaveAsterizePass
                            "wasn't converted/inlined");
 
       // XXX: the factor of 2 is hardcoded from specific sizes.
+      Value cKT = arith::ConstantIndexOp::create(
+          builder, singleMmaOp.getLoc(),
+          kTiles); // TODO: IMPORTANT this must be c_K_T equivalent
       Value kMfma = affine::AffineApplyOp::create(
-          builder, singleMmaOp.getLoc(), ArrayRef<AffineExpr>({2 * s0}),
-          {parentLoop.getInductionVar()});
-      Value mTilesValue =
-          arith::ConstantIndexOp::create(builder, singleMmaOp.getLoc(), mTiles);
-      Value nTilesValue =
-          arith::ConstantIndexOp::create(builder, singleMmaOp.getLoc(), nTiles);
+          builder, singleMmaOp.getLoc(), ArrayRef<AffineExpr>({2 * s0}), {cKT});
+
       Value aFuture = valueMap.lookupOrNull(singleMmaOp.getLhs());
       if (!aFuture) {
         singleMmaOp.emitError() << "NYI: couldn't convert MMA source value";
@@ -886,11 +987,12 @@ struct WaterWaveAsterizePass
         return WalkResult::interrupt();
       }
       ensureCalledFuncExists(
-          builder,
-          func::CallOp::create(builder, singleMmaOp.getLoc(),
-                               "k_wait_and_compute_mfmas", TypeRange(),
-                               ValueRange({mTilesValue, nTilesValue, kMfma,
-                                           aFuture, bFuture, cBuffer})));
+          builder, func::CallOp::create(
+                       builder, singleMmaOp.getLoc(),
+                       "k_wait_and_compute_mfmas", TypeRange(),
+                       ValueRange({dimensionIndexing[mMappedDim].waveTiles,
+                                   dimensionIndexing[nMappedDim].waveTiles,
+                                   kMfma, aFuture, bFuture, cBuffer})));
 
       walkResult = kernel->walk([&](wave::WriteOp writeOp) {
         if (writeOp.getValueToStore() != singleMmaOp.getAccumulator()) {
@@ -909,24 +1011,37 @@ struct WaterWaveAsterizePass
         }
         Value cRsrc =
             kernelArgs[std::distance(body->getArguments().begin(), argIt)];
+        // XXX: the logic in
+        // test_perf_001_gemm_fp16_weak_scaled.py:_make_substitutions overrides
+        // STRIDE_C set in constexpr_substitutions_16x32 previously. The code
+        // ifdef'ed below corresponds to overridden value.
         // XXX: hardcoded for 16x32 tiles (2 times 16x16x16 mfma).
-        int64_t strideC = nTiles * 16 * 4;
+#if 0
+        llvm::APInt nTiles;
+        [[maybe_unused]] bool matched =
+        matchPattern(dimensionIndexing[nMappedDim].waveTiles,
+                     m_ConstantInt(&nTiles));
+        assert(matched && "expected constant number of wave tiles");
+        int64_t strideC = nTiles.getSExtValue() * 16 * 4;
+#endif
+        // TODO: take element bitwidth instead of hardcoding it.
+        int64_t strideC = nSize * 4; // f32 = 4 bytes
         builder.setInsertionPoint(writeOp);
         Value strideCValue =
             arith::ConstantIndexOp::create(builder, writeOp.getLoc(), strideC);
 
-        Value mTilesValue = arith::ConstantIndexOp::create(
-            builder, singleMmaOp.getLoc(), mTiles);
-        Value nTilesValue = arith::ConstantIndexOp::create(
-            builder, singleMmaOp.getLoc(), nTiles);
+        // TODO: use shape instead of hardcoded mMappedDim, nMappedDim (assumes
+        // M, N shape).
         Value cBuffer = valueMap.lookupOrNull(singleMmaOp.getAccumulator());
         assert(cBuffer && "checked above that cBuffer was in the value map");
         ensureCalledFuncExists(
             builder,
             func::CallOp::create(
                 builder, writeOp.getLoc(), "store_c_tiles", TypeRange(),
-                ValueRange({mTilesValue, nTilesValue, cBuffer, cRsrc,
-                            strideCValue, dimensionIndexing[mMappedDim].base,
+                ValueRange({dimensionIndexing[mMappedDim].waveTiles,
+                            dimensionIndexing[nMappedDim].waveTiles, cBuffer,
+                            cRsrc, strideCValue,
+                            dimensionIndexing[mMappedDim].base,
                             dimensionIndexing[nMappedDim].base})));
 
         writeOp->erase();
@@ -938,6 +1053,9 @@ struct WaterWaveAsterizePass
       singleMmaOp->erase();
       for (auto readOp : readsThroughSharedMemory) {
         readOp->erase();
+      }
+      for (auto registerOp : llvm::make_first_range(registers)) {
+        registerOp->erase();
       }
 
       // TODO: erase ops here, we shouldn't immediately erase because the

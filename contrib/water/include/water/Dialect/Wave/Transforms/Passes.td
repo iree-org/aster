@@ -221,6 +221,13 @@ def WaterWaveAsterizePass : Pass<"water-wave-asterize"> {
     "::mlir::gpu::GPUDialect",
     "::mlir::arith::ArithDialect",
   ];
+  let options = [
+    Option</*varName=*/"stages",
+           /*arg=*/"stages",
+           /*valueType=*/"int",
+           /*default=*/"1",
+           "Number of pipeline stages">,
+  ];
 }
 
 #endif // WATER_DIALECT_WAVE_TRANSFORMS_PASSES
