@@ -11,6 +11,7 @@ are derived: m_tiles = m_tiles_wg // m_waves.
 from dataclasses import dataclass
 
 import numpy as np
+from kittens.gemm_config import GemmConfig
 import pytest
 import tempfile
 
@@ -50,23 +51,15 @@ K_LOOP_HELPERS_FILES = {
 
 
 @dataclass
-class WeakScaleConfig:
-    """A single point in the sweep grid.
+class WeakScaleConfig(GemmConfig):
+    """Extends GemmConfig with pipeline/sweep fields.
 
-    Tiles are specified per-workgroup (m_tiles_wg, n_tiles_wg) and waves are
-    independent.  Per-wave tile counts are derived: m_tiles = m_tiles_wg // m_waves.
-    Constraint: m_tiles_wg % m_waves == 0 and n_tiles_wg % n_waves == 0.
+    Field order: m_wg, n_wg, m_waves, n_waves, m_tiles_wg, n_tiles_wg,
+    k_tiles, k (from GemmConfig), then a_stages and sweep options.
+    Use keyword args for a_stages and k to avoid positional ordering issues.
     """
 
-    m_wg: int  # workgroups along M
-    n_wg: int  # workgroups along N
-    m_waves: int  # waves per WG along M
-    n_waves: int  # waves per WG along N
-    m_tiles_wg: int  # tiles per workgroup along M
-    n_tiles_wg: int  # tiles per workgroup along N
-    k_tiles: int
-    a_stages: int
-    k: int
+    a_stages: int = 2
     load_type: str = "flat"  # "flat" or "buffer"
     b_path: str = "lds"  # "lds" or "direct_b" (bpermute, B bypasses LDS)
     b_stages: int = 0  # 0 = same as a_stages; >0 = independent B pipeline depth
@@ -97,42 +90,8 @@ class WeakScaleConfig:
             self.n_tiles_wg % self.n_waves == 0
         ), f"n_tiles_wg={self.n_tiles_wg} not divisible by n_waves={self.n_waves}"
 
-    @property
-    def m_tiles(self):
-        """Per-wave tiles along M (derived from m_tiles_wg // m_waves)."""
-        return self.m_tiles_wg // self.m_waves
-
-    @property
-    def n_tiles(self):
-        """Per-wave tiles along N (derived from n_tiles_wg // n_waves)."""
-        return self.n_tiles_wg // self.n_waves
-
-    @property
-    def num_workgroups(self):
-        return self.m_wg * self.n_wg
-
-    @property
-    def num_waves(self):
-        return self.m_waves * self.n_waves
-
-    @property
-    def num_threads(self):
-        return self.num_waves * 64
-
-    @property
-    def m_dim(self):
-        """Total M = M_WG * M_TILES_WG * 16."""
-        return self.m_wg * self.m_tiles_wg * 16
-
-    @property
-    def n_dim(self):
-        """Total N = N_WG * N_TILES_WG * 16."""
-        return self.n_wg * self.n_tiles_wg * 16
-
-    @property
-    def total_flops(self):
-        """2*M*N*K for the full output matrix."""
-        return 2 * self.m_dim * self.n_dim * self.k
+    # Properties m_tiles, n_tiles, num_workgroups, num_waves, num_threads,
+    # m_dim, n_dim, stride_a, stride_b, stride_c, total_flops inherited from GemmConfig.
 
     @property
     def use_buffer(self):
@@ -588,8 +547,8 @@ class TestWeakScaleCorrectness:
             m_tiles_wg,
             n_tiles_wg,
             k_tiles,
-            a_stages,
-            k,
+            k=k,
+            a_stages=a_stages,
             load_type=load_type,
             b_path=b_path,
         )

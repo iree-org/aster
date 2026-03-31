@@ -13,7 +13,9 @@ import numpy as np
 import pytest
 
 from aster import ir
-from aster.dialects.kernel_builder import KernelBuilder
+from aster.dialects.kernel_builder_with_layouts import (
+    KernelBuilderWithLayouts as KernelBuilder,
+)
 from aster.dialects.amdgcn import AccessKind
 from aster.compiler.core import compile_mlir_module_to_asm, assemble_to_hsaco
 from aster.execution.core import execute_hsaco, InputArray, OutputArray
@@ -24,7 +26,7 @@ from aster.pass_pipelines import make_default_pass_pipeline
 from kittens.layouts import (
     TILE_16x64,
     LDS_SWIZZLE,
-    MFMA_FRAG_IN_TILE,
+    MFMA_FRAGMENT_IN_TILE,
     make_global_tile_layout,
     make_mfma_c_layout,
 )
@@ -56,30 +58,37 @@ def _build_gemm_pipelined(k, stride_ab):
     c1 = b.constant_index(1)
     acc_init = b.init_agprx4(b.constant_i32(0))
 
-    def k_body(k_iv, acc):
+    acc = []
+
+    @b.loop(c0, b.constant_index(k_tiles), c1, iter_args=[acc_init], results=acc)
+    def _(k_iv, acc):
         tile_off = b.affine_apply(d0 * 64, [k_iv])
 
         with b.stage(STAGE_LOAD):
             lds_a_h, lds_a = b.alloc_lds(1024)
             lds_b_h, lds_b = b.alloc_lds(1024)
-            a_data, a_tok = b.tile_load(lane, a_ptr, tile_off, GLOBAL_LAYOUT)
-            b_data, b_tok = b.tile_load(lane, b_ptr, tile_off, GLOBAL_LAYOUT)
+            a_data, a_tok = b.load_tile_from_global(a_ptr, tile_off, GLOBAL_LAYOUT)
+            b_data, b_tok = b.load_tile_from_global(b_ptr, tile_off, GLOBAL_LAYOUT)
 
         with b.stage(STAGE_WRITE):
             b.wait_deps(a_tok, b_tok)
-            a_wtoks = b.tile_to_lds(lane, a_data, lds_a, TILE_16x64, LDS_SWIZZLE)
-            b_wtoks = b.tile_to_lds(lane, b_data, lds_b, TILE_16x64, LDS_SWIZZLE)
+            a_wtoks = b.write_tile_to_lds(a_data, lds_a, TILE_16x64, LDS_SWIZZLE)
+            b_wtoks = b.write_tile_to_lds(b_data, lds_b, TILE_16x64, LDS_SWIZZLE)
 
         with b.stage(STAGE_READ):
             b.wait_deps(*a_wtoks, *b_wtoks)
-            a0, a0t = b.frag_from_lds(lane, lds_a, MFMA_FRAG_IN_TILE, LDS_SWIZZLE)
-            b0, b0t = b.frag_from_lds(lane, lds_b, MFMA_FRAG_IN_TILE, LDS_SWIZZLE)
-            k1_off = b.constant_index(32)
-            a1, a1t = b.frag_from_lds(
-                lane, lds_a, MFMA_FRAG_IN_TILE, LDS_SWIZZLE, k1_off
+            a0, a0t = b.read_fragment_from_lds(
+                lds_a, MFMA_FRAGMENT_IN_TILE, LDS_SWIZZLE
             )
-            b1, b1t = b.frag_from_lds(
-                lane, lds_b, MFMA_FRAG_IN_TILE, LDS_SWIZZLE, k1_off
+            b0, b0t = b.read_fragment_from_lds(
+                lds_b, MFMA_FRAGMENT_IN_TILE, LDS_SWIZZLE
+            )
+            k1_off = b.constant_index(32)
+            a1, a1t = b.read_fragment_from_lds(
+                lds_a, MFMA_FRAGMENT_IN_TILE, LDS_SWIZZLE, k1_off
+            )
+            b1, b1t = b.read_fragment_from_lds(
+                lds_b, MFMA_FRAGMENT_IN_TILE, LDS_SWIZZLE, k1_off
             )
 
         with b.stage(STAGE_COMPUTE):
@@ -91,8 +100,8 @@ def _build_gemm_pipelined(k, stride_ab):
 
         return [acc]
 
-    [acc_final] = b.for_loop(c0, b.constant_index(k_tiles), c1, [acc_init], k_body)
-    b.store_c_tile(lane, acc_final, c_ptr, b.constant_index(0), C_LAYOUT)
+    [acc_final] = acc
+    b.store_fragment_to_global(acc_final, c_ptr, b.constant_index(0), C_LAYOUT)
     return b.build()
 
 

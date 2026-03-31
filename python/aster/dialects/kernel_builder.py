@@ -544,84 +544,6 @@ class KernelBuilder:
             ip=self._kip,
         )
 
-    # ---------------------------------------------------------------------------
-    # Tile-level operations (layout-first abstractions)
-    # ---------------------------------------------------------------------------
-
-    def tile_load(
-        self,
-        lane: ir.Value,
-        ptr: ir.Value,
-        tile_byte_offset: ir.Value,
-        tile_layout: "Layout",
-    ) -> tuple[ir.Value, ir.Value]:
-        """Load a tile from global memory using layout for coalescing."""
-        thread_off = self.linearize_layout(lane, tile_layout)
-        d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
-        byte_off = self.affine_apply(d0 + d1, [tile_byte_offset, thread_off])
-        return self.global_load_dwordx4(self.global_addr(ptr, byte_off))
-
-    def tile_to_lds(
-        self,
-        lane: ir.Value,
-        data: ir.Value,
-        lds_base: ir.Value,
-        write_layout: "Layout",
-        swizzle: "Swizzle",
-    ) -> list[ir.Value]:
-        """Write a dwordx4 tile to LDS with swizzled addressing."""
-        d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
-        tile_off = self.linearize_layout(lane, write_layout)
-        tile_off_hi = self.affine_apply(d0 + 8, [tile_off])
-        lo_addr = self.index_to_vgpr(
-            self.affine_apply(
-                d0 + d1, [lds_base, self.apply_swizzle(tile_off, swizzle)]
-            )
-        )
-        hi_addr = self.index_to_vgpr(
-            self.affine_apply(
-                d0 + d1, [lds_base, self.apply_swizzle(tile_off_hi, swizzle)]
-            )
-        )
-        lo, hi = self.split_vx4(data)
-        tok_lo = self.ds_write_b64(lo, lo_addr)
-        tok_hi = self.ds_write_b64(hi, hi_addr)
-        return [tok_lo, tok_hi]
-
-    def frag_from_lds(
-        self,
-        lane: ir.Value,
-        lds_base: ir.Value,
-        frag_layout: "Layout",
-        swizzle: "Swizzle",
-        k_byte_offset: Optional[ir.Value] = None,
-    ) -> tuple[ir.Value, ir.Value]:
-        """Read an MFMA fragment from LDS using fragment layout + swizzle."""
-        d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
-        frag_off = self.linearize_layout(lane, frag_layout)
-        if k_byte_offset is not None:
-            frag_off = self.affine_apply(d0 + d1, [frag_off, k_byte_offset])
-        swizzled = self.apply_swizzle(frag_off, swizzle)
-        addr = self.index_to_vgpr(self.affine_apply(d0 + d1, [lds_base, swizzled]))
-        return self.ds_read_b64(addr)
-
-    def store_c_tile(
-        self,
-        lane: ir.Value,
-        acc: ir.Value,
-        ptr: ir.Value,
-        tile_byte_offset: ir.Value,
-        store_layout: "Layout",
-    ):
-        """Store an MFMA C accumulator tile to global memory."""
-        d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
-        a0, a1, a2, a3 = self.split_ax4(acc)
-        for i, agpr in enumerate([a0, a1, a2, a3]):
-            coord = self.affine_apply(d0 * 4 + i, [lane])
-            off = self.linearize_layout(coord, store_layout)
-            total = self.affine_apply(d0 + d1, [tile_byte_offset, off])
-            self.global_store_dword(agpr, self.global_addr(ptr, total))
-
     def index_cast_i32(self, index_val: ir.Value) -> ir.Value:
         """Cast an index value to i32."""
         i32_type = ir.IntegerType.get_signless(32, self._ctx)
@@ -1092,30 +1014,27 @@ class KernelBuilder:
     # Structured control flow (scf.for)
     # ---------------------------------------------------------------------------
 
-    def for_loop(
+    def _emit_for(
         self,
         lb: ir.Value,
         ub: ir.Value,
         step: ir.Value,
-        iter_args: list[ir.Value],
+        iter_args: Optional[list[ir.Value]],
+        results: Optional[list],
+        constexpr: bool,
         body_fn,
-    ) -> list[ir.Value]:
-        """Construct an scf.for loop with iter_args.
-
-        body_fn(iv, *inner_args) -> [new_arg0, new_arg1, ...]
-        """
-        iter_args = list(iter_args) if iter_args else []
-        result_types = [arg.type for arg in iter_args]
+    ) -> None:
+        args = list(iter_args) if iter_args else []
+        result_types = [a.type for a in args]
 
         for_op = ir.Operation.create(
             "scf.for",
             results=result_types,
-            operands=[lb, ub, step] + iter_args,
+            operands=[lb, ub, step] + args,
             regions=1,
             loc=self._loc,
             ip=self._kip,
         )
-
         block_arg_types = [lb.type] + result_types
         block_arg_locs = [self._loc] * len(block_arg_types)
         body_block = ir.Block.create_at_start(
@@ -1128,68 +1047,85 @@ class KernelBuilder:
         saved_ip = self._kip
         self._kip = ir.InsertionPoint(body_block)
 
-        new_args = body_fn(iv, *inner_args)
-        new_args = [
-            v.result if hasattr(v, "result") else self._as_value(v) for v in new_args
-        ]
+        ret = body_fn(iv, *inner_args) if args else body_fn(iv)
+        yield_operands = []
+        if ret:
+            yield_operands = [
+                v.result if hasattr(v, "result") else self._as_value(v) for v in ret
+            ]
 
         ir.Operation.create(
-            "scf.yield",
-            operands=new_args,
-            loc=self._loc,
-            ip=self._kip,
+            "scf.yield", operands=yield_operands, loc=self._loc, ip=self._kip
         )
-
         self._kip = saved_ip
-        return list(for_op.results)
 
-    def static_for(
-        self,
-        lb: ir.Value,
-        ub: ir.Value,
-        step: ir.Value,
-        iter_args: list[ir.Value],
-        body_fn,
-    ) -> list[ir.Value]:
-        """scf.for with {aster.constexpr} -- unrolled by constexpr expansion pass."""
-        results = self.for_loop(lb, ub, step, iter_args, body_fn)
-        # Tag the for_op (last op before current IP) with aster.constexpr.
-        # The for_op is the parent of the body block we just built.
-        # Walk back to find it via the result's defining op.
-        if results:
-            for_op = results[0].owner
+        if constexpr:
             for_op.attributes["aster.constexpr"] = ir.UnitAttr.get(self._ctx)
-        return results
 
-    def static_for_void(
+        if results is not None:
+            results.extend(for_op.results)
+
+    def loop(
         self,
         lb: ir.Value,
         ub: ir.Value,
         step: ir.Value,
-        body_fn,
-    ) -> None:
-        """scf.for with no iter_args + {aster.constexpr}."""
-        for_op = ir.Operation.create(
-            "scf.for",
-            results=[],
-            operands=[lb, ub, step],
-            regions=1,
-            loc=self._loc,
-            ip=self._kip,
-        )
-        block_arg_types = [lb.type]
-        block_arg_locs = [self._loc]
-        body_block = ir.Block.create_at_start(
-            for_op.regions[0], block_arg_types, block_arg_locs
-        )
-        iv = body_block.arguments[0]
+        iter_args: Optional[list[ir.Value]] = None,
+        results: Optional[list] = None,
+    ):
+        """Decorator: emit scf.for at definition time.
 
-        saved_ip = self._kip
-        self._kip = ir.InsertionPoint(body_block)
-        body_fn(iv)
-        ir.Operation.create("scf.yield", operands=[], loc=self._loc, ip=self._kip)
-        self._kip = saved_ip
-        for_op.attributes["aster.constexpr"] = ir.UnitAttr.get(self._ctx)
+        Void loop::
+
+            @b.loop(c0, k_tiles, c1)
+            def _(k_iv):
+                ...
+
+        With iter_args::
+
+            results = []
+            @b.loop(c0, k_tiles, c1, iter_args=[acc_init], results=results)
+            def _(k_iv, acc):
+                ...
+                return [new_acc]
+            acc_final = results[0]
+        """
+
+        def decorator(body_fn):
+            self._emit_for(lb, ub, step, iter_args, results, False, body_fn)
+
+        return decorator
+
+    def static_loop(
+        self,
+        lb: ir.Value,
+        ub: ir.Value,
+        step: ir.Value,
+        iter_args: Optional[list[ir.Value]] = None,
+        results: Optional[list] = None,
+    ):
+        """Decorator: emit constexpr scf.for (unrolled) at definition time.
+
+        Void loop::
+
+            @b.static_loop(c0, n_tiles, c1)
+            def _(idx):
+                ...
+
+        With iter_args::
+
+            results = []
+            @b.static_loop(c0, n, c1, iter_args=[init], results=results)
+            def _(idx, val):
+                ...
+                return [new_val]
+            final = results[0]
+        """
+
+        def decorator(body_fn):
+            self._emit_for(lb, ub, step, iter_args, results, True, body_fn)
+
+        return decorator
 
     # ---------------------------------------------------------------------------
     # Memref operations (for multi-tile state buffers)
