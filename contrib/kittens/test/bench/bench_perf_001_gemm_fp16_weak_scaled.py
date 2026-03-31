@@ -98,6 +98,7 @@ def _build_instance(d: dict, mcpu: str, hw) -> WeakScaledMappedGemmInstance:
         epilogue_peeling=d["epilogue_peeling"],
         ll_sched=d["ll_sched"],
         hoist_wait=d["hoist_wait"],
+        rotate_compute_stage=d["rotate_compute_stage"],
         mcpu=mcpu,
     )
     return WeakScaledMappedGemmInstance(spec, mapping)

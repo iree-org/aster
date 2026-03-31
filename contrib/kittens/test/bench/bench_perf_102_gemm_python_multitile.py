@@ -107,6 +107,7 @@ def _build_instance(d: dict, mcpu: str, hw) -> MultitileGemmInstance:
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
         set_mfma_priority=d["set_mfma_priority"],
+        rotate_compute_stage=d["rotate_compute_stage"],
         mcpu=mcpu,
     )
     return MultitileGemmInstance(spec, mapping)

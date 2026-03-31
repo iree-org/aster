@@ -26,6 +26,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Transforms/Passes.h"
+#include "aster/Transforms/SchedUtils.h"
 #include "aster/Transforms/Transforms.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -34,6 +35,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/DebugLog.h"
@@ -49,9 +51,13 @@ namespace mlir::aster {
 namespace mlir::aster {
 namespace {
 
-// TODO: when stabilized, promote to a proper dialect attribute.
-constexpr StringLiteral kSchedStageAttr = "sched.stage";
-constexpr StringLiteral kSchedRotateHeadAttr = "sched.rotate_head";
+/// The logical distance from a producer stage to a consumer stage in wrapped
+/// stage space, i.e. the number of iterations delayed.
+static int64_t wrappedStageDistance(int64_t defStage, int64_t useStage,
+                                    int64_t numStages) {
+  assert(numStages > 0);
+  return (useStage - defStage + numStages) % numStages;
+}
 
 /// Get the pipeline stage for an operation, defaulting to 0.
 static int64_t getStage(Operation *op) {
@@ -63,27 +69,129 @@ static int64_t getStage(Operation *op) {
 /// A value defined in one pipeline stage and used in a later stage.
 /// These must be carried across iterations via iter_args in the kernel loop.
 ///
-/// When the stage gap (lastUseStage - defStage) exceeds 1, a shift of that
-/// depth is needed: each cross-stage value occupies `distance()` consecutive
-/// iter_args, forming a pipeline that shifts values forward.
+/// When the wrapped stage gap exceeds 1, a shift of that depth is needed:
+///   each cross-stage value occupies `distance()` consecutive iter_args,
+///   forming a pipeline that shifts values forward.
 struct CrossStageValue {
   Value value;
   int64_t defStage;
-  int64_t lastUseStage;
+  int64_t maxDistance;
 
   /// Number of iterations the value must survive as an iter_arg.
-  /// For consecutive stages this is 1; for gaps it equals the gap size.
-  int64_t distance() const { return lastUseStage - defStage; }
+  /// For consecutive stages this is 1; for wrapped gaps it equals the wrapped
+  /// distance.
+  int64_t distance() const { return maxDistance; }
 };
 
 /// Analyzed loop information needed by the pipelining transform.
 struct LoopPipelineInfo {
   int64_t lb, ub, step, numIters;
   int64_t maxStage;
+  int64_t numStages;
   DenseMap<Operation *, int64_t> stages;
   SmallVector<Operation *> opOrder;
   SmallVector<CrossStageValue> crossStageVals;
 };
+
+/// Find cross-stage values using wrapped stage distance after normalization.
+/// These are values defined in the loop body, collect the use that is the
+/// furthest away using wrappedStageDistance: this is the number of copies of v
+/// that must remain live.
+static void collectCrossStageValues(scf::ForOp originalForOp,
+                                    LoopPipelineInfo &info) {
+  info.crossStageVals.clear();
+
+  // Block arguments (IV and iter_args) are not stage-defined values - skip.
+  for (Operation *op : info.opOrder) {
+    int64_t useStage = info.stages[op];
+    for (OpOperand &operand : op->getOpOperands()) {
+      Value v = operand.get();
+      auto *defOp = v.getDefiningOp();
+
+      // Only consider values defined in the loop body by some defOp.
+      if (!defOp || !info.stages.count(defOp))
+        continue;
+
+      int64_t defStage = info.stages[defOp];
+      int64_t distance =
+          wrappedStageDistance(defStage, useStage, info.numStages);
+      if (distance == 0)
+        continue;
+
+      // Take max-distance between v definition and use.
+      auto it = llvm::find_if(info.crossStageVals,
+                              [&](auto &c) { return c.value == v; });
+      if (it != info.crossStageVals.end())
+        it->maxDistance = std::max(it->maxDistance, distance);
+      else
+        info.crossStageVals.push_back({v, defStage, distance});
+    }
+  }
+}
+
+/// Rotate the static body order in `info.opOrder` so the op group at
+/// `rotateStage` leads the kernel body (e.g. MFMA ahead of GL/DR).
+/// Stages and `info.maxStage` are unchanged: the runtime schedule is preserved.
+/// Rotation only permutes the textual order in which ops appear in prologue /
+/// kernel / epilogue, with matching peeling falling out of the unchanged
+/// maxStage.
+///
+/// Returns failure if `rotateStage` is out of range or no op carries that
+/// stage. When the explicit stage assignment is not monotonically
+/// non-decreasing in program order, emit a remark and leave `info.opOrder`
+/// untouched.
+static LogicalResult rotateOpOrderByStage(scf::ForOp originalForOp,
+                                          LoopPipelineInfo &info,
+                                          int64_t rotateStage) {
+  if (llvm::any_of(info.opOrder,
+                   [&](Operation *op) { return info.stages.count(op) == 0; })) {
+    return originalForOp.emitError(
+        "rotate-stage requires stage assignment for every loop operation");
+  }
+
+  if (rotateStage > info.maxStage)
+    return originalForOp.emitError(
+               "rotate-stage must be in [0, maxStage], got ")
+           << rotateStage << " for maxStage " << info.maxStage;
+
+  bool hasRotateStage = llvm::any_of(info.stages, [&](const auto &entry) {
+    return entry.second == rotateStage;
+  });
+  if (!hasRotateStage)
+    return originalForOp.emitError("rotate-stage ")
+           << rotateStage << " does not appear in the loop body";
+
+  // Rotation only re-permutes static body order and requires stage tags to be
+  // monotonically non-decreasing in original program order.
+  // When non-monotonic, skip rotation (best-effort) and emit a remark; the
+  // pipeliner proceeds with the original program order.
+  int64_t lastStage = 0;
+  for (Operation *op : info.opOrder) {
+    if (!op->hasAttr(kSchedStageAttr))
+      continue;
+    int64_t s = info.stages.lookup(op);
+    if (s < lastStage) {
+      originalForOp.emitRemark("rotate-stage skipped: stage ")
+          << s << " op physically follows stage " << lastStage
+          << " op in the loop body. Rotation requires non-decreasing stage "
+             "assignment in program order; rotation will not be applied.";
+      return success();
+    }
+    lastStage = std::max(lastStage, s);
+  }
+
+  // Stable-sort by cyclic distance from rotateStage so the rotated stage
+  // (distance 0) leads, then distance 1, 2, ... wrapping around.
+  int64_t numStages = info.maxStage + 1;
+  llvm::stable_sort(info.opOrder, [&](Operation *a, Operation *b) {
+    int64_t da =
+        wrappedStageDistance(rotateStage, info.stages.lookup(a), numStages);
+    int64_t db =
+        wrappedStageDistance(rotateStage, info.stages.lookup(b), numStages);
+    return da < db;
+  });
+  return success();
+}
 
 //===----------------------------------------------------------------------===//
 // Analysis
@@ -100,7 +208,8 @@ struct LoopPipelineInfo {
 ///   - Fewer iterations than pipeline stages
 /// Returns success with info.maxStage == 0 if no pipelining is needed.
 static LogicalResult analyzeLoop(scf::ForOp originalForOp,
-                                 LoopPipelineInfo &info) {
+                                 LoopPipelineInfo &info, bool enableRotateStage,
+                                 int64_t rotateStage) {
   auto cstLb =
       originalForOp.getLowerBound().getDefiningOp<arith::ConstantIndexOp>();
   auto cstStep =
@@ -174,53 +283,27 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
     }
   }
 
+  if (enableRotateStage &&
+      failed(rotateOpOrderByStage(originalForOp, info, rotateStage)))
+    return failure();
+  info.numStages = info.maxStage + 1;
+  assert(info.numStages > 0);
+
   // Check if the loop has enough iterations for the pipeline stages.
   // Skip when upper bound is dynamic (runtime responsibility).
-  if (info.numIters > 0 && info.numIters <= info.maxStage)
+  if (info.numIters > 0 && info.numIters < info.numStages)
     return originalForOp.emitError("loop has ")
            << info.numIters << " iterations but needs at least "
-           << info.maxStage + 1 << " for " << info.maxStage + 1
-           << " pipeline stages";
+           << info.numStages << " for " << info.numStages << " pipeline stages";
 
-  // Find cross-stage values: defined in stage D, used in stage U where D < U.
-  // Block arguments (IV and iter_args) are not stage-defined values -- skip.
-  for (Operation *op : info.opOrder) {
-    int64_t useStage = info.stages[op];
-    for (OpOperand &operand : op->getOpOperands()) {
-      Value v = operand.get();
-      if (v == originalForOp.getInductionVar())
-        continue;
-      // Skip iter_arg block arguments -- they are carried as existing
-      // iter_args, not as cross-stage values.
-      if (auto blockArg = dyn_cast<BlockArgument>(v))
-        if (blockArg.getOwner() == originalForOp.getBody())
-          continue;
-      auto *defOp = v.getDefiningOp();
-      if (!defOp || !info.stages.count(defOp))
-        continue;
-      int64_t defStage = info.stages[defOp];
-      if (defStage > useStage) {
-        return originalForOp.emitError("cross-stage value ")
-               << v << " is used in stage " << useStage
-               << " but defined in stage " << defStage;
-      }
-      if (defStage >= useStage)
-        continue;
-      auto it = llvm::find_if(info.crossStageVals,
-                              [&](auto &c) { return c.value == v; });
-      if (it != info.crossStageVals.end())
-        it->lastUseStage = std::max(it->lastUseStage, useStage);
-      else
-        info.crossStageVals.push_back({v, defStage, useStage});
-    }
-  }
+  collectCrossStageValues(originalForOp, info);
 
   // Diagnostic: log memref-typed CSVs with distance > 1 (shift registers).
   // These require aster-decompose-memref-iter-args to run after pipelining.
   for (auto &csv : info.crossStageVals) {
     if (csv.distance() > 1 && isa<MemRefType>(csv.value.getType())) {
       LDBG() << "  memref CSV with gap " << csv.distance() << ": " << csv.value
-             << " (stage " << csv.defStage << " -> " << csv.lastUseStage
+             << " (stage " << csv.defStage << ", wraps " << csv.distance()
              << "); requires decompose-memref-iter-args post-pipeline";
     }
   }
@@ -311,7 +394,12 @@ static void seedMappingFromKernelResults(scf::ForOp originalForOp,
 ///
 /// After cloning, stores results in both `perStageMapping` and
 /// `latestValueMapping`, and strips the sched.stage attribute.
-static void cloneIntoPrologueOrEpilogue(OpBuilder &builder,
+///
+/// Returns false when at least one staged operand is not available in either
+/// mapping yet. This can happen during prologue/epilogue ramp phases with
+/// wrapped stage dependencies after stage rotation; callers should skip cloning
+/// the op for that section and retry in a later section.
+static bool cloneIntoPrologueOrEpilogue(OpBuilder &builder,
                                         Operation *originalOp,
                                         scf::ForOp originalForOp, Value iv,
                                         const LoopPipelineInfo &info,
@@ -338,7 +426,7 @@ static void cloneIntoPrologueOrEpilogue(OpBuilder &builder,
     else if (Value mapped = latestValueMapping.lookupOrNull(operand))
       opMapping.map(operand, mapped);
     else
-      llvm_unreachable("operand not found in perStage or latestValue mappings");
+      return false;
   }
 
   // Clone and update mappings.
@@ -346,6 +434,7 @@ static void cloneIntoPrologueOrEpilogue(OpBuilder &builder,
   cloned->removeAttr(kSchedStageAttr);
   perStageMapping.map(originalOp->getResults(), cloned->getResults());
   latestValueMapping.map(originalOp->getResults(), cloned->getResults());
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -392,9 +481,10 @@ static void emitPrologue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
              "origIter out of bounds");
       Value iv = arith::ConstantIndexOp::create(builder, loc,
                                                 info.lb + origIter * info.step);
-      cloneIntoPrologueOrEpilogue(builder, op, originalForOp, iv, info,
-                                  perStageMappings[origIter],
-                                  latestValueMapping);
+      if (!cloneIntoPrologueOrEpilogue(builder, op, originalForOp, iv, info,
+                                       perStageMappings[origIter],
+                                       latestValueMapping))
+        continue;
     }
     simulateYield(originalForOp, latestValueMapping);
   }
@@ -486,12 +576,14 @@ static IRMapping mapKernelOperands(
     // Cross-stage values: compute the correct shift-register slot based on
     // the use stage. A value with shift register at baseIndex, defined at
     // defStage, read at useStage maps to:
-    //   slot = baseIndex + (useStage - defStage) - 1
+    //   slot = baseIndex + wrappedDistance(defStage, useStage) - 1
     auto csIt = crossStageSlotInfo.find(use);
     if (csIt != crossStageSlotInfo.end()) {
       auto [base, defStage] = csIt->second;
-      if (defStage < useStage) {
-        int64_t slot = base + (useStage - defStage) - 1;
+      int64_t distance =
+          wrappedStageDistance(defStage, useStage, info.numStages);
+      if (distance > 0) {
+        int64_t slot = base + distance - 1;
         opMapping.map(use, kernelLoop.getRegionIterArgs()[slot]);
         continue;
       }
@@ -613,173 +705,6 @@ static scf::ForOp emitKernel(scf::ForOp originalForOp,
 }
 
 //===----------------------------------------------------------------------===//
-// Kernel rotation
-//===----------------------------------------------------------------------===//
-
-/// Rotate the kernel loop body so that the first op marked with
-/// `sched.rotate_head` appears first in the loop.
-///
-/// The rotate_head attribute marks the first op of the "head" group.
-/// All ops from rotate_head to the yield are the head group; everything
-/// before is the rest group.  Within the pipelined kernel body, cross-stage
-/// deps flow through iter_args, so the groups are SSA-independent.
-///
-/// Returns the original loop unchanged if no rotate_head is found.
-
-/// Find the rotation head and partition the loop body into rest (before)
-/// and rotate (from head onward) groups.  Returns false if no rotation
-/// head is found or if either group is empty.
-static bool partitionAtRotateHead(Block *body, scf::YieldOp yield,
-                                  SmallVectorImpl<Operation *> &restOps,
-                                  SmallVectorImpl<Operation *> &rotateOps,
-                                  DenseSet<Operation *> &rotateSet) {
-  Operation *headOp = nullptr;
-  for (Operation &op : *body) {
-    if (op.hasAttr(kSchedRotateHeadAttr)) {
-      headOp = &op;
-      break;
-    }
-  }
-  if (!headOp)
-    return false;
-
-  bool seenHead = false;
-  for (Operation &op : *body) {
-    if (&op == yield)
-      break;
-    if (&op == headOp)
-      seenHead = true;
-    if (seenHead) {
-      rotateOps.push_back(&op);
-      rotateSet.insert(&op);
-    } else {
-      restOps.push_back(&op);
-    }
-  }
-  return !restOps.empty() && !rotateOps.empty();
-}
-
-/// Build an IRMapping from an old loop's IV and region args to new values.
-static IRMapping buildLoopMapping(scf::ForOp oldLoop, Value newIV,
-                                  ValueRange newRegionArgs) {
-  IRMapping map;
-  map.map(oldLoop.getInductionVar(), newIV);
-  for (auto [oldArg, newArg] :
-       llvm::zip(oldLoop.getRegionIterArgs(), newRegionArgs))
-    map.map(oldArg, newArg);
-  return map;
-}
-
-/// Clone a list of ops using a mapping.
-static void cloneOpsWithMapping(OpBuilder &builder, ArrayRef<Operation *> ops,
-                                IRMapping &mapping) {
-  for (Operation *op : ops)
-    builder.clone(*op, mapping);
-}
-
-/// Collect values defined in restOps and used by rotateOps (crossing values).
-static SmallVector<Value>
-findCrossingValues(ArrayRef<Operation *> rotateOps,
-                   const DenseSet<Operation *> &rotateSet, Block *body) {
-  SmallVector<Value> result;
-  DenseSet<Value> seen;
-  for (Operation *op : rotateOps) {
-    for (Value operand : op->getOperands()) {
-      auto *defOp = operand.getDefiningOp();
-      if (!defOp || defOp->getBlock() != body || rotateSet.contains(defOp))
-        continue;
-      if (seen.insert(operand).second)
-        result.push_back(operand);
-    }
-  }
-  return result;
-}
-
-static scf::ForOp rotateKernelBody(scf::ForOp kernelLoop, OpBuilder &builder) {
-  Block *body = kernelLoop.getBody();
-  auto yield = cast<scf::YieldOp>(body->getTerminator());
-  Location loc = kernelLoop.getLoc();
-
-  SmallVector<Operation *> restOps, rotateOps;
-  DenseSet<Operation *> rotateSet;
-  if (!partitionAtRotateHead(body, yield, restOps, rotateOps, rotateSet))
-    return kernelLoop;
-
-  Value lb = kernelLoop.getLowerBound();
-  Value ub = kernelLoop.getUpperBound();
-  Value step = kernelLoop.getStep();
-  unsigned numOrig = kernelLoop.getInitArgs().size();
-
-  // Step 1: Peeled prologue: clone rest ops with IV = lb.
-  builder.setInsertionPoint(kernelLoop);
-  auto prologueMap = buildLoopMapping(kernelLoop, lb, kernelLoop.getInitArgs());
-  cloneOpsWithMapping(builder, restOps, prologueMap);
-
-  // Crossing values: rest-defined values consumed by rotate ops.
-  auto crossingValues = findCrossingValues(rotateOps, rotateSet, body);
-
-  // New init args: original + crossing values from prologue.
-  SmallVector<Value> newInits(kernelLoop.getInitArgs());
-  for (Value cv : crossingValues)
-    newInits.push_back(prologueMap.lookupOrDefault(cv));
-
-  // Step 2: Rotated kernel: [lb, ub - step).
-  Value ubMinusStep = arith::SubIOp::create(builder, loc, ub, step);
-  auto newLoop =
-      scf::ForOp::create(builder, loc, lb, ubMinusStep, step, newInits);
-  builder.setInsertionPointToStart(newLoop.getBody());
-
-  // Map old block args -> new, including crossing iter_args.
-  auto rotMap =
-      buildLoopMapping(kernelLoop, newLoop.getInductionVar(),
-                       newLoop.getRegionIterArgs().take_front(numOrig));
-  for (auto [cv, newArg] : llvm::zip(
-           crossingValues, newLoop.getRegionIterArgs().drop_front(numOrig)))
-    rotMap.map(cv, newArg);
-
-  // Clone rotate ops first, then rest ops with shifted IV.
-  cloneOpsWithMapping(builder, rotateOps, rotMap);
-  Value kNext =
-      arith::AddIOp::create(builder, loc, newLoop.getInductionVar(), step);
-  IRMapping restMap(rotMap);
-  restMap.map(kernelLoop.getInductionVar(), kNext);
-  cloneOpsWithMapping(builder, restOps, restMap);
-
-  // Yield: pick from rotMap or restMap depending on which group defined it.
-  SmallVector<Value> yieldVals;
-  for (Value yv : yield.getOperands()) {
-    auto *defOp = yv.getDefiningOp();
-    yieldVals.push_back((defOp && rotateSet.contains(defOp))
-                            ? rotMap.lookupOrDefault(yv)
-                            : restMap.lookupOrDefault(yv));
-  }
-  for (Value cv : crossingValues)
-    yieldVals.push_back(restMap.lookupOrDefault(cv));
-  scf::YieldOp::create(builder, loc, yieldVals);
-
-  // Step 3: Peeled epilogue: clone rotate ops using final loop results.
-  builder.setInsertionPointAfter(newLoop);
-  IRMapping epilogueMap;
-  epilogueMap.map(kernelLoop.getInductionVar(), ubMinusStep);
-  for (unsigned i = 0; i < numOrig; ++i)
-    epilogueMap.map(kernelLoop.getRegionIterArgs()[i], newLoop.getResult(i));
-  for (auto [i, cv] : llvm::enumerate(crossingValues))
-    epilogueMap.map(cv, newLoop.getResult(numOrig + i));
-  cloneOpsWithMapping(builder, rotateOps, epilogueMap);
-
-  // Replace uses: rotate-defined results come from epilogue, rest from loop.
-  for (unsigned i = 0; i < numOrig; ++i) {
-    auto *defOp = yield.getOperand(i).getDefiningOp();
-    Value replacement = (defOp && rotateSet.contains(defOp))
-                            ? epilogueMap.lookupOrDefault(yield.getOperand(i))
-                            : newLoop.getResult(i);
-    kernelLoop.getResult(i).replaceAllUsesWith(replacement);
-  }
-  kernelLoop.erase();
-  return newLoop;
-}
-
-//===----------------------------------------------------------------------===//
 // Epilogue
 //===----------------------------------------------------------------------===//
 
@@ -803,6 +728,7 @@ static void emitEpilogue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
   // Seed from kernel exit: for each CSV with distance D, the shift register
   // holds D values. Slot d (0-indexed) was produced at
   //   origIter = (numIters - 1) - csv.defStage - d
+  // where csv.defStage is the *normalized* stage (after rotation).
   // (slot 0 = freshest, slot D-1 = oldest = what use-stage last consumed).
   DenseMap<int64_t, IRMapping> perStageMappings;
   for (auto [i, csv] : llvm::enumerate(info.crossStageVals)) {
@@ -830,8 +756,10 @@ static void emitEpilogue(scf::ForOp originalForOp, const LoopPipelineInfo &info,
       int64_t offset = (stage - epilogueStage + 1) * info.step;
       auto map = AffineMap::get(1, 0, builder.getAffineDimExpr(0) - offset);
       Value iv = affine::AffineApplyOp::create(builder, loc, map, ubValue);
-      cloneIntoPrologueOrEpilogue(builder, op, originalForOp, iv, info,
-                                  perStageMappings[origIter], epilogueMapping);
+      if (!cloneIntoPrologueOrEpilogue(builder, op, originalForOp, iv, info,
+                                       perStageMappings[origIter],
+                                       epilogueMapping))
+        continue;
     }
     simulateYield(originalForOp, epilogueMapping);
   }
@@ -858,6 +786,18 @@ static int64_t computeStageLCM(const LoopPipelineInfo &info) {
   return l > 0 ? l : 1;
 }
 
+/// Annotate every loop operation in `originalForOp` with a normalized
+/// `sched.stage` attribute.
+static void
+annotateLoopStageAttrs(scf::ForOp originalForOp,
+                       const DenseMap<Operation *, int64_t> &stages) {
+  Type i32 = IntegerType::get(originalForOp->getContext(), 32);
+  for (Operation &op : originalForOp.getBody()->without_terminator()) {
+    int64_t stage = stages.lookup(&op);
+    op.setAttr(kSchedStageAttr, IntegerAttr::get(i32, stage));
+  }
+}
+
 void SCFPipelineAsterSchedPass::runOnOperation() {
   // Prepare LDS buffers for multi-buffering before pipelining. This hoists
   // alloc_lds ops out of loops and adds rotating offset iter_args, so the
@@ -868,105 +808,127 @@ void SCFPipelineAsterSchedPass::runOnOperation() {
   // Collect kernel loops to unroll after the walk (unrolling mutates IR).
   SmallVector<std::pair<scf::ForOp, int64_t>> loopsToUnroll;
 
-  auto walkResult =
-      getOperation()->walk([&](scf::ForOp originalForOp) -> WalkResult {
-        // Interrupt the walk if the loop cannot be pipelined.
-        LoopPipelineInfo info;
-        if (mlir::failed(analyzeLoop(originalForOp, info)))
+  auto walkResult = getOperation()->walk([&](scf::ForOp originalForOp)
+                                             -> WalkResult {
+    // Interrupt the walk if the loop cannot be pipelined.
+    LoopPipelineInfo info;
+    if (mlir::failed(analyzeLoop(originalForOp, info, this->enableRotateStage,
+                                 this->rotateStage)))
+      return WalkResult::interrupt();
+
+    // Advance the walk if the loop does not need to be pipelined.
+    if (info.maxStage == 0)
+      return WalkResult::advance();
+
+    annotateLoopStageAttrs(originalForOp, info.stages);
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "Pipelining loop with " << info.maxStage + 1
+                   << " stages, " << info.crossStageVals.size()
+                   << " cross-stage values\n";
+    });
+
+    OpBuilder builder(originalForOp);
+
+    // Step 1: Emit the prologue.
+    IRMapping latestValueMapping;
+    SmallVector<IRMapping> prologuePerStageMappings;
+    emitPrologue(originalForOp, info, builder, latestValueMapping,
+                 prologuePerStageMappings);
+
+    // Step 2: Collect kernel iter_arg initial values.
+    // Layout: [csv0 (D0 slots for shifts)..., existing iter_args...]
+    //
+    // For each cross-stage value with distance D, the kernel's first iteration
+    // (ki = maxStage) has the use-stage processing after all prologue stages
+    // have executed. It needs the value from that origIter, which was produced
+    // in the prologue.
+    // The shifted values are initialized with D consecutive prologue values:
+    //   the freshest at slot 0, the oldest at slot D-1.
+    // TODO: consider just grouping everything with a struct and simplifying
+    // the logic.
+    SmallVector<Value> iterArgInits;
+    for (auto &csv : info.crossStageVals) {
+      int64_t D = csv.distance();
+      // At kernel start, the shifted values should contain the D most
+      // recent values from the prologue. defStage is *normalized* (after
+      // rotation). The oldest (slot D-1) was produced at
+      //   `origIter = maxStage - defStage - (D - 1)`,
+      // and the freshest (slot 0) was produced at
+      //   `origIter = maxStage - defStage - 1`.
+      for (int64_t d = 0; d < D; ++d) {
+        // Slot d holds value from origIter = (maxStage - defStage - 1) - d.
+        // With rotated/gapped stages, this can underflow prologue history for
+        // older shift-register slots that are not consumed before being
+        // overwritten in kernel steady state. Clamp to the oldest available
+        // prologue mapping instead of aborting.
+        int64_t origIter = (info.maxStage - csv.defStage - 1) - d;
+
+        // int64_t minOrigIter = 0;
+        // int64_t maxOrigIter =
+        //     static_cast<int64_t>(prologuePerStageMappings.size()) - 1;
+        // if (origIter < minOrigIter)
+        //   origIter = minOrigIter;
+        // else if (origIter > maxOrigIter)
+        //   origIter = maxOrigIter;
+
+        assert(origIter >= 0 &&
+               origIter <
+                   static_cast<int64_t>(prologuePerStageMappings.size()) &&
+               "shift register origIter out of prologue range");
+
+        Value seeded =
+            prologuePerStageMappings[origIter].lookupOrNull(csv.value);
+        if (!seeded)
+          seeded = latestValueMapping.lookupOrNull(csv.value);
+        if (!seeded) {
+          originalForOp.emitError(
+              "failed to seed rotated cross-stage iter_arg");
           return WalkResult::interrupt();
-
-        // Advance the walk if the loop does not need to be pipelined.
-        if (info.maxStage == 0)
-          return WalkResult::advance();
-
-        LLVM_DEBUG({
-          llvm::dbgs() << "Pipelining loop with " << info.maxStage + 1
-                       << " stages, " << info.crossStageVals.size()
-                       << " cross-stage values\n";
-        });
-
-        OpBuilder builder(originalForOp);
-
-        // Step 1: Emit the prologue.
-        IRMapping latestValueMapping;
-        SmallVector<IRMapping> prologuePerStageMappings;
-        emitPrologue(originalForOp, info, builder, latestValueMapping,
-                     prologuePerStageMappings);
-
-        // Step 2: Collect kernel iter_arg initial values.
-        // Layout: [csv0 (D0 slots for shifts)..., existing iter_args...]
-        //
-        // For each cross-stage value with distance D, the kernel's first
-        // iteration (ki = maxStage) has the use-stage processing:
-        //   `origIter = maxStage - lastUseStage`
-        // It needs the value from that origIter, which was produced in the
-        // prologue.
-        // The shifted values are initialized with D consecutive prologue
-        // values: the freshest at slot 0, the oldest at slot D-1.
-        // TODO: consider just grouping everything with a struct and simplify
-        // the logic.
-        SmallVector<Value> iterArgInits;
-        for (auto &csv : info.crossStageVals) {
-          int64_t D = csv.distance();
-          // At kernel start, the shifted values should contain the D most
-          // recent values from the prologue.
-          // The oldest (slot D-1) was produced at
-          //   `origIter = maxStage - lastUseStage`,
-          // and the freshest (slot 0) was produced at
-          //   `origIter = maxStage - defStage - 1`.
-          for (int64_t d = 0; d < D; ++d) {
-            // Slot d holds value from origIter = (maxStage - defStage - 1) - d
-            int64_t origIter = (info.maxStage - csv.defStage - 1) - d;
-            assert(origIter >= 0 &&
-                   origIter <
-                       static_cast<int64_t>(prologuePerStageMappings.size()) &&
-                   "shift register origIter out of prologue range");
-            iterArgInits.push_back(
-                prologuePerStageMappings[origIter].lookupOrDefault(csv.value));
-          }
         }
-        // Existing iter_args: use the values from after prologue yield
-        // simulation.
-        for (auto blockArg : originalForOp.getRegionIterArgs())
-          iterArgInits.push_back(latestValueMapping.lookupOrDefault(blockArg));
+        iterArgInits.push_back(seeded);
+      }
+    }
+    // Existing iter_args: use the values from after prologue yield
+    // simulation.
+    for (auto blockArg : originalForOp.getRegionIterArgs())
+      iterArgInits.push_back(latestValueMapping.lookupOrDefault(blockArg));
 
-        // Step 3: Emit the kernel.
-        auto kernelLoop =
-            emitKernel(originalForOp, info, builder, iterArgInits);
+    // Step 3: Emit the kernel.
+    auto kernelLoop = emitKernel(originalForOp, info, builder, iterArgInits);
 
-        IRMapping epilogueMapping;
-        emitEpilogue(originalForOp, info, builder, kernelLoop, epilogueMapping);
+    IRMapping epilogueMapping;
+    emitEpilogue(originalForOp, info, builder, kernelLoop, epilogueMapping);
 
-        // Replace original loop results with final epilogue iter_arg values.
-        for (auto [oldResult, blockArg] : llvm::zip(
-                 originalForOp.getResults(), originalForOp.getRegionIterArgs()))
-          oldResult.replaceAllUsesWith(
-              epilogueMapping.lookupOrDefault(blockArg));
+    // Replace original loop results with final epilogue iter_arg values.
+    for (auto [oldResult, blockArg] : llvm::zip(
+             originalForOp.getResults(), originalForOp.getRegionIterArgs())) {
+      Value finalValue = epilogueMapping.lookupOrNull(blockArg);
+      if (!finalValue) {
+        originalForOp.emitError(
+            "missing epilogue mapping for original loop result");
+        return WalkResult::interrupt();
+      }
+      oldResult.replaceAllUsesWith(finalValue);
+    }
 
-        originalForOp.erase();
+    originalForOp.erase();
 
-        // Step 5: (optional): Rotate the kernel body so the op marked
-        // with sched.rotate_head fires first.  Only triggers if the
-        // attribute is present in the kernel body.
-        if (rotateKernel) {
-          kernelLoop = rotateKernelBody(kernelLoop, builder);
-        }
-
-        if (lcmUnroll) {
-          int64_t factor = computeStageLCM(info) *
-                           std::max<int64_t>(unrollFactorMultiplier, 1);
-          LLVM_DEBUG({
-            llvm::dbgs() << "LCM unroll: factor=" << factor
-                         << " (lcm=" << computeStageLCM(info)
-                         << ", multiplier=" << unrollFactorMultiplier
-                         << ", maxStage=" << info.maxStage << ")\n";
-          });
-          if (factor > 1)
-            loopsToUnroll.push_back({kernelLoop, factor});
-        }
-
-        return WalkResult::advance();
+    if (lcmUnroll) {
+      int64_t factor =
+          computeStageLCM(info) * std::max<int64_t>(unrollFactorMultiplier, 1);
+      LLVM_DEBUG({
+        llvm::dbgs() << "LCM unroll: factor=" << factor
+                     << " (lcm=" << computeStageLCM(info)
+                     << ", multiplier=" << unrollFactorMultiplier
+                     << ", maxStage=" << info.maxStage << ")\n";
       });
+      if (factor > 1)
+        loopsToUnroll.push_back({kernelLoop, factor});
+    }
+
+    return WalkResult::advance();
+  });
 
   if (walkResult.wasInterrupted())
     return signalPassFailure();

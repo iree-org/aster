@@ -61,8 +61,12 @@ PHASE_SCHEDULING = (
     "aster-op-scheduling",
 )
 
-def phase_scf_pipelining(lcm_unroll=True, unroll_factor_multiplier=1,
-                         epilogue_peeling=True):
+def phase_scf_pipelining(
+    lcm_unroll=True,
+    unroll_factor_multiplier=1,
+    epilogue_peeling=True,
+    rotate_stage=None,
+):
     opts = []
     if lcm_unroll:
         opts.append("lcm-unroll=true")
@@ -70,6 +74,9 @@ def phase_scf_pipelining(lcm_unroll=True, unroll_factor_multiplier=1,
         opts.append(f"unroll-factor-multiplier={unroll_factor_multiplier}")
     if epilogue_peeling:
         opts.append("epilogue-peeling=true")
+    if rotate_stage is not None:
+        opts.append("enable-rotate-stage=true")
+        opts.append(f"rotate-stage={int(rotate_stage)}")
     if opts:
         return (f"aster-scf-pipeline{{{' '.join(opts)}}}",)
     return ("aster-scf-pipeline",)
@@ -270,8 +277,11 @@ def make_default_pass_pipeline(
     ll_sched=False,
     hoist_iter_arg_waits=False,
     set_mfma_priority=True,
+    rotate_stage=None,
 ) -> str:
     """Build the production pass pipeline with configurable pipelining options."""
+    # Rotation is implemented in aster-scf-pipeline and activated only when
+    # rotate_stage is explicitly provided.
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
         PHASE_CONSTEXPR_EXPANSION,
@@ -279,6 +289,7 @@ def make_default_pass_pipeline(
             lcm_unroll=lcm_unroll,
             unroll_factor_multiplier=unroll_factor_multiplier,
             epilogue_peeling=epilogue_peeling,
+            rotate_stage=rotate_stage,
         ),
         "aster-destructure-struct-iter-args",
         "canonicalize",

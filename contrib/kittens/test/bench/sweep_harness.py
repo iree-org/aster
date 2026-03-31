@@ -224,8 +224,9 @@ def _stratified_sample(
 def add_scheduling_axes(grid: SweepGrid, unroll_multipliers: Optional[Sequence[int]] = None) -> SweepGrid:
     """Add the common scheduling flag axes shared across sweeps.
 
-    Adds: lcm_unroll, unroll_mult, epilogue_peeling, ll_sched, hoist_wait.
-    Also adds the constraint that unroll_mult > 1 requires lcm_unroll=True.
+    Adds: lcm_unroll, unroll_mult, epilogue_peeling, ll_sched, hoist_wait,
+    rotate_compute_stage. Also adds the constraint that unroll_mult > 1
+    requires lcm_unroll=True.
     """
     if unroll_multipliers is None:
         unroll_multipliers = [1, 2, 3]
@@ -234,6 +235,7 @@ def add_scheduling_axes(grid: SweepGrid, unroll_multipliers: Optional[Sequence[i
     grid.axis("epilogue_peeling", [True, False])
     grid.axis("ll_sched", [True, False])
     grid.axis("hoist_wait", [True, False])
+    grid.axis("rotate_compute_stage", [True, False])
     grid.filter("lcm_unroll", "unroll_mult", check=lambda d: d["lcm_unroll"] or d["unroll_mult"] == 1)
     return grid
 
@@ -342,8 +344,7 @@ def fits_on_cu_post_compile(
     est_a = mm.estimated_agprs()
     return (
         f"occupancy: est(lds={est_lds}, v={est_v}, a={est_a}) "
-        f"vs actual(lds={res.lds_bytes}, v={res.vgpr_count}, a={res.agpr_count}) -- "
-        + "; ".join(violations)
+        f"vs actual(lds={res.lds_bytes}, v={res.vgpr_count}, a={res.agpr_count}) -- " + "; ".join(violations)
     )
 
 
@@ -553,6 +554,7 @@ GEMM_SWEEP_PIN_MAP = {
     "ll_sched": "ll_sched",
     "hoist_wait": "hoist_wait",
     "set_mfma_priority": "set_mfma_priority",
+    "rotate_compute_stage": "rotate_compute_stage",
 }
 
 
@@ -703,6 +705,12 @@ def add_geometry_pin_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--hoist-wait", action=argparse.BooleanOptionalAction, default=None, help="Pin hoist iter_arg waits"
+    )
+    parser.add_argument(
+        "--rotate-compute-stage",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Pin rotate_stage derived from pipeline strategy compute stage",
     )
     parser.add_argument("--desired-simd-occupancy", type=int, default=None, help="Pin SIMD occupancy")
     parser.add_argument("--direct-b", action=argparse.BooleanOptionalAction, default=None, help="B via preshuffle")
