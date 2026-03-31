@@ -510,7 +510,15 @@ class Cdna4GemmInstance(WeakScaledMappedGemmInstance):
         return cls(spec, mapping)
 
 
-def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy=0, b_path="lds"):
+def _make_instance(
+    num_workgroups,
+    num_waves_per_wg,
+    num_tiles_per_wg,
+    k_mult,
+    pipeline_strategy=0,
+    b_path="lds",
+    rotate_compute_stage=False,
+):
     """Build a Cdna4GemmInstance from tile grid and K multiplier."""
     mfma = MFMA_F16_CDNA4.shape
     twg_m, twg_n = num_tiles_per_wg[DIM_M], num_tiles_per_wg[DIM_N]
@@ -527,6 +535,7 @@ def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, p
         pipeline_strategy=pipeline_strategy,
         operand_path=OperandPath(b_path),
         dealloc_at_read=True,
+        rotate_compute_stage=rotate_compute_stage,
         mcpu="gfx950",
     )
     return Cdna4GemmInstance(spec, mapping)
@@ -535,7 +544,11 @@ def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, p
 def compile_cdna4_gemm(cfg, output_hsaco_path, **kw):
     """Compile a CDNA4 GEMM config to HSACO."""
     from aster.compiler.core import PrintOptions
+    from kittens_helpers import PIPELINE_STRATEGIES
 
+    rotate_stage = None
+    if getattr(cfg.mapping, "rotate_compute_stage", False):
+        rotate_stage = PIPELINE_STRATEGIES[cfg.mapping.pipeline_strategy]["COMPUTE"]
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
@@ -547,6 +560,7 @@ def compile_cdna4_gemm(cfg, output_hsaco_path, **kw):
             epilogue_peeling=getattr(cfg.mapping, "epilogue_peeling", True),
             ll_sched=getattr(cfg.mapping, "ll_sched", False),
             hoist_iter_arg_waits=getattr(cfg.mapping, "hoist_wait", False),
+            rotate_stage=rotate_stage,
         )
         asm = compile_mlir_module_to_asm(
             module,
@@ -668,9 +682,17 @@ class TestCdna4Pipelined:
     """Pipelined K-loop sweep over all strategies, 4-wave symmetric."""
 
     @pytest.mark.parametrize("pipeline_strategy", list(range(11)))
-    def test_correctness(self, pipeline_strategy):
+    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
+    def test_correctness(self, pipeline_strategy, rotate_compute_stage):
         k_mult = max(4, _min_k_iters_for_ps(k_t=1, ps=pipeline_strategy))
-        cfg = _make_instance([1, 1, 1], [2, 2, 1], [2, 2, 1], k_mult, pipeline_strategy=pipeline_strategy)
+        cfg = _make_instance(
+            [1, 1, 1],
+            [2, 2, 1],
+            [2, 2, 1],
+            k_mult,
+            pipeline_strategy=pipeline_strategy,
+            rotate_compute_stage=rotate_compute_stage,
+        )
         _run_cdna4_gemm(cfg)
 
 
@@ -686,7 +708,8 @@ class TestCdna4Pipelined8Wave:
         ids=["w2x4_twg8x8x2", "w1x8_twg8x8x1"],
     )
     @pytest.mark.parametrize("pipeline_strategy", [1, 2, 4, 6], ids=["ps1", "ps2", "ps4", "ps6"])
-    def test_correctness(self, wpw, twg, pipeline_strategy):
+    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
+    def test_correctness(self, wpw, twg, pipeline_strategy, rotate_compute_stage):
         k_t = twg[DIM_K]
         min_iters = _min_k_iters_for_ps(k_t=k_t, ps=pipeline_strategy)
         # TODO(test/Dialect/AMDGCN/Transforms/cdna4-pipeliner-drain-fail.mlir):
@@ -695,7 +718,14 @@ class TestCdna4Pipelined8Wave:
         # miscompiles in the drain epilogue for asymmetric strategies
         # (ps6 w1x8 twg8x8x1).
         k_mult = max(4, (min_iters + 1) * k_t)
-        cfg = _make_instance([1, 1, 1], wpw, twg, k_mult, pipeline_strategy=pipeline_strategy)
+        cfg = _make_instance(
+            [1, 1, 1],
+            wpw,
+            twg,
+            k_mult,
+            pipeline_strategy=pipeline_strategy,
+            rotate_compute_stage=rotate_compute_stage,
+        )
         _run_cdna4_gemm(cfg)
 
 
@@ -712,7 +742,8 @@ class TestCdna4OperandPath:
     )
     @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
     @pytest.mark.parametrize("pipeline_strategy", [0, 3], ids=["ps0", "ps3"])
-    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, b_path, pipeline_strategy):
+    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, b_path, pipeline_strategy, rotate_compute_stage):
         k_mult = max(4, _min_k_iters_for_ps(k_t=1, ps=pipeline_strategy))
         cfg = _make_instance(
             [1, 1, 1],
@@ -721,6 +752,7 @@ class TestCdna4OperandPath:
             k_mult,
             pipeline_strategy=pipeline_strategy,
             b_path=b_path,
+            rotate_compute_stage=rotate_compute_stage,
         )
         _run_cdna4_gemm(cfg)
 
