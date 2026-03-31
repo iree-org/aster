@@ -78,7 +78,9 @@ _TILE_ELTS = GemmMappingSpec(
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict, mcpu: str, hw) -> WeakScaledMappedGemmInstance:
+def _build_instance(
+    d: dict, mcpu: str, hw, rotate_compute_stage: bool = False
+) -> WeakScaledMappedGemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
     _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_ELTS[0])
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_ELTS[1])
@@ -99,6 +101,7 @@ def _build_instance(d: dict, mcpu: str, hw) -> WeakScaledMappedGemmInstance:
         ll_sched=d["ll_sched"],
         hoist_wait=d["hoist_wait"],
         mcpu=mcpu,
+        rotate_compute_stage=rotate_compute_stage,
     )
     return WeakScaledMappedGemmInstance(spec, mapping)
 
@@ -129,6 +132,7 @@ def make_sweep_grid(
     target_m: int,
     target_n: int,
     target_k: int,
+    rotate_compute_stage: bool = False,
 ) -> SweepGrid:
     grid = SweepGrid()
     grid.axis("variant", [v for v in variants if v in MLIR_FILES])
@@ -149,7 +153,14 @@ def make_sweep_grid(
             deps=("variant", "target_M", "target_N", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
         )
 
-    grid.build_with(functools.partial(_build_instance, mcpu=mcpu, hw=hw))
+    grid.build_with(
+        functools.partial(
+            _build_instance,
+            mcpu=mcpu,
+            hw=hw,
+            rotate_compute_stage=rotate_compute_stage,
+        )
+    )
     return grid
 
 
@@ -219,6 +230,12 @@ def main():
     parser.add_argument("--use-buffer", action=argparse.BooleanOptionalAction, default=None, help="Buffer load/store")
     parser.add_argument("--use-flat", action=argparse.BooleanOptionalAction, default=None, help="Flat load/store")
     parser.add_argument("--direct-a", action=argparse.BooleanOptionalAction, default=None, help="A via preshuffle")
+    parser.add_argument(
+        "--rotate-compute-stage",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable/disable rotate_stage derived from pipeline strategy compute stage",
+    )
     args = parser.parse_args()
     warn_mcpu_mismatch(args.mcpu)
     require_gpu_or_compile_only(args)
@@ -242,6 +259,7 @@ def main():
         target_m=target_m,
         target_n=target_n,
         target_k=target_k,
+        rotate_compute_stage=args.rotate_compute_stage,
     )
     apply_wg_pin_filters(grid, pins, _TILE_ELTS[0], _TILE_ELTS[1])
 
