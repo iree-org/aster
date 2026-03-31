@@ -51,7 +51,11 @@ class PingPongGemmInstance(MultitileGemmInstance):
 def compile_ping_pong_gemm(cfg, output_hsaco_path, **kw):
     """Compile a ping-pong GEMM config to HSACO."""
     from aster.compiler.core import PrintOptions
+    from kittens_helpers import PIPELINE_STRATEGIES
 
+    rotate_stage = None
+    if getattr(cfg.mapping, "rotate_compute_stage", False):
+        rotate_stage = PIPELINE_STRATEGIES[cfg.mapping.pipeline_strategy]["COMPUTE"]
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
@@ -64,6 +68,7 @@ def compile_ping_pong_gemm(cfg, output_hsaco_path, **kw):
             ll_sched=getattr(cfg.mapping, "ll_sched", False),
             hoist_iter_arg_waits=getattr(cfg.mapping, "hoist_wait", False),
             set_mfma_priority=getattr(cfg.mapping, "set_mfma_priority", True),
+            rotate_stage=rotate_stage,
         )
         asm = compile_mlir_module_to_asm(
             module,
@@ -98,7 +103,9 @@ def execute_ping_pong_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_chec
     return C_output, times_ns
 
 
-def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy=1):
+def _make_instance(
+    num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy=1, rotate_compute_stage=False
+):
     """Build a PingPongGemmInstance from list parameters."""
     assert num_tiles_per_wg[DIM_M] % num_waves_per_wg[DIM_M] == 0
     assert num_tiles_per_wg[DIM_N] % num_waves_per_wg[DIM_N] == 0
@@ -111,6 +118,7 @@ def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, p
             num_tiles_per_wg[DIM_K],
         ],
         pipeline_strategy=pipeline_strategy,
+        rotate_compute_stage=rotate_compute_stage,
     )
     probe_spec = GemmSpec.from_sizes(1, 1, 1)
     mfma = probe_spec.mfma_shape
@@ -220,11 +228,21 @@ class TestPingPongPipeline:
     )
     @pytest.mark.parametrize("k_mult", [2, 4, 8], ids=["km2", "km4", "km8"])
     @pytest.mark.parametrize("pipeline_strategy", [1, 3, 5], ids=["ps1", "ps3", "ps5"])
-    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy):
+    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy, rotate_compute_stage):
         k_t = num_tiles_per_wg[DIM_K]
         if k_mult < _min_k_iters(k_t, pipeline_strategy):
             pytest.skip(f"k_mult={k_mult} < min_k_iters for ps{pipeline_strategy}")
-        _run_ping_pong(_make_instance([1, 1, 1], num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy))
+        _run_ping_pong(
+            _make_instance(
+                [1, 1, 1],
+                num_waves_per_wg,
+                num_tiles_per_wg,
+                k_mult,
+                pipeline_strategy,
+                rotate_compute_stage=rotate_compute_stage,
+            )
+        )
 
 
 class TestPingPongMultiWG:

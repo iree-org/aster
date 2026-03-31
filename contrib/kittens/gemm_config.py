@@ -252,6 +252,7 @@ class GemmMappingSpec:
     ll_sched: bool = False  # low-latency scheduling
     hoist_wait: bool = False  # hoist iter-arg waits
     set_mfma_priority: bool = True  # insert s_setprio around MFMA groups
+    rotate_compute_stage: bool = False  # enable compute-stage rotation in pass pipeline
 
     # --- LDS allocation strategy ---
     lds_at_write: bool = (
@@ -621,6 +622,7 @@ class WeakScaledMappedGemmInstance:
                 r"(_hoistwait)?"
                 r"(_ldsw)?"
                 r"(_nosetprio)?"
+                r"(_norotc)?"
                 r"_(?:(direct_ab|direct_b)_)?(flat|buf)$"
             )
         return cls._LABEL_RE
@@ -653,6 +655,7 @@ class WeakScaledMappedGemmInstance:
             hoistwait,
             ldsw,
             nosetprio,
+            norotc,
             direct,
             lt,
         ) = m.groups()
@@ -683,6 +686,7 @@ class WeakScaledMappedGemmInstance:
             hoist_wait=hoistwait is not None,
             lds_at_write=ldsw is not None,
             set_mfma_priority=nosetprio is None,
+            rotate_compute_stage=norotc is None,
         )
         cfg = cls(spec, mapping)
         assert cfg.label == label, f"Round-trip failed: {cfg.label!r} != {label!r}"
@@ -704,6 +708,7 @@ class WeakScaledMappedGemmInstance:
         hoistwait = "_hoistwait" if self.mapping.hoist_wait else ""
         ldswrite = "_ldsw" if self.mapping.lds_at_write else ""
         nosetprio = "" if self.mapping.set_mfma_priority else "_nosetprio"
+        norotc = "" if self.mapping.rotate_compute_stage else "_norotc"
         wgcu = (
             f"_wgcu{self.mapping.num_wg_per_cu}"
             if self.mapping.num_wg_per_cu != 1
@@ -717,7 +722,7 @@ class WeakScaledMappedGemmInstance:
             f"_wg{wg[DIM_M]}x{wg[DIM_N]}x{wg[DIM_K]}"
             f"_w{self.mapping.num_waves_per_workgroup[DIM_M]}x{self.mapping.num_waves_per_workgroup[DIM_N]}x{self.mapping.num_waves_per_workgroup[DIM_K]}"
             f"{tile_str}_pipestrat{self.mapping.pipeline_strategy}"
-            f"{wgcu}{lcm}{um}{peel}{llsched}{hoistwait}{ldswrite}{nosetprio}{suffix}"
+            f"{wgcu}{lcm}{um}{peel}{llsched}{hoistwait}{ldswrite}{nosetprio}{norotc}{suffix}"
         )
 
     # --- Fallback delegation ---

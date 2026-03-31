@@ -641,8 +641,12 @@ class MultitileGemmInstance(WeakScaledMappedGemmInstance):
 def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
     """Compile a multi-tile GEMM config to HSACO."""
     from aster.compiler.core import PrintOptions
+    from kittens_helpers import PIPELINE_STRATEGIES
 
     lds_at_write = kw.pop("lds_at_write", getattr(cfg.mapping, "lds_at_write", False))
+    rotate_stage = None
+    if getattr(cfg.mapping, "rotate_compute_stage", False):
+        rotate_stage = PIPELINE_STRATEGIES[cfg.mapping.pipeline_strategy]["COMPUTE"]
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
@@ -654,6 +658,7 @@ def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
             epilogue_peeling=getattr(cfg.mapping, "epilogue_peeling", True),
             ll_sched=getattr(cfg.mapping, "ll_sched", False),
             hoist_iter_arg_waits=getattr(cfg.mapping, "hoist_wait", False),
+            rotate_stage=rotate_stage,
         )
         asm = compile_mlir_module_to_asm(
             module,
@@ -701,6 +706,7 @@ def _make_instance(
     pipeline_strategy=1,
     b_path="lds",
     mcpu=None,
+    rotate_compute_stage=False,
 ):
     """Build a MultitileGemmInstance from list parameters.
 
@@ -729,6 +735,7 @@ def _make_instance(
         ],
         pipeline_strategy=pipeline_strategy,
         operand_path=OperandPath(b_path),
+        rotate_compute_stage=rotate_compute_stage,
         **mapping_kw,
     )
     spec_kw = {} if mfma_shape is None else {"mfma_shape": mfma_shape}
@@ -833,11 +840,21 @@ class TestPipeline:
     @pytest.mark.parametrize("k_mult", [2, 4, 8], ids=["km2", "km4", "km8"])
     @pytest.mark.parametrize("pipeline_strategy", [1, 2, 3, 4, 5, 6], ids=["ps1", "ps2", "ps3", "ps4", "ps5", "ps6"])
     @pytest.mark.parametrize("lds_at_write", [False, True], ids=["lds_load", "lds_write"])
-    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy, lds_at_write):
+    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
+    def test_correctness(
+        self, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy, lds_at_write, rotate_compute_stage
+    ):
         k_t = num_tiles_per_wg[DIM_K]
         if k_mult < _min_k_iters(k_t, pipeline_strategy):
             pytest.skip(f"k_mult={k_mult} < min_k_iters for ps{pipeline_strategy}")
-        cfg = _make_instance([1, 1, 1], num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy=pipeline_strategy)
+        cfg = _make_instance(
+            [1, 1, 1],
+            num_waves_per_wg,
+            num_tiles_per_wg,
+            k_mult,
+            pipeline_strategy=pipeline_strategy,
+            rotate_compute_stage=rotate_compute_stage,
+        )
         _run_multitile(cfg, lds_at_write=lds_at_write)
 
 
@@ -854,9 +871,17 @@ class TestMultiWG:
         ids=["mwg3x2_1w_3x2", "mwg2x2_4w_4x4", "mwg2x3_4w_6x6"],
     )
     @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
-    def test_correctness(self, num_workgroups, num_waves_per_wg, num_tiles_per_wg, pipeline_strategy):
+    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
+    def test_correctness(
+        self, num_workgroups, num_waves_per_wg, num_tiles_per_wg, pipeline_strategy, rotate_compute_stage
+    ):
         cfg = _make_instance(
-            num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult=4, pipeline_strategy=pipeline_strategy
+            num_workgroups,
+            num_waves_per_wg,
+            num_tiles_per_wg,
+            k_mult=4,
+            pipeline_strategy=pipeline_strategy,
+            rotate_compute_stage=rotate_compute_stage,
         )
         _run_multitile(cfg)
 
@@ -875,9 +900,16 @@ class TestOperandPath:
     )
     @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
     @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
-    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, b_path, pipeline_strategy):
+    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, b_path, pipeline_strategy, rotate_compute_stage):
         cfg = _make_instance(
-            [1, 1, 1], num_waves_per_wg, num_tiles_per_wg, k_mult=4, pipeline_strategy=pipeline_strategy, b_path=b_path
+            [1, 1, 1],
+            num_waves_per_wg,
+            num_tiles_per_wg,
+            k_mult=4,
+            pipeline_strategy=pipeline_strategy,
+            b_path=b_path,
+            rotate_compute_stage=rotate_compute_stage,
         )
         _run_multitile(cfg)
 
@@ -898,7 +930,8 @@ class TestCdna4Mfma:
         ids=["1w_2x2", "4w_4x4"],
     )
     @pytest.mark.parametrize("pipeline_strategy", [0, 3], ids=["ps0", "ps3"])
-    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, pipeline_strategy):
+    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, pipeline_strategy, rotate_compute_stage):
         cfg = _make_instance(
             [1, 1, 1],
             num_waves_per_wg,
@@ -906,6 +939,7 @@ class TestCdna4Mfma:
             k_mult=4,
             pipeline_strategy=pipeline_strategy,
             mcpu="gfx950",
+            rotate_compute_stage=rotate_compute_stage,
         )
         _run_multitile(cfg)
 

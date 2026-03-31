@@ -187,8 +187,11 @@ def SCFPipelineAsterSched : Pass<"aster-scf-pipeline"> {
            "Multiplier for the LCM unroll factor (effective = lcm * multiplier)">,
     Option<"epiloguePeeling", "epilogue-peeling", "bool", /*default=*/"false",
            "Fully unroll the cleanup epilogue loop after LCM unrolling">,
-    Option<"rotateKernel", "rotate-kernel", "bool", /*default=*/"true",
-           "Peel the kernel loop at the first sched.rotate_head">,
+    Option<"enableRotateStage", "enable-rotate-stage", "bool",
+           /*default=*/"false",
+           "Enable rotating pipeline stages so the selected stage becomes stage 0">,
+    Option<"rotateStage", "rotate-stage", "int64_t", /*default=*/"0",
+           "Stage to rotate to 0 when enable-rotate-stage is set">,
   ];
   let dependentDialects = [
     "mlir::affine::AffineDialect",

@@ -33,6 +33,7 @@ from kittens_helpers import (
     get_mlir_file,
     get_kittens_16x16_lds_library_paths,
     constexpr_substitutions_16x32,
+    PIPELINE_STRATEGIES,
     shuffle_weight,
 )
 
@@ -206,6 +207,10 @@ def compile_gemm(
     mlir_file = MLIR_FILES[mlir_key]
     lib_paths = get_kittens_16x16_lds_library_paths(use_buffer=cfg.use_buffer)
 
+    rotate_stage = None
+    if getattr(cfg, "rotate_compute_stage", False):
+        rotate_stage = PIPELINE_STRATEGIES[cfg.pipeline_strategy]["COMPUTE"]
+
     pipeline = make_default_pass_pipeline(
         num_vgprs=num_vgprs,
         num_agprs=num_agprs,
@@ -213,6 +218,7 @@ def compile_gemm(
         epilogue_peeling=getattr(cfg, "epilogue_peeling", True),
         ll_sched=getattr(cfg, "ll_sched", False),
         hoist_iter_arg_waits=getattr(cfg, "hoist_wait", False),
+        rotate_stage=rotate_stage,
     )
 
     ctx = ir.Context()
@@ -327,6 +333,7 @@ class TestWeakScaleCorrectness:
     @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
     @pytest.mark.parametrize("load_type", ["flat", "buffer"], ids=["flat", "buffer"])
     @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
+    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
     def test_correctness(
         self,
         num_workgroups_per_kernel,
@@ -335,6 +342,7 @@ class TestWeakScaleCorrectness:
         pipeline_strategy,
         load_type,
         b_path,
+        rotate_compute_stage,
     ):
         """Constexpr GEMM verified against numpy."""
         if (b_path, load_type) not in MLIR_FILES:
@@ -347,6 +355,7 @@ class TestWeakScaleCorrectness:
             pipeline_strategy=pipeline_strategy,
             load_type=load_type,
             b_path=b_path,
+            rotate_compute_stage=rotate_compute_stage,
         )
         # Per-wave tile product > 16 requires too many registers.
         tpw = cfg.mapping.num_tiles_per_wave
@@ -388,6 +397,7 @@ class TestWeakScaledMappedGemmInstanceSerde:
             dict(epilogue_peeling=False),
             dict(ll_sched=True),
             dict(hoist_wait=True),
+            dict(rotate_compute_stage=False),
             dict(pipeline_strategy=0),
             dict(pipeline_strategy=5),
             dict(pipeline_strategy=9),
@@ -397,6 +407,7 @@ class TestWeakScaledMappedGemmInstanceSerde:
                 epilogue_peeling=False,
                 ll_sched=True,
                 hoist_wait=True,
+                rotate_compute_stage=False,
                 num_wg_per_cu=2,
                 num_workgroups_per_kernel=[38, 16, 1],
                 load_type="buffer",
@@ -418,6 +429,7 @@ class TestWeakScaledMappedGemmInstanceSerde:
             "nopeel",
             "llsched",
             "hoistwait",
+            "norotc",
             "ps0",
             "ps5",
             "ps9",
@@ -447,6 +459,7 @@ class TestWeakScaledMappedGemmInstanceSerde:
             "epilogue_peeling",
             "ll_sched",
             "hoist_wait",
+            "rotate_compute_stage",
             "num_workgroups_per_kernel",
             "num_waves_per_workgroup",
             "num_tiles_per_workgroup",

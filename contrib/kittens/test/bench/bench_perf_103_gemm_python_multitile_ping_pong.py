@@ -74,7 +74,7 @@ _TILE_ELTS = GemmMappingSpec(
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict, mcpu: str, hw) -> PingPongGemmInstance:
+def _build_instance(d: dict, mcpu: str, hw, rotate_compute_stage: bool = False) -> PingPongGemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
     _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_ELTS[0])
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_ELTS[1])
@@ -97,6 +97,7 @@ def _build_instance(d: dict, mcpu: str, hw) -> PingPongGemmInstance:
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
         set_mfma_priority=d["set_mfma_priority"],
+        rotate_compute_stage=rotate_compute_stage,
         mcpu=mcpu,
     )
     return PingPongGemmInstance(spec, mapping)
@@ -129,6 +130,7 @@ def make_sweep_grid(
     target_m: int,
     target_n: int,
     target_k: int,
+    rotate_compute_stage: bool = False,
 ) -> SweepGrid:
     grid = SweepGrid()
     # Second slot is the load_type; 103 does not sweep it, so it is None.
@@ -165,7 +167,14 @@ def make_sweep_grid(
             ),
         )
 
-    grid.build_with(functools.partial(_build_instance, mcpu=mcpu, hw=hw))
+    grid.build_with(
+        functools.partial(
+            _build_instance,
+            mcpu=mcpu,
+            hw=hw,
+            rotate_compute_stage=rotate_compute_stage,
+        )
+    )
     return grid
 
 
@@ -205,6 +214,12 @@ def main():
     add_size_cli_args(parser)
     add_heuristic_cli_args(parser)
     parser.add_argument("--set-mfma-priority", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument(
+        "--rotate-compute-stage",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Rotate the kernel body so the COMPUTE stage leads (uses PIPELINE_STRATEGIES[ps][COMPUTE])",
+    )
     args = parser.parse_args()
     warn_mcpu_mismatch(args.mcpu)
     require_gpu_or_compile_only(args)
@@ -232,6 +247,7 @@ def main():
         target_m=target_m,
         target_n=target_n,
         target_k=target_k,
+        rotate_compute_stage=args.rotate_compute_stage,
     )
     apply_wg_pin_filters(grid, pins, _TILE_ELTS[0], _TILE_ELTS[1])
 
