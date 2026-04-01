@@ -75,8 +75,8 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
   }
   pm.addPass(createAMDGCNBufferization());
   pm.addPass(createToRegisterSemantics());
-  if (options.llSched)
-    pm.addPass(createLowLevelScheduler({false, true}));
+  // if (options.llSched)
+  pm.addPass(createLowLevelScheduler({false, true}));
   // Post-condition of to-register-semantics is now enforced by
   // KernelOp::verifyRegions() via the normal_forms attribute set by the pass.
   pm.addPass(createRegisterDCE());

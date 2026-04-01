@@ -173,7 +173,7 @@ void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
 void GraphBuilder::buildRegisterDeps(SchedGraph &graph) {
   // Helper function to add edges from reaching definitions for register
   // operands.
-  auto addEdges = [&](Operation *op, ValueRange values,
+  auto addEdges = [&](Operation *op, int64_t opId, ValueRange values,
                       const ReachingDefinitionsState *beforeState) {
     for (Value value : values) {
       FailureOr<ValueRange> allocasOrFailure = getAllocasOrFailure(value);
@@ -182,13 +182,14 @@ void GraphBuilder::buildRegisterDeps(SchedGraph &graph) {
         for (const Definition &def : beforeState->getRange(alloc)) {
           assert(def.definition && "expected valid definition");
           Operation *producer = def.definition->getOwner();
-          if (producer && producer->getBlock() == block)
+          int64_t pOpId = graph.getOpId(producer);
+          if (pOpId >= 0 && pOpId < opId)
             graph.addEdge(producer, op);
         }
       }
     }
   };
-  for (Operation *op : graph.getOps()) {
+  for (auto [i, op] : llvm::enumerate(graph.getOps())) {
     auto instOp = dyn_cast<InstOpInterface>(op);
     // Skip non-InstOpInterface operations.
     if (!instOp)
@@ -197,9 +198,9 @@ void GraphBuilder::buildRegisterDeps(SchedGraph &graph) {
     const auto *beforeState = solver.lookupState<ReachingDefinitionsState>(
         solver.getProgramPointBefore(op));
     assert(beforeState && "expected valid reaching definitions state");
-    addEdges(op, instOp.getInstIns(), beforeState);
+    addEdges(op, i, instOp.getInstIns(), beforeState);
     // Note: we have to add edges for the outs to avoid clobbering of values.
-    addEdges(op, instOp.getInstOuts(), beforeState);
+    addEdges(op, i, instOp.getInstOuts(), beforeState);
   }
 }
 
