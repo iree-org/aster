@@ -30,9 +30,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
+from kittens.gemm_config import WeakScaledMappedGemmInstance
 from test_perf_001_gemm_fp16_weak_scaled import (
     MLIR_FILES,
-    WeakScaleConfig,
+    _make_weak_scaled_mapped_gemm_instance,
     compile_gemm,
 )
 from bench_harness import (
@@ -136,7 +137,7 @@ def fits_on_cu_post_compile(cfg, res):
 
 
 def _passes_resource_check(mw, nw, mtwg, ntwg, kt, a_stg, b_stg, nwgcu, is_direct):
-    """Check LDS and VGPR limits without constructing a WeakScaleConfig."""
+    """Check LDS and VGPR limits without constructing a WeakScaledMappedGemmInstance."""
     num_waves = mw * nw
     mt, nt = mtwg // mw, ntwg // nw
     ceildiv = lambda a, b: (a + b - 1) // b
@@ -147,7 +148,7 @@ def _passes_resource_check(mw, nw, mtwg, ntwg, kt, a_stg, b_stg, nwgcu, is_direc
     if a_lds + b_lds > GPU_LDS_PER_CU // max(nwgcu, 1):
         return False
 
-    # VGPR estimate (same formulas as WeakScaleConfig.estimated_vgprs).
+    # VGPR estimate (same formulas as WeakScaledMappedGemmInstance.estimated_vgprs).
     waves_m = min(mtwg, num_waves)
     waves_k_a = max(1, num_waves // max(waves_m, 1))
     coop_a = ceildiv(mtwg, max(waves_m, 1)) * ceildiv(kt, max(waves_k_a, 1))
@@ -293,7 +294,7 @@ def _generate_configs(
                                     ):
                                         continue
                                     eligible.append(
-                                        WeakScaleConfig(
+                                        _make_weak_scaled_mapped_gemm_instance(
                                             m_wg,
                                             n_wg,
                                             mw,

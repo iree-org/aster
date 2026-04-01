@@ -17,8 +17,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
+from kittens.gemm_config import WeakScaledMappedGemmInstance
 from test_perf_001_gemm_fp16_weak_scaled import (
-    WeakScaleConfig,
     compile_gemm,
     execute_gemm_hsaco,
 )
@@ -32,5 +32,5 @@ if __name__ == "__main__":
     add_single_cli_args(parser)
     args = parser.parse_args()
 
-    cfg = WeakScaleConfig.from_label(args.label)
+    cfg = WeakScaledMappedGemmInstance.from_label(args.label)
     run_single(cfg, compile_gemm, args, execute_fn=execute_gemm_hsaco)
