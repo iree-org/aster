@@ -19,7 +19,8 @@ source .venv/bin/activate
 # 3. Install ASTER
 uv pip install aster-mlir-hip # [ --find-links /tmp ]
 
-# 4. Install ROCm runtime for GPU execution
+# 4. Install basic requirements as well as ROCm runtime for GPU execution
+uv pip install -r requirements.txt
 uv pip install -r requirements-amd-gfx94X.txt --prerelease=allow
 
 # 5. Run an example

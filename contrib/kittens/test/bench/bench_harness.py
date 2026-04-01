@@ -988,28 +988,42 @@ def bench_perf_sweep_pipelined(
         import time
 
         drain_timeout = 10.0 if interrupted else 30.0
-        print(
-            f"Draining {in_flight} in-flight exec results "
-            f"(timeout {drain_timeout:.0f}s)...",
-            end="",
-            flush=True,
-        )
         t0 = time.monotonic()
-        alive = [t for t in gpu_threads if t.is_alive()]
-        for t in alive:
-            remaining = max(0.1, drain_timeout - (time.monotonic() - t0))
-            t.join(timeout=remaining)
-        elapsed = time.monotonic() - t0
+        drained = 0
+        remaining_count = in_flight
+        while any(t.is_alive() for t in gpu_threads):
+            elapsed = time.monotonic() - t0
+            if elapsed >= drain_timeout:
+                break
+            print(
+                f"\rDraining {remaining_count} in-flight exec results "
+                f"(timeout {drain_timeout:.0f}s, {elapsed:.0f}s elapsed)...",
+                end="",
+                flush=True,
+            )
+            dn, _ = _drain_exec_results(
+                exec_result_q, cfg_by_label, results, exec_failed
+            )
+            drained += dn
+            remaining_count = max(0, remaining_count - dn)
+            for t in gpu_threads:
+                if t.is_alive():
+                    t.join(timeout=0.5)
+                    break
         dn, _ = _drain_exec_results(exec_result_q, cfg_by_label, results, exec_failed)
-        n_exec_done += dn
+        drained += dn
+        remaining_count = max(0, remaining_count - dn)
+        n_exec_done += drained
+        elapsed = time.monotonic() - t0
         still_running = sum(1 for t in gpu_threads if t.is_alive())
         if still_running:
             print(
-                f" {dn} collected, {still_running} workers still busy "
+                f"\rDraining {remaining_count} in-flight exec results -- "
+                f"{drained} collected, {still_running} workers still busy "
                 f"({elapsed:.1f}s, giving up)."
             )
         else:
-            print(f" done ({dn} collected, {elapsed:.1f}s).")
+            print(f"\rDraining done: {drained} collected ({elapsed:.1f}s)." + " " * 30)
     else:
         for t in gpu_threads:
             t.join(timeout=5.0)
