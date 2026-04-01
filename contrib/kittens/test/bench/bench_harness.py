@@ -15,6 +15,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
 
+from kittens.gemm_config import DIM_M, DIM_N, DIM_K
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
@@ -533,9 +535,9 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
                 cfg.kernel_name,
                 cfg.num_workgroups,
                 cfg.num_threads,
-                cfg.m_dim,
-                cfg.n_dim,
-                cfg.k_dim,
+                cfg.gemm_size[DIM_M],
+                cfg.gemm_size[DIM_N],
+                cfg.gemm_size[DIM_K],
                 num_iterations,
                 getattr(cfg, "direct_b", False),
                 getattr(cfg, "direct_a", False),
@@ -679,9 +681,9 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
             cfg.kernel_name,
             cfg.num_workgroups,
             cfg.num_threads,
-            cfg.m_dim,
-            cfg.n_dim,
-            cfg.k_dim,
+            cfg.gemm_size[DIM_M],
+            cfg.gemm_size[DIM_N],
+            cfg.gemm_size[DIM_K],
             getattr(cfg, "direct_b", False),
             getattr(cfg, "direct_a", False),
         )
@@ -931,9 +933,9 @@ def bench_perf_sweep_pipelined(
                         cfg.kernel_name,
                         cfg.num_workgroups,
                         cfg.num_threads,
-                        cfg.m_dim,
-                        cfg.n_dim,
-                        cfg.k_dim,
+                        cfg.gemm_size[DIM_M],
+                        cfg.gemm_size[DIM_N],
+                        cfg.gemm_size[DIM_K],
                         NUM_ITERATIONS,
                         getattr(cfg, "direct_b", False),
                         getattr(cfg, "direct_a", False),
@@ -1175,19 +1177,24 @@ def bench_perf_sweep(
 
 
 def make_inputs(cfg, zero_init=False):
+    from kittens.gemm_config import A as OP_A, B as OP_B
+
+    shape_a = cfg.spec.operand_shape(OP_A)
+    shape_b = cfg.spec.operand_shape(OP_B)
     if zero_init:
-        A = np.zeros((cfg.m_dim, cfg.k_dim), dtype=np.float16)
-        B = np.zeros((cfg.n_dim, cfg.k_dim), dtype=np.float16)
+        A = np.zeros(shape_a, dtype=np.float16)
+        B = np.zeros(shape_b, dtype=np.float16)
     else:
         np.random.seed(42)
-        A = (np.random.randn(cfg.m_dim, cfg.k_dim) * 0.1).astype(np.float16)
-        B = (np.random.randn(cfg.n_dim, cfg.k_dim) * 0.1).astype(np.float16)
+        A = (np.random.randn(*shape_a) * 0.1).astype(np.float16)
+        B = (np.random.randn(*shape_b) * 0.1).astype(np.float16)
     return A, B
 
 
 def print_config(cfg, resources=None):
+    gs = cfg.gemm_size
     print(f"Config: {cfg.label}")
-    print(f"  problem:    M={cfg.m_dim}, N={cfg.n_dim}, K={cfg.k_dim}")
+    print(f"  problem:    M={gs[DIM_M]}, N={gs[DIM_N]}, K={gs[DIM_K]}")
     print(
         f"  grid:       {cfg.mapping.num_workgroups_per_kernel} WGs, "
         f"{cfg.mapping.num_waves_per_workgroup} waves/WG, "

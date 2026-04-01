@@ -12,12 +12,16 @@ from dataclasses import dataclass
 
 import numpy as np
 from kittens.gemm_config import (
+    A as OP_A,
+    B as OP_B,
+    C as OP_C,
     DIM_M,
     DIM_N,
     DIM_K,
     GemmSpec,
     GemmMappingSpec,
     LoadType,
+    Operand,
     OperandPath,
     WeakScaledMappedGemmInstance,
 )
@@ -121,7 +125,10 @@ def _make_substitutions(cfg):
     subs = {"{{K_LOOP_HELPERS}}": _load_k_loop_helpers(cfg.load_type, cfg.b_path)}
     subs.update(
         constexpr_substitutions_16x32(
-            cfg.m_tiles, cfg.n_tiles, cfg.k, cfg.pipeline_strategy
+            cfg.mapping.num_tiles_per_wave[DIM_M],
+            cfg.mapping.num_tiles_per_wave[DIM_N],
+            cfg.gemm_size[DIM_K],
+            cfg.pipeline_strategy,
         )
     )
     subs["{{M_WG}}"] = str(cfg.mapping.num_workgroups_per_kernel[DIM_M])
@@ -140,7 +147,8 @@ def _make_substitutions(cfg):
         * cfg.mapping.num_tiles_per_workgroup[DIM_N]
         * 1024
     )
-    subs["{{STRIDE_C}}"] = str(cfg.n_dim * 4)  # f32 = 4 bytes
+    gs = cfg.gemm_size
+    subs["{{STRIDE_C}}"] = str(gs[DIM_N] * 4)  # f32 = 4 bytes
     subs["{{SHARED_MEM}}"] = "0"
     subs["{{NUM_THREADS}}"] = str(cfg.num_threads)
     subs["{{NUM_BLOCKS}}"] = str(cfg.num_workgroups)
@@ -172,11 +180,11 @@ def _make_substitutions(cfg):
         max(0, cfg.mapping.num_tiles_per_wave[DIM_K] - b_ck)
     )
     # Preshuffle layout parameters (f16: BK=32, 64 lanes, 16 bytes/lane).
-    subs["{{STRIDE_N0_BYTES}}"] = str((cfg.k // 32) * 1024)
-    subs["{{STRIDE_M0_BYTES}}"] = str((cfg.k // 32) * 1024)  # same formula as N
-    subs["{{N_BLOCKS}}"] = str(cfg.n_dim // 16)
-    subs["{{M_BLOCKS}}"] = str(cfg.m_dim // 16)
-    subs["{{K_BLOCKS}}"] = str(cfg.k // 32)
+    subs["{{STRIDE_N0_BYTES}}"] = str((gs[DIM_K] // 32) * 1024)
+    subs["{{STRIDE_M0_BYTES}}"] = str((gs[DIM_K] // 32) * 1024)  # same formula as N
+    subs["{{N_BLOCKS}}"] = str(gs[DIM_N] // 16)
+    subs["{{M_BLOCKS}}"] = str(gs[DIM_M] // 16)
+    subs["{{K_BLOCKS}}"] = str(gs[DIM_K] // 32)
     return subs
 
 
@@ -267,7 +275,9 @@ def execute_gemm_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=Fal
     A_gpu = shuffle_weight(A) if cfg.direct_a else A
     B_gpu = shuffle_weight(B) if cfg.direct_b else B
 
-    C_output = np.zeros(cfg.m_dim * cfg.n_dim, dtype=np.float32)
+    import math
+
+    C_output = np.zeros(math.prod(cfg.spec.operand_shape(OP_C)), dtype=np.float32)
 
     times_ns = execute_hsaco(
         hsaco_path=hsaco_path,
@@ -345,16 +355,17 @@ class TestWeakScaleCorrectness:
             b_path=b_path,
         )
         # Per-wave tile product > 16 requires too many registers.
-        if cfg.m_tiles * cfg.n_tiles > 16:
+        tpw = cfg.mapping.num_tiles_per_wave
+        if tpw[DIM_M] * tpw[DIM_N] > 16:
             pytest.skip(
-                f"per-wave tiles {cfg.m_tiles}x{cfg.n_tiles} product > 16 for {cfg.label}"
+                f"per-wave tiles {tpw[DIM_M]}x{tpw[DIM_N]} product > 16 for {cfg.label}"
             )
         # Avoid unfeasible LDS sizes
         if cfg.lds_bytes >= LDS_SIZE:
             pytest.skip(f"LDS {cfg.lds_bytes} >= {LDS_SIZE}")
         np.random.seed(42)
-        A = (np.random.randn(cfg.m_dim, cfg.k) * 0.1).astype(np.float16)
-        B = (np.random.randn(cfg.n_dim, cfg.k) * 0.1).astype(np.float16)
+        A = (np.random.randn(*cfg.spec.operand_shape(OP_A)) * 0.1).astype(np.float16)
+        B = (np.random.randn(*cfg.spec.operand_shape(OP_B)) * 0.1).astype(np.float16)
         with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
             compile_gemm(cfg, tmp.name)
             C_output, _ = execute_gemm_hsaco(cfg, tmp.name, 1, A, B)
@@ -432,7 +443,7 @@ class TestWeakScaledMappedGemmInstanceSerde:
         restored = WeakScaledMappedGemmInstance.from_label(cfg.label)
         assert restored.label == cfg.label
         for field in [
-            "k",
+            "gemm_size",
             "a_stages",
             "b_stages",
             "pipeline_strategy",
@@ -444,8 +455,6 @@ class TestWeakScaledMappedGemmInstanceSerde:
             "epilogue_peeling",
             "ll_sched",
             "hoist_wait",
-            "m_dim",
-            "n_dim",
             "num_workgroups_per_kernel",
             "num_waves_per_workgroup",
             "num_tiles_per_workgroup",
