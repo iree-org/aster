@@ -100,10 +100,6 @@ def _make_weak_scaled_mapped_gemm_instance(
     return WeakScaledMappedGemmInstance(spec, mapping)
 
 
-def _kernel_name(cfg: WeakScaledMappedGemmInstance) -> str:
-    return KERNEL_NAMES[cfg.b_path]
-
-
 def _load_k_loop_helpers(load_type="flat", b_path="lds"):
     """Read the shared K-loop helper functions MLIR fragment."""
     helpers_path = get_mlir_file(K_LOOP_HELPERS_FILES[load_type])
@@ -212,7 +208,7 @@ def compile_gemm(
 
         asm, _ = compile_mlir_file_to_asm(
             get_mlir_file(mlir_file),
-            _kernel_name(cfg),
+            cfg.kernel_name,
             pipeline,
             ctx,
             library_paths=lib_paths,
@@ -259,7 +255,7 @@ def execute_gemm_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=Fal
 
     times_ns = execute_hsaco(
         hsaco_path=hsaco_path,
-        kernel_name=_kernel_name(cfg),
+        kernel_name=cfg.kernel_name,
         arguments=[
             InputArray(A_gpu.flatten()),
             InputArray(B_gpu.flatten()),

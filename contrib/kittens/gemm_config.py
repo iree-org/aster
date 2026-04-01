@@ -487,6 +487,16 @@ class WeakScaledMappedGemmInstance:
     def simd_occupancy(self) -> int:
         return self.mapping.simd_occupancy()
 
+    _KERNEL_NAMES = {
+        OperandPath.LDS: "gemm_f16_weak_scaled",
+        OperandPath.DIRECT_B: "gemm_f16_direct_b",
+        OperandPath.DIRECT_AB: "gemm_f16_direct_ab",
+    }
+
+    @property
+    def kernel_name(self) -> str:
+        return self._KERNEL_NAMES[self.mapping.operand_path]
+
     @property
     def k_scaling_factor(self) -> int:
         return self.k // (self.mapping.k_tiles * 32)
@@ -600,12 +610,16 @@ class WeakScaledMappedGemmInstance:
     # --- Fallback delegation ---
 
     def __getattr__(self, name: str):
+        # Guard against infinite recursion during pickle unpickling:
+        # self.spec/self.mapping may not exist yet.
+        if name in ("spec", "mapping"):
+            raise AttributeError(name)
         try:
-            return getattr(self.spec, name)
+            return getattr(object.__getattribute__(self, "spec"), name)
         except AttributeError:
             pass
         try:
-            return getattr(self.mapping, name)
+            return getattr(object.__getattribute__(self, "mapping"), name)
         except AttributeError:
             raise AttributeError(
                 f"'{type(self).__name__}' has no attribute '{name}'"
