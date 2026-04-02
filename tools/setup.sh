@@ -575,6 +575,73 @@ ACTIVATE_EOF
     ok "activate script updated"
 }
 
+phase3_generate_sandbox_activate() {
+    local sandbox_dir="$ASTER_DIR/sandbox"
+    local sandbox_bin="$sandbox_dir/bin"
+    local sandbox_activate="$sandbox_bin/activate_sandbox"
+    mkdir -p "$sandbox_bin"
+
+    # Remove legacy scripts if present.
+    rm -f "$sandbox_dir/activate.sh" "$sandbox_dir/deactivate.sh"
+
+    cat > "$sandbox_activate" << SANDBOX_EOF
+#!/usr/bin/env bash
+#
+# sandbox/bin/activate_sandbox - Activate the ASTER venv with sandbox paths.
+#
+# Usage:
+#   source sandbox/bin/activate_sandbox
+#
+# To undo:
+#   deactivate_sandbox
+
+if [ -n "\${ASTER_SANDBOX_ACTIVE:-}" ]; then
+    echo "sandbox already active (run deactivate_sandbox first)" >&2
+    return 0
+fi
+
+deactivate_sandbox() {
+    if [ -z "\${ASTER_SANDBOX_ACTIVE:-}" ]; then
+        echo "sandbox is not active" >&2
+        return 0
+    fi
+
+    if [ -n "\${_ASTER_OLD_PYTHONPATH+set}" ]; then
+        if [ -n "\${_ASTER_OLD_PYTHONPATH}" ]; then
+            export PYTHONPATH="\${_ASTER_OLD_PYTHONPATH}"
+        else
+            unset PYTHONPATH
+        fi
+    fi
+    if [ -n "\${_ASTER_OLD_PATH+set}" ]; then
+        if [ -n "\${_ASTER_OLD_PATH}" ]; then
+            export PATH="\${_ASTER_OLD_PATH}"
+        else
+            unset PATH
+        fi
+    fi
+    unset _ASTER_OLD_PYTHONPATH _ASTER_OLD_PATH ASTER_SANDBOX_ACTIVE
+    unset -f deactivate_sandbox
+    deactivate 2>/dev/null || true
+}
+
+# Save current PYTHONPATH and PATH so deactivate_sandbox can restore them.
+export _ASTER_OLD_PYTHONPATH="\${PYTHONPATH:-}"
+export _ASTER_OLD_PATH="\${PATH:-}"
+
+# shellcheck source=/dev/null
+source "${VIRTUAL_ENV}/bin/activate"
+
+# Prepend build-tree package directories and sandbox/bin.
+export PYTHONPATH="${ASTER_BUILD_DIR}/python_packages\${PYTHONPATH:+:\${PYTHONPATH}}"
+export PATH="${sandbox_bin}:${ASTER_BUILD_DIR}/bin\${PATH:+:\${PATH}}"
+
+export ASTER_SANDBOX_ACTIVE=1
+SANDBOX_EOF
+
+    ok "sandbox/bin/activate_sandbox generated"
+}
+
 
 phase3_python_venv() {
     info "Phase 3: Python virtual environment"
@@ -583,6 +650,7 @@ phase3_python_venv() {
     phase3_install_requirements
     phase3_maybe_setup_rocm
     phase3_update_activate_script
+    phase3_generate_sandbox_activate
     echo ""
 }
 
