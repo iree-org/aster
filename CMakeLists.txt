@@ -49,6 +49,30 @@ add_subdirectory(llvm)
 
 configure_llvm()
 
+# When building a Python wheel via scikit-build-core, redirect install prefixes
+# so Python modules and tools land in the correct wheel locations.  For normal
+# builds the cache variables default to the standard development layout.
+if(DEFINED SKBUILD_PLATLIB_DIR)
+  # Compute the relative path from CMAKE_INSTALL_PREFIX to SKBUILD_PLATLIB_DIR
+  # so Python modules and tools land under the aster/ package inside the wheel.
+  file(RELATIVE_PATH _skbuild_rel_platlib
+    "${CMAKE_INSTALL_PREFIX}" "${SKBUILD_PLATLIB_DIR}")
+  if(_skbuild_rel_platlib)
+    set(_aster_prefix "${_skbuild_rel_platlib}/aster")
+  else()
+    set(_aster_prefix "aster")
+  endif()
+  set(ASTER_PYTHON_INSTALL_PREFIX "${_aster_prefix}"
+    CACHE STRING "Python install prefix relative to CMAKE_INSTALL_PREFIX" FORCE)
+  set(ASTER_TOOLS_INSTALL_PREFIX "${_aster_prefix}/_mlir_libs"
+    CACHE STRING "Tools install prefix relative to CMAKE_INSTALL_PREFIX" FORCE)
+else()
+  set(ASTER_PYTHON_INSTALL_PREFIX "python_packages/aster"
+    CACHE STRING "Python install prefix relative to CMAKE_INSTALL_PREFIX")
+  set(ASTER_TOOLS_INSTALL_PREFIX "bin"
+    CACHE STRING "Tools install prefix relative to CMAKE_INSTALL_PREFIX")
+endif()
+
 ################################################################################
 # Configure aster
 ################################################################################
