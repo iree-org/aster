@@ -30,6 +30,7 @@ print_help() {
     echo "  --python=PATH      Python interpreter to use when creating the environment"
     echo "  --venv=PATH        Use or create a specific Python environment"
     echo "  --venv-prompt=NAME Override the shell prompt shown inside the environment"
+    echo "  --no-install       Only build (skip ninja install)"
     echo "  --help             Show this help"
     echo ""
     echo "Environment variables (override defaults):"
@@ -112,6 +113,7 @@ LLD_CMD="lld"
 VENV_EXPLICIT=""
 VENV_PROMPT_EXPLICIT=""
 PYTHON_EXPLICIT=""
+NO_INSTALL=false
 
 parse_arguments() {
     for arg in "$@"; do
@@ -129,6 +131,7 @@ parse_arguments() {
             --python=*)        PYTHON_EXPLICIT="${arg#*=}" ;;
             --venv=*)          VENV_EXPLICIT="${arg#*=}" ;;
             --venv-prompt=*)   VENV_PROMPT_EXPLICIT="${arg#*=}" ;;
+            --no-install)      NO_INSTALL=true ;;
             --help|-h)
                 print_help
                 exit 0
@@ -754,8 +757,12 @@ phase4_cmake_configure() {
 
 phase5_build() {
     info "Phase 5: Build"
-    echo "  Running ninja install..."
-    if "$VIRTUAL_ENV/bin/ninja" -C "$ASTER_BUILD_DIR" install; then
+    echo "  Running ninja..."
+    NINJA_ARGS="install"
+    if [ "$NO_INSTALL" = true ]; then
+        NINJA_ARGS=""
+    fi
+    if "$VIRTUAL_ENV/bin/ninja" -C "$ASTER_BUILD_DIR" $NINJA_ARGS; then
         ok "ASTER built"
     else
         err "Build failed"
