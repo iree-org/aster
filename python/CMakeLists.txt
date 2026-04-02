@@ -99,20 +99,8 @@ declare_mlir_python_sources(
 )
 
 ################################################################################
-# Configure HIP (optional)
-################################################################################
-find_package(hip QUIET)
-
-if(hip_FOUND)
-  message(STATUS "HIP found: HIP support will be enabled")
-  set(HAS_HIP_SUPPORT ON)
-else()
-  message(STATUS "HIP not found: building with stub implementations")
-  set(HAS_HIP_SUPPORT OFF)
-endif()
-
-################################################################################
 # Runtime Module
+# HIP is loaded dynamically via dlopen; no compile-time HIP SDK dependency.
 ################################################################################
 declare_mlir_python_extension(ASTERPythonExtensions._runtime_module
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib"
@@ -126,12 +114,8 @@ declare_mlir_python_extension(ASTERPythonExtensions._runtime_module
 # Set RPATH for runtime module
 set_property(TARGET ASTERPythonExtensions._runtime_module PROPERTY INSTALL_RPATH_USE_LINK_PATH ON)
 
-if(HAS_HIP_SUPPORT)
-  target_compile_definitions(ASTERPythonExtensions._runtime_module INTERFACE HAS_HIP_SUPPORT)
-  target_link_libraries(ASTERPythonExtensions._runtime_module INTERFACE hip::host hip::amdhip64)
-else()
-  # No HIP libraries to link - stubs will be used
-endif()
+# dl is required for dlopen/dlsym used to load libamdhip64.so at runtime.
+target_link_libraries(ASTERPythonExtensions._runtime_module INTERFACE dl)
 
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT ASTERPythonSources
