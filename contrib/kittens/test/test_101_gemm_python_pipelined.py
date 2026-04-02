@@ -25,9 +25,19 @@ from aster.pass_pipelines import make_default_pass_pipeline
 
 from aster.layout import Layout, Swizzle
 
-TILE_16x64 = Layout((16, 4), (64, 16))
+# LDS write layouts.
+LDS_WRITE_TILE_A = Layout((16, 4), (64, 16))
+LDS_WRITE_TILE_B = Layout((16, 4), (64, 16))
+LDS_WRITE_SUB_TILE_A = Layout((1, 2), (0, 8))
+LDS_WRITE_SUB_TILE_B = Layout((1, 2), (0, 8))
+
+# LDS read layouts.
+LDS_READ_TILE_A = Layout((4, 16), (8, 64))
+LDS_READ_TILE_B = Layout((4, 16), (8, 64))
+LDS_READ_SUB_TILE_A = Layout((1, 2), (0, 32))
+LDS_READ_SUB_TILE_B = Layout((1, 2), (0, 32))
+
 LDS_SWIZZLE = Swizzle(bits=3, base=3, shift=3)
-MFMA_FRAGMENT_IN_TILE = Layout((4, 16), (8, 64))
 
 MCPU = "gfx942"
 
@@ -42,15 +52,18 @@ def _build_gemm_pipelined(k, stride_ab):
     k_tiles = k // 32
     stride_c = 16 * 4
     d0 = ir.AffineExpr.get_dim(0)
-    GLOBAL_LAYOUT = Layout((16, 4), (stride_ab, 16))
-    C_LAYOUT = Layout((4, 16, 4), (4 * stride_c, 4, stride_c))
+    GLOBAL_LOAD_TILE_A = Layout((16, 4), (stride_ab, 16))
+    GLOBAL_LOAD_SUB_TILE_A = Layout(1, 0)
+    GLOBAL_LOAD_TILE_B = Layout((16, 4), (stride_ab, 16))
+    GLOBAL_LOAD_SUB_TILE_B = Layout(1, 0)
+    GLOBAL_STORE_TILE_C = Layout((4, 16, 4), (4 * stride_c, 4, stride_c))
+    GLOBAL_STORE_SUB_TILE_C = Layout(1, 0)
 
     b = KernelBuilder("gemm_pipe_mod", "gemm_pipelined", target=MCPU, isa="cdna3")
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.WriteOnly)
     a_ptr, b_ptr, c_ptr = b.load_args()
-    lane = b.lane_id()
 
     c0 = b.constant_index(0)
     c1 = b.constant_index(1)
@@ -65,41 +78,48 @@ def _build_gemm_pipelined(k, stride_ab):
         with b.stage(STAGE_LOAD):
             lds_a_h, lds_a = b.alloc_lds(1024)
             lds_b_h, lds_b = b.alloc_lds(1024)
-            a_data, a_tok = b.load_tile_from_global(a_ptr, tile_off, GLOBAL_LAYOUT)
-            b_data, b_tok = b.load_tile_from_global(b_ptr, tile_off, GLOBAL_LAYOUT)
+            [(a_data, a_tok)] = b.load_multi_tile_from_global(
+                a_ptr, tile_off, GLOBAL_LOAD_TILE_A, GLOBAL_LOAD_SUB_TILE_A
+            )
+            [(b_data, b_tok)] = b.load_multi_tile_from_global(
+                b_ptr, tile_off, GLOBAL_LOAD_TILE_B, GLOBAL_LOAD_SUB_TILE_B
+            )
 
         with b.stage(STAGE_WRITE):
             b.wait_deps(a_tok, b_tok)
-            a_wtoks = b.write_tile_to_lds(a_data, lds_a, TILE_16x64, LDS_SWIZZLE)
-            b_wtoks = b.write_tile_to_lds(b_data, lds_b, TILE_16x64, LDS_SWIZZLE)
+            a_wtoks = b.write_multi_tile_to_lds(
+                a_data, lds_a, LDS_WRITE_TILE_A, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_A
+            )
+            b_wtoks = b.write_multi_tile_to_lds(
+                b_data, lds_b, LDS_WRITE_TILE_B, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_B
+            )
 
         with b.stage(STAGE_READ):
             b.wait_deps(*a_wtoks, *b_wtoks)
-            a0, a0t = b.read_fragment_from_lds(
-                lds_a, MFMA_FRAGMENT_IN_TILE, LDS_SWIZZLE
+            a_frags = b.read_multi_fragment_from_lds(
+                lds_a, LDS_READ_TILE_A, LDS_SWIZZLE, LDS_READ_SUB_TILE_A
             )
-            b0, b0t = b.read_fragment_from_lds(
-                lds_b, MFMA_FRAGMENT_IN_TILE, LDS_SWIZZLE
-            )
-            k1_off = b.constant_index(32)
-            a1, a1t = b.read_fragment_from_lds(
-                lds_a, MFMA_FRAGMENT_IN_TILE, LDS_SWIZZLE, k1_off
-            )
-            b1, b1t = b.read_fragment_from_lds(
-                lds_b, MFMA_FRAGMENT_IN_TILE, LDS_SWIZZLE, k1_off
+            b_frags = b.read_multi_fragment_from_lds(
+                lds_b, LDS_READ_TILE_B, LDS_SWIZZLE, LDS_READ_SUB_TILE_B
             )
 
         with b.stage(STAGE_COMPUTE):
-            b.wait_deps(a0t, b0t, a1t, b1t)
-            acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a0, b0)
-            acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a1, b1)
+            for (a_d, a_t), (b_d, b_t) in zip(a_frags, b_frags):
+                b.wait_deps(a_t, b_t)
+                acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_d, b_d)
             b.dealloc_lds(lds_a_h)
             b.dealloc_lds(lds_b_h)
 
         return [acc]
 
     [acc_final] = acc
-    b.store_fragment_to_global(acc_final, c_ptr, b.constant_index(0), C_LAYOUT)
+    b.store_multi_fragment_to_global(
+        acc_final,
+        c_ptr,
+        b.constant_index(0),
+        GLOBAL_STORE_TILE_C,
+        GLOBAL_STORE_SUB_TILE_C,
+    )
     return b.build()
 
 
