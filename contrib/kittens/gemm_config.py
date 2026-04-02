@@ -234,6 +234,19 @@ class GemmMappingSpec:
     ll_sched: bool = False  # low-latency scheduling
     hoist_wait: bool = False  # hoist iter-arg waits
 
+    # --- Atomic transfer sizes (bytes per lane per memory operation) ---
+
+    global_transfer_bytes_a: int = 16  # dwordx4 = 16 bytes
+    global_transfer_bytes_b: int = 16
+    lds_transfer_bytes_a: int = 16
+    lds_transfer_bytes_b: int = 16
+
+    # --- LDS swizzle ---
+
+    lds_swizzle_bits: int = 3
+    lds_swizzle_base: int = 3
+    lds_swizzle_shift: int = 3
+
     # --- Occupancy ---
 
     num_wg_per_cu: int = 1
@@ -243,6 +256,16 @@ class GemmMappingSpec:
         from kittens_helpers import PIPELINE_STRATEGIES
 
         return PIPELINE_STRATEGIES[self.pipeline_strategy]
+
+    @property
+    def lds_swizzle(self):
+        from aster.layout import Swizzle
+
+        return Swizzle(
+            bits=self.lds_swizzle_bits,
+            base=self.lds_swizzle_base,
+            shift=self.lds_swizzle_shift,
+        )
 
     # --- Derived tile counts ---
 
