@@ -1,0 +1,10 @@
+set(CPACK_PACKAGE_NAME        "llvm-aster")
+set(CPACK_PACKAGE_DESCRIPTION "Portable LLVM build for the aster project")
+set(CPACK_PACKAGE_VERSION    "@LLVM_COMMIT_SHORT@")
+set(CPACK_GENERATOR          "TGZ")
+set(CPACK_PACKAGE_FILE_NAME  "llvm-@LLVM_OS@-@LLVM_ARCH@-@LLVM_COMMIT_SHORT@")
+# Install the contents of LLVM_INSTALL_DIR as the top-level `llvm/` directory
+# inside the archive, making it fully relocatable.
+# Note: do not include(CPack) here — this is a standalone config, not a
+# CMakeLists.txt context. The include() macro is only for in-tree builds.
+set(CPACK_INSTALLED_DIRECTORIES "@LLVM_INSTALL_DIR@;llvm")

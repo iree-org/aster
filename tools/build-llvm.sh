@@ -9,6 +9,7 @@ LLVM_PROJECT="${LLVM_PROJECT:-${HOME}/llvm-project}"
 LLVM_BUILD="${LLVM_BUILD:-${HOME}/llvm-build}"
 LLVM_INSTALL="${LLVM_INSTALL:-${HOME}/shared-llvm}"
 LLVM_LINKER_FLAGS="${LLVM_LINKER_FLAGS:-}"
+CMAKE_EXE_LINKER_FLAGS="${CMAKE_EXE_LINKER_FLAGS:-}"
 LLVM_CCACHE_BUILD="${LLVM_CCACHE_BUILD:-ON}"
 LLVM_CLEAN_BUILD="${LLVM_CLEAN_BUILD:-OFF}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
@@ -38,6 +39,11 @@ lld;lld-headers;lld-cmake-exports;lldCommon;lldELF"
 LLVM_INSTALL_UTILS="ON"
 LLVM_ENABLE_ASSERTIONS="${LLVM_ENABLE_ASSERTIONS:-ON}"
 LLVM_SRC_DIR="${LLVM_PROJECT}/llvm"
+
+# Build array of extra cmake flags derived from optional env vars.
+CMAKE_EXTRA_FLAGS=()
+[[ -n "${CMAKE_EXE_LINKER_FLAGS}" ]] && \
+    CMAKE_EXTRA_FLAGS+=("-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}")
 
 # ===----------------------------------------------------------------------=== #
 # Pre-flight checks
@@ -86,7 +92,8 @@ cmake -G Ninja \
     -DLLVM_ENABLE_LIBCXX=OFF \
     -DMLIR_INCLUDE_TESTS=OFF \
     -DMLIR_PYTHON_STUBGEN_ENABLED=OFF \
-    -DMLIR_ENABLE_PYTHON_SOURCES=ON
+    -DMLIR_ENABLE_PYTHON_SOURCES=ON \
+    "${CMAKE_EXTRA_FLAGS[@]}"
 
 # ===----------------------------------------------------------------------=== #
 # Build and install
