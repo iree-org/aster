@@ -174,8 +174,9 @@ class Target:
     def from_device(cls, device_id: int = 0) -> "Target":
         """Construct a Target from the actual GPU via HIP device properties.
 
-        Queries the hardware at runtime and overrides the hardcoded _ArchParams with the
-        real values. Raises RuntimeError if HIP is unavailable.
+        Queries the hardware at runtime and overrides the hardcoded
+        _ArchParams with the real values. Raises RuntimeError if HIP is
+        unavailable.
         """
         from aster.core.device import query_device
 

@@ -28,4 +28,3 @@ target_include_directories(MLIRAsterTestDialect
   PRIVATE
   ${PROJECT_BINARY_DIR}/test/lib/Dialect
 )
-

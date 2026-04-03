@@ -90,9 +90,9 @@ def _run_lds_copy_test(name, layout, swizzle=None):
         for j in range(elems_per):
             actual = dst[tid * elems_per + j]
             expected = tid * 10.0 + j
-            assert (
-                actual == expected
-            ), f"tid={tid} elem={j}: got {actual}, expected {expected}"
+            assert actual == expected, (
+                f"tid={tid} elem={j}: got {actual}, expected {expected}"
+            )
 
 
 def test_lds_copy_linear():

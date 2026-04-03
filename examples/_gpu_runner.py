@@ -6,9 +6,9 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 """GPU execution subprocess -- avoids LLVM symbol conflicts with ROCm.
 
-Called by common.execute_or_skip with LD_LIBRARY_PATH set so ROCm's HIP runtime is
-findable. This process does NOT import ASTER's compiler (which bundles its own LLVM),
-only the execution module.
+Called by common.execute_or_skip with LD_LIBRARY_PATH set so ROCm's HIP
+runtime is findable. This process does NOT import ASTER's compiler
+(which bundles its own LLVM), only the execution module.
 """
 
 import json

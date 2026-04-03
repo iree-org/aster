@@ -11,7 +11,6 @@ class TestStoreGlobalCFragmentWait:
 
     def test_store_MFMA_C_fragment(self):
         """Store C fragment to global with MFMA C access pattern."""
-        num_threads = 64
         # Output: 16x16 matrix of int32.
         output = np.zeros(16 * 16, dtype=np.int32).reshape(16, 4, 4)
 

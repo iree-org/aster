@@ -1,9 +1,13 @@
 """Test that the hardware CP enforces per-CU register file limits at dispatch."""
 
+import os
+import tempfile
+
+import numpy as np
 import pytest
 
 from aster.compiler.core import compile_to_hsaco
-from aster.execution.core import execute_hsaco, InputArray, OutputArray
+from aster.execution.core import execute_hsaco, OutputArray
 
 # Skip if no GPU available.
 try:
@@ -100,11 +104,6 @@ def _make_hsaco(next_free_vgpr, accum_offset):
     return compile_to_hsaco(asm, target="gfx942", wavefront_size=64)
 
 
-import numpy as np
-import tempfile
-import os
-
-
 def _write_hsaco(data):
     f = tempfile.NamedTemporaryFile(suffix=".hsaco", delete=False)
     f.write(data)
@@ -184,8 +183,7 @@ except Exception as e:
         )
         stdout = result.stdout.strip()
         assert result.returncode == 0 and "EXPECTED_FAILURE" in stdout, (
-            f"exit={result.returncode}, stdout={stdout},"
-            f" stderr={result.stderr[-500:]}"
+            f"exit={result.returncode}, stdout={stdout}, stderr={result.stderr[-500:]}"
         )
     finally:
         os.unlink(path)

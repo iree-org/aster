@@ -1,10 +1,10 @@
 """Shared kernel utilities for GEMM/BatchedSmallGEMM tests and benchmarks.
 
-This module provides unified config classes, preprocess functions, and verification
-functions used by both test and benchmark infrastructure.
+This module provides unified config classes, preprocess functions, and
+verification functions used by both test and benchmark infrastructure.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 import numpy as np
 
@@ -32,8 +32,8 @@ LDS_SIZE_LIMIT = 65536
 class GEMMConfig:
     """Configuration for GEMM 16x16x16 kernels.
 
-    Used by both tests and benchmarks. Inheriting from BaseConfig is optional
-    (benchmarks do, tests may not).
+    Used by both tests and benchmarks. Inheriting from BaseConfig is
+    optional (benchmarks do, tests may not).
     """
 
     m: int  # Problem size M
@@ -148,8 +148,8 @@ class GEMMConfig:
 class BatchedSmallGEMMConfig:
     """Configuration for batched small GEMM 16x16x16 block-based kernels.
 
-    Here m, n, k are the number of 16x16 blocks, not element counts. Each workgroup/wave
-    processes its own independent batch.
+    Here m, n, k are the number of 16x16 blocks, not element counts.
+    Each workgroup/wave processes its own independent batch.
     """
 
     m: int  # Number of 16x16 blocks in M dimension
@@ -346,9 +346,9 @@ def make_batchedsmallgemm_verify_fn(config: BatchedSmallGEMMConfig) -> Callable:
         for b_idx in range(batch):
             for i in range(m):
                 for j in range(n):
-                    for l in range(k):
-                        a_block = a_blocks[b_idx, i, l]
-                        b_block = b_blocks[b_idx, l, j]
+                    for kk in range(k):
+                        a_block = a_blocks[b_idx, i, kk]
+                        b_block = b_blocks[b_idx, kk, j]
                         ref[b_idx, i, j] += np.matmul(
                             a_block.astype(np.float32), b_block.astype(np.float32)
                         )

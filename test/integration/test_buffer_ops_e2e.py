@@ -132,9 +132,10 @@ class TestBufferIdxenStride4:
 class TestBufferIdxenStride1024:
     """Test IDXEN with stride=1024 -- proves hardware stride multiplication works.
 
-    With stride=1024 and buffer_load_dword, each lane reads 4 bytes starting at byte
-    offset index*1024. The source buffer has known values scattered at 1024-byte
-    intervals; if stride math is wrong the test fails.
+    With stride=1024 and buffer_load_dword, each lane reads 4 bytes
+    starting at byte offset index*1024. The source buffer has known
+    values scattered at 1024-byte intervals; if stride math is wrong the
+    test fails.
     """
 
     KERNEL = "buffer_idxen_stride1024_kernel"
@@ -144,8 +145,8 @@ class TestBufferIdxenStride1024:
     def _make_strided_src(self, num_elements):
         """Create source with known values at stride=1024 intervals.
 
-        Returns (flat_buffer, expected_per_lane_values). Lane i reads the dword at byte
-        offset i*1024, i.e. int32 index i*256.
+        Returns (flat_buffer, expected_per_lane_values). Lane i reads
+        the dword at byte offset i*1024, i.e. int32 index i*256.
         """
         total_int32s = num_elements * self.STRIDE_ELEMENTS
         buf = np.zeros(total_int32s, dtype=np.int32)
@@ -181,8 +182,8 @@ class TestBufferIdxenStride1024:
     def test_idxen_stride1024_oob_non_power_of_2(self):
         """64 lanes, only 37 accessible at stride=1024 (non-power-of-2).
 
-        Lanes 0-36 read their strided value. Lanes 37-63 are OOB (index >= 37): reads
-        return 0, writes are dropped.
+        Lanes 0-36 read their strided value. Lanes 37-63 are OOB (index
+        >= 37): reads return 0, writes are dropped.
         """
         valid = 37
         src, expected = self._make_strided_src(TOTAL_LANES)

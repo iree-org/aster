@@ -45,6 +45,6 @@ result = execute_or_skip(asm, KERNEL, outputs=[output])
 if result is not None:
     expected = np.arange(64, dtype=np.int32)
     if np.array_equal(output, expected):
-        print(f"PASS: output = thread IDs [0..63]")
+        print("PASS: output = thread IDs [0..63]")
     else:
         print(f"FAIL: expected [0..63], got {output}")

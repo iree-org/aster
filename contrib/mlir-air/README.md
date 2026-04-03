@@ -7,7 +7,7 @@ See `README_devs.md` (repo root) for ASTER setup, build, and test instructions.
 ## Build
 
 ```bash
-( 
+(
   cd build && \
   cmake .. -DASTER_ENABLE_MLIR_AIR=ON && \
   ninja install

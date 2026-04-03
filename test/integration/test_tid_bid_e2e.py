@@ -101,8 +101,8 @@ def test_tid_xy():
 def test_tid_xyz():
     """thread_id x + y + z -- full packed extraction from VGPR0.
 
-    Uses block=(16,8,8)=1024 threads (max WG size on gfx942). Tests x=10, y=5, z=7 (42
-    doesn't fit with y=8,z=8 in 1024 threads).
+    Uses block=(16,8,8)=1024 threads (max WG size on gfx942). Tests
+    x=10, y=5, z=7 (42 doesn't fit with y=8,z=8 in 1024 threads).
     """
     block = (16, 8, 8)
     n_threads = 16 * 8 * 8  # 1024
@@ -153,8 +153,8 @@ def test_tid_xyz():
 def test_bid_xyz():
     """block_id x + y + z -- SGPR system registers.
 
-    Launches grid=(43,6,8)=2064 workgroups, block=(64,1,1). Verifies block_id=(42,5,7)
-    is correctly reported.
+    Launches grid=(43,6,8)=2064 workgroups, block=(64,1,1). Verifies
+    block_id=(42,5,7) is correctly reported.
     """
     grid = (43, 6, 8)
     block = (64, 1, 1)
@@ -206,8 +206,8 @@ def test_bid_xyz():
 def test_tid_x_bid_x():
     """Combined thread_id x + block_id x.
 
-    Launches grid=(43,1,1), block=(64,1,1). Verifies tid_x=42 and bid_x=42 in the same
-    kernel.
+    Launches grid=(43,1,1), block=(64,1,1). Verifies tid_x=42 and
+    bid_x=42 in the same kernel.
     """
     grid = (43, 1, 1)
     block = (64, 1, 1)

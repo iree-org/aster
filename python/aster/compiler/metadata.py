@@ -1,7 +1,8 @@
 """Kernel resource metadata parsing and register budget utilities.
 
-Parses the .amdgpu_metadata YAML section emitted by the ASTER compiler and exposes
-register/LDS occupancy helpers that are independent of MLIR/LLVM.
+Parses the .amdgpu_metadata YAML section emitted by the ASTER compiler
+and exposes register/LDS occupancy helpers that are independent of
+MLIR/LLVM.
 """
 
 import re
@@ -15,8 +16,8 @@ from aster.core.target import Target
 class KernelResources:
     """Resource usage extracted from AMDGPU assembly metadata.
 
-    This is the ground truth for what the hardware will actually use, as emitted by the
-    ASTER compiler in .amdgpu_metadata.
+    This is the ground truth for what the hardware will actually use, as
+    emitted by the ASTER compiler in .amdgpu_metadata.
     """
 
     # Registers
@@ -197,7 +198,8 @@ def _parse_metadata_yaml(
 ) -> Dict[str, KernelResources]:
     """Parse the amdhsa.kernels YAML body into KernelResources.
 
-    meta_text is everything between the --- delimiters in .amdgpu_metadata.
+    meta_text is everything between the --- delimiters in
+    .amdgpu_metadata.
     """
     results = {}
 

@@ -2,7 +2,6 @@
 """Common utilities for nanobenchmarks."""
 
 import argparse
-import os
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 

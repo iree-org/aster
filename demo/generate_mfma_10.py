@@ -14,7 +14,7 @@ def build_mfma_10_module(ctx: ir.Context, num_mfma_instructions: int) -> ir.Modu
     for _ in range(num_mfma_instructions):
         a = b.alloc_vgprx2()
         b_reg = b.alloc_vgprx2()
-        c = b.alloc_vgprx4()
+        b.alloc_vgprx4()
         acc = b.init_agprx4(b.constant_i32(0))
         b.mfma("v_mfma_f32_16x16x16_f16", acc, a, b_reg)
 

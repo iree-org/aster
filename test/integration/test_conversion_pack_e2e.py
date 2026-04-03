@@ -1,8 +1,8 @@
 """End-to-end tests for conversion and pack operations.
 
-Tests VOP1 type conversions (f16<->f32, i32<->f32, u32<->f32) and VOP3 pack operations
-(v_pack_b32_f16, v_cvt_pk_fp8_f32, v_cvt_pk_bf8_f32) by running GPU kernels and
-verifying output bytes in Python.
+Tests VOP1 type conversions (f16<->f32, i32<->f32, u32<->f32) and VOP3
+pack operations (v_pack_b32_f16, v_cvt_pk_fp8_f32, v_cvt_pk_bf8_f32) by
+running GPU kernels and verifying output bytes in Python.
 
 Parametrized over multiple GPU targets (gfx942/cdna3, gfx950/cdna4).
 """
@@ -277,9 +277,9 @@ class TestCvtF32F16:
             result_f32 = outputs[0].view(np.float32)
             for i in range(TOTAL_LANES):
                 expected = f16_bits_to_f32(src_dwords[i] & 0xFFFF)
-                assert result_f32[i] == np.float32(
-                    expected
-                ), f"lane {i}: expected {expected}, got {result_f32[i]}"
+                assert result_f32[i] == np.float32(expected), (
+                    f"lane {i}: expected {expected}, got {result_f32[i]}"
+                )
 
         _run(mcpu, isa, "cvt_f32_f16_kernel", [src], [dst], verify)
 
@@ -399,8 +399,7 @@ class TestCvtU32F32:
                 else:
                     expected = np.uint32(int(val))
                 assert result_u32[i] == expected, (
-                    f"lane {i}: f32={val}, expected u32={expected}, "
-                    f"got {result_u32[i]}"
+                    f"lane {i}: f32={val}, expected u32={expected}, got {result_u32[i]}"
                 )
 
         _run(mcpu, isa, "cvt_u32_f32_kernel", [src.view(np.int32)], [dst], verify)
@@ -437,8 +436,7 @@ class TestCvtI32F32:
                 else:
                     expected = np.int32(int(val))
                 assert result_i32[i] == expected, (
-                    f"lane {i}: f32={val}, expected i32={expected}, "
-                    f"got {result_i32[i]}"
+                    f"lane {i}: f32={val}, expected i32={expected}, got {result_i32[i]}"
                 )
 
         _run(mcpu, isa, "cvt_i32_f32_kernel", [src.view(np.int32)], [dst], verify)

@@ -1,7 +1,8 @@
 """Pure-Python pipelined GEMM using layout-first programming model.
 
-Supersedes test_005_gemm_fp16_lds_pipelined.mlir -- no .mlir template needed. Pipeline
-scheduling via b.stage() context manager + sched.stage attributes.
+Supersedes test_005_gemm_fp16_lds_pipelined.mlir -- no .mlir template
+needed. Pipeline scheduling via b.stage() context manager + sched.stage
+attributes.
 """
 
 import os
@@ -87,21 +88,13 @@ def _build_gemm_pipelined(k, stride_ab):
 
         with b.stage(STAGE_WRITE):
             b.wait_deps(a_tok, b_tok)
-            a_wtoks = b.write_multi_tile_to_lds(
-                a_data, lds_a, LDS_WRITE_TILE_A, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_A
-            )
-            b_wtoks = b.write_multi_tile_to_lds(
-                b_data, lds_b, LDS_WRITE_TILE_B, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_B
-            )
+            a_wtoks = b.write_multi_tile_to_lds(a_data, lds_a, LDS_WRITE_TILE_A, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_A)
+            b_wtoks = b.write_multi_tile_to_lds(b_data, lds_b, LDS_WRITE_TILE_B, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_B)
 
         with b.stage(STAGE_READ):
             b.wait_deps(*a_wtoks, *b_wtoks)
-            a_frags = b.read_multi_fragment_from_lds(
-                lds_a, LDS_READ_TILE_A, LDS_SWIZZLE, LDS_READ_SUB_TILE_A
-            )
-            b_frags = b.read_multi_fragment_from_lds(
-                lds_b, LDS_READ_TILE_B, LDS_SWIZZLE, LDS_READ_SUB_TILE_B
-            )
+            a_frags = b.read_multi_fragment_from_lds(lds_a, LDS_READ_TILE_A, LDS_SWIZZLE, LDS_READ_SUB_TILE_A)
+            b_frags = b.read_multi_fragment_from_lds(lds_b, LDS_READ_TILE_B, LDS_SWIZZLE, LDS_READ_SUB_TILE_B)
 
         with b.stage(STAGE_COMPUTE):
             for (a_d, a_t), (b_d, b_t) in zip(a_frags, b_frags):
@@ -124,7 +117,6 @@ def _build_gemm_pipelined(k, stride_ab):
 
 
 class TestPythonGEMMPipelined:
-
     @pytest.mark.parametrize("k", [128, 256, 512, 1024])
     def test_gemm_pipelined_python(self, k):
         stride_ab = k * 2
@@ -138,15 +130,11 @@ class TestPythonGEMMPipelined:
         ctx.allow_unregistered_dialects = True
         with ctx:
             module = _build_gemm_pipelined(k, stride_ab)
-            asm = compile_mlir_module_to_asm(
-                module, pass_pipeline=make_default_pass_pipeline()
-            )
+            asm = compile_mlir_module_to_asm(module, pass_pipeline=make_default_pass_pipeline())
 
         path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
         if path is None:
-            pytest.skip(
-                f"LLVM assembler not compiled with {MCPU} support (unknown target)"
-            )
+            pytest.skip(f"LLVM assembler not compiled with {MCPU} support (unknown target)")
 
         with hsaco_file(path):
             if not system_has_mcpu(mcpu=MCPU):

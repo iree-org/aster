@@ -116,8 +116,7 @@ struct InsertOpToFromElements : public OpRewritePattern<vector::InsertOp> {
 
     // Handle scalar insertion.
     if (valueType.isIntOrIndexOrFloat()) {
-      int64_t linearIdx =
-          linearize(staticPos, computeSuffixProduct(destShape));
+      int64_t linearIdx = linearize(staticPos, computeSuffixProduct(destShape));
       elements[linearIdx] = op.getValueToStore();
       rewriter.replaceOpWithNewOp<vector::FromElementsOp>(op, destType,
                                                           elements);
@@ -332,9 +331,9 @@ static std::optional<VectorType> dropLeadingUnitDims(VectorType type) {
   }
   if (n == 0)
     return std::nullopt;
-  return VectorType::get(
-      SmallVector<int64_t>(shape.begin() + n, shape.end()),
-      type.getElementType(), type.getScalableDims().drop_front(n));
+  return VectorType::get(SmallVector<int64_t>(shape.begin() + n, shape.end()),
+                         type.getElementType(),
+                         type.getScalableDims().drop_front(n));
 }
 
 /// Drop leading unit dimensions from vector.from_elements, then shape_cast

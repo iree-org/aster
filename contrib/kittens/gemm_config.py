@@ -76,8 +76,9 @@ class GemmSpec:
 
     Defines C[dm, dn] += A[dm, dk] * B[dn, dk].
 
-    Per-operand queries (operand_layout, operand_memory_layout, operand_logical_dims,
-    operand_shape, operand_elt_bytes) provide uniform access to all operands.
+    Per-operand queries (operand_layout, operand_memory_layout,
+    operand_logical_dims, operand_shape, operand_elt_bytes) provide
+    uniform access to all operands.
     """
 
     # Per-operand memory layouts (source of truth for sizes and strides).
@@ -401,9 +402,9 @@ class OperandLayout:
         elt_bytes: int,
         mfma_shape: list[int],
     ):
-        assert (
-            memory_layout.is_flat
-        ), f"OperandLayout requires flat memory_layout, got {memory_layout!r}"
+        assert memory_layout.is_flat, (
+            f"OperandLayout requires flat memory_layout, got {memory_layout!r}"
+        )
         self.memory_layout = memory_layout
         self.logical_dims = logical_dims
         self.elt_bytes = elt_bytes

@@ -4,7 +4,7 @@
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, Set, Tuple
 
 
 def extract_type_aliases(content: str) -> Dict[str, Tuple[int, str]]:
@@ -170,7 +170,7 @@ def is_library_file(file_path: Path) -> bool:
         content = file_path.read_text()
         if "amdgcn.library" in content:
             return True
-    except:
+    except OSError:
         pass
 
     return False

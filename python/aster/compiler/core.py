@@ -88,7 +88,7 @@ def compile_to_hsaco(
         mcpu = target
         wf = wavefront_size
 
-    with Context() as ctx:
+    with Context():
         return _compile_asm(
             Location.unknown(), asm_content, mcpu, f"+wavefrontsize{wf}"
         )
@@ -266,7 +266,7 @@ def compile_mlir_module_to_asm(
     Returns:
         Assembly string.
     """
-    from aster.utils.logging import aster_get_logger, aster_log_info
+    from aster.utils.logging import aster_get_logger
 
     if pass_pipeline is None:
         from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE

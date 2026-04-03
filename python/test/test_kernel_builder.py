@@ -8,7 +8,6 @@ Layer 2: per-composite-helper IR validation via aster-opt.
 Layer 3: integration test - construct buffer_load + MFMA + buffer_store kernel.
 """
 
-import pytest
 import aster.ir as ir
 from aster.dialects import amdgcn as amdgcn_dialect
 from aster.dialects.kernel_builder import KernelBuilder

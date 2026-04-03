@@ -5,10 +5,10 @@ import os
 
 from aster import ir
 from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
-from aster.execution.core import execute_hsaco, InputArray, OutputArray
+from aster.test_pass_pipelines import TEST_EMPTY_PASS_PIPELINE
+from aster.execution.core import execute_hsaco
 from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
-from aster.test_pass_pipelines import TEST_TEST_EMPTY_PASS_PIPELINE
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 KERNEL_NAME = "kernel"

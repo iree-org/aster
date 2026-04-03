@@ -1,8 +1,8 @@
 """E2E tests for SCF pipeline with stage gaps (non-consecutive stage numbers).
 
-Tests that pipelining with gaps produces correct results by compiling kernels with non-
-consecutive sched.stage attributes, running on GPU, and verifying output buffers match
-expected values.
+Tests that pipelining with gaps produces correct results by compiling
+kernels with non- consecutive sched.stage attributes, running on GPU,
+and verifying output buffers match expected values.
 """
 
 import numpy as np

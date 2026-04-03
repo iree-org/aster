@@ -1,7 +1,6 @@
 """E2E test: pass a scalar i32 via by_val_arg, store to output[tid_x]."""
 
 import numpy as np
-import pytest
 
 from aster.execution.helpers import compile_and_run
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE

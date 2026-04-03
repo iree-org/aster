@@ -18,8 +18,14 @@ _REGISTER_INIT = os.path.join(_LIBRARY_DIR, "register-init.mlir")
     "mlir_filename,kernel_name,m,n,k,pass_pipeline",
     [
         ("mfma-e2e.mlir", "compute_kernel", 16, 16, 16, TEST_SROA_PASS_PIPELINE),
-        ("mfma-to-global-store-scheduled-allocated-1x1x1.mlir", "test_matmul_kernel",
-         16, 16, 16, TEST_SROA_PASS_PIPELINE),
+        (
+            "mfma-to-global-store-scheduled-allocated-1x1x1.mlir",
+            "test_matmul_kernel",
+            16,
+            16,
+            16,
+            TEST_SROA_PASS_PIPELINE,
+        ),
     ],
     # fmt: on
 )

@@ -66,9 +66,10 @@ class DeviceProps:
     def vgprs_per_simd(self) -> int:
         """Architectural VGPRs per SIMD (512 on gfx942).
 
-        Derived from regsPerMultiprocessor / warpSize / numSIMDs. regsPerMultiprocessor
-        counts 32-bit register *lanes* across all SIMDs. Dividing by warpSize gives
-        architectural registers per CU, then by numSIMDs gives per-SIMD.
+        Derived from regsPerMultiprocessor / warpSize / numSIMDs.
+        regsPerMultiprocessor counts 32-bit register *lanes* across all
+        SIMDs. Dividing by warpSize gives architectural registers per
+        CU, then by numSIMDs gives per-SIMD.
         """
         return self.regs_per_multiprocessor // self.warp_size // self.num_simds
 
@@ -97,8 +98,8 @@ _cache: dict = {}
 def query_device(device_id: int = 0) -> DeviceProps:
     """Query hardware properties from HIP for the given device.
 
-    Results are cached per device_id. Raises RuntimeError if HIP is not available or the
-    device does not exist.
+    Results are cached per device_id. Raises RuntimeError if HIP is not
+    available or the device does not exist.
     """
     if device_id in _cache:
         return _cache[device_id]

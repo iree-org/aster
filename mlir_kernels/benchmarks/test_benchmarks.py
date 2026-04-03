@@ -13,6 +13,7 @@ _BENCHMARK_MODULES = sorted(
     p.stem for p in _BENCHMARK_DIR.glob("benchmark_*.py") if p.stem != "benchmark_utils"
 )
 
+
 @pytest.mark.parametrize("module_name", _BENCHMARK_MODULES)
 def test_benchmark(module_name: str):
     """Run benchmark as subprocess with --smoke-test for quick validation."""

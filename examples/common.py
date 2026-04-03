@@ -26,8 +26,6 @@ from aster.execution.helpers import hsaco_file  # noqa: F401 (used by examples)
 from aster.execution.utils import system_has_mcpu
 from aster.test_pass_pipelines import (
     TEST_EMPTY_PASS_PIPELINE,
-    TEST_SROA_PASS_PIPELINE,
-    TEST_SYNCHRONOUS_PASS_PIPELINE,
 )
 
 TARGET = "gfx942"
@@ -108,9 +106,10 @@ def execute_or_skip(
 ):
     """Assemble to HSACO and execute on GPU in a subprocess.
 
-    ROCm's HIP runtime links LLVM symbols that conflict with ASTER's LLVM, so GPU
-    execution must happen in a separate process with LD_LIBRARY_PATH set at startup
-    (glibc caches it). Compilation (MLIR -> ASM -> HSACO) stays in the main process.
+    ROCm's HIP runtime links LLVM symbols that conflict with ASTER's
+    LLVM, so GPU execution must happen in a separate process with
+    LD_LIBRARY_PATH set at startup (glibc caches it). Compilation (MLIR
+    -> ASM -> HSACO) stays in the main process.
     """
     import json
     import subprocess

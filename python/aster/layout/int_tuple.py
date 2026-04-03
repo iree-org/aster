@@ -22,8 +22,9 @@ IntTuple: TypeAlias = int | tuple[int, ...]
 def product(a: IntTuple) -> int:
     """Product of all elements.
 
-    Works on int or flat tuple. Pure-Python equivalent of affine.linearize_index with
-    all-ones coordinates (i.e. computes the total domain size).
+    Works on int or flat tuple. Pure-Python equivalent of
+    affine.linearize_index with all-ones coordinates (i.e. computes the
+    total domain size).
     """
     if isinstance(a, tuple):
         return reduce(lambda x, y: x * y, a, 1)
@@ -50,9 +51,9 @@ def suffix_product(a: IntTuple) -> IntTuple:
 def delinearize(idx: int, sizes: tuple[int, ...]) -> tuple[int, ...]:
     """Decompose a 1-D index into multi-dim coordinates by sizes.
 
-    Uses first-mode-slowest convention (C row-major), matching upstream MLIR's
-    affine.delinearize_index. The first size is the outermost dimension. E.g.
-    delinearize(7, (4, 3)) -> (2, 1)  i.e. 7 = 2*3 + 1
+    Uses first-mode-slowest convention (C row-major), matching upstream
+    MLIR's affine.delinearize_index. The first size is the outermost
+    dimension. E.g. delinearize(7, (4, 3)) -> (2, 1)  i.e. 7 = 2*3 + 1
     """
     coords: list[int] = []
     for s in reversed(sizes):
@@ -65,7 +66,8 @@ def delinearize(idx: int, sizes: tuple[int, ...]) -> tuple[int, ...]:
 def linearize(coords: tuple[int, ...], strides: tuple[int, ...]) -> int:
     """Combine multi-dim coordinates into a 1-D offset via strides.
 
-    Pure-Python equivalent of affine.linearize_index.     linearize((3, 1), (1, 4)) -> 7
+    Pure-Python equivalent of affine.linearize_index.     linearize((3,
+    1), (1, 4)) -> 7
     """
     assert len(coords) == len(strides)
     return sum(c * d for c, d in zip(coords, strides))

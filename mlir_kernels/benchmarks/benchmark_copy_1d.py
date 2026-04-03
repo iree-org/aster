@@ -5,7 +5,7 @@ import sys
 import argparse
 import itertools
 import multiprocessing
-from typing import List, Tuple, Optional, Callable
+from typing import List, Tuple, Optional
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -35,9 +35,9 @@ class Copy1DConfig(BaseConfig):
     @property
     def total_num_elements_as_int32(self) -> int:
         """Total number of int32 elements needed for input/output arrays."""
-        assert (
-            self.element_size % np.dtype(np.int32).itemsize == 0
-        ), "element_size must be divisible by int32 itemsize"
+        assert self.element_size % np.dtype(np.int32).itemsize == 0, (
+            "element_size must be divisible by int32 itemsize"
+        )
         return (
             self.num_workgroups
             * self.num_elements_per_thread
@@ -182,8 +182,9 @@ def benchmark_copy_1d(
 ) -> Tuple[List[BenchmarkResult], List[Tuple[Copy1DConfig, str]]]:
     """Benchmark multiple copy_1d kernel configurations using all available GPUs.
 
-    Jobs are distributed across GPUs in round-robin fashion with only one job running
-    per GPU at a time. Control GPU visibility with CUDA_VISIBLE_DEVICES.
+    Jobs are distributed across GPUs in round-robin fashion with only
+    one job running per GPU at a time. Control GPU visibility with
+    CUDA_VISIBLE_DEVICES.
     """
     return run_benchmark(
         configs=configs,

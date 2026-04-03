@@ -248,9 +248,10 @@ class GpuFunction:
     ) -> None:
         """Launch the kernel with the given grid/block dimensions.
 
-        Args are converted to a capsule internally. HIP copies the argument values into
-        its own buffer during the launch call, so the local ctypes structures can be
-        freed as soon as this method returns.
+        Args are converted to a capsule internally. HIP copies the
+        argument values into its own buffer during the launch call, so
+        the local ctypes structures can be freed as soon as this method
+        returns.
         """
         from aster._mlir_libs._runtime_module import hip_module_launch_kernel
 
@@ -325,8 +326,8 @@ class GpuModule:
 class InputArray:
     """Numpy array passed as a read-only kernel input.
 
-    Data is copied from host to GPU before the first launch. No copy-back is performed
-    after the kernel runs.
+    Data is copied from host to GPU before the first launch. No copy-
+    back is performed after the kernel runs.
     """
 
     array: Any
@@ -336,8 +337,8 @@ class InputArray:
 class OutputArray:
     """Numpy array used as a kernel output.
 
-    No host-to-device copy is performed before the launch. After the first iteration the
-    GPU buffer is copied back to the host array.
+    No host-to-device copy is performed before the launch. After the
+    first iteration the GPU buffer is copied back to the host array.
     """
 
     array: Any
@@ -347,8 +348,8 @@ class OutputArray:
 class InOutArray:
     """Numpy array that is both read and written by the kernel.
 
-    Data is copied host-to-device before the first launch and device-to-host after the
-    first iteration.
+    Data is copied host-to-device before the first launch and device-to-
+    host after the first iteration.
     """
 
     array: Any

@@ -21,9 +21,10 @@ from kittens_helpers import (
 class TestKittensGEMM4WaveLDSPipelined_AGPR:
     """Test 4-wave GEMM with pipelined LDS + AGPR: C[32x32] = A[32xK] @ B[32xK]^T.
 
-    2x2 wave grid with XOR-swizzle LDS and sched.stage annotations. The aster-scf-
-    pipeline pass transforms 1-buffer code into 2- or 3-stage pipelined code with
-    automatic multi-buffering. AGPR accumulators with fire-and-forget stores.
+    2x2 wave grid with XOR-swizzle LDS and sched.stage annotations. The
+    aster-scf- pipeline pass transforms 1-buffer code into 2- or 3-stage
+    pipelined code with automatic multi-buffering. AGPR accumulators
+    with fire-and-forget stores.
     """
 
     @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
@@ -42,9 +43,7 @@ class TestKittensGEMM4WaveLDSPipelined_AGPR:
             output_args=[C_output],
             pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
             block_dim=(256, 1, 1),
-            template_substitutions=pipelined_substitutions_16x32(
-                k, NUM_STAGES_TO_STRATEGY[num_stages]
-            ),
+            template_substitutions=pipelined_substitutions_16x32(k, NUM_STAGES_TO_STRATEGY[num_stages]),
             library_paths=get_kittens_16x16_lds_library_paths(),
             print_ir_after_all=print_ir_after_all,
         )

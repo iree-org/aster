@@ -1,12 +1,13 @@
 """Integration test for G2S (Global-to-LDS) buffer_load_dword with LDS flag.
 
-Each lane loads one dword from global memory directly into LDS via buffer_load_dword_lds
-(G2S DMA path). The data is then read back from LDS via ds_read_b32 and stored to the
-output buffer.
+Each lane loads one dword from global memory directly into LDS via
+buffer_load_dword_lds (G2S DMA path). The data is then read back from
+LDS via ds_read_b32 and stored to the output buffer.
 
-With M0=44 (dword-aligned) and no inst_offset, the hardware computes:   LDS_ADDR = 44 +
-ThreadID * 4 so lane i's dword lands at LDS byte offset 44 + i*4. M0 must be dword-
-aligned (hardware masks low 2 bits: M0[17:2]*4).
+With M0=44 (dword-aligned) and no inst_offset, the hardware computes:
+LDS_ADDR = 44 + ThreadID * 4 so lane i's dword lands at LDS byte offset
+44 + i*4. M0 must be dword- aligned (hardware masks low 2 bits:
+M0[17:2]*4).
 """
 
 import os
