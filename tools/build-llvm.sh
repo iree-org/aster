@@ -93,7 +93,7 @@ cmake -G Ninja \
     -DMLIR_INCLUDE_TESTS=OFF \
     -DMLIR_PYTHON_STUBGEN_ENABLED=OFF \
     -DMLIR_ENABLE_PYTHON_SOURCES=ON \
-    "${CMAKE_EXTRA_FLAGS[@]}"
+    ${CMAKE_EXTRA_FLAGS[@]+"${CMAKE_EXTRA_FLAGS[@]}"}
 
 # ===----------------------------------------------------------------------=== #
 # Build and install

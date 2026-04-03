@@ -224,6 +224,49 @@ func.func @test_shl_i64_sgpr(%dst: !amdgcn.sgpr<[? + 2]>, %lhs: !amdgcn.sgpr<[? 
   return %res : !amdgcn.sgpr<[? + 2]>
 }
 
+// -----
+
+// SGPR dest overridden to VGPR path with copy-back.
+// CHECK-LABEL:   func.func @test_add_i32_sgpr_dest_vgpr_src(
+// CHECK-SAME:      %[[DST:.*]]: !amdgcn.sgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.sgpr) -> !amdgcn.sgpr {
+// CHECK:           %[[ALLOC:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VOP:.*]] = amdgcn.vop2 v_add_u32 outs %[[ALLOC]] ins %[[RHS]], %[[LHS]] : !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr
+// CHECK:           %[[COPY:.*]] = lsir.copy %[[DST]], %[[VOP]] : !amdgcn.sgpr, !amdgcn.vgpr
+// CHECK:           return %[[COPY]] : !amdgcn.sgpr
+// CHECK:         }
+func.func @test_add_i32_sgpr_dest_vgpr_src(%dst: !amdgcn.sgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.sgpr) -> !amdgcn.sgpr {
+  %res = lsir.addi i32 %dst, %lhs, %rhs : !amdgcn.sgpr, !amdgcn.vgpr, !amdgcn.sgpr
+  return %res : !amdgcn.sgpr
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @test_mul_i32_sgpr_dest_vgpr_src(
+// CHECK-SAME:      %[[DST:.*]]: !amdgcn.sgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.sgpr) -> !amdgcn.sgpr {
+// CHECK:           %[[ALLOC:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VOP:.*]] = amdgcn.vop3 v_mul_lo_u32 outs %[[ALLOC]] ins %[[RHS]], %[[LHS]]
+// CHECK:           %[[COPY:.*]] = lsir.copy %[[DST]], %[[VOP]] : !amdgcn.sgpr, !amdgcn.vgpr
+// CHECK:           return %[[COPY]] : !amdgcn.sgpr
+// CHECK:         }
+func.func @test_mul_i32_sgpr_dest_vgpr_src(%dst: !amdgcn.sgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.sgpr) -> !amdgcn.sgpr {
+  %res = lsir.muli i32 %dst, %lhs, %rhs : !amdgcn.sgpr, !amdgcn.vgpr, !amdgcn.sgpr
+  return %res : !amdgcn.sgpr
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @test_shl_i32_sgpr_dest_vgpr_src(
+// CHECK-SAME:      %[[DST:.*]]: !amdgcn.sgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.sgpr) -> !amdgcn.sgpr {
+// CHECK:           %[[ALLOC:.*]] = amdgcn.alloca : !amdgcn.vgpr
+// CHECK:           %[[VOP:.*]] = amdgcn.vop3 v_lshlrev_b32_e64 outs %[[ALLOC]] ins %[[RHS]], %[[LHS]]
+// CHECK:           %[[COPY:.*]] = lsir.copy %[[DST]], %[[VOP]] : !amdgcn.sgpr, !amdgcn.vgpr
+// CHECK:           return %[[COPY]] : !amdgcn.sgpr
+// CHECK:         }
+func.func @test_shl_i32_sgpr_dest_vgpr_src(%dst: !amdgcn.sgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.sgpr) -> !amdgcn.sgpr {
+  %res = lsir.shli i32 %dst, %lhs, %rhs : !amdgcn.sgpr, !amdgcn.vgpr, !amdgcn.sgpr
+  return %res : !amdgcn.sgpr
+}
+
 // CHECK-LABEL:   func.func @test_shrsi_i16_vgpr(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr, %[[ARG2:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
 // CHECK:           %[[VAL_0:.*]] = amdgcn.vop2 v_ashrrev_i16 outs %[[ARG0]] ins %[[ARG2]], %[[ARG1]] : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr

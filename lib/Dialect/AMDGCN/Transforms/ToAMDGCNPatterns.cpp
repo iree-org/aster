@@ -369,6 +369,37 @@ static Value createVOP(bool isVOp3, OpBuilder &builder, Location loc, Value dst,
                        .getVdst0Res();
 }
 
+/// If the destination is SGPR but any source operand is VGPR (mixed uniform/
+/// dynamic from assume_uniform), override `kind` to VGPR and set
+/// `sgprDestVgprSrc` so the caller can copy the VGPR result back to SGPR.
+static void handleMixedSgprVgprDest(OperandKind &kind,
+                                    RegisterTypeInterface &oTy, Value lhs,
+                                    Value rhs, bool &sgprDestVgprSrc,
+                                    MLIRContext *ctx) {
+  sgprDestVgprSrc = false;
+  if (kind != OperandKind::SGPR)
+    return;
+  OperandKind lhsK = getOperandKind(lhs.getType());
+  OperandKind rhsK = getOperandKind(rhs.getType());
+  if (lhsK != OperandKind::VGPR && rhsK != OperandKind::VGPR)
+    return;
+  sgprDestVgprSrc = true;
+  kind = OperandKind::VGPR;
+  // Derive VGPR range size from original SGPR type to handle 32- and 64-bit.
+  int16_t rangeSize = oTy.getAsRange().size();
+  oTy = cast<RegisterTypeInterface>(getVGPR(ctx, rangeSize));
+}
+
+/// After a VGPR-path computation for a mixed SGPR dest, copy the VGPR result
+/// to the SGPR destination and return the SGPR value.
+static Value finishMixedSgprVgprDest(PatternRewriter &rewriter, Location loc,
+                                     Value dst, Value vgprResult,
+                                     bool sgprDestVgprSrc) {
+  if (!sgprDestVgprSrc)
+    return vgprResult;
+  return lsir::CopyOp::create(rewriter, loc, dst, vgprResult).getTargetRes();
+}
+
 /// Check validity of an AMDGCN arith op.
 static LogicalResult checkAIOp(Operation *op, PatternRewriter &rewriter,
                                OperandKind kind, Value lhs, Value rhs,
@@ -440,6 +471,12 @@ LogicalResult AddIOpPattern::matchAndRewrite(lsir::AddIOp op,
   unsigned width = op.getSemantics().getWidth();
   OperandKind lhsKind, rhsKind;
 
+  // If dest is SGPR but a source is VGPR (mixed uniform/dynamic), use VGPR
+  // path and copy result back. Override kind/oTy for validation.
+  bool sgprDestVgprSrc = false;
+  handleMixedSgprVgprDest(kind, oTy, lhs, rhs, sgprDestVgprSrc,
+                          op.getContext());
+
   // Check we can transform this op
   if (failed(checkAIOp(op, rewriter, kind, lhs, rhs, oTy, width, lhsKind,
                        rhsKind, {32, 64}, {16, 32, 64})))
@@ -483,24 +520,31 @@ LogicalResult AddIOpPattern::matchAndRewrite(lsir::AddIOp op,
     return success();
   }
 
-  // Handle the VGPR case
-  if (width <= 16) {
-    Value result = createVOP<OpCode::V_ADD_U16, OpCode::V_ADD_U16_E64>(
-        isVOp3, rewriter, loc, dst, lhs, rhs);
-    rewriter.replaceOp(op, result);
-    return success();
-  }
-  if (width <= 32) {
-    Value result = createVOP<OpCode::V_ADD_U32, OpCode::V_ADD_U32_E64>(
-        isVOp3, rewriter, loc, dst, lhs, rhs);
-    rewriter.replaceOp(op, result);
-    return success();
+  // Allocate VGPR temp if we're writing to SGPR from VGPR path.
+  Value actualDst = dst;
+  if (sgprDestVgprSrc) {
+    int16_t rangeSize = oTy.getAsRange().size();
+    actualDst = createAllocation(rewriter, loc,
+                                 getVGPR(rewriter.getContext(), rangeSize));
   }
 
-  // 64-bit VGPR add
-  Value result = V_LSHL_ADD_U64::create(rewriter, loc, dst, lhs,
-                                        getI32Constant(rewriter, loc, 0), rhs)
-                     .getVdst0Res();
+  // Handle the VGPR case
+  Value result;
+  if (width <= 16) {
+    result = createVOP<OpCode::V_ADD_U16, OpCode::V_ADD_U16_E64>(
+        isVOp3, rewriter, loc, actualDst, lhs, rhs);
+  } else if (width <= 32) {
+    result = createVOP<OpCode::V_ADD_U32, OpCode::V_ADD_U32_E64>(
+        isVOp3, rewriter, loc, actualDst, lhs, rhs);
+  } else {
+    // 64-bit VGPR add
+    result = V_LSHL_ADD_U64::create(rewriter, loc, actualDst, lhs,
+                                    getI32Constant(rewriter, loc, 0), rhs)
+                 .getVdst0Res();
+  }
+
+  // Copy VGPR result back to SGPR destination.
+  result = finishMixedSgprVgprDest(rewriter, loc, dst, result, sgprDestVgprSrc);
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -952,6 +996,12 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
   unsigned width = op.getSemantics().getWidth();
   OperandKind lhsKind, rhsKind;
 
+  // If dest is SGPR but a source is VGPR (mixed uniform/dynamic), use VGPR
+  // path and copy result back. Override kind/oTy for validation.
+  bool sgprDestVgprSrc = false;
+  handleMixedSgprVgprDest(kind, oTy, lhs, rhs, sgprDestVgprSrc,
+                          op.getContext());
+
   // Check we can transform this op
   if (failed(checkAIOp(op, rewriter, kind, lhs, rhs, oTy, width, lhsKind,
                        rhsKind, {32, 64}, {16, 32, 64})))
@@ -1019,14 +1069,20 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
     return success();
   }
 
-  // Handle the VGPR case
-  if (width <= 16) {
-    Value result = createVOP<OpCode::V_MUL_LO_U16, OpCode::V_MUL_LO_U16_E64>(
-        isVOp3, rewriter, loc, dst, lhs, rhs);
-    rewriter.replaceOp(op, result);
-    return success();
+  // Allocate VGPR temp if we're writing to SGPR from VGPR path.
+  Value actualDst = dst;
+  if (sgprDestVgprSrc) {
+    int16_t rangeSize = oTy.getAsRange().size();
+    actualDst = createAllocation(rewriter, loc,
+                                 getVGPR(rewriter.getContext(), rangeSize));
   }
-  if (width <= 32) {
+
+  // Handle the VGPR case
+  Value result;
+  if (width <= 16) {
+    result = createVOP<OpCode::V_MUL_LO_U16, OpCode::V_MUL_LO_U16_E64>(
+        isVOp3, rewriter, loc, actualDst, lhs, rhs);
+  } else if (width <= 32) {
     if (lhsKind == OperandKind::IntImm) {
       APInt constVal;
       if (matchPattern(lhs, m_ConstantInt(&constVal))) {
@@ -1035,32 +1091,33 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
         lhsKind = OperandKind::VGPR;
       }
     }
-    Value result =
-        V_MUL_LO_U32::create(rewriter, loc, dst, lhs, rhs).getVdst0Res();
-    rewriter.replaceOp(op, result);
-    return success();
+    result =
+        V_MUL_LO_U32::create(rewriter, loc, actualDst, lhs, rhs).getVdst0Res();
+  } else {
+    // 64-bit VGPR multiplication
+    Value lLo = getElemOr(lhsR, 0, lhs);
+    Value lHi = getElemOr(lhsR, 1, lhs);
+    Value rLo = getElemOr(rhsR, 0, rhs);
+    Value rHi = getElemOr(rhsR, 1, rhs);
+
+    // Allocate temporaries
+    Value t0 = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
+    Value t1 = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
+    Value carry = createAllocation(rewriter, loc, getSGPR(getCtx(rewriter), 2));
+    t0 = V_MUL_LO_U32::create(rewriter, loc, t0, rHi, lLo).getVdst0Res();
+    t1 = V_MUL_LO_U32::create(rewriter, loc, t1, rLo, lHi).getVdst0Res();
+    Value zero = getI32Constant(rewriter, loc, 0);
+    ValueRange dT0 = splitRange(
+        rewriter, loc,
+        V_MAD_U64_U32::create(rewriter, loc, actualDst, carry, rLo, lLo, zero)
+            .getVdst0Res());
+    Value t3 =
+        V_ADD3_U32::create(rewriter, loc, dT0[1], dT0[1], t1, t0).getVdst0Res();
+    result = MakeRegisterRangeOp::create(rewriter, loc, oTy, {dT0[0], t3});
   }
 
-  // 64-bit VGPR multiplication
-  Value lLo = getElemOr(lhsR, 0, lhs);
-  Value lHi = getElemOr(lhsR, 1, lhs);
-  Value rLo = getElemOr(rhsR, 0, rhs);
-  Value rHi = getElemOr(rhsR, 1, rhs);
-
-  // Allocate temporaries
-  Value t0 = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
-  Value t1 = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
-  Value carry = createAllocation(rewriter, loc, getSGPR(getCtx(rewriter), 2));
-  t0 = V_MUL_LO_U32::create(rewriter, loc, t0, rHi, lLo).getVdst0Res();
-  t1 = V_MUL_LO_U32::create(rewriter, loc, t1, rLo, lHi).getVdst0Res();
-  Value zero = getI32Constant(rewriter, loc, 0);
-  ValueRange dT0 = splitRange(
-      rewriter, loc,
-      V_MAD_U64_U32::create(rewriter, loc, dst, carry, rLo, lLo, zero)
-          .getVdst0Res());
-  Value t3 =
-      V_ADD3_U32::create(rewriter, loc, dT0[1], dT0[1], t1, t0).getVdst0Res();
-  Value result = MakeRegisterRangeOp::create(rewriter, loc, oTy, {dT0[0], t3});
+  // Copy VGPR result back to SGPR destination.
+  result = finishMixedSgprVgprDest(rewriter, loc, dst, result, sgprDestVgprSrc);
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -1290,6 +1347,16 @@ LogicalResult ShLIOpPattern::matchAndRewrite(lsir::ShLIOp op,
   unsigned width = op.getSemantics().getWidth();
   OperandKind lhsKind, rhsKind;
 
+  // If dest is SGPR but source is VGPR (mixed uniform/dynamic), use VGPR
+  // path and copy result back. Override kind for validation.
+  bool sgprDestVgprSrc = false;
+  OperandKind srcKind = getOperandKind(lhs.getType());
+  if (kind == OperandKind::SGPR && srcKind == OperandKind::VGPR) {
+    sgprDestVgprSrc = true;
+    kind = OperandKind::VGPR;
+    oTy = cast<RegisterTypeInterface>(getVGPR(rewriter.getContext(), 1));
+  }
+
   // Check we can transform this op
   if (failed(checkAIOp(op, rewriter, kind, lhs, rhs, oTy, width, lhsKind,
                        rhsKind, {32, 64}, {16, 32, 64})))
@@ -1298,7 +1365,7 @@ LogicalResult ShLIOpPattern::matchAndRewrite(lsir::ShLIOp op,
   // Determine whether we need to use VOP3.
   bool isVOp3 = isOperand(rhsKind, {OperandKind::SGPR, OperandKind::IntImm});
 
-  // Handle the SGPR case
+  // Handle the SGPR case (only if all operands fit SGPR path).
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
       Value result =
@@ -1312,25 +1379,33 @@ LogicalResult ShLIOpPattern::matchAndRewrite(lsir::ShLIOp op,
     return success();
   }
 
+  // Allocate VGPR temp if we're writing to SGPR from VGPR path.
+  Value actualDst = dst;
+  if (sgprDestVgprSrc) {
+    actualDst =
+        createAllocation(rewriter, loc, getVGPR(rewriter.getContext(), 1));
+  }
+
   // Handle the VGPR case
+  Value result;
   if (width == 16) {
     // NOTE: Operands are reversed
-    Value result = createVOP<OpCode::V_LSHLREV_B16, OpCode::V_LSHLREV_B16_E64>(
-        isVOp3, rewriter, loc, dst, rhs, lhs);
-    rewriter.replaceOp(op, result);
-    return success();
-  }
-  if (width == 32) {
+    result = createVOP<OpCode::V_LSHLREV_B16, OpCode::V_LSHLREV_B16_E64>(
+        isVOp3, rewriter, loc, actualDst, rhs, lhs);
+  } else if (width == 32) {
     // NOTE: Operands are reversed
-    Value result =
-        createVOP<OpCode::V_LSHLREV_B32_E32, OpCode::V_LSHLREV_B32_E64>(
-            isVOp3, rewriter, loc, dst, rhs, lhs);
-    rewriter.replaceOp(op, result);
-    return success();
+    result = createVOP<OpCode::V_LSHLREV_B32_E32, OpCode::V_LSHLREV_B32_E64>(
+        isVOp3, rewriter, loc, actualDst, rhs, lhs);
+  } else {
+    // NOTE: Operands are reversed
+    result =
+        V_LSHLREV_B64::create(rewriter, loc, actualDst, rhs, lhs).getVdst0Res();
   }
-  // NOTE: Operands are reversed
-  Value result =
-      V_LSHLREV_B64::create(rewriter, loc, dst, rhs, lhs).getVdst0Res();
+
+  // Copy VGPR result back to SGPR destination.
+  if (sgprDestVgprSrc) {
+    result = lsir::CopyOp::create(rewriter, loc, dst, result).getTargetRes();
+  }
   rewriter.replaceOp(op, result);
   return success();
 }
