@@ -577,6 +577,23 @@ def LSIR_MulIOp : BinaryIOp<"muli"> {
 }
 
 //===----------------------------------------------------------------------===//
+// MulHiSIOp
+//===----------------------------------------------------------------------===//
+
+def LSIR_MulHiSIOp : BinaryIOp<"mul_hi_s"> {
+  let summary = "Signed multiply high operation";
+  let description = [{
+    The `lsir.mul_hi_s` operation returns the upper 32 bits of the signed
+    64-bit product of two 32-bit operands.
+
+    Example:
+    ```mlir
+    %result = lsir.mul_hi_s i32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    ```
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // NegFOp
 //===----------------------------------------------------------------------===//
 

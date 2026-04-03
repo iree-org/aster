@@ -288,9 +288,7 @@ def execute_gemm_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=Fal
 class TestWeakScaleCorrectness:
     """Correctness gate: must pass before perf sweep runs."""
 
-    # Problem sizes > 4000 in each dimension.
     # M = num_workgroups_per_kernel[M] * num_tiles_per_wg[M] * 16 (similarly N).
-    # num_workgroups_per_kernel[N] must be power of 2 (delinearize from 1-D block ID).
     @pytest.mark.parametrize(
         "num_workgroups_per_kernel,num_waves_per_wg,num_tiles_per_wg",
         [
@@ -309,6 +307,9 @@ class TestWeakScaleCorrectness:
             ([32, 32, 1], [2, 2, 1], [6, 6, 1]),
             # 8 waves, 4 tiles -> coop=1, 4 waves OOB
             ([32, 64, 1], [2, 4, 1], [4, 4, 1]),
+            # Non-power-of-2 tiles
+            ([64, 32, 1], [1, 2, 1], [3, 4, 1]),
+            ([32, 64, 1], [1, 2, 1], [5, 2, 1]),
         ],
         ids=[
             "div_2kx2k_twg4_w2x2",
@@ -319,6 +320,8 @@ class TestWeakScaleCorrectness:
             "oob_4x6_twg4x6_w2x2",
             "oob_6x6_twg6x6_w2x2",
             "oob_2kx4k_twg4_w2x4",
+            "npow2_3x2_twg3x4_w1x2",
+            "npow2_5x1_twg5x2_w1x2",
         ],
     )
     @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])

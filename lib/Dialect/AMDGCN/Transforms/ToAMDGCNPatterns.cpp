@@ -134,6 +134,12 @@ struct MulIOpPattern : public OpRewritePattern<lsir::MulIOp> {
                                 PatternRewriter &rewriter) const override;
 };
 
+struct MulHiSIOpPattern : public OpRewritePattern<lsir::MulHiSIOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::MulHiSIOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
 //===----------------------------------------------------------------------===//
 // MovOpPattern
 //===----------------------------------------------------------------------===//
@@ -1055,6 +1061,54 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
   Value t3 =
       V_ADD3_U32::create(rewriter, loc, dT0[1], dT0[1], t1, t0).getVdst0Res();
   Value result = MakeRegisterRangeOp::create(rewriter, loc, oTy, {dT0[0], t3});
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MulHiSIOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+MulHiSIOpPattern::matchAndRewrite(lsir::MulHiSIOp op,
+                                  PatternRewriter &rewriter) const {
+  RegisterTypeInterface oTy = op.getDst().getType();
+  Value dst = op.getDst();
+  Value lhs = op.getLhs();
+  Value rhs = op.getRhs();
+  OperandKind kind = getOperandKind(oTy);
+  unsigned width = op.getSemantics().getWidth();
+  OperandKind lhsKind, rhsKind;
+
+  if (failed(checkAIOp(op, rewriter, kind, lhs, rhs, oTy, width, lhsKind,
+                       rhsKind, {32}, {32})))
+    return failure();
+
+  Location loc = op.getLoc();
+
+  if (kind == OperandKind::SGPR) {
+    Value result =
+        S_MUL_HI_I32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+  // VOP3 does not support literal constants -- move to VGPR first.
+  auto movLargeImm = [&](Value &v, OperandKind vKind) {
+    if (vKind != OperandKind::IntImm)
+      return;
+    APInt constVal;
+    if (matchPattern(v, m_ConstantInt(&constVal)) &&
+        !constVal.isSignedIntN(6)) {
+      Value vgpr = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
+      v = V_MOV_B32_E32::create(rewriter, loc, vgpr, v).getVdstRes();
+    }
+  };
+  movLargeImm(lhs, lhsKind);
+  movLargeImm(rhs, rhsKind);
+
+  Value result =
+      V_MUL_HI_I32::create(rewriter, loc, dst, lhs, rhs).getVdst0Res();
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -1990,8 +2044,9 @@ void mlir::aster::amdgcn::populateToAMDGCNPatterns(
   patterns.add< // Arithmetic ops.
       AddFOpPattern, AddIOpPattern, AndIOpPattern, ExtSIOpPattern,
       ExtUIOpPattern, MaximumFOpPattern, MinimumFOpPattern, MulFOpPattern,
-      MulIOpPattern, OrIOpPattern, ShLIOpPattern, ShRSIOpPattern,
-      ShRUIOpPattern, SubFOpPattern, SubIOpPattern, XOrIOpPattern,
+      MulIOpPattern, MulHiSIOpPattern, OrIOpPattern, ShLIOpPattern,
+      ShRSIOpPattern, ShRUIOpPattern, SubFOpPattern, SubIOpPattern,
+      XOrIOpPattern,
       // Memory ops.
       AllocaOpPattern, AssumeNoaliasOpPattern, LoadOpPattern, StoreOpPattern,
       // Data movement ops.

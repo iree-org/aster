@@ -48,15 +48,13 @@ func.func @test_arith_opt_dynamic_bounds(%arg0: i32) -> i32 attributes {gpu.bloc
   return %6 : i32
 }
 
-// Dynamic bounds from function args - range is unknown so remsi cannot be
-// eliminated. The assume_range should persist with dynamic operands.
 // CHECK-LABEL:   func.func @test_arith_opt_truly_dynamic_bounds(
 // CHECK-SAME:      %[[ARG0:.*]]: i32, %[[LO:.*]]: i32, %[[HI:.*]]: i32) -> i32
 // CHECK:           %[[ASSUME:.*]] = aster_utils.assume_range %[[ARG0]]
 // CHECK-SAME:        min %[[LO]]
 // CHECK-SAME:        max %[[HI]] : i32
-// CHECK:           arith.remsi
-// CHECK:           arith.addi %{{.*}}, %{{.*}} overflow<nsw, nuw> : i32
+// CHECK:           arith.mulsi_extended
+// CHECK-NOT:       arith.remsi
 // CHECK:         }
 func.func @test_arith_opt_truly_dynamic_bounds(%arg0: i32, %lo: i32, %hi: i32) -> i32 attributes {gpu.block_dims = array<i32: 64, 1, 1>, gpu.grid_dims = array<i32: 1024, 1, 1>, gpu.kernel} {
   %c0_i32 = arith.constant 0 : i32

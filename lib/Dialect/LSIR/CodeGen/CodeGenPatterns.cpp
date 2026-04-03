@@ -43,6 +43,17 @@ struct ArithBinaryOpPattern : public OpCodeGenPattern<OpTy> {
 };
 
 //===----------------------------------------------------------------------===//
+// MulExtendedOpPattern
+//===----------------------------------------------------------------------===//
+template <typename OpTy, typename HiOpTy>
+struct MulExtendedOpPattern : public OpCodeGenPattern<OpTy> {
+  using OpCodeGenPattern<OpTy>::OpCodeGenPattern;
+  LogicalResult
+  matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
 // ArithCastOpPattern
 //===----------------------------------------------------------------------===//
 template <typename OpTy, typename NewOpTy>
@@ -203,6 +214,31 @@ LogicalResult ArithBinaryOpPattern<OpTy, NewOpTy>::matchAndRewrite(
   Value dst = this->createAlloca(rewriter, op.getLoc(), type);
   rewriter.replaceOpWithNewOp<NewOpTy>(op, TypeAttr::get(op.getType()), dst,
                                        adaptor.getLhs(), adaptor.getRhs());
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MulExtendedOpPattern
+//===----------------------------------------------------------------------===//
+
+template <typename OpTy, typename HiOpTy>
+LogicalResult MulExtendedOpPattern<OpTy, HiOpTy>::matchAndRewrite(
+    OpTy op, typename OpTy::Adaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  // Only handle the case where the low result is unused (the high result is
+  // what division-by-constant needs). If the low result has users, bail --
+  // arith canonicalization would have folded it to arith.muli.
+  if (!op.getLow().use_empty())
+    return rewriter.notifyMatchFailure(op, "low result has users");
+
+  Location loc = op.getLoc();
+  Type type = this->converter.convertType(op.getHigh().getType());
+  auto semantics = TypeAttr::get(op.getHigh().getType());
+  Value dst = this->createAlloca(rewriter, loc, type);
+  Value hi = HiOpTy::create(rewriter, loc, semantics, dst, adaptor.getLhs(),
+                            adaptor.getRhs())
+                 .getDstRes();
+  rewriter.replaceOp(op, {nullptr, hi});
   return success();
 }
 
@@ -462,6 +498,7 @@ void mlir::aster::lsir::populateCodeGenPatterns(CodeGenConverter &converter,
   patterns.add<ArithBinaryOpPattern<arith::AddIOp, lsir::AddIOp>,
                ArithBinaryOpPattern<arith::SubIOp, lsir::SubIOp>,
                ArithBinaryOpPattern<arith::MulIOp, lsir::MulIOp>,
+               MulExtendedOpPattern<arith::MulSIExtendedOp, lsir::MulHiSIOp>,
                ArithBinaryOpPattern<arith::DivSIOp, lsir::DivSIOp>,
                ArithBinaryOpPattern<arith::DivUIOp, lsir::DivUIOp>,
                ArithBinaryOpPattern<arith::RemSIOp, lsir::RemSIOp>,

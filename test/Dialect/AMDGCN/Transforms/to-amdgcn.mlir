@@ -1434,3 +1434,23 @@ func.func @test_addf_sgpr_rhs(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amd
   %res = lsir.addf f32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr
   return %res : !amdgcn.vgpr
 }
+
+// -----
+
+// CHECK-LABEL: func.func @test_mul_hi_s_vgpr
+// CHECK-SAME: (%[[DST:.*]]: !amdgcn.vgpr, %[[LHS:.*]]: !amdgcn.vgpr, %[[RHS:.*]]: !amdgcn.vgpr)
+// CHECK: vop3 v_mul_hi_i32 outs %[[DST]] ins %[[LHS]], %[[RHS]]
+func.func @test_mul_hi_s_vgpr(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %res = lsir.mul_hi_s i32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %res : !amdgcn.vgpr
+}
+
+// -----
+
+// CHECK-LABEL: func.func @test_mul_hi_s_sgpr
+// CHECK-SAME: (%[[DST:.*]]: !amdgcn.sgpr, %[[LHS:.*]]: !amdgcn.sgpr, %[[RHS:.*]]: !amdgcn.sgpr)
+// CHECK: sop2 s_mul_hi_i32 outs %[[DST]] ins %[[LHS]], %[[RHS]]
+func.func @test_mul_hi_s_sgpr(%dst: !amdgcn.sgpr, %lhs: !amdgcn.sgpr, %rhs: !amdgcn.sgpr) -> !amdgcn.sgpr {
+  %res = lsir.mul_hi_s i32 %dst, %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+  return %res : !amdgcn.sgpr
+}

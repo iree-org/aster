@@ -151,8 +151,7 @@ def test_copy_single_wg(name, layout, swizzle, use_global):
 # Strides are contiguous (coalesceable) so all nestings produce the same
 # function -- the test verifies the compiler handles each nesting correctly.
 
-# All powers of 2 so delinearize mod/div fold to shifts/masks.
-# TODO: use non-power-of-2 (e.g. 3, 5) once ASTER backend supports lsir.divsi.
+# Powers of 2 here; non-power-of-2 divisors also supported via SDivByConstant.
 N_WV_X, N_WV_Y = 2, 4
 N_WG_X, N_WG_Y = 8, 16
 LANE = 64
@@ -213,7 +212,6 @@ WG_Y_S = N_WG_X * WG_X_S  # 8192
             ),
         ),
         # X/Y permutations: swap X before Y with matching strides.
-        # Atm, works with power-of-2 dims because mod/div fold to shifts/masks.
         (
             "deep_xy_swap",
             Layout(
