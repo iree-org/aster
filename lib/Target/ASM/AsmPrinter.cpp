@@ -153,6 +153,11 @@ void aster::amdgcn::AsmPrinter::printIntModifier(int64_t value,
   os << " " << value;
 }
 
+void aster::amdgcn::AsmPrinter::printIntModifierAlways(int64_t value) {
+  assert(instInProgress && "modifier must be printed within an instruction");
+  os << " " << value;
+}
+
 aster::amdgcn::AsmPrinter::PrintGuard
 aster::amdgcn::AsmPrinter::printMnemonic(StringRef mnemonic) {
   os << mnemonic;

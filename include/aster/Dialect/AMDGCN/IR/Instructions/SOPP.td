@@ -63,6 +63,7 @@ def SOPP_BARRIER_INST : SOPPInst<
   let description = [{
     SOPP instruction that creates a barrier synchronization point.
   }];
+  let asmFormat = [SingleAsmVariant<"">];
 }
 
 def SOPP_NOP_INST : SOPPInst<
@@ -114,6 +115,7 @@ def SOPP_WAKEUP_INST : SOPPInst<
     Wake up all waves in the same workgroup that are sleeping due to
     s_sleep. Used with s_sleep for soft wave coordination without barriers.
   }];
+  let asmFormat = [SingleAsmVariant<"">];
 }
 
 //===----------------------------------------------------------------------===//

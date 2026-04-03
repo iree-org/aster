@@ -468,6 +468,23 @@ def AttachScheduler : Pass<"amdgcn-attach-scheduler"> {
   ];
 }
 
+def SetMFMAPriority : Pass<"aster-set-mfma-priority"> {
+  let summary = "Insert s_setprio around MFMA instruction groups";
+  let description = [{
+    Inserts s_setprio(1) before the first MFMA in each contiguous group and
+    s_setprio(0) after the last MFMA. An MFMA group is a maximal run of
+    operations where no memory instruction (VMEM, LGKM, SMEM) separates two
+    MFMAs. VALU/SALU ops between MFMAs do not break a group.
+
+    The pass is idempotent: blocks that already contain s_setprio instructions
+    are skipped entirely.
+
+    Designed to run after the low-level scheduler (amdgcn-low-level-scheduler)
+    when the instruction order is final.
+  }];
+  let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
+}
+
 def HoistIterArgWaits : Pass<"amdgcn-hoist-iter-arg-waits"> {
   let summary = "Hoist iter_arg-dependent waits to loop head";
   let description = [{

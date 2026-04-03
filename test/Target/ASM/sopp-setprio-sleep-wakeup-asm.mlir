@@ -12,7 +12,7 @@
 
 // CHECK-LABEL: test_setprio_asm:
 // CHECK: s_setprio 3
-// CHECK-NEXT: s_setprio{{$}}
+// CHECK-NEXT: s_setprio 0
 // CHECK-NEXT: s_sleep 1
 // CHECK-NEXT: s_wakeup
 // CHECK: s_endpgm

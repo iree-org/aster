@@ -91,9 +91,13 @@ def CBSZAttr : SquareIntModifier<I8Attr, "cbsz", 0> {
   let summary = "Broadcast mode";
 }
 
-// IMM16 attribute
-def Imm16Attr : IntModifier<I16Attr, 0, I16Attr> {
+// IMM16 attribute -- always printed in ASM (SOPP instructions require the
+// immediate operand even when it is zero, e.g. s_setprio 0).
+def Imm16Attr : DefaultValuedAttr<I16Attr, "0">, AsmArgFormat,
+    BuiltinAttrBuilder<I16Attr, (ins "int":$value)> {
   let summary = "16 bit immediate value";
+  let asmParser = "$_parser.parseIntModifier($_self);";
+  let asmPrinter = "$_printer.printIntModifierAlways($_self);";
 }
 
 // Offset 16 attribute

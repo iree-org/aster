@@ -61,6 +61,8 @@ public:
   /// Print a modifier of the form:
   /// value?
   void printIntModifier(int64_t value, int64_t defaultValue);
+  /// Print a modifier unconditionally (even when value == 0).
+  void printIntModifierAlways(int64_t value);
   /// Print a modifier of the form:
   /// name(value)?
   void printParenIntModifier(StringRef modifier, int64_t value,

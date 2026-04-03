@@ -23,6 +23,7 @@ add_mlir_library(AMDGCNTransforms
   RegisterDealloc.cpp
   RemoveTestInst.cpp
   SetABI.cpp
+  SetMFMAPriority.cpp
   SetNormalForms.cpp
   ToAMDGCN.cpp
   ToAMDGCNPatterns.cpp

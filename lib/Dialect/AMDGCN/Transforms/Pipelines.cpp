@@ -139,6 +139,10 @@ struct AMDGCNBackendPipelineOptions
       *this, "ll-sched",
       llvm::cl::desc("Run low-level scheduler before register allocation"),
       llvm::cl::init(false)};
+  mlir::detail::PassOptions::Option<bool> setMfmaPriority{
+      *this, "set-mfma-priority",
+      llvm::cl::desc("Insert s_setprio around MFMA groups"),
+      llvm::cl::init(true)};
 };
 
 static void
@@ -178,6 +182,8 @@ buildAMDGCNBackendPassPipeline(OpPassManager &pm,
     kernelPm.addPass(createLegalizeCF());
     kernelPm.addPass(createCanonicalizerPass());
     kernelPm.addPass(createCSEPass());
+    if (options.setMfmaPriority)
+      kernelPm.addPass(createSetMFMAPriority());
   }
   // Assert all LSIR ops are gone. LegalizeCF lowered the last ones
   // (lsir.cmpi, lsir.cmpf, lsir.select).
