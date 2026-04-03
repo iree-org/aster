@@ -1,6 +1,6 @@
-"""Test: Pipelined LDS GEMM (2/3-stage) via aster-scf-pipeline + AGPR accumulators.
+"""Test: Pipelined LDS GEMM via aster-scf-pipeline + AGPR accumulators.
 
-Uses lds_16x32_f16.mlir: 4-stage pipeline (GLOBAL_LOAD, DS_WRITE, DS_READ, COMPUTE).
+Uses lds_16x32_f16.mlir with pipeline strategy from PIPELINE_STRATEGIES dict.
 """
 
 import numpy as np
@@ -18,16 +18,15 @@ from kittens_helpers import (
     get_mlir_file,
     pipelined_substitutions_16x32,
     get_kittens_16x16_lds_library_paths,
-    NUM_STAGES_TO_STRATEGY,
 )
 
 
 class TestKittensGEMMLDSPipelined_AGPR:
     """Test GEMM via aster-scf-pipeline with AGPR accumulators + lds_16x32 tiles."""
 
-    @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
     @pytest.mark.parametrize("k", [96, 128])
-    def test_gemm_lds_pipelined(self, k, num_stages, print_ir_after_all=False):
+    def test_gemm_lds_pipelined(self, k, pipeline_strategy, print_ir_after_all=False):
         np.random.seed(42 + k)
         A = (np.random.randn(16, k) * 0.1).astype(np.float16)
         B = (np.random.randn(16, k) * 0.1).astype(np.float16)
@@ -39,7 +38,7 @@ class TestKittensGEMMLDSPipelined_AGPR:
             input_args=[A.flatten(), B.flatten()],
             output_args=[C_output],
             pass_pipeline=TEST_SCF_PIPELINING_PASS_PIPELINE,
-            template_substitutions=pipelined_substitutions_16x32(k, NUM_STAGES_TO_STRATEGY[num_stages]),
+            template_substitutions=pipelined_substitutions_16x32(k, pipeline_strategy),
             library_paths=get_kittens_16x16_lds_library_paths(),
             print_ir_after_all=print_ir_after_all,
         )
@@ -47,9 +46,9 @@ class TestKittensGEMMLDSPipelined_AGPR:
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
 
-    @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
     @pytest.mark.parametrize("k", [96, 128])
-    def test_gemm_lds_pipelined_ll_sched(self, k, num_stages):
+    def test_gemm_lds_pipelined_ll_sched(self, k, pipeline_strategy):
         """Same as test_gemm_lds_pipelined but with ll-sched enabled."""
         np.random.seed(42 + k)
         A = (np.random.randn(16, k) * 0.1).astype(np.float16)
@@ -62,16 +61,16 @@ class TestKittensGEMMLDSPipelined_AGPR:
             input_args=[A.flatten(), B.flatten()],
             output_args=[C_output],
             pass_pipeline=TEST_SCF_PIPELINING_LL_SCHED_PASS_PIPELINE,
-            template_substitutions=pipelined_substitutions_16x32(k, num_stages),
+            template_substitutions=pipelined_substitutions_16x32(k, pipeline_strategy),
             library_paths=get_kittens_16x16_lds_library_paths(),
         )
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
 
-    @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
     @pytest.mark.parametrize("k", [96, 128])
-    def test_gemm_lds_pipelined_hoist_wait(self, k, num_stages):
+    def test_gemm_lds_pipelined_hoist_wait(self, k, pipeline_strategy):
         """Same as test_gemm_lds_pipelined but with hoist-iter-arg-waits enabled."""
         np.random.seed(42 + k)
         A = (np.random.randn(16, k) * 0.1).astype(np.float16)
@@ -84,16 +83,16 @@ class TestKittensGEMMLDSPipelined_AGPR:
             input_args=[A.flatten(), B.flatten()],
             output_args=[C_output],
             pass_pipeline=TEST_SCF_PIPELINING_HOIST_WAIT_PASS_PIPELINE,
-            template_substitutions=pipelined_substitutions_16x32(k, NUM_STAGES_TO_STRATEGY[num_stages]),
+            template_substitutions=pipelined_substitutions_16x32(k, pipeline_strategy),
             library_paths=get_kittens_16x16_lds_library_paths(),
         )
 
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
 
-    @pytest.mark.parametrize("num_stages", [2, 3], ids=["2stage", "3stage"])
+    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
     @pytest.mark.parametrize("k", [96, 128])
-    def test_gemm_lds_pipelined_ll_sched_hoist_wait(self, k, num_stages):
+    def test_gemm_lds_pipelined_ll_sched_hoist_wait(self, k, pipeline_strategy):
         """Both ll-sched and hoist-iter-arg-waits enabled."""
         np.random.seed(42 + k)
         A = (np.random.randn(16, k) * 0.1).astype(np.float16)
@@ -106,7 +105,7 @@ class TestKittensGEMMLDSPipelined_AGPR:
             input_args=[A.flatten(), B.flatten()],
             output_args=[C_output],
             pass_pipeline=TEST_SCF_PIPELINING_LL_SCHED_HOIST_WAIT_PASS_PIPELINE,
-            template_substitutions=pipelined_substitutions_16x32(k, NUM_STAGES_TO_STRATEGY[num_stages]),
+            template_substitutions=pipelined_substitutions_16x32(k, pipeline_strategy),
             library_paths=get_kittens_16x16_lds_library_paths(),
         )
 
@@ -119,9 +118,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--k-scaling-factor", type=int, default=4)
-    parser.add_argument("--num-stages", type=int, default=2)
+    parser.add_argument("--pipeline-strategy", type=int, default=1)
     parser.add_argument("--print-ir-after-all", action="store_true")
     a = parser.parse_args()
     TestKittensGEMMLDSPipelined_AGPR().test_gemm_lds_pipelined(
-        a.k_scaling_factor * 32, a.num_stages, print_ir_after_all=a.print_ir_after_all
+        a.k_scaling_factor * 32, a.pipeline_strategy, print_ir_after_all=a.print_ir_after_all
     )

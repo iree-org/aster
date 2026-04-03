@@ -171,10 +171,6 @@ def pipeline_strategy_substitutions(strategy):
     }
 
 
-# Legacy num_stages (1-6) -> pipeline strategy mapping.
-NUM_STAGES_TO_STRATEGY = {1: 0, 2: 1, 3: 3, 4: 5, 5: 7, 6: 9}
-
-
 def pipelined_substitutions_16x32(k, pipeline_strategy):
     """Build template substitutions for 16x32 pipelined GEMM tests (A-only)."""
     k_tiles = k // 32
