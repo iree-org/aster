@@ -237,6 +237,56 @@ class KernelBuilder:
         return list(call_op.results)
 
     # ---------------------------------------------------------------------------
+    # Scheduled helper functions (for pipelining type erasure)
+    # ---------------------------------------------------------------------------
+
+    def define_helper(self, name: str, arg_types: list, ret_types: list, body_fn=None):
+        """Define a private func.func in the module body.
+
+        Usable as decorator or direct call::
+
+            @b.define_helper("_load", [ptr_ty, idx_ty], [any_ty, tok_ty])
+            def load_fn(bb, ptr, off):
+                ...
+                return [bb.to_any(data), tok]
+
+            # or: load_fn = b.define_helper("_load", [...], [...], body)
+
+        body_fn(builder, *block_args) emits ops and returns a list of
+        values matching ret_types. Returns the function name string.
+        """
+
+        def _emit(fn):
+            func_type = ir.FunctionType.get(arg_types, ret_types)
+            before_ip = ir.InsertionPoint.at_block_begin(self._mod_block)
+            fn_op = funcd.FuncOp(
+                name, func_type, visibility="private", loc=self._loc, ip=before_ip
+            )
+            arg_locs = [self._loc] * len(arg_types)
+            func_block = ir.Block.create_at_start(fn_op.body, arg_types, arg_locs)
+            saved_ip = self._kip
+            saved_stage = self._current_stage
+            self._kip = ir.InsertionPoint(func_block)
+            self._current_stage = None
+            ret_vals = fn(self, *list(func_block.arguments))
+            if ret_vals is None:
+                ret_vals = []
+            funcd.ReturnOp(ret_vals, loc=self._loc, ip=self._kip)
+            self._kip = saved_ip
+            self._current_stage = saved_stage
+            return name
+
+        if body_fn is not None:
+            return _emit(body_fn)
+        return _emit
+
+    def call_helper(self, name: str, args: list, ret_types: list) -> list:
+        """Emit a func.call to a helper function, tagged with current sched.stage."""
+        call_op = funcd.CallOp(ret_types, name, args, loc=self._loc, ip=self._kip)
+        self._tag_stage(call_op.results[0])
+        return list(call_op.results)
+
+    # ---------------------------------------------------------------------------
     # Thread / workgroup / grid IDs (gpu dialect wrappers)
     # ---------------------------------------------------------------------------
 
@@ -764,18 +814,20 @@ class KernelBuilder:
         dest: ir.Value,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
+        dynamic_offset: Optional[ir.Value] = None,
     ):
-        """Global load returning the full LoadOp (for data + token access)."""
-        if const_offset is None:
-            const_offset = self.constant_i32(0)
-        c0 = self.constant_i32(0)
-        zero_v = lsird.to_reg(VGPRType.get(self._ctx), c0, loc=self._loc, ip=self._kip)
+        """Global load returning the full LoadOp (for data + token access).
+
+        addr can be SGPRx2 (base pointer) or VGPRx2 (full flat address).
+        When addr is SGPRx2, pass the per-thread byte offset as
+        dynamic_offset (VGPR) to get saddr+vaddr addressing.
+        """
         read_tok_type = ir.Type.parse("!amdgcn.read_token<flat>")
         op = LoadOp(
             opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
             dest=dest,
             addr=addr,
-            dynamic_offset=zero_v,
+            dynamic_offset=dynamic_offset,
             constant_offset=const_offset,
             results=[dest.type, read_tok_type],
             loc=self._loc,
@@ -811,10 +863,13 @@ class KernelBuilder:
         self,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
+        dynamic_offset: Optional[ir.Value] = None,
     ) -> tuple[ir.Value, ir.Value]:
         """Global load of 4 dwords."""
         dest = self.alloc_vgprx4()
-        op = self._global_load_op("global_load_dwordx4", dest, addr, const_offset)
+        op = self._global_load_op(
+            "global_load_dwordx4", dest, addr, const_offset, dynamic_offset
+        )
         return op.results[0], op.results[1]
 
     def _global_store(
@@ -823,18 +878,15 @@ class KernelBuilder:
         data: ir.Value,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
+        dynamic_offset: Optional[ir.Value] = None,
     ) -> ir.Value:
-        """Global store using a pre-computed 64-bit address (VGPRx2)."""
-        if const_offset is None:
-            const_offset = self.constant_i32(0)
-        c0 = self.constant_i32(0)
-        zero_v = lsird.to_reg(VGPRType.get(self._ctx), c0, loc=self._loc, ip=self._kip)
+        """Global store with optional dynamic_offset for saddr+vaddr."""
         write_tok_type = ir.Type.parse("!amdgcn.write_token<flat>")
         op = StoreOp(
             opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
             data=data,
             addr=addr,
-            dynamic_offset=zero_v,
+            dynamic_offset=dynamic_offset,
             constant_offset=const_offset,
             results=[write_tok_type],
             loc=self._loc,
@@ -847,9 +899,12 @@ class KernelBuilder:
         data: ir.Value,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
+        dynamic_offset: Optional[ir.Value] = None,
     ) -> ir.Value:
-        """Global store of 1 dword to a 64-bit address (VGPRx2)."""
-        return self._global_store("global_store_dword", data, addr, const_offset)
+        """Global store of 1 dword."""
+        return self._global_store(
+            "global_store_dword", data, addr, const_offset, dynamic_offset
+        )
 
     def global_store_dwordx4(
         self,
@@ -864,9 +919,25 @@ class KernelBuilder:
     # DS (LDS) operations
     # ---------------------------------------------------------------------------
 
+    def _ds_addr(self, addr):
+        """Ensure addr is a VGPR. Accepts index, i32, or VGPR transparently.
+
+        This mirrors the .mlir pattern (arith.index_cast + lsir.to_reg)
+        so callers can pass index-typed addresses and the conversion to
+        VGPR happens at the point of use, not earlier.
+        """
+        if addr.type == ir.IndexType.get(self._ctx):
+            return self.index_to_vgpr(addr)
+        i32_type = ir.IntegerType.get_signless(32, self._ctx)
+        if addr.type == i32_type:
+            vgpr_type = VGPRType.get(self._ctx, reg=None)
+            return lsird.to_reg(vgpr_type, addr, loc=self._loc, ip=self._kip)
+        return addr
+
     def _ds_write(self, opcode, data, addr, const_offset=None):
         if const_offset is None:
             const_offset = self.constant_i32(0)
+        addr = self._ds_addr(addr)
         write_tok_type = ir.Type.parse("!amdgcn.write_token<shared>")
         op = StoreOp(
             opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
@@ -883,6 +954,7 @@ class KernelBuilder:
     def _ds_read(self, opcode, dest, addr, const_offset=None):
         if const_offset is None:
             const_offset = self.constant_i32(0)
+        addr = self._ds_addr(addr)
         read_tok_type = ir.Type.parse("!amdgcn.read_token<shared>")
         op = LoadOp(
             opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
@@ -1172,6 +1244,47 @@ class KernelBuilder:
         )
         return op.results[0]
 
+    def foreach_tile(self, n, body_fn=None, *, types=None):
+        """Static loop over n tiles with optional memref output.
+
+        types: list of (ir.Type, count) pairs.
+        body_fn(idx) returns a flat list of values grouped by type.
+        Returns memrefs (tuple if >1, single if 1).
+
+        Usable as @decorator or called directly.
+        """
+        d0 = ir.AffineExpr.get_dim(0)
+        c0, c1 = self.constant_index(0), self.constant_index(1)
+        bufs, counts = [], []
+        if types:
+            for ty, count in types:
+                bufs.append(self.memref_alloca(self.constant_index(n * count), ty))
+                counts.append(count)
+
+        def _run(fn):
+            @self.static_loop(c0, self.constant_index(n), c1)
+            def _(idx):
+                ret = fn(idx)
+                if bufs and ret is not None:
+                    vi = 0
+                    for buf, count in zip(bufs, counts):
+                        for t in range(count):
+                            si = (
+                                idx
+                                if count == 1
+                                else self.affine_apply(d0 * count + t, [idx])
+                            )
+                            self.memref_store(ret[vi], buf, si)
+                            vi += 1
+
+            if not bufs:
+                return None
+            return bufs[0] if len(bufs) == 1 else tuple(bufs)
+
+        if body_fn is not None:
+            return _run(body_fn)
+        return _run
+
     # ---------------------------------------------------------------------------
     # Arithmetic helpers
     # ---------------------------------------------------------------------------
@@ -1181,12 +1294,42 @@ class KernelBuilder:
         return arith.minui(lhs, rhs, loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
+    # Type erasure (to_any / from_any)
+    # ---------------------------------------------------------------------------
+
+    def to_any(self, value: ir.Value) -> ir.Value:
+        """Wrap a typed value in !aster_utils.any for pipeline stage crossing."""
+        any_type = ir.Type.parse("!aster_utils.any")
+        op = ir.Operation.create(
+            "aster_utils.to_any",
+            results=[any_type],
+            operands=[value],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        self._tag_stage(op.results[0])
+        return op.results[0]
+
+    def from_any(self, any_value: ir.Value, target_type: ir.Type) -> ir.Value:
+        """Recover a concrete type from !aster_utils.any."""
+        op = ir.Operation.create(
+            "aster_utils.from_any",
+            results=[target_type],
+            operands=[any_value],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        self._tag_stage(op.results[0])
+        return op.results[0]
+
+    # ---------------------------------------------------------------------------
     # Barrier
     # ---------------------------------------------------------------------------
 
     def s_barrier(self):
         """Insert s_barrier for workgroup synchronization."""
-        _inst.s_barrier(loc=self._loc, ip=self._kip)
+        op = _inst.s_barrier(loc=self._loc, ip=self._kip)
+        self._tag_stage(op)
 
     # ---------------------------------------------------------------------------
     # Build

@@ -77,16 +77,16 @@ def _build_gemm_1buf(k, stride_a, stride_b):
     def _(k_iv, acc):
         tile_off = b.affine_apply(d0 * 64, [k_iv])
 
-        [(a_data, a_tok)] = b.load_multi_tile_from_global(a_ptr, tile_off, GLOBAL_LOAD_TILE_A, GLOBAL_LOAD_SUB_TILE_A)
-        [(b_data, b_tok)] = b.load_multi_tile_from_global(b_ptr, tile_off, GLOBAL_LOAD_TILE_B, GLOBAL_LOAD_SUB_TILE_B)
+        [(a_data, a_tok)] = b.load_multi_tile_from_global(a_ptr, tile_off, GLOBAL_LOAD_TILE_A, GLOBAL_LOAD_SUB_TILE_A, b.global_load_dwordx4)
+        [(b_data, b_tok)] = b.load_multi_tile_from_global(b_ptr, tile_off, GLOBAL_LOAD_TILE_B, GLOBAL_LOAD_SUB_TILE_B, b.global_load_dwordx4)
         b.wait_deps(a_tok, b_tok)
 
-        a_wtoks = b.write_multi_tile_to_lds(a_data, lds_a, LDS_WRITE_TILE_A, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_A)
-        b_wtoks = b.write_multi_tile_to_lds(b_data, lds_b, LDS_WRITE_TILE_B, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_B)
+        a_wtoks = b.write_multi_tile_to_lds(a_data, lds_a, LDS_WRITE_TILE_A, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_A, b.ds_write_b64)
+        b_wtoks = b.write_multi_tile_to_lds(b_data, lds_b, LDS_WRITE_TILE_B, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_B, b.ds_write_b64)
         b.wait_deps(*a_wtoks, *b_wtoks)
 
-        a_frags = b.read_multi_fragment_from_lds(lds_a, LDS_READ_TILE_A, LDS_SWIZZLE, LDS_READ_SUB_TILE_A)
-        b_frags = b.read_multi_fragment_from_lds(lds_b, LDS_READ_TILE_B, LDS_SWIZZLE, LDS_READ_SUB_TILE_B)
+        a_frags = b.read_multi_fragment_from_lds(lds_a, LDS_READ_TILE_A, LDS_SWIZZLE, LDS_READ_SUB_TILE_A, b.ds_read_b64)
+        b_frags = b.read_multi_fragment_from_lds(lds_b, LDS_READ_TILE_B, LDS_SWIZZLE, LDS_READ_SUB_TILE_B, b.ds_read_b64)
 
         for (a_d, a_t), (b_d, b_t) in zip(a_frags, b_frags):
             b.wait_deps(a_t, b_t)
@@ -101,6 +101,7 @@ def _build_gemm_1buf(k, stride_a, stride_b):
         b.constant_index(0),
         GLOBAL_STORE_TILE_C,
         GLOBAL_STORE_SUB_TILE_C,
+        b.global_store_dword,
     )
     b.dealloc_lds(lds_a_h)
     b.dealloc_lds(lds_b_h)

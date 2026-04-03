@@ -23,6 +23,6 @@ line-length = 88
 "mlir_kernels/nanobenchmarks/utils.py" = ["F401"]
 
 [tool.pyrefly]
-search_path = ["build/python_packages"]
+search_path = ["build/python_packages", "contrib", "contrib/kittens/test"]
 project_includes = ["build/python_packages/aster/**/*.py"]
 project_excludes = ["**/node_modules", "**/__pycache__"]

@@ -237,16 +237,20 @@ class GemmMappingSpec:
 
     # --- Atomic transfer sizes (bytes per lane per memory operation) ---
 
-    global_transfer_bytes_a: int = 16  # dwordx4 = 16 bytes
-    global_transfer_bytes_b: int = 16
-    lds_transfer_bytes_a: int = 16
-    lds_transfer_bytes_b: int = 16
+    # Bytes per lane per memory operation.
+    global_load_bytes: int = 16  # dwordx4 = 16 bytes per lane
+    ds_write_bytes: int = 8  # ds_write_b64
+    ds_read_bytes: int = 8  # ds_read_b64
 
     # --- LDS swizzle ---
 
     lds_swizzle_bits: int = 3
     lds_swizzle_base: int = 3
     lds_swizzle_shift: int = 3
+
+    # --- Target ---
+
+    mcpu: str = "gfx942"
 
     # --- Occupancy ---
 
@@ -257,6 +261,11 @@ class GemmMappingSpec:
         from kittens_helpers import PIPELINE_STRATEGIES
 
         return PIPELINE_STRATEGIES[self.pipeline_strategy]
+
+    @property
+    def isa(self) -> str:
+        _MCPU_TO_ISA = {"gfx942": "cdna3", "gfx950": "cdna4"}
+        return _MCPU_TO_ISA.get(self.mcpu, "cdna3")
 
     @property
     def lds_swizzle(self):
