@@ -15,6 +15,11 @@ func.func @test_mul(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) 
   return %0 : !amdgcn.vgpr
 }
 
+func.func @test_mul_hi_s(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %0 = lsir.mul_hi_s i32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  return %0 : !amdgcn.vgpr
+}
+
 func.func @test_divsi(%dst: !amdgcn.vgpr, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %0 = lsir.divsi i32 %dst, %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
   return %0 : !amdgcn.vgpr

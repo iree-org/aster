@@ -25,6 +25,7 @@
 #include "mlir/Transforms/CSE.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/DivisionByConstantInfo.h"
 #include <functional>
 
 namespace mlir::aster {
@@ -128,6 +129,84 @@ struct RemToAnd : OpRewritePattern<OpTy> {
     auto maskConst =
         arith::ConstantIntOp::create(rewriter, op.getLoc(), op.getType(), mask);
     rewriter.replaceOpWithNewOp<arith::AndIOp>(op, op.getLhs(), maskConst);
+    return success();
+  }
+};
+
+/// Match a positive constant divisor that is not a power of two.
+static FailureOr<APInt> matchNonPow2Constant(Value value) {
+  APInt val;
+  if (!matchPattern(value, m_ConstantInt(&val)))
+    return failure();
+  if (val.isNonPositive() || val.isPowerOf2())
+    return failure();
+  return val;
+}
+
+// Replace arith.divsi by positive constant with mulhi_s + shift via LLVM's
+// SignedDivisionByConstantInfo (Hacker's Delight magic numbers).
+// This is the path used by affine floordiv expansion.
+struct SDivByConstant : OpRewritePattern<arith::DivSIOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(arith::DivSIOp op,
+                                PatternRewriter &rewriter) const override {
+    FailureOr<APInt> divisor = matchNonPow2Constant(op.getRhs());
+    if (failed(divisor))
+      return failure();
+
+    if (!op.getType().isInteger(32))
+      return failure();
+
+    auto info = llvm::SignedDivisionByConstantInfo::get(*divisor);
+    Location loc = op.getLoc();
+    Type i32 = op.getType();
+    Value n = op.getLhs();
+
+    auto magicCst =
+        arith::ConstantIntOp::create(rewriter, loc, i32, info.Magic);
+    auto mulExt = arith::MulSIExtendedOp::create(rewriter, loc, n, magicCst);
+    Value q = mulExt.getHigh();
+
+    // Numerator correction: add n when D > 0 && M < 0.
+    if (divisor->isStrictlyPositive() && info.Magic.isNegative())
+      q = arith::AddIOp::create(rewriter, loc, q, n);
+
+    if (info.ShiftAmount) {
+      auto shiftCst =
+          arith::ConstantIntOp::create(rewriter, loc, i32, info.ShiftAmount);
+      q = arith::ShRSIOp::create(rewriter, loc, q, shiftCst);
+    }
+
+    // Round toward zero: add 1 if q is negative.
+    auto c31 = arith::ConstantIntOp::create(rewriter, loc, i32, 31);
+    Value sign = arith::ShRUIOp::create(rewriter, loc, q, c31);
+    q = arith::AddIOp::create(rewriter, loc, q, sign);
+
+    rewriter.replaceOp(op, q);
+    return success();
+  }
+};
+
+// Replace arith.remsi by positive constant: n % d = n - (n / d) * d.
+struct SRemByConstant : OpRewritePattern<arith::RemSIOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(arith::RemSIOp op,
+                                PatternRewriter &rewriter) const override {
+    FailureOr<APInt> divisor = matchNonPow2Constant(op.getRhs());
+    if (failed(divisor))
+      return failure();
+
+    if (!op.getType().isInteger(32))
+      return failure();
+
+    Location loc = op.getLoc();
+    Value n = op.getLhs();
+    Value d = op.getRhs();
+    Value q = arith::DivSIOp::create(rewriter, loc, n, d);
+    Value qd = arith::MulIOp::create(rewriter, loc, q, d);
+    rewriter.replaceOpWithNewOp<arith::SubIOp>(op, n, qd);
     return success();
   }
 };
@@ -553,8 +632,9 @@ void OptimizeArith::runOnOperation() {
       patterns.add<DivToShift<arith::DivUIOp, arith::ShRUIOp>,
                    DivToShift<arith::DivSIOp, arith::ShRSIOp>, MulToShift,
                    RemToAnd<arith::RemSIOp>, RemToAnd<arith::RemUIOp>,
-                   ReassociateAddI, CombineChainedShL, CombineChainedShRU,
-                   CombineChainedShRS>(&getContext());
+                   SDivByConstant, SRemByConstant, ReassociateAddI,
+                   CombineChainedShL, CombineChainedShRU, CombineChainedShRS>(
+          &getContext());
       // Add the pattern with higher benefit so that it preempts the shift
       // patterns.
       patterns.add<ReassociateMulI>(&getContext(), 10);
@@ -597,7 +677,7 @@ void OptimizeArith::runOnOperation() {
     return signalPassFailure();
   cse();
 
-  // Optimize division by constant powers of two.
+  // Optimize division/remainder by constant.
   if (failed(runArithOpt()))
     return signalPassFailure();
 
@@ -618,7 +698,7 @@ void OptimizeArith::runOnOperation() {
     return signalPassFailure();
   cse();
 
-  // Optimize division by constant powers of two.
+  // Optimize division/remainder by constant.
   if (failed(runArithOpt()))
     return signalPassFailure();
   // Run canonicalization and CSE.
@@ -626,7 +706,7 @@ void OptimizeArith::runOnOperation() {
     return signalPassFailure();
   cse();
 
-  // Optimize division by constant powers of two.
+  // Optimize division/remainder by constant.
   if (failed(runArithOpt()))
     return signalPassFailure();
 

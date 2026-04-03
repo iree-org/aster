@@ -77,13 +77,7 @@ GPU_VGPR_GRANULE = _dev.vgpr_alloc_granule if _dev else 8
 # more VGPRs and LDS, so fewer configs pass the resource filter.
 PIPELINE_STRATEGY_CONFIGS = [1, 3, 5, 6, 7, 9]
 # Wave configs: multiples-of-4 wave counts split across MxN.
-# waves_per_wg[1] must be a power of 2 (delinearize from 1-D block ID).
 _WAVE_BASES = [(1, 4), (2, 2), (4, 1)]
-
-
-def _is_po2(x):
-    return x > 0 and (x & (x - 1)) == 0
-
 
 WAVE_CONFIGS = sorted(
     {
@@ -91,17 +85,12 @@ WAVE_CONFIGS = sorted(
         for bm, bn in _WAVE_BASES
         for k1 in range(1, 7)
         for k2 in range(1, 7)
-        if bm * k1 <= 6
-        and _is_po2(bn * k2)
-        and bn * k2 <= 8
-        and bm * k1 * bn * k2 <= 16
-        and (bm * k1 * bn * k2) % 4 == 0
+        if bm * k1 <= 6 and bn * k2 <= 8 and bm * k1 * bn * k2 <= 16 and (bm * k1 * bn * k2) % 4 == 0
     }
 )
 # Per-workgroup tile counts. Per-wave tiles derived as tiles_per_wg // num_waves.
-# N-dimension multiples must be powers of 2 (delinearize from 1-D block ID).
 _M_MULTIPLES = range(1, 6)
-_N_MULTIPLES = [1, 2, 4]  # powers of 2
+_N_MULTIPLES = range(1, 11)
 _K_TILES_RANGE = range(1, 9)
 _tile_wg_pairs = {
     (mw * mm, nw * nm) for (mw, nw), mm, nm in itertools.product(WAVE_CONFIGS, _M_MULTIPLES, _N_MULTIPLES)
@@ -113,7 +102,7 @@ _NUM_SIMDS = 4
 # derive num_wg_per_cu and the M-dimension WG multiplier. See _generate_configs.
 OCCUPANCY_TARGETS = [1, 2, 3, 4]
 # N-dimension workgroup multipliers (independent of occupancy, for problem size variety).
-N_WG_MULTIPLIERS = [1, 2, 4]  # must be powers of 2
+N_WG_MULTIPLIERS = list(range(1, 11))
 # K = k_scaling_factor * k_tiles * 32 (each 16x32 transfer tile = 32 K elements).
 K_SCALING_FACTORS = [64, 128, 256]
 # LCM unroll on/off sweep. When True, also sweeps unroll multipliers.
