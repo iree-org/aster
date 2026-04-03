@@ -7,6 +7,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.h"
 #include "aster/Interfaces/RegisterType.h"
+#include "aster/Target/ASM/TranslateModule.h"
 #include "aster/Transforms/SchedUtils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -20,7 +21,9 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 #include "water/Dialect/Wave/IR/WaveAttrs.h"
 #include "water/Dialect/Wave/IR/WaveDialect.h"
@@ -34,10 +37,13 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsTypes.h"
+#include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 
 #include "water/Dialect/Wave/Transforms/Utils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVectorExtras.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include <functional>
 
 using namespace mlir;
@@ -446,8 +452,8 @@ struct WaterWaveAsterizePass
       kernel.getBodyRegion().takeBody(funcOp.getBody());
       Block *body = &kernel.getBodyRegion().front();
       builder.setInsertionPointToStart(body);
-      auto sgpr2x = aster::amdgcn::SGPRType::get(builder.getContext(),
-                                                 aster::Register(), /*size=*/2);
+      auto sgpr2x = aster::amdgcn::SGPRType::get(
+          builder.getContext(), aster::Register(), /*size=*/2, /*alignment=*/2);
       SmallVector<Value> kernelArgs;
       kernelArgs.reserve(body->getNumArguments());
       for (unsigned i = 0, e = body->getNumArguments(); i < e; ++i) {
@@ -566,8 +572,9 @@ struct WaterWaveAsterizePass
                                   dimensionIndexing[nMappedDim].waveTiles);
 
         // TODO: not sure if this is always 4 agprs.
-        auto agpr4x = aster::amdgcn::AGPRType::get(
-            builder.getContext(), aster::Register(), /*size=*/4);
+        auto agpr4x = aster::amdgcn::AGPRType::get(builder.getContext(),
+                                                   aster::Register(),
+                                                   /*size=*/4, /*alignment=*/4);
         auto memrefType = MemRefType::get({ShapedType::kDynamic}, agpr4x);
         Value alloca = memref::AllocaOp::create(builder, registerOp.getLoc(),
                                                 memrefType, allocationSize);
@@ -1095,5 +1102,392 @@ struct WaterWaveAsterizePass
       return signalPassFailure();
   }
 };
+} // namespace
 
+#include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
+#include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
+#include "aster/Dialect/LSIR/IR/LSIRDialect.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/PDL/IR/PDL.h"
+#include "mlir/Dialect/PDLInterp/IR/PDLInterp.h"
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
+
+namespace wave {
+#define GEN_PASS_DEF_WATERWAVEASTERLOWERINGPASS
+#include "water/Dialect/Wave/Transforms/Passes.h.inc"
+} // namespace wave
+
+/// Build the default Aster-to-assembly pass pipeline string.
+/// This is a C++ translation of `make_default_pass_pipeline` from
+/// `aster/pass_pipelines.py`.
+static std::string buildDefaultPassPipeline(bool lcmUnroll, int numVGPRs,
+                                            int numAGPRs,
+                                            int unrollFactorMultiplier,
+                                            bool epiloguePeeling) {
+  SmallVector<std::string> passes;
+
+  auto add = [&](std::initializer_list<StringRef> list) {
+    for (StringRef p : list)
+      passes.push_back(p.str());
+  };
+
+  // PHASE_PRE_SCHEDULING_CLEANUP.
+  add({"lower-layout-to-affine", "aster-selective-inlining", "cse",
+       "canonicalize", "symbol-dce"});
+
+  // PHASE_CONSTEXPR_EXPANSION.
+  add({"aster-constexpr-expansion", "canonicalize", "sroa", "mem2reg",
+       "amdgcn-mem2reg", "aster-forward-store-to-load",
+       "aster-promote-loop-carried-memrefs", "canonicalize"});
+
+  // phase_scf_pipelining.
+  {
+    std::string pass = "aster-scf-pipeline";
+    SmallVector<std::string> opts;
+    if (lcmUnroll)
+      opts.push_back("lcm-unroll=true");
+    if (unrollFactorMultiplier > 1)
+      opts.push_back("unroll-factor-multiplier=" +
+                     std::to_string(unrollFactorMultiplier));
+    if (epiloguePeeling)
+      opts.push_back("epilogue-peeling=true");
+    if (!opts.empty())
+      pass += "{" + llvm::join(opts, " ") + "}";
+    passes.push_back(std::move(pass));
+  }
+
+  add({"aster-destructure-struct-iter-args", "canonicalize", "cse"});
+
+  // PHASE_SROA.
+  add({"cse", "canonicalize", "sroa", "cse", "canonicalize", "amdgcn-mem2reg",
+       "aster-selective-inlining{allow-scheduled-calls=true}"});
+
+  // POST_SROA_CLEANUPS.
+  add({"cse", "canonicalize", "symbol-dce", "aster-constexpr-expansion",
+       "canonicalize", "aster-simplify-alloca-iter-args",
+       "aster-decompose-memref-iter-args", "aster-destructure-struct-iter-args",
+       "canonicalize", "cse", "sroa", "mem2reg", "amdgcn-mem2reg",
+       "aster-forward-store-to-load", "aster-promote-loop-carried-memrefs",
+       "cse", "canonicalize"});
+
+  // PHASE_CONVERT_LDS_BUFFERS.
+  add({"amdgcn-lds-alloc", "amdgcn-convert-lds-buffers", "canonicalize",
+       "cse"});
+
+  // PHASE_LOWER_TO_AMDGCN.
+  add({"affine-expand-index-ops-as-affine",
+       "canonicalize",
+       "cse",
+       "aster-expand-affine-apply",
+       "loop-invariant-code-motion",
+       "cse",
+       "aster-decompose-by-loop-invariant",
+       "canonicalize",
+       "cse",
+       "loop-invariant-code-motion",
+       "aster-decompose-by-cse",
+       "cse",
+       "aster-raise-to-affine",
+       "canonicalize",
+       "cse",
+       "loop-invariant-code-motion",
+       "cse",
+       "aster-affine-optimize-ptr-add{assume-positive=true}",
+       "canonicalize",
+       "loop-invariant-code-motion",
+       "cse",
+       "canonicalize",
+       "aster-factorize-affine-expr",
+       "aster-to-int-arith",
+       "aster-remove-assume-ops{remove-passthrough=true}",
+       "aster-optimize-arith",
+       "aster-optimize-ptr-add",
+       "canonicalize",
+       "cse",
+       "aster-resolve-any-iter-args",
+       "aster-amdgcn-set-abi",
+       "amdgcn-convert-scf-control-flow",
+       "canonicalize",
+       "cse",
+       "aster-codegen",
+       "canonicalize",
+       "cse",
+       "canonicalize",
+       "amdgcn-optimize",
+       "aster-to-amdgcn"});
+  passes.push_back("amdgcn.module(amdgcn.kernel(aster-hoist-ops))");
+  add({"canonicalize", "cse", "aster-apply-sched{silent-mode=true}",
+       "canonicalize"});
+
+  // Second hoist after the lowering phase.
+  passes.push_back("amdgcn.module(amdgcn.kernel(aster-hoist-ops))");
+
+  // phase_amdgcn_backend.
+  {
+    std::string pass = "amdgcn-backend";
+    SmallVector<std::string> opts;
+    if (numVGPRs != 256)
+      opts.push_back("num-vgprs=" + std::to_string(numVGPRs));
+    if (numAGPRs != 256)
+      opts.push_back("num-agprs=" + std::to_string(numAGPRs));
+    if (!opts.empty())
+      pass += "{" + llvm::join(opts, " ") + "}";
+    passes.push_back(std::move(pass));
+  }
+
+  // phase_nop_insertion(delays=0).
+  add({"amdgcn-remove-test-inst", "amdgcn-hazards{v_nops=0 s_nops=0}"});
+
+  return llvm::join(passes, ",");
+}
+
+/// Replace all occurrences of `pattern` with `replacement` in `str`.
+static void replaceAllSubstrings(std::string &str, StringRef pattern,
+                                 StringRef replacement) {
+  size_t pos = 0;
+  std::string pat = pattern.str();
+  while ((pos = str.find(pat, pos)) != std::string::npos) {
+    str.replace(pos, pat.size(), replacement.data(), replacement.size());
+    pos += replacement.size();
+  }
+}
+
+/// Load an MLIR library file, perform {{STAGE_*}} substitutions, parse it,
+/// and merge the resulting functions into `root`.
+static LogicalResult loadAndMergeLibrary(Operation *root, StringRef libraryPath,
+                                         int numStages) {
+  // Load the file content.
+  auto fileOrErr = llvm::MemoryBuffer::getFile(libraryPath);
+  if (!fileOrErr)
+    return root->emitError() << "failed to open library file '" << libraryPath
+                             << "': " << fileOrErr.getError().message();
+
+  std::string content = (*fileOrErr)->getBuffer().str();
+
+  // Perform {{STAGE_*}} substitutions.
+  FailureOr<PipelineStages> stagesOrFailure = getPipelineStages(numStages);
+  if (failed(stagesOrFailure))
+    return root->emitError()
+           << "unsupported number of pipeline stages: " << numStages;
+  PipelineStages ps = *stagesOrFailure;
+  replaceAllSubstrings(content, "{{STAGE_GLOBAL_LOAD}}",
+                       std::to_string(ps.globalLoad));
+  replaceAllSubstrings(content, "{{STAGE_DS_WRITE}}",
+                       std::to_string(ps.dsWrite));
+  replaceAllSubstrings(content, "{{STAGE_DS_READ}}", std::to_string(ps.dsRead));
+  replaceAllSubstrings(content, "{{STAGE_COMPUTE}}",
+                       std::to_string(ps.compute));
+
+  // The helpers file is a fragment (not a full module). Wrap it with type
+  // alias definitions and a module so the parser can handle it.
+  static constexpr StringLiteral kTypeAliasPreamble = R"mlir(
+!sx2 = !amdgcn.sgpr<[? + 2]>
+!sx4 = !amdgcn.sgpr<[? + 4]>
+!vx2 = !amdgcn.vgpr<[? + 2]>
+!vx4 = !amdgcn.vgpr<[? + 4]>
+!ax4 = !amdgcn.agpr<[? + 4]>
+!rt_A_f16 = !vx2
+!rt_B_f16 = !vx2
+!rt_C_f32 = !ax4
+!write_token = !amdgcn.write_token<flat>
+!lds_write_token = !amdgcn.write_token<shared>
+!future_lds_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
+!future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
+!index_pair = !aster_utils.struct<i: index, j: index>
+!gfut_a_buf = memref<?x!future_global_read>
+!gfut_b_buf = memref<?x!future_global_read>
+!tok_a_buf = memref<?x!lds_write_token>
+!tok_b_buf = memref<?x!lds_write_token>
+!fut_a_buf = memref<?x!future_lds_read>
+!fut_b_buf = memref<?x!future_lds_read>
+!vals_a_buf = memref<?x!rt_A_f16>
+!vals_b_buf = memref<?x!rt_B_f16>
+!c_buf = memref<?x!rt_C_f32>
+)mlir";
+
+  std::string moduleText =
+      (kTypeAliasPreamble + "builtin.module {\n" + content + "\n}\n").str();
+
+  // Parse with the same context as the root module. Disable verification
+  // because the helpers file calls library functions that aren't defined yet
+  // (they will be resolved by amdgcn-preload-library afterwards).
+  MLIRContext *ctx = root->getContext();
+  ParserConfig parseConfig(ctx, /*verifyAfterParse=*/false);
+  OwningOpRef<Operation *> parsed = parseSourceString(moduleText, parseConfig);
+  if (!parsed)
+    return root->emitError()
+           << "failed to parse library file '" << libraryPath << "'";
+
+  // Find the insertion target: the amdgcn.module inside root if it exists,
+  // otherwise root itself.
+  Operation *target = root;
+  root->walk([&](mlir::aster::amdgcn::ModuleOp mod) { target = mod; });
+
+  // Move function operations from the parsed module into the target.
+  // If the target already has a declaration with the same name, replace it.
+  Operation *parsedModule = parsed.get();
+  Block &targetBlock = target->getRegion(0).front();
+  Block &parsedBlock = parsedModule->getRegion(0).front();
+  for (auto &op : llvm::make_early_inc_range(parsedBlock)) {
+    auto funcOp = dyn_cast<func::FuncOp>(&op);
+    if (!funcOp)
+      continue;
+    if (auto existing =
+            SymbolTable::lookupSymbolIn(target, funcOp.getSymName())) {
+      existing->erase();
+    }
+    op.moveBefore(&targetBlock, targetBlock.begin());
+  }
+
+  return success();
+}
+
+/// Wrap all operations in `root` (a builtin.module) inside an amdgcn.module.
+/// This is needed so that amdgcn-preload-library can resolve library functions.
+static LogicalResult wrapInAMDGCNModule(Operation *root, StringRef targetStr,
+                                        StringRef isaStr) {
+  namespace amdgcn = mlir::aster::amdgcn;
+  MLIRContext *ctx = root->getContext();
+
+  // Already wrapped — nothing to do.
+  for (auto &op : root->getRegion(0).front())
+    if (isa<amdgcn::ModuleOp>(&op))
+      return success();
+
+  auto targetEnum = amdgcn::symbolizeTarget(targetStr);
+  if (!targetEnum)
+    return root->emitError() << "unknown AMDGCN target: " << targetStr;
+  auto isaEnum = amdgcn::symbolizeISAVersion(isaStr);
+  if (!isaEnum)
+    return root->emitError() << "unknown AMDGCN ISA version: " << isaStr;
+
+  OpBuilder builder(ctx);
+  builder.setInsertionPointToStart(&root->getRegion(0).front());
+  auto amdgcnModule = amdgcn::ModuleOp::create(
+      builder, root->getLoc(), *targetEnum, *isaEnum, "kernel_module",
+      /*sym_visibility=*/nullptr, /*normal_forms=*/nullptr);
+
+  // Ensure the body region has a block.
+  if (amdgcnModule.getBodyRegion().empty())
+    amdgcnModule.getBodyRegion().emplaceBlock();
+
+  // Move all existing operations into the new amdgcn.module.
+  Block &amdgcnBlock = amdgcnModule.getBodyRegion().front();
+  Block &rootBlock = root->getRegion(0).front();
+  for (auto &op : llvm::make_early_inc_range(rootBlock)) {
+    if (&op == amdgcnModule.getOperation())
+      continue;
+    op.moveBefore(&amdgcnBlock, amdgcnBlock.end());
+  }
+
+  return success();
+}
+
+namespace {
+struct WaterWaveAsterLoweringPass
+    : public wave::impl::WaterWaveAsterLoweringPassBase<
+          WaterWaveAsterLoweringPass> {
+  using Base::Base;
+
+  void runOnOperation() override {
+    Operation *root = getOperation();
+
+    // Wrap the asterize output in an amdgcn.module if one doesn't exist yet.
+    if (failed(wrapInAMDGCNModule(root, target, isa)))
+      return signalPassFailure();
+
+    // Load and merge the helpers file (it introduces call references
+    // that the preload pass will resolve below).
+    if (!libraryFile.empty()) {
+      if (failed(loadAndMergeLibrary(root, libraryFile, stages)))
+        return signalPassFailure();
+    }
+
+    // Run the library preload pass to resolve undefined function references.
+    if (!libraryPaths.empty()) {
+      std::string paths = llvm::join(libraryPaths, ",");
+      std::string preloadPipeline =
+          "amdgcn-preload-library{library-paths=" + paths + "}";
+      OpPassManager preloadOpm(root->getName().getStringRef(),
+                               OpPassManager::Nesting::Implicit);
+      std::string preloadError;
+      llvm::raw_string_ostream preloadErrorStream(preloadError);
+      if (failed(parsePassPipeline(preloadPipeline, preloadOpm,
+                                   preloadErrorStream))) {
+        root->emitError() << "failed to parse the preload pipeline: "
+                          << preloadError;
+        return signalPassFailure();
+      }
+      if (failed(runPipeline(preloadOpm, root)))
+        return signalPassFailure();
+    }
+
+    std::string pipeline = buildDefaultPassPipeline(
+        lcmUnroll, numVGPRs, numAGPRs, unrollFactorMultiplier, epiloguePeeling);
+
+    OpPassManager opm(root->getName().getStringRef(),
+                      OpPassManager::Nesting::Implicit);
+    std::string error;
+    llvm::raw_string_ostream errorStream(error);
+    if (failed(parsePassPipeline(pipeline, opm, errorStream))) {
+      root->emitError() << "failed to parse the lowering pipeline: " << error;
+      return signalPassFailure();
+    }
+    if (failed(runPipeline(opm, root)))
+      return signalPassFailure();
+  }
+};
+} // namespace
+
+namespace wave {
+#define GEN_PASS_DEF_WATERWAVETRANSLATETOASMPASS
+#include "water/Dialect/Wave/Transforms/Passes.h.inc"
+} // namespace wave
+
+namespace {
+struct WaterWaveTranslateToASMPass
+    : public wave::impl::WaterWaveTranslateToASMPassBase<
+          WaterWaveTranslateToASMPass> {
+  using Base::Base;
+
+  void runOnOperation() override {
+    namespace amdgcn = mlir::aster::amdgcn;
+    Operation *root = getOperation();
+
+    // Find the amdgcn.module inside the root.
+    amdgcn::ModuleOp amdgcnModule;
+    root->walk([&](amdgcn::ModuleOp mod) {
+      amdgcnModule = mod;
+      return WalkResult::interrupt();
+    });
+    if (!amdgcnModule) {
+      root->emitError("no amdgcn.module found in the root operation");
+      return signalPassFailure();
+    }
+
+    // Translate to assembly.
+    std::string asmStr;
+    llvm::raw_string_ostream os(asmStr);
+    if (failed(amdgcn::target::translateModule(amdgcnModule, os))) {
+      root->emitError("failed to translate amdgcn.module to assembly");
+      return signalPassFailure();
+    }
+
+    // Attach the assembly as an attribute and erase the body.
+    root->setAttr("aster.asm", StringAttr::get(root->getContext(), asmStr));
+    for (Region &region : root->getRegions()) {
+      region.getBlocks().clear();
+      region.emplaceBlock();
+    }
+  }
+};
 } // namespace

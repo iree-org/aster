@@ -21,6 +21,7 @@ set(LIBS
         MLIRWaterTestDialect
         MLIRWaterTestTransforms
 
+        ASTERInit
         AMDGCNDialect
         AMDGCNAnalysis
 )

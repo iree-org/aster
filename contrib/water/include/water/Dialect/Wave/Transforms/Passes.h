@@ -18,7 +18,48 @@ class AMDGCNDialect;
 namespace mlir::aster::aster_utils {
 class AsterUtilsDialect;
 } // namespace mlir::aster::aster_utils
-
+namespace mlir::aster::lsir {
+class LSIRDialect;
+} // namespace mlir::aster::lsir
+namespace mlir::affine {
+class AffineDialect;
+} // namespace mlir::affine
+namespace mlir::arith {
+class ArithDialect;
+} // namespace mlir::arith
+namespace mlir::cf {
+class ControlFlowDialect;
+} // namespace mlir::cf
+namespace mlir {
+class DLTIDialect;
+} // namespace mlir
+namespace mlir::func {
+class FuncDialect;
+} // namespace mlir::func
+namespace mlir::gpu {
+class GPUDialect;
+} // namespace mlir::gpu
+namespace mlir::memref {
+class MemRefDialect;
+} // namespace mlir::memref
+namespace mlir::pdl {
+class PDLDialect;
+} // namespace mlir::pdl
+namespace mlir::pdl_interp {
+class PDLInterpDialect;
+} // namespace mlir::pdl_interp
+namespace mlir::ptr {
+class PtrDialect;
+} // namespace mlir::ptr
+namespace mlir::scf {
+class SCFDialect;
+} // namespace mlir::scf
+namespace mlir::ub {
+class UBDialect;
+} // namespace mlir::ub
+namespace mlir::vector {
+class VectorDialect;
+} // namespace mlir::vector
 namespace wave {
 
 #define GEN_PASS_DECL

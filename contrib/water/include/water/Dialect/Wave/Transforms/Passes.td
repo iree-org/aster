@@ -230,4 +230,97 @@ def WaterWaveAsterizePass : Pass<"water-wave-asterize"> {
   ];
 }
 
+def WaterWaveAsterLoweringPass : Pass<"water-wave-aster-lowering"> {
+  let summary = "Lower Aster to assembly";
+  let description = [{
+    Runs the default Aster-to-assembly lowering pipeline. The pipeline matches
+    `make_default_pass_pipeline` from `aster/pass_pipelines.py` and includes
+    pre-scheduling cleanup, constexpr expansion, SCF pipelining, SROA,
+    lowering to AMDGCN, register allocation and hazard insertion.
+  }];
+  let dependentDialects = [
+    // Aster dialects
+    "::mlir::aster::amdgcn::AMDGCNDialect",
+    "::mlir::aster::aster_utils::AsterUtilsDialect",
+    "::mlir::aster::lsir::LSIRDialect",
+    // Upstream MLIR dialects
+    "::mlir::affine::AffineDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::cf::ControlFlowDialect",
+    "::mlir::DLTIDialect",
+    "::mlir::func::FuncDialect",
+    "::mlir::gpu::GPUDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::pdl::PDLDialect",
+    "::mlir::pdl_interp::PDLInterpDialect",
+    "::mlir::ptr::PtrDialect",
+    "::mlir::scf::SCFDialect",
+    "::mlir::ub::UBDialect",
+    "::mlir::vector::VectorDialect",
+  ];
+  let options = [
+    Option</*varName=*/"lcmUnroll",
+           /*arg=*/"lcm-unroll",
+           /*valueType=*/"bool",
+           /*default=*/"false",
+           "Enable LCM unrolling in SCF pipelining">,
+    Option</*varName=*/"numVGPRs",
+           /*arg=*/"num-vgprs",
+           /*valueType=*/"int",
+           /*default=*/"256",
+           "Maximum number of VGPRs for register allocation">,
+    Option</*varName=*/"numAGPRs",
+           /*arg=*/"num-agprs",
+           /*valueType=*/"int",
+           /*default=*/"256",
+           "Maximum number of AGPRs for register allocation">,
+    Option</*varName=*/"unrollFactorMultiplier",
+           /*arg=*/"unroll-factor-multiplier",
+           /*valueType=*/"int",
+           /*default=*/"1",
+           "Multiplier for the unroll factor in SCF pipelining">,
+    Option</*varName=*/"epiloguePeeling",
+           /*arg=*/"epilogue-peeling",
+           /*valueType=*/"bool",
+           /*default=*/"true",
+           "Enable epilogue peeling in SCF pipelining">,
+    Option</*varName=*/"libraryFile",
+           /*arg=*/"library-file",
+           /*valueType=*/"std::string",
+           /*default=*/"",
+           "Path to an MLIR library file to load and merge before lowering">,
+    Option</*varName=*/"stages",
+           /*arg=*/"stages",
+           /*valueType=*/"int",
+           /*default=*/"1",
+           "Number of pipeline stages for {{STAGE_*}} substitutions">,
+    ListOption</*varName=*/"libraryPaths",
+               /*arg=*/"library-paths",
+               /*valueType=*/"std::string",
+               "Paths to MLIR library files for amdgcn-preload-library">,
+    Option</*varName=*/"target",
+           /*arg=*/"target",
+           /*valueType=*/"std::string",
+           /*default=*/"\"gfx942\"",
+           "AMDGCN target for the amdgcn.module wrapper">,
+    Option</*varName=*/"isa",
+           /*arg=*/"isa",
+           /*valueType=*/"std::string",
+           /*default=*/"\"cdna3\"",
+           "AMDGCN ISA version for the amdgcn.module wrapper">,
+  ];
+}
+
+def WaterWaveTranslateToASMPass : Pass<"water-wave-translate-to-asm"> {
+  let summary = "Translate lowered AMDGCN module to assembly";
+  let description = [{
+    Finds the amdgcn.module inside the root operation, translates it to AMDGPU
+    assembly using the ASTER backend, attaches the resulting assembly string as
+    a `asm` StringAttr on the root operation, and erases the root's body.
+  }];
+  let dependentDialects = [
+    "::mlir::aster::amdgcn::AMDGCNDialect",
+  ];
+}
+
 #endif // WATER_DIALECT_WAVE_TRANSFORMS_PASSES

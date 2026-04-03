@@ -35,6 +35,7 @@
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 #include "mlir/Transforms/Passes.h"
 
+#include "aster/Init.h"
 #include "water/Dialect/NormalForm/IR/NormalFormDialect.h"
 #include "water/Dialect/NormalForm/Transforms/Passes.h"
 #include "water/Dialect/Wave/IR/WaveDialect.h"
@@ -53,6 +54,9 @@ void registerWaterTestDialect(DialectRegistry &registry);
 } // namespace mlir::water::test
 
 int main(int argc, char **argv) {
+  aster::registerUpstreamMLIRPasses();
+  aster::registerPasses();
+
   arith::registerArithIntRangeNarrowingPass();
   arith::registerArithIntRangeOptsPass();
   registerCSEPass();
@@ -77,6 +81,10 @@ int main(int argc, char **argv) {
   water::registerWaterPipelines();
 
   DialectRegistry registry;
+  aster::initUpstreamMLIRDialects(registry);
+  aster::initDialects(registry);
+  aster::registerUpstreamMLIRInterfaces(registry);
+  aster::registerUpstreamMLIRExternalModels(registry);
   registry.insert<
       // clang-format off
       LLVM::LLVMDialect,
