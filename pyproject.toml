@@ -3,6 +3,10 @@ testpaths = ["test", "mlir_kernels", "contrib", "python"]
 addopts = "--import-mode=importlib"
 pythonpath = ["contrib", "contrib/kittens/test"]
 
+[tool.ruff]
+# 88 is black's default; preserved when switching from black to ruff.
+line-length = 88
+
 [tool.pyrefly]
 search_path = ["build/python_packages"]
 project_includes = ["build/python_packages/aster/**/*.py"]
