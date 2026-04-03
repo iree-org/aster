@@ -14,6 +14,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", str(os.cpu_count() or 4))
 os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
 
 import argparse
+import dataclasses
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -94,6 +95,7 @@ def _build_instance(d: dict) -> PingPongGemmInstance:
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
         set_mfma_priority=d["set_mfma_priority"],
+        mcpu=_HW.mcpu,
     )
     return PingPongGemmInstance(spec, mapping)
 
@@ -112,6 +114,7 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
         num_wg_per_cu=nwgcu(d, _HW),
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
+        mcpu=_HW.mcpu,
     )
 
 
@@ -170,7 +173,9 @@ def _repro_cmd(cfg):
 
 def _from_label(label: str) -> PingPongGemmInstance:
     base = WeakScaledMappedGemmInstance.from_label(label)
-    return PingPongGemmInstance(base.spec, base.mapping)
+    # Label serde does not encode mcpu; honor the detected hardware target.
+    mapping = dataclasses.replace(base.mapping, mcpu=_HW.mcpu)
+    return PingPongGemmInstance(base.spec, mapping)
 
 
 # --- Entry point ---
