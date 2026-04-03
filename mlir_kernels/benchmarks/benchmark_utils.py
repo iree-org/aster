@@ -8,19 +8,28 @@ from dataclasses import dataclass
 from typing import Callable, Optional, List, Tuple, TypeVar
 
 from tqdm.auto import tqdm
-from aster._mlir_libs._runtime_module import hip_get_device_count
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
+
+
+def _safe_hip_get_device_count() -> int:
+    """Return GPU count, or 0 if HIP runtime is unavailable (e.g. macOS)."""
+    try:
+        from aster._mlir_libs._runtime_module import hip_get_device_count
+
+        return hip_get_device_count()
+    except RuntimeError:
+        return 0
 
 
 @dataclass
 class BaseConfig:
     """Base configuration class for benchmark configs.
 
-    Provides common attributes and properties needed by BenchmarkResult. All benchmark
-    config classes should inherit from this.
+    Provides common attributes and properties needed by BenchmarkResult.
+    All benchmark config classes should inherit from this.
 
-    Child classes must implement num_workgroups as a property or use _num_workgroups
-    field.
+    Child classes must implement num_workgroups as a property or use
+    _num_workgroups field.
     """
 
     # Required fields (must come first)
@@ -157,17 +166,17 @@ def format_throughput_stats(result: BenchmarkResult) -> str:
         flops_str = (
             f"{result.flops_per_cycle_per_wave / 1e9:8.2f} GFLOP/cycle/wave | "
             f"{result.flops_per_cycle_overall / 1e9:9.2f} GFLOP/cycle overall | "
-            f"{result.total_tflops_per_second:6.2f} TFLOP/s (compute_eff {result.compute_efficiency*100:5.2f}% assuming peak {result.config.peak_tflops} TFLOP/s throughput)"
+            f"{result.total_tflops_per_second:6.2f} TFLOP/s (compute_eff {result.compute_efficiency * 100:5.2f}% assuming peak {result.config.peak_tflops} TFLOP/s throughput)"
         )
 
     # Memory throughput formatting
     nanoseconds = result.iteration_times_ns[-1]
     return (
-        f"{nanoseconds:8.0f} ns ({result.cycles/1000:6.0f} kCycles), {result.total_bytes/1e3:8.0f}kB (R+W) over {result.config.num_waves:2.0f} waves | "
+        f"{nanoseconds:8.0f} ns ({result.cycles / 1000:6.0f} kCycles), {result.total_bytes / 1e3:8.0f}kB (R+W) over {result.config.num_waves:2.0f} waves | "
         f"{result.b_per_cycle_per_thread:5.2f} B/cycle/thread | "
         f"{result.b_per_cycle_per_wave:8.2f} B/cycle/wave | "
         f"{result.b_per_cycle_overall:9.2f} B/cycle overall | "
-        f"{result.total_gbytes_per_second:7.2f} GB/s (mem_eff {result.memory_efficiency*100:5.2f}% assuming peak {result.config.peak_gbps} GB/s throughput) | "
+        f"{result.total_gbytes_per_second:7.2f} GB/s (mem_eff {result.memory_efficiency * 100:5.2f}% assuming peak {result.config.peak_gbps} GB/s throughput) | "
         f"{flops_str}"
     )
 
@@ -208,7 +217,7 @@ class MultiGPUExecutor:
     """
 
     def __init__(self):
-        self.num_gpus = hip_get_device_count()
+        self.num_gpus = _safe_hip_get_device_count()
         if self.num_gpus < 1:
             raise RuntimeError("No GPUs available")
 
@@ -304,7 +313,7 @@ def run_benchmark(
         return [], []
 
     # Skip execution if no GPUs available (e.g. macOS cross-compilation).
-    if hip_get_device_count() < 1:
+    if _safe_hip_get_device_count() < 1:
         print("No GPUs available, skipping execution.")
         return [], []
 
@@ -387,7 +396,7 @@ def run_benchmark(
                 if hsaco_path and os.path.exists(hsaco_path):
                     try:
                         os.unlink(hsaco_path)
-                    except:
+                    except OSError:
                         pass
             # Return partial results instead of re-raising
             executor.shutdown()
