@@ -303,7 +303,8 @@ class TestMfmaIndexA16x16_f16:
     def test_mfma_index_A_16x16_f16(self):
         """MFMA indexing for A fragment.
 
-        That is, for each lane, the (row, col) to load 4_f16 (dwordx2) values of A.
+        That is, for each lane, the (row, col) to load 4_f16 (dwordx2)
+        values of A.
         """
         num_threads = 64
         grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
@@ -340,7 +341,8 @@ class TestMfmaIndexB16x16_f16:
     def test_mfma_index_B_16x16_f16(self):
         """MFMA indexing for B fragment.
 
-        That is, for each lane, the (row, col) to load 4_f16 (dwordx2) values of B.
+        That is, for each lane, the (row, col) to load 4_f16 (dwordx2)
+        values of B.
         """
         num_threads = 64
         grid_dim, block_dim = (1, 1, 1), (64, 1, 1)
@@ -377,7 +379,8 @@ class TestMfmaIndexC16x16_f32:
     def test_mfma_index_C_16x16_f32(self):
         """MFMA indexing for C fragment.
 
-        That is, for each lane, the (row, col) to load 4_f32 (dwordx4) values of C.
+        That is, for each lane, the (row, col) to load 4_f32 (dwordx4)
+        values of C.
         """
         num_threads = 64
         grid_dim, block_dim = (1, 1, 1), (64, 1, 1)

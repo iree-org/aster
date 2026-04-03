@@ -4,7 +4,6 @@ import os
 from typing import List
 
 import numpy as np
-import pytest
 
 from aster.execution.helpers import compile_and_run as _compile_and_run
 from mlir_kernels.common import get_library_paths
@@ -17,9 +16,7 @@ WAVEFRONT_SIZE = 64
 
 def get_mlir_kernels_library_path(relative: str) -> str:
     """Get path to a file in mlir_kernels/library/ by relative path (e.g. 'common/indexing_ptr.mlir')."""
-    return os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "mlir_kernels", "library", relative
-    )
+    return os.path.join(os.path.dirname(__file__), "..", "..", "..", "mlir_kernels", "library", relative)
 
 
 def get_kittens_16x16_lds_library_paths(use_buffer: bool = False) -> List[str]:

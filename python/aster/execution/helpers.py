@@ -9,7 +9,7 @@ from aster.compiler.core import (
     PrintOptions,
     assemble_to_hsaco,
 )
-from aster.execution.core import execute_hsaco, InputArray, OutputArray, InOutArray
+from aster.execution.core import execute_hsaco, InputArray, InOutArray
 from aster.execution.utils import system_has_mcpu
 from aster.test_pass_pipelines import TEST_SYNCHRONOUS_PASS_PIPELINE
 

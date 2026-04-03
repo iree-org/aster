@@ -128,7 +128,7 @@ def main():
     vmcnt_count = asm.count("vmcnt")
     lgkmcnt_count = asm.count("lgkmcnt")
 
-    print(f"\nWait instruction analysis:")
+    print("\nWait instruction analysis:")
     print(f"  Total s_waitcnt: {waitcnt_count}")
     print(f"  vmcnt references: {vmcnt_count}")
     print(f"  lgkmcnt references: {lgkmcnt_count}")

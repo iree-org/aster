@@ -14,9 +14,9 @@ def analyze_bank_conflicts(banks, title=""):
                for the 4 banks accessed by each thread's b64 load.
         title: Description for the output.
     """
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"LDS Bank Analysis: {title}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     # Print banks accessed by each thread
     print("\nBanks accessed per thread (tid: [b0, b1, b2, b3]):")

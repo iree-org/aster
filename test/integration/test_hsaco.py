@@ -18,8 +18,9 @@ TARGET_CONFIGS = [
 def _build_module_ir(target, isa):
     """Return MLIR source for a kernel that uses instructions available on all ISAs.
 
-    Uses s_mov_b32 (scalar move, all ISAs) and alloca/end_kernel (universal) to exercise
-    the regalloc -> ASM -> HSACO pipeline with a non-trivial instruction sequence.
+    Uses s_mov_b32 (scalar move, all ISAs) and alloca/end_kernel
+    (universal) to exercise the regalloc -> ASM -> HSACO pipeline with a
+    non-trivial instruction sequence.
     """
     return f"""\
 amdgcn.module @test_module target = #amdgcn.target<{target}> isa = #amdgcn.isa<{isa}> {{

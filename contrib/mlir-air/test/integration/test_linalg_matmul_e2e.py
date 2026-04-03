@@ -1,7 +1,6 @@
 import os
 
 import numpy as np
-import pytest
 
 from aster.execution.helpers import compile_and_run
 
@@ -49,7 +48,6 @@ def _mlir_air_pipeline(library_paths):
 
 
 class TestLinalgMatmulE2E:
-
     def test_matmul_32x32(self):
         M, N, K = 32, 32, 32
         np.random.seed(42)

@@ -7,8 +7,8 @@ import subprocess
 def system_has_gpu(mcpu: str) -> bool:
     """Check if a GPU matching mcpu is available via rocminfo.
 
-    Does NOT import aster/MLIR/LLVM. This is the single canonical implementation —
-    system_has_mcpu is an alias for this function.
+    Does NOT import aster/MLIR/LLVM. This is the single canonical
+    implementation — system_has_mcpu is an alias for this function.
     """
     import shutil
 

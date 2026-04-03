@@ -5,5 +5,4 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 from aster.dialects._ptr_ops_gen import *
-from aster.dialects._ptr_ops_gen import _Dialect
 from aster.dialects._ptr_enum_gen import *

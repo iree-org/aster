@@ -44,7 +44,6 @@ from test_perf_001_gemm_fp16_weak_scaled import (
 )
 from bench_harness import (
     add_sweep_cli_args,
-    bench_perf_sweep,
     bench_perf_sweep_pipelined,
     make_sweep_pins,
 )
@@ -80,7 +79,12 @@ PIPELINE_STRATEGY_CONFIGS = [1, 3, 5, 6, 7, 9]
 # Wave configs: multiples-of-4 wave counts split across MxN.
 # waves_per_wg[1] must be a power of 2 (delinearize from 1-D block ID).
 _WAVE_BASES = [(1, 4), (2, 2), (4, 1)]
-_is_po2 = lambda x: x > 0 and (x & (x - 1)) == 0
+
+
+def _is_po2(x):
+    return x > 0 and (x & (x - 1)) == 0
+
+
 WAVE_CONFIGS = sorted(
     {
         (bm * k1, bn * k2)
@@ -100,8 +104,7 @@ _M_MULTIPLES = range(1, 6)
 _N_MULTIPLES = [1, 2, 4]  # powers of 2
 _K_TILES_RANGE = range(1, 9)
 _tile_wg_pairs = {
-    (mw * mm, nw * nm)
-    for (mw, nw), mm, nm in itertools.product(WAVE_CONFIGS, _M_MULTIPLES, _N_MULTIPLES)
+    (mw * mm, nw * nm) for (mw, nw), mm, nm in itertools.product(WAVE_CONFIGS, _M_MULTIPLES, _N_MULTIPLES)
 }
 TILE_WG_CONFIGS = sorted((m, n, k) for m, n in _tile_wg_pairs for k in _K_TILES_RANGE)
 _WG_BASE = (19, 16)
@@ -163,9 +166,7 @@ def _passes_resource_check(mapping: GemmMappingSpec) -> bool:
     return True
 
 
-def _generate_configs(
-    variants=None, sample_size=3000, check_regs=True, sweep_pins=None
-):
+def _generate_configs(variants=None, sample_size=3000, check_regs=True, sweep_pins=None):
     """Generate eligible configs via nested loops with early rejection.
 
     Filters are applied hierarchically -- dimension checks first, then LDS/register
@@ -195,14 +196,13 @@ def _generate_configs(
         for hw in HOIST_WAIT_CONFIGS
     ]
 
-    _pin = lambda key, val: (
-        not sweep_pins or key not in sweep_pins or sweep_pins[key] == val
-    )
+    def _pin(key, val):
+        return not sweep_pins or key not in sweep_pins or sweep_pins[key] == val
+
     all_configs = []
     total_eligible = 0
 
     for vi, (b_path, load_type) in enumerate(active):
-        is_direct = b_path in ("direct_b", "direct_ab")
         eligible = []
 
         for mw, nw in WAVE_CONFIGS:
@@ -217,9 +217,7 @@ def _generate_configs(
                 nwgcu = occ // wps
                 wg_m = _WG_BASE[0] * nwgcu
                 simd_occ = nwgcu * wps
-                if not (
-                    _pin("num_workgroups_m", wg_m) and _pin("simd_occupancy", simd_occ)
-                ):
+                if not (_pin("num_workgroups_m", wg_m) and _pin("simd_occupancy", simd_occ)):
                     continue
 
                 for n_mult in N_WG_MULTIPLIERS:
@@ -237,9 +235,7 @@ def _generate_configs(
                         ):
                             continue
                         if not (
-                            _pin("tiles_per_wg_m", mtwg)
-                            and _pin("tiles_per_wg_n", ntwg)
-                            and _pin("tiles_per_wg_k", kt)
+                            _pin("tiles_per_wg_m", mtwg) and _pin("tiles_per_wg_n", ntwg) and _pin("tiles_per_wg_k", kt)
                         ):
                             continue
 
@@ -295,19 +291,14 @@ def _generate_configs(
                                         ll_sched=ll,
                                         hoist_wait=hw,
                                     )
-                                    eligible.append(
-                                        WeakScaledMappedGemmInstance(spec, mapping)
-                                    )
+                                    eligible.append(WeakScaledMappedGemmInstance(spec, mapping))
 
         n_eligible = len(eligible)
         total_eligible += n_eligible
         if per_variant > 0 and n_eligible > per_variant:
             eligible = random.sample(eligible, per_variant)
         all_configs.extend(eligible)
-        print(
-            f"  [{vi+1}/{len(active)}] {b_path}/{load_type}: "
-            f"{n_eligible:,} eligible, {len(eligible):,} selected"
-        )
+        print(f"  [{vi + 1}/{len(active)}] {b_path}/{load_type}: {n_eligible:,} eligible, {len(eligible):,} selected")
 
     print(f"Total: {total_eligible:,} eligible, {len(all_configs):,} selected")
     return all_configs
@@ -315,19 +306,14 @@ def _generate_configs(
 
 def _repro_cmd(cfg):
     """Return a CLI command to reproduce a single config."""
-    return (
-        f"python contrib/kittens/test/bench/bench_perf_001_gemm_fp16_weak_scaled.py"
-        f" {cfg.label}"
-    )
+    return f"python contrib/kittens/test/bench/bench_perf_001_gemm_fp16_weak_scaled.py {cfg.label}"
 
 
 CORRECTNESS_K = 2048  # Small K for fast compile+execute correctness checks.
 CORRECTNESS_TOP_N = 100  # Number of top configs to verify after a sweep.
 
 
-def verify_top_configs(
-    results, hsaco_paths, num_configs=CORRECTNESS_TOP_N, num_gpus=None
-):
+def verify_top_configs(results, hsaco_paths, num_configs=CORRECTNESS_TOP_N, num_gpus=None):
     """Phase 3: Verify top N configs using same subprocess pattern as execution."""
     from bench_harness import (
         check_numpy_blas,
@@ -347,9 +333,7 @@ def verify_top_configs(
     to_verify = [c for c, *_ in top if c.label in hsaco_paths]
     if not to_verify:
         return
-    print(
-        f"\n--- Phase 3: Correctness ({len(to_verify)} configs, {num_gpus} GPU(s)) ---"
-    )
+    print(f"\n--- Phase 3: Correctness ({len(to_verify)} configs, {num_gpus} GPU(s)) ---")
     check_numpy_blas(label="correctness")
 
     passed, errors = verify_on_gpus(to_verify, hsaco_paths, num_gpus)
@@ -383,12 +367,8 @@ def main():
     parser.add_argument("--num-workgroups-n", type=int, help="Pin workgroups along N")
     parser.add_argument("--waves-per-wg-m", type=int, help="Pin waves per WG along M")
     parser.add_argument("--waves-per-wg-n", type=int, help="Pin waves per WG along N")
-    parser.add_argument(
-        "--tiles-per-wg-m", type=int, help="Pin tiles per workgroup along M"
-    )
-    parser.add_argument(
-        "--tiles-per-wg-n", type=int, help="Pin tiles per workgroup along N"
-    )
+    parser.add_argument("--tiles-per-wg-m", type=int, help="Pin tiles per workgroup along M")
+    parser.add_argument("--tiles-per-wg-n", type=int, help="Pin tiles per workgroup along N")
     parser.add_argument("--tiles-per-wg-k", type=int, help="Pin tiles per wave along K")
     parser.add_argument("--k-scaling-factor", type=int, help="Pin K scaling factor")
     parser.add_argument(
@@ -421,18 +401,14 @@ def main():
         default=None,
         help="Pin LCM unrolling on/off",
     )
-    parser.add_argument(
-        "--unroll-multiplier", type=int, default=None, help="Pin unroll multiplier"
-    )
+    parser.add_argument("--unroll-multiplier", type=int, default=None, help="Pin unroll multiplier")
     parser.add_argument(
         "--epilogue-peeling",
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Pin epilogue peeling on/off",
     )
-    parser.add_argument(
-        "--desired-simd-occupancy", type=int, default=None, help="Pin SIMD occupancy"
-    )
+    parser.add_argument("--desired-simd-occupancy", type=int, default=None, help="Pin SIMD occupancy")
     parser.add_argument(
         "--ll-sched",
         action=argparse.BooleanOptionalAction,

@@ -7,6 +7,21 @@ pythonpath = ["contrib", "contrib/kittens/test"]
 # 88 is black's default; preserved when switching from black to ruff.
 line-length = 88
 
+[tool.ruff.lint.per-file-ignores]
+# lit config files: `config` is injected by the lit runtime, not a real undefined name.
+"test/lit.cfg.py" = ["F821"]
+"test/Unit/lit.cfg.py" = ["F821"]
+"test/lit.site.cfg.py.in" = ["F821"]
+"test/Unit/lit.site.cfg.py.in" = ["F821"]
+# Dialect wrappers re-export from generated code via star imports.
+"python/aster/dialects/amdgcn.py" = ["F401", "F403", "F405", "E402"]
+"python/aster/dialects/lsir.py" = ["F403", "F405"]
+"python/aster/dialects/ptr.py" = ["F403"]
+# __init__.py and utility modules re-export intentional public API.
+"python/aster/compiler/__init__.py" = ["F401"]
+"python/aster/layout/__init__.py" = ["F401"]
+"mlir_kernels/nanobenchmarks/utils.py" = ["F401"]
+
 [tool.pyrefly]
 search_path = ["build/python_packages"]
 project_includes = ["build/python_packages/aster/**/*.py"]

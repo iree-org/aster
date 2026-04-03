@@ -110,9 +110,9 @@ def _run_copy_test(
         for j in range(elems_per):
             actual = dst[tid * elems_per + j]
             expected = tid * 10.0 + j
-            assert (
-                actual == expected
-            ), f"tid={tid} elem={j}: got {actual}, expected {expected}"
+            assert actual == expected, (
+                f"tid={tid} elem={j}: got {actual}, expected {expected}"
+            )
 
 
 @pytest.mark.parametrize("use_global", [False, True], ids=["buffer", "flat"])

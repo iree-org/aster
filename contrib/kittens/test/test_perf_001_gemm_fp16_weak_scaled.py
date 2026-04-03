@@ -8,8 +8,6 @@ Tiles are specified per-workgroup (num_tiles_per_wg). Per-wave tile counts
 are derived: num_tiles_per_wave = num_tiles_per_wg / num_waves_per_wg.
 """
 
-from dataclasses import dataclass
-
 import numpy as np
 from kittens.gemm_config import (
     A as OP_A,
@@ -21,7 +19,6 @@ from kittens.gemm_config import (
     GemmSpec,
     GemmMappingSpec,
     LoadType,
-    Operand,
     OperandPath,
     WeakScaledMappedGemmInstance,
 )
@@ -133,14 +130,10 @@ def _make_substitutions(cfg):
     subs["{{M_TILES_WG}}"] = str(cfg.mapping.num_tiles_per_workgroup[DIM_M])
     subs["{{N_TILES_WG}}"] = str(cfg.mapping.num_tiles_per_workgroup[DIM_N])
     subs["{{A_LDS_BYTES}}"] = str(
-        cfg.mapping.num_tiles_per_workgroup[DIM_M]
-        * cfg.mapping.num_tiles_per_wave[DIM_K]
-        * 1024
+        cfg.mapping.num_tiles_per_workgroup[DIM_M] * cfg.mapping.num_tiles_per_wave[DIM_K] * 1024
     )
     subs["{{B_LDS_BYTES}}"] = str(
-        cfg.mapping.num_tiles_per_wave[DIM_K]
-        * cfg.mapping.num_tiles_per_workgroup[DIM_N]
-        * 1024
+        cfg.mapping.num_tiles_per_wave[DIM_K] * cfg.mapping.num_tiles_per_workgroup[DIM_N] * 1024
     )
     gs = cfg.gemm_size
     subs["{{STRIDE_C}}"] = str(gs[DIM_N] * 4)  # f32 = 4 bytes
@@ -169,22 +162,14 @@ def _make_substitutions(cfg):
     subs["{{COOP_A_WAVES_K}}"] = str(a_wk)
     subs["{{COOP_A_M}}"] = str(a_cm)
     subs["{{COOP_A_K}}"] = str(a_ck)
-    subs["{{MAX_COOP_A_M_START}}"] = str(
-        max(0, cfg.mapping.num_tiles_per_workgroup[DIM_M] - a_cm)
-    )
-    subs["{{MAX_COOP_A_K_START}}"] = str(
-        max(0, cfg.mapping.num_tiles_per_wave[DIM_K] - a_ck)
-    )
+    subs["{{MAX_COOP_A_M_START}}"] = str(max(0, cfg.mapping.num_tiles_per_workgroup[DIM_M] - a_cm))
+    subs["{{MAX_COOP_A_K_START}}"] = str(max(0, cfg.mapping.num_tiles_per_wave[DIM_K] - a_ck))
     subs["{{COOP_B_WAVES_N}}"] = str(b_wn)
     subs["{{COOP_B_WAVES_K}}"] = str(b_wk)
     subs["{{COOP_B_N}}"] = str(b_cn)
     subs["{{COOP_B_K}}"] = str(b_ck)
-    subs["{{MAX_COOP_B_N_START}}"] = str(
-        max(0, cfg.mapping.num_tiles_per_workgroup[DIM_N] - b_cn)
-    )
-    subs["{{MAX_COOP_B_K_START}}"] = str(
-        max(0, cfg.mapping.num_tiles_per_wave[DIM_K] - b_ck)
-    )
+    subs["{{MAX_COOP_B_N_START}}"] = str(max(0, cfg.mapping.num_tiles_per_workgroup[DIM_N] - b_cn))
+    subs["{{MAX_COOP_B_K_START}}"] = str(max(0, cfg.mapping.num_tiles_per_wave[DIM_K] - b_ck))
     # Preshuffle layout parameters (f16: BK=32, 64 lanes, 16 bytes/lane).
     subs["{{STRIDE_N0_BYTES}}"] = str((gs[DIM_K] // 32) * 1024)
     subs["{{STRIDE_M0_BYTES}}"] = str((gs[DIM_K] // 32) * 1024)  # same formula as N
@@ -204,9 +189,9 @@ def compile_gemm(
 ):
     """Compile a GEMM config to HSACO.
 
-    Returns (hsaco_path, asm_str). Handles b_path (lds/direct) and load_type
-    (flat/buffer) via cfg fields. All compilation options (unroll, peeling, ll_sched,
-    hoist_wait) are read from cfg.
+    Returns (hsaco_path, asm_str). Handles b_path (lds/direct) and
+    load_type (flat/buffer) via cfg fields. All compilation options
+    (unroll, peeling, ll_sched, hoist_wait) are read from cfg.
     """
     from aster import ir
     from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
@@ -265,9 +250,9 @@ def execute_gemm_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=Fal
 
     Returns (C_output, times_ns).
 
-    Automatically preshuffles B when cfg.direct_b is True. Callers pass the original
-    row-major B -- the preshuffle is applied here so there is a single code path for
-    both test and bench.
+    Automatically preshuffles B when cfg.direct_b is True. Callers pass
+    the original row-major B -- the preshuffle is applied here so there
+    is a single code path for both test and bench.
 
     Skips (pytest.skip) if target GPU unavailable.
     """
@@ -363,9 +348,7 @@ class TestWeakScaleCorrectness:
         # Per-wave tile product > 16 requires too many registers.
         tpw = cfg.mapping.num_tiles_per_wave
         if tpw[DIM_M] * tpw[DIM_N] > 16:
-            pytest.skip(
-                f"per-wave tiles {tpw[DIM_M]}x{tpw[DIM_N]} product > 16 for {cfg.label}"
-            )
+            pytest.skip(f"per-wave tiles {tpw[DIM_M]}x{tpw[DIM_N]} product > 16 for {cfg.label}")
         # Avoid unfeasible LDS sizes
         if cfg.lds_bytes >= LDS_SIZE:
             pytest.skip(f"LDS {cfg.lds_bytes} >= {LDS_SIZE}")
@@ -463,23 +446,19 @@ class TestWeakScaledMappedGemmInstanceSerde:
             "num_tiles_per_workgroup",
             "num_threads",
         ]:
-            assert getattr(restored, field) == getattr(
-                cfg, field
-            ), f"{field}: {getattr(restored, field)} != {getattr(cfg, field)}"
+            assert getattr(restored, field) == getattr(cfg, field), (
+                f"{field}: {getattr(restored, field)} != {getattr(cfg, field)}"
+            )
 
     def test_from_label_rejects_garbage(self):
         with pytest.raises(ValueError, match="Cannot parse label"):
             WeakScaledMappedGemmInstance.from_label("not_a_valid_label")
 
     def test_from_label_rejects_truncated(self):
-        cfg = _make_weak_scaled_mapped_gemm_instance(
-            [19, 16, 1], [2, 2, 1], [8, 8, 1], k=4096, pipeline_strategy=1
-        )
+        cfg = _make_weak_scaled_mapped_gemm_instance([19, 16, 1], [2, 2, 1], [8, 8, 1], k=4096, pipeline_strategy=1)
         with pytest.raises(ValueError):
             WeakScaledMappedGemmInstance.from_label(cfg.label[:-5])
 
 
 if __name__ == "__main__":
-    raise SystemExit(
-        "Use bench/bench_perf_001_gemm_fp16_weak_scaled.py <label> for single-config runs."
-    )
+    raise SystemExit("Use bench/bench_perf_001_gemm_fp16_weak_scaled.py <label> for single-config runs.")

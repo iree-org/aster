@@ -7,7 +7,6 @@ import itertools
 import multiprocessing
 from typing import List, Tuple, Optional
 
-import numpy as np
 from aster import ir
 from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
 from aster.execution.core import execute_hsaco, InputArray, OutputArray
@@ -33,8 +32,8 @@ NUM_CU_PER_GPU = 304
 class BenchmarkBatchedSmallGEMMConfig(BatchedSmallGEMMConfig, BaseConfig):
     """BatchedSmallGEMM config that inherits from both BatchedSmallGEMMConfig and BaseConfig for benchmarking.
 
-    BatchedSmallGEMMConfig already has num_workgroups as a field, so no property
-    override needed.
+    BatchedSmallGEMMConfig already has num_workgroups as a field, so no
+    property override needed.
     """
 
     pass
@@ -117,9 +116,9 @@ def execute_kernel_benchmark(
         f"[EXECUTE] Matrices created: m={config.m}, n={config.n}, k={config.k}, batch={config.batch}",
     )
 
-    assert all(
-        sz > 0 for sz in [len(a_data), len(b_data), len(c_data)]
-    ), f"All matrix sizes must be > 0 for m={config.m}, n={config.n}, k={config.k} wg={config.num_workgroups} waves={config.num_waves}"
+    assert all(sz > 0 for sz in [len(a_data), len(b_data), len(c_data)]), (
+        f"All matrix sizes must be > 0 for m={config.m}, n={config.n}, k={config.k} wg={config.num_workgroups} waves={config.num_waves}"
+    )
 
     # Use shared verify function; wrap to match execute_hsaco's arguments signature.
     _raw_verify = make_batchedsmallgemm_verify_fn(config) if not skip_test else None

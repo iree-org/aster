@@ -12,8 +12,9 @@ class TestGlobalToLdsAndBack16x16:
     def test_copy_tile_at_position_3_5(self):
         """Copy a single 16x16 tile from position (3,5) in a 64x96 array.
 
-        This tests that position handling is correct by loading from a specific tile
-        location and verifying the correct data is retrieved.
+        This tests that position handling is correct by loading from a
+        specific tile location and verifying the correct data is
+        retrieved.
         """
         rows, cols = 40, 60
         tile_m, tile_n = 1, 2  # Tile position (element 16, 32)

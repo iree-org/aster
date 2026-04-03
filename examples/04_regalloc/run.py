@@ -31,10 +31,7 @@ mlir_file = here("kernel.mlir")
 # amdgcn-backend runs at builtin.module scope (regalloc, wait lowering, CF legalization).
 # amdgcn-hazards runs inside amdgcn.kernel scope (NOP insertion needs physical registers).
 PASS_PIPELINE = (
-    "builtin.module("
-    "  amdgcn-backend,"
-    "  amdgcn.module(amdgcn.kernel(amdgcn-hazards))"
-    ")"
+    "builtin.module(  amdgcn-backend,  amdgcn.module(amdgcn.kernel(amdgcn-hazards)))"
 )
 
 section("(cross-)compile with register allocation")

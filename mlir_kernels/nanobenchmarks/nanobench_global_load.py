@@ -7,7 +7,6 @@ import os
 import numpy as np
 
 from utils import (
-    MCPU,
     NANOBENCH_PASS_PIPELINE,
     WAVEFRONT_SIZE,
     NanobenchConfig,
@@ -100,7 +99,7 @@ def main():
 
     if iteration_times_ns is not None:
         variants = [
-            f"dword{'x'+str(i) if i > 1 else ''}"
+            f"dword{'x' + str(i) if i > 1 else ''}"
             for i in [1, 2, 3, 4]
             if args.dwordxbits & (1 << (i - 1))
         ]
@@ -109,7 +108,7 @@ def main():
             args.num_kernel_runs,
             extra_info={
                 "variants": "+".join(variants),
-                "num_bytes": f"{num_bytes/1e6} MB",
+                "num_bytes": f"{num_bytes / 1e6} MB",
             },
         )
 

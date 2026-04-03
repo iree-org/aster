@@ -8,7 +8,6 @@ Phase 3: Correctness verification (per-config subprocess, crash-isolated).
 import fcntl
 import json
 import os
-import signal
 import sys
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -109,8 +108,8 @@ def make_sweep_pins(args, attr_map):
 def make_sweep_filter(args, attr_map):
     """Build a config filter predicate from CLI args that pin sweep dimensions.
 
-    Prefer make_sweep_pins for vectorized filtering. This returns a Python callable for
-    cases that need per-config predicate filtering.
+    Prefer make_sweep_pins for vectorized filtering. This returns a
+    Python callable for cases that need per-config predicate filtering.
     """
     pins = make_sweep_pins(args, attr_map)
     if pins is None:
@@ -129,10 +128,7 @@ def check_numpy_blas(label=""):
     dt = time.time() - t0
     tag = f"[{label}] " if label else ""
     if dt > 1.0:
-        raise RuntimeError(
-            f"{tag}numpy BLAS too slow: {dt:.1f}s. "
-            f"Set OPENBLAS_NUM_THREADS={os.cpu_count()}"
-        )
+        raise RuntimeError(f"{tag}numpy BLAS too slow: {dt:.1f}s. Set OPENBLAS_NUM_THREADS={os.cpu_count()}")
     print(f"{tag}numpy BLAS ok: {dt * 1000:.0f} ms")
 
 
@@ -175,9 +171,10 @@ def format_mlir_error_oneline(e):
 def _compile_inner(cfg, hsaco_dir, compile_fn, result_pipe, stderr_path):
     """Run compilation in an isolated child process. Sends result via pipe.
 
-    If this process crashes (segfault, assertion), the parent reads stderr_path to
-    capture the error spew. stderr is redirected to a file so it survives crashes (pipes
-    would lose buffered data on SIGKILL/SIGSEGV).
+    If this process crashes (segfault, assertion), the parent reads
+    stderr_path to capture the error spew. stderr is redirected to a
+    file so it survives crashes (pipes would lose buffered data on
+    SIGKILL/SIGSEGV).
     """
     # Redirect stderr to file so crash output is preserved.
     stderr_fd = os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
@@ -202,9 +199,7 @@ def _compile_inner(cfg, hsaco_dir, compile_fn, result_pipe, stderr_path):
         _, asm = compile_fn(cfg, output, num_vgprs=bv, num_agprs=ba)
         with open(output.replace(".hsaco", ".s"), "w") as f:
             f.write(asm)
-        res = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name).get(
-            cfg.kernel_name
-        )
+        res = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name).get(cfg.kernel_name)
         result_pipe.send(("ok", (cfg.label, output, res)))
     except Exception as e:
         result_pipe.send(("error", format_mlir_error_oneline(e)))
@@ -228,9 +223,10 @@ def _read_stderr_log(path, max_bytes=4096):
 def compile_one(cfg, hsaco_dir, compile_fn, timeout=DEFAULT_COMPILE_TIMEOUT):
     """Compile one config to HSACO in a crash-isolated subprocess.
 
-    Spawns a child process for the actual compilation. If it crashes (segfault,
-    assertion) or exceeds the timeout, the pool worker stays alive and reports the
-    failure. Crash stderr is captured to a log file in hsaco_dir.
+    Spawns a child process for the actual compilation. If it crashes
+    (segfault, assertion) or exceeds the timeout, the pool worker stays
+    alive and reports the failure. Crash stderr is captured to a log
+    file in hsaco_dir.
     """
     import multiprocessing as mp
 
@@ -287,13 +283,12 @@ def compile_one(cfg, hsaco_dir, compile_fn, timeout=DEFAULT_COMPILE_TIMEOUT):
 def _exec_worker(args):
     """Run one HSACO in a subprocess.
 
-    HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init initializer.
+    HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init
+    initializer.
     """
     from aster.execution.core import execute_hsaco, InputArray, OutputArray
 
-    label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, num_iter, *extra = (
-        args
-    )
+    label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, num_iter, *extra = args
     direct_b = extra[0] if extra else False
     direct_a = extra[1] if len(extra) > 1 else False
     use_zero_init = extra[2] if len(extra) > 2 else False
@@ -334,7 +329,8 @@ def _exec_worker(args):
 def _verify_worker(args):
     """Run one HSACO + compare against numpy.
 
-    HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init initializer.
+    HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init
+    initializer.
     """
     from aster.execution.core import execute_hsaco, InputArray, OutputArray
 
@@ -405,8 +401,9 @@ def _gpu_init(gpu_id):
 def _exec_child(conn, item, gid, gpu_lock_path=None):
     """Child process entry point for isolated execution (module-level for pickling).
 
-    If gpu_lock_path is set, wraps execution in an fcntl file lock that is auto-released
-    by the OS on crash (prevents deadlocks in pipelined mode).
+    If gpu_lock_path is set, wraps execution in an fcntl file lock that
+    is auto-released by the OS on crash (prevents deadlocks in pipelined
+    mode).
     """
     _gpu_init(gid)
     if gpu_lock_path:
@@ -445,9 +442,10 @@ def _verify_child(conn, item, gid):
 def _exec_one_isolated(work_item, gpu_id, timeout=120, gpu_lock_path=None):
     """Execute one config in a fully isolated subprocess.
 
-    Unlike ProcessPoolExecutor, a crash here cannot poison other configs. If
-    gpu_lock_path is set, the child acquires an fcntl file lock before GPU work (auto-
-    released on crash). Returns (label, times, error_string).
+    Unlike ProcessPoolExecutor, a crash here cannot poison other
+    configs. If gpu_lock_path is set, the child acquires an fcntl file
+    lock before GPU work (auto- released on crash). Returns (label,
+    times, error_string).
     """
     import multiprocessing as mp
 
@@ -486,9 +484,10 @@ def _exec_one_isolated(work_item, gpu_id, timeout=120, gpu_lock_path=None):
 def _run_gpu_queue(gpu_id, items, result_queue, timeout=120, gpu_lock_path=None):
     """Process work items sequentially on one GPU.
 
-    items can be a list (batch mode) or a queue.Queue (pipelined mode, stop on None).
-    Each config gets its own subprocess via _exec_one_isolated, so a crash cannot affect
-    the next config.  Results are pushed to result_queue (thread-safe) as they complete.
+    items can be a list (batch mode) or a queue.Queue (pipelined mode,
+    stop on None). Each config gets its own subprocess via
+    _exec_one_isolated, so a crash cannot affect the next config.
+    Results are pushed to result_queue (thread-safe) as they complete.
     """
     import queue as _queue_mod
 
@@ -497,18 +496,10 @@ def _run_gpu_queue(gpu_id, items, result_queue, timeout=120, gpu_lock_path=None)
             item = items.get()
             if item is None:
                 break
-            result_queue.put(
-                _exec_one_isolated(
-                    item, gpu_id, timeout=timeout, gpu_lock_path=gpu_lock_path
-                )
-            )
+            result_queue.put(_exec_one_isolated(item, gpu_id, timeout=timeout, gpu_lock_path=gpu_lock_path))
     else:
         for item in items:
-            result_queue.put(
-                _exec_one_isolated(
-                    item, gpu_id, timeout=timeout, gpu_lock_path=gpu_lock_path
-                )
-            )
+            result_queue.put(_exec_one_isolated(item, gpu_id, timeout=timeout, gpu_lock_path=gpu_lock_path))
 
 
 def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
@@ -553,7 +544,6 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
 
     # One thread per GPU, each processing its queue sequentially.
     threads = []
-    stop = threading.Event()
     for gpu_id in range(num_gpus):
         if not per_gpu[gpu_id]:
             continue
@@ -604,8 +594,7 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
         import time
 
         print(
-            f"Waiting for {len(alive)} GPU threads to finish current work "
-            f"(timeout 5s)...",
+            f"Waiting for {len(alive)} GPU threads to finish current work (timeout 5s)...",
             end="",
             flush=True,
         )
@@ -662,8 +651,8 @@ def _verify_gpu_queue(gpu_id, work_queue, result_queue, timeout=180):
 def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
     """Verify configs against numpy in subprocesses, all GPUs concurrently.
 
-    Each GPU gets a dedicated thread with a sequential queue.  Each config runs in its
-    own subprocess for full crash isolation.
+    Each GPU gets a dedicated thread with a sequential queue.  Each
+    config runs in its own subprocess for full crash isolation.
     """
     import queue
     import threading
@@ -740,7 +729,7 @@ def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
     if results:
         lines = []
         for i, (c, ms, tf, pct) in enumerate(results):
-            line = f"#{i+1:>3} {tf:>7.1f} TF {pct:>5.1f}% {ms:>8.2f}ms {c.label}"
+            line = f"#{i + 1:>3} {tf:>7.1f} TF {pct:>5.1f}% {ms:>8.2f}ms {c.label}"
             if repro_cmd_fn:
                 try:
                     line += f" | repro: {repro_cmd_fn(c)}"
@@ -751,9 +740,7 @@ def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
         saved_files.append(p)
         print(f"\nResults ({len(results)}) saved in {p}")
     if compile_errs:
-        p = _save_error_file(
-            "bench_compile_errors_", "compile", compile_errs, repro_cmd_fn
-        )
+        p = _save_error_file("bench_compile_errors_", "compile", compile_errs, repro_cmd_fn)
         saved_files.append(p)
         print(f"{len(compile_errs)} compile errors in {p}")
     if exec_errs:
@@ -761,17 +748,14 @@ def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
         saved_files.append(p)
         print(f"{len(exec_errs)} exec errors in {p}")
 
-    print(
-        f"\nSummary: {len(results)} ok, {len(compile_errs)} compile fail, "
-        f"{len(exec_errs)} exec fail"
-    )
+    print(f"\nSummary: {len(results)} ok, {len(compile_errs)} compile fail, {len(exec_errs)} exec fail")
     if results:
         top_n = min(20, len(results))
         print(f"Top {top_n}:")
         for i, (c, ms, tf, pct) in enumerate(results[:top_n]):
-            print(f"  #{i+1} {c.label}: {tf:.1f} TF ({pct:.1f}%)")
+            print(f"  #{i + 1} {c.label}: {tf:.1f} TF ({pct:.1f}%)")
     if saved_files:
-        print(f"\nSaved files:")
+        print("\nSaved files:")
         for f in saved_files:
             print(f"  {f}")
 
@@ -821,10 +805,12 @@ def bench_perf_sweep_pipelined(
 ):
     """Pipelined compile+execute: GPU execution starts as HSACOs become available.
 
-    Reuses _run_gpu_queue (with queue.Queue for dynamic item feeding) and
-    _exec_one_isolated (with gpu_lock_path for crash-safe GPU exclusivity).
+    Reuses _run_gpu_queue (with queue.Queue for dynamic item feeding)
+    and _exec_one_isolated (with gpu_lock_path for crash-safe GPU
+    exclusivity).
 
-    Returns (results, hsaco_paths) -- same interface as bench_perf_sweep.
+    Returns (results, hsaco_paths) -- same interface as
+    bench_perf_sweep.
     """
     import multiprocessing as mp
     import queue
@@ -879,19 +865,14 @@ def bench_perf_sweep_pipelined(
             gpu_threads.append(t)
 
     # Compile pool.
-    compile_pool = ProcessPoolExecutor(
-        max_workers=compile_workers, mp_context=spawn_ctx
-    )
+    compile_pool = ProcessPoolExecutor(max_workers=compile_workers, mp_context=spawn_ctx)
 
     hsaco_paths, resources_map = {}, {}
     compile_failed, exec_failed = [], []
     results = []
     cfg_by_label = {c.label: c for c in active}
 
-    compile_futs = {
-        compile_pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c
-        for c in active
-    }
+    compile_futs = {compile_pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c for c in active}
     total_compile = len(active)
     n_compiled, n_exec_submitted, n_exec_done = 0, 0, 0
     exec_rr = 0
@@ -911,19 +892,11 @@ def bench_perf_sweep_pipelined(
                     resources_map[label] = res
 
                 skip_exec = False
-                if post_compile_filter and (
-                    not res or not post_compile_filter(cfg, res)
-                ):
+                if post_compile_filter and (not res or not post_compile_filter(cfg, res)):
                     skip_exec = True
                     if not res:
-                        compile_failed.append(
-                            (cfg, "compile: metadata parse failed", "")
-                        )
-                if (
-                    not skip_exec
-                    and exec_sample > 0
-                    and n_exec_submitted >= exec_sample
-                ):
+                        compile_failed.append((cfg, "compile: metadata parse failed", ""))
+                if not skip_exec and exec_sample > 0 and n_exec_submitted >= exec_sample:
                     skip_exec = True
 
                 if not skip_exec and gpu_work_queues:
@@ -951,15 +924,11 @@ def bench_perf_sweep_pipelined(
                     short = type(e).__name__
                 compile_failed.append((cfg, f"compile: {short}", full_err))
 
-            dn, best_tf = _drain_exec_results(
-                exec_result_q, cfg_by_label, results, exec_failed
-            )
+            dn, best_tf = _drain_exec_results(exec_result_q, cfg_by_label, results, exec_failed)
             n_exec_done += dn
             n_fail = len(compile_failed) + len(exec_failed)
             pbar.set_postfix_str(
-                f"C={n_compiled}/{total_compile} "
-                f"X={n_exec_done}/{n_exec_submitted} "
-                f"best={best_tf:.1f}TF fail={n_fail}"
+                f"C={n_compiled}/{total_compile} X={n_exec_done}/{n_exec_submitted} best={best_tf:.1f}TF fail={n_fail}"
             )
     except KeyboardInterrupt:
         interrupted = True
@@ -967,10 +936,7 @@ def bench_perf_sweep_pipelined(
         pbar = None
         pending = total_compile - n_compiled
         in_flight = n_exec_submitted - n_exec_done
-        print(
-            f"\nCtrl+C -- stopping pipeline "
-            f"({pending} compiles pending, {in_flight} execs in flight)"
-        )
+        print(f"\nCtrl+C -- stopping pipeline ({pending} compiles pending, {in_flight} execs in flight)")
         print("Cancelling pending compilations...", end="", flush=True)
         for f in compile_futs:
             f.cancel()
@@ -1001,9 +967,7 @@ def bench_perf_sweep_pipelined(
                 end="",
                 flush=True,
             )
-            dn, _ = _drain_exec_results(
-                exec_result_q, cfg_by_label, results, exec_failed
-            )
+            dn, _ = _drain_exec_results(exec_result_q, cfg_by_label, results, exec_failed)
             drained += dn
             remaining_count = max(0, remaining_count - dn)
             for t in gpu_threads:
@@ -1067,25 +1031,17 @@ def bench_perf_sweep(
 
     active = list(configs)
 
-    print(
-        f"\nCompiling {len(active)} configs, "
-        f"{compile_workers} workers, {num_gpus} GPU(s)"
-    )
+    print(f"\nCompiling {len(active)} configs, {compile_workers} workers, {num_gpus} GPU(s)")
     sys.stdout.flush()
 
     # Write manifest so the user can review/edit before compiling.
-    manifest_fd, manifest_path = tempfile.mkstemp(
-        prefix="bench_manifest_", suffix=".txt"
-    )
+    manifest_fd, manifest_path = tempfile.mkstemp(prefix="bench_manifest_", suffix=".txt")
     with os.fdopen(manifest_fd, "w") as f:
         for c in active:
             repro = repro_cmd_fn(c) if repro_cmd_fn else c.label
             f.write(f"{c.label}\t{repro}\n")
     print(f"\nManifest: {manifest_path}")
-    print(
-        "Review/edit the file to remove lines, then press Enter to compile "
-        "(or Ctrl-C to abort)."
-    )
+    print("Review/edit the file to remove lines, then press Enter to compile (or Ctrl-C to abort).")
     sys.stdout.flush()
     try:
         input()
@@ -1106,10 +1062,7 @@ def bench_perf_sweep(
     hsaco_paths, resources_map, failed = {}, {}, []
     spawn_ctx = mp.get_context("spawn")
     pool = ProcessPoolExecutor(max_workers=compile_workers, mp_context=spawn_ctx)
-    futs = {
-        pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c
-        for c in active
-    }
+    futs = {pool.submit(compile_one, c, hsaco_dir, compile_fn, compile_timeout): c for c in active}
     pbar = tqdm(total=len(futs), desc="Compiling", unit="cfg")
     try:
         for fut in as_completed(futs):
@@ -1152,9 +1105,7 @@ def bench_perf_sweep(
             if not res or not post_compile_filter(c, res):
                 del hsaco_paths[c.label]
                 if not res:
-                    failed.append(
-                        (c, "compile: metadata parse failed (no kernel resources)", "")
-                    )
+                    failed.append((c, "compile: metadata parse failed (no kernel resources)", ""))
         dropped = before - len(hsaco_paths)
         if dropped:
             print(f"Post-compile filter: {dropped} skipped")
@@ -1214,15 +1165,9 @@ def print_config(cfg, resources=None):
         f"{cfg.mapping.num_waves_per_workgroup} waves/WG, "
         f"{cfg.num_threads} threads"
     )
-    print(
-        f"  tiles/WG:   {cfg.mapping.num_tiles_per_workgroup} "
-        f"(per-wave: {cfg.mapping.num_tiles_per_wave})"
-    )
+    print(f"  tiles/WG:   {cfg.mapping.num_tiles_per_workgroup} (per-wave: {cfg.mapping.num_tiles_per_wave})")
     print(f"  pipeline:   strategy={cfg.pipeline_strategy}")
-    print(
-        f"  memory:     load_type={cfg.load_type}, b_path={cfg.b_path}, "
-        f"LDS={cfg.lds_bytes} bytes"
-    )
+    print(f"  memory:     load_type={cfg.load_type}, b_path={cfg.b_path}, LDS={cfg.lds_bytes} bytes")
     lcm = "lcm" if cfg.lcm_unroll else "no-lcm"
     peel = "peel" if cfg.epilogue_peeling else "no-peel"
     print(f"  unroll:     {lcm}, multiplier={cfg.unroll_factor_multiplier}, {peel}")
@@ -1260,9 +1205,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
     )
     nv = getattr(args, "num_vgprs", None) or bv
     na = getattr(args, "num_agprs", None) or ba
-    compile_kw = dict(
-        print_ir_after_all=print_ir, print_asm=print_asm, num_vgprs=nv, num_agprs=na
-    )
+    compile_kw = dict(print_ir_after_all=print_ir, print_asm=print_asm, num_vgprs=nv, num_agprs=na)
     print(f"  register budget: vgpr={nv}, agpr={na} (wg_per_cu={wg})")
 
     if args.compile_only:
@@ -1272,9 +1215,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
         print_config(cfg, res)
         if res:
-            for v in res.check_occupancy(
-                cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
-            ):
+            for v in res.check_occupancy(cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)):
                 print(f"  OCCUPANCY ERROR: {v}")
         print(f"  Compiled: {args.hsaco}")
         return
@@ -1293,9 +1234,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
         print_config(cfg, res)
         if res:
-            violations = res.check_occupancy(
-                cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
-            )
+            violations = res.check_occupancy(cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1))
             for v in violations:
                 print(f"  OCCUPANCY ERROR: {v}")
             if violations and not getattr(args, "force", False):
@@ -1311,9 +1250,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
         # Timing.
         zero_init = getattr(args, "zero_init", False)
         A, B = make_inputs(cfg, zero_init=zero_init)
-        _, times_ns = execute_fn(
-            cfg, hsaco_path, NUM_ITERATIONS, A, B, skip_gpu_check=True
-        )
+        _, times_ns = execute_fn(cfg, hsaco_path, NUM_ITERATIONS, A, B, skip_gpu_check=True)
 
         measured = times_ns[WARMUP_ITERATIONS:]
         if not measured:
@@ -1328,7 +1265,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
             return
         tf = cfg.total_flops / min_ns * 1e-3
         pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
-        print(f"\nMin: {min_ns/1e6:.2f} ms  {tf:.1f} TFLOPS  ({pct:.1f}% peak)")
+        print(f"\nMin: {min_ns / 1e6:.2f} ms  {tf:.1f} TFLOPS  ({pct:.1f}% peak)")
         print(
             RESULT_SENTINEL
             + json.dumps(

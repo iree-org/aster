@@ -1,7 +1,7 @@
 """Pure-Python 1-buffer GEMM using layout-first programming model.
 
-Supersedes test_001_gemm_fp16_lds_1buf.mlir -- no .mlir template needed. All address
-computation expressed via Layout + Swizzle declarations.
+Supersedes test_001_gemm_fp16_lds_1buf.mlir -- no .mlir template needed.
+All address computation expressed via Layout + Swizzle declarations.
 """
 
 import os
@@ -77,28 +77,16 @@ def _build_gemm_1buf(k, stride_a, stride_b):
     def _(k_iv, acc):
         tile_off = b.affine_apply(d0 * 64, [k_iv])
 
-        [(a_data, a_tok)] = b.load_multi_tile_from_global(
-            a_ptr, tile_off, GLOBAL_LOAD_TILE_A, GLOBAL_LOAD_SUB_TILE_A
-        )
-        [(b_data, b_tok)] = b.load_multi_tile_from_global(
-            b_ptr, tile_off, GLOBAL_LOAD_TILE_B, GLOBAL_LOAD_SUB_TILE_B
-        )
+        [(a_data, a_tok)] = b.load_multi_tile_from_global(a_ptr, tile_off, GLOBAL_LOAD_TILE_A, GLOBAL_LOAD_SUB_TILE_A)
+        [(b_data, b_tok)] = b.load_multi_tile_from_global(b_ptr, tile_off, GLOBAL_LOAD_TILE_B, GLOBAL_LOAD_SUB_TILE_B)
         b.wait_deps(a_tok, b_tok)
 
-        a_wtoks = b.write_multi_tile_to_lds(
-            a_data, lds_a, LDS_WRITE_TILE_A, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_A
-        )
-        b_wtoks = b.write_multi_tile_to_lds(
-            b_data, lds_b, LDS_WRITE_TILE_B, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_B
-        )
+        a_wtoks = b.write_multi_tile_to_lds(a_data, lds_a, LDS_WRITE_TILE_A, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_A)
+        b_wtoks = b.write_multi_tile_to_lds(b_data, lds_b, LDS_WRITE_TILE_B, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_B)
         b.wait_deps(*a_wtoks, *b_wtoks)
 
-        a_frags = b.read_multi_fragment_from_lds(
-            lds_a, LDS_READ_TILE_A, LDS_SWIZZLE, LDS_READ_SUB_TILE_A
-        )
-        b_frags = b.read_multi_fragment_from_lds(
-            lds_b, LDS_READ_TILE_B, LDS_SWIZZLE, LDS_READ_SUB_TILE_B
-        )
+        a_frags = b.read_multi_fragment_from_lds(lds_a, LDS_READ_TILE_A, LDS_SWIZZLE, LDS_READ_SUB_TILE_A)
+        b_frags = b.read_multi_fragment_from_lds(lds_b, LDS_READ_TILE_B, LDS_SWIZZLE, LDS_READ_SUB_TILE_B)
 
         for (a_d, a_t), (b_d, b_t) in zip(a_frags, b_frags):
             b.wait_deps(a_t, b_t)
@@ -145,9 +133,7 @@ class TestPythonGEMM1Buffer:
 
         path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
         if path is None:
-            pytest.skip(
-                f"LLVM assembler not compiled with {MCPU} support (unknown target)"
-            )
+            pytest.skip(f"LLVM assembler not compiled with {MCPU} support (unknown target)")
 
         with hsaco_file(path):
             if not system_has_mcpu(mcpu=MCPU):

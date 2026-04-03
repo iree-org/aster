@@ -7,12 +7,10 @@ import itertools
 import multiprocessing
 from typing import List, Tuple, Optional
 
-import numpy as np
 from aster import ir
 from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
 from aster.utils.logging import aster_get_logger, aster_log_info
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
-from aster.test_pass_pipelines import TEST_SYNCHRONOUS_PASS_PIPELINE
 from mlir_kernels.benchmarks.benchmark_utils import (
     BenchmarkResult,
     BaseConfig,

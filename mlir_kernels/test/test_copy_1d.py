@@ -6,7 +6,6 @@ import pytest
 import numpy as np
 
 from aster import ir
-from typing import List
 from aster.compiler.core import (
     compile_mlir_file_to_asm,
     assemble_to_hsaco,
@@ -141,11 +140,38 @@ def execute_copy_1d_kernel(
         ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 1, 1, 1, 16, 0, "test-sroa"),
         ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 1, 1, 6, 16, 3, "test-sroa"),
         ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 2, 2, 6, 16, 4, "test-sroa"),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 3, 3, 16, 16, 11, "test-sroa"),
+        (
+            "copy-1d-dwordx4.mlir",
+            "copy_1d_dwordx4_static",
+            3,
+            3,
+            16,
+            16,
+            11,
+            "test-sroa",
+        ),
         ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 5, 7, 3, 16, 2, "test-sroa"),
         ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 5, 7, 7, 16, 5, "test-sroa"),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 304, 10, 16, 16, 0, "test-sroa"),
-        ("copy-1d-dwordx4.mlir", "copy_1d_dwordx4_static", 608, 10, 16, 16, 7, "test-sroa"),
+        (
+            "copy-1d-dwordx4.mlir",
+            "copy_1d_dwordx4_static",
+            304,
+            10,
+            16,
+            16,
+            0,
+            "test-sroa",
+        ),
+        (
+            "copy-1d-dwordx4.mlir",
+            "copy_1d_dwordx4_static",
+            608,
+            10,
+            16,
+            16,
+            7,
+            "test-sroa",
+        ),
     ],
     # fmt: on
 )

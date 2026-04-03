@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from aster.layout import Layout, product
+from aster.layout import Layout
 from aster.compiler.core import compile_mlir_module_to_asm
 
 # ---------------------------------------------------------------------------

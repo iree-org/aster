@@ -62,6 +62,4 @@ if __name__ == "__main__":
     parser.add_argument("--k-scaling-factor", type=int, default=4)
     parser.add_argument("--print-ir-after-all", action="store_true")
     a = parser.parse_args()
-    TestKittensGEMM2WaveLDS_AGPR().test_gemm_2wave_lds(
-        a.k_scaling_factor * 32, print_ir_after_all=a.print_ir_after_all
-    )
+    TestKittensGEMM2WaveLDS_AGPR().test_gemm_2wave_lds(a.k_scaling_factor * 32, print_ir_after_all=a.print_ir_after_all)

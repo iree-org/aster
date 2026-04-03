@@ -14,12 +14,12 @@ _ods_ir = _ods_cext.ir
 
 from aster import ir
 from aster._mlir_libs._amdgcn import (
-    AGPRType,
     AGPRRangeType,
-    SGPRType,
+    AGPRType,
     SGPRRangeType,
-    VGPRType,
+    SGPRType,
     VGPRRangeType,
+    VGPRType,
 )
 
 from typing import List, Optional, Union
@@ -114,11 +114,12 @@ def get_kernel_arguments(arguments: list[_ods_ir.Attribute], ctx=None):
 def _create_inst_op(name, opcode, outs, ins, *, loc=None, ip=None):
     """Create a DPS instruction op via ir.Operation.create.
 
-    The ODS-generated Python classes have _ODS_RESULT_SEGMENTS = [0, 0] because DPS
-    results are optional (present only when the register has value semantics). The C++
-    custom parser computes resultSegmentSizes explicitly; we do the same here. All
-    register types constructed from Python have value semantics, so every present output
-    operand produces a result.
+    The ODS-generated Python classes have _ODS_RESULT_SEGMENTS = [0, 0]
+    because DPS results are optional (present only when the register has
+    value semantics). The C++ custom parser computes resultSegmentSizes
+    explicitly; we do the same here. All register types constructed from
+    Python have value semantics, so every present output operand
+    produces a result.
     """
     result_types = []
     result_segments = []

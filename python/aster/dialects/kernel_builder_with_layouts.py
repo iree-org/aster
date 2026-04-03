@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from aster import ir
 from aster.dialects.kernel_builder import KernelBuilder
@@ -38,9 +38,10 @@ class KernelBuilderWithLayouts(KernelBuilder):
     ) -> list[tuple[ir.Value, ir.Value]]:
         """Load a multi-MFMA tile from global memory.
 
-        Iterates over tile_layout.size() tiles, each loaded at a byte offset determined
-        by tile_layout. load_fn(addr) -> (data, tok) is the load inst
-        [global_load_dwordx4]. Returns a list of (data, token) pairs, one per tile.
+        Iterates over tile_layout.size() tiles, each loaded at a byte
+        offset determined by tile_layout. load_fn(addr) -> (data, tok)
+        is the load inst [global_load_dwordx4]. Returns a list of (data,
+        token) pairs, one per tile.
         """
         if load_fn is None:
             load_fn = self.global_load_dwordx4
@@ -69,8 +70,8 @@ class KernelBuilderWithLayouts(KernelBuilder):
     ) -> list[ir.Value]:
         """Write a tile to LDS via multiple atomic writes with swizzled addressing.
 
-        write_fn(addr) -> (data, tok) is the write inst [ds_write_b64]. Returns a list
-        of all write tokens.
+        write_fn(addr) -> (data, tok) is the write inst [ds_write_b64].
+        Returns a list of all write tokens.
         """
         if write_fn is None:
             write_fn = self.ds_write_b64
@@ -103,10 +104,11 @@ class KernelBuilderWithLayouts(KernelBuilder):
     ) -> list[tuple[ir.Value, ir.Value]]:
         """Read all MFMA fragments from LDS for a multi-MFMA tile.
 
-        Iterates over tile_layout.size() tiles. For each tile, computes lane offset via
-        multi_tile_layout, adds tile_layout(s) byte offset, applies swizzle, and reads
-        via read_fn. read_fn(addr) -> (data, tok) defaults to ds_read_b64. Returns a
-        list of (data, tok) pairs, one per tile.
+        Iterates over tile_layout.size() tiles. For each tile, computes
+        lane offset via multi_tile_layout, adds tile_layout(s) byte
+        offset, applies swizzle, and reads via read_fn. read_fn(addr) ->
+        (data, tok) defaults to ds_read_b64. Returns a list of (data,
+        tok) pairs, one per tile.
         """
         if read_fn is None:
             read_fn = self.ds_read_b64
@@ -136,8 +138,8 @@ class KernelBuilderWithLayouts(KernelBuilder):
     ) -> list[ir.Value]:
         """Store an MFMA C accumulator, iterating over tile_layout fragments.
 
-        store_fn(data, addr) -> tok is the store inst [global_store_dword]. Returns a
-        list of all store tokens.
+        store_fn(data, addr) -> tok is the store inst
+        [global_store_dword]. Returns a list of all store tokens.
         """
         if store_fn is None:
             store_fn = self.global_store_dword

@@ -55,7 +55,6 @@ from aster.dialects._amdgcn_ops_gen import (
     StoreOp,
 )
 from aster._mlir_libs._amdgcn import (
-    AGPRRangeType,
     AGPRType,
     SGPRRangeType,
     SGPRType,
@@ -70,7 +69,6 @@ from aster.dialects.amdgcn import (
     KernelArgumentFlags,
     get_buffer_argument,
     get_kernel_arguments,
-    vop2 as _amdgcn_vop2,
 )
 from aster.dialects import ptr as ptrd
 
@@ -180,7 +178,8 @@ class KernelBuilder:
     ) -> int:
         """Record a pointer argument. Returns the argument index.
 
-        Call load_args() after all args are registered to get the MLIR Values.
+        Call load_args() after all args are registered to get the MLIR
+        Values.
         """
         idx = len(self._ptr_args)
         self._ptr_args.append(access)
@@ -306,7 +305,8 @@ class KernelBuilder:
     def linearize_index(self, coords, sizes):
         """Linearize multi-dimensional coordinates into a linear index.
 
-        Inverse of delinearize_index. Uses suffix-product strides of sizes.
+        Inverse of delinearize_index. Uses suffix-product strides of
+        sizes.
         """
         from aster.dialects._affine_ops_gen import AffineLinearizeIndexByStridesOp
         from aster.layout.int_tuple import suffix_product
@@ -527,7 +527,8 @@ class KernelBuilder:
     ) -> ir.Value:
         """Emit layout.linearize: linear coord -> byte offset via layout strides.
 
-        Optionally applies layout.swizzle for LDS bank conflict avoidance.
+        Optionally applies layout.swizzle for LDS bank conflict
+        avoidance.
         """
         return self._linearize_layout(layout, coord, swizzle)
 

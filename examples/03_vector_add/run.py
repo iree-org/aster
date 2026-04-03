@@ -28,10 +28,7 @@ opts = parse_args()
 mlir_file = here("kernel.mlir")
 
 PASS_PIPELINE = (
-    "builtin.module("
-    "  inline,symbol-dce,"
-    "  amdgcn.module(amdgcn.kernel(amdgcn-hazards))"
-    ")"
+    "builtin.module(  inline,symbol-dce,  amdgcn.module(amdgcn.kernel(amdgcn-hazards)))"
 )
 
 section("(cross-)compile")

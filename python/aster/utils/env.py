@@ -7,8 +7,8 @@ from typing import Any, Optional
 def aster_parse_bool_env(value: str) -> bool:
     """Parse a boolean-like environment variable string.
 
-    Accepts '1', 'true', 'on' as True and '0', 'false', 'off' as False (case-
-    insensitive). Raises ValueError for unrecognized values.
+    Accepts '1', 'true', 'on' as True and '0', 'false', 'off' as False
+    (case- insensitive). Raises ValueError for unrecognized values.
     """
     normalized = value.strip().lower()
     if normalized in ("1", "true", "on"):
