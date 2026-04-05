@@ -23,6 +23,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Transforms/Passes.h"
 #include "aster/Transforms/Transforms.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -133,6 +135,19 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
   // If no stages are assigned, no pipelining is needed.
   if (info.maxStage == 0)
     return success();
+
+  // Barrier ops cannot be easily stage-inferred from SSA operands, they must
+  // carry an explicit sched.stage attribute so they end up in the correct
+  // pipeline section.
+  for (Operation *op : info.opOrder) {
+    if (op->hasAttr(kSchedStageAttr))
+      continue;
+    auto sopp = dyn_cast<amdgcn::inst::SOPPOp>(op);
+    if (sopp && sopp.getOpcode() == amdgcn::OpCode::S_BARRIER)
+      return op->emitError("amdgcn.sopp.sopp <s_barrier> in a pipelined "
+                           "loop body requires an explicit sched.stage "
+                           "attribute");
+  }
 
   // Second pass: propagate stages to unannotated ops. An op without an
   // explicit sched.stage inherits the maximum stage of its operands'
