@@ -1,5 +1,5 @@
 #!/bin/bash
-# Smoke-check for bench_perf_sweep_001_gemm_fp16_weak_scaled.py
+# Smoke-check for bench_perf_001_gemm_fp16_weak_scaled.py
 # Verifies that all 3 single-config CLI modes work end-to-end.
 # Steps 1-2 are compile-only (no GPU). Step 3 requires a GPU.
 #
@@ -16,7 +16,7 @@ fi
 PYTHON=$(which python)
 HSACO_DIR=$(mktemp -d)
 
-BENCH=contrib/kittens/test/bench/bench_perf_sweep_001_gemm_fp16_weak_scaled.py
+BENCH=contrib/kittens/test/bench/bench_perf_001_gemm_fp16_weak_scaled.py
 ARGS="--m-wg 19 --n-wg 16 --m-waves 2 --n-waves 2 \
     --m-tiles-wg 4 --n-tiles-wg 4 --k-tiles 1 --stages 4 --k-scaling-factor 256"
 HSACO="$HSACO_DIR/smoke.hsaco"
