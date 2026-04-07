@@ -456,22 +456,23 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
 
         # -- COMPUTE --
         with b.stage(STG_COMPUTE):
+            # 4-D iteration: (sub, kt, mt, nt) with sub outermost so
+            # consecutive MFMAs hit different accumulators (tile-first).
+            nf = n_frags_per_tile
 
-            @b.foreach_tile(m_t * n_t * k_t)
+            @b.foreach_tile(nf * k_t * m_t * n_t)
             def _(idx):
-                mt, nt, kt = b.delinearize_index(idx, (m_t, n_t, k_t))
+                sub, kt, mt, nt = b.delinearize_index(idx, (nf, k_t, m_t, n_t))
                 acc_idx = b.linearize_index((mt, nt), (m_t, n_t))
-                a_tile = b.linearize_index((kt, mt), (k_t, m_t))
-                b_tile = b.linearize_index((kt, nt), (k_t, n_t))
-                for sub in range(n_frags_per_tile):
-                    a_fi = b.affine_apply(d0 * n_frags_per_tile + sub, [a_tile])
-                    b_fi = b.affine_apply(d0 * n_frags_per_tile + sub, [b_tile])
-                    b.wait_deps(b.memref_load(rtok_buf_a, a_fi), b.memref_load(rtok_buf_b, b_fi))
-                    acc = b.memref_load(c_buf, acc_idx)
-                    a_frag = b.from_any(b.memref_load(frag_buf_a, a_fi), vx2_type)
-                    b_frag = b.from_any(b.memref_load(frag_buf_b, b_fi), vx2_type)
-                    new_acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
-                    b.memref_store(new_acc, c_buf, acc_idx)
+                # frag index = tile * nf + sub (matching read_a/read_b layout)
+                a_fi = b.linearize_index((kt, mt, sub), (k_t, m_t, nf))
+                b_fi = b.linearize_index((kt, nt, sub), (k_t, n_t, nf))
+                b.wait_deps(b.memref_load(rtok_buf_a, a_fi), b.memref_load(rtok_buf_b, b_fi))
+                acc = b.memref_load(c_buf, acc_idx)
+                a_frag = b.from_any(b.memref_load(frag_buf_a, a_fi), vx2_type)
+                b_frag = b.from_any(b.memref_load(frag_buf_b, b_fi), vx2_type)
+                new_acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
+                b.memref_store(new_acc, c_buf, acc_idx)
 
     # -- Store C tiles --
     m_base = b.linearize_layout(m_dist_idx, M_DIST)
