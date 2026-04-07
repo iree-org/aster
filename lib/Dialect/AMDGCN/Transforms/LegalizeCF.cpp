@@ -337,9 +337,17 @@ LogicalResult LegalizeCF::lowerSelect(lsir::SelectOp selectOp) {
   if (isVector) {
     // v_cndmask_b32: vdst = VCC[lane] ? src1 : src0 (note: reversed order!)
     // src0 = false_value, src1 = true_value, src2 = VCC
+    // VOP2 src0 accepts i32/SGPR/VGPR, but src1 must be VGPR.
+    Value trueVal = selectOp.getTrueValue();
+    Value falseVal = selectOp.getFalseValue();
+    if (!isa<VGPRType>(trueVal.getType())) {
+      // src1 is not a VGPR. Materialize it into dst (an allocated VGPR)
+      // via v_mov_b32, then use dst as src1.
+      V_MOV_B32_E32::create(rewriter, loc, dst, trueVal);
+      trueVal = dst;
+    }
     amdgcn::inst::VOP2Op::create(rewriter, loc, OpCode::V_CNDMASK_B32, dst,
-                                 /*dst1=*/nullptr, selectOp.getFalseValue(),
-                                 selectOp.getTrueValue(), flagReg);
+                                 /*dst1=*/nullptr, falseVal, trueVal, flagReg);
   } else {
     // s_cselect_b32: sdst = SCC ? src0 : src1.
     // src0 = true_value (selected when SCC=1), src1 = false_value.

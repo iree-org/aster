@@ -580,3 +580,48 @@ amdgcn.module @test_vopc_select_mod target = <gfx942> isa = <cdna3> {
     end_kernel
   }
 }
+
+// -----
+
+// VOPC select with non-VGPR true value: v_cndmask_b32 requires src1 (true) as VGPR.
+// Materialize the true value into dst via v_mov_b32_e32 first.
+
+// CHECK-LABEL: kernel @test_vopc_select_nonvgpr_true
+// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc
+// CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK:         vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<2>, i32) -> ()
+// CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
+// CHECK:         end_kernel
+amdgcn.module @test_vopc_select_imm_true_mod target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @test_vopc_select_nonvgpr_true {
+    %v0 = alloca : !amdgcn.vgpr<0>
+    %v1 = alloca : !amdgcn.vgpr<1>
+    %v2 = alloca : !amdgcn.vgpr<2>
+    %c42 = arith.constant 42 : i32
+    %cmp = lsir.cmpi i32 eq %v0, %v1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+    lsir.select %v2, %cmp, %c42, %v0 : !amdgcn.vgpr<2>, i1, i32, !amdgcn.vgpr<0>
+    end_kernel
+  }
+}
+
+// -----
+
+// Same as above: true value in SGPR still needs v_mov_b32_e32 into dst for src1.
+
+// CHECK-LABEL: kernel @test_vopc_select_sgpr_true
+// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc
+// CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK:         vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<2>, !amdgcn.sgpr<0>) -> ()
+// CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
+// CHECK:         end_kernel
+amdgcn.module @test_vopc_select_sgpr_true_mod target = <gfx942> isa = <cdna3> {
+  amdgcn.kernel @test_vopc_select_sgpr_true {
+    %v0 = alloca : !amdgcn.vgpr<0>
+    %v1 = alloca : !amdgcn.vgpr<1>
+    %v2 = alloca : !amdgcn.vgpr<2>
+    %s0 = alloca : !amdgcn.sgpr<0>
+    %cmp = lsir.cmpi i32 eq %v0, %v1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+    lsir.select %v2, %cmp, %s0, %v0 : !amdgcn.vgpr<2>, i1, !amdgcn.sgpr<0>, !amdgcn.vgpr<0>
+    end_kernel
+  }
+}
