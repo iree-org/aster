@@ -8,6 +8,8 @@ Tiles are specified per-workgroup (num_tiles_per_wg). Per-wave tile counts
 are derived: num_tiles_per_wave = num_tiles_per_wg / num_waves_per_wg.
 """
 
+import math
+
 import numpy as np
 from kittens.gemm_config import (
     A as OP_A,
@@ -148,9 +150,9 @@ def _make_substitutions(cfg):
     # 2-D cooperative split: (waves_s, waves_k, coop_s, coop_k)
     def _coop_2d_split(num_tiles, num_waves, kt):
         waves_s = min(num_tiles, num_waves)
-        waves_k = max(1, num_waves // waves_s)
-        coop_s = -(-num_tiles // waves_s)
-        coop_k = -(-kt // waves_k)
+        waves_k = max(1, math.floor(num_waves / waves_s))
+        coop_s = math.ceil(num_tiles / waves_s)
+        coop_k = math.ceil(kt / waves_k)
         return waves_s, waves_k, coop_s, coop_k
 
     nw = cfg.num_waves

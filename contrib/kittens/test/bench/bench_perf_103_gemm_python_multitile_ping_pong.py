@@ -1,11 +1,11 @@
-"""Benchmark: Weak-scaling TFLOPS sweep for Python multi-tile GEMM (test_102).
+"""Benchmark: Weak-scaling TFLOPS sweep for Python ping-pong GEMM (test_103).
 
 Single config (repro):
-    python .../bench_perf_102_... m4864xn4096xk8192_wg38x32x1_w2x2x1_twg8x8x1_...
+    python .../bench_perf_103_... m4864xn4096xk8192_wg38x32x1_w2x2x1_twg8x8x1_...
 
 Sweep:
-    python .../bench_perf_102_... --compile-sample 100
-    python .../bench_perf_102_... --tiles-per-wg-m 4 --tiles-per-wg-n 4
+    python .../bench_perf_103_... --compile-sample 100
+    python .../bench_perf_103_... --tiles-per-wg-m 8 --tiles-per-wg-n 8
 """
 
 import os
@@ -26,10 +26,10 @@ from kittens.gemm_config import (
     OperandPath,
     WeakScaledMappedGemmInstance,
 )
-from test_102_gemm_python_multitile import (
-    MultitileGemmInstance,
-    compile_multitile_gemm,
-    execute_multitile_hsaco,
+from test_103_gemm_python_multitile_ping_pong import (
+    PingPongGemmInstance,
+    compile_ping_pong_gemm,
+    execute_ping_pong_hsaco,
 )
 from bench_harness import (
     add_sweep_cli_args,
@@ -64,7 +64,7 @@ _HW = query_gpu_hw()
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict) -> MultitileGemmInstance:
+def _build_instance(d: dict) -> PingPongGemmInstance:
     _wg_m, _wg_n = wg_m(d, _HW), wg_n(d)
     _nwgcu = nwgcu(d, _HW)
     M = _wg_m * d["twg_m"] * MFMA_M
@@ -87,7 +87,7 @@ def _build_instance(d: dict) -> MultitileGemmInstance:
         dealloc_at_read=True,
         set_mfma_priority=d["set_mfma_priority"],
     )
-    return MultitileGemmInstance(spec, mapping)
+    return PingPongGemmInstance(spec, mapping)
 
 
 def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
@@ -99,7 +99,7 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
         operand_path=OperandPath(d["variant"]),
         num_wg_per_cu=nwgcu(d, _HW),
         lds_at_write=d["lds_at_write"],
-        dealloc_at_read=True,  # test_102 builder deallocates LDS at READ stage
+        dealloc_at_read=True,
     )
 
 
@@ -108,6 +108,7 @@ def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
     grid.axis("variant", variants)
     grid.axis("lds_at_write", [False, True])
     add_gemm_sweep_axes(grid, _HW)
+    grid.filter("waves_m", "waves_n", check=lambda d: d["waves_m"] * d["waves_n"] == 8)
     grid.axis("set_mfma_priority", [True, False])
 
     if check_regs:
@@ -126,12 +127,12 @@ def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
 
 
 def _repro_cmd(cfg):
-    return f"python contrib/kittens/test/bench/bench_perf_102_gemm_python_multitile.py {cfg.label}"
+    return f"python contrib/kittens/test/bench/bench_perf_103_gemm_python_multitile_ping_pong.py {cfg.label}"
 
 
-def _from_label(label: str) -> MultitileGemmInstance:
+def _from_label(label: str) -> PingPongGemmInstance:
     base = WeakScaledMappedGemmInstance.from_label(label)
-    return MultitileGemmInstance(base.spec, base.mapping)
+    return PingPongGemmInstance(base.spec, base.mapping)
 
 
 # --- Entry point ---
@@ -140,15 +141,15 @@ def _from_label(label: str) -> MultitileGemmInstance:
 def main():
     positional = [a for a in sys.argv[1:] if not a.startswith("-")]
     if positional and is_label(positional[0]):
-        parser = argparse.ArgumentParser(description="Single-config multitile GEMM benchmark (label from sweep)")
+        parser = argparse.ArgumentParser(description="Single-config ping-pong GEMM benchmark (label from sweep)")
         parser.add_argument("label", type=str, help="Config label from sweep output")
         add_single_cli_args(parser)
         args = parser.parse_args()
         cfg = _from_label(args.label)
-        run_single(cfg, compile_multitile_gemm, args, execute_fn=execute_multitile_hsaco)
+        run_single(cfg, compile_ping_pong_gemm, args, execute_fn=execute_ping_pong_hsaco)
         return
 
-    parser = argparse.ArgumentParser(description="Python multi-tile GEMM benchmark sweep (test_102)")
+    parser = argparse.ArgumentParser(description="Python ping-pong GEMM benchmark sweep (test_103)")
     add_sweep_cli_args(parser)
     add_geometry_pin_args(parser)
     parser.add_argument("--k-scaling-factor", type=int, help="Pin K scaling factor")
@@ -183,7 +184,7 @@ def main():
 
     results = bench_perf_sweep_pipelined(
         configs=all_configs,
-        compile_fn=compile_multitile_gemm,
+        compile_fn=compile_ping_pong_gemm,
         repro_cmd_fn=_repro_cmd,
         num_gpus=args.num_gpus,
         compile_workers=args.compile_workers,
@@ -193,7 +194,7 @@ def main():
         zero_init=args.zero_init,
     )
     results, hsaco_map = results
-    verify_top_configs(results, hsaco_map, _repro_cmd, top_n=50, num_gpus=args.num_gpus, label="102")
+    verify_top_configs(results, hsaco_map, _repro_cmd, top_n=50, num_gpus=args.num_gpus, label="103")
 
 
 if __name__ == "__main__":

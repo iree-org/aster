@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 from bench_harness import check_numpy_blas, detect_num_gpus, verify_on_gpus, _save_tmpfile
+from kittens.gemm_config import GemmMappingSpec
 
 
 # -- Sweep grid framework ---------------------------------------------------
@@ -72,7 +73,10 @@ class SweepGrid:
         return self
 
     def filter(self, *deps: str, check: Callable[[dict[str, Any]], bool]) -> "SweepGrid":
-        """Add a constraint filter. ``deps`` are axis names it reads."""
+        """Add a constraint filter.
+
+        ``deps`` are axis names it reads.
+        """
         self._filters.append(SweepFilter(deps, check))
         return self
 
@@ -224,6 +228,7 @@ def query_gpu_hw() -> GpuHwConstants:
     """Query GPU hardware via HIP, fall back to gfx942 defaults."""
     try:
         from aster.core.device import try_query_device
+
         dev = try_query_device(0)
     except ImportError:
         dev = None
@@ -242,7 +247,7 @@ def query_gpu_hw() -> GpuHwConstants:
 
 
 def passes_resource_check(
-    mapping: "GemmMappingSpec",
+    mapping: GemmMappingSpec,
     hw: GpuHwConstants,
     vgpr_headroom: float = 1.2,
     vgpr_overhead: int = 16,
@@ -285,8 +290,10 @@ def add_resource_filter(
     deps: tuple[str, ...] = (),
 ) -> None:
     """Add a resource-check filter to a SweepGrid."""
+
     def _check(d: dict) -> bool:
         return passes_resource_check(mapping_builder(d), hw)
+
     grid.filter(*deps, check=_check)
 
 
@@ -382,10 +389,11 @@ def add_gemm_sweep_axes(grid: SweepGrid, hw: GpuHwConstants) -> None:
     grid.filter("waves_m", "waves_n", "occ", check=lambda d: d["occ"] % wps(d, hw) == 0)
     grid.filter("waves_m", "twg_m", check=lambda d: d["twg_m"] % d["waves_m"] == 0)
     grid.filter("waves_n", "twg_n", check=lambda d: d["twg_n"] % d["waves_n"] == 0)
-    grid.filter("waves_m", "waves_n", "occ", "twg_m",
-                check=lambda d: wg_m(d, hw) * d["twg_m"] * MFMA_M >= MIN_DIM)
-    grid.filter("n_mult", "twg_n",
-                check=lambda d: wg_n(d) * d["twg_n"] * MFMA_M >= MIN_DIM)
+    grid.filter(
+        "waves_m", "waves_n", "occ", "twg_m",
+        check=lambda d: wg_m(d, hw) * d["twg_m"] * MFMA_M >= MIN_DIM,
+    )
+    grid.filter("n_mult", "twg_n", check=lambda d: wg_n(d) * d["twg_n"] * MFMA_M >= MIN_DIM)
     grid.filter("ps", "k_factor", check=lambda d: d["k_factor"] > max(PS[d["ps"]].values()))
     grid.filter("twg_k", "k_factor", check=lambda d: d["k_factor"] * d["twg_k"] * 32 >= MIN_DIM)
 
@@ -407,6 +415,7 @@ GEMM_SWEEP_PIN_MAP = {
     "epilogue_peeling": "epilogue_peeling",
     "ll_sched": "ll_sched",
     "hoist_wait": "hoist_wait",
+    "set_mfma_priority": "set_mfma_priority",
 }
 
 
@@ -473,9 +482,22 @@ def add_geometry_pin_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tiles-per-wg-m", type=int, help="Pin tiles per workgroup along M")
     parser.add_argument("--tiles-per-wg-n", type=int, help="Pin tiles per workgroup along N")
     parser.add_argument("--tiles-per-wg-k", type=int, help="Pin tiles per wave along K")
-    parser.add_argument("--pipeline-strategy", type=int, default=None, choices=range(0, 11), metavar="{0..10}", help="Pin pipeline strategy")
+    parser.add_argument(
+        "--pipeline-strategy",
+        type=int,
+        default=None,
+        choices=range(0, 11),
+        metavar="{0..10}",
+        help="Pin pipeline strategy",
+    )
     parser.add_argument("--lcm-unroll", action=argparse.BooleanOptionalAction, default=None, help="Pin LCM unrolling")
     parser.add_argument("--unroll-multiplier", type=int, default=None, help="Pin unroll multiplier")
-    parser.add_argument("--epilogue-peeling", action=argparse.BooleanOptionalAction, default=None, help="Pin epilogue peeling")
-    parser.add_argument("--ll-sched", action=argparse.BooleanOptionalAction, default=None, help="Pin low-level scheduler")
-    parser.add_argument("--hoist-wait", action=argparse.BooleanOptionalAction, default=None, help="Pin hoist iter_arg waits")
+    parser.add_argument(
+        "--epilogue-peeling", action=argparse.BooleanOptionalAction, default=None, help="Pin epilogue peeling"
+    )
+    parser.add_argument(
+        "--ll-sched", action=argparse.BooleanOptionalAction, default=None, help="Pin low-level scheduler"
+    )
+    parser.add_argument(
+        "--hoist-wait", action=argparse.BooleanOptionalAction, default=None, help="Pin hoist iter_arg waits"
+    )

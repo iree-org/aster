@@ -1200,6 +1200,83 @@ class KernelBuilder:
 
         return decorator
 
+    def scf_if(self, condition: ir.Value):
+        """Decorator: emit scf.if (no results, no else) at definition time.
+
+        Usage::
+
+            @b.scf_if(cond)
+            def _():
+                b.s_barrier()
+        """
+
+        def decorator(body_fn):
+            if_op = ir.Operation.create(
+                "scf.if",
+                results=[],
+                operands=[condition],
+                regions=2,
+                loc=self._loc,
+                ip=self._kip,
+            )
+            then_block = ir.Block.create_at_start(if_op.regions[0], [], [])
+            saved_ip = self._kip
+            self._kip = ir.InsertionPoint(then_block)
+            body_fn()
+            ir.Operation.create("scf.yield", operands=[], loc=self._loc, ip=self._kip)
+            self._kip = saved_ip
+            # Empty else region (required by scf.if).
+            else_block = ir.Block.create_at_start(if_op.regions[1], [], [])
+            ir.Operation.create(
+                "scf.yield",
+                operands=[],
+                loc=self._loc,
+                ip=ir.InsertionPoint(else_block),
+            )
+
+        return decorator
+
+    def thread_uniform_if(self, predicate: str, lhs: ir.Value, rhs: ir.Value):
+        """Decorator: emit scf.if guarded by a wavefront-uniform condition.
+
+        The condition (arith.cmpi) is emitted right before the scf.if so they
+        stay in the same block after CF lowering.  Both operands must be
+        wavefront-uniform (e.g. wave_id, constants, block_id).
+
+        Usage::
+
+            @b.thread_uniform_if("ult", wave_id, b.constant_index(4))
+            def _():
+                b.s_barrier()
+        """
+
+        def decorator(body_fn):
+            cond = self.assume_uniform(self.arith_cmpi(predicate, lhs, rhs))
+            # Emit the scf.if immediately after the compare -- same block.
+            if_op = ir.Operation.create(
+                "scf.if",
+                results=[],
+                operands=[cond],
+                regions=2,
+                loc=self._loc,
+                ip=self._kip,
+            )
+            then_block = ir.Block.create_at_start(if_op.regions[0], [], [])
+            saved_ip = self._kip
+            self._kip = ir.InsertionPoint(then_block)
+            body_fn()
+            ir.Operation.create("scf.yield", operands=[], loc=self._loc, ip=self._kip)
+            self._kip = saved_ip
+            else_block = ir.Block.create_at_start(if_op.regions[1], [], [])
+            ir.Operation.create(
+                "scf.yield",
+                operands=[],
+                loc=self._loc,
+                ip=ir.InsertionPoint(else_block),
+            )
+
+        return decorator
+
     # ---------------------------------------------------------------------------
     # Memref operations (for multi-tile state buffers)
     # ---------------------------------------------------------------------------
@@ -1292,6 +1369,48 @@ class KernelBuilder:
     def arith_minui(self, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
         """Unsigned minimum of two index/integer values."""
         return arith.minui(lhs, rhs, loc=self._loc, ip=self._kip)
+
+    def arith_cmpi(self, predicate: str, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+        """Integer comparison returning i1.
+
+        Predicate is one of: eq, ne, slt, sle, sgt, sge, ult, ule, ugt, uge.
+        """
+        _PRED_MAP = {
+            "eq": 0,
+            "ne": 1,
+            "slt": 2,
+            "sle": 3,
+            "sgt": 4,
+            "sge": 5,
+            "ult": 6,
+            "ule": 7,
+            "ugt": 8,
+            "uge": 9,
+        }
+        i1 = ir.IntegerType.get_signless(1, self._ctx)
+        pred_attr = ir.IntegerAttr.get(
+            ir.IntegerType.get_signless(64, self._ctx), _PRED_MAP[predicate]
+        )
+        op = ir.Operation.create(
+            "arith.cmpi",
+            results=[i1],
+            operands=[lhs, rhs],
+            attributes={"predicate": pred_attr},
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
+
+    def assume_uniform(self, value: ir.Value) -> ir.Value:
+        """Mark a value as thread-uniform for the uniformity analysis."""
+        op = ir.Operation.create(
+            "aster_utils.assume_uniform",
+            results=[value.type],
+            operands=[value],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
 
     # ---------------------------------------------------------------------------
     # Type erasure (to_any / from_any)
