@@ -226,7 +226,6 @@ class GemmMappingSpec:
 
     load_type: LoadType = LoadType.FLAT
     operand_path: OperandPath = OperandPath.LDS
-
     # --- Scheduling knobs ---
 
     lcm_unroll: bool = True  # LCM-based kernel loop unrolling

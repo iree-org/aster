@@ -110,7 +110,9 @@ def make_sweep_grid(variants, check_regs: bool = True) -> SweepGrid:
 
     if check_regs:
         add_resource_filter(
-            grid, _HW, _mapping_for_resource_check,
+            grid,
+            _HW,
+            _mapping_for_resource_check,
             deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
         )
 
@@ -207,7 +209,7 @@ def main():
         repro_cmd_fn=_repro_cmd,
         num_gpus=args.num_gpus,
         compile_workers=args.compile_workers,
-        compile_timeout=getattr(args, "compile_timeout", 60),
+        compile_timeout=args.compile_timeout,
         post_compile_filter=fits_on_cu_post_compile,
         exec_sample=getattr(args, "exec_sample", 2000),
         zero_init=args.zero_init,
