@@ -7,14 +7,14 @@ from typing import Any
 
 from .gemm_config import DTYPE_NAMES, GEMMConfig
 
-ALL_BACKENDS = ["iree", "triton", "inductor", "rocblas", "hipblas"]
+ALL_BACKENDS = ["iree", "triton", "inductor", "rocblas", "hipblas", "aiter"]
 
 
 def build_parser(description: str) -> argparse.ArgumentParser:
     """Return an ArgumentParser populated with all common benchmark options.
 
-    Individual benchmark scripts may extend the returned parser with their own arguments
-    before calling parse_args().
+    Individual benchmark scripts may extend the returned parser with
+    their own arguments before calling parse_args().
     """
     parser = argparse.ArgumentParser(
         description=description,

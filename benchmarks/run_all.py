@@ -82,12 +82,21 @@ def _run_hipblas(config: GEMMConfig, args) -> dict:
     return bench.run(warmup=args.warmup, iters=args.num_its)
 
 
+def _run_aiter(config: GEMMConfig, args) -> dict:
+    from aiter_bench.bench_gemm import AiterBenchmark
+
+    bench = AiterBenchmark(config)
+    print("\n=== aiter: benchmarking... ===", flush=True)
+    return bench.run(num_its=args.num_its, warmup=args.warmup)
+
+
 _RUNNERS = {
     "iree": _run_iree,
     "triton": _run_triton,
     "inductor": _run_inductor,
     "rocblas": _run_rocblas,
     "hipblas": _run_hipblas,
+    "aiter": _run_aiter,
 }
 
 
