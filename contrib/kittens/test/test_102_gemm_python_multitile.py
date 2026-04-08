@@ -771,6 +771,99 @@ class TestPythonGEMMMultitile:
         _run_multitile(cfg, lds_at_write=lds_at_write)
 
 
+# ---------------------------------------------------------------------------
+# Resource estimation accuracy tests
+# ---------------------------------------------------------------------------
+
+
+class TestResourceEstimates:
+    """Compile configs and verify LDS/VGPR/AGPR estimates vs actual metadata."""
+
+    _CONFIGS = [
+        # (wg, wpw, twg, k_mult, ps, b_path, lds_at_write, id)
+        # -- LDS path, lds_at_write=False (default) --
+        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, "lds", False, "1w_ps1_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, "lds", False, "4w_ps1_lds"),
+        ([1, 1, 1], [4, 2, 1], [8, 8, 1], 2, 1, "lds", False, "8w_ps1_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, "lds", False, "4w_ps3_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 5, "lds", False, "4w_ps5_lds"),
+        # -- LDS path, lds_at_write=True --
+        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, "lds", True, "1w_ps1_lds_write"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, "lds", True, "4w_ps1_lds_write"),
+        ([1, 1, 1], [4, 2, 1], [8, 8, 1], 2, 1, "lds", True, "8w_ps1_lds_write"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, "lds", True, "4w_ps3_lds_write"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 5, "lds", True, "4w_ps5_lds_write"),
+        # -- Asymmetric strategies --
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 2, "lds", False, "4w_ps2_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, "lds", False, "4w_ps4_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 6, "lds", False, "4w_ps6_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 2, "lds", True, "4w_ps2_lds_write"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, "lds", True, "4w_ps4_lds_write"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 6, "lds", True, "4w_ps6_lds_write"),
+        # -- direct_b, lds_at_write=False --
+        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, "direct_b", False, "1w_ps1_directb"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, "direct_b", False, "4w_ps1_directb"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, "direct_b", False, "4w_ps3_directb"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, "direct_b", False, "4w_ps4_directb"),
+        # -- direct_b, lds_at_write=True --
+        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, "direct_b", True, "1w_ps1_directb_write"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, "direct_b", True, "4w_ps1_directb_write"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, "direct_b", True, "4w_ps3_directb_write"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, "direct_b", True, "4w_ps4_directb_write"),
+    ]
+
+    @pytest.mark.parametrize(
+        "wg,wpw,twg,k_mult,ps,b_path,lds_at_write",
+        [(c[0], c[1], c[2], c[3], c[4], c[5], c[6]) for c in _CONFIGS],
+        ids=[c[7] for c in _CONFIGS],
+    )
+    def test_resource_estimate_accuracy(self, wg, wpw, twg, k_mult, ps, b_path, lds_at_write):
+        """Compile a config and check estimates vs actual metadata.
+
+        Tolerances:
+        - LDS:   estimate must be >= actual AND within 15% (tight).
+        - VGPRs: within factor 2 (estimate is structural, regalloc varies).
+        - AGPRs: exact match expected (purely determined by tile shape).
+        """
+        from aster.compiler.metadata import parse_asm_kernel_resources
+
+        cfg = _make_instance(wg, wpw, twg, k_mult, pipeline_strategy=ps, b_path=b_path)
+        mapping = cfg.mapping
+
+        with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
+            _, asm = compile_multitile_gemm(cfg, tmp.name, lds_at_write=lds_at_write)
+
+        resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
+        assert KERNEL_NAME in resources, f"kernel {KERNEL_NAME} not found in ASM metadata"
+        actual = resources[KERNEL_NAME]
+
+        est_lds = mapping.lds_bytes(lds_at_write=lds_at_write, dealloc_at_read=True)
+        est_vgprs = mapping.estimated_vgprs()
+        est_agprs = mapping.estimated_agprs()
+
+        # LDS: estimate must be >= actual (conservative) and within 15%
+        assert est_lds >= actual.lds_bytes, (
+            f"LDS estimate {est_lds} < actual {actual.lds_bytes} -- not conservative!"
+        )
+        if actual.lds_bytes > 0:
+            lds_ratio = est_lds / actual.lds_bytes
+            assert lds_ratio <= 1.15, (
+                f"LDS estimate {est_lds} is {lds_ratio:.2f}x actual {actual.lds_bytes} -- >15% over"
+            )
+
+        # VGPRs: within factor 2 (regalloc can vary)
+        if actual.vgpr_count > 0:
+            vgpr_ratio = est_vgprs / actual.vgpr_count
+            assert 0.5 <= vgpr_ratio <= 2.0, (
+                f"VGPR estimate {est_vgprs} vs actual {actual.vgpr_count} (ratio {vgpr_ratio:.2f})"
+            )
+
+        # AGPRs: exact match (purely tile-shape determined)
+        assert est_agprs == actual.agpr_count, (
+            f"AGPR estimate {est_agprs} != actual {actual.agpr_count}"
+        )
+
+
 if __name__ == "__main__":
     import argparse
 
