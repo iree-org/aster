@@ -326,54 +326,6 @@ def _exec_worker(args):
         return label, None, str(e).split("\n")[0][:200]
 
 
-def _verify_worker(args):
-    """Run one HSACO + compare against numpy.
-
-    HIP_VISIBLE_DEVICES and stderr suppression set by _gpu_init
-    initializer.
-    """
-    from aster.execution.core import execute_hsaco, InputArray, OutputArray
-
-    label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, *extra = args
-    direct_b = extra[0] if extra else False
-    direct_a = extra[1] if len(extra) > 1 else False
-    try:
-        np.random.seed(42)
-        A = (np.random.randn(m, k) * 0.1).astype(np.float16)
-        B = (np.random.randn(n, k) * 0.1).astype(np.float16)
-        # Reference uses original row-major A and B.
-        expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
-        # Preshuffle for GPU (after computing reference).
-        if direct_a:
-            from kittens_helpers import shuffle_weight
-
-            A = shuffle_weight(A)
-        if direct_b:
-            from kittens_helpers import shuffle_weight
-
-            B = shuffle_weight(B)
-        C = np.zeros(m * n, dtype=np.float32)
-        execute_hsaco(
-            hsaco_path=hsaco_path,
-            kernel_name=kernel_name,
-            arguments=[
-                InputArray(A.flatten()),
-                InputArray(B.flatten()),
-                OutputArray(C),
-            ],
-            grid_dim=(num_wg, 1, 1),
-            block_dim=(num_threads, 1, 1),
-            num_iterations=1,
-        )
-        np.testing.assert_allclose(C, expected, rtol=1e-2, atol=1e-2)
-        return label, None
-    except AssertionError:
-        diff = float(np.max(np.abs(C - expected)))
-        return label, f"numeric: max_abs_diff={diff:.6g}"
-    except Exception as e:
-        return label, str(e).split("\n")[0][:200]
-
-
 def _gpu_init(gpu_id):
     """Process pool initializer: pin worker to a GPU and silence all native output.
 
@@ -431,14 +383,6 @@ def _exec_child(conn, item, gid, gpu_lock_path=None):
     conn.close()
 
 
-def _verify_child(conn, item, gid):
-    """Child process entry point for isolated verification (module-level for pickling)."""
-    _gpu_init(gid)
-    result = _verify_worker(item)
-    conn.send(result)
-    conn.close()
-
-
 def _exec_one_isolated(work_item, gpu_id, timeout=120, gpu_lock_path=None):
     """Execute one config in a fully isolated subprocess.
 
@@ -481,25 +425,281 @@ def _exec_one_isolated(work_item, gpu_id, timeout=120, gpu_lock_path=None):
     return result
 
 
-def _run_gpu_queue(gpu_id, items, result_queue, timeout=120, gpu_lock_path=None):
-    """Process work items sequentially on one GPU.
+# ---------------------------------------------------------------------------
+# Persistent GPU worker: one long-lived process per GPU, memory reuse
+# ---------------------------------------------------------------------------
+
+
+def _persistent_worker_loop(cmd_conn, result_conn, gpu_id):
+    """Long-lived child process: init HIP once, process configs, reuse memory.
+
+    Protocol: parent sends work_item tuples through cmd_conn.
+    None sentinel = shut down cleanly.
+    Results sent back through result_conn as (label, times, error_string).
+    """
+    _gpu_init(gpu_id)
+
+    from aster.execution.core import (
+        execute_hsaco,
+        InputArray,
+        OutputArray,
+        MemoryManager,
+    )
+
+    mm = MemoryManager()
+    # Track current GPU allocation sizes to avoid unnecessary realloc.
+    cur_a_elems = cur_b_elems = cur_c_elems = 0
+    host_A = host_B = host_C = None
+
+    while True:
+        try:
+            item = cmd_conn.recv()
+        except EOFError:
+            break
+        if item is None:
+            break
+
+        label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, num_iter, *extra = item
+        direct_b = extra[0] if extra else False
+        direct_a = extra[1] if len(extra) > 1 else False
+        use_zero_init = extra[2] if len(extra) > 2 else False
+
+        try:
+            a_elems = m * k
+            b_elems = n * k
+            c_elems = m * n
+
+            # Reallocate host arrays only when sizes change.
+            if a_elems != cur_a_elems or b_elems != cur_b_elems or c_elems != cur_c_elems:
+                mm.release_all()
+                if use_zero_init:
+                    host_A = np.zeros(a_elems, dtype=np.float16)
+                    host_B = np.zeros(b_elems, dtype=np.float16)
+                else:
+                    np.random.seed(42)
+                    host_A = (np.random.randn(a_elems) * 0.1).astype(np.float16)
+                    host_B = (np.random.randn(b_elems) * 0.1).astype(np.float16)
+                if direct_a:
+                    from kittens_helpers import shuffle_weight
+
+                    host_A = shuffle_weight(host_A.reshape(m, k)).flatten()
+                if direct_b:
+                    from kittens_helpers import shuffle_weight
+
+                    host_B = shuffle_weight(host_B.reshape(n, k)).flatten()
+                host_C = np.zeros(c_elems, dtype=np.float32)
+                cur_a_elems, cur_b_elems, cur_c_elems = a_elems, b_elems, c_elems
+            else:
+                # Same size: just zero C, keep A/B.
+                host_C[:] = 0
+
+            times = execute_hsaco(
+                hsaco_path=hsaco_path,
+                kernel_name=kernel_name,
+                arguments=[
+                    InputArray(host_A),
+                    InputArray(host_B),
+                    OutputArray(host_C),
+                ],
+                grid_dim=(num_wg, 1, 1),
+                block_dim=(num_threads, 1, 1),
+                num_iterations=num_iter,
+            )
+            result_conn.send((label, times, None))
+        except Exception as e:
+            result_conn.send((label, None, str(e).split("\n")[0][:200]))
+
+    mm.release_all()
+    result_conn.close()
+
+
+def _persistent_verify_loop(cmd_conn, result_conn, gpu_id):
+    """Long-lived child for correctness verification: init HIP once, verify configs.
+
+    Same protocol as _persistent_worker_loop: 3-tuples (label, None, error_or_none).
+    """
+    _gpu_init(gpu_id)
+    from aster.execution.core import execute_hsaco, InputArray, OutputArray
+
+    while True:
+        try:
+            item = cmd_conn.recv()
+        except EOFError:
+            break
+        if item is None:
+            break
+
+        label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, *extra = item
+        direct_b = extra[0] if extra else False
+        direct_a = extra[1] if len(extra) > 1 else False
+
+        try:
+            np.random.seed(42)
+            A = (np.random.randn(m, k) * 0.1).astype(np.float16)
+            B = (np.random.randn(n, k) * 0.1).astype(np.float16)
+            expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
+            if direct_a:
+                from kittens_helpers import shuffle_weight
+
+                A = shuffle_weight(A)
+            if direct_b:
+                from kittens_helpers import shuffle_weight
+
+                B = shuffle_weight(B)
+            C = np.zeros(m * n, dtype=np.float32)
+            execute_hsaco(
+                hsaco_path=hsaco_path,
+                kernel_name=kernel_name,
+                arguments=[
+                    InputArray(A.flatten()),
+                    InputArray(B.flatten()),
+                    OutputArray(C),
+                ],
+                grid_dim=(num_wg, 1, 1),
+                block_dim=(num_threads, 1, 1),
+                num_iterations=1,
+            )
+            np.testing.assert_allclose(C, expected, rtol=1e-2, atol=1e-2)
+            result_conn.send((label, None, None))
+        except AssertionError:
+            diff = float(np.max(np.abs(C - expected)))
+            result_conn.send((label, None, f"numeric: max_abs_diff={diff:.6g}"))
+        except Exception as e:
+            result_conn.send((label, None, str(e).split("\n")[0][:200]))
+
+    result_conn.close()
+
+
+class _PersistentGpuWorker:
+    """Manages a long-lived child process on one GPU.
+
+    Automatically respawns on crash.  The parent calls send(item) and
+    recv() in pairs.  The child reuses HIP context and GPU memory across
+    configs.
+    """
+
+    def __init__(self, gpu_id, loop_fn=None):
+        self.gpu_id = gpu_id
+        self._loop_fn = loop_fn or _persistent_worker_loop
+        self._proc = None
+        self._cmd = None  # parent -> child
+        self._res = None  # child -> parent
+
+    def _spawn(self):
+        import multiprocessing as mp
+
+        ctx = mp.get_context("spawn")
+        # Pipe(duplex=False) -> (reader, writer).
+        # cmd channel: parent writes, child reads.
+        cmd_reader, cmd_writer = ctx.Pipe(duplex=False)
+        # res channel: child writes, parent reads.
+        res_reader, res_writer = ctx.Pipe(duplex=False)
+        p = ctx.Process(
+            target=self._loop_fn,
+            args=(cmd_reader, res_writer, self.gpu_id),
+            daemon=True,
+        )
+        p.start()
+        # Close the ends we don't use in the parent.
+        cmd_reader.close()
+        res_writer.close()
+        self._proc = p
+        self._cmd = cmd_writer  # parent sends commands
+        self._res = res_reader  # parent reads results
+
+    def ensure_alive(self):
+        if self._proc is None or not self._proc.is_alive():
+            if self._proc is not None:
+                self._cleanup()
+            self._spawn()
+
+    def send(self, item):
+        self.ensure_alive()
+        self._cmd.send(item)
+
+    def recv(self, timeout=120):
+        if not self._res.poll(timeout):
+            # Timed out -- kill and report.
+            label = "unknown"
+            self._proc.kill()
+            self._proc.join()
+            self._cleanup()
+            return label, None, f"execution timed out after {timeout}s"
+        return self._res.recv()
+
+    def execute(self, item, timeout=120):
+        """Send item and wait for result.
+
+        Respawn on crash.
+        """
+        self.ensure_alive()
+        self._cmd.send(item)
+        if not self._res.poll(timeout):
+            label = item[0]
+            self._proc.kill()
+            self._proc.join()
+            self._cleanup()
+            return label, None, f"execution timed out after {timeout}s"
+        try:
+            return self._res.recv()
+        except (EOFError, ConnectionResetError):
+            label = item[0]
+            self._proc.join()
+            exitcode = self._proc.exitcode
+            self._cleanup()
+            sig = -exitcode if exitcode and exitcode < 0 else exitcode
+            kind = "signal" if exitcode and exitcode < 0 else "exit"
+            return label, None, f"worker crash ({kind} {sig})"
+
+    def shutdown(self):
+        if self._proc is not None and self._proc.is_alive():
+            try:
+                self._cmd.send(None)
+                self._proc.join(timeout=5)
+            except (BrokenPipeError, OSError):
+                pass
+            if self._proc.is_alive():
+                self._proc.kill()
+                self._proc.join()
+        self._cleanup()
+
+    def _cleanup(self):
+        for c in (self._cmd, self._res):
+            if c is not None:
+                try:
+                    c.close()
+                except OSError:
+                    pass
+        self._proc = None
+        self._cmd = None
+        self._res = None
+
+
+def _run_gpu_queue(gpu_id, items, result_queue, timeout=120, gpu_lock_path=None, loop_fn=None):
+    """Process work items on one GPU using a persistent worker.
 
     items can be a list (batch mode) or a queue.Queue (pipelined mode,
-    stop on None). Each config gets its own subprocess via
-    _exec_one_isolated, so a crash cannot affect the next config.
-    Results are pushed to result_queue (thread-safe) as they complete.
+    stop on None). A single long-lived child process per GPU reuses HIP
+    context and GPU memory across configs. On crash the worker is
+    respawned automatically; the crashed config is reported as failed
+    and the next config proceeds. Results are pushed to result_queue
+    (thread-safe) as they complete.
     """
     import queue as _queue_mod
 
-    if isinstance(items, _queue_mod.Queue):
-        while True:
-            item = items.get()
-            if item is None:
-                break
-            result_queue.put(_exec_one_isolated(item, gpu_id, timeout=timeout, gpu_lock_path=gpu_lock_path))
-    else:
-        for item in items:
-            result_queue.put(_exec_one_isolated(item, gpu_id, timeout=timeout, gpu_lock_path=gpu_lock_path))
+    worker = _PersistentGpuWorker(gpu_id, loop_fn=loop_fn)
+    try:
+        if isinstance(items, _queue_mod.Queue):
+            while True:
+                item = items.get()
+                if item is None:
+                    break
+                result_queue.put(worker.execute(item, timeout=timeout))
+        else:
+            for item in items:
+                result_queue.put(worker.execute(item, timeout=timeout))
+    finally:
+        worker.shutdown()
 
 
 def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
@@ -609,50 +809,16 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
     return results, failed
 
 
-def _verify_one_isolated(work_item, gpu_id, timeout=180):
-    """Verify one config in a fully isolated subprocess."""
-    import multiprocessing as mp
-
-    ctx = mp.get_context("spawn")
-    parent_conn, child_conn = ctx.Pipe(duplex=False)
-
-    p = ctx.Process(target=_verify_child, args=(child_conn, work_item, gpu_id))
-    p.start()
-    child_conn.close()
-
-    p.join(timeout=timeout)
-    if p.is_alive():
-        p.kill()
-        p.join()
-        parent_conn.close()
-        return work_item[0], f"verification timed out after {timeout}s"
-
-    if p.exitcode != 0:
-        parent_conn.close()
-        sig = -p.exitcode if p.exitcode < 0 else p.exitcode
-        kind = "signal" if p.exitcode < 0 else "exit"
-        return work_item[0], f"worker crash ({kind} {sig})"
-
-    if not parent_conn.poll():
-        parent_conn.close()
-        return work_item[0], "verification produced no result"
-
-    result = parent_conn.recv()
-    parent_conn.close()
-    return result
-
-
 def _verify_gpu_queue(gpu_id, work_queue, result_queue, timeout=180):
-    """Process a verification queue sequentially on one GPU."""
-    for item in work_queue:
-        result_queue.put(_verify_one_isolated(item, gpu_id, timeout=timeout))
+    """Process a verification queue on one GPU using a persistent worker."""
+    _run_gpu_queue(gpu_id, work_queue, result_queue, timeout=timeout, loop_fn=_persistent_verify_loop)
 
 
 def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
-    """Verify configs against numpy in subprocesses, all GPUs concurrently.
+    """Verify configs against numpy using persistent workers, all GPUs concurrently.
 
-    Each GPU gets a dedicated thread with a sequential queue.  Each
-    config runs in its own subprocess for full crash isolation.
+    Each GPU gets a dedicated thread with a persistent worker that reuses
+    HIP context across configs.  On crash the worker is auto-respawned.
     """
     import queue
     import threading
@@ -700,7 +866,7 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
     try:
         while collected < total:
             try:
-                label, err = result_q.get(timeout=1.0)
+                label, _, err = result_q.get(timeout=1.0)
             except queue.Empty:
                 if not any(t.is_alive() for t in threads):
                     break
