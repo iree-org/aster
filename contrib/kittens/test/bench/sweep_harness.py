@@ -373,7 +373,7 @@ def add_gemm_sweep_axes(grid: SweepGrid, hw: GpuHwConstants) -> None:
     grid.axis("twg_m", _twg_m_vals)
     grid.axis("twg_n", _twg_n_vals)
     grid.axis("twg_k", list(range(1, 9)))
-    grid.axis("ps", [1, 3, 5, 6, 7, 9])
+    grid.axis("ps", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     grid.axis("k_factor", [64, 128, 256])
     add_scheduling_axes(grid, unroll_multipliers=[1, 2, 3])
 
@@ -382,7 +382,6 @@ def add_gemm_sweep_axes(grid: SweepGrid, hw: GpuHwConstants) -> None:
     grid.filter("waves_m", "waves_n", "occ", check=lambda d: d["occ"] % wps(d, hw) == 0)
     grid.filter("waves_m", "twg_m", check=lambda d: d["twg_m"] % d["waves_m"] == 0)
     grid.filter("waves_n", "twg_n", check=lambda d: d["twg_n"] % d["waves_n"] == 0)
-    grid.filter("waves_m", "waves_n", "twg_m", check=lambda d: d["twg_m"] >= d["waves_m"] * d["waves_n"])
     grid.filter("waves_m", "waves_n", "occ", "twg_m",
                 check=lambda d: wg_m(d, hw) * d["twg_m"] * MFMA_M >= MIN_DIM)
     grid.filter("n_mult", "twg_n",

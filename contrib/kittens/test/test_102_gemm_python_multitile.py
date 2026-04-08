@@ -580,7 +580,7 @@ def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
     """Compile a multi-tile GEMM config to HSACO."""
     from aster.compiler.core import PrintOptions
 
-    lds_at_write = kw.pop("lds_at_write", False)
+    lds_at_write = kw.pop("lds_at_write", getattr(cfg.mapping, "lds_at_write", False))
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
@@ -842,9 +842,7 @@ class TestResourceEstimates:
         est_agprs = mapping.estimated_agprs()
 
         # LDS: estimate must be >= actual (conservative) and within 15%
-        assert est_lds >= actual.lds_bytes, (
-            f"LDS estimate {est_lds} < actual {actual.lds_bytes} -- not conservative!"
-        )
+        assert est_lds >= actual.lds_bytes, f"LDS estimate {est_lds} < actual {actual.lds_bytes} -- not conservative!"
         if actual.lds_bytes > 0:
             lds_ratio = est_lds / actual.lds_bytes
             assert lds_ratio <= 1.15, (
@@ -859,9 +857,7 @@ class TestResourceEstimates:
             )
 
         # AGPRs: exact match (purely tile-shape determined)
-        assert est_agprs == actual.agpr_count, (
-            f"AGPR estimate {est_agprs} != actual {actual.agpr_count}"
-        )
+        assert est_agprs == actual.agpr_count, f"AGPR estimate {est_agprs} != actual {actual.agpr_count}"
 
 
 if __name__ == "__main__":
