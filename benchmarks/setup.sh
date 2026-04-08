@@ -40,10 +40,12 @@ source "$ASTER_DIR/tools/common.sh"
 print_help() {
     echo "Usage: benchmarks/setup.sh [OPTIONS]"
     echo ""
-    echo "Set up the benchmark virtual environment with PyTorch, Triton, and"
-    echo "optionally aiter (AMD AI Tensor Engine)."
+    echo "Set up the benchmark virtual environment with PyTorch, Triton, ROCm SDK,"
+    echo "and optionally aiter (AMD AI Tensor Engine)."
     echo ""
     echo "Options:"
+    echo "  --rocm-target=T      Select ROCm target non-interactively (e.g. gfx94X)"
+    echo "  --skip-rocm          Skip ROCm SDK installation"
     echo "  --skip-aiter         Skip aiter clone and build"
     echo "  --skip-requirements  Skip Python requirements installation"
     echo "  --python=PATH        Python interpreter to use"
@@ -56,7 +58,9 @@ print_help() {
 # ---------------------------------------------------------------------------
 
 SKIP_AITER=false
+SKIP_ROCM=false
 SKIP_REQUIREMENTS=false
+ROCM_TARGET_EXPLICIT=""
 PYTHON_EXPLICIT=""
 VENV_DIR="${SCRIPT_DIR}/.venv"
 
@@ -64,7 +68,9 @@ parse_arguments() {
     for arg in "$@"; do
         case "$arg" in
             --skip-aiter)        SKIP_AITER=true ;;
+            --skip-rocm)         SKIP_ROCM=true ;;
             --skip-requirements) SKIP_REQUIREMENTS=true ;;
+            --rocm-target=*)     ROCM_TARGET_EXPLICIT="${arg#*=}" ;;
             --python=*)          PYTHON_EXPLICIT="${arg#*=}" ;;
             --venv=*)            VENV_DIR="${arg#*=}" ;;
             --help|-h)
@@ -122,17 +128,43 @@ phase2_venv() {
 }
 
 # ---------------------------------------------------------------------------
-# Phase 3: aiter (AMD AI Tensor Engine)
+# Phase 3: ROCm SDK
 # ---------------------------------------------------------------------------
 
-phase3_aiter() {
-    if [ "$SKIP_AITER" = true ]; then
-        info "Phase 3: aiter (skipped via --skip-aiter)"
+phase3_rocm() {
+    if [ "$SKIP_ROCM" = true ]; then
+        info "Phase 3: ROCm SDK (skipped via --skip-rocm)"
         echo ""
         return
     fi
 
-    info "Phase 3: aiter (AMD AI Tensor Engine)"
+    if [ "$(uname)" = "Darwin" ]; then
+        warn "ROCm SDK is only supported on Linux, skipping"
+        echo ""
+        return
+    fi
+
+    info "Phase 3: ROCm SDK"
+    select_rocm_target "$ASTER_DIR" "$ROCM_TARGET_EXPLICIT"
+    install_rocm_sdk "$VENV_DIR"
+    configure_rocm_env "$VENV_DIR"
+    init_rocm_sdk "$VENV_DIR" "false"
+    patch_activate_rocm "$VENV_DIR"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Phase 4: aiter (AMD AI Tensor Engine)
+# ---------------------------------------------------------------------------
+
+phase4_aiter() {
+    if [ "$SKIP_AITER" = true ]; then
+        info "Phase 4: aiter (skipped via --skip-aiter)"
+        echo ""
+        return
+    fi
+
+    info "Phase 4: aiter (AMD AI Tensor Engine)"
 
     AITER_DIR="${SCRIPT_DIR}/aiter_src"
 
@@ -189,7 +221,8 @@ main() {
 
     phase1_prerequisites
     phase2_venv
-    phase3_aiter
+    phase3_rocm
+    phase4_aiter
     print_summary
 }
 

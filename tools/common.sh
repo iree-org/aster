@@ -173,3 +173,166 @@ install_requirements() {
         exit 1
     fi
 }
+
+# ---------------------------------------------------------------------------
+# ROCm SDK helpers
+# ---------------------------------------------------------------------------
+
+# Select which requirements-amd-*.txt to use.
+# Sets ROCM_REQ (full path) and ROCM_TARGET (e.g. "gfx94X").
+#   $1 - repo root containing requirements-amd-*.txt files
+#   $2 - (optional) explicit target, e.g. "gfx94X"
+select_rocm_target() {
+    local repo_dir="$1"
+    local explicit="${2:-}"
+
+    ROCM_REQ_FILES=()
+    for f in "$repo_dir"/requirements-amd-*.txt; do
+        [ -f "$f" ] && ROCM_REQ_FILES+=("$f")
+    done
+
+    if [ ${#ROCM_REQ_FILES[@]} -eq 0 ]; then
+        err "No requirements-amd-*.txt files found in $repo_dir"
+        exit 1
+    fi
+
+    if [ -n "$explicit" ]; then
+        ROCM_REQ="$repo_dir/requirements-amd-$explicit.txt"
+        if [ ! -f "$ROCM_REQ" ]; then
+            err "Unknown ROCm target: $explicit"
+            exit 1
+        fi
+        ROCM_TARGET="$explicit"
+        return
+    fi
+
+    if [ ${#ROCM_REQ_FILES[@]} -eq 1 ]; then
+        ROCM_REQ="${ROCM_REQ_FILES[0]}"
+        ROCM_TARGET=$(basename "$ROCM_REQ" .txt)
+        ROCM_TARGET=${ROCM_TARGET#requirements-amd-}
+        ok "Using only available ROCm target: $ROCM_TARGET"
+        return
+    fi
+
+    if [ ! -t 0 ]; then
+        err "Cannot prompt for ROCm target in non-interactive mode"
+        exit 1
+    fi
+
+    echo ""
+    echo "  Available ROCm SDK targets:"
+    for i in "${!ROCM_REQ_FILES[@]}"; do
+        local basename_noext
+        basename_noext=$(basename "${ROCM_REQ_FILES[$i]}" .txt)
+        local target=${basename_noext#requirements-amd-}
+        echo "    $((i+1))) $target"
+    done
+    echo ""
+    echo -n "  Which target? [1-${#ROCM_REQ_FILES[@]}] "
+    read -r ROCM_CHOICE
+
+    if ! [[ "$ROCM_CHOICE" =~ ^[0-9]+$ ]] || [ "$ROCM_CHOICE" -lt 1 ] || [ "$ROCM_CHOICE" -gt ${#ROCM_REQ_FILES[@]} ]; then
+        err "Invalid choice: $ROCM_CHOICE"
+        exit 1
+    fi
+
+    ROCM_REQ="${ROCM_REQ_FILES[$((ROCM_CHOICE-1))]}"
+    ROCM_TARGET=$(basename "$ROCM_REQ" .txt)
+    ROCM_TARGET=${ROCM_TARGET#requirements-amd-}
+}
+
+# Install ROCm SDK via uv pip (with stamp-based caching).
+#   $1 - venv path
+# Requires ROCM_REQ and ROCM_TARGET to be set (call select_rocm_target first).
+install_rocm_sdk() {
+    local venv_dir="$1"
+
+    info "Installing ROCm SDK for $ROCM_TARGET"
+
+    local stamp="$venv_dir/.rocm-stamp-$ROCM_TARGET"
+    if [ -f "$stamp" ] && [ "$stamp" -nt "$ROCM_REQ" ]; then
+        ok "ROCm SDK ($ROCM_TARGET) already installed"
+        return
+    fi
+
+    echo "  Installing ROCm SDK from $(head -1 "$ROCM_REQ" | sed 's/-i //')..."
+    echo "  This downloads ~2 GB of AMD GPU libraries."
+    echo ""
+    if uv pip install --python "$venv_dir/bin/python" -r "$ROCM_REQ"; then
+        rm -f "$venv_dir"/.rocm-stamp-* 2>/dev/null
+        touch "$stamp"
+        ok "ROCm SDK ($ROCM_TARGET) installed"
+    else
+        err "Failed to install ROCm SDK"
+        exit 1
+    fi
+}
+
+# Set ROCM_PATH, HIP_PATH, and PATH to point at the venv's ROCm SDK.
+#   $1 - venv path
+# Sets ROCM_DEVEL as a side effect.
+configure_rocm_env() {
+    local venv_dir="$1"
+
+    ROCM_DEVEL=$("$venv_dir/bin/python" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel
+    export ROCM_PATH="$ROCM_DEVEL"
+    export HIP_PATH="$ROCM_DEVEL"
+    CLEAN_PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '^/opt/rocm' | tr '\n' ':' | sed 's/:$//')
+    export PATH="$ROCM_DEVEL/bin:$CLEAN_PATH"
+    ok "Isolated from system ROCm (ROCM_PATH=$ROCM_DEVEL)"
+}
+
+# Run rocm-sdk init and optionally test.
+#   $1 - venv path
+#   $2 - "true" to run rocm-sdk test, anything else to skip
+init_rocm_sdk() {
+    local venv_dir="$1"
+    local do_test="${2:-false}"
+
+    echo "  Initializing ROCm SDK..."
+    if ! "$venv_dir/bin/rocm-sdk" init; then
+        err "rocm-sdk init failed"
+        exit 1
+    fi
+    ok "rocm-sdk initialized"
+
+    if [ "$do_test" = "true" ]; then
+        echo "  Testing ROCm SDK..."
+        if ! "$venv_dir/bin/rocm-sdk" test; then
+            err "rocm-sdk test failed"
+            exit 1
+        fi
+        ok "rocm-sdk test passed"
+    else
+        ok "rocm-sdk test skipped"
+    fi
+}
+
+# Patch a venv's activate script to put ROCm SDK on PATH and LD_LIBRARY_PATH.
+#   $1 - venv path
+# Idempotent: skips if already patched.
+patch_activate_rocm() {
+    local venv_dir="$1"
+    local activate="$venv_dir/bin/activate"
+    local marker="# --- ROCm SDK setup (added by ASTER) ---"
+
+    if grep -q "ROCm SDK setup" "$activate" 2>/dev/null; then
+        ok "activate script already has ROCm paths"
+        return
+    fi
+
+    echo "  Adding ROCm SDK paths to activate script..."
+    cat >> "$activate" << 'ROCM_EOF'
+
+# --- ROCm SDK setup (added by ASTER) ---
+_VENV_PURELIB=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+export ROCM_PATH="${_VENV_PURELIB}/_rocm_sdk_devel"
+export HIP_PATH="${ROCM_PATH}"
+export PATH="${ROCM_PATH}/bin:${PATH}"
+export LD_LIBRARY_PATH="${ROCM_PATH}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+unset _VENV_PURELIB
+# --- end ROCm SDK setup ---
+ROCM_EOF
+
+    ok "activate script updated with ROCm paths"
+}

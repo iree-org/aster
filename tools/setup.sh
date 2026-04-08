@@ -399,58 +399,7 @@ phase3_select_rocm_target() {
         ok "requirements installation skipped (--skip-requirements)"
         return
     fi
-    ROCM_REQ_FILES=()
-    for f in "$ASTER_DIR"/requirements-amd-*.txt; do
-        [ -f "$f" ] && ROCM_REQ_FILES+=("$f")
-    done
-
-    if [ ${#ROCM_REQ_FILES[@]} -eq 0 ]; then
-        err "No requirements-amd-*.txt files found in $ASTER_DIR"
-        exit 1
-    fi
-
-    if [ -n "$ROCM_TARGET_EXPLICIT" ]; then
-        ROCM_REQ="$ASTER_DIR/requirements-amd-$ROCM_TARGET_EXPLICIT.txt"
-        if [ ! -f "$ROCM_REQ" ]; then
-            err "Unknown ROCm target: $ROCM_TARGET_EXPLICIT"
-            exit 1
-        fi
-        ROCM_TARGET="$ROCM_TARGET_EXPLICIT"
-        return
-    fi
-
-    if [ ${#ROCM_REQ_FILES[@]} -eq 1 ]; then
-        ROCM_REQ="${ROCM_REQ_FILES[0]}"
-        ROCM_TARGET=$(basename "$ROCM_REQ" .txt)
-        ROCM_TARGET=${ROCM_TARGET#requirements-amd-}
-        ok "Using only available ROCm target: $ROCM_TARGET"
-        return
-    fi
-
-    if [ ! -t 0 ]; then
-        err "Cannot prompt for ROCm target in non-interactive mode"
-        exit 1
-    fi
-
-    echo ""
-    echo "  Available ROCm SDK targets:"
-    for i in "${!ROCM_REQ_FILES[@]}"; do
-        BASENAME=$(basename "${ROCM_REQ_FILES[$i]}" .txt)
-        TARGET=${BASENAME#requirements-amd-}
-        echo "    $((i+1))) $TARGET"
-    done
-    echo ""
-    echo -n "  Which target? [1-${#ROCM_REQ_FILES[@]}] "
-    read -r ROCM_CHOICE
-
-    if ! [[ "$ROCM_CHOICE" =~ ^[0-9]+$ ]] || [ "$ROCM_CHOICE" -lt 1 ] || [ "$ROCM_CHOICE" -gt ${#ROCM_REQ_FILES[@]} ]; then
-        err "Invalid choice: $ROCM_CHOICE"
-        exit 1
-    fi
-
-    ROCM_REQ="${ROCM_REQ_FILES[$((ROCM_CHOICE-1))]}"
-    ROCM_TARGET=$(basename "$ROCM_REQ" .txt)
-    ROCM_TARGET=${ROCM_TARGET#requirements-amd-}
+    select_rocm_target "$ASTER_DIR" "$ROCM_TARGET_EXPLICIT"    # from common.sh
 }
 
 phase3_install_rocm_sdk() {
@@ -458,54 +407,17 @@ phase3_install_rocm_sdk() {
         ok "ROCm SDK installation skipped (--skip-requirements)"
         return
     fi
-    info "Installing ROCm SDK for $ROCM_TARGET"
-
-    ROCM_STAMP="$VIRTUAL_ENV/.rocm-stamp-$ROCM_TARGET"
-    if [ -f "$ROCM_STAMP" ] && [ "$ROCM_STAMP" -nt "$ROCM_REQ" ]; then
-        ok "ROCm SDK ($ROCM_TARGET) already installed"
-        return
-    fi
-
-    echo "  Installing ROCm SDK from $(head -1 "$ROCM_REQ" | sed 's/-i //')..."
-    echo "  This downloads ~2 GB of AMD GPU libraries."
-    echo ""
-    if uv pip install --python "$VIRTUAL_ENV/bin/python" -r "$ROCM_REQ" 2>&1; then
-        rm -f "$VIRTUAL_ENV"/.rocm-stamp-* 2>/dev/null
-        touch "$ROCM_STAMP"
-        ok "ROCm SDK ($ROCM_TARGET) installed"
-    else
-        err "Failed to install ROCm SDK"
-        exit 1
-    fi
+    install_rocm_sdk "$VIRTUAL_ENV"    # from common.sh
 }
 
 phase3_configure_rocm_env() {
-    ROCM_DEVEL=$("$VIRTUAL_ENV/bin/python" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")/_rocm_sdk_devel
-    export ROCM_PATH="$ROCM_DEVEL"
-    export HIP_PATH="$ROCM_DEVEL"
-    CLEAN_PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '^/opt/rocm' | tr '\n' ':' | sed 's/:$//')
-    export PATH="$ROCM_DEVEL/bin:$CLEAN_PATH"
-    ok "Isolated from system ROCm (ROCM_PATH=$ROCM_DEVEL)"
+    configure_rocm_env "$VIRTUAL_ENV"    # from common.sh
 }
 
 phase3_init_and_test_rocm() {
-    echo "  Initializing ROCm SDK..."
-    if ! "$VIRTUAL_ENV/bin/rocm-sdk" init 2>&1; then
-        err "rocm-sdk init failed"
-        exit 1
-    fi
-    ok "rocm-sdk initialized"
-
-    if [ "$SKIP_ROCM_TEST" = false ]; then
-        echo "  Testing ROCm SDK..."
-        if ! "$VIRTUAL_ENV/bin/rocm-sdk" test 2>&1; then
-            err "rocm-sdk test failed"
-            exit 1
-        fi
-        ok "rocm-sdk test passed"
-    else
-        ok "rocm-sdk test skipped (use --test-rocm to enable)"
-    fi
+    local do_test="false"
+    [ "$SKIP_ROCM_TEST" = false ] && do_test="true"
+    init_rocm_sdk "$VIRTUAL_ENV" "$do_test"    # from common.sh
 
     if ! "$VIRTUAL_ENV/bin/rocm-sdk" path --cmake >/dev/null 2>&1; then
         err "rocm-sdk installed but 'rocm-sdk path --cmake' failed"
