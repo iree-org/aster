@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..
 from kittens.gemm_config import (
     GemmSpec,
     GemmMappingSpec,
+    OperandPath,
     WeakScaledMappedGemmInstance,
 )
 from test_102_gemm_python_multitile import (
@@ -83,6 +84,7 @@ def _build_instance(d: dict) -> MultitileGemmInstance:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
+        operand_path=OperandPath(d["variant"]),
         num_wg_per_cu=_nwgcu,
         lcm_unroll=d["lcm_unroll"],
         unroll_factor_multiplier=d["unroll_mult"],
@@ -99,12 +101,14 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
+        operand_path=OperandPath(d["variant"]),
         num_wg_per_cu=nwgcu(d, _HW),
     )
 
 
-def make_sweep_grid(check_regs: bool = True) -> SweepGrid:
+def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
     grid = SweepGrid()
+    grid.axis("variant", variants)
     add_gemm_sweep_axes(grid, _HW)
 
     if check_regs:
@@ -112,7 +116,7 @@ def make_sweep_grid(check_regs: bool = True) -> SweepGrid:
             grid,
             _HW,
             _mapping_for_resource_check,
-            deps=("waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
+            deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
         )
 
     grid.build_with(_build_instance)
@@ -150,19 +154,31 @@ def main():
     add_geometry_pin_args(parser)
     parser.add_argument("--k-scaling-factor", type=int, help="Pin K scaling factor")
     parser.add_argument("--desired-simd-occupancy", type=int, default=None, help="Pin SIMD occupancy")
+    parser.add_argument("--direct-b", action=argparse.BooleanOptionalAction, default=None, help="B via preshuffle")
     args = parser.parse_args()
+
+    all_paths = ["lds", "direct_b"]
+    if args.direct_b is True:
+        all_paths = ["direct_b"]
+    elif args.direct_b is False:
+        all_paths = ["lds"]
+    print(f"Variants: {', '.join(all_paths)}")
 
     pins = make_sweep_pins(args, GEMM_SWEEP_PIN_MAP)
     pins = resolve_derived_pins(pins or {})
 
-    grid = make_sweep_grid(check_regs=not getattr(args, "no_reg_filter", False))
+    grid = make_sweep_grid(
+        all_paths,
+        check_regs=not getattr(args, "no_reg_filter", False),
+    )
     if "_wg_m" in (pins or {}):
         target = pins.pop("_wg_m")
         grid.filter("waves_m", "waves_n", "occ", check=lambda d, t=target: wg_m(d, _HW) == t)
 
     all_configs, total = grid.generate(
         pins=pins or None,
-        sample_size=getattr(args, "compile_sample", 4096)
+        sample_size=getattr(args, "compile_sample", 4096),
+        stratification_key=lambda d: d["variant"],
     )
 
     results = bench_perf_sweep_pipelined(
@@ -171,7 +187,7 @@ def main():
         repro_cmd_fn=_repro_cmd,
         num_gpus=args.num_gpus,
         compile_workers=args.compile_workers,
-        compile_timeout=getattr(args, "compile_timeout", 60),
+        compile_timeout=args.compile_timeout,
         post_compile_filter=fits_on_cu_post_compile,
         exec_sample=getattr(args, "exec_sample", 2000),
         zero_init=args.zero_init,

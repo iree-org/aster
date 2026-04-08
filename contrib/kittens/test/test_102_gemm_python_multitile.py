@@ -9,13 +9,14 @@ import numpy as np
 import pytest
 
 from aster import ir
+import tempfile
+
 from aster.layout import Layout
 from aster.dialects.kernel_builder_with_layouts import KernelBuilderWithLayouts as KernelBuilder
 from aster.dialects.amdgcn import AccessKind
 from aster.compiler.core import compile_mlir_module_to_asm, assemble_to_hsaco
 from aster.execution.core import execute_hsaco, InputArray, OutputArray
-from aster.execution.helpers import hsaco_file
-from aster.execution.utils import system_has_mcpu
+from aster.execution.utils import system_has_gpu
 from aster.pass_pipelines import make_default_pass_pipeline
 
 from kittens.gemm_config import (
@@ -27,15 +28,21 @@ from kittens.gemm_config import (
     DIM_K,
     GemmSpec,
     GemmMappingSpec,
+    OperandPath,
     WeakScaledMappedGemmInstance,
 )
 
 
 def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
-    """Build a multi-tile multi-wave multi-WG pipelined GEMM kernel."""
+    """Build a multi-tile multi-wave multi-WG pipelined GEMM kernel.
+
+    Memory path is driven by cfg.mapping:
+      - operand_path: LDS (both via LDS), DIRECT_B (B bypasses LDS), DIRECT_AB
+    """
     from kittens_helpers import PIPELINE_STRATEGIES
 
     spec, mapping = cfg.spec, cfg.mapping
+    direct_b = mapping.direct_b
     gs = spec.gemm_size
     wg = mapping.num_workgroups_per_kernel
     wpw = mapping.num_waves_per_workgroup
@@ -148,6 +155,14 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
     WG_BASE_B = Layout((wg[DIM_N], k_iters), (twg_n * TILE_COORD_B.strides[1], k_t * TILE_COORD_B.strides[0]))
     C_COORD = Layout((m_t, n_t), (mfma_m * stride_c_row, mfma_n * stride_c_col))
 
+    # Preshuffle B layout: (n_block, k_block, lane_id) -> byte offset.
+    # Matches shuffle_weight() in kittens_helpers.py.
+    nb, kb = cfg.preshuffle_n_blocks, cfg.preshuffle_k_blocks
+    lane_s, k_s = cfg.preshuffle_lane_stride_bytes, cfg.preshuffle_k_block_stride_bytes
+    stride_n0_bytes = kb * k_s
+    PRESHUFFLE_DIMS = (nb, kb, ws)
+    PRESHUFFLE_LAYOUT = Layout((nb, kb, ws), (stride_n0_bytes, k_s, lane_s))
+
     # Distribution layouts: (wg_idx, wave_idx) -> global tile index.
     M_DIST = Layout((wg[DIM_M], wpw[DIM_M]), (twg_m, m_t))
     N_DIST = Layout((wg[DIM_N], wpw[DIM_N]), (twg_n, n_t))
@@ -223,7 +238,7 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
     # Preserved through constexpr expansion by selective-inlining (no
     # allow-scheduled-calls), inlined after pipelining by PHASE_SROA.
     sgpr2_type = ir.Type.parse("!amdgcn.sgpr<[? + 2]>")
-    read_ret = [any_type, lds_read_tok] * n_frags_per_tile
+    read_ret = [any_type] * n_frags_per_tile + [lds_read_tok] * n_frags_per_tile
 
     @b.define_helper("_load_a", [sgpr2_type, idx_type], [any_type, flat_read_tok])
     def load_a_fn(bb, ptr, off):
@@ -237,6 +252,11 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
         [(d, t)] = bb.load_multi_tile_from_global(
             ptr, off, GLOBAL_LOAD_TILE_B, GLOBAL_LOAD_SUB_TILE_B, bb.global_load_dwordx4
         )
+        return [bb.to_any(d), t]
+
+    @b.define_helper("_load_b_direct", [sgpr2_type, idx_type], [any_type, flat_read_tok])
+    def load_b_direct_fn(bb, ptr, byte_off):
+        d, t = bb.global_load_dwordx4(ptr, dynamic_offset=bb.index_to_vgpr(byte_off))
         return [bb.to_any(d), t]
 
     @b.define_helper("_write_a", [any_type, idx_type], [lds_write_tok] * n_wtoks_per_tile)
@@ -266,14 +286,14 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
         frags = bb.read_multi_fragment_from_lds(
             lds_off, lds_read_tile_a, lds_swizzle, lds_read_sub_tile_a, bb.ds_read_b64
         )
-        return [v for d, t in frags for v in (bb.to_any(d), t)]
+        return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
 
     @b.define_helper("_read_b", [idx_type], read_ret)
     def read_b_fn(bb, lds_off):
         frags = bb.read_multi_fragment_from_lds(
             lds_off, lds_read_tile_b, lds_swizzle, lds_read_sub_tile_b, bb.ds_read_b64
         )
-        return [v for d, t in frags for v in (bb.to_any(d), t)]
+        return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
 
     # -- Init accumulators in memref --
     c_buf = b.memref_alloca(b.constant_index(n_accs), ax4_type)
@@ -288,7 +308,8 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
         # -- LDS ALLOC + LOAD (at LOAD stage -- pipeliner needs alloc in prologue) --
         with b.stage(STG_A_LOAD):
             lds_a_h, lds_a = b.alloc_lds(lds_total_a)
-            lds_b_h, lds_b = b.alloc_lds(lds_total_b)
+            if not direct_b:
+                lds_b_h, lds_b = b.alloc_lds(lds_total_b)
 
         # -- LOAD A (cooperative: scheduled func.call for type erasure) --
         with b.stage(STG_A_LOAD):
@@ -307,24 +328,46 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
 
             data_buf_a, tok_buf_a = load_a
 
-        # -- LOAD B (cooperative: scheduled func.call for type erasure) --
-        with b.stage(STG_B_LOAD):
-            b_wg_k_idx = b.linearize_index((wg_n_idx, k_iv), (wg[DIM_N], k_iters))
-            b_wg_base = b.linearize_layout(b_wg_k_idx, WG_BASE_B)
-            coop_b_off = b.linearize_layout(
-                b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), TILE_COORD_B
-            )
-            b_wave_base = b.affine_apply(d0 + d1, [b_wg_base, coop_b_off])
+        # -- LOAD B --
+        if direct_b:
+            # Direct B: per-wave load at preshuffle byte offsets.
+            with b.stage(STG_B_LOAD):
+                lid = b.lane_id()
+                n_base_b = b.linearize_layout(
+                    b.linearize_index((wg_n_idx, wave_n_idx), (wg[DIM_N], wpw[DIM_N])), N_DIST
+                )
 
-            @b.foreach_tile(n_coop_b, types=[(any_type, 1), (flat_read_tok, 1)])
-            def load_b(idx):
-                tile_off = b.linearize_layout(idx, COOP_COORD_B)
-                off = b.affine_apply(d0 + d1, [b_wave_base, tile_off])
-                return b.call_helper(load_b_fn, [b_ptr, off], [any_type, flat_read_tok])
+                @b.foreach_tile(k_t * n_t, types=[(any_type, 1), (flat_read_tok, 1)])
+                def load_b(idx):
+                    kt, nt = b.delinearize_index(idx, (k_t, n_t))
+                    n_block = b.affine_apply(d0 + d1, [n_base_b, nt])
+                    k_block = b.affine_apply(d0 * k_t + d1, [k_iv, kt])
+                    byte_off = b.linearize_layout(
+                        b.linearize_index((n_block, k_block, lid), PRESHUFFLE_DIMS),
+                        PRESHUFFLE_LAYOUT,
+                    )
+                    return b.call_helper(load_b_direct_fn, [b_ptr, byte_off], [any_type, flat_read_tok])
 
-            data_buf_b, tok_buf_b = load_b
+                data_buf_b, tok_buf_b = load_b
+        else:
+            # Cooperative B: all waves load cooperatively.
+            with b.stage(STG_B_LOAD):
+                b_wg_k_idx = b.linearize_index((wg_n_idx, k_iv), (wg[DIM_N], k_iters))
+                b_wg_base = b.linearize_layout(b_wg_k_idx, WG_BASE_B)
+                coop_b_off = b.linearize_layout(
+                    b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), TILE_COORD_B
+                )
+                b_wave_base = b.affine_apply(d0 + d1, [b_wg_base, coop_b_off])
 
-        # -- LDS WRITE A (scheduled func.call consumes any-typed data) --
+                @b.foreach_tile(n_coop_b, types=[(any_type, 1), (flat_read_tok, 1)])
+                def load_b(idx):
+                    tile_off = b.linearize_layout(idx, COOP_COORD_B)
+                    off = b.affine_apply(d0 + d1, [b_wave_base, tile_off])
+                    return b.call_helper(load_b_fn, [b_ptr, off], [any_type, flat_read_tok])
+
+                data_buf_b, tok_buf_b = load_b
+
+        # -- LDS WRITE A --
         with b.stage(STG_A_LDS_WRITE):
             coop_a_lds_off = b.linearize_layout(
                 b.linearize_index((coop_a_k_start, coop_a_m_start), (k_t, twg_m)), LDS_COORD_A
@@ -341,24 +384,25 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
                     [lds_write_tok] * n_wtoks_per_tile,
                 )
 
-        # -- LDS WRITE B (scheduled func.call consumes any-typed data) --
-        with b.stage(STG_B_LDS_WRITE):
-            coop_b_lds_off = b.linearize_layout(
-                b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), LDS_COORD_B
-            )
-            lds_b_wave = b.affine_apply(d0 + d1, [lds_b, coop_b_lds_off])
-
-            @b.foreach_tile(n_coop_b, types=[(lds_write_tok, n_wtoks_per_tile)])
-            def wtok_buf_b(idx):
-                lds_off = b.affine_apply(d0 + d1, [lds_b_wave, b.linearize_layout(idx, COOP_LDS_B)])
-                b.wait_deps(b.memref_load(tok_buf_b, idx))
-                return b.call_helper(
-                    write_b_fn,
-                    [b.memref_load(data_buf_b, idx), lds_off],
-                    [lds_write_tok] * n_wtoks_per_tile,
+        # -- LDS WRITE B (skipped for direct_b) --
+        if not direct_b:
+            with b.stage(STG_B_LDS_WRITE):
+                coop_b_lds_off = b.linearize_layout(
+                    b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), LDS_COORD_B
                 )
+                lds_b_wave = b.affine_apply(d0 + d1, [lds_b, coop_b_lds_off])
 
-        # -- LDS READ A + DEALLOC (scheduled func.call returns any-typed frags) --
+                @b.foreach_tile(n_coop_b, types=[(lds_write_tok, n_wtoks_per_tile)])
+                def wtok_buf_b(idx):
+                    lds_off = b.affine_apply(d0 + d1, [lds_b_wave, b.linearize_layout(idx, COOP_LDS_B)])
+                    b.wait_deps(b.memref_load(tok_buf_b, idx))
+                    return b.call_helper(
+                        write_b_fn,
+                        [b.memref_load(data_buf_b, idx), lds_off],
+                        [lds_write_tok] * n_wtoks_per_tile,
+                    )
+
+        # -- LDS READ A + DEALLOC --
         with b.stage(STG_A_LDS_READ):
 
             @b.foreach_tile(n_coop_a * n_wtoks_per_tile)
@@ -366,7 +410,6 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
                 b.wait_deps(b.memref_load(wtok_buf_a, i))
 
             b.s_barrier()
-
             wave_m_off = b.linearize_layout(wave_m_idx, Layout(wpw[DIM_M], m_t * tile_bytes))
             wave_lds_base_a = b.affine_apply(d0 + d1, [lds_a, wave_m_off])
 
@@ -374,34 +417,44 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
             def read_a(idx):
                 tile_off = b.linearize_layout(idx, WAVE_READ_COORD_A)
                 off = b.affine_apply(d0 + d1, [wave_lds_base_a, tile_off])
-                results = b.call_helper(read_a_fn, [off], read_ret)
-                # Interleaved [any, tok, any, tok, ...] -> split into [any...] + [tok...]
-                return [results[i] for i in range(0, len(results), 2)] + [results[i] for i in range(1, len(results), 2)]
+                return b.call_helper(read_a_fn, [off], read_ret)
 
             frag_buf_a, rtok_buf_a = read_a
             b.dealloc_lds(lds_a_h)
 
-        # -- LDS READ B + DEALLOC --
-        with b.stage(STG_B_LDS_READ):
+        # -- B FRAGMENTS: LDS read (cooperative) or wait+split (direct) --
+        if direct_b:
+            # Wait global loads, split vx4 -> 2*vx2 fragments.
+            with b.stage(STG_B_LDS_READ):
 
-            @b.foreach_tile(n_coop_b * n_wtoks_per_tile)
-            def _(i):
-                b.wait_deps(b.memref_load(wtok_buf_b, i))
+                @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (flat_read_tok, n_frags_per_tile)])
+                def read_b(idx):
+                    tok = b.memref_load(tok_buf_b, idx)
+                    b.wait_deps(tok)
+                    b_vx4 = b.from_any(b.memref_load(data_buf_b, idx), vx4_type)
+                    b_lo, b_hi = b.split_vx4(b_vx4)
+                    return [b.to_any(b_lo), b.to_any(b_hi)] + [tok] * n_frags_per_tile
+        else:
+            with b.stage(STG_B_LDS_READ):
 
-            wave_n_off = b.linearize_layout(wave_n_idx, Layout(wpw[DIM_N], n_t * tile_bytes))
-            wave_lds_base_b = b.affine_apply(d0 + d1, [lds_b, wave_n_off])
+                @b.foreach_tile(n_coop_b * n_wtoks_per_tile)
+                def _(i):
+                    b.wait_deps(b.memref_load(wtok_buf_b, i))
 
-            @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (lds_read_tok, n_frags_per_tile)])
-            def read_b(idx):
-                tile_off = b.linearize_layout(idx, WAVE_READ_COORD_B)
-                off = b.affine_apply(d0 + d1, [wave_lds_base_b, tile_off])
-                results = b.call_helper(read_b_fn, [off], read_ret)
-                return [results[i] for i in range(0, len(results), 2)] + [results[i] for i in range(1, len(results), 2)]
+                wave_n_off = b.linearize_layout(wave_n_idx, Layout(wpw[DIM_N], n_t * tile_bytes))
+                wave_lds_base_b = b.affine_apply(d0 + d1, [lds_b, wave_n_off])
 
-            frag_buf_b, rtok_buf_b = read_b
-            b.dealloc_lds(lds_b_h)
+                @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (lds_read_tok, n_frags_per_tile)])
+                def read_b(idx):
+                    tile_off = b.linearize_layout(idx, WAVE_READ_COORD_B)
+                    off = b.affine_apply(d0 + d1, [wave_lds_base_b, tile_off])
+                    return b.call_helper(read_b_fn, [off], read_ret)
 
-        # -- COMPUTE (from_any to recover concrete types from any-typed frags) --
+                b.dealloc_lds(lds_b_h)
+
+        frag_buf_b, rtok_buf_b = read_b
+
+        # -- COMPUTE --
         with b.stage(STG_COMPUTE):
 
             @b.foreach_tile(m_t * n_t * k_t)
@@ -476,6 +529,26 @@ class MultitileGemmInstance(WeakScaledMappedGemmInstance):
         """Total bytes of one transfer tile (= mfma_m * tile_row_bytes)."""
         return self.spec.mfma_shape[DIM_M] * self.transfer_tile_row_bytes
 
+    @property
+    def preshuffle_n_blocks(self) -> int:
+        """N / mfma_n: logical blocks along the N dimension for preshuffled B."""
+        return self.gemm_size[DIM_N] // self.spec.mfma_shape[DIM_N]
+
+    @property
+    def preshuffle_k_blocks(self) -> int:
+        """K / transfer_tile_k_elems: K-tile count matching shuffle_weight chunking."""
+        return self.gemm_size[DIM_K] // self.transfer_tile_k_elems
+
+    @property
+    def preshuffle_lane_stride_bytes(self) -> int:
+        """Byte stride between consecutive lane_ids in preshuffled B (global dwordx4 width)."""
+        return self.mapping.global_load_bytes
+
+    @property
+    def preshuffle_k_block_stride_bytes(self) -> int:
+        """Byte stride between K-tile blocks: one full wave plane of dwordx4 loads."""
+        return self.mapping.wave_size * self.preshuffle_lane_stride_bytes
+
 
 def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
     """Compile a multi-tile GEMM config to HSACO.
@@ -512,20 +585,21 @@ def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
 def execute_multitile_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=False):
     """Execute a pre-compiled HSACO.
 
+    Automatically preshuffles B when cfg.mapping.direct_b is True.
     Returns (C_output, times_ns).
     """
-    from aster.execution.core import execute_hsaco, InputArray, OutputArray
-    from aster.execution.utils import system_has_gpu
+    from kittens_helpers import shuffle_weight
 
     mcpu = getattr(cfg.mapping, "mcpu", "gfx942")
     if not skip_gpu_check and not system_has_gpu(mcpu):
         pytest.skip(f"GPU {mcpu} not available, skip execution")
 
+    B_gpu = shuffle_weight(B) if cfg.mapping.direct_b else B
     C_output = np.zeros(math.prod(cfg.spec.operand_shape(OP_C)), dtype=np.float32)
     times_ns = execute_hsaco(
         hsaco_path=hsaco_path,
         kernel_name=KERNEL_NAME,
-        arguments=[InputArray(A.flatten()), InputArray(B.flatten()), OutputArray(C_output)],
+        arguments=[InputArray(A.flatten()), InputArray(B_gpu.flatten()), OutputArray(C_output)],
         grid_dim=(cfg.mapping.num_workgroups, 1, 1),
         block_dim=(cfg.mapping.num_threads, 1, 1),
         num_iterations=num_iterations,
@@ -533,7 +607,14 @@ def execute_multitile_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_chec
     return C_output, times_ns
 
 
-def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy=1):
+def _make_instance(
+    num_workgroups,
+    num_waves_per_wg,
+    num_tiles_per_wg,
+    k_mult,
+    pipeline_strategy=1,
+    b_path="lds",
+):
     """Build a MultitileGemmInstance from list parameters.
 
     M, N, K are derived from the tile grid and GemmSpec/GemmMappingSpec
@@ -554,6 +635,7 @@ def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, p
             num_tiles_per_wg[DIM_K],
         ],
         pipeline_strategy=pipeline_strategy,
+        operand_path=OperandPath(b_path),
     )
     # Derive M/N/K from tile grid using GemmSpec defaults for mfma_shape +
     # elt_bytes_a (and the real mapping's wave_size + global_load_bytes
@@ -576,29 +658,10 @@ def _run_multitile(cfg):
     np.random.seed(42 + gs[DIM_M] + gs[DIM_N] + gs[DIM_K])
     A_mat = (np.random.randn(*cfg.spec.operand_shape(OP_A)) * 0.1).astype(np.float16)
     B_mat = (np.random.randn(*cfg.spec.operand_shape(OP_B)) * 0.1).astype(np.float16)
-    C_output = np.zeros(math.prod(cfg.spec.operand_shape(OP_C)), dtype=np.float32)
 
-    ctx = ir.Context()
-    ctx.allow_unregistered_dialects = True
-    with ctx:
-        module = _build_multitile_gemm(cfg)
-        asm = compile_mlir_module_to_asm(module, pass_pipeline=make_default_pass_pipeline())
-
-    mcpu = cfg.mapping.mcpu
-    path = assemble_to_hsaco(asm, target=mcpu, wavefront_size=64)
-    if path is None:
-        pytest.skip(f"LLVM assembler not compiled with {mcpu} support")
-
-    with hsaco_file(path):
-        if not system_has_mcpu(mcpu=mcpu):
-            pytest.skip(f"{mcpu} GPU not available")
-        execute_hsaco(
-            hsaco_path=path,
-            kernel_name=KERNEL_NAME,
-            arguments=[InputArray(A_mat.flatten()), InputArray(B_mat.flatten()), OutputArray(C_output)],
-            grid_dim=(cfg.mapping.num_workgroups, 1, 1),
-            block_dim=(cfg.mapping.num_threads, 1, 1),
-        )
+    with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
+        compile_multitile_gemm(cfg, tmp.name)
+        C_output, _ = execute_multitile_hsaco(cfg, tmp.name, 1, A_mat, B_mat)
 
     expected = (A_mat.astype(np.float32) @ B_mat.astype(np.float32).T).flatten()
     np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
@@ -672,6 +735,7 @@ class TestPythonGEMMMultitile:
     # K = k_mult * k_t * transfer_tile_k_elems: always divisible by construction.
     @pytest.mark.parametrize("k_mult", [2, 4, 8], ids=["km2", "km4", "km8"])
     @pytest.mark.parametrize("pipeline_strategy", [1, 3, 5], ids=["ps1", "ps3", "ps5"])
+    @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
     def test_correctness(
         self,
         num_workgroups,
@@ -679,11 +743,20 @@ class TestPythonGEMMMultitile:
         num_tiles_per_wg,
         k_mult,
         pipeline_strategy,
+        b_path,
     ):
         k_t = num_tiles_per_wg[DIM_K]
         if k_mult < _min_k_iters(k_t, pipeline_strategy):
             pytest.skip(f"k_mult={k_mult} < min_k_iters for ps{pipeline_strategy}")
-        _run_multitile(_make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy))
+        cfg = _make_instance(
+            num_workgroups,
+            num_waves_per_wg,
+            num_tiles_per_wg,
+            k_mult,
+            pipeline_strategy=pipeline_strategy,
+            b_path=b_path,
+        )
+        _run_multitile(cfg)
 
 
 if __name__ == "__main__":

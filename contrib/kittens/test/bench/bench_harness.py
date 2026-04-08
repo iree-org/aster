@@ -24,8 +24,8 @@ MI300X_PEAK_TFLOPS_F16 = 1307.0
 NUM_ITERATIONS = int(os.environ.get("ITERATIONS", "100"))
 WARMUP_ITERATIONS = int(os.environ.get("WARMUP", "20"))
 DEFAULT_COMPILE_WORKERS = 8
-DEFAULT_COMPILE_TIMEOUT = 60  # seconds per kernel
-DEFAULT_EXEC_TIMEOUT = 120  # seconds per kernel execution
+DEFAULT_COMPILE_TIMEOUT = 180  # seconds per kernel
+DEFAULT_EXEC_TIMEOUT = 10  # seconds per kernel execution
 
 
 # -- Helpers ---------------------------------------------------------------
@@ -953,7 +953,7 @@ def bench_perf_sweep_pipelined(
     if in_flight > 0:
         import time
 
-        drain_timeout = 10.0 if interrupted else 30.0
+        drain_timeout = 10.0 if interrupted else 180.0
         t0 = time.monotonic()
         drained = 0
         remaining_count = in_flight
