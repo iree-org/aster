@@ -15,7 +15,7 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN "ON")
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=aster.")
 
 set(_PYTHON_BUILD_PREFIX "${ASTER_BINARY_DIR}/python_packages/")
-set(_PYTHON_INSTALL_PREFIX "python_packages/aster")
+set(_PYTHON_INSTALL_PREFIX "${ASTER_PYTHON_INSTALL_PREFIX}")
 
 set(CMAKE_PLATFORM_NO_VERSIONED_SONAME 1)
 
@@ -86,7 +86,7 @@ mlir_generate_type_stubs(
   OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/type_stubs/_mlir_libs"
   OUTPUTS "${_core_type_stub_sources}"
   DEPENDS_TARGET_SRC_DEPS "${_core_extension_srcs}"
-  IMPORT_PATHS "${ASTER_BINARY_DIR}/${_PYTHON_INSTALL_PREFIX}/_mlir_libs"
+  IMPORT_PATHS "${ASTER_BINARY_DIR}/python_packages/aster/_mlir_libs"
 )
 set(_mlir_typestub_gen_target "${NB_STUBGEN_CUSTOM_TARGET}")
 
@@ -196,7 +196,7 @@ set(_SOURCE_COMPONENTS
 
 add_mlir_python_modules(ASTERPythonModules
   ROOT_PREFIX "${ASTER_BINARY_DIR}/python_packages/aster"
-  INSTALL_PREFIX "python_packages/aster"
+  INSTALL_PREFIX "${_PYTHON_INSTALL_PREFIX}"
   DECLARED_SOURCES
   ${_SOURCE_COMPONENTS}
   COMMON_CAPI_LINK_LIBS
@@ -209,10 +209,10 @@ add_mlir_python_modules(ASTERPythonModules
 # This uses the ASTER target created in tools/aster-shlib
 install(TARGETS ASTER
   LIBRARY
-    DESTINATION python_packages/aster/_mlir_libs
+    DESTINATION "${_PYTHON_INSTALL_PREFIX}/_mlir_libs"
     COMPONENT ASTERPythonModules
   RUNTIME
-    DESTINATION python_packages/aster/_mlir_libs
+    DESTINATION "${_PYTHON_INSTALL_PREFIX}/_mlir_libs"
     COMPONENT ASTERPythonModules
 )
 
