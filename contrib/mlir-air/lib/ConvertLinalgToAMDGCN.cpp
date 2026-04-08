@@ -700,61 +700,19 @@ struct ConvertLinalgToAMDGCN
     for (auto *op : toErase)
       op->erase();
 
-    // Erase linalg.fill on global buffers — the library handles zero-init.
+    // Erase linalg.fill on global (non-LDS) buffers.
+    // The library's zero_C handles accumulator init, so the fill is redundant.
+    // It must be erased because the aster backend cannot lower linalg.fill
+    // on global memrefs.
     SmallVector<linalg::FillOp> globalFills;
     moduleOp->walk([&](linalg::FillOp fill) {
-      for (Value out : fill.getDpsInits()) {
-        if (auto mrTy = dyn_cast<MemRefType>(out.getType()))
-          if (!isPromotedBuffer(out))
-            globalFills.push_back(fill);
-      }
+      for (Value out : fill.getDpsInits())
+        if (isa<MemRefType>(out.getType()) && !isPromotedBuffer(out))
+          globalFills.push_back(fill);
     });
     for (auto fill : globalFills)
       fill->erase();
 
-    // Eliminate global→global memref.copy by forwarding the destination.
-    // This handles the `memref.copy %alloc, %arg` from materialize_in_destination.
-    moduleOp->walk([&](memref::CopyOp copy) {
-      Value src = copy.getSource();
-      Value dst = copy.getTarget();
-      if (isPromotedBuffer(src) || isPromotedBuffer(dst))
-        return;
-      // Both are global — replace all uses of src with dst and erase.
-      if (auto allocOp = src.getDefiningOp<memref::AllocOp>()) {
-        src.replaceAllUsesWith(dst);
-        copy->erase();
-        if (allocOp->use_empty())
-          allocOp->erase();
-      }
-    });
-
-    // DCE unused alloca/view/dealloc.
-    SmallVector<Operation *> deadOps;
-    moduleOp->walk([&](Operation *op) {
-      if (isa<memref::DeallocOp>(op) ||
-          (isa<memref::ViewOp, memref::AllocaOp>(op) && op->use_empty()))
-        deadOps.push_back(op);
-    });
-    for (auto *op : deadOps)
-      op->erase();
-    deadOps.clear();
-    moduleOp->walk([&](memref::AllocaOp op) {
-      if (op->use_empty())
-        deadOps.push_back(op);
-    });
-    for (auto *op : deadOps)
-      op->erase();
-
-    // Erase transform dialect ops.
-    if (auto builtinMod = dyn_cast<mlir::ModuleOp>(moduleOp)) {
-      SmallVector<Operation *> transformOps;
-      for (auto &op : builtinMod.getBody()->getOperations())
-        if (op.getDialect() && op.getDialect()->getNamespace() == "transform")
-          transformOps.push_back(&op);
-      for (auto *op : transformOps)
-        op->erase();
-      builtinMod->removeAttr("transform.with_named_sequence");
-    }
   }
 };
 

@@ -1,4 +1,5 @@
 // RUN: mlir-air-opt %s \
+// RUN:   --transform-preload-library="transform-library-paths=%p/air-to-amdgcn-matmul-transform.mlir" \
 // RUN:   --transform-interpreter --canonicalize --cse \
 // RUN:   --air-par-to-launch="has-air-segment=true" --canonicalize --cse \
 // RUN:   --air-copy-to-dma \
@@ -36,7 +37,7 @@
 !future_lds_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
 !future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 
-module attributes {transform.with_named_sequence} {
+module {
   amdgcn.library @linalg_lib isa = [#amdgcn.isa<cdna3>] {
     func.func private @zero_C() -> !ax4
     func.func private @mfma_f32_16x16x16_f16(!vx2, !vx2, !ax4) -> !ax4
@@ -198,8 +199,8 @@ module attributes {transform.with_named_sequence} {
       %cst = arith.constant 0.000000e+00 : f32
       %a = bufferization.to_tensor %A restrict writable : memref<64x64xf16> to tensor<64x64xf16>
       %b = bufferization.to_tensor %B restrict writable : memref<64x64xf16> to tensor<64x64xf16>
-      %empty = tensor.empty() : tensor<64x64xf32>
-      %fill = linalg.fill ins(%cst : f32) outs(%empty : tensor<64x64xf32>) -> tensor<64x64xf32>
+      %c = bufferization.to_tensor %C restrict writable : memref<64x64xf32> to tensor<64x64xf32>
+      %fill = linalg.fill ins(%cst : f32) outs(%c : tensor<64x64xf32>) -> tensor<64x64xf32>
       // matmul_transpose_b: C[m,n] += A[m,k] * B[n,k]
       %result = linalg.generic {
         indexing_maps = [
@@ -223,88 +224,4 @@ module attributes {transform.with_named_sequence} {
     }
   }
 
-  // Transform adapted from xrt/12 (tile-using-pad, no packing).
-  transform.named_sequence @__transform_main(
-      %arg0: !transform.any_op {transform.readonly}) {
-    %matmul = transform.structured.match ops{["linalg.generic"]} in %arg0
-        : (!transform.any_op) -> !transform.any_op
-
-    // Outer tiling: 2x1 forall on M (becomes 2-wavefront air.herd).
-    // 64/32 = 2 iterations — non-trivial, survives canonicalization.
-    %outer_tiled, %outer_forall =
-      transform.structured.tile_using_forall %matmul
-        tile_sizes [32, 0, 0]
-        : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-
-    // Compute tiling inside forall: 16x16 M×N tiles, no K tiling.
-    // mfma_matmul_f16_16x32 calls zero_C internally so K must not be tiled
-    // across loop iterations (each call would reset the accumulator).
-    // The library internally handles K by reading two 16x16 panels from LDS.
-    %tiled, %lm, %ln = transform.structured.tile_using_for %outer_tiled
-        tile_sizes [16, 16, 0]
-        : (!transform.any_op) -> (!transform.any_op, !transform.any_op,
-                                   !transform.any_op)
-
-    // Pad A and B only (not C — the matmul stores C directly to global).
-    %padded, %pad, %copy_back = transform.structured.pad %tiled {
-      padding_values = [0.0 : f16, 0.0 : f16, 0.0 : f32],
-      padding_dimensions = [0, 1, 2],
-      pack_paddings = [1, 1, 0],
-      nofold_flags = [1, 1, 0],
-      copy_back_op = "linalg.copy"
-    } : (!transform.any_op) -> (!transform.any_op, !transform.any_op,
-                                 !transform.any_op)
-    %pad_dps = transform.structured.rewrite_in_destination_passing_style %pad
-        : (!transform.any_op) -> !transform.any_op
-
-    // Promote A,B,C pads to L1 (memory_space=2) via bufferize_to_allocation.
-    %padded_lhs = transform.get_producer_of_operand %padded[0]
-        : (!transform.any_op) -> (!transform.any_op)
-    %buf_a, %new_a = transform.structured.bufferize_to_allocation %padded_lhs
-        {memory_space = 2, bufferize_destination_only, emit_dealloc}
-        : !transform.any_op
-
-    %padded_rhs = transform.get_producer_of_operand %padded[1]
-        : (!transform.any_op) -> (!transform.any_op)
-    %buf_b, %new_b = transform.structured.bufferize_to_allocation %padded_rhs
-        {memory_space = 2, bufferize_destination_only, emit_dealloc}
-        : !transform.any_op
-
-    // Canonicalize.
-    %func_0 = transform.structured.match ops{["func.func"]} in %arg0
-        : (!transform.any_op) -> !transform.any_op
-    transform.apply_patterns to %func_0 {
-      transform.apply_patterns.linalg.tiling_canonicalization
-      transform.apply_patterns.scf.for_loop_canonicalization
-      transform.apply_patterns.canonicalization
-    } : !transform.any_op
-    transform.apply_cse to %func_0 : !transform.any_op
-
-    // One-shot bufferize.
-    %func_1 = transform.structured.match ops{["func.func"]} in %arg0
-        : (!transform.any_op) -> !transform.any_op
-    %func_buf = transform.bufferization.one_shot_bufferize %func_1 {
-      allow_return_allocs_from_loops = true
-    } : (!transform.any_op) -> !transform.any_op
-
-    // Cleanup.
-    %func_2 = transform.structured.match ops{["func.func"]} in %arg0
-        : (!transform.any_op) -> !transform.any_op
-    transform.apply_patterns to %func_2 {
-      transform.apply_patterns.canonicalization
-    } : !transform.any_op
-    transform.apply_cse to %func_2 : !transform.any_op
-    %func_3 = transform.air.remove_uninitialized_copy %func_2
-        : (!transform.any_op) -> !transform.any_op
-
-    // Convert outer forall → parallel → air.herd (now on memrefs).
-    %forall_2 = transform.structured.match ops{["scf.forall"]} in %arg0
-        : (!transform.any_op) -> !transform.any_op
-    %parallel = transform.loop.forall_to_parallel %forall_2
-        : (!transform.any_op) -> !transform.any_op
-    %herd = transform.air.par_to_herd %parallel
-        : (!transform.any_op) -> !transform.any_op
-
-    transform.yield
-  }
 }

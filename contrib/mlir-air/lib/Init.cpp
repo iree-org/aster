@@ -88,6 +88,7 @@ void registerAll(DialectRegistry &registry) {
   registerLinalgPasses();
   memref::registerMemRefPasses();
   transform::registerInterpreterPass();
+  transform::registerPreloadLibraryPass();
 
   // AIR transform ops extension (air.transform.*).
   xilinx::air::registerTransformDialectExtension(registry);

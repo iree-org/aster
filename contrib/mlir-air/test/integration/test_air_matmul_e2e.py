@@ -27,6 +27,7 @@ MCPU = "gfx942"
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _MLIR_FILE = os.path.join(_THIS_DIR, "..", "air-to-amdgcn-matmul.mlir")
+_TRANSFORM_FILE = os.path.join(_THIS_DIR, "..", "air-to-amdgcn-matmul-transform.mlir")
 _LIBRARY_DIR = os.path.join(
     _THIS_DIR, "..", "..", "..", "..", "mlir_kernels", "library"
 )
@@ -72,6 +73,7 @@ def _air_preprocess(mlir_text):
     result = subprocess.run(
         [
             opt,
+            f"--transform-preload-library=transform-library-paths={_TRANSFORM_FILE}",
             "--transform-interpreter",
             "--air-par-to-herd",
             "--canonicalize", "--cse",
@@ -86,13 +88,11 @@ def _air_preprocess(mlir_text):
             "--convert-linalg-to-amdgcn",
         ],
         input=mlir_text,
-        capture_output=True,
-        text=True,
+        capture_output=True, text=True,
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"mlir-air-opt AIR preprocessing failed:\n{result.stderr}"
-        )
+            f"mlir-air-opt AIR preprocessing failed:\n{result.stderr}")
     return result.stdout
 
 
