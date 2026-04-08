@@ -51,23 +51,9 @@ if(ASTER_ENABLE_MLIR_AIR)
     target_link_libraries(ASTER PRIVATE
       -Wl,--whole-archive $<TARGET_FILE:MlirAirLib> -Wl,--no-whole-archive)
   endif()
-  target_link_libraries(ASTER PRIVATE
-    AIRDialect
-    AIRTransformOps
-    AIRTransformPasses
-    AIRConversionPasses
-    MLIRBufferizationDialect
-    MLIRBufferizationTransformOps
-    MLIRBufferizationTransforms
-    MLIRLinalgDialect
-    MLIRLinalgTransformOps
-    MLIRLinalgTransforms
-    MLIRTensorInferTypeOpInterfaceImpl
-    MLIRTensorTransforms
-    MLIRTransformDialect
-    MLIRTransformDialectTransforms
-    MLIRSCFTransformOps
-  )
+  # Normal link for CMake transitive dep resolution (--whole-archive
+  # bypasses CMake's LINK_LIBS propagation).
+  target_link_libraries(ASTER PRIVATE MlirAirLib)
 endif()
 # Place ASTER.dylib/.so alongside the Python extensions in the build tree so
 # that @loader_path RPATH on the extensions resolves at build time (stubgen
