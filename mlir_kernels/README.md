@@ -31,8 +31,6 @@ manipulating the `sizeof` an **element**.
 
 Kernels are organized by functionality:
 
-- `copy-1d-dwordx4.mlir` - 1D parallel copy kernel using dwordx4 (16 bytes per thread)
-
 ## Structure
 
 Each kernel file follows this pattern:
@@ -55,33 +53,10 @@ from `test/integration/test_utils.py` which provides:
 - `compile_mlir_file_to_asm()` - Compile MLIR to assembly
 - `execute_kernel_and_verify()` - Execute kernels on GPU and verify results
 - `DEFAULT_SROA_PASS_PIPELINE` - Standard pass pipeline for kernel compilation
-- `format_throughput_stats()` - Format performance statistics (from `mlir_kernels.benchmarks.benchmark_utils`)
-
 To run kernel tests:
 ```bash
 (cd build && ninja install) && pytest ./mlir_kernels/test/
 ```
-
-## Benchmarking
-
-Benchmark scripts in `benchmarks/` provide a way to benchmark multiple kernel configurations
-in parallel. They compile kernels using multiple processes and execute them across available GPUs.
-
-To run all benchmarks via pytest:
-```bash
-(cd build && ninja install) && pytest ./mlir_kernels/benchmarks/
-```
-
-To run a specific benchmark directly:
-```bash
-(cd build && ninja install) && python ./mlir_kernels/benchmarks/benchmark_copy_1d.py
-```
-
-The benchmark scripts:
-- Compile all kernel configurations in parallel using multiple CPU cores
-- Execute kernels across available GPUs (round-robin distribution)
-- Verify correctness (can be skipped with `--skip-test`)
-- Print performance statistics for each configuration
 
 ## Nanobenchmarks
 
@@ -109,5 +84,4 @@ from integration.test_utils import (
     compile_mlir_file_to_asm,
     DEFAULT_SROA_PASS_PIPELINE,
 )
-from mlir_kernels.benchmarks.benchmark_utils import format_throughput_stats
 ```
