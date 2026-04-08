@@ -21,8 +21,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..
 
 RESULT_SENTINEL = "BENCH_RESULT_JSON:"
 MI300X_PEAK_TFLOPS_F16 = 1307.0
-NUM_ITERATIONS = int(os.environ.get("ITERATIONS", "100"))
-WARMUP_ITERATIONS = int(os.environ.get("WARMUP", "20"))
+NUM_ITERATIONS = 100
+WARMUP_ITERATIONS = 20
 DEFAULT_COMPILE_WORKERS = 8
 DEFAULT_COMPILE_TIMEOUT = 180  # seconds per kernel
 DEFAULT_EXEC_TIMEOUT = 10  # seconds per kernel execution
@@ -817,8 +817,9 @@ def _verify_gpu_queue(gpu_id, work_queue, result_queue, timeout=180):
 def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
     """Verify configs against numpy using persistent workers, all GPUs concurrently.
 
-    Each GPU gets a dedicated thread with a persistent worker that reuses
-    HIP context across configs.  On crash the worker is auto-respawned.
+    Each GPU gets a dedicated thread with a persistent worker that
+    reuses HIP context across configs.  On crash the worker is auto-
+    respawned.
     """
     import queue
     import threading
@@ -968,6 +969,7 @@ def bench_perf_sweep_pipelined(
     post_compile_filter=None,
     exec_sample=0,
     zero_init=False,
+    iterations=None,
 ):
     """Pipelined compile+execute: GPU execution starts as HSACOs become available.
 
@@ -984,6 +986,8 @@ def bench_perf_sweep_pipelined(
 
     from tqdm import tqdm
 
+    if iterations is None:
+        iterations = NUM_ITERATIONS
     if num_gpus is None:
         num_gpus = detect_num_gpus()
     if compile_workers is None:
@@ -1075,7 +1079,7 @@ def bench_perf_sweep_pipelined(
                         cfg.gemm_size[DIM_M],
                         cfg.gemm_size[DIM_N],
                         cfg.gemm_size[DIM_K],
-                        NUM_ITERATIONS,
+                        iterations,
                         getattr(cfg, "direct_b", False),
                         getattr(cfg, "direct_a", False),
                         zero_init,
@@ -1182,6 +1186,7 @@ def bench_perf_sweep(
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
     post_compile_filter=None,
     exec_sample=0,
+    iterations=None,
 ):
     """Phase 1 (compile) + Phase 2 (execute).
 
@@ -1189,6 +1194,8 @@ def bench_perf_sweep(
     """
     from tqdm import tqdm
 
+    if iterations is None:
+        iterations = NUM_ITERATIONS
     if num_gpus is None:
         num_gpus = detect_num_gpus()
     if compile_workers is None:
@@ -1291,7 +1298,7 @@ def bench_perf_sweep(
         results, exec_failed = run_on_gpus(
             exec_active,
             hsaco_paths,
-            NUM_ITERATIONS,
+            iterations,
             num_gpus,
             desc="Executing",
         )
@@ -1322,7 +1329,7 @@ def make_inputs(cfg, zero_init=False):
     return A, B
 
 
-def print_config(cfg, resources=None):
+def print_config(cfg, resources=None, iterations=None):
     gs = cfg.gemm_size
     print(f"Config: {cfg.label}")
     print(f"  problem:    M={gs[DIM_M]}, N={gs[DIM_N]}, K={gs[DIM_K]}")
@@ -1346,7 +1353,8 @@ def print_config(cfg, resources=None):
         sched.append(f"wg_per_cu={cfg.num_wg_per_cu}")
     if sched:
         print(f"  sched:      {', '.join(sched)}")
-    print(f"  iterations: {NUM_ITERATIONS} (warmup={WARMUP_ITERATIONS})")
+    iters = iterations if iterations is not None else NUM_ITERATIONS
+    print(f"  iterations: {iters} (warmup={WARMUP_ITERATIONS})")
     if resources:
         print(f"  resources:  {resources}")
 
@@ -1358,6 +1366,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
     )
 
     kname = cfg.kernel_name
+    iterations = getattr(args, "iterations", None) or NUM_ITERATIONS
     print_ir = getattr(args, "print_ir_after_all", False)
     print_asm = getattr(args, "print_asm", False)
 
@@ -1379,7 +1388,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
             raise SystemExit("--compile-only requires --hsaco")
         _, asm = compile_fn(cfg, args.hsaco, **compile_kw)
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
-        print_config(cfg, res)
+        print_config(cfg, res, iterations=iterations)
         if res:
             for v in res.check_occupancy(cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)):
                 print(f"  OCCUPANCY ERROR: {v}")
@@ -1398,7 +1407,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
         hsaco_path = hsaco_tmp.name
         _, asm = compile_fn(cfg, hsaco_path, **compile_kw)
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
-        print_config(cfg, res)
+        print_config(cfg, res, iterations=iterations)
         if res:
             violations = res.check_occupancy(cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1))
             for v in violations:
@@ -1406,7 +1415,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
             if violations and not getattr(args, "force", False):
                 raise SystemExit(1)
     else:
-        print_config(cfg)
+        print_config(cfg, iterations=iterations)
 
     if not has_gpu:
         print("No GPUs detected -- skipping execution.")
@@ -1416,13 +1425,13 @@ def run_single(cfg, compile_fn, args, execute_fn):
         # Timing.
         zero_init = getattr(args, "zero_init", False)
         A, B = make_inputs(cfg, zero_init=zero_init)
-        _, times_ns = execute_fn(cfg, hsaco_path, NUM_ITERATIONS, A, B, skip_gpu_check=True)
+        _, times_ns = execute_fn(cfg, hsaco_path, iterations, A, B, skip_gpu_check=True)
 
         measured = times_ns[WARMUP_ITERATIONS:]
         if not measured:
             print(
-                f"\nNo measurements after warmup ({NUM_ITERATIONS} iterations), "
-                f"use a number > {WARMUP_ITERATIONS} e.g. ITERATIONS=100"
+                f"\nNo measurements after warmup ({iterations} iterations), "
+                f"use a number > {WARMUP_ITERATIONS} e.g. --iterations=100"
             )
             return
         min_ns = min(measured)
@@ -1480,6 +1489,12 @@ def add_sweep_cli_args(parser):
     )
     a("--no-reg-filter", action="store_true", help="Disable register estimate filter")
     a(
+        "--iterations",
+        type=int,
+        default=NUM_ITERATIONS,
+        help=f"Number of execution iterations per config (default: {NUM_ITERATIONS})",
+    )
+    a(
         "--zero-init",
         action="store_true",
         default=False,
@@ -1499,6 +1514,12 @@ def add_single_cli_args(parser):
     a("--num-vgprs", type=int, default=None)
     a("--num-agprs", type=int, default=None)
     a("--num-wg-per-cu", type=int, default=1)
+    a(
+        "--iterations",
+        type=int,
+        default=NUM_ITERATIONS,
+        help=f"Number of execution iterations (default: {NUM_ITERATIONS})",
+    )
     a(
         "--zero-init",
         action="store_true",

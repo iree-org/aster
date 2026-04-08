@@ -191,6 +191,7 @@ def main():
         post_compile_filter=fits_on_cu_post_compile,
         exec_sample=getattr(args, "exec_sample", 2000),
         zero_init=args.zero_init,
+        iterations=args.iterations,
     )
     results, hsaco_map = results
     verify_top_configs(results, hsaco_map, _repro_cmd, top_n=50, num_gpus=args.num_gpus, label="102")
