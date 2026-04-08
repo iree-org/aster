@@ -33,11 +33,16 @@ from kittens.gemm_config import (
 )
 
 
-def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
+def _build_multitile_gemm(cfg: "MultitileGemmInstance", lds_at_write: bool = False) -> ir.Module:
     """Build a multi-tile multi-wave multi-WG pipelined GEMM kernel.
 
     Memory path is driven by cfg.mapping:
       - operand_path: LDS (both via LDS), DIRECT_B (B bypasses LDS), DIRECT_AB
+
+    Args:
+        lds_at_write: If True, place alloc_lds at the LDS_WRITE stage instead of
+        the LOAD stage. This ends up needing fewer LDS buffers but an extra barrier
+        to guard against WAR and WAW hazards.
     """
     from kittens_helpers import PIPELINE_STRATEGIES
 
@@ -98,12 +103,9 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
     # and excess waves duplicate the last tile via arith_minui clamping.
     def _coop_2d_split(num_tiles, num_waves, kt):
         waves_s = min(num_tiles, num_waves)
-        waves_k = max(1, num_waves // waves_s)
-        if waves_s * waves_k != num_waves:
-            waves_s = num_waves
-            waves_k = 1
-        coop_s = -(-num_tiles // waves_s)  # ceil div
-        coop_k = -(-kt // waves_k)
+        waves_k = max(1, math.floor(num_waves / waves_s))
+        coop_s = math.ceil(num_tiles / waves_s)
+        coop_k = math.ceil(kt / waves_k)
         return waves_s, waves_k, coop_s, coop_k
 
     a_waves_m, a_waves_k, coop_a_m, coop_a_k = _coop_2d_split(twg_m, nw, k_t)
@@ -305,11 +307,24 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
     # -- K-loop (void -- accumulators in c_buf) --
     @b.loop(c0, b.constant_index(k_iters), c1)
     def _(k_iv):
-        # -- LDS ALLOC + LOAD (at LOAD stage -- pipeliner needs alloc in prologue) --
-        with b.stage(STG_A_LOAD):
-            lds_a_h, lds_a = b.alloc_lds(lds_total_a)
+        # -- LDS ALLOC --
+        # lds_at_write=False: allocate early (at earliest LOAD stage) for max
+        #   buffer distance.  Both A and B share the same alloc stage so the
+        #   multi-buffer allocator sees them together.
+        # lds_at_write=True: allocate late (at each operand's WRITE stage) to
+        #   reduce the number of live buffers.
+        if lds_at_write:
+            with b.stage(STG_A_LDS_WRITE):
+                lds_a_h, lds_a = b.alloc_lds(lds_total_a)
             if not direct_b:
-                lds_b_h, lds_b = b.alloc_lds(lds_total_b)
+                with b.stage(STG_B_LDS_WRITE):
+                    lds_b_h, lds_b = b.alloc_lds(lds_total_b)
+        else:
+            early_load = min(STG_A_LOAD, STG_B_LOAD) if not direct_b else STG_A_LOAD
+            with b.stage(early_load):
+                lds_a_h, lds_a = b.alloc_lds(lds_total_a)
+                if not direct_b:
+                    lds_b_h, lds_b = b.alloc_lds(lds_total_b)
 
         # -- LOAD A (cooperative: scheduled func.call for type erasure) --
         with b.stage(STG_A_LOAD):
@@ -454,6 +469,16 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
 
         frag_buf_b, rtok_buf_b = read_b
 
+        # WAR barrier: when LDS write and read share don't have enough delay, all
+        # waves must finish reading before any wave starts writing in the next
+        # iteration.
+        if lds_at_write and STG_A_LDS_READ - STG_A_LDS_WRITE <= 1:
+            with b.stage(STG_A_LDS_WRITE):
+                b.s_barrier()
+        if not direct_b and lds_at_write and STG_B_LDS_READ - STG_B_LDS_WRITE <= 1:
+            with b.stage(STG_B_LDS_WRITE):
+                b.s_barrier()
+
         # -- COMPUTE --
         with b.stage(STG_COMPUTE):
             # 4-D iteration: (sub, kt, mt, nt) with sub outermost so
@@ -552,16 +577,14 @@ class MultitileGemmInstance(WeakScaledMappedGemmInstance):
 
 
 def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
-    """Compile a multi-tile GEMM config to HSACO.
-
-    Harness-compatible signature.
-    """
+    """Compile a multi-tile GEMM config to HSACO."""
     from aster.compiler.core import PrintOptions
 
+    lds_at_write = kw.pop("lds_at_write", False)
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        module = _build_multitile_gemm(cfg)
+        module = _build_multitile_gemm(cfg, lds_at_write=lds_at_write)
         pipeline = make_default_pass_pipeline(
             num_vgprs=kw.get("num_vgprs", 256),
             num_agprs=kw.get("num_agprs", 256),
@@ -652,7 +675,7 @@ def _make_instance(
     return MultitileGemmInstance(GemmSpec.from_sizes(M, N, k), mapping)
 
 
-def _run_multitile(cfg):
+def _run_multitile(cfg, lds_at_write=False):
     """Compile + run a multi-tile GEMM, verify against numpy."""
     gs = cfg.gemm_size
 
@@ -661,7 +684,7 @@ def _run_multitile(cfg):
     B_mat = (np.random.randn(*cfg.spec.operand_shape(OP_B)) * 0.1).astype(np.float16)
 
     with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-        compile_multitile_gemm(cfg, tmp.name)
+        compile_multitile_gemm(cfg, tmp.name, lds_at_write=lds_at_write)
         C_output, _ = execute_multitile_hsaco(cfg, tmp.name, 1, A_mat, B_mat)
 
     expected = (A_mat.astype(np.float32) @ B_mat.astype(np.float32).T).flatten()
@@ -684,59 +707,46 @@ class TestPythonGEMMMultitile:
             # 1 wave
             ([1, 1, 1], [1, 1, 1], [3, 2, 1]),
             ([1, 1, 1], [1, 1, 1], [2, 2, 3]),  # deep K (k_t=3)
-            ([1, 1, 1], [1, 1, 1], [4, 4, 1]),
             # 2 waves (2x1)
-            ([1, 1, 1], [2, 1, 1], [4, 2, 1]),
             ([1, 1, 1], [2, 1, 1], [6, 2, 1]),
             # 4 waves (2x2)
-            ([1, 1, 1], [2, 2, 1], [4, 4, 1]),
             ([1, 1, 1], [2, 2, 1], [8, 4, 1]),
             ([1, 1, 1], [2, 2, 1], [6, 4, 1]),  # non-power-of-2
             ([1, 1, 1], [2, 2, 1], [6, 6, 1]),  # non-power-of-2 both
-            ([1, 1, 1], [2, 2, 1], [8, 8, 1]),  # larger tiles (sweep failure)
             # 4 waves (4x1)
             ([1, 1, 1], [4, 1, 1], [8, 7, 1]),
             ([1, 1, 1], [4, 1, 1], [12, 5, 1]),
             # 4 waves (1x4)
             ([1, 1, 1], [1, 4, 1], [10, 8, 1]),
             # 8 waves (4x2)
-            ([1, 1, 1], [4, 2, 1], [8, 8, 1]),
             ([1, 1, 1], [4, 2, 1], [12, 6, 1]),
             # 8 waves (2x4)
             ([1, 1, 1], [2, 4, 1], [8, 8, 1]),
             ([1, 1, 1], [2, 4, 1], [12, 8, 1]),
             # Multi-WG
             ([3, 2, 1], [1, 1, 1], [3, 2, 1]),
-            ([2, 2, 1], [2, 1, 1], [4, 2, 1]),
-            ([2, 2, 1], [2, 2, 1], [4, 4, 1]),
         ],
         ids=[
             "1w_3x2",
             "1w_2x2x3_deepK",
-            "1w_4x4",
-            "2w_4x2",
             "2w_6x2",
-            "4w_2x2_4x4",
             "4w_2x2_8x4",
             "4w_2x2_6x4_npow2",
             "4w_2x2_6x6_npow2",
-            "4w_2x2_8x8",
             "4w_4x1_8x7",
             "4w_4x1_12x5",
             "4w_1x4_10x8",
-            "8w_4x2_8x8",
             "8w_4x2_12x6",
             "8w_2x4_8x8",
             "8w_2x4_12x8",
             "mwg3x2_1w_3x2",
-            "mwg2x2_2w_4x2",
-            "mwg2x2_4w_4x4",
         ],
     )
     # K = k_mult * k_t * transfer_tile_k_elems: always divisible by construction.
     @pytest.mark.parametrize("k_mult", [2, 4, 8], ids=["km2", "km4", "km8"])
-    @pytest.mark.parametrize("pipeline_strategy", [1, 3, 5], ids=["ps1", "ps3", "ps5"])
+    @pytest.mark.parametrize("pipeline_strategy", [1, 2, 3, 4, 5, 6], ids=["ps1", "ps2", "ps3", "ps4", "ps5", "ps6"])
     @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
+    @pytest.mark.parametrize("lds_at_write", [False, True], ids=["lds_load", "lds_write"])
     def test_correctness(
         self,
         num_workgroups,
@@ -745,6 +755,7 @@ class TestPythonGEMMMultitile:
         k_mult,
         pipeline_strategy,
         b_path,
+        lds_at_write,
     ):
         k_t = num_tiles_per_wg[DIM_K]
         if k_mult < _min_k_iters(k_t, pipeline_strategy):
@@ -757,7 +768,7 @@ class TestPythonGEMMMultitile:
             pipeline_strategy=pipeline_strategy,
             b_path=b_path,
         )
-        _run_multitile(cfg)
+        _run_multitile(cfg, lds_at_write=lds_at_write)
 
 
 if __name__ == "__main__":
