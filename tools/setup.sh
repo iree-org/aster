@@ -45,56 +45,11 @@ print_help() {
 }
 
 # ---------------------------------------------------------------------------
-# Common helpers
+# Common helpers (shared with benchmarks/setup.sh)
 # ---------------------------------------------------------------------------
 
-if [ -n "${NO_COLOR:-}" ] || [ ! -t 1 ]; then
-    RED="" GREEN="" YELLOW="" BLUE="" BOLD="" RESET=""
-else
-    RED="\033[0;31m" GREEN="\033[0;32m" YELLOW="\033[0;33m"
-    BLUE="\033[0;34m" BOLD="\033[1m" RESET="\033[0m"
-fi
-
-info()  { echo -e "${BLUE}==> ${RESET}${BOLD}$*${RESET}"; }
-ok()    { echo -e "${GREEN} OK ${RESET}$*"; }
-warn()  { echo -e "${YELLOW}WARN${RESET} $*"; }
-err()   { echo -e "${RED}FAIL${RESET} $*"; }
-ask()   {
-    echo -en "${YELLOW}?${RESET} $* [y/N] "
-    read -r answer
-    case "$answer" in
-        [yY]|[yY][eE][sS]) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-add_missing() {
-    local item="$1"
-    local existing
-    for existing in "${MISSING[@]}"; do
-        [ "$existing" = "$item" ] && return
-    done
-    MISSING+=("$item")
-}
-
-check_required_cmd() {
-    local cmd="$1"
-    if command -v "$cmd" >/dev/null 2>&1; then
-        ok "$cmd ($(command -v "$cmd"))"
-    else
-        err "$cmd not found"
-        add_missing "$cmd"
-    fi
-}
-
-check_optional_cmd() {
-    local cmd="$1"
-    if command -v "$cmd" >/dev/null 2>&1; then
-        ok "$cmd ($(command -v "$cmd"))"
-    else
-        warn "$cmd not found (optional)"
-    fi
-}
+# shellcheck source=tools/common.sh
+source "$(dirname "$0")/common.sh"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -214,44 +169,7 @@ phase1_check_commands() {
 }
 
 phase1_resolve_python() {
-    if [ -n "$PYTHON_EXPLICIT" ]; then
-        if ! command -v "$PYTHON_EXPLICIT" >/dev/null 2>&1; then
-            err "specified python not found: $PYTHON_EXPLICIT"
-            add_missing "$PYTHON_EXPLICIT"
-            PYTHON=""
-            return
-        fi
-        PYTHON="$PYTHON_EXPLICIT"
-        PY_VERSION=$("$PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-        ok "python $PY_VERSION ($PYTHON) [--python]"
-        return
-    fi
-
-    PYTHON=""
-    if command -v uv >/dev/null 2>&1; then
-        PYTHON=$(uv python find 3.12 2>/dev/null || true)
-        if [ -n "$PYTHON" ]; then
-            ok "python 3.12 via uv ($PYTHON)"
-        fi
-    fi
-
-    if [ -z "$PYTHON" ] && command -v python3 >/dev/null 2>&1; then
-        PYTHON=$(python3 -c "import sys; print(sys.executable)")
-        if python3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)"; then
-            PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-            ok "python3 $PY_VERSION ($PYTHON)"
-        else
-            PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-            err "python3 version $PY_VERSION is too old (need >= 3.12)"
-            add_missing "python3>=3.12"
-            PYTHON=""
-        fi
-    fi
-
-    if [ -z "$PYTHON" ]; then
-        err "No suitable python found"
-        add_missing "python3>=3.12"
-    fi
+    resolve_python    # from common.sh
 }
 
 phase1_map_package() {
@@ -458,17 +376,7 @@ phase2_shared_llvm() {
 }
 
 phase3_create_or_reuse_venv() {
-    if [ -f "$VIRTUAL_ENV/bin/python" ]; then
-        ok "venv exists at $VIRTUAL_ENV"
-        return
-    fi
-
-    echo "  Creating venv at $VIRTUAL_ENV with $PYTHON..."
-    if ! uv venv "$VIRTUAL_ENV" --seed --python "$PYTHON" --prompt "$VENV_PROMPT"; then
-        err "Failed to create Python venv"
-        exit 1
-    fi
-    ok "venv created"
+    create_or_reuse_venv "$VIRTUAL_ENV" "$VENV_PROMPT"    # from common.sh
 }
 
 phase3_verify_venv() {
@@ -483,20 +391,7 @@ phase3_install_requirements() {
         ok "requirements installation skipped (--skip-requirements)"
         return
     fi
-    REQ_STAMP="$VIRTUAL_ENV/.requirements-stamp"
-    if [ -f "$REQ_STAMP" ] && [ "$REQ_STAMP" -nt "$ASTER_DIR/requirements.txt" ]; then
-        ok "requirements up to date"
-        return
-    fi
-
-    echo "  Installing requirements..."
-    if uv pip install --python "$VIRTUAL_ENV/bin/python" -r "$ASTER_DIR/requirements.txt" 2>&1; then
-        touch "$REQ_STAMP"
-        ok "requirements installed"
-    else
-        err "Failed to install Python requirements"
-        exit 1
-    fi
+    install_requirements "$VIRTUAL_ENV" "$ASTER_DIR/requirements.txt"    # from common.sh
 }
 
 phase3_select_rocm_target() {

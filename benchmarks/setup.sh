@@ -1,102 +1,196 @@
 #!/usr/bin/env bash
-# Creates a virtual environment and installs all benchmark dependencies,
-# including aiter (AMD AI Tensor Engine) and its native extensions.
+# Copyright 2026 The ASTER Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+# benchmarks/setup.sh - Set up the benchmark virtual environment.
+#
+# Creates a venv, installs benchmark dependencies (PyTorch, Triton, etc.),
+# and optionally builds aiter (AMD AI Tensor Engine) with native extensions.
+#
+# Safe to re-run (idempotent).  Uses uv for all Python operations.
 #
 # Usage:
-#   bash setup.sh [--rocm-lib PATH]
+#   bash benchmarks/setup.sh [OPTIONS]
 #
 # Options:
-#   --rocm-lib PATH   Path to the ROCm lib directory containing libamdhip64.so
-#                     (default: auto-detected from ROCM_PATH, /opt/rocm/lib,
-#                      or /opt/rocm-7.2.1/lib)
+#   --skip-aiter         Skip aiter clone/build
+#   --skip-requirements  Skip Python requirements installation
+#   --python=PATH        Python interpreter to use
+#   --venv=PATH          Use or create a specific venv (default: benchmarks/.venv)
+#   --help               Show this help
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# Common helpers
+# ---------------------------------------------------------------------------
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ASTER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=tools/common.sh
+source "$ASTER_DIR/tools/common.sh"
+
+# ---------------------------------------------------------------------------
+# Help
+# ---------------------------------------------------------------------------
+
+print_help() {
+    echo "Usage: benchmarks/setup.sh [OPTIONS]"
+    echo ""
+    echo "Set up the benchmark virtual environment with PyTorch, Triton, and"
+    echo "optionally aiter (AMD AI Tensor Engine)."
+    echo ""
+    echo "Options:"
+    echo "  --skip-aiter         Skip aiter clone and build"
+    echo "  --skip-requirements  Skip Python requirements installation"
+    echo "  --python=PATH        Python interpreter to use"
+    echo "  --venv=PATH          Use or create a specific venv [default: benchmarks/.venv]"
+    echo "  --help               Show this help"
+}
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+SKIP_AITER=false
+SKIP_REQUIREMENTS=false
+PYTHON_EXPLICIT=""
 VENV_DIR="${SCRIPT_DIR}/.venv"
 
+parse_arguments() {
+    for arg in "$@"; do
+        case "$arg" in
+            --skip-aiter)        SKIP_AITER=true ;;
+            --skip-requirements) SKIP_REQUIREMENTS=true ;;
+            --python=*)          PYTHON_EXPLICIT="${arg#*=}" ;;
+            --venv=*)            VENV_DIR="${arg#*=}" ;;
+            --help|-h)
+                print_help
+                exit 0
+                ;;
+            *)
+                err "Unknown option: $arg"
+                echo "Run 'benchmarks/setup.sh --help' for usage."
+                exit 1
+                ;;
+        esac
+    done
+}
+
 # ---------------------------------------------------------------------------
-# Argument parsing
+# Phase 1: Prerequisites
 # ---------------------------------------------------------------------------
 
-ROCM_LIB=""
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --rocm-lib)
-            ROCM_LIB="$2"
-            shift 2
-            ;;
-        -h|--help)
-            sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
-            exit 0
-            ;;
-        *)
-            echo "Unknown argument: $1" >&2
-            exit 1
-            ;;
-    esac
-done
+phase1_prerequisites() {
+    info "Phase 1: Checking prerequisites"
+    MISSING=()
 
-# Auto-detect ROCm lib directory if not provided.
-if [ -z "${ROCM_LIB}" ]; then
-    if [ -n "${ROCM_PATH:-}" ] && [ -d "${ROCM_PATH}/lib" ]; then
-        ROCM_LIB="${ROCM_PATH}/lib"
-    elif [ -d "/opt/rocm/lib" ]; then
-        ROCM_LIB="/opt/rocm/lib"
-    elif [ -d "/opt/rocm-7.2.1/lib" ]; then
-        ROCM_LIB="/opt/rocm-7.2.1/lib"
-    else
-        echo "[WARN] Could not detect ROCm lib directory; pass --rocm-lib if aiter build fails"
+    check_required_cmd uv
+    check_required_cmd git
+    resolve_python
+
+    if [ ${#MISSING[@]} -gt 0 ]; then
+        err "Missing prerequisites: ${MISSING[*]}"
+        exit 1
     fi
-fi
+    echo ""
+}
 
 # ---------------------------------------------------------------------------
-# Virtual environment
+# Phase 2: Virtual environment + requirements
 # ---------------------------------------------------------------------------
 
-if [ -f "${VENV_DIR}/bin/activate" ]; then
-    echo "==> Virtual environment already exists at ${VENV_DIR}, skipping creation"
-else
-    echo "==> Creating virtual environment at ${VENV_DIR}"
-    python3 -m venv --prompt benchmarks "${VENV_DIR}"
-fi
-source "${VENV_DIR}/bin/activate"
+phase2_venv() {
+    info "Phase 2: Virtual environment"
 
-echo "==> Upgrading pip"
-pip install --upgrade pip
+    create_or_reuse_venv "$VENV_DIR" "benchmarks"
 
-echo "==> Installing requirements"
-pip install -r "${SCRIPT_DIR}/requirements.txt"
+    if ! "$VENV_DIR/bin/python" -c "import sys" 2>/dev/null; then
+        err "venv python is broken at $VENV_DIR/bin/python"
+        exit 1
+    fi
+
+    if [ "$SKIP_REQUIREMENTS" = true ]; then
+        ok "requirements installation skipped (--skip-requirements)"
+    else
+        install_requirements "$VENV_DIR" "$SCRIPT_DIR/requirements.txt"
+    fi
+    echo ""
+}
 
 # ---------------------------------------------------------------------------
-# aiter (AMD AI Tensor Engine)
+# Phase 3: aiter (AMD AI Tensor Engine)
 # ---------------------------------------------------------------------------
 
-AITER_DIR="${SCRIPT_DIR}/aiter_src"
-if [ ! -d "${AITER_DIR}" ]; then
-    echo "==> Cloning aiter"
-    git clone https://github.com/ROCm/aiter.git "${AITER_DIR}"
-else
-    echo "==> aiter already cloned at ${AITER_DIR}, skipping clone"
-fi
+phase3_aiter() {
+    if [ "$SKIP_AITER" = true ]; then
+        info "Phase 3: aiter (skipped via --skip-aiter)"
+        echo ""
+        return
+    fi
 
-echo "==> Initialising aiter submodules (composable_kernel / CK)"
-git -C "${AITER_DIR}" submodule update --init --recursive
+    info "Phase 3: aiter (AMD AI Tensor Engine)"
 
-echo "==> Installing aiter Python dependencies"
-pip install -r "${AITER_DIR}/requirements.txt"
+    AITER_DIR="${SCRIPT_DIR}/aiter_src"
 
-echo "==> Building aiter native extensions (requires hipcc / ROCm)"
-if [ -n "${ROCM_LIB}" ]; then
-    echo "    ROCm lib: ${ROCM_LIB}"
-    export LIBRARY_PATH="${ROCM_LIB}${LIBRARY_PATH:+:${LIBRARY_PATH}}"
-fi
-pip install -e "${AITER_DIR}"
+    # Clone if needed.
+    if [ ! -d "${AITER_DIR}" ]; then
+        echo "  Cloning aiter..."
+        git clone https://github.com/ROCm/aiter.git "${AITER_DIR}"
+        ok "aiter cloned"
+    else
+        ok "aiter already cloned at ${AITER_DIR}"
+    fi
 
-echo ""
-echo "==> Setup complete!"
-echo "    Activate the virtual environment with:"
-echo "      source ${VENV_DIR}/bin/activate"
-echo ""
-echo "    Then run benchmarks, e.g.:"
-echo "      cd ${SCRIPT_DIR}"
-echo "      python run_all.py -m 8192 -n 8192 -k 8192 --backends triton rocblas"
+    echo "  Initialising aiter submodules (composable_kernel / CK)..."
+    git -C "${AITER_DIR}" submodule update --init --recursive
+    ok "submodules initialised"
+
+    # Install aiter's own requirements.
+    install_requirements "$VENV_DIR" "${AITER_DIR}/requirements.txt"
+
+    # Build native extensions (requires hipcc / ROCm in PATH).
+    echo "  Building aiter native extensions (requires hipcc / ROCm)..."
+    if uv pip install --python "$VENV_DIR/bin/python" -e "${AITER_DIR}"; then
+        ok "aiter installed"
+    else
+        err "aiter build failed (is ROCm available?)"
+        exit 1
+    fi
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+
+print_summary() {
+    info "Setup complete!"
+    echo ""
+    echo "  venv:  $VENV_DIR"
+    echo ""
+    echo "  Activate the virtual environment:"
+    echo "    source ${VENV_DIR}/bin/activate"
+    echo ""
+    echo "  Then run benchmarks, e.g.:"
+    echo "    cd ${SCRIPT_DIR}"
+    echo "    python run_all.py -m 8192 -n 8192 -k 8192 --backends triton rocblas"
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+main() {
+    parse_arguments "$@"
+
+    phase1_prerequisites
+    phase2_venv
+    phase3_aiter
+    print_summary
+}
+
+main "$@"
