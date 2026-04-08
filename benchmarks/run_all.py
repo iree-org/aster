@@ -5,6 +5,9 @@ Runs any combination of IREE, Triton, rocBLAS, and hipBLAS GEMM benchmarks for
 a given problem size and prints a comparison table.  Results can optionally be
 saved to a JSON file.
 
+Each backend runs in its own subprocess to prevent GPU crashes and nanobind
+type-registration conflicts from poisoning other backends.
+
 Usage examples:
     python run_all.py -m 8192 -n 8192 -k 8192
     python run_all.py -m 4096 -n 4096 -k 4096 --backends triton rocblas
@@ -14,8 +17,15 @@ Usage examples:
     python run_all.py -m 4096 -n 4096 -k 4096 --backends triton --print-asm
 """
 
+import argparse
+import json
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import traceback
+from pathlib import Path
 
 try:
     from tabulate import tabulate as _tabulate
@@ -28,7 +38,7 @@ from common.cli import build_parser, config_from_args, resolve_backends, save_js
 from common.gemm_config import GEMMConfig
 
 # ---------------------------------------------------------------------------
-# Per-backend run helpers
+# Per-backend run helpers (used in worker mode only)
 # ---------------------------------------------------------------------------
 
 
@@ -101,6 +111,118 @@ _RUNNERS = {
 
 
 # ---------------------------------------------------------------------------
+# Subprocess isolation
+# ---------------------------------------------------------------------------
+
+_NAN_RESULT = {"ms": float("nan"), "tflops": float("nan")}
+
+# Backends that require an external CLI tool.  Map backend name to the
+# args attribute holding the executable path.
+_CLI_BACKENDS = {
+    "rocblas": "rocblas_bench",
+    "hipblas": "hipblas_bench",
+}
+
+
+def _check_cli_backend(args, backend):
+    """Return True if *backend* is ready to run, False with a message if not."""
+    attr = _CLI_BACKENDS.get(backend)
+    if attr is None:
+        return True
+    exe = getattr(args, attr, None)
+    if exe and shutil.which(exe):
+        return True
+    print(
+        f"[SKIP] {backend}: '{exe}' not found on PATH. "
+        f"Install ROCm or pass --{attr.replace('_', '-')}=PATH.",
+        file=sys.stderr,
+    )
+    return False
+
+
+def _build_worker_cmd(args, backend, result_path):
+    """Build a command that re-invokes this script in worker mode for one backend."""
+    cmd = [sys.executable, os.path.abspath(__file__)]
+    cmd.extend(["-m", str(args.m), "-n", str(args.n), "-k", str(args.k)])
+    cmd.extend(["--dtype", args.dtype])
+    cmd.extend(["--num-its", str(args.num_its)])
+    cmd.extend(["--warmup", str(args.warmup)])
+    cmd.extend(["--seed", str(args.seed)])
+    cmd.extend(["--backends", backend])
+    if getattr(args, "print_asm", False):
+        cmd.append("--print-asm")
+    if getattr(args, "print_mlir", False):
+        cmd.append("--print-mlir")
+    if getattr(args, "rocblas_bench", "rocblas-bench") != "rocblas-bench":
+        cmd.extend(["--rocblas-bench", args.rocblas_bench])
+    if getattr(args, "hipblas_bench", "hipblaslt-bench") != "hipblaslt-bench":
+        cmd.extend(["--hipblas-bench", args.hipblas_bench])
+    cmd.extend(["--_worker-result-file", result_path])
+    return cmd
+
+
+def _run_backend_isolated(args, backend):
+    """Run a single backend in a subprocess.
+
+    Returns the result dict.
+    """
+    if not _check_cli_backend(args, backend):
+        return _NAN_RESULT
+
+    fd, result_path = tempfile.mkstemp(suffix=".json", prefix=f"bench_{backend}_")
+    os.close(fd)
+
+    cmd = _build_worker_cmd(args, backend, result_path)
+    try:
+        proc = subprocess.run(cmd, timeout=600)
+        if proc.returncode != 0:
+            print(
+                f"[ERROR] {backend} exited with code {proc.returncode}",
+                file=sys.stderr,
+            )
+            return _NAN_RESULT
+        with open(result_path) as f:
+            data = json.load(f)
+        return data.get(backend, _NAN_RESULT)
+    except subprocess.TimeoutExpired:
+        print(f"[ERROR] {backend} timed out (600s)", file=sys.stderr)
+        return _NAN_RESULT
+    except Exception as e:
+        print(f"[ERROR] {backend} subprocess failed: {e}", file=sys.stderr)
+        return _NAN_RESULT
+    finally:
+        try:
+            os.unlink(result_path)
+        except OSError:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Worker mode (runs in subprocess)
+# ---------------------------------------------------------------------------
+
+
+def _worker_main(args):
+    """Run requested backend(s) in-process, write result JSON, exit."""
+    config = config_from_args(args)
+    backends = resolve_backends(args)
+
+    results = {}
+    for backend in backends:
+        runner = _RUNNERS[backend]
+        try:
+            results[backend] = runner(config, args)
+        except Exception:
+            print(f"[ERROR] {backend} failed:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            results[backend] = _NAN_RESULT
+
+    Path(args._worker_result_file).write_text(
+        json.dumps(results, indent=2, default=str)
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -108,7 +230,7 @@ _RUNNERS = {
 def main() -> None:
     parser = build_parser(
         description=(
-            "Unified GEMM benchmark — compares IREE, Triton, rocBLAS, and "
+            "Unified GEMM benchmark -- compares IREE, Triton, rocBLAS, and "
             "hipBLAS on a single problem size."
         )
     )
@@ -137,7 +259,20 @@ def main() -> None:
         metavar="PATH",
         help="Path to the hipblaslt-bench executable.",
     )
+    parser.add_argument(
+        "--_worker-result-file",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
+
+    # Worker mode: run in-process and write result JSON.
+    if args._worker_result_file:
+        _worker_main(args)
+        return
+
+    # Normal mode: print header, spawn one subprocess per backend.
     config = config_from_args(args)
     backends = resolve_backends(args)
 
@@ -154,13 +289,7 @@ def main() -> None:
 
     results: dict[str, dict] = {}
     for backend in backends:
-        runner = _RUNNERS[backend]
-        try:
-            results[backend] = runner(config, args)
-        except Exception:
-            print(f"[ERROR] {backend} failed:", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
-            results[backend] = {"ms": float("nan"), "tflops": float("nan")}
+        results[backend] = _run_backend_isolated(args, backend)
 
     # Summary table.
     print("\n" + "=" * 60, flush=True)
