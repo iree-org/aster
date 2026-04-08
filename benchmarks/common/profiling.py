@@ -1,5 +1,6 @@
 """PyTorch-profiler-based timing utilities for GEMM benchmarks."""
 
+import time
 from typing import Any, Callable
 
 import torch
@@ -16,30 +17,48 @@ def profile_fn(
     print_profile: bool = True,
     row_limit: int = 20,
 ) -> float:
-    """Profile *fn* with the PyTorch profiler and return the average kernel time.
+    """Profile *fn* and return the average kernel time in milliseconds.
 
-    The profiler schedule skips *warmup* steps, warms up for *warmup* steps,
-    then records *num_its* active steps.  Returns the average GPU kernel time
-    in milliseconds across the active steps.
+    Tries the PyTorch profiler first. If no CUDA events are captured
+    (e.g. IREE dispatches that bypass the HIP tracer), falls back to
+    synchronize-bracketed wall-clock timing.
+    """
+    ms = _profile_pytorch(
+        fn,
+        num_its=num_its,
+        warmup=warmup,
+        print_profile=print_profile,
+        row_limit=row_limit,
+    )
+    if ms > 0:
+        return ms
 
-    Args:
-        fn: Zero-argument callable to profile (called once per step).
-        num_its: Number of active profiler steps whose times are averaged.
-        warmup: Number of warm-up steps (also used for skip_first).
-        print_profile: Whether to print the profiler table to stdout.
-        row_limit: Maximum rows shown in the profiler table.
+    # Fallback: wall-clock timing with cuda.synchronize barriers.
+    if print_profile:
+        print(
+            "  (profiler captured 0 CUDA time, falling back to wall-clock)", flush=True
+        )
+    return _profile_wallclock(fn, num_its=num_its, warmup=warmup)
 
-    Returns:
-        Average kernel time in milliseconds.
+
+def _profile_pytorch(
+    fn: Callable[[], Any],
+    *,
+    num_its: int,
+    warmup: int,
+    print_profile: bool,
+    row_limit: int,
+) -> float:
+    """Profile with PyTorch profiler.
+
+    Returns 0.0 if no CUDA events captured.
     """
     activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
 
-    # repeat=1 so the cycle fires exactly once; without it, key_averages()
-    # can be empty because the profiler clears events between cycles.
     schedule = torch.profiler.schedule(
         wait=warmup, warmup=warmup, active=num_its, skip_first=warmup
     )
-    total_steps = warmup * 3 + num_its  # skip_first + warmup + active
+    total_steps = warmup * 3 + num_its
 
     torch.cuda.synchronize()
     fn()
@@ -69,4 +88,25 @@ def profile_fn(
         and "memcpy" not in e.key.lower()
     )
 
-    return total_us / (num_its * 1_000.0)  # microseconds → milliseconds
+    return total_us / (num_its * 1_000.0)
+
+
+def _profile_wallclock(
+    fn: Callable[[], Any],
+    *,
+    num_its: int,
+    warmup: int,
+) -> float:
+    """Wall-clock timing with cuda.synchronize barriers."""
+    for _ in range(warmup):
+        fn()
+        torch.cuda.synchronize()
+
+    torch.cuda.synchronize()
+    t0 = time.perf_counter()
+    for _ in range(num_its):
+        fn()
+        torch.cuda.synchronize()
+    t1 = time.perf_counter()
+
+    return (t1 - t0) / num_its * 1_000.0

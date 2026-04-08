@@ -126,5 +126,11 @@ class HipBLASBenchmark:
             text=True,
             check=True,
         )
-        print(result.stdout)
+        # Only print the Winner section (suppress per-solution output).
+        in_winner = False
+        for line in result.stdout.splitlines():
+            if line.strip().startswith("Winner"):
+                in_winner = True
+            if in_winner:
+                print(line)
         return _parse_output(result.stdout, cfg.flops())

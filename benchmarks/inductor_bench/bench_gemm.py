@@ -1,7 +1,7 @@
 """Torch Inductor GEMM benchmark.
 
-Compiles C = A @ B^T with torch.compile(backend="inductor", mode="max-autotune") and
-profiles with the PyTorch profiler.
+Compiles C = A @ B^T with torch.compile(backend="inductor", mode="max-
+autotune") and profiles with the PyTorch profiler.
 """
 
 import torch
@@ -11,8 +11,8 @@ from common.profiling import profile_fn
 
 
 def _gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """C = A @ B^T — B is pre-transposed (shape N×K), so this is a plain matmul."""
-    return torch.matmul(a, b)
+    """C = A @ B^T -- B is stored pre-transposed (shape N x K), transpose before matmul."""
+    return torch.matmul(a, b.T)
 
 
 class InductorBenchmark:
