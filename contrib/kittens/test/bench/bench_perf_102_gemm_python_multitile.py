@@ -91,6 +91,8 @@ def _build_instance(d: dict) -> MultitileGemmInstance:
         epilogue_peeling=d["epilogue_peeling"],
         ll_sched=d["ll_sched"],
         hoist_wait=d["hoist_wait"],
+        lds_at_write=d["lds_at_write"],
+        dealloc_at_read=True,  # test_102 builder deallocates LDS at READ stage
     )
     return MultitileGemmInstance(spec, mapping)
 
@@ -103,12 +105,15 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
         pipeline_strategy=d["ps"],
         operand_path=OperandPath(d["variant"]),
         num_wg_per_cu=nwgcu(d, _HW),
+        lds_at_write=d["lds_at_write"],
+        dealloc_at_read=True,  # test_102 builder deallocates LDS at READ stage
     )
 
 
 def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
     grid = SweepGrid()
     grid.axis("variant", variants)
+    grid.axis("lds_at_write", [False, True])
     add_gemm_sweep_axes(grid, _HW)
 
     if check_regs:
@@ -116,7 +121,7 @@ def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
             grid,
             _HW,
             _mapping_for_resource_check,
-            deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
+            deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps", "lds_at_write"),
         )
 
     grid.build_with(_build_instance)

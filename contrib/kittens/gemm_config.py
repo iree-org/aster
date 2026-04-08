@@ -234,6 +234,12 @@ class GemmMappingSpec:
     ll_sched: bool = False  # low-latency scheduling
     hoist_wait: bool = False  # hoist iter-arg waits
 
+    # --- LDS allocation strategy ---
+    lds_at_write: bool = (
+        False  # alloc at WRITE stage (fewer buffers, needs WAR barrier)
+    )
+    dealloc_at_read: bool = False  # dealloc at READ (test_102) vs COMPUTE (test_001)
+
     # --- Atomic transfer sizes (bytes per lane per memory operation) ---
 
     # Bytes per lane per memory operation.
@@ -347,42 +353,74 @@ class GemmMappingSpec:
             s[f"{prefix}_LDS_WRITE"] - load, s["COMPUTE"] - s[f"{prefix}_LDS_READ"]
         )
 
+    def _coop_tiles_per_wave(self) -> tuple[int, int]:
+        """Per-wave cooperative load tile counts for A and B."""
+        import math
+
+        twg = self.num_tiles_per_workgroup
+        nw = self.num_waves
+        kt = self.num_tiles_per_wave[DIM_K]
+
+        def _split(num_tiles, num_waves, kt):
+            ws = min(num_tiles, num_waves)
+            wk = max(1, math.floor(num_waves / ws))
+            return math.ceil(num_tiles / ws) * math.ceil(kt / wk)
+
+        return _split(twg[DIM_M], nw, kt), _split(twg[DIM_N], nw, kt)
+
     def estimated_vgprs(self) -> int:
         mt, nt, kt = self.num_tiles_per_wave
-        twg_m = self.num_tiles_per_workgroup[DIM_M]
-        twg_n = self.num_tiles_per_workgroup[DIM_N]
         s = self._pipeline_stage_dict()
         a_depth = self._operand_vgpr_depth(s, "A")
         b_depth = self._operand_vgpr_depth(s, "B")
         vpl = self.VGPRS_PER_LOAD
-        a_load = twg_m * kt * max(1, a_depth) * vpl
+        coop_a, coop_b = self._coop_tiles_per_wave()
+        a_load = coop_a * max(1, a_depth) * vpl
         a_lds_read = mt * kt * vpl
-        b_load = kt * (nt if self.direct_b else twg_n) * max(1, b_depth) * vpl
+        b_load = (kt * nt if self.direct_b else coop_b) * max(1, b_depth) * vpl
         b_split = kt * nt * vpl
         overhead = 30 if self.direct_b else 10
         return a_load + a_lds_read + b_load + b_split + overhead
 
-    def lds_bytes(self, tile_bytes: int = 1024) -> int:
-        """LDS budget.
+    def lds_bytes(self, tile_bytes: int = 1024, **overrides) -> int:
+        """LDS budget estimate for the pre-compile resource filter.
 
-        Depth = COMPUTE - LDS_WRITE + 1 (live from write to last read).
+        Uses self.lds_at_write and self.dealloc_at_read as defaults;
+        callers can override via keyword args.
+
+        LDS is live from alloc to dealloc.
+
+        Alloc stage:
+        - lds_at_write=False: both A and B alloc at min(A_LOAD, B_LOAD)
+          (the builder groups them to keep the multi-buffer allocator happy).
+        - lds_at_write=True:  each alloc at its own WRITE stage.
+
+        Dealloc stage:
+        - dealloc_at_read=True:  dealloc at LDS_READ  (test_102 Python builder).
+        - dealloc_at_read=False: dealloc at COMPUTE    (test_001 MLIR templates).
+
+        direct_b: B uses no LDS at all.
         """
+        _lds_at_write = overrides.get("lds_at_write", self.lds_at_write)
+        _dealloc_at_read = overrides.get("dealloc_at_read", self.dealloc_at_read)
         kt = self.num_tiles_per_wave[DIM_K]
         s = self._pipeline_stage_dict()
-        # TODO: prepare + pipelining + multi-buffering seem too conservative and
-        # to not reuse memory; maybe this is because it requires a dynamic size
-        # for the rotation vs a static constexpr size. Investigate.
-        # a_lds_depth = max(1, s["COMPUTE"] - s["A_LDS_WRITE"] + 1)
-        a_lds_depth = max(1, s["COMPUTE"] + 1)
+        if _lds_at_write:
+            a_alloc = s["A_LDS_WRITE"]
+            b_alloc = s["B_LDS_WRITE"]
+        else:
+            # Both allocated at the earliest LOAD stage (matches builder code).
+            early = min(s["A_LOAD"], s["B_LOAD"]) if not self.direct_b else s["A_LOAD"]
+            a_alloc = early
+            b_alloc = early
+        a_dealloc = s["A_LDS_READ"] if _dealloc_at_read else s["COMPUTE"]
+        a_lds_depth = max(1, a_dealloc - a_alloc + 1)
         a_lds = a_lds_depth * self.num_tiles_per_workgroup[DIM_M] * kt * tile_bytes
         if self.direct_b:
             b_lds = 0
         else:
-            # TODO: prepare + pipelining + multi-buffering seem too conservative and
-            # to not reuse memory; maybe this is because it requires a dynamic size
-            # for the rotation vs a static constexpr size. Investigate.
-            # b_lds_depth = max(1, s["COMPUTE"] - s["B_LDS_WRITE"] + 1)
-            b_lds_depth = max(1, s["COMPUTE"] + 1)
+            b_dealloc = s["B_LDS_READ"] if _dealloc_at_read else s["COMPUTE"]
+            b_lds_depth = max(1, b_dealloc - b_alloc + 1)
             b_lds = b_lds_depth * kt * self.num_tiles_per_workgroup[DIM_N] * tile_bytes
         return a_lds + b_lds
 
@@ -547,6 +585,7 @@ class WeakScaledMappedGemmInstance:
                 r"(_nopeel)?"
                 r"(_llsched)?"
                 r"(_hoistwait)?"
+                r"(_ldsw)?"
                 r"_(?:(direct_ab|direct_b)_)?(flat|buf)$"
             )
         return cls._LABEL_RE
@@ -577,6 +616,7 @@ class WeakScaledMappedGemmInstance:
             nopeel,
             llsched,
             hoistwait,
+            ldsw,
             direct,
             lt,
         ) = m.groups()
@@ -605,6 +645,7 @@ class WeakScaledMappedGemmInstance:
             epilogue_peeling=nopeel is None,
             ll_sched=llsched is not None,
             hoist_wait=hoistwait is not None,
+            lds_at_write=ldsw is not None,
         )
         cfg = cls(spec, mapping)
         assert cfg.label == label, f"Round-trip failed: {cfg.label!r} != {label!r}"
@@ -624,6 +665,7 @@ class WeakScaledMappedGemmInstance:
         peel = "" if self.mapping.epilogue_peeling else "_nopeel"
         llsched = "_llsched" if self.mapping.ll_sched else ""
         hoistwait = "_hoistwait" if self.mapping.hoist_wait else ""
+        ldswrite = "_ldsw" if self.mapping.lds_at_write else ""
         wgcu = (
             f"_wgcu{self.mapping.num_wg_per_cu}"
             if self.mapping.num_wg_per_cu != 1
@@ -637,7 +679,7 @@ class WeakScaledMappedGemmInstance:
             f"_wg{wg[DIM_M]}x{wg[DIM_N]}x{wg[DIM_K]}"
             f"_w{self.mapping.num_waves_per_workgroup[DIM_M]}x{self.mapping.num_waves_per_workgroup[DIM_N]}x{self.mapping.num_waves_per_workgroup[DIM_K]}"
             f"{tile_str}_pipestrat{self.mapping.pipeline_strategy}"
-            f"{wgcu}{lcm}{um}{peel}{llsched}{hoistwait}{suffix}"
+            f"{wgcu}{lcm}{um}{peel}{llsched}{hoistwait}{ldswrite}{suffix}"
         )
 
     # --- Fallback delegation ---
