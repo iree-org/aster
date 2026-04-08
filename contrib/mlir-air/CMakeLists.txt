@@ -4,6 +4,7 @@ add_mlir_library(MlirAirLib
   lib/ConvertMemSpaceToAMDGCN.cpp
   lib/Init.cpp
   lib/Pipelines.cpp
+  lib/PromoteAllocsToFuncArgs.cpp
 
   LINK_LIBS PUBLIC
   AIRConversionPasses

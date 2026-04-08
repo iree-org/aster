@@ -220,7 +220,91 @@ struct DmaToLibraryCall
         srcIsLDS ? "store_global" : "copy", ldsTy);
 
     if (dstIsLDS && !srcIsLDS) {
-      // Global→LDS: copy(global_ptr, stride, row, col, lds_dst)
+      // Detect boundary tile padding from either:
+      // (a) pad_after attribute (set by air-split-launch-for-padding), or
+      // (b) DMA src_sizes[0] < dst memref dim 0 (from transform tensor.pad).
+      auto padAfterAttr = dma->getAttrOfType<DenseI32ArrayAttr>("pad_after");
+      bool hasPadding = false;
+      int32_t rowPad = 0; // pad rows appended after the valid region
+      if (padAfterAttr) {
+        auto padArr = padAfterAttr.asArrayRef();
+        if (!padArr.empty() && padArr[0] > 0) {
+          hasPadding = true;
+          rowPad = padArr[0];
+        }
+      }
+      // Also detect from DMA sizes: if src_sizes[0] is a constant < dst dim 0,
+      // this is a partial copy into a padded LDS buffer (from tensor.pad path).
+      if (!hasPadding) {
+        auto srcSizes = dma.getSrcSizes();
+        if (!srcSizes.empty()) {
+          auto srcRowOpt = getConstantIntValue(srcSizes[0]);
+          int64_t dstDim0 = ldsTy.getDimSize(0);
+          if (srcRowOpt && dstDim0 > 0 && *srcRowOpt < dstDim0) {
+            hasPadding = true;
+            rowPad = dstDim0 - *srcRowOpt;
+          }
+        }
+      }
+
+      Value ldsOffset = emitLDSOffset(rewriter, loc, dst, convCtx);
+
+      if (hasPadding) {
+        // When padding is detected from pad_after attribute (air-split-launch),
+        // emit fill explicitly. When detected from DMA sizes (tensor.pad path),
+        // the linalg.fill from transform already handles the zero-fill and is
+        // converted separately by LinalgToLibraryCall<FillOp>.
+        if (padAfterAttr) {
+          std::string fillName = buildFuncName("fill", ldsTy);
+          Type f16Ty = rewriter.getF16Type();
+          Value zeroF16 = arith::ConstantOp::create(
+              rewriter, loc, f16Ty,
+              rewriter.getF16FloatAttr(0.0f));
+          auto fillTy = rewriter.getFunctionType({f16Ty, indexTy}, {});
+          ensureDecl(rewriter, *convCtx.declBlock, loc, fillName, fillTy);
+          func::CallOp::create(rewriter, loc, fillName, TypeRange{},
+                               ValueRange{zeroF16, ldsOffset});
+        }
+
+        // Partial copy — copy only the valid rows.
+        // copy_f16_16x64_padded(global_ptr, stride, row, col, actual_rows, lds_dst)
+        // The library function reads actual_rows rows from global (not all 16).
+        auto [ptrVal, byteStride] = decomposeGlobalMemref(rewriter, loc, src);
+        auto srcSizes = dma.getSrcSizes();
+        // actual_rows = src_sizes[0] (set by split-launch pass to actualLast).
+        Value actualRows;
+        if (!srcSizes.empty())
+          actualRows = srcSizes[0];
+        else
+          actualRows = arith::ConstantIndexOp::create(
+              rewriter, loc, ldsTy.getDimSize(0) - rowPad);
+
+        std::string copyName = buildFuncName("copy", ldsTy) + "_padded";
+        SmallVector<Value> copyArgs = {ptrVal, byteStride};
+        SmallVector<Type> copyArgTypes = {sx2Ty, indexTy};
+        auto srcOffsets = dma.getSrcOffsets();
+        if (srcOffsets.size() >= 2) {
+          copyArgs.push_back(srcOffsets[0]);
+          copyArgs.push_back(srcOffsets[1]);
+        } else {
+          Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
+          copyArgs.push_back(zero);
+          copyArgs.push_back(zero);
+        }
+        copyArgTypes.push_back(indexTy);
+        copyArgTypes.push_back(indexTy);
+        copyArgs.push_back(actualRows);
+        copyArgTypes.push_back(indexTy);
+        copyArgs.push_back(ldsOffset);
+        copyArgTypes.push_back(indexTy);
+        auto copyTy = rewriter.getFunctionType(copyArgTypes, {});
+        ensureDecl(rewriter, *convCtx.declBlock, loc, copyName, copyTy);
+        func::CallOp::create(rewriter, loc, copyName, TypeRange{}, copyArgs);
+        rewriter.eraseOp(dma);
+        return success();
+      }
+
+      // Non-padded: Global→LDS: copy(global_ptr, stride, row, col, lds_dst)
       auto [ptrVal, byteStride] = decomposeGlobalMemref(rewriter, loc, src);
       callArgs.push_back(ptrVal);
       argTypes.push_back(sx2Ty);
@@ -237,7 +321,7 @@ struct DmaToLibraryCall
       }
       argTypes.push_back(indexTy);
       argTypes.push_back(indexTy);
-      callArgs.push_back(emitLDSOffset(rewriter, loc, dst, convCtx));
+      callArgs.push_back(ldsOffset);
       argTypes.push_back(indexTy);
     } else if (srcIsLDS && !dstIsLDS) {
       // LDS→Global: copy(lds_src, global_ptr, stride, row, col)

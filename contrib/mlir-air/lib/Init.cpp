@@ -11,6 +11,7 @@
 #include "air/Dialect/AIR/AIRTransformOps.h"
 #include "air/Transform/AIRDmaToChannel.h"
 #include "air/Transform/AIRMiscPasses.h"
+#include "air/Transform/AIRSplitLaunchForPadding.h"
 
 // Tablegen-generated per-pass registration for upstream AIR passes.
 namespace air_conv_reg {
@@ -24,6 +25,7 @@ namespace air_conv_reg {
 namespace air_xform_reg {
 #define GEN_PASS_REGISTRATION_DMATOCHANNEL
 #define GEN_PASS_REGISTRATION_AIROVERRIDEMEMREFMEMORYSPACE
+#define GEN_PASS_REGISTRATION_AIRSPLITLAUNCHFORPADDING
 #include "air/Transform/Passes.h.inc"
 } // namespace air_xform_reg
 
@@ -58,6 +60,7 @@ namespace mlir::aster::mlir_air {
 std::unique_ptr<Pass> createAirToAMDGCN();
 std::unique_ptr<Pass> createConvertToAMDGCNLibraryCalls();
 std::unique_ptr<Pass> createConvertMemSpaceToAMDGCN();
+std::unique_ptr<Pass> createPromoteAllocsToFuncArgs();
 void registerPipelines();
 
 void registerAll(DialectRegistry &registry) {
@@ -67,6 +70,7 @@ void registerAll(DialectRegistry &registry) {
   // Dialects needed for linalg tiling + transform dialect.
   registry.insert<bufferization::BufferizationDialect>();
   registry.insert<linalg::LinalgDialect>();
+  registry.insert<scf::SCFDialect>();
   registry.insert<transform::TransformDialect>();
 
   // Bufferization interface models.
@@ -113,11 +117,13 @@ void registerAll(DialectRegistry &registry) {
   air_conv_reg::registerAIRWrapFuncWithParallelPass(); // air-wrap-func-with-parallel
   air_xform_reg::registerDmaToChannel(); // air-dma-to-channel
   air_xform_reg::registerAIROverrideMemRefMemorySpace();
+  air_xform_reg::registerAIRSplitLaunchForPadding(); // air-split-launch-for-padding (upstream, with single-launch GPU mode)
 
   // Aster-specific passes.
   registerPass([] { return createAirToAMDGCN(); });
   registerPass([] { return createConvertToAMDGCNLibraryCalls(); });
   registerPass([] { return createConvertMemSpaceToAMDGCN(); });
+  registerPass([] { return createPromoteAllocsToFuncArgs(); });
 
   // mlir-air pipelines.
   registerPipelines();

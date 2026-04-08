@@ -145,32 +145,73 @@ class TestAirMatmulE2E:
     def test_matmul_padded_40x40(self):
         """Matmul with non-tile-aligned dimensions: actual 40x40x64.
 
-        pad_tiling_interface pads M,N from 40→48 at the iteration domain level.
-        After padding, all tiles are full (48 % 16 == 0). No affine.min bounds.
-        The padding is internal to the tensor computation; the C memref stays 40x40.
+        Device-side padding via air-split-launch-for-padding:
+        - A, B are actual 40x64 (NO host-side padding)
+        - C is 48x48 (padded to next multiple of tile=16 for safe boundary stores)
+        - The split-launch pass produces a single 3x3 launch with scf.if
+          on block indices to select between interior and boundary bodies
+        - Boundary tiles use fill_f16_16x64 (zero-fill LDS) +
+          copy_f16_16x64_padded (clamped global loads via arith.minui)
+        - Valid result is in C[0:40, 0:40]
+
+        Grid: 3x3 blocks (ceil(40/16)=3 per dim), one wavefront per block.
         """
         M, N, K = 40, 40, 64
+        M_pad, N_pad = 48, 48  # next multiple of tile size 16 (for C only)
 
         np.random.seed(42)
         A = (np.random.randn(M, K) * 0.1).astype(np.float16)
         B_T = (np.random.randn(N, K) * 0.1).astype(np.float16)
-        C = np.zeros(M * N, dtype=np.float32)
+
+        # C is padded to 48x48 so boundary 16x16 stores don't go OOB.
+        C_pad = np.zeros(M_pad * N_pad, dtype=np.float32)
 
         def padded_preprocess(mlir_text):
-            return _air_preprocess_with_files(
-                mlir_text, _PADDED_TRANSFORM_FILE)
+            opt = _find_mlir_air_opt()
+            dump_dir = "/mnt/m2m_nobackup/erweiw/aster/ir_dumps"
+            os.makedirs(dump_dir, exist_ok=True)
+
+            result = subprocess.run(
+                [
+                    opt,
+                    "--air-copy-to-dma",
+                    "--air-split-launch-for-padding=split-mode=single-launch pad-location=source",
+                    "--canonicalize", "--cse",
+                    "--air-to-amdgcn",
+                    "--canonicalize",
+                    "--convert-memspace-to-amdgcn",
+                    "--convert-to-amdgcn-library-calls",
+                ],
+                input=mlir_text,
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"mlir-air-opt padded preprocessing failed:\n{result.stderr}")
+            return result.stdout
+
+        from aster.execution.core import InOutArray
 
         compile_and_run(
             file_name=_PADDED_MLIR_FILE,
             kernel_name="matmul_f16_40x40",
-            input_data=[A.flatten(), B_T.flatten()],
-            output_data=[C],
+            # Kernel args: (A: 40x64, B: 40x64, C: 48x48)
+            # No workspace buffers — single-tile kernel, no promoted allocs.
+            input_data=[
+                A.flatten(),                # arg0: A 40x64 (read-only)
+                B_T.flatten(),              # arg1: B 40x64 (read-only)
+                InOutArray(C_pad),          # arg2: C 48x48 (read-write)
+            ],
+            output_data=[],
             pass_pipeline=_post_air_pipeline(_LIBRARY_PATHS),
             library_paths=[],
-            grid_dim=(1, 1, 1),
-            block_dim=(192, 1, 1),  # 3 wavefronts (3x1 herd)
+            grid_dim=(3, 3, 1),  # ceil(40/16)=3 per dim, 9 blocks total
+            block_dim=(64, 1, 1),  # 1 wavefront per block
             preprocess=padded_preprocess,
         )
 
+        # Extract valid 40x40 region from padded 48x48 output.
+        C_2d = C_pad.reshape(M_pad, N_pad)
+        C_valid = C_2d[:M, :N].flatten()
         expected = (A.astype(np.float32) @ B_T.T.astype(np.float32)).flatten()
-        np.testing.assert_allclose(C, expected, rtol=1e-2, atol=1e-2)
+        np.testing.assert_allclose(C_valid, expected, rtol=1e-2, atol=1e-2)
