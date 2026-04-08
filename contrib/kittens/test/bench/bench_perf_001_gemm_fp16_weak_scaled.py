@@ -68,11 +68,14 @@ _HW = query_gpu_hw()
 # --- Sweep grid ---
 
 
+DEFAULT_K = 4096
+
+
 def _build_instance(d: dict) -> WeakScaledMappedGemmInstance:
     _wg_m, _wg_n = wg_m(d, _HW), wg_n(d)
     M = _wg_m * d["twg_m"] * MFMA_M
     N = _wg_n * d["twg_n"] * MFMA_M
-    K = d["k_factor"] * d["twg_k"] * 32
+    K = DEFAULT_K
     spec = GemmSpec.from_sizes(M, N, K)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],

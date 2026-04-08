@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 from bench_harness import check_numpy_blas, detect_num_gpus, verify_on_gpus, _save_tmpfile
-from kittens.gemm_config import GemmMappingSpec
+from kittens.gemm_config import GemmMappingSpec, GemmSpec
 
 
 # -- Sweep grid framework ---------------------------------------------------
@@ -365,10 +365,9 @@ def resolve_derived_pins(pins: dict[str, Any]) -> dict[str, Any]:
 def add_gemm_sweep_axes(grid: SweepGrid, hw: GpuHwConstants) -> None:
     """Add the standard GEMM geometry + scheduling axes and constraints.
 
-    Adds: waves_m, waves_n, occ, n_mult, twg_m, twg_n, twg_k, ps, k_factor,
+    Adds: waves_m, waves_n, occ, n_mult, twg_m, twg_n, twg_k, ps,
     plus the 5 scheduling flag axes. Also adds all standard geometry constraints.
     """
-    from kittens_helpers import PIPELINE_STRATEGIES as PS
 
     _twg_m_vals = sorted({mw * mm for (mw, _), mm in itertools.product(WAVE_CONFIGS, range(1, 6))})
     _twg_n_vals = sorted({nw * nm for (_, nw), nm in itertools.product(WAVE_CONFIGS, range(1, 11))})
@@ -381,7 +380,6 @@ def add_gemm_sweep_axes(grid: SweepGrid, hw: GpuHwConstants) -> None:
     grid.axis("twg_n", _twg_n_vals)
     grid.axis("twg_k", list(range(1, 9)))
     grid.axis("ps", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    grid.axis("k_factor", [64, 128, 256])
     add_scheduling_axes(grid, unroll_multipliers=[1, 2, 3])
 
     _wc = set(WAVE_CONFIGS)
@@ -390,12 +388,14 @@ def add_gemm_sweep_axes(grid: SweepGrid, hw: GpuHwConstants) -> None:
     grid.filter("waves_m", "twg_m", check=lambda d: d["twg_m"] % d["waves_m"] == 0)
     grid.filter("waves_n", "twg_n", check=lambda d: d["twg_n"] % d["waves_n"] == 0)
     grid.filter(
-        "waves_m", "waves_n", "occ", "twg_m",
+        "waves_m",
+        "waves_n",
+        "occ",
+        "twg_m",
         check=lambda d: wg_m(d, hw) * d["twg_m"] * MFMA_M >= MIN_DIM,
     )
     grid.filter("n_mult", "twg_n", check=lambda d: wg_n(d) * d["twg_n"] * MFMA_M >= MIN_DIM)
-    grid.filter("ps", "k_factor", check=lambda d: d["k_factor"] > max(PS[d["ps"]].values()))
-    grid.filter("twg_k", "k_factor", check=lambda d: d["k_factor"] * d["twg_k"] * 32 >= MIN_DIM)
+    grid.filter("twg_k", check=lambda d: d["twg_k"] * TILE_K_ELEMS >= 32)
 
 
 # Standard pin mapping for CLI args -> axis names.
@@ -407,7 +407,6 @@ GEMM_SWEEP_PIN_MAP = {
     "tiles_per_wg_m": "twg_m",
     "tiles_per_wg_n": "twg_n",
     "tiles_per_wg_k": "twg_k",
-    "k_scaling_factor": "k_factor",
     "pipeline_strategy": "ps",
     "desired_simd_occupancy": "occ_pin",
     "unroll_multiplier": "unroll_mult",
@@ -417,6 +416,61 @@ GEMM_SWEEP_PIN_MAP = {
     "hoist_wait": "hoist_wait",
     "set_mfma_priority": "set_mfma_priority",
 }
+
+
+# -- Fixed-size helpers --------------------------------------------------------
+
+# Transfer tile dimensions: mfma_shape * mfma_multiplicity.
+_PROBE_SPEC = GemmSpec.from_sizes(1, 1, 1)
+_PROBE_MAPPING = GemmMappingSpec(
+    num_workgroups_per_kernel=[1, 1, 1],
+    num_waves_per_workgroup=[1, 1, 1],
+    num_tiles_per_wave=[1, 1, 1],
+)
+TILE_K_ELEMS = _PROBE_SPEC.mfma_shape[2] * _PROBE_MAPPING.mfma_multiplicity[2]
+
+
+def parse_size(s: str) -> tuple[int, int, int]:
+    """Parse 'm2432xn12288xk4096' (label prefix format), validate against MFMA granularity.
+
+    Accepts a full label (extracts the m...xn...xk... prefix) or just the size part.
+    """
+    from kittens.gemm_config import WeakScaledMappedGemmInstance
+
+    # Reuse the label regex to extract the m<M>xn<N>xk<K> prefix.
+    pat = WeakScaledMappedGemmInstance._label_pattern()
+    m = pat.match(s)
+    if m:
+        M, N, K = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    else:
+        # Fallback: bare m<M>xn<N>xk<K> without the rest of the label.
+        import re
+
+        m2 = re.match(r"m(\d+)xn(\d+)xk(\d+)", s)
+        if not m2:
+            raise argparse.ArgumentTypeError(
+                f"Expected m<M>xn<N>xk<K> (e.g., m2432xn12288xk4096), got {s!r}"
+            )
+        M, N, K = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+    if M % MFMA_M != 0:
+        raise argparse.ArgumentTypeError(f"M={M} not divisible by MFMA_M={MFMA_M}")
+    if N % MFMA_M != 0:
+        raise argparse.ArgumentTypeError(f"N={N} not divisible by MFMA_M={MFMA_M}")
+    if K % TILE_K_ELEMS != 0:
+        raise argparse.ArgumentTypeError(f"K={K} not divisible by tile_k_elems={TILE_K_ELEMS}")
+    return M, N, K
+
+
+def add_fixed_size_filters(grid: "SweepGrid", M: int, N: int, K: int) -> None:
+    """Add grid filters that keep only configs whose tiles evenly divide (M, N, K)."""
+    grid.filter("twg_m", check=lambda d, _M=M: _M % (d["twg_m"] * MFMA_M) == 0)
+    grid.filter("twg_n", check=lambda d, _N=N: _N % (d["twg_n"] * MFMA_M) == 0)
+    grid.filter("twg_k", check=lambda d, _K=K: _K % (d["twg_k"] * TILE_K_ELEMS) == 0)
+
+
+def fixed_size_wg(M: int, N: int, d: dict[str, Any]) -> tuple[int, int]:
+    """Derive (wg_m, wg_n) from a fixed (M, N) and sweep config."""
+    return M // (d["twg_m"] * MFMA_M), N // (d["twg_n"] * MFMA_M)
 
 
 def is_label(s: str) -> bool:

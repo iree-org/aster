@@ -241,6 +241,12 @@ class GemmMappingSpec:
     )
     dealloc_at_read: bool = False  # dealloc at READ (test_102) vs COMPUTE (test_001)
 
+    # --- Transfer tile multiplicity ---
+    # How many MFMA tiles fit in one transfer tile along each dimension.
+    # tile_shape[d] = mfma_shape[d] * mfma_multiplicity[d].
+    # Default [1, 1, 2]: 16x16x32 transfer tile for 16x16x16 MFMA + dwordx4 f16.
+    mfma_multiplicity: list[int] = field(default_factory=lambda: [1, 1, 2])
+
     # --- Atomic transfer sizes (bytes per lane per memory operation) ---
 
     # Bytes per lane per memory operation.

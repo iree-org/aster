@@ -15,6 +15,7 @@ os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
 
 import argparse
 import sys
+from functools import partial
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -42,12 +43,15 @@ from sweep_harness import (
     GEMM_SWEEP_PIN_MAP,
     MFMA_M,
     SweepGrid,
+    add_fixed_size_filters,
     add_gemm_sweep_axes,
     add_geometry_pin_args,
     add_resource_filter,
     fits_on_cu_post_compile,
+    fixed_size_wg,
     is_label,
     nwgcu,
+    parse_size,
     query_gpu_hw,
     resolve_derived_pins,
     verify_top_configs,
@@ -64,12 +68,18 @@ _HW = query_gpu_hw()
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict) -> PingPongGemmInstance:
-    _wg_m, _wg_n = wg_m(d, _HW), wg_n(d)
-    _nwgcu = nwgcu(d, _HW)
-    M = _wg_m * d["twg_m"] * MFMA_M
-    N = _wg_n * d["twg_n"] * MFMA_M
-    K = d["k_factor"] * d["twg_k"] * 32
+DEFAULT_K = 4096
+
+
+def _build_instance(d: dict, fixed_size=None) -> PingPongGemmInstance:
+    if fixed_size:
+        _wg_m, _wg_n = fixed_size_wg(fixed_size[0], fixed_size[1], d)
+        M, N, K = fixed_size
+    else:
+        _wg_m, _wg_n = wg_m(d, _HW), wg_n(d)
+        M = _wg_m * d["twg_m"] * MFMA_M
+        N = _wg_n * d["twg_n"] * MFMA_M
+        K = DEFAULT_K
     spec = GemmSpec.from_sizes(M, N, K)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
@@ -77,7 +87,7 @@ def _build_instance(d: dict) -> PingPongGemmInstance:
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
         operand_path=OperandPath(d["variant"]),
-        num_wg_per_cu=_nwgcu,
+        num_wg_per_cu=nwgcu(d, _HW),
         lcm_unroll=d["lcm_unroll"],
         unroll_factor_multiplier=d["unroll_mult"],
         epilogue_peeling=d["epilogue_peeling"],
@@ -103,13 +113,16 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
     )
 
 
-def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
+def make_sweep_grid(variants: list[str], check_regs: bool = True, fixed_size=None) -> SweepGrid:
     grid = SweepGrid()
     grid.axis("variant", variants)
     grid.axis("lds_at_write", [False, True])
     add_gemm_sweep_axes(grid, _HW)
     grid.filter("waves_m", "waves_n", check=lambda d: d["waves_m"] * d["waves_n"] == 8)
     grid.axis("set_mfma_priority", [True, False])
+
+    if fixed_size:
+        add_fixed_size_filters(grid, *fixed_size)
 
     if check_regs:
         add_resource_filter(
@@ -119,7 +132,7 @@ def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
             deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps", "lds_at_write"),
         )
 
-    grid.build_with(_build_instance)
+    grid.build_with(partial(_build_instance, fixed_size=fixed_size))
     return grid
 
 
@@ -152,11 +165,15 @@ def main():
     parser = argparse.ArgumentParser(description="Python ping-pong GEMM benchmark sweep (test_103)")
     add_sweep_cli_args(parser)
     add_geometry_pin_args(parser)
-    parser.add_argument("--k-scaling-factor", type=int, help="Pin K scaling factor")
     parser.add_argument("--desired-simd-occupancy", type=int, default=None, help="Pin SIMD occupancy")
     parser.add_argument("--direct-b", action=argparse.BooleanOptionalAction, default=None, help="B via preshuffle")
     parser.add_argument("--set-mfma-priority", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--size", type=str, default=None, help="Fixed size (e.g., m2432xn12288xk4096)")
     args = parser.parse_args()
+
+    fixed_size = parse_size(args.size) if args.size else None
+    if fixed_size:
+        print(f"Fixed size: M={fixed_size[0]}, N={fixed_size[1]}, K={fixed_size[2]}")
 
     all_paths = ["lds", "direct_b"]
     if args.direct_b is True:
@@ -171,6 +188,7 @@ def main():
     grid = make_sweep_grid(
         all_paths,
         check_regs=not getattr(args, "no_reg_filter", False),
+        fixed_size=fixed_size,
     )
     if "_wg_m" in (pins or {}):
         target = pins.pop("_wg_m")
