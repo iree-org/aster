@@ -119,11 +119,6 @@ phase2_venv() {
         exit 1
     fi
 
-    if [ "$SKIP_REQUIREMENTS" = true ]; then
-        ok "requirements installation skipped (--skip-requirements)"
-    else
-        install_requirements "$VENV_DIR" "$SCRIPT_DIR/requirements.txt"
-    fi
     echo ""
 }
 
@@ -150,6 +145,17 @@ phase3_rocm() {
     configure_rocm_env "$VENV_DIR"
     init_rocm_sdk "$VENV_DIR" "false"
     patch_activate_rocm "$VENV_DIR"
+
+    # Install Python requirements using TheRock as the extra index so that
+    # ROCm-enabled PyTorch and Triton wheels are preferred over PyPI builds.
+    local rocm_index_url
+    rocm_index_url=$(head -1 "$ROCM_REQ" | sed 's/^-i //')
+    if [ "$SKIP_REQUIREMENTS" = true ]; then
+        ok "requirements installation skipped (--skip-requirements)"
+    else
+        install_requirements "$VENV_DIR" "$SCRIPT_DIR/requirements.txt" \
+            "--extra-index-url $rocm_index_url"
+    fi
     echo ""
 }
 

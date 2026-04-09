@@ -1,5 +1,4 @@
-# PyTorch for ROCm 7.2
---extra-index-url https://download.pytorch.org/whl/rocm7.2
+# PyTorch for ROCm (TheRock index selected in setup.sh phase3_rocm)
 torch
 torchvision
 torchaudio
