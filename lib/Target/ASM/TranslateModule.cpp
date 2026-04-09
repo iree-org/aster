@@ -298,8 +298,8 @@ FailureOr<RegisterUsage> RegisterUsage::countKernelRegisters(KernelOp kernel) {
   DenseSet<int16_t> usedAGPRs;
   auto result = kernel.walk([&](AllocaOp op) -> WalkResult {
     AMDGCNRegisterTypeInterface type = op.getType();
-    if (type.isRelocatable()) {
-      op->emitError() << "expected non-relocatable registers";
+    if (!type.hasAllocatedSemantics()) {
+      op->emitError() << "expected allocated registers";
       return WalkResult::interrupt();
     }
     RegisterRange range = type.getAsRange();

@@ -50,14 +50,9 @@ def AGPRType : AMDGCN_RegisterDef<"AGPR", "agpr", [MemRefElementTypeInterface]> 
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{
     Register getReg() const { return getRange().begin(); }
-
-    /// Returns true if the register is relocatable.
-    bool isRelocatable() const { return getReg().isRelocatable(); }
-
     //===------------------------------------------------------------------===//
     // RegisterTypeInterface
     //===------------------------------------------------------------------===//
-    bool isRegisterRange() const { return getRange().size() > 1; }
     RegisterRange getAsRange() const {
       return getRange();
     }
@@ -66,9 +61,6 @@ def AGPRType : AMDGCN_RegisterDef<"AGPR", "agpr", [MemRefElementTypeInterface]> 
     }
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       return AGPRType::get(getContext(), range);
-    }
-    RegisterTypeInterface cloneRegisterType(Register reg) const {
-      return AGPRType::get(getContext(), RegisterRange(reg, 1));
     }
 
     //===------------------------------------------------------------------===//
@@ -97,14 +89,9 @@ def SGPRType : AMDGCN_RegisterDef<"SGPR", "sgpr", [MemRefElementTypeInterface]> 
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{
     Register getReg() const { return getRange().begin(); }
-
-    /// Returns true if the register is relocatable.
-    bool isRelocatable() const { return getReg().isRelocatable(); }
-
     //===------------------------------------------------------------------===//
     // RegisterTypeInterface
     //===------------------------------------------------------------------===//
-    bool isRegisterRange() const { return getRange().size() > 1; }
     RegisterRange getAsRange() const {
       return getRange();
     }
@@ -113,9 +100,6 @@ def SGPRType : AMDGCN_RegisterDef<"SGPR", "sgpr", [MemRefElementTypeInterface]> 
     }
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       return SGPRType::get(getContext(), range);
-    }
-    RegisterTypeInterface cloneRegisterType(Register reg) const {
-      return SGPRType::get(getContext(), RegisterRange(reg, 1));
     }
 
     //===------------------------------------------------------------------===//
@@ -145,13 +129,9 @@ def VGPRType : AMDGCN_RegisterDef<"VGPR", "vgpr", [MemRefElementTypeInterface]> 
   let extraClassDeclaration = [{
     Register getReg() const { return getRange().begin(); }
 
-    /// Returns true if the register is relocatable.
-    bool isRelocatable() const { return getRange().begin().isRelocatable(); }
-
     //===------------------------------------------------------------------===//
     // RegisterTypeInterface
     //===------------------------------------------------------------------===//
-    bool isRegisterRange() const { return getRange().size() > 1; }
     RegisterRange getAsRange() const {
       return getRange();
     }
@@ -160,9 +140,6 @@ def VGPRType : AMDGCN_RegisterDef<"VGPR", "vgpr", [MemRefElementTypeInterface]> 
     }
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       return VGPRType::get(getContext(), range);
-    }
-    RegisterTypeInterface cloneRegisterType(Register reg) const {
-      return VGPRType::get(getContext(), RegisterRange(reg, 1));
     }
 
     //===------------------------------------------------------------------===//

@@ -465,7 +465,7 @@ void LegalizeCF::runOnOperation() {
   bool hasDuplicates = false;
   op->walk([&](AllocaOp alloca) {
     auto regType = cast<RegisterTypeInterface>(alloca.getType());
-    if (regType.isRelocatable()) {
+    if (!regType.hasAllocatedSemantics()) {
       alloca.emitOpError("alloca must have a fixed register type "
                          "(register coloring must run before LegalizeCF)");
       hasDuplicates = true;
