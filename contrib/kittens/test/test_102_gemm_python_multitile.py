@@ -158,6 +158,9 @@ def _build_multitile_gemm(
     # Per-wave read coord: wave-local tile idx -> LDS byte offset relative to wave's LDS base.
     WAVE_READ_COORD_A = Layout((k_t, m_t), (twg_m * tile_bytes, tile_bytes))
     WAVE_READ_COORD_B = Layout((k_t, n_t), (twg_n * tile_bytes, tile_bytes))
+    # Flat wave_id -> (wpw_m, wpw_n), then M-only / N-only byte stride.
+    WAVE_M_LDS_OFF = Layout((wpw[DIM_M], wpw[DIM_N]), (m_t * tile_bytes, 0))
+    WAVE_N_LDS_OFF = Layout((wpw[DIM_M], wpw[DIM_N]), (0, n_t * tile_bytes))
 
     # WG base coord: (wg_idx, k_iter) -> global byte offset to WG's first tile.
     WG_BASE_A = Layout((wg[DIM_M], k_iters), (twg_m * TILE_COORD_A.strides[1], k_t * TILE_COORD_A.strides[0]))
@@ -440,7 +443,7 @@ def _build_multitile_gemm(
                 b.wait_deps(b.memref_load(wtok_buf_a, i))
 
             b.s_barrier()
-            wave_m_off = b.linearize_layout(wave_m_idx, Layout(wpw[DIM_M], m_t * tile_bytes))
+            wave_m_off = b.linearize_layout(wid, WAVE_M_LDS_OFF)
             wave_lds_base_a = b.affine_apply(d0 + d1, [lds_a, wave_m_off])
 
             @b.foreach_tile(n_read_a, types=[(any_type, n_frags_per_tile), (lds_read_tok, n_frags_per_tile)])
@@ -471,7 +474,7 @@ def _build_multitile_gemm(
                 def _(i):
                     b.wait_deps(b.memref_load(wtok_buf_b, i))
 
-                wave_n_off = b.linearize_layout(wave_n_idx, Layout(wpw[DIM_N], n_t * tile_bytes))
+                wave_n_off = b.linearize_layout(wid, WAVE_N_LDS_OFF)
                 wave_lds_base_b = b.affine_apply(d0 + d1, [lds_b, wave_n_off])
 
                 @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (lds_read_tok, n_frags_per_tile)])
