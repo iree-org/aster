@@ -260,14 +260,16 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  results: [5 = `%{{.*}}`]
 // CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
 // CHECK:  results: [6 = `%{{.*}}`]
-// CHECK:  Operation: `%{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, i32`
+// CHECK:  Operation: `%{{.*}} = lsir.alloca : !amdgcn.scc`
 // CHECK:  results: [7 = `%{{.*}}`]
-// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
+// CHECK:  Operation: `%{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.scc, !amdgcn.sgpr<?>, i32`
 // CHECK:  results: [8 = `%{{.*}}`]
 // CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
 // CHECK:  results: [9 = `%{{.*}}`]
 // CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
 // CHECK:  results: [10 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
+// CHECK:  results: [11 = `%{{.*}}`]
 // CHECK:  Symbol: phi_coalescing_2
 // CHECK:  No range constraints
 amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
@@ -281,9 +283,10 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     %5 = alloca : !amdgcn.vgpr<?>
     test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
     test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
-    %8 = lsir.cmpi i32 eq %2, %c0_i32 : !amdgcn.sgpr<?>, i32
+    %scc = lsir.alloca : !amdgcn.scc
+    %8 = lsir.cmpi i32 eq %scc, %2, %c0_i32 : !amdgcn.scc, !amdgcn.sgpr<?>, i32
     %9 = alloca : !amdgcn.vgpr<?>
-    cf.cond_br %8, ^bb1, ^bb2
+    lsir.cond_br %8 : !amdgcn.scc, ^bb1, ^bb2
   ^bb1:  // CHECK:  pred: ^bb0
     test_inst outs %4 ins %0 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     %11 = alloca : !amdgcn.vgpr<?>
@@ -314,10 +317,12 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  results: [3 = `%{{.*}}`]
 // CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.sgpr<?>`
 // CHECK:  results: [4 = `%{{.*}}`]
-// CHECK:  Operation: `%{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, i32`
+// CHECK:  Operation: `%{{.*}} = lsir.alloca : !amdgcn.scc`
 // CHECK:  results: [5 = `%{{.*}}`]
-// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
+// CHECK:  Operation: `%{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.scc, !amdgcn.sgpr<?>, i32`
 // CHECK:  results: [6 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
+// CHECK:  results: [7 = `%{{.*}}`]
 // CHECK:  Symbol: phi_coalescing_3
 // CHECK:  No range constraints
 amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
@@ -329,9 +334,10 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
     %3 = alloca : !amdgcn.sgpr<?>
     test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
     test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
-    %6 = lsir.cmpi i32 eq %2, %c0_i32 : !amdgcn.sgpr<?>, i32
+    %scc = lsir.alloca : !amdgcn.scc
+    %6 = lsir.cmpi i32 eq %scc, %2, %c0_i32 : !amdgcn.scc, !amdgcn.sgpr<?>, i32
     %7 = alloca : !amdgcn.vgpr<?>
-    cf.cond_br %6, ^bb1, ^bb2
+    lsir.cond_br %6 : !amdgcn.scc, ^bb1, ^bb2
   ^bb1:  // CHECK:  pred: ^bb0
     lsir.copy %7, %0 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^bb3

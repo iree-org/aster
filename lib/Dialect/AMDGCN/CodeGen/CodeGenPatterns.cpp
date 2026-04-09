@@ -301,6 +301,14 @@ static Type convertTypeImpl(Value value, const CodeGenConverter &converter) {
   if (isa<RegisterTypeInterface>(value.getType()))
     return value.getType();
 
+  // i1 values map to SCC (thread-uniform) or VCC (divergent).
+  if (value.getType().isInteger(1)) {
+    std::optional<bool> isUniform = converter.isThreadUniform(value);
+    if (isUniform.has_value() && *isUniform)
+      return amdgcn::SCCType::get(value.getContext(), Register());
+    return amdgcn::VCCType::get(value.getContext(), Register());
+  }
+
   int64_t typeSize = converter.getTypeSize(value.getType());
   int64_t numWords = (typeSize + 3) / 4;
 

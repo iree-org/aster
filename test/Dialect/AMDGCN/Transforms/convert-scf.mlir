@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --amdgcn-convert-scf-control-flow --split-input-file --verify-diagnostics | FileCheck %s
+// RUN: aster-opt %s --aster-convert-scf-control-flow --split-input-file --verify-diagnostics | FileCheck %s
 
 // CHECK-LABEL:   func.func @test_uniform_loops_const_bounds() {
 // CHECK-DAG:       %[[C0:.*]] = arith.constant 0 : i32
@@ -48,33 +48,6 @@ func.func @test_uniform_loops_non_const_bounds(%n: i32) {
   %n_u = aster_utils.assume_uniform %n : i32
   scf.for %i = %c0 to %n_u step %c1 : i32 {
     %iv = lsir.to_reg %i : i32 -> !amdgcn.sgpr
-    amdgcn.test_inst ins %iv : (!amdgcn.sgpr) -> ()
-  }
-  return
-}
-
-// -----
-
-func.func @test_non_const_bounds(%n: i32) {
-  %c0 = arith.constant 0 : i32
-  %c1 = arith.constant 1 : i32
-  // expected-error@+1 {{only thread-uniform loops are supported in this conversion}}
-  scf.for %i = %c0 to %n step %c1 : i32 {
-    %iv = lsir.to_reg %i : i32 -> !amdgcn.sgpr
-    amdgcn.test_inst ins %iv : (!amdgcn.sgpr) -> ()
-  }
-  return
-}
-
-// -----
-
-func.func @test_index_loop_unsupported() {
-  %c0 = arith.constant 0 : index
-  %c1 = arith.constant 1 : index
-  %c10 = arith.constant 10 : index
-  // expected-error@+1 {{only i32 induction variables are supported in this conversion}}
-  scf.for %i = %c0 to %c10 step %c1 {
-    %iv = lsir.to_reg %i : index -> !amdgcn.sgpr
     amdgcn.test_inst ins %iv : (!amdgcn.sgpr) -> ()
   }
   return
@@ -402,18 +375,6 @@ func.func @test_if_with_results_inside_for(%cond: i1, %init: i32) {
   }
   %reg = lsir.to_reg %result : i32 -> !amdgcn.sgpr
   amdgcn.test_inst ins %reg : (!amdgcn.sgpr) -> ()
-  return
-}
-
-// -----
-
-func.func @test_non_uniform_if(%cond: i1) {
-  // expected-error@+1 {{only thread-uniform conditions are supported in this conversion}}
-  scf.if %cond {
-    %c42 = arith.constant 42 : i32
-    %reg = lsir.to_reg %c42 : i32 -> !amdgcn.sgpr
-    amdgcn.test_inst ins %reg : (!amdgcn.sgpr) -> ()
-  }
   return
 }
 
