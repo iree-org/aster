@@ -196,7 +196,7 @@ Value LegalizeCF::getOrCreateLoweredCmp(lsir::CmpIOp cmpOp,
       std::swap(lhs, rhs);
       pred = swapPredicate(pred);
     }
-    Type vccType = VCCType::get(rewriter.getContext());
+    Type vccType = VCCType::get(rewriter.getContext(), Register(0));
     Value vcc = AllocaOp::create(rewriter, loc, vccType);
     OpCode cmpOpCode = getVectorCompareOpCode(pred);
     amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, vcc, lhs, rhs);
@@ -205,7 +205,7 @@ Value LegalizeCF::getOrCreateLoweredCmp(lsir::CmpIOp cmpOp,
   }
 
   // Scalar compare: s_cmp_* writes to SCC.
-  Type sccType = SCCType::get(rewriter.getContext());
+  Type sccType = SCCType::get(rewriter.getContext(), Register(0));
   Value scc = AllocaOp::create(rewriter, loc, sccType);
   OpCode cmpOpCode = getScalarCompareOpCode(cmpOp.getPredicate());
   amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),

@@ -31,11 +31,11 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   ^entry:
     %s2 = amdgcn.alloca : !amdgcn.sgpr<2>
     %s3 = amdgcn.alloca : !amdgcn.sgpr<3>
-    %scc = amdgcn.alloca : !amdgcn.scc
+    %scc = amdgcn.alloca : !amdgcn.scc<0>
     amdgcn.cmpi s_cmp_gt_u32 outs %scc ins %s2, %s3
-      : outs(!amdgcn.scc) ins(!amdgcn.sgpr<2>, !amdgcn.sgpr<3>)
+      : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<2>, !amdgcn.sgpr<3>)
     amdgcn.cbranch s_cbranch_scc1 %scc ^loop fallthrough (^exit)
-      : !amdgcn.scc
+      : !amdgcn.scc<0>
   ^exit:
     amdgcn.end_kernel
   ^loop:
@@ -46,11 +46,11 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   ^entry:
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
     %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
-    %scc = amdgcn.alloca : !amdgcn.scc
+    %scc = amdgcn.alloca : !amdgcn.scc<0>
     amdgcn.cmpi s_cmp_eq_i32 outs %scc ins %s0, %s1
-      : outs(!amdgcn.scc) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
+      : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
     amdgcn.cbranch s_cbranch_scc0 %scc ^true_path fallthrough (^false_path)
-      : !amdgcn.scc
+      : !amdgcn.scc<0>
   ^false_path:
     amdgcn.end_kernel
   ^true_path:
