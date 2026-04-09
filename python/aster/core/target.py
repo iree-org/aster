@@ -42,7 +42,7 @@ _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
     # Allocation granularity: 8 registers (FeatureGFX90AInsts).
     GpuArch.GFX940: _ArchParams(
         wavefront_size=64,
-        lds_per_cu=65536,
+        lds_per_cu=64 * 1024,
         max_vgprs=256,
         max_agprs=256,
         max_sgprs=102,
@@ -56,7 +56,7 @@ _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
     # register-file and LDS hardware constants.
     GpuArch.GFX942: _ArchParams(
         wavefront_size=64,
-        lds_per_cu=65536,
+        lds_per_cu=64 * 1024,
         max_vgprs=256,
         max_agprs=256,
         max_sgprs=102,
@@ -66,10 +66,11 @@ _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
         vgpr_alloc_granule=8,
         unified_reg_file=True,
     ),
-    # CDNA4: gfx950 (GFX9-class, same register file as CDNA3, larger LDS).
+    # CDNA4: gfx950 (GFX9-class, same register file as CDNA3, larger LDS split
+    # into 64 banks instead of 32). LDS is 160 KB per CU.
     GpuArch.GFX950: _ArchParams(
         wavefront_size=64,
-        lds_per_cu=262144,
+        lds_per_cu=160 * 1024,
         max_vgprs=256,
         max_agprs=256,
         max_sgprs=102,
@@ -84,7 +85,7 @@ _ARCH_PARAMS: Dict[GpuArch, _ArchParams] = {
     # VGPRs: 1024 addressable per wavefront (wave32, Feature1024AddressableVGPRs).
     GpuArch.GFX1201: _ArchParams(
         wavefront_size=32,
-        lds_per_cu=131072,
+        lds_per_cu=128 * 1024,
         max_vgprs=1024,
         max_agprs=0,
         max_sgprs=106,

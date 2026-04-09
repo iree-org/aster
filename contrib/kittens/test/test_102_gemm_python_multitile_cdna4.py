@@ -85,6 +85,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
 
     # -- Layouts (same derivation as test_102) --
 
+    lds_swizzle = Swizzle(bits=2, base=4, shift=4)
     frag_k = mfma_k // 2  # K elements per fragment = 16 (half-K)
     lds_read_tile_a = Layout((_exact_div(ws, mfma_m, "ws/mfma_m"), mfma_m), (mapping.ds_read_bytes, tile_row_bytes))
     lds_read_tile_b = Layout((_exact_div(ws, mfma_n, "ws/mfma_n"), mfma_n), (mapping.ds_read_bytes, tile_row_bytes))
@@ -93,8 +94,13 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     lds_read_sub_tile_b = Layout((1, n_frags_per_tile), (0, frag_k * elt_bytes_b))
 
     # Global load: lane -> byte offset within one transfer tile.
-    GLOBAL_LOAD_TILE_A = Layout((mfma_m, ws // mfma_m), (stride_a, mapping.global_load_bytes))
-    GLOBAL_LOAD_TILE_B = Layout((mfma_n, ws // mfma_n), (stride_b, mapping.global_load_bytes))
+    #   TILE_LOCAL_*   : tile-local linear offset T*chunk_size (row-major)
+    #   ROW_CORRECT_*  : adds (stride - tile_row_bytes) * T_row to convert
+    #                    tile-local -> global.
+    TILE_LOCAL_A = Layout((mfma_m, ws // mfma_m), (tile_row_bytes, mapping.global_load_bytes))
+    TILE_LOCAL_B = Layout((mfma_n, ws // mfma_n), (tile_row_bytes, mapping.global_load_bytes))
+    ROW_CORRECT_A = Layout((mfma_m, ws // mfma_m), (stride_a - tile_row_bytes, 0))
+    ROW_CORRECT_B = Layout((mfma_n, ws // mfma_n), (stride_b - tile_row_bytes, 0))
     # Global store: lane -> byte offset for C store.
     n_agprs = ws // mfma_n
     GLOBAL_STORE_TILE_C = Layout((n_agprs, mfma_n, n_agprs), (n_agprs * stride_c_row, stride_c_col, stride_c_row))
@@ -149,8 +155,16 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     soff_any = b.to_any(soff.result)
 
     # Per-thread byte offsets within one tile (loop-invariant).
-    thread_off_a = b.linearize_layout(b.lane_id(), GLOBAL_LOAD_TILE_A)
-    thread_off_b = b.linearize_layout(b.lane_id(), GLOBAL_LOAD_TILE_B)
+    # Swizzled tile-local offset + row correction to convert the tile-local
+    #   (row stride = tile_row_bytes) layout
+    # into the global (row stride = stride_a/b) layout.
+    lane = b.lane_id()
+    tile_local_a = b.linearize_layout(lane, TILE_LOCAL_A, swizzle=lds_swizzle)
+    row_corr_a = b.linearize_layout(lane, ROW_CORRECT_A)
+    thread_off_a = b.affine_apply(d0 + d1, [tile_local_a, row_corr_a])
+    tile_local_b = b.linearize_layout(lane, TILE_LOCAL_B, swizzle=lds_swizzle)
+    row_corr_b = b.linearize_layout(lane, ROW_CORRECT_B)
+    thread_off_b = b.affine_apply(d0 + d1, [tile_local_b, row_corr_b])
 
     # G2S helper: set M0 to LDS dest, issue buffer_load_dwordx4_lds.
     @b.define_helper(
@@ -166,9 +180,6 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
         tok = bb.g2s_buffer_load_dwordx4(_m0, _rsc, _soff, bb.index_to_vgpr(voff_idx))
         return [tok]
 
-    # G2S writes linearly (no XOR swizzle), so reads don't use swizzle for now.
-    no_swizzle = Swizzle(bits=0, base=0, shift=0)
-
     # Register/token types.
     # Always ds_read_b64: vx2 fragments.
     read_ret = [b.any_type] * n_frags_per_tile + [b.lds_read_tok] * n_frags_per_tile
@@ -176,14 +187,14 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     @b.define_helper("_read_a", [b.idx_type], read_ret)
     def read_a_fn(bb, lds_off):
         frags = bb.read_multi_fragment_from_lds(
-            lds_off, lds_read_tile_a, no_swizzle, lds_read_sub_tile_a, bb.ds_read_b64
+            lds_off, lds_read_tile_a, lds_swizzle, lds_read_sub_tile_a, bb.ds_read_b64
         )
         return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
 
     @b.define_helper("_read_b", [b.idx_type], read_ret)
     def read_b_fn(bb, lds_off):
         frags = bb.read_multi_fragment_from_lds(
-            lds_off, lds_read_tile_b, no_swizzle, lds_read_sub_tile_b, bb.ds_read_b64
+            lds_off, lds_read_tile_b, lds_swizzle, lds_read_sub_tile_b, bb.ds_read_b64
         )
         return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
 

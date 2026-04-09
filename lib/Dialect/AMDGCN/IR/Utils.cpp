@@ -143,9 +143,9 @@ int64_t mlir::aster::amdgcn::getLdsBytesPerCU(Target target) {
   switch (target) {
   case Target::GFX940:
   case Target::GFX942:
-    return 64 * 1024; // 64 KB on CDNA3.
+    return 64 * 1024; // 64 KB on CDNA3, 32 banks x 4 bytes.
   case Target::GFX950:
-    return 256 * 1024; // 256 KB on CDNA4.
+    return 160 * 1024; // 160 KB on CDNA4 (MI350), 64 banks x 4 bytes.
   case Target::GFX1201:
     return 128 * 1024; // 128 KB on RDNA4.
   case Target::Invalid:
