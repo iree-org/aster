@@ -12,6 +12,7 @@
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "llvm/ADT/STLExtras.h"
@@ -99,7 +100,8 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
 
     // If we're using register dependencies, then treat effects on register
     // resources as non-effects.
-    if (useRegisterDeps && isa<InstOpInterface>(op)) {
+    if (useRegisterDeps && isa<InstOpInterface>(op) &&
+        !isa<lsir::SelectOp, lsir::CmpIOp>(op)) {
       auto eOp = dyn_cast<MemoryEffectOpInterface>(op);
       SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>> effects;
       if (eOp) {
@@ -198,9 +200,21 @@ void GraphBuilder::buildRegisterDeps(SchedGraph &graph) {
     const auto *beforeState = solver.lookupState<ReachingDefinitionsState>(
         solver.getProgramPointBefore(op));
     assert(beforeState && "expected valid reaching definitions state");
-    addEdges(op, i, instOp.getInstIns(), beforeState);
-    // Note: we have to add edges for the outs to avoid clobbering of values.
-    addEdges(op, i, instOp.getInstOuts(), beforeState);
+    ValueRange outs = instOp.getInstOuts();
+    ValueRange ins = instOp.getInstIns();
+    addEdges(op, i, ins, beforeState);
+    // Make sure we never clobber.
+    addEdges(op, i, outs, beforeState);
+    for (Operation *pOp : graph.getOps().take_front(i)) {
+      ValueRange prevVals = pOp->getOperands();
+      if (llvm::any_of(prevVals, [&](Value val) {
+            return llvm::is_contained(outs, val);
+          }))
+        graph.addEdge(pOp, op);
+      if (llvm::any_of(prevVals,
+                       [&](Value val) { return llvm::is_contained(ins, val); }))
+        graph.addEdge(pOp, op);
+    }
   }
 }
 
