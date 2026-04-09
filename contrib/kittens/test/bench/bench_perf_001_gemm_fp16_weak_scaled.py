@@ -111,7 +111,29 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
 def make_sweep_grid(variants, check_regs: bool = True) -> SweepGrid:
     grid = SweepGrid()
     grid.axis("variant", [v for v in variants if v in MLIR_FILES])
-    add_gemm_sweep_axes(grid, _HW, _TILE_ELTS)
+    # Sweep M and N freely: wg_m = WG_BASE[0] * nwgcu is a multiple of 19,
+    # which does not divide DEFAULT_DIM (4096), so pinning to DEFAULT_DIM
+    # would yield an empty grid.  K can stay fixed.
+    add_gemm_sweep_axes(grid, _HW, _TILE_ELTS, target_m=None, target_n=None)
+
+    # Weak-scale constraint: problem sizes must exactly equal wg * twg * mfma.
+    # The divisibility filter in add_gemm_sweep_axes is necessary but not
+    # sufficient; these equality filters enforce the exact match required by
+    # WeakScaledMappedGemmInstance._check_weak_scale().
+    grid.filter(
+        "target_M",
+        "waves_m",
+        "waves_n",
+        "occ",
+        "twg_m",
+        check=lambda d, t=_TILE_ELTS[0]: wg_m(d, _HW) * d["twg_m"] * t == d["target_M"],
+    )
+    grid.filter(
+        "target_N",
+        "n_mult",
+        "twg_n",
+        check=lambda d, t=_TILE_ELTS[1]: wg_n(d) * d["twg_n"] * t == d["target_N"],
+    )
 
     if check_regs:
         add_resource_filter(

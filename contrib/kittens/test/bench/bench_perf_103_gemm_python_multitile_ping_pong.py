@@ -112,8 +112,31 @@ def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
     grid = SweepGrid()
     grid.axis("variant", variants)
     grid.axis("lds_at_write", [False, True])
-    add_gemm_sweep_axes(grid, _HW, _TILE_ELTS)
+    # Sweep M and N freely: wg_m = WG_BASE[0] * nwgcu is a multiple of 19,
+    # which does not divide DEFAULT_DIM (4096), so pinning to DEFAULT_DIM
+    # would yield an empty grid.  K can stay fixed.
+    add_gemm_sweep_axes(grid, _HW, _TILE_ELTS, target_m=None, target_n=None)
     grid.filter("waves_m", "waves_n", check=lambda d: d["waves_m"] * d["waves_n"] == 8)
+
+    # Weak-scale constraint: problem sizes must exactly equal wg * twg * mfma.
+    # The divisibility filter in add_gemm_sweep_axes is necessary but not
+    # sufficient; these equality filters enforce the exact match required by
+    # WeakScaledMappedGemmInstance._check_weak_scale().
+    grid.filter(
+        "target_M",
+        "waves_m",
+        "waves_n",
+        "occ",
+        "twg_m",
+        check=lambda d, t=_TILE_ELTS[0]: wg_m(d, _HW) * d["twg_m"] * t == d["target_M"],
+    )
+    grid.filter(
+        "target_N",
+        "n_mult",
+        "twg_n",
+        check=lambda d, t=_TILE_ELTS[1]: wg_n(d) * d["twg_n"] * t == d["target_N"],
+    )
+
     grid.axis("set_mfma_priority", [True, False])
 
     if check_regs:
