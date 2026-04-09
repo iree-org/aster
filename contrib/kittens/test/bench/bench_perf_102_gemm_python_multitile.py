@@ -62,7 +62,7 @@ from sweep_harness import (
     resolve_derived_pins,
     verify_top_configs,
 )
-from bench_sweep_heuristic import add_heuristic_cli_args, make_score_fn
+from bench_sweep_heuristic import add_heuristic_cli_args, generate_with_weak_scale
 
 
 # --- Constants ---
@@ -207,12 +207,16 @@ def main():
     )
     apply_wg_pin_filters(grid, pins, _TILE_M, _TILE_N)
 
-    priority_fn = make_score_fn("102") if args.heuristic else None
-    all_configs, total = grid.generate(
-        pins=pins or None,
+    all_configs, total = generate_with_weak_scale(
+        grid,
+        "102",
+        target_m,
+        target_n,
+        target_k,
+        args,
         sample_size=getattr(args, "compile_sample", 4096),
-        stratification_key=None if priority_fn else (lambda d: d["variant"]),
-        priority_fn=priority_fn,
+        pins=pins,
+        stratification_key=lambda d: d["variant"],
     )
 
     results = bench_perf_sweep_pipelined(

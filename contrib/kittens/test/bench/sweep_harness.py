@@ -96,6 +96,7 @@ class SweepGrid:
         sample_size: int = 3000,
         stratification_key: Optional[Callable[[dict[str, Any]], Hashable]] = None,
         priority_fn: Optional[Callable[[dict[str, Any]], float]] = None,
+        extra_eligible: Optional[list[dict[str, Any]]] = None,
     ) -> tuple[list[Any], int]:
         """Enumerate configs with hierarchical pruning, then sample.
 
@@ -108,6 +109,11 @@ class SweepGrid:
             priority_fn: Optional callable(config_dict) -> float.
                 When provided, configs are sorted by priority (highest first)
                 before sampling. Top configs are selected instead of random.
+            extra_eligible: Optional list of axis-level config dicts to add
+                to the eligible pool before sampling. These bypass grid
+                enumeration (useful for seeded configs like weak-scaled
+                variants that may not be reachable through the normal axes).
+                Deduplicated against the enumerated pool by dict equality.
 
         Returns:
             (instances, total_eligible) tuple.
@@ -126,6 +132,16 @@ class SweepGrid:
 
         eligible: list[dict[str, Any]] = []
         self._enumerate(0, {}, pins, level_filters, eligible)
+
+        if extra_eligible:
+            # Dedup against enumerated pool via a frozen fingerprint of dict items.
+            seen = {tuple(sorted(c.items())) for c in eligible}
+            for extra in extra_eligible:
+                key = tuple(sorted(extra.items()))
+                if key not in seen:
+                    eligible.append(extra)
+                    seen.add(key)
+
         total = len(eligible)
 
         if sample_size > 0 and total > sample_size:

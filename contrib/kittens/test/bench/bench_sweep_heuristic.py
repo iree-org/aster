@@ -47,7 +47,11 @@ def _p(twg_m, twg_n, waves_m, waves_n, ps=None, db=True, **kw):
 
 # fmt: off
 BEST_KNOWN: dict[str, dict[tuple[int, int, int], str]] = {
+    "001": {
+        ( 128,   128, 1024): "m128xn128xk1024_wg1x1x1_w2x2x1_twg8x8x2_pipestrat1_um2_llsched_hoistwait_direct_ab_flat:",
+    },
     "102": {
+        ( 128,   128, 1024): "m128xn128xk1024_wg2x1x1_w2x2x1_twg4x8x1_pipestrat3_wgcu2_llsched_ldsw_nosetprio_direct_b_flat",
         (2432,  6144, 8192): "m2432xn6144xk8192_wg19x32x1_w1x4x1_twg8x12x1_pipestrat4_nolcm_nopeel_llsched_hoistwait_direct_b_flat",
         (2432, 12288, 4096): "m2432xn12288xk4096_wg19x64x1_w1x4x1_twg8x12x1_pipestrat3_um2_nopeel_llsched_direct_b_flat",
         (2432, 12288, 8192): "m2432xn12288xk8192_wg19x64x1_w1x4x1_twg8x12x1_pipestrat3_um3_llsched_ldsw_direct_b_flat",
@@ -65,6 +69,9 @@ BEST_KNOWN: dict[str, dict[tuple[int, int, int], str]] = {
         (4864, 15360, 4096): "m4864xn15360xk4096_wg38x80x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_llsched_direct_b_flat",
         (4864, 18432, 4096): "m4864xn18432xk4096_wg38x96x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_nolcm_llsched_hoistwait_direct_b_flat",
         (4864, 21504, 4096): "m4864xn21504xk4096_wg38x112x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um2_nopeel_llsched_hoistwait_direct_b_flat",
+    },
+    "103": {
+        ( 128,   128, 1024): "m128xn128xk1024_wg2x1x1_w1x8x1_twg4x8x1_pipestrat1_um3_nopeel_hoistwait_ldsw_direct_b_flat",
     },
 }
 # fmt: on
@@ -102,12 +109,232 @@ def best_known(bench: str, M: int, N: int, K: int) -> str | None:
 
 
 def add_heuristic_cli_args(parser) -> None:
-    """Add --heuristic CLI arg shared across benches."""
+    """Add --heuristic and --weak-scale-boost CLI args shared across benches."""
     parser.add_argument(
         "--heuristic",
         action="store_true",
         help="Bias sampling toward promising configs",
     )
+    parser.add_argument(
+        "--weak-scale-boost",
+        type=float,
+        default=10.0,
+        help="Priority boost for weak-scaled best-known configs (0 = disable seeding)",
+    )
+
+
+def generate_with_weak_scale(
+    grid,
+    bench: str,
+    target_m: int,
+    target_n: int,
+    target_k: int,
+    args,
+    *,
+    sample_size: int,
+    pins: dict | None = None,
+    stratification_key=None,
+):
+    """Compose priority_fn + weak-scale seed and call ``grid.generate``.
+
+    The composition is:
+      - ``make_score_fn(bench)`` when ``--heuristic`` is set
+      - ``build_weak_scale_priority`` when ``--weak-scale-boost > 0`` and size is pinned
+      - stratification is disabled automatically when any priority_fn is active
+    """
+    base_score_fn = make_score_fn(bench) if getattr(args, "heuristic", False) else None
+    extra_eligible, priority_fn = build_weak_scale_priority(
+        bench,
+        target_m,
+        target_n,
+        target_k,
+        base_score_fn,
+        getattr(args, "weak_scale_boost", 0.0),
+    )
+    use_priority = priority_fn is not None
+    return grid.generate(
+        pins=pins or None,
+        sample_size=sample_size,
+        stratification_key=None if use_priority else stratification_key,
+        priority_fn=priority_fn,
+        extra_eligible=extra_eligible or None,
+    )
+
+
+def build_weak_scale_priority(
+    bench: str,
+    target_M: int | None,
+    target_N: int | None,
+    target_K: int | None,
+    base_score_fn: "callable | None",
+    boost: float,
+) -> tuple[list[dict], "callable | None"]:
+    """Compose the weak-scale seeding for a sweep."""
+    if boost <= 0 or target_M is None or target_N is None or target_K is None:
+        return [], base_score_fn
+
+    scaled = weak_scale_configs(bench, target_M, target_N, target_K)
+    if not scaled:
+        return [], base_score_fn
+
+    extra_eligible: list[dict] = []
+    weak_scale_keys: set[tuple] = set()
+    for inst, src_label in scaled:
+        d = instance_to_axis_dict(inst)
+        extra_eligible.append(d)
+        weak_scale_keys.add(tuple(sorted(d.items())))
+        print(f"  weak-scale seed: {inst.label}  (from {src_label[:40]}...)")
+    print(f"  {len(extra_eligible)} weak-scaled configs added to eligible pool (boost={boost})")
+
+    def priority_fn(d: dict) -> float:
+        base = base_score_fn(d) if base_score_fn is not None else 0.0
+        if tuple(sorted(d.items())) in weak_scale_keys:
+            return base + boost
+        return base
+
+    return extra_eligible, priority_fn
+
+
+def instance_to_axis_dict(inst: "WeakScaledMappedGemmInstance") -> dict:
+    """Convert a WeakScaledMappedGemmInstance to an axis-level config dict."""
+    from kittens.gemm_config import DIM_M, DIM_N, DIM_K
+
+    m = inst.mapping
+    gs = inst.gemm_size
+    twg = m.num_tiles_per_workgroup
+    waves = m.num_waves_per_workgroup
+    wps_val = (waves[DIM_M] * waves[DIM_N] + 3) // 4
+    return {
+        "target_M": gs[DIM_M],
+        "target_N": gs[DIM_N],
+        "target_K": gs[DIM_K],
+        "twg_m": twg[DIM_M],
+        "twg_n": twg[DIM_N],
+        "twg_k": m.num_tiles_per_wave[DIM_K],
+        "waves_m": waves[DIM_M],
+        "waves_n": waves[DIM_N],
+        "occ": m.num_wg_per_cu * wps_val,
+        "n_mult": 1,
+        "k_factor": gs[DIM_K] // max(m.num_tiles_per_wave[DIM_K] * 32, 1),
+        "ps": m.pipeline_strategy,
+        "variant": m.operand_path.value,
+        "lcm_unroll": m.lcm_unroll,
+        "unroll_mult": m.unroll_factor_multiplier,
+        "epilogue_peeling": m.epilogue_peeling,
+        "ll_sched": m.ll_sched,
+        "hoist_wait": m.hoist_wait,
+        "lds_at_write": m.lds_at_write,
+        "set_mfma_priority": m.set_mfma_priority,
+    }
+
+
+def _factor_splits(factor: int, parts: int) -> list[tuple[int, ...]]:
+    """All factorizations of `factor` into `parts` positive integer factors.
+
+    Example: _factor_splits(4, 3) -> [(1,1,4), (1,2,2), (1,4,1), (2,1,2), (2,2,1), (4,1,1)]
+    """
+    if parts == 1:
+        return [(factor,)]
+    out: list[tuple[int, ...]] = []
+    for d in range(1, factor + 1):
+        if factor % d == 0:
+            for rest in _factor_splits(factor // d, parts - 1):
+                out.append((d,) + rest)
+    return out
+
+
+def weak_scale_configs(
+    bench: str,
+    target_M: int,
+    target_N: int,
+    target_K: int,
+) -> list[tuple["WeakScaledMappedGemmInstance", str]]:
+    """Generate configs for (target_M, target_N, target_K) by weak-scaling best-known configs.
+
+    Returns a list of (instance, source_label) pairs.
+    """
+    from kittens.gemm_config import GemmSpec, GemmMappingSpec, DIM_M, DIM_N, DIM_K
+    from sweep_harness import WAVE_CONFIGS
+
+    known = BEST_KNOWN.get(bench, {})
+    if not known:
+        return []
+
+    results: list[tuple[WeakScaledMappedGemmInstance, str]] = []
+    seen_labels: set[str] = set()
+    wave_set = set(WAVE_CONFIGS)
+
+    for (src_M, src_N, src_K), label in known.items():
+        # Weak-scaling is strictly UP: source dimensions must divide target.
+        if target_M % src_M != 0 or target_N % src_N != 0 or target_K % src_K != 0:
+            continue
+        if target_M < src_M or target_N < src_N or target_K < src_K:
+            continue
+
+        f_M = target_M // src_M
+        f_N = target_N // src_N
+        f_K = target_K // src_K
+
+        src = WeakScaledMappedGemmInstance.from_label(label)
+        m = src.mapping
+        src_wg = m.num_workgroups_per_kernel
+        src_waves = m.num_waves_per_workgroup
+        src_tpw = m.num_tiles_per_wave
+
+        # M: (wg_m_mult, waves_m_mult, tiles_per_wave_m_mult)
+        # N: (wg_n_mult, waves_n_mult, tiles_per_wave_n_mult)
+        # K: (k_iters_mult, twg_k_mult) -- k_iters is implicit (k_iters_mult
+        #    is absorbed into the new target_K; we only track twg_k_mult).
+        for m_wg, m_wv, m_tp in _factor_splits(f_M, 3):
+            for n_wg, n_wv, n_tp in _factor_splits(f_N, 3):
+                for _k_iters_mult, k_tp in _factor_splits(f_K, 2):
+                    new_waves = [
+                        src_waves[DIM_M] * m_wv,
+                        src_waves[DIM_N] * n_wv,
+                        src_waves[DIM_K],
+                    ]
+                    # Wave config must be in the valid set (MI300X limit is 16 waves/WG).
+                    if (new_waves[DIM_M], new_waves[DIM_N]) not in wave_set:
+                        continue
+
+                    new_tpw = [
+                        src_tpw[DIM_M] * m_tp,
+                        src_tpw[DIM_N] * n_tp,
+                        src_tpw[DIM_K] * k_tp,
+                    ]
+                    new_wg = [
+                        src_wg[DIM_M] * m_wg,
+                        src_wg[DIM_N] * n_wg,
+                        src_wg[DIM_K],
+                    ]
+
+                    new_spec = GemmSpec.from_sizes(target_M, target_N, target_K)
+                    new_mapping = GemmMappingSpec(
+                        num_workgroups_per_kernel=new_wg,
+                        num_waves_per_workgroup=new_waves,
+                        num_tiles_per_wave=new_tpw,
+                        pipeline_strategy=m.pipeline_strategy,
+                        load_type=m.load_type,
+                        operand_path=m.operand_path,
+                        num_wg_per_cu=m.num_wg_per_cu,
+                        lcm_unroll=m.lcm_unroll,
+                        unroll_factor_multiplier=m.unroll_factor_multiplier,
+                        epilogue_peeling=m.epilogue_peeling,
+                        ll_sched=m.ll_sched,
+                        hoist_wait=m.hoist_wait,
+                        lds_at_write=m.lds_at_write,
+                        set_mfma_priority=m.set_mfma_priority,
+                    )
+                    try:
+                        inst = WeakScaledMappedGemmInstance(new_spec, new_mapping)
+                    except AssertionError:
+                        continue
+                    if inst.label in seen_labels:
+                        continue
+                    seen_labels.add(inst.label)
+                    results.append((inst, label))
+
+    return results
 
 
 def make_score_fn(bench: str) -> callable:
