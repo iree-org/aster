@@ -47,21 +47,22 @@ from bench_harness import (
     run_single,
 )
 from sweep_harness import (
-    DEFAULT_DIM,
     GEMM_SWEEP_PIN_MAP,
     SweepGrid,
     add_gemm_sweep_axes,
     add_geometry_pin_args,
     add_resource_filter,
+    add_size_cli_args,
+    apply_wg_pin_filters,
     fits_on_cu_post_compile,
     is_label,
     nwgcu,
+    parse_size_args,
     query_gpu_hw,
     resolve_derived_pins,
     verify_top_configs,
-    wg_m,
 )
-from bench_sweep_heuristic import make_score_fn
+from bench_sweep_heuristic import add_heuristic_cli_args, make_score_fn
 
 
 # --- Constants ---
@@ -82,8 +83,10 @@ _TILE_M, _TILE_N, _TILE_K = _MAPPING.tile_elements(_SPEC.mfma_shape)
 
 def _build_instance(d: dict) -> MultitileGemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
-    _wg_m = M // (d["twg_m"] * _TILE_M)
-    _wg_n = N // (d["twg_n"] * _TILE_N)
+    _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_M)
+    _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_N)
+    assert rem_m == 0, f"M={M} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
+    assert rem_n == 0, f"N={N} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_N}"
     _nwgcu = nwgcu(d, _HW)
     spec = GemmSpec.from_sizes(M, N, K)
     mapping = GemmMappingSpec(
@@ -106,8 +109,10 @@ def _build_instance(d: dict) -> MultitileGemmInstance:
 
 
 def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
-    _wg_m = d["target_M"] // (d["twg_m"] * _TILE_M)
-    _wg_n = d["target_N"] // (d["twg_n"] * _TILE_N)
+    _wg_m, rem_m = divmod(d["target_M"], d["twg_m"] * _TILE_M)
+    _wg_n, rem_n = divmod(d["target_N"], d["twg_n"] * _TILE_N)
+    assert rem_m == 0, f"target_M={d['target_M']} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
+    assert rem_n == 0, f"target_N={d['target_N']} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_N}"
     return GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
@@ -123,9 +128,10 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
 def make_sweep_grid(
     variants: list[str],
     check_regs: bool = True,
-    target_m: int | None = DEFAULT_DIM,
-    target_n: int | None = DEFAULT_DIM,
-    target_k: int | None = DEFAULT_DIM,
+    *,
+    target_m: int,
+    target_n: int,
+    target_k: int,
 ) -> SweepGrid:
     grid = SweepGrid()
     grid.axis("variant", variants)
@@ -157,30 +163,6 @@ def _from_label(label: str) -> MultitileGemmInstance:
     return MultitileGemmInstance(base.spec, base.mapping)
 
 
-# --- Size parsing ---
-
-
-def _parse_size_args(args, parser) -> tuple[int, int, int]:
-    """Resolve --size vs --m/--n/--k into (target_m, target_n, target_k).
-
-    --size MxNxK is exclusive with --m/--n/--k.
-    Unpinned dimensions default to DEFAULT_DIM.
-    """
-    has_mnk = any(getattr(args, a, None) is not None for a in ("m", "n", "k"))
-    if args.size and has_mnk:
-        parser.error("--size is exclusive with --m/--n/--k")
-    if args.size:
-        parts = args.size.split("x")
-        if len(parts) != 3:
-            parser.error("--size must be MxNxK (e.g., 2432x12288x4096)")
-        return int(parts[0]), int(parts[1]), int(parts[2])
-    return (
-        getattr(args, "m", None) or DEFAULT_DIM,
-        getattr(args, "n", None) or DEFAULT_DIM,
-        getattr(args, "k", None) or DEFAULT_DIM,
-    )
-
-
 # --- Entry point ---
 
 
@@ -198,23 +180,12 @@ def main():
     parser = argparse.ArgumentParser(description="Python multi-tile GEMM benchmark sweep (test_102)")
     add_sweep_cli_args(parser)
     add_geometry_pin_args(parser)
-    parser.add_argument("--m", type=int, default=None, help=f"M dimension (default: {DEFAULT_DIM})")
-    parser.add_argument("--n", type=int, default=None, help=f"N dimension (default: {DEFAULT_DIM})")
-    parser.add_argument("--k", type=int, default=None, help=f"K dimension (default: {DEFAULT_DIM})")
-    parser.add_argument(
-        "--size", type=str, default=None, metavar="MxNxK", help="Pin all dimensions (exclusive with --m/--n/--k)"
-    )
-    parser.add_argument("--desired-simd-occupancy", type=int, default=None, help="Pin SIMD occupancy")
-    parser.add_argument("--direct-b", action=argparse.BooleanOptionalAction, default=None, help="B via preshuffle")
+    add_size_cli_args(parser)
+    add_heuristic_cli_args(parser)
     parser.add_argument("--set-mfma-priority", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument(
-        "--heuristic",
-        action="store_true",
-        help="Bias sampling toward CART-derived promising configs",
-    )
     args = parser.parse_args()
 
-    target_m, target_n, target_k = _parse_size_args(args, parser)
+    target_m, target_n, target_k = parse_size_args(args, parser)
     print(f"Size: M={target_m}, N={target_n}, K={target_k}")
 
     all_paths = ["lds", "direct_b"]
@@ -224,25 +195,23 @@ def main():
         all_paths = ["lds"]
     print(f"Variants: {', '.join(all_paths)}")
 
-    check_regs = not getattr(args, "no_reg_filter", False)
-    sample_size = getattr(args, "compile_sample", 4096)
-
     pins = make_sweep_pins(args, GEMM_SWEEP_PIN_MAP)
     pins = resolve_derived_pins(pins or {})
 
     grid = make_sweep_grid(
-        all_paths, check_regs=check_regs,
-        target_m=target_m, target_n=target_n, target_k=target_k,
+        all_paths,
+        check_regs=not getattr(args, "no_reg_filter", False),
+        target_m=target_m,
+        target_n=target_n,
+        target_k=target_k,
     )
-    if "_wg_m" in (pins or {}):
-        target = pins.pop("_wg_m")
-        grid.filter("waves_m", "waves_n", "occ", check=lambda d, t=target: wg_m(d, _HW) == t)
+    apply_wg_pin_filters(grid, pins, _TILE_M, _TILE_N)
 
     priority_fn = make_score_fn("102") if args.heuristic else None
     all_configs, total = grid.generate(
         pins=pins or None,
-        sample_size=sample_size,
-        stratification_key=lambda d: d["variant"],
+        sample_size=getattr(args, "compile_sample", 4096),
+        stratification_key=None if priority_fn else (lambda d: d["variant"]),
         priority_fn=priority_fn,
     )
 

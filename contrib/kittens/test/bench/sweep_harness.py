@@ -1,3 +1,8 @@
+# Copyright 2026 The ASTER Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 """Sweep grid framework and shared GEMM sweep infrastructure.
 
 SweepGrid: composable search space with hierarchical pruning.
@@ -317,7 +322,6 @@ WAVE_CONFIGS = sorted(
 )
 
 
-
 # Default problem dimension when not pinned via --m/--n/--k.
 DEFAULT_DIM = 4096
 
@@ -374,18 +378,20 @@ def wg_n(d: dict[str, Any]) -> int:
 
 
 def resolve_derived_pins(pins: dict[str, Any]) -> dict[str, Any]:
-    """Convert derived-value pins (wg_m, wg_n, occ) to axis-level pins."""
+    """Convert derived-value pins (wg_m, wg_n, occ) to axis-level pins.
+
+    Pins are passed through as ``_wg_m`` / ``_wg_n`` keys; the bench
+    script is responsible for adding a filter that honors them. This
+    allows different benches to compute ``wg_m`` differently (target-size
+    decomposition vs base-grid derivation).
+    """
     if not pins:
         return pins
     out = dict(pins)
     if "wg_m_pin" in out:
-        val = out.pop("wg_m_pin")
-        if val % WG_BASE[0] == 0:
-            out["_wg_m"] = val
+        out["_wg_m"] = out.pop("wg_m_pin")
     if "wg_n_pin" in out:
-        val = out.pop("wg_n_pin")
-        if val % WG_BASE[1] == 0:
-            out["n_mult"] = val // WG_BASE[1]
+        out["_wg_n"] = out.pop("wg_n_pin")
     if "occ_pin" in out:
         out["occ"] = out.pop("occ_pin")
     return out
@@ -399,6 +405,7 @@ def add_gemm_sweep_axes(
     target_m: int | None = DEFAULT_DIM,
     target_n: int | None = DEFAULT_DIM,
     target_k: int | None = DEFAULT_DIM,
+    mcpu: str = "gfx942",
 ) -> None:
     """Add problem-size + geometry + scheduling axes and constraints.
 
@@ -421,15 +428,17 @@ def add_gemm_sweep_axes(
     grid.axis("target_N", dim_values(target_n, tile_n))
     grid.axis("target_K", dim_values(target_k, tile_k))
 
-    # Tile decomposition axes.
-    grid.axis("waves_m", sorted({m for m, _ in WAVE_CONFIGS}))
+    # Prune the search space for CDNA3.
+    _cdna3 = mcpu in ("gfx940", "gfx942")
+
+    grid.axis("waves_m", sorted({m for m, _ in WAVE_CONFIGS if not _cdna3 or m <= 2}))
     grid.axis("waves_n", sorted({n for _, n in WAVE_CONFIGS}))
-    grid.axis("occ", [1, 2, 3, 4])
+    grid.axis("occ", [1, 2, 3] if _cdna3 else [1, 2, 3, 4])
     grid.axis("n_mult", list(range(1, 11)))
     grid.axis("twg_m", _twg_m_vals)
-    grid.axis("twg_n", _twg_n_vals)
-    grid.axis("twg_k", list(range(1, 9)))
-    grid.axis("ps", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    grid.axis("twg_n", [v for v in _twg_n_vals if not _cdna3 or v >= 6])
+    grid.axis("twg_k", [1, 2] if _cdna3 else list(range(1, 9)))
+    grid.axis("ps", list(range(1, 9)) if _cdna3 else list(range(1, 11)))
     add_scheduling_axes(grid, unroll_multipliers=[1, 2, 3])
 
     # Wave config validity.
@@ -441,11 +450,13 @@ def add_gemm_sweep_axes(
 
     # Size decomposition: target == wg * twg * tile_size, must divide evenly.
     grid.filter(
-        "target_M", "twg_m",
+        "target_M",
+        "twg_m",
         check=lambda d, t=tile_m: d["target_M"] % (d["twg_m"] * t) == 0,
     )
     grid.filter(
-        "target_N", "twg_n",
+        "target_N",
+        "twg_n",
         check=lambda d, t=tile_n: d["target_N"] % (d["twg_n"] * t) == 0,
     )
 
@@ -453,11 +464,14 @@ def add_gemm_sweep_axes(
     # k_iters must exceed the deepest pipeline stage.
     _ps_max = {ps: max(stages.values()) for ps, stages in PS.items()}
     grid.filter(
-        "target_K", "twg_k",
+        "target_K",
+        "twg_k",
         check=lambda d, t=tile_k: d["target_K"] % (d["twg_k"] * t) == 0,
     )
     grid.filter(
-        "target_K", "twg_k", "ps",
+        "target_K",
+        "twg_k",
+        "ps",
         check=lambda d, t=tile_k, pm=_ps_max: d["target_K"] // (d["twg_k"] * t) > pm[d["ps"]],
     )
 
@@ -485,6 +499,70 @@ GEMM_SWEEP_PIN_MAP = {
 def is_label(s: str) -> bool:
     """Check if a string looks like a serialized config label."""
     return s.startswith("m") and "x" in s and "_wg" in s
+
+
+def add_size_cli_args(parser: argparse.ArgumentParser) -> None:
+    """Add --m, --n, --k, --size CLI args shared across bench scripts."""
+    parser.add_argument("--m", type=int, default=None, help=f"M dimension (default: {DEFAULT_DIM})")
+    parser.add_argument("--n", type=int, default=None, help=f"N dimension (default: {DEFAULT_DIM})")
+    parser.add_argument("--k", type=int, default=None, help=f"K dimension (default: {DEFAULT_DIM})")
+    parser.add_argument(
+        "--size",
+        type=str,
+        default=None,
+        metavar="MxNxK",
+        help="Pin all dimensions (exclusive with --m/--n/--k)",
+    )
+
+
+def parse_size_args(args, parser) -> tuple[int, int, int]:
+    """Resolve --size vs --m/--n/--k into (target_m, target_n, target_k).
+
+    Unpinned dimensions default to DEFAULT_DIM.
+    """
+    has_mnk = any(getattr(args, a, None) is not None for a in ("m", "n", "k"))
+    if args.size and has_mnk:
+        parser.error("--size is exclusive with --m/--n/--k")
+    if args.size:
+        parts = args.size.split("x")
+        if len(parts) != 3:
+            parser.error("--size must be MxNxK (e.g., 2432x12288x4096)")
+        return int(parts[0]), int(parts[1]), int(parts[2])
+    return (
+        getattr(args, "m", None) or DEFAULT_DIM,
+        getattr(args, "n", None) or DEFAULT_DIM,
+        getattr(args, "k", None) or DEFAULT_DIM,
+    )
+
+
+def apply_wg_pin_filters(
+    grid: SweepGrid,
+    pins: dict | None,
+    tile_m: int,
+    tile_n: int,
+) -> None:
+    """Honor _wg_m / _wg_n pins via target-size decomposition filters.
+
+    The filters enforce ``target_M == wg_m * twg_m * tile_m`` (and the N
+    analogue). The pins are consumed (popped) from the ``pins`` dict.
+    Works for any wg_m/wg_n value regardless of WG_BASE.
+    """
+    if not pins:
+        return
+    if "_wg_m" in pins:
+        target = pins.pop("_wg_m")
+        grid.filter(
+            "target_M",
+            "twg_m",
+            check=lambda d, t=target, tm=tile_m: d["target_M"] == t * d["twg_m"] * tm,
+        )
+    if "_wg_n" in pins:
+        target = pins.pop("_wg_n")
+        grid.filter(
+            "target_N",
+            "twg_n",
+            check=lambda d, t=target, tn=tile_n: d["target_N"] == t * d["twg_n"] * tn,
+        )
 
 
 # -- Sweep verification -----------------------------------------------------
@@ -564,3 +642,5 @@ def add_geometry_pin_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--hoist-wait", action=argparse.BooleanOptionalAction, default=None, help="Pin hoist iter_arg waits"
     )
+    parser.add_argument("--desired-simd-occupancy", type=int, default=None, help="Pin SIMD occupancy")
+    parser.add_argument("--direct-b", action=argparse.BooleanOptionalAction, default=None, help="B via preshuffle")

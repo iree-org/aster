@@ -38,20 +38,22 @@ from bench_harness import (
     make_sweep_pins,
     run_single,
 )
+from bench_sweep_heuristic import add_heuristic_cli_args, make_score_fn
 from sweep_harness import (
     GEMM_SWEEP_PIN_MAP,
     SweepGrid,
     add_gemm_sweep_axes,
     add_geometry_pin_args,
     add_resource_filter,
+    add_size_cli_args,
+    apply_wg_pin_filters,
     fits_on_cu_post_compile,
     is_label,
     nwgcu,
+    parse_size_args,
     query_gpu_hw,
     resolve_derived_pins,
     verify_top_configs,
-    wg_m,
-    wg_n,
 )
 
 
@@ -70,11 +72,12 @@ _TILE_ELTS = GemmMappingSpec(
 
 
 def _build_instance(d: dict) -> PingPongGemmInstance:
-    _wg_m, _wg_n = wg_m(d, _HW), wg_n(d)
+    M, N, K = d["target_M"], d["target_N"], d["target_K"]
+    _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_ELTS[0])
+    _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_ELTS[1])
+    assert rem_m == 0, f"M={M} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_ELTS[0]}"
+    assert rem_n == 0, f"N={N} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_ELTS[1]}"
     _nwgcu = nwgcu(d, _HW)
-    M = d["target_M"]
-    N = d["target_N"]
-    K = d["target_K"]
     spec = GemmSpec.from_sizes(M, N, K)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
@@ -96,8 +99,12 @@ def _build_instance(d: dict) -> PingPongGemmInstance:
 
 
 def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
+    _wg_m, rem_m = divmod(d["target_M"], d["twg_m"] * _TILE_ELTS[0])
+    _wg_n, rem_n = divmod(d["target_N"], d["twg_n"] * _TILE_ELTS[1])
+    assert rem_m == 0, f"target_M={d['target_M']} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_ELTS[0]}"
+    assert rem_n == 0, f"target_N={d['target_N']} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_ELTS[1]}"
     return GemmMappingSpec(
-        num_workgroups_per_kernel=[wg_m(d, _HW), wg_n(d), 1],
+        num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
@@ -108,35 +115,26 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
     )
 
 
-def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
+def make_sweep_grid(
+    variants: list[str],
+    check_regs: bool = True,
+    *,
+    target_m: int,
+    target_n: int,
+    target_k: int,
+) -> SweepGrid:
     grid = SweepGrid()
     grid.axis("variant", variants)
     grid.axis("lds_at_write", [False, True])
-    # Sweep M and N freely: wg_m = WG_BASE[0] * nwgcu is a multiple of 19,
-    # which does not divide DEFAULT_DIM (4096), so pinning to DEFAULT_DIM
-    # would yield an empty grid.  K can stay fixed.
-    add_gemm_sweep_axes(grid, _HW, _TILE_ELTS, target_m=None, target_n=None)
+    add_gemm_sweep_axes(
+        grid,
+        _HW,
+        _TILE_ELTS,
+        target_m=target_m,
+        target_n=target_n,
+        target_k=target_k,
+    )
     grid.filter("waves_m", "waves_n", check=lambda d: d["waves_m"] * d["waves_n"] == 8)
-
-    # Weak-scale constraint: problem sizes must exactly equal wg * twg * mfma.
-    # The divisibility filter in add_gemm_sweep_axes is necessary but not
-    # sufficient; these equality filters enforce the exact match required by
-    # WeakScaledMappedGemmInstance._check_weak_scale().
-    grid.filter(
-        "target_M",
-        "waves_m",
-        "waves_n",
-        "occ",
-        "twg_m",
-        check=lambda d, t=_TILE_ELTS[0]: wg_m(d, _HW) * d["twg_m"] * t == d["target_M"],
-    )
-    grid.filter(
-        "target_N",
-        "n_mult",
-        "twg_n",
-        check=lambda d, t=_TILE_ELTS[1]: wg_n(d) * d["twg_n"] * t == d["target_N"],
-    )
-
     grid.axis("set_mfma_priority", [True, False])
 
     if check_regs:
@@ -144,7 +142,19 @@ def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
             grid,
             _HW,
             _mapping_for_resource_check,
-            deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps", "lds_at_write"),
+            deps=(
+                "variant",
+                "target_M",
+                "target_N",
+                "waves_m",
+                "waves_n",
+                "occ",
+                "twg_m",
+                "twg_n",
+                "twg_k",
+                "ps",
+                "lds_at_write",
+            ),
         )
 
     grid.build_with(_build_instance)
@@ -180,11 +190,13 @@ def main():
     parser = argparse.ArgumentParser(description="Python ping-pong GEMM benchmark sweep (test_103)")
     add_sweep_cli_args(parser)
     add_geometry_pin_args(parser)
-    parser.add_argument("--k-scaling-factor", type=int, help="Pin K scaling factor")
-    parser.add_argument("--desired-simd-occupancy", type=int, default=None, help="Pin SIMD occupancy")
-    parser.add_argument("--direct-b", action=argparse.BooleanOptionalAction, default=None, help="B via preshuffle")
+    add_size_cli_args(parser)
+    add_heuristic_cli_args(parser)
     parser.add_argument("--set-mfma-priority", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
+
+    target_m, target_n, target_k = parse_size_args(args, parser)
+    print(f"Size: M={target_m}, N={target_n}, K={target_k}")
 
     all_paths = ["lds", "direct_b"]
     if args.direct_b is True:
@@ -199,15 +211,18 @@ def main():
     grid = make_sweep_grid(
         all_paths,
         check_regs=not getattr(args, "no_reg_filter", False),
+        target_m=target_m,
+        target_n=target_n,
+        target_k=target_k,
     )
-    if "_wg_m" in (pins or {}):
-        target = pins.pop("_wg_m")
-        grid.filter("waves_m", "waves_n", "occ", check=lambda d, t=target: wg_m(d, _HW) == t)
+    apply_wg_pin_filters(grid, pins, _TILE_ELTS[0], _TILE_ELTS[1])
 
+    priority_fn = make_score_fn("103") if args.heuristic else None
     all_configs, total = grid.generate(
         pins=pins or None,
         sample_size=getattr(args, "compile_sample", 4096),
-        stratification_key=lambda d: d["variant"],
+        stratification_key=None if priority_fn else (lambda d: d["variant"]),
+        priority_fn=priority_fn,
     )
 
     results = bench_perf_sweep_pipelined(

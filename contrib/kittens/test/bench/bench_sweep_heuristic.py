@@ -53,10 +53,14 @@ BEST_KNOWN: dict[str, dict[tuple[int, int, int], str]] = {
         (2432, 12288, 8192): "m2432xn12288xk8192_wg19x64x1_w1x4x1_twg8x12x1_pipestrat3_um3_llsched_ldsw_direct_b_flat",
         (2432, 18432, 4096): "m2432xn18432xk4096_wg19x96x1_w1x4x1_twg8x12x1_pipestrat3_nolcm_llsched_direct_b_flat",
         (3648,  8192, 8192): "m3648xn8192xk8192_wg38x32x1_w1x4x1_twg6x16x1_pipestrat3_wgcu2_nolcm_nopeel_llsched_ldsw_direct_b_flat",
+        (3648,  6144, 8192): "m3648xn6144xk8192_wg19x32x1_w2x2x1_twg12x12x1_pipestrat1_um3_hoistwait_flat",
+        (3648,  6144, 4096): "m3648xn6144xk4096_wg19x32x1_w2x2x1_twg12x12x1_pipestrat1_um3_hoistwait_flat",
+        (3648, 12288, 4096): "m3648xn12288xk4096_wg19x64x1_w2x2x1_twg12x12x1_pipestrat1_um3_flat",
+        (4096,  4096, 4096): "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat4_um2_llsched_nosetprio_direct_b_flat",
         (4864,  6144, 4096): "m4864xn6144xk4096_wg38x32x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um2_llsched_direct_b_flat",
         (4864,  6144, 8192): "m4864xn6144xk8192_wg38x32x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um3_llsched_direct_b_flat",
         (4864,  9216, 4096): "m4864xn9216xk4096_wg38x48x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um3_nopeel_llsched_direct_b_flat",
-        (4864,  9216, 8192): "m4864xn9216xk8192_wg38x48x1_w1x4x1_twg8x12x1_pipestrat4_wgcu2_nolcm_nopeel_llsched_hoistwait_direct_b_flat",
+        (4864,  9216, 8192): "m4864xn9216xk8192_wg38x48x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_llsched_hoistwait_direct_b_flat",
         (4864, 12288, 4096): "m4864xn12288xk4096_wg38x64x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_nolcm_nopeel_llsched_direct_b_flat",
         (4864, 15360, 4096): "m4864xn15360xk4096_wg38x80x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_llsched_direct_b_flat",
         (4864, 18432, 4096): "m4864xn18432xk4096_wg38x96x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_nolcm_llsched_hoistwait_direct_b_flat",
@@ -70,17 +74,19 @@ BEST_KNOWN: dict[str, dict[tuple[int, int, int], str]] = {
 # ---------------------------------------------------------------------------
 
 # TODO: atm twg_m, twg_n, waves_m, waves_n require divisibility. Relax this in the future.
-HEURISTIC_RULES: dict[str, list[dict]] = {
+HEURISTIC_RULES_MI300X: dict[str, list[dict]] = {
     "102": [
         _p(8, 12, 1, 4, ps=3),
         _p(8, 12, 1, 4, ps=4),
         _p(8, 12, 1, 4, ps=1),
+        _p(12, 12, 2, 2, ps=1, db=False),
         _p(8, 14, 1, 4),
         _p(8, 10, 1, 4),
         _p(8, 16, 1, 4),
+        _p(8, 16, 1, 8),
         _p(6, 16, 1, 4),
         _p(8, 12, 2, 2),
-        _p(8, 12, 1, 4, ps=None, db=True),
+        _p(10, 12, 1, 4),
     ],
 }
 
@@ -95,41 +101,40 @@ def best_known(bench: str, M: int, N: int, K: int) -> str | None:
     return BEST_KNOWN.get(bench, {}).get((M, N, K))
 
 
+def add_heuristic_cli_args(parser) -> None:
+    """Add --heuristic CLI arg shared across benches."""
+    parser.add_argument(
+        "--heuristic",
+        action="store_true",
+        help="Bias sampling toward promising configs",
+    )
+
+
 def make_score_fn(bench: str) -> callable:
     """Return a scoring function for config dicts (axis-level keys).
 
     Higher score = more promising config. Used as ``priority_fn`` in
     ``SweepGrid.generate()`` for weighted sampling.
-
-    Scoring is based on CART/RF feature importance from sweep data:
-    - Exact heuristic rule match: large bonus (decaying by rank)
-    - Per-feature bonuses from RF importance (twg_n, variant, ps, etc.)
-
-    All configs get a baseline score > 0 so everything has a chance.
     """
-    rules = HEURISTIC_RULES.get(bench, [])
+    rules = HEURISTIC_RULES_MI300X.get(bench, [])
     axis_rules = [(to_axis_pins(r), 1.0 / (1 + i)) for i, r in enumerate(rules)]
 
-    # RF feature importance (bench_102, 16K pts):
-    #   twg_n (33%), is_direct_b (16%), ps (11%), twg_m (10%), occ (5%), ll_sched (5%)
-    # Preferred values from top-50 distribution.
-    # fmt: off
-    _PREFERRED = {
-        "twg_n":    {12: 0.33, 14: 0.15, 10: 0.10, 16: 0.08},
-        "twg_m":    {8: 0.10, 6: 0.03},
-        "variant":  {"direct_b": 0.16},
-        "ps":       {3: 0.11, 4: 0.06, 1: 0.03, 2: 0.02},
-        "waves_m":  {1: 0.04},
-        "waves_n":  {4: 0.04},
-        "occ":      {2: 0.05, 1: 0.03},
-        "ll_sched": {True: 0.05},
+    _PREFERRED_MI300X = {
+        "twg_n": {12: 0.47, 16: 0.30, 24: 0.25, 14: 0.20, 10: 0.15, 20: 0.10, 8: 0.05},
+        "twg_m": {8: 0.10, 12: 0.08, 6: 0.03, 10: 0.03},
+        "variant": {"direct_b": 0.07},
+        "ps": {3: 0.10, 4: 0.08, 1: 0.05, 2: 0.05},
+        "waves_m": {1: 0.12, 2: 0.10},
+        "waves_n": {4: 0.04, 8: 0.03, 2: 0.02},
+        "occ": {2: 0.05, 1: 0.04, 3: 0.01},
+        "ll_sched": {True: 0.03},
     }
     # fmt: on
 
     def score(d: dict) -> float:
         s = 0.0
-        # Per-feature bonus from RF importance.
-        for feat, val_scores in _PREFERRED.items():
+        # Per-feature bonus from preferred values.
+        for feat, val_scores in _PREFERRED_MI300X.items():
             s += val_scores.get(d.get(feat), 0.0)
         # Exact rule match bonus (stacks with feature bonuses).
         for axis_rule, weight in axis_rules:
