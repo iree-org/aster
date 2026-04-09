@@ -37,7 +37,7 @@ LogicalResult verifyRegisterRange(function_ref<InFlightDiagnostic()> emitError,
     return emitError() << "align must be a power of 2, got " << alignment;
 
   // Check alignment if the range is allocated
-  if (!range.begin().isRelocatable()) {
+  if (range.getSemantics() == RegisterSemantics::Allocated) {
     if (alignment <= 0)
       return emitError() << "align must be positive, got " << alignment;
 

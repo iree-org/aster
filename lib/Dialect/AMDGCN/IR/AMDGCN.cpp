@@ -804,7 +804,7 @@ void LoadToLDSOp::getEffects(
 /// Check if a type is an unallocated register (relocatable).
 static bool isUnallocatedRegister(Type type) {
   auto regType = dyn_cast<RegisterTypeInterface>(type);
-  return regType && regType.isRelocatable();
+  return regType && !regType.hasAllocatedSemantics();
 }
 
 /// Parse the output types for CmpIOp.
