@@ -33,9 +33,9 @@ from kittens.gemm_config import (
 )
 
 
-def _build_multitile_gemm(cfg: "MultitileGemmInstance",
-                          ping_pong_staggered: bool = False,
-                          lds_at_write: bool = False) -> ir.Module:
+def _build_multitile_gemm(
+    cfg: "MultitileGemmInstance", ping_pong_staggered: bool = False, lds_at_write: bool = False
+) -> ir.Module:
     """Build a multi-tile multi-wave multi-WG pipelined GEMM kernel.
 
     Memory path is driven by cfg.mapping:
@@ -314,6 +314,7 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance",
         b.memref_store(b.init_agprx4(b.constant_i32(0)), c_buf, idx)
 
     if ping_pong_staggered:
+
         @b.thread_uniform_if("ult", wid, b.constant_index(4))
         def _():
             b.s_barrier()
@@ -517,6 +518,7 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance",
                 b.s_barrier()
 
     if ping_pong_staggered:
+
         @b.thread_uniform_if("uge", wid, b.constant_index(4))
         def _():
             b.s_barrier()
@@ -720,33 +722,35 @@ def _min_k_iters(twg_k, ps):
     return max(PS[ps].values()) + 1
 
 
-class TestPythonGEMMMultitile:
-    # Tile geometry: (num_workgroups, num_waves_per_wg, num_tiles_per_wg).
-    # M = wg[M] * twg[M] * 16, N = wg[N] * twg[N] * 16.
+class TestGeometry:
+    """Wave geometry sweep: 1w through 8w, fixed pipeline/operand-path/LDS-stage.
+
+    Validates that different wave counts and tile shapes produce correct results.
+    Pipeline, operand path, and LDS stage are tested independently below.
+    """
+
     @pytest.mark.parametrize(
-        "num_workgroups,num_waves_per_wg,num_tiles_per_wg",
+        "num_waves_per_wg,num_tiles_per_wg",
         [
             # 1 wave
-            ([1, 1, 1], [1, 1, 1], [3, 2, 1]),
-            ([1, 1, 1], [1, 1, 1], [2, 2, 3]),  # deep K (k_t=3)
+            ([1, 1, 1], [3, 2, 1]),
+            ([1, 1, 1], [2, 2, 3]),  # deep K (k_t=3)
             # 2 waves (2x1)
-            ([1, 1, 1], [2, 1, 1], [6, 2, 1]),
+            ([2, 1, 1], [6, 2, 1]),
             # 4 waves (2x2)
-            ([1, 1, 1], [2, 2, 1], [8, 4, 1]),
-            ([1, 1, 1], [2, 2, 1], [6, 4, 1]),  # non-power-of-2
-            ([1, 1, 1], [2, 2, 1], [6, 6, 1]),  # non-power-of-2 both
+            ([2, 2, 1], [8, 4, 1]),
+            ([2, 2, 1], [6, 4, 1]),  # non-power-of-2
+            ([2, 2, 1], [6, 6, 1]),  # non-power-of-2 both
             # 4 waves (4x1)
-            ([1, 1, 1], [4, 1, 1], [8, 7, 1]),
-            ([1, 1, 1], [4, 1, 1], [12, 5, 1]),
+            ([4, 1, 1], [8, 7, 1]),
+            ([4, 1, 1], [12, 5, 1]),
             # 4 waves (1x4)
-            ([1, 1, 1], [1, 4, 1], [10, 8, 1]),
+            ([1, 4, 1], [10, 8, 1]),
             # 8 waves (4x2)
-            ([1, 1, 1], [4, 2, 1], [12, 6, 1]),
+            ([4, 2, 1], [12, 6, 1]),
             # 8 waves (2x4)
-            ([1, 1, 1], [2, 4, 1], [8, 8, 1]),
-            ([1, 1, 1], [2, 4, 1], [12, 8, 1]),
-            # Multi-WG
-            ([3, 2, 1], [1, 1, 1], [3, 2, 1]),
+            ([2, 4, 1], [8, 8, 1]),
+            ([2, 4, 1], [12, 8, 1]),
         ],
         ids=[
             "1w_3x2",
@@ -761,36 +765,79 @@ class TestPythonGEMMMultitile:
             "8w_4x2_12x6",
             "8w_2x4_8x8",
             "8w_2x4_12x8",
-            "mwg3x2_1w_3x2",
         ],
     )
-    # K = k_mult * k_t * transfer_tile_k_elems: always divisible by construction.
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg):
+        cfg = _make_instance([1, 1, 1], num_waves_per_wg, num_tiles_per_wg, k_mult=4, pipeline_strategy=3)
+        _run_multitile(cfg)
+
+
+class TestPipeline:
+    """Pipeline strategy x k_mult x lds_at_write sweep, fixed geometry.
+
+    Tests pipeline depth interaction with K iterations and LDS
+    allocation stage. Uses two representative geometries (small 4w and
+    large 8w).
+    """
+
+    @pytest.mark.parametrize(
+        "num_waves_per_wg,num_tiles_per_wg",
+        [
+            ([2, 2, 1], [6, 4, 1]),
+            ([4, 2, 1], [12, 6, 1]),
+        ],
+        ids=["4w_2x2_6x4", "8w_4x2_12x6"],
+    )
     @pytest.mark.parametrize("k_mult", [2, 4, 8], ids=["km2", "km4", "km8"])
     @pytest.mark.parametrize("pipeline_strategy", [1, 2, 3, 4, 5, 6], ids=["ps1", "ps2", "ps3", "ps4", "ps5", "ps6"])
-    @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
     @pytest.mark.parametrize("lds_at_write", [False, True], ids=["lds_load", "lds_write"])
-    def test_correctness(
-        self,
-        num_workgroups,
-        num_waves_per_wg,
-        num_tiles_per_wg,
-        k_mult,
-        pipeline_strategy,
-        b_path,
-        lds_at_write,
-    ):
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy, lds_at_write):
         k_t = num_tiles_per_wg[DIM_K]
         if k_mult < _min_k_iters(k_t, pipeline_strategy):
             pytest.skip(f"k_mult={k_mult} < min_k_iters for ps{pipeline_strategy}")
-        cfg = _make_instance(
-            num_workgroups,
-            num_waves_per_wg,
-            num_tiles_per_wg,
-            k_mult,
-            pipeline_strategy=pipeline_strategy,
-            b_path=b_path,
-        )
+        cfg = _make_instance([1, 1, 1], num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy=pipeline_strategy)
         _run_multitile(cfg, lds_at_write=lds_at_write)
+
+
+class TestMultiWG:
+    """Multi-workgroup correctness, orthogonal to pipeline/operand-path sweep."""
+
+    @pytest.mark.parametrize(
+        "num_workgroups,num_waves_per_wg,num_tiles_per_wg",
+        [
+            ([3, 2, 1], [1, 1, 1], [3, 2, 1]),
+            ([2, 2, 1], [2, 2, 1], [4, 4, 1]),
+            ([2, 3, 1], [2, 2, 1], [6, 6, 1]),
+        ],
+        ids=["mwg3x2_1w_3x2", "mwg2x2_4w_4x4", "mwg2x3_4w_6x6"],
+    )
+    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
+    def test_correctness(self, num_workgroups, num_waves_per_wg, num_tiles_per_wg, pipeline_strategy):
+        cfg = _make_instance(
+            num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult=4, pipeline_strategy=pipeline_strategy
+        )
+        _run_multitile(cfg)
+
+
+class TestOperandPath:
+    """Operand path (LDS vs direct_b) sweep, orthogonal to geometry/pipeline."""
+
+    @pytest.mark.parametrize(
+        "num_waves_per_wg,num_tiles_per_wg",
+        [
+            ([1, 1, 1], [3, 2, 1]),
+            ([2, 2, 1], [6, 4, 1]),
+            ([4, 2, 1], [12, 6, 1]),
+        ],
+        ids=["1w_3x2", "4w_6x4", "8w_12x6"],
+    )
+    @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
+    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, b_path, pipeline_strategy):
+        cfg = _make_instance(
+            [1, 1, 1], num_waves_per_wg, num_tiles_per_wg, k_mult=4, pipeline_strategy=pipeline_strategy, b_path=b_path
+        )
+        _run_multitile(cfg)
 
 
 # ---------------------------------------------------------------------------

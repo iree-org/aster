@@ -161,27 +161,29 @@ def _min_k_iters(twg_k, ps):
     return max(PS[ps].values()) + 1
 
 
-class TestPythonGEMMPingPong:
+class TestPingPongGeometry:
+    """Tile geometry sweep for ping-pong schedule, fixed pipeline.
+
+    Validates different 8-wave tile shapes with staggered barriers.
+    Pipeline strategy is tested independently below.
+    """
+
     @pytest.mark.parametrize(
-        "num_workgroups,num_waves_per_wg,num_tiles_per_wg",
+        "num_waves_per_wg,num_tiles_per_wg",
         [
             # 8 waves (4x2)
-            ([1, 1, 1], [4, 2, 1], [8, 4, 1]),
-            ([1, 1, 1], [4, 2, 1], [8, 6, 1]),
-            ([1, 1, 1], [4, 2, 1], [8, 8, 1]),
-            ([1, 1, 1], [4, 2, 1], [12, 4, 1]),
-            ([1, 1, 1], [4, 2, 1], [12, 6, 1]),
-            ([1, 1, 1], [4, 2, 1], [12, 8, 1]),
+            ([4, 2, 1], [8, 4, 1]),
+            ([4, 2, 1], [8, 6, 1]),
+            ([4, 2, 1], [8, 8, 1]),
+            ([4, 2, 1], [12, 4, 1]),
+            ([4, 2, 1], [12, 6, 1]),
+            ([4, 2, 1], [12, 8, 1]),
             # 8 waves (2x4)
-            ([1, 1, 1], [2, 4, 1], [4, 8, 1]),
-            ([1, 1, 1], [2, 4, 1], [6, 8, 1]),
-            ([1, 1, 1], [2, 4, 1], [8, 8, 1]),
-            ([1, 1, 1], [2, 4, 1], [8, 12, 1]),
-            ([1, 1, 1], [2, 4, 1], [12, 8, 1]),
-            # Multi-WG (8 waves)
-            ([2, 2, 1], [4, 2, 1], [8, 4, 1]),
-            ([2, 2, 1], [2, 4, 1], [8, 8, 1]),
-            ([3, 2, 1], [4, 2, 1], [8, 6, 1]),
+            ([2, 4, 1], [4, 8, 1]),
+            ([2, 4, 1], [6, 8, 1]),
+            ([2, 4, 1], [8, 8, 1]),
+            ([2, 4, 1], [8, 12, 1]),
+            ([2, 4, 1], [12, 8, 1]),
         ],
         ids=[
             "8w_4x2_8x4",
@@ -195,25 +197,52 @@ class TestPythonGEMMPingPong:
             "8w_2x4_8x8",
             "8w_2x4_8x12",
             "8w_2x4_12x8",
-            "mwg2x2_8w_4x2_8x4",
-            "mwg2x2_8w_2x4_8x8",
-            "mwg3x2_8w_4x2_8x6",
         ],
+    )
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg):
+        _run_ping_pong(_make_instance([1, 1, 1], num_waves_per_wg, num_tiles_per_wg, k_mult=4, pipeline_strategy=3))
+
+
+class TestPingPongPipeline:
+    """Pipeline strategy x k_mult sweep for ping-pong, fixed geometry.
+
+    Tests pipeline depth interaction with K iterations under staggered
+    barriers. Uses two representative 8-wave geometries.
+    """
+
+    @pytest.mark.parametrize(
+        "num_waves_per_wg,num_tiles_per_wg",
+        [
+            ([4, 2, 1], [8, 6, 1]),
+            ([2, 4, 1], [8, 8, 1]),
+        ],
+        ids=["8w_4x2_8x6", "8w_2x4_8x8"],
     )
     @pytest.mark.parametrize("k_mult", [2, 4, 8], ids=["km2", "km4", "km8"])
     @pytest.mark.parametrize("pipeline_strategy", [1, 3, 5], ids=["ps1", "ps3", "ps5"])
-    def test_correctness(
-        self,
-        num_workgroups,
-        num_waves_per_wg,
-        num_tiles_per_wg,
-        k_mult,
-        pipeline_strategy,
-    ):
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy):
         k_t = num_tiles_per_wg[DIM_K]
         if k_mult < _min_k_iters(k_t, pipeline_strategy):
             pytest.skip(f"k_mult={k_mult} < min_k_iters for ps{pipeline_strategy}")
-        _run_ping_pong(_make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy))
+        _run_ping_pong(_make_instance([1, 1, 1], num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy))
+
+
+class TestPingPongMultiWG:
+    """Multi-workgroup ping-pong correctness, orthogonal to geometry/pipeline."""
+
+    @pytest.mark.parametrize(
+        "num_workgroups,num_waves_per_wg,num_tiles_per_wg",
+        [
+            ([2, 2, 1], [4, 2, 1], [8, 4, 1]),
+            ([2, 2, 1], [2, 4, 1], [8, 8, 1]),
+            ([3, 2, 1], [4, 2, 1], [8, 6, 1]),
+        ],
+        ids=["mwg2x2_8w_4x2_8x4", "mwg2x2_8w_2x4_8x8", "mwg3x2_8w_4x2_8x6"],
+    )
+    def test_correctness(self, num_workgroups, num_waves_per_wg, num_tiles_per_wg):
+        _run_ping_pong(
+            _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult=4, pipeline_strategy=3)
+        )
 
 
 if __name__ == "__main__":
