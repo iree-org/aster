@@ -44,7 +44,6 @@ from bench_harness import (
 )
 from sweep_harness import (
     GEMM_SWEEP_PIN_MAP,
-    MFMA_M,
     SweepGrid,
     add_gemm_sweep_axes,
     add_geometry_pin_args,
@@ -63,6 +62,12 @@ from sweep_harness import (
 # --- Constants ---
 
 _HW = query_gpu_hw()
+_SPEC = GemmSpec.from_sizes(16, 16, 32)
+_TILE_ELTS = GemmMappingSpec(
+    num_workgroups_per_kernel=[1, 1, 1],
+    num_waves_per_workgroup=[1, 1, 1],
+    num_tiles_per_wave=[1, 1, 1],
+).tile_elements(_SPEC.mfma_shape)
 
 
 # --- Sweep grid ---
@@ -70,9 +75,9 @@ _HW = query_gpu_hw()
 
 def _build_instance(d: dict) -> WeakScaledMappedGemmInstance:
     _wg_m, _wg_n = wg_m(d, _HW), wg_n(d)
-    M = _wg_m * d["twg_m"] * MFMA_M
-    N = _wg_n * d["twg_n"] * MFMA_M
-    K = d["k_factor"] * d["twg_k"] * 32
+    M = d["target_M"]
+    N = d["target_N"]
+    K = d["target_K"]
     spec = GemmSpec.from_sizes(M, N, K)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
@@ -106,7 +111,7 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
 def make_sweep_grid(variants, check_regs: bool = True) -> SweepGrid:
     grid = SweepGrid()
     grid.axis("variant", [v for v in variants if v in MLIR_FILES])
-    add_gemm_sweep_axes(grid, _HW)
+    add_gemm_sweep_axes(grid, _HW, _TILE_ELTS)
 
     if check_regs:
         add_resource_filter(

@@ -3,9 +3,17 @@
 Single config (repro):
     python .../bench_perf_102_... m4864xn4096xk8192_wg38x32x1_w2x2x1_twg8x8x1_...
 
-Sweep:
+Sweep (default M=N=K=4096):
     python .../bench_perf_102_... --compile-sample 100
-    python .../bench_perf_102_... --tiles-per-wg-m 4 --tiles-per-wg-n 4
+
+Pin individual dimensions (others default to 4096):
+    python .../bench_perf_102_... --compile-sample 500 --m 2432 --k 128
+
+Pin all three at once (exclusive with --m/--n/--k):
+    python .../bench_perf_102_... --compile-sample 500 --size 2432x12288x4096
+
+Heuristic-guided sweep:
+    python .../bench_perf_102_... --compile-sample 500 --heuristic
 """
 
 import os
@@ -39,8 +47,8 @@ from bench_harness import (
     run_single,
 )
 from sweep_harness import (
+    DEFAULT_DIM,
     GEMM_SWEEP_PIN_MAP,
-    MFMA_M,
     SweepGrid,
     add_gemm_sweep_axes,
     add_geometry_pin_args,
@@ -52,24 +60,31 @@ from sweep_harness import (
     resolve_derived_pins,
     verify_top_configs,
     wg_m,
-    wg_n,
 )
+from bench_sweep_heuristic import make_score_fn
 
 
 # --- Constants ---
 
 _HW = query_gpu_hw()
+# Default spec + mapping for tile_elements derivation.
+_SPEC = GemmSpec.from_sizes(16, 16, 32)
+_MAPPING = GemmMappingSpec(
+    num_workgroups_per_kernel=[1, 1, 1],
+    num_waves_per_workgroup=[1, 1, 1],
+    num_tiles_per_wave=[1, 1, 1],
+)
+_TILE_M, _TILE_N, _TILE_K = _MAPPING.tile_elements(_SPEC.mfma_shape)
 
 
 # --- Sweep grid ---
 
 
 def _build_instance(d: dict) -> MultitileGemmInstance:
-    _wg_m, _wg_n = wg_m(d, _HW), wg_n(d)
+    M, N, K = d["target_M"], d["target_N"], d["target_K"]
+    _wg_m = M // (d["twg_m"] * _TILE_M)
+    _wg_n = N // (d["twg_n"] * _TILE_N)
     _nwgcu = nwgcu(d, _HW)
-    M = _wg_m * d["twg_m"] * MFMA_M
-    N = _wg_n * d["twg_n"] * MFMA_M
-    K = d["k_factor"] * d["twg_k"] * 32
     spec = GemmSpec.from_sizes(M, N, K)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
@@ -91,23 +106,31 @@ def _build_instance(d: dict) -> MultitileGemmInstance:
 
 
 def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
+    _wg_m = d["target_M"] // (d["twg_m"] * _TILE_M)
+    _wg_n = d["target_N"] // (d["twg_n"] * _TILE_N)
     return GemmMappingSpec(
-        num_workgroups_per_kernel=[wg_m(d, _HW), wg_n(d), 1],
+        num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
         operand_path=OperandPath(d["variant"]),
         num_wg_per_cu=nwgcu(d, _HW),
         lds_at_write=d["lds_at_write"],
-        dealloc_at_read=True,  # test_102 builder deallocates LDS at READ stage
+        dealloc_at_read=True,
     )
 
 
-def make_sweep_grid(variants: list[str], check_regs: bool = True) -> SweepGrid:
+def make_sweep_grid(
+    variants: list[str],
+    check_regs: bool = True,
+    target_m: int | None = DEFAULT_DIM,
+    target_n: int | None = DEFAULT_DIM,
+    target_k: int | None = DEFAULT_DIM,
+) -> SweepGrid:
     grid = SweepGrid()
     grid.axis("variant", variants)
     grid.axis("lds_at_write", [False, True])
-    add_gemm_sweep_axes(grid, _HW)
+    add_gemm_sweep_axes(grid, _HW, [_TILE_M, _TILE_N, _TILE_K], target_m=target_m, target_n=target_n, target_k=target_k)
     grid.axis("set_mfma_priority", [True, False])
 
     if check_regs:
@@ -134,6 +157,30 @@ def _from_label(label: str) -> MultitileGemmInstance:
     return MultitileGemmInstance(base.spec, base.mapping)
 
 
+# --- Size parsing ---
+
+
+def _parse_size_args(args, parser) -> tuple[int, int, int]:
+    """Resolve --size vs --m/--n/--k into (target_m, target_n, target_k).
+
+    --size MxNxK is exclusive with --m/--n/--k.
+    Unpinned dimensions default to DEFAULT_DIM.
+    """
+    has_mnk = any(getattr(args, a, None) is not None for a in ("m", "n", "k"))
+    if args.size and has_mnk:
+        parser.error("--size is exclusive with --m/--n/--k")
+    if args.size:
+        parts = args.size.split("x")
+        if len(parts) != 3:
+            parser.error("--size must be MxNxK (e.g., 2432x12288x4096)")
+        return int(parts[0]), int(parts[1]), int(parts[2])
+    return (
+        getattr(args, "m", None) or DEFAULT_DIM,
+        getattr(args, "n", None) or DEFAULT_DIM,
+        getattr(args, "k", None) or DEFAULT_DIM,
+    )
+
+
 # --- Entry point ---
 
 
@@ -151,11 +198,24 @@ def main():
     parser = argparse.ArgumentParser(description="Python multi-tile GEMM benchmark sweep (test_102)")
     add_sweep_cli_args(parser)
     add_geometry_pin_args(parser)
-    parser.add_argument("--k-scaling-factor", type=int, help="Pin K scaling factor")
+    parser.add_argument("--m", type=int, default=None, help=f"M dimension (default: {DEFAULT_DIM})")
+    parser.add_argument("--n", type=int, default=None, help=f"N dimension (default: {DEFAULT_DIM})")
+    parser.add_argument("--k", type=int, default=None, help=f"K dimension (default: {DEFAULT_DIM})")
+    parser.add_argument(
+        "--size", type=str, default=None, metavar="MxNxK", help="Pin all dimensions (exclusive with --m/--n/--k)"
+    )
     parser.add_argument("--desired-simd-occupancy", type=int, default=None, help="Pin SIMD occupancy")
     parser.add_argument("--direct-b", action=argparse.BooleanOptionalAction, default=None, help="B via preshuffle")
     parser.add_argument("--set-mfma-priority", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument(
+        "--heuristic",
+        action="store_true",
+        help="Bias sampling toward CART-derived promising configs",
+    )
     args = parser.parse_args()
+
+    target_m, target_n, target_k = _parse_size_args(args, parser)
+    print(f"Size: M={target_m}, N={target_n}, K={target_k}")
 
     all_paths = ["lds", "direct_b"]
     if args.direct_b is True:
@@ -164,21 +224,26 @@ def main():
         all_paths = ["lds"]
     print(f"Variants: {', '.join(all_paths)}")
 
+    check_regs = not getattr(args, "no_reg_filter", False)
+    sample_size = getattr(args, "compile_sample", 4096)
+
     pins = make_sweep_pins(args, GEMM_SWEEP_PIN_MAP)
     pins = resolve_derived_pins(pins or {})
 
     grid = make_sweep_grid(
-        all_paths,
-        check_regs=not getattr(args, "no_reg_filter", False),
+        all_paths, check_regs=check_regs,
+        target_m=target_m, target_n=target_n, target_k=target_k,
     )
     if "_wg_m" in (pins or {}):
         target = pins.pop("_wg_m")
         grid.filter("waves_m", "waves_n", "occ", check=lambda d, t=target: wg_m(d, _HW) == t)
 
+    priority_fn = make_score_fn("102") if args.heuristic else None
     all_configs, total = grid.generate(
         pins=pins or None,
-        sample_size=getattr(args, "compile_sample", 4096),
+        sample_size=sample_size,
         stratification_key=lambda d: d["variant"],
+        priority_fn=priority_fn,
     )
 
     results = bench_perf_sweep_pipelined(

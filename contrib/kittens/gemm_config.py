@@ -215,6 +215,9 @@ class GemmMappingSpec:
     # K dimension is the number of transfer tiles along K.
     num_tiles_per_wave: list[int]
 
+    # Per-dimension tile multiplicity: elements per tile = mfma_shape * tile_mult.
+    tile_mult: list[int] = field(default_factory=lambda: [1, 1, 2])
+
     # --- Pipeline schedule ---
 
     # Pipeline strategy index. Determines the stage assignment for each
@@ -282,6 +285,10 @@ class GemmMappingSpec:
             base=self.lds_swizzle_base,
             shift=self.lds_swizzle_shift,
         )
+
+    def tile_elements(self, mfma_shape: list[int]) -> list[int]:
+        """[M, N, K] elements per tile = mfma_shape[d] * tile_mult[d]."""
+        return [s * m for s, m in zip(mfma_shape, self.tile_mult)]
 
     # --- Derived tile counts ---
 
@@ -565,7 +572,8 @@ class WeakScaledMappedGemmInstance:
 
     @property
     def k_scaling_factor(self) -> int:
-        return self.gemm_size[DIM_K] // (self.mapping.num_tiles_per_wave[DIM_K] * 32)
+        tile_k = self.mapping.tile_elements(self.spec.mfma_shape)[DIM_K]
+        return self.gemm_size[DIM_K] // (self.mapping.num_tiles_per_wave[DIM_K] * tile_k)
 
     # --- Label serde ---
 

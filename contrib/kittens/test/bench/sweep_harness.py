@@ -125,8 +125,10 @@ class SweepGrid:
 
         if sample_size > 0 and total > sample_size:
             if priority_fn is not None:
-                eligible.sort(key=priority_fn, reverse=True)
-                eligible = eligible[:sample_size]
+                # Weighted sampling: configs with higher scores are more
+                # likely to be selected, but all configs have a chance.
+                scores = [max(priority_fn(c), 0.01) for c in eligible]
+                eligible = random.choices(eligible, weights=scores, k=sample_size)
             elif stratification_key is not None:
                 eligible = _stratified_sample(eligible, stratification_key, sample_size)
             else:
@@ -314,11 +316,38 @@ WAVE_CONFIGS = sorted(
     }
 )
 
-# Minimum problem dimension (M, N, or K) to include in a sweep.
-MIN_DIM = 2000
 
-# MFMA tile size (from GemmSpec default mfma_shape[0]).
-MFMA_M = 16
+
+# Default problem dimension when not pinned via --m/--n/--k.
+DEFAULT_DIM = 4096
+
+
+def dim_values(
+    pin: int | None,
+    tile_size: int,
+    default: int = DEFAULT_DIM,
+    min_val: int = 1024,
+    max_val: int = 24576,
+    step: int = 128,
+) -> list[int]:
+    """Return the value set for a problem dimension axis.
+
+    This is the single mechanism for all size scenarios:
+      - pin is an int: returns [pin] (user pinned this dimension)
+      - pin is None: returns multiples of step in [min_val, max_val]
+        that are also divisible by tile_size
+
+    Used by --m/--n/--k, --size, and default sweep modes.
+    """
+    if pin is not None:
+        assert pin % tile_size == 0, f"{pin} not divisible by tile_size={tile_size}"
+        return [pin]
+    # Sweep: multiples of step that are also multiples of tile_size.
+    from math import gcd
+
+    effective_step = step * tile_size // gcd(step, tile_size)  # lcm
+    start = max(min_val, effective_step)
+    return list(range(start, max_val + 1, effective_step))
 
 
 # -- Derivation helpers (occupancy -> WG sizing) -----------------------------
@@ -362,17 +391,37 @@ def resolve_derived_pins(pins: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def add_gemm_sweep_axes(grid: SweepGrid, hw: GpuHwConstants) -> None:
-    """Add the standard GEMM geometry + scheduling axes and constraints.
+def add_gemm_sweep_axes(
+    grid: SweepGrid,
+    hw: GpuHwConstants,
+    tile_elements: list[int],
+    *,
+    target_m: int | None = DEFAULT_DIM,
+    target_n: int | None = DEFAULT_DIM,
+    target_k: int | None = DEFAULT_DIM,
+) -> None:
+    """Add problem-size + geometry + scheduling axes and constraints.
 
-    Adds: waves_m, waves_n, occ, n_mult, twg_m, twg_n, twg_k, ps, k_factor,
-    plus the 5 scheduling flag axes. Also adds all standard geometry constraints.
+    Problem dimensions (M, N, K) are controlled via dim_values():
+      - int: pin to that value
+      - None: sweep multiples of 128 in [1024, 24576]
+
+    ``tile_elements`` is [tile_m, tile_n, tile_k] from
+    ``GemmMappingSpec.tile_elements(spec.mfma_shape)``.
     """
     from kittens_helpers import PIPELINE_STRATEGIES as PS
+
+    tile_m, tile_n, tile_k = tile_elements
 
     _twg_m_vals = sorted({mw * mm for (mw, _), mm in itertools.product(WAVE_CONFIGS, range(1, 6))})
     _twg_n_vals = sorted({nw * nm for (_, nw), nm in itertools.product(WAVE_CONFIGS, range(1, 11))})
 
+    # Problem-size axes (placed first for early pruning).
+    grid.axis("target_M", dim_values(target_m, tile_m))
+    grid.axis("target_N", dim_values(target_n, tile_n))
+    grid.axis("target_K", dim_values(target_k, tile_k))
+
+    # Tile decomposition axes.
     grid.axis("waves_m", sorted({m for m, _ in WAVE_CONFIGS}))
     grid.axis("waves_n", sorted({n for _, n in WAVE_CONFIGS}))
     grid.axis("occ", [1, 2, 3, 4])
@@ -381,21 +430,36 @@ def add_gemm_sweep_axes(grid: SweepGrid, hw: GpuHwConstants) -> None:
     grid.axis("twg_n", _twg_n_vals)
     grid.axis("twg_k", list(range(1, 9)))
     grid.axis("ps", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    grid.axis("k_factor", [64, 128, 256])
     add_scheduling_axes(grid, unroll_multipliers=[1, 2, 3])
 
+    # Wave config validity.
     _wc = set(WAVE_CONFIGS)
     grid.filter("waves_m", "waves_n", check=lambda d: (d["waves_m"], d["waves_n"]) in _wc)
     grid.filter("waves_m", "waves_n", "occ", check=lambda d: d["occ"] % wps(d, hw) == 0)
     grid.filter("waves_m", "twg_m", check=lambda d: d["twg_m"] % d["waves_m"] == 0)
     grid.filter("waves_n", "twg_n", check=lambda d: d["twg_n"] % d["waves_n"] == 0)
+
+    # Size decomposition: target == wg * twg * tile_size, must divide evenly.
     grid.filter(
-        "waves_m", "waves_n", "occ", "twg_m",
-        check=lambda d: wg_m(d, hw) * d["twg_m"] * MFMA_M >= MIN_DIM,
+        "target_M", "twg_m",
+        check=lambda d, t=tile_m: d["target_M"] % (d["twg_m"] * t) == 0,
     )
-    grid.filter("n_mult", "twg_n", check=lambda d: wg_n(d) * d["twg_n"] * MFMA_M >= MIN_DIM)
-    grid.filter("ps", "k_factor", check=lambda d: d["k_factor"] > max(PS[d["ps"]].values()))
-    grid.filter("twg_k", "k_factor", check=lambda d: d["k_factor"] * d["twg_k"] * 32 >= MIN_DIM)
+    grid.filter(
+        "target_N", "twg_n",
+        check=lambda d, t=tile_n: d["target_N"] % (d["twg_n"] * t) == 0,
+    )
+
+    # K decomposition: target_K = k_iters * twg_k * tile_k.
+    # k_iters must exceed the deepest pipeline stage.
+    _ps_max = {ps: max(stages.values()) for ps, stages in PS.items()}
+    grid.filter(
+        "target_K", "twg_k",
+        check=lambda d, t=tile_k: d["target_K"] % (d["twg_k"] * t) == 0,
+    )
+    grid.filter(
+        "target_K", "twg_k", "ps",
+        check=lambda d, t=tile_k, pm=_ps_max: d["target_K"] // (d["twg_k"] * t) > pm[d["ps"]],
+    )
 
 
 # Standard pin mapping for CLI args -> axis names.
@@ -407,7 +471,6 @@ GEMM_SWEEP_PIN_MAP = {
     "tiles_per_wg_m": "twg_m",
     "tiles_per_wg_n": "twg_n",
     "tiles_per_wg_k": "twg_k",
-    "k_scaling_factor": "k_factor",
     "pipeline_strategy": "ps",
     "desired_simd_occupancy": "occ_pin",
     "unroll_multiplier": "unroll_mult",
