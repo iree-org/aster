@@ -8,8 +8,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Dialect/AMDGCN/Analysis/ReachingDefinitions.h"
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "llvm/ADT/STLExtras.h"
@@ -29,8 +31,9 @@ using namespace mlir::aster::amdgcn;
 
 namespace {
 struct GraphBuilder {
-  GraphBuilder(Block *block, const DataFlowSolver &solver)
-      : block(block), solver(const_cast<DataFlowSolver &>(solver)) {
+  GraphBuilder(Block *block, const DataFlowSolver &solver, bool useRegisterDeps)
+      : block(block), solver(const_cast<DataFlowSolver &>(solver)),
+        useRegisterDeps(useRegisterDeps) {
     assert(block && "expected a valid block");
   }
 
@@ -43,6 +46,9 @@ private:
 
   /// Build the non-SSA dependencies for the graph.
   void buildNonSSADeps(SchedGraph &graph);
+
+  /// Add edges from reaching definitions for DPS register ins/outs.
+  void buildRegisterDeps(SchedGraph &graph);
 
   /// Handle a wait operation.
   void handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait);
@@ -57,6 +63,7 @@ private:
   Block *block;
   SmallVector<int64_t> syncPoints;
   DataFlowSolver &solver;
+  bool useRegisterDeps;
 };
 } // namespace
 
@@ -71,6 +78,8 @@ ValueSchedulerAttr::initializeAnalyses(SchedAnalysis &analysis) const {
 LogicalResult GraphBuilder::run(SchedGraph &graph) {
   buildSSADeps(graph);
   buildNonSSADeps(graph);
+  if (useRegisterDeps)
+    buildRegisterDeps(graph);
   addI1SerializationEdges(graph);
   return success();
 }
@@ -86,9 +95,26 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
     bool hasEffects = op->hasTrait<OpTrait::HasRecursiveMemoryEffects>() ||
                       op->hasTrait<MemoryEffectOpInterface::Trait>();
 
+    bool isPureOp = mlir::isPure(op);
+
+    // If we're using register dependencies, then treat effects on register
+    // resources as non-effects.
+    if (useRegisterDeps && isa<InstOpInterface>(op)) {
+      auto eOp = dyn_cast<MemoryEffectOpInterface>(op);
+      SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>> effects;
+      if (eOp) {
+        eOp.getEffects(effects);
+        isPureOp = llvm::all_of(effects, [](const SideEffects::EffectInstance<
+                                             MemoryEffects::Effect> &effect) {
+          return isa<VGPRResource, SGPRResource, AGPRResource, SREGResource>(
+              effect.getResource());
+        });
+      }
+    }
+
     // If the operation has no side-effect we need to treat it as a possible
     // sync point. Same for non-pure operations.
-    if ((!hasEffects || !mlir::isPure(op)) &&
+    if ((!hasEffects || !isPureOp) &&
         !isa<LoadOp, StoreOp, AllocaOpInterface>(op)) {
       LDBG() << "Adding sync point: " << i;
       syncPoints.push_back(i);
@@ -141,6 +167,39 @@ void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
       graph.addEdge(point, syncPoint);
     for (int64_t point = syncPoint + 1; point < nextSyncPoint; point++)
       graph.addEdge(syncPoint, point);
+  }
+}
+
+void GraphBuilder::buildRegisterDeps(SchedGraph &graph) {
+  // Helper function to add edges from reaching definitions for register
+  // operands.
+  auto addEdges = [&](Operation *op, ValueRange values,
+                      const ReachingDefinitionsState *beforeState) {
+    for (Value value : values) {
+      FailureOr<ValueRange> allocasOrFailure = getAllocasOrFailure(value);
+      assert(succeeded(allocasOrFailure) && "expected valid allocas");
+      for (Value alloc : *allocasOrFailure) {
+        for (const Definition &def : beforeState->getRange(alloc)) {
+          assert(def.definition && "expected valid definition");
+          Operation *producer = def.definition->getOwner();
+          if (producer && producer->getBlock() == block)
+            graph.addEdge(producer, op);
+        }
+      }
+    }
+  };
+  for (Operation *op : graph.getOps()) {
+    auto instOp = dyn_cast<InstOpInterface>(op);
+    // Skip non-InstOpInterface operations.
+    if (!instOp)
+      continue;
+
+    const auto *beforeState = solver.lookupState<ReachingDefinitionsState>(
+        solver.getProgramPointBefore(op));
+    assert(beforeState && "expected valid reaching definitions state");
+    addEdges(op, instOp.getInstIns(), beforeState);
+    // Note: we have to add edges for the outs to avoid clobbering of values.
+    addEdges(op, instOp.getInstOuts(), beforeState);
   }
 }
 
@@ -305,7 +364,30 @@ FailureOr<SchedGraph>
 ValueSchedulerAttr::createGraph(Block *block,
                                 const SchedAnalysis &analysis) const {
   SchedGraph graph(block);
-  GraphBuilder builder(block, analysis.getSolver());
+  GraphBuilder builder(block, analysis.getSolver(), /*useRegisterDeps=*/false);
+  if (failed(builder.run(graph)))
+    return failure();
+  graph.compress();
+  return graph;
+}
+
+//===----------------------------------------------------------------------===//
+// RegisterSchedulerAttr - SchedGraphAttrInterface
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+RegisterSchedulerAttr::initializeAnalyses(SchedAnalysis &analysis) const {
+  analysis.getSolver().load<WaitAnalysis>(analysis.getDomInfo());
+  analysis.getSolver().load<ReachingDefinitionsAnalysis>();
+  analysis.setRunDataflowAnalyses();
+  return success();
+}
+
+FailureOr<SchedGraph>
+RegisterSchedulerAttr::createGraph(Block *block,
+                                   const SchedAnalysis &analysis) const {
+  SchedGraph graph(block);
+  GraphBuilder builder(block, analysis.getSolver(), /*useRegisterDeps=*/true);
   if (failed(builder.run(graph)))
     return failure();
   graph.compress();
