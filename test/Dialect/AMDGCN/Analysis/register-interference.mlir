@@ -256,9 +256,10 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %5 = alloca : !amdgcn.vgpr<?>
     test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
     test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
-    %8 = lsir.cmpi i32 eq %2, %c0_i32 : !amdgcn.sgpr<?>, i32
+    %scc = lsir.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 eq %scc, %2, %c0_i32 : !amdgcn.scc<0>, !amdgcn.sgpr<?>, i32
     %9 = alloca : !amdgcn.vgpr<?>
-    cf.cond_br %8, ^bb1, ^bb2
+    lsir.cond_br %scc : !amdgcn.scc<0>, ^bb1, ^bb2
   ^bb1:  // CHECK: pred: ^bb0
     test_inst outs %4 ins %0 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     %11 = alloca : !amdgcn.vgpr<?>
@@ -298,9 +299,10 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
     %3 = alloca : !amdgcn.sgpr<?>
     test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
     test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
-    %6 = lsir.cmpi i32 eq %2, %c0_i32 : !amdgcn.sgpr<?>, i32
+    %scc = lsir.alloca : !amdgcn.scc<0>
+    lsir.cmpi i32 eq %scc, %2, %c0_i32 : !amdgcn.scc<0>, !amdgcn.sgpr<?>, i32
     %7 = alloca : !amdgcn.vgpr<?>
-    cf.cond_br %6, ^bb1, ^bb2
+    lsir.cond_br %scc : !amdgcn.scc<0>, ^bb1, ^bb2
   ^bb1:  // CHECK: pred: ^bb0
     lsir.copy %7, %0 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^bb3

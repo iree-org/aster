@@ -1,11 +1,12 @@
-// RUN: aster-opt --pass-pipeline='builtin.module(any(amdgcn-convert-scf-control-flow))' %s \
+// RUN: aster-opt --pass-pipeline='builtin.module(any(aster-convert-scf-control-flow))' %s \
 // RUN:   | FileCheck %s
 
-// Verify that convert-scf-control-flow sets the no_scf_ops post-condition.
+// Verify that convert-scf-control-flow converts scf.for with no remaining SCF ops.
 
-// CHECK-LABEL: kernel @sets_postcondition
-// CHECK-SAME: attributes {normal_forms = [#amdgcn.no_scf_ops]}
-amdgcn.kernel @sets_postcondition {
+// CHECK-LABEL: kernel @no_remaining_scf
+// CHECK-NOT: scf.for
+// CHECK-NOT: scf.if
+amdgcn.kernel @no_remaining_scf {
 ^bb0:
   %0 = amdgcn.alloca : !amdgcn.vgpr<3>
   amdgcn.end_kernel

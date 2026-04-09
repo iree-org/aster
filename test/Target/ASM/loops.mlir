@@ -44,17 +44,17 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   ^entry:
     %c5 = arith.constant 5 : i32
     %c4 = arith.constant 4 : i32
-    %scc = amdgcn.alloca : !amdgcn.scc
+    %scc = amdgcn.alloca : !amdgcn.scc<0>
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
     %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
 
     amdgcn.sop1 s_mov_b32 outs %s0 ins %c5 : !amdgcn.sgpr<0>, i32
     amdgcn.sop1 s_mov_b32 outs %s1 ins %c4 : !amdgcn.sgpr<1>, i32
     amdgcn.cmpi s_cmp_le_i32 outs %scc ins %s0, %s1
-      : outs(!amdgcn.scc) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
+      : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
 
     amdgcn.cbranch s_cbranch_scc1 %scc ^then fallthrough (^else)
-      : !amdgcn.scc
+      : !amdgcn.scc<0>
   ^else:
     amdgcn.end_kernel
   ^then:
@@ -68,7 +68,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   ^entry:
     %c10 = arith.constant 10 : i32
     %c9 = arith.constant 9 : i32
-    %scc = amdgcn.alloca : !amdgcn.scc
+    %scc = amdgcn.alloca : !amdgcn.scc<0>
     %s2 = amdgcn.alloca : !amdgcn.sgpr<2>
     %s3 = amdgcn.alloca : !amdgcn.sgpr<3>
 
@@ -78,9 +78,9 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 
   ^loop_header:
     amdgcn.cmpi s_cmp_lt_i32 outs %scc ins %s3, %s2
-      : outs(!amdgcn.scc) ins(!amdgcn.sgpr<3>, !amdgcn.sgpr<2>)
+      : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<3>, !amdgcn.sgpr<2>)
     amdgcn.cbranch s_cbranch_scc0 %scc ^exit fallthrough (^loop_body)
-      : !amdgcn.scc
+      : !amdgcn.scc<0>
   ^loop_body:
     amdgcn.branch s_branch ^loop_header
   ^exit:

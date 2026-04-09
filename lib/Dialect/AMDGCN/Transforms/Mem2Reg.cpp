@@ -63,8 +63,8 @@ void Mem2Reg::runOnOperation() {
       SmallVector<Value> allocas;
       RegisterRange range = regType.getAsRange();
       for (int16_t i = 0; i < range.size(); ++i) {
-        Register reg = regType.isRelocatable()
-                           ? Register()
+        Register reg = !regType.hasAllocatedSemantics()
+                           ? range.begin()
                            : Register(range.begin().getRegister() + i);
         allocas.push_back(amdgcn::AllocaOp::create(
             rewriter, pOp.getLoc(), getRegisterType(regType, reg)));

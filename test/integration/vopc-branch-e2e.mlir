@@ -43,9 +43,10 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa
     %v_false = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_false_alloc, %c99
       : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
     %v_out_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %cmp = lsir.cmpi i32 slt %tid, %c100 : !amdgcn.vgpr, i32
+    %vcc0 = lsir.alloca : !amdgcn.vcc
+    %cmp = lsir.cmpi i32 slt %vcc0, %tid, %c100 : !amdgcn.vcc, !amdgcn.vgpr, i32
     %selected = lsir.select %v_out_alloc, %cmp, %v_true, %v_false
-      : !amdgcn.vgpr, i1, !amdgcn.vgpr, !amdgcn.vgpr
+      : !amdgcn.vgpr, !amdgcn.vcc, !amdgcn.vgpr, !amdgcn.vgpr
     %tok = amdgcn.store global_store_dword data %selected addr %out_ptr
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
@@ -74,9 +75,10 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa
     %v_false = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_false_alloc, %c99
       : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
     %v_out_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %cmp = lsir.cmpi i32 slt %tid, %c0 : !amdgcn.vgpr, i32
+    %vcc1 = lsir.alloca : !amdgcn.vcc
+    %cmp = lsir.cmpi i32 slt %vcc1, %tid, %c0 : !amdgcn.vcc, !amdgcn.vgpr, i32
     %selected = lsir.select %v_out_alloc, %cmp, %v_true, %v_false
-      : !amdgcn.vgpr, i1, !amdgcn.vgpr, !amdgcn.vgpr
+      : !amdgcn.vgpr, !amdgcn.vcc, !amdgcn.vgpr, !amdgcn.vgpr
     %tok = amdgcn.store global_store_dword data %selected addr %out_ptr
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
@@ -107,9 +109,10 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa
     %v_false = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_false_alloc, %c99
       : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
     %v_out_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %cmp = lsir.cmpi i32 slt %tid, %c32 : !amdgcn.vgpr, i32
+    %vcc2 = lsir.alloca : !amdgcn.vcc
+    %cmp = lsir.cmpi i32 slt %vcc2, %tid, %c32 : !amdgcn.vcc, !amdgcn.vgpr, i32
     %selected = lsir.select %v_out_alloc, %cmp, %v_true, %v_false
-      : !amdgcn.vgpr, i1, !amdgcn.vgpr, !amdgcn.vgpr
+      : !amdgcn.vgpr, !amdgcn.vcc, !amdgcn.vgpr, !amdgcn.vgpr
     %tok = amdgcn.store global_store_dword data %selected addr %out_ptr
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)

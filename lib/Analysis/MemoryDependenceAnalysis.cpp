@@ -177,9 +177,9 @@ bool MemoryDependenceAnalysis::isStoreOp(Operation *op) {
 
 static int64_t computeAccessLength(Type type) {
   if (auto regType = dyn_cast<RegisterTypeInterface>(type)) {
-    std::optional<int64_t> sizeInBytes = regType.getSizeInBytes();
-    assert(sizeInBytes.has_value() && "register type must have valid size");
-    return *sizeInBytes;
+    std::optional<int64_t> sizeInBits = regType.getSizeInBits();
+    assert(sizeInBits.has_value() && "register type must have valid size");
+    return *sizeInBits / 8;
   }
   // Conservative: assume 4 bytes if we can't determine precisely.
   return 4;

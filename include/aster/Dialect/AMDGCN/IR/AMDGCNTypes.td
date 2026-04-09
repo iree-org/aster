@@ -50,14 +50,9 @@ def AGPRType : AMDGCN_RegisterDef<"AGPR", "agpr", [MemRefElementTypeInterface]> 
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{
     Register getReg() const { return getRange().begin(); }
-
-    /// Returns true if the register is relocatable.
-    bool isRelocatable() const { return getReg().isRelocatable(); }
-
     //===------------------------------------------------------------------===//
     // RegisterTypeInterface
     //===------------------------------------------------------------------===//
-    bool isRegisterRange() const { return getRange().size() > 1; }
     RegisterRange getAsRange() const {
       return getRange();
     }
@@ -66,9 +61,6 @@ def AGPRType : AMDGCN_RegisterDef<"AGPR", "agpr", [MemRefElementTypeInterface]> 
     }
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       return AGPRType::get(getContext(), range);
-    }
-    RegisterTypeInterface cloneRegisterType(Register reg) const {
-      return AGPRType::get(getContext(), RegisterRange(reg, 1));
     }
 
     //===------------------------------------------------------------------===//
@@ -97,14 +89,9 @@ def SGPRType : AMDGCN_RegisterDef<"SGPR", "sgpr", [MemRefElementTypeInterface]> 
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{
     Register getReg() const { return getRange().begin(); }
-
-    /// Returns true if the register is relocatable.
-    bool isRelocatable() const { return getReg().isRelocatable(); }
-
     //===------------------------------------------------------------------===//
     // RegisterTypeInterface
     //===------------------------------------------------------------------===//
-    bool isRegisterRange() const { return getRange().size() > 1; }
     RegisterRange getAsRange() const {
       return getRange();
     }
@@ -113,9 +100,6 @@ def SGPRType : AMDGCN_RegisterDef<"SGPR", "sgpr", [MemRefElementTypeInterface]> 
     }
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       return SGPRType::get(getContext(), range);
-    }
-    RegisterTypeInterface cloneRegisterType(Register reg) const {
-      return SGPRType::get(getContext(), RegisterRange(reg, 1));
     }
 
     //===------------------------------------------------------------------===//
@@ -145,13 +129,9 @@ def VGPRType : AMDGCN_RegisterDef<"VGPR", "vgpr", [MemRefElementTypeInterface]> 
   let extraClassDeclaration = [{
     Register getReg() const { return getRange().begin(); }
 
-    /// Returns true if the register is relocatable.
-    bool isRelocatable() const { return getRange().begin().isRelocatable(); }
-
     //===------------------------------------------------------------------===//
     // RegisterTypeInterface
     //===------------------------------------------------------------------===//
-    bool isRegisterRange() const { return getRange().size() > 1; }
     RegisterRange getAsRange() const {
       return getRange();
     }
@@ -160,9 +140,6 @@ def VGPRType : AMDGCN_RegisterDef<"VGPR", "vgpr", [MemRefElementTypeInterface]> 
     }
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       return VGPRType::get(getContext(), range);
-    }
-    RegisterTypeInterface cloneRegisterType(Register reg) const {
-      return VGPRType::get(getContext(), RegisterRange(reg, 1));
     }
 
     //===------------------------------------------------------------------===//
@@ -177,70 +154,42 @@ def VGPRType : AMDGCN_RegisterDef<"VGPR", "vgpr", [MemRefElementTypeInterface]> 
 //===----------------------------------------------------------------------===//
 
 /// Special registers to model state.
-def SREGType : AMDGCN_RegisterDef<"SREG", "sreg", [MemRefElementTypeInterface]> {
-  let summary = "SREG type";
-  let parameters = (ins
-    DefaultValuedParameter<"Register", "Register()">:$reg,
-    "SregKind":$kind);
-  let assemblyFormat = "`<`$kind (`,` $reg^)?`>`";
-  let genVerifyDecl = 1;
-  let extraClassDeclaration = [{
-    /// Returns true if the register is relocatable.
-    bool isRelocatable() const { return getReg().isRelocatable(); }
-
-    //===------------------------------------------------------------------===//
-    // RegisterTypeInterface
-    //===------------------------------------------------------------------===//
-    bool isRegisterRange() const { return false; }
-    RegisterRange getAsRange() const {
-      return RegisterRange(getReg(), 1);
-    }
-    RegisterKind getRegisterKind() const {
-      return RegisterKind::SREG;
-    }
-    RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
-      assert(range.size() == 1 && "SREG type can only clone single register");
-      return SREGType::get(getContext(), range.begin(), getKind());
-    }
-    RegisterTypeInterface cloneRegisterType(Register reg) const {
-      return SREGType::get(getContext(), reg, getKind());
-    }
-
-    //===------------------------------------------------------------------===//
-    // ResourceTypeInterface
-    //===------------------------------------------------------------------===//
-    Resource *getResource() const;
-  }];
-}
-
-/// Special registers to model state.
 class SREGBase<string name, string mnemonic, string kind>
     : AMDGCN_RegisterDef<name, mnemonic, [MemRefElementTypeInterface]> {
   let summary = kind # " special register type";
-  let assemblyFormat = "";
+  let parameters = (ins
+    DefaultValuedParameter<"Register", "Register()">:$reg
+  );
+  let assemblyFormat = "(`<` $reg^ `>`)?";
+  let builders = [
+    TypeBuilder<(ins CArg<"Register", "Register(0)">:$reg), [{
+      return $_get($_ctxt, normalizeRegister(reg));
+    }]>
+  ];
+  let skipDefaultBuilders = 1;
   string declarations = StrSubst<[{
     /// The register kind for this SREG type.
     static constexpr RegisterKind kRegisterKind = RegisterKind::$kind;
     }], [VarRepl<"kind", kind>]>.result;
   let extraClassDeclaration = declarations # [{
-    /// Returns true if the register is relocatable.
-    bool isRelocatable() const { return false; }
+    static Register normalizeRegister(Register reg) {
+      if (reg.getSemantics() == RegisterSemantics::Unallocated)
+        return Register(0);
+      return reg;
+    }
 
     //===------------------------------------------------------------------===//
     // RegisterTypeInterface
     //===------------------------------------------------------------------===//
-    bool isRegisterRange() const { return false; }
     RegisterRange getAsRange() const {
-      return RegisterRange(Register(0), 1);
+      return RegisterRange(getReg(), 1);
     }
     RegisterKind getRegisterKind() const {
       return kRegisterKind;
     }
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
-      return get(getContext());
-    }
-    RegisterTypeInterface cloneRegisterType(Register reg) const {
-      return get(getContext());
+      assert(range.size() == 1 && "SREG type can only clone single register");
+      return get(getContext(), range.begin());
     }
 
     //===------------------------------------------------------------------===//

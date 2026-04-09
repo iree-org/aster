@@ -16,17 +16,17 @@
 amdgcn.module @m0_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   amdgcn.kernel @test_s_mov_m0_imm {
   ^entry:
-    %m0 = amdgcn.alloca : !amdgcn.m0
+    %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %c1024 = arith.constant 1024 : i32
-    amdgcn.sop1 s_mov_b32 outs %m0 ins %c1024 : !amdgcn.m0, i32
+    amdgcn.sop1 s_mov_b32 outs %m0 ins %c1024 : !amdgcn.m0<0>, i32
     amdgcn.end_kernel
   }
 
   amdgcn.kernel @test_s_mov_m0_sgpr {
   ^entry:
-    %m0 = amdgcn.alloca : !amdgcn.m0
+    %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
-    amdgcn.sop1 s_mov_b32 outs %m0 ins %s0 : !amdgcn.m0, !amdgcn.sgpr<0>
+    amdgcn.sop1 s_mov_b32 outs %m0 ins %s0 : !amdgcn.m0<0>, !amdgcn.sgpr<0>
     amdgcn.end_kernel
   }
 }

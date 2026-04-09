@@ -18,6 +18,7 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/InliningUtils.h"
 
@@ -196,6 +197,35 @@ LogicalResult RegCastOp::canonicalize(RegCastOp op,
     return success();
   }
   return failure();
+}
+
+//===----------------------------------------------------------------------===//
+// LSIR BranchOp
+//===----------------------------------------------------------------------===//
+
+SuccessorOperands BranchOp::getSuccessorOperands(unsigned index) {
+  assert(index == 0 && "invalid successor index");
+  return SuccessorOperands(getDestOperandsMutable());
+}
+
+Block *BranchOp::getSuccessorForOperands(ArrayRef<Attribute>) {
+  return getDest();
+}
+
+//===----------------------------------------------------------------------===//
+// LSIR CondBranchOp
+//===----------------------------------------------------------------------===//
+
+SuccessorOperands CondBranchOp::getSuccessorOperands(unsigned index) {
+  assert(index < 2 && "invalid successor index");
+  return SuccessorOperands(index == 0 ? getTrueDestOperandsMutable()
+                                      : getFalseDestOperandsMutable());
+}
+
+Block *CondBranchOp::getSuccessorForOperands(ArrayRef<Attribute> operands) {
+  if (auto condAttr = dyn_cast_or_null<IntegerAttr>(operands.front()))
+    return condAttr.getValue().isOne() ? getTrueDest() : getFalseDest();
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//

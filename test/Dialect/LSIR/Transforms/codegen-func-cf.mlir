@@ -2,13 +2,13 @@
 
 // CHECK-LABEL: amdgcn.module @test
 // CHECK:   func.func @loop_func
-// CHECK:     cf.cond_br %{{.*}}, ^bb1(%{{.*}} : !amdgcn.sgpr), ^bb2
+// CHECK:     lsir.cond_br %{{.*}}, ^bb1(%{{.*}} : !amdgcn.sgpr), ^bb2
 // CHECK:   ^bb1(%{{.*}}: !amdgcn.sgpr):
-// CHECK:     cf.cond_br %{{.*}}, ^bb1(%{{.*}} : !amdgcn.sgpr), ^bb2
+// CHECK:     lsir.cond_br %{{.*}}, ^bb1(%{{.*}} : !amdgcn.sgpr), ^bb2
 // CHECK:   ^bb2:
 
 amdgcn.module @test target = <gfx942> isa = <cdna3> {
-  func.func @loop_func(%arg0: i32, %n: i32) {
+  func.func @loop_func(%arg0: i32, %n: i32) attributes {gpu.kernel} {
     %c0 = arith.constant 0 : i32
     %c1 = arith.constant 1 : i32
     %cmp_init = arith.cmpi slt, %c0, %n : i32
