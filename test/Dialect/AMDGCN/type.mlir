@@ -5,10 +5,10 @@
 !sgpr3 = !amdgcn.sgpr<[0 : 3]>
 !sgpr4 = !amdgcn.sgpr<[0 : 4 align 8]>
 
-!vcc = !amdgcn.vcc
-!scc = !amdgcn.scc
-!exec = !amdgcn.exec
-!execz = !amdgcn.execz
+!vcc = !amdgcn.vcc<0>
+!scc = !amdgcn.scc<0>
+!exec = !amdgcn.exec<0>
+!execz = !amdgcn.execz<0>
 
 func.func private @test(
   !amdgcn.vgpr<*>, !amdgcn.vgpr<?>, !amdgcn.vgpr<5>,
