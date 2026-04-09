@@ -177,43 +177,6 @@ def VGPRType : AMDGCN_RegisterDef<"VGPR", "vgpr", [MemRefElementTypeInterface]> 
 //===----------------------------------------------------------------------===//
 
 /// Special registers to model state.
-def SREGType : AMDGCN_RegisterDef<"SREG", "sreg", [MemRefElementTypeInterface]> {
-  let summary = "SREG type";
-  let parameters = (ins
-    DefaultValuedParameter<"Register", "Register()">:$reg,
-    "SregKind":$kind);
-  let assemblyFormat = "`<`$kind (`,` $reg^)?`>`";
-  let genVerifyDecl = 1;
-  let extraClassDeclaration = [{
-    /// Returns true if the register is relocatable.
-    bool isRelocatable() const { return getReg().isRelocatable(); }
-
-    //===------------------------------------------------------------------===//
-    // RegisterTypeInterface
-    //===------------------------------------------------------------------===//
-    bool isRegisterRange() const { return false; }
-    RegisterRange getAsRange() const {
-      return RegisterRange(getReg(), 1);
-    }
-    RegisterKind getRegisterKind() const {
-      return RegisterKind::SREG;
-    }
-    RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
-      assert(range.size() == 1 && "SREG type can only clone single register");
-      return SREGType::get(getContext(), range.begin(), getKind());
-    }
-    RegisterTypeInterface cloneRegisterType(Register reg) const {
-      return SREGType::get(getContext(), reg, getKind());
-    }
-
-    //===------------------------------------------------------------------===//
-    // ResourceTypeInterface
-    //===------------------------------------------------------------------===//
-    Resource *getResource() const;
-  }];
-}
-
-/// Special registers to model state.
 class SREGBase<string name, string mnemonic, string kind>
     : AMDGCN_RegisterDef<name, mnemonic, [MemRefElementTypeInterface]> {
   let summary = kind # " special register type";
