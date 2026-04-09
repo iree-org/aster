@@ -784,6 +784,12 @@ LogicalResult LoadToLDSOp::inferReturnTypes(
 void LoadToLDSOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
+  // Read M0 register (LDS destination offset).
+  if (auto m0RegType = dyn_cast<RegisterTypeInterface>(getM0().getType());
+      m0RegType && !m0RegType.hasValueSemantics())
+    if (auto *resource = m0RegType.getResource())
+      effects.emplace_back(MemoryEffects::Read::get(), &getM0Mutable(),
+                           resource);
   // Read from global memory (via buffer descriptor).
   effects.emplace_back(MemoryEffects::Read::get(), &getAddrMutable());
   effects.emplace_back(MemoryEffects::Read::get(), GlobalMemoryResource::get());

@@ -4,7 +4,7 @@
 // RUN: | aster-opt \
 // RUN:   --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops)))" \
 // RUN: | aster-opt \
-// RUN:   --amdgcn-reg-alloc --symbol-dce \
+// RUN:   --amdgcn-reg-alloc --amdgcn-late-waits --symbol-dce \
 // RUN: | aster-translate --mlir-to-asm \
 // RUN: | FileCheck %s
 
@@ -27,6 +27,7 @@
 // CHECK-LABEL: g2s_roundtrip_kernel:
 // CHECK:       s_mov_b32 m0, 44
 // CHECK:       buffer_load_dword v{{[0-9]+}}, s[{{.*}}], s{{[0-9]+}} offen lds
+// CHECK-NEXT:  s_waitcnt vmcnt(0)
 // CHECK:       ds_read_b32
 // CHECK:       global_store_dword
 // CHECK:       s_endpgm
@@ -81,10 +82,10 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdn
                  !amdgcn.sgpr, !amdgcn.sgpr)
 
     // Build buffer descriptor for source (raw mode, stride=0)
-    // flags = 0x24924: dst_sel=RGBA (pass through data), NUM_FORMAT=4 (UINT),
-    //                  DATA_FORMAT=4 (32-bit).
-    // CDNA4 requires correct dst_sel for buffer_load_dword_lds;
-    // dst_sel=0 (constant 0) causes all-zeros output on LDS path.
+    // flags = 0x24924: DST_SEL_XYZW=SEL_X(4), NUM_FORMAT=UINT(4),
+    //                  DATA_FORMAT=32(4).
+    // CDNA4 requires non-zero DST_SEL for buffer_load_dword_lds;
+    // DST_SEL=0 causes all-zeros or garbage on the LDS path.
     %c0_stride = arith.constant 0 : i32
     %src_rsrc = amdgcn.make_buffer_rsrc %src_ptr, %num_bytes, %c0_stride,
       cache_swizzle = false, swizzle_enable = false, flags = 149796
@@ -118,8 +119,9 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdn
         : ins(!amdgcn.m0, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
 
-    // Wait for G2S to complete (vmcnt tracks buffer loads)
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    // Wait for G2S to complete (vmcnt tracks buffer loads).
+    // Must use token-based wait so the late-waits pass preserves it.
+    amdgcn.wait deps %tok_g2s : !amdgcn.write_token<flat>
 
     // Read back from LDS: ds_read_b32 at offset 44 + tid*4
     // voffset is tid*4, add M0 offset via constant_offset = 44
@@ -130,7 +132,7 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdn
         -> !amdgcn.read_token<shared>
 
     // Wait for LDS read to complete (lgkmcnt tracks DS ops)
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.wait deps %tok_lds : !amdgcn.read_token<shared>
 
     // Store result to output: dst[tid] = lds_val
     // Thread offset for output = tid * 4
@@ -139,7 +141,7 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdn
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.wait deps %tok_st : !amdgcn.write_token<flat>
     amdgcn.end_kernel
   }
 }
