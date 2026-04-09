@@ -523,6 +523,40 @@ def CDNA3_XdlWriteVgprVmemValuHazard : HazardAttr<"CDNA3XdlWriteVgprVmemValuHaza
   ];
 }
 
+//--- Table 38: CDNA4 XDL Write VGPR -> V_MFMA read SrcA/SrcB (5/8/12/20 by passes) ---
+// CDNA4 adds +1 NOP for 4-pass and higher vs CDNA3.
+def CDNA4_XdlWriteVgprMfmaReadSrcABHazard : HazardAttr<"CDNA4XdlWriteVgprMfmaReadSrcABHazard",
+    "cdna4_xdl_write_vgpr_mfma_read_srcab_hazard"> {
+  let summary = "CDNA4 XDL/V_SMFMA* Write VGPR followed by V_MFMA read VGPR as SrcA/SrcB";
+  let description = [{
+    CDNA4 variant. XDL Write VGPR or V_SMFMA* Write VGPR followed by V_MFMA read VGPR
+    as SrcA or SrcB. Case 0: 2 passes - 5; Case 1: 4 - 8; Case 2: 8 - 12; Case 3: 16 - 20.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/5, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/8, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/12, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/20, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
+//--- Table 38: CDNA4 XDL Write VGPR -> VM/VALU RAW+WAW (5/8/12/20 by passes) ---
+def CDNA4_XdlWriteVgprVmemValuHazard : HazardAttr<"CDNA4XdlWriteVgprVmemValuHazard",
+    "cdna4_xdl_write_vgpr_vmem_valu_hazard"> {
+  let summary = "CDNA4 XDL/V_SMFMA* Write VGPR followed by VM/LDS/FLAT/Export Read or VALU RAW+WAW";
+  let description = [{
+    CDNA4 variant. XDL Write VGPR or V_SMFMA* Write VGPR followed by (1) VM, L/GDS, FLAT,
+    Export Read VGPR overlapped with 1st vDst, or (2) VALU read/write VGPR (RAW+WAW).
+    Case 0: 2 passes - 5; Case 1: 4 - 8; Case 2: 8 - 12; Case 3: 16 - 20.
+  }];
+  let hazardCases = [
+    HazardCase</*v_nops=*/5, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/8, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/12, /*s_nops=*/0, /*ds_nops=*/0>,
+    HazardCase</*v_nops=*/20, /*s_nops=*/0, /*ds_nops=*/0>
+  ];
+}
+
 //--- Table 37: SGEMM Write VGPR -> XDL read VGPR as Source C exactly same (0 waits) ---
 def CDNA3_SgemmWriteVgprXdlReadSrcCExactHazard : HazardAttr<"CDNA3SgemmWriteVgprXdlReadSrcCExactHazard",
     "cdna3_sgemm_write_vgpr_xdl_read_srcc_exact_hazard"> {

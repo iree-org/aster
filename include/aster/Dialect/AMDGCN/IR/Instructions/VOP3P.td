@@ -196,12 +196,12 @@ def V_MFMA_F32_32X32X8_F16 : MFMAInst<
 
 def V_MFMA_F32_32X32X16_F16 : MFMAInst<
   /*mnemonic=*/"v_mfma_f32_32x32x16_f16", /*symbol=*/"v_mfma_f32_32x32x16_f16",
-  /*aRegs=*/8, /*bRegs=*/8, /*cRegs=*/16, /*dstRegs=*/16, /*isa=*/[CDNA4]> {
+  /*aRegs=*/4, /*bRegs=*/4, /*cRegs=*/16, /*dstRegs=*/16, /*isa=*/[CDNA4]> {
   let summary = "MFMA f32 32x32x16 with f16 inputs (CDNA4)";
   let description = [{
     MFMA instruction performing 32x32x16 matrix multiply-accumulate with
-    f16 inputs and f32 accumulator. 16-pass instruction using 16 accumulator
-    registers and 8 input VGPRs per operand. CDNA4-only.
+    f16 inputs and f32 accumulator. 8-pass instruction using 16 accumulator
+    registers and 4 input VGPRs per operand. CDNA4-only.
   }];
 }
 
@@ -215,6 +215,16 @@ def V_MFMA_F32_16X16X16_F16 : MFMAInst<
   }];
 }
 
+def V_MFMA_F32_16X16X32_F16 : MFMAInst<
+  /*mnemonic=*/"v_mfma_f32_16x16x32_f16", /*symbol=*/"v_mfma_f32_16x16x32_f16",
+  /*aRegs=*/4, /*bRegs=*/4, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA4]> {
+  let summary = "MFMA f32 16x16x32 with f16 inputs (CDNA4)";
+  let description = [{
+    MFMA instruction performing 16x16x32 matrix multiply-accumulate with
+    f16 inputs and f32 accumulator.
+  }];
+}
+
 def V_MFMA_F32_16X16X16_BF16 : MFMAInst<
   /*mnemonic=*/"v_mfma_f32_16x16x16_bf16", /*symbol=*/"v_mfma_f32_16x16x16_bf16",
   /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
@@ -222,6 +232,26 @@ def V_MFMA_F32_16X16X16_BF16 : MFMAInst<
   let description = [{
     MFMA instruction performing matrix multiplication and accumulation
     with f32 output and bf16 inputs.
+  }];
+}
+
+def V_MFMA_F32_16X16X32_BF16 : MFMAInst<
+  /*mnemonic=*/"v_mfma_f32_16x16x32_bf16", /*symbol=*/"v_mfma_f32_16x16x32_bf16",
+  /*aRegs=*/4, /*bRegs=*/4, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA4]> {
+  let summary = "MFMA f32 16x16x32 with bf16 inputs (CDNA4)";
+  let description = [{
+    MFMA instruction performing 16x16x32 matrix multiply-accumulate with
+    bf16 inputs and f32 accumulator.
+  }];
+}
+
+def V_MFMA_F32_32X32X16_BF16 : MFMAInst<
+  /*mnemonic=*/"v_mfma_f32_32x32x16_bf16", /*symbol=*/"v_mfma_f32_32x32x16_bf16",
+  /*aRegs=*/4, /*bRegs=*/4, /*cRegs=*/16, /*dstRegs=*/16, /*isa=*/[CDNA4]> {
+  let summary = "MFMA f32 32x32x16 with bf16 inputs (CDNA4)";
+  let description = [{
+    MFMA instruction performing 32x32x16 matrix multiply-accumulate with
+    bf16 inputs and f32 accumulator.
   }];
 }
 
@@ -246,19 +276,20 @@ def V_MFMA_F16_16X16X16_F16 : MFMAInst<
 def V_MFMA_F32_16X16X32_FP8_FP8 : MFMAInst<
   /*mnemonic=*/"v_mfma_f32_16x16x32_fp8_fp8",
   /*symbol=*/"v_mfma_f32_16x16x32_fp8_fp8",
-  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3]> {
+  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "MFMA f32 16x16x32 with fp8 inputs";
   let description = [{
     MFMA instruction performing 16x16x32 matrix multiply-accumulate with
     fp8_e4m3 inputs and f32 accumulator. Processes 32 fp8 elements per
     iteration (2x throughput vs f16 16x16x16).
+    On CDNA3: fp8 = E4M3 FNUZ (bias=8). On CDNA4: fp8 = E4M3 OCP (bias=7).
   }];
 }
 
 def V_MFMA_F32_16X16X32_FP8_BF8 : MFMAInst<
   /*mnemonic=*/"v_mfma_f32_16x16x32_fp8_bf8",
   /*symbol=*/"v_mfma_f32_16x16x32_fp8_bf8",
-  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3]> {
+  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "MFMA f32 16x16x32 with fp8 A and bf8 B inputs";
   let description = [{
     MFMA instruction performing 16x16x32 matrix multiply-accumulate with
@@ -269,7 +300,7 @@ def V_MFMA_F32_16X16X32_FP8_BF8 : MFMAInst<
 def V_MFMA_F32_16X16X32_BF8_FP8 : MFMAInst<
   /*mnemonic=*/"v_mfma_f32_16x16x32_bf8_fp8",
   /*symbol=*/"v_mfma_f32_16x16x32_bf8_fp8",
-  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3]> {
+  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "MFMA f32 16x16x32 with bf8 A and fp8 B inputs";
   let description = [{
     MFMA instruction performing 16x16x32 matrix multiply-accumulate with
@@ -280,7 +311,7 @@ def V_MFMA_F32_16X16X32_BF8_FP8 : MFMAInst<
 def V_MFMA_F32_16X16X32_BF8_BF8 : MFMAInst<
   /*mnemonic=*/"v_mfma_f32_16x16x32_bf8_bf8",
   /*symbol=*/"v_mfma_f32_16x16x32_bf8_bf8",
-  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3]> {
+  /*aRegs=*/2, /*bRegs=*/2, /*cRegs=*/4, /*dstRegs=*/4, /*isa=*/[CDNA3, CDNA4]> {
   let summary = "MFMA f32 16x16x32 with bf8 inputs";
   let description = [{
     MFMA instruction performing 16x16x32 matrix multiply-accumulate with

@@ -363,3 +363,251 @@ amdgcn.module @test_case106_fp8_mfma_16x16x32 target = #amdgcn.target<gfx942> is
     amdgcn.end_kernel
   }
 }
+
+// -----
+
+// CDNA4 doubled-K MFMA 16x16x32 f16 (4-pass, case 1): MFMA write VGPR -> VALU read/write overlapping vDst
+// CDNA4 Table 38: 4-pass XDL -> VALU = 8 v_nops (CDNA3 = 7)
+// CHECK-LABEL: kernel @test_kernel
+//       CHECK:   amdgcn.vop3p.vop3p_mai
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//  CHECK-NEXT:   v_mov_b32_e32
+amdgcn.module @test_case106_cdna4_mfma_16x16x32_f16 target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    // A operands: 4 VGPRs [0:4)
+    %a0 = amdgcn.alloca : !amdgcn.vgpr<0>
+    %a1 = amdgcn.alloca : !amdgcn.vgpr<1>
+    %a2 = amdgcn.alloca : !amdgcn.vgpr<2>
+    %a3 = amdgcn.alloca : !amdgcn.vgpr<3>
+    %a_range = amdgcn.make_register_range %a0, %a1, %a2, %a3
+      : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+
+    // B operands: 4 VGPRs [4:8)
+    %b0 = amdgcn.alloca : !amdgcn.vgpr<4>
+    %b1 = amdgcn.alloca : !amdgcn.vgpr<5>
+    %b2 = amdgcn.alloca : !amdgcn.vgpr<6>
+    %b3 = amdgcn.alloca : !amdgcn.vgpr<7>
+    %b_range = amdgcn.make_register_range %b0, %b1, %b2, %b3
+      : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
+
+    // C/D operands: 4 VGPRs [8:12)
+    %c0 = amdgcn.alloca : !amdgcn.vgpr<8>
+    %c1 = amdgcn.alloca : !amdgcn.vgpr<9>
+    %c2 = amdgcn.alloca : !amdgcn.vgpr<10>
+    %c3 = amdgcn.alloca : !amdgcn.vgpr<11>
+    %c_range = amdgcn.make_register_range %c0, %c1, %c2, %c3
+      : !amdgcn.vgpr<8>, !amdgcn.vgpr<9>, !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
+
+    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x32_f16>
+      %c_range, %a_range, %b_range, %c_range
+      : <[0 : 4]>, <[4 : 8]>, !amdgcn.vgpr<[8 : 12]> -> !amdgcn.vgpr<[8 : 12]>
+
+    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c0, %c0
+      : (!amdgcn.vgpr<8>, !amdgcn.vgpr<8>) -> ()
+
+    amdgcn.end_kernel
+  }
+}
+
+// -----
+
+// CDNA4 doubled-K MFMA 16x16x32 bf16 (4-pass, case 1): MFMA write VGPR -> VALU read/write overlapping vDst
+// CDNA4 Table 38: 4-pass XDL -> VALU = 8 v_nops (CDNA3 = 7)
+// CHECK-LABEL: kernel @test_kernel
+//       CHECK:   amdgcn.vop3p.vop3p_mai
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//  CHECK-NEXT:   v_mov_b32_e32
+amdgcn.module @test_case106_cdna4_mfma_16x16x32_bf16 target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    // A operands: 4 VGPRs [0:4)
+    %a0 = amdgcn.alloca : !amdgcn.vgpr<0>
+    %a1 = amdgcn.alloca : !amdgcn.vgpr<1>
+    %a2 = amdgcn.alloca : !amdgcn.vgpr<2>
+    %a3 = amdgcn.alloca : !amdgcn.vgpr<3>
+    %a_range = amdgcn.make_register_range %a0, %a1, %a2, %a3
+      : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+
+    // B operands: 4 VGPRs [4:8)
+    %b0 = amdgcn.alloca : !amdgcn.vgpr<4>
+    %b1 = amdgcn.alloca : !amdgcn.vgpr<5>
+    %b2 = amdgcn.alloca : !amdgcn.vgpr<6>
+    %b3 = amdgcn.alloca : !amdgcn.vgpr<7>
+    %b_range = amdgcn.make_register_range %b0, %b1, %b2, %b3
+      : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
+
+    // C/D operands: 4 VGPRs [8:12)
+    %c0 = amdgcn.alloca : !amdgcn.vgpr<8>
+    %c1 = amdgcn.alloca : !amdgcn.vgpr<9>
+    %c2 = amdgcn.alloca : !amdgcn.vgpr<10>
+    %c3 = amdgcn.alloca : !amdgcn.vgpr<11>
+    %c_range = amdgcn.make_register_range %c0, %c1, %c2, %c3
+      : !amdgcn.vgpr<8>, !amdgcn.vgpr<9>, !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
+
+    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x32_bf16>
+      %c_range, %a_range, %b_range, %c_range
+      : <[0 : 4]>, <[4 : 8]>, !amdgcn.vgpr<[8 : 12]> -> !amdgcn.vgpr<[8 : 12]>
+
+    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c0, %c0
+      : (!amdgcn.vgpr<8>, !amdgcn.vgpr<8>) -> ()
+
+    amdgcn.end_kernel
+  }
+}
+
+// -----
+
+// CDNA4 doubled-K MFMA 32x32x16 bf16 (8-pass, case 2): MFMA write VGPR -> VALU read/write overlapping vDst
+// CDNA4 Table 38: 8-pass XDL -> VALU = 12 v_nops (CDNA3 = 11)
+// CHECK-LABEL: kernel @test_kernel
+//       CHECK:   amdgcn.vop3p.vop3p_mai
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//  CHECK-NEXT:   v_mov_b32_e32
+amdgcn.module @test_case106_cdna4_mfma_32x32x16_bf16 target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    // A operands: 4 VGPRs [0:4)
+    %a0 = amdgcn.alloca : !amdgcn.vgpr<0>
+    %a1 = amdgcn.alloca : !amdgcn.vgpr<1>
+    %a2 = amdgcn.alloca : !amdgcn.vgpr<2>
+    %a3 = amdgcn.alloca : !amdgcn.vgpr<3>
+    %a_range = amdgcn.make_register_range %a0, %a1, %a2, %a3
+      : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+
+    // B operands: 4 VGPRs [4:8)
+    %b0 = amdgcn.alloca : !amdgcn.vgpr<4>
+    %b1 = amdgcn.alloca : !amdgcn.vgpr<5>
+    %b2 = amdgcn.alloca : !amdgcn.vgpr<6>
+    %b3 = amdgcn.alloca : !amdgcn.vgpr<7>
+    %b_range = amdgcn.make_register_range %b0, %b1, %b2, %b3
+      : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
+
+    // C/D operands: 16 VGPRs [16:32) -- must be 16-aligned
+    %c0 = amdgcn.alloca : !amdgcn.vgpr<16>
+    %c1 = amdgcn.alloca : !amdgcn.vgpr<17>
+    %c2 = amdgcn.alloca : !amdgcn.vgpr<18>
+    %c3 = amdgcn.alloca : !amdgcn.vgpr<19>
+    %c4 = amdgcn.alloca : !amdgcn.vgpr<20>
+    %c5 = amdgcn.alloca : !amdgcn.vgpr<21>
+    %c6 = amdgcn.alloca : !amdgcn.vgpr<22>
+    %c7 = amdgcn.alloca : !amdgcn.vgpr<23>
+    %c8 = amdgcn.alloca : !amdgcn.vgpr<24>
+    %c9 = amdgcn.alloca : !amdgcn.vgpr<25>
+    %c10 = amdgcn.alloca : !amdgcn.vgpr<26>
+    %c11 = amdgcn.alloca : !amdgcn.vgpr<27>
+    %c12 = amdgcn.alloca : !amdgcn.vgpr<28>
+    %c13 = amdgcn.alloca : !amdgcn.vgpr<29>
+    %c14 = amdgcn.alloca : !amdgcn.vgpr<30>
+    %c15 = amdgcn.alloca : !amdgcn.vgpr<31>
+    %c_range = amdgcn.make_register_range %c0, %c1, %c2, %c3, %c4, %c5, %c6, %c7,
+      %c8, %c9, %c10, %c11, %c12, %c13, %c14, %c15
+      : !amdgcn.vgpr<16>, !amdgcn.vgpr<17>, !amdgcn.vgpr<18>, !amdgcn.vgpr<19>,
+        !amdgcn.vgpr<20>, !amdgcn.vgpr<21>, !amdgcn.vgpr<22>, !amdgcn.vgpr<23>,
+        !amdgcn.vgpr<24>, !amdgcn.vgpr<25>, !amdgcn.vgpr<26>, !amdgcn.vgpr<27>,
+        !amdgcn.vgpr<28>, !amdgcn.vgpr<29>, !amdgcn.vgpr<30>, !amdgcn.vgpr<31>
+
+    amdgcn.vop3p.vop3p_mai <v_mfma_f32_32x32x16_bf16>
+      %c_range, %a_range, %b_range, %c_range
+      : <[0 : 4]>, <[4 : 8]>, !amdgcn.vgpr<[16 : 32]> -> !amdgcn.vgpr<[16 : 32]>
+
+    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c0, %c0
+      : (!amdgcn.vgpr<16>, !amdgcn.vgpr<16>) -> ()
+
+    amdgcn.end_kernel
+  }
+}
+
+// -----
+
+// CDNA4 doubled-K MFMA 32x32x16 f16 (8-pass, case 2): MFMA write VGPR -> VALU read/write overlapping vDst
+// CDNA4 Table 38: 8-pass XDL -> VALU = 12 v_nops (CDNA3 = 11)
+// CHECK-LABEL: kernel @test_kernel
+//       CHECK:   amdgcn.vop3p.vop3p_mai
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//       CHECK:   amdgcn.vop1.v_nop
+//  CHECK-NEXT:   v_mov_b32_e32
+amdgcn.module @test_case106_cdna4_mfma_32x32x16_f16 target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+  amdgcn.kernel @test_kernel attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    // A operands: 4 VGPRs [0:4)
+    %a0 = amdgcn.alloca : !amdgcn.vgpr<0>
+    %a1 = amdgcn.alloca : !amdgcn.vgpr<1>
+    %a2 = amdgcn.alloca : !amdgcn.vgpr<2>
+    %a3 = amdgcn.alloca : !amdgcn.vgpr<3>
+    %a_range = amdgcn.make_register_range %a0, %a1, %a2, %a3
+      : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+
+    // B operands: 4 VGPRs [4:8)
+    %b0 = amdgcn.alloca : !amdgcn.vgpr<4>
+    %b1 = amdgcn.alloca : !amdgcn.vgpr<5>
+    %b2 = amdgcn.alloca : !amdgcn.vgpr<6>
+    %b3 = amdgcn.alloca : !amdgcn.vgpr<7>
+    %b_range = amdgcn.make_register_range %b0, %b1, %b2, %b3
+      : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
+
+    // C/D operands: 16 VGPRs [16:32) -- must be 16-aligned
+    %c0 = amdgcn.alloca : !amdgcn.vgpr<16>
+    %c1 = amdgcn.alloca : !amdgcn.vgpr<17>
+    %c2 = amdgcn.alloca : !amdgcn.vgpr<18>
+    %c3 = amdgcn.alloca : !amdgcn.vgpr<19>
+    %c4 = amdgcn.alloca : !amdgcn.vgpr<20>
+    %c5 = amdgcn.alloca : !amdgcn.vgpr<21>
+    %c6 = amdgcn.alloca : !amdgcn.vgpr<22>
+    %c7 = amdgcn.alloca : !amdgcn.vgpr<23>
+    %c8 = amdgcn.alloca : !amdgcn.vgpr<24>
+    %c9 = amdgcn.alloca : !amdgcn.vgpr<25>
+    %c10 = amdgcn.alloca : !amdgcn.vgpr<26>
+    %c11 = amdgcn.alloca : !amdgcn.vgpr<27>
+    %c12 = amdgcn.alloca : !amdgcn.vgpr<28>
+    %c13 = amdgcn.alloca : !amdgcn.vgpr<29>
+    %c14 = amdgcn.alloca : !amdgcn.vgpr<30>
+    %c15 = amdgcn.alloca : !amdgcn.vgpr<31>
+    %c_range = amdgcn.make_register_range %c0, %c1, %c2, %c3, %c4, %c5, %c6, %c7,
+      %c8, %c9, %c10, %c11, %c12, %c13, %c14, %c15
+      : !amdgcn.vgpr<16>, !amdgcn.vgpr<17>, !amdgcn.vgpr<18>, !amdgcn.vgpr<19>,
+        !amdgcn.vgpr<20>, !amdgcn.vgpr<21>, !amdgcn.vgpr<22>, !amdgcn.vgpr<23>,
+        !amdgcn.vgpr<24>, !amdgcn.vgpr<25>, !amdgcn.vgpr<26>, !amdgcn.vgpr<27>,
+        !amdgcn.vgpr<28>, !amdgcn.vgpr<29>, !amdgcn.vgpr<30>, !amdgcn.vgpr<31>
+
+    amdgcn.vop3p.vop3p_mai <v_mfma_f32_32x32x16_f16>
+      %c_range, %a_range, %b_range, %c_range
+      : <[0 : 4]>, <[4 : 8]>, !amdgcn.vgpr<[16 : 32]> -> !amdgcn.vgpr<[16 : 32]>
+
+    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %c0, %c0
+      : (!amdgcn.vgpr<16>, !amdgcn.vgpr<16>) -> ()
+
+    amdgcn.end_kernel
+  }
+}

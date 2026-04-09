@@ -70,10 +70,14 @@ static int16_t getMfmaPassCase(OpCode op) {
   case OpCode::V_MFMA_F32_16X16X32_FP8_BF8:
   case OpCode::V_MFMA_F32_16X16X32_BF8_FP8:
   case OpCode::V_MFMA_F32_16X16X32_BF8_BF8:
+  case OpCode::V_MFMA_F32_16X16X32_F16:
+  case OpCode::V_MFMA_F32_16X16X32_BF16:
     return 1; // 4 passes
   // 32 cycles -> 8 passes (case 2), per Table 37: 32x32x8, 32x32x16; 32x32x64
   // scaled
   case OpCode::V_MFMA_F32_32X32X8_F16:
+  case OpCode::V_MFMA_F32_32X32X16_F16:
+  case OpCode::V_MFMA_F32_32X32X16_BF16:
   case OpCode::V_MFMA_SCALE_F32_32X32X64_F8F6F4:
     return 2; // 8 passes
   // 64 cycles -> 16 passes (case 3), 16x16x128 has 4x K of 16x16x32
@@ -967,6 +971,90 @@ bool CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::isHazardTriggered(
 }
 
 //===----------------------------------------------------------------------===//
+// Case CDNA4 XdlWriteVgprMfmaReadSrcABHazard
+//===----------------------------------------------------------------------===//
+bool CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::matchInst(
+    const InstMetadata *md, ISAVersion isaVer) const {
+  if (!md || !instSupportsIsa(md, isaVer))
+    return false;
+  return md->hasProp(InstProp::Mma);
+}
+
+void CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
+  if (!isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(instOp.getOperation()))
+    return;
+
+  OpOperand *vdst = getMaiVdst(instOp.getOperation());
+  if (!vdst)
+    return;
+
+  auto vdstRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(vdst->get().getType());
+  assert(vdstRegTy && vdstRegTy.hasAllocatedSemantics() &&
+         "vdst must have allocated register semantics");
+
+  const InstMetadata *metadata = instOp.getInstMetadata();
+  if (!metadata)
+    return;
+
+  int16_t caseNum = getMfmaPassCase(metadata->getOpCode());
+  if (caseNum < 0)
+    return;
+
+  MLIRContext *ctx = instOp.getOperation()->getContext();
+  auto attr = CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::get(ctx, caseNum);
+  hazards.push_back(Hazard(attr, *vdst, attr.getInstCounts(caseNum)));
+}
+
+bool CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::isHazardTriggered(
+    const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
+  assert(hazard.getHazard() == *this && "Hazard mismatch");
+
+  int16_t caseNum = getCaseNum();
+
+  if (!isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(instOp.getOperation()))
+    return false;
+
+  Value srcA, srcB;
+  if (auto mai = dyn_cast<inst::VOP3PMAIOp>(instOp.getOperation())) {
+    srcA = mai.getA();
+    srcB = mai.getB();
+  } else if (auto scaledMai =
+                 dyn_cast<inst::VOP3PScaledMAIOp>(instOp.getOperation())) {
+    srcA = scaledMai.getA();
+    srcB = scaledMai.getB();
+  } else {
+    return false;
+  }
+
+  OpOperand *raiserVdst = hazard.getOperand();
+  if (!raiserVdst)
+    return false;
+
+  auto raiserRegTy =
+      dyn_cast<AMDGCNRegisterTypeInterface>(raiserVdst->get().getType());
+  if (!raiserRegTy || !raiserRegTy.hasAllocatedSemantics())
+    return false;
+
+  auto srcARegTy = dyn_cast<AMDGCNRegisterTypeInterface>(srcA.getType());
+  auto srcBRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(srcB.getType());
+  bool hasSrcABOverlap = (srcARegTy && checkOverlap(srcARegTy, raiserRegTy)) ||
+                         (srcBRegTy && checkOverlap(srcBRegTy, raiserRegTy));
+  if (!hasSrcABOverlap)
+    return false;
+
+  auto raiserInstOp = dyn_cast<AMDGCNInstOpInterface>(hazard.getOp());
+  if (!raiserInstOp)
+    return false;
+
+  const InstMetadata *raiserMetadata = raiserInstOp.getInstMetadata();
+  assert(raiserMetadata && "Raiser metadata cannot be nullptr");
+
+  int16_t raiserPassCase = getMfmaPassCase(raiserMetadata->getOpCode());
+  return raiserPassCase >= 0 && raiserPassCase == caseNum;
+}
+
+//===----------------------------------------------------------------------===//
 // Case XdlWriteVgprVmemValuHazard
 //===----------------------------------------------------------------------===//
 bool CDNA3XdlWriteVgprVmemValuHazardAttr::matchInst(const InstMetadata *md,
@@ -1058,6 +1146,106 @@ bool CDNA3XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
 
   // Case-specific check: the first instruction (raiser) must have pass count
   // matching this hazard's case number.
+  auto raiserInstOp = dyn_cast<AMDGCNInstOpInterface>(hazard.getOp());
+  if (!raiserInstOp)
+    return false;
+
+  const InstMetadata *raiserMetadata = raiserInstOp.getInstMetadata();
+  if (!raiserMetadata)
+    return false;
+
+  int16_t raiserPassCase = getMfmaPassCase(raiserMetadata->getOpCode());
+  return raiserPassCase >= 0 && raiserPassCase == caseNum;
+}
+
+//===----------------------------------------------------------------------===//
+// Case CDNA4 XdlWriteVgprVmemValuHazard
+//===----------------------------------------------------------------------===//
+bool CDNA4XdlWriteVgprVmemValuHazardAttr::matchInst(const InstMetadata *md,
+                                                    ISAVersion isaVer) const {
+  if (!md || !instSupportsIsa(md, isaVer))
+    return false;
+  return md->hasProp(InstProp::Mma);
+}
+
+void CDNA4XdlWriteVgprVmemValuHazardAttr::populateHazardsFor(
+    AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
+  if (!isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(instOp.getOperation()))
+    return;
+
+  OpOperand *vdst = getMaiVdst(instOp.getOperation());
+  if (!vdst)
+    return;
+
+  auto vdstRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(vdst->get().getType());
+  assert(vdstRegTy && vdstRegTy.hasAllocatedSemantics() &&
+         "vdst must have allocated register semantics");
+
+  const InstMetadata *metadata = instOp.getInstMetadata();
+  if (!metadata)
+    return;
+
+  int16_t caseNum = getMfmaPassCase(metadata->getOpCode());
+  if (caseNum < 0)
+    return;
+
+  MLIRContext *ctx = instOp.getOperation()->getContext();
+  auto attr = CDNA4XdlWriteVgprVmemValuHazardAttr::get(ctx, caseNum);
+  hazards.push_back(Hazard(attr, *vdst, attr.getInstCounts(caseNum)));
+}
+
+bool CDNA4XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
+    const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
+  auto hazardAttr =
+      dyn_cast<CDNA4XdlWriteVgprVmemValuHazardAttr>(hazard.getHazard());
+  if (!hazardAttr)
+    return false;
+
+  const InstMetadata *metadata = instOp.getInstMetadata();
+  if (!metadata ||
+      !metadata->hasAnyProps({InstProp::IsValu, InstProp::IsVmem,
+                              InstProp::Dsmem, InstProp::Flat, InstProp::Global,
+                              InstProp::Buffer}) ||
+      metadata->hasProp(InstProp::Mma))
+    return false;
+
+  int16_t caseNum = hazardAttr.getCaseNum();
+
+  OpOperand *raiserVdst = hazard.getOperand();
+  if (!raiserVdst)
+    return false;
+
+  auto raiserRegTy =
+      dyn_cast<AMDGCNRegisterTypeInterface>(raiserVdst->get().getType());
+  assert(raiserRegTy && raiserRegTy.hasAllocatedSemantics() &&
+         "raiser vdst must have allocated register semantics");
+
+  RegisterKind dstKind = raiserRegTy.getRegisterKind();
+
+  bool hasConflict = false;
+  for (Value input : instOp.getInstIns()) {
+    auto inputRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(input.getType());
+    if (inputRegTy && inputRegTy.getRegisterKind() == dstKind &&
+        checkOverlap(inputRegTy, raiserRegTy)) {
+      hasConflict = true;
+      break;
+    }
+  }
+  if (!hasConflict) {
+    for (Value output : instOp.getInstOuts()) {
+      auto outputRegTy =
+          dyn_cast<AMDGCNRegisterTypeInterface>(output.getType());
+      if (outputRegTy && outputRegTy.getRegisterKind() == dstKind &&
+          checkOverlap(outputRegTy, raiserRegTy)) {
+        hasConflict = true;
+        break;
+      }
+    }
+  }
+
+  if (!hasConflict)
+    return false;
+
   auto raiserInstOp = dyn_cast<AMDGCNInstOpInterface>(hazard.getOp());
   if (!raiserInstOp)
     return false;
@@ -1236,8 +1424,9 @@ void HazardManager::getHazardRaisersFor(
     ISAVersion version,
     SmallVectorImpl<HazardRaiserAttrInterface> &hazardRaisers) {
   hazardRaisers.clear();
-  if (version == ISAVersion::CDNA3) {
+  if (version == ISAVersion::CDNA3 || version == ISAVersion::CDNA4) {
     MLIRContext *ctx = getTopOp()->getContext();
+    // Hazards with identical NOP counts on CDNA3 and CDNA4.
     hazardRaisers.push_back(CDNA3StoreHazardAttr::get(ctx));
     hazardRaisers.push_back(CDNA3StoreWriteDataHazardAttr::get(ctx));
     hazardRaisers.push_back(CDNA3VccExecVcczExeczHazardAttr::get(ctx));
@@ -1245,8 +1434,20 @@ void HazardManager::getHazardRaisersFor(
     hazardRaisers.push_back(CDNA3NonDLOpsValuMfmaHazardAttr::get(ctx));
     hazardRaisers.push_back(
         CDNA3XdlWriteVgprXdlReadSrcCExactHazardAttr::get(ctx));
-    hazardRaisers.push_back(CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::get(ctx));
-    hazardRaisers.push_back(CDNA3XdlWriteVgprVmemValuHazardAttr::get(ctx));
+    // XDL write -> SrcA/B and XDL write -> VMEM/VALU: CDNA4 needs +1 NOP
+    // for 4-pass and higher (LLVM: NumPasses + 3 + (NumPasses != 2 && IsGFX950)).
+    if (version == ISAVersion::CDNA4) {
+      hazardRaisers.push_back(
+          CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::get(ctx));
+      hazardRaisers.push_back(
+          CDNA4XdlWriteVgprVmemValuHazardAttr::get(ctx));
+    } else {
+      assert(version == ISAVersion::CDNA3 && "unexpected ISA version");
+      hazardRaisers.push_back(
+          CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::get(ctx));
+      hazardRaisers.push_back(
+          CDNA3XdlWriteVgprVmemValuHazardAttr::get(ctx));
+    }
   }
 }
 
