@@ -10,6 +10,7 @@ Example equivalent shell command:
 """
 
 import re
+import shutil
 import subprocess
 from typing import Any
 
@@ -87,6 +88,13 @@ class HipBLASBenchmark:
         Returns:
             {"ms": float, "tflops": float}
         """
+        if not shutil.which(self.executable):
+            raise RuntimeError(
+                f"Couldn't find {self.executable}, try adding it to the path or "
+                f"specifying the tool path in the command line with:\n"
+                f"`--hipblas-bench=<path-to-tool>`"
+            )
+
         cfg = self.config
         dtype_str = DTYPE_TO_ROCBLAS.get(cfg.dtype, "f16_r")
         trans_b = "T" if cfg.transpose_b else "N"

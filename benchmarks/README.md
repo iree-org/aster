@@ -53,6 +53,8 @@ python run_all.py -m 8192 -n 8192 -k 8192 --output-json results.json
 | `--print-asm` | — | Dump backend assembly (Triton, IREE) |
 | `--print-mlir` | — | Dump Torch-MLIR IR before IREE compilation |
 | `--seed` | `42` | Random seed for input matrices |
+| `--rocblas-bench PATH` | `rocblas-bench` | Path to rocblas-bench executable |
+| `--hipblas-bench PATH` | `hipblaslt-bench` | Path to hipblaslt-bench executable |
 
 ### Output
 
@@ -66,7 +68,9 @@ Results are printed as a table with milliseconds per iteration and TFLOP/s for e
 
 ### HipBLAS
 
-[`hipblas/bench_gemm.py`](hipblas/bench_gemm.py) — Subprocess wrapper around the `hipblaslt-bench` CLI. Parses the "Winner:" section of its output to extract the best algorithm's timing.
+[`hipblas/bench_gemm.py`](hipblas/bench_gemm.py) — Subprocess wrapper around the `hipblaslt-bench` CLI (note: requires `hipblaslt-bench`, not `hipblas-bench`). Parses the "Winner:" section of its output to extract the best algorithm's timing.
+
+**Requirement:** `hipblaslt-bench` must be in PATH or specified via `--hipblas-bench=<path>`.
 
 ### Inductor
 
@@ -79,6 +83,8 @@ Results are printed as a table with milliseconds per iteration and TFLOP/s for e
 ### rocBLAS
 
 [`rocblas/bench_gemm.py`](rocblas/bench_gemm.py) — Subprocess wrapper around the `rocblas-bench` CLI. Parses CSV output for timing (reported in microseconds or as GFLOP/s).
+
+**Requirement:** `rocblas-bench` must be in PATH or specified via `--rocblas-bench=<path>`.
 
 ### Triton
 
