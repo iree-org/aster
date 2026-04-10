@@ -436,6 +436,10 @@ def LowLevelScheduler : Pass<"amdgcn-low-level-scheduler",
   let options = [
     Option<"debugStalls", "debug-stalls", "bool", "false",
            "Annotate each op with sched.stall_cycles and sched.stall_reason">,
+    Option<"interleaveXDL", "interleave-xdl", "int64_t", "0",
+           "Aggressive MFMA scheduling: prefer XDL ops when their SSA deps "
+           "are ready, creating opportunities to interleave independent "
+           "ds_read/global_load ops behind MFMA">,
   ];
 }
 

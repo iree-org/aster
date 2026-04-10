@@ -100,8 +100,9 @@ static bool processForOp(scf::ForOp forOp) {
     // only intra-iteration deps.
     LDBG() << "Cloning mixed-dep wait: " << *wait;
     OpBuilder builder(insertionPoint);
-    auto hoistedWait = builder.create<WaitOp>(
-        wait.getLoc(), iterArgDeps, WaitOp::kNoWaitCount, WaitOp::kNoWaitCount);
+    auto hoistedWait =
+        WaitOp::create(builder, wait.getLoc(), /*resultTypes=*/TypeRange{},
+                       /*dependencies=*/iterArgDeps, /*data=*/ValueRange{});
     LDBG() << "  Hoisted: " << *hoistedWait;
     wait.setDependencies(intraDeps);
     LDBG() << "  Original kept: " << *wait;

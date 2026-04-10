@@ -469,8 +469,11 @@ def _build_multitile_gemm(
                 @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (flat_read_tok, n_frags_per_tile)])
                 def read_b(idx):
                     tok = b.memref_load(tok_buf_b, idx)
-                    b.wait_deps(tok)
                     b_vx4 = b.from_any(b.memref_load(data_buf_b, idx), vx4_type)
+                    # Data-returning wait: one per B fragment. Lets the scheduler
+                    # distribute vmcnt waits across the MFMA stream (progressive
+                    # vmcnt pattern, analogous to lgkmcnt for ds_read).
+                    [b_vx4] = b.wait_deps(tok, data=[b_vx4])
                     b_lo, b_hi = b.split_vx4(b_vx4)
                     return [b.to_any(b_lo), b.to_any(b_hi)] + [tok] * n_frags_per_tile
         else:
@@ -520,21 +523,22 @@ def _build_multitile_gemm(
                     a_hi_i = b.linearize_index((kt, mt, b.constant_index(1)), (k_t, m_t, nf))
                     b_lo_i = b.linearize_index((kt, nt, b.constant_index(0)), (k_t, n_t, nf))
                     b_hi_i = b.linearize_index((kt, nt, b.constant_index(1)), (k_t, n_t, nf))
-                    b.wait_deps(
+                    acc = b.memref_load(c_buf, acc_idx)
+                    a_lo = b.from_any(b.memref_load(frag_buf_a, a_lo_i), vx2_type)
+                    a_hi = b.from_any(b.memref_load(frag_buf_a, a_hi_i), vx2_type)
+                    b_lo = b.from_any(b.memref_load(frag_buf_b, b_lo_i), vx2_type)
+                    b_hi = b.from_any(b.memref_load(frag_buf_b, b_hi_i), vx2_type)
+                    # Data-returning waits: gate fragments through the wait so the
+                    # scheduler can interleave the wait with MFMA execution.
+                    [a_lo, a_hi, b_lo, b_hi] = b.wait_deps(
                         b.memref_load(rtok_buf_a, a_lo_i),
                         b.memref_load(rtok_buf_a, a_hi_i),
                         b.memref_load(rtok_buf_b, b_lo_i),
                         b.memref_load(rtok_buf_b, b_hi_i),
+                        data=[a_lo, a_hi, b_lo, b_hi],
                     )
-                    acc = b.memref_load(c_buf, acc_idx)
-                    a_vx4 = b.join_vx2_to_vx4(
-                        b.from_any(b.memref_load(frag_buf_a, a_lo_i), vx2_type),
-                        b.from_any(b.memref_load(frag_buf_a, a_hi_i), vx2_type),
-                    )
-                    b_vx4 = b.join_vx2_to_vx4(
-                        b.from_any(b.memref_load(frag_buf_b, b_lo_i), vx2_type),
-                        b.from_any(b.memref_load(frag_buf_b, b_hi_i), vx2_type),
-                    )
+                    a_vx4 = b.join_vx2_to_vx4(a_lo, a_hi)
+                    b_vx4 = b.join_vx2_to_vx4(b_lo, b_hi)
                     new_acc = b.mfma(MFMA_F16_CDNA4.opcode, acc, a_vx4, b_vx4)
                     b.memref_store(new_acc, c_buf, acc_idx)
             else:
@@ -543,12 +547,18 @@ def _build_multitile_gemm(
                 def _(idx):
                     sub, kt, mt, nt = b.delinearize_index(idx, (nf, k_t, m_t, n_t))
                     acc_idx = b.linearize_index((mt, nt), (m_t, n_t))
+                    # frag index = tile * nf + sub (matching read_a/read_b layout)
                     a_fi = b.linearize_index((kt, mt, sub), (k_t, m_t, nf))
                     b_fi = b.linearize_index((kt, nt, sub), (k_t, n_t, nf))
-                    b.wait_deps(b.memref_load(rtok_buf_a, a_fi), b.memref_load(rtok_buf_b, b_fi))
                     acc = b.memref_load(c_buf, acc_idx)
                     a_frag = b.from_any(b.memref_load(frag_buf_a, a_fi), vx2_type)
                     b_frag = b.from_any(b.memref_load(frag_buf_b, b_fi), vx2_type)
+                    # Data-returning waits: each MFMA's operands are gated by their
+                    # own token wait, allowing the scheduler to produce progressive
+                    # lgkmcnt/vmcnt patterns interleaved with the MFMA stream.
+                    a_tok = b.memref_load(rtok_buf_a, a_fi)
+                    b_tok = b.memref_load(rtok_buf_b, b_fi)
+                    [a_frag, b_frag] = b.wait_deps(a_tok, b_tok, data=[a_frag, b_frag])
                     new_acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
                     b.memref_store(new_acc, c_buf, acc_idx)
 
@@ -657,6 +667,7 @@ def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
             unroll_factor_multiplier=getattr(cfg.mapping, "unroll_factor_multiplier", 1),
             epilogue_peeling=getattr(cfg.mapping, "epilogue_peeling", True),
             ll_sched=getattr(cfg.mapping, "ll_sched", False),
+            interleave_xdl=getattr(cfg.mapping, "interleave_xdl", False),
             hoist_iter_arg_waits=getattr(cfg.mapping, "hoist_wait", False),
             rotate_stage=rotate_stage,
         )
