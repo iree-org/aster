@@ -290,6 +290,14 @@ class GemmMappingSpec:
         """[M, N, K] elements per tile = mfma_shape[d] * tile_mult[d]."""
         return [s * m for s, m in zip(mfma_shape, self.tile_mult)]
 
+    @staticmethod
+    def default_tile_elements(
+        mfma_shape: list[int], tile_mult: list[int] | None = None
+    ) -> list[int]:
+        """Tile elements for default mapping: mfma_shape * tile_mult."""
+        tm = tile_mult or [1, 1, 2]
+        return [s * m for s, m in zip(mfma_shape, tm)]
+
     # --- Derived tile counts ---
 
     @property
@@ -573,7 +581,9 @@ class WeakScaledMappedGemmInstance:
     @property
     def k_scaling_factor(self) -> int:
         tile_k = self.mapping.tile_elements(self.spec.mfma_shape)[DIM_K]
-        return self.gemm_size[DIM_K] // (self.mapping.num_tiles_per_wave[DIM_K] * tile_k)
+        return self.gemm_size[DIM_K] // (
+            self.mapping.num_tiles_per_wave[DIM_K] * tile_k
+        )
 
     # --- Label serde ---
 

@@ -24,6 +24,7 @@ The returned module can be passed directly to aster.compiler compile_kernel_modu
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional
 
 from aster import ir
@@ -45,6 +46,7 @@ from aster.dialects._amdgcn_ops_gen import (
     GetLDSOffsetOp,
     KernelOp,
     LoadArgOp,
+    LoadToLDSOp,
     MakeBufferRsrcOp,
     MakeRegisterRangeOp,
     ModuleOp,
@@ -55,6 +57,7 @@ from aster.dialects._amdgcn_ops_gen import (
     StoreOp,
 )
 from aster._mlir_libs._amdgcn import (
+    AGPRRangeType,
     AGPRType,
     SGPRRangeType,
     SGPRType,
@@ -85,6 +88,36 @@ def _i64(value: int, ctx: ir.Context) -> ir.IntegerAttr:
     return ir.IntegerAttr.get(ir.IntegerType.get_signless(64, ctx), value)
 
 
+@dataclass(frozen=True)
+class MfmaConfig:
+    """MFMA instruction configuration for a 16x16 output tile."""
+
+    opcode: str
+    k_per_mfma: int
+    a_regs: int
+    b_regs: int
+    c_regs: int
+    elt_bytes: int
+
+    @property
+    def k_bytes_per_row(self) -> int:
+        return self.k_per_mfma * self.elt_bytes
+
+    @property
+    def reads_vx4(self) -> bool:
+        return self.a_regs == 4
+
+
+MFMA_F16_CDNA4 = MfmaConfig(
+    opcode="v_mfma_f32_16x16x32_f16",
+    k_per_mfma=32,
+    a_regs=4,
+    b_regs=4,
+    c_regs=4,
+    elt_bytes=2,
+)
+
+
 class KernelBuilder:
     """Builds an amdgcn kernel IR module.
 
@@ -104,6 +137,8 @@ class KernelBuilder:
         self._loc = ir.Location.unknown(ctx)
         self._module_name = module_name
         self._kernel_name = kernel_name
+        self._target = target
+        self._isa = isa
         self._ptr_args: List[AccessKind] = []
         self._kernel_attrs = {}
 
@@ -137,6 +172,22 @@ class KernelBuilder:
         self._kernel_block = ir.Block.create_at_start(self._kernel_op.body_region, [])
         self._kip = ir.InsertionPoint(self._kernel_block)
         self._current_stage: Optional[int] = None
+
+        # Cached types -- constructed once, reused everywhere.
+        self.idx_type = ir.IndexType.get(ctx)
+        self.i32_type = ir.IntegerType.get_signless(32, ctx)
+        self.any_type = ir.Type.parse("!aster_utils.any")
+        self.m0_type = ir.Type.parse("!amdgcn.m0")
+        self.vx2_type = VGPRRangeType.get(ctx, size=2)
+        self.vx4_type = VGPRRangeType.get(ctx, size=4)
+        self.ax4_type = AGPRRangeType.get(ctx, size=4)
+        self.sgpr1_type = ir.Type.parse("!amdgcn.sgpr<[? + 1]>")
+        self.sgpr2_type = ir.Type.parse("!amdgcn.sgpr<[? + 2]>")
+        self.sgpr4_type = ir.Type.parse("!amdgcn.sgpr<[? + 4]>")
+        self.flat_read_tok = ir.Type.parse("!amdgcn.read_token<flat>")
+        self.flat_write_tok = ir.Type.parse("!amdgcn.write_token<flat>")
+        self.lds_read_tok = ir.Type.parse("!amdgcn.read_token<shared>")
+        self.lds_write_tok = ir.Type.parse("!amdgcn.write_token<shared>")
 
     # ---------------------------------------------------------------------------
     # Pipeline stage annotation
@@ -340,7 +391,7 @@ class KernelBuilder:
         """
         from aster.dialects._affine_ops_gen import AffineDelinearizeIndexOp
 
-        idx = ir.IndexType.get(self._ctx)
+        idx = self.idx_type
         n = len(sizes)
         delin = AffineDelinearizeIndexOp(
             [idx] * n,
@@ -475,6 +526,16 @@ class KernelBuilder:
                 self.alloca_agpr(), init_val, loc=self._loc, ip=self._kip
             )
             for _ in range(4)
+        ]
+        return self._make_register_range(inited)
+
+    def init_agprx16(self, init_val: ir.Value) -> ir.Value:
+        """Allocate and initialize a 16-AGPR register range (32x32 accumulator)."""
+        inited = [
+            _inst.v_accvgpr_write_b32(
+                self.alloca_agpr(), init_val, loc=self._loc, ip=self._kip
+            )
+            for _ in range(16)
         ]
         return self._make_register_range(inited)
 
@@ -635,7 +696,7 @@ class KernelBuilder:
             ip=self._kip,
         )
 
-        vx2_type = VGPRRangeType.get(self._ctx, size=2)
+        vx2_type = self.vx2_type
         return lsird.to_reg(vx2_type, addr_ptr, loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
@@ -702,7 +763,7 @@ class KernelBuilder:
         """Emit a buffer load using a pre-allocated dest register (or range)."""
         if const_offset is None:
             const_offset = self.constant_i32(0)
-        read_tok_type = ir.Type.parse("!amdgcn.read_token<flat>")
+        read_tok_type = self.flat_read_tok
         op = LoadOp(
             opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
             dest=dest,
@@ -766,7 +827,7 @@ class KernelBuilder:
     ) -> ir.Value:
         if const_offset is None:
             const_offset = self.constant_i32(0)
-        write_tok_type = ir.Type.parse("!amdgcn.write_token<flat>")
+        write_tok_type = self.flat_write_tok
         op = StoreOp(
             opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
             data=data,
@@ -822,7 +883,7 @@ class KernelBuilder:
         When addr is SGPRx2, pass the per-thread byte offset as
         dynamic_offset (VGPR) to get saddr+vaddr addressing.
         """
-        read_tok_type = ir.Type.parse("!amdgcn.read_token<flat>")
+        read_tok_type = self.flat_read_tok
         op = LoadOp(
             opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
             dest=dest,
@@ -881,7 +942,7 @@ class KernelBuilder:
         dynamic_offset: Optional[ir.Value] = None,
     ) -> ir.Value:
         """Global store with optional dynamic_offset for saddr+vaddr."""
-        write_tok_type = ir.Type.parse("!amdgcn.write_token<flat>")
+        write_tok_type = self.flat_write_tok
         op = StoreOp(
             opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
             data=data,
@@ -926,7 +987,7 @@ class KernelBuilder:
         so callers can pass index-typed addresses and the conversion to
         VGPR happens at the point of use, not earlier.
         """
-        if addr.type == ir.IndexType.get(self._ctx):
+        if addr.type == self.idx_type:
             return self.index_to_vgpr(addr)
         i32_type = ir.IntegerType.get_signless(32, self._ctx)
         if addr.type == i32_type:
@@ -938,7 +999,7 @@ class KernelBuilder:
         if const_offset is None:
             const_offset = self.constant_i32(0)
         addr = self._ds_addr(addr)
-        write_tok_type = ir.Type.parse("!amdgcn.write_token<shared>")
+        write_tok_type = self.lds_write_tok
         op = StoreOp(
             opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
             data=data,
@@ -955,7 +1016,7 @@ class KernelBuilder:
         if const_offset is None:
             const_offset = self.constant_i32(0)
         addr = self._ds_addr(addr)
-        read_tok_type = ir.Type.parse("!amdgcn.read_token<shared>")
+        read_tok_type = self.lds_read_tok
         op = LoadOp(
             opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
             dest=dest,
@@ -993,6 +1054,96 @@ class KernelBuilder:
         return self._ds_read("ds_read_b128", self.alloc_vgprx4(), addr, const_offset)
 
     # ---------------------------------------------------------------------------
+    # G2S: Global-to-LDS direct loads (CDNA4)
+    # ---------------------------------------------------------------------------
+
+    def alloc_m0(self) -> ir.Value:
+        """Allocate the M0 register (used for G2S LDS destination offset)."""
+        m0_type = self.m0_type
+        op = AllocaOp(result=m0_type, loc=self._loc, ip=self._kip)
+        self._tag_stage(op)
+        return op.result
+
+    def set_m0(self, m0: ir.Value, value: ir.Value) -> ir.Value:
+        """Set M0 register via s_mov_b32.
+
+        Returns the written M0 value.
+        """
+        return _inst.s_mov_b32(m0, value, loc=self._loc, ip=self._kip)
+
+    def g2s_buffer_load_dwordx4(
+        self,
+        m0: ir.Value,
+        rsrc: ir.Value,
+        soffset: ir.Value,
+        voffset: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+    ) -> ir.Value:
+        """G2S: buffer_load_dwordx4 with LDS flag (128-bit per lane).
+
+        Loads 128 bits per lane directly from global memory into LDS,
+        bypassing VGPRs. Completion tracked by vmcnt (not lgkmcnt).
+
+        Args:
+            m0: M0 register holding LDS destination base offset.
+            rsrc: 4-SGPR buffer resource descriptor.
+            soffset: Scalar offset (SGPR).
+            voffset: Per-lane dynamic offset (VGPR).
+            const_offset: Optional constant offset (i32).
+        Returns:
+            Write token for vmcnt tracking.
+        """
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        write_tok_type = self.flat_write_tok
+        op = LoadToLDSOp(
+            opcode=ir.Attribute.parse("#amdgcn.inst<buffer_load_dwordx4_lds>"),
+            m0=m0,
+            addr=rsrc,
+            uniform_offset=soffset,
+            dynamic_offset=voffset,
+            constant_offset=const_offset,
+            results=[write_tok_type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        self._tag_stage(op)
+        return op.token
+
+    def g2s_buffer_load_dword(
+        self,
+        m0: ir.Value,
+        rsrc: ir.Value,
+        soffset: ir.Value,
+        voffset: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+    ) -> ir.Value:
+        """G2S: buffer_load_dword with LDS flag (32-bit per lane).
+
+        Same as g2s_buffer_load_dwordx4 but loads only 32 bits per lane.
+        """
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        write_tok_type = self.flat_write_tok
+        op = LoadToLDSOp(
+            opcode=ir.Attribute.parse("#amdgcn.inst<buffer_load_dword_lds>"),
+            m0=m0,
+            addr=rsrc,
+            uniform_offset=soffset,
+            dynamic_offset=voffset,
+            constant_offset=const_offset,
+            results=[write_tok_type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        self._tag_stage(op)
+        return op.token
+
+    def s_nop(self, count: int = 0):
+        """Insert s_nop with given wait count."""
+        _inst.s_nop(imm=count, loc=self._loc, ip=self._kip)
+
+    # ---------------------------------------------------------------------------
     # Synchronization
     # ---------------------------------------------------------------------------
 
@@ -1028,7 +1179,7 @@ class KernelBuilder:
             result=i32_type, buffer=handle, loc=self._loc, ip=self._kip
         ).result
         self._tag_stage(offset_i32)
-        idx_type = ir.IndexType.get(self._ctx)
+        idx_type = self.idx_type
         offset_idx = arith.index_cast(idx_type, offset_i32, loc=self._loc, ip=self._kip)
         return handle, offset_idx
 
@@ -1040,6 +1191,24 @@ class KernelBuilder:
     # ---------------------------------------------------------------------------
     # Register range splitting
     # ---------------------------------------------------------------------------
+
+    def join_vx2_to_vx4(self, lo: ir.Value, hi: ir.Value) -> ir.Value:
+        """Join two VGPRx2 into one VGPRx4."""
+        v_type = VGPRType.get(self._ctx, reg=None)
+        lo_split = SplitRegisterRangeOp(
+            input=lo, results=[v_type, v_type], loc=self._loc, ip=self._kip
+        )
+        hi_split = SplitRegisterRangeOp(
+            input=hi, results=[v_type, v_type], loc=self._loc, ip=self._kip
+        )
+        return self._make_register_range(
+            [
+                lo_split.results_[0],
+                lo_split.results_[1],
+                hi_split.results_[0],
+                hi_split.results_[1],
+            ]
+        )
 
     def split_vx4(self, vx4_val) -> tuple[ir.Value, ir.Value]:
         """Split a VGPRx4 into two VGPRx2 values."""
@@ -1073,7 +1242,7 @@ class KernelBuilder:
 
     def constant_index(self, value: int) -> ir.Value:
         """Create an index-typed constant."""
-        idx_type = ir.IndexType.get(self._ctx)
+        idx_type = self.idx_type
         attr = ir.IntegerAttr.get(idx_type, value)
         return arith.ConstantOp(idx_type, attr, loc=self._loc, ip=self._kip).result
 
@@ -1418,7 +1587,7 @@ class KernelBuilder:
 
     def to_any(self, value: ir.Value) -> ir.Value:
         """Wrap a typed value in !aster_utils.any for pipeline stage crossing."""
-        any_type = ir.Type.parse("!aster_utils.any")
+        any_type = self.any_type
         op = ir.Operation.create(
             "aster_utils.to_any",
             results=[any_type],
@@ -1467,6 +1636,10 @@ class KernelBuilder:
     def set_grid_dims(self, x: int, y: int = 1, z: int = 1):
         """Set grid dimensions."""
         self._kernel_attrs["grid_dims"] = ir.DenseI32ArrayAttr.get([x, y, z], self._ctx)
+
+    # ---------------------------------------------------------------------------
+    # Module finalization
+    # ---------------------------------------------------------------------------
 
     def build(self) -> ir.Module:
         """Finalize the kernel and return the outer ir.Module."""
