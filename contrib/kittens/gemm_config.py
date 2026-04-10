@@ -235,6 +235,7 @@ class GemmMappingSpec:
     unroll_factor_multiplier: int = 1  # extra unroll on top of LCM
     epilogue_peeling: bool = True  # fully unroll cleanup loop
     ll_sched: bool = False  # low-latency scheduling
+    interleave_xdl: bool = False  # interleave non-MFMA ops in XDL gaps
     hoist_wait: bool = False  # hoist iter-arg waits
     set_mfma_priority: bool = True  # insert s_setprio around MFMA groups
 
@@ -603,6 +604,7 @@ class WeakScaledMappedGemmInstance:
                 r"(?:_um(\d+))?"
                 r"(_nopeel)?"
                 r"(_llsched)?"
+                r"(_ixdl)?"
                 r"(_hoistwait)?"
                 r"(_ldsw)?"
                 r"(_nosetprio)?"
@@ -635,6 +637,7 @@ class WeakScaledMappedGemmInstance:
             um,
             nopeel,
             llsched,
+            ixdl,
             hoistwait,
             ldsw,
             nosetprio,
@@ -665,6 +668,7 @@ class WeakScaledMappedGemmInstance:
             unroll_factor_multiplier=int(um) if um else 1,
             epilogue_peeling=nopeel is None,
             ll_sched=llsched is not None,
+            interleave_xdl=ixdl is not None,
             hoist_wait=hoistwait is not None,
             lds_at_write=ldsw is not None,
             set_mfma_priority=nosetprio is None,
@@ -686,6 +690,7 @@ class WeakScaledMappedGemmInstance:
         )
         peel = "" if self.mapping.epilogue_peeling else "_nopeel"
         llsched = "_llsched" if self.mapping.ll_sched else ""
+        ixdl = "_ixdl" if self.mapping.interleave_xdl else ""
         hoistwait = "_hoistwait" if self.mapping.hoist_wait else ""
         ldswrite = "_ldsw" if self.mapping.lds_at_write else ""
         nosetprio = "" if self.mapping.set_mfma_priority else "_nosetprio"
@@ -702,7 +707,7 @@ class WeakScaledMappedGemmInstance:
             f"_wg{wg[DIM_M]}x{wg[DIM_N]}x{wg[DIM_K]}"
             f"_w{self.mapping.num_waves_per_workgroup[DIM_M]}x{self.mapping.num_waves_per_workgroup[DIM_N]}x{self.mapping.num_waves_per_workgroup[DIM_K]}"
             f"{tile_str}_pipestrat{self.mapping.pipeline_strategy}"
-            f"{wgcu}{lcm}{um}{peel}{llsched}{hoistwait}{ldswrite}{nosetprio}{suffix}"
+            f"{wgcu}{lcm}{um}{peel}{llsched}{ixdl}{hoistwait}{ldswrite}{nosetprio}{suffix}"
         )
 
     # --- Fallback delegation ---

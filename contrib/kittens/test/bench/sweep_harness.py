@@ -217,8 +217,10 @@ def add_scheduling_axes(grid: SweepGrid, unroll_multipliers: Optional[Sequence[i
     grid.axis("unroll_mult", unroll_multipliers)
     grid.axis("epilogue_peeling", [True, False])
     grid.axis("ll_sched", [True, False])
+    grid.axis("interleave_xdl", [False, True])
     grid.axis("hoist_wait", [True, False])
     grid.filter("lcm_unroll", "unroll_mult", check=lambda d: d["lcm_unroll"] or d["unroll_mult"] == 1)
+    grid.filter("ll_sched", "interleave_xdl", check=lambda d: d["ll_sched"] or not d["interleave_xdl"])
     return grid
 
 
@@ -507,6 +509,7 @@ GEMM_SWEEP_PIN_MAP = {
     "lcm_unroll": "lcm_unroll",
     "epilogue_peeling": "epilogue_peeling",
     "ll_sched": "ll_sched",
+    "interleave_xdl": "interleave_xdl",
     "hoist_wait": "hoist_wait",
     "set_mfma_priority": "set_mfma_priority",
 }
@@ -654,6 +657,12 @@ def add_geometry_pin_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--ll-sched", action=argparse.BooleanOptionalAction, default=None, help="Pin low-level scheduler"
+    )
+    parser.add_argument(
+        "--interleave-xdl",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Pin aggressive MFMA scheduling (interleave ds_read/global_load behind MFMA)",
     )
     parser.add_argument(
         "--hoist-wait", action=argparse.BooleanOptionalAction, default=None, help="Pin hoist iter_arg waits"

@@ -52,7 +52,6 @@ from aster.dialects._amdgcn_ops_gen import (
     ModuleOp,
     SplitRegisterRangeOp,
     SWaitcntOp,
-    WaitOp,
     LoadOp,
     StoreOp,
 )
@@ -1147,10 +1146,32 @@ class KernelBuilder:
     # Synchronization
     # ---------------------------------------------------------------------------
 
-    def wait_deps(self, *tokens):
-        """Wait for dependency tokens (from global_load or ds_write)."""
-        op = WaitOp(dependencies=list(tokens), loc=self._loc, ip=self._kip)
+    def wait_deps(self, *tokens, data=None):
+        """Wait for dependency tokens (from global_load or ds_write).
+
+        When ``data`` values are provided, they are passed through and returned
+        as results.  This creates SSA def-use edges that let the scheduler
+        interleave the wait with MFMA operations instead of treating it as a
+        barrier.
+        """
+        data_values = list(data) if data is not None else []
+        result_types = [d.type for d in data_values]
+        op = ir.Operation.create(
+            "amdgcn.wait",
+            results=result_types,
+            operands=list(tokens) + data_values,
+            attributes={
+                "operandSegmentSizes": ir.DenseI32ArrayAttr.get(
+                    [len(tokens), len(data_values)]
+                ),
+            },
+            loc=self._loc,
+            ip=self._kip,
+        )
         self._tag_stage(op)
+        if data_values:
+            return list(op.results)
+        return None
 
     def wait_vmcnt(self, count: int = 0):
         """Insert s_waitcnt vmcnt=count."""
@@ -1609,6 +1630,17 @@ class KernelBuilder:
         )
         self._tag_stage(op.results[0])
         return op.results[0]
+
+    def reg_interference(self, *values: ir.Value):
+        """Force register interference between values (must be register types)."""
+        assert len(values) >= 2, "reg_interference needs at least 2 values"
+        ir.Operation.create(
+            "amdgcn.reg_interference",
+            results=[],
+            operands=list(values),
+            loc=self._loc,
+            ip=self._kip,
+        )
 
     # ---------------------------------------------------------------------------
     # Barrier

@@ -100,6 +100,7 @@ def _build_instance(d: dict) -> MultitileGemmInstance:
         unroll_factor_multiplier=d["unroll_mult"],
         epilogue_peeling=d["epilogue_peeling"],
         ll_sched=d["ll_sched"],
+        interleave_xdl=d["interleave_xdl"],
         hoist_wait=d["hoist_wait"],
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,

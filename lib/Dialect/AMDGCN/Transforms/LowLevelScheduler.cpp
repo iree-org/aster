@@ -50,7 +50,7 @@ struct LowLevelSchedulerPass
     GenericSchedulerAttr compositeAttr = GenericSchedulerAttr::get(
         ctx, ValueSchedulerAttr::get(ctx),
         SchedListLabelerAttr::get(ctx, ArrayRef<SchedLabelerAttrInterface>{}),
-        LowLevelSchedulerAttr::get(ctx, debugStalls));
+        LowLevelSchedulerAttr::get(ctx, debugStalls, interleaveXDL));
 
     StringAttr schedName = StringAttr::get(ctx, "amdgcn.low_level_sched");
     SmallVector<SchedInfo> schedInfos(

@@ -94,6 +94,7 @@ def _build_instance(d: dict) -> WeakScaledMappedGemmInstance:
         unroll_factor_multiplier=d["unroll_mult"],
         epilogue_peeling=d["epilogue_peeling"],
         ll_sched=d["ll_sched"],
+        interleave_xdl=d["interleave_xdl"],
         hoist_wait=d["hoist_wait"],
     )
     return WeakScaledMappedGemmInstance(spec, mapping)

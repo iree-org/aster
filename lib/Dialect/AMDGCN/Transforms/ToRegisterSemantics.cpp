@@ -96,6 +96,13 @@ struct GenericOpPattern : public OpRewritePattern<OpTy> {
   LogicalResult matchAndRewrite(OpTy op,
                                 PatternRewriter &rewriter) const override;
 };
+
+/// Pattern to convert WaitOp data operands and results to register semantics.
+struct WaitOpPattern : public OpRewritePattern<WaitOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(WaitOp op,
+                                PatternRewriter &rewriter) const override;
+};
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -363,6 +370,33 @@ SplitRegisterRangePattern::matchAndRewrite(SplitRegisterRangeOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// WaitOpPattern implementation
+//===----------------------------------------------------------------------===//
+
+LogicalResult WaitOpPattern::matchAndRewrite(WaitOp op,
+                                             PatternRewriter &rewriter) const {
+  if (op.getData().empty())
+    return failure(); // no data to convert
+
+  bool changed = false;
+  // Convert data operands from value to reference semantics.
+  for (auto [i, data] : llvm::enumerate(op.getData())) {
+    FailureOr<ValueRange> allocs =
+        getNonValueAllocationsOrFailure(data, /*unpackRange=*/false);
+    if (failed(allocs) || allocs->size() != 1 || allocs->front() == data)
+      continue;
+    // Update both the data operand and the result type.
+    Value newData = allocs->front();
+    op.getDataMutable()[i].set(newData);
+    op.getResult(i).setType(newData.getType());
+    changed = true;
+  }
+  if (changed)
+    rewriter.modifyOpInPlace(op, []() {});
+  return success(changed);
+}
+
+//===----------------------------------------------------------------------===//
 // GenericOpPattern implementation
 //===----------------------------------------------------------------------===//
 
@@ -394,11 +428,10 @@ void ToRegisterSemantics::runOnOperation() {
   Operation *op = getOperation();
   MLIRContext *ctx = op->getContext();
   RewritePatternSet patterns(ctx);
-  patterns
-      .add<AllocaOpPattern, InstOpPattern, MakeRegisterRangePattern,
-           SplitRegisterRangePattern, GenericOpPattern<lsir::CmpIOp>,
-           GenericOpPattern<amdgcn::RegInterferenceOp>, DeallocCastOpPattern>(
-          ctx);
+  patterns.add<
+      AllocaOpPattern, InstOpPattern, MakeRegisterRangePattern,
+      SplitRegisterRangePattern, WaitOpPattern, GenericOpPattern<lsir::CmpIOp>,
+      GenericOpPattern<amdgcn::RegInterferenceOp>, DeallocCastOpPattern>(ctx);
   if (failed(applyPatternsGreedily(
           op, std::move(patterns),
           GreedyRewriteConfig()

@@ -797,7 +797,8 @@ def WaitCountAttr :
   DefaultValuedAttr<I16Attr, "std::numeric_limits<uint16_t>::max()">;
 
 def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
-    DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>
+    DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>,
+    AttrSizedOperandSegments
   ]> {
   let summary = "AMDGCN wait operation";
   let description = [{
@@ -808,6 +809,12 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
     The attributes control which memory subsystems to wait for:
     - `vm_cnt`: Wait for vector memory operations
     - `lgkm_cnt`: Wait for lds, gws and constant memory operations
+
+    When `data` operands are provided, the wait also passes through register
+    values and returns them as results. This creates SSA def-use edges that
+    naturally order consumers after the wait, enabling the scheduler to
+    interleave waits with MFMA operations (filling the 12-cycle XDL gaps)
+    instead of treating them as barriers.
 
     NOTE: This operations is compatiable only with CDNA3 and CDNA4 targets.
     TODO: Support RDNA4 counts, and other targets.
@@ -821,16 +828,20 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
         : dps(!amdgcn.vgpr_range<[? + 1]>) ins(!amdgcn.vgpr_range<[? + 2]>)
           -> !amdgcn.read_token<flat>
     amdgcn.wait %tok0, %tok1 : !amdgcn.write_token<flat>, !amdgcn.read_token<flat>
+
+    // Data-returning form (enables MFMA interleaving):
+    %ready = amdgcn.wait deps %tok1 data %result
+        : !amdgcn.read_token<flat> data !amdgcn.vgpr_range<[? + 1]>
     ```
   }];
   let arguments = (ins
     Variadic<TokenDependencyTypeInterface>:$dependencies,
+    Variadic<AnyType>:$data,
     WaitCountAttr:$vm_cnt, WaitCountAttr:$lgkm_cnt
   );
-  let assemblyFormat = [{
-    oilist(`vm_cnt` $vm_cnt | `lgkm_cnt` $lgkm_cnt) (`deps` $dependencies^)?
-    attr-dict (`:` type($dependencies)^)?
-  }];
+  let results = (outs Variadic<AnyType>:$results);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
   let extraClassDeclaration = [{
     static constexpr uint16_t kNoWaitCount = std::numeric_limits<uint16_t>::max();
 

@@ -1140,6 +1140,106 @@ LogicalResult PtrAddOp::canonicalize(PtrAddOp op, PatternRewriter &rewriter) {
 
 Value WaitOp::getOutDependency() { return Value(); }
 
+/// Parse: amdgcn.wait [vm_cnt <N>] [lgkm_cnt <N>] [deps %t1, %t2 : types]
+///                     [data %d1, %d2 : types -> types]
+ParseResult WaitOp::parse(OpAsmParser &parser, OperationState &result) {
+  // Parse optional vm_cnt / lgkm_cnt with oilist-like behavior.
+  auto &props = result.getOrAddProperties<WaitOp::Properties>();
+  auto i16Ty = IntegerType::get(parser.getContext(), 16);
+  auto defaultCnt =
+      IntegerAttr::get(i16Ty, static_cast<int64_t>(WaitOp::kNoWaitCount));
+  props.vm_cnt = defaultCnt;
+  props.lgkm_cnt = defaultCnt;
+
+  // Try parsing vm_cnt and lgkm_cnt in any order.
+  for (int i = 0; i < 2; ++i) {
+    if (succeeded(parser.parseOptionalKeyword("vm_cnt"))) {
+      uint16_t cnt;
+      if (parser.parseInteger(cnt))
+        return failure();
+      props.vm_cnt = IntegerAttr::get(i16Ty, static_cast<int64_t>(cnt));
+    } else if (succeeded(parser.parseOptionalKeyword("lgkm_cnt"))) {
+      uint16_t cnt;
+      if (parser.parseInteger(cnt))
+        return failure();
+      props.lgkm_cnt = IntegerAttr::get(i16Ty, static_cast<int64_t>(cnt));
+    }
+  }
+
+  // Parse optional deps: `deps %tok0, %tok1`
+  SmallVector<OpAsmParser::UnresolvedOperand> deps;
+  SmallVector<Type> depTypes;
+  bool hasDeps = succeeded(parser.parseOptionalKeyword("deps"));
+  if (hasDeps) {
+    if (parser.parseOperandList(deps))
+      return failure();
+  }
+
+  // Parse optional data: `data %d0, %d1`
+  SmallVector<OpAsmParser::UnresolvedOperand> data;
+  SmallVector<Type> dataTypes;
+  bool hasData = succeeded(parser.parseOptionalKeyword("data"));
+  if (hasData) {
+    if (parser.parseOperandList(data))
+      return failure();
+  }
+
+  // Parse optional attr-dict before the type list.
+  if (parser.parseOptionalAttrDict(result.attributes))
+    return failure();
+
+  // Parse type lists: `: dep_types [data data_types]`
+  if (hasDeps) {
+    if (parser.parseColon() || parser.parseTypeList(depTypes))
+      return failure();
+    if (parser.resolveOperands(deps, depTypes, parser.getCurrentLocation(),
+                               result.operands))
+      return failure();
+  }
+  if (hasData) {
+    if (parser.parseKeyword("data") || parser.parseTypeList(dataTypes))
+      return failure();
+    if (parser.resolveOperands(data, dataTypes, parser.getCurrentLocation(),
+                               result.operands))
+      return failure();
+    result.addTypes(dataTypes);
+  }
+
+  // Set operand segment sizes: [dependencies, data].
+  result.addAttribute("operandSegmentSizes",
+                      parser.getBuilder().getDenseI32ArrayAttr(
+                          {static_cast<int32_t>(deps.size()),
+                           static_cast<int32_t>(data.size())}));
+
+  return success();
+}
+
+void WaitOp::print(OpAsmPrinter &p) {
+  if (getVmCnt() != kNoWaitCount)
+    p << " vm_cnt " << getVmCnt();
+  if (getLgkmCnt() != kNoWaitCount)
+    p << " lgkm_cnt " << getLgkmCnt();
+  if (!getDependencies().empty()) {
+    p << " deps ";
+    p.printOperands(getDependencies());
+  }
+  if (!getData().empty()) {
+    p << " data ";
+    p.printOperands(getData());
+  }
+  p.printOptionalAttrDict((*this)->getAttrs(),
+                          {"vm_cnt", "lgkm_cnt", "operandSegmentSizes"});
+  // Print type lists after attr-dict (matches existing test format).
+  if (!getDependencies().empty()) {
+    p << " : ";
+    llvm::interleaveComma(getDependencies().getTypes(), p);
+  }
+  if (!getData().empty()) {
+    p << " data ";
+    llvm::interleaveComma(getData().getTypes(), p);
+  }
+}
+
 bool WaitOp::addDependencies(ValueRange deps) {
   bool changed = false;
   if (deps.empty())
@@ -1262,7 +1362,37 @@ WaitOp::canonicalizeWait(WaitOp op, RewriterBase &rewriter,
                      : FailureOr<Block::iterator>(nextIt);
 }
 
+LogicalResult WaitOp::verify() {
+  if (getData().size() != getResults().size())
+    return emitOpError(
+               "data operands and results must have the same count, got ")
+           << getData().size() << " data and " << getResults().size()
+           << " results";
+  for (auto [d, r] : llvm::zip(getData(), getResults())) {
+    if (d.getType() != r.getType())
+      return emitOpError("data operand and result type mismatch: ")
+             << d.getType() << " vs " << r.getType();
+  }
+  return success();
+}
+
 LogicalResult WaitOp::canonicalize(WaitOp op, PatternRewriter &rewriter) {
+  // Lower data-returning wait to plain wait: replace data results with
+  // data inputs (RAUW), then strip the data operands and results.
+  // This runs after scheduling has used the SSA edges for ordering.
+  if (!op.getData().empty()) {
+    for (auto [result, data] : llvm::zip(op.getResults(), op.getData()))
+      rewriter.replaceAllUsesWith(result, data);
+    // Rebuild as a plain wait (no data, no results).
+    auto newWait = WaitOp::create(rewriter, op.getLoc(),
+                                  /*resultTypes=*/TypeRange{},
+                                  /*dependencies=*/op.getDependencies(),
+                                  /*data=*/ValueRange{});
+    newWait.setVmCnt(op.getVmCnt());
+    newWait.setLgkmCnt(op.getLgkmCnt());
+    rewriter.eraseOp(op);
+    return success();
+  }
   llvm::SetVector<Value> deps;
   return op.canonicalizeWait(op, rewriter, deps);
 }

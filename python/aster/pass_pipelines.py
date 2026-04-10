@@ -215,7 +215,7 @@ PHASE_LOWER_TO_AMDGCN = (
 # TODO: NORMAL FORMS for amdgcn-backend.
 def phase_amdgcn_backend(
     num_vgprs=256, num_agprs=256, ll_sched=False, hoist_iter_arg_waits=False,
-    set_mfma_priority=True,
+    set_mfma_priority=True, interleave_xdl=False,
 ):
     """Build the amdgcn-backend pipeline string with optional register limits."""
     opts = []
@@ -227,6 +227,8 @@ def phase_amdgcn_backend(
         opts.append("hoist-iter-arg-waits=true")
     if ll_sched:
         opts.append("ll-sched=true")
+    if interleave_xdl:
+        opts.append("interleave-xdl=true")
     if not set_mfma_priority:
         opts.append("set-mfma-priority=false")
     if opts:
@@ -270,6 +272,7 @@ def make_default_pass_pipeline(
     ll_sched=False,
     hoist_iter_arg_waits=False,
     set_mfma_priority=True,
+    interleave_xdl=False,
 ) -> str:
     """Build the production pass pipeline with configurable pipelining options."""
     return builtin_module(
@@ -298,6 +301,7 @@ def make_default_pass_pipeline(
             ll_sched=ll_sched,
             hoist_iter_arg_waits=hoist_iter_arg_waits,
             set_mfma_priority=set_mfma_priority,
+            interleave_xdl=interleave_xdl,
         ),
         phase_nop_insertion(delays=0),
     )

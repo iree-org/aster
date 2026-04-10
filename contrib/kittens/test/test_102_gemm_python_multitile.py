@@ -460,8 +460,11 @@ def _build_multitile_gemm(
                 @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (flat_read_tok, n_frags_per_tile)])
                 def read_b(idx):
                     tok = b.memref_load(tok_buf_b, idx)
-                    b.wait_deps(tok)
                     b_vx4 = b.from_any(b.memref_load(data_buf_b, idx), vx4_type)
+                    # Data-returning wait: one per B fragment. Lets the scheduler
+                    # distribute vmcnt waits across the MFMA stream (progressive
+                    # vmcnt pattern, analogous to lgkmcnt for ds_read).
+                    [b_vx4] = b.wait_deps(tok, data=[b_vx4])
                     b_lo, b_hi = b.split_vx4(b_vx4)
                     return [b.to_any(b_lo), b.to_any(b_hi)] + [tok] * n_frags_per_tile
         else:
@@ -507,10 +510,15 @@ def _build_multitile_gemm(
                 # frag index = tile * nf + sub (matching read_a/read_b layout)
                 a_fi = b.linearize_index((kt, mt, sub), (k_t, m_t, nf))
                 b_fi = b.linearize_index((kt, nt, sub), (k_t, n_t, nf))
-                b.wait_deps(b.memref_load(rtok_buf_a, a_fi), b.memref_load(rtok_buf_b, b_fi))
                 acc = b.memref_load(c_buf, acc_idx)
                 a_frag = b.from_any(b.memref_load(frag_buf_a, a_fi), vx2_type)
                 b_frag = b.from_any(b.memref_load(frag_buf_b, b_fi), vx2_type)
+                # Data-returning waits: each MFMA's operands are gated by their
+                # own token wait, allowing the scheduler to produce progressive
+                # lgkmcnt/vmcnt patterns interleaved with the MFMA stream.
+                a_tok = b.memref_load(rtok_buf_a, a_fi)
+                b_tok = b.memref_load(rtok_buf_b, b_fi)
+                [a_frag, b_frag] = b.wait_deps(a_tok, b_tok, data=[a_frag, b_frag])
                 new_acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
                 b.memref_store(new_acc, c_buf, acc_idx)
 
@@ -615,6 +623,7 @@ def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
             unroll_factor_multiplier=getattr(cfg.mapping, "unroll_factor_multiplier", 1),
             epilogue_peeling=getattr(cfg.mapping, "epilogue_peeling", True),
             ll_sched=getattr(cfg.mapping, "ll_sched", False),
+            interleave_xdl=getattr(cfg.mapping, "interleave_xdl", False),
             hoist_iter_arg_waits=getattr(cfg.mapping, "hoist_wait", False),
         )
         asm = compile_mlir_module_to_asm(

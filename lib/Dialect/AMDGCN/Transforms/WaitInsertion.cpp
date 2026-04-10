@@ -168,7 +168,9 @@ void WaitTransformImpl::handleDefinitions(InstOpInterface instOp) {
     // Create the load operation.
     Value token = memref::LoadOp::create(rewriter, instOp.getLoc(),
                                          allocaOp.getResult(), ValueRange());
-    WaitOp::create(rewriter, instOp.getLoc(), token);
+    WaitOp::create(rewriter, instOp.getLoc(), /*resultTypes=*/TypeRange{},
+                   /*dependencies=*/ValueRange{token},
+                   /*data=*/ValueRange{});
   }
 }
 

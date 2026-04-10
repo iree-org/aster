@@ -72,6 +72,20 @@ LogicalResult DPSAnalysisImpl::visitOp(Operation *op) {
     return success();
   }
 
+  // Handle data-returning wait operations as pass-throughs: each data result
+  // aliases the corresponding data input (no new allocation).
+  if (auto waitOp = dyn_cast<amdgcn::WaitOp>(op)) {
+    for (auto [data, result] :
+         llvm::zip(waitOp.getData(), waitOp.getResults())) {
+      AllocView allocView = analysis.getAllocView(data);
+      if (!allocView.alloc)
+        continue; // data may be untracked (e.g. from_any result)
+      analysis.setAllocView(result,
+                            AllocView(allocView.alloc, allocView.alloc->ids));
+    }
+    return success();
+  }
+
   // Handle make register range operations.
   if (auto makeRegisterRangeOp = dyn_cast<amdgcn::MakeRegisterRangeOp>(op)) {
     if (!makeRegisterRangeOp.getType().hasValueSemantics())
@@ -318,7 +332,8 @@ DPSClobberingAnalysis::create(DPSAnalysis &dpsAnalysis, DataFlowSolver &solver,
             // Value is a register-typed result from an op that DPS does not
             // track (e.g. aster_utils.from_any type cast). These don't
             // correspond to physical register allocations, so skip them.
-            assert(isa<aster_utils::FromAnyOp>(value.getDefiningOp()) &&
+            assert((isa<aster_utils::FromAnyOp, amdgcn::WaitOp>(
+                       value.getDefiningOp())) &&
                    "unexpected untracked register-typed live value");
             LDBG() << "-- Skipping untracked live value: " << value;
             continue;

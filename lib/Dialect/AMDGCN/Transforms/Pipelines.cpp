@@ -56,6 +56,12 @@ struct RegAllocPipelineOptions
       *this, "ll-sched",
       llvm::cl::desc("Run low-level scheduler before register semantics"),
       llvm::cl::init(false)};
+  mlir::detail::PassOptions::Option<bool> interleaveXDL{
+      *this, "interleave-xdl",
+      llvm::cl::desc("Aggressive MFMA scheduling: prefer XDL ops when their "
+                     "SSA deps are ready, creating opportunities to interleave "
+                     "independent ds_read/global_load ops behind MFMA"),
+      llvm::cl::init(false)};
 };
 
 /// Build the RegAlloc pass pipeline.
@@ -73,8 +79,11 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
     pm.addPass(createHoistIterArgWaits());
     pm.addPass(createCanonicalizerPass());
   }
-  if (options.llSched)
-    pm.addPass(createLowLevelScheduler());
+  if (options.llSched) {
+    LowLevelSchedulerOptions schedOpts;
+    schedOpts.interleaveXDL = options.interleaveXDL;
+    pm.addPass(createLowLevelScheduler(schedOpts));
+  }
   pm.addPass(createAMDGCNBufferization());
   if (options.hoistIterArgWaits) {
     pm.addPass(createHoistIterArgWaits());
@@ -139,6 +148,12 @@ struct AMDGCNBackendPipelineOptions
       *this, "ll-sched",
       llvm::cl::desc("Run low-level scheduler before register allocation"),
       llvm::cl::init(false)};
+  mlir::detail::PassOptions::Option<bool> interleaveXDL{
+      *this, "interleave-xdl",
+      llvm::cl::desc("Aggressive MFMA scheduling: prefer XDL ops when their "
+                     "SSA deps are ready, creating opportunities to interleave "
+                     "independent ds_read/global_load ops behind MFMA"),
+      llvm::cl::init(false)};
   mlir::detail::PassOptions::Option<bool> setMfmaPriority{
       *this, "set-mfma-priority",
       llvm::cl::desc("Insert s_setprio around MFMA groups"),
@@ -166,6 +181,7 @@ buildAMDGCNBackendPassPipeline(OpPassManager &pm,
     regAllocOpts.numAGPRs = options.numAGPRs;
     regAllocOpts.hoistIterArgWaits = options.hoistIterArgWaits;
     regAllocOpts.llSched = options.llSched;
+    regAllocOpts.interleaveXDL = options.interleaveXDL;
     buildRegAllocPassPipeline(kernelPm, regAllocOpts);
     kernelPm.addPass(createCanonicalizerPass());
     kernelPm.addPass(createCSEPass());
