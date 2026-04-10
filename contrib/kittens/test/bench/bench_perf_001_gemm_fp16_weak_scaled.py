@@ -78,9 +78,7 @@ _TILE_ELTS = GemmMappingSpec(
 # --- Sweep grid ---
 
 
-def _build_instance(
-    d: dict, mcpu: str, hw, rotate_compute_stage: bool = False
-) -> WeakScaledMappedGemmInstance:
+def _build_instance(d: dict, mcpu: str, hw, rotate_compute_stage: bool = False) -> WeakScaledMappedGemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
     _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_ELTS[0])
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_ELTS[1])
@@ -99,6 +97,7 @@ def _build_instance(
         unroll_factor_multiplier=d["unroll_mult"],
         epilogue_peeling=d["epilogue_peeling"],
         ll_sched=d["ll_sched"],
+        interleave_xdl=d["interleave_xdl"],
         hoist_wait=d["hoist_wait"],
         mcpu=mcpu,
         rotate_compute_stage=rotate_compute_stage,

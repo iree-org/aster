@@ -169,11 +169,18 @@ def LowLevelSchedulerAttr : AMDGCN_Attr<"LowLevelScheduler", "low_level_schedule
 
     When `annotateStalls` is true, records per-op stall metadata on the IR
     during scheduling.
+
+    When `interleaveXDL` is true, adds an aggressive XDL scoring bonus so the
+    scheduler prefers MFMA ops whenever their SSA deps are ready, rather than
+    draining independent ds_read/global_load ops via the node-ID tiebreaker.
+    This creates opportunities to interleave those independent memory ops
+    behind MFMA execution, hiding their latency in the XDL pipeline shadow.
   }];
   let parameters = (ins
-    DefaultValuedParameter<"bool", "false">:$annotateStalls
+    DefaultValuedParameter<"bool", "false">:$annotateStalls,
+    DefaultValuedParameter<"int64_t", "0">:$interleaveXDL
   );
-  let assemblyFormat = "`<` $annotateStalls `>`";
+  let assemblyFormat = "`<` $annotateStalls `,` $interleaveXDL `>`";
 }
 
 //===----------------------------------------------------------------------===//

@@ -181,6 +181,12 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
     return false;
   };
 
+  // When the wait has data results, SSA def-use edges from the results to
+  // consumers already enforce correct ordering. Skip forward barrier edges
+  // so the scheduler can interleave the wait (and its consumers) with MFMA
+  // operations, filling the 12-cycle XDL pipeline gaps.
+  bool hasDataResults = wait.getNumResults() > 0;
+
   // Add edges for the operations that are after this wait operation that wait
   // on the same tokens.
   bool waitsVM = wait.getVmCnt() != WaitOp::kNoWaitCount;
@@ -193,13 +199,18 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
       waitsLgkm = true;
   }
   for (Operation *op : graph.getOps().drop_front(pos + 1)) {
-    ValueRange operands = op->getOperands();
-    for (Value operand : operands) {
-      Operation *producer = operand.getDefiningOp();
-      if (!producer || producer->getBlock() != block)
-        continue;
-      if (waitedOps.contains(producer))
-        graph.addEdge(wait, op);
+    // Skip forward barrier edges when the wait returns data -- the SSA
+    // def-use edges through the data results enforce the same ordering
+    // without preventing the scheduler from floating the wait into MFMA gaps.
+    if (!hasDataResults) {
+      ValueRange operands = op->getOperands();
+      for (Value operand : operands) {
+        Operation *producer = operand.getDefiningOp();
+        if (!producer || producer->getBlock() != block)
+          continue;
+        if (waitedOps.contains(producer))
+          graph.addEdge(wait, op);
+      }
     }
 
     // Prevent operations producing tokens moving before a wait operation.
@@ -502,7 +513,9 @@ static int64_t getExecLatency(Operation *op, QueueType qt) {
   case QueueType::VMEM:
     return 128;
   case QueueType::LGKM:
-    return 32;
+    // LDS read latency on CDNA3 is ~16cy (no bank conflicts); s_load from
+    // constant is higher but rare in inner loops.
+    return 16;
   case QueueType::Unknown:
     return 4;
   }
@@ -510,10 +523,8 @@ static int64_t getExecLatency(Operation *op, QueueType qt) {
 }
 
 /// Returns the queue depth (number of in-flight slots).
-/// Note: these are all approximations atm.
 /// VMEM is 2-deep (shared per CU across ~4 waves).
-/// All per-SIMD queues are 8-deep.
-// TODO: put this in instruction definition directly in tablegen.
+/// All per-SIMD queues (including XDL) are 8-deep.
 static int64_t getQueueDepth(QueueType qt) {
   switch (qt) {
   case QueueType::VMEM:
@@ -666,6 +677,15 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
       // Interleaving: prefer switching queues to overlap execution.
       if (queueTypes[nodeId] != lastQueueType && burstCount > 0)
         score += 50;
+      // Aggressive MFMA scheduling: prefer XDL ops whenever their SSA deps
+      // are ready, rather than draining independent ds_reads/global_loads via
+      // the node-ID tiebreaker. Combined with data-returning waits, this
+      // turns "ds_read x N, mfma x M" into "ds_read, ds_read, mfma, ds_read,
+      // mfma, wait, mfma, ..." -- each independent ds_read slides into the
+      // shadow of the MFMA pipeline.
+      if (int64_t ixdl = getInterleaveXDL();
+          ixdl > 0 && queueTypes[nodeId] == QueueType::XDL)
+        score += static_cast<int>(std::min(ixdl, int64_t{5})) * 20;
 
       if (score > bestScore ||
           (score == bestScore && nodeId < ready[bestIdx])) {
