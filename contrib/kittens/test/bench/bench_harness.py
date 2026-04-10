@@ -167,6 +167,28 @@ def warn_mcpu_mismatch(compile_mcpu: str) -> None:
         )
 
 
+def require_gpu_or_compile_only(args) -> None:
+    """Fail hard if no matching GPU is present and --compile-only was not set.
+
+    Bench scripts call this right after parse_args() so the user sees
+    the "no GPU" error immediately, before starting a long compile sweep
+    that would silently produce zero measurements. With --compile-only
+    the check is a no-op; execution is skipped intentionally.
+    """
+    if getattr(args, "compile_only", False):
+        print(f"Compile-only mode ({args.mcpu}); execution will be skipped.")
+        return
+    n = detect_num_gpus(args.mcpu)
+    if n == 0:
+        sys.exit(
+            f"ERROR: no {args.mcpu} GPU detected. Compilation would succeed "
+            f"but execution would be silently skipped. Pass --compile-only "
+            f"to compile without running, or run on a host with a matching "
+            f"GPU (set --mcpu to the host's arch to cross-target)."
+        )
+    print(f"Detected {n} {args.mcpu} GPU(s).")
+
+
 def format_mlir_error(e):
     parts = []
     for diag in getattr(e, "error_diagnostics", []):
@@ -1508,6 +1530,13 @@ def add_sweep_cli_args(parser, default_mcpu: str = "gfx942"):
         default=default_mcpu,
         help=f"Target GPU arch for compilation (default: {default_mcpu}). "
         "Independent of the host GPU: set explicitly to cross-compile.",
+    )
+    a(
+        "--compile-only",
+        action="store_true",
+        help="Compile only, skip execution and verification. Required when "
+        "the host has no matching GPU -- without it the bench fails hard "
+        "so the user is not silently left with zero measurements.",
     )
     a("--compile-sample", type=int, default=4096, help="Configs to compile (0=all)")
     a("--exec-sample", type=int, default=2048, help="Configs to execute (0=all)")

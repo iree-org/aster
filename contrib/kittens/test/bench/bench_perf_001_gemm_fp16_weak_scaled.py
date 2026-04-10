@@ -42,6 +42,7 @@ from bench_harness import (
     add_single_cli_args,
     bench_perf_sweep_pipelined,
     make_sweep_pins,
+    require_gpu_or_compile_only,
     run_single,
     warn_mcpu_mismatch,
 )
@@ -204,6 +205,7 @@ def main():
         add_single_cli_args(parser)
         args = parser.parse_args()
         warn_mcpu_mismatch(args.mcpu)
+        require_gpu_or_compile_only(args)
         base = WeakScaledMappedGemmInstance.from_label(args.label)
         cfg = WeakScaledMappedGemmInstance(base.spec, dataclasses.replace(base.mapping, mcpu=args.mcpu))
         run_single(cfg, compile_gemm, args, execute_fn=execute_gemm_hsaco)
@@ -219,6 +221,7 @@ def main():
     parser.add_argument("--direct-a", action=argparse.BooleanOptionalAction, default=None, help="A via preshuffle")
     args = parser.parse_args()
     warn_mcpu_mismatch(args.mcpu)
+    require_gpu_or_compile_only(args)
 
     target_m, target_n, target_k = parse_size_args(args, parser)
     print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
@@ -257,7 +260,7 @@ def main():
         compile_fn=compile_gemm,
         repro_cmd_fn=_repro_cmd,
         mcpu=args.mcpu,
-        num_gpus=args.num_gpus,
+        num_gpus=0 if args.compile_only else args.num_gpus,
         compile_workers=args.compile_workers,
         compile_timeout=args.compile_timeout,
         post_compile_filter=fits_on_cu_post_compile,
@@ -266,7 +269,8 @@ def main():
         iterations=args.iterations,
     )
     results, hsaco_map = results
-    verify_top_configs(results, hsaco_map, _repro_cmd, mcpu=args.mcpu, top_n=100, num_gpus=args.num_gpus)
+    if not args.compile_only:
+        verify_top_configs(results, hsaco_map, _repro_cmd, mcpu=args.mcpu, top_n=100, num_gpus=args.num_gpus)
 
 
 if __name__ == "__main__":
