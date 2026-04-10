@@ -139,6 +139,21 @@ ISAVersion mlir::aster::amdgcn::getIsaForTarget(Target target) {
   llvm_unreachable("unknown target");
 }
 
+int64_t mlir::aster::amdgcn::getLdsBytesPerCU(Target target) {
+  switch (target) {
+  case Target::GFX940:
+  case Target::GFX942:
+    return 64 * 1024; // 64 KB on CDNA3.
+  case Target::GFX950:
+    return 256 * 1024; // 256 KB on CDNA4.
+  case Target::GFX1201:
+    return 128 * 1024; // 128 KB on RDNA4.
+  case Target::Invalid:
+    return 64 * 1024; // Conservative fallback.
+  }
+  llvm_unreachable("unknown target");
+}
+
 bool mlir::aster::amdgcn::hasPackedTID(ISAVersion isa) {
   switch (isa) {
   case ISAVersion::CDNA3:

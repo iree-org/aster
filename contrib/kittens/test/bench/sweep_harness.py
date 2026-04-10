@@ -593,6 +593,8 @@ def verify_top_configs(
     results: list,
     hsaco_paths: dict,
     repro_cmd_fn: Callable,
+    *,
+    mcpu: str,
     top_n: int = 100,
     num_gpus: Optional[int] = None,
     label: str = "",
@@ -601,7 +603,7 @@ def verify_top_configs(
     if not results:
         return
     if num_gpus is None:
-        num_gpus = detect_num_gpus()
+        num_gpus = detect_num_gpus(mcpu)
     if num_gpus == 0:
         print("\nNo GPUs detected -- skipping correctness verification.")
         return

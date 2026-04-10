@@ -23,6 +23,7 @@ os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
 
 import argparse
 import dataclasses
+import functools
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -46,6 +47,7 @@ from bench_harness import (
     bench_perf_sweep_pipelined,
     make_sweep_pins,
     run_single,
+    warn_mcpu_mismatch,
 )
 from sweep_harness import (
     GEMM_SWEEP_PIN_MAP,
@@ -82,7 +84,7 @@ _TILE_M, _TILE_N, _TILE_K = _MAPPING.tile_elements(_SPEC.mfma_shape)
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict) -> MultitileGemmInstance:
+def _build_instance(d: dict, mcpu: str) -> MultitileGemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
     _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_M)
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_N)
@@ -105,12 +107,12 @@ def _build_instance(d: dict) -> MultitileGemmInstance:
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
         set_mfma_priority=d["set_mfma_priority"],
-        mcpu=_HW.mcpu,
+        mcpu=mcpu,
     )
     return MultitileGemmInstance(spec, mapping)
 
 
-def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
+def _mapping_for_resource_check(d: dict, mcpu: str) -> GemmMappingSpec:
     _wg_m, rem_m = divmod(d["target_M"], d["twg_m"] * _TILE_M)
     _wg_n, rem_n = divmod(d["target_N"], d["twg_n"] * _TILE_N)
     assert rem_m == 0, f"target_M={d['target_M']} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
@@ -124,12 +126,13 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
         num_wg_per_cu=nwgcu(d, _HW),
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
-        mcpu=_HW.mcpu,
+        mcpu=mcpu,
     )
 
 
 def make_sweep_grid(
     variants: list[str],
+    mcpu: str,
     check_regs: bool = True,
     *,
     target_m: int,
@@ -146,11 +149,11 @@ def make_sweep_grid(
         add_resource_filter(
             grid,
             _HW,
-            _mapping_for_resource_check,
+            functools.partial(_mapping_for_resource_check, mcpu=mcpu),
             deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps", "lds_at_write"),
         )
 
-    grid.build_with(_build_instance)
+    grid.build_with(functools.partial(_build_instance, mcpu=mcpu))
     return grid
 
 
@@ -161,10 +164,10 @@ def _repro_cmd(cfg):
     return f"python contrib/kittens/test/bench/bench_perf_102_gemm_python_multitile.py {cfg.label}"
 
 
-def _from_label(label: str) -> MultitileGemmInstance:
+def _from_label(label: str, mcpu: str) -> MultitileGemmInstance:
     base = WeakScaledMappedGemmInstance.from_label(label)
-    # Label serde does not encode mcpu; honor the detected hardware target.
-    mapping = dataclasses.replace(base.mapping, mcpu=_HW.mcpu)
+    # Label serde does not encode mcpu; honor --mcpu from the CLI.
+    mapping = dataclasses.replace(base.mapping, mcpu=mcpu)
     return MultitileGemmInstance(base.spec, mapping)
 
 
@@ -178,7 +181,8 @@ def main():
         parser.add_argument("label", type=str, help="Config label from sweep output")
         add_single_cli_args(parser)
         args = parser.parse_args()
-        cfg = _from_label(args.label)
+        warn_mcpu_mismatch(args.mcpu)
+        cfg = _from_label(args.label, args.mcpu)
         run_single(cfg, compile_multitile_gemm, args, execute_fn=execute_multitile_hsaco)
         return
 
@@ -189,9 +193,10 @@ def main():
     add_heuristic_cli_args(parser)
     parser.add_argument("--set-mfma-priority", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
+    warn_mcpu_mismatch(args.mcpu)
 
     target_m, target_n, target_k = parse_size_args(args, parser)
-    print(f"Size: M={target_m}, N={target_n}, K={target_k}")
+    print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
     all_paths = ["lds", "direct_b"]
     if args.direct_b is True:
@@ -205,6 +210,7 @@ def main():
 
     grid = make_sweep_grid(
         all_paths,
+        args.mcpu,
         check_regs=not getattr(args, "no_reg_filter", False),
         target_m=target_m,
         target_n=target_n,
@@ -214,6 +220,7 @@ def main():
 
     all_configs, total = generate_with_weak_scale(
         grid,
+        args.mcpu,
         "102",
         target_m,
         target_n,
@@ -228,6 +235,7 @@ def main():
         configs=all_configs,
         compile_fn=compile_multitile_gemm,
         repro_cmd_fn=_repro_cmd,
+        mcpu=args.mcpu,
         num_gpus=args.num_gpus,
         compile_workers=args.compile_workers,
         compile_timeout=args.compile_timeout,
@@ -237,7 +245,7 @@ def main():
         iterations=args.iterations,
     )
     results, hsaco_map = results
-    verify_top_configs(results, hsaco_map, _repro_cmd, top_n=50, num_gpus=args.num_gpus, label="102")
+    verify_top_configs(results, hsaco_map, _repro_cmd, mcpu=args.mcpu, top_n=50, num_gpus=args.num_gpus, label="102")
 
 
 if __name__ == "__main__":

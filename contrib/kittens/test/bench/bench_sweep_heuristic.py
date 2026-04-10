@@ -38,7 +38,11 @@ def _p(twg_m, twg_n, waves_m, waves_n, ps=None, db=True, **kw):
 
 
 # ---------------------------------------------------------------------------
-# Best-known configs: (bench, M, N, K) -> serde label
+# Best-known configs: mcpu -> bench -> (M, N, K) -> serde label
+#
+# Benches are split by target GPU arch: gfx942 hosts bench_perf_001, _102, _103;
+# gfx950 hosts bench_perf_102_..._cdna4 (and future CDNA4-only benches).
+# A given bench key only appears under the mcpu it actually targets.
 #
 # Add new static entries as sweeps discover better configs.
 # The label is the canonical serde format, one line per entry.
@@ -46,55 +50,67 @@ def _p(twg_m, twg_n, waves_m, waves_n, ps=None, db=True, **kw):
 # ---------------------------------------------------------------------------
 
 # fmt: off
-BEST_KNOWN: dict[str, dict[tuple[int, int, int], str]] = {
-    "001": {
-        ( 128,   128, 1024): "m128xn128xk1024_wg1x1x1_w2x2x1_twg8x8x2_pipestrat1_um2_llsched_hoistwait_direct_ab_flat:",
+BEST_KNOWN: dict[str, dict[str, dict[tuple[int, int, int], str]]] = {
+    "gfx942": {
+        "001": {
+            ( 128,   128, 1024): "m128xn128xk1024_wg1x1x1_w2x2x1_twg8x8x2_pipestrat1_um2_llsched_hoistwait_direct_ab_flat",
+        },
+        "102": {
+            ( 128,   128, 1024): "m128xn128xk1024_wg2x1x1_w2x2x1_twg4x8x1_pipestrat3_wgcu2_llsched_ldsw_nosetprio_direct_b_flat",
+            (2432,  6144, 8192): "m2432xn6144xk8192_wg19x32x1_w1x4x1_twg8x12x1_pipestrat4_nolcm_nopeel_llsched_hoistwait_direct_b_flat",
+            (2432, 12288, 4096): "m2432xn12288xk4096_wg19x64x1_w1x4x1_twg8x12x1_pipestrat3_um2_nopeel_llsched_direct_b_flat",
+            (2432, 12288, 8192): "m2432xn12288xk8192_wg19x64x1_w1x4x1_twg8x12x1_pipestrat3_um3_llsched_ldsw_direct_b_flat",
+            (2432, 18432, 4096): "m2432xn18432xk4096_wg19x96x1_w1x4x1_twg8x12x1_pipestrat3_nolcm_llsched_direct_b_flat",
+            (3648,  8192, 8192): "m3648xn8192xk8192_wg38x32x1_w1x4x1_twg6x16x1_pipestrat3_wgcu2_nolcm_nopeel_llsched_ldsw_direct_b_flat",
+            (3648,  6144, 8192): "m3648xn6144xk8192_wg19x32x1_w2x2x1_twg12x12x1_pipestrat1_um3_hoistwait_flat",
+            (3648,  6144, 4096): "m3648xn6144xk4096_wg19x32x1_w2x2x1_twg12x12x1_pipestrat1_um3_hoistwait_flat",
+            (3648, 12288, 4096): "m3648xn12288xk4096_wg19x64x1_w2x2x1_twg12x12x1_pipestrat1_um3_flat",
+            (4096,  4096, 4096): "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat4_um2_llsched_nosetprio_direct_b_flat",
+            (4864,  6144, 4096): "m4864xn6144xk4096_wg38x32x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um2_llsched_direct_b_flat",
+            (4864,  6144, 8192): "m4864xn6144xk8192_wg38x32x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um3_llsched_direct_b_flat",
+            (4864,  9216, 4096): "m4864xn9216xk4096_wg38x48x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um3_nopeel_llsched_direct_b_flat",
+            (4864,  9216, 8192): "m4864xn9216xk8192_wg38x48x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_llsched_hoistwait_direct_b_flat",
+            (4864, 12288, 4096): "m4864xn12288xk4096_wg38x64x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_nolcm_nopeel_llsched_direct_b_flat",
+            (4864, 15360, 4096): "m4864xn15360xk4096_wg38x80x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_llsched_direct_b_flat",
+            (4864, 18432, 4096): "m4864xn18432xk4096_wg38x96x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_nolcm_llsched_hoistwait_direct_b_flat",
+            (4864, 21504, 4096): "m4864xn21504xk4096_wg38x112x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um2_nopeel_llsched_hoistwait_direct_b_flat",
+        },
+        "103": {
+            ( 128,   128, 1024): "m128xn128xk1024_wg2x1x1_w1x8x1_twg4x8x1_pipestrat1_um3_nopeel_hoistwait_ldsw_direct_b_flat",
+        },
     },
-    "102": {
-        ( 128,   128, 1024): "m128xn128xk1024_wg2x1x1_w2x2x1_twg4x8x1_pipestrat3_wgcu2_llsched_ldsw_nosetprio_direct_b_flat",
-        (2432,  6144, 8192): "m2432xn6144xk8192_wg19x32x1_w1x4x1_twg8x12x1_pipestrat4_nolcm_nopeel_llsched_hoistwait_direct_b_flat",
-        (2432, 12288, 4096): "m2432xn12288xk4096_wg19x64x1_w1x4x1_twg8x12x1_pipestrat3_um2_nopeel_llsched_direct_b_flat",
-        (2432, 12288, 8192): "m2432xn12288xk8192_wg19x64x1_w1x4x1_twg8x12x1_pipestrat3_um3_llsched_ldsw_direct_b_flat",
-        (2432, 18432, 4096): "m2432xn18432xk4096_wg19x96x1_w1x4x1_twg8x12x1_pipestrat3_nolcm_llsched_direct_b_flat",
-        (3648,  8192, 8192): "m3648xn8192xk8192_wg38x32x1_w1x4x1_twg6x16x1_pipestrat3_wgcu2_nolcm_nopeel_llsched_ldsw_direct_b_flat",
-        (3648,  6144, 8192): "m3648xn6144xk8192_wg19x32x1_w2x2x1_twg12x12x1_pipestrat1_um3_hoistwait_flat",
-        (3648,  6144, 4096): "m3648xn6144xk4096_wg19x32x1_w2x2x1_twg12x12x1_pipestrat1_um3_hoistwait_flat",
-        (3648, 12288, 4096): "m3648xn12288xk4096_wg19x64x1_w2x2x1_twg12x12x1_pipestrat1_um3_flat",
-        (4096,  4096, 4096): "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat4_um2_llsched_nosetprio_direct_b_flat",
-        (4864,  6144, 4096): "m4864xn6144xk4096_wg38x32x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um2_llsched_direct_b_flat",
-        (4864,  6144, 8192): "m4864xn6144xk8192_wg38x32x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um3_llsched_direct_b_flat",
-        (4864,  9216, 4096): "m4864xn9216xk4096_wg38x48x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um3_nopeel_llsched_direct_b_flat",
-        (4864,  9216, 8192): "m4864xn9216xk8192_wg38x48x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_llsched_hoistwait_direct_b_flat",
-        (4864, 12288, 4096): "m4864xn12288xk4096_wg38x64x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_nolcm_nopeel_llsched_direct_b_flat",
-        (4864, 15360, 4096): "m4864xn15360xk4096_wg38x80x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_llsched_direct_b_flat",
-        (4864, 18432, 4096): "m4864xn18432xk4096_wg38x96x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_nolcm_llsched_hoistwait_direct_b_flat",
-        (4864, 21504, 4096): "m4864xn21504xk4096_wg38x112x1_w1x4x1_twg8x12x1_pipestrat3_wgcu2_um2_nopeel_llsched_hoistwait_direct_b_flat",
-    },
-    "103": {
-        ( 128,   128, 1024): "m128xn128xk1024_wg2x1x1_w1x8x1_twg4x8x1_pipestrat1_um3_nopeel_hoistwait_ldsw_direct_b_flat",
+    "gfx950": {
+        "102_cdna4": {
+        },
     },
 }
 # fmt: on
 
 # ---------------------------------------------------------------------------
-# Heuristic rules: higher-ranked configs are tried first.
+# Heuristic rules: mcpu -> bench -> ordered list of partial pin dicts.
+# Higher-ranked configs are tried first.
 # ---------------------------------------------------------------------------
 
 # TODO: atm twg_m, twg_n, waves_m, waves_n require divisibility. Relax this in the future.
-HEURISTIC_RULES_MI300X: dict[str, list[dict]] = {
-    "102": [
-        _p(8, 12, 1, 4, ps=3),
-        _p(8, 12, 1, 4, ps=4),
-        _p(8, 12, 1, 4, ps=1),
-        _p(12, 12, 2, 2, ps=1, db=False),
-        _p(8, 14, 1, 4),
-        _p(8, 10, 1, 4),
-        _p(8, 16, 1, 4),
-        _p(8, 16, 1, 8),
-        _p(6, 16, 1, 4),
-        _p(8, 12, 2, 2),
-        _p(10, 12, 1, 4),
-    ],
+HEURISTIC_RULES: dict[str, dict[str, list[dict]]] = {
+    "gfx942": {
+        "102": [
+            _p(8, 12, 1, 4, ps=3),
+            _p(8, 12, 1, 4, ps=4),
+            _p(8, 12, 1, 4, ps=1),
+            _p(12, 12, 2, 2, ps=1, db=False),
+            _p(8, 14, 1, 4),
+            _p(8, 10, 1, 4),
+            _p(8, 16, 1, 4),
+            _p(8, 16, 1, 8),
+            _p(6, 16, 1, 4),
+            _p(8, 12, 2, 2),
+            _p(10, 12, 1, 4),
+        ],
+    },
+    "gfx950": {
+        "102_cdna4": [],
+    },
 }
 
 
@@ -103,9 +119,9 @@ HEURISTIC_RULES_MI300X: dict[str, list[dict]] = {
 # ---------------------------------------------------------------------------
 
 
-def best_known(bench: str, M: int, N: int, K: int) -> str | None:
-    """Return the best known config label for (bench, M, N, K), or None."""
-    return BEST_KNOWN.get(bench, {}).get((M, N, K))
+def best_known(mcpu: str, bench: str, M: int, N: int, K: int) -> str | None:
+    """Return the best known config label for (mcpu, bench, M, N, K), or None."""
+    return BEST_KNOWN.get(mcpu, {}).get(bench, {}).get((M, N, K))
 
 
 def add_heuristic_cli_args(parser) -> None:
@@ -125,6 +141,7 @@ def add_heuristic_cli_args(parser) -> None:
 
 def generate_with_weak_scale(
     grid,
+    mcpu: str,
     bench: str,
     target_m: int,
     target_n: int,
@@ -138,12 +155,13 @@ def generate_with_weak_scale(
     """Compose priority_fn + weak-scale seed and call ``grid.generate``.
 
     The composition is:
-      - ``make_score_fn(bench)`` when ``--heuristic`` is set
+      - ``make_score_fn(mcpu, bench)`` when ``--heuristic`` is set
       - ``build_weak_scale_priority`` when ``--weak-scale-boost > 0`` and size is pinned
       - stratification is disabled automatically when any priority_fn is active
     """
-    base_score_fn = make_score_fn(bench) if getattr(args, "heuristic", False) else None
+    base_score_fn = make_score_fn(mcpu, bench) if getattr(args, "heuristic", False) else None
     extra_eligible, priority_fn = build_weak_scale_priority(
+        mcpu,
         bench,
         target_m,
         target_n,
@@ -162,6 +180,7 @@ def generate_with_weak_scale(
 
 
 def build_weak_scale_priority(
+    mcpu: str,
     bench: str,
     target_M: int | None,
     target_N: int | None,
@@ -173,7 +192,7 @@ def build_weak_scale_priority(
     if boost <= 0 or target_M is None or target_N is None or target_K is None:
         return [], base_score_fn
 
-    scaled = weak_scale_configs(bench, target_M, target_N, target_K)
+    scaled = weak_scale_configs(mcpu, bench, target_M, target_N, target_K)
     if not scaled:
         return [], base_score_fn
 
@@ -244,6 +263,7 @@ def _factor_splits(factor: int, parts: int) -> list[tuple[int, ...]]:
 
 
 def weak_scale_configs(
+    mcpu: str,
     bench: str,
     target_M: int,
     target_N: int,
@@ -256,7 +276,7 @@ def weak_scale_configs(
     from kittens.gemm_config import GemmSpec, GemmMappingSpec, DIM_M, DIM_N, DIM_K
     from sweep_harness import WAVE_CONFIGS
 
-    known = BEST_KNOWN.get(bench, {})
+    known = BEST_KNOWN.get(mcpu, {}).get(bench, {})
     if not known:
         return []
 
@@ -337,16 +357,8 @@ def weak_scale_configs(
     return results
 
 
-def make_score_fn(bench: str) -> callable:
-    """Return a scoring function for config dicts (axis-level keys).
-
-    Higher score = more promising config. Used as ``priority_fn`` in
-    ``SweepGrid.generate()`` for weighted sampling.
-    """
-    rules = HEURISTIC_RULES_MI300X.get(bench, [])
-    axis_rules = [(to_axis_pins(r), 1.0 / (1 + i)) for i, r in enumerate(rules)]
-
-    _PREFERRED_MI300X = {
+_PREFERRED_FEATURES: dict[str, dict[str, dict]] = {
+    "gfx942": {
         "twg_n": {12: 0.47, 16: 0.30, 24: 0.25, 14: 0.20, 10: 0.15, 20: 0.10, 8: 0.05},
         "twg_m": {8: 0.10, 12: 0.08, 6: 0.03, 10: 0.03},
         "variant": {"direct_b": 0.07},
@@ -355,13 +367,25 @@ def make_score_fn(bench: str) -> callable:
         "waves_n": {4: 0.04, 8: 0.03, 2: 0.02},
         "occ": {2: 0.05, 1: 0.04, 3: 0.01},
         "ll_sched": {True: 0.03},
-    }
-    # fmt: on
+    },
+    "gfx950": {},
+}
+
+
+def make_score_fn(mcpu: str, bench: str) -> callable:
+    """Return a scoring function for config dicts (axis-level keys).
+
+    Higher score = more promising config. Used as ``priority_fn`` in
+    ``SweepGrid.generate()`` for weighted sampling.
+    """
+    rules = HEURISTIC_RULES.get(mcpu, {}).get(bench, [])
+    axis_rules = [(to_axis_pins(r), 1.0 / (1 + i)) for i, r in enumerate(rules)]
+    preferred = _PREFERRED_FEATURES.get(mcpu, {})
 
     def score(d: dict) -> float:
         s = 0.0
         # Per-feature bonus from preferred values.
-        for feat, val_scores in _PREFERRED_MI300X.items():
+        for feat, val_scores in preferred.items():
             s += val_scores.get(d.get(feat), 0.0)
         # Exact rule match bonus (stacks with feature bonuses).
         for axis_rule, weight in axis_rules:

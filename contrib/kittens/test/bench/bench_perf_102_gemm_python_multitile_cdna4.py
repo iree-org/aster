@@ -16,6 +16,8 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", str(os.cpu_count() or 4))
 os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
 
 import argparse
+import dataclasses
+import functools
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -37,7 +39,9 @@ from bench_harness import (
     bench_perf_sweep_pipelined,
     make_sweep_pins,
     run_single,
+    warn_mcpu_mismatch,
 )
+from bench_sweep_heuristic import add_heuristic_cli_args, generate_with_weak_scale
 from sweep_harness import (
     GEMM_SWEEP_PIN_MAP,
     SweepGrid,
@@ -58,8 +62,6 @@ from sweep_harness import (
 
 # --- Constants ---
 
-# CDNA4 is gfx950-only; ignore whatever hardware the current host reports.
-_MCPU = "gfx950"
 _HW = query_gpu_hw()
 _MFMA_SHAPE = list(Cdna4GemmInstance.MFMA_SHAPE)
 _TILE_M, _TILE_N, _TILE_K = GemmMappingSpec.default_tile_elements(_MFMA_SHAPE)
@@ -68,7 +70,7 @@ _TILE_M, _TILE_N, _TILE_K = GemmMappingSpec.default_tile_elements(_MFMA_SHAPE)
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict) -> Cdna4GemmInstance:
+def _build_instance(d: dict, mcpu: str) -> Cdna4GemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
     _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_M)
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_N)
@@ -87,12 +89,12 @@ def _build_instance(d: dict) -> Cdna4GemmInstance:
         epilogue_peeling=d["epilogue_peeling"],
         ll_sched=d["ll_sched"],
         hoist_wait=d["hoist_wait"],
-        mcpu=_MCPU,
+        mcpu=mcpu,
     )
     return Cdna4GemmInstance(spec, mapping)
 
 
-def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
+def _mapping_for_resource_check(d: dict, mcpu: str) -> GemmMappingSpec:
     _wg_m, rem_m = divmod(d["target_M"], d["twg_m"] * _TILE_M)
     _wg_n, rem_n = divmod(d["target_N"], d["twg_n"] * _TILE_N)
     assert rem_m == 0, f"target_M={d['target_M']} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
@@ -103,11 +105,12 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
         num_wg_per_cu=nwgcu(d, _HW),
-        mcpu=_MCPU,
+        mcpu=mcpu,
     )
 
 
 def make_sweep_grid(
+    mcpu: str,
     check_regs: bool = True,
     *,
     target_m: int,
@@ -121,11 +124,11 @@ def make_sweep_grid(
         add_resource_filter(
             grid,
             _HW,
-            _mapping_for_resource_check,
+            functools.partial(_mapping_for_resource_check, mcpu=mcpu),
             deps=("waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
         )
 
-    grid.build_with(_build_instance)
+    grid.build_with(functools.partial(_build_instance, mcpu=mcpu))
     return grid
 
 
@@ -136,8 +139,10 @@ def _repro_cmd(cfg):
     return f"python contrib/kittens/test/bench/bench_perf_102_gemm_python_multitile_cdna4.py {cfg.label}"
 
 
-def _from_label(label: str) -> Cdna4GemmInstance:
-    return Cdna4GemmInstance.from_label(label)
+def _from_label(label: str, mcpu: str) -> Cdna4GemmInstance:
+    cfg = Cdna4GemmInstance.from_label(label)
+    cfg.mapping = dataclasses.replace(cfg.mapping, mcpu=mcpu)
+    return cfg
 
 
 # --- Entry point ---
@@ -148,25 +153,29 @@ def main():
     if positional and is_label(positional[0]):
         parser = argparse.ArgumentParser(description="Single-config CDNA4 G2S GEMM benchmark (label from sweep)")
         parser.add_argument("label", type=str, help="Config label from sweep output")
-        add_single_cli_args(parser)
+        add_single_cli_args(parser, default_mcpu="gfx950")
         args = parser.parse_args()
-        cfg = _from_label(args.label)
+        warn_mcpu_mismatch(args.mcpu)
+        cfg = _from_label(args.label, args.mcpu)
         run_single(cfg, compile_cdna4_gemm, args, execute_fn=execute_cdna4_hsaco)
         return
 
     parser = argparse.ArgumentParser(description="CDNA4 G2S GEMM benchmark sweep (test_102_cdna4)")
-    add_sweep_cli_args(parser)
+    add_sweep_cli_args(parser, default_mcpu="gfx950")
     add_geometry_pin_args(parser)
     add_size_cli_args(parser)
+    add_heuristic_cli_args(parser)
     args = parser.parse_args()
+    warn_mcpu_mismatch(args.mcpu)
 
     target_m, target_n, target_k = parse_size_args(args, parser)
-    print(f"Size: M={target_m}, N={target_n}, K={target_k}")
+    print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
     pins = make_sweep_pins(args, GEMM_SWEEP_PIN_MAP)
     pins = resolve_derived_pins(pins or {})
 
     grid = make_sweep_grid(
+        args.mcpu,
         check_regs=not getattr(args, "no_reg_filter", False),
         target_m=target_m,
         target_n=target_n,
@@ -174,9 +183,16 @@ def main():
     )
     apply_wg_pin_filters(grid, pins, _TILE_M, _TILE_N)
 
-    all_configs, total = grid.generate(
-        pins=pins or None,
+    all_configs, total = generate_with_weak_scale(
+        grid,
+        args.mcpu,
+        "102_cdna4",
+        target_m,
+        target_n,
+        target_k,
+        args,
         sample_size=getattr(args, "compile_sample", 4096),
+        pins=pins,
         stratification_key=lambda d: (d["waves_m"], d["waves_n"]),
     )
 
@@ -184,6 +200,7 @@ def main():
         configs=all_configs,
         compile_fn=compile_cdna4_gemm,
         repro_cmd_fn=_repro_cmd,
+        mcpu=args.mcpu,
         num_gpus=args.num_gpus,
         compile_workers=args.compile_workers,
         compile_timeout=args.compile_timeout,
@@ -193,7 +210,9 @@ def main():
         iterations=args.iterations,
     )
     results, hsaco_map = results
-    verify_top_configs(results, hsaco_map, _repro_cmd, top_n=50, num_gpus=args.num_gpus, label="102_cdna4")
+    verify_top_configs(
+        results, hsaco_map, _repro_cmd, mcpu=args.mcpu, top_n=50, num_gpus=args.num_gpus, label="102_cdna4"
+    )
 
 
 if __name__ == "__main__":

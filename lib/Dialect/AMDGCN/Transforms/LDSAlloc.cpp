@@ -14,6 +14,7 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/LDSInterferenceGraph.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Interfaces/GPUFuncInterface.h"
 #include "mlir/IR/Dominance.h"
@@ -51,7 +52,8 @@ struct Allocation {
 
 /// The allocation constraints.
 struct AllocConstraints {
-  static constexpr int64_t kMaxMemory = (1 << 16); // 64KB
+  /// Maximum bytes of LDS available. Set per-target by the allocator.
+  int64_t maxMemory = 64 * 1024;
 
   /// Insert a given allocation, returns failure if it overlaps with existing
   /// ones.
@@ -178,7 +180,7 @@ FailureOr<Allocation> AllocConstraints::alloc(LDSAllocNode node,
   }
 
   // Check if we can fit at the end.
-  if (start + node.size <= kMaxMemory) {
+  if (start + node.size <= maxMemory) {
     Allocation result = {start, start + node.size};
     allocations.insert(result);
     return result;
@@ -235,7 +237,7 @@ LogicalResult LDSAllocator::alloc(LDSAllocNode node) {
     return node.allocOp.emitError()
            << "failed to allocate LDS buffer of size " << node.size
            << " with alignment " << node.alignment << "; would exceed "
-           << AllocConstraints::kMaxMemory << " bytes (already allocated "
+           << constraints.maxMemory << " bytes (already allocated "
            << constraints.getAllocatedBytes() << ", startPos=" << startPos
            << ")";
   }
@@ -249,6 +251,11 @@ LogicalResult LDSAllocator::run(aster::GPUFuncInterface kernOp) {
   ArrayRef<LDSAllocNode> nodes = graph.getAllocNodes();
   if (nodes.empty())
     return success();
+
+  // Pick the LDS size limit from the enclosing amdgcn.module's target so the
+  // allocator rejects only what actually exceeds the hardware capacity.
+  if (auto moduleOp = kernOp->getParentOfType<mlir::aster::amdgcn::ModuleOp>())
+    constraints.maxMemory = getLdsBytesPerCU(moduleOp.getTarget());
 
   // Get the current total size of preallocated buffers to set the starting
   // position for allocation. This ensures we don't allocate over existing
