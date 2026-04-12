@@ -509,6 +509,7 @@ GEMM_SWEEP_PIN_MAP = {
     "ll_sched": "ll_sched",
     "hoist_wait": "hoist_wait",
     "set_mfma_priority": "set_mfma_priority",
+    "wg_swizzle": "wg_swizzle",
 }
 
 

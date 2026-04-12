@@ -219,7 +219,7 @@ def _build_multitile_gemm(
     lds_read_tok = ir.Type.parse("!amdgcn.read_token<shared>")
 
     # -- Distribution --
-    wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg[DIM_M], wg[DIM_N]))
+    wg_m_idx, wg_n_idx = b.shuffled_tile_coords(wg[DIM_M], wg[DIM_N], strategy=mapping._wg_swizzle_strategy)
     wave_m_idx, wave_n_idx = b.delinearize_index(b.wave_id(wave_size=ws), (wpw[DIM_M], wpw[DIM_N]))
     wid = b.wave_id(wave_size=ws)
 
@@ -812,10 +812,12 @@ class TestMultiWG:
         ids=["mwg3x2_1w_3x2", "mwg2x2_4w_4x4", "mwg2x3_4w_6x6"],
     )
     @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
-    def test_correctness(self, num_workgroups, num_waves_per_wg, num_tiles_per_wg, pipeline_strategy):
+    @pytest.mark.parametrize("wg_swizzle", ["row_major", "col_major", "n_swizzle"])
+    def test_correctness(self, num_workgroups, num_waves_per_wg, num_tiles_per_wg, pipeline_strategy, wg_swizzle):
         cfg = _make_instance(
             num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult=4, pipeline_strategy=pipeline_strategy
         )
+        cfg.mapping.wg_swizzle = wg_swizzle
         _run_multitile(cfg)
 
 

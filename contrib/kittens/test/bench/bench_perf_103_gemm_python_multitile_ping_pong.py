@@ -94,6 +94,7 @@ def _build_instance(d: dict) -> PingPongGemmInstance:
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
         set_mfma_priority=d["set_mfma_priority"],
+        wg_swizzle=d.get("wg_swizzle", "row_major"),
     )
     return PingPongGemmInstance(spec, mapping)
 
@@ -136,6 +137,7 @@ def make_sweep_grid(
     )
     grid.filter("waves_m", "waves_n", check=lambda d: d["waves_m"] * d["waves_n"] == 8)
     grid.axis("set_mfma_priority", [True, False])
+    grid.axis("wg_swizzle", ["row_major", "col_major", "n_swizzle"])
 
     if check_regs:
         add_resource_filter(

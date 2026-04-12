@@ -104,6 +104,7 @@ def _build_instance(d: dict) -> MultitileGemmInstance:
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
         set_mfma_priority=d["set_mfma_priority"],
+        wg_swizzle=d.get("wg_swizzle", "row_major"),
     )
     return MultitileGemmInstance(spec, mapping)
 
@@ -138,6 +139,7 @@ def make_sweep_grid(
     grid.axis("lds_at_write", [False, True])
     add_gemm_sweep_axes(grid, _HW, [_TILE_M, _TILE_N, _TILE_K], target_m=target_m, target_n=target_n, target_k=target_k)
     grid.axis("set_mfma_priority", [True, False])
+    grid.axis("wg_swizzle", ["row_major", "col_major", "n_swizzle"])
 
     if check_regs:
         add_resource_filter(

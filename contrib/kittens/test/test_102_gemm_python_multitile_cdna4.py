@@ -195,7 +195,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
         b.memref_store(b.init_agprx4(b.constant_i32(0)), c_buf, idx)
 
     # -- Distribution --
-    wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg[DIM_M], wg[DIM_N]))
+    wg_m_idx, wg_n_idx = b.shuffled_tile_coords(wg[DIM_M], wg[DIM_N], strategy=mapping._wg_swizzle_strategy)
     wave_m_idx, wave_n_idx = b.delinearize_index(b.wave_id(wave_size=ws), (wpw[DIM_M], wpw[DIM_N]))
     m_dist_idx = b.linearize_index((wg_m_idx, wave_m_idx), (wg[DIM_M], wpw[DIM_M]))
     n_dist_idx = b.linearize_index((wg_n_idx, wave_n_idx), (wg[DIM_N], wpw[DIM_N]))

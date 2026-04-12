@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from aster import ir
@@ -16,8 +17,55 @@ if TYPE_CHECKING:
     from aster.layout import Layout, Swizzle
 
 
+class WGShuffleStrategy(Enum):
+    """Workgroup-to-tile mapping strategy for L2 cache reuse."""
+
+    ROW_MAJOR = "row_major"
+    COL_MAJOR = "col_major"
+    N_SWIZZLE = "n_swizzle"
+
+
 class KernelBuilderWithLayouts(KernelBuilder):
     """KernelBuilder with layout-first tile operations."""
+
+    # -----------------------------------------------------------------------
+    # Workgroup shuffle: linear_block_id -> (m_tile, n_tile)
+    # -----------------------------------------------------------------------
+
+    def shuffled_tile_coords(
+        self,
+        grid_m: int,
+        grid_n: int,
+        strategy: WGShuffleStrategy = WGShuffleStrategy.ROW_MAJOR,
+    ) -> tuple[ir.Value, ir.Value]:
+        """Emit MLIR ops: linear_block_id -> (m_tile_idx, n_tile_idx)."""
+        from aster.layout import Layout
+
+        def _max_admissible_log(n: int) -> int:
+            for k in range(3, 0, -1):
+                if n % (1 << k) == 0:
+                    return k
+            return 0
+
+        bid = self.linear_block_id()
+
+        if strategy == WGShuffleStrategy.ROW_MAJOR:
+            m_layout = Layout((grid_m, grid_n), (1, 0))
+            n_layout = Layout((grid_m, grid_n), (0, 1))
+        elif strategy == WGShuffleStrategy.COL_MAJOR:
+            m_layout = Layout((grid_n, grid_m), (0, 1))
+            n_layout = Layout((grid_n, grid_m), (1, 0))
+        elif strategy == WGShuffleStrategy.N_SWIZZLE:
+            s = 1 << _max_admissible_log(grid_n)
+            n_blocks = grid_n // s
+            m_layout = Layout((s, n_blocks, grid_m), (0, 0, 1))
+            n_layout = Layout((s, n_blocks, grid_m), (1, s, 0))
+        else:
+            raise ValueError(f"Unknown strategy: {strategy}")
+
+        m_idx = self.linearize_layout(bid, m_layout)
+        n_idx = self.linearize_layout(bid, n_layout)
+        return (m_idx, n_idx)
 
     # -----------------------------------------------------------------------
     # Multi-MFMA tile ops (compose single-tile ops over tile_layout)

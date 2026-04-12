@@ -251,6 +251,10 @@ class GemmMappingSpec:
     ds_write_bytes: int = 8  # ds_write_b64
     ds_read_bytes: int = 8  # ds_read_b64
 
+    # --- Workgroup shuffle (L2 cache locality) ---
+
+    wg_swizzle: str = "row_major"  # row_major, col_major, n_swizzle
+
     # --- LDS swizzle ---
 
     lds_swizzle_bits: int = 3
@@ -313,12 +317,15 @@ class GemmMappingSpec:
     # --- Grid sizes ---
 
     @property
+    def _wg_swizzle_strategy(self):
+        from aster.dialects.kernel_builder_with_layouts import WGShuffleStrategy
+
+        return WGShuffleStrategy(self.wg_swizzle)
+
+    @property
     def num_workgroups(self) -> int:
-        return (
-            self.num_workgroups_per_kernel[DIM_M]
-            * self.num_workgroups_per_kernel[DIM_N]
-            * self.num_workgroups_per_kernel[DIM_K]
-        )
+        wg = self.num_workgroups_per_kernel
+        return wg[DIM_M] * wg[DIM_N] * wg[DIM_K]
 
     @property
     def num_waves(self) -> int:
@@ -606,6 +613,7 @@ class WeakScaledMappedGemmInstance:
                 r"(_hoistwait)?"
                 r"(_ldsw)?"
                 r"(_nosetprio)?"
+                r"(?:_(n_swizzle|col_major))?"
                 r"_(?:(direct_ab|direct_b)_)?(flat|buf)$"
             )
         return cls._LABEL_RE
@@ -638,12 +646,14 @@ class WeakScaledMappedGemmInstance:
             hoistwait,
             ldsw,
             nosetprio,
+            swz_strategy,
             direct,
             lt,
         ) = m.groups()
 
         load_type = "buffer" if lt == "buf" else "flat"
         b_path = direct if direct else "lds"
+        wg_swizzle = swz_strategy if swz_strategy else "row_major"
         wg = [int(wg_m), int(wg_n), int(wg_k)]
         wpw = [int(waves_m), int(waves_n), int(waves_k)]
         tiles_wg = [int(twg_m), int(twg_n), int(twg_k)]
@@ -668,6 +678,7 @@ class WeakScaledMappedGemmInstance:
             hoist_wait=hoistwait is not None,
             lds_at_write=ldsw is not None,
             set_mfma_priority=nosetprio is None,
+            wg_swizzle=wg_swizzle,
         )
         cfg = cls(spec, mapping)
         assert cfg.label == label, f"Round-trip failed: {cfg.label!r} != {label!r}"
@@ -694,6 +705,9 @@ class WeakScaledMappedGemmInstance:
             if self.mapping.num_wg_per_cu != 1
             else ""
         )
+        swz = ""
+        if self.mapping.wg_swizzle != "row_major":
+            swz = f"_{self.mapping.wg_swizzle}"
         lt = "buf" if self.load_type == "buffer" else "flat"
         suffix = f"_{self.b_path}_{lt}" if self.b_path != "lds" else f"_{lt}"
         gs = self.gemm_size
@@ -702,7 +716,7 @@ class WeakScaledMappedGemmInstance:
             f"_wg{wg[DIM_M]}x{wg[DIM_N]}x{wg[DIM_K]}"
             f"_w{self.mapping.num_waves_per_workgroup[DIM_M]}x{self.mapping.num_waves_per_workgroup[DIM_N]}x{self.mapping.num_waves_per_workgroup[DIM_K]}"
             f"{tile_str}_pipestrat{self.mapping.pipeline_strategy}"
-            f"{wgcu}{lcm}{um}{peel}{llsched}{hoistwait}{ldswrite}{nosetprio}{suffix}"
+            f"{wgcu}{lcm}{um}{peel}{llsched}{hoistwait}{ldswrite}{nosetprio}{swz}{suffix}"
         )
 
     # --- Fallback delegation ---
