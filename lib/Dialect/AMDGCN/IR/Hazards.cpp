@@ -655,17 +655,52 @@ bool CDNA3ValuSgprValuReadHazardAttr::isHazardTriggered(
 
 //===----------------------------------------------------------------------===//
 // Case 19: ValuVgprReadlaneHazard
+// VALU writes VGPRn -> v_readfirstlane_b32 reads VGPRn (1 V_NOP)
 //===----------------------------------------------------------------------===//
-bool CDNA3ValuVgprReadlaneHazardAttr::matchInst(const InstMetadata *,
-                                                ISAVersion) const {
-  return false; // TODO: V_READLANE not implemented.
+bool CDNA3ValuVgprReadlaneHazardAttr::matchInst(const InstMetadata *md,
+                                                ISAVersion isaVer) const {
+  return md && instSupportsIsa(md, isaVer) && md->hasProp(InstProp::IsValu);
 }
 
 void CDNA3ValuVgprReadlaneHazardAttr::populateHazardsFor(
-    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+    AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
+  const InstMetadata *metadata = instOp.getInstMetadata();
+  if (!metadata || !metadata->hasProp(InstProp::IsValu))
+    return;
+
+  for (OpOperand &operand : getOpOperands(instOp.getInstOuts())) {
+    auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(operand.get().getType());
+    if (!regTy || regTy.getRegisterKind() != RegisterKind::VGPR)
+      continue;
+
+    hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this), operand,
+                             getInstCounts(0)));
+  }
+}
 
 bool CDNA3ValuVgprReadlaneHazardAttr::isHazardTriggered(
-    const Hazard &, AMDGCNInstOpInterface) const {
+    const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
+  assert(hazard.getHazard() == *this && "Hazard mismatch");
+
+  const InstMetadata *metadata = instOp.getInstMetadata();
+  if (!metadata || metadata->getOpCode() != OpCode::V_READFIRSTLANE_B32)
+    return false;
+
+  OpOperand *vgprOperand = hazard.getOperand();
+  if (!vgprOperand)
+    return false;
+
+  auto vgprRegTy =
+      dyn_cast<AMDGCNRegisterTypeInterface>(vgprOperand->get().getType());
+  if (!vgprRegTy || vgprRegTy.getRegisterKind() != RegisterKind::VGPR)
+    return false;
+
+  for (Value input : instOp.getInstIns()) {
+    auto inputRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(input.getType());
+    if (inputRegTy && inputRegTy.getRegisterKind() == RegisterKind::VGPR &&
+        checkOverlap(inputRegTy, vgprRegTy))
+      return true;
+  }
   return false;
 }
 
@@ -1431,22 +1466,21 @@ void HazardManager::getHazardRaisersFor(
     hazardRaisers.push_back(CDNA3StoreWriteDataHazardAttr::get(ctx));
     hazardRaisers.push_back(CDNA3VccExecVcczExeczHazardAttr::get(ctx));
     hazardRaisers.push_back(CDNA3ValuSgprVmemHazardAttr::get(ctx));
+    hazardRaisers.push_back(CDNA3ValuVgprReadlaneHazardAttr::get(ctx));
     hazardRaisers.push_back(CDNA3NonDLOpsValuMfmaHazardAttr::get(ctx));
     hazardRaisers.push_back(
         CDNA3XdlWriteVgprXdlReadSrcCExactHazardAttr::get(ctx));
-    // XDL write -> SrcA/B and XDL write -> VMEM/VALU: CDNA4 needs +1 NOP
-    // for 4-pass and higher (LLVM: NumPasses + 3 + (NumPasses != 2 && IsGFX950)).
+    // XDL write -> SrcA/B and XDL write -> VMEM/VALU: CDNA4 needs +1 NOP for
+    // 4-pass and higher.
     if (version == ISAVersion::CDNA4) {
       hazardRaisers.push_back(
           CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::get(ctx));
-      hazardRaisers.push_back(
-          CDNA4XdlWriteVgprVmemValuHazardAttr::get(ctx));
+      hazardRaisers.push_back(CDNA4XdlWriteVgprVmemValuHazardAttr::get(ctx));
     } else {
       assert(version == ISAVersion::CDNA3 && "unexpected ISA version");
       hazardRaisers.push_back(
           CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::get(ctx));
-      hazardRaisers.push_back(
-          CDNA3XdlWriteVgprVmemValuHazardAttr::get(ctx));
+      hazardRaisers.push_back(CDNA3XdlWriteVgprVmemValuHazardAttr::get(ctx));
     }
   }
 }
