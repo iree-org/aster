@@ -301,7 +301,8 @@ LogicalResult NoLsirComputeOpsAttr::verifyOperation(
 
   // Allow control-flow ops (lowered by LegalizeCF) and copy (regalloc
   // primitive).
-  if (isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp, lsir::CopyOp>(op))
+  if (isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp, lsir::CopyOp,
+          lsir::BranchOp, lsir::CondBranchOp>(op))
     return success();
 
   return emitError() << "normal form violation: LSIR compute/memory "

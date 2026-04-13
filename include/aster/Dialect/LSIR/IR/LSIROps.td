@@ -21,6 +21,7 @@ include "aster/Dialect/LSIR/IR/LSIRTypes.td"
 include "aster/Interfaces/AllocaOpInterface.td"
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
@@ -114,6 +115,90 @@ def LSIR_AllocaOp : LSIR_Op<"alloca", [Pure, AllocaOpInterface]> {
   let assemblyFormat = "attr-dict `:` type($result)";
   let extraClassDeclaration = [{
     ::mlir::Value getAlloca() { return getResult(); }
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// BrOp
+//===----------------------------------------------------------------------===//
+
+def LSIR_BranchOp : LSIR_Op<"br", [
+    DeclareOpInterfaceMethods<BranchOpInterface, ["getSuccessorForOperands"]>,
+    Pure, Terminator]> {
+  let summary = "Unconditional branch operation";
+  let description = [{
+    The `lsir.br` operation unconditionally branches to a destination block,
+    passing the given operands as block arguments. Unlike `cf.br`, this op is
+    used after codegen when all values are in register types.
+
+    Example:
+    ```mlir
+    lsir.br ^bb1(%val : !amdgcn.sgpr)
+    ```
+  }];
+  let arguments = (ins Variadic<AnyType>:$destOperands);
+  let successors = (successor AnySuccessor:$dest);
+  let builders = [
+    OpBuilder<(ins "::mlir::Block *":$dest,
+                   CArg<"::mlir::ValueRange", "{}">:$destOperands), [{
+      $_state.addSuccessors(dest);
+      $_state.addOperands(destOperands);
+    }]>
+  ];
+  let assemblyFormat = [{
+    $dest (`(` $destOperands^ `:` type($destOperands) `)`)? attr-dict
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// CondBrOp
+//===----------------------------------------------------------------------===//
+
+def LSIR_CondBranchOp : LSIR_Op<"cond_br",
+    [AttrSizedOperandSegments,
+     DeclareOpInterfaceMethods<BranchOpInterface, ["getSuccessorForOperands"]>,
+     Pure, Terminator]> {
+  let summary = "Conditional branch operation";
+  let description = [{
+    The `lsir.cond_br` operation branches conditionally based on a register
+    type (SCC or VCC). Unlike `cf.cond_br` which takes `i1`, this op takes
+    a register type directly. Branches to `trueDest` when the condition
+    register is nonzero, otherwise to `falseDest`.
+
+    Example:
+    ```mlir
+    lsir.cond_br %cond : !amdgcn.scc, ^bb1(%val : !amdgcn.sgpr), ^bb2
+    ```
+  }];
+  let arguments = (ins
+    RegType:$condition,
+    Variadic<AnyType>:$trueDestOperands,
+    Variadic<AnyType>:$falseDestOperands
+  );
+  let successors = (successor AnySuccessor:$trueDest, AnySuccessor:$falseDest);
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$condition,
+                   "::mlir::Block *":$trueDest,
+                   "::mlir::ValueRange":$trueOperands,
+                   "::mlir::Block *":$falseDest,
+                   "::mlir::ValueRange":$falseOperands), [{
+      $_state.addOperands(condition);
+      $_state.addOperands(trueOperands);
+      $_state.addOperands(falseOperands);
+      $_state.addAttribute(
+        getOperandSegmentSizeAttr(),
+        $_builder.getDenseI32ArrayAttr(
+          {1, static_cast<int32_t>(trueOperands.size()),
+           static_cast<int32_t>(falseOperands.size())}));
+      $_state.addSuccessors(trueDest);
+      $_state.addSuccessors(falseDest);
+    }]>
+  ];
+  let assemblyFormat = [{
+    $condition `:` type($condition) `,`
+    $trueDest (`(` $trueDestOperands^ `:` type($trueDestOperands) `)`)? `,`
+    $falseDest (`(` $falseDestOperands^ `:` type($falseDestOperands) `)`)?
+    attr-dict
   }];
 }
 
