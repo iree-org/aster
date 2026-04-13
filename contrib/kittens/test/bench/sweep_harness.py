@@ -242,16 +242,16 @@ def add_scheduling_axes(grid: SweepGrid, unroll_multipliers: Optional[Sequence[i
 
 
 class GpuHwConstants:
-    """Hardware constants for the sweep resource filter.
+    """Hardware constants for resource filtering.
 
-    Populated from the static arch table in ``aster.core.target`` so the
-    eligible search space is deterministic across hosts.
+    All fields are required, built via ``hw_for_target(mcpu)``.
     """
 
     __slots__ = ("vgprs_per_simd", "max_vgprs", "max_agprs", "lds_per_cu", "vgpr_granule", "num_simds", "mcpu")
 
     def __init__(
         self,
+        *,
         vgprs_per_simd: int,
         max_vgprs: int,
         max_agprs: int,
@@ -270,7 +270,10 @@ class GpuHwConstants:
 
 
 def hw_for_target(mcpu: str) -> GpuHwConstants:
-    """Return sweep-filter HW constants for ``mcpu`` from the static arch table."""
+    """Build hardware constants for a target mcpu.
+
+    Values come from ``Target.from_mcpu(mcpu)``.
+    """
     from aster.core.target import Target
 
     t = Target.from_mcpu(mcpu)
@@ -281,7 +284,7 @@ def hw_for_target(mcpu: str) -> GpuHwConstants:
         lds_per_cu=t.lds_per_cu,
         vgpr_granule=t.vgpr_alloc_granule,
         num_simds=t.num_simds,
-        mcpu=t.mcpu,
+        mcpu=mcpu,
     )
 
 
@@ -328,7 +331,7 @@ def fits_on_cu_post_compile(
     """
     violations = res.check_occupancy(
         cfg.num_threads,
-        mcpu=cfg.mcpu,
+        mcpu=cfg.mapping.mcpu,
         num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1),
     )
     if not violations:

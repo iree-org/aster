@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
+from aster.dialects.kernel_builder import MFMA_F16_CDNA4
 from kittens.gemm_config import (
     GemmSpec,
     GemmMappingSpec,
@@ -63,8 +64,6 @@ from sweep_harness import (
 
 # --- Constants ---
 
-from aster.dialects.kernel_builder import MFMA_F16_CDNA4
-
 _MFMA_SHAPE = list(MFMA_F16_CDNA4.shape)
 _TILE_M, _TILE_N, _TILE_K = GemmMappingSpec.default_tile_elements(_MFMA_SHAPE)
 
@@ -78,6 +77,7 @@ def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_N)
     assert rem_m == 0, f"M={M} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
     assert rem_n == 0, f"N={N} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_N}"
+    _nwgcu = nwgcu(d, hw)
     spec = GemmSpec.from_sizes(M, N, K, mfma_shape=_MFMA_SHAPE)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
@@ -155,7 +155,7 @@ def main():
     if positional and is_label(positional[0]):
         parser = argparse.ArgumentParser(description="Single-config CDNA4 G2S GEMM benchmark (label from sweep)")
         parser.add_argument("label", type=str, help="Config label from sweep output")
-        add_single_cli_args(parser, default_mcpu="gfx950")
+        add_single_cli_args(parser)
         args = parser.parse_args()
         warn_mcpu_mismatch(args.mcpu)
         require_gpu_or_compile_only(args)
@@ -164,7 +164,7 @@ def main():
         return
 
     parser = argparse.ArgumentParser(description="CDNA4 G2S GEMM benchmark sweep (test_102_cdna4)")
-    add_sweep_cli_args(parser, default_mcpu="gfx950")
+    add_sweep_cli_args(parser)
     add_geometry_pin_args(parser)
     add_size_cli_args(parser)
     add_heuristic_cli_args(parser)

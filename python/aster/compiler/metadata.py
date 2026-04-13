@@ -58,14 +58,16 @@ class KernelResources:
     def check_occupancy(
         self,
         num_threads: int,
-        *,
         mcpu: str,
         num_wg_per_cu: int = 1,
     ) -> List[str]:
         """Return the list of occupancy violations for ``mcpu``.
 
-        ``mcpu`` is required (keyword-only) -- callers must pass the
-        config's target (e.g. ``cfg.mcpu``).
+        Args:
+            mcpu: Target GPU (e.g. "gfx942", "gfx950").
+            num_wg_per_cu: Number of workgroups sharing a CU (default 1).
+
+        Returns an empty list if the kernel fits.
         """
         target = Target.from_mcpu(mcpu)
         num_waves = (num_threads + target.wavefront_size - 1) // target.wavefront_size
@@ -113,7 +115,7 @@ class KernelResources:
 
 def compute_register_budget(
     num_threads: int,
-    mcpu: str = "gfx942",
+    mcpu: str,
     num_wg_per_cu: int = 1,
     agpr_hint: int = 0,
 ) -> Tuple[int, int, int]:
@@ -141,10 +143,7 @@ def compute_register_budget(
     Returns:
         (max_vgprs, max_agprs, lds_per_wg) tuple.
     """
-    try:
-        target = Target.from_mcpu(mcpu)
-    except ValueError:
-        target = Target.from_mcpu("gfx942")
+    target = Target.from_mcpu(mcpu)
 
     max_vgprs = target.max_vgprs
     max_agprs = target.max_agprs
