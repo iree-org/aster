@@ -62,6 +62,9 @@ def AGPRType : AMDGCN_RegisterDef<"AGPR", "agpr", [MemRefElementTypeInterface]> 
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       return AGPRType::get(getContext(), range);
     }
+    int64_t getSizeInBits() const {
+      return static_cast<int64_t>(getRange().size()) * 32;
+    }
 
     //===------------------------------------------------------------------===//
     // ResourceTypeInterface
@@ -100,6 +103,9 @@ def SGPRType : AMDGCN_RegisterDef<"SGPR", "sgpr", [MemRefElementTypeInterface]> 
     }
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       return SGPRType::get(getContext(), range);
+    }
+    int64_t getSizeInBits() const {
+      return static_cast<int64_t>(getRange().size()) * 32;
     }
 
     //===------------------------------------------------------------------===//
@@ -140,6 +146,9 @@ def VGPRType : AMDGCN_RegisterDef<"VGPR", "vgpr", [MemRefElementTypeInterface]> 
     }
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       return VGPRType::get(getContext(), range);
+    }
+    int64_t getSizeInBits() const {
+      return static_cast<int64_t>(getRange().size()) * 32;
     }
 
     //===------------------------------------------------------------------===//
@@ -190,6 +199,19 @@ class SREGBase<string name, string mnemonic, string kind>
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       assert(range.size() == 1 && "SREG type can only clone single register");
       return get(getContext(), range.begin());
+    }
+    int64_t getSizeInBits() const {
+      switch (kRegisterKind) {
+      case RegisterKind::VCC:
+      case RegisterKind::EXEC:
+        return 64;
+      case RegisterKind::VCCZ:
+      case RegisterKind::EXECZ:
+      case RegisterKind::SCC:
+        return 1;
+      default:
+        return 32;
+      }
     }
 
     //===------------------------------------------------------------------===//

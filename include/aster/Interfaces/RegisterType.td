@@ -44,12 +44,8 @@ def RegisterTypeInterface : TypeInterface<"RegisterTypeInterface", [
     >,
     InterfaceMethod<[{
         This method returns the size in bits of the register(s).
-        Each register is 32 bits. Returns std::nullopt if the type
-        is not a valid register type.
       }],
-      "std::optional<int64_t>", "getSizeInBits", (ins), [{}], [{
-        return $_type.getAsRange().size() * 32;
-      }]
+      "int64_t", "getSizeInBits"
     >
   ];
   let extraTraitClassDeclaration = [{
