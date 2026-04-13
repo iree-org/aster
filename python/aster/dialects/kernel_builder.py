@@ -177,7 +177,7 @@ class KernelBuilder:
         self.idx_type = ir.IndexType.get(ctx)
         self.i32_type = ir.IntegerType.get_signless(32, ctx)
         self.any_type = ir.Type.parse("!aster_utils.any")
-        self.m0_type = ir.Type.parse("!amdgcn.m0")
+        self.m0_type = ir.Type.parse("!amdgcn.m0<0>")
         self.vx2_type = VGPRRangeType.get(ctx, size=2)
         self.vx4_type = VGPRRangeType.get(ctx, size=4)
         self.ax4_type = AGPRRangeType.get(ctx, size=4)
