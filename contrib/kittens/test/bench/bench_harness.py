@@ -1012,7 +1012,6 @@ def bench_perf_sweep_pipelined(
     compile_workers=None,
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
     post_compile_filter=None,
-    exec_sample=0,
     zero_init=False,
     iterations=None,
 ):
@@ -1107,13 +1106,18 @@ def bench_perf_sweep_pipelined(
                     resources_map[label] = res
 
                 skip_exec = False
-                if post_compile_filter and (not res or not post_compile_filter(cfg, res)):
-                    skip_exec = True
+                if post_compile_filter:
                     if not res:
+                        skip_exec = True
                         compile_failed.append((cfg, "compile: metadata parse failed", ""))
-                if not skip_exec and exec_sample > 0 and n_exec_submitted >= exec_sample:
-                    skip_exec = True
-
+                    else:
+                        reason = post_compile_filter(cfg, res)
+                        if reason:
+                            skip_exec = True
+                            # Categorize on the short prefix (e.g. "occupancy: ...") so
+                            # _save_error_file groups identical-kind rejections together.
+                            short = reason.split(" -- ", 1)[0]
+                            compile_failed.append((cfg, f"compile: {short}", reason))
                 if not skip_exec and gpu_work_queues:
                     exec_item = (
                         label,
@@ -1232,7 +1236,6 @@ def bench_perf_sweep(
     compile_workers=None,
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
     post_compile_filter=None,
-    exec_sample=0,
     iterations=None,
 ):
     """Phase 1 (compile) + Phase 2 (execute).
@@ -1322,20 +1325,21 @@ def bench_perf_sweep(
             if c.label not in hsaco_paths:
                 continue
             res = resources_map.get(c.label)
-            if not res or not post_compile_filter(c, res):
+            if not res:
                 del hsaco_paths[c.label]
-                if not res:
-                    failed.append((c, "compile: metadata parse failed (no kernel resources)", ""))
+                failed.append((c, "compile: metadata parse failed (no kernel resources)", ""))
+                continue
+            reason = post_compile_filter(c, res)
+            if reason:
+                del hsaco_paths[c.label]
+                short = reason.split(" -- ", 1)[0]
+                failed.append((c, f"compile: {short}", reason))
         dropped = before - len(hsaco_paths)
         if dropped:
-            print(f"Post-compile filter: {dropped} skipped")
+            print(f"Post-compile filter: {dropped} skipped (see error file)")
 
     # Phase 2: execute in subprocesses (crash-isolated).
     exec_active = [c for c in active if c.label in hsaco_paths]
-    if exec_sample > 0 and len(exec_active) > exec_sample:
-        import random
-
-        exec_active = random.sample(exec_active, exec_sample)
 
     if num_gpus == 0:
         print("\nNo GPUs detected -- skipping execution phase.")
@@ -1437,7 +1441,9 @@ def run_single(cfg, compile_fn, args, execute_fn):
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
         print_config(cfg, res, iterations=iterations)
         if res:
-            for v in res.check_occupancy(cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)):
+            for v in res.check_occupancy(
+                cfg.num_threads, mcpu=cfg.mcpu, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
+            ):
                 print(f"  OCCUPANCY ERROR: {v}")
         print(f"  Compiled: {args.hsaco}")
         return
@@ -1456,7 +1462,9 @@ def run_single(cfg, compile_fn, args, execute_fn):
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
         print_config(cfg, res, iterations=iterations)
         if res:
-            violations = res.check_occupancy(cfg.num_threads, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1))
+            violations = res.check_occupancy(
+                cfg.num_threads, mcpu=cfg.mcpu, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
+            )
             for v in violations:
                 print(f"  OCCUPANCY ERROR: {v}")
             if violations and not getattr(args, "force", False):
@@ -1539,7 +1547,6 @@ def add_sweep_cli_args(parser, default_mcpu: str = "gfx942"):
         "so the user is not silently left with zero measurements.",
     )
     a("--compile-sample", type=int, default=4096, help="Configs to compile (0=all)")
-    a("--exec-sample", type=int, default=2048, help="Configs to execute (0=all)")
     a("--num-gpus", type=int, default=None, help="GPUs (default: auto)")
     a("--compile-workers", type=int, default=DEFAULT_COMPILE_WORKERS)
     a(

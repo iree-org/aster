@@ -378,17 +378,13 @@ KERNEL_NAME = "gemm_cdna4"
 class Cdna4GemmInstance(WeakScaledMappedGemmInstance):
     """Config with CDNA4 MFMA shape and transfer-tile geometry."""
 
-    MFMA_SHAPE = [16, 16, MFMA_F16_CDNA4.k_per_mfma]
-
     @property
     def kernel_name(self) -> str:
         return KERNEL_NAME
 
     @property
     def transfer_tile_k_elems(self) -> int:
-        return (self.mapping.wave_size // self.spec.mfma_shape[DIM_M]) * (
-            self.mapping.global_load_bytes // self.spec.elt_bytes_a
-        )
+        return self.spec.mfma_shape[DIM_K]
 
     @property
     def transfer_tile_row_bytes(self) -> int:
@@ -408,14 +404,14 @@ class Cdna4GemmInstance(WeakScaledMappedGemmInstance):
         if not label.endswith(suffix):
             raise ValueError(f"Cannot parse CDNA4 label: {label}")
         base = WeakScaledMappedGemmInstance.from_label(label[: -len(suffix)])
-        spec = GemmSpec.from_sizes(*base.gemm_size, mfma_shape=list(cls.MFMA_SHAPE))
+        spec = GemmSpec.from_sizes(*base.gemm_size, mfma_shape=list(MFMA_F16_CDNA4.shape))
         mapping = dataclasses.replace(base.mapping, mcpu="gfx950")
         return cls(spec, mapping)
 
 
 def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult):
     """Build a Cdna4GemmInstance from tile grid and K multiplier."""
-    mfma = Cdna4GemmInstance.MFMA_SHAPE
+    mfma = MFMA_F16_CDNA4.shape
     twg_m, twg_n = num_tiles_per_wg[DIM_M], num_tiles_per_wg[DIM_N]
     wpw_m, wpw_n = num_waves_per_wg[DIM_M], num_waves_per_wg[DIM_N]
     assert twg_m % wpw_m == 0 and twg_n % wpw_n == 0

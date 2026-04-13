@@ -58,24 +58,16 @@ class KernelResources:
     def check_occupancy(
         self,
         num_threads: int,
-        mcpu: str = "gfx942",
+        *,
+        mcpu: str,
         num_wg_per_cu: int = 1,
-        target: "Optional[Target]" = None,
     ) -> List[str]:
-        """Return a list of occupancy violations for the given target.
+        """Return the list of occupancy violations for ``mcpu``.
 
-        Args:
-            target: If provided, use this Target directly (e.g. from
-                Target.from_device() with runtime HIP values). Otherwise
-                fall back to Target.from_mcpu(mcpu) with hardcoded constants.
-
-        Returns an empty list if the kernel can launch or the mcpu is unknown.
+        ``mcpu`` is required (keyword-only) -- callers must pass the
+        config's target (e.g. ``cfg.mcpu``).
         """
-        if target is None:
-            try:
-                target = Target.from_mcpu(mcpu)
-            except ValueError:
-                return []
+        target = Target.from_mcpu(mcpu)
         num_waves = (num_threads + target.wavefront_size - 1) // target.wavefront_size
         total_waves = num_waves * num_wg_per_cu
         waves_per_simd = (total_waves + target.num_simds - 1) // target.num_simds

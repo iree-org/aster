@@ -10,18 +10,23 @@ Shared constants, derivation helpers, resource checks, and CLI args
 for 16x16 MFMA GEMM benchmark sweeps.
 """
 
+from __future__ import annotations
+
 import argparse
 import itertools
 import os
 import sys
 from collections import defaultdict
-from typing import Any, Callable, Hashable, Iterable, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterable, Optional, Sequence
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 from bench_harness import check_numpy_blas, detect_num_gpus, verify_on_gpus, _save_tmpfile
-from kittens.gemm_config import GemmMappingSpec
+from kittens.gemm_config import GemmMappingSpec, WeakScaledMappedGemmInstance
+
+if TYPE_CHECKING:
+    from aster.compiler.metadata import KernelResources
 
 
 # -- Sweep grid framework ---------------------------------------------------
@@ -122,6 +127,17 @@ class SweepGrid:
 
         pins = pins or {}
         axis_names = [a.name for a in self._axes]
+
+        # Fail loudly if a pin asks for a value that isn't in its axis --
+        # silent "0 eligible" is indistinguishable from a filter rejecting
+        # everything and has caused at least one debugging detour.
+        for axis in self._axes:
+            if axis.name in pins and pins[axis.name] not in axis.values:
+                raise ValueError(
+                    f"pin {axis.name}={pins[axis.name]!r} is not in the axis "
+                    f"values {sorted(axis.values)!r}. Check for --mcpu/-m vs "
+                    f"-n typos or CDNA3-vs-CDNA4 axis pruning."
+                )
 
         level_filters: list[list[SweepFilter]] = []
         for i in range(len(self._axes)):
@@ -226,19 +242,23 @@ def add_scheduling_axes(grid: SweepGrid, unroll_multipliers: Optional[Sequence[i
 
 
 class GpuHwConstants:
-    """Hardware constants for resource filtering, queried at import time."""
+    """Hardware constants for the sweep resource filter.
+
+    Populated from the static arch table in ``aster.core.target`` so the
+    eligible search space is deterministic across hosts.
+    """
 
     __slots__ = ("vgprs_per_simd", "max_vgprs", "max_agprs", "lds_per_cu", "vgpr_granule", "num_simds", "mcpu")
 
     def __init__(
         self,
-        vgprs_per_simd: int = 512,
-        max_vgprs: int = 256,
-        max_agprs: int = 256,
-        lds_per_cu: int = 65536,
-        vgpr_granule: int = 8,
-        num_simds: int = 4,
-        mcpu: str = "gfx942",
+        vgprs_per_simd: int,
+        max_vgprs: int,
+        max_agprs: int,
+        lds_per_cu: int,
+        vgpr_granule: int,
+        num_simds: int,
+        mcpu: str,
     ):
         self.vgprs_per_simd = vgprs_per_simd
         self.max_vgprs = max_vgprs
@@ -249,29 +269,37 @@ class GpuHwConstants:
         self.mcpu = mcpu
 
 
-def query_gpu_hw() -> GpuHwConstants:
-    """Query GPU hardware via HIP, fall back to gfx942 defaults."""
-    try:
-        from aster.core.device import try_query_device
+def hw_for_target(mcpu: str) -> GpuHwConstants:
+    """Return sweep-filter HW constants for ``mcpu`` from the static arch table."""
+    from aster.core.target import Target
 
-        dev = try_query_device(0)
-    except ImportError:
-        dev = None
-    if dev is None:
-        return GpuHwConstants()
-    # gcn_arch_name looks like "gfx942:sramecc+:xnack-" -- strip feature suffix.
-    mcpu = dev.gcn_arch_name.split(":", 1)[0]
+    t = Target.from_mcpu(mcpu)
     return GpuHwConstants(
-        vgprs_per_simd=dev.vgprs_per_simd,
-        max_vgprs=min(dev.vgprs_per_simd, 256),
-        max_agprs=min(dev.vgprs_per_simd, 256),
-        lds_per_cu=dev.lds_per_cu,
-        vgpr_granule=dev.vgpr_alloc_granule,
-        mcpu=mcpu,
+        vgprs_per_simd=t.vgprs_per_simd,
+        max_vgprs=t.max_vgprs,
+        max_agprs=t.max_agprs,
+        lds_per_cu=t.lds_per_cu,
+        vgpr_granule=t.vgpr_alloc_granule,
+        num_simds=t.num_simds,
+        mcpu=t.mcpu,
     )
 
 
 # -- Resource checks ---------------------------------------------------------
+
+
+def _estimated_resources(
+    mapping: GemmMappingSpec,
+    vgpr_headroom: float,
+    vgpr_overhead: int,
+) -> "KernelResources":
+    from aster.compiler.metadata import KernelResources
+
+    return KernelResources(
+        vgpr_count=int(mapping.estimated_vgprs() * vgpr_headroom) + vgpr_overhead,
+        agpr_count=mapping.estimated_agprs(),
+        lds_bytes=mapping.lds_bytes(),
+    )
 
 
 def passes_resource_check(
@@ -280,46 +308,51 @@ def passes_resource_check(
     vgpr_headroom: float = 1.2,
     vgpr_overhead: int = 16,
 ) -> bool:
-    """Pre-compile resource filter: LDS + VGPR estimates vs hardware limits."""
-    nwg = mapping.num_wg_per_cu
-    if mapping.lds_bytes() > hw.lds_per_cu // max(nwg, 1):
-        return False
-    est_v = int(mapping.estimated_vgprs() * vgpr_headroom) + vgpr_overhead
-    est_a = mapping.estimated_agprs()
-    if est_v > hw.max_vgprs or est_a > hw.max_agprs:
-        return False
-    combined = est_v + est_a
-    if combined > hw.vgprs_per_simd:
-        return False
-    aligned = ((combined + hw.vgpr_granule - 1) // hw.vgpr_granule) * hw.vgpr_granule
-    total_waves = mapping.num_waves * nwg
-    if aligned * total_waves * 64 > hw.vgprs_per_simd * hw.num_simds * 64:
-        return False
-    return True
+    """Pre-compile resource filter, must reflect the desired WG occupancy set on the sweep axis."""
+    res = _estimated_resources(mapping, vgpr_headroom, vgpr_overhead)
+    violations = res.check_occupancy(
+        mapping.num_threads,
+        mcpu=hw.mcpu,
+        num_wg_per_cu=mapping.num_wg_per_cu,
+    )
+    return not violations
 
 
-def fits_on_cu_post_compile(cfg, res) -> bool:
-    """Post-compile occupancy check using actual register counts from ASM."""
+def fits_on_cu_post_compile(
+    cfg: "WeakScaledMappedGemmInstance",
+    res: "KernelResources",
+) -> Optional[str]:
+    """Post-compile occupancy check using actual register + LDS counts from ASM.
+
+    Returns ``None`` if the config fits, or a one-line reason string otherwise.
+    """
     violations = res.check_occupancy(
         cfg.num_threads,
+        mcpu=cfg.mcpu,
         num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1),
     )
-    if violations:
-        for v in violations:
-            print(f"  OCCUPANCY ERROR [{cfg.label}]: {v}")
-        return False
-    return True
+    if not violations:
+        return None
+    mm: GemmMappingSpec = cfg.mapping
+    est_lds = mm.lds_bytes()
+    est_v = mm.estimated_vgprs()
+    est_a = mm.estimated_agprs()
+    return (
+        f"occupancy: est(lds={est_lds}, v={est_v}, a={est_a}) "
+        f"vs actual(lds={res.lds_bytes}, v={res.vgpr_count}, a={res.agpr_count}) -- "
+        + "; ".join(violations)
+    )
 
 
 def add_resource_filter(
     grid: SweepGrid,
     hw: GpuHwConstants,
-    mapping_builder: Callable[[dict[str, Any]], Any],
+    mapping_builder: Callable[[dict[str, Any]], GemmMappingSpec],
     deps: tuple[str, ...] = (),
 ) -> None:
     """Add a resource-check filter to a SweepGrid."""
 
-    def _check(d: dict) -> bool:
+    def _check(d: dict[str, Any]) -> bool:
         return passes_resource_check(mapping_builder(d), hw)
 
     grid.filter(*deps, check=_check)
@@ -426,7 +459,6 @@ def add_gemm_sweep_axes(
     target_m: int | None = DEFAULT_DIM,
     target_n: int | None = DEFAULT_DIM,
     target_k: int | None = DEFAULT_DIM,
-    mcpu: str = "gfx942",
 ) -> None:
     """Add problem-size + geometry + scheduling axes and constraints.
 
@@ -436,6 +468,10 @@ def add_gemm_sweep_axes(
 
     ``tile_elements`` is [tile_m, tile_n, tile_k] from
     ``GemmMappingSpec.tile_elements(spec.mfma_shape)``.
+
+    The CDNA3-vs-CDNA4 axis pruning is driven by ``hw.mcpu`` -- callers
+    must use ``hw_for_target(args.mcpu)`` so the search space matches the
+    compile target, not the host.
     """
     from kittens_helpers import PIPELINE_STRATEGIES as PS
 
@@ -449,8 +485,8 @@ def add_gemm_sweep_axes(
     grid.axis("target_N", dim_values(target_n, tile_n))
     grid.axis("target_K", dim_values(target_k, tile_k))
 
-    # Prune the search space for CDNA3.
-    _cdna3 = mcpu in ("gfx940", "gfx942")
+    # Prune the search space for CDNA3 (smaller LDS + narrower axis ranges).
+    _cdna3 = hw.mcpu in ("gfx940", "gfx942")
 
     grid.axis("waves_m", sorted({m for m, _ in WAVE_CONFIGS if not _cdna3 or m <= 2}))
     grid.axis("waves_n", sorted({n for _, n in WAVE_CONFIGS}))

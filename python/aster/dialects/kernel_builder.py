@@ -90,18 +90,18 @@ def _i64(value: int, ctx: ir.Context) -> ir.IntegerAttr:
 
 @dataclass(frozen=True)
 class MfmaConfig:
-    """MFMA instruction configuration for a 16x16 output tile."""
+    """MFMA instruction configuration."""
 
     opcode: str
-    k_per_mfma: int
+    # [M, N, K] MFMA tile shape. Must be set explicitly at construction.
+    shape: tuple[int, int, int]
     a_regs: int
     b_regs: int
     c_regs: int
-    elt_bytes: int
 
     @property
-    def k_bytes_per_row(self) -> int:
-        return self.k_per_mfma * self.elt_bytes
+    def k_per_mfma(self) -> int:
+        return self.shape[2]
 
     @property
     def reads_vx4(self) -> bool:
@@ -110,11 +110,10 @@ class MfmaConfig:
 
 MFMA_F16_CDNA4 = MfmaConfig(
     opcode="v_mfma_f32_16x16x32_f16",
-    k_per_mfma=32,
+    shape=(16, 16, 32),
     a_regs=4,
     b_regs=4,
     c_regs=4,
-    elt_bytes=2,
 )
 
 

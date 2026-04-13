@@ -52,10 +52,10 @@ from sweep_harness import (
     add_size_cli_args,
     apply_wg_pin_filters,
     fits_on_cu_post_compile,
+    hw_for_target,
     is_label,
     nwgcu,
     parse_size_args,
-    query_gpu_hw,
     resolve_derived_pins,
     verify_top_configs,
 )
@@ -63,28 +63,28 @@ from sweep_harness import (
 
 # --- Constants ---
 
-_HW = query_gpu_hw()
-_MFMA_SHAPE = list(Cdna4GemmInstance.MFMA_SHAPE)
+from aster.dialects.kernel_builder import MFMA_F16_CDNA4
+
+_MFMA_SHAPE = list(MFMA_F16_CDNA4.shape)
 _TILE_M, _TILE_N, _TILE_K = GemmMappingSpec.default_tile_elements(_MFMA_SHAPE)
 
 
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict, mcpu: str) -> Cdna4GemmInstance:
+def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
     _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_M)
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_N)
     assert rem_m == 0, f"M={M} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
     assert rem_n == 0, f"N={N} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_N}"
-    _nwgcu = nwgcu(d, _HW)
     spec = GemmSpec.from_sizes(M, N, K, mfma_shape=_MFMA_SHAPE)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        num_wg_per_cu=_nwgcu,
+        num_wg_per_cu=nwgcu(d, hw),
         lcm_unroll=d["lcm_unroll"],
         unroll_factor_multiplier=d["unroll_mult"],
         epilogue_peeling=d["epilogue_peeling"],
@@ -95,7 +95,7 @@ def _build_instance(d: dict, mcpu: str) -> Cdna4GemmInstance:
     return Cdna4GemmInstance(spec, mapping)
 
 
-def _mapping_for_resource_check(d: dict, mcpu: str) -> GemmMappingSpec:
+def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
     _wg_m, rem_m = divmod(d["target_M"], d["twg_m"] * _TILE_M)
     _wg_n, rem_n = divmod(d["target_N"], d["twg_n"] * _TILE_N)
     assert rem_m == 0, f"target_M={d['target_M']} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
@@ -105,13 +105,14 @@ def _mapping_for_resource_check(d: dict, mcpu: str) -> GemmMappingSpec:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        num_wg_per_cu=nwgcu(d, _HW),
+        num_wg_per_cu=nwgcu(d, hw),
         mcpu=mcpu,
     )
 
 
 def make_sweep_grid(
     mcpu: str,
+    hw,
     check_regs: bool = True,
     *,
     target_m: int,
@@ -119,17 +120,17 @@ def make_sweep_grid(
     target_k: int,
 ) -> SweepGrid:
     grid = SweepGrid()
-    add_gemm_sweep_axes(grid, _HW, [_TILE_M, _TILE_N, _TILE_K], target_m=target_m, target_n=target_n, target_k=target_k)
+    add_gemm_sweep_axes(grid, hw, [_TILE_M, _TILE_N, _TILE_K], target_m=target_m, target_n=target_n, target_k=target_k)
 
     if check_regs:
         add_resource_filter(
             grid,
-            _HW,
-            functools.partial(_mapping_for_resource_check, mcpu=mcpu),
+            hw,
+            functools.partial(_mapping_for_resource_check, mcpu=mcpu, hw=hw),
             deps=("waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
         )
 
-    grid.build_with(functools.partial(_build_instance, mcpu=mcpu))
+    grid.build_with(functools.partial(_build_instance, mcpu=mcpu, hw=hw))
     return grid
 
 
@@ -171,6 +172,8 @@ def main():
     warn_mcpu_mismatch(args.mcpu)
     require_gpu_or_compile_only(args)
 
+    hw = hw_for_target(args.mcpu)
+
     target_m, target_n, target_k = parse_size_args(args, parser)
     print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
@@ -179,6 +182,7 @@ def main():
 
     grid = make_sweep_grid(
         args.mcpu,
+        hw,
         check_regs=not getattr(args, "no_reg_filter", False),
         target_m=target_m,
         target_n=target_n,
@@ -208,7 +212,6 @@ def main():
         compile_workers=args.compile_workers,
         compile_timeout=args.compile_timeout,
         post_compile_filter=fits_on_cu_post_compile,
-        exec_sample=getattr(args, "exec_sample", 2000),
         zero_init=args.zero_init,
         iterations=args.iterations,
     )
