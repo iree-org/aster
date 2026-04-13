@@ -149,7 +149,7 @@ amdgcn.module @test_memory_dependence target = #amdgcn.target<gfx942> isa = #amd
 //   CHECK-LABEL: Kernel: test_g2s_lds_dep
 amdgcn.module @test_g2s_lds_dep target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
   amdgcn.kernel @test_g2s_lds_dep {
-    %m0 = amdgcn.alloca : !amdgcn.m0
+    %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %s0 = amdgcn.alloca : !amdgcn.sgpr
     %s1 = amdgcn.alloca : !amdgcn.sgpr
     %s2 = amdgcn.alloca : !amdgcn.sgpr
@@ -163,7 +163,7 @@ amdgcn.module @test_g2s_lds_dep target = #amdgcn.target<gfx950> isa = #amdgcn.is
     %c0 = arith.constant 0 : i32
 
     // Set M0 for LDS base offset
-    amdgcn.sop1 s_mov_b32 outs %m0 ins %c0 : !amdgcn.m0, i32
+    amdgcn.sop1 s_mov_b32 outs %m0 ins %c0 : !amdgcn.m0<0>, i32
 
     // G2S: buffer_load_dword with LDS flag - writes to LDS
     // CHECK: Operation: {{.*}}load_lds{{.*}}test.g2s_tag
@@ -171,7 +171,7 @@ amdgcn.module @test_g2s_lds_dep target = #amdgcn.target<gfx950> isa = #amdgcn.is
     // CHECK-NEXT: MUST FLUSH NOW: 0:
     %tok_g2s = amdgcn.load_lds buffer_load_dword_lds m0 %m0 addr %rsrc
         offset u(%soff) + d(%voff) + c(%c0) { test.g2s_tag }
-        : ins(!amdgcn.m0, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+        : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
 
     // ds_read from LDS - the G2S must be flushed first because LoadToLDSOp

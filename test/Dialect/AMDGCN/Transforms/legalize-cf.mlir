@@ -3,10 +3,10 @@
 // CHECK-LABEL: kernel @test_cond_branch_slt
 // CHECK:         sop1 s_mov_b32 outs %[[A:.*]] ins
 // CHECK:         sop1 s_mov_b32 outs %[[B:.*]] ins
-// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc
-// CHECK:         cmpi s_cmp_lt_i32 outs %[[SCC]] ins %[[A]], %[[B]] : outs(!amdgcn.scc) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
+// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc<0>
+// CHECK:         cmpi s_cmp_lt_i32 outs %[[SCC]] ins %[[A]], %[[B]] : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
 // Use SCC0 because ^bb1 (trueDest) is the next physical block - branch to ^bb2 if false
-// CHECK:         cbranch s_cbranch_scc0 %[[SCC]] ^bb2 fallthrough(^bb1) : !amdgcn.scc
+// CHECK:         cbranch s_cbranch_scc0 %[[SCC]] ^bb2 fallthrough(^bb1) : !amdgcn.scc<0>
 // CHECK:       ^bb1:
 // CHECK:         end_kernel
 // CHECK:       ^bb2:
@@ -54,11 +54,11 @@ amdgcn.module @test_br target = <gfx942> isa = <cdna3> {
 // Branch to ^bb1 if SCC=1 (continue loop), fallthrough to ^bb2 if SCC=0 (exit)
 
 // CHECK-LABEL: kernel @test_cf_cond_br_lsir_cmpi
-//       CHECK:   cmpi s_cmp_gt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.scc) ins(!amdgcn.sgpr<6>, i32)
+//       CHECK:   cmpi s_cmp_gt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<6>, i32)
 //       CHECK:   cbranch s_cbranch_scc0 %{{.*}} ^bb2 fallthrough(^bb1)
 //       CHECK:   ^bb1:
 //       CHECK:     sop2 s_add_u32 outs %[[LOOP_ALLOC:.*]] ins %[[LOOP_ALLOC]]
-//       CHECK:     cmpi s_cmp_lt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.scc) ins(!amdgcn.sgpr<7>, !amdgcn.sgpr<6>)
+//       CHECK:     cmpi s_cmp_lt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<7>, !amdgcn.sgpr<6>)
 //       CHECK:     cbranch s_cbranch_scc1 %{{.*}} ^bb1 fallthrough(^bb2)
 //       CHECK:   ^bb2:
 //       CHECK:     end_kernel
@@ -278,7 +278,7 @@ amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @test_select_i1
 // CHECK:         sop1 s_mov_b32 outs %[[A:.*]] ins
 // CHECK:         sop1 s_mov_b32 outs %[[B:.*]] ins
-// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc
+// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc<0>
 // CHECK:         cmpi s_cmp_eq_i32 outs %[[SCC]] ins %[[A]], %[[B]]
 // CHECK:         sop2 s_cselect_b32 outs %{{.*}} ins
 // CHECK:         end_kernel
@@ -307,9 +307,9 @@ amdgcn.module @test_select_i1_mod target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @test_select_fanout
 // CHECK:         sop1 s_mov_b32 outs %[[A:.*]] ins
 // CHECK:         sop1 s_mov_b32 outs %[[B:.*]] ins
-// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc
+// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc<0>
 // CHECK:         cmpi s_cmp_eq_i32 outs %[[SCC]] ins %[[A]], %[[B]]
-// CHECK-NOT:     alloca : !amdgcn.scc
+// CHECK-NOT:     alloca : !amdgcn.scc<0>
 // CHECK-NOT:     cmpi
 // CHECK:         sop2 s_cselect_b32
 // CHECK:         sop2 s_cselect_b32
@@ -342,9 +342,9 @@ amdgcn.module @test_select_fanout_mod target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @test_mixed_consumers
 // CHECK:         sop1 s_mov_b32 outs %[[A:.*]] ins
 // CHECK:         sop1 s_mov_b32 outs %[[B:.*]] ins
-// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc
+// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc<0>
 // CHECK:         cmpi s_cmp_eq_i32 outs %[[SCC]] ins %[[A]], %[[B]]
-// CHECK-NOT:     alloca : !amdgcn.scc
+// CHECK-NOT:     alloca : !amdgcn.scc<0>
 // CHECK-NOT:     cmpi
 // CHECK:         sop2 s_cselect_b32
 // CHECK:         cbranch s_cbranch_scc0 %[[SCC]]
@@ -493,9 +493,9 @@ amdgcn.module @test_crossblock_mod target = <gfx942> isa = <cdna3> {
 // Branch uses s_cbranch_vccz since ^bb1 (trueDest) is the next physical block.
 
 // CHECK-LABEL: kernel @test_vopc_cond_branch
-// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc
-// CHECK:         cmpi v_cmp_lt_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
-// CHECK:         cbranch s_cbranch_vccz %[[VCC]] ^bb2 fallthrough(^bb1) : !amdgcn.vcc
+// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
+// CHECK:         cmpi v_cmp_lt_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(i32, !amdgcn.vgpr<0>)
+// CHECK:         cbranch s_cbranch_vccz %[[VCC]] ^bb2 fallthrough(^bb1) : !amdgcn.vcc<0>
 // CHECK:       ^bb1:
 // CHECK:         end_kernel
 // CHECK:       ^bb2:
@@ -521,8 +521,8 @@ amdgcn.module @test_vopc_mod target = <gfx942> isa = <cdna3> {
 // and predicate is flipped: slt(v0, 32) -> gt(32, v0).
 
 // CHECK-LABEL: kernel @test_vopc_operand_swap
-// CHECK:         cmpi v_cmp_gt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
-// CHECK:         cbranch s_cbranch_vccz %{{.*}} ^bb2 fallthrough(^bb1) : !amdgcn.vcc
+// CHECK:         cmpi v_cmp_gt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(i32, !amdgcn.vgpr<0>)
+// CHECK:         cbranch s_cbranch_vccz %{{.*}} ^bb2 fallthrough(^bb1) : !amdgcn.vcc<0>
 amdgcn.module @test_vopc_swap_mod target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @test_vopc_operand_swap {
     %c32_i32 = arith.constant 32 : i32
@@ -542,8 +542,8 @@ amdgcn.module @test_vopc_swap_mod target = <gfx942> isa = <cdna3> {
 // VOPC with two VGPR operands: no swap needed, rhs already a VGPR.
 
 // CHECK-LABEL: kernel @test_vopc_two_vgprs
-// CHECK:         cmpi v_cmp_eq_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
-// CHECK:         cbranch s_cbranch_vccz %{{.*}} ^bb2 fallthrough(^bb1) : !amdgcn.vcc
+// CHECK:         cmpi v_cmp_eq_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK:         cbranch s_cbranch_vccz %{{.*}} ^bb2 fallthrough(^bb1) : !amdgcn.vcc<0>
 amdgcn.module @test_vopc_vv_mod target = <gfx942> isa = <cdna3> {
   amdgcn.kernel @test_vopc_two_vgprs {
     %v0 = alloca : !amdgcn.vgpr<0>
@@ -564,8 +564,8 @@ amdgcn.module @test_vopc_vv_mod target = <gfx942> isa = <cdna3> {
 // src0/src1 must be register-typed (VOP2 constraint), so we use VGPRs.
 
 // CHECK-LABEL: kernel @test_vopc_select
-// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc
-// CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
+// CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
 // CHECK:         end_kernel
 amdgcn.module @test_vopc_select_mod target = <gfx942> isa = <cdna3> {
@@ -587,8 +587,8 @@ amdgcn.module @test_vopc_select_mod target = <gfx942> isa = <cdna3> {
 // Materialize the true value into dst via v_mov_b32_e32 first.
 
 // CHECK-LABEL: kernel @test_vopc_select_nonvgpr_true
-// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc
-// CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
+// CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:         vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<2>, i32) -> ()
 // CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
 // CHECK:         end_kernel
@@ -609,8 +609,8 @@ amdgcn.module @test_vopc_select_imm_true_mod target = <gfx942> isa = <cdna3> {
 // Same as above: true value in SGPR still needs v_mov_b32_e32 into dst for src1.
 
 // CHECK-LABEL: kernel @test_vopc_select_sgpr_true
-// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc
-// CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
+// CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:         vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<2>, !amdgcn.sgpr<0>) -> ()
 // CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
 // CHECK:         end_kernel
