@@ -667,6 +667,17 @@ class KernelBuilder:
         vgpr_type = VGPRType.get(self._ctx, reg=None)
         return lsird.to_reg(vgpr_type, i32_val, loc=self._loc, ip=self._kip)
 
+    def index_to_sgpr(self, index_val: ir.Value) -> ir.Value:
+        """Convert an index value to an SGPR via v_readfirstlane_b32.
+
+        The index is first materialized as a VGPR i32, then the first
+        active lane's value is read into a freshly allocated SGPR.  Use
+        for wave-uniform values that must be scalar (e.g. M0 for G2S).
+        """
+        vgpr_val = self.index_to_vgpr(index_val)
+        sgpr = self.alloca_sgpr()
+        return _inst.v_readfirstlane_b32(sgpr, vgpr_val, loc=self._loc, ip=self._kip)
+
     # ---------------------------------------------------------------------------
     # Pointer arithmetic (ptr dialect)
     # ---------------------------------------------------------------------------

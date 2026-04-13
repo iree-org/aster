@@ -105,6 +105,55 @@ def V_MOV_B32_E32_INST : VOP1Inst<
 }
 
 //===----------------------------------------------------------------------===//
+// VOP1 Lane Operation -- VOP1-encoded ops with SGPR destination, VGPR source.
+//===----------------------------------------------------------------------===//
+
+def VOP1LaneOp : AMDGCN_InstOp<"vop1.lane", [
+    PureInst, InstInferType
+  ]> {
+  let summary = "VOP1 lane operation (VGPR -> SGPR)";
+  let description = [{
+    VOP1-encoded operations that read a VGPR lane value into an SGPR.
+    Unlike regular VOP1 ops (VGPR dst), these produce an SGPR result.
+
+    Example:
+    ```mlir
+    %result = amdgcn.vop1.lane #amdgcn.inst<v_readfirstlane_b32> %sdst, %src0
+        : (!amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.sgpr
+    ```
+  }];
+  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
+  let outputs = (ins SGPRType:$sdst);
+  let inputs = (ins VGPRType:$src0);
+  let assemblyFormat = [{
+    $opcode $sdst `,` $src0
+    attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+class VOP1LaneInst<string _mnemonic, string sym, list<ISAVersion> _isa>
+    : AMDInst<_mnemonic, sym, VOP1LaneOp, _isa, [IsVALU, IsVOP1]> {
+  let constraints = (ins
+    /*outs=*/ RegisterOperand<[SGPRType], 1>:$sdst);
+  let pythonBuilder = DefaultPyBuilder<(ins
+    PyValue:$sdst, PyValue:$src0)>;
+  let cppBuilder = DefaultCppBuilder<(ins
+    CppValue:$sdst, CppValue:$src0)>;
+  let asmFormat = [SingleAsmVariant<"$sdst, $src0">];
+}
+
+def V_READFIRSTLANE_B32_INST : VOP1LaneInst<
+  /*mnemonic=*/"v_readfirstlane_b32", /*symbol=*/"v_readfirstlane_b32",
+  /*isa=*/[CDNA3, CDNA4]> {
+  let summary = "Read first active lane of VGPR into SGPR";
+  let description = [{
+    Copies the value from the first active lane of the VGPR source to an SGPR
+    destination. VOP1 encoding but with SGPR output.
+    Computes: sdst = src0[first_active_lane]
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // VOP1 Conversion Operations
 //===----------------------------------------------------------------------===//
 

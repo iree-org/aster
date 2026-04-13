@@ -132,3 +132,48 @@ func.func @cdna3_store_write_data_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1:
   %token = amdgcn.load global_load_dword dest %3 addr %0 : dps(!amdgcn.vgpr<0>) ins(!amdgcn.sgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
   return
 }
+
+// -----
+//===----------------------------------------------------------------------===//
+// Case 19: ValuVgprReadlaneHazard - VALU writes VGPR -> v_readfirstlane_b32
+//          reads that VGPR (1 V_NOP)
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: Symbol: cdna3_valu_vgpr_readlane_hazard_detected
+// CHECK: Op: amdgcn.vop2 v_add_u32 outs %{{.*}} ins %{{.*}}, %{{.*}} : !amdgcn.vgpr<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_valu_vgpr_readlane_hazard,
+// CHECK:       {#amdgcn.cdna3_nondlops_valu_mfma_hazard,
+// CHECK:     ]
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.lane <v_readfirstlane_b32> %{{.*}}, %{{.*}} : (!amdgcn.sgpr<0>, !amdgcn.vgpr<0>) -> ()
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     nop counts = {v:1, s:0, ds:0}
+// CHECK:   }
+func.func @cdna3_valu_vgpr_readlane_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<1>, %arg2: !amdgcn.sgpr<0>) {
+  amdgcn.vop2 v_add_u32 outs %arg0 ins %arg0, %arg1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+  amdgcn.vop1.lane #amdgcn.inst<v_readfirstlane_b32> %arg2, %arg0 : (!amdgcn.sgpr<0>, !amdgcn.vgpr<0>) -> ()
+  return
+}
+
+// -----
+// Case 19: No hazard when v_readfirstlane_b32 reads a different VGPR.
+
+// CHECK-LABEL: Symbol: cdna3_valu_vgpr_readlane_no_hazard_different_vgpr
+// CHECK: Op: amdgcn.vop2 v_add_u32 outs %{{.*}} ins %{{.*}}, %{{.*}} : !amdgcn.vgpr<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     active = [
+// CHECK:       {#amdgcn.cdna3_valu_vgpr_readlane_hazard,
+// CHECK:       {#amdgcn.cdna3_nondlops_valu_mfma_hazard,
+// CHECK:     ]
+// CHECK:   }
+// CHECK: Op: amdgcn.vop1.lane <v_readfirstlane_b32> %{{.*}}, %{{.*}} : (!amdgcn.sgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK:   HAZARD STATE AFTER: {
+// CHECK:     nop counts = {v:0, s:0, ds:0}
+// CHECK:   }
+func.func @cdna3_valu_vgpr_readlane_no_hazard_different_vgpr(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<1>, %arg2: !amdgcn.sgpr<0>) {
+  amdgcn.vop2 v_add_u32 outs %arg0 ins %arg0, %arg1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+  amdgcn.vop1.lane #amdgcn.inst<v_readfirstlane_b32> %arg2, %arg1 : (!amdgcn.sgpr<0>, !amdgcn.vgpr<1>) -> ()
+  return
+}

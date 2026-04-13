@@ -350,3 +350,13 @@ func.func @test_vop1_mov_b32_e32_imm(%dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
       : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
   return %result : !amdgcn.vgpr
 }
+
+//===----------------------------------------------------------------------===//
+// CDNA3 VOP1 Lane Operations
+//===----------------------------------------------------------------------===//
+
+func.func @test_vop1_lane_readfirstlane(%src0: !amdgcn.vgpr, %sdst: !amdgcn.sgpr) -> !amdgcn.sgpr {
+  %result = amdgcn.vop1.lane #amdgcn.inst<v_readfirstlane_b32> %sdst, %src0
+      : (!amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.sgpr
+  return %result : !amdgcn.sgpr
+}
