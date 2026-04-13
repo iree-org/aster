@@ -12,6 +12,7 @@ add_mlir_library(AMDGCNTransforms
   LDSAlloc.cpp
   LegalizeCF.cpp
   LegalizeOperands.cpp
+  LowerSRegBlockArgs.cpp
   LowLevelScheduler.cpp
   Mem2Reg.cpp
   OptimizeAMDGCN.cpp

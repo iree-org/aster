@@ -48,6 +48,19 @@ def LegalizeOperands : Pass<"amdgcn-legalize-operands"> {
   ];
 }
 
+def LowerSRegBlockArgs : Pass<"amdgcn-lower-sreg-block-args"> {
+  let summary = "Lower special-register block arguments through SGPRs";
+  let description = [{
+    Transforms block arguments typed as AMDGCN special registers (SCC, VCC, etc.)
+    into SGPRs. Concretely, this pass inserts copies at branch points from the
+    SREG to a freshly allocated SGPR, and in the successor block, it inserts
+    copies back from the SGPR to the actual register type.
+  }];
+  let dependentDialects = [
+    "mlir::aster::lsir::LSIRDialect"
+  ];
+}
+
 def AMDGCNBufferization : Pass<"aster-amdgcn-bufferization"> {
   let summary = "Insert phi-breaking copies to prepare for register allocation";
   let description = [{
