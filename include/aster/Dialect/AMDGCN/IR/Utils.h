@@ -87,6 +87,10 @@ bool isAMDReg(Type regTy);
 /// Get the ISA version for the given target.
 ISAVersion getIsaForTarget(Target target);
 
+/// Bytes of LDS (aka shared memory) available per compute unit for the given
+/// target. CDNA3 is 64KB; CDNA4 is 256KB; RDNA4 is 128KB.
+int64_t getLdsBytesPerCU(Target target);
+
 /// Check if the given ISA version uses packed workitem IDs. On CDNA3/4/RDNA4
 /// (FeaturePackedTID), all workitem IDs are packed into VGPR0. On older
 /// architectures (CDNA1, CDNA2, GFX9, RDNA1/2), workitem IDs are in separate

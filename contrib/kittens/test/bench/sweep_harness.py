@@ -228,7 +228,7 @@ def add_scheduling_axes(grid: SweepGrid, unroll_multipliers: Optional[Sequence[i
 class GpuHwConstants:
     """Hardware constants for resource filtering, queried at import time."""
 
-    __slots__ = ("vgprs_per_simd", "max_vgprs", "max_agprs", "lds_per_cu", "vgpr_granule", "num_simds")
+    __slots__ = ("vgprs_per_simd", "max_vgprs", "max_agprs", "lds_per_cu", "vgpr_granule", "num_simds", "mcpu")
 
     def __init__(
         self,
@@ -238,6 +238,7 @@ class GpuHwConstants:
         lds_per_cu: int = 65536,
         vgpr_granule: int = 8,
         num_simds: int = 4,
+        mcpu: str = "gfx942",
     ):
         self.vgprs_per_simd = vgprs_per_simd
         self.max_vgprs = max_vgprs
@@ -245,6 +246,7 @@ class GpuHwConstants:
         self.lds_per_cu = lds_per_cu
         self.vgpr_granule = vgpr_granule
         self.num_simds = num_simds
+        self.mcpu = mcpu
 
 
 def query_gpu_hw() -> GpuHwConstants:
@@ -257,12 +259,15 @@ def query_gpu_hw() -> GpuHwConstants:
         dev = None
     if dev is None:
         return GpuHwConstants()
+    # gcn_arch_name looks like "gfx942:sramecc+:xnack-" -- strip feature suffix.
+    mcpu = dev.gcn_arch_name.split(":", 1)[0]
     return GpuHwConstants(
         vgprs_per_simd=dev.vgprs_per_simd,
         max_vgprs=min(dev.vgprs_per_simd, 256),
         max_agprs=min(dev.vgprs_per_simd, 256),
         lds_per_cu=dev.lds_per_cu,
         vgpr_granule=dev.vgpr_alloc_granule,
+        mcpu=mcpu,
     )
 
 
@@ -588,6 +593,8 @@ def verify_top_configs(
     results: list,
     hsaco_paths: dict,
     repro_cmd_fn: Callable,
+    *,
+    mcpu: str,
     top_n: int = 100,
     num_gpus: Optional[int] = None,
     label: str = "",
@@ -596,7 +603,7 @@ def verify_top_configs(
     if not results:
         return
     if num_gpus is None:
-        num_gpus = detect_num_gpus()
+        num_gpus = detect_num_gpus(mcpu)
     if num_gpus == 0:
         print("\nNo GPUs detected -- skipping correctness verification.")
         return

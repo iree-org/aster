@@ -17,6 +17,8 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", str(os.cpu_count() or 4))
 os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
 
 import argparse
+import dataclasses
+import functools
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -40,7 +42,9 @@ from bench_harness import (
     add_single_cli_args,
     bench_perf_sweep_pipelined,
     make_sweep_pins,
+    require_gpu_or_compile_only,
     run_single,
+    warn_mcpu_mismatch,
 )
 from bench_sweep_heuristic import add_heuristic_cli_args, generate_with_weak_scale
 from sweep_harness import (
@@ -75,7 +79,7 @@ _TILE_ELTS = GemmMappingSpec(
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict) -> WeakScaledMappedGemmInstance:
+def _build_instance(d: dict, mcpu: str) -> WeakScaledMappedGemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
     _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_ELTS[0])
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_ELTS[1])
@@ -95,11 +99,12 @@ def _build_instance(d: dict) -> WeakScaledMappedGemmInstance:
         epilogue_peeling=d["epilogue_peeling"],
         ll_sched=d["ll_sched"],
         hoist_wait=d["hoist_wait"],
+        mcpu=mcpu,
     )
     return WeakScaledMappedGemmInstance(spec, mapping)
 
 
-def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
+def _mapping_for_resource_check(d: dict, mcpu: str) -> GemmMappingSpec:
     _wg_m, rem_m = divmod(d["target_M"], d["twg_m"] * _TILE_ELTS[0])
     _wg_n, rem_n = divmod(d["target_N"], d["twg_n"] * _TILE_ELTS[1])
     assert rem_m == 0, f"target_M={d['target_M']} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_ELTS[0]}"
@@ -112,11 +117,13 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
         load_type=LoadType(d["variant"][1]),
         operand_path=OperandPath(d["variant"][0]),
         num_wg_per_cu=nwgcu(d, _HW),
+        mcpu=mcpu,
     )
 
 
 def make_sweep_grid(
     variants,
+    mcpu: str,
     check_regs: bool = True,
     *,
     target_m: int,
@@ -138,11 +145,11 @@ def make_sweep_grid(
         add_resource_filter(
             grid,
             _HW,
-            _mapping_for_resource_check,
+            functools.partial(_mapping_for_resource_check, mcpu=mcpu),
             deps=("variant", "target_M", "target_N", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
         )
 
-    grid.build_with(_build_instance)
+    grid.build_with(functools.partial(_build_instance, mcpu=mcpu))
     return grid
 
 
@@ -197,7 +204,10 @@ def main():
         parser.add_argument("label", type=str, help="Config label from sweep output")
         add_single_cli_args(parser)
         args = parser.parse_args()
-        cfg = WeakScaledMappedGemmInstance.from_label(args.label)
+        warn_mcpu_mismatch(args.mcpu)
+        require_gpu_or_compile_only(args)
+        base = WeakScaledMappedGemmInstance.from_label(args.label)
+        cfg = WeakScaledMappedGemmInstance(base.spec, dataclasses.replace(base.mapping, mcpu=args.mcpu))
         run_single(cfg, compile_gemm, args, execute_fn=execute_gemm_hsaco)
         return
 
@@ -210,9 +220,11 @@ def main():
     parser.add_argument("--use-flat", action=argparse.BooleanOptionalAction, default=None, help="Flat load/store")
     parser.add_argument("--direct-a", action=argparse.BooleanOptionalAction, default=None, help="A via preshuffle")
     args = parser.parse_args()
+    warn_mcpu_mismatch(args.mcpu)
+    require_gpu_or_compile_only(args)
 
     target_m, target_n, target_k = parse_size_args(args, parser)
-    print(f"Size: M={target_m}, N={target_n}, K={target_k}")
+    print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
     variants = _parse_variants(args, parser)
     print(f"Variants: {', '.join(f'{bp}/{lt}' for bp, lt in variants)}")
@@ -222,6 +234,7 @@ def main():
 
     grid = make_sweep_grid(
         variants,
+        args.mcpu,
         check_regs=not getattr(args, "no_reg_filter", False),
         target_m=target_m,
         target_n=target_n,
@@ -231,6 +244,7 @@ def main():
 
     all_configs, total = generate_with_weak_scale(
         grid,
+        args.mcpu,
         "001",
         target_m,
         target_n,
@@ -245,7 +259,8 @@ def main():
         configs=all_configs,
         compile_fn=compile_gemm,
         repro_cmd_fn=_repro_cmd,
-        num_gpus=args.num_gpus,
+        mcpu=args.mcpu,
+        num_gpus=0 if args.compile_only else args.num_gpus,
         compile_workers=args.compile_workers,
         compile_timeout=args.compile_timeout,
         post_compile_filter=fits_on_cu_post_compile,
@@ -254,7 +269,8 @@ def main():
         iterations=args.iterations,
     )
     results, hsaco_map = results
-    verify_top_configs(results, hsaco_map, _repro_cmd, top_n=100, num_gpus=args.num_gpus)
+    if not args.compile_only:
+        verify_top_configs(results, hsaco_map, _repro_cmd, mcpu=args.mcpu, top_n=100, num_gpus=args.num_gpus)
 
 
 if __name__ == "__main__":

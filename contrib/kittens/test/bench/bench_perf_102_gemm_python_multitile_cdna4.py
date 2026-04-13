@@ -1,19 +1,13 @@
-"""Benchmark: Weak-scaling TFLOPS sweep for Python multi-tile GEMM (test_102).
+"""Benchmark: Weak-scaling TFLOPS sweep for CDNA4 G2S GEMM (test_102_cdna4).
 
 Single config (repro):
-    python .../bench_perf_102_... m4864xn4096xk8192_wg38x32x1_w2x2x1_twg8x8x1_...
+    python .../bench_perf_102_...cdna4.py m32xn32xk128_wg1x1x1_w2x2x1_twg2x2x4_pipestrat0_flat_cdna4
 
 Sweep (default M=N=K=4096):
-    python .../bench_perf_102_... --compile-sample 100
+    python .../bench_perf_102_...cdna4.py --compile-sample 100
 
-Pin individual dimensions (others default to 4096):
-    python .../bench_perf_102_... --compile-sample 500 --m 2432 --k 128
-
-Pin all three at once (exclusive with --m/--n/--k):
-    python .../bench_perf_102_... --compile-sample 500 --size 2432x12288x4096
-
-Heuristic-guided sweep:
-    python .../bench_perf_102_... --compile-sample 500 --heuristic
+Pin dimensions:
+    python .../bench_perf_102_...cdna4.py --compile-sample 500 --size 2432x12288x4096
 """
 
 import os
@@ -33,13 +27,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "..
 from kittens.gemm_config import (
     GemmSpec,
     GemmMappingSpec,
-    OperandPath,
-    WeakScaledMappedGemmInstance,
 )
-from test_102_gemm_python_multitile import (
-    MultitileGemmInstance,
-    compile_multitile_gemm,
-    execute_multitile_hsaco,
+from test_102_gemm_python_multitile_cdna4 import (
+    Cdna4GemmInstance,
+    compile_cdna4_gemm,
+    execute_cdna4_hsaco,
 )
 from bench_harness import (
     add_sweep_cli_args,
@@ -50,6 +42,7 @@ from bench_harness import (
     run_single,
     warn_mcpu_mismatch,
 )
+from bench_sweep_heuristic import add_heuristic_cli_args, generate_with_weak_scale
 from sweep_harness import (
     GEMM_SWEEP_PIN_MAP,
     SweepGrid,
@@ -66,51 +59,40 @@ from sweep_harness import (
     resolve_derived_pins,
     verify_top_configs,
 )
-from bench_sweep_heuristic import add_heuristic_cli_args, generate_with_weak_scale
 
 
 # --- Constants ---
 
 _HW = query_gpu_hw()
-# Default spec + mapping for tile_elements derivation.
-_SPEC = GemmSpec.from_sizes(16, 16, 32)
-_MAPPING = GemmMappingSpec(
-    num_workgroups_per_kernel=[1, 1, 1],
-    num_waves_per_workgroup=[1, 1, 1],
-    num_tiles_per_wave=[1, 1, 1],
-)
-_TILE_M, _TILE_N, _TILE_K = _MAPPING.tile_elements(_SPEC.mfma_shape)
+_MFMA_SHAPE = list(Cdna4GemmInstance.MFMA_SHAPE)
+_TILE_M, _TILE_N, _TILE_K = GemmMappingSpec.default_tile_elements(_MFMA_SHAPE)
 
 
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict, mcpu: str) -> MultitileGemmInstance:
+def _build_instance(d: dict, mcpu: str) -> Cdna4GemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
     _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_M)
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_N)
     assert rem_m == 0, f"M={M} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
     assert rem_n == 0, f"N={N} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_N}"
     _nwgcu = nwgcu(d, _HW)
-    spec = GemmSpec.from_sizes(M, N, K)
+    spec = GemmSpec.from_sizes(M, N, K, mfma_shape=_MFMA_SHAPE)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        operand_path=OperandPath(d["variant"]),
         num_wg_per_cu=_nwgcu,
         lcm_unroll=d["lcm_unroll"],
         unroll_factor_multiplier=d["unroll_mult"],
         epilogue_peeling=d["epilogue_peeling"],
         ll_sched=d["ll_sched"],
         hoist_wait=d["hoist_wait"],
-        lds_at_write=d["lds_at_write"],
-        dealloc_at_read=True,
-        set_mfma_priority=d["set_mfma_priority"],
         mcpu=mcpu,
     )
-    return MultitileGemmInstance(spec, mapping)
+    return Cdna4GemmInstance(spec, mapping)
 
 
 def _mapping_for_resource_check(d: dict, mcpu: str) -> GemmMappingSpec:
@@ -123,16 +105,12 @@ def _mapping_for_resource_check(d: dict, mcpu: str) -> GemmMappingSpec:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        operand_path=OperandPath(d["variant"]),
         num_wg_per_cu=nwgcu(d, _HW),
-        lds_at_write=d["lds_at_write"],
-        dealloc_at_read=True,
         mcpu=mcpu,
     )
 
 
 def make_sweep_grid(
-    variants: list[str],
     mcpu: str,
     check_regs: bool = True,
     *,
@@ -141,17 +119,14 @@ def make_sweep_grid(
     target_k: int,
 ) -> SweepGrid:
     grid = SweepGrid()
-    grid.axis("variant", variants)
-    grid.axis("lds_at_write", [False, True])
     add_gemm_sweep_axes(grid, _HW, [_TILE_M, _TILE_N, _TILE_K], target_m=target_m, target_n=target_n, target_k=target_k)
-    grid.axis("set_mfma_priority", [True, False])
 
     if check_regs:
         add_resource_filter(
             grid,
             _HW,
             functools.partial(_mapping_for_resource_check, mcpu=mcpu),
-            deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps", "lds_at_write"),
+            deps=("waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
         )
 
     grid.build_with(functools.partial(_build_instance, mcpu=mcpu))
@@ -162,14 +137,13 @@ def make_sweep_grid(
 
 
 def _repro_cmd(cfg):
-    return f"python contrib/kittens/test/bench/bench_perf_102_gemm_python_multitile.py {cfg.label}"
+    return f"python contrib/kittens/test/bench/bench_perf_102_gemm_python_multitile_cdna4.py {cfg.label}"
 
 
-def _from_label(label: str, mcpu: str) -> MultitileGemmInstance:
-    base = WeakScaledMappedGemmInstance.from_label(label)
-    # Label serde does not encode mcpu; honor --mcpu from the CLI.
-    mapping = dataclasses.replace(base.mapping, mcpu=mcpu)
-    return MultitileGemmInstance(base.spec, mapping)
+def _from_label(label: str, mcpu: str) -> Cdna4GemmInstance:
+    cfg = Cdna4GemmInstance.from_label(label)
+    cfg.mapping = dataclasses.replace(cfg.mapping, mcpu=mcpu)
+    return cfg
 
 
 # --- Entry point ---
@@ -178,22 +152,21 @@ def _from_label(label: str, mcpu: str) -> MultitileGemmInstance:
 def main():
     positional = [a for a in sys.argv[1:] if not a.startswith("-")]
     if positional and is_label(positional[0]):
-        parser = argparse.ArgumentParser(description="Single-config multitile GEMM benchmark (label from sweep)")
+        parser = argparse.ArgumentParser(description="Single-config CDNA4 G2S GEMM benchmark (label from sweep)")
         parser.add_argument("label", type=str, help="Config label from sweep output")
-        add_single_cli_args(parser)
+        add_single_cli_args(parser, default_mcpu="gfx950")
         args = parser.parse_args()
         warn_mcpu_mismatch(args.mcpu)
         require_gpu_or_compile_only(args)
         cfg = _from_label(args.label, args.mcpu)
-        run_single(cfg, compile_multitile_gemm, args, execute_fn=execute_multitile_hsaco)
+        run_single(cfg, compile_cdna4_gemm, args, execute_fn=execute_cdna4_hsaco)
         return
 
-    parser = argparse.ArgumentParser(description="Python multi-tile GEMM benchmark sweep (test_102)")
-    add_sweep_cli_args(parser)
+    parser = argparse.ArgumentParser(description="CDNA4 G2S GEMM benchmark sweep (test_102_cdna4)")
+    add_sweep_cli_args(parser, default_mcpu="gfx950")
     add_geometry_pin_args(parser)
     add_size_cli_args(parser)
     add_heuristic_cli_args(parser)
-    parser.add_argument("--set-mfma-priority", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
     warn_mcpu_mismatch(args.mcpu)
     require_gpu_or_compile_only(args)
@@ -201,18 +174,10 @@ def main():
     target_m, target_n, target_k = parse_size_args(args, parser)
     print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
-    all_paths = ["lds", "direct_b"]
-    if args.direct_b is True:
-        all_paths = ["direct_b"]
-    elif args.direct_b is False:
-        all_paths = ["lds"]
-    print(f"Variants: {', '.join(all_paths)}")
-
     pins = make_sweep_pins(args, GEMM_SWEEP_PIN_MAP)
     pins = resolve_derived_pins(pins or {})
 
     grid = make_sweep_grid(
-        all_paths,
         args.mcpu,
         check_regs=not getattr(args, "no_reg_filter", False),
         target_m=target_m,
@@ -224,19 +189,19 @@ def main():
     all_configs, total = generate_with_weak_scale(
         grid,
         args.mcpu,
-        "102",
+        "102_cdna4",
         target_m,
         target_n,
         target_k,
         args,
         sample_size=getattr(args, "compile_sample", 4096),
         pins=pins,
-        stratification_key=lambda d: d["variant"],
+        stratification_key=lambda d: (d["waves_m"], d["waves_n"]),
     )
 
     results = bench_perf_sweep_pipelined(
         configs=all_configs,
-        compile_fn=compile_multitile_gemm,
+        compile_fn=compile_cdna4_gemm,
         repro_cmd_fn=_repro_cmd,
         mcpu=args.mcpu,
         num_gpus=0 if args.compile_only else args.num_gpus,
@@ -250,7 +215,7 @@ def main():
     results, hsaco_map = results
     if not args.compile_only:
         verify_top_configs(
-            results, hsaco_map, _repro_cmd, mcpu=args.mcpu, top_n=50, num_gpus=args.num_gpus, label="102"
+            results, hsaco_map, _repro_cmd, mcpu=args.mcpu, top_n=50, num_gpus=args.num_gpus, label="102_cdna4"
         )
 
 

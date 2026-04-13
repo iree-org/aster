@@ -14,6 +14,8 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", str(os.cpu_count() or 4))
 os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
 
 import argparse
+import dataclasses
+import functools
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -36,7 +38,9 @@ from bench_harness import (
     add_single_cli_args,
     bench_perf_sweep_pipelined,
     make_sweep_pins,
+    require_gpu_or_compile_only,
     run_single,
+    warn_mcpu_mismatch,
 )
 from bench_sweep_heuristic import add_heuristic_cli_args, generate_with_weak_scale
 from sweep_harness import (
@@ -71,7 +75,7 @@ _TILE_ELTS = GemmMappingSpec(
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict) -> PingPongGemmInstance:
+def _build_instance(d: dict, mcpu: str) -> PingPongGemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
     _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_ELTS[0])
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_ELTS[1])
@@ -94,11 +98,12 @@ def _build_instance(d: dict) -> PingPongGemmInstance:
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
         set_mfma_priority=d["set_mfma_priority"],
+        mcpu=mcpu,
     )
     return PingPongGemmInstance(spec, mapping)
 
 
-def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
+def _mapping_for_resource_check(d: dict, mcpu: str) -> GemmMappingSpec:
     _wg_m, rem_m = divmod(d["target_M"], d["twg_m"] * _TILE_ELTS[0])
     _wg_n, rem_n = divmod(d["target_N"], d["twg_n"] * _TILE_ELTS[1])
     assert rem_m == 0, f"target_M={d['target_M']} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_ELTS[0]}"
@@ -112,11 +117,13 @@ def _mapping_for_resource_check(d: dict) -> GemmMappingSpec:
         num_wg_per_cu=nwgcu(d, _HW),
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
+        mcpu=mcpu,
     )
 
 
 def make_sweep_grid(
     variants: list[str],
+    mcpu: str,
     check_regs: bool = True,
     *,
     target_m: int,
@@ -141,7 +148,7 @@ def make_sweep_grid(
         add_resource_filter(
             grid,
             _HW,
-            _mapping_for_resource_check,
+            functools.partial(_mapping_for_resource_check, mcpu=mcpu),
             deps=(
                 "variant",
                 "target_M",
@@ -157,7 +164,7 @@ def make_sweep_grid(
             ),
         )
 
-    grid.build_with(_build_instance)
+    grid.build_with(functools.partial(_build_instance, mcpu=mcpu))
     return grid
 
 
@@ -168,9 +175,11 @@ def _repro_cmd(cfg):
     return f"python contrib/kittens/test/bench/bench_perf_103_gemm_python_multitile_ping_pong.py {cfg.label}"
 
 
-def _from_label(label: str) -> PingPongGemmInstance:
+def _from_label(label: str, mcpu: str) -> PingPongGemmInstance:
     base = WeakScaledMappedGemmInstance.from_label(label)
-    return PingPongGemmInstance(base.spec, base.mapping)
+    # Label serde does not encode mcpu; honor --mcpu from the CLI.
+    mapping = dataclasses.replace(base.mapping, mcpu=mcpu)
+    return PingPongGemmInstance(base.spec, mapping)
 
 
 # --- Entry point ---
@@ -183,7 +192,9 @@ def main():
         parser.add_argument("label", type=str, help="Config label from sweep output")
         add_single_cli_args(parser)
         args = parser.parse_args()
-        cfg = _from_label(args.label)
+        warn_mcpu_mismatch(args.mcpu)
+        require_gpu_or_compile_only(args)
+        cfg = _from_label(args.label, args.mcpu)
         run_single(cfg, compile_ping_pong_gemm, args, execute_fn=execute_ping_pong_hsaco)
         return
 
@@ -194,9 +205,11 @@ def main():
     add_heuristic_cli_args(parser)
     parser.add_argument("--set-mfma-priority", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
+    warn_mcpu_mismatch(args.mcpu)
+    require_gpu_or_compile_only(args)
 
     target_m, target_n, target_k = parse_size_args(args, parser)
-    print(f"Size: M={target_m}, N={target_n}, K={target_k}")
+    print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
     all_paths = ["lds", "direct_b"]
     if args.direct_b is True:
@@ -210,6 +223,7 @@ def main():
 
     grid = make_sweep_grid(
         all_paths,
+        args.mcpu,
         check_regs=not getattr(args, "no_reg_filter", False),
         target_m=target_m,
         target_n=target_n,
@@ -219,6 +233,7 @@ def main():
 
     all_configs, total = generate_with_weak_scale(
         grid,
+        args.mcpu,
         "103",
         target_m,
         target_n,
@@ -233,7 +248,8 @@ def main():
         configs=all_configs,
         compile_fn=compile_ping_pong_gemm,
         repro_cmd_fn=_repro_cmd,
-        num_gpus=args.num_gpus,
+        mcpu=args.mcpu,
+        num_gpus=0 if args.compile_only else args.num_gpus,
         compile_workers=args.compile_workers,
         compile_timeout=args.compile_timeout,
         post_compile_filter=fits_on_cu_post_compile,
@@ -242,7 +258,10 @@ def main():
         iterations=args.iterations,
     )
     results, hsaco_map = results
-    verify_top_configs(results, hsaco_map, _repro_cmd, top_n=50, num_gpus=args.num_gpus, label="103")
+    if not args.compile_only:
+        verify_top_configs(
+            results, hsaco_map, _repro_cmd, mcpu=args.mcpu, top_n=50, num_gpus=args.num_gpus, label="103"
+        )
 
 
 if __name__ == "__main__":

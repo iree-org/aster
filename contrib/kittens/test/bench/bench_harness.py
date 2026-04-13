@@ -132,18 +132,61 @@ def check_numpy_blas(label=""):
     print(f"{tag}numpy BLAS ok: {dt * 1000:.0f} ms")
 
 
-def detect_num_gpus():
-    """Return the number of available GPUs, or 0 if none are present."""
+def detect_num_gpus(mcpu: str):
+    """Return the number of GPUs matching ``mcpu``, or 0 if none are present."""
     try:
         from aster.execution.utils import system_has_gpu
 
-        if not system_has_gpu("gfx942"):
+        if not system_has_gpu(mcpu):
             return 0
         from aster._mlir_libs._runtime_module import hip_get_device_count
 
         return max(1, hip_get_device_count())
     except Exception:
         return 0
+
+
+def warn_mcpu_mismatch(compile_mcpu: str) -> None:
+    """Warn if the installed GPU arch differs from ``compile_mcpu``."""
+    try:
+        from aster.core.device import try_query_device
+
+        dev = try_query_device(0)
+    except ImportError:
+        dev = None
+    if dev is None:
+        return
+    host_mcpu = dev.gcn_arch_name.split(":", 1)[0]
+    if host_mcpu != compile_mcpu:
+        print(
+            f"WARNING: compiling for {compile_mcpu} but this host is "
+            f"{host_mcpu}. Execution on this host will be skipped. Pass "
+            f"--mcpu {host_mcpu} to target the host, or run remotely on a "
+            f"{compile_mcpu} host.",
+            file=sys.stderr,
+        )
+
+
+def require_gpu_or_compile_only(args) -> None:
+    """Fail hard if no matching GPU is present and --compile-only was not set.
+
+    Bench scripts call this right after parse_args() so the user sees
+    the "no GPU" error immediately, before starting a long compile sweep
+    that would silently produce zero measurements. With --compile-only
+    the check is a no-op; execution is skipped intentionally.
+    """
+    if getattr(args, "compile_only", False):
+        print(f"Compile-only mode ({args.mcpu}); execution will be skipped.")
+        return
+    n = detect_num_gpus(args.mcpu)
+    if n == 0:
+        sys.exit(
+            f"ERROR: no {args.mcpu} GPU detected. Compilation would succeed "
+            f"but execution would be silently skipped. Pass --compile-only "
+            f"to compile without running, or run on a host with a matching "
+            f"GPU (set --mcpu to the host's arch to cross-target)."
+        )
+    print(f"Detected {n} {args.mcpu} GPU(s).")
 
 
 def format_mlir_error(e):
@@ -192,7 +235,7 @@ def _compile_inner(cfg, hsaco_dir, compile_fn, result_pipe, stderr_path):
         agpr_est = getattr(cfg, "estimated_agprs", 0) or 0
         bv, ba, _ = compute_register_budget(
             cfg.num_threads,
-            mcpu=getattr(cfg, "mcpu", "gfx942"),
+            mcpu=cfg.mapping.mcpu,
             num_wg_per_cu=wg,
             agpr_hint=agpr_est,
         )
@@ -963,6 +1006,8 @@ def bench_perf_sweep_pipelined(
     configs,
     compile_fn,
     repro_cmd_fn,
+    *,
+    mcpu: str,
     num_gpus=None,
     compile_workers=None,
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
@@ -989,7 +1034,7 @@ def bench_perf_sweep_pipelined(
     if iterations is None:
         iterations = NUM_ITERATIONS
     if num_gpus is None:
-        num_gpus = detect_num_gpus()
+        num_gpus = detect_num_gpus(mcpu)
     if compile_workers is None:
         compile_workers = DEFAULT_COMPILE_WORKERS
     check_numpy_blas(label="sweep")
@@ -1181,6 +1226,8 @@ def bench_perf_sweep(
     configs,
     compile_fn,
     repro_cmd_fn,
+    *,
+    mcpu: str,
     num_gpus=None,
     compile_workers=None,
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
@@ -1197,7 +1244,7 @@ def bench_perf_sweep(
     if iterations is None:
         iterations = NUM_ITERATIONS
     if num_gpus is None:
-        num_gpus = detect_num_gpus()
+        num_gpus = detect_num_gpus(mcpu)
     if compile_workers is None:
         compile_workers = DEFAULT_COMPILE_WORKERS
     check_numpy_blas(label="sweep")
@@ -1374,7 +1421,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
     agpr_est = getattr(cfg, "estimated_agprs", 0) or 0
     bv, ba, _ = compute_register_budget(
         cfg.num_threads,
-        mcpu=getattr(cfg, "mcpu", "gfx942"),
+        mcpu=cfg.mapping.mcpu,
         num_wg_per_cu=wg,
         agpr_hint=agpr_est,
     )
@@ -1395,7 +1442,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
         print(f"  Compiled: {args.hsaco}")
         return
 
-    has_gpu = detect_num_gpus() > 0
+    has_gpu = detect_num_gpus(args.mcpu) > 0
 
     # Compile (or use pre-compiled HSACO).
     hsaco_path = args.hsaco
@@ -1475,8 +1522,22 @@ def run_single(cfg, compile_fn, args, execute_fn):
 # -- CLI args --------------------------------------------------------------
 
 
-def add_sweep_cli_args(parser):
+def add_sweep_cli_args(parser, default_mcpu: str = "gfx942"):
     a = parser.add_argument
+    a(
+        "--mcpu",
+        type=str,
+        default=default_mcpu,
+        help=f"Target GPU arch for compilation (default: {default_mcpu}). "
+        "Independent of the host GPU: set explicitly to cross-compile.",
+    )
+    a(
+        "--compile-only",
+        action="store_true",
+        help="Compile only, skip execution and verification. Required when "
+        "the host has no matching GPU -- without it the bench fails hard "
+        "so the user is not silently left with zero measurements.",
+    )
     a("--compile-sample", type=int, default=4096, help="Configs to compile (0=all)")
     a("--exec-sample", type=int, default=2048, help="Configs to execute (0=all)")
     a("--num-gpus", type=int, default=None, help="GPUs (default: auto)")
@@ -1504,8 +1565,14 @@ def add_sweep_cli_args(parser):
     )
 
 
-def add_single_cli_args(parser):
+def add_single_cli_args(parser, default_mcpu: str = "gfx942"):
     a = parser.add_argument
+    a(
+        "--mcpu",
+        type=str,
+        default=default_mcpu,
+        help=f"Target GPU arch for compilation (default: {default_mcpu}).",
+    )
     a("--hsaco", type=str, default=None, help="Pre-compiled HSACO path")
     a("--compile-only", action="store_true")
     a("--print-ir-after-all", action="store_true")
