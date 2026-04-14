@@ -31,6 +31,7 @@ class TestKittensGEMMLDS3Buffer_AGPR:
         C_output = np.zeros(16 * 16, dtype=np.float32)
 
         run_kittens_kernel(
+            mcpu="gfx942",
             mlir_file=get_mlir_file("test_003_gemm_fp16_lds_3buf.mlir"),
             kernel_name="gemm_16x16xK_lds_3buf",
             input_args=[A.flatten(), B.flatten()],

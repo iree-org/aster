@@ -36,6 +36,7 @@ class TestKittensGEMMMultiTileLDSPipelined_AGPR:
         C_output = np.zeros(32 * 32, dtype=np.float32)
 
         run_kittens_kernel(
+            mcpu="gfx942",
             mlir_file=get_mlir_file("test_006_gemm_fp16_multitile_lds_pipelined.mlir"),
             kernel_name="gemm_multitile_lds_pipelined",
             input_args=[A.flatten(), B.flatten()],

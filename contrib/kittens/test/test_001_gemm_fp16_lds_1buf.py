@@ -36,6 +36,7 @@ class TestKittensGEMMLDS1Buffer_AGPR:
         C_output = np.zeros(16 * 16, dtype=np.float32)
 
         run_kittens_kernel(
+            mcpu="gfx942",
             mlir_file=get_mlir_file("test_001_gemm_fp16_lds_1buf.mlir"),
             kernel_name="gemm_16x16xK_lds_1buf",
             input_args=[A.flatten(), B.flatten()],
@@ -65,6 +66,7 @@ class TestKittensGEMMLDS1Buffer_AGPR:
         C_output = np.zeros(16 * 16, dtype=np.float32)
 
         run_kittens_kernel(
+            mcpu="gfx942",
             mlir_file=get_mlir_file("test_001_gemm_fp16_lds_1buf.mlir"),
             kernel_name="gemm_16x16xK_lds_1buf",
             input_args=[A.flatten(), B.flatten()],
@@ -93,6 +95,7 @@ class TestKittensGEMMLDS1Buffer_AGPR:
         C_output = np.zeros(16 * 16, dtype=np.float32)
 
         run_kittens_kernel(
+            mcpu="gfx942",
             mlir_file=get_mlir_file("test_001_gemm_fp16_lds_1buf.mlir"),
             kernel_name="gemm_16x16xK_lds_1buf",
             input_args=[A.flatten(), B.flatten()],
@@ -121,6 +124,7 @@ class TestKittensGEMMLDS1Buffer_AGPR:
         C_output = np.zeros(16 * 16, dtype=np.float32)
 
         run_kittens_kernel(
+            mcpu="gfx942",
             mlir_file=get_mlir_file("test_001_gemm_fp16_lds_1buf.mlir"),
             kernel_name="gemm_16x16xK_lds_1buf",
             input_args=[A.flatten(), B.flatten()],

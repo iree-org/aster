@@ -1441,9 +1441,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
         print_config(cfg, res, iterations=iterations)
         if res:
-            for v in res.check_occupancy(
-                cfg.num_threads, mcpu=cfg.mcpu, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
-            ):
+            for v in res.check_occupancy(cfg.num_threads, mcpu=cfg.mapping.mcpu, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)):
                 print(f"  OCCUPANCY ERROR: {v}")
         print(f"  Compiled: {args.hsaco}")
         return
@@ -1462,9 +1460,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
         print_config(cfg, res, iterations=iterations)
         if res:
-            violations = res.check_occupancy(
-                cfg.num_threads, mcpu=cfg.mcpu, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
-            )
+            violations = res.check_occupancy(cfg.num_threads, mcpu=cfg.mapping.mcpu, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1))
             for v in violations:
                 print(f"  OCCUPANCY ERROR: {v}")
             if violations and not getattr(args, "force", False):
@@ -1530,14 +1526,15 @@ def run_single(cfg, compile_fn, args, execute_fn):
 # -- CLI args --------------------------------------------------------------
 
 
-def add_sweep_cli_args(parser, default_mcpu: str = "gfx942"):
+def add_sweep_cli_args(parser):
     a = parser.add_argument
     a(
         "--mcpu",
         type=str,
-        default=default_mcpu,
-        help=f"Target GPU arch for compilation (default: {default_mcpu}). "
-        "Independent of the host GPU: set explicitly to cross-compile.",
+        required=True,
+        help="Target GPU arch for compilation (e.g. gfx942, gfx950). "
+        "Required: set explicitly so there is no silent cross-compile to "
+        "the wrong arch.",
     )
     a(
         "--compile-only",
@@ -1572,13 +1569,13 @@ def add_sweep_cli_args(parser, default_mcpu: str = "gfx942"):
     )
 
 
-def add_single_cli_args(parser, default_mcpu: str = "gfx942"):
+def add_single_cli_args(parser):
     a = parser.add_argument
     a(
         "--mcpu",
         type=str,
-        default=default_mcpu,
-        help=f"Target GPU arch for compilation (default: {default_mcpu}).",
+        required=True,
+        help="Target GPU arch for compilation (e.g. gfx942, gfx950). Required.",
     )
     a("--hsaco", type=str, default=None, help="Pre-compiled HSACO path")
     a("--compile-only", action="store_true")

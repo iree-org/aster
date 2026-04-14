@@ -236,7 +236,7 @@ def instance_to_axis_dict(inst: "WeakScaledMappedGemmInstance") -> dict:
         "n_mult": 1,
         "k_factor": gs[DIM_K] // max(m.num_tiles_per_wave[DIM_K] * 32, 1),
         "ps": m.pipeline_strategy,
-        "variant": m.operand_path.value,
+        "variant": (m.operand_path.value, m.load_type.value),
         "lcm_unroll": m.lcm_unroll,
         "unroll_mult": m.unroll_factor_multiplier,
         "epilogue_peeling": m.epilogue_peeling,

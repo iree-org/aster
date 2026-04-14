@@ -80,14 +80,15 @@ def _build_instance(d: dict, mcpu: str, hw) -> PingPongGemmInstance:
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_ELTS[1])
     assert rem_m == 0, f"M={M} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_ELTS[0]}"
     assert rem_n == 0, f"N={N} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_ELTS[1]}"
+    _nwgcu = nwgcu(d, hw)
     spec = GemmSpec.from_sizes(M, N, K)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        operand_path=OperandPath(d["variant"]),
-        num_wg_per_cu=nwgcu(d, hw),
+        operand_path=OperandPath(d["variant"][0]),
+        num_wg_per_cu=_nwgcu,
         lcm_unroll=d["lcm_unroll"],
         unroll_factor_multiplier=d["unroll_mult"],
         epilogue_peeling=d["epilogue_peeling"],
@@ -111,7 +112,7 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        operand_path=OperandPath(d["variant"]),
+        operand_path=OperandPath(d["variant"][0]),
         num_wg_per_cu=nwgcu(d, hw),
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
@@ -130,7 +131,8 @@ def make_sweep_grid(
     target_k: int,
 ) -> SweepGrid:
     grid = SweepGrid()
-    grid.axis("variant", variants)
+    # Second slot is the load_type; 103 does not sweep it, so it is None.
+    grid.axis("variant", [(v, None) for v in variants])
     grid.axis("lds_at_write", [False, True])
     add_gemm_sweep_axes(
         grid,
