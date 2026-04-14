@@ -8,11 +8,6 @@ import numpy as np
 from aster.execution.helpers import compile_and_run as _compile_and_run
 from mlir_kernels.common import get_library_paths
 
-# Test configuration
-MCPU = "gfx942"
-LDS_SIZE = 2**16
-WAVEFRONT_SIZE = 64
-
 
 def get_mlir_kernels_library_path(relative: str) -> str:
     """Get path to a file in mlir_kernels/library/ by relative path (e.g. 'common/indexing_ptr.mlir')."""
@@ -45,6 +40,8 @@ def get_mlir_file(file_name: str) -> str:
 def run_kittens_kernel(
     mlir_file,
     kernel_name,
+    *,
+    mcpu: str,
     input_args=None,
     output_args=None,
     pass_pipeline=None,
@@ -55,7 +52,15 @@ def run_kittens_kernel(
     num_iterations=1,
     print_ir_after_all=False,
 ):
-    """Compile an MLIR file to HSACO and execute the kernel on GPU."""
+    """Compile an MLIR file to HSACO and execute the kernel on GPU.
+
+    ``mcpu`` is required (no silent default). The wavefront size is
+    derived from the target arch.
+    """
+    from aster.core.target import Target
+
+    target = Target.from_mcpu(mcpu)
+
     preprocess = None
     if template_substitutions:
         subs = template_substitutions
@@ -73,8 +78,8 @@ def run_kittens_kernel(
         pass_pipeline=pass_pipeline,
         preprocess=preprocess,
         library_paths=library_paths or get_kittens_16x16_lds_library_paths(),
-        mcpu=MCPU,
-        wavefront_size=WAVEFRONT_SIZE,
+        mcpu=mcpu,
+        wavefront_size=target.wavefront_size,
         grid_dim=grid_dim,
         block_dim=block_dim,
         num_iterations=num_iterations,

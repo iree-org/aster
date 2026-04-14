@@ -36,6 +36,7 @@ class TestKittensGEMM2WaveLDS_AGPR:
         C_output = np.zeros(32 * 16, dtype=np.float32)
 
         run_kittens_kernel(
+            mcpu="gfx942",
             mlir_file=get_mlir_file("test_004_gemm_fp16_2wave_lds.mlir"),
             kernel_name="gemm_2wave_lds",
             input_args=[A.flatten(), B.flatten()],

@@ -34,9 +34,6 @@ from kittens_helpers import (
     get_kittens_16x16_lds_library_paths,
     constexpr_substitutions_16x32,
     shuffle_weight,
-    MCPU,
-    LDS_SIZE,
-    WAVEFRONT_SIZE,
 )
 
 # Keyed by (b_path, load_type). b_path: "lds", "direct_b", or "direct_ab".
@@ -237,8 +234,8 @@ def compile_gemm(
         )
         path = assemble_to_hsaco(
             asm,
-            target=MCPU,
-            wavefront_size=WAVEFRONT_SIZE,
+            target=cfg.mapping.mcpu,
+            wavefront_size=cfg.mapping.wave_size,
             output_path=output_hsaco_path,
         )
         assert path is not None, "assemble_to_hsaco returned None"
@@ -261,8 +258,9 @@ def execute_gemm_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=Fal
     from aster.execution.core import execute_hsaco, InputArray, OutputArray
     from aster.execution.utils import system_has_gpu
 
-    if not skip_gpu_check and not system_has_gpu(MCPU):
-        pytest.skip(f"GPU {MCPU} not available, skip execution")
+    mcpu = cfg.mapping.mcpu
+    if not skip_gpu_check and not system_has_gpu(mcpu):
+        pytest.skip(f"GPU {mcpu} not available, skip execution")
 
     # Preshuffle B for direct_b (single point of truth).
     A_gpu = shuffle_weight(A) if cfg.direct_a else A
@@ -354,9 +352,12 @@ class TestWeakScaleCorrectness:
         tpw = cfg.mapping.num_tiles_per_wave
         if tpw[DIM_M] * tpw[DIM_N] > 16:
             pytest.skip(f"per-wave tiles {tpw[DIM_M]}x{tpw[DIM_N]} product > 16 for {cfg.label}")
-        # Avoid unfeasible LDS sizes
-        if cfg.lds_bytes >= LDS_SIZE:
-            pytest.skip(f"LDS {cfg.lds_bytes} >= {LDS_SIZE}")
+        # Avoid unfeasible LDS sizes (per the target arch's CU LDS budget).
+        from aster.core.target import Target
+
+        lds_per_cu = Target.from_mcpu(cfg.mapping.mcpu).lds_per_cu
+        if cfg.lds_bytes >= lds_per_cu:
+            pytest.skip(f"LDS {cfg.lds_bytes} >= {lds_per_cu}")
         np.random.seed(42)
         A = (np.random.randn(*cfg.spec.operand_shape(OP_A)) * 0.1).astype(np.float16)
         B = (np.random.randn(*cfg.spec.operand_shape(OP_B)) * 0.1).astype(np.float16)
