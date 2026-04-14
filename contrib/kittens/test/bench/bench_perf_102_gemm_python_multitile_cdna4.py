@@ -90,6 +90,8 @@ def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
         epilogue_peeling=d["epilogue_peeling"],
         ll_sched=d["ll_sched"],
         hoist_wait=d["hoist_wait"],
+        lds_at_write=False,
+        dealloc_at_read=True,
         mcpu=mcpu,
     )
     return Cdna4GemmInstance(spec, mapping)
@@ -106,6 +108,8 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
         num_wg_per_cu=nwgcu(d, hw),
+        lds_at_write=False,
+        dealloc_at_read=True,
         mcpu=mcpu,
     )
 
