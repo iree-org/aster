@@ -22,6 +22,7 @@
 #include "aster/Dialect/Layout/IR/LayoutOps.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -54,7 +55,10 @@ static void flattenToLeaves(Attribute attr, SmallVectorImpl<int64_t> &out) {
 namespace {
 
 /// Lower layout.linearize to affine.delinearize_index (coordinate extraction)
-/// + affine.linearize_index_by_strides (explicit stride dot product).
+/// + affine.linearize_index (bounded form, when the layout is contiguous) or
+/// + affine.linearize_index_by_strides (explicit stride dot product, when the
+///   layout has non-suffix-product strides -- broadcasts, permutations,
+///   row-pitched memrefs, etc.).
 struct LowerLinearizePattern : public OpRewritePattern<LinearizeOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -73,12 +77,21 @@ struct LowerLinearizePattern : public OpRewritePattern<LinearizeOp> {
     assert(flatShape.size() == flatStride.size());
 
     // Step 1: Delinearize the flat coordinate into multi-index by shape.
+    // This is always `hasOuterBound = true` because `flatShape` has one size
+    // per result.
     auto delinOp = affine::AffineDelinearizeIndexOp::create(rewriter, loc,
                                                             coord, flatShape);
 
-    // Step 2: Dot product with explicit strides.
-    Value result = affine::AffineLinearizeIndexByStridesOp::create(
-        rewriter, loc, delinOp.getResults(), flatStride);
+    // Step 2: recombine into a linear index. Prefer the `linearize_index` form
+    // which preserves `hasOuterBound = true` at the type level.
+    Value result;
+    if (computeSuffixProduct(flatShape) == ArrayRef<int64_t>(flatStride)) {
+      result = affine::AffineLinearizeIndexOp::create(
+          rewriter, loc, delinOp.getResults(), flatShape, /*disjoint=*/true);
+    } else {
+      result = affine::AffineLinearizeIndexByStridesOp::create(
+          rewriter, loc, delinOp.getResults(), flatStride);
+    }
 
     rewriter.replaceOp(op, result);
     return success();

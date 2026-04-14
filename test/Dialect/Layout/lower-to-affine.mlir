@@ -12,9 +12,10 @@ func.func @rank1(%c: index) -> index {
 // CHECK-LABEL: func.func @rank2_rowmajor
 // CHECK-SAME:  (%[[C:.*]]: index)
 func.func @rank2_rowmajor(%c: index) -> index {
-  // Row-major 4x8: stride 8 for rows (slow), stride 1 for cols (fast).
+  // Row-major 4x8: strides (8, 1) are the suffix-product of shape (4, 8), emit
+  // the more static `linearize_index` form.
   // CHECK: %[[D:.*]]:2 = affine.delinearize_index %[[C]] into (4, 8)
-  // CHECK: affine.linearize_index_by_strides[%[[D]]#0, %[[D]]#1] by (8, 1) : index
+  // CHECK: affine.linearize_index disjoint [%[[D]]#0, %[[D]]#1] by (4, 8) : index
   %off = layout.linearize %c, #layout.strided_layout<[4, 8] : [8, 1]>
   return %off : index
 }
@@ -45,6 +46,17 @@ func.func @nested_rank2(%c: index) -> index {
   // CHECK: %[[D:.*]]:4 = affine.delinearize_index %[[C]] into (2, 2, 2, 4)
   // CHECK: affine.linearize_index_by_strides[%[[D]]#0, %[[D]]#1, %[[D]]#2, %[[D]]#3] by (1, 4, 2, 8) : index
   %off = layout.linearize %c, #layout.strided_layout<[(2, 2), (2, 4)] : [(1, 4), (2, 8)]>
+  return %off : index
+}
+
+// CHECK-LABEL: func.func @rank3_contiguous
+// CHECK-SAME:  (%[[C:.*]]: index)
+func.func @rank3_contiguous(%c: index) -> index {
+  // Contiguous row-major rank-3: (32, 8, 1) is the suffix-product of (2, 4, 8),
+  // emit the more static `linearize_index` form.
+  // CHECK: %[[D:.*]]:3 = affine.delinearize_index %[[C]] into (2, 4, 8)
+  // CHECK: affine.linearize_index disjoint [%[[D]]#0, %[[D]]#1, %[[D]]#2] by (2, 4, 8) : index
+  %off = layout.linearize %c, #layout.strided_layout<[2, 4, 8] : [32, 8, 1]>
   return %off : index
 }
 
