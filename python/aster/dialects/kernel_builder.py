@@ -405,17 +405,20 @@ class KernelBuilder:
     def linearize_index(self, coords, sizes):
         """Linearize multi-dimensional coordinates into a linear index.
 
-        Inverse of delinearize_index. Uses suffix-product strides of
-        sizes.
+        Inverse of delinearize_index. Emits affine.linearize_index with a full
+        static basis (hasOuterBound=true) and disjoint=true.
+        Note: keeping the outer bound at the type level is important so later
+        analyses (value bounds, fold patterns) can reason about the range of the
+        result.
         """
-        from aster.dialects._affine_ops_gen import AffineLinearizeIndexByStridesOp
-        from aster.layout.int_tuple import suffix_product
+        from aster.dialects._affine_ops_gen import AffineLinearizeIndexOp
 
         sizes = sizes if isinstance(sizes, tuple) else (sizes,)
-        return AffineLinearizeIndexByStridesOp(
+        return AffineLinearizeIndexOp(
             list(coords),
             [],
-            list(suffix_product(sizes)),
+            list(sizes),
+            True,
             loc=self._loc,
             ip=self._kip,
         ).result
