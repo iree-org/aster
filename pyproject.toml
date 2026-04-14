@@ -1,7 +1,7 @@
 [tool.pytest.ini_options]
 testpaths = ["test", "mlir_kernels", "contrib", "python"]
 addopts = "--import-mode=importlib"
-pythonpath = ["contrib", "contrib/kittens/test"]
+pythonpath = ["contrib", "contrib/kittens/test", "contrib/cpu/python"]
 
 [tool.ruff]
 # 88 is black's default; preserved when switching from black to ruff.

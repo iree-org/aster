@@ -30,9 +30,10 @@ fi
 
 LLVM_TARGETS_TO_BUILD="${LLVM_TARGETS_TO_BUILD:-AMDGPU}"
 LLVM_ENABLE_PROJECTS="${LLVM_ENABLE_PROJECTS:-mlir;lld}"
+# llvm-mc is required by ASTER_ENABLE_CPU atm, just include it always.
 LLVM_DISTRIBUTION_COMPONENTS="\
 llvm-libraries;llvm-headers;cmake-exports;\
-FileCheck;llvm-config;not;count;llvm-objdump;\
+FileCheck;llvm-config;not;count;llvm-mc;llvm-objdump;\
 mlir-libraries;mlir-headers;mlir-cmake-exports;\
 mlir-opt;mlir-translate;mlir-tblgen;mlir-python-sources;\
 lld;lld-headers;lld-cmake-exports;lldCommon;lldELF"
