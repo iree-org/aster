@@ -349,6 +349,10 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
             new_acc = b.mfma(MFMA_F16_CDNA4.opcode, acc, a_vx4, b_vx4)
             b.memref_store(new_acc, c_buf, acc_idx)
 
+        # WAR sync: without this barrier, a fast wave's next-iter G2S can
+        # overwrite LDS offsets that a slow wave is still ds_read'ing.
+        b.s_barrier()
+
     # Store C tiles.
     m_base = b.linearize_layout(m_dist_idx, M_DIST)
     n_base = b.linearize_layout(n_dist_idx, N_DIST)
@@ -520,6 +524,24 @@ class TestCdna4MultiWG:
     )
     def test_correctness(self, num_workgroups, twg):
         cfg = _make_instance(num_workgroups, twg, twg, k_mult=4)
+        _run_cdna4_gemm(cfg)
+
+
+class TestCdna4Coop8Waves:
+    """8-wave cooperative loading correctness."""
+
+    @pytest.mark.parametrize(
+        "wpw,twg",
+        [
+            ([2, 4, 1], [4, 16, 2]),
+            ([4, 2, 1], [16, 4, 2]),
+            ([1, 8, 1], [2, 32, 2]),
+            ([8, 1, 1], [32, 2, 2]),
+        ],
+        ids=["w2x4_twg4x16x2", "w4x2_twg16x4x2", "w1x8_twg2x32x2", "w8x1_twg32x2x2"],
+    )
+    def test_correctness(self, wpw, twg):
+        cfg = _make_instance([1, 1, 1], wpw, twg, k_mult=4)
         _run_cdna4_gemm(cfg)
 
 
