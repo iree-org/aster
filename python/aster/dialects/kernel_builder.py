@@ -194,29 +194,30 @@ class KernelBuilder:
 
     @contextmanager
     def stage(self, stage_id: int):
-        """Context manager: tag all ops emitted within with sched.stage.
-
-        Only scheduler-visible ops (loads, stores, mfma, waits, alloc/dealloc)
-        are tagged. Address computation ops (affine_apply, index_to_vgpr) are
-        not tagged -- the pipeliner moves them freely based on data deps.
-        """
+        """Context manager: tag all ops emitted within with sched.stage."""
         prev = self._current_stage
         self._current_stage = stage_id
-        yield
-        self._current_stage = prev
+        # Snapshot: count ops in the current block before body executes.
+        block = self._kip.block
+        n_before = sum(1 for _ in block.operations)
 
-    def _tag_stage(self, result):
-        """If a pipeline stage is active, tag the defining op."""
-        if self._current_stage is None:
-            return result
-        op = None
-        if hasattr(result, "owner"):
-            op = result.owner
-        elif hasattr(result, "operation"):
-            op = result.operation
-        if op is not None:
-            op.attributes["sched.stage"] = _i32(self._current_stage, self._ctx)
-        return result
+        yield
+
+        self._current_stage = prev
+        # Tag every new op (and ops in nested regions) that lacks sched.stage.
+        stage_attr = _i32(stage_id, self._ctx)
+        all_ops = list(block.operations)
+        for op in all_ops[n_before:]:
+            self._tag_stage_recursive(op, stage_attr)
+
+    @staticmethod
+    def _tag_stage_recursive(op, stage_attr):
+        if "sched.stage" not in op.attributes:
+            op.attributes["sched.stage"] = stage_attr
+        for region in op.regions:
+            for block in region:
+                for nested in block.operations:
+                    KernelBuilder._tag_stage_recursive(nested, stage_attr)
 
     # ---------------------------------------------------------------------------
     # Kernel arguments
@@ -333,7 +334,6 @@ class KernelBuilder:
     def call_helper(self, name: str, args: list, ret_types: list) -> list:
         """Emit a func.call to a helper function, tagged with current sched.stage."""
         call_op = funcd.CallOp(ret_types, name, args, loc=self._loc, ip=self._kip)
-        self._tag_stage(call_op.results[0])
         return list(call_op.results)
 
     # ---------------------------------------------------------------------------
@@ -730,7 +730,6 @@ class KernelBuilder:
         fn = getattr(_inst, opcode, None)
         if fn is not None:
             result = fn(acc, a, b, acc, loc=self._loc, ip=self._kip)
-            self._tag_stage(result)
             return result
         raise ValueError(f"Unknown MFMA opcode: {opcode}")
 
@@ -907,7 +906,6 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        self._tag_stage(op.results[0])
         return op
 
     def global_load_dword(
@@ -1022,7 +1020,6 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        self._tag_stage(op.results[0])
         return op.results[0]
 
     def _ds_read(self, opcode, dest, addr, const_offset=None):
@@ -1039,7 +1036,6 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        self._tag_stage(op.results[0])
         return op.results[0], op.results[1]
 
     def ds_write_b32(self, data, addr, const_offset=None):
@@ -1074,7 +1070,6 @@ class KernelBuilder:
         """Allocate the M0 register (used for G2S LDS destination offset)."""
         m0_type = self.m0_type
         op = AllocaOp(result=m0_type, loc=self._loc, ip=self._kip)
-        self._tag_stage(op)
         return op.result
 
     def set_m0(self, m0: ir.Value, value: ir.Value) -> ir.Value:
@@ -1120,7 +1115,6 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        self._tag_stage(op)
         return op.token
 
     def g2s_buffer_load_dword(
@@ -1149,7 +1143,6 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        self._tag_stage(op)
         return op.token
 
     def s_nop(self, count: int = 0):
@@ -1162,18 +1155,15 @@ class KernelBuilder:
 
     def wait_deps(self, *tokens):
         """Wait for dependency tokens (from global_load or ds_write)."""
-        op = WaitOp(dependencies=list(tokens), loc=self._loc, ip=self._kip)
-        self._tag_stage(op)
+        WaitOp(dependencies=list(tokens), loc=self._loc, ip=self._kip)
 
     def wait_vmcnt(self, count: int = 0):
         """Insert s_waitcnt vmcnt=count."""
-        op = SWaitcntOp(vmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
-        self._tag_stage(op)
+        SWaitcntOp(vmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
 
     def wait_lgkmcnt(self, count: int = 0):
         """Insert s_waitcnt lgkmcnt=count."""
-        op = SWaitcntOp(lgkmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
-        self._tag_stage(op)
+        SWaitcntOp(lgkmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # LDS allocation
@@ -1186,20 +1176,17 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         ).result
-        self._tag_stage(handle)
         i32_type = ir.IntegerType.get_signless(32, self._ctx)
         offset_i32 = GetLDSOffsetOp(
             result=i32_type, buffer=handle, loc=self._loc, ip=self._kip
         ).result
-        self._tag_stage(offset_i32)
         idx_type = self.idx_type
         offset_idx = arith.index_cast(idx_type, offset_i32, loc=self._loc, ip=self._kip)
         return handle, offset_idx
 
     def dealloc_lds(self, handle):
         """Deallocate an LDS buffer."""
-        op = DeallocLDSOp(buffer=handle, loc=self._loc, ip=self._kip)
-        self._tag_stage(op)
+        DeallocLDSOp(buffer=handle, loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # Register range splitting
@@ -1608,7 +1595,6 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        self._tag_stage(op.results[0])
         return op.results[0]
 
     def from_any(self, any_value: ir.Value, target_type: ir.Type) -> ir.Value:
@@ -1620,7 +1606,6 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        self._tag_stage(op.results[0])
         return op.results[0]
 
     # ---------------------------------------------------------------------------
@@ -1629,8 +1614,7 @@ class KernelBuilder:
 
     def s_barrier(self):
         """Insert s_barrier for workgroup synchronization."""
-        op = _inst.s_barrier(loc=self._loc, ip=self._kip)
-        self._tag_stage(op)
+        _inst.s_barrier(loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # Build
