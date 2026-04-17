@@ -1408,6 +1408,22 @@ def print_config(cfg, resources=None, iterations=None):
     print(f"  iterations: {iters} (warmup={WARMUP_ITERATIONS})")
     if resources:
         print(f"  resources:  {resources}")
+        # Warn on large estimate-vs-actual discrepancies.
+        est_lds = getattr(cfg, "lds_bytes", None)
+        est_v = getattr(cfg, "estimated_vgprs", None)
+        est_a = getattr(cfg, "estimated_agprs", None)
+        if est_lds is not None and resources.lds_bytes > 0:
+            ratio = est_lds / resources.lds_bytes
+            if abs(ratio - 1.0) > 0.05:
+                print(f"  WARNING: LDS estimate {est_lds} vs actual {resources.lds_bytes} ({ratio:.2f}x)")
+        if est_v is not None and resources.vgpr_count > 0:
+            ratio = est_v / resources.vgpr_count
+            if abs(ratio - 1.0) > 0.10:
+                print(f"  WARNING: VGPR estimate {est_v} vs actual {resources.vgpr_count} ({ratio:.2f}x)")
+        if est_a is not None and resources.agpr_count > 0:
+            ratio = est_a / resources.agpr_count
+            if abs(ratio - 1.0) > 0.10:
+                print(f"  WARNING: AGPR estimate {est_a} vs actual {resources.agpr_count} ({ratio:.2f}x)")
 
 
 def run_single(cfg, compile_fn, args, execute_fn):
@@ -1441,7 +1457,9 @@ def run_single(cfg, compile_fn, args, execute_fn):
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
         print_config(cfg, res, iterations=iterations)
         if res:
-            for v in res.check_occupancy(cfg.num_threads, mcpu=cfg.mapping.mcpu, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)):
+            for v in res.check_occupancy(
+                cfg.num_threads, mcpu=cfg.mapping.mcpu, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
+            ):
                 print(f"  OCCUPANCY ERROR: {v}")
         print(f"  Compiled: {args.hsaco}")
         return
@@ -1460,7 +1478,9 @@ def run_single(cfg, compile_fn, args, execute_fn):
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
         print_config(cfg, res, iterations=iterations)
         if res:
-            violations = res.check_occupancy(cfg.num_threads, mcpu=cfg.mapping.mcpu, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1))
+            violations = res.check_occupancy(
+                cfg.num_threads, mcpu=cfg.mapping.mcpu, num_wg_per_cu=getattr(cfg, "num_wg_per_cu", 1)
+            )
             for v in violations:
                 print(f"  OCCUPANCY ERROR: {v}")
             if violations and not getattr(args, "force", False):
