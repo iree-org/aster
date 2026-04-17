@@ -1,4 +1,4 @@
-// RUN: aster-cpu-translate --mlir-to-amx-asm %s | FileCheck %s
+// RUN: aster-cpu-translate --mlir-to-x86-asm %s | FileCheck %s
 
 // CHECK-LABEL: test_avx_fma:
 // CHECK:       vmovaps (%rdi), %xmm0

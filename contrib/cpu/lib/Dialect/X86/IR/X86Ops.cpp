@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "aster/Dialect/AMX/IR/Interfaces/AMXAsmOpInterface.h"
 #include "aster/Dialect/X86/IR/X86Dialect.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -30,7 +30,7 @@ namespace {
 void emitRegName(raw_ostream &os, Value v) {
   llvm::TypeSwitch<Type, void>(v.getType())
       .Case<GprType>([&](auto gpr) { os << stringifyGprEnum(gpr.getReg()); })
-      .Case<TmmType>([&](auto t) { os << "tmm" << t.getReg(); })
+      .Case<TMMType>([&](auto t) { os << "tmm" << t.getReg(); })
       .Case<XMMType>([&](auto t) { os << "xmm" << t.getReg(); })
       .Case<YMMType>([&](auto t) { os << "ymm" << t.getReg(); })
       .Case<ZMMType>([&](auto t) { os << "zmm" << t.getReg(); })
@@ -142,3 +142,51 @@ IsaVersion AVX2StoreOp::getRequiredIsa() { return IsaVersion::avx2; }
 
 void AVX512StoreOp::printAsm(raw_ostream &os) { printStoreAsm(*this, os); }
 IsaVersion AVX512StoreOp::getRequiredIsa() { return IsaVersion::avx512; }
+
+//===----------------------------------------------------------------------===//
+// AMX ops
+//===----------------------------------------------------------------------===//
+
+void AMXLdTileCfgOp::printAsm(raw_ostream &os) {
+  auto func = (*this)->getParentOfType<func::FuncOp>();
+  StringRef fname = func ? func.getSymName() : "?";
+  ATT{os}.inst(instrName(*this));
+  os << ".Lcfg_" << fname << "(%rip)\n";
+}
+
+void AMXTileLoaddOp::printAsm(raw_ostream &os) {
+  ATT{os}
+      .inst(instrName(*this))
+      .mem(getBase(), getStride(), 1)
+      .sep()
+      .reg(getResult())
+      .nl();
+}
+
+void AMXTdpBf16PsOp::printAsm(raw_ostream &os) {
+  ATT{os}
+      .inst(instrName(*this))
+      .reg(getRhs())
+      .sep()
+      .reg(getLhs())
+      .sep()
+      .reg(getResult())
+      .nl();
+}
+
+void AMXTileStoredOp::printAsm(raw_ostream &os) {
+  ATT{os}
+      .inst(instrName(*this))
+      .reg(getTile())
+      .sep()
+      .mem(getBase(), getStride(), 1)
+      .nl();
+}
+
+void AMXTileZeroOp::printAsm(raw_ostream &os) {
+  ATT{os}.inst(instrName(*this)).reg(getResult()).nl();
+}
+
+void AMXTileReleaseOp::printAsm(raw_ostream &os) {
+  ATT{os}.inst(instrName(*this)).nl();
+}

@@ -3,7 +3,9 @@ import os
 import ml_dtypes
 import numpy as np
 
-from aster_cpu.execution.helpers import compile_and_run
+import ctypes
+
+from aster_cpu.execution.helpers import compile_and_run, has_amx_bf16
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _MLIR = os.path.join(_THIS_DIR, "tdpbf16ps.mlir")
@@ -44,4 +46,14 @@ def test_tdpbf16ps_e2e(tmp_path, m=16, n=16, k=32):
         verify_fn=verify_fn,
         tmp_path=tmp_path,
         print_asm=True,
+        mattr="+amx-tile,+amx-bf16",
+        with_amx_runtime=True,
+        cpu_check=has_amx_bf16,
+        argtypes=[ctypes.c_void_p] * 3 + [ctypes.c_int64],
+        call_args=[
+            a_data.ctypes.data,
+            b_data_packed.ctypes.data,
+            c_data.ctypes.data,
+            64,
+        ],
     )

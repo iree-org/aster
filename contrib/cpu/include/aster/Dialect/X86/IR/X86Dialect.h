@@ -18,7 +18,7 @@
 
 #include "aster/Dialect/X86/IR/X86Enums.h.inc"
 
-#include "aster/Dialect/AMX/IR/Interfaces/AMXAsmOpInterface.h"
+#include "aster/Dialect/X86/IR/Interfaces/X86AsmOpInterface.h.inc"
 #include "aster/Dialect/X86/IR/Interfaces/X86IsaOpInterface.h"
 
 #include "aster/Dialect/X86/IR/X86Dialect.h.inc"

@@ -1,1 +1,1 @@
-add_subdirectory(AMX)
+add_subdirectory(X86)

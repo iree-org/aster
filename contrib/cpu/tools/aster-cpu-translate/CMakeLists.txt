@@ -9,7 +9,7 @@ add_llvm_executable(aster-cpu-translate
 )
 llvm_update_compile_flags(aster-cpu-translate)
 target_link_libraries(aster-cpu-translate PRIVATE
-  ASTERAMXRegistration
+  ASTERX86Registration
   MLIRTranslateLib
 )
 mlir_check_all_link_libraries(aster-cpu-translate)

@@ -11,7 +11,8 @@ mlir_tablegen(X86Attrs.h.inc -gen-attrdef-decls -attrdefs-dialect=x86)
 mlir_tablegen(X86Attrs.cpp.inc -gen-attrdef-defs -attrdefs-dialect=x86)
 mlir_tablegen(X86Ops.h.inc -gen-op-decls)
 mlir_tablegen(X86Ops.cpp.inc -gen-op-defs)
+mlir_tablegen(Interfaces/X86AsmOpInterface.h.inc -gen-op-interface-decls)
+mlir_tablegen(Interfaces/X86AsmOpInterface.cpp.inc -gen-op-interface-defs)
 add_public_tablegen_target(ASTERX86IncGen)
 add_dependencies(ASTERX86IncGen
-  ASTERX86IsaOpInterfaceIncGen
-  ASTERAMXAsmOpInterfaceIncGen)
+  ASTERX86IsaOpInterfaceIncGen)

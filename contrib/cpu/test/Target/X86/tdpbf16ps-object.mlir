@@ -1,4 +1,4 @@
-// RUN: aster-cpu-translate --mlir-to-amx-asm %s \
+// RUN: aster-cpu-translate --mlir-to-x86-asm %s \
 // RUN:   | %llvm_mc -triple=x86_64-unknown-linux-gnu \
 // RUN:       -mattr=+amx-tile,+amx-bf16 -filetype=obj -o %t.o
 // RUN: %llvm_objdump -d -t --mattr=+amx-tile,+amx-bf16 %t.o | FileCheck %s
@@ -20,13 +20,13 @@ func.func @test_tdpbf16ps(
     %b: !x86.gpr<rsi>,
     %c: !x86.gpr<rdx>,
     %stride: !x86.gpr<rcx>) {
-  amx.ldtilecfg
-  %ta = amx.tileloadd %a, %stride : (!x86.gpr<rdi>, !x86.gpr<rcx>) -> !amx.tile<tmm1, 16 x 32 x bf16>
-  %tb = amx.tileloadd %b, %stride : (!x86.gpr<rsi>, !x86.gpr<rcx>) -> !amx.tile<tmm2, 16 x 32 x bf16>
-  %tc = amx.tilezero : !amx.tile<tmm0, 16 x 16 x f32>
-  %td = amx.tdpbf16ps %tc, %ta, %tb
-      : (!amx.tile<tmm0, 16 x 16 x f32>, !amx.tile<tmm1, 16 x 32 x bf16>, !amx.tile<tmm2, 16 x 32 x bf16>) -> !amx.tile<tmm0, 16 x 16 x f32>
-  amx.tilestored %c, %stride, %td : !x86.gpr<rdx>, !x86.gpr<rcx>, !amx.tile<tmm0, 16 x 16 x f32>
-  amx.tilerelease
+  x86.amx.ldtilecfg
+  %ta = x86.amx.tileloadd %a, %stride : (!x86.gpr<rdi>, !x86.gpr<rcx>) -> !x86.amx.tmm<1, 16 x 32 x bf16>
+  %tb = x86.amx.tileloadd %b, %stride : (!x86.gpr<rsi>, !x86.gpr<rcx>) -> !x86.amx.tmm<2, 16 x 32 x bf16>
+  %tc = x86.amx.tilezero : !x86.amx.tmm<0, 16 x 16 x f32>
+  %td = x86.amx.tdpbf16ps %tc, %ta, %tb
+      : (!x86.amx.tmm<0, 16 x 16 x f32>, !x86.amx.tmm<1, 16 x 32 x bf16>, !x86.amx.tmm<2, 16 x 32 x bf16>) -> !x86.amx.tmm<0, 16 x 16 x f32>
+  x86.amx.tilestored %c, %stride, %td : !x86.gpr<rdx>, !x86.gpr<rcx>, !x86.amx.tmm<0, 16 x 16 x f32>
+  x86.amx.tilerelease
   return
 }

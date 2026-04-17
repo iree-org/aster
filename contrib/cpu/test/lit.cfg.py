@@ -11,7 +11,7 @@ import lit.formats
 from lit.llvm import llvm_config
 
 # name: The name of this test suite.
-config.name = "ASTER-AMX"
+config.name = "ASTER-X86"
 
 config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 
@@ -24,9 +24,7 @@ if config.aster_python_enabled.lower() == "on":
 config.test_source_root = os.path.dirname(__file__)
 
 # test_exec_root: The root path where tests should be run.
-config.test_exec_root = os.path.join(
-    config.aster_obj_root, "contrib", "cpu", "test"
-)
+config.test_exec_root = os.path.join(config.aster_obj_root, "contrib", "cpu", "test")
 
 config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
@@ -48,9 +46,7 @@ if os.environ.get("LLVM_TOOLS_DIR"):
     config.llvm_tools_dir = os.environ.get("LLVM_TOOLS_DIR")
 
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
-llvm_config.with_environment(
-    "PYTHONPATH", config.aster_python_root, append_path=True
-)
+llvm_config.with_environment("PYTHONPATH", config.aster_python_root, append_path=True)
 config.environment["LLVM_TOOLS_DIR"] = config.llvm_tools_dir
 config.environment["FILECHECK_OPTS"] = "--dump-input=fail"
 

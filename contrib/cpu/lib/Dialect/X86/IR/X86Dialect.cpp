@@ -13,6 +13,7 @@
 using namespace mlir;
 using namespace mlir::aster::x86;
 
+#include "aster/Dialect/X86/IR/Interfaces/X86AsmOpInterface.cpp.inc"
 #include "aster/Dialect/X86/IR/Interfaces/X86IsaOpInterface.cpp.inc"
 
 #include "aster/Dialect/X86/IR/X86Dialect.cpp.inc"

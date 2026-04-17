@@ -69,7 +69,7 @@ def compile_to_object(
 
     with asm.open("wb") as f:
         subprocess.run(
-            [aster_cpu_translate, "--mlir-to-amx-asm", str(mlir_filename)],
+            [aster_cpu_translate, "--mlir-to-x86-asm", str(mlir_filename)],
             stdout=f,
             check=True,
         )

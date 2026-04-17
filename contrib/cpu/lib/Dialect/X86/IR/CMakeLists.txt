@@ -5,9 +5,9 @@ add_mlir_dialect_library(ASTERX86Dialect
   DEPENDS
   ASTERX86IncGen
   ASTERX86IsaOpInterfaceIncGen
-  ASTERAMXAsmOpInterfaceIncGen
 
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRSupport
+  MLIRFuncDialect
 )

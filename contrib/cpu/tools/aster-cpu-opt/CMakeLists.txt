@@ -9,7 +9,6 @@ add_llvm_executable(aster-cpu-opt
 )
 llvm_update_compile_flags(aster-cpu-opt)
 target_link_libraries(aster-cpu-opt PRIVATE
-  ASTERAMXDialect
   ASTERX86Dialect
   MLIRFuncDialect
   MLIROptLib

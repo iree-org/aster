@@ -29,26 +29,6 @@ def X86_AnyGpr : Type<
   "x86 gpr">;
 
 //===----------------------------------------------------------------------===//
-// AMX tile registers (tmm0..tmm7).
-//===----------------------------------------------------------------------===//
-
-def X86_TmmType : X86_Type<"Tmm", "tmm"> {
-  let summary = "Pre-assigned AMX tile register (tmm0..tmm7)";
-  let description = [{
-    ```mlir
-    !x86.tmm<tmm0>
-    !x86.tmm<tmm3>
-    ```
-  }];
-  let parameters = (ins EnumParameter<X86_TmmEnum>:$reg);
-  let assemblyFormat = "`<` $reg `>`";
-}
-
-def X86_AnyTmm : Type<
-  CPred<"::llvm::isa<::mlir::aster::x86::TmmType>($_self)">,
-  "x86 tmm">;
-
-//===----------------------------------------------------------------------===//
 // AVX / AVX2 / AVX512 vector register types.
 // Register index is a bare integer; the type name carries the class.
 //===----------------------------------------------------------------------===//
@@ -97,5 +77,31 @@ def X86_AnyYMM : Type<
 def X86_AnyZMM : Type<
   CPred<"::llvm::isa<::mlir::aster::x86::ZMMType>($_self)">,
   "x86 avx512 zmm">;
+
+//===----------------------------------------------------------------------===//
+// AMX tile register (tmm0..tmm7) with shape and element type.
+//===----------------------------------------------------------------------===//
+
+def X86_TMMType : X86_Type<"TMM", "amx.tmm"> {
+  let summary = "Pre-assigned AMX tile register with shape (tmm0..tmm7)";
+  let description = [{
+    ```mlir
+    !x86.amx.tmm<0, 16 x 16 x f32>
+    !x86.amx.tmm<1, 16 x 32 x bf16>
+    ```
+  }];
+  let parameters = (ins
+    "int64_t":$reg,
+    "int64_t":$rows,
+    "int64_t":$cols,
+    "::mlir::Type":$elementType
+  );
+  let assemblyFormat =
+    "`<` $reg `,` $rows `x` $cols `x` $elementType `>`";
+}
+
+def X86_AnyTMM : Type<
+  CPred<"::llvm::isa<::mlir::aster::x86::TMMType>($_self)">,
+  "x86 amx tmm">;
 
 #endif // ASTER_DIALECT_X86_IR_X86TYPES_TD

@@ -44,3 +44,27 @@ func.func @avx_load_store(%ptr: !x86.gpr<rdi>) {
   x86.avx.store vmovaps %ptr, %v : !x86.gpr<rdi>, !x86.avx.xmm<0>
   return
 }
+
+// CHECK-LABEL: func.func @amx_roundtrip
+func.func @amx_roundtrip(
+    %a: !x86.gpr<rdi>,
+    %b: !x86.gpr<rsi>,
+    %c: !x86.gpr<rdx>,
+    %stride: !x86.gpr<rcx>) {
+  // CHECK: x86.amx.ldtilecfg
+  x86.amx.ldtilecfg
+  // CHECK: x86.amx.tileloadd %{{.*}}, %{{.*}} : (!x86.gpr<rdi>, !x86.gpr<rcx>) -> !x86.amx.tmm<1, 16 x 32 x bf16>
+  %ta = x86.amx.tileloadd %a, %stride : (!x86.gpr<rdi>, !x86.gpr<rcx>) -> !x86.amx.tmm<1, 16 x 32 x bf16>
+  // CHECK: x86.amx.tileloadd %{{.*}}, %{{.*}} : (!x86.gpr<rsi>, !x86.gpr<rcx>) -> !x86.amx.tmm<2, 16 x 32 x bf16>
+  %tb = x86.amx.tileloadd %b, %stride : (!x86.gpr<rsi>, !x86.gpr<rcx>) -> !x86.amx.tmm<2, 16 x 32 x bf16>
+  // CHECK: x86.amx.tilezero : !x86.amx.tmm<0, 16 x 16 x f32>
+  %tc = x86.amx.tilezero : !x86.amx.tmm<0, 16 x 16 x f32>
+  // CHECK: x86.amx.tdpbf16ps %{{.*}}, %{{.*}}, %{{.*}} : (!x86.amx.tmm<0, 16 x 16 x f32>, !x86.amx.tmm<1, 16 x 32 x bf16>, !x86.amx.tmm<2, 16 x 32 x bf16>) -> !x86.amx.tmm<0, 16 x 16 x f32>
+  %td = x86.amx.tdpbf16ps %tc, %ta, %tb
+      : (!x86.amx.tmm<0, 16 x 16 x f32>, !x86.amx.tmm<1, 16 x 32 x bf16>, !x86.amx.tmm<2, 16 x 32 x bf16>) -> !x86.amx.tmm<0, 16 x 16 x f32>
+  // CHECK: x86.amx.tilestored %{{.*}}, %{{.*}}, %{{.*}} : !x86.gpr<rdx>, !x86.gpr<rcx>, !x86.amx.tmm<0, 16 x 16 x f32>
+  x86.amx.tilestored %c, %stride, %td : !x86.gpr<rdx>, !x86.gpr<rcx>, !x86.amx.tmm<0, 16 x 16 x f32>
+  // CHECK: x86.amx.tilerelease
+  x86.amx.tilerelease
+  return
+}

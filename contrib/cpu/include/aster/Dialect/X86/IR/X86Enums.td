@@ -9,8 +9,10 @@
 
 include "mlir/IR/EnumAttr.td"
 
-// x86_64 general-purpose registers, numbered 0..15 in Intel's REX-extended
-// encoding (matches the ModR/M reg field for 64-bit operands).
+//===----------------------------------------------------------------------===//
+// x86_64 general-purpose registers (Intel REX encoding 0..15).
+//===----------------------------------------------------------------------===//
+
 def X86_RAX : I32EnumAttrCase<"rax",  0>;
 def X86_RBX : I32EnumAttrCase<"rbx",  1>;
 def X86_RCX : I32EnumAttrCase<"rcx",  2>;
@@ -37,28 +39,13 @@ def X86_GprEnum : I32EnumAttr<"GprEnum",
 }
 
 //===----------------------------------------------------------------------===//
-// AMX tile registers (tmm0..tmm7).
-//===----------------------------------------------------------------------===//
-
-def X86_TMM0 : I32EnumAttrCase<"tmm0", 0>;
-def X86_TMM1 : I32EnumAttrCase<"tmm1", 1>;
-def X86_TMM2 : I32EnumAttrCase<"tmm2", 2>;
-def X86_TMM3 : I32EnumAttrCase<"tmm3", 3>;
-def X86_TMM4 : I32EnumAttrCase<"tmm4", 4>;
-def X86_TMM5 : I32EnumAttrCase<"tmm5", 5>;
-def X86_TMM6 : I32EnumAttrCase<"tmm6", 6>;
-def X86_TMM7 : I32EnumAttrCase<"tmm7", 7>;
-
-def X86_TmmEnum : I32EnumAttr<"TmmEnum",
-    "AMX tile register name",
-    [X86_TMM0, X86_TMM1, X86_TMM2, X86_TMM3,
-     X86_TMM4, X86_TMM5, X86_TMM6, X86_TMM7]> {
-  let cppNamespace = "::mlir::aster::x86";
-  let genSpecializedAttr = 0;
-}
-
-//===----------------------------------------------------------------------===//
 // ISA version marker.
+// Each op declares the minimum required ISA level, and a function-level
+// target marker `{x86.isa = #x86.isa<avx512>}` lets a verifier check
+// that every op in the body is available on the chosen target.
+//
+// Assumes a newer target can always execute every op from older target;
+//   i.e. `avx512 > avx2 > avx`.
 //===----------------------------------------------------------------------===//
 
 def X86_IsaAVX    : I32EnumAttrCase<"avx",    0>;
