@@ -28,6 +28,7 @@ from aster.dialects.kernel_builder import MFMA_F16_CDNA4
 from kittens.gemm_config import (
     GemmSpec,
     GemmMappingSpec,
+    OperandPath,
 )
 from test_102_gemm_python_multitile_cdna4 import (
     Cdna4GemmInstance,
@@ -84,6 +85,7 @@ def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
+        operand_path=OperandPath(d["variant"][0]),
         num_wg_per_cu=nwgcu(d, hw),
         lcm_unroll=d["lcm_unroll"],
         unroll_factor_multiplier=d["unroll_mult"],
@@ -107,6 +109,7 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
+        operand_path=OperandPath(d["variant"][0]),
         num_wg_per_cu=nwgcu(d, hw),
         lds_at_write=False,
         dealloc_at_read=True,
@@ -115,6 +118,7 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
 
 
 def make_sweep_grid(
+    variants: list[str],
     mcpu: str,
     hw,
     check_regs: bool = True,
@@ -124,6 +128,9 @@ def make_sweep_grid(
     target_k: int,
 ) -> SweepGrid:
     grid = SweepGrid()
+    # variant = (operand_path, load_type). Sweeps operand_path (lds / direct_b);
+    # load_type is always flat for CDNA4, so the second slot is None.
+    grid.axis("variant", [(v, None) for v in variants])
     add_gemm_sweep_axes(grid, hw, [_TILE_M, _TILE_N, _TILE_K], target_m=target_m, target_n=target_n, target_k=target_k)
 
     if check_regs:
@@ -131,7 +138,7 @@ def make_sweep_grid(
             grid,
             hw,
             functools.partial(_mapping_for_resource_check, mcpu=mcpu, hw=hw),
-            deps=("waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
+            deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
         )
 
     grid.build_with(functools.partial(_build_instance, mcpu=mcpu, hw=hw))
@@ -181,10 +188,18 @@ def main():
     target_m, target_n, target_k = parse_size_args(args, parser)
     print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
+    all_paths = ["lds", "direct_b"]
+    if args.direct_b is True:
+        all_paths = ["direct_b"]
+    elif args.direct_b is False:
+        all_paths = ["lds"]
+    print(f"Variants: {', '.join(all_paths)}")
+
     pins = make_sweep_pins(args, GEMM_SWEEP_PIN_MAP)
     pins = resolve_derived_pins(pins or {})
 
     grid = make_sweep_grid(
+        all_paths,
         args.mcpu,
         hw,
         check_regs=not getattr(args, "no_reg_filter", False),
@@ -204,7 +219,7 @@ def main():
         args,
         sample_size=getattr(args, "compile_sample", 4096),
         pins=pins,
-        stratification_key=lambda d: (d["waves_m"], d["waves_n"]),
+        stratification_key=lambda d: (d["variant"], d["waves_m"], d["waves_n"]),
     )
 
     results = bench_perf_sweep_pipelined(
