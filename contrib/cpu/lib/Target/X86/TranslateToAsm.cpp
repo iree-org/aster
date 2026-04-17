@@ -100,14 +100,17 @@ buildTileCfgBytes(func::FuncOp func) {
     return failure();
 
   SmallVector<uint8_t, 64> bytes(64, 0);
-  bytes[0] = 1; // palette_id = 1
+  bool hasTiles = false;
   for (int i = 0; i < 8; ++i) {
     if (tiles[i].rows == -1)
       continue;
+    hasTiles = true;
     bytes[16 + 2 * i] = static_cast<uint8_t>(tiles[i].colsb & 0xff);
     bytes[16 + 2 * i + 1] = static_cast<uint8_t>((tiles[i].colsb >> 8) & 0xff);
     bytes[48 + i] = static_cast<uint8_t>(tiles[i].rows);
   }
+  if (hasTiles)
+    bytes[0] = 1; // palette_id = 1
   return bytes;
 }
 
@@ -115,6 +118,9 @@ LogicalResult TranslateModuleImpl::emitFuncTileCfg(func::FuncOp func) {
   FailureOr<SmallVector<uint8_t, 64>> bytes = buildTileCfgBytes(func);
   if (failed(bytes))
     return failure();
+  // Skip TILECFG for functions that use no AMX tiles.
+  if (llvm::all_of(*bytes, [](uint8_t b) { return b == 0; }))
+    return success();
   StringRef name = func.getSymName();
   os.indent();
   os << ".section .rodata\n";
