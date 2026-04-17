@@ -69,4 +69,14 @@ amdgcn.library @common_indexing_ptr {
       : (!sx2, !s, i32) -> !sx4
     return %rsrc : !sx4
   }
+
+  // Bounded variant: set num_records to the actual buffer size in bytes.
+  // OOB loads return zero, OOB stores are silently dropped.
+  func.func private @make_raw_buffer_rsrc_bounded(%base: !sx2, %num_bytes: !s) -> !sx4 {
+    %c0_stride = arith.constant 0 : i32
+    %rsrc = amdgcn.make_buffer_rsrc %base, %num_bytes, %c0_stride,
+      cache_swizzle = false, swizzle_enable = false, flags = 131072
+      : (!sx2, !s, i32) -> !sx4
+    return %rsrc : !sx4
+  }
 }

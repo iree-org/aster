@@ -146,6 +146,19 @@ add_subdirectory(test)
 option(ASTER_ENABLE_MLIR_AIR "Build mlir-air contrib (linalg->AMDGCN)" OFF)
 if(ASTER_ENABLE_MLIR_AIR)
   message(STATUS "mlir-air enabled")
+  # Upstream Xilinx/mlir-air: AIR dialect + conversion passes (no AIE, no GPU backend).
+  set(AIR_ENABLE_AIE OFF CACHE BOOL "" FORCE)
+  set(AIR_ENABLE_GPU OFF CACHE BOOL "" FORCE)
+  # Stub targets expected by upstream mlir-air CMakeLists.
+  add_custom_target(air-headers)
+  # Make upstream AIR .td files and generated headers visible to mlir-tblgen
+  # and C++ compilation. Must come before add_subdirectory so the directory
+  # property is set when mlir_tablegen() calls get_directory_property().
+  include_directories(${CMAKE_SOURCE_DIR}/third_party/mlir-air/mlir/include)
+  include_directories(${CMAKE_BINARY_DIR}/third_party/mlir-air/mlir/include)
+  # Only build AIR lib+include, not its test suite (check-all not available here).
+  add_subdirectory(third_party/mlir-air/mlir/include)
+  add_subdirectory(third_party/mlir-air/mlir/lib)
   add_subdirectory(contrib/mlir-air)
 endif()
 

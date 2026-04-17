@@ -8,11 +8,12 @@
 
 #include "aster/Init.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/Pass/PassRegistry.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
 namespace mlir::aster::mlir_air {
 void registerAll(DialectRegistry &registry);
-}
+} // namespace mlir::aster::mlir_air
 
 int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
@@ -23,7 +24,7 @@ int main(int argc, char **argv) {
   mlir::aster::registerUpstreamMLIRExternalModels(registry);
   mlir::aster::initDialects(registry);
   mlir::aster::registerPasses();
-  // mlir-air additions.
+  // mlir-air additions (registers dialects, passes, pipelines).
   mlir::aster::mlir_air::registerAll(registry);
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "mlir-air optimizer driver\n", registry));

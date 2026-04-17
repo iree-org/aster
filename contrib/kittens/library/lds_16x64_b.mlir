@@ -138,4 +138,19 @@ amdgcn.library @kittens_lds_16x64_b isa = [#amdgcn.isa<cdna3>] {
     return %future : !future_lds_read
   }
 
+  // Zero-fill a 16x64_b LDS tile (1024 bytes).
+  // Each thread writes 16 bytes of zeros at its assigned positions.
+  func.func private @fill_lds_16x64_b(%tile_base: index) {
+    %zero = func.call @alloc_vgprx2() : () -> !vx2
+    %addr_lo, %addr_hi = func.call @compute_lds_write_addrs_16x64_b(%tile_base)
+        : (index) -> (index, index)
+    %t0 = func.call @write_vx2_to_lds_at(%zero, %addr_lo)
+        : (!vx2, index) -> !future_lds_write
+    %t1 = func.call @write_vx2_to_lds_at(%zero, %addr_hi)
+        : (!vx2, index) -> !future_lds_write
+    amdgcn.wait deps %t0 : !future_lds_write
+    amdgcn.wait deps %t1 : !future_lds_write
+    return
+  }
+
 }
