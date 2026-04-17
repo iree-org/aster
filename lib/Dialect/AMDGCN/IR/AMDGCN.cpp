@@ -518,7 +518,7 @@ Value LoadOp::getOutDependency() { return getToken(); }
 LogicalResult
 LoadOp::inferReturnTypes(MLIRContext *context, std::optional<Location> location,
                          ValueRange operands, DictionaryAttr attributes,
-                         OpaqueProperties properties, RegionRange regions,
+                         PropertyRef properties, RegionRange regions,
                          SmallVectorImpl<Type> &inferredReturnTypes) {
   if (auto regTy = cast<RegisterTypeInterface>(operands[0].getType());
       regTy && regTy.hasValueSemantics())
@@ -556,7 +556,7 @@ void LoadOp::getEffects(
 
 LogicalResult MakeRegisterRangeOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   // Fail if there are no operands.
   if (operands.empty()) {
@@ -660,7 +660,7 @@ MakeRegisterRangeOp::livenessTransferFunction(LivenessCallback insertCallback,
 
 LogicalResult SplitRegisterRangeOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   // There should be exactly one operand.
   if (operands.size() != 1) {
@@ -732,7 +732,7 @@ Value StoreOp::getOutDependency() { return getToken(); }
 
 LogicalResult StoreOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   inferredReturnTypes.push_back(getTokType(
       context, properties.as<Properties *>()->getOpcode().getValue(), false));
@@ -772,7 +772,7 @@ Value LoadToLDSOp::getOutDependency() { return getToken(); }
 
 LogicalResult LoadToLDSOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   // LoadToLDSOp has no register destination (no DPS results).
   // Only result is the write token for vmcnt tracking.

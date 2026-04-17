@@ -256,14 +256,14 @@ def InstInferTypeTrait : NativeOpTrait<"InstTrait"> {
   static ::llvm::LogicalResult inferReturnTypes(
     ::mlir::MLIRContext *context, ::std::optional<::mlir::Location> location,
     ::mlir::ValueRange operands, ::mlir::DictionaryAttr attributes,
-    ::mlir::OpaqueProperties properties, ::mlir::RegionRange regions,
+    ::mlir::PropertyRef properties, ::mlir::RegionRange regions,
     ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
   }];
   let extraConcreteClassDefinition = [{
   ::llvm::LogicalResult $cppClass::inferReturnTypes(
     ::mlir::MLIRContext *context, ::std::optional<::mlir::Location> location,
     ::mlir::ValueRange operands, ::mlir::DictionaryAttr attributes,
-    ::mlir::OpaqueProperties properties, ::mlir::RegionRange regions,
+    ::mlir::PropertyRef properties, ::mlir::RegionRange regions,
     ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes) {
     return ::mlir::aster::detail::inferTypesImpl<$cppClass>(operands, attributes, properties, regions, inferredReturnTypes);
   }

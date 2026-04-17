@@ -34,7 +34,7 @@ MutableArrayRef<int32_t> getOperandSegmentSizes(OpTy op) {
   return {};
 }
 template <typename OpTy>
-MutableArrayRef<int32_t> getOperandSegmentSizes(OpaqueProperties properties) {
+MutableArrayRef<int32_t> getOperandSegmentSizes(PropertyRef properties) {
   if constexpr (OpTy::template hasTrait<OpTrait::AttrSizedOperandSegments>()) {
     return properties.as<typename OpTy::Properties *>()->operandSegmentSizes;
   }
@@ -52,7 +52,7 @@ MutableArrayRef<int32_t> getResultSegmentSizes(OpTy op) {
   return {};
 }
 template <typename OpTy>
-MutableArrayRef<int32_t> getResultSegmentSizes(OpaqueProperties properties) {
+MutableArrayRef<int32_t> getResultSegmentSizes(PropertyRef properties) {
   if constexpr (OpTy::template hasTrait<OpTrait::AttrSizedResultSegments>()) {
     return properties.as<typename OpTy::Properties *>()->resultSegmentSizes;
   }
@@ -66,7 +66,8 @@ namespace llvm {
 template <>
 struct DenseMapInfo<mlir::ValueRange> {
   using PtrType = llvm::PointerUnion<const mlir::Value *, mlir::OpOperand *,
-                                     mlir::detail::OpResultImpl *>;
+                                     mlir::detail::OpResultImpl *,
+                                     const mlir::Repeated<mlir::Value> *>;
   static inline mlir::ValueRange getEmptyKey() {
     return mlir::ValueRange(DenseMapInfo<PtrType>::getEmptyKey(), 0);
   }

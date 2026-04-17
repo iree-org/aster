@@ -32,7 +32,7 @@ LogicalResult inferTypesImpl(TypeRange outTypes,
 template <typename OpTy>
 inline LogicalResult
 inferTypesImpl(ValueRange operands, DictionaryAttr attrs,
-               OpaqueProperties properties, RegionRange regions,
+               PropertyRef properties, RegionRange regions,
                SmallVectorImpl<Type> &inferredReturnTypes) {
   // This function only supports instructions with no leading results.
   static_assert(
@@ -111,7 +111,8 @@ OpTy cloneInstImpl(OpTy op, OpBuilder &builder, ValueRange outs,
       OpTy::kLeadingOperandsSize, OpTy::kOutsSize, OpTy::kInsSize,
       OpTy::kLeadingResultsSize, getOperandIndexAndLength,
       getResultIndexAndLength, operands, resultTypes,
-      getResultSegmentSizes<OpTy>(OpaqueProperties(&properties)));
+      getResultSegmentSizes<OpTy>(
+          PropertyRef(TypeID::get<typename OpTy::Properties>(), &properties)));
   if (failed(result))
     return nullptr;
   return OpTy::create(builder, op.getLoc(), resultTypes, operands, properties,

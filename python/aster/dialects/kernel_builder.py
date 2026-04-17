@@ -415,6 +415,7 @@ class KernelBuilder:
 
         sizes = sizes if isinstance(sizes, tuple) else (sizes,)
         return AffineLinearizeIndexOp(
+            ir.IndexType.get(),
             list(coords),
             [],
             list(sizes),
