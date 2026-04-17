@@ -57,4 +57,19 @@ def X86_TmmEnum : I32EnumAttr<"TmmEnum",
   let genSpecializedAttr = 0;
 }
 
+//===----------------------------------------------------------------------===//
+// ISA version marker.
+//===----------------------------------------------------------------------===//
+
+def X86_IsaAVX    : I32EnumAttrCase<"avx",    0>;
+def X86_IsaAVX2   : I32EnumAttrCase<"avx2",   1>;
+def X86_IsaAVX512 : I32EnumAttrCase<"avx512", 2>;
+
+def X86_IsaVersionEnum : I32EnumAttr<"IsaVersion",
+    "x86_64 SIMD ISA extension level",
+    [X86_IsaAVX, X86_IsaAVX2, X86_IsaAVX512]> {
+  let cppNamespace = "::mlir::aster::x86";
+  let genSpecializedAttr = 0;
+}
+
 #endif // ASTER_DIALECT_X86_IR_X86ENUMS_TD

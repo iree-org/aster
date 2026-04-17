@@ -7,16 +7,29 @@
 #ifndef ASTER_DIALECT_X86_IR_X86DIALECT_H
 #define ASTER_DIALECT_X86_IR_X86DIALECT_H
 
+#include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "aster/Dialect/X86/IR/X86Enums.h.inc"
 
+#include "aster/Dialect/AMX/IR/Interfaces/AMXAsmOpInterface.h"
+#include "aster/Dialect/X86/IR/Interfaces/X86IsaOpInterface.h"
+
 #include "aster/Dialect/X86/IR/X86Dialect.h.inc"
+
+#define GET_ATTRDEF_CLASSES
+#include "aster/Dialect/X86/IR/X86Attrs.h.inc"
 
 #define GET_TYPEDEF_CLASSES
 #include "aster/Dialect/X86/IR/X86Types.h.inc"
+
+#define GET_OP_CLASSES
+#include "aster/Dialect/X86/IR/X86Ops.h.inc"
 
 #endif // ASTER_DIALECT_X86_IR_X86DIALECT_H

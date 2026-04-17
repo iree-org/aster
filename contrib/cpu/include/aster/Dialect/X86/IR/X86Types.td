@@ -48,4 +48,54 @@ def X86_AnyTmm : Type<
   CPred<"::llvm::isa<::mlir::aster::x86::TmmType>($_self)">,
   "x86 tmm">;
 
+//===----------------------------------------------------------------------===//
+// AVX / AVX2 / AVX512 vector register types.
+// Register index is a bare integer; the type name carries the class.
+//===----------------------------------------------------------------------===//
+
+def X86_XMMType : X86_Type<"XMM", "avx.xmm"> {
+  let summary = "Pre-assigned AVX 128-bit vector register (xmm0..xmm15)";
+  let description = [{
+    ```mlir
+    !x86.avx.xmm<0>
+    ```
+  }];
+  let parameters = (ins "int64_t":$reg);
+  let assemblyFormat = "`<` $reg `>`";
+}
+
+def X86_YMMType : X86_Type<"YMM", "avx2.ymm"> {
+  let summary = "Pre-assigned AVX2 256-bit vector register (ymm0..ymm15)";
+  let description = [{
+    ```mlir
+    !x86.avx2.ymm<0>
+    ```
+  }];
+  let parameters = (ins "int64_t":$reg);
+  let assemblyFormat = "`<` $reg `>`";
+}
+
+def X86_ZMMType : X86_Type<"ZMM", "avx512.zmm"> {
+  let summary = "Pre-assigned AVX512 512-bit vector register (zmm0..zmm31)";
+  let description = [{
+    ```mlir
+    !x86.avx512.zmm<0>
+    ```
+  }];
+  let parameters = (ins "int64_t":$reg);
+  let assemblyFormat = "`<` $reg `>`";
+}
+
+def X86_AnyXMM : Type<
+  CPred<"::llvm::isa<::mlir::aster::x86::XMMType>($_self)">,
+  "x86 avx xmm">;
+
+def X86_AnyYMM : Type<
+  CPred<"::llvm::isa<::mlir::aster::x86::YMMType>($_self)">,
+  "x86 avx2 ymm">;
+
+def X86_AnyZMM : Type<
+  CPred<"::llvm::isa<::mlir::aster::x86::ZMMType>($_self)">,
+  "x86 avx512 zmm">;
+
 #endif // ASTER_DIALECT_X86_IR_X86TYPES_TD

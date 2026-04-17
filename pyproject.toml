@@ -13,6 +13,7 @@ line-length = 88
 "test/Unit/lit.cfg.py" = ["F821"]
 "test/lit.site.cfg.py.in" = ["F821"]
 "test/Unit/lit.site.cfg.py.in" = ["F821"]
+"contrib/cpu/test/lit.cfg.py" = ["F821"]
 # Dialect wrappers re-export from generated code via star imports.
 "python/aster/dialects/amdgcn.py" = ["F401", "F403", "F405", "E402"]
 "python/aster/dialects/lsir.py" = ["F403", "F405"]

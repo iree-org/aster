@@ -188,12 +188,18 @@ LogicalResult TranslateModuleImpl::emitFunc(func::FuncOp func,
 
 LogicalResult TranslateModuleImpl::translate() {
   size_t funcIndex = 0;
-  // TODO: is func.func acceptable here, do we need a special kernel op, what
-  // about ABI?
-  for (func::FuncOp func : module.getOps<func::FuncOp>())
+  // Walk all nested regions to find func.func ops (they may be inside
+  // x86.module or directly under builtin.module).
+  LogicalResult result = success();
+  module.walk([&](func::FuncOp func) {
+    if (failed(result))
+      return;
+    // TODO: is func.func acceptable here, do we need a special kernel op, what
+    // about ABI?
     if (failed(emitFunc(func, funcIndex++)))
-      return failure();
-  return success();
+      result = failure();
+  });
+  return result;
 }
 
 } // namespace

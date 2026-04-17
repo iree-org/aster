@@ -3,7 +3,7 @@
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-"""End-to-end execution helpers for contrib/cpu AMX kernels."""
+"""End-to-end execution helpers for contrib/cpu x86 kernels."""
 
 import ctypes
 import os
@@ -18,18 +18,44 @@ import numpy as np
 _RUNTIME_C = Path(__file__).parent / "amx_runtime.c"
 
 
-def has_amx_bf16() -> bool:
+def _has_cpuinfo_flag(flag: str) -> bool:
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         return False
     try:
-        return "amx_bf16" in Path("/proc/cpuinfo").read_text()
+        return flag in Path("/proc/cpuinfo").read_text()
     except OSError:
         return False
 
 
-def _compile_to_object(mlir_filename: os.PathLike, tmp_path: Path) -> Path:
-    asm = tmp_path / "amx.s"
-    obj = tmp_path / "amx.o"
+def has_amx_bf16() -> bool:
+    return _has_cpuinfo_flag("amx_bf16")
+
+
+def has_avx() -> bool:
+    return _has_cpuinfo_flag(" avx ")
+
+
+def has_fma() -> bool:
+    return _has_cpuinfo_flag("fma")
+
+
+def has_avx2() -> bool:
+    return _has_cpuinfo_flag("avx2")
+
+
+def has_avx512f() -> bool:
+    return _has_cpuinfo_flag("avx512f")
+
+
+def compile_to_object(
+    mlir_filename: os.PathLike,
+    tmp_path: Path,
+    *,
+    mattr: str = "+amx-tile,+amx-bf16",
+) -> Path:
+    """Compile MLIR -> asm -> object."""
+    asm = tmp_path / "kernel.s"
+    obj = tmp_path / "kernel.o"
 
     aster_cpu_translate = shutil.which("aster-cpu-translate")
     assert aster_cpu_translate, "aster-cpu-translate not on PATH"
@@ -47,7 +73,7 @@ def _compile_to_object(mlir_filename: os.PathLike, tmp_path: Path) -> Path:
         [
             str(llvm_mc),
             "-triple=x86_64-unknown-linux-gnu",
-            "-mattr=+amx-tile,+amx-bf16",
+            f"-mattr={mattr}",
             "-filetype=obj",
             str(asm),
             "-o",
@@ -58,14 +84,23 @@ def _compile_to_object(mlir_filename: os.PathLike, tmp_path: Path) -> Path:
     return obj
 
 
-def _link_shared_lib(obj_path: Path, tmp_path: Path) -> Optional[Path]:
+def link_shared_lib(
+    obj_path: Path,
+    tmp_path: Path,
+    *,
+    with_amx_runtime: bool = False,
+) -> Optional[Path]:
+    """Link an object into a shared library."""
     if platform.system() != "Linux":
         return None
-    so = tmp_path / "libamx.so"
+    so = tmp_path / "libkernel.so"
     cc = shutil.which("clang") or shutil.which("cc") or shutil.which("gcc")
     assert cc, "no system C compiler on PATH"
+    srcs = [str(obj_path)]
+    if with_amx_runtime:
+        srcs.insert(0, str(_RUNTIME_C))
     subprocess.run(
-        [cc, "-shared", "-fPIC", "-O2", str(_RUNTIME_C), str(obj_path), "-o", str(so)],
+        [cc, "-shared", "-fPIC", "-O2", *srcs, "-o", str(so)],
         check=True,
     )
     return so
@@ -81,18 +116,19 @@ def compile_and_run(
     tmp_path: Path,
     print_asm: bool = False,
 ) -> None:
+    """Legacy AMX E2E helper (tdpbf16ps test)."""
     import pytest
 
     if not shutil.which("aster-cpu-translate"):
         pytest.skip("aster-cpu-translate not on PATH (CPU backend not built)")
 
-    obj_path = _compile_to_object(mlir_filename, tmp_path)
+    obj_path = compile_to_object(mlir_filename, tmp_path)
 
     if print_asm:
-        asm_path = tmp_path / "amx.s"
+        asm_path = tmp_path / "kernel.s"
         print(asm_path.read_text(), end="")
 
-    so_path = _link_shared_lib(obj_path, tmp_path)
+    so_path = link_shared_lib(obj_path, tmp_path, with_amx_runtime=True)
     if so_path is None:
         pytest.skip(
             "cross-compilation to x86_64 ELF succeeded but host cannot "
