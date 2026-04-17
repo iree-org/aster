@@ -34,9 +34,14 @@ print_help() {
     echo "  --help             Show this help"
     echo ""
     echo "Environment variables (override defaults):"
-    echo "  LLVM_INSTALL  Shared LLVM install prefix  [default: \$HOME/shared-llvm]"
-    echo "  LLVM_BUILD    LLVM build directory         [default: \$HOME/llvm-build]"
-    echo "  LLVM_PROJECT  LLVM source checkout         [default: \$HOME/llvm-project]"
+    echo "  LLVM_INSTALL      Shared LLVM install prefix  [default: \$HOME/shared-llvm]"
+    echo "  LLVM_BUILD        LLVM build directory         [default: \$HOME/llvm-build]"
+    echo "  LLVM_PROJECT      LLVM source checkout         [default: \$HOME/llvm-project]"
+    echo "  ASTER_ENABLE_CPU  When set to 1, build shared LLVM with X86 target and"
+    echo "                    configure aster with -DASTER_ENABLE_CPU=ON (contrib/cpu AMX)"
+    echo ""
+    echo "Examples:"
+    echo "  ASTER_ENABLE_CPU=1 tools/setup.sh     # include x86 AMX contrib"
 }
 
 # ---------------------------------------------------------------------------
@@ -105,6 +110,11 @@ SKIP_LLVM=false
 SKIP_REQUIREMENTS=false
 LLVM_ONLY=false
 HIP_EXPLICIT=""
+# ASTER_ENABLE_CPU is an env var, not a CLI flag. Normalise to true/false.
+case "${ASTER_ENABLE_CPU:-0}" in
+    1|ON|on|true|TRUE|yes|YES) WITH_CPU=true ;;
+    *) WITH_CPU=false ;;
+esac
 ROCM_TARGET_EXPLICIT=""
 SKIP_ROCM_TEST=true
 CLANG_CMD="clang"
@@ -350,6 +360,22 @@ phase2_check_installed_llvm() {
     else
         warn "No shared LLVM found at $LLVM_INSTALL"
     fi
+
+    # ASTER_ENABLE_CPU additionally requires an x86-capable llvm-mc. A shared
+    # LLVM built with LLVM_TARGETS_TO_BUILD=AMDGPU only is not usable for the
+    # contrib/cpu AMX lit tests -- force a rebuild in that case.
+    if [ "$WITH_CPU" = true ] && [ "$LLVM_OK" = true ]; then
+        if [ ! -x "$LLVM_INSTALL/bin/llvm-mc" ]; then
+            warn "ASTER_ENABLE_CPU=1: shared LLVM has no llvm-mc binary, forcing rebuild"
+            LLVM_OK=false
+        elif ! "$LLVM_INSTALL/bin/llvm-mc" --version 2>/dev/null \
+                | grep -qiE '(^|[^a-z])x86([^a-z]|$)'; then
+            warn "ASTER_ENABLE_CPU=1: shared LLVM llvm-mc has no x86 target, forcing rebuild"
+            LLVM_OK=false
+        else
+            ok "ASTER_ENABLE_CPU=1: shared LLVM llvm-mc has x86 target"
+        fi
+    fi
 }
 
 phase2_ensure_source_checkout() {
@@ -409,6 +435,10 @@ phase2_build_shared_llvm_if_needed() {
     export LLVM_INSTALL="$LLVM_INSTALL"
     export LLVM_LINKER_FLAGS="$LLVM_LINKER_FLAGS"
     export LLVM_ENABLE_ASSERTIONS=ON
+    if [ "$WITH_CPU" = true ]; then
+        export LLVM_TARGETS_TO_BUILD="AMDGPU;X86"
+        ok "ASTER_ENABLE_CPU=1: building LLVM with targets AMDGPU;X86"
+    fi
     bash "$ASTER_DIR/tools/build-llvm.sh"
     ok "Shared LLVM built and installed at $LLVM_INSTALL"
 }
@@ -782,6 +812,11 @@ phase4_configure_cmake() {
         CMAKE_PREFIX_CHAIN="$CMAKE_PREFIX_CHAIN:$CMAKE_PREFIX_PATH"
     fi
 
+    local cpu_flag=""
+    if [ "$WITH_CPU" = true ]; then
+        cpu_flag="-DASTER_ENABLE_CPU=ON"
+    fi
+
     if CMAKE_PREFIX_PATH="$CMAKE_PREFIX_CHAIN" "$VIRTUAL_ENV/bin/cmake" \
         -S "$ASTER_DIR" -B "$ASTER_BUILD_DIR" -GNinja \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -793,6 +828,7 @@ phase4_configure_cmake() {
         -DPython_EXECUTABLE="$VIRTUAL_ENV/bin/python" \
         -DPython3_EXECUTABLE="$VIRTUAL_ENV/bin/python" \
         -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=aster \
+        ${cpu_flag} \
         $ASTER_LINKER_FLAGS \
         $CMAKE_EXTRA_FLAGS; then
         ok "cmake configured"

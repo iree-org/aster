@@ -1,0 +1,30 @@
+@LIT_SITE_CFG_IN_HEADER@
+
+config.host_triple = "@LLVM_HOST_TRIPLE@"
+config.target_triple = "@TARGET_TRIPLE@"
+config.llvm_src_root = "@LLVM_SOURCE_DIR@"
+config.llvm_obj_root = "@LLVM_BINARY_DIR@"
+config.llvm_tools_dir = "@LLVM_TOOLS_DIR@"
+config.llvm_lib_dir = "@LLVM_LIBRARY_DIR@"
+config.llvm_shlib_dir = "@SHLIBDIR@"
+config.llvm_shlib_ext = "@SHLIBEXT@"
+config.host_arch = "@HOST_ARCH@"
+config.host_os = "@HOST_OS@"
+config.aster_src_root = "@ASTER_SOURCE_DIR@"
+config.aster_obj_root = "@ASTER_BINARY_DIR@"
+config.aster_python_root = "@ASTER_PYTHON_DIR@"
+config.aster_python_enabled = "@ASTER_ENABLE_PYTHON@"
+
+# Absolute paths to the shared-LLVM x86-capable tools. CMake verifies at
+# configure time that these binaries advertise the x86 target; otherwise
+# the build fails with instructions to rebuild shared LLVM with X86.
+config.aster_llvm_mc = "@ASTER_LLVM_MC@"
+config.aster_llvm_objdump = "@ASTER_LLVM_OBJDUMP@"
+
+import lit.llvm
+lit.llvm.initialize(lit_config, config)
+
+# Let the main config do the real work.
+lit_config.load_config(
+    config, "@ASTER_SOURCE_DIR@/contrib/cpu/test/lit.cfg.py"
+)
