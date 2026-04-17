@@ -66,6 +66,21 @@ DIM_K = 2
 
 
 # -----------------------------------------------------------------------
+# MFMA shape per target
+# -----------------------------------------------------------------------
+
+_MFMA_SHAPE_FOR_MCPU: dict[str, list[int]] = {
+    "gfx942": [16, 16, 16],
+    "gfx950": [16, 16, 32],
+}
+
+
+def mfma_shape_for_mcpu(mcpu: str) -> list[int]:
+    """Return the default f16 MFMA tile shape for the given target."""
+    return list(_MFMA_SHAPE_FOR_MCPU.get(mcpu, [16, 16, 16]))
+
+
+# -----------------------------------------------------------------------
 # GemmSpec -- the GEMM problem
 # -----------------------------------------------------------------------
 

@@ -89,8 +89,15 @@ def _build_multitile_gemm(
     )
     lds_read_tile_a = Layout((_exact_div(ws, mfma_m, "ws/mfma_m"), mfma_m), (mapping.ds_read_bytes, tile_row_bytes))
     lds_read_tile_b = Layout((_exact_div(ws, mfma_n, "ws/mfma_n"), mfma_n), (mapping.ds_read_bytes, tile_row_bytes))
-    lds_read_sub_tile_a = Layout((1, _exact_div(tile_k_elems, mfma_k, "tile_k/mfma_k")), (0, mfma_k * elt_bytes_a))
-    lds_read_sub_tile_b = Layout((1, _exact_div(tile_k_elems, mfma_k, "tile_k/mfma_k")), (0, mfma_k * elt_bytes_b))
+    # When the MFMA needs vx4 operands (CDNA4 16x16x32), each ds_read_b64
+    # gives only half the K elements needed (vx2). Use frag_k = mfma_k // 2
+    # so we get 2 fragments per tile, joined to vx4 in the compute loop.
+    from aster.dialects.kernel_builder import MFMA_F16_CDNA4
+
+    vx4_mfma = mfma_k == MFMA_F16_CDNA4.shape[2] and MFMA_F16_CDNA4.reads_vx4
+    frag_k = mfma_k // 2 if vx4_mfma else mfma_k
+    lds_read_sub_tile_a = Layout((1, _exact_div(tile_k_elems, frag_k, "tile_k/frag_k")), (0, frag_k * elt_bytes_a))
+    lds_read_sub_tile_b = Layout((1, _exact_div(tile_k_elems, frag_k, "tile_k/frag_k")), (0, frag_k * elt_bytes_b))
     lds_swizzle = mapping.lds_swizzle
 
     m_t, n_t, k_t = tpw[DIM_M], tpw[DIM_N], tpw[DIM_K]
@@ -499,23 +506,51 @@ def _build_multitile_gemm(
 
         # -- COMPUTE --
         with b.stage(STG_COMPUTE):
-            # 4-D iteration: (sub, kt, mt, nt) with sub outermost so
-            # consecutive MFMAs hit different accumulators (tile-first).
             nf = n_frags_per_tile
 
-            @b.foreach_tile(nf * k_t * m_t * n_t)
-            def _(idx):
-                sub, kt, mt, nt = b.delinearize_index(idx, (nf, k_t, m_t, n_t))
-                acc_idx = b.linearize_index((mt, nt), (m_t, n_t))
-                # frag index = tile * nf + sub (matching read_a/read_b layout)
-                a_fi = b.linearize_index((kt, mt, sub), (k_t, m_t, nf))
-                b_fi = b.linearize_index((kt, nt, sub), (k_t, n_t, nf))
-                b.wait_deps(b.memref_load(rtok_buf_a, a_fi), b.memref_load(rtok_buf_b, b_fi))
-                acc = b.memref_load(c_buf, acc_idx)
-                a_frag = b.from_any(b.memref_load(frag_buf_a, a_fi), vx2_type)
-                b_frag = b.from_any(b.memref_load(frag_buf_b, b_fi), vx2_type)
-                new_acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
-                b.memref_store(new_acc, c_buf, acc_idx)
+            if vx4_mfma:
+                # CDNA4: join 2 vx2 fragments -> vx4 per MFMA.
+                assert nf == 2, f"CDNA4 expects 2 vx2 frags per tile, got {nf}"
+
+                @b.foreach_tile(k_t * m_t * n_t)
+                def _(idx):
+                    kt, mt, nt = b.delinearize_index(idx, (k_t, m_t, n_t))
+                    acc_idx = b.linearize_index((mt, nt), (m_t, n_t))
+                    a_lo_i = b.linearize_index((kt, mt, b.constant_index(0)), (k_t, m_t, nf))
+                    a_hi_i = b.linearize_index((kt, mt, b.constant_index(1)), (k_t, m_t, nf))
+                    b_lo_i = b.linearize_index((kt, nt, b.constant_index(0)), (k_t, n_t, nf))
+                    b_hi_i = b.linearize_index((kt, nt, b.constant_index(1)), (k_t, n_t, nf))
+                    b.wait_deps(
+                        b.memref_load(rtok_buf_a, a_lo_i),
+                        b.memref_load(rtok_buf_a, a_hi_i),
+                        b.memref_load(rtok_buf_b, b_lo_i),
+                        b.memref_load(rtok_buf_b, b_hi_i),
+                    )
+                    acc = b.memref_load(c_buf, acc_idx)
+                    a_vx4 = b.join_vx2_to_vx4(
+                        b.from_any(b.memref_load(frag_buf_a, a_lo_i), vx2_type),
+                        b.from_any(b.memref_load(frag_buf_a, a_hi_i), vx2_type),
+                    )
+                    b_vx4 = b.join_vx2_to_vx4(
+                        b.from_any(b.memref_load(frag_buf_b, b_lo_i), vx2_type),
+                        b.from_any(b.memref_load(frag_buf_b, b_hi_i), vx2_type),
+                    )
+                    new_acc = b.mfma(MFMA_F16_CDNA4.opcode, acc, a_vx4, b_vx4)
+                    b.memref_store(new_acc, c_buf, acc_idx)
+            else:
+                # CDNA3: one vx2 MFMA per sub-tile.
+                @b.foreach_tile(nf * k_t * m_t * n_t)
+                def _(idx):
+                    sub, kt, mt, nt = b.delinearize_index(idx, (nf, k_t, m_t, n_t))
+                    acc_idx = b.linearize_index((mt, nt), (m_t, n_t))
+                    a_fi = b.linearize_index((kt, mt, sub), (k_t, m_t, nf))
+                    b_fi = b.linearize_index((kt, nt, sub), (k_t, n_t, nf))
+                    b.wait_deps(b.memref_load(rtok_buf_a, a_fi), b.memref_load(rtok_buf_b, b_fi))
+                    acc = b.memref_load(c_buf, acc_idx)
+                    a_frag = b.from_any(b.memref_load(frag_buf_a, a_fi), vx2_type)
+                    b_frag = b.from_any(b.memref_load(frag_buf_b, b_fi), vx2_type)
+                    new_acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
+                    b.memref_store(new_acc, c_buf, acc_idx)
 
             if ping_pong_staggered:
                 b.s_barrier()
@@ -665,18 +700,25 @@ def _make_instance(
     k_mult,
     pipeline_strategy=1,
     b_path="lds",
+    mcpu=None,
 ):
     """Build a MultitileGemmInstance from list parameters.
 
-    M, N, K are derived from the tile grid and GemmSpec/GemmMappingSpec
-    defaults (MFMA shape and transfer widths).
+    M, N, K are derived from the tile grid, mcpu (which selects the MFMA
+    shape), and GemmMappingSpec defaults for transfer widths.
     """
+    from kittens.gemm_config import mfma_shape_for_mcpu
+
+    mfma_shape = mfma_shape_for_mcpu(mcpu) if mcpu else None
     assert num_tiles_per_wg[DIM_M] % num_waves_per_wg[DIM_M] == 0, (
         f"twg_m({num_tiles_per_wg[DIM_M]}) not divisible by wpw_m({num_waves_per_wg[DIM_M]})"
     )
     assert num_tiles_per_wg[DIM_N] % num_waves_per_wg[DIM_N] == 0, (
         f"twg_n({num_tiles_per_wg[DIM_N]}) not divisible by wpw_n({num_waves_per_wg[DIM_N]})"
     )
+    mapping_kw = {}
+    if mcpu is not None:
+        mapping_kw["mcpu"] = mcpu
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=list(num_workgroups),
         num_waves_per_workgroup=list(num_waves_per_wg),
@@ -687,19 +729,16 @@ def _make_instance(
         ],
         pipeline_strategy=pipeline_strategy,
         operand_path=OperandPath(b_path),
+        **mapping_kw,
     )
-    # Derive M/N/K from tile grid using GemmSpec defaults for mfma_shape +
-    # elt_bytes_a (and the real mapping's wave_size + global_load_bytes
-    # which both match defaults here).
-    # Match MultitileGemmInstance.transfer_tile_k_elems:
-    #   (ws // mfma_m) * (xfer_bytes_a // elt_bytes_a).
-    probe_spec = GemmSpec.from_sizes(1, 1, 1)
+    spec_kw = {} if mfma_shape is None else {"mfma_shape": mfma_shape}
+    probe_spec = GemmSpec.from_sizes(1, 1, 1, **spec_kw)
     mfma = probe_spec.mfma_shape
     tile_k_elems = (mapping.wave_size // mfma[DIM_M]) * (mapping.global_load_bytes // probe_spec.elt_bytes_a)
     M = num_workgroups[DIM_M] * num_tiles_per_wg[DIM_M] * mfma[DIM_M]
     N = num_workgroups[DIM_N] * num_tiles_per_wg[DIM_N] * mfma[DIM_N]
     k = k_mult * num_tiles_per_wg[DIM_K] * tile_k_elems
-    return MultitileGemmInstance(GemmSpec.from_sizes(M, N, k), mapping)
+    return MultitileGemmInstance(GemmSpec.from_sizes(M, N, k, **spec_kw), mapping)
 
 
 def _run_multitile(cfg, lds_at_write=False):
