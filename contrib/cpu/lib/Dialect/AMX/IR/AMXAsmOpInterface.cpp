@@ -19,9 +19,11 @@ using namespace mlir::aster::amx;
   Type t = v.getType();
   if (auto gpr = dyn_cast<::mlir::aster::x86::GprType>(t))
     return ::mlir::aster::x86::stringifyGprEnum(gpr.getReg());
+  if (auto tmm = dyn_cast<::mlir::aster::x86::TmmType>(t))
+    return ::mlir::aster::x86::stringifyTmmEnum(tmm.getReg());
   if (auto tile = dyn_cast<TileType>(t))
-    return tile.getName().getValue();
-  llvm_unreachable("expected !x86.gpr or !amx.tile value type");
+    return ::mlir::aster::x86::stringifyTmmEnum(tile.getReg());
+  llvm_unreachable("expected !x86.gpr, !x86.tmm, or !amx.tile value type");
 }
 
 //===----------------------------------------------------------------------===//
@@ -58,6 +60,11 @@ void TileStoredOp::printAsm(raw_ostream &os) {
      << getPhysicalRegisterName(getValue()) << ", (%"
      << getPhysicalRegisterName(getBase()) << ", %"
      << getPhysicalRegisterName(getStride()) << ", 1)\n";
+}
+
+void TileZeroOp::printAsm(raw_ostream &os) {
+  os << (*this)->getName().stripDialect() << " %"
+     << getPhysicalRegisterName(getResult()) << "\n";
 }
 
 void TileReleaseOp::printAsm(raw_ostream &os) {

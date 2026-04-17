@@ -16,8 +16,8 @@
 
 namespace mlir::aster::amx {
 
-/// Return the physical x86_64 register name encoded in an `!x86.gpr<reg>`
-/// or `!amx.tile<"...", ...>` value type.
+/// Return the physical x86_64 register name encoded in an `!x86.gpr<reg>`,
+/// `!x86.tmm<tmmN>`, or `!amx.tile<tmmN, ...>` value type.
 ::llvm::StringRef getPhysicalRegisterName(::mlir::Value v);
 
 } // namespace mlir::aster::amx

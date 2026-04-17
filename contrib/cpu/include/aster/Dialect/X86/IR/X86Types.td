@@ -28,4 +28,24 @@ def X86_AnyGpr : Type<
   CPred<"::llvm::isa<::mlir::aster::x86::GprType>($_self)">,
   "x86 gpr">;
 
+//===----------------------------------------------------------------------===//
+// AMX tile registers (tmm0..tmm7).
+//===----------------------------------------------------------------------===//
+
+def X86_TmmType : X86_Type<"Tmm", "tmm"> {
+  let summary = "Pre-assigned AMX tile register (tmm0..tmm7)";
+  let description = [{
+    ```mlir
+    !x86.tmm<tmm0>
+    !x86.tmm<tmm3>
+    ```
+  }];
+  let parameters = (ins EnumParameter<X86_TmmEnum>:$reg);
+  let assemblyFormat = "`<` $reg `>`";
+}
+
+def X86_AnyTmm : Type<
+  CPred<"::llvm::isa<::mlir::aster::x86::TmmType>($_self)">,
+  "x86 tmm">;
+
 #endif // ASTER_DIALECT_X86_IR_X86TYPES_TD

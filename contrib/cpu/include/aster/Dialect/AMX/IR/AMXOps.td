@@ -25,7 +25,7 @@ def AMX_LdTileCfgOp : AMX_AsmOp<"ldtilecfg"> {
 
     The config is fully determined by static type information.
     The translation pass:
-      1. walks the function, collects unique `!amx.tile<"tmmN", ...>` types,
+      1. walks the function, collects unique `!amx.tile<tmmN, ...>` types,
       2. synthesizes the 64-byte config into a `.rodata` label
          `.Lcfg_<funcname>`, and
       3. emits `ldtilecfg .Lcfg_<funcname>(%rip)`.
@@ -75,6 +75,21 @@ def AMX_TileStoredOp : AMX_AsmOp<"tilestored"> {
     $base `,` $stride `,` $value attr-dict
       `:` type($base) `,` type($stride) `,` type($value)
   }];
+}
+
+def AMX_TileZeroOp : AMX_AsmOp<"tilezero"> {
+  let summary = "Zero a tile register";
+  let description = [{
+    Zeroes the destination tile register without loading from memory.
+    Avoids the need to allocate and load a zeroed buffer.
+
+    Example:
+    ```mlir
+    %c = amx.tilezero : !amx.tile<tmm0, 16 x 16 x f32>
+    ```
+  }];
+  let results = (outs AMX_AnyTile:$result);
+  let assemblyFormat = "attr-dict `:` type($result)";
 }
 
 def AMX_TileReleaseOp : AMX_AsmOp<"tilerelease"> {

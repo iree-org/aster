@@ -8,6 +8,7 @@
 #define ASTER_DIALECT_AMX_IR_AMXTYPES_TD
 
 include "aster/Dialect/AMX/IR/AMXDialect.td"
+include "aster/Dialect/X86/IR/X86Enums.td"
 
 def AMX_TileType : AMX_Type<"Tile", "tile"> {
   let summary = "Pre-assigned x86 AMX tile register";
@@ -17,18 +18,18 @@ def AMX_TileType : AMX_Type<"Tile", "tile"> {
 
     Syntax:
     ```mlir
-    !amx.tile<"tmm0", 16 x 16 x f32>
-    !amx.tile<"tmm1", 16 x 32 x bf16>
+    !amx.tile<tmm0, 16 x 16 x f32>
+    !amx.tile<tmm1, 16 x 32 x bf16>
     ```
   }];
   let parameters = (ins
-    "::mlir::StringAttr":$name,
+    EnumParameter<X86_TmmEnum>:$reg,
     "int64_t":$rows,
     "int64_t":$cols,
     "::mlir::Type":$elementType
   );
   let assemblyFormat =
-    "`<` $name `,` $rows `x` $cols `x` $elementType `>`";
+    "`<` $reg `,` $rows `x` $cols `x` $elementType `>`";
 }
 
 def AMX_AnyTile : Type<

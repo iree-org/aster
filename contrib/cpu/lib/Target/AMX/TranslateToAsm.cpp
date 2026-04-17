@@ -32,7 +32,7 @@ private:
   /// Emit the given function (tilecfg + prologue + body + epilogue).
   LogicalResult emitFunc(func::FuncOp func, size_t funcIndex);
   /// Emit a .rodata block containing the 64-byte AMX TILECFG derived
-  /// from the `!amx.tile<"tmmN", ...>` types referenced by `func`.
+  /// from the `!amx.tile<tmmN, ...>` types referenced by `func`.
   LogicalResult emitFuncTileCfg(func::FuncOp func);
   /// Emit the SysV prologue: .text / .globl / .p2align / .type + label.
   LogicalResult emitFuncPrologue(func::FuncOp func);
@@ -49,20 +49,6 @@ private:
   raw_indented_ostream os;
 };
 
-/// Parse the tmm index out of an `!amx.tile<"tmmN", ...>` type name.
-/// Returns the integer in [0, 8), or `failure()` if the name is not of
-/// the expected form.
-static FailureOr<int64_t> parseTmmIndex(StringRef name) {
-  if (!name.starts_with("tmm"))
-    return failure();
-  int64_t index;
-  if (name.drop_front(3).getAsInteger(10, index))
-    return failure();
-  if (index < 0 || index >= 8)
-    return failure();
-  return index;
-}
-
 /// Derive the AMX TILECFG bytes for a function from the tile types used in its
 /// body. Fails if two ops reference the same tmm index with incompatible
 /// shapes.
@@ -72,28 +58,27 @@ static FailureOr<int64_t> parseTmmIndex(StringRef name) {
 ///   llvm/lib/Target/X86/X86TileConfig.cpp L148-L165.
 static FailureOr<SmallVector<uint8_t, 64>>
 buildTileCfgBytes(func::FuncOp func) {
-  struct TileInfo { int64_t rows = -1; int64_t colsb = -1; };
+  struct TileInfo {
+    int64_t rows = -1;
+    int64_t colsb = -1;
+  };
   SmallVector<TileInfo, 8> tiles(8);
 
   auto visit = [&](TileType t) -> LogicalResult {
-    FailureOr<int64_t> idx = parseTmmIndex(t.getName().getValue());
-    if (failed(idx))
-      return func.emitError() << "amx tile type has non-tmm name: \""
-                              << t.getName().getValue() << "\"";
+    int64_t idx = static_cast<int64_t>(t.getReg());
+    StringRef name = ::mlir::aster::x86::stringifyTmmEnum(t.getReg());
     int64_t rowBytes =
         t.getCols() * (t.getElementType().getIntOrFloatBitWidth() / 8);
     if (rowBytes > 64)
-      return func.emitError()
-             << "amx tile " << t.getName().getValue()
-             << " column-byte size " << rowBytes << " exceeds 64";
+      return func.emitError() << "amx tile " << name << " column-byte size "
+                              << rowBytes << " exceeds 64";
     if (t.getRows() > 16)
-      return func.emitError()
-             << "amx tile " << t.getName().getValue() << " row count "
-             << t.getRows() << " exceeds 16";
-    TileInfo &slot = tiles[*idx];
+      return func.emitError() << "amx tile " << name << " row count "
+                              << t.getRows() << " exceeds 16";
+    TileInfo &slot = tiles[idx];
     if (slot.rows != -1 && (slot.rows != t.getRows() || slot.colsb != rowBytes))
       return func.emitError()
-             << "amx tile " << t.getName().getValue()
+             << "amx tile " << name
              << " declared with conflicting shapes in this function";
     slot.rows = t.getRows();
     slot.colsb = rowBytes;
