@@ -11,8 +11,17 @@ _MLIR = os.path.join(_THIS_DIR, "tdpbf16ps.mlir")
 
 def _vnni_pack(b: np.ndarray) -> np.ndarray:
     """Pack a row-major (K, N) BF16 tile into (K/2, N, 2) for `tdpbf16ps` B."""
+    assert b.ndim == 2, f"expected 2-d array, got {b.ndim}-d"
     k, n = b.shape
-    return b.reshape(k // 2, 2, n).transpose(0, 2, 1).copy()
+    VNNI_PACK_FACTOR_F16 = 2
+    assert k % VNNI_PACK_FACTOR_F16 == 0, (
+        f"K={k} must be 0 mod {VNNI_PACK_FACTOR_F16} for BF16 VNNI packing"
+    )
+    return (
+        b.reshape(k // VNNI_PACK_FACTOR_F16, VNNI_PACK_FACTOR_F16, n)
+        .transpose(0, 2, 1)
+        .copy()
+    )
 
 
 def test_tdpbf16ps_e2e(tmp_path, m=16, n=16, k=32):
