@@ -882,6 +882,58 @@ class TestOperandPath:
         _run_multitile(cfg)
 
 
+class TestCdna4Mfma:
+    """CDNA4 v_mfma_f32_16x16x32_f16 via the non-G2S memory path (mcpu=gfx950).
+
+    Same global_load -> ds_write -> ds_read path as CDNA3, but the
+    compute loop joins 2 vx2 fragments into vx4 for the doubled-K MFMA.
+    """
+
+    @pytest.mark.parametrize(
+        "num_waves_per_wg,num_tiles_per_wg",
+        [
+            ([1, 1, 1], [2, 2, 1]),
+            ([2, 2, 1], [4, 4, 1]),
+        ],
+        ids=["1w_2x2", "4w_4x4"],
+    )
+    @pytest.mark.parametrize("pipeline_strategy", [0, 3], ids=["ps0", "ps3"])
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, pipeline_strategy):
+        cfg = _make_instance(
+            [1, 1, 1],
+            num_waves_per_wg,
+            num_tiles_per_wg,
+            k_mult=4,
+            pipeline_strategy=pipeline_strategy,
+            mcpu="gfx950",
+        )
+        _run_multitile(cfg)
+
+    @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
+    def test_operand_path(self, b_path):
+        cfg = _make_instance(
+            [1, 1, 1],
+            [2, 2, 1],
+            [4, 4, 1],
+            k_mult=4,
+            pipeline_strategy=3,
+            b_path=b_path,
+            mcpu="gfx950",
+        )
+        _run_multitile(cfg)
+
+    def test_multi_wg(self):
+        cfg = _make_instance(
+            [2, 2, 1],
+            [2, 2, 1],
+            [4, 4, 1],
+            k_mult=4,
+            pipeline_strategy=3,
+            mcpu="gfx950",
+        )
+        _run_multitile(cfg)
+
+
 # ---------------------------------------------------------------------------
 # Resource estimation accuracy tests
 # ---------------------------------------------------------------------------
