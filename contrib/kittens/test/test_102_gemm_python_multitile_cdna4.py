@@ -40,6 +40,7 @@ from kittens.gemm_config import (
     DIM_K,
     GemmSpec,
     GemmMappingSpec,
+    OperandPath,
     WeakScaledMappedGemmInstance,
 )
 
@@ -53,6 +54,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     from kittens_helpers import PIPELINE_STRATEGIES
 
     spec, mapping = cfg.spec, cfg.mapping
+    direct_b = mapping.direct_b
     gs = spec.gemm_size
     wg = mapping.num_workgroups_per_kernel
     wpw = mapping.num_waves_per_workgroup
@@ -148,6 +150,15 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     N_DIST = Layout((wg[DIM_N], wpw[DIM_N]), (twg_n, n_t))
     C_COORD = Layout((m_t, n_t), (mfma_m * stride_c_row, mfma_n * stride_c_col))
 
+    # Preshuffle B layout: (n_block, k_block, lane_id) -> byte offset.
+    # Reuses shuffle_weight() from kittens_helpers.py byte-for-byte.
+    nb, kb = cfg.preshuffle_n_blocks, cfg.preshuffle_k_blocks
+    lane_s = cfg.preshuffle_lane_stride_bytes
+    k_s = cfg.preshuffle_k_block_stride_bytes
+    stride_n0_bytes = kb * k_s
+    PRESHUFFLE_DIMS = (nb, kb, ws)
+    PRESHUFFLE_LAYOUT = Layout((nb, kb, ws), (stride_n0_bytes, k_s, lane_s))
+
     # Cooperative load layouts (same pattern as test_102).
     COOP_COORD_A = Layout((coop_a_k, coop_a_m), (tile_row_bytes, mfma_m * stride_a))
     COOP_COORD_B = Layout((coop_b_k, coop_b_n), (tile_row_bytes, mfma_n * stride_b))
@@ -219,6 +230,14 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
         )
         return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
 
+    # Direct-B global load helper: one dwordx4 per lane from a preshuffled B.
+    if direct_b:
+
+        @b.define_helper("_load_b_direct", [b.sgpr2_type, b.idx_type], [b.any_type, b.flat_read_tok])
+        def load_b_direct_fn(bb, ptr, byte_off):
+            d, t = bb.global_load_dwordx4(ptr, dynamic_offset=bb.index_to_vgpr(byte_off))
+            return [bb.to_any(d), t]
+
     # -- Init accumulators --
     c_buf = b.memref_alloca(b.constant_index(n_accs), b.ax4_type)
 
@@ -251,14 +270,11 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     # -- K-loop (pipelined by mapping.pipeline_strategy) --
     @b.loop(c0, b.constant_index(k_iters), c1)
     def _(k_iv):
-        # -- LDS ALLOC: both A and B at the earliest LOAD stage so the
-        # multi-buffer allocator sees the same depth for both.
-        # Splitting them across different stages (A_LOAD vs B_LOAD) could give
-        # different buffer depths and cause some LDS slot to be overwritten
-        # before the current read finishes.
+        # -- LDS ALLOC: A always, B only when not direct_b.
         with b.stage(first_lds_load):
             lds_a_h, lds_a = b.alloc_lds(lds_total_a)
-            lds_b_h, lds_b = b.alloc_lds(lds_total_b)
+            if not direct_b:
+                lds_b_h, lds_b = b.alloc_lds(lds_total_b)
 
         # -- G2S LOAD A (cooperative, 2D split) --
         with b.stage(STG_A_LOAD):
@@ -282,48 +298,64 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
                 tok = b.g2s_buffer_load_dwordx4(m0, a_rsrc, soff_val, b.index_to_vgpr(voff))
                 return [tok]
 
-        # -- G2S LOAD B (cooperative, 2D split) --
-        with b.stage(STG_B_LOAD):
-            b_wg_k_idx = b.linearize_index((wg_n_idx, k_iv), (wg[DIM_N], k_iters))
-            b_wg_base = b.linearize_layout(b_wg_k_idx, WG_BASE_B)
-            coop_b_off = b.linearize_layout(
-                b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), TILE_COORD_B
-            )
-            b_wave_base = b.affine_apply(d0 + d1, [b_wg_base, coop_b_off])
-            coop_b_lds_off = b.linearize_layout(
-                b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), LDS_COORD_B
-            )
-            lds_b_wave = b.affine_apply(d0 + d1, [lds_b, coop_b_lds_off])
+        # -- LOAD B --
+        if direct_b:
+            with b.stage(STG_B_LOAD):
+                lid = b.lane_id()
+                n_base_b = b.linearize_layout(
+                    b.linearize_index((wg_n_idx, wave_n_idx), (wg[DIM_N], wpw[DIM_N])), N_DIST
+                )
 
-            @b.foreach_tile(n_coop_b, types=[(b.flat_write_tok, 1)])
-            def g2s_toks_b(idx):
-                tile_off = b.linearize_layout(idx, COOP_COORD_B)
-                voff = b.affine_apply(s0 + s1 + s2, [], [b_wave_base, thread_off_b, tile_off])
-                lds_off = b.affine_apply(d0 + d1, [lds_b_wave, b.linearize_layout(idx, COOP_LDS_B)])
-                b.set_m0(m0, b.index_to_sgpr(lds_off))
-                tok = b.g2s_buffer_load_dwordx4(m0, b_rsrc, soff_val, b.index_to_vgpr(voff))
-                return [tok]
+                @b.foreach_tile(n_read_b, types=[(b.any_type, 1), (b.flat_read_tok, 1)])
+                def load_b_direct(idx):
+                    kt, nt = b.delinearize_index(idx, (k_t, n_t))
+                    n_block = b.affine_apply(d0 + d1, [n_base_b, nt])
+                    k_block = b.affine_apply(d0 * k_t + d1, [k_iv, kt])
+                    byte_off = b.linearize_layout(
+                        b.linearize_index((n_block, k_block, lid), PRESHUFFLE_DIMS),
+                        PRESHUFFLE_LAYOUT,
+                    )
+                    return b.call_helper(load_b_direct_fn, [b_ptr, byte_off], [b.any_type, b.flat_read_tok])
+
+                data_buf_b_direct, tok_buf_b_direct = load_b_direct
+        else:
+            # -- G2S LOAD B (cooperative, 2D split) --
+            with b.stage(STG_B_LOAD):
+                b_wg_k_idx = b.linearize_index((wg_n_idx, k_iv), (wg[DIM_N], k_iters))
+                b_wg_base = b.linearize_layout(b_wg_k_idx, WG_BASE_B)
+                coop_b_off = b.linearize_layout(
+                    b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), TILE_COORD_B
+                )
+                b_wave_base = b.affine_apply(d0 + d1, [b_wg_base, coop_b_off])
+                coop_b_lds_off = b.linearize_layout(
+                    b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), LDS_COORD_B
+                )
+                lds_b_wave = b.affine_apply(d0 + d1, [lds_b, coop_b_lds_off])
+
+                @b.foreach_tile(n_coop_b, types=[(b.flat_write_tok, 1)])
+                def g2s_toks_b(idx):
+                    tile_off = b.linearize_layout(idx, COOP_COORD_B)
+                    voff = b.affine_apply(s0 + s1 + s2, [], [b_wave_base, thread_off_b, tile_off])
+                    lds_off = b.affine_apply(d0 + d1, [lds_b_wave, b.linearize_layout(idx, COOP_LDS_B)])
+                    b.set_m0(m0, b.index_to_sgpr(lds_off))
+                    tok = b.g2s_buffer_load_dwordx4(m0, b_rsrc, soff_val, b.index_to_vgpr(voff))
+                    return [tok]
 
         # -- LDS READ A: wait G2S + barrier + read + dealloc --
-        # Both vmcnt waits go in STG_A_LDS_READ (not first_lds_load) because
-        # STG_A_LDS_READ >= max(STG_A_LOAD, STG_B_LOAD) for all strategies.
         with b.stage(STG_A_LDS_READ):
 
             @b.foreach_tile(n_coop_a)
             def _(i):
                 b.wait_deps(b.memref_load(g2s_toks_a, i))
 
-            b.s_barrier()
+            if not direct_b:
 
-        with b.stage(STG_B_LDS_READ):
-
-            @b.foreach_tile(n_coop_b)
-            def _(i):
-                b.wait_deps(b.memref_load(g2s_toks_b, i))
+                @b.foreach_tile(n_coop_b)
+                def _(i):
+                    b.wait_deps(b.memref_load(g2s_toks_b, i))
 
             b.s_barrier()
 
-        with b.stage(STG_A_LDS_READ):
             wave_m_off = b.linearize_layout(wid, WAVE_M_LDS_OFF)
             wave_lds_base_a = b.affine_apply(d0 + d1, [lds_a, wave_m_off])
 
@@ -336,19 +368,32 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
             frag_buf_a, rtok_buf_a = read_a
             b.dealloc_lds(lds_a_h)
 
-        # -- LDS READ B + dealloc --
-        with b.stage(STG_B_LDS_READ):
-            wave_n_off = b.linearize_layout(wid, WAVE_N_LDS_OFF)
-            wave_lds_base_b = b.affine_apply(d0 + d1, [lds_b, wave_n_off])
+        # -- B FRAGMENTS: LDS read (cooperative) or wait+split (direct) --
+        if direct_b:
+            with b.stage(STG_B_LDS_READ):
 
-            @b.foreach_tile(n_read_b, types=[(b.any_type, n_frags_per_tile), (b.lds_read_tok, n_frags_per_tile)])
-            def read_b(idx):
-                tile_off = b.linearize_layout(idx, WAVE_READ_COORD_B)
-                off = b.affine_apply(d0 + d1, [wave_lds_base_b, tile_off])
-                return b.call_helper(read_b_fn, [off], read_ret)
+                @b.foreach_tile(n_read_b, types=[(b.any_type, n_frags_per_tile), (b.flat_read_tok, n_frags_per_tile)])
+                def read_b(idx):
+                    tok = b.memref_load(tok_buf_b_direct, idx)
+                    b.wait_deps(tok)
+                    b_vx4 = b.from_any(b.memref_load(data_buf_b_direct, idx), b.vx4_type)
+                    b_lo, b_hi = b.split_vx4(b_vx4)
+                    return [b.to_any(b_lo), b.to_any(b_hi)] + [tok] * n_frags_per_tile
 
-            frag_buf_b, rtok_buf_b = read_b
-            b.dealloc_lds(lds_b_h)
+                frag_buf_b, rtok_buf_b = read_b
+        else:
+            with b.stage(STG_B_LDS_READ):
+                wave_n_off = b.linearize_layout(wid, WAVE_N_LDS_OFF)
+                wave_lds_base_b = b.affine_apply(d0 + d1, [lds_b, wave_n_off])
+
+                @b.foreach_tile(n_read_b, types=[(b.any_type, n_frags_per_tile), (b.lds_read_tok, n_frags_per_tile)])
+                def read_b(idx):
+                    tile_off = b.linearize_layout(idx, WAVE_READ_COORD_B)
+                    off = b.affine_apply(d0 + d1, [wave_lds_base_b, tile_off])
+                    return b.call_helper(read_b_fn, [off], read_ret)
+
+                frag_buf_b, rtok_buf_b = read_b
+                b.dealloc_lds(lds_b_h)
 
         # -- COMPUTE: coalesce vx2 fragments into vx4 for CDNA4 MFMA --
         with b.stage(STG_COMPUTE):
@@ -431,6 +476,26 @@ class Cdna4GemmInstance(WeakScaledMappedGemmInstance):
         return self.spec.mfma_shape[DIM_M] * self.transfer_tile_row_bytes
 
     @property
+    def preshuffle_n_blocks(self) -> int:
+        n, mn = self.gemm_size[DIM_N], self.spec.mfma_shape[DIM_N]
+        assert n % mn == 0, f"N={n} not divisible by mfma_n={mn}"
+        return n // mn
+
+    @property
+    def preshuffle_k_blocks(self) -> int:
+        k, tk = self.gemm_size[DIM_K], self.transfer_tile_k_elems
+        assert k % tk == 0, f"K={k} not divisible by transfer_tile_k_elems={tk}"
+        return k // tk
+
+    @property
+    def preshuffle_lane_stride_bytes(self) -> int:
+        return self.mapping.global_load_bytes
+
+    @property
+    def preshuffle_k_block_stride_bytes(self) -> int:
+        return self.mapping.wave_size * self.preshuffle_lane_stride_bytes
+
+    @property
     def label(self) -> str:
         return f"{super().label}_cdna4"
 
@@ -445,7 +510,7 @@ class Cdna4GemmInstance(WeakScaledMappedGemmInstance):
         return cls(spec, mapping)
 
 
-def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy=0):
+def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy=0, b_path="lds"):
     """Build a Cdna4GemmInstance from tile grid and K multiplier."""
     mfma = MFMA_F16_CDNA4.shape
     twg_m, twg_n = num_tiles_per_wg[DIM_M], num_tiles_per_wg[DIM_N]
@@ -460,6 +525,7 @@ def _make_instance(num_workgroups, num_waves_per_wg, num_tiles_per_wg, k_mult, p
         num_waves_per_workgroup=list(num_waves_per_wg),
         num_tiles_per_wave=[twg_m // wpw_m, twg_n // wpw_n, num_tiles_per_wg[DIM_K]],
         pipeline_strategy=pipeline_strategy,
+        operand_path=OperandPath(b_path),
         dealloc_at_read=True,
         mcpu="gfx950",
     )
@@ -496,16 +562,22 @@ def compile_cdna4_gemm(cfg, output_hsaco_path, **kw):
 
 
 def execute_cdna4_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=False):
-    """Execute a pre-compiled CDNA4 GEMM HSACO."""
+    """Execute a pre-compiled CDNA4 GEMM HSACO.
+
+    Automatically preshuffles B when ``cfg.mapping.direct_b`` is True.
+    """
+    from kittens_helpers import shuffle_weight
+
     mcpu = getattr(cfg.mapping, "mcpu", "gfx950")
     if not skip_gpu_check and not system_has_gpu(mcpu):
         pytest.skip(f"GPU {mcpu} not available, skip execution")
 
+    B_gpu = shuffle_weight(B) if cfg.mapping.direct_b else B
     C_output = np.zeros(math.prod(cfg.spec.operand_shape(OP_C)), dtype=np.float32)
     times_ns = execute_hsaco(
         hsaco_path=hsaco_path,
         kernel_name=KERNEL_NAME,
-        arguments=[InputArray(A.flatten()), InputArray(B.flatten()), OutputArray(C_output)],
+        arguments=[InputArray(A.flatten()), InputArray(B_gpu.flatten()), OutputArray(C_output)],
         grid_dim=(cfg.mapping.num_workgroups, 1, 1),
         block_dim=(cfg.mapping.num_threads, 1, 1),
         num_iterations=num_iterations,
@@ -603,12 +675,7 @@ class TestCdna4Pipelined:
 
 
 class TestCdna4Pipelined8Wave:
-    """Pipelined K-loop with 8-wave configs and asymmetric strategies.
-
-    Asymmetric strategies (ps=1,2,4,6) set B_LOAD != A_LOAD. This tests
-    that the LDS multi-buffer depth is correct when A and B loads occupy
-    different pipeline stages.
-    """
+    """Pipelined K-loop with 8-wave configs and asymmetric strategies."""
 
     @pytest.mark.parametrize(
         "wpw,twg",
@@ -620,11 +687,36 @@ class TestCdna4Pipelined8Wave:
     )
     @pytest.mark.parametrize("pipeline_strategy", [1, 2, 4, 6], ids=["ps1", "ps2", "ps4", "ps6"])
     def test_correctness(self, wpw, twg, pipeline_strategy):
-        # k_iters = k_mult / k_t, so k_mult must be min_iters * k_t
         k_t = twg[DIM_K]
         min_iters = _min_k_iters_for_ps(k_t=k_t, ps=pipeline_strategy)
         k_mult = max(4, min_iters * k_t)
         cfg = _make_instance([1, 1, 1], wpw, twg, k_mult, pipeline_strategy=pipeline_strategy)
+        _run_cdna4_gemm(cfg)
+
+
+class TestCdna4OperandPath:
+    """Operand path sweep (LDS vs direct_b), orthogonal to geometry/pipeline."""
+
+    @pytest.mark.parametrize(
+        "num_waves_per_wg,num_tiles_per_wg",
+        [
+            ([1, 1, 1], [2, 2, 1]),
+            ([2, 2, 1], [2, 2, 1]),
+        ],
+        ids=["1w_2x2", "4w_2x2"],
+    )
+    @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
+    @pytest.mark.parametrize("pipeline_strategy", [0, 3], ids=["ps0", "ps3"])
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, b_path, pipeline_strategy):
+        k_mult = max(4, _min_k_iters_for_ps(k_t=1, ps=pipeline_strategy))
+        cfg = _make_instance(
+            [1, 1, 1],
+            num_waves_per_wg,
+            num_tiles_per_wg,
+            k_mult,
+            pipeline_strategy=pipeline_strategy,
+            b_path=b_path,
+        )
         _run_cdna4_gemm(cfg)
 
 
@@ -639,13 +731,21 @@ if __name__ == "__main__":
     parser.add_argument("--twg", type=int, nargs=3, default=[2, 2, 1])
     parser.add_argument("--k-mult", type=int, default=4)
     parser.add_argument("--pipeline-strategy", type=int, default=0)
+    parser.add_argument("--b-path", type=str, default="lds", choices=["lds", "direct_b"])
     args = parser.parse_args()
 
-    cfg = _make_instance(args.wg, args.wpw, args.twg, args.k_mult, pipeline_strategy=args.pipeline_strategy)
+    cfg = _make_instance(
+        args.wg,
+        args.wpw,
+        args.twg,
+        args.k_mult,
+        pipeline_strategy=args.pipeline_strategy,
+        b_path=args.b_path,
+    )
     gs = cfg.gemm_size
     print(
         f"Config: wg={'x'.join(map(str, args.wg))} wpw={'x'.join(map(str, args.wpw))} "
-        f"twg={'x'.join(map(str, args.twg))} ps={args.pipeline_strategy}"
+        f"twg={'x'.join(map(str, args.twg))} ps={args.pipeline_strategy} b_path={args.b_path}"
     )
     print(f"  M={gs[DIM_M]}, N={gs[DIM_N]}, K={gs[DIM_K]}, waves={cfg.mapping.num_waves}")
 
