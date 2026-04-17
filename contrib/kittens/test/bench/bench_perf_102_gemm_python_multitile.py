@@ -35,6 +35,7 @@ from kittens.gemm_config import (
     GemmMappingSpec,
     OperandPath,
     WeakScaledMappedGemmInstance,
+    mfma_shape_for_mcpu,
 )
 from test_102_gemm_python_multitile import (
     MultitileGemmInstance,
@@ -71,14 +72,11 @@ from bench_sweep_heuristic import add_heuristic_cli_args, generate_with_weak_sca
 
 # --- Constants ---
 
-# Default spec + mapping for tile_elements derivation.
-_SPEC = GemmSpec.from_sizes(16, 16, 32)
-_MAPPING = GemmMappingSpec(
-    num_workgroups_per_kernel=[1, 1, 1],
-    num_waves_per_workgroup=[1, 1, 1],
-    num_tiles_per_wave=[1, 1, 1],
-)
-_TILE_M, _TILE_N, _TILE_K = _MAPPING.tile_elements(_SPEC.mfma_shape)
+
+def _tile_elements(mcpu: str) -> tuple[int, int, int]:
+    """Tile elements [M, N, K] for the given target's MFMA shape."""
+    mfma = mfma_shape_for_mcpu(mcpu)
+    return tuple(GemmMappingSpec.default_tile_elements(mfma))
 
 
 # --- Sweep grid ---
@@ -86,12 +84,14 @@ _TILE_M, _TILE_N, _TILE_K = _MAPPING.tile_elements(_SPEC.mfma_shape)
 
 def _build_instance(d: dict, mcpu: str, hw) -> MultitileGemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
-    _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_M)
-    _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_N)
-    assert rem_m == 0, f"M={M} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
-    assert rem_n == 0, f"N={N} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_N}"
+    tile_m, tile_n, _ = _tile_elements(mcpu)
+    _wg_m, rem_m = divmod(M, d["twg_m"] * tile_m)
+    _wg_n, rem_n = divmod(N, d["twg_n"] * tile_n)
+    assert rem_m == 0, f"M={M} not divisible by twg_m*tile_m={d['twg_m'] * tile_m}"
+    assert rem_n == 0, f"N={N} not divisible by twg_n*tile_n={d['twg_n'] * tile_n}"
     _nwgcu = nwgcu(d, hw)
-    spec = GemmSpec.from_sizes(M, N, K)
+    mfma = mfma_shape_for_mcpu(mcpu)
+    spec = GemmSpec.from_sizes(M, N, K, mfma_shape=mfma)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
@@ -113,10 +113,11 @@ def _build_instance(d: dict, mcpu: str, hw) -> MultitileGemmInstance:
 
 
 def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
-    _wg_m, rem_m = divmod(d["target_M"], d["twg_m"] * _TILE_M)
-    _wg_n, rem_n = divmod(d["target_N"], d["twg_n"] * _TILE_N)
-    assert rem_m == 0, f"target_M={d['target_M']} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
-    assert rem_n == 0, f"target_N={d['target_N']} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_N}"
+    tile_m, tile_n, _ = _tile_elements(mcpu)
+    _wg_m, rem_m = divmod(d["target_M"], d["twg_m"] * tile_m)
+    _wg_n, rem_n = divmod(d["target_N"], d["twg_n"] * tile_n)
+    assert rem_m == 0, f"target_M={d['target_M']} not divisible by twg_m*tile_m={d['twg_m'] * tile_m}"
+    assert rem_n == 0, f"target_N={d['target_N']} not divisible by twg_n*tile_n={d['twg_n'] * tile_n}"
     return GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
@@ -141,10 +142,11 @@ def make_sweep_grid(
     target_k: int,
 ) -> SweepGrid:
     grid = SweepGrid()
+    tile_m, tile_n, tile_k = _tile_elements(mcpu)
     # Second slot is the load_type; 102 does not sweep it, so it is None.
     grid.axis("variant", [(v, None) for v in variants])
     grid.axis("lds_at_write", [False, True])
-    add_gemm_sweep_axes(grid, hw, [_TILE_M, _TILE_N, _TILE_K], target_m=target_m, target_n=target_n, target_k=target_k)
+    add_gemm_sweep_axes(grid, hw, [tile_m, tile_n, tile_k], target_m=target_m, target_n=target_n, target_k=target_k)
     grid.axis("set_mfma_priority", [True, False])
 
     if check_regs:
@@ -168,9 +170,11 @@ def _repro_cmd(cfg):
 
 def _from_label(label: str, mcpu: str) -> MultitileGemmInstance:
     base = WeakScaledMappedGemmInstance.from_label(label)
-    # Label serde does not encode mcpu; honor --mcpu from the CLI.
+    # Label serde does not encode mcpu or mfma_shape; derive both from CLI.
+    mfma = mfma_shape_for_mcpu(mcpu)
+    spec = dataclasses.replace(base.spec, mfma_shape=mfma)
     mapping = dataclasses.replace(base.mapping, mcpu=mcpu)
-    return MultitileGemmInstance(base.spec, mapping)
+    return MultitileGemmInstance(spec, mapping)
 
 
 # --- Entry point ---
@@ -223,7 +227,8 @@ def main():
         target_n=target_n,
         target_k=target_k,
     )
-    apply_wg_pin_filters(grid, pins, _TILE_M, _TILE_N)
+    tile_m, tile_n, _ = _tile_elements(args.mcpu)
+    apply_wg_pin_filters(grid, pins, tile_m, tile_n)
 
     all_configs, total = generate_with_weak_scale(
         grid,
