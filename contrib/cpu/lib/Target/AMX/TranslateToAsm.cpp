@@ -188,6 +188,8 @@ LogicalResult TranslateModuleImpl::emitFunc(func::FuncOp func,
 
 LogicalResult TranslateModuleImpl::translate() {
   size_t funcIndex = 0;
+  // TODO: is func.func acceptable here, do we need a special kernel op, what
+  // about ABI?
   for (func::FuncOp func : module.getOps<func::FuncOp>())
     if (failed(emitFunc(func, funcIndex++)))
       return failure();

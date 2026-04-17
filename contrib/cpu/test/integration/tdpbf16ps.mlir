@@ -1,3 +1,5 @@
+// TODO: is func.func acceptable here, do we need a special kernel op, what
+// about ABI?
 func.func @test_tdpbf16ps(
     %a: !x86.gpr<rdi>,
     %b: !x86.gpr<rsi>,
