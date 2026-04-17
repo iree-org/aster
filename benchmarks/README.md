@@ -6,7 +6,7 @@ A suite for comparing the performance of different GEMM backends on AMD GPUs. Su
 
 ```bash
 cd benchmarks/
-bash setup.sh [--rocm-lib /path/to/rocm/lib]
+./setup.sh
 source .venv/bin/activate
 ```
 
