@@ -27,8 +27,12 @@ def _has_cpuinfo_flag(flag: str) -> bool:
         return False
 
 
+def has_amx_int8() -> bool:
+    return _has_cpuinfo_flag(" amx_int8 ")
+
+
 def has_amx_bf16() -> bool:
-    return _has_cpuinfo_flag("amx_bf16")
+    return _has_cpuinfo_flag(" amx_bf16 ")
 
 
 def has_avx() -> bool:
@@ -36,15 +40,15 @@ def has_avx() -> bool:
 
 
 def has_fma() -> bool:
-    return _has_cpuinfo_flag("fma")
+    return _has_cpuinfo_flag(" fma ")
 
 
 def has_avx2() -> bool:
-    return _has_cpuinfo_flag("avx2")
+    return _has_cpuinfo_flag(" avx2 ")
 
 
 def has_avx512f() -> bool:
-    return _has_cpuinfo_flag("avx512f")
+    return _has_cpuinfo_flag(" avx512f ")
 
 
 def compile_to_object(

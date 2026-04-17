@@ -194,8 +194,6 @@ LogicalResult TranslateModuleImpl::translate() {
   module.walk([&](func::FuncOp func) {
     if (failed(result))
       return;
-    // TODO: is func.func acceptable here, do we need a special kernel op, what
-    // about ABI?
     if (failed(emitFunc(func, funcIndex++)))
       result = failure();
   });

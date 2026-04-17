@@ -6,6 +6,7 @@
 
 #include "aster/Dialect/AMX/IR/Interfaces/AMXAsmOpInterface.h"
 #include "aster/Dialect/X86/IR/X86Dialect.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
@@ -27,19 +28,13 @@ namespace {
 
 /// Emit the bare register name (no %) for any x86 physical register type.
 void emitRegName(raw_ostream &os, Value v) {
-  Type t = v.getType();
-  if (auto gpr = dyn_cast<GprType>(t))
-    os << stringifyGprEnum(gpr.getReg());
-  else if (auto tmm = dyn_cast<TmmType>(t))
-    os << "tmm" << tmm.getReg();
-  else if (auto xmm = dyn_cast<XMMType>(t))
-    os << "xmm" << xmm.getReg();
-  else if (auto ymm = dyn_cast<YMMType>(t))
-    os << "ymm" << ymm.getReg();
-  else if (auto zmm = dyn_cast<ZMMType>(t))
-    os << "zmm" << zmm.getReg();
-  else
-    llvm_unreachable("unknown x86 physical register type");
+  llvm::TypeSwitch<Type, void>(v.getType())
+      .Case<GprType>([&](auto gpr) { os << stringifyGprEnum(gpr.getReg()); })
+      .Case<TmmType>([&](auto t) { os << "tmm" << t.getReg(); })
+      .Case<XMMType>([&](auto t) { os << "xmm" << t.getReg(); })
+      .Case<YMMType>([&](auto t) { os << "ymm" << t.getReg(); })
+      .Case<ZMMType>([&](auto t) { os << "zmm" << t.getReg(); })
+      .Default([](Type) { llvm_unreachable("unknown x86 register type"); });
 }
 
 /// AT&T assembly printer.
