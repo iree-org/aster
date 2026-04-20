@@ -120,20 +120,10 @@ static OpCode getVectorCompareOpCode(arith::CmpIPredicate predicate) {
     return OpCode::V_CMP_NE_I32;
   case arith::CmpIPredicate::slt:
     return OpCode::V_CMP_LT_I32;
-  case arith::CmpIPredicate::sle:
-    return OpCode::V_CMP_LE_I32;
   case arith::CmpIPredicate::sgt:
     return OpCode::V_CMP_GT_I32;
-  case arith::CmpIPredicate::sge:
-    return OpCode::V_CMP_GE_I32;
-  case arith::CmpIPredicate::ult:
-    return OpCode::V_CMP_LT_U32;
-  case arith::CmpIPredicate::ule:
-    return OpCode::V_CMP_LE_U32;
-  case arith::CmpIPredicate::ugt:
-    return OpCode::V_CMP_GT_U32;
-  case arith::CmpIPredicate::uge:
-    return OpCode::V_CMP_GE_U32;
+  default:
+    break;
   }
   llvm_unreachable("Unknown CmpIPredicate");
 }
