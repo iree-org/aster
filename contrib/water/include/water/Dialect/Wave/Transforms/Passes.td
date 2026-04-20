@@ -222,11 +222,11 @@ def WaterWaveAsterizePass : Pass<"water-wave-asterize"> {
     "::mlir::arith::ArithDialect",
   ];
   let options = [
-    Option</*varName=*/"stages",
-           /*arg=*/"stages",
+    Option</*varName=*/"pipelineStrategy",
+           /*arg=*/"pipeline-strategy",
            /*valueType=*/"int",
-           /*default=*/"1",
-           "Number of pipeline stages">,
+           /*default=*/"0",
+           "Pipeline strategy index (0-10), same as kittens_helpers.PIPELINE_STRATEGIES">,
   ];
 }
 
@@ -289,11 +289,11 @@ def WaterWaveAsterLoweringPass : Pass<"water-wave-aster-lowering"> {
            /*valueType=*/"std::string",
            /*default=*/"",
            "Path to an MLIR library file to load and merge before lowering">,
-    Option</*varName=*/"stages",
-           /*arg=*/"stages",
+    Option</*varName=*/"pipelineStrategy",
+           /*arg=*/"pipeline-strategy",
            /*valueType=*/"int",
-           /*default=*/"1",
-           "Number of pipeline stages for {{STAGE_*}} substitutions">,
+           /*default=*/"0",
+           "Pipeline strategy index (0-10) for helper template substitutions; same keys as kittens_helpers.pipeline_strategy_substitutions">,
     ListOption</*varName=*/"libraryPaths",
                /*arg=*/"library-paths",
                /*valueType=*/"std::string",

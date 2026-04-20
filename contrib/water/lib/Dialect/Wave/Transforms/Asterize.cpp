@@ -93,30 +93,50 @@ static wave::HardwareConstraintAttr parseWaveConstraints(
 
 namespace {
 
-struct PipelineStages {
-  int32_t globalLoad;
-  int32_t dsWrite;
-  int32_t dsRead;
+/// Sched.stage indices for a pipeline strategy (see `getPipelineStrategy`).
+/// Fields mirror `PIPELINE_STRATEGIES` in
+/// contrib/kittens/test/kittens_helpers.py: A_LOAD, A_LDS_WRITE, A_LDS_READ,
+/// B_LOAD, B_LDS_WRITE, B_LDS_READ, COMPUTE. Every row there satisfies
+/// A_LDS_READ == B_LDS_READ (shared barrier).
+struct PipelineStrategy {
+  int32_t aLoad;
+  int32_t aLdsWrite;
+  int32_t aLdsRead;
+  int32_t bLoad;
+  int32_t bLdsWrite;
+  int32_t bLdsRead;
   int32_t compute;
 };
 
-// Returns the pipeline stage indices for the given number of stages.
-static FailureOr<PipelineStages> getPipelineStages(int32_t stages) {
-  switch (stages) {
+// Strategy indices and values must stay in lockstep with
+// `PIPELINE_STRATEGIES` in contrib/kittens/test/kittens_helpers.py.
+static FailureOr<PipelineStrategy> getPipelineStrategy(int32_t strategyIndex) {
+  switch (strategyIndex) {
+  case 0:
+    return PipelineStrategy{0, 0, 0, 0, 0, 0, 0};
   case 1:
-    return PipelineStages{0, 0, 0, 0};
+    return PipelineStrategy{0, 1, 1, 1, 1, 1, 1};
   case 2:
-    return PipelineStages{0, 1, 1, 1};
+    return PipelineStrategy{0, 0, 1, 0, 1, 1, 1};
   case 3:
-    return PipelineStages{0, 1, 2, 2};
+    return PipelineStrategy{0, 1, 2, 0, 1, 2, 2};
   case 4:
-    return PipelineStages{0, 1, 2, 3};
+    return PipelineStrategy{0, 2, 2, 0, 1, 2, 2};
   case 5:
-    return PipelineStages{0, 2, 3, 4};
+    return PipelineStrategy{0, 1, 2, 0, 1, 2, 3};
   case 6:
-    return PipelineStages{0, 3, 4, 5};
+    return PipelineStrategy{0, 2, 2, 1, 1, 2, 3};
+  case 7:
+    return PipelineStrategy{0, 2, 3, 0, 2, 3, 4};
+  case 8:
+    return PipelineStrategy{0, 1, 3, 0, 2, 3, 4};
+  case 9:
+    return PipelineStrategy{0, 3, 4, 0, 3, 4, 5};
+  case 10:
+    return PipelineStrategy{0, 2, 4, 0, 3, 4, 5};
+  default:
+    return failure();
   }
-  return failure();
 }
 
 struct WaterWaveAsterizePass
@@ -147,10 +167,11 @@ struct WaterWaveAsterizePass
       return callOp;
     };
 
-    FailureOr<PipelineStages> maybeStages = getPipelineStages(stages);
-    if (failed(maybeStages)) {
+    FailureOr<PipelineStrategy> maybePipelineStrategy =
+        getPipelineStrategy(pipelineStrategy);
+    if (failed(maybePipelineStrategy)) {
       getOperation()->emitError()
-          << "invalid number of pipeline stages: " << stages;
+          << "invalid pipeline strategy index: " << pipelineStrategy;
       return signalPassFailure();
     }
 
@@ -723,9 +744,9 @@ struct WaterWaveAsterizePass
         auto barrier = aster::amdgcn::inst::SOPPOp::create(
             builder, (*firstReadIt)->getLoc(), aster::amdgcn::OpCode::S_BARRIER,
             0);
-        barrier->setAttr(
-            aster::kSchedStageAttr,
-            IntegerAttr::get(builder.getI32Type(), maybeStages->dsRead));
+        barrier->setAttr(aster::kSchedStageAttr,
+                         IntegerAttr::get(builder.getI32Type(),
+                                          maybePipelineStrategy->aLdsRead));
         // TODO: this can be done by some sort of scheduling / interleaving
         // instead.
         OperationState dummyOp(builder.getUnknownLoc(),
@@ -782,6 +803,9 @@ struct WaterWaveAsterizePass
             return WalkResult::interrupt();
           }
 
+          int32_t globalMemStage =
+              isA ? maybePipelineStrategy->aLoad : maybePipelineStrategy->bLoad;
+
           builder.setInsertionPoint(allocIP);
           // TODO: later, we can define this generically for any dimension by
           // computing per-dimension tile sizes.
@@ -814,12 +838,12 @@ struct WaterWaveAsterizePass
               /*offset=*/IntegerAttr());
           alloc.getDefiningOp()->setAttr(
               aster::kSchedStageAttr,
-              IntegerAttr::get(builder.getI32Type(), maybeStages->globalLoad));
+              IntegerAttr::get(builder.getI32Type(), globalMemStage));
           Value sharedBase = aster::amdgcn::GetLDSOffsetOp::create(
               builder, readOp.getLoc(), builder.getIndexType(), alloc);
           sharedBase.getDefiningOp()->setAttr(
               aster::kSchedStageAttr,
-              IntegerAttr::get(builder.getI32Type(), maybeStages->globalLoad));
+              IntegerAttr::get(builder.getI32Type(), globalMemStage));
 
           builder.setInsertionPoint(glReadIP);
           Value wgTilesValue = dimensionIndexing[mappedDim].wgTiles;
@@ -951,9 +975,9 @@ struct WaterWaveAsterizePass
           builder.setInsertionPoint(parentLoop.getBody()->getTerminator());
           auto deallocOp = aster::amdgcn::DeallocLDSOp::create(
               builder, readOp.getLoc(), alloc);
-          deallocOp->setAttr(
-              aster::kSchedStageAttr,
-              IntegerAttr::get(builder.getI32Type(), maybeStages->compute));
+          deallocOp->setAttr(aster::kSchedStageAttr,
+                             IntegerAttr::get(builder.getI32Type(),
+                                              maybePipelineStrategy->compute));
         }
 
         allocIP->erase();
@@ -1146,8 +1170,7 @@ static std::string buildDefaultPassPipeline(bool lcmUnroll, int numVGPRs,
 
   // PHASE_CONSTEXPR_EXPANSION.
   add({"aster-constexpr-expansion", "canonicalize", "sroa", "mem2reg",
-       "amdgcn-mem2reg", "aster-forward-store-to-load",
-       "aster-promote-loop-carried-memrefs", "canonicalize"});
+       "amdgcn-mem2reg", "canonicalize"});
 
   // phase_scf_pipelining.
   {
@@ -1175,9 +1198,8 @@ static std::string buildDefaultPassPipeline(bool lcmUnroll, int numVGPRs,
   add({"cse", "canonicalize", "symbol-dce", "aster-constexpr-expansion",
        "canonicalize", "aster-simplify-alloca-iter-args",
        "aster-decompose-memref-iter-args", "aster-destructure-struct-iter-args",
-       "canonicalize", "cse", "sroa", "mem2reg", "amdgcn-mem2reg",
-       "aster-forward-store-to-load", "aster-promote-loop-carried-memrefs",
-       "cse", "canonicalize"});
+       "canonicalize", "cse", "sroa", "mem2reg", "amdgcn-mem2reg", "cse",
+       "canonicalize"});
 
   // PHASE_CONVERT_LDS_BUFFERS.
   add({"amdgcn-lds-alloc", "amdgcn-convert-lds-buffers", "canonicalize",
@@ -1261,10 +1283,12 @@ static void replaceAllSubstrings(std::string &str, StringRef pattern,
   }
 }
 
-/// Load an MLIR library file, perform {{STAGE_*}} substitutions, parse it,
-/// and merge the resulting functions into `root`.
+/// Load an MLIR library file, perform the same template substitutions as
+/// `pipeline_strategy_substitutions` in
+/// contrib/kittens/test/kittens_helpers.py, parse it, and merge the resulting
+/// functions into `root`.
 static LogicalResult loadAndMergeLibrary(Operation *root, StringRef libraryPath,
-                                         int numStages) {
+                                         int strategyIndex) {
   // Load the file content.
   auto fileOrErr = llvm::MemoryBuffer::getFile(libraryPath);
   if (!fileOrErr)
@@ -1273,18 +1297,24 @@ static LogicalResult loadAndMergeLibrary(Operation *root, StringRef libraryPath,
 
   std::string content = (*fileOrErr)->getBuffer().str();
 
-  // Perform {{STAGE_*}} substitutions.
-  FailureOr<PipelineStages> stagesOrFailure = getPipelineStages(numStages);
-  if (failed(stagesOrFailure))
+  // Same keys as kittens_helpers.pipeline_strategy_substitutions(strategy).
+  FailureOr<PipelineStrategy> strategyOrFailure =
+      getPipelineStrategy(strategyIndex);
+  if (failed(strategyOrFailure))
     return root->emitError()
-           << "unsupported number of pipeline stages: " << numStages;
-  PipelineStages ps = *stagesOrFailure;
-  replaceAllSubstrings(content, "{{STAGE_GLOBAL_LOAD}}",
-                       std::to_string(ps.globalLoad));
-  replaceAllSubstrings(content, "{{STAGE_DS_WRITE}}",
-                       std::to_string(ps.dsWrite));
-  replaceAllSubstrings(content, "{{STAGE_DS_READ}}", std::to_string(ps.dsRead));
-  replaceAllSubstrings(content, "{{STAGE_COMPUTE}}",
+           << "unsupported pipeline strategy index: " << strategyIndex;
+  PipelineStrategy ps = *strategyOrFailure;
+  replaceAllSubstrings(content, "{{A_STAGE_LOAD}}", std::to_string(ps.aLoad));
+  replaceAllSubstrings(content, "{{A_STAGE_WRITE}}",
+                       std::to_string(ps.aLdsWrite));
+  replaceAllSubstrings(content, "{{A_STAGE_READ}}",
+                       std::to_string(ps.aLdsRead));
+  replaceAllSubstrings(content, "{{A_STAGE_COMPUTE}}",
+                       std::to_string(ps.compute));
+  replaceAllSubstrings(content, "{{B_STAGE_LOAD}}", std::to_string(ps.bLoad));
+  replaceAllSubstrings(content, "{{B_STAGE_WAIT}}",
+                       std::to_string(ps.bLdsRead));
+  replaceAllSubstrings(content, "{{B_A_STAGE_COMPUTE}}",
                        std::to_string(ps.compute));
 
   // The helpers file is a fragment (not a full module). Wrap it with type
@@ -1408,7 +1438,7 @@ struct WaterWaveAsterLoweringPass
     // Load and merge the helpers file (it introduces call references
     // that the preload pass will resolve below).
     if (!libraryFile.empty()) {
-      if (failed(loadAndMergeLibrary(root, libraryFile, stages)))
+      if (failed(loadAndMergeLibrary(root, libraryFile, pipelineStrategy)))
         return signalPassFailure();
     }
 
