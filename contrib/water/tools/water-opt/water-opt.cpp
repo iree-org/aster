@@ -36,8 +36,6 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "aster/Init.h"
-#include "water/Dialect/NormalForm/IR/NormalFormDialect.h"
-#include "water/Dialect/NormalForm/Transforms/Passes.h"
 #include "water/Dialect/Wave/IR/WaveDialect.h"
 #include "water/Dialect/Wave/Transforms/Passes.h"
 #include "water/Pipelines.h"
@@ -74,7 +72,6 @@ int main(int argc, char **argv) {
   registerSCFToControlFlowPass();
   registerSymbolDCEPass();
   transform::registerTransformPasses();
-  water_normalform::registerWaterNormalFormPasses();
   water::registerPasses();
   water::test::registerAllPasses();
   wave::registerPasses();
@@ -96,7 +93,6 @@ int main(int argc, char **argv) {
       func::FuncDialect,
       gpu::GPUDialect,
       memref::MemRefDialect,
-      water_normalform::WaterNormalFormDialect,
       scf::SCFDialect,
       transform::TransformDialect,
       vector::VectorDialect,

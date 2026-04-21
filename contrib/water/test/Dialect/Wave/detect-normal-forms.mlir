@@ -3,12 +3,8 @@
 // None of the ops inside are wave ops, so full types are specified.
 // None of the ops need index expressions, meaning that form is also specified.
 // CHECK-LABEL: module @full_func_boundary_satisfied_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<full_func_boundary>
-// CHECK-SAME: #wave.normal_form<full_op_types>
-// CHECK-SAME: #wave.normal_form<index_exprs>
-// CHECK-SAME: #wave.normal_form<resolved_allocations>
-// CHECK-SAME: #wave.normal_form<ordered_syms>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<full_types,index_exprs,resolved_allocations,ordered_syms>
 module @full_func_boundary_satisfied_module {
   func.func @full_func_boundary_satisfied(%arg0: !wave.tensor<[@M, @N] of f32>) -> !wave.tensor<[@M, @N] of f32> {
     return %arg0 : !wave.tensor<[@M, @N] of f32>
@@ -19,12 +15,8 @@ module @full_func_boundary_satisfied_module {
 
 // None of the ops need index expressions, meaning that form is also specified.
 // CHECK-LABEL: module @full_func_boundary_not_satisfied_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<index_exprs>
-// CHECK-SAME: #wave.normal_form<resolved_allocations>
-// CHECK-SAME: #wave.normal_form<ordered_syms>
-// CHECK-NOT: #wave.normal_form<full_func_boundary>
-// CHECK-NOT: #wave.normal_form<full_op_types>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<index_exprs,resolved_allocations,ordered_syms>]} {
 module @full_func_boundary_not_satisfied_module {
   func.func @full_func_boundary_not_satisfied(%arg0: !wave.tensor<any of f32>) -> !wave.tensor<any of f32> {
     return %arg0 : !wave.tensor<any of f32>
@@ -35,12 +27,8 @@ module @full_func_boundary_not_satisfied_module {
 
 // Explicit index expressions are provided.
 // CHECK-LABEL: module @index_exprs_satisfied_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<full_func_boundary>
-// CHECK-SAME: #wave.normal_form<full_op_types>
-// CHECK-SAME: #wave.normal_form<index_exprs>
-// CHECK-SAME: #wave.normal_form<resolved_allocations>
-// CHECK-SAME: #wave.normal_form<ordered_syms>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<full_types,index_exprs,resolved_allocations,ordered_syms>
 module @index_exprs_satisfied_module {
   func.func @index_exprs_satisfied() {
     %c = arith.constant 0.0 : f32
@@ -57,12 +45,8 @@ module @index_exprs_satisfied_module {
 // -----
 
 // CHECK-LABEL: module @index_exprs_not_satisfied_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<full_func_boundary>
-// CHECK-SAME: #wave.normal_form<full_op_types>
-// CHECK-NOT: #wave.normal_form<index_exprs>
-// CHECK-SAME: #wave.normal_form<resolved_allocations>
-// CHECK-SAME: #wave.normal_form<ordered_syms>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<full_types,resolved_allocations,ordered_syms>]} {
 module @index_exprs_not_satisfied_module {
   func.func @index_exprs_not_satisfied() {
     %c = arith.constant 0.0 : f32
@@ -74,11 +58,8 @@ module @index_exprs_not_satisfied_module {
 // -----
 
 // CHECK-LABEL: module @memory_only_types_satisfied_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<full_func_boundary>
-// CHECK-SAME: #wave.normal_form<full_op_types>
-// CHECK-SAME: #wave.normal_form<memory_only_types>
-// CHECK-SAME: #wave.normal_form<ordered_syms>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<full_types,index_exprs,memory_only_types,ordered_syms>
 module @memory_only_types_satisfied_module {
   func.func @memory_only_types_satisfied(%global: !wave.tensor<[@X] of f32, <global>>) {
     %0 = wave.allocate {distributed_shape = #wave.expr_list<[#wave.symbol<"BLOCK_Y">] -> (BLOCK_Y)>} : !wave.tensor<[@Y] of bf16, <shared>>
@@ -89,12 +70,8 @@ module @memory_only_types_satisfied_module {
 // -----
 
 // CHECK-LABEL: module @memory_only_types_not_satisfied_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<full_func_boundary>
-// CHECK-SAME: #wave.normal_form<full_op_types>
-// CHECK-SAME: #wave.normal_form<resolved_allocations>
-// CHECK-SAME: #wave.normal_form<ordered_syms>
-// CHECK-NOT: #wave.normal_form<memory_only_types>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<full_types,resolved_allocations,ordered_syms>]} {
 module @memory_only_types_not_satisfied_module {
   func.func @memory_only_types_not_satisfied() {
     %c = arith.constant 0.0 : f32
@@ -106,12 +83,8 @@ module @memory_only_types_not_satisfied_module {
 // -----
 
 // CHECK-LABEL: module @multiple_ops_with_index_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<full_func_boundary>
-// CHECK-SAME: #wave.normal_form<full_op_types>
-// CHECK-SAME: #wave.normal_form<index_exprs>
-// CHECK-SAME: #wave.normal_form<resolved_allocations>
-// CHECK-SAME: #wave.normal_form<ordered_syms>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<full_types,index_exprs,resolved_allocations,ordered_syms>
 module @multiple_ops_with_index_module {
   func.func @multiple_ops_with_index() {
     %c = arith.constant 0.0 : f32
@@ -129,13 +102,8 @@ module @multiple_ops_with_index_module {
 
 // Empty module: all normal forms trivially satisfied, needs wave dialect to be registered.
 // CHECK-LABEL: module @empty_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<full_func_boundary>
-// CHECK-SAME: #wave.normal_form<full_op_types>
-// CHECK-SAME: #wave.normal_form<index_exprs>
-// CHECK-SAME: #wave.normal_form<memory_only_types>
-// CHECK-SAME: #wave.normal_form<resolved_allocations>
-// CHECK-SAME: #wave.normal_form<ordered_syms>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<full_types,index_exprs,memory_only_types,resolved_allocations,ordered_syms>
 module @empty_module {
 }
 
@@ -144,13 +112,8 @@ module @empty_module {
 // wave.allocate returns memref, so resolved_allocations is satisfied.
 // index_exprs is also trivially satisfied since wave.allocate doesn't require index expressions.
 // CHECK-LABEL: module @resolved_allocations_satisfied_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<full_func_boundary>
-// CHECK-SAME: #wave.normal_form<full_op_types>
-// CHECK-SAME: #wave.normal_form<index_exprs>
-// CHECK-SAME: #wave.normal_form<memory_only_types>
-// CHECK-SAME: #wave.normal_form<resolved_allocations>
-// CHECK-SAME: #wave.normal_form<ordered_syms>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<full_types,index_exprs,memory_only_types,resolved_allocations,ordered_syms>
 module @resolved_allocations_satisfied_module {
   func.func @resolved_allocations_satisfied() {
     %0 = wave.allocate {distributed_shape = #wave.expr_list<[#wave.symbol<"M">] -> (M)>}
@@ -163,8 +126,8 @@ module @resolved_allocations_satisfied_module {
 
 // Parent allocations (no operands) don't require index expressions.
 // CHECK-LABEL: module @parent_allocation_no_index_exprs_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<index_exprs>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<full_types,index_exprs,memory_only_types,ordered_syms>
 module @parent_allocation_no_index_exprs_module {
   func.func @parent_allocation_no_index_exprs() {
     %parent = wave.allocate {distributed_shape = #wave.expr_list<[#wave.symbol<"M">] -> (M)>}
@@ -177,12 +140,8 @@ module @parent_allocation_no_index_exprs_module {
 
 // wave.allocate returns WaveTensorType, so resolved_allocations is NOT satisfied.
 // CHECK-LABEL: module @resolved_allocations_not_satisfied_module
-// CHECK: water_normalform.module
-// CHECK-SAME: #wave.normal_form<full_func_boundary>
-// CHECK-SAME: #wave.normal_form<full_op_types>
-// CHECK-SAME: #wave.normal_form<memory_only_types>
-// CHECK-SAME: #wave.normal_form<ordered_syms>
-// CHECK-NOT: #wave.normal_form<resolved_allocations>
+// CHECK: transform.payload
+// CHECK-SAME: #wave.normal_form<full_types,index_exprs,memory_only_types,ordered_syms>]} {
 module @resolved_allocations_not_satisfied_module {
   func.func @resolved_allocations_not_satisfied() {
     %0 = wave.allocate {distributed_shape = #wave.expr_list<[#wave.symbol<"M">] -> (M)>}
@@ -193,10 +152,11 @@ module @resolved_allocations_not_satisfied_module {
 
 // -----
 
-// CHECK: module
-// CHECK-NEXT: water_normalform.module
+// CHECK-LABEL: module @nested_module_test {
+// CHECK-NEXT: transform.payload
+// CHECK-NEXT: builtin.module
 // CHECK-NEXT: func.func @foo
-module {
+module @nested_module_test {
     module {
     func.func @foo() {
         %0 = wave.allocate {distributed_shape = #wave.expr_list<[#wave.symbol<"M">] -> (M)>}
@@ -208,12 +168,14 @@ module {
 
 // -----
 
-// CHECK: module
-// CHECK-NEXT: water_normalform.module
-// CHECK-NEXT: water_normalform.module
+// CHECK-LABEL: module @double_nested_test {
+// CHECK-NEXT: transform.payload
+// CHECK-NEXT: builtin.module
+// CHECK-NEXT: transform.payload
+// CHECK-NEXT: builtin.module
 // CHECK-NEXT: func.func @foo
 // CHECK: func.func @bar
-module {
+module @double_nested_test {
     module {
       func.func @foo() {
         %0 = wave.allocate {distributed_shape = #wave.expr_list<[#wave.symbol<"M">] -> (M)>}
@@ -231,17 +193,17 @@ module {
 
 // -----
 
-// CHECK: module
-// CHECK-NEXT: water_normalform.module
-module {
-    water_normalform.module [] {
+// CHECK-LABEL: module @already_payload_inside_test {
+// CHECK-NEXT: transform.payload
+module @already_payload_inside_test {
+    transform.payload attributes {normal_forms = []} {
     }
 }
 
 // -----
 
-// CHECK: module
-// CHECK-NEXT: water_normalform.module
-water_normalform.module [] {
+// CHECK-LABEL: module {
+// CHECK-NEXT: transform.payload
+transform.payload attributes {normal_forms = []} {
 
 }

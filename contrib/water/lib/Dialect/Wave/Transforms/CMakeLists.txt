@@ -5,6 +5,7 @@ add_mlir_dialect_library(MLIRWaveTransforms
   InferTypes.cpp
   LoweringPatterns.cpp
   LowerReadWriteOps.cpp
+  LowerTransformPayload.cpp
   LowerWaveToMLIR.cpp
   PropagateDefaultsFromConstraints.cpp
   ResolveDistributedAllocations.cpp
@@ -26,8 +27,8 @@ add_mlir_dialect_library(MLIRWaveTransforms
   MLIRIR
   MLIRMathDialect
   MLIRMemRefDialect
-  MLIRWaterNormalFormDialect
   MLIRPass
+  MLIRTransformDialect
   MLIRSCFDialect
   MLIRTransforms
   MLIRVectorDialect

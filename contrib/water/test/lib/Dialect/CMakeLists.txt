@@ -24,7 +24,8 @@ add_mlir_dialect_library(MLIRWaterTestDialect
   LINK_LIBS PUBLIC
   MLIRArithDialect
   MLIRIR
-  MLIRWaterNormalFormDialect
+  MLIRTransformDialect
+  MLIRTransformDialectInterfaces
   MLIRWaveDialect
 )
 

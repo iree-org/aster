@@ -6,13 +6,13 @@
 
 #include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
+#include "mlir/Dialect/Transform/IR/TransformOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/WalkResult.h"
-#include "water/Dialect/NormalForm/IR/NormalFormOps.h"
 #include "water/Dialect/Wave/IR/WaveAttrs.h"
 #include "water/Dialect/Wave/IR/WaveOps.h"
 #include "water/Dialect/Wave/Transforms/DataFlowAnalyses.h"
@@ -95,10 +95,16 @@ public:
     solver.load<mlir::dataflow::DeadCodeAnalysis>();
     solver.load<mlir::dataflow::SparseConstantPropagation>();
     WaveIndexExprsAnalysisOptions options;
-    options.disableBackward = getOperation()->getAttrOfType<UnitAttr>(
-                                  "wave_test.disable_backward") != nullptr;
-    options.disableForward = getOperation()->getAttrOfType<UnitAttr>(
-                                 "wave_test.disable_forward") != nullptr;
+    // Look for the test attributes on any module in the IR (they may live on
+    // an inner `builtin.module` wrapped by a `transform.payload`).
+    options.disableBackward = false;
+    options.disableForward = false;
+    getOperation()->walk([&](ModuleOp m) {
+      if (m->getAttrOfType<UnitAttr>("wave_test.disable_backward"))
+        options.disableBackward = true;
+      if (m->getAttrOfType<UnitAttr>("wave_test.disable_forward"))
+        options.disableForward = true;
+    });
     options.overrideInitialization = overrideInitialization;
     addWaveIndexExprsAnalyses(solver, symbolTable, options);
 

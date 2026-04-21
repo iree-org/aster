@@ -49,14 +49,16 @@ func.func @mma_1d(%lhs: !wave.tensor<[@A] of f16>, %rhs: !wave.tensor<[@B] of f1
 
 // -----
 
-water_normalform.module [#wave.normal_form<full_types>] {
-  func.func @mma_3d_mismatch(%a: !wave.tensor<[@M, @K, @B] of f16>,
-                             %b: !wave.tensor<[@N, @K, @B] of f16>,
-                             %c: !wave.tensor<[@M, @N, @B] of f32>) {
-    // expected-error @below {{expected LHS dimension #0 (#wave.symbol<"M">) to match RHS dimension #0 (#wave.symbol<"N">)}}
-    wave.mma %a, %b, %c {kind = #wave.mma_kind<f32_16x16x16_f16>}
-      : (!wave.tensor<[@M, @K, @B] of f16>, !wave.tensor<[@N, @K, @B] of f16>, !wave.tensor<[@M, @N, @B] of f32>) -> !wave.tensor<[@M, @N, @B] of f32>
-    return
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
+  builtin.module {
+    func.func @mma_3d_mismatch(%a: !wave.tensor<[@M, @K, @B] of f16>,
+                               %b: !wave.tensor<[@N, @K, @B] of f16>,
+                               %c: !wave.tensor<[@M, @N, @B] of f32>) {
+      // expected-error @below {{expected LHS dimension #0 (#wave.symbol<"M">) to match RHS dimension #0 (#wave.symbol<"N">)}}
+      wave.mma %a, %b, %c {kind = #wave.mma_kind<f32_16x16x16_f16>}
+        : (!wave.tensor<[@M, @K, @B] of f16>, !wave.tensor<[@N, @K, @B] of f16>, !wave.tensor<[@M, @N, @B] of f32>) -> !wave.tensor<[@M, @N, @B] of f32>
+      return
+    }
   }
 }
 
@@ -515,16 +517,18 @@ module attributes { wave.hyperparameters = #wave.hyperparameters<{A = 42, C = 43
 
 // -----
 
-water_normalform.module [#wave.normal_form<full_types>] {
-  func.func @index_key_unspecified(%mem: !wave.tensor<[@M] of f16, <global>>)
-  attributes {wave.hyperparameters = #wave.hyperparameters<{BLOCK_M = 64, BLOCK_N = 64, M = 128}>}  {
-    // expected-error @below {{attribute "index" uses symbolic value "N" not provided as a hyperparameter}}
-    // expected-note @below {{BLOCK_M, BLOCK_N, M}}
-    %0 = wave.read %mem index [{
-        M : <[#wave.symbol<"BLOCK_M">, #wave.index_symbol<WG0>, #wave.index_symbol<T0>] -> (BLOCK_M * WG0 + (BLOCK_M floordiv 2) * (T0 floordiv 64) + T0 mod 64, 1, 64)>,
-        N : <[#wave.index_symbol<T1>, #wave.index_symbol<WG1>, #wave.symbol<"BLOCK_N">] -> (WG1 * BLOCK_N + (BLOCK_N floordiv 2) * T1, BLOCK_N ceildiv 2, 1)>}]
-      : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
-    return
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
+  builtin.module {
+    func.func @index_key_unspecified(%mem: !wave.tensor<[@M] of f16, <global>>)
+    attributes {wave.hyperparameters = #wave.hyperparameters<{BLOCK_M = 64, BLOCK_N = 64, M = 128}>}  {
+      // expected-error @below {{attribute "index" uses symbolic value "N" not provided as a hyperparameter}}
+      // expected-note @below {{BLOCK_M, BLOCK_N, M}}
+      %0 = wave.read %mem index [{
+          M : <[#wave.symbol<"BLOCK_M">, #wave.index_symbol<WG0>, #wave.index_symbol<T0>] -> (BLOCK_M * WG0 + (BLOCK_M floordiv 2) * (T0 floordiv 64) + T0 mod 64, 1, 64)>,
+          N : <[#wave.index_symbol<T1>, #wave.index_symbol<WG1>, #wave.symbol<"BLOCK_N">] -> (WG1 * BLOCK_N + (BLOCK_N floordiv 2) * T1, BLOCK_N ceildiv 2, 1)>}]
+        : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
+      return
+    }
   }
 }
 
@@ -538,49 +542,57 @@ func.func @read_element_type_mismatch(%mem: memref<64x64xf16, #gpu.address_space
 
 // -----
 
-water_normalform.module [#wave.normal_form<full_types>] {
-  func.func @index_value_unspecified(%mem: !wave.tensor<[@M] of f16, <global>>)
-  attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128, N = 256}>}  {
-    // expected-error @below {{attribute "index" uses symbolic value #wave.symbol<"BLOCK_M"> not provided as a hyperparameter}}
-    // expected-note @below {{available symbols: M, N}}
-    %0 = wave.read %mem index [{
-        M : <[#wave.symbol<"BLOCK_M">, #wave.index_symbol<WG0>, #wave.index_symbol<T0>] -> (BLOCK_M * WG0 + (BLOCK_M floordiv 2) * (T0 floordiv 64) + T0 mod 64, 1, 64)>,
-        N : <[#wave.index_symbol<T1>, #wave.index_symbol<WG1>, #wave.symbol<"BLOCK_N">] -> (WG1 * BLOCK_N + (BLOCK_N floordiv 2) * T1, BLOCK_N ceildiv 2, 1)>}]
-      : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
-    return
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
+  builtin.module {
+    func.func @index_value_unspecified(%mem: !wave.tensor<[@M] of f16, <global>>)
+    attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128, N = 256}>}  {
+      // expected-error @below {{attribute "index" uses symbolic value #wave.symbol<"BLOCK_M"> not provided as a hyperparameter}}
+      // expected-note @below {{available symbols: M, N}}
+      %0 = wave.read %mem index [{
+          M : <[#wave.symbol<"BLOCK_M">, #wave.index_symbol<WG0>, #wave.index_symbol<T0>] -> (BLOCK_M * WG0 + (BLOCK_M floordiv 2) * (T0 floordiv 64) + T0 mod 64, 1, 64)>,
+          N : <[#wave.index_symbol<T1>, #wave.index_symbol<WG1>, #wave.symbol<"BLOCK_N">] -> (WG1 * BLOCK_N + (BLOCK_N floordiv 2) * T1, BLOCK_N ceildiv 2, 1)>}]
+        : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
+      return
+    }
   }
 }
 
 // -----
 
-water_normalform.module [#wave.normal_form<full_types>] {
-  func.func @index_length_mismatch(%mem: !wave.tensor<[@M] of f16, <global>>) {
-    // expected-error @below {{index attribute length (0) does not match the number of index expression values (1)}}
-    %0 = wave.read %mem index [] : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
-    return
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
+  builtin.module {
+    func.func @index_length_mismatch(%mem: !wave.tensor<[@M] of f16, <global>>) {
+      // expected-error @below {{index attribute length (0) does not match the number of index expression values (1)}}
+      %0 = wave.read %mem index [] : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
+      return
+    }
   }
 }
 
 // -----
 
-water_normalform.module [#wave.normal_form<full_types>] {
-  func.func @read_index_multiple_dicts(%mem: !wave.tensor<[@M] of f16, <global>>)
-  attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128}>} {
-    // expected-error @below {{index attribute length (2) does not match the number of index expression values (1)}}
-    %0 = wave.read %mem index [{M : <[] -> (<NULL>, 4, <NULL>)>}, {M : <[] -> (<NULL>, 4, <NULL>)>}]
-      : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
-    return
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
+  builtin.module {
+    func.func @read_index_multiple_dicts(%mem: !wave.tensor<[@M] of f16, <global>>)
+    attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128}>} {
+      // expected-error @below {{index attribute length (2) does not match the number of index expression values (1)}}
+      %0 = wave.read %mem index [{M : <[] -> (<NULL>, 4, <NULL>)>}, {M : <[] -> (<NULL>, 4, <NULL>)>}]
+        : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
+      return
+    }
   }
 }
 
 // -----
 
-water_normalform.module [#wave.normal_form<full_types>] {
-  func.func @elements_per_thread_mismatch(%mem: !wave.tensor<[@M] of f16, <global>>)
-  attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128}>}  {
-    // expected-error @below {{expected result vector type to have the number of elements per thread matching the attribute (4), got 42}}
-    %0 = wave.read %mem {elements_per_thread=4}: (!wave.tensor<[@M] of f16, <global>>) -> vector<42xf16>
-    return
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
+  builtin.module {
+    func.func @elements_per_thread_mismatch(%mem: !wave.tensor<[@M] of f16, <global>>)
+    attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128}>}  {
+      // expected-error @below {{expected result vector type to have the number of elements per thread matching the attribute (4), got 42}}
+      %0 = wave.read %mem {elements_per_thread=4}: (!wave.tensor<[@M] of f16, <global>>) -> vector<42xf16>
+      return
+    }
   }
 }
 

@@ -7,6 +7,8 @@
 #ifndef WATER_DIALECT_WAVE_TRANSFORMS_UTILS_H
 #define WATER_DIALECT_WAVE_TRANSFORMS_UTILS_H
 
+#include "mlir/IR/Operation.h"
+
 #include "water/Dialect/Wave/IR/WaveAttrs.h"
 
 namespace wave {
@@ -17,10 +19,11 @@ llvm::LogicalResult collectWaveConstraints(
     mlir::Operation *top,
     llvm::DenseMap<mlir::Operation *, mlir::Attribute> &constraints);
 
-// Sets the attribute indicating that the operation satisfies provided normal
+// Sets the attribute indicating that the payload satisfies the provided normal
 // forms. The presence of the attribute, in turn, performs verification of the
 // normal form every time a verifier runs on the operation, including by default
-// after every pass.
+// after every pass. The root operation is expected to be a
+// `mlir::transform::PayloadOp`.
 //
 // By default, preserves existing normal forms and adds the new form. Set
 // preserve=false to replace all existing forms with the provided form.
@@ -29,8 +32,9 @@ setWaterNormalFormPassPostcondition(wave::WaveWaterNormalForm form,
                                     mlir::Operation *root,
                                     bool preserve = true);
 
-// Clears all normal form attributes from the operation, effectively setting
-// the normal form to None.
+// Clears all wave normal form attributes from the operation, effectively
+// setting the wave normal form to None. The root operation is expected to be
+// a `mlir::transform::PayloadOp`.
 llvm::LogicalResult
 clearWaterNormalFormPassPostcondition(mlir::Operation *root);
 
@@ -38,11 +42,19 @@ clearWaterNormalFormPassPostcondition(mlir::Operation *root);
 // by a pass, satisfies the required normal form by checking the presence of the
 // attribute that enforces verification. Emits diagnostics and returns failures
 // when it is not the case. Does *NOT* actually run verification, this is
-// automated by the presence of the attribute.
+// automated by the presence of the attribute. The root operation is expected
+// to be a `mlir::transform::PayloadOp`.
 llvm::LogicalResult
 verifyWaterNormalFormPassPrecondition(wave::WaveWaterNormalForm form,
                                       mlir::Operation *root,
                                       llvm::StringRef passName);
+
+// Returns true if `op` is enclosed in a `mlir::transform::PayloadOp` (or is one
+// itself). Wave passes anchor on `mlir::ModuleOp` since `transform::PayloadOp`
+// is not `IsolatedFromAbove`. The pass scheduler therefore visits every module
+// in the IR; passes use this helper to skip modules that are not part of a
+// wave normal form payload.
+bool isInsideTransformPayload(mlir::Operation *op);
 
 } // namespace wave
 

@@ -1,45 +1,51 @@
 // RUN: water-opt %s -allow-unregistered-dialect -lower-wave-to-mlir --split-input-file --verify-diagnostics
 
-water_normalform.module [#wave.normal_form<full_types,index_exprs,memory_only_types,resolved_allocations,ordered_syms>] {
-  func.func @binary_ops_pattern_failure() {
-    %cst = arith.constant 1.0 : f32
-    // expected-error @below {{wave dialect operation with no hyperparameters provided by any ancestor}}
-    %lhs = wave.register %cst : vector<4xf32>
-    return
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types,index_exprs,memory_only_types,resolved_allocations,ordered_syms>]} {
+  builtin.module {
+    func.func @binary_ops_pattern_failure() {
+      %cst = arith.constant 1.0 : f32
+      // expected-error @below {{wave dialect operation with no hyperparameters provided by any ancestor}}
+      %lhs = wave.register %cst : vector<4xf32>
+      return
+    }
   }
 }
 
 // -----
 
 // Test that missing index_exprs normal form causes precondition failure.
-// expected-error @below {{LowerWaveToMLIRPass pass expects the root operation or its ancestor to guarantee the full_types,index_exprs,memory_only_types,resolved_allocations,ordered_syms normal form}}
-water_normalform.module [#wave.normal_form<full_types,memory_only_types,resolved_allocations>] {
-  func.func @missing_index_exprs_normal_form(%mem: !wave.tensor<[@M, @N] of f16, <global>>)
-    attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128, N = 128}>} {
-    %result = wave.read %mem : (!wave.tensor<[@M, @N] of f16, <global>>) -> vector<8xf16>
-    return
+// expected-error @below {{LowerWaveToMLIRPass pass expects the payload to guarantee the full_types,index_exprs,memory_only_types,resolved_allocations,ordered_syms normal form}}
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types,memory_only_types,resolved_allocations>]} {
+  builtin.module {
+    func.func @missing_index_exprs_normal_form(%mem: !wave.tensor<[@M, @N] of f16, <global>>)
+      attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128, N = 128}>} {
+      %result = wave.read %mem : (!wave.tensor<[@M, @N] of f16, <global>>) -> vector<8xf16>
+      return
+    }
   }
 }
 
 // -----
 
-water_normalform.module [#wave.normal_form<full_types,index_exprs,memory_only_types,resolved_allocations,ordered_syms>] {
-  // expected-error @+1 {{failed to convert starting at this operation}}
-  func.func @write_pattern_failure(%mem: !wave.tensor<[@M, @N] of f16, <global>>)
-    attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128, N = 128}>} {
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types,index_exprs,memory_only_types,resolved_allocations,ordered_syms>]} {
+  builtin.module {
+    // expected-error @+1 {{failed to convert starting at this operation}}
+    func.func @write_pattern_failure(%mem: !wave.tensor<[@M, @N] of f16, <global>>)
+      attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128, N = 128}>} {
 
-    %cst = arith.constant 0.0 : f16
-    %reg = wave.register %cst : vector<8xf16>
+      %cst = arith.constant 0.0 : f16
+      %reg = wave.register %cst : vector<8xf16>
 
-    // WriteOpLoweringPattern requires valid stride expressions (not NULL)
-    // expected-error @+1 {{failed to legalize operation 'wave.write' that was explicitly marked illegal}}
-    wave.write %reg, %mem
-      index [{
-        M : <[#wave.index_symbol<T0>] -> (T0, <NULL>, 1)>,
-        N : <[#wave.index_symbol<T1>] -> (T1, 1, 1)>
-      }]
-      : vector<8xf16>, !wave.tensor<[@M, @N] of f16, <global>>
-    return
+      // WriteOpLoweringPattern requires valid stride expressions (not NULL)
+      // expected-error @+1 {{failed to legalize operation 'wave.write' that was explicitly marked illegal}}
+      wave.write %reg, %mem
+        index [{
+          M : <[#wave.index_symbol<T0>] -> (T0, <NULL>, 1)>,
+          N : <[#wave.index_symbol<T1>] -> (T1, 1, 1)>
+        }]
+        : vector<8xf16>, !wave.tensor<[@M, @N] of f16, <global>>
+      return
+    }
   }
 }
 
@@ -47,15 +53,17 @@ water_normalform.module [#wave.normal_form<full_types,index_exprs,memory_only_ty
 
 // Should not crash on null stride.
 
-water_normalform.module [#wave.normal_form<full_types,index_exprs,memory_only_types,resolved_allocations,ordered_syms>] {
-  // expected-error @below {{failed to convert starting at this operation}}
-  func.func @lower_read_non_innermost_dim(%mem: !wave.tensor<[@M, @N] of f16, <global>>)
-    attributes {wave.hyperparameters = #wave.hyperparameters<{BLOCK_M = 64, BLOCK_N = 64, M = 128, N = 128}>} {
-    // expected-error @below {{failed to legalize}}
-    %0 = wave.read %mem index [{
-      M : <[#wave.index_symbol<WG0>, #wave.index_symbol<T0>, #wave.symbol<"BLOCK_M">] -> (BLOCK_M * WG0 + (BLOCK_M floordiv 2) * (T0 floordiv 64) + T0 * 8 , <NULL>, 64)>,
-      N : <[#wave.index_symbol<WG1>, #wave.index_symbol<T1>, #wave.symbol<"BLOCK_N">] -> (WG1 * BLOCK_N + (BLOCK_N floordiv 8) * T1, 1, 1)>}]
-      : (!wave.tensor<[@M, @N] of f16, <global>>) -> vector<8xf16>
-    return
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types,index_exprs,memory_only_types,resolved_allocations,ordered_syms>]} {
+  builtin.module {
+    // expected-error @below {{failed to convert starting at this operation}}
+    func.func @lower_read_non_innermost_dim(%mem: !wave.tensor<[@M, @N] of f16, <global>>)
+      attributes {wave.hyperparameters = #wave.hyperparameters<{BLOCK_M = 64, BLOCK_N = 64, M = 128, N = 128}>} {
+      // expected-error @below {{failed to legalize}}
+      %0 = wave.read %mem index [{
+        M : <[#wave.index_symbol<WG0>, #wave.index_symbol<T0>, #wave.symbol<"BLOCK_M">] -> (BLOCK_M * WG0 + (BLOCK_M floordiv 2) * (T0 floordiv 64) + T0 * 8 , <NULL>, 64)>,
+        N : <[#wave.index_symbol<WG1>, #wave.index_symbol<T1>, #wave.symbol<"BLOCK_N">] -> (WG1 * BLOCK_N + (BLOCK_N floordiv 8) * T1, 1, 1)>}]
+        : (!wave.tensor<[@M, @N] of f16, <global>>) -> vector<8xf16>
+      return
+    }
   }
 }

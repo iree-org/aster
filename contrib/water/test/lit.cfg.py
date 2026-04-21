@@ -45,8 +45,8 @@ config.excludes = [
 
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.water_obj_root, "test")
-config.water_tools_dir = os.path.join(config.water_obj_root, "bin")
-config.water_libs_dir = os.path.join(config.water_obj_root, "lib")
+config.water_tools_dir = os.path.join(config.mlir_obj_dir, "bin")
+config.water_libs_dir = os.path.join(config.mlir_obj_dir, "lib")
 
 config.substitutions.append(("%water_libs", config.water_libs_dir))
 

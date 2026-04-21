@@ -9,8 +9,6 @@ set(LIBS
         MLIRLLVMToLLVMIRTranslation
         MLIRLinalgTransformOps
         MLIRMemRefTransformOps
-        MLIRWaterNormalFormDialect
-        MLIRWaterNormalFormTransforms
         MLIROptLib
         MLIRROCDLDialect
         MLIRTransformDialectTransforms

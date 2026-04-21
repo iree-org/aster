@@ -11,7 +11,7 @@
 #include "llvm/Support/Compiler.h"
 #include <memory>
 
-#include "water/Dialect/NormalForm/IR/NormalFormOps.h"
+#include "mlir/Dialect/Transform/IR/TransformOps.h"
 #include "water/Dialect/Wave/IR/WaveDialect.h"
 
 namespace mlir {

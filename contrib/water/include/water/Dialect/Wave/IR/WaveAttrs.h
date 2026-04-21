@@ -7,9 +7,9 @@
 #ifndef WATER_DIALECT_WAVE_IR_WAVEATTRS_H
 #define WATER_DIALECT_WAVE_IR_WAVEATTRS_H
 
+#include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "water/Dialect/NormalForm/IR/NormalFormInterfaces.h"
 
 namespace wave {
 

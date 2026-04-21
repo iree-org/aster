@@ -473,8 +473,8 @@ module attributes {transform.with_named_sequence} {
 
     # The pass must have applied and inferred normal forms. We don't care which
     # ones here, this is tested separately, just checking the fact that the pass
-    # applied. The pass wraps content in a water_normalform.module.
-    # CHECK: water_normalform.module
+    # applied. The pass wraps content in a transform.payload.
+    # CHECK: transform.payload
     # CHECK-SAME: #wave.normal_form<
     print(payload_module)
 

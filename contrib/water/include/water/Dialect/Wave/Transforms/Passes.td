@@ -9,13 +9,13 @@
 
 include "mlir/Pass/PassBase.td"
 
-def LowerWaveToMLIRPass : Pass<"lower-wave-to-mlir", "::water_normalform::ModuleOp"> {
+def LowerWaveToMLIRPass : Pass<"lower-wave-to-mlir", "::mlir::ModuleOp"> {
   let summary = "Lower Wave dialect to upstream MLIR dialects";
   let description = [{
     This pass lowers operations from the Wave dialect to upstream MLIR
     dialects, notably arith and vector.
 
-    This pass operates on `water_normalform.module` operations, which define the
+    This pass operates on `transform.payload` operations, which define the
     expected normal form for the contained Wave operations.
   }];
   let dependentDialects = [
@@ -23,25 +23,40 @@ def LowerWaveToMLIRPass : Pass<"lower-wave-to-mlir", "::water_normalform::Module
     "::mlir::math::MathDialect",
     "::mlir::vector::VectorDialect",
     "::mlir::memref::MemRefDialect",
-    "::water_normalform::WaterNormalFormDialect",
+    "::mlir::transform::TransformDialect",
+  ];
+}
+
+def WaterWaveLowerTransformPayloadPass
+    : Pass<"water-wave-lower-transform-payload"> {
+  let summary = "Lower transform.payload to builtin.module";
+  let description = [{
+    Replaces `transform.payload` operations by inlining their contents into the
+    surrounding `builtin.module`. If the surrounding context is not a builtin
+    module, a fresh `builtin.module` is created in place of the
+    `transform.payload`.
+  }];
+  let dependentDialects = [
+    "::mlir::transform::TransformDialect",
   ];
 }
 
 def WaterWaveDetectWaterNormalFormsPass : Pass<"water-wave-detect-normal-forms"> {
   let summary = "Detect the normal forms satisfied by each module";
   let description = [{
-    For each module encountered, wraps its contents in a water_normalform module and
-    infers which Wave dialect normal forms are satisfied. The resulting
-    water_normalform module will have the applicable normal form attributes attached.
+    For each module encountered, wraps its contents in a transform.payload op
+    and infers which Wave dialect normal forms are satisfied. The resulting
+    transform.payload op will have the applicable normal form attributes
+    attached.
   }];
 
   let dependentDialects = [
     "::wave::WaveDialect",
-    "::water_normalform::WaterNormalFormDialect"
+    "::mlir::transform::TransformDialect"
   ];
 }
 
-def WaterWaveInferIndexExprsPass : Pass<"water-wave-infer-index-exprs", "::water_normalform::ModuleOp"> {
+def WaterWaveInferIndexExprsPass : Pass<"water-wave-infer-index-exprs", "::mlir::ModuleOp"> {
   let summary = "Infer index expressions for Wave operations";
   let description = [{
     Performs forward and backward sparse dataflow analysis to infer index
@@ -90,7 +105,7 @@ def WaterWaveInferIndexExprsPass : Pass<"water-wave-infer-index-exprs", "::water
   }];
 }
 
-def WaterWaveInferTypesPass : Pass<"water-wave-infer-types", "::water_normalform::ModuleOp"> {
+def WaterWaveInferTypesPass : Pass<"water-wave-infer-types", "::mlir::ModuleOp"> {
   let summary = "Infer fully-specified Wave dialect types";
   let description = [{
     Performs forward and backward sparse dataflow analysis propagating shape
@@ -119,7 +134,7 @@ def WaterWaveInferTypesPass : Pass<"water-wave-infer-types", "::water_normalform
 }
 
 def WaterWavePropagateElementsPerThreadPass
-    : Pass<"water-wave-propagate-elements-per-thread", "::water_normalform::ModuleOp"> {
+    : Pass<"water-wave-propagate-elements-per-thread", "::mlir::ModuleOp"> {
   let summary = "Replace register-resident tensor types with vector types";
   let description = [{
     Performs forward and backward sparse dataflow analysis propagating
@@ -156,7 +171,7 @@ def WaterWavePropagateDefaultsFromConstraintsPass
 }
 
 def WaterWaveResolveDistributedAllocationsPass
-    : Pass<"water-wave-resolve-distributed-allocations", "::water_normalform::ModuleOp"> {
+    : Pass<"water-wave-resolve-distributed-allocations", "::mlir::ModuleOp"> {
   let summary = "Resolve distributed shapes in allocate operations";
   let description = [{
     This pass transforms wave.allocate operations that have a distributed_shape

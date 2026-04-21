@@ -14,7 +14,8 @@ add_mlir_dialect_library(MLIRWaveDialect
   MLIRControlFlowInterfaces
   MLIRFunctionInterfaces
   MLIRIR
-  MLIRWaterNormalFormDialect
+  MLIRTransformDialect
+  MLIRTransformDialectInterfaces
 )
 
 # Install the Wave dialect library so Python can find it at runtime.

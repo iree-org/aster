@@ -563,25 +563,27 @@ func.func @permute_with_index(%arg0: !wave.tensor<[@M, @N] of f16, <register>>) 
 // -----
 // Test wave.iterate and wave.yield with vector types
 
-water_normalform.module [#wave.normal_form<full_types>] attributes {wave.hyperparameters = #wave.hyperparameters<{I = 4}>} {
+transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
+  builtin.module attributes {wave.hyperparameters = #wave.hyperparameters<{I = 4}>} {
 
-// Test that wave.iterate supports vector types in both iter_args and captures
-// CHECK-LABEL: @iterate_vector_types
-func.func @iterate_vector_types() {
-  // CHECK: %[[ITER_ARG:.*]] = arith.constant dense<1.000000e+00> : vector<8xf32>
-  %iter_arg = arith.constant dense<1.0> : vector<8xf32>
-  // CHECK: %[[CAPTURE:.*]] = arith.constant dense<2.000000e+00> : vector<4xf16>
-  %capture = arith.constant dense<2.0> : vector<4xf16>
+  // Test that wave.iterate supports vector types in both iter_args and captures
+  // CHECK-LABEL: @iterate_vector_types
+  func.func @iterate_vector_types() {
+    // CHECK: %[[ITER_ARG:.*]] = arith.constant dense<1.000000e+00> : vector<8xf32>
+    %iter_arg = arith.constant dense<1.0> : vector<8xf32>
+    // CHECK: %[[CAPTURE:.*]] = arith.constant dense<2.000000e+00> : vector<4xf16>
+    %capture = arith.constant dense<2.0> : vector<4xf16>
 
-  // CHECK: wave.iterate @I iter_args(%[[ITER_ARG]]) captures(%[[CAPTURE]])
-  %result = wave.iterate @I iter_args(%iter_arg) captures(%capture) {
-  ^bb0(%in_arg: vector<8xf32>, %cap: vector<4xf16>):
-    // CHECK: wave.yield %{{.*}} : vector<8xf32>
-    wave.yield %in_arg : vector<8xf32>
-  } : (vector<8xf32>, vector<4xf16>) -> (vector<8xf32>)
-  return
-}
+    // CHECK: wave.iterate @I iter_args(%[[ITER_ARG]]) captures(%[[CAPTURE]])
+    %result = wave.iterate @I iter_args(%iter_arg) captures(%capture) {
+    ^bb0(%in_arg: vector<8xf32>, %cap: vector<4xf16>):
+      // CHECK: wave.yield %{{.*}} : vector<8xf32>
+      wave.yield %in_arg : vector<8xf32>
+    } : (vector<8xf32>, vector<4xf16>) -> (vector<8xf32>)
+    return
+  }
 
+  }
 }
 
 // -----

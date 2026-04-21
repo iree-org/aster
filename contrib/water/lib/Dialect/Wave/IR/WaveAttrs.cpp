@@ -5,8 +5,10 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "water/Dialect/Wave/IR/WaveAttrs.h"
+#include "mlir/Dialect/Transform/Utils/DiagnosedSilenceableFailure.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Visitors.h"
 #include "water/Dialect/Wave/IR/WaveDialect.h"
 #include "water/Dialect/Wave/IR/WaveInterfaces.h"
 #include "water/Dialect/Wave/IR/WaveOps.h"
@@ -39,6 +41,7 @@
 #include "water/Dialect/Wave/IR/WaveAttrs.cpp.inc"
 
 using namespace mlir;
+using namespace mlir::transform;
 using namespace wave;
 
 //===----------------------------------------------------------------------===//
@@ -1028,13 +1031,12 @@ static llvm::LogicalResult visitOpRelatedTypes(Operation *op,
 // Normal Form attributes
 //-----------------------------------------------------------------------------
 
-LogicalResult WaveWaterNormalFormAttr::verifyOperation(
-    function_ref<InFlightDiagnostic()> emitError, Operation *op) const {
-  WaveWaterNormalForm form = getValue();
-
-  // No normal form required.
-  if (form == wave::WaveWaterNormalForm::None)
-    return llvm::success();
+// Check the wave normal form constraints on a single nested operation. Returns
+// success or a definite failure with an error diagnostic emitted at the
+// operation's location.
+static DiagnosedSilenceableFailure
+checkWaveNormalFormOnOp(WaveWaterNormalForm form, Operation *op) {
+  auto emitError = [&]() { return op->emitError(); };
 
   if (auto func = llvm::dyn_cast<FunctionOpInterface>(op)) {
     if (wave::bitEnumContainsAll(
@@ -1043,12 +1045,16 @@ LogicalResult WaveWaterNormalFormAttr::verifyOperation(
           "normal form requires tensor types to be fully specified at "
           "function boundaries";
       if (llvm::failed(verifyTypesFullySpecified(
-              /*loc*/ std::nullopt, func.getArgumentTypes(), kMessage)))
-        return emitError() << kMessage;
+              /*loc*/ std::nullopt, func.getArgumentTypes(), kMessage))) {
+        emitError() << kMessage;
+        return DiagnosedSilenceableFailure::definiteFailure();
+      }
 
       if (llvm::failed(verifyTypesFullySpecified(
-              /*loc*/ std::nullopt, func->getResultTypes(), kMessage)))
-        return emitError() << kMessage;
+              /*loc*/ std::nullopt, func->getResultTypes(), kMessage))) {
+        emitError() << kMessage;
+        return DiagnosedSilenceableFailure::definiteFailure();
+      }
     }
   }
 
@@ -1059,7 +1065,8 @@ LogicalResult WaveWaterNormalFormAttr::verifyOperation(
     if (llvm::failed(visitOpRelatedTypes(op, verifyTypesFullySpecified,
                                          kMessage,
                                          /*emitDiagnostics*/ false))) {
-      return emitError() << kMessage;
+      emitError() << kMessage;
+      return DiagnosedSilenceableFailure::definiteFailure();
     }
   }
 
@@ -1071,7 +1078,8 @@ LogicalResult WaveWaterNormalFormAttr::verifyOperation(
     if (llvm::failed(visitOpRelatedTypes(op, verifyMemoryOnlyAddressSpaces,
                                          kMessage,
                                          /*emitDiagnostics*/ false))) {
-      return emitError() << kMessage;
+      emitError() << kMessage;
+      return DiagnosedSilenceableFailure::definiteFailure();
     }
   }
 
@@ -1095,27 +1103,53 @@ LogicalResult WaveWaterNormalFormAttr::verifyOperation(
       bool isParentAllocation =
           llvm::isa<wave::AllocateOp>(op) && op->getNumOperands() == 0;
 
-      if ((!hasWaveTensor && !isMemoryAccessOp) || isParentAllocation)
-        return llvm::success();
-
-      if (isMemoryAccessOp)
-        return emitError() << "missing index expressions on memory access "
-                              "operation, required by normal form";
-
-      return emitError() << "missing index expressions on operation with "
-                            "WaveTensorType operand/result, required by "
-                            "normal form";
+      if ((hasWaveTensor || isMemoryAccessOp) && !isParentAllocation) {
+        if (isMemoryAccessOp) {
+          emitError() << "missing index expressions on memory access "
+                         "operation, required by normal form";
+          return DiagnosedSilenceableFailure::definiteFailure();
+        }
+        emitError() << "missing index expressions on operation with "
+                       "WaveTensorType operand/result, required by "
+                       "normal form";
+        return DiagnosedSilenceableFailure::definiteFailure();
+      }
     }
   }
 
   if (wave::bitEnumContainsAll(
           form, wave::WaveWaterNormalForm::ResolvedAllocations)) {
     if (auto allocOp = llvm::dyn_cast<wave::AllocateOp>(op)) {
-      if (!llvm::isa<MemRefType>(allocOp.getResult().getType()))
-        return emitError() << "normal form requires all wave.allocate "
-                              "operations to have memref result type";
+      if (!llvm::isa<MemRefType>(allocOp.getResult().getType())) {
+        emitError() << "normal form requires all wave.allocate "
+                       "operations to have memref result type";
+        return DiagnosedSilenceableFailure::definiteFailure();
+      }
     }
   }
 
-  return llvm::success();
+  return DiagnosedSilenceableFailure::success();
+}
+
+DiagnosedSilenceableFailure
+WaveWaterNormalFormAttr::checkOperation(Operation *op) const {
+  WaveWaterNormalForm form = getValue();
+
+  // No normal form required.
+  if (form == wave::WaveWaterNormalForm::None)
+    return DiagnosedSilenceableFailure::success();
+
+  // Walk all operations nested under `op`, including `op` itself, and check
+  // each one against the wave normal form constraints. This mirrors the
+  // walk done by the former water_normalform.module verifier.
+  WalkResult walkResult = op->walk<WalkOrder::PreOrder>([&](Operation *nested) {
+    DiagnosedSilenceableFailure result = checkWaveNormalFormOnOp(form, nested);
+    if (result.isDefiniteFailure())
+      return WalkResult::interrupt();
+    return WalkResult::advance();
+  });
+  if (walkResult.wasInterrupted())
+    return DiagnosedSilenceableFailure::definiteFailure();
+
+  return DiagnosedSilenceableFailure::success();
 }

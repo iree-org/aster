@@ -8,8 +8,8 @@
 #define WATER_TEST_LIB_DIALECT_WATERTESTDIALECT_H
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
+#include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 #include "mlir/IR/OpDefinition.h"
-#include "water/Dialect/NormalForm/IR/NormalFormInterfaces.h"
 #include "water/Dialect/Wave/IR/WaveInterfaces.h"
 #include "water/Dialect/Wave/IR/WaveTypes.h"
 
