@@ -360,21 +360,6 @@ func.func @read_memref_missing_ordered_syms(%mem: memref<64x64xf16, #gpu.address
 
 // -----
 
-func.func @write_memref_missing_ordered_syms(%mem: memref<64x64xf16, #gpu.address_space<workgroup>>)
-    attributes {wave.hyperparameters = #wave.hyperparameters<{BLOCK_M = 64, BLOCK_N = 64}>} {
-  %cst = arith.constant 0.0 : f16
-  %reg = wave.register %cst : vector<8xf16>
-  // expected-error @below {{expects ordered_syms attribute when neither type is a symbolic tensor}}
-  wave.write %reg, %mem index [{
-      BLOCK_M : <[#wave.index_symbol<T0>] -> (T0, 1, 64)>,
-      BLOCK_N : <[#wave.index_symbol<T1>] -> (T1 * 8, 8, 1)>
-    }]
-    : vector<8xf16>, memref<64x64xf16, #gpu.address_space<workgroup>>
-  return
-}
-
-// -----
-
 // ordered_syms size must match value tensor rank.
 func.func @read_ordered_syms_size_mismatch(%mem: !wave.tensor<[@M, @K, @N] of f32, <global>>) {
   // expected-error @below {{'ordered_syms' size (2) does not match value tensor rank (3)}}
@@ -562,7 +547,7 @@ transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
 transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
   builtin.module {
     func.func @index_length_mismatch(%mem: !wave.tensor<[@M] of f16, <global>>) {
-      // expected-error @below {{index attribute length (0) does not match the number of index expression values (1)}}
+      // expected-error @below {{index attribute length (0) does not match the number of op results (1)}}
       %0 = wave.read %mem index [] : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
       return
     }
@@ -575,7 +560,7 @@ transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
   builtin.module {
     func.func @read_index_multiple_dicts(%mem: !wave.tensor<[@M] of f16, <global>>)
     attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128}>} {
-      // expected-error @below {{index attribute length (2) does not match the number of index expression values (1)}}
+      // expected-error @below {{index attribute length (2) does not match the number of op results (1)}}
       %0 = wave.read %mem index [{M : <[] -> (<NULL>, 4, <NULL>)>}, {M : <[] -> (<NULL>, 4, <NULL>)>}]
         : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
       return

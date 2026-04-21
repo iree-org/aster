@@ -12,8 +12,6 @@ set(LIBS
         MLIROptLib
         MLIRROCDLDialect
         MLIRTransformDialectTransforms
-        MLIRWaterPipelines
-        MLIRWaterTransforms
         MLIRWaveTransforms
 
         MLIRWaterTestDialect

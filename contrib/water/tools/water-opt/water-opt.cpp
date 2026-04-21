@@ -38,9 +38,7 @@
 #include "aster/Init.h"
 #include "water/Dialect/Wave/IR/WaveDialect.h"
 #include "water/Dialect/Wave/Transforms/Passes.h"
-#include "water/Pipelines.h"
 #include "water/Tools/water-opt/WaterOptMain.h"
-#include "water/Transforms/Passes.h"
 
 using namespace mlir;
 
@@ -72,10 +70,8 @@ int main(int argc, char **argv) {
   registerSCFToControlFlowPass();
   registerSymbolDCEPass();
   transform::registerTransformPasses();
-  water::registerPasses();
   water::test::registerAllPasses();
   wave::registerPasses();
-  water::registerWaterPipelines();
 
   DialectRegistry registry;
   aster::initUpstreamMLIRDialects(registry);

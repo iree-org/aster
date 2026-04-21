@@ -1,5 +1,4 @@
 add_mlir_dialect_library(MLIRWaveDialect
-  IndexExpr.cpp
   WaveAttrs.cpp
   WaveDialect.cpp
   WaveInterfaces.cpp

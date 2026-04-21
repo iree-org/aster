@@ -63,9 +63,7 @@ class WaveArithmeticOpDoc {
 class UnaryWaveOp<string mnemonic>
     : WaveOp<mnemonic,
          [WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait,
-          WaveElementsPerThreadOpInterface, IdentityElementsPerThreadOpTrait,
-          CompatibleOperandsAndResultsOpTrait,
-          WaveInferIndexExprsOpInterface, IdentityIndexExprsOpTrait]>,
+          CompatibleOperandsAndResultsOpTrait]>,
       WaveArithmeticOpDoc {
   let arguments = !con((ins
     Arg<WaveTensorInRegister, "Argument">:$argument
@@ -82,9 +80,7 @@ class UnaryWaveOp<string mnemonic>
 class BinaryWaveOp<string mnemonic>
     : WaveOp<mnemonic,
          [WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait,
-          WaveElementsPerThreadOpInterface, IdentityElementsPerThreadOpTrait,
-          CompatibleOperandsAndResultsOpTrait,
-          WaveInferIndexExprsOpInterface, IdentityIndexExprsOpTrait]>,
+          CompatibleOperandsAndResultsOpTrait]>,
       WaveArithmeticOpDoc {
   let arguments = !con((ins
     Arg<WaveTensorInRegister, "Left-hand side">:$lhs,
@@ -103,8 +99,7 @@ class BinaryWaveOp<string mnemonic>
 class ReductionWaveOp<string mnemonic>
     : WaveOp<mnemonic,
         [WaveInferTypeOpInterface, ReductionTypeInferenceOpTrait,
-         WaveElementsPerThreadOpInterface, ReductionElementsPerThreadOpTrait,
-         RequiresSidewaysBackwardPropagationOpTrait, WaveReductionOpTrait]>,
+         WaveReductionOpTrait]>,
       WaveArithmeticOpDoc {
   // TODO(#889): We cannot use Variadic<WaveTensorInRegister> because Variadic
   // requires a Type, not a TypeConstraint (same pattern as wave.iterate's
@@ -190,9 +185,7 @@ def ReciprocalOp : UnaryWaveOp<"reciprocal"> {
 }
 
 def SelectOp : WaveOp<"select",
-    [WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait,
-     WaveElementsPerThreadOpInterface, IdentityElementsPerThreadOpTrait,
-     WaveInferIndexExprsOpInterface, IdentityIndexExprsOpTrait]> {
+    [WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait]> {
   let summary = "Select between two values based on a condition";
   let description = [{
     Selects between two values based on a condition. The selection is element-wise, that is,
@@ -213,11 +206,7 @@ def SelectOp : WaveOp<"select",
 }
 
 def MmaOp : WaveOp<"mma",
-    [DeclareOpInterfaceMethods<WaveInferTypeOpInterface>,
-     DeclareOpInterfaceMethods<WaveElementsPerThreadOpInterface>,
-     DeclareOpInterfaceMethods<WaveInferIndexExprsOpInterface,
-      ["initializeIndexExprsForward", "initializeIndexExprsBackward",
-       "getIndexExprValuesAndDescriptions"]>]>,
+    [DeclareOpInterfaceMethods<WaveInferTypeOpInterface>]>,
             WaveArithmeticOpDoc {
   let summary = "Matrix multiply and accumulate";
 
@@ -236,12 +225,6 @@ def MmaOp : WaveOp<"mma",
     "$lhs `,` $rhs `,` $accumulator " # commonArgumentsSyntax # "attr-dict `:`"
     "functional-type(operands, results)";
   let hasVerifier = 1;
-
-  let extraClassDeclaration = [{
-    /// Compute the expected elements per thread for a specific operand of this MMA operation.
-    /// Returns failure if no hardware constraints are available.
-    llvm::FailureOr<unsigned> computeElementsPerThreadForOperand(unsigned operandIndex);
-  }];
 }
 
 //-----------------------------------------------------------------------------
@@ -251,8 +234,7 @@ def MmaOp : WaveOp<"mma",
 def IterateOp : Op<WaveDialect, "iterate", [
     AttrSizedOperandSegments,
     DeclareOpInterfaceMethods<RegionBranchOpInterface,
-        ["areTypesCompatible", "getEntrySuccessorOperands"]>,
-    DeclareOpInterfaceMethods<WaveInferIndexExprsOpInterface>]> {
+        ["areTypesCompatible", "getEntrySuccessorOperands"]>]> {
   let summary = "Executes the body repeatedly";
   let description = [{
     Intrinsically sequential iterative execution that is akin to a loop with
@@ -334,8 +316,7 @@ def YieldOp : Op<WaveDialect, "yield",
 // Memory-related operations
 //-----------------------------------------------------------------------------
 
-def AllocateOp : WaveOp<"allocate", [
-    WaveInferIndexExprsOpInterface, IdentityIndexExprsOpTrait]> {
+def AllocateOp : WaveOp<"allocate", []> {
   let summary = "Represents an allocation in an address space";
   let description = [{
     Allocates memory for a Wave tensor in the address space indicated by the
@@ -376,8 +357,7 @@ def AllocateOp : WaveOp<"allocate", [
   let hasVerifier = 1;
 }
 
-def ExtractOp : WaveOp<"extract",
-    [DeclareOpInterfaceMethods<WaveElementsPerThreadOpInterface>]> {
+def ExtractOp : WaveOp<"extract", []> {
   let summary = "Extracts a single element from a vector at the given index";
   let description = [{
     This is an internal operation that appears during expansion/lowering and
@@ -417,7 +397,7 @@ def ExtractOp : WaveOp<"extract",
   let hasVerifier = 1;
 }
 
-def ExtractSliceOp : WaveOp<"extract_slice", [WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait, CompatibleOperandsAndResultsOpTrait, NoOpElementsPerThreadOpTrait]> {
+def ExtractSliceOp : WaveOp<"extract_slice", [WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait, CompatibleOperandsAndResultsOpTrait]> {
   let summary = "Extracts a subvector from an n-D tensor";
   let description = [{
     Extracts an n-D subvector from an n-D tensor using k-D offset, size, and
@@ -440,8 +420,7 @@ def ExtractSliceOp : WaveOp<"extract_slice", [WaveInferTypeOpInterface, Identity
   let hasVerifier = 1;
 }
 
-def ReshapeOp : WaveOp<"reshape", [
-    DeclareOpInterfaceMethods<WaveElementsPerThreadOpInterface>]> {
+def ReshapeOp : WaveOp<"reshape", []> {
   let summary = "Reshapes a tensor";
   let description = [{
     **CAUTION**: This is a legacy internal operation not expected to be used in
@@ -503,9 +482,7 @@ def ReshapeOp : WaveOp<"reshape", [
 }
 
 def ReadOp : WaveOp<"read", [
-    DeclareOpInterfaceMethods<WaveInferTypeOpInterface>,
-    DeclareOpInterfaceMethods<WaveElementsPerThreadOpInterface>,
-    WaveInferIndexExprsOpInterface, IdentityIndexExprsOpTrait]> {
+    DeclareOpInterfaceMethods<WaveInferTypeOpInterface>]> {
   let summary = "Reads from memory";
   let description = [{
     Moves data from a memory-resident tensor to a register-resident tensor
@@ -548,9 +525,7 @@ def ReadOp : WaveOp<"read", [
 }
 
 def RegisterOp : WaveOp<"register", [
-    WaveInferTypeOpInterface, NoOpTypeInferenceOpTrait,
-    NoOpElementsPerThreadOpTrait,
-    WaveInferIndexExprsOpInterface, IdentityIndexExprsOpTrait]> {
+    WaveInferTypeOpInterface, NoOpTypeInferenceOpTrait]> {
   let summary = "Defines a tensor value known to be placed in a register";
   let description = [{
     Defines a new register-resident tensor initialized with the given scalar
@@ -574,11 +549,7 @@ def RegisterOp : WaveOp<"register", [
 }
 
 def WriteOp : WaveOp<"write", [
-    DeclareOpInterfaceMethods<WaveInferTypeOpInterface>,
-    DeclareOpInterfaceMethods<WaveElementsPerThreadOpInterface>,
-    DeclareOpInterfaceMethods<WaveInferIndexExprsOpInterface,
-        ["getIndexExprValuesAndDescriptions"]>,
-    RequiresSidewaysBackwardPropagationOpTrait]> {
+    DeclareOpInterfaceMethods<WaveInferTypeOpInterface>]> {
   let summary = "Writes into memory";
   let description = [{
     Moves data from a register-resident tensor into a memory-resident tensor
@@ -624,9 +595,7 @@ def WriteOp : WaveOp<"write", [
 //-----------------------------------------------------------------------------
 
 def ShuffleOp : WaveOp<"shuffle", [
-    WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait,
-    WaveElementsPerThreadOpInterface, IdentityElementsPerThreadOpTrait,
-    WaveInferIndexExprsOpInterface, IdentityIndexExprsOpTrait]> {
+    WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait]> {
   let summary = "Shuffle data between threads in a wave/warp";
   let description = [{
     Performs a GPU shuffle operation to exchange data between threads in a
@@ -667,9 +636,7 @@ def ShuffleOp : WaveOp<"shuffle", [
 
 def ApplyExprOp : WaveOp<"apply_expr",
     [WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait,
-     WaveElementsPerThreadOpInterface, IdentityElementsPerThreadOpTrait,
-     CompatibleOperandsAndResultsShapeOpTrait,
-     WaveInferIndexExprsOpInterface, IdentityIndexExprsOpTrait]>,
+     CompatibleOperandsAndResultsShapeOpTrait]>,
     WaveArithmeticOpDoc {
   let summary = "Apply a symbolic expression to one or more register values";
   let description = [{
@@ -717,9 +684,7 @@ def ApplyExprOp : WaveOp<"apply_expr",
 }
 
 def CastOp : WaveOp<"cast", [
-    WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait,
-    WaveElementsPerThreadOpInterface, IdentityElementsPerThreadOpTrait,
-    WaveInferIndexExprsOpInterface, IdentityIndexExprsOpTrait]> {
+    WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait]> {
   let summary = "Cast a register-resident tensor from one type to another";
   let description = [{
     Change the type of elements in the register-resident tensor without
@@ -741,9 +706,7 @@ def CastOp : WaveOp<"cast", [
 }
 
 def BroadcastOp : WaveOp<"broadcast", [
-    WaveInferTypeOpInterface, NoOpTypeInferenceOpTrait,
-    NoOpElementsPerThreadOpTrait,
-    DeclareOpInterfaceMethods<WaveInferIndexExprsOpInterface>]> {
+    WaveInferTypeOpInterface, NoOpTypeInferenceOpTrait]> {
   let summary = "Broadcast a tensor to a larger shape by replicating values";
   let description = [{
     Broadcasts the source tensor to the result shape by replicating values
@@ -781,9 +744,7 @@ def BroadcastOp : WaveOp<"broadcast", [
 }
 
 def SelfIndexOp : WaveOp<"self_index", [
-    WaveInferTypeOpInterface, NoOpTypeInferenceOpTrait,
-    NoOpElementsPerThreadOpTrait,
-    WaveInferIndexExprsOpInterface, IdentityIndexExprsOpTrait]> {
+    WaveInferTypeOpInterface, NoOpTypeInferenceOpTrait]> {
   let summary = "Produce a vector of indices along a specified dimension";
   let description = [{
     Creates a register-resident tensor containing the index values for each
@@ -818,9 +779,7 @@ def SelfIndexOp : WaveOp<"self_index", [
 }
 
 def PermuteOp : WaveOp<"permute", [
-    DeclareOpInterfaceMethods<WaveInferTypeOpInterface>,
-    WaveElementsPerThreadOpInterface, IdentityElementsPerThreadOpTrait,
-    DeclareOpInterfaceMethods<WaveInferIndexExprsOpInterface>]> {
+    DeclareOpInterfaceMethods<WaveInferTypeOpInterface>]> {
   let summary = "Permute the dimensions of a register-resident tensor";
   let description = [{
     Reorders the symbolic dimensions of a register-resident tensor according
