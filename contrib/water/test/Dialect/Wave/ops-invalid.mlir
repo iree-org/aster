@@ -255,60 +255,6 @@ func.func @iterate_result_terminator_address_space_mismatch(%arg0: !wave.tensor<
 
 // -----
 
-// must provide the full triple (start, step, stride)
-func.func @index_attr_wrong_attr_type(%arg0: f32) {
-  // expected-error @below {{expected symbol names to be one of WaveSymbolAttr, WaveIndexSymbolAttr, WaveIterSymbolAttr or WaveOperandAttr}}
-  wave.register %arg0 index [{X : <[#wave.workgroup_dim<x>] -> (WG0)>}] : !wave.tensor<[@M] of f32, <register>>
-  return
-}
-
-// -----
-
-// must provide the full triple (start, step, stride)
-func.func @index_attr_missing_step_stride(%arg0: f32) {
-  // expected-error @+2 {{expected ','}}
-  // expected-error @+1 {{custom op 'wave.register' expected three affine expressions for '(start, step, stride)'}}
-  wave.register %arg0 index [{X : <[#wave.index_symbol<WG0>] -> (WG0)>}] : !wave.tensor<[@M] of f32, <register>>
-  return
-}
-
-// -----
-
-// must provide the full triple (start, step, stride)
-func.func @index_attr_missing_stride(%arg0: f32) {
-  // expected-error @+2 {{expected ','}}
-  // expected-error @+1 {{custom op 'wave.register' expected three affine expressions for '(start, step, stride)'}}
-  wave.register %arg0 index [{X : <[#wave.index_symbol<WG0>] -> (WG0, 1)>}] : !wave.tensor<[@M] of f32, <register>>
-  return
-}
-
-// -----
-
-func.func @index_attr_not_dict(%arg0: f32) {
-  // expected-error @+1 {{'wave.register' op attribute 'index' failed to satisfy constraint: Array of dictionary attributes}}
-  "wave.register"(%arg0) { index = 42 } : (f32) -> !wave.tensor<[@M] of f32, <register>>
-  return
-}
-
-// -----
-
-// 'index' array elements must be dictionaries mapping to WaveIndexMappingAttr values.
-func.func @index_attr_wrong_value_type(%arg0: f32) {
-  // expected-error @below {{'index' attribute value for key "M" must be WaveIndexMappingAttr, got 42 : i64}}
-  "wave.register"(%arg0) { index = [{ M = 42 }] } : (f32) -> vector<4xf32>
-  return
-}
-
-// -----
-
-func.func @index_attr_iter_not_allowed(%arg0: f32) {
-  // expected-error @below {{index expression uses iterator symbol M which is not defined by any parent op}}
-  wave.register %arg0 index [{M : <[#wave.iter<"M">] -> (_Iter_M, 1, 1)>}] : !wave.tensor<[@M] of f32, <register>>
-  return
-}
-
-// -----
-
 func.func @mismatch_shape_binary(%lhs: !wave.tensor<[@A, @B] of f32>, %rhs: !wave.tensor<[@B, @C] of f32>) {
   // expected-error @below {{expected operand #1 dimension #0 (#wave.symbol<"B">) to match operand #0 dimension #0 (#wave.symbol<"A">)}}
   wave.add %lhs, %rhs : (!wave.tensor<[@A, @B] of f32>, !wave.tensor<[@B, @C] of f32>) -> !wave.tensor<any of f32>
@@ -347,13 +293,9 @@ func.func @mismatch_shape_write(%lhs: !wave.tensor<[@A, @B] of f32, <register>>,
 
 // -----
 
-func.func @read_memref_missing_ordered_syms(%mem: memref<64x64xf16, #gpu.address_space<workgroup>>)
-    attributes {wave.hyperparameters = #wave.hyperparameters<{BLOCK_M = 64, BLOCK_N = 64}>} {
+func.func @read_memref_missing_ordered_syms(%mem: memref<64x64xf16, #gpu.address_space<workgroup>>) {
   // expected-error @below {{expects ordered_syms attribute when neither type is a symbolic tensor}}
-  %0 = wave.read %mem index [{
-      BLOCK_M : <[#wave.index_symbol<T0>] -> (T0, 1, 64)>,
-      BLOCK_N : <[#wave.index_symbol<T1>] -> (T1 * 8, 8, 1)>
-    }]
+  %0 = wave.read %mem
     : (memref<64x64xf16, #gpu.address_space<workgroup>>) -> vector<8xf16>
   return
 }
@@ -502,70 +444,10 @@ module attributes { wave.hyperparameters = #wave.hyperparameters<{A = 42, C = 43
 
 // -----
 
-transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
-  builtin.module {
-    func.func @index_key_unspecified(%mem: !wave.tensor<[@M] of f16, <global>>)
-    attributes {wave.hyperparameters = #wave.hyperparameters<{BLOCK_M = 64, BLOCK_N = 64, M = 128}>}  {
-      // expected-error @below {{attribute "index" uses symbolic value "N" not provided as a hyperparameter}}
-      // expected-note @below {{BLOCK_M, BLOCK_N, M}}
-      %0 = wave.read %mem index [{
-          M : <[#wave.symbol<"BLOCK_M">, #wave.index_symbol<WG0>, #wave.index_symbol<T0>] -> (BLOCK_M * WG0 + (BLOCK_M floordiv 2) * (T0 floordiv 64) + T0 mod 64, 1, 64)>,
-          N : <[#wave.index_symbol<T1>, #wave.index_symbol<WG1>, #wave.symbol<"BLOCK_N">] -> (WG1 * BLOCK_N + (BLOCK_N floordiv 2) * T1, BLOCK_N ceildiv 2, 1)>}]
-        : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
-      return
-    }
-  }
-}
-
-// -----
-
 func.func @read_element_type_mismatch(%mem: memref<64x64xf16, #gpu.address_space<workgroup>>) {
   // expected-error @below {{expected memory and register elemental types to match, got 'f16', 'f32'}}
   %0 = wave.read %mem : (memref<64x64xf16, #gpu.address_space<workgroup>>) -> vector<8xf32>
   return
-}
-
-// -----
-
-transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
-  builtin.module {
-    func.func @index_value_unspecified(%mem: !wave.tensor<[@M] of f16, <global>>)
-    attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128, N = 256}>}  {
-      // expected-error @below {{attribute "index" uses symbolic value #wave.symbol<"BLOCK_M"> not provided as a hyperparameter}}
-      // expected-note @below {{available symbols: M, N}}
-      %0 = wave.read %mem index [{
-          M : <[#wave.symbol<"BLOCK_M">, #wave.index_symbol<WG0>, #wave.index_symbol<T0>] -> (BLOCK_M * WG0 + (BLOCK_M floordiv 2) * (T0 floordiv 64) + T0 mod 64, 1, 64)>,
-          N : <[#wave.index_symbol<T1>, #wave.index_symbol<WG1>, #wave.symbol<"BLOCK_N">] -> (WG1 * BLOCK_N + (BLOCK_N floordiv 2) * T1, BLOCK_N ceildiv 2, 1)>}]
-        : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
-      return
-    }
-  }
-}
-
-// -----
-
-transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
-  builtin.module {
-    func.func @index_length_mismatch(%mem: !wave.tensor<[@M] of f16, <global>>) {
-      // expected-error @below {{index attribute length (0) does not match the number of op results (1)}}
-      %0 = wave.read %mem index [] : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
-      return
-    }
-  }
-}
-
-// -----
-
-transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
-  builtin.module {
-    func.func @read_index_multiple_dicts(%mem: !wave.tensor<[@M] of f16, <global>>)
-    attributes {wave.hyperparameters = #wave.hyperparameters<{M = 128}>} {
-      // expected-error @below {{index attribute length (2) does not match the number of op results (1)}}
-      %0 = wave.read %mem index [{M : <[] -> (<NULL>, 4, <NULL>)>}, {M : <[] -> (<NULL>, 4, <NULL>)>}]
-        : (!wave.tensor<[@M] of f16, <global>>) -> !wave.tensor<[@M] of f16, <register>>
-      return
-    }
-  }
 }
 
 // -----
@@ -594,113 +476,6 @@ func.func @bounds_extraneous_dim(%mem: !wave.tensor<[@N] of f32>, %val: !wave.te
 func.func @bounds_wrong_rank(%mem: !wave.tensor<[@N] of f32>) {
   // expected-error @below {{op attribute 'bounds' failed to satisfy constraint: symbol mapping with 1-result expr list value}}
   wave.read %mem { bounds = #wave.symbol_mapping<@N = #wave.expr_list<[#wave.symbol<"BLOCK_M">] -> (BLOCK_M * 64, BLOCK_M * 64)>> } : (!wave.tensor<[@N] of f32>) -> !wave.tensor<[@N] of f32, <register>>
-  return
-}
-
-// -----
-
-func.func @read_index_multi_step(%mem: !wave.tensor<[@M, @N] of f32>) attributes {
-  wave.hyperparameters = #wave.hyperparameters<{M = 1, N = 1}>
-} {
-  // expected-error @below {{'index' has more than one entry with non-unit step}}
-  // expected-note @below {{second non-unit step dimension: "N"}}
-  wave.read %mem index [{
-    M : <[#wave.index_symbol<T0>] -> (T0, 2, 1)>,
-    N : <[#wave.index_symbol<T1>] -> (T1, 2, 1)>
-  }] : (!wave.tensor<[@M, @N] of f32>) -> !wave.tensor<any of f32, <register>>
-  return
-}
-
-// -----
-
-func.func @read_index_elements_per_thread_mismatch(%mem: !wave.tensor<[@M, @N] of f32>) {
-  // expected-error @below {{vectorized dimension step in the index expression with current hyperparameters (2) doesn't match the explicitly specified elements per thread value (4)}}
-  wave.read %mem index [{
-    M : <[#wave.index_symbol<T0>] -> (T0, 2, 1)>,
-    N : <[#wave.index_symbol<T1>] -> (T1, 1, 1)>
-  }]{
-    elements_per_thread = 4
-  } : (!wave.tensor<[@M, @N] of f32>) -> !wave.tensor<any of f32, <register>>
-  return
-}
-
-
-// -----
-
-func.func @read_index_type_mismatch(%mem: !wave.tensor<[@M, @N] of f32>) {
-  // expected-error @below {{vectorized dimension step in the index expression with current hyperparameters (2) doesn't match the vector size (4)}}
-  wave.read %mem index [{
-    M : <[#wave.index_symbol<T0>] -> (T0, 2, 1)>,
-    N : <[#wave.index_symbol<T1>] -> (T1, 1, 1)>
-  }] : (!wave.tensor<[@M, @N] of f32>) -> vector<4xf32>
-  return
-}
-
-// -----
-
-func.func @read_index_multi_step_eval(%mem: !wave.tensor<[@M, @N] of f32>) attributes {
-  wave.hyperparameters = #wave.hyperparameters<{X = 1, Y = 1, M = 100, N = 200}>
-} {
-  // expected-error @below {{'index' has more than one entry with non-unit step}}
-  // expected-note @below {{second non-unit step dimension: "N"}}
-  wave.read %mem index [{
-    M : <[#wave.index_symbol<T0>, #wave.symbol<"X">] -> (T0, 2 * X, 1)>,
-    N : <[#wave.index_symbol<T1>, #wave.symbol<"X">, #wave.symbol<"Y">] -> (T1, X + Y, 1)>
-  }] : (!wave.tensor<[@M, @N] of f32>) -> vector<4xf32>
-  return
-}
-
-// -----
-
-func.func @write_index_multi_step_eval(%val: !wave.tensor<[@M, @N] of f32, <register>>, %mem: !wave.tensor<[@M, @N] of f32, <global>>) attributes {
-  wave.hyperparameters = #wave.hyperparameters<{X = 1, Y = 1, M = 100, N = 200}>
-} {
-  // expected-error @below {{'index' has more than one entry with non-unit step}}
-  // expected-note @below {{second non-unit step dimension: "N"}}
-  wave.write %val, %mem index [{
-    M : <[#wave.index_symbol<T0>, #wave.symbol<"X">] -> (T0, 2 * X, 1)>,
-    N : <[#wave.index_symbol<T1>, #wave.symbol<"X">, #wave.symbol<"Y">] -> (T1, X + Y, 1)>
-  }] : !wave.tensor<[@M, @N] of f32, <register>>, !wave.tensor<[@M, @N] of f32, <global>>
-  return
-}
-
-// -----
-
-func.func @read_index_zero_step(%mem: !wave.tensor<[@M] of f32>) attributes {
-  wave.hyperparameters = #wave.hyperparameters<{M = 128}>
-} {
-  // expected-error @below {{step in index expression must be strictly positive, got 0 for dimension "M"}}
-  wave.read %mem index [{M : <[] -> (0, 0, 1)>}] : (!wave.tensor<[@M] of f32>) -> !wave.tensor<[@M] of f32, <register>>
-  return
-}
-
-// -----
-
-func.func @read_index_negative_step(%mem: !wave.tensor<[@M] of f32>) attributes {
-  wave.hyperparameters = #wave.hyperparameters<{M = 128}>
-} {
-  // expected-error @below {{step in index expression must be strictly positive, got -1 for dimension "M"}}
-  wave.read %mem index [{M : <[] -> (0, -1, 1)>}] : (!wave.tensor<[@M] of f32>) -> !wave.tensor<[@M] of f32, <register>>
-  return
-}
-
-// -----
-
-func.func @read_index_zero_stride(%mem: !wave.tensor<[@M] of f32>) attributes {
-  wave.hyperparameters = #wave.hyperparameters<{M = 128}>
-} {
-  // expected-error @below {{stride in index expression must be strictly positive, got 0 for dimension "M"}}
-  wave.read %mem index [{M : <[] -> (0, 1, 0)>}] : (!wave.tensor<[@M] of f32>) -> !wave.tensor<[@M] of f32, <register>>
-  return
-}
-
-// -----
-
-func.func @read_index_negative_stride(%mem: !wave.tensor<[@M] of f32>) attributes {
-  wave.hyperparameters = #wave.hyperparameters<{M = 128}>
-} {
-  // expected-error @below {{stride in index expression must be strictly positive, got -1 for dimension "M"}}
-  wave.read %mem index [{M : <[] -> (0, 1, -1)>}] : (!wave.tensor<[@M] of f32>) -> !wave.tensor<[@M] of f32, <register>>
   return
 }
 
@@ -1250,13 +1025,5 @@ func.func @reshape_target_vector_shape_spurious_dimension2(%arg0: !wave.tensor<[
 func.func @reshape_logical_slice_too_large(%arg0: vector<8xf32>) {
   // expected-error @below {{expected logical slice to be less than the number of slices}}
   wave.reshape %arg0 {target_vector_shape = {}, logical_slice = 2, num_slices = 2} : vector<8xf32> to vector<4xf32>
-  return
-}
-
-// -----
-
-func.func @extract_index_attr_length_mismatch(%source: !wave.tensor<[@A, @B] of f32>) {
-  // expected-error @below {{index attribute length (2) does not match the number of op results (1)}}
-  %0 = wave.extract %source[#wave.expr_list<[] -> (2)>] {index = [{}, {}]} : (!wave.tensor<[@A, @B] of f32>) -> !wave.tensor<[@A] of f32>
   return
 }

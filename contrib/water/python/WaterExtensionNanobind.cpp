@@ -1057,7 +1057,6 @@ NB_MODULE(_waterDialects, m) {
       .value("FunctionBoundarySpecified",
              WaveWaterNormalFormFunctionBoundarySpecified)
       .value("OpTypesSpecified", WaveWaterNormalFormOpTypesSpecified)
-      .value("IndexExprsSpecified", WaveWaterNormalFormIndexExprsSpecified)
       .value("MemoryOnlyTypes", WaveWaterNormalFormMemoryOnlyTypes)
       .value("AllTypesSpecified", WaveWaterNormalFormAllTypesSPecified);
 

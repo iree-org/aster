@@ -36,15 +36,8 @@ def WaveMemoryType : Type<Or<[WaveTensorInMemory.predicate, AnyMemRef.predicate]
 // Base class for all Wave operations.
 //-----------------------------------------------------------------------------
 
-// Wave operations must have an optional attribute for index sequences.
 class WaveOp<string mnemonic, list<Trait> traits = []>
-    : Op<WaveDialect, mnemonic, !listconcat(traits, [HasWaveIndexMapping])> {
-  dag commonArguments = (ins
-    Arg<OptionalAttr<DictArrayAttr>, "Index expression">:$index
-  );
-
-  string commonArgumentsSyntax = "( `index` custom<WaveIndexDict>($index)^ )?";
-}
+    : Op<WaveDialect, mnemonic, traits>;
 
 //-----------------------------------------------------------------------------
 // Base classes for arithmetic operations
@@ -65,9 +58,9 @@ class UnaryWaveOp<string mnemonic>
          [WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait,
           CompatibleOperandsAndResultsOpTrait]>,
       WaveArithmeticOpDoc {
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveTensorInRegister, "Argument">:$argument
-  ), commonArguments);
+  );
 
   let results = (outs
     Arg<WaveTensorInRegister, "Result">:$result
@@ -82,17 +75,17 @@ class BinaryWaveOp<string mnemonic>
          [WaveInferTypeOpInterface, IdentityTypeInferenceOpTrait,
           CompatibleOperandsAndResultsOpTrait]>,
       WaveArithmeticOpDoc {
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveTensorInRegister, "Left-hand side">:$lhs,
     Arg<WaveTensorInRegister, "Right-hand side">:$rhs
-  ), commonArguments);
+  );
 
   let results = (outs
     Res<WaveTensorInRegister, "Result of the operation">:$result
   );
 
   let assemblyFormat =
-    "$lhs `,` $rhs " # commonArgumentsSyntax # "attr-dict `:`"
+    "$lhs `,` $rhs attr-dict `:`"
     "functional-type(operands, results)";
 }
 
@@ -104,12 +97,12 @@ class ReductionWaveOp<string mnemonic>
   // TODO(#889): We cannot use Variadic<WaveTensorInRegister> because Variadic
   // requires a Type, not a TypeConstraint (same pattern as wave.iterate's
   // iter_args).
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<Variadic<WaveIterableType>, "Tensor(s) to reduce">:$inputs,
     Arg<WaveTensorInRegister, "Initial value for the reduction">:$init,
     Arg<WaveReductionScopeAttr, "Scope of the reduction">:$scope,
     Arg<OptionalAttr<WaveSymbolAttr>, "Reduction axis">:$axis
-  ), commonArguments);
+  );
 
   let results = (outs
     Res<WaveTensorInRegister, "Reduced result">:$result
@@ -117,7 +110,7 @@ class ReductionWaveOp<string mnemonic>
 
   let assemblyFormat =
       "$inputs `init` `(` $init `)` (`along` custom<SingleSymbol>($axis)^)? "
-      "$scope " # commonArgumentsSyntax # " attr-dict `:`"
+      "$scope attr-dict `:`"
       "functional-type(operands, results)";
 }
 
@@ -191,16 +184,16 @@ def SelectOp : WaveOp<"select",
     Selects between two values based on a condition. The selection is element-wise, that is,
     the condition is a tensor co-indexed with the two values.
   }];
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveTensorInRegister, "Condition">:$condition,
     Arg<WaveTensorInRegister, "First value">:$lhs,
     Arg<WaveTensorInRegister, "Second value">:$rhs
-  ), commonArguments);
+  );
   let results = (outs
     Res<WaveTensorInRegister, "Result">:$result
   );
   let assemblyFormat =
-    "$condition `,` $lhs `,` $rhs " # commonArgumentsSyntax # "attr-dict `:` "
+    "$condition `,` $lhs `,` $rhs attr-dict `:` "
     "functional-type(operands, results)";
   let hasVerifier = 1;
 }
@@ -210,19 +203,19 @@ def MmaOp : WaveOp<"mma",
             WaveArithmeticOpDoc {
   let summary = "Matrix multiply and accumulate";
 
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveTensorInRegister, "Left-hand side of the multiplication">:$lhs,
     Arg<WaveTensorInRegister, "Right-hand side of the multiplication">:$rhs,
     Arg<WaveTensorInRegister, "Accumulator for addition">:$accumulator,
     Arg<OptionalAttr<WaveMmaKindAttr>, "Kind of the MMA intrinsic to target">:$kind
-  ), commonArguments);
+  );
 
   let results = (outs
     Arg<WaveTensorInRegister, "Result">:$result
   );
 
   let assemblyFormat =
-    "$lhs `,` $rhs `,` $accumulator " # commonArgumentsSyntax # "attr-dict `:`"
+    "$lhs `,` $rhs `,` $accumulator attr-dict `:`"
     "functional-type(operands, results)";
   let hasVerifier = 1;
 }
@@ -335,7 +328,7 @@ def AllocateOp : WaveOp<"allocate", []> {
     complex expressions.
   }];
 
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<Optional<WaveMemoryType>, "Optional parent buffer to view into">:$parent,
     Arg<WaveExprListAttrOf<[WaveSymbolAttr]>,
         "Distributed (physical) shape">:$distributed_shape,
@@ -347,7 +340,7 @@ def AllocateOp : WaveOp<"allocate", []> {
       does not affect the distributed shape
     }]
     >:$tail_padding
-  ), commonArguments);
+  );
 
   let results = (outs Res<WaveMemoryType, "Allocated buffer">:$result);
 
@@ -382,17 +375,17 @@ def ExtractOp : WaveOp<"extract", []> {
     Consider regrouping it with `reshape` into a single relayout operation.
   }];
 
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveTensorInRegister, "Vector to extract from">:$source,
     Arg<WaveExprListAttr, "Index position to extract">:$position
-  ), commonArguments);
+  );
 
   let results = (outs
     Res<WaveTensorInRegister, "Extracted 1-element vector">:$result
   );
 
   let assemblyFormat =
-    "$source `[` $position `]` " # commonArgumentsSyntax # "attr-dict "
+    "$source `[` $position `]` attr-dict "
     "`:` functional-type(operands, results)";
   let hasVerifier = 1;
 }
@@ -456,7 +449,7 @@ def ReshapeOp : WaveOp<"reshape", []> {
     contract (#942). This will **NOT** be modeled here.
   }];
 
-  let arguments = !con((ins
+  let arguments = (ins
     // TODO(#889): cannot use WaveTensorInRegister here because it's not a Type, requires
     // an upstream change to Variadic to allow TypeConstraint.
     Arg<Variadic<AnyType>,
@@ -469,14 +462,14 @@ def ReshapeOp : WaveOp<"reshape", []> {
     Arg<DefaultValuedAttr<
         ConfinedAttr<I64Attr, [IntMinValue<1>]>, "1">,
         "Number of slices">:$num_slices
-  ), commonArguments);
+  );
 
   let results = (outs
     Res<WaveTensorInRegister, "Reshaped tensor">:$result
   );
 
   let assemblyFormat =
-    "$source" # commonArgumentsSyntax  # "attr-dict `:` "
+    "$source attr-dict `:` "
     "custom<ReusedType>(type($source), ref($source)) `to` qualified(type($result))";
   let hasVerifier = 1;
 }
@@ -494,7 +487,7 @@ def ReadOp : WaveOp<"read", [
     match.
   }];
 
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveMemoryType, "Memory to read from">:$memory,
     Arg<OptionalAttr<I64Attr>,
         "Number of elements processed by each thread">:$elements_per_thread,
@@ -505,13 +498,13 @@ def ReadOp : WaveOp<"read", [
     Arg<OptionalAttr<WaveExprListAttr>,
         "Indicates how value dimensions are remapped into memory dimensions">
        :$mapping
-  ), commonArguments);
+  );
 
   let results = (outs
     Res<WaveTensorInRegister, "Read value">:$result
   );
 
-  let assemblyFormat = "$memory " # commonArgumentsSyntax # "attr-dict `:` "
+  let assemblyFormat = "$memory attr-dict `:` "
                        "functional-type(operands, results)";
   let hasVerifier = 1;
 
@@ -533,17 +526,17 @@ def RegisterOp : WaveOp<"register", [
     type.
   }];
 
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<Type<Or<[AnyInteger.predicate, AnyFloat.predicate]>>,
         "Scalar value to initialize the tensor elements">:$init
-  ), commonArguments);
+  );
 
   let results = (outs
     Res<WaveTensorInRegister, "Defined value">:$result
   );
 
   let assemblyFormat =
-    "$init " # commonArgumentsSyntax # " attr-dict `:`"
+    "$init attr-dict `:`"
     " custom<RegisterOpTypes>(type($init), type($result))";
   let hasVerifier = 1;
 }
@@ -561,7 +554,7 @@ def WriteOp : WaveOp<"write", [
     match.
   }];
 
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveTensorInRegister, "Value to write">:$value_to_store,
     Arg<WaveMemoryType, "Memory to write into">:$memory,
     Arg<OptionalAttr<I64Attr>,
@@ -573,10 +566,10 @@ def WriteOp : WaveOp<"write", [
     Arg<OptionalAttr<WaveExprListAttr>,
         "Indicates how value dimensions are remapped into memory dimensions">
        :$mapping
-  ), commonArguments);
+  );
 
   let assemblyFormat =
-    "$value_to_store `,` $memory " # commonArgumentsSyntax # "attr-dict `:`"
+    "$value_to_store `,` $memory attr-dict `:`"
     "qualified(type($value_to_store)) `,` qualified(type($memory))";
 
   let hasVerifier = 1;
@@ -614,19 +607,19 @@ def ShuffleOp : WaveOp<"shuffle", [
     ```
   }];
 
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveTensorInRegister, "Value to shuffle">:$value,
     Arg<I32Attr, "Shuffle offset">:$offset,
     Arg<I32Attr, "Logical warp width">:$width,
     Arg<WaveShuffleModeAttr, "Shuffle mode">:$mode
-  ), commonArguments);
+  );
 
   let results = (outs
     Res<WaveTensorInRegister, "Shuffled result">:$result
   );
 
   let assemblyFormat =
-    "$mode $value `,` $offset `,` $width " # commonArgumentsSyntax # "attr-dict `:`"
+    "$mode $value `,` $offset `,` $width attr-dict `:`"
     "functional-type(operands, results)";
 }
 
@@ -667,19 +660,19 @@ def ApplyExprOp : WaveOp<"apply_expr",
   // 1D vectors (after).
   // TODO(#889): We cannot use Variadic<WaveTensorInRegister> because
   // Variadic requires a Type and not a TypeConstraint.
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<Variadic<WaveIterableType>, "Input registers">:$arguments,
     Arg<WaveExprListAttrOf<[WaveSymbolAttr, WaveOperandAttr]>, "Expression to apply">:$expr,
     Arg<OptionalAttr<WaveApplyExprCombinatorAttr>, "Combinator to apply">:$combinator
-  ), commonArguments);
+  );
 
   let results = (outs
     Res<WaveTensorInRegister, "Result">:$result
   );
 
   let assemblyFormat =
-    "`(` $arguments `)` ($combinator^)? $expr " # commonArgumentsSyntax
-    # "attr-dict `:` functional-type(operands, results)";
+    "`(` $arguments `)` ($combinator^)? $expr "
+    "attr-dict `:` functional-type(operands, results)";
   let hasVerifier = 1;
 }
 
@@ -691,15 +684,15 @@ def CastOp : WaveOp<"cast", [
     changing its shape if specified. Supports integer, floating point casts
     and combinations of both. Widening integer casts are sign-extending.
   }];
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveTensorInRegister, "Value to cast">:$value_to_cast
-  ), commonArguments);
+  );
   let results = (outs
     Res<WaveTensorInRegister, "Casted value">:$result
   );
 
   let assemblyFormat =
-    "$value_to_cast " # commonArgumentsSyntax # " attr-dict `:`"
+    "$value_to_cast attr-dict `:`"
     "qualified(type($value_to_cast)) `to` qualified(type($result))";
 
   let hasVerifier = 1;
@@ -722,16 +715,16 @@ def BroadcastOp : WaveOp<"broadcast", [
     (Operand) type inference is also impossible given the result type only.
   }];
 
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveTensorInRegister, "Source tensor to broadcast">:$source
-  ), commonArguments);
+  );
 
   let results = (outs
     Res<WaveTensorInRegister, "Broadcasted result">:$result
   );
 
   let assemblyFormat =
-    "$source " # commonArgumentsSyntax # " attr-dict `:`"
+    "$source attr-dict `:`"
     "functional-type(operands, results)";
 
   let hasVerifier = 1;
@@ -762,18 +755,18 @@ def SelfIndexOp : WaveOp<"self_index", [
     ```
   }];
 
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveSymbolAttr, "Dimension to index over">:$dim,
     Arg<OptionalAttr<I64Attr>,
         "Number of elements processed by each thread">:$elements_per_thread
-  ), commonArguments);
+  );
 
   let results = (outs
     Res<WaveTensorInRegister, "Index values">:$result
   );
 
   let assemblyFormat =
-    "custom<SingleSymbol>($dim) " # commonArgumentsSyntax # " attr-dict `:`"
+    "custom<SingleSymbol>($dim) attr-dict `:`"
     " type($result)";
   let hasVerifier = 1;
 }
@@ -798,15 +791,15 @@ def PermuteOp : WaveOp<"permute", [
     fully-specified, its shape will be inferred from the input type during
     type inference.
   }];
-  let arguments = !con((ins
+  let arguments = (ins
     Arg<WaveTensorInRegister, "Value to permute">:$value
-  ), commonArguments);
+  );
   let results = (outs
     Res<WaveTensorInRegister, "Permuted value">:$result
   );
 
   let assemblyFormat =
-    "$value " # commonArgumentsSyntax # " attr-dict `:`"
+    "$value attr-dict `:`"
     "qualified(type($value)) `to` qualified(type($result))";
 
   let hasVerifier = 1;

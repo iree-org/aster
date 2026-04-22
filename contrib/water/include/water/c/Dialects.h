@@ -381,8 +381,7 @@ enum WaveWaterNormalForm {
   WaveWaterNormalFormNone = 0,
   WaveWaterNormalFormFunctionBoundarySpecified = 1,
   WaveWaterNormalFormOpTypesSpecified = 2,
-  WaveWaterNormalFormIndexExprsSpecified = 4,
-  WaveWaterNormalFormMemoryOnlyTypes = 8,
+  WaveWaterNormalFormMemoryOnlyTypes = 4,
 
   WaveWaterNormalFormAllTypesSPecified =
       WaveWaterNormalFormFunctionBoundarySpecified |

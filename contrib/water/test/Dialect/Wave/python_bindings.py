@@ -435,11 +435,6 @@ with ir.Context() as ctx:
     # CHECK: #wave.normal_form<full_op_types>
     print(wave.WaveWaterNormalFormAttr.get(wave.WaveWaterNormalForm.OpTypesSpecified))
 
-    # CHECK: #wave.normal_form<index_exprs>
-    print(
-        wave.WaveWaterNormalFormAttr.get(wave.WaveWaterNormalForm.IndexExprsSpecified)
-    )
-
     # CHECK: #wave.normal_form<memory_only_types>
     print(wave.WaveWaterNormalFormAttr.get(wave.WaveWaterNormalForm.MemoryOnlyTypes))
 

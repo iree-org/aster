@@ -1084,40 +1084,6 @@ checkWaveNormalFormOnOp(WaveWaterNormalForm form, Operation *op) {
   }
 
   if (wave::bitEnumContainsAll(
-          form, wave::WaveWaterNormalForm::IndexExprsSpecified)) {
-    if (op->hasTrait<wave::HasWaveIndexMapping>() &&
-        !op->getAttr(wave::WaveDialect::kIndexWaveExprListAttrName)) {
-      // Only require index expressions for read/write ops, or ops with
-      // WaveTensorType operands/results. Vector-only ops (after
-      // elements-per-thread propagation) don't need index expressions.
-      bool hasWaveTensor = llvm::any_of(op->getOperandTypes(),
-                                        llvm::IsaPred<wave::WaveTensorType>) ||
-                           llvm::any_of(op->getResultTypes(),
-                                        llvm::IsaPred<wave::WaveTensorType>);
-      bool isMemoryAccessOp = llvm::isa<wave::ReadOp, wave::WriteOp>(op);
-
-      // Parent allocations (byte buffers for combined shared memory) don't
-      // need index expressions. They are never accessed directly by read/write
-      // operations - only child AllocateOps reference them as a parent buffer.
-      // A parent allocation has no operands (no parent buffer to view into).
-      bool isParentAllocation =
-          llvm::isa<wave::AllocateOp>(op) && op->getNumOperands() == 0;
-
-      if ((hasWaveTensor || isMemoryAccessOp) && !isParentAllocation) {
-        if (isMemoryAccessOp) {
-          emitError() << "missing index expressions on memory access "
-                         "operation, required by normal form";
-          return DiagnosedSilenceableFailure::definiteFailure();
-        }
-        emitError() << "missing index expressions on operation with "
-                       "WaveTensorType operand/result, required by "
-                       "normal form";
-        return DiagnosedSilenceableFailure::definiteFailure();
-      }
-    }
-  }
-
-  if (wave::bitEnumContainsAll(
           form, wave::WaveWaterNormalForm::ResolvedAllocations)) {
     if (auto allocOp = llvm::dyn_cast<wave::AllocateOp>(op)) {
       if (!llvm::isa<MemRefType>(allocOp.getResult().getType())) {

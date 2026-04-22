@@ -31,28 +31,6 @@ class WaveTensorType;
 WaveHyperparameterAttr getHyperparameters(mlir::Operation *op);
 
 //-----------------------------------------------------------------------------
-// HasWaveIndexMapping trait
-//-----------------------------------------------------------------------------
-
-// Common verifier for the optional 'index' attribute used by Wave ops.
-mlir::LogicalResult verifyWaveIndexMappings(mlir::Operation *op);
-
-// Trait that checks the 'index' attribute using verifyWaveIndexMappings.
-template <typename ConcreteType>
-class HasWaveIndexMapping
-    : public mlir::OpTrait::TraitBase<ConcreteType, HasWaveIndexMapping> {
-public:
-  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
-    return verifyWaveIndexMappings(op);
-  }
-};
-
-mlir::ParseResult parseWaveIndexDict(mlir::OpAsmParser &parser,
-                                     mlir::ArrayAttr &out);
-void printWaveIndexDict(mlir::OpAsmPrinter &printer, mlir::Operation *op,
-                        mlir::ArrayAttr arr);
-
-//-----------------------------------------------------------------------------
 // WaveInferTypeOpInterface and implementation traits
 //-----------------------------------------------------------------------------
 

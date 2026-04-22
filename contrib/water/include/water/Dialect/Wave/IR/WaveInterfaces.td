@@ -10,14 +10,6 @@
 include "mlir/IR/OpBase.td"
 
 //-----------------------------------------------------------------------------
-// Operation traits
-//-----------------------------------------------------------------------------
-
-def HasWaveIndexMapping : NativeOpTrait<"HasWaveIndexMapping"> {
-    let cppNamespace = "::wave";
-}
-
-//-----------------------------------------------------------------------------
 // WaveInferTypeOpInterface and implementation traits
 //-----------------------------------------------------------------------------
 

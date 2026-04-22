@@ -520,301 +520,6 @@ static LogicalResult checkMmaTypeCompatibility(Location loc,
   return llvm::success(success);
 }
 
-// Extract the context from the first symbol that is not null.
-static MLIRContext *getAnySymbolContext(wave::WaveSymbolAttr mSymbol,
-                                        wave::WaveSymbolAttr nSymbol,
-                                        wave::WaveSymbolAttr kSymbol) {
-  MLIRContext *context = nullptr;
-  for (wave::WaveSymbolAttr symbol : {mSymbol, nSymbol, kSymbol})
-    if (!context && symbol)
-      context = symbol.getContext();
-  assert(context && "expected at least one symbol name to be provided");
-  return context;
-}
-
-namespace {
-
-struct MmaIndexingExprBuilder;
-
-// Fluent-style API builder for index expressions of an MMA operation. See
-// MmaIndexingExprBuilder for details.
-struct MmaSingleIndexExprBuilder {
-  MmaSingleIndexExprBuilder(MmaIndexingExprBuilder &parent, bool enabled)
-      : parent(parent), enabled(enabled) {}
-
-  // Set the parameter of the index expression for the currently selected
-  // dimension.
-  MmaSingleIndexExprBuilder &offset(AffineExpr expr);
-  MmaSingleIndexExprBuilder &size(int64_t value);
-  MmaSingleIndexExprBuilder &stride(int64_t value);
-
-  // Select the dimension.
-  MmaSingleIndexExprBuilder &m();
-  MmaSingleIndexExprBuilder &n();
-  MmaSingleIndexExprBuilder &k();
-
-  // Populate the attributes with all index expressions.
-  void populate(llvm::SmallVectorImpl<NamedAttribute> &attributes) const;
-
-  MmaIndexingExprBuilder &parent;
-  AffineExpr offsetExpr, sizeExpr, strideExpr;
-  bool enabled;
-};
-
-// Fluent-style API builder for index expressions of an MMA operation. Usage:
-//   1. Create an instance of this class.
-//   2. Use `m`, `n` or `k` to select the MMA dimension to build an index
-//   expression for.
-//   3. After selecting the dimension, use `offset`, `size` or `stride` to set
-//   the corresponding quantities of the index expression.
-//   4. Proceed with the next dimension until all dimensions are set.
-//   5. Call `populate` to populate the attributes of the MMA operation.
-//
-// Example:
-//
-// ```
-//   MmaIndexingExprBuilder builder(symbols, mSymbol, nSymbol, kSymbol);
-//   builder.m().offset(offset_m).size(size_m).stride(stride_m)
-//          .n().offset(offset_n).size(size_n).stride(stride_n)
-//          .k().offset(offset_k).size(size_k).stride(stride_k)
-//          .populate(attributes);
-// ```
-struct MmaIndexingExprBuilder {
-  MmaIndexingExprBuilder(llvm::ArrayRef<Attribute> symbols,
-                         wave::WaveSymbolAttr mSymbol,
-                         wave::WaveSymbolAttr nSymbol,
-                         wave::WaveSymbolAttr kSymbol)
-      : symbols(symbols), mBuilder(*this, mSymbol != nullptr),
-        nBuilder(*this, nSymbol != nullptr),
-        kBuilder(*this, kSymbol != nullptr), mSymbol(mSymbol), nSymbol(nSymbol),
-        kSymbol(kSymbol) {
-    assert(
-        llvm::all_of(
-            symbols,
-            llvm::IsaPred<wave::WaveSymbolAttr, wave::WaveIndexSymbolAttr>) &&
-        "expected symbols to be a range of WaveSymbolAttr or "
-        "WaveIndexSymbolAttr attributes");
-  }
-
-  // Select the dimension.
-  MmaSingleIndexExprBuilder &m() { return mBuilder; }
-  MmaSingleIndexExprBuilder &n() { return nBuilder; }
-  MmaSingleIndexExprBuilder &k() { return kBuilder; }
-
-  // Populate the attributes with all index expressions.
-  void populate(llvm::SmallVectorImpl<NamedAttribute> &attributes) const {
-    MLIRContext *ctx = getAnySymbolContext(mSymbol, nSymbol, kSymbol);
-
-    auto buildMap = [&](AffineExpr expr) {
-      assert(expr &&
-             "expected offset/size/stride to be set up for all symbols");
-      return AffineMap::get(/*dimCount=*/0,
-                            /*symbolCount=*/symbols.size(), expr, ctx);
-    };
-    auto buildOne = [&](const MmaSingleIndexExprBuilder &builder) {
-      return wave::WaveIndexMappingAttr::get(
-          ctx, symbols, buildMap(builder.offsetExpr),
-          buildMap(builder.sizeExpr), buildMap(builder.strideExpr));
-    };
-
-    if (mSymbol)
-      attributes.emplace_back(mSymbol.getName(), buildOne(mBuilder));
-    if (nSymbol)
-      attributes.emplace_back(nSymbol.getName(), buildOne(nBuilder));
-    if (kSymbol)
-      attributes.emplace_back(kSymbol.getName(), buildOne(kBuilder));
-  }
-
-  llvm::ArrayRef<Attribute> symbols;
-  MmaSingleIndexExprBuilder mBuilder, nBuilder, kBuilder;
-  wave::WaveSymbolAttr mSymbol, nSymbol, kSymbol;
-};
-
-MmaSingleIndexExprBuilder &MmaSingleIndexExprBuilder::offset(AffineExpr expr) {
-  if (!enabled)
-    return *this;
-  assert(!offsetExpr && "expected offset to be set only once");
-  offsetExpr = expr;
-  return *this;
-}
-
-MmaSingleIndexExprBuilder &MmaSingleIndexExprBuilder::size(int64_t value) {
-  if (!enabled)
-    return *this;
-  assert(!sizeExpr && "expected size to be set only once");
-  sizeExpr = getAffineConstantExpr(value, offsetExpr.getContext());
-  return *this;
-}
-
-MmaSingleIndexExprBuilder &MmaSingleIndexExprBuilder::stride(int64_t value) {
-  if (!enabled)
-    return *this;
-  assert(!strideExpr && "expected stride to be set only once");
-  strideExpr = getAffineConstantExpr(value, offsetExpr.getContext());
-  return *this;
-}
-
-[[maybe_unused]] MmaSingleIndexExprBuilder &MmaSingleIndexExprBuilder::m() {
-  return parent.m();
-}
-[[maybe_unused]] MmaSingleIndexExprBuilder &MmaSingleIndexExprBuilder::n() {
-  return parent.n();
-}
-[[maybe_unused]] MmaSingleIndexExprBuilder &MmaSingleIndexExprBuilder::k() {
-  return parent.k();
-}
-void MmaSingleIndexExprBuilder::populate(
-    llvm::SmallVectorImpl<NamedAttribute> &attributes) const {
-  parent.populate(attributes);
-}
-} // namespace
-
-// Populate `attributes` with index expressions for the symbols associated with
-// M, N, K dimensions of the given MMA operation kind provided the configuration
-// of wavefronts in the workgroup. Any symbol may be omitted as long as at least
-// one is provided, e.g., for the LHS of the operation, only M and N symbols may
-// be provided. If `isAccumulator` is set, the index expressions are created for
-// the accumulator/result of an MMA, which may affect the expression for the M
-// dimension.
-static llvm::LogicalResult
-populateMmaIndexingExpr(wave::WaveMmaKind kind, bool isAccumulator,
-                        llvm::ArrayRef<unsigned> wavesPerWorkgroup,
-                        int64_t threadsPerWave, wave::WaveSymbolAttr mSymbol,
-                        wave::WaveSymbolAttr nSymbol,
-                        wave::WaveSymbolAttr kSymbol,
-                        llvm::SmallVectorImpl<NamedAttribute> &attributes) {
-  MLIRContext *ctx = getAnySymbolContext(mSymbol, nSymbol, kSymbol);
-
-  llvm::SmallVector<Attribute> symbolNames = {
-      wave::WaveIndexSymbolAttr::get(ctx, wave::WaveIndexSymbol::THREAD_0),
-      wave::WaveIndexSymbolAttr::get(ctx, wave::WaveIndexSymbol::THREAD_1),
-      wave::WaveIndexSymbolAttr::get(ctx, wave::WaveIndexSymbol::THREAD_2),
-      wave::WaveIndexSymbolAttr::get(ctx, wave::WaveIndexSymbol::GPR_NUMBER),
-  };
-  AffineExpr threadX, threadY, threadZ, gprNum;
-  bindSymbols(ctx, threadX, threadY, threadZ, gprNum);
-
-  AffineExpr linearizedThreadId =
-      threadX + threadY * wavesPerWorkgroup[0] * threadsPerWave +
-      threadZ * wavesPerWorkgroup[1] * wavesPerWorkgroup[0] * threadsPerWave;
-  AffineExpr laneId = linearizedThreadId % threadsPerWave;
-  MmaIndexingExprBuilder builder(symbolNames, mSymbol, nSymbol, kSymbol);
-
-  switch (kind) {
-  case wave::WaveMmaKind::F32_16x16x16_F16:
-  case wave::WaveMmaKind::I32_16x16x16_I8:
-    builder.m()
-        .offset(isAccumulator ? 4 * laneId.floorDiv(16) : laneId % 16)
-        .size(isAccumulator ? 4 : 1)
-        .stride(isAccumulator ? 16 : 1)
-        .n()
-        .offset(laneId % 16)
-        .size(1)
-        .stride(1)
-        .k()
-        .offset(4 * laneId.floorDiv(16))
-        .size(4)
-        .stride(1)
-        .populate(attributes);
-    return llvm::success();
-
-  case wave::WaveMmaKind::F32_32x32x8_F16:
-  case wave::WaveMmaKind::I32_32x32x8_I8:
-    builder.m()
-        .offset(isAccumulator ? (8 * gprNum.floorDiv(4) % 32) +
-                                    4 * laneId.floorDiv(32) + (gprNum % 4)
-                              : laneId % 32)
-        .size(isAccumulator ? 16 : 1)
-        .stride(isAccumulator ? 32 : 1)
-        .n()
-        .offset(laneId % 32)
-        .size(1)
-        .stride(1)
-        .k()
-        .offset(4 * laneId.floorDiv(32))
-        .size(4)
-        .stride(1)
-        .populate(attributes);
-    return llvm::success();
-
-  case wave::WaveMmaKind::F32_16x16x32_F8:
-  case wave::WaveMmaKind::F32_16x16x32_BF16:
-  case wave::WaveMmaKind::F32_16x16x32_F16:
-  case wave::WaveMmaKind::F32_16x16x32_K8_F16:
-  case wave::WaveMmaKind::I32_16x16x32_I8:
-    builder.m()
-        .offset(isAccumulator ? 4 * laneId.floorDiv(16) : laneId % 16)
-        .size(isAccumulator ? 4 : 1)
-        .stride(isAccumulator ? 16 : 1)
-        .n()
-        .offset(laneId % 16)
-        .size(1)
-        .stride(1)
-        .k()
-        .offset(8 * laneId.floorDiv(16))
-        .size(8)
-        .stride(1)
-        .populate(attributes);
-    return llvm::success();
-  case wave::WaveMmaKind::F32_16x16x32_K4_F8:
-    builder.m()
-        .offset(isAccumulator ? 4 * laneId.floorDiv(16) : laneId % 16)
-        .size(isAccumulator ? 4 : 1)
-        .stride(isAccumulator ? 16 : 1)
-        .n()
-        .offset(laneId % 16)
-        .size(1)
-        .stride(1)
-        .k()
-        .offset(16 * gprNum.floorDiv(4) + 4 * laneId.floorDiv(16) +
-                (gprNum % 4))
-        .size(8)
-        .stride(1)
-        .populate(attributes);
-    return llvm::success();
-  case wave::WaveMmaKind::F32_32x32x16_F8:
-  case wave::WaveMmaKind::F32_32x32x16_BF16:
-  case wave::WaveMmaKind::F32_32x32x16_F16:
-  case wave::WaveMmaKind::F32_32x32x16_K8_F16:
-  case wave::WaveMmaKind::I32_32x32x16_I8:
-    builder.m()
-        .offset(isAccumulator ? (8 * gprNum.floorDiv(4) % 32) +
-                                    4 * laneId.floorDiv(32) + (gprNum % 4)
-                              : laneId % 32)
-        .size(isAccumulator ? 16 : 1)
-        .stride(isAccumulator ? 32 : 1)
-        .n()
-        .offset(laneId % 32)
-        .size(1)
-        .stride(1)
-        .k()
-        .offset(8 * laneId.floorDiv(32))
-        .size(8)
-        .stride(1)
-        .populate(attributes);
-    return llvm::success();
-  case wave::WaveMmaKind::F32_32x32x16_K4_F8:
-    builder.m()
-        .offset(isAccumulator ? (8 * gprNum.floorDiv(4) % 32) +
-                                    4 * laneId.floorDiv(32) + (gprNum % 4)
-                              : laneId % 32)
-        .size(isAccumulator ? 16 : 1)
-        .stride(isAccumulator ? 32 : 1)
-        .n()
-        .offset(laneId % 32)
-        .size(1)
-        .stride(1)
-        .k()
-        .offset(8 * gprNum.floorDiv(4) + 4 * laneId.floorDiv(32) + (gprNum % 4))
-        .size(8)
-        .stride(1)
-        .populate(attributes);
-    return llvm::success();
-  default:
-    return llvm::failure();
-  }
-}
-
 LogicalResult MmaOp::verify() {
   Type lhsTypeGeneric = getLhs().getType();
   Type rhsTypeGeneric = getRhs().getType();
@@ -972,12 +677,11 @@ ReadOp::propagateBackward(MutableArrayRef<wave::WaveTensorType> operandTypes,
 
 LogicalResult ReadOp::finalizeTypeInference() { return success(); }
 
-// Check the correspondence of the index attribute with the explicit elements
-// per thread, if provided, and with the number of elements in the vector type.
+// Check the correspondence of the explicit elements per thread, if provided,
+// with the number of elements in the vector type.
 static LogicalResult
-verifyIndexElementsPerThread(Operation *op, ArrayAttr indexAttr,
+verifyIndexElementsPerThread(Operation *op,
                              std::optional<int64_t> elementsPerThread,
-                             wave::WaveTensorType tensorType,
                              Type maybeVectorType) {
   auto vectorType = dyn_cast<VectorType>(maybeVectorType);
   auto vectorSize = vectorType
@@ -991,68 +695,6 @@ verifyIndexElementsPerThread(Operation *op, ArrayAttr indexAttr,
            << *elementsPerThread << "), got " << vectorType.getDimSize(0);
   }
 
-  // The 'index' attribute is optional. For non-MMA ops (read/write), we only
-  // use a single index expression, which is stored as the first (and only)
-  // dictionary inside the array attribute. Length is validated earlier (index
-  // attribute length must match the number of index expression values).
-  ArrayAttr arr = dyn_cast_or_null<ArrayAttr>(indexAttr);
-  if (!arr)
-    return success();
-  assert(llvm::hasSingleElement(arr.getValue()) &&
-         "index length already validated for non-MMA read/write");
-  DictionaryAttr indexDict = dyn_cast<DictionaryAttr>(arr[0]);
-  if (!indexDict)
-    return success();
-
-  wave::WaveHyperparameterAttr hyper = nullptr;
-  for (Operation *cur = op; cur != nullptr && !hyper;
-       cur = cur->getParentOp()) {
-    hyper = cur->getAttrOfType<wave::WaveHyperparameterAttr>(
-        WaveDialect::kHyperparameterAttrName);
-  }
-  // Default to empty hyperparameter set, sometimes we can run checks even in
-  // absence of these.
-  if (!hyper)
-    hyper = wave::WaveHyperparameterAttr::get(
-        op->getContext(), DictionaryAttr::get(op->getContext()));
-
-  SmallVector<int64_t> shape =
-      getUncollapsedVectorShape(tensorType.getShape(), indexDict, hyper);
-  int64_t nonUnit = 1;
-  bool hadDynamic = false;
-  for (int64_t size : shape) {
-    if (ShapedType::isDynamic(size)) {
-      hadDynamic = true;
-      continue;
-    }
-
-    if (size == 1) {
-      continue;
-    }
-    if (nonUnit == 1) {
-      nonUnit = size;
-    }
-  }
-
-  // If there were unevaluated steps, they may end up matching later on.
-  if (hadDynamic)
-    return success();
-
-  if (elementsPerThread && nonUnit != *elementsPerThread) {
-    return op->emitError() << "vectorized dimension step in the index "
-                              "expression with current hyperparameters ("
-                           << nonUnit
-                           << ") doesn't match the explicitly specified "
-                              "elements per thread value ("
-                           << *elementsPerThread << ")";
-  }
-
-  if (vectorSize && nonUnit != *vectorSize) {
-    return op->emitError() << "vectorized dimension step in the index "
-                              "expression with current hyperparameters ("
-                           << nonUnit << ") doesn't match the vector size ("
-                           << *vectorSize << ")";
-  }
   return success();
 }
 
@@ -1083,12 +725,10 @@ static LogicalResult verifyReadWriteBounds(Location loc,
 }
 
 /// Common verification logic for ReadOp and WriteOp.
-static LogicalResult verifyReadWriteOp(Operation *op, ArrayAttr indexAttr,
-                                       std::optional<int64_t> elementsPerThread,
-                                       Type memoryType, Type valueType,
-                                       WaveSymbolMappingAttr bounds,
-                                       ArrayAttr orderedSyms,
-                                       WaveExprListAttr mapping) {
+static LogicalResult
+verifyReadWriteOp(Operation *op, std::optional<int64_t> elementsPerThread,
+                  Type memoryType, Type valueType, WaveSymbolMappingAttr bounds,
+                  ArrayAttr orderedSyms, WaveExprListAttr mapping) {
 
   if (failed(wave::detail::verifyElementTypesMatch(
           op->getLoc(), "memory", memoryType, "register", valueType)))
@@ -1191,8 +831,7 @@ static LogicalResult verifyReadWriteOp(Operation *op, ArrayAttr indexAttr,
   if (!memoryTensorType)
     return success();
 
-  if (failed(verifyIndexElementsPerThread(op, indexAttr, elementsPerThread,
-                                          memoryTensorType, valueType)))
+  if (failed(verifyIndexElementsPerThread(op, elementsPerThread, valueType)))
     return failure();
 
   if (!bounds)
@@ -1202,10 +841,9 @@ static LogicalResult verifyReadWriteOp(Operation *op, ArrayAttr indexAttr,
 }
 
 LogicalResult ReadOp::verify() {
-  return verifyReadWriteOp(*this, getIndexAttr(), getElementsPerThread(),
-                           getMemory().getType(), getResult().getType(),
-                           getBoundsAttr(), getOrderedSymsAttr(),
-                           getMappingAttr());
+  return verifyReadWriteOp(*this, getElementsPerThread(), getMemory().getType(),
+                           getResult().getType(), getBoundsAttr(),
+                           getOrderedSymsAttr(), getMappingAttr());
 }
 
 //-----------------------------------------------------------------------------
@@ -1396,10 +1034,9 @@ LogicalResult ReshapeOp::verify() {
 //-----------------------------------------------------------------------------
 
 LogicalResult WriteOp::verify() {
-  return verifyReadWriteOp(*this, getIndexAttr(), getElementsPerThread(),
-                           getMemory().getType(), getValueToStore().getType(),
-                           getBoundsAttr(), getOrderedSymsAttr(),
-                           getMappingAttr());
+  return verifyReadWriteOp(*this, getElementsPerThread(), getMemory().getType(),
+                           getValueToStore().getType(), getBoundsAttr(),
+                           getOrderedSymsAttr(), getMappingAttr());
 }
 
 FailureOr<ChangeResult>
@@ -1646,9 +1283,8 @@ LogicalResult wave::SelfIndexOp::verify() {
                          << "' must match the specified dimension '"
                          << getDim().getName() << "'";
 
-  return verifyIndexElementsPerThread(
-      getOperation(), getIndexAttr(), getElementsPerThread(),
-      dyn_cast<WaveTensorType>(getResult().getType()), getResult().getType());
+  return verifyIndexElementsPerThread(getOperation(), getElementsPerThread(),
+                                      getResult().getType());
 }
 
 //-----------------------------------------------------------------------------
