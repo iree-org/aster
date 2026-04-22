@@ -76,42 +76,6 @@ MLIR_CAPI_EXPORTED MlirTypeID mlirWaveSymbolAttrGetTypeID();
 MLIR_CAPI_EXPORTED MlirStringRef mlirWaveSymbolAttrGetName(MlirAttribute attr);
 
 //===---------------------------------------------------------------------===//
-// WaveIterSymbolAttr
-//===---------------------------------------------------------------------===//
-
-/// Checks whether the given MLIR attribute is a WaveIterSymbolAttr.
-MLIR_CAPI_EXPORTED bool mlirAttributeIsAWaveIterSymbolAttr(MlirAttribute attr);
-
-/// Creates a new WaveIterSymbolAttr with the given induction variable name.
-MLIR_CAPI_EXPORTED MlirAttribute
-mlirWaveIterSymbolAttrGet(MlirContext mlirCtx, MlirStringRef symbolName);
-
-/// Returns the typeID of a WaveIterSymbolAttr.
-MLIR_CAPI_EXPORTED MlirTypeID mlirWaveIterSymbolAttrGetTypeID();
-
-/// Gets the induction variable name.
-MLIR_CAPI_EXPORTED MlirStringRef
-mlirWaveIterSymbolAttrGetName(MlirAttribute attr);
-
-//===---------------------------------------------------------------------===//
-// WaveOperandAttr
-//===---------------------------------------------------------------------===//
-
-/// Checks whether the given MLIR attribute is a WaveOperandAttr.
-MLIR_CAPI_EXPORTED bool mlirAttributeIsAWaveOperandAttr(MlirAttribute attr);
-
-/// Creates a new WaveOperandAttr with the given operand number.
-MLIR_CAPI_EXPORTED MlirAttribute mlirWaveOperandAttrGet(MlirContext mlirCtx,
-                                                        unsigned operandNumber);
-
-/// Returns the typeID of a WaveOperandAttr.
-MLIR_CAPI_EXPORTED MlirTypeID mlirWaveOperandAttrGetTypeID();
-
-/// Gets the operand number.
-MLIR_CAPI_EXPORTED unsigned
-mlirWaveOperandAttrGetOperandNumber(MlirAttribute attr);
-
-//===---------------------------------------------------------------------===//
 // WaveIndexSymbolAttr
 //===---------------------------------------------------------------------===//
 
@@ -140,46 +104,6 @@ MLIR_CAPI_EXPORTED uint32_t mlirWaveIndexSymbolAttrGetValue(MlirAttribute attr);
 
 /// Returns the typeID of a WaveIndexSymbolAttr.
 MLIR_CAPI_EXPORTED MlirTypeID mlirWaveIndexSymbolAttrGetTypeID();
-
-//===---------------------------------------------------------------------===//
-// WaveIndexMappingAttr
-//===---------------------------------------------------------------------===//
-
-/// Checks whether the given MLIR attribute is a WaveIndexMappingAttr.
-MLIR_CAPI_EXPORTED bool
-mlirAttributeIsAWaveIndexMappingAttr(MlirAttribute attr);
-
-/// Creates a new WaveIndexMappingAttr with the given start, step and stride
-/// maps that are interpreted as accepting the symbols provided in the
-/// `symbolNames` list. The list must have as many entries as maps have symbols,
-/// and all maps must have the same number of symbols and zero dimensions. The
-/// list is expected to only contain WaveSymbolAttr instances.
-MLIR_CAPI_EXPORTED MlirAttribute mlirWaveIndexMappingAttrGet(
-    MlirContext mlirCtx, MlirAttribute *symbolNames, MlirAffineMap start,
-    MlirAffineMap step, MlirAffineMap stride);
-
-/// Returns the typeID of a WaveIndexMappingAttr.
-MLIR_CAPI_EXPORTED MlirTypeID mlirWaveIndexMappingAttrGetTypeID();
-
-/// Get the start from a WaveIndexMappingAttr.
-MLIR_CAPI_EXPORTED MlirAffineMap
-mlirWaveIndexMappingAttrGetStart(MlirAttribute attr);
-
-/// Get the step from a WaveIndexMappingAttr.
-MLIR_CAPI_EXPORTED MlirAffineMap
-mlirWaveIndexMappingAttrGetStep(MlirAttribute attr);
-
-/// Get the stride from a WaveIndexMappingAttr.
-MLIR_CAPI_EXPORTED MlirAffineMap
-mlirWaveIndexMappingAttrGetStride(MlirAttribute attr);
-
-/// Get the number of (input) symbols.
-MLIR_CAPI_EXPORTED intptr_t
-mlirWaveIndexMappingAttrGetNumSymbols(MlirAttribute attr);
-
-/// Get the (input) symbol at the given index.
-MLIR_CAPI_EXPORTED MlirAttribute
-mlirWaveIndexMappingAttrGetSymbol(MlirAttribute attr, intptr_t index);
 
 //===---------------------------------------------------------------------===//
 // WaveHyperparameterAttr
@@ -301,36 +225,6 @@ MLIR_CAPI_EXPORTED uint32_t mlirWaveShuffleModeAttrGetValue(MlirAttribute attr);
 MLIR_CAPI_EXPORTED MlirTypeID mlirWaveShuffleModeAttrGetTypeID();
 
 //===---------------------------------------------------------------------===//
-// WaveApplyExprCombinatorAttr
-//===---------------------------------------------------------------------===//
-
-enum WaveApplyExprCombinator {
-  WaveApplyExprCombinatorGreater = 0,
-  WaveApplyExprCombinatorLess = 1,
-  WaveApplyExprCombinatorEqual = 2,
-  WaveApplyExprCombinatorNotEqual = 3,
-  WaveApplyExprCombinatorGreaterOrEqual = 4,
-  WaveApplyExprCombinatorLessOrEqual = 5,
-  WaveApplyExprCombinatorMaximum = 6,
-  WaveApplyExprCombinatorMinimum = 7,
-};
-
-/// Checks whether the given MLIR attribute is a WaveApplyExprCombinatorAttr.
-MLIR_CAPI_EXPORTED bool
-mlirAttributeIsAWaveApplyExprCombinatorAttr(MlirAttribute attr);
-
-/// Creates a new WaveApplyExprCombinatorAttr with the given value.
-MLIR_CAPI_EXPORTED MlirAttribute
-mlirWaveApplyExprCombinatorAttrGet(MlirContext mlirCtx, uint32_t value);
-
-/// Get the value from a WaveApplyExprCombinatorAttr.
-MLIR_CAPI_EXPORTED uint32_t
-mlirWaveApplyExprCombinatorAttrGetValue(MlirAttribute attr);
-
-/// Returns the typeID of a WaveApplyExprCombinatorAttr.
-MLIR_CAPI_EXPORTED MlirTypeID mlirWaveApplyExprCombinatorAttrGetTypeID();
-
-//===---------------------------------------------------------------------===//
 // WaveMmaKindAttr
 //===---------------------------------------------------------------------===//
 
@@ -432,39 +326,6 @@ mlirWaveExprListAttrGetNumSymbols(MlirAttribute attr);
 /// Get the symbol at index from a WaveExprListAttr.
 MLIR_CAPI_EXPORTED MlirAttribute
 mlirWaveExprListAttrGetSymbol(MlirAttribute attr, intptr_t index);
-
-//===---------------------------------------------------------------------===//
-// WaveSymbolMappingAttr
-//===---------------------------------------------------------------------===//
-
-/// Checks whether the given MLIR attribute is a WaveSymbolMappingAttr.
-MLIR_CAPI_EXPORTED bool
-mlirAttributeIsAWaveSymbolMappingAttr(MlirAttribute attr);
-
-/// Creates a new WaveSymbolMappingAttr from parallel arrays of keys (symbol
-/// attrs) and values (expr list attrs).
-MLIR_CAPI_EXPORTED MlirAttribute
-mlirWaveSymbolMappingAttrGet(MlirContext ctx, intptr_t numEntries,
-                             MlirAttribute *keys, MlirAttribute *values);
-
-/// Returns the number of entries in a WaveSymbolMappingAttr.
-MLIR_CAPI_EXPORTED intptr_t
-mlirWaveSymbolMappingAttrGetNumEntries(MlirAttribute attr);
-
-/// Returns the key at the given index.
-MLIR_CAPI_EXPORTED MlirAttribute
-mlirWaveSymbolMappingAttrGetKey(MlirAttribute attr, intptr_t index);
-
-/// Returns the value at the given index.
-MLIR_CAPI_EXPORTED MlirAttribute
-mlirWaveSymbolMappingAttrGetValue(MlirAttribute attr, intptr_t index);
-
-/// Returns the value for the given key or null if the key is not present.
-MLIR_CAPI_EXPORTED MlirAttribute
-mlirWaveSymbolMappingAttrLookup(MlirAttribute attr, MlirAttribute key);
-
-/// Returns the typeID of a WaveSymbolMappingAttr.
-MLIR_CAPI_EXPORTED MlirTypeID mlirWaveSymbolMappingAttrGetTypeID();
 
 //===---------------------------------------------------------------------===//
 // HardwareConstraintAttr

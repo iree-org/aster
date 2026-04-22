@@ -21,49 +21,6 @@
 
 using namespace mlir;
 
-SmallVector<int64_t>
-wave::getUncollapsedVectorShape(llvm::ArrayRef<wave::WaveSymbolAttr> shape,
-                                DictionaryAttr indexDict,
-                                wave::WaveHyperparameterAttr hyper) {
-  return llvm::map_to_vector(shape, [&](wave::WaveSymbolAttr symbol) {
-    Attribute entry = indexDict.get(symbol.getName());
-    // The entry may be missing from the index and we shouldn't crash. Just
-    // treat it as dynamic meaning we cannot statically evaluate it to a
-    // constant.
-    if (!entry)
-      return ShapedType::kDynamic;
-    auto mapAttr = cast<wave::WaveIndexMappingAttr>(entry);
-    if (!mapAttr.getStep())
-      return ShapedType::kDynamic;
-    std::optional<SmallVector<int64_t>> folded =
-        wave::evaluateMapWithHyperparams(mapAttr.getStep(),
-                                         mapAttr.getSymbols(), hyper);
-    if (!folded)
-      return ShapedType::kDynamic;
-    assert(folded->size() == 1 && "expected single-result map");
-    return (*folded)[0];
-  });
-}
-
-std::optional<int64_t>
-wave::getPositionOfVectorizedDim(llvm::ArrayRef<wave::WaveSymbolAttr> shape,
-                                 DictionaryAttr indexDict,
-                                 wave::WaveHyperparameterAttr hyper) {
-  int64_t bestIdx = -1;
-  std::optional<int64_t> bestSize; // largest constant size seen so far
-  for (auto [i, size] :
-       llvm::enumerate(getUncollapsedVectorShape(shape, indexDict, hyper))) {
-    if (ShapedType::isDynamic(size))
-      return std::nullopt;
-    if (!bestSize || size >= *bestSize) {
-      bestSize = size;
-      bestIdx = i;
-    }
-  }
-  assert(bestIdx != -1);
-  return bestIdx;
-}
-
 std::optional<llvm::SmallVector<int64_t>>
 wave::resolveSymbolNames(llvm::ArrayRef<Attribute> symbols,
                          wave::WaveHyperparameterAttr hyper) {

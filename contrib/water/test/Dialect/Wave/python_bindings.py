@@ -44,92 +44,10 @@ with ir.Context() as ctx:
     else:
         assert False, "Expected to fail with TypeError."
 
-    # CHECK: #wave.index_mapping<[#wave.index_symbol<WG0>, #wave.index_symbol<T0>, #wave.symbol<"BLOCK_M">] -> (WG0 * 3, WG0 + BLOCK_M, T0 mod WG0)>
-    symbols = [
-        wave.WaveIndexSymbolAttr.get(wave.WaveIndexSymbol.WORKGROUP_0),
-        wave.WaveSymbolAttr.get("BLOCK_M"),
-        wave.WaveIndexSymbolAttr.get(wave.WaveIndexSymbol.THREAD_0),
-    ]
     s0 = ir.AffineSymbolExpr.get(0)
     s1 = ir.AffineSymbolExpr.get(1)
     s2 = ir.AffineSymbolExpr.get(2)
     start_map = ir.AffineMap.get(0, 3, [s0 * 3])
-    step_map = ir.AffineMap.get(0, 3, [s0 + s1])
-    stride_map = ir.AffineMap.get(0, 3, [s2 % s0])
-    index_mapping_attr = wave.WaveIndexMappingAttr.get(
-        symbols, start_map, step_map, stride_map
-    )
-    print(index_mapping_attr)
-
-    # CHECK: ()[s0, s1, s2] -> (s0 * 3)
-    print(index_mapping_attr.start)
-
-    # Note that symbols were reordered to ensure a consistent order in the
-    # mapping, in particular s1 and s2 were swapped.
-    # CHECK: ()[s0, s1, s2] -> (s0 + s2)
-    print(index_mapping_attr.step)
-
-    # CHECK: ()[s0, s1, s2] -> (s1 mod s0)
-    print(index_mapping_attr.stride)
-
-    # CHECK: 3
-    retrieved_symbols = index_mapping_attr.symbols
-    print(len(retrieved_symbols))
-
-    # CHECK: #wave.index_symbol<WG0>
-    print(retrieved_symbols[0])
-
-    # CHECK: #wave.index_symbol<T0>
-    print(retrieved_symbols[1])
-
-    # CHECK: #wave.symbol<"BLOCK_M">
-    print(retrieved_symbols[2])
-
-    try:
-        wave.WaveIndexMappingAttr.get([], start_map, step_map, stride_map)
-    except ValueError as e:
-        assert "co-indexed" in str(e)
-    else:
-        assert False, "Expected to fail with ValueError."
-
-    try:
-        dimension_map = ir.AffineMap.get(1, 0, [])
-        wave.WaveIndexMappingAttr.get([], dimension_map, dimension_map, dimension_map)
-    except ValueError as e:
-        assert "not involve dimensions" in str(e)
-    else:
-        assert False, "Expected to fail with ValueError."
-
-    try:
-        no_result_map = ir.AffineMap.get(0, 3, [])
-        wave.WaveIndexMappingAttr.get(symbols, start_map, no_result_map, stride_map)
-    except ValueError as e:
-        assert "same number of results" in str(e)
-    else:
-        assert False, "Expected to fail with ValueError."
-
-    try:
-        wave.WaveIndexMappingAttr.get(
-            ["string", "instead", "of", "attrs"], start_map, step_map, stride_map
-        )
-    except TypeError as e:
-        assert "ir.Attribute" in str(e)
-    else:
-        assert False, "Expected to fail with TypeError."
-
-    mapping = ir.Attribute.parse("#wave.index_mapping<[] -> (<NULL>, 1, 1)>")
-    assert mapping.start is None
-    assert isinstance(mapping.step, ir.AffineMap)
-    assert isinstance(mapping.stride, ir.AffineMap)
-    # CHECK: #wave.index_mapping<[] -> (<NULL>, 1, 1)>
-    print(mapping)
-
-    mapping = ir.Attribute.parse("#wave.index_mapping<[] -> (1, <NULL>, <NULL>)>")
-    assert isinstance(mapping.start, ir.AffineMap)
-    assert mapping.step is None
-    assert mapping.stride is None
-    # CHECK: #wave.index_mapping<[] -> (1, <NULL>, <NULL>)>
-    print(mapping)
 
     # CHECK: #wave.hyperparameters<{A = 1 : i64, B = 2 : i64, C = 3 : i64}>
     hyper_param = wave.WaveHyperparameterAttr.get({"A": 1, "B": 2, "C": 3})
@@ -216,83 +134,6 @@ with ir.Context() as ctx:
         assert "as many entries as map have symbols" in str(e)
     else:
         assert False, "Expected to fail with ValueError."
-
-    # CHECK: #wave.symbol_mapping<@M = #wave.expr_list<[#wave.index_symbol<WG0>, #wave.symbol<"BLOCK_M">, #wave.index_symbol<T0>] -> (WG0 * 3)>>
-    mapping_attr = wave.WaveSymbolMappingAttr.get({"M": expr_attr})
-    print(mapping_attr)
-    assert len(mapping_attr) == 1
-    assert mapping_attr["M"] == expr_attr
-
-    try:
-        mapping_attr["nyan"]
-    except KeyError as e:
-        assert "Key not found." in str(e)
-    else:
-        assert False, "Expected to fail with KeyError."
-
-    mapping_attr_2 = wave.WaveSymbolMappingAttr.get(
-        {wave.WaveSymbolAttr.get("M"): expr_attr}
-    )
-    print(mapping_attr_2)
-    assert len(mapping_attr_2) == 1
-    assert mapping_attr_2[wave.WaveSymbolAttr.get("M")] == expr_attr
-
-    expr_attr_2 = wave.WaveExprListAttr.get(
-        [wave.WaveSymbolAttr.get("A")],
-        ir.AffineMap.get(0, 1, [ir.AffineExpr.get_constant(1)]),
-    )
-    mapping_attr_ordered = wave.WaveSymbolMappingAttr.get(
-        {"M": expr_attr, "A": expr_attr_2}
-    )
-    assert mapping_attr_ordered[0][0] == wave.WaveSymbolAttr.get("M")
-    assert mapping_attr_ordered[0][1] == expr_attr
-    assert mapping_attr_ordered[1][0] == wave.WaveSymbolAttr.get("A")
-    assert mapping_attr_ordered[1][1] == expr_attr_2
-    assert "M" in mapping_attr_ordered
-    assert "N" not in mapping_attr_ordered
-    assert wave.WaveSymbolAttr.get("A") in mapping_attr_ordered
-
-    try:
-        mapping_attr_ordered[42]
-    except IndexError as e:
-        assert "Index out of range." in str(e)
-    else:
-        assert False, "Expected to fail with IndexError."
-
-    try:
-        mapping_attr_ordered["N"]
-    except KeyError as e:
-        assert "Key not found." in str(e)
-    else:
-        assert False, "Expected to fail with KeyError."
-
-    try:
-        mapping_attr_ordered[wave.WaveSymbolAttr.get("B")]
-    except KeyError as e:
-        assert "Key not found." in str(e)
-    else:
-        assert False, "Expected to fail with KeyError."
-
-    try:
-        wave.WaveSymbolMappingAttr.get({3: expr_attr})
-    except TypeError as e:
-        assert "must be a string" in str(e)
-    else:
-        assert False, "Expected to fail with TypeError."
-
-    try:
-        wave.WaveSymbolMappingAttr.get({"A": 1.0})
-    except TypeError as e:
-        assert "must be an attribute" in str(e)
-    else:
-        assert False, "Expected to fail with TypeError."
-
-    try:
-        wave.WaveSymbolMappingAttr.get({"A": addr_attr})
-    except TypeError as e:
-        assert "must be a WaveExprListAttr" in str(e)
-    else:
-        assert False, "Expected to fail with TypeError."
 
     # CHECK: #wave.mma_kind<f32_16x16x16_f16>
     mma_type_attr = wave.WaveMmaKindAttr.get(wave.WaveMmaKind.F32_16x16x16_F16)

@@ -104,71 +104,6 @@ struct PyWaveSymbolAttr
 };
 
 //===---------------------------------------------------------------------===//
-// WaveIterSymbolAttr
-//===---------------------------------------------------------------------===//
-
-struct PyWaveIterSymbolAttr
-    : mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyConcreteAttribute<
-          PyWaveIterSymbolAttr> {
-  static constexpr IsAFunctionTy isaFunction =
-      mlirAttributeIsAWaveIterSymbolAttr;
-  static constexpr GetTypeIDFunctionTy getTypeIdFunction =
-      mlirWaveIterSymbolAttrGetTypeID;
-  static constexpr const char *pyClassName = "WaveIterSymbolAttr";
-  using PyConcreteAttribute::PyConcreteAttribute;
-
-  static void bindDerived(ClassTy &c) {
-    c.def_static(
-        "get",
-        [](const std::string &symbolName,
-           mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::DefaultingPyMlirContext
-               context) {
-          MlirStringRef symbolNameStrRef =
-              mlirStringRefCreate(symbolName.data(), symbolName.size());
-          return PyWaveIterSymbolAttr(
-              context->getRef(),
-              mlirWaveIterSymbolAttrGet(context->get(), symbolNameStrRef));
-        },
-        nb::arg("symbolName"), nb::arg("context") = nb::none(),
-        "Gets a wave.WaveIterSymbolAttr from parameters.");
-    c.def_prop_ro("name", [](MlirAttribute self) {
-      return mlirWaveIterSymbolAttrGetName(self);
-    });
-  }
-};
-
-//===---------------------------------------------------------------------===//
-// WaveOperandAttr
-//===---------------------------------------------------------------------===//
-
-struct PyWaveOperandAttr
-    : mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyConcreteAttribute<
-          PyWaveOperandAttr> {
-  static constexpr IsAFunctionTy isaFunction = mlirAttributeIsAWaveOperandAttr;
-  static constexpr GetTypeIDFunctionTy getTypeIdFunction =
-      mlirWaveOperandAttrGetTypeID;
-  static constexpr const char *pyClassName = "WaveOperandAttr";
-  using PyConcreteAttribute::PyConcreteAttribute;
-
-  static void bindDerived(ClassTy &c) {
-    c.def_static(
-        "get",
-        [](unsigned operandNumber,
-           mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::DefaultingPyMlirContext
-               context) {
-          return PyWaveOperandAttr(
-              context->getRef(),
-              mlirWaveOperandAttrGet(context->get(), operandNumber));
-        },
-        nb::arg("operand_number"), nb::arg("context") = nb::none(),
-        "Gets a wave.WaveOperandAttr from the given operand index.");
-    c.def_prop_ro("operand_number", [](MlirAttribute self) {
-      return mlirWaveOperandAttrGetOperandNumber(self);
-    });
-  }
-};
-
-//===---------------------------------------------------------------------===//
 // WaveIndexSymbolAttr
 //===---------------------------------------------------------------------===//
 
@@ -202,83 +137,6 @@ struct PyWaveIndexSymbolAttr
               mlirWaveIndexSymbolAttrGetValue(self));
         },
         "Index symbol enum value.");
-  }
-};
-
-//===---------------------------------------------------------------------===//
-// WaveIndexMappingAttr
-//===---------------------------------------------------------------------===//
-
-struct PyWaveIndexMappingAttr
-    : mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyConcreteAttribute<
-          PyWaveIndexMappingAttr> {
-  static constexpr IsAFunctionTy isaFunction =
-      mlirAttributeIsAWaveIndexMappingAttr;
-  static constexpr GetTypeIDFunctionTy getTypeIdFunction =
-      mlirWaveIndexMappingAttrGetTypeID;
-  static constexpr const char *pyClassName = "WaveIndexMappingAttr";
-  using PyConcreteAttribute::PyConcreteAttribute;
-
-  static void bindDerived(ClassTy &c) {
-    c.def_static(
-        "get",
-        [](std::vector<MlirAttribute> &symbols, MlirAffineMap start,
-           MlirAffineMap step, MlirAffineMap stride,
-           mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::DefaultingPyMlirContext
-               context) {
-          intptr_t numSymbols = symbols.size();
-          intptr_t numResults = mlirAffineMapGetNumResults(start);
-          for (MlirAffineMap map : {start, step, stride}) {
-            if (numSymbols != mlirAffineMapGetNumSymbols(map)) {
-              throw nb::value_error("Expected symbols, start, step and "
-                                    "stride to be co-indexed.");
-            }
-            if (mlirAffineMapGetNumDims(map) != 0) {
-              throw nb::value_error("Maps should not involve dimensions.");
-            }
-            if (numResults != mlirAffineMapGetNumResults(map)) {
-              throw nb::value_error(
-                  "Maps should have the same number of results.");
-            }
-          }
-          return PyWaveIndexMappingAttr(
-              context->getRef(),
-              mlirWaveIndexMappingAttrGet(context->get(), symbols.data(), start,
-                                          step, stride));
-        },
-        nb::arg("symbols"), nb::arg("start"), nb::arg("step"),
-        nb::arg("stride"), nb::arg("context") = nb::none(),
-        "Gets a wave.WaveIndexMappingAttr from a list of symbol attributes.");
-    c.def_prop_ro("start", [](MlirAttribute self) {
-      MlirAffineMap start = mlirWaveIndexMappingAttrGetStart(self);
-      if (mlirAffineMapIsNull(start)) {
-        return nb::none();
-      }
-      return nb::cast(start);
-    });
-    c.def_prop_ro("step", [](MlirAttribute self) {
-      MlirAffineMap step = mlirWaveIndexMappingAttrGetStep(self);
-      if (mlirAffineMapIsNull(step)) {
-        return nb::none();
-      }
-      return nb::cast(step);
-    });
-    c.def_prop_ro("stride", [](MlirAttribute self) {
-      MlirAffineMap stride = mlirWaveIndexMappingAttrGetStride(self);
-      if (mlirAffineMapIsNull(stride)) {
-        return nb::none();
-      }
-      return nb::cast(stride);
-    });
-    c.def_prop_ro("symbols", [](MlirAttribute self) {
-      std::vector<MlirAttribute> symbols;
-      intptr_t numSymbols = mlirWaveIndexMappingAttrGetNumSymbols(self);
-      symbols.reserve(numSymbols);
-      for (intptr_t i = 0; i < numSymbols; i++) {
-        symbols.push_back(mlirWaveIndexMappingAttrGetSymbol(self, i));
-      }
-      return symbols;
-    });
   }
 };
 
@@ -534,44 +392,6 @@ struct PyWaveShuffleModeAttr
 };
 
 //===---------------------------------------------------------------------===//
-// WaveApplyExprCombinatorAttr
-//===---------------------------------------------------------------------===//
-
-struct PyWaveApplyExprCombinatorAttr
-    : mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyConcreteAttribute<
-          PyWaveApplyExprCombinatorAttr> {
-  static constexpr IsAFunctionTy isaFunction =
-      mlirAttributeIsAWaveApplyExprCombinatorAttr;
-  static constexpr GetTypeIDFunctionTy getTypeIdFunction =
-      mlirWaveApplyExprCombinatorAttrGetTypeID;
-  static constexpr const char *pyClassName = "WaveApplyExprCombinatorAttr";
-  using PyConcreteAttribute::PyConcreteAttribute;
-
-  static void bindDerived(ClassTy &c) {
-    c.def_static(
-        "get",
-        [](WaveApplyExprCombinator value,
-           mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::DefaultingPyMlirContext
-               context) {
-          return PyWaveApplyExprCombinatorAttr(
-              context->getRef(),
-              mlirWaveApplyExprCombinatorAttrGet(context->get(),
-                                                 static_cast<uint32_t>(value)));
-        },
-        nb::arg("value"), nb::arg("context") = nb::none(),
-        "Gets a wave.WaveApplyExprCombinatorAttr from a combinator enum "
-        "value.");
-    c.def_prop_ro(
-        "value",
-        [](MlirAttribute self) {
-          return static_cast<WaveApplyExprCombinator>(
-              mlirWaveApplyExprCombinatorAttrGetValue(self));
-        },
-        "Apply expression combinator enum value.");
-  }
-};
-
-//===---------------------------------------------------------------------===//
 // WaveMmaKindAttr
 //===---------------------------------------------------------------------===//
 
@@ -625,11 +445,10 @@ struct PyWaveExprListAttr
         [](std::vector<MlirAttribute> &symbols, MlirAffineMap map) {
           for (MlirAttribute attr : symbols) {
             if (!mlirAttributeIsAWaveSymbolAttr(attr) &&
-                !mlirAttributeIsAWaveIndexSymbolAttr(attr) &&
-                !mlirAttributeIsAWaveOperandAttr(attr)) {
+                !mlirAttributeIsAWaveIndexSymbolAttr(attr)) {
               throw nb::type_error(
-                  "symbols must contain only WaveSymbolAttr, "
-                  "WaveIndexSymbolAttr or WaveOperandAttr attributes");
+                  "symbols must contain only WaveSymbolAttr or "
+                  "WaveIndexSymbolAttr attributes");
             }
           }
 
@@ -657,111 +476,6 @@ struct PyWaveExprListAttr
     });
     c.def_prop_ro("map", [](MlirAttribute self) {
       return mlirWaveExprListAttrGetMap(self);
-    });
-  }
-};
-
-//===---------------------------------------------------------------------===//
-// WaveSymbolMappingAttr
-//===---------------------------------------------------------------------===//
-
-struct PyWaveSymbolMappingAttr
-    : mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::PyConcreteAttribute<
-          PyWaveSymbolMappingAttr> {
-  static constexpr IsAFunctionTy isaFunction =
-      mlirAttributeIsAWaveSymbolMappingAttr;
-  static constexpr GetTypeIDFunctionTy getTypeIdFunction =
-      mlirWaveSymbolMappingAttrGetTypeID;
-  static constexpr const char *pyClassName = "WaveSymbolMappingAttr";
-  using PyConcreteAttribute::PyConcreteAttribute;
-
-  static void bindDerived(ClassTy &c) {
-    c.def_static(
-        "get",
-        [](const nb::dict &symDimDict,
-           mlir::python::MLIR_BINDINGS_PYTHON_DOMAIN::DefaultingPyMlirContext
-               context) {
-          std::vector<MlirAttribute> keys;
-          std::vector<MlirAttribute> values;
-          keys.reserve(symDimDict.size());
-          values.reserve(symDimDict.size());
-
-          for (auto [key, value] : symDimDict) {
-            nb::handle keyHandle = key;
-            MlirAttribute keyAttr;
-            if (nb::isinstance<nb::str>(keyHandle)) {
-              std::string symbolicDim = nb::cast<std::string>(keyHandle);
-              keyAttr = mlirWaveSymbolAttrGet(
-                  context->get(),
-                  mlirStringRefCreate(symbolicDim.data(), symbolicDim.size()));
-            } else {
-              try {
-                keyAttr = nb::cast<MlirAttribute>(keyHandle);
-              } catch (const nb::cast_error &e) {
-                throw nb::type_error("Symbolic dimension dictionary key must "
-                                     "be a string or a WaveSymbolAttr");
-              }
-            }
-
-            MlirAttribute valueAttr;
-            try {
-              valueAttr = nb::cast<MlirAttribute>(value);
-            } catch (const nb::cast_error &e) {
-              throw nb::type_error(
-                  "Symbolic dimension dictionary value must be an attribute");
-            }
-            if (!mlirAttributeIsAWaveExprListAttr(valueAttr)) {
-              throw nb::type_error("Symbolic dimension dictionary value must "
-                                   "be a WaveExprListAttr");
-            }
-
-            keys.push_back(keyAttr);
-            values.push_back(valueAttr);
-          }
-
-          return PyWaveSymbolMappingAttr(
-              context->getRef(),
-              mlirWaveSymbolMappingAttrGet(context->get(), keys.size(),
-                                           keys.data(), values.data()));
-        },
-        nb::arg("sym_dim_dict"), nb::arg("context") = nb::none(),
-        "Gets a wave.WaveSymbolMappingAttr from parameters.");
-    c.def("__contains__", [](MlirAttribute self, MlirAttribute key) {
-      return !mlirAttributeIsNull(mlirWaveSymbolMappingAttrLookup(self, key));
-    });
-    c.def("__contains__", [](MlirAttribute self, std::string key) {
-      MlirAttribute keyAttr =
-          mlirWaveSymbolAttrGet(mlirAttributeGetContext(self),
-                                mlirStringRefCreate(key.data(), key.size()));
-      return !mlirAttributeIsNull(
-          mlirWaveSymbolMappingAttrLookup(self, keyAttr));
-    });
-    c.def("__len__", [](MlirAttribute self) -> intptr_t {
-      return mlirWaveSymbolMappingAttrGetNumEntries(self);
-    });
-    c.def("__getitem__", [](MlirAttribute self, MlirAttribute key) {
-      MlirAttribute value = mlirWaveSymbolMappingAttrLookup(self, key);
-      if (mlirAttributeIsNull(value)) {
-        throw nb::key_error("Key not found.");
-      }
-      return value;
-    });
-    c.def("__getitem__", [](MlirAttribute self, std::string key) {
-      MlirAttribute keyAttr =
-          mlirWaveSymbolAttrGet(mlirAttributeGetContext(self),
-                                mlirStringRefCreate(key.data(), key.size()));
-      MlirAttribute value = mlirWaveSymbolMappingAttrLookup(self, keyAttr);
-      if (mlirAttributeIsNull(value)) {
-        throw nb::key_error("Key not found.");
-      }
-      return value;
-    });
-    c.def("__getitem__", [](MlirAttribute self, intptr_t index) {
-      if (index < 0 || index >= mlirWaveSymbolMappingAttrGetNumEntries(self)) {
-        throw nb::index_error("Index out of range.");
-      }
-      return nb::make_tuple(mlirWaveSymbolMappingAttrGetKey(self, index),
-                            mlirWaveSymbolMappingAttrGetValue(self, index));
     });
   }
 };
@@ -1081,16 +795,6 @@ NB_MODULE(_waterDialects, m) {
       .value("UP", WaveShuffleModeUP)
       .value("IDX", WaveShuffleModeIDX);
 
-  nb::enum_<WaveApplyExprCombinator>(d, "WaveApplyExprCombinator")
-      .value("Greater", WaveApplyExprCombinatorGreater)
-      .value("Less", WaveApplyExprCombinatorLess)
-      .value("Equal", WaveApplyExprCombinatorEqual)
-      .value("NotEqual", WaveApplyExprCombinatorNotEqual)
-      .value("GreaterOrEqual", WaveApplyExprCombinatorGreaterOrEqual)
-      .value("LessOrEqual", WaveApplyExprCombinatorLessOrEqual)
-      .value("Maximum", WaveApplyExprCombinatorMaximum)
-      .value("Minimum", WaveApplyExprCombinatorMinimum);
-
   nb::enum_<WaveMmaKind>(d, "WaveMmaKind")
       // CDNA1
       .value("F32_16x16x16_F16", WaveMmaKind_F32_16x16x16_F16)
@@ -1115,20 +819,15 @@ NB_MODULE(_waterDialects, m) {
       .value("F32_16x16x32_F16", WaveMmaKind_F32_16x16x32_F16);
 
   PyWaveSymbolAttr::bind(d);
-  PyWaveIterSymbolAttr::bind(d);
-  PyWaveOperandAttr::bind(d);
   PyWaveIndexSymbolAttr::bind(d);
-  PyWaveIndexMappingAttr::bind(d);
   PyWaveHyperparameterAttr::bind(d);
   PyWaveWaterNormalFormAttr::bind(d);
   PyWaveWorkgroupDimAttr::bind(d);
   PyWaveReductionScopeAttr::bind(d);
   PyWaveAddressSpaceAttr::bind(d);
   PyWaveShuffleModeAttr::bind(d);
-  PyWaveApplyExprCombinatorAttr::bind(d);
   PyWaveMmaKindAttr::bind(d);
   PyWaveExprListAttr::bind(d);
-  PyWaveSymbolMappingAttr::bind(d);
   PyWaveTensorType::bind(d);
   PyHardwareConstraintAttr::bind(d);
   PyDeviceConstraintAttr::bind(d);

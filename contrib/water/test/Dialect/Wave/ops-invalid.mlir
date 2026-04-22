@@ -293,78 +293,6 @@ func.func @mismatch_shape_write(%lhs: !wave.tensor<[@A, @B] of f32, <register>>,
 
 // -----
 
-func.func @read_memref_missing_ordered_syms(%mem: memref<64x64xf16, #gpu.address_space<workgroup>>) {
-  // expected-error @below {{expects ordered_syms attribute when neither type is a symbolic tensor}}
-  %0 = wave.read %mem
-    : (memref<64x64xf16, #gpu.address_space<workgroup>>) -> vector<8xf16>
-  return
-}
-
-// -----
-
-// ordered_syms size must match value tensor rank.
-func.func @read_ordered_syms_size_mismatch(%mem: !wave.tensor<[@M, @K, @N] of f32, <global>>) {
-  // expected-error @below {{'ordered_syms' size (2) does not match value tensor rank (3)}}
-  %0 = wave.read %mem {ordered_syms = [#wave.symbol<"M">, #wave.symbol<"K">]}
-    : (!wave.tensor<[@M, @K, @N] of f32, <global>>) -> !wave.tensor<[@M, @K, @N] of f32, <register>>
-  return
-}
-
-// -----
-
-// ordered_syms symbols must match value tensor shape in order.
-func.func @read_ordered_syms_symbol_mismatch(%mem: !wave.tensor<[@M, @K, @N] of f32, <global>>) {
-  // expected-error @below {{'ordered_syms' symbol at index 1 ('N') does not match value tensor shape symbol ('K')}}
-  %0 = wave.read %mem {ordered_syms = [#wave.symbol<"M">, #wave.symbol<"N">, #wave.symbol<"K">]}
-    : (!wave.tensor<[@M, @K, @N] of f32, <global>>) -> !wave.tensor<[@M, @K, @N] of f32, <register>>
-  return
-}
-
-// -----
-
-// ordered_syms size must match value tensor rank (wave.write).
-func.func @write_ordered_syms_size_mismatch(%val: !wave.tensor<[@M, @K, @N] of f32, <register>>, %mem: !wave.tensor<[@M, @K, @N] of f32, <global>>) {
-  // expected-error @below {{'ordered_syms' size (2) does not match value tensor rank (3)}}
-  wave.write %val, %mem {ordered_syms = [#wave.symbol<"M">, #wave.symbol<"K">]}
-    : !wave.tensor<[@M, @K, @N] of f32, <register>>, !wave.tensor<[@M, @K, @N] of f32, <global>>
-  return
-}
-
-// -----
-
-// ordered_syms symbols must match value tensor shape in order (wave.write).
-func.func @write_ordered_syms_symbol_mismatch(%val: !wave.tensor<[@M, @K, @N] of f32, <register>>, %mem: !wave.tensor<[@M, @K, @N] of f32, <global>>) {
-  // expected-error @below {{'ordered_syms' symbol at index 1 ('N') does not match value tensor shape symbol ('K')}}
-  wave.write %val, %mem {ordered_syms = [#wave.symbol<"M">, #wave.symbol<"N">, #wave.symbol<"K">]}
-    : !wave.tensor<[@M, @K, @N] of f32, <register>>, !wave.tensor<[@M, @K, @N] of f32, <global>>
-  return
-}
-
-// -----
-
-func.func @read_ordered_syms_mismatch_with_mapping(%mem: !wave.tensor<[@N, @M] of f32, <global>>) {
-  // expected-error @below {{'ordered_syms' symbol at index 0 ('N') does not match value tensor shape symbol ('M')}}
-  %0 = wave.read %mem {
-    ordered_syms = [#wave.symbol<"N">, #wave.symbol<"M">],
-    mapping = #wave.expr_list<[] (d0, d1) -> (d1, d0)>
-  } : (!wave.tensor<[@N, @M] of f32, <global>>) -> !wave.tensor<[@M, @N] of f32, <register>>
-  return
-}
-
-// -----
-
-func.func @read_ordered_syms_mismatch_with_mapping_no_value_type(%mem: !wave.tensor<[@N, @M] of f32, <global>>) {
-  // expected-error @below {{'ordered_syms' symbol at index 0 ('N') does not match inferred value tensor shape symbol ('M')}}
-  // expected-note @below {{value tensor shape inferred from memory shape: #wave.symbol<"M">, #wave.symbol<"N">}}
-  %0 = wave.read %mem {
-    ordered_syms = [#wave.symbol<"N">, #wave.symbol<"M">],
-    mapping = #wave.expr_list<[] (d0, d1) -> (d1, d0)>
-  } : (!wave.tensor<[@N, @M] of f32, <global>>) -> !wave.tensor<any of f32, <register>>
-  return
-}
-
-// -----
-
 func.func @empty_distributed_shape() {
   // expected-error @below {{distributed shape must have at least one result}}
   %buf = wave.allocate { distributed_shape = #wave.expr_list<[#wave.symbol<"BLOCK_M">, #wave.symbol<"BLOCK_K">] -> ()>}
@@ -463,21 +391,6 @@ transform.payload attributes {normal_forms = [#wave.normal_form<full_types>]} {
   }
 }
 
-// -----
-
-func.func @bounds_extraneous_dim(%mem: !wave.tensor<[@N] of f32>, %val: !wave.tensor<[@N] of f32, <register>>) {
-  // expected-error @below {{'bounds' specified for a symbol M not used in the indexed memory tensor}}
-  wave.write %val, %mem { bounds = #wave.symbol_mapping<@M = #wave.expr_list<[#wave.symbol<"BLOCK_M">] -> (BLOCK_M * 64)>> } : !wave.tensor<[@N] of f32, <register>>, !wave.tensor<[@N] of f32>
-  return
-}
-
-// -----
-
-func.func @bounds_wrong_rank(%mem: !wave.tensor<[@N] of f32>) {
-  // expected-error @below {{op attribute 'bounds' failed to satisfy constraint: symbol mapping with 1-result expr list value}}
-  wave.read %mem { bounds = #wave.symbol_mapping<@N = #wave.expr_list<[#wave.symbol<"BLOCK_M">] -> (BLOCK_M * 64, BLOCK_M * 64)>> } : (!wave.tensor<[@N] of f32>) -> !wave.tensor<[@N] of f32, <register>>
-  return
-}
 
 // -----
 
@@ -891,70 +804,6 @@ func.func @permute_result_not_permutation(%arg0: !wave.tensor<[@M, @N] of f32, <
   // expected-error @below {{'wave.permute' op input dimension 'M' is not present in result shape}}
   wave.permute %arg0 : !wave.tensor<[@M, @N] of f32, <register>> to !wave.tensor<[@N, @K] of f32, <register>>
   return
-}
-
-// -----
-
-// Test apply_expr with too many result expressions (no combinator).
-func.func @apply_expr_multi_result(%arg0: !wave.tensor<[@M] of i32>) {
-  // expected-error @below {{in absence of a combinator, expression must produce exactly one result, but got 2}}
-  "wave.apply_expr"(%arg0) {expr = #wave.expr_list<[#wave.operand<0>] -> (_Operand_0, _Operand_0 + 1)>} : (!wave.tensor<[@M] of i32>) -> !wave.tensor<[@M] of i32>
-}
-
-// -----
-
-func.func @apply_expr_unused_operand(%arg0: !wave.tensor<[@M] of i32>, %arg1: !wave.tensor<[@M] of i32>) {
-  // expected-warning @below {{operand #1 is not used in the expression}}
-  "wave.apply_expr"(%arg0, %arg1) {expr = #wave.expr_list<[#wave.operand<0>] -> (_Operand_0 + 1)>} : (!wave.tensor<[@M] of i32>, !wave.tensor<[@M] of i32>) -> !wave.tensor<[@M] of i32>
-  return
-}
-
-// -----
-
-func.func @apply_expr_operand_overflow(%arg0: !wave.tensor<[@M] of i32>, %arg1: !wave.tensor<[@M] of i32>) {
-  // expected-error @below {{expression uses operand #2 but there are only 2 operands}}
-  wave.apply_expr(%arg0, %arg1) <[#wave.operand<0>, #wave.operand<1>, #wave.operand<2>] -> (_Operand_0 + _Operand_1 + _Operand_2)> : (!wave.tensor<[@M] of i32>, !wave.tensor<[@M] of i32>) -> !wave.tensor<[@M] of i32>
-}
-
-// -----
-
-func.func @apply_expr_non_integer_result(%arg0: !wave.tensor<[@M] of f32>) {
-  // expected-error @below {{operates on integers only}}
-  wave.apply_expr(%arg0) <[#wave.operand<0>] -> (_Operand_0 + 1)> : (!wave.tensor<[@M] of f32>) -> !wave.tensor<[@M] of f32>
-}
-
-// -----
-
-
-func.func @apply_expr_symbol_not_in_hyperparam(%arg0: !wave.tensor<[@M] of i32>) attributes { wave.hyperparameters = #wave.hyperparameters<{M = 42}>} {
-  // expected-error @below {{op attribute "expr" uses symbolic value #wave.symbol<"Z"> not provided as a hyperparameter}}
-  // expected-note @below {{available symbols: M}}
-  wave.apply_expr(%arg0) <[#wave.symbol<"Z">, #wave.operand<0>] -> (Z + _Operand_0)> : (!wave.tensor<[@M] of i32>) -> !wave.tensor<[@M] of i32>
-  return
-}
-
-// -----
-
-func.func @apply_expr_non_register_operand(%arg0: !wave.tensor<[@M] of i32, <global>>) {
-  // expected-error @below {{tensor operands must be in register or unspecified address space}}
-  wave.apply_expr(%arg0) <[#wave.operand<0>] -> (_Operand_0 + 1)> : (!wave.tensor<[@M] of i32, <global>>) -> !wave.tensor<[@M] of i32>
-  return
-}
-
-// -----
-
-// Test apply_expr with min/max combinator and zero results.
-func.func @apply_expr_minmax_zero_results(%arg0: !wave.tensor<[@M] of i32>) {
-  // expected-error @below {{for min/max combinators, expression must produce at least one result}}
-  wave.apply_expr(%arg0) max<[#wave.operand<0>] -> ()> : (!wave.tensor<[@M] of i32>) -> !wave.tensor<[@M] of i32>
-}
-
-// -----
-
-// Test apply_expr with comparison combinator and one result (requires exactly two).
-func.func @apply_expr_comparison_one_result(%arg0: !wave.tensor<[@M] of i32>, %arg1: !wave.tensor<[@M] of i32>) {
-  // expected-error @below {{for comparison combinators, expression must produce exactly two results}}
-  wave.apply_expr(%arg0, %arg1) gt<[#wave.operand<0>, #wave.operand<1>] -> (_Operand_0)> : (!wave.tensor<[@M] of i32>, !wave.tensor<[@M] of i32>) -> !wave.tensor<[@M] of i1>
 }
 
 // -----

@@ -35,23 +35,6 @@ def WaveAddressSpaceAttr
 }
 
 //-----------------------------------------------------------------------------
-// Apply expression combinator enum and attribute
-//-----------------------------------------------------------------------------
-
-def WaveApplyExprCombinatorAttr : I32EnumAttr<"WaveApplyExprCombinator", "Apply expression combinator", [
-  I32EnumAttrCase<"Greater", 0, "gt">,
-  I32EnumAttrCase<"Less", 1, "lt">,
-  I32EnumAttrCase<"Equal", 2, "eq">,
-  I32EnumAttrCase<"NotEqual", 3, "ne">,
-  I32EnumAttrCase<"GreaterOrEqual", 4, "ge">,
-  I32EnumAttrCase<"LessOrEqual", 5, "le">,
-  I32EnumAttrCase<"Maximum", 6, "max">,
-  I32EnumAttrCase<"Minimum", 7, "min">,
-]> {
-  let cppNamespace = "::wave";
-}
-
-//-----------------------------------------------------------------------------
 // MMA kind enum and attribute
 //-----------------------------------------------------------------------------
 
@@ -436,82 +419,6 @@ def WaveSymbolAttr : AttrDef<WaveDialect, "WaveSymbol"> {
   }];
 }
 
-// Array of WaveSymbol attributes, used for ordered dimension symbols.
-def WaveSymbolArrayAttr : TypedArrayAttrBase<WaveSymbolAttr,
-    "array of wave symbol attributes">;
-
-def WaveIterSymbolAttr : AttrDef<WaveDialect, "WaveIterSymbol"> {
-  let mnemonic = "iter";
-  let description = [{
-    Symbol referring to an induction variable that can be used in symbolic
-    expressions in the Wave dialect. Induction variables may have the same
-    name as other symbols without clashing with them.
-  }];
-
-  let parameters =
-      (ins StringRefParameter<"name of the induction variable">:$name);
-  let assemblyFormat = "`<` $name `>`";
-}
-
-def WaveOperandAttr : AttrDef<WaveDialect, "WaveOperand"> {
-  let mnemonic = "operand";
-  let description = [{
-    Symbol representing an operand inside a symbolic expression attribute.
-    The integer indicates which operation operand this symbol refers to
-    (0 for the first operand, 1 for the second, and so on). When a printed
-    name is needed (e.g. for affine expressions), the symbol is rendered as
-    `_Operand_` followed by the operand number. This attribute distinguishes
-    operand symbols from external symbolic constants (hyperparameters), which
-    continue to use `WaveSymbolAttr`.
-  }];
-
-  let parameters = (ins "unsigned":$operandNumber);
-  let assemblyFormat = "`<` $operandNumber `>`";
-}
-
-def WaveIndexMappingAttr : AttrDef<WaveDialect, "WaveIndexMapping"> {
-  let mnemonic = "index_mapping";
-  let description = [{
-    An affine map with named symbols for Wave indexing expressions.
-
-    This attribute preserves meaningful symbol names (e.g., WG0, BLOCK_M, T0)
-    while storing affine maps internally for start, step, and stride. The
-    symbol_names array corresponds 1:1 to the symbols in the affine
-    expressions, where s0 maps to symbol_names[0], s1 to symbol_names[1], etc.
-
-    The order of symbols used in the mapping is fixed and they are sorted
-    upon construction.
-
-    Each of the start, step or stride expression may be null.
-
-    Custom syntax: [symbol_name attributes] -> (start_expr, step_expr, stride_expr)
-    Example: [wave.index_symbol<WG0>, wave.symbol<"BLOCK_M">] -> (WG0 * BLOCK_M + 42, 1, BLOCK_M)
-  }];
-
-  let parameters = (ins
-    ArrayRefParameter<"::mlir::Attribute">:$symbols,
-    "::mlir::AffineMap":$start,
-    "::mlir::AffineMap":$step,
-    "::mlir::AffineMap":$stride
-  );
-
-  let builders = [
-    AttrBuilder<(ins "::llvm::ArrayRef<::mlir::Attribute>":$symbols,
-                 "::mlir::AffineMap":$start,
-                 "::mlir::AffineMap":$step,
-                 "::mlir::AffineMap":$stride)>
-  ];
-
-  let hasCustomAssemblyFormat = 1;
-  let genVerifyDecl = 1;
-  let skipDefaultBuilders = 1;
-
-  let extraClassDeclaration = [{
-    // Return a new mapping with all uses of the given input removed.
-    ::wave::WaveIndexMappingAttr removeInput(::mlir::Attribute input) const;
-  }];
-}
-
 def WaveHyperparameterAttr : AttrDef<WaveDialect, "WaveHyperparameter"> {
   let mnemonic = "hyperparameters";
   let description = [{
@@ -590,92 +497,6 @@ class WaveExprListAttrOf<list<AttrDef> inputTypes> : Attr<
   # " inputs"> {
   let storageType = WaveExprListAttr.cppType;
   let returnType = WaveExprListAttr.returnType;
-}
-
-//-----------------------------------------------------------------------------
-// Symbol mapping attribute
-//-----------------------------------------------------------------------------
-
-def WaveSymbolMappingAttr : AttrDef<WaveDialect, "WaveSymbolMapping"> {
-  let mnemonic = "symbol_mapping";
-  let description = [{
-    An ordered mapping from `WaveSymbolAttr` keys to arbitrary attribute values.
-    The ordering of entries is guaranteed to be persistent, implemented as two
-    co-indexed arrays: `keys[i]` maps to `values[i]`.
-
-    Example:
-    ```mlir
-    #wave.symbol_mapping<
-      @M = #wave.expr_list<[#wave.symbol<"BLOCK_M">] -> (BLOCK_M)>,
-      @N = #wave.expr_list<[#wave.symbol<"BLOCK_N">] -> (BLOCK_N)>
-    >
-    ```
-
-    Use `WaveSymbolMappingAttrOf` to restrict the allowed value types at
-    the op definition level, similar to `WaveExprListAttrOf`.
-  }];
-
-  let parameters = (ins
-    ArrayRefParameter<"::wave::WaveSymbolAttr">:$keys,
-    ArrayRefParameter<"::mlir::Attribute">:$values
-  );
-
-  let hasCustomAssemblyFormat = 1;
-  let genVerifyDecl = 1;
-
-  let builders = [
-    AttrBuilder<(ins
-      "::llvm::ArrayRef<std::pair<::wave::WaveSymbolAttr, ::mlir::Attribute>>"
-      :$entries)>
-  ];
-
-  let extraClassDeclaration = [{
-    /// Look up the attribute associated with `key`.
-    /// Returns a null attribute if the key is absent.
-    template <typename T = ::mlir::Attribute>
-    T lookup(::wave::WaveSymbolAttr key) const {
-      return ::llvm::dyn_cast_or_null<T>(lookupImpl(key));
-    }
-    ::mlir::Attribute lookupImpl(::wave::WaveSymbolAttr key) const;
-
-    /// Check if a symbolic dimension exists in the mapping.
-    bool hasSymbol(::wave::WaveSymbolAttr key) const {
-      return static_cast<bool>(lookup(key));
-    }
-
-    /// Get the number of entries in the mapping.
-    size_t getNumEntries() const { return getKeys().size(); }
-
-    WaveSymbolMappingAttr getValue() const { return *this; }
-  }];
-}
-
-class WaveSymbolMappingAllowedValuesPred<list<AttrDef> valueTypes>
-  : CPred<"::wave::detail::areAllSymbolMappingValuesAllowed<"
-  # !interleave(!foreach(entry, valueTypes, entry.cppType), ", ")
-  # ">(::llvm::cast<::wave::WaveSymbolMappingAttr>($_self))">;
-
-class WaveSymbolMappingToNResultExprListPred<int n>
-  : CPred<"::wave::detail::areAllSymbolMappingValuesNResultExprLists("
-          "::llvm::cast<::wave::WaveSymbolMappingAttr>($_self), " # n # ")">;
-
-class WaveSymbolMappingAttrOf<list<AttrDef> valueTypes> : Attr<
-  And<[WaveSymbolMappingAttr.predicate,
-       WaveSymbolMappingAllowedValuesPred<valueTypes>]>,
-  "symbol mapping with "
-  # !interleave(!foreach(entry, valueTypes, entry.cppClassName), ", ")
-  # " values"> {
-  let storageType = WaveSymbolMappingAttr.cppType;
-  let returnType = WaveSymbolMappingAttr.returnType;
-}
-
-class WaveSymbolMappingToNResultExprListAttr<int n> : Attr<
-  And<[WaveSymbolMappingAttr.predicate,
-       WaveSymbolMappingAllowedValuesPred<[WaveExprListAttr]>,
-       WaveSymbolMappingToNResultExprListPred<n>]>,
-  "symbol mapping with " # n # "-result expr list values"> {
-  let storageType = WaveSymbolMappingAttr.cppType;
-  let returnType = WaveSymbolMappingAttr.returnType;
 }
 
 #endif // WATER_DIALECT_WAVE_WAVEATTRS

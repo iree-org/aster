@@ -18,7 +18,6 @@ if (WATER_ENABLE_PYTHON)
     ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/water_mlir"
     SOURCES
       __init__.py
-      sympy_to_affine_converter.py
   )
 
   declare_mlir_dialect_python_bindings(

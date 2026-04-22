@@ -19,25 +19,6 @@
 #include "llvm/ADT/SmallVector.h"
 
 namespace wave {
-/// Return the position of the dimension that is vectorized based on the index
-/// sequence. The dimension with the largest step is considered to be
-/// vectorized. In case of a tie, take the dimension that is farther in the
-/// index dictionary, which is secretly a list. Return failure when the index
-/// sequence step cannot be evaluated statically.
-std::optional<int64_t>
-getPositionOfVectorizedDim(llvm::ArrayRef<wave::WaveSymbolAttr> shape,
-                           mlir::DictionaryAttr indexDict,
-                           wave::WaveHyperparameterAttr hyper);
-
-// Return the vector shape implied by the index sequence and hyperparameteters,
-// i.e., the step expression of the index sequence evaluated using the
-// hyperparameter values. The step may be indicated as ShapedType::kDynamic if
-// it cannot be fully evaluated.
-llvm::SmallVector<int64_t>
-getUncollapsedVectorShape(llvm::ArrayRef<wave::WaveSymbolAttr> shape,
-                          mlir::DictionaryAttr indexDict,
-                          wave::WaveHyperparameterAttr hyper);
-
 /// Resolve named Wave symbols to concrete integer values using the
 /// hyperparameter table.
 std::optional<llvm::SmallVector<int64_t>>
@@ -63,11 +44,6 @@ llvm::LogicalResult computeWavesPerBlockFromConstraints(
         &waveConstraints,
     wave::WaveHyperparameterAttr hyperparams,
     llvm::SmallVectorImpl<unsigned> &wavesPerBlock);
-
-/// Permute the shape according to the mapping.
-void permuteShape(llvm::ArrayRef<wave::WaveSymbolAttr> shape,
-                  mlir::AffineMap map, bool inverse,
-                  llvm::SmallVectorImpl<wave::WaveSymbolAttr> &permutedShape);
 
 } // namespace wave
 
