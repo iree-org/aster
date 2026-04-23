@@ -16,7 +16,6 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
-#include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
 #include "aster/IR/ParsePrintUtils.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -921,17 +920,17 @@ LogicalResult KernelOp::verify() {
 //===----------------------------------------------------------------------===//
 
 /// Verify all normal forms attached to an operation via its normal_forms attr.
-/// `excludeAttrNames` optionally specifies named attributes whose nested
-/// types should be skipped during verification.
-static LogicalResult verifyNormalFormsRegions(
-    Operation *op, ArrayAttr normalFormsAttr,
-    const DenseSet<StringAttr> *excludeAttrNames = nullptr) {
+/// Each normal form's `checkOperation` method is responsible for walking the
+/// IR (and excluding op-attribute payloads that should not participate in
+/// normal-form type checking; see `getNormalFormTypeWalkExcludes` in
+/// AMDGCNAttrs.cpp for the kernel-arguments exclusion).
+static LogicalResult verifyNormalFormsRegions(Operation *op,
+                                              ArrayAttr normalFormsAttr) {
   if (!normalFormsAttr || normalFormsAttr.empty())
     return success();
   for (Attribute attr : normalFormsAttr) {
-    auto nf = cast<normalform::NormalFormAttrInterface>(attr);
-    if (failed(normalform::verifyNormalForm(op, nf, /*emitDiagnostics=*/true,
-                                            excludeAttrNames)))
+    auto nf = cast<mlir::transform::NormalFormAttrInterface>(attr);
+    if (failed(nf.checkOperation(op).checkAndReport()))
       return failure();
   }
   return success();
@@ -941,7 +940,7 @@ static LogicalResult verifyNormalFormsRegions(
 /// semantics. Returns true if the attribute was changed.
 static bool
 addNormalFormsImpl(Operation *op, StringRef attrName, ArrayAttr currentAttr,
-                   ArrayRef<normalform::NormalFormAttrInterface> nfs,
+                   ArrayRef<mlir::transform::NormalFormAttrInterface> nfs,
                    function_ref<void(ArrayAttr)> setter) {
   if (nfs.empty())
     return false;
@@ -951,7 +950,7 @@ addNormalFormsImpl(Operation *op, StringRef attrName, ArrayAttr currentAttr,
     nfSet.insert_range(currentAttr.getValue());
 
   bool changed = false;
-  for (normalform::NormalFormAttrInterface nf : nfs)
+  for (mlir::transform::NormalFormAttrInterface nf : nfs)
     changed |= nfSet.insert(nf);
 
   if (!changed)
@@ -966,7 +965,7 @@ addNormalFormsImpl(Operation *op, StringRef attrName, ArrayAttr currentAttr,
 /// Returns true if the attribute was changed.
 static bool
 removeNormalFormsImpl(Operation *op, ArrayAttr currentAttr,
-                      ArrayRef<normalform::NormalFormAttrInterface> nfs,
+                      ArrayRef<mlir::transform::NormalFormAttrInterface> nfs,
                       function_ref<void(ArrayAttr)> setter) {
   if (nfs.empty() || !currentAttr || currentAttr.empty())
     return false;
@@ -975,7 +974,7 @@ removeNormalFormsImpl(Operation *op, ArrayAttr currentAttr,
   nfSet.insert_range(currentAttr.getValue());
 
   bool changed = false;
-  for (normalform::NormalFormAttrInterface nf : nfs)
+  for (mlir::transform::NormalFormAttrInterface nf : nfs)
     changed |= nfSet.remove(nf);
 
   if (!changed)
@@ -995,14 +994,14 @@ LogicalResult amdgcn::ModuleOp::verifyRegions() {
 }
 
 bool amdgcn::ModuleOp::addNormalForms(
-    ArrayRef<normalform::NormalFormAttrInterface> normalForms) {
+    ArrayRef<mlir::transform::NormalFormAttrInterface> normalForms) {
   return addNormalFormsImpl(getOperation(), getNormalFormsAttrName(),
                             getNormalFormsAttr(), normalForms,
                             [&](ArrayAttr attr) { setNormalFormsAttr(attr); });
 }
 
 bool amdgcn::ModuleOp::removeNormalForms(
-    ArrayRef<normalform::NormalFormAttrInterface> normalForms) {
+    ArrayRef<mlir::transform::NormalFormAttrInterface> normalForms) {
   return removeNormalFormsImpl(
       getOperation(), getNormalFormsAttr(), normalForms,
       [&](ArrayAttr attr) { setNormalFormsAttr(attr); });
@@ -1013,24 +1012,18 @@ bool amdgcn::ModuleOp::removeNormalForms(
 //===----------------------------------------------------------------------===//
 
 LogicalResult KernelOp::verifyRegions() {
-  // Exclude 'arguments' attribute from normal form type walking: kernel
-  // argument attrs (by_val_arg, buffer_arg) contain ABI metadata types,
-  // not computational register types in the kernel body.
-  DenseSet<StringAttr> excludeAttrs;
-  excludeAttrs.insert(getArgumentsAttrName());
-  return verifyNormalFormsRegions(getOperation(), getNormalFormsAttr(),
-                                  &excludeAttrs);
+  return verifyNormalFormsRegions(getOperation(), getNormalFormsAttr());
 }
 
 bool KernelOp::addNormalForms(
-    ArrayRef<normalform::NormalFormAttrInterface> normalForms) {
+    ArrayRef<mlir::transform::NormalFormAttrInterface> normalForms) {
   return addNormalFormsImpl(getOperation(), getNormalFormsAttrName(),
                             getNormalFormsAttr(), normalForms,
                             [&](ArrayAttr attr) { setNormalFormsAttr(attr); });
 }
 
 bool KernelOp::removeNormalForms(
-    ArrayRef<normalform::NormalFormAttrInterface> normalForms) {
+    ArrayRef<mlir::transform::NormalFormAttrInterface> normalForms) {
   return removeNormalFormsImpl(
       getOperation(), getNormalFormsAttr(), normalForms,
       [&](ArrayAttr attr) { setNormalFormsAttr(attr); });

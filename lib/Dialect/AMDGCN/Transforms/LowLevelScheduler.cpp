@@ -18,7 +18,8 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsAttrs.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
-#include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
+#include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
+#include "mlir/Dialect/Transform/Utils/DiagnosedSilenceableFailure.h"
 
 namespace mlir::aster {
 namespace amdgcn {
@@ -43,8 +44,7 @@ struct LowLevelSchedulerPass
     MLIRContext *ctx = kernel.getContext();
 
     auto allInlined = AllInlinedAttr::get(ctx);
-    if (failed(normalform::verifyNormalForm(kernel, allInlined,
-                                            /*emitDiagnostics=*/true)))
+    if (failed(allInlined.checkOperation(kernel).checkAndReport()))
       return signalPassFailure();
 
     GenericSchedulerAttr compositeAttr = GenericSchedulerAttr::get(

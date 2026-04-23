@@ -22,8 +22,6 @@ add_mlir_library(ASTERInit
   LayoutDialect
   LayoutTransforms
   LSIRDialect
-  MLIRNormalFormDialect
-  MLIRNormalFormTransforms
   MLIRAffineDialect
   MLIRAffineTransforms
   MLIRArithDialect

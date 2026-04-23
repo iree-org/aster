@@ -17,7 +17,13 @@
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
+#include "mlir/Dialect/Transform/Utils/DiagnosedSilenceableFailure.h"
+#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/Support/WalkResult.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -225,198 +231,357 @@ int32_t GenericSchedLabelerAttr::getLabel(Operation *op, int32_t,
 }
 
 //===----------------------------------------------------------------------===//
+// Normal-form helpers
+//===----------------------------------------------------------------------===//
+
+namespace {
+/// Filter callback used by `walkTypes` to decide whether to descend into a
+/// given `NamedAttribute` of an operation. Returning `false` skips the
+/// attribute payload entirely.
+using NamedAttrFilter = llvm::function_ref<bool(Operation *, NamedAttribute)>;
+
+/// Skips named attributes that carry ABI metadata whose register types are
+/// not subject to normal-form invariants enforced on the kernel body. For
+/// `amdgcn.kernel`, this excludes the `arguments` attribute (e.g.
+/// `by_val_arg` parameter types).
+bool skipKernelAbiMetadata(Operation *op, NamedAttribute attr) {
+  if (auto kernel = dyn_cast<KernelOp>(op))
+    return attr.getName() != kernel.getArgumentsAttrName();
+  return true;
+}
+
+/// Aggregates `DiagnosedSilenceableFailure` results across multiple visits:
+/// records the first silenceable failure (silencing later ones) and short-
+/// circuits on definite failures.
+struct AttrTypeAggregator {
+  DiagnosedSilenceableFailure overall = DiagnosedSilenceableFailure::success();
+  bool stop = false;
+
+  void merge(DiagnosedSilenceableFailure &&result) {
+    if (result.isDefiniteFailure()) {
+      overall = std::move(result);
+      stop = true;
+      return;
+    }
+    if (result.isSilenceableFailure()) {
+      if (overall.succeeded())
+        overall = std::move(result);
+      else
+        (void)result.silence();
+    }
+  }
+};
+
+/// Walks all distinct types reachable from operations under `root`: operation
+/// result types, block argument types, and types nested inside operation
+/// attributes. Invokes `visitor` on each distinct type with a `Location` near
+/// its discovery point. When `filter` is non-null, it is consulted for each
+/// named attribute of every visited operation; returning `false` skips the
+/// attribute payload (e.g. to exclude `amdgcn.kernel`'s `arguments` ABI
+/// metadata).
+DiagnosedSilenceableFailure walkTypes(
+    Operation *root,
+    llvm::function_ref<DiagnosedSilenceableFailure(Type, Location)> visitor,
+    NamedAttrFilter filter = nullptr) {
+  AttrTypeAggregator agg;
+  llvm::SmallPtrSet<Type, 16> seenTypes;
+  llvm::SmallPtrSet<Attribute, 16> seenAttrs;
+  Location currentLoc = root->getLoc();
+  AttrTypeWalker walker;
+
+  walker.addWalk([&](Type type) {
+    auto [it, inserted] = seenTypes.insert(type);
+    if (!inserted)
+      return WalkResult::skip();
+    agg.merge(visitor(type, currentLoc));
+    if (agg.stop)
+      return WalkResult::interrupt();
+    return WalkResult::advance();
+  });
+  walker.addWalk([&](Attribute attr) {
+    auto [it, inserted] = seenAttrs.insert(attr);
+    if (!inserted)
+      return WalkResult::skip();
+    return WalkResult::advance();
+  });
+
+  root->walk<WalkOrder::PreOrder>([&](Operation *op) {
+    currentLoc = op->getLoc();
+    for (OpResult result : op->getResults()) {
+      currentLoc = result.getLoc();
+      if (walker.walk(result.getType()).wasInterrupted())
+        return WalkResult::interrupt();
+    }
+    for (Region &region : op->getRegions()) {
+      for (Block &block : region) {
+        for (BlockArgument arg : block.getArguments()) {
+          currentLoc = arg.getLoc();
+          if (walker.walk(arg.getType()).wasInterrupted())
+            return WalkResult::interrupt();
+        }
+      }
+    }
+    currentLoc = op->getLoc();
+    for (NamedAttribute attr : op->getAttrs()) {
+      if (filter && !filter(op, attr))
+        continue;
+      if (walker.walk(attr.getValue()).wasInterrupted())
+        return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return std::move(agg.overall);
+}
+
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // NoValueSemanticRegistersAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult NoValueSemanticRegistersAttr::verifyType(
-    function_ref<InFlightDiagnostic()> emitError, Type type) const {
-  auto regType = dyn_cast<RegisterTypeInterface>(type);
-  if (!regType)
-    return success();
-
-  if (regType.hasValueSemantics())
-    return emitError() << "normal form violation: register types with value "
-                          "semantics are disallowed but found: "
-                       << type;
-
-  return success();
+DiagnosedSilenceableFailure
+NoValueSemanticRegistersAttr::checkOperation(Operation *op) const {
+  return walkTypes(
+      op,
+      [](Type type, Location loc) -> DiagnosedSilenceableFailure {
+        auto regType = dyn_cast<RegisterTypeInterface>(type);
+        if (!regType || !regType.hasValueSemantics())
+          return DiagnosedSilenceableFailure::success();
+        return emitSilenceableFailure(loc)
+               << "normal form violation: register types with value "
+                  "semantics are disallowed but found: "
+               << type;
+      },
+      skipKernelAbiMetadata);
 }
 
 //===----------------------------------------------------------------------===//
 // AllRegistersAllocatedAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult AllRegistersAllocatedAttr::verifyType(
-    function_ref<InFlightDiagnostic()> emitError, Type type) const {
-  auto regType = dyn_cast<RegisterTypeInterface>(type);
-  if (!regType)
-    return success();
-
-  if (!regType.hasAllocatedSemantics())
-    return emitError() << "normal form violation: all registers must have "
-                          "allocated semantics but found: "
-                       << type;
-
-  return success();
+DiagnosedSilenceableFailure
+AllRegistersAllocatedAttr::checkOperation(Operation *op) const {
+  return walkTypes(
+      op,
+      [](Type type, Location loc) -> DiagnosedSilenceableFailure {
+        auto regType = dyn_cast<RegisterTypeInterface>(type);
+        if (!regType || regType.hasAllocatedSemantics())
+          return DiagnosedSilenceableFailure::success();
+        return emitSilenceableFailure(loc)
+               << "normal form violation: all registers must have "
+                  "allocated semantics but found: "
+               << type;
+      },
+      skipKernelAbiMetadata);
 }
 
 //===----------------------------------------------------------------------===//
 // NoRegCastOpsAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult
-NoRegCastOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
-                                  Operation *op) const {
-  if (isa<lsir::RegCastOp>(op))
-    return emitError() << "normal form violation: lsir.reg_cast should not "
-                          "survive past aster-to-amdgcn; this indicates an "
-                          "incorrect lsir.to_reg or lsir.from_reg surviving "
-                          "from high-level (hand-authored ?) IR";
-  return success();
+DiagnosedSilenceableFailure
+NoRegCastOpsAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    if (!isa<lsir::RegCastOp>(innerOp))
+      return WalkResult::advance();
+    agg.merge(emitSilenceableFailure(innerOp)
+              << "normal form violation: lsir.reg_cast should not "
+                 "survive past aster-to-amdgcn; this indicates an "
+                 "incorrect lsir.to_reg or lsir.from_reg surviving "
+                 "from high-level (hand-authored ?) IR");
+    return agg.stop ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return std::move(agg.overall);
 }
 
 //===----------------------------------------------------------------------===//
 // NoLsirOpsAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult
-NoLsirOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
-                               Operation *op) const {
-  if (op->getDialect() && op->getDialect()->getNamespace() == "lsir")
-    return emitError() << "normal form violation: LSIR dialect operations "
-                          "are disallowed but found: "
-                       << op->getName();
-
-  return success();
+DiagnosedSilenceableFailure NoLsirOpsAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    if (!innerOp->getDialect() ||
+        innerOp->getDialect()->getNamespace() != "lsir")
+      return WalkResult::advance();
+    agg.merge(emitSilenceableFailure(innerOp)
+              << "normal form violation: LSIR dialect operations "
+                 "are disallowed but found: "
+              << innerOp->getName());
+    return agg.stop ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return std::move(agg.overall);
 }
 
 //===----------------------------------------------------------------------===//
 // NoLsirComputeOpsAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult NoLsirComputeOpsAttr::verifyOperation(
-    function_ref<InFlightDiagnostic()> emitError, Operation *op) const {
-  if (!op->getDialect() || op->getDialect()->getNamespace() != "lsir")
-    return success();
-
-  // Allow control-flow ops (lowered by LegalizeCF) and copy (regalloc
-  // primitive).
-  if (isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp, lsir::CopyOp,
-          lsir::BranchOp, lsir::CondBranchOp>(op))
-    return success();
-
-  return emitError() << "normal form violation: LSIR compute/memory "
-                        "operations are disallowed but found: "
-                     << op->getName();
+DiagnosedSilenceableFailure
+NoLsirComputeOpsAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    if (!innerOp->getDialect() ||
+        innerOp->getDialect()->getNamespace() != "lsir")
+      return WalkResult::advance();
+    // Allow control-flow ops (lowered by LegalizeCF) and copy (regalloc
+    // primitive).
+    if (isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp, lsir::CopyOp,
+            lsir::BranchOp, lsir::CondBranchOp>(innerOp))
+      return WalkResult::advance();
+    agg.merge(emitSilenceableFailure(innerOp)
+              << "normal form violation: LSIR compute/memory "
+                 "operations are disallowed but found: "
+              << innerOp->getName());
+    return agg.stop ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return std::move(agg.overall);
 }
 
 //===----------------------------------------------------------------------===//
 // NoLsirControlOpsAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult NoLsirControlOpsAttr::verifyOperation(
-    function_ref<InFlightDiagnostic()> emitError, Operation *op) const {
-  if (isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp>(op))
-    return emitError() << "normal form violation: LSIR control-flow "
-                          "operations are disallowed but found: "
-                       << op->getName();
-
-  return success();
+DiagnosedSilenceableFailure
+NoLsirControlOpsAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    if (!isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp>(innerOp))
+      return WalkResult::advance();
+    agg.merge(emitSilenceableFailure(innerOp)
+              << "normal form violation: LSIR control-flow "
+                 "operations are disallowed but found: "
+              << innerOp->getName());
+    return agg.stop ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return std::move(agg.overall);
 }
 
 //===----------------------------------------------------------------------===//
 // NoScfOpsAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult
-NoScfOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
-                              Operation *op) const {
-  if (op->getDialect() && op->getDialect()->getNamespace() == "scf")
-    return emitError() << "normal form violation: SCF dialect operations "
-                          "are disallowed but found: "
-                       << op->getName();
-
-  return success();
+DiagnosedSilenceableFailure NoScfOpsAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    if (!innerOp->getDialect() ||
+        innerOp->getDialect()->getNamespace() != "scf")
+      return WalkResult::advance();
+    agg.merge(emitSilenceableFailure(innerOp)
+              << "normal form violation: SCF dialect operations "
+                 "are disallowed but found: "
+              << innerOp->getName());
+    return agg.stop ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return std::move(agg.overall);
 }
 
 //===----------------------------------------------------------------------===//
 // NoCfBranchesAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult
-NoCfBranchesAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
-                                  Operation *op) const {
-  if (isa<cf::BranchOp, cf::CondBranchOp>(op))
-    return emitError() << "normal form violation: cf.br/cf.cond_br operations "
-                          "are disallowed but found: "
-                       << op->getName();
-
-  return success();
+DiagnosedSilenceableFailure
+NoCfBranchesAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    if (!isa<cf::BranchOp, cf::CondBranchOp>(innerOp))
+      return WalkResult::advance();
+    agg.merge(emitSilenceableFailure(innerOp)
+              << "normal form violation: cf.br/cf.cond_br operations "
+                 "are disallowed but found: "
+              << innerOp->getName());
+    return agg.stop ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return std::move(agg.overall);
 }
 
 //===----------------------------------------------------------------------===//
 // NoRegisterBlockArgsAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult NoRegisterBlockArgsAttr::verifyOperation(
-    function_ref<InFlightDiagnostic()> emitError, Operation *op) const {
-  for (Region &region : op->getRegions()) {
-    for (Block &block : region) {
-      for (BlockArgument arg : block.getArguments()) {
-        if (isa<RegisterTypeInterface>(arg.getType()))
-          return emitError()
-                 << "normal form violation: block arguments with register "
-                    "types are disallowed but found: "
-                 << arg.getType();
+DiagnosedSilenceableFailure
+NoRegisterBlockArgsAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    for (Region &region : innerOp->getRegions()) {
+      for (Block &block : region) {
+        for (BlockArgument arg : block.getArguments()) {
+          if (!isa<RegisterTypeInterface>(arg.getType()))
+            continue;
+          agg.merge(emitSilenceableFailure(innerOp)
+                    << "normal form violation: block arguments with "
+                       "register types are disallowed but found: "
+                    << arg.getType());
+          if (agg.stop)
+            return WalkResult::interrupt();
+          // Only report once per op to mirror the original behavior.
+          return WalkResult::advance();
+        }
       }
     }
-  }
-  return success();
+    return WalkResult::advance();
+  });
+  return std::move(agg.overall);
 }
 
 //===----------------------------------------------------------------------===//
 // NoAffineOpsAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult
-NoAffineOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
-                                 Operation *op) const {
-  if (op->getDialect() && op->getDialect()->getNamespace() == "affine")
-    return emitError() << "normal form violation: affine dialect operations "
-                          "are disallowed but found: "
-                       << op->getName();
-
-  return success();
+DiagnosedSilenceableFailure
+NoAffineOpsAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    if (!innerOp->getDialect() ||
+        innerOp->getDialect()->getNamespace() != "affine")
+      return WalkResult::advance();
+    agg.merge(emitSilenceableFailure(innerOp)
+              << "normal form violation: affine dialect operations "
+                 "are disallowed but found: "
+              << innerOp->getName());
+    return agg.stop ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return std::move(agg.overall);
 }
 
 //===----------------------------------------------------------------------===//
 // NoMetadataOpsAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult
-NoMetadataOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
-                                   Operation *op) const {
-  if (isa<LoadArgOp, ThreadIdOp, BlockDimOp, BlockIdOp, GridDimOp,
-          MakeBufferRsrcOp>(op))
-    return emitError() << "normal form violation: AMDGCN metadata operations "
-                          "are disallowed but found: "
-                       << op->getName();
-
-  return success();
+DiagnosedSilenceableFailure
+NoMetadataOpsAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    if (!isa<LoadArgOp, ThreadIdOp, BlockDimOp, BlockIdOp, GridDimOp,
+             MakeBufferRsrcOp>(innerOp))
+      return WalkResult::advance();
+    agg.merge(emitSilenceableFailure(innerOp)
+              << "normal form violation: AMDGCN metadata operations "
+                 "are disallowed but found: "
+              << innerOp->getName());
+    return agg.stop ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return std::move(agg.overall);
 }
 
 //===----------------------------------------------------------------------===//
 // AllInlinedAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult
-AllInlinedAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
-                                Operation *op) const {
-  if (isa<func::CallOp>(op))
-    return emitError() << "normal form violation: func.call operations "
-                          "are disallowed (all functions should be inlined) "
-                          "but found call to '"
-                       << cast<func::CallOp>(op).getCallee() << "'";
-
-  return success();
+DiagnosedSilenceableFailure
+AllInlinedAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    auto callOp = dyn_cast<func::CallOp>(innerOp);
+    if (!callOp)
+      return WalkResult::advance();
+    agg.merge(emitSilenceableFailure(innerOp)
+              << "normal form violation: func.call operations "
+                 "are disallowed (all functions should be inlined) "
+                 "but found call to '"
+              << callOp.getCallee() << "'");
+    return agg.stop ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return std::move(agg.overall);
 }

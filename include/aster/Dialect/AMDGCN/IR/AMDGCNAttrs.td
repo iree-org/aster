@@ -20,10 +20,27 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/HazardAttrInterface.td"
 include "aster/Dialect/AMDGCN/IR/Hazards.td"
-include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.td"
 include "aster/Interfaces/MemorySpaceConstraints.td"
 include "aster/Interfaces/SchedInterfaces.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
+include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.td"
+include "mlir/IR/AttrTypeBase.td"
+include "mlir/IR/CommonAttrConstraints.td"
+
+//===----------------------------------------------------------------------===//
+// Normal form attribute array constraints.
+//===----------------------------------------------------------------------===//
+
+/// An array of attributes implementing `mlir::transform::NormalFormAttrInterface`.
+def NormalFormAttrArray : TypedArrayAttrBase<NormalFormAttrInterface,
+    "array of NormalFormAttrInterface">;
+
+/// Optional normal form array: omitted when empty, prints in attr-dict.
+def OptionalNormalFormAttrArray
+    : DefaultValuedAttr<NormalFormAttrArray, "::ArrayRef<Attribute>()"> {
+  let constBuilderCall = "$_builder.getArrayAttr($0)";
+  let isOptional = true;
+}
 
 //===----------------------------------------------------------------------===//
 // AddressSpaceAttr
@@ -372,7 +389,7 @@ def KernelArgumentsAttr
 
 def NoValueSemanticRegistersAttr : AMDGCN_Attr<
     "NoValueSemanticRegisters", "no_value_semantic_registers",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyType"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: no register types with value semantics";
   let description = [{
     Verifies that no register types in the IR have value semantics.
@@ -386,7 +403,7 @@ def NoValueSemanticRegistersAttr : AMDGCN_Attr<
 
 def AllRegistersAllocatedAttr : AMDGCN_Attr<
     "AllRegistersAllocated", "all_registers_allocated",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyType"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: all register types have allocated semantics";
   let description = [{
     Verifies that every register type in the IR has allocated semantics
@@ -400,7 +417,7 @@ def AllRegistersAllocatedAttr : AMDGCN_Attr<
 
 def NoRegCastOpsAttr : AMDGCN_Attr<
     "NoRegCastOps", "no_reg_cast_ops",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: no lsir.reg_cast operations";
   let description = [{
     Verifies that no `lsir.reg_cast` operations exist in the IR.
@@ -414,7 +431,7 @@ def NoRegCastOpsAttr : AMDGCN_Attr<
 
 def NoCfBranchesAttr : AMDGCN_Attr<
     "NoCfBranches", "no_cf_branches",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: no CF dialect branch operations";
   let description = [{
     Verifies that no `cf.br` or `cf.cond_br` operations exist in the IR.
@@ -426,7 +443,7 @@ def NoCfBranchesAttr : AMDGCN_Attr<
 
 def NoScfOpsAttr : AMDGCN_Attr<
     "NoScfOps", "no_scf_ops",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: no SCF dialect operations";
   let description = [{
     Verifies that no SCF dialect operations (`scf.for`, `scf.if`, `scf.while`,
@@ -438,7 +455,7 @@ def NoScfOpsAttr : AMDGCN_Attr<
 
 def NoLsirOpsAttr : AMDGCN_Attr<
     "NoLsirOps", "no_lsir_ops",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: no LSIR dialect operations";
   let description = [{
     Verifies that no LSIR dialect operations exist in the IR.
@@ -450,7 +467,7 @@ def NoLsirOpsAttr : AMDGCN_Attr<
 
 def NoLsirComputeOpsAttr : AMDGCN_Attr<
     "NoLsirComputeOps", "no_lsir_compute_ops",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: no LSIR compute/memory operations";
   let description = [{
     Verifies that no LSIR arithmetic, memory, or utility operations exist in
@@ -469,7 +486,7 @@ def NoLsirComputeOpsAttr : AMDGCN_Attr<
 
 def NoLsirControlOpsAttr : AMDGCN_Attr<
     "NoLsirControlOps", "no_lsir_control_ops",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: no LSIR control-flow operations";
   let description = [{
     Verifies that no LSIR control-flow-related operations (`lsir.cmpi`,
@@ -485,7 +502,7 @@ def NoLsirControlOpsAttr : AMDGCN_Attr<
 
 def NoRegisterBlockArgsAttr : AMDGCN_Attr<
     "NoRegisterBlockArgs", "no_register_block_args",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: no block arguments with register types";
   let description = [{
     Verifies that no block arguments have register types
@@ -497,7 +514,7 @@ def NoRegisterBlockArgsAttr : AMDGCN_Attr<
 
 def NoAffineOpsAttr : AMDGCN_Attr<
     "NoAffineOps", "no_affine_ops",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: no affine dialect operations";
   let description = [{
     Verifies that no affine dialect operations (`affine.apply`, `affine.for`,
@@ -509,7 +526,7 @@ def NoAffineOpsAttr : AMDGCN_Attr<
 
 def NoMetadataOpsAttr : AMDGCN_Attr<
     "NoMetadataOps", "no_metadata_ops",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: no AMDGCN metadata operations";
   let description = [{
     Verifies that no AMDGCN metadata operations remain in the IR.
@@ -523,7 +540,7 @@ def NoMetadataOpsAttr : AMDGCN_Attr<
 
 def AllInlinedAttr : AMDGCN_Attr<
     "AllInlined", "all_inlined",
-    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
   let summary = "Normal form: all function calls inlined";
   let description = [{
     Verifies that no `func.call` operations exist in the IR.
