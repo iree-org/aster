@@ -22,10 +22,6 @@ namespace mlir::aster {
 void registerTestPasses();
 } // namespace mlir::aster
 
-namespace mlir::aster::test {
-void registerAsterTestDialect(DialectRegistry &registry);
-} // namespace mlir::aster::test
-
 using namespace llvm;
 using namespace mlir;
 
@@ -41,7 +37,6 @@ int main(int argc, char **argv) {
   aster::initDialects(registry);
   aster::registerPasses();
   aster::registerTestPasses();
-  aster::test::registerAsterTestDialect(registry);
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "aster modular optimizer driver\n", registry));
 }

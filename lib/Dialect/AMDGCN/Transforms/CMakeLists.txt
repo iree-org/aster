@@ -35,7 +35,6 @@ add_mlir_library(AMDGCNTransforms
   AMDGCNAnalysis
   AMDGCNDialect
   AsterUtilsDialect
-  MLIRNormalFormDialect
   ASTERAnalysis
   AsterTransforms
   AsterInterfaces
@@ -46,6 +45,8 @@ add_mlir_library(AMDGCNTransforms
   MLIRPass
   MLIRSCFDialect
   MLIRSCFUtils
+  MLIRTransformDialectInterfaces
+  MLIRTransformDialectUtils
   MLIRTransforms
   MLIRUBDialect
 )
