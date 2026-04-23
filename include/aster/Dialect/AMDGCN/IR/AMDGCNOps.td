@@ -445,11 +445,11 @@ def AMDGCN_KernelOp : AMDGCN_Op<"kernel", [
 
     /// Adds normal form attributes. Returns true if the op was changed.
     bool addNormalForms(
-        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
+        ::llvm::ArrayRef<::mlir::transform::NormalFormAttrInterface> normalForms);
 
     /// Removes normal form attributes. Returns true if the op was changed.
     bool removeNormalForms(
-        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
+        ::llvm::ArrayRef<::mlir::transform::NormalFormAttrInterface> normalForms);
   }];
 }
 
@@ -572,11 +572,11 @@ def AMDGCN_ModuleOp : AMDGCN_Op<"module", [
 
     /// Adds normal form attributes. Returns true if the op was changed.
     bool addNormalForms(
-        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
+        ::llvm::ArrayRef<::mlir::transform::NormalFormAttrInterface> normalForms);
 
     /// Removes normal form attributes. Returns true if the op was changed.
     bool removeNormalForms(
-        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
+        ::llvm::ArrayRef<::mlir::transform::NormalFormAttrInterface> normalForms);
   }];
 }
 

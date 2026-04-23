@@ -11,8 +11,8 @@
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
-#include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
 #include "mlir/AsmParser/AsmParser.h"
+#include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 
 namespace mlir::aster {
 namespace amdgcn {
@@ -35,15 +35,15 @@ public:
 private:
   /// Parse a list of mnemonic strings into NormalFormAttrInterface attributes.
   /// Returns failure if any mnemonic is invalid.
-  FailureOr<SmallVector<normalform::NormalFormAttrInterface>>
+  FailureOr<SmallVector<mlir::transform::NormalFormAttrInterface>>
   parseFormMnemonics(ArrayRef<std::string> mnemonics);
 };
 } // namespace
 
-FailureOr<SmallVector<normalform::NormalFormAttrInterface>>
+FailureOr<SmallVector<mlir::transform::NormalFormAttrInterface>>
 SetNormalForms::parseFormMnemonics(ArrayRef<std::string> mnemonics) {
   MLIRContext *ctx = &getContext();
-  SmallVector<normalform::NormalFormAttrInterface> attrs;
+  SmallVector<mlir::transform::NormalFormAttrInterface> attrs;
   for (const std::string &mnemonic : mnemonics) {
     std::string attrStr = "#amdgcn." + mnemonic;
     Attribute attr = mlir::parseAttribute(attrStr, ctx);
@@ -53,7 +53,7 @@ SetNormalForms::parseFormMnemonics(ArrayRef<std::string> mnemonics) {
           << "(tried to parse as '" << attrStr << "')";
       return failure();
     }
-    auto nfAttr = dyn_cast<normalform::NormalFormAttrInterface>(attr);
+    auto nfAttr = dyn_cast<mlir::transform::NormalFormAttrInterface>(attr);
     if (!nfAttr) {
       getOperation()->emitError()
           << "attribute '" << attrStr
