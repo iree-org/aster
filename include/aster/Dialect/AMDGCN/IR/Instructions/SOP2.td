@@ -166,45 +166,20 @@ def SAndn2B32 : SOP2Inst<"s_andn2_b32", [CDNA3, CDNA4]> {
   let summary = "SOP2 bitwise AND with negated second operand (32-bit)";
 }
 
-def SAndn2B64 : SOP2Inst<"s_andn2_b64", [CDNA3, CDNA4]> {
-  let summary = "SOP2 bitwise AND with negated second operand (64-bit)";
-  let constraints = SOP2Constraints<2, 1>.constraints;
-}
-
 def SOrn2B32 : SOP2Inst<"s_orn2_b32", [CDNA3, CDNA4]> {
   let summary = "SOP2 bitwise OR with negated second operand (32-bit)";
-}
-
-def SOrn2B64 : SOP2Inst<"s_orn2_b64", [CDNA3, CDNA4]> {
-  let summary = "SOP2 bitwise OR with negated second operand (64-bit)";
-  let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
 def SNandB32 : SOP2Inst<"s_nand_b32", [CDNA3, CDNA4]> {
   let summary = "SOP2 bitwise NAND of two 32-bit values";
 }
 
-def SNandB64 : SOP2Inst<"s_nand_b64", [CDNA3, CDNA4]> {
-  let summary = "SOP2 bitwise NAND of two 64-bit values";
-  let constraints = SOP2Constraints<2, 1>.constraints;
-}
-
 def SNorB32 : SOP2Inst<"s_nor_b32", [CDNA3, CDNA4]> {
   let summary = "SOP2 bitwise NOR of two 32-bit values";
 }
 
-def SNorB64 : SOP2Inst<"s_nor_b64", [CDNA3, CDNA4]> {
-  let summary = "SOP2 bitwise NOR of two 64-bit values";
-  let constraints = SOP2Constraints<2, 1>.constraints;
-}
-
 def SXnorB32 : SOP2Inst<"s_xnor_b32", [CDNA3, CDNA4]> {
   let summary = "SOP2 bitwise XNOR of two 32-bit values";
-}
-
-def SXnorB64 : SOP2Inst<"s_xnor_b64", [CDNA3, CDNA4]> {
-  let summary = "SOP2 bitwise XNOR of two 64-bit values";
-  let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
 //===----------------------------------------------------------------------===//
@@ -246,27 +221,12 @@ def SBfmB32 : SOP2Inst<"s_bfm_b32", [CDNA3, CDNA4]> {
   let summary = "SOP2 create 32-bit bitfield mask";
 }
 
-def SBfmB64 : SOP2Inst<"s_bfm_b64", [CDNA3, CDNA4]> {
-  let summary = "SOP2 create 64-bit bitfield mask";
-  let constraints = SOP2Constraints<2, 1>.constraints;
-}
-
 def SBfeU32 : SOP2Inst<"s_bfe_u32", [CDNA3, CDNA4]> {
   let summary = "SOP2 extract unsigned bitfield from 32-bit value";
 }
 
 def SBfeI32 : SOP2Inst<"s_bfe_i32", [CDNA3, CDNA4]> {
   let summary = "SOP2 extract signed bitfield from 32-bit value";
-}
-
-def SBfeU64 : SOP2Inst<"s_bfe_u64", [CDNA3, CDNA4]> {
-  let summary = "SOP2 extract unsigned bitfield from 64-bit value";
-  let constraints = SOP2Constraints<2, 1>.constraints;
-}
-
-def SBfeI64 : SOP2Inst<"s_bfe_i64", [CDNA3, CDNA4]> {
-  let summary = "SOP2 extract signed bitfield from 64-bit value";
-  let constraints = SOP2Constraints<2, 1>.constraints;
 }
 
 //===----------------------------------------------------------------------===//
@@ -325,20 +285,5 @@ def SLshl4AddU32 : SOP2Inst<"s_lshl4_add_u32", [CDNA3, CDNA4]> {
   let summary = "SOP2 shift left by 4 and add unsigned 32-bit";
 }
 
-//===----------------------------------------------------------------------===//
-// Scalar pack operations
-//===----------------------------------------------------------------------===//
-
-def SPackLlB32B16 : SOP2Inst<"s_pack_ll_b32_b16", [CDNA3, CDNA4]> {
-  let summary = "SOP2 pack two low 16-bit values into 32-bit";
-}
-
-def SPackLhB32B16 : SOP2Inst<"s_pack_lh_b32_b16", [CDNA3, CDNA4]> {
-  let summary = "SOP2 pack low and high 16-bit values into 32-bit";
-}
-
-def SPackHhB32B16 : SOP2Inst<"s_pack_hh_b32_b16", [CDNA3, CDNA4]> {
-  let summary = "SOP2 pack two high 16-bit values into 32-bit";
-}
 
 #endif // AMDGCN_INST_SOP2_TD

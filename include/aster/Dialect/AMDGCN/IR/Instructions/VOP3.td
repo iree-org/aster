@@ -73,30 +73,6 @@ class VOP3Inst<string _mnemonic, list<ISAVersion> _isa>
 }
 
 //===----------------------------------------------------------------------===//
-// Conditional and mask operations
-//===----------------------------------------------------------------------===//
-
-def VCndmaskB32E64 : VOP3Inst<"v_cndmask_b32_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 conditional mask";
-  let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1, $src2">];
-  let constraints = (ins
-    /*outs=*/NotPresent:$dst1,
-    /*ins=*/ Present:$src2
-  );
-  // Default builders.
-  let cppBuilder = OpBuilder<(ins
-    CppValue:$vdst, CppValue:$src0, CppValue:$src1, CppValue:$src2), [{
-      return $_create($_builder, $_loc, $_opcode, vdst, nullptr, src0, src1, src2);
-    }]
-  >;
-  let pythonBuilder = OpBuilder<(ins
-    PyValue:$vdst, PyValue:$src0, PyValue:$src1, PyValue:$src2), [{
-      return $_create(opcode=$_opcode, vdst0=vdst, dst1=None, src0=src0, src1=src1, src2=src2, $_lastArgs)
-    }]
-  >;
-}
-
-//===----------------------------------------------------------------------===//
 // Floating-point arithmetic operations
 //===----------------------------------------------------------------------===//
 
@@ -106,15 +82,6 @@ def VAddF32E64 : VOP3Inst<"v_add_f32_e64", [CDNA3, CDNA4]> {
 
 def VSubF32E64 : VOP3Inst<"v_sub_f32_e64", [CDNA3, CDNA4]> {
   let summary = "VOP3 subtract 32-bit floating point values";
-}
-
-def VSubrevF32E64 : VOP3Inst<"v_subrev_f32_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 reverse subtract 32-bit floating point values";
-}
-
-def VFmacF64E64 : VOP3Inst<"v_fmac_f64_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 fused multiply-add 64-bit floating point";
-  let constraints = VOP3Constraints</*words=*/2, /*dst1_w=*/0, /*src2_w=*/0>.constraints;
 }
 
 def VMulF32E64 : VOP3Inst<"v_mul_f32_e64", [CDNA3, CDNA4]> {
@@ -149,22 +116,6 @@ def VMulF16E64 : VOP3Inst<"v_mul_f16_e64", [CDNA3, CDNA4]> {
   let summary = "VOP3 multiply 16-bit floating point values";
 }
 
-def VMacF16E64 : VOP3Inst<"v_mac_f16_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 multiply-accumulate 16-bit floating point";
-}
-
-def VMaxF16E64 : VOP3Inst<"v_max_f16_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 maximum of two 16-bit floating point values";
-}
-
-def VMinF16E64 : VOP3Inst<"v_min_f16_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 minimum of two 16-bit floating point values";
-}
-
-def VLdexpF16E64 : VOP3Inst<"v_ldexp_f16_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 ldexp 16-bit floating point";
-}
-
 //===----------------------------------------------------------------------===//
 // 16-bit integer arithmetic operations
 //===----------------------------------------------------------------------===//
@@ -175,10 +126,6 @@ def VAddU16E64 : VOP3Inst<"v_add_u16_e64", [CDNA3, CDNA4]> {
 
 def VSubU16E64 : VOP3Inst<"v_sub_u16_e64", [CDNA3, CDNA4]> {
   let summary = "VOP3 subtract unsigned 16-bit integers";
-}
-
-def VSubrevU16E64 : VOP3Inst<"v_subrev_u16_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 reverse subtract unsigned 16-bit integers";
 }
 
 def VMulLoU16E64 : VOP3Inst<"v_mul_lo_u16_e64", [CDNA3, CDNA4]> {
@@ -199,46 +146,6 @@ def VLshrrevB16E64 : VOP3Inst<"v_lshrrev_b16_e64", [CDNA3, CDNA4]> {
 
 def VAshrrevI16E64 : VOP3Inst<"v_ashrrev_i16_e64", [CDNA3, CDNA4]> {
   let summary = "VOP3 arithmetic shift right reverse 16-bit";
-}
-
-//===----------------------------------------------------------------------===//
-// 16-bit integer min/max operations
-//===----------------------------------------------------------------------===//
-
-def VMaxU16E64 : VOP3Inst<"v_max_u16_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 maximum of two unsigned 16-bit integers";
-}
-
-def VMaxI16E64 : VOP3Inst<"v_max_i16_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 maximum of two signed 16-bit integers";
-}
-
-def VMinU16E64 : VOP3Inst<"v_min_u16_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 minimum of two unsigned 16-bit integers";
-}
-
-def VMinI16E64 : VOP3Inst<"v_min_i16_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 minimum of two signed 16-bit integers";
-}
-
-//===----------------------------------------------------------------------===//
-// Integer min/max operations
-//===----------------------------------------------------------------------===//
-
-def VMinI32E64 : VOP3Inst<"v_min_i32_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 minimum of two signed 32-bit integers";
-}
-
-def VMaxI32E64 : VOP3Inst<"v_max_i32_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 maximum of two signed 32-bit integers";
-}
-
-def VMinU32E64 : VOP3Inst<"v_min_u32_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 minimum of two unsigned 32-bit integers";
-}
-
-def VMaxU32E64 : VOP3Inst<"v_max_u32_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 maximum of two unsigned 32-bit integers";
 }
 
 //===----------------------------------------------------------------------===//
@@ -312,74 +219,6 @@ def VMadU64U32 : VOP3Inst<"v_mad_u64_u32", [CDNA3, CDNA4]> {
       return $_create(opcode=$_opcode, vdst0=vdst, dst1=dst1, src0=src0, src1=src1, src2=src2, $_lastArgs)
     }]
   >;
-}
-
-def VMadI64I32 : VOP3Inst<"v_mad_i64_i32", [CDNA3, CDNA4]> {
-  let summary = "VOP3 multiply-add signed 32-bit to 64-bit with carry";
-  let asmFormat = [SingleAsmVariant<"$vdst0, $dst1, $src0, $src1, $src2">];
-  let constraints = VMad64Constraint;
-  let cppBuilder = OpBuilder<(ins
-    CppValue:$vdst, CppValue:$dst1, CppValue:$src0, CppValue:$src1, CppValue:$src2), [{
-      return $_create($_builder, $_loc, $_opcode, vdst, dst1, src0, src1, src2);
-    }]
-  >;
-  let pythonBuilder = OpBuilder<(ins
-    PyValue:$vdst, PyValue:$dst1, PyValue:$src0, PyValue:$src1, PyValue:$src2), [{
-      return $_create(opcode=$_opcode, vdst0=vdst, dst1=dst1, src0=src0, src1=src1, src2=src2, $_lastArgs)
-    }]
-  >;
-}
-
-def VMadU32U16 : VOP3Inst<"v_mad_u32_u16", [CDNA3, CDNA4]> {
-  let summary = "VOP3 multiply-add unsigned 16-bit to 32-bit";
-  let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1, $src2">];
-  let constraints = (ins
-    /*outs=*/NotPresent:$dst1,
-    /*ins=*/ Present:$src2
-  );
-  let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/0, /*src2_w=*/1>.constraints;
-  let cppBuilder = OpBuilder<(ins
-    CppValue:$vdst, CppValue:$src0, CppValue:$src1, CppValue:$src2), [{
-      return $_create($_builder, $_loc, $_opcode, vdst, nullptr, src0, src1, src2);
-    }]
-  >;
-  let pythonBuilder = OpBuilder<(ins
-    PyValue:$vdst, PyValue:$src0, PyValue:$src1, PyValue:$src2), [{
-      return $_create(opcode=$_opcode, vdst0=vdst, dst1=None, src0=src0, src1=src1, src2=src2, $_lastArgs)
-    }]
-  >;
-}
-
-def VMadI32I16 : VOP3Inst<"v_mad_i32_i16", [CDNA3, CDNA4]> {
-  let summary = "VOP3 multiply-add signed 16-bit to 32-bit";
-  let asmFormat = [SingleAsmVariant<"$vdst0, $src0, $src1, $src2">];
-  let constraints = VOP3Constraints</*words=*/1, /*dst1_w=*/0, /*src2_w=*/1>.constraints;
-  let cppBuilder = OpBuilder<(ins
-    CppValue:$vdst, CppValue:$src0, CppValue:$src1, CppValue:$src2), [{
-      return $_create($_builder, $_loc, $_opcode, vdst, nullptr, src0, src1, src2);
-    }]
-  >;
-  let pythonBuilder = OpBuilder<(ins
-    PyValue:$vdst, PyValue:$src0, PyValue:$src1, PyValue:$src2), [{
-      return $_create(opcode=$_opcode, vdst0=vdst, dst1=None, src0=src0, src1=src1, src2=src2, $_lastArgs)
-    }]
-  >;
-}
-
-def VMulI32I24E64 : VOP3Inst<"v_mul_i32_i24_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 multiply signed 24-bit integers";
-}
-
-def VMulHiI32I24E64 : VOP3Inst<"v_mul_hi_i32_i24_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 multiply signed 24-bit integers (high 32 bits)";
-}
-
-def VMulU32U24E64 : VOP3Inst<"v_mul_u32_u24_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 multiply unsigned 24-bit integers";
-}
-
-def VMulHiU32U24E64 : VOP3Inst<"v_mul_hi_u32_u24_e64", [CDNA3, CDNA4]> {
-  let summary = "VOP3 multiply unsigned 24-bit integers (high 32 bits)";
 }
 
 def VMulLoU32 : VOP3Inst<"v_mul_lo_u32", [CDNA3, CDNA4]> {

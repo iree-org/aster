@@ -283,40 +283,5 @@ def VCmpEqI32E64 : VOPCE64CmpIInst<"v_cmp_eq_i32_e64", [CDNA3, CDNA4, RDNA4]> {
   let summary = "VOPC compare equal (signed 32-bit) E64";
 }
 
-def VCmpNeI32E64 : VOPCE64CmpIInst<"v_cmp_ne_i32_e64", [CDNA3, CDNA4, RDNA4]> {
-  let summary = "VOPC compare not equal (signed 32-bit) E64";
-}
-
-def VCmpLtI32E64 : VOPCE64CmpIInst<"v_cmp_lt_i32_e64", [CDNA3, CDNA4, RDNA4]> {
-  let summary = "VOPC compare less than (signed 32-bit) E64";
-}
-
-def VCmpLeI32E64 : VOPCE64CmpIInst<"v_cmp_le_i32_e64", [CDNA3, CDNA4, RDNA4]> {
-  let summary = "VOPC compare less than or equal (signed 32-bit) E64";
-}
-
-def VCmpGtI32E64 : VOPCE64CmpIInst<"v_cmp_gt_i32_e64", [CDNA3, CDNA4, RDNA4]> {
-  let summary = "VOPC compare greater than (signed 32-bit) E64";
-}
-
-def VCmpGeI32E64 : VOPCE64CmpIInst<"v_cmp_ge_i32_e64", [CDNA3, CDNA4, RDNA4]> {
-  let summary = "VOPC compare greater than or equal (signed 32-bit) E64";
-}
-
-def VCmpLtU32E64 : VOPCE64CmpIInst<"v_cmp_lt_u32_e64", [CDNA3, CDNA4, RDNA4]> {
-  let summary = "VOPC compare less than (unsigned 32-bit) E64";
-}
-
-def VCmpLeU32E64 : VOPCE64CmpIInst<"v_cmp_le_u32_e64", [CDNA3, CDNA4, RDNA4]> {
-  let summary = "VOPC compare less than or equal (unsigned 32-bit) E64";
-}
-
-def VCmpGtU32E64 : VOPCE64CmpIInst<"v_cmp_gt_u32_e64", [CDNA3, CDNA4, RDNA4]> {
-  let summary = "VOPC compare greater than (unsigned 32-bit) E64";
-}
-
-def VCmpGeU32E64 : VOPCE64CmpIInst<"v_cmp_ge_u32_e64", [CDNA3, CDNA4, RDNA4]> {
-  let summary = "VOPC compare greater than or equal (unsigned 32-bit) E64";
-}
 
 #endif // AMDGCN_INST_COMPARISON_TD
