@@ -7,7 +7,7 @@
 // CHECK:     cf.cond_br %{{.*}}, ^bb1(%{{.*}} : !amdgcn.sgpr), ^bb2
 // CHECK:   ^bb2:
 
-amdgcn.module @test target = <gfx942> isa = <cdna3> {
+amdgcn.module @test target = <gfx942> {
   func.func @loop_func(%arg0: i32, %n: i32) {
     %c0 = arith.constant 0 : i32
     %c1 = arith.constant 1 : i32

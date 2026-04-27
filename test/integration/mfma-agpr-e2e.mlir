@@ -37,7 +37,7 @@
 
 // ASM: .agpr_count: 4
 
-amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
 
   // From register-init.mlir (resolved by --amdgcn-preload-library)
   func.func private @alloc_vgpr() -> !amdgcn.vgpr

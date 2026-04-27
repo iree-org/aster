@@ -21,7 +21,7 @@
 
 // ASM-LABEL: compute_kernel:
 //       ASM:   s_load_dwordx2 s[2:3], s[0:1], 0
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
 
   // From register-init.mlir (resolved by --amdgcn-preload-library)
   func.func private @alloc_vgprx2() -> (!amdgcn.vgpr<[? + 2]>)

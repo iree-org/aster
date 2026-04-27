@@ -10,7 +10,7 @@
 // CHECK:  Symbol: simple_range
 // CHECK:  Range constraints:
 // CHECK:    Constraint 0: range_constraint<alignment = 2, allocations = [0 = `%{{.*}}`, 1 = `%{{.*}}`]>
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @simple_range {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -30,7 +30,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  results: [1 = `%{{.*}}`]
 // CHECK:  Symbol: no_ranges
 // CHECK:  No range constraints
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @no_ranges {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -59,7 +59,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  Range constraints:
 // CHECK:    Constraint 0: range_constraint<alignment = 2, allocations = [0 = `%{{.*}}`, 1 = `%{{.*}}`]>
 // CHECK:    Constraint 1: range_constraint<alignment = 2, allocations = [2 = `%{{.*}}`, 3 = `%{{.*}}`]>
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @disjoint_ranges {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -92,7 +92,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  Symbol: subset_range
 // CHECK:  Range constraints:
 // CHECK:    Constraint 0: range_constraint<alignment = 4, allocations = [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]>
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @subset_range {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -130,7 +130,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  Range constraints:
 // CHECK:    Constraint 0: range_constraint<alignment = 2, allocations = [1 = `%{{.*}}`, 2 = `%{{.*}}`]>
 // CHECK:    Constraint 1: range_constraint<alignment = 2, allocations = [3 = `%{{.*}}`, 4 = `%{{.*}}`]>
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   func.func private @rand() -> i1
   kernel @cf_disjoint_branch_ranges {
     %0 = func.call @rand() : () -> i1
@@ -160,7 +160,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL:  SSA map
 // CHECK:  Symbol: empty_kernel
 // CHECK:  No range constraints
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @empty_kernel {
     end_kernel
   }
@@ -181,7 +181,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  Symbol: large_range
 // CHECK:  Range constraints:
 // CHECK:    Constraint 0: range_constraint<alignment = 4, allocations = [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`, 3 = `%{{.*}}`]>
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @large_range {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -208,7 +208,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  Symbol: same_range_twice
 // CHECK:  Range constraints:
 // CHECK:    Constraint 0: range_constraint<alignment = 2, allocations = [0 = `%{{.*}}`, 1 = `%{{.*}}`]>
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @same_range_twice {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -232,7 +232,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  Symbol: sgpr_range
 // CHECK:  Range constraints:
 // CHECK:    Constraint 0: range_constraint<alignment = 2, allocations = [0 = `%{{.*}}`, 1 = `%{{.*}}`]>
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @sgpr_range {
     %0 = alloca : !amdgcn.sgpr<?>
     %1 = alloca : !amdgcn.sgpr<?>
@@ -270,7 +270,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  results: [10 = `%{{.*}}`]
 // CHECK:  Symbol: phi_coalescing_2
 // CHECK:  No range constraints
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @phi_coalescing_2 {
     %c0_i32 = arith.constant 0 : i32
     %0 = alloca : !amdgcn.vgpr<?>
@@ -320,7 +320,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 // CHECK:  results: [6 = `%{{.*}}`]
 // CHECK:  Symbol: phi_coalescing_3
 // CHECK:  No range constraints
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @phi_coalescing_3 {
     %c0_i32 = arith.constant 0 : i32
     %0 = alloca : !amdgcn.vgpr<?>
@@ -346,7 +346,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 
 // -----
 
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   // expected-error@+1 {{Failed to run range constraint analysis}}
   amdgcn.kernel @overlapping_ranges {
     %0 = alloca : !amdgcn.vgpr
@@ -365,7 +365,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 
 // -----
 
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   // expected-error@+1 {{Failed to run range constraint analysis}}
   amdgcn.kernel @alignment_conflict {
     %0 = alloca : !amdgcn.vgpr
@@ -391,7 +391,7 @@ amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
 //CHECK: Range constraints:
 //CHECK:   Constraint 0: range_constraint<alignment = 4, allocations = [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`, 3 = `%{{.*}}`]>
 //CHECK:   Constraint 1: range_constraint<alignment = 2, allocations = [4 = `%{{.*}}`, 5 = `%{{.*}}`]>
-amdgcn.module @range_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @range_tests target = <gfx942> {
   kernel @constraintrs_descending_order {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>

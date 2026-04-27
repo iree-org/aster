@@ -9,13 +9,13 @@ from aster.compiler.core import translate_module, assemble_to_hsaco
 from aster.dialects import amdgcn
 
 TARGET_CONFIGS = [
-    ("gfx942", "cdna3"),
-    ("gfx950", "cdna4"),
-    ("gfx1201", "rdna4"),
+    "gfx942",
+    "gfx950",
+    "gfx1201",
 ]
 
 
-def _build_module_ir(target, isa):
+def _build_module_ir(target):
     """Return MLIR source for a kernel that uses instructions available on all ISAs.
 
     Uses s_mov_b32 (scalar move, all ISAs) and alloca/end_kernel
@@ -23,7 +23,7 @@ def _build_module_ir(target, isa):
     non-trivial instruction sequence.
     """
     return f"""\
-amdgcn.module @test_module target = #amdgcn.target<{target}> isa = #amdgcn.isa<{isa}> {{
+amdgcn.module @test_module target = #amdgcn.target<{target}> {{
   amdgcn.kernel @test_kernel {{
     %s0 = amdgcn.alloca : !amdgcn.sgpr<4>
     %s1 = amdgcn.alloca : !amdgcn.sgpr<5>
@@ -49,14 +49,12 @@ def _run_pipeline(module, ctx):
     return translate_module(amdgcn_mod)
 
 
-@pytest.mark.parametrize(
-    "target,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS]
-)
-def test_translate_to_asm(target, isa):
+@pytest.mark.parametrize("target", TARGET_CONFIGS)
+def test_translate_to_asm(target):
     """Test MLIR -> regalloc -> ASM translation for each target."""
     with ir.Context(), ir.Location.unknown():
         ctx = ir.Context.current
-        module = ir.Module.parse(_build_module_ir(target, isa))
+        module = ir.Module.parse(_build_module_ir(target))
         asm = _run_pipeline(module, ctx)
 
         assert f"amdgcn-amd-amdhsa--{target}" in asm
@@ -65,14 +63,12 @@ def test_translate_to_asm(target, isa):
         assert ".amdhsa_kernel test_kernel" in asm
 
 
-@pytest.mark.parametrize(
-    "target,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS]
-)
-def test_assemble_to_hsaco(target, isa):
+@pytest.mark.parametrize("target", TARGET_CONFIGS)
+def test_assemble_to_hsaco(target):
     """Test MLIR -> regalloc -> ASM -> HSACO assembly for each target."""
     with ir.Context(), ir.Location.unknown():
         ctx = ir.Context.current
-        module = ir.Module.parse(_build_module_ir(target, isa))
+        module = ir.Module.parse(_build_module_ir(target))
         asm = _run_pipeline(module, ctx)
 
         hsaco_path = assemble_to_hsaco(asm, target=target)
@@ -90,9 +86,9 @@ def test_assemble_to_hsaco(target, isa):
 
 
 if __name__ == "__main__":
-    test_translate_to_asm("gfx942", "cdna3")
-    test_translate_to_asm("gfx950", "cdna4")
-    test_translate_to_asm("gfx1201", "rdna4")
-    test_assemble_to_hsaco("gfx942", "cdna3")
-    test_assemble_to_hsaco("gfx950", "cdna4")
-    test_assemble_to_hsaco("gfx1201", "rdna4")
+    test_translate_to_asm("gfx942")
+    test_translate_to_asm("gfx950")
+    test_translate_to_asm("gfx1201")
+    test_assemble_to_hsaco("gfx942")
+    test_assemble_to_hsaco("gfx950")
+    test_assemble_to_hsaco("gfx1201")

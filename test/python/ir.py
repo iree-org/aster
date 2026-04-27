@@ -6,10 +6,10 @@ from aster.dialects import builtin, amdgcn as a_d
 with ir.Context() as ctx, ir.Location.unknown() as loc:
     m = builtin.ModuleOp()
     with ir.InsertionPoint(m.body):
-        modOp = a_d.ModuleOp(a_d.Target.GFX942, a_d.ISAVersion.CDNA3, "module")
+        modOp = a_d.ModuleOp(a_d.Target.GFX942, "module")
         modOp.body_region.blocks.append()
     print(str(m))
-    # CHECK-LABEL: amdgcn.module @module target = <gfx942> isa = <cdna3>
+    # CHECK-LABEL: amdgcn.module @module target = <gfx942>
 
     # Test register types: VGPR, SGPR, AGPR
     # CHECK: vgpr<0>

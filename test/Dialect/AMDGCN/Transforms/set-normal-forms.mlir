@@ -17,7 +17,7 @@
 // BOTH:       kernel @k
 // BOTH-SAME:  normal_forms = [#amdgcn.no_scf_ops, #amdgcn.no_cf_branches]
 
-amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test target = #amdgcn.target<gfx942> {
   amdgcn.kernel @k {
   ^bb0:
     amdgcn.end_kernel

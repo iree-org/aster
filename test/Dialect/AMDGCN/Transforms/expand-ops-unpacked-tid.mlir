@@ -6,7 +6,7 @@
 // This path is selected by force-unpacked-tid=true or by targeting an ISA
 // without FeaturePackedTID.
 
-amdgcn.module @unpacked_tid_test target = <gfx942> isa = <cdna3> {
+amdgcn.module @unpacked_tid_test target = <gfx942> {
 
 // Thread X only (unpacked): X comes directly from VGPR0.
 // Same as packed when only X is used (no masking needed in either case).

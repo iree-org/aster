@@ -5,7 +5,7 @@
 !vx2 = !amdgcn.vgpr<[? + 2]>
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
-amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
   // From copies.mlir
   func.func private @lds_read_swizzled_wave_16x16_f16_fragment_wait(
     !lds_position_descriptor_2d) -> !vx2

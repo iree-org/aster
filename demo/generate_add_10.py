@@ -9,7 +9,7 @@ from aster.dialects.kernel_builder import KernelBuilder
 
 def build_add_10_module(ctx: ir.Context, num_add_instructions: int) -> ir.Module:
     """Build the add_10 kernel module programmatically."""
-    b = KernelBuilder("add_10_module", "kernel", target="gfx942", isa="cdna3")
+    b = KernelBuilder("add_10_module", "kernel", target="gfx942")
 
     # Allocate VGPRs
     res = b.alloca_vgpr()

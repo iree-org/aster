@@ -6,7 +6,7 @@
 !lds_position_descriptor_2level_2d = !aster_utils.struct<lds_base: index, mm_pos: index, nn_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !return_value_descriptor_1d_vx2 = !aster_utils.struct<memref: memref<?x!vx2>, offset: index>
 
-amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
   // From multi-tile-copies.mlir
   func.func private @lds_write_wave_multi_tile_256_f16_via_dwordx2_wait(
     !lds_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2)

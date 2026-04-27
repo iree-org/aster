@@ -5,7 +5,7 @@
 // workitem_id_mode) is only modified when the corresponding ops are present,
 // so the second run (with all ops already expanded) preserves everything.
 
-amdgcn.module @idempotent_test target = <gfx942> isa = <cdna3> {
+amdgcn.module @idempotent_test target = <gfx942> {
 
 // block_id x + y + z: workgroup_id enables must survive second run.
 // CHECK-LABEL: kernel @bid_xyz

@@ -17,7 +17,7 @@
 // CHECK-NEXT: s_wakeup
 // CHECK: s_endpgm
 
-amdgcn.module @test_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_setprio_asm arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>
   ]> attributes {block_dims = array<i32: 64, 1, 1>} {

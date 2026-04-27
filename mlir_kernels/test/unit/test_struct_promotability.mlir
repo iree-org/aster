@@ -11,7 +11,7 @@
 !future_global_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 
 // CHECK-LABEL: amdgcn.module @test_struct_promotability
-amdgcn.module @test_struct_promotability target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_struct_promotability target = #amdgcn.target<gfx942> {
   // From copies.mlir - function that returns a future
   func.func private @load_from_global_dwordx2_future(!tensor_position_descriptor_2d) -> !future_global_read_any
 

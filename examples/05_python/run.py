@@ -33,7 +33,7 @@ opts = parse_args()
 
 def build_add42():
     """Out[tid] = in[tid] + 42 -- same as 04_regalloc/kernel.mlir."""
-    b = KernelBuilder("add42", KERNEL, target="gfx942", isa="cdna3")
+    b = KernelBuilder("add42", KERNEL, target="gfx942")
 
     b.add_ptr_arg(AccessKind.ReadOnly)  # in
     b.add_ptr_arg(AccessKind.WriteOnly)  # out

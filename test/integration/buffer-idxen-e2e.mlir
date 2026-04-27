@@ -43,7 +43,7 @@
 //       ASM:   buffer_load_dword{{.*}}idxen
 //       ASM:   buffer_store_dword{{.*}}idxen
 //       ASM:   s_endpgm
-amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> {
 
   // Load kernel args: three pointers, then dereference params to get scalars.
   func.func private @load_kernargs()

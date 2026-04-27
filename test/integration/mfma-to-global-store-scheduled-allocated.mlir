@@ -27,7 +27,7 @@
 //  CHECK-NEXT:   global_store_dwordx4 {{.*}}, [[AC3]], off
 //  CHECK-NEXT:   s_endpgm
 
-amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @kernel_module target = #amdgcn.target<gfx942> {
   // Function taking indices and memrefs of register ranges
   func.func private @simple_mfma(
     %m: index,

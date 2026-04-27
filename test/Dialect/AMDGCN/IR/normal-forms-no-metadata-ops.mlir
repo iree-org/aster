@@ -5,7 +5,7 @@
 
 // CHECK: kernel @k
 // CHECK-SAME: attributes {normal_forms = [#amdgcn.no_metadata_ops]}
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @k attributes {normal_forms = [#amdgcn.no_metadata_ops]} {
   ^bb0:
     %0 = amdgcn.alloca : !amdgcn.vgpr<3>

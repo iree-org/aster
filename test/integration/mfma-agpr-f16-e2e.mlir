@@ -36,7 +36,7 @@
 
 // CHECK: .agpr_count:
 
-amdgcn.module @mfma_agpr_f16_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mfma_agpr_f16_mod target = #amdgcn.target<gfx942> {
 
   func.func private @alloc_vgpr() -> !amdgcn.vgpr
   func.func private @init_vgprx2(%cst: i32) -> (!amdgcn.vgpr<[? + 2]>)

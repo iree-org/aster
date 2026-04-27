@@ -68,7 +68,7 @@
 //       ASM:   v_cvt_pk_bf8_f32
 //       ASM:   s_endpgm
 
-amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
 
   func.func private @load_two_ptrs()
       -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>) {

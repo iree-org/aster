@@ -1,7 +1,7 @@
 // RUN: aster-opt %s --split-input-file --verify-diagnostics
 
 // Violation: lsir.to_reg inside module with no_lsir_ops.
-amdgcn.module @has_lsir target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> attributes {normal_forms = [#amdgcn.no_lsir_ops]} {
+amdgcn.module @has_lsir target = #amdgcn.target<gfx942> attributes {normal_forms = [#amdgcn.no_lsir_ops]} {
   amdgcn.kernel @k {
   ^bb0:
     %c = arith.constant 42 : i32
@@ -14,7 +14,7 @@ amdgcn.module @has_lsir target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3>
 // -----
 
 // Violation: lsir.to_reg inside kernel with no_lsir_ops.
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @k attributes {normal_forms = [#amdgcn.no_lsir_ops]} {
   ^bb0:
     %c = arith.constant 42 : i32

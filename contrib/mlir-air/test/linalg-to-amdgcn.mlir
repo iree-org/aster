@@ -106,7 +106,7 @@ module attributes {transform.with_named_sequence} {
     func.func private @fill_f16_16x32(%val: f16, %lds_dst: index) { return }
   }
 
-  amdgcn.module @matmul_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  amdgcn.module @matmul_mod target = #amdgcn.target<gfx942> {
     func.func @matmul_f16_32x32(
         %A: memref<32x32xf16, #amdgcn.addr_space<global, read_write>>,
         %B: memref<32x32xf16, #amdgcn.addr_space<global, read_write>>,

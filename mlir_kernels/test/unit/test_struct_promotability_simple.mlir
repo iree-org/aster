@@ -8,7 +8,7 @@
 !index_pair = !aster_utils.struct<i: index, j: index>
 
 // CHECK-LABEL: amdgcn.module @test_struct_promotability_simple
-amdgcn.module @test_struct_promotability_simple target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_struct_promotability_simple target = #amdgcn.target<gfx942> {
   // Test kernel that stores and loads a simple struct from memref
   // SROA and Mem2Reg should eliminate the memref operations
   // CHECK-LABEL: amdgcn.kernel @test_store_load_struct

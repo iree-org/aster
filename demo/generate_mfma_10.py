@@ -9,7 +9,7 @@ from aster.dialects.kernel_builder import KernelBuilder
 
 def build_mfma_10_module(ctx: ir.Context, num_mfma_instructions: int) -> ir.Module:
     """Build the mfma_10 kernel module programmatically."""
-    b = KernelBuilder("mfma_10_module", "kernel", target="gfx942", isa="cdna3")
+    b = KernelBuilder("mfma_10_module", "kernel", target="gfx942")
 
     for _ in range(num_mfma_instructions):
         a = b.alloc_vgprx2()

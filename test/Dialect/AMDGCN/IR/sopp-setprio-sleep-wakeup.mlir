@@ -3,7 +3,7 @@
 // Roundtrip test for s_setprio, s_sleep, s_wakeup instructions.
 
 // CHECK-LABEL: amdgcn.module @setprio_test
-amdgcn.module @setprio_test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @setprio_test target = #amdgcn.target<gfx942> {
   // CHECK: kernel @test_setprio_sleep_wakeup
   amdgcn.kernel @test_setprio_sleep_wakeup arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>

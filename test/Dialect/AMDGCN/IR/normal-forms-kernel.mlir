@@ -5,7 +5,7 @@
 
 // CHECK: kernel @with_nf
 // CHECK-SAME: attributes {normal_forms = [#amdgcn.no_value_semantic_registers]}
-amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test target = #amdgcn.target<gfx942> {
   amdgcn.kernel @with_nf attributes {normal_forms = [#amdgcn.no_value_semantic_registers]} {
   ^bb0:
     %0 = amdgcn.alloca : !amdgcn.vgpr<?>

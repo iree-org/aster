@@ -8,7 +8,7 @@
 // CHECK:         test_inst ins %[[V0]], %[[V1]]
 // CHECK-NOT:     alloca : !amdgcn.vgpr{{$}}
 // CHECK-NOT:     amdgcn.wait
-amdgcn.module @test_two_vgpr target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_two_vgpr target = <gfx942> {
   amdgcn.kernel @two_vgpr_alloc {
     %a = amdgcn.alloca : !amdgcn.vgpr
     %b = amdgcn.alloca : !amdgcn.vgpr
@@ -34,7 +34,7 @@ amdgcn.module @test_two_vgpr target = <gfx942> isa = <cdna3> {
 // CHECK-NOT:     amdgcn.wait
 // CHECK-NOT:     alloca : !amdgcn.vgpr{{$}}
 // CHECK-NOT:     load_arg
-amdgcn.module @test_load_store target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_load_store target = <gfx942> {
   amdgcn.kernel @load_then_store arguments <[
       #amdgcn.buffer_arg<address_space = generic, access = read_only>,
       #amdgcn.buffer_arg<address_space = generic>

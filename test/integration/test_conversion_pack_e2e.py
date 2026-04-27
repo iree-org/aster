@@ -16,8 +16,8 @@ from aster.execution.helpers import compile_and_run
 from aster.test_pass_pipelines import TEST_SROA_PASS_PIPELINE
 
 TARGET_CONFIGS = [
-    ("gfx942", "cdna3"),
-    ("gfx950", "cdna4"),
+    "gfx942",
+    "gfx950",
 ]
 
 WAVEFRONT_SIZE = 64
@@ -25,18 +25,16 @@ TOTAL_LANES = 64
 MLIR_FILE = "conversion-pack-e2e.mlir"
 
 
-def _retarget(target, isa):
-    """Return a preprocess function that rewrites the MLIR target and ISA."""
+def _retarget(target):
+    """Return a preprocess function that rewrites the MLIR target."""
 
     def preprocess(mlir_src):
-        s = re.sub(r"#amdgcn\.target<\w+>", f"#amdgcn.target<{target}>", mlir_src)
-        s = re.sub(r"#amdgcn\.isa<\w+>", f"#amdgcn.isa<{isa}>", s)
-        return s
+        return re.sub(r"#amdgcn\.target<\w+>", f"#amdgcn.target<{target}>", mlir_src)
 
     return preprocess
 
 
-def _run(mcpu, isa, kernel_name, input_data, output_data, verify_fn):
+def _run(mcpu, kernel_name, input_data, output_data, verify_fn):
     compile_and_run(
         MLIR_FILE,
         kernel_name,
@@ -48,7 +46,7 @@ def _run(mcpu, isa, kernel_name, input_data, output_data, verify_fn):
         block_dim=(TOTAL_LANES, 1, 1),
         verify_fn=verify_fn,
         library_paths=[],
-        preprocess=_retarget(mcpu, isa),
+        preprocess=_retarget(mcpu),
     )
 
 
@@ -87,7 +85,7 @@ def bits_to_f32(bits):
 # BF8 E5M2: 1 sign + 5 exp + 2 mantissa, bias=15 (OCP) or 16 (FNUZ)
 # ---------------------------------------------------------------------------
 
-_ISA_IS_FNUZ = {"cdna3": True, "cdna4": False}
+_TARGET_IS_FNUZ = {"gfx940": True, "gfx942": True, "gfx950": False, "gfx1201": False}
 
 
 def f32_to_fp8_e4m3(val, fnuz=True):
@@ -255,11 +253,11 @@ def f32_to_bf8_e5m2(val, fnuz=True):
 # ===========================================================================
 
 
-@pytest.mark.parametrize("mcpu,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS])
+@pytest.mark.parametrize("mcpu", TARGET_CONFIGS)
 class TestCvtF32F16:
     """v_cvt_f32_f16: read f16 bits from low 16 of dword, produce f32."""
 
-    def test_basic_values(self, mcpu, isa):
+    def test_basic_values(self, mcpu):
         # Store f16 bit patterns in the low 16 bits of each dword.
         # Values: 0.0, 1.0, -1.0, 0.5, 65504.0 (max f16), tiny subnormal
         test_f32_vals = [0.0, 1.0, -1.0, 0.5, 65504.0, 5.96046448e-08]
@@ -281,14 +279,14 @@ class TestCvtF32F16:
                     f"lane {i}: expected {expected}, got {result_f32[i]}"
                 )
 
-        _run(mcpu, isa, "cvt_f32_f16_kernel", [src], [dst], verify)
+        _run(mcpu, "cvt_f32_f16_kernel", [src], [dst], verify)
 
 
-@pytest.mark.parametrize("mcpu,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS])
+@pytest.mark.parametrize("mcpu", TARGET_CONFIGS)
 class TestCvtF16F32:
     """v_cvt_f16_f32: read f32, produce f16 bits in low 16 of dword."""
 
-    def test_basic_values(self, mcpu, isa):
+    def test_basic_values(self, mcpu):
         test_vals = [0.0, 1.0, -1.0, 0.5, 65504.0, 0.333251953125]
         src = np.zeros(TOTAL_LANES, dtype=np.float32)
         for i, v in enumerate(test_vals):
@@ -310,14 +308,14 @@ class TestCvtF16F32:
                     f"got 0x{actual_low16:04X}"
                 )
 
-        _run(mcpu, isa, "cvt_f16_f32_kernel", [src.view(np.int32)], [dst], verify)
+        _run(mcpu, "cvt_f16_f32_kernel", [src.view(np.int32)], [dst], verify)
 
 
-@pytest.mark.parametrize("mcpu,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS])
+@pytest.mark.parametrize("mcpu", TARGET_CONFIGS)
 class TestCvtF32U32:
     """v_cvt_f32_u32: unsigned int -> f32."""
 
-    def test_basic_values(self, mcpu, isa):
+    def test_basic_values(self, mcpu):
         src = np.zeros(TOTAL_LANES, dtype=np.uint32)
         for i in range(TOTAL_LANES):
             src[i] = i * 1000  # 0, 1000, 2000, ...
@@ -338,14 +336,14 @@ class TestCvtF32U32:
                     f"got {result_f32[i]}"
                 )
 
-        _run(mcpu, isa, "cvt_f32_u32_kernel", [src.view(np.int32)], [dst], verify)
+        _run(mcpu, "cvt_f32_u32_kernel", [src.view(np.int32)], [dst], verify)
 
 
-@pytest.mark.parametrize("mcpu,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS])
+@pytest.mark.parametrize("mcpu", TARGET_CONFIGS)
 class TestCvtF32I32:
     """v_cvt_f32_i32: signed int -> f32."""
 
-    def test_basic_values(self, mcpu, isa):
+    def test_basic_values(self, mcpu):
         src = np.zeros(TOTAL_LANES, dtype=np.int32)
         for i in range(TOTAL_LANES):
             src[i] = i * 100 - 3200  # -3200, -3100, ..., 3100
@@ -367,14 +365,14 @@ class TestCvtF32I32:
                     f"got {result_f32[i]}"
                 )
 
-        _run(mcpu, isa, "cvt_f32_i32_kernel", [src], [dst], verify)
+        _run(mcpu, "cvt_f32_i32_kernel", [src], [dst], verify)
 
 
-@pytest.mark.parametrize("mcpu,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS])
+@pytest.mark.parametrize("mcpu", TARGET_CONFIGS)
 class TestCvtU32F32:
     """v_cvt_u32_f32: f32 -> unsigned int (truncate toward zero, clamp to [0, 2^32-1])."""
 
-    def test_basic_values(self, mcpu, isa):
+    def test_basic_values(self, mcpu):
         src = np.zeros(TOTAL_LANES, dtype=np.float32)
         for i in range(TOTAL_LANES):
             src[i] = float(i * 1000)
@@ -402,14 +400,14 @@ class TestCvtU32F32:
                     f"lane {i}: f32={val}, expected u32={expected}, got {result_u32[i]}"
                 )
 
-        _run(mcpu, isa, "cvt_u32_f32_kernel", [src.view(np.int32)], [dst], verify)
+        _run(mcpu, "cvt_u32_f32_kernel", [src.view(np.int32)], [dst], verify)
 
 
-@pytest.mark.parametrize("mcpu,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS])
+@pytest.mark.parametrize("mcpu", TARGET_CONFIGS)
 class TestCvtI32F32:
     """v_cvt_i32_f32: f32 -> signed int (truncate toward zero, clamp)."""
 
-    def test_basic_values(self, mcpu, isa):
+    def test_basic_values(self, mcpu):
         src = np.zeros(TOTAL_LANES, dtype=np.float32)
         for i in range(TOTAL_LANES):
             src[i] = float(i * 100 - 3200)
@@ -439,7 +437,7 @@ class TestCvtI32F32:
                     f"lane {i}: f32={val}, expected i32={expected}, got {result_i32[i]}"
                 )
 
-        _run(mcpu, isa, "cvt_i32_f32_kernel", [src.view(np.int32)], [dst], verify)
+        _run(mcpu, "cvt_i32_f32_kernel", [src.view(np.int32)], [dst], verify)
 
 
 # ===========================================================================
@@ -447,14 +445,14 @@ class TestCvtI32F32:
 # ===========================================================================
 
 
-@pytest.mark.parametrize("mcpu,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS])
+@pytest.mark.parametrize("mcpu", TARGET_CONFIGS)
 class TestPackB32F16:
     """v_pack_b32_f16: pack two f16 values (in low 16 bits of dwords) into one b32.
 
     result[15:0] = src0[15:0], result[31:16] = src1[15:0]
     """
 
-    def test_basic_values(self, mcpu, isa):
+    def test_basic_values(self, mcpu):
         # src0 and src1 contain f16 bit patterns in low 16 bits of each dword
         src0 = np.zeros(TOTAL_LANES, dtype=np.uint32)
         src1 = np.zeros(TOTAL_LANES, dtype=np.uint32)
@@ -479,7 +477,6 @@ class TestPackB32F16:
 
         _run(
             mcpu,
-            isa,
             "pack_b32_f16_kernel",
             [src0.view(np.int32), src1.view(np.int32)],
             [dst],
@@ -487,7 +484,7 @@ class TestPackB32F16:
         )
 
 
-@pytest.mark.parametrize("mcpu,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS])
+@pytest.mark.parametrize("mcpu", TARGET_CONFIGS)
 class TestCvtPkFp8F32:
     """v_cvt_pk_fp8_f32: pack-convert two f32 to two fp8 (E4M3) in low 16 bits.
 
@@ -495,8 +492,8 @@ class TestCvtPkFp8F32:
     result[7:0] = fp8(src0), result[15:8] = fp8(src1)
     """
 
-    def test_basic_values(self, mcpu, isa):
-        fnuz = _ISA_IS_FNUZ[isa]
+    def test_basic_values(self, mcpu):
+        fnuz = _TARGET_IS_FNUZ[mcpu]
         src0 = np.zeros(TOTAL_LANES, dtype=np.float32)
         src1 = np.zeros(TOTAL_LANES, dtype=np.float32)
         for i in range(TOTAL_LANES):
@@ -525,7 +522,6 @@ class TestCvtPkFp8F32:
 
         _run(
             mcpu,
-            isa,
             "cvt_pk_fp8_f32_kernel",
             [src0.view(np.int32), src1.view(np.int32)],
             [dst],
@@ -533,7 +529,7 @@ class TestCvtPkFp8F32:
         )
 
 
-@pytest.mark.parametrize("mcpu,isa", TARGET_CONFIGS, ids=[t for t, _ in TARGET_CONFIGS])
+@pytest.mark.parametrize("mcpu", TARGET_CONFIGS)
 class TestCvtPkBf8F32:
     """v_cvt_pk_bf8_f32: pack-convert two f32 to two bf8 (E5M2) in low 16 bits.
 
@@ -541,8 +537,8 @@ class TestCvtPkBf8F32:
     result[7:0] = bf8(src0), result[15:8] = bf8(src1)
     """
 
-    def test_basic_values(self, mcpu, isa):
-        fnuz = _ISA_IS_FNUZ[isa]
+    def test_basic_values(self, mcpu):
+        fnuz = _TARGET_IS_FNUZ[mcpu]
         src0 = np.zeros(TOTAL_LANES, dtype=np.float32)
         src1 = np.zeros(TOTAL_LANES, dtype=np.float32)
         for i in range(TOTAL_LANES):
@@ -571,7 +567,6 @@ class TestCvtPkBf8F32:
 
         _run(
             mcpu,
-            isa,
             "cvt_pk_bf8_f32_kernel",
             [src0.view(np.int32), src1.view(np.int32)],
             [dst],

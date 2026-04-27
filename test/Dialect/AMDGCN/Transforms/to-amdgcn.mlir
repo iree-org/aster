@@ -1375,7 +1375,7 @@ func.func @ptr_add_sgpr_i64_all(%ptr: !amdgcn.sgpr<[? + 2]>, %d_off: !amdgcn.vgp
 // CHECK-LABEL: kernel @test_load
 // CHECK: load_arg 0 : !amdgcn.sgpr<[? + 2]>
 module attributes {dlti.dl_spec = #dlti.dl_spec<!ptr.ptr<#amdgcn.addr_space<local, read_write>> = #ptr.spec<size = 32, abi = 32, preferred = 32>, !ptr.ptr<#amdgcn.addr_space<global, read_write>> = #ptr.spec<size = 64, abi = 64, preferred = 64>>} {
-  amdgcn.module @test_module target = <gfx942> isa = <cdna3> {
+  amdgcn.module @test_module target = <gfx942> {
     func.func @test_load(%arg0: !amdgcn.sgpr<[? + 2]>) attributes {gpu.host_abi = {align = array<i32: 8>, size = array<i32: 8>, type = (!ptr.ptr<#amdgcn.addr_space<global, read_write>>) -> ()}, gpu.kernel} {
       %c10_i32 = arith.constant 10 : i32
       %c2_i32 = arith.constant 2 : i32

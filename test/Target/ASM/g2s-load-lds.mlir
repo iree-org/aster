@@ -15,7 +15,7 @@
 // CHECK:       buffer_load_dwordx4 v0, s[0:3], s4 offen lds offset: 64
 // CHECK:       s_endpgm
 
-amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> {
 
   amdgcn.kernel @test_g2s_dword {
   ^entry:

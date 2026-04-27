@@ -16,7 +16,7 @@
 // CHECK:    buffer_store_dwordx3 v[4:6], v0, s[0:3], s4 offen offset: 96
 // CHECK:    buffer_store_dwordx4 v[8:11], v0, s[0:3], s4 offen offset: 128
 // CHECK:    s_endpgm
-amdgcn.module @buffer_test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @buffer_test target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_buffer_load_store {
     // Buffer descriptor (4 SGPRs, s[0:3])
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
@@ -112,7 +112,7 @@ amdgcn.module @buffer_test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 // CHECK:    buffer_store_dwordx3 v[4:6], v0, s[0:3], s4 idxen offset: 96
 // CHECK:    buffer_store_dwordx4 v[8:11], v0, s[0:3], s4 idxen offset: 128
 // CHECK:    s_endpgm
-amdgcn.module @buffer_idxen_test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @buffer_idxen_test target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_buffer_idxen {
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
     %s1 = amdgcn.alloca : !amdgcn.sgpr<1>

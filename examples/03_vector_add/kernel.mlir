@@ -14,7 +14,7 @@
 //   v3     = b[tid]
 
 module {
-  amdgcn.module @vadd target = <gfx942> isa = <cdna3> {
+  amdgcn.module @vadd target = <gfx942> {
 
     // Reusable: load three buffer pointers from kernarg segment.
     func.func private @load_3_ptrs(%kernarg: !amdgcn.sgpr<[0 : 2]>)

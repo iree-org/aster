@@ -10,7 +10,7 @@ Usage::
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        b = KernelBuilder("my_mod", "my_kernel", target="gfx942", isa="cdna3")
+        b = KernelBuilder("my_mod", "my_kernel", target="gfx942")
         b.add_ptr_arg(AccessKind.ReadOnly)
         b.add_ptr_arg(AccessKind.WriteOnly)
         [a_ptr, b_ptr] = b.load_args()
@@ -129,7 +129,6 @@ class KernelBuilder:
         module_name: str,
         kernel_name: str,
         target: str = "gfx942",
-        isa: str = "cdna3",
     ):
         ctx = ir.Context.current
         self._ctx = ctx
@@ -137,7 +136,6 @@ class KernelBuilder:
         self._module_name = module_name
         self._kernel_name = kernel_name
         self._target = target
-        self._isa = isa
         self._ptr_args: List[AccessKind] = []
         self._kernel_attrs = {}
 
@@ -147,10 +145,8 @@ class KernelBuilder:
         # Build amdgcn.module inside the outer module.
         outer_ip = ir.InsertionPoint(self._outer.body)
         target_attr = ir.Attribute.parse(f"#amdgcn.target<{target}>")
-        isa_attr = ir.Attribute.parse(f"#amdgcn.isa<{isa}>")
         self._amdgcn_mod = ModuleOp(
             target=target_attr,
-            isa_version=isa_attr,
             sym_name=module_name,
             loc=self._loc,
             ip=outer_ip,

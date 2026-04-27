@@ -5,7 +5,7 @@
 
 // CHECK-LABEL: amdgcn.module @sets_postcondition
 // CHECK-SAME: attributes {normal_forms = [#amdgcn.no_reg_cast_ops]}
-amdgcn.module @sets_postcondition target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @sets_postcondition target = #amdgcn.target<gfx942> {
   amdgcn.kernel @k {
   ^bb0:
     amdgcn.end_kernel

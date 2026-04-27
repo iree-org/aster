@@ -22,7 +22,7 @@
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
-amdgcn.module @mfma_32x32_e2e_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mfma_32x32_e2e_mod target = #amdgcn.target<gfx942> {
 
   func.func private @alloc_vgpr() -> !amdgcn.vgpr
   func.func private @alloc_vgprx2() -> (!amdgcn.vgpr<[? + 2]>)

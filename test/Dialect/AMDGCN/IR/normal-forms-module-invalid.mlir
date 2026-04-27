@@ -1,7 +1,7 @@
 // RUN: aster-opt %s --split-input-file --verify-diagnostics
 
 // Normal form violation on amdgcn.module: value-semantic vgpr inside module.
-amdgcn.module @nf_vgpr target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> attributes {normal_forms = [#amdgcn.no_value_semantic_registers]} {
+amdgcn.module @nf_vgpr target = #amdgcn.target<gfx942> attributes {normal_forms = [#amdgcn.no_value_semantic_registers]} {
   amdgcn.kernel @k {
   ^bb0:
     // expected-error @below {{normal form violation: register types with value semantics are disallowed but found}}
@@ -13,7 +13,7 @@ amdgcn.module @nf_vgpr target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> 
 // -----
 
 // Normal form violation on amdgcn.module: value-semantic sgpr.
-amdgcn.module @nf_sgpr target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> attributes {normal_forms = [#amdgcn.no_value_semantic_registers]} {
+amdgcn.module @nf_sgpr target = #amdgcn.target<gfx942> attributes {normal_forms = [#amdgcn.no_value_semantic_registers]} {
   amdgcn.kernel @k {
   ^bb0:
     // expected-error @below {{normal form violation: register types with value semantics are disallowed but found}}
@@ -25,7 +25,7 @@ amdgcn.module @nf_sgpr target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> 
 // -----
 
 // Normal form violation: lsir.reg_cast surviving past aster-to-amdgcn.
-amdgcn.module @nf_reg_cast target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> attributes {normal_forms = [#amdgcn.no_reg_cast_ops]} {
+amdgcn.module @nf_reg_cast target = #amdgcn.target<gfx942> attributes {normal_forms = [#amdgcn.no_reg_cast_ops]} {
   amdgcn.kernel @k {
   ^bb0:
     %0 = amdgcn.alloca : !amdgcn.vgpr<0>

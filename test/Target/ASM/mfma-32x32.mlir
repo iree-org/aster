@@ -18,7 +18,7 @@
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
-amdgcn.module @mfma_32x32_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mfma_32x32_mod target = #amdgcn.target<gfx942> {
 
   // From register-init.mlir (resolved by --amdgcn-preload-library)
   func.func private @alloc_vgpr() -> !amdgcn.vgpr

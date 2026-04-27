@@ -13,7 +13,7 @@
 // CHECK:       s_mov_b32 m0, s0
 // CHECK:       s_endpgm
 
-amdgcn.module @m0_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @m0_mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_s_mov_m0_imm {
   ^entry:
     %m0 = amdgcn.alloca : !amdgcn.m0<0>

@@ -20,13 +20,12 @@ def build_copy_kernel(
     name: str,
     thread_layout: Layout,
     target: str = "gfx942",
-    isa: str = "cdna3",
 ):
     """Build a flat-global dwordx4 copy kernel using KernelBuilder + layout."""
     from aster.dialects.kernel_builder import KernelBuilder
     from aster.dialects.amdgcn import AccessKind
 
-    b = KernelBuilder(f"{name}_module", name, target=target, isa=isa)
+    b = KernelBuilder(f"{name}_module", name, target=target)
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.WriteOnly)
     src_ptr, dst_ptr = b.load_args()

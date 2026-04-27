@@ -14,7 +14,7 @@
 // CHECK:       v_cndmask_b32 v2, v0, v2, vcc
 // CHECK:       s_endpgm
 
-amdgcn.module @vopc_cndmask_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @vopc_cndmask_mod target = #amdgcn.target<gfx942> {
 
   amdgcn.kernel @test_vcndmask_vgpr_operands {
   ^entry:

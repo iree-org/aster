@@ -20,7 +20,7 @@
 //   - cond_iter: condition index (execute only when cond_iter == 0)
 //   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
 
-amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
   //===--------------------------------------------------------------------===//
   // From register-init.mlir
   // From indexing.mlir

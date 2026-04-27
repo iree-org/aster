@@ -4,7 +4,7 @@
 // This test will be enabled once we integrate the analysis into a test pass
 
 //   CHECK-LABEL: Kernel: test_kernel
-amdgcn.module @test_memory_dependence target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_memory_dependence target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_kernel {
     %0 = amdgcn.alloca : !amdgcn.vgpr
     %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -147,7 +147,7 @@ amdgcn.module @test_memory_dependence target = #amdgcn.target<gfx942> isa = #amd
 // The analysis detects this cross-resource dependency: LoadToLDSOp
 // conservatively aliases with all LDS operations.
 //   CHECK-LABEL: Kernel: test_g2s_lds_dep
-amdgcn.module @test_g2s_lds_dep target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+amdgcn.module @test_g2s_lds_dep target = #amdgcn.target<gfx950> {
   amdgcn.kernel @test_g2s_lds_dep {
     %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %s0 = amdgcn.alloca : !amdgcn.sgpr

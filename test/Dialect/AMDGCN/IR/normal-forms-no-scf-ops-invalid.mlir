@@ -1,7 +1,7 @@
 // RUN: aster-opt %s --split-input-file --verify-diagnostics
 
 // Violation: scf.for inside module with no_scf_ops.
-amdgcn.module @has_scf_for target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> attributes {normal_forms = [#amdgcn.no_scf_ops]} {
+amdgcn.module @has_scf_for target = #amdgcn.target<gfx942> attributes {normal_forms = [#amdgcn.no_scf_ops]} {
   amdgcn.kernel @k {
   ^bb0:
     %c0 = arith.constant 0 : index
@@ -17,7 +17,7 @@ amdgcn.module @has_scf_for target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 // -----
 
 // Violation: scf.if inside kernel with no_scf_ops.
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @k attributes {normal_forms = [#amdgcn.no_scf_ops]} {
   ^bb0:
     %c = arith.constant true

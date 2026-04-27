@@ -20,6 +20,7 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNEnumAttrs.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNModifiers.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.td"
+include "aster/Interfaces/TargetAttr.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/IR/Constraints.td"
 
@@ -184,7 +185,8 @@ def AMDGCNTargets
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
-def AMDGCNTargetAttr : AMDGCN_EnumAttr<"Target", "target", AMDGCNTargets>;
+def AMDGCNTargetAttr : AMDGCN_EnumAttr<"Target", "target", AMDGCNTargets,
+    [DeclareAttrInterfaceMethods<TargetAttrInterface>]>;
 
 //===----------------------------------------------------------------------===//
 // Instruction properties definitions

@@ -30,7 +30,7 @@
 !vals_b_buf = memref<?x!rt_B_f16>
 !c_buf = memref<?x!rt_C_f32>
 
-amdgcn.module @kittens_gemm_f16_direct_ab target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @kittens_gemm_f16_direct_ab target = #amdgcn.target<gfx942> {
   // Library functions
   func.func private @linear_block_id() -> index
   func.func private @wave_id() -> index

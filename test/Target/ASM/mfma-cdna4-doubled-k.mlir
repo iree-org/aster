@@ -28,7 +28,7 @@
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
-amdgcn.module @cdna4_doubled_k_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+amdgcn.module @cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
 
   func.func private @alloc_vgpr() -> !amdgcn.vgpr
   func.func private @alloc_vgprx4() -> (!amdgcn.vgpr<[? + 4]>)

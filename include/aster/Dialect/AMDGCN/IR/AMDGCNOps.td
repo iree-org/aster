@@ -535,12 +535,12 @@ def AMDGCN_ModuleOp : AMDGCN_Op<"module", [
   let description = [{
     An AMDGCN module.
   }];
-  let arguments = (ins AMDGCNTargetAttr:$target, IsaVersionAttr:$isa_version,
+  let arguments = (ins AMDGCNTargetAttr:$target,
       SymbolNameAttr:$sym_name, OptionalAttr<StrAttr>:$sym_visibility,
       OptionalNormalFormAttrArray:$normal_forms);
   let regions = (region SizedRegion<1>:$body_region);
   let assemblyFormat = [{
-    $sym_name `target` `=` $target `isa` `=` $isa_version
+    $sym_name `target` `=` $target
     attr-dict-with-keyword $body_region
   }];
   let hasRegionVerifier = 1;

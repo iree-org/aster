@@ -13,7 +13,7 @@
 module attributes {dlti.dl_spec = #dlti.dl_spec<
   !ptr.ptr<#amdgcn.addr_space<global, read_write>> = #ptr.spec<size = 64, abi = 64, preferred = 64>,
   !ptr.ptr<#amdgcn.addr_space<local, read_write>> = #ptr.spec<size = 32, abi = 32, preferred = 32>>} {
-  amdgcn.module @m target = <gfx942> isa = <cdna3> {
+  amdgcn.module @m target = <gfx942> {
     func.func @memref_kernel_to_gpu_kernel(
       %a: memref<4xf32>,
       %b: memref<4xf32>

@@ -158,7 +158,7 @@ func.func @same_allocated_chained_mov() -> (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) {
 }
 
 
-amdgcn.module @mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @mod target = <gfx942> {
 // CHECK-LABEL: kernel @gpu_copy_kernel_unchecked
 //      CHECK:    %[[R7:.*]] = alloca : !amdgcn.vgpr<10>
 // CHECK-NEXT:    %[[R8:.*]] = alloca : !amdgcn.vgpr<11>

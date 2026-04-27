@@ -1,6 +1,6 @@
 // Unit tests for loop lowering
 
-amdgcn.module @test_uniform_loop target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_uniform_loop target = <gfx942> {
   kernel @test_uniform_loop arguments <[#amdgcn.buffer_arg<address_space = generic, access = read_only>, #amdgcn.buffer_arg<address_space = generic>]> {
     %0 = load_arg 0 : !amdgcn.sgpr<[? + 2]>
     %1 = load_arg 1 : !amdgcn.sgpr<[? + 2]>

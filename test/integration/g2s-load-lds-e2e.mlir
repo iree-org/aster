@@ -32,7 +32,7 @@
 // CHECK:       global_store_dword
 // CHECK:       s_endpgm
 
-amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> {
 
   func.func private @alloc_vgpr() -> !amdgcn.vgpr
 

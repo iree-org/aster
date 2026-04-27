@@ -5,7 +5,7 @@
 // CHECK:         arith.addi %{{.*}}, %[[C1]] : index
 // CHECK-NOT:     call @helper
 module {
-  amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  amdgcn.module @mod target = #amdgcn.target<gfx942> {
     func.func @helper(%x: index) -> index {
       %c1 = arith.constant 1 : index
       %r = arith.addi %x, %c1 : index
@@ -25,7 +25,7 @@ module {
 // CHECK-LABEL: kernel @kernel_main
 // CHECK-NOT:     call @kernel_helper
 module {
-  amdgcn.module @mod2 target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  amdgcn.module @mod2 target = #amdgcn.target<gfx942> {
     func.func @kernel_helper(%x: index) -> index {
       %c2 = arith.constant 2 : index
       %r = arith.addi %x, %c2 : index

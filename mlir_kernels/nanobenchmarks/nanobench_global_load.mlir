@@ -15,7 +15,7 @@
 //   - wave_size: number of threads per wave
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
-amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
   // From indexing.mlir
   func.func private @wave_id() -> index
   func.func private @wave_count() -> index

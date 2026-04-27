@@ -8,7 +8,7 @@
 // RUN:     asm=sys.stdin.read(); r=compile_to_hsaco(asm); \
 // RUN:     assert r is not None, 'HSACO assembly failed'"
 
-amdgcn.module @arith_div_by_const target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @arith_div_by_const target = #amdgcn.target<gfx942> {
 
   amdgcn.kernel @sdiv_by_3 {
     %n = amdgcn.alloca : !amdgcn.vgpr

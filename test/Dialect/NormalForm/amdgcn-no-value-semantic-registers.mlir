@@ -40,7 +40,7 @@ normalform.module @value_in_func_result [#amdgcn.no_value_semantic_registers] {
 // -----
 
 // by_val_arg type is ABI metadata, not a value-semantic register in the body
-amdgcn.module @by_val_arg_metadata target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @by_val_arg_metadata target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test arguments <[
     #amdgcn.by_val_arg<size = 4, type = !amdgcn.vgpr>
   ]> attributes {

@@ -8,7 +8,7 @@
 !vx4 = !amdgcn.vgpr<[? + 4]>
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 
-amdgcn.module @test_store_global_C_fragment target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_store_global_C_fragment target = #amdgcn.target<gfx942> {
   // From register-init.mlir
   func.func private @init_vgprx4_reg(!v) -> !vx4
   // From indexing.mlir

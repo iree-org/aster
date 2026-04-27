@@ -11,7 +11,7 @@
 // CHECK:         end_kernel
 // CHECK:       ^bb2:
 // CHECK:         end_kernel
-amdgcn.module @test_slt target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_slt target = <gfx942> {
   amdgcn.kernel @test_cond_branch_slt {
     %c0_i32 = arith.constant 0 : i32
     %c10_i32 = arith.constant 10 : i32
@@ -34,7 +34,7 @@ amdgcn.module @test_slt target = <gfx942> isa = <cdna3> {
 // CHECK:         branch s_branch ^bb1
 // CHECK:       ^bb1:
 // CHECK:         end_kernel
-amdgcn.module @test_br target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_br target = <gfx942> {
   amdgcn.kernel @test_unconditional_branch {
     cf.br ^bb1
   ^bb1:
@@ -62,7 +62,7 @@ amdgcn.module @test_br target = <gfx942> isa = <cdna3> {
 //       CHECK:     cbranch s_cbranch_scc1 %{{.*}} ^bb1 fallthrough(^bb2)
 //       CHECK:   ^bb2:
 //       CHECK:     end_kernel
-amdgcn.module @ds_kernels target = <gfx942> isa = <cdna3> {
+amdgcn.module @ds_kernels target = <gfx942> {
 
   amdgcn.kernel @test_cf_cond_br_lsir_cmpi arguments <[
         #amdgcn.buffer_arg<address_space = generic, access = read_only>,
@@ -122,7 +122,7 @@ amdgcn.module @ds_kernels target = <gfx942> isa = <cdna3> {
 // The range should NOT appear as a block argument after legalization
 // Instead, values should flow through allocas and be reconstructed at block entry
 // CHECK-LABEL: kernel @test_br_vgpr_range_simple
-amdgcn.module @test_br_vgpr_range target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_br_vgpr_range target = <gfx942> {
   amdgcn.kernel @test_br_vgpr_range_simple {
     // Allocate constituent registers - verify they appear in order
     // CHECK:       %[[V0:.*]] = alloca : !amdgcn.vgpr<0>
@@ -178,7 +178,7 @@ amdgcn.module @test_br_vgpr_range target = <gfx942> isa = <cdna3> {
 // This is the real-world use case: 4-register accumulator passed through iterations
 // Verifies range decomposition in backedge and reconstruction at loop header
 // CHECK-LABEL: kernel @test_loop_vgpr_range_carried
-amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_loop target = <gfx942> {
   amdgcn.kernel @test_loop_vgpr_range_carried {
     // Constants
     %c0_i32 = arith.constant 0 : i32
@@ -282,7 +282,7 @@ amdgcn.module @test_loop target = <gfx942> isa = <cdna3> {
 // CHECK:         cmpi s_cmp_eq_i32 outs %[[SCC]] ins %[[A]], %[[B]]
 // CHECK:         sop2 s_cselect_b32 outs %{{.*}} ins
 // CHECK:         end_kernel
-amdgcn.module @test_select_i1_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_select_i1_mod target = <gfx942> {
   amdgcn.kernel @test_select_i1 {
     %c0 = arith.constant 0 : i32
     %c10 = arith.constant 10 : i32
@@ -314,7 +314,7 @@ amdgcn.module @test_select_i1_mod target = <gfx942> isa = <cdna3> {
 // CHECK:         sop2 s_cselect_b32
 // CHECK:         sop2 s_cselect_b32
 // CHECK:         end_kernel
-amdgcn.module @test_select_fanout_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_select_fanout_mod target = <gfx942> {
   amdgcn.kernel @test_select_fanout {
     %c0 = arith.constant 0 : i32
     %c10 = arith.constant 10 : i32
@@ -352,7 +352,7 @@ amdgcn.module @test_select_fanout_mod target = <gfx942> isa = <cdna3> {
 // CHECK:         end_kernel
 // CHECK:       ^bb2:
 // CHECK:         end_kernel
-amdgcn.module @test_mixed_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_mixed_mod target = <gfx942> {
   amdgcn.kernel @test_mixed_consumers {
     %c0 = arith.constant 0 : i32
     %c10 = arith.constant 10 : i32
@@ -385,7 +385,7 @@ amdgcn.module @test_mixed_mod target = <gfx942> isa = <cdna3> {
 // CHECK-NOT:     cmpi
 // CHECK:         sop2 s_cselect_b32
 // CHECK:         end_kernel
-amdgcn.module @test_sequential_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_sequential_mod target = <gfx942> {
   amdgcn.kernel @test_sequential_i1 {
     %c0 = arith.constant 0 : i32
     %c10 = arith.constant 10 : i32
@@ -418,7 +418,7 @@ amdgcn.module @test_sequential_mod target = <gfx942> isa = <cdna3> {
 // CHECK-NOT:     cmpi
 // CHECK:         sop2 s_cselect_b32
 // CHECK:         end_kernel
-amdgcn.module @test_dead_cmpi_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_dead_cmpi_mod target = <gfx942> {
   amdgcn.kernel @test_dead_cmpi_then_live {
     %c0 = arith.constant 0 : i32
     %c10 = arith.constant 10 : i32
@@ -443,7 +443,7 @@ amdgcn.module @test_dead_cmpi_mod target = <gfx942> isa = <cdna3> {
 // Overlapping i1 lifetimes: cmpi2 executes while cmpi1's result is still live.
 // This would silently clobber SCC.
 
-amdgcn.module @test_overlap_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_overlap_mod target = <gfx942> {
   amdgcn.kernel @test_overlapping_i1 {
     %c0 = arith.constant 0 : i32
     %c10 = arith.constant 10 : i32
@@ -467,7 +467,7 @@ amdgcn.module @test_overlap_mod target = <gfx942> isa = <cdna3> {
 // Cross-block i1 usage: flag register (SCC/VCC) is not preserved across
 // block boundaries (any branch clobbers it).
 
-amdgcn.module @test_crossblock_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_crossblock_mod target = <gfx942> {
   amdgcn.kernel @test_cross_block_i1 {
     %c0 = arith.constant 0 : i32
     %c10 = arith.constant 10 : i32
@@ -500,7 +500,7 @@ amdgcn.module @test_crossblock_mod target = <gfx942> isa = <cdna3> {
 // CHECK:         end_kernel
 // CHECK:       ^bb2:
 // CHECK:         end_kernel
-amdgcn.module @test_vopc_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_vopc_mod target = <gfx942> {
   amdgcn.kernel @test_vopc_cond_branch {
     %c0_i32 = arith.constant 0 : i32
     %v0 = alloca : !amdgcn.vgpr<0>
@@ -523,7 +523,7 @@ amdgcn.module @test_vopc_mod target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @test_vopc_operand_swap
 // CHECK:         cmpi v_cmp_gt_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(i32, !amdgcn.vgpr<0>)
 // CHECK:         cbranch s_cbranch_vccz %{{.*}} ^bb2 fallthrough(^bb1) : !amdgcn.vcc<0>
-amdgcn.module @test_vopc_swap_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_vopc_swap_mod target = <gfx942> {
   amdgcn.kernel @test_vopc_operand_swap {
     %c32_i32 = arith.constant 32 : i32
     %v0 = alloca : !amdgcn.vgpr<0>
@@ -544,7 +544,7 @@ amdgcn.module @test_vopc_swap_mod target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @test_vopc_two_vgprs
 // CHECK:         cmpi v_cmp_eq_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:         cbranch s_cbranch_vccz %{{.*}} ^bb2 fallthrough(^bb1) : !amdgcn.vcc<0>
-amdgcn.module @test_vopc_vv_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_vopc_vv_mod target = <gfx942> {
   amdgcn.kernel @test_vopc_two_vgprs {
     %v0 = alloca : !amdgcn.vgpr<0>
     %v1 = alloca : !amdgcn.vgpr<1>
@@ -568,7 +568,7 @@ amdgcn.module @test_vopc_vv_mod target = <gfx942> isa = <cdna3> {
 // CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
 // CHECK:         end_kernel
-amdgcn.module @test_vopc_select_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_vopc_select_mod target = <gfx942> {
   amdgcn.kernel @test_vopc_select {
     %v0 = alloca : !amdgcn.vgpr<0>
     %v1 = alloca : !amdgcn.vgpr<1>
@@ -592,7 +592,7 @@ amdgcn.module @test_vopc_select_mod target = <gfx942> isa = <cdna3> {
 // CHECK:         vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<2>, i32) -> ()
 // CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
 // CHECK:         end_kernel
-amdgcn.module @test_vopc_select_imm_true_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_vopc_select_imm_true_mod target = <gfx942> {
   amdgcn.kernel @test_vopc_select_nonvgpr_true {
     %v0 = alloca : !amdgcn.vgpr<0>
     %v1 = alloca : !amdgcn.vgpr<1>
@@ -614,7 +614,7 @@ amdgcn.module @test_vopc_select_imm_true_mod target = <gfx942> isa = <cdna3> {
 // CHECK:         vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<2>, !amdgcn.sgpr<0>) -> ()
 // CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
 // CHECK:         end_kernel
-amdgcn.module @test_vopc_select_sgpr_true_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_vopc_select_sgpr_true_mod target = <gfx942> {
   amdgcn.kernel @test_vopc_select_sgpr_true {
     %v0 = alloca : !amdgcn.vgpr<0>
     %v1 = alloca : !amdgcn.vgpr<1>

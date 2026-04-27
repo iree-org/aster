@@ -1,7 +1,7 @@
 // RUN: aster-opt %s --split-input-file --verify-diagnostics
 
 // Violation: cf.br inside module with no_cf_branches.
-amdgcn.module @has_br target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> attributes {normal_forms = [#amdgcn.no_cf_branches]} {
+amdgcn.module @has_br target = #amdgcn.target<gfx942> attributes {normal_forms = [#amdgcn.no_cf_branches]} {
   amdgcn.kernel @k {
   ^bb0:
     %0 = amdgcn.alloca : !amdgcn.vgpr<3>
@@ -15,7 +15,7 @@ amdgcn.module @has_br target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> a
 // -----
 
 // Violation: cf.cond_br inside module with no_cf_branches.
-amdgcn.module @has_cond_br target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> attributes {normal_forms = [#amdgcn.no_cf_branches]} {
+amdgcn.module @has_cond_br target = #amdgcn.target<gfx942> attributes {normal_forms = [#amdgcn.no_cf_branches]} {
   amdgcn.kernel @k {
   ^bb0:
     %c = arith.constant true
@@ -31,7 +31,7 @@ amdgcn.module @has_cond_br target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdn
 // -----
 
 // Violation: cf.br on kernel directly.
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @k attributes {normal_forms = [#amdgcn.no_cf_branches]} {
   ^bb0:
     %0 = amdgcn.alloca : !amdgcn.vgpr<3>

@@ -31,7 +31,7 @@
 // CHECK:   0 -- 2;
 // CHECK:   1 -- 2;
 // CHECK: }
-amdgcn.module @t1 target = <gfx942> isa = <cdna3> {
+amdgcn.module @t1 target = <gfx942> {
   func.func private @rand() -> i1
   kernel @two_stage_load_basic {
     %cond = func.call @rand() : () -> i1
@@ -99,7 +99,7 @@ amdgcn.module @t1 target = <gfx942> isa = <cdna3> {
 // CHECK:   1 -- 4;
 // CHECK:   2 -- 4;
 // CHECK: }
-amdgcn.module @t2 target = <gfx942> isa = <cdna3> {
+amdgcn.module @t2 target = <gfx942> {
   func.func private @rand() -> i1
   kernel @two_independent_loads {
     %cond = func.call @rand() : () -> i1
@@ -171,7 +171,7 @@ amdgcn.module @t2 target = <gfx942> isa = <cdna3> {
 // CHECK:   1 -- 3;
 // CHECK:   2 -- 3;
 // CHECK: }
-amdgcn.module @t3 target = <gfx942> isa = <cdna3> {
+amdgcn.module @t3 target = <gfx942> {
   func.func private @rand() -> i1
   kernel @two_stage_load_dwordx2 {
     %cond = func.call @rand() : () -> i1
@@ -224,7 +224,7 @@ amdgcn.module @t3 target = <gfx942> isa = <cdna3> {
 // CHECK:   3 -- 4;
 // CHECK: }
 // CHECK-NOT: EquivalenceClasses
-amdgcn.module @t4 target = <gfx942> isa = <cdna3> {
+amdgcn.module @t4 target = <gfx942> {
   func.func private @rand() -> i1
   kernel @three_stage_load_compute_store {
     %cond = func.call @rand() : () -> i1
@@ -274,7 +274,7 @@ amdgcn.module @t4 target = <gfx942> isa = <cdna3> {
 // CHECK:   2 -- 3;
 // CHECK: }
 // CHECK-NOT: EquivalenceClasses
-amdgcn.module @t5 target = <gfx942> isa = <cdna3> {
+amdgcn.module @t5 target = <gfx942> {
   func.func private @rand() -> i1
   kernel @pipeline_copy_interferes {
     %cond = func.call @rand() : () -> i1
@@ -348,7 +348,7 @@ amdgcn.module @t5 target = <gfx942> isa = <cdna3> {
 // CHECK:   2 -- 5;
 // CHECK:   4 -- 5;
 // CHECK: }
-amdgcn.module @t6 target = <gfx942> isa = <cdna3> {
+amdgcn.module @t6 target = <gfx942> {
   func.func private @rand() -> i1
   kernel @mixed_coalesce_and_no_coalesce {
     %cond = func.call @rand() : () -> i1
@@ -410,7 +410,7 @@ amdgcn.module @t6 target = <gfx942> isa = <cdna3> {
 // CHECK:   0 -- 2;
 // CHECK:   1 -- 2;
 // CHECK: }
-amdgcn.module @t7 target = <gfx942> isa = <cdna3> {
+amdgcn.module @t7 target = <gfx942> {
   func.func private @rand() -> i1
   kernel @pipeline_chain_copies {
     %cond = func.call @rand() : () -> i1
@@ -514,7 +514,7 @@ amdgcn.module @t7 target = <gfx942> isa = <cdna3> {
 // CHECK:   3 -- 8;
 // CHECK:   3 -- 9;
 // CHECK: }
-amdgcn.module @t8 target = <gfx942> isa = <cdna3> {
+amdgcn.module @t8 target = <gfx942> {
   func.func private @rand() -> i1
   kernel @two_stage_load_dwordx4 {
     %cond = func.call @rand() : () -> i1
@@ -597,7 +597,7 @@ amdgcn.module @t8 target = <gfx942> isa = <cdna3> {
 // CHECK:   1 -- 6;
 // CHECK:   2 -- 4;
 // CHECK: }
-amdgcn.module @t9 target = <gfx942> isa = <cdna3> {
+amdgcn.module @t9 target = <gfx942> {
   func.func private @rand() -> i1
   kernel @two_loads_to_compute {
     %cond = func.call @rand() : () -> i1

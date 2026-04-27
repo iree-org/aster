@@ -2,7 +2,7 @@
 !v   = !amdgcn.vgpr
 
 // Two-stage pipeline with gap: stages {0, 2}.
-amdgcn.module @test_gap_0_2 target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_gap_0_2 target = <gfx942> {
   kernel @test_gap_0_2 arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
@@ -40,7 +40,7 @@ amdgcn.module @test_gap_0_2 target = <gfx942> isa = <cdna3> {
 }
 
 // Two-stage pipeline with wide gap: stages {0, 3}.
-amdgcn.module @test_gap_0_3 target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_gap_0_3 target = <gfx942> {
   kernel @test_gap_0_3 arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
@@ -78,7 +78,7 @@ amdgcn.module @test_gap_0_3 target = <gfx942> isa = <cdna3> {
 }
 
 // Three-stage pipeline with gaps: stages {0, 2, 5}.
-amdgcn.module @test_gap_0_2_5 target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_gap_0_2_5 target = <gfx942> {
   kernel @test_gap_0_2_5 arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
@@ -121,7 +121,7 @@ amdgcn.module @test_gap_0_2_5 target = <gfx942> isa = <cdna3> {
 }
 
 // Two-stage pipeline with gap {0, 2} and scalar iter_arg accumulator.
-amdgcn.module @test_gap_0_2_iter_args target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_gap_0_2_iter_args target = <gfx942> {
   kernel @test_gap_0_2_iter_args arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {

@@ -19,7 +19,7 @@ func.func @test_make_register_range_single() {
   return
 }
 
-amdgcn.module @test_module target = #amdgcn.target<gfx940> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_module target = #amdgcn.target<gfx940> {
   amdgcn.kernel @test_kernel {
     %0 = amdgcn.alloca : !amdgcn.vgpr
     amdgcn.end_kernel
@@ -30,14 +30,14 @@ amdgcn.module @test_module target = #amdgcn.target<gfx940> isa = #amdgcn.isa<cdn
   }
 }
 
-amdgcn.module @named_module target = #amdgcn.target<gfx940> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @named_module target = #amdgcn.target<gfx940> {
   amdgcn.kernel @kernel_in_named_module {
     amdgcn.end_kernel
   }
 }
 
 // Test kernel with ptr argument
-amdgcn.module @kernel_with_ptr target = #amdgcn.target<gfx940> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @kernel_with_ptr target = #amdgcn.target<gfx940> {
   amdgcn.kernel @kernel_ptr arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = write_only>,
     #amdgcn.buffer_arg<address_space = private, access = read_only, flags = const | volatile>,
@@ -48,7 +48,7 @@ amdgcn.module @kernel_with_ptr target = #amdgcn.target<gfx940> isa = #amdgcn.isa
 }
 
 // Test kernel with by value argument
-amdgcn.module @kernel_with_int target = #amdgcn.target<gfx940> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @kernel_with_int target = #amdgcn.target<gfx940> {
   amdgcn.kernel @kernel_by_val arguments <[
     #amdgcn.by_val_arg<size = 4, name = "int_arg", type = i32>,
     #amdgcn.by_val_arg<size = 8, alignment = 8, name = "long_arg", type = i64>
@@ -58,7 +58,7 @@ amdgcn.module @kernel_with_int target = #amdgcn.target<gfx940> isa = #amdgcn.isa
 }
 
 // Test gfx950/cdna4 module
-amdgcn.module @cdna4_module target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+amdgcn.module @cdna4_module target = #amdgcn.target<gfx950> {
   amdgcn.kernel @cdna4_kernel {
     amdgcn.end_kernel
   }

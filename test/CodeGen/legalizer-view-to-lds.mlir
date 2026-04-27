@@ -1,6 +1,6 @@
 // RUN: aster-opt %s --aster-legalizer | FileCheck %s
 
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
 // CHECK-LABEL: func.func @test_view_to_lds
 // CHECK:         amdgcn.alloc_lds 1024
 // CHECK:         amdgcn.get_lds_offset

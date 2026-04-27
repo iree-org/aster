@@ -1,5 +1,5 @@
 module {
-  amdgcn.module @add_10_module target = <gfx942> isa = <cdna3> {
+  amdgcn.module @add_10_module target = <gfx942> {
     kernel @kernel {
       %0 = alloca : !amdgcn.vgpr<10>
       %1 = alloca : !amdgcn.vgpr<11>

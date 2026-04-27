@@ -1,6 +1,6 @@
 // RUN: aster-translate %s --mlir-to-asm | FileCheck %s
 
-amdgcn.module @vop3 target = <gfx942> isa = <cdna3> {
+amdgcn.module @vop3 target = <gfx942> {
   // CHECK-LABEL: .globl v_lshl_add_u64
   kernel @v_lshl_add_u64 {
     %0 = alloca : !amdgcn.vgpr<0>

@@ -13,7 +13,7 @@
 // CHECK:   return
 // CHECK: }
 // CHECK: func.func @test_kernel_func
-amdgcn.module @test_module target = #amdgcn.target<gfx940> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_module target = #amdgcn.target<gfx940> {
   // Declare library functions that will be imported.
   func.func private @wave_index(index) -> index
   func.func private @lane_index(index) -> index

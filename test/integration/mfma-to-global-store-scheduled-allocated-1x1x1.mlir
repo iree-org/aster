@@ -44,7 +44,7 @@
 // CHECK:   global_store_dwordx4 [[tidx_times_16]], [[C]], [[C_ptr]]
 // CHECK:   s_endpgm
 
-amdgcn.module @kernel_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @kernel_module target = #amdgcn.target<gfx942> {
   // From register-init.mlir (resolved by --amdgcn-preload-library)
   func.func private @alloc_vgprx2() -> (!amdgcn.vgpr<[? + 2]>)
   func.func private @init_vgprx4(%cst: i32) -> (!amdgcn.vgpr<[? + 4]>)

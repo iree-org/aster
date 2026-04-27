@@ -2,7 +2,7 @@
 !v   = !amdgcn.vgpr
 
 // Two-stage LDS pass-through (no IV dependence in LDS path).
-amdgcn.module @test_lds_passthrough target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_lds_passthrough target = <gfx942> {
   kernel @test_lds_passthrough arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 1024 : i32} {
@@ -55,7 +55,7 @@ amdgcn.module @test_lds_passthrough target = <gfx942> isa = <cdna3> {
 }
 
 // Two-stage LDS with IV-dependent data.
-amdgcn.module @test_lds_iv_dep target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_lds_iv_dep target = <gfx942> {
   kernel @test_lds_iv_dep arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 1024 : i32} {
@@ -114,7 +114,7 @@ amdgcn.module @test_lds_iv_dep target = <gfx942> isa = <cdna3> {
 // Six-stage double-LDS hop:
 //   global_load -> ds_write_A -> ds_read_A -> ds_write_B -> ds_read_B -> global_store
 // Two alloc_lds each spanning all 6 stages -> 6 buffers each -> 12 total after multibuffer prep.
-amdgcn.module @test_lds_six_stage target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_lds_six_stage target = <gfx942> {
   kernel @test_lds_six_stage arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>,
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
@@ -196,7 +196,7 @@ amdgcn.module @test_lds_six_stage target = <gfx942> isa = <cdna3> {
 }
 
 // Two-stage LDS with accumulator iter_arg.
-amdgcn.module @test_lds_accum target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_lds_accum target = <gfx942> {
   kernel @test_lds_accum arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 1024 : i32} {

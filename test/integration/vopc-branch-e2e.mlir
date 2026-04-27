@@ -13,7 +13,7 @@
 //   per_lane:     tid < 32  (lanes 0-31 true)     -> lanes 0-31 output 42,
 //                                                    lanes 32-63 output 99.
 
-amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
 
   func.func private @load_out_ptr() -> !amdgcn.sgpr<[? + 2]> {
     %out_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>

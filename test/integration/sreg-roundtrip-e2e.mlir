@@ -6,7 +6,7 @@
 // Verifies the M0 -> SGPR -> VGPR -> global memory pipeline works end-to-end.
 // Each lane stores the constant 42 to its slot in the output buffer.
 
-amdgcn.module @m0_roundtrip_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @m0_roundtrip_mod target = #amdgcn.target<gfx942> {
 
   func.func private @load_output_ptr() -> !amdgcn.sgpr<[? + 2]> {
     %out_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>

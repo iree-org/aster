@@ -22,7 +22,7 @@
 !future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 !index_pair = !aster_utils.struct<i: index, j: index>
 
-amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> {
   // From compute_16x16_f16.mlir (AGPR)
   func.func private @zero_C() -> !rt_C_f32
   func.func private @mfma_f32_16x16x16_f16(!rt_A_f16, !rt_B_f16, !rt_C_f32) -> !rt_C_f32

@@ -5,7 +5,7 @@
 // Each thread stores its thread ID to output[tid], then overwrites v0.
 
 module {
-  amdgcn.module @nop_demo target = <gfx942> isa = <cdna3> {
+  amdgcn.module @nop_demo target = <gfx942> {
     kernel @kernel arguments <[
       #amdgcn.buffer_arg<address_space = generic, access = write_only>
     ]> attributes {normal_forms = [#amdgcn.all_registers_allocated]} {

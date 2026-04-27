@@ -1,6 +1,6 @@
 // RUN: aster-opt %s --pass-pipeline="builtin.module(amdgcn.module(amdgcn.kernel(aster-amdgcn-expand-md-ops, aster-hoist-ops, canonicalize)))" | FileCheck %s
 
-amdgcn.module @kernel_with_ptr target = <gfx940> isa = <cdna3> {
+amdgcn.module @kernel_with_ptr target = <gfx940> {
 // CHECK-LABEL: kernel @kernel_ptr arguments <[#amdgcn.buffer_arg<address_space = generic, access = write_only>, #amdgcn.buffer_arg<address_space = private, access = read_only, flags = const|volatile>, #amdgcn.buffer_arg<address_space = generic, type = !ptr.ptr<#ptr.generic_space>>]> attributes {enable_workgroup_id_x = false{{.*}}} {
 // CHECK-DAG:     %[[CONSTANT_0:.*]] = arith.constant 16 : i32
 // CHECK-DAG:     %[[CONSTANT_1:.*]] = arith.constant 8 : i32

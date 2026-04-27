@@ -1,7 +1,7 @@
 // RUN: aster-opt %s --split-input-file --verify-diagnostics
 
 // Violation: func.call inside kernel with all_inlined (kernel-level).
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   func.func private @helper(%x: index) -> index {
     return %x : index
   }
@@ -17,7 +17,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 // -----
 
 // Violation: func.call inside module with all_inlined (module-level).
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> attributes {normal_forms = [#amdgcn.all_inlined]} {
+amdgcn.module @mod target = #amdgcn.target<gfx942> attributes {normal_forms = [#amdgcn.all_inlined]} {
   func.func private @helper(%x: index) -> index {
     return %x : index
   }

@@ -17,7 +17,7 @@
 // CHECK:   lsir.select %{{[0-9]+}},
 // CHECK:   test_inst ins %{{[0-9]+}} : (!amdgcn.sgpr<{{[0-9]+}}>)
 // CHECK:   cf.cond_br %{{.*}}, ^bb1, ^bb2
-amdgcn.module @chained_select target = <gfx942> isa = <cdna3> {
+amdgcn.module @chained_select target = <gfx942> {
   kernel @chained_select_loop_3_way_buffer_mux {
     %c0_i32 = arith.constant 0 : i32
     %c1_i32 = arith.constant 1 : i32

@@ -12,7 +12,7 @@
 //   2. permute_bpermute_idempotent: bpermute(permute(data, addr), addr) = data.
 //      Same rotate addr for both steps. Result: output[i] = i.
 
-amdgcn.module @perm_e2e_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @perm_e2e_mod target = #amdgcn.target<gfx942> {
 
   func.func private @load_output_ptr() -> !amdgcn.sgpr<[? + 2]> {
     %out_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>

@@ -19,7 +19,7 @@
 !future_lds_read_any = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<shared>>
 !future_global_read_descriptor_1d = !aster_utils.struct<memref: memref<?x!future_global_read_any>, offset: index>
 
-amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
   //===--------------------------------------------------------------------===//
   // Library function declarations
   //===--------------------------------------------------------------------===//

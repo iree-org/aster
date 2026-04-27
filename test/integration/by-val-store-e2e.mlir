@@ -1,5 +1,5 @@
 // RUN: aster-opt %s --verify-roundtrip
-amdgcn.module @by_val_store_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @by_val_store_mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @by_val_store arguments <[
     #amdgcn.by_val_arg<size = 4, alignment = 4, type = i32>,
     #amdgcn.buffer_arg<address_space = generic, access = write_only>

@@ -37,7 +37,7 @@
 //       ASM:   buffer_load_dword
 //       ASM:   buffer_store_dword
 //       ASM:   s_endpgm
-amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> {
 
   // Load the three pointer args from the kernarg segment, then dereference
   // the params pointer to get the scalar values (num_records are byte counts).

@@ -29,7 +29,7 @@
 !vals_b_buf = memref<?x!rt_B_f16>
 !c_buf = memref<?x!rt_C_f32>
 
-amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> {
   // Library functions (external, provided by preload library)
   func.func private @wave_id() -> index
   // From compute_16x16_f16.mlir (AGPR MFMA and fire-and-forget C tile store)

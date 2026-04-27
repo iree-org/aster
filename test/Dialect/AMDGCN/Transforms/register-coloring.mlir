@@ -866,7 +866,7 @@ func.func @alloc_order() {
   return
 }
 
-amdgcn.module @reg_alloc target = <gfx942> isa = <cdna3> {
+amdgcn.module @reg_alloc target = <gfx942> {
   func.func private @rand() -> i1
   // CHECK-LABEL: coalescing_load
   // CHECK-NOT: v_mov

@@ -15,7 +15,7 @@
 // Pre-allocated registers are treated as constraints: the allocator
 // assigns virtual registers to physical slots that don't conflict.
 
-amdgcn.module @regalloc target = <gfx942> isa = <cdna3> {
+amdgcn.module @regalloc target = <gfx942> {
   amdgcn.kernel @kernel arguments <[
       #amdgcn.buffer_arg<address_space = generic, access = read_only>,
       #amdgcn.buffer_arg<address_space = generic, access = write_only>

@@ -12,7 +12,7 @@
 //   ASM:        s_endpgm
 
 module attributes {dlti.dl_spec = #dlti.dl_spec<!ptr.ptr<#amdgcn.addr_space<local, read_write>> = #ptr.spec<size = 32, abi = 32, preferred = 32>, !ptr.ptr<#amdgcn.addr_space<global, read_write>> = #ptr.spec<size = 64, abi = 64, preferred = 64>>} {
-  amdgcn.module @m target = <gfx942> isa = <cdna3> attributes {normal_forms = [#amdgcn.no_reg_cast_ops]} {
+  amdgcn.module @m target = <gfx942> attributes {normal_forms = [#amdgcn.no_reg_cast_ops]} {
     kernel @copy_kernel arguments <[#amdgcn.buffer_arg<type = !ptr.ptr<#ptr.generic_space>>, #amdgcn.buffer_arg<type = !ptr.ptr<#ptr.generic_space>>, #amdgcn.block_dim_arg<x>, #amdgcn.block_dim_arg<y>, #amdgcn.block_dim_arg<z>, #amdgcn.grid_dim_arg<x>, #amdgcn.grid_dim_arg<y>, #amdgcn.grid_dim_arg<z>]> {
       %0 = load_arg 1 : !amdgcn.sgpr<[? + 2]>
       %1 = load_arg 0 : !amdgcn.sgpr<[? + 2]>

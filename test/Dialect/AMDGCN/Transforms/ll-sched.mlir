@@ -6,7 +6,7 @@
 !s   = !amdgcn.sgpr
 !sx2 = !amdgcn.sgpr<[? + 2]>
 
-amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test target = #amdgcn.target<gfx942> {
 
   // Two independent cmpi+select chains must NOT be interleaved.
   // All i1 producers write to VCC/SCC, so overlapping lifetimes = clobber.

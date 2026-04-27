@@ -13,7 +13,7 @@
 // CHECK:       v_cmp_eq_i32_e64 s[0:1], v0, v1
 // CHECK:       s_endpgm
 
-amdgcn.module @cmp_e64_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @cmp_e64_mod target = #amdgcn.target<gfx942> {
 
   amdgcn.kernel @test_vcmp_eq_i32_e64 {
   ^entry:

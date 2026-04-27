@@ -7,7 +7,7 @@
 // Stage 1: store to output[0] (no IV use)
 // Expected: output[0] = 42
 // ============================================================================
-amdgcn.module @test_two_stage_no_iv target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_two_stage_no_iv target = <gfx942> {
   kernel @test_two_stage_no_iv arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
@@ -45,7 +45,7 @@ amdgcn.module @test_two_stage_no_iv target = <gfx942> isa = <cdna3> {
 // Stage 1: store val to output at byte offset val (no IV use)
 // Expected: output viewed as int32[8] = [0, 4, 8, 12, 16, 20, 24, 28]
 // ============================================================================
-amdgcn.module @test_two_stage_iv_s0_only target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_two_stage_iv_s0_only target = <gfx942> {
   kernel @test_two_stage_iv_s0_only arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
@@ -84,7 +84,7 @@ amdgcn.module @test_two_stage_iv_s0_only target = <gfx942> isa = <cdna3> {
 // Tests that the kernel adjusts the IV correctly for stage 1.
 // Expected: output[i] = i * 3, i.e. [0, 3, 6, 9, 12, 15, 18, 21]
 // ============================================================================
-amdgcn.module @test_two_stage_iv_dep target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_two_stage_iv_dep target = <gfx942> {
   kernel @test_two_stage_iv_dep arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
@@ -133,7 +133,7 @@ amdgcn.module @test_two_stage_iv_dep target = <gfx942> isa = <cdna3> {
 //
 // Stage 4 uses IV for the store offset, testing IV adjustment at depth 4.
 // ============================================================================
-amdgcn.module @test_five_stage target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_five_stage target = <gfx942> {
   kernel @test_five_stage arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {

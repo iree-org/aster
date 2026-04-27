@@ -1,7 +1,7 @@
 // RUN: aster-opt %s --split-input-file --verify-diagnostics
 
 // Violation: amdgcn.load_arg inside kernel with no_metadata_ops.
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @k
       arguments <[#amdgcn.buffer_arg<>]>
       attributes {normal_forms = [#amdgcn.no_metadata_ops]} {
@@ -15,7 +15,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 // -----
 
 // Violation: amdgcn.thread_id inside kernel with no_metadata_ops.
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @k attributes {normal_forms = [#amdgcn.no_metadata_ops]} {
   ^bb0:
     // expected-error @below {{normal form violation: AMDGCN metadata operations are disallowed but found}}
@@ -27,7 +27,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
 // -----
 
 // Violation: amdgcn.block_id inside kernel with no_metadata_ops.
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @k attributes {normal_forms = [#amdgcn.no_metadata_ops]} {
   ^bb0:
     // expected-error @below {{normal form violation: AMDGCN metadata operations are disallowed but found}}

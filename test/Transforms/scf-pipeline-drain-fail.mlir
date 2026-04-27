@@ -59,7 +59,7 @@
 #map8 = affine_map<()[s0, s1, s2, s3, s4] -> (s2 * 4 + ((s3 + s1 * s4) * s0) * 4 + ((s2 + (s3 + s1 * s4) * s0) floordiv 16) * 192 - (((s2 + (s3 + s1 * s4) * s0) floordiv 16) floordiv 4) * 1024 + 128)>
 #map9 = affine_map<()[s0, s1, s2, s3, s4] -> (s2 * 4 + ((s3 + s1 * s4) * s0) * 4 + ((s2 + (s3 + s1 * s4) * s0) floordiv 16) * 192 - (((s2 + (s3 + s1 * s4) * s0) floordiv 16) floordiv 4) * 1024 + 192)>
 module {
-  amdgcn.module @gemm_cdna4_mod target = <gfx950> isa = <cdna4> {
+  amdgcn.module @gemm_cdna4_mod target = <gfx950> {
     func.func private @_read_b(%arg0: index) -> (!aster_utils.any, !aster_utils.any, !amdgcn.read_token<shared>, !amdgcn.read_token<shared>) {
       %c48_i32 = arith.constant 48 : i32
       %c4_i32 = arith.constant 4 : i32

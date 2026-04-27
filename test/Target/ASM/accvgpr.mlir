@@ -49,7 +49,7 @@
 // CHECK:       .amdhsa_accum_offset
 // CHECK:       .agpr_count:
 
-amdgcn.module @agpr_asm_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @agpr_asm_mod target = #amdgcn.target<gfx942> {
 
   func.func private @alloc_vgpr() -> !amdgcn.vgpr
   func.func private @alloc_agprx1() -> !amdgcn.agpr

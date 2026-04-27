@@ -6,7 +6,7 @@
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 
-amdgcn.module @test_global_to_lds_and_back target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_global_to_lds_and_back target = #amdgcn.target<gfx942> {
   // From simple-copies.mlir
   func.func private @simple_global_to_lds_wave_16x16_f16_wait(!tensor_position_descriptor_2d, !lds_position_descriptor_2d)
   func.func private @simple_lds_to_global_wave_16x16_f16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)

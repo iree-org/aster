@@ -6,7 +6,7 @@
 !v   = !amdgcn.vgpr
 
 // 2-stage, scalar iter_arg, no iv.
-amdgcn.module @test_iter_args_scalar_no_iv target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_iter_args_scalar_no_iv target = <gfx942> {
   kernel @test_iter_args_scalar_no_iv arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
@@ -44,7 +44,7 @@ amdgcn.module @test_iter_args_scalar_no_iv target = <gfx942> isa = <cdna3> {
 }
 
 // 2-stage, scalar iter_arg, with iv
-amdgcn.module @test_iter_args_scalar_with_iv target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_iter_args_scalar_with_iv target = <gfx942> {
   kernel @test_iter_args_scalar_with_iv arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
@@ -80,7 +80,7 @@ amdgcn.module @test_iter_args_scalar_with_iv target = <gfx942> isa = <cdna3> {
 }
 
 // 2-stage, VGPR iter_arg (exercises bufferization), no iv
-amdgcn.module @test_iter_args_vgpr_no_iv target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_iter_args_vgpr_no_iv target = <gfx942> {
   kernel @test_iter_args_vgpr_no_iv arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
@@ -128,7 +128,7 @@ amdgcn.module @test_iter_args_vgpr_no_iv target = <gfx942> isa = <cdna3> {
 
 // 2-stage, VGPR iter_arg (exercises bufferization), with iv
 // Combines IV dependence, cross-stage value, VGPR iter_arg, and bufferization.
-amdgcn.module @test_iter_args_vgpr_with_iv target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_iter_args_vgpr_with_iv target = <gfx942> {
   kernel @test_iter_args_vgpr_with_iv arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
@@ -175,7 +175,7 @@ amdgcn.module @test_iter_args_vgpr_with_iv target = <gfx942> isa = <cdna3> {
 // Stage 0: to_reg, stage 1: alloca+vop1 (unused vgpr, cross-stage lifetime),
 // stages 2-4: independent scalar work (exercises prologue/epilogue depth),
 // stage 5: accumulate constant 5 into scalar iter_arg.
-amdgcn.module @test_scf_pipeline_iter_args target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_scf_pipeline_iter_args target = <gfx942> {
   kernel @test_iter_args arguments <[#amdgcn.buffer_arg<address_space = generic>]> {
     %out = load_arg 0 : !amdgcn.sgpr<[? + 2]>
     wait lgkm_cnt 0

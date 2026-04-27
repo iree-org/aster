@@ -15,6 +15,7 @@
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/RegisterType.h"
+#include "aster/Interfaces/TargetAttr.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/DialectImplementation.h"
@@ -419,4 +420,35 @@ AllInlinedAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
                        << cast<func::CallOp>(op).getCallee() << "'";
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// TargetAttr - TargetAttrInterface implementation
+//===----------------------------------------------------------------------===//
+
+mlir::aster::TargetArch TargetAttr::getTarget() const {
+  mlir::aster::TargetArch result;
+  result = getValue();
+  return result;
+}
+
+mlir::aster::TargetFamily TargetAttr::getTargetFamily() const {
+  ISAVersion isa;
+  switch (getValue()) {
+  case amdgcn::Target::GFX940:
+  case amdgcn::Target::GFX942:
+    isa = ISAVersion::CDNA3;
+    break;
+  case amdgcn::Target::GFX950:
+    isa = ISAVersion::CDNA4;
+    break;
+  case amdgcn::Target::GFX1201:
+    isa = ISAVersion::RDNA4;
+    break;
+  case amdgcn::Target::Invalid:
+    llvm_unreachable("invalid target");
+  }
+  mlir::aster::TargetFamily result;
+  result = isa;
+  return result;
 }

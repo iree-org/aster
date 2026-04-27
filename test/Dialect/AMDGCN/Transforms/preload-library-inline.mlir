@@ -13,7 +13,7 @@ module {
     }
   }
 
-  amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  amdgcn.module @mod target = #amdgcn.target<gfx942> {
     func.func private @compute(index) -> index
 
     func.func @use_compute(%x: index) -> index {
@@ -38,7 +38,7 @@ module {
     }
   }
 
-  amdgcn.module @mod_with_own_def_takes_priority target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+  amdgcn.module @mod_with_own_def_takes_priority target = #amdgcn.target<gfx942> {
     func.func @helper(%x: index) -> index {
       %c99 = arith.constant 99 : index
       return %c99 : index

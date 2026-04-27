@@ -28,7 +28,7 @@
 // CHECK:         ^bb2:
 // CHECK:           end_kernel
 
-amdgcn.module @test_uniform_loop target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_uniform_loop target = <gfx942> {
   kernel @test_uniform_loop arguments <[#amdgcn.buffer_arg<address_space = generic, access = read_only>, #amdgcn.buffer_arg<address_space = generic>]> {
     %c0_i32 = arith.constant 0 : i32
     %c1_i32 = arith.constant 1 : i32
@@ -80,7 +80,7 @@ amdgcn.module @test_uniform_loop target = <gfx942> isa = <cdna3> {
 // CHECK:         ^bb2:
 // CHECK:           end_kernel
 
-amdgcn.module @test_uniform_loop_with_load target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_uniform_loop_with_load target = <gfx942> {
   kernel @test_uniform_loop_with_load arguments <[#amdgcn.buffer_arg<address_space = generic, access = read_only>, #amdgcn.buffer_arg<address_space = generic>]> {
     %c2_i32 = arith.constant 2 : i32
     %c1_i32 = arith.constant 1 : i32
@@ -125,7 +125,7 @@ amdgcn.module @test_uniform_loop_with_load target = <gfx942> isa = <cdna3> {
 // CHECK:           lsir.select %[[ALLOCA]], %[[CMP]], %{{.*}}, %{{.*}} : !amdgcn.sgpr, i1, i32, i32
 // CHECK-NOT:       unrealized_conversion_cast
 
-amdgcn.module @test_select_i1 target = <gfx942> isa = <cdna3> {
+amdgcn.module @test_select_i1 target = <gfx942> {
   kernel @test_select_i1 arguments <[#amdgcn.buffer_arg<address_space = generic, access = read_only>, #amdgcn.buffer_arg<address_space = generic>]> {
     %c0_i32 = arith.constant 0 : i32
     %c42_i32 = arith.constant 42 : i32

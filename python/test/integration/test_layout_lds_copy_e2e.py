@@ -25,9 +25,9 @@ LDS_SIZE = N_THREADS * ELEM_BYTES
 LINEAR = Layout(sizes=N_THREADS, strides=ELEM_BYTES)
 
 
-def _build_lds_copy_kernel(name, layout, swizzle=None, target=MCPU, isa="cdna3"):
+def _build_lds_copy_kernel(name, layout, swizzle=None, target=MCPU):
     """Global load -> LDS write (swizzled) -> LDS read -> global store."""
-    b = KernelBuilder(f"{name}_mod", name, target=target, isa=isa)
+    b = KernelBuilder(f"{name}_mod", name, target=target)
     b.set_shared_memory_size(LDS_SIZE)
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.WriteOnly)

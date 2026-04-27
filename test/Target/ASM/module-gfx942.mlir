@@ -105,7 +105,7 @@
 // CHECK:    - 2
 // CHECK:  ---
 // CHECK:    .end_amdgpu_metadata
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_args arguments <[
     #amdgcn.by_val_arg<size=4>,
     #amdgcn.by_val_arg<size=12, alignment=16>,

@@ -26,7 +26,7 @@
 //   - NT_I, NT_J: multi-tile factors (process NT_I x NT_J tiles at once)
 !conditional_execution_descriptor_2d = !aster_utils.struct<k: index, cond_iter: index, NT_I: index, NT_J: index>
 
-amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
   // From simple-copies.mlir
   func.func private @simple_lds_to_global_wave_16x16_f16_wait(!lds_position_descriptor_2d, !tensor_position_descriptor_2d)
   // From multi-tile-copies.mlir (1D linearized memrefs)

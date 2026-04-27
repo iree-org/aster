@@ -11,7 +11,7 @@
 //   s_trap 2 - hardware trap (GPU abort)
 
 module {
-  amdgcn.module @hello target = <gfx942> isa = <cdna3> {
+  amdgcn.module @hello target = <gfx942> {
     kernel @kernel {
     ^entry:
       %v0 = alloca : !amdgcn.vgpr<0>

@@ -37,7 +37,7 @@
 // CHECK:.AMDGCN_BB_2:
 // CHECK:  s_endpgm
 
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   // Test 1: Simple Conditional (If-Then-Else) with trap
   // Pattern: if (5 <= 4) { trap(); } else { end; }
   amdgcn.kernel @test_if_then_else {

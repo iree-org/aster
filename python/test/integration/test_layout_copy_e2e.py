@@ -27,14 +27,13 @@ def _build_copy_kernel(
     swizzle=None,
     use_global=False,
     target=MCPU,
-    isa="cdna3",
 ):
     """Copy kernel: load dwordx4 at layout(+swizzle) offset, store linear.
 
     If use_global=True, uses global load/store (ptr + offset -> VGPRx2).
     Otherwise uses buffer load/store (rsrc + voffset).
     """
-    b = KernelBuilder(f"{name}_mod", name, target=target, isa=isa)
+    b = KernelBuilder(f"{name}_mod", name, target=target)
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.WriteOnly)
     src_ptr, dst_ptr = b.load_args()

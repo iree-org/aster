@@ -17,7 +17,7 @@
 //   - wave_size: number of threads per wave
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
-amdgcn.module @test_copies target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
   //===--------------------------------------------------------------------===//
   // From copies.mlir
   func.func private @global_load_wave_128_f16_via_dword_wait(!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!vx1)

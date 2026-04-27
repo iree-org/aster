@@ -6,7 +6,7 @@
 // CHECK:   0 [label="0
 // CHECK:   1 [label="1
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @no_interference {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -23,7 +23,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   1 [label="1
 // CHECK:   0 -- 1;
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @basic_interference {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -44,7 +44,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   0 -- 2;
 // CHECK:   1 -- 2;
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @three_way_interference {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -63,7 +63,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   0 [label="0
 // CHECK:   1 [label="1
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @no_cross_type_interference {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.sgpr<?>
@@ -84,7 +84,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   0 -- 2;
 // CHECK:   1 -- 2;
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @reg_interference_op {
     %0 = alloca : !amdgcn.sgpr<?>
     %1 = alloca : !amdgcn.sgpr<?>
@@ -105,7 +105,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   2 [label="2
 // CHECK:   0 -- 1;
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @partial_interference {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -125,7 +125,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   0 [label="0
 // CHECK:   1 [label="1
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   func.func private @rand() -> i1
   kernel @diamond_cf {
     %0 = func.call @rand() : () -> i1
@@ -154,7 +154,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   0 -- 1;
 // CHECK:   0 -- 2;
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   func.func private @rand() -> i1
   kernel @live_across_diamond {
     %0 = func.call @rand() : () -> i1
@@ -183,7 +183,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   0 [label="0
 // CHECK:   1 [label="1
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @sequential_use {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -214,7 +214,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   2 -- 4;
 // CHECK:   3 -- 4;
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @many_overlapping {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -245,7 +245,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   8 [label="8
 // CHECK:   0 -- 1;
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @phi_coalescing_2 {
     %c0_i32 = arith.constant 0 : i32
     %0 = alloca : !amdgcn.vgpr<?>
@@ -289,7 +289,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   0 -- 4;
 // CHECK:   1 -- 4;
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @phi_coalescing_3 {
     %c0_i32 = arith.constant 0 : i32
     %0 = alloca : !amdgcn.vgpr<?>
@@ -321,7 +321,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   1 [label="1, %1"];
 // CHECK:   0 -- 1;
 // }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @multi_out {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>
@@ -343,7 +343,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   0 -- 2;
 // CHECK:   1 -- 2;
 // CHECK: }
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   func.func private @rand() -> i1
   kernel @block_entry_interference {
     %0 = func.call @rand() : () -> i1
@@ -379,7 +379,7 @@ amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
 // CHECK:   1 -- 2;
 // CHECK:   1 -- 3;
 // FULL:  2 -- 3;
-amdgcn.module @interference_tests target = <gfx942> isa = <cdna3> {
+amdgcn.module @interference_tests target = <gfx942> {
   kernel @full_interference {
     %0 = alloca : !amdgcn.vgpr<?>
     %1 = alloca : !amdgcn.vgpr<?>

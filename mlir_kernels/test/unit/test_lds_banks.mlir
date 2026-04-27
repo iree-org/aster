@@ -7,7 +7,7 @@
 !index_tuple_8 = !aster_utils.struct<b0: index, b1: index, b2: index, b3: index, b4: index, b5: index, b6: index, b7: index>
 !tensor_position_descriptor_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, elt_size: index>
 
-amdgcn.module @test_indexing target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
   //===--------------------------------------------------------------------===//
   // From indexing.mlir
   func.func private @tiled_matrix_offset(!index_descriptor_2level_2d) -> !v

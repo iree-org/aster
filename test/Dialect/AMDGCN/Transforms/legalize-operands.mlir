@@ -8,7 +8,7 @@
 // CHECK:         %[[OUT:.*]] = alloca : !amdgcn.sgpr
 // CHECK:         %[[MOV:.*]] = sop1 s_mov_b32 outs %[[OUT]] ins %{{.*}} : !amdgcn.sgpr, i32
 // CHECK:         lsir.select %{{.*}}, %{{.*}}, %[[MOV]], %{{.*}} : !amdgcn.sgpr, i1, !amdgcn.sgpr, i32
-amdgcn.module @dual_literal_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @dual_literal_mod target = <gfx942> {
   amdgcn.kernel @dual_literal_select {
     %c0 = arith.constant 0 : i32
     %c544 = arith.constant 544 : i32
@@ -30,7 +30,7 @@ amdgcn.module @dual_literal_mod target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @one_inline_select
 // CHECK-NOT:     sop1 s_mov_b32
 // CHECK:         lsir.select %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.sgpr, i1, i32, i32
-amdgcn.module @one_inline_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @one_inline_mod target = <gfx942> {
   amdgcn.kernel @one_inline_select {
     %c0 = arith.constant 0 : i32
     %c10 = arith.constant 10 : i32
@@ -52,7 +52,7 @@ amdgcn.module @one_inline_mod target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @both_inline_select
 // CHECK-NOT:     sop1 s_mov_b32
 // CHECK:         lsir.select %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.sgpr, i1, i32, i32
-amdgcn.module @both_inline_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @both_inline_mod target = <gfx942> {
   amdgcn.kernel @both_inline_select {
     %c0 = arith.constant 0 : i32
     %c10 = arith.constant 10 : i32
@@ -75,7 +75,7 @@ amdgcn.module @both_inline_mod target = <gfx942> isa = <cdna3> {
 // CHECK:         %[[A:.*]] = sop1 s_mov_b32
 // CHECK:         %[[B:.*]] = sop1 s_mov_b32
 // CHECK:         lsir.select %{{.*}}, %{{.*}}, %[[A]], %[[B]] : !amdgcn.sgpr, i1, !amdgcn.sgpr, !amdgcn.sgpr
-amdgcn.module @non_constant_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @non_constant_mod target = <gfx942> {
   amdgcn.kernel @non_constant_select {
     %c0 = arith.constant 0 : i32
     %s0 = alloca : !amdgcn.sgpr
@@ -98,7 +98,7 @@ amdgcn.module @non_constant_mod target = <gfx942> isa = <cdna3> {
 // CHECK-LABEL: kernel @boundary_inline_select
 // CHECK-NOT:     sop1 s_mov_b32
 // CHECK:         lsir.select {{.*}} : !amdgcn.sgpr, i1, i32, i32
-amdgcn.module @boundary_inline_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @boundary_inline_mod target = <gfx942> {
   amdgcn.kernel @boundary_inline_select {
     %c0 = arith.constant 0 : i32
     %cn16 = arith.constant -16 : i32
@@ -122,7 +122,7 @@ amdgcn.module @boundary_inline_mod target = <gfx942> isa = <cdna3> {
 // CHECK:         %[[OUT:.*]] = alloca : !amdgcn.sgpr
 // CHECK:         sop1 s_mov_b32 outs %[[OUT]]
 // CHECK:         lsir.select {{.*}} : !amdgcn.sgpr, i1, !amdgcn.sgpr, i32
-amdgcn.module @boundary_non_inline_mod target = <gfx942> isa = <cdna3> {
+amdgcn.module @boundary_non_inline_mod target = <gfx942> {
   amdgcn.kernel @boundary_non_inline_select {
     %c0 = arith.constant 0 : i32
     %cn17 = arith.constant -17 : i32

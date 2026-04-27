@@ -27,7 +27,7 @@
 !future_global_read = !aster_utils.struct<value: !aster_utils.any, token: !amdgcn.read_token<flat>>
 !index_pair = !aster_utils.struct<i: index, j: index>
 
-amdgcn.module @kittens_gemm_2wave_lds target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @kittens_gemm_2wave_lds target = #amdgcn.target<gfx942> {
   // From mlir_kernels/library/common/indexing.mlir
   func.func private @wave_id() -> index
 

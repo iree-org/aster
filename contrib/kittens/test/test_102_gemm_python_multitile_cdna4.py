@@ -177,7 +177,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
 
     d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
 
-    b = KernelBuilder("gemm_cdna4_mod", cfg.kernel_name, target=mapping.mcpu, isa=mapping.isa)
+    b = KernelBuilder("gemm_cdna4_mod", cfg.kernel_name, target=mapping.mcpu)
     b.set_block_dims(mapping.num_threads)
     b.set_grid_dims(mapping.num_workgroups)
     b.add_ptr_arg(AccessKind.ReadOnly)

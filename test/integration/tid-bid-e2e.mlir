@@ -10,7 +10,7 @@
 //   thread_id: x=42 (1D/2D), x=10,y=5,z=7 (3D, fits 1024-thread WG limit)
 //   block_id:  x=42,y=5,z=7
 
-amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> {
 
   // Helper: load output pointer from kernel arg 0.
   func.func private @load_output_ptr() -> !amdgcn.sgpr<[? + 2]> {

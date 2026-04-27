@@ -27,7 +27,7 @@
 // CHECK:     .AMDGCN_BB_1:
 // CHECK:       s_endpgm
 
-amdgcn.module @vopc_branch_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @vopc_branch_mod target = #amdgcn.target<gfx942> {
 
   // Test 1: imm < VGPR, branch on VCC non-zero
   amdgcn.kernel @test_vcmp_lt_i32_vccnz {

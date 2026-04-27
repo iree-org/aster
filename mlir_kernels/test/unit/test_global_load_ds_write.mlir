@@ -11,7 +11,7 @@
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 !transfer_descriptor_2d = !aster_utils.struct<num_rows: index, transfer_size: index, wave_size: index>
 
-amdgcn.module @test_global_load_ds_write target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_global_load_ds_write target = #amdgcn.target<gfx942> {
   // From register-init.mlir
   func.func private @alloc_vgprx2() -> !vx2
   // From indexing.mlir

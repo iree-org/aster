@@ -22,7 +22,7 @@
 // CHECK:       ds_bpermute_b32 v2, v0, v1 offset: 8
 // CHECK:       s_endpgm
 
-amdgcn.module @perm_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @perm_mod target = #amdgcn.target<gfx942> {
 
   amdgcn.kernel @test_permute {
   ^entry:

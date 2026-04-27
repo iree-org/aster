@@ -78,7 +78,7 @@
 // CHECK:    - 2
 // CHECK:  ---
 // CHECK:    .end_amdgpu_metadata
-amdgcn.module @gfx950_mod target = #amdgcn.target<gfx950> isa = #amdgcn.isa<cdna4> {
+amdgcn.module @gfx950_mod target = #amdgcn.target<gfx950> {
   amdgcn.kernel @simple_kernel {
     %0 = amdgcn.alloca : !amdgcn.vgpr<2>
     %c42 = arith.constant 42 : i32

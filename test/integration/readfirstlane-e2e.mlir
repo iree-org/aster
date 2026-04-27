@@ -1,6 +1,6 @@
 // RUN: aster-opt %s --verify-roundtrip
 
-amdgcn.module @readfirstlane_mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @readfirstlane_mod target = #amdgcn.target<gfx942> {
 
   func.func private @load_output_ptr() -> !amdgcn.sgpr<[? + 2]> {
     %out_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>

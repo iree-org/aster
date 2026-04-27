@@ -154,7 +154,7 @@ def test_kernel_builder_empty_kernel():
     """KernelBuilder produces a parseable amdgcn.module with an empty kernel."""
     ctx = _ctx()
     with ctx:
-        b = KernelBuilder("mymod", "empty_kernel", target="gfx942", isa="cdna3")
+        b = KernelBuilder("mymod", "empty_kernel", target="gfx942")
         module = b.build()
         assert module is not None
         text = str(module)
@@ -166,7 +166,7 @@ def test_kernel_builder_alloca_vgpr():
     """KernelBuilder.alloca_vgpr() produces an AllocaOp in the kernel body."""
     ctx = _ctx()
     with ctx:
-        b = KernelBuilder("m", "k", target="gfx942", isa="cdna3")
+        b = KernelBuilder("m", "k", target="gfx942")
         v = b.alloca_vgpr()
         assert v is not None
         module = b.build()
@@ -178,7 +178,7 @@ def test_kernel_builder_alloca_sgpr():
     """KernelBuilder.alloca_sgpr() produces an AllocaOp in the kernel body."""
     ctx = _ctx()
     with ctx:
-        b = KernelBuilder("m", "k", target="gfx942", isa="cdna3")
+        b = KernelBuilder("m", "k", target="gfx942")
         s = b.alloca_sgpr()
         assert s is not None
         module = b.build()
@@ -190,7 +190,7 @@ def test_kernel_builder_wait_vmcnt():
     """KernelBuilder.wait_vmcnt() inserts s_waitcnt vmcnt=0."""
     ctx = _ctx()
     with ctx:
-        b = KernelBuilder("m", "k", target="gfx942", isa="cdna3")
+        b = KernelBuilder("m", "k", target="gfx942")
         b.wait_vmcnt(0)
         module = b.build()
         text = str(module)
@@ -202,7 +202,7 @@ def test_kernel_builder_wait_lgkmcnt():
     """KernelBuilder.wait_lgkmcnt() inserts s_waitcnt lgkmcnt=0."""
     ctx = _ctx()
     with ctx:
-        b = KernelBuilder("m", "k", target="gfx942", isa="cdna3")
+        b = KernelBuilder("m", "k", target="gfx942")
         b.wait_lgkmcnt(0)
         module = b.build()
         text = str(module)
@@ -214,7 +214,7 @@ def test_kernel_builder_arith_constant():
     """KernelBuilder.constant_i32() produces an arith.constant op."""
     ctx = _ctx()
     with ctx:
-        b = KernelBuilder("m", "k", target="gfx942", isa="cdna3")
+        b = KernelBuilder("m", "k", target="gfx942")
         c = b.constant_i32(42)
         assert c is not None
         module = b.build()
@@ -228,7 +228,7 @@ def test_kernel_builder_with_ptr_args():
 
     ctx = _ctx()
     with ctx:
-        b = KernelBuilder("m", "k", target="gfx942", isa="cdna3")
+        b = KernelBuilder("m", "k", target="gfx942")
         b.add_ptr_arg(AccessKind.ReadOnly)
         b.add_ptr_arg(AccessKind.ReadWrite)
         ptrs = b.load_args()
@@ -243,7 +243,7 @@ def test_kernel_builder_with_ptr_args():
 # ---------------------------------------------------------------------------
 
 
-def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Module:
+def build_tiledmma_module(target: str = "gfx942") -> ir.Module:
     """Build a tiledmma kernel: A[16x16 f16] x B[16x16 f16]^T -> C[16x16 f32].
 
     Uses MFMA register-to-matrix layout (ISA Section 7.1.4) for loads/stores:
@@ -258,7 +258,7 @@ def build_tiledmma_module(target: str = "gfx942", isa: str = "cdna3") -> ir.Modu
     from aster.dialects.amdgcn import AccessKind
     from aster.layout import Layout
 
-    b = KernelBuilder("tiledmma_mod", "tiledmma", target=target, isa=isa)
+    b = KernelBuilder("tiledmma_mod", "tiledmma", target=target)
     b.add_ptr_arg(AccessKind.ReadOnly)  # A
     b.add_ptr_arg(AccessKind.ReadOnly)  # B
     b.add_ptr_arg(AccessKind.WriteOnly)  # C/D
@@ -318,7 +318,7 @@ def _kernel_with(fn):
     """Build a minimal kernel, call fn(builder) inside, return module text."""
     ctx = _ctx()
     with ctx:
-        b = KernelBuilder("m", "k", target="gfx942", isa="cdna3")
+        b = KernelBuilder("m", "k", target="gfx942")
         b.add_ptr_arg(AccessKind.ReadOnly)
         b.load_args()
         fn(b)

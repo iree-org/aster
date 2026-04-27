@@ -26,7 +26,7 @@
 // CHECK:.AMDGCN_BB_1:
 // CHECK:  s_endpgm
 
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_cbranch_scc1 {
   ^entry:
     %s2 = amdgcn.alloca : !amdgcn.sgpr<2>

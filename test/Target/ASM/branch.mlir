@@ -83,7 +83,7 @@
 // CHECK:  - 2
 // CHECK:  ---
 // CHECK:.end_amdgpu_metadata
-amdgcn.module @mod target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_branch {
   ^entry:
     amdgcn.branch s_branch ^next

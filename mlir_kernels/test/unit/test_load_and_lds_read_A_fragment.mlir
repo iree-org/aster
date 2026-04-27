@@ -9,7 +9,7 @@
 !lds_position_descriptor_2d = !aster_utils.struct<lds_base: index, m_pos: index, n_pos: index, lds_stride_in_bytes: index, elt_size: index>
 !tensor_position_descriptor_2level_2d = !aster_utils.struct<ptr: !sx2, m_pos: index, n_pos: index, global_stride_in_bytes: index, mm_pos: index, nn_pos: index, elt_size: index>
 
-amdgcn.module @test_load_and_lds_read_A_fragment target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
+amdgcn.module @test_load_and_lds_read_A_fragment target = #amdgcn.target<gfx942> {
   // From copies.mlir
   func.func private @global_load_to_lds_wave_16x16_f16_wait(!tensor_position_descriptor_2level_2d, index, index)
   func.func private @lds_read_A_wave_16x16_f16_fragment_wait(!lds_position_descriptor_2d, i1) -> !vx2

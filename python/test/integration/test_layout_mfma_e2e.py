@@ -29,9 +29,9 @@ MFMA_AB_LAYOUT = Layout(sizes=(4, 16), strides=(8, 32))
 MFMA_C_LAYOUT = Layout(sizes=(4, 16), strides=(16, 64))
 
 
-def _build_mfma_kernel(name, target=MCPU, isa="cdna3"):
+def _build_mfma_kernel(name, target=MCPU):
     """Single-wave MFMA 16x16x16 f16: D = A @ B^T + C."""
-    b = KernelBuilder(f"{name}_mod", name, target=target, isa=isa)
+    b = KernelBuilder(f"{name}_mod", name, target=target)
     b.add_ptr_arg(AccessKind.ReadOnly)  # A
     b.add_ptr_arg(AccessKind.ReadOnly)  # B
     b.add_ptr_arg(AccessKind.WriteOnly)  # C/D
@@ -103,9 +103,9 @@ LDS_SWIZZLE = Swizzle(bits=2, base=4, shift=6)
 LDS_B_BASE = 512  # A occupies bytes 0..511, B occupies 512..1023
 
 
-def _build_mfma_lds_kernel(name, target=MCPU, isa="cdna3"):
+def _build_mfma_lds_kernel(name, target=MCPU):
     """Coalesced global load -> swizzled LDS write -> MFMA-layout LDS read -> MFMA."""
-    b = KernelBuilder(f"{name}_mod", name, target=target, isa=isa)
+    b = KernelBuilder(f"{name}_mod", name, target=target)
     b.set_shared_memory_size(1024)  # 512 A + 512 B
     b.add_ptr_arg(AccessKind.ReadOnly)  # A
     b.add_ptr_arg(AccessKind.ReadOnly)  # B
@@ -203,7 +203,7 @@ LDS_PER_WAVE = TILE_AB_BYTES * 2  # 1024 (512 A + 512 B)
 MWG_LDS_SIZE = WAVES_PER_WG * LDS_PER_WAVE  # 6144
 
 
-def _build_mfma_multiwg_kernel(name, target=MCPU, isa="cdna3"):
+def _build_mfma_multiwg_kernel(name, target=MCPU):
     """Multi-WG multi-wave MFMA: coalesced load -> LDS relayout -> MFMA -> store.
 
     Grid: (N_WG_X, N_WG_Y, 1), Block: (THREADS_PER_WG, 1, 1).
@@ -211,7 +211,7 @@ def _build_mfma_multiwg_kernel(name, target=MCPU, isa="cdna3"):
     B is [TOTAL_N, 16] f16 row-major.  Each wave's B tile: rows [n_start:n_start+16].
     C is tiled: N_TILES_M * N_TILES_N tiles of 16x16 f32, each tile contiguous.
     """
-    b = KernelBuilder(f"{name}_mod", name, target=target, isa=isa)
+    b = KernelBuilder(f"{name}_mod", name, target=target)
     b.set_shared_memory_size(MWG_LDS_SIZE)
     b.add_ptr_arg(AccessKind.ReadOnly)  # A
     b.add_ptr_arg(AccessKind.ReadOnly)  # B

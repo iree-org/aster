@@ -1,6 +1,6 @@
 // RUN: aster-opt %s --test-amdgcn-interference-analysis=optimize=true --split-input-file 2>&1 | FileCheck %s
 
-amdgcn.module @reg_alloc target = <gfx942> isa = <cdna3> {
+amdgcn.module @reg_alloc target = <gfx942> {
 // CHECK-LABEL: Function: coalescing_load
 // CHECK: graph RegisterInterference {
 // CHECK:   0 [label="0, %0"];

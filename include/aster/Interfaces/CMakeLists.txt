@@ -66,3 +66,8 @@ set(LLVM_TARGET_DEFINITIONS SchedInterfaces.td)
 mlir_tablegen(SchedInterfaces.h.inc -gen-attr-interface-decls)
 mlir_tablegen(SchedInterfaces.cpp.inc -gen-attr-interface-defs)
 add_public_tablegen_target(SchedInterfacesIncGen)
+
+set(LLVM_TARGET_DEFINITIONS TargetAttr.td)
+mlir_tablegen(TargetAttr.h.inc -gen-attr-interface-decls)
+mlir_tablegen(TargetAttr.cpp.inc -gen-attr-interface-defs)
+add_public_tablegen_target(TargetAttrIncGen)
