@@ -243,16 +243,46 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
       return originalForOp.emitError("rotate-stage ")
              << rotateStage << " does not appear in the loop body";
 
-    // Stable-sort by cyclic distance from rotateStage so the rotated stage
-    // (distance 0) leads, then distance 1, 2, ... wrapping around.
-    int64_t numStages = info.maxStage + 1;
-    llvm::stable_sort(info.opOrder, [&](Operation *a, Operation *b) {
-      int64_t da =
-          wrappedStageDistance(rotateStage, info.stages.lookup(a), numStages);
-      int64_t db =
-          wrappedStageDistance(rotateStage, info.stages.lookup(b), numStages);
-      return da < db;
-    });
+    // Rotation only re-permutes static body order; it relies on the kernel
+    // author's explicit stage tags being monotonically non-decreasing in
+    // original program order. An explicitly-staged-S op physically following
+    // an explicitly-staged-T op with T > S means the author encoded a runtime
+    // ordering (e.g. WAR barrier placed after later-stage ops, or A/B writes
+    // at different stages from an asymmetric pipeline strategy) that rotation
+    // would silently scramble. Untagged ops have stages inferred from operands
+    // and carry no author-intended ordering, so they are skipped.
+    //
+    // When non-monotonic, skip rotation (best-effort) and emit a remark; the
+    // pipeliner proceeds with the original program order.
+    bool monotonic = true;
+    int64_t lastStage = 0;
+    for (Operation *op : info.opOrder) {
+      if (!op->hasAttr(kSchedStageAttr))
+        continue;
+      int64_t s = info.stages.lookup(op);
+      if (s < lastStage) {
+        originalForOp.emitRemark("rotate-stage skipped: stage ")
+            << s << " op physically follows stage " << lastStage
+            << " op in the loop body. Rotation requires non-decreasing stage "
+               "assignment in program order; rotation will not be applied.";
+        monotonic = false;
+        break;
+      }
+      lastStage = std::max(lastStage, s);
+    }
+
+    if (monotonic) {
+      // Stable-sort by cyclic distance from rotateStage so the rotated stage
+      // (distance 0) leads, then distance 1, 2, ... wrapping around.
+      int64_t numStages = info.maxStage + 1;
+      llvm::stable_sort(info.opOrder, [&](Operation *a, Operation *b) {
+        int64_t da =
+            wrappedStageDistance(rotateStage, info.stages.lookup(a), numStages);
+        int64_t db =
+            wrappedStageDistance(rotateStage, info.stages.lookup(b), numStages);
+        return da < db;
+      });
+    }
   }
   info.numStages = info.maxStage + 1;
   assert(info.numStages > 0);

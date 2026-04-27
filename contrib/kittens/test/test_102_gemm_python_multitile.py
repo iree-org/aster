@@ -336,15 +336,10 @@ def _build_multitile_gemm(
         # lds_at_write=False: allocate early (at earliest LOAD stage) for max
         #   buffer distance.  Both A and B share the same alloc stage so the
         #   multi-buffer allocator sees them together.
-        # lds_at_write=True: allocate late (at each operand's WRITE stage) to
-        #   reduce the number of live buffers.
-        if lds_at_write:
-            with b.stage(STG_A_LDS_WRITE):
-                lds_a_h, lds_a = b.alloc_lds(lds_total_a)
-            if not direct_b:
-                with b.stage(STG_B_LDS_WRITE):
-                    lds_b_h, lds_b = b.alloc_lds(lds_total_b)
-        else:
+        # lds_at_write=True: allocate inside each operand's WRITE block (below)
+        #   to reduce the number of live buffers; allocs are physically placed
+        #   after the loads to keep stage assignment monotonic for rotation.
+        if not lds_at_write:
             early_load = min(STG_A_LOAD, STG_B_LOAD) if not direct_b else STG_A_LOAD
             with b.stage(early_load):
                 lds_a_h, lds_a = b.alloc_lds(lds_total_a)
@@ -409,6 +404,8 @@ def _build_multitile_gemm(
 
         # -- LDS WRITE A --
         with b.stage(STG_A_LDS_WRITE):
+            if lds_at_write:
+                lds_a_h, lds_a = b.alloc_lds(lds_total_a)
             coop_a_lds_off = b.linearize_layout(
                 b.linearize_index((coop_a_k_start, coop_a_m_start), (k_t, twg_m)), LDS_COORD_A
             )
@@ -427,6 +424,8 @@ def _build_multitile_gemm(
         # -- LDS WRITE B (skipped for direct_b) --
         if not direct_b:
             with b.stage(STG_B_LDS_WRITE):
+                if lds_at_write:
+                    lds_b_h, lds_b = b.alloc_lds(lds_total_b)
                 coop_b_lds_off = b.linearize_layout(
                     b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), LDS_COORD_B
                 )
@@ -496,12 +495,13 @@ def _build_multitile_gemm(
 
         # WAR barrier: when LDS write and read share don't have enough delay, all
         # waves must finish reading before any wave starts writing in the next
-        # iteration.
+        # iteration. Tagged at the READ stage to keep stage assignment
+        # monotonic in program order (rotation requires non-decreasing stages).
         if lds_at_write and STG_A_LDS_READ - STG_A_LDS_WRITE <= 1:
-            with b.stage(STG_A_LDS_WRITE):
+            with b.stage(STG_A_LDS_READ):
                 b.s_barrier()
         if not direct_b and lds_at_write and STG_B_LDS_READ - STG_B_LDS_WRITE <= 1:
-            with b.stage(STG_B_LDS_WRITE):
+            with b.stage(STG_B_LDS_READ):
                 b.s_barrier()
 
         # -- COMPUTE --
