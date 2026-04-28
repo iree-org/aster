@@ -13,6 +13,13 @@
 //                       + affine.linearize_index_by_strides
 //   layout.swizzle   -> arith bit ops (index_cast + shrui + andi + xori)
 //
+// The "disjoint" `affine.linearize_index` carries static "no internal alias"
+// information that is useful for early analyses and canonicalizations.
+// By the time we reach LowerLayoutToAffine we need to lower out to efficient
+// low-level IR. `LinearizeIndexBoundedToStrides` rewrites "disjoint"
+// `affine.linearize_index` to AffineLinearizeByStrideOp, which canonicalizes
+// better around stride-1 patterns.
+//
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/Layout/Transforms/Passes.h"
@@ -98,6 +105,34 @@ struct LowerLinearizePattern : public OpRewritePattern<LinearizeOp> {
   }
 };
 
+/// Rewrite `affine.linearize_index disjoint [c0..cN] by (B0..BN)` (outer-
+/// bounded, fully static basis) to `affine.linearize_index_by_strides
+/// [c0..cN] by suffix_product(B0..BN)`.
+///
+/// Both forms compute the same arithmetic. The bounded form encodes a static
+/// range bound at the type level, but downstream canonicalization patterns
+/// simplify the strides form more aggressively (drop unit-stride dimensions,
+/// fuse with consuming `affine.apply`), which produces tighter address
+/// arithmetic during scheduling and codegen.
+struct LinearizeIndexBoundedToStrides
+    : public OpRewritePattern<affine::AffineLinearizeIndexOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(affine::AffineLinearizeIndexOp op,
+                                PatternRewriter &rewriter) const override {
+    if (!op.hasOuterBound())
+      return rewriter.notifyMatchFailure(op, "no outer bound");
+    if (!op.getDynamicBasis().empty())
+      return rewriter.notifyMatchFailure(op, "dynamic basis");
+
+    ArrayRef<int64_t> basis = op.getStaticBasis();
+    SmallVector<int64_t> strides = computeSuffixProduct(basis);
+    rewriter.replaceOpWithNewOp<affine::AffineLinearizeIndexByStridesOp>(
+        op, op.getMultiIndex(), strides);
+    return success();
+  }
+};
+
 struct LowerSwizzlePattern : public OpRewritePattern<SwizzleOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -140,7 +175,8 @@ struct LowerLayoutToAffinePass
 
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
-    patterns.add<LowerLinearizePattern, LowerSwizzlePattern>(&getContext());
+    patterns.add<LowerLinearizePattern, LinearizeIndexBoundedToStrides,
+                 LowerSwizzlePattern>(&getContext());
 
     if (failed(applyPatternsGreedily(
             getOperation(), std::move(patterns),
