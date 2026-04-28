@@ -587,6 +587,10 @@ class WeakScaledMappedGemmInstance:
         )
 
     # --- Label serde ---
+    #
+    # Every pinable knob is always serialized with an explicit value so the
+    # label is a complete, unambiguous repro of the (spec, mapping) pair.
+    # No silent defaults: round-trip is exact.
 
     _LABEL_RE = None
 
@@ -599,17 +603,18 @@ class WeakScaledMappedGemmInstance:
                 r"^m(\d+)xn(\d+)xk(\d+)"
                 r"_wg(\d+)x(\d+)x(\d+)_w(\d+)x(\d+)x(\d+)"
                 r"_twg(\d+)x(\d+)x(\d+)_pipestrat(\d+)"
-                r"(?:_wgcu(\d+))?"
-                r"(_nolcm)?"
-                r"(?:_um(\d+))?"
-                r"(_nopeel)?"
-                r"(_llsched)?"
-                r"(?:_ixdl(\d+))?"
-                r"(_hoistwait)?"
-                r"(_ldsw)?"
-                r"(_nosetprio)?"
-                r"(_norotc)?"
-                r"_(?:(direct_ab|direct_b)_)?(flat|buf)$"
+                r"_wgcu(\d+)"
+                r"_lcm([01])"
+                r"_um(\d+)"
+                r"_peel([01])"
+                r"_llsched([01])"
+                r"_ixdl(\d+)"
+                r"_hoistwait([01])"
+                r"_ldsw([01])"
+                r"_setprio([01])"
+                r"_rotc([01])"
+                r"_b_(lds|direct_b|direct_ab)"
+                r"_lt_(flat|buf)$"
             )
         return cls._LABEL_RE
 
@@ -634,21 +639,20 @@ class WeakScaledMappedGemmInstance:
             twg_k,
             pipestrat,
             wgcu,
-            nolcm,
+            lcm,
             um,
-            nopeel,
+            peel,
             llsched,
             ixdl,
             hoistwait,
             ldsw,
-            nosetprio,
-            norotc,
-            direct,
+            setprio,
+            rotc,
+            b_path,
             lt,
         ) = m.groups()
 
         load_type = "buffer" if lt == "buf" else "flat"
-        b_path = direct if direct else "lds"
         wg = [int(wg_m), int(wg_n), int(wg_k)]
         wpw = [int(waves_m), int(waves_n), int(waves_k)]
         tiles_wg = [int(twg_m), int(twg_n), int(twg_k)]
@@ -665,16 +669,16 @@ class WeakScaledMappedGemmInstance:
             pipeline_strategy=int(pipestrat),
             load_type=LoadType(load_type),
             operand_path=OperandPath(b_path),
-            num_wg_per_cu=int(wgcu) if wgcu else 1,
-            lcm_unroll=nolcm is None,
-            unroll_factor_multiplier=int(um) if um else 1,
-            epilogue_peeling=nopeel is None,
-            ll_sched=llsched is not None,
-            interleave_xdl=int(ixdl) if ixdl else 0,
-            hoist_wait=hoistwait is not None,
-            lds_at_write=ldsw is not None,
-            set_mfma_priority=nosetprio is None,
-            rotate_compute_stage=norotc is None,
+            num_wg_per_cu=int(wgcu),
+            lcm_unroll=lcm == "1",
+            unroll_factor_multiplier=int(um),
+            epilogue_peeling=peel == "1",
+            ll_sched=llsched == "1",
+            interleave_xdl=int(ixdl),
+            hoist_wait=hoistwait == "1",
+            lds_at_write=ldsw == "1",
+            set_mfma_priority=setprio == "1",
+            rotate_compute_stage=rotc == "1",
         )
         cfg = cls(spec, mapping)
         assert cfg.label == label, f"Round-trip failed: {cfg.label!r} != {label!r}"
@@ -682,38 +686,30 @@ class WeakScaledMappedGemmInstance:
 
     @property
     def label(self) -> str:
-        wg = self.mapping.num_workgroups_per_kernel
-        twg = self.mapping.num_tiles_per_workgroup
-        tile_str = f"_twg{twg[DIM_M]}x{twg[DIM_N]}x{twg[DIM_K]}"
-        lcm = "" if self.mapping.lcm_unroll else "_nolcm"
-        um = (
-            f"_um{self.mapping.unroll_factor_multiplier}"
-            if self.mapping.unroll_factor_multiplier > 1
-            else ""
-        )
-        peel = "" if self.mapping.epilogue_peeling else "_nopeel"
-        llsched = "_llsched" if self.mapping.ll_sched else ""
-        ixdl = (
-            f"_ixdl{self.mapping.interleave_xdl}" if self.mapping.interleave_xdl else ""
-        )
-        hoistwait = "_hoistwait" if self.mapping.hoist_wait else ""
-        ldswrite = "_ldsw" if self.mapping.lds_at_write else ""
-        nosetprio = "" if self.mapping.set_mfma_priority else "_nosetprio"
-        norotc = "" if self.mapping.rotate_compute_stage else "_norotc"
-        wgcu = (
-            f"_wgcu{self.mapping.num_wg_per_cu}"
-            if self.mapping.num_wg_per_cu != 1
-            else ""
-        )
-        lt = "buf" if self.load_type == "buffer" else "flat"
-        suffix = f"_{self.b_path}_{lt}" if self.b_path != "lds" else f"_{lt}"
+        m = self.mapping
+        wg = m.num_workgroups_per_kernel
+        wpw = m.num_waves_per_workgroup
+        twg = self.num_tiles_per_workgroup
         gs = self.gemm_size
+        lt = "buf" if m.load_type == LoadType.BUFFER else "flat"
         return (
             f"m{gs[DIM_M]}xn{gs[DIM_N]}xk{gs[DIM_K]}"
             f"_wg{wg[DIM_M]}x{wg[DIM_N]}x{wg[DIM_K]}"
-            f"_w{self.mapping.num_waves_per_workgroup[DIM_M]}x{self.mapping.num_waves_per_workgroup[DIM_N]}x{self.mapping.num_waves_per_workgroup[DIM_K]}"
-            f"{tile_str}_pipestrat{self.mapping.pipeline_strategy}"
-            f"{wgcu}{lcm}{um}{peel}{llsched}{ixdl}{hoistwait}{ldswrite}{nosetprio}{norotc}{suffix}"
+            f"_w{wpw[DIM_M]}x{wpw[DIM_N]}x{wpw[DIM_K]}"
+            f"_twg{twg[DIM_M]}x{twg[DIM_N]}x{twg[DIM_K]}"
+            f"_pipestrat{m.pipeline_strategy}"
+            f"_wgcu{m.num_wg_per_cu}"
+            f"_lcm{int(m.lcm_unroll)}"
+            f"_um{m.unroll_factor_multiplier}"
+            f"_peel{int(m.epilogue_peeling)}"
+            f"_llsched{int(m.ll_sched)}"
+            f"_ixdl{m.interleave_xdl}"
+            f"_hoistwait{int(m.hoist_wait)}"
+            f"_ldsw{int(m.lds_at_write)}"
+            f"_setprio{int(m.set_mfma_priority)}"
+            f"_rotc{int(m.rotate_compute_stage)}"
+            f"_b_{m.operand_path.value}"
+            f"_lt_{lt}"
         )
 
     # --- Fallback delegation ---

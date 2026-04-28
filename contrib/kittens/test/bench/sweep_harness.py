@@ -240,6 +240,35 @@ def add_scheduling_axes(grid: SweepGrid, unroll_multipliers: Optional[Sequence[i
     return grid
 
 
+# Sweep-axis -> GemmMappingSpec kwarg. Centralizes the contract between the
+# sweep harness and GemmMappingSpec so that pinning works end-to-end across
+# every bench_perf script. If a bench adds a new axis whose value must reach
+# GemmMappingSpec, add it here in one place rather than threading a new field
+# through every _build_instance.
+_SWEEP_TO_MAPPING_KWARG = {
+    "lcm_unroll": "lcm_unroll",
+    "unroll_mult": "unroll_factor_multiplier",
+    "epilogue_peeling": "epilogue_peeling",
+    "ll_sched": "ll_sched",
+    "interleave_xdl": "interleave_xdl",
+    "hoist_wait": "hoist_wait",
+    "lds_at_write": "lds_at_write",
+    "set_mfma_priority": "set_mfma_priority",
+}
+
+
+def mapping_kwargs_from_sweep(d: dict) -> dict:
+    """Forward every relevant sweep-axis value into GemmMappingSpec kwargs.
+
+    Any axis NOT present in d is omitted, letting GemmMappingSpec fall
+    back to its dataclass default. Every bench_perf MUST forward this
+    dict into GemmMappingSpec(**kwargs, **mapping_kwargs_from_sweep(d))
+    so pins reach the compiled config -- otherwise a pin like
+    --interleave-xdl 4 silently serializes as ixdl=0 in the label.
+    """
+    return {mapping_kwarg: d[axis] for axis, mapping_kwarg in _SWEEP_TO_MAPPING_KWARG.items() if axis in d}
+
+
 # -- GPU hardware constants --------------------------------------------------
 
 

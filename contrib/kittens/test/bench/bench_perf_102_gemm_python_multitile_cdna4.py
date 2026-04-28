@@ -56,6 +56,7 @@ from sweep_harness import (
     fits_on_cu_post_compile,
     hw_for_target,
     is_label,
+    mapping_kwargs_from_sweep,
     nwgcu,
     parse_size_args,
     resolve_derived_pins,
@@ -72,7 +73,7 @@ _TILE_M, _TILE_N, _TILE_K = GemmMappingSpec.default_tile_elements(_MFMA_SHAPE)
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
+def _build_instance(d: dict, mcpu: str, hw, rotate_compute_stage: bool = False) -> Cdna4GemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
     _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_M)
     _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_N)
@@ -87,14 +88,10 @@ def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
         pipeline_strategy=d["ps"],
         operand_path=OperandPath(d["variant"][0]),
         num_wg_per_cu=nwgcu(d, hw),
-        lcm_unroll=d["lcm_unroll"],
-        unroll_factor_multiplier=d["unroll_mult"],
-        epilogue_peeling=d["epilogue_peeling"],
-        ll_sched=d["ll_sched"],
-        hoist_wait=d["hoist_wait"],
-        lds_at_write=False,
         dealloc_at_read=True,
+        rotate_compute_stage=rotate_compute_stage,
         mcpu=mcpu,
+        **mapping_kwargs_from_sweep(d),
     )
     return Cdna4GemmInstance(spec, mapping)
 
@@ -126,6 +123,7 @@ def make_sweep_grid(
     target_m: int,
     target_n: int,
     target_k: int,
+    rotate_compute_stage: bool = False,
 ) -> SweepGrid:
     grid = SweepGrid()
     # variant = (operand_path, load_type). Sweeps operand_path (lds / direct_b);
@@ -141,7 +139,14 @@ def make_sweep_grid(
             deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
         )
 
-    grid.build_with(functools.partial(_build_instance, mcpu=mcpu, hw=hw))
+    grid.build_with(
+        functools.partial(
+            _build_instance,
+            mcpu=mcpu,
+            hw=hw,
+            rotate_compute_stage=rotate_compute_stage,
+        )
+    )
     return grid
 
 
@@ -179,6 +184,12 @@ def main():
     add_geometry_pin_args(parser)
     add_size_cli_args(parser)
     add_heuristic_cli_args(parser)
+    parser.add_argument(
+        "--rotate-compute-stage",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable/disable rotate_stage derived from pipeline strategy compute stage",
+    )
     args = parser.parse_args()
     warn_mcpu_mismatch(args.mcpu)
     require_gpu_or_compile_only(args)
@@ -206,6 +217,7 @@ def main():
         target_m=target_m,
         target_n=target_n,
         target_k=target_k,
+        rotate_compute_stage=args.rotate_compute_stage,
     )
     apply_wg_pin_filters(grid, pins, _TILE_M, _TILE_N)
 
