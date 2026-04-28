@@ -19,4 +19,17 @@ amdgcn.module @test target = #amdgcn.target<gfx942> isa = #amdgcn.isa<cdna3> {
   ^bb0:
     amdgcn.end_kernel
   }
+
+  // The kernel's `arguments` attribute carries ABI metadata whose register
+  // types are not subject to the no_value_semantic_registers check.
+  // CHECK: kernel @by_val_arg_metadata
+  // CHECK-SAME: attributes {normal_forms = [#amdgcn.no_value_semantic_registers]
+  amdgcn.kernel @by_val_arg_metadata arguments <[
+    #amdgcn.by_val_arg<size = 4, type = !amdgcn.vgpr>
+  ]> attributes {
+    normal_forms = [#amdgcn.no_value_semantic_registers],
+    shared_memory_size = 0 : i32
+  } {
+    amdgcn.end_kernel
+  }
 }
