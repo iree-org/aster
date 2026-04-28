@@ -58,6 +58,7 @@ from sweep_harness import (
     fits_on_cu_post_compile,
     hw_for_target,
     is_label,
+    mapping_kwargs_from_sweep,
     nwgcu,
     parse_size_args,
     resolve_derived_pins,
@@ -93,13 +94,8 @@ def _build_instance(d: dict, mcpu: str, hw) -> WeakScaledMappedGemmInstance:
         load_type=LoadType(d["variant"][1]),
         operand_path=OperandPath(d["variant"][0]),
         num_wg_per_cu=nwgcu(d, hw),
-        lcm_unroll=d["lcm_unroll"],
-        unroll_factor_multiplier=d["unroll_mult"],
-        epilogue_peeling=d["epilogue_peeling"],
-        ll_sched=d["ll_sched"],
-        hoist_wait=d["hoist_wait"],
-        rotate_compute_stage=d["rotate_compute_stage"],
         mcpu=mcpu,
+        **mapping_kwargs_from_sweep(d),
     )
     return WeakScaledMappedGemmInstance(spec, mapping)
 
