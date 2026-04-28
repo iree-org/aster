@@ -11,7 +11,7 @@ import pytest
 from aster import ir
 import tempfile
 
-from aster.layout import Layout
+from aster.layout import Layout, Swizzle
 from aster.dialects.kernel_builder_with_layouts import KernelBuilderWithLayouts as KernelBuilder
 from aster.dialects.amdgcn import AccessKind
 from aster.compiler.core import compile_mlir_module_to_asm, assemble_to_hsaco
@@ -98,7 +98,7 @@ def _build_multitile_gemm(
     frag_k = mfma_k // 2 if vx4_mfma else mfma_k
     lds_read_sub_tile_a = Layout((1, _exact_div(tile_k_elems, frag_k, "tile_k/frag_k")), (0, frag_k * elt_bytes_a))
     lds_read_sub_tile_b = Layout((1, _exact_div(tile_k_elems, frag_k, "tile_k/frag_k")), (0, frag_k * elt_bytes_b))
-    lds_swizzle = mapping.lds_swizzle
+    lds_swizzle = Swizzle(bits=3, base=3, shift=4)
 
     m_t, n_t, k_t = tpw[DIM_M], tpw[DIM_N], tpw[DIM_K]
     twg_m, twg_n = twg[DIM_M], twg[DIM_N]

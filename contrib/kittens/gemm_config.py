@@ -266,12 +266,6 @@ class GemmMappingSpec:
     ds_write_bytes: int = 8  # ds_write_b64
     ds_read_bytes: int = 8  # ds_read_b64
 
-    # --- LDS swizzle ---
-
-    lds_swizzle_bits: int = 3
-    lds_swizzle_base: int = 3
-    lds_swizzle_shift: int = 3
-
     # --- Target ---
 
     mcpu: str = "gfx942"
@@ -290,16 +284,6 @@ class GemmMappingSpec:
     def isa(self) -> str:
         _MCPU_TO_ISA = {"gfx942": "cdna3", "gfx950": "cdna4"}
         return _MCPU_TO_ISA.get(self.mcpu, "cdna3")
-
-    @property
-    def lds_swizzle(self):
-        from aster.layout import Swizzle
-
-        return Swizzle(
-            bits=self.lds_swizzle_bits,
-            base=self.lds_swizzle_base,
-            shift=self.lds_swizzle_shift,
-        )
 
     def tile_elements(self, mfma_shape: list[int]) -> list[int]:
         """[M, N, K] elements per tile = mfma_shape[d] * tile_mult[d]."""
