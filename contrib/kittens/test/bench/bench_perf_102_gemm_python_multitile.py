@@ -62,6 +62,7 @@ from sweep_harness import (
     fits_on_cu_post_compile,
     hw_for_target,
     is_label,
+    mapping_kwargs_from_sweep,
     nwgcu,
     parse_size_args,
     resolve_derived_pins,
@@ -99,16 +100,10 @@ def _build_instance(d: dict, mcpu: str, hw, rotate_compute_stage: bool = False) 
         pipeline_strategy=d["ps"],
         operand_path=OperandPath(d["variant"][0]),
         num_wg_per_cu=_nwgcu,
-        lcm_unroll=d["lcm_unroll"],
-        unroll_factor_multiplier=d["unroll_mult"],
-        epilogue_peeling=d["epilogue_peeling"],
-        ll_sched=d["ll_sched"],
-        hoist_wait=d["hoist_wait"],
-        lds_at_write=d["lds_at_write"],
         dealloc_at_read=True,
-        set_mfma_priority=d["set_mfma_priority"],
         rotate_compute_stage=rotate_compute_stage,
         mcpu=mcpu,
+        **mapping_kwargs_from_sweep(d),
     )
     return MultitileGemmInstance(spec, mapping)
 
