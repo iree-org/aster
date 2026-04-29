@@ -693,7 +693,6 @@ def AMDGCN_TestInstOp : AMDGCN_Op<"test_inst", [
 
     /// Get the opcode of the instruction.
     InstAttr getOpcodeAttr() {
-      assert(false && "not yet implemented");
       return InstAttr();
     }
     /// Get the instruction output operands.

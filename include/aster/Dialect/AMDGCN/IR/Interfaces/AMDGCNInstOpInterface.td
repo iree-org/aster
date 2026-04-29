@@ -28,9 +28,20 @@ def AMDGCNInstOpInterface :
   let cppNamespace = "::mlir::aster::amdgcn";
   let methods = [
     InterfaceMethod<
-      // TODO: refine the Attribute type.
       "Returns the opcode of the instruction",
       "::mlir::aster::amdgcn::InstAttr", "getOpcodeAttr"
+    >,
+    InterfaceMethod<
+      "Returns whether the instruction has the given inst trait",
+      "bool", "hasInstProps", (ins "::llvm::ArrayRef<InstProp>":$props, "bool":$all), [{}], [{
+        ::mlir::aster::amdgcn::InstAttr attr = $_op.getOpcodeAttr();
+        if (!attr)
+          return false;
+        const ::mlir::aster::amdgcn::InstMetadata *md = attr.getMetadata();
+        if (!md)
+          return false;
+        return all ? md->hasProps(props) : md->hasAnyProps(props);
+      }]
     >
   ];
   let extraSharedClassDeclaration = [{
@@ -39,6 +50,40 @@ def AMDGCNInstOpInterface :
     const ::mlir::aster::amdgcn::InstMetadata* getInstMetadata() {
       ::mlir::aster::amdgcn::InstAttr attr = $_op.getOpcodeAttr();
       return attr ? attr.getMetadata() : nullptr;
+    }
+
+    bool hasProp(::mlir::aster::amdgcn::InstProp prop) {
+      return $_op.hasInstProps({prop}, true);
+    }
+
+    bool hasProps(::llvm::ArrayRef<::mlir::aster::amdgcn::InstProp> props) {
+      return $_op.hasInstProps(props, true);
+    }
+
+    bool hasAnyProps(::llvm::ArrayRef<::mlir::aster::amdgcn::InstProp> props) {
+      return $_op.hasInstProps(props, false);
+    }
+
+    ::mlir::aster::amdgcn::OpCode getOpCode() {
+      const ::mlir::aster::amdgcn::InstMetadata* md = $_op.getInstMetadata();
+      return md ? md->getOpCode() : ::mlir::aster::amdgcn::OpCode::Invalid;
+    }
+
+    /// Returns true if the instruction supports the given ISA version.
+    /// An instruction with no ISA version list is assumed to support all.
+    bool supportsISA(::mlir::aster::amdgcn::ISAVersion ver) {
+      const ::mlir::aster::amdgcn::InstMetadata* md = $_op.getInstMetadata();
+      if (!md)
+        return false;
+      ::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion> isas = md->getISAVersions();
+      if (isas.empty())
+        return true;
+      return llvm::is_contained(isas, ver);
+    }
+
+    ::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion> getISAVersions() {
+      const ::mlir::aster::amdgcn::InstMetadata* md = $_op.getInstMetadata();
+      return md ? md->getISAVersions() : ::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion>();
     }
   }];
 }

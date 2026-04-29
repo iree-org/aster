@@ -238,18 +238,16 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
       continue;
 
     auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-    const InstMetadata *metadata = instOp ? instOp.getInstMetadata() : nullptr;
 
-    // If there's no metadata, add an edge from the barrier to the operation.
-    if (!metadata) {
+    // If there's no interface, add an edge from the barrier to the operation.
+    if (!instOp || instOp.getOpCode() == OpCode::Invalid) {
       if (!isPure(op))
         addEdge(op, i);
       continue;
     }
 
     // If the operation has any SALU or SMEM properties, add an edge.
-    if (metadata->hasAnyProps(
-            {InstProp::Salu, InstProp::Smem, InstProp::Dsmem})) {
+    if (instOp.hasAnyProps({InstProp::Salu, InstProp::Smem, InstProp::Dsmem})) {
       addEdge(op, i);
       continue;
     }
@@ -319,13 +317,12 @@ ValueSchedulerAttr::createGraph(Block *block,
 int32_t InstPropLabelerAttr::getLabel(Operation *op, int32_t,
                                       const SchedGraph &) const {
   auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-  const InstMetadata *metadata = instOp ? instOp.getInstMetadata() : nullptr;
-  if (!metadata)
+  if (!instOp || instOp.getOpCode() == OpCode::Invalid)
     return -1;
   ArrayRef<InstProp> matcher = getInstMatcher();
   if (matcher.empty())
     return getStage();
-  if (!metadata->hasAnyProps(matcher))
+  if (!instOp.hasAnyProps(matcher))
     return -1;
   return getStage();
 }
@@ -337,13 +334,12 @@ int32_t InstPropLabelerAttr::getLabel(Operation *op, int32_t,
 int32_t OpCodeLabelerAttr::getLabel(Operation *op, int32_t,
                                     const SchedGraph &) const {
   auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-  const InstMetadata *metadata = instOp ? instOp.getInstMetadata() : nullptr;
-  if (!metadata)
+  if (!instOp || instOp.getOpCode() == OpCode::Invalid)
     return -1;
   ArrayRef<OpCode> matcher = getOpCodeMatcher();
   if (matcher.empty())
     return getStage();
-  OpCode opcode = metadata->getOpCode();
+  OpCode opcode = instOp.getOpCode();
   if (!llvm::is_contained(matcher, opcode))
     return -1;
   return getStage();
@@ -460,27 +456,24 @@ static QueueType classifyOp(Operation *op) {
     return *qt;
 
   auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-  if (!instOp)
-    return QueueType::Unknown;
-  const InstMetadata *md = instOp.getInstMetadata();
-  if (!md)
+  if (!instOp || instOp.getOpCode() == OpCode::Invalid)
     return QueueType::Unknown;
 
   // SOPP (s_waitcnt, s_barrier, branches) must be scheduling barriers.
-  if (md->hasProp(InstProp::Sopp))
+  if (instOp.hasProp(InstProp::Sopp))
     return QueueType::Unknown;
-  if (md->hasProp(InstProp::Dsmem))
+  if (instOp.hasProp(InstProp::Dsmem))
     return QueueType::LGKM;
-  if (md->hasProp(InstProp::Smem))
+  if (instOp.hasProp(InstProp::Smem))
     return QueueType::LGKM;
-  if (md->hasProp(InstProp::IsVmem))
+  if (instOp.hasProp(InstProp::IsVmem))
     return QueueType::VMEM;
   // Check before VALU: MFMA ops carry both Mma and IsValu props.
-  if (md->hasAnyProps({InstProp::Mma, InstProp::ScaledMma}))
+  if (instOp.hasAnyProps({InstProp::Mma, InstProp::ScaledMma}))
     return QueueType::XDL;
-  if (md->hasProp(InstProp::Salu))
+  if (instOp.hasProp(InstProp::Salu))
     return QueueType::SALU;
-  if (md->hasProp(InstProp::IsValu))
+  if (instOp.hasProp(InstProp::IsValu))
     return QueueType::VALU;
 
   return QueueType::Unknown;

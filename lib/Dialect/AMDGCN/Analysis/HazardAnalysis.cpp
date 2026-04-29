@@ -173,20 +173,19 @@ MLIR_DEFINE_EXPLICIT_TYPE_ID(mlir::aster::amdgcn::HazardState)
 /// Update the hazards based on the instruction counts that are being flushed.
 /// Returns true if the hazards have changed.
 static bool updateHazards(SmallVectorImpl<Hazard> &hazards,
-                          InstCounts instCounts,
-                          const InstMetadata *instMetadata) {
+                          InstCounts instCounts, AMDGCNInstOpInterface instOp) {
   int8_t numVector = instCounts.getNumVector();
   int8_t numScalar = instCounts.getNumScalar();
   int8_t numDataShare = instCounts.getNumDataShare();
 
-  // Update the instruction counts based on the instruction metadata.
-  if (instMetadata) {
-    if (instMetadata->hasAnyProps({InstProp::IsValu, InstProp::IsVmem}))
+  // Update the instruction counts based on the instruction interface.
+  if (instOp) {
+    if (instOp.hasAnyProps({InstProp::IsValu, InstProp::IsVmem}))
       ++numVector;
-    if (instMetadata->hasAnyProps({InstProp::Salu, InstProp::Smem}))
+    if (instOp.hasAnyProps({InstProp::Salu, InstProp::Smem}))
       ++numScalar;
     // NOTE: It's unclear whether dsmem also affect vector instructions.
-    if (instMetadata->hasAnyProps({InstProp::Dsmem}))
+    if (instOp.hasAnyProps({InstProp::Dsmem}))
       ++numDataShare;
   }
 
@@ -250,8 +249,7 @@ LogicalResult HazardAnalysis::visitOperation(Operation *op,
   }
 
   // Update the hazards based on the instruction counts that are being flushed.
-  if (updateHazards(after->activeHazards, requiredInstCounts,
-                    instOp.getInstMetadata()))
+  if (updateHazards(after->activeHazards, requiredInstCounts, instOp))
     changed = ChangeResult::Change;
 
   // Update the flushed instruction counts if they have changed.

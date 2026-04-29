@@ -23,28 +23,19 @@ using namespace mlir::aster::amdgcn;
 
 namespace {
 
-/// Get instruction metadata, returning nullptr for ops that don't have an
-/// opcode attribute (e.g., TestInstOp).
-static const InstMetadata *getMetadataSafe(Operation *op) {
-  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-  if (!instOp)
-    return nullptr;
-  // Guard against ops like TestInstOp that implement the interface but
-  // assert in getOpcodeAttr(). Check for the attribute directly.
-  if (!op->getAttrOfType<InstAttr>("opcode"))
-    return nullptr;
-  return instOp.getInstMetadata();
-}
-
 static bool isMFMA(Operation *op) {
-  const InstMetadata *md = getMetadataSafe(op);
-  return md && (md->hasProp(InstProp::Mma) || md->hasProp(InstProp::ScaledMma));
+  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
+  if (!instOp || instOp.getOpCode() == OpCode::Invalid)
+    return false;
+  return instOp.hasAnyProps({InstProp::Mma, InstProp::ScaledMma});
 }
 
 static bool isMemoryOp(Operation *op) {
-  const InstMetadata *md = getMetadataSafe(op);
-  return md &&
-         md->hasAnyProps({InstProp::IsVmem, InstProp::Dsmem, InstProp::Smem});
+  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
+  if (!instOp || instOp.getOpCode() == OpCode::Invalid)
+    return false;
+  return instOp.hasAnyProps(
+      {InstProp::IsVmem, InstProp::Dsmem, InstProp::Smem});
 }
 
 static bool blockHasSetprio(Block &block) {
