@@ -457,30 +457,6 @@ def AMDGCNHazards : Pass<"amdgcn-hazards"> {
   ];
 }
 
-def AttachScheduler : Pass<"amdgcn-attach-scheduler"> {
-  let summary = "Attach a YAML-backed generic scheduler to each function";
-  let description = [{
-    Attaches a `generic_scheduler` attribute (keyed `aster.sched`) to every
-    `FunctionOpInterface` operation, using the given YAML file as the labeler.
-
-    The attached attribute is equivalent to:
-    ```mlir
-    #aster_utils.generic_scheduler<
-      #amdgcn.value_scheduler,
-      #amdgcn.generic_sched_labeler<"<path>">,
-      #aster_utils.stage_topo_sort_sched>
-    ```
-  }];
-  let options = [
-    Option<"path", "path", "std::string", "",
-           "Path to the YAML scheduler configuration file">
-  ];
-  let dependentDialects = [
-    "mlir::aster::amdgcn::AMDGCNDialect",
-    "mlir::aster::aster_utils::AsterUtilsDialect"
-  ];
-}
-
 def SetMFMAPriority : Pass<"aster-set-mfma-priority"> {
   let summary = "Insert s_setprio around MFMA instruction groups";
   let description = [{

@@ -1,5 +1,4 @@
 add_mlir_library(AMDGCNTransforms
-  AttachScheduler.cpp
   AMDGCNBufferization.cpp
   AMDGCNHazards.cpp
   ConvertLDSBuffers.cpp
