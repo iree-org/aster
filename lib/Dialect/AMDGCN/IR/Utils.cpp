@@ -166,22 +166,6 @@ bool mlir::aster::amdgcn::hasPackedTID(ISAVersion isa) {
   llvm_unreachable("unknown ISA version");
 }
 
-bool mlir::aster::amdgcn::isOpcodeValidForAllIsas(OpCode opcode,
-                                                  ArrayRef<ISAVersion> isas,
-                                                  MLIRContext *ctx) {
-  ArrayRef<ISAVersion> instISAVersions =
-      InstAttr::get(ctx, opcode).getMetadata()->getISAVersions();
-  if (instISAVersions.empty()) {
-    // Available on all targets.
-    return true;
-  }
-  for (ISAVersion isa : isas) {
-    if (!llvm::is_contained(instISAVersions, isa))
-      return false;
-  }
-  return true;
-}
-
 //===----------------------------------------------------------------------===//
 // KernelArgSegmentInfo
 //===----------------------------------------------------------------------===//

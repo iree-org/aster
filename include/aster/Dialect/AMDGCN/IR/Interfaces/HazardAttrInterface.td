@@ -24,11 +24,11 @@ def HazardRaiserAttrInterface : AttrInterface<"HazardRaiserAttrInterface"> {
   }];
   let methods = [
     InterfaceMethod<[{
-      Determine whether populateHazardsFor should be called based on InstMetadata
-      and ISA version alone.
+      Determine whether populateHazardsFor should be called based on the
+      instruction interface and ISA version.
     }],
     "bool", "matchInst",
-    (ins "const ::mlir::aster::amdgcn::InstMetadata *":$md,
+    (ins "::mlir::aster::amdgcn::AMDGCNInstOpInterface":$instOp,
          "::mlir::aster::amdgcn::ISAVersion":$isaVer)
     >,
     InterfaceMethod<[{

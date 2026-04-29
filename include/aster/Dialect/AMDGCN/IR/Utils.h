@@ -98,11 +98,6 @@ int64_t getLdsBytesPerCU(Target target);
 /// See LLVM's FeaturePackedTID and ISA manual Section 3.13.
 bool hasPackedTID(ISAVersion isa);
 
-/// Check if an instruction opcode is valid for all the given ISA versions.
-/// Returns true if the instruction is valid for ALL ISAs in the list.
-bool isOpcodeValidForAllIsas(OpCode opcode, ArrayRef<ISAVersion> isas,
-                             MLIRContext *ctx);
-
 /// Check if the given type is an AMD register type or an Immedate type.
 bool isAMDRegOrImm(Type type);
 

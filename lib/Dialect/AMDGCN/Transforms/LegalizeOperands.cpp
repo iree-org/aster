@@ -79,10 +79,10 @@ void LegalizeOperands::runOnOperation() {
     // s_mov_b32.
     Type sgprTy = SGPRType::get(rewriter.getContext(), Register());
     Value out = AllocaOp::create(rewriter, loc, sgprTy);
-    auto instAttr = InstAttr::get(rewriter.getContext(), OpCode::S_MOV_B32);
-    Value movResult = inst::SOP1Op::create(rewriter, loc, sgprTy, instAttr, out,
-                                           selectOp.getTrueValue())
-                          .getSdstRes();
+    Value movResult =
+        inst::SOP1Op::create(rewriter, loc, sgprTy, OpCode::S_MOV_B32, out,
+                             selectOp.getTrueValue())
+            .getSdstRes();
 
     // Replace the true_value operand with the register value.
     selectOp.getTrueValueMutable().assign(movResult);
