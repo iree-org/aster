@@ -8,9 +8,12 @@ Phase 3: Correctness verification (per-config subprocess, crash-isolated).
 import fcntl
 import json
 import os
+import statistics
 import sys
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
+from typing import Optional, Sequence
 
 import numpy as np
 
@@ -26,6 +29,65 @@ WARMUP_ITERATIONS = 20
 DEFAULT_COMPILE_WORKERS = 8
 DEFAULT_COMPILE_TIMEOUT = 180  # seconds per kernel
 DEFAULT_EXEC_TIMEOUT = 10  # seconds per kernel execution
+
+
+@dataclass(frozen=True)
+class PerfStats:
+    min_ns: float
+    mean_ns: float
+    median_ns: float
+    total_flops: int
+
+    @property
+    def min_ms(self) -> float:
+        return self.min_ns / 1e6
+
+    @property
+    def mean_ms(self) -> float:
+        return self.mean_ns / 1e6
+
+    @property
+    def median_ms(self) -> float:
+        return self.median_ns / 1e6
+
+    @property
+    def min_tf(self) -> float:
+        return self.total_flops / self.min_ns * 1e-3
+
+    @property
+    def mean_tf(self) -> float:
+        return self.total_flops / self.mean_ns * 1e-3
+
+    @property
+    def median_tf(self) -> float:
+        return self.total_flops / self.median_ns * 1e-3
+
+    @property
+    def min_pct(self) -> float:
+        return self.min_tf / MI300X_PEAK_TFLOPS_F16 * 100
+
+    @property
+    def mean_pct(self) -> float:
+        return self.mean_tf / MI300X_PEAK_TFLOPS_F16 * 100
+
+    @property
+    def median_pct(self) -> float:
+        return self.median_tf / MI300X_PEAK_TFLOPS_F16 * 100
+
+
+def _compute_stats(post_warmup: Sequence[float], total_flops: int) -> Optional[PerfStats]:
+    """Reduce post-warmup timings (ns) to min/mean/median.
+
+    Returns None if invalid.
+    """
+    if not post_warmup or min(post_warmup) <= 0:
+        return None
+    return PerfStats(
+        min_ns=float(min(post_warmup)),
+        mean_ns=float(statistics.fmean(post_warmup)),
+        median_ns=float(statistics.median(post_warmup)),
+        total_flops=int(total_flops),
+    )
 
 
 # -- Helpers ---------------------------------------------------------------
@@ -813,17 +875,15 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
                 failed.append((cfg, err or "unknown"))
             else:
                 post_warmup = times[WARMUP_ITERATIONS:]
-                if not post_warmup or min(post_warmup) <= 0:
+                stats = _compute_stats(post_warmup, cfg.total_flops)
+                if stats is None:
                     failed.append((cfg, "no valid measurements"))
                     continue
-                ns = min(post_warmup)
-                tf = cfg.total_flops / ns * 1e-3
-                pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
-                results.append((cfg, ns / 1e6, tf, pct))
-                if tf > best_tf:
-                    best_tf = tf
+                results.append((cfg, stats))
+                if stats.median_tf > best_tf:
+                    best_tf = stats.median_tf
             pbar.update(1)
-            pbar.set_postfix_str(f"best {best_tf:.1f} TF, fail={len(failed)}")
+            pbar.set_postfix_str(f"best p50 {best_tf:.1f} TF, fail={len(failed)}")
     except KeyboardInterrupt:
         remaining = total - collected
         print(
@@ -933,13 +993,18 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
 
 def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
     """Print sweep summary and save result/error files (shared by both sweep modes)."""
-    results.sort(key=lambda r: r[2], reverse=True)
+    # Sort by p50 (median) TF/s -- robust to single fast outliers, headline metric.
+    results.sort(key=lambda r: r[1].median_tf, reverse=True)
     saved_files = []
 
     if results:
         lines = []
-        for i, (c, ms, tf, pct) in enumerate(results):
-            line = f"#{i + 1:>3} {tf:>7.1f} TF {pct:>5.1f}% {ms:>8.2f}ms {c.label}"
+        for i, (c, s) in enumerate(results):
+            line = (
+                f"#{i + 1:>3} p50={s.median_tf:>6.1f}TF ({s.median_pct:>4.1f}%) "
+                f"{s.median_ms:>7.2f}ms | min/mean/p50={s.min_tf:>6.1f}/{s.mean_tf:>6.1f}/{s.median_tf:>6.1f}TF "
+                f"{c.label}"
+            )
             if repro_cmd_fn:
                 try:
                     line += f" | repro: {repro_cmd_fn(c)}"
@@ -961,9 +1026,12 @@ def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
     print(f"\nSummary: {len(results)} ok, {len(compile_errs)} compile fail, {len(exec_errs)} exec fail")
     if results:
         top_n = min(20, len(results))
-        print(f"Top {top_n}:")
-        for i, (c, ms, tf, pct) in enumerate(results[:top_n]):
-            print(f"  #{i + 1} {c.label}: {tf:.1f} TF ({pct:.1f}%)")
+        print(f"Top {top_n} (sorted by p50 TF):")
+        for i, (c, s) in enumerate(results[:top_n]):
+            print(
+                f"  #{i + 1} {c.label}: {s.median_tf:.1f} TF p50 ({s.median_pct:.1f}%) "
+                f"| min/mean/p50={s.min_tf:.1f}/{s.mean_tf:.1f}/{s.median_tf:.1f}"
+            )
     if saved_files:
         print("\nSaved files:")
         for f in saved_files:
@@ -978,7 +1046,7 @@ def _drain_exec_results(result_q, cfg_by_label, results, exec_failed):
     import queue as _qm
 
     n = 0
-    best_tf = max((r[2] for r in results), default=0.0)
+    best_tf = max((r[1].median_tf for r in results), default=0.0)
     while not result_q.empty():
         try:
             label_r, times, err = result_q.get_nowait()
@@ -992,13 +1060,11 @@ def _drain_exec_results(result_q, cfg_by_label, results, exec_failed):
             exec_failed.append((c, err or "unknown"))
         else:
             post_warmup = times[WARMUP_ITERATIONS:]
-            if post_warmup and min(post_warmup) > 0:
-                ns = min(post_warmup)
-                tf = c.total_flops / ns * 1e-3
-                pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
-                results.append((c, ns / 1e6, tf, pct))
-                if tf > best_tf:
-                    best_tf = tf
+            stats = _compute_stats(post_warmup, c.total_flops)
+            if stats is not None:
+                results.append((c, stats))
+                if stats.median_tf > best_tf:
+                    best_tf = stats.median_tf
     return n, best_tf
 
 
@@ -1147,7 +1213,7 @@ def bench_perf_sweep_pipelined(
             n_exec_done += dn
             n_fail = len(compile_failed) + len(exec_failed)
             pbar.set_postfix_str(
-                f"C={n_compiled}/{total_compile} X={n_exec_done}/{n_exec_submitted} best={best_tf:.1f}TF fail={n_fail}"
+                f"C={n_compiled}/{total_compile} X={n_exec_done}/{n_exec_submitted} p50={best_tf:.1f}TF fail={n_fail}"
             )
     except KeyboardInterrupt:
         interrupted = True
@@ -1505,20 +1571,28 @@ def run_single(cfg, compile_fn, args, execute_fn):
                 f"use a number > {WARMUP_ITERATIONS} e.g. --iterations=100"
             )
             return
-        min_ns = min(measured)
-        if min_ns <= 0:
-            print(f"\nInvalid min timing: {min_ns} ns")
+        s = _compute_stats(measured, cfg.total_flops)
+        if s is None:
+            print(f"\nInvalid timings (min={min(measured) if measured else 'n/a'} ns)")
             return
-        tf = cfg.total_flops / min_ns * 1e-3
-        pct = tf / MI300X_PEAK_TFLOPS_F16 * 100
-        print(f"\nMin: {min_ns / 1e6:.2f} ms  {tf:.1f} TFLOPS  ({pct:.1f}% peak)")
+        print(
+            f"\np50 (headline): {s.median_ms:>7.2f} ms  {s.median_tf:>7.1f} TFLOPS  ({s.median_pct:.1f}% peak)\n"
+            f"min:            {s.min_ms:>7.2f} ms  {s.min_tf:>7.1f} TFLOPS  ({s.min_pct:.1f}% peak)\n"
+            f"mean:           {s.mean_ms:>7.2f} ms  {s.mean_tf:>7.1f} TFLOPS  ({s.mean_pct:.1f}% peak)"
+        )
         print(
             RESULT_SENTINEL
             + json.dumps(
                 {
-                    "min_ms": min_ns / 1e6,
-                    "tflops": tf,
-                    "pct_peak": pct,
+                    "min_ms": s.min_ms,
+                    "mean_ms": s.mean_ms,
+                    "median_ms": s.median_ms,
+                    "tflops_min": s.min_tf,
+                    "tflops_mean": s.mean_tf,
+                    "tflops_median": s.median_tf,
+                    "pct_peak_min": s.min_pct,
+                    "pct_peak_mean": s.mean_pct,
+                    "pct_peak_median": s.median_pct,
                     "times_ms": [t / 1e6 for t in times_ns],
                 }
             )
