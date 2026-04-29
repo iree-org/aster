@@ -109,7 +109,32 @@ LogicalResult mlir::aster::eraseDeadMemrefStores(IRRewriter &rewriter,
     }
     if (isa<memref::LoadOp>(user))
       return failure(); // Has loads -- stores are live.
-    // Allow yield, for, cast, etc. -- these don't read the stored data.
+    // scf.yield: if the memref is yielded into a different iter_arg slot
+    // than its own block-arg position (or yielded as a non-block-arg Value
+    // defined inside the body), the stored data flows forward to a later
+    // iteration through the loop's shift register and the stores are LIVE.
+    // The pipeliner emits exactly this pattern when an alloca's
+    // `sched.stage` differs from its consumer's stage by more than 1.
+    if (auto yield = dyn_cast<scf::YieldOp>(user)) {
+      auto forOp = dyn_cast<scf::ForOp>(yield->getParentOp());
+      // TODO: scf.if etc omitted for now.
+      if (!forOp)
+        return failure();
+
+      auto yieldOperandIdx = use.getOperandNumber();
+      auto ba = dyn_cast<BlockArgument>(memref);
+      // Defined in the body and yielded -> live.
+      if (!ba || ba.getOwner() != forOp.getBody())
+        return failure();
+
+      auto baSlot = ba.getArgNumber() - forOp.getNumInductionVars();
+      // Shift-register yield: data is consumed in a later iter via the dest
+      // bbarg.
+      // TODO: we may want to go deeper and follow the baSlot uses.
+      if (yieldOperandIdx != baSlot)
+        return failure();
+    }
+    // Allow other users (cast, etc.) that don't read the stored data.
   }
   if (stores.empty())
     return failure();

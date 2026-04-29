@@ -45,11 +45,26 @@ from kittens.gemm_config import (
 )
 
 
-def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
+def _build_cdna4_gemm(cfg: "Cdna4GemmInstance", ping_pong_staggered: bool = False) -> ir.Module:
     """Build a CDNA4 multi-tile GEMM kernel via G2S direct-to-LDS.
 
     G2S collapses LOAD + LDS_WRITE into a single stage: tag G2S with
     STG_A/B_LOAD and ignore A/B_LDS_WRITE entries of the strategy.
+
+    Args:
+      - ping_pong_staggered: 8-wave-only. Each half-WG (4 waves) cooperatively
+        loads ALL tiles independently, with a half-WG-conditional pre-loop
+        s_barrier (first half) and a half-WG-conditional post-loop s_barrier
+        (second half) creating a half-cycle stagger. The in-loop WAR barrier
+        is the per-iter ping/pong sync point.
+
+        For deeper pipelines (ps>=3 with COMPUTE > A_LDS_READ), the LDS
+        dealloc is moved from the LDS_READ stage to the COMPUTE stage,
+        bumping the pipeliner's multi-buffer count by 1. Without this,
+        F-half's iter-k G2S races with S-half's iter-(k+S-1) G2S on the
+        same recycled LDS slot.
+
+        Requires nw == 8.
     """
     from kittens_helpers import PIPELINE_STRATEGIES
 
@@ -87,8 +102,13 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
         coop_k = math.ceil(kt / waves_k)
         return waves_s, waves_k, coop_s, coop_k
 
-    a_waves_m, a_waves_k, coop_a_m, coop_a_k = _coop_2d_split(twg_m, nw, k_t)
-    b_waves_n, b_waves_k, coop_b_n, coop_b_k = _coop_2d_split(twg_n, nw, k_t)
+    # Per-group cooperative loading: when staggered, each half-WG (4 waves)
+    # independently loads ALL tiles so the stagger doesn't leave partial data.
+    if ping_pong_staggered:
+        assert nw == 8, f"ping_pong_staggered requires 8 waves, got {nw}"
+    nw_coop = nw // 2 if ping_pong_staggered else nw
+    a_waves_m, a_waves_k, coop_a_m, coop_a_k = _coop_2d_split(twg_m, nw_coop, k_t)
+    b_waves_n, b_waves_k, coop_b_n, coop_b_k = _coop_2d_split(twg_n, nw_coop, k_t)
     n_coop_a = coop_a_m * coop_a_k
     n_coop_b = coop_b_n * coop_b_k
 
@@ -255,17 +275,25 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     # Cooperative load starts: wave_id -> (spatial_start, k_start) with OOB
     # clamping. Excess waves clamp to the last valid start and duplicate the
     # last tile. Same pattern as test_102.
-    coop_a_m_start_raw = b.linearize_layout(wid, Layout((a_waves_m, a_waves_k), (coop_a_m, 0)))
-    coop_a_k_start_raw = b.linearize_layout(wid, Layout((a_waves_m, a_waves_k), (0, coop_a_k)))
+    # When staggered, use local wave_id within 4-wave group.
+    coop_wid = b.affine_apply(d0 % nw_coop, [wid]) if ping_pong_staggered else wid
+    coop_a_m_start_raw = b.linearize_layout(coop_wid, Layout((a_waves_m, a_waves_k), (coop_a_m, 0)))
+    coop_a_k_start_raw = b.linearize_layout(coop_wid, Layout((a_waves_m, a_waves_k), (0, coop_a_k)))
     coop_a_m_start = b.arith_minui(coop_a_m_start_raw, b.constant_index(max_a_m_start))
     coop_a_k_start = b.arith_minui(coop_a_k_start_raw, b.constant_index(max_a_k_start))
-    coop_b_n_start_raw = b.linearize_layout(wid, Layout((b_waves_n, b_waves_k), (coop_b_n, 0)))
-    coop_b_k_start_raw = b.linearize_layout(wid, Layout((b_waves_n, b_waves_k), (0, coop_b_k)))
+    coop_b_n_start_raw = b.linearize_layout(coop_wid, Layout((b_waves_n, b_waves_k), (coop_b_n, 0)))
+    coop_b_k_start_raw = b.linearize_layout(coop_wid, Layout((b_waves_n, b_waves_k), (0, coop_b_k)))
     coop_b_n_start = b.arith_minui(coop_b_n_start_raw, b.constant_index(max_b_n_start))
     coop_b_k_start = b.arith_minui(coop_b_k_start_raw, b.constant_index(max_b_k_start))
 
     c0, c1 = b.constant_index(0), b.constant_index(1)
     s0, s1, s2 = [ir.AffineExpr.get_symbol(i) for i in range(3)]
+
+    if ping_pong_staggered:
+
+        @b.thread_uniform_if("ult", wid, b.constant_index(4))
+        def _():
+            b.s_barrier()
 
     # -- K-loop (pipelined by mapping.pipeline_strategy) --
     @b.loop(c0, b.constant_index(k_iters), c1)
@@ -366,7 +394,8 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
                 return b.call_helper(read_a_fn, [off], read_ret)
 
             frag_buf_a, rtok_buf_a = read_a
-            b.dealloc_lds(lds_a_h)
+            if not ping_pong_staggered:
+                b.dealloc_lds(lds_a_h)
 
         # -- B FRAGMENTS: LDS read (cooperative) or wait+split (direct) --
         if direct_b:
@@ -393,7 +422,8 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
                     return b.call_helper(read_b_fn, [off], read_ret)
 
                 frag_buf_b, rtok_buf_b = read_b
-                b.dealloc_lds(lds_b_h)
+                if not ping_pong_staggered:
+                    b.dealloc_lds(lds_b_h)
 
         # -- COMPUTE: coalesce vx2 fragments into vx4 for CDNA4 MFMA --
         with b.stage(STG_COMPUTE):
@@ -426,8 +456,26 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
                 new_acc = b.mfma(MFMA_F16_CDNA4.opcode, acc, a_vx4, b_vx4)
                 b.memref_store(new_acc, c_buf, acc_idx)
 
+            # In ping-pong mode, defer LDS dealloc to the COMPUTE stage so the
+            # alloca lives one extra stage (LDS_READ -> COMPUTE), bumping the
+            # pipeliner's multi-buffer count from 3 to 4. This is required to
+            # prevent a race where, after the conditional pre-loop barrier
+            # releases, F4's prologue G2S of iter 0 (slot 0%nbuf) and S4's
+            # steady-state G2S of iter 3 (slot 3%nbuf) target the SAME slot
+            # when nbuf=3, with non-deterministic last-writer-wins data.
+            if ping_pong_staggered:
+                b.dealloc_lds(lds_a_h)
+                if not direct_b:
+                    b.dealloc_lds(lds_b_h)
             # WAR sync: without this barrier, a fast wave's next-iter G2S can
             # overwrite LDS offsets that a slow wave is still ds_read'ing.
+            # Doubles as the ping/pong synchronization point when staggered.
+            b.s_barrier()
+
+    if ping_pong_staggered:
+
+        @b.thread_uniform_if("uge", wid, b.constant_index(4))
+        def _():
             b.s_barrier()
 
     # Store C tiles.
@@ -726,6 +774,23 @@ class TestCdna4Pipelined8Wave:
             pipeline_strategy=pipeline_strategy,
             rotate_compute_stage=rotate_compute_stage,
         )
+        _run_cdna4_gemm(cfg)
+
+
+class TestCdna4Pipelined8WavePs5:
+    """Ps5 (4-stage pipeline) with 8-wave configs."""
+
+    @pytest.mark.parametrize(
+        "wpw,twg",
+        [
+            ([4, 2, 1], [8, 8, 2]),
+            ([2, 4, 1], [8, 8, 2]),
+        ],
+        ids=["w4x2_twg8x8x2", "w2x4_twg8x8x2"],
+    )
+    @pytest.mark.parametrize("k_mult", [8, 16], ids=["km8", "km16"])
+    def test_correctness(self, wpw, twg, k_mult):
+        cfg = _make_instance([1, 1, 1], wpw, twg, k_mult, pipeline_strategy=5)
         _run_cdna4_gemm(cfg)
 
 

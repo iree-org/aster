@@ -546,3 +546,39 @@ func.func @negative_incomplete_init_stores(%v0: f32, %lb: index, %ub: index, %st
   %r = memref.load %res[%c0] : memref<2xf32>
   return %r : f32
 }
+
+// -----
+
+// CHECK-LABEL: func.func @negative_shift_register_yield_different_slot
+// CHECK:         scf.for
+// CHECK:           memref.load {{.*}} : memref<2xf32>
+// CHECK:           memref.load {{.*}} : memref<2xf32>
+// CHECK:           memref.store {{.*}} : memref<2xf32>
+// CHECK:           memref.store {{.*}} : memref<2xf32>
+// CHECK:           scf.yield
+func.func @negative_shift_register_yield_different_slot(
+    %v0: f32, %v1: f32, %lb: index, %ub: index, %step: index) -> (f32, f32) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %a = memref.alloca() : memref<2xf32>
+  %b = memref.alloca() : memref<2xf32>
+  memref.store %v0, %a[%c0] : memref<2xf32>
+  memref.store %v1, %a[%c1] : memref<2xf32>
+  memref.store %v0, %b[%c0] : memref<2xf32>
+  memref.store %v1, %b[%c1] : memref<2xf32>
+  %res:2 = scf.for %i = %lb to %ub step %step
+      iter_args(%argA = %a, %argB = %b) -> (memref<2xf32>, memref<2xf32>) {
+    %fresh = memref.alloca() : memref<2xf32>
+    %x0 = memref.load %argB[%c0] : memref<2xf32>
+    %x1 = memref.load %argB[%c1] : memref<2xf32>
+    %y0 = arith.addf %x0, %v0 : f32
+    %y1 = arith.addf %x1, %v1 : f32
+    memref.store %y0, %argA[%c0] : memref<2xf32>
+    memref.store %y1, %argA[%c1] : memref<2xf32>
+    // argA yielded into slot 1 (argB's slot in next iter).
+    scf.yield %fresh, %argA : memref<2xf32>, memref<2xf32>
+  }
+  %r0 = memref.load %res#1[%c0] : memref<2xf32>
+  %r1 = memref.load %res#1[%c1] : memref<2xf32>
+  return %r0, %r1 : f32, f32
+}
