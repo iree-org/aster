@@ -107,31 +107,6 @@ def OpCodeLabelerAttr : AMDGCN_Attr<"OpCodeLabeler", "opcode_labeler", [
   let assemblyFormat = "`<` `[` $opCodeMatcher `]` `,` $stage `>`";
 }
 
-def GenericSchedLabelerAttr : AMDGCN_Attr<"GenericSchedLabeler",
-    "generic_sched_labeler", [
-    DeclareAttrInterfaceMethods<SchedLabelerAttrInterface>
-  ]> {
-  let summary = "Scheduling labeler driven by a YAML pattern file";
-  let description = [{
-    Labels operations using a `SchedLabeler` loaded from a YAML file. The
-    file path is stored as a string and the labeler is loaded eagerly at
-    parse time. If the file does not exist a default-constructed (trivial)
-    labeler is produced, which will be rejected by the attribute verifier.
-
-    Example:
-
-    ```mlir
-    #amdgcn.generic_sched_labeler<"path/to/labeler.yaml">
-    ```
-  }];
-  let parameters = (ins "::mlir::aster::amdgcn::SchedLabeler":$labeler);
-  let builders = [
-    AttrBuilder<(ins "::llvm::StringRef":$path)>
-  ];
-  let assemblyFormat = "`<` $labeler `>`";
-  let genVerifyDecl = 1;
-}
-
 def LatencyPipelinerSchedAttr : AMDGCN_Attr<"LatencyPipelinerSched",
     "latency_pipeliner_sched", [
     DeclareAttrInterfaceMethods<SchedBuilderAttrInterface>

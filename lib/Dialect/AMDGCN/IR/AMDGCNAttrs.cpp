@@ -194,38 +194,6 @@ AddressSpaceAttr::getSupportedOpWidths(Type type, Value addr, Value offset,
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.cpp.inc"
 
 //===----------------------------------------------------------------------===//
-// GenericSchedLabelerAttr
-//===----------------------------------------------------------------------===//
-
-GenericSchedLabelerAttr GenericSchedLabelerAttr::get(MLIRContext *ctx,
-                                                     StringRef path) {
-  SchedLabeler labeler;
-  FailureOr<SchedLabeler> result = SchedLabeler::getFromYAML(path, ctx);
-  if (succeeded(result))
-    labeler = std::move(*result);
-  else
-    labeler.setName(path);
-  return Base::get(ctx, labeler);
-}
-
-LogicalResult
-GenericSchedLabelerAttr::verify(function_ref<InFlightDiagnostic()> emitError,
-                                SchedLabeler labeler) {
-  if (labeler.isTrivial()) {
-    emitError() << "scheduler labeler has no patterns; "
-                   "check that the YAML file exists and is non-empty: "
-                << labeler.getName();
-    return failure();
-  }
-  return success();
-}
-
-int32_t GenericSchedLabelerAttr::getLabel(Operation *op, int32_t,
-                                          const SchedGraph &) const {
-  return getLabeler().getLabel(op);
-}
-
-//===----------------------------------------------------------------------===//
 // NoValueSemanticRegistersAttr
 //===----------------------------------------------------------------------===//
 

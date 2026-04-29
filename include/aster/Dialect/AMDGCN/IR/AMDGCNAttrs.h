@@ -20,7 +20,6 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
 #include "aster/Dialect/AMDGCN/IR/Hazards.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.h"
-#include "aster/Dialect/AMDGCN/IR/Sched.h"
 #include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
 #include "aster/Interfaces/MemorySpaceConstraints.h"
 #include "aster/Interfaces/SchedInterfaces.h"
