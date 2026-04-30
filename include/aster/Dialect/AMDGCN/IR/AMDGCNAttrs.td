@@ -142,13 +142,16 @@ def LowLevelSchedulerAttr : AMDGCN_Attr<"LowLevelScheduler", "low_level_schedule
     Schedules using a hardware queue simulator (VALU, XDL, SALU, VMEM, LGKM)
     with stall avoidance and interleaving heuristics.
 
-    When `annotateStalls` is true, records per-op stall metadata on the IR
-    during scheduling.
+    `preset` selects a pre-tuned magic-number set in SchedAttrs.cpp:
+      1 = default mfma-hiding
+      2..N = future presets
+    `annotateStalls` records per-op stall metadata on the IR during scheduling.
   }];
   let parameters = (ins
+    DefaultValuedParameter<"int32_t", "1">:$preset,
     DefaultValuedParameter<"bool", "false">:$annotateStalls
   );
-  let assemblyFormat = "`<` $annotateStalls `>`";
+  let assemblyFormat = "`<` $preset `,` $annotateStalls `>`";
 }
 
 //===----------------------------------------------------------------------===//

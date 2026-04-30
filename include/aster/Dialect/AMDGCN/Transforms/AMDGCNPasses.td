@@ -437,6 +437,8 @@ def LowLevelScheduler : Pass<"amdgcn-low-level-scheduler",
     "mlir::aster::aster_utils::AsterUtilsDialect"
   ];
   let options = [
+    Option<"preset", "preset", "int32_t", "1",
+           "Magic-number preset id (1 = mfma-hiding default)">,
     Option<"debugStalls", "debug-stalls", "bool", "false",
            "Annotate each op with sched.stall_cycles and sched.stall_reason">,
   ];
