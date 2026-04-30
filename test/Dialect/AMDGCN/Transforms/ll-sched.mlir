@@ -121,15 +121,17 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     amdgcn.end_kernel
   }
 
-  // VALU addr computations batch before VMEM loads (SSA deps).
+  // VALU addr computations interleave with VMEM loads (SSA deps).
+  // With VMEM depth=16, each load issues as soon as its address is ready;
+  // no batching is needed for stall avoidance.
   // CHECK-LABEL: kernel @vmem_addr_load_interleave
   // CHECK:         v_add_u32
   // CHECK:         global_load_dwordx4
   // CHECK:         v_add_u32
   // CHECK:         global_load_dwordx4
   // CHECK:         v_add_u32
-  // CHECK:         v_add_u32
   // CHECK:         global_load_dwordx4
+  // CHECK:         v_add_u32
   // CHECK:         global_load_dwordx4
   // CHECK:         end_kernel
   amdgcn.kernel @vmem_addr_load_interleave {
@@ -214,7 +216,8 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     amdgcn.end_kernel
   }
 
-  // LDS ops: same-queue ties broken by block position.
+  // LDS ops: with LGKM_R/LGKM_W merged into one bucket all three DS ops
+  // share priority; smallest-id (block order) tie-break preserves IR order.
   // CHECK-LABEL: kernel @lds_ops_ordered
   // CHECK:         ds_write_b64
   // CHECK:         ds_read_b64

@@ -508,6 +508,16 @@ def _build_multitile_gemm(
         with b.stage(STG_COMPUTE):
             nf = n_frags_per_tile
 
+            # Coarse wait at the top of the COMPUTE stage: gate on ALL LDS-read
+            # tokens at once instead of per-MFMA. Per-MFMA waits create
+            # scheduling barriers that prevent the LL scheduler from
+            # interleaving MFMAs with VOP2/VMEM/etc within the body. One
+            # batched wait keeps semantics correct (waiting earlier is always
+            # safe) and lets the scheduler reorder freely.
+            all_a_tokens = [b.memref_load(rtok_buf_a, b.constant_index(i)) for i in range(k_t * m_t * nf)]
+            all_b_tokens = [b.memref_load(rtok_buf_b, b.constant_index(i)) for i in range(k_t * n_t * nf)]
+            b.wait_deps(*all_a_tokens, *all_b_tokens)
+
             if vx4_mfma:
                 # CDNA4: join 2 vx2 fragments -> vx4 per MFMA.
                 assert nf == 2, f"CDNA4 expects 2 vx2 frags per tile, got {nf}"
@@ -520,12 +530,6 @@ def _build_multitile_gemm(
                     a_hi_i = b.linearize_index((kt, mt, b.constant_index(1)), (k_t, m_t, nf))
                     b_lo_i = b.linearize_index((kt, nt, b.constant_index(0)), (k_t, n_t, nf))
                     b_hi_i = b.linearize_index((kt, nt, b.constant_index(1)), (k_t, n_t, nf))
-                    b.wait_deps(
-                        b.memref_load(rtok_buf_a, a_lo_i),
-                        b.memref_load(rtok_buf_a, a_hi_i),
-                        b.memref_load(rtok_buf_b, b_lo_i),
-                        b.memref_load(rtok_buf_b, b_hi_i),
-                    )
                     acc = b.memref_load(c_buf, acc_idx)
                     a_vx4 = b.join_vx2_to_vx4(
                         b.from_any(b.memref_load(frag_buf_a, a_lo_i), vx2_type),
@@ -545,7 +549,6 @@ def _build_multitile_gemm(
                     acc_idx = b.linearize_index((mt, nt), (m_t, n_t))
                     a_fi = b.linearize_index((kt, mt, sub), (k_t, m_t, nf))
                     b_fi = b.linearize_index((kt, nt, sub), (k_t, n_t, nf))
-                    b.wait_deps(b.memref_load(rtok_buf_a, a_fi), b.memref_load(rtok_buf_b, b_fi))
                     acc = b.memref_load(c_buf, acc_idx)
                     a_frag = b.from_any(b.memref_load(frag_buf_a, a_fi), vx2_type)
                     b_frag = b.from_any(b.memref_load(frag_buf_b, b_fi), vx2_type)

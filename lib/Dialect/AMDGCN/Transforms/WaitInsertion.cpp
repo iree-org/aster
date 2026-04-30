@@ -73,6 +73,7 @@ namespace {
 struct WaitInsertion : public amdgcn::impl::WaitInsertionBase<WaitInsertion> {
   using Base::Base;
   void runOnOperation() override;
+  void runFineGrained(Operation *op, DataFlowSolver &solver);
 };
 
 //===----------------------------------------------------------------------===//
@@ -233,7 +234,13 @@ void WaitInsertion::runOnOperation() {
     return signalPassFailure();
   }
 
-  // Run the wait insertion transform for each function.
+  // Per-instruction (fine-grained) wait insertion.
+  op->walk([&](FunctionOpInterface funcOp) {
+    WaitTransformImpl(op->getContext(), solver).run(funcOp);
+  });
+}
+
+void WaitInsertion::runFineGrained(Operation *op, DataFlowSolver &solver) {
   op->walk([&](FunctionOpInterface funcOp) {
     WaitTransformImpl(op->getContext(), solver).run(funcOp);
   });
