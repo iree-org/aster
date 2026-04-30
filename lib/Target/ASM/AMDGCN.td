@@ -11,6 +11,6 @@
 #ifndef AMDGCN_ASM
 #define AMDGCN_ASM
 
-include "aster/Dialect/AMDGCN/IR/AMDGCNOps.td"
+include "aster/Dialect/AMDGCN/IR/AMDGCNInsts.td"
 
 #endif // AMDGCN_ASM

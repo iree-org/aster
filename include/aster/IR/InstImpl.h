@@ -119,12 +119,50 @@ OpTy cloneInstImpl(OpTy op, OpBuilder &builder, ValueRange outs,
                       attributes);
 }
 
+/// Clones the instruction operation with new operands and results.
+template <typename OpTy>
+OpTy cloneInstructionImpl(OpTy op, OpBuilder &builder, ValueRange outs,
+                          ValueRange ins) {
+
+  auto getOperandIndexAndLength = [&](unsigned index) {
+    return op.getODSOperandIndexAndLength(index);
+  };
+  auto getResultIndexAndLength = [&](unsigned index) {
+    return op.getODSResultIndexAndLength(index);
+  };
+  // Get the operation's attirbutes.
+  SmallVector<NamedAttribute> attributes =
+      llvm::to_vector(op->getDiscardableAttrs());
+  // Copy the operation's properties.
+  typename OpTy::Properties properties = op.getProperties();
+  // Get the new operands and result types.
+  SmallVector<Value> operands;
+  SmallVector<Type> resultTypes;
+  InstOpInfo info = op.getInstInfo();
+  LogicalResult result = cloneInstOperandsResultsImpl(
+      outs, ins, op->getOperands(), TypeRange(op->getResults()),
+      info.numLeadingOperands, info.numInstOuts, info.numInstIns,
+      info.numLeadingResults, getOperandIndexAndLength, getResultIndexAndLength,
+      operands, resultTypes,
+      getResultSegmentSizes<OpTy>(
+          PropertyRef(TypeID::get<typename OpTy::Properties>(), &properties)));
+  if (failed(result))
+    return nullptr;
+  return OpTy::create(builder, op.getLoc(), resultTypes, operands, properties,
+                      attributes);
+}
+
 /// Computes liveness transfer function for the instruction.
 LogicalResult livenessTransferFunctionImpl(InstOpInterface op,
                                            LivenessCallback insertCallback,
                                            LivenessCallback removeCallback,
                                            IsLiveCallback isLiveCallback);
 } // namespace detail
+
+/// Trait to provide utility methods for instruction operations.
+template <typename ConcreteType>
+struct InstructionTrait
+    : public OpTrait::TraitBase<ConcreteType, InstructionTrait> {};
 
 /// Trait to provide utility methods for instruction operations.
 template <typename ConcreteType>

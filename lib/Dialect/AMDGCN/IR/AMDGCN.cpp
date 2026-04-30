@@ -14,6 +14,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
+#include "aster/Dialect/AMDGCN/IR/InstructionProps.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
@@ -69,6 +70,20 @@ static ParseResult parseOpcode(OpAsmParser &parser, InstAttr &opcode) {
 /// Pretty printer for OpCode attribute when parsed from an operation.
 static void printOpcode(OpAsmPrinter &printer, Operation *, InstAttr opcode) {
   printer << stringifyOpCode(opcode.getValue());
+}
+
+/// Helper to get either the type of a Value or return the type itself.
+template <typename T, std::enable_if_t<std::is_base_of_v<Value, T>, int> = 0>
+static auto getTypeOrValue(T value) {
+  using Type = decltype(value.getType());
+  if (value == nullptr)
+    return Type();
+  return value.getType();
+}
+/// Helper to passthrough values that are not MLIR Values.
+template <typename T, std::enable_if_t<!std::is_base_of_v<Value, T>, int> = 0>
+static T &&getTypeOrValue(T &&value) {
+  return std::forward<T>(value);
 }
 
 //===----------------------------------------------------------------------===//

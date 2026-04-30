@@ -19,6 +19,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
+#include "aster/Dialect/AMDGCN/IR/InstructionProps.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/IR/InstImpl.h"
 #include "aster/Interfaces/AllocaOpInterface.h"
@@ -42,7 +43,12 @@
 
 namespace mlir {
 class PatternRewriter;
-}
+namespace aster::amdgcn {
+bool checkFloatConst(Value value, ArrayRef<float> values);
+bool checkIntConst(Value value, ArrayRef<int64_t> values);
+bool checkOffsetConst(Value value, int64_t offsetWidth, bool isSigned = false);
+} // namespace aster::amdgcn
+} // namespace mlir
 
 #define GET_OP_CLASSES
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h.inc"

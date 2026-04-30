@@ -39,19 +39,19 @@ struct InstOpInfo {
   const int32_t numLeadingResults;
   const int32_t numInstResults;
   /// Get the leading operands.
-  ValueRange getLeadingOperands(ValueRange operands) {
+  OperandRange getLeadingOperands(OperandRange operands) {
     return operands.slice(0, numLeadingOperands);
   }
   /// Get the instruction output operands.
-  ValueRange getInstOuts(ValueRange operands) {
+  OperandRange getInstOuts(OperandRange operands) {
     return operands.slice(numLeadingOperands, numInstOuts);
   }
   /// Get the instruction input operands.
-  ValueRange getInstIns(ValueRange operands) {
+  OperandRange getInstIns(OperandRange operands) {
     return operands.slice(numLeadingOperands + numInstOuts, numInstIns);
   }
   /// Get the trailing operands.
-  ValueRange getTrailingOperands(ValueRange operands) {
+  OperandRange getTrailingOperands(OperandRange operands) {
     return operands.drop_front(numLeadingOperands + numInstOuts + numInstIns);
   }
   /// Get the leading results.
