@@ -19,10 +19,12 @@
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/SMLoc.h"
+#include <cstdint>
 #include <type_traits>
 
 namespace mlir::aster {
@@ -146,6 +148,54 @@ void printDialectAttributes(Attribute attr, DialectAsmPrinter &printer) {
   if (succeeded(detail::printAttributesImpl<AttrTys...>(attr, printer)))
     return;
 }
+
+//===----------------------------------------------------------------------===//
+// Instruction operand parse/print helpers
+//===----------------------------------------------------------------------===//
+
+/// Describes the kind of an SSA operand in an instruction segment.
+enum class ODSOperandKind : int8_t {
+  Plain = 0,
+  Optional,
+  Variadic,
+};
+
+/// Parses operands for one instruction segment.
+/// Format: <prefix> `(` comma-separated-args `)`
+///   - Plain: operand
+///   - Optional: `name` `=` operand
+///   - Variadic: `name` `=` `[` comma-separated-operands `]`.
+///
+/// All of argNames, argKinds, and segmentSizes must have the same
+/// length (one entry per ODS operand in this segment).
+LogicalResult
+parseInstOperands(OpAsmParser &parser, StringRef prefix,
+                  SmallVectorImpl<OpAsmParser::UnresolvedOperand> &operands,
+                  ArrayRef<StringRef> argNames,
+                  ArrayRef<ODSOperandKind> argKinds,
+                  MutableArrayRef<int32_t> segmentSizes);
+
+/// Prints operands following the format of parseInstOperands.
+void printInstOperands(OpAsmPrinter &printer, StringRef prefix,
+                       OperandRange operands, ArrayRef<StringRef> argNames,
+                       ArrayRef<ODSOperandKind> argKinds,
+                       ArrayRef<int32_t> segmentSizes);
+
+/// Parses types for one instruction segment, following the format of
+/// parseInstOperands.
+LogicalResult parseInstOperandTypes(OpAsmParser &parser, StringRef prefix,
+                                    SmallVectorImpl<Type> &types,
+                                    ArrayRef<StringRef> argNames,
+                                    ArrayRef<ODSOperandKind> argKinds,
+                                    ArrayRef<int32_t> segmentSizes);
+
+/// Prints types for one instruction segment, following the format of
+/// parseInstOperandTypes.
+void printInstOperandTypes(OpAsmPrinter &printer, StringRef prefix,
+                           TypeRange types, ArrayRef<StringRef> argNames,
+                           ArrayRef<ODSOperandKind> argKinds,
+                           ArrayRef<int32_t> segmentSizes);
+
 } // namespace mlir::aster
 
 #endif // ASTER_IR_PARSEPRINTUTILS_H

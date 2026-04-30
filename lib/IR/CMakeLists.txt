@@ -1,5 +1,6 @@
 add_mlir_library(ASTERIR
   InstImpl.cpp
+  ParsePrintUtils.cpp
   PrintingUtils.cpp
   SSAMap.cpp
 
