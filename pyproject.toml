@@ -1,7 +1,11 @@
 [tool.pytest.ini_options]
 testpaths = ["test", "mlir_kernels", "contrib", "python"]
 addopts = "--import-mode=importlib"
-pythonpath = ["contrib", "contrib/kittens/test", "contrib/cpu/python"]
+pythonpath = ["build/python_packages", "contrib", "contrib/kittens/test", "contrib/cpu/python"]
+# Prevent pytest from descending into the aster source package when scanning
+# the python/ testpath; otherwise python/ gets inserted into sys.path before
+# build/python_packages/ and the source aster/__init__.py shadows the built one.
+norecursedirs = ["aster"]
 
 [tool.ruff]
 # 88 is black's default; preserved when switching from black to ruff.

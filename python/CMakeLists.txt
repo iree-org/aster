@@ -45,6 +45,19 @@ declare_mlir_python_sources(ASTERPythonSources.core
     layout/__init__.py
     layout/int_tuple.py
     layout/algebra.py
+    emitter/__init__.py
+    emitter/core.py
+    emitter/context.py
+    emitter/scope.py
+    emitter/table.py
+    emitter/semantic.py
+    emitter/types.py
+    emitter/func_emitter.py
+    emitter/arith_emitter.py
+    emitter/escape.py
+    emitter/template.py
+    emitter/rewrite.py
+    emitter/scf_emitter.py
 )
 
 declare_mlir_python_extension(ASTERPythonExtensions._amdgcn
@@ -247,6 +260,19 @@ foreach(file ${mlir_kernels_test_files})
   configure_file(
     "${file}"
     "${CMAKE_BINARY_DIR}/mlir_kernels/test/${rel_file}"
+    COPYONLY
+  )
+endforeach()
+
+# Copy python/test directory to build directory
+file(GLOB_RECURSE python_test_files
+  "${CMAKE_CURRENT_SOURCE_DIR}/test/*.py"
+)
+foreach(file ${python_test_files})
+  file(RELATIVE_PATH rel_file "${CMAKE_CURRENT_SOURCE_DIR}/test" "${file}")
+  configure_file(
+    "${file}"
+    "${CMAKE_BINARY_DIR}/python/test/${rel_file}"
     COPYONLY
   )
 endforeach()
