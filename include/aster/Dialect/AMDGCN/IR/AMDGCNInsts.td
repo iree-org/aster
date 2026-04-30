@@ -11,11 +11,21 @@
 #ifndef AMDGCN_INSTS_TD
 #define AMDGCN_INSTS_TD
 
+include "aster/Dialect/AMDGCN/IR/AMDGCNInstBase.td"
+include "aster/Dialect/AMDGCN/IR/Instructions/VMem.td"
+
 include "aster/Dialect/AMDGCN/IR/AMDGCNOps.td"
 
 //===----------------------------------------------------------------------===//
 // AMDGCN  Enums
 //===----------------------------------------------------------------------===//
+
+def EncodingEnum : AutoI32EnumCases<"AMDGCNEncoding",
+  "AMDGCN encodings", !instances<Encoding>() # [
+    PrettyEnumCaseInfo<"last_enc">
+  ]> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+}
 
 def InstPropEnum : AutoI32EnumCases<"InstProp",
   "AMDGCN instruction properties", !instances<InstProp>() # [
