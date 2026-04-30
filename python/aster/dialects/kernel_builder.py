@@ -166,7 +166,6 @@ class KernelBuilder:
         # Create the kernel body block. All instruction methods insert here.
         self._kernel_block = ir.Block.create_at_start(self._kernel_op.body_region, [])
         self._kip = ir.InsertionPoint(self._kernel_block)
-        self._current_stage: Optional[int] = None
 
         # Cached types -- constructed once, reused everywhere.
         self.idx_type = ir.IndexType.get(ctx)
@@ -191,16 +190,9 @@ class KernelBuilder:
     @contextmanager
     def stage(self, stage_id: int):
         """Context manager: tag all ops emitted within with sched.stage."""
-        prev = self._current_stage
-        self._current_stage = stage_id
-        # Snapshot: count ops in the current block before body executes.
         block = self._kip.block
         n_before = sum(1 for _ in block.operations)
-
         yield
-
-        self._current_stage = prev
-        # Tag every new op (and ops in nested regions) that lacks sched.stage.
         stage_attr = _i32(stage_id, self._ctx)
         all_ops = list(block.operations)
         for op in all_ops[n_before:]:
@@ -312,15 +304,12 @@ class KernelBuilder:
             arg_locs = [self._loc] * len(arg_types)
             func_block = ir.Block.create_at_start(fn_op.body, arg_types, arg_locs)
             saved_ip = self._kip
-            saved_stage = self._current_stage
             self._kip = ir.InsertionPoint(func_block)
-            self._current_stage = None
             ret_vals = fn(self, *list(func_block.arguments))
             if ret_vals is None:
                 ret_vals = []
             funcd.ReturnOp(ret_vals, loc=self._loc, ip=self._kip)
             self._kip = saved_ip
-            self._current_stage = saved_stage
             return name
 
         if body_fn is not None:
