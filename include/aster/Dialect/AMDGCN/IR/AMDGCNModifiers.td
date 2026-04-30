@@ -32,9 +32,8 @@ class BuiltinAttrBuilder<Attr namedAttr, dag params> : PyAttr {
 // E.g., vmcnt(0)
 // If the value is the default value, the modifier is omitted.
 class ParenIntModifier<Attr intAttr, string name, int defaultValue, Attr intAttrBase = intAttr>
-    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, AsmArgFormat,
+    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat,
       BuiltinAttrBuilder<intAttrBase, (ins "int":$value)>{
-  let asmParser = "$_parser.parseParenIntModifier(\"" # name # "\", $_self);";
   let asmPrinter = "$_printer.printParenIntModifier(\"" # name # "\", $_self, " # defaultValue # ");";
 }
 
@@ -43,9 +42,8 @@ class ParenIntModifier<Attr intAttr, string name, int defaultValue, Attr intAttr
 // E.g., cbsz:[4]
 // If the value is the default value, the modifier is omitted.
 class SquareIntModifier<Attr intAttr, string name, int defaultValue>
-    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, AsmArgFormat,
+    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat,
       BuiltinAttrBuilder<intAttr, (ins "int":$value)> {
-  let asmParser = "$_parser.parseSquareIntModifier(\"" # name # "\", $_self);";
   let asmPrinter = "$_printer.printSquareIntModifier(\"" # name # "\", $_self, " # defaultValue # ");";
 }
 
@@ -54,9 +52,8 @@ class SquareIntModifier<Attr intAttr, string name, int defaultValue>
 // E.g., offset:4
 // If the value is the default value, the modifier is omitted.
 class NamedIntModifier<Attr intAttr, string name, int defaultValue>
-    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, AsmArgFormat,
+    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat,
       BuiltinAttrBuilder<intAttr, (ins "int":$value)> {
-  let asmParser = "$_parser.parseIntModifier(\"" # name # "\", $_self);";
   let asmPrinter = "$_printer.printIntModifier(\"" # name # "\", $_self, " # defaultValue # ");";
 }
 
@@ -66,9 +63,8 @@ class NamedIntModifier<Attr intAttr, string name, int defaultValue>
 // E.g., 4
 // If the value is the default value, the modifier is omitted.
 class IntModifier<Attr intAttr, int defaultValue, Attr intAttrBase = intAttr>
-    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, AsmArgFormat,
+    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat,
       BuiltinAttrBuilder<intAttrBase, (ins "int":$value)> {
-  let asmParser = "$_parser.parseIntModifier($_self);";
   let asmPrinter = "$_printer.printIntModifier($_self, " # defaultValue # ");";
 }
 
@@ -93,10 +89,9 @@ def CBSZAttr : SquareIntModifier<I8Attr, "cbsz", 0> {
 
 // IMM16 attribute -- always printed in ASM (SOPP instructions require the
 // immediate operand even when it is zero, e.g. s_setprio 0).
-def Imm16Attr : DefaultValuedAttr<I16Attr, "0">, AsmArgFormat,
+def Imm16Attr : DefaultValuedAttr<I16Attr, "0">, ASMArgFormat,
     BuiltinAttrBuilder<I16Attr, (ins "int":$value)> {
   let summary = "16 bit immediate value";
-  let asmParser = "$_parser.parseIntModifier($_self);";
   let asmPrinter = "$_printer.printIntModifierAlways($_self);";
 }
 

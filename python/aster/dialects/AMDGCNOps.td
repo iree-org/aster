@@ -10,6 +10,6 @@
 #ifndef PYTHON_BINDINGS_AMDGCN_OPS
 #define PYTHON_BINDINGS_AMDGCN_OPS
 
-include "aster/Dialect/AMDGCN/IR/AMDGCNOps.td"
+include "aster/Dialect/AMDGCN/IR/AMDGCNInsts.td"
 
 #endif // PYTHON_BINDINGS_AMDGCN_OPS

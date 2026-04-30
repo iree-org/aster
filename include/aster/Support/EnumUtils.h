@@ -74,6 +74,15 @@ public:
     return typeID == other.typeID && value == other.value;
   }
   bool operator!=(const TypedEnum &other) const { return !(*this == other); }
+  template <typename EnumTy, std::enable_if_t<is_valid_enum_v<EnumTy>, int> = 0>
+  bool operator==(EnumTy value) const {
+    return typeID == mlir::TypeID::get<EnumTy>() &&
+           this->value == static_cast<int64_t>(value);
+  }
+  template <typename EnumTy, std::enable_if_t<is_valid_enum_v<EnumTy>, int> = 0>
+  bool operator!=(EnumTy value) const {
+    return !(*this == value);
+  }
 
   /// Compares this enum against using three-way comparison semantics. Returns
   /// std::nullopt if the enums are of different types.

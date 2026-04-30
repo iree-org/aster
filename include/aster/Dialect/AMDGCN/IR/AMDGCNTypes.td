@@ -16,6 +16,7 @@
 #define ASTER_AMDGCN_TYPES_TD
 
 include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.td"
+include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNRegisterTypeInterface.td"
 include "aster/Interfaces/DependentOpInterface.td"
@@ -26,9 +27,7 @@ include "aster/Interfaces/DependentOpInterface.td"
 
 class AMDGCN_RegisterDef<string name, string typeMnemonic, list<Trait> traits = []>
     : AMDGCN_Type<name, typeMnemonic, traits # [AMDGCNRegisterTypeInterface]>,
-      AsmArgFormat {
-  let asmParser = "$_parser.parseOperand($_self);";
-  let asmPrinter = "$_printer.printOperand($_self);";
+      PrintOperand {
 }
 
 //===----------------------------------------------------------------------===//
@@ -228,14 +227,6 @@ foreach sreg = SpecialRegisters in {
   def sreg#Type : SREGBase<sreg.typeName, sreg.typeMnemonic, sreg.name>;
 }
 
-class SReg<string name> : Type<CPred<"::mlir::isa<::mlir::aster::amdgcn::" # name # "Type>($_self)">,
-    name # " special register type",
-    "::mlir::aster::amdgcn::" # name # "Type"
-  >, AsmArgFormat {
-  let asmParser = "$_parser.parseOperand($_self);";
-  let asmPrinter = "$_printer.printOperand($_self);";
-}
-
 //===----------------------------------------------------------------------===//
 // Misc types
 //===----------------------------------------------------------------------===//
@@ -273,112 +264,6 @@ def WriteTokenType : AMDGCN_Type<"WriteToken", "write_token",
   }];
   let parameters = (ins "MemoryInstructionKind":$kind);
   let assemblyFormat = "`<` $kind `>`";
-}
-
-//===----------------------------------------------------------------------===//
-// Common type constraints
-//===----------------------------------------------------------------------===//
-
-/// A type that matches any register type.
-def AnyReg : Type<CPred<"true">, "any register type",
-    "::mlir::aster::amdgcn::AMDGCNRegisterTypeInterface"
-  >, AsmArgFormat {
-  let asmParser = "$_parser.parseOperand($_self);";
-  let asmPrinter = "$_printer.printOperand($_self);";
-}
-
-/// A type that matches any of the given register types.
-class AnyRegOf<list<Type> types> : AnyTypeOf<types, "register type",
-    "::mlir::aster::amdgcn::AMDGCNRegisterTypeInterface"
-  >, AsmArgFormat {
-  let asmParser = "$_parser.parseOperand($_self);";
-  let asmPrinter = "$_printer.printOperand($_self);";
-}
-
-/// A sized GPR range.
-class SizedGPRRange<list<Type> types, list<int> size> :
-  ConfinedType<AnyRegOf<types>, [
-    CPred<"::mlir::aster::amdgcn::hasSize($_self, {" # !interleave(size, ", ") # "})">
-  ], "sized GPR range">, AsmArgFormat {
-  let asmParser = "$_parser.parseOperand($_self);";
-  let asmPrinter = "$_printer.printOperand($_self);";
-}
-
-/// A sized GPR range.
-class SizedGPRRangeOf<Type type, list<int> size> :
-  ConfinedType<type, [
-    CPred<"::mlir::aster::amdgcn::hasSize($_self, {" # !interleave(size, ", ") # "})">
-  ], "sized GPR range of " # type.summary>, AsmArgFormat {
-  let asmParser = "$_parser.parseOperand($_self);";
-  let asmPrinter = "$_printer.printOperand($_self);";
-}
-
-/// A type that matches an optional register type.
-class OptionalReg<Type type> : Optional<type>, AsmArgFormat {
-  let asmParser = "$_parser.parseOperand($_self);";
-  let asmPrinter = "$_printer.printOperand($_self);";
-}
-
-/// A type that matches either a register or an immediate type.
-class RegOrImm<list<Type> regTypes, list<Type> immTypes>
-    : AnyTypeOf<regTypes # immTypes>, AsmArgFormat {
-  let asmParser = "$_parser.parseOperand($_self);";
-  let asmPrinter = "$_printer.printOperand($_self);";
-}
-
-/// A type that matches either a register or an immediate type.
-class OptionalRegOrImm<list<Type> regTypes, list<Type> immTypes>
-    : Optional<AnyTypeOf<regTypes # immTypes>>, AsmArgFormat {
-  let asmParser = "$_parser.parseOperand($_self);";
-  let asmPrinter = "$_printer.printOperand($_self);";
-}
-
-/// A 32-bit offset.
-def OptionalOffsetType : Optional<I32>, AsmArgFormat {
-  let asmParser = "$_parser.parseOffsetOperand($_self);";
-  let asmPrinter = "$_printer.printOffsetOperand($_self);";
-}
-
-/// A label that can be branched to.
-def BranchLabel : Successor<?, "">, AsmArgFormat {
-  let asmParser = "$_parser.parseBranchLabel($_self);";
-  let asmPrinter = "$_printer.printBranchLabel($_self);";
-}
-
-//===----------------------------------------------------------------------===//
-// Register like types
-//===----------------------------------------------------------------------===//
-
-/// A register like type that matches AGPR, SGPR, VGPR, or SREG types.
-def RegisterLike :  Type<CPred<"::mlir::aster::amdgcn::isRegisterLike($_self)">,
-    "register like type", "::mlir::aster::amdgcn::AMDGCNRegisterTypeInterface"
-  >, AsmArgFormat {
-  let summary = "Register like types";
-  let description = [{
-    The register like types represent the different kinds of registers
-    (AGPR, SGPR, VGPR, SREG) in the AMDGCN architecture.
-  }];
-}
-
-/// A register like type that matches AGPRRange, SGPRRange, or VGPRRange types.
-def RegisterRangeLike : AnyRegOf<[AGPRType, SGPRType, VGPRType]> {
-  let summary = "Register range like types";
-  let description = [{
-    The register range like types represent the different kinds of registers
-    ranges (AGPR, SGPR, VGPR) in the AMDGCN architecture.
-  }];
-}
-
-/// A register type that matches either a VGPR or an AGPR type.
-def VGPROrAGPRType : AnyRegOf<[AGPRType, VGPRType]>;
-
-/// SCC register.
-def SCCReg : Type<CPred<"cast<SREGType>($_self).getKind() == SregKind::Scc">,
-    "SCC register",
-    "::mlir::aster::amdgcn::SREGType"
-  >, AsmArgFormat {
-  let asmParser = "$_parser.parseOperand($_self);";
-  let asmPrinter = "$_printer.printOperand($_self);";
 }
 
 #endif // ASTER_AMDGCN_TYPES_TD
