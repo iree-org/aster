@@ -28,6 +28,7 @@ from aster.emitter import (
     index,
     instantiate,
     jit,
+    pattern,
     reflect,
     register_context,
     template,
@@ -1150,3 +1151,121 @@ def test_emitc_class_multiple_methods():
     assert "emitc.get_field" in text
     assert "field_name = @x" in text
     assert "field_name = @y" in text
+
+
+# ===================================================================
+# 16. Pattern dialect emission.
+# ===================================================================
+
+
+def test_pattern_fields_only():
+    """Pattern with fields and an empty action body."""
+
+    @pattern(benefit=1, op="MyOp", fields=["counter: i32"])
+    def my_pat(op, rewriter):  # noqa: F841
+        cond = counter == 0  # noqa: F821, F841
+
+        def rewrite(cond):  # noqa: F841
+            pass
+
+    module = my_pat.emit()
+    text = _mlir_str(module)
+    assert "pattern.rewrite_pattern @my_pat" in text
+    assert "benefit(1)" in text
+    assert "op(@MyOp)" in text
+    assert "pattern.field @counter : i32" in text
+    assert "pattern.yield" in text
+
+
+def test_pattern_with_action():
+    """Pattern with a def rewrite(cond): action block."""
+
+    @pattern(benefit=2, op="SomeOp", fields=["flag: i32"])
+    def action_pat(op, rewriter):  # noqa: F841
+        v = flag  # noqa: F821
+        cond = v == 0  # noqa: F841
+
+        def rewrite(cond):  # noqa: F841
+            pass
+
+    module = action_pat.emit()
+    text = _mlir_str(module)
+    assert "pattern.rewrite_pattern @action_pat" in text
+    assert "pattern.action" in text
+    assert "pattern.get_field @flag" in text
+
+
+def test_pattern_get_field_in_body():
+    """Accessing field names in the body emits pattern.get_field."""
+
+    @pattern(benefit=0, op="TestOp", fields=["x: i32", "y: i32"])
+    def field_pat(op, rewriter):  # noqa: F841
+        a = x  # noqa: F821
+        b = y  # noqa: F821
+        cond = a == b  # noqa: F841
+
+        def rewrite(cond):  # noqa: F841
+            pass
+
+    module = field_pat.emit()
+    text = _mlir_str(module)
+    assert "pattern.get_field @x" in text
+    assert "pattern.get_field @y" in text
+    assert "pattern.field @x : i32" in text
+    assert "pattern.field @y : i32" in text
+
+
+def test_pattern_as_nested_context():
+    """Using @pattern() as a nested context inside @jit."""
+
+    @jit()
+    def outer(a: i32) -> i32:
+        @pattern()  # noqa: F821
+        def inner():
+            pass
+
+        return a
+
+    import aster.ir as ir
+    from aster.emitter.context import EmitterContext
+    from aster.emitter.core import ASTEmitter, default_table
+    from aster.emitter.scope import ScopeStack, SymbolTable
+
+    ctx = ir.Context()
+    with ctx:
+        module = ir.Module.create(ir.Location.unknown(ctx))
+        loc = ir.Location.unknown(ctx)
+        ectx = EmitterContext(
+            module=module,
+            ctx=ctx,
+            ip=ir.InsertionPoint(module.body),
+            loc=loc,
+            scope_stack=ScopeStack(SymbolTable()),
+            semantic=DefaultSemantic(),
+            table=default_table(),
+        )
+        emitter = ASTEmitter(ectx)
+        emitter.set_arg_types([i32])
+        emitter.visit(outer.tree)
+
+    text = _mlir_str(module)
+    # The outer function should emit func.func.
+    assert "func.func" in text
+
+
+def test_pattern_emitc_ops_in_action():
+    """EmitC ops appear inside action body for C++ translation."""
+
+    @pattern(benefit=3, op="FooOp", fields=["val: i32"])
+    def emitc_pat(op, rewriter):  # noqa: F841
+        v = val  # noqa: F821
+        cond = v == 0  # noqa: F841
+
+        def rewrite(cond):  # noqa: F841
+            result = val + val  # noqa: F821, F841
+
+    module = emitc_pat.emit()
+    text = _mlir_str(module)
+    assert "pattern.action" in text
+    # Inside the action body, arithmetic uses emitc ops.
+    assert "emitc.add" in text or '"emitc.add"' in text

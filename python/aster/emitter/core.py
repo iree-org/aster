@@ -132,6 +132,14 @@ class JITFunction:
                 table=table,
             )
 
+            # Forward pattern metadata to the emitter context if present.
+            if hasattr(self, "_pattern_meta"):
+                ectx._pattern_meta = self._pattern_meta
+                # Pattern functions have structural parameters (op, rewriter)
+                # that are not IR values, so skip arg type resolution.
+                if arg_types is None:
+                    arg_types = []
+
             emitter = ASTEmitter(ectx)
             if arg_types is not None:
                 emitter.set_arg_types(arg_types)
@@ -499,9 +507,15 @@ class ASTEmitter(ast.NodeVisitor):
 
     def visit_Name(self, node: ast.Name) -> Any:
         try:
-            return self._ectx.scope_stack.resolve(node.id)
+            value = self._ectx.scope_stack.resolve(node.id)
         except KeyError:
             raise NameError(f"name '{node.id}' is not defined") from None
+        # Check for a registered name emitter so that sentinels (e.g.
+        # _PatternField) are materialised to IR on bare name access.
+        name_emitter = self._ectx.table.get_name_emitter(type(value))
+        if name_emitter is not None:
+            return name_emitter(self._ectx, value)
+        return value
 
     def visit_Call(self, node: ast.Call) -> Any:
         callee = self.visit(node.func)

@@ -59,6 +59,7 @@ declare_mlir_python_sources(ASTERPythonSources.core
     emitter/rewrite.py
     emitter/scf_emitter.py
     emitter/emitc_emitter.py
+    emitter/pattern_emitter.py
 )
 
 declare_mlir_python_extension(ASTERPythonExtensions._amdgcn
@@ -169,6 +170,15 @@ declare_mlir_dialect_python_bindings(
   SOURCES
     dialects/layout.py
   DIALECT_NAME layout
+)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT ASTERPythonSources
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/aster"
+  TD_FILE dialects/PatternOps.td
+  SOURCES
+    dialects/pattern.py
+  DIALECT_NAME pattern
 )
 
 ################################################################################

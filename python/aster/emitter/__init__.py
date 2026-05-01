@@ -31,6 +31,7 @@ from .context import EmissionContext, register_context
 from .core import JITFunction, UnsupportedConstruct, default_table, jit
 from .emitc_emitter import EmitCContext, EmitCSemantic
 from .escape import escape, reflect
+from .pattern_emitter import PatternContext, pattern
 from .rewrite import clear_global_pipeline, register_rewrite
 from .semantic import DefaultSemantic, SemanticAnalyzer
 from .table import EmitterTable
@@ -67,6 +68,7 @@ __all__ = [
     "UnsupportedConstruct",
     "EmitCContext",
     "EmitCSemantic",
+    "PatternContext",
     "clear_global_pipeline",
     "default_table",
     "escape",
@@ -81,6 +83,7 @@ __all__ = [
     "index",
     "instantiate",
     "jit",
+    "pattern",
     "reflect",
     "register_context",
     "register_rewrite",
