@@ -33,7 +33,7 @@ amdgcn.module @test_two_stage_no_iv target = <gfx942> {
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -70,7 +70,7 @@ amdgcn.module @test_two_stage_iv_s0_only target = <gfx942> {
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -113,7 +113,7 @@ amdgcn.module @test_two_stage_iv_dep target = <gfx942> {
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -180,7 +180,7 @@ amdgcn.module @test_five_stage target = <gfx942> {
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }

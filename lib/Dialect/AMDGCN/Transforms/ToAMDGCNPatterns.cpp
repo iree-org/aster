@@ -39,6 +39,34 @@ using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
+/// Create an SCC alloca value for use as scc_dst or scc_src operand.
+static Value createSCCAlloca(OpBuilder &builder, Location loc) {
+  return AllocaOp::create(builder, loc,
+                          SCCType::get(builder.getContext(), Register(0)));
+}
+
+/// Helper to create an SOP2Out2In2 instruction and return the dst result.
+/// These instructions have 2 outs (dst0 + scc_dst) and 2 ins (src0, src1).
+template <typename OpTy>
+static Value createSOP2Out2In2(OpBuilder &builder, Location loc, Value dst,
+                               Value src0, Value src1) {
+  Value sccDst = createSCCAlloca(builder, loc);
+  return OpTy::create(builder, loc, dst, sccDst, src0, src1).getDst0Res();
+}
+
+/// Helper to create an SOP2Out2In3 instruction and return the dst result.
+/// These instructions have 2 outs (dst0 + scc_dst) and 3 ins (src0, src1,
+/// scc_src). The scc_src alloca is created internally to represent the SCC
+/// carry input.
+template <typename OpTy>
+static Value createSOP2Out2In3(OpBuilder &builder, Location loc, Value dst,
+                               Value src0, Value src1) {
+  Value sccDst = createSCCAlloca(builder, loc);
+  Value sccSrc = createSCCAlloca(builder, loc);
+  return OpTy::create(builder, loc, dst, sccDst, src0, src1, sccSrc)
+      .getDst0Res();
+}
+
 namespace {
 //===----------------------------------------------------------------------===//
 // AddIOpPattern
@@ -496,19 +524,16 @@ LogicalResult AddIOpPattern::matchAndRewrite(lsir::AddIOp op,
   // At this point, operands are valid - create the appropriate add op
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
-      Value result =
-          S_ADD_U32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+      Value result = createSOP2Out2In2<SAddU32>(rewriter, loc, dst, lhs, rhs);
       rewriter.replaceOp(op, result);
       return success();
     }
-    Value lo =
-        S_ADD_U32::create(rewriter, loc, getElemOr(dstR, 0, dst),
-                          getElemOr(lhsR, 0, lhs), getElemOr(rhsR, 0, rhs))
-            .getSdstRes();
-    Value hi =
-        S_ADDC_U32::create(rewriter, loc, getElemOr(dstR, 1, dst),
-                           getElemOr(lhsR, 1, lhs), getElemOr(rhsR, 1, rhs))
-            .getSdstRes();
+    Value lo = createSOP2Out2In2<SAddU32>(
+        rewriter, loc, getElemOr(dstR, 0, dst), getElemOr(lhsR, 0, lhs),
+        getElemOr(rhsR, 0, rhs));
+    Value hi = createSOP2Out2In3<SAddcU32>(
+        rewriter, loc, getElemOr(dstR, 1, dst), getElemOr(lhsR, 1, lhs),
+        getElemOr(rhsR, 1, rhs));
     rewriter.replaceOp(
         op, MakeRegisterRangeOp::create(rewriter, loc, oTy, {lo, hi}));
     return success();
@@ -667,12 +692,11 @@ LogicalResult AndIOpPattern::matchAndRewrite(lsir::AndIOp op,
   // At this point, operands are valid - create the appropriate and op
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
-      Value result =
-          S_AND_B32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+      Value result = createSOP2Out2In2<SAndB32>(rewriter, loc, dst, lhs, rhs);
       rewriter.replaceOp(op, result);
       return success();
     }
-    Value result = S_AND_B64::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+    Value result = createSOP2Out2In2<SAndB64>(rewriter, loc, dst, lhs, rhs);
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -1018,8 +1042,7 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
   // At this point, operands are valid - create the appropriate mul op
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
-      Value result =
-          S_MUL_I32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+      Value result = SMulI32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
       rewriter.replaceOp(op, result);
       return success();
     }
@@ -1034,12 +1057,12 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
     Value t0 = createAllocation(rewriter, loc, getSGPR(getCtx(rewriter)));
     Value t1 = createAllocation(rewriter, loc, getSGPR(getCtx(rewriter)));
 
-    dHi = S_MUL_I32::create(rewriter, loc, dHi, rLo, lHi).getSdstRes();
-    t0 = S_MUL_HI_U32::create(rewriter, loc, t0, rLo, lLo).getSdstRes();
-    t1 = S_MUL_I32::create(rewriter, loc, t1, rHi, lLo).getSdstRes();
-    dHi = S_ADD_I32::create(rewriter, loc, dHi, t0, dHi).getSdstRes();
-    dLo = S_MUL_I32::create(rewriter, loc, dLo, rLo, lLo).getSdstRes();
-    dHi = S_ADD_I32::create(rewriter, loc, dHi, dHi, t1).getSdstRes();
+    dHi = SMulI32::create(rewriter, loc, dHi, rLo, lHi).getDst0Res();
+    t0 = SMulHiU32::create(rewriter, loc, t0, rLo, lLo).getDst0Res();
+    t1 = SMulI32::create(rewriter, loc, t1, rHi, lLo).getDst0Res();
+    dHi = createSOP2Out2In2<SAddI32>(rewriter, loc, dHi, t0, dHi);
+    dLo = SMulI32::create(rewriter, loc, dLo, rLo, lLo).getDst0Res();
+    dHi = createSOP2Out2In2<SAddI32>(rewriter, loc, dHi, dHi, t1);
 
     // Combine low and high parts
     Value result = MakeRegisterRangeOp::create(rewriter, loc, oTy, {dLo, dHi});
@@ -1120,8 +1143,7 @@ MulHiSIOpPattern::matchAndRewrite(lsir::MulHiSIOp op,
   Location loc = op.getLoc();
 
   if (kind == OperandKind::SGPR) {
-    Value result =
-        S_MUL_HI_I32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+    Value result = SMulHiI32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -1171,12 +1193,11 @@ LogicalResult OrIOpPattern::matchAndRewrite(lsir::OrIOp op,
   // At this point, operands are valid - create the appropriate or op
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
-      Value result =
-          S_OR_B32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+      Value result = createSOP2Out2In2<SOrB32>(rewriter, loc, dst, lhs, rhs);
       rewriter.replaceOp(op, result);
       return success();
     }
-    Value result = S_OR_B64::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+    Value result = createSOP2Out2In2<SOrB64>(rewriter, loc, dst, lhs, rhs);
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -1213,12 +1234,11 @@ LogicalResult XOrIOpPattern::matchAndRewrite(lsir::XOrIOp op,
   // At this point, operands are valid - create the appropriate xor op
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
-      Value result =
-          S_XOR_B32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+      Value result = createSOP2Out2In2<SXorB32>(rewriter, loc, dst, lhs, rhs);
       rewriter.replaceOp(op, result);
       return success();
     }
-    Value result = S_XOR_B64::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+    Value result = createSOP2Out2In2<SXorB64>(rewriter, loc, dst, lhs, rhs);
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -1254,8 +1274,8 @@ LogicalResult MovOpPattern::matchAndRewrite(lsir::MovOp op,
               .getDst0Res();
     break;
   case OperandKind::SGPR:
-    res = S_MOV_B32::create(rewriter, op.getLoc(), op.getDst(), op.getValue())
-              .getSdstRes();
+    res = SMovB32::create(rewriter, op.getLoc(), op.getDst(), op.getValue())
+              .getDst0Res();
     break;
   default:
     return rewriter.notifyMatchFailure(op, "unsupported mov register operand");
@@ -1340,13 +1360,11 @@ LogicalResult ShLIOpPattern::matchAndRewrite(lsir::ShLIOp op,
   // Handle the SGPR case (only if all operands fit SGPR path).
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
-      Value result =
-          S_LSHL_B32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+      Value result = createSOP2Out2In2<SLshlB32>(rewriter, loc, dst, lhs, rhs);
       rewriter.replaceOp(op, result);
       return success();
     }
-    Value result =
-        S_LSHL_B64::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+    Value result = createSOP2Out2In2<SLshlB64>(rewriter, loc, dst, lhs, rhs);
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -1405,13 +1423,11 @@ LogicalResult ShRSIOpPattern::matchAndRewrite(lsir::ShRSIOp op,
   // Handle the SGPR case
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
-      Value result =
-          S_ASHR_I32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+      Value result = createSOP2Out2In2<SAshrI32>(rewriter, loc, dst, lhs, rhs);
       rewriter.replaceOp(op, result);
       return success();
     }
-    Value result =
-        S_ASHR_I64::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+    Value result = createSOP2Out2In2<SAshrI64>(rewriter, loc, dst, lhs, rhs);
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -1460,13 +1476,11 @@ LogicalResult ShRUIOpPattern::matchAndRewrite(lsir::ShRUIOp op,
   // Handle the SGPR case
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
-      Value result =
-          S_LSHR_B32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+      Value result = createSOP2Out2In2<SLshrB32>(rewriter, loc, dst, lhs, rhs);
       rewriter.replaceOp(op, result);
       return success();
     }
-    Value result =
-        S_LSHR_B64::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+    Value result = createSOP2Out2In2<SLshrB64>(rewriter, loc, dst, lhs, rhs);
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -1791,19 +1805,16 @@ LogicalResult SubIOpPattern::matchAndRewrite(lsir::SubIOp op,
   // At this point, operands are valid - create the appropriate add op
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
-      Value result =
-          S_SUB_U32::create(rewriter, loc, dst, lhs, rhs).getSdstRes();
+      Value result = createSOP2Out2In2<SSubU32>(rewriter, loc, dst, lhs, rhs);
       rewriter.replaceOp(op, result);
       return success();
     }
-    Value lo =
-        S_SUB_U32::create(rewriter, loc, getElemOr(dstR, 0, dst),
-                          getElemOr(lhsR, 0, lhs), getElemOr(rhsR, 0, rhs))
-            .getSdstRes();
-    Value hi =
-        S_SUBB_U32::create(rewriter, loc, getElemOr(dstR, 1, dst),
-                           getElemOr(lhsR, 1, lhs), getElemOr(rhsR, 1, rhs))
-            .getSdstRes();
+    Value lo = createSOP2Out2In2<SSubU32>(
+        rewriter, loc, getElemOr(dstR, 0, dst), getElemOr(lhsR, 0, lhs),
+        getElemOr(rhsR, 0, rhs));
+    Value hi = createSOP2Out2In3<SSubbU32>(
+        rewriter, loc, getElemOr(dstR, 1, dst), getElemOr(lhsR, 1, lhs),
+        getElemOr(rhsR, 1, rhs));
     rewriter.replaceOp(
         op, MakeRegisterRangeOp::create(rewriter, loc, oTy, {lo, hi}));
     return success();
@@ -1924,9 +1935,8 @@ LogicalResult WaitOpPattern::matchAndRewrite(lsir::WaitOp op,
       return rewriter.getI8IntegerAttr(0);
     return count == 0 ? IntegerAttr() : rewriter.getI8IntegerAttr(count);
   };
-  inst::SWaitcntOp::create(rewriter, loc,
-                           InstAttr::get(getCtx(rewriter), OpCode::S_WAITCNT),
-                           getCnt(vmcnt), getCnt(expcnt), getCnt(lgkmcnt));
+  SWaitcnt::create(rewriter, loc, getCnt(vmcnt), getCnt(expcnt),
+                   getCnt(lgkmcnt));
   rewriter.eraseOp(op);
   for (Operation *depOp : depOps) {
     // Mark dependency operations as used.

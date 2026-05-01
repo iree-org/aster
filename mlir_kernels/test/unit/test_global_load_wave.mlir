@@ -47,7 +47,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
     %out_ptr_vx2 = amdgcn.load_arg 2 : !sx2
     %out_ptr_vx3 = amdgcn.load_arg 3 : !sx2
     %out_ptr_vx4 = amdgcn.load_arg 4 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -65,7 +65,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
     %out_off_vx1 = func.call @get_test_offset(%transfer_size_vx1) : (index) -> (!v)
     %tok_store_1 = amdgcn.store global_store_dword data %loaded_vx1 addr %out_ptr_vx1 offset d(%out_off_vx1)
       : ins(!vx1, !sx2, !v) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     //===--------------------------------------------------------------------===//
     // dwordx2
@@ -78,7 +78,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
     %out_off_vx2 = func.call @get_test_offset(%transfer_size_vx2) : (index) -> (!v)
     %tok_store_2 = amdgcn.store global_store_dwordx2 data %loaded_vx2 addr %out_ptr_vx2 offset d(%out_off_vx2)
       : ins(!vx2, !sx2, !v) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     //===--------------------------------------------------------------------===//
     // dwordx3
@@ -91,7 +91,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
     %out_off_vx3 = func.call @get_test_offset(%transfer_size_vx3) : (index) -> (!v)
     %tok_store_3 = amdgcn.store global_store_dwordx3 data %loaded_vx3 addr %out_ptr_vx3 offset d(%out_off_vx3)
       : ins(!vx3, !sx2, !v) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     //===--------------------------------------------------------------------===//
     // dwordx4
@@ -104,7 +104,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
     %out_off_vx4 = func.call @get_test_offset(%transfer_size_vx4) : (index) -> (!v)
     %tok_store_4 = amdgcn.store global_store_dwordx4 data %loaded_vx4 addr %out_ptr_vx4 offset d(%out_off_vx4)
       : ins(!vx4, !sx2, !v) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel
   }

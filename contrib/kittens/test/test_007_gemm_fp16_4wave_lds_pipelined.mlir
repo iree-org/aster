@@ -52,7 +52,7 @@ amdgcn.module @kittens_gemm_4wave_lds_pipelined target = #amdgcn.target<gfx942> 
     %A_raw = amdgcn.load_arg 0 : !sx2
     %B_raw = amdgcn.load_arg 1 : !sx2
     %C_raw = amdgcn.load_arg 2 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %A_ptr = func.call @prepare_ptr(%A_raw) : (!sx2) -> !aster_utils.any
     %B_ptr = func.call @prepare_ptr(%B_raw) : (!sx2) -> !aster_utils.any
     %C_ptr = func.call @prepare_ptr(%C_raw) : (!sx2) -> !aster_utils.any
@@ -116,7 +116,7 @@ amdgcn.module @kittens_gemm_4wave_lds_pipelined target = #amdgcn.target<gfx942> 
       amdgcn.wait deps %tok_A1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
       amdgcn.wait deps %tok_B0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
       amdgcn.wait deps %tok_B1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{A_STAGE_READ}} : i32}
+      amdgcn.s_barrier {sched.stage = {{A_STAGE_READ}} : i32}
 
       // K0 sub-tiles (byte offset 0 within LDS row)
       %A0_fut = func.call @load_lds_A_swizzled(%lds_A, %c0, %c2)

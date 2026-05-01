@@ -39,7 +39,7 @@ module {
       end_kernel
 
     ^trap:
-      amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 2
+      s_trap 2
       end_kernel
     }
   }

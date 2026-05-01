@@ -51,7 +51,7 @@ from aster.dialects._amdgcn_ops_gen import (
     MakeRegisterRangeOp,
     ModuleOp,
     SplitRegisterRangeOp,
-    SWaitcntOp,
+    SWaitcnt,
     WaitOp,
     LoadOp,
     StoreOp,
@@ -67,6 +67,11 @@ from aster._mlir_libs._amdgcn import (
     VGPRType,
 )
 from aster.dialects import _amdgcn_inst_gen as _inst
+from aster.dialects._amdgcn_ops_gen import (
+    s_barrier as _s_barrier_fn,
+    s_mov_b32 as _s_mov_b32_fn,
+    s_nop as _s_nop_fn,
+)
 from aster.dialects import lsir as lsird
 from aster.dialects.amdgcn import (
     AccessKind,
@@ -76,6 +81,10 @@ from aster.dialects.amdgcn import (
     get_kernel_arguments,
 )
 from aster.dialects import ptr as ptrd
+
+_inst.s_barrier = _s_barrier_fn
+_inst.s_mov_b32 = _s_mov_b32_fn
+_inst.s_nop = _s_nop_fn
 
 
 def _i8(value: int, ctx: ir.Context) -> ir.IntegerAttr:
@@ -270,7 +279,7 @@ class KernelBuilder:
                 ip=func_ip,
             )
             loaded.append(la.result)
-        SWaitcntOp(lgkmcnt=_i8(0, self._ctx), loc=self._loc, ip=func_ip)
+        SWaitcnt(lgkmcnt=_i8(0, self._ctx), loc=self._loc, ip=func_ip)
         funcd.ReturnOp(loaded, loc=self._loc, ip=func_ip)
 
         # Emit func.call inside the kernel body.
@@ -547,21 +556,6 @@ class KernelBuilder:
         dest = self.alloca_sgpr()
         c = self.constant_i32(value)
         return _inst.s_mov_b32(dest, c, loc=self._loc, ip=self._kip)
-
-    def sop2(self, opcode: str, src0: ir.Value, src1: ir.Value) -> ir.Value:
-        """Scalar ALU 2-operand operation (SOP2)."""
-        dest = self.alloca_sgpr()
-        from aster.dialects._amdgcn_ops_gen import SOP2Op
-
-        return SOP2Op(
-            result=SGPRType.get(self._ctx),
-            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
-            outs=dest,
-            src0=src0,
-            src1=src1,
-            loc=self._loc,
-            ip=self._kip,
-        ).result
 
     # ---------------------------------------------------------------------------
     # Vector ALU
@@ -1163,11 +1157,11 @@ class KernelBuilder:
 
     def wait_vmcnt(self, count: int = 0):
         """Insert s_waitcnt vmcnt=count."""
-        SWaitcntOp(vmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
+        SWaitcnt(vmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
 
     def wait_lgkmcnt(self, count: int = 0):
         """Insert s_waitcnt lgkmcnt=count."""
-        SWaitcntOp(lgkmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
+        SWaitcnt(lgkmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # LDS allocation

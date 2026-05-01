@@ -61,6 +61,10 @@ bool mlir::aster::detail::hasPureValueSemanticsImpl(InstOpInterface op) {
       return true;
     return regType.hasValueSemantics();
   };
+  // Instructions with no operands and no results (e.g. s_waitcnt, s_barrier,
+  // s_nop) are synchronization primitives with implicit side effects.
+  if (op->getNumOperands() == 0 && op->getNumResults() == 0)
+    return false;
   return llvm::all_of(TypeRange(op.getInstOuts()),
                       isValueSemanticsCompatible) &&
          llvm::all_of(TypeRange(op.getInstIns()), isValueSemanticsCompatible);
@@ -113,6 +117,11 @@ void mlir::aster::detail::getInstEffectsImpl(
   for (OpOperand &in : getAsOpOperands(op.getInstIns()))
     addEffectsForRegister(&in, in.get().getType(), MemoryEffects::Read::get(),
                           effects);
+
+  // FIXME: This is a hack to handle instructions that have no operands.
+  // Catch-all for instructions that have operands but none register-typed.
+  if (effects.empty())
+    effects.emplace_back(MemoryEffects::Write::get());
 }
 
 #include "aster/Interfaces/InstOpInterface.cpp.inc"

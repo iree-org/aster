@@ -38,7 +38,7 @@ amdgcn.module @test_iter_args_scalar_no_iv target = <gfx942> {
     %off = lsir.to_reg %c0_i32 : i32 -> !v
     %tok = amdgcn.store global_store_dword data %v addr %out offset d(%off)
       : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -74,7 +74,7 @@ amdgcn.module @test_iter_args_scalar_with_iv target = <gfx942> {
     %off = lsir.to_reg %c0_i32 : i32 -> !v
     %tok = amdgcn.store global_store_dword data %v addr %out offset d(%off)
       : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -121,7 +121,7 @@ amdgcn.module @test_iter_args_vgpr_no_iv target = <gfx942> {
     %off = lsir.to_reg %c0_i32 : i32 -> !v
     %tok = amdgcn.store global_store_dword data %result addr %out offset d(%off)
       : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -165,7 +165,7 @@ amdgcn.module @test_iter_args_vgpr_with_iv target = <gfx942> {
     %off = lsir.to_reg %c0_i32 : i32 -> !v
     %tok = amdgcn.store global_store_dword data %result addr %out offset d(%off)
       : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }

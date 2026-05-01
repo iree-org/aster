@@ -284,7 +284,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> {
       : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>)
       -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>)
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     // <END Kernel ABI>
 
     func.call @test_matmul(%a_ptr, %b_ptr, %c_ptr)

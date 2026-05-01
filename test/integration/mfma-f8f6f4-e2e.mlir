@@ -40,7 +40,7 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
 
   func.func private @load_output_ptr() -> !amdgcn.sgpr<[? + 2]> {
     %ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     return %ptr : !amdgcn.sgpr<[? + 2]>
   }
 
@@ -94,7 +94,7 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
         offset d(%thread_offset) + c(%c0_store)
       : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -169,7 +169,7 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
         offset d(%thread_offset) + c(%c0_store)
       : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 }

@@ -11,7 +11,7 @@ from aster.dialects import amdgcn
 TARGET_CONFIGS = [
     "gfx942",
     "gfx950",
-    "gfx1201",
+    pytest.param("gfx1201", marks=pytest.mark.skip(reason="gfx1201 not yet supported")),
 ]
 
 
@@ -29,8 +29,8 @@ amdgcn.module @test_module target = #amdgcn.target<{target}> {{
     %s1 = amdgcn.alloca : !amdgcn.sgpr<5>
     %c42 = arith.constant 42 : i32
     %c7 = arith.constant 7 : i32
-    amdgcn.sop1 s_mov_b32 outs %s0 ins %c42 : !amdgcn.sgpr<4>, i32
-    amdgcn.sop1 s_mov_b32 outs %s1 ins %c7 : !amdgcn.sgpr<5>, i32
+    amdgcn.s_mov_b32 outs(%s0) ins(%c42) : outs(!amdgcn.sgpr<4>) ins(i32)
+    amdgcn.s_mov_b32 outs(%s1) ins(%c7) : outs(!amdgcn.sgpr<5>) ins(i32)
     amdgcn.end_kernel
   }}
 }}

@@ -48,7 +48,7 @@ amdgcn.module @test_lds_passthrough target = <gfx942> {
       amdgcn.dealloc_lds %lds {sched.stage = 1 : i32}
     }
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -104,7 +104,7 @@ amdgcn.module @test_lds_iv_dep target = <gfx942> {
       amdgcn.dealloc_lds %lds {sched.stage = 1 : i32}
     }
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -187,7 +187,7 @@ amdgcn.module @test_lds_six_stage target = <gfx942> {
       amdgcn.dealloc_lds %lds_b {sched.stage = 5 : i32}
     }
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -246,7 +246,7 @@ amdgcn.module @test_lds_accum target = <gfx942> {
     %stok = amdgcn.store global_store_dword data %final_acc addr %out_ptr
       offset d(%off_reg)
       : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }

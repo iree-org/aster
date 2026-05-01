@@ -26,7 +26,7 @@ module {
       amdgcn.load s_load_dwordx2 dest %out_ptr addr %kernarg
         : dps(!amdgcn.sgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 2]>)
           -> !amdgcn.read_token<constant>
-      amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+      amdgcn.s_waitcnt lgkmcnt = 0
 
       // Byte offset = tid * 4 (4 bytes per i32)
       %c2 = arith.constant 2 : i32
@@ -53,11 +53,11 @@ module {
 
     ^ok:
       // Flush all vector memory operations
-      amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+      amdgcn.s_waitcnt vmcnt = 0
       end_kernel
 
     ^trap:
-      amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 2
+      s_trap 2
       end_kernel
     }
   }

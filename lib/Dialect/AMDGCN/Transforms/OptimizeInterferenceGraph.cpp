@@ -69,8 +69,8 @@ static FailureOr<std::pair<Value, Value>> getMoveInfo(Operation *op) {
     return std::pair<Value, Value>(copyOp.getSource(), copyOp.getTarget());
   if (auto vop1 = dyn_cast<VMovB32>(op))
     return std::pair<Value, Value>(vop1.getSrc0(), vop1.getDst0());
-  if (auto sop1 = dyn_cast<inst::SOP1Op>(op))
-    return std::pair<Value, Value>(sop1.getSrc0(), sop1.getSdst());
+  if (auto sop1 = dyn_cast<SMovB32>(op))
+    return std::pair<Value, Value>(sop1.getSrc0(), sop1.getDst0());
   return failure();
 }
 

@@ -374,12 +374,12 @@ func.func @test_select_i1_imm_operands(%dst: !amdgcn.sgpr, %cond: i1) -> !amdgcn
 
 func.func @test_branch_ops() {
   %v = lsir.alloca : !amdgcn.vgpr
-  %scc = lsir.alloca : !amdgcn.scc
-  lsir.cond_br %scc : !amdgcn.scc, ^bb1, ^bb2
+  %scc = lsir.alloca : !amdgcn.scc<0>
+  lsir.cond_br %scc : !amdgcn.scc<0>, ^bb1, ^bb2
 ^bb1:
   lsir.br ^bb2
 ^bb2:
-  lsir.cond_br %scc : !amdgcn.scc, ^bb3(%v : !amdgcn.vgpr), ^bb4(%v : !amdgcn.vgpr)
+  lsir.cond_br %scc : !amdgcn.scc<0>, ^bb3(%v : !amdgcn.vgpr), ^bb4(%v : !amdgcn.vgpr)
 ^bb3(%vArg0 : !amdgcn.vgpr):
   lsir.br ^bb4(%vArg0 : !amdgcn.vgpr)
 ^bb4(%vArg1 : !amdgcn.vgpr):

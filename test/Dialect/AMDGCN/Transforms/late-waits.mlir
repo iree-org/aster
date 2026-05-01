@@ -6,7 +6,7 @@
 // CHECK:         %[[B:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:         %[[ADDR:.*]] = amdgcn.make_register_range %[[A]], %[[B]]
 // CHECK:         amdgcn.load global_load_dword dest %[[DEST]] addr %[[ADDR]]
-// CHECK:         amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:         amdgcn.s_waitcnt vmcnt = 0
 // CHECK-NOT:     amdgcn.wait
 // CHECK:         amdgcn.store global_store_dword data %[[DEST]] addr %[[ADDR]]
 // CHECK:         return
@@ -26,7 +26,7 @@ func.func @vmem_load_store() {
 // CHECK:         %[[DEST:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:         %[[ADDR:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:         amdgcn.load ds_read_b32 dest %[[DEST]] addr %[[ADDR]]
-// CHECK:         amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0
+// CHECK:         amdgcn.s_waitcnt lgkmcnt = 0
 // CHECK-NOT:     amdgcn.wait
 // CHECK:         amdgcn.store ds_write_b32 data %[[DEST]] addr %[[ADDR]]
 // CHECK:         return
@@ -45,10 +45,10 @@ func.func @shared_load_store() {
 // CHECK:         amdgcn.load global_load_dword dest %[[DEST]]
 // CHECK:         cf.cond_br
 // CHECK:       ^bb1:
-// CHECK:         amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:         amdgcn.s_waitcnt vmcnt = 0
 // CHECK:         amdgcn.store global_store_dword data %[[DEST]]
 // CHECK:       ^bb2:
-// CHECK:         amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:         amdgcn.s_waitcnt vmcnt = 0
 // CHECK:         amdgcn.store global_store_dword data %[[DEST]]
 // CHECK-NOT:     amdgcn.wait
 func.func @vmem_load_branch(%cond: i1) {

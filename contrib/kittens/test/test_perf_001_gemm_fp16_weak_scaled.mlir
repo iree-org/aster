@@ -58,7 +58,7 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> {
     %A_raw = amdgcn.load_arg 0 : !sx2
     %B_raw = amdgcn.load_arg 1 : !sx2
     %C_raw = amdgcn.load_arg 2 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %A_rsrc = func.call @prepare_ptr(%A_raw) : (!sx2) -> !aster_utils.any
     %B_rsrc = func.call @prepare_ptr(%B_raw) : (!sx2) -> !aster_utils.any
     %C_rsrc = func.call @prepare_ptr(%C_raw) : (!sx2) -> !aster_utils.any
@@ -176,7 +176,7 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> {
           : (memref<?x!lds_write_token>) -> ()
       func.call @k_wait_lds_writes(%tok_b)
           : (memref<?x!lds_write_token>) -> ()
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier> {sched.stage = {{A_STAGE_READ}} : i32}
+      amdgcn.s_barrier {sched.stage = {{A_STAGE_READ}} : i32}
 
       // --- Issue LDS reads at pre-computed addresses ---
       %a_fut = func.call @k_read_lds_at_addrs_a(%lds_r_addrs_a)

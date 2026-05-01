@@ -83,9 +83,9 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
   // Same-queue ops group together (VALU first, then SALU).
   // CHECK-LABEL: kernel @group_valu_salu
   // CHECK:         v_mov_b32
-  // CHECK:         sop1 s_mov_b32
+  // CHECK:         s_mov_b32
   // CHECK:         v_mov_b32
-  // CHECK:         sop1 s_mov_b32
+  // CHECK:         s_mov_b32
   // CHECK:         end_kernel
   amdgcn.kernel @group_valu_salu {
     %v0 = amdgcn.alloca : !v
@@ -96,17 +96,17 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %s1 = amdgcn.alloca : !s
     %r0 = amdgcn.v_mov_b32 outs(%v0) ins(%v1) : outs(!v) ins(!v)
     %c0 = arith.constant 0 : i32
-    %rs0 = amdgcn.sop1 s_mov_b32 outs %s0 ins %c0 : !s, i32
+    %rs0 = amdgcn.s_mov_b32 outs(%s0) ins(%c0) : outs(!s) ins(i32)
     %r1 = amdgcn.v_mov_b32 outs(%v2) ins(%v3) : outs(!v) ins(!v)
     %c1 = arith.constant 1 : i32
-    %rs1 = amdgcn.sop1 s_mov_b32 outs %s1 ins %c1 : !s, i32
+    %rs1 = amdgcn.s_mov_b32 outs(%s1) ins(%c1) : outs(!s) ins(i32)
     amdgcn.end_kernel
   }
 
   // Data dependency: vop2 depends on vop1 result. SALU is independent.
   // CHECK-LABEL: kernel @respect_data_deps
   // CHECK:         %[[R0:.*]] = v_mov_b32
-  // CHECK:         sop1 s_mov_b32
+  // CHECK:         s_mov_b32
   // CHECK:         v_add_u32 outs(%{{.*}}) ins(%[[R0]],
   // CHECK:         end_kernel
   amdgcn.kernel @respect_data_deps {
@@ -116,7 +116,7 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %s0 = amdgcn.alloca : !s
     %r0 = amdgcn.v_mov_b32 outs(%v0) ins(%v2) : outs(!v) ins(!v)
     %c0 = arith.constant 42 : i32
-    %rs0 = amdgcn.sop1 s_mov_b32 outs %s0 ins %c0 : !s, i32
+    %rs0 = amdgcn.s_mov_b32 outs(%s0) ins(%c0) : outs(!s) ins(i32)
     %r1 = amdgcn.v_add_u32 outs(%v1) ins(%r0, %v2) : outs(!v) ins(!v, !v)
     amdgcn.end_kernel
   }
@@ -185,7 +185,7 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
   // CHECK-LABEL: kernel @barrier_separates_lds
   // CHECK:         store ds_write_b64
   // CHECK:         store ds_write_b64
-  // CHECK:         sopp <s_barrier>
+  // CHECK:         s_barrier
   // CHECK:         load ds_read_b64
   // CHECK:         load ds_read_b64
   // CHECK:         end_kernel
@@ -210,7 +210,7 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
     %wt1 = amdgcn.store ds_write_b64 data %data1 addr %addr1 offset c(%c0)
         : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
-    amdgcn.sopp.sopp #amdgcn.inst<s_barrier>
+    amdgcn.s_barrier
     %rr0, %rt0 = amdgcn.load ds_read_b64 dest %dst0 addr %addr0 offset c(%c8)
         : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
     %rr1, %rt1 = amdgcn.load ds_read_b64 dest %dst1 addr %addr1 offset c(%c8)

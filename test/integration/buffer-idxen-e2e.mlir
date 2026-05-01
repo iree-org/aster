@@ -52,7 +52,7 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> {
     %src_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
     %params_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     %dst_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr<[? + 2]>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     // params layout: [num_records (i32), soffset (i32)]
     %c0 = arith.constant 0 : i32
@@ -70,7 +70,7 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> {
       : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
         -> !amdgcn.read_token<constant>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     return %src_ptr, %dst_ptr, %num_records, %soffset
       : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
@@ -108,14 +108,14 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> {
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
         -> !amdgcn.read_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %tok_st = amdgcn.store buffer_store_dword_idxen data %loaded addr %dst_rsrc
       offset u(%soffset) + d(%vindex) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
         -> !amdgcn.write_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel
   }
@@ -156,14 +156,14 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> {
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
         -> !amdgcn.read_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %tok_st = amdgcn.store buffer_store_dword_idxen data %loaded addr %dst_rsrc
       offset u(%soffset) + d(%vindex) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
         -> !amdgcn.write_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel
   }

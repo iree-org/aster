@@ -115,8 +115,7 @@ void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
       i = -1;
       continue;
     }
-    if (auto barrierOp = dyn_cast<inst::SOPPOp>(op);
-        barrierOp && barrierOp.getOpcode() == amdgcn::OpCode::S_BARRIER) {
+    if (auto barrierOp = dyn_cast<SBarrier>(op)) {
       handleBarrier(graph, i, barrierOp);
       // Mark the sync point as processed.
       i = -1;

@@ -34,7 +34,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
   ]> attributes {block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>} {
     %ptr_s = amdgcn.load_arg 0 : !sx2
     %ptr = lsir.assume_noalias %ptr_s : (!sx2) -> !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -80,8 +80,8 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
           %result_vx1 = func.call @global_load_wave_128_f16_via_dword_nowait(%pos_desc_vx1, %transfer_desc_vx1) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx1
           amdgcn.test_inst ins %result_vx1 : (!vx1) -> ()
         } {aster.constexpr}
-        amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-        amdgcn.sopp.sopp <s_barrier>
+        amdgcn.s_waitcnt vmcnt = 0
+        amdgcn.s_barrier
       } {aster.constexpr}
     }
 
@@ -102,8 +102,8 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
           %result_vx2 = func.call @global_load_wave_256_f16_via_dwordx2_nowait(%pos_desc_vx2, %transfer_desc_vx2) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx2
           amdgcn.test_inst ins %result_vx2 : (!vx2) -> ()
         } {aster.constexpr}
-        amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-        amdgcn.sopp.sopp <s_barrier>
+        amdgcn.s_waitcnt vmcnt = 0
+        amdgcn.s_barrier
       } {aster.constexpr}
     }
 
@@ -124,8 +124,8 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
           %result_vx3 = func.call @global_load_wave_384_f16_via_dwordx3_nowait(%pos_desc_vx3, %transfer_desc_vx3) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx3
           amdgcn.test_inst ins %result_vx3 : (!vx3) -> ()
         } {aster.constexpr}
-        amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-        amdgcn.sopp.sopp <s_barrier>
+        amdgcn.s_waitcnt vmcnt = 0
+        amdgcn.s_barrier
       } {aster.constexpr}
     }
 
@@ -146,8 +146,8 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
           %result_vx4 = func.call @global_load_wave_512_f16_via_dwordx4_nowait(%pos_desc_vx4, %transfer_desc_vx4) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> !vx4
           amdgcn.test_inst ins %result_vx4 : (!vx4) -> ()
         } {aster.constexpr}
-        amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
-        amdgcn.sopp.sopp <s_barrier>
+        amdgcn.s_waitcnt vmcnt = 0
+        amdgcn.s_barrier
       } {aster.constexpr}
     }
 

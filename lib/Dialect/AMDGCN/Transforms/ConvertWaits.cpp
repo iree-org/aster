@@ -99,15 +99,15 @@ void AMDGCNConvertWaits::runOnOperation() {
       return;
     }
 
-    // Replace the wait op with an inst::SWaitcntOp with the minimal counts
+    // Replace the wait op with a SWaitcnt with the minimal counts
     // required after this wait op.
-    // Note that `SWaitcntOp` defaults to max counts, so we need to:
+    // Note that `SWaitcnt` defaults to max counts, so we need to:
     //   1. set the counts that are less than max and hasXXX is true
     //   2. leave it alone when hasXXX is true
     //   3. unset the attribute when hasXXX is false
-    auto newWait = rewriter.replaceOpWithNewOp<inst::SWaitcntOp>(waitOp);
+    auto newWait = rewriter.replaceOpWithNewOp<SWaitcnt>(waitOp);
 
-    // The default builder of SWaitcntOp sets both counts to max, so we take the
+    // The default builder of SWaitcnt sets both counts to max, so we take the
     // minimum of the max allowed hardware value count and the required count.
     if (hasVmcnt) {
       newWait.setVmcnt(std::min(static_cast<int32_t>(newWait.getVmcnt()) - 1,

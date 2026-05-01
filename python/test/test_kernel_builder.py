@@ -93,14 +93,6 @@ def test_kernel_arguments_attr_roundtrip():
         assert str(reparsed) == k_args_str
 
 
-def test_inst_attr_roundtrip():
-    """#amdgcn.inst<s_waitcnt> roundtrips."""
-    ctx = _ctx()
-    with ctx:
-        attr = ir.Attribute.parse("#amdgcn.inst<s_waitcnt>")
-        assert "s_waitcnt" in str(attr)
-
-
 # ---------------------------------------------------------------------------
 # Layer 1: Register type constructor roundtrips
 # ---------------------------------------------------------------------------

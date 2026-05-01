@@ -251,11 +251,9 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
   for (Operation *op : info.opOrder) {
     if (op->hasAttr(kSchedStageAttr))
       continue;
-    auto sopp = dyn_cast<amdgcn::inst::SOPPOp>(op);
-    if (sopp && sopp.getOpcode() == amdgcn::OpCode::S_BARRIER)
-      return op->emitError("amdgcn.sopp.sopp <s_barrier> in a pipelined "
-                           "loop body requires an explicit sched.stage "
-                           "attribute");
+    if (isa<amdgcn::SBarrier>(op))
+      return op->emitError("amdgcn.s_barrier in a pipelined loop body "
+                           "requires an explicit sched.stage attribute");
   }
 
   // Second pass: propagate stages to unannotated ops. An op without an

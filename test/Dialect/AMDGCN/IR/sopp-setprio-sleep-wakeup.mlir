@@ -8,14 +8,14 @@ amdgcn.module @setprio_test target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_setprio_sleep_wakeup arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>
   ]> attributes {block_dims = array<i32: 64, 1, 1>} {
-    // CHECK: amdgcn.sopp.sopp <s_setprio>, imm = 3
-    amdgcn.sopp.sopp #amdgcn.inst<s_setprio>, imm = 3
-    // CHECK: amdgcn.sopp.sopp <s_setprio>
-    amdgcn.sopp.sopp #amdgcn.inst<s_setprio>, imm = 0
-    // CHECK: amdgcn.sopp.sopp <s_sleep>, imm = 1
-    amdgcn.sopp.sopp #amdgcn.inst<s_sleep>, imm = 1
-    // CHECK: amdgcn.sopp.sopp <s_wakeup>
-    amdgcn.sopp.sopp #amdgcn.inst<s_wakeup>
+    // CHECK: s_setprio 3
+    s_setprio 3
+    // CHECK: s_setprio 0
+    s_setprio 0
+    // CHECK: s_sleep 1
+    s_sleep 1
+    // CHECK: s_wakeup
+    s_wakeup
     amdgcn.end_kernel
   }
 }

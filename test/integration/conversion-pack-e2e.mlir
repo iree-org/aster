@@ -74,7 +74,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       -> (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>) {
     %src_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
     %dst_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     return %src_ptr, %dst_ptr
       : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>
   }
@@ -85,7 +85,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     %src0_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
     %src1_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     %dst_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr<[? + 2]>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     return %src0_ptr, %src1_ptr, %dst_ptr
       : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
         !amdgcn.sgpr<[? + 2]>
@@ -113,7 +113,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
     %converted = amdgcn.v_cvt_f32_f16 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
@@ -122,7 +122,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -148,7 +148,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
     %converted = amdgcn.v_cvt_f16_f32 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
@@ -157,7 +157,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -183,7 +183,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
     %converted = amdgcn.v_cvt_f32_u32 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
@@ -192,7 +192,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -218,7 +218,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
     %converted = amdgcn.v_cvt_f32_i32 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
@@ -227,7 +227,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -253,7 +253,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
     %converted = amdgcn.v_cvt_u32_f32 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
@@ -262,7 +262,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -288,7 +288,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
     %converted = amdgcn.v_cvt_i32_f32 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
@@ -297,7 +297,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -332,7 +332,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %pack_dest = amdgcn.alloca : !amdgcn.vgpr
     %packed = amdgcn.v_pack_b32_f16 outs(%pack_dest) ins(%src0_val, %src1_val) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
@@ -341,7 +341,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -376,7 +376,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
     %converted = amdgcn.v_cvt_pk_fp8_f32 outs(%cvt_dest) ins(%src0_val, %src1_val) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
@@ -385,7 +385,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -420,7 +420,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.read_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
     %converted = amdgcn.v_cvt_pk_bf8_f32 outs(%cvt_dest) ins(%src0_val, %src1_val) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
@@ -429,7 +429,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 }

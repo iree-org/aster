@@ -11,8 +11,8 @@ amdgcn.kernel @sets_postcondition attributes {normal_forms = [#amdgcn.all_regist
   %c10_i32 = arith.constant 10 : i32
   %alloc0 = amdgcn.alloca : !amdgcn.sgpr<0>
   %alloc1 = amdgcn.alloca : !amdgcn.sgpr<1>
-  amdgcn.sop1 s_mov_b32 outs %alloc0 ins %c0_i32 : !amdgcn.sgpr<0>, i32
-  amdgcn.sop1 s_mov_b32 outs %alloc1 ins %c10_i32 : !amdgcn.sgpr<1>, i32
+  amdgcn.s_mov_b32 outs(%alloc0) ins(%c0_i32) : outs(!amdgcn.sgpr<0>) ins(i32)
+  amdgcn.s_mov_b32 outs(%alloc1) ins(%c10_i32) : outs(!amdgcn.sgpr<1>) ins(i32)
   %cmp = lsir.cmpi i32 slt %alloc0, %alloc1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
   cf.cond_br %cmp, ^bb1, ^bb2
 ^bb1:

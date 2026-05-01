@@ -55,7 +55,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
     // Kernel arguments
     %ptr_s = amdgcn.load_arg 0 : !sx2
     %arg0_raw = lsir.assume_noalias %ptr_s : (!sx2) -> !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index

@@ -33,7 +33,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %b_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     %c_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr<[? + 2]>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     return %a_ptr, %b_ptr, %c_ptr : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>
   }
@@ -70,7 +70,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %loaded_b, %tok_load_b = amdgcn.load global_load_dwordx2 dest %b_reg_range addr %b_ptr offset d(%thread_offset_f16) + c(%c0_i32) : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.read_token<flat>
 
     // s_waitcnt(vmcnt(0))
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     // // ds_store to ldsA
     %tok_ds_a = amdgcn.store ds_write_b64 data %loaded_a addr %thread_offset_f16 offset c(%c0_i32) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
@@ -79,7 +79,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %tok_ds_b = amdgcn.store ds_write_b64 data %loaded_b addr %thread_offset_f16 offset c(%c512_i32) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
 
     // s_waitcnt(lgkmcnt(0))
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     // ds_load from ldsA
     %loaded_a_from_lds, %tok_lds_a = amdgcn.load ds_read_b64 dest %a_reg_range addr %thread_offset_f16 offset c(%c0_i32) : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
@@ -88,7 +88,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %loaded_b_from_lds, %tok_lds_b = amdgcn.load ds_read_b64 dest %b_reg_range addr %thread_offset_f16 offset c(%c512_i32) : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
 
     // s_waitcnt(lgkmcnt(0))
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     // mfma - A and B need 2 VGPRs each, C needs 4 VGPRs
     %c_mfma_result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %c_reg_range, %loaded_a_from_lds, %loaded_b_from_lds, %c_reg_range
@@ -100,7 +100,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %tok_store_c = amdgcn.store global_store_dwordx4 data %c_mfma_result addr %c_ptr offset d(%thread_offset_f32) + c(%c0_i32) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<flat>
 
     // s_waitcnt(vmcnt(0))
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel
   }

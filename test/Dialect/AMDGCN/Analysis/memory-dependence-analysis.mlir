@@ -162,8 +162,7 @@ amdgcn.module @test_g2s_lds_dep target = #amdgcn.target<gfx950> {
     %c0 = arith.constant 0 : i32
 
     // Set M0 for LDS base offset
-    amdgcn.sop1 s_mov_b32 outs %m0 ins %c0 : !amdgcn.m0<0>, i32
-
+    amdgcn.s_mov_b32 outs(%m0) ins(%c0) : outs(!amdgcn.m0<0>) ins(i32)
     // G2S: buffer_load_dword with LDS flag - writes to LDS
     // CHECK: Operation: {{.*}}load_lds{{.*}}test.g2s_tag
     // CHECK-NEXT: PENDING BEFORE: 0:

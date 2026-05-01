@@ -41,7 +41,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %tid = gpu.thread_id x
     %c8 = arith.constant 8 : index
@@ -72,7 +72,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %tid = gpu.thread_id x
     %c4 = arith.constant 4 : index
@@ -107,7 +107,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %tid = gpu.thread_id x
 
@@ -139,7 +139,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %tid = gpu.thread_id x
 

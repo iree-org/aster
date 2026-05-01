@@ -49,7 +49,7 @@ module {
         offset c(%c16)
         : dps(!amdgcn.sgpr<[6 : 8]>) ins(!amdgcn.sgpr<[0 : 2]>, i32)
           -> !amdgcn.read_token<constant>
-      amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+      amdgcn.s_waitcnt lgkmcnt = 0
 
       return %a, %b, %c
         : !amdgcn.sgpr<[2 : 4]>, !amdgcn.sgpr<[4 : 6]>, !amdgcn.sgpr<[6 : 8]>
@@ -93,7 +93,7 @@ module {
           -> !amdgcn.read_token<flat>
 
       // Wait for all outstanding vector memory operations
-      amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+      amdgcn.s_waitcnt vmcnt = 0
 
       // c[tid] = a[tid] + b[tid]
       amdgcn.v_add_u32 outs(%v2) ins(%v2, %v3) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<2>, !amdgcn.vgpr<3>)
@@ -105,7 +105,7 @@ module {
         : ins(!amdgcn.vgpr<[2 : 3]>, !amdgcn.sgpr<[6 : 8]>, !amdgcn.vgpr<1>, i32)
           -> !amdgcn.write_token<flat>
 
-      amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+      amdgcn.s_waitcnt vmcnt = 0
       end_kernel
     }
   }

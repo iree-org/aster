@@ -123,8 +123,7 @@ void AMDGCNHazards::runOnOperation() {
       // states in the instruction, then we see k + 1 wait states.
       int32_t nops = std::min(15, numScalarNops - i - 1);
       assert(nops >= 0 && "nops should be non-negative");
-      inst::SOPPOp::create(rewriter, loc, OpCode::S_NOP,
-                           static_cast<uint16_t>(nops));
+      SNop::create(rewriter, loc, static_cast<uint16_t>(nops));
     }
 
     assert(instCounts.getNumDataShare() == 0 &&

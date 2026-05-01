@@ -2,8 +2,8 @@
 // RUN: aster-opt --canonicalize --amdgcn-convert-waits=remove-cf-args=false %s | FileCheck %s --check-prefix=CHECK-KEEP-ARGS
 
 // CHECK-LABEL:   func.func @test_duplicated_waits() {
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 func.func @test_duplicated_waits() {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -20,8 +20,8 @@ func.func @test_duplicated_waits() {
 
 // CHECK-LABEL:   func.func @test_pipelined_pattern(
 // CHECK: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-// CHECK:             amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 2
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:             amdgcn.s_waitcnt vmcnt = 2
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 // CHECK-KEEP-ARGS-LABEL:   func.func @test_pipelined_pattern(
 // CHECK-KEEP-ARGS: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args{{.*}} -> (!amdgcn.read_token<flat>, !amdgcn.read_token<flat>, !amdgcn.read_token<flat>) {
 func.func @test_pipelined_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
@@ -43,7 +43,7 @@ func.func @test_pipelined_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
 }
 
 // CHECK-LABEL:   func.func @test_escaped_waits_1(
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 63 lgkmcnt = 15
+// CHECK:           amdgcn.s_waitcnt vmcnt = 63 lgkmcnt = 15
 func.func @test_escaped_waits_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -58,7 +58,7 @@ func.func @test_escaped_waits_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 // CHECK-KEEP-ARGS-LABEL:   func.func @test_if_flow_1(
 // CHECK: scf.if %{{.*}} {
 // CHECK-KEEP-ARGS: scf.if %{{.*}} -> (!amdgcn.read_token<flat>) {
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 func.func @test_if_flow_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -77,7 +77,7 @@ func.func @test_if_flow_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 // CHECK-KEEP-ARGS-LABEL:   func.func @test_if_flow_2(
 // CHECK: scf.if %{{.*}} {
 // CHECK-KEEP-ARGS: scf.if %{{.*}} -> (!amdgcn.read_token<flat>) {
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 func.func @test_if_flow_2(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -98,7 +98,7 @@ func.func @test_if_flow_2(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 // CHECK-KEEP-ARGS-LABEL:   func.func @test_if_flow_3(
 // CHECK: scf.if %{{.*}} {
 // CHECK-KEEP-ARGS: scf.if %{{.*}} -> (!amdgcn.read_token<flat>) {
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 1
+// CHECK:           amdgcn.s_waitcnt vmcnt = 1
 func.func @test_if_flow_3(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -117,8 +117,8 @@ func.func @test_if_flow_3(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 }
 
 // CHECK-LABEL:   func.func @test_passthrough_pattern(
-// CHECK-NOT:       amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 2
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK-NOT:       amdgcn.s_waitcnt vmcnt = 2
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 func.func @test_passthrough_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -134,7 +134,7 @@ func.func @test_passthrough_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
 }
 
 // CHECK-LABEL:   func.func @test_mixed_smem_dsmem(
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0
+// CHECK:           amdgcn.s_waitcnt lgkmcnt = 0
 func.func @test_mixed_smem_dsmem(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vgpr, %arg2: !amdgcn.vgpr<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.sgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -149,7 +149,7 @@ func.func @test_mixed_smem_dsmem(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vg
 }
 
 // CHECK-LABEL:   func.func @test_mixed_smem_dsmem_vmem(
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0 lgkmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0 lgkmcnt = 0
 func.func @test_mixed_smem_dsmem_vmem(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vgpr, %arg2: !amdgcn.vgpr<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.sgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -165,8 +165,8 @@ func.func @test_mixed_smem_dsmem_vmem(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdg
 }
 
 // CHECK-LABEL:   func.func @test_counts_strength(
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 1
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 2
+// CHECK:           amdgcn.s_waitcnt vmcnt = 1
+// CHECK:           amdgcn.s_waitcnt vmcnt = 2
 func.func @test_counts_strength(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -188,7 +188,7 @@ func.func @test_counts_strength(%arg0: !amdgcn.vgpr<[? + 2]>) {
 // CHECK-SAME:      %[[ADDR:.*]]: !amdgcn.vgpr<[? + 2]>) -> index {
 // CHECK:           %[[RESULT:.*]] = scf.for {{.*}} iter_args(%[[ACC:.*]] = %{{.*}}) -> (index) {
 // CHECK-NOT:         !amdgcn.read_token
-// CHECK:             amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:             amdgcn.s_waitcnt vmcnt = 0
 // CHECK:             scf.yield %{{.*}} : index
 // CHECK:           return %[[RESULT]] : index
 // CHECK-KEEP-ARGS-LABEL:   func.func @test_mixed_iter_args(
@@ -212,9 +212,9 @@ func.func @test_mixed_iter_args(%arg0: !amdgcn.vgpr<[? + 2]>) -> index {
 // CHECK-LABEL:   func.func @cf_args(
 // CHECK:           %[[POISON:.*]] = ub.poison : !amdgcn.read_token<flat>
 // CHECK: ^{{.*}}:
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 // CHECK: ^{{.*}}:
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 // CHECK:           return %[[POISON]] : !amdgcn.read_token<flat>
 // CHECK-KEEP-ARGS-LABEL:   func.func @cf_args(
 // CHECK-KEEP-ARGS: cf.cond_br{{.*}}
@@ -247,7 +247,7 @@ func.func @cf_args(%arg0: !amdgcn.vgpr<[? + 2]>, %cond: i1)  -> !amdgcn.read_tok
 
 // CHECK-LABEL:   func.func @wait_on_poison_read_token() {
 // CHECK:           %[[POISON:.*]] = ub.poison : !amdgcn.read_token<flat>
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 // CHECK:           return
 func.func @wait_on_poison_read_token() {
   %poison = ub.poison : !amdgcn.read_token<flat>
@@ -257,7 +257,7 @@ func.func @wait_on_poison_read_token() {
 
 // CHECK-LABEL:   func.func @wait_on_poison_write_token() {
 // CHECK:           %[[POISON:.*]] = ub.poison : !amdgcn.write_token<flat>
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 // CHECK:           return
 func.func @wait_on_poison_write_token() {
   %poison = ub.poison : !amdgcn.write_token<flat>
@@ -266,7 +266,7 @@ func.func @wait_on_poison_write_token() {
 }
 
 // CHECK-LABEL:   func.func @wait_on_poison_lgkm() {
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0
+// CHECK:           amdgcn.s_waitcnt lgkmcnt = 0
 // CHECK:           return
 func.func @wait_on_poison_lgkm() {
   %poison_const = ub.poison : !amdgcn.read_token<constant>
@@ -276,7 +276,7 @@ func.func @wait_on_poison_lgkm() {
 }
 
 // CHECK-LABEL:   func.func @wait_on_mixed_real_and_poison(
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 // CHECK:           return
 func.func @wait_on_mixed_real_and_poison(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
@@ -288,9 +288,9 @@ func.func @wait_on_mixed_real_and_poison(%arg0: !amdgcn.vgpr<[? + 2]>) {
 
 // CHECK-LABEL:   func.func @for_with_poison_init(
 // CHECK:           scf.for {{.*}} {
-// CHECK:             amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:             amdgcn.s_waitcnt vmcnt = 0
 // CHECK:           }
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:           amdgcn.s_waitcnt vmcnt = 0
 // CHECK:           return
 func.func @for_with_poison_init(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
@@ -314,11 +314,11 @@ func.func @for_with_poison_init(%arg0: !amdgcn.vgpr<[? + 2]>) {
 // CHECK:           %[[VAL_1:.*]], %[[LOAD_1:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_0]] addr %[[ARG0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
 // CHECK:           %[[VAL_2:.*]], %[[LOAD_2:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_0]] addr %[[ARG0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
 // CHECK:           %[[VAL_3:.*]], %[[LOAD_3:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_0]] addr %[[ARG0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 2
+// CHECK:           amdgcn.s_waitcnt lgkmcnt = 2
 // CHECK:           amdgcn.test_inst : () -> ()
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 1
+// CHECK:           amdgcn.s_waitcnt lgkmcnt = 1
 // CHECK:           amdgcn.test_inst : () -> ()
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0
+// CHECK:           amdgcn.s_waitcnt lgkmcnt = 0
 // CHECK:           return
 // CHECK:         }
 func.func @test_wait_canonicalization(%addr: !amdgcn.vgpr) {

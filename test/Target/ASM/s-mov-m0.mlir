@@ -18,7 +18,7 @@ amdgcn.module @m0_mod target = #amdgcn.target<gfx942> {
   ^entry:
     %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %c1024 = arith.constant 1024 : i32
-    amdgcn.sop1 s_mov_b32 outs %m0 ins %c1024 : !amdgcn.m0<0>, i32
+    amdgcn.s_mov_b32 outs(%m0) ins(%c1024) : outs(!amdgcn.m0<0>) ins(i32)
     amdgcn.end_kernel
   }
 
@@ -26,7 +26,7 @@ amdgcn.module @m0_mod target = #amdgcn.target<gfx942> {
   ^entry:
     %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
-    amdgcn.sop1 s_mov_b32 outs %m0 ins %s0 : !amdgcn.m0<0>, !amdgcn.sgpr<0>
+    amdgcn.s_mov_b32 outs(%m0) ins(%s0) : outs(!amdgcn.m0<0>) ins(!amdgcn.sgpr<0>)
     amdgcn.end_kernel
   }
 }

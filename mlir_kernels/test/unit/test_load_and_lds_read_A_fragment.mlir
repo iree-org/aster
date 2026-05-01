@@ -27,7 +27,7 @@ amdgcn.module @test_load_and_lds_read_A_fragment target = #amdgcn.target<gfx942>
   ]> attributes {shared_memory_size = 512 : i32} {
     %in_ptr = amdgcn.load_arg 0 : !sx2
     %out_ptr = amdgcn.load_arg 1 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
     %c32 = arith.constant 32 : index // stride in bytes (16 elements * 2 bytes for f16)
@@ -51,7 +51,7 @@ amdgcn.module @test_load_and_lds_read_A_fragment target = #amdgcn.target<gfx942>
     %out_off_vgpr = lsir.to_reg %out_off_i32 : i32 -> !v
     %c0_store = arith.constant 0 : i32
     %tok_store = amdgcn.store global_store_dwordx2 data %fragment addr %out_ptr offset d(%out_off_vgpr) + c(%c0_store) : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel
   }

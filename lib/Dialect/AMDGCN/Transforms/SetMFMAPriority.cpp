@@ -40,9 +40,8 @@ static bool isMemoryOp(Operation *op) {
 
 static bool blockHasSetprio(Block &block) {
   for (auto &op : block) {
-    if (auto soppOp = dyn_cast<inst::SOPPOp>(&op))
-      if (soppOp.getOpcode() == OpCode::S_SETPRIO)
-        return true;
+    if (isa<SSetprio>(&op))
+      return true;
   }
   return false;
 }
@@ -97,11 +96,11 @@ void SetMFMAPriority::runOnOperation() {
       auto groups = findMFMAGroups(block);
       for (auto &group : groups) {
         rewriter.setInsertionPoint(group.firstMfma);
-        inst::SOPPOp::create(rewriter, group.firstMfma->getLoc(),
-                             OpCode::S_SETPRIO, static_cast<uint16_t>(1));
+        SSetprio::create(rewriter, group.firstMfma->getLoc(),
+                         static_cast<uint16_t>(1));
         rewriter.setInsertionPointAfter(group.lastMfma);
-        inst::SOPPOp::create(rewriter, group.lastMfma->getLoc(),
-                             OpCode::S_SETPRIO, static_cast<uint16_t>(0));
+        SSetprio::create(rewriter, group.lastMfma->getLoc(),
+                         static_cast<uint16_t>(0));
       }
     }
   });

@@ -47,7 +47,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
         : (!lds_position_descriptor_2level_2d, index, index, !return_value_descriptor_1d_vx2) -> ()
     } {aster.constexpr}
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     amdgcn.end_kernel
   }
 }

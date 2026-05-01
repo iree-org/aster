@@ -174,7 +174,7 @@ amdgcn.library @multi_tile_global_load_to_vgpr_single_wave isa = [#amdgcn.isa<cd
 
     // Wait on all loads via s_waitcnt
     // TODO: use amdgcn-convert-waits pass instead
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     // Extract values from futures and store in result_memref (linearized, with offset)
     scf.for %idx = %c0 to %num_tiles step %c1 {
@@ -310,7 +310,7 @@ amdgcn.library @multi_tile_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#am
 
     // Wait on all reads via s_waitcnt
     // TODO: use amdgcn-convert-waits pass instead
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     // Extract values from futures and store in result_memref (linearized, with offset)
     scf.for %idx = %c0 to %num_tiles step %c1 {
@@ -455,7 +455,7 @@ amdgcn.library @multi_tile_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
 
     // Wait on all writes via s_waitcnt
     // TODO: use amdgcn-convert-waits pass instead
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     return
   }

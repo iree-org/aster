@@ -44,7 +44,7 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> {
     %src_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
     %params_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     %dst_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr<[? + 2]>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     // Load [num_bytes, soffset] from params
     %c0 = arith.constant 0 : i32
@@ -62,7 +62,7 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> {
       : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
         -> !amdgcn.read_token<constant>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     return %src_ptr, %dst_ptr, %num_bytes, %soffset
       : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
@@ -104,10 +104,9 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> {
     // M0 must be dword-aligned (low 2 bits are masked by hardware).
     %m0 = amdgcn.alloca : !amdgcn.m0<0>
     %c44 = arith.constant 44 : i32
-    amdgcn.sop1 s_mov_b32 outs %m0 ins %c44 : !amdgcn.m0<0>, i32
-
+    amdgcn.s_mov_b32 outs(%m0) ins(%c44) : outs(!amdgcn.m0<0>) ins(i32)
     // 1 NOP required after SALU writes M0 before G2S (CDNA4 hazard)
-    amdgcn.sopp.sopp #amdgcn.inst<s_nop> , imm = 10
+    amdgcn.s_nop 10
 
     %c0 = arith.constant 0 : i32
 

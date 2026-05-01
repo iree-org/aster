@@ -53,7 +53,7 @@ amdgcn.module @kittens_gemm_2wave_lds target = #amdgcn.target<gfx942> {
     %A_raw = amdgcn.load_arg 0 : !sx2
     %B_raw = amdgcn.load_arg 1 : !sx2
     %C_raw = amdgcn.load_arg 2 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %A_ptr = func.call @prepare_ptr(%A_raw) : (!sx2) -> !aster_utils.any
     %B_ptr = func.call @prepare_ptr(%B_raw) : (!sx2) -> !aster_utils.any
     %C_ptr = func.call @prepare_ptr(%C_raw) : (!sx2) -> !aster_utils.any
@@ -112,7 +112,7 @@ amdgcn.module @kittens_gemm_2wave_lds target = #amdgcn.target<gfx942> {
       amdgcn.wait deps %tok_A1 : !lds_write_token
       amdgcn.wait deps %tok_B0 : !lds_write_token
       amdgcn.wait deps %tok_B1 : !lds_write_token
-      amdgcn.sopp.sopp #amdgcn.inst<s_barrier>
+      amdgcn.s_barrier
 
       // === Step 4: K0 sub-tile (byte offset 0 within LDS row) ===
       %A0_future = func.call @load_lds_A_swizzled(%lds_A, %c0, %c2) : (index, index, index) -> !future_lds_read

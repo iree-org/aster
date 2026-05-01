@@ -80,7 +80,7 @@ amdgcn.library @simple_copies isa = [#amdgcn.isa<cdna3>] {
     %dst = func.call @alloc_vgprx2() : () -> (!vx2)
     %from_global, %tok_load = amdgcn.load global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg) + c(%c0) : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     return %from_global : !vx2
   }
 
@@ -117,7 +117,7 @@ amdgcn.library @simple_copies isa = [#amdgcn.isa<cdna3>] {
     %c0 = arith.constant 0 : i32
     %tok_store = amdgcn.store global_store_dwordx2 data %value addr %ptr offset d(%off_reg) + c(%c0) : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     return
   }
 
@@ -156,7 +156,7 @@ amdgcn.library @simple_copies isa = [#amdgcn.isa<cdna3>] {
     %dst = func.call @alloc_vgprx2() : () -> (!vx2)
     %from_lds, %tok_read = amdgcn.load ds_read_b64 dest %dst addr %off_lds_reg offset c(%lds_base_i32) : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     return %from_lds : !vx2
   }
 
@@ -193,7 +193,7 @@ amdgcn.library @simple_copies isa = [#amdgcn.isa<cdna3>] {
     %lds_base_i32 = arith.index_cast %lds_base : index to i32
     %tok_write = amdgcn.store ds_write_b64 data %value addr %off_lds_reg offset c(%lds_base_i32) : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     return
   }
 

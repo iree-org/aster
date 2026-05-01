@@ -48,7 +48,7 @@ amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
     %a_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
     %b_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     %c_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr<[? + 2]>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     return %a_ptr, %b_ptr, %c_ptr : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>
   }
 
@@ -93,7 +93,7 @@ amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
         -> !amdgcn.read_token<flat>
 
     // Wait for loads
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     // LDS store A
     %tok_ds_a = amdgcn.store ds_write_b64 data %loaded_a addr %thread_offset_f16
@@ -106,7 +106,7 @@ amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
       : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
 
     // Wait for LDS writes
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     // LDS load A
     %loaded_a_lds, %tok_lds_a = amdgcn.load ds_read_b64 dest %a_reg_range
@@ -119,7 +119,7 @@ amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
       : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
 
     // Wait for LDS reads
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     // MFMA with AGPR accumulator: C = A * B + C (AGPRs)
     %c_mfma_result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
@@ -137,7 +137,7 @@ amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
         -> !amdgcn.write_token<flat>
 
     // Wait for store
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel
   }

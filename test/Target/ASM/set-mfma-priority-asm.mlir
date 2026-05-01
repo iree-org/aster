@@ -10,8 +10,8 @@ amdgcn.module @test_mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_setprio_asm arguments <[
     #amdgcn.buffer_arg<address_space = generic, access = read_only>
   ]> attributes {block_dims = array<i32: 64, 1, 1>} {
-    amdgcn.sopp.sopp #amdgcn.inst<s_setprio>, imm = 1
-    amdgcn.sopp.sopp #amdgcn.inst<s_setprio>, imm = 0
+    s_setprio 1
+    s_setprio 0
     amdgcn.end_kernel
   }
 }

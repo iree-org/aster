@@ -40,8 +40,8 @@ amdgcn.module @chained_select target = <gfx942> {
     %s_next_buf = alloca : !amdgcn.sgpr
 
     // Initialize loop counter and buffer index
-    %k_init = sop1 s_mov_b32 outs %s_k ins %c0_i32 : !amdgcn.sgpr, i32
-    %buf_init = sop1 s_mov_b32 outs %s_buf ins %c0_i32 : !amdgcn.sgpr, i32
+    %k_init = s_mov_b32 outs(%s_k) ins(%c0_i32) : outs(!amdgcn.sgpr) ins(i32)
+    %buf_init = s_mov_b32 outs(%s_buf) ins(%c0_i32) : outs(!amdgcn.sgpr) ins(i32)
 
     cf.br ^loop(%k_init, %buf_init : !amdgcn.sgpr, !amdgcn.sgpr)
 
@@ -59,12 +59,14 @@ amdgcn.module @chained_select target = <gfx942> {
     test_inst ins %outer : (!amdgcn.sgpr) -> ()
 
     // Advance buf_idx: (buf_idx + 1) % 3 via wrap
-    %next_raw = sop2 s_add_u32 outs %s_add ins %buf_idx, %c1_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
+    %_scc_dst_add_u32 = alloca : !amdgcn.scc<0>
+    %next_raw = s_add_u32 outs(%s_add, %_scc_dst_add_u32) ins(%buf_idx, %c1_i32) : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, i32)
     %is_3 = lsir.cmpi i32 eq %next_raw, %c3_i32 : !amdgcn.sgpr, i32
     %next_buf = lsir.select %s_next_buf, %is_3, %c0_i32, %next_raw : !amdgcn.sgpr, i1, i32, !amdgcn.sgpr
 
     // Advance loop counter
-    %k_next = sop2 s_add_u32 outs %s_cmp ins %k, %c1_i32 : !amdgcn.sgpr, !amdgcn.sgpr, i32
+    %_scc_dst_add_u32_1 = alloca : !amdgcn.scc<0>
+    %k_next = s_add_u32 outs(%s_cmp, %_scc_dst_add_u32_1) ins(%k, %c1_i32) : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, i32)
     %done = lsir.cmpi i32 slt %k_next, %c6_i32 : !amdgcn.sgpr, i32
     cf.cond_br %done, ^loop(%k_next, %next_buf : !amdgcn.sgpr, !amdgcn.sgpr), ^exit
 

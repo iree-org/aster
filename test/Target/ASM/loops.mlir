@@ -48,8 +48,8 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
     %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
 
-    amdgcn.sop1 s_mov_b32 outs %s0 ins %c5 : !amdgcn.sgpr<0>, i32
-    amdgcn.sop1 s_mov_b32 outs %s1 ins %c4 : !amdgcn.sgpr<1>, i32
+    amdgcn.s_mov_b32 outs(%s0) ins(%c5) : outs(!amdgcn.sgpr<0>) ins(i32)
+    amdgcn.s_mov_b32 outs(%s1) ins(%c4) : outs(!amdgcn.sgpr<1>) ins(i32)
     amdgcn.cmpi s_cmp_le_i32 outs %scc ins %s0, %s1
       : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
 
@@ -58,7 +58,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
   ^else:
     amdgcn.end_kernel
   ^then:
-    amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 2
+    s_trap 2
     amdgcn.end_kernel
   }
 
@@ -72,8 +72,8 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %s2 = amdgcn.alloca : !amdgcn.sgpr<2>
     %s3 = amdgcn.alloca : !amdgcn.sgpr<3>
 
-    amdgcn.sop1 s_mov_b32 outs %s2 ins %c10 : !amdgcn.sgpr<2>, i32
-    amdgcn.sop1 s_mov_b32 outs %s3 ins %c9 : !amdgcn.sgpr<3>, i32
+    amdgcn.s_mov_b32 outs(%s2) ins(%c10) : outs(!amdgcn.sgpr<2>) ins(i32)
+    amdgcn.s_mov_b32 outs(%s3) ins(%c9) : outs(!amdgcn.sgpr<3>) ins(i32)
     amdgcn.branch s_branch ^loop_header
 
   ^loop_header:

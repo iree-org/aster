@@ -316,6 +316,9 @@ void AMDGCNDialect::initialize() {
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.cpp.inc"
       ,
 #define GET_OP_LIST
+#include "aster/Dialect/AMDGCN/IR/SOP.cpp.inc"
+      ,
+#define GET_OP_LIST
 #include "aster/Dialect/AMDGCN/IR/VOP.cpp.inc"
       >();
   addTypes<
@@ -1325,6 +1328,12 @@ inferTypesImpl(MLIRContext *ctx, std::optional<Location> &loc,
 
 #define GET_OP_CLASSES
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.cpp.inc"
+
+#define GET_OP_CLASSES
+#include "aster/Dialect/AMDGCN/IR/SOP.cpp.inc"
+
+#define AMDGCN_GEN_INST_METHODS
+#include "aster/Dialect/AMDGCN/IR/SOPInst.cpp.inc"
 
 #define GET_OP_CLASSES
 #include "aster/Dialect/AMDGCN/IR/VOP.cpp.inc"

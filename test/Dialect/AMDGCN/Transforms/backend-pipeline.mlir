@@ -28,7 +28,7 @@ amdgcn.module @test_two_vgpr target = <gfx942> {
 // CHECK-DAG:     alloca : !amdgcn.vgpr<0>
 // CHECK:         load s_load_dwordx2
 // CHECK:         load global_load_dword
-// CHECK:         amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK:         s_waitcnt vmcnt = 0
 // CHECK:         store global_store_dword
 // CHECK:         end_kernel
 // CHECK-NOT:     amdgcn.wait

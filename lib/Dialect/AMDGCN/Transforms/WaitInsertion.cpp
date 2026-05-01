@@ -179,7 +179,7 @@ void WaitTransformImpl::run(FunctionOpInterface funcOp) {
   entryBlock = &body.front();
   funcOp.walk([this](InstOpInterface instOp) {
     // Erase s_waitcnt operations that are not immutable.
-    if (auto wOp = dyn_cast<inst::SWaitcntOp>(instOp.getOperation());
+    if (auto wOp = dyn_cast<SWaitcnt>(instOp.getOperation());
         wOp && !wOp.getImmutable()) {
       rewriter.eraseOp(instOp);
       return;

@@ -169,7 +169,7 @@ amdgcn.module @mod target = <gfx942> {
 // CHECK-NEXT:    %[[R13:.*]] = make_register_range %[[R12]] : !amdgcn.vgpr<12>
 // CHECK-NEXT:    %{{.*}} = load global_load_dword dest %[[R13]] addr %[[R11]] : dps(!amdgcn.vgpr<12>) ins(!amdgcn.vgpr<[10 : 12]>) -> !amdgcn.read_token<flat>
 // CHECK-NEXT:    %{{.*}} = load s_load_dwordx2 dest %{{.*}} addr %{{.*}} : dps(!amdgcn.sgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 2]>) -> !amdgcn.read_token<constant>
-// CHECK-NEXT:    amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+// CHECK-NEXT:    s_waitcnt vmcnt = 0
 //
 // We want to make sure R7, R8 and R11 are not reused after CSE: a proper liveness analysis is needed.
 // CHECK-NEXT:    v_mov_b32 outs(%[[R7]]) ins(%{{.*}}) : outs(!amdgcn.vgpr<10>) ins(!amdgcn.sgpr<2>)
@@ -184,7 +184,7 @@ amdgcn.module @mod target = <gfx942> {
     %4 = alloca : !amdgcn.sgpr<3>
     %5 = make_register_range %3, %4 : !amdgcn.sgpr<2>, !amdgcn.sgpr<3>
     %t1 = amdgcn.load s_load_dwordx2 dest %5 addr %2 : dps(!amdgcn.sgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 2]>) -> !amdgcn.read_token<constant>
-    amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     %7 = alloca : !amdgcn.vgpr<10>
     %8 = alloca : !amdgcn.vgpr<11>
     amdgcn.v_mov_b32 outs(%7) ins(%3) : outs(!amdgcn.vgpr<10>) ins(!amdgcn.sgpr<2>)
@@ -200,7 +200,7 @@ amdgcn.module @mod target = <gfx942> {
     %19 = alloca : !amdgcn.sgpr<3>
     %20 = make_register_range %18, %19 : !amdgcn.sgpr<2>, !amdgcn.sgpr<3>
     %t3 = amdgcn.load s_load_dwordx2 dest %20 addr %17 : dps(!amdgcn.sgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 2]>) -> !amdgcn.read_token<constant>
-    amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     %22 = alloca : !amdgcn.vgpr<10>
     %23 = alloca : !amdgcn.vgpr<11>
     amdgcn.v_mov_b32 outs(%22) ins(%18) : outs(!amdgcn.vgpr<10>) ins(!amdgcn.sgpr<2>)

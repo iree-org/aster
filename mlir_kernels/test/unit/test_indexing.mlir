@@ -43,7 +43,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     %c0 = arith.constant 0 : i32
     %tok_store = amdgcn.store global_store_dword data %value_vgpr addr %ptr offset d(%offset_vgpr) + c(%c0) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     return
   }
@@ -67,7 +67,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     %v1_vgpr = lsir.to_reg %v1 : i32 -> !v
     %tok_store1 = amdgcn.store global_store_dword data %v1_vgpr addr %ptr offset d(%offset1_vgpr) + c(%c0_pair) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     return
   }
 
@@ -80,7 +80,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %lane = func.call @lane_id() : () -> index
     %lane_i32 = arith.index_cast %lane : index to i32
@@ -95,7 +95,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %wave = func.call @wave_id() : () -> index
     %wave_i32 = arith.index_cast %wave : index to i32
@@ -110,7 +110,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32, block_dims = array<i32: {{NUM_THREADS}}, 1, 1>, grid_dims = array<i32: {{NUM_BLOCKS}}, 1, 1>} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %count = func.call @wave_count() : () -> index
     %count_i32 = arith.index_cast %count : index to i32
@@ -125,7 +125,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %c8 = arith.constant 8 : index
     %dims = aster_utils.struct_create(%c8, %c8) : (index, index) -> !index_pair
@@ -144,7 +144,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %c2 = arith.constant 2 : index
     %c4 = arith.constant 4 : index
@@ -170,7 +170,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
   ]> attributes {shared_memory_size = 0 : i32} {
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %c64 = arith.constant 64 : index
     %c32 = arith.constant 32 : index
     %sizes = aster_utils.struct_create(%c64, %c64) : (index, index) -> !index_pair
@@ -193,7 +193,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %tid = gpu.thread_id x
     %c8 = arith.constant 8 : index
     %c64 = arith.constant 64 : index // stride in bytes (16 elements * 4 bytes)
@@ -209,7 +209,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
     %c0_mo = arith.constant 0 : i32
     %tok1 = amdgcn.store global_store_dword data %off_vgpr addr %out_ptr offset d(%out_offset_vgpr) + c(%c0_mo) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -219,7 +219,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %tid = gpu.thread_id x
     %c0 = arith.constant 0 : index
     %c8 = arith.constant 8 : index
@@ -236,7 +236,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
     %c0_tmo = arith.constant 0 : i32
     %tok2 = amdgcn.store global_store_dword data %off_vgpr addr %out_ptr offset d(%out_offset_vgpr) + c(%c0_tmo) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -246,7 +246,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %tid = gpu.thread_id x
     %c0 = arith.constant 0 : index
     %c8 = arith.constant 8 : index
@@ -263,7 +263,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     %out_offset_vgpr = lsir.to_reg %out_offset : i32 -> !v
     %c0_tx2 = arith.constant 0 : i32
     %tok3 = amdgcn.store global_store_dword data %off_vgpr addr %out_ptr offset d(%out_offset_vgpr) + c(%c0_tx2) : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -273,7 +273,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
   ]> attributes {shared_memory_size = 0 : i32} {
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %idx = func.call @mfma_index_A_16x16_f16() : () -> !index_pair
     %row, %col = aster_utils.struct_extract %idx ["i", "j"] : !index_pair -> index, index
     %row_i32 = arith.index_cast %row : index to i32
@@ -288,7 +288,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
   ]> attributes {shared_memory_size = 0 : i32} {
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %idx = func.call @mfma_index_B_16x16_f16() : () -> !index_pair
     %row, %col = aster_utils.struct_extract %idx ["i", "j"] : !index_pair -> index, index
     %row_i32 = arith.index_cast %row : index to i32
@@ -303,7 +303,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
   ]> attributes {shared_memory_size = 0 : i32} {
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %idx = func.call @mfma_index_C_16x16_f32() : () -> !index_pair
     %row, %col = aster_utils.struct_extract %idx ["i", "j"] : !index_pair -> index, index
     %row_i32 = arith.index_cast %row : index to i32
@@ -318,7 +318,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
   ]> attributes {shared_memory_size = 0 : i32} {
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %idx = func.call @swizzled_mfma_index_A_16x16_f16() : () -> !index_pair
     %swizzled_row, %swizzled_col = aster_utils.struct_extract %idx ["i", "j"] : !index_pair -> index, index
     %swizzled_col_i32 = arith.index_cast %swizzled_col : index to i32
@@ -332,7 +332,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
   ]> attributes {shared_memory_size = 0 : i32} {
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %idx = func.call @swizzled_mfma_index_B_16x16_f16() : () -> !index_pair
     %swizzled_row, %swizzled_col = aster_utils.struct_extract %idx ["i", "j"] : !index_pair -> index, index
     %swizzled_col_i32 = arith.index_cast %swizzled_col : index to i32
@@ -346,7 +346,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
   ]> attributes {shared_memory_size = 0 : i32} {
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %idx = func.call @swizzled_mfma_index_C_16x16_f32() : () -> !index_pair
     %swizzled_row, %swizzled_col = aster_utils.struct_extract %idx ["i", "j"] : !index_pair -> index, index
     %swizzled_col_i32 = arith.index_cast %swizzled_col : index to i32
@@ -360,7 +360,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %c0 = arith.constant 0 : index
     %bidx = gpu.block_id x
     %tidx = gpu.thread_id x

@@ -262,27 +262,27 @@ func.func @test_smem_store_dwordx4(%addr_lo: !amdgcn.sgpr, %addr_hi: !amdgcn.sgp
 //===----------------------------------------------------------------------===//
 
 func.func @test_sopp_waitcnt() {
-  amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0 expcnt = 0 lgkmcnt = 0
+  amdgcn.s_waitcnt vmcnt = 0 expcnt = 0 lgkmcnt = 0
   return
 }
 
 func.func @test_sopp_waitcnt_with_imm() {
-  amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 5 expcnt = 2 lgkmcnt = 1
+  amdgcn.s_waitcnt vmcnt = 5 expcnt = 2 lgkmcnt = 1
   return
 }
 
 func.func @test_sopp_trap() {
-  amdgcn.sopp.sopp #amdgcn.inst<s_trap>
+  amdgcn.s_trap 0
   return
 }
 
 func.func @test_sopp_trap_with_imm() {
-  amdgcn.sopp.sopp #amdgcn.inst<s_trap> , imm = 2
+  amdgcn.s_trap 2
   return
 }
 
 func.func @test_sopp_barrier() {
-  amdgcn.sopp.sopp #amdgcn.inst<s_barrier>
+  amdgcn.s_barrier
   return
 }
 

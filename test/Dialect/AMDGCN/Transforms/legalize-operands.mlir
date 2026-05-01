@@ -6,7 +6,7 @@
 // CHECK-LABEL: kernel @dual_literal_select
 // CHECK:         lsir.cmpi
 // CHECK:         %[[OUT:.*]] = alloca : !amdgcn.sgpr
-// CHECK:         %[[MOV:.*]] = sop1 s_mov_b32 outs %[[OUT]] ins %{{.*}} : !amdgcn.sgpr, i32
+// CHECK:         %[[MOV:.*]] = s_mov_b32 outs(%[[OUT]]) ins(%{{.*}}) : outs(!amdgcn.sgpr) ins(i32)
 // CHECK:         lsir.select %{{.*}}, %{{.*}}, %[[MOV]], %{{.*}} : !amdgcn.sgpr, i1, !amdgcn.sgpr, i32
 amdgcn.module @dual_literal_mod target = <gfx942> {
   amdgcn.kernel @dual_literal_select {
@@ -28,7 +28,7 @@ amdgcn.module @dual_literal_mod target = <gfx942> {
 // 10 is in [-16, 64], so only one literal.
 
 // CHECK-LABEL: kernel @one_inline_select
-// CHECK-NOT:     sop1 s_mov_b32
+// CHECK-NOT:     s_mov_b32
 // CHECK:         lsir.select %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.sgpr, i1, i32, i32
 amdgcn.module @one_inline_mod target = <gfx942> {
   amdgcn.kernel @one_inline_select {
@@ -50,7 +50,7 @@ amdgcn.module @one_inline_mod target = <gfx942> {
 // 0 and 10 are both in [-16, 64].
 
 // CHECK-LABEL: kernel @both_inline_select
-// CHECK-NOT:     sop1 s_mov_b32
+// CHECK-NOT:     s_mov_b32
 // CHECK:         lsir.select %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.sgpr, i1, i32, i32
 amdgcn.module @both_inline_mod target = <gfx942> {
   amdgcn.kernel @both_inline_select {
@@ -72,8 +72,8 @@ amdgcn.module @both_inline_mod target = <gfx942> {
 // When operands are register values (not arith.constant), pass does nothing.
 
 // CHECK-LABEL: kernel @non_constant_select
-// CHECK:         %[[A:.*]] = sop1 s_mov_b32
-// CHECK:         %[[B:.*]] = sop1 s_mov_b32
+// CHECK:         %[[A:.*]] = s_mov_b32
+// CHECK:         %[[B:.*]] = s_mov_b32
 // CHECK:         lsir.select %{{.*}}, %{{.*}}, %[[A]], %[[B]] : !amdgcn.sgpr, i1, !amdgcn.sgpr, !amdgcn.sgpr
 amdgcn.module @non_constant_mod target = <gfx942> {
   amdgcn.kernel @non_constant_select {
@@ -81,8 +81,8 @@ amdgcn.module @non_constant_mod target = <gfx942> {
     %s0 = alloca : !amdgcn.sgpr
     %s1 = alloca : !amdgcn.sgpr
     %s2 = alloca : !amdgcn.sgpr
-    %a = sop1 s_mov_b32 outs %s1 ins %c0 : !amdgcn.sgpr, i32
-    %b = sop1 s_mov_b32 outs %s2 ins %c0 : !amdgcn.sgpr, i32
+    %a = s_mov_b32 outs(%s1) ins(%c0) : outs(!amdgcn.sgpr) ins(i32)
+    %b = s_mov_b32 outs(%s2) ins(%c0) : outs(!amdgcn.sgpr) ins(i32)
     %cmp = lsir.cmpi i32 eq %s0, %c0 : !amdgcn.sgpr, i32
     %sel = lsir.select %s0, %cmp, %a, %b : !amdgcn.sgpr, i1, !amdgcn.sgpr, !amdgcn.sgpr
     test_inst ins %sel : (!amdgcn.sgpr) -> ()
@@ -96,7 +96,7 @@ amdgcn.module @non_constant_mod target = <gfx942> {
 // -16 and 64 are the boundary inline constants; -17 and 65 are not.
 
 // CHECK-LABEL: kernel @boundary_inline_select
-// CHECK-NOT:     sop1 s_mov_b32
+// CHECK-NOT:     s_mov_b32
 // CHECK:         lsir.select {{.*}} : !amdgcn.sgpr, i1, i32, i32
 amdgcn.module @boundary_inline_mod target = <gfx942> {
   amdgcn.kernel @boundary_inline_select {
@@ -120,7 +120,7 @@ amdgcn.module @boundary_inline_mod target = <gfx942> {
 // CHECK-LABEL: kernel @boundary_non_inline_select
 // CHECK:         lsir.cmpi
 // CHECK:         %[[OUT:.*]] = alloca : !amdgcn.sgpr
-// CHECK:         sop1 s_mov_b32 outs %[[OUT]]
+// CHECK:         s_mov_b32 outs(%[[OUT]])
 // CHECK:         lsir.select {{.*}} : !amdgcn.sgpr, i1, !amdgcn.sgpr, i32
 amdgcn.module @boundary_non_inline_mod target = <gfx942> {
   amdgcn.kernel @boundary_non_inline_select {

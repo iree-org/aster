@@ -17,7 +17,7 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
 
   func.func private @load_out_ptr() -> !amdgcn.sgpr<[? + 2]> {
     %out_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     return %out_ptr : !amdgcn.sgpr<[? + 2]>
   }
 
@@ -47,7 +47,7 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -75,7 +75,7 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -105,7 +105,7 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
         -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 }

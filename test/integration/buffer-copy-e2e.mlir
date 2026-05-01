@@ -49,7 +49,7 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> {
     %src_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
     %params_ptr = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     %dst_ptr = amdgcn.load_arg 2 : !amdgcn.sgpr<[? + 2]>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     // Dereference params_ptr to load [src_num_elements, dst_num_elements, soffset]
     %c0 = arith.constant 0 : i32
@@ -74,7 +74,7 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> {
       : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
         -> !amdgcn.read_token<constant>
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     return %src_ptr, %dst_ptr, %src_nelems, %dst_nelems, %soffset
       : !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>,
@@ -123,7 +123,7 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> {
         -> !amdgcn.read_token<flat>
 
     // Wait for buffer load
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     // buffer_store_dword: store loaded dword to dst[threadidx.x]
     // OOB stores (voffset + soffset >= num_records) are silently dropped
@@ -133,7 +133,7 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> {
         -> !amdgcn.write_token<flat>
 
     // Wait for buffer store
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel
   }

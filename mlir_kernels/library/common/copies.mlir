@@ -79,7 +79,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
   // Note: if we ever need this for real, consider an amdgcn.undef_token.
   func.func private @trapping_undef_future_global_read() -> !future_global_read_any {
     /// TRAP
-    amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 44
+    amdgcn.s_trap 44
 
     %addr = func.call @alloc_vgprx2() : () -> !vx2
     %dst = func.call @alloc_vgprx1() : () -> !vx1
@@ -95,7 +95,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
   // Note: if we ever need this for real, consider an amdgcn.undef_token.
   func.func private @trapping_undef_future_global_write() -> !future_global_write {
     /// TRAP
-    amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 45
+    amdgcn.s_trap 45
 
     %addr = func.call @alloc_vgprx2() : () -> !vx2
     %data = func.call @alloc_vgprx1() : () -> !vx1
@@ -209,7 +209,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
     %future = func.call @load_from_global_dword_future(%pos_desc)
       : (!tensor_position_descriptor_2d) -> !future_global_read_any
     %loaded_any = aster_utils.struct_extract %future ["value"] : !future_global_read_any -> !aster_utils.any
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     %res = aster_utils.from_any %loaded_any : !v
     return %res : !v
   }
@@ -220,7 +220,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
     %future = func.call @load_from_global_dwordx2_future(%pos_desc)
       : (!tensor_position_descriptor_2d) -> !future_global_read_any
     %loaded_any = aster_utils.struct_extract %future ["value"] : !future_global_read_any -> !aster_utils.any
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     %res = aster_utils.from_any %loaded_any : !vx2
     return %res : !vx2
   }
@@ -231,7 +231,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
     %future = func.call @load_from_global_dwordx3_future(%pos_desc)
       : (!tensor_position_descriptor_2d) -> !future_global_read_any
     %loaded_any = aster_utils.struct_extract %future ["value"] : !future_global_read_any -> !aster_utils.any
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     %res = aster_utils.from_any %loaded_any : !vx3
     return %res : !vx3
   }
@@ -242,7 +242,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
     %future = func.call @load_from_global_dwordx4_future(%pos_desc)
       : (!tensor_position_descriptor_2d) -> !future_global_read_any
     %loaded_any = aster_utils.struct_extract %future ["value"] : !future_global_read_any -> !aster_utils.any
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     %res = aster_utils.from_any %loaded_any : !vx4
     return %res : !vx4
   }
@@ -353,7 +353,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
   ) {
     %future = func.call @store_to_global_dword_future(%value, %pos_desc)
       : (!v, !tensor_position_descriptor_2d) -> !future_global_write
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     return
   }
 
@@ -363,7 +363,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
   ) {
     %future = func.call @store_to_global_dwordx2_future(%value, %pos_desc)
       : (!vx2, !tensor_position_descriptor_2d) -> !future_global_write
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     return
   }
 
@@ -373,7 +373,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
   ) {
     %future = func.call @store_to_global_dwordx3_future(%value, %pos_desc)
       : (!vx3, !tensor_position_descriptor_2d) -> !future_global_write
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     return
   }
 
@@ -383,7 +383,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
   ) {
     %future = func.call @store_to_global_dwordx4_future(%value, %pos_desc)
       : (!vx4, !tensor_position_descriptor_2d) -> !future_global_write
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     return
   }
 
@@ -471,7 +471,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
       scf.yield
     }
     default {
-      amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 42
+      amdgcn.s_trap 42
     }
 
     %num_cols = affine.apply affine_map<()[wave_size, num_rows]
@@ -523,7 +523,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
         scf.yield %future : !future_global_read_any
     }
     default {
-        amdgcn.sopp.sopp #amdgcn.inst<s_trap>, imm = 43
+        amdgcn.s_trap 43
         %c0 = arith.constant 0 : index
         %any = aster_utils.to_any %c0 : index
         // Create a dummy token for the error case
@@ -545,7 +545,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
   ) -> !vx1 {
     %future = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!future_global_read_any)
     %loaded, %token = aster_utils.struct_extract %future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     %res = aster_utils.from_any %loaded : !vx1
     return %res : !vx1
   }
@@ -556,7 +556,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
   ) -> !vx2 {
     %future = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!future_global_read_any)
     %loaded, %token = aster_utils.struct_extract %future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     %res = aster_utils.from_any %loaded : !vx2
     return %res : !vx2
   }
@@ -567,7 +567,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
   ) -> !vx3 {
     %future = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!future_global_read_any)
     %loaded, %token = aster_utils.struct_extract %future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     %res = aster_utils.from_any %loaded : !vx3
     return %res : !vx3
   }
@@ -578,7 +578,7 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
   ) -> !vx4 {
     %future = func.call @global_load_wave_elt_2d_impl(%pos_desc, %transfer_desc) : (!tensor_position_descriptor_2level_2d, !transfer_descriptor_2d) -> (!future_global_read_any)
     %loaded, %token = aster_utils.struct_extract %future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     %res = aster_utils.from_any %loaded : !vx4
     return %res : !vx4
   }
@@ -749,7 +749,7 @@ amdgcn.library @single_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn
   ) -> !vx2 {
     %future = func.call @lds_read_A_wave_16x16_f16_fragment_impl(%pos_desc, %transposed) : (!lds_position_descriptor_2d, i1) -> !future_lds_read_any
     %loaded, %token = aster_utils.struct_extract %future ["value", "token"] : !future_lds_read_any -> !aster_utils.any, !amdgcn.read_token<shared>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %res = aster_utils.from_any %loaded : !vx2
     return %res : !vx2
   }
@@ -846,7 +846,7 @@ amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa =
   ) -> !vx2 {
     %future = func.call @lds_read_swizzled_wave_16x16_f16_fragment_impl(%pos_desc) : (!lds_position_descriptor_2d) -> !future_lds_read_any
     %loaded, %token = aster_utils.struct_extract %future ["value", "token"] : !future_lds_read_any -> !aster_utils.any, !amdgcn.read_token<shared>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     %res = aster_utils.from_any %loaded : !vx2
     return %res : !vx2
   }
@@ -961,7 +961,7 @@ amdgcn.library @single_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
     %value: !vx2
   ) {
     %_token = func.call @lds_write_wave_256_f16_via_dwordx2_impl(%pos_desc, %transfer_desc, %value) : (!lds_position_descriptor_2level_2d, !transfer_descriptor_2d, !vx2) -> !future_lds_write
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     return
   }
 

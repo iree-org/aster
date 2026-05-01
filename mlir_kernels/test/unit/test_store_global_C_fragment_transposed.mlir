@@ -23,7 +23,7 @@ amdgcn.module @test_store_global_C_fragment_transposed target = #amdgcn.target<g
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 0 : i32} {
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
     %c64 = arith.constant 64 : index // stride in bytes (16 elements * 4 bytes for f32)

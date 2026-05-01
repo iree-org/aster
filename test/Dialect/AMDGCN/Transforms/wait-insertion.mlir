@@ -442,11 +442,11 @@ func.func @load_before_branch_consumed_in_single_clobbered(%cond: i1) {
 }
 
 // CHECK-LABEL:   func.func @remove_waits() {
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 2 expcnt = 2 lgkmcnt = 2 immutable
+// CHECK:           amdgcn.s_waitcnt vmcnt = 2 expcnt = 2 lgkmcnt = 2 immutable
 // CHECK:           return
 // CHECK:         }
 func.func @remove_waits() {
-  amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0 expcnt = 0 lgkmcnt = 0
-  amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 2 expcnt = 2 lgkmcnt = 2 immutable
+  amdgcn.s_waitcnt vmcnt = 0 expcnt = 0 lgkmcnt = 0
+  amdgcn.s_waitcnt vmcnt = 2 expcnt = 2 lgkmcnt = 2 immutable
   return
 }

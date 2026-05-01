@@ -34,6 +34,20 @@ using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
+/// Create an SCC alloca for SOP2Out2In2 instructions.
+static Value createSCCAlloca(OpBuilder &builder, Location loc) {
+  return AllocaOp::create(builder, loc,
+                          SCCType::get(builder.getContext(), Register(0)));
+}
+
+/// Helper to create an SOP2Out2In2 instruction and return the dst result.
+template <typename OpTy>
+static Value createSOP2Out2In2(OpBuilder &builder, Location loc, Value dst,
+                               Value src0, Value src1) {
+  Value sccDst = createSCCAlloca(builder, loc);
+  return OpTy::create(builder, loc, dst, sccDst, src0, src1).getDst0Res();
+}
+
 namespace {
 //===----------------------------------------------------------------------===//
 // ExpandMetadataOps pass
@@ -244,21 +258,20 @@ static void handleMakeBufferRsrc(RewriterBase &rewriter,
         Value orDst = AllocaOp::create(rewriter, loc, sgprTy());
         Value upperImm =
             arith::ConstantIntOp::create(rewriter, loc, dword1Upper, 32);
-        dword1 = S_OR_B32::create(rewriter, loc, orDst, baseHi, upperImm)
-                     .getSdstRes();
+        dword1 =
+            createSOP2Out2In2<SOrB32>(rewriter, loc, orDst, baseHi, upperImm);
       }
     } else {
       // Runtime stride: shift left by 16, OR with swizzle bits, OR with
       // base_hi.
       Value strideSgprAlloc = AllocaOp::create(rewriter, loc, sgprTy());
       Value strideSgpr =
-          S_MOV_B32::create(rewriter, loc, strideSgprAlloc, rsrcOp.getStride())
-              .getSdstRes();
+          SMovB32::create(rewriter, loc, strideSgprAlloc, rsrcOp.getStride())
+              .getDst0Res();
       Value shiftAlloc = AllocaOp::create(rewriter, loc, sgprTy());
       Value sixteen = arith::ConstantIntOp::create(rewriter, loc, 16, 32);
-      Value shiftedStride =
-          S_LSHL_B32::create(rewriter, loc, shiftAlloc, strideSgpr, sixteen)
-              .getSdstRes();
+      Value shiftedStride = createSOP2Out2In2<SLshlB32>(
+          rewriter, loc, shiftAlloc, strideSgpr, sixteen);
 
       // Merge swizzle bits if any.
       Value upper = shiftedStride;
@@ -266,13 +279,12 @@ static void handleMakeBufferRsrc(RewriterBase &rewriter,
         Value swzAlloc = AllocaOp::create(rewriter, loc, sgprTy());
         Value swzImm =
             arith::ConstantIntOp::create(rewriter, loc, swizzleBits, 32);
-        upper = S_OR_B32::create(rewriter, loc, swzAlloc, shiftedStride, swzImm)
-                    .getSdstRes();
+        upper = createSOP2Out2In2<SOrB32>(rewriter, loc, swzAlloc,
+                                          shiftedStride, swzImm);
       }
 
       Value orDst = AllocaOp::create(rewriter, loc, sgprTy());
-      dword1 =
-          S_OR_B32::create(rewriter, loc, orDst, baseHi, upper).getSdstRes();
+      dword1 = createSOP2Out2In2<SOrB32>(rewriter, loc, orDst, baseHi, upper);
     }
 
     // When dword1 != baseHi (stride/swizzle bits were merged), baseLo is
@@ -282,23 +294,23 @@ static void handleMakeBufferRsrc(RewriterBase &rewriter,
     Value dword0 = baseLo;
     if (dword1 != baseHi) {
       Value copyDst = AllocaOp::create(rewriter, loc, sgprTy());
-      dword0 = S_MOV_B32::create(rewriter, loc, copyDst, baseLo).getSdstRes();
+      dword0 = SMovB32::create(rewriter, loc, copyDst, baseLo).getDst0Res();
     }
 
     // num_records (dword 2): copy into a fresh SGPR so each descriptor gets
     // an independent register that won't conflict with other descriptors
     // sharing the same num_records SSA value.
     Value numRecordsCopyDst = AllocaOp::create(rewriter, loc, sgprTy());
-    Value numRecords = S_MOV_B32::create(rewriter, loc, numRecordsCopyDst,
-                                         rsrcOp.getNumRecords())
-                           .getSdstRes();
+    Value numRecords = SMovB32::create(rewriter, loc, numRecordsCopyDst,
+                                       rsrcOp.getNumRecords())
+                           .getDst0Res();
 
     // dword 3: flags constant loaded via s_mov_b32.
     Value flagsAlloc = AllocaOp::create(rewriter, loc, sgprTy());
     Value flagsImm =
         arith::ConstantIntOp::create(rewriter, loc, rsrcOp.getFlags(), 32);
     Value flagsVal =
-        S_MOV_B32::create(rewriter, loc, flagsAlloc, flagsImm).getSdstRes();
+        SMovB32::create(rewriter, loc, flagsAlloc, flagsImm).getDst0Res();
 
     // Compose the 4-dword buffer resource descriptor.
     Value rsrc =
@@ -444,9 +456,10 @@ static void handledDim(RewriterBase &rewriter, KernelOp op,
           rewriter, dimOp.getLoc(),
           rewriter.getIntegerAttr(rewriter.getI32Type(), 0xFFFF));
       // TODO: remove this and let the optimizer handle it.
-      S_WAITCNT::create(rewriter, dimOp.getLoc());
-      value = S_AND_B32::create(rewriter, value.getLoc(), alloca, value, cMagic)
-                  .getSdstRes();
+      SWaitcnt::create(rewriter, dimOp.getLoc(), static_cast<uint8_t>(0),
+                       static_cast<uint8_t>(0), static_cast<uint8_t>(0));
+      value = createSOP2Out2In2<SAndB32>(rewriter, value.getLoc(), alloca,
+                                         value, cMagic);
     }
     rewriter.replaceOp(dimOp, value);
     loadArgs.push_back(lOp);

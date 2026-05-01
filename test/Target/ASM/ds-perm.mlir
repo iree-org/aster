@@ -34,7 +34,7 @@ amdgcn.module @perm_mod target = #amdgcn.target<gfx942> {
         offset d(%v1) + c(%c0)
         : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, i32)
         -> !amdgcn.read_token<shared>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -48,7 +48,7 @@ amdgcn.module @perm_mod target = #amdgcn.target<gfx942> {
         offset d(%v1) + c(%c8)
         : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, i32)
         -> !amdgcn.read_token<shared>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -62,7 +62,7 @@ amdgcn.module @perm_mod target = #amdgcn.target<gfx942> {
         offset d(%v1) + c(%c0)
         : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, i32)
         -> !amdgcn.read_token<shared>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     amdgcn.end_kernel
   }
 
@@ -76,7 +76,7 @@ amdgcn.module @perm_mod target = #amdgcn.target<gfx942> {
         offset d(%v1) + c(%c8)
         : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, i32)
         -> !amdgcn.read_token<shared>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     amdgcn.end_kernel
   }
 }

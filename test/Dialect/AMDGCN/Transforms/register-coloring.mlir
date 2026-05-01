@@ -112,7 +112,7 @@ amdgcn.kernel @interference_mixed_with_reuse_undef_values {
 // CHECK-DAG:       %[[VAL_2:.*]] = alloca : !amdgcn.sgpr<0>
 // CHECK-DAG:       %[[VAL_3:.*]] = alloca : !amdgcn.sgpr<1>
 // CHECK-DAG:       %[[VAL_4:.*]] = alloca : !amdgcn.sgpr<2>
-// CHECK:           sop1 s_mov_b32 outs %[[VAL_4]] ins %[[VAL_3]] : !amdgcn.sgpr<2>, !amdgcn.sgpr<1>
+// CHECK:           s_mov_b32 outs(%[[VAL_4]]) ins(%[[VAL_3]]) : outs(!amdgcn.sgpr<2>) ins(!amdgcn.sgpr<1>)
 // CHECK:           test_inst outs %[[VAL_2]], %[[VAL_3]] : (!amdgcn.sgpr<0>, !amdgcn.sgpr<1>) -> ()
 // CHECK:           test_inst outs %[[VAL_0]], %[[VAL_1]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
 // CHECK:           test_inst outs %[[VAL_0]] ins %[[VAL_2]], %[[VAL_3]] : (!amdgcn.vgpr<0>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>) -> ()
@@ -581,8 +581,9 @@ amdgcn.kernel @reg_interference_with_values {
 // CHECK-DAG:       %[[VAL_3:.*]] = alloca : !amdgcn.sgpr<2>
 // CHECK:           %[[VAL_4:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
 // CHECK:           %[[VAL_5:.*]] = load s_load_dword dest %[[VAL_2]] addr %[[VAL_4]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr<3>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
-// CHECK:           amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0 expcnt = 0 lgkmcnt = 0
-// CHECK:           sop2 s_and_b32 outs %[[VAL_2]] ins %[[VAL_2]], %[[CONSTANT_0]] : !amdgcn.sgpr<3>, !amdgcn.sgpr<3>, i32
+// CHECK:           s_waitcnt vmcnt = 0 expcnt = 0 lgkmcnt = 0
+// CHECK:           %[[SCC:.*]] = alloca : !amdgcn.scc<0>
+// CHECK:           s_and_b32 outs(%[[VAL_2]], %[[SCC]]) ins(%[[VAL_2]], %[[CONSTANT_0]]) : outs(!amdgcn.sgpr<3>, !amdgcn.scc<0>) ins(!amdgcn.sgpr<3>, i32)
 // CHECK:           %[[VAL_6:.*]] = load s_load_dwordx2 dest %[[VAL_4]] addr %[[VAL_4]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr<[0 : 2]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
 // CHECK:           test_inst ins %[[VAL_3]], %[[VAL_2]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<3>) -> ()
 // CHECK:           end_kernel
@@ -595,9 +596,10 @@ amdgcn.kernel @test_index_bxmxnxk arguments <[#amdgcn.buffer_arg<address_space =
   %3 = make_register_range %1, %2 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
   %4 = alloca : !amdgcn.sgpr<?>
   %token = load s_load_dword dest %4 addr %3 offset c(%c42_i32) : dps(!amdgcn.sgpr<?>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
-  amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0 expcnt = 0 lgkmcnt = 0
+  amdgcn.s_waitcnt vmcnt = 0 expcnt = 0 lgkmcnt = 0
   %5 = alloca : !amdgcn.sgpr<?>
-  sop2 s_and_b32 outs %5 ins %4, %c42_i32 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, i32
+  %_scc_dst_and_b32 = alloca : !amdgcn.scc<0>
+  s_and_b32 outs(%5, %_scc_dst_and_b32) ins(%4, %c42_i32) : outs(!amdgcn.sgpr<?>, !amdgcn.scc<0>) ins(!amdgcn.sgpr<?>, i32)
   %7 = alloca : !amdgcn.sgpr<?>
   %8 = alloca : !amdgcn.sgpr<?>
   %9 = make_register_range %7, %8 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
@@ -640,7 +642,7 @@ amdgcn.kernel @dead_write_interference {
 // CHECK-DAG:       %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.sgpr<0>
 // CHECK-DAG:       %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.sgpr<1>
 // CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_0]]) ins(%[[ALLOCA_1]]) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<1>)
-// CHECK:           amdgcn.sop1 s_mov_b32 outs %[[ALLOCA_2]] ins %[[ALLOCA_3]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
+// CHECK:           amdgcn.s_mov_b32 outs(%[[ALLOCA_2]]) ins(%[[ALLOCA_3]]) : outs(!amdgcn.sgpr<0>) ins(!amdgcn.sgpr<1>)
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_1]], %[[ALLOCA_2]], %[[ALLOCA_3]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>) -> ()
 // CHECK:           return
 // CHECK:         }
@@ -688,8 +690,8 @@ func.func @copy_range_1() {
 // CHECK-DAG:       %[[ALLOCA_7:.*]] = amdgcn.alloca : !amdgcn.sgpr<3>
 // CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_0]]) ins(%[[ALLOCA_2]]) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<2>)
 // CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_3]]) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<3>)
-// CHECK:           amdgcn.sop1 s_mov_b32 outs %[[ALLOCA_4]] ins %[[ALLOCA_6]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<2>
-// CHECK:           amdgcn.sop1 s_mov_b32 outs %[[ALLOCA_5]] ins %[[ALLOCA_7]] : !amdgcn.sgpr<1>, !amdgcn.sgpr<3>
+// CHECK:           amdgcn.s_mov_b32 outs(%[[ALLOCA_4]]) ins(%[[ALLOCA_6]]) : outs(!amdgcn.sgpr<0>) ins(!amdgcn.sgpr<2>)
+// CHECK:           amdgcn.s_mov_b32 outs(%[[ALLOCA_5]]) ins(%[[ALLOCA_7]]) : outs(!amdgcn.sgpr<1>) ins(!amdgcn.sgpr<3>)
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_1]], %[[ALLOCA_2]], %[[ALLOCA_3]], %[[ALLOCA_4]], %[[ALLOCA_5]], %[[ALLOCA_6]], %[[ALLOCA_7]] : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>, !amdgcn.sgpr<0>, !amdgcn.sgpr<1>, !amdgcn.sgpr<2>, !amdgcn.sgpr<3>) -> ()
 // CHECK:           return
 // CHECK:         }
@@ -765,7 +767,7 @@ func.func @redundant_copies() {
   %2 = amdgcn.alloca : !amdgcn.sgpr<?>
   %3 = amdgcn.alloca : !amdgcn.sgpr<?>
   amdgcn.v_mov_b32 outs(%0) ins(%1) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<?>)
-  amdgcn.sop1 s_mov_b32 outs %2 ins %3 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
+  amdgcn.s_mov_b32 outs(%2) ins(%3) : outs(!amdgcn.sgpr<?>) ins(!amdgcn.sgpr<?>)
   return
 }
 

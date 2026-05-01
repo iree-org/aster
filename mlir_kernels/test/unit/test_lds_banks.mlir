@@ -31,7 +31,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
   {
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %elt_size = arith.constant 2 : index   // f16 = 2 bytes
     %LDS_STRIDE_IN_BYTES = affine.apply affine_map<()[elt_size] -> (elt_size * 16)>()[%elt_size]
@@ -85,7 +85,7 @@ amdgcn.module @test_indexing target = #amdgcn.target<gfx942> {
   {
     %c0 = arith.constant 0 : index
     %out_ptr = amdgcn.load_arg 0 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     // LDS layout: 16 rows x N columns of f16 elements
     // LDS stride for a 16-column layout: 16 cols * 2 bytes = 32 bytes

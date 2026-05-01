@@ -30,7 +30,7 @@ amdgcn.module @mfma_32x32_e2e_mod target = #amdgcn.target<gfx942> {
 
   func.func private @load_output_ptr() -> !amdgcn.sgpr<[? + 2]> {
     %ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
     return %ptr : !amdgcn.sgpr<[? + 2]>
   }
 
@@ -112,7 +112,7 @@ amdgcn.module @mfma_32x32_e2e_mod target = #amdgcn.target<gfx942> {
     func.call @store_x4(%g3, %c_ptr, %thread_offset, %off48)
       : (!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32) -> ()
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 }

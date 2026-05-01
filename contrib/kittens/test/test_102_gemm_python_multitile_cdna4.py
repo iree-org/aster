@@ -194,7 +194,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     b_rsrc = b.make_buffer_rsrc(b_ptr, nr_b, stride_i32, flags=SRD_FLAGS)
     soff = b.s_mov_b32(0)
     m0 = b.alloc_m0()
-    soff_val = soff.result
+    soff_val = soff
 
     # Per-thread byte offsets within one tile (loop-invariant).
     lane = b.lane_id()

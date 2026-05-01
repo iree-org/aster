@@ -8,8 +8,8 @@
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
-// CHECK:           amdgcn.sopp.sopp <s_nop>, imm = 15
-// CHECK:           amdgcn.sopp.sopp <s_nop>
+// CHECK:           amdgcn.s_nop 15
+// CHECK:           amdgcn.s_nop 0
 // CHECK:           amdgcn.v_mov_b32 outs(%[[ARG0]]) ins(%[[ARG2]]) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<1>)
 // CHECK:           return
 // CHECK:         }
@@ -32,8 +32,8 @@ func.func @test_store_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
-// CHECK:           amdgcn.sopp.sopp <s_nop>, imm = 15
-// CHECK:           amdgcn.sopp.sopp <s_nop>
+// CHECK:           amdgcn.s_nop 15
+// CHECK:           amdgcn.s_nop 0
 // CHECK:           amdgcn.v_mov_b32 outs(%[[ARG0]]) ins(%[[ARG2]]) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<1>)
 // CHECK:           return
 // CHECK:         }
@@ -56,8 +56,8 @@ func.func @test_cf_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, 
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
-// CHECK:           amdgcn.sopp.sopp <s_nop>, imm = 15
-// CHECK:           amdgcn.sopp.sopp <s_nop>
+// CHECK:           amdgcn.s_nop 15
+// CHECK:           amdgcn.s_nop 0
 // CHECK:           amdgcn.v_mov_b32 outs(%[[ARG1]]) ins(%[[ARG2]]) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<2>)
 // CHECK:           return
 // CHECK:         }

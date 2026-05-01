@@ -187,17 +187,17 @@ func.func @test_vop1_nop() {
 //===----------------------------------------------------------------------===//
 
 func.func @test_sopp_nop() {
-  amdgcn.sopp.sopp #amdgcn.inst<s_nop>
+  amdgcn.s_nop 0
   return
 }
 
 func.func @test_sopp_nop_with_imm() {
-  amdgcn.sopp.sopp #amdgcn.inst<s_nop> , imm = 0
+  amdgcn.s_nop 0
   return
 }
 
 func.func @test_sopp_nop_with_imm_max() {
-  amdgcn.sopp.sopp #amdgcn.inst<s_nop> , imm = 15
+  amdgcn.s_nop 15
   return
 }
 

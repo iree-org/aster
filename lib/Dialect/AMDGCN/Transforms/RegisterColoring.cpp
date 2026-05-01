@@ -196,10 +196,10 @@ struct VMovB32Pattern : public OpRewritePattern<VMovB32> {
                                 PatternRewriter &rewriter) const override;
 };
 
-struct SOP1OpPattern : public OpRewritePattern<inst::SOP1Op> {
+struct SMovB32Pattern : public OpRewritePattern<SMovB32> {
   using Base::Base;
 
-  LogicalResult matchAndRewrite(inst::SOP1Op op,
+  LogicalResult matchAndRewrite(SMovB32 op,
                                 PatternRewriter &rewriter) const override;
 };
 } // namespace
@@ -594,7 +594,7 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
 
   auto copyReg = [&](Value src, Value tgt) {
     if (tgtTy.getRegisterKind() == RegisterKind::SGPR) {
-      S_MOV_B32::create(rewriter, tgt.getLoc(), tgt, src);
+      SMovB32::create(rewriter, tgt.getLoc(), tgt, src);
       return;
     }
     if (tgtTy.getRegisterKind() == RegisterKind::AGPR) {
@@ -636,12 +636,9 @@ LogicalResult VMovB32Pattern::matchAndRewrite(VMovB32 op,
   return success();
 }
 
-LogicalResult SOP1OpPattern::matchAndRewrite(inst::SOP1Op op,
-                                             PatternRewriter &rewriter) const {
-  auto opCode = op.getOpcode();
-  if (opCode != OpCode::S_MOV_B32)
-    return failure();
-  RegisterTypeInterface dstTy = op.getSdst().getType();
+LogicalResult SMovB32Pattern::matchAndRewrite(SMovB32 op,
+                                              PatternRewriter &rewriter) const {
+  RegisterTypeInterface dstTy = op.getDst0().getType();
   auto srcTy = llvm::dyn_cast<RegisterTypeInterface>(op.getSrc0().getType());
   if (!srcTy)
     return failure();
@@ -704,7 +701,7 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
 
   RewritePatternSet patterns(&getContext());
   patterns.add<InstRewritePattern, MakeRegisterRangeOpPattern,
-               RegInterferenceOpPattern, CopyOpPattern, SOP1OpPattern,
+               RegInterferenceOpPattern, CopyOpPattern, SMovB32Pattern,
                VMovB32Pattern>(&getContext());
   FrozenRewritePatternSet frozenPatterns(std::move(patterns));
   if (failed(applyPatternsGreedily(

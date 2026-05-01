@@ -149,15 +149,15 @@ module {
       %0 = load_arg 0 : !amdgcn.sgpr<[? + 2]>
       %1 = load_arg 1 : !amdgcn.sgpr<[? + 2]>
       %2 = load_arg 2 : !amdgcn.sgpr<[? + 2]>
-      amdgcn.sopp.s_waitcnt <s_waitcnt> lgkmcnt = 0
+      amdgcn.s_waitcnt lgkmcnt = 0
       %3 = alloca : !amdgcn.sgpr
-      %4 = sop1 s_mov_b32 outs %3 ins %c4096_i32 : !amdgcn.sgpr, i32
+      %4 = s_mov_b32 outs(%3) ins(%c4096_i32) : outs(!amdgcn.sgpr) ins(i32)
       %5 = alloca : !amdgcn.sgpr
-      %6 = sop1 s_mov_b32 outs %5 ins %c4096_i32 : !amdgcn.sgpr, i32
+      %6 = s_mov_b32 outs(%5) ins(%c4096_i32) : outs(!amdgcn.sgpr) ins(i32)
       %7 = make_buffer_rsrc %0, %4, %c0_i32, cache_swizzle = false, swizzle_enable = false, flags = 149796 : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> <[? + 4]>
       %8 = make_buffer_rsrc %1, %6, %c0_i32, cache_swizzle = false, swizzle_enable = false, flags = 149796 : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, i32) -> <[? + 4]>
       %9 = alloca : !amdgcn.sgpr
-      %10 = sop1 s_mov_b32 outs %9 ins %c0_i32 : !amdgcn.sgpr, i32
+      %10 = s_mov_b32 outs(%9) ins(%c0_i32) : outs(!amdgcn.sgpr) ins(i32)
       %11 = alloca : !amdgcn.m0<0>
       %thread_id_x = gpu.thread_id x
       %thread_id_y = gpu.thread_id y
@@ -197,7 +197,7 @@ module {
         %56 = lsir.to_reg %49 {sched.stage = 0 : i32} : i32 -> !amdgcn.vgpr
         %57 = amdgcn.alloca {sched.stage = 0 : i32} : !amdgcn.sgpr
         %58 = amdgcn.v_readfirstlane_b32 outs(%57) ins(%56) {sched.stage = 0 : i32} : outs(!amdgcn.sgpr) ins(!amdgcn.vgpr)
-        amdgcn.sop1 s_mov_b32 outs %11 ins %58 {sched.stage = 0 : i32} : !amdgcn.m0<0>, !amdgcn.sgpr
+        amdgcn.s_mov_b32 outs(%11) ins(%58) {sched.stage = 0 : i32} : outs(!amdgcn.m0<0>) ins(!amdgcn.sgpr)
         %59 = arith.index_cast %55 {sched.stage = 0 : i32} : index to i32
         %60 = lsir.to_reg %59 {sched.stage = 0 : i32} : i32 -> !amdgcn.vgpr
         %61 = amdgcn.load_lds buffer_load_dwordx4_lds m0 %11 addr %7 offset u(%10) + d(%60) + c(%c0_i32) {sched.stage = 0 : i32} : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32) -> !amdgcn.write_token<flat>
@@ -206,7 +206,7 @@ module {
         %62 = lsir.to_reg %52 {sched.stage = 1 : i32} : i32 -> !amdgcn.vgpr
         %63 = amdgcn.alloca {sched.stage = 1 : i32} : !amdgcn.sgpr
         %64 = amdgcn.v_readfirstlane_b32 outs(%63) ins(%62) {sched.stage = 1 : i32} : outs(!amdgcn.sgpr) ins(!amdgcn.vgpr)
-        amdgcn.sop1 s_mov_b32 outs %11 ins %64 {sched.stage = 1 : i32} : !amdgcn.m0<0>, !amdgcn.sgpr
+        amdgcn.s_mov_b32 outs(%11) ins(%64) {sched.stage = 1 : i32} : outs(!amdgcn.m0<0>) ins(!amdgcn.sgpr)
         %65 = arith.index_cast %55 {sched.stage = 1 : i32} : index to i32
         %66 = lsir.to_reg %65 {sched.stage = 1 : i32} : i32 -> !amdgcn.vgpr
         %67 = amdgcn.load_lds buffer_load_dwordx4_lds m0 %11 addr %8 offset u(%10) + d(%66) + c(%c0_i32) {sched.stage = 1 : i32} : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32) -> !amdgcn.write_token<flat>
@@ -215,7 +215,7 @@ module {
         amdgcn.wait deps %68 {sched.stage = 2 : i32} : !amdgcn.write_token<flat>
         %69 = memref.load %alloca_1[%c0] {sched.stage = 2 : i32} : memref<1x!amdgcn.write_token<flat>>
         amdgcn.wait deps %69 {sched.stage = 2 : i32} : !amdgcn.write_token<flat>
-        amdgcn.sopp.sopp <s_barrier> {sched.stage = 2 : i32}
+        amdgcn.s_barrier {sched.stage = 2 : i32}
         %alloca_2 = memref.alloca() : memref<2x!aster_utils.any>
         %alloca_3 = memref.alloca() : memref<2x!amdgcn.read_token<shared>>
         %70:4 = func.call @_read_a(%50) {sched.stage = 2 : i32} : (index) -> (!aster_utils.any, !aster_utils.any, !amdgcn.read_token<shared>, !amdgcn.read_token<shared>)
@@ -254,7 +254,7 @@ module {
         %90 = amdgcn.make_register_range %88#0, %88#1, %89#0, %89#1 {sched.stage = 3 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
         %91 = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x32_f16> %76, %83, %90, %76 {sched.stage = 3 : i32} : <[? + 4]>, <[? + 4]>, !amdgcn.agpr<[? + 4]> -> !amdgcn.agpr<[? + 4]>
         memref.store %91, %alloca[%c0] {sched.stage = 3 : i32} : memref<1x!amdgcn.agpr<[? + 4]>>
-        amdgcn.sopp.sopp <s_barrier> {sched.stage = 3 : i32}
+        amdgcn.s_barrier {sched.stage = 3 : i32}
       }
       %30 = memref.load %alloca[%c0] : memref<1x!amdgcn.agpr<[? + 4]>>
       %31:4 = split_register_range %30 : !amdgcn.agpr<[? + 4]>

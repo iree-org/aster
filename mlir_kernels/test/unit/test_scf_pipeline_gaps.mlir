@@ -33,7 +33,7 @@ amdgcn.module @test_gap_0_2 target = <gfx942> {
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -70,7 +70,7 @@ amdgcn.module @test_gap_0_3 target = <gfx942> {
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -112,7 +112,7 @@ amdgcn.module @test_gap_0_2_5 target = <gfx942> {
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }
@@ -150,7 +150,7 @@ amdgcn.module @test_gap_0_2_iter_args target = <gfx942> {
     %off = lsir.to_reg %c0_i32 : i32 -> !v
     %tok = amdgcn.store global_store_dword data %v addr %out offset d(%off)
       : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }
 }

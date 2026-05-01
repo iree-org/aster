@@ -52,10 +52,8 @@ static Value getTargetRegister(Operation *op) {
 
   if (auto instOp = dyn_cast<VMovB32>(op))
     return instOp.getDst0();
-  if (auto instOp = dyn_cast<inst::SOP1Op>(op);
-      instOp && instOp.getOpcode() == OpCode::S_MOV_B32) {
-    return instOp.getSdst();
-  }
+  if (auto instOp = dyn_cast<SMovB32>(op))
+    return instOp.getDst0();
   return nullptr;
 }
 

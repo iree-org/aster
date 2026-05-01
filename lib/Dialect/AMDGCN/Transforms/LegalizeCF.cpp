@@ -350,9 +350,8 @@ LogicalResult LegalizeCF::lowerSelect(lsir::SelectOp selectOp) {
   } else {
     // s_cselect_b32: sdst = SCC ? src0 : src1.
     // src0 = true_value (selected when SCC=1), src1 = false_value.
-    amdgcn::inst::SOP2Op::create(rewriter, loc, OpCode::S_CSELECT_B32, dst,
-                                 selectOp.getTrueValue(),
-                                 selectOp.getFalseValue());
+    SCselectB32::create(rewriter, loc, dst, selectOp.getTrueValue(),
+                        selectOp.getFalseValue(), flagReg);
   }
 
   // Replace uses of the select result with the dst (which now holds the

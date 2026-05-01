@@ -47,7 +47,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
   ]> attributes {shared_memory_size = 8192 : i32} {
     %in_ptr = amdgcn.load_arg 0 : !sx2
     %out_ptr = amdgcn.load_arg 1 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -121,7 +121,7 @@ amdgcn.module @test_copies target = #amdgcn.target<gfx942> {
     } {aster.constexpr}
 
     // Ensure all stores complete before kernel ends
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel
   }

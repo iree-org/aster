@@ -20,7 +20,7 @@ amdgcn.module @test_global_to_lds_and_back target = #amdgcn.target<gfx942> {
   ]> attributes {shared_memory_size = 20000 : i32} {
     %in_ptr = amdgcn.load_arg 0 : !sx2
     %out_ptr = amdgcn.load_arg 1 : !sx2
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
     %c16 = arith.constant 16 : index   // m_pos = 1 * 16
@@ -40,7 +40,7 @@ amdgcn.module @test_global_to_lds_and_back target = #amdgcn.target<gfx942> {
     func.call @simple_lds_to_global_wave_16x16_f16_wait(%lds_pos_desc, %global_pos_desc_out)
       : (!lds_position_descriptor_2d, !tensor_position_descriptor_2d) -> ()
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 }

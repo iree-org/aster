@@ -16,7 +16,7 @@ amdgcn.module @test_struct_promotability_simple target = #amdgcn.target<gfx942> 
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out_ptr = amdgcn.load_arg 0 : !amdgcn.sgpr<[? + 2]>
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
+    amdgcn.s_waitcnt lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -47,7 +47,7 @@ amdgcn.module @test_struct_promotability_simple target = #amdgcn.target<gfx942> 
     %c4 = arith.constant 4 : index
     amdgcn.store global_store_dword data %j_i32 addr %out_ptr offset d(%c0) + c(%c4) : ins(i32, !amdgcn.sgpr<[? + 2]>, i32)
 
-    amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
+    amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
 }
