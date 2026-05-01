@@ -50,6 +50,11 @@ ForEmitter = Callable[
     ],
     None,
 ]
+ClassEmitter = Callable[
+    ["EmitterContext", ast.ClassDef, "ASTEmitterProtocol"],
+    None,
+]
+AttributeEmitter = Callable[["EmitterContext", Any, str], Any]
 
 
 class ASTEmitterProtocol(Protocol):
@@ -58,6 +63,8 @@ class ASTEmitterProtocol(Protocol):
     def visit(self, node: ast.AST) -> Any: ...
 
     def visit_stmts(self, stmts: list[ast.stmt]) -> None: ...
+
+    def resolve_type_annotation(self, annotation: ast.AST) -> "ASTType": ...
 
 
 class EmitterTable:
@@ -77,6 +84,8 @@ class EmitterTable:
         self._return_emitter: Optional[ReturnEmitter] = None
         self._if_emitter: Optional[IfEmitter] = None
         self._for_emitter: Optional[ForEmitter] = None
+        self._class_emitter: Optional[ClassEmitter] = None
+        self._attribute_emitters: dict[type, AttributeEmitter] = {}
 
     # -- registration ---------------------------------------------------------
 
@@ -103,6 +112,14 @@ class EmitterTable:
 
     def register_for_emitter(self, handler: ForEmitter) -> None:
         self._for_emitter = handler
+
+    def register_class_emitter(self, handler: ClassEmitter) -> None:
+        self._class_emitter = handler
+
+    def register_attribute_emitter(
+        self, obj_type: type, handler: AttributeEmitter
+    ) -> None:
+        self._attribute_emitters[obj_type] = handler
 
     # -- lookup (walks parent chain) ------------------------------------------
 
@@ -161,3 +178,17 @@ class EmitterTable:
         if self._parent is not None:
             return self._parent.get_for_emitter()
         raise KeyError("no for emitter registered")
+
+    def get_class_emitter(self) -> ClassEmitter:
+        if self._class_emitter is not None:
+            return self._class_emitter
+        if self._parent is not None:
+            return self._parent.get_class_emitter()
+        raise KeyError("no class emitter registered")
+
+    def get_attribute_emitter(self, obj_type: type) -> Optional[AttributeEmitter]:
+        if obj_type in self._attribute_emitters:
+            return self._attribute_emitters[obj_type]
+        if self._parent is not None:
+            return self._parent.get_attribute_emitter(obj_type)
+        return None

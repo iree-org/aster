@@ -16,6 +16,7 @@ import ast
 from aster.emitter import (
     DefaultSemantic,
     EmissionContext,
+    EmitCContext,
     EmitterTable,
     Type,
     default_table,
@@ -757,3 +758,395 @@ def test_if_inside_for():
     print(text)
     assert "scf.for" in text
     assert "scf.if" in text
+
+
+# ===================================================================
+# 14. EmitC emission context.
+# ===================================================================
+
+
+def test_emitc_context_registered():
+    """The EmitC context is registered under the name 'emitc'."""
+    from aster.emitter.context import get_context_class
+
+    assert get_context_class("emitc") is EmitCContext
+
+
+def test_emitc_add():
+    """Emitc context emits emitc.add instead of arith.addi."""
+
+    @jit()
+    def f(a: i32, b: i32) -> i32:
+        @emitc()  # noqa: F821
+        def inner():
+            c = a + b  # noqa: F841
+
+        return a + b
+
+    import aster.ir as ir
+    from aster.emitter.context import EmitterContext
+    from aster.emitter.core import ASTEmitter, default_table
+    from aster.emitter.scope import ScopeStack, SymbolTable
+
+    ctx = ir.Context()
+    with ctx:
+        module = ir.Module.create(ir.Location.unknown(ctx))
+        loc = ir.Location.unknown(ctx)
+        symbols = SymbolTable()
+        scope_stack = ScopeStack(symbols)
+        ectx = EmitterContext(
+            module=module,
+            ctx=ctx,
+            ip=ir.InsertionPoint(module.body),
+            loc=loc,
+            scope_stack=scope_stack,
+            semantic=DefaultSemantic(),
+            table=default_table(),
+        )
+        emitter = ASTEmitter(ectx)
+        emitter.set_arg_types([i32, i32])
+        emitter.visit(f.tree)
+
+    text = _mlir_str(module)
+    # The inner context block should produce emitc ops.
+    assert "emitc.add" in text or '"emitc.add"' in text
+    # The outer scope still uses arith.
+    assert "arith.addi" in text
+
+
+def test_emitc_sub():
+    """Emitc context emits emitc.sub."""
+
+    @jit()
+    def f(a: i32, b: i32) -> i32:
+        @emitc()  # noqa: F821
+        def inner():
+            c = a - b  # noqa: F841
+
+        return a
+
+    import aster.ir as ir
+    from aster.emitter.context import EmitterContext
+    from aster.emitter.core import ASTEmitter, default_table
+    from aster.emitter.scope import ScopeStack, SymbolTable
+
+    ctx = ir.Context()
+    with ctx:
+        module = ir.Module.create(ir.Location.unknown(ctx))
+        loc = ir.Location.unknown(ctx)
+        ectx = EmitterContext(
+            module=module,
+            ctx=ctx,
+            ip=ir.InsertionPoint(module.body),
+            loc=loc,
+            scope_stack=ScopeStack(SymbolTable()),
+            semantic=DefaultSemantic(),
+            table=default_table(),
+        )
+        emitter = ASTEmitter(ectx)
+        emitter.set_arg_types([i32, i32])
+        emitter.visit(f.tree)
+
+    text = _mlir_str(module)
+    assert "emitc.sub" in text or '"emitc.sub"' in text
+
+
+def test_emitc_mul():
+    """Emitc context emits emitc.mul."""
+
+    @jit()
+    def f(a: i32, b: i32) -> i32:
+        @emitc()  # noqa: F821
+        def inner():
+            c = a * b  # noqa: F841
+
+        return a
+
+    import aster.ir as ir
+    from aster.emitter.context import EmitterContext
+    from aster.emitter.core import ASTEmitter, default_table
+    from aster.emitter.scope import ScopeStack, SymbolTable
+
+    ctx = ir.Context()
+    with ctx:
+        module = ir.Module.create(ir.Location.unknown(ctx))
+        loc = ir.Location.unknown(ctx)
+        ectx = EmitterContext(
+            module=module,
+            ctx=ctx,
+            ip=ir.InsertionPoint(module.body),
+            loc=loc,
+            scope_stack=ScopeStack(SymbolTable()),
+            semantic=DefaultSemantic(),
+            table=default_table(),
+        )
+        emitter = ASTEmitter(ectx)
+        emitter.set_arg_types([i32, i32])
+        emitter.visit(f.tree)
+
+    text = _mlir_str(module)
+    assert "emitc.mul" in text or '"emitc.mul"' in text
+
+
+def test_emitc_cmp():
+    """Emitc context emits emitc.cmp for comparisons."""
+
+    @jit()
+    def f(a: i32, b: i32) -> i32:
+        @emitc()  # noqa: F821
+        def inner():
+            c = a == b  # noqa: F841
+
+        return a
+
+    import aster.ir as ir
+    from aster.emitter.context import EmitterContext
+    from aster.emitter.core import ASTEmitter, default_table
+    from aster.emitter.scope import ScopeStack, SymbolTable
+
+    ctx = ir.Context()
+    with ctx:
+        module = ir.Module.create(ir.Location.unknown(ctx))
+        loc = ir.Location.unknown(ctx)
+        ectx = EmitterContext(
+            module=module,
+            ctx=ctx,
+            ip=ir.InsertionPoint(module.body),
+            loc=loc,
+            scope_stack=ScopeStack(SymbolTable()),
+            semantic=DefaultSemantic(),
+            table=default_table(),
+        )
+        emitter = ASTEmitter(ectx)
+        emitter.set_arg_types([i32, i32])
+        emitter.visit(f.tree)
+
+    text = _mlir_str(module)
+    assert "emitc.cmp" in text or "cmp eq" in text
+
+
+def test_emitc_constant():
+    """Emitc context materialises constants via emitc.constant."""
+
+    @jit()
+    def f(a: i32) -> i32:
+        @emitc()  # noqa: F821
+        def inner():
+            c = a + 42  # noqa: F841
+
+        return a
+
+    import aster.ir as ir
+    from aster.emitter.context import EmitterContext
+    from aster.emitter.core import ASTEmitter, default_table
+    from aster.emitter.scope import ScopeStack, SymbolTable
+
+    ctx = ir.Context()
+    with ctx:
+        module = ir.Module.create(ir.Location.unknown(ctx))
+        loc = ir.Location.unknown(ctx)
+        ectx = EmitterContext(
+            module=module,
+            ctx=ctx,
+            ip=ir.InsertionPoint(module.body),
+            loc=loc,
+            scope_stack=ScopeStack(SymbolTable()),
+            semantic=DefaultSemantic(),
+            table=default_table(),
+        )
+        emitter = ASTEmitter(ectx)
+        emitter.set_arg_types([i32])
+        emitter.visit(f.tree)
+
+    text = _mlir_str(module)
+    assert "emitc.constant" in text
+    assert "42" in text
+
+
+def test_emitc_class_fields_only():
+    """EmitC class with only field annotations emits emitc.class + emitc.field."""
+
+    @jit()
+    def f(a: i32) -> i32:
+        @emitc()  # noqa: F821
+        def inner():
+            class Point:
+                x: i32  # noqa: F821
+                y: i32  # noqa: F821
+
+        return a
+
+    import aster.ir as ir
+    from aster.emitter.context import EmitterContext
+    from aster.emitter.core import ASTEmitter, default_table
+    from aster.emitter.scope import ScopeStack, SymbolTable
+
+    ctx = ir.Context()
+    with ctx:
+        module = ir.Module.create(ir.Location.unknown(ctx))
+        loc = ir.Location.unknown(ctx)
+        ectx = EmitterContext(
+            module=module,
+            ctx=ctx,
+            ip=ir.InsertionPoint(module.body),
+            loc=loc,
+            scope_stack=ScopeStack(SymbolTable()),
+            semantic=DefaultSemantic(),
+            table=default_table(),
+        )
+        emitter = ASTEmitter(ectx)
+        emitter.set_arg_types([i32])
+        emitter.visit(f.tree)
+
+    text = _mlir_str(module)
+    assert "emitc.class" in text
+    assert 'sym_name = "Point"' in text
+    assert "emitc.field" in text
+    assert 'sym_name = "x"' in text
+    assert 'sym_name = "y"' in text
+
+
+def test_emitc_class_with_method():
+    """EmitC class method using self.x emits emitc.func + get_field."""
+
+    @jit()
+    def f(a: i32) -> i32:
+        @emitc()  # noqa: F821
+        def inner():
+            class Point:
+                x: i32  # noqa: F821
+                y: i32  # noqa: F821
+
+                def sum(self) -> i32:  # noqa: F821
+                    return self.x + self.y
+
+        return a
+
+    import aster.ir as ir
+    from aster.emitter.context import EmitterContext
+    from aster.emitter.core import ASTEmitter, default_table
+    from aster.emitter.scope import ScopeStack, SymbolTable
+
+    ctx = ir.Context()
+    with ctx:
+        module = ir.Module.create(ir.Location.unknown(ctx))
+        loc = ir.Location.unknown(ctx)
+        ectx = EmitterContext(
+            module=module,
+            ctx=ctx,
+            ip=ir.InsertionPoint(module.body),
+            loc=loc,
+            scope_stack=ScopeStack(SymbolTable()),
+            semantic=DefaultSemantic(),
+            table=default_table(),
+        )
+        emitter = ASTEmitter(ectx)
+        emitter.set_arg_types([i32])
+        emitter.visit(f.tree)
+
+    text = _mlir_str(module)
+    assert "emitc.class" in text
+    assert 'sym_name = "Point"' in text
+    assert 'sym_name = "sum"' in text
+    assert "emitc.get_field" in text
+    assert "field_name = @x" in text
+    assert "field_name = @y" in text
+    assert "emitc.add" in text or '"emitc.add"' in text
+
+
+def test_emitc_class_method_with_args():
+    """EmitC class method with extra parameters beyond self."""
+
+    @jit()
+    def f(a: i32) -> i32:
+        @emitc()  # noqa: F821
+        def inner():
+            class Adder:
+                x: i32  # noqa: F821
+
+                def add(self, val: i32) -> i32:  # noqa: F821
+                    return self.x + val
+
+        return a
+
+    import aster.ir as ir
+    from aster.emitter.context import EmitterContext
+    from aster.emitter.core import ASTEmitter, default_table
+    from aster.emitter.scope import ScopeStack, SymbolTable
+
+    ctx = ir.Context()
+    with ctx:
+        module = ir.Module.create(ir.Location.unknown(ctx))
+        loc = ir.Location.unknown(ctx)
+        ectx = EmitterContext(
+            module=module,
+            ctx=ctx,
+            ip=ir.InsertionPoint(module.body),
+            loc=loc,
+            scope_stack=ScopeStack(SymbolTable()),
+            semantic=DefaultSemantic(),
+            table=default_table(),
+        )
+        emitter = ASTEmitter(ectx)
+        emitter.set_arg_types([i32])
+        emitter.visit(f.tree)
+
+    text = _mlir_str(module)
+    assert "emitc.class" in text
+    assert 'sym_name = "Adder"' in text
+    assert 'sym_name = "add"' in text
+    assert "i32" in text
+    assert "emitc.get_field" in text
+    assert "field_name = @x" in text
+    assert "emitc.add" in text or '"emitc.add"' in text
+
+
+def test_emitc_class_multiple_methods():
+    """EmitC class with multiple methods."""
+
+    @jit()
+    def f(a: i32) -> i32:
+        @emitc()  # noqa: F821
+        def inner():
+            class Vec:
+                x: i32  # noqa: F821
+                y: i32  # noqa: F821
+
+                def get_x(self) -> i32:  # noqa: F821
+                    return self.x
+
+                def get_y(self) -> i32:  # noqa: F821
+                    return self.y
+
+        return a
+
+    import aster.ir as ir
+    from aster.emitter.context import EmitterContext
+    from aster.emitter.core import ASTEmitter, default_table
+    from aster.emitter.scope import ScopeStack, SymbolTable
+
+    ctx = ir.Context()
+    with ctx:
+        module = ir.Module.create(ir.Location.unknown(ctx))
+        loc = ir.Location.unknown(ctx)
+        ectx = EmitterContext(
+            module=module,
+            ctx=ctx,
+            ip=ir.InsertionPoint(module.body),
+            loc=loc,
+            scope_stack=ScopeStack(SymbolTable()),
+            semantic=DefaultSemantic(),
+            table=default_table(),
+        )
+        emitter = ASTEmitter(ectx)
+        emitter.set_arg_types([i32])
+        emitter.visit(f.tree)
+
+    text = _mlir_str(module)
+    assert "emitc.class" in text
+    assert 'sym_name = "Vec"' in text
+    assert 'sym_name = "get_x"' in text
+    assert 'sym_name = "get_y"' in text
+    assert "emitc.get_field" in text
+    assert "field_name = @x" in text
+    assert "field_name = @y" in text

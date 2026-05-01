@@ -29,6 +29,7 @@ Semantic analysis:
 
 from .context import EmissionContext, register_context
 from .core import JITFunction, UnsupportedConstruct, default_table, jit
+from .emitc_emitter import EmitCContext, EmitCSemantic
 from .escape import escape, reflect
 from .rewrite import clear_global_pipeline, register_rewrite
 from .semantic import DefaultSemantic, SemanticAnalyzer
@@ -64,6 +65,8 @@ __all__ = [
     "TemplateFunction",
     "Type",
     "UnsupportedConstruct",
+    "EmitCContext",
+    "EmitCSemantic",
     "clear_global_pipeline",
     "default_table",
     "escape",

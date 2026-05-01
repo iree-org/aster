@@ -218,6 +218,10 @@ class ASTEmitter(ast.NodeVisitor):
         for stmt in stmts:
             self.visit(stmt)
 
+    def resolve_type_annotation(self, annotation: ast.AST) -> ASTType:
+        """Resolve a type annotation AST node to an ``ASTType``."""
+        return self._resolve_type_annotation(annotation)
+
     def _resolve_type_annotation(self, annotation: ast.AST) -> ASTType:
         """Resolve a type annotation to an ``ASTType``."""
         if isinstance(annotation, ast.Name):
@@ -399,6 +403,10 @@ class ASTEmitter(ast.NodeVisitor):
         result = binop_emitter(self._ectx, lhs, rhs)
         self._ectx.scope_stack.bind_local(node.target.id, result)
 
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        class_emitter = self._ectx.table.get_class_emitter()
+        class_emitter(self._ectx, node, self)
+
     def visit_Pass(self, node: ast.Pass) -> None:
         pass
 
@@ -538,8 +546,12 @@ class ASTEmitter(ast.NodeVisitor):
         raise UnsupportedConstruct(f"unsupported call to {callee!r}")
 
     def visit_Attribute(self, node: ast.Attribute) -> Any:
-        # Resolve dotted names (e.g., aster.reflect).
         value = self.visit(node.value)
+        # Check for a registered attribute emitter before falling back to
+        # getattr so that e.g. self.x inside an emitc class can be rewritten.
+        attr_emitter = self._ectx.table.get_attribute_emitter(type(value))
+        if attr_emitter is not None:
+            return attr_emitter(self._ectx, value, node.attr)
         return getattr(value, node.attr)
 
     def visit_Tuple(self, node: ast.Tuple) -> tuple:

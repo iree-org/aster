@@ -58,6 +58,7 @@ declare_mlir_python_sources(ASTERPythonSources.core
     emitter/template.py
     emitter/rewrite.py
     emitter/scf_emitter.py
+    emitter/emitc_emitter.py
 )
 
 declare_mlir_python_extension(ASTERPythonExtensions._amdgcn
