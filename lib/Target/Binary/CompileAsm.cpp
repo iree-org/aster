@@ -98,8 +98,7 @@ LogicalResult mlir::aster::amdgcn::target::compileAsm(
   assert(sti && "failed to create MCSubtargetInfo");
 
   // Create MC context
-  llvm::MCContext ctx(targetTriple, mai.get(), mri.get(), sti.get(), &srcMgr,
-                      &mcOptions);
+  llvm::MCContext ctx(targetTriple, *mai, mri.get(), sti.get(), &srcMgr);
 
   // Create object file info
   std::unique_ptr<llvm::MCObjectFileInfo> mofi(
@@ -141,7 +140,7 @@ LogicalResult mlir::aster::amdgcn::target::compileAsm(
 
   // Create target-specific assembly parser
   std::unique_ptr<llvm::MCTargetAsmParser> tap(
-      target->createMCAsmParser(*sti, *parser, *mcii, mcOptions));
+      target->createMCAsmParser(*sti, *parser, *mcii));
   assert(tap && "assembler initialization error");
 
   // Set the target parser and run the assembly parser
