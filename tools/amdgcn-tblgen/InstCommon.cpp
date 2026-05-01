@@ -21,6 +21,15 @@ using namespace mlir;
 using namespace mlir::aster::amdgcn;
 using namespace mlir::aster::amdgcn::tblgen;
 
+llvm::SmallVector<const llvm::Record *>
+mlir::aster::amdgcn::tblgen::getSortedDerivedDefinitions(
+    const llvm::RecordKeeper &records, llvm::StringRef classType) {
+  llvm::SmallVector<const llvm::Record *> recs =
+      llvm::to_vector(records.getAllDerivedDefinitions(classType));
+  llvm::sort(recs, llvm::LessRecordByID());
+  return recs;
+}
+
 std::string mlir::aster::amdgcn::tblgen::getQualName(StringRef cppNamespace,
                                                      StringRef className) {
   if (cppNamespace.empty())
@@ -118,6 +127,49 @@ std::string mlir::aster::amdgcn::tblgen::getInstPropList(const AMDInst &inst) {
                   flag.getAsEnumCase().getIdentifier();
   });
   return str.str;
+}
+
+int InstOp::getNumOutputs() const {
+  return static_cast<int>(def->getValueAsDag("outputs")->getNumArgs());
+}
+
+int InstOp::getNumInputs() const {
+  return static_cast<int>(def->getValueAsDag("inputs")->getNumArgs());
+}
+
+int InstOp::getNumTrailingArgOperands() const {
+  Dag dag = getTrailingArgs();
+  int count = 0;
+  int odsStart = getNumOutputs() + getNumInputs();
+  for (int i = 0, e = static_cast<int>(dag.getNumArgs()); i < e; ++i) {
+    mlir::tblgen::Argument arg = op.getArg(odsStart + i);
+    if (llvm::isa<mlir::tblgen::NamedTypeConstraint *>(arg))
+      ++count;
+  }
+  return count;
+}
+
+InstSegmentInfo mlir::aster::amdgcn::tblgen::collectSegmentInfo(
+    const mlir::tblgen::Operator &op, const Dag &dag, int odsStart) {
+  InstSegmentInfo info;
+  int odsOperandIdx = 0;
+  // Compute the starting operand index by counting operands before odsStart.
+  for (int i = 0; i < odsStart; ++i) {
+    mlir::tblgen::Argument arg = op.getArg(i);
+    if (llvm::isa<mlir::tblgen::NamedTypeConstraint *>(arg))
+      ++odsOperandIdx;
+  }
+  for (int i = 0, e = static_cast<int>(dag.getNumArgs()); i < e; ++i) {
+    mlir::tblgen::Argument arg = op.getArg(odsStart + i);
+    auto *operand = llvm::dyn_cast<mlir::tblgen::NamedTypeConstraint *>(arg);
+    if (!operand)
+      continue;
+    info.names.push_back(operand->name);
+    info.kinds.push_back(getODSOperandKind(*operand));
+    info.odsIndices.push_back(odsOperandIdx);
+    ++odsOperandIdx;
+  }
+  return info;
 }
 
 /// Populate the format context with common substitutions.

@@ -203,6 +203,45 @@ struct ISAVersion : public RecordMixin<ISAVersion> {
   EnumCaseInfo getAsEnumCase() const { return EnumCaseInfo(def); }
 };
 
+/// A concrete encoding of an instruction for a specific architecture.
+struct EncodedArchRecord : public RecordMixin<EncodedArchRecord> {
+  using Base::Base;
+  static constexpr llvm::StringRef ClassType = "EncodedArch";
+  /// Get the architecture enum case.
+  EnumCaseInfo getArch() const { return getDefAs<EnumCaseInfo>("arch"); }
+  /// Get the encoding enum case.
+  EnumCaseInfo getEncoding() const {
+    return getDefAs<EnumCaseInfo>("encoding");
+  }
+};
+
+/// A concrete instruction encoding with opcode.
+struct InstEncRecord : public RecordMixin<InstEncRecord> {
+  using Base::Base;
+  static constexpr llvm::StringRef ClassType = "InstEnc";
+  /// Get the encoded archs (encoding + architecture pairs) this encoding
+  /// applies to.
+  SmallVector<EncodedArchRecord> getEncodedArchs() const {
+    return getRecordList<EncodedArchRecord>("archs");
+  }
+  /// Get the opcode for this encoding.
+  int64_t getOpcode() const { return def->getValueAsInt("opcode"); }
+  /// Get the per-encoding type-constraint dag (head is the `pred` marker).
+  const llvm::DagInit *getConstraintsDag() const {
+    return def->getValueAsDag("constraints");
+  }
+};
+
+/// Get the encodings from an AMDISAInstruction record.
+inline SmallVector<InstEncRecord>
+getEncodingsFromRecord(const llvm::Record &rec) {
+  return llvm::map_to_vector(rec.getValueAsListInit("encodings")->getElements(),
+                             [](const llvm::Init *init) {
+                               return InstEncRecord(
+                                   cast<llvm::DefInit>(init)->getDef());
+                             });
+}
+
 /// AMDGCN instruction property definition.
 struct InstProp : public RecordMixin<InstProp> {
   using Base::Base;
@@ -246,6 +285,105 @@ struct AsmVariant : public RecordMixin<AsmVariant> {
   StringRef getAsmFormat() const { return getStringRef("asmFormat"); }
 };
 
+/// AMDGCN instruction assembly syntax string.
+struct ASMStringRecord : public RecordMixin<ASMStringRecord> {
+  using Base::Base;
+  static constexpr llvm::StringRef ClassType = "ASMString";
+
+  /// Get the list of encoded archs this syntax applies to.
+  SmallVector<EncodedArchRecord> getArchs() const {
+    return getRecordList<EncodedArchRecord>("archs");
+  }
+
+  /// Get the assembly syntax format string.
+  StringRef getSyntax() const { return getStringRef("syntax"); }
+
+  /// Get the predicate guarding this syntax.
+  mlir::tblgen::Pred getPred() const {
+    return mlir::tblgen::Pred(def->getValueInit("pred"));
+  }
+};
+
+/// Wrapper for the td `Effect` class.
+struct EffectRecord : public RecordMixin<EffectRecord> {
+  using Base::Base;
+  static constexpr llvm::StringRef ClassType = "Effect";
+
+  /// Get the summary string.
+  StringRef getSummary() const { return getStringRef("summary"); }
+
+  /// Get the code body for this effect.
+  StringRef getBody() const { return getStringRef("body"); }
+};
+
+/// Wrapper for the td `Instruction` class, providing typed accessors for
+/// encoding, effects, and assembly syntax fields.
+struct InstOp : public RecordMixin<InstOp> {
+  InstOp(const llvm::Record *def) : Base(def), op(*def) {}
+  static constexpr llvm::StringRef ClassType = "Instruction";
+
+  /// Get the associated MLIR operator.
+  const Operator &getOperator() const { return op; }
+
+  /// Get the qualified C++ class name.
+  std::string getQualCppClassName() const { return op.getQualCppClassName(); }
+
+  /// Get the unqualified C++ class name.
+  StringRef getCppClassName() const { return op.getCppClassName(); }
+
+  /// Get the operation name (mnemonic).
+  StringRef getOpName() const { return getStringRef("opName"); }
+
+  /// Get the number of output operands.
+  int getNumOutputs() const;
+
+  /// Get the number of input operands.
+  int getNumInputs() const;
+
+  /// Get the list of encodings.
+  SmallVector<InstEncRecord> getEncodings() const {
+    return getEncodingsFromRecord(*def);
+  }
+
+  /// Get the list of effects.
+  SmallVector<EffectRecord> getEffects() const {
+    return getRecordList<EffectRecord>("effects");
+  }
+
+  /// Get the list of ASMString records (encoding-aware asm syntax).
+  SmallVector<ASMStringRecord> getAsmSyntax() const {
+    return getRecordList<ASMStringRecord>("asm_syntax");
+  }
+
+  /// Get the outputs dag.
+  Dag getOutputs() const { return getDag("outputs"); }
+
+  /// Get the inputs dag.
+  Dag getInputs() const { return getDag("inputs"); }
+
+  /// Get the trailing arguments dag.
+  Dag getTrailingArgs() const { return getDag("trailingArgs"); }
+
+  /// Get the trailing results dag.
+  Dag getTrailingResults() const { return getDag("trailingResults"); }
+
+  /// Get whether this instruction wants a generated assembly format.
+  bool getGenInstAssemblyFormat() const {
+    return getBit("genInstAssemblyFormat");
+  }
+
+  /// Get the number of trailing argument SSA operands (excludes attrs).
+  int getNumTrailingArgOperands() const;
+
+  /// Get the list of instruction properties.
+  SmallVector<InstProp> getInstProps() const {
+    return getRecordList<InstProp>("props");
+  }
+
+private:
+  Operator op;
+};
+
 /// AMDGCN instruction definition.
 struct AMDInst : public RecordMixin<AMDInst> {
   AMDInst(llvm::Record const *def)
@@ -275,6 +413,11 @@ struct AMDInst : public RecordMixin<AMDInst> {
   /// Get the list of ISA versions this instruction is available on.
   SmallVector<ISAVersion> getISAVersions() const {
     return getRecordList<ISAVersion>("isa");
+  }
+
+  /// Get the list of encodings for this instruction.
+  SmallVector<InstEncRecord> getEncodings() const {
+    return getEncodingsFromRecord(instOp.getDef());
   }
 
   /// Get the list of instruction properties.
@@ -324,6 +467,56 @@ private:
 };
 
 //===----------------------------------------------------------------------===//
+// Assembly format helpers
+//===----------------------------------------------------------------------===//
+
+/// Describes the kind of an SSA operand in an instruction segment.
+/// Must match the runtime ODSOperandKind in ParsePrintUtils.h.
+enum class ODSOperandKind : int8_t {
+  Plain = 0,
+  Optional,
+  Variadic,
+};
+
+/// Returns the C++ enumerator string for an ODSOperandKind value.
+inline StringRef getODSOperandKindEnumerator(ODSOperandKind kind) {
+  switch (kind) {
+  case ODSOperandKind::Plain:
+    return "::mlir::aster::ODSOperandKind::Plain";
+  case ODSOperandKind::Optional:
+    return "::mlir::aster::ODSOperandKind::Optional";
+  case ODSOperandKind::Variadic:
+    return "::mlir::aster::ODSOperandKind::Variadic";
+  }
+  llvm_unreachable("unhandled ODSOperandKind");
+}
+
+/// Returns the ODSOperandKind for a given named type constraint.
+inline ODSOperandKind
+getODSOperandKind(const mlir::tblgen::NamedTypeConstraint &operand) {
+  if (operand.isVariadic())
+    return ODSOperandKind::Variadic;
+  if (operand.isOptional())
+    return ODSOperandKind::Optional;
+  return ODSOperandKind::Plain;
+}
+
+/// Information about one operand segment (outs, ins, or args) of an
+/// instruction, collecting the SSA operand names, kinds, and ODS indices.
+struct InstSegmentInfo {
+  llvm::SmallVector<StringRef> names;
+  llvm::SmallVector<ODSOperandKind> kinds;
+  /// ODS operand indices for each SSA operand in this segment.
+  llvm::SmallVector<int> odsIndices;
+};
+
+/// Collects InstSegmentInfo for a dag segment starting at ODS operand index
+/// \p odsStart. Only SSA operands are included (attributes are skipped).
+/// The \p Operator is used to look up the operand metadata.
+InstSegmentInfo collectSegmentInfo(const mlir::tblgen::Operator &op,
+                                   const Dag &dag, int odsStart);
+
+//===----------------------------------------------------------------------===//
 // Utility functions and classes
 //===----------------------------------------------------------------------===//
 
@@ -344,6 +537,11 @@ struct StrStream {
   std::string str;
   llvm::raw_string_ostream os;
 };
+
+/// Returns records derived from classType, sorted by ID for determinism.
+llvm::SmallVector<const llvm::Record *>
+getSortedDerivedDefinitions(const llvm::RecordKeeper &records,
+                            llvm::StringRef classType);
 
 /// Get the qualified C++ name.
 std::string getQualName(StringRef cppNamespace, StringRef className);
