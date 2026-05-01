@@ -151,4 +151,38 @@ def Pattern_GetFieldOp : Pattern_Op<"get_field", [
   let assemblyFormat = "$field_name attr-dict `:` type($result)";
 }
 
+//===----------------------------------------------------------------------===//
+// MethodCallOp
+//===----------------------------------------------------------------------===//
+
+def Pattern_MethodCallOp : Pattern_Op<"method_call", [
+    DeclareOpInterfaceMethods<ExprOpInterface>
+  ]> {
+  let summary = "Call a method on an object";
+  let description = [{
+    Emits a C++ method call expression. The first operand is the receiver
+    object and the remaining operands are arguments. The access operator
+    (`.` vs `->`) is inferred from the receiver type: `emitc.ptr` uses
+    `->`, everything else uses `.`.
+
+    Example:
+
+    ```mlir
+    %r = pattern.method_call @rewrite %obj(%a, %b)
+        : (!emitc.opaque<"Rewriter">, i32, i32) -> i32
+    pattern.method_call @erase %obj() : (!emitc.opaque<"Rewriter">) -> ()
+    ```
+  }];
+  let arguments = (ins
+    FlatSymbolRefAttr:$callee,
+    AnyType:$object,
+    Variadic<AnyType>:$args
+  );
+  let results = (outs Variadic<AnyType>:$results);
+  let assemblyFormat = [{
+    $callee $object `(` $args `)` attr-dict
+    `:` functional-type(operands, results)
+  }];
+}
+
 #endif // ASTER_DIALECT_PATTERN_IR_PATTERNOPS_TD

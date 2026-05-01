@@ -56,6 +56,10 @@ ClassEmitter = Callable[
 ]
 AttributeEmitter = Callable[["EmitterContext", Any, str], Any]
 NameEmitter = Callable[["EmitterContext", Any], Any]
+MethodCallEmitter = Callable[
+    ["EmitterContext", Any, str, list[Any]], Optional["ASTValue"]
+]
+UnresolvedNameHandler = Callable[["EmitterContext", str], Any]
 
 
 class ASTEmitterProtocol(Protocol):
@@ -88,6 +92,8 @@ class EmitterTable:
         self._class_emitter: Optional[ClassEmitter] = None
         self._attribute_emitters: dict[type, AttributeEmitter] = {}
         self._name_emitters: dict[type, NameEmitter] = {}
+        self._method_call_emitters: dict[type, MethodCallEmitter] = {}
+        self._unresolved_name_handler: Optional[UnresolvedNameHandler] = None
 
     # -- registration ---------------------------------------------------------
 
@@ -126,6 +132,14 @@ class EmitterTable:
     def register_name_emitter(self, obj_type: type, handler: NameEmitter) -> None:
         self._name_emitters[obj_type] = handler
 
+    def register_method_call_emitter(
+        self, obj_type: type, handler: MethodCallEmitter
+    ) -> None:
+        self._method_call_emitters[obj_type] = handler
+
+    def register_unresolved_name_handler(self, handler: UnresolvedNameHandler) -> None:
+        self._unresolved_name_handler = handler
+
     # -- lookup (walks parent chain) ------------------------------------------
 
     def get_binop_emitter(self, op: type[ast.operator]) -> BinOpEmitter:
@@ -152,6 +166,10 @@ class EmitterTable:
     def get_call_emitter(self, callee: Any) -> Optional[CallEmitter]:
         if callee in self._calls:
             return self._calls[callee]
+        # Fall back to type-based lookup for sentinel objects like _CallableRef.
+        callee_type = type(callee)
+        if callee_type in self._calls:
+            return self._calls[callee_type]
         if self._parent is not None:
             return self._parent.get_call_emitter(callee)
         return None
@@ -203,4 +221,18 @@ class EmitterTable:
             return self._name_emitters[obj_type]
         if self._parent is not None:
             return self._parent.get_name_emitter(obj_type)
+        return None
+
+    def get_method_call_emitter(self, obj_type: type) -> Optional[MethodCallEmitter]:
+        if obj_type in self._method_call_emitters:
+            return self._method_call_emitters[obj_type]
+        if self._parent is not None:
+            return self._parent.get_method_call_emitter(obj_type)
+        return None
+
+    def get_unresolved_name_handler(self) -> Optional[UnresolvedNameHandler]:
+        if self._unresolved_name_handler is not None:
+            return self._unresolved_name_handler
+        if self._parent is not None:
+            return self._parent.get_unresolved_name_handler()
         return None

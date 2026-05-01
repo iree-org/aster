@@ -1269,3 +1269,92 @@ def test_pattern_emitc_ops_in_action():
     assert "pattern.action" in text
     # Inside the action body, arithmetic uses emitc ops.
     assert "emitc.add" in text or '"emitc.add"' in text
+
+
+# ===================================================================
+# 17. Function and method calls.
+# ===================================================================
+
+
+def test_pattern_method_call():
+    """Method call on rewriter emits pattern.method_call."""
+
+    @pattern(benefit=1, op="MyOp")
+    def method_pat(op, rewriter):
+        rewriter.eraseOp(op)  # noqa: F821
+        cond = 1 == 1  # noqa: F841
+
+        def rewrite(cond):  # noqa: F841
+            pass
+
+    module = method_pat.emit()
+    text = _mlir_str(module)
+    assert "pattern.method_call @eraseOp" in text
+
+
+def test_pattern_function_call():
+    """Plain function call emits emitc.call_opaque."""
+
+    @pattern(benefit=1, op="MyOp")
+    def call_pat(op, rewriter):
+        doSomething()  # noqa: F821
+        cond = 1 == 1  # noqa: F841
+
+        def rewrite(cond):  # noqa: F841
+            pass
+
+    module = call_pat.emit()
+    text = _mlir_str(module)
+    assert "emitc.call_opaque" in text
+    assert "doSomething" in text
+
+
+def test_pattern_method_call_with_field_arg():
+    """Method call using a pattern field as argument."""
+
+    @pattern(benefit=1, op="MyOp", fields=["counter: i32"])
+    def field_arg_pat(op, rewriter):
+        v = counter  # noqa: F821
+        rewriter.setValue(v)  # noqa: F821
+        cond = v == 0  # noqa: F841
+
+        def rewrite(cond):  # noqa: F841
+            pass
+
+    module = field_arg_pat.emit()
+    text = _mlir_str(module)
+    assert "pattern.get_field @counter" in text
+    assert "pattern.method_call @setValue" in text
+
+
+def test_pattern_method_call_in_action():
+    """Method call inside action body emits pattern.method_call."""
+
+    @pattern(benefit=1, op="MyOp")
+    def action_call_pat(op, rewriter):
+        cond = 1 == 1  # noqa: F841
+
+        def rewrite(cond):  # noqa: F841
+            rewriter.eraseOp(op)  # noqa: F821
+
+    module = action_call_pat.emit()
+    text = _mlir_str(module)
+    assert "pattern.action" in text
+    assert "pattern.method_call @eraseOp" in text
+
+
+def test_pattern_function_call_in_action():
+    """Plain function call inside action body emits emitc.call_opaque."""
+
+    @pattern(benefit=1, op="MyOp")
+    def action_fn_pat(op, rewriter):
+        cond = 1 == 1  # noqa: F841
+
+        def rewrite(cond):  # noqa: F841
+            doWork()  # noqa: F821
+
+    module = action_fn_pat.emit()
+    text = _mlir_str(module)
+    assert "pattern.action" in text
+    assert "emitc.call_opaque" in text
+    assert "doWork" in text

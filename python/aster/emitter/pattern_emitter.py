@@ -17,10 +17,15 @@ import textwrap
 from typing import TYPE_CHECKING, Any, Optional
 
 from aster import ir
+from aster.dialects import emitc
 from aster.dialects import pattern as pattern_dialect
 
 from .context import EmissionContext, register_context
-from .emitc_emitter import EmitCSemantic, _populate_emitc_table
+from .emitc_emitter import (
+    EmitCSemantic,
+    _MethodReceiver,
+    _populate_emitc_table,
+)
 from .types import ASTType, ASTValue
 
 if TYPE_CHECKING:
@@ -116,8 +121,21 @@ def _emit_pattern_function(
         for fname, ftype in fields:
             ectx.scope_stack.bind_local(fname, _PatternField(fname, ftype))
 
-        # Visit the function body, skipping the parameters (op, rewriter are
-        # structural and not bound to IR values).
+        # Bind ``op`` and ``rewriter`` as _MethodReceiver sentinels so that
+        # method calls like ``rewriter.eraseOp(op)`` emit
+        # ``pattern.method_call``.
+        param_types = {"op": op_name, "rewriter": "PatternRewriter"}
+        for arg in node.args.args:
+            param_name = arg.arg
+            cpp_type = param_types.get(param_name, param_name)
+            opaque_ty = ir.Type.parse(f'!emitc.opaque<"{cpp_type}">', context=ectx.ctx)
+            lit_val = emitc.LiteralOp(
+                opaque_ty, param_name, loc=ectx.loc, ip=ectx.ip
+            ).result
+            ectx.scope_stack.bind_local(
+                param_name, _MethodReceiver(param_name, lit_val)
+            )
+
         emitter.visit_stmts(node.body)
     finally:
         ectx.scope_stack.pop_scope()

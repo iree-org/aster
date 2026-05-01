@@ -65,3 +65,54 @@ pattern.rewrite_pattern @action_body_pat benefit(1) op(@FooOp) body {
     pattern.yield
   }
 }
+
+// CHECK:      struct method_dot_pat : OpRewrite<BarOp> {
+// CHECK-NEXT:   LogicalResult matchRewrite(BarOp op, PatternRewriter &rewriter) {
+// CHECK-NEXT:     rewriter.eraseOp(op);
+// CHECK-NEXT:     if (!true)
+// CHECK-NEXT:       return failure();
+// CHECK:        }
+// CHECK-NEXT: };
+pattern.rewrite_pattern @method_dot_pat benefit(1) op(@BarOp) body {
+  %rw = emitc.literal "rewriter" : !emitc.opaque<"PatternRewriter">
+  %op = emitc.literal "op" : !emitc.opaque<"BarOp">
+  pattern.method_call @eraseOp %rw(%op) : (!emitc.opaque<"PatternRewriter">, !emitc.opaque<"BarOp">) -> ()
+  %cond = emitc.literal "true" : i1
+  pattern.action %cond {
+    pattern.yield
+  }
+}
+
+// CHECK:      struct method_arrow_pat : OpRewrite<BazOp> {
+// CHECK-NEXT:   LogicalResult matchRewrite(BazOp op, PatternRewriter &rewriter) {
+// CHECK-NEXT:     MLIRContext v2 = ptr->getContext();
+// CHECK-NEXT:     if (!true)
+// CHECK-NEXT:       return failure();
+// CHECK:        }
+// CHECK-NEXT: };
+pattern.rewrite_pattern @method_arrow_pat benefit(1) op(@BazOp) body {
+  %ptr = emitc.literal "ptr" : !emitc.ptr<!emitc.opaque<"Builder">>
+  %r = pattern.method_call @getContext %ptr() : (!emitc.ptr<!emitc.opaque<"Builder">>) -> !emitc.opaque<"MLIRContext">
+  %cond = emitc.literal "true" : i1
+  pattern.action %cond {
+    pattern.yield
+  }
+}
+
+// CHECK:      struct method_args_pat : OpRewrite<QuxOp> {
+// CHECK-NEXT:   LogicalResult matchRewrite(QuxOp op, PatternRewriter &rewriter) {
+// CHECK-NEXT:     int32_t v3 = obj.compute(a, b);
+// CHECK-NEXT:     if (!true)
+// CHECK-NEXT:       return failure();
+// CHECK:        }
+// CHECK-NEXT: };
+pattern.rewrite_pattern @method_args_pat benefit(1) op(@QuxOp) body {
+  %obj = emitc.literal "obj" : !emitc.opaque<"MyClass">
+  %a = emitc.literal "a" : i32
+  %b = emitc.literal "b" : i32
+  %r = pattern.method_call @compute %obj(%a, %b) : (!emitc.opaque<"MyClass">, i32, i32) -> i32
+  %cond = emitc.literal "true" : i1
+  pattern.action %cond {
+    pattern.yield
+  }
+}

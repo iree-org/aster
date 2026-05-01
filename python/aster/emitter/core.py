@@ -509,6 +509,11 @@ class ASTEmitter(ast.NodeVisitor):
         try:
             value = self._ectx.scope_stack.resolve(node.id)
         except KeyError:
+            # If an unresolved-name handler is registered (e.g. for emitc/
+            # pattern contexts), let it produce a sentinel instead of raising.
+            handler = self._ectx.table.get_unresolved_name_handler()
+            if handler is not None:
+                return handler(self._ectx, node.id)
             raise NameError(f"name '{node.id}' is not defined") from None
         # Check for a registered name emitter so that sentinels (e.g.
         # _PatternField) are materialised to IR on bare name access.
@@ -518,6 +523,18 @@ class ASTEmitter(ast.NodeVisitor):
         return value
 
     def visit_Call(self, node: ast.Call) -> Any:
+        # Try to intercept method calls (obj.method(args)) before resolving
+        # the callee, because the receiver may be a sentinel that does not
+        # support getattr.
+        if isinstance(node.func, ast.Attribute):
+            receiver = self.visit(node.func.value)
+            method_emitter = self._ectx.table.get_method_call_emitter(type(receiver))
+            if method_emitter is not None:
+                resolved_args = [self.visit(a) for a in node.args]
+                return method_emitter(
+                    self._ectx, receiver, node.func.attr, resolved_args
+                )
+
         callee = self.visit(node.func)
 
         # Handle aster.reflect(fn, *args).

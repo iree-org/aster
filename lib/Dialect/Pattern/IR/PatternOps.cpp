@@ -10,6 +10,7 @@
 
 #include "aster/Dialect/Pattern/IR/PatternOps.h"
 
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Support/IndentedOstream.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
@@ -146,5 +147,38 @@ LogicalResult ActionOp::emitStmt(::mlir::emitc::EmitCContext &ctx) {
 LogicalResult GetFieldOp::emitExpr(::mlir::emitc::EmitCContext &ctx) {
   raw_indented_ostream &os = ctx.ostream();
   os << getFieldName();
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MethodCallOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult MethodCallOp::emitExpr(::mlir::emitc::EmitCContext &ctx) {
+  raw_indented_ostream &os = ctx.ostream();
+
+  if (failed(ctx.emitOperand(getObject())))
+    return failure();
+
+  // Use -> for pointer types, . otherwise.
+  Type objectType = getObject().getType();
+  if (isa<emitc::PointerType>(objectType))
+    os << "->";
+  else
+    os << ".";
+
+  os << getCallee() << "(";
+
+  // Emit arguments.
+  bool first = true;
+  for (Value arg : getArgs()) {
+    if (!first)
+      os << ", ";
+    if (failed(ctx.emitOperand(arg)))
+      return failure();
+    first = false;
+  }
+
+  os << ")";
   return success();
 }

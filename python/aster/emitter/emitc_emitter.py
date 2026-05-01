@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import ast
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from aster import ir
 from aster.dialects import emitc
@@ -525,6 +525,92 @@ def _coerce_to_i1(ectx: EmitterContext, value: ASTValue) -> ASTValue:
 
 
 # ---------------------------------------------------------------------------
+# Function and method call sentinels and handlers.
+# ---------------------------------------------------------------------------
+
+
+class _CallableRef:
+    """Sentinel representing an opaque C++ function name.
+
+    Bound into the scope so that ``foo(x)`` can be emitted as
+    ``emitc.call_opaque "foo"(x)``.  Not materialised to IR directly;
+    instead ``visit_Call`` detects this sentinel via ``get_call_emitter``.
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+
+
+class _MethodReceiver:
+    """Sentinel representing an opaque C++ object that can receive method calls.
+
+    Bound into the scope so that ``obj.method(x)`` can be emitted as
+    ``pattern.method_call @method %obj(x)``.  The ``ir_value`` is the
+    SSA value representing the object (e.g. an ``emitc.literal``).
+    """
+
+    def __init__(self, name: str, ir_value: ir.Value):
+        self.name = name
+        self.ir_value = ir_value
+
+
+def _resolve_unresolved_name(ectx: EmitterContext, name: str) -> _CallableRef:
+    """Produce a ``_CallableRef`` for unresolved names in emitc contexts.
+
+    This allows plain function calls like ``doSomething()`` to lower to
+    ``emitc.call_opaque "doSomething"()`` without pre-declaring the name.
+    """
+    return _CallableRef(name)
+
+
+def _emit_function_call(
+    ectx: EmitterContext, callee: Any, args: list[ASTValue]
+) -> Optional[ASTValue]:
+    """Emit ``emitc.call_opaque`` for a plain function call."""
+    assert isinstance(callee, _CallableRef)
+    ir_args = [a.ir_value for a in args]
+    emitc.CallOpaqueOp(
+        result=[],
+        callee=callee.name,
+        operands_=ir_args,
+        loc=ectx.loc,
+        ip=ectx.ip,
+    )
+    return None
+
+
+def _coerce_to_ir_value(arg: Any) -> ir.Value:
+    """Extract an IR value from an argument that may be an ASTValue or sentinel."""
+    if isinstance(arg, ASTValue):
+        return arg.ir_value
+    if isinstance(arg, _MethodReceiver):
+        return arg.ir_value
+    raise TypeError(f"expected IR value or sentinel, got {type(arg).__name__}")
+
+
+def _emit_method_call(
+    ectx: EmitterContext,
+    receiver: Any,
+    method_name: str,
+    args: list[Any],
+) -> Optional[ASTValue]:
+    """Emit ``pattern.method_call`` for ``obj.method(args)``."""
+    from aster.dialects import pattern as pattern_dialect
+
+    assert isinstance(receiver, _MethodReceiver)
+    ir_args = [_coerce_to_ir_value(a) for a in args]
+    pattern_dialect.MethodCallOp(
+        results_=[],
+        callee=method_name,
+        object=receiver.ir_value,
+        args=ir_args,
+        loc=ectx.loc,
+        ip=ectx.ip,
+    )
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Table population and context registration.
 # ---------------------------------------------------------------------------
 
@@ -556,6 +642,9 @@ def _populate_emitc_table(table: EmitterTable) -> None:
     table.register_for_emitter(_emit_for)
     table.register_class_emitter(_emit_class)
     table.register_attribute_emitter(_ClassSelf, _emit_self_attr)
+    table.register_call(_CallableRef, _emit_function_call)
+    table.register_method_call_emitter(_MethodReceiver, _emit_method_call)
+    table.register_unresolved_name_handler(_resolve_unresolved_name)
 
 
 class EmitCContext(EmissionContext):
