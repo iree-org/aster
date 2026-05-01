@@ -201,6 +201,7 @@ set(_SOURCE_COMPONENTS
   MLIRPythonSources.Dialects.affine
   MLIRPythonSources.Dialects.arith
   MLIRPythonSources.Dialects.builtin
+  MLIRPythonSources.Dialects.emitc
   MLIRPythonSources.Dialects.func
   MLIRPythonSources.Dialects.gpu
   # DO NOT register all indiscriminately.

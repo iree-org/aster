@@ -32,6 +32,7 @@ add_mlir_library(ASTERInit
   MLIRCastInterfaces
   MLIRControlFlowDialect
   MLIRDLTIDialect
+  MLIREmitCDialect
   MLIRFuncDialect
   MLIRFuncInlinerExtension
   MLIRGPUDialect
