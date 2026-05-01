@@ -3,13 +3,13 @@
 
 func.func @helper_normal(%x: !amdgcn.vgpr<0>) -> !amdgcn.vgpr<1> {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
-  amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %0, %x : (!amdgcn.vgpr<1>, !amdgcn.vgpr<0>) -> ()
+  amdgcn.v_mov_b32 outs(%0) ins(%x) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<0>)
   return %0 : !amdgcn.vgpr<1>
 }
 
 func.func @helper_scheduled(%x: !amdgcn.vgpr<0>) -> !amdgcn.vgpr<1> {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
-  amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %0, %x : (!amdgcn.vgpr<1>, !amdgcn.vgpr<0>) -> ()
+  amdgcn.v_mov_b32 outs(%0) ins(%x) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<0>)
   return %0 : !amdgcn.vgpr<1>
 }
 

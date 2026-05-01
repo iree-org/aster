@@ -76,8 +76,7 @@ amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
     // Compute per-thread offset for A/B (f16, dwordx2 = 8 bytes, shift left 3)
     %offset_a = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %c3 = arith.constant 3 : i32
-    %thread_offset_f16 = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_a ins %c3, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %thread_offset_f16 = amdgcn.v_lshlrev_b32 outs(%offset_a) ins(%c3, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0_i32 = arith.constant 0 : i32
     %c512_i32 = arith.constant 512 : i32
 
@@ -129,8 +128,7 @@ amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
 
     // Compute per-thread offset for C (f32, dwordx4 = 16 bytes, shift left 4)
     %c4 = arith.constant 4 : i32
-    %thread_offset_f32 = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_a ins %c4, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %thread_offset_f32 = amdgcn.v_lshlrev_b32 outs(%offset_a) ins(%c4, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
 
     // Global store C directly from AGPRs
     %tok_store_c = amdgcn.store global_store_dwordx4 data %c_mfma_result addr %c_ptr

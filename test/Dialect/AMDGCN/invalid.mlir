@@ -70,8 +70,8 @@ func.func @split_range_into_wrong_count() {
 // -----
 
 func.func @add(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr, %arg2: !amdgcn.vgpr, %arg3: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.vgpr {
-  // expected-error@+1 {{expected `dst1` to not be present}}
-  %add, %0 = amdgcn.vop2 v_add_i32 outs %arg0 dst1 = %arg3 ins %arg1, %arg2 : !amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.vgpr
+  // expected-error@+1 {{expected ')'}}
+  %add, %0 = amdgcn.v_add_i32 outs(%arg0, %arg3) ins(%arg1, %arg2) : outs(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   return %add : !amdgcn.vgpr
 }
 
@@ -90,7 +90,7 @@ amdgcn.library @invalid_library_with_kernel {
 amdgcn.library @invalid_library_with_amdgcn_inst {
   func.func @has_amdgcn_inst() {
     // expected-error @+1 {{target-specific AMDGCN instruction not allowed in target-agnostic context (no ISA specified)}}
-    amdgcn.vop1.v_nop
+    amdgcn.v_nop
     return
   }
 }

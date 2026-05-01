@@ -34,16 +34,13 @@ amdgcn.module @perm_e2e_mod target = #amdgcn.target<gfx942> {
     // dst_lane = (tid_x + 1) & 63
     %c1 = arith.constant 1 : i32
     %inc_a = amdgcn.alloca : !amdgcn.vgpr
-    %inc = amdgcn.vop2 v_add_u32 outs %inc_a ins %c1, %tid_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %inc = amdgcn.v_add_u32 outs(%inc_a) ins(%c1, %tid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %c63 = arith.constant 63 : i32
     %wrap_a = amdgcn.alloca : !amdgcn.vgpr
-    %wrapped = amdgcn.vop2 v_and_b32 outs %wrap_a ins %c63, %inc
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %wrapped = amdgcn.v_and_b32 outs(%wrap_a) ins(%c63, %inc) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %c2 = arith.constant 2 : i32
     %addr_a = amdgcn.alloca : !amdgcn.vgpr
-    %addr = amdgcn.vop2 v_lshlrev_b32_e32 outs %addr_a ins %c2, %wrapped
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %addr = amdgcn.v_lshlrev_b32 outs(%addr_a) ins(%c2, %wrapped) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     // permute: result[(i+1)%64] = tid_x[i] = i
     %perm_a = amdgcn.alloca : !amdgcn.vgpr
@@ -56,8 +53,7 @@ amdgcn.module @perm_e2e_mod target = #amdgcn.target<gfx942> {
 
     // Store result[i] to output[i]
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_a ins %c2, %tid_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c2, %tid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %tok_st = amdgcn.store global_store_dword data %result addr %out_ptr
         offset d(%voffset) + c(%c0)
         : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
@@ -81,16 +77,13 @@ amdgcn.module @perm_e2e_mod target = #amdgcn.target<gfx942> {
     // addr = ((tid_x + 1) & 63) * 4
     %c1 = arith.constant 1 : i32
     %inc_a = amdgcn.alloca : !amdgcn.vgpr
-    %inc = amdgcn.vop2 v_add_u32 outs %inc_a ins %c1, %tid_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %inc = amdgcn.v_add_u32 outs(%inc_a) ins(%c1, %tid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %c63 = arith.constant 63 : i32
     %wrap_a = amdgcn.alloca : !amdgcn.vgpr
-    %wrapped = amdgcn.vop2 v_and_b32 outs %wrap_a ins %c63, %inc
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %wrapped = amdgcn.v_and_b32 outs(%wrap_a) ins(%c63, %inc) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %c2 = arith.constant 2 : i32
     %addr_a = amdgcn.alloca : !amdgcn.vgpr
-    %addr = amdgcn.vop2 v_lshlrev_b32_e32 outs %addr_a ins %c2, %wrapped
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %addr = amdgcn.v_lshlrev_b32 outs(%addr_a) ins(%c2, %wrapped) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     // Step 1 - permute: temp[(i+1)%64] = i
     %perm_a = amdgcn.alloca : !amdgcn.vgpr
@@ -111,8 +104,7 @@ amdgcn.module @perm_e2e_mod target = #amdgcn.target<gfx942> {
 
     // Store result[i] to output[i]; expect output[i] = i
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_a ins %c2, %tid_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c2, %tid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %tok_st = amdgcn.store global_store_dword data %result addr %out_ptr
         offset d(%voffset) + c(%c0)
         : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)

@@ -22,24 +22,20 @@ amdgcn.module @readfirstlane_mod target = #amdgcn.target<gfx942> {
     // Per-lane byte offset: tid_x * 4
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_a ins %c2, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c2, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     // Load constant 42 into a VGPR (all lanes get the same value).
     %v42_a = amdgcn.alloca : !amdgcn.vgpr
     %c42 = arith.constant 42 : i32
-    %v42 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v42_a, %c42
-      : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %v42 = amdgcn.v_mov_b32 outs(%v42_a) ins(%c42) : outs(!amdgcn.vgpr) ins(i32)
 
     // v_readfirstlane_b32: VGPR -> SGPR
     %s_dest = amdgcn.alloca : !amdgcn.sgpr
-    %s_val = amdgcn.vop1.lane #amdgcn.inst<v_readfirstlane_b32> %s_dest, %v42
-      : (!amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.sgpr
+    %s_val = amdgcn.v_readfirstlane_b32 outs(%s_dest) ins(%v42) : outs(!amdgcn.sgpr) ins(!amdgcn.vgpr)
 
     // Broadcast SGPR back to all VGPR lanes.
     %v_dest = amdgcn.alloca : !amdgcn.vgpr
-    %v_val = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_dest, %s_val
-      : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v_val = amdgcn.v_mov_b32 outs(%v_dest) ins(%s_val) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
 
     // Store to global: out[tid_x] = 42
     %c0 = arith.constant 0 : i32
@@ -67,18 +63,15 @@ amdgcn.module @readfirstlane_mod target = #amdgcn.target<gfx942> {
     // Per-lane byte offset
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_a ins %c2, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c2, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     // readfirstlane(tid_x) -> should give lane 0's tid_x = 0
     %s_dest = amdgcn.alloca : !amdgcn.sgpr
-    %s_val = amdgcn.vop1.lane #amdgcn.inst<v_readfirstlane_b32> %s_dest, %tid
-      : (!amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.sgpr
+    %s_val = amdgcn.v_readfirstlane_b32 outs(%s_dest) ins(%tid) : outs(!amdgcn.sgpr) ins(!amdgcn.vgpr)
 
     // Broadcast to all lanes
     %v_dest = amdgcn.alloca : !amdgcn.vgpr
-    %v_val = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_dest, %s_val
-      : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v_val = amdgcn.v_mov_b32 outs(%v_dest) ins(%s_val) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
 
     // Store: out[tid_x] = readfirstlane(tid_x)
     %c0 = arith.constant 0 : i32

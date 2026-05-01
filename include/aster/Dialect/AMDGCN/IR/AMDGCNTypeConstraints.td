@@ -236,7 +236,7 @@ def OneSGPROrSRegType : AnyRegOf<[SGPROf<1>, VCCLoType, VCCHiType, M0Type, EXECL
 def OneSGPROrVCCM0OrIntLitType : AnyOperandOf<[SGPROf<1>, VCCLoType, VCCHiType, M0Type, InlineLitIntPos<[IntType<32>]>]>;
 def OneSGPROrVCCM0Type : AnyRegOf<[SGPROf<1>, VCCLoType, VCCHiType, M0Type]>;
 def OneSGPROrVCCType : AnyRegOf<[SGPROf<1>, VCCLoType, VCCHiType]>;
-def TwoGPROrSRegOrIntLitType : AnyOperandOf<[VGPROf<2>, SGPROf<2>, VCCType, EXECType, VCCZType, EXECZType, SCCType, InlineLitInt<[IntType<64>]>]>;
+def TwoGPROrSRegOrIntLitType : AnyOperandOf<[VGPROf<2>, SGPROf<2>, VCCType, EXECType, VCCZType, EXECZType, SCCType, InlineLitInt<[IntType<32>]>]>;
 def TwoGPROrVCCOrFPConstType : AnyOperandOf<[VGPROf<2>, SGPROf<2>, VCCType, VCCZType, EXECZType, SCCType, F64, InlineLitFP<[F64]>]>;
 def TwoSGPROrSRegOrConstType : AnyOperandOf<[SGPROf<2>, VCCType, EXECType, VCCZType, EXECZType, SCCType, IntType<64>, InlineLitInt<[IntType<64>]>, InlineLitFP<[F64]>, F64]>;
 def TwoSGPROrSRegOrIntConstType : AnyOperandOf<[SGPROf<2>, VCCType, EXECType, VCCZType, EXECZType, SCCType, IntType<64>, InlineLitInt<[IntType<64>]>]>;

@@ -52,12 +52,15 @@ def AMDInstTrait : InstructionTrait {
 
     bool hasInstProps(ArrayRef<InstProp> props, bool all) {
       const InstructionProps *instProps = getInstProps();
-      return instProps ? instProps->hasProps(props) : false;
+      assert(instProps && "Instruction props are not set");
+      return all ? instProps->hasProps(props) : instProps->hasAnyProps(props);
     }
 
     bool isNewInst() {
       return true;
     }
+
+    ArrayRef<ISAVersion> getISAVersions();
   }];
   let extraConcreteClassDefinition = [{
     OperandRange $cppClass::getInstOuts() {
@@ -72,6 +75,12 @@ def AMDInstTrait : InstructionTrait {
     }
     InstOpInterface $cppClass::cloneInst(OpBuilder &builder, ValueRange outs, ValueRange ins) {
       return ::mlir::aster::detail::cloneInstructionImpl<$cppClass>(*this, builder, outs, ins);
+    }
+
+    /// FIXME: This method should be removed.
+    ArrayRef<ISAVersion> $cppClass::getISAVersions() {
+      static ISAVersion isas[] = {ISAVersion::CDNA3, ISAVersion::CDNA4};
+      return isas;
     }
   }];
 }

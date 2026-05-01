@@ -186,15 +186,16 @@ LogicalResult SplitRegisterRangeOpConversion::matchAndRewrite(
 void RegisterDealloc::runOnOperation() {
   DeallocTypeConverter converter(&getContext());
   ConversionTarget target(getContext());
-  target.addLegalDialect<amdgcn::AMDGCNDialect>();
-  // TODO: Fix upstream to not have to include every single op.
-  target.addDynamicallyLegalOp<
-      amdgcn::AllocaOp, amdgcn::MakeRegisterRangeOp,
-      amdgcn::SplitRegisterRangeOp, amdgcn::inst::VOP1Op, amdgcn::inst::VOP2Op,
-      amdgcn::inst::VOP3PMAIOp, amdgcn::inst::VOP3PScaledMAIOp, amdgcn::LoadOp,
-      amdgcn::StoreOp>([&](Operation *op) -> std::optional<bool> {
-    return converter.isLegal(op);
-  });
+  // Mark the dialect as dynamically legal: instruction ops (InstOpInterface,
+  // AMDGCNInstOpInterface) and structural ops need register deallocation
+  // conversion; everything else is legal.
+  target.addDynamicallyLegalDialect<AMDGCNDialect>(
+      [&](Operation *op) -> std::optional<bool> {
+        if (isa<InstOpInterface, AMDGCNInstOpInterface, AllocaOp,
+                MakeRegisterRangeOp, SplitRegisterRangeOp, LoadOp, StoreOp>(op))
+          return converter.isLegal(op);
+        return true;
+      });
   RewritePatternSet conversionPatterns(&getContext());
   conversionPatterns
       .add<AllocaOpConversion, InstOpConversion, MakeRegisterRangeOpConversion,

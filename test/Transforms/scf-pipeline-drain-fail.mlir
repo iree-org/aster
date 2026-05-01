@@ -196,7 +196,7 @@ module {
         %55 = affine.apply #map5()[%54, %18, %20]
         %56 = lsir.to_reg %49 {sched.stage = 0 : i32} : i32 -> !amdgcn.vgpr
         %57 = amdgcn.alloca {sched.stage = 0 : i32} : !amdgcn.sgpr
-        %58 = amdgcn.vop1.lane <v_readfirstlane_b32> %57, %56 {sched.stage = 0 : i32} : (!amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.sgpr
+        %58 = amdgcn.v_readfirstlane_b32 outs(%57) ins(%56) {sched.stage = 0 : i32} : outs(!amdgcn.sgpr) ins(!amdgcn.vgpr)
         amdgcn.sop1 s_mov_b32 outs %11 ins %58 {sched.stage = 0 : i32} : !amdgcn.m0<0>, !amdgcn.sgpr
         %59 = arith.index_cast %55 {sched.stage = 0 : i32} : index to i32
         %60 = lsir.to_reg %59 {sched.stage = 0 : i32} : i32 -> !amdgcn.vgpr
@@ -205,7 +205,7 @@ module {
         %alloca_1 = memref.alloca() : memref<1x!amdgcn.write_token<flat>>
         %62 = lsir.to_reg %52 {sched.stage = 1 : i32} : i32 -> !amdgcn.vgpr
         %63 = amdgcn.alloca {sched.stage = 1 : i32} : !amdgcn.sgpr
-        %64 = amdgcn.vop1.lane <v_readfirstlane_b32> %63, %62 {sched.stage = 1 : i32} : (!amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.sgpr
+        %64 = amdgcn.v_readfirstlane_b32 outs(%63) ins(%62) {sched.stage = 1 : i32} : outs(!amdgcn.sgpr) ins(!amdgcn.vgpr)
         amdgcn.sop1 s_mov_b32 outs %11 ins %64 {sched.stage = 1 : i32} : !amdgcn.m0<0>, !amdgcn.sgpr
         %65 = arith.index_cast %55 {sched.stage = 1 : i32} : index to i32
         %66 = lsir.to_reg %65 {sched.stage = 1 : i32} : i32 -> !amdgcn.vgpr

@@ -142,16 +142,16 @@ func.func private @rand() -> i1
 // CHECK:           %[[VAL_0:.*]] = call @rand() : () -> i1
 // CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_0]], %[[ALLOCA_1]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
 // CHECK:           %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_3]], %[[ALLOCA_2]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_3]]) ins(%[[ALLOCA_2]]) : outs(!amdgcn.vgpr<3>) ins(!amdgcn.vgpr<2>)
 // CHECK:           %[[LOAD_1:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
 // CHECK:           amdgcn.test_inst outs %[[ALLOCA_4]] ins %[[ALLOCA_3]] : (!amdgcn.vgpr<4>, !amdgcn.vgpr<3>) -> ()
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_3]], %[[ALLOCA_2]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_3]]) ins(%[[ALLOCA_2]]) : outs(!amdgcn.vgpr<3>) ins(!amdgcn.vgpr<2>)
 // CHECK:           cf.br ^bb1
 // CHECK:         ^bb1:
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_4]] : (!amdgcn.vgpr<4>) -> ()
 // CHECK:           %[[LOAD_2:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
 // CHECK:           amdgcn.test_inst outs %[[ALLOCA_4]] ins %[[ALLOCA_3]] : (!amdgcn.vgpr<4>, !amdgcn.vgpr<3>) -> ()
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_3]], %[[ALLOCA_2]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_3]]) ins(%[[ALLOCA_2]]) : outs(!amdgcn.vgpr<3>) ins(!amdgcn.vgpr<2>)
 // CHECK:           cf.cond_br %[[VAL_0]], ^bb1, ^bb2
 // CHECK:         ^bb2:
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_4]] : (!amdgcn.vgpr<4>) -> ()
@@ -197,12 +197,12 @@ func.func private @rand() -> i1
 // CHECK:           %[[VAL_0:.*]] = call @rand() : () -> i1
 // CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_0]], %[[ALLOCA_1]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
 // CHECK:           %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_3]], %[[ALLOCA_2]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_3]]) ins(%[[ALLOCA_2]]) : outs(!amdgcn.vgpr<3>) ins(!amdgcn.vgpr<2>)
 // CHECK:           cf.br ^bb1
 // CHECK:         ^bb1:
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_3]], %[[ALLOCA_2]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> ()
 // CHECK:           %[[LOAD_1:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_3]], %[[ALLOCA_2]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_3]]) ins(%[[ALLOCA_2]]) : outs(!amdgcn.vgpr<3>) ins(!amdgcn.vgpr<2>)
 // CHECK:           cf.cond_br %[[VAL_0]], ^bb1, ^bb2
 // CHECK:         ^bb2:
 // CHECK:           return
@@ -239,14 +239,14 @@ func.func private @rand() -> i1
 // CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_0]], %[[ALLOCA_1]] : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
 // CHECK:           %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
 // CHECK:           %[[LOAD_1:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<3>) ins(!amdgcn.vgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_4]], %[[ALLOCA_3]] : (!amdgcn.vgpr<4>, !amdgcn.vgpr<3>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_4]]) ins(%[[ALLOCA_3]]) : outs(!amdgcn.vgpr<4>) ins(!amdgcn.vgpr<3>)
 // CHECK:           cf.br ^bb1
 // CHECK:         ^bb1:
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_2]] : (!amdgcn.vgpr<2>) -> ()
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_4]], %[[ALLOCA_3]] : (!amdgcn.vgpr<4>, !amdgcn.vgpr<3>) -> ()
 // CHECK:           %[[LOAD_2:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
 // CHECK:           %[[LOAD_3:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] : dps(!amdgcn.vgpr<3>) ins(!amdgcn.vgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_4]], %[[ALLOCA_3]] : (!amdgcn.vgpr<4>, !amdgcn.vgpr<3>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_4]]) ins(%[[ALLOCA_3]]) : outs(!amdgcn.vgpr<4>) ins(!amdgcn.vgpr<3>)
 // CHECK:           cf.cond_br %[[VAL_0]], ^bb1, ^bb2
 // CHECK:         ^bb2:
 // CHECK:           return

@@ -76,8 +76,7 @@ module {
 
       // Byte offset = tid * 4
       %c2 = arith.constant 2 : i32
-      vop2 v_lshlrev_b32_e32 outs %v1 ins %c2, %v0
-        : !amdgcn.vgpr<1>, i32, !amdgcn.vgpr<0>
+      amdgcn.v_lshlrev_b32 outs(%v1) ins(%c2, %v0) : outs(!amdgcn.vgpr<1>) ins(i32, !amdgcn.vgpr<0>)
 
       // Load a[tid] and b[tid]
       %a_data = amdgcn.make_register_range %v2 : !amdgcn.vgpr<2>
@@ -97,8 +96,7 @@ module {
       amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
       // c[tid] = a[tid] + b[tid]
-      vop2 v_add_u32 outs %v2 ins %v2, %v3
-        : !amdgcn.vgpr<2>, !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
+      amdgcn.v_add_u32 outs(%v2) ins(%v2, %v3) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<2>, !amdgcn.vgpr<3>)
 
       // Store result
       %c_data = amdgcn.make_register_range %v2 : !amdgcn.vgpr<2>

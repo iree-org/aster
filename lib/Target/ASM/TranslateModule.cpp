@@ -57,6 +57,7 @@ static void printLSOffset(amdgcn::AsmPrinter &printer, AMDGCNInstOpInterface op,
 }
 
 #include "AMDGCNAsmPrinter.cpp.inc"
+#include "AMDGCNInstAsmPrinter.cpp.inc"
 
 /// Emit a scaled MFMA as a single combined instruction line:
 ///   v_mfma_scale_f32_<tile>_f8f6f4 vdst, a, b, c, s0, s1 op_sel_hi:[x,y,0]
@@ -423,6 +424,8 @@ LogicalResult TranslateModuleImpl::emitOperation(amdgcn::AsmPrinter &printer,
         return success();
       })
       .Case<AMDGCNInstOpInterface>([&](AMDGCNInstOpInterface op) {
+        if (op.isNewInst())
+          return printISAInstruction(printer, module.getTargetAttr(), op);
         return printInstruction(printer, op);
       })
       .Case<AllocaOp, MakeRegisterRangeOp, SplitRegisterRangeOp,

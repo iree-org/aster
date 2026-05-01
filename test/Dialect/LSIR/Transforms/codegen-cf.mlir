@@ -71,7 +71,7 @@ amdgcn.module @test_uniform_loop target = <gfx942> {
 // CHECK:           %[[ALLOCA_SHLI:.*]] = lsir.alloca : !amdgcn.sgpr
 // CHECK:           %[[LOOP_SHLI:.*]] = lsir.shli i32 %[[ALLOCA_SHLI]], %[[LOOP_ARG2]], %[[C2]]
 // CHECK:           alloca
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32>
+// CHECK:           v_mov_b32
 // CHECK:           store global_store_dword
 // CHECK:           %[[ALLOCA_ADDI:.*]] = lsir.alloca : !amdgcn.sgpr
 // CHECK:           %[[LOOP_ADDI2:.*]] = lsir.addi i32 %[[ALLOCA_ADDI]], %[[LOOP_ARG2]], %[[C1]]
@@ -98,7 +98,7 @@ amdgcn.module @test_uniform_loop_with_load target = <gfx942> {
     %6 = arith.shli %5, %c2_i32 : i32
     %7 = lsir.to_reg %6 : i32 -> !amdgcn.sgpr
     %8 = amdgcn.alloca : !amdgcn.vgpr
-    %9 = amdgcn.vop1.vop1 <v_mov_b32_e32> %8, %7 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %9 = amdgcn.v_mov_b32 outs(%8) ins(%7) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
     %10 = amdgcn.store global_store_dword data %9 addr %1 offset d(%9) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
     %11 = arith.addi %5, %c1_i32 : i32
     %12 = arith.cmpi slt, %11, %3 : i32

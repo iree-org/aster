@@ -343,11 +343,10 @@ LogicalResult LegalizeCF::lowerSelect(lsir::SelectOp selectOp) {
     if (!isa<VGPRType>(trueVal.getType())) {
       // src1 is not a VGPR. Materialize it into dst (an allocated VGPR)
       // via v_mov_b32, then use dst as src1.
-      V_MOV_B32_E32::create(rewriter, loc, dst, trueVal);
+      VMovB32::create(rewriter, loc, dst, trueVal);
       trueVal = dst;
     }
-    amdgcn::inst::VOP2Op::create(rewriter, loc, OpCode::V_CNDMASK_B32, dst,
-                                 /*dst1=*/nullptr, falseVal, trueVal, flagReg);
+    VCndmaskB32::create(rewriter, loc, dst, falseVal, trueVal, flagReg);
   } else {
     // s_cselect_b32: sdst = SCC ? src0 : src1.
     // src0 = true_value (selected when SCC=1), src1 = false_value.

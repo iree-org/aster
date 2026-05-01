@@ -662,7 +662,7 @@ bool CDNA3ValuVgprReadlaneHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
   assert(hazard.getHazard() == *this && "Hazard mismatch");
 
-  if (instOp.getOpCode() != OpCode::V_READFIRSTLANE_B32)
+  if (!isa<VReadfirstlaneB32>(instOp.getOperation()))
     return false;
 
   OpOperand *vgprOperand = hazard.getOperand();

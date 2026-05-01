@@ -30,8 +30,7 @@ module {
 
       // Byte offset = tid * 4 (4 bytes per i32)
       %c2 = arith.constant 2 : i32
-      vop2 v_lshlrev_b32_e32 outs %v1 ins %c2, %v0
-        : !amdgcn.vgpr<1>, i32, !amdgcn.vgpr<0>
+      amdgcn.v_lshlrev_b32 outs(%v1) ins(%c2, %v0) : outs(!amdgcn.vgpr<1>) ins(i32, !amdgcn.vgpr<0>)
 
       // Store thread ID (v0) to output[tid]
       %data_r = amdgcn.make_register_range %v0 : !amdgcn.vgpr<0>
@@ -43,8 +42,7 @@ module {
 
       // Immediately overwrite v0 -- HAZARD: memory still reading v0
       %c7 = arith.constant 7 : i32
-      amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v0, %c7
-        : (!amdgcn.vgpr<0>, i32) -> ()
+      amdgcn.v_mov_b32 outs(%v0) ins(%c7) : outs(!amdgcn.vgpr<0>) ins(i32)
 
       // Self-check: v0 should be 7 after the overwrite
       %vcc = amdgcn.alloca : !amdgcn.vcc

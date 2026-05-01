@@ -60,8 +60,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     // global_load (A)
     %offset_a = amdgcn.alloca : !amdgcn.vgpr
     %c3 = arith.constant 3 : i32 // shift left by dwordx2 size (8 == 2 << 3).
-    %thread_offset_f16 = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_a ins %c3, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %thread_offset_f16 = amdgcn.v_lshlrev_b32 outs(%offset_a) ins(%c3, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0_i32 = arith.constant 0 : i32
     %c512_i32 = arith.constant 512 : i32
 
@@ -97,8 +96,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
 
     // global_store of c_mfma_result
     %c4 = arith.constant 4 : i32 // shift left by dwordx4 size (16 == 2 << 4).
-    %thread_offset_f32 = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_a ins %c4, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %thread_offset_f32 = amdgcn.v_lshlrev_b32 outs(%offset_a) ins(%c4, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %tok_store_c = amdgcn.store global_store_dwordx4 data %c_mfma_result addr %c_ptr offset d(%thread_offset_f32) + c(%c0_i32) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<flat>
 
     // s_waitcnt(vmcnt(0))

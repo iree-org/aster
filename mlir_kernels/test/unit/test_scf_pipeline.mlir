@@ -28,8 +28,7 @@ amdgcn.module @test_two_stage_no_iv target = <gfx942> {
 
       // Stage 1: store constant to output[0] (no IV use)
       %off_reg = lsir.to_reg %c0_i32 {sched.stage = 1 : i32} : i32 -> !v
-      %data = amdgcn.vop1.vop1 <v_mov_b32_e32> %s_store, %val_reg {sched.stage = 1 : i32}
-        : (!v, !v) -> !v
+      %data = amdgcn.v_mov_b32 outs(%s_store) ins(%val_reg) {sched.stage = 1 : i32} : outs(!v) ins(!v)
       %tok = amdgcn.store global_store_dword data %data addr %out_ptr offset d(%off_reg) {sched.stage = 1 : i32}
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
@@ -66,8 +65,7 @@ amdgcn.module @test_two_stage_iv_s0_only target = <gfx942> {
       %val_reg = lsir.to_reg %val {sched.stage = 0 : i32} : i32 -> !v
 
       // Stage 1: store val to output[val] (val is both the data and offset)
-      %data = amdgcn.vop1.vop1 <v_mov_b32_e32> %s_store, %val_reg {sched.stage = 1 : i32}
-        : (!v, !v) -> !v
+      %data = amdgcn.v_mov_b32 outs(%s_store) ins(%val_reg) {sched.stage = 1 : i32} : outs(!v) ins(!v)
       %tok = amdgcn.store global_store_dword data %data addr %out_ptr offset d(%data) {sched.stage = 1 : i32}
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
@@ -110,8 +108,7 @@ amdgcn.module @test_two_stage_iv_dep target = <gfx942> {
       %i_i32_s1 = arith.index_cast %i {sched.stage = 1 : i32} : index to i32
       %off = arith.muli %i_i32_s1, %c4_i32 {sched.stage = 1 : i32} : i32
       %off_reg = lsir.to_reg %off {sched.stage = 1 : i32} : i32 -> !v
-      %data = amdgcn.vop1.vop1 <v_mov_b32_e32> %s_val, %val_reg {sched.stage = 1 : i32}
-        : (!v, !v) -> !v
+      %data = amdgcn.v_mov_b32 outs(%s_val) ins(%val_reg) {sched.stage = 1 : i32} : outs(!v) ins(!v)
       %tok = amdgcn.store global_store_dword data %data addr %out_ptr offset d(%off_reg) {sched.stage = 1 : i32}
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
@@ -178,8 +175,7 @@ amdgcn.module @test_five_stage target = <gfx942> {
       %i_i32_s4 = arith.index_cast %i {sched.stage = 4 : i32} : index to i32
       %off = arith.muli %i_i32_s4, %c4_i32 {sched.stage = 4 : i32} : i32
       %off_reg = lsir.to_reg %off {sched.stage = 4 : i32} : i32 -> !v
-      %data = amdgcn.vop1.vop1 <v_mov_b32_e32> %s3, %v3 {sched.stage = 4 : i32}
-        : (!v, !v) -> !v
+      %data = amdgcn.v_mov_b32 outs(%s3) ins(%v3) {sched.stage = 4 : i32} : outs(!v) ins(!v)
       %tok = amdgcn.store global_store_dword data %data addr %out_ptr offset d(%off_reg) {sched.stage = 4 : i32}
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }

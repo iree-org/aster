@@ -7,8 +7,8 @@
 // CHECK:    .p2align 8
 // CHECK:    .type test_args,@function
 // CHECK:  test_args:
-// CHECK:    v_mov_b32_e32 v2, 456
-// CHECK:    v_mov_b32_e32 v3, v2
+// CHECK:    v_mov_b32 v2, 456
+// CHECK:    v_mov_b32 v3, v2
 // CHECK:    s_endpgm
 // CHECK:    .section .rodata,"a",@progbits
 // CHECK:    .p2align 6, 0x0
@@ -116,8 +116,8 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %0 = amdgcn.alloca : !amdgcn.vgpr<2>
     %1 = amdgcn.alloca : !amdgcn.vgpr<3>
     %c456 = arith.constant 456 : i32
-    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %0, %c456 : (!amdgcn.vgpr<2>, i32) -> ()
-    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<3>, !amdgcn.vgpr<2>) -> ()
+    amdgcn.v_mov_b32 outs(%0) ins(%c456) : outs(!amdgcn.vgpr<2>) ins(i32)
+    amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<3>) ins(!amdgcn.vgpr<2>)
     %4 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
     amdgcn.end_kernel
   }

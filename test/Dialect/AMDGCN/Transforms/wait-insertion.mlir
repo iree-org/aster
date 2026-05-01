@@ -34,7 +34,7 @@ func.func @simple_load_store() {
 // CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[LOAD_1:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_2]], %[[ALLOCA_1]] : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_2]]) ins(%[[ALLOCA_1]]) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<?>)
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_2]] : (!amdgcn.vgpr<?>) -> ()
 // CHECK:           return
 // CHECK:         }
@@ -45,7 +45,7 @@ func.func @load_then_vop() {
   %3 = amdgcn.alloca : !amdgcn.vgpr<?>
   %4 = amdgcn.make_register_range %2, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
   %token = amdgcn.load global_load_dword dest %0 addr %4 : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<?>)
   amdgcn.test_inst ins %1 : (!amdgcn.vgpr<?>) -> ()
   return
 }
@@ -285,7 +285,7 @@ func.func @one_load_two_consumers() {
 // CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[TOK_0:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           amdgcn.wait deps %[[TOK_0]] : !amdgcn.read_token<flat>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_2]] : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_2]]) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<?>)
 // CHECK-NOT:       amdgcn.wait
 // CHECK:           %{{.*}} = amdgcn.store global_store_dword data %[[ALLOCA_1]] addr %[[MRR]] : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
 // CHECK:           return
@@ -298,7 +298,7 @@ func.func @load_killed_before_consumer() {
   %addr = amdgcn.make_register_range %2, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
   %token = amdgcn.load global_load_dword dest %0 addr %addr
       : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
+  amdgcn.v_mov_b32 outs(%0) ins(%1) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<?>)
   %w = amdgcn.store global_store_dword data %0 addr %addr
       : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.write_token<flat>
   return

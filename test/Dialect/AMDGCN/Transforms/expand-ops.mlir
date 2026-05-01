@@ -104,10 +104,10 @@ amdgcn.module @kernel_with_ptr target = <gfx940> {
 // CHECK-DAG:     %[[BID_X:.*]] = alloca : !amdgcn.sgpr<2>
 // CHECK-DAG:     %[[BID_Y:.*]] = alloca : !amdgcn.sgpr<3>
 // CHECK-DAG:     %[[BID_Z:.*]] = alloca : !amdgcn.sgpr<4>
-// CHECK:         %[[TID_X:.*]] = vop2 v_and_b32 outs %{{.*}} ins %[[MASK]], %[[V0]]
-// CHECK:         %[[SHIFTED_Y:.*]] = vop2 v_lshrrev_b32 outs %{{.*}} ins %[[C10]], %[[V0]]
-// CHECK:         %[[TID_Y:.*]] = vop2 v_and_b32 outs %{{.*}} ins %[[MASK]], %[[SHIFTED_Y]]
-// CHECK:         %[[TID_Z:.*]] = vop2 v_lshrrev_b32 outs %{{.*}} ins %[[C20]], %[[V0]]
+// CHECK:         %[[TID_X:.*]] = v_and_b32 outs(%{{.*}}) ins(%[[MASK]], %[[V0]]) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
+// CHECK:         %[[SHIFTED_Y:.*]] = v_lshrrev_b32 outs(%{{.*}}) ins(%[[C10]], %[[V0]]) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
+// CHECK:         %[[TID_Y:.*]] = v_and_b32 outs(%{{.*}}) ins(%[[MASK]], %[[SHIFTED_Y]]) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
+// CHECK:         %[[TID_Z:.*]] = v_lshrrev_b32 outs(%{{.*}}) ins(%[[C20]], %[[V0]]) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
 // CHECK:         test_inst ins %[[TID_X]], %[[TID_Y]], %[[TID_Z]], %[[BID_X]], %[[BID_Y]], %[[BID_Z]]
 // CHECK:         end_kernel
 // CHECK:       }

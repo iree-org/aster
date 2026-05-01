@@ -28,7 +28,7 @@
 // CHECK:       s_endpgm
 
 // CHECK-LABEL: mfma_agpr_with_accum:
-// CHECK:       v_mov_b32_e32 v{{[0-9]+}}, 1092616192
+// CHECK:       v_mov_b32 v{{[0-9]+}}, 1092616192
 // CHECK:       v_accvgpr_write_b32 a{{[0-9]+}}, v{{[0-9]+}}
 // CHECK:       v_mfma_f32_16x16x16_f16 a[{{[0-9]+}}:{{[0-9]+}}]
 // CHECK:       global_store_dwordx4 {{.*}}, a[{{[0-9]+}}:{{[0-9]+}}]
@@ -92,8 +92,7 @@ amdgcn.module @mfma_agpr_f16_mod target = #amdgcn.target<gfx942> {
     // Store result directly from AGPRs: threadidx_x * 16 bytes (4 f32 per lane)
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %shift_4 = arith.constant 4 : i32
-    %thread_offset = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_s ins %shift_4, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%shift_4, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0_store = arith.constant 0 : i32
     %tok = amdgcn.store global_store_dwordx4 data %result addr %c_ptr
         offset d(%thread_offset) + c(%c0_store)
@@ -127,7 +126,7 @@ amdgcn.module @mfma_agpr_f16_mod target = #amdgcn.target<gfx942> {
     // (v_accvgpr_write_b32 doesn't support literal constants)
     %f32_10 = arith.constant 1092616192 : i32
     %vgpr_tmp = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %v_10 = amdgcn.vop1.vop1 <v_mov_b32_e32> %vgpr_tmp, %f32_10 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %v_10 = amdgcn.v_mov_b32 outs(%vgpr_tmp) ins(%f32_10) : outs(!amdgcn.vgpr) ins(i32)
     %acc = func.call @init_agprx4_from_vgpr(%v_10) : (!amdgcn.vgpr) -> (!amdgcn.agpr<[? + 4]>)
 
     %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
@@ -138,8 +137,7 @@ amdgcn.module @mfma_agpr_f16_mod target = #amdgcn.target<gfx942> {
     // Store result directly from AGPRs
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %shift_4 = arith.constant 4 : i32
-    %thread_offset = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_s ins %shift_4, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%shift_4, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0_store = arith.constant 0 : i32
     %tok = amdgcn.store global_store_dwordx4 data %result addr %c_ptr
         offset d(%thread_offset) + c(%c0_store)

@@ -291,40 +291,34 @@ func.func @test_sopp_barrier() {
 //===----------------------------------------------------------------------===//
 
 func.func @test_vop2_lshrrev_b32_e32_vgpr(%src0: !amdgcn.vgpr, %vsrc1: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %result = amdgcn.vop2 v_lshrrev_b32_e32 outs %dst ins %src0, %vsrc1
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  %result = amdgcn.v_lshrrev_b32 outs(%dst) ins(%src0, %vsrc1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   return %result : !amdgcn.vgpr
 }
 
 func.func @test_vop2_lshrrev_b32_e32_sgpr(%src0: !amdgcn.sgpr, %vsrc1: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %result = amdgcn.vop2 v_lshrrev_b32_e32 outs %dst ins %src0, %vsrc1
-      : !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr
+  %result = amdgcn.v_lshrrev_b32 outs(%dst) ins(%src0, %vsrc1) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr, !amdgcn.vgpr)
   return %result : !amdgcn.vgpr
 }
 
 func.func @test_vop2_lshrrev_b32_e32_imm(%vsrc1: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %c8 = arith.constant 8 : i32
-  %result = amdgcn.vop2 v_lshrrev_b32_e32 outs %dst ins %c8, %vsrc1
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+  %result = amdgcn.v_lshrrev_b32 outs(%dst) ins(%c8, %vsrc1) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
   return %result : !amdgcn.vgpr
 }
 
 func.func @test_vop2_lshlrev_b32_e32_vgpr(%src0: !amdgcn.vgpr, %vsrc1: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %result = amdgcn.vop2 v_lshlrev_b32_e32 outs %dst ins %src0, %vsrc1
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  %result = amdgcn.v_lshlrev_b32 outs(%dst) ins(%src0, %vsrc1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   return %result : !amdgcn.vgpr
 }
 
 func.func @test_vop2_lshlrev_b32_e32_sgpr(%src0: !amdgcn.sgpr, %vsrc1: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %result = amdgcn.vop2 v_lshlrev_b32_e32 outs %dst ins %src0, %vsrc1
-      : !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr
+  %result = amdgcn.v_lshlrev_b32 outs(%dst) ins(%src0, %vsrc1) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr, !amdgcn.vgpr)
   return %result : !amdgcn.vgpr
 }
 
 func.func @test_vop2_lshlrev_b32_e32_imm(%vsrc1: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %c8 = arith.constant 8 : i32
-  %result = amdgcn.vop2 v_lshlrev_b32_e32 outs %dst ins %c8, %vsrc1
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+  %result = amdgcn.v_lshlrev_b32 outs(%dst) ins(%c8, %vsrc1) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
   return %result : !amdgcn.vgpr
 }
 
@@ -333,21 +327,18 @@ func.func @test_vop2_lshlrev_b32_e32_imm(%vsrc1: !amdgcn.vgpr, %dst: !amdgcn.vgp
 //===----------------------------------------------------------------------===//
 
 func.func @test_vop1_mov_b32_e32_vgpr(%src0: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %result = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %dst, %src0
-      : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+  %result = amdgcn.v_mov_b32 outs(%dst) ins(%src0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
   return %result : !amdgcn.vgpr
 }
 
 func.func @test_vop1_mov_b32_e32_sgpr(%src0: !amdgcn.sgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
-  %result = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %dst, %src0
-      : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+  %result = amdgcn.v_mov_b32 outs(%dst) ins(%src0) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
   return %result : !amdgcn.vgpr
 }
 
 func.func @test_vop1_mov_b32_e32_imm(%dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %c42 = arith.constant 42 : i32
-  %result = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %dst, %c42
-      : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+  %result = amdgcn.v_mov_b32 outs(%dst) ins(%c42) : outs(!amdgcn.vgpr) ins(i32)
   return %result : !amdgcn.vgpr
 }
 
@@ -356,7 +347,6 @@ func.func @test_vop1_mov_b32_e32_imm(%dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
 //===----------------------------------------------------------------------===//
 
 func.func @test_vop1_lane_readfirstlane(%src0: !amdgcn.vgpr, %sdst: !amdgcn.sgpr) -> !amdgcn.sgpr {
-  %result = amdgcn.vop1.lane #amdgcn.inst<v_readfirstlane_b32> %sdst, %src0
-      : (!amdgcn.sgpr, !amdgcn.vgpr) -> !amdgcn.sgpr
+  %result = amdgcn.v_readfirstlane_b32 outs(%sdst) ins(%src0) : outs(!amdgcn.sgpr) ins(!amdgcn.vgpr)
   return %result : !amdgcn.sgpr
 }

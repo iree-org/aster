@@ -110,8 +110,7 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> {
     // Compute byte offset: threadidx.x << 2 (each lane copies one dword = 4 bytes)
     %voffset_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voffset_alloc ins %c2, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voffset_alloc) ins(%c2, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
 
     %c0 = arith.constant 0 : i32
 

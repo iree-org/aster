@@ -23,7 +23,7 @@
 
 // --- Test 2: Write VGPR to AGPR, read back, store ---
 // CHECK-LABEL: agpr_write_vgpr:
-// CHECK:       v_mov_b32_e32 v{{[0-9]+}}, 99
+// CHECK:       v_mov_b32 v{{[0-9]+}}, 99
 // CHECK:       v_accvgpr_write_b32 a{{[0-9]+}}, v{{[0-9]+}}
 // CHECK:       v_accvgpr_read_b32 v{{[0-9]+}}, a{{[0-9]+}}
 // CHECK:       global_store_dword
@@ -109,7 +109,7 @@ amdgcn.module @agpr_asm_mod target = #amdgcn.target<gfx942> {
     %agpr = func.call @alloc_agprx1() : () -> !amdgcn.agpr
     %vgpr_dst = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
 
-    %v_src = amdgcn.vop1.vop1 <v_mov_b32_e32> %vgpr_src, %c99 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %v_src = amdgcn.v_mov_b32 outs(%vgpr_src) ins(%c99) : outs(!amdgcn.vgpr) ins(i32)
     %a0 = amdgcn.vop3p v_accvgpr_write_b32 outs %agpr ins %v_src : !amdgcn.agpr, !amdgcn.vgpr
     %v0 = amdgcn.vop3p v_accvgpr_read_b32 outs %vgpr_dst ins %a0 : !amdgcn.vgpr, !amdgcn.agpr
 

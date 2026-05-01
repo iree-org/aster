@@ -55,6 +55,8 @@ from aster.dialects._amdgcn_ops_gen import (
     WaitOp,
     LoadOp,
     StoreOp,
+    VAddU32 as _VAddU32,
+    VReadfirstlaneB32 as _VReadfirstlaneB32,
 )
 from aster._mlir_libs._amdgcn import (
     AGPRRangeType,
@@ -572,7 +574,16 @@ class KernelBuilder:
 
     def v_add_u32(self, src0: ir.Value, src1: ir.Value) -> ir.Value:
         """VOP2 v_add_u32: src0 + src1 -> VGPR."""
-        return self.vop2("v_add_u32", src0, src1)
+        dest = self.alloca_vgpr()
+        op = _VAddU32(
+            dst0=dest,
+            src0=self._as_value(src0),
+            src1=self._as_value(src1),
+            results=[dest.type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.dst0_res
 
     def _emit_vop3(
         self, opcode_str: str, dest: ir.Value, src0, src1, *, src2=None
@@ -664,7 +675,14 @@ class KernelBuilder:
         """
         vgpr_val = self.index_to_vgpr(index_val)
         sgpr = self.alloca_sgpr()
-        return _inst.v_readfirstlane_b32(sgpr, vgpr_val, loc=self._loc, ip=self._kip)
+        op = _VReadfirstlaneB32(
+            dst0=sgpr,
+            src0=vgpr_val,
+            results=[sgpr.type],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.dst0_res
 
     # ---------------------------------------------------------------------------
     # Pointer arithmetic (ptr dialect)

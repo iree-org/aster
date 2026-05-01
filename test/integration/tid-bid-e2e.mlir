@@ -30,8 +30,7 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> {
     %c2 = arith.constant 2 : i32
     %c0 = arith.constant 0 : i32
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_a ins %c2, %tid_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c2, %tid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %tok = amdgcn.store global_store_dword data %tid_x addr %out_ptr
       offset d(%voffset) + c(%c0)
       : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
@@ -56,17 +55,14 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> {
     // linear = (tid_y << 6) | tid_x  (block_x=64=2^6, bits don't overlap)
     %c6 = arith.constant 6 : i32
     %sy_a = amdgcn.alloca : !amdgcn.vgpr
-    %shifted_y = amdgcn.vop2 v_lshlrev_b32_e32 outs %sy_a ins %c6, %tid_y
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %shifted_y = amdgcn.v_lshlrev_b32 outs(%sy_a) ins(%c6, %tid_y) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %lin_a = amdgcn.alloca : !amdgcn.vgpr
-    %linear = amdgcn.vop2 v_or_b32 outs %lin_a ins %shifted_y, %tid_x
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %linear = amdgcn.v_or_b32 outs(%lin_a) ins(%shifted_y, %tid_x) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 
     // byte offset = linear * 8 = linear << 3 (2 dwords per thread)
     %c3 = arith.constant 3 : i32
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_a ins %c3, %linear
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c3, %linear) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     %tok0 = amdgcn.store global_store_dword data %tid_x addr %out_ptr
       offset d(%voffset) + c(%c0)
@@ -100,23 +96,18 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> {
     %c4_shift = arith.constant 4 : i32
     %c7 = arith.constant 7 : i32
     %sy_a = amdgcn.alloca : !amdgcn.vgpr
-    %shifted_y = amdgcn.vop2 v_lshlrev_b32_e32 outs %sy_a ins %c4_shift, %tid_y
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %shifted_y = amdgcn.v_lshlrev_b32 outs(%sy_a) ins(%c4_shift, %tid_y) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %sz_a = amdgcn.alloca : !amdgcn.vgpr
-    %shifted_z = amdgcn.vop2 v_lshlrev_b32_e32 outs %sz_a ins %c7, %tid_z
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %shifted_z = amdgcn.v_lshlrev_b32 outs(%sz_a) ins(%c7, %tid_z) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %t1_a = amdgcn.alloca : !amdgcn.vgpr
-    %t1 = amdgcn.vop2 v_or_b32 outs %t1_a ins %shifted_y, %tid_x
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %t1 = amdgcn.v_or_b32 outs(%t1_a) ins(%shifted_y, %tid_x) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
     %lin_a = amdgcn.alloca : !amdgcn.vgpr
-    %linear = amdgcn.vop2 v_or_b32 outs %lin_a ins %shifted_z, %t1
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %linear = amdgcn.v_or_b32 outs(%lin_a) ins(%shifted_z, %t1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 
     // byte offset = linear * 12 (3 dwords per thread)
     %c12 = arith.constant 12 : i32
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
-    %voffset = amdgcn.vop3 v_mul_lo_u32 outs %voff_a ins %linear, %c12
-      : !amdgcn.vgpr, !amdgcn.vgpr, i32
+    %voffset = amdgcn.v_mul_lo_u32 outs(%voff_a) ins(%linear, %c12) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, i32)
 
     %tok0 = amdgcn.store global_store_dword data %tid_x addr %out_ptr
       offset d(%voffset) + c(%c0)
@@ -149,37 +140,29 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> {
 
     // Broadcast block IDs to VGPRs for arithmetic and store.
     %vbx_a = amdgcn.alloca : !amdgcn.vgpr
-    %v_bid_x = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vbx_a, %bid_x
-      : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v_bid_x = amdgcn.v_mov_b32 outs(%vbx_a) ins(%bid_x) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
     %vby_a = amdgcn.alloca : !amdgcn.vgpr
-    %v_bid_y = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vby_a, %bid_y
-      : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v_bid_y = amdgcn.v_mov_b32 outs(%vby_a) ins(%bid_y) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
     %vbz_a = amdgcn.alloca : !amdgcn.vgpr
-    %v_bid_z = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vbz_a, %bid_z
-      : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v_bid_z = amdgcn.v_mov_b32 outs(%vbz_a) ins(%bid_z) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
 
     // linear_bid = bid_x + 43 * (bid_y + 6 * bid_z)
     // Factored to avoid literal constants > 64 (VOP3 inline limit).
     %c6 = arith.constant 6 : i32
     %c43 = arith.constant 43 : i32
     %t1_a = amdgcn.alloca : !amdgcn.vgpr
-    %t1 = amdgcn.vop3 v_mul_lo_u32 outs %t1_a ins %v_bid_z, %c6
-      : !amdgcn.vgpr, !amdgcn.vgpr, i32
+    %t1 = amdgcn.v_mul_lo_u32 outs(%t1_a) ins(%v_bid_z, %c6) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, i32)
     %t2_a = amdgcn.alloca : !amdgcn.vgpr
-    %t2 = amdgcn.vop2 v_add_u32 outs %t2_a ins %t1, %v_bid_y
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %t2 = amdgcn.v_add_u32 outs(%t2_a) ins(%t1, %v_bid_y) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
     %t3_a = amdgcn.alloca : !amdgcn.vgpr
-    %t3 = amdgcn.vop3 v_mul_lo_u32 outs %t3_a ins %t2, %c43
-      : !amdgcn.vgpr, !amdgcn.vgpr, i32
+    %t3 = amdgcn.v_mul_lo_u32 outs(%t3_a) ins(%t2, %c43) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, i32)
     %lin_bid_a = amdgcn.alloca : !amdgcn.vgpr
-    %linear_bid = amdgcn.vop2 v_add_u32 outs %lin_bid_a ins %t3, %v_bid_x
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %linear_bid = amdgcn.v_add_u32 outs(%lin_bid_a) ins(%t3, %v_bid_x) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 
     // byte offset = linear_bid * 12 (3 dwords per block)
     %c12 = arith.constant 12 : i32
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
-    %voffset = amdgcn.vop3 v_mul_lo_u32 outs %voff_a ins %linear_bid, %c12
-      : !amdgcn.vgpr, !amdgcn.vgpr, i32
+    %voffset = amdgcn.v_mul_lo_u32 outs(%voff_a) ins(%linear_bid, %c12) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, i32)
 
     %c0 = arith.constant 0 : i32
     %c4 = arith.constant 4 : i32
@@ -213,23 +196,19 @@ amdgcn.module @tid_bid_mod target = #amdgcn.target<gfx942> {
     %bid_x = amdgcn.block_id x : !amdgcn.sgpr
 
     %vbx_a = amdgcn.alloca : !amdgcn.vgpr
-    %v_bid_x = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vbx_a, %bid_x
-      : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v_bid_x = amdgcn.v_mov_b32 outs(%vbx_a) ins(%bid_x) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
 
     // linear = (v_bid_x << 6) | tid_x  (block_x=64=2^6)
     %c6 = arith.constant 6 : i32
     %sbid_a = amdgcn.alloca : !amdgcn.vgpr
-    %shifted_bid = amdgcn.vop2 v_lshlrev_b32_e32 outs %sbid_a ins %c6, %v_bid_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %shifted_bid = amdgcn.v_lshlrev_b32 outs(%sbid_a) ins(%c6, %v_bid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %lin_a = amdgcn.alloca : !amdgcn.vgpr
-    %linear = amdgcn.vop2 v_or_b32 outs %lin_a ins %shifted_bid, %tid_x
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %linear = amdgcn.v_or_b32 outs(%lin_a) ins(%shifted_bid, %tid_x) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 
     // byte offset = linear * 8 = linear << 3 (2 dwords per thread)
     %c3 = arith.constant 3 : i32
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_a ins %c3, %linear
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c3, %linear) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     %c0 = arith.constant 0 : i32
     %c4 = arith.constant 4 : i32

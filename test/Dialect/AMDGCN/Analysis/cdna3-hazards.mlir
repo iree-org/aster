@@ -15,16 +15,16 @@
 // CHECK:     ]
 // CHECK:     nop counts = {v:0, s:0, ds:0}
 // CHECK:   }
-// CHECK: Op: amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK: Op: amdgcn.v_mov_b32 outs(%{{.*}}) ins(%{{.*}}) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<1>)
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = [
-// CHECK:       {#amdgcn.cdna3_nondlops_valu_mfma_hazard, amdgcn.vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> (), 0, {v:2, s:0, ds:0}}
+// CHECK:       {#amdgcn.cdna3_nondlops_valu_mfma_hazard, amdgcn.v_mov_b32 outs(%{{.*}}) ins(%{{.*}}) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<1>), 0, {v:2, s:0, ds:0}}
 // CHECK:     ]
 // CHECK:     nop counts = {v:2, s:0, ds:0}
 // CHECK:   }
 func.func @cdna3_store_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>) {
   %0 = amdgcn.store global_store_dword data %arg0 addr %arg1 : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %arg0, %arg2 : (!amdgcn.vgpr<0>, !amdgcn.vgpr<1>) -> ()
+  amdgcn.v_mov_b32 outs(%arg0) ins(%arg2) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<1>)
   return
 }
 
@@ -69,10 +69,10 @@ func.func @cdna3_vcc_vccz_hazard_detected(%arg0: !amdgcn.vcc<0>, %arg1: !amdgcn.
 // CHECK:   HAZARD STATE AFTER: <Empty>
 // CHECK: Op: %{{.*}} = amdgcn.make_register_range %{{.*}}, %{{.*}} : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
 // CHECK:   HAZARD STATE AFTER: <Empty>
-// CHECK: Op: amdgcn.vop2 v_add_co_u32 outs %{{.*}} dst1 = %{{.*}} ins %{{.*}}, %{{.*}} : !amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<0>, !amdgcn.vgpr<0>
+// CHECK: Op: amdgcn.v_add_co_u32 outs(%{{.*}}, %{{.*}}) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<0>)
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = [
-// CHECK:       {#amdgcn.cdna3_valu_sgpr_vmem_hazard, amdgcn.vop2 v_add_co_u32 outs %{{.*}} dst1 = %{{.*}} ins %{{.*}}, %{{.*}} : !amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<0>, !amdgcn.vgpr<0>, 1, {v:5, s:0, ds:0}}
+// CHECK:       {#amdgcn.cdna3_valu_sgpr_vmem_hazard, amdgcn.v_add_co_u32 outs(%{{.*}}, %{{.*}}) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<0>), 1, {v:5, s:0, ds:0}}
 // CHECK:     ]
 // CHECK:     nop counts = {v:0, s:0, ds:0}
 // CHECK:   }
@@ -83,7 +83,7 @@ func.func @cdna3_vcc_vccz_hazard_detected(%arg0: !amdgcn.vcc<0>, %arg1: !amdgcn.
 // CHECK:   }
 func.func @cdna3_valu_sgpr_vmem_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.sgpr<0>, %arg2: !amdgcn.sgpr<1>, %arg3: !amdgcn.sgpr<2>) {
   %0 = amdgcn.make_register_range %arg1, %arg2 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-  amdgcn.vop2 v_add_co_u32 outs %arg0 dst1 = %0 ins %arg0, %arg0 : !amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<0>, !amdgcn.vgpr<0>
+  amdgcn.v_add_co_u32 outs(%arg0, %0) ins(%arg0, %arg0) : outs(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<0>)
   %1 = amdgcn.alloca : !amdgcn.vgpr<1>
   %token = amdgcn.load global_load_dword dest %1 addr %0 : dps(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>) -> !amdgcn.read_token<flat>
   return
@@ -140,20 +140,20 @@ func.func @cdna3_store_write_data_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1:
 //===----------------------------------------------------------------------===//
 
 // CHECK-LABEL: Symbol: cdna3_valu_vgpr_readlane_hazard_detected
-// CHECK: Op: amdgcn.vop2 v_add_u32 outs %{{.*}} ins %{{.*}}, %{{.*}} : !amdgcn.vgpr<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK: Op: amdgcn.v_add_u32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = [
 // CHECK:       {#amdgcn.cdna3_valu_vgpr_readlane_hazard,
 // CHECK:       {#amdgcn.cdna3_nondlops_valu_mfma_hazard,
 // CHECK:     ]
 // CHECK:   }
-// CHECK: Op: amdgcn.vop1.lane <v_readfirstlane_b32> %{{.*}}, %{{.*}} : (!amdgcn.sgpr<0>, !amdgcn.vgpr<0>) -> ()
+// CHECK: Op: amdgcn.v_readfirstlane_b32 outs(%{{.*}}) ins(%{{.*}}) : outs(!amdgcn.sgpr<0>) ins(!amdgcn.vgpr<0>)
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     nop counts = {v:1, s:0, ds:0}
 // CHECK:   }
 func.func @cdna3_valu_vgpr_readlane_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<1>, %arg2: !amdgcn.sgpr<0>) {
-  amdgcn.vop2 v_add_u32 outs %arg0 ins %arg0, %arg1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
-  amdgcn.vop1.lane #amdgcn.inst<v_readfirstlane_b32> %arg2, %arg0 : (!amdgcn.sgpr<0>, !amdgcn.vgpr<0>) -> ()
+  amdgcn.v_add_u32 outs(%arg0) ins(%arg0, %arg1) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+  amdgcn.v_readfirstlane_b32 outs(%arg2) ins(%arg0) : outs(!amdgcn.sgpr<0>) ins(!amdgcn.vgpr<0>)
   return
 }
 
@@ -161,19 +161,19 @@ func.func @cdna3_valu_vgpr_readlane_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg
 // Case 19: No hazard when v_readfirstlane_b32 reads a different VGPR.
 
 // CHECK-LABEL: Symbol: cdna3_valu_vgpr_readlane_no_hazard_different_vgpr
-// CHECK: Op: amdgcn.vop2 v_add_u32 outs %{{.*}} ins %{{.*}}, %{{.*}} : !amdgcn.vgpr<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+// CHECK: Op: amdgcn.v_add_u32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = [
 // CHECK:       {#amdgcn.cdna3_valu_vgpr_readlane_hazard,
 // CHECK:       {#amdgcn.cdna3_nondlops_valu_mfma_hazard,
 // CHECK:     ]
 // CHECK:   }
-// CHECK: Op: amdgcn.vop1.lane <v_readfirstlane_b32> %{{.*}}, %{{.*}} : (!amdgcn.sgpr<0>, !amdgcn.vgpr<1>) -> ()
+// CHECK: Op: amdgcn.v_readfirstlane_b32 outs(%{{.*}}) ins(%{{.*}}) : outs(!amdgcn.sgpr<0>) ins(!amdgcn.vgpr<1>)
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     nop counts = {v:0, s:0, ds:0}
 // CHECK:   }
 func.func @cdna3_valu_vgpr_readlane_no_hazard_different_vgpr(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<1>, %arg2: !amdgcn.sgpr<0>) {
-  amdgcn.vop2 v_add_u32 outs %arg0 ins %arg0, %arg1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
-  amdgcn.vop1.lane #amdgcn.inst<v_readfirstlane_b32> %arg2, %arg1 : (!amdgcn.sgpr<0>, !amdgcn.vgpr<1>) -> ()
+  amdgcn.v_add_u32 outs(%arg0) ins(%arg0, %arg1) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+  amdgcn.v_readfirstlane_b32 outs(%arg2) ins(%arg1) : outs(!amdgcn.sgpr<0>) ins(!amdgcn.vgpr<1>)
   return
 }

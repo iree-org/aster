@@ -28,7 +28,7 @@
 // CHECK:   s_load_dwordx2 [[A_ptr:.*]], s[0:1], 0
 // CHECK:   s_load_dwordx2 [[B_ptr:.*]], s[0:1], 8
 // CHECK:   s_load_dwordx2 [[C_ptr:.*]], s[0:1], 16
-// CHECK:   v_lshlrev_b32_e64 [[tidx_times_8:.*]], 3, v0
+// CHECK:   v_lshlrev_b32 [[tidx_times_8:.*]], 3, v0
 // CHECK:   s_waitcnt lgkmcnt(0)
 // CHECK:   global_load_dwordx2 [[A:v\[.*\]]], [[tidx_times_8]], [[A_ptr]]
 // CHECK:   global_load_dwordx2 [[B:v\[.*\]]], [[tidx_times_8]], [[B_ptr]]
@@ -40,7 +40,7 @@
 // CHECK:   ds_read_b64 [[B_lds:v\[.*\]]], [[tidx_times_8]] offset: 512
 // CHECK:   s_waitcnt lgkmcnt(0)
 // CHECK:   v_mfma_f32_16x16x16_f16 [[C:v\[.*\]]], [[A_lds]], [[B_lds]], [[C]]
-// CHECK:   v_lshlrev_b32_e64 [[tidx_times_16:.*]], 4, v0
+// CHECK:   v_lshlrev_b32 [[tidx_times_16:.*]], 4, v0
 // CHECK:   global_store_dwordx4 [[tidx_times_16]], [[C]], [[C_ptr]]
 // CHECK:   s_endpgm
 

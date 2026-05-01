@@ -218,8 +218,8 @@ static LogicalResult checkMaybeConstOperand(AMDGCNInstOpInterface op,
                .attachNote(state.getLoc())
            << "is invalid";
   }
-  if (isa<inst::VOP1Op, inst::SOP1Op, inst::SOP2Op, LoadOp, StoreOp,
-          inst::SOPPOp>(op)) {
+  if (isa<inst::SOP1Op, inst::SOP2Op, LoadOp, StoreOp, inst::SOPPOp>(op) ||
+      op.hasProp(InstProp::IsValu)) {
     return success();
   }
   // TODO: implement actual checks for other instructions.

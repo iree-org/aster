@@ -5,12 +5,12 @@
 // CHECK:       s_endpgm
 
 // CHECK-LABEL: test_vcndmask_imm_true_prelude:
-// CHECK:       v_mov_b32_e32 v2, 42
+// CHECK:       v_mov_b32 v2, 42
 // CHECK:       v_cndmask_b32 v2, v0, v2, vcc
 // CHECK:       s_endpgm
 
 // CHECK-LABEL: test_vcndmask_sgpr_true_prelude:
-// CHECK:       v_mov_b32_e32 v2, s0
+// CHECK:       v_mov_b32 v2, s0
 // CHECK:       v_cndmask_b32 v2, v0, v2, vcc
 // CHECK:       s_endpgm
 
@@ -22,8 +22,7 @@ amdgcn.module @vopc_cndmask_mod target = #amdgcn.target<gfx942> {
     %v1 = amdgcn.alloca : !amdgcn.vgpr<1>
     %v2 = amdgcn.alloca : !amdgcn.vgpr<2>
     %vcc = amdgcn.alloca : !amdgcn.vcc<0>
-    vop2 v_cndmask_b32 outs %v2 ins %v0, %v1 src2 = %vcc
-      : !amdgcn.vgpr<2>, !amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vcc<0>
+    amdgcn.v_cndmask_b32 outs(%v2) ins(%v0, %v1, %vcc) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vcc<0>)
     amdgcn.end_kernel
   }
 
@@ -34,10 +33,8 @@ amdgcn.module @vopc_cndmask_mod target = #amdgcn.target<gfx942> {
     %v2 = amdgcn.alloca : !amdgcn.vgpr<2>
     %vcc = amdgcn.alloca : !amdgcn.vcc<0>
     %c42 = arith.constant 42 : i32
-    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v2, %c42
-      : (!amdgcn.vgpr<2>, i32) -> ()
-    vop2 v_cndmask_b32 outs %v2 ins %v0, %v2 src2 = %vcc
-      : !amdgcn.vgpr<2>, !amdgcn.vgpr<0>, !amdgcn.vgpr<2>, !amdgcn.vcc<0>
+    amdgcn.v_mov_b32 outs(%v2) ins(%c42) : outs(!amdgcn.vgpr<2>) ins(i32)
+    amdgcn.v_cndmask_b32 outs(%v2) ins(%v0, %v2, %vcc) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<2>, !amdgcn.vcc<0>)
     amdgcn.end_kernel
   }
 
@@ -47,10 +44,8 @@ amdgcn.module @vopc_cndmask_mod target = #amdgcn.target<gfx942> {
     %v2 = amdgcn.alloca : !amdgcn.vgpr<2>
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
     %vcc = amdgcn.alloca : !amdgcn.vcc<0>
-    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v2, %s0
-      : (!amdgcn.vgpr<2>, !amdgcn.sgpr<0>) -> ()
-    vop2 v_cndmask_b32 outs %v2 ins %v0, %v2 src2 = %vcc
-      : !amdgcn.vgpr<2>, !amdgcn.vgpr<0>, !amdgcn.vgpr<2>, !amdgcn.vcc<0>
+    amdgcn.v_mov_b32 outs(%v2) ins(%s0) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.sgpr<0>)
+    amdgcn.v_cndmask_b32 outs(%v2) ins(%v0, %v2, %vcc) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<2>, !amdgcn.vcc<0>)
     amdgcn.end_kernel
   }
 }

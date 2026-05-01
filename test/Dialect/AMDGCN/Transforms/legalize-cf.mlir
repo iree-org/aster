@@ -101,7 +101,7 @@ amdgcn.module @ds_kernels target = <gfx942> {
     cf.cond_br %15, ^bb1(%7 : !amdgcn.sgpr<7>), ^bb2
   ^bb1(%18: !amdgcn.sgpr<7>):  // 2 preds: ^bb0, ^bb1
     sop2 s_lshl_b32 outs %8 ins %18, %c2_i32 : !amdgcn.sgpr<8>, !amdgcn.sgpr<7>, i32
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %9, %8 : (!amdgcn.vgpr<0>, !amdgcn.sgpr<8>) -> ()
+    amdgcn.v_mov_b32 outs(%9) ins(%8) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.sgpr<8>)
     %21 = store global_store_dword data %9 addr %13 offset d(%9) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[4 : 6]>, !amdgcn.vgpr<0>) -> !amdgcn.write_token<flat>
     //
     // Loop iv increment: sgpr<7>
@@ -136,14 +136,14 @@ amdgcn.module @test_br_vgpr_range target = <gfx942> {
 
     // Initialize registers
     %c0 = arith.constant 0 : i32
-    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V0]]
-    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V1]]
-    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V2]]
-    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V3]]
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %v0, %c0 : (!amdgcn.vgpr<0>, i32) -> ()
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %v1, %c0 : (!amdgcn.vgpr<1>, i32) -> ()
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %v2, %c0 : (!amdgcn.vgpr<2>, i32) -> ()
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %v3, %c0 : (!amdgcn.vgpr<3>, i32) -> ()
+    // CHECK:       v_mov_b32 outs(%[[V0]])
+    // CHECK:       v_mov_b32 outs(%[[V1]])
+    // CHECK:       v_mov_b32 outs(%[[V2]])
+    // CHECK:       v_mov_b32 outs(%[[V3]])
+    amdgcn.v_mov_b32 outs(%v0) ins(%c0) : outs(!amdgcn.vgpr<0>) ins(i32)
+    amdgcn.v_mov_b32 outs(%v1) ins(%c0) : outs(!amdgcn.vgpr<1>) ins(i32)
+    amdgcn.v_mov_b32 outs(%v2) ins(%c0) : outs(!amdgcn.vgpr<2>) ins(i32)
+    amdgcn.v_mov_b32 outs(%v3) ins(%c0) : outs(!amdgcn.vgpr<3>) ins(i32)
 
     // Create range - uses vop1 results (which write to allocas)
     // CHECK:       make_register_range
@@ -200,14 +200,14 @@ amdgcn.module @test_loop target = <gfx942> {
     %s8 = alloca : !amdgcn.sgpr<8>
 
     // Initialize accumulator to zero
-    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V4]]
-    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V5]]
-    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V6]]
-    // CHECK:       vop1.vop1 <v_mov_b32_e32> %[[V7]]
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %v4, %c0_i32 : (!amdgcn.vgpr<4>, i32) -> ()
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %v5, %c0_i32 : (!amdgcn.vgpr<5>, i32) -> ()
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %v6, %c0_i32 : (!amdgcn.vgpr<6>, i32) -> ()
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %v7, %c0_i32 : (!amdgcn.vgpr<7>, i32) -> ()
+    // CHECK:       v_mov_b32 outs(%[[V4]])
+    // CHECK:       v_mov_b32 outs(%[[V5]])
+    // CHECK:       v_mov_b32 outs(%[[V6]])
+    // CHECK:       v_mov_b32 outs(%[[V7]])
+    amdgcn.v_mov_b32 outs(%v4) ins(%c0_i32) : outs(!amdgcn.vgpr<4>) ins(i32)
+    amdgcn.v_mov_b32 outs(%v5) ins(%c0_i32) : outs(!amdgcn.vgpr<5>) ins(i32)
+    amdgcn.v_mov_b32 outs(%v6) ins(%c0_i32) : outs(!amdgcn.vgpr<6>) ins(i32)
+    amdgcn.v_mov_b32 outs(%v7) ins(%c0_i32) : outs(!amdgcn.vgpr<7>) ins(i32)
 
     // Create initial accumulator range
     // CHECK:       make_register_range
@@ -566,7 +566,7 @@ amdgcn.module @test_vopc_vv_mod target = <gfx942> {
 // CHECK-LABEL: kernel @test_vopc_select
 // CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
 // CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
-// CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
+// CHECK:         v_cndmask_b32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}, %[[VCC]])
 // CHECK:         end_kernel
 amdgcn.module @test_vopc_select_mod target = <gfx942> {
   amdgcn.kernel @test_vopc_select {
@@ -589,8 +589,8 @@ amdgcn.module @test_vopc_select_mod target = <gfx942> {
 // CHECK-LABEL: kernel @test_vopc_select_nonvgpr_true
 // CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
 // CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
-// CHECK:         vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<2>, i32) -> ()
-// CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
+// CHECK:         v_mov_b32 outs(%{{.*}}) ins(%{{.*}}) : outs(!amdgcn.vgpr<2>) ins(i32)
+// CHECK:         v_cndmask_b32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}, %[[VCC]])
 // CHECK:         end_kernel
 amdgcn.module @test_vopc_select_imm_true_mod target = <gfx942> {
   amdgcn.kernel @test_vopc_select_nonvgpr_true {
@@ -611,8 +611,8 @@ amdgcn.module @test_vopc_select_imm_true_mod target = <gfx942> {
 // CHECK-LABEL: kernel @test_vopc_select_sgpr_true
 // CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
 // CHECK:         cmpi v_cmp_eq_i32 outs %[[VCC]] ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
-// CHECK:         vop1.vop1 <v_mov_b32_e32> %{{.*}}, %{{.*}} : (!amdgcn.vgpr<2>, !amdgcn.sgpr<0>) -> ()
-// CHECK:         vop2 v_cndmask_b32 outs %{{.*}} ins %{{.*}}, %{{.*}} src2 = %[[VCC]]
+// CHECK:         v_mov_b32 outs(%{{.*}}) ins(%{{.*}}) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.sgpr<0>)
+// CHECK:         v_cndmask_b32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}, %[[VCC]])
 // CHECK:         end_kernel
 amdgcn.module @test_vopc_select_sgpr_true_mod target = <gfx942> {
   amdgcn.kernel @test_vopc_select_sgpr_true {

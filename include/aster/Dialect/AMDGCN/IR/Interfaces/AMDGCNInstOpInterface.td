@@ -55,6 +55,13 @@ def AMDGCNInstOpInterface :
           return false;
         return all ? md->hasProps(props) : md->hasAnyProps(props);
       }]
+    >,
+    InterfaceMethod<
+      "Returns the available ISA versions of the instruction",
+      "::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion>", "getISAVersions", (ins), [{}], [{
+        const ::mlir::aster::amdgcn::InstMetadata* md = $_op.getInstMetadata();
+        return md ? md->getISAVersions() : ::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion>();
+      }]
     >
   ];
   let extraSharedClassDeclaration = [{
@@ -80,18 +87,8 @@ def AMDGCNInstOpInterface :
     /// Returns true if the instruction supports the given ISA version.
     /// An instruction with no ISA version list is assumed to support all.
     bool supportsISA(::mlir::aster::amdgcn::ISAVersion ver) {
-      const ::mlir::aster::amdgcn::InstMetadata* md = $_op.getInstMetadata();
-      if (!md)
-        return false;
-      ::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion> isas = md->getISAVersions();
-      if (isas.empty())
-        return true;
+      llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion> isas = $_op.getISAVersions();
       return llvm::is_contained(isas, ver);
-    }
-
-    ::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion> getISAVersions() {
-      const ::mlir::aster::amdgcn::InstMetadata* md = $_op.getInstMetadata();
-      return md ? md->getISAVersions() : ::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion>();
     }
   }];
 }

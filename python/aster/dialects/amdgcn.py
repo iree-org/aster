@@ -161,8 +161,222 @@ def _create_inst_op(name, opcode, outs, ins, *, loc=None, ip=None):
     )
 
 
+_VOP_NEW_OPS_2IN = {
+    "v_add_f32": VAddF32,
+    "v_sub_f32": VSubF32,
+    "v_mul_f32": VMulF32,
+    "v_min_f32": VMinF32,
+    "v_max_f32": VMaxF32,
+    "v_add_f16": VAddF16,
+    "v_sub_f16": VSubF16,
+    "v_mul_f16": VMulF16,
+    "v_add_u16": VAddU16,
+    "v_sub_u16": VSubU16,
+    "v_mul_lo_u16": VMulLoU16,
+    "v_lshlrev_b16": VLshlrevB16,
+    "v_lshrrev_b16": VLshrrevB16,
+    "v_ashrrev_i16": VAshrrevI16,
+    "v_lshlrev_b32": VLshlrevB32,
+    "v_lshrrev_b32": VLshrrevB32,
+    "v_ashrrev_i32": VAshrrevI32,
+    "v_subrev_f16": VSubrevF16,
+    "v_subrev_u32": VSubrevU32,
+    "v_and_b32": VAndB32,
+    "v_or_b32": VOrB32,
+    "v_xor_b32": VXorB32,
+    "v_add_u32": VAddU32,
+    "v_sub_u32": VSubU32,
+    "v_mul_lo_u32": VMulLoU32,
+    "v_mul_hi_u32": VMulHiU32,
+    "v_mul_hi_i32": VMulHiI32,
+    "v_pack_b32_f16": VPackB32F16,
+    "v_lshlrev_b64": VLshlrevB64,
+    "v_lshrrev_b64": VLshrrevB64,
+    "v_ashrrev_i64": VAshrrevI64,
+}
+
+_VOP_NEW_OPS_2IN_2OUT = {
+    "v_add_co_u32": VAddCoU32,
+    "v_sub_co_u32": VSubCoU32,
+    "v_subrev_co_u32": VSubrevCoU32,
+    "v_add_i16": VAddI16,
+    "v_add_i32": VAddI32,
+}
+
+_VOP_NEW_OPS_CARRY = {
+    "v_addc_co_u32": VAddcCoU32,
+    "v_subb_co_u32": VSubbCoU32,
+    "v_subbrev_co_u32": VSubbrevCoU32,
+}
+
+_VOP_NEW_OPS_CNDMASK = {
+    "v_cndmask_b32": VCndmaskB32,
+}
+
+_VOP_NEW_OPS_3IN = {
+    "v_add3_u32": VAdd3U32,
+    "v_lshl_add_u64": VLshlAddU64,
+}
+
+_VOP_NEW_OPS_CVT = {
+    "v_cvt_f32_f16": VCvtF32F16,
+    "v_cvt_f16_f32": VCvtF16F32,
+    "v_cvt_f32_u32": VCvtF32U32,
+    "v_cvt_f32_i32": VCvtF32I32,
+    "v_cvt_u32_f32": VCvtU32F32,
+    "v_cvt_i32_f32": VCvtI32F32,
+}
+
+_VOP_NEW_OPS_CVT_PK = {
+    "v_cvt_pk_fp8_f32": VCvtPkFp8F32,
+    "v_cvt_pk_bf8_f32": VCvtPkBf8F32,
+}
+
+_VOP_E64_MAP = {
+    "v_add_f32_e64": "v_add_f32",
+    "v_sub_f32_e64": "v_sub_f32",
+    "v_mul_f32_e64": "v_mul_f32",
+    "v_min_f32_e64": "v_min_f32",
+    "v_max_f32_e64": "v_max_f32",
+    "v_add_f16_e64": "v_add_f16",
+    "v_sub_f16_e64": "v_sub_f16",
+    "v_mul_f16_e64": "v_mul_f16",
+    "v_add_u16_e64": "v_add_u16",
+    "v_sub_u16_e64": "v_sub_u16",
+    "v_mul_lo_u16_e64": "v_mul_lo_u16",
+    "v_lshlrev_b16_e64": "v_lshlrev_b16",
+    "v_lshrrev_b16_e64": "v_lshrrev_b16",
+    "v_ashrrev_i16_e64": "v_ashrrev_i16",
+    "v_lshrrev_b32_e64": "v_lshrrev_b32",
+    "v_ashrrev_i32_e64": "v_ashrrev_i32",
+    "v_and_b32_e64": "v_and_b32",
+    "v_or_b32_e64": "v_or_b32",
+    "v_xor_b32_e64": "v_xor_b32",
+    "v_add_co_u32_e64": "v_add_co_u32",
+    "v_sub_co_u32_e64": "v_sub_co_u32",
+    "v_addc_co_u32_e64": "v_addc_co_u32",
+    "v_subb_co_u32_e64": "v_subb_co_u32",
+    "v_add_u32_e64": "v_add_u32",
+    "v_sub_u32_e64": "v_sub_u32",
+    "v_subrev_f16_e64": "v_subrev_f16",
+    "v_lshlrev_b32_e64": "v_lshlrev_b32",
+    "v_lshlrev_b32_e32": "v_lshlrev_b32",
+    "v_lshrrev_b32_e32": "v_lshrrev_b32",
+    "v_subrev_co_u32_e64": "v_subrev_co_u32",
+    "v_subbrev_co_u32_e64": "v_subbrev_co_u32",
+    "v_subrev_u32_e64": "v_subrev_u32",
+}
+
+_VOP_NEW_OPS_MAD = {
+    "v_mad_u64_u32": VMadU64U32,
+}
+
+
+def _create_new_vop(
+    opcode, dest, src0, src1, *, dst1=None, src2=None, loc=None, ip=None
+):
+    """Route to new per-instruction ODS class for migrated opcodes.
+
+    Returns the first result (dst0_res) or None if the opcode is not
+    migrated.
+    """
+    canonical = _VOP_E64_MAP.get(opcode, opcode)
+
+    cls = _VOP_NEW_OPS_2IN.get(canonical)
+    if cls is not None:
+        op = cls(dst0=dest, src0=src0, src1=src1, results=[dest.type], loc=loc, ip=ip)
+        return op.dst0_res
+
+    cls = _VOP_NEW_OPS_2IN_2OUT.get(canonical)
+    if cls is not None and dst1 is not None:
+        result_types = [dest.type, dst1.type]
+        op = cls(
+            dst0=dest,
+            dst1=dst1,
+            src0=src0,
+            src1=src1,
+            results=result_types,
+            loc=loc,
+            ip=ip,
+        )
+        return op.dst0_res
+
+    cls = _VOP_NEW_OPS_CARRY.get(canonical)
+    if cls is not None and dst1 is not None and src2 is not None:
+        result_types = [dest.type, dst1.type]
+        op = cls(
+            dst0=dest,
+            dst1=dst1,
+            src0=src0,
+            src1=src1,
+            src2=src2,
+            results=result_types,
+            loc=loc,
+            ip=ip,
+        )
+        return op.dst0_res
+
+    cls = _VOP_NEW_OPS_CNDMASK.get(canonical)
+    if cls is not None and src2 is not None:
+        op = cls(
+            dst0=dest,
+            src0=src0,
+            src1=src1,
+            src2=src2,
+            results=[dest.type],
+            loc=loc,
+            ip=ip,
+        )
+        return op.dst0_res
+
+    cls = _VOP_NEW_OPS_3IN.get(canonical)
+    if cls is not None and src2 is not None:
+        op = cls(
+            dst0=dest,
+            src0=src0,
+            src1=src1,
+            src2=src2,
+            results=[dest.type],
+            loc=loc,
+            ip=ip,
+        )
+        return op.dst0_res
+
+    cls = _VOP_NEW_OPS_MAD.get(canonical)
+    if cls is not None and dst1 is not None and src2 is not None:
+        result_types = [dest.type, dst1.type]
+        op = cls(
+            dst0=dest,
+            dst1=dst1,
+            src0=src0,
+            src1=src1,
+            src2=src2,
+            results=result_types,
+            loc=loc,
+            ip=ip,
+        )
+        return op.dst0_res
+
+    cls = _VOP_NEW_OPS_CVT.get(canonical)
+    if cls is not None:
+        op = cls(dst0=dest, src0=src0, results=[dest.type], loc=loc, ip=ip)
+        return op.dst0_res
+
+    cls = _VOP_NEW_OPS_CVT_PK.get(canonical)
+    if cls is not None:
+        op = cls(dst0=dest, src0=src0, src1=src1, results=[dest.type], loc=loc, ip=ip)
+        return op.dst0_res
+
+    return None
+
+
 def vop2(opcode, dest, src0, src1, *, dst1=None, src2=None, loc=None, ip=None):
-    """Create amdgcn.vop2."""
+    """Create amdgcn.vop2 (routes migrated opcodes to new per-instruction ops)."""
+    result = _create_new_vop(
+        opcode, dest, src0, src1, dst1=dst1, src2=src2, loc=loc, ip=ip
+    )
+    if result is not None:
+        return result
     op = _create_inst_op(
         "amdgcn.vop2", opcode, outs=[dest, dst1], ins=[src0, src1, src2], loc=loc, ip=ip
     )
@@ -170,7 +384,12 @@ def vop2(opcode, dest, src0, src1, *, dst1=None, src2=None, loc=None, ip=None):
 
 
 def vop3(opcode, dest, src0, src1, *, dst1=None, src2=None, loc=None, ip=None):
-    """Create amdgcn.vop3."""
+    """Create amdgcn.vop3 (routes migrated opcodes to new per-instruction ops)."""
+    result = _create_new_vop(
+        opcode, dest, src0, src1, dst1=dst1, src2=src2, loc=loc, ip=ip
+    )
+    if result is not None:
+        return result
     op = _create_inst_op(
         "amdgcn.vop3", opcode, outs=[dest, dst1], ins=[src0, src1, src2], loc=loc, ip=ip
     )

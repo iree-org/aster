@@ -9,7 +9,7 @@
 // CHECK:    .p2align 8
 // CHECK:    .type simple_kernel,@function
 // CHECK:  simple_kernel:
-// CHECK:    v_mov_b32_e32 v2, 42
+// CHECK:    v_mov_b32 v2, 42
 // CHECK:    s_endpgm
 // CHECK:    .section .rodata,"a",@progbits
 // CHECK:    .p2align 6, 0x0
@@ -82,7 +82,7 @@ amdgcn.module @gfx950_mod target = #amdgcn.target<gfx950> {
   amdgcn.kernel @simple_kernel {
     %0 = amdgcn.alloca : !amdgcn.vgpr<2>
     %c42 = arith.constant 42 : i32
-    amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %0, %c42 : (!amdgcn.vgpr<2>, i32) -> ()
+    amdgcn.v_mov_b32 outs(%0) ins(%c42) : outs(!amdgcn.vgpr<2>) ins(i32)
     amdgcn.end_kernel
   }
   amdgcn.kernel @empty_kernel {

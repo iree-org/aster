@@ -105,8 +105,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0 = arith.constant 0 : i32
 
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
@@ -117,8 +116,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
-    %converted = amdgcn.vop1.vop1 #amdgcn.inst<v_cvt_f32_f16> %cvt_dest, %loaded
-      : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %converted = amdgcn.v_cvt_f32_f16 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
@@ -142,8 +140,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0 = arith.constant 0 : i32
 
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
@@ -154,8 +151,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
-    %converted = amdgcn.vop1.vop1 #amdgcn.inst<v_cvt_f16_f32> %cvt_dest, %loaded
-      : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %converted = amdgcn.v_cvt_f16_f32 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
@@ -179,8 +175,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0 = arith.constant 0 : i32
 
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
@@ -191,8 +186,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
-    %converted = amdgcn.vop1.vop1 #amdgcn.inst<v_cvt_f32_u32> %cvt_dest, %loaded
-      : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %converted = amdgcn.v_cvt_f32_u32 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
@@ -216,8 +210,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0 = arith.constant 0 : i32
 
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
@@ -228,8 +221,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
-    %converted = amdgcn.vop1.vop1 #amdgcn.inst<v_cvt_f32_i32> %cvt_dest, %loaded
-      : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %converted = amdgcn.v_cvt_f32_i32 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
@@ -253,8 +245,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0 = arith.constant 0 : i32
 
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
@@ -265,8 +256,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
-    %converted = amdgcn.vop1.vop1 #amdgcn.inst<v_cvt_u32_f32> %cvt_dest, %loaded
-      : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %converted = amdgcn.v_cvt_u32_f32 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
@@ -290,8 +280,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0 = arith.constant 0 : i32
 
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
@@ -302,8 +291,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
-    %converted = amdgcn.vop1.vop1 #amdgcn.inst<v_cvt_i32_f32> %cvt_dest, %loaded
-      : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %converted = amdgcn.v_cvt_i32_f32 outs(%cvt_dest) ins(%loaded) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
@@ -329,8 +317,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0 = arith.constant 0 : i32
 
     %load0_dest = amdgcn.alloca : !amdgcn.vgpr
@@ -348,8 +335,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %pack_dest = amdgcn.alloca : !amdgcn.vgpr
-    %packed = amdgcn.vop3 v_pack_b32_f16 outs %pack_dest ins %src0_val, %src1_val
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %packed = amdgcn.v_pack_b32_f16 outs(%pack_dest) ins(%src0_val, %src1_val) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 
     %tok_st = amdgcn.store global_store_dword data %packed addr %dst_ptr
       offset d(%voffset) + c(%c0)
@@ -375,8 +361,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0 = arith.constant 0 : i32
 
     %load0_dest = amdgcn.alloca : !amdgcn.vgpr
@@ -394,8 +379,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
-    %converted = amdgcn.vop3 v_cvt_pk_fp8_f32 outs %cvt_dest ins %src0_val, %src1_val
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %converted = amdgcn.v_cvt_pk_fp8_f32 outs(%cvt_dest) ins(%src0_val, %src1_val) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)
@@ -421,8 +405,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     %threadidx_x = amdgcn.alloca : !amdgcn.vgpr<0>
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0 = arith.constant 0 : i32
 
     %load0_dest = amdgcn.alloca : !amdgcn.vgpr
@@ -440,8 +423,7 @@ amdgcn.module @conversion_pack_mod target = #amdgcn.target<gfx942> {
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> vmcnt = 0
 
     %cvt_dest = amdgcn.alloca : !amdgcn.vgpr
-    %converted = amdgcn.vop3 v_cvt_pk_bf8_f32 outs %cvt_dest ins %src0_val, %src1_val
-      : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+    %converted = amdgcn.v_cvt_pk_bf8_f32 outs(%cvt_dest) ins(%src0_val, %src1_val) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 
     %tok_st = amdgcn.store global_store_dword data %converted addr %dst_ptr
       offset d(%voffset) + c(%c0)

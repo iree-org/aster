@@ -59,15 +59,15 @@ amdgcn.module @mfma_32x32_e2e_mod target = #amdgcn.target<gfx942> {
     %f16_10 = arith.constant 1006648320 : i32
     %a = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr<[? + 2]>)
     %a0:2 = amdgcn.split_register_range %a : !amdgcn.vgpr<[? + 2]>
-    %a0_v = amdgcn.vop1.vop1 <v_mov_b32_e32> %a0#0, %f16_10 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %a1_v = amdgcn.vop1.vop1 <v_mov_b32_e32> %a0#1, %f16_10 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %a0_v = amdgcn.v_mov_b32 outs(%a0#0) ins(%f16_10) : outs(!amdgcn.vgpr) ins(i32)
+    %a1_v = amdgcn.v_mov_b32 outs(%a0#1) ins(%f16_10) : outs(!amdgcn.vgpr) ins(i32)
     %a_init = amdgcn.make_register_range %a0_v, %a1_v : !amdgcn.vgpr, !amdgcn.vgpr
 
     // B: f16 1.0 packed (same)
     %b = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr<[? + 2]>)
     %b0:2 = amdgcn.split_register_range %b : !amdgcn.vgpr<[? + 2]>
-    %b0_v = amdgcn.vop1.vop1 <v_mov_b32_e32> %b0#0, %f16_10 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %b1_v = amdgcn.vop1.vop1 <v_mov_b32_e32> %b0#1, %f16_10 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %b0_v = amdgcn.v_mov_b32 outs(%b0#0) ins(%f16_10) : outs(!amdgcn.vgpr) ins(i32)
+    %b1_v = amdgcn.v_mov_b32 outs(%b0#1) ins(%f16_10) : outs(!amdgcn.vgpr) ins(i32)
     %b_init = amdgcn.make_register_range %b0_v, %b1_v : !amdgcn.vgpr, !amdgcn.vgpr
 
     // C accumulator: 16 VGPRs initialized to zero
@@ -84,8 +84,7 @@ amdgcn.module @mfma_32x32_e2e_mod target = #amdgcn.target<gfx942> {
     // Thread offset = tid * 64 = tid << 6
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %c6 = arith.constant 6 : i32
-    %thread_offset = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_s ins %c6, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%c6, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     // Split 16 result regs into 4 groups of 4 for dwordx4 stores
     %r:16 = amdgcn.split_register_range %result : !amdgcn.vgpr<[? + 16]>

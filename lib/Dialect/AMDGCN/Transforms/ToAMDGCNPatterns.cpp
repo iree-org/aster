@@ -356,17 +356,11 @@ static Value getI32Constant(OpBuilder &builder, Location loc, int32_t value) {
       builder.getIntegerAttr(builder.getI32Type(), value));
 }
 
-// Create VOp2/VOp3 operation.
-template <OpCode vop2C, OpCode vop3C>
-static Value createVOP(bool isVOp3, OpBuilder &builder, Location loc, Value dst,
-                       Value src1, Value src2, Value vdst1 = nullptr,
-                       Value src3 = nullptr) {
-  return !isVOp3 ? inst::VOP2Op::create(builder, loc, vop2C, dst, vdst1, src1,
-                                        src2, src3)
-                       .getVdst0Res()
-                 : inst::VOP3Op::create(builder, loc, vop3C, dst, vdst1, src1,
-                                        src2, src3)
-                       .getVdst0Res();
+// Create a new-style VOP instruction with 1 output and 2 inputs.
+template <typename OpT>
+static Value createNewVOP(OpBuilder &builder, Location loc, Value dst,
+                          Value src0, Value src1) {
+  return OpT::create(builder, loc, dst, src0, src1).getDst0Res();
 }
 
 /// If the destination is SGPR but any source operand is VGPR (mixed uniform/
@@ -531,16 +525,14 @@ LogicalResult AddIOpPattern::matchAndRewrite(lsir::AddIOp op,
   // Handle the VGPR case
   Value result;
   if (width <= 16) {
-    result = createVOP<OpCode::V_ADD_U16, OpCode::V_ADD_U16_E64>(
-        isVOp3, rewriter, loc, actualDst, lhs, rhs);
+    result = createNewVOP<VAddU16>(rewriter, loc, actualDst, lhs, rhs);
   } else if (width <= 32) {
-    result = createVOP<OpCode::V_ADD_U32, OpCode::V_ADD_U32_E64>(
-        isVOp3, rewriter, loc, actualDst, lhs, rhs);
+    result = createNewVOP<VAddU32>(rewriter, loc, actualDst, lhs, rhs);
   } else {
     // 64-bit VGPR add
-    result = V_LSHL_ADD_U64::create(rewriter, loc, actualDst, lhs,
-                                    getI32Constant(rewriter, loc, 0), rhs)
-                 .getVdst0Res();
+    result = VLshlAddU64::create(rewriter, loc, actualDst, lhs,
+                                 getI32Constant(rewriter, loc, 0), rhs)
+                 .getDst0Res();
   }
 
   // Copy VGPR result back to SGPR destination.
@@ -553,10 +545,9 @@ LogicalResult AddIOpPattern::matchAndRewrite(lsir::AddIOp op,
 // Float binary op patterns (AddF, SubF, MulF, MaximumF, MinimumF)
 //===----------------------------------------------------------------------===//
 
-/// Generic lowering for lsir binary float ops -> VOP2/VOP3.
+/// Generic lowering for lsir binary float ops -> new VOP instructions.
 /// Float ops are always VGPR (no SGPR float arithmetic on AMD GPUs).
-template <typename LsirOp, OpCode vop2Code, OpCode vop3Code, OpCode vop2Code16,
-          OpCode vop3Code16>
+template <typename LsirOp, typename VOp32, typename VOp16>
 static LogicalResult lowerBinaryFloatOp(LsirOp op, PatternRewriter &rewriter) {
   RegisterTypeInterface oTy = op.getDst().getType();
   OperandKind kind = getOperandKind(oTy);
@@ -570,9 +561,9 @@ static LogicalResult lowerBinaryFloatOp(LsirOp op, PatternRewriter &rewriter) {
   Location loc = op.getLoc();
 
   OperandKind rhsKind = getOperandKind(rhs.getType());
-  bool isVOp3 = rhsKind == OperandKind::SGPR;
 
-  // Commute if rhs is immediate/SGPR (VOP2 src0 can be SGPR, src1 must be VGPR)
+  // Commute if rhs is immediate/SGPR (VOP2 src0 can be SGPR, src1 must be
+  // VGPR).
   OperandKind lhsKind = getOperandKind(lhs.getType());
   if (kind == OperandKind::VGPR &&
       isOperand(rhsKind, {OperandKind::IntImm, OperandKind::SGPR})) {
@@ -581,14 +572,12 @@ static LogicalResult lowerBinaryFloatOp(LsirOp op, PatternRewriter &rewriter) {
   }
 
   if (width <= 16) {
-    Value result =
-        createVOP<vop2Code16, vop3Code16>(isVOp3, rewriter, loc, dst, lhs, rhs);
+    Value result = createNewVOP<VOp16>(rewriter, loc, dst, lhs, rhs);
     rewriter.replaceOp(op, result);
     return success();
   }
   if (width <= 32) {
-    Value result =
-        createVOP<vop2Code, vop3Code>(isVOp3, rewriter, loc, dst, lhs, rhs);
+    Value result = createNewVOP<VOp32>(rewriter, loc, dst, lhs, rhs);
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -597,39 +586,29 @@ static LogicalResult lowerBinaryFloatOp(LsirOp op, PatternRewriter &rewriter) {
 
 LogicalResult AddFOpPattern::matchAndRewrite(lsir::AddFOp op,
                                              PatternRewriter &rewriter) const {
-  return lowerBinaryFloatOp<lsir::AddFOp, OpCode::V_ADD_F32,
-                            OpCode::V_ADD_F32_E64, OpCode::V_ADD_F16,
-                            OpCode::V_ADD_F16_E64>(op, rewriter);
+  return lowerBinaryFloatOp<lsir::AddFOp, VAddF32, VAddF16>(op, rewriter);
 }
 
 LogicalResult SubFOpPattern::matchAndRewrite(lsir::SubFOp op,
                                              PatternRewriter &rewriter) const {
-  return lowerBinaryFloatOp<lsir::SubFOp, OpCode::V_SUB_F32,
-                            OpCode::V_SUB_F32_E64, OpCode::V_SUB_F32,
-                            OpCode::V_SUB_F32_E64>(op, rewriter);
+  return lowerBinaryFloatOp<lsir::SubFOp, VSubF32, VSubF32>(op, rewriter);
 }
 
 LogicalResult MulFOpPattern::matchAndRewrite(lsir::MulFOp op,
                                              PatternRewriter &rewriter) const {
-  return lowerBinaryFloatOp<lsir::MulFOp, OpCode::V_MUL_F32,
-                            OpCode::V_MUL_F32_E64, OpCode::V_MUL_F16,
-                            OpCode::V_MUL_F16_E64>(op, rewriter);
+  return lowerBinaryFloatOp<lsir::MulFOp, VMulF32, VMulF16>(op, rewriter);
 }
 
 LogicalResult
 MaximumFOpPattern::matchAndRewrite(lsir::MaximumFOp op,
                                    PatternRewriter &rewriter) const {
-  return lowerBinaryFloatOp<lsir::MaximumFOp, OpCode::V_MAX_F32,
-                            OpCode::V_MAX_F32_E64, OpCode::V_MAX_F32,
-                            OpCode::V_MAX_F32_E64>(op, rewriter);
+  return lowerBinaryFloatOp<lsir::MaximumFOp, VMaxF32, VMaxF32>(op, rewriter);
 }
 
 LogicalResult
 MinimumFOpPattern::matchAndRewrite(lsir::MinimumFOp op,
                                    PatternRewriter &rewriter) const {
-  return lowerBinaryFloatOp<lsir::MinimumFOp, OpCode::V_MIN_F32,
-                            OpCode::V_MIN_F32_E64, OpCode::V_MIN_F32,
-                            OpCode::V_MIN_F32_E64>(op, rewriter);
+  return lowerBinaryFloatOp<lsir::MinimumFOp, VMinF32, VMinF32>(op, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
@@ -706,8 +685,7 @@ LogicalResult AndIOpPattern::matchAndRewrite(lsir::AndIOp op,
   }
 
   // Handle the VGPR case
-  Value result = createVOP<OpCode::V_AND_B32, OpCode::V_AND_B32_E64>(
-      isVOp3, rewriter, loc, dst, lhs, rhs);
+  Value result = createNewVOP<VAndB32>(rewriter, loc, dst, lhs, rhs);
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -1032,7 +1010,7 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
     if (matchPattern(lhs, m_ConstantInt(&constVal)) &&
         !constVal.isSignedIntN(6)) {
       Value vgpr = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
-      lhs = V_MOV_B32_E32::create(rewriter, loc, vgpr, lhs).getVdstRes();
+      lhs = VMovB32::create(rewriter, loc, vgpr, lhs).getDst0Res();
       lhsKind = OperandKind::VGPR;
     }
   }
@@ -1080,19 +1058,17 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
   // Handle the VGPR case
   Value result;
   if (width <= 16) {
-    result = createVOP<OpCode::V_MUL_LO_U16, OpCode::V_MUL_LO_U16_E64>(
-        isVOp3, rewriter, loc, actualDst, lhs, rhs);
+    result = createNewVOP<VMulLoU16>(rewriter, loc, actualDst, lhs, rhs);
   } else if (width <= 32) {
     if (lhsKind == OperandKind::IntImm) {
       APInt constVal;
       if (matchPattern(lhs, m_ConstantInt(&constVal))) {
         Value vgpr = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
-        lhs = V_MOV_B32_E32::create(rewriter, loc, vgpr, lhs).getVdstRes();
+        lhs = VMovB32::create(rewriter, loc, vgpr, lhs).getDst0Res();
         lhsKind = OperandKind::VGPR;
       }
     }
-    result =
-        V_MUL_LO_U32::create(rewriter, loc, actualDst, lhs, rhs).getVdst0Res();
+    result = VMulLoU32::create(rewriter, loc, actualDst, lhs, rhs).getDst0Res();
   } else {
     // 64-bit VGPR multiplication
     Value lLo = getElemOr(lhsR, 0, lhs);
@@ -1104,15 +1080,15 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
     Value t0 = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
     Value t1 = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
     Value carry = createAllocation(rewriter, loc, getSGPR(getCtx(rewriter), 2));
-    t0 = V_MUL_LO_U32::create(rewriter, loc, t0, rHi, lLo).getVdst0Res();
-    t1 = V_MUL_LO_U32::create(rewriter, loc, t1, rLo, lHi).getVdst0Res();
+    t0 = VMulLoU32::create(rewriter, loc, t0, rHi, lLo).getDst0Res();
+    t1 = VMulLoU32::create(rewriter, loc, t1, rLo, lHi).getDst0Res();
     Value zero = getI32Constant(rewriter, loc, 0);
     ValueRange dT0 = splitRange(
         rewriter, loc,
-        V_MAD_U64_U32::create(rewriter, loc, actualDst, carry, rLo, lLo, zero)
-            .getVdst0Res());
+        VMadU64U32::create(rewriter, loc, actualDst, carry, rLo, lLo, zero)
+            .getDst0Res());
     Value t3 =
-        V_ADD3_U32::create(rewriter, loc, dT0[1], dT0[1], t1, t0).getVdst0Res();
+        VAdd3U32::create(rewriter, loc, dT0[1], dT0[1], t1, t0).getDst0Res();
     result = MakeRegisterRangeOp::create(rewriter, loc, oTy, {dT0[0], t3});
   }
 
@@ -1158,14 +1134,13 @@ MulHiSIOpPattern::matchAndRewrite(lsir::MulHiSIOp op,
     if (matchPattern(v, m_ConstantInt(&constVal)) &&
         !constVal.isSignedIntN(6)) {
       Value vgpr = createAllocation(rewriter, loc, getVGPR(getCtx(rewriter)));
-      v = V_MOV_B32_E32::create(rewriter, loc, vgpr, v).getVdstRes();
+      v = VMovB32::create(rewriter, loc, vgpr, v).getDst0Res();
     }
   };
   movLargeImm(lhs, lhsKind);
   movLargeImm(rhs, rhsKind);
 
-  Value result =
-      V_MUL_HI_I32::create(rewriter, loc, dst, lhs, rhs).getVdst0Res();
+  Value result = VMulHiI32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -1207,8 +1182,7 @@ LogicalResult OrIOpPattern::matchAndRewrite(lsir::OrIOp op,
   }
 
   // Handle the VGPR case
-  Value result = createVOP<OpCode::V_OR_B32, OpCode::V_OR_B32_E64>(
-      isVOp3, rewriter, loc, dst, lhs, rhs);
+  Value result = createNewVOP<VOrB32>(rewriter, loc, dst, lhs, rhs);
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -1257,8 +1231,7 @@ LogicalResult XOrIOpPattern::matchAndRewrite(lsir::XOrIOp op,
   }
 
   // Handle the VGPR case
-  Value result = createVOP<OpCode::V_XOR_B32, OpCode::V_XOR_B32_E64>(
-      isVOp3, rewriter, loc, dst, lhs, rhs);
+  Value result = createNewVOP<VXorB32>(rewriter, loc, dst, lhs, rhs);
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -1277,9 +1250,8 @@ LogicalResult MovOpPattern::matchAndRewrite(lsir::MovOp op,
   Value res;
   switch (kind) {
   case OperandKind::VGPR:
-    res =
-        V_MOV_B32_E32::create(rewriter, op.getLoc(), op.getDst(), op.getValue())
-            .getVdstRes();
+    res = VMovB32::create(rewriter, op.getLoc(), op.getDst(), op.getValue())
+              .getDst0Res();
     break;
   case OperandKind::SGPR:
     res = S_MOV_B32::create(rewriter, op.getLoc(), op.getDst(), op.getValue())
@@ -1312,10 +1284,10 @@ RegCastOpPattern::matchAndRewrite(lsir::RegCastOp op,
         op, "Can only handle single word conversion conversion");
   }
 
-  Value res = V_MOV_B32_E32::create(
-                  rewriter, loc, createAllocation(rewriter, loc, op.getType()),
-                  op.getSrc())
-                  .getVdstRes();
+  Value res = VMovB32::create(rewriter, loc,
+                              createAllocation(rewriter, loc, op.getType()),
+                              op.getSrc())
+                  .getDst0Res();
   rewriter.replaceOp(op, res);
   return success();
 }
@@ -1390,16 +1362,14 @@ LogicalResult ShLIOpPattern::matchAndRewrite(lsir::ShLIOp op,
   Value result;
   if (width == 16) {
     // NOTE: Operands are reversed
-    result = createVOP<OpCode::V_LSHLREV_B16, OpCode::V_LSHLREV_B16_E64>(
-        isVOp3, rewriter, loc, actualDst, rhs, lhs);
+    result = createNewVOP<VLshlrevB16>(rewriter, loc, actualDst, rhs, lhs);
   } else if (width == 32) {
     // NOTE: Operands are reversed
-    result = createVOP<OpCode::V_LSHLREV_B32_E32, OpCode::V_LSHLREV_B32_E64>(
-        isVOp3, rewriter, loc, actualDst, rhs, lhs);
+    result = createNewVOP<VLshlrevB32>(rewriter, loc, actualDst, rhs, lhs);
   } else {
     // NOTE: Operands are reversed
     result =
-        V_LSHLREV_B64::create(rewriter, loc, actualDst, rhs, lhs).getVdst0Res();
+        VLshlrevB64::create(rewriter, loc, actualDst, rhs, lhs).getDst0Res();
   }
 
   // Copy VGPR result back to SGPR destination.
@@ -1449,21 +1419,18 @@ LogicalResult ShRSIOpPattern::matchAndRewrite(lsir::ShRSIOp op,
   // Handle the VGPR case
   if (width == 16) {
     // NOTE: Operands are reversed
-    Value result = createVOP<OpCode::V_ASHRREV_I16, OpCode::V_ASHRREV_I16_E64>(
-        isVOp3, rewriter, loc, dst, rhs, lhs);
+    Value result = createNewVOP<VAshrrevI16>(rewriter, loc, dst, rhs, lhs);
     rewriter.replaceOp(op, result);
     return success();
   }
   if (width == 32) {
     // NOTE: Operands are reversed
-    Value result = createVOP<OpCode::V_ASHRREV_I32, OpCode::V_ASHRREV_I32_E64>(
-        isVOp3, rewriter, loc, dst, rhs, lhs);
+    Value result = createNewVOP<VAshrrevI32>(rewriter, loc, dst, rhs, lhs);
     rewriter.replaceOp(op, result);
     return success();
   }
   // NOTE: Operands are reversed
-  Value result =
-      V_ASHRREV_I64::create(rewriter, loc, dst, rhs, lhs).getVdst0Res();
+  Value result = VAshrrevI64::create(rewriter, loc, dst, rhs, lhs).getDst0Res();
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -1507,21 +1474,18 @@ LogicalResult ShRUIOpPattern::matchAndRewrite(lsir::ShRUIOp op,
   // Handle the VGPR case
   if (width == 16) {
     // NOTE: Operands are reversed
-    Value result = createVOP<OpCode::V_LSHRREV_B16, OpCode::V_LSHRREV_B16_E64>(
-        isVOp3, rewriter, loc, dst, rhs, lhs);
+    Value result = createNewVOP<VLshrrevB16>(rewriter, loc, dst, rhs, lhs);
     rewriter.replaceOp(op, result);
     return success();
   }
   if (width == 32) {
     // NOTE: Operands are reversed
-    Value result = createVOP<OpCode::V_LSHRREV_B32, OpCode::V_LSHRREV_B32_E64>(
-        isVOp3, rewriter, loc, dst, rhs, lhs);
+    Value result = createNewVOP<VLshrrevB32>(rewriter, loc, dst, rhs, lhs);
     rewriter.replaceOp(op, result);
     return success();
   }
   // NOTE: Operands are reversed
-  Value result =
-      V_LSHRREV_B64::create(rewriter, loc, dst, rhs, lhs).getVdst0Res();
+  Value result = VLshrrevB64::create(rewriter, loc, dst, rhs, lhs).getDst0Res();
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -1824,9 +1788,6 @@ LogicalResult SubIOpPattern::matchAndRewrite(lsir::SubIOp op,
     std::swap(lhsKind, rhsKind);
   }
 
-  // Determine whether we need to use VOP3.
-  bool isVOp3 = rhsKind == OperandKind::SGPR;
-
   // At this point, operands are valid - create the appropriate add op
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
@@ -1850,14 +1811,12 @@ LogicalResult SubIOpPattern::matchAndRewrite(lsir::SubIOp op,
 
   // Handle the VGPR case
   if (width <= 16) {
-    Value result = createVOP<OpCode::V_SUB_U16, OpCode::V_SUB_U16_E64>(
-        isVOp3, rewriter, loc, dst, lhs, rhs);
+    Value result = createNewVOP<VSubU16>(rewriter, loc, dst, lhs, rhs);
     rewriter.replaceOp(op, result);
     return success();
   }
   if (width <= 32) {
-    Value result = createVOP<OpCode::V_SUB_U32, OpCode::V_SUB_U32_E64>(
-        isVOp3, rewriter, loc, dst, lhs, rhs);
+    Value result = createNewVOP<VSubU32>(rewriter, loc, dst, lhs, rhs);
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -1866,14 +1825,13 @@ LogicalResult SubIOpPattern::matchAndRewrite(lsir::SubIOp op,
   Value carry = createAllocation(
       rewriter, loc, rewriter.getType<SGPRType>(RegisterRange(Register(), 2)));
 
-  Value lo =
-      V_SUB_CO_U32_E64::create(rewriter, loc, getElemOr(dstR, 0, dst), carry,
+  Value lo = VSubCoU32::create(rewriter, loc, getElemOr(dstR, 0, dst), carry,
                                getElemOr(lhsR, 0, lhs), getElemOr(rhsR, 0, rhs))
-          .getVdst0Res();
-  Value hi = V_SUBB_CO_U32_E64::create(rewriter, loc, getElemOr(dstR, 1, dst),
-                                       carry, getElemOr(lhsR, 1, lhs),
-                                       getElemOr(rhsR, 1, rhs), carry)
-                 .getVdst0Res();
+                 .getDst0Res();
+  Value hi = VSubbCoU32::create(rewriter, loc, getElemOr(dstR, 1, dst), carry,
+                                getElemOr(lhsR, 1, lhs),
+                                getElemOr(rhsR, 1, rhs), carry)
+                 .getDst0Res();
   rewriter.replaceOp(op,
                      MakeRegisterRangeOp::create(rewriter, loc, oTy, {lo, hi}));
   return success();

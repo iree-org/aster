@@ -155,7 +155,7 @@ amdgcn.kernel @explicit_accvgpr_write_imm {
 // CHECK-LABEL: amdgcn.kernel @explicit_accvgpr_write_from_vgpr {
 // CHECK-DAG:     %[[V:.*]] = alloca : !amdgcn.vgpr<0>
 // CHECK-DAG:     %[[A:.*]] = alloca : !amdgcn.agpr<0>
-// CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32> %[[V]], %c99_i32 : (!amdgcn.vgpr<0>, i32) -> ()
+// CHECK:         v_mov_b32 outs(%[[V]]) ins(%c99_i32) : outs(!amdgcn.vgpr<0>) ins(i32)
 // CHECK:         vop3p v_accvgpr_write_b32 outs %[[A]] ins %[[V]] : !amdgcn.agpr<0>, !amdgcn.vgpr<0>
 // CHECK:         vop3p v_accvgpr_read_b32 outs %[[V]] ins %[[A]] : !amdgcn.vgpr<0>, !amdgcn.agpr<0>
 // CHECK:         test_inst ins %[[V]] : (!amdgcn.vgpr<0>) -> ()
@@ -165,7 +165,7 @@ amdgcn.kernel @explicit_accvgpr_write_from_vgpr {
   %a = alloca : !amdgcn.agpr<?>
   %v_dst = alloca : !amdgcn.vgpr<?>
   %c99 = arith.constant 99 : i32
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %v_src, %c99 : (!amdgcn.vgpr<?>, i32) -> ()
+  amdgcn.v_mov_b32 outs(%v_src) ins(%c99) : outs(!amdgcn.vgpr<?>) ins(i32)
   amdgcn.vop3p v_accvgpr_write_b32 outs %a ins %v_src : !amdgcn.agpr<?>, !amdgcn.vgpr<?>
   amdgcn.vop3p v_accvgpr_read_b32 outs %v_dst ins %a : !amdgcn.vgpr<?>, !amdgcn.agpr<?>
   test_inst ins %v_dst : (!amdgcn.vgpr<?>) -> ()

@@ -26,8 +26,7 @@ amdgcn.module @m0_roundtrip_mod target = #amdgcn.target<gfx942> {
     // Compute per-lane byte offset: threadidx.x * 4
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     // Write constant 42 to M0 via s_mov_b32
     // M0 is pre-allocated (fixed physical register), so write has no SSA result.
@@ -43,8 +42,7 @@ amdgcn.module @m0_roundtrip_mod target = #amdgcn.target<gfx942> {
 
     // Broadcast scalar to all VGPR lanes via v_mov_b32_e32
     %v_dest = amdgcn.alloca : !amdgcn.vgpr
-    %v_val = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_dest, %s_val
-      : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v_val = amdgcn.v_mov_b32 outs(%v_dest) ins(%s_val) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
 
     // Store to global: out[threadidx.x] = 42
     %c0 = arith.constant 0 : i32

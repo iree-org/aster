@@ -28,8 +28,7 @@ amdgcn.module @test_gap_0_2 target = <gfx942> {
       %i_i32_s2 = arith.index_cast %i {sched.stage = 2 : i32} : index to i32
       %off = arith.muli %i_i32_s2, %c4_i32 {sched.stage = 2 : i32} : i32
       %off_reg = lsir.to_reg %off {sched.stage = 2 : i32} : i32 -> !v
-      %data = amdgcn.vop1.vop1 <v_mov_b32_e32> %s_val, %val_reg {sched.stage = 2 : i32}
-        : (!v, !v) -> !v
+      %data = amdgcn.v_mov_b32 outs(%s_val) ins(%val_reg) {sched.stage = 2 : i32} : outs(!v) ins(!v)
       %tok = amdgcn.store global_store_dword data %data addr %out_ptr offset d(%off_reg) {sched.stage = 2 : i32}
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
@@ -66,8 +65,7 @@ amdgcn.module @test_gap_0_3 target = <gfx942> {
       %i_i32_s3 = arith.index_cast %i {sched.stage = 3 : i32} : index to i32
       %off = arith.muli %i_i32_s3, %c4_i32 {sched.stage = 3 : i32} : i32
       %off_reg = lsir.to_reg %off {sched.stage = 3 : i32} : i32 -> !v
-      %data = amdgcn.vop1.vop1 <v_mov_b32_e32> %s_val, %val_reg {sched.stage = 3 : i32}
-        : (!v, !v) -> !v
+      %data = amdgcn.v_mov_b32 outs(%s_val) ins(%val_reg) {sched.stage = 3 : i32} : outs(!v) ins(!v)
       %tok = amdgcn.store global_store_dword data %data addr %out_ptr offset d(%off_reg) {sched.stage = 3 : i32}
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
@@ -109,8 +107,7 @@ amdgcn.module @test_gap_0_2_5 target = <gfx942> {
       %i_i32_s5 = arith.index_cast %i {sched.stage = 5 : i32} : index to i32
       %off = arith.muli %i_i32_s5, %c4_i32 {sched.stage = 5 : i32} : i32
       %off_reg = lsir.to_reg %off {sched.stage = 5 : i32} : i32 -> !v
-      %data = amdgcn.vop1.vop1 <v_mov_b32_e32> %s2, %v2 {sched.stage = 5 : i32}
-        : (!v, !v) -> !v
+      %data = amdgcn.v_mov_b32 outs(%s2) ins(%v2) {sched.stage = 5 : i32} : outs(!v) ins(!v)
       %tok = amdgcn.store global_store_dword data %data addr %out_ptr offset d(%off_reg) {sched.stage = 5 : i32}
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
     }
@@ -148,7 +145,7 @@ amdgcn.module @test_gap_0_2_iter_args target = <gfx942> {
     // Store result at output[0]
     %s = lsir.to_reg %result : i32 -> !amdgcn.sgpr
     %d = amdgcn.alloca : !v
-    %v = amdgcn.vop1.vop1 <v_mov_b32_e32> %d, %s : (!v, !amdgcn.sgpr) -> !v
+    %v = amdgcn.v_mov_b32 outs(%d) ins(%s) : outs(!v) ins(!amdgcn.sgpr)
     %c0_i32 = arith.constant 0 : i32
     %off = lsir.to_reg %c0_i32 : i32 -> !v
     %tok = amdgcn.store global_store_dword data %v addr %out offset d(%off)

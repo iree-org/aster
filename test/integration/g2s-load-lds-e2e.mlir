@@ -97,8 +97,7 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> {
     // Compute byte offset for global memory: tid * 4
     %voff_alloc = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     // Set M0 = 44 (non-trivial dword-aligned LDS base offset for coverage).
     // Hardware writes to LDS at M0[17:2]*4 + tid*4 = 44 + tid*4.

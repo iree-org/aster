@@ -19,8 +19,8 @@ def build_add_10_module(ctx: ir.Context, num_add_instructions: int) -> ir.Module
     # Initialize with constants via v_add_u32 (lhs = 0 + 1, rhs = 0 + 2)
     c1 = b.constant_i32(1)
     c2 = b.constant_i32(2)
-    b.vop2("v_add_u32", c1, lhs)
-    b.vop2("v_add_u32", c2, rhs)
+    b.v_add_u32(c1, lhs)
+    b.v_add_u32(c2, rhs)
 
     # Perform sequential adds
     b.v_add_u32(lhs, rhs)

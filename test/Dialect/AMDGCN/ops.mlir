@@ -137,7 +137,7 @@ amdgcn.library @library_mixed_ops isa = [#amdgcn.isa<cdna3>] {
   func.func @mixed_arith_and_amdgcn(%x: i32) -> i32 {
     %c2 = arith.constant 2 : i32
     %doubled = arith.muli %x, %c2 : i32
-    amdgcn.vop1.v_nop
+    amdgcn.v_nop
     return %doubled : i32
   }
 }
@@ -145,7 +145,7 @@ amdgcn.library @library_mixed_ops isa = [#amdgcn.isa<cdna3>] {
 // Library with isa attribute can contain AMDGCN instructions
 amdgcn.library @library_with_amdgcn_insts isa = [#amdgcn.isa<cdna3>] {
   func.func @func_with_nop() {
-    amdgcn.vop1.v_nop
+    amdgcn.v_nop
     return
   }
 }
@@ -178,7 +178,7 @@ func.func @test_make_register_ranges_relocatable() -> (!amdgcn.vgpr, !amdgcn.vgp
 //===----------------------------------------------------------------------===//
 
 func.func @test_vop1_nop() {
-  amdgcn.vop1.v_nop
+  amdgcn.v_nop
   return
 }
 

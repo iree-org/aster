@@ -16,7 +16,7 @@ amdgcn.module @test_uniform_loop target = <gfx942> {
       %4 = arith.muli %arg0, %c4_i32 : i32
       %5 = lsir.to_reg %4 : i32 -> !amdgcn.sgpr
       %6 = amdgcn.alloca : !amdgcn.vgpr
-      %7 = amdgcn.vop1.vop1 <v_mov_b32_e32> %6, %5 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+      %7 = amdgcn.v_mov_b32 outs(%6) ins(%5) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
       %8 = amdgcn.store global_store_dword data %7 addr %1 offset d(%7) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
     }
     end_kernel

@@ -3,8 +3,8 @@
 // CHECK-LABEL: kernel @two_vgpr_alloc
 // CHECK-DAG:     %[[V0:.*]] = alloca : !amdgcn.vgpr<0>
 // CHECK-DAG:     %[[V1:.*]] = alloca : !amdgcn.vgpr<1>
-// CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32> %[[V0]]
-// CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32> %[[V1]]
+// CHECK:         v_mov_b32 outs(%[[V0]])
+// CHECK:         v_mov_b32 outs(%[[V1]])
 // CHECK:         test_inst ins %[[V0]], %[[V1]]
 // CHECK-NOT:     alloca : !amdgcn.vgpr{{$}}
 // CHECK-NOT:     amdgcn.wait
@@ -14,8 +14,8 @@ amdgcn.module @test_two_vgpr target = <gfx942> {
     %b = amdgcn.alloca : !amdgcn.vgpr
     %c0 = arith.constant 0 : i32
     %c1 = arith.constant 1 : i32
-    %a_val = amdgcn.vop1.vop1 <v_mov_b32_e32> %a, %c0 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
-    %b_val = amdgcn.vop1.vop1 <v_mov_b32_e32> %b, %c1 : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %a_val = amdgcn.v_mov_b32 outs(%a) ins(%c0) : outs(!amdgcn.vgpr) ins(i32)
+    %b_val = amdgcn.v_mov_b32 outs(%b) ins(%c1) : outs(!amdgcn.vgpr) ins(i32)
     amdgcn.test_inst ins %a_val, %b_val : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
     amdgcn.end_kernel
   }

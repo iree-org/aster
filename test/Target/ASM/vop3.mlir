@@ -14,7 +14,7 @@ amdgcn.module @vop3 target = <gfx942> {
     %8 = make_register_range %4, %5 : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
     %c0_i32 = arith.constant 0 : i32
     // CHECK: v_lshl_add_u64 v[0:1], v[2:3], 0, s[0:1]
-    vop3 v_lshl_add_u64 outs %6 ins %8, %c0_i32 src2 = %7 : !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, i32, !amdgcn.sgpr<[0 : 2]>
+    amdgcn.v_lshl_add_u64 outs(%6) ins(%8, %c0_i32, %7) : outs(!amdgcn.vgpr<[0 : 2]>) ins(!amdgcn.vgpr<[2 : 4]>, i32, !amdgcn.sgpr<[0 : 2]>)
     end_kernel
   }
 }

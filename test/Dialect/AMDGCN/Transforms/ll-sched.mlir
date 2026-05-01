@@ -82,9 +82,9 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
   // Independent VALU and SALU: GraphBuilder allows free reordering.
   // Same-queue ops group together (VALU first, then SALU).
   // CHECK-LABEL: kernel @group_valu_salu
-  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
+  // CHECK:         v_mov_b32
   // CHECK:         sop1 s_mov_b32
-  // CHECK:         amdgcn.vop1.vop1 <v_mov_b32_e32>
+  // CHECK:         v_mov_b32
   // CHECK:         sop1 s_mov_b32
   // CHECK:         end_kernel
   amdgcn.kernel @group_valu_salu {
@@ -94,10 +94,10 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %v3 = amdgcn.alloca : !v
     %s0 = amdgcn.alloca : !s
     %s1 = amdgcn.alloca : !s
-    %r0 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v0, %v1 : (!v, !v) -> !v
+    %r0 = amdgcn.v_mov_b32 outs(%v0) ins(%v1) : outs(!v) ins(!v)
     %c0 = arith.constant 0 : i32
     %rs0 = amdgcn.sop1 s_mov_b32 outs %s0 ins %c0 : !s, i32
-    %r1 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v2, %v3 : (!v, !v) -> !v
+    %r1 = amdgcn.v_mov_b32 outs(%v2) ins(%v3) : outs(!v) ins(!v)
     %c1 = arith.constant 1 : i32
     %rs1 = amdgcn.sop1 s_mov_b32 outs %s1 ins %c1 : !s, i32
     amdgcn.end_kernel
@@ -105,30 +105,30 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
 
   // Data dependency: vop2 depends on vop1 result. SALU is independent.
   // CHECK-LABEL: kernel @respect_data_deps
-  // CHECK:         %[[R0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32>
+  // CHECK:         %[[R0:.*]] = v_mov_b32
   // CHECK:         sop1 s_mov_b32
-  // CHECK:         vop2 v_add_u32 outs %{{.*}} ins %[[R0]],
+  // CHECK:         v_add_u32 outs(%{{.*}}) ins(%[[R0]],
   // CHECK:         end_kernel
   amdgcn.kernel @respect_data_deps {
     %v0 = amdgcn.alloca : !v
     %v1 = amdgcn.alloca : !v
     %v2 = amdgcn.alloca : !v
     %s0 = amdgcn.alloca : !s
-    %r0 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v0, %v2 : (!v, !v) -> !v
+    %r0 = amdgcn.v_mov_b32 outs(%v0) ins(%v2) : outs(!v) ins(!v)
     %c0 = arith.constant 42 : i32
     %rs0 = amdgcn.sop1 s_mov_b32 outs %s0 ins %c0 : !s, i32
-    %r1 = amdgcn.vop2 v_add_u32 outs %v1 ins %r0, %v2 : !v, !v, !v
+    %r1 = amdgcn.v_add_u32 outs(%v1) ins(%r0, %v2) : outs(!v) ins(!v, !v)
     amdgcn.end_kernel
   }
 
   // VALU addr computations batch before VMEM loads (SSA deps).
   // CHECK-LABEL: kernel @vmem_addr_load_interleave
-  // CHECK:         vop2 v_add_u32
+  // CHECK:         v_add_u32
   // CHECK:         load global_load_dwordx4
-  // CHECK:         vop2 v_add_u32
+  // CHECK:         v_add_u32
   // CHECK:         load global_load_dwordx4
-  // CHECK:         vop2 v_add_u32
-  // CHECK:         vop2 v_add_u32
+  // CHECK:         v_add_u32
+  // CHECK:         v_add_u32
   // CHECK:         load global_load_dwordx4
   // CHECK:         load global_load_dwordx4
   // CHECK:         end_kernel
@@ -165,10 +165,10 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %c1024 = arith.constant 1024 : i32
     %c2048 = arith.constant 2048 : i32
     %c3072 = arith.constant 3072 : i32
-    %a0 = amdgcn.vop2 v_add_u32 outs %off0 ins %c0, %base : !v, i32, !v
-    %a1 = amdgcn.vop2 v_add_u32 outs %off1 ins %c1024, %base : !v, i32, !v
-    %a2 = amdgcn.vop2 v_add_u32 outs %off2 ins %c2048, %base : !v, i32, !v
-    %a3 = amdgcn.vop2 v_add_u32 outs %off3 ins %c3072, %base : !v, i32, !v
+    %a0 = amdgcn.v_add_u32 outs(%off0) ins(%c0, %base) : outs(!v) ins(i32, !v)
+    %a1 = amdgcn.v_add_u32 outs(%off1) ins(%c1024, %base) : outs(!v) ins(i32, !v)
+    %a2 = amdgcn.v_add_u32 outs(%off2) ins(%c2048, %base) : outs(!v) ins(i32, !v)
+    %a3 = amdgcn.v_add_u32 outs(%off3) ins(%c3072, %base) : outs(!v) ins(i32, !v)
     %r0, %t0 = amdgcn.load global_load_dwordx4 dest %d0 addr %addr offset d(%a0)
         : dps(!vx4) ins(!sx2, !v) -> !amdgcn.read_token<flat>
     %r1, %t1 = amdgcn.load global_load_dwordx4 dest %d1 addr %addr offset d(%a1)
@@ -263,9 +263,9 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %waddr = amdgcn.alloca : !v
     %c0 = arith.constant 0 : i32
     // VALU chain: %wd0 and %wd1 can only be scheduled after %r0.
-    %r0 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %va, %vb : (!v, !v) -> !v
-    %wd0 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %va, %r0 : (!v, !v) -> !v
-    %wd1 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %vb, %r0 : (!v, !v) -> !v
+    %r0 = amdgcn.v_mov_b32 outs(%va) ins(%vb) : outs(!v) ins(!v)
+    %wd0 = amdgcn.v_mov_b32 outs(%va) ins(%r0) : outs(!v) ins(!v)
+    %wd1 = amdgcn.v_mov_b32 outs(%vb) ins(%r0) : outs(!v) ins(!v)
     // %dst becomes ready as soon as rd0/rd1 are scheduled (early), making
     // ds_read SSA-ready while the VALU chain (%wd0, %wd1) is still in flight.
     %dst = amdgcn.make_register_range %rd0, %rd1 : !v, !v

@@ -71,13 +71,13 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     // Packed: 0x81818181 = 2172748161
     %e8m0_4x = arith.constant 2172748161 : i32
     %s0_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %s0 = amdgcn.vop1.vop1 <v_mov_b32_e32> %s0_s, %e8m0_4x : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %s0 = amdgcn.v_mov_b32 outs(%s0_s) ins(%e8m0_4x) : outs(!amdgcn.vgpr) ins(i32)
 
     // Scale B: E8M0 exponent 128 -> 2^(128-127) = 2.0
     // Packed: 0x80808080 = 2155905152
     %e8m0_2x = arith.constant 2155905152 : i32
     %s1_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %s1 = amdgcn.vop1.vop1 <v_mov_b32_e32> %s1_s, %e8m0_2x : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %s1 = amdgcn.v_mov_b32 outs(%s1_s) ins(%e8m0_2x) : outs(!amdgcn.vgpr) ins(i32)
 
     %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
         %dst, %a, %b, %dst, %s0, %s1
@@ -88,8 +88,7 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     // Store result: threadidx_x * 16 bytes (4 f32 per lane)
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %shift_4 = arith.constant 4 : i32
-    %thread_offset = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_s ins %shift_4, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%shift_4, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0_store = arith.constant 0 : i32
     %tok = amdgcn.store global_store_dwordx4 data %result addr %c_ptr
         offset d(%thread_offset) + c(%c0_store)
@@ -151,9 +150,9 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     // Packed: 0x7F7F7F7F = 2139062143
     %e8m0_id = arith.constant 2139062143 : i32
     %s0_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %s0 = amdgcn.vop1.vop1 <v_mov_b32_e32> %s0_s, %e8m0_id : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %s0 = amdgcn.v_mov_b32 outs(%s0_s) ins(%e8m0_id) : outs(!amdgcn.vgpr) ins(i32)
     %s1_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %s1 = amdgcn.vop1.vop1 <v_mov_b32_e32> %s1_s, %e8m0_id : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %s1 = amdgcn.v_mov_b32 outs(%s1_s) ins(%e8m0_id) : outs(!amdgcn.vgpr) ins(i32)
 
     %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
         %dst, %a, %b, %dst, %s0, %s1
@@ -164,8 +163,7 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     // Store result: threadidx_x * 16 bytes (4 f32 per lane)
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %shift_4 = arith.constant 4 : i32
-    %thread_offset = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_s ins %shift_4, %threadidx_x
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr<0>
+    %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%shift_4, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
     %c0_store = arith.constant 0 : i32
     %tok = amdgcn.store global_store_dwordx4 data %result addr %c_ptr
         offset d(%thread_offset) + c(%c0_store)

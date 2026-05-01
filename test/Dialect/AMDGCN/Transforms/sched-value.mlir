@@ -70,11 +70,11 @@ func.func @amdgcn_barrier(%arg0: !amdgcn.sgpr, %arg1: !amdgcn.sgpr, %arg2: !amdg
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr, %[[ARG2:.*]]: !amdgcn.sgpr, %[[ARG3:.*]]: !amdgcn.sgpr, %[[ARG4:.*]]: !amdgcn.vgpr, %[[ARG5:.*]]: !amdgcn.sgpr) -> (!amdgcn.vgpr, !amdgcn.sgpr) {
 // CHECK:           %[[VAL_0:.*]] = amdgcn.sop2 s_add_u32 outs %[[ARG5]] ins %[[ARG2]], %[[ARG3]] {sched.stage = 1 : i32} : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
 // CHECK:           amdgcn.sopp.sopp <s_barrier> {sched.stage = 0 : i32}
-// CHECK:           %[[VAL_1:.*]] = amdgcn.vop2 v_add_u32 outs %[[ARG4]] ins %[[ARG0]], %[[ARG1]] {sched.stage = 2 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[VAL_1:.*]] = amdgcn.v_add_u32 outs(%[[ARG4]]) ins(%[[ARG0]], %[[ARG1]]) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 // CHECK:           return %[[VAL_1]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.sgpr
 // CHECK:         }
 func.func @amdgcn_vop2_salu_barrier(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr, %arg2: !amdgcn.sgpr, %arg3: !amdgcn.sgpr, %arg4: !amdgcn.vgpr, %arg5: !amdgcn.sgpr) -> (!amdgcn.vgpr, !amdgcn.sgpr) attributes {sched = #sched} {
-  %vdst0_res = amdgcn.vop2 v_add_u32 outs %arg4 ins %arg0, %arg1 {sched.stage = 2 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  %vdst0_res = amdgcn.v_add_u32 outs(%arg4) ins(%arg0, %arg1) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   %0 = amdgcn.sop2 s_add_u32 outs %arg5 ins %arg2, %arg3 {sched.stage = 1 : i32} : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
   amdgcn.sopp.sopp <s_barrier> {sched.stage = 0 : i32}
   return %vdst0_res, %0 : !amdgcn.vgpr, !amdgcn.sgpr
@@ -235,13 +235,13 @@ func.func @promote_pure_op_forward() attributes {sched = #sched} {
 // CHECK:           %[[ALLOCA_1:.*]] = lsir.alloca : !amdgcn.vgpr
 // CHECK:           %[[ALLOCA_2:.*]] = lsir.alloca : !amdgcn.vgpr
 // CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
-// CHECK:           %[[VAL_1:.*]] = amdgcn.vop2 v_add_u32 outs %[[ALLOCA_1]] ins %[[VAL_0]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[VAL_1:.*]] = amdgcn.v_add_u32 outs(%[[ALLOCA_1]]) ins(%[[VAL_0]], %[[VAL_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 // CHECK:           %[[VAL_2:.*]], %[[LOAD_1:.*]] = amdgcn.load global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
 // CHECK:           %[[STORE_0:.*]] = amdgcn.store ds_write_b32 data %[[VAL_0]] addr %[[ALLOCA_1]] : ins(!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.write_token<shared>
 // CHECK:           amdgcn.wait lgkm_cnt 0
 // CHECK:           amdgcn.sopp.sopp <s_barrier>
 // CHECK:           %[[VAL_3:.*]], %[[LOAD_2:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_2]] addr %[[VAL_1]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
-// CHECK:           %[[VAL_4:.*]] = amdgcn.vop2 v_add_i32 outs %[[ALLOCA_1]] ins %[[VAL_0]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[VAL_4:.*]] = amdgcn.v_add_i32 outs(%[[ALLOCA_1]]) ins(%[[VAL_0]], %[[VAL_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 // CHECK:           %[[VAL_5:.*]], %[[LOAD_3:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_2]] addr %[[VAL_4]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           return
@@ -251,7 +251,7 @@ func.func @advanced_sched() attributes {
       #aster_utils.sched_list_labeler<[
         #amdgcn.opcode_labeler<[s_barrier], 0>,
         #aster_utils.op_name_labeler<["arith.constant"], 4>,
-        #amdgcn.opcode_labeler<[v_add_i32], 3>,
+        #amdgcn.opcode_labeler<[_v_add_i32], 3>,
         #amdgcn.inst_prop_labeler<[is_vmem, is_valu], 1>,
         #amdgcn.inst_prop_labeler<[dsmem], 2>
       ]>,
@@ -262,11 +262,11 @@ func.func @advanced_sched() attributes {
   %2 = lsir.alloca : !amdgcn.vgpr
   %c0 = arith.constant 0 : i32
   %dest_res, %token = amdgcn.load global_load_dword dest %2 addr %0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
-  %vdst0_res = amdgcn.vop2 v_add_i32 outs %1 ins %dest_res, %dest_res : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  %vdst0_res = amdgcn.v_add_i32 outs(%1) ins(%dest_res, %dest_res) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   %3 = amdgcn.store ds_write_b32 data %dest_res addr %1 : ins(!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.write_token<shared>
   amdgcn.wait lgkm_cnt 0
   amdgcn.sopp.sopp <s_barrier>
-  %vdst0_res_0 = amdgcn.vop2 v_add_u32 outs %1 ins %dest_res, %dest_res : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  %vdst0_res_0 = amdgcn.v_add_u32 outs(%1) ins(%dest_res, %dest_res) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   %dest_res_1, %token_2 = amdgcn.load ds_read_b32 dest %2 addr %vdst0_res_0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
   %dest_res_3, %token_4 = amdgcn.load ds_read_b32 dest %2 addr %vdst0_res : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
   %dest_res_5, %token_6 = amdgcn.load global_load_dword dest %2 addr %0 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
@@ -277,10 +277,10 @@ func.func @advanced_sched() attributes {
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr
 // CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr
 // CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[VAL_0:.*]] = amdgcn.vop2 v_add_u32 outs %[[ALLOCA_2]] ins %[[ALLOCA_1]], %[[ALLOCA_0]] {sched.stage = 2 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[VAL_0:.*]] = amdgcn.v_add_u32 outs(%[[ALLOCA_2]]) ins(%[[ALLOCA_1]], %[[ALLOCA_0]]) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 // CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[VAL_1:.*]] = amdgcn.vop2 v_add_u32 outs %[[ALLOCA_3]] ins %[[ALLOCA_1]], %[[ALLOCA_0]] {sched.stage = 1 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-// CHECK:           %[[VAL_2:.*]] = amdgcn.vop2 v_add_u32 outs %[[ALLOCA_2]] ins %[[VAL_0]], %[[VAL_1]] {sched.stage = 0 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+// CHECK:           %[[VAL_1:.*]] = amdgcn.v_add_u32 outs(%[[ALLOCA_3]]) ins(%[[ALLOCA_1]], %[[ALLOCA_0]]) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
+// CHECK:           %[[VAL_2:.*]] = amdgcn.v_add_u32 outs(%[[ALLOCA_2]]) ins(%[[VAL_0]], %[[VAL_1]]) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 // CHECK:           return
 // CHECK:         }
 // This test checks a regression in the value scheduler, the SSA chain always
@@ -290,8 +290,8 @@ func.func @ssa_chain() attributes {sched = #sched} {
   %1 = amdgcn.alloca : !amdgcn.vgpr
   %2 = amdgcn.alloca : !amdgcn.vgpr
   %3 = amdgcn.alloca : !amdgcn.vgpr
-  %4 = amdgcn.vop2 v_add_u32 outs %2 ins %1, %0 {sched.stage = 2 : i32}  : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  %5 = amdgcn.vop2 v_add_u32 outs %3 ins %1, %0 {sched.stage = 1 : i32}  : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-  %6 = amdgcn.vop2 v_add_u32 outs %2 ins %4, %5 {sched.stage = 0 : i32}  : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
+  %4 = amdgcn.v_add_u32 outs(%2) ins(%1, %0) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
+  %5 = amdgcn.v_add_u32 outs(%3) ins(%1, %0) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
+  %6 = amdgcn.v_add_u32 outs(%2) ins(%4, %5) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   return
 }

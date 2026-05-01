@@ -189,10 +189,10 @@ struct CopyOpPattern : public OpRewritePattern<lsir::CopyOp> {
                                 PatternRewriter &rewriter) const override;
 };
 
-struct VOP1OpPattern : public OpRewritePattern<inst::VOP1Op> {
+struct VMovB32Pattern : public OpRewritePattern<VMovB32> {
   using Base::Base;
 
-  LogicalResult matchAndRewrite(inst::VOP1Op op,
+  LogicalResult matchAndRewrite(VMovB32 op,
                                 PatternRewriter &rewriter) const override;
 };
 
@@ -611,7 +611,7 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
       V_ACCVGPR_WRITE_B32::create(rewriter, tgt.getLoc(), tgt, vtmp);
       return;
     }
-    V_MOV_B32_E32::create(rewriter, tgt.getLoc(), tgt, src);
+    VMovB32::create(rewriter, tgt.getLoc(), tgt, src);
   };
 
   // Create the copy operations.
@@ -621,12 +621,9 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
   return success();
 }
 
-LogicalResult VOP1OpPattern::matchAndRewrite(inst::VOP1Op op,
-                                             PatternRewriter &rewriter) const {
-  auto opCode = op.getOpcode();
-  if (opCode != OpCode::V_MOV_B32_E32)
-    return failure();
-  RegisterTypeInterface dstTy = op.getVdst().getType();
+LogicalResult VMovB32Pattern::matchAndRewrite(VMovB32 op,
+                                              PatternRewriter &rewriter) const {
+  RegisterTypeInterface dstTy = op.getDst0().getType();
   auto srcTy = llvm::dyn_cast<RegisterTypeInterface>(op.getSrc0().getType());
   if (!srcTy)
     return failure();
@@ -708,7 +705,7 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
   RewritePatternSet patterns(&getContext());
   patterns.add<InstRewritePattern, MakeRegisterRangeOpPattern,
                RegInterferenceOpPattern, CopyOpPattern, SOP1OpPattern,
-               VOP1OpPattern>(&getContext());
+               VMovB32Pattern>(&getContext());
   FrozenRewritePatternSet frozenPatterns(std::move(patterns));
   if (failed(applyPatternsGreedily(
           funcOp, frozenPatterns,

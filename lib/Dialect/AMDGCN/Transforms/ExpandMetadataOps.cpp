@@ -368,8 +368,8 @@ static void handleThreadId(RewriterBase &rewriter, KernelOp op,
       if (needMaskX) {
         Value maskAlloc = AllocaOp::create(rewriter, loc, vgprTy());
         Value mask = arith::ConstantIntOp::create(rewriter, loc, 0x3FF, 32);
-        result = V_AND_B32::create(rewriter, loc, maskAlloc, mask, packedV0)
-                     .getVdst0Res();
+        result = VAndB32::create(rewriter, loc, maskAlloc, mask, packedV0)
+                     .getDst0Res();
       } else {
         result = packedV0;
       }
@@ -378,19 +378,18 @@ static void handleThreadId(RewriterBase &rewriter, KernelOp op,
       Value shiftAlloc = AllocaOp::create(rewriter, loc, vgprTy());
       Value ten = arith::ConstantIntOp::create(rewriter, loc, 10, 32);
       Value shifted =
-          V_LSHRREV_B32::create(rewriter, loc, shiftAlloc, ten, packedV0)
-              .getVdst0Res();
+          VLshrrevB32::create(rewriter, loc, shiftAlloc, ten, packedV0)
+              .getDst0Res();
       Value maskAlloc = AllocaOp::create(rewriter, loc, vgprTy());
       Value mask = arith::ConstantIntOp::create(rewriter, loc, 0x3FF, 32);
-      result = V_AND_B32::create(rewriter, loc, maskAlloc, mask, shifted)
-                   .getVdst0Res();
+      result =
+          VAndB32::create(rewriter, loc, maskAlloc, mask, shifted).getDst0Res();
     } else {
       // Z = v0 >> 20 (bits 30-31 are always zero, no mask needed).
       Value shiftAlloc = AllocaOp::create(rewriter, loc, vgprTy());
       Value twenty = arith::ConstantIntOp::create(rewriter, loc, 20, 32);
-      result =
-          V_LSHRREV_B32::create(rewriter, loc, shiftAlloc, twenty, packedV0)
-              .getVdst0Res();
+      result = VLshrrevB32::create(rewriter, loc, shiftAlloc, twenty, packedV0)
+                   .getDst0Res();
     }
     rewriter.replaceOp(threadId, result);
   }

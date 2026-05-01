@@ -89,8 +89,7 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
 
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %shift_4 = arith.constant 4 : i32
-    %thread_offset = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_s ins %shift_4, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%shift_4, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %c0_store = arith.constant 0 : i32
     %tok = amdgcn.store global_store_dwordx4 data %result addr %c_ptr
         offset d(%thread_offset) + c(%c0_store)
@@ -122,8 +121,7 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
 
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %shift_4 = arith.constant 4 : i32
-    %thread_offset = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_s ins %shift_4, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%shift_4, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %c0_store = arith.constant 0 : i32
     %tok = amdgcn.store global_store_dwordx4 data %result addr %c_ptr
         offset d(%thread_offset) + c(%c0_store)
@@ -157,8 +155,7 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
 
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %c6 = arith.constant 6 : i32
-    %thread_offset = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_s ins %c6, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%c6, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     %r:16 = amdgcn.split_register_range %result : !amdgcn.vgpr<[? + 16]>
 
@@ -212,8 +209,7 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
 
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %c6 = arith.constant 6 : i32
-    %thread_offset = amdgcn.vop2 v_lshlrev_b32_e32 outs %offset_s ins %c6, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%c6, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     %r:16 = amdgcn.split_register_range %result : !amdgcn.vgpr<[? + 16]>
 

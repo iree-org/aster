@@ -29,8 +29,7 @@ amdgcn.module @regalloc target = <gfx942> {
     %tid = amdgcn.thread_id x : !amdgcn.vgpr
     %c2 = arith.constant 2 : i32
     %off_reg = amdgcn.alloca : !amdgcn.vgpr<11>
-    amdgcn.vop2 v_lshlrev_b32_e32 outs %off_reg ins %c2, %tid
-      : !amdgcn.vgpr<11>, i32, !amdgcn.vgpr
+    amdgcn.v_lshlrev_b32 outs(%off_reg) ins(%c2, %tid) : outs(!amdgcn.vgpr<11>) ins(i32, !amdgcn.vgpr)
 
     // Load in[tid]
     %data_reg = amdgcn.alloca : !amdgcn.vgpr
@@ -44,8 +43,7 @@ amdgcn.module @regalloc target = <gfx942> {
     // out[tid] = in[tid] + 42
     %c42 = arith.constant 42 : i32
     %result_reg = amdgcn.alloca : !amdgcn.vgpr
-    %result = amdgcn.vop2 v_add_u32 outs %result_reg ins %c42, %data
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %result = amdgcn.v_add_u32 outs(%result_reg) ins(%c42, %data) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
     // Store result
     %tok_st = amdgcn.store global_store_dword data %result addr %dst

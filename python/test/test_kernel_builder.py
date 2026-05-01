@@ -332,7 +332,7 @@ def test_vop2_v_add_u32():
 
 
 def test_vop2_direct():
-    """VOP2 via amdgcn.vop2() -- 1 mandatory dest, no optional dst1."""
+    """VOP2 via amdgcn.vop2() routes migrated opcode to new per-instruction op."""
     text = _kernel_with(
         lambda b: amdgcn_dialect.vop2(
             "v_add_f32",
@@ -347,15 +347,15 @@ def test_vop2_direct():
 
 
 def test_vop3_builder():
-    """VOP3 via KernelBuilder.vop3() helper."""
+    """VOP3 via KernelBuilder.vop3() routes E64 opcode to new per-instruction op."""
     text = _kernel_with(
         lambda b: b.vop3("v_add_f32_e64", b.alloca_vgpr(), b.alloca_vgpr())
     )
-    assert "v_add_f32_e64" in text
+    assert "v_add_f32" in text
 
 
 def test_vop3_direct():
-    """VOP3 via amdgcn.vop3() -- 1 mandatory dest, no optional dst1."""
+    """VOP3 via amdgcn.vop3() routes E64 opcode to new per-instruction op."""
     text = _kernel_with(
         lambda b: amdgcn_dialect.vop3(
             "v_add_f32_e64",
@@ -366,7 +366,7 @@ def test_vop3_direct():
             ip=b._kip,
         )
     )
-    assert "v_add_f32_e64" in text
+    assert "v_add_f32" in text
 
 
 def test_cmpi_direct():

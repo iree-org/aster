@@ -113,7 +113,7 @@ void AMDGCNHazards::runOnOperation() {
 
     Location loc = instOp.getLoc();
     for (int i = 0; i < instCounts.getNumVector(); ++i)
-      inst::VOP1NopOp::create(rewriter, loc, OpCode::V_NOP);
+      VNop::create(rewriter, loc);
 
     int8_t numScalarNops = instCounts.getNumScalar();
 

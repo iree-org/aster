@@ -50,10 +50,8 @@ static Value getTargetRegister(Operation *op) {
   if (auto copyOp = dyn_cast<lsir::CopyOp>(op))
     return copyOp.getTarget();
 
-  if (auto instOp = dyn_cast<inst::VOP1Op>(op);
-      instOp && instOp.getOpcode() == OpCode::V_MOV_B32_E32) {
-    return instOp.getVdst();
-  }
+  if (auto instOp = dyn_cast<VMovB32>(op))
+    return instOp.getDst0();
   if (auto instOp = dyn_cast<inst::SOP1Op>(op);
       instOp && instOp.getOpcode() == OpCode::S_MOV_B32) {
     return instOp.getSdst();

@@ -33,15 +33,12 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
     %c99 = arith.constant 99 : i32
     %c100 = arith.constant 100 : i32
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     // Materialize constants into VGPRs (v_cndmask_b32 needs VGPR operands).
     %v_true_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %v_true = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_true_alloc, %c42
-      : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %v_true = amdgcn.v_mov_b32 outs(%v_true_alloc) ins(%c42) : outs(!amdgcn.vgpr) ins(i32)
     %v_false_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %v_false = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_false_alloc, %c99
-      : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %v_false = amdgcn.v_mov_b32 outs(%v_false_alloc) ins(%c99) : outs(!amdgcn.vgpr) ins(i32)
     %v_out_alloc = amdgcn.alloca : !amdgcn.vgpr
     %cmp = lsir.cmpi i32 slt %tid, %c100 : !amdgcn.vgpr, i32
     %selected = lsir.select %v_out_alloc, %cmp, %v_true, %v_false
@@ -65,14 +62,11 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
     %c42 = arith.constant 42 : i32
     %c99 = arith.constant 99 : i32
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %v_true_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %v_true = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_true_alloc, %c42
-      : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %v_true = amdgcn.v_mov_b32 outs(%v_true_alloc) ins(%c42) : outs(!amdgcn.vgpr) ins(i32)
     %v_false_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %v_false = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_false_alloc, %c99
-      : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %v_false = amdgcn.v_mov_b32 outs(%v_false_alloc) ins(%c99) : outs(!amdgcn.vgpr) ins(i32)
     %v_out_alloc = amdgcn.alloca : !amdgcn.vgpr
     %cmp = lsir.cmpi i32 slt %tid, %c0 : !amdgcn.vgpr, i32
     %selected = lsir.select %v_out_alloc, %cmp, %v_true, %v_false
@@ -98,14 +92,11 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
     %c99 = arith.constant 99 : i32
     %c32 = arith.constant 32 : i32
     %voff_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %voffset = amdgcn.vop2 v_lshlrev_b32_e32 outs %voff_alloc ins %c2, %tid
-      : !amdgcn.vgpr, i32, !amdgcn.vgpr
+    %voffset = amdgcn.v_lshlrev_b32 outs(%voff_alloc) ins(%c2, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %v_true_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %v_true = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_true_alloc, %c42
-      : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %v_true = amdgcn.v_mov_b32 outs(%v_true_alloc) ins(%c42) : outs(!amdgcn.vgpr) ins(i32)
     %v_false_alloc = amdgcn.alloca : !amdgcn.vgpr
-    %v_false = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %v_false_alloc, %c99
-      : (!amdgcn.vgpr, i32) -> !amdgcn.vgpr
+    %v_false = amdgcn.v_mov_b32 outs(%v_false_alloc) ins(%c99) : outs(!amdgcn.vgpr) ins(i32)
     %v_out_alloc = amdgcn.alloca : !amdgcn.vgpr
     %cmp = lsir.cmpi i32 slt %tid, %c32 : !amdgcn.vgpr, i32
     %selected = lsir.select %v_out_alloc, %cmp, %v_true, %v_false

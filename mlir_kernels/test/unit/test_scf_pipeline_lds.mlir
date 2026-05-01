@@ -17,7 +17,7 @@ amdgcn.module @test_lds_passthrough target = <gfx942> {
 
     // Move 42 into a vgpr for ds_write
     %d_val = amdgcn.alloca : !v
-    %val = amdgcn.vop1.vop1 <v_mov_b32_e32> %d_val, %c42_i32 : (!v, i32) -> !v
+    %val = amdgcn.v_mov_b32 outs(%d_val) ins(%c42_i32) : outs(!v) ins(i32)
 
     %d_store = amdgcn.alloca : !v
 
@@ -40,8 +40,7 @@ amdgcn.module @test_lds_passthrough target = <gfx942> {
 
       // Store to output[0] -- use zero offset for all lanes
       %off_reg = lsir.to_reg %c0_i32 {sched.stage = 1 : i32} : i32 -> !v
-      %data = amdgcn.vop1.vop1 <v_mov_b32_e32> %d_store, %from_lds
-        {sched.stage = 1 : i32} : (!v, !v) -> !v
+      %data = amdgcn.v_mov_b32 outs(%d_store) ins(%from_lds) {sched.stage = 1 : i32} : outs(!v) ins(!v)
       %stok = amdgcn.store global_store_dword data %data addr %out_ptr
         offset d(%off_reg) {sched.stage = 1 : i32}
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
@@ -97,8 +96,7 @@ amdgcn.module @test_lds_iv_dep target = <gfx942> {
       %i_i32_s1 = arith.index_cast %i {sched.stage = 1 : i32} : index to i32
       %off = arith.muli %i_i32_s1, %c4_i32 {sched.stage = 1 : i32} : i32
       %off_reg = lsir.to_reg %off {sched.stage = 1 : i32} : i32 -> !v
-      %data = amdgcn.vop1.vop1 <v_mov_b32_e32> %d_store, %from_lds
-        {sched.stage = 1 : i32} : (!v, !v) -> !v
+      %data = amdgcn.v_mov_b32 outs(%d_store) ins(%from_lds) {sched.stage = 1 : i32} : outs(!v) ins(!v)
       %stok = amdgcn.store global_store_dword data %data addr %out_ptr
         offset d(%off_reg) {sched.stage = 1 : i32}
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
@@ -180,8 +178,7 @@ amdgcn.module @test_lds_six_stage target = <gfx942> {
       %i_i32_s5 = arith.index_cast %i {sched.stage = 5 : i32} : index to i32
       %off_s5 = arith.muli %i_i32_s5, %c4_i32 {sched.stage = 5 : i32} : i32
       %off_reg_s5 = lsir.to_reg %off_s5 {sched.stage = 5 : i32} : i32 -> !v
-      %data = amdgcn.vop1.vop1 <v_mov_b32_e32> %d_store, %from_b
-        {sched.stage = 5 : i32} : (!v, !v) -> !v
+      %data = amdgcn.v_mov_b32 outs(%d_store) ins(%from_b) {sched.stage = 5 : i32} : outs(!v) ins(!v)
       %stok = amdgcn.store global_store_dword data %data addr %out_ptr
         offset d(%off_reg_s5) {sched.stage = 5 : i32}
         : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
@@ -211,11 +208,11 @@ amdgcn.module @test_lds_accum target = <gfx942> {
 
     // Write constant 3 into a vgpr
     %d_val = amdgcn.alloca : !v
-    %val = amdgcn.vop1.vop1 <v_mov_b32_e32> %d_val, %c3_i32 : (!v, i32) -> !v
+    %val = amdgcn.v_mov_b32 outs(%d_val) ins(%c3_i32) : outs(!v) ins(i32)
 
     // Accumulator init = 0
     %d_acc = amdgcn.alloca : !v
-    %acc_init = amdgcn.vop1.vop1 <v_mov_b32_e32> %d_acc, %c0_i32 : (!v, i32) -> !v
+    %acc_init = amdgcn.v_mov_b32 outs(%d_acc) ins(%c0_i32) : outs(!v) ins(i32)
 
     %d_add = amdgcn.alloca : !v
 
@@ -237,8 +234,8 @@ amdgcn.module @test_lds_accum target = <gfx942> {
         : dps(!v) ins(!v) -> !amdgcn.read_token<shared>
       amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared>
 
-      %new_acc = amdgcn.vop2 v_add_u32 outs %d_add
-        ins %acc, %from_lds {sched.stage = 1 : i32} : !v, !v, !v
+      %new_acc = amdgcn.v_add_u32 outs(%d_add)
+        ins(%acc, %from_lds) {sched.stage = 1 : i32} : outs(!v) ins(!v, !v)
 
       amdgcn.dealloc_lds %lds {sched.stage = 1 : i32}
       scf.yield %new_acc : !v

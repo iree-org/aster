@@ -51,8 +51,7 @@ amdgcn.module @test_memory_dependence target = #amdgcn.target<gfx942> {
     // CHECK-NEXT: PENDING BEFORE: 3: test.load_tag_0, test.load_tag_1, test.load_tag_2
     // CHECK-NEXT: MUST FLUSH NOW: 2: test.load_tag_0, test.load_tag_1
     %split1 = amdgcn.split_register_range %7 { test.compute_tag_0 } : !amdgcn.vgpr
-    %9 = amdgcn.vop1.vop1 #amdgcn.inst<v_mov_b32_e32> %3, %split1
-      : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    %9 = amdgcn.v_mov_b32 outs(%3) ins(%split1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
 
     // add ds_write of %9 here
     // CHECK: Operation: {{.*}}ds_write{{.*}}test.ds_write_tag_0

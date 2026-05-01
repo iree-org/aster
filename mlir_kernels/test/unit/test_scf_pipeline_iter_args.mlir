@@ -33,7 +33,7 @@ amdgcn.module @test_iter_args_scalar_no_iv target = <gfx942> {
     // Store result at output[0]
     %s = lsir.to_reg %result : i32 -> !amdgcn.sgpr
     %d = amdgcn.alloca : !v
-    %v = amdgcn.vop1.vop1 <v_mov_b32_e32> %d, %s : (!v, !amdgcn.sgpr) -> !v
+    %v = amdgcn.v_mov_b32 outs(%d) ins(%s) : outs(!v) ins(!amdgcn.sgpr)
     %c0_i32 = arith.constant 0 : i32
     %off = lsir.to_reg %c0_i32 : i32 -> !v
     %tok = amdgcn.store global_store_dword data %v addr %out offset d(%off)
@@ -69,7 +69,7 @@ amdgcn.module @test_iter_args_scalar_with_iv target = <gfx942> {
     // Store result at output[0]
     %s = lsir.to_reg %result : i32 -> !amdgcn.sgpr
     %d = amdgcn.alloca : !v
-    %v = amdgcn.vop1.vop1 <v_mov_b32_e32> %d, %s : (!v, !amdgcn.sgpr) -> !v
+    %v = amdgcn.v_mov_b32 outs(%d) ins(%s) : outs(!v) ins(!amdgcn.sgpr)
     %c0_i32 = arith.constant 0 : i32
     %off = lsir.to_reg %c0_i32 : i32 -> !v
     %tok = amdgcn.store global_store_dword data %v addr %out offset d(%off)
@@ -97,12 +97,12 @@ amdgcn.module @test_iter_args_vgpr_no_iv target = <gfx942> {
     // Create initial vgpr value (0)
     %init_s = lsir.to_reg %init_i32 : i32 -> !amdgcn.sgpr
     %d_init = amdgcn.alloca : !v
-    %init_v = amdgcn.vop1.vop1 <v_mov_b32_e32> %d_init, %init_s : (!v, !amdgcn.sgpr) -> !v
+    %init_v = amdgcn.v_mov_b32 outs(%d_init) ins(%init_s) : outs(!v) ins(!amdgcn.sgpr)
 
     // Create constant 5 in vgpr
     %c5_s = lsir.to_reg %c5_i32 : i32 -> !amdgcn.sgpr
     %d_five = amdgcn.alloca : !v
-    %five_v = amdgcn.vop1.vop1 <v_mov_b32_e32> %d_five, %c5_s : (!v, !amdgcn.sgpr) -> !v
+    %five_v = amdgcn.v_mov_b32 outs(%d_five) ins(%c5_s) : outs(!v) ins(!amdgcn.sgpr)
 
     %result = scf.for %i = %c0 to %c4 step %c1
         iter_args(%acc = %init_v) -> (!v) {
@@ -111,8 +111,8 @@ amdgcn.module @test_iter_args_vgpr_no_iv target = <gfx942> {
 
       // Stage 1: acc = acc + 5 in vgpr (no IV, uses iter_arg)
       %d_add = amdgcn.alloca : !v
-      %new_acc = amdgcn.vop2 v_add_u32 outs %d_add ins %acc, %five_v {sched.stage = 1 : i32}
-        : !v, !v, !v
+      %new_acc = amdgcn.v_add_u32 outs(%d_add) ins(%acc, %five_v) {sched.stage = 1 : i32}
+        : outs(!v) ins(!v, !v)
       scf.yield %new_acc : !v
     }
 
@@ -143,7 +143,7 @@ amdgcn.module @test_iter_args_vgpr_with_iv target = <gfx942> {
     // Create initial vgpr value (0)
     %init_s = lsir.to_reg %init_i32 : i32 -> !amdgcn.sgpr
     %d_init = amdgcn.alloca : !v
-    %init_v = amdgcn.vop1.vop1 <v_mov_b32_e32> %d_init, %init_s : (!v, !amdgcn.sgpr) -> !v
+    %init_v = amdgcn.v_mov_b32 outs(%d_init) ins(%init_s) : outs(!v) ins(!amdgcn.sgpr)
 
     %result = scf.for %i = %c0 to %c8 step %c1
         iter_args(%acc = %init_v) -> (!v) {
@@ -151,13 +151,12 @@ amdgcn.module @test_iter_args_vgpr_with_iv target = <gfx942> {
       %i_i32 = arith.index_cast %i {sched.stage = 0 : i32} : index to i32
       %i_s = lsir.to_reg %i_i32 {sched.stage = 0 : i32} : i32 -> !amdgcn.sgpr
       %d_i = amdgcn.alloca : !v
-      %i_v = amdgcn.vop1.vop1 <v_mov_b32_e32> %d_i, %i_s {sched.stage = 0 : i32}
-        : (!v, !amdgcn.sgpr) -> !v
+      %i_v = amdgcn.v_mov_b32 outs(%d_i) ins(%i_s) {sched.stage = 0 : i32} : outs(!v) ins(!amdgcn.sgpr)
 
       // Stage 1: acc = acc + i_v (cross-stage + iter_arg)
       %d_add = amdgcn.alloca : !v
-      %new_acc = amdgcn.vop2 v_add_u32 outs %d_add ins %acc, %i_v {sched.stage = 1 : i32}
-        : !v, !v, !v
+      %new_acc = amdgcn.v_add_u32 outs(%d_add) ins(%acc, %i_v) {sched.stage = 1 : i32}
+        : outs(!v) ins(!v, !v)
       scf.yield %new_acc : !v
     }
 
@@ -194,7 +193,7 @@ amdgcn.module @test_scf_pipeline_iter_args target = <gfx942> {
 
       // Stage 1: alloca + move to vgpr (unused, exercises cross-stage lifetime)
       %d0 = amdgcn.alloca : !amdgcn.vgpr
-      %v0 = amdgcn.vop1.vop1 <v_mov_b32_e32> %d0, %s0 {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+      %v0 = amdgcn.v_mov_b32 outs(%d0) ins(%s0) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
 
       // Stage 2: independent scalar work
       %s2 = lsir.to_reg %c5_i32 {sched.stage = 2 : i32} : i32 -> !amdgcn.sgpr
@@ -214,7 +213,7 @@ amdgcn.module @test_scf_pipeline_iter_args target = <gfx942> {
     // byte offset 60 = int32 index 15
     %s = lsir.to_reg %result : i32 -> !amdgcn.sgpr
     %d = amdgcn.alloca : !amdgcn.vgpr
-    %v = amdgcn.vop1.vop1 <v_mov_b32_e32> %d, %s : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v = amdgcn.v_mov_b32 outs(%d) ins(%s) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
     %tok = amdgcn.store global_store_dword data %v addr %out offset d(%v) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
     end_kernel
   }

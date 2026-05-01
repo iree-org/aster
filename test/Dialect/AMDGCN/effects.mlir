@@ -24,14 +24,14 @@ func.func @allocated_registers() -> (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) {
 // CHECK-LABEL:   func.func @csed_mov() -> (!amdgcn.vgpr, !amdgcn.vgpr) {
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr
 // CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[VAL_0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_0]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:           %[[VAL_0:.*]] = amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
 // CHECK:           return %[[VAL_0]], %[[VAL_0]] : !amdgcn.vgpr, !amdgcn.vgpr
 // CHECK:         }
 func.func @csed_mov() -> (!amdgcn.vgpr, !amdgcn.vgpr) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
-  %2 = amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-  %3 = amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+  %2 = amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
+  %3 = amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
   return %2, %3 : !amdgcn.vgpr, !amdgcn.vgpr
 }
 
@@ -39,46 +39,46 @@ func.func @csed_mov() -> (!amdgcn.vgpr, !amdgcn.vgpr) {
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr
 // CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr
 // CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[VAL_0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_0]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:           %[[VAL_1:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_2]], %[[ALLOCA_0]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:           %[[VAL_0:.*]] = amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
+// CHECK:           %[[VAL_1:.*]] = amdgcn.v_mov_b32 outs(%[[ALLOCA_2]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
 // CHECK:           return %[[VAL_0]], %[[VAL_1]] : !amdgcn.vgpr, !amdgcn.vgpr
 // CHECK:         }
 func.func @uncsed_mov() -> (!amdgcn.vgpr, !amdgcn.vgpr) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
   %2 = amdgcn.alloca : !amdgcn.vgpr
-  %3 = amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-  %4 = amdgcn.vop1.vop1 <v_mov_b32_e32> %2, %0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+  %3 = amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
+  %4 = amdgcn.v_mov_b32 outs(%2) ins(%0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
   return %3, %4 : !amdgcn.vgpr, !amdgcn.vgpr
 }
 
 // CHECK-LABEL:   func.func @chained_mov() -> (!amdgcn.vgpr, !amdgcn.vgpr) {
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr
 // CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[VAL_0:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_0]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-// CHECK:           %[[VAL_1:.*]] = amdgcn.vop1.vop1 <v_mov_b32_e32> %[[VAL_0]], %[[ALLOCA_0]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+// CHECK:           %[[VAL_0:.*]] = amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
+// CHECK:           %[[VAL_1:.*]] = amdgcn.v_mov_b32 outs(%[[VAL_0]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
 // CHECK:           return %[[VAL_0]], %[[VAL_1]] : !amdgcn.vgpr, !amdgcn.vgpr
 // CHECK:         }
 func.func @chained_mov() -> (!amdgcn.vgpr, !amdgcn.vgpr) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
-  %2 = amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-  %3 = amdgcn.vop1.vop1 <v_mov_b32_e32> %2, %0 : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+  %2 = amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
+  %3 = amdgcn.v_mov_b32 outs(%2) ins(%0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr)
   return %2, %3 : !amdgcn.vgpr, !amdgcn.vgpr
 }
 
 // CHECK-LABEL:   func.func @allocated_csed_mov() -> (!amdgcn.vgpr<2>, !amdgcn.vgpr<2>) {
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
 // CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<2>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_0]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> ()
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_0]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<1>)
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<1>)
 // CHECK:           return %[[ALLOCA_1]], %[[ALLOCA_1]] : !amdgcn.vgpr<2>, !amdgcn.vgpr<2>
 // CHECK:         }
 func.func @allocated_csed_mov() -> (!amdgcn.vgpr<2>, !amdgcn.vgpr<2>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.vgpr<2>
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> ()
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> ()
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<1>)
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<1>)
   return %1, %1 : !amdgcn.vgpr<2>, !amdgcn.vgpr<2>
 }
 
@@ -86,74 +86,74 @@ func.func @allocated_csed_mov() -> (!amdgcn.vgpr<2>, !amdgcn.vgpr<2>) {
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
 // CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<2>
 // CHECK:           %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.vgpr<3>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_0]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> ()
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_2]], %[[ALLOCA_0]] : (!amdgcn.vgpr<3>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<1>)
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_2]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<3>) ins(!amdgcn.vgpr<1>)
 // CHECK:           return %[[ALLOCA_1]], %[[ALLOCA_2]] : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
 // CHECK:         }
 func.func @allocated_uncsed_mov() -> (!amdgcn.vgpr<2>, !amdgcn.vgpr<3>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.vgpr<2>
   %2 = amdgcn.alloca : !amdgcn.vgpr<3>
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> ()
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %2, %0 : (!amdgcn.vgpr<3>, !amdgcn.vgpr<1>) -> ()
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<1>)
+  amdgcn.v_mov_b32 outs(%2) ins(%0) : outs(!amdgcn.vgpr<3>) ins(!amdgcn.vgpr<1>)
   return %1, %2 : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
 }
 
 // CHECK-LABEL:   func.func @allocated_chained_mov() -> (!amdgcn.vgpr<2>, !amdgcn.vgpr<2>) {
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
 // CHECK:           %[[ALLOCA_1:.*]] = amdgcn.alloca : !amdgcn.vgpr<2>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_0]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> ()
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_1]], %[[ALLOCA_0]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<1>)
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<1>)
 // CHECK:           return %[[ALLOCA_1]], %[[ALLOCA_1]] : !amdgcn.vgpr<2>, !amdgcn.vgpr<2>
 // CHECK:         }
 func.func @allocated_chained_mov() -> (!amdgcn.vgpr<2>, !amdgcn.vgpr<2>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.vgpr<2>
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> ()
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<2>, !amdgcn.vgpr<1>) -> ()
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<1>)
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<1>)
   return %1, %1 : !amdgcn.vgpr<2>, !amdgcn.vgpr<2>
 }
 
 // CHECK-LABEL:   func.func @same_allocated_csed_mov() -> (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) {
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_0]], %[[ALLOCA_0]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_0]], %[[ALLOCA_0]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_0]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_0]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
 // CHECK:           return %[[ALLOCA_0]], %[[ALLOCA_0]] : !amdgcn.vgpr<1>, !amdgcn.vgpr<1>
 // CHECK:         }
 func.func @same_allocated_csed_mov() -> (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.vgpr<1>
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
   return %1, %1 : !amdgcn.vgpr<1>, !amdgcn.vgpr<1>
 }
 
 // CHECK-LABEL:   func.func @same_allocated_uncsed_mov() -> (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) {
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_0]], %[[ALLOCA_0]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_0]], %[[ALLOCA_0]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_0]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_0]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
 // CHECK:           return %[[ALLOCA_0]], %[[ALLOCA_0]] : !amdgcn.vgpr<1>, !amdgcn.vgpr<1>
 // CHECK:         }
 func.func @same_allocated_uncsed_mov() -> (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.vgpr<1>
   %2 = amdgcn.alloca : !amdgcn.vgpr<1>
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %2, %0 : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
+  amdgcn.v_mov_b32 outs(%2) ins(%0) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
   return %1, %2 : !amdgcn.vgpr<1>, !amdgcn.vgpr<1>
 }
 
 // CHECK-LABEL:   func.func @same_allocated_chained_mov() -> (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) {
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr<1>
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_0]], %[[ALLOCA_0]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
-// CHECK:           amdgcn.vop1.vop1 <v_mov_b32_e32> %[[ALLOCA_0]], %[[ALLOCA_0]] : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_0]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
+// CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_0]]) ins(%[[ALLOCA_0]]) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
 // CHECK:           return %[[ALLOCA_0]], %[[ALLOCA_0]] : !amdgcn.vgpr<1>, !amdgcn.vgpr<1>
 // CHECK:         }
 func.func @same_allocated_chained_mov() -> (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.vgpr<1>
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
-  amdgcn.vop1.vop1 <v_mov_b32_e32> %1, %0 : (!amdgcn.vgpr<1>, !amdgcn.vgpr<1>) -> ()
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
+  amdgcn.v_mov_b32 outs(%1) ins(%0) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<1>)
   return %1, %1 : !amdgcn.vgpr<1>, !amdgcn.vgpr<1>
 }
 
@@ -162,8 +162,8 @@ amdgcn.module @mod target = <gfx942> {
 // CHECK-LABEL: kernel @gpu_copy_kernel_unchecked
 //      CHECK:    %[[R7:.*]] = alloca : !amdgcn.vgpr<10>
 // CHECK-NEXT:    %[[R8:.*]] = alloca : !amdgcn.vgpr<11>
-// CHECK-NEXT:    amdgcn.vop1.vop1 <v_mov_b32_e32> %[[R7]], %{{.*}} : (!amdgcn.vgpr<10>, !amdgcn.sgpr<2>) -> ()
-// CHECK-NEXT:    amdgcn.vop1.vop1 <v_mov_b32_e32> %[[R8]], %{{.*}} : (!amdgcn.vgpr<11>, !amdgcn.sgpr<3>) -> ()
+// CHECK-NEXT:    v_mov_b32 outs(%[[R7]]) ins(%{{.*}}) : outs(!amdgcn.vgpr<10>) ins(!amdgcn.sgpr<2>)
+// CHECK-NEXT:    v_mov_b32 outs(%[[R8]]) ins(%{{.*}}) : outs(!amdgcn.vgpr<11>) ins(!amdgcn.sgpr<3>)
 // CHECK-NEXT:    %[[R11:.*]] = make_register_range %[[R7]], %[[R8]] : !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
 // CHECK-NEXT:    %[[R12:.*]] = alloca : !amdgcn.vgpr<12>
 // CHECK-NEXT:    %[[R13:.*]] = make_register_range %[[R12]] : !amdgcn.vgpr<12>
@@ -172,9 +172,9 @@ amdgcn.module @mod target = <gfx942> {
 // CHECK-NEXT:    amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
 //
 // We want to make sure R7, R8 and R11 are not reused after CSE: a proper liveness analysis is needed.
-// CHECK-NEXT:    amdgcn.vop1.vop1 <v_mov_b32_e32> %[[R7]], %{{.*}} : (!amdgcn.vgpr<10>, !amdgcn.sgpr<2>) -> ()
-// CHECK-NEXT:    amdgcn.vop1.vop1 <v_mov_b32_e32> %[[R8]], %{{.*}} : (!amdgcn.vgpr<11>, !amdgcn.sgpr<3>) -> ()
-// CHECK-NEXT:    store global_store_dword data %[[R13]] addr %[[R11]] : ins(!amdgcn.vgpr<12>, !amdgcn.vgpr<[10 : 12]>) -> !amdgcn.write_token<flat>
+// CHECK-NEXT:    v_mov_b32 outs(%[[R7]]) ins(%{{.*}}) : outs(!amdgcn.vgpr<10>) ins(!amdgcn.sgpr<2>)
+// CHECK-NEXT:    v_mov_b32 outs(%[[R8]]) ins(%{{.*}}) : outs(!amdgcn.vgpr<11>) ins(!amdgcn.sgpr<3>)
+// CHECK-NEXT:    %{{.*}} = store global_store_dword data %[[R13]] addr %[[R11]] : ins(!amdgcn.vgpr<12>, !amdgcn.vgpr<[10 : 12]>) -> !amdgcn.write_token<flat>
 // CHECK-NEXT:    end_kernel
   kernel @gpu_copy_kernel_unchecked {
     %0 = alloca : !amdgcn.sgpr<0>
@@ -187,8 +187,8 @@ amdgcn.module @mod target = <gfx942> {
     amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
     %7 = alloca : !amdgcn.vgpr<10>
     %8 = alloca : !amdgcn.vgpr<11>
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %7, %3 : (!amdgcn.vgpr<10>, !amdgcn.sgpr<2>) -> ()
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %8, %4 : (!amdgcn.vgpr<11>, !amdgcn.sgpr<3>) -> ()
+    amdgcn.v_mov_b32 outs(%7) ins(%3) : outs(!amdgcn.vgpr<10>) ins(!amdgcn.sgpr<2>)
+    amdgcn.v_mov_b32 outs(%8) ins(%4) : outs(!amdgcn.vgpr<11>) ins(!amdgcn.sgpr<3>)
     %11 = make_register_range %7, %8 : !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
     %12 = alloca : !amdgcn.vgpr<12>
     %13 = make_register_range %12 : !amdgcn.vgpr<12>
@@ -203,8 +203,8 @@ amdgcn.module @mod target = <gfx942> {
     amdgcn.sopp.s_waitcnt <s_waitcnt> vmcnt = 0
     %22 = alloca : !amdgcn.vgpr<10>
     %23 = alloca : !amdgcn.vgpr<11>
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %22, %18 : (!amdgcn.vgpr<10>, !amdgcn.sgpr<2>) -> ()
-    amdgcn.vop1.vop1 <v_mov_b32_e32> %23, %19 : (!amdgcn.vgpr<11>, !amdgcn.sgpr<3>) -> ()
+    amdgcn.v_mov_b32 outs(%22) ins(%18) : outs(!amdgcn.vgpr<10>) ins(!amdgcn.sgpr<2>)
+    amdgcn.v_mov_b32 outs(%23) ins(%19) : outs(!amdgcn.vgpr<11>) ins(!amdgcn.sgpr<3>)
     %26 = make_register_range %22, %23 : !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
     %t4 = amdgcn.store global_store_dword data %13 addr %26 : ins(!amdgcn.vgpr<12>, !amdgcn.vgpr<[10 : 12]>) -> !amdgcn.write_token<flat>
     end_kernel

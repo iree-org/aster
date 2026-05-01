@@ -183,8 +183,8 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
   func.func private @init_vgprx2(%cst: i32) -> !vx2 {
     %r0 = amdgcn.alloca : !v
     %r1 = amdgcn.alloca : !v
-    %v0 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r0, %cst : (!v, i32) -> !v
-    %v1 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r1, %cst : (!v, i32) -> !v
+    %v0 = amdgcn.v_mov_b32 outs(%r0) ins(%cst) : outs(!v) ins(i32)
+    %v1 = amdgcn.v_mov_b32 outs(%r1) ins(%cst) : outs(!v) ins(i32)
     %range = amdgcn.make_register_range %v0, %v1 : !v, !v
     return %range : !vx2
   }
@@ -194,9 +194,9 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     %r0 = amdgcn.alloca : !v
     %r1 = amdgcn.alloca : !v
     %r2 = amdgcn.alloca : !v
-    %v0 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r0, %cst : (!v, i32) -> !v
-    %v1 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r1, %cst : (!v, i32) -> !v
-    %v2 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r2, %cst : (!v, i32) -> !v
+    %v0 = amdgcn.v_mov_b32 outs(%r0) ins(%cst) : outs(!v) ins(i32)
+    %v1 = amdgcn.v_mov_b32 outs(%r1) ins(%cst) : outs(!v) ins(i32)
+    %v2 = amdgcn.v_mov_b32 outs(%r2) ins(%cst) : outs(!v) ins(i32)
     %range = amdgcn.make_register_range %v0, %v1, %v2 : !v, !v, !v
     return %range : !vx3
   }
@@ -207,10 +207,10 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     %r1 = amdgcn.alloca : !v
     %r2 = amdgcn.alloca : !v
     %r3 = amdgcn.alloca : !v
-    %v0 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r0, %cst : (!v, i32) -> !v
-    %v1 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r1, %cst : (!v, i32) -> !v
-    %v2 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r2, %cst : (!v, i32) -> !v
-    %v3 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r3, %cst : (!v, i32) -> !v
+    %v0 = amdgcn.v_mov_b32 outs(%r0) ins(%cst) : outs(!v) ins(i32)
+    %v1 = amdgcn.v_mov_b32 outs(%r1) ins(%cst) : outs(!v) ins(i32)
+    %v2 = amdgcn.v_mov_b32 outs(%r2) ins(%cst) : outs(!v) ins(i32)
+    %v3 = amdgcn.v_mov_b32 outs(%r3) ins(%cst) : outs(!v) ins(i32)
     %range = amdgcn.make_register_range %v0, %v1, %v2, %v3 : !v, !v, !v, !v
     return %range : !vx4
   }
@@ -225,14 +225,14 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     %r5 = amdgcn.alloca : !v
     %r6 = amdgcn.alloca : !v
     %r7 = amdgcn.alloca : !v
-    %v0 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r0, %cst : (!v, i32) -> !v
-    %v1 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r1, %cst : (!v, i32) -> !v
-    %v2 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r2, %cst : (!v, i32) -> !v
-    %v3 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r3, %cst : (!v, i32) -> !v
-    %v4 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r4, %cst : (!v, i32) -> !v
-    %v5 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r5, %cst : (!v, i32) -> !v
-    %v6 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r6, %cst : (!v, i32) -> !v
-    %v7 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r7, %cst : (!v, i32) -> !v
+    %v0 = amdgcn.v_mov_b32 outs(%r0) ins(%cst) : outs(!v) ins(i32)
+    %v1 = amdgcn.v_mov_b32 outs(%r1) ins(%cst) : outs(!v) ins(i32)
+    %v2 = amdgcn.v_mov_b32 outs(%r2) ins(%cst) : outs(!v) ins(i32)
+    %v3 = amdgcn.v_mov_b32 outs(%r3) ins(%cst) : outs(!v) ins(i32)
+    %v4 = amdgcn.v_mov_b32 outs(%r4) ins(%cst) : outs(!v) ins(i32)
+    %v5 = amdgcn.v_mov_b32 outs(%r5) ins(%cst) : outs(!v) ins(i32)
+    %v6 = amdgcn.v_mov_b32 outs(%r6) ins(%cst) : outs(!v) ins(i32)
+    %v7 = amdgcn.v_mov_b32 outs(%r7) ins(%cst) : outs(!v) ins(i32)
     %range = amdgcn.make_register_range %v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7
       : !v, !v, !v, !v, !v, !v, !v, !v
     return %range : !vx8
@@ -256,22 +256,22 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     %r13 = amdgcn.alloca : !v
     %r14 = amdgcn.alloca : !v
     %r15 = amdgcn.alloca : !v
-    %v0  = amdgcn.vop1.vop1 <v_mov_b32_e32> %r0,  %cst : (!v, i32) -> !v
-    %v1  = amdgcn.vop1.vop1 <v_mov_b32_e32> %r1,  %cst : (!v, i32) -> !v
-    %v2  = amdgcn.vop1.vop1 <v_mov_b32_e32> %r2,  %cst : (!v, i32) -> !v
-    %v3  = amdgcn.vop1.vop1 <v_mov_b32_e32> %r3,  %cst : (!v, i32) -> !v
-    %v4  = amdgcn.vop1.vop1 <v_mov_b32_e32> %r4,  %cst : (!v, i32) -> !v
-    %v5  = amdgcn.vop1.vop1 <v_mov_b32_e32> %r5,  %cst : (!v, i32) -> !v
-    %v6  = amdgcn.vop1.vop1 <v_mov_b32_e32> %r6,  %cst : (!v, i32) -> !v
-    %v7  = amdgcn.vop1.vop1 <v_mov_b32_e32> %r7,  %cst : (!v, i32) -> !v
-    %v8  = amdgcn.vop1.vop1 <v_mov_b32_e32> %r8,  %cst : (!v, i32) -> !v
-    %v9  = amdgcn.vop1.vop1 <v_mov_b32_e32> %r9,  %cst : (!v, i32) -> !v
-    %v10 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r10, %cst : (!v, i32) -> !v
-    %v11 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r11, %cst : (!v, i32) -> !v
-    %v12 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r12, %cst : (!v, i32) -> !v
-    %v13 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r13, %cst : (!v, i32) -> !v
-    %v14 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r14, %cst : (!v, i32) -> !v
-    %v15 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r15, %cst : (!v, i32) -> !v
+    %v0  = amdgcn.v_mov_b32 outs(%r0) ins(%cst) : outs(!v) ins(i32)
+    %v1  = amdgcn.v_mov_b32 outs(%r1) ins(%cst) : outs(!v) ins(i32)
+    %v2  = amdgcn.v_mov_b32 outs(%r2) ins(%cst) : outs(!v) ins(i32)
+    %v3  = amdgcn.v_mov_b32 outs(%r3) ins(%cst) : outs(!v) ins(i32)
+    %v4  = amdgcn.v_mov_b32 outs(%r4) ins(%cst) : outs(!v) ins(i32)
+    %v5  = amdgcn.v_mov_b32 outs(%r5) ins(%cst) : outs(!v) ins(i32)
+    %v6  = amdgcn.v_mov_b32 outs(%r6) ins(%cst) : outs(!v) ins(i32)
+    %v7  = amdgcn.v_mov_b32 outs(%r7) ins(%cst) : outs(!v) ins(i32)
+    %v8  = amdgcn.v_mov_b32 outs(%r8) ins(%cst) : outs(!v) ins(i32)
+    %v9  = amdgcn.v_mov_b32 outs(%r9) ins(%cst) : outs(!v) ins(i32)
+    %v10 = amdgcn.v_mov_b32 outs(%r10) ins(%cst) : outs(!v) ins(i32)
+    %v11 = amdgcn.v_mov_b32 outs(%r11) ins(%cst) : outs(!v) ins(i32)
+    %v12 = amdgcn.v_mov_b32 outs(%r12) ins(%cst) : outs(!v) ins(i32)
+    %v13 = amdgcn.v_mov_b32 outs(%r13) ins(%cst) : outs(!v) ins(i32)
+    %v14 = amdgcn.v_mov_b32 outs(%r14) ins(%cst) : outs(!v) ins(i32)
+    %v15 = amdgcn.v_mov_b32 outs(%r15) ins(%cst) : outs(!v) ins(i32)
     %range = amdgcn.make_register_range
       %v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7,
       %v8, %v9, %v10, %v11, %v12, %v13, %v14, %v15
@@ -286,10 +286,10 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     %r1 = amdgcn.alloca : !v
     %r2 = amdgcn.alloca : !v
     %r3 = amdgcn.alloca : !v
-    %v0 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r0, %reg : (!v, !v) -> !v
-    %v1 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r1, %reg : (!v, !v) -> !v
-    %v2 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r2, %reg : (!v, !v) -> !v
-    %v3 = amdgcn.vop1.vop1 <v_mov_b32_e32> %r3, %reg : (!v, !v) -> !v
+    %v0 = amdgcn.v_mov_b32 outs(%r0) ins(%reg) : outs(!v) ins(!v)
+    %v1 = amdgcn.v_mov_b32 outs(%r1) ins(%reg) : outs(!v) ins(!v)
+    %v2 = amdgcn.v_mov_b32 outs(%r2) ins(%reg) : outs(!v) ins(!v)
+    %v3 = amdgcn.v_mov_b32 outs(%r3) ins(%reg) : outs(!v) ins(!v)
     %range = amdgcn.make_register_range %v0, %v1, %v2, %v3 : !v, !v, !v, !v
     return %range : !vx4
   }
