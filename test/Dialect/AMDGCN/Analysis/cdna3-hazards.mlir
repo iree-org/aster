@@ -32,29 +32,29 @@ func.func @cdna3_store_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vg
 
 //===----------------------------------------------------------------------===//
 // Case 5: VccExecVcczExeczHazard - VALU sets VCC -> VALU uses VCCZ (5 V_NOPs)
-// Note: Hazard detection for cmpi may require amdgcn.kernel context.
+// Note: Hazard detection for compare instructions may require amdgcn.kernel context.
 //===----------------------------------------------------------------------===//
 
 // CHECK-LABEL: Symbol: cdna3_vcc_vccz_hazard_detected
 // CHECK: Op: func.func @cdna3_vcc_vccz_hazard_detected(%{{.*}}: !amdgcn.vcc<0>, %{{.*}}: !amdgcn.vccz<0>, %{{.*}}: !amdgcn.vgpr<0>, %{{.*}}: !amdgcn.vgpr<1>, %{{.*}}: !amdgcn.vgpr<2>) {...}
 // CHECK:   HAZARD STATE AFTER: <Empty>
-// CHECK: Op: amdgcn.cmpi v_cmp_eq_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+// CHECK: Op: amdgcn.v_cmp_eq_i32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = [
-// CHECK:       {#amdgcn.cdna3_vcc_exec_vccz_execz_hazard, amdgcn.cmpi v_cmp_eq_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>), none, {v:5, s:0, ds:0}}
+// CHECK:       {#amdgcn.cdna3_vcc_exec_vccz_execz_hazard, amdgcn.v_cmp_eq_i32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>), none, {v:5, s:0, ds:0}}
 // CHECK:     ]
 // CHECK:     nop counts = {v:0, s:0, ds:0}
 // CHECK:   }
-// CHECK: Op: amdgcn.cmpi v_cmp_eq_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vccz<0>, !amdgcn.vgpr<2>)
+// CHECK: Op: amdgcn.v_cmp_eq_i32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vccz<0>, !amdgcn.vgpr<2>)
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = [
-// CHECK:       {#amdgcn.cdna3_vcc_exec_vccz_execz_hazard, amdgcn.cmpi v_cmp_eq_i32 outs %{{.*}} ins %{{.*}}, %{{.*}} : outs(!amdgcn.vcc<0>) ins(!amdgcn.vccz<0>, !amdgcn.vgpr<2>), none, {v:5, s:0, ds:0}}
+// CHECK:       {#amdgcn.cdna3_vcc_exec_vccz_execz_hazard, amdgcn.v_cmp_eq_i32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vccz<0>, !amdgcn.vgpr<2>), none, {v:5, s:0, ds:0}}
 // CHECK:     ]
 // CHECK:     nop counts = {v:5, s:0, ds:0}
 // CHECK:   }
 func.func @cdna3_vcc_vccz_hazard_detected(%arg0: !amdgcn.vcc<0>, %arg1: !amdgcn.vccz<0>, %arg2: !amdgcn.vgpr<0>, %arg3: !amdgcn.vgpr<1>, %arg4: !amdgcn.vgpr<2>) {
-  amdgcn.cmpi v_cmp_eq_i32 outs %arg0 ins %arg2, %arg3 : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
-  amdgcn.cmpi v_cmp_eq_i32 outs %arg0 ins %arg1, %arg4 : outs(!amdgcn.vcc<0>) ins(!amdgcn.vccz<0>, !amdgcn.vgpr<2>)
+  amdgcn.v_cmp_eq_i32 outs(%arg0) ins(%arg2, %arg3) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+  amdgcn.v_cmp_eq_i32 outs(%arg0) ins(%arg1, %arg4) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vccz<0>, !amdgcn.vgpr<2>)
   return
 }
 

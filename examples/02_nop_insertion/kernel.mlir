@@ -46,8 +46,7 @@ module {
 
       // Self-check: v0 should be 7 after the overwrite
       %vcc = amdgcn.alloca : !amdgcn.vcc
-      amdgcn.cmpi v_cmp_ne_i32 outs %vcc ins %c7, %v0
-        : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
+      amdgcn.v_cmp_ne_i32 outs(%vcc) ins(%c7, %v0) : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
       amdgcn.cbranch s_cbranch_vccnz %vcc ^trap fallthrough(^ok)
         : !amdgcn.vcc
 

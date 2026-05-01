@@ -396,12 +396,49 @@ def vop3(opcode, dest, src0, src1, *, dst1=None, src2=None, loc=None, ip=None):
     return op.results[0]
 
 
+_SCMP_NEW_OPS = {
+    "s_cmp_eq_i32": SCmpEqI32,
+    "s_cmp_lg_i32": SCmpLgI32,
+    "s_cmp_gt_i32": SCmpGtI32,
+    "s_cmp_ge_i32": SCmpGeI32,
+    "s_cmp_lt_i32": SCmpLtI32,
+    "s_cmp_le_i32": SCmpLeI32,
+    "s_cmp_eq_u32": SCmpEqU32,
+    "s_cmp_lg_u32": SCmpLgU32,
+    "s_cmp_gt_u32": SCmpGtU32,
+    "s_cmp_ge_u32": SCmpGeU32,
+    "s_cmp_lt_u32": SCmpLtU32,
+    "s_cmp_le_u32": SCmpLeU32,
+}
+
+_VCMP_NEW_OPS = {
+    "v_cmp_eq_i32": VCmpEqI32,
+    "v_cmp_ne_i32": VCmpNeI32,
+    "v_cmp_lt_i32": VCmpLtI32,
+    "v_cmp_le_i32": VCmpLeI32,
+    "v_cmp_gt_i32": VCmpGtI32,
+    "v_cmp_ge_i32": VCmpGeI32,
+    "v_cmp_lt_u32": VCmpLtU32,
+    "v_cmp_le_u32": VCmpLeU32,
+    "v_cmp_gt_u32": VCmpGtU32,
+    "v_cmp_ge_u32": VCmpGeU32,
+    "v_cmp_eq_i32_e64": VCmpEqI32,
+}
+
+
 def cmpi(opcode, dest, lhs, rhs, *, exec_mask=None, loc=None, ip=None):
-    """Create amdgcn.cmpi."""
-    op = _create_inst_op(
-        "amdgcn.cmpi", opcode, outs=[dest, exec_mask], ins=[lhs, rhs], loc=loc, ip=ip
-    )
-    return op.results[0]
+    """Create a compare instruction (routes to new per-instruction ops)."""
+    cls = _SCMP_NEW_OPS.get(opcode)
+    if cls is not None:
+        op = cls(scc_dst=dest, src0=lhs, src1=rhs, results=[dest.type], loc=loc, ip=ip)
+        return op.scc_dst_res
+
+    cls = _VCMP_NEW_OPS.get(opcode)
+    if cls is not None:
+        op = cls(dst0=dest, src0=lhs, src1=rhs, results=[dest.type], loc=loc, ip=ip)
+        return op.dst0_res
+
+    raise ValueError(f"unknown compare opcode: {opcode}")
 
 
 def int_to_offset_value(

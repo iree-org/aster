@@ -1113,15 +1113,15 @@ def VCmpEqI32 : VCmpInst<"v_cmp_eq_i32"> {
     second input. Store the result into VCC or a scalar register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000010, (pred
-      TwoSGPROrVCCType:$dst0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
-    )>,
     InstEnc<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4], 0b11000010, (pred
       VCCType:$dst0,
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000010, (pred
+      TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
   ];
 }
@@ -1136,15 +1136,15 @@ def VCmpGeI32 : VCmpInst<"v_cmp_ge_i32"> {
     register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000110, (pred
-      TwoSGPROrVCCType:$dst0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
-    )>,
     InstEnc<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4], 0b11000110, (pred
       VCCType:$dst0,
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000110, (pred
+      TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
   ];
 }
@@ -1159,15 +1159,15 @@ def VCmpGeU32 : VCmpInst<"v_cmp_ge_u32"> {
     register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001110, (pred
-      TwoSGPROrVCCType:$dst0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
-    )>,
     InstEnc<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4], 0b11001110, (pred
       VCCType:$dst0,
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001110, (pred
+      TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
   ];
 }
@@ -1181,15 +1181,15 @@ def VCmpGtI32 : VCmpInst<"v_cmp_gt_i32"> {
     the second input. Store the result into VCC or a scalar register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000100, (pred
-      TwoSGPROrVCCType:$dst0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
-    )>,
     InstEnc<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4], 0b11000100, (pred
       VCCType:$dst0,
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000100, (pred
+      TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
   ];
 }
@@ -1203,15 +1203,15 @@ def VCmpGtU32 : VCmpInst<"v_cmp_gt_u32"> {
     the second input. Store the result into VCC or a scalar register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001100, (pred
-      TwoSGPROrVCCType:$dst0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
-    )>,
     InstEnc<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4], 0b11001100, (pred
       VCCType:$dst0,
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001100, (pred
+      TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
   ];
 }
@@ -1225,15 +1225,15 @@ def VCmpLeI32 : VCmpInst<"v_cmp_le_i32"> {
     equal to the second input. Store the result into VCC or a scalar register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000011, (pred
-      TwoSGPROrVCCType:$dst0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
-    )>,
     InstEnc<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4], 0b11000011, (pred
       VCCType:$dst0,
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000011, (pred
+      TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
   ];
 }
@@ -1247,15 +1247,15 @@ def VCmpLeU32 : VCmpInst<"v_cmp_le_u32"> {
     equal to the second input. Store the result into VCC or a scalar register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001011, (pred
-      TwoSGPROrVCCType:$dst0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
-    )>,
     InstEnc<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4], 0b11001011, (pred
       VCCType:$dst0,
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001011, (pred
+      TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
   ];
 }
@@ -1269,15 +1269,15 @@ def VCmpLtI32 : VCmpInst<"v_cmp_lt_i32"> {
     second input. Store the result into VCC or a scalar register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000001, (pred
-      TwoSGPROrVCCType:$dst0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
-    )>,
     InstEnc<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4], 0b11000001, (pred
       VCCType:$dst0,
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000001, (pred
+      TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
   ];
 }
@@ -1291,15 +1291,15 @@ def VCmpLtU32 : VCmpInst<"v_cmp_lt_u32"> {
     second input. Store the result into VCC or a scalar register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001001, (pred
-      TwoSGPROrVCCType:$dst0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
-    )>,
     InstEnc<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4], 0b11001001, (pred
       VCCType:$dst0,
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001001, (pred
+      TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
   ];
 }
@@ -1313,15 +1313,15 @@ def VCmpNeI32 : VCmpInst<"v_cmp_ne_i32"> {
     the second input. Store the result into VCC or a scalar register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000101, (pred
-      TwoSGPROrVCCType:$dst0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
-      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
-    )>,
     InstEnc<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4], 0b11000101, (pred
       VCCType:$dst0,
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000101, (pred
+      TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
   ];
 }

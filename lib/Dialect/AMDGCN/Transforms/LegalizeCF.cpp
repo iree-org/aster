@@ -60,9 +60,9 @@ private:
   /// (clobber).
   LogicalResult verifyI1Lifetimes(Operation *op);
 
-  /// Get or create the lowered amdgcn.cmpi + alloca for an lsir.cmpi.
+  /// Get or create the lowered compare instruction + alloca for an lsir.cmpi.
   /// Selects s_cmp_* (SCC) for scalar operands, v_cmp_* (VCC) for vector.
-  /// On first call for a given cmpOp, creates the alloca and cmpi at the
+  /// On first call for a given cmpOp, creates the alloca and compare at the
   /// original lsir.cmpi location. On subsequent calls, returns the cached
   /// result.
   Value getOrCreateLoweredCmp(lsir::CmpIOp cmpOp, IRRewriter &rewriter);
@@ -78,62 +78,86 @@ private:
   LogicalResult lowerSelect(lsir::SelectOp selectOp);
 
   /// Map from original lsir.cmpi to the SCC/VCC alloca value from the lowered
-  /// amdgcn.cmpi. Used to deduplicate compare lowering on fan-out.
+  /// compare. Used to deduplicate compare lowering on fan-out.
   DenseMap<Operation *, Value> loweredCmpMap;
 };
 
-/// Map arith::CmpIPredicate to the appropriate s_cmp_* opcode (scalar).
-static OpCode getScalarCompareOpCode(arith::CmpIPredicate predicate) {
+/// Create the appropriate s_cmp_* instruction for a scalar compare.
+static void createScalarCompare(IRRewriter &rewriter, Location loc,
+                                arith::CmpIPredicate predicate, Value scc,
+                                Value lhs, Value rhs) {
   switch (predicate) {
   case arith::CmpIPredicate::eq:
-    return OpCode::S_CMP_EQ_I32;
+    SCmpEqI32::create(rewriter, loc, scc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::ne:
-    return OpCode::S_CMP_LG_I32;
+    SCmpLgI32::create(rewriter, loc, scc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::slt:
-    return OpCode::S_CMP_LT_I32;
+    SCmpLtI32::create(rewriter, loc, scc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::sle:
-    return OpCode::S_CMP_LE_I32;
+    SCmpLeI32::create(rewriter, loc, scc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::sgt:
-    return OpCode::S_CMP_GT_I32;
+    SCmpGtI32::create(rewriter, loc, scc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::sge:
-    return OpCode::S_CMP_GE_I32;
+    SCmpGeI32::create(rewriter, loc, scc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::ult:
-    return OpCode::S_CMP_LT_U32;
+    SCmpLtU32::create(rewriter, loc, scc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::ule:
-    return OpCode::S_CMP_LE_U32;
+    SCmpLeU32::create(rewriter, loc, scc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::ugt:
-    return OpCode::S_CMP_GT_U32;
+    SCmpGtU32::create(rewriter, loc, scc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::uge:
-    return OpCode::S_CMP_GE_U32;
+    SCmpGeU32::create(rewriter, loc, scc, lhs, rhs);
+    return;
   }
   llvm_unreachable("Unknown CmpIPredicate");
 }
 
-/// Map arith::CmpIPredicate to the appropriate v_cmp_* opcode (vector, 32-bit
-/// encoding). The 32-bit VOPC encoding requires rhs (src1) to be a VGPR.
+/// Create the appropriate v_cmp_* instruction for a vector compare.
+/// The 32-bit VOPC encoding requires rhs (src1) to be a VGPR.
 /// If operands need swapping, the predicate should be flipped first.
-static OpCode getVectorCompareOpCode(arith::CmpIPredicate predicate) {
+static void createVectorCompare(IRRewriter &rewriter, Location loc,
+                                arith::CmpIPredicate predicate, Value vcc,
+                                Value lhs, Value rhs) {
   switch (predicate) {
   case arith::CmpIPredicate::eq:
-    return OpCode::V_CMP_EQ_I32;
+    VCmpEqI32::create(rewriter, loc, vcc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::ne:
-    return OpCode::V_CMP_NE_I32;
+    VCmpNeI32::create(rewriter, loc, vcc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::slt:
-    return OpCode::V_CMP_LT_I32;
+    VCmpLtI32::create(rewriter, loc, vcc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::sle:
-    return OpCode::V_CMP_LE_I32;
+    VCmpLeI32::create(rewriter, loc, vcc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::sgt:
-    return OpCode::V_CMP_GT_I32;
+    VCmpGtI32::create(rewriter, loc, vcc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::sge:
-    return OpCode::V_CMP_GE_I32;
+    VCmpGeI32::create(rewriter, loc, vcc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::ult:
-    return OpCode::V_CMP_LT_U32;
+    VCmpLtU32::create(rewriter, loc, vcc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::ule:
-    return OpCode::V_CMP_LE_U32;
+    VCmpLeU32::create(rewriter, loc, vcc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::ugt:
-    return OpCode::V_CMP_GT_U32;
+    VCmpGtU32::create(rewriter, loc, vcc, lhs, rhs);
+    return;
   case arith::CmpIPredicate::uge:
-    return OpCode::V_CMP_GE_U32;
+    VCmpGeU32::create(rewriter, loc, vcc, lhs, rhs);
+    return;
   }
   llvm_unreachable("Unknown CmpIPredicate");
 }
@@ -198,8 +222,7 @@ Value LegalizeCF::getOrCreateLoweredCmp(lsir::CmpIOp cmpOp,
     }
     Type vccType = VCCType::get(rewriter.getContext(), Register(0));
     Value vcc = AllocaOp::create(rewriter, loc, vccType);
-    OpCode cmpOpCode = getVectorCompareOpCode(pred);
-    amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, vcc, lhs, rhs);
+    createVectorCompare(rewriter, loc, pred, vcc, lhs, rhs);
     loweredCmpMap[cmpOp] = vcc;
     return vcc;
   }
@@ -207,9 +230,8 @@ Value LegalizeCF::getOrCreateLoweredCmp(lsir::CmpIOp cmpOp,
   // Scalar compare: s_cmp_* writes to SCC.
   Type sccType = SCCType::get(rewriter.getContext(), Register(0));
   Value scc = AllocaOp::create(rewriter, loc, sccType);
-  OpCode cmpOpCode = getScalarCompareOpCode(cmpOp.getPredicate());
-  amdgcn::CmpIOp::create(rewriter, loc, cmpOpCode, scc, cmpOp.getLhs(),
-                         cmpOp.getRhs());
+  createScalarCompare(rewriter, loc, cmpOp.getPredicate(), scc, cmpOp.getLhs(),
+                      cmpOp.getRhs());
 
   loweredCmpMap[cmpOp] = scc;
   return scc;

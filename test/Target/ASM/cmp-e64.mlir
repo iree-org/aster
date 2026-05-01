@@ -22,8 +22,7 @@ amdgcn.module @cmp_e64_mod target = #amdgcn.target<gfx942> {
     %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
     %dst = amdgcn.make_register_range %s0, %s1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
     %c0 = arith.constant 0 : i32
-    amdgcn.cmpi v_cmp_eq_i32_e64 outs %dst ins %c0, %v0
-        : outs(!amdgcn.sgpr<[0 : 2]>) ins(i32, !amdgcn.vgpr<0>)
+    amdgcn.v_cmp_eq_i32 outs(%dst) ins(%c0, %v0) : outs(!amdgcn.sgpr<[0 : 2]>) ins(i32, !amdgcn.vgpr<0>)
     amdgcn.end_kernel
   }
 
@@ -34,8 +33,7 @@ amdgcn.module @cmp_e64_mod target = #amdgcn.target<gfx942> {
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
     %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
     %dst = amdgcn.make_register_range %s0, %s1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    amdgcn.cmpi v_cmp_eq_i32_e64 outs %dst ins %v0, %v1
-        : outs(!amdgcn.sgpr<[0 : 2]>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
+    amdgcn.v_cmp_eq_i32 outs(%dst) ins(%v0, %v1) : outs(!amdgcn.sgpr<[0 : 2]>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
     amdgcn.end_kernel
   }
 }

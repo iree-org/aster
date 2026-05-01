@@ -877,4 +877,155 @@ def SWakeup : AMDISAInstruction<"s_wakeup"> {
 }
 #endif // SWAKEUP_DEF
 
-#endif // AMDGCN_VOP_TD
+#ifndef SCMPINST_DEF
+#define SCMPINST_DEF
+class SCmpInst<string mnemonic> : AMDISAInstruction<mnemonic> {
+  let props = [IsSALU, IsSOPC];
+  let archs = [CDNA3Isa, CDNA4Isa];
+  let outputs = (ins
+    SCCType:$scc_dst
+  );
+  let inputs = (ins
+    OneSGPROrSRegOrIntConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
+    OneSGPROrSRegOrIntConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src1
+  );
+  let trailingArgs = (ins);
+  let asm_syntax = [
+    ASMString<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], "${mnemonic} $src0, $src1">
+  ];
+}
+#endif // SCMPINST_DEF
+
+#ifndef SCMPEQI32_DEF
+#define SCMPEQI32_DEF
+def SCmpEqI32 : SCmpInst<"s_cmp_eq_i32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is equal to the second scalar
+    input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000000>];
+}
+#endif // SCMPEQI32_DEF
+
+#ifndef SCMPEQU32_DEF
+#define SCMPEQU32_DEF
+def SCmpEqU32 : SCmpInst<"s_cmp_eq_u32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is equal to the second scalar
+    input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000110>];
+}
+#endif // SCMPEQU32_DEF
+
+#ifndef SCMPGEI32_DEF
+#define SCMPGEI32_DEF
+def SCmpGeI32 : SCmpInst<"s_cmp_ge_i32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is greater than or equal to the
+    second scalar input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000011>];
+}
+#endif // SCMPGEI32_DEF
+
+#ifndef SCMPGEU32_DEF
+#define SCMPGEU32_DEF
+def SCmpGeU32 : SCmpInst<"s_cmp_ge_u32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is greater than or equal to the
+    second scalar input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0001001>];
+}
+#endif // SCMPGEU32_DEF
+
+#ifndef SCMPGTI32_DEF
+#define SCMPGTI32_DEF
+def SCmpGtI32 : SCmpInst<"s_cmp_gt_i32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is greater than the second scalar
+    input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000010>];
+}
+#endif // SCMPGTI32_DEF
+
+#ifndef SCMPGTU32_DEF
+#define SCMPGTU32_DEF
+def SCmpGtU32 : SCmpInst<"s_cmp_gt_u32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is greater than the second scalar
+    input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0001000>];
+}
+#endif // SCMPGTU32_DEF
+
+#ifndef SCMPLEI32_DEF
+#define SCMPLEI32_DEF
+def SCmpLeI32 : SCmpInst<"s_cmp_le_i32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is less than or equal to the
+    second scalar input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000101>];
+}
+#endif // SCMPLEI32_DEF
+
+#ifndef SCMPLEU32_DEF
+#define SCMPLEU32_DEF
+def SCmpLeU32 : SCmpInst<"s_cmp_le_u32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is less than or equal to the
+    second scalar input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0001011>];
+}
+#endif // SCMPLEU32_DEF
+
+#ifndef SCMPLGI32_DEF
+#define SCMPLGI32_DEF
+def SCmpLgI32 : SCmpInst<"s_cmp_lg_i32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is less than or greater than the
+    second scalar input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000001>];
+}
+#endif // SCMPLGI32_DEF
+
+#ifndef SCMPLGU32_DEF
+#define SCMPLGU32_DEF
+def SCmpLgU32 : SCmpInst<"s_cmp_lg_u32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is less than or greater than the
+    second scalar input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000111>];
+}
+#endif // SCMPLGU32_DEF
+
+#ifndef SCMPLTI32_DEF
+#define SCMPLTI32_DEF
+def SCmpLtI32 : SCmpInst<"s_cmp_lt_i32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is less than the second scalar
+    input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000100>];
+}
+#endif // SCMPLTI32_DEF
+
+#ifndef SCMPLTU32_DEF
+#define SCMPLTU32_DEF
+def SCmpLtU32 : SCmpInst<"s_cmp_lt_u32"> {
+  let description = [{
+    Set SCC to 1 iff the first scalar input is less than the second scalar
+    input.
+  }];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0001010>];
+}
+#endif // SCMPLTU32_DEF
+
+#endif // AMDGCN_SOP_TD

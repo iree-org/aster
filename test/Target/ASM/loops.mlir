@@ -50,8 +50,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
 
     amdgcn.s_mov_b32 outs(%s0) ins(%c5) : outs(!amdgcn.sgpr<0>) ins(i32)
     amdgcn.s_mov_b32 outs(%s1) ins(%c4) : outs(!amdgcn.sgpr<1>) ins(i32)
-    amdgcn.cmpi s_cmp_le_i32 outs %scc ins %s0, %s1
-      : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
+    amdgcn.s_cmp_le_i32 outs(%scc) ins(%s0, %s1) : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
 
     amdgcn.cbranch s_cbranch_scc1 %scc ^then fallthrough (^else)
       : !amdgcn.scc<0>
@@ -77,8 +76,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     amdgcn.branch s_branch ^loop_header
 
   ^loop_header:
-    amdgcn.cmpi s_cmp_lt_i32 outs %scc ins %s3, %s2
-      : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<3>, !amdgcn.sgpr<2>)
+    amdgcn.s_cmp_lt_i32 outs(%scc) ins(%s3, %s2) : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<3>, !amdgcn.sgpr<2>)
     amdgcn.cbranch s_cbranch_scc0 %scc ^exit fallthrough (^loop_body)
       : !amdgcn.scc<0>
   ^loop_body:
