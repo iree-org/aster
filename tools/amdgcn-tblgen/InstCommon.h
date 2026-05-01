@@ -21,9 +21,11 @@
 #include "mlir/TableGen/Constraint.h"
 #include "mlir/TableGen/Format.h"
 #include "mlir/TableGen/Operator.h"
+#include "mlir/TableGen/Predicate.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/TableGen/Error.h"
 #include "llvm/TableGen/Record.h"
 
@@ -223,13 +225,10 @@ struct InstConstraint : public RecordMixin<InstConstraint> {
   }
 };
 
-/// AMDGCN instruction assembly argument format.
-struct AsmArgFormat : public RecordMixin<AsmArgFormat> {
+/// Instruction assembly argument format (aster/IR/Inst.td).
+struct ASMArgFormat : public RecordMixin<ASMArgFormat> {
   using Base::Base;
-  static constexpr llvm::StringRef ClassType = "AsmArgFormat";
-
-  /// Get the parser of the argument.
-  StringRef getParser() const { return getStringRef("asmParser"); }
+  static constexpr llvm::StringRef ClassType = "ASMArgFormat";
 
   /// Get the printer of the argument.
   StringRef getPrinter() const { return getStringRef("asmPrinter"); }
@@ -327,6 +326,17 @@ private:
 //===----------------------------------------------------------------------===//
 // Utility functions and classes
 //===----------------------------------------------------------------------===//
+
+/// Build a 'self' expression for an operand accessor.
+/// \p prefix is prepended to the getter call (e.g., "op." or "").
+/// \p emptySelf is returned when \p name is empty (no specific operand).
+inline std::string buildSelfExpr(StringRef prefix, StringRef emptySelf,
+                                 StringRef name) {
+  if (name.empty())
+    return emptySelf.str();
+  return "getTypeOrValue(" + prefix.str() + "get" +
+         llvm::convertToCamelFromSnakeCase(name, true) + "())";
+}
 
 /// Helper class for building strings with a raw_ostream.
 struct StrStream {

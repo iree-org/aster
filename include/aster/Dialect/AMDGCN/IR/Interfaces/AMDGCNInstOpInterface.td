@@ -32,6 +32,19 @@ def AMDGCNInstOpInterface :
       "::mlir::aster::amdgcn::InstAttr", "getOpcodeAttr"
     >,
     InterfaceMethod<
+      "Temporary method, TODO: remove",
+      "bool", "isNewInst", (ins), [{}], [{
+        return false;
+      }]
+    >,
+    InterfaceMethod<
+      "Returns the opcode of the instruction",
+      "::mlir::aster::amdgcn::OpCode", "getOpCode", (ins), [{}], [{
+        const ::mlir::aster::amdgcn::InstMetadata* md = $_op.getInstMetadata();
+        return md ? md->getOpCode() : ::mlir::aster::amdgcn::OpCode::Invalid;
+      }]
+    >,
+    InterfaceMethod<
       "Returns whether the instruction has the given inst trait",
       "bool", "hasInstProps", (ins "::llvm::ArrayRef<InstProp>":$props, "bool":$all), [{}], [{
         ::mlir::aster::amdgcn::InstAttr attr = $_op.getOpcodeAttr();
@@ -62,11 +75,6 @@ def AMDGCNInstOpInterface :
 
     bool hasAnyProps(::llvm::ArrayRef<::mlir::aster::amdgcn::InstProp> props) {
       return $_op.hasInstProps(props, false);
-    }
-
-    ::mlir::aster::amdgcn::OpCode getOpCode() {
-      const ::mlir::aster::amdgcn::InstMetadata* md = $_op.getInstMetadata();
-      return md ? md->getOpCode() : ::mlir::aster::amdgcn::OpCode::Invalid;
     }
 
     /// Returns true if the instruction supports the given ISA version.

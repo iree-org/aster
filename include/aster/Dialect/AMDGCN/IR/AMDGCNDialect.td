@@ -17,6 +17,7 @@
 
 include "mlir/IR/OpBase.td"
 include "aster/IR/InstBase.td"
+include "aster/IR/Inst.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.td"
 include "aster/Support/EnumBase.td"
 include "aster/Support/Utils.td"
@@ -82,16 +83,6 @@ class Target<string name, ISAVersion version> : EnumCaseInfo<name, ""> {
   ISAVersion isaVersion = version;
 }
 
-/// AMDGCN argument assembly format.
-class AsmArgFormat {
-  // Assembly parser code.
-  // Example: `$_parser.parseOperand($_self);`
-  code asmParser = ?;
-  // Assembly printer code.
-  // Example: `$_printer.printOperand($_self);`
-  code asmPrinter = ?;
-}
-
 /// Python attribute with a builder.
 /// This is used to generate Python bindings for attributes that have
 /// simple builders.
@@ -118,10 +109,12 @@ class AsmVariant<Pred pred, code format> {
   code asmFormat = format;
 }
 
+class AMDInstOpCode<string sym, string id = ""> : EnumCaseInfo<sym, id>;
+
 /// AMDGCN instruction definition.
 class AMDInst<string _mnemonic, string sym, InstOp _instOp, list<ISAVersion> _isa,
               list<InstProp> _props = []>
-    : EnumCaseInfo<sym, ""> {
+    : AMDInstOpCode<sym, ""> {
   // The summary description of the instruction.
   code summary = "AMDGCN instruction `" # _mnemonic # "`.";
   code description = summary;

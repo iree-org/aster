@@ -90,10 +90,7 @@ static bool generateInstDecls(const llvm::RecordKeeper &records,
 
 /// Get the 'self' expression for the given operand name.
 static std::string getSelf(StringRef name) {
-  if (name.empty())
-    return "op";
-  return "getTypeOrValue(op.get" +
-         llvm::convertToCamelFromSnakeCase(name, true) + "())";
+  return buildSelfExpr("op.", "op", name);
 }
 
 /// Generate code for the given constraint.

@@ -34,11 +34,11 @@ struct ASMFormatHandler {
   void genPrinter(raw_ostream &os);
 
 private:
-  using ArgTy = std::optional<std::pair<DagArg, AsmArgFormat>>;
+  using ArgTy = std::optional<std::pair<DagArg, ASMArgFormat>>;
   /// Emit the code to print the given variant.
   void emitVariant(AsmVariant variant, mlir::raw_indented_ostream &os);
   /// Emit the code to print the given argument.
-  void emitArg(DagArg dagArg, AsmArgFormat arg, mlir::raw_indented_ostream &os);
+  void emitArg(DagArg dagArg, ASMArgFormat arg, mlir::raw_indented_ostream &os);
   /// Emit the custom syntax at the current lexer position.
   LogicalResult emitCustomSyntax(Lexer &lexer, mlir::raw_indented_ostream &os);
   /// Emit an error message.
@@ -57,16 +57,16 @@ ASMFormatHandler::ASMFormatHandler(const AMDInst &inst) : inst(inst) {
   // Collect the arguments.
   for (auto [i, arg] : llvm::enumerate(args.getAsRange())) {
     opArgs.insert(arg.getName());
-    if (!AsmArgFormat::isa(arg.getAsRecord()))
+    if (!ASMArgFormat::isa(arg.getAsRecord()))
       continue;
-    arguments[arg.getName()] = {arg, AsmArgFormat(arg.getAsRecord())};
+    arguments[arg.getName()] = {arg, ASMArgFormat(arg.getAsRecord())};
   }
   // Collect the successors.
   for (auto [i, succ] : llvm::enumerate(successors.getAsRange())) {
     opArgs.insert(succ.getName());
-    if (!AsmArgFormat::isa(succ.getAsRecord()))
+    if (!ASMArgFormat::isa(succ.getAsRecord()))
       continue;
-    arguments[succ.getName()] = {succ, AsmArgFormat(succ.getAsRecord())};
+    arguments[succ.getName()] = {succ, ASMArgFormat(succ.getAsRecord())};
   }
   // Populate the format context.
   populateFmtContext(inst, ctx);
@@ -75,7 +75,7 @@ ASMFormatHandler::ASMFormatHandler(const AMDInst &inst) : inst(inst) {
   ctx.addSubst("_printer", "printer");
 }
 
-void ASMFormatHandler::emitArg(DagArg dagArg, AsmArgFormat arg,
+void ASMFormatHandler::emitArg(DagArg dagArg, ASMArgFormat arg,
                                mlir::raw_indented_ostream &os) {
   ctx.withSelf("_inst.get" +
                llvm::convertToCamelFromSnakeCase(dagArg.getName(), true) +
@@ -173,12 +173,12 @@ void ASMFormatHandler::emitVariant(AsmVariant variant,
 
       // Lookup the argument.
       ArgTy argumentsIt = arguments.lookup(*id);
-      // Check if the argument derives from `AsmArgFormat`.
+      // Check if the argument derives from `ASMArgFormat`.
       if (!argumentsIt.has_value()) {
         if (opArgs.contains(*id)) {
           llvm::PrintFatalError(
               &inst.getDef(),
-              "argument in asm format doesn't derive from `AsmArgFormat`: " +
+              "argument in asm format doesn't derive from `ASMArgFormat`: " +
                   *id);
           return;
         }
@@ -277,22 +277,33 @@ static bool generateInstPrinters(const llvm::RecordKeeper &records,
       },
       "\n");
 
-  // Generate the opcode to printer function table.
-  os << "\nstatic const llvm::SmallVector<"
-        "llvm::function_ref<mlir::LogicalResult(mlir::aster::amdgcn::OpCode, "
-        "mlir::aster::amdgcn::AsmPrinter &, mlir::Operation *)>> "
-        "_instPrinters = {\n";
-  os << "  nullptr, // OpCode::Invalid\n";
+  // Generate the opcode-to-printer function table, indexed by OpCode value.
+  // Use explicit indexing to handle gaps from non-AMDInst OpCode entries.
+  os << R"(
+static llvm::SmallVector<
+    llvm::function_ref<mlir::LogicalResult(mlir::aster::amdgcn::OpCode,
+                                           mlir::aster::amdgcn::AsmPrinter &,
+                                           mlir::Operation *)>>
+initInstPrinters() {
+  llvm::SmallVector<
+      llvm::function_ref<mlir::LogicalResult(mlir::aster::amdgcn::OpCode,
+                                             mlir::aster::amdgcn::AsmPrinter &,
+                                             mlir::Operation *)>>
+      table(static_cast<size_t>(
+                mlir::aster::amdgcn::OpCode::LastOpCode),
+            nullptr);
+)";
+  for (const llvm::Record *instRec : instRecs) {
+    AMDInst inst(instRec);
+    os << "  table[static_cast<size_t>(::mlir::aster::amdgcn::OpCode::"
+       << inst.getAsEnumCase().getIdentifier() << ")] = print" << inst.getName()
+       << ";\n";
+  }
+  os << R"(  return table;
+}
 
-  // Generate each table entry.
-  llvm::interleave(
-      instRecs, os,
-      [&](const llvm::Record *instRec) {
-        AMDInst inst(instRec);
-        os << "  print" << inst.getName() << ",";
-      },
-      "\n");
-  os << "\n};\n";
+static const auto _instPrinters = initInstPrinters();
+)";
   return false;
 }
 
