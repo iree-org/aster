@@ -18,6 +18,7 @@
 #include "aster/Target/ASM/TranslateModule.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Target/Cpp/CppEmitter.h"
 #include "mlir/Tools/mlir-translate/MlirTranslateMain.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
 #include "llvm/Support/LogicalResult.h"
@@ -48,7 +49,20 @@ static void registerToASMTranslation() {
       });
 }
 
+static void registerToCppTranslation() {
+  TranslateFromMLIRRegistration registration(
+      "mlir-to-cpp", "Translate MLIR to C++",
+      [](Operation *op, raw_ostream &os) -> LogicalResult {
+        return emitc::translateToCpp(op, os);
+      },
+      [](DialectRegistry &registry) {
+        initDialects(registry);
+        initUpstreamMLIRDialects(registry);
+      });
+}
+
 int main(int argc, char **argv) {
   registerToASMTranslation();
-  return failed(mlirTranslateMain(argc, argv, "AMDGCN Translation Tool"));
+  registerToCppTranslation();
+  return failed(mlirTranslateMain(argc, argv, "ASTER Translation Tool"));
 }

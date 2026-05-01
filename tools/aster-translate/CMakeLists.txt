@@ -5,6 +5,7 @@ set(LIBS
   MLIRParser
   MLIRPass
   MLIRSupport
+  MLIRTargetCpp
   MLIRTranslateLib
 )
 

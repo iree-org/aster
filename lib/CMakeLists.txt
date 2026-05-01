@@ -24,6 +24,7 @@ add_mlir_library(ASTERInit
   LSIRDialect
   MLIRNormalFormDialect
   MLIRNormalFormTransforms
+  MLIRPatternDialect
   MLIRAffineDialect
   MLIRAffineTransforms
   MLIRArithDialect
