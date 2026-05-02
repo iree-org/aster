@@ -1108,41 +1108,6 @@ def LSIR_UIToFPOp : CastOp<"uitofp", AnyFloatTypeAttr, AnyIntTypeAttr, IntOrRegT
 }
 
 //===----------------------------------------------------------------------===//
-// WaitOp
-//===----------------------------------------------------------------------===//
-
-def DependenciesType : Variadic<TokenDependencyTypeInterface> {
-  let minSize = 1;
-}
-
-def LSIR_WaitOp : LSIR_Op<"wait", [DependentOpInterface]> {
-  let summary = "Wait operation";
-  let description = [{
-    The `lsir.wait` waits for one or more operations to complete.
-
-    Example:
-    ```mlir
-    lsir.wait %d0, %d1, %d2 : !lsir.store_token, !lsir.store_token, !lsir.load_token
-    ```
-  }];
-  let arguments = (ins
-    DependenciesType:$dependencies
-  );
-  let assemblyFormat = [{
-    $dependencies attr-dict `:` type($dependencies)
-  }];
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // DependentOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Get the output result representing the dependency.
-    Value getOutDependency() {
-      return {};
-    }
-  }];
-}
-
-//===----------------------------------------------------------------------===//
 // XOrIOp
 //===----------------------------------------------------------------------===//
 

@@ -315,16 +315,6 @@ struct TimingStopOpPattern : public OpRewritePattern<lsir::TimingStopOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// WaitOpPattern
-//===----------------------------------------------------------------------===//
-
-struct WaitOpPattern : public OpRewritePattern<lsir::WaitOp> {
-  using Base::Base;
-  LogicalResult matchAndRewrite(lsir::WaitOp op,
-                                PatternRewriter &rewriter) const override;
-};
-
-//===----------------------------------------------------------------------===//
 // PtrAddOpPattern
 //===----------------------------------------------------------------------===//
 
@@ -1849,103 +1839,6 @@ LogicalResult SubIOpPattern::matchAndRewrite(lsir::SubIOp op,
 }
 
 //===----------------------------------------------------------------------===//
-// WaitOpPattern
-//===----------------------------------------------------------------------===//
-
-/// Enum to classify memory operation types for wait count purposes.
-enum class MemOpKind {
-  Unknown,
-  VMEM, // Global load/store
-  SMEM, // Scalar memory load/store
-  DS,   // Local data share read/write
-};
-
-/// Classify an operation to determine which wait counter it affects.
-template <typename OpTy>
-static MemOpKind classifyMemOp(Operation *op) {
-  auto mOp = dyn_cast<OpTy>(op);
-  if (!mOp)
-    return MemOpKind::Unknown;
-  auto memSpace = dyn_cast<amdgcn::AddressSpaceAttr>(mOp.getMemorySpace());
-  if (!memSpace)
-    return MemOpKind::Unknown;
-  AddressSpaceKind space = memSpace.getSpace();
-  if (space == AddressSpaceKind::Local)
-    return MemOpKind::DS;
-  if (space != AddressSpaceKind::Global)
-    return MemOpKind::Unknown;
-  if (isSGPR(mOp.getAddr().getType(), 2) &&
-      (isSGPR(mOp.getOffset().getType(), 1) ||
-       ValueOrI32::getConstant(mOp.getOffset())))
-    return MemOpKind::SMEM;
-  return MemOpKind::VMEM;
-}
-
-static MemOpKind classifyMemOp(Operation *op) {
-  MemOpKind kind = classifyMemOp<lsir::LoadOp>(op);
-  if (kind != MemOpKind::Unknown)
-    return kind;
-  kind = classifyMemOp<lsir::StoreOp>(op);
-  if (kind != MemOpKind::Unknown)
-    return kind;
-  return MemOpKind::Unknown;
-}
-
-LogicalResult WaitOpPattern::matchAndRewrite(lsir::WaitOp op,
-                                             PatternRewriter &rewriter) const {
-  Location loc = op.getLoc();
-  int32_t vmcnt = 0;
-  int32_t lgkmcnt = 0;
-  int32_t expcnt = 0;
-
-  bool hasUnknown = false;
-
-  SmallVector<Operation *> depOps;
-  for (Value dep : op.getDependencies()) {
-    Operation *definingOp = dep.getDefiningOp();
-    if (!definingOp) {
-      hasUnknown = true;
-      break;
-    }
-    depOps.push_back(definingOp);
-    MemOpKind kind = classifyMemOp(definingOp);
-    switch (kind) {
-    case MemOpKind::VMEM:
-      ++vmcnt;
-      break;
-    case MemOpKind::SMEM:
-    case MemOpKind::DS:
-      ++lgkmcnt;
-      break;
-    case MemOpKind::Unknown:
-      hasUnknown = true;
-      break;
-    }
-    if (hasUnknown)
-      break;
-  }
-  // If there are any unknown dependencies, we have to wait for all kinds.
-  if (hasUnknown) {
-    vmcnt = -1;
-    lgkmcnt = -1;
-    expcnt = -1;
-  }
-  auto getCnt = [&](int32_t count) -> IntegerAttr {
-    if (count < 0)
-      return rewriter.getI8IntegerAttr(0);
-    return count == 0 ? IntegerAttr() : rewriter.getI8IntegerAttr(count);
-  };
-  SWaitcnt::create(rewriter, loc, getCnt(vmcnt), getCnt(expcnt),
-                   getCnt(lgkmcnt));
-  rewriter.eraseOp(op);
-  for (Operation *depOp : depOps) {
-    // Mark dependency operations as used.
-    rewriter.modifyOpInPlace(depOp, []() {});
-  }
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // PtrAddOpPattern
 //===----------------------------------------------------------------------===//
 
@@ -2097,7 +1990,5 @@ void mlir::aster::amdgcn::populateToAMDGCNPatterns(
       // Pointer ops.
       PtrAddOpPattern,
       // Control ops.
-      KernelOpPattern, ReturnOpPattern,
-      // Synchronization ops.
-      WaitOpPattern>(patterns.getContext());
+      KernelOpPattern, ReturnOpPattern>(patterns.getContext());
 }
