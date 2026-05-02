@@ -96,14 +96,6 @@ def TestReachingDefinitions : Pass<"test-reaching-definitions"> {
   ];
 }
 
-def TestMemoryDependenceAnalysis : Pass<"test-memory-dependence-analysis"> {
-  let summary = "Test pass for memory dependence analysis";
-  let description = [{
-    This pass runs memory dependence analysis and prints pending
-    memory operations and flush requirements for each operation.
-  }];
-}
-
 def TestWaitAnalysis : Pass<"test-wait-analysis"> {
   let summary = "Test pass for wait analysis";
   let description = [{
