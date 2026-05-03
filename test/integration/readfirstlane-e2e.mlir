@@ -39,10 +39,8 @@ amdgcn.module @readfirstlane_mod target = #amdgcn.target<gfx942> {
 
     // Store to global: out[tid_x] = 42
     %c0 = arith.constant 0 : i32
-    %tok = amdgcn.store global_store_dword data %v_val addr %out_ptr
-      offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dword ins(%v_val, %out_ptr, offset = %voffset) args(%c0)
+        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
 
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
@@ -75,10 +73,8 @@ amdgcn.module @readfirstlane_mod target = #amdgcn.target<gfx942> {
 
     // Store: out[tid_x] = readfirstlane(tid_x)
     %c0 = arith.constant 0 : i32
-    %tok = amdgcn.store global_store_dword data %v_val addr %out_ptr
-      offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dword ins(%v_val, %out_ptr, offset = %voffset) args(%c0)
+        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
 
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel

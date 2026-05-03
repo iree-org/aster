@@ -57,22 +57,16 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> {
     %c8 = arith.constant 8 : i32
 
     %snelems_dest = amdgcn.alloca : !amdgcn.sgpr
-    %src_nelems, %t0 = amdgcn.load s_load_dword dest %snelems_dest addr %params_ptr
-      offset c(%c0)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
-        -> !amdgcn.read_token<constant>
+    %src_nelems, %t0 = amdgcn.s_load_dword outs(%snelems_dest) ins(%params_ptr) args(%c0)
+        : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) args(i32) -> !amdgcn.read_token<constant>
 
     %dnelems_dest = amdgcn.alloca : !amdgcn.sgpr
-    %dst_nelems, %t1 = amdgcn.load s_load_dword dest %dnelems_dest addr %params_ptr
-      offset c(%c4)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
-        -> !amdgcn.read_token<constant>
+    %dst_nelems, %t1 = amdgcn.s_load_dword outs(%dnelems_dest) ins(%params_ptr) args(%c4)
+        : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) args(i32) -> !amdgcn.read_token<constant>
 
     %soff_dest = amdgcn.alloca : !amdgcn.sgpr
-    %soffset, %t2 = amdgcn.load s_load_dword dest %soff_dest addr %params_ptr
-      offset c(%c8)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
-        -> !amdgcn.read_token<constant>
+    %soffset, %t2 = amdgcn.s_load_dword outs(%soff_dest) ins(%params_ptr) args(%c8)
+        : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) args(i32) -> !amdgcn.read_token<constant>
 
     amdgcn.s_waitcnt lgkmcnt = 0
 
@@ -117,20 +111,16 @@ amdgcn.module @buffer_copy_mod target = #amdgcn.target<gfx942> {
     // buffer_load_dword: load one dword from src[threadidx.x]
     // OOB lanes (voffset + soffset >= num_records) get 0
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
-    %loaded, %tok_ld = amdgcn.load buffer_load_dword dest %load_dest addr %src_rsrc
-      offset u(%soffset) + d(%voffset) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
-        -> !amdgcn.read_token<flat>
+    %loaded, %tok_ld = amdgcn.buffer_load_dword outs(%load_dest) ins(%src_rsrc, off_or_idx = %voffset, %soffset) args(%c0) {offen}
+        : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, off_or_idx = !amdgcn.vgpr, !amdgcn.sgpr) args(i32) -> !amdgcn.read_token<flat>
 
     // Wait for buffer load
     amdgcn.s_waitcnt vmcnt = 0
 
     // buffer_store_dword: store loaded dword to dst[threadidx.x]
     // OOB stores (voffset + soffset >= num_records) are silently dropped
-    %tok_st = amdgcn.store buffer_store_dword data %loaded addr %dst_rsrc
-      offset u(%soffset) + d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok_st = amdgcn.buffer_store_dword ins(%loaded, %dst_rsrc, off_or_idx = %voffset, %soffset) args(%c0) {offen}
+        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, off_or_idx = !amdgcn.vgpr, !amdgcn.sgpr) args(i32) -> !amdgcn.write_token<flat>
 
     // Wait for buffer store
     amdgcn.s_waitcnt vmcnt = 0

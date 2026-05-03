@@ -289,7 +289,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
             )
             lds_a_wave = b.affine_apply(d0 + d1, [lds_a, coop_a_lds_off])
 
-            @b.foreach_tile(n_coop_a, types=[(b.flat_write_tok, 1)])
+            @b.foreach_tile(n_coop_a, types=[(b.flat_read_tok, 1)])
             def g2s_toks_a(idx):
                 tile_off = b.linearize_layout(idx, COOP_COORD_A)
                 voff = b.affine_apply(s0 + s1 + s2, [], [a_wave_base, thread_off_a, tile_off])
@@ -332,7 +332,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
                 )
                 lds_b_wave = b.affine_apply(d0 + d1, [lds_b, coop_b_lds_off])
 
-                @b.foreach_tile(n_coop_b, types=[(b.flat_write_tok, 1)])
+                @b.foreach_tile(n_coop_b, types=[(b.flat_read_tok, 1)])
                 def g2s_toks_b(idx):
                     tile_off = b.linearize_layout(idx, COOP_COORD_B)
                     voff = b.affine_apply(s0 + s1 + s2, [], [b_wave_base, thread_off_b, tile_off])

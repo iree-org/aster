@@ -105,27 +105,21 @@ def AnyReg : Type<CPred<"true">, "any register type",
 
 /// A type that matches any of the given register types.
 class AnyRegOf<list<Type> types> :
-  AnyTypeOf<types, "register type",
+  AnyTypeOf<types, "register type of: {" # !interleave(!foreach(type, types, type.summary), ", ") # "}",
     "::mlir::aster::amdgcn::AMDGCNRegisterTypeInterface">,
   PrintOperand;
-
-/// A sized GPR range.
-class SizedGPRRange<list<Type> types, list<int> size> :
-  ConfinedType<AnyRegOf<types>, [
-    CPred<"::mlir::aster::amdgcn::hasSize($_self, {" # !interleave(size, ", ") # "})">
-  ], "sized GPR range">, PrintOperand;
 
 /// A sized GPR range of a specific type.
 class SizedGPRRangeOf<Type type, list<int> size> :
   ConfinedType<type, [
     CPred<"::mlir::aster::amdgcn::hasSize($_self, {" # !interleave(size, ", ") # "})">
-  ], "sized GPR range of " # type.summary>, PrintOperand {
+  ], "sized GPR range of " # type.summary # " with sizes {" # !interleave(size, ", ") # "}">, PrintOperand {
 }
 
 /// Sized GPR range shortcuts.
-class AGPROf<int numRegs> : SizedGPRRange<[AGPRType], [numRegs]>;
-class SGPROf<int numRegs> : SizedGPRRange<[SGPRType], [numRegs]>;
-class VGPROf<int numRegs> : SizedGPRRange<[VGPRType], [numRegs]>;
+class AGPROf<int numRegs> : SizedGPRRangeOf<AGPRType, [numRegs]>;
+class SGPROf<int numRegs> : SizedGPRRangeOf<SGPRType, [numRegs]>;
+class VGPROf<int numRegs> : SizedGPRRangeOf<VGPRType, [numRegs]>;
 
 //===----------------------------------------------------------------------===//
 // Optional and composite register constraints

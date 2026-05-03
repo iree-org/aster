@@ -59,16 +59,12 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> {
     %c4 = arith.constant 4 : i32
 
     %nrec_dest = amdgcn.alloca : !amdgcn.sgpr
-    %num_records, %t0 = amdgcn.load s_load_dword dest %nrec_dest addr %params_ptr
-      offset c(%c0)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
-        -> !amdgcn.read_token<constant>
+    %num_records, %t0 = amdgcn.s_load_dword outs(%nrec_dest) ins(%params_ptr) args(%c0)
+        : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) args(i32) -> !amdgcn.read_token<constant>
 
     %soff_dest = amdgcn.alloca : !amdgcn.sgpr
-    %soffset, %t1 = amdgcn.load s_load_dword dest %soff_dest addr %params_ptr
-      offset c(%c4)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
-        -> !amdgcn.read_token<constant>
+    %soffset, %t1 = amdgcn.s_load_dword outs(%soff_dest) ins(%params_ptr) args(%c4)
+        : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) args(i32) -> !amdgcn.read_token<constant>
 
     amdgcn.s_waitcnt lgkmcnt = 0
 
@@ -103,17 +99,13 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> {
     %c0 = arith.constant 0 : i32
 
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
-    %loaded, %tok_ld = amdgcn.load buffer_load_dword_idxen dest %load_dest addr %src_rsrc
-      offset u(%soffset) + d(%vindex) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
-        -> !amdgcn.read_token<flat>
+    %loaded, %tok_ld = amdgcn.buffer_load_dword outs(%load_dest) ins(%src_rsrc, off_or_idx = %vindex, %soffset) args(%c0) {idxen}
+        : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr) args(i32) -> !amdgcn.read_token<flat>
 
     amdgcn.s_waitcnt vmcnt = 0
 
-    %tok_st = amdgcn.store buffer_store_dword_idxen data %loaded addr %dst_rsrc
-      offset u(%soffset) + d(%vindex) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
-        -> !amdgcn.write_token<flat>
+    %tok_st = amdgcn.buffer_store_dword ins(%loaded, %dst_rsrc, off_or_idx = %vindex, %soffset) args(%c0) {idxen}
+        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr) args(i32) -> !amdgcn.write_token<flat>
 
     amdgcn.s_waitcnt vmcnt = 0
 
@@ -151,17 +143,13 @@ amdgcn.module @buffer_idxen_mod target = #amdgcn.target<gfx942> {
     %c0 = arith.constant 0 : i32
 
     %load_dest = amdgcn.alloca : !amdgcn.vgpr
-    %loaded, %tok_ld = amdgcn.load buffer_load_dword_idxen dest %load_dest addr %src_rsrc
-      offset u(%soffset) + d(%vindex) + c(%c0)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
-        -> !amdgcn.read_token<flat>
+    %loaded, %tok_ld = amdgcn.buffer_load_dword outs(%load_dest) ins(%src_rsrc, off_or_idx = %vindex, %soffset) args(%c0) {idxen}
+        : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr) args(i32) -> !amdgcn.read_token<flat>
 
     amdgcn.s_waitcnt vmcnt = 0
 
-    %tok_st = amdgcn.store buffer_store_dword_idxen data %loaded addr %dst_rsrc
-      offset u(%soffset) + d(%vindex) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr<0>, i32)
-        -> !amdgcn.write_token<flat>
+    %tok_st = amdgcn.buffer_store_dword ins(%loaded, %dst_rsrc, off_or_idx = %vindex, %soffset) args(%c0) {idxen}
+        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr) args(i32) -> !amdgcn.write_token<flat>
 
     amdgcn.s_waitcnt vmcnt = 0
 

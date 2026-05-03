@@ -141,8 +141,8 @@ void ASMPrinterHandler::emitMnemonicInterpolation(
     suffix += lexer.currentChar();
     lexer.consumeChar();
   }
-  os << "auto _grd = $_printer.printMnemonic(\"" << instOp.getOpName() << suffix
-     << "\");\n";
+  os << "auto _grd = $_printer.printMnemonic(\"" << instOp.getAsmMnemonic()
+     << suffix << "\");\n";
 }
 
 void ASMPrinterHandler::emitOperandRef(Lexer &lexer,

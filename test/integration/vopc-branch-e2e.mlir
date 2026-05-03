@@ -43,10 +43,8 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
     %cmp = lsir.cmpi i32 slt %tid, %c100 : !amdgcn.vgpr, i32
     %selected = lsir.select %v_out_alloc, %cmp, %v_true, %v_false
       : !amdgcn.vgpr, i1, !amdgcn.vgpr, !amdgcn.vgpr
-    %tok = amdgcn.store global_store_dword data %selected addr %out_ptr
-      offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dword ins(%selected, %out_ptr, offset = %voffset) args(%c0)
+        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
@@ -71,10 +69,8 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
     %cmp = lsir.cmpi i32 slt %tid, %c0 : !amdgcn.vgpr, i32
     %selected = lsir.select %v_out_alloc, %cmp, %v_true, %v_false
       : !amdgcn.vgpr, i1, !amdgcn.vgpr, !amdgcn.vgpr
-    %tok = amdgcn.store global_store_dword data %selected addr %out_ptr
-      offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dword ins(%selected, %out_ptr, offset = %voffset) args(%c0)
+        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
@@ -101,10 +97,8 @@ amdgcn.module @vopc_select_mod target = #amdgcn.target<gfx942> {
     %cmp = lsir.cmpi i32 slt %tid, %c32 : !amdgcn.vgpr, i32
     %selected = lsir.select %v_out_alloc, %cmp, %v_true, %v_false
       : !amdgcn.vgpr, i1, !amdgcn.vgpr, !amdgcn.vgpr
-    %tok = amdgcn.store global_store_dword data %selected addr %out_ptr
-      offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dword ins(%selected, %out_ptr, offset = %voffset) args(%c0)
+        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }

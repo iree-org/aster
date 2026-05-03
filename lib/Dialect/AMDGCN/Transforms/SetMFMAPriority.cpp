@@ -34,8 +34,7 @@ static bool isMemoryOp(Operation *op) {
   auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
   if (!instOp || instOp.getOpCode() == OpCode::Invalid)
     return false;
-  return instOp.hasAnyProps(
-      {InstProp::IsVmem, InstProp::Dsmem, InstProp::Smem});
+  return instOp.hasAnyProps({InstProp::IsVmem, InstProp::Ds, InstProp::Smem});
 }
 
 static bool blockHasSetprio(Block &block) {

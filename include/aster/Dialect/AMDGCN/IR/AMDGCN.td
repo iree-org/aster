@@ -206,7 +206,7 @@ def IsSOPP : InstProp<"sopp">;
 
 // Memory encoding families
 def IsSMEM : InstProp<"smem">;
-def IsDSMEM : InstProp<"dsmem">;
+def IsDS : InstProp<"ds">;
 def IsFlat : InstProp<"flat">;
 def IsScratch : InstProp<"scratch">;
 def IsBuffer : InstProp<"buffer">;
