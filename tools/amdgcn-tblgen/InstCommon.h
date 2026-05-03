@@ -316,6 +316,15 @@ struct EffectRecord : public RecordMixin<EffectRecord> {
   StringRef getBody() const { return getStringRef("body"); }
 };
 
+/// Wrapper for the td `InferrableType` class.
+struct InferrableTypeRecord : public RecordMixin<InferrableTypeRecord> {
+  using Base::Base;
+  static constexpr llvm::StringRef ClassType = "InferrableType";
+
+  /// Get the type inference code fragment.
+  StringRef getInferType() const { return getStringRef("inferType"); }
+};
+
 /// Wrapper for the td `Instruction` class, providing typed accessors for
 /// encoding, effects, and assembly syntax fields.
 struct InstOp : public RecordMixin<InstOp> {

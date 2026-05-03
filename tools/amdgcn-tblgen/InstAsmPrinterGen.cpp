@@ -66,6 +66,8 @@ private:
   void emitModifierRef(Lexer &lexer, mlir::raw_indented_ostream &os);
   /// Emit a keyword token.
   void emitKeyword(Lexer &lexer, mlir::raw_indented_ostream &os);
+  /// Emit a `@identifier(args...)` custom syntax call.
+  LogicalResult emitCustomSyntax(Lexer &lexer, mlir::raw_indented_ostream &os);
 
   //===--------------------------------------------------------------------===//
   // Higher-level emitters
@@ -200,6 +202,61 @@ void ASMPrinterHandler::emitArg(DagArg dagArg, ASMArgFormat arg,
   ctx.withSelf("_inst");
 }
 
+LogicalResult
+ASMPrinterHandler::emitCustomSyntax(Lexer &lexer,
+                                    mlir::raw_indented_ostream &os) {
+  lexer.consumeChar(); // consume '@'
+
+  FailureOr<StringRef> id = lexer.lexIdentifier();
+  if (failed(id)) {
+    emitError("failed to lex identifier in asm_syntax: " +
+              lexer.getCurrentPos());
+    return failure();
+  }
+
+  if (lexer.currentChar() != '(') {
+    emitError("expected '(' after custom syntax: " + lexer.getCurrentPos());
+    return failure();
+  }
+  lexer.consumeChar(); // consume '('
+  StringRef argStr =
+      lexer.getCurrentPos().take_until([](char c) { return c == ')'; });
+  if (lexer.getCurrentPos() == argStr) {
+    emitError("expected ')' to terminate custom syntax: " +
+              lexer.getCurrentPos());
+    return failure();
+  }
+  (void)lexer.consume(argStr);
+  lexer.consumeChar(); // consume ')'
+
+  SmallVector<StringRef, 4> args;
+  argStr.split(args, ',', -1, true);
+  for (StringRef &arg : args) {
+    arg = arg.trim(" \t\n\v\f\r");
+    // Strip `$arg` or `[modifier]` delimiters.
+    if (arg.starts_with("$"))
+      arg = arg.drop_front();
+    else if (arg.starts_with("[") && arg.ends_with("]"))
+      arg = arg.drop_front().drop_back();
+    if (arg.empty()) {
+      emitError("empty argument in custom syntax");
+      return failure();
+    }
+    if (!arguments.contains(arg)) {
+      emitError("unknown argument in custom syntax: " + arg);
+      return failure();
+    }
+  }
+  os << *id << "(" << mlir::tblgen::tgfmt("$_printer, $_self", &ctx);
+  if (!args.empty())
+    os << ", ";
+  llvm::interleaveComma(args, os, [&](StringRef arg) {
+    os << "_inst.get" + llvm::convertToCamelFromSnakeCase(arg, true) + "()";
+  });
+  os << ");\n";
+  return success();
+}
+
 void ASMPrinterHandler::emitSyntax(StringRef syntax,
                                    mlir::raw_indented_ostream &os) {
   Lexer lexer(syntax);
@@ -237,6 +294,13 @@ void ASMPrinterHandler::emitSyntax(StringRef syntax,
     // Keyword.
     if (lexer.currentChar() == '_' || std::isalpha(lexer.currentChar())) {
       emitKeyword(lexer, os);
+      continue;
+    }
+
+    // Custom syntax `@identifier(args...)`.
+    if (lexer.currentChar() == '@') {
+      if (failed(emitCustomSyntax(lexer, os)))
+        return;
       continue;
     }
 

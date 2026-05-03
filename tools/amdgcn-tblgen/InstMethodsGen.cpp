@@ -92,6 +92,9 @@ parseEncodingOverrides(const InstEncRecord &enc,
                        const mlir::tblgen::Operator &op) {
   llvm::StringMap<const llvm::Record *> result;
   const llvm::DagInit *dag = enc.getConstraintsDag();
+  SmallVector<StringRef> argNames = llvm::map_to_vector(
+      Dag((op.getDef().getValueAsDag("arguments"))).getAsRange(),
+      [](const DagArg &arg) { return arg.getName(); });
   for (unsigned i = 0, e = dag->getNumArgs(); i < e; ++i) {
     StringRef name = dag->getArgNameStr(i);
     const auto *defInit = dyn_cast<llvm::DefInit>(dag->getArg(i));
@@ -99,18 +102,13 @@ parseEncodingOverrides(const InstEncRecord &enc,
       llvm::PrintFatalError(enc.getDef().getLoc(),
                             "encoding constraint argument '" + name +
                                 "' must be a Type record");
-    bool found = false;
-    for (int j = 0, je = op.getNumOperands(); j < je; ++j) {
-      if (op.getOperand(j).name != name)
-        continue;
-      found = true;
-      break;
-    }
-    if (!found)
+    bool found = llvm::is_contained(argNames, name);
+    if (!found) {
       llvm::PrintFatalError(
           enc.getDef().getLoc(),
           "encoding constraint references unknown argument '" + name +
               "' in op '" + op.getOperationName() + "'");
+    }
     result[name] = defInit->getDef();
   }
   return result;
@@ -926,33 +924,42 @@ static void genInferReturnTypes(const InstOp &instOp, StringRef className,
     }
   }
 
-  // Infer buildable trailing result types.
+  // Infer buildable or inferrable trailing result types.
   if (numTrailingResults > 0) {
     int numOutputResults = op.getNumResults() - numTrailingResults;
     mlir::tblgen::FmtContext builderCtx;
     builderCtx.withBuilder("odsBuilder");
     builderCtx.addSubst("_ctxt", "context");
+    builderCtx.addSubst("_loc", "location");
+    builderCtx.addSubst("_self", "adaptor");
 
-    // Validate that all trailing results are buildable and not optional.
+    // Validate that all trailing results are not optional and have either a
+    // buildable type or an inferrable type.
     for (int i = 0; i < numTrailingResults; ++i) {
       const mlir::tblgen::NamedTypeConstraint &result =
           op.getResult(numOutputResults + i);
       if (result.isOptional())
         llvm::PrintFatalError(op.getLoc(), "trailing result '" + result.name +
                                                "' must not be optional");
-      if (!result.constraint.getBuilderCall())
+      if (!result.constraint.getBuilderCall() &&
+          !InferrableTypeRecord::isa(&result.constraint.getDef()))
         llvm::PrintFatalError(op.getLoc(), "trailing result '" + result.name +
-                                               "' must have a buildable type");
+                                               "' must have a buildable or "
+                                               "inferrable type");
     }
 
     os << "  ::mlir::Builder odsBuilder(context);\n";
     for (int i = 0; i < numTrailingResults; ++i) {
       const mlir::tblgen::NamedTypeConstraint &result =
           op.getResult(numOutputResults + i);
+      StringRef inferCode;
+      if (std::optional<StringRef> call = result.constraint.getBuilderCall())
+        inferCode = *call;
+      else
+        inferCode =
+            InferrableTypeRecord(&result.constraint.getDef()).getInferType();
       os << "  inferredReturnTypes.push_back("
-         << mlir::tblgen::tgfmt(*result.constraint.getBuilderCall(),
-                                &builderCtx)
-         << ");\n";
+         << mlir::tblgen::tgfmt(inferCode, &builderCtx) << ");\n";
       if (hasResultSegSizes)
         os << "  _resultSegSizes[" << (numOutputs + i) << "] = 1;\n";
     }

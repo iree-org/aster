@@ -84,6 +84,17 @@ class Effect {
 // Operands and modifiers
 //===----------------------------------------------------------------------===//
 
+// Class to represent a type that can be inferred.
+class InferrableType<string _code> {
+  // The code to infer the type of the operand. It has access to the following
+  // variables:
+  // - `$_builder`, the builder.
+  // - `$_loc`, the location.
+  // - $_self, the adaptor.
+  // The code should produce the type as an expression.
+  code inferType = _code;
+}
+
 // A type constraint that checks if the operand is of any of the specified types.
 class AnyOperandOf<list<Type> types> : AnyTypeOf<types>, PrintOperand;
 
