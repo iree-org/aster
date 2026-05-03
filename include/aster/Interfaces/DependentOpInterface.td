@@ -49,4 +49,17 @@ def DependentOpInterface : OpInterface<"DependentOpInterface"> {
   }];
 }
 
+def FutureOpInterface : OpInterface<"FutureOpInterface"> {
+  let cppNamespace = "::mlir::aster";
+  let description = [{
+    Interface for operations that produce futures.
+  }];
+  let methods = [
+    InterfaceMethod<
+      "Get the future object",
+      "::mlir::aster::Future", "getFuture"
+    >
+  ];
+}
+
 #endif // ASTER_INTERFACES_DEPENDENTOPINTERFACE_TD
