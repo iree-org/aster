@@ -192,7 +192,8 @@ void RegisterDealloc::runOnOperation() {
   target.addDynamicallyLegalDialect<AMDGCNDialect>(
       [&](Operation *op) -> std::optional<bool> {
         if (isa<InstOpInterface, AMDGCNInstOpInterface, AllocaOp,
-                MakeRegisterRangeOp, SplitRegisterRangeOp, LoadOp, StoreOp>(op))
+                MakeRegisterRangeOp, SplitRegisterRangeOp, LoadOpInterface,
+                StoreOpInterface>(op))
           return converter.isLegal(op);
         return true;
       });

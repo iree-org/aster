@@ -89,7 +89,7 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
     // If the operation has no side-effect we need to treat it as a possible
     // sync point. Same for non-pure operations.
     if ((!hasEffects || !mlir::isPure(op)) &&
-        !isa<LoadOp, StoreOp, AllocaOpInterface>(op)) {
+        !isa<LoadOpInterface, StoreOpInterface, AllocaOpInterface>(op)) {
       LDBG() << "Adding sync point: " << i;
       syncPoints.push_back(i);
     }

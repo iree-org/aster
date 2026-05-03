@@ -331,10 +331,11 @@ bool CDNA3StoreWriteDataHazardAttr::matchInst(AMDGCNInstOpInterface instOp,
 
 void CDNA3StoreWriteDataHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
-  auto storeOp = dyn_cast<StoreOp>(instOp.getOperation());
+  auto storeOp = dyn_cast<StoreOpInterface>(instOp.getOperation());
   if (!storeOp)
     return;
-  RegisterTypeInterface regTy = storeOp.getData().getType();
+  RegisterTypeInterface regTy =
+      dyn_cast<RegisterTypeInterface>(storeOp.getDataOperand().getType());
   if (!regTy)
     return;
   if (instOp.getOpCode() == OpCode::Invalid)
@@ -346,15 +347,17 @@ void CDNA3StoreWriteDataHazardAttr::populateHazardsFor(
                           OpCode::BUFFER_STORE_DWORDX4_IDXEN},
                          instOp.getOpCode())) {
     // If the dynamic offset is not set, there is no hazard.
-    if (!storeOp.getDynamicOffset())
+    if (!storeOp.getDynamicOff())
       return;
     hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
-                             storeOp.getDataMutable(), getInstCounts(0)));
+                             *storeOp.getDataOperand().get(),
+                             getInstCounts(0)));
     return;
   }
   if (instOp.hasProp(InstProp::Global)) {
     hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
-                             storeOp.getDataMutable(), getInstCounts(0)));
+                             *storeOp.getDataOperand().get(),
+                             getInstCounts(0)));
     return;
   }
   // TODO: FLAT_ATOMIC_[F]CMPSWAP_X2, BUFFER_STORE_FORMAT_XYZ/XYZW,
@@ -369,9 +372,10 @@ bool CDNA3StoreWriteDataHazardAttr::isHazardTriggered(
   if (instOp.getOpCode() == OpCode::Invalid || instOp.hasProp(InstProp::IsValu))
     return false; // VALU is handled by CDNA3StoreHazard
 
-  auto storeOp = cast<StoreOp>(hazard.getOp());
-  AMDGCNRegisterTypeInterface writeRegTy = storeOp.getData().getType();
-  if (!writeRegTy.hasAllocatedSemantics())
+  auto storeOp = cast<StoreOpInterface>(hazard.getOp());
+  AMDGCNRegisterTypeInterface writeRegTy =
+      dyn_cast<AMDGCNRegisterTypeInterface>(storeOp.getDataOperand().getType());
+  if (!writeRegTy || !writeRegTy.hasAllocatedSemantics())
     return false;
 
   return llvm::any_of(TypeRange(instOp.getInstOuts()), [&](Type out) {
@@ -402,12 +406,13 @@ bool CDNA3StoreHazardAttr::matchInst(AMDGCNInstOpInterface instOp,
 
 void CDNA3StoreHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
-  auto storeOp = dyn_cast<StoreOp>(instOp.getOperation());
+  auto storeOp = dyn_cast<StoreOpInterface>(instOp.getOperation());
   if (!storeOp)
     return;
 
   // Check if it has allocated semantics.
-  RegisterTypeInterface regTy = storeOp.getData().getType();
+  RegisterTypeInterface regTy =
+      dyn_cast<RegisterTypeInterface>(storeOp.getDataOperand().getType());
   if (!regTy || !regTy.hasAllocatedSemantics())
     return;
 
@@ -422,17 +427,19 @@ void CDNA3StoreHazardAttr::populateHazardsFor(
                          instOp.getOpCode())) {
 
     // If the dynamic offset is not set, there is no hazard.
-    if (!storeOp.getDynamicOffset())
+    if (!storeOp.getDynamicOff())
       return;
     hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
-                             storeOp.getDataMutable(), getInstCounts(0)));
+                             *storeOp.getDataOperand().get(),
+                             getInstCounts(0)));
     return;
   }
 
   // Handle global ops.
   if (instOp.hasProp(InstProp::Global)) {
     hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
-                             storeOp.getDataMutable(), getInstCounts(0)));
+                             *storeOp.getDataOperand().get(),
+                             getInstCounts(0)));
     return;
   }
   // TODO: FLAT_ATOMIC_[F]CMPSWAP_X2, BUFFER_STORE_FORMAT_XYZ/XYZW,
@@ -446,8 +453,9 @@ bool CDNA3StoreHazardAttr::isHazardTriggered(
   if (!instOp.hasProp(InstProp::IsValu))
     return false;
 
-  auto storeOp = cast<StoreOp>(hazard.getOp());
-  AMDGCNRegisterTypeInterface writeRegTy = storeOp.getData().getType();
+  auto storeOp = cast<StoreOpInterface>(hazard.getOp());
+  AMDGCNRegisterTypeInterface writeRegTy =
+      cast<AMDGCNRegisterTypeInterface>(storeOp.getDataOperand().getType());
 
   assert(writeRegTy.hasAllocatedSemantics() &&
          "Write register type must have allocated semantics");

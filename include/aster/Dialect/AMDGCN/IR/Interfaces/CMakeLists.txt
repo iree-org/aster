@@ -17,3 +17,8 @@ set(LLVM_TARGET_DEFINITIONS AMDGCNInstOpInterface.td)
 mlir_tablegen(AMDGCNInstOpInterface.h.inc -gen-op-interface-decls)
 mlir_tablegen(AMDGCNInstOpInterface.cpp.inc -gen-op-interface-defs)
 add_public_tablegen_target(AMDGCNInstOpInterfaceIncGen)
+
+set(LLVM_TARGET_DEFINITIONS MemoryOpInterfaces.td)
+mlir_tablegen(MemoryOpInterfaces.h.inc -gen-op-interface-decls)
+mlir_tablegen(MemoryOpInterfaces.cpp.inc -gen-op-interface-defs)
+add_public_tablegen_target(MemoryOpInterfacesIncGen)

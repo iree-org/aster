@@ -96,9 +96,9 @@ struct WaitTransformImpl {
   /// The entry block of the function.
   Block *entryBlock = nullptr;
   /// A map from load operations to their corresponding alloca operations.
-  DenseMap<LoadOp, memref::AllocaOp> loadToAlloca;
+  DenseMap<FutureOpInterface, memref::AllocaOp> loadToAlloca;
   /// A set of load operations that are consumed by the current instruction.
-  DenseSet<LoadOp> definitions;
+  DenseSet<FutureOpInterface> definitions;
 };
 } // namespace
 
@@ -133,7 +133,8 @@ void WaitTransformImpl::collectDefinitions(InstOpInterface instOp) {
              "expected to find allocas for operand in reaching definitions");
       for (Value alloc : *allocasOrFailure) {
         for (Definition definition : reachingDefinitions->getRange(alloc))
-          definitions.insert(cast<LoadOp>(definition.definition->getOwner()));
+          definitions.insert(
+              cast<FutureOpInterface>(definition.definition->getOwner()));
       }
     }
   };
@@ -148,21 +149,22 @@ void WaitTransformImpl::collectDefinitions(InstOpInterface instOp) {
 void WaitTransformImpl::handleDefinitions(InstOpInterface instOp) {
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(instOp);
-  for (LoadOp loadOp : definitions) {
+  for (FutureOpInterface loadOp : definitions) {
     memref::AllocaOp &allocaOp = loadToAlloca[loadOp];
     // Create the alloca operation if it doesn't exist.
     if (!allocaOp) {
       OpBuilder::InsertionGuard guard(rewriter);
       // Create the alloca operation at the start of the entry block.
       rewriter.setInsertionPointToStart(entryBlock);
+      Future future = loadOp.getFuture();
       allocaOp = memref::AllocaOp::create(
           rewriter, instOp.getLoc(),
-          MemRefType::get({}, loadOp.getToken().getType()));
+          MemRefType::get({}, future.getToken().getType()));
 
       // Store the token into the alloca operation.
-      rewriter.setInsertionPointAfter(loadOp);
-      memref::StoreOp::create(rewriter, loadOp.getLoc(), loadOp.getToken(),
-                              allocaOp.getResult());
+      rewriter.setInsertionPointAfter(loadOp.getOperation());
+      memref::StoreOp::create(rewriter, loadOp.getOperation()->getLoc(),
+                              future.getToken(), allocaOp.getResult());
     }
 
     // Create the load operation.
@@ -199,8 +201,10 @@ void WaitInsertion::runOnOperation() {
   // Create, configure, and run the data flow solver.
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
   dataflow::loadBaselineAnalyses(solver);
-  auto loadFilter =
-      +[](Operation *o) -> bool { return isa<amdgcn::LoadOp>(o); };
+  auto loadFilter = +[](Operation *o) -> bool {
+    FutureOpInterface futureOp = dyn_cast<FutureOpInterface>(o);
+    return futureOp != nullptr && futureOp.getFuture().hasReadEffect();
+  };
 
   // This callback has the effect of killing the loads if they are consumed as
   // input, the rationale being that this is equivalent to killing the token

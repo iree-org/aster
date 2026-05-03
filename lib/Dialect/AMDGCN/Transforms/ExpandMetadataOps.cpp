@@ -66,7 +66,7 @@ public:
 
 static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
                           uint32_t size, int32_t offset) {
-  llvm::function_ref<LoadOp(OpBuilder &, Location, Value, Value, Value, Value)>
+  std::function<Value(OpBuilder &, Location, Value, Value, Value, Value)>
       createOp;
   RegisterTypeInterface loadTy{};
   int32_t numWords;
@@ -75,32 +75,56 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
   if (szWordsFloor % 16 == 0) {
     numWords = 16;
     loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
-    createOp = S_LOAD_DWORDX16::create;
+    createOp = +[](OpBuilder &builder, Location loc, Value dest, Value addr,
+                   Value uniform_offset, Value constant_offset) {
+      return S_LOAD_DWORDX16::create(builder, loc, dest, addr, uniform_offset,
+                                     constant_offset)
+          .getDestRes();
+    };
   } else if (szWordsFloor % 8 == 0) {
     numWords = 8;
     loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
-    createOp = S_LOAD_DWORDX8::create;
+    createOp = +[](OpBuilder &builder, Location loc, Value dest, Value addr,
+                   Value uniform_offset, Value constant_offset) {
+      return S_LOAD_DWORDX8::create(builder, loc, dest, addr, uniform_offset,
+                                    constant_offset)
+          .getDestRes();
+    };
   } else if (szWordsFloor % 4 == 0) {
     numWords = 4;
     loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
-    createOp = S_LOAD_DWORDX4::create;
+    createOp = +[](OpBuilder &builder, Location loc, Value dest, Value addr,
+                   Value uniform_offset, Value constant_offset) {
+      return S_LOAD_DWORDX4::create(builder, loc, dest, addr, uniform_offset,
+                                    constant_offset)
+          .getDestRes();
+    };
   } else if (szWordsFloor % 2 == 0) {
     numWords = 2;
     loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
-    createOp = S_LOAD_DWORDX2::create;
+    createOp = +[](OpBuilder &builder, Location loc, Value dest, Value addr,
+                   Value uniform_offset, Value constant_offset) {
+      return S_LOAD_DWORDX2::create(builder, loc, dest, addr, uniform_offset,
+                                    constant_offset)
+          .getDestRes();
+    };
   } else {
     numWords = 1;
     loadTy = rewriter.getType<SGPRType>(Register());
-    createOp = S_LOAD_DWORD::create;
+    createOp = +[](OpBuilder &builder, Location loc, Value dest, Value addr,
+                   Value uniform_offset, Value constant_offset) {
+      return S_LOAD_DWORD::create(builder, loc, dest, addr, uniform_offset,
+                                  constant_offset)
+          .getDestRes();
+    };
   }
   int32_t numLoads = ((size + 3) / 4) / numWords;
 
   // Load the easy case.
   if (numLoads == 1)
-    return createOp(rewriter, alloc.getLoc(), alloc, kenArgPtr, nullptr,
-                    arith::ConstantIntOp::create(rewriter, alloc.getLoc(),
-                                                 offset, 32))
-        .getDestRes();
+    return createOp(
+        rewriter, alloc.getLoc(), alloc, kenArgPtr, nullptr,
+        arith::ConstantIntOp::create(rewriter, alloc.getLoc(), offset, 32));
   // Load in multiple instructions.
   ValueRange splitAlloc = splitRange(rewriter, alloc.getLoc(), alloc);
   SmallVector<Value> loadedRegs;
@@ -118,8 +142,7 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
     Value segment =
         createOp(rewriter, alloc.getLoc(), dest, kenArgPtr, nullptr,
                  arith::ConstantIntOp::create(rewriter, alloc.getLoc(),
-                                              offset + i * 4 * numWords, 32))
-            .getDestRes();
+                                              offset + i * 4 * numWords, 32));
 
     // Maybe partition the segment.
     if (numWords > 1) {

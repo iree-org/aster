@@ -677,7 +677,9 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
   // Create the dataflow solver and load the liveness analysis.
   SymbolTableCollection symbolTable;
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
-  auto definitionFilter = [](Operation *op) { return isa<amdgcn::LoadOp>(op); };
+  auto definitionFilter = [](Operation *op) {
+    return isa<LoadOpInterface>(op);
+  };
   solver.load<ReachingDefinitionsAnalysis>(definitionFilter);
 
   // Create the interference graph.
