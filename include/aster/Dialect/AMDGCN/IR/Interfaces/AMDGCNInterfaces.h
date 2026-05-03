@@ -22,6 +22,13 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 namespace mlir::aster::amdgcn {
+/// Constant memory resource (CONST - Constant Memory).
+class ConstantMemoryResource
+    : public SideEffects::Resource::Base<ConstantMemoryResource> {
+public:
+  StringRef getName() const override { return "amdgcn.constant_memory"; }
+};
+
 /// Global memory resource.
 class GlobalMemoryResource
     : public SideEffects::Resource::Base<GlobalMemoryResource> {
@@ -34,6 +41,18 @@ class LDSMemoryResource
     : public SideEffects::Resource::Base<LDSMemoryResource> {
 public:
   StringRef getName() const override { return "amdgcn.lds_memory"; }
+};
+
+/// Scalar Unit (SALU) resource.
+class SALUResource : public SideEffects::Resource::Base<SALUResource> {
+public:
+  StringRef getName() const override { return "amdgcn.salu_resource"; }
+};
+
+/// Vector Unit (VALU) resource.
+class VALUResource : public SideEffects::Resource::Base<VALUResource> {
+public:
+  StringRef getName() const override { return "amdgcn.valu_resource"; }
 };
 } // namespace mlir::aster::amdgcn
 

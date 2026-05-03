@@ -739,6 +739,7 @@ def SNop : AMDISAInstruction<"s_nop"> {
     Do nothing. Delay issue of next instruction by a small, fixed amount.
   }];
   let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000000>];
+  let effects = [SALUWrite];
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins

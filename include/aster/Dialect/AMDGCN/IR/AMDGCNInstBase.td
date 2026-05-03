@@ -181,10 +181,67 @@ def SC1 : UnitModifier<"sc1", "For regular load and store operations, SC0 and SC
 // Effects
 //===----------------------------------------------------------------------===//
 
+def ConstantRead : Effect {
+  let summary = "Reads from constant memory.";
+  let body = [{
+    $_effects.emplace_back(MemoryEffects::Read::get(),
+                           ConstantMemoryResource::get());
+  }];
+}
+
+def ConstantWrite : Effect {
+  let summary = "Writes to constant memory.";
+  let body = [{
+    $_effects.emplace_back(MemoryEffects::Write::get(),
+                           ConstantMemoryResource::get());
+  }];
+}
+
 def GlobalRead : Effect {
   let summary = "Reads from global memory.";
   let body = [{
-    // TODO: implement
+    $_effects.emplace_back(MemoryEffects::Read::get(),
+                           GlobalMemoryResource::get());
+  }];
+}
+
+def GlobalWrite : Effect {
+  let summary = "Writes to global memory.";
+  let body = [{
+    $_effects.emplace_back(MemoryEffects::Write::get(),
+                           GlobalMemoryResource::get());
+  }];
+}
+
+def LDSRead : Effect {
+  let summary = "Reads from LDS memory.";
+  let body = [{
+    $_effects.emplace_back(MemoryEffects::Read::get(),
+                           LDSMemoryResource::get());
+  }];
+}
+
+def LDSWrite : Effect {
+  let summary = "Writes to LDS memory.";
+  let body = [{
+    $_effects.emplace_back(MemoryEffects::Write::get(),
+                           LDSMemoryResource::get());
+  }];
+}
+
+def SALUWrite : Effect {
+  let summary = "Writes to SALU resource.";
+  let body = [{
+    $_effects.emplace_back(MemoryEffects::Write::get(),
+                           SALUResource::get());
+  }];
+}
+
+def VALUWrite : Effect {
+  let summary = "Writes to VALU resource.";
+  let body = [{
+    $_effects.emplace_back(MemoryEffects::Write::get(),
+                           VALUResource::get());
   }];
 }
 

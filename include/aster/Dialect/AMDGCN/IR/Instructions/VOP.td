@@ -687,6 +687,7 @@ def VNop : AMDISAInstruction<"v_nop"> {
     InstEnc<[ENC_VOP1_CDNA3, ENC_VOP1_CDNA4], 0b00000000>,
     InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0110000000>
   ];
+  let effects = [VALUWrite];
   let outputs = (ins);
   let inputs = (ins);
   let asm_syntax = [
