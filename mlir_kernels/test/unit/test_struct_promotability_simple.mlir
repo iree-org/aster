@@ -45,8 +45,7 @@ amdgcn.module @test_struct_promotability_simple target = #amdgcn.target<gfx942> 
     %i_i32 = arith.index_cast %i_val : index to i32
     %j_i32 = arith.index_cast %j_val : index to i32
     %v = alloca : !amdgcn.vgpr
-    amdgcn.global_store_dword ins(%v, %out_ptr, offset = %v) args(%c0_i32)
-        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
+    amdgcn.global_store_dword data %v addr %out_ptr offset d(%v) + c(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }

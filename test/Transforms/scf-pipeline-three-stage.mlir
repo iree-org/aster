@@ -63,13 +63,11 @@ func.func @three_stage_load_compute_store(%addr: !amdgcn.vgpr<[? + 2]>) {
   %c6 = arith.constant 6 : index
   scf.for %i = %c0 to %c6 step %c1 {
     %c0_i32_mig1 = arith.constant 0 : i32
-    %data, %rtok = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig1) {sched.stage = 0 : i32}
-        : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %data, %rtok = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig1) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<flat>
     %computed = amdgcn.test_inst outs %s_compute ins %data {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     %dr = amdgcn.make_register_range %computed {sched.stage = 2 : i32} : !amdgcn.vgpr
-    %wtok = amdgcn.global_store_dword ins(%dr, %addr) args(%c0_i32_mig1) {sched.stage = 2 : i32}
-        : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) args(i32) -> !amdgcn.write_token<flat>
+    %wtok = amdgcn.global_store_dword data %dr addr %addr offset c(%c0_i32_mig1) {sched.stage = 2 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
   }
   return
 }

@@ -41,15 +41,13 @@ amdgcn.module @t1 target = <gfx942> {
     %dest_copy = alloca : !amdgcn.vgpr<?>
     %addr = make_register_range %addr0, %addr1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig1 = arith.constant 0 : i32
-    %tok0 = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig1)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok0 = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %dest_copy, %dest : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^loop
   ^loop:
     test_inst ins %dest_copy : (!amdgcn.vgpr<?>) -> ()
     %c0_i32_mig2 = arith.constant 0 : i32
-    %tok1 = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig2)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok1 = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig2) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %dest_copy, %dest : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.cond_br %cond, ^loop, ^epilogue
   ^epilogue:
@@ -115,22 +113,18 @@ amdgcn.module @t2 target = <gfx942> {
     %copy2 = alloca : !amdgcn.vgpr<?>
     %addr = make_register_range %a0, %a1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig3 = arith.constant 0 : i32
-    %tokA = amdgcn.global_load_dword outs(%dest1) ins(%addr) args(%c0_i32_mig3)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokA = amdgcn.global_load_dword dest %dest1 addr %addr offset c(%c0_i32_mig3) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig4 = arith.constant 0 : i32
-    %tokB = amdgcn.global_load_dword outs(%dest2) ins(%addr) args(%c0_i32_mig4)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokB = amdgcn.global_load_dword dest %dest2 addr %addr offset c(%c0_i32_mig4) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copy1, %dest1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     lsir.copy %copy2, %dest2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^loop
   ^loop:
     test_inst ins %copy1, %copy2 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     %c0_i32_mig5 = arith.constant 0 : i32
-    %tokC = amdgcn.global_load_dword outs(%dest1) ins(%addr) args(%c0_i32_mig5)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokC = amdgcn.global_load_dword dest %dest1 addr %addr offset c(%c0_i32_mig5) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig6 = arith.constant 0 : i32
-    %tokD = amdgcn.global_load_dword outs(%dest2) ins(%addr) args(%c0_i32_mig6)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokD = amdgcn.global_load_dword dest %dest2 addr %addr offset c(%c0_i32_mig6) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copy1, %dest1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     lsir.copy %copy2, %dest2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.cond_br %cond, ^loop, ^epilogue
@@ -197,15 +191,13 @@ amdgcn.module @t3 target = <gfx942> {
     %dest = make_register_range %d0, %d1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %copy = make_register_range %c0, %c1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig7 = arith.constant 0 : i32
-    %tok0 = amdgcn.global_load_dwordx2 outs(%dest) ins(%addr) args(%c0_i32_mig7)
-        : outs(!amdgcn.vgpr<[? : ? + 2]>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok0 = amdgcn.global_load_dwordx2 dest %dest addr %addr offset c(%c0_i32_mig7) : outs(!amdgcn.vgpr<[? : ? + 2]>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copy, %dest : !amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<[? : ? + 2]>
     cf.br ^loop
   ^loop:
     test_inst ins %copy : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
     %c0_i32_mig8 = arith.constant 0 : i32
-    %tok1 = amdgcn.global_load_dwordx2 outs(%dest) ins(%addr) args(%c0_i32_mig8)
-        : outs(!amdgcn.vgpr<[? : ? + 2]>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok1 = amdgcn.global_load_dwordx2 dest %dest addr %addr offset c(%c0_i32_mig8) : outs(!amdgcn.vgpr<[? : ? + 2]>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copy, %dest : !amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<[? : ? + 2]>
     cf.cond_br %cond, ^loop, ^epilogue
   ^epilogue:
@@ -251,20 +243,17 @@ amdgcn.module @t4 target = <gfx942> {
     %comp = alloca : !amdgcn.vgpr<?>
     %addr = make_register_range %a0, %a1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig9 = arith.constant 0 : i32
-    %tok0 = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig9)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok0 = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig9) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %shadow, %dest : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig10 = arith.constant 0 : i32
-    %tok1 = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig10)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok1 = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig10) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     test_inst outs %comp ins %shadow : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     lsir.copy %shadow, %dest : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^loop
   ^loop:
     test_inst ins %comp : (!amdgcn.vgpr<?>) -> ()
     %c0_i32_mig11 = arith.constant 0 : i32
-    %tok2 = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig11)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok2 = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig11) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     test_inst outs %comp ins %shadow : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     lsir.copy %shadow, %dest : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.cond_br %cond, ^loop, ^epilogue
@@ -306,15 +295,13 @@ amdgcn.module @t5 target = <gfx942> {
     %copy = alloca : !amdgcn.vgpr<?>
     %addr = make_register_range %a0, %a1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig12 = arith.constant 0 : i32
-    %tok0 = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig12)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok0 = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig12) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copy, %dest : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^loop
   ^loop:
     test_inst ins %copy, %dest : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     %c0_i32_mig13 = arith.constant 0 : i32
-    %tok1 = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig13)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok1 = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig13) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copy, %dest : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.cond_br %cond, ^loop, ^exit
   ^exit:
@@ -386,11 +373,9 @@ amdgcn.module @t6 target = <gfx942> {
     %copyB = alloca : !amdgcn.vgpr<?>
     %addr = make_register_range %a0, %a1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig14 = arith.constant 0 : i32
-    %tokA = amdgcn.global_load_dword outs(%destA) ins(%addr) args(%c0_i32_mig14)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokA = amdgcn.global_load_dword dest %destA addr %addr offset c(%c0_i32_mig14) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig15 = arith.constant 0 : i32
-    %tokB = amdgcn.global_load_dword outs(%destB) ins(%addr) args(%c0_i32_mig15)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokB = amdgcn.global_load_dword dest %destB addr %addr offset c(%c0_i32_mig15) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copyA, %destA : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     lsir.copy %copyB, %destB : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^loop
@@ -398,11 +383,9 @@ amdgcn.module @t6 target = <gfx942> {
     test_inst ins %copyA : (!amdgcn.vgpr<?>) -> ()
     test_inst ins %copyB, %destB : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     %c0_i32_mig16 = arith.constant 0 : i32
-    %tokC = amdgcn.global_load_dword outs(%destA) ins(%addr) args(%c0_i32_mig16)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokC = amdgcn.global_load_dword dest %destA addr %addr offset c(%c0_i32_mig16) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig17 = arith.constant 0 : i32
-    %tokD = amdgcn.global_load_dword outs(%destB) ins(%addr) args(%c0_i32_mig17)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokD = amdgcn.global_load_dword dest %destB addr %addr offset c(%c0_i32_mig17) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copyA, %destA : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     lsir.copy %copyB, %destB : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.cond_br %cond, ^loop, ^exit
@@ -455,16 +438,14 @@ amdgcn.module @t7 target = <gfx942> {
     %final = alloca : !amdgcn.vgpr<?>
     %addr = make_register_range %a0, %a1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig18 = arith.constant 0 : i32
-    %tok0 = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig18)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok0 = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig18) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %mid, %dest : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     lsir.copy %final, %mid : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^loop
   ^loop:
     test_inst ins %final : (!amdgcn.vgpr<?>) -> ()
     %c0_i32_mig19 = arith.constant 0 : i32
-    %tok1 = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig19)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok1 = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig19) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %mid, %dest : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     lsir.copy %final, %mid : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.cond_br %cond, ^loop, ^exit
@@ -570,15 +551,13 @@ amdgcn.module @t8 target = <gfx942> {
     %dest = make_register_range %d0, %d1, %d2, %d3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %copy = make_register_range %c0, %c1, %c2, %c3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig20 = arith.constant 0 : i32
-    %tok0 = amdgcn.global_load_dwordx4 outs(%dest) ins(%addr) args(%c0_i32_mig20)
-        : outs(!amdgcn.vgpr<[? : ? + 4]>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok0 = amdgcn.global_load_dwordx4 dest %dest addr %addr offset c(%c0_i32_mig20) : outs(!amdgcn.vgpr<[? : ? + 4]>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copy, %dest : !amdgcn.vgpr<[? : ? + 4]>, !amdgcn.vgpr<[? : ? + 4]>
     cf.br ^loop
   ^loop:
     test_inst ins %copy : (!amdgcn.vgpr<[? : ? + 4]>) -> ()
     %c0_i32_mig21 = arith.constant 0 : i32
-    %tok1 = amdgcn.global_load_dwordx4 outs(%dest) ins(%addr) args(%c0_i32_mig21)
-        : outs(!amdgcn.vgpr<[? : ? + 4]>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tok1 = amdgcn.global_load_dwordx4 dest %dest addr %addr offset c(%c0_i32_mig21) : outs(!amdgcn.vgpr<[? : ? + 4]>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copy, %dest : !amdgcn.vgpr<[? : ? + 4]>, !amdgcn.vgpr<[? : ? + 4]>
     cf.cond_br %cond, ^loop, ^epilogue
   ^epilogue:
@@ -652,22 +631,18 @@ amdgcn.module @t9 target = <gfx942> {
     %comp = alloca : !amdgcn.vgpr<?>
     %addr = make_register_range %a0, %a1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig22 = arith.constant 0 : i32
-    %tokA0 = amdgcn.global_load_dword outs(%destA) ins(%addr) args(%c0_i32_mig22)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokA0 = amdgcn.global_load_dword dest %destA addr %addr offset c(%c0_i32_mig22) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig23 = arith.constant 0 : i32
-    %tokB0 = amdgcn.global_load_dword outs(%destB) ins(%addr) args(%c0_i32_mig23)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokB0 = amdgcn.global_load_dword dest %destB addr %addr offset c(%c0_i32_mig23) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copyA, %destA : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     lsir.copy %copyB, %destB : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^loop
   ^loop:
     test_inst outs %comp ins %copyA, %copyB : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
     %c0_i32_mig24 = arith.constant 0 : i32
-    %tokA1 = amdgcn.global_load_dword outs(%destA) ins(%addr) args(%c0_i32_mig24)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokA1 = amdgcn.global_load_dword dest %destA addr %addr offset c(%c0_i32_mig24) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig25 = arith.constant 0 : i32
-    %tokB1 = amdgcn.global_load_dword outs(%destB) ins(%addr) args(%c0_i32_mig25)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %tokB1 = amdgcn.global_load_dword dest %destB addr %addr offset c(%c0_i32_mig25) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %copyA, %destA : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     lsir.copy %copyB, %destB : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.cond_br %cond, ^loop, ^epilogue

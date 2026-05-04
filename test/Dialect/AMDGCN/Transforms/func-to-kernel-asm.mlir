@@ -19,11 +19,9 @@ module attributes {dlti.dl_spec = #dlti.dl_spec<!ptr.ptr<#amdgcn.addr_space<loca
       %2 = alloca : !amdgcn.vgpr
       %c0_i32_mig1 = arith.constant 0 : i32
       %voff = alloca : !amdgcn.vgpr
-      %dest_res, %token = amdgcn.global_load_dword outs(%2) ins(%1, offset = %voff) args(%c0_i32_mig1)
-          : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.read_token<flat>
+      %dest_res, %token = amdgcn.global_load_dword dest %2 addr %1 offset d(%voff) + c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
       %voff2 = alloca : !amdgcn.vgpr
-      %3 = amdgcn.global_store_dword ins(%dest_res, %0, offset = %voff2) args(%c0_i32_mig1)
-          : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
+      %3 = amdgcn.global_store_dword data %dest_res addr %0 offset d(%voff2) + c(%c0_i32_mig1) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
       end_kernel
     }
   }

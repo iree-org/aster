@@ -100,7 +100,7 @@ func.func @mma_xdl_write_vmem_valu_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
-// CHECK:           %[[LOAD_0:.*]] = amdgcn.global_load_dword outs(%[[SPLIT_REGISTER_RANGE_0]]#0) ins(%[[ARG4]], offset = %[[VOFF_LOAD]]) args(%{{.*}}) : outs(!amdgcn.vgpr<8>) ins(!amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<21>) args(i32) -> !amdgcn.read_token<flat>
+// CHECK:           %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[SPLIT_REGISTER_RANGE_0]]#0 addr %[[ARG4]] offset d(%[[VOFF_LOAD]]) + c(%{{.*}}) : outs(!amdgcn.vgpr<8>) ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<21>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           return
 // CHECK:         }
 func.func @mma_xdl_write_vmem_load_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !amdgcn.vgpr<[2 : 4]>, %arg2: !amdgcn.vgpr<[4 : 8]>, %arg3: !amdgcn.vgpr<[8 : 12]>, %arg4: !amdgcn.sgpr<[0 : 2]>) {
@@ -108,8 +108,7 @@ func.func @mma_xdl_write_vmem_load_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !
   %0:4 = amdgcn.split_register_range %arg3 : !amdgcn.vgpr<[8 : 12]>
   %c0_i32 = arith.constant 0 : i32
   %voff = amdgcn.alloca : !amdgcn.vgpr<21>
-  %token = amdgcn.global_load_dword outs(%0#0) ins(%arg4, offset = %voff) args(%c0_i32)
-      : outs(!amdgcn.vgpr<8>) ins(!amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<21>) args(i32) -> !amdgcn.read_token<flat>
+  %token = amdgcn.global_load_dword dest %0#0 addr %arg4 offset d(%voff) + c(%c0_i32) : outs(!amdgcn.vgpr<8>) ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<21>) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 
@@ -154,15 +153,14 @@ func.func @mma_xdl_write_valu_write_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: 
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
-// CHECK:           %[[LOAD_0:.*]] = amdgcn.ds_read_b32 outs(%[[SPLIT_REGISTER_RANGE_0]]#0) ins(%[[ARG4]]) args(%[[CONSTANT_0]]) : outs(!amdgcn.vgpr<8>) ins(!amdgcn.vgpr<20>) args(i32) -> !amdgcn.read_token<shared>
+// CHECK:           %[[LOAD_0:.*]] = amdgcn.ds_read_b32 dest %[[SPLIT_REGISTER_RANGE_0]]#0 addr %[[ARG4]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.vgpr<8>) ins(<20>) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           return
 // CHECK:         }
 func.func @mma_xdl_write_ds_load_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !amdgcn.vgpr<[2 : 4]>, %arg2: !amdgcn.vgpr<[4 : 8]>, %arg3: !amdgcn.vgpr<[8 : 12]>, %arg4: !amdgcn.vgpr<20>) {
   %c0_i32 = arith.constant 0 : i32
   amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %arg3, %arg0, %arg1, %arg2 : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[4 : 8]> -> !amdgcn.vgpr<[8 : 12]>
   %0:4 = amdgcn.split_register_range %arg3 : !amdgcn.vgpr<[8 : 12]>
-  %token = amdgcn.ds_read_b32 outs(%0#0) ins(%arg4) args(%c0_i32)
-      : outs(!amdgcn.vgpr<8>) ins(!amdgcn.vgpr<20>) args(i32) -> !amdgcn.read_token<shared>
+  %token = amdgcn.ds_read_b32 dest %0#0 addr %arg4 offset c(%c0_i32) : outs(!amdgcn.vgpr<8>) ins(!amdgcn.vgpr<20>) mods(i32) -> !amdgcn.read_token<shared>
   return
 }
 
@@ -182,7 +180,7 @@ func.func @mma_xdl_write_ds_load_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !am
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
-// CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword ins(%[[SPLIT_REGISTER_RANGE_0]]#0, %[[ARG4]], offset = %[[VOFF_STORE]]) args(%{{.*}}) : ins(!amdgcn.vgpr<8>, !amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<21>) args(i32) -> !amdgcn.write_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[SPLIT_REGISTER_RANGE_0]]#0 addr %[[ARG4]] offset d(%[[VOFF_STORE]]) + c(%{{.*}}) : ins(!amdgcn.vgpr<8>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<21>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
 func.func @mma_xdl_write_global_store_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !amdgcn.vgpr<[2 : 4]>, %arg2: !amdgcn.vgpr<[4 : 8]>, %arg3: !amdgcn.vgpr<[8 : 12]>, %arg4: !amdgcn.sgpr<[0 : 2]>) {
@@ -190,8 +188,7 @@ func.func @mma_xdl_write_global_store_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1
   %0:4 = amdgcn.split_register_range %arg3 : !amdgcn.vgpr<[8 : 12]>
   %c0_i32 = arith.constant 0 : i32
   %voff = amdgcn.alloca : !amdgcn.vgpr<21>
-  %1 = amdgcn.global_store_dword ins(%0#0, %arg4, offset = %voff) args(%c0_i32)
-      : ins(!amdgcn.vgpr<8>, !amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<21>) args(i32) -> !amdgcn.write_token<flat>
+  %1 = amdgcn.global_store_dword data %0#0 addr %arg4 offset d(%voff) + c(%c0_i32) : ins(!amdgcn.vgpr<8>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<21>) mods(i32) -> !amdgcn.write_token<flat>
   return
 }
 
@@ -213,15 +210,14 @@ func.func @mma_xdl_write_global_store_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
-// CHECK:           %[[LOAD_0:.*]] = amdgcn.buffer_load_dword outs(%[[SPLIT_REGISTER_RANGE_0]]#0) ins(%[[ARG4]], off_or_idx = %[[ARG6]], %[[ARG5]]) args(%[[CONSTANT_0]]) {{.*}}: outs(!amdgcn.vgpr<8>) ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<20>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.read_token<flat>
+// CHECK:           %[[LOAD_0:.*]] = amdgcn.buffer_load_dword dest %[[SPLIT_REGISTER_RANGE_0]]#0 addr %[[ARG4]] offset u(%[[ARG5]]) + off_idx(%[[ARG6]]) + c(%[[CONSTANT_0]]) {{.*}} : outs(!amdgcn.vgpr<8>) ins(<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<20>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           return
 // CHECK:         }
 func.func @mma_xdl_write_buffer_load_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !amdgcn.vgpr<[2 : 4]>, %arg2: !amdgcn.vgpr<[4 : 8]>, %arg3: !amdgcn.vgpr<[8 : 12]>, %arg4: !amdgcn.sgpr<[0 : 4]>, %arg5: !amdgcn.sgpr<4>, %arg6: !amdgcn.vgpr<20>) {
   %c0_i32 = arith.constant 0 : i32
   amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %arg3, %arg0, %arg1, %arg2 : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[4 : 8]> -> !amdgcn.vgpr<[8 : 12]>
   %0:4 = amdgcn.split_register_range %arg3 : !amdgcn.vgpr<[8 : 12]>
-  %token = amdgcn.buffer_load_dword outs(%0#0) ins(%arg4, off_or_idx = %arg6, %arg5) args(%c0_i32) {offen}
-      : outs(!amdgcn.vgpr<8>) ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<20>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.read_token<flat>
+  %token = amdgcn.buffer_load_dword dest %0#0 addr %arg4 offset u(%arg5) + off_idx(%arg6) + c(%c0_i32) {offen} : outs(!amdgcn.vgpr<8>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<20>) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 
@@ -241,15 +237,14 @@ func.func @mma_xdl_write_buffer_load_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1:
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
-// CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 ins(%[[ARG4]], %[[SPLIT_REGISTER_RANGE_0]]#0) args(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr<20>, !amdgcn.vgpr<8>) args(i32) -> !amdgcn.write_token<shared>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 data %[[SPLIT_REGISTER_RANGE_0]]#0 addr %[[ARG4]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr<8>, <20>) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           return
 // CHECK:         }
 func.func @mma_xdl_write_ds_store_hazard(%arg0: !amdgcn.vgpr<[0 : 2]>, %arg1: !amdgcn.vgpr<[2 : 4]>, %arg2: !amdgcn.vgpr<[4 : 8]>, %arg3: !amdgcn.vgpr<[8 : 12]>, %arg4: !amdgcn.vgpr<20>) {
   %c0_i32 = arith.constant 0 : i32
   amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %arg3, %arg0, %arg1, %arg2 : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[4 : 8]> -> !amdgcn.vgpr<[8 : 12]>
   %0:4 = amdgcn.split_register_range %arg3 : !amdgcn.vgpr<[8 : 12]>
-  %1 = amdgcn.ds_write_b32 ins(%arg4, %0#0) args(%c0_i32)
-      : ins(!amdgcn.vgpr<20>, !amdgcn.vgpr<8>) args(i32) -> !amdgcn.write_token<shared>
+  %1 = amdgcn.ds_write_b32 data %0#0 addr %arg4 offset c(%c0_i32) : ins(!amdgcn.vgpr<8>, !amdgcn.vgpr<20>) mods(i32) -> !amdgcn.write_token<shared>
   return
 }
 

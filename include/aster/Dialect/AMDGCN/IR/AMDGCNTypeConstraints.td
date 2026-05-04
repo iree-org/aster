@@ -230,6 +230,16 @@ class OffsetType<int bitWidth, bit _isSigned = false> : ConfinedType<I<32>, [
   let asmPrinter = "$_printer.printOffsetOperand($_self);";
 }
 
+class OptionalOffsetType<int bitWidth, bit _isSigned = false> : Optional<ConfinedType<I<32>, [
+    CPred<StrSubst<[{
+      true /*::mlir::aster::amdgcn::checkOffsetConst($_selfValue, $_offsetWidth, $_isSigned)*/
+    }], [IntRepl<"_offsetWidth", bitWidth>, IntRepl<"_isSigned", _isSigned>]>.result>
+  ]>>, PrintOperand {
+  int offsetWidth = bitWidth;
+  bit isSigned = _isSigned;
+  let asmPrinter = "$_printer.printOffsetOperand($_self);";
+}
+
 //===----------------------------------------------------------------------===//
 // Composite operand constraints
 //===----------------------------------------------------------------------===//

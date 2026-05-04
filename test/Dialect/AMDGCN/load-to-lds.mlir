@@ -11,8 +11,7 @@ func.func @test_buffer_load_dword_lds(
     %soffset: !amdgcn.sgpr,
     %voffset: !amdgcn.vgpr) {
   %c0 = arith.constant 0 : i32
-  %tok = amdgcn.buffer_load_lds_dword ins(%buf_desc, off_or_idx = %voffset, %soffset, %m0) args(%c0) {offen}
-      : ins(!amdgcn.sgpr<[? + 4]>, off_or_idx = !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.m0<0>) args(i32) -> !amdgcn.read_token<flat>
+  %tok = amdgcn.buffer_load_lds_dword addr %buf_desc m0 %m0 offset u(%soffset) + off_idx(%voffset) + c(%c0) {offen} : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.m0<0>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 
@@ -23,8 +22,7 @@ func.func @test_buffer_load_dwordx4_lds(
     %soffset: !amdgcn.sgpr,
     %voffset: !amdgcn.vgpr) {
   %c64 = arith.constant 64 : i32
-  %tok = amdgcn.buffer_load_lds_dwordx4 ins(%buf_desc, off_or_idx = %voffset, %soffset, %m0) args(%c64) {offen}
-      : ins(!amdgcn.sgpr<[? + 4]>, off_or_idx = !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.m0<0>) args(i32) -> !amdgcn.read_token<flat>
+  %tok = amdgcn.buffer_load_lds_dwordx4 addr %buf_desc m0 %m0 offset u(%soffset) + off_idx(%voffset) + c(%c64) {offen} : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.m0<0>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 
@@ -34,8 +32,7 @@ func.func @test_buffer_load_dword_lds_zero_soffset(
     %buf_desc: !amdgcn.sgpr<[? + 4]>,
     %voffset: !amdgcn.vgpr) {
   %c0 = arith.constant 0 : i32
-  %tok = amdgcn.buffer_load_lds_dword ins(%buf_desc, off_or_idx = %voffset, %c0, %m0) args(%c0) {offen}
-      : ins(!amdgcn.sgpr<[? + 4]>, off_or_idx = !amdgcn.vgpr, i32, !amdgcn.m0<0>) args(i32) -> !amdgcn.read_token<flat>
+  %tok = amdgcn.buffer_load_lds_dword addr %buf_desc m0 %m0 offset u(%c0) + off_idx(%voffset) + c(%c0) {offen} : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.m0<0>, i32, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 
@@ -45,7 +42,6 @@ func.func @test_buffer_load_dword_lds_no_voffset(
     %buf_desc: !amdgcn.sgpr<[? + 4]>,
     %soffset: !amdgcn.sgpr) {
   %c0 = arith.constant 0 : i32
-  %tok = amdgcn.buffer_load_lds_dword ins(%buf_desc, %soffset, %m0) args(%c0)
-      : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.m0<0>) args(i32) -> !amdgcn.read_token<flat>
+  %tok = amdgcn.buffer_load_lds_dword addr %buf_desc m0 %m0 offset u(%soffset) + c(%c0) : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.m0<0>, !amdgcn.sgpr) mods(i32) -> !amdgcn.read_token<flat>
   return
 }

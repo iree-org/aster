@@ -7,11 +7,11 @@
 //===----------------------------------------------------------------------===//
 
 // CHECK-LABEL: Symbol: cdna3_store_hazard_detected
-// CHECK: Op: %{{.*}} = amdgcn.global_store_dword ins(%{{.*}}, %{{.*}}) args(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) args(i32) -> !amdgcn.write_token<flat>
+// CHECK: Op: %{{.*}} = amdgcn.global_store_dword data %{{.*}} addr %{{.*}} offset c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = [
-// CHECK:       {#amdgcn.cdna3_store_write_data_hazard, %{{.*}} = amdgcn.global_store_dword ins(%{{.*}}, %{{.*}}) args(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) args(i32) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}},
-// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.global_store_dword ins(%{{.*}}, %{{.*}}) args(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) args(i32) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:       {#amdgcn.cdna3_store_write_data_hazard, %{{.*}} = amdgcn.global_store_dword data %{{.*}} addr %{{.*}} offset c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) mods(i32) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}},
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.global_store_dword data %{{.*}} addr %{{.*}} offset c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) mods(i32) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
 // CHECK:     ]
 // CHECK:     nop counts = {v:0, s:0, ds:0}
 // CHECK:   }
@@ -24,8 +24,7 @@
 // CHECK:   }
 func.func @cdna3_store_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>) {
   %c0_i32_mig1 = arith.constant 0 : i32
-  %0 = amdgcn.global_store_dword ins(%arg0, %arg1) args(%c0_i32_mig1)
-      : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) args(i32) -> !amdgcn.write_token<flat>
+  %0 = amdgcn.global_store_dword data %arg0 addr %arg1 offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) mods(i32) -> !amdgcn.write_token<flat>
   amdgcn.v_mov_b32 outs(%arg0) ins(%arg2) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<1>)
   return
 }
@@ -78,7 +77,7 @@ func.func @cdna3_vcc_vccz_hazard_detected(%arg0: !amdgcn.vcc<0>, %arg1: !amdgcn.
 // CHECK:     ]
 // CHECK:     nop counts = {v:0, s:0, ds:0}
 // CHECK:   }
-// CHECK: Op: %{{.*}} = amdgcn.global_load_dword outs(%{{.*}}) ins(%{{.*}}, offset = %{{.*}}) args(%{{.*}}) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<3>) args(i32) -> !amdgcn.read_token<flat>
+// CHECK: Op: %{{.*}} = amdgcn.global_load_dword dest %{{.*}} addr %{{.*}} offset d(%{{.*}}) + c(%{{.*}}) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<3>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = []
 // CHECK:     nop counts = {v:5, s:0, ds:0}
@@ -89,8 +88,7 @@ func.func @cdna3_valu_sgpr_vmem_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1: !
   %1 = amdgcn.alloca : !amdgcn.vgpr<1>
   %c0_i32_mig1 = arith.constant 0 : i32
   %voff = amdgcn.alloca : !amdgcn.vgpr<3>
-  %token = amdgcn.global_load_dword outs(%1) ins(%0, offset = %voff) args(%c0_i32_mig1)
-      : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<3>) args(i32) -> !amdgcn.read_token<flat>
+  %token = amdgcn.global_load_dword dest %1 addr %0 offset d(%voff) + c(%c0_i32_mig1) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<3>) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 
@@ -100,31 +98,31 @@ func.func @cdna3_valu_sgpr_vmem_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1: !
 //===----------------------------------------------------------------------===//
 
 // CHECK-LABEL: Symbol: cdna3_store_write_data_hazard_detected
-// CHECK: Op: %{{.*}} = amdgcn.global_store_dword ins(%{{.*}}, %{{.*}}, offset = %{{.*}}) args(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<2>) args(i32) -> !amdgcn.write_token<flat>
+// CHECK: Op: %{{.*}} = amdgcn.global_store_dword data %{{.*}} addr %{{.*}} offset d(%{{.*}}) + c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = [
-// CHECK:       {#amdgcn.cdna3_store_write_data_hazard, %{{.*}} = amdgcn.global_store_dword ins(%{{.*}}, %{{.*}}, offset = %{{.*}}) args(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<2>) args(i32) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}},
-// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.global_store_dword ins(%{{.*}}, %{{.*}}, offset = %{{.*}}) args(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<2>) args(i32) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:       {#amdgcn.cdna3_store_write_data_hazard, %{{.*}} = amdgcn.global_store_dword data %{{.*}} addr %{{.*}} offset d(%{{.*}}) + c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}},
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.global_store_dword data %{{.*}} addr %{{.*}} offset d(%{{.*}}) + c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
 // CHECK:     ]
 // CHECK:     nop counts = {v:0, s:0, ds:0}
 // CHECK:   }
 // CHECK: Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr<0>
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = [
-// CHECK:       {#amdgcn.cdna3_store_write_data_hazard, %{{.*}} = amdgcn.global_store_dword ins(%{{.*}}, %{{.*}}, offset = %{{.*}}) args(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<2>) args(i32) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}},
-// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.global_store_dword ins(%{{.*}}, %{{.*}}, offset = %{{.*}}) args(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<2>) args(i32) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:       {#amdgcn.cdna3_store_write_data_hazard, %{{.*}} = amdgcn.global_store_dword data %{{.*}} addr %{{.*}} offset d(%{{.*}}) + c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}},
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.global_store_dword data %{{.*}} addr %{{.*}} offset d(%{{.*}}) + c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
 // CHECK:     ]
 // CHECK:     nop counts = {v:0, s:0, ds:0}
 // CHECK:   }
 // CHECK: Op: %{{.*}} = amdgcn.make_register_range %{{.*}} : !amdgcn.vgpr<0>
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = [
-// CHECK:       {#amdgcn.cdna3_store_write_data_hazard, %{{.*}} = amdgcn.global_store_dword ins(%{{.*}}, %{{.*}}, offset = %{{.*}}) args(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<2>) args(i32) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}},
-// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.global_store_dword ins(%{{.*}}, %{{.*}}, offset = %{{.*}}) args(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<2>) args(i32) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
+// CHECK:       {#amdgcn.cdna3_store_write_data_hazard, %{{.*}} = amdgcn.global_store_dword data %{{.*}} addr %{{.*}} offset d(%{{.*}}) + c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.write_token<flat>, 0, {v:1, s:0, ds:0}},
+// CHECK:       {#amdgcn.cdna3_store_hazard, %{{.*}} = amdgcn.global_store_dword data %{{.*}} addr %{{.*}} offset d(%{{.*}}) + c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.write_token<flat>, 0, {v:2, s:0, ds:0}}
 // CHECK:     ]
 // CHECK:     nop counts = {v:0, s:0, ds:0}
 // CHECK:   }
-// CHECK: Op: %{{.*}} = amdgcn.global_load_dword outs(%{{.*}}) ins(%{{.*}}, offset = %{{.*}}) args(%{{.*}}) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<3>) args(i32) -> !amdgcn.read_token<flat>
+// CHECK: Op: %{{.*}} = amdgcn.global_load_dword dest %{{.*}} addr %{{.*}} offset d(%{{.*}}) + c(%{{.*}}) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<3>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:   HAZARD STATE AFTER: {
 // CHECK:     active = []
 // CHECK:     nop counts = {v:1, s:0, ds:0}
@@ -133,13 +131,11 @@ func.func @cdna3_store_write_data_hazard_detected(%arg0: !amdgcn.vgpr<0>, %arg1:
   %0 = amdgcn.make_register_range %arg1, %arg2 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
   %c0_i32_mig2 = arith.constant 0 : i32
   %voff_st = amdgcn.alloca : !amdgcn.vgpr<2>
-  %1 = amdgcn.global_store_dword ins(%arg0, %0, offset = %voff_st) args(%c0_i32_mig2)
-      : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<2>) args(i32) -> !amdgcn.write_token<flat>
+  %1 = amdgcn.global_store_dword data %arg0 addr %0 offset d(%voff_st) + c(%c0_i32_mig2) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.write_token<flat>
   %2 = amdgcn.alloca : !amdgcn.vgpr<0>
   %3 = amdgcn.make_register_range %2 : !amdgcn.vgpr<0>
   %voff_ld = amdgcn.alloca : !amdgcn.vgpr<3>
-  %token = amdgcn.global_load_dword outs(%3) ins(%0, offset = %voff_ld) args(%c0_i32_mig2)
-      : outs(!amdgcn.vgpr<0>) ins(!amdgcn.sgpr<[0 : 2]>, offset = !amdgcn.vgpr<3>) args(i32) -> !amdgcn.read_token<flat>
+  %token = amdgcn.global_load_dword dest %3 addr %0 offset d(%voff_ld) + c(%c0_i32_mig2) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<3>) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 

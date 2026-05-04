@@ -170,17 +170,13 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %a2 = amdgcn.v_add_u32 outs(%off2) ins(%c2048, %base) : outs(!v) ins(i32, !v)
     %a3 = amdgcn.v_add_u32 outs(%off3) ins(%c3072, %base) : outs(!v) ins(i32, !v)
     %c0_i32_mig1 = arith.constant 0 : i32
-    %r0, %t0 = amdgcn.global_load_dwordx4 outs(%d0) ins(%addr, offset = %a0) args(%c0_i32_mig1)
-        : outs(!vx4) ins(!sx2, offset = !v) args(i32) -> !amdgcn.read_token<flat>
+    %r0, %t0 = amdgcn.global_load_dwordx4 dest %d0 addr %addr offset d(%a0) + c(%c0_i32_mig1) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig2 = arith.constant 0 : i32
-    %r1, %t1 = amdgcn.global_load_dwordx4 outs(%d1) ins(%addr, offset = %a1) args(%c0_i32_mig2)
-        : outs(!vx4) ins(!sx2, offset = !v) args(i32) -> !amdgcn.read_token<flat>
+    %r1, %t1 = amdgcn.global_load_dwordx4 dest %d1 addr %addr offset d(%a1) + c(%c0_i32_mig2) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig3 = arith.constant 0 : i32
-    %r2, %t2 = amdgcn.global_load_dwordx4 outs(%d2) ins(%addr, offset = %a2) args(%c0_i32_mig3)
-        : outs(!vx4) ins(!sx2, offset = !v) args(i32) -> !amdgcn.read_token<flat>
+    %r2, %t2 = amdgcn.global_load_dwordx4 dest %d2 addr %addr offset d(%a2) + c(%c0_i32_mig3) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig4 = arith.constant 0 : i32
-    %r3, %t3 = amdgcn.global_load_dwordx4 outs(%d3) ins(%addr, offset = %a3) args(%c0_i32_mig4)
-        : outs(!vx4) ins(!sx2, offset = !v) args(i32) -> !amdgcn.read_token<flat>
+    %r3, %t3 = amdgcn.global_load_dwordx4 dest %d3 addr %addr offset d(%a3) + c(%c0_i32_mig4) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
     amdgcn.end_kernel
   }
 
@@ -210,15 +206,11 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %dst1 = amdgcn.make_register_range %rd2, %rd3 : !v, !v
     %c0 = arith.constant 0 : i32
     %c8 = arith.constant 8 : i32
-    %wt0 = amdgcn.ds_write_b64 ins(%addr0, %data0) args(%c0)
-        : ins(!v, !vx2) args(i32) -> !amdgcn.write_token<shared>
-    %wt1 = amdgcn.ds_write_b64 ins(%addr1, %data1) args(%c0)
-        : ins(!v, !vx2) args(i32) -> !amdgcn.write_token<shared>
+    %wt0 = amdgcn.ds_write_b64 data %data0 addr %addr0 offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
+    %wt1 = amdgcn.ds_write_b64 data %data1 addr %addr1 offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
     amdgcn.s_barrier
-    %rr0, %rt0 = amdgcn.ds_read_b64 outs(%dst0) ins(%addr0) args(%c8)
-        : outs(!vx2) ins(!v) args(i32) -> !amdgcn.read_token<shared>
-    %rr1, %rt1 = amdgcn.ds_read_b64 outs(%dst1) ins(%addr1) args(%c8)
-        : outs(!vx2) ins(!v) args(i32) -> !amdgcn.read_token<shared>
+    %rr0, %rt0 = amdgcn.ds_read_b64 dest %dst0 addr %addr0 offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
+    %rr1, %rt1 = amdgcn.ds_read_b64 dest %dst1 addr %addr1 offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     amdgcn.end_kernel
   }
 
@@ -241,12 +233,9 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %dst = amdgcn.make_register_range %rd0, %rd1 : !v, !v
     %c0 = arith.constant 0 : i32
     %c8 = arith.constant 8 : i32
-    %wt0 = amdgcn.ds_write_b64 ins(%addr, %data0) args(%c0)
-        : ins(!v, !vx2) args(i32) -> !amdgcn.write_token<shared>
-    %rr0, %rt0 = amdgcn.ds_read_b64 outs(%dst) ins(%addr) args(%c8)
-        : outs(!vx2) ins(!v) args(i32) -> !amdgcn.read_token<shared>
-    %wt1 = amdgcn.ds_write_b64 ins(%addr, %data1) args(%c0)
-        : ins(!v, !vx2) args(i32) -> !amdgcn.write_token<shared>
+    %wt0 = amdgcn.ds_write_b64 data %data0 addr %addr offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
+    %rr0, %rt0 = amdgcn.ds_read_b64 dest %dst addr %addr offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
+    %wt1 = amdgcn.ds_write_b64 data %data1 addr %addr offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
     amdgcn.end_kernel
   }
 
@@ -274,11 +263,9 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     // ds_read SSA-ready while the VALU chain (%wd0, %wd1) is still in flight.
     %dst = amdgcn.make_register_range %rd0, %rd1 : !v, !v
     %data = amdgcn.make_register_range %wd0, %wd1 : !v, !v
-    %wt = amdgcn.ds_write_b64 ins(%waddr, %data) args(%c0)
-        : ins(!v, !vx2) args(i32) -> !amdgcn.write_token<shared>
+    %wt = amdgcn.ds_write_b64 data %data addr %waddr offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
     amdgcn.wait deps %wt : !amdgcn.write_token<shared>
-    %rr, %rt = amdgcn.ds_read_b64 outs(%dst) ins(%raddr) args(%c0)
-        : outs(!vx2) ins(!v) args(i32) -> !amdgcn.read_token<shared>
+    %rr, %rt = amdgcn.ds_read_b64 dest %dst addr %raddr offset c(%c0) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     amdgcn.end_kernel
   }
 
@@ -303,14 +290,11 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %dr0 = amdgcn.make_register_range %data0 : !v
     %dr1 = amdgcn.make_register_range %data1 : !v
     %c0_i32_mig6 = arith.constant 0 : i32
-    %wt0 = amdgcn.global_store_dword ins(%dr0, %addr) args(%c0_i32_mig6)
-        : ins(!v, !sx2) args(i32) -> !amdgcn.write_token<flat>
+    %wt0 = amdgcn.global_store_dword data %dr0 addr %addr offset c(%c0_i32_mig6) : ins(!v, !sx2) mods(i32) -> !amdgcn.write_token<flat>
     %c0_i32_mig7 = arith.constant 0 : i32
-    %rr0, %rt0 = amdgcn.global_load_dwordx4 outs(%dst) ins(%addr, offset = %off) args(%c0_i32_mig7)
-        : outs(!vx4) ins(!sx2, offset = !v) args(i32) -> !amdgcn.read_token<flat>
+    %rr0, %rt0 = amdgcn.global_load_dwordx4 dest %dst addr %addr offset d(%off) + c(%c0_i32_mig7) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig8 = arith.constant 0 : i32
-    %wt1 = amdgcn.global_store_dword ins(%dr1, %addr) args(%c0_i32_mig8)
-        : ins(!v, !sx2) args(i32) -> !amdgcn.write_token<flat>
+    %wt1 = amdgcn.global_store_dword data %dr1 addr %addr offset c(%c0_i32_mig8) : ins(!v, !sx2) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.end_kernel
   }
 

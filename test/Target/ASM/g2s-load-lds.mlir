@@ -32,8 +32,7 @@ amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> {
     %soff = amdgcn.alloca : !amdgcn.sgpr<4>
     %voff = amdgcn.alloca : !amdgcn.vgpr<0>
 
-    %tok = amdgcn.buffer_load_lds_dword ins(%rsrc, off_or_idx = %voff, %soff, %m0) args(%c0) {offen}
-        : ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>, !amdgcn.m0<0>) args(i32) -> !amdgcn.read_token<flat>
+    %tok = amdgcn.buffer_load_lds_dword addr %rsrc m0 %m0 offset u(%soff) + off_idx(%voff) + c(%c0) {offen} : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.m0<0>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
@@ -53,8 +52,7 @@ amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> {
     %soff = amdgcn.alloca : !amdgcn.sgpr<4>
     %voff = amdgcn.alloca : !amdgcn.vgpr<0>
 
-    %tok = amdgcn.buffer_load_lds_dwordx4 ins(%rsrc, off_or_idx = %voff, %soff, %m0) args(%c64) {offen}
-        : ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>, !amdgcn.m0<0>) args(i32) -> !amdgcn.read_token<flat>
+    %tok = amdgcn.buffer_load_lds_dwordx4 addr %rsrc m0 %m0 offset u(%soff) + off_idx(%voff) + c(%c64) {offen} : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.m0<0>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }

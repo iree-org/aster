@@ -25,8 +25,7 @@ amdgcn.module @reg_alloc target = <gfx942> {
     %3 = alloca : !amdgcn.vgpr<?>
     %4 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     %c0_i32_mig1 = arith.constant 0 : i32
-    %token = amdgcn.global_load_dword outs(%2) ins(%4) args(%c0_i32_mig1)
-        : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %token = amdgcn.global_load_dword dest %2 addr %4 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %3, %2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     test_inst ins %3 : (!amdgcn.vgpr<?>) -> ()
     end_kernel

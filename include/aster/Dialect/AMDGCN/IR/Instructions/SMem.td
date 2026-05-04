@@ -29,10 +29,18 @@ class SLoadDwordInst<string mnemonic, list<Type> dataType> : AMDISAInstruction<m
     OptionalReg<OneSGPROrVCCM0Type>:$soffset
   );
   let trailingArgs = (ins
-    OffsetType<21>:$const_offset,
+    OptionalOffsetType<21>:$const_offset,
     GLC:$glc
   );
   let trailingResults = (outs ConstantReadToken:$token);
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `dest` $dest `addr` $addr `offset` (`u` `(`$soffset^`)`)?
+    (`c` `(`$const_offset^`)`)? attr-dict `:`
+    `outs``(` type($dest) `)` `ins` `(` type($addr) (`,` type($soffset)^)? `)`
+    (`mods` `(` type($const_offset)^ `)`)? `->`
+    custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+  }];
   let asm_syntax = [
     ASMString<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], "${mnemonic} $dest, $addr, @printLSOffset($soffset, [const_offset]) [glc]">
   ];
@@ -164,10 +172,17 @@ class SStoreDwordInst<string mnemonic, list<Type> dataType> : AMDISAInstruction<
     OptionalReg<OneSGPROrVCCM0Type>:$soffset
   );
   let trailingArgs = (ins
-    OffsetType<21>:$const_offset,
+    OptionalOffsetType<21>:$const_offset,
     GLC:$glc
   );
   let trailingResults = (outs ConstantWriteToken:$token);
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `data` $data `addr` $addr `offset` (`u` `(`$soffset^`)`)?
+    (`c` `(`$const_offset^`)`)? attr-dict `:`
+    `ins` `(` type($data) `,` type($addr) (`,` type($soffset)^)? `)`
+    (`mods` `(` type($const_offset)^ `)`)? `->` qualified(type($token))
+  }];
   let asm_syntax = [
     ASMString<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], "${mnemonic} $data, $addr, @printLSOffset($soffset, [const_offset]) [glc]">
   ];

@@ -34,16 +34,14 @@ amdgcn.module @buffer_test target = #amdgcn.target<gfx942> {
 
     // buffer_load_dword v1, v0, s[0:3], s4 offen
     %ld1_dest = amdgcn.alloca : !amdgcn.vgpr<1>
-    %lt1 = amdgcn.buffer_load_dword outs(%ld1_dest) ins(%rsrc, off_or_idx = %vaddr, %soffset) args(%c0) {offen}
-        : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.read_token<flat>
+    %lt1 = amdgcn.buffer_load_dword dest %ld1_dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%c0) {offen} : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
 
     // buffer_load_dwordx2 v[2:3], v0, s[0:3], s4 offen offset: 64
     %ld2a = amdgcn.alloca : !amdgcn.vgpr<2>
     %ld2b = amdgcn.alloca : !amdgcn.vgpr<3>
     %ld2_dest = amdgcn.make_register_range %ld2a, %ld2b
       : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
-    %lt2 = amdgcn.buffer_load_dwordx2 outs(%ld2_dest) ins(%rsrc, off_or_idx = %vaddr, %soffset) args(%c64) {offen}
-        : outs(!amdgcn.vgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.read_token<flat>
+    %lt2 = amdgcn.buffer_load_dwordx2 dest %ld2_dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%c64) {offen} : outs(!amdgcn.vgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
 
     // buffer_load_dwordx3 v[4:6], v0, s[0:3], s4 offen offset: 96
     %ld3a = amdgcn.alloca : !amdgcn.vgpr<4>
@@ -51,8 +49,7 @@ amdgcn.module @buffer_test target = #amdgcn.target<gfx942> {
     %ld3c = amdgcn.alloca : !amdgcn.vgpr<6>
     %ld3_dest = amdgcn.make_register_range %ld3a, %ld3b, %ld3c
       : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>
-    %lt3 = amdgcn.buffer_load_dwordx3 outs(%ld3_dest) ins(%rsrc, off_or_idx = %vaddr, %soffset) args(%c96) {offen}
-        : outs(!amdgcn.vgpr<[4 : 7]>) ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.read_token<flat>
+    %lt3 = amdgcn.buffer_load_dwordx3 dest %ld3_dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%c96) {offen} : outs(!amdgcn.vgpr<[4 : 7]>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
 
     // buffer_load_dwordx4 v[8:11], v0, s[0:3], s4 offen offset: 128
     %ld4a = amdgcn.alloca : !amdgcn.vgpr<8>
@@ -61,24 +58,19 @@ amdgcn.module @buffer_test target = #amdgcn.target<gfx942> {
     %ld4d = amdgcn.alloca : !amdgcn.vgpr<11>
     %ld4_dest = amdgcn.make_register_range %ld4a, %ld4b, %ld4c, %ld4d
       : !amdgcn.vgpr<8>, !amdgcn.vgpr<9>, !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
-    %lt4 = amdgcn.buffer_load_dwordx4 outs(%ld4_dest) ins(%rsrc, off_or_idx = %vaddr, %soffset) args(%c128) {offen}
-        : outs(!amdgcn.vgpr<[8 : 12]>) ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.read_token<flat>
+    %lt4 = amdgcn.buffer_load_dwordx4 dest %ld4_dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%c128) {offen} : outs(!amdgcn.vgpr<[8 : 12]>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
 
     // buffer_store_dword v0, v1, s[0:3], s4 offen
-    %st1 = amdgcn.buffer_store_dword ins(%ld1_dest, %rsrc, off_or_idx = %vaddr, %soffset) args(%c0) {offen}
-        : ins(!amdgcn.vgpr<1>, !amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.write_token<flat>
+    %st1 = amdgcn.buffer_store_dword data %ld1_dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%c0) {offen} : ins(!amdgcn.vgpr<1>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.write_token<flat>
 
     // buffer_store_dwordx2 v0, v[2:3], s[0:3], s4 offen offset: 64
-    %st2 = amdgcn.buffer_store_dwordx2 ins(%ld2_dest, %rsrc, off_or_idx = %vaddr, %soffset) args(%c64) {offen}
-        : ins(!amdgcn.vgpr<[2 : 4]>, !amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.write_token<flat>
+    %st2 = amdgcn.buffer_store_dwordx2 data %ld2_dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%c64) {offen} : ins(!amdgcn.vgpr<[2 : 4]>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.write_token<flat>
 
     // buffer_store_dwordx3 v[4:6], v0, s[0:3], s4 offen offset: 96
-    %st3 = amdgcn.buffer_store_dwordx3 ins(%ld3_dest, %rsrc, off_or_idx = %vaddr, %soffset) args(%c96) {offen}
-        : ins(!amdgcn.vgpr<[4 : 7]>, !amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.write_token<flat>
+    %st3 = amdgcn.buffer_store_dwordx3 data %ld3_dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%c96) {offen} : ins(!amdgcn.vgpr<[4 : 7]>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.write_token<flat>
 
     // buffer_store_dwordx4 v[8:11], v0, s[0:3], s4 offen offset: 128
-    %st4 = amdgcn.buffer_store_dwordx4 ins(%ld4_dest, %rsrc, off_or_idx = %vaddr, %soffset) args(%c128) {offen}
-        : ins(!amdgcn.vgpr<[8 : 12]>, !amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.write_token<flat>
+    %st4 = amdgcn.buffer_store_dwordx4 data %ld4_dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%c128) {offen} : ins(!amdgcn.vgpr<[8 : 12]>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.write_token<flat>
 
     amdgcn.end_kernel
   }
@@ -113,16 +105,14 @@ amdgcn.module @buffer_idxen_test target = #amdgcn.target<gfx942> {
 
     // buffer_load_dword v1, v0, s[0:3], s4 idxen
     %ld1_dest = amdgcn.alloca : !amdgcn.vgpr<1>
-    %lt1 = amdgcn.buffer_load_dword outs(%ld1_dest) ins(%rsrc, off_or_idx = %vindex, %soffset) args(%c0) {idxen}
-        : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.read_token<flat>
+    %lt1 = amdgcn.buffer_load_dword dest %ld1_dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%c0) {idxen} : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
 
     // buffer_load_dwordx2 v[2:3], v0, s[0:3], s4 idxen offset: 64
     %ld2a = amdgcn.alloca : !amdgcn.vgpr<2>
     %ld2b = amdgcn.alloca : !amdgcn.vgpr<3>
     %ld2_dest = amdgcn.make_register_range %ld2a, %ld2b
       : !amdgcn.vgpr<2>, !amdgcn.vgpr<3>
-    %lt2 = amdgcn.buffer_load_dwordx2 outs(%ld2_dest) ins(%rsrc, off_or_idx = %vindex, %soffset) args(%c64) {idxen}
-        : outs(!amdgcn.vgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.read_token<flat>
+    %lt2 = amdgcn.buffer_load_dwordx2 dest %ld2_dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%c64) {idxen} : outs(!amdgcn.vgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
 
     // buffer_load_dwordx3 v[4:6], v0, s[0:3], s4 idxen offset: 96
     %ld3a = amdgcn.alloca : !amdgcn.vgpr<4>
@@ -130,8 +120,7 @@ amdgcn.module @buffer_idxen_test target = #amdgcn.target<gfx942> {
     %ld3c = amdgcn.alloca : !amdgcn.vgpr<6>
     %ld3_dest = amdgcn.make_register_range %ld3a, %ld3b, %ld3c
       : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>
-    %lt3 = amdgcn.buffer_load_dwordx3 outs(%ld3_dest) ins(%rsrc, off_or_idx = %vindex, %soffset) args(%c96) {idxen}
-        : outs(!amdgcn.vgpr<[4 : 7]>) ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.read_token<flat>
+    %lt3 = amdgcn.buffer_load_dwordx3 dest %ld3_dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%c96) {idxen} : outs(!amdgcn.vgpr<[4 : 7]>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
 
     // buffer_load_dwordx4 v[8:11], v0, s[0:3], s4 idxen offset: 128
     %ld4a = amdgcn.alloca : !amdgcn.vgpr<8>
@@ -140,24 +129,19 @@ amdgcn.module @buffer_idxen_test target = #amdgcn.target<gfx942> {
     %ld4d = amdgcn.alloca : !amdgcn.vgpr<11>
     %ld4_dest = amdgcn.make_register_range %ld4a, %ld4b, %ld4c, %ld4d
       : !amdgcn.vgpr<8>, !amdgcn.vgpr<9>, !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
-    %lt4 = amdgcn.buffer_load_dwordx4 outs(%ld4_dest) ins(%rsrc, off_or_idx = %vindex, %soffset) args(%c128) {idxen}
-        : outs(!amdgcn.vgpr<[8 : 12]>) ins(!amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.read_token<flat>
+    %lt4 = amdgcn.buffer_load_dwordx4 dest %ld4_dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%c128) {idxen} : outs(!amdgcn.vgpr<[8 : 12]>) ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
 
     // buffer_store_dword v1, v0, s[0:3], s4 idxen
-    %st1 = amdgcn.buffer_store_dword ins(%ld1_dest, %rsrc, off_or_idx = %vindex, %soffset) args(%c0) {idxen}
-        : ins(!amdgcn.vgpr<1>, !amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.write_token<flat>
+    %st1 = amdgcn.buffer_store_dword data %ld1_dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%c0) {idxen} : ins(!amdgcn.vgpr<1>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.write_token<flat>
 
     // buffer_store_dwordx2 v[2:3], v0, s[0:3], s4 idxen offset: 64
-    %st2 = amdgcn.buffer_store_dwordx2 ins(%ld2_dest, %rsrc, off_or_idx = %vindex, %soffset) args(%c64) {idxen}
-        : ins(!amdgcn.vgpr<[2 : 4]>, !amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.write_token<flat>
+    %st2 = amdgcn.buffer_store_dwordx2 data %ld2_dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%c64) {idxen} : ins(!amdgcn.vgpr<[2 : 4]>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.write_token<flat>
 
     // buffer_store_dwordx3 v[4:6], v0, s[0:3], s4 idxen offset: 96
-    %st3 = amdgcn.buffer_store_dwordx3 ins(%ld3_dest, %rsrc, off_or_idx = %vindex, %soffset) args(%c96) {idxen}
-        : ins(!amdgcn.vgpr<[4 : 7]>, !amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.write_token<flat>
+    %st3 = amdgcn.buffer_store_dwordx3 data %ld3_dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%c96) {idxen} : ins(!amdgcn.vgpr<[4 : 7]>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.write_token<flat>
 
     // buffer_store_dwordx4 v[8:11], v0, s[0:3], s4 idxen offset: 128
-    %st4 = amdgcn.buffer_store_dwordx4 ins(%ld4_dest, %rsrc, off_or_idx = %vindex, %soffset) args(%c128) {idxen}
-        : ins(!amdgcn.vgpr<[8 : 12]>, !amdgcn.sgpr<[0 : 4]>, off_or_idx = !amdgcn.vgpr<0>, !amdgcn.sgpr<4>) args(i32) -> !amdgcn.write_token<flat>
+    %st4 = amdgcn.buffer_store_dwordx4 data %ld4_dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%c128) {idxen} : ins(!amdgcn.vgpr<[8 : 12]>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.write_token<flat>
 
     amdgcn.end_kernel
   }

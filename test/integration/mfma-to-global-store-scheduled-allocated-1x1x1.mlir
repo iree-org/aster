@@ -68,8 +68,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> {
 
     // Global load
     %c0_load = arith.constant 0 : i32
-    %loaded, %tok = amdgcn.global_load_dwordx2 outs(%range) ins(%global, offset = %offset_vgpr) args(%c0_load)
-        : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.read_token<flat>
+    %loaded, %tok = amdgcn.global_load_dwordx2 dest %range addr %global offset d(%offset_vgpr) + c(%c0_load) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
 
     // Store loaded value to memref for use in next block
     memref.store %loaded, %memref[%sz0, %sz1] : memref<?x?x!amdgcn.vgpr<[? + 2]>>
@@ -96,8 +95,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> {
 
     // Store vGPR range directly to global memory
     %c0_store = arith.constant 0 : i32
-    %tok = amdgcn.global_store_dwordx4 ins(%c_value, %c_global, offset = %offset_vgpr) args(%c0_store)
-        : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dwordx4 data %c_value addr %c_global offset d(%offset_vgpr) + c(%c0_store) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     return
   }
 
@@ -119,8 +117,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> {
     %offset_vgpr = lsir.to_reg %offset : i32 -> !amdgcn.vgpr
 
     // DS read from LDS
-    %from_lds, %tok = amdgcn.ds_read_b64 outs(%range) ins(%offset_vgpr) args(%lds_offset)
-        : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr) args(i32) -> !amdgcn.read_token<shared>
+    %from_lds, %tok = amdgcn.ds_read_b64 dest %range addr %offset_vgpr offset c(%lds_offset) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 
     // Store to memref for later use
     memref.store %from_lds, %memref[%sz0, %sz1] : memref<?x?x!amdgcn.vgpr<[? + 2]>>
@@ -146,8 +143,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> {
     %offset_vgpr = lsir.to_reg %offset : i32 -> !amdgcn.vgpr
 
     // DS write to LDS
-    %tok = amdgcn.ds_write_b64 ins(%offset_vgpr, %loaded) args(%lds_offset)
-        : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) args(i32) -> !amdgcn.write_token<shared>
+    %tok = amdgcn.ds_write_b64 data %loaded addr %offset_vgpr offset c(%lds_offset) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
     return
   }
 

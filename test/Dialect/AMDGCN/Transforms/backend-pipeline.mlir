@@ -44,12 +44,10 @@ amdgcn.module @test_load_store target = <gfx942> {
     %data = amdgcn.alloca : !amdgcn.vgpr
     %c0_i32_mig1 = arith.constant 0 : i32
     %voff = amdgcn.alloca : !amdgcn.vgpr
-    %data_val, %tok = amdgcn.global_load_dword outs(%data) ins(%src, offset = %voff) args(%c0_i32_mig1)
-        : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? : ? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.read_token<flat>
+    %data_val, %tok = amdgcn.global_load_dword dest %data addr %src offset d(%voff) + c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? : ? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
     amdgcn.wait deps %tok : !amdgcn.read_token<flat>
     %voff2 = amdgcn.alloca : !amdgcn.vgpr
-    %wtok = amdgcn.global_store_dword ins(%data_val, %dst, offset = %voff2) args(%c0_i32_mig1)
-        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? : ? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
+    %wtok = amdgcn.global_store_dword data %data_val addr %dst offset d(%voff2) + c(%c0_i32_mig1) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? : ? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.end_kernel
   }
 }

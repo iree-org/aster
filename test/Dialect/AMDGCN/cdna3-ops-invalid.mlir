@@ -58,8 +58,7 @@ func.func @test_vop3p_mai_wrong_dst_count(%dst: !amdgcn.vgpr<[8 : 10]>, %a: !amd
 func.func @test_ds_read_b128_wrong_result_count(%dst: !amdgcn.vgpr<[32 : 37]>, %addr: !amdgcn.vgpr<30>) {
   // expected-error@+2 {{'amdgcn.ds_read_b128' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {4}, sized GPR range of AGPR type with sizes {4}}}, but got '!amdgcn.vgpr<[32 : 37]>'}}
   %c0_i32_mig1 = arith.constant 0 : i32
-  %tok = amdgcn.ds_read_b128 outs(%dst) ins(%addr) args(%c0_i32_mig1)
-      : outs(!amdgcn.vgpr<[32 : 37]>) ins(!amdgcn.vgpr<30>) args(i32) -> !amdgcn.read_token<shared>
+  %tok = amdgcn.ds_read_b128 dest %dst addr %addr offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr<[32 : 37]>) ins(!amdgcn.vgpr<30>) mods(i32) -> !amdgcn.read_token<shared>
   return
 }
 
@@ -75,8 +74,7 @@ func.func @test_ds_write_b128_wrong_data_count(%addr: !amdgcn.vgpr<23>, %val0: !
   %offset = arith.constant 0 : i32
   // expected-error@+2 {{'amdgcn.ds_write_b128' op operand #1 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {4}, sized GPR range of AGPR type with sizes {4}}}, but got '!amdgcn.vgpr<[28 : 31]>'}}
   %c0_i32_mig1 = arith.constant 0 : i32
-  %tok = amdgcn.ds_write_b128 ins(%addr, %val_range) args(%c0_i32_mig1)
-      : ins(!amdgcn.vgpr<23>, !amdgcn.vgpr<[28 : 31]>) args(i32) -> !amdgcn.write_token<shared>
+  %tok = amdgcn.ds_write_b128 data %val_range addr %addr offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr<[28 : 31]>, !amdgcn.vgpr<23>) mods(i32) -> !amdgcn.write_token<shared>
   return
 }
 
@@ -91,8 +89,7 @@ func.func @test_global_load_dword_wrong_result_count(%addr_lo: !amdgcn.vgpr<40>,
   %addr_range = amdgcn.make_register_range %addr_lo, %addr_hi : !amdgcn.vgpr<40>, !amdgcn.vgpr<41>
   // expected-error@+2 {{'amdgcn.global_load_dword' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {1}, sized GPR range of AGPR type with sizes {1}}}, but got '!amdgcn.vgpr<[42 : 44]>'}}
   %c0_i32_mig1 = arith.constant 0 : i32
-  %tok = amdgcn.global_load_dword outs(%dst) ins(%addr_range) args(%c0_i32_mig1)
-      : outs(!amdgcn.vgpr<[42 : 44]>) ins(!amdgcn.vgpr<[40 : 42]>) args(i32) -> !amdgcn.read_token<flat>
+  %tok = amdgcn.global_load_dword dest %dst addr %addr_range offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr<[42 : 44]>) ins(!amdgcn.vgpr<[40 : 42]>) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 
@@ -103,8 +100,7 @@ func.func @test_global_load_dwordx2_wrong_result_count(%addr_lo: !amdgcn.vgpr<44
   %addr_range = amdgcn.make_register_range %addr_lo, %addr_hi : !amdgcn.vgpr<44>, !amdgcn.vgpr<45>
   // expected-error@+2 {{'amdgcn.global_load_dwordx2' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {2}, sized GPR range of AGPR type with sizes {2}}}, but got '!amdgcn.vgpr<[44 : 47]>'}}
   %c0_i32_mig2 = arith.constant 0 : i32
-  %tok = amdgcn.global_load_dwordx2 outs(%dst) ins(%addr_range) args(%c0_i32_mig2)
-      : outs(!amdgcn.vgpr<[44 : 47]>) ins(!amdgcn.vgpr<[44 : 46]>) args(i32) -> !amdgcn.read_token<flat>
+  %tok = amdgcn.global_load_dwordx2 dest %dst addr %addr_range offset c(%c0_i32_mig2) : outs(!amdgcn.vgpr<[44 : 47]>) ins(!amdgcn.vgpr<[44 : 46]>) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 
@@ -115,8 +111,7 @@ func.func @test_global_load_dwordx3_wrong_result_count(%addr_lo: !amdgcn.vgpr<50
   %addr_range = amdgcn.make_register_range %addr_lo, %addr_hi : !amdgcn.vgpr<50>, !amdgcn.vgpr<51>
   // expected-error@+2 {{'amdgcn.global_load_dwordx3' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {3}, sized GPR range of AGPR type with sizes {3}}}, but got '!amdgcn.vgpr<[52 : 56]>'}}
   %c0_i32_mig3 = arith.constant 0 : i32
-  %tok = amdgcn.global_load_dwordx3 outs(%dst) ins(%addr_range) args(%c0_i32_mig3)
-      : outs(!amdgcn.vgpr<[52 : 56]>) ins(!amdgcn.vgpr<[50 : 52]>) args(i32) -> !amdgcn.read_token<flat>
+  %tok = amdgcn.global_load_dwordx3 dest %dst addr %addr_range offset c(%c0_i32_mig3) : outs(!amdgcn.vgpr<[52 : 56]>) ins(!amdgcn.vgpr<[50 : 52]>) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 
@@ -127,8 +122,7 @@ func.func @test_global_load_dwordx4_wrong_result_count(%addr_lo: !amdgcn.vgpr<58
   %addr_range = amdgcn.make_register_range %addr_lo, %addr_hi : !amdgcn.vgpr<58>, !amdgcn.vgpr<59>
   // expected-error@+2 {{'amdgcn.global_load_dwordx4' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {4}, sized GPR range of AGPR type with sizes {4}}}, but got '!amdgcn.vgpr<[64 : 69]>'}}
   %c0_i32_mig4 = arith.constant 0 : i32
-  %tok = amdgcn.global_load_dwordx4 outs(%dst) ins(%addr_range) args(%c0_i32_mig4)
-      : outs(!amdgcn.vgpr<[64 : 69]>) ins(!amdgcn.vgpr<[58 : 60]>) args(i32) -> !amdgcn.read_token<flat>
+  %tok = amdgcn.global_load_dwordx4 dest %dst addr %addr_range offset c(%c0_i32_mig4) : outs(!amdgcn.vgpr<[64 : 69]>) ins(!amdgcn.vgpr<[58 : 60]>) mods(i32) -> !amdgcn.read_token<flat>
   return
 }
 
@@ -144,8 +138,7 @@ func.func @test_global_store_dword_wrong_addr_count(%addr_lo: !amdgcn.vgpr<70>, 
   %val_range = amdgcn.make_register_range %val0, %val1 : !amdgcn.vgpr<72>, !amdgcn.vgpr<73>
   // expected-error@+2 {{'amdgcn.global_store_dword' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {1}, sized GPR range of AGPR type with sizes {1}}}, but got '!amdgcn.vgpr<[72 : 74]>'}}
   %c0_i32_mig1 = arith.constant 0 : i32
-  %tok = amdgcn.global_store_dword ins(%val_range, %addr_range) args(%c0_i32_mig1)
-      : ins(!amdgcn.vgpr<[72 : 74]>, !amdgcn.vgpr<[70 : 72]>) args(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.global_store_dword data %val_range addr %addr_range offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr<[72 : 74]>, !amdgcn.vgpr<[70 : 72]>) mods(i32) -> !amdgcn.write_token<flat>
   return
 }
 
@@ -157,8 +150,7 @@ func.func @test_global_store_dwordx2_wrong_data_count(%addr_lo: !amdgcn.vgpr<74>
   %val_range = amdgcn.make_register_range %val0, %val1, %val2 : !amdgcn.vgpr<76>, !amdgcn.vgpr<77>, !amdgcn.vgpr<78>
   // expected-error@+2 {{'amdgcn.global_store_dwordx2' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {2}, sized GPR range of AGPR type with sizes {2}}}, but got '!amdgcn.vgpr<[76 : 79]>'}}
   %c0_i32_mig2 = arith.constant 0 : i32
-  %tok = amdgcn.global_store_dwordx2 ins(%val_range, %addr_range) args(%c0_i32_mig2)
-      : ins(!amdgcn.vgpr<[76 : 79]>, !amdgcn.vgpr<[74 : 76]>) args(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.global_store_dwordx2 data %val_range addr %addr_range offset c(%c0_i32_mig2) : ins(!amdgcn.vgpr<[76 : 79]>, !amdgcn.vgpr<[74 : 76]>) mods(i32) -> !amdgcn.write_token<flat>
   return
 }
 
@@ -170,8 +162,7 @@ func.func @test_global_store_dwordx3_wrong_addr_count(%addr_lo: !amdgcn.vgpr<82>
   %val_range = amdgcn.make_register_range %val0, %val1 : !amdgcn.vgpr<84>, !amdgcn.vgpr<85>
   // expected-error@+2 {{'amdgcn.global_store_dwordx3' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {3}, sized GPR range of AGPR type with sizes {3}}}, but got '!amdgcn.vgpr<[84 : 86]>'}}
   %c0_i32_mig3 = arith.constant 0 : i32
-  %tok = amdgcn.global_store_dwordx3 ins(%val_range, %addr_range) args(%c0_i32_mig3)
-      : ins(!amdgcn.vgpr<[84 : 86]>, !amdgcn.vgpr<[82 : 84]>) args(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.global_store_dwordx3 data %val_range addr %addr_range offset c(%c0_i32_mig3) : ins(!amdgcn.vgpr<[84 : 86]>, !amdgcn.vgpr<[82 : 84]>) mods(i32) -> !amdgcn.write_token<flat>
   return
 }
 
@@ -183,8 +174,7 @@ func.func @test_global_store_dwordx4_wrong_addr_count(%addr_lo: !amdgcn.vgpr<92>
   %val_range = amdgcn.make_register_range %val0, %val1 : !amdgcn.vgpr<96>, !amdgcn.vgpr<97>
   // expected-error@+2 {{'amdgcn.global_store_dwordx4' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {4}, sized GPR range of AGPR type with sizes {4}}}, but got '!amdgcn.vgpr<[96 : 98]>'}}
   %c0_i32_mig4 = arith.constant 0 : i32
-  %tok = amdgcn.global_store_dwordx4 ins(%val_range, %addr_range) args(%c0_i32_mig4)
-      : ins(!amdgcn.vgpr<[96 : 98]>, !amdgcn.vgpr<[92 : 94]>) args(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.global_store_dwordx4 data %val_range addr %addr_range offset c(%c0_i32_mig4) : ins(!amdgcn.vgpr<[96 : 98]>, !amdgcn.vgpr<[92 : 94]>) mods(i32) -> !amdgcn.write_token<flat>
   return
 }
 

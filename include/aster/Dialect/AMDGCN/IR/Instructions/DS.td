@@ -102,7 +102,7 @@ class DSRead2Inst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnem
   let archs = [CDNA3Isa, CDNA4Isa];
   let effects = [LDSRead];
   let outputs = (ins
-    AnyRegOf<dst0Type>:$dst0
+    AnyRegOf<dst0Type>:$dest
   );
   let inputs = (ins
     VGPROf<1>:$addr
@@ -112,9 +112,17 @@ class DSRead2Inst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnem
     OffsetType<8>:$const_offset1,
     GDS:$gds
   );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `dest` $dest `addr` $addr `offsets`
+    `c0` `(`$const_offset0`)` ` ` `c1` `(`$const_offset1`)` attr-dict `:`
+    `outs``(` type($dest) `)` `ins` `(` type($addr) `)`
+    `mods` `(` type($const_offset0) `,` type($const_offset1) `)` `->`
+    custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+  }];
   let trailingResults = (outs DSReadToken:$token);
   let asm_syntax = [
-    ASMString<[ENC_DS_CDNA3, ENC_DS_CDNA4], "${mnemonic} $dst0, $addr [const_offset0] [const_offset1] [gds]">
+    ASMString<[ENC_DS_CDNA3, ENC_DS_CDNA4], "${mnemonic} $dest, $addr [const_offset0] [const_offset1] [gds]">
   ];
 }
 #endif // DSREAD2INST_DEF
@@ -122,7 +130,7 @@ class DSRead2Inst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnem
 #ifndef DSREAD2B32_DEF
 #define DSREAD2B32_DEF
 def DsRead2B32 : DSRead2Inst<"ds_read2_b32",
-    /*dst0=*/[VGPROrAGPROf<2>]
+    /*dest=*/[VGPROrAGPROf<2>]
   > {
   let description = [{
     Load 32 bits of data from one location in a data share and then 32 bits of
@@ -136,7 +144,7 @@ def DsRead2B32 : DSRead2Inst<"ds_read2_b32",
 #ifndef DSREAD2B64_DEF
 #define DSREAD2B64_DEF
 def DsRead2B64 : DSRead2Inst<"ds_read2_b64",
-    /*dst0=*/[VGPROrAGPROf<4>]
+    /*dest=*/[VGPROrAGPROf<4>]
   > {
   let description = [{
     Load 64 bits of data from one location in a data share and then 64 bits of
@@ -163,6 +171,12 @@ class DSReadInst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnemo
     OffsetType<16>:$const_offset,
     GDS:$gds
   );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `dest` $dest `addr` $addr `offset` `c` `(`$const_offset`)` attr-dict `:`
+    `outs``(` type($dest) `)` `ins` `(` type($addr) `)` `mods` `(` type($const_offset) `)` `->`
+    custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+  }];
   let trailingResults = (outs DSReadToken:$token);
   let asm_syntax = [
     ASMString<[ENC_DS_CDNA3, ENC_DS_CDNA4], "${mnemonic} $dest, $addr [const_offset] [gds]">
@@ -307,6 +321,14 @@ class DSWrite2Inst<string mnemonic, list<Type> data0Type, list<Type> data1Type> 
     OffsetType<8>:$const_offset1,
     GDS:$gds
   );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `data0` $data0 `data1` $data1 `addr` $addr `offsets`
+    `c0` `(`$const_offset0`)` ` ` `c1` `(`$const_offset1`)`  attr-dict `:`
+    `ins` `(`type($data0) `,` type($data1) `,` type($addr) `)`
+    `mods` `(` type($const_offset0) `,` type($const_offset1) `)` `->`
+    qualified(type($token))
+  }];
   let trailingResults = (outs DSWriteToken:$token);
   let asm_syntax = [
     ASMString<[ENC_DS_CDNA3, ENC_DS_CDNA4], "${mnemonic} $addr, $data0, $data1 [const_offset0] [const_offset1] [gds]">
@@ -357,6 +379,12 @@ class DSWriteInst<string mnemonic, list<Type> dataType> : AMDISAInstruction<mnem
     OffsetType<16>:$const_offset,
     GDS:$gds
   );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `data` $data `addr` $addr `offset` `c` `(`$const_offset`)` attr-dict `:`
+    `ins` `(`type($data) `,` type($addr) `)` `mods` `(` type($const_offset) `)` `->`
+    qualified(type($token))
+  }];
   let trailingResults = (outs DSWriteToken:$token);
   let asm_syntax = [
     ASMString<[ENC_DS_CDNA3, ENC_DS_CDNA4], "${mnemonic} $addr, $data [const_offset] [gds]">

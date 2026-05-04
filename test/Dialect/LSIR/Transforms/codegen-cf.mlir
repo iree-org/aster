@@ -89,7 +89,7 @@ amdgcn.module @test_uniform_loop_with_load target = <gfx942> {
     %1 = amdgcn.load_arg 1 : !amdgcn.sgpr<[? + 2]>
     amdgcn.s_waitcnt lgkmcnt = 0
     %2 = amdgcn.alloca : !amdgcn.sgpr
-    %result, %token = amdgcn.s_load_dword outs(%2) ins(%0) args(%c0_i32) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) args(i32) -> !amdgcn.read_token<constant>
+    %result, %token = amdgcn.s_load_dword dest %2 addr %0 offset c(%c0_i32) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
     amdgcn.s_waitcnt lgkmcnt = 0
     %3 = lsir.from_reg %result : !amdgcn.sgpr -> i32
     %4 = arith.cmpi sgt, %3, %c0_i32 : i32
@@ -99,7 +99,7 @@ amdgcn.module @test_uniform_loop_with_load target = <gfx942> {
     %7 = lsir.to_reg %6 : i32 -> !amdgcn.sgpr
     %8 = amdgcn.alloca : !amdgcn.vgpr
     %9 = amdgcn.v_mov_b32 outs(%8) ins(%7) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr)
-    %10 = amdgcn.global_store_dword ins(%9, %1, offset = %9) args(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
+    %10 = amdgcn.global_store_dword data %9 addr %1 offset d(%9) + c(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     %11 = arith.addi %5, %c1_i32 : i32
     %12 = arith.cmpi slt, %11, %3 : i32
     cf.cond_br %12, ^bb1(%11 : i32), ^bb2

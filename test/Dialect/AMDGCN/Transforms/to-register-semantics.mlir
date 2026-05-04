@@ -365,7 +365,7 @@ func.func @reg_interference_with_values() {
 // CHECK-DAG:       %[[ALLOCA_2:.*]] = amdgcn.alloca : !amdgcn.sgpr<1>
 // CHECK:           %[[MAKE_REGISTER_RANGE_0:.*]] = amdgcn.make_register_range %[[ALLOCA_1]], %[[ALLOCA_2]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
 // CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.sgpr<?>
-// CHECK:           %{{.*}} = amdgcn.s_load_dword outs(%[[ALLOCA_3]]) ins(%[[MAKE_REGISTER_RANGE_0]]) args(%[[CONSTANT_0]]) : outs(!amdgcn.sgpr<?>) ins(!amdgcn.sgpr<[0 : 2]>) args(i32) -> !amdgcn.read_token<constant>
+// CHECK:           %{{.*}} = amdgcn.s_load_dword dest %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.sgpr<?>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:           amdgcn.s_waitcnt vmcnt = 0 expcnt = 0 lgkmcnt = 0
 // CHECK:           %[[ALLOCA_4:.*]] = amdgcn.alloca : !amdgcn.sgpr<?>
 // CHECK:           %[[SCC_ALLOCA:.*]] = amdgcn.alloca : !amdgcn.scc<0>
@@ -373,7 +373,7 @@ func.func @reg_interference_with_values() {
 // CHECK:           %[[ALLOCA_5:.*]] = amdgcn.alloca : !amdgcn.sgpr<?>
 // CHECK:           %[[ALLOCA_6:.*]] = amdgcn.alloca : !amdgcn.sgpr<?>
 // CHECK:           %[[MAKE_REGISTER_RANGE_1:.*]] = amdgcn.make_register_range %[[ALLOCA_5]], %[[ALLOCA_6]] : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
-// CHECK:           %{{.*}} = amdgcn.s_load_dwordx2 outs(%[[MAKE_REGISTER_RANGE_1]]) ins(%[[MAKE_REGISTER_RANGE_0]]) args(%[[CONSTANT_0]]) : outs(!amdgcn.sgpr<[? : ? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>) args(i32) -> !amdgcn.read_token<constant>
+// CHECK:           %{{.*}} = amdgcn.s_load_dwordx2 dest %[[MAKE_REGISTER_RANGE_1]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.sgpr<[? : ? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_0]], %[[ALLOCA_4]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<?>) -> ()
 // CHECK:           return
 // CHECK:         }
@@ -384,8 +384,7 @@ func.func @test_index_bxmxnxk() {
   %2 = amdgcn.alloca : !amdgcn.sgpr<1>
   %3 = amdgcn.make_register_range %1, %2 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
   %4 = amdgcn.alloca : !amdgcn.sgpr
-  %result, %token = amdgcn.s_load_dword outs(%4) ins(%3) args(%c42_i32)
-      : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) args(i32) -> !amdgcn.read_token<constant>
+  %result, %token = amdgcn.s_load_dword dest %4 addr %3 offset c(%c42_i32) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
   amdgcn.s_waitcnt vmcnt = 0 expcnt = 0 lgkmcnt = 0
   %5 = amdgcn.alloca : !amdgcn.sgpr
   %_scc_dst_and_b32 = amdgcn.alloca : !amdgcn.scc<0>
@@ -393,8 +392,7 @@ func.func @test_index_bxmxnxk() {
   %7 = amdgcn.alloca : !amdgcn.sgpr
   %8 = amdgcn.alloca : !amdgcn.sgpr
   %9 = amdgcn.make_register_range %7, %8 : !amdgcn.sgpr, !amdgcn.sgpr
-  %result_0, %token_1 = amdgcn.s_load_dwordx2 outs(%9) ins(%3) args(%c42_i32)
-      : outs(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>) args(i32) -> !amdgcn.read_token<constant>
+  %result_0, %token_1 = amdgcn.s_load_dwordx2 dest %9 addr %3 offset c(%c42_i32) : outs(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
   amdgcn.test_inst ins %0, %6 : (!amdgcn.sgpr<2>, !amdgcn.sgpr) -> ()
   func.return
 }

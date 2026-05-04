@@ -50,8 +50,7 @@ func.func @interleaved_mfma_store(
     : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>
     -> !amdgcn.vgpr<[? + 4]>
   %c0_i32_mig1 = arith.constant 0 : i32
-  %tok = amdgcn.global_store_dword ins(%data, %addr) args(%c0_i32_mig1)
-      : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) args(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.global_store_dword data %data addr %addr offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
   %r2 = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
     %dst, %a, %b, %r1
     : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>

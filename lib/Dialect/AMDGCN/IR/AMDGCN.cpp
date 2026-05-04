@@ -115,6 +115,31 @@ static void printDimAttr(OpAsmPrinter &printer, Operation *, DimAttr attr) {
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
+// LoadResults Parsing/Printing
+//===----------------------------------------------------------------------===//
+
+/// Parse the trailing results of a load instruction. The dest type has already
+/// been parsed and is passed by reference. The dest_res type is inferred to be
+/// the same as dest iff the register has value semantics. The token type is
+/// parsed from the input.
+static ParseResult parseLoadResults(OpAsmParser &parser, Type destType,
+                                    Type &destResType, Type &tokenType) {
+  auto regTy = dyn_cast<RegisterTypeInterface>(destType);
+  if (regTy && regTy.hasValueSemantics())
+    destResType = destType;
+  if (parser.parseType(tokenType))
+    return failure();
+  return success();
+}
+
+/// Print the trailing results of a load instruction. The dest_res type is
+/// inferred from dest and is not printed; only the token type is printed.
+static void printLoadResults(OpAsmPrinter &printer, Operation *, Type destType,
+                             Type destResType, Type tokenType) {
+  printer.printType(tokenType);
+}
+
+//===----------------------------------------------------------------------===//
 // AllocSize Parsing/Printing
 //===----------------------------------------------------------------------===//
 

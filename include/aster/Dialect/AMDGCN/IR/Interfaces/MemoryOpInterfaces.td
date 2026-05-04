@@ -109,8 +109,8 @@ def DSRead2InstOpInterface :
   }];
   let methods = [
     InterfaceMethod<"Get the dst0 operand.",
-      "::mlir::aster::Operand", "getDst0Operand", (ins), [{
-        return $_op.getDst0Mutable();
+      "::mlir::aster::Operand", "getDestOperand", (ins), [{
+        return $_op.getDestMutable();
       }]>,
     InterfaceMethod<"Get the address operand.",
       "::mlir::aster::Operand", "getAddrOperand", (ins), [{
@@ -129,9 +129,9 @@ def DSRead2InstOpInterface :
         return $_op.getProperties().gds;
       }]>,
     InterfaceMethod<"Get the dst0 result.",
-      "::mlir::OpResult", "getDst0Result", (ins), [{
+      "::mlir::OpResult", "getDestResult", (ins), [{
         return ::mlir::cast<::mlir::OpResult>(
-            ::mlir::Value($_op.getDst0Res()));
+            ::mlir::Value($_op.getDestRes()));
       }]>,
     InterfaceMethod<"Get the token result.",
       "::mlir::OpResult", "getTokenResult", (ins), [{
@@ -220,8 +220,9 @@ def SLoadDwordInstOpInterface :
             $_op, ConcreteOp::odsIndex_soffset);
       }]>,
     InterfaceMethod<"Get the constant offset operand.",
-      "::mlir::aster::Operand", "getConstOffsetOperand", (ins), [{}], [{
-        return $_op.getConstOffsetMutable();
+      "::mlir::aster::MutableOperand", "getConstOffsetOperand", (ins), [{}], [{
+        return ::mlir::aster::MutableOperand::get(
+            $_op, ConcreteOp::odsIndex_const_offset);
       }]>,
     InterfaceMethod<"Get the GLC modifier.",
       "::mlir::UnitAttr&", "getGlcMod", (ins), [{}], [{
@@ -249,8 +250,9 @@ def SStoreDwordInstOpInterface :
             $_op, ConcreteOp::odsIndex_soffset);
       }]>,
     InterfaceMethod<"Get the constant offset operand.",
-      "::mlir::aster::Operand", "getConstOffsetOperand", (ins), [{}], [{
-        return $_op.getConstOffsetMutable();
+      "::mlir::aster::MutableOperand", "getConstOffsetOperand", (ins), [{}], [{
+        return ::mlir::aster::MutableOperand::get(
+            $_op, ConcreteOp::odsIndex_const_offset);
       }]>,
     InterfaceMethod<"Get the GLC modifier.",
       "::mlir::UnitAttr&", "getGlcMod", (ins), [{}], [{

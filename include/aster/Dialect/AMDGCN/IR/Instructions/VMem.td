@@ -38,6 +38,16 @@ class BufferLoadInst<string mnemonic, list<Type> dataType> : AMDISAInstruction<m
     SC1:$sc1
   );
   let trailingResults = (outs FlatReadToken:$token);
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `dest` $dest `addr` $addr `offset`
+    `u` `(` $soffset `)` `+` (`off_idx` `(` $off_or_idx^ `)` `+`)? `c` `(`$const_offset`)`
+    attr-dict `:`
+    `outs``(` type($dest) `)`
+    `ins` `(` type($addr) `,` type($soffset) (`,` type($off_or_idx)^)? `)`
+    `mods` `(` type($const_offset) `)`
+    `->` custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+  }];
   let asm_syntax = [
     ASMString<[ENC_MUBUF_CDNA3], "${mnemonic} $dest, $off_or_idx, $addr, $soffset [idxen] [offen] [const_offset] [sc0] [nt] [sc1]">,
     ASMString<[ENC_MUBUF_CDNA4], "${mnemonic} $dest, $off_or_idx, $addr, $soffset [offen] [idxen] [const_offset] [sc0] [sc1] [nt]">
@@ -153,6 +163,15 @@ class BufferLoadLDSInst<string mnemonic> : AMDISAInstruction<mnemonic, [BufferLo
     SC1:$sc1
   );
   let trailingResults = (outs FlatReadToken:$token);
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `addr` $addr `m0` $m0_src `offset`
+    `u` `(` $soffset `)` `+` (`off_idx` `(` $off_or_idx^ `)` `+`)? `c` `(`$const_offset`)`
+    attr-dict `:`
+    `ins` `(` type($addr) `,` type($m0_src) `,` type($soffset) (`,` type($off_or_idx)^)? `)`
+    `mods` `(` type($const_offset) `)`
+    `->` qualified(type($token))
+  }];
   let asm_syntax = [
     ASMString<[ENC_MUBUF_CDNA3], "${mnemonic} $off_or_idx, $addr, $soffset [idxen] [offen] [const_offset] [sc0] [nt] [sc1] lds">,
     ASMString<[ENC_MUBUF_CDNA4], "${mnemonic} $off_or_idx, $addr, $soffset [offen] [idxen] [const_offset] lds [sc0] [sc1] [nt]">
@@ -280,6 +299,15 @@ class BufferStoreInst<string mnemonic, list<Type> dataType> : AMDISAInstruction<
     SC1:$sc1
   );
   let trailingResults = (outs FlatWriteToken:$token);
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `data` $data `addr` $addr `offset`
+    `u` `(` $soffset `)` `+` (`off_idx` `(` $off_or_idx^ `)` `+`)? `c` `(`$const_offset`)`
+    attr-dict `:`
+    `ins` `(` type($data) `,` type($addr) `,` type($soffset) (`,` type($off_or_idx)^)? `)`
+    `mods` `(` type($const_offset) `)`
+    `->` qualified(type($token))
+  }];
   let asm_syntax = [
     ASMString<[ENC_MUBUF_CDNA3], "${mnemonic} $data, $off_or_idx, $addr, $soffset [idxen] [offen] [const_offset] [sc0] [nt] [sc1]">,
     ASMString<[ENC_MUBUF_CDNA4], "${mnemonic} $data, $off_or_idx, $addr, $soffset [offen] [idxen] [const_offset] [sc0] [sc1] [nt]">
@@ -374,6 +402,14 @@ class GlobalLoadInst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<m
     SC0:$sc0,
     SC1:$sc1
   );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `dest` $dest `addr` $addr
+    `offset` (`d` `(`$offset^ `)` `+`)? `c` `(`$const_offset`)` attr-dict `:`
+    `outs``(` type($dest) `)`
+    `ins` `(` type($addr) (`,` type($offset)^)? `)` `mods` `(` type($const_offset) `)` `->`
+    custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+  }];
   let trailingResults = (outs FlatReadToken:$token);
   let asm_syntax = [
     ASMString<[ENC_FLAT_GLBL_CDNA3],
@@ -470,6 +506,13 @@ class GlobalLoadLdsInst<string mnemonic> : AMDISAInstruction<mnemonic, [GlobalLo
     SC1:$sc1
   );
   let trailingResults = (outs FlatReadToken:$token);
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `addr` $addr `m0` $m0_src
+    `offset` (`d` `(`$offset^ `)` `+`)? `c` `(`$const_offset`)` attr-dict `:`
+    `ins` `(` type($addr) `,` type($m0_src) (`,` type($offset)^)? `)` `mods` `(` type($const_offset) `)` `->`
+    qualified(type($token))
+  }];
   let asm_syntax = [
     ASMString<[ENC_FLAT_GLBL_CDNA3],
       "${mnemonic} $addr, off [const_offset] [sc0] [nt] [sc1]",
@@ -575,6 +618,13 @@ class GlobalStoreDwordInst<string mnemonic, list<Type> dataType> : AMDISAInstruc
     SC1:$sc1
   );
   let trailingResults = (outs FlatWriteToken:$token);
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `data` $data `addr` $addr
+    `offset` (`d` `(`$offset^ `)` `+`)? `c` `(`$const_offset`)` attr-dict `:`
+    `ins` `(`type($data) `,` type($addr) (`,` type($offset)^)? `)` `mods` `(` type($const_offset) `)`
+     `->` qualified(type($token))
+  }];
   let asm_syntax = [
     ASMString<[ENC_FLAT_GLBL_CDNA3],
       "${mnemonic} $addr, $data, off [const_offset] [sc0] [nt] [sc1]",

@@ -72,8 +72,7 @@ func.func @load_data_and_token_cross_stage(%addr: !amdgcn.vgpr<[? + 2]>) {
   %c4 = arith.constant 4 : index
   scf.for %i = %c0 to %c4 step %c1 {
     %c0_i32_mig1 = arith.constant 0 : i32
-    %data, %tok = amdgcn.global_load_dword outs(%dest) ins(%addr) args(%c0_i32_mig1) {sched.stage = 0 : i32}
-        : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) args(i32) -> !amdgcn.read_token<flat>
+    %data, %tok = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig1) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     amdgcn.wait deps %tok {sched.stage = 1 : i32} : !amdgcn.read_token<flat>
     %out = amdgcn.test_inst outs %s_out ins %data {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
   }

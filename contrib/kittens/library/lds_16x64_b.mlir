@@ -38,8 +38,7 @@ amdgcn.library @kittens_lds_16x64_b isa = [#amdgcn.isa<cdna3>] {
     %addr_i32 = arith.index_cast %addr_idx : index to i32
     %lds_addr = lsir.to_reg %addr_i32 : i32 -> !v
     %c0 = arith.constant 0 : i32
-    %tok = amdgcn.ds_write_b64 ins(%lds_addr, %data) args(%c0)
-        : ins(!v, !vx2) args(i32) -> !amdgcn.write_token<shared>
+    %tok = amdgcn.ds_write_b64 data %data addr %lds_addr offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
     return %tok : !future_lds_write
   }
 
@@ -118,8 +117,7 @@ amdgcn.library @kittens_lds_16x64_b isa = [#amdgcn.isa<cdna3>] {
     %lds_addr = lsir.to_reg %addr_i32 : i32 -> !v
     %dst = func.call @alloc_vgprx2() : () -> !vx2
     %c0 = arith.constant 0 : i32
-    %result, %tok = amdgcn.ds_read_b64 outs(%dst) ins(%lds_addr) args(%c0)
-        : outs(!vx2) ins(!v) args(i32) -> !amdgcn.read_token<shared>
+    %result, %tok = amdgcn.ds_read_b64 dest %dst addr %lds_addr offset c(%c0) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
 
     %value_any = aster_utils.to_any %result : !vx2
     %future = aster_utils.struct_create(%value_any, %tok)

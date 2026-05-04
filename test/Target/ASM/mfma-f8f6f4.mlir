@@ -57,8 +57,7 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     %c0 = arith.constant 0 : i32
     %out = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
     %off_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %tok = amdgcn.global_store_dwordx4 ins(%data, %out, offset = %off_s) args(%c0)
-        : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dwordx4 data %data addr %out offset d(%off_s) + c(%c0) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     return
   }

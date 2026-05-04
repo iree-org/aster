@@ -52,8 +52,7 @@ amdgcn.module @perm_e2e_mod target = #amdgcn.target<gfx942> {
     // Store result[i] to output[i]
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
     %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c2, %tid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
-    %tok_st = amdgcn.global_store_dword ins(%result, %out_ptr, offset = %voffset) args(%c0)
-        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
+    %tok_st = amdgcn.global_store_dword data %result addr %out_ptr offset d(%voffset) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
@@ -97,8 +96,7 @@ amdgcn.module @perm_e2e_mod target = #amdgcn.target<gfx942> {
     // Store result[i] to output[i]; expect output[i] = i
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
     %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c2, %tid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
-    %tok_st = amdgcn.global_store_dword ins(%result, %out_ptr, offset = %voffset) args(%c0)
-        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, offset = !amdgcn.vgpr) args(i32) -> !amdgcn.write_token<flat>
+    %tok_st = amdgcn.global_store_dword data %result addr %out_ptr offset d(%voffset) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
