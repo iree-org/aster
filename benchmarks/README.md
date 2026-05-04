@@ -2,6 +2,28 @@
 
 A suite for comparing the performance of different GEMM backends on AMD GPUs. Supports six backends: [aiter](#aiter), [HipBLAS](#hipblas), [Inductor](#inductor), [IREE](#iree), [rocBLAS](#rocblas), and [Triton](#triton).
 
+## TL;DR Setup to get minimal hipblaslt trace
+
+```bash
+cd benchmarks/
+./setup.sh --skip-aiter --skip-requirements
+source .venv/bin/activate
+
+rocprofv3 --att \
+--kernel-include-regex 'Cijk_' \
+-d trace_gemm/ \
+-- hipblaslt-bench \
+-m 8192 -n 8192 -k 8192 \
+--a_type f16_r --b_type f16_r --c_type f32_r --d_type f32_r \
+--compute_type f32_r --transB T \
+--cold_iters 10 --iters 32
+
+rsync -vaz ${HOST}:~/aster/benchmarks/trace_gemm /tmp/
+less /tmp/trace_gemm/ui_output_gent*/code.json
+~/rocprof-compute-viewer/build/rocprof-compute-viewer /tmp/trace_gemm/ui_output_agent_*/
+```
+
+
 ## Setup
 
 ```bash
