@@ -151,12 +151,31 @@ class SweepGrid:
 
         if extra_eligible:
             # Dedup against enumerated pool via a frozen fingerprint of dict items.
+            # Also apply pins and the full filter set:
+            #   weak-scale seeded configs must pass the same eligibility checks
+            #   as enumerated configs, otherwise they bypass `passes_resource_check`
+            #   and pin constraints and produce too many compile-time register/LDS
+            #   allocation failures.
+            all_filters = [f for level in level_filters for f in level]
             seen = {tuple(sorted(c.items())) for c in eligible}
+            n_dropped_pin = 0
+            n_dropped_filter = 0
             for extra in extra_eligible:
                 key = tuple(sorted(extra.items()))
-                if key not in seen:
-                    eligible.append(extra)
-                    seen.add(key)
+                if key in seen:
+                    continue
+                # Pin check: every pin must match.
+                if any(k in extra and extra[k] != v for k, v in pins.items()):
+                    n_dropped_pin += 1
+                    continue
+                # Filter check: each filter is a SweepFilter with deps + check.
+                if any(not f.check(extra) for f in all_filters if all(d in extra for d in f.deps)):
+                    n_dropped_filter += 1
+                    continue
+                eligible.append(extra)
+                seen.add(key)
+            if n_dropped_pin or n_dropped_filter:
+                print(f"  weak-scale: dropped {n_dropped_pin} (pin mismatch), {n_dropped_filter} (filter rejected)")
 
         total = len(eligible)
 

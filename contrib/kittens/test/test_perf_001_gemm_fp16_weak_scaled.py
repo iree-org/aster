@@ -33,7 +33,6 @@ from kittens_helpers import (
     get_mlir_file,
     get_kittens_16x16_lds_library_paths,
     constexpr_substitutions_16x32,
-    PIPELINE_STRATEGIES,
     shuffle_weight,
 )
 
@@ -179,22 +178,16 @@ def _make_substitutions(cfg):
     return subs
 
 
-def compile_gemm(
-    cfg,
-    output_hsaco_path,
-    print_ir_after_all=False,
-    print_asm=False,
-    num_vgprs=256,
-    num_agprs=256,
-):
+def compile_gemm(cfg, output_hsaco_path, **kw):
     """Compile a GEMM config to HSACO.
 
     Returns (hsaco_path, asm_str). Handles b_path (lds/direct) and
     load_type (flat/buffer) via cfg fields. All compilation options
-    (unroll, peeling, ll_sched, hoist_wait) are read from cfg.
+    (lcm_unroll, unroll, peeling, ll_sched, hoist_wait,
+    set_mfma_priority) are read from cfg.mapping.
     """
     from aster import ir
-    from aster.compiler.core import compile_mlir_file_to_asm, assemble_to_hsaco
+    from aster.compiler.core import PrintOptions, compile_mlir_file_to_asm, assemble_to_hsaco
 
     subs = _make_substitutions(cfg)
 
@@ -207,25 +200,15 @@ def compile_gemm(
     mlir_file = MLIR_FILES[mlir_key]
     lib_paths = get_kittens_16x16_lds_library_paths(use_buffer=cfg.use_buffer)
 
-    rotate_stage = None
-    if getattr(cfg, "rotate_compute_stage", False):
-        rotate_stage = PIPELINE_STRATEGIES[cfg.pipeline_strategy]["COMPUTE"]
-
     pipeline = make_default_pass_pipeline(
-        num_vgprs=num_vgprs,
-        num_agprs=num_agprs,
-        unroll_factor_multiplier=getattr(cfg, "unroll_factor_multiplier", 1),
-        epilogue_peeling=getattr(cfg, "epilogue_peeling", True),
-        ll_sched=getattr(cfg, "ll_sched", False),
-        hoist_iter_arg_waits=getattr(cfg, "hoist_wait", False),
-        rotate_stage=rotate_stage,
+        cfg.mapping,
+        num_vgprs=kw.get("num_vgprs", 256),
+        num_agprs=kw.get("num_agprs", 256),
     )
 
     ctx = ir.Context()
-    ctx.__enter__()
-    try:
-        from aster.compiler.core import PrintOptions
-
+    ctx.allow_unregistered_dialects = True
+    with ctx:
         asm, _ = compile_mlir_file_to_asm(
             get_mlir_file(mlir_file),
             cfg.kernel_name,
@@ -234,8 +217,8 @@ def compile_gemm(
             library_paths=lib_paths,
             preprocess=preprocess,
             print_opts=PrintOptions.from_flags(
-                print_ir_after_all=print_ir_after_all,
-                print_asm=print_asm,
+                print_ir_after_all=kw.get("print_ir_after_all", False),
+                print_asm=kw.get("print_asm", False),
             ),
         )
         path = assemble_to_hsaco(
@@ -246,8 +229,6 @@ def compile_gemm(
         )
         assert path is not None, "assemble_to_hsaco returned None"
         return path, asm
-    finally:
-        ctx.__exit__(None, None, None)
 
 
 def execute_gemm_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=False):

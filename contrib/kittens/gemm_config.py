@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from aster.pass_pipelines import PipelineConfigProtocol
+
 if TYPE_CHECKING:
     from aster.layout import Layout
 
@@ -209,7 +211,7 @@ class GemmSpec:
 
 
 @dataclass
-class GemmMappingSpec:
+class GemmMappingSpec(PipelineConfigProtocol):
     """Transform-dialect style mapping specification for a Linalg-like GemmSpec.
 
     Analogous to transform.structured.tile_using_forall + pipeline schedule
@@ -280,6 +282,13 @@ class GemmMappingSpec:
         from kittens_helpers import PIPELINE_STRATEGIES
 
         return PIPELINE_STRATEGIES[self.pipeline_strategy]
+
+    @property
+    def rotate_stage(self) -> int | None:
+        """Compute stage for rotation, or None if rotation is disabled."""
+        if not self.rotate_compute_stage:
+            return None
+        return self._pipeline_stage_dict()["COMPUTE"]
 
     @property
     def isa(self) -> str:

@@ -51,24 +51,16 @@ class PingPongGemmInstance(MultitileGemmInstance):
 def compile_ping_pong_gemm(cfg, output_hsaco_path, **kw):
     """Compile a ping-pong GEMM config to HSACO."""
     from aster.compiler.core import PrintOptions
-    from kittens_helpers import PIPELINE_STRATEGIES
 
-    rotate_stage = None
-    if getattr(cfg.mapping, "rotate_compute_stage", False):
-        rotate_stage = PIPELINE_STRATEGIES[cfg.mapping.pipeline_strategy]["COMPUTE"]
+    lds_at_write = kw.pop("lds_at_write", getattr(cfg.mapping, "lds_at_write", False))
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        module = _build_multitile_gemm(cfg, ping_pong_staggered=True)
+        module = _build_multitile_gemm(cfg, ping_pong_staggered=True, lds_at_write=lds_at_write)
         pipeline = make_default_pass_pipeline(
+            cfg.mapping,
             num_vgprs=kw.get("num_vgprs", 256),
             num_agprs=kw.get("num_agprs", 256),
-            unroll_factor_multiplier=getattr(cfg.mapping, "unroll_factor_multiplier", 1),
-            epilogue_peeling=getattr(cfg.mapping, "epilogue_peeling", True),
-            ll_sched=getattr(cfg.mapping, "ll_sched", False),
-            hoist_iter_arg_waits=getattr(cfg.mapping, "hoist_wait", False),
-            set_mfma_priority=getattr(cfg.mapping, "set_mfma_priority", True),
-            rotate_stage=rotate_stage,
         )
         asm = compile_mlir_module_to_asm(
             module,
@@ -140,7 +132,7 @@ def _run_ping_pong(cfg):
     ctx.allow_unregistered_dialects = True
     with ctx:
         module = _build_multitile_gemm(cfg, ping_pong_staggered=True)
-        asm = compile_mlir_module_to_asm(module, pass_pipeline=make_default_pass_pipeline())
+        asm = compile_mlir_module_to_asm(module, pass_pipeline=make_default_pass_pipeline(cfg.mapping))
 
     mcpu = cfg.mapping.mcpu
     path = assemble_to_hsaco(asm, target=mcpu, wavefront_size=64)
