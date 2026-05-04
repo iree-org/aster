@@ -69,6 +69,30 @@ def ReadTokenType : CPPType<"::mlir::aster::amdgcn::ReadTokenType",
 def WriteTokenType : CPPType<"::mlir::aster::amdgcn::WriteTokenType",
     "write token type">;
 
+def DSReadToken :
+  CPPType<"::mlir::aster::amdgcn::ReadTokenType", "read token type">,
+  InferrableType<"$_builder.getType<ReadTokenType>(MemoryInstructionKind::Shared)">;
+
+def DSWriteToken :
+  CPPType<"::mlir::aster::amdgcn::WriteTokenType", "write token type">,
+  InferrableType<"$_builder.getType<WriteTokenType>(MemoryInstructionKind::Shared)">;
+
+def ConstantReadToken :
+  CPPType<"::mlir::aster::amdgcn::ReadTokenType", "read token type">,
+  InferrableType<"$_builder.getType<ReadTokenType>(MemoryInstructionKind::Constant)">;
+
+def ConstantWriteToken :
+  CPPType<"::mlir::aster::amdgcn::WriteTokenType", "write token type">,
+  InferrableType<"$_builder.getType<WriteTokenType>(MemoryInstructionKind::Constant)">;
+
+def FlatReadToken :
+  CPPType<"::mlir::aster::amdgcn::ReadTokenType", "read token type">,
+  InferrableType<"$_builder.getType<ReadTokenType>(MemoryInstructionKind::Flat)">;
+
+def FlatWriteToken :
+  CPPType<"::mlir::aster::amdgcn::WriteTokenType", "write token type">,
+  InferrableType<"$_builder.getType<WriteTokenType>(MemoryInstructionKind::Flat)">;
+
 //===----------------------------------------------------------------------===//
 // Common type constraint classes
 //===----------------------------------------------------------------------===//
@@ -202,7 +226,7 @@ class InlineLitIntPos<list<Type> types> : ConfinedType<AnyTypeOf<types, "an inli
 
 class IntType<int bitWidth> : I<bitWidth>, ASMArgFormat, PrintOperand;
 
-class OffsetType<int bitWidth, bit _isSigned> : ConfinedType<I<32>, [
+class OffsetType<int bitWidth, bit _isSigned = false> : ConfinedType<I<32>, [
     CPred<StrSubst<[{
       true /*::mlir::aster::amdgcn::checkOffsetConst($_selfValue, $_offsetWidth, $_isSigned)*/
     }], [IntRepl<"_offsetWidth", bitWidth>, IntRepl<"_isSigned", _isSigned>]>.result>
