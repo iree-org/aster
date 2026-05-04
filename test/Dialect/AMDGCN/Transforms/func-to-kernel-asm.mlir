@@ -17,8 +17,11 @@ module attributes {dlti.dl_spec = #dlti.dl_spec<!ptr.ptr<#amdgcn.addr_space<loca
       %0 = load_arg 1 : !amdgcn.sgpr<[? + 2]>
       %1 = load_arg 0 : !amdgcn.sgpr<[? + 2]>
       %2 = alloca : !amdgcn.vgpr
-      %dest_res, %token = load global_load_dword dest %2 addr %1 : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<flat>
-      %3 = store global_store_dword data %dest_res addr %0 : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>) -> !amdgcn.write_token<flat>
+      %c0_i32_mig1 = arith.constant 0 : i32
+      %voff = alloca : !amdgcn.vgpr
+      %dest_res, %token = amdgcn.global_load_dword dest %2 addr %1 offset d(%voff) + c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+      %voff2 = alloca : !amdgcn.vgpr
+      %3 = amdgcn.global_store_dword data %dest_res addr %0 offset d(%voff2) + c(%c0_i32_mig1) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
       end_kernel
     }
   }

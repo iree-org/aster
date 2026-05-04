@@ -193,6 +193,8 @@ class Instruction<Dialect dialect, string mnemonic, list<Trait> opTraits = []>
   InstructionTraits info = InstructionTraits<arguments, results>;
   // Generate the MLIR assembly format for the operation.
   bit genInstAssemblyFormat = 1;
+  // The mnemonic of the instruction for assembly syntax.
+  string asm_mnemonic = mnemonic;
   let traits = [
     DeclareOpInterfaceMethods<InstOpInterface>,
     DeclareOpInterfaceMethods<InferTypeOpInterface>,

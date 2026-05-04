@@ -91,9 +91,7 @@ amdgcn.library @kittens_compute_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
           : (index, index, index, index, index, index, index) -> index
       %voffset = func.call @index_to_vgpr_i32(%off) : (index) -> !v
       %agpr = memref.load %agpr_buf[%i] : memref<?x!a>
-      amdgcn.store buffer_store_dword data %agpr addr %buffer_resource_sx4
-          offset u(%soffset) + d(%voffset) + c(%c0_i32)
-          : ins(!a, !sx4, !s, !v, i32) -> !amdgcn.write_token<flat>
+      amdgcn.buffer_store_dword data %agpr addr %buffer_resource_sx4 offset u(%soffset) + off_idx(%voffset) + c(%c0_i32) {offen} : ins(!a, !sx4, !s, !v) mods(i32) -> !amdgcn.write_token<flat>
     } {aster.constexpr}
 
     return

@@ -27,6 +27,7 @@ amdgcn.module @test_struct_promotability target = #amdgcn.target<gfx942> {
     amdgcn.s_waitcnt lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
+    %c0_i32 = arith.constant 0 : i32
     %elt_size = arith.constant 2 : index // f16 size in bytes
 
     // Create a simple position descriptor
@@ -57,8 +58,8 @@ amdgcn.module @test_struct_promotability target = #amdgcn.target<gfx942> {
 
     // Convert value back and store to output
     %value = aster_utils.from_any %value_any : !vx2
-    amdgcn.store global_store_dwordx2 data %value addr %out_ptr offset d(%c0) + c(%c0) : ins(!vx2, !sx2, i32)
-
+    %v = alloca : !amdgcn.vgpr
+    amdgcn.global_store_dwordx2 data %value addr %out_ptr offset d(%v) + c(%c0_i32) : ins(!vx2, !sx2, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }

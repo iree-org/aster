@@ -4,7 +4,7 @@
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<0>,
 // CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr<[4 : 6]>,
 // CHECK-SAME:      %[[ARG2:.*]]: !amdgcn.vgpr<1>) {
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dword data %[[ARG0]] addr %[[ARG1]] : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
 // CHECK:           amdgcn.v_nop
@@ -14,7 +14,8 @@
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>) {
-  %0 = amdgcn.store global_store_dword data %arg0 addr %arg1 : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  %c0_i32_mig1 = arith.constant 0 : i32
+  %0 = amdgcn.global_store_dword data %arg0 addr %arg1 offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) mods(i32) -> !amdgcn.write_token<flat>
   amdgcn.v_mov_b32 outs(%arg0) ins(%arg2) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<1>)
   return
 }
@@ -26,7 +27,7 @@ func.func @test_store_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]
 // CHECK-SAME:      %[[ARG3:.*]]: i1) {
 // CHECK:           cf.cond_br %[[ARG3]], ^bb1, ^bb2
 // CHECK:         ^bb1:
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dword data %[[ARG0]] addr %[[ARG1]] : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           cf.br ^bb2
 // CHECK:         ^bb2:
 // CHECK:           amdgcn.v_nop
@@ -40,7 +41,8 @@ func.func @test_store_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]
 func.func @test_cf_hazard(%arg0: !amdgcn.vgpr<0>, %arg1: !amdgcn.vgpr<[4 : 6]>, %arg2: !amdgcn.vgpr<1>, %arg3: i1) {
   cf.cond_br %arg3, ^bb1, ^bb2
 ^bb1:  // pred: ^bb0
-  %0 = amdgcn.store global_store_dword data %arg0 addr %arg1 : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) -> !amdgcn.write_token<flat>
+  %c0_i32_mig2 = arith.constant 0 : i32
+  %0 = amdgcn.global_store_dword data %arg0 addr %arg1 offset c(%c0_i32_mig2) : ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<[4 : 6]>) mods(i32) -> !amdgcn.write_token<flat>
   cf.br ^bb2
 ^bb2:  // 2 preds: ^bb0, ^bb1
   amdgcn.v_mov_b32 outs(%arg0) ins(%arg2) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<1>)

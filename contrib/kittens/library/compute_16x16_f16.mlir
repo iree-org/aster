@@ -93,8 +93,8 @@ amdgcn.library @kittens_compute_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
     scf.for %i = %c0 to %c4 step %c1 {
       %addr = memref.load %addr_buf[%i] : memref<?x!vx2>
       %agpr = memref.load %agpr_buf[%i] : memref<?x!a>
-      amdgcn.store global_store_dword data %agpr addr %addr
-          : ins(!a, !vx2) -> !amdgcn.write_token<flat>
+      %c0_i32_mig1 = arith.constant 0 : i32
+      amdgcn.global_store_dword data %agpr addr %addr offset c(%c0_i32_mig1) : ins(!a, !vx2) mods(i32) -> !amdgcn.write_token<flat>
     } {aster.constexpr}
 
     return

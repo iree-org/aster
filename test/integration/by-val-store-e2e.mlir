@@ -17,10 +17,7 @@ amdgcn.module @by_val_store_mod target = #amdgcn.target<gfx942> {
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
     %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c2, %tid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
 
-    %tok = amdgcn.store global_store_dword data %v_val addr %out_ptr
-      offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dword data %v_val addr %out_ptr offset d(%voffset) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }

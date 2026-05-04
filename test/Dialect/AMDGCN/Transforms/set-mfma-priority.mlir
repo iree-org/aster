@@ -32,7 +32,7 @@ func.func @contiguous_mfma_group(
 //  CHECK-NEXT:   amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
 //       CHECK:   amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
 //  CHECK-NEXT:   amdgcn.s_setprio 0
-//       CHECK:   amdgcn.store global_store_dword
+//       CHECK:   amdgcn.global_store_dword
 //       CHECK:   amdgcn.s_setprio 1
 //  CHECK-NEXT:   amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16>
 //  CHECK-NEXT:   amdgcn.s_setprio 0
@@ -49,8 +49,8 @@ func.func @interleaved_mfma_store(
     %dst, %a, %b, %r0
     : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>
     -> !amdgcn.vgpr<[? + 4]>
-  %tok = amdgcn.store global_store_dword data %data addr %addr
-    : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.write_token<flat>
+  %c0_i32_mig1 = arith.constant 0 : i32
+  %tok = amdgcn.global_store_dword data %data addr %addr offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
   %r2 = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
     %dst, %a, %b, %r1
     : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>

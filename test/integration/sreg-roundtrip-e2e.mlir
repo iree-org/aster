@@ -42,10 +42,7 @@ amdgcn.module @m0_roundtrip_mod target = #amdgcn.target<gfx942> {
 
     // Store to global: out[threadidx.x] = 42
     %c0 = arith.constant 0 : i32
-    %tok_st = amdgcn.store global_store_dword data %v_val addr %out_ptr
-      offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok_st = amdgcn.global_store_dword data %v_val addr %out_ptr offset d(%voffset) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
 
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel

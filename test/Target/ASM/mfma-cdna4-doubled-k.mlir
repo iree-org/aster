@@ -47,10 +47,7 @@ amdgcn.module @cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
     %c0 = arith.constant 0 : i32
     %out = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
     %off_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %tok = amdgcn.store global_store_dwordx4 data %data addr %out
-        offset d(%off_s) + c(%c0)
-      : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dwordx4 data %data addr %out offset d(%off_s) + c(%c0) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     return
   }

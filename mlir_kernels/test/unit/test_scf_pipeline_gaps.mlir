@@ -29,8 +29,8 @@ amdgcn.module @test_gap_0_2 target = <gfx942> {
       %off = arith.muli %i_i32_s2, %c4_i32 {sched.stage = 2 : i32} : i32
       %off_reg = lsir.to_reg %off {sched.stage = 2 : i32} : i32 -> !v
       %data = amdgcn.v_mov_b32 outs(%s_val) ins(%val_reg) {sched.stage = 2 : i32} : outs(!v) ins(!v)
-      %tok = amdgcn.store global_store_dword data %data addr %out_ptr offset d(%off_reg) {sched.stage = 2 : i32}
-        : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
+      %c0_i32_mig1 = arith.constant 0 : i32
+      %tok = amdgcn.global_store_dword data %data addr %out_ptr offset d(%off_reg) + c(%c0_i32_mig1) {sched.stage = 2 : i32} : ins(!v, !sx2, !v) mods(i32) -> !amdgcn.write_token<flat>
     }
 
     amdgcn.s_waitcnt vmcnt = 0
@@ -66,8 +66,8 @@ amdgcn.module @test_gap_0_3 target = <gfx942> {
       %off = arith.muli %i_i32_s3, %c4_i32 {sched.stage = 3 : i32} : i32
       %off_reg = lsir.to_reg %off {sched.stage = 3 : i32} : i32 -> !v
       %data = amdgcn.v_mov_b32 outs(%s_val) ins(%val_reg) {sched.stage = 3 : i32} : outs(!v) ins(!v)
-      %tok = amdgcn.store global_store_dword data %data addr %out_ptr offset d(%off_reg) {sched.stage = 3 : i32}
-        : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
+      %c0_i32_mig2 = arith.constant 0 : i32
+      %tok = amdgcn.global_store_dword data %data addr %out_ptr offset d(%off_reg) + c(%c0_i32_mig2) {sched.stage = 3 : i32} : ins(!v, !sx2, !v) mods(i32) -> !amdgcn.write_token<flat>
     }
 
     amdgcn.s_waitcnt vmcnt = 0
@@ -108,8 +108,8 @@ amdgcn.module @test_gap_0_2_5 target = <gfx942> {
       %off = arith.muli %i_i32_s5, %c4_i32 {sched.stage = 5 : i32} : i32
       %off_reg = lsir.to_reg %off {sched.stage = 5 : i32} : i32 -> !v
       %data = amdgcn.v_mov_b32 outs(%s2) ins(%v2) {sched.stage = 5 : i32} : outs(!v) ins(!v)
-      %tok = amdgcn.store global_store_dword data %data addr %out_ptr offset d(%off_reg) {sched.stage = 5 : i32}
-        : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
+      %c0_i32_mig3 = arith.constant 0 : i32
+      %tok = amdgcn.global_store_dword data %data addr %out_ptr offset d(%off_reg) + c(%c0_i32_mig3) {sched.stage = 5 : i32} : ins(!v, !sx2, !v) mods(i32) -> !amdgcn.write_token<flat>
     }
 
     amdgcn.s_waitcnt vmcnt = 0
@@ -148,8 +148,8 @@ amdgcn.module @test_gap_0_2_iter_args target = <gfx942> {
     %v = amdgcn.v_mov_b32 outs(%d) ins(%s) : outs(!v) ins(!amdgcn.sgpr)
     %c0_i32 = arith.constant 0 : i32
     %off = lsir.to_reg %c0_i32 : i32 -> !v
-    %tok = amdgcn.store global_store_dword data %v addr %out offset d(%off)
-      : ins(!v, !sx2, !v) -> !amdgcn.write_token<flat>
+    %c0_i32_mig4 = arith.constant 0 : i32
+    %tok = amdgcn.global_store_dword data %v addr %out offset d(%off) + c(%c0_i32_mig4) : ins(!v, !sx2, !v) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     end_kernel
   }

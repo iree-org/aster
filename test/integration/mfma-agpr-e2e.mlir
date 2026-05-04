@@ -81,42 +81,28 @@ amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
     %c512_i32 = arith.constant 512 : i32
 
     // Global load A
-    %loaded_a, %tok_load_a = amdgcn.load global_load_dwordx2 dest %a_reg_range addr %a_ptr
-        offset d(%thread_offset_f16) + c(%c0_i32)
-      : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.read_token<flat>
+    %loaded_a, %tok_load_a = amdgcn.global_load_dwordx2 dest %a_reg_range addr %a_ptr offset d(%thread_offset_f16) + c(%c0_i32) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
 
     // Global load B
-    %loaded_b, %tok_load_b = amdgcn.load global_load_dwordx2 dest %b_reg_range addr %b_ptr
-        offset d(%thread_offset_f16) + c(%c0_i32)
-      : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.read_token<flat>
+    %loaded_b, %tok_load_b = amdgcn.global_load_dwordx2 dest %b_reg_range addr %b_ptr offset d(%thread_offset_f16) + c(%c0_i32) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
 
     // Wait for loads
     amdgcn.s_waitcnt vmcnt = 0
 
     // LDS store A
-    %tok_ds_a = amdgcn.store ds_write_b64 data %loaded_a addr %thread_offset_f16
-        offset c(%c0_i32)
-      : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+    %tok_ds_a = amdgcn.ds_write_b64 data %loaded_a addr %thread_offset_f16 offset c(%c0_i32) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 
     // LDS store B
-    %tok_ds_b = amdgcn.store ds_write_b64 data %loaded_b addr %thread_offset_f16
-        offset c(%c512_i32)
-      : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+    %tok_ds_b = amdgcn.ds_write_b64 data %loaded_b addr %thread_offset_f16 offset c(%c512_i32) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 
     // Wait for LDS writes
     amdgcn.s_waitcnt lgkmcnt = 0
 
     // LDS load A
-    %loaded_a_lds, %tok_lds_a = amdgcn.load ds_read_b64 dest %a_reg_range
-        addr %thread_offset_f16 offset c(%c0_i32)
-      : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+    %loaded_a_lds, %tok_lds_a = amdgcn.ds_read_b64 dest %a_reg_range addr %thread_offset_f16 offset c(%c0_i32) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 
     // LDS load B
-    %loaded_b_lds, %tok_lds_b = amdgcn.load ds_read_b64 dest %b_reg_range
-        addr %thread_offset_f16 offset c(%c512_i32)
-      : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+    %loaded_b_lds, %tok_lds_b = amdgcn.ds_read_b64 dest %b_reg_range addr %thread_offset_f16 offset c(%c512_i32) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 
     // Wait for LDS reads
     amdgcn.s_waitcnt lgkmcnt = 0
@@ -131,10 +117,7 @@ amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
     %thread_offset_f32 = amdgcn.v_lshlrev_b32 outs(%offset_a) ins(%c4, %threadidx_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr<0>)
 
     // Global store C directly from AGPRs
-    %tok_store_c = amdgcn.store global_store_dwordx4 data %c_mfma_result addr %c_ptr
-        offset d(%thread_offset_f32) + c(%c0_i32)
-      : ins(!amdgcn.agpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok_store_c = amdgcn.global_store_dwordx4 data %c_mfma_result addr %c_ptr offset d(%thread_offset_f32) + c(%c0_i32) : ins(!amdgcn.agpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
 
     // Wait for store
     amdgcn.s_waitcnt vmcnt = 0

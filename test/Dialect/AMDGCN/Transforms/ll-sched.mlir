@@ -124,13 +124,13 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
   // VALU addr computations batch before VMEM loads (SSA deps).
   // CHECK-LABEL: kernel @vmem_addr_load_interleave
   // CHECK:         v_add_u32
-  // CHECK:         load global_load_dwordx4
+  // CHECK:         global_load_dwordx4
   // CHECK:         v_add_u32
-  // CHECK:         load global_load_dwordx4
+  // CHECK:         global_load_dwordx4
   // CHECK:         v_add_u32
   // CHECK:         v_add_u32
-  // CHECK:         load global_load_dwordx4
-  // CHECK:         load global_load_dwordx4
+  // CHECK:         global_load_dwordx4
+  // CHECK:         global_load_dwordx4
   // CHECK:         end_kernel
   amdgcn.kernel @vmem_addr_load_interleave {
     %base = amdgcn.alloca : !v
@@ -169,25 +169,25 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %a1 = amdgcn.v_add_u32 outs(%off1) ins(%c1024, %base) : outs(!v) ins(i32, !v)
     %a2 = amdgcn.v_add_u32 outs(%off2) ins(%c2048, %base) : outs(!v) ins(i32, !v)
     %a3 = amdgcn.v_add_u32 outs(%off3) ins(%c3072, %base) : outs(!v) ins(i32, !v)
-    %r0, %t0 = amdgcn.load global_load_dwordx4 dest %d0 addr %addr offset d(%a0)
-        : dps(!vx4) ins(!sx2, !v) -> !amdgcn.read_token<flat>
-    %r1, %t1 = amdgcn.load global_load_dwordx4 dest %d1 addr %addr offset d(%a1)
-        : dps(!vx4) ins(!sx2, !v) -> !amdgcn.read_token<flat>
-    %r2, %t2 = amdgcn.load global_load_dwordx4 dest %d2 addr %addr offset d(%a2)
-        : dps(!vx4) ins(!sx2, !v) -> !amdgcn.read_token<flat>
-    %r3, %t3 = amdgcn.load global_load_dwordx4 dest %d3 addr %addr offset d(%a3)
-        : dps(!vx4) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+    %c0_i32_mig1 = arith.constant 0 : i32
+    %r0, %t0 = amdgcn.global_load_dwordx4 dest %d0 addr %addr offset d(%a0) + c(%c0_i32_mig1) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
+    %c0_i32_mig2 = arith.constant 0 : i32
+    %r1, %t1 = amdgcn.global_load_dwordx4 dest %d1 addr %addr offset d(%a1) + c(%c0_i32_mig2) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
+    %c0_i32_mig3 = arith.constant 0 : i32
+    %r2, %t2 = amdgcn.global_load_dwordx4 dest %d2 addr %addr offset d(%a2) + c(%c0_i32_mig3) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
+    %c0_i32_mig4 = arith.constant 0 : i32
+    %r3, %t3 = amdgcn.global_load_dwordx4 dest %d3 addr %addr offset d(%a3) + c(%c0_i32_mig4) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
     amdgcn.end_kernel
   }
 
   // s_barrier is a workgroup sync point. GraphBuilder treats it as
   // a sync point and forces LDS ordering within a wavefront.
   // CHECK-LABEL: kernel @barrier_separates_lds
-  // CHECK:         store ds_write_b64
-  // CHECK:         store ds_write_b64
+  // CHECK:         ds_write_b64
+  // CHECK:         ds_write_b64
   // CHECK:         s_barrier
-  // CHECK:         load ds_read_b64
-  // CHECK:         load ds_read_b64
+  // CHECK:         ds_read_b64
+  // CHECK:         ds_read_b64
   // CHECK:         end_kernel
   amdgcn.kernel @barrier_separates_lds {
     %addr0 = amdgcn.alloca : !v
@@ -206,23 +206,19 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %dst1 = amdgcn.make_register_range %rd2, %rd3 : !v, !v
     %c0 = arith.constant 0 : i32
     %c8 = arith.constant 8 : i32
-    %wt0 = amdgcn.store ds_write_b64 data %data0 addr %addr0 offset c(%c0)
-        : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
-    %wt1 = amdgcn.store ds_write_b64 data %data1 addr %addr1 offset c(%c0)
-        : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
+    %wt0 = amdgcn.ds_write_b64 data %data0 addr %addr0 offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
+    %wt1 = amdgcn.ds_write_b64 data %data1 addr %addr1 offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
     amdgcn.s_barrier
-    %rr0, %rt0 = amdgcn.load ds_read_b64 dest %dst0 addr %addr0 offset c(%c8)
-        : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
-    %rr1, %rt1 = amdgcn.load ds_read_b64 dest %dst1 addr %addr1 offset c(%c8)
-        : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
+    %rr0, %rt0 = amdgcn.ds_read_b64 dest %dst0 addr %addr0 offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
+    %rr1, %rt1 = amdgcn.ds_read_b64 dest %dst1 addr %addr1 offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     amdgcn.end_kernel
   }
 
   // LDS ops: same-queue ties broken by block position.
   // CHECK-LABEL: kernel @lds_ops_ordered
-  // CHECK:         store ds_write_b64
-  // CHECK:         load ds_read_b64
-  // CHECK:         store ds_write_b64
+  // CHECK:         ds_write_b64
+  // CHECK:         ds_read_b64
+  // CHECK:         ds_write_b64
   // CHECK:         end_kernel
   amdgcn.kernel @lds_ops_ordered {
     %addr = amdgcn.alloca : !v
@@ -237,20 +233,17 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %dst = amdgcn.make_register_range %rd0, %rd1 : !v, !v
     %c0 = arith.constant 0 : i32
     %c8 = arith.constant 8 : i32
-    %wt0 = amdgcn.store ds_write_b64 data %data0 addr %addr offset c(%c0)
-        : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
-    %rr0, %rt0 = amdgcn.load ds_read_b64 dest %dst addr %addr offset c(%c8)
-        : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
-    %wt1 = amdgcn.store ds_write_b64 data %data1 addr %addr offset c(%c0)
-        : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
+    %wt0 = amdgcn.ds_write_b64 data %data0 addr %addr offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
+    %rr0, %rt0 = amdgcn.ds_read_b64 dest %dst addr %addr offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
+    %wt1 = amdgcn.ds_write_b64 data %data1 addr %addr offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
     amdgcn.end_kernel
   }
 
   // Regression test, ensuring that the read cannot be scheduled before the write.
   // CHECK-LABEL: kernel @lgkm_wait_gates_ds_read
-  // CHECK:         store ds_write_b64
+  // CHECK:         ds_write_b64
   // CHECK:         wait deps
-  // CHECK:         load ds_read_b64
+  // CHECK:         ds_read_b64
   // CHECK:         end_kernel
   amdgcn.kernel @lgkm_wait_gates_ds_read {
     // Read-side: only alloca/constant deps → ds_read is SSA-ready early.
@@ -270,19 +263,17 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     // ds_read SSA-ready while the VALU chain (%wd0, %wd1) is still in flight.
     %dst = amdgcn.make_register_range %rd0, %rd1 : !v, !v
     %data = amdgcn.make_register_range %wd0, %wd1 : !v, !v
-    %wt = amdgcn.store ds_write_b64 data %data addr %waddr offset c(%c0)
-        : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
+    %wt = amdgcn.ds_write_b64 data %data addr %waddr offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
     amdgcn.wait deps %wt : !amdgcn.write_token<shared>
-    %rr, %rt = amdgcn.load ds_read_b64 dest %dst addr %raddr offset c(%c0)
-        : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
+    %rr, %rt = amdgcn.ds_read_b64 dest %dst addr %raddr offset c(%c0) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     amdgcn.end_kernel
   }
 
   // VMEM ops: same-queue ties broken by block position.
   // CHECK-LABEL: kernel @vmem_ops_ordered
-  // CHECK:         store global_store_dword
-  // CHECK:         load global_load_dwordx4
-  // CHECK:         store global_store_dword
+  // CHECK:         global_store_dword
+  // CHECK:         global_load_dwordx4
+  // CHECK:         global_store_dword
   // CHECK:         end_kernel
   amdgcn.kernel @vmem_ops_ordered {
     %sa0 = amdgcn.alloca : !s
@@ -298,12 +289,12 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %off = amdgcn.alloca : !v
     %dr0 = amdgcn.make_register_range %data0 : !v
     %dr1 = amdgcn.make_register_range %data1 : !v
-    %wt0 = amdgcn.store global_store_dword data %dr0 addr %addr
-        : ins(!v, !sx2) -> !amdgcn.write_token<flat>
-    %rr0, %rt0 = amdgcn.load global_load_dwordx4 dest %dst addr %addr offset d(%off)
-        : dps(!vx4) ins(!sx2, !v) -> !amdgcn.read_token<flat>
-    %wt1 = amdgcn.store global_store_dword data %dr1 addr %addr
-        : ins(!v, !sx2) -> !amdgcn.write_token<flat>
+    %c0_i32_mig6 = arith.constant 0 : i32
+    %wt0 = amdgcn.global_store_dword data %dr0 addr %addr offset c(%c0_i32_mig6) : ins(!v, !sx2) mods(i32) -> !amdgcn.write_token<flat>
+    %c0_i32_mig7 = arith.constant 0 : i32
+    %rr0, %rt0 = amdgcn.global_load_dwordx4 dest %dst addr %addr offset d(%off) + c(%c0_i32_mig7) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
+    %c0_i32_mig8 = arith.constant 0 : i32
+    %wt1 = amdgcn.global_store_dword data %dr1 addr %addr offset c(%c0_i32_mig8) : ins(!v, !sx2) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.end_kernel
   }
 

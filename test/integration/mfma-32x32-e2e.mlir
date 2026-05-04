@@ -40,10 +40,7 @@ amdgcn.module @mfma_32x32_e2e_mod target = #amdgcn.target<gfx942> {
       %base: !amdgcn.sgpr<[? + 2]>,
       %thread_offset: !amdgcn.vgpr,
       %const_offset: i32) {
-    %tok = amdgcn.store global_store_dwordx4 data %data addr %base
-        offset d(%thread_offset) + c(%const_offset)
-      : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dwordx4 data %data addr %base offset d(%thread_offset) + c(%const_offset) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     return
   }
 

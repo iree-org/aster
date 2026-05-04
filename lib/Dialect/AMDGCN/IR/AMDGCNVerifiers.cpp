@@ -268,7 +268,6 @@ amdgcn::verifyISAsSupportImpl(Region &region, ArrayRef<ISAVersion> isas,
   // the listed ISA targets.
   LogicalResult result = success();
   region.walk([&](AMDGCNInstOpInterface instOp) {
-    OpCode opcode = instOp.getOpCode();
     ArrayRef<ISAVersion> opIsas = instOp.getISAVersions();
     // An instruction with no ISA list is available on all targets.
     if (opIsas.empty())
@@ -277,7 +276,7 @@ amdgcn::verifyISAsSupportImpl(Region &region, ArrayRef<ISAVersion> isas,
           return llvm::is_contained(opIsas, isa);
         })) {
       result = instOp->emitError("instruction '")
-               << stringifyOpCode(opcode)
+               << instOp->getName()
                << "' is not valid for all specified ISA targets";
       return WalkResult::interrupt();
     }

@@ -12,7 +12,7 @@
 
 // CHECK-LABEL: test_g2s_dwordx4:
 // CHECK:       s_mov_b32 m0, 0
-// CHECK:       buffer_load_dwordx4 v0, s[0:3], s4 offen lds offset: 64
+// CHECK:       buffer_load_dwordx4 v0, s[0:3], s4 offen offset: 64 lds
 // CHECK:       s_endpgm
 
 amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> {
@@ -32,10 +32,7 @@ amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> {
     %soff = amdgcn.alloca : !amdgcn.sgpr<4>
     %voff = amdgcn.alloca : !amdgcn.vgpr<0>
 
-    %tok = amdgcn.load_lds buffer_load_dword_lds m0 %m0 addr %rsrc
-        offset u(%soff) + d(%voff) + c(%c0)
-        : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.buffer_load_lds_dword addr %rsrc m0 %m0 offset u(%soff) + off_idx(%voff) + c(%c0) {offen} : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.m0<0>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
@@ -55,10 +52,7 @@ amdgcn.module @g2s_mod target = #amdgcn.target<gfx950> {
     %soff = amdgcn.alloca : !amdgcn.sgpr<4>
     %voff = amdgcn.alloca : !amdgcn.vgpr<0>
 
-    %tok = amdgcn.load_lds buffer_load_dwordx4_lds m0 %m0 addr %rsrc
-        offset u(%soff) + d(%voff) + c(%c64)
-        : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.buffer_load_lds_dwordx4 addr %rsrc m0 %m0 offset u(%soff) + off_idx(%voff) + c(%c64) {offen} : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.m0<0>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }

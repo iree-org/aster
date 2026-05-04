@@ -12,7 +12,10 @@
 #define AMDGCN_INSTS_TD
 
 include "aster/Dialect/AMDGCN/IR/AMDGCNInstBase.td"
+include "aster/Dialect/AMDGCN/IR/Instructions/DS.td"
+include "aster/Dialect/AMDGCN/IR/Instructions/SMem.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SOP.td"
+include "aster/Dialect/AMDGCN/IR/Instructions/VMem.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/VOP.td"
 
 include "aster/Dialect/AMDGCN/IR/AMDGCNOps.td"

@@ -41,20 +41,36 @@ from aster.dialects._gpu_ops_gen import (
 from aster.dialects._amdgcn_ops_gen import (
     AllocaOp,
     AllocLDSOp,
+    BufferLoadDword,
+    BufferLoadDwordx2,
+    BufferLoadDwordx4,
+    BufferLoadLDSDword,
+    BufferLoadLDSDwordx4,
+    BufferStoreDword,
+    BufferStoreDwordx2,
+    BufferStoreDwordx4,
     DeallocLDSOp,
+    DsReadB32,
+    DsReadB64,
+    DsReadB128,
+    DsWriteB32,
+    DsWriteB64,
+    DsWriteB128,
     EndKernelOp,
     GetLDSOffsetOp,
+    GlobalLoadDword,
+    GlobalLoadDwordx2,
+    GlobalLoadDwordx4,
+    GlobalStoreDword,
+    GlobalStoreDwordx4,
     KernelOp,
     LoadArgOp,
-    LoadToLDSOp,
     MakeBufferRsrcOp,
     MakeRegisterRangeOp,
     ModuleOp,
     SplitRegisterRangeOp,
     SWaitcnt,
     WaitOp,
-    LoadOp,
-    StoreOp,
     VAddU32 as _VAddU32,
     VReadfirstlaneB32 as _VReadfirstlaneB32,
 )
@@ -761,6 +777,12 @@ class KernelBuilder:
     # Buffer memory operations
     # ---------------------------------------------------------------------------
 
+    _BUFFER_LOAD_OPS = {
+        "buffer_load_dword": BufferLoadDword,
+        "buffer_load_dwordx2": BufferLoadDwordx2,
+        "buffer_load_dwordx4": BufferLoadDwordx4,
+    }
+
     def _buffer_load_with_dest(
         self,
         opcode: str,
@@ -773,15 +795,14 @@ class KernelBuilder:
         """Emit a buffer load using a pre-allocated dest register (or range)."""
         if const_offset is None:
             const_offset = self.constant_i32(0)
-        read_tok_type = self.flat_read_tok
-        op = LoadOp(
-            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+        op_cls = self._BUFFER_LOAD_OPS[opcode]
+        op = op_cls(
             dest=dest,
             addr=rsrc,
-            uniform_offset=soffset,
-            dynamic_offset=voffset,
-            constant_offset=const_offset,
-            results=[dest.type, read_tok_type],
+            soffset=soffset,
+            const_offset=const_offset,
+            off_or_idx=voffset,
+            offen=True,
             loc=self._loc,
             ip=self._kip,
         )
@@ -826,6 +847,12 @@ class KernelBuilder:
             "buffer_load_dwordx4", dest, rsrc, soffset, voffset, const_offset
         )
 
+    _BUFFER_STORE_OPS = {
+        "buffer_store_dword": BufferStoreDword,
+        "buffer_store_dwordx2": BufferStoreDwordx2,
+        "buffer_store_dwordx4": BufferStoreDwordx4,
+    }
+
     def _buffer_store(
         self,
         opcode: str,
@@ -837,15 +864,14 @@ class KernelBuilder:
     ) -> ir.Value:
         if const_offset is None:
             const_offset = self.constant_i32(0)
-        write_tok_type = self.flat_write_tok
-        op = StoreOp(
-            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+        op_cls = self._BUFFER_STORE_OPS[opcode]
+        op = op_cls(
             data=data,
             addr=rsrc,
-            uniform_offset=soffset,
-            dynamic_offset=voffset,
-            constant_offset=const_offset,
-            results=[write_tok_type],
+            soffset=soffset,
+            const_offset=const_offset,
+            off_or_idx=voffset,
+            offen=True,
             loc=self._loc,
             ip=self._kip,
         )
@@ -879,6 +905,12 @@ class KernelBuilder:
     # Global memory operations (global_load/global_store via 64-bit addr)
     # ---------------------------------------------------------------------------
 
+    _GLOBAL_LOAD_OPS = {
+        "global_load_dword": GlobalLoadDword,
+        "global_load_dwordx2": GlobalLoadDwordx2,
+        "global_load_dwordx4": GlobalLoadDwordx4,
+    }
+
     def _global_load_op(
         self,
         opcode: str,
@@ -887,20 +919,20 @@ class KernelBuilder:
         const_offset: Optional[ir.Value] = None,
         dynamic_offset: Optional[ir.Value] = None,
     ):
-        """Global load returning the full LoadOp (for data + token access).
+        """Global load returning the full op (for data + token access).
 
         addr can be SGPRx2 (base pointer) or VGPRx2 (full flat address).
         When addr is SGPRx2, pass the per-thread byte offset as
         dynamic_offset (VGPR) to get saddr+vaddr addressing.
         """
-        read_tok_type = self.flat_read_tok
-        op = LoadOp(
-            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        op_cls = self._GLOBAL_LOAD_OPS[opcode]
+        op = op_cls(
             dest=dest,
             addr=addr,
-            dynamic_offset=dynamic_offset,
-            constant_offset=const_offset,
-            results=[dest.type, read_tok_type],
+            const_offset=const_offset,
+            offset=dynamic_offset,
             loc=self._loc,
             ip=self._kip,
         )
@@ -942,6 +974,11 @@ class KernelBuilder:
         )
         return op.results[0], op.results[1]
 
+    _GLOBAL_STORE_OPS = {
+        "global_store_dword": GlobalStoreDword,
+        "global_store_dwordx4": GlobalStoreDwordx4,
+    }
+
     def _global_store(
         self,
         opcode: str,
@@ -951,14 +988,14 @@ class KernelBuilder:
         dynamic_offset: Optional[ir.Value] = None,
     ) -> ir.Value:
         """Global store with optional dynamic_offset for saddr+vaddr."""
-        write_tok_type = self.flat_write_tok
-        op = StoreOp(
-            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        op_cls = self._GLOBAL_STORE_OPS[opcode]
+        op = op_cls(
             data=data,
             addr=addr,
-            dynamic_offset=dynamic_offset,
-            constant_offset=const_offset,
-            results=[write_tok_type],
+            const_offset=const_offset,
+            offset=dynamic_offset,
             loc=self._loc,
             ip=self._kip,
         )
@@ -1004,33 +1041,41 @@ class KernelBuilder:
             return lsird.to_reg(vgpr_type, addr, loc=self._loc, ip=self._kip)
         return addr
 
+    _DS_WRITE_OPS = {
+        "ds_write_b32": DsWriteB32,
+        "ds_write_b64": DsWriteB64,
+        "ds_write_b128": DsWriteB128,
+    }
+
     def _ds_write(self, opcode, data, addr, const_offset=None):
         if const_offset is None:
             const_offset = self.constant_i32(0)
         addr = self._ds_addr(addr)
-        write_tok_type = self.lds_write_tok
-        op = StoreOp(
-            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
-            data=data,
+        op_cls = self._DS_WRITE_OPS[opcode]
+        op = op_cls(
             addr=addr,
-            constant_offset=const_offset,
-            results=[write_tok_type],
+            data=data,
+            const_offset=const_offset,
             loc=self._loc,
             ip=self._kip,
         )
         return op.results[0]
 
+    _DS_READ_OPS = {
+        "ds_read_b32": DsReadB32,
+        "ds_read_b64": DsReadB64,
+        "ds_read_b128": DsReadB128,
+    }
+
     def _ds_read(self, opcode, dest, addr, const_offset=None):
         if const_offset is None:
             const_offset = self.constant_i32(0)
         addr = self._ds_addr(addr)
-        read_tok_type = self.lds_read_tok
-        op = LoadOp(
-            opcode=ir.Attribute.parse(f"#amdgcn.inst<{opcode}>"),
+        op_cls = self._DS_READ_OPS[opcode]
+        op = op_cls(
             dest=dest,
             addr=addr,
-            constant_offset=const_offset,
-            results=[dest.type, read_tok_type],
+            const_offset=const_offset,
             loc=self._loc,
             ip=self._kip,
         )
@@ -1097,19 +1142,17 @@ class KernelBuilder:
             voffset: Per-lane dynamic offset (VGPR).
             const_offset: Optional constant offset (i32).
         Returns:
-            Write token for vmcnt tracking.
+            Read token for vmcnt tracking.
         """
         if const_offset is None:
             const_offset = self.constant_i32(0)
-        write_tok_type = self.flat_write_tok
-        op = LoadToLDSOp(
-            opcode=ir.Attribute.parse("#amdgcn.inst<buffer_load_dwordx4_lds>"),
-            m0=m0,
+        op = BufferLoadLDSDwordx4(
             addr=rsrc,
-            uniform_offset=soffset,
-            dynamic_offset=voffset,
-            constant_offset=const_offset,
-            results=[write_tok_type],
+            soffset=soffset,
+            m0_src=m0,
+            const_offset=const_offset,
+            off_or_idx=voffset,
+            offen=True,
             loc=self._loc,
             ip=self._kip,
         )
@@ -1129,15 +1172,13 @@ class KernelBuilder:
         """
         if const_offset is None:
             const_offset = self.constant_i32(0)
-        write_tok_type = self.flat_write_tok
-        op = LoadToLDSOp(
-            opcode=ir.Attribute.parse("#amdgcn.inst<buffer_load_dword_lds>"),
-            m0=m0,
+        op = BufferLoadLDSDword(
             addr=rsrc,
-            uniform_offset=soffset,
-            dynamic_offset=voffset,
-            constant_offset=const_offset,
-            results=[write_tok_type],
+            soffset=soffset,
+            m0_src=m0,
+            const_offset=const_offset,
+            off_or_idx=voffset,
+            offen=True,
             loc=self._loc,
             ip=self._kip,
         )

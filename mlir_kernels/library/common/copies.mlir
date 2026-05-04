@@ -83,8 +83,8 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
 
     %addr = func.call @alloc_vgprx2() : () -> !vx2
     %dst = func.call @alloc_vgprx1() : () -> !vx1
-    %loaded, %token = amdgcn.load global_load_dword dest %dst addr %addr
-      : dps(!vx1) ins(!vx2) -> !amdgcn.read_token<flat>
+    %c0_i32_mig1 = arith.constant 0 : i32
+    %loaded, %token = amdgcn.global_load_dword dest %dst addr %addr offset c(%c0_i32_mig1) : outs(!vx1) ins(!vx2) mods(i32) -> !amdgcn.read_token<flat>
     %any = aster_utils.to_any %loaded : !vx1
     %future = aster_utils.struct_create(%any, %token) : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read_any
     return %future : !future_global_read_any
@@ -99,8 +99,8 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
 
     %addr = func.call @alloc_vgprx2() : () -> !vx2
     %data = func.call @alloc_vgprx1() : () -> !vx1
-    %token = amdgcn.store global_store_dword data %data addr %addr
-      : ins(!vx1, !vx2) -> !amdgcn.write_token<flat>
+    %c0_i32_mig1 = arith.constant 0 : i32
+    %token = amdgcn.global_store_dword data %data addr %addr offset c(%c0_i32_mig1) : ins(!vx1, !vx2) mods(i32) -> !amdgcn.write_token<flat>
     return %token : !future_global_write
   }
 
@@ -125,32 +125,28 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
     %res = scf.index_switch %transfer_size -> !future_global_read_any
     case 4 {
       %dst = func.call @alloc_vgprx1() : () -> (!vx1)
-      %loaded, %token = amdgcn.load global_load_dword dest %dst addr %ptr offset d(%off_reg) + c(%c0_load)
-        : dps(!vx1) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+      %loaded, %token = amdgcn.global_load_dword dest %dst addr %ptr offset d(%off_reg) + c(%c0_load) : outs(!vx1) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
       %any = aster_utils.to_any %loaded : !vx1
       %future = aster_utils.struct_create(%any, %token) : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read_any
       scf.yield %future : !future_global_read_any
     }
     case 8 {
       %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-      %loaded, %token = amdgcn.load global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load)
-        : dps(!vx2) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+      %loaded, %token = amdgcn.global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load) : outs(!vx2) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
       %any = aster_utils.to_any %loaded : !vx2
       %future = aster_utils.struct_create(%any, %token) : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read_any
       scf.yield %future : !future_global_read_any
     }
     case 12 {
       %dst = func.call @alloc_vgprx3() : () -> (!vx3)
-      %loaded, %token = amdgcn.load global_load_dwordx3 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load)
-        : dps(!vx3) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+      %loaded, %token = amdgcn.global_load_dwordx3 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load) : outs(!vx3) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
       %any = aster_utils.to_any %loaded : !vx3
       %future = aster_utils.struct_create(%any, %token) : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read_any
       scf.yield %future : !future_global_read_any
     }
     case 16 {
       %dst = func.call @alloc_vgprx4() : () -> (!vx4)
-      %loaded, %token = amdgcn.load global_load_dwordx4 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load)
-        : dps(!vx4) ins(!sx2, !v, i32) -> !amdgcn.read_token<flat>
+      %loaded, %token = amdgcn.global_load_dwordx4 dest %dst addr %ptr offset d(%off_reg) + c(%c0_load) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
       %any = aster_utils.to_any %loaded : !vx4
       %future = aster_utils.struct_create(%any, %token) : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read_any
       scf.yield %future : !future_global_read_any
@@ -269,26 +265,22 @@ amdgcn.library @single_global_load_store_to_vgpr_single_thread isa = [#amdgcn.is
     %res = scf.index_switch %transfer_size -> !future_global_write
     case 4 {
       %data = aster_utils.from_any %value : !v
-      %token = amdgcn.store global_store_dword data %data addr %ptr offset d(%off_reg) + c(%c0_store)
-        : ins(!v, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+      %token = amdgcn.global_store_dword data %data addr %ptr offset d(%off_reg) + c(%c0_store) : ins(!v, !sx2, !v) mods(i32) -> !amdgcn.write_token<flat>
       scf.yield %token : !future_global_write
     }
     case 8 {
       %data = aster_utils.from_any %value : !vx2
-      %token = amdgcn.store global_store_dwordx2 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
-        : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+      %token = amdgcn.global_store_dwordx2 data %data addr %ptr offset d(%off_reg) + c(%c0_store) : ins(!vx2, !sx2, !v) mods(i32) -> !amdgcn.write_token<flat>
       scf.yield %token : !future_global_write
     }
     case 12 {
       %data = aster_utils.from_any %value : !vx3
-      %token = amdgcn.store global_store_dwordx3 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
-        : ins(!vx3, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+      %token = amdgcn.global_store_dwordx3 data %data addr %ptr offset d(%off_reg) + c(%c0_store) : ins(!vx3, !sx2, !v) mods(i32) -> !amdgcn.write_token<flat>
       scf.yield %token : !future_global_write
     }
     case 16 {
       %data = aster_utils.from_any %value : !vx4
-      %token = amdgcn.store global_store_dwordx4 data %data addr %ptr offset d(%off_reg) + c(%c0_store)
-        : ins(!vx4, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+      %token = amdgcn.global_store_dwordx4 data %data addr %ptr offset d(%off_reg) + c(%c0_store) : ins(!vx4, !sx2, !v) mods(i32) -> !amdgcn.write_token<flat>
       scf.yield %token : !future_global_write
     }
     default {
@@ -492,32 +484,32 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
     %res = scf.index_switch %transfer_size -> !future_global_read_any
     case 4 {
         %dst = func.call @alloc_vgprx1() : () -> (!vx1)
-        %loaded, %tok_load = amdgcn.load global_load_dword dest %dst addr %ptr offset d(%off_reg)
-          : dps(!vx1) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+        %c0_i32_mig2 = arith.constant 0 : i32
+        %loaded, %tok_load = amdgcn.global_load_dword dest %dst addr %ptr offset d(%off_reg) + c(%c0_i32_mig2) : outs(!vx1) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
         %any = aster_utils.to_any %loaded : !vx1
         %future = aster_utils.struct_create(%any, %tok_load) : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read_any
         scf.yield %future : !future_global_read_any
     }
     case 8 {
         %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-        %loaded, %tok_load = amdgcn.load global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg)
-          : dps(!vx2) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+        %c0_i32_mig3 = arith.constant 0 : i32
+        %loaded, %tok_load = amdgcn.global_load_dwordx2 dest %dst addr %ptr offset d(%off_reg) + c(%c0_i32_mig3) : outs(!vx2) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
         %any = aster_utils.to_any %loaded : !vx2
         %future = aster_utils.struct_create(%any, %tok_load) : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read_any
         scf.yield %future : !future_global_read_any
     }
     case 12 {
         %dst = func.call @alloc_vgprx3() : () -> (!vx3)
-        %loaded, %tok_load = amdgcn.load global_load_dwordx3 dest %dst addr %ptr offset d(%off_reg)
-          : dps(!vx3) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+        %c0_i32_mig4 = arith.constant 0 : i32
+        %loaded, %tok_load = amdgcn.global_load_dwordx3 dest %dst addr %ptr offset d(%off_reg) + c(%c0_i32_mig4) : outs(!vx3) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
         %any = aster_utils.to_any %loaded : !vx3
         %future = aster_utils.struct_create(%any, %tok_load) : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read_any
         scf.yield %future : !future_global_read_any
     }
     case 16 {
         %dst = func.call @alloc_vgprx4() : () -> (!vx4)
-        %loaded, %tok_load = amdgcn.load global_load_dwordx4 dest %dst addr %ptr offset d(%off_reg)
-          : dps(!vx4) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+        %c0_i32_mig5 = arith.constant 0 : i32
+        %loaded, %tok_load = amdgcn.global_load_dwordx4 dest %dst addr %ptr offset d(%off_reg) + c(%c0_i32_mig5) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
         %any = aster_utils.to_any %loaded : !vx4
         %future = aster_utils.struct_create(%any, %tok_load) : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read_any
         scf.yield %future : !future_global_read_any
@@ -528,8 +520,8 @@ amdgcn.library @single_global_load_store_to_vgpr_single_wave isa = [#amdgcn.isa<
         %any = aster_utils.to_any %c0 : index
         // Create a dummy token for the error case
         %dummy_dst = func.call @alloc_vgprx1() : () -> (!vx1)
-        %dummy_loaded, %dummy_tok = amdgcn.load global_load_dword dest %dummy_dst addr %ptr offset d(%off_reg)
-          : dps(!vx1) ins(!sx2, !v) -> !amdgcn.read_token<flat>
+        %c0_i32_mig6 = arith.constant 0 : i32
+        %dummy_loaded, %dummy_tok = amdgcn.global_load_dword dest %dummy_dst addr %ptr offset d(%off_reg) + c(%c0_i32_mig6) : outs(!vx1) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
         %future = aster_utils.struct_create(%any, %dummy_tok) : (!aster_utils.any, !amdgcn.read_token<flat>) -> !future_global_read_any
         scf.yield %future : !future_global_read_any
     }
@@ -732,7 +724,7 @@ amdgcn.library @single_lds_read_mfma_fragment_to_vgpr_single_wave isa = [#amdgcn
     // Perform the DS read and return future
     %lds_base_i32 = arith.index_cast %lds_base : index to i32
     %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-    %from_lds, %tok_read = amdgcn.load ds_read_b64 dest %dst addr %off_lds_reg offset c(%lds_base_i32) : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
+    %from_lds, %tok_read = amdgcn.ds_read_b64 dest %dst addr %off_lds_reg offset c(%lds_base_i32) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     %any = aster_utils.to_any %from_lds : !vx2
     %future = aster_utils.struct_create(%any, %tok_read) : (!aster_utils.any, !amdgcn.read_token<shared>) -> !future_lds_read_any
 
@@ -830,7 +822,7 @@ amdgcn.library @single_lds_read_swizzled_mfma_fragment_to_vgpr_single_wave isa =
 
     %lds_base_i32 = arith.index_cast %lds_base : index to i32
     %dst = func.call @alloc_vgprx2() : () -> (!vx2)
-    %result, %tok_read = amdgcn.load ds_read_b64 dest %dst addr %off_lds offset c(%lds_base_i32) : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
+    %result, %tok_read = amdgcn.ds_read_b64 dest %dst addr %off_lds offset c(%lds_base_i32) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     %any = aster_utils.to_any %result : !vx2
     %future = aster_utils.struct_create(%any, %tok_read) : (!aster_utils.any, !amdgcn.read_token<shared>) -> !future_lds_read_any
 
@@ -946,7 +938,7 @@ amdgcn.library @single_lds_write_single_wave isa = [#amdgcn.isa<cdna3>] {
 
     // DS write to LDS and return token
     %l_off_i32 = arith.index_cast %lds_base_off : index to i32
-    %token = amdgcn.store ds_write_b64 data %value addr %off_lds_reg offset c(%l_off_i32) : ins(!vx2, !v, i32) -> !amdgcn.write_token<shared>
+    %token = amdgcn.ds_write_b64 data %value addr %off_lds_reg offset c(%l_off_i32) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
 
     return %token : !future_lds_write
   }

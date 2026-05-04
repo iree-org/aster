@@ -867,7 +867,6 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
 //===----------------------------------------------------------------------===//
 
 include "aster/Dialect/AMDGCN/IR/Instructions/ControlFlow.td"
-include "aster/Dialect/AMDGCN/IR/Instructions/Memory.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/VOP3P.td"
 
 

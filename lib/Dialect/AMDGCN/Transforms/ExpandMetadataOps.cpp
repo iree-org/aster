@@ -77,8 +77,8 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
     loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
     createOp = +[](OpBuilder &builder, Location loc, Value dest, Value addr,
                    Value uniform_offset, Value constant_offset) {
-      return S_LOAD_DWORDX16::create(builder, loc, dest, addr, uniform_offset,
-                                     constant_offset)
+      return SLoadDwordx16::create(builder, loc, dest, addr, uniform_offset,
+                                   constant_offset)
           .getDestRes();
     };
   } else if (szWordsFloor % 8 == 0) {
@@ -86,8 +86,8 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
     loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
     createOp = +[](OpBuilder &builder, Location loc, Value dest, Value addr,
                    Value uniform_offset, Value constant_offset) {
-      return S_LOAD_DWORDX8::create(builder, loc, dest, addr, uniform_offset,
-                                    constant_offset)
+      return SLoadDwordx8::create(builder, loc, dest, addr, uniform_offset,
+                                  constant_offset)
           .getDestRes();
     };
   } else if (szWordsFloor % 4 == 0) {
@@ -95,8 +95,8 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
     loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
     createOp = +[](OpBuilder &builder, Location loc, Value dest, Value addr,
                    Value uniform_offset, Value constant_offset) {
-      return S_LOAD_DWORDX4::create(builder, loc, dest, addr, uniform_offset,
-                                    constant_offset)
+      return SLoadDwordx4::create(builder, loc, dest, addr, uniform_offset,
+                                  constant_offset)
           .getDestRes();
     };
   } else if (szWordsFloor % 2 == 0) {
@@ -104,8 +104,8 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
     loadTy = rewriter.getType<SGPRType>(RegisterRange(Register(), numWords));
     createOp = +[](OpBuilder &builder, Location loc, Value dest, Value addr,
                    Value uniform_offset, Value constant_offset) {
-      return S_LOAD_DWORDX2::create(builder, loc, dest, addr, uniform_offset,
-                                    constant_offset)
+      return SLoadDwordx2::create(builder, loc, dest, addr, uniform_offset,
+                                  constant_offset)
           .getDestRes();
     };
   } else {
@@ -113,8 +113,8 @@ static Value loadArgument(RewriterBase &rewriter, Value kenArgPtr, Value alloc,
     loadTy = rewriter.getType<SGPRType>(Register());
     createOp = +[](OpBuilder &builder, Location loc, Value dest, Value addr,
                    Value uniform_offset, Value constant_offset) {
-      return S_LOAD_DWORD::create(builder, loc, dest, addr, uniform_offset,
-                                  constant_offset)
+      return SLoadDword::create(builder, loc, dest, addr, uniform_offset,
+                                constant_offset)
           .getDestRes();
     };
   }

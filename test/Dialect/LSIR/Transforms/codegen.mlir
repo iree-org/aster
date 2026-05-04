@@ -342,7 +342,7 @@ func.func private @test_to_reg_constant()
 // CHECK-LABEL:   func.func private @test_global_load_i32(
 // CHECK-SAME:      %[[ADDR:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
 // CHECK:           %[[DST:.*]] = lsir.alloca : !amdgcn.vgpr
-// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.load global_load_dword dest %[[DST]] addr %[[ADDR]]
+// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.global_load_dword dest %[[DST]] addr %[[ADDR]]
 // CHECK:           return %[[LOAD]] : !amdgcn.vgpr
 // CHECK:         }
 func.func private @test_global_load_i32(
@@ -355,7 +355,7 @@ func.func private @test_global_load_i32(
 // CHECK-LABEL:   func.func private @test_global_load_i64(
 // CHECK-SAME:      %[[ADDR:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]> {
 // CHECK:           %[[DST:.*]] = lsir.alloca : !amdgcn.vgpr<[? + 2]>
-// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.load global_load_dwordx2 dest %[[DST]] addr %[[ADDR]]
+// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.global_load_dwordx2 dest %[[DST]] addr %[[ADDR]]
 // CHECK:           return %[[LOAD]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
 func.func private @test_global_load_i64(
@@ -367,7 +367,7 @@ func.func private @test_global_load_i64(
 
 // CHECK-LABEL:   func.func private @test_global_store_i32(
 // CHECK-SAME:      %[[DATA:.*]]: !amdgcn.vgpr, %[[ADDR:.*]]: !amdgcn.vgpr<[? + 2]>) {
-// CHECK:           {{.*}} = amdgcn.store global_store_dword data %[[DATA]] addr %[[ADDR]]
+// CHECK:           {{.*}} = amdgcn.global_store_dword data %[[DATA]] addr %[[ADDR]]
 // CHECK:           return
 // CHECK:         }
 func.func private @test_global_store_i32(
@@ -379,7 +379,7 @@ func.func private @test_global_store_i32(
 
 // CHECK-LABEL:   func.func private @test_global_store_i64(
 // CHECK-SAME:      %[[DATA:.*]]: !amdgcn.vgpr<[? + 2]>, %[[ADDR:.*]]: !amdgcn.vgpr<[? + 2]>) {
-// CHECK:           {{.*}} = amdgcn.store global_store_dwordx2 data %[[DATA]] addr %[[ADDR]]
+// CHECK:           {{.*}} = amdgcn.global_store_dwordx2 data %[[DATA]] addr %[[ADDR]]
 // CHECK:           return
 // CHECK:         }
 func.func private @test_global_store_i64(
@@ -393,7 +393,7 @@ func.func private @test_global_store_i64(
 // CHECK-SAME:      %[[ADDR:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
 // CHECK:           %[[C0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[DST:.*]] = lsir.alloca : !amdgcn.vgpr
-// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.load ds_read_b32 dest %[[DST]] addr %[[ADDR]] offset c(%[[C0]])
+// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.ds_read_b32 dest %[[DST]] addr %[[ADDR]]
 // CHECK:           return %[[LOAD]] : !amdgcn.vgpr
 // CHECK:         }
 func.func private @test_local_load_i32(
@@ -407,7 +407,7 @@ func.func private @test_local_load_i32(
 // CHECK-SAME:      %[[ADDR:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
 // CHECK:           %[[C0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[DST:.*]] = lsir.alloca : !amdgcn.vgpr<[? + 2]>
-// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.load ds_read_b64 dest %[[DST]] addr %[[ADDR]] offset c(%[[C0]])
+// CHECK:           %[[LOAD:.*]],{{.*}} = amdgcn.ds_read_b64 dest %[[DST]] addr %[[ADDR]]
 // CHECK:           return %[[LOAD]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
 func.func private @test_local_load_i64(
@@ -420,7 +420,7 @@ func.func private @test_local_load_i64(
 // CHECK-LABEL:   func.func private @test_local_store_i32(
 // CHECK-SAME:      %[[DATA:.*]]: !amdgcn.vgpr, %[[ADDR:.*]]: !amdgcn.vgpr) {
 // CHECK:           %[[C0:.*]] = arith.constant 0 : i32
-// CHECK:           {{.*}} = amdgcn.store ds_write_b32 data %[[DATA]] addr %[[ADDR]] offset c(%[[C0]])
+// CHECK:           {{.*}} = amdgcn.ds_write_b32 data %[[DATA]] addr %[[ADDR]]
 // CHECK:           return
 // CHECK:         }
 func.func private @test_local_store_i32(
@@ -433,7 +433,7 @@ func.func private @test_local_store_i32(
 // CHECK-LABEL:   func.func private @test_local_store_i64(
 // CHECK-SAME:      %[[DATA:.*]]: !amdgcn.vgpr<[? + 2]>, %[[ADDR:.*]]: !amdgcn.vgpr) {
 // CHECK:           %[[C0:.*]] = arith.constant 0 : i32
-// CHECK:           {{.*}} = amdgcn.store ds_write_b64 data %[[DATA]] addr %[[ADDR]] offset c(%[[C0]])
+// CHECK:           {{.*}} = amdgcn.ds_write_b64 data %[[DATA]] addr %[[ADDR]]
 // CHECK:           return
 // CHECK:         }
 func.func private @test_local_store_i64(

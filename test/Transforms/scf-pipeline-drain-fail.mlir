@@ -19,8 +19,8 @@
 // CHECK:           scf.for {{.*}} = %[[C3]] to %[[C4]]
 //
 // Kernel loop body: A_LOAD, B_LOAD, MFMA.
-// CHECK:             buffer_load_dwordx4_lds {{.*}} addr %[[BUFA]]
-// CHECK:             buffer_load_dwordx4_lds {{.*}} addr %[[BUFB]]
+// CHECK:             buffer_load_lds_dwordx4 addr %[[BUFA]]
+// CHECK:             buffer_load_lds_dwordx4 addr %[[BUFB]]
 // CHECK:             v_mfma_f32_16x16x32_f16
 //
 // The scf.yield rotates 6 LDS slot iter_args by position:
@@ -40,8 +40,8 @@
 // This overwrites B tile data that later drain MFMAs still need to read.
 //
 // CHECK:           lsir.to_reg %{{.*}}#26
-// CHECK:           buffer_load_dwordx4_lds {{.*}} addr %[[BUFB]]
-// CHECK-NOT:       buffer_load_dwordx4_lds {{.*}} addr %[[BUFA]]
+// CHECK:           buffer_load_lds_dwordx4 addr %[[BUFB]]
+// CHECK-NOT:       buffer_load_lds_dwordx4 addr %[[BUFA]]
 // Drain flushes 3 in-flight MFMAs.
 // CHECK:           v_mfma_f32_16x16x32_f16
 // CHECK:           v_mfma_f32_16x16x32_f16
@@ -81,7 +81,7 @@ module {
       %9 = amdgcn.make_register_range %7, %8 : !amdgcn.vgpr, !amdgcn.vgpr
       %10 = arith.index_cast %6 : index to i32
       %11 = lsir.to_reg %10 : i32 -> !amdgcn.vgpr
-      %dest_res, %token = amdgcn.load ds_read_b64 dest %9 addr %11 offset c(%c0_i32) : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+      %dest_res, %token = amdgcn.ds_read_b64 dest %9 addr %11 offset c(%c0_i32) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
       %12 = affine.apply #map2()[%block_dim_x, %block_dim_y, %thread_id_x, %thread_id_y, %thread_id_z]
       %13 = arith.index_cast %12 : index to i32
       %14 = arith.shrui %13, %c4_i32 : i32
@@ -94,7 +94,7 @@ module {
       %21 = amdgcn.make_register_range %19, %20 : !amdgcn.vgpr, !amdgcn.vgpr
       %22 = arith.index_cast %18 : index to i32
       %23 = lsir.to_reg %22 : i32 -> !amdgcn.vgpr
-      %dest_res_0, %token_1 = amdgcn.load ds_read_b64 dest %21 addr %23 offset c(%c0_i32) : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+      %dest_res_0, %token_1 = amdgcn.ds_read_b64 dest %21 addr %23 offset c(%c0_i32) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
       %24 = aster_utils.to_any %dest_res : !amdgcn.vgpr<[? + 2]>
       %25 = aster_utils.to_any %dest_res_0 : !amdgcn.vgpr<[? + 2]>
       return %24, %25, %token, %token_1 : !aster_utils.any, !aster_utils.any, !amdgcn.read_token<shared>, !amdgcn.read_token<shared>
@@ -120,7 +120,7 @@ module {
       %9 = amdgcn.make_register_range %7, %8 : !amdgcn.vgpr, !amdgcn.vgpr
       %10 = arith.index_cast %6 : index to i32
       %11 = lsir.to_reg %10 : i32 -> !amdgcn.vgpr
-      %dest_res, %token = amdgcn.load ds_read_b64 dest %9 addr %11 offset c(%c0_i32) : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+      %dest_res, %token = amdgcn.ds_read_b64 dest %9 addr %11 offset c(%c0_i32) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
       %12 = affine.apply #map2()[%block_dim_x, %block_dim_y, %thread_id_x, %thread_id_y, %thread_id_z]
       %13 = arith.index_cast %12 : index to i32
       %14 = arith.shrui %13, %c4_i32 : i32
@@ -133,7 +133,7 @@ module {
       %21 = amdgcn.make_register_range %19, %20 : !amdgcn.vgpr, !amdgcn.vgpr
       %22 = arith.index_cast %18 : index to i32
       %23 = lsir.to_reg %22 : i32 -> !amdgcn.vgpr
-      %dest_res_0, %token_1 = amdgcn.load ds_read_b64 dest %21 addr %23 offset c(%c0_i32) : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+      %dest_res_0, %token_1 = amdgcn.ds_read_b64 dest %21 addr %23 offset c(%c0_i32) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
       %24 = aster_utils.to_any %dest_res : !amdgcn.vgpr<[? + 2]>
       %25 = aster_utils.to_any %dest_res_0 : !amdgcn.vgpr<[? + 2]>
       return %24, %25, %token, %token_1 : !aster_utils.any, !aster_utils.any, !amdgcn.read_token<shared>, !amdgcn.read_token<shared>
@@ -192,7 +192,7 @@ module {
         %52 = amdgcn.get_lds_offset %51 {sched.stage = 0 : i32} : i32
         %53 = arith.index_cast %52 {sched.stage = 0 : i32} : i32 to index
         %54 = affine.linearize_index_by_strides[%arg0] by (64) : index
-        %alloca_0 = memref.alloca() : memref<1x!amdgcn.write_token<flat>>
+        %alloca_0 = memref.alloca() : memref<1x!amdgcn.read_token<flat>>
         %55 = affine.apply #map5()[%54, %18, %20]
         %56 = lsir.to_reg %49 {sched.stage = 0 : i32} : i32 -> !amdgcn.vgpr
         %57 = amdgcn.alloca {sched.stage = 0 : i32} : !amdgcn.sgpr
@@ -200,21 +200,21 @@ module {
         amdgcn.s_mov_b32 outs(%11) ins(%58) {sched.stage = 0 : i32} : outs(!amdgcn.m0<0>) ins(!amdgcn.sgpr)
         %59 = arith.index_cast %55 {sched.stage = 0 : i32} : index to i32
         %60 = lsir.to_reg %59 {sched.stage = 0 : i32} : i32 -> !amdgcn.vgpr
-        %61 = amdgcn.load_lds buffer_load_dwordx4_lds m0 %11 addr %7 offset u(%10) + d(%60) + c(%c0_i32) {sched.stage = 0 : i32} : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32) -> !amdgcn.write_token<flat>
-        memref.store %61, %alloca_0[%c0] {sched.stage = 0 : i32} : memref<1x!amdgcn.write_token<flat>>
-        %alloca_1 = memref.alloca() : memref<1x!amdgcn.write_token<flat>>
+        %61 = amdgcn.buffer_load_lds_dwordx4 addr %7 m0 %11 offset u(%10) + off_idx(%60) + c(%c0_i32) {offen, sched.stage = 0 : i32} : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.m0<0>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+        memref.store %61, %alloca_0[%c0] {sched.stage = 0 : i32} : memref<1x!amdgcn.read_token<flat>>
+        %alloca_1 = memref.alloca() : memref<1x!amdgcn.read_token<flat>>
         %62 = lsir.to_reg %52 {sched.stage = 1 : i32} : i32 -> !amdgcn.vgpr
         %63 = amdgcn.alloca {sched.stage = 1 : i32} : !amdgcn.sgpr
         %64 = amdgcn.v_readfirstlane_b32 outs(%63) ins(%62) {sched.stage = 1 : i32} : outs(!amdgcn.sgpr) ins(!amdgcn.vgpr)
         amdgcn.s_mov_b32 outs(%11) ins(%64) {sched.stage = 1 : i32} : outs(!amdgcn.m0<0>) ins(!amdgcn.sgpr)
         %65 = arith.index_cast %55 {sched.stage = 1 : i32} : index to i32
         %66 = lsir.to_reg %65 {sched.stage = 1 : i32} : i32 -> !amdgcn.vgpr
-        %67 = amdgcn.load_lds buffer_load_dwordx4_lds m0 %11 addr %8 offset u(%10) + d(%66) + c(%c0_i32) {sched.stage = 1 : i32} : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32) -> !amdgcn.write_token<flat>
-        memref.store %67, %alloca_1[%c0] {sched.stage = 1 : i32} : memref<1x!amdgcn.write_token<flat>>
-        %68 = memref.load %alloca_0[%c0] {sched.stage = 2 : i32} : memref<1x!amdgcn.write_token<flat>>
-        amdgcn.wait deps %68 {sched.stage = 2 : i32} : !amdgcn.write_token<flat>
-        %69 = memref.load %alloca_1[%c0] {sched.stage = 2 : i32} : memref<1x!amdgcn.write_token<flat>>
-        amdgcn.wait deps %69 {sched.stage = 2 : i32} : !amdgcn.write_token<flat>
+        %67 = amdgcn.buffer_load_lds_dwordx4 addr %8 m0 %11 offset u(%10) + off_idx(%66) + c(%c0_i32) {offen, sched.stage = 1 : i32} : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.m0<0>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+        memref.store %67, %alloca_1[%c0] {sched.stage = 1 : i32} : memref<1x!amdgcn.read_token<flat>>
+        %68 = memref.load %alloca_0[%c0] {sched.stage = 2 : i32} : memref<1x!amdgcn.read_token<flat>>
+        amdgcn.wait deps %68 {sched.stage = 2 : i32} : !amdgcn.read_token<flat>
+        %69 = memref.load %alloca_1[%c0] {sched.stage = 2 : i32} : memref<1x!amdgcn.read_token<flat>>
+        amdgcn.wait deps %69 {sched.stage = 2 : i32} : !amdgcn.read_token<flat>
         amdgcn.s_barrier {sched.stage = 2 : i32}
         %alloca_2 = memref.alloca() : memref<2x!aster_utils.any>
         %alloca_3 = memref.alloca() : memref<2x!amdgcn.read_token<shared>>
@@ -261,19 +261,20 @@ module {
       %32 = affine.apply #map6()[%block_dim_x, %block_dim_y, %thread_id_x, %thread_id_y, %thread_id_z]
       %33 = arith.index_cast %32 : index to i32
       %34 = lsir.to_reg %33 : i32 -> !amdgcn.vgpr
-      %35 = store global_store_dword data %31#0 addr %2 offset d(%34) : ins(!amdgcn.agpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
+      %c0_i32_gs = arith.constant 0 : i32
+      %35 = amdgcn.global_store_dword data %31#0 addr %2 offset d(%34) + c(%c0_i32_gs) : ins(!amdgcn.agpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
       %36 = affine.apply #map7()[%block_dim_x, %block_dim_y, %thread_id_x, %thread_id_y, %thread_id_z]
       %37 = arith.index_cast %36 : index to i32
       %38 = lsir.to_reg %37 : i32 -> !amdgcn.vgpr
-      %39 = store global_store_dword data %31#1 addr %2 offset d(%38) : ins(!amdgcn.agpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
+      %39 = amdgcn.global_store_dword data %31#1 addr %2 offset d(%38) + c(%c0_i32_gs) : ins(!amdgcn.agpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
       %40 = affine.apply #map8()[%block_dim_x, %block_dim_y, %thread_id_x, %thread_id_y, %thread_id_z]
       %41 = arith.index_cast %40 : index to i32
       %42 = lsir.to_reg %41 : i32 -> !amdgcn.vgpr
-      %43 = store global_store_dword data %31#2 addr %2 offset d(%42) : ins(!amdgcn.agpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
+      %43 = amdgcn.global_store_dword data %31#2 addr %2 offset d(%42) + c(%c0_i32_gs) : ins(!amdgcn.agpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
       %44 = affine.apply #map9()[%block_dim_x, %block_dim_y, %thread_id_x, %thread_id_y, %thread_id_z]
       %45 = arith.index_cast %44 : index to i32
       %46 = lsir.to_reg %45 : i32 -> !amdgcn.vgpr
-      %47 = store global_store_dword data %31#3 addr %2 offset d(%46) : ins(!amdgcn.agpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.write_token<flat>
+      %47 = amdgcn.global_store_dword data %31#3 addr %2 offset d(%46) + c(%c0_i32_gs) : ins(!amdgcn.agpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
       end_kernel
     }
   }

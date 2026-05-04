@@ -70,13 +70,13 @@ amdgcn.module @test_global_load_ds_write target = #amdgcn.target<gfx942> {
 
     %dst = func.call @alloc_vgprx2() : () -> (!vx2)
     %c0_i32 = arith.constant 0 : i32
-    %from_lds, %tok_read = amdgcn.load ds_read_b64 dest %dst addr %lds_off_vgpr offset c(%c0_i32) : dps(!vx2) ins(!v, i32) -> !amdgcn.read_token<shared>
+    %from_lds, %tok_read = amdgcn.ds_read_b64 dest %dst addr %lds_off_vgpr offset c(%c0_i32) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     amdgcn.s_waitcnt lgkmcnt = 0
 
     %out_off = affine.apply affine_map<()[tid] -> (tid * 8)>()[%tid]
     %out_off_i32 = arith.index_cast %out_off : index to i32
     %out_off_vgpr = lsir.to_reg %out_off_i32 : i32 -> !v
-    %tok_store = amdgcn.store global_store_dwordx2 data %from_lds addr %out_ptr offset d(%out_off_vgpr) + c(%c0_i32) : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+    %tok_store = amdgcn.global_store_dwordx2 data %from_lds addr %out_ptr offset d(%out_off_vgpr) + c(%c0_i32) : ins(!vx2, !sx2, !v) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel
