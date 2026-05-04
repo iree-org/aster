@@ -78,7 +78,7 @@ struct TestAMDGCNInterferenceAnalysis
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       SymbolTableCollection symbolTable;
       auto definitionFilter = [](Operation *op) {
-        return isa<amdgcn::LoadOpInterface>(op);
+        return isa<amdgcn::LoadOp>(op);
       };
       solver.load<ReachingDefinitionsAnalysis>(definitionFilter);
       FailureOr<RegisterInterferenceGraph> graph =

@@ -185,7 +185,7 @@ static bool updateHazards(SmallVectorImpl<Hazard> &hazards,
     if (instOp.hasAnyProps({InstProp::Salu, InstProp::Smem}))
       ++numScalar;
     // NOTE: It's unclear whether dsmem also affect vector instructions.
-    if (instOp.hasProp(InstProp::Ds))
+    if (instOp.hasAnyProps({InstProp::Dsmem}))
       ++numDataShare;
   }
 

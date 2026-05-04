@@ -186,10 +186,6 @@ def ConstantRead : Effect {
   let body = [{
     $_effects.emplace_back(MemoryEffects::Read::get(),
                            ConstantMemoryResource::get());
-    // NOTE: This was added to prevent reads to be optimized away.
-    // TODO: Reconsider.
-    $_effects.emplace_back(MemoryEffects::Write::get(),
-                           MemoryUnit::get());
   }];
 }
 
@@ -206,10 +202,6 @@ def GlobalRead : Effect {
   let body = [{
     $_effects.emplace_back(MemoryEffects::Read::get(),
                            GlobalMemoryResource::get());
-    // NOTE: This was added to prevent reads to be optimized away.
-    // TODO: Reconsider.
-    $_effects.emplace_back(MemoryEffects::Write::get(),
-                           MemoryUnit::get());
   }];
 }
 
@@ -226,10 +218,6 @@ def LDSRead : Effect {
   let body = [{
     $_effects.emplace_back(MemoryEffects::Read::get(),
                            LDSMemoryResource::get());
-    // NOTE: This was added to prevent reads to be optimized away.
-    // TODO: Reconsider.
-    $_effects.emplace_back(MemoryEffects::Write::get(),
-                           MemoryUnit::get());
   }];
 }
 

@@ -104,26 +104,21 @@ static bool isLocalMemory(ptr::PtrType ptrType) {
   return addrSpace && addrSpace.getSpace() == AddressSpaceKind::Local;
 }
 
-/// Create an i32 constant value.
-static Value getI32Constant(OpBuilder &builder, Location loc, int32_t value) {
-  return arith::ConstantOp::create(
-      builder, loc, builder.getI32Type(),
-      builder.getIntegerAttr(builder.getI32Type(), value));
-}
-
 /// Create a DS_READ instruction for the given number of 32-bit words.
 static FailureOr<Value> createDSRead(OpBuilder &rewriter, Location loc,
                                      Value dst, Value addr, int64_t numWords) {
-  Value offset = getI32Constant(rewriter, loc, 0);
+  Value offset = arith::ConstantOp::create(
+      rewriter, loc, rewriter.getI32Type(),
+      rewriter.getIntegerAttr(rewriter.getI32Type(), 0));
   switch (numWords) {
   case 1:
-    return DsReadB32::create(rewriter, loc, dst, addr, offset).getDestRes();
+    return DS_READ_B32::create(rewriter, loc, dst, addr, offset).getDestRes();
   case 2:
-    return DsReadB64::create(rewriter, loc, dst, addr, offset).getDestRes();
+    return DS_READ_B64::create(rewriter, loc, dst, addr, offset).getDestRes();
   case 3:
-    return DsReadB96::create(rewriter, loc, dst, addr, offset).getDestRes();
+    return DS_READ_B96::create(rewriter, loc, dst, addr, offset).getDestRes();
   case 4:
-    return DsReadB128::create(rewriter, loc, dst, addr, offset).getDestRes();
+    return DS_READ_B128::create(rewriter, loc, dst, addr, offset).getDestRes();
   default:
     return failure();
   }
@@ -133,19 +128,21 @@ static FailureOr<Value> createDSRead(OpBuilder &rewriter, Location loc,
 static FailureOr<Value> createGlobalLoad(OpBuilder &rewriter, Location loc,
                                          Value dst, Value addr,
                                          int64_t numWords) {
-  Value cOff = getI32Constant(rewriter, loc, 0);
   switch (numWords) {
   case 1:
-    return GlobalLoadDword::create(rewriter, loc, dst, addr, nullptr, cOff)
+    return GLOBAL_LOAD_DWORD::create(rewriter, loc, dst, addr, nullptr, nullptr)
         .getDestRes();
   case 2:
-    return GlobalLoadDwordx2::create(rewriter, loc, dst, addr, nullptr, cOff)
+    return GLOBAL_LOAD_DWORDX2::create(rewriter, loc, dst, addr, nullptr,
+                                       nullptr)
         .getDestRes();
   case 3:
-    return GlobalLoadDwordx3::create(rewriter, loc, dst, addr, nullptr, cOff)
+    return GLOBAL_LOAD_DWORDX3::create(rewriter, loc, dst, addr, nullptr,
+                                       nullptr)
         .getDestRes();
   case 4:
-    return GlobalLoadDwordx4::create(rewriter, loc, dst, addr, nullptr, cOff)
+    return GLOBAL_LOAD_DWORDX4::create(rewriter, loc, dst, addr, nullptr,
+                                       nullptr)
         .getDestRes();
   default:
     return failure();
@@ -155,19 +152,21 @@ static FailureOr<Value> createGlobalLoad(OpBuilder &rewriter, Location loc,
 /// Create a DS_WRITE instruction for the given number of 32-bit words.
 static LogicalResult createDSWrite(OpBuilder &rewriter, Location loc,
                                    Value data, Value addr, int64_t numWords) {
-  Value offset = getI32Constant(rewriter, loc, 0);
+  Value offset = arith::ConstantOp::create(
+      rewriter, loc, rewriter.getI32Type(),
+      rewriter.getIntegerAttr(rewriter.getI32Type(), 0));
   switch (numWords) {
   case 1:
-    DsWriteB32::create(rewriter, loc, addr, data, offset);
+    DS_WRITE_B32::create(rewriter, loc, data, addr, offset);
     return success();
   case 2:
-    DsWriteB64::create(rewriter, loc, addr, data, offset);
+    DS_WRITE_B64::create(rewriter, loc, data, addr, offset);
     return success();
   case 3:
-    DsWriteB96::create(rewriter, loc, addr, data, offset);
+    DS_WRITE_B96::create(rewriter, loc, data, addr, offset);
     return success();
   case 4:
-    DsWriteB128::create(rewriter, loc, addr, data, offset);
+    DS_WRITE_B128::create(rewriter, loc, data, addr, offset);
     return success();
   default:
     return failure();
@@ -178,19 +177,18 @@ static LogicalResult createDSWrite(OpBuilder &rewriter, Location loc,
 static LogicalResult createGlobalStore(OpBuilder &rewriter, Location loc,
                                        Value data, Value addr,
                                        int64_t numWords) {
-  Value cOff = getI32Constant(rewriter, loc, 0);
   switch (numWords) {
   case 1:
-    GlobalStoreDword::create(rewriter, loc, data, addr, nullptr, cOff);
+    GLOBAL_STORE_DWORD::create(rewriter, loc, data, addr, nullptr, nullptr);
     return success();
   case 2:
-    GlobalStoreDwordx2::create(rewriter, loc, data, addr, nullptr, cOff);
+    GLOBAL_STORE_DWORDX2::create(rewriter, loc, data, addr, nullptr, nullptr);
     return success();
   case 3:
-    GlobalStoreDwordx3::create(rewriter, loc, data, addr, nullptr, cOff);
+    GLOBAL_STORE_DWORDX3::create(rewriter, loc, data, addr, nullptr, nullptr);
     return success();
   case 4:
-    GlobalStoreDwordx4::create(rewriter, loc, data, addr, nullptr, cOff);
+    GLOBAL_STORE_DWORDX4::create(rewriter, loc, data, addr, nullptr, nullptr);
     return success();
   default:
     return failure();

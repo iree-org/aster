@@ -866,17 +866,20 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
     offset = getI32Constant(rewriter, loc, off);
     switch (numWords) {
     case 1:
-      result = DsReadB32::create(rewriter, loc, dst, addr, offset).getDestRes();
+      result =
+          DS_READ_B32::create(rewriter, loc, dst, addr, offset).getDestRes();
       break;
     case 2:
-      result = DsReadB64::create(rewriter, loc, dst, addr, offset).getDestRes();
+      result =
+          DS_READ_B64::create(rewriter, loc, dst, addr, offset).getDestRes();
       break;
     case 3:
-      result = DsReadB96::create(rewriter, loc, dst, addr, offset).getDestRes();
+      result =
+          DS_READ_B96::create(rewriter, loc, dst, addr, offset).getDestRes();
       break;
     case 4:
       result =
-          DsReadB128::create(rewriter, loc, dst, addr, offset).getDestRes();
+          DS_READ_B128::create(rewriter, loc, dst, addr, offset).getDestRes();
       break;
     default:
       return rewriter.notifyMatchFailure(
@@ -886,9 +889,12 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
     rewriter.eraseOp(op);
     return success();
   }
-  Value cOff = getI32Constant(rewriter, loc, off);
+  Value cOff;
+  if (off > 0) {
+    cOff = getI32Constant(rewriter, loc, off);
+  }
 
-  // Handle a SMEM load.
+  // Handle a SMEM load
   bool addrIsSGPR = isSGPR(addrTy, 2);
   if (addrIsSGPR && (!offset || isSGPR(offset.getType(), 1))) {
     if (offset) {
@@ -896,23 +902,23 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
     }
     switch (numWords) {
     case 1:
-      result = SLoadDword::create(rewriter, loc, dst, addr, nullptr, cOff)
+      result = S_LOAD_DWORD::create(rewriter, loc, dst, addr, nullptr, cOff)
                    .getDestRes();
       break;
     case 2:
-      result = SLoadDwordx2::create(rewriter, loc, dst, addr, nullptr, cOff)
+      result = S_LOAD_DWORDX2::create(rewriter, loc, dst, addr, nullptr, cOff)
                    .getDestRes();
       break;
     case 4:
-      result = SLoadDwordx4::create(rewriter, loc, dst, addr, nullptr, cOff)
+      result = S_LOAD_DWORDX4::create(rewriter, loc, dst, addr, nullptr, cOff)
                    .getDestRes();
       break;
     case 8:
-      result = SLoadDwordx8::create(rewriter, loc, dst, addr, nullptr, cOff)
+      result = S_LOAD_DWORDX8::create(rewriter, loc, dst, addr, nullptr, cOff)
                    .getDestRes();
       break;
     case 16:
-      result = SLoadDwordx16::create(rewriter, loc, dst, addr, nullptr, cOff)
+      result = S_LOAD_DWORDX16::create(rewriter, loc, dst, addr, nullptr, cOff)
                    .getDestRes();
       break;
     default:
@@ -938,27 +944,31 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
     return rewriter.notifyMatchFailure(
         op, "expected VGPR offset for load from global memory space");
   }
-  switch (numWords) {
-  case 1:
-    result = GlobalLoadDword::create(rewriter, loc, dst, addr, offset, cOff)
-                 .getDestRes();
-    break;
-  case 2:
-    result = GlobalLoadDwordx2::create(rewriter, loc, dst, addr, offset, cOff)
-                 .getDestRes();
-    break;
-  case 3:
-    result = GlobalLoadDwordx3::create(rewriter, loc, dst, addr, offset, cOff)
-                 .getDestRes();
-    break;
-  case 4:
-    result = GlobalLoadDwordx4::create(rewriter, loc, dst, addr, offset, cOff)
-                 .getDestRes();
-    break;
-  default:
-    return rewriter.notifyMatchFailure(
-        op, "unsupported number of words for load from global memory space");
-  }
+  if (true)
+    switch (numWords) {
+    case 1:
+      result = GLOBAL_LOAD_DWORD::create(rewriter, loc, dst, addr, offset, cOff)
+                   .getDestRes();
+      break;
+    case 2:
+      result =
+          GLOBAL_LOAD_DWORDX2::create(rewriter, loc, dst, addr, offset, cOff)
+              .getDestRes();
+      break;
+    case 3:
+      result =
+          GLOBAL_LOAD_DWORDX3::create(rewriter, loc, dst, addr, offset, cOff)
+              .getDestRes();
+      break;
+    case 4:
+      result =
+          GLOBAL_LOAD_DWORDX4::create(rewriter, loc, dst, addr, offset, cOff)
+              .getDestRes();
+      break;
+    default:
+      return rewriter.notifyMatchFailure(
+          op, "unsupported number of words for load from global memory space");
+    }
   rewriter.replaceAllUsesWith(op.getDstRes(), result);
   rewriter.eraseOp(op);
   return success();
@@ -1650,16 +1660,16 @@ LogicalResult StoreOpPattern::matchAndRewrite(lsir::StoreOp op,
 
     switch (numWords) {
     case 1:
-      DsWriteB32::create(rewriter, loc, addr, dataRange, offset);
+      DS_WRITE_B32::create(rewriter, loc, dataRange, addr, offset);
       break;
     case 2:
-      DsWriteB64::create(rewriter, loc, addr, dataRange, offset);
+      DS_WRITE_B64::create(rewriter, loc, dataRange, addr, offset);
       break;
     case 3:
-      DsWriteB96::create(rewriter, loc, addr, dataRange, offset);
+      DS_WRITE_B96::create(rewriter, loc, dataRange, addr, offset);
       break;
     case 4:
-      DsWriteB128::create(rewriter, loc, addr, dataRange, offset);
+      DS_WRITE_B128::create(rewriter, loc, dataRange, addr, offset);
       break;
     default:
       return rewriter.notifyMatchFailure(
@@ -1691,16 +1701,16 @@ LogicalResult StoreOpPattern::matchAndRewrite(lsir::StoreOp op,
 
     switch (numWords) {
     case 1:
-      SStoreDword::create(rewriter, loc, data, addr, nullptr,
-                          getI32Constant(rewriter, loc, off));
+      S_STORE_DWORD::create(rewriter, loc, data, addr, nullptr,
+                            getI32Constant(rewriter, loc, off));
       break;
     case 2:
-      SStoreDwordx2::create(rewriter, loc, data, addr, nullptr,
-                            getI32Constant(rewriter, loc, off));
+      S_STORE_DWORDX2::create(rewriter, loc, data, addr, nullptr,
+                              getI32Constant(rewriter, loc, off));
       break;
     case 4:
-      SStoreDwordx4::create(rewriter, loc, data, addr, nullptr,
-                            getI32Constant(rewriter, loc, off));
+      S_STORE_DWORDX4::create(rewriter, loc, data, addr, nullptr,
+                              getI32Constant(rewriter, loc, off));
       break;
     default:
       return rewriter.notifyMatchFailure(
@@ -1724,19 +1734,22 @@ LogicalResult StoreOpPattern::matchAndRewrite(lsir::StoreOp op,
                                        "expected VGPR offset for store to "
                                        "global memory space with SGPR address");
   }
-  Value cOff = getI32Constant(rewriter, loc, off);
+  Value cOff = nullptr;
+  if (off > 0) {
+    cOff = getI32Constant(rewriter, loc, off);
+  }
   switch (numWords) {
   case 1:
-    GlobalStoreDword::create(rewriter, loc, data, addr, offset, cOff);
+    GLOBAL_STORE_DWORD::create(rewriter, loc, data, addr, offset, cOff);
     break;
   case 2:
-    GlobalStoreDwordx2::create(rewriter, loc, data, addr, offset, cOff);
+    GLOBAL_STORE_DWORDX2::create(rewriter, loc, data, addr, offset, cOff);
     break;
   case 3:
-    GlobalStoreDwordx3::create(rewriter, loc, data, addr, offset, cOff);
+    GLOBAL_STORE_DWORDX3::create(rewriter, loc, data, addr, offset, cOff);
     break;
   case 4:
-    GlobalStoreDwordx4::create(rewriter, loc, data, addr, offset, cOff);
+    GLOBAL_STORE_DWORDX4::create(rewriter, loc, data, addr, offset, cOff);
     break;
   default:
     return rewriter.notifyMatchFailure(

@@ -246,7 +246,7 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
     }
 
     // If the operation has any SALU or SMEM properties, add an edge.
-    if (instOp.hasAnyProps({InstProp::Salu, InstProp::Smem, InstProp::Ds})) {
+    if (instOp.hasAnyProps({InstProp::Salu, InstProp::Smem, InstProp::Dsmem})) {
       addEdge(op, i);
       continue;
     }
@@ -461,7 +461,7 @@ static QueueType classifyOp(Operation *op) {
   // SOPP (s_waitcnt, s_barrier, branches) must be scheduling barriers.
   if (instOp.hasProp(InstProp::Sopp))
     return QueueType::Unknown;
-  if (instOp.hasProp(InstProp::Ds))
+  if (instOp.hasProp(InstProp::Dsmem))
     return QueueType::LGKM;
   if (instOp.hasProp(InstProp::Smem))
     return QueueType::LGKM;

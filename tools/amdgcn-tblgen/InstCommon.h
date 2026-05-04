@@ -389,9 +389,6 @@ struct InstOp : public RecordMixin<InstOp> {
     return getRecordList<InstProp>("props");
   }
 
-  /// Get the assembly mnemonic of the instruction.
-  StringRef getAsmMnemonic() const { return getStringRef("asm_mnemonic"); }
-
 private:
   Operator op;
 };
