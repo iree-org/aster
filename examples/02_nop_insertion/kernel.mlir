@@ -23,9 +23,8 @@ module {
         : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
       %out_ptr = amdgcn.make_register_range %s2, %s3
         : !amdgcn.sgpr<2>, !amdgcn.sgpr<3>
-      amdgcn.load s_load_dwordx2 dest %out_ptr addr %kernarg
-        : dps(!amdgcn.sgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 2]>)
-          -> !amdgcn.read_token<constant>
+      %c0_i32_mig1 = arith.constant 0 : i32
+      amdgcn.s_load_dwordx2 dest %out_ptr addr %kernarg offset c(%c0_i32_mig1) : outs(!amdgcn.sgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
       amdgcn.s_waitcnt lgkmcnt = 0
 
       // Byte offset = tid * 4 (4 bytes per i32)
@@ -35,10 +34,7 @@ module {
       // Store thread ID (v0) to output[tid]
       %data_r = amdgcn.make_register_range %v0 : !amdgcn.vgpr<0>
       %c0 = arith.constant 0 : i32
-      amdgcn.store global_store_dword data %data_r addr %out_ptr
-        offset d(%v1) + c(%c0)
-        : ins(!amdgcn.vgpr<[0 : 1]>, !amdgcn.sgpr<[2 : 4]>, !amdgcn.vgpr<1>, i32)
-          -> !amdgcn.write_token<flat>
+      amdgcn.global_store_dword data %data_r addr %out_ptr offset d(%v1) + c(%c0) : ins(!amdgcn.vgpr<[0 : 1]>, !amdgcn.sgpr<[2 : 4]>, !amdgcn.vgpr<1>) mods(i32) -> !amdgcn.write_token<flat>
 
       // Immediately overwrite v0 -- HAZARD: memory still reading v0
       %c7 = arith.constant 7 : i32

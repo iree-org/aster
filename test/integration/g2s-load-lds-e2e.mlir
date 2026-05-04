@@ -51,16 +51,10 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> {
     %c4 = arith.constant 4 : i32
 
     %nbytes_dest = amdgcn.alloca : !amdgcn.sgpr
-    %num_bytes, %t0 = amdgcn.load s_load_dword dest %nbytes_dest addr %params_ptr
-      offset c(%c0)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
-        -> !amdgcn.read_token<constant>
+    %num_bytes, %t0 = amdgcn.s_load_dword dest %nbytes_dest addr %params_ptr offset c(%c0) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
 
     %soff_dest = amdgcn.alloca : !amdgcn.sgpr
-    %soffset, %t1 = amdgcn.load s_load_dword dest %soff_dest addr %params_ptr
-      offset c(%c4)
-      : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32)
-        -> !amdgcn.read_token<constant>
+    %soffset, %t1 = amdgcn.s_load_dword dest %soff_dest addr %params_ptr offset c(%c4) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
 
     amdgcn.s_waitcnt lgkmcnt = 0
 
@@ -112,32 +106,23 @@ amdgcn.module @g2s_e2e_mod target = #amdgcn.target<gfx950> {
 
     // G2S: buffer_load_dword with LDS flag
     // Each lane loads src[tid] -> LDS[44 + tid*4]
-    %tok_g2s = amdgcn.load_lds buffer_load_dword_lds m0 %m0 addr %src_rsrc
-        offset u(%soffset) + d(%voffset) + c(%c0)
-        : ins(!amdgcn.m0<0>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok_g2s = amdgcn.buffer_load_lds_dword addr %src_rsrc m0 %m0 offset u(%soffset) + off_idx(%voffset) + c(%c0) {offen} : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.m0<0>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
 
     // Wait for G2S to complete (vmcnt tracks buffer loads).
     // Must use token-based wait so the late-waits pass preserves it.
-    amdgcn.wait deps %tok_g2s : !amdgcn.write_token<flat>
+    amdgcn.wait deps %tok_g2s : !amdgcn.read_token<flat>
 
     // Read back from LDS: ds_read_b32 at offset 44 + tid*4
     // voffset is tid*4, add M0 offset via constant_offset = 44
     %lds_dest = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %lds_val, %tok_lds = amdgcn.load ds_read_b32 dest %lds_dest addr %voffset
-      offset c(%c44)
-      : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, i32)
-        -> !amdgcn.read_token<shared>
+    %lds_val, %tok_lds = amdgcn.ds_read_b32 dest %lds_dest addr %voffset offset c(%c44) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 
     // Wait for LDS read to complete (lgkmcnt tracks DS ops)
     amdgcn.wait deps %tok_lds : !amdgcn.read_token<shared>
 
     // Store result to output: dst[tid] = lds_val
     // Thread offset for output = tid * 4
-    %tok_st = amdgcn.store global_store_dword data %lds_val addr %dst_ptr
-        offset d(%voffset) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok_st = amdgcn.global_store_dword data %lds_val addr %dst_ptr offset d(%voffset) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
 
     amdgcn.wait deps %tok_st : !amdgcn.write_token<flat>
     amdgcn.end_kernel

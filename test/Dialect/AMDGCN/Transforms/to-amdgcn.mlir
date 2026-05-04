@@ -418,7 +418,7 @@ func.func @test_xor_i64_sgpr(%dst: !amdgcn.sgpr<[? + 2]>, %lhs: !amdgcn.sgpr<[? 
 
 // CHECK-LABEL:   func.func @test_load_global_dword(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ARG0]] addr %[[ARG1]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr
 // CHECK:         }
 func.func @test_load_global_dword(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
@@ -430,7 +430,7 @@ func.func @test_load_global_dword(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2
 // CHECK-LABEL:   func.func @test_load_global_dword_with_offset(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 16 : i32
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dword dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>, i32) -> !amdgcn.read_token<flat>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr
 // CHECK:         }
 func.func @test_load_global_dword_with_offset(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
@@ -442,7 +442,7 @@ func.func @test_load_global_dword_with_offset(%dst: !amdgcn.vgpr, %addr: !amdgcn
 
 // CHECK-LABEL:   func.func @test_load_global_dwordx2(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]> {
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dwordx2 dest %[[ARG0]] addr %[[ARG1]] : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.global_load_dwordx2 dest %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
 func.func @test_load_global_dwordx2(%dst: !amdgcn.vgpr<[? + 2]>, %addr: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 2]> {
@@ -453,7 +453,7 @@ func.func @test_load_global_dwordx2(%dst: !amdgcn.vgpr<[? + 2]>, %addr: !amdgcn.
 
 // CHECK-LABEL:   func.func @test_load_global_dwordx3(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 3]>, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 3]> {
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dwordx3 dest %[[ARG0]] addr %[[ARG1]] : dps(!amdgcn.vgpr<[? + 3]>) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.global_load_dwordx3 dest %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<[? + 3]>) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr<[? + 3]>
 // CHECK:         }
 func.func @test_load_global_dwordx3(%dst: !amdgcn.vgpr<[? + 3]>, %addr: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 3]> {
@@ -464,7 +464,7 @@ func.func @test_load_global_dwordx3(%dst: !amdgcn.vgpr<[? + 3]>, %addr: !amdgcn.
 
 // CHECK-LABEL:   func.func @test_load_global_dwordx4(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 4]>, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 4]> {
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load global_load_dwordx4 dest %[[ARG0]] addr %[[ARG1]] : dps(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.vgpr<[? + 2]>) -> !amdgcn.read_token<flat>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.global_load_dwordx4 dest %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr<[? + 4]>
 // CHECK:         }
 func.func @test_load_global_dwordx4(%dst: !amdgcn.vgpr<[? + 4]>, %addr: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr<[? + 4]> {
@@ -475,7 +475,7 @@ func.func @test_load_global_dwordx4(%dst: !amdgcn.vgpr<[? + 4]>, %addr: !amdgcn.
 
 // CHECK-LABEL:   func.func @test_load_smem_dword(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr {
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load s_load_dword dest %[[ARG0]] addr %[[ARG1]] : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<constant>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.s_load_dword dest %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:           return %[[VAL_0]] : !amdgcn.sgpr
 // CHECK:         }
 func.func @test_load_smem_dword(%dst: !amdgcn.sgpr, %addr: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr {
@@ -487,7 +487,7 @@ func.func @test_load_smem_dword(%dst: !amdgcn.sgpr, %addr: !amdgcn.sgpr<[? + 2]>
 // CHECK-LABEL:   func.func @test_load_smem_dword_with_offset(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 32 : i32
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load s_load_dword dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.s_load_dword dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:           return %[[VAL_0]] : !amdgcn.sgpr
 // CHECK:         }
 func.func @test_load_smem_dword_with_offset(%dst: !amdgcn.sgpr, %addr: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr {
@@ -499,7 +499,7 @@ func.func @test_load_smem_dword_with_offset(%dst: !amdgcn.sgpr, %addr: !amdgcn.s
 
 // CHECK-LABEL:   func.func @test_load_smem_dwordx2(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 2]>, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr<[? + 2]> {
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load s_load_dwordx2 dest %[[ARG0]] addr %[[ARG1]] : dps(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<constant>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.s_load_dwordx2 dest %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : outs(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:           return %[[VAL_0]] : !amdgcn.sgpr<[? + 2]>
 // CHECK:         }
 func.func @test_load_smem_dwordx2(%dst: !amdgcn.sgpr<[? + 2]>, %addr: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr<[? + 2]> {
@@ -510,7 +510,7 @@ func.func @test_load_smem_dwordx2(%dst: !amdgcn.sgpr<[? + 2]>, %addr: !amdgcn.sg
 
 // CHECK-LABEL:   func.func @test_load_smem_dwordx4(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 4]>, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr<[? + 4]> {
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load s_load_dwordx4 dest %[[ARG0]] addr %[[ARG1]] : dps(!amdgcn.sgpr<[? + 4]>) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<constant>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.s_load_dwordx4 dest %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : outs(!amdgcn.sgpr<[? + 4]>) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:           return %[[VAL_0]] : !amdgcn.sgpr<[? + 4]>
 // CHECK:         }
 func.func @test_load_smem_dwordx4(%dst: !amdgcn.sgpr<[? + 4]>, %addr: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr<[? + 4]> {
@@ -521,7 +521,7 @@ func.func @test_load_smem_dwordx4(%dst: !amdgcn.sgpr<[? + 4]>, %addr: !amdgcn.sg
 
 // CHECK-LABEL:   func.func @test_load_smem_dwordx8(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 8]>, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr<[? + 8]> {
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load s_load_dwordx8 dest %[[ARG0]] addr %[[ARG1]] : dps(!amdgcn.sgpr<[? + 8]>) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<constant>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.s_load_dwordx8 dest %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : outs(!amdgcn.sgpr<[? + 8]>) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:           return %[[VAL_0]] : !amdgcn.sgpr<[? + 8]>
 // CHECK:         }
 func.func @test_load_smem_dwordx8(%dst: !amdgcn.sgpr<[? + 8]>, %addr: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr<[? + 8]> {
@@ -532,7 +532,7 @@ func.func @test_load_smem_dwordx8(%dst: !amdgcn.sgpr<[? + 8]>, %addr: !amdgcn.sg
 
 // CHECK-LABEL:   func.func @test_load_smem_dwordx16(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 16]>, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr<[? + 16]> {
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load s_load_dwordx16 dest %[[ARG0]] addr %[[ARG1]] : dps(!amdgcn.sgpr<[? + 16]>) ins(!amdgcn.sgpr<[? + 2]>) -> !amdgcn.read_token<constant>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.s_load_dwordx16 dest %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : outs(!amdgcn.sgpr<[? + 16]>) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:           return %[[VAL_0]] : !amdgcn.sgpr<[? + 16]>
 // CHECK:         }
 func.func @test_load_smem_dwordx16(%dst: !amdgcn.sgpr<[? + 16]>, %addr: !amdgcn.sgpr<[? + 2]>) -> !amdgcn.sgpr<[? + 16]> {
@@ -544,7 +544,7 @@ func.func @test_load_smem_dwordx16(%dst: !amdgcn.sgpr<[? + 16]>, %addr: !amdgcn.
 // CHECK-LABEL:   func.func @test_load_local_dword(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load ds_read_b32 dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.ds_read_b32 dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr
 // CHECK:         }
 func.func @test_load_local_dword(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr) -> !amdgcn.vgpr {
@@ -556,7 +556,7 @@ func.func @test_load_local_dword(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr) -> !am
 // CHECK-LABEL:   func.func @test_load_local_dword_with_offset(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 64 : i32
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load ds_read_b32 dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.ds_read_b32 dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr
 // CHECK:         }
 func.func @test_load_local_dword_with_offset(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr) -> !amdgcn.vgpr {
@@ -569,7 +569,7 @@ func.func @test_load_local_dword_with_offset(%dst: !amdgcn.vgpr, %addr: !amdgcn.
 // CHECK-LABEL:   func.func @test_load_local_dwordx2(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>, %[[ARG1:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load ds_read_b64 dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.ds_read_b64 dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr<[? + 2]>
 // CHECK:         }
 func.func @test_load_local_dwordx2(%dst: !amdgcn.vgpr<[? + 2]>, %addr: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 2]> {
@@ -581,7 +581,7 @@ func.func @test_load_local_dwordx2(%dst: !amdgcn.vgpr<[? + 2]>, %addr: !amdgcn.v
 // CHECK-LABEL:   func.func @test_load_local_dwordx3(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 3]>, %[[ARG1:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 3]> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load ds_read_b96 dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.vgpr<[? + 3]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.ds_read_b96 dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.vgpr<[? + 3]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr<[? + 3]>
 // CHECK:         }
 func.func @test_load_local_dwordx3(%dst: !amdgcn.vgpr<[? + 3]>, %addr: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 3]> {
@@ -593,7 +593,7 @@ func.func @test_load_local_dwordx3(%dst: !amdgcn.vgpr<[? + 3]>, %addr: !amdgcn.v
 // CHECK-LABEL:   func.func @test_load_local_dwordx4(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 4]>, %[[ARG1:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 4]> {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load ds_read_b128 dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.vgpr, i32) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.ds_read_b128 dest %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr<[? + 4]>
 // CHECK:         }
 func.func @test_load_local_dwordx4(%dst: !amdgcn.vgpr<[? + 4]>, %addr: !amdgcn.vgpr) -> !amdgcn.vgpr<[? + 4]> {
@@ -604,7 +604,7 @@ func.func @test_load_local_dwordx4(%dst: !amdgcn.vgpr<[? + 4]>, %addr: !amdgcn.v
 
 // CHECK-LABEL:   func.func @test_store_global_dword(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dword data %[[ARG0]] addr %[[ARG1]] : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.write_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_global_dword(%data: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>) {
@@ -616,7 +616,7 @@ func.func @test_store_global_dword(%data: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? +
 // CHECK-LABEL:   func.func @test_store_global_dword_with_offset(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 16 : i32
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dword data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, i32) -> !amdgcn.write_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_global_dword_with_offset(%data: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>) {
@@ -628,7 +628,7 @@ func.func @test_store_global_dword_with_offset(%data: !amdgcn.vgpr, %addr: !amdg
 
 // CHECK-LABEL:   func.func @test_store_global_dwordx2(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dwordx2 data %[[ARG0]] addr %[[ARG1]] : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.write_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dwordx2 data %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_global_dwordx2(%data: !amdgcn.vgpr<[? + 2]>, %addr: !amdgcn.vgpr<[? + 2]>) {
@@ -639,7 +639,7 @@ func.func @test_store_global_dwordx2(%data: !amdgcn.vgpr<[? + 2]>, %addr: !amdgc
 
 // CHECK-LABEL:   func.func @test_store_global_dwordx3(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 3]>, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dwordx3 data %[[ARG0]] addr %[[ARG1]] : ins(!amdgcn.vgpr<[? + 3]>, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.write_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dwordx3 data %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<[? + 3]>, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_global_dwordx3(%data: !amdgcn.vgpr<[? + 3]>, %addr: !amdgcn.vgpr<[? + 2]>) {
@@ -650,7 +650,7 @@ func.func @test_store_global_dwordx3(%data: !amdgcn.vgpr<[? + 3]>, %addr: !amdgc
 
 // CHECK-LABEL:   func.func @test_store_global_dwordx4(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 4]>, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) {
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store global_store_dwordx4 data %[[ARG0]] addr %[[ARG1]] : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 2]>) -> !amdgcn.write_token<flat>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dwordx4 data %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_global_dwordx4(%data: !amdgcn.vgpr<[? + 4]>, %addr: !amdgcn.vgpr<[? + 2]>) {
@@ -662,7 +662,7 @@ func.func @test_store_global_dwordx4(%data: !amdgcn.vgpr<[? + 4]>, %addr: !amdgc
 // CHECK-LABEL:   func.func @test_store_smem_dword(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store s_store_dword data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.sgpr, !amdgcn.sgpr<[? + 2]>, i32) -> !amdgcn.write_token<constant>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.s_store_dword data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.sgpr, !amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<constant>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_smem_dword(%data: !amdgcn.sgpr, %addr: !amdgcn.sgpr<[? + 2]>) {
@@ -674,7 +674,7 @@ func.func @test_store_smem_dword(%data: !amdgcn.sgpr, %addr: !amdgcn.sgpr<[? + 2
 // CHECK-LABEL:   func.func @test_store_smem_dword_with_offset(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 32 : i32
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store s_store_dword data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.sgpr, !amdgcn.sgpr<[? + 2]>, i32) -> !amdgcn.write_token<constant>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.s_store_dword data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.sgpr, !amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<constant>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_smem_dword_with_offset(%data: !amdgcn.sgpr, %addr: !amdgcn.sgpr<[? + 2]>) {
@@ -687,7 +687,7 @@ func.func @test_store_smem_dword_with_offset(%data: !amdgcn.sgpr, %addr: !amdgcn
 // CHECK-LABEL:   func.func @test_store_smem_dwordx2(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 2]>, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store s_store_dwordx2 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>, i32) -> !amdgcn.write_token<constant>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.s_store_dwordx2 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<constant>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_smem_dwordx2(%data: !amdgcn.sgpr<[? + 2]>, %addr: !amdgcn.sgpr<[? + 2]>) {
@@ -699,7 +699,7 @@ func.func @test_store_smem_dwordx2(%data: !amdgcn.sgpr<[? + 2]>, %addr: !amdgcn.
 // CHECK-LABEL:   func.func @test_store_smem_dwordx4(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr<[? + 4]>, %[[ARG1:.*]]: !amdgcn.sgpr<[? + 2]>) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store s_store_dwordx4 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, i32) -> !amdgcn.write_token<constant>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.s_store_dwordx4 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<constant>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_smem_dwordx4(%data: !amdgcn.sgpr<[? + 4]>, %addr: !amdgcn.sgpr<[? + 2]>) {
@@ -711,7 +711,7 @@ func.func @test_store_smem_dwordx4(%data: !amdgcn.sgpr<[? + 4]>, %addr: !amdgcn.
 // CHECK-LABEL:   func.func @test_store_local_dword(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store ds_write_b32 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_local_dword(%data: !amdgcn.vgpr, %addr: !amdgcn.vgpr) {
@@ -723,7 +723,7 @@ func.func @test_store_local_dword(%data: !amdgcn.vgpr, %addr: !amdgcn.vgpr) {
 // CHECK-LABEL:   func.func @test_store_local_dword_with_offset(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 64 : i32
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store ds_write_b32 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_local_dword_with_offset(%data: !amdgcn.vgpr, %addr: !amdgcn.vgpr) {
@@ -736,7 +736,7 @@ func.func @test_store_local_dword_with_offset(%data: !amdgcn.vgpr, %addr: !amdgc
 // CHECK-LABEL:   func.func @test_store_local_dwordx2(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 2]>, %[[ARG1:.*]]: !amdgcn.vgpr) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store ds_write_b64 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b64 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_local_dwordx2(%data: !amdgcn.vgpr<[? + 2]>, %addr: !amdgcn.vgpr) {
@@ -748,7 +748,7 @@ func.func @test_store_local_dwordx2(%data: !amdgcn.vgpr<[? + 2]>, %addr: !amdgcn
 // CHECK-LABEL:   func.func @test_store_local_dwordx3(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 3]>, %[[ARG1:.*]]: !amdgcn.vgpr) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store ds_write_b96 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr<[? + 3]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b96 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr<[? + 3]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_local_dwordx3(%data: !amdgcn.vgpr<[? + 3]>, %addr: !amdgcn.vgpr) {
@@ -760,7 +760,7 @@ func.func @test_store_local_dwordx3(%data: !amdgcn.vgpr<[? + 3]>, %addr: !amdgcn
 // CHECK-LABEL:   func.func @test_store_local_dwordx4(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr<[? + 4]>, %[[ARG1:.*]]: !amdgcn.vgpr) {
 // CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[STORE_0:.*]] = amdgcn.store ds_write_b128 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, i32) -> !amdgcn.write_token<shared>
+// CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b128 data %[[ARG0]] addr %[[ARG1]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           return
 // CHECK:         }
 func.func @test_store_local_dwordx4(%data: !amdgcn.vgpr<[? + 4]>, %addr: !amdgcn.vgpr) {
@@ -1223,7 +1223,8 @@ module attributes {dlti.dl_spec = #dlti.dl_spec<!ptr.ptr<#amdgcn.addr_space<loca
       %8 = lsir.alloca : !amdgcn.vgpr
       %9 = lsir.addi i32 %8, %7, %c64_i32 : !amdgcn.vgpr, !amdgcn.vgpr, i32
       %10 = amdgcn.alloca : !amdgcn.vgpr
-      %dest_res, %token = amdgcn.load global_load_dword dest %10 addr %arg0 offset d(%9) : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) -> !amdgcn.read_token<flat>
+      %c0_i32_mig1 = arith.constant 0 : i32
+      %dest_res, %token = amdgcn.global_load_dword dest %10 addr %arg0 offset d(%9) + c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
       amdgcn.test_inst ins %dest_res : (!amdgcn.vgpr) -> ()
       return
     }

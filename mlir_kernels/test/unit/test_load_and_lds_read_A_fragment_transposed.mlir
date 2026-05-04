@@ -46,7 +46,7 @@ amdgcn.module @test_load_and_lds_read_A_fragment_transposed target = #amdgcn.tar
     %out_off_i32 = arith.index_cast %out_off : index to i32
     %out_off_vgpr = lsir.to_reg %out_off_i32 : i32 -> !v
     %c0_store = arith.constant 0 : i32
-    %tok_store = amdgcn.store global_store_dwordx2 data %fragment addr %out_ptr offset d(%out_off_vgpr) + c(%c0_store) : ins(!vx2, !sx2, !v, i32) -> !amdgcn.write_token<flat>
+    %tok_store = amdgcn.global_store_dwordx2 data %fragment addr %out_ptr offset d(%out_off_vgpr) + c(%c0_store) : ins(!vx2, !sx2, !v) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel

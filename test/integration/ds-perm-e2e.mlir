@@ -45,19 +45,14 @@ amdgcn.module @perm_e2e_mod target = #amdgcn.target<gfx942> {
     // permute: result[(i+1)%64] = tid_x[i] = i
     %perm_a = amdgcn.alloca : !amdgcn.vgpr
     %c0 = arith.constant 0 : i32
-    %result, %tok_perm = amdgcn.load ds_permute_b32 dest %perm_a addr %addr
-        offset d(%tid_x) + c(%c0)
-        : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr, i32)
-        -> !amdgcn.read_token<shared>
+    %result, %tok_perm = amdgcn.ds_permute_b32 outs(%perm_a) ins(%addr, %tid_x) args(%c0)
+        : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr) args(i32) -> !amdgcn.read_token<shared>
     amdgcn.s_waitcnt lgkmcnt = 0
 
     // Store result[i] to output[i]
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
     %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c2, %tid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
-    %tok_st = amdgcn.store global_store_dword data %result addr %out_ptr
-        offset d(%voffset) + c(%c0)
-        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok_st = amdgcn.global_store_dword data %result addr %out_ptr offset d(%voffset) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
@@ -88,27 +83,20 @@ amdgcn.module @perm_e2e_mod target = #amdgcn.target<gfx942> {
     // Step 1 - permute: temp[(i+1)%64] = i
     %perm_a = amdgcn.alloca : !amdgcn.vgpr
     %c0 = arith.constant 0 : i32
-    %temp, %tok_perm = amdgcn.load ds_permute_b32 dest %perm_a addr %addr
-        offset d(%tid_x) + c(%c0)
-        : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr, i32)
-        -> !amdgcn.read_token<shared>
+    %temp, %tok_perm = amdgcn.ds_permute_b32 outs(%perm_a) ins(%addr, %tid_x) args(%c0)
+        : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr) args(i32) -> !amdgcn.read_token<shared>
     amdgcn.s_waitcnt lgkmcnt = 0
 
     // Step 2 - bpermute with same addr: result[i] = temp[(i+1)%64] = i
     %bperm_a = amdgcn.alloca : !amdgcn.vgpr
-    %result, %tok_bp = amdgcn.load ds_bpermute_b32 dest %bperm_a addr %addr
-        offset d(%temp) + c(%c0)
-        : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr, i32)
-        -> !amdgcn.read_token<shared>
+    %result, %tok_bp = amdgcn.ds_bpermute_b32 outs(%bperm_a) ins(%addr, %temp) args(%c0)
+        : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr) args(i32) -> !amdgcn.read_token<shared>
     amdgcn.s_waitcnt lgkmcnt = 0
 
     // Store result[i] to output[i]; expect output[i] = i
     %voff_a = amdgcn.alloca : !amdgcn.vgpr
     %voffset = amdgcn.v_lshlrev_b32 outs(%voff_a) ins(%c2, %tid_x) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
-    %tok_st = amdgcn.store global_store_dword data %result addr %out_ptr
-        offset d(%voffset) + c(%c0)
-        : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok_st = amdgcn.global_store_dword data %result addr %out_ptr offset d(%voffset) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }

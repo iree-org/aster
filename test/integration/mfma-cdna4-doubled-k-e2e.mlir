@@ -60,10 +60,7 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
       %base: !amdgcn.sgpr<[? + 2]>,
       %thread_offset: !amdgcn.vgpr,
       %const_offset: i32) {
-    %tok = amdgcn.store global_store_dwordx4 data %data addr %base
-        offset d(%thread_offset) + c(%const_offset)
-      : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dwordx4 data %data addr %base offset d(%thread_offset) + c(%const_offset) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     return
   }
 
@@ -91,10 +88,7 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
     %shift_4 = arith.constant 4 : i32
     %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%shift_4, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %c0_store = arith.constant 0 : i32
-    %tok = amdgcn.store global_store_dwordx4 data %result addr %c_ptr
-        offset d(%thread_offset) + c(%c0_store)
-      : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dwordx4 data %result addr %c_ptr offset d(%thread_offset) + c(%c0_store) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }
@@ -123,10 +117,7 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
     %shift_4 = arith.constant 4 : i32
     %thread_offset = amdgcn.v_lshlrev_b32 outs(%offset_s) ins(%shift_4, %tid) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr)
     %c0_store = arith.constant 0 : i32
-    %tok = amdgcn.store global_store_dwordx4 data %result addr %c_ptr
-        offset d(%thread_offset) + c(%c0_store)
-      : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dwordx4 data %result addr %c_ptr offset d(%thread_offset) + c(%c0_store) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }

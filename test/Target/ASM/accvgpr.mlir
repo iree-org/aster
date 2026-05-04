@@ -66,10 +66,7 @@ amdgcn.module @agpr_asm_mod target = #amdgcn.target<gfx942> {
     %c0 = arith.constant 0 : i32
     %out = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
     %off = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %tok = amdgcn.store global_store_dwordx4 data %data addr %out
-        offset d(%off) + c(%c0)
-      : ins(!amdgcn.agpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dwordx4 data %data addr %out offset d(%off) + c(%c0) : ins(!amdgcn.agpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     return
   }
@@ -89,10 +86,7 @@ amdgcn.module @agpr_asm_mod target = #amdgcn.target<gfx942> {
 
     %out = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
     %off = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %tok = amdgcn.store global_store_dword data %v0 addr %out
-        offset d(%off) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dword data %v0 addr %out offset d(%off) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel
@@ -115,10 +109,7 @@ amdgcn.module @agpr_asm_mod target = #amdgcn.target<gfx942> {
 
     %out = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
     %off = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
-    %tok = amdgcn.store global_store_dword data %v0 addr %out
-        offset d(%off) + c(%c0)
-      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, i32)
-        -> !amdgcn.write_token<flat>
+    %tok = amdgcn.global_store_dword data %v0 addr %out offset d(%off) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
 
     amdgcn.end_kernel

@@ -55,7 +55,16 @@ bool checkOffsetConst(Value value, int64_t offsetWidth, bool isSigned = false);
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h.inc"
 
 #define GET_OP_CLASSES
+#include "aster/Dialect/AMDGCN/IR/DS.h.inc"
+
+#define GET_OP_CLASSES
+#include "aster/Dialect/AMDGCN/IR/SMem.h.inc"
+
+#define GET_OP_CLASSES
 #include "aster/Dialect/AMDGCN/IR/SOP.h.inc"
+
+#define GET_OP_CLASSES
+#include "aster/Dialect/AMDGCN/IR/VMem.h.inc"
 
 #define GET_OP_CLASSES
 #include "aster/Dialect/AMDGCN/IR/VOP.h.inc"

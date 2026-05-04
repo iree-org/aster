@@ -43,6 +43,12 @@ public:
   StringRef getName() const override { return "amdgcn.lds_memory"; }
 };
 
+/// Memory unit issuer resource.
+class MemoryUnit : public SideEffects::Resource::Base<MemoryUnit> {
+public:
+  StringRef getName() const override { return "amdgcn.memory_unit"; }
+};
+
 /// Scalar Unit (SALU) resource.
 class SALUResource : public SideEffects::Resource::Base<SALUResource> {
 public:

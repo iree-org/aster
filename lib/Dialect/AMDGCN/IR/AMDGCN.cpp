@@ -114,128 +114,29 @@ static void printDimAttr(OpAsmPrinter &printer, Operation *, DimAttr attr) {
 // Offset Parsing/Printing
 //===----------------------------------------------------------------------===//
 
-static ParseResult
-parseOffsets(OpAsmParser &parser,
-             std::optional<OpAsmParser::UnresolvedOperand> &uOff,
-             std::optional<OpAsmParser::UnresolvedOperand> &dOff,
-             std::optional<OpAsmParser::UnresolvedOperand> &cOff) {
-  // If there are no offsets, return success.
-  llvm::SMLoc loc = parser.getCurrentLocation();
-  if (failed(parser.parseOptionalKeyword("offset")))
-    return success();
+//===----------------------------------------------------------------------===//
+// LoadResults Parsing/Printing
+//===----------------------------------------------------------------------===//
 
-  // Helper to parse an optional offset.
-  auto parseOffset = [&](std::optional<OpAsmParser::UnresolvedOperand> &offset,
-                         StringRef prefix) -> OptionalParseResult {
-    if (failed(parser.parseOptionalKeyword(prefix)))
-      return std::nullopt;
-    OpAsmParser::UnresolvedOperand operand;
-    if (parser.parseLParen() || parser.parseOperand(operand) ||
-        parser.parseRParen())
-      return failure();
-    offset = operand;
-    return success();
-  };
-
-  // Parse (`u` `(` operand `)` `+`?)?
-  {
-    OptionalParseResult result = parseOffset(uOff, "u");
-    if (result.has_value() && failed(result.value()))
-      return failure();
-    if (result.has_value() && failed(parser.parseOptionalPlus()))
-      return success();
-  }
-
-  // Parse (`d` `(` operand `)` `+`?)?
-  {
-    OptionalParseResult result = parseOffset(dOff, "d");
-    if (result.has_value() && failed(result.value()))
-      return failure();
-    if (result.has_value() && failed(parser.parseOptionalPlus()))
-      return success();
-  }
-
-  // Parse (`c` `(` operand `)` `+`?)?
-  {
-    OptionalParseResult result = parseOffset(cOff, "c");
-    if (result.has_value() && failed(result.value()))
-      return failure();
-  }
-  if (!uOff.has_value() && !dOff.has_value() && !cOff.has_value())
-    return parser.emitError(loc, "expected at least one offset operand");
-  return success();
-}
-
-static void printOffsets(OpAsmPrinter &printer, Operation *, Value uOff,
-                         Value dOff, Value cOff) {
-  if (dOff == nullptr && uOff == nullptr && cOff == nullptr)
-    return;
-  printer << " offset ";
-  bool first = true;
-  auto printOperand = [&](Value operand, StringRef prefix) {
-    if (!operand)
-      return;
-    if (!first)
-      printer << " + ";
-    printer << prefix << "(";
-    printer.printOperand(operand);
-    printer << ")";
-    first = false;
-  };
-  printOperand(uOff, "u");
-  printOperand(dOff, "d");
-  printOperand(cOff, "c");
-}
-
-static ParseResult parseOutTypes(OpAsmParser &parser, Type &operand,
-                                 Type &resultType) {
-  if (parser.parseKeyword("dps") || parser.parseLParen() ||
-      parser.parseType(operand) || parser.parseRParen())
-    return failure();
-  if (auto regTy = dyn_cast<RegisterTypeInterface>(operand);
-      regTy && regTy.hasValueSemantics())
-    resultType = operand;
-  return success();
-}
-
-static void printOutTypes(OpAsmPrinter &printer, Operation *, Type operand,
-                          Type resultType) {
-  printer << "dps(";
-  printer << operand;
-  printer << ")";
-}
-
-static ParseResult
-parseOffsetTypes(OpAsmParser &parser,
-                 std::optional<OpAsmParser::UnresolvedOperand> &uOff,
-                 std::optional<OpAsmParser::UnresolvedOperand> &dOff,
-                 std::optional<OpAsmParser::UnresolvedOperand> &cOff,
-                 Type &uOffTy, Type &dOffTy, Type &cOffTy) {
-  // Helper to parse an optional type.
-  auto parseType = [&](Type &type, bool present) -> ParseResult {
-    if (!present)
-      return success();
-    if (parser.parseComma())
-      return failure();
-    return parser.parseType(type);
-  };
-
-  if (parseType(uOffTy, uOff.has_value()) ||
-      parseType(dOffTy, dOff.has_value()) ||
-      parseType(cOffTy, cOff.has_value()))
+/// Parse the trailing results of a load instruction. The dest type has already
+/// been parsed and is passed by reference. The dest_res type is inferred to be
+/// the same as dest iff the register has value semantics. The token type is
+/// parsed from the input.
+static ParseResult parseLoadResults(OpAsmParser &parser, Type destType,
+                                    Type &destResType, Type &tokenType) {
+  auto regTy = dyn_cast<RegisterTypeInterface>(destType);
+  if (regTy && regTy.hasValueSemantics())
+    destResType = destType;
+  if (parser.parseType(tokenType))
     return failure();
   return success();
 }
 
-static void printOffsetTypes(OpAsmPrinter &printer, Operation *, Value uOff,
-                             Value dOff, Value cOff, Type uOffTy, Type dOffTy,
-                             Type cOffTy) {
-  if (uOff)
-    printer << ", " << uOffTy;
-  if (dOff)
-    printer << ", " << dOffTy;
-  if (cOff)
-    printer << ", " << cOffTy;
+/// Print the trailing results of a load instruction. The dest_res type is
+/// inferred from dest and is not printed; only the token type is printed.
+static void printLoadResults(OpAsmPrinter &printer, Operation *, Type destType,
+                             Type destResType, Type tokenType) {
+  printer.printType(tokenType);
 }
 
 //===----------------------------------------------------------------------===//
@@ -316,6 +217,15 @@ void AMDGCNDialect::initialize() {
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.cpp.inc"
       ,
 #define GET_OP_LIST
+#include "aster/Dialect/AMDGCN/IR/DS.cpp.inc"
+      ,
+#define GET_OP_LIST
+#include "aster/Dialect/AMDGCN/IR/SMem.cpp.inc"
+      ,
+#define GET_OP_LIST
+#include "aster/Dialect/AMDGCN/IR/VMem.cpp.inc"
+      ,
+#define GET_OP_LIST
 #include "aster/Dialect/AMDGCN/IR/SOP.cpp.inc"
       ,
 #define GET_OP_LIST
@@ -371,61 +281,6 @@ mlir::aster::amdgcn::getRegisterKind(AMDGCNRegisterTypeInterface type) {
   if (auto rTy = dyn_cast<AMDGCNRegisterTypeInterface>(type))
     return rTy.getRegisterKind();
   return RegisterKind::Unknown;
-}
-
-MemoryInstructionKind
-mlir::aster::amdgcn::getMemoryInstructionKind(OpCode opCode) {
-  switch (opCode) {
-  case OpCode::DS_READ_B32:
-  case OpCode::DS_READ_B64:
-  case OpCode::DS_READ_B96:
-  case OpCode::DS_READ_B128:
-  case OpCode::DS_WRITE_B32:
-  case OpCode::DS_WRITE_B64:
-  case OpCode::DS_WRITE_B96:
-  case OpCode::DS_WRITE_B128:
-  case OpCode::DS_BPERMUTE_B32:
-  case OpCode::DS_PERMUTE_B32:
-    return MemoryInstructionKind::Shared;
-  case OpCode::S_LOAD_DWORD:
-  case OpCode::S_LOAD_DWORDX2:
-  case OpCode::S_LOAD_DWORDX4:
-  case OpCode::S_LOAD_DWORDX8:
-  case OpCode::S_LOAD_DWORDX16:
-  case OpCode::S_STORE_DWORD:
-  case OpCode::S_STORE_DWORDX2:
-  case OpCode::S_STORE_DWORDX4:
-    return MemoryInstructionKind::Constant;
-  case OpCode::GLOBAL_LOAD_DWORD:
-  case OpCode::GLOBAL_LOAD_DWORDX2:
-  case OpCode::GLOBAL_LOAD_DWORDX3:
-  case OpCode::GLOBAL_LOAD_DWORDX4:
-  case OpCode::GLOBAL_STORE_DWORD:
-  case OpCode::GLOBAL_STORE_DWORDX2:
-  case OpCode::GLOBAL_STORE_DWORDX3:
-  case OpCode::GLOBAL_STORE_DWORDX4:
-  case OpCode::BUFFER_LOAD_DWORD:
-  case OpCode::BUFFER_LOAD_DWORDX2:
-  case OpCode::BUFFER_LOAD_DWORDX3:
-  case OpCode::BUFFER_LOAD_DWORDX4:
-  case OpCode::BUFFER_STORE_DWORD:
-  case OpCode::BUFFER_STORE_DWORDX2:
-  case OpCode::BUFFER_STORE_DWORDX3:
-  case OpCode::BUFFER_STORE_DWORDX4:
-  case OpCode::BUFFER_LOAD_DWORD_IDXEN:
-  case OpCode::BUFFER_LOAD_DWORDX2_IDXEN:
-  case OpCode::BUFFER_LOAD_DWORDX3_IDXEN:
-  case OpCode::BUFFER_LOAD_DWORDX4_IDXEN:
-  case OpCode::BUFFER_STORE_DWORD_IDXEN:
-  case OpCode::BUFFER_STORE_DWORDX2_IDXEN:
-  case OpCode::BUFFER_STORE_DWORDX3_IDXEN:
-  case OpCode::BUFFER_STORE_DWORDX4_IDXEN:
-  case OpCode::BUFFER_LOAD_DWORD_LDS:
-  case OpCode::BUFFER_LOAD_DWORDX4_LDS:
-    return MemoryInstructionKind::Flat;
-  default:
-    return MemoryInstructionKind::None;
-  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -517,58 +372,6 @@ LogicalResult MakeBufferRsrcOp::verify() {
   }
 
   return success();
-}
-
-//===----------------------------------------------------------------------===//
-// LoadOp
-//===----------------------------------------------------------------------===//
-
-static Type getTokType(MLIRContext *context, OpCode code, bool isRead) {
-  MemoryInstructionKind kind =
-      mlir::aster::amdgcn::getMemoryInstructionKind(code);
-  return isRead ? cast<Type>(ReadTokenType::get(context, kind))
-                : cast<Type>(WriteTokenType::get(context, kind));
-}
-
-MutableOperandRange LoadOp::getDependenciesMutable() {
-  return MutableOperandRange(getOperation(), 0, 0);
-}
-
-Value LoadOp::getOutDependency() { return getToken(); }
-
-LogicalResult
-LoadOp::inferReturnTypes(MLIRContext *context, std::optional<Location> location,
-                         ValueRange operands, DictionaryAttr attributes,
-                         PropertyRef properties, RegionRange regions,
-                         SmallVectorImpl<Type> &inferredReturnTypes) {
-  if (auto regTy = cast<RegisterTypeInterface>(operands[0].getType());
-      regTy && regTy.hasValueSemantics())
-    inferredReturnTypes.push_back(operands[0].getType());
-  inferredReturnTypes.push_back(getTokType(
-      context, properties.as<Properties *>()->getOpcode().getValue(), true));
-  return success();
-}
-
-void LoadOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-        &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), &getAddrMutable());
-  effects.emplace_back(MemoryEffects::Write::get(), &getDestMutable());
-  switch (getInstKind()) {
-  case MemoryInstructionKind::Flat:
-    effects.emplace_back(MemoryEffects::Read::get(),
-                         GlobalMemoryResource::get());
-    break;
-  case MemoryInstructionKind::Shared:
-    effects.emplace_back(MemoryEffects::Read::get(), LDSMemoryResource::get());
-    break;
-  case MemoryInstructionKind::Constant:
-    effects.emplace_back(MemoryEffects::Read::get(),
-                         GlobalMemoryResource::get());
-    break;
-  default:
-    break;
-  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -739,83 +542,6 @@ RegInterferenceOp::livenessTransferFunction(LivenessCallback insertCallback,
                                             IsLiveCallback isLiveCallback) {
   // This operation doesn't modify liveness.
   return success();
-}
-
-//===----------------------------------------------------------------------===//
-// StoreOp
-//===----------------------------------------------------------------------===//
-
-MutableOperandRange StoreOp::getDependenciesMutable() {
-  return MutableOperandRange(getOperation(), 0, 0);
-}
-
-Value StoreOp::getOutDependency() { return getToken(); }
-
-LogicalResult StoreOp::inferReturnTypes(
-    MLIRContext *context, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
-    SmallVectorImpl<Type> &inferredReturnTypes) {
-  inferredReturnTypes.push_back(getTokType(
-      context, properties.as<Properties *>()->getOpcode().getValue(), false));
-  return success();
-}
-
-void StoreOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-        &effects) {
-  effects.emplace_back(MemoryEffects::Write::get(), &getAddrMutable());
-  switch (getInstKind()) {
-  case MemoryInstructionKind::Flat:
-    effects.emplace_back(MemoryEffects::Write::get(),
-                         GlobalMemoryResource::get());
-    break;
-  case MemoryInstructionKind::Shared:
-    effects.emplace_back(MemoryEffects::Write::get(), LDSMemoryResource::get());
-    break;
-  case MemoryInstructionKind::Constant:
-    effects.emplace_back(MemoryEffects::Write::get(),
-                         GlobalMemoryResource::get());
-    break;
-  default:
-    break;
-  }
-}
-
-//===----------------------------------------------------------------------===//
-// LoadToLDSOp
-//===----------------------------------------------------------------------===//
-
-MutableOperandRange LoadToLDSOp::getDependenciesMutable() {
-  return MutableOperandRange(getOperation(), 0, 0);
-}
-
-Value LoadToLDSOp::getOutDependency() { return getToken(); }
-
-LogicalResult LoadToLDSOp::inferReturnTypes(
-    MLIRContext *context, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
-    SmallVectorImpl<Type> &inferredReturnTypes) {
-  // LoadToLDSOp has no register destination (no DPS results).
-  // Only result is the write token for vmcnt tracking.
-  inferredReturnTypes.push_back(getTokType(
-      context, properties.as<Properties *>()->getOpcode().getValue(), false));
-  return success();
-}
-
-void LoadToLDSOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-        &effects) {
-  // Read M0 register (LDS destination offset).
-  if (auto m0RegType = dyn_cast<RegisterTypeInterface>(getM0().getType());
-      m0RegType && !m0RegType.hasValueSemantics())
-    if (auto *resource = m0RegType.getResource())
-      effects.emplace_back(MemoryEffects::Read::get(), &getM0Mutable(),
-                           resource);
-  // Read from global memory (via buffer descriptor).
-  effects.emplace_back(MemoryEffects::Read::get(), &getAddrMutable());
-  effects.emplace_back(MemoryEffects::Read::get(), GlobalMemoryResource::get());
-  // Write to LDS.
-  effects.emplace_back(MemoryEffects::Write::get(), LDSMemoryResource::get());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1235,10 +961,28 @@ inferTypesImpl(MLIRContext *ctx, std::optional<Location> &loc,
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.cpp.inc"
 
 #define GET_OP_CLASSES
+#include "aster/Dialect/AMDGCN/IR/DS.cpp.inc"
+
+#define AMDGCN_GEN_INST_METHODS
+#include "aster/Dialect/AMDGCN/IR/DSInst.cpp.inc"
+
+#define GET_OP_CLASSES
+#include "aster/Dialect/AMDGCN/IR/SMem.cpp.inc"
+
+#define AMDGCN_GEN_INST_METHODS
+#include "aster/Dialect/AMDGCN/IR/SMemInst.cpp.inc"
+
+#define GET_OP_CLASSES
 #include "aster/Dialect/AMDGCN/IR/SOP.cpp.inc"
 
 #define AMDGCN_GEN_INST_METHODS
 #include "aster/Dialect/AMDGCN/IR/SOPInst.cpp.inc"
+
+#define GET_OP_CLASSES
+#include "aster/Dialect/AMDGCN/IR/VMem.cpp.inc"
+
+#define AMDGCN_GEN_INST_METHODS
+#include "aster/Dialect/AMDGCN/IR/VMemInst.cpp.inc"
 
 #define GET_OP_CLASSES
 #include "aster/Dialect/AMDGCN/IR/VOP.cpp.inc"

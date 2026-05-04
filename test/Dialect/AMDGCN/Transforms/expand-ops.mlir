@@ -15,11 +15,11 @@ amdgcn.module @kernel_with_ptr target = <gfx940> {
 // CHECK-DAG:     %[[VAL_7:.*]] = alloca : !amdgcn.sgpr
 // CHECK:         %[[VAL_8:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
 // CHECK:         %[[VAL_9:.*]] = make_register_range %[[VAL_2]], %[[VAL_3]] : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:         %[[VAL_10:.*]], %[[VAL_11:.*]] = load s_load_dwordx2 dest %[[VAL_9]] addr %[[VAL_8]] offset c(%[[CONSTANT_2]]) : dps(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_10:.*]], %[[VAL_11:.*]] = s_load_dwordx2 dest %[[VAL_9]] addr %[[VAL_8]] offset c(%[[CONSTANT_2]]) : outs(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:         %[[VAL_12:.*]] = make_register_range %[[VAL_4]], %[[VAL_5]] : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:         %[[VAL_13:.*]], %[[VAL_14:.*]] = load s_load_dwordx2 dest %[[VAL_12]] addr %[[VAL_8]] offset c(%[[CONSTANT_1]]) : dps(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_13:.*]], %[[VAL_14:.*]] = s_load_dwordx2 dest %[[VAL_12]] addr %[[VAL_8]] offset c(%[[CONSTANT_1]]) : outs(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:         %[[VAL_15:.*]] = make_register_range %[[VAL_6]], %[[VAL_7]] : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:         %[[VAL_16:.*]], %[[VAL_17:.*]] = load s_load_dwordx2 dest %[[VAL_15]] addr %[[VAL_8]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_16:.*]], %[[VAL_17:.*]] = s_load_dwordx2 dest %[[VAL_15]] addr %[[VAL_8]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:         test_inst ins %[[VAL_10]], %[[VAL_13]], %[[VAL_16]] : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 2]>) -> ()
 // CHECK:         end_kernel
 // CHECK:       }
@@ -55,14 +55,14 @@ amdgcn.module @kernel_with_ptr target = <gfx940> {
 // CHECK:         %[[VAL_11:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
 // CHECK:         %[[VAL_12:.*]] = make_register_range %[[VAL_2]], %[[VAL_3]] : !amdgcn.sgpr, !amdgcn.sgpr
 // CHECK:         %[[VAL_13:.*]]:2 = split_register_range %[[VAL_12]] : !amdgcn.sgpr<[? + 2]>
-// CHECK:         %[[VAL_14:.*]], %[[VAL_15:.*]] = load s_load_dword dest %[[VAL_13]]#0 addr %[[VAL_11]] offset c(%[[CONSTANT_4]]) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
-// CHECK:         %[[VAL_16:.*]], %[[VAL_17:.*]] = load s_load_dword dest %[[VAL_13]]#1 addr %[[VAL_11]] offset c(%[[CONSTANT_3]]) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_14:.*]], %[[VAL_15:.*]] = s_load_dword dest %[[VAL_13]]#0 addr %[[VAL_11]] offset c(%[[CONSTANT_4]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_16:.*]], %[[VAL_17:.*]] = s_load_dword dest %[[VAL_13]]#1 addr %[[VAL_11]] offset c(%[[CONSTANT_3]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:         %[[VAL_18:.*]] = make_register_range %[[VAL_14]], %[[VAL_16]] : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:         %[[VAL_19:.*]], %[[VAL_20:.*]] = load s_load_dword dest %[[VAL_4]] addr %[[VAL_11]] offset c(%[[CONSTANT_2]]) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_19:.*]], %[[VAL_20:.*]] = s_load_dword dest %[[VAL_4]] addr %[[VAL_11]] offset c(%[[CONSTANT_2]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:         %[[VAL_21:.*]] = make_register_range %[[VAL_5]], %[[VAL_6]] : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:         %[[VAL_22:.*]], %[[VAL_23:.*]] = load s_load_dwordx2 dest %[[VAL_21]] addr %[[VAL_11]] offset c(%[[CONSTANT_1]]) : dps(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_22:.*]], %[[VAL_23:.*]] = s_load_dwordx2 dest %[[VAL_21]] addr %[[VAL_11]] offset c(%[[CONSTANT_1]]) : outs(!amdgcn.sgpr<[? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:         %[[VAL_24:.*]] = make_register_range %[[VAL_7]], %[[VAL_8]], %[[VAL_9]], %[[VAL_10]] : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:         %[[VAL_25:.*]], %[[VAL_26:.*]] = load s_load_dwordx4 dest %[[VAL_24]] addr %[[VAL_11]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr<[? + 4]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_25:.*]], %[[VAL_26:.*]] = s_load_dwordx4 dest %[[VAL_24]] addr %[[VAL_11]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.sgpr<[? + 4]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:         test_inst ins %[[VAL_18]], %[[VAL_19]], %[[VAL_22]], %[[VAL_25]] : (!amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.sgpr<[? + 4]>) -> ()
 // CHECK:         end_kernel
 // CHECK:       }
@@ -184,14 +184,14 @@ amdgcn.module @kernel_with_ptr target = <gfx940> {
 // CHECK-DAG:     %[[VAL_10:.*]] = alloca : !amdgcn.sgpr
 // CHECK-DAG:     %[[VAL_11:.*]] = alloca : !amdgcn.sgpr
 // CHECK:         %[[VAL_12:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-// CHECK:         %[[VAL_13:.*]], %[[VAL_14:.*]] = load s_load_dword dest %[[VAL_2]] addr %[[VAL_12]] offset c(%[[CONSTANT_6]]) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
-// CHECK:         %[[VAL_15:.*]], %[[VAL_16:.*]] = load s_load_dword dest %[[VAL_3]] addr %[[VAL_12]] offset c(%[[CONSTANT_5]]) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
-// CHECK:         %[[VAL_17:.*]], %[[VAL_18:.*]] = load s_load_dword dest %[[VAL_4]] addr %[[VAL_12]] offset c(%[[CONSTANT_4]]) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
-// CHECK:         %[[VAL_19:.*]], %[[VAL_20:.*]] = load s_load_dword dest %[[VAL_5]] addr %[[VAL_12]] offset c(%[[CONSTANT_3]]) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_13:.*]], %[[VAL_14:.*]] = s_load_dword dest %[[VAL_2]] addr %[[VAL_12]] offset c(%[[CONSTANT_6]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_15:.*]], %[[VAL_16:.*]] = s_load_dword dest %[[VAL_3]] addr %[[VAL_12]] offset c(%[[CONSTANT_5]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_17:.*]], %[[VAL_18:.*]] = s_load_dword dest %[[VAL_4]] addr %[[VAL_12]] offset c(%[[CONSTANT_4]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_19:.*]], %[[VAL_20:.*]] = s_load_dword dest %[[VAL_5]] addr %[[VAL_12]] offset c(%[[CONSTANT_3]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:         %[[VAL_21:.*]] = s_and_b32 outs(%[[VAL_6]], %[[SCC]]) ins(%[[VAL_19]], %[[CONSTANT_2]]) : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, i32)
-// CHECK:         %[[VAL_22:.*]], %[[VAL_23:.*]] = load s_load_dword dest %[[VAL_8]] addr %[[VAL_12]] offset c(%[[CONSTANT_1]]) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_22:.*]], %[[VAL_23:.*]] = s_load_dword dest %[[VAL_8]] addr %[[VAL_12]] offset c(%[[CONSTANT_1]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:         %[[VAL_24:.*]] = s_and_b32 outs(%[[VAL_9]], %[[SCC]]) ins(%[[VAL_22]], %[[CONSTANT_2]]) : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, i32)
-// CHECK:         %[[VAL_25:.*]], %[[VAL_26:.*]] = load s_load_dword dest %[[VAL_10]] addr %[[VAL_12]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:         %[[VAL_25:.*]], %[[VAL_26:.*]] = s_load_dword dest %[[VAL_10]] addr %[[VAL_12]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:         %[[VAL_27:.*]] = s_and_b32 outs(%[[VAL_11]], %[[SCC]]) ins(%[[VAL_25]], %[[CONSTANT_2]]) : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, i32)
 // CHECK:         test_inst ins %[[VAL_13]], %[[VAL_15]], %[[VAL_17]], %[[VAL_21]], %[[VAL_24]], %[[VAL_27]] : (!amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr) -> ()
 // CHECK:         end_kernel
@@ -208,8 +208,8 @@ amdgcn.module @kernel_with_ptr target = <gfx940> {
   }
 
 // CHECK-LABEL: kernel @make_buffer_rsrc_raw
-//       CHECK:   %[[BASE:.*]], %{{.*}} = load s_load_dwordx2
-//       CHECK:   %[[NREC:.*]], %{{.*}} = load s_load_dword
+//       CHECK:   %[[BASE:.*]], %{{.*}} = s_load_dwordx2 dest
+//       CHECK:   %[[NREC:.*]], %{{.*}} = s_load_dword dest
 //       CHECK:   %[[BASE_SPLIT:.*]]:2 = split_register_range %[[BASE]] : !amdgcn.sgpr<[? + 2]>
 //   CHECK-NOT:   s_or_b32
 //       CHECK:   %[[NREC_COPY:.*]] = s_mov_b32 outs(%{{.*}}) ins(%[[NREC]]) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr)
@@ -234,8 +234,8 @@ amdgcn.module @kernel_with_ptr target = <gfx940> {
 
 // stride=16 -> dword1 upper bits = 16 << 16 = 0x00100000 = 1048576
 // CHECK-LABEL: kernel @make_buffer_rsrc_structured
-//       CHECK:   %[[BASE2:.*]], %{{.*}} = load s_load_dwordx2
-//       CHECK:   %[[NREC2:.*]], %{{.*}} = load s_load_dword
+//       CHECK:   %[[BASE2:.*]], %{{.*}} = s_load_dwordx2 dest
+//       CHECK:   %[[NREC2:.*]], %{{.*}} = s_load_dword dest
 //       CHECK:   %[[BASE_SPLIT2:.*]]:2 = split_register_range %[[BASE2]] : !amdgcn.sgpr<[? + 2]>
 //       CHECK:   %[[DWORD1:.*]] = s_or_b32 outs(%{{.*}}, %{{.*}}) ins(%[[BASE_SPLIT2]]#1, %c1048576_i32) : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, i32)
 //       CHECK:   %[[DWORD0_2:.*]] = s_mov_b32 outs(%{{.*}}) ins(%[[BASE_SPLIT2]]#0) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr)
@@ -263,8 +263,8 @@ amdgcn.module @kernel_with_ptr target = <gfx940> {
 // dword1 upper = (4 << 16) | (1 << 30) | (1 << 31) = 262144 + 1073741824 + 2147483648 = 3221487616
 // as signed i32: -1073479680
 // CHECK-LABEL: kernel @make_buffer_rsrc_swizzled
-//       CHECK:   %[[BASE3:.*]], %{{.*}} = load s_load_dwordx2
-//       CHECK:   %[[NREC3:.*]], %{{.*}} = load s_load_dword
+//       CHECK:   %[[BASE3:.*]], %{{.*}} = s_load_dwordx2 dest
+//       CHECK:   %[[NREC3:.*]], %{{.*}} = s_load_dword dest
 //       CHECK:   %[[BASE_SPLIT3:.*]]:2 = split_register_range %[[BASE3]] : !amdgcn.sgpr<[? + 2]>
 //       CHECK:   %[[DWORD1_3:.*]] = s_or_b32 outs(%{{.*}}, %{{.*}}) ins(%[[BASE_SPLIT3]]#1, %c-1073479680_i32) : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, i32)
 //       CHECK:   %[[DWORD0_3:.*]] = s_mov_b32 outs(%{{.*}}) ins(%[[BASE_SPLIT3]]#0) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr)

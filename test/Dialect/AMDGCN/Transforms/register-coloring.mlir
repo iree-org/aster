@@ -580,11 +580,11 @@ amdgcn.kernel @reg_interference_with_values {
 // CHECK-DAG:       %[[VAL_2:.*]] = alloca : !amdgcn.sgpr<3>
 // CHECK-DAG:       %[[VAL_3:.*]] = alloca : !amdgcn.sgpr<2>
 // CHECK:           %[[VAL_4:.*]] = make_register_range %[[VAL_0]], %[[VAL_1]] : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-// CHECK:           %[[VAL_5:.*]] = load s_load_dword dest %[[VAL_2]] addr %[[VAL_4]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr<3>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:           %[[VAL_5:.*]] = s_load_dword dest %[[VAL_2]] addr %[[VAL_4]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.sgpr<3>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:           s_waitcnt vmcnt = 0 expcnt = 0 lgkmcnt = 0
 // CHECK:           %[[SCC:.*]] = alloca : !amdgcn.scc<0>
 // CHECK:           s_and_b32 outs(%[[VAL_2]], %[[SCC]]) ins(%[[VAL_2]], %[[CONSTANT_0]]) : outs(!amdgcn.sgpr<3>, !amdgcn.scc<0>) ins(!amdgcn.sgpr<3>, i32)
-// CHECK:           %[[VAL_6:.*]] = load s_load_dwordx2 dest %[[VAL_4]] addr %[[VAL_4]] offset c(%[[CONSTANT_0]]) : dps(!amdgcn.sgpr<[0 : 2]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+// CHECK:           %[[VAL_6:.*]] = s_load_dwordx2 dest %[[VAL_4]] addr %[[VAL_4]] offset c(%[[CONSTANT_0]]) : outs(!amdgcn.sgpr<[0 : 2]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK:           test_inst ins %[[VAL_3]], %[[VAL_2]] : (!amdgcn.sgpr<2>, !amdgcn.sgpr<3>) -> ()
 // CHECK:           end_kernel
 // CHECK:         }
@@ -595,7 +595,7 @@ amdgcn.kernel @test_index_bxmxnxk arguments <[#amdgcn.buffer_arg<address_space =
   %2 = alloca : !amdgcn.sgpr<1>
   %3 = make_register_range %1, %2 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
   %4 = alloca : !amdgcn.sgpr<?>
-  %token = load s_load_dword dest %4 addr %3 offset c(%c42_i32) : dps(!amdgcn.sgpr<?>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+  %token = amdgcn.s_load_dword dest %4 addr %3 offset c(%c42_i32) : outs(!amdgcn.sgpr<?>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
   amdgcn.s_waitcnt vmcnt = 0 expcnt = 0 lgkmcnt = 0
   %5 = alloca : !amdgcn.sgpr<?>
   %_scc_dst_and_b32 = alloca : !amdgcn.scc<0>
@@ -603,7 +603,7 @@ amdgcn.kernel @test_index_bxmxnxk arguments <[#amdgcn.buffer_arg<address_space =
   %7 = alloca : !amdgcn.sgpr<?>
   %8 = alloca : !amdgcn.sgpr<?>
   %9 = make_register_range %7, %8 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
-  %token_1 = load s_load_dwordx2 dest %9 addr %3 offset c(%c42_i32) : dps(!amdgcn.sgpr<[? : ? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+  %token_1 = amdgcn.s_load_dwordx2 dest %9 addr %3 offset c(%c42_i32) : outs(!amdgcn.sgpr<[? : ? + 2]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
   test_inst ins %0, %5 : (!amdgcn.sgpr<2>, !amdgcn.sgpr<?>) -> ()
   end_kernel
 }
@@ -878,7 +878,8 @@ amdgcn.module @reg_alloc target = <gfx942> {
     %2 = alloca : !amdgcn.vgpr<?>
     %3 = alloca : !amdgcn.vgpr<?>
     %4 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    %token = load global_load_dword dest %2 addr %4 : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
+    %c0_i32_mig1 = arith.constant 0 : i32
+    %token = amdgcn.global_load_dword dest %2 addr %4 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %3, %2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     test_inst ins %3 : (!amdgcn.vgpr<?>) -> ()
     end_kernel
@@ -923,12 +924,14 @@ amdgcn.module @reg_alloc target = <gfx942> {
     %3 = alloca : !amdgcn.vgpr<?>
     %4 = alloca : !amdgcn.vgpr<?>
     %5 = make_register_range %1, %2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    %token = load global_load_dword dest %3 addr %5 : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
+    %c0_i32_mig2 = arith.constant 0 : i32
+    %token = amdgcn.global_load_dword dest %3 addr %5 offset c(%c0_i32_mig2) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %4, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.br ^bb1
   ^bb1:  // 2 preds: ^bb0, ^bb1
     test_inst ins %4 : (!amdgcn.vgpr<?>) -> ()
-    %token_0 = load global_load_dword dest %3 addr %5 : dps(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) -> !amdgcn.read_token<flat>
+    %c0_i32_mig3 = arith.constant 0 : i32
+    %token_0 = amdgcn.global_load_dword dest %3 addr %5 offset c(%c0_i32_mig3) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     lsir.copy %4, %3 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
     cf.cond_br %0, ^bb1, ^bb2
   ^bb2:  // pred: ^bb1

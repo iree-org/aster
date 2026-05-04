@@ -19,6 +19,7 @@ amdgcn.module @test_struct_promotability_simple target = #amdgcn.target<gfx942> 
     amdgcn.s_waitcnt lgkmcnt = 0
 
     %c0 = arith.constant 0 : index
+    %c0_i32 = arith.constant 0 : i32
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index
 
@@ -43,10 +44,8 @@ amdgcn.module @test_struct_promotability_simple target = #amdgcn.target<gfx942> 
     // Store i and j values to output buffer
     %i_i32 = arith.index_cast %i_val : index to i32
     %j_i32 = arith.index_cast %j_val : index to i32
-    amdgcn.store global_store_dword data %i_i32 addr %out_ptr offset d(%c0) + c(%c0) : ins(i32, !amdgcn.sgpr<[? + 2]>, i32)
-    %c4 = arith.constant 4 : index
-    amdgcn.store global_store_dword data %j_i32 addr %out_ptr offset d(%c0) + c(%c4) : ins(i32, !amdgcn.sgpr<[? + 2]>, i32)
-
+    %v = alloca : !amdgcn.vgpr
+    amdgcn.global_store_dword data %v addr %out_ptr offset d(%v) + c(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.s_waitcnt vmcnt = 0
     amdgcn.end_kernel
   }

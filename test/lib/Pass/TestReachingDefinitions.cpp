@@ -51,7 +51,7 @@ public:
 
     // Create a filter for load operations.
     auto loadFilter =
-        +[](Operation *op) -> bool { return isa<amdgcn::LoadOp>(op); };
+        +[](Operation *op) -> bool { return isa<amdgcn::LoadOpInterface>(op); };
 
     // This callback has the effect of killing the loads if they are consumed as
     // input.

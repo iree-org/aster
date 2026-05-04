@@ -87,11 +87,12 @@ amdgcn.module @ds_kernels target = <gfx942> {
 
     %11 = make_register_range %0, %1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
     %12 = make_register_range %2, %3 : !amdgcn.sgpr<2>, !amdgcn.sgpr<3>
-    %token = load s_load_dwordx2 dest %12 addr %11 offset c(%c0_i32) : dps(!amdgcn.sgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+    %token = amdgcn.s_load_dwordx2 dest %12 addr %11 offset c(%c0_i32) : outs(!amdgcn.sgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
     %13 = make_register_range %4, %5 : !amdgcn.sgpr<4>, !amdgcn.sgpr<5>
-    %token_1 = load s_load_dwordx2 dest %13 addr %11 offset c(%c8_i32) : dps(!amdgcn.sgpr<[4 : 6]>) ins(!amdgcn.sgpr<[0 : 2]>, i32) -> !amdgcn.read_token<constant>
+    %token_1 = amdgcn.s_load_dwordx2 dest %13 addr %11 offset c(%c8_i32) : outs(!amdgcn.sgpr<[4 : 6]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
     amdgcn.s_waitcnt lgkmcnt = 0
-    %token_3 = load s_load_dword dest %6 addr %12 : dps(!amdgcn.sgpr<6>) ins(!amdgcn.sgpr<[2 : 4]>) -> !amdgcn.read_token<constant>
+    %c0_i32_mig1 = arith.constant 0 : i32
+    %token_3 = amdgcn.s_load_dword dest %6 addr %12 offset c(%c0_i32_mig1) : outs(!amdgcn.sgpr<6>) ins(!amdgcn.sgpr<[2 : 4]>) mods(i32) -> !amdgcn.read_token<constant>
     amdgcn.s_waitcnt lgkmcnt = 0
     //
     // Loop start cond:
@@ -103,7 +104,7 @@ amdgcn.module @ds_kernels target = <gfx942> {
     %_scc_dst = alloca : !amdgcn.scc<0>
     s_lshl_b32 outs(%8, %_scc_dst) ins(%18, %c2_i32) : outs(!amdgcn.sgpr<8>, !amdgcn.scc<0>) ins(!amdgcn.sgpr<7>, i32)
     amdgcn.v_mov_b32 outs(%9) ins(%8) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.sgpr<8>)
-    %21 = store global_store_dword data %9 addr %13 offset d(%9) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[4 : 6]>, !amdgcn.vgpr<0>) -> !amdgcn.write_token<flat>
+    %21 = amdgcn.global_store_dword data %9 addr %13 offset d(%9) + c(%c0_i32_mig1) : ins(!amdgcn.vgpr<0>, !amdgcn.sgpr<[4 : 6]>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.write_token<flat>
     //
     // Loop iv increment: sgpr<7>
     s_add_u32 outs(%7, %_scc_dst) ins(%18, %c1_i32) : outs(!amdgcn.sgpr<7>, !amdgcn.scc<0>) ins(!amdgcn.sgpr<7>, i32)

@@ -59,14 +59,15 @@ module attributes {dlti.dl_spec = #dlti.dl_spec<!ptr.ptr<#amdgcn.addr_space<loca
 // CHECK-SAME:      %[[ARG1:.*]]: !amdgcn.vgpr) -> !amdgcn.vgpr {
 // CHECK:           %[[PTR_ADD_0:.*]] = amdgcn.ptr_add %[[ARG0]] d_off = %[[ARG1]] : !amdgcn.vgpr, !amdgcn.vgpr
 // CHECK:           %[[ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.vgpr
-// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.load ds_read_b32 dest %[[ALLOCA_0]] addr %[[PTR_ADD_0]] : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+// CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.ds_read_b32 dest %[[ALLOCA_0]] addr %[[PTR_ADD_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           return %[[VAL_0]] : !amdgcn.vgpr
 // CHECK:         }
   func.func @test_load(%arg0: !ptr.ptr<#amdgcn.addr_space<local, read_write>>, %arg1: i32) -> !amdgcn.vgpr attributes {abi = (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr} {
     %0 = ptr.ptr_add %arg0, %arg1 : !ptr.ptr<#amdgcn.addr_space<local, read_write>>, i32
     %1 = lsir.to_reg %0 : !ptr.ptr<#amdgcn.addr_space<local, read_write>> -> !amdgcn.vgpr
     %2 = amdgcn.alloca : !amdgcn.vgpr
-    %dest_res, %token = amdgcn.load ds_read_b32 dest %2 addr %1 : dps(!amdgcn.vgpr) ins(!amdgcn.vgpr) -> !amdgcn.read_token<shared>
+    %c0_i32_mig1 = arith.constant 0 : i32
+    %dest_res, %token = amdgcn.ds_read_b32 dest %2 addr %1 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
     return %dest_res : !amdgcn.vgpr
   }
 }

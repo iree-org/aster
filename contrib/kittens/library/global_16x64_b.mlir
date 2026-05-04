@@ -40,8 +40,8 @@ amdgcn.library @kittens_global_16x64_b isa = [#amdgcn.isa<cdna3>] {
     %addr = func.call @global_addr_from_offset(%global_ptr_sx2, %byte_off)
         : (!sx2, index) -> !vx2
     %tmp_reg = func.call @alloc_vgprx4() : () -> !vx4
-    %loaded, %tok_global = amdgcn.load global_load_dwordx4 dest %tmp_reg addr %addr
-        : dps(!vx4) ins(!vx2) -> !amdgcn.read_token<flat>
+    %c0_i32_mig1 = arith.constant 0 : i32
+    %loaded, %tok_global = amdgcn.global_load_dwordx4 dest %tmp_reg addr %addr offset c(%c0_i32_mig1) : outs(!vx4) ins(!vx2) mods(i32) -> !amdgcn.read_token<flat>
 
     %value_any = aster_utils.to_any %loaded : !vx4
     %future = aster_utils.struct_create(%value_any, %tok_global)
