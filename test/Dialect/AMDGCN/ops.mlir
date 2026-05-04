@@ -281,7 +281,10 @@ func.func @test_buffer_load_dword(
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %result, %tok = amdgcn.buffer_load_dword dest %dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%off) {offen} : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  %result, %tok = amdgcn.load buffer_load_dword dest %dest addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
   return
 }
 
@@ -291,7 +294,10 @@ func.func @test_buffer_load_dwordx2(
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %result, %tok = amdgcn.buffer_load_dwordx2 dest %dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%off) {offen} : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  %result, %tok = amdgcn.load buffer_load_dwordx2 dest %dest addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
   return
 }
 
@@ -301,7 +307,10 @@ func.func @test_buffer_load_dwordx3(
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %result, %tok = amdgcn.buffer_load_dwordx3 dest %dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%off) {offen} : outs(!amdgcn.vgpr<[? + 3]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  %result, %tok = amdgcn.load buffer_load_dwordx3 dest %dest addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : dps(!amdgcn.vgpr<[? + 3]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
   return
 }
 
@@ -311,7 +320,10 @@ func.func @test_buffer_load_dwordx4(
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %result, %tok = amdgcn.buffer_load_dwordx4 dest %dest addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%off) {offen} : outs(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  %result, %tok = amdgcn.load buffer_load_dwordx4 dest %dest addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : dps(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
   return
 }
 
@@ -321,7 +333,10 @@ func.func @test_buffer_store_dword(
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %tok = amdgcn.buffer_store_dword data %data addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%off) {offen} : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.store buffer_store_dword data %data addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
   return
 }
 
@@ -331,7 +346,10 @@ func.func @test_buffer_store_dwordx2(
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %tok = amdgcn.buffer_store_dwordx2 data %data addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%off) {offen} : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.store buffer_store_dwordx2 data %data addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
   return
 }
 
@@ -341,7 +359,10 @@ func.func @test_buffer_store_dwordx3(
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %tok = amdgcn.buffer_store_dwordx3 data %data addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%off) {offen} : ins(!amdgcn.vgpr<[? + 3]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.store buffer_store_dwordx3 data %data addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : ins(!amdgcn.vgpr<[? + 3]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
   return
 }
 
@@ -351,7 +372,10 @@ func.func @test_buffer_store_dwordx4(
     %vaddr : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %tok = amdgcn.buffer_store_dwordx4 data %data addr %rsrc offset u(%soffset) + off_idx(%vaddr) + c(%off) {offen} : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.store buffer_store_dwordx4 data %data addr %rsrc
+    offset u(%soffset) + d(%vaddr) + c(%off)
+    : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
   return
 }
 
@@ -363,7 +387,10 @@ func.func @test_buffer_load_dword_idxen(
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %result, %tok = amdgcn.buffer_load_dword dest %dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%off) {idxen} : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  %result, %tok = amdgcn.load buffer_load_dword_idxen dest %dest addr %rsrc
+    offset u(%soffset) + d(%vindex) + c(%off)
+    : dps(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
   return
 }
 
@@ -373,7 +400,10 @@ func.func @test_buffer_load_dwordx2_idxen(
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %result, %tok = amdgcn.buffer_load_dwordx2 dest %dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%off) {idxen} : outs(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  %result, %tok = amdgcn.load buffer_load_dwordx2_idxen dest %dest addr %rsrc
+    offset u(%soffset) + d(%vindex) + c(%off)
+    : dps(!amdgcn.vgpr<[? + 2]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
   return
 }
 
@@ -383,7 +413,10 @@ func.func @test_buffer_load_dwordx3_idxen(
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %result, %tok = amdgcn.buffer_load_dwordx3 dest %dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%off) {idxen} : outs(!amdgcn.vgpr<[? + 3]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  %result, %tok = amdgcn.load buffer_load_dwordx3_idxen dest %dest addr %rsrc
+    offset u(%soffset) + d(%vindex) + c(%off)
+    : dps(!amdgcn.vgpr<[? + 3]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
   return
 }
 
@@ -393,7 +426,10 @@ func.func @test_buffer_load_dwordx4_idxen(
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %result, %tok = amdgcn.buffer_load_dwordx4 dest %dest addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%off) {idxen} : outs(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  %result, %tok = amdgcn.load buffer_load_dwordx4_idxen dest %dest addr %rsrc
+    offset u(%soffset) + d(%vindex) + c(%off)
+    : dps(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.read_token<flat>
   return
 }
 
@@ -403,7 +439,10 @@ func.func @test_buffer_store_dword_idxen(
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %tok = amdgcn.buffer_store_dword data %data addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%off) {idxen} : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.store buffer_store_dword_idxen data %data addr %rsrc
+    offset u(%soffset) + d(%vindex) + c(%off)
+    : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
   return
 }
 
@@ -413,7 +452,10 @@ func.func @test_buffer_store_dwordx2_idxen(
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %tok = amdgcn.buffer_store_dwordx2 data %data addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%off) {idxen} : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.store buffer_store_dwordx2_idxen data %data addr %rsrc
+    offset u(%soffset) + d(%vindex) + c(%off)
+    : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
   return
 }
 
@@ -423,7 +465,10 @@ func.func @test_buffer_store_dwordx3_idxen(
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %tok = amdgcn.buffer_store_dwordx3 data %data addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%off) {idxen} : ins(!amdgcn.vgpr<[? + 3]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.store buffer_store_dwordx3_idxen data %data addr %rsrc
+    offset u(%soffset) + d(%vindex) + c(%off)
+    : ins(!amdgcn.vgpr<[? + 3]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
   return
 }
 
@@ -433,7 +478,10 @@ func.func @test_buffer_store_dwordx4_idxen(
     %vindex : !amdgcn.vgpr,
     %soffset : !amdgcn.sgpr,
     %off : i32) {
-  %tok = amdgcn.buffer_store_dwordx4 data %data addr %rsrc offset u(%soffset) + off_idx(%vindex) + c(%off) {idxen} : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.store buffer_store_dwordx4_idxen data %data addr %rsrc
+    offset u(%soffset) + d(%vindex) + c(%off)
+    : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.vgpr, i32)
+      -> !amdgcn.write_token<flat>
   return
 }
 

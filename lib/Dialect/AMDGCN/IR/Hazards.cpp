@@ -316,10 +316,15 @@ bool CDNA3StoreWriteDataHazardAttr::matchInst(AMDGCNInstOpInterface instOp,
                                               ISAVersion isaVer) const {
   if (!instOp.supportsISA(isaVer))
     return false;
+  OpCode op = instOp.getOpCode();
   if (instOp.hasProp(InstProp::Global))
     return true;
   if (instOp.hasProp(InstProp::Buffer) &&
-      isa<BufferStoreDwordx3, BufferStoreDwordx4>(instOp.getOperation()))
+      llvm::is_contained({OpCode::BUFFER_STORE_DWORDX3,
+                          OpCode::BUFFER_STORE_DWORDX4,
+                          OpCode::BUFFER_STORE_DWORDX3_IDXEN,
+                          OpCode::BUFFER_STORE_DWORDX4_IDXEN},
+                         op))
     return true;
   return false;
 }
@@ -336,7 +341,11 @@ void CDNA3StoreWriteDataHazardAttr::populateHazardsFor(
   if (instOp.getOpCode() == OpCode::Invalid)
     return;
 
-  if (isa<BufferStoreDwordx3, BufferStoreDwordx4>(instOp.getOperation())) {
+  if (llvm::is_contained({OpCode::BUFFER_STORE_DWORDX3,
+                          OpCode::BUFFER_STORE_DWORDX4,
+                          OpCode::BUFFER_STORE_DWORDX3_IDXEN,
+                          OpCode::BUFFER_STORE_DWORDX4_IDXEN},
+                         instOp.getOpCode())) {
     // If the dynamic offset is not set, there is no hazard.
     if (!storeOp.getDynamicOff())
       return;
@@ -382,10 +391,15 @@ bool CDNA3StoreHazardAttr::matchInst(AMDGCNInstOpInterface instOp,
                                      ISAVersion isaVer) const {
   if (!instOp.supportsISA(isaVer))
     return false;
+  OpCode op = instOp.getOpCode();
   if (instOp.hasProp(InstProp::Global))
     return true;
   if (instOp.hasProp(InstProp::Buffer) &&
-      isa<BufferStoreDwordx3, BufferStoreDwordx4>(instOp.getOperation()))
+      llvm::is_contained({OpCode::BUFFER_STORE_DWORDX3,
+                          OpCode::BUFFER_STORE_DWORDX4,
+                          OpCode::BUFFER_STORE_DWORDX3_IDXEN,
+                          OpCode::BUFFER_STORE_DWORDX4_IDXEN},
+                         op))
     return true;
   return false;
 }
@@ -406,7 +420,12 @@ void CDNA3StoreHazardAttr::populateHazardsFor(
     return;
 
   // Handle buffer ops.
-  if (isa<BufferStoreDwordx3, BufferStoreDwordx4>(instOp.getOperation())) {
+  if (llvm::is_contained({OpCode::BUFFER_STORE_DWORDX3,
+                          OpCode::BUFFER_STORE_DWORDX4,
+                          OpCode::BUFFER_STORE_DWORDX3_IDXEN,
+                          OpCode::BUFFER_STORE_DWORDX4_IDXEN},
+                         instOp.getOpCode())) {
+
     // If the dynamic offset is not set, there is no hazard.
     if (!storeOp.getDynamicOff())
       return;
@@ -1091,7 +1110,7 @@ bool CDNA3XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
     return false;
 
   // instOp must be VMEM, L/GDS, FLAT, Export, or VALU.
-  if (!instOp.hasAnyProps({InstProp::IsValu, InstProp::IsVmem, InstProp::Ds,
+  if (!instOp.hasAnyProps({InstProp::IsValu, InstProp::IsVmem, InstProp::Dsmem,
                            InstProp::Flat, InstProp::Global,
                            InstProp::Buffer}) ||
       instOp.hasProp(InstProp::Mma))
@@ -1189,7 +1208,7 @@ bool CDNA4XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
   if (!hazardAttr)
     return false;
 
-  if (!instOp.hasAnyProps({InstProp::IsValu, InstProp::IsVmem, InstProp::Ds,
+  if (!instOp.hasAnyProps({InstProp::IsValu, InstProp::IsVmem, InstProp::Dsmem,
                            InstProp::Flat, InstProp::Global,
                            InstProp::Buffer}) ||
       instOp.hasProp(InstProp::Mma))
