@@ -389,6 +389,9 @@ GlobalStorePattern::matchAndRewrite(GlobalStoreDwordInstOpInterface op,
 LogicalResult
 BufferLoadPattern::matchAndRewrite(BufferLoadInstOpInterface op,
                                    PatternRewriter &rewriter) const {
+  // TODO: Improve the pattern and remove this condition.
+  if (op.getLds())
+    return failure();
   Operation *rawOp = op.getOperation();
   MutableOperand offOrIdx = op.getOffOrIdxOperand();
   if (!offOrIdx || offOrIdx.empty())

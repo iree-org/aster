@@ -370,6 +370,54 @@ func.func @test_buffer_load_boundary_4095(
 
 // -----
 
+// Buffer load-to-LDS with lsir.addi on voffset: BufferLoadPattern is skipped.
+// CHECK-LABEL:   func.func @test_buffer_load_lds_no_fold(
+// CHECK-SAME:      %[[RSRC:.*]]: !amdgcn.sgpr<[? + 4]>,
+// CHECK-SAME:      %[[SOFF:.*]]: !amdgcn.sgpr,
+// CHECK-SAME:      %[[VOFF:.*]]: !amdgcn.vgpr,
+// CHECK-SAME:      %[[M0:.*]]: !amdgcn.m0<0>) {
+// CHECK-DAG:       %[[C0:.*]] = arith.constant 0 : i32
+// CHECK-DAG:       %[[C512:.*]] = arith.constant 512 : i32
+// CHECK-NEXT:      %[[ALLOCA:.*]] = lsir.alloca : !amdgcn.vgpr
+// CHECK-NEXT:      %[[VOFF2:.*]] = lsir.addi i32 %[[ALLOCA]], %[[VOFF]], %[[C512]] : !amdgcn.vgpr, !amdgcn.vgpr, i32
+// CHECK-NEXT:      %{{.*}} = amdgcn.buffer_load_lds_dword addr %[[RSRC]] m0 %[[M0]] offset u(%[[SOFF]]) + off_idx(%[[VOFF2]]) + c(%[[C0]]) {offen}
+// CHECK-NEXT:      return
+// CHECK-NEXT:    }
+func.func @test_buffer_load_lds_no_fold(
+    %rsrc: !amdgcn.sgpr<[? + 4]>, %soff: !amdgcn.sgpr,
+    %voff: !amdgcn.vgpr, %m0: !amdgcn.m0<0>
+) {
+  %c512 = arith.constant 512 : i32
+  %0 = lsir.alloca : !amdgcn.vgpr
+  %voff2 = lsir.addi i32 %0, %voff, %c512 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %c0 = arith.constant 0 : i32
+  %tok = amdgcn.buffer_load_lds_dword addr %rsrc m0 %m0 offset u(%soff) + off_idx(%voff2) + c(%c0) {offen} : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.m0<0>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  return
+}
+
+// -----
+
+// Buffer load-to-LDS without addi: verify BufferLoadPattern is skipped.
+// CHECK-LABEL:   func.func @test_buffer_load_lds_plain_no_fold(
+// CHECK-SAME:      %[[RSRC:.*]]: !amdgcn.sgpr<[? + 4]>,
+// CHECK-SAME:      %[[SOFF:.*]]: !amdgcn.sgpr,
+// CHECK-SAME:      %[[VOFF:.*]]: !amdgcn.vgpr,
+// CHECK-SAME:      %[[M0:.*]]: !amdgcn.m0<0>) {
+// CHECK-NEXT:      %[[C0:.*]] = arith.constant 0 : i32
+// CHECK-NEXT:      %{{.*}} = amdgcn.buffer_load_lds_dword addr %[[RSRC]] m0 %[[M0]] offset u(%[[SOFF]]) + off_idx(%[[VOFF]]) + c(%[[C0]]) {offen}
+// CHECK-NEXT:      return
+// CHECK-NEXT:    }
+func.func @test_buffer_load_lds_plain_no_fold(
+    %rsrc: !amdgcn.sgpr<[? + 4]>, %soff: !amdgcn.sgpr,
+    %voff: !amdgcn.vgpr, %m0: !amdgcn.m0<0>
+) {
+  %c0 = arith.constant 0 : i32
+  %tok = amdgcn.buffer_load_lds_dword addr %rsrc m0 %m0 offset u(%soff) + off_idx(%voff) + c(%c0) {offen} : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.m0<0>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  return
+}
+
+// -----
+
 // Buffer store with lsir.addi on voffset: fold constant into c() offset.
 // CHECK-LABEL:   func.func @test_buffer_store_addi_const(
 // CHECK-SAME:      %[[RSRC:.*]]: !amdgcn.sgpr<[? + 4]>,
