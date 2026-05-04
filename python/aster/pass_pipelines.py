@@ -1,5 +1,34 @@
 """Common pass pipelines used across the codebase."""
 
+from dataclasses import dataclass
+from typing import Protocol
+
+
+class PipelineConfigProtocol(Protocol):
+    """Structural protocol for objects carrying pipeline compilation flags."""
+
+    lcm_unroll: bool
+    unroll_factor_multiplier: int
+    epilogue_peeling: bool
+    ll_sched: bool
+    hoist_wait: bool
+    set_mfma_priority: bool
+    rotate_stage: int | None
+
+
+@dataclass(frozen=True)
+class PipelineConfig(PipelineConfigProtocol):
+    """Default pipeline flags for callers that have no GemmMappingSpec."""
+
+    lcm_unroll: bool = False
+    unroll_factor_multiplier: int = 1
+    epilogue_peeling: bool = True
+    ll_sched: bool = False
+    hoist_wait: bool = False
+    set_mfma_priority: bool = True
+    rotate_stage: int | None = None
+
+
 # --------------------------------------------------------------------------- #
 # Helpers for compositional pass pipelines.
 # --------------------------------------------------------------------------- #
@@ -269,27 +298,26 @@ PHASE_CONSTEXPR_EXPANSION = (
 # --------------------------------------------------------------------------- #
 
 def make_default_pass_pipeline(
-    lcm_unroll=False,
-    num_vgprs=256,
-    num_agprs=256,
-    unroll_factor_multiplier=1,
-    epilogue_peeling=True,
-    ll_sched=False,
-    hoist_iter_arg_waits=False,
-    set_mfma_priority=True,
-    rotate_stage=None,
+    mapping: PipelineConfigProtocol,
+    *,
+    num_vgprs: int = 256,
+    num_agprs: int = 256,
 ) -> str:
-    """Build the production pass pipeline with configurable pipelining options."""
-    # Rotation is implemented in aster-scf-pipeline and activated only when
-    # rotate_stage is explicitly provided.
+    """Build the production pass pipeline driven by a PipelineConfigProtocol.
+
+    Args:
+        mapping: Object carrying pipeline flags (GemmMappingSpec or PipelineConfig).
+        num_vgprs: Max VGPRs for backend (default: 256).
+        num_agprs: Max AGPRs for backend (default: 256).
+    """
     return builtin_module(
         PHASE_PRE_SCHEDULING_CLEANUP,
         PHASE_CONSTEXPR_EXPANSION,
         phase_scf_pipelining(
-            lcm_unroll=lcm_unroll,
-            unroll_factor_multiplier=unroll_factor_multiplier,
-            epilogue_peeling=epilogue_peeling,
-            rotate_stage=rotate_stage,
+            lcm_unroll=mapping.lcm_unroll,
+            unroll_factor_multiplier=mapping.unroll_factor_multiplier,
+            epilogue_peeling=mapping.epilogue_peeling,
+            rotate_stage=mapping.rotate_stage,
         ),
         "aster-destructure-struct-iter-args",
         "canonicalize",
@@ -305,10 +333,11 @@ def make_default_pass_pipeline(
         # PHASE_LOWER_TO_AMDGCN,
         amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
         phase_amdgcn_backend(
-            num_vgprs=num_vgprs, num_agprs=num_agprs,
-            ll_sched=ll_sched,
-            hoist_iter_arg_waits=hoist_iter_arg_waits,
-            set_mfma_priority=set_mfma_priority,
+            num_vgprs=num_vgprs,
+            num_agprs=num_agprs,
+            ll_sched=mapping.ll_sched,
+            hoist_iter_arg_waits=mapping.hoist_wait,
+            set_mfma_priority=mapping.set_mfma_priority,
         ),
         phase_nop_insertion(delays=0),
     )
@@ -332,7 +361,7 @@ def _build_registry():
         TEST_SYNCHRONOUS_PASS_PIPELINE,
     )
     return {
-        "default": make_default_pass_pipeline(),
+        "default": make_default_pass_pipeline(PipelineConfig()),
         "test-empty": TEST_EMPTY_PASS_PIPELINE,
         "test-loop": TEST_LOOP_PASS_PIPELINE,
         "test-minimal": TEST_MINIMAL_PASS_PIPELINE,

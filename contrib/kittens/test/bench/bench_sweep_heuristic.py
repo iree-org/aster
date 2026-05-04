@@ -134,7 +134,7 @@ def add_heuristic_cli_args(parser) -> None:
     parser.add_argument(
         "--weak-scale-boost",
         type=float,
-        default=10.0,
+        default=0.0,
         help="Priority boost for weak-scaled best-known configs (0 = disable seeding)",
     )
 

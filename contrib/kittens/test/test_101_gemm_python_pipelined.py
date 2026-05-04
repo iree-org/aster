@@ -22,7 +22,7 @@ from aster.compiler.core import compile_mlir_module_to_asm, assemble_to_hsaco
 from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
-from aster.pass_pipelines import make_default_pass_pipeline
+from aster.pass_pipelines import make_default_pass_pipeline, PipelineConfig
 
 from aster.layout import Layout, Swizzle
 
@@ -139,7 +139,7 @@ class TestPythonGEMMPipelined:
         ctx.allow_unregistered_dialects = True
         with ctx:
             module = _build_gemm_pipelined(k, stride_ab)
-            asm = compile_mlir_module_to_asm(module, pass_pipeline=make_default_pass_pipeline())
+            asm = compile_mlir_module_to_asm(module, pass_pipeline=make_default_pass_pipeline(PipelineConfig()))
 
         path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
         if path is None:
@@ -181,7 +181,7 @@ if __name__ == "__main__":
         module = _build_gemm_pipelined(args.k, args.k * 2, 2)
         asm = compile_mlir_module_to_asm(
             module,
-            pass_pipeline=make_default_pass_pipeline(),
+            pass_pipeline=make_default_pass_pipeline(PipelineConfig()),
             print_opts=PrintOptions.from_flags(
                 print_ir_after_all=args.print_ir_after_all,
                 print_asm=args.print_asm,

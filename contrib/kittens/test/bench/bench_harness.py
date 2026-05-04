@@ -5,6 +5,7 @@ Phase 2: Parallel GPU execution (per-config subprocess, crash-isolated).
 Phase 3: Correctness verification (per-config subprocess, crash-isolated).
 """
 
+import dataclasses
 import fcntl
 import json
 import os
@@ -27,7 +28,7 @@ MI300X_PEAK_TFLOPS_F16 = 1307.0
 NUM_ITERATIONS = 100
 WARMUP_ITERATIONS = 20
 DEFAULT_COMPILE_WORKERS = 8
-DEFAULT_COMPILE_TIMEOUT = 180  # seconds per kernel
+DEFAULT_COMPILE_TIMEOUT = 30  # seconds per kernel compilation
 DEFAULT_EXEC_TIMEOUT = 10  # seconds per kernel execution
 
 
@@ -1472,6 +1473,33 @@ def print_config(cfg, resources=None, iterations=None):
         print(f"  sched:      {', '.join(sched)}")
     iters = iterations if iterations is not None else NUM_ITERATIONS
     print(f"  iterations: {iters} (warmup={WARMUP_ITERATIONS})")
+    # Exhaustive dump of every dataclass field on spec / mapping plus a few
+    # computed properties on cfg, so the printed config is a full repro.
+    print("  --- spec ---")
+    for f in dataclasses.fields(cfg.spec):
+        print(f"    {f.name}: {getattr(cfg.spec, f.name)}")
+    print("  --- mapping ---")
+    for f in dataclasses.fields(cfg.mapping):
+        print(f"    {f.name}: {getattr(cfg.mapping, f.name)}")
+    print("  --- derived ---")
+    for name in (
+        "gemm_size",
+        "load_type",
+        "b_path",
+        "lds_bytes",
+        "estimated_vgprs",
+        "estimated_agprs",
+        "simd_occupancy",
+        "kernel_name",
+        "k_scaling_factor",
+        "num_threads",
+    ):
+        if hasattr(cfg, name):
+            try:
+                print(f"    {name}: {getattr(cfg, name)}")
+            except Exception as e:
+                print(f"    {name}: <error: {e}>")
+    print("  --- resources ---")
     if resources:
         print(f"  resources:  {resources}")
         # Warn on large estimate-vs-actual discrepancies.
@@ -1551,8 +1579,6 @@ def run_single(cfg, compile_fn, args, execute_fn):
                 print(f"  OCCUPANCY ERROR: {v}")
             if violations and not getattr(args, "force", False):
                 raise SystemExit(1)
-    else:
-        print_config(cfg, iterations=iterations)
 
     if not has_gpu:
         print("No GPUs detected -- skipping execution.")
