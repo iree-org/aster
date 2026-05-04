@@ -17,7 +17,7 @@ import itertools
 import os
 import sys
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterable, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterable, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
@@ -181,17 +181,47 @@ class SweepGrid:
 
         if sample_size > 0 and total > sample_size:
             if priority_fn is not None:
-                # Weighted sampling: configs with higher scores are more
-                # likely to be selected, but all configs have a chance.
+                # Weighted sampling without replacement: high-score configs
+                # are more likely picked, but each config appears at most once.
                 scores = [max(priority_fn(c), 0.01) for c in eligible]
-                eligible = random.choices(eligible, weights=scores, k=sample_size)
+                eligible = _weighted_reservoir_sample_without_replacement(eligible, scores, sample_size)
             elif stratification_key is not None:
                 eligible = _stratified_sample(eligible, stratification_key, sample_size)
             else:
                 eligible = random.sample(eligible, sample_size)
 
+        # Pre-build sanity: enumeration + extra_eligible dedup + without-
+        # replacement sampling should never yield duplicate axis-dicts.
+        assert len({tuple(sorted(c.items())) for c in eligible}) == len(eligible), "sweep produced duplicate configs"
+
         assert self._builder is not None, "call build_with() before generate()"
         instances = [self._builder(cfg) for cfg in eligible]
+
+        # Post-build dedup by canonical instance label. Defends against
+        # axes that don't reach the builder (axis-dict different but
+        # instance identical) and against builders that ignore some
+        # fields. Without this, a "dead" axis silently bloats the
+        # eligible pool and the sample contains duplicate kernels.
+        labels = [getattr(inst, "label", None) for inst in instances]
+        if labels and all(lbl is not None for lbl in labels):
+            seen_labels: set[str] = set()
+            unique: list[Any] = []
+            for lbl, inst in zip(labels, instances):
+                if lbl in seen_labels:
+                    continue
+                seen_labels.add(lbl)
+                unique.append(inst)
+            n_collapsed = len(instances) - len(unique)
+            if n_collapsed:
+                print(
+                    f"  dedup: collapsed {n_collapsed} duplicate-by-label sample(s); "
+                    f"check for grid axes that do not reach _build_instance"
+                )
+            instances = unique
+            assert len({inst.label for inst in instances}) == len(instances), (
+                "post-build dedup failed: duplicate labels remain"
+            )
+
         print(f"Total: {total:,} eligible, {len(instances):,} selected")
         return instances, total
 
@@ -217,6 +247,22 @@ class SweepGrid:
             del bound[axis.name]
 
 
+def _weighted_reservoir_sample_without_replacement(
+    items: list[dict[str, Any]],
+    weights: list[float],
+    k: int,
+) -> list[dict[str, Any]]:
+    import heapq
+    import math
+    import random
+
+    if k >= len(items):
+        return list(items)
+    keys = [(math.log(random.random()) / w, idx) for idx, w in enumerate(weights)]
+    top = heapq.nlargest(k, keys)
+    return [items[idx] for _, idx in top]
+
+
 def _stratified_sample(
     configs: list[dict[str, Any]],
     key_fn: Callable[[dict[str, Any]], Hashable],
@@ -240,22 +286,21 @@ def _stratified_sample(
     return result
 
 
-def add_scheduling_axes(grid: SweepGrid, unroll_multipliers: Optional[Sequence[int]] = None) -> SweepGrid:
+def add_scheduling_axes(grid: SweepGrid) -> SweepGrid:
     """Add the common scheduling flag axes shared across sweeps.
 
-    Adds: lcm_unroll, unroll_mult, epilogue_peeling, ll_sched, hoist_wait,
-    rotate_compute_stage. Also adds the constraint that unroll_mult > 1
-    requires lcm_unroll=True.
+    Adds lcm_unroll, epilogue_peeling, ll_sched, hoist_wait,
+    unroll_factor_multiplier, rotate_compute_stage. Adds the constraint
+    unroll_factor_multiplier > 1 => lcm_unroll = True.
     """
-    if unroll_multipliers is None:
-        unroll_multipliers = [1, 2, 3]
     grid.axis("lcm_unroll", [True, False])
-    grid.axis("unroll_mult", unroll_multipliers)
     grid.axis("epilogue_peeling", [True, False])
     grid.axis("ll_sched", [True, False])
     grid.axis("hoist_wait", [True, False])
     grid.axis("rotate_compute_stage", [True, False])
-    grid.filter("lcm_unroll", "unroll_mult", check=lambda d: d["lcm_unroll"] or d["unroll_mult"] == 1)
+    grid.filter(
+        "lcm_unroll", "unroll_factor_multiplier", check=lambda d: d["lcm_unroll"] or d["unroll_factor_multiplier"] == 1
+    )
     return grid
 
 
@@ -266,7 +311,7 @@ def add_scheduling_axes(grid: SweepGrid, unroll_multipliers: Optional[Sequence[i
 # through every _build_instance.
 _SWEEP_TO_MAPPING_KWARG = {
     "lcm_unroll": "lcm_unroll",
-    "unroll_mult": "unroll_factor_multiplier",
+    "unroll_factor_multiplier": "unroll_factor_multiplier",
     "epilogue_peeling": "epilogue_peeling",
     "ll_sched": "ll_sched",
     "hoist_wait": "hoist_wait",
@@ -478,11 +523,6 @@ def wg_m(d: dict[str, Any], hw: GpuHwConstants) -> int:
     return WG_BASE[0] * nwgcu(d, hw)
 
 
-def wg_n(d: dict[str, Any]) -> int:
-    """N-dimension workgroup count (WG_BASE[1] * n_mult)."""
-    return WG_BASE[1] * d["n_mult"]
-
-
 def resolve_derived_pins(pins: dict[str, Any]) -> dict[str, Any]:
     """Convert derived-value pins (wg_m, wg_n, occ) to axis-level pins.
 
@@ -543,12 +583,12 @@ def add_gemm_sweep_axes(
     grid.axis("waves_m", sorted({m for m, _ in WAVE_CONFIGS if not _cdna3 or m <= 2}))
     grid.axis("waves_n", sorted({n for _, n in WAVE_CONFIGS}))
     grid.axis("occ", [1, 2, 3] if _cdna3 else [1, 2, 3, 4])
-    grid.axis("n_mult", list(range(1, 11)))
     grid.axis("twg_m", _twg_m_vals)
     grid.axis("twg_n", [v for v in _twg_n_vals if not _cdna3 or v >= 6])
     grid.axis("twg_k", [1, 2] if _cdna3 else list(range(1, 9)))
     grid.axis("ps", list(range(1, 9)) if _cdna3 else list(range(1, 11)))
-    add_scheduling_axes(grid, unroll_multipliers=[1, 2, 3])
+    grid.axis("unroll_factor_multiplier", list(range(1, 11)))
+    add_scheduling_axes(grid)
 
     # Wave config validity.
     _wc = set(WAVE_CONFIGS)
@@ -596,7 +636,7 @@ GEMM_SWEEP_PIN_MAP = {
     "tiles_per_wg_k": "twg_k",
     "pipeline_strategy": "ps",
     "desired_simd_occupancy": "occ_pin",
-    "unroll_multiplier": "unroll_mult",
+    "unroll_factor_multiplier": "unroll_factor_multiplier",
     "lcm_unroll": "lcm_unroll",
     "epilogue_peeling": "epilogue_peeling",
     "ll_sched": "ll_sched",

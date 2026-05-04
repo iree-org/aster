@@ -28,7 +28,7 @@ MI300X_PEAK_TFLOPS_F16 = 1307.0
 NUM_ITERATIONS = 100
 WARMUP_ITERATIONS = 20
 DEFAULT_COMPILE_WORKERS = 8
-DEFAULT_COMPILE_TIMEOUT = 30  # seconds per kernel compilation
+DEFAULT_COMPILE_TIMEOUT = 60  # seconds per kernel compilation
 DEFAULT_EXEC_TIMEOUT = 10  # seconds per kernel execution
 
 
