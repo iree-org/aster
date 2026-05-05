@@ -68,7 +68,7 @@ from sweep_harness import (
     resolve_derived_pins,
     verify_top_configs,
 )
-from bench_sweep_heuristic import add_heuristic_cli_args, generate_with_weak_scale
+from bench_sweep_heuristic import add_heuristic_cli_args, make_score_fn
 
 
 # --- Constants ---
@@ -225,17 +225,12 @@ def main():
     tile_m, tile_n, _ = _tile_elements(args.mcpu)
     apply_wg_pin_filters(grid, pins, tile_m, tile_n)
 
-    all_configs, total = generate_with_weak_scale(
-        grid,
-        args.mcpu,
-        "102",
-        target_m,
-        target_n,
-        target_k,
-        args,
+    priority_fn = make_score_fn(args.mcpu, "102") if getattr(args, "heuristic", False) else None
+    all_configs, total = grid.generate(
+        pins=pins or None,
         sample_size=getattr(args, "compile_sample", 4096),
-        pins=pins,
-        stratification_key=lambda d: d["variant"],
+        stratification_key=None if priority_fn is not None else (lambda d: d["variant"]),
+        priority_fn=priority_fn,
     )
 
     results = bench_perf_sweep_pipelined(
