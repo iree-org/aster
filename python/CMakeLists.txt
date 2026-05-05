@@ -157,29 +157,6 @@ declare_mlir_dialect_python_bindings(
   DIALECT_NAME layout
 )
 
-################################################################################
-# Generate the instruction bindings
-################################################################################
-set(AMDGCN_TD aster/dialects/AMDGCNOps.td)
-set(LLVM_TARGET_DEFINITIONS ${AMDGCN_TD})
-get_filename_component(relative_td_directory "${AMDGCN_TD}" DIRECTORY)
-set(output_filename "${relative_td_directory}/_amdgcn_inst_gen.py")
-amdgcn_tablegen("${output_filename}" -gen-inst-bindings --inst-py-import="aster.dialects.amdgcn")
-add_public_tablegen_target(AMDGCNInstBindingsGen)
-install(FILES
-  "${CMAKE_CURRENT_BINARY_DIR}/${output_filename}"
-  DESTINATION "${_PYTHON_INSTALL_PREFIX}/dialects"
-  COMPONENT ASTERPythonModules
-)
-add_custom_command(
-  TARGET AMDGCNInstBindingsGen POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy
-    "${CMAKE_CURRENT_BINARY_DIR}/${output_filename}"
-    "${ASTER_BINARY_DIR}/python_packages/aster/dialects/_amdgcn_inst_gen.py"
-)
-add_dependencies(ASTER AMDGCNInstBindingsGen)
-################################################################################
-
 set(_SOURCE_COMPONENTS
   ASTERPythonExtensions
   ASTERPythonSources

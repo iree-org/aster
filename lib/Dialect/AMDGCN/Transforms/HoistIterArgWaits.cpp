@@ -19,7 +19,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"

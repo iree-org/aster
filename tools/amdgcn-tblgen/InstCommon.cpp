@@ -45,15 +45,6 @@ mlir::aster::amdgcn::tblgen::getInstOpName(const mlir::tblgen::Operator &instOp,
   return instOp.getQualCppClassName();
 }
 
-std::string mlir::aster::amdgcn::tblgen::getOpCode(const AMDInst &inst,
-                                                   bool isPython) {
-  if (isPython)
-    return ("OpCode." + inst.getAsEnumCase().getIdentifier()).str();
-  return ("::mlir::aster::amdgcn::OpCode::" +
-          inst.getAsEnumCase().getIdentifier())
-      .str();
-}
-
 std::string mlir::aster::amdgcn::tblgen::genParamList(
     const Builder &b, mlir::tblgen::FmtContext &ctx, bool isCpp, bool isDecl,
     bool prefixComma, bool postfixComma) {
@@ -106,29 +97,6 @@ mlir::aster::amdgcn::tblgen::genArgList(const Builder &b,
   return mlir::tblgen::tgfmt(str.str.data(), &ctx);
 }
 
-/// Get the list of target names for the given instruction.
-std::string
-mlir::aster::amdgcn::tblgen::getISAVersionList(const AMDInst &inst) {
-  SmallVector<ISAVersion> isa = inst.getISAVersions();
-  StrStream tgts;
-  llvm::interleaveComma(isa, tgts.os, [&](const ISAVersion &tgt) {
-    tgts.os << "::mlir::aster::amdgcn::ISAVersion::" +
-                   tgt.getAsEnumCase().getIdentifier();
-  });
-  return tgts.str;
-}
-
-/// Get the list of instruction prop names for the given instruction.
-std::string mlir::aster::amdgcn::tblgen::getInstPropList(const AMDInst &inst) {
-  SmallVector<InstProp> flags = inst.getInstProp();
-  StrStream str;
-  llvm::interleaveComma(flags, str.os, [&](const InstProp &flag) {
-    str.os << "::mlir::aster::amdgcn::InstProp::" +
-                  flag.getAsEnumCase().getIdentifier();
-  });
-  return str.str;
-}
-
 int InstOp::getNumOutputs() const {
   return static_cast<int>(def->getValueAsDag("outputs")->getNumArgs());
 }
@@ -170,20 +138,4 @@ InstSegmentInfo mlir::aster::amdgcn::tblgen::collectSegmentInfo(
     ++odsOperandIdx;
   }
   return info;
-}
-
-/// Populate the format context with common substitutions.
-void mlir::aster::amdgcn::tblgen::populateFmtContext(
-    const AMDInst &inst, mlir::tblgen::FmtContext &ctx) {
-  ctx.addSubst("_name", inst.getName());
-  ctx.addSubst("_cppNamespace", inst.getCppNamespace());
-  ctx.addSubst("_cppClass",
-               getQualName(inst.getCppNamespace(), inst.getName()));
-  ctx.addSubst("_instOp", getInstOpName(inst.getInstOp()));
-  ctx.addSubst("_opcode", getOpCode(inst));
-  ctx.addSubst("_mnemonic", inst.getMnemonic());
-  ctx.addSubst("_isa", getISAVersionList(inst));
-  ctx.addSubst("_numISAVersions", std::to_string(inst.getISAVersions().size()));
-  ctx.addSubst("_props", getInstPropList(inst));
-  ctx.addSubst("_numProps", std::to_string(inst.getInstProp().size()));
 }

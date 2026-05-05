@@ -9,12 +9,9 @@ add_tablegen(amdgcn-tblgen Aster
   DESTINATION "${ASTER_TOOLS_INSTALL_DIR}"
   EXPORT Aster
   Dump.cpp
-  InstAsmFormat.cpp
   InstAsmPrinterGen.cpp
-  InstBindings.cpp
   InstCommon.cpp
   InstCommon.h
-  InstGen.cpp
   InstMethodsGen.cpp
   Instruction.cpp
   Instruction.h

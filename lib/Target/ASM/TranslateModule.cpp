@@ -67,21 +67,7 @@ static void printCondBr(amdgcn::AsmPrinter &printer, CBranchInstOpInterface op,
   printer.getStream() << "s_branch " << printer.getBranchLabel(falseDest);
 }
 
-#include "AMDGCNAsmPrinter.cpp.inc"
 #include "AMDGCNInstAsmPrinter.cpp.inc"
-
-/// Prints the given instruction using the AsmPrinter.
-static llvm::LogicalResult printInstruction(amdgcn::AsmPrinter &printer,
-                                            AMDGCNInstOpInterface op) {
-  OpCode opcode = op.getOpcodeAttr().getValue();
-  assert(opcode != OpCode::Invalid && "invalid opcode in instruction");
-  if (_instPrinters.size() <= static_cast<size_t>(opcode) ||
-      !_instPrinters[static_cast<size_t>(opcode)]) {
-    return op.emitError() << "no printer defined for opcode: "
-                          << stringifyOpCode(opcode);
-  }
-  return _instPrinters[static_cast<size_t>(opcode)](opcode, printer, op);
-}
 
 namespace {
 
@@ -364,9 +350,7 @@ LogicalResult TranslateModuleImpl::emitOperation(amdgcn::AsmPrinter &printer,
                                                  Operation *op) {
   return llvm::TypeSwitch<Operation *, LogicalResult>(op)
       .Case<AMDGCNInstOpInterface>([&](AMDGCNInstOpInterface op) {
-        if (op.isNewInst())
-          return printISAInstruction(printer, module.getTargetAttr(), op);
-        return printInstruction(printer, op);
+        return printISAInstruction(printer, module.getTargetAttr(), op);
       })
       .Case<AllocaOp, MakeRegisterRangeOp, SplitRegisterRangeOp,
             arith::ConstantIntOp>([&](auto op) {

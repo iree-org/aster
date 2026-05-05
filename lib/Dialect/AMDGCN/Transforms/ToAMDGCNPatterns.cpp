@@ -508,9 +508,6 @@ LogicalResult AddIOpPattern::matchAndRewrite(lsir::AddIOp op,
     std::swap(lhsKind, rhsKind);
   }
 
-  // Determine whether we need to use VOP3.
-  bool isVOp3 = rhsKind == OperandKind::SGPR;
-
   // At this point, operands are valid - create the appropriate add op
   if (kind == OperandKind::SGPR) {
     if (width == 32) {
@@ -676,8 +673,6 @@ LogicalResult AndIOpPattern::matchAndRewrite(lsir::AndIOp op,
     return failure();
 
   Location loc = op.getLoc();
-  // Determine whether we need to use VOP3.
-  bool isVOp3 = rhsKind == OperandKind::SGPR;
 
   // At this point, operands are valid - create the appropriate and op
   if (kind == OperandKind::SGPR) {
@@ -1003,9 +998,6 @@ LogicalResult MulIOpPattern::matchAndRewrite(lsir::MulIOp op,
     std::swap(lhsKind, rhsKind);
   }
 
-  // Determine whether we need to use VOP3.
-  bool isVOp3 = rhsKind == OperandKind::SGPR;
-
   // If lhs is a constant that doesn't fit in 6 bits, move it to a VGPR.
   // TODO: this is just a very quick and approximate fix, we should have a
   // general solution.
@@ -1167,8 +1159,6 @@ LogicalResult OrIOpPattern::matchAndRewrite(lsir::OrIOp op,
     return failure();
 
   Location loc = op.getLoc();
-  // Determine whether we need to use VOP3.
-  bool isVOp3 = rhsKind == OperandKind::SGPR;
 
   // At this point, operands are valid - create the appropriate or op
   if (kind == OperandKind::SGPR) {
@@ -1208,8 +1198,6 @@ LogicalResult XOrIOpPattern::matchAndRewrite(lsir::XOrIOp op,
     return failure();
 
   Location loc = op.getLoc();
-  // Determine whether we need to use VOP3.
-  bool isVOp3 = rhsKind == OperandKind::SGPR;
 
   // At this point, operands are valid - create the appropriate xor op
   if (kind == OperandKind::SGPR) {
@@ -1334,8 +1322,6 @@ LogicalResult ShLIOpPattern::matchAndRewrite(lsir::ShLIOp op,
                        rhsKind, {32, 64}, {16, 32, 64})))
     return failure();
   Location loc = op.getLoc();
-  // Determine whether we need to use VOP3.
-  bool isVOp3 = isOperand(rhsKind, {OperandKind::SGPR, OperandKind::IntImm});
 
   // Handle the SGPR case (only if all operands fit SGPR path).
   if (kind == OperandKind::SGPR) {
@@ -1397,8 +1383,6 @@ LogicalResult ShRSIOpPattern::matchAndRewrite(lsir::ShRSIOp op,
                        rhsKind, {32, 64}, {16, 32, 64})))
     return failure();
   Location loc = op.getLoc();
-  // Determine whether we need to use VOP3.
-  bool isVOp3 = isOperand(rhsKind, {OperandKind::SGPR, OperandKind::IntImm});
 
   // Handle the SGPR case
   if (kind == OperandKind::SGPR) {
@@ -1450,8 +1434,6 @@ LogicalResult ShRUIOpPattern::matchAndRewrite(lsir::ShRUIOp op,
                        rhsKind, {32, 64}, {16, 32, 64})))
     return failure();
   Location loc = op.getLoc();
-  // Determine whether we need to use VOP3.
-  bool isVOp3 = isOperand(rhsKind, {OperandKind::SGPR, OperandKind::IntImm});
 
   // Handle the SGPR case
   if (kind == OperandKind::SGPR) {

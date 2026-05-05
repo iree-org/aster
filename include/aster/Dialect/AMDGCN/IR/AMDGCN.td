@@ -24,120 +24,10 @@ include "aster/Interfaces/TargetAttr.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/IR/Constraints.td"
 
-//===----------------------------------------------------------------------===//
-// Inst helpers
-//===----------------------------------------------------------------------===//
-
-/// Defines a default C++ builder for an instruction op.
-class DefaultCppBuilder<dag params> : OpBuilder<params, !if(
-!gt(!size(params), 0), [{
-  return $_create($_builder, $_loc, $_opcode, $_args);
-}], [{
-  return $_create($_builder, $_loc, $_opcode);
-}])>;
-
-/// Defines a default python builder for an instruction op.
-class DefaultPyBuilder<dag params> : OpBuilder<params, !if(
-!gt(!size(params), 0), [{
-  return $_create(opcode=$_opcode, $_args, $_lastArgs)
-}], [{
-  return $_create(opcode=$_opcode, $_lastArgs)
-}])>;
-
-/// Shorthand for C++ values in the instruction builders.
-defvar CppValue = "::mlir::Value";
-
-/// Shorthand for Python values in the instruction builders.
-defvar PyValue = "$_ir.Value";
-defvar PyBlock = "$_ir.Block";
-
-/// Helper for C++/python integer arguments on builders.
-class IntArg<int v> : CArg<"int", !cast<string>(v)>;
-
-class IntOrValueArg<int v> : CArg<"$_typing.Union[int, $_ir.Value]", !cast<string>(v)>;
-
-/// Helper for python boolean arguments on builders.
-class PyBool<bit v> : CArg<"bool", !if(v, "True", "False")>;
-
-/// A helper for when an instruction has a single assembly variant.
-class SingleAsmVariant<string format> : AsmVariant<TruePred, format>;
-
-//===----------------------------------------------------------------------===//
-// Inst operands helpers
-//===----------------------------------------------------------------------===//
-
-/// Type with description.
-/// This is hack to use use the description field of Type to provide custom error
-/// messages for instruction operand constraints.
-class TypeWithDescription<Pred condition, string summary, string _desc = "",
-                        string cppType = "::mlir::Type">
-  : Type<condition, summary, cppType> {
-  let description = _desc;
-}
-
-/// Register operand constraint. It check the number of registers and alignment.
-class RegisterOperand<
-    list<Type> validRegTypes, int numRegs, int alignment = -1, bit optional = 0
-  > : InstConstraint<> {
-  code cPred = !subst("$alignment", !cast<string>(alignment),
-                      !subst("$numRegs", !cast<string>(numRegs),
-                      "isValidRegisterType($_self, $numRegs, $alignment)"));
-  code desc = !subst("$alignment", !cast<string>(alignment),
-                      !subst("$numRegs", !cast<string>(numRegs),
-                      "$_argName operand must have $numRegs registers for $_mnemonic, got "));
-  let constraints = [
-    !if(optional, Optional<AnyTypeOf<validRegTypes>>, AnyTypeOf<validRegTypes>),
-    !if(optional,
-      Optional<TypeWithDescription<CPred<cPred>, desc, "getRangeSize($_self)", "AMDGCNRegisterTypeInterface">>,
-      TypeWithDescription<CPred<cPred>, desc, "getRangeSize($_self)", "AMDGCNRegisterTypeInterface">)
-  ];
-}
-
-/// Register or Imm operand constraint. It check the number of registers and alignment.
-class RegImmOperand<Type validType, int numRegs, bit optional = 0> :
-    InstConstraint<> {
-  code cPred = !subst("$numRegs", !cast<string>(numRegs),
-                      "isValidRegImmType($_self, $numRegs)");
-  code desc = !subst("$numRegs", !cast<string>(numRegs),
-                     "$_argName operand must have $numRegs or be an Imm registers for $_mnemonic, got ");
-  let constraints = [
-    !if(optional, Optional<validType>, validType),
-    !if(optional,
-      Optional<TypeWithDescription<CPred<cPred>, desc, "getRangeSize($_self)", "Type">>,
-      TypeWithDescription<CPred<cPred>, desc, "getRangeSize($_self)", "Type">)
-  ];
-}
-
-/// SGPR operand constraint.
-class SGPROperand<int numRegs, bit optional = 0, int alignment = -1> :
-    RegisterOperand<[SGPRType], numRegs, alignment, optional> {
-}
-
-/// VGPR operand constraint.
-class VGPROperand<int numRegs, bit optional = 0, int alignment = -1> :
-    RegisterOperand<[VGPRType], numRegs, alignment, optional> {
-}
-
-/// ACC operand constraint.
-class AccOperand<int numRegs, bit optional = 0, int alignment = -1> :
-    RegisterOperand<[VGPRType, AGPRType], numRegs, alignment, optional> {
-}
-
-/// Addr operand constraint.
-class AddrOperand<int numRegs, bit optional = 0, int alignment = -1> :
-    RegisterOperand<[SGPRType, VGPRType], numRegs, alignment, optional> {
-}
-
 /// The optional value must not be present.
 def NotPresent : InstConstraint<[
   TypeConstraint<
     CPred<"$_self == nullptr">, "expected `$_argName` to not be present">
-]>;
-
-/// The optional value must be present.
-def Present : InstConstraint<[
-  TypeConstraint<
-    CPred<"$_self != nullptr">, "expected `$_argName` to be present">
 ]>;
 
 /// A register or immediate operand that can be either SGPR or VGPR type
@@ -207,8 +97,6 @@ def IsSOPP : InstProp<"sopp">;
 // Memory encoding families
 def IsSMEM : InstProp<"smem">;
 def IsDS : InstProp<"ds">;
-def IsFlat : InstProp<"flat">;
-def IsScratch : InstProp<"scratch">;
 def IsBuffer : InstProp<"buffer">;
 def IsGlobal : InstProp<"global">;
 

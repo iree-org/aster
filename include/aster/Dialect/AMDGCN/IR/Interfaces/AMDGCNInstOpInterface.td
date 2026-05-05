@@ -29,49 +29,18 @@ def AMDGCNInstOpInterface :
   let methods = [
     InterfaceMethod<
       "Returns the opcode of the instruction",
-      "::mlir::aster::amdgcn::InstAttr", "getOpcodeAttr"
-    >,
-    InterfaceMethod<
-      "Temporary method, TODO: remove",
-      "bool", "isNewInst", (ins), [{}], [{
-        return false;
-      }]
-    >,
-    InterfaceMethod<
-      "Returns the opcode of the instruction",
-      "::mlir::aster::amdgcn::OpCode", "getOpCode", (ins), [{}], [{
-        const ::mlir::aster::amdgcn::InstMetadata* md = $_op.getInstMetadata();
-        return md ? md->getOpCode() : ::mlir::aster::amdgcn::OpCode::Invalid;
-      }]
+      "::mlir::aster::amdgcn::OpCode", "getOpCode"
     >,
     InterfaceMethod<
       "Returns whether the instruction has the given inst trait",
-      "bool", "hasInstProps", (ins "::llvm::ArrayRef<InstProp>":$props, "bool":$all), [{}], [{
-        ::mlir::aster::amdgcn::InstAttr attr = $_op.getOpcodeAttr();
-        if (!attr)
-          return false;
-        const ::mlir::aster::amdgcn::InstMetadata *md = attr.getMetadata();
-        if (!md)
-          return false;
-        return all ? md->hasProps(props) : md->hasAnyProps(props);
-      }]
+      "bool", "hasInstProps", (ins "::llvm::ArrayRef<::mlir::aster::amdgcn::InstProp>":$props, "bool":$all)
     >,
     InterfaceMethod<
       "Returns the available ISA versions of the instruction",
-      "::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion>", "getISAVersions", (ins), [{}], [{
-        const ::mlir::aster::amdgcn::InstMetadata* md = $_op.getInstMetadata();
-        return md ? md->getISAVersions() : ::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion>();
-      }]
+      "::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion>", "getISAVersions"
     >
   ];
   let extraSharedClassDeclaration = [{
-    /// Get the instruction metadata for the instruction or nullptr if the
-    /// instruction has no opcode attribute.
-    const ::mlir::aster::amdgcn::InstMetadata* getInstMetadata() {
-      ::mlir::aster::amdgcn::InstAttr attr = $_op.getOpcodeAttr();
-      return attr ? attr.getMetadata() : nullptr;
-    }
-
     bool hasProp(::mlir::aster::amdgcn::InstProp prop) {
       return $_op.hasInstProps({prop}, true);
     }

@@ -8,41 +8,19 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
-#include "aster/Dialect/AMDGCN/IR/InstructionProps.h"
-#include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
 #include "aster/IR/ParsePrintUtils.h"
-#include "aster/Interfaces/RegisterType.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
-#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/TypeRange.h"
-#include "mlir/IR/TypeUtilities.h"
-#include "mlir/IR/Types.h"
-#include "mlir/IR/Value.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
-#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/ScopeExit.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/LogicalResult.h"
-#include <cstdint>
 
 using namespace mlir;
 using namespace mlir::aster;
@@ -51,26 +29,6 @@ using namespace mlir::aster::amdgcn;
 //===----------------------------------------------------------------------===//
 // Internal functions
 //===----------------------------------------------------------------------===//
-
-/// Pretty parser for OpCode attribute when parsed from an operation.
-static ParseResult parseOpcode(OpAsmParser &parser, InstAttr &opcode) {
-  StringRef opcodeStr;
-  if (parser.parseKeyword(&opcodeStr))
-    return failure();
-
-  auto opcodeOpt = symbolizeOpCode(opcodeStr);
-  if (!opcodeOpt)
-    return parser.emitError(parser.getCurrentLocation(), "invalid opcode: ")
-           << opcodeStr;
-
-  opcode = InstAttr::get(parser.getBuilder().getContext(), *opcodeOpt);
-  return success();
-}
-
-/// Pretty printer for OpCode attribute when parsed from an operation.
-static void printOpcode(OpAsmPrinter &printer, Operation *, InstAttr opcode) {
-  printer << stringifyOpCode(opcode.getValue());
-}
 
 /// Helper to get either the type of a Value or return the type itself.
 template <typename T, std::enable_if_t<std::is_base_of_v<Value, T>, int> = 0>
@@ -242,7 +200,6 @@ void AMDGCNDialect::initialize() {
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.cpp.inc"
       >();
   initializeAttributes();
-  initializeInstAttr();
   addInterfaces<AMDGCNInlinerInterface>();
 }
 
@@ -251,9 +208,6 @@ Attribute AMDGCNDialect::parseAttribute(DialectAsmParser &parser,
   return parseDialectAttributes<
 #define GET_ATTRDEF_LIST
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.cpp.inc"
-      ,
-#define GET_ATTRDEF_LIST
-#include "aster/Dialect/AMDGCN/IR/InstAttr.cpp.inc"
       >(parser, type, getDialectNamespace());
 }
 
@@ -262,9 +216,6 @@ void AMDGCNDialect::printAttribute(Attribute attr,
   return printDialectAttributes<
 #define GET_ATTRDEF_LIST
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.cpp.inc"
-      ,
-#define GET_ATTRDEF_LIST
-#include "aster/Dialect/AMDGCN/IR/InstAttr.cpp.inc"
       >(attr, os);
 }
 
