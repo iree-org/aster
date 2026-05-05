@@ -986,6 +986,66 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
   SchedState state;
   QueueSimulator sim;
 
+  // Barrier-aware structural scheduling. Precompute, for each barrier, its
+  // transitive predecessor closure in the SchedGraph and the count of
+  // memory ops in that closure. Drain mode triggers when the imminent
+  // barrier (lowest unscheduled-IR-position barrier) has no unscheduled
+  // memory ops in its closure -- i.e., all loads/stores on the path have
+  // fired and only pure compute (SALU) and waits remain. In drain mode we
+  // skip the score-based loop and force-pick from `ready`: the barrier
+  // itself if available, else any node in the closure. This delivers the
+  // "barrier-first, then mfmas" pattern: MFMAs (not on the barrier's
+  // closure because handleBarrier only pins Ds/SMem/Salu/SGPR-out) are
+  // held back through the drain and fire after the barrier, hiding their
+  // long execution latency behind the post-barrier loads/ds_reads.
+  SmallVector<bool> isBarrier(schedGraph.sizeNodes(), false);
+  for (int32_t i = 0; i < schedGraph.sizeNodes(); ++i)
+    if (isa<SBarrier>(schedGraph.getOp(i)))
+      isBarrier[i] = true;
+
+  auto isMemoryNode = [&](int32_t n) -> bool {
+    Operation *op = schedGraph.getOp(n);
+    if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
+      return instOp.hasAnyProps(
+          {InstProp::Ds, InstProp::IsVmem, InstProp::Smem});
+    return false;
+  };
+
+  // Reverse adjacency for backward BFS over the SchedGraph.
+  SmallVector<SmallVector<int32_t>> revAdj(schedGraph.sizeNodes());
+  for (int32_t u = 0; u < schedGraph.sizeNodes(); ++u)
+    for (const auto &edge : schedGraph.edges(u))
+      revAdj[edge.second].push_back(u);
+
+  SmallVector<SmallVector<int32_t>> nodeContainingBarriers(
+      schedGraph.sizeNodes());
+  DenseMap<int32_t, int32_t> barrierUnscheduledMemPreds;
+  DenseMap<int32_t, DenseSet<int32_t>> barrierClosure;
+
+  for (int32_t b = 0; b < schedGraph.sizeNodes(); ++b) {
+    if (!isBarrier[b])
+      continue;
+    DenseSet<int32_t> visited;
+    SmallVector<int32_t> worklist;
+    for (int32_t pred : revAdj[b])
+      if (visited.insert(pred).second)
+        worklist.push_back(pred);
+    while (!worklist.empty()) {
+      int32_t cur = worklist.pop_back_val();
+      for (int32_t pred : revAdj[cur])
+        if (visited.insert(pred).second)
+          worklist.push_back(pred);
+    }
+    int32_t memCount = 0;
+    for (int32_t n : visited) {
+      nodeContainingBarriers[n].push_back(b);
+      if (isMemoryNode(n))
+        memCount++;
+    }
+    barrierUnscheduledMemPreds[b] = memCount;
+    barrierClosure[b] = std::move(visited);
+  }
+
   // Pre-cache the LGKM-R <-> XDL adjacency. Record ALL XDL successors per
   // LGKM-R (not just the first) so the deadline-counter scoring keeps
   // working when one ds_read fans out to multiple MFMA consumers.
@@ -1034,6 +1094,40 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
     if (hasImmSchedOp)
       return;
 
+    // Drain mode: structural barrier-first rule. Find the imminent
+    // (lowest unscheduled-IR-position) barrier; if its predecessor closure
+    // has no remaining unscheduled memory ops, only pure compute and waits
+    // remain on the path -- skip score-based selection and pick a closure
+    // member from `ready` (or the barrier itself when ready). This keeps
+    // MFMAs (not in any barrier's closure) from being scheduled while
+    // a barrier is "almost-ready", letting the barrier fire first and the
+    // MFMAs hide behind the post-barrier loads/ds_reads.
+    int32_t imminent = -1;
+    for (auto &kv : barrierUnscheduledMemPreds) {
+      if (imminent < 0 || kv.first < imminent)
+        imminent = kv.first;
+    }
+    if (imminent >= 0 && barrierUnscheduledMemPreds[imminent] == 0) {
+      // Phase 1: barrier itself if in ready.
+      for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
+        if (ready[i] == imminent) {
+          bestIdx = i;
+          break;
+        }
+      }
+      // Phase 2: any closure member in ready.
+      if (bestIdx < 0) {
+        const DenseSet<int32_t> &closure = barrierClosure[imminent];
+        for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
+          if (closure.contains(ready[i])) {
+            bestIdx = i;
+            break;
+          }
+        }
+      }
+      // If nothing path-related is ready right now, fall through to scoring.
+    }
+
     // Detect whether an XDL op consumes any LGKM that's been issued and
     // still has unconsumed successors. This is the deadline signal that
     // drives the +200 bonus -- it stays true for ALL siblings sharing the
@@ -1049,19 +1143,21 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
       return false;
     };
 
-    for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
-      int32_t nodeId = ready[i];
-      QueueType qt = queueTypes[nodeId];
-      int64_t stall = sim.wouldStall(qt);
-      bool consumerInReady =
-          (qt == QueueType::XDL) && hasXdlConsumerInReady(nodeId);
-      int score =
-          computeScore(qt, stall, state, consumerInReady, waitKind[nodeId]);
+    if (bestIdx < 0) {
+      for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
+        int32_t nodeId = ready[i];
+        QueueType qt = queueTypes[nodeId];
+        int64_t stall = sim.wouldStall(qt);
+        bool consumerInReady =
+            (qt == QueueType::XDL) && hasXdlConsumerInReady(nodeId);
+        int score =
+            computeScore(qt, stall, state, consumerInReady, waitKind[nodeId]);
 
-      if (score > bestScore ||
-          (score == bestScore && nodeId < ready[bestIdx])) {
-        bestScore = score;
-        bestIdx = i;
+        if (score > bestScore ||
+            (score == bestScore && nodeId < ready[bestIdx])) {
+          bestScore = score;
+          bestIdx = i;
+        }
       }
     }
 
@@ -1072,6 +1168,20 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
     int64_t stall = sim.issue(chosenQt, execLatencies[chosen]);
     stallCycles.push_back(stall);
     stallReasons.push_back(stall > 0 ? getQueueName(chosenQt) : "");
+
+    // Update barrier-closure tracking:
+    //   - Issuing a barrier removes it from the imminent-barrier table.
+    //   - Issuing a memory op decrements the memory-pred count for every
+    //     barrier whose closure contains it.
+    if (isBarrier[chosen]) {
+      barrierUnscheduledMemPreds.erase(chosen);
+    } else if (isMemoryNode(chosen)) {
+      for (int32_t b : nodeContainingBarriers[chosen]) {
+        auto it = barrierUnscheduledMemPreds.find(b);
+        if (it != barrierUnscheduledMemPreds.end() && it->second > 0)
+          it->second--;
+      }
+    }
 
     // Update closure state. Push the chosen kind into the sliding-4 window;
     // drop the oldest if the window is already full.
