@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "InstCommon.h"
+#include "mlir/TableGen/Attribute.h"
 #include "mlir/TableGen/GenInfo.h"
 #include "mlir/TableGen/Operator.h"
 #include "llvm/ADT/STLExtras.h"
@@ -370,7 +371,38 @@ struct InstSegments {
   InstSegmentInfo ins;
   InstSegmentInfo args;
   int numTrailingResults;
+  /// Modifier attributes extracted from trailingArgs (pointers into the
+  /// Operator's argument list).
+  llvm::SmallVector<const mlir::tblgen::NamedAttribute *> modAttrs;
 };
+
+/// Builds the C++ expression to construct the default value for an attribute,
+/// substituting $_builder with \p builderExpr and $0 with the default value.
+static std::string buildDefaultExpr(const mlir::tblgen::Attribute &attr,
+                                    StringRef builderExpr) {
+  mlir::tblgen::FmtContext ctx;
+  ctx.withBuilder(builderExpr);
+  return mlir::tblgen::tgfmt(attr.getConstBuilderTemplate(), &ctx,
+                             attr.getDefaultValue())
+      .str();
+}
+
+/// Collects modifier attribute pointers from the trailingArgs dag.
+static llvm::SmallVector<const mlir::tblgen::NamedAttribute *>
+collectModAttrs(const InstOp &instOp) {
+  const mlir::tblgen::Operator &op = instOp.getOperator();
+  Dag trailingArgs = instOp.getTrailingArgs();
+  int odsStart = instOp.getNumOutputs() + instOp.getNumInputs();
+  llvm::SmallVector<const mlir::tblgen::NamedAttribute *> result;
+  for (int i = 0, e = static_cast<int>(trailingArgs.getNumArgs()); i < e; ++i) {
+    mlir::tblgen::Argument arg = op.getArg(odsStart + i);
+    auto *namedAttr = llvm::dyn_cast<mlir::tblgen::NamedAttribute *>(arg);
+    if (!namedAttr)
+      continue;
+    result.push_back(namedAttr);
+  }
+  return result;
+}
 
 static InstSegments collectInstSegments(const InstOp &instOp) {
   const mlir::tblgen::Operator &op = instOp.getOperator();
@@ -383,6 +415,7 @@ static InstSegments collectInstSegments(const InstOp &instOp) {
                                  /*odsStart=*/numOuts + numIns);
   Dag trailingResults = instOp.getTrailingResults();
   segs.numTrailingResults = static_cast<int>(trailingResults.getNumArgs());
+  segs.modAttrs = collectModAttrs(instOp);
   return segs;
 }
 
@@ -401,12 +434,9 @@ static bool hasAttrSizedResultSegments(const mlir::tblgen::Operator &op) {
 //===----------------------------------------------------------------------===//
 
 /// Emits the segment size assignment for AttrSizedOperandSegments properties.
-static void emitSetSegmentSizes(raw_ostream &os, StringRef className,
-                                int totalODSOperands) {
+/// Assumes `_props` is already declared.
+static void emitSetSegmentSizes(raw_ostream &os, int totalODSOperands) {
   os << "  // Set operand segment sizes.\n";
-  os << "  auto &_props = "
-        "result.getOrAddProperties<"
-     << className << "::Properties>();\n";
   for (int i = 0; i < totalODSOperands; ++i)
     os << "  _props.operandSegmentSizes[" << i << "] = segmentSizes[" << i
        << "];\n";
@@ -511,6 +541,62 @@ $_className::parse(::mlir::OpAsmParser &parser,
     emitParseSegmentCall(os, "args", segs.args);
   }
 
+  // Parse modifier attributes (any order).
+  bool hasModAttrs = !segs.modAttrs.empty();
+  bool hasResultSegSizes = hasAttrSizedResultSegments(op);
+  bool needsPropsVar = hasModAttrs || hasSegSizes;
+  if (needsPropsVar)
+    os << "  auto &_props = result.getOrAddProperties<" << className
+       << "::Properties>();\n";
+  else if (hasResultSegSizes)
+    os << "  result.getOrAddProperties<" << className << "::Properties>();\n";
+
+  if (hasModAttrs) {
+    // Declare parsed flags.
+    for (const auto *mod : segs.modAttrs)
+      os << "  bool _parsed_" << mod->name << " = false;\n";
+
+    // Any-order parse loop, bounded by the number of modifier attributes.
+    int numModAttrs = static_cast<int>(segs.modAttrs.size());
+    os << "  for (int _modIdx = 0; _modIdx < " << numModAttrs
+       << "; ++_modIdx) {\n";
+    os << "    bool _matched = false;\n";
+    for (const auto *mod : segs.modAttrs) {
+      const mlir::tblgen::Attribute &attr = mod->attr;
+      os << "    if (!_parsed_" << mod->name << ") {\n";
+      os << "      ::mlir::FailureOr<::mlir::Attribute> _res =\n";
+      os << "          ::mlir::aster::parseInstModAttr(parser, \"" << mod->name
+         << "\", /*isOpt=*/true);\n";
+      os << "      if (::mlir::failed(_res))\n";
+      os << "        return ::mlir::failure();\n";
+      os << "      if (*_res) {\n";
+      os << "        _props." << mod->name << " = ::mlir::cast<"
+         << attr.getStorageType() << ">(*_res);\n";
+      os << "        _parsed_" << mod->name << " = true;\n";
+      os << "        _matched = true;\n";
+      os << "        continue;\n";
+      os << "      }\n";
+      os << "    }\n";
+    }
+    os << "    if (!_matched)\n";
+    os << "      break;\n";
+    os << "  }\n";
+
+    // Set defaults for default-valued attrs; skip optional attrs; error on
+    // truly required attrs.
+    for (const auto *mod : segs.modAttrs) {
+      if (mod->attr.hasDefaultValue()) {
+        os << "  if (!_parsed_" << mod->name << ")\n";
+        os << "    _props." << mod->name << " = "
+           << buildDefaultExpr(mod->attr, "parser.getBuilder()") << ";\n";
+      } else if (!mod->attr.isOptional()) {
+        os << "  if (!_parsed_" << mod->name << ")\n";
+        os << "    return parser.emitError(parser.getCurrentLocation(),\n";
+        os << "        \"expected modifier '" << mod->name << "'\");\n";
+      }
+    }
+  }
+
   // Parse attr-dict.
   os << R"(  {
     auto loc = parser.getCurrentLocation();
@@ -570,14 +656,7 @@ $_className::parse(::mlir::OpAsmParser &parser,
 
     // Set segment sizes if needed.
     if (hasSegSizes)
-      emitSetSegmentSizes(os, className, totalODS);
-  }
-
-  // Ensure properties are allocated so inferReturnTypes can populate them.
-  bool hasResultSegSizes = hasAttrSizedResultSegments(op);
-  if (hasResultSegSizes && !hasSegSizes) {
-    os << "  // Allocate properties for result segment sizes.\n";
-    os << "  result.getOrAddProperties<" << className << "::Properties>();\n";
+      emitSetSegmentSizes(os, totalODS);
   }
 
   // Infer return types.
@@ -614,14 +693,17 @@ $_className::parse(::mlir::OpAsmParser &parser,
 //===----------------------------------------------------------------------===//
 
 /// Emits the list of attribute names to elide from attr-dict printing.
-static void emitElidedAttrs(raw_ostream &os, const InstOp &instOp,
-                            bool hasSegSizes) {
+static void
+emitElidedAttrs(raw_ostream &os, const InstOp &instOp, bool hasSegSizes,
+                llvm::ArrayRef<const mlir::tblgen::NamedAttribute *> modAttrs) {
   const mlir::tblgen::Operator &op = instOp.getOperator();
-  os << "  ::llvm::SmallVector<::llvm::StringRef, 2> elidedAttrs;\n";
+  os << "  ::llvm::SmallVector<::llvm::StringRef> elidedAttrs;\n";
   if (hasSegSizes)
     os << "  elidedAttrs.push_back(\"operandSegmentSizes\");\n";
   if (op.getTrait("::mlir::OpTrait::AttrSizedResultSegments"))
     os << "  elidedAttrs.push_back(\"resultSegmentSizes\");\n";
+  for (const auto *mod : modAttrs)
+    os << "  elidedAttrs.push_back(\"" << mod->name << "\");\n";
 }
 
 /// Emits operand range + printInstOperands call for a segment.
@@ -747,8 +829,30 @@ static void genPrintMethod(const InstOp &instOp, StringRef className,
     emitPrintSegmentCall(os, "args", segs.args);
   }
 
+  // Print modifier attributes.
+  if (!segs.modAttrs.empty()) {
+    bool needsBuilder = llvm::any_of(segs.modAttrs, [](const auto *mod) {
+      return mod->attr.hasDefaultValue();
+    });
+    os << "  {\n";
+    if (needsBuilder)
+      os << "    ::mlir::Builder _modBuilder((*this)->getContext());\n";
+    for (const auto *mod : segs.modAttrs) {
+      std::string suffix = llvm::convertToCamelFromSnakeCase(
+          mod->name, /*capitalizeFirst=*/true);
+      os << "    ::mlir::aster::printInstModAttr(_odsPrinter, \"" << mod->name
+         << "\", get" << suffix << "Attr(), ";
+      if (mod->attr.hasDefaultValue())
+        os << buildDefaultExpr(mod->attr, "_modBuilder");
+      else
+        os << "::mlir::Attribute()";
+      os << ");\n";
+    }
+    os << "  }\n";
+  }
+
   // Print attr-dict.
-  emitElidedAttrs(os, instOp, hasSegSizes);
+  emitElidedAttrs(os, instOp, hasSegSizes, segs.modAttrs);
   os << "  _odsPrinter.printOptionalAttrDict((*this)->getAttrs(), "
         "elidedAttrs);\n";
 

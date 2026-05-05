@@ -310,6 +310,38 @@ LogicalResult mlir::aster::parseInstOperandTypes(
 // Type printing helpers
 //===----------------------------------------------------------------------===//
 
+//===----------------------------------------------------------------------===//
+// Modifier attribute parse/print helpers
+//===----------------------------------------------------------------------===//
+
+FailureOr<Attribute> mlir::aster::parseInstModAttr(OpAsmParser &parser,
+                                                   StringRef name, bool isOpt) {
+  if (failed(parser.parseOptionalKeyword(name))) {
+    if (isOpt)
+      return Attribute(nullptr);
+    return parser.emitError(parser.getCurrentLocation())
+           << "expected modifier keyword '" << name << "'";
+  }
+  Attribute attr;
+  if (parser.parseLParen() || parser.parseAttribute(attr) ||
+      parser.parseRParen())
+    return failure();
+  return attr;
+}
+
+void mlir::aster::printInstModAttr(OpAsmPrinter &printer, StringRef name,
+                                   Attribute attr, Attribute defaultValue) {
+  if (attr == defaultValue)
+    return;
+  printer << ' ' << name << '(';
+  printer.printAttribute(attr);
+  printer << ')';
+}
+
+//===----------------------------------------------------------------------===//
+// Type printing helpers
+//===----------------------------------------------------------------------===//
+
 void mlir::aster::printInstOperandTypes(OpAsmPrinter &printer, StringRef prefix,
                                         TypeRange types,
                                         ArrayRef<StringRef> argNames,
