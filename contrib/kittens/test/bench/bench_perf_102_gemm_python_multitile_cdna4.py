@@ -44,7 +44,7 @@ from bench_harness import (
     run_single,
     warn_mcpu_mismatch,
 )
-from bench_sweep_heuristic import add_heuristic_cli_args, generate_with_weak_scale
+from bench_sweep_heuristic import add_heuristic_cli_args, make_score_fn
 from sweep_harness import (
     GEMM_SWEEP_PIN_MAP,
     SweepGrid,
@@ -205,17 +205,12 @@ def main():
     )
     apply_wg_pin_filters(grid, pins, _TILE_M, _TILE_N)
 
-    all_configs, total = generate_with_weak_scale(
-        grid,
-        args.mcpu,
-        "102_cdna4",
-        target_m,
-        target_n,
-        target_k,
-        args,
+    priority_fn = make_score_fn(args.mcpu, "102_cdna4") if getattr(args, "heuristic", False) else None
+    all_configs, total = grid.generate(
+        pins=pins or None,
         sample_size=getattr(args, "compile_sample", 4096),
-        pins=pins,
-        stratification_key=lambda d: (d["variant"], d["waves_m"], d["waves_n"]),
+        stratification_key=None if priority_fn is not None else (lambda d: (d["variant"], d["waves_m"], d["waves_n"])),
+        priority_fn=priority_fn,
     )
 
     results = bench_perf_sweep_pipelined(

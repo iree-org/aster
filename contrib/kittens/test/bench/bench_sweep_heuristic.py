@@ -125,236 +125,12 @@ def best_known(mcpu: str, bench: str, M: int, N: int, K: int) -> str | None:
 
 
 def add_heuristic_cli_args(parser) -> None:
-    """Add --heuristic and --weak-scale-boost CLI args shared across benches."""
+    """Add --heuristic CLI arg shared across benches."""
     parser.add_argument(
         "--heuristic",
         action="store_true",
         help="Bias sampling toward promising configs",
     )
-    parser.add_argument(
-        "--weak-scale-boost",
-        type=float,
-        default=0.0,
-        help="Priority boost for weak-scaled best-known configs (0 = disable seeding)",
-    )
-
-
-def generate_with_weak_scale(
-    grid,
-    mcpu: str,
-    bench: str,
-    target_m: int,
-    target_n: int,
-    target_k: int,
-    args,
-    *,
-    sample_size: int,
-    pins: dict | None = None,
-    stratification_key=None,
-):
-    """Compose priority_fn + weak-scale seed and call ``grid.generate``.
-
-    The composition is:
-      - ``make_score_fn(mcpu, bench)`` when ``--heuristic`` is set
-      - ``build_weak_scale_priority`` when ``--weak-scale-boost > 0`` and size is pinned
-      - stratification is disabled automatically when any priority_fn is active
-    """
-    base_score_fn = make_score_fn(mcpu, bench) if getattr(args, "heuristic", False) else None
-    extra_eligible, priority_fn = build_weak_scale_priority(
-        mcpu,
-        bench,
-        target_m,
-        target_n,
-        target_k,
-        base_score_fn,
-        getattr(args, "weak_scale_boost", 0.0),
-    )
-    use_priority = priority_fn is not None
-    return grid.generate(
-        pins=pins or None,
-        sample_size=sample_size,
-        stratification_key=None if use_priority else stratification_key,
-        priority_fn=priority_fn,
-        extra_eligible=extra_eligible or None,
-    )
-
-
-def build_weak_scale_priority(
-    mcpu: str,
-    bench: str,
-    target_M: int | None,
-    target_N: int | None,
-    target_K: int | None,
-    base_score_fn: "callable | None",
-    boost: float,
-) -> tuple[list[dict], "callable | None"]:
-    """Compose the weak-scale seeding for a sweep."""
-    if boost <= 0 or target_M is None or target_N is None or target_K is None:
-        return [], base_score_fn
-
-    scaled = weak_scale_configs(mcpu, bench, target_M, target_N, target_K)
-    if not scaled:
-        return [], base_score_fn
-
-    extra_eligible: list[dict] = []
-    weak_scale_keys: set[tuple] = set()
-    for inst, src_label in scaled:
-        d = instance_to_axis_dict(inst)
-        extra_eligible.append(d)
-        weak_scale_keys.add(tuple(sorted(d.items())))
-        print(f"  weak-scale seed: {inst.label}  (from {src_label[:40]}...)")
-    print(f"  {len(extra_eligible)} weak-scaled configs added to eligible pool (boost={boost})")
-
-    def priority_fn(d: dict) -> float:
-        base = base_score_fn(d) if base_score_fn is not None else 0.0
-        if tuple(sorted(d.items())) in weak_scale_keys:
-            return base + boost
-        return base
-
-    return extra_eligible, priority_fn
-
-
-def instance_to_axis_dict(inst: "WeakScaledMappedGemmInstance") -> dict:
-    """Convert a WeakScaledMappedGemmInstance to an axis-level config dict."""
-    from kittens.gemm_config import DIM_M, DIM_N, DIM_K
-
-    m = inst.mapping
-    gs = inst.gemm_size
-    twg = m.num_tiles_per_workgroup
-    waves = m.num_waves_per_workgroup
-    wps_val = (waves[DIM_M] * waves[DIM_N] + 3) // 4
-    return {
-        "target_M": gs[DIM_M],
-        "target_N": gs[DIM_N],
-        "target_K": gs[DIM_K],
-        "twg_m": twg[DIM_M],
-        "twg_n": twg[DIM_N],
-        "twg_k": m.num_tiles_per_wave[DIM_K],
-        "waves_m": waves[DIM_M],
-        "waves_n": waves[DIM_N],
-        "occ": m.num_wg_per_cu * wps_val,
-        "n_mult": 1,
-        "k_factor": gs[DIM_K] // max(m.num_tiles_per_wave[DIM_K] * 32, 1),
-        "ps": m.pipeline_strategy,
-        "variant": (m.operand_path.value, m.load_type.value),
-        "lcm_unroll": m.lcm_unroll,
-        "unroll_mult": m.unroll_factor_multiplier,
-        "epilogue_peeling": m.epilogue_peeling,
-        "ll_sched": m.ll_sched,
-        "hoist_wait": m.hoist_wait,
-        "lds_at_write": m.lds_at_write,
-        "set_mfma_priority": m.set_mfma_priority,
-    }
-
-
-def _factor_splits(factor: int, parts: int) -> list[tuple[int, ...]]:
-    """All factorizations of `factor` into `parts` positive integer factors.
-
-    Example: _factor_splits(4, 3) -> [(1,1,4), (1,2,2), (1,4,1), (2,1,2), (2,2,1), (4,1,1)]
-    """
-    if parts == 1:
-        return [(factor,)]
-    out: list[tuple[int, ...]] = []
-    for d in range(1, factor + 1):
-        if factor % d == 0:
-            for rest in _factor_splits(factor // d, parts - 1):
-                out.append((d,) + rest)
-    return out
-
-
-def weak_scale_configs(
-    mcpu: str,
-    bench: str,
-    target_M: int,
-    target_N: int,
-    target_K: int,
-) -> list[tuple["WeakScaledMappedGemmInstance", str]]:
-    """Generate configs for (target_M, target_N, target_K) by weak-scaling best-known configs.
-
-    Returns a list of (instance, source_label) pairs.
-    """
-    from kittens.gemm_config import GemmSpec, GemmMappingSpec, DIM_M, DIM_N, DIM_K
-    from sweep_harness import WAVE_CONFIGS
-
-    known = BEST_KNOWN.get(mcpu, {}).get(bench, {})
-    if not known:
-        return []
-
-    results: list[tuple[WeakScaledMappedGemmInstance, str]] = []
-    seen_labels: set[str] = set()
-    wave_set = set(WAVE_CONFIGS)
-
-    for (src_M, src_N, src_K), label in known.items():
-        # Weak-scaling is strictly UP: source dimensions must divide target.
-        if target_M % src_M != 0 or target_N % src_N != 0 or target_K % src_K != 0:
-            continue
-        if target_M < src_M or target_N < src_N or target_K < src_K:
-            continue
-
-        f_M = target_M // src_M
-        f_N = target_N // src_N
-        f_K = target_K // src_K
-
-        src = WeakScaledMappedGemmInstance.from_label(label)
-        m = src.mapping
-        src_wg = m.num_workgroups_per_kernel
-        src_waves = m.num_waves_per_workgroup
-        src_tpw = m.num_tiles_per_wave
-
-        # M: (wg_m_mult, waves_m_mult, tiles_per_wave_m_mult)
-        # N: (wg_n_mult, waves_n_mult, tiles_per_wave_n_mult)
-        # K: (k_iters_mult, twg_k_mult) -- k_iters is implicit (k_iters_mult
-        #    is absorbed into the new target_K; we only track twg_k_mult).
-        for m_wg, m_wv, m_tp in _factor_splits(f_M, 3):
-            for n_wg, n_wv, n_tp in _factor_splits(f_N, 3):
-                for _k_iters_mult, k_tp in _factor_splits(f_K, 2):
-                    new_waves = [
-                        src_waves[DIM_M] * m_wv,
-                        src_waves[DIM_N] * n_wv,
-                        src_waves[DIM_K],
-                    ]
-                    # Wave config must be in the valid set (MI300X limit is 16 waves/WG).
-                    if (new_waves[DIM_M], new_waves[DIM_N]) not in wave_set:
-                        continue
-
-                    new_tpw = [
-                        src_tpw[DIM_M] * m_tp,
-                        src_tpw[DIM_N] * n_tp,
-                        src_tpw[DIM_K] * k_tp,
-                    ]
-                    new_wg = [
-                        src_wg[DIM_M] * m_wg,
-                        src_wg[DIM_N] * n_wg,
-                        src_wg[DIM_K],
-                    ]
-
-                    new_spec = GemmSpec.from_sizes(target_M, target_N, target_K)
-                    new_mapping = GemmMappingSpec(
-                        num_workgroups_per_kernel=new_wg,
-                        num_waves_per_workgroup=new_waves,
-                        num_tiles_per_wave=new_tpw,
-                        pipeline_strategy=m.pipeline_strategy,
-                        load_type=m.load_type,
-                        operand_path=m.operand_path,
-                        num_wg_per_cu=m.num_wg_per_cu,
-                        lcm_unroll=m.lcm_unroll,
-                        unroll_factor_multiplier=m.unroll_factor_multiplier,
-                        epilogue_peeling=m.epilogue_peeling,
-                        ll_sched=m.ll_sched,
-                        hoist_wait=m.hoist_wait,
-                        lds_at_write=m.lds_at_write,
-                        set_mfma_priority=m.set_mfma_priority,
-                    )
-                    try:
-                        inst = WeakScaledMappedGemmInstance(new_spec, new_mapping)
-                    except AssertionError:
-                        continue
-                    if inst.label in seen_labels:
-                        continue
-                    seen_labels.add(inst.label)
-                    results.append((inst, label))
-
-    return results
 
 
 _PREFERRED_FEATURES: dict[str, dict[str, dict]] = {
@@ -416,20 +192,20 @@ def make_score_fn(mcpu: str, bench: str) -> callable:
 #   Emitted when lcm_unroll==False. Sets axis lcm_unroll=False.
 # fmt: off
 _PIN_SPEC = [
-    ("tiles-per-wg-m",          "twg_m",             lambda m: m.num_tiles_per_workgroup[0],  None,  None),
-    ("tiles-per-wg-n",          "twg_n",             lambda m: m.num_tiles_per_workgroup[1],  None,  None),
-    ("waves-per-wg-m",          "waves_m",           lambda m: m.num_waves_per_workgroup[0],  None,  None),
-    ("waves-per-wg-n",          "waves_n",           lambda m: m.num_waves_per_workgroup[1],  None,  None),
-    ("pipeline-strategy",       "ps",                lambda m: m.pipeline_strategy,           None,  None),
-    ("desired-simd-occupancy",  "occ_pin",           lambda m: m.num_wg_per_cu * ((m.num_waves_per_workgroup[0] * m.num_waves_per_workgroup[1] + 3) // 4), None, None),
-    ("direct-b",                "variant",           lambda m: m.operand_path.value in ("direct_b", "direct_ab"), True, "direct_b"),
-    ("unroll-factor-multiplier","unroll_mult",       lambda m: m.unroll_factor_multiplier,    None,  None),
-    ("no-lcm-unroll",           "lcm_unroll",        lambda m: m.lcm_unroll,                  False, False),
-    ("no-epilogue-peeling",     "epilogue_peeling",  lambda m: m.epilogue_peeling,            False, False),
-    ("ll-sched",                "ll_sched",          lambda m: m.ll_sched,                    True,  True),
-    ("hoist-wait",              "hoist_wait",         lambda m: m.hoist_wait,                  True,  True),
-    ("lds-at-write",            "lds_at_write",      lambda m: m.lds_at_write,                True,  True),
-    ("no-set-mfma-priority",    "set_mfma_priority", lambda m: m.set_mfma_priority,           False, False),
+    ("tiles-per-wg-m",           "twg_m",                    lambda m: m.num_tiles_per_workgroup[0],  None,  None),
+    ("tiles-per-wg-n",           "twg_n",                    lambda m: m.num_tiles_per_workgroup[1],  None,  None),
+    ("waves-per-wg-m",           "waves_m",                  lambda m: m.num_waves_per_workgroup[0],  None,  None),
+    ("waves-per-wg-n",           "waves_n",                  lambda m: m.num_waves_per_workgroup[1],  None,  None),
+    ("pipeline-strategy",        "ps",                       lambda m: m.pipeline_strategy,           None,  None),
+    ("desired-simd-occupancy",   "occ_pin",                  lambda m: m.num_wg_per_cu * ((m.num_waves_per_workgroup[0] * m.num_waves_per_workgroup[1] + 3) // 4), None, None),
+    ("direct-b",                 "variant",                  lambda m: m.operand_path.value in ("direct_b", "direct_ab"), True, "direct_b"),
+    ("unroll-factor-multiplier", "unroll_factor_multiplier", lambda m: m.unroll_factor_multiplier,    None,  None),
+    ("no-lcm-unroll",            "lcm_unroll",               lambda m: m.lcm_unroll,                  False, False),
+    ("no-epilogue-peeling",      "epilogue_peeling",         lambda m: m.epilogue_peeling,            False, False),
+    ("ll-sched",                 "ll_sched",                 lambda m: m.ll_sched,                    True,  True),
+    ("hoist-wait",               "hoist_wait",               lambda m: m.hoist_wait,                  True,  True),
+    ("lds-at-write",             "lds_at_write",             lambda m: m.lds_at_write,                True,  True),
+    ("no-set-mfma-priority",     "set_mfma_priority",        lambda m: m.set_mfma_priority,           False, False),
 ]
 # fmt: on
 
