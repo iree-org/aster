@@ -7,9 +7,8 @@
 // CHECK:  .p2align 8
 // CHECK:  .type test_branch,@function
 // CHECK:test_branch:
-// CHECK:  ; fallthrough: .AMDGCN_BB_1
+// CHECK:  s_branch .AMDGCN_BB_1
 // CHECK:.AMDGCN_BB_1:
-// CHECK:  s_endpgm
 // CHECK:  .section .rodata,"a",@progbits
 // CHECK:  .p2align 6, 0x0
 // CHECK:  .amdhsa_kernel test_branch
@@ -27,11 +26,11 @@
 // CHECK:  .p2align 8
 // CHECK:  .type test_diamond_branch,@function
 // CHECK:test_diamond_branch:
-// CHECK:  ; fallthrough: .AMDGCN_BB_1
+// CHECK:  s_branch .AMDGCN_BB_1
 // CHECK:.AMDGCN_BB_1:
 // CHECK:  s_branch .AMDGCN_BB_2
 // CHECK:.AMDGCN_BB_3:
-// CHECK:  ; fallthrough: .AMDGCN_BB_2
+// CHECK:  s_branch .AMDGCN_BB_2
 // CHECK:.AMDGCN_BB_2:
 // CHECK:  s_endpgm
 // CHECK:  .section .rodata,"a",@progbits
@@ -86,17 +85,17 @@
 amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_branch {
   ^entry:
-    amdgcn.branch s_branch ^next
+    amdgcn.s_branch ^next
   ^next:
     amdgcn.end_kernel
   }
   amdgcn.kernel @test_diamond_branch {
   ^entry:
-    amdgcn.branch s_branch ^true
+    amdgcn.s_branch ^true
   ^true:
-    amdgcn.branch s_branch ^exit
+    amdgcn.s_branch ^exit
   ^false:
-    amdgcn.branch s_branch ^exit
+    amdgcn.s_branch ^exit
   ^exit:
     amdgcn.end_kernel
   }

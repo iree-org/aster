@@ -31,7 +31,7 @@ module {
       %vcc = amdgcn.alloca : !amdgcn.vcc
       %c42 = arith.constant 42 : i32
       amdgcn.v_cmp_ne_i32 outs(%vcc) ins(%c42, %v0) : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
-      amdgcn.cbranch s_cbranch_vccnz %vcc ^trap fallthrough(^ok)
+      amdgcn.s_cbranch_vccnz %vcc, true(^trap) false(^ok)
         : !amdgcn.vcc
 
     ^ok:

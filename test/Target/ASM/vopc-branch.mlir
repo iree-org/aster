@@ -36,7 +36,7 @@ amdgcn.module @vopc_branch_mod target = #amdgcn.target<gfx942> {
     %vcc = amdgcn.alloca : !amdgcn.vcc<0>
     %c0 = arith.constant 0 : i32
     amdgcn.v_cmp_lt_i32 outs(%vcc) ins(%c0, %v0) : outs(!amdgcn.vcc<0>) ins(i32, !amdgcn.vgpr<0>)
-    amdgcn.cbranch s_cbranch_vccz %vcc ^taken fallthrough(^fallthru)
+    amdgcn.s_cbranch_vccz %vcc, true(^taken) false(^fallthru)
       : !amdgcn.vcc<0>
   ^fallthru:
     amdgcn.end_kernel
@@ -51,7 +51,7 @@ amdgcn.module @vopc_branch_mod target = #amdgcn.target<gfx942> {
     %v1 = amdgcn.alloca : !amdgcn.vgpr<1>
     %vcc = amdgcn.alloca : !amdgcn.vcc<0>
     amdgcn.v_cmp_eq_i32 outs(%vcc) ins(%v0, %v1) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
-    amdgcn.cbranch s_cbranch_vccz %vcc ^taken fallthrough(^fallthru)
+    amdgcn.s_cbranch_vccz %vcc, true(^taken) false(^fallthru)
       : !amdgcn.vcc<0>
   ^fallthru:
     amdgcn.end_kernel
@@ -66,7 +66,7 @@ amdgcn.module @vopc_branch_mod target = #amdgcn.target<gfx942> {
     %vcc = amdgcn.alloca : !amdgcn.vcc<0>
     %c32 = arith.constant 32 : i32
     amdgcn.v_cmp_gt_i32 outs(%vcc) ins(%c32, %v0) : outs(!amdgcn.vcc<0>) ins(i32, !amdgcn.vgpr<0>)
-    amdgcn.cbranch s_cbranch_vccz %vcc ^taken fallthrough(^fallthru)
+    amdgcn.s_cbranch_vccz %vcc, true(^taken) false(^fallthru)
       : !amdgcn.vcc<0>
   ^fallthru:
     amdgcn.end_kernel

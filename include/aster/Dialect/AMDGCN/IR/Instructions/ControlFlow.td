@@ -16,153 +16,166 @@
 #define AMDGCN_INST_CONTROLFLOW_TD
 
 include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
+include "aster/Dialect/AMDGCN/IR/AMDGCNInstBase.td"
+include "aster/Dialect/AMDGCN/IR/Interfaces/InstOpInterfaces.td"
 
-//===----------------------------------------------------------------------===//
-// EndKernelOp
-//===----------------------------------------------------------------------===//
-
-def AMDGCN_EndKernelOp : AMDGCN_InstOp<"end_kernel", [
-    PureInst, Terminator, ReturnLike, HasParent<"KernelOp">
+#ifndef SENDPGM_DEF
+#define SENDPGM_DEF
+def EndKernelOp : AMDISAInstruction<"end_kernel", [
+    Terminator, ReturnLike, HasParent<"KernelOp">
   ]> {
-  let summary = "AMDGCN end kernel operation";
-  let description = [{Terminates an AMDGCN kernel function.}];
-  let leadingArguments = (ins
-    DefaultValuedAttr<AMDGCN_InstAttr, "mlir::aster::amdgcn::OpCode::S_ENDPGM">:$opcode);
-  let assemblyFormat = "attr-dict";
-  let cppNamespace = "::mlir::aster::amdgcn";
-}
-
-def EndKernelInst : AMDInst<
-  /*mnemonic=*/"s_endpgm", /*symbol=*/"s_endpgm",
-  /*instOp=*/AMDGCN_EndKernelOp, /*isa=*/[], [IsControlFlow, IsSOPP]> {
-  let summary = "End kernel instruction";
+  let props = [IsControlFlow, IsSOPP];
+  let archs = [CDNA3Isa, CDNA4Isa];
   let description = [{
-    End kernel instruction that terminates a kernel function.
+    End of program; terminate wavefront.
   }];
-  let pythonBuilder = DefaultPyBuilder<(ins)>;
-  let asmFormat = [SingleAsmVariant<"">];
+  let asm_mnemonic = "s_endpgm";
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000001>];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic}">
+  ];
 }
+#endif // SENDPGM_DEF
 
-//===----------------------------------------------------------------------===//
-// BranchOp/CondBranchOp
-//===----------------------------------------------------------------------===//
-
-def BranchOperand : AnyRegOf<[SReg<"SCC">, SReg<"VCC">, SReg<"VCCZ">, SReg<"EXECZ">]>;
-
-def AMDGCN_BranchOp : AMDGCN_InstOp<"branch", [
-    PureInst, Terminator, BranchOpInterface
+#ifndef SBRANCH_DEF
+#define SBRANCH_DEF
+def SBranch : AMDISAInstruction<"s_branch", [
+    AMDGCNInstOpInterface, Terminator, BranchOpInterface
   ]> {
-  let summary = "AMDGCN unconditional branch operation";
+  let props = [IsControlFlow, IsSOPP];
+  let archs = [CDNA3Isa, CDNA4Isa];
   let description = [{
-    Unconditional branching operation.
+    Jump to a constant offset relative to the current PC.
   }];
-  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000010>];
   let successors = (successor BranchLabel:$dest);
-  let assemblyFormat = "custom<Opcode>($opcode) $dest attr-dict";
-  let extraClassDeclaration = [{
-    //===------------------------------------------------------------------===//
-    // BranchOpInterface Methods
-    //===------------------------------------------------------------------===//
-    /// Returns the operands forwarded to the successor. No arguments are
-    /// forwarded by this branch.
-    SuccessorOperands getSuccessorOperands(unsigned index) {
-      return SuccessorOperands(MutableOperandRange(getOperation(), 0, 0));
-    }
-  }];
-  let cppNamespace = "::mlir::aster::amdgcn";
-}
-
-def AMDGCN_CBranchOp : AMDGCN_InstOp<"cbranch", [
-    PureInst, Terminator, BranchOpInterface
-  ]> {
-  let summary = "AMDGCN conditional branch operation";
-  let description = [{
-    Conditional branching operation that branches based on a condition register.
-
-    Example:
-    ```mlir
-    // Branch to ^loop if SCC is 1, otherwise fall through to ^exit
-    amdgcn.cbranch s_cbranch_scc1 %cond ^loop fallthrough (^exit)
-      : !amdgcn.scc
-    ```
-  }];
-  let leadingArguments = (ins AMDGCN_InstAttr:$opcode);
-  let inputs = (ins BranchOperand:$cond);
-  let successors = (successor BranchLabel:$dest, BranchLabel:$fallthrough);
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic} $dest">
+  ];
+  let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
-    custom<Opcode>($opcode)  $cond $dest `fallthrough` `(` $fallthrough `)`
-    attr-dict `:` type($cond)
+    $dest attr-dict
   }];
-  let extraClassDeclaration = [{
+  let instExtraClassDeclaration = [{
     //===------------------------------------------------------------------===//
     // BranchOpInterface Methods
     //===------------------------------------------------------------------===//
     /// Returns the operands forwarded to the given successor. No arguments are
     /// forwarded by this branch.
     SuccessorOperands getSuccessorOperands(unsigned index) {
+      assert(index == 0 && "Only one successor is supported for s_branch");
       return SuccessorOperands(MutableOperandRange(getOperation(), 0, 0));
     }
   }];
-  let cppNamespace = "::mlir::aster::amdgcn";
 }
+#endif // SBRANCH_DEF
 
-def BranchInst : AMDInst</*mnemonic=*/"s_branch", /*symbol=*/"s_branch",
-    /*instOp=*/AMDGCN_BranchOp, /*targets=*/[], [IsControlFlow, IsSOPP]> {
-  let summary = "Unconditional Branch instruction";
-  let description = [{
-    Branch instruction that performs unconditional branching.
+#ifndef SCBRANCHINST_DEF
+#define SCBRANCHINST_DEF
+class SCbranchInst<string mnemonic, list<Type> srcType> :
+    AMDISAInstruction<mnemonic, [Terminator, CBranchInstOpInterface]> {
+  let props = [IsControlFlow, IsSOPP];
+  let archs = [CDNA3Isa, CDNA4Isa];
+  let outputs = (ins);
+  let inputs = (ins
+    AnyRegOf<srcType>:$cond
+  );
+  let successors = (successor BranchLabel:$true_dest, BranchLabel:$false_dest);
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic} @printCondBr($true_dest, $false_dest)">
+  ];
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $cond `,` `true` `(` $true_dest `)` ` ` `false` `(` $false_dest `)`
+    attr-dict `:` type($cond)
   }];
-  let cppBuilder = OpBuilder<(ins "Block *":$dest), [{
-    return $_create($_builder, $_loc, $_opcode, dest);
-  }]>;
-  let pythonBuilder = OpBuilder<(ins PyBlock:$dest), [{
-    return $_create(opcode=$_opcode, dest=dest);
-  }]>;
-  let asmFormat = [SingleAsmVariant<"$dest">];
-}
-
-class CBranchInst<string _mnemonic, string sym>
-  : AMDInst<_mnemonic, sym, /*instOp=*/AMDGCN_CBranchOp, /*isa=*/[], [IsControlFlow, IsSOPP]> {
-  let cppBuilder = OpBuilder<(ins "Value":$cond, "Block *":$dest, "Block *":$fallthrough), [{
-    return $_create($_builder, $_loc, $_opcode, cond, dest, fallthrough);
-  }]>;
-  let pythonBuilder = OpBuilder<(ins PyValue:$cond, PyBlock:$dest, PyBlock:$fallthrough), [{
-    return $_create(opcode=$_opcode, cond=cond, dest=dest, fallthrough=fallthrough);
-  }]>;
-  // Assembly output: s_cbranch_cond* label (SCC is implicit in hardware encoding)
-  let asmFormat = [SingleAsmVariant<"$dest">];
-}
-
-def S_CBRANCH_SCC0_INST : CBranchInst<
-  /*mnemonic=*/"s_cbranch_scc0", /*symbol=*/"s_cbranch_scc0"> {
-  let summary = "Conditional Branch if SCC is 0";
-  let description = [{
-    Conditional branch instruction that branches if SCC is 0.
-  }];
-}
-
-def S_CBRANCH_SCC1_INST : CBranchInst<
-  /*mnemonic=*/"s_cbranch_scc1", /*symbol=*/"s_cbranch_scc1"> {
-  let summary = "Conditional Branch if SCC is 1";
-  let description = [{
-    Conditional branch instruction that branches if SCC is 1.
+  let instExtraClassDeclaration = [{
+    //===------------------------------------------------------------------===//
+    // BranchInstOpInterface Methods
+    //===------------------------------------------------------------------===//
+    Operand getCondOperand() {
+      return getCondMutable();
+    }
+    BlockOperand* getTrueBlock() {
+      return &getOperation()->getBlockOperands()[0];
+    }
+    BlockOperand* getFalseBlock() {
+      return &getOperation()->getBlockOperands()[1];
+    }
   }];
 }
+#endif // SCBRANCHINST_DEF
 
-def S_CBRANCH_VCCZ_INST : CBranchInst<
-  /*mnemonic=*/"s_cbranch_vccz", /*symbol=*/"s_cbranch_vccz"> {
-  let summary = "Conditional Branch if VCC is zero";
+#ifndef SCBRANCHEXECNZ_DEF
+#define SCBRANCHEXECNZ_DEF
+def SCbranchExecnz : SCbranchInst<"s_cbranch_execnz",
+    /*src=*/[EXECType]
+  > {
   let description = [{
-    Conditional branch instruction that branches if VCC is zero.
+    If EXECZ is 0 then jump to a constant offset relative to the current PC.
   }];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0001001>];
 }
+#endif // SCBRANCHEXECNZ_DEF
 
-def S_CBRANCH_VCCNZ_INST : CBranchInst<
-  /*mnemonic=*/"s_cbranch_vccnz", /*symbol=*/"s_cbranch_vccnz"> {
-  let summary = "Conditional Branch if VCC is not zero";
+#ifndef SCBRANCHEXECZ_DEF
+#define SCBRANCHEXECZ_DEF
+def SCbranchExecz : SCbranchInst<"s_cbranch_execz",
+    /*src=*/[EXECType]
+  > {
   let description = [{
-    Conditional branch instruction that branches if VCC is not zero.
+    If EXECZ is 1 then jump to a constant offset relative to the current PC.
   }];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0001000>];
 }
+#endif // SCBRANCHEXECZ_DEF
+
+#ifndef SCBRANCHSCC0_DEF
+#define SCBRANCHSCC0_DEF
+def SCbranchScc0 : SCbranchInst<"s_cbranch_scc0",
+    /*src=*/[SCCType]
+  > {
+  let description = [{
+    If SCC is 0 then jump to a constant offset relative to the current PC.
+  }];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000100>];
+}
+#endif // SCBRANCHSCC0_DEF
+
+#ifndef SCBRANCHSCC1_DEF
+#define SCBRANCHSCC1_DEF
+def SCbranchScc1 : SCbranchInst<"s_cbranch_scc1",
+    /*src=*/[SCCType]
+  > {
+  let description = [{
+    If SCC is 1 then jump to a constant offset relative to the current PC.
+  }];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000101>];
+}
+#endif // SCBRANCHSCC1_DEF
+
+#ifndef SCBRANCHVCCNZ_DEF
+#define SCBRANCHVCCNZ_DEF
+def SCbranchVccnz : SCbranchInst<"s_cbranch_vccnz",
+    /*src=*/[VCCType]
+  > {
+  let description = [{
+    If VCCZ is 0 then jump to a constant offset relative to the current PC.
+  }];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000111>];
+}
+#endif // SCBRANCHVCCNZ_DEF
+
+#ifndef SCBRANCHVCCZ_DEF
+#define SCBRANCHVCCZ_DEF
+def SCbranchVccz : SCbranchInst<"s_cbranch_vccz",
+    /*src=*/[VCCType]
+  > {
+  let description = [{
+    If VCCZ is 1 then jump to a constant offset relative to the current PC.
+  }];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000110>];
+}
+#endif // SCBRANCHVCCZ_DEF
 
 #endif // AMDGCN_INST_CONTROLFLOW_TD

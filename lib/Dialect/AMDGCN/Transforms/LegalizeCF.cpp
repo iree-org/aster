@@ -15,7 +15,7 @@
 // Transformations:
 //   - lsir.cmpi (SGPR/i32 operands) -> s_cmp_* (sets SCC flag)
 //   - lsir.cmpi (VGPR operands) -> v_cmp_* (sets VCC flag)
-//   - cf.cond_br -> s_cbranch_scc1/scc0 or s_cbranch_vccnz/vccz + s_branch
+//   - cf.cond_br -> s_cbranch_scc1 or s_cbranch_vccnz (+ s_branch when needed)
 //   - cf.br -> s_branch
 //
 //===----------------------------------------------------------------------===//
@@ -267,40 +267,19 @@ LogicalResult LegalizeCF::lowerCondBranch(cf::CondBranchOp condBr) {
   Value flagReg = getOrCreateLoweredCmp(cmpOp, rewriter);
   bool isVector = isa<VCCType>(flagReg.getType());
 
-  // Create conditional branch based on which destination is the next physical
-  // block. The fallthrough target must be the next block.
   Location loc = condBr.getLoc();
   Block *trueDest = condBr.getTrueDest();
   Block *falseDest = condBr.getFalseDest();
-  Block *currentBlock = condBr->getBlock();
-  Block *nextBlock = currentBlock->getNextNode();
 
-  // Select branch opcodes based on whether the compare wrote SCC or VCC.
-  OpCode branchTrue =
-      isVector ? OpCode::S_CBRANCH_VCCNZ : OpCode::S_CBRANCH_SCC1;
-  OpCode branchFalse =
-      isVector ? OpCode::S_CBRANCH_VCCZ : OpCode::S_CBRANCH_SCC0;
-
-  // amdgcn::CBranchOp takes a label; later, the actual 16-bit PC-relative
-  // offset is computed by the LLVM assembler (MC layer) when it assembles this
-  // text into binary machine code. This is happening outside of aster.
-  if (falseDest == nextBlock) {
-    // Branch to trueDest if flag set, fallthrough to falseDest
-    CBranchOp::create(rewriter, loc, branchTrue, flagReg, trueDest, falseDest);
-  } else if (trueDest == nextBlock) {
-    // Branch to falseDest if flag clear, fallthrough to trueDest
-    CBranchOp::create(rewriter, loc, branchFalse, flagReg, falseDest, trueDest);
-  } else {
-    // TODO: neither destination is the next block, we need more sophisticated
-    // logic to insert explicit branch and create a new block. For this to
-    // happen we need to first stabilize reg-alloc output guarantees (i.e. the
-    // BBarg erasure needs to happen in the absence of SSA values flowing).
-    // For now, emit an error if we reach such a case. The current behavior is
-    // enough to model `scf.for` loops.
-    return condBr.emitError()
-           << "neither cf.cond_br destination is the next physical block; "
-           << "block reordering not yet implemented";
-  }
+  // Emit the appropriate conditional branch. The s_cbranch_scc1/s_cbranch_vccnz
+  // instruction jumps to true_dest when the flag is set (condition true) and
+  // falls through or jumps to false_dest otherwise. The assembly printer
+  // inserts a trailing s_branch when false_dest is not the physically adjacent
+  // block.
+  if (isVector)
+    SCbranchVccnz::create(rewriter, loc, flagReg, trueDest, falseDest);
+  else
+    SCbranchScc1::create(rewriter, loc, flagReg, trueDest, falseDest);
 
   // Erase the original cf.cond_br
   rewriter.eraseOp(condBr);
@@ -325,8 +304,8 @@ LogicalResult LegalizeCF::lowerBranch(cf::BranchOp br) {
   IRRewriter rewriter(br);
   rewriter.setInsertionPoint(br);
 
-  // Create unconditional branch
-  BranchOp::create(rewriter, loc, OpCode::S_BRANCH, br.getDest());
+  // Create unconditional branch.
+  SBranch::create(rewriter, loc, br.getDest());
 
   // Erase the original cf.br
   rewriter.eraseOp(br);

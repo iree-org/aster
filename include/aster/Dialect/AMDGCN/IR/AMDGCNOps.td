@@ -862,11 +862,4 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
   let hasCanonicalizeMethod = 1;
 }
 
-//===----------------------------------------------------------------------===//
-// AMDGCN Target Operations
-//===----------------------------------------------------------------------===//
-
-include "aster/Dialect/AMDGCN/IR/Instructions/ControlFlow.td"
-
-
 #endif // ASTER_AMDGCN_OPS
