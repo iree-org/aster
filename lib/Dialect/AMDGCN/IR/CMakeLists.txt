@@ -12,7 +12,7 @@ add_mlir_dialect_library(AMDGCNDialect
   KernelArgInterfaceIncGen
   HazardAttrInterfaceIncGen
   AMDGCNInstOpInterfaceIncGen
-  MemoryOpInterfacesIncGen
+  InstOpInterfacesIncGen
   SchedInterfacesIncGen
   AMDGCNInstsIncGen
   AMDGCNOpsIncGen

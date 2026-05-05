@@ -13,7 +13,7 @@
 
 include "aster/Dialect/AMDGCN/IR/AMDGCNInstBase.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
-include "aster/Dialect/AMDGCN/IR/Interfaces/MemoryOpInterfaces.td"
+include "aster/Dialect/AMDGCN/IR/Interfaces/InstOpInterfaces.td"
 
 #ifndef BUFFERLOADINST_DEF
 #define BUFFERLOADINST_DEF

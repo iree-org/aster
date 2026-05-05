@@ -1,4 +1,4 @@
-//===- MemoryOpInterfaces.td - Memory Op Interfaces ----------*- tablegen -*-===//
+//===- InstOpInterfaces.td - Inst Op Interfaces ------------*- tablegen -*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,16 +8,20 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines the AMDGCN load and store operation interfaces.
+// This file defines the AMDGCN instruction operation interfaces.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ASTER_DIALECT_AMDGCN_IR_INTERFACES_MEMORYOPINTERFACES_TD
-#define ASTER_DIALECT_AMDGCN_IR_INTERFACES_MEMORYOPINTERFACES_TD
+#ifndef ASTER_DIALECT_AMDGCN_IR_INTERFACES_INSTOPINTERFACES_TD
+#define ASTER_DIALECT_AMDGCN_IR_INTERFACES_INSTOPINTERFACES_TD
 
 include "mlir/IR/OpBase.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.td"
 include "aster/Interfaces/DependentOpInterface.td"
+
+//===----------------------------------------------------------------------===//
+// Memory instruction interfaces
+//===----------------------------------------------------------------------===//
 
 def LoadOpInterface :
     OpInterface<"LoadOpInterface", [AMDGCNInstOpInterface, FutureOpInterface]> {
@@ -73,7 +77,7 @@ def StoreOpInterface :
 }
 
 //===----------------------------------------------------------------------===//
-// Instruction class interfaces
+// DS instruction interfaces
 //===----------------------------------------------------------------------===//
 
 def DSReadInstOpInterface :
@@ -206,6 +210,10 @@ def DSWrite2InstOpInterface :
   ];
 }
 
+//===----------------------------------------------------------------------===//
+// Scalar memory instruction interfaces
+//===----------------------------------------------------------------------===//
+
 def SLoadDwordInstOpInterface :
     OpInterface<"SLoadDwordInstOpInterface", [AMDGCNInstOpInterface, LoadOpInterface]> {
   let cppNamespace = "::mlir::aster::amdgcn";
@@ -266,6 +274,10 @@ def SStoreDwordInstOpInterface :
     }
   }];
 }
+
+//===----------------------------------------------------------------------===//
+// Buffer instruction interfaces
+//===----------------------------------------------------------------------===//
 
 def BufferLoadInstOpInterface :
     OpInterface<"BufferLoadInstOpInterface", [AMDGCNInstOpInterface, LoadOpInterface]> {
@@ -368,6 +380,10 @@ def BufferStoreInstOpInterface :
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// Global memory instruction interfaces
+//===----------------------------------------------------------------------===//
+
 def GlobalLoadInstOpInterface :
     OpInterface<"GlobalLoadInstOpInterface", [AMDGCNInstOpInterface, LoadOpInterface]> {
   let cppNamespace = "::mlir::aster::amdgcn";
@@ -443,4 +459,4 @@ def GlobalStoreDwordInstOpInterface :
   }];
 }
 
-#endif // ASTER_DIALECT_AMDGCN_IR_INTERFACES_MEMORYOPINTERFACES_TD
+#endif // ASTER_DIALECT_AMDGCN_IR_INTERFACES_INSTOPINTERFACES_TD
