@@ -649,12 +649,21 @@ static int64_t getExecLatency(Operation *op, QueueType qt) {
   case QueueType::SALU:
     return 4;
   case QueueType::VMEM:
-    return 128;
-  case QueueType::LGKM:
-    // Mid-range covering both LDS reads (~32c) and writes (~8c). The
-    // scheduler treats them as one bucket; this is the issue-cycle
-    // estimate used by the QueueSimulator.
-    return 16;
+    // Memory return latency on MI300X (~256c is the realistic round-trip
+    // for hot-cache loads; a true L2 miss is ~700-1000c, but for hiding
+    // analysis we model the typical case).
+    return 256;
+  case QueueType::LGKM: {
+    // ds_write / SMEM store: ~8c. ds_read: ~32c. Detect writes by the
+    // presence of a WriteToken result (matches the isLgkmWrite[] flag
+    // used by computeScore). Anything that isn't a write is treated as
+    // a read.
+    for (Value res : op->getResults()) {
+      if (isa<WriteTokenType>(res.getType()))
+        return 8;
+    }
+    return 32;
+  }
   case QueueType::Unknown:
     return 4;
   }
@@ -662,17 +671,11 @@ static int64_t getExecLatency(Operation *op, QueueType qt) {
 }
 
 /// Returns the queue depth (number of in-flight slots).
-/// VMEM has ~16 outstanding loads in the per-wave load buffer (matches ATT
-/// observation; ISA Section 4.4 does not publish a hardware cap, so this
-/// number is microarchitectural). All per-SIMD queues are 8-deep.
-static int64_t getQueueDepth(QueueType qt) {
-  switch (qt) {
-  case QueueType::VMEM:
-    return 16;
-  default:
-    return 8;
-  }
-}
+/// In practice ATT traces show effective queue depth ~4 across all kinds:
+/// even though some hardware queues advertise more, throughput collapses
+/// once 5+ ops of the same kind are in flight (memory queue saturation,
+/// XDL pipe contention). 4 is the working depth for the scheduler.
+static int64_t getQueueDepth(QueueType /*qt*/) { return 4; }
 
 /// Issue cost in hardware cycles (1 quad = 4 hw cycles).
 static constexpr int64_t kIssueCost = 4;
@@ -701,11 +704,22 @@ namespace {
 //===----------------------------------------------------------------------===//
 
 /// Models the hardware queue state for stall detection.
-/// Each queue has `capacity` slots; issuing an op occupies one slot for
-/// `execLatency` cycles. A stall occurs when all slots are busy.
+///
+/// Two-rate issue model:
+///   * Normal issue: `kIssueCost` (4c) per op -- the issue port can launch
+///     a new op into the queue every quad if the queue has room.
+///   * Queue full: issue blocks until the oldest in-flight slot completes
+///     its `execLatency`. Total advance is just the back-pressure stall
+///     (no extra port cost on top -- the port time is absorbed by the
+///     stall).
+///   * XDL back-to-back: a second MFMA right after another MFMA pays the
+///     full `execLatency` (16c or 32c) because the XDL pipe is non-
+///     pipelined for chained same-kind issues. This models the
+///     "consecutive MFMA bunching" cost we see in traces.
 struct QueueSimulator {
   DenseMap<QueueType, SmallVector<int64_t>> slotFreeAt;
   int64_t currentCycle = 0;
+  QueueType lastIssuedKind = QueueType::Unknown;
 
   /// Query how many hw cycles issuing to `qt` would stall.
   int64_t wouldStall(QueueType qt) const {
@@ -726,7 +740,7 @@ struct QueueSimulator {
     return std::max(int64_t{0}, earliest - currentCycle);
   }
 
-  /// Issue an op. Returns stall in hw cycles (always a multiple of 4).
+  /// Issue an op. Returns stall in hw cycles.
   int64_t issue(QueueType qt, int64_t execLatency) {
     if (qt == QueueType::Unknown)
       return 0;
@@ -736,7 +750,8 @@ struct QueueSimulator {
 
     int64_t depth = getQueueDepth(qt);
     int64_t stallCycles = 0;
-    if (static_cast<int64_t>(slots.size()) >= depth) {
+    bool queueWasFull = static_cast<int64_t>(slots.size()) >= depth;
+    if (queueWasFull) {
       int64_t earliest = *llvm::min_element(slots);
       stallCycles = std::max(int64_t{0}, earliest - currentCycle);
       currentCycle += stallCycles;
@@ -744,7 +759,19 @@ struct QueueSimulator {
     }
 
     slots.push_back(currentCycle + execLatency);
-    currentCycle += kIssueCost;
+    // Issue cost: full execLatency for back-to-back XDLs (MFMA pipe is
+    // non-pipelined when chained same-kind), kIssueCost otherwise.
+    // When the queue was full, the port time is absorbed by stallCycles
+    // -- don't double-charge.
+    int64_t issueCost = 0;
+    if (!queueWasFull) {
+      if (qt == QueueType::XDL && lastIssuedKind == QueueType::XDL)
+        issueCost = execLatency;
+      else
+        issueCost = kIssueCost;
+    }
+    currentCycle += issueCost;
+    lastIssuedKind = qt;
     return stallCycles;
   }
 };
@@ -778,6 +805,14 @@ struct SchedState {
   // successors, the remaining count. Empty before the LGKM fires; removed
   // once all consumers fire. The size of this map is `outstandingLgkm`.
   DenseMap<int32_t, int32_t> lgkmRemainingConsumers;
+  // Simulator currentCycle at which the most recent VMEM / LGKM was
+  // issued, or INT64_MIN if never. Used by the wait-deferral term to
+  // compute "how much of the producer exec latency has been hidden",
+  // which is more accurate than counting ops in the recent-kinds window
+  // when issue rate is variable (XDL back-to-back charges execLatency,
+  // not kIssueCost).
+  int64_t lastVmemIssueCycle = std::numeric_limits<int64_t>::min();
+  int64_t lastLgkmIssueCycle = std::numeric_limits<int64_t>::min();
 };
 } // namespace
 
@@ -798,8 +833,14 @@ struct SchedState {
 /// `waitKind` is non-zero only for amdgcn.wait ops; layered on top of the
 /// "other" tier it bumps low-stall wait_vm above LGKM and below VMEM,
 /// matching the previous wait-hide policy.
+///
+/// `isLgkmWrite` is true for LGKM ops that produce a WriteToken (ds_write,
+/// SMEM stores). DS writes have ~2x the issue cost of DS reads on CDNA3 and
+/// often serialize against same-bank reads through the LDS arbiter, so they
+/// get a heavier per-occurrence burst penalty than DS reads.
 static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
-                        bool consumerInReady, uint8_t waitKind) {
+                        bool consumerInReady, uint8_t waitKind,
+                        bool isLgkmWrite, int64_t currentCycle) {
   int score = 0;
 
   // 1. Stall avoidance: every queue saturation cycle costs 25 points,
@@ -829,16 +870,24 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
   // 3. Per-kind burst penalty. Each kind has its own lookback window and
   //    per-occurrence penalty, sized to the natural interleaving distance:
   //
-  //      VMEM:  lookback 16, penalty 100/occurrence
+  //      VMEM:  lookback 16, penalty 125/occurrence
   //             Each global_load takes ~128c exec but stalls the per-CU
   //             memory queue when packed. Spreading them over a 16-op
   //             (~64c issue time) window keeps the queue healthy. With
-  //             base 800, 4 in last-16 drops to 400 (= MFMA), 5+ loses.
+  //             base 800, 4 in last-16 drops to 300 (< MFMA 400), 5+
+  //             below MFMA. Modest bump from 100 to 125 -- larger bumps
+  //             over-spread loads and degrade mean iteration time.
   //
-  //      LGKM:  lookback 4, penalty 200/occurrence
-  //             DS exec ~16-32c. After 1 DS in last 4, score = 0 < VALU
-  //             (100): avoids back-to-back DS while letting bursts of 2+
-  //             happen only when nothing else is ready.
+  //      LGKM (read):  lookback 4, penalty 200/occurrence
+  //             DS read exec ~16-32c. After 1 DS read in last 4, score
+  //             drops to 0 (< VALU 100): avoids back-to-back DS reads.
+  //
+  //      LGKM (write): lookback 4, penalty 250/occurrence
+  //             DS writes have higher issue cost than reads on CDNA3
+  //             and often serialize against same-bank reads through the
+  //             LDS arbiter. Modest 25% bump over reads drives stronger
+  //             alternation between ds_write and other ops without
+  //             over-deferring writes when LDS pressure demands them.
   //
   //      XDL:   lookback 2, penalty 350/occurrence
   //             MFMA exec 16-32c. Tight 2-op window because we want strict
@@ -855,11 +904,11 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
   switch (qt) {
   case QueueType::VMEM:
     lookback = 16;
-    perOccPenalty = 100;
+    perOccPenalty = 125;
     break;
   case QueueType::LGKM:
     lookback = 4;
-    perOccPenalty = 200;
+    perOccPenalty = isLgkmWrite ? 250 : 200;
     break;
   case QueueType::XDL:
     lookback = 2;
@@ -933,38 +982,29 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
   //    is ready, or when the projected stall has been amortized.
   enum : uint8_t { WK_VM = 1, WK_LGKM = 2 };
   if (waitKind != 0 && qt == QueueType::Unknown) {
-    auto opsSince = [&](QueueType q) -> int {
-      // Distance from the back of `recent` to the most recent `q`.
-      // Returns recent.size() if `q` is not in the window (= "far").
-      for (size_t i = 0; i < recent.size(); ++i) {
-        if (recent[recent.size() - 1 - i] == q)
-          return static_cast<int>(i);
-      }
-      return static_cast<int>(recent.size());
-    };
-    constexpr int kIssueCost = 4;
     constexpr int kStallWeight = 25;
-    constexpr int kMemoryLatency =
-        2700; // MI300X DRAM round-trip (conservative)
+    // VMEM exec latency we model in the simulator (matches getExecLatency).
+    constexpr int kMemoryLatency = 256;
     constexpr int kLgkmExecLatency = 32; // DS read exec latency upper bound
-    if (waitKind & WK_VM) {
-      int hideDone = opsSince(QueueType::VMEM) * kIssueCost;
-      int remainingStall = std::max(0, kMemoryLatency - hideDone);
-      score -= kStallWeight * remainingStall;
-    }
-    if (waitKind & WK_LGKM) {
-      int hideDone = opsSince(QueueType::LGKM) * kIssueCost;
-      int remainingStall = std::max(0, kLgkmExecLatency - hideDone);
-      score -= kStallWeight * remainingStall;
-    }
+    auto remainingStall = [&](int64_t lastIssueCycle, int execLat) -> int {
+      if (lastIssueCycle == std::numeric_limits<int64_t>::min())
+        return 0; // No producer ever issued -> wait would fire instantly.
+      int64_t hideDone = currentCycle - lastIssueCycle;
+      return static_cast<int>(std::max<int64_t>(0, execLat - hideDone));
+    };
+    if (waitKind & WK_VM)
+      score -=
+          kStallWeight * remainingStall(s.lastVmemIssueCycle, kMemoryLatency);
+    if (waitKind & WK_LGKM)
+      score -=
+          kStallWeight * remainingStall(s.lastLgkmIssueCycle, kLgkmExecLatency);
   }
 
-  // 7. VMEM saturation cap: VMCNT is 4-bit and each VMEM op has ~128c
-  //    latency. Stacking too many in flight makes a later vmcnt(0)
-  //    stall thousands of cycles. Cap at 4 outstanding to match the
-  //    "at most 4 in flight" rule.
-  if (qt == QueueType::VMEM && s.outstandingVmem >= 4)
-    score -= 250;
+  // 7. (No explicit VMEM saturation cap.) With queue depth = 4 and exec
+  //    latency = 256c, the simulator's `wouldStall` already charges a
+  //    huge stall (capped at 64c -> -1600 via term 1) for the 5th+ VMEM,
+  //    which is sufficient backpressure. An additional explicit cap
+  //    here would double-count the saturation penalty.
 
   return score;
 }
@@ -988,6 +1028,11 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
   // (shared/constant tokens). 0 = not a wait op.
   enum : uint8_t { WK_NotWait = 0, WK_VM = 1, WK_LGKM = 2, WK_Both = 3 };
   SmallVector<uint8_t> waitKind(schedGraph.sizeNodes(), WK_NotWait);
+  // True for LGKM ops that produce a WriteToken of Shared/Constant kind
+  // (ds_write, SMEM stores). DS writes have heavier issue cost than reads
+  // and often serialize against same-bank reads, so they get a heavier
+  // per-occurrence burst penalty in computeScore.
+  SmallVector<bool> isLgkmWrite(schedGraph.sizeNodes(), false);
   auto isFlat = [](Type type) {
     if (auto rt = dyn_cast<ReadTokenType>(type))
       return rt.getKind() == MemoryInstructionKind::Flat;
@@ -1017,6 +1062,14 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
           wlgkm = true;
       }
       waitKind[i] = (wvm ? WK_VM : 0) | (wlgkm ? WK_LGKM : 0);
+    }
+    if (queueTypes[i] == QueueType::LGKM) {
+      for (Value res : op->getResults()) {
+        if (isLgkm(res.getType()) && isa<WriteTokenType>(res.getType())) {
+          isLgkmWrite[i] = true;
+          break;
+        }
+      }
     }
   }
 
@@ -1188,7 +1241,8 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
         bool consumerInReady =
             (qt == QueueType::XDL) && hasXdlConsumerInReady(nodeId);
         int score =
-            computeScore(qt, stall, state, consumerInReady, waitKind[nodeId]);
+            computeScore(qt, stall, state, consumerInReady, waitKind[nodeId],
+                         isLgkmWrite[nodeId], sim.currentCycle);
 
         if (score > bestScore ||
             (score == bestScore && nodeId < ready[bestIdx])) {
@@ -1250,6 +1304,7 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
       break;
     case QueueType::LGKM:
       state.outstandingLgkm++;
+      state.lastLgkmIssueCycle = sim.currentCycle;
       // Activate the remaining-consumers counter for this LGKM so that
       // XDL siblings each draw from the deadline pool.
       if (auto it = state.lgkmTotalConsumers.find(chosen);
@@ -1258,6 +1313,7 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
       break;
     case QueueType::VMEM:
       state.outstandingVmem++;
+      state.lastVmemIssueCycle = sim.currentCycle;
       break;
     default:
       break;
