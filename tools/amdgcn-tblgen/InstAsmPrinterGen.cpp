@@ -113,6 +113,12 @@ ASMPrinterHandler::ASMPrinterHandler(const llvm::Record *rec) : instOp(rec) {
       arguments[arg.getName()] = {arg, ASMArgFormat(arg.getAsRecord())};
     }
   }
+  // Collect block operands from successors.
+  for (auto [i, arg] : llvm::enumerate(instOp.getSuccessors().getAsRange())) {
+    if (!ASMArgFormat::isa(arg.getAsRecord()))
+      continue;
+    arguments[arg.getName()] = {arg, ASMArgFormat(arg.getAsRecord())};
+  }
   // Set up the format context.
   ctx.addSubst("_inst", "_inst");
   ctx.addSubst("_printer", "printer");
