@@ -297,8 +297,8 @@ def test_kernel_builder_tiledmma_structure():
         assert "make_buffer_rsrc" in text
         assert "buffer_load_dwordx2" in text
         assert "s_waitcnt" in text
-        assert "v_accvgpr_write_b32" in text
-        assert "vop3p_mai" in text
+        assert "v_accvgpr_write" in text
+        assert "v_mfma_f32_16x16x16_f16" in text
         assert "buffer_store_dwordx4" in text
 
         asm = compile_mlir_module_to_asm(module)

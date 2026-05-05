@@ -62,39 +62,37 @@ static bool checkOverlap(AMDGCNRegisterTypeInterface lhs,
 
 static int16_t getMfmaPassCase(OpCode op) {
   switch (op) {
-  // 16 cycles -> 4 passes (case 1), per Table 37: 16x16x16, 16x16x32
-  case OpCode::V_MFMA_F32_16X16X16_F16:
-  case OpCode::V_MFMA_F32_16X16X16_BF16:
-  case OpCode::V_MFMA_F16_16X16X16_F16:
-  case OpCode::V_MFMA_F32_16X16X32_FP8_FP8:
-  case OpCode::V_MFMA_F32_16X16X32_FP8_BF8:
-  case OpCode::V_MFMA_F32_16X16X32_BF8_FP8:
-  case OpCode::V_MFMA_F32_16X16X32_BF8_BF8:
-  case OpCode::V_MFMA_F32_16X16X32_F16:
-  case OpCode::V_MFMA_F32_16X16X32_BF16:
+  // 16 cycles -> 4 passes (case 1), per Table 37: 16x16x16, 16x16x32.
+  case OpCode::_v_mfma_f32_16x16x16_f16:
+  case OpCode::_v_mfma_f32_16x16x16_bf16:
+  case OpCode::_v_mfma_f32_16x16x32_fp8_fp8:
+  case OpCode::_v_mfma_f32_16x16x32_fp8_bf8:
+  case OpCode::_v_mfma_f32_16x16x32_bf8_fp8:
+  case OpCode::_v_mfma_f32_16x16x32_bf8_bf8:
+  case OpCode::_v_mfma_f32_16x16x32_f16:
+  case OpCode::_v_mfma_f32_16x16x32_bf16:
     return 1; // 4 passes
   // 32 cycles -> 8 passes (case 2), per Table 37: 32x32x8, 32x32x16; 32x32x64
-  // scaled
-  case OpCode::V_MFMA_F32_32X32X8_F16:
-  case OpCode::V_MFMA_F32_32X32X16_F16:
-  case OpCode::V_MFMA_F32_32X32X16_BF16:
-  case OpCode::V_MFMA_SCALE_F32_32X32X64_F8F6F4:
+  // scaled.
+  case OpCode::_v_mfma_f32_32x32x8_f16:
+  case OpCode::_v_mfma_f32_32x32x16_f16:
+  case OpCode::_v_mfma_f32_32x32x16_bf16:
+  case OpCode::_v_mfma_scale_f32_32x32x64_f8f6f4:
     return 2; // 8 passes
-  // 64 cycles -> 16 passes (case 3), 16x16x128 has 4x K of 16x16x32
-  case OpCode::V_MFMA_SCALE_F32_16X16X128_F8F6F4:
+  // 64 cycles -> 16 passes (case 3), 16x16x128 has 4x K of 16x16x32.
+  case OpCode::_v_mfma_scale_f32_16x16x128_f8f6f4:
     return 3; // 16 passes
   default:
     return -1; // unknown or not implemented
   }
 }
 
-/// Get vdst Value from VOP3PMAIOp or VOP3PScaledMAIOp.
-static OpOperand *getMaiVdst(Operation *op) {
-  if (auto mai = dyn_cast<inst::VOP3PMAIOp>(op))
-    return &mai.getVdstMutable();
-  if (auto scaledMai = dyn_cast<inst::VOP3PScaledMAIOp>(op))
-    return &scaledMai.getVdstMutable();
-  return nullptr;
+/// Get the vdst operand from an MMA instruction via the MMAOpInterface.
+static OpOperand *getMmaVdst(AMDGCNInstOpInterface instOp) {
+  auto mmaOp = dyn_cast<MMAOpInterface>(instOp.getOperation());
+  if (!mmaOp)
+    return nullptr;
+  return &mmaOp.getVdst();
 }
 
 /// Check if a register kind is VCC or EXEC (written by first instruction).
@@ -788,7 +786,7 @@ bool CDNA3XdlWriteVgprXdlReadSrcCExactHazardAttr::matchInst(
 
 void CDNA3XdlWriteVgprXdlReadSrcCExactHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
-  OpOperand *vdst = getMaiVdst(instOp.getOperation());
+  OpOperand *vdst = getMmaVdst(instOp);
   if (!vdst)
     return;
 
@@ -816,19 +814,11 @@ bool CDNA3XdlWriteVgprXdlReadSrcCExactHazardAttr::isHazardTriggered(
 
   // Check that the second instruction is XDL/V_SMFMA* reading SrcC exactly
   // same.
-  if (!isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(instOp.getOperation()))
+  auto mmaOp = dyn_cast<MMAOpInterface>(instOp.getOperation());
+  if (!mmaOp)
     return false;
 
-  Value srcC;
-  if (auto mai = dyn_cast<inst::VOP3PMAIOp>(instOp.getOperation()))
-    srcC = mai.getC();
-  else if (auto scaledMai =
-               dyn_cast<inst::VOP3PScaledMAIOp>(instOp.getOperation()))
-    srcC = scaledMai.getC();
-  else
-    srcC = {};
-  if (!srcC)
-    return false;
+  Value srcC = mmaOp.getSrcC().get();
 
   OpOperand *raiserVdst = hazard.getOperand();
   assert(raiserVdst && "Raiser operand cannot be nullptr");
@@ -892,10 +882,7 @@ bool CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::matchInst(
 
 void CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
-  if (!isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(instOp.getOperation()))
-    return;
-
-  OpOperand *vdst = getMaiVdst(instOp.getOperation());
+  OpOperand *vdst = getMmaVdst(instOp);
   if (!vdst)
     return;
 
@@ -922,20 +909,12 @@ bool CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::isHazardTriggered(
   int16_t caseNum = getCaseNum();
 
   // Trigger: V_MFMA* or V_SMFMA* reads the raiser's vdst as SrcA or SrcB.
-  if (!isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(instOp.getOperation()))
+  auto mmaOp = dyn_cast<MMAOpInterface>(instOp.getOperation());
+  if (!mmaOp)
     return false;
 
-  Value srcA, srcB;
-  if (auto mai = dyn_cast<inst::VOP3PMAIOp>(instOp.getOperation())) {
-    srcA = mai.getA();
-    srcB = mai.getB();
-  } else if (auto scaledMai =
-                 dyn_cast<inst::VOP3PScaledMAIOp>(instOp.getOperation())) {
-    srcA = scaledMai.getA();
-    srcB = scaledMai.getB();
-  } else {
-    return false;
-  }
+  Value srcA = mmaOp.getSrcA().get();
+  Value srcB = mmaOp.getSrcB().get();
 
   OpOperand *raiserVdst = hazard.getOperand();
   if (!raiserVdst)
@@ -978,10 +957,7 @@ bool CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::matchInst(
 
 void CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
-  if (!isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(instOp.getOperation()))
-    return;
-
-  OpOperand *vdst = getMaiVdst(instOp.getOperation());
+  OpOperand *vdst = getMmaVdst(instOp);
   if (!vdst)
     return;
 
@@ -1007,20 +983,12 @@ bool CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::isHazardTriggered(
 
   int16_t caseNum = getCaseNum();
 
-  if (!isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(instOp.getOperation()))
+  auto mmaOp = dyn_cast<MMAOpInterface>(instOp.getOperation());
+  if (!mmaOp)
     return false;
 
-  Value srcA, srcB;
-  if (auto mai = dyn_cast<inst::VOP3PMAIOp>(instOp.getOperation())) {
-    srcA = mai.getA();
-    srcB = mai.getB();
-  } else if (auto scaledMai =
-                 dyn_cast<inst::VOP3PScaledMAIOp>(instOp.getOperation())) {
-    srcA = scaledMai.getA();
-    srcB = scaledMai.getB();
-  } else {
-    return false;
-  }
+  Value srcA = mmaOp.getSrcA().get();
+  Value srcB = mmaOp.getSrcB().get();
 
   OpOperand *raiserVdst = hazard.getOperand();
   if (!raiserVdst)
@@ -1060,10 +1028,7 @@ bool CDNA3XdlWriteVgprVmemValuHazardAttr::matchInst(
 
 void CDNA3XdlWriteVgprVmemValuHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
-  if (!isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(instOp.getOperation()))
-    return;
-
-  OpOperand *vdst = getMaiVdst(instOp.getOperation());
+  OpOperand *vdst = getMmaVdst(instOp);
   if (!vdst)
     return;
 
@@ -1159,10 +1124,7 @@ bool CDNA4XdlWriteVgprVmemValuHazardAttr::matchInst(
 
 void CDNA4XdlWriteVgprVmemValuHazardAttr::populateHazardsFor(
     AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
-  if (!isa<inst::VOP3PMAIOp, inst::VOP3PScaledMAIOp>(instOp.getOperation()))
-    return;
-
-  OpOperand *vdst = getMaiVdst(instOp.getOperation());
+  OpOperand *vdst = getMmaVdst(instOp);
   if (!vdst)
     return;
 

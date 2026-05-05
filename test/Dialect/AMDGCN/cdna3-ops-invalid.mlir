@@ -8,10 +8,10 @@
 // Test: Wrong A operand register count (3 instead of 2)
 
 func.func @test_vop3p_mai_wrong_a_count(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdgcn.vgpr<[0 : 3]>, %b: !amdgcn.vgpr<[4 : 6]>, %c: !amdgcn.vgpr<[8 : 12]>) {
-  // expected-error@+1 {{a operand must have 2 registers for v_mfma_f32_16x16x16_f16, got 3}}
-  amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[0 : 3]>, !amdgcn.vgpr<[4 : 6]>, !amdgcn.vgpr<[8 : 12]>
-    -> !amdgcn.vgpr<[12 : 16]>
+  // expected-error@+1 {{'amdgcn.v_mfma_f32_16x16x16_f16' op operand #1 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {2}, sized GPR range of AGPR type with sizes {2}}}, but got '!amdgcn.vgpr<[0 : 3]>'}}
+  amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[12 : 16]>)
+      ins(!amdgcn.vgpr<[0 : 3]>, !amdgcn.vgpr<[4 : 6]>, !amdgcn.vgpr<[8 : 12]>)
   return
 }
 
@@ -19,10 +19,10 @@ func.func @test_vop3p_mai_wrong_a_count(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdg
 // Test: Wrong B operand register count (3 instead of 2)
 
 func.func @test_vop3p_mai_wrong_b_count(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdgcn.vgpr<[0 : 2]>, %b: !amdgcn.vgpr<[4 : 7]>, %c: !amdgcn.vgpr<[8 : 12]>) {
-  // expected-error@+1 {{b operand must have 2 registers for v_mfma_f32_16x16x16_f16, got 3}}
-  amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[4 : 7]>, !amdgcn.vgpr<[8 : 12]>
-    -> !amdgcn.vgpr<[12 : 16]>
+  // expected-error@+1 {{'amdgcn.v_mfma_f32_16x16x16_f16' op operand #2 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {2}, sized GPR range of AGPR type with sizes {2}}}, but got '!amdgcn.vgpr<[4 : 7]>'}}
+  amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[12 : 16]>)
+      ins(!amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[4 : 7]>, !amdgcn.vgpr<[8 : 12]>)
   return
 }
 
@@ -30,10 +30,10 @@ func.func @test_vop3p_mai_wrong_b_count(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdg
 // Test: Wrong C operand register count (2 instead of 4)
 
 func.func @test_vop3p_mai_wrong_c_count(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdgcn.vgpr<[0 : 2]>, %b: !amdgcn.vgpr<[2 : 4]>, %c: !amdgcn.vgpr<[4 : 6]>) {
-  // expected-error@+1 {{c operand must have 4 registers for v_mfma_f32_16x16x16_f16, got 2}}
-  amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.vgpr<[4 : 6]>
-    -> !amdgcn.vgpr<[12 : 16]>
+  // expected-error@+1 {{'amdgcn.v_mfma_f32_16x16x16_f16' op operand #3 must be sized GPR range of VGPR type with sizes {4} or sized GPR range of AGPR type with sizes {4} or , but got '!amdgcn.vgpr<[4 : 6]>'}}
+  amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[12 : 16]>)
+      ins(!amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.vgpr<[4 : 6]>)
   return
 }
 
@@ -41,10 +41,10 @@ func.func @test_vop3p_mai_wrong_c_count(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdg
 // Test: Wrong destination register count (2 instead of 4)
 
 func.func @test_vop3p_mai_wrong_dst_count(%dst: !amdgcn.vgpr<[8 : 10]>, %a: !amdgcn.vgpr<[0 : 2]>, %b: !amdgcn.vgpr<[2 : 4]>, %c: !amdgcn.vgpr<[4 : 8]>) {
-  // expected-error@+1 {{vdst operand must have 4 registers for v_mfma_f32_16x16x16_f16, got 2}}
-  amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.vgpr<[4 : 8]>
-    -> !amdgcn.vgpr<[8 : 10]>
+  // expected-error@+1 {{'amdgcn.v_mfma_f32_16x16x16_f16' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {4}, sized GPR range of AGPR type with sizes {4}}}, but got '!amdgcn.vgpr<[8 : 10]>'}}
+  amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[8 : 10]>)
+      ins(!amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.vgpr<[4 : 8]>)
   return
 }
 
@@ -179,49 +179,45 @@ func.func @test_global_store_dwordx4_wrong_addr_count(%addr_lo: !amdgcn.vgpr<92>
 }
 
 //===----------------------------------------------------------------------===//
-// CDNA3 VOP3P_MAI acc_cd Verification
+// CDNA3 VOP3P_MAI Register Count Verification (Generic Form)
 //===----------------------------------------------------------------------===//
 
 // -----
-// Test: C operand must be AGPRRangeType when acc_cd is set
+// Test: Wrong A operand register count in generic form (3 instead of 2)
 
-func.func @test_vop3p_mai_acc_cd_set_c_not_agpr(%dst: !amdgcn.agpr<[12 : 16]>, %a: !amdgcn.vgpr<[0 : 2]>, %b: !amdgcn.vgpr<[2 : 4]>, %c: !amdgcn.vgpr<[4 : 8]>) {
-  // expected-error@+1 {{all of {vdst, c} have same type IDs}}
-  "amdgcn.vop3p.vop3p_mai"(%dst, %a, %b, %c) {
-    opcode = #amdgcn.inst<v_mfma_f32_16x16x16_f16>
-  } : (!amdgcn.agpr<[12 : 16]>, !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.vgpr<[4 : 8]>) -> ()
+func.func @test_vop3p_mai_generic_wrong_a_count(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdgcn.vgpr<[0 : 3]>, %b: !amdgcn.vgpr<[4 : 6]>, %c: !amdgcn.vgpr<[8 : 12]>) {
+  // expected-error@+1 {{'amdgcn.v_mfma_f32_16x16x16_f16' op operand #1 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {2}, sized GPR range of AGPR type with sizes {2}}}, but got '!amdgcn.vgpr<[0 : 3]>'}}
+  "amdgcn.v_mfma_f32_16x16x16_f16"(%dst, %a, %b, %c)
+    : (!amdgcn.vgpr<[12 : 16]>, !amdgcn.vgpr<[0 : 3]>, !amdgcn.vgpr<[4 : 6]>, !amdgcn.vgpr<[8 : 12]>) -> ()
   return
 }
 
 // -----
-// Test: Destination must be AGPRRangeType when acc_cd is set
+// Test: Wrong B operand register count in generic form (3 instead of 2)
 
-func.func @test_vop3p_mai_acc_cd_set_dst_not_agpr(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdgcn.vgpr<[0 : 2]>, %b: !amdgcn.vgpr<[2 : 4]>, %c: !amdgcn.agpr<[4 : 8]>) {
-  // expected-error@+1 {{all of {vdst, c} have same type IDs}}
-  "amdgcn.vop3p.vop3p_mai"(%dst, %a, %b, %c) {
-    opcode = #amdgcn.inst<v_mfma_f32_16x16x16_f16>
-  } : (!amdgcn.vgpr<[12 : 16]>, !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.agpr<[4 : 8]>) -> ()
+func.func @test_vop3p_mai_generic_wrong_b_count(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdgcn.vgpr<[0 : 2]>, %b: !amdgcn.vgpr<[4 : 7]>, %c: !amdgcn.vgpr<[8 : 12]>) {
+  // expected-error@+1 {{'amdgcn.v_mfma_f32_16x16x16_f16' op operand #2 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {2}, sized GPR range of AGPR type with sizes {2}}}, but got '!amdgcn.vgpr<[4 : 7]>'}}
+  "amdgcn.v_mfma_f32_16x16x16_f16"(%dst, %a, %b, %c)
+    : (!amdgcn.vgpr<[12 : 16]>, !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[4 : 7]>, !amdgcn.vgpr<[8 : 12]>) -> ()
   return
 }
 
 // -----
-// Test: C operand must be VGPRRangeType when acc_cd is not set
+// Test: Wrong C operand register count in generic form (2 instead of 4)
 
-func.func @test_vop3p_mai_acc_cd_not_set_c_is_agpr(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdgcn.vgpr<[0 : 2]>, %b: !amdgcn.vgpr<[2 : 4]>, %c: !amdgcn.agpr<[4 : 8]>) {
-  // expected-error@+1 {{all of {vdst, c} have same type IDs}}
-  amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.agpr<[4 : 8]>
-    -> !amdgcn.vgpr<[12 : 16]>
+func.func @test_vop3p_mai_generic_wrong_c_count(%dst: !amdgcn.vgpr<[12 : 16]>, %a: !amdgcn.vgpr<[0 : 2]>, %b: !amdgcn.vgpr<[2 : 4]>, %c: !amdgcn.vgpr<[4 : 6]>) {
+  // expected-error@+1 {{'amdgcn.v_mfma_f32_16x16x16_f16' op operand #3 must be sized GPR range of VGPR type with sizes {4} or sized GPR range of AGPR type with sizes {4} or , but got '!amdgcn.vgpr<[4 : 6]>'}}
+  "amdgcn.v_mfma_f32_16x16x16_f16"(%dst, %a, %b, %c)
+    : (!amdgcn.vgpr<[12 : 16]>, !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.vgpr<[4 : 6]>) -> ()
   return
 }
 
 // -----
-// Test: Destination must be VGPRRangeType when acc_cd is not set
+// Test: Wrong destination register count in generic form (2 instead of 4)
 
-func.func @test_vop3p_mai_acc_cd_not_set_dst_is_agpr(%dst: !amdgcn.agpr<[12 : 16]>, %a: !amdgcn.vgpr<[0 : 2]>, %b: !amdgcn.vgpr<[2 : 4]>, %c: !amdgcn.vgpr<[4 : 8]>) {
-  // expected-error@+1 {{all of {vdst, c} have same type IDs}}
-  amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.vgpr<[4 : 8]>
-    -> !amdgcn.agpr<[12 : 16]>
+func.func @test_vop3p_mai_generic_wrong_dst_count(%dst: !amdgcn.vgpr<[12 : 14]>, %a: !amdgcn.vgpr<[0 : 2]>, %b: !amdgcn.vgpr<[2 : 4]>, %c: !amdgcn.vgpr<[4 : 8]>) {
+  // expected-error@+1 {{'amdgcn.v_mfma_f32_16x16x16_f16' op operand #0 must be register type of: {register type of: {sized GPR range of VGPR type with sizes {4}, sized GPR range of AGPR type with sizes {4}}}, but got '!amdgcn.vgpr<[12 : 14]>'}}
+  "amdgcn.v_mfma_f32_16x16x16_f16"(%dst, %a, %b, %c)
+    : (!amdgcn.vgpr<[12 : 14]>, !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.vgpr<[4 : 8]>) -> ()
   return
 }

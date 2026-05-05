@@ -162,9 +162,9 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> {
     %c = memref.load %c_memref[%m, %n] : memref<?x?x!amdgcn.vgpr<[? + 4]>>
 
     // Perform MFMA operation: C = A * B + C
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
-      %c, %a, %b, %c : <[? + 2]>, <[? + 2]>, !amdgcn.vgpr<[? + 4]>
-      -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_f32_16x16x16_f16 outs(%c) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
 
     // Store result back to memref at [m, n] for SROA + MEM2REG
     memref.store %result, %c_memref[%m, %n]

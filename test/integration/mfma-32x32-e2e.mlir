@@ -72,10 +72,9 @@ amdgcn.module @mfma_32x32_e2e_mod target = #amdgcn.target<gfx942> {
     %acc = func.call @init_vgprx16(%c0) : (i32) -> (!amdgcn.vgpr<[? + 16]>)
 
     // MFMA: D = A * B + C
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x8_f16>
-        %acc, %a_init, %b_init, %acc
-        : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>,
-          !amdgcn.vgpr<[? + 16]> -> !amdgcn.vgpr<[? + 16]>
+    %result = amdgcn.v_mfma_f32_32x32x8_f16 outs(%acc) ins(%a_init, %b_init, %acc)
+    : outs(!amdgcn.vgpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 16]>)
 
     // Each lane stores 16 f32 values = 64 bytes.
     // Thread offset = tid * 64 = tid << 6

@@ -41,8 +41,8 @@ amdgcn.library @kittens_compute_16x16_f16 isa = [#amdgcn.isa<cdna3>] {
   // D[16x16, agpr] = A[16x16, vgpr] @ B[16x16, vgpr]^T + C[16x16, agpr]
   func.func private @mfma_f32_16x16x16_f16(%A: !rt_A_f16, %B: !rt_B_f16, %C: !rt_C_f32) -> !rt_C_f32 {
     // Accumulator-in-place: reuse %C as DPS destination for loop compatibility.
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %C, %A, %B, %C
-        : !vx2, !vx2, !ax4 -> !ax4
+    %result = amdgcn.v_mfma_f32_16x16x16_f16 outs(%C) ins(%A, %B, %C)
+        : outs(!ax4) ins(!vx2, !vx2, !ax4)
     return %result : !rt_C_f32
   }
 

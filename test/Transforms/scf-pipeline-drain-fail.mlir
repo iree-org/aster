@@ -175,13 +175,13 @@ module {
       %20 = affine.linearize_index_by_strides[%19#0] by (192) : index
       %alloca = memref.alloca() : memref<1x!amdgcn.agpr<[? + 4]>>
       %21 = alloca : !amdgcn.agpr
-      %22 = vop3p v_accvgpr_write_b32 outs %21 ins %c0_i32 : !amdgcn.agpr, i32
+      %22 = amdgcn.v_accvgpr_write outs(%21) ins(%c0_i32) : outs(!amdgcn.agpr) ins(i32)
       %23 = alloca : !amdgcn.agpr
-      %24 = vop3p v_accvgpr_write_b32 outs %23 ins %c0_i32 : !amdgcn.agpr, i32
+      %24 = amdgcn.v_accvgpr_write outs(%23) ins(%c0_i32) : outs(!amdgcn.agpr) ins(i32)
       %25 = alloca : !amdgcn.agpr
-      %26 = vop3p v_accvgpr_write_b32 outs %25 ins %c0_i32 : !amdgcn.agpr, i32
+      %26 = amdgcn.v_accvgpr_write outs(%25) ins(%c0_i32) : outs(!amdgcn.agpr) ins(i32)
       %27 = alloca : !amdgcn.agpr
-      %28 = vop3p v_accvgpr_write_b32 outs %27 ins %c0_i32 : !amdgcn.agpr, i32
+      %28 = amdgcn.v_accvgpr_write outs(%27) ins(%c0_i32) : outs(!amdgcn.agpr) ins(i32)
       %29 = make_register_range %22, %24, %26, %28 : !amdgcn.agpr, !amdgcn.agpr, !amdgcn.agpr, !amdgcn.agpr
       memref.store %29, %alloca[%c0] : memref<1x!amdgcn.agpr<[? + 4]>>
       scf.for %arg0 = %c0 to %c4 step %c1 {
@@ -252,7 +252,7 @@ module {
         %88:2 = amdgcn.split_register_range %85 {sched.stage = 3 : i32} : !amdgcn.vgpr<[? + 2]>
         %89:2 = amdgcn.split_register_range %87 {sched.stage = 3 : i32} : !amdgcn.vgpr<[? + 2]>
         %90 = amdgcn.make_register_range %88#0, %88#1, %89#0, %89#1 {sched.stage = 3 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
-        %91 = amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x32_f16> %76, %83, %90, %76 {sched.stage = 3 : i32} : <[? + 4]>, <[? + 4]>, !amdgcn.agpr<[? + 4]> -> !amdgcn.agpr<[? + 4]>
+        %91 = amdgcn.v_mfma_f32_16x16x32_f16 outs(%76) ins(%83, %90, %76) {sched.stage = 3 : i32} : outs(!amdgcn.agpr<[? + 4]>) ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.agpr<[? + 4]>)
         memref.store %91, %alloca[%c0] {sched.stage = 3 : i32} : memref<1x!amdgcn.agpr<[? + 4]>>
         amdgcn.s_barrier {sched.stage = 3 : i32}
       }

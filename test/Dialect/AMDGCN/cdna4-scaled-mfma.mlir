@@ -14,11 +14,9 @@ func.func @test_scaled_mfma_16x16x128_basic(
     %dst: !amdgcn.vgpr<[? + 4]>,
     %s0: !amdgcn.vgpr,
     %s1: !amdgcn.vgpr) {
-  %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-      %dst, %a, %b, %c, %s0, %s1
-      : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-        !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr
-      -> !amdgcn.vgpr<[? + 4]>
+  %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %c, %s0, %s1)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr)
   return
 }
 
@@ -30,11 +28,9 @@ func.func @test_scaled_mfma_16x16x128_formats(
     %dst: !amdgcn.vgpr<[? + 4]>,
     %s0: !amdgcn.vgpr,
     %s1: !amdgcn.vgpr) {
-  %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-      %dst, %a, %b, %c, %s0, %s1 cbsz = 2 blgp = 4
-      : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-        !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr
-      -> !amdgcn.vgpr<[? + 4]>
+  %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %c, %s0, %s1) cbsz(2 : i8) blgp(4 : i8)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr)
   return
 }
 
@@ -46,11 +42,9 @@ func.func @test_scaled_mfma_16x16x128_op_sel(
     %dst: !amdgcn.vgpr<[? + 4]>,
     %s0: !amdgcn.vgpr,
     %s1: !amdgcn.vgpr) {
-  %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-      %dst, %a, %b, %c, %s0, %s1 op_sel_0 = 3 op_sel_1 = 3
-      : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-        !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr
-      -> !amdgcn.vgpr<[? + 4]>
+  %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %c, %s0, %s1) op_sel_hi(array<i1: true, true, false>)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr)
   return
 }
 
@@ -62,11 +56,9 @@ func.func @test_scaled_mfma_16x16x128_agpr(
     %dst: !amdgcn.agpr<[? + 4]>,
     %s0: !amdgcn.vgpr,
     %s1: !amdgcn.vgpr) {
-  %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-      %dst, %a, %b, %c, %s0, %s1
-      : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-        !amdgcn.agpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr
-      -> !amdgcn.agpr<[? + 4]>
+  %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %c, %s0, %s1)
+    : outs(!amdgcn.agpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.agpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr)
   return
 }
 
@@ -82,11 +74,9 @@ func.func @test_scaled_mfma_32x32x64_basic(
     %dst: !amdgcn.vgpr<[? + 16]>,
     %s0: !amdgcn.vgpr,
     %s1: !amdgcn.vgpr) {
-  %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_32x32x64_f8f6f4>
-      %dst, %a, %b, %c, %s0, %s1
-      : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-        !amdgcn.vgpr<[? + 16]>, !amdgcn.vgpr, !amdgcn.vgpr
-      -> !amdgcn.vgpr<[? + 16]>
+  %result = amdgcn.v_mfma_scale_f32_32x32x64_f8f6f4 outs(%dst) ins(%a, %b, %c, %s0, %s1)
+    : outs(!amdgcn.vgpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 16]>, !amdgcn.vgpr, !amdgcn.vgpr)
   return
 }
 
@@ -98,11 +88,9 @@ func.func @test_scaled_mfma_32x32x64_agpr_formats(
     %dst: !amdgcn.agpr<[? + 16]>,
     %s0: !amdgcn.vgpr,
     %s1: !amdgcn.vgpr) {
-  %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_32x32x64_f8f6f4>
-      %dst, %a, %b, %c, %s0, %s1 cbsz = 1 blgp = 3
-      : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-        !amdgcn.agpr<[? + 16]>, !amdgcn.vgpr, !amdgcn.vgpr
-      -> !amdgcn.agpr<[? + 16]>
+  %result = amdgcn.v_mfma_scale_f32_32x32x64_f8f6f4 outs(%dst) ins(%a, %b, %c, %s0, %s1) cbsz(1 : i8) blgp(3 : i8)
+    : outs(!amdgcn.agpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.agpr<[? + 16]>, !amdgcn.vgpr, !amdgcn.vgpr)
   return
 }
 
@@ -114,11 +102,9 @@ func.func @test_scaled_mfma_sgpr_scales(
     %dst: !amdgcn.vgpr<[? + 4]>,
     %s0: !amdgcn.sgpr,
     %s1: !amdgcn.sgpr) {
-  %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-      %dst, %a, %b, %c, %s0, %s1
-      : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-        !amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.sgpr
-      -> !amdgcn.vgpr<[? + 4]>
+  %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %c, %s0, %s1)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr, !amdgcn.sgpr)
   return
 }
 
@@ -130,11 +116,9 @@ func.func @test_scaled_mfma_all_modifiers(
     %dst: !amdgcn.vgpr<[? + 4]>,
     %s0: !amdgcn.vgpr,
     %s1: !amdgcn.vgpr) {
-  %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-      %dst, %a, %b, %c, %s0, %s1 op_sel_0 = 1 op_sel_1 = 2 cbsz = 3 blgp = 4
-      : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-        !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr
-      -> !amdgcn.vgpr<[? + 4]>
+  %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %c, %s0, %s1) cbsz(3 : i8) blgp(4 : i8) op_sel_hi(array<i1: true, true, false>)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr)
   return
 }
 
@@ -147,18 +131,18 @@ func.func @test_scaled_mfma_all_modifiers(
 func.func @test_mfma_32x32x16_f16_basic(
     %a: !amdgcn.vgpr<[? + 4]>, %b: !amdgcn.vgpr<[? + 4]>,
     %c: !amdgcn.vgpr<[? + 16]>, %dst: !amdgcn.vgpr<[? + 16]>) {
-  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x16_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 16]>
-    -> !amdgcn.vgpr<[? + 16]>
+  %result = amdgcn.v_mfma_f32_32x32x16_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 16]>)
   return
 }
 
 func.func @test_mfma_32x32x16_f16_agpr(
     %a: !amdgcn.vgpr<[? + 4]>, %b: !amdgcn.vgpr<[? + 4]>,
     %c: !amdgcn.agpr<[? + 16]>, %dst: !amdgcn.agpr<[? + 16]>) {
-  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x16_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.agpr<[? + 16]>
-    -> !amdgcn.agpr<[? + 16]>
+  %result = amdgcn.v_mfma_f32_32x32x16_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.agpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.agpr<[? + 16]>)
   return
 }
 
@@ -169,24 +153,24 @@ func.func @test_mfma_32x32x16_f16_agpr(
 // VGPRs per operand and 4 accumulator VGPRs. Doubled-K variant of 16x16x16.
 
 // CHECK-LABEL: func @test_mfma_16x16x32_f16_basic
-// CHECK: amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_f16>
+// CHECK: amdgcn.v_mfma_f32_16x16x32_f16
 func.func @test_mfma_16x16x32_f16_basic(
     %a: !amdgcn.vgpr<[? + 4]>, %b: !amdgcn.vgpr<[? + 4]>,
     %c: !amdgcn.vgpr<[? + 4]>, %dst: !amdgcn.vgpr<[? + 4]>) {
-  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>
-    -> !amdgcn.vgpr<[? + 4]>
+  %result = amdgcn.v_mfma_f32_16x16x32_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>)
   return
 }
 
 // CHECK-LABEL: func @test_mfma_16x16x32_f16_agpr
-// CHECK: amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_f16>
+// CHECK: amdgcn.v_mfma_f32_16x16x32_f16
 func.func @test_mfma_16x16x32_f16_agpr(
     %a: !amdgcn.vgpr<[? + 4]>, %b: !amdgcn.vgpr<[? + 4]>,
     %c: !amdgcn.agpr<[? + 4]>, %dst: !amdgcn.agpr<[? + 4]>) {
-  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.agpr<[? + 4]>
-    -> !amdgcn.agpr<[? + 4]>
+  %result = amdgcn.v_mfma_f32_16x16x32_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.agpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.agpr<[? + 4]>)
   return
 }
 
@@ -195,13 +179,13 @@ func.func @test_mfma_16x16x32_f16_agpr(
 //===----------------------------------------------------------------------===//
 
 // CHECK-LABEL: func @test_mfma_16x16x32_bf16_basic
-// CHECK: amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_bf16>
+// CHECK: amdgcn.v_mfma_f32_16x16x32_bf16
 func.func @test_mfma_16x16x32_bf16_basic(
     %a: !amdgcn.vgpr<[? + 4]>, %b: !amdgcn.vgpr<[? + 4]>,
     %c: !amdgcn.vgpr<[? + 4]>, %dst: !amdgcn.vgpr<[? + 4]>) {
-  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_bf16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>
-    -> !amdgcn.vgpr<[? + 4]>
+  %result = amdgcn.v_mfma_f32_16x16x32_bf16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>)
   return
 }
 
@@ -210,23 +194,23 @@ func.func @test_mfma_16x16x32_bf16_basic(
 //===----------------------------------------------------------------------===//
 
 // CHECK-LABEL: func @test_mfma_32x32x16_bf16_basic
-// CHECK: amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x16_bf16>
+// CHECK: amdgcn.v_mfma_f32_32x32x16_bf16
 func.func @test_mfma_32x32x16_bf16_basic(
     %a: !amdgcn.vgpr<[? + 4]>, %b: !amdgcn.vgpr<[? + 4]>,
     %c: !amdgcn.vgpr<[? + 16]>, %dst: !amdgcn.vgpr<[? + 16]>) {
-  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x16_bf16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 16]>
-    -> !amdgcn.vgpr<[? + 16]>
+  %result = amdgcn.v_mfma_f32_32x32x16_bf16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 16]>)
   return
 }
 
 // CHECK-LABEL: func @test_mfma_32x32x16_bf16_agpr
-// CHECK: amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x16_bf16>
+// CHECK: amdgcn.v_mfma_f32_32x32x16_bf16
 func.func @test_mfma_32x32x16_bf16_agpr(
     %a: !amdgcn.vgpr<[? + 4]>, %b: !amdgcn.vgpr<[? + 4]>,
     %c: !amdgcn.agpr<[? + 16]>, %dst: !amdgcn.agpr<[? + 16]>) {
-  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x16_bf16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.agpr<[? + 16]>
-    -> !amdgcn.agpr<[? + 16]>
+  %result = amdgcn.v_mfma_f32_32x32x16_bf16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.agpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.agpr<[? + 16]>)
   return
 }

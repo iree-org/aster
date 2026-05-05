@@ -199,9 +199,9 @@ The following MLIR snippet:
     amdgcn.sopp.s_waitcnt #amdgcn.inst<s_waitcnt> lgkmcnt = 0
 
     // mfma - A and B need 2 VGPRs each, C needs 4 VGPRs
-    %c_mfma_result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
-      %c_reg_range, %loaded_a_from_lds, %loaded_b_from_lds, %c_reg_range
-        : <[? + 2]>, <[? + 2]>, !amdgcn.vgpr_range<[? + 4]> -> !amdgcn.vgpr_range<[? + 4]>
+    %c_mfma_result = amdgcn.v_mfma_f32_16x16x16_f16
+      outs(%c_reg_range) ins(%loaded_a_from_lds, %loaded_b_from_lds, %c_reg_range)
+        : outs(!amdgcn.vgpr_range<[? + 4]>) ins(<[? + 2]>, <[? + 2]>, !amdgcn.vgpr_range<[? + 4]>)
 
     // global_store of c_mfma_result
     %c4 = arith.constant 4 : i32 // shift left by dwordx4 size (16 == 2 << 4).

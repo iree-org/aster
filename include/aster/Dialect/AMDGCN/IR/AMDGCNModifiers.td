@@ -87,6 +87,24 @@ def CBSZAttr : SquareIntModifier<I8Attr, "cbsz", 0> {
   let summary = "Broadcast mode";
 }
 
+// Op-sel hi modifier base class.
+// TODO: Revisit the default values.
+class OpSelHiBase<int num_srcs> : ConfinedAttr<
+    DefaultValuedAttr<DenseBoolArrayAttr, "{false, false, false}">, [DenseArrayCount<num_srcs>]
+  >, ASMArgFormat {
+  let summary = "op-sel high modifier";
+  let asmPrinter = [{
+    {
+      $_printer.printKeyword("op_sel_hi");
+      $_printer.getStream() << ":[";
+      llvm::interleaveComma($_self, $_printer.getStream(), [&](bool value) {
+        $_printer.getStream() << (int)value;
+      });
+      $_printer.getStream() << "] ";
+    }
+  }];
+}
+
 // IMM16 attribute -- always printed in ASM (SOPP instructions require the
 // immediate operand even when it is zero, e.g. s_setprio 0).
 def Imm16Attr : DefaultValuedAttr<I16Attr, "0">, ASMArgFormat,

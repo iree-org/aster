@@ -300,7 +300,7 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
   // Initialize an AGPRx1 range to %cst
   func.func private @init_agprx1(%cst: i32) -> !ax1 {
     %r0 = amdgcn.alloca : !a
-    %a0 = amdgcn.vop3p v_accvgpr_write_b32 outs %r0 ins %cst : !amdgcn.agpr, i32
+    %a0 = amdgcn.v_accvgpr_write outs(%r0) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
     %range = amdgcn.make_register_range %a0 : !a
     return %range : !ax1
   }
@@ -309,8 +309,8 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
   func.func private @init_agprx2(%cst: i32) -> !ax2 {
     %r0 = amdgcn.alloca : !a
     %r1 = amdgcn.alloca : !a
-    %a0 = amdgcn.vop3p v_accvgpr_write_b32 outs %r0 ins %cst : !amdgcn.agpr, i32
-    %a1 = amdgcn.vop3p v_accvgpr_write_b32 outs %r1 ins %cst : !amdgcn.agpr, i32
+    %a0 = amdgcn.v_accvgpr_write outs(%r0) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a1 = amdgcn.v_accvgpr_write outs(%r1) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
     %range = amdgcn.make_register_range %a0, %a1 : !a, !a
     return %range : !ax2
   }
@@ -320,9 +320,9 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     %r0 = amdgcn.alloca : !a
     %r1 = amdgcn.alloca : !a
     %r2 = amdgcn.alloca : !a
-    %a0 = amdgcn.vop3p v_accvgpr_write_b32 outs %r0 ins %cst : !amdgcn.agpr, i32
-    %a1 = amdgcn.vop3p v_accvgpr_write_b32 outs %r1 ins %cst : !amdgcn.agpr, i32
-    %a2 = amdgcn.vop3p v_accvgpr_write_b32 outs %r2 ins %cst : !amdgcn.agpr, i32
+    %a0 = amdgcn.v_accvgpr_write outs(%r0) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a1 = amdgcn.v_accvgpr_write outs(%r1) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a2 = amdgcn.v_accvgpr_write outs(%r2) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
     %range = amdgcn.make_register_range %a0, %a1, %a2 : !a, !a, !a
     return %range : !ax3
   }
@@ -333,10 +333,10 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     %r1 = amdgcn.alloca : !a
     %r2 = amdgcn.alloca : !a
     %r3 = amdgcn.alloca : !a
-    %a0 = amdgcn.vop3p v_accvgpr_write_b32 outs %r0 ins %cst : !amdgcn.agpr, i32
-    %a1 = amdgcn.vop3p v_accvgpr_write_b32 outs %r1 ins %cst : !amdgcn.agpr, i32
-    %a2 = amdgcn.vop3p v_accvgpr_write_b32 outs %r2 ins %cst : !amdgcn.agpr, i32
-    %a3 = amdgcn.vop3p v_accvgpr_write_b32 outs %r3 ins %cst : !amdgcn.agpr, i32
+    %a0 = amdgcn.v_accvgpr_write outs(%r0) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a1 = amdgcn.v_accvgpr_write outs(%r1) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a2 = amdgcn.v_accvgpr_write outs(%r2) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a3 = amdgcn.v_accvgpr_write outs(%r3) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
     %range = amdgcn.make_register_range %a0, %a1, %a2, %a3 : !a, !a, !a, !a
     return %range : !ax4
   }
@@ -359,22 +359,22 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
     %r13 = amdgcn.alloca : !a
     %r14 = amdgcn.alloca : !a
     %r15 = amdgcn.alloca : !a
-    %a0  = amdgcn.vop3p v_accvgpr_write_b32 outs %r0  ins %cst : !amdgcn.agpr, i32
-    %a1  = amdgcn.vop3p v_accvgpr_write_b32 outs %r1  ins %cst : !amdgcn.agpr, i32
-    %a2  = amdgcn.vop3p v_accvgpr_write_b32 outs %r2  ins %cst : !amdgcn.agpr, i32
-    %a3  = amdgcn.vop3p v_accvgpr_write_b32 outs %r3  ins %cst : !amdgcn.agpr, i32
-    %a4  = amdgcn.vop3p v_accvgpr_write_b32 outs %r4  ins %cst : !amdgcn.agpr, i32
-    %a5  = amdgcn.vop3p v_accvgpr_write_b32 outs %r5  ins %cst : !amdgcn.agpr, i32
-    %a6  = amdgcn.vop3p v_accvgpr_write_b32 outs %r6  ins %cst : !amdgcn.agpr, i32
-    %a7  = amdgcn.vop3p v_accvgpr_write_b32 outs %r7  ins %cst : !amdgcn.agpr, i32
-    %a8  = amdgcn.vop3p v_accvgpr_write_b32 outs %r8  ins %cst : !amdgcn.agpr, i32
-    %a9  = amdgcn.vop3p v_accvgpr_write_b32 outs %r9  ins %cst : !amdgcn.agpr, i32
-    %a10 = amdgcn.vop3p v_accvgpr_write_b32 outs %r10 ins %cst : !amdgcn.agpr, i32
-    %a11 = amdgcn.vop3p v_accvgpr_write_b32 outs %r11 ins %cst : !amdgcn.agpr, i32
-    %a12 = amdgcn.vop3p v_accvgpr_write_b32 outs %r12 ins %cst : !amdgcn.agpr, i32
-    %a13 = amdgcn.vop3p v_accvgpr_write_b32 outs %r13 ins %cst : !amdgcn.agpr, i32
-    %a14 = amdgcn.vop3p v_accvgpr_write_b32 outs %r14 ins %cst : !amdgcn.agpr, i32
-    %a15 = amdgcn.vop3p v_accvgpr_write_b32 outs %r15 ins %cst : !amdgcn.agpr, i32
+    %a0  = amdgcn.v_accvgpr_write outs(%r0) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a1  = amdgcn.v_accvgpr_write outs(%r1) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a2  = amdgcn.v_accvgpr_write outs(%r2) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a3  = amdgcn.v_accvgpr_write outs(%r3) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a4  = amdgcn.v_accvgpr_write outs(%r4) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a5  = amdgcn.v_accvgpr_write outs(%r5) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a6  = amdgcn.v_accvgpr_write outs(%r6) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a7  = amdgcn.v_accvgpr_write outs(%r7) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a8  = amdgcn.v_accvgpr_write outs(%r8) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a9  = amdgcn.v_accvgpr_write outs(%r9) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a10 = amdgcn.v_accvgpr_write outs(%r10) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a11 = amdgcn.v_accvgpr_write outs(%r11) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a12 = amdgcn.v_accvgpr_write outs(%r12) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a13 = amdgcn.v_accvgpr_write outs(%r13) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a14 = amdgcn.v_accvgpr_write outs(%r14) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
+    %a15 = amdgcn.v_accvgpr_write outs(%r15) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
     %range = amdgcn.make_register_range
       %a0, %a1, %a2, %a3, %a4, %a5, %a6, %a7,
       %a8, %a9, %a10, %a11, %a12, %a13, %a14, %a15

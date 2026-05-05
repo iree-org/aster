@@ -13,6 +13,7 @@
 
 include "aster/Dialect/AMDGCN/IR/AMDGCNInstBase.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/DS.td"
+include "aster/Dialect/AMDGCN/IR/Instructions/MMA.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SMem.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/SOP.td"
 include "aster/Dialect/AMDGCN/IR/Instructions/VMem.td"

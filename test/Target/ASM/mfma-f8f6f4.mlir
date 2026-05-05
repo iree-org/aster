@@ -16,25 +16,25 @@
 
 // CHECK-LABEL: mfma_16x16x128:
 // CHECK:       v_mfma_scale_f32_16x16x128_f8f6f4
-// CHECK-SAME:  op_sel_hi:[0,0,0]
+// CHECK-SAME:  op_sel_hi:[0, 0, 0]
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
 // CHECK-LABEL: mfma_16x16x128_with_formats:
 // CHECK:       v_mfma_scale_f32_16x16x128_f8f6f4
-// CHECK-SAME:  op_sel_hi:[0,0,0] cbsz:[2] blgp:[4]
+// CHECK-SAME:  op_sel_hi:[0, 0, 0] cbsz:[2] blgp:[4]
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
 // CHECK-LABEL: mfma_16x16x128_with_op_sel:
 // CHECK:       v_mfma_scale_f32_16x16x128_f8f6f4
-// CHECK-SAME:  op_sel_hi:[3,3,0]
+// CHECK-SAME:  op_sel_hi:[1, 1, 0]
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
 // CHECK-LABEL: mfma_32x32x64:
 // CHECK:       v_mfma_scale_f32_32x32x64_f8f6f4
-// CHECK-SAME:  op_sel_hi:[0,0,0]
+// CHECK-SAME:  op_sel_hi:[0, 0, 0]
 // CHECK:       global_store_dwordx4
 // CHECK:       s_endpgm
 
@@ -74,11 +74,9 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     %s0 = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %s1 = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
 
-    %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-        %dst, %a, %b, %dst, %s0, %s1
-        : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-          !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr
-        -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %dst, %s0, %s1)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr)
 
     func.call @store_result_x4(%result) : (!amdgcn.vgpr<[? + 4]>) -> ()
     amdgcn.end_kernel
@@ -97,11 +95,9 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     %s1 = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
 
     // cbsz=2 (fp6 for A), blgp=4 (fp4 for B)
-    %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-        %dst, %a, %b, %dst, %s0, %s1 cbsz = 2 blgp = 4
-        : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-          !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr
-        -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %dst, %s0, %s1) cbsz(2 : i8) blgp(4 : i8)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr)
 
     func.call @store_result_x4(%result) : (!amdgcn.vgpr<[? + 4]>) -> ()
     amdgcn.end_kernel
@@ -119,11 +115,9 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     %s0 = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %s1 = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
 
-    %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-        %dst, %a, %b, %dst, %s0, %s1 op_sel_0 = 3 op_sel_1 = 3
-        : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-          !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr
-        -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %dst, %s0, %s1) op_sel_hi(array<i1: true, true, false>)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr)
 
     func.call @store_result_x4(%result) : (!amdgcn.vgpr<[? + 4]>) -> ()
     amdgcn.end_kernel
@@ -141,11 +135,9 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     %s0 = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %s1 = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
 
-    %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_32x32x64_f8f6f4>
-        %dst, %a, %b, %dst, %s0, %s1
-        : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-          !amdgcn.vgpr<[? + 16]>, !amdgcn.vgpr, !amdgcn.vgpr
-        -> !amdgcn.vgpr<[? + 16]>
+    %result = amdgcn.v_mfma_scale_f32_32x32x64_f8f6f4 outs(%dst) ins(%a, %b, %dst, %s0, %s1)
+    : outs(!amdgcn.vgpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 16]>, !amdgcn.vgpr, !amdgcn.vgpr)
 
     // Store first 4 dwords of result to keep MFMA live
     %regs:16 = amdgcn.split_register_range %result : !amdgcn.vgpr<[? + 16]>

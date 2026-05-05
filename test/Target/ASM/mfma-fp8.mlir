@@ -65,10 +65,9 @@ amdgcn.module @mfma_fp8_mod target = #amdgcn.target<gfx942> {
     %b = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr<[? + 2]>)
     %dst = func.call @init_vgprx4(%c0) : (i32) -> (!amdgcn.vgpr<[? + 4]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_fp8_fp8>
-        %dst, %a, %b, %dst
-        : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>,
-          !amdgcn.vgpr<[? + 4]> -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_f32_16x16x32_fp8_fp8 outs(%dst) ins(%a, %b, %dst)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
 
     func.call @store_result_x4(%result) : (!amdgcn.vgpr<[? + 4]>) -> ()
     amdgcn.end_kernel
@@ -83,10 +82,9 @@ amdgcn.module @mfma_fp8_mod target = #amdgcn.target<gfx942> {
     %b = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr<[? + 2]>)
     %dst = func.call @init_vgprx4(%c0) : (i32) -> (!amdgcn.vgpr<[? + 4]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_fp8_bf8>
-        %dst, %a, %b, %dst
-        : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>,
-          !amdgcn.vgpr<[? + 4]> -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_f32_16x16x32_fp8_bf8 outs(%dst) ins(%a, %b, %dst)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
 
     func.call @store_result_x4(%result) : (!amdgcn.vgpr<[? + 4]>) -> ()
     amdgcn.end_kernel
@@ -101,10 +99,9 @@ amdgcn.module @mfma_fp8_mod target = #amdgcn.target<gfx942> {
     %b = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr<[? + 2]>)
     %dst = func.call @init_vgprx4(%c0) : (i32) -> (!amdgcn.vgpr<[? + 4]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_bf8_fp8>
-        %dst, %a, %b, %dst
-        : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>,
-          !amdgcn.vgpr<[? + 4]> -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_f32_16x16x32_bf8_fp8 outs(%dst) ins(%a, %b, %dst)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
 
     func.call @store_result_x4(%result) : (!amdgcn.vgpr<[? + 4]>) -> ()
     amdgcn.end_kernel
@@ -119,10 +116,9 @@ amdgcn.module @mfma_fp8_mod target = #amdgcn.target<gfx942> {
     %b = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr<[? + 2]>)
     %dst = func.call @init_vgprx4(%c0) : (i32) -> (!amdgcn.vgpr<[? + 4]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_bf8_bf8>
-        %dst, %a, %b, %dst
-        : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>,
-          !amdgcn.vgpr<[? + 4]> -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_f32_16x16x32_bf8_bf8 outs(%dst) ins(%a, %b, %dst)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
 
     func.call @store_result_x4(%result) : (!amdgcn.vgpr<[? + 4]>) -> ()
     amdgcn.end_kernel
