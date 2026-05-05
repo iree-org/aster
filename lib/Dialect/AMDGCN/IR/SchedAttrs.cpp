@@ -200,11 +200,34 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
 
   // Add edges for the operations that are after this wait operation that wait
   // on the same tokens.
-  bool waitsVM = wait.getVmCnt() != WaitOp::kNoWaitCount;
+  //
+  // The classical "fence" pin -- wait -> every subsequent token producer of
+  // the same kind -- is asymmetric:
+  //
+  //   * LGKM (DS read/write, SMEM): KEEP the pin. A wait between a
+  //     ds_write and a ds_read encodes the user's intent that the read
+  //     not race past the write (LDS-side memory order); reordering would
+  //     break the fence regardless of what ConvertWaits later computes
+  //     for the count.
+  //
+  //   * VMEM (flat / global / buffer): DROP the pin for token-based waits.
+  //     Such waits drain memory loads whose data is consumed by the wait's
+  //     SSA users (e.g. a ds_write that reads the loaded VGPRs). The SSA
+  //     edge already keeps the consumer behind the wait. Pinning every
+  //     OTHER subsequent load behind the wait blocks load pipelining --
+  //     in the prologue, four SSA-independent loads end up serialized
+  //     behind their per-load waits because L_{i+1} is forced after W_i.
+  //     ConvertWaits / WaitAnalysis recompute vmcnt at the wait's final
+  //     IR position, so allowing later loads to issue first just bumps
+  //     the recomputed count to keep the original wait semantic intact.
+  //
+  // For waits with EXPLICIT vmcnt (i.e. authored or rewritten with a
+  // hardware count baked in) we still pin -- the count cannot be
+  // recomputed and is sensitive to in-flight depth at the wait's
+  // position.
+  bool hasExplicitVm = wait.getVmCnt() != WaitOp::kNoWaitCount;
   bool waitsLgkm = wait.getLgkmCnt() != WaitOp::kNoWaitCount;
   for (Value dep : wait.getDependencies()) {
-    if (isTokenKind(dep.getType(), MemoryInstructionKind::Flat))
-      waitsVM = true;
     if (isTokenKind(dep.getType(), MemoryInstructionKind::Shared) ||
         isTokenKind(dep.getType(), MemoryInstructionKind::Constant))
       waitsLgkm = true;
@@ -219,7 +242,6 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
         graph.addEdge(wait, op);
     }
 
-    // Prevent operations producing tokens moving before a wait operation.
     bool producesVM = llvm::any_of(TypeRange(op->getResults()), [&](Type type) {
       return isTokenKind(type, MemoryInstructionKind::Flat);
     });
@@ -228,7 +250,10 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
           return isTokenKind(type, MemoryInstructionKind::Shared) ||
                  isTokenKind(type, MemoryInstructionKind::Constant);
         });
-    if (waitsVM && producesVM)
+    // VMEM pin only on explicit hardware count; LGKM pin always when the
+    // wait covers LGKM (preserves user-intent ds_write -> wait -> ds_read
+    // fence semantics).
+    if (hasExplicitVm && producesVM)
       graph.addEdge(wait, op);
     if (waitsLgkm && producesLgkm)
       graph.addEdge(wait, op);
@@ -845,45 +870,56 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
   if (qt == QueueType::XDL && consumerInReady)
     score += 200;
 
-  // 6. Wait-aware bonus for amdgcn.wait ops (which classify as Unknown).
-  //    Low-stall wait_vm jumps to between LGKM (200) and VMEM (800);
-  //    low-stall wait_lgkm sits at LGKM's tier so the in-flight LGKM
-  //    pool drains promptly.
+  // 6. Wait deferral: penalize amdgcn.wait ops proportional to the
+  //    amount of stall they would create if fired right now.
   //
-  //    "High stall" is gauged by *time since the last issuing op of the
-  //    waited queue*, not by in-flight depth. A vmcnt drain fired right
-  //    after its own producing load has in-flight depth = 1 yet still
-  //    pays the full ~2700c memory latency: the memory hasn't returned
-  //    yet, so vmcnt won't decrement. Counting ops in the recent window
-  //    since the last VMEM (resp. LGKM) is a better proxy for "the
-  //    drain will be cheap" -- we want enough MFMAs / addr math between
-  //    the last load and the wait to amortize the latency.
+  //    A wait stalls until its target counter (vmcnt / lgkmcnt) drops
+  //    below the threshold. The drain cost is dominated by how much of
+  //    the producer queue's issue-to-completion latency hasn't been
+  //    hidden yet. We approximate "hide time" by counting ops issued
+  //    since the most recent producer of the waited kind in our 32-deep
+  //    window: each issued op costs ~`kIssueCost` cycles, so
   //
-  //    Thresholds are heuristic: VMEM exec latency is ~128c, MFMA is
-  //    16-32c; 8 ops since the last VMEM (~128c of issue+exec time)
-  //    means the oldest load is plausibly returning. LGKM exec latency
-  //    is ~16c, so 4 ops is enough.
-  constexpr size_t kVmemHideDistance = 8;
-  constexpr size_t kLgkmHideDistance = 4;
+  //      remainingStall ~= max(0, queueLatency - opsSince * kIssueCost)
+  //
+  //    A wait fires "for free" only when remainingStall == 0 (its target
+  //    has already returned). Issuing one earlier wastes those cycles
+  //    on a hardware stall, so the penalty must be large enough to lose
+  //    to ANY useful op (LGKM=200, VMEM=800, XDL=400, even after burst
+  //    penalties) and to dwarf the queue-saturation stall (-25*64 =
+  //    -1600 max from term 1).
+  //
+  //    Using the same `25 * cycles` weight as term 1 keeps both stall
+  //    contributors in the same units. With kMemoryLatency=2700, a
+  //    just-issued vmcnt scores -67500, which is overwhelmingly larger
+  //    than any tier bonus -- the wait only fires when nothing useful
+  //    is ready, or when the projected stall has been amortized.
   enum : uint8_t { WK_VM = 1, WK_LGKM = 2 };
   if (waitKind != 0 && qt == QueueType::Unknown) {
-    auto opsSince = [&](QueueType q) -> size_t {
+    auto opsSince = [&](QueueType q) -> int {
       // Distance from the back of `recent` to the most recent `q`.
       // Returns recent.size() if `q` is not in the window (= "far").
       for (size_t i = 0; i < recent.size(); ++i) {
         if (recent[recent.size() - 1 - i] == q)
-          return i;
+          return static_cast<int>(i);
       }
-      return recent.size();
+      return static_cast<int>(recent.size());
     };
-    bool waitsVmStallHigh =
-        (waitKind & WK_VM) && opsSince(QueueType::VMEM) < kVmemHideDistance;
-    bool waitsLgkmStallHigh =
-        (waitKind & WK_LGKM) && opsSince(QueueType::LGKM) < kLgkmHideDistance;
-    if ((waitKind == WK_VM) && !waitsVmStallHigh)
-      score += 200; // 100 (other) + 200 = 300, above LGKM (200)
-    else if ((waitKind & WK_LGKM) && !waitsLgkmStallHigh)
-      score += 100; // 100 (other) + 100 = 200, at LGKM tier
+    constexpr int kIssueCost = 4;
+    constexpr int kStallWeight = 25;
+    constexpr int kMemoryLatency =
+        2700; // MI300X DRAM round-trip (conservative)
+    constexpr int kLgkmExecLatency = 32; // DS read exec latency upper bound
+    if (waitKind & WK_VM) {
+      int hideDone = opsSince(QueueType::VMEM) * kIssueCost;
+      int remainingStall = std::max(0, kMemoryLatency - hideDone);
+      score -= kStallWeight * remainingStall;
+    }
+    if (waitKind & WK_LGKM) {
+      int hideDone = opsSince(QueueType::LGKM) * kIssueCost;
+      int remainingStall = std::max(0, kLgkmExecLatency - hideDone);
+      score -= kStallWeight * remainingStall;
+    }
   }
 
   // 7. VMEM saturation cap: VMCNT is 4-bit and each VMEM op has ~128c
