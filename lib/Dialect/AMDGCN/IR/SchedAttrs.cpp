@@ -849,10 +849,37 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
   //    Low-stall wait_vm jumps to between LGKM (200) and VMEM (800);
   //    low-stall wait_lgkm sits at LGKM's tier so the in-flight LGKM
   //    pool drains promptly.
+  //
+  //    "High stall" is gauged by *time since the last issuing op of the
+  //    waited queue*, not by in-flight depth. A vmcnt drain fired right
+  //    after its own producing load has in-flight depth = 1 yet still
+  //    pays the full ~2700c memory latency: the memory hasn't returned
+  //    yet, so vmcnt won't decrement. Counting ops in the recent window
+  //    since the last VMEM (resp. LGKM) is a better proxy for "the
+  //    drain will be cheap" -- we want enough MFMAs / addr math between
+  //    the last load and the wait to amortize the latency.
+  //
+  //    Thresholds are heuristic: VMEM exec latency is ~128c, MFMA is
+  //    16-32c; 8 ops since the last VMEM (~128c of issue+exec time)
+  //    means the oldest load is plausibly returning. LGKM exec latency
+  //    is ~16c, so 4 ops is enough.
+  constexpr size_t kVmemHideDistance = 8;
+  constexpr size_t kLgkmHideDistance = 4;
   enum : uint8_t { WK_VM = 1, WK_LGKM = 2 };
   if (waitKind != 0 && qt == QueueType::Unknown) {
-    bool waitsVmStallHigh = (waitKind & WK_VM) && s.outstandingVmem >= 4;
-    bool waitsLgkmStallHigh = (waitKind & WK_LGKM) && s.outstandingLgkm >= 4;
+    auto opsSince = [&](QueueType q) -> size_t {
+      // Distance from the back of `recent` to the most recent `q`.
+      // Returns recent.size() if `q` is not in the window (= "far").
+      for (size_t i = 0; i < recent.size(); ++i) {
+        if (recent[recent.size() - 1 - i] == q)
+          return i;
+      }
+      return recent.size();
+    };
+    bool waitsVmStallHigh =
+        (waitKind & WK_VM) && opsSince(QueueType::VMEM) < kVmemHideDistance;
+    bool waitsLgkmStallHigh =
+        (waitKind & WK_LGKM) && opsSince(QueueType::LGKM) < kLgkmHideDistance;
     if ((waitKind == WK_VM) && !waitsVmStallHigh)
       score += 200; // 100 (other) + 200 = 300, above LGKM (200)
     else if ((waitKind & WK_LGKM) && !waitsLgkmStallHigh)
