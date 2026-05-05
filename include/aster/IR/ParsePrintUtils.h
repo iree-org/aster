@@ -196,6 +196,18 @@ void printInstOperandTypes(OpAsmPrinter &printer, StringRef prefix,
                            ArrayRef<ODSOperandKind> argKinds,
                            ArrayRef<int32_t> segmentSizes);
 
+/// Parses an attribute with syntax:
+///   (name `(` attr `)` )?
+/// If isOpt is true then it is not an error if the attribute is missing, and
+/// the function returns null.
+FailureOr<Attribute> parseInstModAttr(OpAsmParser &parser, StringRef name,
+                                      bool isOpt);
+
+/// Prints an attribute compatible with the syntax in parseInstModAttr. If
+/// attr equals defaultValue then the value is not printed.
+void printInstModAttr(OpAsmPrinter &printer, StringRef name, Attribute attr,
+                      Attribute defaultValue);
+
 } // namespace mlir::aster
 
 #endif // ASTER_IR_PARSEPRINTUTILS_H
