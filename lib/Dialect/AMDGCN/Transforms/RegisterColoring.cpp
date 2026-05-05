@@ -607,8 +607,8 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
       int scratchReg = findMaxAllocatedVGPR(op) + 1;
       auto vtmpTy = VGPRType::get(rewriter.getContext(), Register(scratchReg));
       auto vtmp = AllocaOp::create(rewriter, tgt.getLoc(), vtmpTy);
-      V_ACCVGPR_READ_B32::create(rewriter, tgt.getLoc(), vtmp, src);
-      V_ACCVGPR_WRITE_B32::create(rewriter, tgt.getLoc(), tgt, vtmp);
+      VAccvgprRead::create(rewriter, tgt.getLoc(), vtmp, src);
+      VAccvgprWrite::create(rewriter, tgt.getLoc(), tgt, vtmp);
       return;
     }
     VMovB32::create(rewriter, tgt.getLoc(), tgt, src);

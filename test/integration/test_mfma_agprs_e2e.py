@@ -1,6 +1,6 @@
 """Integration tests for AGPR-backed MFMA (v_mfma_f32_16x16x16_f16) on gfx942.
 
-Tests that AGPR init via v_accvgpr_write_b32, MFMA with AGPR accumulators,
+Tests that AGPR init via v_accvgpr_write, MFMA with AGPR accumulators,
 and direct AGPR-to-global store produce correct numerical results.
 
 Kernel 1 (mfma_agpr_ones):

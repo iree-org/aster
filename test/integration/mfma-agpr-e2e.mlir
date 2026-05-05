@@ -108,9 +108,9 @@ amdgcn.module @agpr_mfma_mod target = #amdgcn.target<gfx942> {
     amdgcn.s_waitcnt lgkmcnt = 0
 
     // MFMA with AGPR accumulator: C = A * B + C (AGPRs)
-    %c_mfma_result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
-        %c_reg_range, %loaded_a_lds, %loaded_b_lds, %c_reg_range
-      : <[? + 2]>, <[? + 2]>, !amdgcn.agpr<[? + 4]> -> !amdgcn.agpr<[? + 4]>
+    %c_mfma_result = amdgcn.v_mfma_f32_16x16x16_f16 outs(%c_reg_range) ins(%loaded_a_lds, %loaded_b_lds, %c_reg_range)
+    : outs(!amdgcn.agpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>)
 
     // Compute per-thread offset for C (f32, dwordx4 = 16 bytes, shift left 4)
     %c4 = arith.constant 4 : i32

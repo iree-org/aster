@@ -459,4 +459,54 @@ def GlobalStoreDwordInstOpInterface :
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// MMA instruction interfaces
+//===----------------------------------------------------------------------===//
+
+def MMAOpInterface :
+    OpInterface<"MMAOpInterface", [AMDGCNInstOpInterface]> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+  let description = [{
+    Interface for matrix multiply-accumulate (MMA) instructions providing
+    uniform access to the source and destination operands.
+  }];
+  let methods = [
+    InterfaceMethod<"Get the source A operand (first matrix input).",
+      "::mlir::OpOperand &", "getSrcA", (ins), [{}], [{
+        return $_op->getOpOperand(ConcreteOp::odsIndex_src0);
+      }]>,
+    InterfaceMethod<"Get the source B operand (second matrix input).",
+      "::mlir::OpOperand &", "getSrcB", (ins), [{}], [{
+        return $_op->getOpOperand(ConcreteOp::odsIndex_src1);
+      }]>,
+    InterfaceMethod<"Get the source C operand (accumulator input).",
+      "::mlir::OpOperand &", "getSrcC", (ins), [{}], [{
+        return $_op->getOpOperand(ConcreteOp::odsIndex_src2);
+      }]>,
+    InterfaceMethod<"Get the vdst operand (destination output).",
+      "::mlir::OpOperand &", "getVdst", (ins), [{}], [{
+        return $_op->getOpOperand(ConcreteOp::odsIndex_dst0);
+      }]>
+  ];
+}
+
+def ScaledMMAOpInterface :
+    OpInterface<"ScaledMMAOpInterface", [MMAOpInterface]> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+  let description = [{
+    Interface for scaled matrix multiply-accumulate (MFMA_SCALE) instructions,
+    extending MMAOpInterface with access to per-lane scale factor operands.
+  }];
+  let methods = [
+    InterfaceMethod<"Get the scale A operand (scale factor for source A).",
+      "::mlir::OpOperand &", "getScaleA", (ins), [{}], [{
+        return $_op->getOpOperand(ConcreteOp::odsIndex_src3);
+      }]>,
+    InterfaceMethod<"Get the scale B operand (scale factor for source B).",
+      "::mlir::OpOperand &", "getScaleB", (ins), [{}], [{
+        return $_op->getOpOperand(ConcreteOp::odsIndex_src4);
+      }]>
+  ];
+}
+
 #endif // ASTER_DIALECT_AMDGCN_IR_INTERFACES_INSTOPINTERFACES_TD

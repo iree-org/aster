@@ -62,8 +62,8 @@ amdgcn.kernel @agpr_range_allocation {
 // CHECK-DAG:     %[[A1:.*]] = alloca : !amdgcn.agpr<1>
 // CHECK:         test_inst outs %[[A0]] : (!amdgcn.agpr<0>) -> ()
 // CHECK:         %[[VTMP:.*]] = alloca : !amdgcn.vgpr<0>
-// CHECK:         vop3p v_accvgpr_read_b32 outs %[[VTMP]] ins %[[A1]] : !amdgcn.vgpr<0>, !amdgcn.agpr<1>
-// CHECK:         vop3p v_accvgpr_write_b32 outs %[[A0]] ins %[[VTMP]] : !amdgcn.agpr<0>, !amdgcn.vgpr<0>
+// CHECK:         v_accvgpr_read outs(%[[VTMP]]) ins(%[[A1]])
+// CHECK:         v_accvgpr_write outs(%[[A0]]) ins(%[[VTMP]])
 // CHECK:         test_inst ins %[[A1]] : (!amdgcn.agpr<1>) -> ()
 // CHECK:         end_kernel
 amdgcn.kernel @agpr_copy {
@@ -85,8 +85,8 @@ amdgcn.kernel @agpr_copy {
 // CHECK-DAG:     %[[A0:.*]] = alloca : !amdgcn.agpr<0>
 // CHECK-DAG:     %[[A1:.*]] = alloca : !amdgcn.agpr<1>
 // CHECK:         %[[VTMP:.*]] = alloca : !amdgcn.vgpr<3>
-// CHECK:         vop3p v_accvgpr_read_b32 outs %[[VTMP]] ins %[[A1]] : !amdgcn.vgpr<3>, !amdgcn.agpr<1>
-// CHECK:         vop3p v_accvgpr_write_b32 outs %[[A0]] ins %[[VTMP]] : !amdgcn.agpr<0>, !amdgcn.vgpr<3>
+// CHECK:         v_accvgpr_read outs(%[[VTMP]]) ins(%[[A1]])
+// CHECK:         v_accvgpr_write outs(%[[A0]]) ins(%[[VTMP]])
 // CHECK:         end_kernel
 amdgcn.kernel @agpr_copy_with_vgprs {
   %v0 = alloca : !amdgcn.vgpr<?>
@@ -136,16 +136,16 @@ amdgcn.kernel @mixed_vgpr_agpr_independent {
 // CHECK-LABEL: amdgcn.kernel @explicit_accvgpr_write_imm {
 // CHECK-DAG:     %[[A:.*]] = alloca : !amdgcn.agpr<0>
 // CHECK-DAG:     %[[V:.*]] = alloca : !amdgcn.vgpr<0>
-// CHECK:         vop3p v_accvgpr_write_b32 outs %[[A]] ins %c42_i32 : !amdgcn.agpr<0>, i32
-// CHECK:         vop3p v_accvgpr_read_b32 outs %[[V]] ins %[[A]] : !amdgcn.vgpr<0>, !amdgcn.agpr<0>
+// CHECK:         v_accvgpr_write outs(%[[A]]) ins(%c42_i32) : outs(!amdgcn.agpr<0>) ins(i32)
+// CHECK:         v_accvgpr_read outs(%[[V]]) ins(%[[A]]) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.agpr<0>)
 // CHECK:         test_inst ins %[[V]] : (!amdgcn.vgpr<0>) -> ()
 // CHECK:         end_kernel
 amdgcn.kernel @explicit_accvgpr_write_imm {
   %a = alloca : !amdgcn.agpr<?>
   %v = alloca : !amdgcn.vgpr<?>
   %c42 = arith.constant 42 : i32
-  amdgcn.vop3p v_accvgpr_write_b32 outs %a ins %c42 : !amdgcn.agpr<?>, i32
-  amdgcn.vop3p v_accvgpr_read_b32 outs %v ins %a : !amdgcn.vgpr<?>, !amdgcn.agpr<?>
+  amdgcn.v_accvgpr_write outs(%a) ins(%c42) : outs(!amdgcn.agpr<?>) ins(i32)
+  amdgcn.v_accvgpr_read outs(%v) ins(%a) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.agpr<?>)
   test_inst ins %v : (!amdgcn.vgpr<?>) -> ()
   end_kernel
 }
@@ -156,8 +156,8 @@ amdgcn.kernel @explicit_accvgpr_write_imm {
 // CHECK-DAG:     %[[V:.*]] = alloca : !amdgcn.vgpr<0>
 // CHECK-DAG:     %[[A:.*]] = alloca : !amdgcn.agpr<0>
 // CHECK:         v_mov_b32 outs(%[[V]]) ins(%c99_i32) : outs(!amdgcn.vgpr<0>) ins(i32)
-// CHECK:         vop3p v_accvgpr_write_b32 outs %[[A]] ins %[[V]] : !amdgcn.agpr<0>, !amdgcn.vgpr<0>
-// CHECK:         vop3p v_accvgpr_read_b32 outs %[[V]] ins %[[A]] : !amdgcn.vgpr<0>, !amdgcn.agpr<0>
+// CHECK:         v_accvgpr_write outs(%[[A]]) ins(%[[V]]) : outs(!amdgcn.agpr<0>) ins(!amdgcn.vgpr<0>)
+// CHECK:         v_accvgpr_read outs(%[[V]]) ins(%[[A]]) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.agpr<0>)
 // CHECK:         test_inst ins %[[V]] : (!amdgcn.vgpr<0>) -> ()
 // CHECK:         end_kernel
 amdgcn.kernel @explicit_accvgpr_write_from_vgpr {
@@ -166,8 +166,8 @@ amdgcn.kernel @explicit_accvgpr_write_from_vgpr {
   %v_dst = alloca : !amdgcn.vgpr<?>
   %c99 = arith.constant 99 : i32
   amdgcn.v_mov_b32 outs(%v_src) ins(%c99) : outs(!amdgcn.vgpr<?>) ins(i32)
-  amdgcn.vop3p v_accvgpr_write_b32 outs %a ins %v_src : !amdgcn.agpr<?>, !amdgcn.vgpr<?>
-  amdgcn.vop3p v_accvgpr_read_b32 outs %v_dst ins %a : !amdgcn.vgpr<?>, !amdgcn.agpr<?>
+  amdgcn.v_accvgpr_write outs(%a) ins(%v_src) : outs(!amdgcn.agpr<?>) ins(!amdgcn.vgpr<?>)
+  amdgcn.v_accvgpr_read outs(%v_dst) ins(%a) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.agpr<?>)
   test_inst ins %v_dst : (!amdgcn.vgpr<?>) -> ()
   end_kernel
 }

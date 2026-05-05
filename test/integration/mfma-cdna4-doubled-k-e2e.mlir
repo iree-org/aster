@@ -79,10 +79,9 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
     %c0 = arith.constant 0 : i32
     %dst = func.call @init_vgprx4(%c0) : (i32) -> (!amdgcn.vgpr<[? + 4]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_f16>
-        %dst, %a, %b, %dst
-        : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>,
-          !amdgcn.vgpr<[? + 4]> -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_f32_16x16x32_f16 outs(%dst) ins(%a, %b, %dst)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>)
 
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %shift_4 = arith.constant 4 : i32
@@ -108,10 +107,9 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
     %c0 = arith.constant 0 : i32
     %dst = func.call @init_vgprx4(%c0) : (i32) -> (!amdgcn.vgpr<[? + 4]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x32_bf16>
-        %dst, %a, %b, %dst
-        : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>,
-          !amdgcn.vgpr<[? + 4]> -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_f32_16x16x32_bf16 outs(%dst) ins(%a, %b, %dst)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>)
 
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %shift_4 = arith.constant 4 : i32
@@ -139,10 +137,9 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
     %c0 = arith.constant 0 : i32
     %acc = func.call @init_vgprx16(%c0) : (i32) -> (!amdgcn.vgpr<[? + 16]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x16_bf16>
-        %acc, %a, %b, %acc
-        : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>,
-          !amdgcn.vgpr<[? + 16]> -> !amdgcn.vgpr<[? + 16]>
+    %result = amdgcn.v_mfma_f32_32x32x16_bf16 outs(%acc) ins(%a, %b, %acc)
+    : outs(!amdgcn.vgpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 16]>)
 
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %c6 = arith.constant 6 : i32
@@ -193,10 +190,9 @@ amdgcn.module @mfma_cdna4_doubled_k_mod target = #amdgcn.target<gfx950> {
     %c0 = arith.constant 0 : i32
     %acc = func.call @init_vgprx16(%c0) : (i32) -> (!amdgcn.vgpr<[? + 16]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x16_f16>
-        %acc, %a, %b, %acc
-        : !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>,
-          !amdgcn.vgpr<[? + 16]> -> !amdgcn.vgpr<[? + 16]>
+    %result = amdgcn.v_mfma_f32_32x32x16_f16 outs(%acc) ins(%a, %b, %acc)
+    : outs(!amdgcn.vgpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 16]>)
 
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %c6 = arith.constant 6 : i32

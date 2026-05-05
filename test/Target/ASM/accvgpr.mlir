@@ -81,8 +81,10 @@ amdgcn.module @agpr_asm_mod target = #amdgcn.target<gfx942> {
     %agpr = func.call @alloc_agprx1() : () -> !amdgcn.agpr
     %vgpr = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
 
-    %a0 = amdgcn.vop3p v_accvgpr_write_b32 outs %agpr ins %c42 : !amdgcn.agpr, i32
-    %v0 = amdgcn.vop3p v_accvgpr_read_b32 outs %vgpr ins %a0 : !amdgcn.vgpr, !amdgcn.agpr
+    %a0 = amdgcn.v_accvgpr_write outs(%agpr) ins(%c42)
+    : outs(!amdgcn.agpr) ins(i32)
+    %v0 = amdgcn.v_accvgpr_read outs(%vgpr) ins(%a0)
+    : outs(!amdgcn.vgpr) ins(!amdgcn.agpr)
 
     %out = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
     %off = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
@@ -104,8 +106,10 @@ amdgcn.module @agpr_asm_mod target = #amdgcn.target<gfx942> {
     %vgpr_dst = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
 
     %v_src = amdgcn.v_mov_b32 outs(%vgpr_src) ins(%c99) : outs(!amdgcn.vgpr) ins(i32)
-    %a0 = amdgcn.vop3p v_accvgpr_write_b32 outs %agpr ins %v_src : !amdgcn.agpr, !amdgcn.vgpr
-    %v0 = amdgcn.vop3p v_accvgpr_read_b32 outs %vgpr_dst ins %a0 : !amdgcn.vgpr, !amdgcn.agpr
+    %a0 = amdgcn.v_accvgpr_write outs(%agpr) ins(%v_src)
+    : outs(!amdgcn.agpr) ins(!amdgcn.vgpr)
+    %v0 = amdgcn.v_accvgpr_read outs(%vgpr_dst) ins(%a0)
+    : outs(!amdgcn.vgpr) ins(!amdgcn.agpr)
 
     %out = func.call @load_output_ptr() : () -> !amdgcn.sgpr<[? + 2]>
     %off = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
@@ -134,10 +138,9 @@ amdgcn.module @agpr_asm_mod target = #amdgcn.target<gfx942> {
     %b = func.call @alloc_vgprx2() : () -> !amdgcn.vgpr<[? + 2]>
     %acc = func.call @init_agprx4(%c0) : (i32) -> !amdgcn.agpr<[? + 4]>
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
-        %acc, %a, %b, %acc
-        : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>,
-          !amdgcn.agpr<[? + 4]> -> !amdgcn.agpr<[? + 4]>
+    %result = amdgcn.v_mfma_f32_16x16x16_f16 outs(%acc) ins(%a, %b, %acc)
+    : outs(!amdgcn.agpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>)
 
     func.call @store_result_x4(%result) : (!amdgcn.agpr<[? + 4]>) -> ()
     amdgcn.end_kernel

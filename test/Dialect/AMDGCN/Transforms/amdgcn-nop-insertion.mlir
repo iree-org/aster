@@ -218,10 +218,9 @@ amdgcn.module @test_case106_scaled_mfma_16x16x128 target = #amdgcn.target<gfx950
     %s1 = amdgcn.alloca : !amdgcn.vgpr<33>
 
     // Scaled MFMA 16x16x128: writes to VGPRs [16:20)
-    amdgcn.vop3p.vop3p_scaled_mai <v_mfma_scale_f32_16x16x128_f8f6f4>
-      %c_range, %a_range, %b_range, %c_range, %s0, %s1
-      : <[0 : 8]>, <[8 : 16]>, !amdgcn.vgpr<[16 : 20]>, !amdgcn.vgpr<32>, !amdgcn.vgpr<33>
-      -> !amdgcn.vgpr<[16 : 20]>
+    amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%c_range) ins(%a_range, %b_range, %c_range, %s0, %s1)
+    : outs(!amdgcn.vgpr<[16 : 20]>)
+      ins(!amdgcn.vgpr<[0 : 8]>, !amdgcn.vgpr<[8 : 16]>, !amdgcn.vgpr<[16 : 20]>, !amdgcn.vgpr<32>, !amdgcn.vgpr<33>)
 
     // VALU reads from overlapping VGPR (v16) -> triggers case 106
     amdgcn.v_mov_b32 outs(%c0) ins(%c0) : outs(!amdgcn.vgpr<16>) ins(!amdgcn.vgpr<16>)
@@ -293,10 +292,9 @@ amdgcn.module @test_case106_scaled_mfma_32x32x64 target = #amdgcn.target<gfx950>
     %s1 = amdgcn.alloca : !amdgcn.vgpr<33>
 
     // Scaled MFMA 32x32x64: writes to VGPRs [16:32)
-    amdgcn.vop3p.vop3p_scaled_mai <v_mfma_scale_f32_32x32x64_f8f6f4>
-      %c_range, %a_range, %b_range, %c_range, %s0, %s1
-      : <[0 : 8]>, <[8 : 16]>, !amdgcn.vgpr<[16 : 32]>, !amdgcn.vgpr<32>, !amdgcn.vgpr<33>
-      -> !amdgcn.vgpr<[16 : 32]>
+    amdgcn.v_mfma_scale_f32_32x32x64_f8f6f4 outs(%c_range) ins(%a_range, %b_range, %c_range, %s0, %s1)
+    : outs(!amdgcn.vgpr<[16 : 32]>)
+      ins(!amdgcn.vgpr<[0 : 8]>, !amdgcn.vgpr<[8 : 16]>, !amdgcn.vgpr<[16 : 32]>, !amdgcn.vgpr<32>, !amdgcn.vgpr<33>)
 
     // VALU reads from overlapping VGPR (v16) -> triggers case 106
     amdgcn.v_mov_b32 outs(%c0) ins(%c0) : outs(!amdgcn.vgpr<16>) ins(!amdgcn.vgpr<16>)
@@ -310,7 +308,7 @@ amdgcn.module @test_case106_scaled_mfma_32x32x64 target = #amdgcn.target<gfx950>
 // Case 106 for CDNA3 FP8 MFMA 16x16x32 (2-pass): MFMA write VGPR -> VALU read/write overlapping vDst
 // Expects 7 v_nop insertions (conservative for 2-pass)
 // CHECK-LABEL: kernel @test_kernel
-//       CHECK:   amdgcn.vop3p.vop3p_mai
+//       CHECK:   v_mfma_f32_16x16x32_fp8_fp8
 //       CHECK:   v_nop
 //       CHECK:   v_nop
 //       CHECK:   v_nop
@@ -342,9 +340,9 @@ amdgcn.module @test_case106_fp8_mfma_16x16x32 target = #amdgcn.target<gfx942> {
       : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
 
     // FP8 MFMA 16x16x32: writes to VGPRs [4:8)
-    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x32_fp8_fp8>
-      %c_range, %a_range, %b_range, %c_range
-      : <[0 : 2]>, <[2 : 4]>, !amdgcn.vgpr<[4 : 8]> -> !amdgcn.vgpr<[4 : 8]>
+    amdgcn.v_mfma_f32_16x16x32_fp8_fp8 outs(%c_range) ins(%a_range, %b_range, %c_range)
+    : outs(!amdgcn.vgpr<[4 : 8]>)
+      ins(!amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<[2 : 4]>, !amdgcn.vgpr<[4 : 8]>)
 
     // VALU reads from overlapping VGPR (v4) -> triggers case 106
     amdgcn.v_mov_b32 outs(%c0) ins(%c0) : outs(!amdgcn.vgpr<4>) ins(!amdgcn.vgpr<4>)
@@ -358,7 +356,7 @@ amdgcn.module @test_case106_fp8_mfma_16x16x32 target = #amdgcn.target<gfx942> {
 // CDNA4 doubled-K MFMA 16x16x32 f16 (4-pass, case 1): MFMA write VGPR -> VALU read/write overlapping vDst
 // CDNA4 Table 38: 4-pass XDL -> VALU = 8 v_nops (CDNA3 = 7)
 // CHECK-LABEL: kernel @test_kernel
-//       CHECK:   amdgcn.vop3p.vop3p_mai
+//       CHECK:   v_mfma_f32_16x16x32_f16
 //       CHECK:   v_nop
 //       CHECK:   v_nop
 //       CHECK:   v_nop
@@ -394,9 +392,9 @@ amdgcn.module @test_case106_cdna4_mfma_16x16x32_f16 target = #amdgcn.target<gfx9
     %c_range = amdgcn.make_register_range %c0, %c1, %c2, %c3
       : !amdgcn.vgpr<8>, !amdgcn.vgpr<9>, !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
 
-    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x32_f16>
-      %c_range, %a_range, %b_range, %c_range
-      : <[0 : 4]>, <[4 : 8]>, !amdgcn.vgpr<[8 : 12]> -> !amdgcn.vgpr<[8 : 12]>
+    amdgcn.v_mfma_f32_16x16x32_f16 outs(%c_range) ins(%a_range, %b_range, %c_range)
+    : outs(!amdgcn.vgpr<[8 : 12]>)
+      ins(!amdgcn.vgpr<[0 : 4]>, !amdgcn.vgpr<[4 : 8]>, !amdgcn.vgpr<[8 : 12]>)
 
     amdgcn.v_mov_b32 outs(%c0) ins(%c0) : outs(!amdgcn.vgpr<8>) ins(!amdgcn.vgpr<8>)
 
@@ -409,7 +407,7 @@ amdgcn.module @test_case106_cdna4_mfma_16x16x32_f16 target = #amdgcn.target<gfx9
 // CDNA4 doubled-K MFMA 16x16x32 bf16 (4-pass, case 1): MFMA write VGPR -> VALU read/write overlapping vDst
 // CDNA4 Table 38: 4-pass XDL -> VALU = 8 v_nops (CDNA3 = 7)
 // CHECK-LABEL: kernel @test_kernel
-//       CHECK:   amdgcn.vop3p.vop3p_mai
+//       CHECK:   v_mfma_f32_16x16x32_bf16
 //       CHECK:   v_nop
 //       CHECK:   v_nop
 //       CHECK:   v_nop
@@ -445,9 +443,9 @@ amdgcn.module @test_case106_cdna4_mfma_16x16x32_bf16 target = #amdgcn.target<gfx
     %c_range = amdgcn.make_register_range %c0, %c1, %c2, %c3
       : !amdgcn.vgpr<8>, !amdgcn.vgpr<9>, !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
 
-    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x32_bf16>
-      %c_range, %a_range, %b_range, %c_range
-      : <[0 : 4]>, <[4 : 8]>, !amdgcn.vgpr<[8 : 12]> -> !amdgcn.vgpr<[8 : 12]>
+    amdgcn.v_mfma_f32_16x16x32_bf16 outs(%c_range) ins(%a_range, %b_range, %c_range)
+    : outs(!amdgcn.vgpr<[8 : 12]>)
+      ins(!amdgcn.vgpr<[0 : 4]>, !amdgcn.vgpr<[4 : 8]>, !amdgcn.vgpr<[8 : 12]>)
 
     amdgcn.v_mov_b32 outs(%c0) ins(%c0) : outs(!amdgcn.vgpr<8>) ins(!amdgcn.vgpr<8>)
 
@@ -460,7 +458,7 @@ amdgcn.module @test_case106_cdna4_mfma_16x16x32_bf16 target = #amdgcn.target<gfx
 // CDNA4 doubled-K MFMA 32x32x16 bf16 (8-pass, case 2): MFMA write VGPR -> VALU read/write overlapping vDst
 // CDNA4 Table 38: 8-pass XDL -> VALU = 12 v_nops (CDNA3 = 11)
 // CHECK-LABEL: kernel @test_kernel
-//       CHECK:   amdgcn.vop3p.vop3p_mai
+//       CHECK:   v_mfma_f32_32x32x16_bf16
 //       CHECK:   v_nop
 //       CHECK:   v_nop
 //       CHECK:   v_nop
@@ -516,9 +514,9 @@ amdgcn.module @test_case106_cdna4_mfma_32x32x16_bf16 target = #amdgcn.target<gfx
         !amdgcn.vgpr<24>, !amdgcn.vgpr<25>, !amdgcn.vgpr<26>, !amdgcn.vgpr<27>,
         !amdgcn.vgpr<28>, !amdgcn.vgpr<29>, !amdgcn.vgpr<30>, !amdgcn.vgpr<31>
 
-    amdgcn.vop3p.vop3p_mai <v_mfma_f32_32x32x16_bf16>
-      %c_range, %a_range, %b_range, %c_range
-      : <[0 : 4]>, <[4 : 8]>, !amdgcn.vgpr<[16 : 32]> -> !amdgcn.vgpr<[16 : 32]>
+    amdgcn.v_mfma_f32_32x32x16_bf16 outs(%c_range) ins(%a_range, %b_range, %c_range)
+    : outs(!amdgcn.vgpr<[16 : 32]>)
+      ins(!amdgcn.vgpr<[0 : 4]>, !amdgcn.vgpr<[4 : 8]>, !amdgcn.vgpr<[16 : 32]>)
 
     amdgcn.v_mov_b32 outs(%c0) ins(%c0) : outs(!amdgcn.vgpr<16>) ins(!amdgcn.vgpr<16>)
 
@@ -531,7 +529,7 @@ amdgcn.module @test_case106_cdna4_mfma_32x32x16_bf16 target = #amdgcn.target<gfx
 // CDNA4 doubled-K MFMA 32x32x16 f16 (8-pass, case 2): MFMA write VGPR -> VALU read/write overlapping vDst
 // CDNA4 Table 38: 8-pass XDL -> VALU = 12 v_nops (CDNA3 = 11)
 // CHECK-LABEL: kernel @test_kernel
-//       CHECK:   amdgcn.vop3p.vop3p_mai
+//       CHECK:   v_mfma_f32_32x32x16_f16
 //       CHECK:   v_nop
 //       CHECK:   v_nop
 //       CHECK:   v_nop
@@ -587,9 +585,9 @@ amdgcn.module @test_case106_cdna4_mfma_32x32x16_f16 target = #amdgcn.target<gfx9
         !amdgcn.vgpr<24>, !amdgcn.vgpr<25>, !amdgcn.vgpr<26>, !amdgcn.vgpr<27>,
         !amdgcn.vgpr<28>, !amdgcn.vgpr<29>, !amdgcn.vgpr<30>, !amdgcn.vgpr<31>
 
-    amdgcn.vop3p.vop3p_mai <v_mfma_f32_32x32x16_f16>
-      %c_range, %a_range, %b_range, %c_range
-      : <[0 : 4]>, <[4 : 8]>, !amdgcn.vgpr<[16 : 32]> -> !amdgcn.vgpr<[16 : 32]>
+    amdgcn.v_mfma_f32_32x32x16_f16 outs(%c_range) ins(%a_range, %b_range, %c_range)
+    : outs(!amdgcn.vgpr<[16 : 32]>)
+      ins(!amdgcn.vgpr<[0 : 4]>, !amdgcn.vgpr<[4 : 8]>, !amdgcn.vgpr<[16 : 32]>)
 
     amdgcn.v_mov_b32 outs(%c0) ins(%c0) : outs(!amdgcn.vgpr<16>) ins(!amdgcn.vgpr<16>)
 

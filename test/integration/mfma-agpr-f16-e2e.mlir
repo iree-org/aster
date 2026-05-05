@@ -50,10 +50,14 @@ amdgcn.module @mfma_agpr_f16_mod target = #amdgcn.target<gfx942> {
     %r1 = amdgcn.alloca : !amdgcn.agpr
     %r2 = amdgcn.alloca : !amdgcn.agpr
     %r3 = amdgcn.alloca : !amdgcn.agpr
-    %a0 = amdgcn.vop3p v_accvgpr_write_b32 outs %r0 ins %src : !amdgcn.agpr, !amdgcn.vgpr
-    %a1 = amdgcn.vop3p v_accvgpr_write_b32 outs %r1 ins %src : !amdgcn.agpr, !amdgcn.vgpr
-    %a2 = amdgcn.vop3p v_accvgpr_write_b32 outs %r2 ins %src : !amdgcn.agpr, !amdgcn.vgpr
-    %a3 = amdgcn.vop3p v_accvgpr_write_b32 outs %r3 ins %src : !amdgcn.agpr, !amdgcn.vgpr
+    %a0 = amdgcn.v_accvgpr_write outs(%r0) ins(%src)
+    : outs(!amdgcn.agpr) ins(!amdgcn.vgpr)
+    %a1 = amdgcn.v_accvgpr_write outs(%r1) ins(%src)
+    : outs(!amdgcn.agpr) ins(!amdgcn.vgpr)
+    %a2 = amdgcn.v_accvgpr_write outs(%r2) ins(%src)
+    : outs(!amdgcn.agpr) ins(!amdgcn.vgpr)
+    %a3 = amdgcn.v_accvgpr_write outs(%r3) ins(%src)
+    : outs(!amdgcn.agpr) ins(!amdgcn.vgpr)
     %range = amdgcn.make_register_range %a0, %a1, %a2, %a3
       : !amdgcn.agpr, !amdgcn.agpr, !amdgcn.agpr, !amdgcn.agpr
     return %range : !amdgcn.agpr<[? + 4]>
@@ -84,10 +88,9 @@ amdgcn.module @mfma_agpr_f16_mod target = #amdgcn.target<gfx942> {
     %c0 = arith.constant 0 : i32
     %acc = func.call @init_agprx4(%c0) : (i32) -> (!amdgcn.agpr<[? + 4]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
-        %acc, %a, %b, %acc
-        : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>,
-          !amdgcn.agpr<[? + 4]> -> !amdgcn.agpr<[? + 4]>
+    %result = amdgcn.v_mfma_f32_16x16x16_f16 outs(%acc) ins(%a, %b, %acc)
+    : outs(!amdgcn.agpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>)
 
     // Store result directly from AGPRs: threadidx_x * 16 bytes (4 f32 per lane)
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
@@ -126,10 +129,9 @@ amdgcn.module @mfma_agpr_f16_mod target = #amdgcn.target<gfx942> {
     %v_10 = amdgcn.v_mov_b32 outs(%vgpr_tmp) ins(%f32_10) : outs(!amdgcn.vgpr) ins(i32)
     %acc = func.call @init_agprx4_from_vgpr(%v_10) : (!amdgcn.vgpr) -> (!amdgcn.agpr<[? + 4]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16>
-        %acc, %a, %b, %acc
-        : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>,
-          !amdgcn.agpr<[? + 4]> -> !amdgcn.agpr<[? + 4]>
+    %result = amdgcn.v_mfma_f32_16x16x16_f16 outs(%acc) ins(%a, %b, %acc)
+    : outs(!amdgcn.agpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>)
 
     // Store result directly from AGPRs
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr

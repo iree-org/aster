@@ -83,10 +83,13 @@ from aster._mlir_libs._amdgcn import (
     VGPRType,
 )
 from aster.dialects import _amdgcn_inst_gen as _inst
+from aster.dialects import _amdgcn_ops_gen as _ops_gen
 from aster.dialects._amdgcn_ops_gen import (
     s_barrier as _s_barrier_fn,
     s_mov_b32 as _s_mov_b32_fn,
     s_nop as _s_nop_fn,
+    v_accvgpr_read as _v_accvgpr_read_fn,
+    v_accvgpr_write as _v_accvgpr_write_fn,
 )
 from aster.dialects import lsir as lsird
 from aster.dialects.amdgcn import (
@@ -101,6 +104,8 @@ from aster.dialects import ptr as ptrd
 _inst.s_barrier = _s_barrier_fn
 _inst.s_mov_b32 = _s_mov_b32_fn
 _inst.s_nop = _s_nop_fn
+_inst.v_accvgpr_read = _v_accvgpr_read_fn
+_inst.v_accvgpr_write = _v_accvgpr_write_fn
 
 
 def _i8(value: int, ctx: ir.Context) -> ir.IntegerAttr:
@@ -537,7 +542,7 @@ class KernelBuilder:
     def init_agprx4(self, init_val: ir.Value) -> ir.Value:
         """Allocate and initialize a 4-AGPR register range."""
         inited = [
-            _inst.v_accvgpr_write_b32(
+            _inst.v_accvgpr_write(
                 self.alloca_agpr(), init_val, loc=self._loc, ip=self._kip
             )
             for _ in range(4)
@@ -547,7 +552,7 @@ class KernelBuilder:
     def init_agprx16(self, init_val: ir.Value) -> ir.Value:
         """Allocate and initialize a 16-AGPR register range (32x32 accumulator)."""
         inited = [
-            _inst.v_accvgpr_write_b32(
+            _inst.v_accvgpr_write(
                 self.alloca_agpr(), init_val, loc=self._loc, ip=self._kip
             )
             for _ in range(16)
@@ -741,7 +746,7 @@ class KernelBuilder:
 
         opcode: e.g. "v_mfma_f32_16x16x16_f16"
         """
-        fn = getattr(_inst, opcode, None)
+        fn = getattr(_inst, opcode, None) or getattr(_ops_gen, opcode, None)
         if fn is not None:
             result = fn(acc, a, b, acc, loc=self._loc, ip=self._kip)
             return result

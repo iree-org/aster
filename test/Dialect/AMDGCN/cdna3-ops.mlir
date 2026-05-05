@@ -5,12 +5,12 @@
 //===----------------------------------------------------------------------===//
 
 func.func @test_vop3p_mai_basic(%a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>, %c: !amdgcn.vgpr<[? + 4]>, %dst0: !amdgcn.vgpr<[? + 4]>, %dst1: !amdgcn.vgpr<[? + 4]>) {
-  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst0, %a, %b, %c
-      : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>
-    -> !amdgcn.vgpr<[? + 4]>
-  %result2 = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_bf16> %dst1, %a, %b, %result
-      : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>
-    -> !amdgcn.vgpr<[? + 4]>
+  %result = amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst0) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
+  %result2 = amdgcn.v_mfma_f32_16x16x16_bf16 outs(%dst1) ins(%a, %b, %result)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
   return
 }
 
@@ -18,9 +18,9 @@ func.func @test_vop3p_mai_basic(%a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? +
 func.func @test_vop3p_mai_32x32x8_f16(
     %a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>,
     %c: !amdgcn.vgpr<[? + 16]>, %dst: !amdgcn.vgpr<[? + 16]>) {
-  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x8_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 16]>
-    -> !amdgcn.vgpr<[? + 16]>
+  %result = amdgcn.v_mfma_f32_32x32x8_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.vgpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 16]>)
   return
 }
 
@@ -28,36 +28,71 @@ func.func @test_vop3p_mai_32x32x8_f16(
 func.func @test_vop3p_mai_32x32x8_f16_agpr(
     %a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>,
     %c: !amdgcn.agpr<[? + 16]>, %dst: !amdgcn.agpr<[? + 16]>) {
-  %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x8_f16> %dst, %a, %b, %c
-      : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 16]>
-    -> !amdgcn.agpr<[? + 16]>
+  %result = amdgcn.v_mfma_f32_32x32x8_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.agpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 16]>)
   return
 }
 
 func.func @test_vop3p_mai_with_agprs(%a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>, %c: !amdgcn.agpr<[? + 4]>, %dst: !amdgcn.agpr<[? + 4]>) {
-  %result = "amdgcn.vop3p.vop3p_mai"(%dst, %a, %b, %c) {
-    opcode = #amdgcn.inst<v_mfma_f32_16x16x16_f16>,
-    acc_cd
-  } : (!amdgcn.agpr<[? + 4]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>) -> !amdgcn.agpr<[? + 4]>
+  %result = amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst) ins(%a, %b, %c)
+    : outs(!amdgcn.agpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>)
   return
 }
 
 func.func @test_vop3p_mai_oilist_attributes(%a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>, %c: !amdgcn.vgpr<[? + 4]>, %dst: !amdgcn.vgpr<[? + 4]>, %c_a: !amdgcn.agpr<[? + 4]>, %dst_a: !amdgcn.agpr<[? + 4]>) {
   // Test that acc_cd can appear without cbsz (oilist allows any order)
-  %result1 = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst_a, %a, %b, %c_a
-      : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>
-    -> !amdgcn.agpr<[? + 4]>
+  %result1 = amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst_a) ins(%a, %b, %c_a)
+    : outs(!amdgcn.agpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>)
 
   // Test attributes in different order: blgp before cbsz
-  %result2 = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst, %a, %b, %c blgp = 1 cbsz = 2
-      : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>
-    -> !amdgcn.vgpr<[? + 4]>
+  %result2 = amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst) ins(%a, %b, %c) cbsz(2 : i8) blgp(1 : i8)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
 
   // Test all attributes in reverse order
-  %result3 = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_16x16x16_f16> %dst_a, %a, %b, %c_a blgp = 3 abid = 4 cbsz = 0
-      : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>
-    -> !amdgcn.agpr<[? + 4]>
+  %result3 = amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst_a) ins(%a, %b, %c_a) cbsz(0 : i8) abid(4 : i16) blgp(3 : i8)
+    : outs(!amdgcn.agpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>)
 
+  return
+}
+
+//===----------------------------------------------------------------------===//
+// CDNA3 Direct MFMA Instruction Modifier Attributes
+//===----------------------------------------------------------------------===//
+
+// All modifiers at default values (should all be elided).
+func.func @test_mfma_inst_mod_defaults(
+    %a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>,
+    %c: !amdgcn.agpr<[? + 4]>, %dst: !amdgcn.agpr<[? + 4]>) {
+  %r = amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst) ins(%a, %b, %c)
+      : outs(!amdgcn.agpr<[? + 4]>)
+        ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>)
+  return
+}
+
+// Modifier attributes specified in reverse order.
+func.func @test_mfma_inst_mod_any_order(
+    %a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>,
+    %c: !amdgcn.agpr<[? + 4]>, %dst: !amdgcn.agpr<[? + 4]>) {
+  %r = amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst) ins(%a, %b, %c)
+      blgp(3 : i8) abid(5 : i16) cbsz(2 : i8)
+      : outs(!amdgcn.agpr<[? + 4]>)
+        ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>)
+  return
+}
+
+// Only one non-default modifier attribute.
+func.func @test_mfma_inst_mod_partial(
+    %a: !amdgcn.vgpr<[? + 2]>, %b: !amdgcn.vgpr<[? + 2]>,
+    %c: !amdgcn.agpr<[? + 4]>, %dst: !amdgcn.agpr<[? + 4]>) {
+  %r = amdgcn.v_mfma_f32_16x16x16_f16 outs(%dst) ins(%a, %b, %c)
+      abid(7 : i16)
+      : outs(!amdgcn.agpr<[? + 4]>)
+        ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.agpr<[? + 4]>)
   return
 }
 

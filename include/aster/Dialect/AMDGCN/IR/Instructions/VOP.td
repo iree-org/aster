@@ -14,6 +14,60 @@
 include "aster/Dialect/AMDGCN/IR/AMDGCNInstBase.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 
+#ifndef VOP3POUT1IN1INST_DEF
+#define VOP3POUT1IN1INST_DEF
+class VOP3POut1In1Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type> : AMDISAInstruction<mnemonic> {
+  let props = [IsVALU, IsVOP3P];
+  let archs = [CDNA3Isa, CDNA4Isa];
+  let outputs = (ins
+    AnyRegOf<dst0Type>:$dst0
+  );
+  let inputs = (ins
+    AnyOperandOf<src0Type>:$src0
+  );
+  let trailingArgs = (ins);
+  let asm_syntax = [
+    ASMString<[ENC_VOP3P_CDNA4], "${mnemonic} $dst0, $src0">
+  ];
+}
+#endif // VOP3POUT1IN1INST_DEF
+
+#ifndef VACCVGPRREAD_DEF
+#define VACCVGPRREAD_DEF
+def VAccvgprRead : VOP3POut1In1Inst<"v_accvgpr_read",
+    /*dst0=*/[VGPROf<1>],
+    /*src0=*/[AGPROf<1>]
+  > {
+  let description = [{
+    Move 32 bits of data from an accumulator vector register into an
+    architectural vector register.
+  }];
+  let encodings = [InstEnc<[ENC_VOP3P_CDNA3, ENC_VOP3P_CDNA4], 0b1011000>];
+  let asm_mnemonic = "v_accvgpr_read_b32";
+  let asm_syntax = [
+    ASMString<[ENC_VOP3P_CDNA3, ENC_VOP3P_CDNA4], "${mnemonic} $dst0, $src0">
+  ];
+}
+#endif // VACCVGPRREAD_DEF
+
+#ifndef VACCVGPRWRITE_DEF
+#define VACCVGPRWRITE_DEF
+def VAccvgprWrite : VOP3POut1In1Inst<"v_accvgpr_write",
+    /*dst0=*/[AGPROf<1>],
+    /*src0=*/[OneGPROrSRegOrConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>>]
+  > {
+  let description = [{
+    Move 32 bits of data from an architectural vector register into an
+    accumulator vector register.
+  }];
+  let encodings = [InstEnc<[ENC_VOP3P_CDNA3, ENC_VOP3P_CDNA4], 0b1011001>];
+  let asm_mnemonic = "v_accvgpr_write_b32";
+  let asm_syntax = [
+    ASMString<[ENC_VOP3P_CDNA3, ENC_VOP3P_CDNA4], "${mnemonic} $dst0, $src0">
+  ];
+}
+#endif // VACCVGPRWRITE_DEF
+
 #ifndef VOP3OUT1IN3INST_DEF
 #define VOP3OUT1IN3INST_DEF
 class VOP3Out1In3Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type, list<Type> src2Type> : AMDISAInstruction<mnemonic> {

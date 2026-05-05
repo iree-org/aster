@@ -79,11 +79,9 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     %s1_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %s1 = amdgcn.v_mov_b32 outs(%s1_s) ins(%e8m0_2x) : outs(!amdgcn.vgpr) ins(i32)
 
-    %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-        %dst, %a, %b, %dst, %s0, %s1
-        : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-          !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr
-        -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %dst, %s0, %s1)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr)
 
     // Store result: threadidx_x * 16 bytes (4 f32 per lane)
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
@@ -151,11 +149,9 @@ amdgcn.module @mfma_f8f6f4_mod target = #amdgcn.target<gfx950> {
     %s1_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr
     %s1 = amdgcn.v_mov_b32 outs(%s1_s) ins(%e8m0_id) : outs(!amdgcn.vgpr) ins(i32)
 
-    %result = amdgcn.vop3p.vop3p_scaled_mai #amdgcn.inst<v_mfma_scale_f32_16x16x128_f8f6f4>
-        %dst, %a, %b, %dst, %s0, %s1
-        : !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>,
-          !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr
-        -> !amdgcn.vgpr<[? + 4]>
+    %result = amdgcn.v_mfma_scale_f32_16x16x128_f8f6f4 outs(%dst) ins(%a, %b, %dst, %s0, %s1)
+    : outs(!amdgcn.vgpr<[? + 4]>)
+      ins(!amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 8]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr, !amdgcn.vgpr)
 
     // Store result: threadidx_x * 16 bytes (4 f32 per lane)
     %offset_s = func.call @alloc_vgpr() : () -> !amdgcn.vgpr

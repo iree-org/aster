@@ -50,10 +50,9 @@ amdgcn.module @mfma_32x32_mod target = #amdgcn.target<gfx942> {
     %b = func.call @alloc_vgprx2() : () -> (!amdgcn.vgpr<[? + 2]>)
     %dst = func.call @init_vgprx16(%c0) : (i32) -> (!amdgcn.vgpr<[? + 16]>)
 
-    %result = amdgcn.vop3p.vop3p_mai #amdgcn.inst<v_mfma_f32_32x32x8_f16>
-        %dst, %a, %b, %dst
-        : !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>,
-          !amdgcn.vgpr<[? + 16]> -> !amdgcn.vgpr<[? + 16]>
+    %result = amdgcn.v_mfma_f32_32x32x8_f16 outs(%dst) ins(%a, %b, %dst)
+    : outs(!amdgcn.vgpr<[? + 16]>)
+      ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 16]>)
 
     // Store first 4 dwords of result to keep MFMA live
     %regs:16 = amdgcn.split_register_range %result : !amdgcn.vgpr<[? + 16]>

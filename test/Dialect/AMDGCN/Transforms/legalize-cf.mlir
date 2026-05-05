@@ -240,8 +240,10 @@ amdgcn.module @test_loop target = <gfx942> {
     %dummy_b = make_register_range %v18, %v19 : !amdgcn.vgpr<18>, !amdgcn.vgpr<19>
 
     // MFMA: new_acc = MFMA(a, b, acc) - accumulator is both input and output
-    // CHECK:       vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %[[ACC_RECON]]
-    amdgcn.vop3p.vop3p_mai <v_mfma_f32_16x16x16_f16> %acc, %dummy_a, %dummy_b, %acc : <[16 : 18]>, <[18 : 20]>, !amdgcn.vgpr<[4 : 8]> -> !amdgcn.vgpr<[4 : 8]>
+    // CHECK:       v_mfma_f32_16x16x16_f16 outs(%[[ACC_RECON]])
+    amdgcn.v_mfma_f32_16x16x16_f16 outs(%acc) ins(%dummy_a, %dummy_b, %acc)
+    : outs(!amdgcn.vgpr<[4 : 8]>)
+      ins(!amdgcn.vgpr<[16 : 18]>, !amdgcn.vgpr<[18 : 20]>, !amdgcn.vgpr<[4 : 8]>)
 
     // Increment counter - writes to %[[S8]] alloca
     // CHECK:       s_add_u32 outs(%[[S8]]
