@@ -183,14 +183,19 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     amdgcn.end_kernel
   }
 
-  // s_barrier is a workgroup sync point. GraphBuilder treats it as
-  // a sync point and forces LDS ordering within a wavefront.
+  // s_barrier pins LDS *writes* (so all stores complete before the
+  // workgroup-visible barrier), but ds_reads bypass the barrier --
+  // their cross-wave sync is encoded via SSA token deps in real code,
+  // and forcing every read after every barrier blocks pipelining of
+  // independent loads that the next iteration needs early. With no
+  // explicit token from the writes to the reads in this fixture, the
+  // reads are free to schedule between the writes.
   // CHECK-LABEL: kernel @barrier_separates_lds
   // CHECK:         ds_write_b64
+  // CHECK:         ds_read_b64
+  // CHECK:         ds_read_b64
   // CHECK:         ds_write_b64
   // CHECK:         s_barrier
-  // CHECK:         ds_read_b64
-  // CHECK:         ds_read_b64
   // CHECK:         end_kernel
   amdgcn.kernel @barrier_separates_lds {
     %addr0 = amdgcn.alloca : !v

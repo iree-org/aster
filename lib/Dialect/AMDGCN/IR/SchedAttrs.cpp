@@ -288,18 +288,34 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
       continue;
     }
 
-    // If the operation has any SALU or SMEM properties, add an edge.
-    if (instOp.hasAnyProps({InstProp::Salu, InstProp::Smem, InstProp::Ds})) {
+    // Pin every memory *write* across the barrier (LDS, SMEM, flat /
+    // global / buffer). `s_barrier` is synchronizing the side effects
+    // that become observable AFTER it, so store ordering on either
+    // side of the barrier is what we need to preserve. Reads (ds_read,
+    // s_load_*, global_load, buffer_load) carry no such fence
+    // requirement and benefit from being free to schedule across the
+    // barrier -- their data dependencies are already tracked by SSA
+    // and by token-based wait deps.
+    //
+    // SALU and SGPR-producing ops are NOT pinned here either:
+    //   * SCC / VCC ordering is captured explicitly by
+    //     `addImplicitFlagEdges`.
+    //   * SGPR data dependencies are tracked by SSA.
+    //   * Pinning SALU / SGPR-out transitively pins the address
+    //     calculations of post-barrier global_loads (their addresses
+    //     are computed by `s_add_u32` / `s_lshl_b32`), forcing the
+    //     loads into a tight burst right after the barrier. The VMEM
+    //     queue saturates and the next `vmcnt(0)` pays the full
+    //     execution latency. Letting the address-calc SALU bypass the
+    //     barrier lets the global_load it feeds bypass too, so the
+    //     scheduler can spread loads across the iteration body.
+    bool producesWriteToken = llvm::any_of(instOp->getResults(), [](Value res) {
+      return isa<WriteTokenType>(res.getType());
+    });
+    if (producesWriteToken) {
       addEdge(op, i);
       continue;
     }
-
-    // If the operation has any SGPR outputs, add an edge.
-    bool hasSGPROut = llvm::any_of(instOp->getResults(), [](Value result) {
-      return isa<SGPRType>(result.getType());
-    });
-    if (hasSGPROut)
-      addEdge(op, i);
   }
 }
 
@@ -904,7 +920,7 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
   switch (qt) {
   case QueueType::VMEM:
     lookback = 16;
-    perOccPenalty = 125;
+    perOccPenalty = 175;
     break;
   case QueueType::LGKM:
     lookback = 4;
@@ -983,9 +999,17 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
   enum : uint8_t { WK_VM = 1, WK_LGKM = 2 };
   if (waitKind != 0 && qt == QueueType::Unknown) {
     constexpr int kStallWeight = 25;
-    // VMEM exec latency we model in the simulator (matches getExecLatency).
-    constexpr int kMemoryLatency = 256;
-    constexpr int kLgkmExecLatency = 32; // DS read exec latency upper bound
+    // Wait-deferral memory latency is intentionally a bit larger than the
+    // simulator's VMEM exec latency (256c). The simulator's 256c models
+    // queue occupancy / port time -- the rate at which a new load can
+    // enter the in-flight pool. The actual HBM round-trip a vmcnt(0)
+    // wait must hide is closer to 600-700c on MI300X (HBM3 ~500ns at
+    // ~2GHz). Using 256c here under-defers waits and they fire while
+    // loads are still returning, creating hardware stalls.
+    constexpr int kVmemWaitLatency = 300;
+    // ds_read exec latency upper bound (LDS arbiter). Simulator uses
+    // the same value, so no decoupling needed for LGKM.
+    constexpr int kLgkmExecLatency = 32;
     auto remainingStall = [&](int64_t lastIssueCycle, int execLat) -> int {
       if (lastIssueCycle == std::numeric_limits<int64_t>::min())
         return 0; // No producer ever issued -> wait would fire instantly.
@@ -994,7 +1018,7 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
     };
     if (waitKind & WK_VM)
       score -=
-          kStallWeight * remainingStall(s.lastVmemIssueCycle, kMemoryLatency);
+          kStallWeight * remainingStall(s.lastVmemIssueCycle, kVmemWaitLatency);
     if (waitKind & WK_LGKM)
       score -=
           kStallWeight * remainingStall(s.lastLgkmIssueCycle, kLgkmExecLatency);

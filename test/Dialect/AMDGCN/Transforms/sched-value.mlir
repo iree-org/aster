@@ -60,9 +60,9 @@ func.func @amdgcn_mixed_memory_spaces(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdg
 
 // CHECK-LABEL:   func.func @amdgcn_barrier(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr, %[[ARG1:.*]]: !amdgcn.sgpr, %[[ARG2:.*]]: !amdgcn.sgpr, %[[ARG3:.*]]: !amdgcn.sgpr) -> !amdgcn.sgpr {
+// CHECK:           amdgcn.s_barrier {sched.stage = 0 : i32}
 // CHECK:           %[[SCC_ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.scc<0>
 // CHECK:           %[[VAL_0:.*]] = amdgcn.s_add_u32 outs(%[[ARG2]], %[[SCC_ALLOCA_0]]) ins(%[[ARG0]], %[[ARG1]]) {sched.stage = 1 : i32} : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, !amdgcn.sgpr)
-// CHECK:           amdgcn.s_barrier {sched.stage = 0 : i32}
 // CHECK:           %[[VAL_1:.*]] = amdgcn.s_mul_i32 outs(%[[ARG3]]) ins(%[[VAL_0]], %[[ARG0]]) {sched.stage = 2 : i32} : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr, !amdgcn.sgpr)
 // CHECK:           return %[[VAL_1]] : !amdgcn.sgpr
 // CHECK:         }
@@ -76,10 +76,10 @@ func.func @amdgcn_barrier(%arg0: !amdgcn.sgpr, %arg1: !amdgcn.sgpr, %arg2: !amdg
 
 // CHECK-LABEL:   func.func @amdgcn_vop2_salu_barrier(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr, %[[ARG2:.*]]: !amdgcn.sgpr, %[[ARG3:.*]]: !amdgcn.sgpr, %[[ARG4:.*]]: !amdgcn.vgpr, %[[ARG5:.*]]: !amdgcn.sgpr) -> (!amdgcn.vgpr, !amdgcn.sgpr) {
+// CHECK:           amdgcn.s_barrier {sched.stage = 0 : i32}
 // CHECK:           %[[VAL_0:.*]] = amdgcn.v_add_u32 outs(%[[ARG4]]) ins(%[[ARG0]], %[[ARG1]]) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 // CHECK:           %[[SCC_ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.scc<0>
 // CHECK:           %[[VAL_1:.*]] = amdgcn.s_add_u32 outs(%[[ARG5]], %[[SCC_ALLOCA_0]]) ins(%[[ARG2]], %[[ARG3]]) {sched.stage = 1 : i32} : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, !amdgcn.sgpr)
-// CHECK:           amdgcn.s_barrier {sched.stage = 0 : i32}
 // CHECK:           return %[[VAL_0]], %[[VAL_1]] : !amdgcn.vgpr, !amdgcn.sgpr
 // CHECK:         }
 func.func @amdgcn_vop2_salu_barrier(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr, %arg2: !amdgcn.sgpr, %arg3: !amdgcn.sgpr, %arg4: !amdgcn.vgpr, %arg5: !amdgcn.sgpr) -> (!amdgcn.vgpr, !amdgcn.sgpr) attributes {sched = #sched} {
