@@ -376,6 +376,9 @@ struct InstOp : public RecordMixin<InstOp> {
   /// Get the trailing results dag.
   Dag getTrailingResults() const { return getDag("trailingResults"); }
 
+  /// Get the successors dag.
+  Dag getSuccessors() const { return getDag("successors"); }
+
   /// Get whether this instruction wants a generated assembly format.
   bool getGenInstAssemblyFormat() const {
     return getBit("genInstAssemblyFormat");
