@@ -1,4 +1,4 @@
-//===- MemoryOpInterfaces.h - Memory Op Interfaces --------------*- C++ -*-===//
+//===- InstOpInterfaces.h - Inst Op Interfaces ------------------*- C++ -*-===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,16 +8,16 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines the AMDGCN load and store operation interfaces.
+// This file defines the AMDGCN instruction operation interfaces.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ASTER_DIALECT_AMDGCN_IR_INTERFACES_MEMORYOPINTERFACES_H
-#define ASTER_DIALECT_AMDGCN_IR_INTERFACES_MEMORYOPINTERFACES_H
+#ifndef ASTER_DIALECT_AMDGCN_IR_INTERFACES_INSTOPINTERFACES_H
+#define ASTER_DIALECT_AMDGCN_IR_INTERFACES_INSTOPINTERFACES_H
 
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.h"
 #include "aster/IR/Operand.h"
 
-#include "aster/Dialect/AMDGCN/IR/Interfaces/MemoryOpInterfaces.h.inc"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/InstOpInterfaces.h.inc"
 
-#endif // ASTER_DIALECT_AMDGCN_IR_INTERFACES_MEMORYOPINTERFACES_H
+#endif // ASTER_DIALECT_AMDGCN_IR_INTERFACES_INSTOPINTERFACES_H

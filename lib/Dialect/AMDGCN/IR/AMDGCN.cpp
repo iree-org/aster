@@ -950,7 +950,7 @@ inferTypesImpl(MLIRContext *ctx, std::optional<Location> &loc,
 
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.cpp.inc"
 
-#include "aster/Dialect/AMDGCN/IR/Interfaces/MemoryOpInterfaces.cpp.inc"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/InstOpInterfaces.cpp.inc"
 
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNRegisterTypeInterface.cpp.inc"
 
