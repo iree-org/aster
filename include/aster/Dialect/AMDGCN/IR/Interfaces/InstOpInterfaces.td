@@ -18,6 +18,43 @@
 include "mlir/IR/OpBase.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.td"
 include "aster/Interfaces/DependentOpInterface.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
+
+//===----------------------------------------------------------------------===//
+// Branch instruction interfaces
+//===----------------------------------------------------------------------===//
+
+def CBranchInstOpInterface : OpInterface<"CBranchInstOpInterface", [
+    AMDGCNInstOpInterface, BranchOpInterface
+  ]> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+  let description = [{
+    Interface for AMDGCN conditional branch instructions.
+  }];
+  let methods = [
+    InterfaceMethod<[{
+        Get the condition operand.
+      }], "::mlir::aster::Operand", "getCondOperand">,
+    InterfaceMethod<[{
+        Get the block to branch to if the condition tested by the instruction is
+        true.
+      }], "::mlir::BlockOperand*", "getTrueBlock">,
+    InterfaceMethod<[{
+        Get the block to branch to if the condition tested by the instruction is
+        false.
+      }], "::mlir::BlockOperand*", "getFalseBlock">
+  ];
+  let extraTraitClassDeclaration = [{
+    //===------------------------------------------------------------------===//
+    // BranchOpInterface Methods
+    //===------------------------------------------------------------------===//
+    /// Returns the operands forwarded to the given successor. No arguments are
+    /// forwarded by this branch.
+    SuccessorOperands getSuccessorOperands(unsigned index) {
+      return SuccessorOperands(MutableOperandRange($_op.getOperation(), 0, 0));
+    }
+  }];
+}
 
 //===----------------------------------------------------------------------===//
 // Memory instruction interfaces

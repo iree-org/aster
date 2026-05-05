@@ -12,7 +12,6 @@
 // CHECK:  s_mov_b32 s1, 4
 // CHECK:  s_cmp_le_i32 s0, s1
 // CHECK:  s_cbranch_scc1 .AMDGCN_BB_1
-// CHECK:  ; fallthrough: .AMDGCN_BB_2
 // CHECK:.AMDGCN_BB_2:
 // CHECK:  s_endpgm
 // CHECK:.AMDGCN_BB_1:
@@ -27,11 +26,10 @@
 // CHECK:test_while_loop:
 // CHECK:  s_mov_b32 s2, 10
 // CHECK:  s_mov_b32 s3, 9
-// CHECK:  ; fallthrough: .AMDGCN_BB_1
+// CHECK:  s_branch .AMDGCN_BB_1
 // CHECK:.AMDGCN_BB_1:
 // CHECK:  s_cmp_lt_i32 s3, s2
 // CHECK:  s_cbranch_scc0 .AMDGCN_BB_2
-// CHECK:  ; fallthrough: .AMDGCN_BB_3
 // CHECK:.AMDGCN_BB_3:
 // CHECK:  s_branch .AMDGCN_BB_1
 // CHECK:.AMDGCN_BB_2:
@@ -52,7 +50,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     amdgcn.s_mov_b32 outs(%s1) ins(%c4) : outs(!amdgcn.sgpr<1>) ins(i32)
     amdgcn.s_cmp_le_i32 outs(%scc) ins(%s0, %s1) : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
 
-    amdgcn.cbranch s_cbranch_scc1 %scc ^then fallthrough (^else)
+    amdgcn.s_cbranch_scc1 %scc, true(^then) false(^else)
       : !amdgcn.scc<0>
   ^else:
     amdgcn.end_kernel
@@ -73,14 +71,14 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
 
     amdgcn.s_mov_b32 outs(%s2) ins(%c10) : outs(!amdgcn.sgpr<2>) ins(i32)
     amdgcn.s_mov_b32 outs(%s3) ins(%c9) : outs(!amdgcn.sgpr<3>) ins(i32)
-    amdgcn.branch s_branch ^loop_header
+    amdgcn.s_branch ^loop_header
 
   ^loop_header:
     amdgcn.s_cmp_lt_i32 outs(%scc) ins(%s3, %s2) : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<3>, !amdgcn.sgpr<2>)
-    amdgcn.cbranch s_cbranch_scc0 %scc ^exit fallthrough (^loop_body)
+    amdgcn.s_cbranch_scc0 %scc, true(^exit) false(^loop_body)
       : !amdgcn.scc<0>
   ^loop_body:
-    amdgcn.branch s_branch ^loop_header
+    amdgcn.s_branch ^loop_header
   ^exit:
     amdgcn.end_kernel
   }

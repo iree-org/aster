@@ -17,6 +17,7 @@
 
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.h"
 #include "aster/IR/Operand.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 
 #include "aster/Dialect/AMDGCN/IR/Interfaces/InstOpInterfaces.h.inc"
 

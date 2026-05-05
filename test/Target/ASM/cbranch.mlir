@@ -26,6 +26,14 @@
 // CHECK:.AMDGCN_BB_1:
 // CHECK:  s_endpgm
 
+// CHECK-LABEL: test_non_adjacent_fallthrough:
+// CHECK: s_cbranch_scc0 .AMDGCN_BB_1
+// CHECK: s_branch .AMDGCN_BB_2
+// CHECK: .AMDGCN_BB_1:
+// CHECK:   s_endpgm
+// CHECK: .AMDGCN_BB_2:
+// CHECK:   s_endpgm
+
 amdgcn.module @mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_cbranch_scc1 {
   ^entry:
@@ -33,7 +41,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %s3 = amdgcn.alloca : !amdgcn.sgpr<3>
     %scc = amdgcn.alloca : !amdgcn.scc<0>
     amdgcn.s_cmp_gt_u32 outs(%scc) ins(%s2, %s3) : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<2>, !amdgcn.sgpr<3>)
-    amdgcn.cbranch s_cbranch_scc1 %scc ^loop fallthrough (^exit)
+    amdgcn.s_cbranch_scc1 %scc, true(^loop) false(^exit)
       : !amdgcn.scc<0>
   ^exit:
     amdgcn.end_kernel
@@ -47,11 +55,20 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
     %scc = amdgcn.alloca : !amdgcn.scc<0>
     amdgcn.s_cmp_eq_i32 outs(%scc) ins(%s0, %s1) : outs(!amdgcn.scc<0>) ins(!amdgcn.sgpr<0>, !amdgcn.sgpr<1>)
-    amdgcn.cbranch s_cbranch_scc0 %scc ^true_path fallthrough (^false_path)
+    amdgcn.s_cbranch_scc0 %scc, true(^true_path) false(^false_path)
       : !amdgcn.scc<0>
   ^false_path:
     amdgcn.end_kernel
   ^true_path:
     amdgcn.end_kernel
+  }
+
+  amdgcn.kernel @test_non_adjacent_fallthrough attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %0 = alloca : !amdgcn.scc<0>
+    s_cbranch_scc0 %0, true(^bb1) false(^bb2) : !amdgcn.scc<0>
+  ^bb1:  // pred: ^bb0
+    end_kernel
+  ^bb2:  // pred: ^bb0
+    end_kernel
   }
 }

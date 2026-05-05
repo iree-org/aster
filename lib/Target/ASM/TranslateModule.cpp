@@ -55,6 +55,18 @@ static void printLSOffset(amdgcn::AsmPrinter &printer, AMDGCNInstOpInterface op,
   printer.getStream() << " " << 0;
 }
 
+static void printCondBr(amdgcn::AsmPrinter &printer, CBranchInstOpInterface op,
+                        Block *trueDest, Block *falseDest) {
+  printer.printBranchLabel(trueDest);
+  if (op->getBlock()->getNextNode() == falseDest)
+    return;
+  printer.getStream()
+      << " ; false dest is in non-adjecent block, adding s_branch\n";
+  // NOTE: This is needed as MLIR doesn't allow two terminators in the same
+  // block.
+  printer.getStream() << "s_branch " << printer.getBranchLabel(falseDest);
+}
+
 #include "AMDGCNAsmPrinter.cpp.inc"
 #include "AMDGCNInstAsmPrinter.cpp.inc"
 
@@ -351,34 +363,6 @@ LogicalResult TranslateModuleImpl::emitBlock(amdgcn::AsmPrinter &printer,
 LogicalResult TranslateModuleImpl::emitOperation(amdgcn::AsmPrinter &printer,
                                                  Operation *op) {
   return llvm::TypeSwitch<Operation *, LogicalResult>(op)
-      .Case<amdgcn::BranchOp>([&](amdgcn::BranchOp branchOp) {
-        // If the branch label is the next block, don't emit the branch and let
-        // it fallthrough.
-        if (branchOp.getDest() == branchOp->getBlock()->getNextNode()) {
-          printer.getStream()
-              << "; fallthrough: " << printer.getBranchLabel(branchOp.getDest())
-              << "\n";
-          return success();
-        }
-        return printInstruction(printer, branchOp);
-      })
-      .Case<amdgcn::CBranchOp>([&](amdgcn::CBranchOp cbranchOp)
-                                   -> LogicalResult {
-        // The fallthrough branch has to be the next block, otherwise the asm
-        // emission is invalid.
-        if (cbranchOp.getFallthrough() !=
-            cbranchOp->getBlock()->getNextNode()) {
-          return cbranchOp->emitError()
-                 << "conditional branch fallthrough target must be the next "
-                    "block";
-        }
-        if (failed(printInstruction(printer, cbranchOp)))
-          return failure();
-        printer.getStream()
-            << "; fallthrough: "
-            << printer.getBranchLabel(cbranchOp.getFallthrough()) << "\n";
-        return success();
-      })
       .Case<AMDGCNInstOpInterface>([&](AMDGCNInstOpInterface op) {
         if (op.isNewInst())
           return printISAInstruction(printer, module.getTargetAttr(), op);
