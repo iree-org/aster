@@ -46,18 +46,10 @@ def AMDInstTrait : InstructionTrait {
     /// Returns the instruction properties.
     static const ::mlir::aster::amdgcn::InstructionProps *getInstProps();
 
-    ::mlir::aster::amdgcn::InstAttr getOpcodeAttr() {
-      return nullptr;
-    }
-
     bool hasInstProps(ArrayRef<InstProp> props, bool all) {
       const InstructionProps *instProps = getInstProps();
       assert(instProps && "Instruction props are not set");
       return all ? instProps->hasProps(props) : instProps->hasAnyProps(props);
-    }
-
-    bool isNewInst() {
-      return true;
     }
 
     ArrayRef<ISAVersion> getISAVersions();
@@ -89,12 +81,12 @@ class AMDISAInstruction<string mnemonic, list<Trait> opTraits = []>
     : Instruction<AMDGCN_Dialect, mnemonic, opTraits # [
         AMDInstTrait,
         AMDGCNInstOpInterface,
-      ]>, AMDInstOpCode<"_" # mnemonic, "_" # mnemonic> {
+      ]>, AMDInstOpCode<mnemonic, mnemonic> {
   list<InstProp> props = [];
   code instExtraClassDeclaration = "";
   code opcodeDecl = StrSubst<[{
     ::mlir::aster::amdgcn::OpCode getOpCode() {
-      return ::mlir::aster::amdgcn::OpCode::_$mnemonic;
+      return ::mlir::aster::amdgcn::OpCode::$mnemonic;
     }
   }], [VarRepl<"mnemonic", mnemonic>]>.result;
   let extraClassDecls = [opcodeDecl, instExtraClassDeclaration];

@@ -21,19 +21,12 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.td"
 // Inst modifier helpers
 //===----------------------------------------------------------------------===//
 
-class BuiltinAttrBuilder<Attr namedAttr, dag params> : PyAttr {
-  let builder = OpBuilder<params, [{
-    return $_ir.AttrBuilder.get('}] # !cast<string>(namedAttr) # [{')($_args, $_ctx)
-  }]>;
-}
-
 // Instruction modifier for modifiers of the form:
 //  ($name`(` $value `)` )?
 // E.g., vmcnt(0)
 // If the value is the default value, the modifier is omitted.
-class ParenIntModifier<Attr intAttr, string name, int defaultValue, Attr intAttrBase = intAttr>
-    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat,
-      BuiltinAttrBuilder<intAttrBase, (ins "int":$value)>{
+class ParenIntModifier<Attr intAttr, string name, int defaultValue>
+    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat{
   let asmPrinter = "$_printer.printParenIntModifier(\"" # name # "\", $_self, " # defaultValue # ");";
 }
 
@@ -42,8 +35,7 @@ class ParenIntModifier<Attr intAttr, string name, int defaultValue, Attr intAttr
 // E.g., cbsz:[4]
 // If the value is the default value, the modifier is omitted.
 class SquareIntModifier<Attr intAttr, string name, int defaultValue>
-    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat,
-      BuiltinAttrBuilder<intAttr, (ins "int":$value)> {
+    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat {
   let asmPrinter = "$_printer.printSquareIntModifier(\"" # name # "\", $_self, " # defaultValue # ");";
 }
 
@@ -52,8 +44,7 @@ class SquareIntModifier<Attr intAttr, string name, int defaultValue>
 // E.g., offset:4
 // If the value is the default value, the modifier is omitted.
 class NamedIntModifier<Attr intAttr, string name, int defaultValue>
-    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat,
-      BuiltinAttrBuilder<intAttr, (ins "int":$value)> {
+    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat {
   let asmPrinter = "$_printer.printIntModifier(\"" # name # "\", $_self, " # defaultValue # ");";
 }
 
@@ -62,9 +53,8 @@ class NamedIntModifier<Attr intAttr, string name, int defaultValue>
 //  ($value)?
 // E.g., 4
 // If the value is the default value, the modifier is omitted.
-class IntModifier<Attr intAttr, int defaultValue, Attr intAttrBase = intAttr>
-    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat,
-      BuiltinAttrBuilder<intAttrBase, (ins "int":$value)> {
+class IntModifier<Attr intAttr, int defaultValue>
+    : DefaultValuedAttr<intAttr, !cast<string>(defaultValue)>, ASMArgFormat {
   let asmPrinter = "$_printer.printIntModifier($_self, " # defaultValue # ");";
 }
 
@@ -107,39 +97,23 @@ class OpSelHiBase<int num_srcs> : ConfinedAttr<
 
 // IMM16 attribute -- always printed in ASM (SOPP instructions require the
 // immediate operand even when it is zero, e.g. s_setprio 0).
-def Imm16Attr : DefaultValuedAttr<I16Attr, "0">, ASMArgFormat,
-    BuiltinAttrBuilder<I16Attr, (ins "int":$value)> {
+def Imm16Attr : DefaultValuedAttr<I16Attr, "0">, ASMArgFormat {
   let summary = "16 bit immediate value";
   let asmPrinter = "$_printer.printIntModifierAlways($_self);";
 }
 
-// Offset 16 attribute
-def Offset16Attr : NamedIntModifier<I16Attr, "offset", 0> {
-  let summary = "16 bit address offset";
-}
-
-// Offset 32 attribute
-def Offset32Attr : NamedIntModifier<I32Attr, "offset", 0> {
-  let summary = "32 bit address offset";
-}
-// TODO: Remove this case once SMem ops are correct.
-def OffsetImm32Attr : IntModifier<I32Attr, 0> {
-  let summary = "32 bit address imm offset";
-  let asmPrinter = "$_printer.printIntModifier($_self, -1);";
-}
-
 // EXPCNT attribute
-def ExpcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<8>]>, "expcnt", 8, I8Attr> {
+def ExpcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<8>]>, "expcnt", 8> {
   let summary = "EXPCNT wait count modifier";
 }
 
 // LGKMCNT attribute
-def LgkmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<16>]>, "lgkmcnt", 16, I8Attr> {
+def LgkmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<16>]>, "lgkmcnt", 16> {
   let summary = "LGKMCNT wait count modifier";
 }
 
 // VMCNT attribute
-def VmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<64>]>, "vmcnt", 64, I8Attr> {
+def VmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<64>]>, "vmcnt", 64> {
   let summary = "VMCNT wait count modifier";
 }
 

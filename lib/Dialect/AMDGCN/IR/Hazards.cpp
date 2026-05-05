@@ -63,24 +63,24 @@ static bool checkOverlap(AMDGCNRegisterTypeInterface lhs,
 static int16_t getMfmaPassCase(OpCode op) {
   switch (op) {
   // 16 cycles -> 4 passes (case 1), per Table 37: 16x16x16, 16x16x32.
-  case OpCode::_v_mfma_f32_16x16x16_f16:
-  case OpCode::_v_mfma_f32_16x16x16_bf16:
-  case OpCode::_v_mfma_f32_16x16x32_fp8_fp8:
-  case OpCode::_v_mfma_f32_16x16x32_fp8_bf8:
-  case OpCode::_v_mfma_f32_16x16x32_bf8_fp8:
-  case OpCode::_v_mfma_f32_16x16x32_bf8_bf8:
-  case OpCode::_v_mfma_f32_16x16x32_f16:
-  case OpCode::_v_mfma_f32_16x16x32_bf16:
+  case OpCode::v_mfma_f32_16x16x16_f16:
+  case OpCode::v_mfma_f32_16x16x16_bf16:
+  case OpCode::v_mfma_f32_16x16x32_fp8_fp8:
+  case OpCode::v_mfma_f32_16x16x32_fp8_bf8:
+  case OpCode::v_mfma_f32_16x16x32_bf8_fp8:
+  case OpCode::v_mfma_f32_16x16x32_bf8_bf8:
+  case OpCode::v_mfma_f32_16x16x32_f16:
+  case OpCode::v_mfma_f32_16x16x32_bf16:
     return 1; // 4 passes
   // 32 cycles -> 8 passes (case 2), per Table 37: 32x32x8, 32x32x16; 32x32x64
   // scaled.
-  case OpCode::_v_mfma_f32_32x32x8_f16:
-  case OpCode::_v_mfma_f32_32x32x16_f16:
-  case OpCode::_v_mfma_f32_32x32x16_bf16:
-  case OpCode::_v_mfma_scale_f32_32x32x64_f8f6f4:
+  case OpCode::v_mfma_f32_32x32x8_f16:
+  case OpCode::v_mfma_f32_32x32x16_f16:
+  case OpCode::v_mfma_f32_32x32x16_bf16:
+  case OpCode::v_mfma_scale_f32_32x32x64_f8f6f4:
     return 2; // 8 passes
   // 64 cycles -> 16 passes (case 3), 16x16x128 has 4x K of 16x16x32.
-  case OpCode::_v_mfma_scale_f32_16x16x128_f8f6f4:
+  case OpCode::v_mfma_scale_f32_16x16x128_f8f6f4:
     return 3; // 16 passes
   default:
     return -1; // unknown or not implemented
@@ -1057,8 +1057,7 @@ bool CDNA3XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
 
   // instOp must be VMEM, L/GDS, FLAT, Export, or VALU.
   if (!instOp.hasAnyProps({InstProp::IsValu, InstProp::IsVmem, InstProp::Ds,
-                           InstProp::Flat, InstProp::Global,
-                           InstProp::Buffer}) ||
+                           InstProp::Global, InstProp::Buffer}) ||
       instOp.hasProp(InstProp::Mma))
     return false;
 
@@ -1152,8 +1151,7 @@ bool CDNA4XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
     return false;
 
   if (!instOp.hasAnyProps({InstProp::IsValu, InstProp::IsVmem, InstProp::Ds,
-                           InstProp::Flat, InstProp::Global,
-                           InstProp::Buffer}) ||
+                           InstProp::Global, InstProp::Buffer}) ||
       instOp.hasProp(InstProp::Mma))
     return false;
 

@@ -10,7 +10,6 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/HazardAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Hazards.h"
 #include "mlir/Analysis/DataFlowFramework.h"

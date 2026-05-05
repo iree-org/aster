@@ -282,9 +282,9 @@ func.func @promote_pure_op_forward() attributes {sched = #sched} {
 func.func @advanced_sched() attributes {
     sched = #aster_utils.generic_scheduler<#amdgcn.value_scheduler,
       #aster_utils.sched_list_labeler<[
-        #amdgcn.opcode_labeler<[_s_barrier], 0>,
+        #amdgcn.opcode_labeler<[s_barrier], 0>,
         #aster_utils.op_name_labeler<["arith.constant"], 4>,
-        #amdgcn.opcode_labeler<[_v_add_i32], 3>,
+        #amdgcn.opcode_labeler<[v_add_i32], 3>,
         #amdgcn.inst_prop_labeler<[is_vmem, is_valu], 1>,
         #amdgcn.inst_prop_labeler<[ds], 2>
       ]>,

@@ -82,14 +82,12 @@ from aster._mlir_libs._amdgcn import (
     VGPRRangeType,
     VGPRType,
 )
-from aster.dialects import _amdgcn_inst_gen as _inst
 from aster.dialects import _amdgcn_ops_gen as _ops_gen
 from aster.dialects._amdgcn_ops_gen import (
-    s_barrier as _s_barrier_fn,
-    s_mov_b32 as _s_mov_b32_fn,
-    s_nop as _s_nop_fn,
-    v_accvgpr_read as _v_accvgpr_read_fn,
-    v_accvgpr_write as _v_accvgpr_write_fn,
+    s_barrier,
+    s_mov_b32,
+    s_nop,
+    v_accvgpr_write,
 )
 from aster.dialects import lsir as lsird
 from aster.dialects.amdgcn import (
@@ -100,12 +98,6 @@ from aster.dialects.amdgcn import (
     get_kernel_arguments,
 )
 from aster.dialects import ptr as ptrd
-
-_inst.s_barrier = _s_barrier_fn
-_inst.s_mov_b32 = _s_mov_b32_fn
-_inst.s_nop = _s_nop_fn
-_inst.v_accvgpr_read = _v_accvgpr_read_fn
-_inst.v_accvgpr_write = _v_accvgpr_write_fn
 
 
 def _i8(value: int, ctx: ir.Context) -> ir.IntegerAttr:
@@ -542,9 +534,7 @@ class KernelBuilder:
     def init_agprx4(self, init_val: ir.Value) -> ir.Value:
         """Allocate and initialize a 4-AGPR register range."""
         inited = [
-            _inst.v_accvgpr_write(
-                self.alloca_agpr(), init_val, loc=self._loc, ip=self._kip
-            )
+            v_accvgpr_write(self.alloca_agpr(), init_val, loc=self._loc, ip=self._kip)
             for _ in range(4)
         ]
         return self._make_register_range(inited)
@@ -552,9 +542,7 @@ class KernelBuilder:
     def init_agprx16(self, init_val: ir.Value) -> ir.Value:
         """Allocate and initialize a 16-AGPR register range (32x32 accumulator)."""
         inited = [
-            _inst.v_accvgpr_write(
-                self.alloca_agpr(), init_val, loc=self._loc, ip=self._kip
-            )
+            v_accvgpr_write(self.alloca_agpr(), init_val, loc=self._loc, ip=self._kip)
             for _ in range(16)
         ]
         return self._make_register_range(inited)
@@ -576,7 +564,7 @@ class KernelBuilder:
         """Move an i32 immediate into an SGPR via s_mov_b32."""
         dest = self.alloca_sgpr()
         c = self.constant_i32(value)
-        return _inst.s_mov_b32(dest, c, loc=self._loc, ip=self._kip)
+        return s_mov_b32(dest, c, loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # Vector ALU
@@ -746,7 +734,7 @@ class KernelBuilder:
 
         opcode: e.g. "v_mfma_f32_16x16x16_f16"
         """
-        fn = getattr(_inst, opcode, None) or getattr(_ops_gen, opcode, None)
+        fn = getattr(_ops_gen, opcode, None)
         if fn is not None:
             result = fn(acc, a, b, acc, loc=self._loc, ip=self._kip)
             return result
@@ -1125,7 +1113,7 @@ class KernelBuilder:
 
         Returns the written M0 value.
         """
-        return _inst.s_mov_b32(m0, value, loc=self._loc, ip=self._kip)
+        return s_mov_b32(m0, value, loc=self._loc, ip=self._kip)
 
     def g2s_buffer_load_dwordx4(
         self,
@@ -1191,7 +1179,7 @@ class KernelBuilder:
 
     def s_nop(self, count: int = 0):
         """Insert s_nop with given wait count."""
-        _inst.s_nop(imm=count, loc=self._loc, ip=self._kip)
+        s_nop(imm=count, loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # Synchronization
@@ -1658,7 +1646,7 @@ class KernelBuilder:
 
     def s_barrier(self):
         """Insert s_barrier for workgroup synchronization."""
-        _inst.s_barrier(loc=self._loc, ip=self._kip)
+        s_barrier(loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # Build

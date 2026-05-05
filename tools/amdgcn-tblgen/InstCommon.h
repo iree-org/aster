@@ -273,18 +273,6 @@ struct ASMArgFormat : public RecordMixin<ASMArgFormat> {
   StringRef getPrinter() const { return getStringRef("asmPrinter"); }
 };
 
-/// AMDGCN instruction assembly variant.
-struct AsmVariant : public RecordMixin<AsmVariant> {
-  using Base::Base;
-  static constexpr llvm::StringRef ClassType = "AsmVariant";
-
-  /// Get the predicate.
-  Constraint getPredicate() const { return getDefAs<Constraint>("predicate"); }
-
-  /// Get the assembly format string.
-  StringRef getAsmFormat() const { return getStringRef("asmFormat"); }
-};
-
 /// AMDGCN instruction assembly syntax string.
 struct ASMStringRecord : public RecordMixin<ASMStringRecord> {
   using Base::Base;
@@ -399,88 +387,6 @@ private:
   Operator op;
 };
 
-/// AMDGCN instruction definition.
-struct AMDInst : public RecordMixin<AMDInst> {
-  AMDInst(llvm::Record const *def)
-      : Base(def), instOp(def->getValueAsDef("instOp")) {}
-  static constexpr llvm::StringRef ClassType = "AMDInst";
-  /// Get the name of the instruction.
-  llvm::StringRef getName() const { return getAsEnumCase().getIdentifier(); }
-
-  /// Get the mnemonic of the instruction.
-  StringRef getMnemonic() const { return getStringRef("mnemonic"); }
-
-  /// Get the summary of the instruction.
-  StringRef getSummary() const { return getStringRef("summary"); }
-
-  /// Get the description of the instruction.
-  StringRef getDescription() const { return getStringRef("description"); }
-
-  /// Get the C++ namespace.
-  StringRef getCppNamespace() const { return getStringRef("cppNamespace"); }
-
-  /// Get the instruction op.
-  const Operator &getInstOp() const { return instOp; }
-
-  /// Get the input operands of the instruction.
-  Dag getConstraints() const { return getDag("constraints"); }
-
-  /// Get the list of ISA versions this instruction is available on.
-  SmallVector<ISAVersion> getISAVersions() const {
-    return getRecordList<ISAVersion>("isa");
-  }
-
-  /// Get the list of encodings for this instruction.
-  SmallVector<InstEncRecord> getEncodings() const {
-    return getEncodingsFromRecord(instOp.getDef());
-  }
-
-  /// Get the list of instruction properties.
-  SmallVector<InstProp> getInstProp() const {
-    return getRecordList<InstProp>("props");
-  }
-
-  /// Get the assembly format variants.
-  SmallVector<AsmVariant> getAsmFormat() const {
-    return getRecordList<AsmVariant>("asmFormat");
-  }
-
-  /// Get the extra class declaration code.
-  StringRef getExtraClassDeclaration() const {
-    return getStringRef("extraClassDeclaration");
-  }
-
-  /// Get the extra class definition code.
-  StringRef getExtraClassDefinition() const {
-    return getStringRef("extraClassDefinition");
-  }
-
-  /// Get the C++ builder code.
-  std::optional<Builder> getCppBuilder() const {
-    const llvm::Record *record = def->getValueAsOptionalDef("cppBuilder");
-    if (!record)
-      return std::nullopt;
-    return Builder(record, {});
-  }
-
-  /// Get the Python builder code.
-  std::optional<Builder> getPythonBuilder() const {
-    const llvm::Record *record = def->getValueAsOptionalDef("pythonBuilder");
-    if (!record)
-      return std::nullopt;
-    return Builder(record, {});
-  }
-
-  /// Check if the instruction has an initialize method.
-  bool hasInit() const { return getBit("hasInit"); }
-
-  /// Get as enum case.
-  EnumCaseInfo getAsEnumCase() const { return EnumCaseInfo(def); }
-
-private:
-  Operator instOp;
-};
-
 //===----------------------------------------------------------------------===//
 // Assembly format helpers
 //===----------------------------------------------------------------------===//
@@ -564,9 +470,6 @@ std::string getQualName(StringRef cppNamespace, StringRef className);
 std::string getInstOpName(const mlir::tblgen::Operator &instOp,
                           bool addNamespace = true);
 
-/// Get the C++ opcode name of the given instruction.
-std::string getOpCode(const AMDInst &inst, bool isPython = false);
-
 /// Generate parameter list for the given builder.
 std::string genParamList(const Builder &b, mlir::tblgen::FmtContext &ctx,
                          bool isCpp, bool isDecl, bool prefixComma = true,
@@ -575,15 +478,6 @@ std::string genParamList(const Builder &b, mlir::tblgen::FmtContext &ctx,
 /// Generate the argument list for the given builder.
 std::string genArgList(const Builder &b, mlir::tblgen::FmtContext &ctx,
                        bool isCpp, bool useKwArgs = true);
-
-/// Get the list of isa version names for the given instruction.
-std::string getISAVersionList(const AMDInst &inst);
-
-/// Get the list of instruction property names for the given instruction.
-std::string getInstPropList(const AMDInst &inst);
-
-/// Populate the format context with common substitutions.
-void populateFmtContext(const AMDInst &inst, mlir::tblgen::FmtContext &ctx);
 } // namespace tblgen
 } // namespace amdgcn
 } // namespace mlir::aster

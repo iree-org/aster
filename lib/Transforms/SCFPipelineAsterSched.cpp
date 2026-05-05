@@ -23,7 +23,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Transforms/Passes.h"
 #include "aster/Transforms/SchedUtils.h"

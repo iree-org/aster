@@ -17,9 +17,14 @@
 #ifndef ASTER_DIALECT_AMDGCN_IR_INTERFACES_AMDGCNINSTOPINTERFACE_H
 #define ASTER_DIALECT_AMDGCN_IR_INTERFACES_AMDGCNINSTOPINTERFACE_H
 
-#include "aster/Dialect/AMDGCN/IR/AMDGCNInst.h"
 #include "aster/Interfaces/InstOpInterface.h"
 #include "mlir/IR/Operation.h"
+
+namespace mlir::aster::amdgcn {
+enum class OpCode : uint64_t;
+enum class InstProp : uint32_t;
+enum class ISAVersion : uint32_t;
+} // namespace mlir::aster::amdgcn
 
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.h.inc"
 

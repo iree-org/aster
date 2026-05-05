@@ -690,11 +690,6 @@ def AMDGCN_TestInstOp : AMDGCN_Op<"test_inst", [
     //===------------------------------------------------------------------===//
     // InstOpInterface Methods
     //===------------------------------------------------------------------===//
-
-    /// Get the opcode of the instruction.
-    InstAttr getOpcodeAttr() {
-      return InstAttr();
-    }
     /// Get the instruction output operands.
     OperandRange getInstOuts() {
       return getOutsMutable();
@@ -722,6 +717,22 @@ def AMDGCN_TestInstOp : AMDGCN_Op<"test_inst", [
         IsLiveCallback isLiveCallback) {
       return ::mlir::aster::detail::livenessTransferFunctionImpl(
         *this, insertCallback, removeCallback, isLiveCallback);
+    }
+
+    /// Returns the available ISA versions of the instruction. For this
+    /// instruction it means all architectures.
+    ArrayRef<ISAVersion> getISAVersions() {
+      return {};
+    }
+
+    /// Returns true if the instruction has all of the given properties.
+    bool hasInstProps(ArrayRef<InstProp> props, bool all) {
+      return false;
+    }
+
+    /// Returns the opcode of the instruction.
+    OpCode getOpCode() {
+      return OpCode::Invalid;
     }
   }];
 }

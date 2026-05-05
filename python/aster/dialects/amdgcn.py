@@ -7,7 +7,6 @@ from aster.dialects._ods_common import (
     get_default_loc_context as _ods_get_default_loc_context,
 )
 from aster.dialects._amdgcn_enum_gen import *
-from aster.dialects._amdgcn_inst_gen import *
 from aster.dialects._ods_common import _cext as _ods_cext
 
 _ods_ir = _ods_cext.ir
