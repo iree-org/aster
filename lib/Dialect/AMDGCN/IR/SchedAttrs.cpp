@@ -800,7 +800,6 @@ struct SchedState {
 /// matching the previous wait-hide policy.
 static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
                         bool consumerInReady, uint8_t waitKind) {
-  static constexpr int kPerOccurrencePenalty = 250;
   int score = 0;
 
   // 1. Stall avoidance: every queue saturation cycle costs 25 points,
@@ -827,15 +826,53 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
     break;
   }
 
-  // 3. Linear burst penalty: each occurrence of `qt` in the last 4 issued
-  //    kinds contributes -kPerOccurrencePenalty. Ramps 0 / -250 / -500 /
-  //    -750 / -1000 for 0..4 occurrences -- drives alternation while still
-  //    letting same-kind win when no other kind is ready (penalty is
-  //    symmetric across same-kind candidates).
+  // 3. Per-kind burst penalty. Each kind has its own lookback window and
+  //    per-occurrence penalty, sized to the natural interleaving distance:
+  //
+  //      VMEM:  lookback 16, penalty 100/occurrence
+  //             Each global_load takes ~128c exec but stalls the per-CU
+  //             memory queue when packed. Spreading them over a 16-op
+  //             (~64c issue time) window keeps the queue healthy. With
+  //             base 800, 4 in last-16 drops to 400 (= MFMA), 5+ loses.
+  //
+  //      LGKM:  lookback 4, penalty 200/occurrence
+  //             DS exec ~16-32c. After 1 DS in last 4, score = 0 < VALU
+  //             (100): avoids back-to-back DS while letting bursts of 2+
+  //             happen only when nothing else is ready.
+  //
+  //      XDL:   lookback 2, penalty 350/occurrence
+  //             MFMA exec 16-32c. Tight 2-op window because we want strict
+  //             alternation: 1 MFMA in last 2 -> 400-350 = 50 < VALU (100)
+  //             and < LGKM (200), so a non-MFMA always wins next slot when
+  //             available. Consumer-bonused MFMAs (400+200=600) still fire
+  //             back-to-back when needed (600-350=250 beats LGKM 200).
+  //
+  //      other (VALU/SALU/Unknown): no burst penalty -- short-latency
+  //             ops, no spreading pressure needed.
   ArrayRef<QueueType> recent(s.recentKinds);
-  ArrayRef<QueueType> last4 = recent.take_back(4);
-  int recentCount = static_cast<int>(llvm::count(last4, qt));
-  score -= kPerOccurrencePenalty * recentCount;
+  size_t lookback = 0;
+  int perOccPenalty = 0;
+  switch (qt) {
+  case QueueType::VMEM:
+    lookback = 16;
+    perOccPenalty = 100;
+    break;
+  case QueueType::LGKM:
+    lookback = 4;
+    perOccPenalty = 200;
+    break;
+  case QueueType::XDL:
+    lookback = 2;
+    perOccPenalty = 350;
+    break;
+  default:
+    break;
+  }
+  if (lookback > 0) {
+    ArrayRef<QueueType> window = recent.take_back(lookback);
+    int recentCount = static_cast<int>(llvm::count(window, qt));
+    score -= perOccPenalty * recentCount;
+  }
 
   // 3a. S/VALU <-> LGKM adjacency penalty: VALU/SALU adjacent to a DS op
   //     (in either direction) requires an 8-cycle hardware NOP. Bias the

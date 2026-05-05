@@ -122,8 +122,9 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
   }
 
   // VALU addr computations interleave with VMEM loads (SSA deps).
-  // With VMEM depth=16, each load issues as soon as its address is ready;
-  // no batching is needed for stall avoidance.
+  // VMEM burst penalty uses a 16-op lookback at -100/occurrence; with
+  // only 4 loads here, the penalty stays small and SSA-forced
+  // alternation V L V L V L V L wins.
   // CHECK-LABEL: kernel @vmem_addr_load_interleave
   // CHECK:         v_add_u32
   // CHECK:         global_load_dwordx4
