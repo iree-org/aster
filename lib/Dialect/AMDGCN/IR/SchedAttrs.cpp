@@ -728,12 +728,6 @@ struct QueueSimulator {
 // Scheduler state -- carried across schedFn calls for deficit-counter scoring
 //===----------------------------------------------------------------------===//
 
-/// Three regimes the scheduler distinguishes:
-/// - Interior: 1:1 MFMA:LDS-read alternation while loads are deep
-/// - Drain: ~3 MFMA : 1 ds_write : 1 vmem-load at iteration boundary
-/// - Flush: trailing run of MFMAs after LGKM/VMEM frontier empties
-enum class Regime : uint8_t { Interior, Drain, Flush };
-
 /// State carried across schedFn calls. Counts that drive the deficit-term
 /// scoring. `outstandingLgkm` is a *deadline* counter, not in-flight latency:
 /// it counts unconsumed LGKM loads, decremented when a consumer XDL is
@@ -741,8 +735,6 @@ enum class Regime : uint8_t { Interior, Drain, Flush };
 struct SchedState {
   int64_t outstandingLgkm = 0;
   int64_t outstandingVmem = 0;
-  int64_t mfmaSinceLastLgkm = 0;
-  int64_t mfmaSinceLastVmem = 0;
   // Sliding window of the last (up to) `kRecentKindsWindow` issued queue
   // kinds, oldest at front. Drives the last-4 burst penalty (per-occurrence
   // ramp), the VALU<->DS adjacency penalty (8-cycle hardware NOP), and the
@@ -764,34 +756,6 @@ struct SchedState {
 };
 } // namespace
 
-/// Classify the current schedule regime from the ready frontier and state.
-/// Cheap classifier (O(|ready|)), called once per schedFn call. Not a state
-/// machine -- re-classifies fresh each call.
-static Regime classifyRegime(ArrayRef<int32_t> ready,
-                             ArrayRef<QueueType> queueTypes,
-                             const SchedState &s) {
-  bool hasLgkm = false, hasVmem = false, hasXdl = false;
-  for (int32_t r : ready) {
-    QueueType qt = queueTypes[r];
-    hasLgkm |= (qt == QueueType::LGKM);
-    hasVmem |= (qt == QueueType::VMEM);
-    hasXdl |= (qt == QueueType::XDL);
-  }
-
-  // Flush: only XDLs left + bookkeeping.
-  if (!hasLgkm && !hasVmem && hasXdl)
-    return Regime::Flush;
-
-  // Drain: writes/VMEM-loads ready, loads mostly consumed.
-  // Threshold matches `vmcnt(14)` partial-drain in reference trace.
-  const int64_t kVmemDrainThresh = getQueueDepth(QueueType::VMEM) - 2;
-  if ((hasLgkm || (hasVmem && s.outstandingVmem >= kVmemDrainThresh)) &&
-      s.outstandingLgkm <= 1)
-    return Regime::Drain;
-
-  return Regime::Interior;
-}
-
 /// Pure scoring function: priority-ordered alternation with a per-occurrence
 /// burst penalty.
 ///
@@ -810,7 +774,7 @@ static Regime classifyRegime(ArrayRef<int32_t> ready,
 /// "other" tier it bumps low-stall wait_vm above LGKM and below VMEM,
 /// matching the previous wait-hide policy.
 static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
-                        bool consumerInReady, Regime mode, uint8_t waitKind) {
+                        bool consumerInReady, uint8_t waitKind) {
   static constexpr int kPerOccurrencePenalty = 250;
   int score = 0;
 
@@ -902,28 +866,7 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
   if (qt == QueueType::VMEM && s.outstandingVmem >= 4)
     score -= 250;
 
-  // 8. Drain / Flush regime shape (preserved).
-  if (mode == Regime::Drain) {
-    if (qt == QueueType::LGKM && s.mfmaSinceLastLgkm == 3)
-      score += 80;
-    if (qt == QueueType::VMEM && s.mfmaSinceLastVmem == 3)
-      score += 80;
-  }
-  if (mode == Regime::Flush && qt == QueueType::XDL)
-    score += 250;
   return score;
-}
-
-static StringRef getRegimeName(Regime r) {
-  switch (r) {
-  case Regime::Interior:
-    return "interior";
-  case Regime::Drain:
-    return "drain";
-  case Regime::Flush:
-    return "flush";
-  }
-  llvm_unreachable("unhandled regime");
 }
 
 LogicalResult
@@ -1000,10 +943,9 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
       state.lgkmTotalConsumers[nodeId] = totalConsumers;
   }
 
-  // Track stall cycles, reasons, and regime mode for each scheduled op.
+  // Track stall cycles and reasons for each scheduled op.
   SmallVector<int64_t> stallCycles;
   SmallVector<StringRef> stallReasons;
-  SmallVector<Regime> modes;
 
   // Greedy pick driven by SchedGraph::topologicalSched. When scores tie, prefer
   // the smallest node id for a stable order. Assigns indices to the scheduled
@@ -1012,10 +954,6 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
     int32_t bestIdx = -1;
     int bestScore = std::numeric_limits<int>::min();
     bool hasImmSchedOp = false;
-
-    // Classify regime once per call (cheap O(|ready|)). Trivial ops below
-    // don't participate in regime scoring but inherit this annotation.
-    Regime mode = classifyRegime(ready, queueTypes, state);
 
     // Trivial-op fast path: schedule all alloca/make_register/constant ops
     // immediately so the scheduler sees the real frontier.
@@ -1027,7 +965,6 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
         indices.insert(i);
         stallCycles.push_back(0);
         stallReasons.push_back("");
-        modes.push_back(mode);
         hasImmSchedOp = true;
       }
     }
@@ -1055,8 +992,8 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
       int64_t stall = sim.wouldStall(qt);
       bool consumerInReady =
           (qt == QueueType::XDL) && hasXdlConsumerInReady(nodeId);
-      int score = computeScore(qt, stall, state, consumerInReady, mode,
-                               waitKind[nodeId]);
+      int score =
+          computeScore(qt, stall, state, consumerInReady, waitKind[nodeId]);
 
       if (score > bestScore ||
           (score == bestScore && nodeId < ready[bestIdx])) {
@@ -1072,7 +1009,6 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
     int64_t stall = sim.issue(chosenQt, execLatencies[chosen]);
     stallCycles.push_back(stall);
     stallReasons.push_back(stall > 0 ? getQueueName(chosenQt) : "");
-    modes.push_back(mode);
 
     // Update closure state. Push the chosen kind into the sliding-4 window;
     // drop the oldest if the window is already full.
@@ -1082,8 +1018,6 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
       state.recentKinds.erase(state.recentKinds.begin());
     switch (chosenQt) {
     case QueueType::XDL:
-      state.mfmaSinceLastLgkm++;
-      state.mfmaSinceLastVmem++;
       // For each LGKM predecessor of this XDL: decrement its remaining-
       // consumers counter. When the last consumer fires, drop the LGKM
       // from `lgkmRemainingConsumers` and decrement `outstandingLgkm`.
@@ -1106,7 +1040,6 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
       break;
     case QueueType::LGKM:
       state.outstandingLgkm++;
-      state.mfmaSinceLastLgkm = 0;
       // Activate the remaining-consumers counter for this LGKM so that
       // XDL siblings each draw from the deadline pool.
       if (auto it = state.lgkmTotalConsumers.find(chosen);
@@ -1115,7 +1048,6 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
       break;
     case QueueType::VMEM:
       state.outstandingVmem++;
-      state.mfmaSinceLastVmem = 0;
       break;
     default:
       break;
@@ -1136,16 +1068,13 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
          "sched and stallCycles must have the same size");
   assert(stallReasons.size() == sched.size() &&
          "sched and stallReasons must have the same size");
-  assert(modes.size() == sched.size() &&
-         "sched and modes must have the same size");
 
   MLIRContext *ctx = schedGraph.getOp(0)->getContext();
   auto stallAttr = StringAttr::get(ctx, "sched.stall_cycles");
   auto reasonAttr = StringAttr::get(ctx, "sched.stall_reason");
-  auto modeAttr = StringAttr::get(ctx, "sched.mode");
   auto i64Ty = IntegerType::get(ctx, 64);
 
-  // Annotate each scheduled op with stall cycles, reasons, and regime mode.
+  // Annotate each scheduled op with stall cycles and reasons.
   for (size_t i = 0, n = sched.size(); i < n; ++i) {
     Operation *op = schedGraph.getOp(sched[i]);
     int64_t stall = stallCycles[i];
@@ -1153,7 +1082,6 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
     op->setAttr(stallAttr, IntegerAttr::get(i64Ty, stall));
     if (stall > 0)
       op->setAttr(reasonAttr, StringAttr::get(ctx, (reason + " full").str()));
-    op->setAttr(modeAttr, StringAttr::get(ctx, getRegimeName(modes[i])));
   }
   return success();
 }
