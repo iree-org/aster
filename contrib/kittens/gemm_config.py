@@ -250,6 +250,7 @@ class GemmMappingSpec(PipelineConfigProtocol):
 
     lcm_unroll: bool = True  # LCM-based kernel loop unrolling
     unroll_factor_multiplier: int = 1  # extra unroll on top of LCM
+    prologue_peeling: int = 0  # peel + fully unroll the first N iterations
     epilogue_peeling: bool = True  # fully unroll cleanup loop
     ll_sched: bool = False  # low-latency scheduling
     hoist_wait: bool = False  # hoist iter-arg waits
@@ -614,7 +615,8 @@ class WeakScaledMappedGemmInstance:
                 r"_wgcu(\d+)"
                 r"_lcm([01])"
                 r"_um(\d+)"
-                r"_peel([01])"
+                r"_ppeel(\d+)"
+                r"_epeel([01])"
                 r"_llsched([01])"
                 r"_hoistwait([01])"
                 r"_ldsw([01])"
@@ -648,7 +650,8 @@ class WeakScaledMappedGemmInstance:
             wgcu,
             lcm,
             um,
-            peel,
+            ppeel,
+            epeel,
             llsched,
             hoistwait,
             ldsw,
@@ -678,7 +681,8 @@ class WeakScaledMappedGemmInstance:
             num_wg_per_cu=int(wgcu),
             lcm_unroll=lcm == "1",
             unroll_factor_multiplier=int(um),
-            epilogue_peeling=peel == "1",
+            prologue_peeling=int(ppeel),
+            epilogue_peeling=epeel == "1",
             ll_sched=llsched == "1",
             hoist_wait=hoistwait == "1",
             lds_at_write=ldsw == "1",
@@ -706,7 +710,8 @@ class WeakScaledMappedGemmInstance:
             f"_wgcu{m.num_wg_per_cu}"
             f"_lcm{int(m.lcm_unroll)}"
             f"_um{m.unroll_factor_multiplier}"
-            f"_peel{int(m.epilogue_peeling)}"
+            f"_ppeel{int(m.prologue_peeling)}"
+            f"_epeel{int(m.epilogue_peeling)}"
             f"_llsched{int(m.ll_sched)}"
             f"_hoistwait{int(m.hoist_wait)}"
             f"_ldsw{int(m.lds_at_write)}"

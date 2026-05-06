@@ -187,6 +187,10 @@ def SCFPipelineAsterSched : Pass<"aster-scf-pipeline"> {
            "Multiplier for the LCM unroll factor (effective = lcm * multiplier)">,
     Option<"epiloguePeeling", "epilogue-peeling", "bool", /*default=*/"false",
            "Fully unroll the cleanup epilogue loop after LCM unrolling">,
+    Option<"prologuePeeling", "prologue-peeling", "int64_t", /*default=*/"0",
+           "Peel and fully unroll this many first iterations of the pipelined "
+           "kernel loop. Runs before LCM unrolling. Stops early if the kernel "
+           "has fewer remaining iterations than requested.">,
     Option<"enableRotateStage", "enable-rotate-stage", "bool",
            /*default=*/"false",
            "Enable rotating pipeline stages so the selected stage becomes stage 0">,

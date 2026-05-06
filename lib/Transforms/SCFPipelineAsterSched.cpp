@@ -30,9 +30,12 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/SCF/Utils/Utils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/FoldUtils.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
@@ -940,14 +943,31 @@ void SCFPipelineAsterSchedPass::runOnOperation() {
     auto unrollResult = mlir::loopUnrollByFactor(loop, factor);
     if (failed(unrollResult))
       return signalPassFailure();
-
-    // Fully unroll the cleanup epilogue loop to eliminate branch overhead.
     if (epiloguePeeling) {
       if (auto epilogueLoop = unrollResult->epilogueLoopOp) {
         LLVM_DEBUG(llvm::dbgs() << "Peeling epilogue cleanup loop\n");
         if (failed(mlir::loopUnrollFull(*epilogueLoop)))
           return signalPassFailure();
       }
+    }
+    // mainLoopOp is null when promoteIfSingleIteration consumed the loop.
+    scf::ForOp peelLoop = unrollResult->mainLoopOp.value_or(scf::ForOp{});
+    if (!peelLoop || prologuePeeling == 0)
+      continue;
+    // Dynamic-UB unroll emits `arith.muli %step %factor` without folding when
+    // both are constants; fold the new step so loopUnrollFull sees a static
+    // trip count on the peeled single-iteration loops.
+    OperationFolder folder(&getContext());
+    if (auto *def = peelLoop.getStep().getDefiningOp())
+      (void)folder.tryToFold(def);
+    for (int64_t i = 0; i < prologuePeeling; ++i) {
+      scf::ForOp firstIteration;
+      IRRewriter rewriter(&getContext());
+      if (failed(scf::peelForLoopFirstIteration(rewriter, peelLoop,
+                                                firstIteration)))
+        break;
+      if (failed(mlir::loopUnrollFull(firstIteration)))
+        return signalPassFailure();
     }
   }
 }

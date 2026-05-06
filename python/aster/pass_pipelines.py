@@ -10,6 +10,7 @@ class PipelineConfigProtocol(Protocol):
     lcm_unroll: bool
     unroll_factor_multiplier: int
     epilogue_peeling: bool
+    prologue_peeling: int
     ll_sched: bool
     hoist_wait: bool
     set_mfma_priority: bool
@@ -23,6 +24,7 @@ class PipelineConfig(PipelineConfigProtocol):
     lcm_unroll: bool = False
     unroll_factor_multiplier: int = 1
     epilogue_peeling: bool = True
+    prologue_peeling: int = 0
     ll_sched: bool = False
     hoist_wait: bool = False
     set_mfma_priority: bool = True
@@ -94,6 +96,7 @@ def phase_scf_pipelining(
     lcm_unroll=True,
     unroll_factor_multiplier=1,
     epilogue_peeling=True,
+    prologue_peeling=0,
     rotate_stage=None,
 ):
     opts = []
@@ -103,6 +106,8 @@ def phase_scf_pipelining(
         opts.append(f"unroll-factor-multiplier={unroll_factor_multiplier}")
     if epilogue_peeling:
         opts.append("epilogue-peeling=true")
+    if prologue_peeling > 0:
+        opts.append(f"prologue-peeling={int(prologue_peeling)}")
     if rotate_stage is not None:
         opts.append("enable-rotate-stage=true")
         opts.append(f"rotate-stage={int(rotate_stage)}")
@@ -317,6 +322,7 @@ def make_default_pass_pipeline(
             lcm_unroll=mapping.lcm_unroll,
             unroll_factor_multiplier=mapping.unroll_factor_multiplier,
             epilogue_peeling=mapping.epilogue_peeling,
+            prologue_peeling=mapping.prologue_peeling,
             rotate_stage=mapping.rotate_stage,
         ),
         "aster-destructure-struct-iter-args",

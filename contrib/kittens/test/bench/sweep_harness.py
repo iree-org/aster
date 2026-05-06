@@ -289,12 +289,13 @@ def _stratified_sample(
 def add_scheduling_axes(grid: SweepGrid) -> SweepGrid:
     """Add the common scheduling flag axes shared across sweeps.
 
-    Adds lcm_unroll, epilogue_peeling, ll_sched, hoist_wait,
-    unroll_factor_multiplier, rotate_compute_stage. Adds the constraint
-    unroll_factor_multiplier > 1 => lcm_unroll = True.
+    Adds lcm_unroll, epilogue_peeling, prologue_peeling, ll_sched,
+    hoist_wait, unroll_factor_multiplier, rotate_compute_stage. Adds the
+    constraint unroll_factor_multiplier > 1 => lcm_unroll = True.
     """
     grid.axis("lcm_unroll", [True, False])
     grid.axis("epilogue_peeling", [True, False])
+    grid.axis("prologue_peeling", [0, 1, 2])
     grid.axis("ll_sched", [True, False])
     grid.axis("hoist_wait", [True, False])
     grid.axis("rotate_compute_stage", [True, False])
@@ -313,6 +314,7 @@ _SWEEP_TO_MAPPING_KWARG = {
     "lcm_unroll": "lcm_unroll",
     "unroll_factor_multiplier": "unroll_factor_multiplier",
     "epilogue_peeling": "epilogue_peeling",
+    "prologue_peeling": "prologue_peeling",
     "ll_sched": "ll_sched",
     "hoist_wait": "hoist_wait",
     "lds_at_write": "lds_at_write",
@@ -639,6 +641,7 @@ GEMM_SWEEP_PIN_MAP = {
     "unroll_factor_multiplier": "unroll_factor_multiplier",
     "lcm_unroll": "lcm_unroll",
     "epilogue_peeling": "epilogue_peeling",
+    "prologue_peeling": "prologue_peeling",
     "ll_sched": "ll_sched",
     "hoist_wait": "hoist_wait",
     "set_mfma_priority": "set_mfma_priority",
@@ -787,6 +790,13 @@ def add_geometry_pin_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--unroll-multiplier", type=int, default=None, help="Pin unroll multiplier")
     parser.add_argument(
         "--epilogue-peeling", action=argparse.BooleanOptionalAction, default=None, help="Pin epilogue peeling"
+    )
+    parser.add_argument(
+        "--prologue-peeling",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Pin number of pipelined kernel iterations to peel + unroll up front (0 disables)",
     )
     parser.add_argument(
         "--ll-sched", action=argparse.BooleanOptionalAction, default=None, help="Pin low-level scheduler"

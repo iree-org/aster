@@ -39,6 +39,7 @@ add_mlir_library(AsterTransforms
   MLIRPass
   MLIRPtrDialect
   MLIRSCFDialect
+  MLIRSCFTransforms
   MLIRSCFUtils
   MLIRTransformUtils
   MLIRUBDialect
