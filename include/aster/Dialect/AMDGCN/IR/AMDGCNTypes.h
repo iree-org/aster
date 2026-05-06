@@ -36,6 +36,12 @@ template <typename ConcreteType>
 struct SpecialRegTrait
     : public ::mlir::TypeTrait::TraitBase<ConcreteType, SpecialRegTrait> {};
 
+/// Trait providing common method implementations for AMDGCN general-purpose
+/// register types. Each concrete type defines kRegisterKind.
+template <typename ConcreteType>
+struct GPRegTrait
+    : public ::mlir::TypeTrait::TraitBase<ConcreteType, GPRegTrait> {};
+
 /// Returns true if it's a register type with size 1.
 bool isRegisterLike(Type type);
 } // namespace mlir::aster::amdgcn

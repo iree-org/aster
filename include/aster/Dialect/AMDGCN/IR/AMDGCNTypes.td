@@ -31,129 +31,71 @@ class AMDGCN_RegisterDef<string name, string typeMnemonic, list<Trait> traits = 
 }
 
 //===----------------------------------------------------------------------===//
-// AGPR like types
+// GP register types
 //===----------------------------------------------------------------------===//
 
-def AGPRType : AMDGCN_RegisterDef<"AGPR", "agpr", [MemRefElementTypeInterface]> {
+def GPRegTrait : NativeTypeTrait<"GPRegTrait"> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+  let extraConcreteClassDeclaration = [{
+    Register getReg() const { return getRange().begin(); }
+
+    //===------------------------------------------------------------------===//
+    // RegisterTypeInterface
+    //===------------------------------------------------------------------===//
+    RegisterRange getAsRange() const {
+      return getRange();
+    }
+    RegisterKind getRegisterKind() const {
+      return kRegisterKind;
+    }
+    RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
+      return get(getContext(), range);
+    }
+    int64_t getSizeInBits() const {
+      return static_cast<int64_t>(getRange().size()) * 32;
+    }
+
+    //===------------------------------------------------------------------===//
+    // ResourceTypeInterface
+    //===------------------------------------------------------------------===//
+    Resource *getResource() const;
+  }];
+}
+
+class GPRegTypeBase<string name, string mnemonic>
+    : AMDGCN_RegisterDef<name, mnemonic, [MemRefElementTypeInterface, GPRegTrait]> {
+  let parameters = (ins
+    DefaultValuedParameter<"RegisterRange", "RegisterRange()">:$range
+  );
+  let assemblyFormat = "(`<` $range^ `>`)?";
+  let builders = [
+    TypeBuilder<(ins CArg<"Register", "Register()">:$reg,
+        CArg<"int16_t", "1">:$size,
+        CArg<"int16_t", "1">:$alignment), [{
+      return $_get($_ctxt, RegisterRange(reg, size, alignment));
+    }]>
+  ];
+  let genVerifyDecl = 1;
+}
+
+def AGPRType : GPRegTypeBase<"AGPR", "agpr"> {
   let summary = "AGPR type";
-  let parameters = (ins
-    DefaultValuedParameter<"RegisterRange", "RegisterRange()">:$range
-  );
-  let assemblyFormat = "(`<` $range^ `>`)?";
-  let builders = [
-    TypeBuilder<(ins CArg<"Register", "Register()">:$reg, CArg<"int16_t", "1">:$size,
-        CArg<"int16_t", "1">:$alignment), [{
-      return $_get($_ctxt, RegisterRange(reg, size, alignment));
-    }]>
-  ];
-  let genVerifyDecl = 1;
   let extraClassDeclaration = [{
-    Register getReg() const { return getRange().begin(); }
-    //===------------------------------------------------------------------===//
-    // RegisterTypeInterface
-    //===------------------------------------------------------------------===//
-    RegisterRange getAsRange() const {
-      return getRange();
-    }
-    RegisterKind getRegisterKind() const {
-      return RegisterKind::AGPR;
-    }
-    RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
-      return AGPRType::get(getContext(), range);
-    }
-    int64_t getSizeInBits() const {
-      return static_cast<int64_t>(getRange().size()) * 32;
-    }
-
-    //===------------------------------------------------------------------===//
-    // ResourceTypeInterface
-    //===------------------------------------------------------------------===//
-    Resource *getResource() const;
+    static constexpr RegisterKind kRegisterKind = RegisterKind::AGPR;
   }];
 }
 
-//===----------------------------------------------------------------------===//
-// SGPR like types
-//===----------------------------------------------------------------------===//
-
-def SGPRType : AMDGCN_RegisterDef<"SGPR", "sgpr", [MemRefElementTypeInterface]> {
+def SGPRType : GPRegTypeBase<"SGPR", "sgpr"> {
   let summary = "SGPR type";
-  let parameters = (ins
-    DefaultValuedParameter<"RegisterRange", "RegisterRange()">:$range
-  );
-  let assemblyFormat = "(`<` $range^ `>`)?";
-  let builders = [
-    TypeBuilder<(ins CArg<"Register", "Register()">:$reg, CArg<"int16_t", "1">:$size,
-        CArg<"int16_t", "1">:$alignment), [{
-      return $_get($_ctxt, RegisterRange(reg, size, alignment));
-    }]>
-  ];
-  let genVerifyDecl = 1;
   let extraClassDeclaration = [{
-    Register getReg() const { return getRange().begin(); }
-    //===------------------------------------------------------------------===//
-    // RegisterTypeInterface
-    //===------------------------------------------------------------------===//
-    RegisterRange getAsRange() const {
-      return getRange();
-    }
-    RegisterKind getRegisterKind() const {
-      return RegisterKind::SGPR;
-    }
-    RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
-      return SGPRType::get(getContext(), range);
-    }
-    int64_t getSizeInBits() const {
-      return static_cast<int64_t>(getRange().size()) * 32;
-    }
-
-    //===------------------------------------------------------------------===//
-    // ResourceTypeInterface
-    //===------------------------------------------------------------------===//
-    Resource *getResource() const;
+    static constexpr RegisterKind kRegisterKind = RegisterKind::SGPR;
   }];
 }
 
-//===----------------------------------------------------------------------===//
-// VGPR like types
-//===----------------------------------------------------------------------===//
-
-def VGPRType : AMDGCN_RegisterDef<"VGPR", "vgpr", [MemRefElementTypeInterface]> {
+def VGPRType : GPRegTypeBase<"VGPR", "vgpr"> {
   let summary = "VGPR type";
-  let parameters = (ins
-    DefaultValuedParameter<"RegisterRange", "RegisterRange()">:$range
-  );
-  let assemblyFormat = "(`<` $range^ `>`)?";
-  let builders = [
-    TypeBuilder<(ins CArg<"Register", "Register()">:$reg, CArg<"int16_t", "1">:$size,
-        CArg<"int16_t", "1">:$alignment), [{
-      return $_get($_ctxt, RegisterRange(reg, size, alignment));
-    }]>
-  ];
-  let genVerifyDecl = 1;
   let extraClassDeclaration = [{
-    Register getReg() const { return getRange().begin(); }
-
-    //===------------------------------------------------------------------===//
-    // RegisterTypeInterface
-    //===------------------------------------------------------------------===//
-    RegisterRange getAsRange() const {
-      return getRange();
-    }
-    RegisterKind getRegisterKind() const {
-      return RegisterKind::VGPR;
-    }
-    RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
-      return VGPRType::get(getContext(), range);
-    }
-    int64_t getSizeInBits() const {
-      return static_cast<int64_t>(getRange().size()) * 32;
-    }
-
-    //===------------------------------------------------------------------===//
-    // ResourceTypeInterface
-    //===------------------------------------------------------------------===//
-    Resource *getResource() const;
+    static constexpr RegisterKind kRegisterKind = RegisterKind::VGPR;
   }];
 }
 
