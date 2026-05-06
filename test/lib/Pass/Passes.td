@@ -121,6 +121,17 @@ def TestLDSInterferenceGraph
   }];
 }
 
+def TestAMDGCNSchedGraph : Pass<"test-amdgcn-sched-graph"> {
+  let summary = "Test pass that prints the AMDGCN value-scheduler SchedGraph";
+  let description = [{
+    For each amdgcn.kernel in the input, build the value-scheduler SchedGraph
+    via ValueSchedulerAttr::createGraph and print it in DOT-style form to
+    stderr. Used to verify the dependence edges added by GraphBuilder
+    (SSA, wait/barrier, sync-fence, architectural register RAW/WAR, i1
+    serialization).
+  }];
+}
+
 def TestLDSMultibufferPrep : Pass<"test-lds-multibuffer-prep"> {
   let summary = "Test pass for LDS multi-buffer prep transformation";
   let description = [{

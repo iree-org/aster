@@ -88,7 +88,17 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
 
     // If the operation has no side-effect we need to treat it as a possible
     // sync point. Same for non-pure operations.
-    if ((!hasEffects || !mlir::isPure(op)) &&
+    //
+    // Exclude SOP2 SALU arithmetic ops (s_add_*, ...) and VALU arithmetic ops
+    // (v_add_*, ...) from sync points. The implicit read/write effects on
+    // architectural registers SCC/VCC are captured by the RAW/WAR edges
+    // added in buildNonSSADeps. Treating as fences would serialize
+    // independent arithmetic chains.
+    bool isReorderableArith = false;
+    if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
+      isReorderableArith =
+          instOp.hasAnyProps({InstProp::Sop2, InstProp::IsValu});
+    if ((!hasEffects || !mlir::isPure(op)) && !isReorderableArith &&
         !isa<LoadOpInterface, StoreOpInterface, AllocaOpInterface>(op)) {
       LDBG() << "Adding sync point: " << i;
       syncPoints.push_back(i);
@@ -102,6 +112,77 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
       if (producer && producer->getBlock() == block)
         graph.addEdge(producer, op);
     }
+  }
+}
+
+template <typename RegType>
+struct IsModeledArchReg : std::false_type {};
+template <>
+struct IsModeledArchReg<SCCType> : std::true_type {};
+template <>
+struct IsModeledArchReg<VCCType> : std::true_type {};
+
+/// Returns the read/write effects of `op` on the architectural register
+/// `RegType` (currently SCC or VCC). The register is referenced as a DPS
+/// alloca operand: an outs operand of `RegType` means the op writes the
+/// register; an ins operand of `RegType` means the op reads it. Ops without
+/// AMDGCNInstOpInterface have no architectural-register effects modeled
+/// here.
+template <typename RegType>
+static void getArchRegEffects(Operation *op, bool &reads, bool &writes) {
+  static_assert(IsModeledArchReg<RegType>::value,
+                "getArchRegEffects only supports modeled architectural "
+                "registers (SCC, VCC)");
+  reads = false;
+  writes = false;
+  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
+  if (!instOp)
+    return;
+  for (Value v : instOp.getInstOuts()) {
+    if (isa<RegType>(v.getType())) {
+      writes = true;
+      break;
+    }
+  }
+  for (Value v : instOp.getInstIns()) {
+    if (isa<RegType>(v.getType())) {
+      reads = true;
+      break;
+    }
+  }
+}
+
+/// Add scheduling edges for the read/write effects on a single architectural
+/// register (`RegType`). The register is shared by every op that touches it
+/// but flows through DPS alloca operands rather than SSA results, so no SSA
+/// def-use chain captures the dependence.
+template <typename RegType>
+static void addArchRegEffectEdges(SchedGraph &graph, Block *block) {
+  static_assert(IsModeledArchReg<RegType>::value,
+                "addArchRegEffectEdges only supports modeled architectural "
+                "registers (SCC, VCC)");
+  SmallVector<Operation *> writers;
+  SmallVector<Operation *> readers;
+  for (Operation &op : *block) {
+    bool reads = false;
+    bool writes = false;
+    getArchRegEffects<RegType>(&op, reads, writes);
+    if (!reads && !writes)
+      continue;
+    if (reads) {
+      // RAW: pin every prior writer before this reader.
+      for (Operation *w : writers)
+        graph.addEdge(w, &op);
+    }
+    if (writes) {
+      // WAR: pin every prior reader before this writer.
+      for (Operation *r : readers)
+        graph.addEdge(r, &op);
+    }
+    if (reads)
+      readers.push_back(&op);
+    if (writes)
+      writers.push_back(&op);
   }
 }
 
@@ -126,21 +207,25 @@ void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
   // Erase all the processed sync points.
   llvm::erase(syncPoints, -1);
 
-  // If there are no sync points, return.
-  if (syncPoints.empty())
-    return;
-
-  // Add edges between all the ops before a sync point and the sync point, and
-  // between the sync point and all the ops after it.
-  for (auto [i, syncPoint] : llvm::enumerate(syncPoints)) {
-    int64_t prevSyncPoint = i > 0 ? syncPoints[i - 1] : 0;
-    int64_t nextSyncPoint =
-        i < (syncPoints.size() - 1) ? syncPoints[i + 1] + 1 : ops.size();
-    for (int64_t point = prevSyncPoint; point < syncPoint; point++)
-      graph.addEdge(point, syncPoint);
-    for (int64_t point = syncPoint + 1; point < nextSyncPoint; point++)
-      graph.addEdge(syncPoint, point);
+  // Add fence edges for the remaining sync points: every preceding op in
+  // the segment must precede the sync point, and every following op in the
+  // segment must come after.
+  if (!syncPoints.empty()) {
+    for (auto [i, syncPoint] : llvm::enumerate(syncPoints)) {
+      int64_t prevSyncPoint = i > 0 ? syncPoints[i - 1] : 0;
+      int64_t nextSyncPoint =
+          i < (syncPoints.size() - 1) ? syncPoints[i + 1] + 1 : ops.size();
+      for (int64_t point = prevSyncPoint; point < syncPoint; point++)
+        graph.addEdge(point, syncPoint);
+      for (int64_t point = syncPoint + 1; point < nextSyncPoint; point++)
+        graph.addEdge(syncPoint, point);
+    }
   }
+
+  // RAW / WAR edges for read/write effects on the architectural registers
+  // SCC and VCC.
+  addArchRegEffectEdges<SCCType>(graph, block);
+  addArchRegEffectEdges<VCCType>(graph, block);
 }
 
 void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
