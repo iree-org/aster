@@ -1460,8 +1460,9 @@ def print_config(cfg, resources=None, iterations=None):
     print(f"  pipeline:   strategy={cfg.pipeline_strategy}")
     print(f"  memory:     load_type={cfg.load_type}, b_path={cfg.b_path}, LDS={cfg.lds_bytes} bytes")
     lcm = "lcm" if cfg.lcm_unroll else "no-lcm"
-    peel = "peel" if cfg.epilogue_peeling else "no-peel"
-    print(f"  unroll:     {lcm}, multiplier={cfg.unroll_factor_multiplier}, {peel}")
+    epeel = "epeel" if cfg.epilogue_peeling else "no-epeel"
+    ppeel = f"ppeel={cfg.prologue_peeling}"
+    print(f"  unroll:     {lcm}, multiplier={cfg.unroll_factor_multiplier}, {ppeel}, {epeel}")
     sched = []
     if cfg.ll_sched:
         sched.append("ll-sched")
