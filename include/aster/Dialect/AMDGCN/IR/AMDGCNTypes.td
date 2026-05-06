@@ -161,25 +161,9 @@ def VGPRType : AMDGCN_RegisterDef<"VGPR", "vgpr", [MemRefElementTypeInterface]> 
 // SREG like types
 //===----------------------------------------------------------------------===//
 
-/// Special registers to model state.
-class SREGBase<string name, string mnemonic, string kind>
-    : AMDGCN_RegisterDef<name, mnemonic, [MemRefElementTypeInterface]> {
-  let summary = kind # " special register type";
-  let parameters = (ins
-    DefaultValuedParameter<"Register", "Register()">:$reg
-  );
-  let assemblyFormat = "(`<` $reg^ `>`)?";
-  let builders = [
-    TypeBuilder<(ins "Register":$reg), [{
-      return $_get($_ctxt, normalizeRegister(reg));
-    }]>
-  ];
-  let skipDefaultBuilders = 1;
-  string declarations = StrSubst<[{
-    /// The register kind for this SREG type.
-    static constexpr RegisterKind kRegisterKind = RegisterKind::$kind;
-    }], [VarRepl<"kind", kind>]>.result;
-  let extraClassDeclaration = declarations # [{
+def SpecialRegTrait : NativeTypeTrait<"SpecialRegTrait"> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+  let extraConcreteClassDeclaration = [{
     static Register normalizeRegister(Register reg) {
       if (reg.getSemantics() == RegisterSemantics::Allocated)
         return Register(0);
@@ -192,25 +176,19 @@ class SREGBase<string name, string mnemonic, string kind>
     RegisterRange getAsRange() const {
       return RegisterRange(getReg(), 1);
     }
-    RegisterKind getRegisterKind() const {
-      return kRegisterKind;
-    }
     RegisterTypeInterface cloneRegisterType(RegisterRange range) const {
       assert(range.size() == 1 && "SREG type can only clone single register");
       return get(getContext(), range.begin());
     }
     int64_t getSizeInBits() const {
-      switch (kRegisterKind) {
-      case RegisterKind::VCC:
-      case RegisterKind::EXEC:
-        return 64;
-      case RegisterKind::VCCZ:
-      case RegisterKind::EXECZ:
-      case RegisterKind::SCC:
-        return 1;
-      default:
-        return 32;
-      }
+      return kSizeInBits;
+    }
+
+    //===------------------------------------------------------------------===//
+    // AMDGCNRegisterTypeInterface
+    //===------------------------------------------------------------------===//
+    RegisterKind getRegisterKind() const {
+      return kRegisterKind;
     }
 
     //===------------------------------------------------------------------===//
@@ -222,9 +200,100 @@ class SREGBase<string name, string mnemonic, string kind>
   }];
 }
 
-// Define all special registers.
-foreach sreg = SpecialRegisters in {
-  def sreg#Type : SREGBase<sreg.typeName, sreg.typeMnemonic, sreg.name>;
+class SRegTypeBase<string name, string mnemonic>
+    : AMDGCN_RegisterDef<name, mnemonic,
+        [MemRefElementTypeInterface, SpecialRegTrait]> {
+  let parameters = (ins
+    DefaultValuedParameter<"Register", "Register()">:$reg
+  );
+  let assemblyFormat = "(`<` $reg^ `>`)?";
+  let builders = [
+    TypeBuilder<(ins "Register":$reg), [{
+      return $_get($_ctxt, normalizeRegister(reg));
+    }]>
+  ];
+  let skipDefaultBuilders = 1;
+}
+
+/// Special registers to model state.
+def VCCType : SRegTypeBase<"VCC", "vcc"> {
+  let summary = "VCC special register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::VCC;
+    static constexpr int64_t kSizeInBits = 64;
+  }];
+}
+
+def VCCLoType : SRegTypeBase<"VCCLo", "vcc_lo"> {
+  let summary = "VCC_LO special register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::VCC_LO;
+    static constexpr int64_t kSizeInBits = 32;
+  }];
+}
+
+def VCCHiType : SRegTypeBase<"VCCHi", "vcc_hi"> {
+  let summary = "VCC_HI special register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::VCC_HI;
+    static constexpr int64_t kSizeInBits = 32;
+  }];
+}
+
+def VCCZType : SRegTypeBase<"VCCZ", "vccz"> {
+  let summary = "VCCZ special register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::VCCZ;
+    static constexpr int64_t kSizeInBits = 1;
+  }];
+}
+
+def EXECType : SRegTypeBase<"EXEC", "exec"> {
+  let summary = "EXEC special register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::EXEC;
+    static constexpr int64_t kSizeInBits = 64;
+  }];
+}
+
+def EXECLoType : SRegTypeBase<"EXECLo", "exec_lo"> {
+  let summary = "EXEC_LO special register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::EXEC_LO;
+    static constexpr int64_t kSizeInBits = 32;
+  }];
+}
+
+def EXECHiType : SRegTypeBase<"EXECHi", "exec_hi"> {
+  let summary = "EXEC_HI special register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::EXEC_HI;
+    static constexpr int64_t kSizeInBits = 32;
+  }];
+}
+
+def EXECZType : SRegTypeBase<"EXECZ", "execz"> {
+  let summary = "EXECZ special register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::EXECZ;
+    static constexpr int64_t kSizeInBits = 1;
+  }];
+}
+
+def M0Type : SRegTypeBase<"M0", "m0"> {
+  let summary = "M0 special register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::M0;
+    static constexpr int64_t kSizeInBits = 32;
+  }];
+}
+
+def SCCType : SRegTypeBase<"SCC", "scc"> {
+  let summary = "SCC special register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::SCC;
+    static constexpr int64_t kSizeInBits = 1;
+  }];
 }
 
 //===----------------------------------------------------------------------===//
