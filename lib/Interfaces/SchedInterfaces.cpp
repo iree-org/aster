@@ -109,4 +109,30 @@ void SchedGraph::applySched(const SchedGraph &schedGraph,
   }
 }
 
+llvm::DenseSet<int32_t> SchedGraph::bfs(int64_t nodeId,
+                                        bool reverseOrder) const {
+  // Adjacency list.
+  SmallVector<SmallVector<int32_t>> revAdj(sizeNodes());
+  for (int32_t u = 0; u < sizeNodes(); ++u) {
+    for (const auto &edge : edges(u)) {
+      int32_t src = (reverseOrder) ? edge.second : edge.first;
+      int32_t dst = (reverseOrder) ? edge.first : edge.second;
+      revAdj[src].push_back(dst);
+    }
+  }
+
+  llvm::DenseSet<int32_t> visited;
+  SmallVector<int32_t> worklist;
+  for (int32_t pred : revAdj[nodeId])
+    if (visited.insert(pred).second)
+      worklist.push_back(pred);
+  while (!worklist.empty()) {
+    int32_t cur = worklist.pop_back_val();
+    for (int32_t pred : revAdj[cur])
+      if (visited.insert(pred).second)
+        worklist.push_back(pred);
+  }
+  return visited;
+}
+
 #include "aster/Interfaces/SchedInterfaces.cpp.inc"

@@ -139,6 +139,9 @@ public:
   static void applySched(const SchedGraph &schedGraph, RewriterBase &rewriter,
                          ArrayRef<int32_t> order);
 
+  /// Computes a BFS in forward or reverse order.
+  llvm::DenseSet<int32_t> bfs(int64_t nodeId, bool reverseOrder = false) const;
+
 private:
   /// Initialize ops, opToId, and labels with default values.
   void initialize();
