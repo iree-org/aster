@@ -252,7 +252,7 @@ class GemmMappingSpec(PipelineConfigProtocol):
     unroll_factor_multiplier: int = 1  # extra unroll on top of LCM
     prologue_peeling: int = 0  # peel + fully unroll the first N iterations
     epilogue_peeling: bool = True  # fully unroll cleanup loop
-    ll_sched: bool = False  # low-latency scheduling
+    ll_sched: int = 0  # 0 = off; 1+ = run scheduler with preset N (see SchedAttrs.cpp)
     hoist_wait: bool = False  # hoist iter-arg waits
     set_mfma_priority: bool = True  # insert s_setprio around MFMA groups
     rotate_compute_stage: bool = False  # enable compute-stage rotation in pass pipeline
@@ -617,7 +617,7 @@ class WeakScaledMappedGemmInstance:
                 r"_um(\d+)"
                 r"_ppeel(\d+)"
                 r"_epeel([01])"
-                r"_llsched([01])"
+                r"_llsched(\d+)"
                 r"_hoistwait([01])"
                 r"_ldsw([01])"
                 r"_setprio([01])"
@@ -683,7 +683,7 @@ class WeakScaledMappedGemmInstance:
             unroll_factor_multiplier=int(um),
             prologue_peeling=int(ppeel),
             epilogue_peeling=epeel == "1",
-            ll_sched=llsched == "1",
+            ll_sched=int(llsched),
             hoist_wait=hoistwait == "1",
             lds_at_write=ldsw == "1",
             set_mfma_priority=setprio == "1",

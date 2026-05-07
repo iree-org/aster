@@ -52,10 +52,11 @@ struct RegAllocPipelineOptions
       *this, "hoist-iter-arg-waits",
       llvm::cl::desc("Hoist iter_arg-dependent waits to loop head"),
       llvm::cl::init(false)};
-  mlir::detail::PassOptions::Option<bool> llSched{
+  mlir::detail::PassOptions::Option<int32_t> llSched{
       *this, "ll-sched",
-      llvm::cl::desc("Run low-level scheduler before register semantics"),
-      llvm::cl::init(false)};
+      llvm::cl::desc("Low-level scheduler preset (0 = off, 1+ = run with "
+                     "preset N; see SchedAttrs.cpp)"),
+      llvm::cl::init(0)};
 };
 
 /// Build the RegAlloc pass pipeline.
@@ -73,8 +74,11 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
     pm.addPass(createHoistIterArgWaits());
     pm.addPass(createCanonicalizerPass());
   }
-  if (options.llSched)
-    pm.addPass(createLowLevelScheduler());
+  if (options.llSched > 0) {
+    LowLevelSchedulerOptions llSchedOpts;
+    llSchedOpts.preset = options.llSched;
+    pm.addPass(createLowLevelScheduler(llSchedOpts));
+  }
   pm.addPass(createAMDGCNBufferization());
   if (options.hoistIterArgWaits) {
     pm.addPass(createHoistIterArgWaits());
@@ -135,10 +139,11 @@ struct AMDGCNBackendPipelineOptions
       *this, "hoist-iter-arg-waits",
       llvm::cl::desc("Hoist iter_arg-dependent waits to loop head"),
       llvm::cl::init(false)};
-  mlir::detail::PassOptions::Option<bool> llSched{
+  mlir::detail::PassOptions::Option<int32_t> llSched{
       *this, "ll-sched",
-      llvm::cl::desc("Run low-level scheduler before register allocation"),
-      llvm::cl::init(false)};
+      llvm::cl::desc("Low-level scheduler preset (0 = off, 1+ = run with "
+                     "preset N; see SchedAttrs.cpp)"),
+      llvm::cl::init(0)};
   mlir::detail::PassOptions::Option<bool> setMfmaPriority{
       *this, "set-mfma-priority",
       llvm::cl::desc("Insert s_setprio around MFMA groups"),

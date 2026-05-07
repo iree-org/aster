@@ -11,7 +11,7 @@ class PipelineConfigProtocol(Protocol):
     unroll_factor_multiplier: int
     epilogue_peeling: bool
     prologue_peeling: int
-    ll_sched: bool
+    ll_sched: int
     hoist_wait: bool
     set_mfma_priority: bool
     rotate_stage: int | None
@@ -25,7 +25,7 @@ class PipelineConfig(PipelineConfigProtocol):
     unroll_factor_multiplier: int = 1
     epilogue_peeling: bool = True
     prologue_peeling: int = 0
-    ll_sched: bool = False
+    ll_sched: int = 0
     hoist_wait: bool = False
     set_mfma_priority: bool = True
     rotate_stage: int | None = None
@@ -255,7 +255,7 @@ PHASE_LOWER_TO_AMDGCN = (
 # TODO: Move NOP insertion to backend.
 # TODO: NORMAL FORMS for amdgcn-backend.
 def phase_amdgcn_backend(
-    num_vgprs=256, num_agprs=256, ll_sched=False, hoist_iter_arg_waits=False,
+    num_vgprs=256, num_agprs=256, ll_sched=0, hoist_iter_arg_waits=False,
     set_mfma_priority=True,
 ):
     """Build the amdgcn-backend pipeline string with optional register limits."""
@@ -266,8 +266,10 @@ def phase_amdgcn_backend(
         opts.append(f"num-agprs={num_agprs}")
     if hoist_iter_arg_waits:
         opts.append("hoist-iter-arg-waits=true")
-    if ll_sched:
-        opts.append("ll-sched=true")
+    # Coerce bool callers (ll_sched=True) to int so f-string emits "1" not "True".
+    ll_sched = int(ll_sched)
+    if ll_sched > 0:
+        opts.append(f"ll-sched={ll_sched}")
     if not set_mfma_priority:
         opts.append("set-mfma-priority=false")
     if opts:
