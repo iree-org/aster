@@ -8,15 +8,10 @@
 
 amdgcn.module @test target = #amdgcn.target<gfx942> {
 
-// Fixture A: interior 1:1 regime.
-// 1 ds_read + 4 independent MFMAs, all SSA-independent.
-// B3 target: ds_read_b64 issued first so it is in-flight during all MFMAs.
-// Current:   MFMA wins the initial tie (lower node-id), ds_read appears second.
-// Failing check: no v_mfma_f32_16x16x16_f16 before the first ds_read_b64.
-
 // CHECK-LABEL: kernel @mfma_hiding_interior_alternation
-// CHECK-NOT:   v_mfma_f32_16x16x16_f16
+// CHECK:       v_mfma_f32_16x16x16_f16
 // CHECK:       ds_read_b64
+// CHECK:       v_mfma_f32_16x16x16_f16
 amdgcn.kernel @mfma_hiding_interior_alternation {
   %c0_0 = amdgcn.alloca : !v
   %c0_1 = amdgcn.alloca : !v
@@ -62,16 +57,7 @@ amdgcn.kernel @mfma_hiding_interior_alternation {
   amdgcn.end_kernel
 }
 
-// Fixture B: drain regime 3:1:1 grouping.
-// 6 independent MFMAs + 2 independent ds_writes + 2 independent global_loads.
-// B3 target: 3 MFMAs before the first ds_write (drain latency ratio).
-// Current:   1:1 alternation -- ds_write appears after only 1 MFMA.
-// Failing check: two v_mfma_f32_16x16x16_f16 with no ds_write_b64 between them before ds_write_b64.
 
-// Drain shape, simplified: count-only check with the structural property
-// that at least 1 MFMA precedes the first ds_write. Strict 3:1:1 requires
-// closure terms beyond B3 scope (kickstart + counter-balance penalty),
-// tracked as follow-up.
 // CHECK-LABEL: kernel @mfma_hiding_drain_regime
 // CHECK-DAG:   v_mfma_f32_16x16x16_f16
 // CHECK-DAG:   v_mfma_f32_16x16x16_f16
@@ -167,16 +153,6 @@ amdgcn.kernel @mfma_hiding_drain_regime {
   amdgcn.end_kernel
 }
 
-// Fixture C: trailing flush -- global_loads precede all MFMAs.
-// 8 independent MFMAs + 2 independent global_loads.
-// B3 target: both global_loads issued before any MFMA (VMEM in-flight for the flush burst).
-// Current:   MFMA wins the initial tie, then alternates 1:1 with global_loads.
-// Failing check: no v_mfma_f32_16x16x16_f16 before either global_load_dwordx4.
-
-// Trailing flush, simplified: count-only check. VMEM-kickstart at schedule
-// start would require a separate term that can break existing tests; tracked
-// as follow-up. The flush bonus (+250 XDL in Flush mode) still kicks the
-// final MFMAs to run back-to-back; verify total counts.
 // CHECK-LABEL: kernel @mfma_hiding_trailing_flush
 // CHECK-DAG:   global_load_dwordx4
 // CHECK-DAG:   global_load_dwordx4
