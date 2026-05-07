@@ -89,15 +89,13 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
     // If the operation has no side-effect we need to treat it as a possible
     // sync point. Same for non-pure operations.
     //
-    // Exclude SOP2 SALU arithmetic ops (s_add_*, ...) and VALU arithmetic ops
-    // (v_add_*, ...) from sync points. The implicit read/write effects on
-    // architectural registers SCC/VCC are captured by the RAW/WAR edges
-    // added in buildNonSSADeps. Treating as fences would serialize
-    // independent arithmetic chains.
+    // Exclude SOP2 SALU arithmetic ops (s_add_*, ...) arithmetic ops from sync
+    // points. The implicit read/write effects on architectural registers SCC
+    // are captured by the RAW/WAR edges added in buildNonSSADeps.
+    // Treating as fences would serialize independent arithmetic chains.
     bool isReorderableArith = false;
     if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
-      isReorderableArith =
-          instOp.hasAnyProps({InstProp::Sop2, InstProp::IsValu});
+      isReorderableArith = instOp.hasAnyProps({InstProp::Sop2});
     if ((!hasEffects || !mlir::isPure(op)) && !isReorderableArith &&
         !isa<LoadOpInterface, StoreOpInterface, AllocaOpInterface>(op)) {
       LDBG() << "Adding sync point: " << i;
@@ -621,11 +619,11 @@ static StringRef getQueueName(QueueType qt) {
   llvm_unreachable("unhandled queue type");
 }
 
-namespace {
 //===----------------------------------------------------------------------===//
 // Queue simulator -- tracks slot occupancy per queue to detect stalls
 //===----------------------------------------------------------------------===//
 
+namespace {
 /// Models the hardware queue state for stall detection.
 /// Each queue has `capacity` slots; issuing an op occupies one slot for
 /// `execLatency` cycles. A stall occurs when all slots are busy.
@@ -676,6 +674,144 @@ struct QueueSimulator {
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// Barrier bypass mechanism
+//===----------------------------------------------------------------------===//
+namespace {
+/// Per-barrier predecessor-closure from SchedGraph edges.
+struct BarrierClosures {
+  /// Factory.
+  static BarrierClosures create(const SchedGraph &schedGraph);
+
+  /// Update the barrier-closure tracking after `nodeId` is scheduled.
+  void markIssued(const SchedGraph &schedGraph, int32_t nodeId);
+
+  /// Returns the smallest node id of any unscheduled barrier.
+  int32_t getNextUnscheduledBarrier() const;
+
+  /// For each barrier node, the nodes that must execute before the barrier.
+  DenseMap<int32_t, DenseSet<int32_t>> closure;
+
+  /// For each barrier node, the count of memory ops in its closure that
+  /// have not yet been issued.
+  DenseMap<int32_t, int32_t> unscheduledMemPreds;
+
+  /// For each node id, the list of barriers whose closure contains it.
+  SmallVector<SmallVector<int32_t>> containingBarriers;
+};
+} // namespace
+
+static bool isMemoryNode(const SchedGraph &schedGraph, int32_t n) {
+  Operation *op = schedGraph.getOp(n);
+  if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
+    return instOp.hasAnyProps({InstProp::Ds, InstProp::IsVmem, InstProp::Smem});
+  return false;
+}
+
+BarrierClosures BarrierClosures::create(const SchedGraph &schedGraph) {
+  BarrierClosures result;
+  result.containingBarriers.resize(schedGraph.sizeNodes());
+
+  for (int32_t b = 0; b < schedGraph.sizeNodes(); ++b) {
+    if (!isa<SBarrier>(schedGraph.getOp(b)))
+      continue;
+    DenseSet<int32_t> closure = schedGraph.bfs(b, /*reversrOrder=*/true);
+    int32_t memCount = 0;
+    for (int32_t n : closure) {
+      result.containingBarriers[n].push_back(b);
+      if (isMemoryNode(schedGraph, n))
+        memCount++;
+    }
+    result.unscheduledMemPreds[b] = memCount;
+    result.closure[b] = std::move(closure);
+  }
+  return result;
+}
+
+void BarrierClosures::markIssued(const SchedGraph &schedGraph, int32_t nodeId) {
+  if (isa<SBarrier>(schedGraph.getOp(nodeId))) {
+    unscheduledMemPreds.erase(nodeId);
+  } else if (isMemoryNode(schedGraph, nodeId)) {
+    for (int32_t b : containingBarriers[nodeId]) {
+      auto it = unscheduledMemPreds.find(b);
+      if (it != unscheduledMemPreds.end() && it->second > 0)
+        it->second--;
+    }
+  }
+}
+
+int32_t BarrierClosures::getNextUnscheduledBarrier() const {
+  int32_t result = -1;
+  for (const auto &kv : unscheduledMemPreds) {
+    if (result < 0 || kv.first < result)
+      result = kv.first;
+  }
+  return result;
+}
+
+/// Pick the index in `ready` with the highest greedy score, where the
+/// score combines:
+///   1. Stall avoidance: subtract 10 points per stall cycle reported by
+///      `sim.wouldStall(qt(node))`, capped at 32 cycles so a single
+///      deeply-stalled op cannot starve another candidate forever.
+///   2. Interleaving bonus: +50 points if the candidate's queue differs
+///      from `lastQueueType` AND a same-queue burst is in progress
+///      (`burstCount > 0`). This biases toward DS/VMEM <-> XDL/VALU <->
+///      wait alternation so independent queues overlap.
+/// Ties on score are broken by smallest node id for a deterministic
+/// order. Returns -1 if `ready` is empty.
+static int32_t pickByScore(ArrayRef<int32_t> ready, const QueueSimulator &sim,
+                           ArrayRef<QueueType> queueTypes,
+                           QueueType lastQueueType, int64_t burstCount) {
+  int32_t bestIdx = -1;
+  int bestScore = std::numeric_limits<int>::min();
+  for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
+    int32_t nodeId = ready[i];
+    int score = 0;
+    int64_t stall = sim.wouldStall(queueTypes[nodeId]);
+    if (stall > 0) {
+      int64_t cappedStall = std::min(stall, int64_t{32});
+      score -= static_cast<int>(cappedStall) * 10;
+    }
+    if (queueTypes[nodeId] != lastQueueType && burstCount > 0)
+      score += 50;
+
+    if (score > bestScore ||
+        (score == bestScore && bestIdx >= 0 && nodeId < ready[bestIdx])) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+/// Annotate each op in `sched` with `sched.stall_cycles` and (if non-zero)
+/// `sched.stall_reason` attributes, computed by the greedy schedFn. The
+/// schedule order maps 1-to-1 onto the per-op stall vectors.
+static void annotateStalls(const SchedGraph &schedGraph,
+                           ArrayRef<int32_t> sched,
+                           ArrayRef<int64_t> stallCycles,
+                           ArrayRef<StringRef> stallReasons) {
+  assert(stallCycles.size() == sched.size() &&
+         "sched and stallCycles must have the same size");
+  assert(stallReasons.size() == sched.size() &&
+         "sched and stallReasons must have the same size");
+
+  MLIRContext *ctx = schedGraph.getOp(0)->getContext();
+  auto stallAttr = StringAttr::get(ctx, "sched.stall_cycles");
+  auto reasonAttr = StringAttr::get(ctx, "sched.stall_reason");
+  auto i64Ty = IntegerType::get(ctx, 64);
+
+  for (size_t i = 0, n = sched.size(); i < n; ++i) {
+    Operation *op = schedGraph.getOp(sched[i]);
+    int64_t stall = stallCycles[i];
+    StringRef reason = stallReasons[i];
+    op->setAttr(stallAttr, IntegerAttr::get(i64Ty, stall));
+    if (stall > 0)
+      op->setAttr(reasonAttr, StringAttr::get(ctx, (reason + " full").str()));
+  }
+}
+
 LogicalResult
 LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
                                    SmallVectorImpl<int32_t> &sched) const {
@@ -700,6 +836,13 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
   int64_t burstCount = 0;
   QueueSimulator sim;
 
+  // Barrier-aware structural scheduling.
+  // Barrier bypass mode triggers when the next unscheduled barrier has no more
+  // unscheduled memory ops in its closure. We then skip the score-based loop
+  // barrier-first, then mfmas. This gives mfmas opportunities to hide the issue
+  // of post-barrier memory ops.
+  BarrierClosures barriers = BarrierClosures::create(schedGraph);
+
   // Track stall cycles and reasons for each operation.
   SmallVector<int64_t> stallCycles;
   SmallVector<StringRef> stallReasons;
@@ -709,17 +852,12 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
   // operations.
   auto schedFn = [&](ArrayRef<int32_t> ready, SetVector<int32_t> &indices) {
     int32_t bestIdx = -1;
-    int bestScore = std::numeric_limits<int>::min();
     bool hasImmSchedOp = false;
 
-    // Scoring: stall avoidance + latency-aware interleaving.
-    //
-    // 1. Stall avoidance: penalize ops that would stall on a full queue.
-    // 2. Interleaving bonus: prefer switching queues to overlap execution
-    //    (DS/VMEM -> XDL/VALU -> wait pattern).
+    // Trivial-op fast path: schedule all alloca/make_register/constant ops
+    // immediately so the scheduler sees the real frontier.
     for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
       Operation *op = schedGraph.getOp(ready[i]);
-      // Always schedule all trivial operations first.
       if (isa<AllocaOpInterface, MakeRegisterRangeOp, SplitRegisterRangeOp>(
               op) ||
           op->hasTrait<OpTrait::ConstantLike>()) {
@@ -727,34 +865,34 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
         stallCycles.push_back(0);
         stallReasons.push_back("");
         hasImmSchedOp = true;
-        continue;
       }
-      if (hasImmSchedOp)
-        continue;
+    }
+    if (hasImmSchedOp)
+      return;
 
-      // Compute the score for the current operation.
-      int32_t nodeId = ready[i];
-      int score = 0;
-      int64_t stall = sim.wouldStall(queueTypes[nodeId]);
-      if (stall > 0) {
-        int64_t cappedStall = std::min(stall, int64_t{32});
-        score -= static_cast<int>(cappedStall) * 10;
+    // Barrier-bypass mode.
+    int32_t nextBarrier = barriers.getNextUnscheduledBarrier();
+    if (nextBarrier >= 0 && barriers.unscheduledMemPreds[nextBarrier] == 0) {
+      for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
+        if (ready[i] == nextBarrier) {
+          bestIdx = i;
+          break;
+        }
       }
-      // Interleaving: prefer switching queues to overlap execution.
-      if (queueTypes[nodeId] != lastQueueType && burstCount > 0)
-        score += 50;
-
-      if (score > bestScore ||
-          (score == bestScore && nodeId < ready[bestIdx])) {
-        bestScore = score;
-        bestIdx = i;
+      if (bestIdx < 0) {
+        const DenseSet<int32_t> &closure = barriers.closure[nextBarrier];
+        for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
+          if (closure.contains(ready[i])) {
+            bestIdx = i;
+            break;
+          }
+        }
       }
     }
 
-    // If we have already scheduled all trivial operations, return. This allows
-    // to see farther in the graph.
-    if (hasImmSchedOp)
-      return;
+    // Scoring mode.
+    if (bestIdx < 0)
+      bestIdx = pickByScore(ready, sim, queueTypes, lastQueueType, burstCount);
 
     assert(bestIdx >= 0 && "schedFn must select a ready node");
 
@@ -763,6 +901,8 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
     int64_t stall = sim.issue(queueTypes[chosen], execLatencies[chosen]);
     stallCycles.push_back(stall);
     stallReasons.push_back(stall > 0 ? getQueueName(queueTypes[chosen]) : "");
+
+    barriers.markIssued(schedGraph, chosen);
 
     // Update the last scheduled queue type and burst count.
     if (queueTypes[chosen] == lastQueueType) {
@@ -780,28 +920,9 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
   if (failed(schedGraph.topologicalSched(schedFn, sched)))
     return failure();
 
-  // If not annotating stalls, return success.
-  if (!getAnnotateStalls())
-    return success();
+  // Annotate stalls for debugging purposes.
+  if (getAnnotateStalls())
+    annotateStalls(schedGraph, sched, stallCycles, stallReasons);
 
-  assert(stallCycles.size() == sched.size() &&
-         "sched and stallCycles must have the same size");
-  assert(stallReasons.size() == sched.size() &&
-         "sched and stallReasons must have the same size");
-
-  MLIRContext *ctx = schedGraph.getOp(0)->getContext();
-  auto stallAttr = StringAttr::get(ctx, "sched.stall_cycles");
-  auto reasonAttr = StringAttr::get(ctx, "sched.stall_reason");
-  auto i64Ty = IntegerType::get(ctx, 64);
-
-  // Annotate each scheduled op with stall cycles and reasons in schedule order.
-  for (size_t i = 0, n = sched.size(); i < n; ++i) {
-    Operation *op = schedGraph.getOp(sched[i]);
-    int64_t stall = stallCycles[i];
-    StringRef reason = stallReasons[i];
-    op->setAttr(stallAttr, IntegerAttr::get(i64Ty, stall));
-    if (stall > 0)
-      op->setAttr(reasonAttr, StringAttr::get(ctx, (reason + " full").str()));
-  }
   return success();
 }
