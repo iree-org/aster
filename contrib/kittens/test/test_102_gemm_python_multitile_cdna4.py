@@ -40,6 +40,7 @@ from kittens.gemm_config import (
     DIM_K,
     GemmSpec,
     GemmMappingSpec,
+    LoadType,
     OperandPath,
     WeakScaledMappedGemmInstance,
 )
@@ -501,12 +502,16 @@ class Cdna4GemmInstance(WeakScaledMappedGemmInstance):
 
     @classmethod
     def from_label(cls, label: str) -> "Cdna4GemmInstance":
-        suffix = "_cdna4"
-        if not label.endswith(suffix):
-            raise ValueError(f"Cannot parse CDNA4 label: {label}")
-        base = WeakScaledMappedGemmInstance.from_label(label[: -len(suffix)])
+        base = WeakScaledMappedGemmInstance.from_label(label)
+        assert base.mapping.load_type == LoadType.FLAT, (
+            f"CDNA4 kernel requires lt=flat; got load_type={base.mapping.load_type.value!r} from {label!r}"
+        )
+        assert base.mapping.operand_path in (OperandPath.DIRECT_B, OperandPath.LDS), (
+            f"CDNA4 kernel only supports operand_path in {{direct_b, lds}}; got "
+            f"{base.mapping.operand_path.value!r} from {label!r}"
+        )
         spec = GemmSpec.from_sizes(*base.gemm_size, mfma_shape=list(MFMA_F16_CDNA4.shape))
-        mapping = dataclasses.replace(base.mapping, mcpu="gfx950", dealloc_at_read=True)
+        mapping = dataclasses.replace(base.mapping, dealloc_at_read=True)
         return cls(spec, mapping)
 
 

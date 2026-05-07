@@ -38,30 +38,99 @@ from test_102_gemm_python_multitile_cdna4 import (
 from bench_harness import (
     add_sweep_cli_args,
     add_single_cli_args,
-    bench_perf_sweep_pipelined,
-    make_sweep_pins,
     require_gpu_or_compile_only,
     run_single,
     warn_mcpu_mismatch,
 )
-from bench_sweep_heuristic import add_heuristic_cli_args, make_score_fn
-from sweep_harness import (
-    GEMM_SWEEP_PIN_MAP,
+from bench_tier_driver import run_tier_mode
+from bench_tier_schedule import TierSpec, make_constraints
+from kittens_helpers import PIPELINE_STRATEGIES as PS
+from bench_search import (
     SweepGrid,
     add_gemm_sweep_axes,
-    add_geometry_pin_args,
     add_resource_filter,
     add_size_cli_args,
-    apply_wg_pin_filters,
     fits_on_cu_post_compile,
     hw_for_target,
     is_label,
     mapping_kwargs_from_sweep,
     nwgcu,
     parse_size_args,
-    resolve_derived_pins,
-    verify_top_configs,
+    wps,
 )
+
+
+# --- Tier schedule (policy) ---
+
+
+def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[str, ...]) -> list[TierSpec]:
+    return [
+        TierSpec(
+            tier_idx=1,
+            top_k_to_keep=4,
+            max_configs=max_configs,
+            random_seed=random_seed,
+            constraints=constraints,
+            axis_grid=dict(
+                wg_m=[8, 16, 19, 32, 38, 64, 76],
+                wg_n=[8, 16, 19, 32, 38, 64, 76],
+                waves_m=[1, 2, 4],
+                waves_n=[1, 2, 4, 8],
+                twg_m=[1, 4, 6, 8, 16],
+                twg_n=[1, 4, 6, 8, 16],
+                twg_k=[1, 2, 4],
+                occ=[1, 2, 3],
+                ps=[1, 3, 5, 7, 9],
+                unroll_factor_multiplier=[1, 2, 3],
+                ll_sched=[True, False],
+                rotate_compute_stage=[True, False],
+                hoist_wait=[True, False],
+                variant=[("direct_b", None), ("lds", None)],
+            ),
+            discriminator=("variant", "wg_m", "wg_n"),
+        ),
+        TierSpec(
+            tier_idx=2,
+            top_k_to_keep=4,
+            max_configs=max_configs,
+            random_seed=random_seed,
+            constraints=constraints,
+            axis_grid=dict(
+                ll_sched=[True, False],
+                rotate_compute_stage=[True, False],
+                hoist_wait=[True, False],
+                epilogue_peeling=[True, False],
+            ),
+            anchor_axes=dict(ll_sched=True, rotate_compute_stage=True),
+            discriminator="hoist_wait",
+        ),
+        TierSpec(
+            tier_idx=3,
+            top_k_to_keep=2,
+            max_configs=max_configs,
+            random_seed=random_seed,
+            constraints=constraints,
+            axis_grid=dict(
+                ll_sched=[True, False],
+                rotate_compute_stage=[True, False],
+                hoist_wait=[True, False],
+                epilogue_peeling=[True, False],
+            ),
+            anchor_axes=dict(ll_sched=True, rotate_compute_stage=True),
+            neighbor_radius=dict(
+                wg_m=1,
+                wg_n=1,
+                waves_m=1,
+                waves_n=1,
+                twg_m=1,
+                twg_n=1,
+                twg_k=1,
+                ps=1,
+                unroll_factor_multiplier=1,
+            ),
+            discriminator="ps",
+        ),
+    ]
 
 
 # --- Constants ---
@@ -75,10 +144,7 @@ _TILE_M, _TILE_N, _TILE_K = GemmMappingSpec.default_tile_elements(_MFMA_SHAPE)
 
 def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
-    _wg_m, rem_m = divmod(M, d["twg_m"] * _TILE_M)
-    _wg_n, rem_n = divmod(N, d["twg_n"] * _TILE_N)
-    assert rem_m == 0, f"M={M} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
-    assert rem_n == 0, f"N={N} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_N}"
+    _wg_m, _wg_n = d["wg_m"], d["wg_n"]
     _nwgcu = nwgcu(d, hw)
     spec = GemmSpec.from_sizes(M, N, K, mfma_shape=_MFMA_SHAPE)
     mapping = GemmMappingSpec(
@@ -88,7 +154,7 @@ def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
         pipeline_strategy=d["ps"],
         operand_path=OperandPath(d["variant"][0]),
         num_wg_per_cu=nwgcu(d, hw),
-        dealloc_at_read=True,
+        dealloc_at_read=d["dealloc_at_read"],
         mcpu=mcpu,
         **mapping_kwargs_from_sweep(d),
     )
@@ -96,10 +162,7 @@ def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
 
 
 def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
-    _wg_m, rem_m = divmod(d["target_M"], d["twg_m"] * _TILE_M)
-    _wg_n, rem_n = divmod(d["target_N"], d["twg_n"] * _TILE_N)
-    assert rem_m == 0, f"target_M={d['target_M']} not divisible by twg_m*tile_m={d['twg_m'] * _TILE_M}"
-    assert rem_n == 0, f"target_N={d['target_N']} not divisible by twg_n*tile_n={d['twg_n'] * _TILE_N}"
+    _wg_m, _wg_n = d["wg_m"], d["wg_n"]
     return GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
@@ -107,34 +170,133 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
         pipeline_strategy=d["ps"],
         operand_path=OperandPath(d["variant"][0]),
         num_wg_per_cu=nwgcu(d, hw),
-        lds_at_write=False,
-        dealloc_at_read=True,
+        lds_at_write=d["lds_at_write"],
+        dealloc_at_read=d["dealloc_at_read"],
         mcpu=mcpu,
     )
 
 
-def make_sweep_grid(
+def _make_grid(
+    *,
     variants: list[str],
     mcpu: str,
     hw,
     check_regs: bool = True,
-    *,
     target_m: int,
     target_n: int,
     target_k: int,
 ) -> SweepGrid:
+    """Return a fresh SweepGrid populated with this bench's axes + filters + builder."""
+    tile_m, tile_n, tile_k = _TILE_M, _TILE_N, _TILE_K
     grid = SweepGrid()
     # variant = (operand_path, load_type). Sweeps operand_path (lds / direct_b);
     # load_type is always flat for CDNA4, so the second slot is None.
     grid.axis("variant", [(v, None) for v in variants])
-    add_gemm_sweep_axes(grid, hw, [_TILE_M, _TILE_N, _TILE_K], target_m=target_m, target_n=target_n, target_k=target_k)
+    grid.axis("lds_at_write", [False])
+    grid.axis("dealloc_at_read", [True])
+    grid.axis("set_mfma_priority", [False])
+    add_gemm_sweep_axes(grid)
+    grid.restrict_axes(
+        {
+            "occ": [1],
+            "lcm_unroll": [True],
+            "prologue_peeling": [0],
+            "epilogue_peeling": [False, True],
+        }
+    )
+
+    grid.filter(
+        "lcm_unroll",
+        "unroll_factor_multiplier",
+        check=lambda d: d["lcm_unroll"] or d["unroll_factor_multiplier"] == 1,
+        name="unroll_multiplier_gt_1_implies_lcm_unroll",
+    )
+    grid.filter(
+        "waves_m",
+        "waves_n",
+        check=lambda d, ns=hw.num_simds: ns <= d["waves_m"] * d["waves_n"] <= 4 * ns
+        and (d["waves_m"] * d["waves_n"]) % ns == 0,
+        name="wave_pair_valid",
+    )
+    grid.filter(
+        "waves_m",
+        "waves_n",
+        "occ",
+        check=lambda d, h=hw: d["occ"] % wps(d, h) == 0,
+        name="occ_divisible_by_waves_per_simd",
+    )
+    grid.filter(
+        "waves_m",
+        "twg_m",
+        check=lambda d: d["twg_m"] % d["waves_m"] == 0,
+        name="twg_m_divisible_by_waves_m",
+    )
+    grid.filter(
+        "waves_n",
+        "twg_n",
+        check=lambda d: d["twg_n"] % d["waves_n"] == 0,
+        name="twg_n_divisible_by_waves_n",
+    )
+    grid.filter(
+        "target_M",
+        "wg_m",
+        "twg_m",
+        check=lambda d, t=tile_m: d["target_M"] == d["wg_m"] * d["twg_m"] * t,
+        name="target_M_divisible_by_twg_m_times_tile_m",
+    )
+    grid.filter(
+        "target_N",
+        "wg_n",
+        "twg_n",
+        check=lambda d, t=tile_n: d["target_N"] == d["wg_n"] * d["twg_n"] * t,
+        name="target_N_divisible_by_twg_n_times_tile_n",
+    )
+    grid.filter(
+        "target_K",
+        "twg_k",
+        check=lambda d, t=tile_k: d["target_K"] % (d["twg_k"] * t) == 0,
+        name="target_K_divisible_by_twg_k_times_tile_k",
+    )
+    _ps_max = {ps_id: max(stages.values()) for ps_id, stages in PS.items()}
+    grid.filter(
+        "target_K",
+        "twg_k",
+        "ps",
+        check=lambda d, t=tile_k, pm=_ps_max: d["target_K"] // (d["twg_k"] * t) > pm[d["ps"]],
+        name="k_iters_exceed_pipeline_max_stage",
+    )
+    grid.filter(
+        "twg_m",
+        "twg_n",
+        "twg_k",
+        check=lambda d: (d["twg_m"] * d["twg_n"] * d["twg_k"]) >= 48 and (d["twg_m"] * d["twg_n"] * d["twg_k"]) <= 256,
+        name="num_tiles_constrainted_in_48_256",
+    )
+    # Total wg count must be a multiple of CU count (avoids tail effects).
+    grid.filter(
+        "wg_m",
+        "wg_n",
+        check=lambda d, ncus=hw.num_cus: (d["wg_m"] * d["wg_n"]) % ncus == 0,
+        name="wg_count_multiple_of_cus",
+    )
 
     if check_regs:
         add_resource_filter(
             grid,
             hw,
             functools.partial(_mapping_for_resource_check, mcpu=mcpu, hw=hw),
-            deps=("variant", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
+            deps=(
+                "variant",
+                "waves_m",
+                "waves_n",
+                "occ",
+                "twg_m",
+                "twg_n",
+                "twg_k",
+                "ps",
+                "lds_at_write",
+                "dealloc_at_read",
+            ),
         )
 
     grid.build_with(functools.partial(_build_instance, mcpu=mcpu, hw=hw))
@@ -149,12 +311,29 @@ def _repro_cmd(cfg):
 
 
 def _from_label(label: str, mcpu: str) -> Cdna4GemmInstance:
+    """Accept the bench's `..._cdna4` label or a base CDNA3-format
+    `..._b_<path>_lt_<load>` label."""
+    if label.endswith("_cdna4"):
+        label = label[: -len("_cdna4")]
     cfg = Cdna4GemmInstance.from_label(label)
     cfg.mapping = dataclasses.replace(cfg.mapping, mcpu=mcpu)
     return cfg
 
 
 # --- Entry point ---
+
+
+_CDNA4_MCPU = "gfx950"
+
+
+def _require_cdna4_mcpu(parser: argparse.ArgumentParser, mcpu: str) -> None:
+    """Reject non-CDNA4 mcpu fast: this kernel uses ISA that does not encode on gfx94x."""
+    if mcpu != _CDNA4_MCPU:
+        parser.error(
+            f"--mcpu={mcpu} is not supported by this CDNA4 kernel "
+            f"(use --mcpu={_CDNA4_MCPU}; for CDNA3 / gfx94x labels run "
+            f"bench_perf_102_gemm_python_multitile.py instead)."
+        )
 
 
 def main():
@@ -164,6 +343,7 @@ def main():
         parser.add_argument("label", type=str, help="Config label from sweep output")
         add_single_cli_args(parser)
         args = parser.parse_args()
+        _require_cdna4_mcpu(parser, args.mcpu)
         warn_mcpu_mismatch(args.mcpu)
         require_gpu_or_compile_only(args)
         cfg = _from_label(args.label, args.mcpu)
@@ -172,10 +352,9 @@ def main():
 
     parser = argparse.ArgumentParser(description="CDNA4 G2S GEMM benchmark sweep (test_102_cdna4)")
     add_sweep_cli_args(parser)
-    add_geometry_pin_args(parser)
     add_size_cli_args(parser)
-    add_heuristic_cli_args(parser)
     args = parser.parse_args()
+    _require_cdna4_mcpu(parser, args.mcpu)
     warn_mcpu_mismatch(args.mcpu)
     require_gpu_or_compile_only(args)
 
@@ -191,45 +370,29 @@ def main():
         all_paths = ["lds"]
     print(f"Variants: {', '.join(all_paths)}")
 
-    pins = make_sweep_pins(args, GEMM_SWEEP_PIN_MAP)
-    pins = resolve_derived_pins(pins or {})
-
-    grid = make_sweep_grid(
-        all_paths,
-        args.mcpu,
-        hw,
-        check_regs=not getattr(args, "no_reg_filter", False),
+    grid_factory = functools.partial(
+        _make_grid,
+        mcpu=args.mcpu,
+        hw=hw,
         target_m=target_m,
         target_n=target_n,
         target_k=target_k,
-    )
-    apply_wg_pin_filters(grid, pins, _TILE_M, _TILE_N)
-
-    priority_fn = make_score_fn(args.mcpu, "102_cdna4") if getattr(args, "heuristic", False) else None
-    all_configs, total = grid.generate(
-        pins=pins or None,
-        sample_size=getattr(args, "compile_sample", 4096),
-        stratification_key=None if priority_fn is not None else (lambda d: (d["variant"], d["waves_m"], d["waves_n"])),
-        priority_fn=priority_fn,
+        variants=all_paths,
+        check_regs=not getattr(args, "no_reg_filter", False),
     )
 
-    results = bench_perf_sweep_pipelined(
-        configs=all_configs,
+    run_tier_mode(
+        args,
+        target_m=target_m,
+        target_n=target_n,
+        target_k=target_k,
+        grid_factory=grid_factory,
         compile_fn=compile_cdna4_gemm,
         repro_cmd_fn=_repro_cmd,
-        mcpu=args.mcpu,
-        num_gpus=0 if args.compile_only else args.num_gpus,
-        compile_workers=args.compile_workers,
-        compile_timeout=args.compile_timeout,
         post_compile_filter=fits_on_cu_post_compile,
-        zero_init=args.zero_init,
-        iterations=args.iterations,
+        bench_label="102_cdna4",
+        tier_schedule=make_tiered_schedule(args.compile_sample, args.seed, make_constraints(grid_factory())),
     )
-    results, hsaco_map = results
-    if not args.compile_only:
-        verify_top_configs(
-            results, hsaco_map, _repro_cmd, mcpu=args.mcpu, top_n=50, num_gpus=args.num_gpus, label="102_cdna4"
-        )
 
 
 if __name__ == "__main__":

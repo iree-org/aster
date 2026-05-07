@@ -5,6 +5,7 @@ Phase 2: Parallel GPU execution (per-config subprocess, crash-isolated).
 Phase 3: Correctness verification (per-config subprocess, crash-isolated).
 """
 
+import argparse
 import dataclasses
 import fcntl
 import json
@@ -24,7 +25,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 RESULT_SENTINEL = "BENCH_RESULT_JSON:"
-MI300X_PEAK_TFLOPS_F16 = 1307.0
+# Theoretical dense FP16 peak per AMD published specs.
+_PEAK_TFLOPS_F16_BY_MCPU: dict[str, float] = {
+    "gfx940": 980.6,  # MI300A
+    "gfx942": 1307.0,  # MI300X
+    "gfx950": 2500.0,  # MI350X
+    "gfx1201": 100.0,  # RDNA4 (RX 9070 XT class; not a primary GEMM target)
+}
+
+
+def peak_tflops_f16(mcpu: str) -> float:
+    return _PEAK_TFLOPS_F16_BY_MCPU[mcpu]
+
+
 NUM_ITERATIONS = 100
 WARMUP_ITERATIONS = 20
 DEFAULT_COMPILE_WORKERS = 8
@@ -34,60 +47,103 @@ DEFAULT_EXEC_TIMEOUT = 10  # seconds per kernel execution
 
 @dataclass(frozen=True)
 class PerfStats:
-    min_ns: float
+    p0_ns: float
+    p10_ns: float
+    p25_ns: float
+    p50_ns: float
+    p90_ns: float
     mean_ns: float
-    median_ns: float
+    stddev_ns: float
     total_flops: int
+    peak_tflops: float
 
     @property
-    def min_ms(self) -> float:
-        return self.min_ns / 1e6
+    def p0_ms(self) -> float:
+        return self.p0_ns / 1e6
+
+    @property
+    def p10_ms(self) -> float:
+        return self.p10_ns / 1e6
+
+    @property
+    def p25_ms(self) -> float:
+        return self.p25_ns / 1e6
+
+    @property
+    def p50_ms(self) -> float:
+        return self.p50_ns / 1e6
+
+    @property
+    def p90_ms(self) -> float:
+        return self.p90_ns / 1e6
 
     @property
     def mean_ms(self) -> float:
         return self.mean_ns / 1e6
 
     @property
-    def median_ms(self) -> float:
-        return self.median_ns / 1e6
+    def stddev_ms(self) -> float:
+        return self.stddev_ns / 1e6
 
     @property
-    def min_tf(self) -> float:
-        return self.total_flops / self.min_ns * 1e-3
+    def p0_tf(self) -> float:
+        return self.total_flops / self.p0_ns * 1e-3
+
+    @property
+    def p10_tf(self) -> float:
+        return self.total_flops / self.p10_ns * 1e-3
+
+    @property
+    def p25_tf(self) -> float:
+        return self.total_flops / self.p25_ns * 1e-3
+
+    @property
+    def p50_tf(self) -> float:
+        return self.total_flops / self.p50_ns * 1e-3
+
+    @property
+    def p90_tf(self) -> float:
+        return self.total_flops / self.p90_ns * 1e-3
 
     @property
     def mean_tf(self) -> float:
         return self.total_flops / self.mean_ns * 1e-3
 
     @property
-    def median_tf(self) -> float:
-        return self.total_flops / self.median_ns * 1e-3
+    def p0_pct(self) -> float:
+        return self.p0_tf / self.peak_tflops * 100
 
     @property
-    def min_pct(self) -> float:
-        return self.min_tf / MI300X_PEAK_TFLOPS_F16 * 100
+    def p50_pct(self) -> float:
+        return self.p50_tf / self.peak_tflops * 100
 
     @property
     def mean_pct(self) -> float:
-        return self.mean_tf / MI300X_PEAK_TFLOPS_F16 * 100
-
-    @property
-    def median_pct(self) -> float:
-        return self.median_tf / MI300X_PEAK_TFLOPS_F16 * 100
+        return self.mean_tf / self.peak_tflops * 100
 
 
-def _compute_stats(post_warmup: Sequence[float], total_flops: int) -> Optional[PerfStats]:
-    """Reduce post-warmup timings (ns) to min/mean/median.
+def _percentile_ns(sorted_times: Sequence[float], pct: float) -> float:
+    """Nearest-rank percentile on a sorted list."""
+    n = len(sorted_times)
+    idx = max(0, min(n - 1, int(round(pct / 100.0 * (n - 1)))))
+    return float(sorted_times[idx])
 
-    Returns None if invalid.
-    """
+
+def _compute_stats(post_warmup: Sequence[float], total_flops: int, peak_tflops: float) -> Optional[PerfStats]:
+    """Reduce post-warmup timings (ns) to p0/p10/p25/p50/p90/mean/stddev."""
     if not post_warmup or min(post_warmup) <= 0:
         return None
+    times = sorted(float(t) for t in post_warmup)
     return PerfStats(
-        min_ns=float(min(post_warmup)),
-        mean_ns=float(statistics.fmean(post_warmup)),
-        median_ns=float(statistics.median(post_warmup)),
+        p0_ns=times[0],
+        p10_ns=_percentile_ns(times, 10),
+        p25_ns=_percentile_ns(times, 25),
+        p50_ns=_percentile_ns(times, 50),
+        p90_ns=_percentile_ns(times, 90),
+        mean_ns=float(statistics.fmean(times)),
+        stddev_ns=float(statistics.stdev(times)) if len(times) > 1 else 0.0,
         total_flops=int(total_flops),
+        peak_tflops=peak_tflops,
     )
 
 
@@ -876,13 +932,13 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
                 failed.append((cfg, err or "unknown"))
             else:
                 post_warmup = times[WARMUP_ITERATIONS:]
-                stats = _compute_stats(post_warmup, cfg.total_flops)
+                stats = _compute_stats(post_warmup, cfg.total_flops, peak_tflops_f16(cfg.mapping.mcpu))
                 if stats is None:
                     failed.append((cfg, "no valid measurements"))
                     continue
                 results.append((cfg, stats))
-                if stats.median_tf > best_tf:
-                    best_tf = stats.median_tf
+                if stats.p50_tf > best_tf:
+                    best_tf = stats.p50_tf
             pbar.update(1)
             pbar.set_postfix_str(f"best p50 {best_tf:.1f} TF, fail={len(failed)}")
     except KeyboardInterrupt:
@@ -994,16 +1050,18 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
 
 def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
     """Print sweep summary and save result/error files (shared by both sweep modes)."""
-    # Sort by p50 (median) TF/s -- robust to single fast outliers, headline metric.
-    results.sort(key=lambda r: r[1].median_tf, reverse=True)
+    # Sort by p50 TF/s -- robust to single fast outliers, headline metric.
+    results.sort(key=lambda r: r[1].p50_tf, reverse=True)
     saved_files = []
 
     if results:
         lines = []
         for i, (c, s) in enumerate(results):
             line = (
-                f"#{i + 1:>3} p50={s.median_tf:>6.1f}TF ({s.median_pct:>4.1f}%) "
-                f"{s.median_ms:>7.2f}ms | min/mean/p50={s.min_tf:>6.1f}/{s.mean_tf:>6.1f}/{s.median_tf:>6.1f}TF "
+                f"#{i + 1:>3} p50={s.p50_tf:>6.1f}TF ({s.p50_pct:>4.1f}%) "
+                f"{s.p50_ms:>7.2f}ms | "
+                f"p0/p10/p25/p50/p90={s.p0_tf:>6.1f}/{s.p10_tf:>6.1f}/{s.p25_tf:>6.1f}/{s.p50_tf:>6.1f}/{s.p90_tf:>6.1f}TF "
+                f"mean={s.mean_tf:>6.1f}TF stddev={s.stddev_ms:>5.3f}ms "
                 f"{c.label}"
             )
             if repro_cmd_fn:
@@ -1030,8 +1088,9 @@ def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
         print(f"Top {top_n} (sorted by p50 TF):")
         for i, (c, s) in enumerate(results[:top_n]):
             print(
-                f"  #{i + 1} {c.label}: {s.median_tf:.1f} TF p50 ({s.median_pct:.1f}%) "
-                f"| min/mean/p50={s.min_tf:.1f}/{s.mean_tf:.1f}/{s.median_tf:.1f}"
+                f"  #{i + 1} {c.label}: {s.p50_tf:.1f} TF p50 ({s.p50_pct:.1f}%) "
+                f"| p0/p10/p25/p50/p90={s.p0_tf:.1f}/{s.p10_tf:.1f}/{s.p25_tf:.1f}/{s.p50_tf:.1f}/{s.p90_tf:.1f} "
+                f"mean={s.mean_tf:.1f} stddev_ms={s.stddev_ms:.3f}"
             )
     if saved_files:
         print("\nSaved files:")
@@ -1047,7 +1106,7 @@ def _drain_exec_results(result_q, cfg_by_label, results, exec_failed):
     import queue as _qm
 
     n = 0
-    best_tf = max((r[1].median_tf for r in results), default=0.0)
+    best_tf = max((r[1].p50_tf for r in results), default=0.0)
     while not result_q.empty():
         try:
             label_r, times, err = result_q.get_nowait()
@@ -1061,11 +1120,11 @@ def _drain_exec_results(result_q, cfg_by_label, results, exec_failed):
             exec_failed.append((c, err or "unknown"))
         else:
             post_warmup = times[WARMUP_ITERATIONS:]
-            stats = _compute_stats(post_warmup, c.total_flops)
+            stats = _compute_stats(post_warmup, c.total_flops, peak_tflops_f16(c.mapping.mcpu))
             if stats is not None:
                 results.append((c, stats))
-                if stats.median_tf > best_tf:
-                    best_tf = stats.median_tf
+                if stats.p50_tf > best_tf:
+                    best_tf = stats.p50_tf
     return n, best_tf
 
 
@@ -1598,34 +1657,44 @@ def run_single(cfg, compile_fn, args, execute_fn):
                 f"use a number > {WARMUP_ITERATIONS} e.g. --iterations=100"
             )
             return
-        s = _compute_stats(measured, cfg.total_flops)
+        s = _compute_stats(measured, cfg.total_flops, peak_tflops_f16(cfg.mapping.mcpu))
         if s is None:
             print(f"\nInvalid timings (min={min(measured) if measured else 'n/a'} ns)")
             return
         print(
-            f"\np50 (headline): {s.median_ms:>7.2f} ms  {s.median_tf:>7.1f} TFLOPS  ({s.median_pct:.1f}% peak)\n"
-            f"min:            {s.min_ms:>7.2f} ms  {s.min_tf:>7.1f} TFLOPS  ({s.min_pct:.1f}% peak)\n"
-            f"mean:           {s.mean_ms:>7.2f} ms  {s.mean_tf:>7.1f} TFLOPS  ({s.mean_pct:.1f}% peak)"
-        )
-        print(
             RESULT_SENTINEL
             + json.dumps(
                 {
-                    "min_ms": s.min_ms,
+                    "p0_ms": s.p0_ms,
+                    "p10_ms": s.p10_ms,
+                    "p25_ms": s.p25_ms,
+                    "p50_ms": s.p50_ms,
+                    "p90_ms": s.p90_ms,
                     "mean_ms": s.mean_ms,
-                    "median_ms": s.median_ms,
-                    "tflops_min": s.min_tf,
+                    "stddev_ms": s.stddev_ms,
+                    "tflops_p0": s.p0_tf,
+                    "tflops_p10": s.p10_tf,
+                    "tflops_p25": s.p25_tf,
+                    "tflops_p50": s.p50_tf,
+                    "tflops_p90": s.p90_tf,
                     "tflops_mean": s.mean_tf,
-                    "tflops_median": s.median_tf,
-                    "pct_peak_min": s.min_pct,
+                    "pct_peak_p0": s.p0_pct,
+                    "pct_peak_p50": s.p50_pct,
                     "pct_peak_mean": s.mean_pct,
-                    "pct_peak_median": s.median_pct,
                     "times_ms": [t / 1e6 for t in times_ns],
                 }
             )
         )
+        print("\n--- Summary ---")
+        print(f"  {'metric':<8s}  {'ms':>10s}  {'TFLOPS':>10s}  {'% peak':>8s}")
+        print(f"  {'p0':<8s}  {s.p0_ms:>10.4f}  {s.p0_tf:>10.1f}  {s.p0_pct:>7.1f}%")
+        print(f"  {'p10':<8s}  {s.p10_ms:>10.4f}  {s.p10_tf:>10.1f}  {'':>8s}")
+        print(f"  {'p25':<8s}  {s.p25_ms:>10.4f}  {s.p25_tf:>10.1f}  {'':>8s}")
+        print(f"  {'p50':<8s}  {s.p50_ms:>10.4f}  {s.p50_tf:>10.1f}  {s.p50_pct:>7.1f}%")
+        print(f"  {'p90':<8s}  {s.p90_ms:>10.4f}  {s.p90_tf:>10.1f}  {'':>8s}")
+        print(f"  {'mean':<8s}  {s.mean_ms:>10.4f}  {s.mean_tf:>10.1f}  {s.mean_pct:>7.1f}%")
+        print(f"  {'stddev':<8s}  {s.stddev_ms:>10.4f}  {'':>10s}  {'':>8s}")
 
-        # Correctness: verify against numpy reference.
         print("\n--- Correctness check ---")
         A, B = make_inputs(cfg)
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
@@ -1664,7 +1733,8 @@ def add_sweep_cli_args(parser):
         "the host has no matching GPU -- without it the bench fails hard "
         "so the user is not silently left with zero measurements.",
     )
-    a("--compile-sample", type=int, default=4096, help="Configs to compile (0=all)")
+    a("--compile-sample", type=int, default=512, help="Configs to compile per tier (0=all)")
+    a("--seed", type=int, default=42, help="Random seed for tier sampling (search across iterations)")
     a("--num-gpus", type=int, default=None, help="GPUs (default: auto)")
     a("--compile-workers", type=int, default=DEFAULT_COMPILE_WORKERS)
     a(
@@ -1688,6 +1758,7 @@ def add_sweep_cli_args(parser):
         "Isolates power throttling: zeros avoid FP denormal handling "
         "and reduce switching activity, giving a power-neutral baseline.",
     )
+    a("--direct-b", action=argparse.BooleanOptionalAction, default=None, help="B operand via preshuffle (direct_b)")
 
 
 def add_single_cli_args(parser):
