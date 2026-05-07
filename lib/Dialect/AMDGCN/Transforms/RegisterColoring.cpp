@@ -9,7 +9,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
-#include "aster/Dialect/AMDGCN/Analysis/ReachingDefinitions.h"
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
@@ -674,13 +673,13 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
   if (failed(rangeAnalysis))
     return funcOp.emitError() << "failed to run range constraint analysis";
 
-  // Create the dataflow solver and load the liveness analysis.
+  // Create the dataflow solver but don't run an analysis.
+  // The coalescing-priority query in OptimizeInterferenceGraph::collectMov is
+  // answered on demand via/ hasReachingLoadDefinition (per-MOV backwards walk),
+  // eliminating the global dataflow fixpoint that previously dominated compile
+  // time.
   SymbolTableCollection symbolTable;
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
-  auto definitionFilter = [](Operation *op) {
-    return isa<LoadOpInterface>(op);
-  };
-  solver.load<ReachingDefinitionsAnalysis>(definitionFilter);
 
   // Create the interference graph.
   FailureOr<RegisterInterferenceGraph> graph =

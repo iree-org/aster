@@ -291,9 +291,10 @@ void ConvertSCFControlFlow::runOnOperation() {
     }
   });
 
-  // Set post-condition: no SCF ops remain.
+  // Set post-condition: no nested-region ops remain inside the kernel body.
   if (auto kernelOp = dyn_cast<amdgcn::KernelOp>(op))
-    kernelOp.addNormalForms({amdgcn::NoScfOpsAttr::get(op->getContext())});
+    kernelOp.addNormalForms(
+        {amdgcn::NoOpWithRegionsAttr::get(op->getContext())});
 }
 
 } // namespace

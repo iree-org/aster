@@ -18,6 +18,7 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -293,18 +294,22 @@ LogicalResult NoLsirControlOpsAttr::verifyOperation(
 }
 
 //===----------------------------------------------------------------------===//
-// NoScfOpsAttr
+// NoOpWithRegionsAttr
 //===----------------------------------------------------------------------===//
 
-LogicalResult
-NoScfOpsAttr::verifyOperation(function_ref<InFlightDiagnostic()> emitError,
-                              Operation *op) const {
-  if (op->getDialect() && op->getDialect()->getNamespace() == "scf")
-    return emitError() << "normal form violation: SCF dialect operations "
-                          "are disallowed but found: "
-                       << op->getName();
-
-  return success();
+LogicalResult NoOpWithRegionsAttr::verifyOperation(
+    function_ref<InFlightDiagnostic()> emitError, Operation *op) const {
+  if (op->getNumRegions() == 0)
+    return success();
+  // Container ops (modules, kernels, func.func) carry their own bodies and
+  // are not control-flow region constructs -- skip them. The forbidden set
+  // is exactly `RegionBranchOpInterface` (scf.for, scf.if, scf.while,
+  // affine.for, affine.if, ...) which model intra-op control flow.
+  if (!isa<RegionBranchOpInterface>(op))
+    return success();
+  return emitError() << "normal form violation: ops with nested regions "
+                        "are disallowed but found: "
+                     << op->getName();
 }
 
 //===----------------------------------------------------------------------===//
