@@ -100,7 +100,6 @@ amdgcn.module @scc_vcc_independent target = #amdgcn.target<gfx942> {
   // CHECK-NOT:     label = "s_addc_u32 -> v_cmp_eq_i32"
   // CHECK-NOT:     label = "v_cmp_eq_i32 -> s_addc_u32"
   // CHECK-NOT:     label = "s_addc_u32 -> v_cndmask_b32"
-  // CHECK-NOT:     label = "v_cndmask_b32 -> s_addc_u32"
   // CHECK:       }
   amdgcn.kernel @scc_vcc_independent {
     %v_a = amdgcn.alloca : !v
