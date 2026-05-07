@@ -89,15 +89,13 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
     // If the operation has no side-effect we need to treat it as a possible
     // sync point. Same for non-pure operations.
     //
-    // Exclude SOP2 SALU arithmetic ops (s_add_*, ...) and VALU arithmetic ops
-    // (v_add_*, ...) from sync points. The implicit read/write effects on
-    // architectural registers SCC/VCC are captured by the RAW/WAR edges
-    // added in buildNonSSADeps. Treating as fences would serialize
-    // independent arithmetic chains.
+    // Exclude SOP2 SALU arithmetic ops (s_add_*, ...) arithmetic ops from sync
+    // points. The implicit read/write effects on architectural registers SCC
+    // are captured by the RAW/WAR edges added in buildNonSSADeps.
+    // Treating as fences would serialize independent arithmetic chains.
     bool isReorderableArith = false;
     if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
-      isReorderableArith =
-          instOp.hasAnyProps({InstProp::Sop2, InstProp::IsValu});
+      isReorderableArith = instOp.hasAnyProps({InstProp::Sop2});
     if ((!hasEffects || !mlir::isPure(op)) && !isReorderableArith &&
         !isa<LoadOpInterface, StoreOpInterface, AllocaOpInterface>(op)) {
       LDBG() << "Adding sync point: " << i;
