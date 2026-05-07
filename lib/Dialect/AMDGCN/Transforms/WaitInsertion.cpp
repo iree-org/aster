@@ -132,9 +132,8 @@ void WaitTransformImpl::collectDefinitions(InstOpInterface instOp) {
       assert(succeeded(allocasOrFailure) &&
              "expected to find allocas for operand in reaching definitions");
       for (Value alloc : *allocasOrFailure) {
-        for (Definition definition : reachingDefinitions->getRange(alloc))
-          definitions.insert(
-              cast<FutureOpInterface>(definition.definition->getOwner()));
+        for (OpOperand *opnd : reachingDefinitions->getRange(alloc))
+          definitions.insert(cast<FutureOpInterface>(opnd->getOwner()));
       }
     }
   };

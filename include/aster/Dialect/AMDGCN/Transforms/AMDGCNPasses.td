@@ -94,8 +94,11 @@ def RegisterColoring : Pass<"amdgcn-register-coloring"> {
     to determine live ranges, create the interference graph, and assign registers
     accordingly. This pass should run after bufferization and to-register-semantics.
 
-    Pre-condition: #amdgcn.no_value_semantic_registers
+    Pre-condition: #amdgcn.no_value_semantic_registers, #amdgcn.no_op_with_regions
     Post-condition: #amdgcn.all_registers_allocated
+
+    `#amdgcn.no_op_with_regions` is required: we avoid the expensive dataflow-framework
+    for on-demand reaching analysis and implement a simple flat-CFG traversal.
   }];
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
   let options = [
@@ -322,7 +325,7 @@ def ConvertSCFControlFlow : Pass<"amdgcn-convert-scf-control-flow"> {
     This pass should run after the ABI has been set and before register
     allocation.
 
-    Post-condition: #amdgcn.no_scf_ops
+    Post-condition: #amdgcn.no_op_with_regions
   }];
   let dependentDialects = [
     "mlir::aster::amdgcn::AMDGCNDialect",
@@ -406,7 +409,7 @@ def SetNormalForms : Pass<"amdgcn-set-normal-forms"> {
     on all subsequent passes.
 
     Example usage:
-      amdgcn-set-normal-forms{module-forms=no_lsir_ops kernel-forms=no_scf_ops}
+      amdgcn-set-normal-forms{module-forms=no_lsir_ops kernel-forms=no_op_with_regions}
   }];
   let dependentDialects = ["mlir::aster::amdgcn::AMDGCNDialect"];
   let options = [

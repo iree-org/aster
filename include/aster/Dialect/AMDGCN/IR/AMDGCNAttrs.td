@@ -399,15 +399,20 @@ def NoCfBranchesAttr : AMDGCN_Attr<
   }];
 }
 
-def NoScfOpsAttr : AMDGCN_Attr<
-    "NoScfOps", "no_scf_ops",
+def NoOpWithRegionsAttr : AMDGCN_Attr<
+    "NoOpWithRegions", "no_op_with_regions",
     [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["verifyOperation"]>]> {
-  let summary = "Normal form: no SCF dialect operations";
+  let summary = "Normal form: no control-flow region operations";
   let description = [{
-    Verifies that no SCF dialect operations (`scf.for`, `scf.if`, `scf.while`,
-    etc.) exist in the IR. This is the post-condition of the
-    `amdgcn-convert-scf-control-flow` pass, which lowers SCF structured
-    control flow to CF dialect branches and AMDGCN compare instructions.
+    Verifies that no `RegionBranchOpInterface` operation exists inside the
+    annotated scope. Concretely forbids `scf.for`, `scf.if`, `scf.while`,
+    `affine.for`, `affine.if`, and any other op that models intra-op
+    control flow via nested regions. This is the post-condition of the
+    `amdgcn-convert-scf-control-flow` pass.
+
+    Implies a flat-CFG structure where `Block::getPredecessors()` is the
+    complete predecessor set, enabling cheaper backwards analyses (see
+    `key_insights/control-flow-traversal-forms.md`).
   }];
 }
 

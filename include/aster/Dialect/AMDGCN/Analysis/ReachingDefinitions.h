@@ -22,9 +22,11 @@
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 #include <functional>
-#include <set>
 #include <utility>
 
 namespace mlir::aster {
@@ -34,52 +36,16 @@ class SSAMap;
 namespace mlir::aster::amdgcn {
 
 //===----------------------------------------------------------------------===//
-// Definition
-//===----------------------------------------------------------------------===//
-
-/// A reaching definition.
-struct Definition {
-  Value allocation;
-  OpOperand *definition;
-
-  Definition(Value allocation, OpOperand &definition)
-      : Definition(allocation, &definition) {
-    assert(allocation && "Allocation must be non-null");
-  }
-
-  /// Create a lower bound definition for the given allocation.
-  static Definition createLowerBound(Value allocation) {
-    return Definition{allocation, nullptr};
-  }
-
-  /// Create an upper bound definition for the given allocation. Note that this
-  /// is not a valid deffinition and using it for other purposes will result in
-  /// undefined behavior.
-  static Definition createUpperBound(Value allocation) {
-    return Definition{
-        Value::getFromOpaquePointer(
-            reinterpret_cast<int8_t *>(allocation.getAsOpaquePointer()) + 1),
-        nullptr};
-  }
-
-  bool operator<(const Definition &other) const {
-    return std::make_pair(allocation.getAsOpaquePointer(), definition) <
-           std::make_pair(other.allocation.getAsOpaquePointer(),
-                          other.definition);
-  }
-
-private:
-  Definition(Value allocation, OpOperand *definition)
-      : allocation(allocation), definition(definition) {}
-};
-
-//===----------------------------------------------------------------------===//
 // ReachingDefinitionsState
 //===----------------------------------------------------------------------===//
 
-/// Lattice element: set of reaching definitions at a program point.
+/// Lattice element: per-allocation buckets of `OpOperand*` writers reaching a
+/// program point.
 struct ReachingDefinitionsState : dataflow::AbstractDenseLattice {
-  using DefinitionSet = std::set<Definition>;
+  // Perf note: consider SmallSetVector if default bucket size increases.
+  // Inline-2 buckets cover the common 1-2 reaching writers per allocation.
+  using BucketTy = SmallVector<OpOperand *, 2>;
+  using MapTy = DenseMap<Value, BucketTy>;
 
   ReachingDefinitionsState(LatticeAnchor anchor)
       : AbstractDenseLattice(anchor) {}
@@ -94,7 +60,7 @@ struct ReachingDefinitionsState : dataflow::AbstractDenseLattice {
   ChangeResult killDefinitions(Value allocation);
 
   /// Add a definition.
-  ChangeResult addDefinition(Definition definition);
+  ChangeResult addDefinition(Value allocation, OpOperand *definition);
 
   /// Print the state.
   void print(raw_ostream &os) const override;
@@ -104,10 +70,6 @@ struct ReachingDefinitionsState : dataflow::AbstractDenseLattice {
   void print(raw_ostream &os, const mlir::aster::SSAMap &ssaMap,
              const DominanceInfo &dominance) const;
 
-  /// Get the set of definitions.
-  const DefinitionSet &getDefinitions() const { return definitions; }
-
-  /// Set the state to the entry state.
   ChangeResult setToEntryState() {
     if (definitions.empty())
       return ChangeResult::NoChange;
@@ -115,16 +77,16 @@ struct ReachingDefinitionsState : dataflow::AbstractDenseLattice {
     return ChangeResult::Change;
   }
 
-  /// Get the range of definitions for the given allocation.
-  llvm::iterator_range<DefinitionSet::const_iterator>
-  getRange(Value allocation) const {
-    auto lb = definitions.lower_bound(Definition::createLowerBound(allocation));
-    auto ub = definitions.upper_bound(Definition::createUpperBound(allocation));
-    return llvm::make_range(lb, ub);
+  /// Writers reaching `allocation`, or empty if none.
+  ArrayRef<OpOperand *> getRange(Value allocation) const {
+    auto it = definitions.find(allocation);
+    if (it == definitions.end())
+      return {};
+    return it->second;
   }
 
 private:
-  DefinitionSet definitions;
+  MapTy definitions;
 };
 
 //===----------------------------------------------------------------------===//
@@ -194,6 +156,14 @@ private:
   /// invoked before adding new definitions by the operation.
   llvm::function_ref<LogicalResult(InstOpInterface, KillDefsFn)> killCallback;
 };
+
+//===----------------------------------------------------------------------===//
+// On-demand backwards reachability query
+//===----------------------------------------------------------------------===//
+
+/// Returns true if some path from the function entry to `mov` has its
+/// most-recent writer of `allocation` come from a `LoadOpInterface` op.
+bool hasReachingLoadDefinition(Operation *mov, Value allocation);
 
 } // end namespace mlir::aster::amdgcn
 

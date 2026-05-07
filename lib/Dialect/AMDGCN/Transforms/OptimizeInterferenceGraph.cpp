@@ -83,18 +83,12 @@ LogicalResult OptimizeGraphImpl::collectMov(Operation *op,
   if (failed(tgtAlloc))
     return failure();
 
-  int32_t priority = 1;
-
-  // If the source allocation has load reaching definitions, set the priority to
-  // 0. Moves with lower priority are coalesced first.
-  const auto *reachingDefs = solver.lookupState<ReachingDefinitionsState>(
-      solver.getProgramPointBefore(op));
-  if (reachingDefs && llvm::any_of(*srcAlloc, [&](Value value) {
-        auto range = reachingDefs->getRange(value);
-        return range.begin() != range.end();
-      })) {
-    priority = 0;
-  }
+  // Bias coalescing toward MOVs whose source was just loaded from memory.
+  int32_t priority =
+      llvm::any_of(*srcAlloc,
+                   [&](Value v) { return hasReachingLoadDefinition(op, v); })
+          ? 0
+          : 1;
 
   movOps.push_back({op, *srcAlloc, *tgtAlloc, priority});
   return success();
