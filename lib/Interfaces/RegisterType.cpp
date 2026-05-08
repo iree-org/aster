@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Interfaces/RegisterType.h"
+#include "llvm/ADT/StringExtras.h"
 
 #include "aster/Interfaces/RegisterSemantics.cpp.inc"
 
