@@ -151,7 +151,7 @@ func.func @alloca_composite_vcc() {
 // -----
 
 func.func @alloca_composite_exec() {
-  // expected-error@+1 {{'amdgcn.alloca' op result #0 must be allocatable register like type, but got '!amdgcn.exec'}}
+  // expected-error@+2 {{exec does not accept value semantics}}
   %0 = amdgcn.alloca : !amdgcn.exec
   return
 }

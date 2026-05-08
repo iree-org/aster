@@ -143,6 +143,44 @@ LogicalResult verifyRegisterRange(function_ref<InFlightDiagnostic()> emitError,
 }
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// SREG type verification
+//===----------------------------------------------------------------------===//
+
+static LogicalResult
+verifySRegSemantics(function_ref<InFlightDiagnostic()> emitError, Register reg,
+                    RegisterProps props, StringRef name) {
+  RegisterSemantics sem = reg.getSemantics();
+  if (sem == RegisterSemantics::Value &&
+      !bitEnumContainsAll(props, RegisterProps::AcceptsValueSemantics))
+    return emitError() << name << " does not accept value semantics";
+  if (sem == RegisterSemantics::Unallocated &&
+      !bitEnumContainsAll(props, RegisterProps::AcceptsUnallocatedSemantics))
+    return emitError() << name << " does not accept unallocated semantics";
+  return success();
+}
+
+#define SREG_VERIFY(TypeName, Name)                                            \
+  LogicalResult TypeName::verify(function_ref<InFlightDiagnostic()> emitError, \
+                                 Register reg) {                               \
+    return verifySRegSemantics(emitError, reg, kRegisterProps, Name);          \
+  }
+
+SREG_VERIFY(VCCType, "vcc")
+SREG_VERIFY(VCCLoType, "vcc_lo")
+SREG_VERIFY(VCCHiType, "vcc_hi")
+SREG_VERIFY(VCCZType, "vccz")
+SREG_VERIFY(EXECType, "exec")
+SREG_VERIFY(EXECLoType, "exec_lo")
+SREG_VERIFY(EXECHiType, "exec_hi")
+SREG_VERIFY(EXECZType, "execz")
+SREG_VERIFY(M0Type, "m0")
+SREG_VERIFY(SCCType, "scc")
+
+#undef SREG_VERIFY
+
+//===----------------------------------------------------------------------===//
+
 bool mlir::aster::amdgcn::compareLessAMDGCNRegisterTypes(
     AMDGCNRegisterTypeInterface lhs, AMDGCNRegisterTypeInterface rhs) {
   if (lhs.getRegisterKind() != rhs.getRegisterKind())
