@@ -51,6 +51,24 @@ def RegisterTypeInterface : TypeInterface<"RegisterTypeInterface", [
         Returns the properties of the register type.
       }],
       "::mlir::aster::RegisterProps", "getProps"
+    >,
+    InterfaceMethod<[{
+        Returns the composite register type formed by combining this register
+        with `types`. `alignment` controls the range alignment (nullopt means
+        natural). Returns nullptr on failure.
+      }],
+      "::mlir::aster::RegisterTypeInterface", "getCompositeType",
+      (ins "::mlir::TypeRange":$types,
+           "std::optional<int16_t>":$alignment,
+           "::llvm::function_ref<::mlir::InFlightDiagnostic()>":$emitError)
+    >,
+    InterfaceMethod<[{
+        Splits this composite register into its constituent single-register
+        parts. Returns failure if not splittable.
+      }],
+      "::mlir::LogicalResult", "getSplitType",
+      (ins "::llvm::SmallVectorImpl<::mlir::aster::RegisterTypeInterface> &":$regs,
+           "::llvm::function_ref<::mlir::InFlightDiagnostic()>":$emitError)
     >
   ];
   let extraTraitClassDeclaration = [{

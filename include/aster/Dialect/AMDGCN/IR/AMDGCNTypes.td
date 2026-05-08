@@ -63,6 +63,12 @@ def GPRegTrait : NativeTypeTrait<"GPRegTrait"> {
         return props | RegisterProps::IsComposite;
       return props | RegisterProps::AcceptsComposite;
     }
+    RegisterTypeInterface getCompositeType(TypeRange types,
+        std::optional<int16_t> alignment,
+        llvm::function_ref<InFlightDiagnostic()> emitError) const;
+    LogicalResult getSplitType(
+        SmallVectorImpl<RegisterTypeInterface> &regs,
+        llvm::function_ref<InFlightDiagnostic()> emitError) const;
 
     //===------------------------------------------------------------------===//
     // ResourceTypeInterface
@@ -139,6 +145,12 @@ def SpecialRegTrait : NativeTypeTrait<"SpecialRegTrait"> {
              RegisterProps::AcceptsUnallocatedSemantics |
              RegisterProps::AcceptsAllocatedSemantics;
     }
+    RegisterTypeInterface getCompositeType(TypeRange types,
+        std::optional<int16_t> alignment,
+        llvm::function_ref<InFlightDiagnostic()> emitError) const;
+    LogicalResult getSplitType(
+        SmallVectorImpl<RegisterTypeInterface> &regs,
+        llvm::function_ref<InFlightDiagnostic()> emitError) const;
 
     //===------------------------------------------------------------------===//
     // AMDGCNRegisterTypeInterface
