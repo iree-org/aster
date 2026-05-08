@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     cli.add_filter_args(p, mcpu_required=True, bench_required=True)
     cli.add_best_known_arg(p)
-    cli.add_compile_args(p)
+    cli.add_compile_args(p, iterations_default=cli.DEFAULT_PERF_ITERATIONS)
     cli.add_apply_arg(p)
     cli.add_dry_run_arg(
         p,

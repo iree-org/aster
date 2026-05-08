@@ -153,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     cli.add_filter_args(p)
     cli.add_best_known_arg(p)
-    cli.add_compile_args(p)
+    cli.add_compile_args(p, iterations_default=cli.DEFAULT_PERF_ITERATIONS)
     cli.add_jsonl_output_arg(p)
     args = p.parse_args(argv)
     data = bk.load(args.best_known_file)

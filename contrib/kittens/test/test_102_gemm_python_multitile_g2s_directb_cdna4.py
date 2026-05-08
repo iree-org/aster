@@ -319,6 +319,14 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
             nf = n_frags_per_tile
             assert nf == 2, f"CDNA4 expects 2 vx2 frags per tile, got {nf}"
 
+            # Coarse wait at the top of STG_COMPUTE: gate on ALL LDS-read tokens
+            # at once so the LL scheduler can freely reorder MFMAs and mem ops.
+            # Mirrors CDNA3 commit 199a083a and the sibling test_102_..._cdna4
+            # files (directb / g2s_lds / lds).
+            all_a_tokens = [b.memref_load(rtok_buf_a, b.constant_index(i)) for i in range(k_t * m_t * nf)]
+            all_b_tokens = [b.memref_load(rtok_buf_b, b.constant_index(i)) for i in range(k_t * n_t * nf)]
+            b.wait_deps(*all_a_tokens, *all_b_tokens)
+
             @b.foreach_tile(k_t * m_t * n_t)
             def _(idx):
                 kt, mt, nt = b.delinearize_index(idx, (k_t, m_t, n_t))
@@ -327,12 +335,6 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
                 a_hi_i = b.linearize_index((kt, mt, b.constant_index(1)), (k_t, m_t, nf))
                 b_lo_i = b.linearize_index((kt, nt, b.constant_index(0)), (k_t, n_t, nf))
                 b_hi_i = b.linearize_index((kt, nt, b.constant_index(1)), (k_t, n_t, nf))
-                b.wait_deps(
-                    b.memref_load(rtok_buf_a, a_lo_i),
-                    b.memref_load(rtok_buf_a, a_hi_i),
-                    b.memref_load(rtok_buf_b, b_lo_i),
-                    b.memref_load(rtok_buf_b, b_hi_i),
-                )
                 acc = b.memref_load(c_buf, acc_idx)
                 a_vx4 = b.join_vx2_to_vx4(
                     b.from_any(b.memref_load(frag_buf_a, a_lo_i), b.vx2_type),

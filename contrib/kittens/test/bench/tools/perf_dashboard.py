@@ -135,7 +135,7 @@ def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     cli.add_filter_args(p)
     cli.add_best_known_arg(p)
-    cli.add_compile_args(p, iterations_default=cli.DEFAULT_DASHBOARD_ITERATIONS)
+    cli.add_compile_args(p, iterations_default=cli.DEFAULT_PERF_ITERATIONS)
     cli.add_dry_run_arg(p, help_text="Show baselines without parsing or running measurements.")
     p.add_argument(
         "--measurements",
@@ -201,6 +201,26 @@ def main(argv: list[str]) -> int:
     print()
     summary, code = _summarize(rows, dry_run=args.dry_run)
     print(summary)
+
+    # If any rows IMPROVED, hint how to write the new winners back to
+    # best_known.json. Only print when we actually have a measurements file
+    # to feed into perf_best_known_update.
+    if not args.dry_run and measurements_path and measurements_path != "-":
+        n_improve = sum(1 for _, st in rows if st == "IMPROVE")
+        if n_improve > 0:
+            bku_py = os.path.join(os.path.dirname(__file__), "perf_best_known_update.py")
+            mcpu_arg = f" --mcpu {args.mcpu}" if args.mcpu else ""
+            bench_arg = f" --bench {args.bench}" if args.bench else ""
+            print(
+                f"\nTo write {n_improve} IMPROVE winner(s) to {args.best_known_file}:",
+                file=sys.stderr,
+            )
+            print(
+                f"  python {bku_py} --input {measurements_path}"
+                f" --best-known-file {args.best_known_file}{mcpu_arg}{bench_arg} --apply",
+                file=sys.stderr,
+            )
+
     if args.allow_missing and code == 2:
         code = 0
     return code

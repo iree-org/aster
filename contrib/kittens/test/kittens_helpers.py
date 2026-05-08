@@ -149,6 +149,11 @@ PIPELINE_STRATEGIES = {
     8:  dict(A_LOAD=0, A_LDS_WRITE=1, A_LDS_READ=3, B_LOAD=0, B_LDS_WRITE=2, B_LDS_READ=3, COMPUTE=4),
     9:  dict(A_LOAD=0, A_LDS_WRITE=3, A_LDS_READ=4, B_LOAD=0, B_LDS_WRITE=3, B_LDS_READ=4, COMPUTE=5),
     10: dict(A_LOAD=0, A_LDS_WRITE=2, A_LDS_READ=4, B_LOAD=0, B_LDS_WRITE=3, B_LDS_READ=4, COMPUTE=5),
+    # Deep-buffer strategies. Compared to ps0-10 these increase the
+    # producer/consumer stage gap so more iterations are in flight at once.
+    11: dict(A_LOAD=0, A_LDS_WRITE=1, A_LDS_READ=3, B_LOAD=0, B_LDS_WRITE=1, B_LDS_READ=4, COMPUTE=4),
+    12: dict(A_LOAD=0, A_LDS_WRITE=1, A_LDS_READ=3, B_LOAD=1, B_LDS_WRITE=2, B_LDS_READ=4, COMPUTE=4),
+    13: dict(A_LOAD=0, A_LDS_WRITE=1, A_LDS_READ=3, B_LOAD=0, B_LDS_WRITE=2, B_LDS_READ=4, COMPUTE=4),
 }
 # fmt: on
 

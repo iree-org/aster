@@ -10,6 +10,7 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/SliceAnalysis.h"
@@ -600,6 +601,7 @@ struct CDNA3Latencies {
   int64_t vmemStoreDwordx4Exec = 24;
   int64_t xdlExec4Pass = 16;    // 16x16x* MFMA family
   int64_t xdlExec8Pass = 32;    // 32x32x* MFMA family
+  int64_t xdlExec16Pass = 64;   // 32x32x{1_2B,2,4_2B}
   int64_t dsReadExec = 32;      // LDS bank arb + return path to VGPR
   int64_t dsWriteExec = 12;     // port-held write completion
   int64_t lgkmDefaultExec = 16; // SMEM / other LGKM
@@ -670,6 +672,11 @@ struct CDNA3PresetMfmaHiding : CDNA3Latencies {
   CDNA3PresetMfmaHiding() { lgkmBurstLookback = 6; }
 };
 
+/// CDNA4 (gfx950 / MI350). Structurally identical to CDNA3 today.
+struct CDNA4Latencies : CDNA3Latencies {
+  CDNA4Latencies() {}
+};
+
 } // namespace
 
 /// Active per-architecture latency / policy table.
@@ -677,7 +684,9 @@ struct CDNA3PresetMfmaHiding : CDNA3Latencies {
 /// `preset` selects a pre-tuned magic-number set:
 ///   1 = mfma-hiding default
 ///   2..N = future presets (add a new struct above + a new case here).
-static CDNA3Latencies latencies(int preset) {
+static CDNA3Latencies latencies(ISAVersion isa, int preset) {
+  if (isa == ISAVersion::CDNA4)
+    return CDNA4Latencies();
   switch (preset) {
   case 1:
     return CDNA3PresetMfmaHiding();
@@ -686,7 +695,8 @@ static CDNA3Latencies latencies(int preset) {
   }
 }
 
-/// Per-opcode XDL exec latency from CDNA3 ISA Table 28 (MI300 manual p.42).
+/// Per-opcode XDL exec latency from CDNA3 ISA Table 28 (MI300 manual p.42)
+/// and CDNA4 ISA Table 28 (gfx950 manual p.43).
 /// Returns 0 if the opcode is not an XDL instruction we model specifically.
 static int64_t getXdlExecLatency(OpCode op, const CDNA3Latencies &L) {
   switch (op) {
@@ -699,12 +709,38 @@ static int64_t getXdlExecLatency(OpCode op, const CDNA3Latencies &L) {
   case OpCode::v_mfma_f32_16x16x32_fp8_bf8:
   case OpCode::v_mfma_f32_16x16x32_bf8_fp8:
   case OpCode::v_mfma_f32_16x16x32_bf8_bf8:
+  // CDNA4-only 4-pass: i32 16x16x64.
+  case OpCode::v_mfma_i32_16x16x64_i8:
     return L.xdlExec4Pass;
   // 8-pass: 32-cycle MFMAs (32x32x8 / 32x32x16 family).
   case OpCode::v_mfma_f32_32x32x8_f16:
+  case OpCode::v_mfma_f32_32x32x8_bf16:
   case OpCode::v_mfma_f32_32x32x16_f16:
   case OpCode::v_mfma_f32_32x32x16_bf16:
+  case OpCode::v_mfma_f32_32x32x16_fp8_fp8:
+  case OpCode::v_mfma_f32_32x32x16_fp8_bf8:
+  case OpCode::v_mfma_f32_32x32x16_bf8_fp8:
+  case OpCode::v_mfma_f32_32x32x16_bf8_bf8:
+  case OpCode::v_mfma_i32_16x16x32_i8:
+  case OpCode::v_mfma_i32_32x32x16_i8:
+  // F8F6F4 16x16x128: 16cy (F6/F4) or 32cy (FP8). Conservative: 32cy.
+  case OpCode::v_mfma_f32_16x16x128_f8f6f4:
+  case OpCode::v_mfma_scale_f32_16x16x128_f8f6f4:
+  // CDNA4-only 8-pass: i32 32x32x32.
+  case OpCode::v_mfma_i32_32x32x32_i8:
     return L.xdlExec8Pass;
+  // 16-pass: 64-cycle MFMAs (32x32x{1_2B,2,4_2B}, F64 16x16x4, F8F6F4
+  // 32x32x64).
+  case OpCode::v_mfma_f32_32x32x1_2b_f32:
+  case OpCode::v_mfma_f32_32x32x2_f32:
+  case OpCode::v_mfma_f32_32x32x4_2b_f16:
+  case OpCode::v_mfma_f32_32x32x4_2b_bf16:
+  case OpCode::v_mfma_i32_32x32x4_2b_i8:
+  case OpCode::v_mfma_f64_16x16x4_f64:
+  // F8F6F4 32x32x64: 32cy (F6/F4) or 64cy (FP8). Conservative: 64cy.
+  case OpCode::v_mfma_f32_32x32x64_f8f6f4:
+  case OpCode::v_mfma_scale_f32_32x32x64_f8f6f4:
+    return L.xdlExec16Pass;
   default:
     return 0;
   }
@@ -1309,8 +1345,13 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
   if (schedGraph.getOps().empty())
     return success();
 
-  // Look up the magic-number table for this scheduling run.
-  const CDNA3Latencies &L = latencies(getPreset());
+  // Look up the magic-number table for this scheduling run. ISA defaults to
+  // CDNA3 if no parent ModuleOp is found (matches the AMDGCNHazards pattern).
+  ISAVersion isaVersion = ISAVersion::CDNA3;
+  if (Operation *parent = schedGraph.getBlock()->getParentOp())
+    if (auto moduleOp = parent->getParentOfType<amdgcn::ModuleOp>())
+      isaVersion = getIsaForTarget(moduleOp.getTarget());
+  const CDNA3Latencies &L = latencies(isaVersion, getPreset());
 
   // Classify each op (queue, exec latency, issue cost, wait-kind bitmask),
   // and pre-cache the LGKM-R <-> XDL adjacency for the deadline counter.
