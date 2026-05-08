@@ -113,10 +113,6 @@ def RegisterColoring : Pass<"amdgcn-register-coloring"> {
   ];
 }
 
-def RegisterDealloc : Pass<"amdgcn-register-dealloc"> {
-  let summary = "Convert a register allocated kernel to an unallocated one";
-}
-
 def InstructionSchedulingAutoschedule : Pass<"amdgcn-instruction-scheduling-autoschedule"> {
   let summary = "Apply autoschedule rules to operations without explicit schedules";
   let description = [{

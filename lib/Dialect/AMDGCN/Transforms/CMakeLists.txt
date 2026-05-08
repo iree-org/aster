@@ -20,7 +20,6 @@ add_mlir_library(AMDGCNTransforms
   PreloadLibrary.cpp
   RegisterColoring.cpp
   RegisterDCE.cpp
-  RegisterDealloc.cpp
   RemoveTestInst.cpp
   SetABI.cpp
   SetMFMAPriority.cpp
