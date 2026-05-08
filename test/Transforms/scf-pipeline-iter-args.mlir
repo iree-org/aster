@@ -116,7 +116,6 @@ func.func @three_stage_with_iter_args() {
 // CHECK:       %[[EPI:.*]] = amdgcn.test_inst{{.*}} ins %[[KER]]
 
 // Original loop result replaced with epilogue result
-// CHECK:       amdgcn.make_register_range %[[EPI]]
 // CHECK:       return
 
 func.func @no_cross_stage_with_used_result() {
@@ -132,6 +131,5 @@ func.func @no_cross_stage_with_used_result() {
     %new_acc = amdgcn.test_inst outs %s1 ins %acc {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     scf.yield %new_acc : !amdgcn.vgpr
   }
-  %dr = amdgcn.make_register_range %r : !amdgcn.vgpr
   return
 }

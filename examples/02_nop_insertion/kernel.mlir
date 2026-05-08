@@ -32,9 +32,8 @@ module {
       amdgcn.v_lshlrev_b32 outs(%v1) ins(%c2, %v0) : outs(!amdgcn.vgpr<1>) ins(i32, !amdgcn.vgpr<0>)
 
       // Store thread ID (v0) to output[tid]
-      %data_r = amdgcn.make_register_range %v0 : !amdgcn.vgpr<0>
       %c0 = arith.constant 0 : i32
-      amdgcn.global_store_dword data %data_r addr %out_ptr offset d(%v1) + c(%c0) : ins(!amdgcn.vgpr<[0 : 1]>, !amdgcn.sgpr<[2 : 4]>, !amdgcn.vgpr<1>) mods(i32) -> !amdgcn.write_token<flat>
+      amdgcn.global_store_dword data %v0 addr %out_ptr offset d(%v1) + c(%c0) : ins(!amdgcn.vgpr<[0 : 1]>, !amdgcn.sgpr<[2 : 4]>, !amdgcn.vgpr<1>) mods(i32) -> !amdgcn.write_token<flat>
 
       // Immediately overwrite v0 -- HAZARD: memory still reading v0
       %c7 = arith.constant 7 : i32

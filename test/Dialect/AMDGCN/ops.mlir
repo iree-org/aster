@@ -13,11 +13,6 @@ func.func @test_make_register_range() {
   return
 }
 
-func.func @test_make_register_range_single() {
-  %0 = amdgcn.alloca : !amdgcn.vgpr
-  %1 = amdgcn.make_register_range %0 : !amdgcn.vgpr
-  return
-}
 
 amdgcn.module @test_module target = #amdgcn.target<gfx940> {
   amdgcn.kernel @test_kernel {

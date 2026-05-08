@@ -37,22 +37,19 @@
 // CHECK:         %[[K_D:.*]], %[[K_T:.*]] = amdgcn.global_load_dword
 // CHECK:         amdgcn.wait deps %[[A_T]]
 // CHECK:         %[[K_C:.*]] = amdgcn.test_inst outs %{{.*}} ins %[[A_D]]
-// CHECK:         amdgcn.make_register_range %[[A_C]]
-// CHECK:         amdgcn.global_store_dword
+// CHECK:         amdgcn.global_store_dword data %[[A_C]]
 // CHECK:         scf.yield %[[K_T]], %[[K_D]], %[[K_C]]
 
-// Epilogue section 1: wait+compute(iter 5) + make_range+store(iter 4)
+// Epilogue section 1: wait+compute(iter 5) + store(iter 4)
 // wait+compute uses kernel results #0, #1 (iter 5's stage 0 values).
-// make_range+store uses kernel result #2 (iter 4's stage 1 value).
+// store uses kernel result #2 (iter 4's stage 1 value).
 // CHECK:       amdgcn.wait deps %[[KER]]#0
 // CHECK:       %[[E1_C:.*]] = amdgcn.test_inst outs %{{.*}} ins %[[KER]]#1
-// CHECK:       amdgcn.make_register_range %[[KER]]#2
-// CHECK:       amdgcn.global_store_dword
+// CHECK:       amdgcn.global_store_dword data %[[KER]]#2
 
-// Epilogue section 2: make_range+store(iter 5)
+// Epilogue section 2: store(iter 5)
 // Uses the value computed in section 1 for iter 5.
-// CHECK:       amdgcn.make_register_range %[[E1_C]]
-// CHECK:       amdgcn.global_store_dword
+// CHECK:       amdgcn.global_store_dword data %[[E1_C]]
 // CHECK:       return
 
 func.func @three_stage_load_compute_store(%addr: !amdgcn.vgpr<[? + 2]>) {
@@ -66,8 +63,7 @@ func.func @three_stage_load_compute_store(%addr: !amdgcn.vgpr<[? + 2]>) {
     %data, %rtok = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig1) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<flat>
     %computed = amdgcn.test_inst outs %s_compute ins %data {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-    %dr = amdgcn.make_register_range %computed {sched.stage = 2 : i32} : !amdgcn.vgpr
-    %wtok = amdgcn.global_store_dword data %dr addr %addr offset c(%c0_i32_mig1) {sched.stage = 2 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
+    %wtok = amdgcn.global_store_dword data %computed addr %addr offset c(%c0_i32_mig1) {sched.stage = 2 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
   }
   return
 }

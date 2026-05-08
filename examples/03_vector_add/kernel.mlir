@@ -70,12 +70,10 @@ module {
       amdgcn.v_lshlrev_b32 outs(%v1) ins(%c2, %v0) : outs(!amdgcn.vgpr<1>) ins(i32, !amdgcn.vgpr<0>)
 
       // Load a[tid] and b[tid]
-      %a_data = amdgcn.make_register_range %v2 : !amdgcn.vgpr<2>
       %c0 = arith.constant 0 : i32
-      amdgcn.global_load_dword dest %a_data addr %a_ptr offset d(%v1) + c(%c0) : outs(!amdgcn.vgpr<[2 : 3]>) ins(!amdgcn.sgpr<[2 : 4]>, !amdgcn.vgpr<1>) mods(i32) -> !amdgcn.read_token<flat>
+      amdgcn.global_load_dword dest %v2 addr %a_ptr offset d(%v1) + c(%c0) : outs(!amdgcn.vgpr<[2 : 3]>) ins(!amdgcn.sgpr<[2 : 4]>, !amdgcn.vgpr<1>) mods(i32) -> !amdgcn.read_token<flat>
 
-      %b_data = amdgcn.make_register_range %v3 : !amdgcn.vgpr<3>
-      amdgcn.global_load_dword dest %b_data addr %b_ptr offset d(%v1) + c(%c0) : outs(!amdgcn.vgpr<[3 : 4]>) ins(!amdgcn.sgpr<[4 : 6]>, !amdgcn.vgpr<1>) mods(i32) -> !amdgcn.read_token<flat>
+      amdgcn.global_load_dword dest %v3 addr %b_ptr offset d(%v1) + c(%c0) : outs(!amdgcn.vgpr<[3 : 4]>) ins(!amdgcn.sgpr<[4 : 6]>, !amdgcn.vgpr<1>) mods(i32) -> !amdgcn.read_token<flat>
 
       // Wait for all outstanding vector memory operations
       amdgcn.s_waitcnt vmcnt = 0
@@ -84,8 +82,7 @@ module {
       amdgcn.v_add_u32 outs(%v2) ins(%v2, %v3) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<2>, !amdgcn.vgpr<3>)
 
       // Store result
-      %c_data = amdgcn.make_register_range %v2 : !amdgcn.vgpr<2>
-      amdgcn.global_store_dword data %c_data addr %c_ptr offset d(%v1) + c(%c0) : ins(!amdgcn.vgpr<[2 : 3]>, !amdgcn.sgpr<[6 : 8]>, !amdgcn.vgpr<1>) mods(i32) -> !amdgcn.write_token<flat>
+      amdgcn.global_store_dword data %v2 addr %c_ptr offset d(%v1) + c(%c0) : ins(!amdgcn.vgpr<[2 : 3]>, !amdgcn.sgpr<[6 : 8]>, !amdgcn.vgpr<1>) mods(i32) -> !amdgcn.write_token<flat>
 
       amdgcn.s_waitcnt vmcnt = 0
       end_kernel
