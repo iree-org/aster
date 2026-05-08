@@ -30,7 +30,18 @@ using namespace mlir::aster::amdgcn;
 
 Value mlir::aster::amdgcn::createAllocation(OpBuilder &builder, Location loc,
                                             RegisterTypeInterface rTy) {
-  if (!rTy.isRegisterRange() || rTy.getAsRange().size() == 1)
+  // Handle composite special registers (VCC, EXEC).
+  if (bitEnumContainsAll(rTy.getProps(), RegisterProps::IsComposite)) {
+    SmallVector<RegisterTypeInterface> parts;
+    LogicalResult result = rTy.getSplitType(parts, nullptr);
+    assert(succeeded(result) && "composite type must be splittable");
+    SmallVector<Value> allocs;
+    allocs.reserve(parts.size());
+    for (RegisterTypeInterface part : parts)
+      allocs.push_back(AllocaOp::create(builder, loc, part));
+    return MakeRegisterRangeOp::create(builder, loc, rTy, allocs);
+  }
+  if (!rTy.isRegisterRange())
     return amdgcn::AllocaOp::create(
         builder, loc, rTy.cloneRegisterType(rTy.getAsRange().begin()));
   SmallVector<Value> results;
@@ -52,11 +63,11 @@ mlir::aster::amdgcn::getRegKind(RegisterTypeInterface regTy) {
 }
 
 OperandKind mlir::aster::amdgcn::getOperandKind(Type type) {
-  if (isa<SGPRType, SGPRType>(type))
+  if (isa<SGPRType>(type))
     return OperandKind::SGPR;
-  if (isa<VGPRType, VGPRType>(type))
+  if (isa<VGPRType>(type))
     return OperandKind::VGPR;
-  if (isa<AGPRType, AGPRType>(type))
+  if (isa<AGPRType>(type))
     return OperandKind::AGPR;
   if (auto iTy = dyn_cast<IntegerType>(type)) {
     if (iTy.isSignless() && (iTy.getWidth() == 32 || iTy.getWidth() == 64))

@@ -55,7 +55,7 @@ def AMDGCN_AllocaOp : AMDGCN_Op<"alloca", [
     Allocates a register.
   }];
   let arguments = (ins);
-  let results = (outs RegisterLike:$result);
+  let results = (outs AllocatableRegisterLike:$result);
   let assemblyFormat = "attr-dict `:` type($result)";
   let extraClassDeclaration = [{
     ::mlir::Value getAlloca() { return getResult(); }
@@ -468,7 +468,7 @@ def AMDGCN_MakeRegisterRangeOp : AMDGCN_Op<"make_register_range", [
     Creates a register range from a variadic number of registers.
   }];
   let arguments = (ins Variadic<RegisterLike>:$inputs);
-  let results = (outs RegisterRangeLike:$result);
+  let results = (outs CompositeRegisterLike:$result);
   let assemblyFormat = "$inputs attr-dict `:` type($inputs)";
   let extraClassDeclaration = [{
     ::mlir::ValueRange unpackBundle() {
@@ -517,7 +517,7 @@ def AMDGCN_SplitRegisterRangeOp : AMDGCN_Op<"split_register_range", [
   let description = [{
     Splits a register range into individual registers.
   }];
-  let arguments = (ins RegisterRangeLike:$input);
+  let arguments = (ins CompositeRegisterLike:$input);
   let results = (outs Variadic<RegisterLike>:$results);
   let assemblyFormat = "$input attr-dict `:` type($input)";
 }

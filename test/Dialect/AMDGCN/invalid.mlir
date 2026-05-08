@@ -139,3 +139,19 @@ func.func @make_range_from_composite() {
   %4 = amdgcn.make_register_range %3, %2 : !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<2>
   return
 }
+
+// -----
+
+func.func @alloca_composite_vcc() {
+  // expected-error@+1 {{'amdgcn.alloca' op result #0 must be allocatable register like type, but got '!amdgcn.vcc'}}
+  %0 = amdgcn.alloca : !amdgcn.vcc
+  return
+}
+
+// -----
+
+func.func @alloca_composite_exec() {
+  // expected-error@+1 {{'amdgcn.alloca' op result #0 must be allocatable register like type, but got '!amdgcn.exec'}}
+  %0 = amdgcn.alloca : !amdgcn.exec
+  return
+}

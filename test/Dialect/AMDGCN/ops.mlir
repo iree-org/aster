@@ -168,6 +168,22 @@ func.func @test_make_register_ranges_relocatable() -> (!amdgcn.vgpr, !amdgcn.vgp
   return %4, %5: !amdgcn.vgpr, !amdgcn.vgpr
 }
 
+func.func @test_vcc_composite() {
+  %lo = amdgcn.alloca : !amdgcn.vcc_lo
+  %hi = amdgcn.alloca : !amdgcn.vcc_hi
+  %vcc = amdgcn.make_register_range %lo, %hi : !amdgcn.vcc_lo, !amdgcn.vcc_hi
+  %lo2, %hi2 = amdgcn.split_register_range %vcc : !amdgcn.vcc
+  return
+}
+
+func.func @test_exec_composite() {
+  %lo = amdgcn.alloca : !amdgcn.exec_lo<0>
+  %hi = amdgcn.alloca : !amdgcn.exec_hi<0>
+  %exec = amdgcn.make_register_range %lo, %hi : !amdgcn.exec_lo<0>, !amdgcn.exec_hi<0>
+  %lo2, %hi2 = amdgcn.split_register_range %exec : !amdgcn.exec<0>
+  return
+}
+
 //===----------------------------------------------------------------------===//
 // VOP1 Operations
 //===----------------------------------------------------------------------===//

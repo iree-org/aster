@@ -157,6 +157,13 @@ def RegisterLike :  Type<CPred<"::mlir::aster::amdgcn::isRegisterLike($_self)">,
   }];
 }
 
+/// A register like type excluding composite types (VCC, EXEC).
+def AllocatableRegisterLike : Type<
+    CPred<"::mlir::aster::amdgcn::isAllocatableRegisterLike($_self)">,
+    "allocatable register like type",
+    "::mlir::aster::amdgcn::AMDGCNRegisterTypeInterface"
+  >, PrintOperand;
+
 /// A register like type that matches AGPRRange, SGPRRange, or VGPRRange types.
 def RegisterRangeLike : AnyRegOf<[AGPRType, SGPRType, VGPRType]> {
   let summary = "Register range like types";
@@ -165,6 +172,13 @@ def RegisterRangeLike : AnyRegOf<[AGPRType, SGPRType, VGPRType]> {
     ranges (AGPR, SGPR, VGPR) in the AMDGCN architecture.
   }];
 }
+
+/// A composite register type (has IsComposite property).
+def CompositeRegisterLike : Type<
+    CPred<"::mlir::aster::amdgcn::isCompositeRegisterLike($_self)">,
+    "composite register like type",
+    "::mlir::aster::amdgcn::AMDGCNRegisterTypeInterface"
+  >, PrintOperand;
 
 /// A register type that matches either a VGPR or an AGPR type.
 def VGPROrAGPRType : AnyRegOf<[AGPRType, VGPRType]>;

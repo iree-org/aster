@@ -78,12 +78,16 @@ amdgcn.kernel @unallocated_scc_unchanged {
 // CHECK:         %[[CPY0:.*]] = lsir.copy %{{.*}}, %{{.*}} : !amdgcn.sgpr{{.*}}, !amdgcn.vcc
 // CHECK:         cf.br ^[[BB1:bb[0-9]+]](%[[CPY0]] : !amdgcn.sgpr<[? + 2]>)
 // CHECK:       ^[[BB1]](%[[A:.*]]: !amdgcn.sgpr<[? + 2]>):
-// CHECK:         %[[VC:.*]] = alloca : !amdgcn.vcc
-// CHECK:         %[[CPY1:.*]] = lsir.copy %[[VC]], %[[A]] : !amdgcn.vcc{{.*}}, !amdgcn.sgpr{{.*}}
+// CHECK:         alloca : !amdgcn.vcc_lo
+// CHECK:         alloca : !amdgcn.vcc_hi
+// CHECK:         make_register_range
+// CHECK:         %[[CPY1:.*]] = lsir.copy %{{.*}}, %[[A]] : !amdgcn.vcc{{.*}}, !amdgcn.sgpr{{.*}}
 // CHECK:         end_kernel
 amdgcn.kernel @vcc_through_sgpr {
 ^bb0:
-  %vcc = amdgcn.alloca : !amdgcn.vcc
+  %vcc_lo = amdgcn.alloca : !amdgcn.vcc_lo
+  %vcc_hi = amdgcn.alloca : !amdgcn.vcc_hi
+  %vcc = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo, !amdgcn.vcc_hi
   cf.br ^bb1(%vcc : !amdgcn.vcc)
 ^bb1(%arg : !amdgcn.vcc):
   amdgcn.end_kernel

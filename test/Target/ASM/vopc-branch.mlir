@@ -33,7 +33,9 @@ amdgcn.module @vopc_branch_mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_vcmp_lt_i32_vccnz {
   ^entry:
     %v0 = amdgcn.alloca : !amdgcn.vgpr<0>
-    %vcc = amdgcn.alloca : !amdgcn.vcc<0>
+    %vcc_lo = amdgcn.alloca : !amdgcn.vcc_lo<0>
+    %vcc_hi = amdgcn.alloca : !amdgcn.vcc_hi<0>
+    %vcc = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo<0>, !amdgcn.vcc_hi<0>
     %c0 = arith.constant 0 : i32
     amdgcn.v_cmp_lt_i32 outs(%vcc) ins(%c0, %v0) : outs(!amdgcn.vcc<0>) ins(i32, !amdgcn.vgpr<0>)
     amdgcn.s_cbranch_vccz %vcc, true(^taken) false(^fallthru)
@@ -49,7 +51,9 @@ amdgcn.module @vopc_branch_mod target = #amdgcn.target<gfx942> {
   ^entry:
     %v0 = amdgcn.alloca : !amdgcn.vgpr<0>
     %v1 = amdgcn.alloca : !amdgcn.vgpr<1>
-    %vcc = amdgcn.alloca : !amdgcn.vcc<0>
+    %vcc_lo = amdgcn.alloca : !amdgcn.vcc_lo<0>
+    %vcc_hi = amdgcn.alloca : !amdgcn.vcc_hi<0>
+    %vcc = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo<0>, !amdgcn.vcc_hi<0>
     amdgcn.v_cmp_eq_i32 outs(%vcc) ins(%v0, %v1) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
     amdgcn.s_cbranch_vccz %vcc, true(^taken) false(^fallthru)
       : !amdgcn.vcc<0>
@@ -63,7 +67,9 @@ amdgcn.module @vopc_branch_mod target = #amdgcn.target<gfx942> {
   amdgcn.kernel @test_vcmp_gt_swap {
   ^entry:
     %v0 = amdgcn.alloca : !amdgcn.vgpr<0>
-    %vcc = amdgcn.alloca : !amdgcn.vcc<0>
+    %vcc_lo = amdgcn.alloca : !amdgcn.vcc_lo<0>
+    %vcc_hi = amdgcn.alloca : !amdgcn.vcc_hi<0>
+    %vcc = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo<0>, !amdgcn.vcc_hi<0>
     %c32 = arith.constant 32 : i32
     amdgcn.v_cmp_gt_i32 outs(%vcc) ins(%c32, %v0) : outs(!amdgcn.vcc<0>) ins(i32, !amdgcn.vgpr<0>)
     amdgcn.s_cbranch_vccz %vcc, true(^taken) false(^fallthru)

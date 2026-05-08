@@ -34,7 +34,9 @@ amdgcn.module @vcc_raw target = #amdgcn.target<gfx942> {
     %v_a = amdgcn.alloca : !v
     %v_b = amdgcn.alloca : !v
     %v_d = amdgcn.alloca : !v
-    %vcc = amdgcn.alloca : !amdgcn.vcc<0>
+    %vcc_lo = amdgcn.alloca : !amdgcn.vcc_lo<0>
+    %vcc_hi = amdgcn.alloca : !amdgcn.vcc_hi<0>
+    %vcc = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo<0>, !amdgcn.vcc_hi<0>
     amdgcn.v_cmp_eq_i32 outs(%vcc) ins(%v_a, %v_b) : outs(!amdgcn.vcc<0>) ins(!v, !v)
     %sel = amdgcn.v_cndmask_b32 outs(%v_d) ins(%v_a, %v_b, %vcc) : outs(!v) ins(!v, !v, !amdgcn.vcc<0>)
     amdgcn.end_kernel
@@ -109,7 +111,9 @@ amdgcn.module @scc_vcc_independent target = #amdgcn.target<gfx942> {
     %s_b = amdgcn.alloca : !s
     %s_d1 = amdgcn.alloca : !s
     %s_d2 = amdgcn.alloca : !s
-    %vcc   = amdgcn.alloca : !amdgcn.vcc<0>
+    %vcc_lo = amdgcn.alloca : !amdgcn.vcc_lo<0>
+    %vcc_hi = amdgcn.alloca : !amdgcn.vcc_hi<0>
+    %vcc   = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo<0>, !amdgcn.vcc_hi<0>
     %scc_w = amdgcn.alloca : !amdgcn.scc<0>
     %scc_r = amdgcn.alloca : !amdgcn.scc<0>
     amdgcn.v_cmp_eq_i32 outs(%vcc) ins(%v_a, %v_b) : outs(!amdgcn.vcc<0>) ins(!v, !v)

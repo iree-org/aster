@@ -23,6 +23,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
@@ -220,8 +221,9 @@ Value LegalizeCF::getOrCreateLoweredCmp(lsir::CmpIOp cmpOp,
       std::swap(lhs, rhs);
       pred = swapPredicate(pred);
     }
-    Type vccType = VCCType::get(rewriter.getContext(), Register(0));
-    Value vcc = AllocaOp::create(rewriter, loc, vccType);
+    RegisterTypeInterface vccTy =
+        VCCType::get(rewriter.getContext(), Register(0));
+    Value vcc = createAllocation(rewriter, loc, vccTy);
     createVectorCompare(rewriter, loc, pred, vcc, lhs, rhs);
     loweredCmpMap[cmpOp] = vcc;
     return vcc;
