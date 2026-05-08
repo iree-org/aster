@@ -35,8 +35,7 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
   // Allocate a VGPRx1 range
   func.func private @alloc_vgprx1() -> !vx1 {
     %r0 = amdgcn.alloca : !v
-    %range = amdgcn.make_register_range %r0 : !v
-    return %range : !vx1
+    return %r0 : !vx1
   }
 
   // Allocate a VGPRx2 range
@@ -110,8 +109,7 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
   // Allocate a SGPRx1 range
   func.func private @alloc_sgprx1() -> !sx1 {
     %r0 = amdgcn.alloca : !s
-    %range = amdgcn.make_register_range %r0 : !s
-    return %range : !sx1
+    return %r0 : !sx1
   }
 
   // Allocate a SGPRx2 range
@@ -144,8 +142,7 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
   // Allocate an AGPRx1 range
   func.func private @alloc_agprx1() -> !ax1 {
     %r0 = amdgcn.alloca : !a
-    %range = amdgcn.make_register_range %r0 : !a
-    return %range : !ax1
+    return %r0 : !ax1
   }
 
   // Allocate an AGPRx2 range
@@ -301,8 +298,7 @@ amdgcn.library @common_register_init isa = [#amdgcn.isa<cdna3>] {
   func.func private @init_agprx1(%cst: i32) -> !ax1 {
     %r0 = amdgcn.alloca : !a
     %a0 = amdgcn.v_accvgpr_write outs(%r0) ins(%cst) : outs(!amdgcn.agpr) ins(i32)
-    %range = amdgcn.make_register_range %a0 : !a
-    return %range : !ax1
+    return %a0 : !ax1
   }
 
   // Initialize an AGPRx2 range to %cst

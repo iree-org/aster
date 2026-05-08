@@ -291,14 +291,12 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %dd3 = amdgcn.alloca : !v
     %dst = amdgcn.make_register_range %dd0, %dd1, %dd2, %dd3 : !v, !v, !v, !v
     %off = amdgcn.alloca : !v
-    %dr0 = amdgcn.make_register_range %data0 : !v
-    %dr1 = amdgcn.make_register_range %data1 : !v
     %c0_i32_mig6 = arith.constant 0 : i32
-    %wt0 = amdgcn.global_store_dword data %dr0 addr %addr offset c(%c0_i32_mig6) : ins(!v, !sx2) mods(i32) -> !amdgcn.write_token<flat>
+    %wt0 = amdgcn.global_store_dword data %data0 addr %addr offset c(%c0_i32_mig6) : ins(!v, !sx2) mods(i32) -> !amdgcn.write_token<flat>
     %c0_i32_mig7 = arith.constant 0 : i32
     %rr0, %rt0 = amdgcn.global_load_dwordx4 dest %dst addr %addr offset d(%off) + c(%c0_i32_mig7) : outs(!vx4) ins(!sx2, !v) mods(i32) -> !amdgcn.read_token<flat>
     %c0_i32_mig8 = arith.constant 0 : i32
-    %wt1 = amdgcn.global_store_dword data %dr1 addr %addr offset c(%c0_i32_mig8) : ins(!v, !sx2) mods(i32) -> !amdgcn.write_token<flat>
+    %wt1 = amdgcn.global_store_dword data %data1 addr %addr offset c(%c0_i32_mig8) : ins(!v, !sx2) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.end_kernel
   }
 

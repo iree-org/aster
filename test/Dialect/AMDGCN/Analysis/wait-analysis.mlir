@@ -27,9 +27,8 @@ func.func @test_duplicated_waits() {
   %1 = amdgcn.alloca : !amdgcn.vgpr
   %2 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr, !amdgcn.vgpr
   %3 = amdgcn.alloca : !amdgcn.vgpr
-  %4 = amdgcn.make_register_range %3 : !amdgcn.vgpr
   %c0_i32_mig1 = arith.constant 0 : i32
-  %result, %token = amdgcn.global_load_dword dest %4 addr %2 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
+  %result, %token = amdgcn.global_load_dword dest %3 addr %2 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   amdgcn.wait deps %token : !amdgcn.read_token<flat>
   // Wait again on the same token, so the second wait is redundant.
   amdgcn.wait deps %token : !amdgcn.read_token<flat>

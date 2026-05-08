@@ -87,8 +87,6 @@ amdgcn.module @range_tests target = <gfx942> {
 // CHECK:  results: [2 = `%{{.*}}`]
 // CHECK:  Operation: `%{{.*}} = amdgcn.make_register_range %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>`
 // CHECK:  results: [3 = `%{{.*}}`]
-// CHECK:  Operation: `%{{.*}} = amdgcn.make_register_range %{{.*}} : !amdgcn.vgpr<?>`
-// CHECK:  results: [4 = `%{{.*}}`]
 // CHECK:  Symbol: subset_range
 // CHECK:  Range constraints:
 // CHECK:    Constraint 0: range_constraint<alignment = 4, allocations = [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]>
@@ -101,9 +99,8 @@ amdgcn.module @range_tests target = <gfx942> {
     test_inst outs %1 : (!amdgcn.vgpr<?>) -> ()
     test_inst outs %2 : (!amdgcn.vgpr<?>) -> ()
     %6 = make_register_range %0, %1, %2 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-    %7 = make_register_range %1 : !amdgcn.vgpr<?>
     test_inst ins %6 : (!amdgcn.vgpr<[? : ? + 3]>) -> ()
-    test_inst ins %7 : (!amdgcn.vgpr<?>) -> ()
+    test_inst ins %1 : (!amdgcn.vgpr<?>) -> ()
     end_kernel
   }
 }

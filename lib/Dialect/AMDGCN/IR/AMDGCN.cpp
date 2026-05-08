@@ -339,10 +339,10 @@ LogicalResult MakeRegisterRangeOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> location, ValueRange operands,
     DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &inferredReturnTypes) {
-  // Fail if there are no operands.
-  if (operands.empty()) {
+  // Fail if there are fewer than two operands.
+  if (operands.size() < 2) {
     if (location)
-      mlir::emitError(*location) << "expected at least one operand";
+      mlir::emitError(*location) << "expected at least two operands";
     return failure();
   }
 
@@ -456,6 +456,12 @@ LogicalResult SplitRegisterRangeOp::inferReturnTypes(
   // Get the range information.
   RegisterRange range = rangeType.getAsRange();
   int size = range.size();
+
+  if (size <= 1) {
+    if (location)
+      mlir::emitError(*location) << "cannot split a single register";
+    return failure();
+  }
 
   // Create a function to make individual register types.
   auto makeRegister = [&](Register reg) -> Type {

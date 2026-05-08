@@ -54,10 +54,9 @@ amdgcn.module @test_case10_valu_sgpr_vmem target = #amdgcn.target<gfx942> {
 
     // VMEM instruction (global_load) that reads from the SGPR written by VALU.
     // This should trigger case 10 (requires 5 NOPs).
-    %dst_range = amdgcn.make_register_range %result0 : !amdgcn.vgpr<1>
     %voff = amdgcn.alloca : !amdgcn.vgpr<2>
     %c0_i32_mig1 = arith.constant 0 : i32
-    %tok_load = amdgcn.global_load_dword dest %dst_range addr %sgpr_carry offset d(%voff) + c(%c0_i32_mig1) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.read_token<flat>
+    %tok_load = amdgcn.global_load_dword dest %result0 addr %sgpr_carry offset d(%voff) + c(%c0_i32_mig1) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.read_token<flat>
 
     amdgcn.end_kernel
   }
@@ -162,10 +161,9 @@ amdgcn.module @test_case10_no_overlap_sgpr target = #amdgcn.target<gfx942> {
     // VMEM instruction reads from different SGPRs (no overlap) - should NOT trigger case 10
     // Reading from SGPRs 0-1, but VALU wrote to SGPR 10
     %addr_range = amdgcn.make_register_range %addr0, %addr1 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
-    %dst_range = amdgcn.make_register_range %result0 : !amdgcn.vgpr<1>
     %voff = amdgcn.alloca : !amdgcn.vgpr<2>
     %c0_i32_mig2 = arith.constant 0 : i32
-    %tok_load = amdgcn.global_load_dword dest %dst_range addr %addr_range offset d(%voff) + c(%c0_i32_mig2) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.read_token<flat>
+    %tok_load = amdgcn.global_load_dword dest %result0 addr %addr_range offset d(%voff) + c(%c0_i32_mig2) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.read_token<flat>
 
     amdgcn.end_kernel
   }

@@ -109,3 +109,21 @@ func.func @offset_with_invalid_aligment() {
   %2 = amdgcn.alloc_lds 32 alignment 8 offset 33
   return
 }
+
+// -----
+
+func.func @split_single_register() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  // expected-error@+1 {{cannot split a single register}}
+  %1 = amdgcn.split_register_range %0 : !amdgcn.vgpr
+  return
+}
+
+// -----
+
+func.func @make_range_single_register() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr
+  // expected-error@+1 {{expected at least two operands}}
+  %1 = amdgcn.make_register_range %0 : !amdgcn.vgpr
+  return
+}

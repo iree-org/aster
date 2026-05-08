@@ -166,15 +166,14 @@ amdgcn.module @mod target = <gfx942> {
 // CHECK-NEXT:    v_mov_b32 outs(%[[R8]]) ins(%{{.*}}) : outs(!amdgcn.vgpr<11>) ins(!amdgcn.sgpr<3>)
 // CHECK-NEXT:    %[[R11:.*]] = make_register_range %[[R7]], %[[R8]] : !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
 // CHECK-NEXT:    %[[R12:.*]] = alloca : !amdgcn.vgpr<12>
-// CHECK-NEXT:    %[[R13:.*]] = make_register_range %[[R12]] : !amdgcn.vgpr<12>
-// CHECK-NEXT:    %{{.*}} = global_load_dword dest %[[R13]] addr %[[R11]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<12>) ins(!amdgcn.vgpr<[10 : 12]>) mods(i32) -> !amdgcn.read_token<flat>
+// CHECK-NEXT:    %{{.*}} = global_load_dword dest %[[R12]] addr %[[R11]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<12>) ins(!amdgcn.vgpr<[10 : 12]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK-NEXT:    %{{.*}} = s_load_dwordx2 dest %{{.*}} addr %{{.*}} offset c(%{{.*}}) : outs(!amdgcn.sgpr<[2 : 4]>) ins(!amdgcn.sgpr<[0 : 2]>) mods(i32) -> !amdgcn.read_token<constant>
 // CHECK-NEXT:    s_waitcnt vmcnt = 0
 //
 // We want to make sure R7, R8 and R11 are not reused after CSE: a proper liveness analysis is needed.
 // CHECK-NEXT:    v_mov_b32 outs(%[[R7]]) ins(%{{.*}}) : outs(!amdgcn.vgpr<10>) ins(!amdgcn.sgpr<2>)
 // CHECK-NEXT:    v_mov_b32 outs(%[[R8]]) ins(%{{.*}}) : outs(!amdgcn.vgpr<11>) ins(!amdgcn.sgpr<3>)
-// CHECK-NEXT:    %{{.*}} = global_store_dword data %[[R13]] addr %[[R11]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<12>, !amdgcn.vgpr<[10 : 12]>) mods(i32) -> !amdgcn.write_token<flat>
+// CHECK-NEXT:    %{{.*}} = global_store_dword data %[[R12]] addr %[[R11]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<12>, !amdgcn.vgpr<[10 : 12]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK-NEXT:    end_kernel
   kernel @gpu_copy_kernel_unchecked {
     %0 = alloca : !amdgcn.sgpr<0>
@@ -192,8 +191,7 @@ amdgcn.module @mod target = <gfx942> {
     amdgcn.v_mov_b32 outs(%8) ins(%4) : outs(!amdgcn.vgpr<11>) ins(!amdgcn.sgpr<3>)
     %11 = make_register_range %7, %8 : !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
     %12 = alloca : !amdgcn.vgpr<12>
-    %13 = make_register_range %12 : !amdgcn.vgpr<12>
-    %t2 = amdgcn.global_load_dword dest %13 addr %11 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr<12>) ins(!amdgcn.vgpr<[10 : 12]>) mods(i32) -> !amdgcn.read_token<flat>
+    %t2 = amdgcn.global_load_dword dest %12 addr %11 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr<12>) ins(!amdgcn.vgpr<[10 : 12]>) mods(i32) -> !amdgcn.read_token<flat>
     %15 = alloca : !amdgcn.sgpr<0>
     %16 = alloca : !amdgcn.sgpr<1>
     %17 = make_register_range %15, %16 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>
@@ -207,7 +205,7 @@ amdgcn.module @mod target = <gfx942> {
     amdgcn.v_mov_b32 outs(%22) ins(%18) : outs(!amdgcn.vgpr<10>) ins(!amdgcn.sgpr<2>)
     amdgcn.v_mov_b32 outs(%23) ins(%19) : outs(!amdgcn.vgpr<11>) ins(!amdgcn.sgpr<3>)
     %26 = make_register_range %22, %23 : !amdgcn.vgpr<10>, !amdgcn.vgpr<11>
-    %t4 = amdgcn.global_store_dword data %13 addr %26 offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr<12>, !amdgcn.vgpr<[10 : 12]>) mods(i32) -> !amdgcn.write_token<flat>
+    %t4 = amdgcn.global_store_dword data %12 addr %26 offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr<12>, !amdgcn.vgpr<[10 : 12]>) mods(i32) -> !amdgcn.write_token<flat>
     end_kernel
   }
 }

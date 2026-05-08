@@ -103,15 +103,13 @@ func.func @test_mfma_inst_mod_partial(
 func.func @test_ds_read_b32(%addr: !amdgcn.vgpr, %d: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %offset = arith.constant 0 : i32
   %result, %tok = amdgcn.ds_read_b32 dest %d addr %addr offset c(%offset) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
-  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+  return %result : !amdgcn.vgpr
 }
 
 func.func @test_ds_read_b32_with_offset(%addr: !amdgcn.vgpr, %dst1: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %offset = arith.constant 4 : i32
   %result, %tok = amdgcn.ds_read_b32 dest %dst1 addr %addr offset c(%offset) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
-  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+  return %result : !amdgcn.vgpr
 }
 
 func.func @test_ds_read_b64(%addr: !amdgcn.vgpr, %dst2: !amdgcn.vgpr<[? + 2]>) -> (!amdgcn.vgpr, !amdgcn.vgpr) {
@@ -143,32 +141,28 @@ func.func @test_ds_bpermute_b32(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr, %dst: 
   %offset = arith.constant 0 : i32
   %result, %tok = amdgcn.ds_bpermute_b32 outs(%dst) ins(%addr, %data) args(%offset)
       : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr) args(i32) -> !amdgcn.read_token<shared>
-  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+  return %result : !amdgcn.vgpr
 }
 
 func.func @test_ds_bpermute_b32_with_offset(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %offset = arith.constant 4 : i32
   %result, %tok = amdgcn.ds_bpermute_b32 outs(%dst) ins(%addr, %data) args(%offset)
       : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr) args(i32) -> !amdgcn.read_token<shared>
-  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+  return %result : !amdgcn.vgpr
 }
 
 func.func @test_ds_permute_b32(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %offset = arith.constant 0 : i32
   %result, %tok = amdgcn.ds_permute_b32 outs(%dst) ins(%addr, %data) args(%offset)
       : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr) args(i32) -> !amdgcn.read_token<shared>
-  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+  return %result : !amdgcn.vgpr
 }
 
 func.func @test_ds_permute_b32_with_offset(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
   %offset = arith.constant 4 : i32
   %result, %tok = amdgcn.ds_permute_b32 outs(%dst) ins(%addr, %data) args(%offset)
       : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr) args(i32) -> !amdgcn.read_token<shared>
-  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+  return %result : !amdgcn.vgpr
 }
 
 //===----------------------------------------------------------------------===//
@@ -176,16 +170,14 @@ func.func @test_ds_permute_b32_with_offset(%addr: !amdgcn.vgpr, %data: !amdgcn.v
 //===----------------------------------------------------------------------===//
 
 func.func @test_ds_write_b32(%addr: !amdgcn.vgpr, %val: !amdgcn.vgpr) {
-  %val_range = amdgcn.make_register_range %val : !amdgcn.vgpr
   %offset = arith.constant 0 : i32
-  %tok = amdgcn.ds_write_b32 data %val_range addr %addr offset c(%offset) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+  %tok = amdgcn.ds_write_b32 data %val addr %addr offset c(%offset) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   return
 }
 
 func.func @test_ds_write_b32_with_offset(%addr: !amdgcn.vgpr, %val: !amdgcn.vgpr) {
-  %val_range = amdgcn.make_register_range %val : !amdgcn.vgpr
   %offset = arith.constant 8 : i32
-  %tok = amdgcn.ds_write_b32 data %val_range addr %addr offset c(%offset) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+  %tok = amdgcn.ds_write_b32 data %val addr %addr offset c(%offset) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   return
 }
 
@@ -225,8 +217,7 @@ func.func @test_global_load_dword(%addr_lo: !amdgcn.vgpr, %addr_hi: !amdgcn.vgpr
   %addr_range = amdgcn.make_register_range %addr_lo, %addr_hi : !amdgcn.vgpr, !amdgcn.vgpr
   %c0_i32_mig1 = arith.constant 0 : i32
   %result, %tok = amdgcn.global_load_dword dest %dst addr %addr_range offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-  %0 = amdgcn.split_register_range %result : !amdgcn.vgpr
-  return %0 : !amdgcn.vgpr
+  return %result : !amdgcn.vgpr
 }
 
 func.func @test_global_load_dwordx2(%addr_lo: !amdgcn.vgpr, %addr_hi: !amdgcn.vgpr, %dst: !amdgcn.vgpr<[? + 2]>) -> (!amdgcn.vgpr, !amdgcn.vgpr) {
@@ -259,9 +250,8 @@ func.func @test_global_load_dwordx4(%addr_lo: !amdgcn.vgpr, %addr_hi: !amdgcn.vg
 
 func.func @test_global_store_dword(%addr_lo: !amdgcn.vgpr, %addr_hi: !amdgcn.vgpr, %val: !amdgcn.vgpr) {
   %addr_range = amdgcn.make_register_range %addr_lo, %addr_hi : !amdgcn.vgpr, !amdgcn.vgpr
-  %val_range = amdgcn.make_register_range %val : !amdgcn.vgpr
   %c0_i32_mig1 = arith.constant 0 : i32
-  %tok = amdgcn.global_store_dword data %val_range addr %addr_range offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
+  %tok = amdgcn.global_store_dword data %val addr %addr_range offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
   return
 }
 
@@ -281,8 +271,7 @@ func.func @test_smem_load_dword(%addr_lo: !amdgcn.sgpr, %addr_hi: !amdgcn.sgpr, 
   %addr_range = amdgcn.make_register_range %addr_lo, %addr_hi : !amdgcn.sgpr, !amdgcn.sgpr
   %c0_i32_mig1 = arith.constant 0 : i32
   %result, %tok = amdgcn.s_load_dword dest %dst addr %addr_range offset c(%c0_i32_mig1) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
-  %0 = amdgcn.split_register_range %result : !amdgcn.sgpr
-  return %0 : !amdgcn.sgpr
+  return %result : !amdgcn.sgpr
 }
 
 //===----------------------------------------------------------------------===//
@@ -291,9 +280,8 @@ func.func @test_smem_load_dword(%addr_lo: !amdgcn.sgpr, %addr_hi: !amdgcn.sgpr, 
 
 func.func @test_smem_store_dword(%addr_lo: !amdgcn.sgpr, %addr_hi: !amdgcn.sgpr, %val: !amdgcn.sgpr) {
   %addr_range = amdgcn.make_register_range %addr_lo, %addr_hi : !amdgcn.sgpr, !amdgcn.sgpr
-  %val_range = amdgcn.make_register_range %val : !amdgcn.sgpr
   %c0_i32_mig1 = arith.constant 0 : i32
-  %tok = amdgcn.s_store_dword data %val_range addr %addr_range offset c(%c0_i32_mig1) : ins(!amdgcn.sgpr, !amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<constant>
+  %tok = amdgcn.s_store_dword data %val addr %addr_range offset c(%c0_i32_mig1) : ins(!amdgcn.sgpr, !amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<constant>
   return
 }
 
