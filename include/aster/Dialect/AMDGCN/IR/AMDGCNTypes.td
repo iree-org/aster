@@ -54,6 +54,15 @@ def GPRegTrait : NativeTypeTrait<"GPRegTrait"> {
     int64_t getSizeInBits() const {
       return static_cast<int64_t>(getRange().size()) * 32;
     }
+    RegisterProps getProps() const {
+      RegisterProps props = RegisterProps::IsGeneralPurpose |
+                            RegisterProps::AcceptsValueSemantics |
+                            RegisterProps::AcceptsUnallocatedSemantics |
+                            RegisterProps::AcceptsAllocatedSemantics;
+      if (getRange().size() > 1)
+        return props | RegisterProps::IsComposite;
+      return props | RegisterProps::AcceptsComposite;
+    }
 
     //===------------------------------------------------------------------===//
     // ResourceTypeInterface
@@ -124,6 +133,11 @@ def SpecialRegTrait : NativeTypeTrait<"SpecialRegTrait"> {
     }
     int64_t getSizeInBits() const {
       return kSizeInBits;
+    }
+    RegisterProps getProps() const {
+      return RegisterProps::AcceptsValueSemantics |
+             RegisterProps::AcceptsUnallocatedSemantics |
+             RegisterProps::AcceptsAllocatedSemantics;
     }
 
     //===------------------------------------------------------------------===//

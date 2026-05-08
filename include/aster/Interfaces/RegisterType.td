@@ -46,6 +46,11 @@ def RegisterTypeInterface : TypeInterface<"RegisterTypeInterface", [
         This method returns the size in bits of the register(s).
       }],
       "int64_t", "getSizeInBits"
+    >,
+    InterfaceMethod<[{
+        Returns the properties of the register type.
+      }],
+      "::mlir::aster::RegisterProps", "getProps"
     >
   ];
   let extraTraitClassDeclaration = [{
