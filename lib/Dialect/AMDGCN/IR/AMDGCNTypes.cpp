@@ -12,11 +12,102 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/ResourceInterfaces.h"
+#include <limits>
 #include <optional>
 
 using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
+
+//===----------------------------------------------------------------------===//
+// GPRegTrait getCompositeType / getSplitType
+//===----------------------------------------------------------------------===//
+
+template <typename T>
+static RegisterTypeInterface
+getCompositeGPRImpl(T type, TypeRange types, std::optional<int16_t> alignment,
+                    llvm::function_ref<InFlightDiagnostic()> emitError) {
+  RegisterRange range = type.getAsRange();
+  if (range.size() > 1) {
+    if (emitError)
+      emitError() << "register is already composite";
+    return nullptr;
+  }
+
+  RegisterSemantics semantics = range.getSemantics();
+  RegisterKind kind = type.getRegisterKind();
+
+  // Registers must be contiguous and in ascending order (for allocated
+  // semantics). Validate kind, semantics, and size in the same pass.
+  int16_t expected = semantics == RegisterSemantics::Allocated
+                         ? static_cast<int16_t>(range.begin().getRegister() + 1)
+                         : int16_t{-1};
+
+  for (Type t : types) {
+    auto other = dyn_cast<AMDGCNRegisterTypeInterface>(t);
+    if (!other || other.getRegisterKind() != kind ||
+        other.getSemantics() != semantics) {
+      if (emitError)
+        emitError() << "expected register of the same kind and semantics";
+      return nullptr;
+    }
+    if (other.getAsRange().size() != 1) {
+      if (emitError)
+        emitError() << "expected a single register, not a range";
+      return nullptr;
+    }
+    if (semantics == RegisterSemantics::Allocated) {
+      int16_t reg = other.getAsRange().begin().getRegister();
+      if (reg != expected) {
+        if (emitError)
+          emitError() << "expected register " << expected << " but got " << reg;
+        return nullptr;
+      }
+      ++expected;
+    }
+  }
+
+  assert(types.size() <
+             static_cast<size_t>(std::numeric_limits<int16_t>::max()) &&
+         "register count overflows int16_t");
+  int16_t size = static_cast<int16_t>(types.size()) + 1;
+  int16_t align = alignment.value_or(defaultAlignment(size));
+  return T::get(type.getContext(), RegisterRange(range.begin(), size, align));
+}
+
+template <typename T>
+static LogicalResult
+getSplitGPRImpl(T type, SmallVectorImpl<RegisterTypeInterface> &regs,
+                llvm::function_ref<InFlightDiagnostic()> emitError) {
+  RegisterRange range = type.getAsRange();
+  if (range.size() <= 1) {
+    if (emitError)
+      emitError() << "register is not composite";
+    return failure();
+  }
+  for (int i = 0; i < range.size(); ++i)
+    regs.push_back(type.cloneRegisterType(RegisterRange(
+        range.begin().getWithOffset(static_cast<int16_t>(i)), 1)));
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SpecialRegTrait getCompositeType / getSplitType
+//===----------------------------------------------------------------------===//
+
+static RegisterTypeInterface
+getCompositeSRegImpl(llvm::function_ref<InFlightDiagnostic()> emitError) {
+  if (emitError)
+    emitError() << "special registers cannot form composites";
+  return nullptr;
+}
+
+static LogicalResult
+getSplitSRegImpl(llvm::function_ref<InFlightDiagnostic()> emitError) {
+  if (emitError)
+    emitError() << "special registers cannot be split";
+  return failure();
+}
 
 //===----------------------------------------------------------------------===//
 // RegisterRangeType verification helper
@@ -100,3 +191,57 @@ LogicalResult VGPRType::verify(function_ref<InFlightDiagnostic()> emitError,
 }
 
 Resource *VGPRType::getResource() const { return VGPRResource::get(); }
+
+//===----------------------------------------------------------------------===//
+// GPRegTrait interface method definitions
+//===----------------------------------------------------------------------===//
+
+#define GP_REG_COMPOSITE_SPLIT(TypeName)                                       \
+  RegisterTypeInterface TypeName::getCompositeType(                            \
+      TypeRange types, std::optional<int16_t> alignment,                       \
+      llvm::function_ref<InFlightDiagnostic()> emitError) const {              \
+    return getCompositeGPRImpl(*this, types, alignment, emitError);            \
+  }                                                                            \
+  LogicalResult TypeName::getSplitType(                                        \
+      SmallVectorImpl<RegisterTypeInterface> &regs,                            \
+      llvm::function_ref<InFlightDiagnostic()> emitError) const {              \
+    return getSplitGPRImpl(*this, regs, emitError);                            \
+  }
+
+GP_REG_COMPOSITE_SPLIT(AGPRType)
+GP_REG_COMPOSITE_SPLIT(SGPRType)
+GP_REG_COMPOSITE_SPLIT(VGPRType)
+
+#undef GP_REG_COMPOSITE_SPLIT
+
+//===----------------------------------------------------------------------===//
+// SpecialRegTrait interface method definitions
+//===----------------------------------------------------------------------===//
+
+#define SPECIAL_REG_COMPOSITE_SPLIT(TypeName)                                  \
+  RegisterTypeInterface TypeName::getCompositeType(                            \
+      TypeRange types, std::optional<int16_t> alignment,                       \
+      llvm::function_ref<InFlightDiagnostic()> emitError) const {              \
+    (void)types;                                                               \
+    (void)alignment;                                                           \
+    return getCompositeSRegImpl(emitError);                                    \
+  }                                                                            \
+  LogicalResult TypeName::getSplitType(                                        \
+      SmallVectorImpl<RegisterTypeInterface> &regs,                            \
+      llvm::function_ref<InFlightDiagnostic()> emitError) const {              \
+    (void)regs;                                                                \
+    return getSplitSRegImpl(emitError);                                        \
+  }
+
+SPECIAL_REG_COMPOSITE_SPLIT(VCCType)
+SPECIAL_REG_COMPOSITE_SPLIT(VCCLoType)
+SPECIAL_REG_COMPOSITE_SPLIT(VCCHiType)
+SPECIAL_REG_COMPOSITE_SPLIT(VCCZType)
+SPECIAL_REG_COMPOSITE_SPLIT(EXECType)
+SPECIAL_REG_COMPOSITE_SPLIT(EXECLoType)
+SPECIAL_REG_COMPOSITE_SPLIT(EXECHiType)
+SPECIAL_REG_COMPOSITE_SPLIT(EXECZType)
+SPECIAL_REG_COMPOSITE_SPLIT(M0Type)
+SPECIAL_REG_COMPOSITE_SPLIT(SCCType)
+
+#undef SPECIAL_REG_COMPOSITE_SPLIT

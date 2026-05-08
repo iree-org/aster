@@ -346,80 +346,20 @@ LogicalResult MakeRegisterRangeOp::inferReturnTypes(
     return failure();
   }
 
-  // Fail if any of the types is a register range.
-  if (llvm::any_of(TypeRange(operands), [](Type type) {
-        return cast<RegisterTypeInterface>(type).isRegisterRange();
-      })) {
-    if (location)
-      mlir::emitError(*location) << "expected all types to be single registers";
+  RegisterTypeInterface fTy =
+      cast<RegisterTypeInterface>(operands[0].getType());
+
+  auto emitErrorLambda = [&]() { return mlir::emitError(*location); };
+  llvm::function_ref<InFlightDiagnostic()> emitError = nullptr;
+  if (location)
+    emitError = emitErrorLambda;
+
+  TypeRange remaining = TypeRange(operands).drop_front();
+  RegisterTypeInterface result =
+      fTy.getCompositeType(remaining, std::nullopt, emitError);
+  if (!result)
     return failure();
-  }
-
-  // Fail if the types are not all of the same kind.
-  auto fTy = cast<AMDGCNRegisterTypeInterface>(operands[0].getType());
-  if (llvm::any_of(TypeRange(operands), [&](Type type) {
-        auto oTy = cast<AMDGCNRegisterTypeInterface>(type);
-        return fTy.getRegisterKind() != oTy.getRegisterKind() ||
-               fTy.getSemantics() != oTy.getSemantics();
-      })) {
-    if (location) {
-      mlir::emitError(*location)
-          << "expected all operand types to be of the same kind";
-    }
-    return failure();
-  }
-
-  // Create the appropriate register range type.
-  auto makeRange = [&](RegisterRange range) -> Type {
-    switch (getRegisterKind(fTy)) {
-    case RegisterKind::SGPR:
-      return SGPRType::get(context, range);
-    case RegisterKind::VGPR:
-      return VGPRType::get(context, range);
-    case RegisterKind::AGPR:
-      return AGPRType::get(context, range);
-    default:
-      llvm_unreachable("nyi register kind");
-    }
-  };
-
-  if (!fTy.hasAllocatedSemantics()) {
-    inferredReturnTypes.push_back(
-        makeRange(RegisterRange(fTy.getAsRange().begin(), operands.size())));
-    return success();
-  }
-
-  // Collect unique registers and find upper bound.
-  llvm::SmallDenseSet<int> uniqueRegs;
-  int ub = -1;
-
-  for (Type type : TypeRange(operands)) {
-    int reg = cast<AMDGCNRegisterTypeInterface>(type)
-                  .getAsRange()
-                  .begin()
-                  .getRegister();
-    if (!uniqueRegs.insert(reg).second) {
-      // Duplicate register found.
-      if (location)
-        mlir::emitError(*location) << "duplicate register found: " << reg;
-      return failure();
-    }
-    ub = std::max(ub, reg);
-  }
-
-  assert(ub >= 0 && "ub should have been set");
-  // Check for missing registers in the range.
-  int lb = ub - uniqueRegs.size() + 1;
-  for (int regNum = lb; regNum <= ub; ++regNum) {
-    if (!uniqueRegs.contains(regNum)) {
-      // Missing register found.
-      if (location)
-        mlir::emitError(*location) << "missing register in range: " << regNum;
-      return failure();
-    }
-  }
-  inferredReturnTypes.push_back(
-      makeRange(RegisterRange(Register(lb), operands.size())));
+  inferredReturnTypes.push_back(result);
   return success();
 }
 
@@ -451,35 +391,19 @@ LogicalResult SplitRegisterRangeOp::inferReturnTypes(
   }
 
   Type inputType = operands[0].getType();
-  auto rangeType = cast<AMDGCNRegisterTypeInterface>(inputType);
+  RegisterTypeInterface rangeType = cast<RegisterTypeInterface>(inputType);
 
-  // Get the range information.
-  RegisterRange range = rangeType.getAsRange();
-  int size = range.size();
+  auto emitErrorLambda = [&]() { return mlir::emitError(*location); };
+  llvm::function_ref<InFlightDiagnostic()> emitError = nullptr;
+  if (location)
+    emitError = emitErrorLambda;
 
-  if (size <= 1) {
-    if (location)
-      mlir::emitError(*location) << "cannot split a single register";
+  SmallVector<RegisterTypeInterface> regs;
+  if (failed(rangeType.getSplitType(regs, emitError)))
     return failure();
-  }
 
-  // Create a function to make individual register types.
-  auto makeRegister = [&](Register reg) -> Type {
-    return rangeType.cloneRegisterType(reg);
-  };
-
-  // If the range doesn't have allocated semantics, create individual registers.
-  if (!rangeType.hasAllocatedSemantics()) {
-    for (int i = 0; i < size; ++i)
-      inferredReturnTypes.push_back(makeRegister(range.begin()));
-    return success();
-  }
-
-  // Otherwise, create individual registers from the range.
-  int begin = range.begin().getRegister();
-  for (int i = 0; i < size; ++i) {
-    inferredReturnTypes.push_back(makeRegister(Register(begin + i)));
-  }
+  for (RegisterTypeInterface reg : regs)
+    inferredReturnTypes.push_back(reg);
   return success();
 }
 

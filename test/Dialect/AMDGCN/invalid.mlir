@@ -4,7 +4,7 @@ func.func @mixed_relocatable_registers() {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.vgpr
   %2 = amdgcn.alloca : !amdgcn.vgpr
-  // expected-error@+1 {{expected all operand types to be of the same kind}}
+  // expected-error@+1 {{expected register of the same kind and semantics}}
   %3 = amdgcn.make_register_range %0, %1, %2 : !amdgcn.vgpr<1>, !amdgcn.vgpr, !amdgcn.vgpr
   return
 }
@@ -15,7 +15,7 @@ func.func @duplicate_registers() {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.vgpr<1>
   %2 = amdgcn.alloca : !amdgcn.vgpr<2>
-  // expected-error@+1 {{duplicate register found: 1}}
+  // expected-error@+1 {{expected register 2 but got 1}}
   %3 = amdgcn.make_register_range %0, %1, %2 : !amdgcn.vgpr<1>, !amdgcn.vgpr<1>, !amdgcn.vgpr<2>
   return
 }
@@ -26,7 +26,7 @@ func.func @non_contiguous_range() {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.vgpr<5>
   %2 = amdgcn.alloca : !amdgcn.vgpr<2>
-  // expected-error@+1 {{missing register in range: 3}}
+  // expected-error@+1 {{expected register 2 but got 5}}
   %3 = amdgcn.make_register_range %0, %1, %2 : !amdgcn.vgpr<1>, !amdgcn.vgpr<5>, !amdgcn.vgpr<2>
   return
 }
@@ -37,7 +37,7 @@ func.func @mixed_registers() {
   %0 = amdgcn.alloca : !amdgcn.vgpr<1>
   %1 = amdgcn.alloca : !amdgcn.agpr
   %2 = amdgcn.alloca : !amdgcn.vgpr
-  // expected-error@+1 {{expected all operand types to be of the same kind}}
+  // expected-error@+1 {{expected register of the same kind and semantics}}
   %3 = amdgcn.make_register_range %0, %1, %2 : !amdgcn.vgpr<1>, !amdgcn.agpr, !amdgcn.vgpr
   return
 }
@@ -114,7 +114,7 @@ func.func @offset_with_invalid_aligment() {
 
 func.func @split_single_register() {
   %0 = amdgcn.alloca : !amdgcn.vgpr
-  // expected-error@+1 {{cannot split a single register}}
+  // expected-error@+1 {{register is not composite}}
   %1 = amdgcn.split_register_range %0 : !amdgcn.vgpr
   return
 }
@@ -125,5 +125,17 @@ func.func @make_range_single_register() {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   // expected-error@+1 {{expected at least two operands}}
   %1 = amdgcn.make_register_range %0 : !amdgcn.vgpr
+  return
+}
+
+// -----
+
+func.func @make_range_from_composite() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<0>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<1>
+  %2 = amdgcn.alloca : !amdgcn.vgpr<2>
+  %3 = amdgcn.make_register_range %0, %1 : !amdgcn.vgpr<0>, !amdgcn.vgpr<1>
+  // expected-error@+1 {{register is already composite}}
+  %4 = amdgcn.make_register_range %3, %2 : !amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<2>
   return
 }
