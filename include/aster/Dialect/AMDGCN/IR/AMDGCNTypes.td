@@ -179,6 +179,7 @@ class SRegTypeBase<string name, string mnemonic>
     }]>
   ];
   let skipDefaultBuilders = 1;
+  let genVerifyDecl = 1;
 }
 
 /// Special registers to model state.
@@ -190,7 +191,6 @@ def VCCType : SRegTypeBase<"VCC", "vcc"> {
     static constexpr RegisterProps kRegisterProps =
         RegisterProps::IsComposite |
         RegisterProps::AcceptsValueSemantics |
-        RegisterProps::AcceptsUnallocatedSemantics |
         RegisterProps::AcceptsAllocatedSemantics;
   }];
 }
@@ -203,7 +203,6 @@ def VCCLoType : SRegTypeBase<"VCCLo", "vcc_lo"> {
     static constexpr RegisterProps kRegisterProps =
         RegisterProps::AcceptsComposite |
         RegisterProps::AcceptsValueSemantics |
-        RegisterProps::AcceptsUnallocatedSemantics |
         RegisterProps::AcceptsAllocatedSemantics;
   }];
 }
@@ -215,19 +214,22 @@ def VCCHiType : SRegTypeBase<"VCCHi", "vcc_hi"> {
     static constexpr int64_t kSizeInBits = 32;
     static constexpr RegisterProps kRegisterProps =
         RegisterProps::AcceptsValueSemantics |
-        RegisterProps::AcceptsUnallocatedSemantics |
         RegisterProps::AcceptsAllocatedSemantics;
   }];
 }
 
+/// VCCZ is a read-only status register. When used with value semantics, it
+/// represents a frozen-in-time snapshot of the VCC zero flag at the point the
+/// value was created. Value-semantic VCCZ may be promoted to SGPRs.
 def VCCZType : SRegTypeBase<"VCCZ", "vccz"> {
   let summary = "VCCZ special register type";
   let extraClassDeclaration = [{
     static constexpr RegisterKind kRegisterKind = RegisterKind::VCCZ;
     static constexpr int64_t kSizeInBits = 1;
     static constexpr RegisterProps kRegisterProps =
+        RegisterProps::IsStatusReg |
+        RegisterProps::IsReadOnly |
         RegisterProps::AcceptsValueSemantics |
-        RegisterProps::AcceptsUnallocatedSemantics |
         RegisterProps::AcceptsAllocatedSemantics;
   }];
 }
@@ -239,8 +241,6 @@ def EXECType : SRegTypeBase<"EXEC", "exec"> {
     static constexpr int64_t kSizeInBits = 64;
     static constexpr RegisterProps kRegisterProps =
         RegisterProps::IsComposite |
-        RegisterProps::AcceptsValueSemantics |
-        RegisterProps::AcceptsUnallocatedSemantics |
         RegisterProps::AcceptsAllocatedSemantics;
   }];
 }
@@ -252,8 +252,6 @@ def EXECLoType : SRegTypeBase<"EXECLo", "exec_lo"> {
     static constexpr int64_t kSizeInBits = 32;
     static constexpr RegisterProps kRegisterProps =
         RegisterProps::AcceptsComposite |
-        RegisterProps::AcceptsValueSemantics |
-        RegisterProps::AcceptsUnallocatedSemantics |
         RegisterProps::AcceptsAllocatedSemantics;
   }];
 }
@@ -264,20 +262,22 @@ def EXECHiType : SRegTypeBase<"EXECHi", "exec_hi"> {
     static constexpr RegisterKind kRegisterKind = RegisterKind::EXEC_HI;
     static constexpr int64_t kSizeInBits = 32;
     static constexpr RegisterProps kRegisterProps =
-        RegisterProps::AcceptsValueSemantics |
-        RegisterProps::AcceptsUnallocatedSemantics |
         RegisterProps::AcceptsAllocatedSemantics;
   }];
 }
 
+/// EXECZ is a read-only status register. When used with value semantics, it
+/// represents a frozen-in-time snapshot of the EXEC zero flag at the point the
+/// value was created. Value-semantic EXECZ may be promoted to SGPRs.
 def EXECZType : SRegTypeBase<"EXECZ", "execz"> {
   let summary = "EXECZ special register type";
   let extraClassDeclaration = [{
     static constexpr RegisterKind kRegisterKind = RegisterKind::EXECZ;
     static constexpr int64_t kSizeInBits = 1;
     static constexpr RegisterProps kRegisterProps =
+        RegisterProps::IsStatusReg |
+        RegisterProps::IsReadOnly |
         RegisterProps::AcceptsValueSemantics |
-        RegisterProps::AcceptsUnallocatedSemantics |
         RegisterProps::AcceptsAllocatedSemantics;
   }];
 }
@@ -289,7 +289,6 @@ def M0Type : SRegTypeBase<"M0", "m0"> {
     static constexpr int64_t kSizeInBits = 32;
     static constexpr RegisterProps kRegisterProps =
         RegisterProps::AcceptsValueSemantics |
-        RegisterProps::AcceptsUnallocatedSemantics |
         RegisterProps::AcceptsAllocatedSemantics;
   }];
 }
@@ -300,8 +299,8 @@ def SCCType : SRegTypeBase<"SCC", "scc"> {
     static constexpr RegisterKind kRegisterKind = RegisterKind::SCC;
     static constexpr int64_t kSizeInBits = 1;
     static constexpr RegisterProps kRegisterProps =
+        RegisterProps::IsStatusReg |
         RegisterProps::AcceptsValueSemantics |
-        RegisterProps::AcceptsUnallocatedSemantics |
         RegisterProps::AcceptsAllocatedSemantics;
   }];
 }

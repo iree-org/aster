@@ -39,10 +39,12 @@ def RegisterProps : I8BitEnum<"RegisterProps",
     I8BitEnumCaseNone<"None", "none">,
     I8BitEnumCase<"IsGeneralPurpose", 1, "is_general_purpose">,
     I8BitEnumCase<"IsComposite", 2, "is_composite">,
-    I8BitEnumCase<"AcceptsComposite", 4, "accepts_composite">,
-    I8BitEnumCase<"AcceptsValueSemantics", 8, "accepts_value_semantics">,
-    I8BitEnumCase<"AcceptsUnallocatedSemantics", 16, "accepts_unallocated_semantics">,
-    I8BitEnumCase<"AcceptsAllocatedSemantics", 32, "accepts_allocated_semantics">
+    I8BitEnumCase<"IsStatusReg", 4, "is_status_reg">,
+    I8BitEnumCase<"IsReadOnly", 8, "is_read_only">,
+    I8BitEnumCase<"AcceptsComposite", 16, "accepts_composite">,
+    I8BitEnumCase<"AcceptsValueSemantics", 32, "accepts_value_semantics">,
+    I8BitEnumCase<"AcceptsUnallocatedSemantics", 64, "accepts_unallocated_semantics">,
+    I8BitEnumCase<"AcceptsAllocatedSemantics", 128, "accepts_allocated_semantics">
   ]> {
   let cppNamespace = "::mlir::aster";
 }
