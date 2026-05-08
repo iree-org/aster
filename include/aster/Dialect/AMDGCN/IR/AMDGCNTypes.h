@@ -30,6 +30,12 @@ public:
   StringRef getName() const override { return "amdgcn.special_register"; }
 };
 
+/// Trait providing common method implementations for AMDGCN special register
+/// types. Each concrete type defines kRegisterKind and kSizeInBits.
+template <typename ConcreteType>
+struct SpecialRegTrait
+    : public ::mlir::TypeTrait::TraitBase<ConcreteType, SpecialRegTrait> {};
+
 /// Returns true if it's a register type with size 1.
 bool isRegisterLike(Type type);
 } // namespace mlir::aster::amdgcn
