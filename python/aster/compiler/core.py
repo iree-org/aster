@@ -37,6 +37,7 @@ class PrintOptions:
         - ``ASTER_PRINT_IR_AFTER_ALL`` overrides *print_ir_after_all*.
         - ``ASTER_PRINT_ASM``          overrides *print_asm*.
         - ``ASTER_PRINT_DIR``          overrides *print_root_dir*.
+        - ``ASTER_PRINT_TIMINGS``      overrides *print_timings*.
         """
         from aster.utils.env import aster_get_env_or_default
 
@@ -47,7 +48,9 @@ class PrintOptions:
             print_preprocessed_ir=print_preprocessed_ir,
             print_asm=aster_get_env_or_default("ASTER_PRINT_ASM", print_asm),
             print_root_dir=aster_get_env_or_default("ASTER_PRINT_DIR", print_root_dir),
-            print_timings=print_timings,
+            print_timings=aster_get_env_or_default(
+                "ASTER_PRINT_TIMINGS", print_timings
+            ),
         )
 
 
@@ -214,7 +217,14 @@ def _run_pass_pipeline(
             )
         else:
             pm.enable_ir_printing(print_after_all=True)
-    if opts.print_timings:
+    # ASTER_PRINT_TIMINGS=1 forces per-pass timing on regardless of how
+    # the caller constructed PrintOptions. This way any harness/script
+    # can opt in via env var without code changes.
+    print_timings = opts.print_timings
+    if not print_timings:
+        env = os.environ.get("ASTER_PRINT_TIMINGS", "")
+        print_timings = env not in ("", "0")
+    if print_timings:
         pm.enable_timing()
     pm.run(module.operation)
     aster_log_info(logger, "[COMPILE] Pass pipeline completed")
