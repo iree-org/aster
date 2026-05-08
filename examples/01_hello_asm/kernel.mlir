@@ -28,7 +28,9 @@ module {
       amdgcn.v_add_u32 outs(%v0) ins(%v1, %v2) : outs(!amdgcn.vgpr<0>) ins(!amdgcn.vgpr<1>, !amdgcn.vgpr<2>)
 
       // Self-check: trap if result != 42
-      %vcc = amdgcn.alloca : !amdgcn.vcc
+      %vcc_lo = alloca : !amdgcn.vcc_lo
+      %vcc_hi = alloca : !amdgcn.vcc_hi
+      %vcc = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo, !amdgcn.vcc_hi
       %c42 = arith.constant 42 : i32
       amdgcn.v_cmp_ne_i32 outs(%vcc) ins(%c42, %v0) : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
       amdgcn.s_cbranch_vccnz %vcc, true(^trap) false(^ok)

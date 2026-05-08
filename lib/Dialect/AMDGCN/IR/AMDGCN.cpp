@@ -233,6 +233,20 @@ bool mlir::aster::amdgcn::isRegisterLike(Type type) {
   return range.size() == 1;
 }
 
+bool mlir::aster::amdgcn::isAllocatableRegisterLike(Type type) {
+  if (!isRegisterLike(type))
+    return false;
+  RegisterTypeInterface regType = cast<RegisterTypeInterface>(type);
+  return !bitEnumContainsAll(regType.getProps(), RegisterProps::IsComposite);
+}
+
+bool mlir::aster::amdgcn::isCompositeRegisterLike(Type type) {
+  auto regType = dyn_cast<RegisterTypeInterface>(type);
+  if (!regType)
+    return false;
+  return bitEnumContainsAll(regType.getProps(), RegisterProps::IsComposite);
+}
+
 RegisterKind
 mlir::aster::amdgcn::getRegisterKind(AMDGCNRegisterTypeInterface type) {
   if (auto rTy = dyn_cast<AMDGCNRegisterTypeInterface>(type))

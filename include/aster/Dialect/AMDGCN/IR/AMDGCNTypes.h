@@ -44,6 +44,13 @@ struct GPRegTrait
 
 /// Returns true if it's a register type with size 1.
 bool isRegisterLike(Type type);
+
+/// Returns true if it's an allocatable register type (register-like, not
+/// composite).
+bool isAllocatableRegisterLike(Type type);
+
+/// Returns true if the type has the IsComposite register property.
+bool isCompositeRegisterLike(Type type);
 } // namespace mlir::aster::amdgcn
 
 #define GET_TYPEDEF_CLASSES

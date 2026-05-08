@@ -233,15 +233,105 @@ GP_REG_COMPOSITE_SPLIT(VGPRType)
     return getSplitSRegImpl(emitError);                                        \
   }
 
-SPECIAL_REG_COMPOSITE_SPLIT(VCCType)
-SPECIAL_REG_COMPOSITE_SPLIT(VCCLoType)
 SPECIAL_REG_COMPOSITE_SPLIT(VCCHiType)
 SPECIAL_REG_COMPOSITE_SPLIT(VCCZType)
-SPECIAL_REG_COMPOSITE_SPLIT(EXECType)
-SPECIAL_REG_COMPOSITE_SPLIT(EXECLoType)
 SPECIAL_REG_COMPOSITE_SPLIT(EXECHiType)
 SPECIAL_REG_COMPOSITE_SPLIT(EXECZType)
 SPECIAL_REG_COMPOSITE_SPLIT(M0Type)
 SPECIAL_REG_COMPOSITE_SPLIT(SCCType)
 
 #undef SPECIAL_REG_COMPOSITE_SPLIT
+
+//===----------------------------------------------------------------------===//
+// VCC composite/split
+//===----------------------------------------------------------------------===//
+
+RegisterTypeInterface VCCLoType::getCompositeType(
+    TypeRange types, std::optional<int16_t> alignment,
+    llvm::function_ref<InFlightDiagnostic()> emitError) const {
+  assert(!alignment.has_value() &&
+         "alignment is not supported for special register composites");
+  if (types.size() != 1 || !isa<VCCHiType>(types[0])) {
+    if (emitError)
+      emitError() << "expected exactly one vcc_hi operand";
+    return nullptr;
+  }
+  if (cast<VCCHiType>(types[0]).getSemantics() != getSemantics()) {
+    if (emitError)
+      emitError() << "expected matching semantics";
+    return nullptr;
+  }
+  return VCCType::get(getContext(), getReg());
+}
+
+LogicalResult VCCLoType::getSplitType(
+    SmallVectorImpl<RegisterTypeInterface> &regs,
+    llvm::function_ref<InFlightDiagnostic()> emitError) const {
+  (void)regs;
+  if (emitError)
+    emitError() << "vcc_lo is not a composite type and cannot be split";
+  return failure();
+}
+
+RegisterTypeInterface VCCType::getCompositeType(
+    TypeRange types, std::optional<int16_t> alignment,
+    llvm::function_ref<InFlightDiagnostic()> emitError) const {
+  (void)types;
+  (void)alignment;
+  return getCompositeSRegImpl(emitError);
+}
+
+LogicalResult VCCType::getSplitType(
+    SmallVectorImpl<RegisterTypeInterface> &regs,
+    llvm::function_ref<InFlightDiagnostic()> emitError) const {
+  regs.push_back(VCCLoType::get(getContext(), getReg()));
+  regs.push_back(VCCHiType::get(getContext(), getReg()));
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// EXEC composite/split
+//===----------------------------------------------------------------------===//
+
+RegisterTypeInterface EXECLoType::getCompositeType(
+    TypeRange types, std::optional<int16_t> alignment,
+    llvm::function_ref<InFlightDiagnostic()> emitError) const {
+  assert(!alignment.has_value() &&
+         "alignment is not supported for special register composites");
+  if (types.size() != 1 || !isa<EXECHiType>(types[0])) {
+    if (emitError)
+      emitError() << "expected exactly one exec_hi operand";
+    return nullptr;
+  }
+  if (cast<EXECHiType>(types[0]).getSemantics() != getSemantics()) {
+    if (emitError)
+      emitError() << "expected matching semantics";
+    return nullptr;
+  }
+  return EXECType::get(getContext(), getReg());
+}
+
+LogicalResult EXECLoType::getSplitType(
+    SmallVectorImpl<RegisterTypeInterface> &regs,
+    llvm::function_ref<InFlightDiagnostic()> emitError) const {
+  (void)regs;
+  if (emitError)
+    emitError() << "exec_lo is not a composite type and cannot be split";
+  return failure();
+}
+
+RegisterTypeInterface EXECType::getCompositeType(
+    TypeRange types, std::optional<int16_t> alignment,
+    llvm::function_ref<InFlightDiagnostic()> emitError) const {
+  (void)types;
+  (void)alignment;
+  return getCompositeSRegImpl(emitError);
+}
+
+LogicalResult EXECType::getSplitType(
+    SmallVectorImpl<RegisterTypeInterface> &regs,
+    llvm::function_ref<InFlightDiagnostic()> emitError) const {
+  regs.push_back(EXECLoType::get(getContext(), getReg()));
+  regs.push_back(EXECHiType::get(getContext(), getReg()));
+  return success();
+}

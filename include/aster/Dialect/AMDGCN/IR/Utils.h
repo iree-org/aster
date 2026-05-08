@@ -49,7 +49,8 @@ struct KernelArgSegmentInfo {
   static KernelArgSegmentInfo get(KernelOp kernel);
 };
 
-/// Create an allocation for a given register type.
+/// Create an allocation for a given register type. Composite types are
+/// decomposed into their parts and combined with make_register_range.
 Value createAllocation(OpBuilder &builder, Location loc,
                        RegisterTypeInterface regTy);
 

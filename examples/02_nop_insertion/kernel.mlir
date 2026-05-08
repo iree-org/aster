@@ -40,7 +40,9 @@ module {
       amdgcn.v_mov_b32 outs(%v0) ins(%c7) : outs(!amdgcn.vgpr<0>) ins(i32)
 
       // Self-check: v0 should be 7 after the overwrite
-      %vcc = amdgcn.alloca : !amdgcn.vcc
+      %vcc_lo = alloca : !amdgcn.vcc_lo
+      %vcc_hi = alloca : !amdgcn.vcc_hi
+      %vcc = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo, !amdgcn.vcc_hi
       amdgcn.v_cmp_ne_i32 outs(%vcc) ins(%c7, %v0) : outs(!amdgcn.vcc) ins(i32, !amdgcn.vgpr<0>)
       amdgcn.s_cbranch_vccnz %vcc, true(^trap) false(^ok)
         : !amdgcn.vcc

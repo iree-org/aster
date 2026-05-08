@@ -21,7 +21,9 @@ amdgcn.module @vopc_cndmask_mod target = #amdgcn.target<gfx942> {
     %v0 = amdgcn.alloca : !amdgcn.vgpr<0>
     %v1 = amdgcn.alloca : !amdgcn.vgpr<1>
     %v2 = amdgcn.alloca : !amdgcn.vgpr<2>
-    %vcc = amdgcn.alloca : !amdgcn.vcc<0>
+    %vcc_lo = amdgcn.alloca : !amdgcn.vcc_lo<0>
+    %vcc_hi = amdgcn.alloca : !amdgcn.vcc_hi<0>
+    %vcc = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo<0>, !amdgcn.vcc_hi<0>
     amdgcn.v_cndmask_b32 outs(%v2) ins(%v0, %v1, %vcc) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>, !amdgcn.vcc<0>)
     amdgcn.end_kernel
   }
@@ -31,7 +33,9 @@ amdgcn.module @vopc_cndmask_mod target = #amdgcn.target<gfx942> {
   ^entry:
     %v0 = amdgcn.alloca : !amdgcn.vgpr<0>
     %v2 = amdgcn.alloca : !amdgcn.vgpr<2>
-    %vcc = amdgcn.alloca : !amdgcn.vcc<0>
+    %vcc_lo = amdgcn.alloca : !amdgcn.vcc_lo<0>
+    %vcc_hi = amdgcn.alloca : !amdgcn.vcc_hi<0>
+    %vcc = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo<0>, !amdgcn.vcc_hi<0>
     %c42 = arith.constant 42 : i32
     amdgcn.v_mov_b32 outs(%v2) ins(%c42) : outs(!amdgcn.vgpr<2>) ins(i32)
     amdgcn.v_cndmask_b32 outs(%v2) ins(%v0, %v2, %vcc) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<2>, !amdgcn.vcc<0>)
@@ -43,7 +47,9 @@ amdgcn.module @vopc_cndmask_mod target = #amdgcn.target<gfx942> {
     %v0 = amdgcn.alloca : !amdgcn.vgpr<0>
     %v2 = amdgcn.alloca : !amdgcn.vgpr<2>
     %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
-    %vcc = amdgcn.alloca : !amdgcn.vcc<0>
+    %vcc_lo = amdgcn.alloca : !amdgcn.vcc_lo<0>
+    %vcc_hi = amdgcn.alloca : !amdgcn.vcc_hi<0>
+    %vcc = amdgcn.make_register_range %vcc_lo, %vcc_hi : !amdgcn.vcc_lo<0>, !amdgcn.vcc_hi<0>
     amdgcn.v_mov_b32 outs(%v2) ins(%s0) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.sgpr<0>)
     amdgcn.v_cndmask_b32 outs(%v2) ins(%v0, %v2, %vcc) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<2>, !amdgcn.vcc<0>)
     amdgcn.end_kernel

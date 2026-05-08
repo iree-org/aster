@@ -493,7 +493,9 @@ amdgcn.module @test_crossblock_mod target = <gfx942> {
 // Branch uses s_cbranch_vccnz: true(^bb1) when VCC != 0 (condition true), false(^bb2).
 
 // CHECK-LABEL: kernel @test_vopc_cond_branch
-// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
+// CHECK:         alloca : !amdgcn.vcc_lo<0>
+// CHECK:         alloca : !amdgcn.vcc_hi<0>
+// CHECK:         %[[VCC:.*]] = make_register_range
 // CHECK:         v_cmp_lt_i32 outs(%[[VCC]]) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vcc<0>) ins(i32, !amdgcn.vgpr<0>)
 // CHECK:         s_cbranch_vccnz %[[VCC]], true(^bb1) false(^bb2) : !amdgcn.vcc<0>
 // CHECK:       ^bb1:
@@ -564,7 +566,7 @@ amdgcn.module @test_vopc_vv_mod target = <gfx942> {
 // src0/src1 must be register-typed (VOP2 constraint), so we use VGPRs.
 
 // CHECK-LABEL: kernel @test_vopc_select
-// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
+// CHECK:         %[[VCC:.*]] = make_register_range
 // CHECK:         v_cmp_eq_i32 outs(%[[VCC]]) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:         v_cndmask_b32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}, %[[VCC]])
 // CHECK:         end_kernel
@@ -587,7 +589,7 @@ amdgcn.module @test_vopc_select_mod target = <gfx942> {
 // Materialize the true value into dst via v_mov_b32_e32 first.
 
 // CHECK-LABEL: kernel @test_vopc_select_nonvgpr_true
-// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
+// CHECK:         %[[VCC:.*]] = make_register_range
 // CHECK:         v_cmp_eq_i32 outs(%[[VCC]]) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:         v_mov_b32 outs(%{{.*}}) ins(%{{.*}}) : outs(!amdgcn.vgpr<2>) ins(i32)
 // CHECK:         v_cndmask_b32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}, %[[VCC]])
@@ -609,7 +611,7 @@ amdgcn.module @test_vopc_select_imm_true_mod target = <gfx942> {
 // Same as above: true value in SGPR still needs v_mov_b32_e32 into dst for src1.
 
 // CHECK-LABEL: kernel @test_vopc_select_sgpr_true
-// CHECK:         %[[VCC:.*]] = alloca : !amdgcn.vcc<0>
+// CHECK:         %[[VCC:.*]] = make_register_range
 // CHECK:         v_cmp_eq_i32 outs(%[[VCC]]) ins(%{{.*}}, %{{.*}}) : outs(!amdgcn.vcc<0>) ins(!amdgcn.vgpr<0>, !amdgcn.vgpr<1>)
 // CHECK:         v_mov_b32 outs(%{{.*}}) ins(%{{.*}}) : outs(!amdgcn.vgpr<2>) ins(!amdgcn.sgpr<0>)
 // CHECK:         v_cndmask_b32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}, %[[VCC]])
