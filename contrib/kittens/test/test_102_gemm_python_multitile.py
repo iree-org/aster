@@ -702,6 +702,7 @@ def _make_instance(
     b_path="lds",
     mcpu=None,
     rotate_compute_stage=False,
+    ll_sched=0,
 ):
     """Build a MultitileGemmInstance from list parameters.
 
@@ -731,6 +732,7 @@ def _make_instance(
         pipeline_strategy=pipeline_strategy,
         operand_path=OperandPath(b_path),
         rotate_compute_stage=rotate_compute_stage,
+        ll_sched=ll_sched,
         **mapping_kw,
     )
     spec_kw = {} if mfma_shape is None else {"mfma_shape": mfma_shape}
@@ -907,6 +909,24 @@ class TestOperandPath:
             rotate_compute_stage=rotate_compute_stage,
         )
         _run_multitile(cfg)
+
+
+class TestPipelineDirectBLLSched:
+    """Ps x lds_at_write for b_path=direct_b with ll_sched=1, multi-WG geometry."""
+
+    @pytest.mark.parametrize("pipeline_strategy", [1, 3, 4, 5, 6, 7], ids=lambda p: f"ps{p}")
+    @pytest.mark.parametrize("lds_at_write", [False, True], ids=["ldsw0", "ldsw1"])
+    def test_correctness(self, pipeline_strategy, lds_at_write):
+        cfg = _make_instance(
+            [19, 16, 1],
+            [1, 4, 1],
+            [8, 16, 1],
+            k_mult=128,
+            pipeline_strategy=pipeline_strategy,
+            b_path="direct_b",
+            ll_sched=1,
+        )
+        _run_multitile(cfg, lds_at_write=lds_at_write)
 
 
 class TestCdna4Mfma:

@@ -4,14 +4,11 @@
 
 amdgcn.module @test target = #amdgcn.target<gfx942> {
 
-  // ds_reads bypass the barrier; the barrier sinks to its earliest legal
-  // position (no SALU/SMEM/ds_write deps in this kernel) and ds_reads +
-  // their MFMA consumer stream behind. The original "barrier between
-  // ds_read and mfma" placement no longer holds once reads are unpinned.
+  // ds_reads are pinned before the trailing s_barrier; mfma streams after.
   // CHECK-LABEL: kernel @barrier_first_then_mfma
+  // CHECK:         ds_read_b64
+  // CHECK:         ds_read_b64
   // CHECK:         s_barrier
-  // CHECK:         ds_read_b64
-  // CHECK:         ds_read_b64
   // CHECK:         v_mfma_f32_16x16x16_f16
   // CHECK:         end_kernel
   amdgcn.kernel @barrier_first_then_mfma {
@@ -36,16 +33,13 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     amdgcn.end_kernel
   }
 
-  // ds_reads bypass both barriers (DS reads have no LDS-content side
-  // effects and depend only on their own lgkmcnt drain). Barrier-bypass
-  // pulls both s_barriers up so they fire back-to-back, then the reads
-  // and their MFMA consumers stream behind.
+  // Each ds_read is pinned before its trailing s_barrier; mfma streams after.
   // CHECK-LABEL: kernel @two_barriers
-  // CHECK:         s_barrier
-  // CHECK:         s_barrier
   // CHECK:         ds_read_b64
+  // CHECK:         s_barrier
   // CHECK:         v_mfma_f32_16x16x16_f16
   // CHECK:         ds_read_b64
+  // CHECK:         s_barrier
   // CHECK:         v_mfma_f32_16x16x16_f16
   // CHECK:         end_kernel
   amdgcn.kernel @two_barriers {
