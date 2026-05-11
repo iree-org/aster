@@ -1,15 +1,18 @@
 // RUN: aster-opt %s --split-input-file \
-// RUN:   --amdgcn-lower-sreg-block-args \
+// RUN:   --aster-amdgcn-bufferization \
 // RUN:   | FileCheck %s
 
 // CHECK-LABEL: kernel @scc_through_sgpr
-// CHECK:         %[[SG:.*]] = alloca : !amdgcn.sgpr
-// CHECK:         %[[CPY0:.*]] = lsir.copy %[[SG]], %{{.*}} : !amdgcn.sgpr, !amdgcn.scc
-// CHECK:         cf.br ^[[BB1:bb[0-9]+]](%[[CPY0]] : !amdgcn.sgpr)
-// CHECK:       ^[[BB1]](%[[A:.*]]: !amdgcn.sgpr):
-// CHECK:         %[[SC:.*]] = alloca : !amdgcn.scc
-// CHECK:         %[[CPY1:.*]] = lsir.copy %[[SC]], %[[A]] : !amdgcn.scc{{.*}}, !amdgcn.sgpr
-// CHECK:         test_inst ins %[[CPY1]] : (!amdgcn.scc) -> ()
+// CHECK:         %[[CARR:.*]] = alloca : !amdgcn.sgpr<?>
+// CHECK:         %[[ARG:.*]] = alloca : !amdgcn.scc
+// CHECK:         %[[SCC:.*]] = alloca : !amdgcn.scc
+// CHECK:         cf.br ^[[FWD:bb[0-9]+]]
+// CHECK:       ^[[FWD]]:
+// CHECK:         lsir.copy %[[CARR]], %[[SCC]] : !amdgcn.sgpr<?>, !amdgcn.scc
+// CHECK:         cf.br ^[[BB1:bb[0-9]+]]
+// CHECK:       ^[[BB1]]:
+// CHECK:         %[[CPY:.*]] = lsir.copy %[[ARG]], %[[CARR]] : !amdgcn.scc, !amdgcn.sgpr<?>
+// CHECK:         test_inst ins %[[CPY]] : (!amdgcn.scc) -> ()
 // CHECK:         end_kernel
 amdgcn.kernel @scc_through_sgpr {
 ^bb0:
@@ -23,15 +26,18 @@ amdgcn.kernel @scc_through_sgpr {
 // -----
 
 // CHECK-LABEL: kernel @cond_br_scc
-// CHECK:         alloca : !amdgcn.sgpr
-// CHECK:         lsir.copy %{{.*}}, %{{.*}} : !amdgcn.sgpr, !amdgcn.scc
-// CHECK:         alloca : !amdgcn.sgpr
-// CHECK:         lsir.copy %{{.*}}, %{{.*}} : !amdgcn.sgpr, !amdgcn.scc
-// CHECK:         cf.cond_br %{{.*}}, ^{{bb[0-9]+}}(%{{.*}} : !amdgcn.sgpr), ^{{bb[0-9]+}}(%{{.*}} : !amdgcn.sgpr)
-// CHECK:       ^bb{{[0-9]+}}(%{{.*}}: !amdgcn.sgpr):
-// CHECK:         lsir.copy %{{.*}}, %{{.*}} : !amdgcn.scc{{.*}}, !amdgcn.sgpr
-// CHECK:       ^bb{{[0-9]+}}(%{{.*}}: !amdgcn.sgpr):
-// CHECK:         lsir.copy %{{.*}}, %{{.*}} : !amdgcn.scc{{.*}}, !amdgcn.sgpr
+// CHECK:         alloca : !amdgcn.sgpr<?>
+// CHECK:         alloca : !amdgcn.scc
+// CHECK:         alloca : !amdgcn.sgpr<?>
+// CHECK:         alloca : !amdgcn.scc
+// CHECK:         alloca : !amdgcn.scc
+// CHECK:         cf.cond_br %{{.*}}, ^{{bb[0-9]+}}, ^{{bb[0-9]+}}
+// CHECK:       ^{{bb[0-9]+}}:
+// CHECK:         lsir.copy %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, !amdgcn.scc
+// CHECK:         cf.br ^{{bb[0-9]+}}
+// CHECK:       ^{{bb[0-9]+}}:
+// CHECK:         lsir.copy %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, !amdgcn.scc
+// CHECK:         cf.br ^{{bb[0-9]+}}
 amdgcn.kernel @cond_br_scc {
 ^bb0:
   %c = arith.constant true
@@ -75,14 +81,10 @@ amdgcn.kernel @unallocated_scc_unchanged {
 
 // VCC is a 64-bit (2-word) special register; the SGPR carrier must have size 2.
 // CHECK-LABEL: kernel @vcc_through_sgpr
-// CHECK:         %[[CPY0:.*]] = lsir.copy %{{.*}}, %{{.*}} : !amdgcn.sgpr{{.*}}, !amdgcn.vcc
-// CHECK:         cf.br ^[[BB1:bb[0-9]+]](%[[CPY0]] : !amdgcn.sgpr<[? + 2]>)
-// CHECK:       ^[[BB1]](%[[A:.*]]: !amdgcn.sgpr<[? + 2]>):
-// CHECK:         alloca : !amdgcn.vcc_lo
-// CHECK:         alloca : !amdgcn.vcc_hi
-// CHECK:         make_register_range
-// CHECK:         %[[CPY1:.*]] = lsir.copy %{{.*}}, %[[A]] : !amdgcn.vcc{{.*}}, !amdgcn.sgpr{{.*}}
-// CHECK:         end_kernel
+// CHECK:         make_register_range %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
+// CHECK:         make_register_range %{{.*}}, %{{.*}} : !amdgcn.vcc_lo, !amdgcn.vcc_hi
+// CHECK:         make_register_range %{{.*}}, %{{.*}} : !amdgcn.vcc_lo, !amdgcn.vcc_hi
+// CHECK:         lsir.copy %{{.*}}, %{{.*}} : !amdgcn.sgpr<[? : ? + 2]>, !amdgcn.vcc
 amdgcn.kernel @vcc_through_sgpr {
 ^bb0:
   %vcc_lo = amdgcn.alloca : !amdgcn.vcc_lo
@@ -97,12 +99,20 @@ amdgcn.kernel @vcc_through_sgpr {
 
 // Two distinct predecessors forwarding SCC to the same block argument.
 // CHECK-LABEL: kernel @multi_pred_scc
-// CHECK:         lsir.copy %{{.*}}, %{{.*}} : !amdgcn.sgpr, !amdgcn.scc
-// CHECK:         cf.cond_br %{{.*}}, ^{{bb[0-9]+}}, ^[[DEST:bb[0-9]+]](%{{.*}} : !amdgcn.sgpr)
-// CHECK:         lsir.copy %{{.*}}, %{{.*}} : !amdgcn.sgpr, !amdgcn.scc
-// CHECK:         cf.br ^[[DEST]](%{{.*}} : !amdgcn.sgpr)
-// CHECK:       ^[[DEST]](%{{.*}}: !amdgcn.sgpr):
-// CHECK:         lsir.copy %{{.*}}, %{{.*}} : !amdgcn.scc{{.*}}, !amdgcn.sgpr
+// CHECK:         %[[CARR:.*]] = alloca : !amdgcn.sgpr<?>
+// CHECK:         %[[ARG:.*]] = alloca : !amdgcn.scc
+// CHECK:         alloca : !amdgcn.scc
+// CHECK:         cf.cond_br %{{.*}}, ^{{bb[0-9]+}}, ^{{bb[0-9]+}}
+// CHECK:       ^{{bb[0-9]+}}:
+// CHECK:         lsir.copy %[[CARR]], %{{.*}} : !amdgcn.sgpr<?>, !amdgcn.scc
+// CHECK:         cf.br ^[[DEST:bb[0-9]+]]
+// CHECK:       ^{{bb[0-9]+}}:
+// CHECK:         alloca : !amdgcn.scc
+// CHECK:       ^{{bb[0-9]+}}:
+// CHECK:         lsir.copy %[[CARR]], %{{.*}} : !amdgcn.sgpr<?>, !amdgcn.scc
+// CHECK:         cf.br ^[[DEST]]
+// CHECK:       ^[[DEST]]:
+// CHECK:         end_kernel
 amdgcn.kernel @multi_pred_scc {
 ^bb0:
   %c = arith.constant true
