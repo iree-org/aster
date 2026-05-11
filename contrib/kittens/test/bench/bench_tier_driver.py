@@ -46,7 +46,9 @@ def run_tier_mode(
     all_results: list[tuple] = []
     all_hsaco_paths: dict = {}
     out_dir = os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR") or "/tmp"
-    out_path = os.path.join(out_dir, f"tier_results_{bench_label}_{int(time.time())}.txt")
+    timestamp = int(time.time())
+    out_path = os.path.join(out_dir, f"tier_results_{bench_label}_{timestamp}.txt")
+    top20_path = os.path.join(out_dir, f"campaign_top20_{bench_label}_{timestamp}.txt")
 
     # Tier-1's effective axis values seed ordinal-neighbor expansion in later tiers.
     tier1_universe: dict = {}
@@ -95,6 +97,7 @@ def run_tier_mode(
             post_compile_filter=post_compile_filter,
             zero_init=args.zero_init,
             iterations=args.iterations,
+            hsaco_dir=getattr(args, "hsaco_dir", None),
         )
 
         all_results.extend(bench_results)
@@ -120,7 +123,7 @@ def run_tier_mode(
                     "tflops_p50": stats.p50_tf,
                     "tflops_p90": stats.p90_tf,
                     "tflops_mean": stats.mean_tf,
-                    "ms_stddev": stats.stddev_ms,
+                    "tf_stddev": stats.stddev_tf,
                     "pct_peak": stats.p50_pct,
                     "label": cfg_inst.label,
                 }
@@ -170,6 +173,17 @@ def run_tier_mode(
     )
     print(f"\nTier results: {out_path} ({len(all_records)} rows)")
     if all_records:
+        _write_campaign_top_txt(
+            top20_path,
+            all_records=all_records,
+            bench_label=bench_label,
+            target_m=target_m,
+            target_n=target_n,
+            target_k=target_k,
+            mcpu=args.mcpu,
+            repro_cmd_fn=repro_cmd_fn,
+            top_n=20,
+        )
         for line in _format_campaign_top(all_records, repro_cmd_fn, top_n=20):
             print(line)
 
@@ -185,6 +199,15 @@ def run_tier_mode(
             num_gpus=args.num_gpus,
             label=bench_label,
         )
+
+    # Final summary block: printed AFTER verify_top_configs so the file
+    # paths are the last thing on screen and easy to grab.
+    if all_records:
+        print()
+        print("=" * 78)
+        print(f"  Campaign top 20:  {top20_path}")
+        print(f"  Full tier results: {out_path}")
+        print("=" * 78)
 
     return out_path if all_records else None
 
@@ -256,7 +279,7 @@ def _format_record_block(r: dict, rank: int, repro_cmd_fn: Callable) -> list[str
         f"{r.get('tflops_p50', 0.0):>6.1f}/"
         f"{r.get('tflops_p90', 0.0):>6.1f} "
         f"mean={r.get('tflops_mean', 0.0):>6.1f} "
-        f"stddev_ms={r.get('ms_stddev', 0.0):>5.3f}"
+        f"stddev_tf={r.get('tf_stddev', 0.0):>5.1f}"
     )
 
     class _Stub:
@@ -277,6 +300,29 @@ def _format_campaign_top(all_records: list[dict], repro_cmd_fn: Callable, *, top
     for i, r in enumerate(top, 1):
         out.extend(_format_record_block(r, i, repro_cmd_fn))
     return out
+
+
+def _write_campaign_top_txt(
+    top_path: str,
+    *,
+    all_records: list[dict],
+    bench_label: str,
+    target_m: int,
+    target_n: int,
+    target_k: int,
+    mcpu: str,
+    repro_cmd_fn: Callable,
+    top_n: int = 20,
+) -> None:
+    lines: list[str] = [
+        "=" * 78,
+        f"Bench: {bench_label}  size: m={target_m} n={target_n} k={target_k}  mcpu: {mcpu}",
+        f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "=" * 78,
+    ]
+    lines.extend(_format_campaign_top(all_records, repro_cmd_fn, top_n=top_n))
+    with open(top_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 def _write_results_txt(
