@@ -57,15 +57,41 @@ if [ ! -f "$PY_SCRIPT" ]; then
     exit 1
 fi
 
-HSACO_DIR=$(mktemp -d -t kittens_hsaco_XXXXXX)
-HSACO_PATH="${HSACO_DIR}/kernel.hsaco"
+# If the user passed --hsaco <path> in the forwarded args AND the file exists,
+# reuse it and skip Phase 1. Otherwise compile into a fresh temp HSACO.
+USER_HSACO=""
+prev=""
+for a in "$@"; do
+    if [ "$prev" = "--hsaco" ]; then
+        USER_HSACO="$a"
+        break
+    fi
+    case "$a" in
+        --hsaco=*) USER_HSACO="${a#--hsaco=}"; break ;;
+    esac
+    prev="$a"
+done
+
+if [ -n "$USER_HSACO" ] && [ -f "$USER_HSACO" ]; then
+    HSACO_PATH="$USER_HSACO"
+    SKIP_COMPILE=1
+else
+    HSACO_DIR=$(mktemp -d -t kittens_hsaco_XXXXXX)
+    HSACO_PATH="${HSACO_DIR}/kernel.hsaco"
+    SKIP_COMPILE=0
+fi
 TRACE_LABEL="$(basename "$PY_SCRIPT" .py)"
 TRACE_DIR="$(make_trace_dir "kittens_${TRACE_LABEL}" "")"
 
 # -- Phase 1: Compile HSACO (no rocprofv3) ------------------------------------
-echo "=== Phase 1: Compile HSACO ==="
-"$PYTHON_BIN" "$PY_SCRIPT" "$@" --compile-only --hsaco "$HSACO_PATH"
-echo "  HSACO: $HSACO_PATH ($(ls -lh "$HSACO_PATH" | awk '{print $5}'))"
+if [ "$SKIP_COMPILE" = "1" ]; then
+    echo "=== Phase 1: Skipped (reusing cached HSACO) ==="
+    echo "  HSACO: $HSACO_PATH ($(ls -lh "$HSACO_PATH" | awk '{print $5}'))"
+else
+    echo "=== Phase 1: Compile HSACO ==="
+    "$PYTHON_BIN" "$PY_SCRIPT" "$@" --compile-only --hsaco "$HSACO_PATH"
+    echo "  HSACO: $HSACO_PATH ($(ls -lh "$HSACO_PATH" | awk '{print $5}'))"
+fi
 
 # -- Phase 2: Execute under rocprofv3 ATT -------------------------------------
 echo ""
