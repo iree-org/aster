@@ -338,8 +338,8 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
       addEdge(op, i);
       continue;
     }
-    // Only pin DS write to barriers, let DS read flow through.
-    if (instOp.hasAnyProps({InstProp::Ds}) && !isa<DSReadInstOpInterface>(op)) {
+    // Pin DS and VMEM ops to barriers (s_barrier is a memory fence).
+    if (instOp.hasAnyProps({InstProp::Ds, InstProp::IsVmem})) {
       addEdge(op, i);
       continue;
     }
