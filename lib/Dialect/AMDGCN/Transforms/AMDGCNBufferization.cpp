@@ -16,6 +16,7 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
+#include "aster/Interfaces/RegisterType.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
@@ -28,6 +29,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/DebugLog.h"
 #include <cstdint>
+#include <limits>
 #include <tuple>
 
 #define DEBUG_TYPE "amdgcn-bufferization"
@@ -42,6 +44,19 @@ namespace amdgcn {
 using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
+
+/// Returns true if `type` is a special register (SCC, VCC, …) with value
+/// semantics, i.e. a register that must be tunnelled through an SGPR carrier.
+static bool isSpecialReg(Type type) {
+  auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(type);
+  if (!regTy || !regTy.hasValueSemantics())
+    return false;
+  RegisterKind k = regTy.getRegisterKind();
+  if (k == RegisterKind::Unknown || k == RegisterKind::AGPR ||
+      k == RegisterKind::SGPR || k == RegisterKind::VGPR)
+    return false;
+  return true;
+}
 
 namespace {
 //===----------------------------------------------------------------------===//
@@ -183,10 +198,26 @@ void BufferizationImpl::handleBlockArgument(IRRewriter &rewriter,
   Location loc = arg.getLoc();
   Block *block = arg.getOwner();
 
-  // Insert allocas to handle the breakage of the phi-node.
+  // Insert allocas to handle the breakage of the phi-node. For special
+  // registers (SCC, VCC, …) the phi carrier must be an SGPR because
+  // unallocated SCC/VCC are not valid intermediaries.
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointToStart(entryBlock);
-  Value commonAlloc = createAllocation(rewriter, loc, regTy.getAsUnallocated());
+  RegisterTypeInterface carrierTy;
+  if (isSpecialReg(arg.getType())) {
+    int64_t sizeInBits = regTy.getSizeInBits();
+    assert(sizeInBits > 0 &&
+           sizeInBits <= 32 * std::numeric_limits<int16_t>::max() &&
+           "register size out of range");
+    int16_t words = static_cast<int16_t>((sizeInBits + 31) / 32);
+    // Use the unallocated SGPR slot so the phi-forward copy has a resource
+    // side-effect and is not eliminated as dead code.
+    carrierTy = cast<RegisterTypeInterface>(getSGPR(arg.getContext(), words))
+                    .getAsUnallocated();
+  } else {
+    carrierTy = regTy.getAsUnallocated();
+  }
+  Value commonAlloc = createAllocation(rewriter, loc, carrierTy);
   Value argAlloc = createAllocation(rewriter, loc, regTy);
 
   // Save the branch, value to forward, destination block and allocation for
