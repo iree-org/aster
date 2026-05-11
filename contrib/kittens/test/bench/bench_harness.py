@@ -54,6 +54,7 @@ class PerfStats:
     p90_ns: float
     mean_ns: float
     stddev_ns: float
+    stddev_tf: float
     total_flops: int
     peak_tflops: float
 
@@ -80,10 +81,6 @@ class PerfStats:
     @property
     def mean_ms(self) -> float:
         return self.mean_ns / 1e6
-
-    @property
-    def stddev_ms(self) -> float:
-        return self.stddev_ns / 1e6
 
     @property
     def p0_tf(self) -> float:
@@ -134,6 +131,7 @@ def _compute_stats(post_warmup: Sequence[float], total_flops: int, peak_tflops: 
     if not post_warmup or min(post_warmup) <= 0:
         return None
     times = sorted(float(t) for t in post_warmup)
+    tfs = [int(total_flops) / t * 1e-3 for t in times]
     return PerfStats(
         p0_ns=times[0],
         p10_ns=_percentile_ns(times, 10),
@@ -142,6 +140,7 @@ def _compute_stats(post_warmup: Sequence[float], total_flops: int, peak_tflops: 
         p90_ns=_percentile_ns(times, 90),
         mean_ns=float(statistics.fmean(times)),
         stddev_ns=float(statistics.stdev(times)) if len(times) > 1 else 0.0,
+        stddev_tf=float(statistics.stdev(tfs)) if len(tfs) > 1 else 0.0,
         total_flops=int(total_flops),
         peak_tflops=peak_tflops,
     )
@@ -389,7 +388,22 @@ def compile_one(cfg, hsaco_dir, compile_fn, timeout=DEFAULT_COMPILE_TIMEOUT):
     (segfault, assertion) or exceeds the timeout, the pool worker stays
     alive and reports the failure. Crash stderr is captured to a log
     file in hsaco_dir.
+
+    Cache hit fast-path: if both `{label}.hsaco` and `{label}.s` already
+    exist in `hsaco_dir`, skip the subprocess entirely and re-parse
+    kernel resources from the cached `.s`. Lets a persistent --hsaco-dir
+    sweep rerun in seconds for trace/asm inspection.
     """
+    hsaco_path = os.path.join(hsaco_dir, f"{cfg.label}.hsaco")
+    asm_path = os.path.join(hsaco_dir, f"{cfg.label}.s")
+    if os.path.exists(hsaco_path) and os.path.exists(asm_path):
+        from aster.compiler.metadata import parse_asm_kernel_resources
+
+        with open(asm_path) as f:
+            asm = f.read()
+        res = parse_asm_kernel_resources(asm, kernel_name=cfg.kernel_name).get(cfg.kernel_name)
+        return (cfg.label, hsaco_path, res)
+
     import multiprocessing as mp
 
     ctx = mp.get_context("spawn")
@@ -1061,7 +1075,7 @@ def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
                 f"#{i + 1:>3} p50={s.p50_tf:>6.1f}TF ({s.p50_pct:>4.1f}%) "
                 f"{s.p50_ms:>7.2f}ms | "
                 f"p0/p10/p25/p50/p90={s.p0_tf:>6.1f}/{s.p10_tf:>6.1f}/{s.p25_tf:>6.1f}/{s.p50_tf:>6.1f}/{s.p90_tf:>6.1f}TF "
-                f"mean={s.mean_tf:>6.1f}TF stddev={s.stddev_ms:>5.3f}ms "
+                f"mean={s.mean_tf:>6.1f}TF stddev={s.stddev_tf:>5.1f}TF "
                 f"{c.label}"
             )
             if repro_cmd_fn:
@@ -1090,7 +1104,7 @@ def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
             print(
                 f"  #{i + 1} {c.label}: {s.p50_tf:.1f} TF p50 ({s.p50_pct:.1f}%) "
                 f"| p0/p10/p25/p50/p90={s.p0_tf:.1f}/{s.p10_tf:.1f}/{s.p25_tf:.1f}/{s.p50_tf:.1f}/{s.p90_tf:.1f} "
-                f"mean={s.mean_tf:.1f} stddev_ms={s.stddev_ms:.3f}"
+                f"mean={s.mean_tf:.1f} stddev_tf={s.stddev_tf:.1f}"
             )
     if saved_files:
         print("\nSaved files:")
@@ -1140,6 +1154,7 @@ def bench_perf_sweep_pipelined(
     post_compile_filter=None,
     zero_init=False,
     iterations=None,
+    hsaco_dir: Optional[str] = None,
 ):
     """Pipelined compile+execute: GPU execution starts as HSACOs become available.
 
@@ -1180,11 +1195,15 @@ def bench_perf_sweep_pipelined(
     sys.stdout.flush()
 
     spawn_ctx = mp.get_context("spawn")
-    hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
+    if hsaco_dir:
+        os.makedirs(hsaco_dir, exist_ok=True)
+        print(f"HSACO cache dir: {hsaco_dir} (cached .hsaco/.s files will be reused)")
+    else:
+        hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
 
     # Per-GPU file locks for crash-safe GPU exclusivity.
     gpu_lock_dir = os.path.join(hsaco_dir, "gpu_locks")
-    os.makedirs(gpu_lock_dir)
+    os.makedirs(gpu_lock_dir, exist_ok=True)
 
     # Per-GPU work queues + threads (reuses _run_gpu_queue with Queue mode).
     gpu_work_queues = []
@@ -1363,6 +1382,7 @@ def bench_perf_sweep(
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
     post_compile_filter=None,
     iterations=None,
+    hsaco_dir: Optional[str] = None,
 ):
     """Phase 1 (compile) + Phase 2 (execute).
 
@@ -1407,7 +1427,11 @@ def bench_perf_sweep(
     # Phase 1: compile.
     import multiprocessing as mp
 
-    hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
+    if hsaco_dir:
+        os.makedirs(hsaco_dir, exist_ok=True)
+        print(f"HSACO cache dir: {hsaco_dir} (cached .hsaco/.s files will be reused)")
+    else:
+        hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
     hsaco_paths, resources_map, failed = {}, {}, []
     spawn_ctx = mp.get_context("spawn")
     pool = ProcessPoolExecutor(max_workers=compile_workers, mp_context=spawn_ctx)
@@ -1671,7 +1695,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
                     "p50_ms": s.p50_ms,
                     "p90_ms": s.p90_ms,
                     "mean_ms": s.mean_ms,
-                    "stddev_ms": s.stddev_ms,
+                    "stddev_tf": s.stddev_tf,
                     "tflops_p0": s.p0_tf,
                     "tflops_p10": s.p10_tf,
                     "tflops_p25": s.p25_tf,
@@ -1693,7 +1717,7 @@ def run_single(cfg, compile_fn, args, execute_fn):
         print(f"  {'p50':<8s}  {s.p50_ms:>10.4f}  {s.p50_tf:>10.1f}  {s.p50_pct:>7.1f}%")
         print(f"  {'p90':<8s}  {s.p90_ms:>10.4f}  {s.p90_tf:>10.1f}  {'':>8s}")
         print(f"  {'mean':<8s}  {s.mean_ms:>10.4f}  {s.mean_tf:>10.1f}  {s.mean_pct:>7.1f}%")
-        print(f"  {'stddev':<8s}  {s.stddev_ms:>10.4f}  {'':>10s}  {'':>8s}")
+        print(f"  {'stddev':<8s}  {'':>10s}  {s.stddev_tf:>10.1f}  {'':>8s}")
 
         print("\n--- Correctness check ---")
         A, B = make_inputs(cfg)
@@ -1759,6 +1783,17 @@ def add_sweep_cli_args(parser):
         "and reduce switching activity, giving a power-neutral baseline.",
     )
     a("--direct-b", action=argparse.BooleanOptionalAction, default=None, help="B operand via preshuffle (direct_b)")
+    a(
+        "--hsaco-dir",
+        type=str,
+        default=None,
+        help="Persistent directory for compiled HSACOs and asm. When set, "
+        "the sweep writes {label}.hsaco and {label}.s under this path; "
+        "subsequent runs with the same dir skip compilation and reuse "
+        "the cached artifacts, which is useful for trace capture, asm "
+        "inspection, and repeated sweeps over a fixed corpus. Default: "
+        "ephemeral mkdtemp (no caching).",
+    )
 
 
 def add_single_cli_args(parser):
