@@ -1,3 +1,16 @@
+"""CDNA4 (MI350, gfx950) sanity test on the non-G2S code path, lds operand_path only.
+
+This is a carve-out of the TestCdna4Mfma class from
+test_102_gemm_python_multitile.py specialized to the LDS operand path. It runs
+CDNA4 hardware through the cdna3 file's non-G2S (cooperative LDS-write /
+LDS-read) memory path. It serves as a sanity test that the common KernelBuilder
+-- with vx4 join support but without direct global->LDS (G2S) -- works on CDNA4
+hardware (gfx950) with both A and B flowing through LDS.
+
+Memory path: global_load_dwordx4 -> ds_write_b64 -> ds_read_b64 (x2, joined to
+vx4) -> v_mfma_f32_16x16x32_f16.
+"""
+
 import os
 import sys
 
@@ -36,10 +49,9 @@ from kittens.gemm_config import (
 def _build_multitile_gemm(
     cfg: "MultitileGemmInstance", ping_pong_staggered: bool = False, lds_at_write: bool = False
 ) -> ir.Module:
-    """Build a multi-tile multi-wave multi-WG pipelined GEMM kernel.
+    """Build a multi-tile multi-wave multi-WG pipelined GEMM kernel (LDS path).
 
-    Memory path is driven by cfg.mapping:
-      - operand_path: LDS (both via LDS), DIRECT_B (B bypasses LDS), DIRECT_AB
+    Both A and B flow through LDS (cooperative load -> ds_write -> ds_read).
 
     Args:
       - ping_pong_staggered: triggers different mapping of copperative loads and
@@ -51,7 +63,6 @@ def _build_multitile_gemm(
     from kittens_helpers import PIPELINE_STRATEGIES
 
     spec, mapping = cfg.spec, cfg.mapping
-    direct_b = mapping.direct_b
     gs = spec.gemm_size
     wg = mapping.num_workgroups_per_kernel
     wpw = mapping.num_waves_per_workgroup
@@ -94,8 +105,9 @@ def _build_multitile_gemm(
     # so we get 2 fragments per tile, joined to vx4 in the compute loop.
     from aster.dialects.kernel_builder import MFMA_F16_CDNA4
 
-    vx4_mfma = mfma_k == MFMA_F16_CDNA4.shape[2] and MFMA_F16_CDNA4.reads_vx4
-    frag_k = mfma_k // 2 if vx4_mfma else mfma_k
+    # cdna4 (vx4 join) MFMA: each ds_read_b64 gives half the K elements; 2 fragments joined per MFMA.
+    assert mfma_k == MFMA_F16_CDNA4.shape[2], f"cdna4 leaf requires mfma_k={MFMA_F16_CDNA4.shape[2]}, got {mfma_k}"
+    frag_k = mfma_k // 2
     lds_read_sub_tile_a = Layout((1, _exact_div(tile_k_elems, frag_k, "tile_k/frag_k")), (0, frag_k * elt_bytes_a))
     lds_read_sub_tile_b = Layout((1, _exact_div(tile_k_elems, frag_k, "tile_k/frag_k")), (0, frag_k * elt_bytes_b))
     lds_swizzle = Swizzle(bits=3, base=3, shift=4)
@@ -173,14 +185,6 @@ def _build_multitile_gemm(
     WG_BASE_A = Layout((wg[DIM_M], k_iters), (twg_m * TILE_COORD_A.strides[1], k_t * TILE_COORD_A.strides[0]))
     WG_BASE_B = Layout((wg[DIM_N], k_iters), (twg_n * TILE_COORD_B.strides[1], k_t * TILE_COORD_B.strides[0]))
     C_COORD = Layout((m_t, n_t), (mfma_m * stride_c_row, mfma_n * stride_c_col))
-
-    # Preshuffle B layout: (n_block, k_block, lane_id) -> byte offset.
-    # Matches shuffle_weight() in kittens_helpers.py.
-    nb, kb = cfg.preshuffle_n_blocks, cfg.preshuffle_k_blocks
-    lane_s, k_s = cfg.preshuffle_lane_stride_bytes, cfg.preshuffle_k_block_stride_bytes
-    stride_n0_bytes = kb * k_s
-    PRESHUFFLE_DIMS = (nb, kb, ws)
-    PRESHUFFLE_LAYOUT = Layout((nb, kb, ws), (stride_n0_bytes, k_s, lane_s))
 
     # Distribution layouts: (wg_idx, wave_idx) -> global tile index.
     M_DIST = Layout((wg[DIM_M], wpw[DIM_M]), (twg_m, m_t))
@@ -275,11 +279,6 @@ def _build_multitile_gemm(
         )
         return [bb.to_any(d), t]
 
-    @b.define_helper("_load_b_direct", [sgpr2_type, idx_type], [any_type, flat_read_tok])
-    def load_b_direct_fn(bb, ptr, byte_off):
-        d, t = bb.global_load_dwordx4(ptr, dynamic_offset=bb.index_to_vgpr(byte_off))
-        return [bb.to_any(d), t]
-
     @b.define_helper("_write_a", [any_type, idx_type], [lds_write_tok] * n_wtoks_per_tile)
     def write_a_fn(bb, data_any, lds_off):
         return bb.write_multi_tile_to_lds(
@@ -340,11 +339,10 @@ def _build_multitile_gemm(
         #   to reduce the number of live buffers; allocs are physically placed
         #   after the loads to keep stage assignment monotonic for rotation.
         if not lds_at_write:
-            early_load = min(STG_A_LOAD, STG_B_LOAD) if not direct_b else STG_A_LOAD
+            early_load = min(STG_A_LOAD, STG_B_LOAD)
             with b.stage(early_load):
                 lds_a_h, lds_a = b.alloc_lds(lds_total_a)
-                if not direct_b:
-                    lds_b_h, lds_b = b.alloc_lds(lds_total_b)
+                lds_b_h, lds_b = b.alloc_lds(lds_total_b)
 
         # -- LOAD A (cooperative: scheduled func.call for type erasure) --
         with b.stage(STG_A_LOAD):
@@ -363,44 +361,22 @@ def _build_multitile_gemm(
 
             data_buf_a, tok_buf_a = load_a
 
-        # -- LOAD B --
-        if direct_b:
-            # Direct B: per-wave load at preshuffle byte offsets.
-            with b.stage(STG_B_LOAD):
-                lid = b.lane_id()
-                n_base_b = b.linearize_layout(
-                    b.linearize_index((wg_n_idx, wave_n_idx), (wg[DIM_N], wpw[DIM_N])), N_DIST
-                )
+        # -- LOAD B (cooperative: all waves load cooperatively) --
+        with b.stage(STG_B_LOAD):
+            b_wg_k_idx = b.linearize_index((wg_n_idx, k_iv), (wg[DIM_N], k_iters))
+            b_wg_base = b.linearize_layout(b_wg_k_idx, WG_BASE_B)
+            coop_b_off = b.linearize_layout(
+                b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), TILE_COORD_B
+            )
+            b_wave_base = b.affine_apply(d0 + d1, [b_wg_base, coop_b_off])
 
-                @b.foreach_tile(k_t * n_t, types=[(any_type, 1), (flat_read_tok, 1)])
-                def load_b(idx):
-                    kt, nt = b.delinearize_index(idx, (k_t, n_t))
-                    n_block = b.affine_apply(d0 + d1, [n_base_b, nt])
-                    k_block = b.affine_apply(d0 * k_t + d1, [k_iv, kt])
-                    byte_off = b.linearize_layout(
-                        b.linearize_index((n_block, k_block, lid), PRESHUFFLE_DIMS),
-                        PRESHUFFLE_LAYOUT,
-                    )
-                    return b.call_helper(load_b_direct_fn, [b_ptr, byte_off], [any_type, flat_read_tok])
+            @b.foreach_tile(n_coop_b, types=[(any_type, 1), (flat_read_tok, 1)])
+            def load_b(idx):
+                tile_off = b.linearize_layout(idx, COOP_COORD_B)
+                off = b.affine_apply(d0 + d1, [b_wave_base, tile_off])
+                return b.call_helper(load_b_fn, [b_ptr, off], [any_type, flat_read_tok])
 
-                data_buf_b, tok_buf_b = load_b
-        else:
-            # Cooperative B: all waves load cooperatively.
-            with b.stage(STG_B_LOAD):
-                b_wg_k_idx = b.linearize_index((wg_n_idx, k_iv), (wg[DIM_N], k_iters))
-                b_wg_base = b.linearize_layout(b_wg_k_idx, WG_BASE_B)
-                coop_b_off = b.linearize_layout(
-                    b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), TILE_COORD_B
-                )
-                b_wave_base = b.affine_apply(d0 + d1, [b_wg_base, coop_b_off])
-
-                @b.foreach_tile(n_coop_b, types=[(any_type, 1), (flat_read_tok, 1)])
-                def load_b(idx):
-                    tile_off = b.linearize_layout(idx, COOP_COORD_B)
-                    off = b.affine_apply(d0 + d1, [b_wave_base, tile_off])
-                    return b.call_helper(load_b_fn, [b_ptr, off], [any_type, flat_read_tok])
-
-                data_buf_b, tok_buf_b = load_b
+            data_buf_b, tok_buf_b = load_b
 
         # -- LDS WRITE A --
         with b.stage(STG_A_LDS_WRITE):
@@ -421,25 +397,24 @@ def _build_multitile_gemm(
                     [lds_write_tok] * n_wtoks_per_tile,
                 )
 
-        # -- LDS WRITE B (skipped for direct_b) --
-        if not direct_b:
-            with b.stage(STG_B_LDS_WRITE):
-                if lds_at_write:
-                    lds_b_h, lds_b = b.alloc_lds(lds_total_b)
-                coop_b_lds_off = b.linearize_layout(
-                    b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), LDS_COORD_B
-                )
-                lds_b_wave = b.affine_apply(d0 + d1, [lds_b, coop_b_lds_off])
+        # -- LDS WRITE B --
+        with b.stage(STG_B_LDS_WRITE):
+            if lds_at_write:
+                lds_b_h, lds_b = b.alloc_lds(lds_total_b)
+            coop_b_lds_off = b.linearize_layout(
+                b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), LDS_COORD_B
+            )
+            lds_b_wave = b.affine_apply(d0 + d1, [lds_b, coop_b_lds_off])
 
-                @b.foreach_tile(n_coop_b, types=[(lds_write_tok, n_wtoks_per_tile)])
-                def wtok_buf_b(idx):
-                    lds_off = b.affine_apply(d0 + d1, [lds_b_wave, b.linearize_layout(idx, COOP_LDS_B)])
-                    b.wait_deps(b.memref_load(tok_buf_b, idx))
-                    return b.call_helper(
-                        write_b_fn,
-                        [b.memref_load(data_buf_b, idx), lds_off],
-                        [lds_write_tok] * n_wtoks_per_tile,
-                    )
+            @b.foreach_tile(n_coop_b, types=[(lds_write_tok, n_wtoks_per_tile)])
+            def wtok_buf_b(idx):
+                lds_off = b.affine_apply(d0 + d1, [lds_b_wave, b.linearize_layout(idx, COOP_LDS_B)])
+                b.wait_deps(b.memref_load(tok_buf_b, idx))
+                return b.call_helper(
+                    write_b_fn,
+                    [b.memref_load(data_buf_b, idx), lds_off],
+                    [lds_write_tok] * n_wtoks_per_tile,
+                )
 
         # -- LDS READ A + DEALLOC --
         with b.stage(STG_A_LDS_READ):
@@ -461,35 +436,23 @@ def _build_multitile_gemm(
             frag_buf_a, rtok_buf_a = read_a
             b.dealloc_lds(lds_a_h)
 
-        # -- B FRAGMENTS: LDS read (cooperative) or wait+split (direct) --
-        if direct_b:
-            # Wait global loads, split vx4 -> 2*vx2 fragments.
-            with b.stage(STG_B_LDS_READ):
+        # -- LDS READ B + DEALLOC --
+        with b.stage(STG_B_LDS_READ):
 
-                @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (flat_read_tok, n_frags_per_tile)])
-                def read_b(idx):
-                    tok = b.memref_load(tok_buf_b, idx)
-                    b.wait_deps(tok)
-                    b_vx4 = b.from_any(b.memref_load(data_buf_b, idx), vx4_type)
-                    b_lo, b_hi = b.split_vx4(b_vx4)
-                    return [b.to_any(b_lo), b.to_any(b_hi)] + [tok] * n_frags_per_tile
-        else:
-            with b.stage(STG_B_LDS_READ):
+            @b.foreach_tile(n_coop_b * n_wtoks_per_tile)
+            def _(i):
+                b.wait_deps(b.memref_load(wtok_buf_b, i))
 
-                @b.foreach_tile(n_coop_b * n_wtoks_per_tile)
-                def _(i):
-                    b.wait_deps(b.memref_load(wtok_buf_b, i))
+            wave_n_off = b.linearize_layout(wid, WAVE_N_LDS_OFF)
+            wave_lds_base_b = b.affine_apply(d0 + d1, [lds_b, wave_n_off])
 
-                wave_n_off = b.linearize_layout(wid, WAVE_N_LDS_OFF)
-                wave_lds_base_b = b.affine_apply(d0 + d1, [lds_b, wave_n_off])
+            @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (lds_read_tok, n_frags_per_tile)])
+            def read_b(idx):
+                tile_off = b.linearize_layout(idx, WAVE_READ_COORD_B)
+                off = b.affine_apply(d0 + d1, [wave_lds_base_b, tile_off])
+                return b.call_helper(read_b_fn, [off], read_ret)
 
-                @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (lds_read_tok, n_frags_per_tile)])
-                def read_b(idx):
-                    tile_off = b.linearize_layout(idx, WAVE_READ_COORD_B)
-                    off = b.affine_apply(d0 + d1, [wave_lds_base_b, tile_off])
-                    return b.call_helper(read_b_fn, [off], read_ret)
-
-                b.dealloc_lds(lds_b_h)
+            b.dealloc_lds(lds_b_h)
 
         frag_buf_b, rtok_buf_b = read_b
 
@@ -500,7 +463,7 @@ def _build_multitile_gemm(
         if lds_at_write and STG_A_LDS_READ - STG_A_LDS_WRITE <= 1:
             with b.stage(STG_A_LDS_READ):
                 b.s_barrier()
-        if not direct_b and lds_at_write and STG_B_LDS_READ - STG_B_LDS_WRITE <= 1:
+        if lds_at_write and STG_B_LDS_READ - STG_B_LDS_WRITE <= 1:
             with b.stage(STG_B_LDS_READ):
                 b.s_barrier()
 
@@ -518,42 +481,28 @@ def _build_multitile_gemm(
             all_b_tokens = [b.memref_load(rtok_buf_b, b.constant_index(i)) for i in range(k_t * n_t * nf)]
             b.wait_deps(*all_a_tokens, *all_b_tokens)
 
-            if vx4_mfma:
-                # CDNA4: join 2 vx2 fragments -> vx4 per MFMA.
-                assert nf == 2, f"CDNA4 expects 2 vx2 frags per tile, got {nf}"
+            # CDNA4: join 2 vx2 fragments -> vx4 per MFMA.
+            assert nf == 2, f"CDNA4 expects 2 vx2 frags per tile, got {nf}"
 
-                @b.foreach_tile(k_t * m_t * n_t)
-                def _(idx):
-                    kt, mt, nt = b.delinearize_index(idx, (k_t, m_t, n_t))
-                    acc_idx = b.linearize_index((mt, nt), (m_t, n_t))
-                    a_lo_i = b.linearize_index((kt, mt, b.constant_index(0)), (k_t, m_t, nf))
-                    a_hi_i = b.linearize_index((kt, mt, b.constant_index(1)), (k_t, m_t, nf))
-                    b_lo_i = b.linearize_index((kt, nt, b.constant_index(0)), (k_t, n_t, nf))
-                    b_hi_i = b.linearize_index((kt, nt, b.constant_index(1)), (k_t, n_t, nf))
-                    acc = b.memref_load(c_buf, acc_idx)
-                    a_vx4 = b.join_vx2_to_vx4(
-                        b.from_any(b.memref_load(frag_buf_a, a_lo_i), vx2_type),
-                        b.from_any(b.memref_load(frag_buf_a, a_hi_i), vx2_type),
-                    )
-                    b_vx4 = b.join_vx2_to_vx4(
-                        b.from_any(b.memref_load(frag_buf_b, b_lo_i), vx2_type),
-                        b.from_any(b.memref_load(frag_buf_b, b_hi_i), vx2_type),
-                    )
-                    new_acc = b.mfma(MFMA_F16_CDNA4.opcode, acc, a_vx4, b_vx4)
-                    b.memref_store(new_acc, c_buf, acc_idx)
-            else:
-                # CDNA3: one vx2 MFMA per sub-tile.
-                @b.foreach_tile(nf * k_t * m_t * n_t)
-                def _(idx):
-                    sub, kt, mt, nt = b.delinearize_index(idx, (nf, k_t, m_t, n_t))
-                    acc_idx = b.linearize_index((mt, nt), (m_t, n_t))
-                    a_fi = b.linearize_index((kt, mt, sub), (k_t, m_t, nf))
-                    b_fi = b.linearize_index((kt, nt, sub), (k_t, n_t, nf))
-                    acc = b.memref_load(c_buf, acc_idx)
-                    a_frag = b.from_any(b.memref_load(frag_buf_a, a_fi), vx2_type)
-                    b_frag = b.from_any(b.memref_load(frag_buf_b, b_fi), vx2_type)
-                    new_acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_frag, b_frag)
-                    b.memref_store(new_acc, c_buf, acc_idx)
+            @b.foreach_tile(k_t * m_t * n_t)
+            def _(idx):
+                kt, mt, nt = b.delinearize_index(idx, (k_t, m_t, n_t))
+                acc_idx = b.linearize_index((mt, nt), (m_t, n_t))
+                a_lo_i = b.linearize_index((kt, mt, b.constant_index(0)), (k_t, m_t, nf))
+                a_hi_i = b.linearize_index((kt, mt, b.constant_index(1)), (k_t, m_t, nf))
+                b_lo_i = b.linearize_index((kt, nt, b.constant_index(0)), (k_t, n_t, nf))
+                b_hi_i = b.linearize_index((kt, nt, b.constant_index(1)), (k_t, n_t, nf))
+                acc = b.memref_load(c_buf, acc_idx)
+                a_vx4 = b.join_vx2_to_vx4(
+                    b.from_any(b.memref_load(frag_buf_a, a_lo_i), vx2_type),
+                    b.from_any(b.memref_load(frag_buf_a, a_hi_i), vx2_type),
+                )
+                b_vx4 = b.join_vx2_to_vx4(
+                    b.from_any(b.memref_load(frag_buf_b, b_lo_i), vx2_type),
+                    b.from_any(b.memref_load(frag_buf_b, b_hi_i), vx2_type),
+                )
+                new_acc = b.mfma(MFMA_F16_CDNA4.opcode, acc, a_vx4, b_vx4)
+                b.memref_store(new_acc, c_buf, acc_idx)
 
             if ping_pong_staggered:
                 b.s_barrier()
@@ -620,26 +569,6 @@ class MultitileGemmInstance(WeakScaledMappedGemmInstance):
         """Total bytes of one transfer tile (= mfma_m * tile_row_bytes)."""
         return self.spec.mfma_shape[DIM_M] * self.transfer_tile_row_bytes
 
-    @property
-    def preshuffle_n_blocks(self) -> int:
-        """N / mfma_n: logical blocks along the N dimension for preshuffled B."""
-        return self.gemm_size[DIM_N] // self.spec.mfma_shape[DIM_N]
-
-    @property
-    def preshuffle_k_blocks(self) -> int:
-        """K / transfer_tile_k_elems: K-tile count matching shuffle_weight chunking."""
-        return self.gemm_size[DIM_K] // self.transfer_tile_k_elems
-
-    @property
-    def preshuffle_lane_stride_bytes(self) -> int:
-        """Byte stride between consecutive lane_ids in preshuffled B (global dwordx4 width)."""
-        return self.mapping.global_load_bytes
-
-    @property
-    def preshuffle_k_block_stride_bytes(self) -> int:
-        """Byte stride between K-tile blocks: one full wave plane of dwordx4 loads."""
-        return self.mapping.wave_size * self.preshuffle_lane_stride_bytes
-
 
 def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
     """Compile a multi-tile GEMM config to HSACO."""
@@ -671,16 +600,14 @@ def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
 def execute_multitile_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=False):
     """Execute a pre-compiled HSACO.
 
-    Automatically preshuffles B when cfg.mapping.direct_b is True.
+    LDS path: B flows through LDS (no preshuffle).
     Returns (C_output, times_ns).
     """
-    from kittens_helpers import shuffle_weight
-
     mcpu = getattr(cfg.mapping, "mcpu", "gfx942")
     if not skip_gpu_check and not system_has_gpu(mcpu):
         pytest.skip(f"GPU {mcpu} not available, skip execution")
 
-    B_gpu = shuffle_weight(B) if cfg.mapping.direct_b else B
+    B_gpu = B
     C_output = np.zeros(math.prod(cfg.spec.operand_shape(OP_C)), dtype=np.float32)
     times_ns = execute_hsaco(
         hsaco_path=hsaco_path,
@@ -699,7 +626,6 @@ def _make_instance(
     num_tiles_per_wg,
     k_mult,
     pipeline_strategy=1,
-    b_path="lds",
     mcpu=None,
     rotate_compute_stage=False,
     ll_sched=0,
@@ -730,7 +656,7 @@ def _make_instance(
             num_tiles_per_wg[DIM_K],
         ],
         pipeline_strategy=pipeline_strategy,
-        operand_path=OperandPath(b_path),
+        operand_path=OperandPath.LDS,
         rotate_compute_stage=rotate_compute_stage,
         ll_sched=ll_sched,
         **mapping_kw,
@@ -768,167 +694,6 @@ def _min_k_iters(twg_k, ps):
     return max(PS[ps].values()) + 1
 
 
-class TestGeometry:
-    """Wave geometry sweep: 1w through 8w, fixed pipeline/operand-path/LDS-stage.
-
-    Validates that different wave counts and tile shapes produce correct results.
-    Pipeline, operand path, and LDS stage are tested independently below.
-    """
-
-    @pytest.mark.parametrize(
-        "num_waves_per_wg,num_tiles_per_wg",
-        [
-            # 1 wave
-            ([1, 1, 1], [3, 2, 1]),
-            ([1, 1, 1], [2, 2, 3]),  # deep K (k_t=3)
-            # 2 waves (2x1)
-            ([2, 1, 1], [6, 2, 1]),
-            # 4 waves (2x2)
-            ([2, 2, 1], [8, 4, 1]),
-            ([2, 2, 1], [6, 4, 1]),  # non-power-of-2
-            ([2, 2, 1], [6, 6, 1]),  # non-power-of-2 both
-            # 4 waves (4x1)
-            ([4, 1, 1], [8, 7, 1]),
-            ([4, 1, 1], [12, 5, 1]),
-            # 4 waves (1x4)
-            ([1, 4, 1], [10, 8, 1]),
-            # 8 waves (4x2)
-            ([4, 2, 1], [12, 6, 1]),
-            # 8 waves (2x4)
-            ([2, 4, 1], [8, 8, 1]),
-            ([2, 4, 1], [12, 8, 1]),
-        ],
-        ids=[
-            "1w_3x2",
-            "1w_2x2x3_deepK",
-            "2w_6x2",
-            "4w_2x2_8x4",
-            "4w_2x2_6x4_npow2",
-            "4w_2x2_6x6_npow2",
-            "4w_4x1_8x7",
-            "4w_4x1_12x5",
-            "4w_1x4_10x8",
-            "8w_4x2_12x6",
-            "8w_2x4_8x8",
-            "8w_2x4_12x8",
-        ],
-    )
-    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg):
-        cfg = _make_instance([1, 1, 1], num_waves_per_wg, num_tiles_per_wg, k_mult=4, pipeline_strategy=3)
-        _run_multitile(cfg)
-
-
-class TestPipeline:
-    """Pipeline strategy x k_mult x lds_at_write sweep, fixed geometry.
-
-    Tests pipeline depth interaction with K iterations and LDS
-    allocation stage. Uses two representative geometries (small 4w and
-    large 8w).
-    """
-
-    @pytest.mark.parametrize(
-        "num_waves_per_wg,num_tiles_per_wg",
-        [
-            ([2, 2, 1], [6, 4, 1]),
-            ([4, 2, 1], [12, 6, 1]),
-        ],
-        ids=["4w_2x2_6x4", "8w_4x2_12x6"],
-    )
-    @pytest.mark.parametrize("k_mult", [2, 4, 8], ids=["km2", "km4", "km8"])
-    @pytest.mark.parametrize("pipeline_strategy", [1, 2, 3, 4, 5, 6], ids=["ps1", "ps2", "ps3", "ps4", "ps5", "ps6"])
-    @pytest.mark.parametrize("lds_at_write", [False, True], ids=["lds_load", "lds_write"])
-    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
-    def test_correctness(
-        self, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy, lds_at_write, rotate_compute_stage
-    ):
-        k_t = num_tiles_per_wg[DIM_K]
-        if k_mult < _min_k_iters(k_t, pipeline_strategy):
-            pytest.skip(f"k_mult={k_mult} < min_k_iters for ps{pipeline_strategy}")
-        cfg = _make_instance(
-            [1, 1, 1],
-            num_waves_per_wg,
-            num_tiles_per_wg,
-            k_mult,
-            pipeline_strategy=pipeline_strategy,
-            rotate_compute_stage=rotate_compute_stage,
-        )
-        _run_multitile(cfg, lds_at_write=lds_at_write)
-
-
-class TestMultiWG:
-    """Multi-workgroup correctness, orthogonal to pipeline/operand-path sweep."""
-
-    @pytest.mark.parametrize(
-        "num_workgroups,num_waves_per_wg,num_tiles_per_wg",
-        [
-            ([3, 2, 1], [1, 1, 1], [3, 2, 1]),
-            ([2, 2, 1], [2, 2, 1], [4, 4, 1]),
-            ([2, 3, 1], [2, 2, 1], [6, 6, 1]),
-        ],
-        ids=["mwg3x2_1w_3x2", "mwg2x2_4w_4x4", "mwg2x3_4w_6x6"],
-    )
-    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
-    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
-    def test_correctness(
-        self, num_workgroups, num_waves_per_wg, num_tiles_per_wg, pipeline_strategy, rotate_compute_stage
-    ):
-        cfg = _make_instance(
-            num_workgroups,
-            num_waves_per_wg,
-            num_tiles_per_wg,
-            k_mult=4,
-            pipeline_strategy=pipeline_strategy,
-            rotate_compute_stage=rotate_compute_stage,
-        )
-        _run_multitile(cfg)
-
-
-class TestOperandPath:
-    """Operand path (LDS vs direct_b) sweep, orthogonal to geometry/pipeline."""
-
-    @pytest.mark.parametrize(
-        "num_waves_per_wg,num_tiles_per_wg",
-        [
-            ([1, 1, 1], [3, 2, 1]),
-            ([2, 2, 1], [6, 4, 1]),
-            ([4, 2, 1], [12, 6, 1]),
-        ],
-        ids=["1w_3x2", "4w_6x4", "8w_12x6"],
-    )
-    @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
-    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
-    @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
-    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, b_path, pipeline_strategy, rotate_compute_stage):
-        cfg = _make_instance(
-            [1, 1, 1],
-            num_waves_per_wg,
-            num_tiles_per_wg,
-            k_mult=4,
-            pipeline_strategy=pipeline_strategy,
-            b_path=b_path,
-            rotate_compute_stage=rotate_compute_stage,
-        )
-        _run_multitile(cfg)
-
-
-class TestPipelineDirectBLLSched:
-    """Ps x lds_at_write for b_path=direct_b with ll_sched=1, multi-WG geometry."""
-
-    @pytest.mark.parametrize("pipeline_strategy", [1, 3, 4, 5, 6, 7], ids=lambda p: f"ps{p}")
-    @pytest.mark.parametrize("lds_at_write", [False, True], ids=["ldsw0", "ldsw1"])
-    def test_correctness(self, pipeline_strategy, lds_at_write):
-        cfg = _make_instance(
-            [19, 16, 1],
-            [1, 4, 1],
-            [8, 16, 1],
-            k_mult=128,
-            pipeline_strategy=pipeline_strategy,
-            b_path="direct_b",
-            ll_sched=1,
-        )
-        _run_multitile(cfg, lds_at_write=lds_at_write)
-
-
 class TestCdna4Mfma:
     """CDNA4 v_mfma_f32_16x16x32_f16 via the non-G2S memory path (mcpu=gfx950).
 
@@ -958,15 +723,13 @@ class TestCdna4Mfma:
         )
         _run_multitile(cfg)
 
-    @pytest.mark.parametrize("b_path", ["lds", "direct_b"], ids=["lds", "direct_b"])
-    def test_operand_path(self, b_path):
+    def test_operand_path(self):
         cfg = _make_instance(
             [1, 1, 1],
             [2, 2, 1],
             [4, 4, 1],
             k_mult=4,
             pipeline_strategy=3,
-            b_path=b_path,
             mcpu="gfx950",
         )
         _run_multitile(cfg)
@@ -981,123 +744,3 @@ class TestCdna4Mfma:
             mcpu="gfx950",
         )
         _run_multitile(cfg)
-
-
-# ---------------------------------------------------------------------------
-# Resource estimation accuracy tests
-# ---------------------------------------------------------------------------
-
-
-class TestResourceEstimates:
-    """Compile configs and verify LDS/VGPR/AGPR estimates vs actual metadata."""
-
-    _CONFIGS = [
-        # (wg, wpw, twg, k_mult, ps, b_path, lds_at_write, id)
-        # -- LDS path, lds_at_write=False (default) --
-        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, "lds", False, "1w_ps1_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, "lds", False, "4w_ps1_lds"),
-        ([1, 1, 1], [4, 2, 1], [8, 8, 1], 2, 1, "lds", False, "8w_ps1_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, "lds", False, "4w_ps3_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 5, "lds", False, "4w_ps5_lds"),
-        # -- LDS path, lds_at_write=True --
-        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, "lds", True, "1w_ps1_lds_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, "lds", True, "4w_ps1_lds_write"),
-        ([1, 1, 1], [4, 2, 1], [8, 8, 1], 2, 1, "lds", True, "8w_ps1_lds_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, "lds", True, "4w_ps3_lds_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 5, "lds", True, "4w_ps5_lds_write"),
-        # -- Asymmetric strategies --
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 2, "lds", False, "4w_ps2_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, "lds", False, "4w_ps4_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 6, "lds", False, "4w_ps6_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 2, "lds", True, "4w_ps2_lds_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, "lds", True, "4w_ps4_lds_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 6, "lds", True, "4w_ps6_lds_write"),
-        # -- direct_b, lds_at_write=False --
-        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, "direct_b", False, "1w_ps1_directb"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, "direct_b", False, "4w_ps1_directb"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, "direct_b", False, "4w_ps3_directb"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, "direct_b", False, "4w_ps4_directb"),
-        # -- direct_b, lds_at_write=True --
-        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, "direct_b", True, "1w_ps1_directb_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, "direct_b", True, "4w_ps1_directb_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, "direct_b", True, "4w_ps3_directb_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, "direct_b", True, "4w_ps4_directb_write"),
-    ]
-
-    @pytest.mark.parametrize(
-        "wg,wpw,twg,k_mult,ps,b_path,lds_at_write",
-        [(c[0], c[1], c[2], c[3], c[4], c[5], c[6]) for c in _CONFIGS],
-        ids=[c[7] for c in _CONFIGS],
-    )
-    def test_resource_estimate_accuracy(self, wg, wpw, twg, k_mult, ps, b_path, lds_at_write):
-        """Compile a config and check estimates vs actual metadata.
-
-        Tolerances:
-        - LDS:   estimate must be >= actual AND within 15% (tight).
-        - VGPRs: within factor 2 (estimate is structural, regalloc varies).
-        - AGPRs: exact match expected (purely determined by tile shape).
-        """
-        from aster.compiler.metadata import parse_asm_kernel_resources
-
-        cfg = _make_instance(wg, wpw, twg, k_mult, pipeline_strategy=ps, b_path=b_path)
-        mapping = cfg.mapping
-
-        with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-            _, asm = compile_multitile_gemm(cfg, tmp.name, lds_at_write=lds_at_write)
-
-        resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
-        assert KERNEL_NAME in resources, f"kernel {KERNEL_NAME} not found in ASM metadata"
-        actual = resources[KERNEL_NAME]
-
-        est_lds = mapping.lds_bytes(lds_at_write=lds_at_write, dealloc_at_read=True)
-        est_vgprs = mapping.estimated_vgprs()
-        est_agprs = mapping.estimated_agprs()
-
-        # LDS: estimate must be >= actual (conservative) and within 15%
-        assert est_lds >= actual.lds_bytes, f"LDS estimate {est_lds} < actual {actual.lds_bytes} -- not conservative!"
-        if actual.lds_bytes > 0:
-            lds_ratio = est_lds / actual.lds_bytes
-            assert lds_ratio <= 1.15, (
-                f"LDS estimate {est_lds} is {lds_ratio:.2f}x actual {actual.lds_bytes} -- >15% over"
-            )
-
-        # VGPRs: within factor 2 (regalloc can vary)
-        if actual.vgpr_count > 0:
-            vgpr_ratio = est_vgprs / actual.vgpr_count
-            assert 0.5 <= vgpr_ratio <= 2.0, (
-                f"VGPR estimate {est_vgprs} vs actual {actual.vgpr_count} (ratio {vgpr_ratio:.2f})"
-            )
-
-        # AGPRs: exact match (purely tile-shape determined)
-        assert est_agprs == actual.agpr_count, f"AGPR estimate {est_agprs} != actual {actual.agpr_count}"
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--print-asm", action="store_true")
-    parser.add_argument("--print-ir-after-all", action="store_true")
-    parser.add_argument("--wg", type=int, nargs=3, default=[1, 1, 1])
-    parser.add_argument("--wpw", type=int, nargs=3, default=[1, 1, 1])
-    parser.add_argument("--twg", type=int, nargs=3, default=[3, 2, 1])
-    parser.add_argument("--k-mult", type=int, default=4, help="K = k_mult * k_t * transfer_tile_k_elems")
-    parser.add_argument("--pipeline-strategy", type=int, default=1)
-    args = parser.parse_args()
-
-    cfg = _make_instance(args.wg, args.wpw, args.twg, args.k_mult, args.pipeline_strategy)
-    gs = cfg.gemm_size
-    tag = f"wg{'x'.join(map(str, args.wg))}_w{'x'.join(map(str, args.wpw))}_t{'x'.join(map(str, args.twg))}"
-    print(f"Config: {tag}_km{args.k_mult}_ps{args.pipeline_strategy}")
-    print(f"  M={gs[DIM_M]}, N={gs[DIM_N]}, K={gs[DIM_K]}")
-    import tempfile
-
-    with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as f:
-        _, asm = compile_multitile_gemm(
-            cfg,
-            f.name,
-            print_ir_after_all=args.print_ir_after_all,
-            print_asm=args.print_asm,
-        )
-    if args.print_asm:
-        print(asm)
