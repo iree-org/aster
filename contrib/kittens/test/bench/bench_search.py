@@ -97,7 +97,18 @@ class SweepGrid:
         ``deps`` are axis names it reads. ``name`` is an optional stable
         identifier; if set, callers (e.g. `bench_tier_schedule.apply_tier_overrides`)
         can include / exclude this filter by name when building per-tier grids.
+
+        Each ``dep`` must name a registered axis. An unknown dep would make
+        ``set(deps) <= bound_set`` permanently false, so the filter would be
+        silently dropped from enumeration. Register all axes (including
+        ``add_gemm_sweep_axes`` / ``add_scheduling_axes``) before calling
+        ``filter()``.
         """
+        known = {a.name for a in self._axes}
+        missing = [d for d in deps if d not in known]
+        if missing:
+            tag = f" (filter {name!r})" if name else ""
+            raise ValueError(f"SweepGrid.filter: unknown axis dep(s) {missing}{tag}. Registered axes: {sorted(known)}")
         self._filters.append(SweepFilter(deps, check, name))
         return self
 

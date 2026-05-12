@@ -1632,6 +1632,8 @@ def run_single(cfg, compile_fn, args, execute_fn):
         if not args.hsaco:
             raise SystemExit("--compile-only requires --hsaco")
         _, asm = compile_fn(cfg, args.hsaco, **compile_kw)
+        if getattr(args, "print_asm", False):
+            print(asm, flush=True)
         res = parse_asm_kernel_resources(asm, kernel_name=kname).get(kname)
         print_config(cfg, res, iterations=iterations)
         if res:

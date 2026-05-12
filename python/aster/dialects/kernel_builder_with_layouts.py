@@ -116,10 +116,14 @@ class KernelBuilderWithLayouts(KernelBuilder):
         multi_tile_layout: Layout,
         tile_layout: Layout,
         store_fn,
+        nt: bool = True,
     ) -> list[ir.Value]:
         """Store MFMA C accumulator to global memory.
 
-        store_fn(data, addr, dynamic_offset=vgpr) -> tok.
+        store_fn(data, addr, dynamic_offset=vgpr, nt=bool) -> tok.
+
+        Default Non-Temporal (nt) bit streams through L2 without alloc
+        LRU line.
 
         Returns a list of store tokens.
         """
@@ -140,6 +144,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
                         agprs[s * n_agprs + i],
                         ptr,
                         dynamic_offset=self.index_to_vgpr(total),
+                        nt=nt,
                     )
                 )
         return tokens
