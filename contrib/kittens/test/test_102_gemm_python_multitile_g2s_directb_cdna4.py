@@ -420,16 +420,16 @@ class Cdna4GemmInstance(WeakScaledMappedGemmInstance):
 
     @classmethod
     def from_label(cls, label: str) -> "Cdna4GemmInstance":
+        if label.endswith("_cdna4"):
+            label = label[: -len("_cdna4")]
         base = WeakScaledMappedGemmInstance.from_label(label)
-        assert base.mapping.load_type == LoadType.FLAT, (
-            f"CDNA4 kernel requires lt=flat; got load_type={base.mapping.load_type.value!r} from {label!r}"
-        )
-        assert base.mapping.operand_path == OperandPath.DIRECT_B, (
-            f"CDNA4 direct_b kernel only supports operand_path=direct_b; got "
-            f"{base.mapping.operand_path.value!r} from {label!r}"
-        )
         spec = GemmSpec.from_sizes(*base.gemm_size, mfma_shape=list(MFMA_F16_CDNA4.shape))
-        mapping = dataclasses.replace(base.mapping, dealloc_at_read=True)
+        mapping = dataclasses.replace(
+            base.mapping,
+            operand_path=OperandPath.DIRECT_B,
+            load_type=LoadType.FLAT,
+            dealloc_at_read=True,
+        )
         return cls(spec, mapping)
 
 

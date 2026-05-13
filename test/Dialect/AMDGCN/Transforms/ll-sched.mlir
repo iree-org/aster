@@ -273,11 +273,11 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     amdgcn.end_kernel
   }
 
-  // VMEM ops: same-queue ties broken by block position.
+  // VMEM stores fire ahead of independent VMEM.
   // CHECK-LABEL: kernel @vmem_ops_ordered
   // CHECK:         global_store_dword
-  // CHECK:         global_load_dwordx4
   // CHECK:         global_store_dword
+  // CHECK:         global_load_dwordx4
   // CHECK:         end_kernel
   amdgcn.kernel @vmem_ops_ordered {
     %sa0 = amdgcn.alloca : !s
