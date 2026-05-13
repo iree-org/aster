@@ -155,7 +155,7 @@ def run_tier_mode(
             print(
                 f"  {w['_tflops']:>7.1f} TF/s  "
                 f"wg={w.get('wg_m')}x{w.get('wg_n')} "
-                f"twg={w.get('twg_m')}x{w.get('twg_n')} "
+                f"twg={w.get('twg_m')}x{w.get('twg_n')}x{w.get('twg_k')} "
                 f"w={w.get('waves_m')}x{w.get('waves_n')} "
                 f"ps={w.get('ps')} variant={w.get('variant')}"
             )

@@ -941,6 +941,9 @@ class KernelBuilder:
         op = self._global_load_op("global_load_dword", dest, addr, const_offset)
         return op.results[0], op.results[1]
 
+    # Note: global_load/store_dwordx2/3 do not have coalescing and do not fill a
+    # transaction -> 1/2 achievable memory BW.
+
     def global_load_dwordx2(
         self,
         addr: ir.Value,
@@ -979,6 +982,7 @@ class KernelBuilder:
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
         dynamic_offset: Optional[ir.Value] = None,
+        nt: bool = False,
     ) -> ir.Value:
         """Global store with optional dynamic_offset for saddr+vaddr."""
         if const_offset is None:
@@ -989,6 +993,7 @@ class KernelBuilder:
             addr=addr,
             const_offset=const_offset,
             offset=dynamic_offset,
+            nt=nt,
             loc=self._loc,
             ip=self._kip,
         )
@@ -1000,20 +1005,27 @@ class KernelBuilder:
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
         dynamic_offset: Optional[ir.Value] = None,
+        nt: bool = False,
     ) -> ir.Value:
         """Global store of 1 dword."""
         return self._global_store(
-            "global_store_dword", data, addr, const_offset, dynamic_offset
+            "global_store_dword", data, addr, const_offset, dynamic_offset, nt=nt
         )
+
+    # Note: global_load/store_dwordx2/3 do not have coalescing and do not fill a
+    # transaction -> 1/2 achievable memory BW.
 
     def global_store_dwordx4(
         self,
         data: ir.Value,
         addr: ir.Value,
         const_offset: Optional[ir.Value] = None,
+        nt: bool = False,
     ) -> ir.Value:
         """Global store of 4 dwords to a 64-bit address (VGPRx2)."""
-        return self._global_store("global_store_dwordx4", data, addr, const_offset)
+        return self._global_store(
+            "global_store_dwordx4", data, addr, const_offset, nt=nt
+        )
 
     # ---------------------------------------------------------------------------
     # DS (LDS) operations
