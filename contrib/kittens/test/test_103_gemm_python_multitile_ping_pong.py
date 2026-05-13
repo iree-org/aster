@@ -32,7 +32,7 @@ from kittens.gemm_config import (
     GemmSpec,
     GemmMappingSpec,
 )
-from test_102_gemm_python_multitile import (
+from test_102_gemm_python_multitile_lds_cdna3 import (
     MultitileGemmInstance,
     _build_multitile_gemm,
 )

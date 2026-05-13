@@ -1,19 +1,13 @@
-"""Benchmark: Weak-scaling TFLOPS sweep for Python multi-tile GEMM (test_102).
+"""Benchmark: Weak-scaling TFLOPS sweep for CDNA4 G2S GEMM, LDS variant only (test_102_lds_cdna4).
 
 Single config (repro):
-    python .../bench_perf_102_... m4864xn4096xk8192_wg38x32x1_w2x2x1_twg8x8x1_...
+    python .../bench_perf_102_..._lds_cdna4.py m32xn32xk128_wg1x1x1_w2x2x1_twg2x2x4_pipestrat0_flat_cdna4
 
 Sweep (default M=N=K=4096):
-    python .../bench_perf_102_... --compile-sample 100
+    python .../bench_perf_102_..._lds_cdna4.py --compile-sample 100
 
-Pin individual dimensions (others default to 4096):
-    python .../bench_perf_102_... --compile-sample 500 --m 2432 --k 128
-
-Pin all three at once (exclusive with --m/--n/--k):
-    python .../bench_perf_102_... --compile-sample 500 --size 2432x12288x4096
-
-Heuristic-guided sweep:
-    python .../bench_perf_102_... --compile-sample 500 --heuristic
+Pin dimensions:
+    python .../bench_perf_102_..._lds_cdna4.py --compile-sample 500 --size 2432x12288x4096
 """
 
 import os
@@ -30,17 +24,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
+from aster.dialects.kernel_builder import MFMA_F16_CDNA4
 from kittens.gemm_config import (
     GemmSpec,
     GemmMappingSpec,
     OperandPath,
-    WeakScaledMappedGemmInstance,
-    mfma_shape_for_mcpu,
 )
-from test_102_gemm_python_multitile import (
-    MultitileGemmInstance,
-    compile_multitile_gemm,
-    execute_multitile_hsaco,
+from test_102_gemm_python_multitile_g2s_lds_cdna4 import (
+    Cdna4GemmInstance,
+    compile_cdna4_gemm,
+    execute_cdna4_hsaco,
 )
 from bench_harness import (
     add_sweep_cli_args,
@@ -49,6 +42,8 @@ from bench_harness import (
     run_single,
     warn_mcpu_mismatch,
 )
+from bench_tier_driver import run_tier_mode
+from bench_tier_schedule import TierSpec, make_constraints
 from kittens_helpers import PIPELINE_STRATEGIES as PS
 from bench_search import (
     SweepGrid,
@@ -63,8 +58,6 @@ from bench_search import (
     parse_size_args,
     wps,
 )
-from bench_tier_driver import run_tier_mode
-from bench_tier_schedule import TierSpec, make_constraints
 
 
 # --- Tier schedule (policy) ---
@@ -74,8 +67,7 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
     return [
         TierSpec(
             tier_idx=1,
-            top_k_to_keep=8,
-            top_k_per_stratum=True,
+            top_k_to_keep=4,
             max_configs=max_configs,
             random_seed=random_seed,
             constraints=constraints,
@@ -89,13 +81,12 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 twg_k=[1, 2, 4],
                 occ=[1, 2, 3],
                 ps=[1, 3, 5, 7, 9],
-                unroll_factor_multiplier=[1, 3, 5],
+                unroll_factor_multiplier=[1, 2, 3],
                 ll_sched=[True, False],
                 rotate_compute_stage=[True, False],
                 hoist_wait=[True, False],
-                variant=[("direct_b", None), ("lds", None)],
             ),
-            discriminator=("variant", "wg_m", "wg_n"),
+            discriminator=("wg_m", "wg_n"),
         ),
         TierSpec(
             tier_idx=2,
@@ -106,7 +97,6 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
             axis_grid=dict(
                 ll_sched=[True, False],
                 rotate_compute_stage=[True, False],
-                lds_at_write=[True, False],
                 hoist_wait=[True, False],
                 epilogue_peeling=[True, False],
             ),
@@ -120,62 +110,64 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
             random_seed=random_seed,
             constraints=constraints,
             axis_grid=dict(
-                ps=[1, 2, 3, 4, 5, 6, 7, 8],
-                unroll_factor_multiplier=[1, 2, 3, 4, 5],
                 ll_sched=[True, False],
                 rotate_compute_stage=[True, False],
-                lds_at_write=[True, False],
                 hoist_wait=[True, False],
                 epilogue_peeling=[True, False],
             ),
             anchor_axes=dict(ll_sched=True, rotate_compute_stage=True),
-            discriminator=("ps", "unroll_factor_multiplier", "hoist_wait"),
+            neighbor_radius=dict(
+                wg_m=1,
+                wg_n=1,
+                waves_m=1,
+                waves_n=1,
+                twg_m=1,
+                twg_n=1,
+                twg_k=1,
+                ps=1,
+                unroll_factor_multiplier=1,
+            ),
+            discriminator="ps",
         ),
     ]
 
 
 # --- Constants ---
 
-
-def _tile_elements(mcpu: str) -> tuple[int, int, int]:
-    """Tile elements [M, N, K] for the given target's MFMA shape."""
-    mfma = mfma_shape_for_mcpu(mcpu)
-    return tuple(GemmMappingSpec.default_tile_elements(mfma))
+_MFMA_SHAPE = list(MFMA_F16_CDNA4.shape)
+_TILE_M, _TILE_N, _TILE_K = GemmMappingSpec.default_tile_elements(_MFMA_SHAPE)
 
 
 # --- Sweep grid ---
 
 
-def _build_instance(d: dict, mcpu: str, hw) -> MultitileGemmInstance:
+def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
     M, N, K = d["target_M"], d["target_N"], d["target_K"]
-    tile_m, tile_n, _ = _tile_elements(mcpu)
     _wg_m, _wg_n = d["wg_m"], d["wg_n"]
     _nwgcu = nwgcu(d, hw)
-    mfma = mfma_shape_for_mcpu(mcpu)
-    spec = GemmSpec.from_sizes(M, N, K, mfma_shape=mfma)
+    spec = GemmSpec.from_sizes(M, N, K, mfma_shape=_MFMA_SHAPE)
     mapping = GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        operand_path=OperandPath(d["variant"][0]),
-        num_wg_per_cu=_nwgcu,
+        operand_path=OperandPath.LDS,
+        num_wg_per_cu=nwgcu(d, hw),
         dealloc_at_read=d["dealloc_at_read"],
         mcpu=mcpu,
         **mapping_kwargs_from_sweep(d),
     )
-    return MultitileGemmInstance(spec, mapping)
+    return Cdna4GemmInstance(spec, mapping)
 
 
 def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
-    tile_m, tile_n, _ = _tile_elements(mcpu)
     _wg_m, _wg_n = d["wg_m"], d["wg_n"]
     return GemmMappingSpec(
         num_workgroups_per_kernel=[_wg_m, _wg_n, 1],
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        operand_path=OperandPath(d["variant"][0]),
+        operand_path=OperandPath.LDS,
         num_wg_per_cu=nwgcu(d, hw),
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=d["dealloc_at_read"],
@@ -187,23 +179,21 @@ def _make_grid(
     *,
     mcpu: str,
     hw,
+    check_regs: bool = True,
     target_m: int,
     target_n: int,
     target_k: int,
-    variants: list[str],
-    check_regs: bool = True,
 ) -> SweepGrid:
-    """Return a fresh SweepGrid populated with bench_perf_102's axes + filters + builder."""
-    tile_m, tile_n, tile_k = _tile_elements(mcpu)
+    """Return a fresh SweepGrid populated with this bench's axes + filters + builder."""
+    tile_m, tile_n, tile_k = _TILE_M, _TILE_N, _TILE_K
     grid = SweepGrid()
-    # Second slot is the load_type; 102 does not sweep it, so it is None.
-    grid.axis("variant", [(v, None) for v in variants])
-    grid.axis("lds_at_write", [False, True])
+    grid.axis("lds_at_write", [False])
     grid.axis("dealloc_at_read", [True])
     grid.axis("set_mfma_priority", [False])
     add_gemm_sweep_axes(grid)
     grid.restrict_axes(
         {
+            "occ": [1],
             "lcm_unroll": [True],
             "prologue_peeling": [0],
             "epilogue_peeling": [False, True],
@@ -277,6 +267,13 @@ def _make_grid(
         check=lambda d: (d["twg_m"] * d["twg_n"] * d["twg_k"]) >= 48 and (d["twg_m"] * d["twg_n"] * d["twg_k"]) <= 256,
         name="num_tiles_constrainted_in_48_256",
     )
+    # Total wg count must be a multiple of CU count (avoids tail effects).
+    grid.filter(
+        "wg_m",
+        "wg_n",
+        check=lambda d, ncus=hw.num_cus: (d["wg_m"] * d["wg_n"]) % ncus == 0,
+        name="wg_count_multiple_of_cus",
+    )
 
     if check_regs:
         add_resource_filter(
@@ -284,7 +281,6 @@ def _make_grid(
             hw,
             functools.partial(_mapping_for_resource_check, mcpu=mcpu, hw=hw),
             deps=(
-                "variant",
                 "waves_m",
                 "waves_n",
                 "occ",
@@ -305,38 +301,56 @@ def _make_grid(
 
 
 def _repro_cmd(cfg):
-    return f"python contrib/kittens/test/bench/bench_perf_102_gemm_python_multitile.py {cfg.label}"
+    return f"python contrib/kittens/test/bench/bench_perf_102_gemm_python_multitile_g2s_lds_cdna4.py {cfg.label}"
 
 
-def _from_label(label: str, mcpu: str) -> MultitileGemmInstance:
-    base = WeakScaledMappedGemmInstance.from_label(label)
-    # Label serde does not encode mcpu or mfma_shape; derive both from CLI.
-    mfma = mfma_shape_for_mcpu(mcpu)
-    spec = dataclasses.replace(base.spec, mfma_shape=mfma)
-    mapping = dataclasses.replace(base.mapping, mcpu=mcpu)
-    return MultitileGemmInstance(spec, mapping)
+def _from_label(label: str, mcpu: str) -> Cdna4GemmInstance:
+    """Accept the bench's `..._cdna4` label or a base CDNA3-format
+    `..._b_<path>_lt_<load>` label."""
+    if label.endswith("_cdna4"):
+        label = label[: -len("_cdna4")]
+    cfg = Cdna4GemmInstance.from_label(label)
+    cfg.mapping = dataclasses.replace(cfg.mapping, mcpu=mcpu)
+    return cfg
 
 
 # --- Entry point ---
 
 
+_CDNA4_MCPU = "gfx950"
+
+
+def _require_cdna4_mcpu(parser: argparse.ArgumentParser, mcpu: str) -> None:
+    """Reject non-CDNA4 mcpu fast: this kernel uses ISA that does not encode on gfx94x."""
+    if mcpu != _CDNA4_MCPU:
+        parser.error(
+            f"--mcpu={mcpu} is not supported by this CDNA4 kernel "
+            f"(use --mcpu={_CDNA4_MCPU}; for CDNA3 / gfx94x labels run "
+            f"bench_perf_102_gemm_python_multitile.py instead)."
+        )
+
+
 def main():
     positional = [a for a in sys.argv[1:] if not a.startswith("-")]
     if positional and is_label(positional[0]):
-        parser = argparse.ArgumentParser(description="Single-config multitile GEMM benchmark (label from sweep)")
+        parser = argparse.ArgumentParser(
+            description="Single-config CDNA4 G2S GEMM benchmark, LDS variant (label from sweep)"
+        )
         parser.add_argument("label", type=str, help="Config label from sweep output")
         add_single_cli_args(parser)
         args = parser.parse_args()
+        _require_cdna4_mcpu(parser, args.mcpu)
         warn_mcpu_mismatch(args.mcpu)
         require_gpu_or_compile_only(args)
         cfg = _from_label(args.label, args.mcpu)
-        run_single(cfg, compile_multitile_gemm, args, execute_fn=execute_multitile_hsaco)
+        run_single(cfg, compile_cdna4_gemm, args, execute_fn=execute_cdna4_hsaco)
         return
 
-    parser = argparse.ArgumentParser(description="Python multi-tile GEMM benchmark sweep (test_102)")
+    parser = argparse.ArgumentParser(description="CDNA4 G2S GEMM benchmark sweep, LDS variant (test_102_lds_cdna4)")
     add_sweep_cli_args(parser)
     add_size_cli_args(parser)
     args = parser.parse_args()
+    _require_cdna4_mcpu(parser, args.mcpu)
     warn_mcpu_mismatch(args.mcpu)
     require_gpu_or_compile_only(args)
 
@@ -345,13 +359,6 @@ def main():
     target_m, target_n, target_k = parse_size_args(args, parser)
     print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
-    all_paths = ["lds", "direct_b"]
-    if args.direct_b is True:
-        all_paths = ["direct_b"]
-    elif args.direct_b is False:
-        all_paths = ["lds"]
-    print(f"Variants: {', '.join(all_paths)}")
-
     grid_factory = functools.partial(
         _make_grid,
         mcpu=args.mcpu,
@@ -359,7 +366,6 @@ def main():
         target_m=target_m,
         target_n=target_n,
         target_k=target_k,
-        variants=all_paths,
         check_regs=not getattr(args, "no_reg_filter", False),
     )
 
@@ -369,10 +375,10 @@ def main():
         target_n=target_n,
         target_k=target_k,
         grid_factory=grid_factory,
-        compile_fn=compile_multitile_gemm,
+        compile_fn=compile_cdna4_gemm,
         repro_cmd_fn=_repro_cmd,
         post_compile_filter=fits_on_cu_post_compile,
-        bench_label="102",
+        bench_label="102_cdna4_lds",
         tier_schedule=make_tiered_schedule(args.compile_sample, args.seed, make_constraints(grid_factory())),
     )
 

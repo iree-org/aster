@@ -1,13 +1,13 @@
-"""Benchmark: Weak-scaling TFLOPS sweep for CDNA4 G2S GEMM (test_102_cdna4).
+"""Benchmark: Weak-scaling TFLOPS sweep for CDNA4 G2S GEMM (test_102_cdna4_directb).
 
 Single config (repro):
-    python .../bench_perf_102_...cdna4.py m32xn32xk128_wg1x1x1_w2x2x1_twg2x2x4_pipestrat0_flat_cdna4
+    python .../bench_perf_102_..._directb_cdna4.py m32xn32xk128_wg1x1x1_w2x2x1_twg2x2x4_pipestrat0_flat_cdna4
 
 Sweep (default M=N=K=4096):
-    python .../bench_perf_102_...cdna4.py --compile-sample 100
+    python .../bench_perf_102_..._directb_cdna4.py --compile-sample 100
 
 Pin dimensions:
-    python .../bench_perf_102_...cdna4.py --compile-sample 500 --size 2432x12288x4096
+    python .../bench_perf_102_..._directb_cdna4.py --compile-sample 500 --size 2432x12288x4096
 """
 
 import os
@@ -30,7 +30,7 @@ from kittens.gemm_config import (
     GemmMappingSpec,
     OperandPath,
 )
-from test_102_gemm_python_multitile_cdna4 import (
+from test_102_gemm_python_multitile_g2s_directb_cdna4 import (
     Cdna4GemmInstance,
     compile_cdna4_gemm,
     execute_cdna4_hsaco,
@@ -85,9 +85,8 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 ll_sched=[True, False],
                 rotate_compute_stage=[True, False],
                 hoist_wait=[True, False],
-                variant=[("direct_b", None), ("lds", None)],
             ),
-            discriminator=("variant", "wg_m", "wg_n"),
+            discriminator=("wg_m", "wg_n"),
         ),
         TierSpec(
             tier_idx=2,
@@ -152,7 +151,7 @@ def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        operand_path=OperandPath(d["variant"][0]),
+        operand_path=OperandPath.DIRECT_B,
         num_wg_per_cu=nwgcu(d, hw),
         dealloc_at_read=d["dealloc_at_read"],
         mcpu=mcpu,
@@ -168,7 +167,7 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        operand_path=OperandPath(d["variant"][0]),
+        operand_path=OperandPath.DIRECT_B,
         num_wg_per_cu=nwgcu(d, hw),
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=d["dealloc_at_read"],
@@ -178,7 +177,6 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
 
 def _make_grid(
     *,
-    variants: list[str],
     mcpu: str,
     hw,
     check_regs: bool = True,
@@ -189,9 +187,6 @@ def _make_grid(
     """Return a fresh SweepGrid populated with this bench's axes + filters + builder."""
     tile_m, tile_n, tile_k = _TILE_M, _TILE_N, _TILE_K
     grid = SweepGrid()
-    # variant = (operand_path, load_type). Sweeps operand_path (lds / direct_b);
-    # load_type is always flat for CDNA4, so the second slot is None.
-    grid.axis("variant", [(v, None) for v in variants])
     grid.axis("lds_at_write", [False])
     grid.axis("dealloc_at_read", [True])
     grid.axis("set_mfma_priority", [False])
@@ -286,7 +281,6 @@ def _make_grid(
             hw,
             functools.partial(_mapping_for_resource_check, mcpu=mcpu, hw=hw),
             deps=(
-                "variant",
                 "waves_m",
                 "waves_n",
                 "occ",
@@ -307,7 +301,7 @@ def _make_grid(
 
 
 def _repro_cmd(cfg):
-    return f"python contrib/kittens/test/bench/bench_perf_102_gemm_python_multitile_cdna4.py {cfg.label}"
+    return f"python contrib/kittens/test/bench/bench_perf_102_gemm_python_multitile_g2s_directb_cdna4.py {cfg.label}"
 
 
 def _from_label(label: str, mcpu: str) -> Cdna4GemmInstance:
@@ -350,7 +344,7 @@ def main():
         run_single(cfg, compile_cdna4_gemm, args, execute_fn=execute_cdna4_hsaco)
         return
 
-    parser = argparse.ArgumentParser(description="CDNA4 G2S GEMM benchmark sweep (test_102_cdna4)")
+    parser = argparse.ArgumentParser(description="CDNA4 G2S GEMM benchmark sweep (test_102_cdna4_directb)")
     add_sweep_cli_args(parser)
     add_size_cli_args(parser)
     args = parser.parse_args()
@@ -363,13 +357,6 @@ def main():
     target_m, target_n, target_k = parse_size_args(args, parser)
     print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
-    all_paths = ["lds", "direct_b"]
-    if args.direct_b is True:
-        all_paths = ["direct_b"]
-    elif args.direct_b is False:
-        all_paths = ["lds"]
-    print(f"Variants: {', '.join(all_paths)}")
-
     grid_factory = functools.partial(
         _make_grid,
         mcpu=args.mcpu,
@@ -377,7 +364,6 @@ def main():
         target_m=target_m,
         target_n=target_n,
         target_k=target_k,
-        variants=all_paths,
         check_regs=not getattr(args, "no_reg_filter", False),
     )
 
@@ -390,7 +376,7 @@ def main():
         compile_fn=compile_cdna4_gemm,
         repro_cmd_fn=_repro_cmd,
         post_compile_filter=fits_on_cu_post_compile,
-        bench_label="102_cdna4",
+        bench_label="102_cdna4_directb",
         tier_schedule=make_tiered_schedule(args.compile_sample, args.seed, make_constraints(grid_factory())),
     )
 
