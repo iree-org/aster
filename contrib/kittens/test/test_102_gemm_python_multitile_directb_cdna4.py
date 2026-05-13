@@ -437,12 +437,8 @@ def _build_multitile_gemm(
         with b.stage(STG_COMPUTE):
             nf = n_frags_per_tile
 
-            # Coarse wait at the top of the COMPUTE stage: gate on ALL LDS-read
-            # tokens at once instead of per-MFMA. Per-MFMA waits create
-            # scheduling barriers that prevent the LL scheduler from
-            # interleaving MFMAs with VOP2/VMEM/etc within the body. One
-            # batched wait keeps semantics correct (waiting earlier is always
-            # safe) and lets the scheduler reorder freely.
+            # Coarse wait at the top of the COMPUTE stage give more opportunities
+            # to llsched.
             all_a_tokens = [b.memref_load(rtok_buf_a, b.constant_index(i)) for i in range(k_t * m_t * nf)]
             all_b_tokens = [b.memref_load(rtok_buf_b, b.constant_index(i)) for i in range(k_t * n_t * nf)]
             b.wait_deps(*all_a_tokens, *all_b_tokens)

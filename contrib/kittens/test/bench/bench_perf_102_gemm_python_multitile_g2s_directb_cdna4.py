@@ -79,7 +79,7 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 twg_n=[4, 6, 8, 12, 16],
                 twg_k=[1, 2, 4],
                 occ=[1, 2],
-                ps=[1, 3, 5],
+                ps=[1, 3, 5, 11, 13],
                 unroll_factor_multiplier=[1, 3],
                 ll_sched=[True],
                 rotate_compute_stage=[True],
@@ -259,8 +259,8 @@ def _make_grid(
         "twg_m",
         "twg_n",
         "twg_k",
-        check=lambda d: (d["twg_m"] * d["twg_n"] * d["twg_k"]) >= 48 and (d["twg_m"] * d["twg_n"] * d["twg_k"]) <= 256,
-        name="num_tiles_constrainted_in_48_256",
+        check=lambda d: (d["twg_m"] * d["twg_n"] * d["twg_k"]) >= 32 and (d["twg_m"] * d["twg_n"] * d["twg_k"]) <= 256,
+        name="num_tiles_constrainted_in_32_256",
     )
     # Total wg count must be a multiple of CU count (avoids tail effects).
     grid.filter(

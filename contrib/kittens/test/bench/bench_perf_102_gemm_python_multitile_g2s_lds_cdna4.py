@@ -79,7 +79,7 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 twg_n=[4, 6, 8, 12, 16],
                 twg_k=[1, 2, 4],
                 occ=[1, 2],
-                ps=[1, 3, 5],
+                ps=[1, 3, 5, 11, 13],
                 unroll_factor_multiplier=[1, 3],
                 ll_sched=[True],
                 rotate_compute_stage=[True],

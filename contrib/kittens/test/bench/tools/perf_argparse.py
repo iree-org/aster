@@ -23,8 +23,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 import perf_best_known as bk  # noqa: E402
 
 
-# Default iteration counts shared across tools.
-DEFAULT_DASHBOARD_ITERATIONS = 1000  # perf_dashboard: regression measurement tight CI
+# Default iteration counts shared across tools. 1000 iterations gives a tight
+# p50 confidence interval for regression / IMPROVE detection. perf_evaluate
+# and perf_explore inherit the same default so a fresh measurement run
+# matches what perf_dashboard expects.
+DEFAULT_PERF_ITERATIONS = 1000
+# Backwards-compat alias (older code referenced the dashboard-specific name).
+DEFAULT_DASHBOARD_ITERATIONS = DEFAULT_PERF_ITERATIONS
 DEFAULT_COMPILE_WORKERS = 16
 
 
