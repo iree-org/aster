@@ -12,6 +12,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/Analysis/SliceAnalysis.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -95,7 +96,8 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
     // Treating as fences would serialize independent arithmetic chains.
     bool isReorderableArith = false;
     if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
-      isReorderableArith = instOp.hasAnyProps({InstProp::Sop2});
+      isReorderableArith =
+          instOp.hasAnyProps({InstProp::Sop2, InstProp::IsValu});
     if ((!hasEffects || !mlir::isPure(op)) && !isReorderableArith &&
         !isa<LoadOpInterface, StoreOpInterface, AllocaOpInterface>(op)) {
       LDBG() << "Adding sync point: " << i;
@@ -581,7 +583,21 @@ struct CDNA3Latencies {
   // -- Exec latencies estimates from execution (hw cycles) --------------------
   int64_t valuExec = 4;
   int64_t saluExec = 4;
-  int64_t vmemExec = 128;       // worst-case L1 round-trip
+  int64_t vmemExec = 128; // fallback for VMEM ops we do not classify
+  // -- VMEM load latencies (return path), per-dword-count ---------------------
+  // Larger payloads return later because the GMEM->L1 transfer pulls more
+  // bytes; the wave is only ready when the last beat lands in VGPRs.
+  int64_t vmemLoadDwordExec = 80;
+  int64_t vmemLoadDwordx2Exec = 96;
+  int64_t vmemLoadDwordx3Exec = 112;
+  int64_t vmemLoadDwordx4Exec = 128;
+  // -- VMEM store latencies (commit / vmcnt-decrement), per-dword-count -------
+  // Stores are assumed to be fire-and-forget into the write FIFO, use lower
+  // latency than for loads.
+  int64_t vmemStoreDwordExec = 8;
+  int64_t vmemStoreDwordx2Exec = 12;
+  int64_t vmemStoreDwordx3Exec = 16;
+  int64_t vmemStoreDwordx4Exec = 24;
   int64_t xdlExec4Pass = 16;    // 16x16x* MFMA family
   int64_t xdlExec8Pass = 32;    // 32x32x* MFMA family
   int64_t dsReadExec = 32;      // LDS bank arb + return path to VGPR
@@ -631,8 +647,22 @@ struct CDNA3Latencies {
   int waitHideTimePerOp = 4;    // wave-scheduler cadence approximation
 
   // -- Score: VMEM in-flight saturation cap (VMCNT is 4 bits) ----------
-  int64_t vmemSaturationThreshold = 4;
+  // Threshold below the 4-bit cap (15) with headroom for intermixed loads.
+  int64_t vmemSaturationThreshold = 8;
   int vmemSaturationPenalty = 250;
+
+  // -- Score: VMEM store bonus (fire-and-forget, no in-kernel consumer) -
+  int vmemStoreBonus = 1200;
+
+  // -- Score: VMEM store-feeder bonus (address VALU feeding a store) ----
+  // Small enough not to preempt non-chain MFMAs (xdlPriority 400).
+  int vmemStoreFeederBonus = 150;
+
+  // -- Score: XDL chain-continuation stall estimate ---------------------
+  // RAW on the accumulator (~12-16 cycles, CDNA3 16x16); kept below
+  // xdlBurstPenalty so burst stays the dominant XDL-queue pressure.
+  int xdlChainStallEstimate = 100;
+  size_t xdlChainLookback = 4;
 };
 
 /// Preset 1: wider LGKM burst lookback (6) keeps the LGKM penalty active longer
@@ -695,8 +725,21 @@ static int64_t getExecLatency(Operation *op, QueueType qt,
     return L.xdlExec4Pass; // default to 4-pass
   case QueueType::SALU:
     return L.saluExec;
-  case QueueType::VMEM:
+  case QueueType::VMEM: {
+    // Pick per-width latency based on op mnemonic suffix.
+    StringRef name = op->getName().getStringRef();
+    bool isStore =
+        isa<GlobalStoreDwordInstOpInterface, BufferStoreInstOpInterface>(op);
+    if (name.contains("dwordx4"))
+      return isStore ? L.vmemStoreDwordx4Exec : L.vmemLoadDwordx4Exec;
+    if (name.contains("dwordx3"))
+      return isStore ? L.vmemStoreDwordx3Exec : L.vmemLoadDwordx3Exec;
+    if (name.contains("dwordx2"))
+      return isStore ? L.vmemStoreDwordx2Exec : L.vmemLoadDwordx2Exec;
+    if (name.contains("dword"))
+      return isStore ? L.vmemStoreDwordExec : L.vmemLoadDwordExec;
     return L.vmemExec;
+  }
   case QueueType::LGKM:
     if (isa<DSWriteInstOpInterface>(op))
       return L.dsWriteExec;
@@ -749,14 +792,13 @@ static StringRef getQueueName(QueueType qt) {
 //===----------------------------------------------------------------------===//
 
 namespace {
-/// Models the hardware queue state for stall detection.
-/// Each queue has `capacity` slots; issuing an op occupies one slot for
-/// `execLatency` cycles. A stall occurs when all slots are busy.
+/// Per-queue slot model: `capacity` slots, each held for `execLatency`
+/// cycles; a stall occurs when all slots are busy.
 struct QueueSimulator {
   DenseMap<QueueType, SmallVector<int64_t>> slotFreeAt;
   int64_t currentCycle = 0;
 
-  /// Query how many hw cycles issuing to `qt` would stall.
+  /// Cycles a new issue to `qt` would stall.
   int64_t wouldStall(QueueType qt, const CDNA3Latencies &L) const {
     if (qt == QueueType::Unknown)
       return 0;
@@ -775,8 +817,8 @@ struct QueueSimulator {
     return std::max(int64_t{0}, earliest - currentCycle);
   }
 
-  /// Issue an op. Returns stall in hw cycles. `issueCost` is how long the
-  /// issue port is held by this op (4c for most ops, 12c for ds_write_*).
+  /// Issue op; returns stall cycles. `issueCost` = issue-port hold (4c
+  /// most ops, 12c ds_write_*).
   int64_t issue(QueueType qt, int64_t execLatency, int64_t issueCost,
                 const CDNA3Latencies &L) {
     if (qt == QueueType::Unknown)
@@ -821,6 +863,10 @@ struct SchedState {
   // density limit.
   static constexpr int64_t kRecentKindsWindow = 32;
   SmallVector<QueueType, kRecentKindsWindow> recentKinds;
+  // Parallel window of node ids -- same lifetime as recentKinds. Used by
+  // the XDL chain-continuation check to test whether a candidate MFMA's
+  // operand-defining MFMA was issued in the recent window.
+  SmallVector<int32_t, kRecentKindsWindow> recentIds;
 
   // For each XDL node, the prepopulated list of LGKM predecessors.
   DenseMap<int32_t, SmallVector<int32_t, 4>> xdlLgkmPreds;
@@ -1014,11 +1060,13 @@ int32_t BarrierClosures::getNextUnscheduledBarrier() const {
 /// burst penalty.
 static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
                         bool consumerInReady, int32_t waitKind,
-                        const CDNA3Latencies &L) {
+                        bool isVmemStore, bool isVmemStoreFeeder,
+                        bool isXdlChainContinuation, const CDNA3Latencies &L) {
+  // Dominance (no burst / saturation): store(~1750) > load(800) >
+  // non-chain XDL(400) > feeder(250) > chain-cont XDL(<=300, often <0).
   int score = 0;
 
-  // 1. Stall avoidance: every queue saturation cycle costs `stallWeight`
-  //    points, capped at `stallCap`.
+  // 1. Stall avoidance: stallWeight per cycle, capped at stallCap.
   if (stall > 0) {
     int64_t capped = std::min(stall, L.stallCap);
     score -= L.stallWeight * static_cast<int>(capped);
@@ -1040,14 +1088,15 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
     break;
   }
 
-  // 3. Per-kind burst penalty: count occurrences of `qt` in a per-kind
-  //    lookback window and subtract `perOccPenalty * count`. Linear ramp
-  //    drives alternation. VALU/SALU/Unknown have no burst penalty.
+  // 3. Per-kind burst penalty: -perOccPenalty * count_in_lookback_window.
+  // Skipped for stores and for VALU/SALU/Unknown.
   ArrayRef<QueueType> recent(s.recentKinds);
   size_t lookback = 0;
   int perOccPenalty = 0;
   switch (qt) {
   case QueueType::VMEM:
+    if (isVmemStore)
+      break;
     lookback = L.vmemBurstLookback;
     perOccPenalty = L.vmemBurstPenalty;
     break;
@@ -1069,7 +1118,6 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
   }
 
   // 3a. VALU/SALU <-> LGKM/VMEM adjacency requires an 8-cycle NOP.
-  //     Bias against this pairing whenever something else is ready.
   QueueType prevKind = recent.empty() ? QueueType::Unknown : recent.back();
   if ((qt == QueueType::VALU &&
        (prevKind == QueueType::LGKM || prevKind == QueueType::VMEM)) ||
@@ -1082,24 +1130,18 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
        prevKind == QueueType::SALU))
     score -= L.adjacencyPenalty;
 
-  // 3b. VMEM density cap: too many VMEM in the window saturates memory BW;
-  //     heavy penalty discourages another VMEM until older ones age out.
-  if (qt == QueueType::VMEM) {
+  // 3b. VMEM-load density cap on the L1/L2 read path; stores skip it.
+  if (qt == QueueType::VMEM && !isVmemStore) {
     int vmemInWindow = static_cast<int>(llvm::count(recent, QueueType::VMEM));
     if (vmemInWindow >= L.vmemInWindowLimit)
       score -= L.vmemDensityPenalty;
   }
 
-  // 5. Deadline-driven MFMA hiding: when an XDL's LGKM producer is issued
-  //    and waiting on this XDL to drain it, fire it now.
+  // 5. Fire XDL whose LGKM producer is waiting on it to drain.
   if (qt == QueueType::XDL && consumerInReady)
     score += L.consumerReadyBonus;
 
-  // 6. Wait deferral: penalize amdgcn.wait ops by the cycles they would
-  //    stall today, approximated as
-  //      remainingStall ~= max(0, queueLatency - opsSince * hideTimePerOp)
-  //    so a wait only fires for free once its target counter has likely
-  //    drained.
+  // 6. Wait deferral: stall ~= max(0, latency - opsSince * hideTimePerOp).
   if (waitKind != 0 && qt == QueueType::Unknown) {
     auto opsSince = [&](QueueType q) -> int {
       for (size_t i = 0; i < recent.size(); ++i) {
@@ -1120,10 +1162,21 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
     }
   }
 
-  // 7. VMEM saturation cap: VMCNT is 4-bit; cap the in-flight VMEM count
-  //    so a later vmcnt(0) does not stall thousands of cycles.
+  // 7. VMCNT 4-bit saturation cap.
   if (qt == QueueType::VMEM && s.outstandingVmem >= L.vmemSaturationThreshold)
     score -= L.vmemSaturationPenalty;
+
+  // 8. VMEM store bonus (uncapped; saturation penalty above damps it).
+  if (isVmemStore && qt == QueueType::VMEM)
+    score += L.vmemStoreBonus;
+
+  // 9. VMEM store-feeder bonus (any op transitively feeding a store).
+  if (isVmemStoreFeeder)
+    score += L.vmemStoreFeederBonus;
+
+  // 10. XDL chain-continuation stall estimate (RAW on accumulator).
+  if (isXdlChainContinuation)
+    score -= L.xdlChainStallEstimate;
 
   return score;
 }
@@ -1134,6 +1187,9 @@ static int32_t pickByScore(ArrayRef<int32_t> ready, const QueueSimulator &sim,
                            ArrayRef<QueueType> queueTypes,
                            ArrayRef<int32_t> waitKind, const SchedState &state,
                            function_ref<bool(int32_t)> hasXdlConsumerInReady,
+                           function_ref<bool(int32_t)> isVmemStoreOp,
+                           function_ref<bool(int32_t)> isVmemStoreFeederOp,
+                           function_ref<bool(int32_t)> isXdlChainContinuationOp,
                            const CDNA3Latencies &L) {
   int32_t bestIdx = -1;
   int bestScore = std::numeric_limits<int>::min();
@@ -1143,8 +1199,13 @@ static int32_t pickByScore(ArrayRef<int32_t> ready, const QueueSimulator &sim,
     int64_t stall = sim.wouldStall(qt, L);
     bool consumerInReady =
         (qt == QueueType::XDL) && hasXdlConsumerInReady(nodeId);
+    bool isVmemStore = (qt == QueueType::VMEM) && isVmemStoreOp(nodeId);
+    bool isFeeder = !isVmemStore && isVmemStoreFeederOp(nodeId);
+    bool isXdlChain =
+        (qt == QueueType::XDL) && isXdlChainContinuationOp(nodeId);
     int score =
-        computeScore(qt, stall, state, consumerInReady, waitKind[nodeId], L);
+        computeScore(qt, stall, state, consumerInReady, waitKind[nodeId],
+                     isVmemStore, isFeeder, isXdlChain, L);
     if (score > bestScore ||
         (score == bestScore && bestIdx >= 0 && nodeId < ready[bestIdx])) {
       bestScore = score;
@@ -1181,6 +1242,64 @@ static void annotateStalls(const SchedGraph &schedGraph,
   }
 }
 
+/// For each XDL op, record the (single-hop) XDL op whose result is used as
+/// one of its operands -- the previous link of an MFMA accumulator chain.
+/// The chain-cont stall penalty applies when this predecessor was issued
+/// within `xdlChainLookback` of recent ops.
+static llvm::DenseMap<int32_t, int32_t>
+computeXdlChainPredecessors(const SchedGraph &schedGraph,
+                            ArrayRef<QueueType> queueTypes) {
+  llvm::DenseMap<int32_t, int32_t> xdlChainPred;
+  ArrayRef<Operation *> ops = schedGraph.getOps();
+  for (int32_t i = 0, e = static_cast<int32_t>(ops.size()); i < e; ++i) {
+    if (queueTypes[i] != QueueType::XDL)
+      continue;
+    for (Value operand : ops[i]->getOperands()) {
+      Operation *def = operand.getDefiningOp();
+      if (!def)
+        continue;
+      int32_t defIdx = static_cast<int32_t>(schedGraph.getOpId(def));
+      if (defIdx >= 0 && queueTypes[defIdx] == QueueType::XDL) {
+        xdlChainPred[i] = defIdx;
+        break;
+      }
+    }
+  }
+  return xdlChainPred;
+}
+
+/// Set of address-arith ops that transitively feed a VMEM store. Uses
+/// `getBackwardSlice` (mlir/Analysis/SliceAnalysis.h); the filter stops
+/// the walk at XDL/VMEM (MFMAs / loads) so it stays on the address chain
+/// and at the block boundary (via `schedGraph.getOpId(op) < 0`).
+static llvm::DenseSet<int32_t>
+computeStoreFeederSet(const SchedGraph &schedGraph,
+                      ArrayRef<QueueType> queueTypes) {
+  llvm::DenseSet<int32_t> storeFeederSet;
+  BackwardSliceOptions opts;
+  opts.omitBlockArguments = true;
+  opts.inclusive = true;
+  opts.filter = [&](Operation *op) {
+    int64_t idx = schedGraph.getOpId(op);
+    if (idx < 0)
+      return false;
+    QueueType qt = queueTypes[idx];
+    return qt != QueueType::XDL && qt != QueueType::VMEM;
+  };
+  SetVector<Operation *> slice;
+  for (Operation *op : schedGraph.getOps()) {
+    if (!isa<GlobalStoreDwordInstOpInterface, BufferStoreInstOpInterface>(op))
+      continue;
+    for (Value operand : op->getOperands()) {
+      slice.clear();
+      (void)getBackwardSlice(operand, &slice, opts);
+      for (Operation *def : slice)
+        storeFeederSet.insert(static_cast<int32_t>(schedGraph.getOpId(def)));
+    }
+  }
+  return storeFeederSet;
+}
+
 LogicalResult
 LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
                                    SmallVectorImpl<int32_t> &sched) const {
@@ -1198,6 +1317,11 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
   SchedState state;
   state.classifyOps(schedGraph, L);
   QueueSimulator sim;
+
+  llvm::DenseMap<int32_t, int32_t> xdlChainPred =
+      computeXdlChainPredecessors(schedGraph, state.queueTypes);
+  llvm::DenseSet<int32_t> storeFeederSet =
+      computeStoreFeederSet(schedGraph, state.queueTypes);
 
   // Barrier-aware structural scheduling.
   // Barrier bypass mode triggers when the next unscheduled barrier has no more
@@ -1260,9 +1384,30 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
     auto hasXdlConsumerInReady = [&](int32_t xdlNode) {
       return state.hasXdlConsumerInReady(xdlNode);
     };
+    auto isVmemStoreOp = [&](int32_t node) {
+      Operation *op = schedGraph.getOp(node);
+      return isa<GlobalStoreDwordInstOpInterface, BufferStoreInstOpInterface>(
+          op);
+    };
+    auto isVmemStoreFeederOp = [&](int32_t node) {
+      return storeFeederSet.contains(node);
+    };
+    auto isXdlChainContinuationOp = [&](int32_t node) {
+      auto it = xdlChainPred.find(node);
+      if (it == xdlChainPred.end())
+        return false;
+      int32_t pred = it->second;
+      // Recent-id history is on the SchedState; walk the last
+      // `xdlChainLookback` entries.
+      ArrayRef<int32_t> recentIds(state.recentIds);
+      size_t lb = L.xdlChainLookback;
+      ArrayRef<int32_t> window = recentIds.take_back(lb);
+      return llvm::is_contained(window, pred);
+    };
     if (bestIdx < 0)
       bestIdx = pickByScore(ready, sim, state.queueTypes, state.waitKind, state,
-                            hasXdlConsumerInReady, L);
+                            hasXdlConsumerInReady, isVmemStoreOp,
+                            isVmemStoreFeederOp, isXdlChainContinuationOp, L);
 
     assert(bestIdx >= 0 && "schedFn must select a ready node");
 
@@ -1279,9 +1424,12 @@ LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
     // Update closure state. Push the chosen kind into the sliding window;
     // drop the oldest if it has overflowed.
     state.recentKinds.push_back(chosenQt);
+    state.recentIds.push_back(chosen);
     if (state.recentKinds.size() >
-        static_cast<size_t>(SchedState::kRecentKindsWindow))
+        static_cast<size_t>(SchedState::kRecentKindsWindow)) {
       state.recentKinds.erase(state.recentKinds.begin());
+      state.recentIds.erase(state.recentIds.begin());
+    }
 
     state.onIssued(chosen);
 
