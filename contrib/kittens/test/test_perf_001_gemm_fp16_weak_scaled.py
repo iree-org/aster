@@ -433,7 +433,6 @@ class TestWeakScaledMappedGemmInstanceSerde:
             "gemm_size",
             "pipeline_strategy",
             "load_type",
-            "b_path",
             "num_wg_per_cu",
             "lcm_unroll",
             "unroll_factor_multiplier",

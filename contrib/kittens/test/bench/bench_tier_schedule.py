@@ -14,11 +14,6 @@ if TYPE_CHECKING:
     from bench_search import SweepGrid
 
 
-# Variant gating threshold: keep both variants in tier-2 when the loser is
-# within VARIANT_GAP_PCT of the winner; otherwise pin to the winner.
-VARIANT_GAP_PCT: float = 10.0
-
-
 def make_constraints(grid) -> tuple[str, ...]:
     """Return the named filters registered on `grid`."""
     return tuple(f.name for f in grid._filters if f.name is not None)
@@ -37,8 +32,8 @@ class TierSpec:
     `discriminator` is an axis name or tuple of names used as the
     stratum key for sampling. None = uniform.
 
-    `top_k_per_stratum`: keep the best one per discriminator stratum
-    (then take top-K by TF), instead of overall top-K. Used for
+    `per_stratum_diversity`: keep the best one per discriminator stratum
+    (then take top 10% by TF), instead of overall top 10%. Used for
     geometric diversity.
 
     `anchor_axes`: per tier-(N-1) winner, the driver synthesizes
@@ -50,7 +45,6 @@ class TierSpec:
     """
 
     tier_idx: int
-    top_k_to_keep: int
     max_configs: int
     random_seed: int
     constraints: tuple[str, ...]
@@ -59,7 +53,7 @@ class TierSpec:
     free_axes: list[str] = field(default_factory=list)
     neighbor_radius: dict[str, int] = field(default_factory=dict)
     discriminator: str | tuple[str, ...] | None = None
-    top_k_per_stratum: bool = False
+    per_stratum_diversity: bool = False
     anchor_axes: dict[str, Any] = field(default_factory=dict)
 
 
@@ -71,27 +65,6 @@ def _ordinal_neighbors(value: Any, value_list: list[Any], radius: int) -> list[A
     lo = max(0, i - radius)
     hi = min(len(value_list) - 1, i + radius)
     return value_list[lo : hi + 1]
-
-
-def _allowed_variants(prev_winners: list[dict[str, Any]]) -> set[Any]:
-    """Variants within VARIANT_GAP_PCT of the best for tier-2 gating."""
-    by_variant: dict[Any, float] = {}
-    for w in prev_winners:
-        v = w.get("variant")
-        tf = w.get("_tflops", 0.0)
-        if v is None:
-            continue
-        if v not in by_variant or tf > by_variant[v]:
-            by_variant[v] = tf
-
-    if len(by_variant) <= 1:
-        return set(by_variant.keys())
-
-    best_tf = max(by_variant.values())
-    if best_tf <= 0:
-        return set(by_variant.keys())
-
-    return {v for v, tf in by_variant.items() if (best_tf - tf) / best_tf * 100 <= VARIANT_GAP_PCT}
 
 
 def _tier_axis_overrides(
@@ -106,7 +79,6 @@ def _tier_axis_overrides(
     if prev_winners:
         from collections import defaultdict
 
-        keep_variants = _allowed_variants(prev_winners) if tier.tier_idx == 2 else None
         union: dict[str, set] = defaultdict(set)
         for winner in prev_winners:
             base = {k: v for k, v in winner.items() if k != "_tflops"}
@@ -121,9 +93,6 @@ def _tier_axis_overrides(
                 if axis_name in ref_axis_vals:
                     for v in ref_axis_vals[axis_name]:
                         union[axis_name].add(v)
-
-        if keep_variants is not None and "variant" in union:
-            union["variant"] = {v for v in union["variant"] if v in keep_variants}
 
         for k, vs in union.items():
             overrides[k] = sorted(vs, key=str)

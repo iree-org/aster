@@ -1,0 +1,59 @@
+{
+  "gfx942": {
+    "bench_perf_001_gemm_fp16_weak_scaled": {},
+    "bench_perf_102_gemm_python_multitile_directb_cdna3": {
+      "2432x4096x4096": [
+        {
+          "expected_tflops": 508.5,
+          "label": "m2432xn4096xk4096_wg38x16x1_w1x4x1_twg4x16x2_pipestrat6_wgcu1_lcm1_um5_epeel1_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+        },
+        {
+          "expected_tflops": 506.4,
+          "label": "m2432xn4096xk4096_wg38x16x1_w1x4x1_twg4x16x1_pipestrat6_wgcu2_lcm1_um4_epeel1_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+        },
+        {
+          "expected_tflops": 505.2,
+          "label": "m2432xn4096xk4096_wg38x16x1_w1x4x1_twg4x16x2_pipestrat1_wgcu2_lcm1_um1_epeel0_llsched1_hoistwait0_ldsw1_rotc0_lt_flat"
+        },
+        {
+          "expected_tflops": 504.9,
+          "label": "m2432xn4096xk4096_wg38x16x1_w1x4x1_twg4x16x2_pipestrat6_wgcu1_lcm1_um1_epeel0_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+        },
+        {
+          "expected_tflops": 499.9,
+          "label": "m2432xn4096xk4096_wg38x16x1_w1x4x1_twg4x16x1_pipestrat3_wgcu2_lcm1_um3_epeel1_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+        }
+      ],
+      "4864x4096x4096": [
+        {
+          "expected_tflops": 540.2,
+          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um4_epeel0_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+        },
+        {
+          "expected_tflops": 537.8,
+          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat2_wgcu1_lcm1_um4_epeel0_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+        },
+        {
+          "expected_tflops": 536.1,
+          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x2_pipestrat1_wgcu1_lcm1_um1_epeel1_llsched1_hoistwait0_ldsw1_rotc1_lt_flat"
+        },
+        {
+          "expected_tflops": 535.3,
+          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat6_wgcu1_lcm1_um5_epeel1_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+        },
+        {
+          "expected_tflops": 533.5,
+          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um2_epeel0_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+        }
+      ]
+    },
+    "bench_perf_102_gemm_python_multitile_lds_cdna3": {},
+    "bench_perf_103_gemm_python_multitile_ping_pong": {}
+  },
+  "gfx950": {
+    "bench_perf_102_gemm_python_multitile_directb_cdna4": {},
+    "bench_perf_102_gemm_python_multitile_g2s_directb_cdna4": {},
+    "bench_perf_102_gemm_python_multitile_g2s_lds_cdna4": {},
+    "bench_perf_102_gemm_python_multitile_lds_cdna4": {}
+  }
+}

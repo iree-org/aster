@@ -33,7 +33,6 @@ from kittens.gemm_config import (
     WeakScaledMappedGemmInstance,
 )
 from test_perf_001_gemm_fp16_weak_scaled import (
-    MLIR_FILES,
     compile_gemm,
     execute_gemm_hsaco,
 )
@@ -69,7 +68,6 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
     return [
         TierSpec(
             tier_idx=1,
-            top_k_to_keep=4,
             max_configs=max_configs,
             random_seed=random_seed,
             constraints=constraints,
@@ -93,11 +91,10 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                     ("lds", "flat"),
                 ],
             ),
-            discriminator=("variant", "wg_m", "wg_n"),
+            discriminator=("wg_m", "wg_n"),
         ),
         TierSpec(
             tier_idx=2,
-            top_k_to_keep=4,
             max_configs=max_configs,
             random_seed=random_seed,
             constraints=constraints,
@@ -108,11 +105,10 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 epilogue_peeling=[True, False],
             ),
             anchor_axes=dict(ll_sched=True, rotate_compute_stage=True),
-            discriminator="hoist_wait",
+            discriminator=("hoist_wait", "ll_sched", "rotate_compute_stage"),
         ),
         TierSpec(
             tier_idx=3,
-            top_k_to_keep=2,
             max_configs=max_configs,
             random_seed=random_seed,
             constraints=constraints,
@@ -161,8 +157,8 @@ def _build_instance(d: dict, mcpu: str, hw) -> WeakScaledMappedGemmInstance:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        load_type=LoadType(d["variant"][1]),
-        operand_path=OperandPath(d["variant"][0]),
+        load_type=LoadType.FLAT,
+        operand_path=OperandPath.LDS,
         num_wg_per_cu=nwgcu(d, hw),
         mcpu=mcpu,
         **mapping_kwargs_from_sweep(d),
@@ -177,8 +173,8 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        load_type=LoadType(d["variant"][1]),
-        operand_path=OperandPath(d["variant"][0]),
+        load_type=LoadType.FLAT,
+        operand_path=OperandPath.LDS,
         num_wg_per_cu=nwgcu(d, hw),
         mcpu=mcpu,
     )
@@ -186,7 +182,6 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
 
 def _make_grid(
     *,
-    variants,
     mcpu: str,
     hw,
     check_regs: bool = True,
@@ -197,14 +192,11 @@ def _make_grid(
     """Return a fresh SweepGrid populated with this bench's axes + filters + builder."""
     tile_m, tile_n, tile_k = _TILE_ELTS
     grid = SweepGrid()
-    grid.axis("variant", [v for v in variants if v in MLIR_FILES])
-    grid.axis("set_mfma_priority", [False])
     add_gemm_sweep_axes(grid)
 
     grid.restrict_axes(
         {
             "lcm_unroll": [True],
-            "prologue_peeling": [0],
             "epilogue_peeling": [False, True],
         }
     )
@@ -275,7 +267,7 @@ def _make_grid(
             grid,
             hw,
             functools.partial(_mapping_for_resource_check, mcpu=mcpu, hw=hw),
-            deps=("variant", "target_M", "target_N", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
+            deps=("target_M", "target_N", "waves_m", "waves_n", "occ", "twg_m", "twg_n", "twg_k", "ps"),
         )
 
     grid.build_with(functools.partial(_build_instance, mcpu=mcpu, hw=hw))
@@ -289,38 +281,19 @@ def _repro_cmd(cfg):
     return f"python contrib/kittens/test/bench/bench_perf_001_gemm_fp16_weak_scaled.py {cfg.label}"
 
 
-# --- Variant CLI parsing (001-specific: lds/direct/buffer/flat) ---
+def _from_label(label: str, mcpu: str):
+    base = WeakScaledMappedGemmInstance.from_label(label)
+    return WeakScaledMappedGemmInstance(base.spec, dataclasses.replace(base.mapping, mcpu=mcpu))
 
 
-def _parse_variants(args, parser):
-    load_types = []
-    if args.use_flat is not False:
-        load_types.append("flat")
-    if args.use_buffer is not False:
-        load_types.append("buffer")
-    if args.use_flat is True:
-        load_types = [lt for lt in load_types if lt == "flat"]
-    if args.use_buffer is True:
-        load_types = [lt for lt in load_types if lt == "buffer"]
-
-    if args.direct_a is True and args.direct_b is False:
-        parser.error("--direct-a with --no-direct-b is contradictory")
-    all_paths = ["lds", "direct_b", "direct_ab"]
-    if args.direct_b is False:
-        all_paths = ["lds"]
-    elif args.direct_b is True and args.direct_a is None:
-        all_paths = ["direct_b", "direct_ab"]
-    elif args.direct_b is True and args.direct_a is True:
-        all_paths = ["direct_ab"]
-    elif args.direct_b is True and args.direct_a is False:
-        all_paths = ["direct_b"]
-    elif args.direct_a is True:
-        all_paths = ["direct_ab"]
-    elif args.direct_a is False:
-        all_paths = ["lds", "direct_b"]
-
-    variants = [(bp, lt) for lt in load_types for bp in all_paths]
-    return [(bp, lt) for bp, lt in variants if (bp, lt) in MLIR_FILES]
+# Hooks consumed by perf_evaluate so it can drive bench_perf_sweep_pipelined directly.
+BENCH_HOOKS = {
+    "bench_label": "bench_perf_001_gemm_fp16_weak_scaled",
+    "from_label": _from_label,
+    "compile_fn": compile_gemm,
+    "repro_cmd_fn": _repro_cmd,
+    "post_compile_filter": fits_on_cu_post_compile,
+}
 
 
 # --- Entry point ---
@@ -337,15 +310,12 @@ def main():
         require_gpu_or_compile_only(args)
         base = WeakScaledMappedGemmInstance.from_label(args.label)
         cfg = WeakScaledMappedGemmInstance(base.spec, dataclasses.replace(base.mapping, mcpu=args.mcpu))
-        run_single(cfg, compile_gemm, args, execute_fn=execute_gemm_hsaco)
+        run_single(cfg, compile_gemm, args, execute_fn=execute_gemm_hsaco, bench="bench_perf_001_gemm_fp16_weak_scaled")
         return
 
     parser = argparse.ArgumentParser(description="Weak-scaled 16x16+dwordx4 GEMM benchmark sweep")
     add_sweep_cli_args(parser)
     add_size_cli_args(parser)
-    parser.add_argument("--use-buffer", action=argparse.BooleanOptionalAction, default=None, help="Buffer load/store")
-    parser.add_argument("--use-flat", action=argparse.BooleanOptionalAction, default=None, help="Flat load/store")
-    parser.add_argument("--direct-a", action=argparse.BooleanOptionalAction, default=None, help="A via preshuffle")
     args = parser.parse_args()
     warn_mcpu_mismatch(args.mcpu)
     require_gpu_or_compile_only(args)
@@ -355,9 +325,6 @@ def main():
     target_m, target_n, target_k = parse_size_args(args, parser)
     print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
-    variants = _parse_variants(args, parser)
-    print(f"Variants: {', '.join(f'{bp}/{lt}' for bp, lt in variants)}")
-
     grid_factory = functools.partial(
         _make_grid,
         mcpu=args.mcpu,
@@ -365,7 +332,6 @@ def main():
         target_m=target_m,
         target_n=target_n,
         target_k=target_k,
-        variants=variants,
         check_regs=not getattr(args, "no_reg_filter", False),
     )
 
@@ -378,7 +344,7 @@ def main():
         compile_fn=compile_gemm,
         repro_cmd_fn=_repro_cmd,
         post_compile_filter=fits_on_cu_post_compile,
-        bench_label="001",
+        bench_label="bench_perf_001_gemm_fp16_weak_scaled",
         tier_schedule=make_tiered_schedule(args.compile_sample, args.seed, make_constraints(grid_factory())),
     )
 

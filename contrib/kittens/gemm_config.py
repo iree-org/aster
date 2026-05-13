@@ -615,14 +615,11 @@ class WeakScaledMappedGemmInstance:
                 r"_wgcu(\d+)"
                 r"_lcm([01])"
                 r"_um(\d+)"
-                r"_ppeel(\d+)"
                 r"_epeel([01])"
                 r"_llsched(\d+)"
                 r"_hoistwait([01])"
                 r"_ldsw([01])"
-                r"_setprio([01])"
                 r"_rotc([01])"
-                r"_b_(lds|direct_b|direct_ab)"
                 r"_lt_(flat|buf)$"
             )
         return cls._LABEL_RE
@@ -650,14 +647,11 @@ class WeakScaledMappedGemmInstance:
             wgcu,
             lcm,
             um,
-            ppeel,
             epeel,
             llsched,
             hoistwait,
             ldsw,
-            setprio,
             rotc,
-            b_path,
             lt,
         ) = m.groups()
 
@@ -677,16 +671,13 @@ class WeakScaledMappedGemmInstance:
             ],
             pipeline_strategy=int(pipestrat),
             load_type=LoadType(load_type),
-            operand_path=OperandPath(b_path),
             num_wg_per_cu=int(wgcu),
             lcm_unroll=lcm == "1",
             unroll_factor_multiplier=int(um),
-            prologue_peeling=int(ppeel),
             epilogue_peeling=epeel == "1",
             ll_sched=int(llsched),
             hoist_wait=hoistwait == "1",
             lds_at_write=ldsw == "1",
-            set_mfma_priority=setprio == "1",
             rotate_compute_stage=rotc == "1",
         )
         cfg = cls(spec, mapping)
@@ -710,14 +701,11 @@ class WeakScaledMappedGemmInstance:
             f"_wgcu{m.num_wg_per_cu}"
             f"_lcm{int(m.lcm_unroll)}"
             f"_um{m.unroll_factor_multiplier}"
-            f"_ppeel{int(m.prologue_peeling)}"
             f"_epeel{int(m.epilogue_peeling)}"
             f"_llsched{int(m.ll_sched)}"
             f"_hoistwait{int(m.hoist_wait)}"
             f"_ldsw{int(m.lds_at_write)}"
-            f"_setprio{int(m.set_mfma_priority)}"
             f"_rotc{int(m.rotate_compute_stage)}"
-            f"_b_{m.operand_path.value}"
             f"_lt_{lt}"
         )
 
