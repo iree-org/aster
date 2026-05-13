@@ -5,18 +5,9 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 """Minimal tests for the tier-mechanism in `bench_tier_schedule`.
 
-Scope is intentionally narrow:
-  - `_ordinal_neighbors` (clamping, value-not-in-list)
-  - `_allowed_variants` (close / far / threshold)
-  - `_tier_axis_overrides` (tier-1 enumerates axis_grid + fixed_axes;
-    tier-N>1 unions per-winner ordinal+boolean expansions; ambient pins
-    win; variant gating fires at tier-2)
-
-Bench-specific schedules (the `TIER_SCHEDULE` constants in each
-`bench_perf_xxx.py`) are policy, not mechanism, and are not tested here.
-The `apply_tier_overrides` + `grid_factory` integration with a real
-`SweepGrid` (and the `run_tier_mode` driver) is exercised end-to-end by
-the bench's hotaisle runs.
+Scope: ``_ordinal_neighbors`` (clamping, value-not-in-list) and
+``_tier_axis_overrides`` (tier-1 enumerates axis_grid + fixed_axes;
+tier-N>1 unions per-winner ordinal+boolean expansions; ambient pins win).
 """
 
 from __future__ import annotations
@@ -26,13 +17,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from bench_tier_schedule import (  # noqa: E402
-    VARIANT_GAP_PCT,
-    TierSpec,
-    _allowed_variants,
-    _ordinal_neighbors,
-    _tier_axis_overrides,
-)
+from bench_tier_schedule import TierSpec, _ordinal_neighbors, _tier_axis_overrides  # noqa: E402
 
 
 def _ref_axis_vals() -> dict[str, list]:
@@ -46,7 +31,7 @@ def _make_tier(tier_idx: int, **kw) -> TierSpec:
     The test fake grid has no named filters, so `constraints=()` is
     fine.
     """
-    defaults = dict(top_k_to_keep=2, max_configs=100, random_seed=42, constraints=())
+    defaults = dict(max_configs=100, random_seed=42, constraints=())
     defaults.update(kw)
     return TierSpec(tier_idx=tier_idx, **defaults)
 
@@ -84,35 +69,6 @@ def test_ordinal_neighbors_value_not_in_list_returns_singleton():
 
 
 # ---------------------------------------------------------------------------
-# _allowed_variants (variant gating)
-# ---------------------------------------------------------------------------
-
-
-def test_variant_gating_keeps_both_when_within_threshold():
-    winners = [
-        {"variant": "x", "_tflops": 100.0},
-        {"variant": "y", "_tflops": 100.0 * (1 - VARIANT_GAP_PCT / 100 / 2)},
-    ]
-    assert _allowed_variants(winners) == {"x", "y"}
-
-
-def test_variant_gating_pins_when_outside_threshold():
-    winners = [
-        {"variant": "x", "_tflops": 100.0},
-        {"variant": "y", "_tflops": 100.0 * (1 - 2 * VARIANT_GAP_PCT / 100)},
-    ]
-    assert _allowed_variants(winners) == {"x"}
-
-
-def test_variant_gating_exactly_at_threshold_keeps_both():
-    winners = [
-        {"variant": "x", "_tflops": 100.0},
-        {"variant": "y", "_tflops": 100.0 * (1 - VARIANT_GAP_PCT / 100)},
-    ]
-    assert len(_allowed_variants(winners)) == 2
-
-
-# ---------------------------------------------------------------------------
 # _tier_axis_overrides + tier-1 / tier-N axis-value computation
 # ---------------------------------------------------------------------------
 
@@ -145,25 +101,6 @@ def test_tier_n_axis_overrides_keeps_winner_value():
     assert 2 in {c["a"] for c in configs}
 
 
-def test_tier2_applies_variant_gating():
-    """Tier-2 with one dominating variant should drop the loser."""
-    tier2 = _make_tier(2, neighbor_radius={"a": 1})
-    winners = [
-        {"a": 2, "variant": "x", "_tflops": 100.0},
-        {"a": 2, "variant": "y", "_tflops": 50.0},  # 50% gap >> VARIANT_GAP_PCT
-    ]
-    # Tier-2 needs "variant" in ref_axis_vals so the override mechanism sees it.
-    import bench_tier_schedule as bts
-
-    overrides = bts._tier_axis_overrides(
-        {**_ref_axis_vals(), "variant": ["x", "y"]},
-        tier2,
-        winners,
-        ambient_pins={},
-    )
-    assert overrides["variant"] == ["x"]
-
-
 def test_ambient_pins_override_axis_grid():
     tier = _make_tier(1, axis_grid={"a": [1, 2, 3]}, fixed_axes={})
     overrides = _tier_axis_overrides(_ref_axis_vals(), tier, [], ambient_pins={"a": 2})
@@ -177,9 +114,8 @@ def test_ambient_pins_override_axis_grid():
 
 
 def test_tier_spec_required_fields_round_trip():
-    t = TierSpec(tier_idx=1, top_k_to_keep=4, max_configs=200, random_seed=17, constraints=("foo",))
+    t = TierSpec(tier_idx=1, max_configs=200, random_seed=17, constraints=("foo",))
     assert t.tier_idx == 1
-    assert t.top_k_to_keep == 4
     assert t.max_configs == 200
     assert t.random_seed == 17
     assert t.constraints == ("foo",)
@@ -190,4 +126,4 @@ def test_tier_spec_requires_constraints():
     import pytest
 
     with pytest.raises(TypeError):
-        TierSpec(tier_idx=1, top_k_to_keep=4, max_configs=200, random_seed=17)
+        TierSpec(tier_idx=1, max_configs=200, random_seed=17)

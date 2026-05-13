@@ -280,7 +280,6 @@ def add_scheduling_axes(grid: SweepGrid) -> None:
     for name in (
         "lcm_unroll",
         "epilogue_peeling",
-        "prologue_peeling",
         "ll_sched",
         "hoist_wait",
         "rotate_compute_stage",
@@ -294,11 +293,9 @@ _SWEEP_TO_MAPPING_KWARG = {
     "lcm_unroll": "lcm_unroll",
     "unroll_factor_multiplier": "unroll_factor_multiplier",
     "epilogue_peeling": "epilogue_peeling",
-    "prologue_peeling": "prologue_peeling",
     "ll_sched": "ll_sched",
     "hoist_wait": "hoist_wait",
     "lds_at_write": "lds_at_write",
-    "set_mfma_priority": "set_mfma_priority",
     "rotate_compute_stage": "rotate_compute_stage",
 }
 
@@ -560,22 +557,26 @@ def verify_top_configs(
     top_n: int = 100,
     num_gpus: Optional[int] = None,
     label: str = "",
-) -> None:
-    """Phase 3: Verify top N configs for correctness using subprocess isolation."""
+) -> set[str]:
+    """Phase 3: verify top N configs for correctness. Returns the set of passing labels."""
     if not results:
-        return
+        return set()
     if num_gpus is None:
         num_gpus = detect_num_gpus(mcpu)
     if num_gpus == 0:
         print("\nNo GPUs detected -- skipping correctness verification.")
-        return
+        return set()
     top = results[:top_n]
     to_verify = [c for c, *_ in top if c.label in hsaco_paths]
     if not to_verify:
-        return
-    print(f"\n--- Phase 3: Correctness ({len(to_verify)} configs, {num_gpus} GPU(s)) ---")
+        return set()
+    # Reuse the .hsaco artifacts compiled during the sweep -- no recompilation
+    # in phase 3 (verify_on_gpus only consumes hsaco_paths[label] paths).
+    print(f"\n--- Phase 3: Correctness ({len(to_verify)} configs, reusing precompiled .hsaco, {num_gpus} GPU(s)) ---")
     check_numpy_blas(label="correctness")
     passed, errors = verify_on_gpus(to_verify, hsaco_paths, num_gpus)
+    failed_labels = {e.split(":")[0].strip() for e in errors}
+    verified = {c.label for c in to_verify if c.label not in failed_labels}
     print(f"\nCorrectness: {passed}/{len(to_verify)} passed", end="")
     if errors:
         cfg_map = {c.label: c for c in to_verify}
@@ -594,3 +595,4 @@ def verify_top_configs(
         print(f", {len(errors)} FAILED (details in {path})")
     else:
         print(" -- all correct")
+    return verified

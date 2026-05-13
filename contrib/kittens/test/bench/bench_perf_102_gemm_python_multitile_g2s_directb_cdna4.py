@@ -67,30 +67,28 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
     return [
         TierSpec(
             tier_idx=1,
-            top_k_to_keep=4,
             max_configs=max_configs,
             random_seed=random_seed,
             constraints=constraints,
             axis_grid=dict(
-                wg_m=[8, 16, 19, 32, 38, 64, 76],
-                wg_n=[8, 16, 19, 32, 38, 64, 76],
+                wg_m=[16, 19, 32, 38, 76],
+                wg_n=[16, 19, 32, 38, 76],
                 waves_m=[1, 2, 4],
-                waves_n=[1, 2, 4, 8],
-                twg_m=[1, 4, 6, 8, 16],
-                twg_n=[1, 4, 6, 8, 16],
+                waves_n=[1, 2, 4],
+                twg_m=[4, 6, 8, 12, 16],
+                twg_n=[4, 6, 8, 12, 16],
                 twg_k=[1, 2, 4],
-                occ=[1, 2, 3],
-                ps=[1, 3, 5, 7, 9],
-                unroll_factor_multiplier=[1, 2, 3],
-                ll_sched=[True, False],
-                rotate_compute_stage=[True, False],
-                hoist_wait=[True, False],
+                occ=[1, 2],
+                ps=[1, 3, 5],
+                unroll_factor_multiplier=[1, 3],
+                ll_sched=[True],
+                rotate_compute_stage=[True],
+                hoist_wait=[False],
             ),
             discriminator=("wg_m", "wg_n"),
         ),
         TierSpec(
             tier_idx=2,
-            top_k_to_keep=4,
             max_configs=max_configs,
             random_seed=random_seed,
             constraints=constraints,
@@ -101,11 +99,10 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 epilogue_peeling=[True, False],
             ),
             anchor_axes=dict(ll_sched=True, rotate_compute_stage=True),
-            discriminator="hoist_wait",
+            discriminator=("hoist_wait", "ll_sched", "rotate_compute_stage"),
         ),
         TierSpec(
             tier_idx=3,
-            top_k_to_keep=2,
             max_configs=max_configs,
             random_seed=random_seed,
             constraints=constraints,
@@ -189,13 +186,11 @@ def _make_grid(
     grid = SweepGrid()
     grid.axis("lds_at_write", [False])
     grid.axis("dealloc_at_read", [True])
-    grid.axis("set_mfma_priority", [False])
     add_gemm_sweep_axes(grid)
     grid.restrict_axes(
         {
             "occ": [1],
             "lcm_unroll": [True],
-            "prologue_peeling": [0],
             "epilogue_peeling": [False, True],
         }
     )
@@ -310,8 +305,18 @@ def _from_label(label: str, mcpu: str) -> Cdna4GemmInstance:
     if label.endswith("_cdna4"):
         label = label[: -len("_cdna4")]
     cfg = Cdna4GemmInstance.from_label(label)
-    cfg.mapping = dataclasses.replace(cfg.mapping, mcpu=mcpu)
+    cfg.mapping = dataclasses.replace(cfg.mapping, mcpu=mcpu, operand_path=OperandPath.DIRECT_B)
     return cfg
+
+
+# Hooks consumed by perf_evaluate so it can drive bench_perf_sweep_pipelined directly.
+BENCH_HOOKS = {
+    "bench_label": "bench_perf_102_gemm_python_multitile_g2s_directb_cdna4",
+    "from_label": _from_label,
+    "compile_fn": compile_cdna4_gemm,
+    "repro_cmd_fn": _repro_cmd,
+    "post_compile_filter": fits_on_cu_post_compile,
+}
 
 
 # --- Entry point ---
@@ -341,7 +346,13 @@ def main():
         warn_mcpu_mismatch(args.mcpu)
         require_gpu_or_compile_only(args)
         cfg = _from_label(args.label, args.mcpu)
-        run_single(cfg, compile_cdna4_gemm, args, execute_fn=execute_cdna4_hsaco)
+        run_single(
+            cfg,
+            compile_cdna4_gemm,
+            args,
+            execute_fn=execute_cdna4_hsaco,
+            bench="bench_perf_102_gemm_python_multitile_g2s_directb_cdna4",
+        )
         return
 
     parser = argparse.ArgumentParser(description="CDNA4 G2S GEMM benchmark sweep (test_102_cdna4_directb)")
@@ -376,7 +387,7 @@ def main():
         compile_fn=compile_cdna4_gemm,
         repro_cmd_fn=_repro_cmd,
         post_compile_filter=fits_on_cu_post_compile,
-        bench_label="102_cdna4_directb",
+        bench_label="bench_perf_102_gemm_python_multitile_g2s_directb_cdna4",
         tier_schedule=make_tiered_schedule(args.compile_sample, args.seed, make_constraints(grid_factory())),
     )
 

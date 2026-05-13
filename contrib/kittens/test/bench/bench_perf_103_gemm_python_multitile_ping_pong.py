@@ -65,7 +65,6 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
     return [
         TierSpec(
             tier_idx=1,
-            top_k_to_keep=4,
             max_configs=max_configs,
             random_seed=random_seed,
             constraints=constraints,
@@ -83,14 +82,12 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 ll_sched=[True, False],
                 rotate_compute_stage=[True, False],
                 hoist_wait=[True, False],
-                variant=[("direct_b", None), ("lds", None)],
             ),
             fixed_axes=dict(),
-            discriminator=("variant", "wg_m", "wg_n"),
+            discriminator=("wg_m", "wg_n"),
         ),
         TierSpec(
             tier_idx=2,
-            top_k_to_keep=4,
             max_configs=max_configs,
             random_seed=random_seed,
             constraints=constraints,
@@ -102,11 +99,10 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 epilogue_peeling=[True, False],
             ),
             anchor_axes=dict(ll_sched=True, rotate_compute_stage=True),
-            discriminator="hoist_wait",
+            discriminator=("hoist_wait", "ll_sched", "rotate_compute_stage"),
         ),
         TierSpec(
             tier_idx=3,
-            top_k_to_keep=2,
             max_configs=max_configs,
             random_seed=random_seed,
             constraints=constraints,
@@ -157,7 +153,7 @@ def _build_instance(d: dict, mcpu: str, hw) -> PingPongGemmInstance:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        operand_path=OperandPath(d["variant"][0]),
+        operand_path=OperandPath.LDS,
         num_wg_per_cu=_nwgcu,
         dealloc_at_read=d["dealloc_at_read"],
         mcpu=mcpu,
@@ -173,7 +169,7 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
         num_waves_per_workgroup=[d["waves_m"], d["waves_n"], 1],
         num_tiles_per_wave=[d["twg_m"] // d["waves_m"], d["twg_n"] // d["waves_n"], d["twg_k"]],
         pipeline_strategy=d["ps"],
-        operand_path=OperandPath(d["variant"][0]),
+        operand_path=OperandPath.LDS,
         num_wg_per_cu=nwgcu(d, hw),
         lds_at_write=d["lds_at_write"],
         dealloc_at_read=d["dealloc_at_read"],
@@ -183,7 +179,6 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
 
 def _make_grid(
     *,
-    variants: list[str],
     mcpu: str,
     hw,
     check_regs: bool = True,
@@ -194,15 +189,12 @@ def _make_grid(
     """Return a fresh SweepGrid populated with this bench's axes + filters + builder."""
     tile_m, tile_n, tile_k = _TILE_ELTS
     grid = SweepGrid()
-    # Second slot is the load_type; 103 does not sweep it, so it is None.
-    grid.axis("variant", [(v, None) for v in variants])
     grid.axis("lds_at_write", [False, True])
     grid.axis("dealloc_at_read", [True])
     add_gemm_sweep_axes(grid)
     grid.restrict_axes(
         {
             "lcm_unroll": [True],
-            "prologue_peeling": [0],
             "epilogue_peeling": [False, True],
         }
     )
@@ -274,7 +266,6 @@ def _make_grid(
         check=lambda d: (d["twg_m"] * d["twg_n"] * d["twg_k"]) >= 48 and (d["twg_m"] * d["twg_n"] * d["twg_k"]) <= 256,
         name="num_tiles_constrainted_in_48_256",
     )
-    grid.axis("set_mfma_priority", [True, False])
 
     if check_regs:
         add_resource_filter(
@@ -282,7 +273,6 @@ def _make_grid(
             hw,
             functools.partial(_mapping_for_resource_check, mcpu=mcpu, hw=hw),
             deps=(
-                "variant",
                 "target_M",
                 "target_N",
                 "waves_m",
@@ -310,9 +300,18 @@ def _repro_cmd(cfg):
 
 def _from_label(label: str, mcpu: str) -> PingPongGemmInstance:
     base = WeakScaledMappedGemmInstance.from_label(label)
-    # Label serde does not encode mcpu; honor --mcpu from the CLI.
-    mapping = dataclasses.replace(base.mapping, mcpu=mcpu)
+    mapping = dataclasses.replace(base.mapping, mcpu=mcpu, operand_path=OperandPath.LDS)
     return PingPongGemmInstance(base.spec, mapping)
+
+
+# Hooks consumed by perf_evaluate so it can drive bench_perf_sweep_pipelined directly.
+BENCH_HOOKS = {
+    "bench_label": "bench_perf_103_gemm_python_multitile_ping_pong",
+    "from_label": _from_label,
+    "compile_fn": compile_ping_pong_gemm,
+    "repro_cmd_fn": _repro_cmd,
+    "post_compile_filter": fits_on_cu_post_compile,
+}
 
 
 # --- Entry point ---
@@ -328,7 +327,13 @@ def main():
         warn_mcpu_mismatch(args.mcpu)
         require_gpu_or_compile_only(args)
         cfg = _from_label(args.label, args.mcpu)
-        run_single(cfg, compile_ping_pong_gemm, args, execute_fn=execute_ping_pong_hsaco)
+        run_single(
+            cfg,
+            compile_ping_pong_gemm,
+            args,
+            execute_fn=execute_ping_pong_hsaco,
+            bench="bench_perf_103_gemm_python_multitile_ping_pong",
+        )
         return
 
     parser = argparse.ArgumentParser(description="Python ping-pong GEMM benchmark sweep (test_103)")
@@ -344,13 +349,6 @@ def main():
     target_m, target_n, target_k = parse_size_args(args, parser)
     print(f"Size: M={target_m}, N={target_n}, K={target_k}  mcpu={args.mcpu}")
 
-    all_paths = ["lds", "direct_b"]
-    if args.direct_b is True:
-        all_paths = ["direct_b"]
-    elif args.direct_b is False:
-        all_paths = ["lds"]
-    print(f"Variants: {', '.join(all_paths)}")
-
     grid_factory = functools.partial(
         _make_grid,
         mcpu=args.mcpu,
@@ -358,7 +356,6 @@ def main():
         target_m=target_m,
         target_n=target_n,
         target_k=target_k,
-        variants=all_paths,
         check_regs=not getattr(args, "no_reg_filter", False),
     )
 
@@ -371,7 +368,7 @@ def main():
         compile_fn=compile_ping_pong_gemm,
         repro_cmd_fn=_repro_cmd,
         post_compile_filter=fits_on_cu_post_compile,
-        bench_label="103",
+        bench_label="bench_perf_103_gemm_python_multitile_ping_pong",
         tier_schedule=make_tiered_schedule(args.compile_sample, args.seed, make_constraints(grid_factory())),
     )
 

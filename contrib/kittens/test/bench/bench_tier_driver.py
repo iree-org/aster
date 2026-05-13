@@ -7,18 +7,45 @@
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import os
 import random
+import signal
 import sys
 import time
 from typing import Callable
 
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tools"))
 
 from bench_harness import bench_perf_sweep_pipelined  # noqa: E402
+from perf_bench_results_io import emit_one_result  # noqa: E402
 from bench_search import verify_top_configs  # noqa: E402
 from bench_tier_schedule import TierSpec, apply_tier_overrides  # noqa: E302, E402
+
+
+# Tier-to-tier survival rate: keep the top 10% of measured winners.
+TIER_KEEP_PCT = 0.10
+
+
+def _alarm_to_keyboard_interrupt(signum, frame):
+    raise KeyboardInterrupt(f"tier time budget exceeded (signal {signum})")
+
+
+@contextlib.contextmanager
+def _tier_alarm(budget: float | None):
+    """Arm ``signal.alarm(budget)`` for the duration; SIGALRM -> KeyboardInterrupt."""
+    if not budget or budget <= 0:
+        yield
+        return
+    old = signal.signal(signal.SIGALRM, _alarm_to_keyboard_interrupt)
+    signal.alarm(int(budget))
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 
 def run_tier_mode(
@@ -34,7 +61,7 @@ def run_tier_mode(
     bench_label: str,
     tier_schedule: list[TierSpec],
 ) -> str | None:
-    """Walk `tier_schedule`. Each tier samples, runs, keeps top-K to seed the next.
+    """Walk `tier_schedule`. Each tier samples, runs, keeps top 10% to seed the next.
 
     Returns the txt report path, or None if no tier produced measurable
     results.
@@ -58,7 +85,7 @@ def run_tier_mode(
         if tier.random_seed is not None:
             random.seed(tier.random_seed)
         print(
-            f"\n=== Tier {tier.tier_idx}: cap={cap}, top_k={tier.top_k_to_keep}, "
+            f"\n=== Tier {tier.tier_idx}: cap={cap}, keep_pct={TIER_KEEP_PCT * 100:.0f}%, "
             f"discriminator={tier.discriminator!r}, seed={tier.random_seed!r} ==="
         )
 
@@ -82,23 +109,43 @@ def run_tier_mode(
         )
         print(f"Tier {tier.tier_idx} population: generated={total}, clipped={len(instances)} (cap={cap})")
 
+        if getattr(args, "dry_run", False) and tier.tier_idx == 1:
+            print(f"\n=== Tier 1 dry-run: {len(instances)} candidate(s) ===")
+            for inst in instances:
+                print(f"  {inst.label}")
+            print(f"=== {len(instances)} candidate(s); exiting (--dry-run) ===")
+            return None
+
         if not instances:
             print(f"Tier {tier.tier_idx}: empty population. Stopping.")
             break
 
-        bench_results, hsaco_paths = bench_perf_sweep_pipelined(
-            configs=instances,
-            compile_fn=compile_fn,
-            repro_cmd_fn=repro_cmd_fn,
-            mcpu=args.mcpu,
-            num_gpus=0 if args.compile_only else args.num_gpus,
-            compile_workers=args.compile_workers,
-            compile_timeout=args.compile_timeout,
-            post_compile_filter=post_compile_filter,
-            zero_init=args.zero_init,
-            iterations=args.iterations,
-            hsaco_dir=getattr(args, "hsaco_dir", None),
-        )
+        tier_budget = getattr(args, "tier_time_budget", None)
+        with _tier_alarm(tier_budget):
+            try:
+                bench_results, hsaco_paths = bench_perf_sweep_pipelined(
+                    configs=instances,
+                    compile_fn=compile_fn,
+                    repro_cmd_fn=repro_cmd_fn,
+                    mcpu=args.mcpu,
+                    bench=bench_label,
+                    num_gpus=0 if args.compile_only else args.num_gpus,
+                    compile_workers=args.compile_workers,
+                    compile_timeout=args.compile_timeout,
+                    post_compile_filter=post_compile_filter,
+                    zero_init=args.zero_init,
+                    iterations=args.iterations,
+                    hsaco_dir=getattr(args, "hsaco_dir", None),
+                    results_file=getattr(args, "results_file", None),
+                )
+            except KeyboardInterrupt:
+                # SIGALRM-induced or user-induced; bench_perf_sweep_pipelined handles
+                # the in-flight drain internally and re-raises if not fully done.
+                print(
+                    f"\n[Tier {tier.tier_idx} interrupted (budget={tier_budget}s); moving on with partial results]",
+                    file=sys.stderr,
+                )
+                bench_results, hsaco_paths = [], {}
 
         all_results.extend(bench_results)
         all_hsaco_paths.update(hsaco_paths)
@@ -136,7 +183,8 @@ def run_tier_mode(
             break
 
         annotated_winners.sort(key=lambda d: d["_tflops"], reverse=True)
-        if tier.top_k_per_stratum and stratification_key is not None:
+        keep_n = max(1, int(len(annotated_winners) * TIER_KEEP_PCT))
+        if tier.per_stratum_diversity and stratification_key is not None:
             seen_strata: set = set()
             stratified_keepers: list[dict] = []
             for w in annotated_winners:
@@ -145,19 +193,19 @@ def run_tier_mode(
                     continue
                 seen_strata.add(key)
                 stratified_keepers.append(w)
-            winners = stratified_keepers[: tier.top_k_to_keep]
+            winners = stratified_keepers[:keep_n]
         else:
-            winners = annotated_winners[: tier.top_k_to_keep]
+            winners = annotated_winners[:keep_n]
         prev_winners = winners
 
-        print(f"Tier {tier.tier_idx} top-{len(winners)}:")
+        print(f"Tier {tier.tier_idx} kept {len(winners)}/{len(annotated_winners)} (top {TIER_KEEP_PCT * 100:.0f}%):")
         for w in winners[:5]:
             print(
                 f"  {w['_tflops']:>7.1f} TF/s  "
                 f"wg={w.get('wg_m')}x{w.get('wg_n')} "
                 f"twg={w.get('twg_m')}x{w.get('twg_n')}x{w.get('twg_k')} "
                 f"w={w.get('waves_m')}x{w.get('waves_n')} "
-                f"ps={w.get('ps')} variant={w.get('variant')}"
+                f"ps={w.get('ps')}"
             )
 
     _write_results_txt(
@@ -184,13 +232,14 @@ def run_tier_mode(
             repro_cmd_fn=repro_cmd_fn,
             top_n=20,
         )
-        for line in _format_campaign_top(all_records, repro_cmd_fn, top_n=20):
-            print(line)
 
     # Phase 3: correctness verification on the top-N across all tiers.
+    # Only verified labels are emitted as BENCH_RESULT_JSON -> best_known never
+    # consumes a config that failed the numpy reference check.
+    verified_labels: set[str] = set()
     if all_results and not args.compile_only:
         sorted_results = sorted(all_results, key=lambda r: (r[1].p50_tf if r[1] is not None else 0.0), reverse=True)
-        verify_top_configs(
+        verified_labels = verify_top_configs(
             sorted_results,
             all_hsaco_paths,
             repro_cmd_fn,
@@ -199,6 +248,15 @@ def run_tier_mode(
             num_gpus=args.num_gpus,
             label=bench_label,
         )
+
+    results_file = getattr(args, "results_file", None)
+    if results_file and verified_labels:
+        with open(results_file, "a") as rs:
+            for cfg, stats in all_results:
+                if stats is None or cfg.label not in verified_labels:
+                    continue
+                emit_one_result(rs, bench_label, cfg, stats)
+        print(f"  Emitted {len(verified_labels)} verified result(s) to {results_file}")
 
     # Final summary block: printed AFTER verify_top_configs so the file
     # paths are the last thing on screen and easy to grab.
@@ -251,9 +309,6 @@ def _build_anchor_extras(
 
 
 def _format_axes(r: dict) -> str:
-    var = r.get("variant", "?")
-    if isinstance(var, list) and len(var) >= 1:
-        var = var[0]
     return (
         f"wg={r.get('wg_m')}x{r.get('wg_n')} "
         f"twg={r.get('twg_m')}x{r.get('twg_n')}x{r.get('twg_k')} "
@@ -262,8 +317,7 @@ def _format_axes(r: dict) -> str:
         f"hw={int(bool(r.get('hoist_wait')))} ll={int(bool(r.get('ll_sched')))} "
         f"rotc={int(bool(r.get('rotate_compute_stage')))} "
         f"lds={int(bool(r.get('lds_at_write')))} "
-        f"epeel={int(bool(r.get('epilogue_peeling')))} "
-        f"variant={var}"
+        f"epeel={int(bool(r.get('epilogue_peeling')))}"
     )
 
 

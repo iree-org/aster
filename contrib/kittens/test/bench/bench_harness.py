@@ -8,7 +8,6 @@ Phase 3: Correctness verification (per-config subprocess, crash-isolated).
 import argparse
 import dataclasses
 import fcntl
-import json
 import os
 import statistics
 import sys
@@ -21,10 +20,13 @@ import numpy as np
 
 from kittens.gemm_config import DIM_M, DIM_N, DIM_K
 
+sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tools"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
-RESULT_SENTINEL = "BENCH_RESULT_JSON:"
+from perf_bench_results_io import emit_one_result  # noqa: E402
+
 # Theoretical dense FP16 peak per AMD published specs.
 _PEAK_TFLOPS_F16_BY_MCPU: dict[str, float] = {
     "gfx940": 980.6,  # MI300A
@@ -295,6 +297,8 @@ def require_gpu_or_compile_only(args) -> None:
     """
     if getattr(args, "compile_only", False):
         print(f"Compile-only mode ({args.mcpu}); execution will be skipped.")
+        return
+    if getattr(args, "dry_run", False):
         return
     n = detect_num_gpus(args.mcpu)
     if n == 0:
@@ -878,7 +882,9 @@ def _run_gpu_queue(gpu_id, items, result_queue, timeout=120, gpu_lock_path=None,
         worker.shutdown()
 
 
-def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
+def run_on_gpus(
+    configs, hsaco_paths, num_iterations, num_gpus, desc="Running", *, bench: str = "unknown", results_file=None
+):
     """Execute configs in subprocesses, all GPUs concurrently (crash-isolated).
 
     Each GPU gets a dedicated thread that processes its queue sequentially.
@@ -917,6 +923,7 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
     best_tf = 0.0
     pbar = tqdm(total=total, desc=desc, unit="cfg")
     result_q = queue.Queue()
+    results_stream = open(results_file, "a") if results_file else None
 
     # One thread per GPU, each processing its queue sequentially.
     threads = []
@@ -980,6 +987,8 @@ def run_on_gpus(configs, hsaco_paths, num_iterations, num_gpus, desc="Running"):
             print(f" {still} still busy, moving on.")
         else:
             print(" done.")
+    if results_stream is not None:
+        results_stream.close()
     return results, failed
 
 
@@ -1098,21 +1107,15 @@ def _sweep_summary(results, compile_errs, exec_errs, repro_cmd_fn):
 
     print(f"\nSummary: {len(results)} ok, {len(compile_errs)} compile fail, {len(exec_errs)} exec fail")
     if results:
-        top_n = min(20, len(results))
-        print(f"Top {top_n} (sorted by p50 TF):")
-        for i, (c, s) in enumerate(results[:top_n]):
-            print(
-                f"  #{i + 1} {c.label}: {s.p50_tf:.1f} TF p50 ({s.p50_pct:.1f}%) "
-                f"| p0/p10/p25/p50/p90={s.p0_tf:.1f}/{s.p10_tf:.1f}/{s.p25_tf:.1f}/{s.p50_tf:.1f}/{s.p90_tf:.1f} "
-                f"mean={s.mean_tf:.1f} stddev_tf={s.stddev_tf:.1f}"
-            )
+        best = max(results, key=lambda r: r[1].p50_tf)
+        print(f"Best: {best[0].label}: {best[1].p50_tf:.1f} TF p50 ({best[1].p50_pct:.1f}%)")
     if saved_files:
         print("\nSaved files:")
         for f in saved_files:
             print(f"  {f}")
 
 
-def _drain_exec_results(result_q, cfg_by_label, results, exec_failed):
+def _drain_exec_results(result_q, cfg_by_label, results, exec_failed, *, bench: str = "unknown", results_file=None):
     """Drain completed exec results from a queue.
 
     Returns (n_drained, best_tf).
@@ -1148,6 +1151,7 @@ def bench_perf_sweep_pipelined(
     repro_cmd_fn,
     *,
     mcpu: str,
+    bench: str = "unknown",
     num_gpus=None,
     compile_workers=None,
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
@@ -1155,6 +1159,7 @@ def bench_perf_sweep_pipelined(
     zero_init=False,
     iterations=None,
     hsaco_dir: Optional[str] = None,
+    results_file: Optional[str] = None,
 ):
     """Pipelined compile+execute: GPU execution starts as HSACOs become available.
 
@@ -1288,7 +1293,9 @@ def bench_perf_sweep_pipelined(
                     short = type(e).__name__
                 compile_failed.append((cfg, f"compile: {short}", full_err))
 
-            dn, best_tf = _drain_exec_results(exec_result_q, cfg_by_label, results, exec_failed)
+            dn, best_tf = _drain_exec_results(
+                exec_result_q, cfg_by_label, results, exec_failed, bench=bench, results_file=results_file
+            )
             n_exec_done += dn
             n_fail = len(compile_failed) + len(exec_failed)
             pbar.set_postfix_str(
@@ -1331,14 +1338,18 @@ def bench_perf_sweep_pipelined(
                 end="",
                 flush=True,
             )
-            dn, _ = _drain_exec_results(exec_result_q, cfg_by_label, results, exec_failed)
+            dn, _ = _drain_exec_results(
+                exec_result_q, cfg_by_label, results, exec_failed, bench=bench, results_file=results_file
+            )
             drained += dn
             remaining_count = max(0, remaining_count - dn)
             for t in gpu_threads:
                 if t.is_alive():
                     t.join(timeout=0.5)
                     break
-        dn, _ = _drain_exec_results(exec_result_q, cfg_by_label, results, exec_failed)
+        dn, _ = _drain_exec_results(
+            exec_result_q, cfg_by_label, results, exec_failed, bench=bench, results_file=results_file
+        )
         drained += dn
         remaining_count = max(0, remaining_count - dn)
         n_exec_done += drained
@@ -1377,12 +1388,14 @@ def bench_perf_sweep(
     repro_cmd_fn,
     *,
     mcpu: str,
+    bench: str = "unknown",
     num_gpus=None,
     compile_workers=None,
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
     post_compile_filter=None,
     iterations=None,
     hsaco_dir: Optional[str] = None,
+    results_file: Optional[str] = None,
 ):
     """Phase 1 (compile) + Phase 2 (execute).
 
@@ -1502,6 +1515,8 @@ def bench_perf_sweep(
             iterations,
             num_gpus,
             desc="Executing",
+            bench=bench,
+            results_file=results_file,
         )
     failed.extend((c, e, "") for c, e in exec_failed)
 
@@ -1544,8 +1559,7 @@ def print_config(cfg, resources=None, iterations=None):
     print(f"  memory:     load_type={cfg.load_type}, b_path={cfg.b_path}, LDS={cfg.lds_bytes} bytes")
     lcm = "lcm" if cfg.lcm_unroll else "no-lcm"
     epeel = "epeel" if cfg.epilogue_peeling else "no-epeel"
-    ppeel = f"ppeel={cfg.prologue_peeling}"
-    print(f"  unroll:     {lcm}, multiplier={cfg.unroll_factor_multiplier}, {ppeel}, {epeel}")
+    print(f"  unroll:     {lcm}, multiplier={cfg.unroll_factor_multiplier}, {epeel}")
     sched = []
     if cfg.ll_sched:
         sched.append("ll-sched")
@@ -1604,7 +1618,7 @@ def print_config(cfg, resources=None, iterations=None):
                 print(f"  WARNING: AGPR estimate {est_a} vs actual {resources.agpr_count} ({ratio:.2f}x)")
 
 
-def run_single(cfg, compile_fn, args, execute_fn):
+def run_single(cfg, compile_fn, args, execute_fn, *, bench: str = "unknown"):
     from aster.compiler.metadata import (
         parse_asm_kernel_resources,
         compute_register_budget,
@@ -1687,30 +1701,10 @@ def run_single(cfg, compile_fn, args, execute_fn):
         if s is None:
             print(f"\nInvalid timings (min={min(measured) if measured else 'n/a'} ns)")
             return
-        print(
-            RESULT_SENTINEL
-            + json.dumps(
-                {
-                    "p0_ms": s.p0_ms,
-                    "p10_ms": s.p10_ms,
-                    "p25_ms": s.p25_ms,
-                    "p50_ms": s.p50_ms,
-                    "p90_ms": s.p90_ms,
-                    "mean_ms": s.mean_ms,
-                    "stddev_tf": s.stddev_tf,
-                    "tflops_p0": s.p0_tf,
-                    "tflops_p10": s.p10_tf,
-                    "tflops_p25": s.p25_tf,
-                    "tflops_p50": s.p50_tf,
-                    "tflops_p90": s.p90_tf,
-                    "tflops_mean": s.mean_tf,
-                    "pct_peak_p0": s.p0_pct,
-                    "pct_peak_p50": s.p50_pct,
-                    "pct_peak_mean": s.mean_pct,
-                    "times_ms": [t / 1e6 for t in times_ns],
-                }
-            )
-        )
+        results_path = getattr(args, "results_file", None)
+        if results_path:
+            with open(results_path, "a") as rs:
+                emit_one_result(rs, bench, cfg, s)
         print("\n--- Summary ---")
         print(f"  {'metric':<8s}  {'ms':>10s}  {'TFLOPS':>10s}  {'% peak':>8s}")
         print(f"  {'p0':<8s}  {s.p0_ms:>10.4f}  {s.p0_tf:>10.1f}  {s.p0_pct:>7.1f}%")
@@ -1796,6 +1790,26 @@ def add_sweep_cli_args(parser):
         "inspection, and repeated sweeps over a fixed corpus. Default: "
         "ephemeral mkdtemp (no caching).",
     )
+    a(
+        "--results-file",
+        type=str,
+        default=None,
+        help="Append BENCH_RESULT_JSON lines to this file. Default: discarded (no stdout spew).",
+    )
+    a(
+        "--tier-time-budget",
+        type=float,
+        default=None,
+        help="Per-tier wall-clock seconds. On timeout, raise KeyboardInterrupt so the "
+        "pipelined sweep drains gracefully and returns partial results, then moves to "
+        "the next tier. Default: unlimited.",
+    )
+    a(
+        "--dry-run",
+        action="store_true",
+        help="Print tier-1 candidate labels (post-filter, post-sampling) and exit. "
+        "Skips compile + execute. Useful to debug 'zero candidates' surprises.",
+    )
 
 
 def add_single_cli_args(parser):
@@ -1825,4 +1839,10 @@ def add_single_cli_args(parser):
         action="store_true",
         default=False,
         help="Use zero-initialized inputs (power-neutral baseline)",
+    )
+    a(
+        "--results-file",
+        type=str,
+        default=None,
+        help="Append BENCH_RESULT_JSON line to this file. Default: discarded (no stdout spew).",
     )
