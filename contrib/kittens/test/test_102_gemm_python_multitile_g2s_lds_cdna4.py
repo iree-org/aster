@@ -436,7 +436,6 @@ class Cdna4GemmInstance(WeakScaledMappedGemmInstance):
             base.mapping,
             operand_path=OperandPath.LDS,
             load_type=LoadType.FLAT,
-            dealloc_at_read=True,
         )
         return cls(spec, mapping)
 
@@ -464,7 +463,6 @@ def _make_instance(
         num_tiles_per_wave=[twg_m // wpw_m, twg_n // wpw_n, num_tiles_per_wg[DIM_K]],
         pipeline_strategy=pipeline_strategy,
         operand_path=OperandPath.LDS,
-        dealloc_at_read=True,
         rotate_compute_stage=rotate_compute_stage,
         mcpu="gfx950",
     )

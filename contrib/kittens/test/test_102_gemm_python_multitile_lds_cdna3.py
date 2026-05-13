@@ -822,7 +822,7 @@ class TestResourceEstimates:
         assert KERNEL_NAME in resources, f"kernel {KERNEL_NAME} not found in ASM metadata"
         actual = resources[KERNEL_NAME]
 
-        est_lds = mapping.lds_bytes(dealloc_at_read=True)
+        est_lds = mapping.lds_bytes()
         est_vgprs = mapping.estimated_vgprs()
         est_agprs = mapping.estimated_agprs()
 
