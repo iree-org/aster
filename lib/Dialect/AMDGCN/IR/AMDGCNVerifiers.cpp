@@ -69,7 +69,8 @@ static LogicalResult checkOperand(Operation *op, Type type, int32_t pos,
                                   const VerifierState &state, bool isOut,
                                   bool allowUnallocated) {
   StringRef direction = isOut ? "output" : "input";
-  if (type.isFloat() || type.isSignlessInteger(32)) {
+  if (type.isFloat() || type.isSignlessInteger(32) ||
+      type.isSignlessInteger(64)) {
     return success();
   }
   auto regTy = dyn_cast<RegisterTypeInterface>(type);
@@ -211,16 +212,16 @@ static LogicalResult checkMaybeConstOperand(AMDGCNInstOpInterface op,
   if (kind != OperandKind::IntImm && kind != OperandKind::FPImm) {
     return success();
   }
+  if (isa<LoadOpInterface, StoreOpInterface>(op) ||
+      op.hasProp(InstProp::Salu) || op.hasProp(InstProp::IsValu)) {
+    return success();
+  }
   if (value.getType().isSignlessInteger(64) || value.getType().isF64()) {
     return (op->emitError()
             << "constant operand " << pos
             << " has unsupported 64-bit type: " << value.getType())
                .attachNote(state.getLoc())
            << "is invalid";
-  }
-  if (isa<LoadOpInterface, StoreOpInterface>(op) ||
-      op.hasProp(InstProp::Salu) || op.hasProp(InstProp::IsValu)) {
-    return success();
   }
   // TODO: implement actual checks for other instructions.
   (void)(op->emitWarning() << "constant operand " << pos

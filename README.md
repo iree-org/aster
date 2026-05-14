@@ -389,9 +389,9 @@ with ir.Context() as ctx, ir.Location.unknown():
     offset = b.index_to_vgpr(b.layout_byte_offset(tid, Layout(sizes=64, strides=4)))
 
     # Load, add, store
-    val = b.buffer_load(in_ptr, b.s_mov_b32(0), offset)
+    val, load_tok = b.buffer_load(in_ptr, b.s_mov_b32(0), offset)
+    b.wait_deps(load_tok)
     result = b.v_add_u32(val, b.constant_i32(42))
-    b.wait_vmcnt(0)
     b.buffer_store_dword(result, out_ptr, b.s_mov_b32(0), offset)
 
     module = b.build()

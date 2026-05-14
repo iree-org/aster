@@ -563,6 +563,18 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
   if (!srcTy || !tgtTy)
     return failure();
 
+  // Special register to SGPR copy.
+  if (op.getSource().getType().hasTrait<SpecialRegTrait>() &&
+      tgtTy.getRegisterKind() == RegisterKind::SGPR) {
+    if (srcTy.getSizeInBits() > 32)
+      SMovB64::create(rewriter, op.getLoc(), op.getTarget(), op.getSource());
+    else
+      for (auto [src, tgt] : llvm::zip_equal(*srcAlloc, *tgtAlloc))
+        SMovB32::create(rewriter, tgt.getLoc(), tgt, src);
+    rewriter.eraseOp(op);
+    return success();
+  }
+
   // Bail if the copy cannot be performed.
   if (srcTy.getRegisterKind() != RegisterKind::SGPR &&
       tgtTy.getRegisterKind() == RegisterKind::SGPR) {

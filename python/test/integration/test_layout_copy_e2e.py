@@ -57,8 +57,8 @@ def _build_copy_kernel(
         soffset = b.s_mov_b32(0)
         src_rsrc = b.make_buffer_rsrc(src_ptr, num_records, b.constant_i32(0))
         dst_rsrc = b.make_buffer_rsrc(dst_ptr, num_records, b.constant_i32(0))
-        data = b.buffer_load_dwordx4(src_rsrc, soffset, src_voff)
-        b.wait_vmcnt(0)
+        data, load_tok = b.buffer_load_dwordx4(src_rsrc, soffset, src_voff)
+        b.wait_deps(load_tok)
         b.buffer_store_dwordx4(data, dst_rsrc, soffset, dst_voff)
 
     b.wait_vmcnt(0)

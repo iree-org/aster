@@ -784,7 +784,7 @@ class KernelBuilder:
         soffset: ir.Value,
         voffset: ir.Value,
         const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
+    ) -> tuple[ir.Value, ir.Value]:
         """Emit a buffer load using a pre-allocated dest register (or range)."""
         if const_offset is None:
             const_offset = self.constant_i32(0)
@@ -799,7 +799,7 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        return op.results[0]
+        return op.results[0], op.results[1]
 
     def buffer_load(
         self,
@@ -807,8 +807,8 @@ class KernelBuilder:
         soffset: ir.Value,
         voffset: ir.Value,
         const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
-        """Buffer load (buffer_load_dword) -> single VGPR."""
+    ) -> tuple[ir.Value, ir.Value]:
+        """Buffer load (buffer_load_dword) -> (data, read_token)."""
         dest = AllocaOp(VGPRType.get(self._ctx), loc=self._loc, ip=self._kip).result
         return self._buffer_load_with_dest(
             "buffer_load_dword", dest, rsrc, soffset, voffset, const_offset
@@ -820,8 +820,8 @@ class KernelBuilder:
         soffset: ir.Value,
         voffset: ir.Value,
         const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
-        """Buffer load of 2 dwords -> VGPRRangeType(size=2)."""
+    ) -> tuple[ir.Value, ir.Value]:
+        """Buffer load of 2 dwords -> (data, read_token)."""
         dest = self.alloc_vgprx2()
         return self._buffer_load_with_dest(
             "buffer_load_dwordx2", dest, rsrc, soffset, voffset, const_offset
@@ -833,8 +833,8 @@ class KernelBuilder:
         soffset: ir.Value,
         voffset: ir.Value,
         const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
-        """Buffer load of 4 dwords -> VGPRRangeType(size=4)."""
+    ) -> tuple[ir.Value, ir.Value]:
+        """Buffer load of 4 dwords -> (data, read_token)."""
         dest = self.alloc_vgprx4()
         return self._buffer_load_with_dest(
             "buffer_load_dwordx4", dest, rsrc, soffset, voffset, const_offset

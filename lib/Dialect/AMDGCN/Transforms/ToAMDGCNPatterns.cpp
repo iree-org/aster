@@ -679,16 +679,44 @@ LogicalResult AndIOpPattern::matchAndRewrite(lsir::AndIOp op,
   Value dst = op.getDst();
   Value lhs = op.getLhs();
   Value rhs = op.getRhs();
+  Location loc = op.getLoc();
+
+  // SCC/VCC condition flag destinations: use scalar AND.
+  if (isa<SCCType>(dst.getType())) {
+    Value result = createSOP2Out2In2<SAndB32>(rewriter, loc, dst, lhs, rhs);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+  if (isa<VCCType>(dst.getType())) {
+    // If an operand is SCC (1-bit scalar), broadcast it to a 64-bit mask
+    // via s_cselect_b64 before the AND.
+    auto broadcastSCC = [&](Value &v) {
+      if (!isa<SCCType>(v.getType()))
+        return;
+      MLIRContext *ctx = rewriter.getContext();
+      Value tmp = createAllocation(rewriter, loc, getSGPR(ctx, 2));
+      Value allOnes = arith::ConstantOp::create(rewriter, loc,
+                                                rewriter.getI64IntegerAttr(-1));
+      Value zeros = arith::ConstantOp::create(rewriter, loc,
+                                              rewriter.getI64IntegerAttr(0));
+      v = SCselectB64::create(rewriter, loc, tmp, allOnes, zeros, v)
+              .getDst0Res();
+    };
+    broadcastSCC(lhs);
+    broadcastSCC(rhs);
+    Value result = createSOP2Out2In2<SAndB64>(rewriter, loc, dst, lhs, rhs);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
   OperandKind kind = getOperandKind(oTy);
   unsigned width = op.getSemantics().getWidth();
   OperandKind lhsKind, rhsKind;
 
   // Check we can transform this op
   if (failed(checkAIOp(op, rewriter, kind, lhs, rhs, oTy, width, lhsKind,
-                       rhsKind, {32, 64}, {32})))
+                       rhsKind, {32, 64}, {32, 64})))
     return failure();
-
-  Location loc = op.getLoc();
 
   // At this point, operands are valid - create the appropriate and op
   if (kind == OperandKind::SGPR) {
@@ -707,6 +735,17 @@ LogicalResult AndIOpPattern::matchAndRewrite(lsir::AndIOp op,
       isOperand(rhsKind, {OperandKind::IntImm, OperandKind::SGPR})) {
     std::swap(lhs, rhs);
     std::swap(lhsKind, rhsKind);
+  }
+
+  if (width == 64) {
+    ValueRange lhsR = splitRange(rewriter, loc, lhs);
+    ValueRange rhsR = splitRange(rewriter, loc, rhs);
+    ValueRange dstR = splitRange(rewriter, loc, dst);
+    Value lo = createNewVOP<VAndB32>(rewriter, loc, dstR[0], lhsR[0], rhsR[0]);
+    Value hi = createNewVOP<VAndB32>(rewriter, loc, dstR[1], lhsR[1], rhsR[1]);
+    rewriter.replaceOp(
+        op, MakeRegisterRangeOp::create(rewriter, loc, oTy, {lo, hi}));
+    return success();
   }
 
   // Handle the VGPR case
@@ -1974,13 +2013,50 @@ SelectOpPattern::matchAndRewrite(lsir::SelectOp op,
     // src0 = false_value, src1 = true_value, src2 = VCC.
     // VOP2 src1 must be a VGPR; materialize via v_mov_b32 into dst if needed.
     // The resulting dst WAR in v_cndmask_b32 is well-defined for VOP2.
+    // src0 accepts SGPR or inline constants but not literal constants.
     Value trueVal = op.getTrueValue();
     Value falseVal = op.getFalseValue();
     if (!isa<VGPRType>(trueVal.getType())) {
       VMovB32::create(rewriter, loc, dst, trueVal);
       trueVal = dst;
     }
+    APInt constVal;
+    if (!isa<VGPRType, SGPRType>(falseVal.getType()) &&
+        matchPattern(falseVal, m_ConstantInt(&constVal)) &&
+        !constVal.isSignedIntN(6)) {
+      Value vgpr =
+          createAllocation(rewriter, loc, getVGPR(rewriter.getContext()));
+      falseVal = VMovB32::create(rewriter, loc, vgpr, falseVal).getDst0Res();
+    }
     result = VCndmaskB32::create(rewriter, loc, dst, falseVal, trueVal, flagReg)
+                 .getDst0Res();
+  } else if (isa<VGPRType>(dst.getType())) {
+    // SCC condition but VGPR operands: broadcast SCC to VCC, then use
+    // v_cndmask_b32.
+    MLIRContext *ctx = rewriter.getContext();
+    Value vccTmp = createAllocation(rewriter, loc, getSGPR(ctx, 2));
+    Value allOnes = arith::ConstantOp::create(rewriter, loc,
+                                              rewriter.getI64IntegerAttr(-1));
+    Value zeros =
+        arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(0));
+    Value vcc =
+        SCselectB64::create(rewriter, loc, vccTmp, allOnes, zeros, flagReg)
+            .getDst0Res();
+    Value trueVal = op.getTrueValue();
+    Value falseVal = op.getFalseValue();
+    if (!isa<VGPRType>(trueVal.getType())) {
+      VMovB32::create(rewriter, loc, dst, trueVal);
+      trueVal = dst;
+    }
+    APInt constVal;
+    if (!isa<VGPRType, SGPRType>(falseVal.getType()) &&
+        matchPattern(falseVal, m_ConstantInt(&constVal)) &&
+        !constVal.isSignedIntN(6)) {
+      Value vgpr =
+          createAllocation(rewriter, loc, getVGPR(rewriter.getContext()));
+      falseVal = VMovB32::create(rewriter, loc, vgpr, falseVal).getDst0Res();
+    }
+    result = VCndmaskB32::create(rewriter, loc, dst, falseVal, trueVal, vcc)
                  .getDst0Res();
   } else {
     // s_cselect_b32: sdst = SCC ? src0 : src1.

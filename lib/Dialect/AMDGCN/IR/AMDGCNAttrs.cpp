@@ -268,10 +268,10 @@ LogicalResult NoLsirComputeOpsAttr::verifyOperation(
   if (!op->getDialect() || op->getDialect()->getNamespace() != "lsir")
     return success();
 
-  // Allow control-flow ops (lowered by LegalizeCF) and copy (regalloc
-  // primitive).
-  if (isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp, lsir::CopyOp,
-          lsir::BranchOp, lsir::CondBranchOp>(op))
+  // Allow control-flow ops (lowered by LegalizeCF), bitwise logic on
+  // condition flags, and copy (regalloc primitive).
+  if (isa<lsir::CmpIOp, lsir::CmpFOp, lsir::SelectOp, lsir::AndIOp, lsir::OrIOp,
+          lsir::XOrIOp, lsir::CopyOp, lsir::BranchOp, lsir::CondBranchOp>(op))
     return success();
 
   return emitError() << "normal form violation: LSIR compute/memory "

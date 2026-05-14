@@ -44,8 +44,8 @@ def _build_lds_copy_kernel(name, layout, swizzle=None, target=MCPU):
     src_rsrc = b.make_buffer_rsrc(src_ptr, num_records, b.constant_i32(0))
     dst_rsrc = b.make_buffer_rsrc(dst_ptr, num_records, b.constant_i32(0))
 
-    data = b.buffer_load_dwordx2(src_rsrc, soffset, src_voff)
-    b.wait_vmcnt(0)
+    data, load_tok = b.buffer_load_dwordx2(src_rsrc, soffset, src_voff)
+    b.wait_deps(load_tok)
     tok_w = b.ds_write_b64(data, lds_voff)
     b.wait_deps(tok_w)
     data_from_lds, tok_r = b.ds_read_b64(lds_voff)
