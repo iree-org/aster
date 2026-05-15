@@ -48,9 +48,7 @@ from kittens.gemm_config import (
 )
 
 
-def _build_multitile_gemm(
-    cfg: "MultitileGemmInstance", ping_pong_staggered: bool = False, lds_at_write: bool = False
-) -> ir.Module:
+def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: bool = False) -> ir.Module:
     """Build a multi-tile multi-wave multi-WG pipelined GEMM kernel.
 
     Specialized for direct_b: B bypasses LDS (per-wave global load at
@@ -59,9 +57,6 @@ def _build_multitile_gemm(
     Args:
       - ping_pong_staggered: triggers different mapping of copperative loads and
         per-wavegroup barrier staggering to enforce a ping-pong schedule.
-      - lds_at_write: If True, place alloc_lds at the LDS_WRITE stage instead of
-        the LOAD stage. This ends up needing fewer LDS buffers but an extra barrier
-        to guard against WAR and WAW hazards.
     """
     from kittens_helpers import PIPELINE_STRATEGIES
 
@@ -329,14 +324,10 @@ def _build_multitile_gemm(
     @b.loop(c0, b.constant_index(k_iters), c1)
     def _(k_iv):
         # -- LDS ALLOC --
-        # lds_at_write=False: allocate early (at earliest LOAD stage) for max
-        #   buffer distance. Only A is allocated (direct_b: B bypasses LDS).
-        # lds_at_write=True: allocate inside A's WRITE block (below) to reduce
-        #   the number of live buffers; alloc is physically placed after the
-        #   loads to keep stage assignment monotonic for rotation.
-        if not lds_at_write:
-            with b.stage(STG_A_LOAD):
-                lds_a_h, lds_a = b.alloc_lds(lds_total_a)
+        # Allocate at the earliest LOAD stage for max buffer distance.
+        # Only A is allocated (direct_b: B bypasses LDS).
+        with b.stage(STG_A_LOAD):
+            lds_a_h, lds_a = b.alloc_lds(lds_total_a)
 
         # -- LOAD A (cooperative: scheduled func.call for type erasure) --
         with b.stage(STG_A_LOAD):
@@ -375,8 +366,6 @@ def _build_multitile_gemm(
 
         # -- LDS WRITE A --
         with b.stage(STG_A_LDS_WRITE):
-            if lds_at_write:
-                lds_a_h, lds_a = b.alloc_lds(lds_total_a)
             coop_a_lds_off = b.linearize_layout(
                 b.linearize_index((coop_a_k_start, coop_a_m_start), (k_t, twg_m)), LDS_COORD_A
             )
@@ -424,14 +413,6 @@ def _build_multitile_gemm(
                 return [b.to_any(b_lo), b.to_any(b_hi)] + [tok] * n_frags_per_tile
 
         frag_buf_b, rtok_buf_b = read_b
-
-        # WAR barrier: when LDS write and read share don't have enough delay, all
-        # waves must finish reading before any wave starts writing in the next
-        # iteration. Tagged at the READ stage to keep stage assignment
-        # monotonic in program order (rotation requires non-decreasing stages).
-        if lds_at_write and STG_A_LDS_READ - STG_A_LDS_WRITE <= 1:
-            with b.stage(STG_A_LDS_READ):
-                b.s_barrier()
 
         # -- COMPUTE --
         with b.stage(STG_COMPUTE):
@@ -556,11 +537,10 @@ def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
     """Compile a multi-tile GEMM config to HSACO."""
     from aster.compiler.core import PrintOptions
 
-    lds_at_write = kw.pop("lds_at_write", getattr(cfg.mapping, "lds_at_write", False))
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        module = _build_multitile_gemm(cfg, lds_at_write=lds_at_write)
+        module = _build_multitile_gemm(cfg)
         pipeline = make_default_pass_pipeline(
             cfg.mapping,
             num_vgprs=kw.get("num_vgprs", 256),
@@ -654,7 +634,7 @@ def _make_instance(
     return MultitileGemmInstance(GemmSpec.from_sizes(M, N, k, **spec_kw), mapping)
 
 
-def _run_multitile(cfg, lds_at_write=False):
+def _run_multitile(cfg):
     """Compile + run a multi-tile GEMM, verify against numpy."""
     gs = cfg.gemm_size
 
@@ -663,7 +643,7 @@ def _run_multitile(cfg, lds_at_write=False):
     B_mat = (np.random.randn(*cfg.spec.operand_shape(OP_B)) * 0.1).astype(np.float16)
 
     with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-        compile_multitile_gemm(cfg, tmp.name, lds_at_write=lds_at_write)
+        compile_multitile_gemm(cfg, tmp.name)
         C_output, _ = execute_multitile_hsaco(cfg, tmp.name, 1, A_mat, B_mat)
 
     expected = (A_mat.astype(np.float32) @ B_mat.astype(np.float32).T).flatten()

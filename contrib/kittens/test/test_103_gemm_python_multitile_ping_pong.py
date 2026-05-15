@@ -52,11 +52,10 @@ def compile_ping_pong_gemm(cfg, output_hsaco_path, **kw):
     """Compile a ping-pong GEMM config to HSACO."""
     from aster.compiler.core import PrintOptions
 
-    lds_at_write = kw.pop("lds_at_write", getattr(cfg.mapping, "lds_at_write", False))
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        module = _build_multitile_gemm(cfg, ping_pong_staggered=True, lds_at_write=lds_at_write)
+        module = _build_multitile_gemm(cfg, ping_pong_staggered=True)
         pipeline = make_default_pass_pipeline(
             cfg.mapping,
             num_vgprs=kw.get("num_vgprs", 256),

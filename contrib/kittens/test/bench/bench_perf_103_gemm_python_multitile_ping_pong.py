@@ -94,7 +94,6 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
             axis_grid=dict(
                 ll_sched=[True, False],
                 rotate_compute_stage=[True, False],
-                lds_at_write=[True, False],
                 hoist_wait=[True, False],
                 epilogue_peeling=[True, False],
             ),
@@ -109,7 +108,6 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
             axis_grid=dict(
                 ll_sched=[True, False],
                 rotate_compute_stage=[True, False],
-                lds_at_write=[True, False],
                 hoist_wait=[True, False],
                 epilogue_peeling=[True, False],
             ),
@@ -171,7 +169,6 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
         pipeline_strategy=d["ps"],
         operand_path=OperandPath.LDS,
         num_wg_per_cu=nwgcu(d, hw),
-        lds_at_write=d["lds_at_write"],
         dealloc_at_read=d["dealloc_at_read"],
         mcpu=mcpu,
     )
@@ -189,7 +186,6 @@ def _make_grid(
     """Return a fresh SweepGrid populated with this bench's axes + filters + builder."""
     tile_m, tile_n, tile_k = _TILE_ELTS
     grid = SweepGrid()
-    grid.axis("lds_at_write", [False, True])
     grid.axis("dealloc_at_read", [True])
     add_gemm_sweep_axes(grid)
     grid.restrict_axes(
@@ -282,7 +278,6 @@ def _make_grid(
                 "twg_n",
                 "twg_k",
                 "ps",
-                "lds_at_write",
                 "dealloc_at_read",
             ),
         )

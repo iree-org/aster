@@ -258,9 +258,6 @@ class GemmMappingSpec(PipelineConfigProtocol):
     rotate_compute_stage: bool = False  # enable compute-stage rotation in pass pipeline
 
     # --- LDS allocation strategy ---
-    lds_at_write: bool = (
-        False  # alloc at WRITE stage (fewer buffers, needs WAR barrier)
-    )
     dealloc_at_read: bool = False  # dealloc at READ (test_102) vs COMPUTE (test_001)
 
     # --- Atomic transfer sizes (bytes per lane per memory operation) ---
@@ -411,15 +408,12 @@ class GemmMappingSpec(PipelineConfigProtocol):
     def lds_bytes(self, tile_bytes: int = 1024, **overrides) -> int:
         """LDS budget estimate for the pre-compile resource filter.
 
-        Uses self.lds_at_write and self.dealloc_at_read as defaults;
-        callers can override via keyword args.
+        Uses self.dealloc_at_read as default; callers can override.
 
         LDS is live from alloc to dealloc.
 
-        Alloc stage:
-        - lds_at_write=False: both A and B alloc at min(A_LOAD, B_LOAD)
-          (the builder groups them to keep the multi-buffer allocator happy).
-        - lds_at_write=True:  each alloc at its own WRITE stage.
+        Alloc stage: both A and B alloc at min(A_LOAD, B_LOAD)
+        (the builder groups them to keep the multi-buffer allocator happy).
 
         Dealloc stage:
         - dealloc_at_read=True:  dealloc at LDS_READ  (test_102 Python builder).
@@ -427,18 +421,12 @@ class GemmMappingSpec(PipelineConfigProtocol):
 
         direct_b: B uses no LDS at all.
         """
-        _lds_at_write = overrides.get("lds_at_write", self.lds_at_write)
         _dealloc_at_read = overrides.get("dealloc_at_read", self.dealloc_at_read)
         kt = self.num_tiles_per_wave[DIM_K]
         s = self._pipeline_stage_dict()
-        if _lds_at_write:
-            a_alloc = s["A_LDS_WRITE"]
-            b_alloc = s["B_LDS_WRITE"]
-        else:
-            # Both allocated at the earliest LOAD stage (matches builder code).
-            early = min(s["A_LOAD"], s["B_LOAD"]) if not self.direct_b else s["A_LOAD"]
-            a_alloc = early
-            b_alloc = early
+        early = min(s["A_LOAD"], s["B_LOAD"]) if not self.direct_b else s["A_LOAD"]
+        a_alloc = early
+        b_alloc = early
         a_dealloc = s["A_LDS_READ"] if _dealloc_at_read else s["COMPUTE"]
         a_lds_depth = max(1, a_dealloc - a_alloc + 1)
         a_lds = a_lds_depth * self.num_tiles_per_workgroup[DIM_M] * kt * tile_bytes
@@ -618,7 +606,6 @@ class WeakScaledMappedGemmInstance:
                 r"_epeel([01])"
                 r"_llsched(\d+)"
                 r"_hoistwait([01])"
-                r"_ldsw([01])"
                 r"_rotc([01])"
                 r"_lt_(flat|buf)$"
             )
@@ -650,7 +637,6 @@ class WeakScaledMappedGemmInstance:
             epeel,
             llsched,
             hoistwait,
-            ldsw,
             rotc,
             lt,
         ) = m.groups()
@@ -677,7 +663,6 @@ class WeakScaledMappedGemmInstance:
             epilogue_peeling=epeel == "1",
             ll_sched=int(llsched),
             hoist_wait=hoistwait == "1",
-            lds_at_write=ldsw == "1",
             rotate_compute_stage=rotc == "1",
         )
         cfg = cls(spec, mapping)
@@ -704,7 +689,6 @@ class WeakScaledMappedGemmInstance:
             f"_epeel{int(m.epilogue_peeling)}"
             f"_llsched{int(m.ll_sched)}"
             f"_hoistwait{int(m.hoist_wait)}"
-            f"_ldsw{int(m.lds_at_write)}"
             f"_rotc{int(m.rotate_compute_stage)}"
             f"_lt_{lt}"
         )
