@@ -524,6 +524,24 @@ def add_size_cli_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def parse_mnk(s: str) -> tuple[int, int, int]:
+    """Canonical ``MxNxK`` -> (M, N, K) parser, shared by every bench_perf
+    ``--size`` and by perf_explore. Single source of truth for the grammar.
+
+    Raises ``ValueError`` on a malformed or non-positive spec.
+    """
+    parts = s.split("x")
+    if len(parts) != 3:
+        raise ValueError(f"--size must be MxNxK (e.g., 2432x12288x4096), got '{s}'")
+    try:
+        m, n, k = (int(p) for p in parts)
+    except ValueError:
+        raise ValueError(f"--size dims must be ints, got '{s}'") from None
+    if m <= 0 or n <= 0 or k <= 0:
+        raise ValueError(f"--size dims must be positive, got '{s}'")
+    return (m, n, k)
+
+
 def parse_size_args(args, parser) -> tuple[int, int, int]:
     """Resolve --size vs --m/--n/--k into (target_m, target_n, target_k).
 
@@ -533,10 +551,10 @@ def parse_size_args(args, parser) -> tuple[int, int, int]:
     if args.size and has_mnk:
         parser.error("--size is exclusive with --m/--n/--k")
     if args.size:
-        parts = args.size.split("x")
-        if len(parts) != 3:
-            parser.error("--size must be MxNxK (e.g., 2432x12288x4096)")
-        return int(parts[0]), int(parts[1]), int(parts[2])
+        try:
+            return parse_mnk(args.size)
+        except ValueError as e:
+            parser.error(str(e))
     return (
         getattr(args, "m", None) or DEFAULT_DIM,
         getattr(args, "n", None) or DEFAULT_DIM,

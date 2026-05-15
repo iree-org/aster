@@ -4,15 +4,17 @@
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-"""Sweep a bench_perf_xxx over a hardcoded list of (M, N, K) sizes; update best_known.json.
+"""Sweep a bench_perf_xxx over CLI-specified (M, N, K) sizes; update best_known.json.
 
-Edit SIZES below to change which sizes get explored.
+Sizes are required and given via one or more ``--size MxNxK`` flags
+(repeat for multiple). There is no default -- pass the sizes you want.
 
 Usage:
     python perf_explore.py --bench bench_perf_102_gemm_python_multitile_lds_cdna3 \\
-        --mcpu gfx942 --compile-sample 100             # dry-run (print plan)
+        --mcpu gfx942 --size 2432x4096x4096 --size 4864x4096x4096 \\
+        --compile-sample 100                            # dry-run (print plan)
 
-    python perf_explore.py --bench ... --mcpu ... --apply   # write winners to best_known.json
+    python perf_explore.py --bench ... --mcpu ... --size 2048x4096x4096 --apply
 """
 
 from __future__ import annotations
@@ -23,19 +25,27 @@ import shutil
 import sys
 import tempfile
 import time
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(__file__))
+_HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE))  # tools/    -> common, perf_*
+sys.path.insert(0, str(_HERE.parent))  # bench/    -> bench_search, bench_perf_*
+sys.path.insert(0, str(_HERE.parent.parent))  # test/     (bench's `..`)
+sys.path.insert(0, str(_HERE.parent.parent.parent.parent))  # contrib/  -> kittens.*
+sys.path.insert(0, str(_HERE.parent.parent.parent.parent.parent))  # repo root
 
 import common  # noqa: E402
 import perf_argparse as cli  # noqa: E402
 import perf_best_known_update as bku  # noqa: E402
+from bench_search import parse_mnk  # noqa: E402  (shared MxNxK grammar)
 
 
-# Hardcoded exploration targets. Edit to change which sizes are swept.
-SIZES: list[tuple[int, int, int]] = [
-    (2432, 4096, 4096),
-    (4864, 4096, 4096),
-]
+def _size_arg(s: str) -> tuple[int, int, int]:
+    """Argparse type wrapper around the shared ``parse_mnk`` grammar."""
+    try:
+        return parse_mnk(s)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
 
 
 def _run_bench(bench: str, mcpu: str, M: int, N: int, K: int, extra: list[str], out_path: str) -> None:
@@ -76,12 +86,21 @@ def main(argv: list[str] | None = None) -> int:
         p,
         help_text="Forward to bench: print tier-1 candidates per size and exit. No compile or run.",
     )
+    p.add_argument(
+        "--size",
+        dest="sizes",
+        action="append",
+        required=True,
+        type=_size_arg,
+        metavar="MxNxK",
+        help="Exploration size; repeat for multiple. Required, no default.",
+    )
     p.add_argument("--compile-sample", type=int, default=100, help="Per-tier compile-sample cap (forwarded).")
     p.add_argument("--seed", type=int, default=1, help="Random seed for tier sampling (forwarded).")
     p.add_argument(
         "--out",
         default=None,
-        help="Aggregated JSON path; accumulates across SIZES. Default: <hsaco-dir>/run.json.",
+        help="Aggregated JSON path; accumulates across sizes. Default: <hsaco-dir>/run.json.",
     )
     p.add_argument(
         "--time-budget",
@@ -132,22 +151,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"  best-known-file = {args.best_known_file}", file=sys.stderr)
     print(f"  apply           = {args.apply}", file=sys.stderr)
-    print(f"  sizes           = {', '.join(_fmt_size(s) for s in SIZES)}", file=sys.stderr)
+    sizes = args.sizes
+    print(f"  sizes           = {', '.join(_fmt_size(s) for s in sizes)}", file=sys.stderr)
 
     # ---- Run ----
     start = time.monotonic()
     interrupted = False
     sizes_completed = 0
     try:
-        for i, (M, N, K) in enumerate(SIZES, start=1):
+        for i, (M, N, K) in enumerate(sizes, start=1):
             elapsed = time.monotonic() - start
-            print(f"\n[{i}/{len(SIZES)}] {M}x{N}x{K}  (cumulative elapsed {elapsed:.0f}s)", file=sys.stderr)
+            print(f"\n[{i}/{len(sizes)}] {M}x{N}x{K}  (cumulative elapsed {elapsed:.0f}s)", file=sys.stderr)
             _run_bench(args.bench, args.mcpu, M, N, K, extra, out_path)
             sizes_completed = i
     except KeyboardInterrupt:
         interrupted = True
         print(
-            f"\n[Ctrl+C: stopped after {sizes_completed}/{len(SIZES)} sizes; processing partial results]",
+            f"\n[Ctrl+C: stopped after {sizes_completed}/{len(sizes)} sizes; processing partial results]",
             file=sys.stderr,
         )
 
@@ -169,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     dash_py = os.path.join(here, "perf_dashboard.py")
     print(
         f"\n=== perf_explore {'interrupted' if interrupted else 'done'}: "
-        f"{sizes_completed}/{len(SIZES)} sizes in {total:.0f}s; "
+        f"{sizes_completed}/{len(sizes)} sizes in {total:.0f}s; "
         f"{len(actionable)} actionable, wrote={wrote} ===",
         file=sys.stderr,
     )
