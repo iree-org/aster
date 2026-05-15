@@ -133,7 +133,7 @@ def run_tier_mode(
                     compile_workers=args.compile_workers,
                     compile_timeout=args.compile_timeout,
                     post_compile_filter=post_compile_filter,
-                    zero_init=args.zero_init,
+                    init_mode=args.init,
                     iterations=args.iterations,
                     hsaco_dir=getattr(args, "hsaco_dir", None),
                     results_file=getattr(args, "results_file", None),

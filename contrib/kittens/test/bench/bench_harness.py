@@ -7,6 +7,7 @@ Phase 3: Correctness verification (per-config subprocess, crash-isolated).
 
 import argparse
 import dataclasses
+import enum
 import fcntl
 import os
 import statistics
@@ -38,6 +39,55 @@ _PEAK_TFLOPS_F16_BY_MCPU: dict[str, float] = {
 
 def peak_tflops_f16(mcpu: str) -> float:
     return _PEAK_TFLOPS_F16_BY_MCPU[mcpu]
+
+
+class InitMode(enum.StrEnum):
+    """Input init modes, mirrored from hipblas.
+
+    HPL        : uniform_real[-0.5, 0.5] per element
+    TRIG_FLOAT : A = sin(double(flat_idx)), B = cos(double(flat_idx))
+    RAND_INT   : ints {-2,-1,0,1,2} per element
+    ZERO       : all zeros (power-neutral baseline)
+    SPECIAL    : A const 65280.0, B const 6.07967e-5 (fp16 numeric extremes)
+    NORM_DIST  : N(0, 1) standard normal
+    """
+
+    HPL = "hpl"
+    TRIG_FLOAT = "trig_float"
+    RAND_INT = "rand_int"
+    ZERO = "zero"
+    SPECIAL = "special"
+    NORM_DIST = "norm_dist"
+
+
+INIT_DEFAULT = InitMode.HPL
+_SPECIAL_A_FP16 = np.float16(65280.0)
+_SPECIAL_B_FP16 = np.float16(6.07967376708984375e-5)
+
+
+def init_array(shape, mode: InitMode, role: str, dtype=np.float16, seed: int = 42):
+    mode = InitMode(mode)
+    flat = int(np.prod(shape))
+    match mode:
+        case InitMode.ZERO:
+            return np.zeros(shape, dtype=dtype)
+        case InitMode.TRIG_FLOAT:
+            idx = np.arange(flat, dtype=np.float64)
+            fn = np.sin if role == "A" else np.cos
+            return fn(idx).astype(dtype).reshape(shape)
+        case InitMode.SPECIAL:
+            const = _SPECIAL_A_FP16 if role == "A" else _SPECIAL_B_FP16
+            return np.full(shape, const, dtype=dtype)
+        case InitMode.HPL:
+            rng = np.random.default_rng(seed + (1 if role == "B" else 0))
+            return rng.uniform(-0.5, 0.5, size=flat).astype(dtype).reshape(shape)
+        case InitMode.RAND_INT:
+            rng = np.random.default_rng(seed + (1 if role == "B" else 0))
+            return rng.integers(-2, 3, size=flat).astype(dtype).reshape(shape)
+        case InitMode.NORM_DIST:
+            rng = np.random.default_rng(seed + (1 if role == "B" else 0))
+            return rng.standard_normal(size=flat).astype(dtype).reshape(shape)
+    raise AssertionError(f"unreachable: {mode!r}")
 
 
 NUM_ITERATIONS = 100
@@ -471,15 +521,10 @@ def _exec_worker(args):
     label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, num_iter, *extra = args
     direct_b = extra[0] if extra else False
     direct_a = extra[1] if len(extra) > 1 else False
-    use_zero_init = extra[2] if len(extra) > 2 else False
+    init_mode = extra[2] if len(extra) > 2 else INIT_DEFAULT
     try:
-        if use_zero_init:
-            A = np.zeros((m, k), dtype=np.float16)
-            B = np.zeros((n, k), dtype=np.float16)
-        else:
-            np.random.seed(42)
-            A = (np.random.randn(m, k) * 0.1).astype(np.float16)
-            B = (np.random.randn(n, k) * 0.1).astype(np.float16)
+        A = init_array((m, k), init_mode, "A")
+        B = init_array((n, k), init_mode, "B")
         if direct_a:
             from kittens_helpers import shuffle_weight
 
@@ -642,7 +687,7 @@ def _persistent_worker_loop(cmd_conn, result_conn, gpu_id):
         label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, num_iter, *extra = item
         direct_b = extra[0] if extra else False
         direct_a = extra[1] if len(extra) > 1 else False
-        use_zero_init = extra[2] if len(extra) > 2 else False
+        init_mode = extra[2] if len(extra) > 2 else INIT_DEFAULT
 
         try:
             a_elems = m * k
@@ -652,13 +697,8 @@ def _persistent_worker_loop(cmd_conn, result_conn, gpu_id):
             # Reallocate host arrays only when sizes change.
             if a_elems != cur_a_elems or b_elems != cur_b_elems or c_elems != cur_c_elems:
                 mm.release_all()
-                if use_zero_init:
-                    host_A = np.zeros(a_elems, dtype=np.float16)
-                    host_B = np.zeros(b_elems, dtype=np.float16)
-                else:
-                    np.random.seed(42)
-                    host_A = (np.random.randn(a_elems) * 0.1).astype(np.float16)
-                    host_B = (np.random.randn(b_elems) * 0.1).astype(np.float16)
+                host_A = init_array((a_elems,), init_mode, "A")
+                host_B = init_array((b_elems,), init_mode, "B")
                 if direct_a:
                     from kittens_helpers import shuffle_weight
 
@@ -712,11 +752,11 @@ def _persistent_verify_loop(cmd_conn, result_conn, gpu_id):
         label, hsaco_path, kernel_name, num_wg, num_threads, m, n, k, *extra = item
         direct_b = extra[0] if extra else False
         direct_a = extra[1] if len(extra) > 1 else False
+        init_mode = extra[2] if len(extra) > 2 else INIT_DEFAULT
 
         try:
-            np.random.seed(42)
-            A = (np.random.randn(m, k) * 0.1).astype(np.float16)
-            B = (np.random.randn(n, k) * 0.1).astype(np.float16)
+            A = init_array((m, k), init_mode, "A")
+            B = init_array((n, k), init_mode, "B")
             expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
             if direct_a:
                 from kittens_helpers import shuffle_weight
@@ -997,12 +1037,13 @@ def _verify_gpu_queue(gpu_id, work_queue, result_queue, timeout=180):
     _run_gpu_queue(gpu_id, work_queue, result_queue, timeout=timeout, loop_fn=_persistent_verify_loop)
 
 
-def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
+def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying", init_mode: InitMode = INIT_DEFAULT):
     """Verify configs against numpy using persistent workers, all GPUs concurrently.
 
     Each GPU gets a dedicated thread with a persistent worker that
     reuses HIP context across configs.  On crash the worker is auto-
-    respawned.
+    respawned. init_mode must match what the bench used so that the
+    numpy reference matches what the kernel computed.
     """
     import queue
     import threading
@@ -1025,6 +1066,7 @@ def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying"):
             cfg.gemm_size[DIM_K],
             getattr(cfg, "direct_b", False),
             getattr(cfg, "direct_a", False),
+            init_mode,
         )
         per_gpu[gpu_id].append(item)
         idx += 1
@@ -1156,7 +1198,7 @@ def bench_perf_sweep_pipelined(
     compile_workers=None,
     compile_timeout=DEFAULT_COMPILE_TIMEOUT,
     post_compile_filter=None,
-    zero_init=False,
+    init_mode: InitMode = INIT_DEFAULT,
     iterations=None,
     hsaco_dir: Optional[str] = None,
     results_file: Optional[str] = None,
@@ -1195,7 +1237,7 @@ def bench_perf_sweep_pipelined(
     print(
         f"\nPipelined sweep: {len(active)} configs, "
         f"{compile_workers} compile + {n_exec_per_gpu * num_gpus} exec workers "
-        f"({n_exec_per_gpu}/GPU), {num_gpus} GPU(s)"
+        f"({n_exec_per_gpu}/GPU), {num_gpus} GPU(s), init={init_mode}"
     )
     sys.stdout.flush()
 
@@ -1281,7 +1323,7 @@ def bench_perf_sweep_pipelined(
                         iterations,
                         getattr(cfg, "direct_b", False),
                         getattr(cfg, "direct_a", False),
-                        zero_init,
+                        init_mode,
                     )
                     gpu_work_queues[exec_rr % len(gpu_work_queues)].put(exec_item)
                     exec_rr += 1
@@ -1530,18 +1572,13 @@ def bench_perf_sweep(
 # -- Single-config mode ----------------------------------------------------
 
 
-def make_inputs(cfg, zero_init=False):
+def make_inputs(cfg, init_mode: InitMode = INIT_DEFAULT):
     from kittens.gemm_config import A as OP_A, B as OP_B
 
     shape_a = cfg.spec.operand_shape(OP_A)
     shape_b = cfg.spec.operand_shape(OP_B)
-    if zero_init:
-        A = np.zeros(shape_a, dtype=np.float16)
-        B = np.zeros(shape_b, dtype=np.float16)
-    else:
-        np.random.seed(42)
-        A = (np.random.randn(*shape_a) * 0.1).astype(np.float16)
-        B = (np.random.randn(*shape_b) * 0.1).astype(np.float16)
+    A = init_array(shape_a, init_mode, "A")
+    B = init_array(shape_b, init_mode, "B")
     return A, B
 
 
@@ -1686,8 +1723,8 @@ def run_single(cfg, compile_fn, args, execute_fn, *, bench: str = "unknown"):
 
     try:
         # Timing.
-        zero_init = getattr(args, "zero_init", False)
-        A, B = make_inputs(cfg, zero_init=zero_init)
+        init_mode = getattr(args, "init", INIT_DEFAULT)
+        A, B = make_inputs(cfg, init_mode=init_mode)
         _, times_ns = execute_fn(cfg, hsaco_path, iterations, A, B, skip_gpu_check=True)
 
         measured = times_ns[WARMUP_ITERATIONS:]
@@ -1716,7 +1753,7 @@ def run_single(cfg, compile_fn, args, execute_fn, *, bench: str = "unknown"):
         print(f"  {'stddev':<8s}  {'':>10s}  {s.stddev_tf:>10.1f}  {'':>8s}")
 
         print("\n--- Correctness check ---")
-        A, B = make_inputs(cfg)
+        A, B = make_inputs(cfg, init_mode=init_mode)
         expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()
         C_output, _ = execute_fn(cfg, hsaco_path, 1, A, B, skip_gpu_check=True)
         try:
@@ -1771,12 +1808,11 @@ def add_sweep_cli_args(parser):
         help=f"Number of execution iterations per config (default: {NUM_ITERATIONS})",
     )
     a(
-        "--zero-init",
-        action="store_true",
-        default=False,
-        help="Use zero-initialized inputs instead of random. "
-        "Isolates power throttling: zeros avoid FP denormal handling "
-        "and reduce switching activity, giving a power-neutral baseline.",
+        "--init",
+        type=InitMode,
+        default=INIT_DEFAULT,
+        choices=list(InitMode),
+        help="Input init mode (hpl default, zero for max perf, trig_float for most challenging perf)",
     )
     a("--direct-b", action=argparse.BooleanOptionalAction, default=None, help="B operand via preshuffle (direct_b)")
     a(
@@ -1835,10 +1871,11 @@ def add_single_cli_args(parser):
         help=f"Number of execution iterations (default: {NUM_ITERATIONS})",
     )
     a(
-        "--zero-init",
-        action="store_true",
-        default=False,
-        help="Use zero-initialized inputs (power-neutral baseline)",
+        "--init",
+        type=InitMode,
+        default=INIT_DEFAULT,
+        choices=list(InitMode),
+        help="Input init mode (hpl default, zero for max perf, trig_float for most challenging perf)",
     )
     a(
         "--results-file",
