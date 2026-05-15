@@ -40,7 +40,7 @@
         {
           "expected_tflops": 537.8,
           "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat2_wgcu1_lcm1_um4_epeel0_llsched1_hoistwait0_rotc1_lt_flat"
-        },
+        }
       ]
     },
     "bench_perf_102_gemm_python_multitile_lds_cdna3": {},

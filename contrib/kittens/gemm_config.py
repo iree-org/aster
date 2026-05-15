@@ -257,9 +257,6 @@ class GemmMappingSpec(PipelineConfigProtocol):
     set_mfma_priority: bool = True  # insert s_setprio around MFMA groups
     rotate_compute_stage: bool = False  # enable compute-stage rotation in pass pipeline
 
-    # --- LDS allocation strategy ---
-    dealloc_at_read: bool = False  # dealloc at READ (test_102) vs COMPUTE (test_001)
-
     # --- Atomic transfer sizes (bytes per lane per memory operation) ---
 
     # Bytes per lane per memory operation.
@@ -408,33 +405,29 @@ class GemmMappingSpec(PipelineConfigProtocol):
     def lds_bytes(self, tile_bytes: int = 1024, **overrides) -> int:
         """LDS budget estimate for the pre-compile resource filter.
 
-        Uses self.dealloc_at_read as default; callers can override.
-
-        LDS is live from alloc to dealloc.
+        LDS is live from alloc to dealloc. The SCF pipeliner multi-buffers
+        the per-iteration LDS tile across the alloc..dealloc stage span, so
+        depth = (dealloc - alloc + 1) buffers are live once the K-loop has
+        enough iterations to reach steady state.
 
         Alloc stage: both A and B alloc at min(A_LOAD, B_LOAD)
         (the builder groups them to keep the multi-buffer allocator happy).
 
-        Dealloc stage:
-        - dealloc_at_read=True:  dealloc at LDS_READ  (test_102 Python builder).
-        - dealloc_at_read=False: dealloc at COMPUTE    (test_001 MLIR templates).
+        Dealloc stage: LDS_READ_A / LDS_READ_B.
 
         direct_b: B uses no LDS at all.
         """
-        _dealloc_at_read = overrides.get("dealloc_at_read", self.dealloc_at_read)
         kt = self.num_tiles_per_wave[DIM_K]
         s = self._pipeline_stage_dict()
         early = min(s["A_LOAD"], s["B_LOAD"]) if not self.direct_b else s["A_LOAD"]
         a_alloc = early
         b_alloc = early
-        a_dealloc = s["A_LDS_READ"] if _dealloc_at_read else s["COMPUTE"]
-        a_lds_depth = max(1, a_dealloc - a_alloc + 1)
+        a_lds_depth = max(1, s["A_LDS_READ"] - a_alloc + 1)
         a_lds = a_lds_depth * self.num_tiles_per_workgroup[DIM_M] * kt * tile_bytes
         if self.direct_b:
             b_lds = 0
         else:
-            b_dealloc = s["B_LDS_READ"] if _dealloc_at_read else s["COMPUTE"]
-            b_lds_depth = max(1, b_dealloc - b_alloc + 1)
+            b_lds_depth = max(1, s["B_LDS_READ"] - b_alloc + 1)
             b_lds = b_lds_depth * kt * self.num_tiles_per_workgroup[DIM_N] * tile_bytes
         return a_lds + b_lds
 

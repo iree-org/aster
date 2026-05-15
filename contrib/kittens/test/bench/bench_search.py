@@ -410,8 +410,8 @@ def _estimated_resources(
 def passes_resource_check(
     mapping: GemmMappingSpec,
     hw: GpuHwConstants,
-    vgpr_headroom: float = 1.2,
-    vgpr_overhead: int = 16,
+    vgpr_headroom: float = 1.25,
+    vgpr_overhead: int = 20,
 ) -> bool:
     """Pre-compile resource filter, must reflect the desired WG occupancy set on the sweep axis."""
     res = _estimated_resources(mapping, vgpr_headroom, vgpr_overhead)

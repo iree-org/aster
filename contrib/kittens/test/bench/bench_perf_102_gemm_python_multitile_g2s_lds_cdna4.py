@@ -150,7 +150,6 @@ def _build_instance(d: dict, mcpu: str, hw) -> Cdna4GemmInstance:
         pipeline_strategy=d["ps"],
         operand_path=OperandPath.LDS,
         num_wg_per_cu=nwgcu(d, hw),
-        dealloc_at_read=d["dealloc_at_read"],
         mcpu=mcpu,
         **mapping_kwargs_from_sweep(d),
     )
@@ -166,7 +165,6 @@ def _mapping_for_resource_check(d: dict, mcpu: str, hw) -> GemmMappingSpec:
         pipeline_strategy=d["ps"],
         operand_path=OperandPath.LDS,
         num_wg_per_cu=nwgcu(d, hw),
-        dealloc_at_read=d["dealloc_at_read"],
         mcpu=mcpu,
     )
 
@@ -183,7 +181,6 @@ def _make_grid(
     """Return a fresh SweepGrid populated with this bench's axes + filters + builder."""
     tile_m, tile_n, tile_k = _TILE_M, _TILE_N, _TILE_K
     grid = SweepGrid()
-    grid.axis("dealloc_at_read", [True])
     add_gemm_sweep_axes(grid)
     grid.restrict_axes(
         {
@@ -281,7 +278,6 @@ def _make_grid(
                 "twg_n",
                 "twg_k",
                 "ps",
-                "dealloc_at_read",
             ),
         )
 
