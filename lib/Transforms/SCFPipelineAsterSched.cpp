@@ -131,6 +131,51 @@ static void collectCrossStageValues(scf::ForOp originalForOp,
   }
 }
 
+/// Reorder ops in `originalForOp`'s body so `sched.stage` is non-decreasing
+/// in program order. Fail if a dependency inversion would occur.
+static LogicalResult reorderBodyForStageMonotonicity(scf::ForOp originalForOp,
+                                                     LoopPipelineInfo &info) {
+  if (info.opOrder.empty())
+    return success();
+
+  SmallVector<Operation *> ordered(info.opOrder.begin(), info.opOrder.end());
+  llvm::stable_sort(ordered, [&](Operation *a, Operation *b) {
+    return info.stages.lookup(a) < info.stages.lookup(b);
+  });
+
+  // Ensure no-order violation.
+  for (Operation *op : ordered) {
+    int64_t s = info.stages.lookup(op);
+    for (Value operand : op->getOperands()) {
+      Operation *defOp = operand.getDefiningOp();
+      if (!defOp || !info.stages.count(defOp))
+        continue;
+      int64_t ds = info.stages.lookup(defOp);
+      if (ds > s) {
+        InFlightDiagnostic diag =
+            originalForOp.emitError()
+            << "rotate-stage: loop body cannot be made stage-monotone; a "
+               "stage-"
+            << s << " op consumes a stage-" << ds << " value";
+        diag.attachNote(defOp->getLoc())
+            << "stage " << ds << " value defined here";
+        diag.attachNote(op->getLoc()) << "is consumed by this stage " << s
+                                      << " op, so no monotone order exists";
+        return failure();
+      }
+    }
+  }
+
+  // Rorder.
+  Block *body = originalForOp.getBody();
+  if (ordered.front() != &body->front())
+    ordered.front()->moveBefore(body, body->begin());
+  for (size_t i = 1; i < ordered.size(); ++i)
+    ordered[i]->moveAfter(ordered[i - 1]);
+  info.opOrder.assign(ordered.begin(), ordered.end());
+  return success();
+}
+
 /// Rotate the static body order in `info.opOrder` so the op group at
 /// `rotateStage` leads the kernel body (e.g. MFMA ahead of GL/DR).
 /// Stages and `info.maxStage` are unchanged: the runtime schedule is preserved.
@@ -139,9 +184,7 @@ static void collectCrossStageValues(scf::ForOp originalForOp,
 /// maxStage.
 ///
 /// Returns failure if `rotateStage` is out of range or no op carries that
-/// stage. When the explicit stage assignment is not monotonically
-/// non-decreasing in program order, emit a remark and leave `info.opOrder`
-/// untouched.
+/// stage. Attempt to rewrite the body in monotonic order if necessary.
 static LogicalResult rotateOpOrderByStage(scf::ForOp originalForOp,
                                           LoopPipelineInfo &info,
                                           int64_t rotateStage) {
@@ -163,24 +206,9 @@ static LogicalResult rotateOpOrderByStage(scf::ForOp originalForOp,
     return originalForOp.emitError("rotate-stage ")
            << rotateStage << " does not appear in the loop body";
 
-  // Rotation only re-permutes static body order and requires stage tags to be
-  // monotonically non-decreasing in original program order.
-  // When non-monotonic, skip rotation (best-effort) and emit a remark; the
-  // pipeliner proceeds with the original program order.
-  int64_t lastStage = 0;
-  for (Operation *op : info.opOrder) {
-    if (!op->hasAttr(kSchedStageAttr))
-      continue;
-    int64_t s = info.stages.lookup(op);
-    if (s < lastStage) {
-      originalForOp.emitRemark("rotate-stage skipped: stage ")
-          << s << " op physically follows stage " << lastStage
-          << " op in the loop body. Rotation requires non-decreasing stage "
-             "assignment in program order; rotation will not be applied.";
-      return success();
-    }
-    lastStage = std::max(lastStage, s);
-  }
+  // Attempt to make them monotonic if it does not violate SSA.
+  if (failed(reorderBodyForStageMonotonicity(originalForOp, info)))
+    return failure();
 
   // Stable-sort by cyclic distance from rotateStage so the rotated stage
   // (distance 0) leads, then distance 1, 2, ... wrapping around.
