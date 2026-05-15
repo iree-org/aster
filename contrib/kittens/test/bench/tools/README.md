@@ -1,13 +1,16 @@
 # Tooling for basic sweep, update and regression checks
 
-## Explore the SIZES at the top of the bench_perf_102_gemm_python_multitile_directb_cdna3.py file
-First, upste the SIZES entry in contrib/kittens/test/bench/tools/perf_explore.py.
+## Explore a set of sizes for a bench
 
-Then:
+Sizes are passed on the CLI via one or more `--size MxNxK` flags
+(required, no default; repeat for multiple):
+
 ```
 python contrib/kittens/test/bench/tools/perf_explore.py \
     --bench bench_perf_102_gemm_python_multitile_directb_cdna3 \
     --mcpu gfx942 \
+    --size 2432x4096x4096 \
+    --size 4864x4096x4096 \
     --compile-workers 128 \
     --compile-sample 1000
 ```

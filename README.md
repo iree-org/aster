@@ -117,6 +117,26 @@ Test paths (`test/`, `mlir_kernels/`, `contrib/`, `python/`) are configured in
 `test/integration/` have both lit RUN directives (ASM verification) and pytest
 files (GPU execution). Lit tests run cross-platform; pytest requires a GPU.
 
+#### Checking for performance regressions
+
+`perf_dashboard.py` recompiles + reruns the configs stored in
+`best_known.json` and reports regressions:
+
+```bash
+# All benches stored for this GPU (run on the matching GPU host):
+python contrib/kittens/test/bench/tools/perf_dashboard.py --mcpu gfx950
+
+# A single bench:
+python contrib/kittens/test/bench/tools/perf_dashboard.py \
+    --mcpu gfx942 --bench bench_perf_102_gemm_python_multitile_directb_cdna3
+
+# List baselines only, no compile/run (works anywhere, incl. macOS):
+python contrib/kittens/test/bench/tools/perf_dashboard.py --mcpu gfx950 --dry-run
+```
+
+See `contrib/kittens/test/bench/tools/README.md` for the explore /
+update / dashboard workflow.
+
 ### Generating HSACO files
 
 To generate HSACO files from MLIR modules, use the `assemble_to_hsaco` utility
