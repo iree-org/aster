@@ -95,6 +95,20 @@ struct LoopPipelineInfo {
   SmallVector<CrossStageValue> crossStageVals;
 };
 
+/// Invoke `fn` for every operand of `topOp` and of every op nested in its
+/// regions, except operands whose defining op is itself nested in `topOp`.
+static void forEachStagedOperand(Operation *topOp,
+                                 llvm::function_ref<void(OpOperand &)> fn) {
+  topOp->walk([&](Operation *nested) {
+    for (OpOperand &operand : nested->getOpOperands()) {
+      if (Operation *defOp = operand.get().getDefiningOp())
+        if (topOp->isAncestor(defOp))
+          continue; // intra-region def: same stage, not cross-stage
+      fn(operand);
+    }
+  });
+}
+
 /// Find cross-stage values using wrapped stage distance after normalization.
 /// These are values defined in the loop body, collect the use that is the
 /// furthest away using wrappedStageDistance: this is the number of copies of v
@@ -106,19 +120,19 @@ static void collectCrossStageValues(scf::ForOp originalForOp,
   // Block arguments (IV and iter_args) are not stage-defined values - skip.
   for (Operation *op : info.opOrder) {
     int64_t useStage = info.stages[op];
-    for (OpOperand &operand : op->getOpOperands()) {
+    forEachStagedOperand(op, [&](OpOperand &operand) {
       Value v = operand.get();
       auto *defOp = v.getDefiningOp();
 
       // Only consider values defined in the loop body by some defOp.
       if (!defOp || !info.stages.count(defOp))
-        continue;
+        return;
 
       int64_t defStage = info.stages[defOp];
       int64_t distance =
           wrappedStageDistance(defStage, useStage, info.numStages);
       if (distance == 0)
-        continue;
+        return;
 
       // Take max-distance between v definition and use.
       auto it = llvm::find_if(info.crossStageVals,
@@ -127,7 +141,7 @@ static void collectCrossStageValues(scf::ForOp originalForOp,
         it->maxDistance = std::max(it->maxDistance, distance);
       else
         info.crossStageVals.push_back({v, defStage, distance});
-    }
+    });
   }
 }
 
@@ -324,6 +338,37 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
            << info.numIters << " iterations but needs at least "
            << info.numStages << " for " << info.numStages << " pipeline stages";
 
+  // Region-carrying ops used as pipeline stages are supported only when the
+  // op is scf.if and every op nested in its regions carries the same
+  // sched.stage as the scf.if itself (no intra-region stage split).
+  for (Operation *op : info.opOrder) {
+    bool hasNonEmptyRegion = llvm::any_of(op->getRegions(), [](Region &r) {
+      return !r.empty() && !r.front().without_terminator().empty();
+    });
+    if (!hasNonEmptyRegion)
+      continue;
+    if (!isa<scf::IfOp>(op))
+      return op->emitError("aster-scf-pipeline: region-carrying op used as a "
+                           "pipeline stage is supported only for scf.if, got ")
+             << op->getName();
+    int64_t encStage = info.stages[op];
+    LogicalResult uniform = success();
+    op->walk([&](Operation *nested) {
+      if (nested == op)
+        return;
+      if (auto attr = nested->getAttrOfType<IntegerAttr>(kSchedStageAttr))
+        if (attr.getInt() != encStage) {
+          nested->emitError("aster-scf-pipeline: scf.if used as a pipeline "
+                            "stage has a nested op with divergent sched.stage ")
+              << attr.getInt() << " (enclosing stage " << encStage
+              << "); intra-region stage split is unsupported";
+          uniform = failure();
+        }
+    });
+    if (failed(uniform))
+      return failure();
+  }
+
   collectCrossStageValues(originalForOp, info);
 
   // Diagnostic: log memref-typed CSVs with distance > 1 (shift registers).
@@ -442,20 +487,26 @@ static bool cloneIntoPrologueOrEpilogue(OpBuilder &builder,
 
   // Map operands: prefer same-origIter (perStageMapping), fall back to
   // cross-stage (latestValueMapping) for values from earlier stages that
-  // finished in an earlier section.
-  for (Value operand : originalOp->getOperands()) {
+  // finished in an earlier section. Descends into nested regions.
+  bool allAvailable = true;
+  forEachStagedOperand(originalOp, [&](OpOperand &o) {
+    if (!allAvailable)
+      return;
+    Value operand = o.get();
     if (operand == originalForOp.getInductionVar())
-      continue;
+      return;
     auto *defOp = operand.getDefiningOp();
     if (!defOp || !info.stages.count(defOp))
-      continue;
+      return;
     if (Value mapped = perStageMapping.lookupOrNull(operand))
       opMapping.map(operand, mapped);
     else if (Value mapped = latestValueMapping.lookupOrNull(operand))
       opMapping.map(operand, mapped);
     else
-      return false;
-  }
+      allAvailable = false;
+  });
+  if (!allAvailable)
+    return false;
 
   // Clone and update mappings.
   Operation *cloned = builder.clone(*originalOp, opMapping);
@@ -589,15 +640,17 @@ static IRMapping mapKernelOperands(
   IRMapping opMapping;
   opMapping.map(originalForOp.getInductionVar(), stageIV);
 
-  for (Value use : op->getOperands()) {
+  // Descends into nested regions.
+  forEachStagedOperand(op, [&](OpOperand &o) {
+    Value use = o.get();
     if (use == originalForOp.getInductionVar())
-      continue;
+      return;
 
     // Existing iter_args (block arguments) always use kernel iter_args.
     if (Value iterArg = lookupIterArg(use, iterArgIdx, kernelLoop)) {
       if (!use.getDefiningOp()) {
         opMapping.map(use, iterArg);
-        continue;
+        return;
       }
     }
 
@@ -613,17 +666,17 @@ static IRMapping mapKernelOperands(
       if (distance > 0) {
         int64_t slot = base + distance - 1;
         opMapping.map(use, kernelLoop.getRegionIterArgs()[slot]);
-        continue;
+        return;
       }
     }
 
     // Same-stage: use result cloned earlier this iteration.
     auto *defOp = use.getDefiningOp();
     if (!defOp || !info.stages.count(defOp))
-      continue;
+      return;
     if (Value mapped = kernelMapping.lookupOrNull(use))
       opMapping.map(use, mapped);
-  }
+  });
 
   return opMapping;
 }
