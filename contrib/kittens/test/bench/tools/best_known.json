@@ -5,46 +5,42 @@
       "2432x4096x4096": [
         {
           "expected_tflops": 520.3,
-          "label": "m2432xn4096xk4096_wg19x16x1_w1x4x1_twg8x16x1_pipestrat6_wgcu1_lcm1_um5_epeel1_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+          "label": "m2432xn4096xk4096_wg19x16x1_w1x4x1_twg8x16x1_pipestrat6_wgcu1_lcm1_um5_epeel1_llsched1_hoistwait0_rotc1_lt_flat"
         },
         {
           "expected_tflops": 519.3,
-          "label": "m2432xn4096xk4096_wg19x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um4_epeel0_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+          "label": "m2432xn4096xk4096_wg19x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um4_epeel0_llsched1_hoistwait0_rotc1_lt_flat"
         },
         {
           "expected_tflops": 512.3,
-          "label": "m2432xn4096xk4096_wg38x16x1_w1x4x1_twg4x16x2_pipestrat6_wgcu1_lcm1_um2_epeel0_llsched1_hoistwait1_ldsw0_rotc1_lt_flat"
+          "label": "m2432xn4096xk4096_wg38x16x1_w1x4x1_twg4x16x2_pipestrat6_wgcu1_lcm1_um2_epeel0_llsched1_hoistwait1_rotc1_lt_flat"
         },
         {
           "expected_tflops": 511.6,
-          "label": "m2432xn4096xk4096_wg19x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um5_epeel1_llsched1_hoistwait1_ldsw0_rotc1_lt_flat"
+          "label": "m2432xn4096xk4096_wg19x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um5_epeel1_llsched1_hoistwait1_rotc1_lt_flat"
         },
         {
           "expected_tflops": 511.4,
-          "label": "m2432xn4096xk4096_wg19x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um1_epeel0_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+          "label": "m2432xn4096xk4096_wg19x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um1_epeel0_llsched1_hoistwait0_rotc1_lt_flat"
         }
       ],
       "4864x4096x4096": [
         {
           "expected_tflops": 542.4,
-          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um3_epeel1_llsched1_hoistwait1_ldsw0_rotc0_lt_flat"
+          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um3_epeel1_llsched1_hoistwait1_rotc0_lt_flat"
         },
         {
           "expected_tflops": 540.2,
-          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um4_epeel0_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat5_wgcu1_lcm1_um4_epeel0_llsched1_hoistwait0_rotc1_lt_flat"
         },
         {
           "expected_tflops": 538.4,
-          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat3_wgcu1_lcm1_um3_epeel1_llsched1_hoistwait1_ldsw0_rotc1_lt_flat"
+          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat3_wgcu1_lcm1_um3_epeel1_llsched1_hoistwait1_rotc1_lt_flat"
         },
         {
           "expected_tflops": 537.8,
-          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat2_wgcu1_lcm1_um4_epeel0_llsched1_hoistwait0_ldsw0_rotc1_lt_flat"
+          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x1_pipestrat2_wgcu1_lcm1_um4_epeel0_llsched1_hoistwait0_rotc1_lt_flat"
         },
-        {
-          "expected_tflops": 536.1,
-          "label": "m4864xn4096xk4096_wg38x16x1_w1x4x1_twg8x16x2_pipestrat1_wgcu1_lcm1_um1_epeel1_llsched1_hoistwait0_ldsw1_rotc1_lt_flat"
-        }
       ]
     },
     "bench_perf_102_gemm_python_multitile_lds_cdna3": {},
@@ -56,45 +52,45 @@
       "2048x4096x4096": [
         {
           "expected_tflops": 846.3,
-          "label": "m2048xn4096xk4096_wg16x32x1_w1x4x1_twg8x8x2_pipestrat3_wgcu1_lcm1_um3_epeel1_llsched1_hoistwait0_ldsw0_rotc1_lt_flat_cdna4"
+          "label": "m2048xn4096xk4096_wg16x32x1_w1x4x1_twg8x8x2_pipestrat3_wgcu1_lcm1_um3_epeel1_llsched1_hoistwait0_rotc1_lt_flat_cdna4"
         },
         {
           "expected_tflops": 843.4,
-          "label": "m2048xn4096xk4096_wg16x32x1_w1x4x1_twg8x8x2_pipestrat11_wgcu1_lcm1_um1_epeel1_llsched1_hoistwait1_ldsw0_rotc1_lt_flat_cdna4"
+          "label": "m2048xn4096xk4096_wg16x32x1_w1x4x1_twg8x8x2_pipestrat11_wgcu1_lcm1_um1_epeel1_llsched1_hoistwait1_rotc1_lt_flat_cdna4"
         },
         {
           "expected_tflops": 836.4,
-          "label": "m2048xn4096xk4096_wg16x32x1_w1x4x1_twg8x8x2_pipestrat13_wgcu1_lcm1_um3_epeel1_llsched0_hoistwait0_ldsw0_rotc1_lt_flat_cdna4"
+          "label": "m2048xn4096xk4096_wg16x32x1_w1x4x1_twg8x8x2_pipestrat13_wgcu1_lcm1_um3_epeel1_llsched0_hoistwait0_rotc1_lt_flat_cdna4"
         },
         {
           "expected_tflops": 826.4,
-          "label": "m2048xn4096xk4096_wg16x32x1_w1x4x1_twg8x8x2_pipestrat3_wgcu1_lcm1_um3_epeel1_llsched1_hoistwait1_ldsw0_rotc1_lt_flat_cdna4"
+          "label": "m2048xn4096xk4096_wg16x32x1_w1x4x1_twg8x8x2_pipestrat3_wgcu1_lcm1_um3_epeel1_llsched1_hoistwait1_rotc1_lt_flat_cdna4"
         },
         {
           "expected_tflops": 823.2,
-          "label": "m2048xn4096xk4096_wg16x32x1_w1x4x1_twg8x8x2_pipestrat3_wgcu1_lcm1_um1_epeel0_llsched1_hoistwait1_ldsw0_rotc1_lt_flat_cdna4"
+          "label": "m2048xn4096xk4096_wg16x32x1_w1x4x1_twg8x8x2_pipestrat3_wgcu1_lcm1_um1_epeel0_llsched1_hoistwait1_rotc1_lt_flat_cdna4"
         }
       ],
       "4096x4096x4096": [
         {
           "expected_tflops": 1007.0,
-          "label": "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat11_wgcu1_lcm1_um1_epeel1_llsched1_hoistwait1_ldsw0_rotc1_lt_flat_cdna4"
+          "label": "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat11_wgcu1_lcm1_um1_epeel1_llsched1_hoistwait1_rotc1_lt_flat_cdna4"
         },
         {
           "expected_tflops": 988.2,
-          "label": "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat13_wgcu1_lcm1_um1_epeel1_llsched1_hoistwait0_ldsw0_rotc1_lt_flat_cdna4"
+          "label": "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat13_wgcu1_lcm1_um1_epeel1_llsched1_hoistwait0_rotc1_lt_flat_cdna4"
         },
         {
           "expected_tflops": 985.9,
-          "label": "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat3_wgcu1_lcm1_um3_epeel0_llsched1_hoistwait1_ldsw0_rotc1_lt_flat_cdna4"
+          "label": "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat3_wgcu1_lcm1_um3_epeel0_llsched1_hoistwait1_rotc1_lt_flat_cdna4"
         },
         {
           "expected_tflops": 973.1,
-          "label": "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat13_wgcu1_lcm1_um1_epeel1_llsched1_hoistwait1_ldsw0_rotc1_lt_flat_cdna4"
+          "label": "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat13_wgcu1_lcm1_um1_epeel1_llsched1_hoistwait1_rotc1_lt_flat_cdna4"
         },
         {
           "expected_tflops": 969.0,
-          "label": "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat3_wgcu1_lcm1_um3_epeel1_llsched1_hoistwait0_ldsw0_rotc1_lt_flat_cdna4"
+          "label": "m4096xn4096xk4096_wg32x16x1_w1x4x1_twg8x16x1_pipestrat3_wgcu1_lcm1_um3_epeel1_llsched1_hoistwait0_rotc1_lt_flat_cdna4"
         }
       ]
     },

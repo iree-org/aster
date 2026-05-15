@@ -33,9 +33,7 @@ from kittens.gemm_config import (
 )
 
 
-def _build_multitile_gemm(
-    cfg: "MultitileGemmInstance", ping_pong_staggered: bool = False, lds_at_write: bool = False
-) -> ir.Module:
+def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: bool = False) -> ir.Module:
     """Build a multi-tile multi-wave multi-WG pipelined GEMM kernel (LDS path).
 
     Both A and B flow through LDS (cooperative load -> ds_write -> ds_read).
@@ -43,9 +41,6 @@ def _build_multitile_gemm(
     Args:
       - ping_pong_staggered: triggers different mapping of copperative loads and
         per-wavegroup barrier staggering to enforce a ping-pong schedule.
-      - lds_at_write: If True, place alloc_lds at the LDS_WRITE stage instead of
-        the LOAD stage. This ends up needing fewer LDS buffers but an extra barrier
-        to guard against WAR and WAW hazards.
     """
     from kittens_helpers import PIPELINE_STRATEGIES
 
@@ -313,17 +308,13 @@ def _build_multitile_gemm(
     @b.loop(c0, b.constant_index(k_iters), c1)
     def _(k_iv):
         # -- LDS ALLOC --
-        # lds_at_write=False: allocate early (at earliest LOAD stage) for max
-        #   buffer distance.  Both A and B share the same alloc stage so the
-        #   multi-buffer allocator sees them together.
-        # lds_at_write=True: allocate inside each operand's WRITE block (below)
-        #   to reduce the number of live buffers; allocs are physically placed
-        #   after the loads to keep stage assignment monotonic for rotation.
-        if not lds_at_write:
-            early_load = min(STG_A_LOAD, STG_B_LOAD)
-            with b.stage(early_load):
-                lds_a_h, lds_a = b.alloc_lds(lds_total_a)
-                lds_b_h, lds_b = b.alloc_lds(lds_total_b)
+        # Allocate at the earliest LOAD stage for max buffer distance.
+        # Both A and B share the same alloc stage so the multi-buffer
+        # allocator sees them together.
+        early_load = min(STG_A_LOAD, STG_B_LOAD)
+        with b.stage(early_load):
+            lds_a_h, lds_a = b.alloc_lds(lds_total_a)
+            lds_b_h, lds_b = b.alloc_lds(lds_total_b)
 
         # -- LOAD A (cooperative: scheduled func.call for type erasure) --
         with b.stage(STG_A_LOAD):
@@ -361,8 +352,6 @@ def _build_multitile_gemm(
 
         # -- LDS WRITE A --
         with b.stage(STG_A_LDS_WRITE):
-            if lds_at_write:
-                lds_a_h, lds_a = b.alloc_lds(lds_total_a)
             coop_a_lds_off = b.linearize_layout(
                 b.linearize_index((coop_a_k_start, coop_a_m_start), (k_t, twg_m)), LDS_COORD_A
             )
@@ -380,8 +369,6 @@ def _build_multitile_gemm(
 
         # -- LDS WRITE B --
         with b.stage(STG_B_LDS_WRITE):
-            if lds_at_write:
-                lds_b_h, lds_b = b.alloc_lds(lds_total_b)
             coop_b_lds_off = b.linearize_layout(
                 b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), LDS_COORD_B
             )
@@ -436,17 +423,6 @@ def _build_multitile_gemm(
             b.dealloc_lds(lds_b_h)
 
         frag_buf_b, rtok_buf_b = read_b
-
-        # WAR barrier: when LDS write and read share don't have enough delay, all
-        # waves must finish reading before any wave starts writing in the next
-        # iteration. Tagged at the READ stage to keep stage assignment
-        # monotonic in program order (rotation requires non-decreasing stages).
-        if lds_at_write and STG_A_LDS_READ - STG_A_LDS_WRITE <= 1:
-            with b.stage(STG_A_LDS_READ):
-                b.s_barrier()
-        if lds_at_write and STG_B_LDS_READ - STG_B_LDS_WRITE <= 1:
-            with b.stage(STG_B_LDS_READ):
-                b.s_barrier()
 
         # -- COMPUTE --
         with b.stage(STG_COMPUTE):
@@ -545,11 +521,10 @@ def compile_multitile_gemm(cfg, output_hsaco_path, **kw):
     """Compile a multi-tile GEMM config to HSACO."""
     from aster.compiler.core import PrintOptions
 
-    lds_at_write = kw.pop("lds_at_write", getattr(cfg.mapping, "lds_at_write", False))
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        module = _build_multitile_gemm(cfg, lds_at_write=lds_at_write)
+        module = _build_multitile_gemm(cfg)
         pipeline = make_default_pass_pipeline(
             cfg.mapping,
             num_vgprs=kw.get("num_vgprs", 256),
@@ -641,7 +616,7 @@ def _make_instance(
     return MultitileGemmInstance(GemmSpec.from_sizes(M, N, k, **spec_kw), mapping)
 
 
-def _run_multitile(cfg, lds_at_write=False):
+def _run_multitile(cfg):
     """Compile + run a multi-tile GEMM, verify against numpy."""
     gs = cfg.gemm_size
 
@@ -650,7 +625,7 @@ def _run_multitile(cfg, lds_at_write=False):
     B_mat = (np.random.randn(*cfg.spec.operand_shape(OP_B)) * 0.1).astype(np.float16)
 
     with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-        compile_multitile_gemm(cfg, tmp.name, lds_at_write=lds_at_write)
+        compile_multitile_gemm(cfg, tmp.name)
         C_output, _ = execute_multitile_hsaco(cfg, tmp.name, 1, A_mat, B_mat)
 
     expected = (A_mat.astype(np.float32) @ B_mat.astype(np.float32).T).flatten()
@@ -715,11 +690,10 @@ class TestGeometry:
 
 
 class TestPipeline:
-    """Pipeline strategy x k_mult x lds_at_write sweep, fixed geometry.
+    """Pipeline strategy x k_mult sweep, fixed geometry.
 
-    Tests pipeline depth interaction with K iterations and LDS
-    allocation stage. Uses two representative geometries (small 4w and
-    large 8w).
+    Tests pipeline depth interaction with K iterations. Uses two
+    representative geometries (small 4w and large 8w).
     """
 
     @pytest.mark.parametrize(
@@ -732,11 +706,8 @@ class TestPipeline:
     )
     @pytest.mark.parametrize("k_mult", [2, 4, 8], ids=["km2", "km4", "km8"])
     @pytest.mark.parametrize("pipeline_strategy", [1, 2, 3, 4, 5, 6], ids=["ps1", "ps2", "ps3", "ps4", "ps5", "ps6"])
-    @pytest.mark.parametrize("lds_at_write", [False, True], ids=["lds_load", "lds_write"])
     @pytest.mark.parametrize("rotate_compute_stage", [False, True], ids=["norotc", "rotc"])
-    def test_correctness(
-        self, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy, lds_at_write, rotate_compute_stage
-    ):
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, k_mult, pipeline_strategy, rotate_compute_stage):
         k_t = num_tiles_per_wg[DIM_K]
         if k_mult < _min_k_iters(k_t, pipeline_strategy):
             pytest.skip(f"k_mult={k_mult} < min_k_iters for ps{pipeline_strategy}")
@@ -748,7 +719,7 @@ class TestPipeline:
             pipeline_strategy=pipeline_strategy,
             rotate_compute_stage=rotate_compute_stage,
         )
-        _run_multitile(cfg, lds_at_write=lds_at_write)
+        _run_multitile(cfg)
 
 
 class TestMultiWG:
@@ -814,34 +785,24 @@ class TestResourceEstimates:
     """Compile configs and verify LDS/VGPR/AGPR estimates vs actual metadata."""
 
     _CONFIGS = [
-        # (wg, wpw, twg, k_mult, ps, lds_at_write, id)
-        # -- LDS path, lds_at_write=False (default) --
-        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, False, "1w_ps1_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, False, "4w_ps1_lds"),
-        ([1, 1, 1], [4, 2, 1], [8, 8, 1], 2, 1, False, "8w_ps1_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, False, "4w_ps3_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 5, False, "4w_ps5_lds"),
-        # -- LDS path, lds_at_write=True --
-        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, True, "1w_ps1_lds_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, True, "4w_ps1_lds_write"),
-        ([1, 1, 1], [4, 2, 1], [8, 8, 1], 2, 1, True, "8w_ps1_lds_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, True, "4w_ps3_lds_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 5, True, "4w_ps5_lds_write"),
+        # (wg, wpw, twg, k_mult, ps, id)
+        ([1, 1, 1], [1, 1, 1], [3, 2, 1], 4, 1, "1w_ps1_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 1, "4w_ps1_lds"),
+        ([1, 1, 1], [4, 2, 1], [8, 8, 1], 2, 1, "8w_ps1_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 3, "4w_ps3_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 5, "4w_ps5_lds"),
         # -- Asymmetric strategies --
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 2, False, "4w_ps2_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, False, "4w_ps4_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 6, False, "4w_ps6_lds"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 2, True, "4w_ps2_lds_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, True, "4w_ps4_lds_write"),
-        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 6, True, "4w_ps6_lds_write"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 2, "4w_ps2_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 4, "4w_ps4_lds"),
+        ([1, 1, 1], [2, 2, 1], [4, 4, 1], 4, 6, "4w_ps6_lds"),
     ]
 
     @pytest.mark.parametrize(
-        "wg,wpw,twg,k_mult,ps,lds_at_write",
-        [(c[0], c[1], c[2], c[3], c[4], c[5]) for c in _CONFIGS],
-        ids=[c[6] for c in _CONFIGS],
+        "wg,wpw,twg,k_mult,ps",
+        [(c[0], c[1], c[2], c[3], c[4]) for c in _CONFIGS],
+        ids=[c[5] for c in _CONFIGS],
     )
-    def test_resource_estimate_accuracy(self, wg, wpw, twg, k_mult, ps, lds_at_write):
+    def test_resource_estimate_accuracy(self, wg, wpw, twg, k_mult, ps):
         """Compile a config and check estimates vs actual metadata.
 
         Tolerances:
@@ -855,13 +816,13 @@ class TestResourceEstimates:
         mapping = cfg.mapping
 
         with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
-            _, asm = compile_multitile_gemm(cfg, tmp.name, lds_at_write=lds_at_write)
+            _, asm = compile_multitile_gemm(cfg, tmp.name)
 
         resources = parse_asm_kernel_resources(asm, kernel_name=KERNEL_NAME)
         assert KERNEL_NAME in resources, f"kernel {KERNEL_NAME} not found in ASM metadata"
         actual = resources[KERNEL_NAME]
 
-        est_lds = mapping.lds_bytes(lds_at_write=lds_at_write, dealloc_at_read=True)
+        est_lds = mapping.lds_bytes(dealloc_at_read=True)
         est_vgprs = mapping.estimated_vgprs()
         est_agprs = mapping.estimated_agprs()
 

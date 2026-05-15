@@ -316,7 +316,6 @@ def _format_axes(r: dict) -> str:
         f"occ={r.get('occ')} ps={r.get('ps')} um={r.get('unroll_factor_multiplier')} "
         f"hw={int(bool(r.get('hoist_wait')))} ll={int(bool(r.get('ll_sched')))} "
         f"rotc={int(bool(r.get('rotate_compute_stage')))} "
-        f"lds={int(bool(r.get('lds_at_write')))} "
         f"epeel={int(bool(r.get('epilogue_peeling')))}"
     )
 

@@ -295,7 +295,6 @@ _SWEEP_TO_MAPPING_KWARG = {
     "epilogue_peeling": "epilogue_peeling",
     "ll_sched": "ll_sched",
     "hoist_wait": "hoist_wait",
-    "lds_at_write": "lds_at_write",
     "rotate_compute_stage": "rotate_compute_stage",
 }
 
