@@ -129,6 +129,18 @@ private:
   int32_t *segment = nullptr;
 };
 
+/// An operand that refers to a special register.
+struct SpecialOperand : Operand {
+  SpecialOperand() = default;
+  SpecialOperand(OpOperand &operand, bool isOutput, int32_t position)
+      : Operand(operand), isOutput(isOutput), position(position) {}
+
+  /// Whether this is an output operand (true) or input operand (false).
+  bool isOutput = false;
+  /// The index relative to the output or input operand list.
+  int32_t position = 0;
+};
+
 } // namespace mlir::aster
 
 #endif // ASTER_IR_OPERAND_H

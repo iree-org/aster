@@ -1151,6 +1151,77 @@ $_className::getInstProps() {
 }
 
 //===----------------------------------------------------------------------===//
+// getSpecialOperands generation
+//===----------------------------------------------------------------------===//
+
+/// Returns true if the type constraint record consists exclusively of special
+/// register types. Recurses into allowedTypes lists for AnyTypeOf.
+static bool isSpecialRegOnly(const llvm::Record *rec) {
+  if (rec->isSubClassOf("AMDReg"))
+    return rec->getValueAsBit("isSReg");
+  if (rec->isSubClassOf("AnyTypeOf")) {
+    const llvm::ListInit *allowedTypes =
+        rec->getValueAsListInit("allowedTypes");
+    if (allowedTypes->empty())
+      return false;
+    for (const llvm::Init *init : allowedTypes->getValues()) {
+      const auto *defInit = dyn_cast<llvm::DefInit>(init);
+      if (!defInit || !isSpecialRegOnly(defInit->getDef()))
+        return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+/// Returns the effective constraint record for an operand, unwrapping Optional.
+static const llvm::Record *
+getEffectiveConstraintDef(const mlir::tblgen::NamedTypeConstraint &operand) {
+  const llvm::Record *rec = &operand.constraint.getDef();
+  if (operand.constraint.isOptional())
+    if (const llvm::Record *base = rec->getValueAsOptionalDef("baseType"))
+      return base;
+  return rec;
+}
+
+/// Generates the getSpecialOperands method definition for an instruction.
+/// The method is always emitted (even with an empty body) because the trait
+/// declares it in extraClassDeclaration, requiring a concrete definition.
+static void genGetSpecialOperands(const InstOp &instOp, StringRef className,
+                                  raw_ostream &os) {
+  const mlir::tblgen::Operator &op = instOp.getOperator();
+  int32_t numOutputs = instOp.getNumOutputs();
+  int32_t numInputs = instOp.getNumInputs();
+  mlir::tblgen::FmtContext ctx;
+  ctx.addSubst("_className", className);
+
+  os << mlir::tblgen::tgfmt(
+      R"(void $_className::getSpecialOperands(
+    ::llvm::SmallVectorImpl<::mlir::aster::SpecialOperand> &operands) {
+)",
+      &ctx);
+
+  for (int32_t i = 0; i < numOutputs; ++i) {
+    const llvm::Record *rec = getEffectiveConstraintDef(op.getOperand(i));
+    if (!isSpecialRegOnly(rec))
+      continue;
+    os << "  operands.emplace_back(getOperation()->getOpOperand(" << i
+       << "), /*isOutput=*/true, /*position=*/" << i << ");\n";
+  }
+
+  for (int32_t i = 0; i < numInputs; ++i) {
+    int32_t odsIdx = numOutputs + i;
+    const llvm::Record *rec = getEffectiveConstraintDef(op.getOperand(odsIdx));
+    if (!isSpecialRegOnly(rec))
+      continue;
+    os << "  operands.emplace_back(getOperation()->getOpOperand(" << odsIdx
+       << "), /*isOutput=*/false, /*position=*/" << i << ");\n";
+  }
+
+  os << "}\n\n";
+}
+
+//===----------------------------------------------------------------------===//
 // Top-level generators
 //===----------------------------------------------------------------------===//
 
@@ -1170,6 +1241,7 @@ static void genInstMethods(const llvm::Record *rec, raw_ostream &os) {
   genInferReturnTypes(instOp, className, os);
   genGetInstInfo(instOp, className, os);
   genGetInstProps(instOp, className, os);
+  genGetSpecialOperands(instOp, className, os);
 
   if (instOp.getGenInstAssemblyFormat()) {
     InstSegments segs = collectInstSegments(instOp);
