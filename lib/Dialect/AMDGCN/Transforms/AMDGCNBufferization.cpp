@@ -16,6 +16,7 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
+#include "aster/IR/CFG.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -26,6 +27,7 @@
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Transforms/CSE.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/DebugLog.h"
 #include <cstdint>
@@ -45,12 +47,23 @@ using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
-/// Returns true if `type` is a special register (SCC, VCC, …) with value
+/// Returns true if `type` is a special register (SCC, VCC, ...) with value
 /// semantics, i.e. a register that must be tunnelled through an SGPR carrier.
 static bool isSpecialReg(Type type) {
   if (!type.hasTrait<SpecialRegTrait>())
     return false;
   return cast<RegisterTypeInterface>(type).hasValueSemantics();
+}
+
+/// Returns the SGPR carrier type for a given special register type.
+static RegisterTypeInterface getSGPRCarrier(Type sregTy) {
+  auto regTy = cast<RegisterTypeInterface>(sregTy);
+  int64_t sizeInBits = regTy.getSizeInBits();
+  assert(sizeInBits > 0 &&
+         sizeInBits <= 32 * std::numeric_limits<int16_t>::max() &&
+         "register size out of range");
+  int16_t words = static_cast<int16_t>((sizeInBits + 31) / 32);
+  return getSGPR(sregTy.getContext(), words);
 }
 
 namespace {
@@ -248,21 +261,15 @@ void BufferizationImpl::handleBlockArgument(RewriterBase &rewriter,
   Block *block = arg.getOwner();
 
   // Insert allocas to handle the breakage of the phi-node. For special
-  // registers (SCC, VCC, …) the phi carrier must be an SGPR because
+  // registers (SCC, VCC, ...) the phi carrier must be an SGPR because
   // unallocated SCC/VCC are not valid intermediaries.
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointToStart(entryBlock);
   RegisterTypeInterface carrierTy;
   if (isSpecialReg(arg.getType())) {
-    int64_t sizeInBits = regTy.getSizeInBits();
-    assert(sizeInBits > 0 &&
-           sizeInBits <= 32 * std::numeric_limits<int16_t>::max() &&
-           "register size out of range");
-    int16_t words = static_cast<int16_t>((sizeInBits + 31) / 32);
     // Use the unallocated SGPR slot so the phi-forward copy has a resource
     // side-effect and is not eliminated as dead code.
-    carrierTy = cast<RegisterTypeInterface>(getSGPR(arg.getContext(), words))
-                    .getAsUnallocated();
+    carrierTy = getSGPRCarrier(arg.getType()).getAsUnallocated();
   } else {
     carrierTy = regTy.getAsUnallocated();
   }
@@ -453,6 +460,182 @@ static void canonicalizeSRegAllocas(IRRewriter &rewriter, Allocator &allocator,
   }
 }
 
+//===----------------------------------------------------------------------===//
+// SRegBufferization
+//===----------------------------------------------------------------------===//
+
+/// Returns true if the use of a special register value requires
+/// materialization (i.e., the use demands the physical special register).
+static bool requiresMaterialization(OpOperand &use) {
+  Operation *owner = use.getOwner();
+
+  // lsir.cond_br always requires the physical special register.
+  if (auto brOp = dyn_cast<lsir::CondBranchOp>(owner);
+      brOp &&
+      brOp.getConditionMutable().getOperandNumber() == use.getOperandNumber())
+    return true;
+
+  // For InstOpInterface, check if this operand is a special operand.
+  auto instOp = dyn_cast<InstOpInterface>(owner);
+  if (!instOp)
+    return false;
+
+  SmallVector<SpecialOperand> specials;
+  instOp.getSpecialOperands(specials);
+  for (SpecialOperand &sp : specials) {
+    if (sp.get() == &use)
+      return true;
+  }
+  return false;
+}
+
+namespace {
+/// Tracks the current definition of each special register type and detects
+/// clobbering. Values that are clobbered are promoted to SGPRs.
+struct SRegBufferization : CFGWalker<SRegBufferization> {
+  SRegBufferization(IRRewriter &rewriter, Allocator &allocator,
+                    DominanceInfo &domInfo)
+      : rewriter(rewriter), allocator(allocator), domInfo(domInfo) {}
+
+  LogicalResult run(FunctionOpInterface funcOp);
+  LogicalResult visitOp(Operation *op);
+  LogicalResult visitControlFlowEdge(const BranchPoint &branchPoint,
+                                     const Successor &successor);
+
+  /// Push a scope before descending into a branch so that definitions made
+  /// inside the branch are automatically undone when the scope is destroyed.
+  LogicalResult handleBranch(const BranchPoint &branchPoint,
+                             const Successor &successor);
+
+private:
+  /// Record a new definition of a special register, promoting any live prior
+  /// value that would be clobbered.
+  void recordDefinition(Value newDef, Type sregTy, Operation *insertBefore);
+
+  /// Promote a special register value to an SGPR. Inserts a copy before
+  /// `insertBefore` and rewrites uses dominated by the clobber point.
+  void promoteValue(Value sregVal, Operation *insertBefore);
+
+  /// Rewrite a single use of a promoted value, either amending or
+  /// materializing.
+  void rewriteUse(OpOperand &use, Value sgprVal, Type sregTy);
+
+  IRRewriter &rewriter;
+  Allocator &allocator;
+  DominanceInfo &domInfo;
+  /// Maps a special register type to its current live definition.
+  llvm::ScopedHashTable<Type, Value> currentDef;
+};
+} // namespace
+
+void SRegBufferization::recordDefinition(Value newDef, Type sregTy,
+                                         Operation *insertBefore) {
+  Value prevDef = currentDef.lookup(sregTy);
+  // If there is a live previous definition, promote it before it is
+  // clobbered.
+  if (prevDef && prevDef != newDef)
+    promoteValue(prevDef, insertBefore);
+  currentDef.insert(sregTy, newDef);
+}
+
+void SRegBufferization::promoteValue(Value sregVal, Operation *insertBefore) {
+  // Collect uses that need rewriting. Only rewrite uses that are dominated by
+  // the clobber point: same-block uses after the clobber, or uses in blocks
+  // dominated by the clobber's block.
+  Block *clobberBlock = insertBefore->getBlock();
+  SmallVector<OpOperand *> usesToRewrite;
+  for (OpOperand &use : sregVal.getUses()) {
+    Operation *owner = use.getOwner();
+    if (owner->getBlock() == clobberBlock) {
+      if (owner->isBeforeInBlock(insertBefore))
+        continue;
+      usesToRewrite.push_back(&use);
+    } else if (domInfo.dominates(clobberBlock, owner->getBlock())) {
+      usesToRewrite.push_back(&use);
+    }
+  }
+
+  // Nothing to promote if the clobbered value has no remaining uses.
+  if (usesToRewrite.empty())
+    return;
+
+  Type sregTy = sregVal.getType();
+  RegisterTypeInterface sgprTy = getSGPRCarrier(sregTy);
+  Location loc = sregVal.getLoc();
+
+  // Create an SGPR alloca and copy the special register value into it.
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(insertBefore);
+  Value sgprSlot = createAllocation(rewriter, loc, sgprTy);
+  lsir::CopyOp copyOp = lsir::CopyOp::create(rewriter, loc, sgprSlot, sregVal);
+  Value sgprVal = copyOp.getTargetRes();
+
+  for (OpOperand *use : usesToRewrite)
+    rewriteUse(*use, sgprVal, sregTy);
+}
+
+void SRegBufferization::rewriteUse(OpOperand &use, Value sgprVal, Type sregTy) {
+  if (!requiresMaterialization(use)) {
+    // The use accepts an SGPR directly -- just amend the operand.
+    use.set(sgprVal);
+    return;
+  }
+
+  // The use requires the physical special register. Materialize it by copying
+  // the SGPR value back into the special register alloca.
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(use.getOwner());
+  Value sregSlot =
+      allocator.getOrCreateAlloc(rewriter, sgprVal.getLoc(), sregTy);
+  lsir::CopyOp materialize =
+      lsir::CopyOp::create(rewriter, sgprVal.getLoc(), sregSlot, sgprVal);
+  use.set(materialize.getTargetRes());
+}
+
+LogicalResult SRegBufferization::visitOp(Operation *op) {
+  auto instOp = dyn_cast<InstOpInterface>(op);
+  if (!instOp)
+    return success();
+
+  // Scan all results for special register definitions.
+  for (OpResult result : instOp.getInstResults()) {
+    Type resultTy = result.getType();
+    if (!isSpecialReg(resultTy))
+      continue;
+    recordDefinition(result, resultTy, op);
+  }
+
+  return success();
+}
+
+LogicalResult
+SRegBufferization::visitControlFlowEdge(const BranchPoint &branchPoint,
+                                        const Successor &successor) {
+  if (!successor.isBlock())
+    return success();
+
+  Block *block = successor.getTarget<Block *>();
+  // Block arguments with special register types are definitions.
+  for (BlockArgument arg : block->getArguments()) {
+    if (!isSpecialReg(arg.getType()))
+      continue;
+    recordDefinition(arg, arg.getType(), &block->front());
+  }
+  return success();
+}
+
+LogicalResult SRegBufferization::handleBranch(const BranchPoint &branchPoint,
+                                              const Successor &successor) {
+  // Push a new scope so definitions made inside this branch are undone when
+  // the scope is destroyed, restoring the predecessor's state for siblings.
+  llvm::ScopedHashTableScope<Type, Value> scope(currentDef);
+  return CFGWalker<SRegBufferization>::handleBranch(branchPoint, successor);
+}
+
+LogicalResult SRegBufferization::run(FunctionOpInterface funcOp) {
+  return walk(funcOp);
+}
+
 /// Run the bufferization transform on the given function.
 static LogicalResult runOnFunction(FunctionOpInterface op,
                                    DominanceInfo &domInfo) {
@@ -484,6 +667,11 @@ static LogicalResult runOnFunction(FunctionOpInterface op,
   // Run the bufferization transform.
   BufferizationImpl impl(allocator, domInfo, *dpsResult, *livenessResult);
   impl.run(rewriter, op);
+
+  // Promote special register values that are clobbered by later definitions.
+  SRegBufferization sregImpl(rewriter, allocator, domInfo);
+  if (failed(sregImpl.run(op)))
+    return op->emitError() << "failed to run special register bufferization";
 
   return success();
 }
