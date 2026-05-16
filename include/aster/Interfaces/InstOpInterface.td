@@ -60,6 +60,14 @@ def InstOpInterface : OpInterface<"InstOpInterface", [LivenessOpInterface]> {
     InterfaceMethod<
       "Returns the operand and result information for the instruction",
       "InstOpInfo", "getInstInfo"
+    >,
+    InterfaceMethod<
+      "Get the special register operands of the instruction",
+      "void", "getSpecialOperands", (ins
+        "::llvm::SmallVectorImpl<::mlir::aster::SpecialOperand>&":$operands),
+      [{}], [{
+        /* default: no special operands */
+      }]
     >
   ];
   let verify = [{
