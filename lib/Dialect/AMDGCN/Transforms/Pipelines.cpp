@@ -88,6 +88,7 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
   // Post-condition of to-register-semantics is now enforced by
   // KernelOp::verifyRegions() via the normal_forms attribute set by the pass.
   pm.addPass(createRegisterDCE());
+  pm.addPass(createPreColoringLegalization());
   RegisterColoringOptions coloringOpts;
   coloringOpts.buildMode = options.buildMode;
   coloringOpts.optimize = options.optimize;
