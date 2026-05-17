@@ -454,3 +454,26 @@ func.func @dealloc() -> !amdgcn.vgpr {
   %r = amdgcn.dealloc_cast %a : !amdgcn.vgpr<?>
   return %r : !amdgcn.vgpr
 }
+
+// -----
+
+// CHECK-LABEL:   func.func @special_reg_alloca_to_allocated() {
+// CHECK-DAG:       %[[SCC:.*]] = amdgcn.alloca : !amdgcn.scc<0>
+// CHECK-DAG:       %[[VCC_LO:.*]] = amdgcn.alloca : !amdgcn.vcc_lo<0>
+// CHECK-DAG:       %[[VCC_HI:.*]] = amdgcn.alloca : !amdgcn.vcc_hi<0>
+// CHECK:           %[[VCC:.*]] = amdgcn.make_register_range %[[VCC_LO]], %[[VCC_HI]] : !amdgcn.vcc_lo<0>, !amdgcn.vcc_hi<0>
+// CHECK-DAG:       %[[SGPR:.*]] = amdgcn.alloca : !amdgcn.sgpr<?>
+// CHECK:           amdgcn.test_inst outs %[[SGPR]] : (!amdgcn.sgpr<?>) -> ()
+// CHECK:           amdgcn.test_inst ins %[[SCC]], %[[VCC]], %[[SGPR]] : (!amdgcn.scc<0>, !amdgcn.vcc<0>, !amdgcn.sgpr<?>) -> ()
+// CHECK:           return
+// CHECK:         }
+func.func @special_reg_alloca_to_allocated() {
+  %0 = amdgcn.alloca : !amdgcn.scc
+  %1 = amdgcn.alloca : !amdgcn.vcc_lo
+  %2 = amdgcn.alloca : !amdgcn.vcc_hi
+  %3 = amdgcn.make_register_range %1, %2 : !amdgcn.vcc_lo, !amdgcn.vcc_hi
+  %4 = amdgcn.alloca : !amdgcn.sgpr
+  %5 = amdgcn.test_inst outs %4 : (!amdgcn.sgpr) -> !amdgcn.sgpr
+  amdgcn.test_inst ins %0, %3, %5 : (!amdgcn.scc, !amdgcn.vcc, !amdgcn.sgpr) -> ()
+  func.return
+}
