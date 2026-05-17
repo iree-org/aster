@@ -60,6 +60,7 @@ def AMDGCN_AllocaOp : AMDGCN_Op<"alloca", [
   let extraClassDeclaration = [{
     ::mlir::Value getAlloca() { return getResult(); }
   }];
+  let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//

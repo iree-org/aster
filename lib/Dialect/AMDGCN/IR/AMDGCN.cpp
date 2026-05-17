@@ -258,6 +258,15 @@ mlir::aster::amdgcn::getRegisterKind(AMDGCNRegisterTypeInterface type) {
 // AllocaOp
 //===----------------------------------------------------------------------===//
 
+LogicalResult AllocaOp::verify() {
+  RegisterTypeInterface regTy = getType();
+  if (bitEnumContainsAll(regTy.getProps(), RegisterProps::IsReadOnly) &&
+      regTy.hasValueSemantics())
+    return emitOpError("cannot allocate read-only register with value "
+                       "semantics");
+  return success();
+}
+
 Speculation::Speculatability AllocaOp::getSpeculatability() {
   if (getType().hasAllocatedSemantics())
     return Speculation::Speculatability::Speculatable;

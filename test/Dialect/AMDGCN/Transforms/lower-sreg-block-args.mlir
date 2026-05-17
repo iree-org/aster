@@ -65,15 +65,15 @@ amdgcn.kernel @allocated_scc_unchanged {
 
 // -----
 
-// Unallocated SCC (`<?>`) has non-value semantics; the pass must not rewrite.
-// CHECK-LABEL: kernel @unallocated_scc_unchanged
-// CHECK:         cf.br ^{{bb[0-9]+}}(%{{.*}} : !amdgcn.scc<?>)
-// CHECK:       ^{{bb[0-9]+}}(%{{.*}}: !amdgcn.scc<?>):
-amdgcn.kernel @unallocated_scc_unchanged {
+// Allocated SCC (`<0>`) has non-value semantics; the pass must not rewrite.
+// CHECK-LABEL: kernel @allocated_scc_through_unchanged
+// CHECK:         cf.br ^{{bb[0-9]+}}(%{{.*}} : !amdgcn.scc<0>)
+// CHECK:       ^{{bb[0-9]+}}(%{{.*}}: !amdgcn.scc<0>):
+amdgcn.kernel @allocated_scc_through_unchanged {
 ^bb0:
-  %scc = amdgcn.alloca : !amdgcn.scc<?>
-  cf.br ^bb1(%scc : !amdgcn.scc<?>)
-^bb1(%arg : !amdgcn.scc<?>):
+  %scc = amdgcn.alloca : !amdgcn.scc<0>
+  cf.br ^bb1(%scc : !amdgcn.scc<0>)
+^bb1(%arg : !amdgcn.scc<0>):
   amdgcn.end_kernel
 }
 
