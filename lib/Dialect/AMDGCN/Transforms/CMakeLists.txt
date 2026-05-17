@@ -16,6 +16,7 @@ add_mlir_library(AMDGCNTransforms
   OptimizeAMDGCN.cpp
   OptimizeInterferenceGraph.cpp
   Pipelines.cpp
+  PreColoringLegalization.cpp
   PreloadLibrary.cpp
   RegisterColoring.cpp
   RegisterDCE.cpp

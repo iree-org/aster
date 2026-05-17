@@ -101,6 +101,19 @@ def RegisterColoring : Pass<"amdgcn-register-coloring"> {
   ];
 }
 
+def PreColoringLegalization : Pass<"amdgcn-pre-coloring-legalization"> {
+  let summary = "Legalize operations before register coloring";
+  let description = [{
+    This pass legalizes operations that cannot be directly lowered through
+    register coloring. It should run after register DCE and before register
+    coloring.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::arith::ArithDialect"
+  ];
+}
+
 def InstructionSchedulingAutoschedule : Pass<"amdgcn-instruction-scheduling-autoschedule"> {
   let summary = "Apply autoschedule rules to operations without explicit schedules";
   let description = [{
