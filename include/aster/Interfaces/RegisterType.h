@@ -143,6 +143,11 @@ public:
     return RegisterRange(regBegin.getAsValue(), size(), indexAlignment);
   }
 
+  /// Get the register range as an allocated range.
+  RegisterRange getAsAllocatedRange(int16_t reg) const {
+    return RegisterRange(Register(reg), size(), indexAlignment);
+  }
+
   /// Check if the register range is equal to another register range.
   bool operator==(const RegisterRange &other) const {
     return regBegin == other.regBegin && rangeSize == other.rangeSize &&

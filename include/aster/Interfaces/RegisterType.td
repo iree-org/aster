@@ -107,6 +107,11 @@ def RegisterTypeInterface : TypeInterface<"RegisterTypeInterface", [
       return $_type.cloneRegisterType($_type.getAsRange().getAsValueRange());
     }
 
+    /// This method returns a clone of the register type with allocated semantics.
+    ::mlir::aster::RegisterTypeInterface getAsAllocated(int16_t reg) const {
+      return $_type.cloneRegisterType($_type.getAsRange().getAsAllocatedRange(reg));
+    }
+
     /// Returns true if this register type represents a range of registers.
     bool isRegisterRange() const {
       return $_type.getAsRange().size() > 1;
