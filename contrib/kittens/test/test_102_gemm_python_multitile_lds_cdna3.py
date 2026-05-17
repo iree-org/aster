@@ -33,6 +33,13 @@ from kittens.gemm_config import (
 )
 
 
+_OOB_VOFFSET = 1 << 31
+
+
+def _ceildiv(a, b):
+    return (a + b - 1) // b
+
+
 def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: bool = False) -> ir.Module:
     """Build a multi-tile multi-wave multi-WG pipelined GEMM kernel (LDS path).
 
@@ -124,29 +131,23 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
     STG_B_LDS_WRITE = stg["B_LDS_WRITE"]
     STG_B_LDS_READ = stg["B_LDS_READ"]
     STG_COMPUTE = stg["COMPUTE"]
-    ol_a, ol_b, ol_c = spec.operand_layout(OP_A), spec.operand_layout(OP_B), spec.operand_layout(OP_C)
-    stride_a, stride_b = ol_a.strides[0], ol_b.strides[0]
-    stride_c_row, stride_c_col = ol_c.strides[0], ol_c.strides[1]
-
+    ol_c = spec.operand_layout(OP_C)
+    # Pad K so that every dwordx4 load fits within one row.
     k_step = k_t * tile_k_elems
-    assert gs[DIM_K] % k_step == 0, f"K={gs[DIM_K]} must be divisible by k_t*tile_k_elems={k_step}"
-    k_iters = gs[DIM_K] // k_step
+    k_iters = _ceildiv(gs[DIM_K], k_step)
+    padded_K = k_iters * k_step
+    stride_a = padded_K * spec.elt_bytes_a
+    stride_b = padded_K * spec.elt_bytes_b
+    stride_c_row = ol_c.strides[0]
     n_accs = m_t * n_t
 
-    # Global load layouts (stride-dependent).
-    GLOBAL_LOAD_TILE_A = Layout((mfma_m, ws // mfma_m), (stride_a, mapping.global_load_bytes))
-    GLOBAL_LOAD_SUB_TILE_A = Layout(1, 0)
-    GLOBAL_LOAD_TILE_B = Layout((mfma_n, ws // mfma_n), (stride_b, mapping.global_load_bytes))
-    GLOBAL_LOAD_SUB_TILE_B = Layout(1, 0)
-
-    # Global store layout.
     n_agprs = ws // mfma_n
-    GLOBAL_STORE_TILE_C = Layout((n_agprs, mfma_n, n_agprs), (n_agprs * stride_c_row, stride_c_col, stride_c_row))
     GLOBAL_STORE_SUB_TILE_C = Layout(1, 0)
-
-    # Tile coord layouts: (k_tile, parallel_tile) -> byte offset.
-    TILE_COORD_A = Layout((k_t, twg_m), (tile_row_bytes, mfma_m * stride_a))
-    TILE_COORD_B = Layout((k_t, twg_n), (tile_row_bytes, mfma_n * stride_b))
+    # Row (element) and K/N-byte decompositions for OOB checks.
+    TILE_ROW_A = Layout((k_t, twg_m), (0, mfma_m))
+    TILE_COLBYTE_A = Layout((k_t, twg_m), (tile_row_bytes, 0))
+    TILE_ROW_B = Layout((k_t, twg_n), (0, mfma_n))
+    TILE_COLBYTE_B = Layout((k_t, twg_n), (tile_row_bytes, 0))
     LDS_COORD_A = Layout((k_t, twg_m), (twg_m * tile_bytes, tile_bytes))
     LDS_COORD_B = Layout((k_t, twg_n), (twg_n * tile_bytes, tile_bytes))
 
@@ -157,20 +158,18 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
     WAVE_M_LDS_OFF = Layout((wpw[DIM_M], wpw[DIM_N]), (m_t * tile_bytes, 0))
     WAVE_N_LDS_OFF = Layout((wpw[DIM_M], wpw[DIM_N]), (0, n_t * tile_bytes))
 
-    # WG base coord: (wg_idx, k_iter) -> global byte offset to WG's first tile.
-    WG_BASE_A = Layout((wg[DIM_M], k_iters), (twg_m * TILE_COORD_A.strides[1], k_t * TILE_COORD_A.strides[0]))
-    WG_BASE_B = Layout((wg[DIM_N], k_iters), (twg_n * TILE_COORD_B.strides[1], k_t * TILE_COORD_B.strides[0]))
-    C_COORD = Layout((m_t, n_t), (mfma_m * stride_c_row, mfma_n * stride_c_col))
-
-    # Distribution layouts: (wg_idx, wave_idx) -> global tile index.
-    M_DIST = Layout((wg[DIM_M], wpw[DIM_M]), (twg_m, m_t))
-    N_DIST = Layout((wg[DIM_N], wpw[DIM_N]), (twg_n, n_t))
+    # Row (element) and K-byte decompositions for WG base.
+    WG_ROW_A = Layout((wg[DIM_M], k_iters), (twg_m * mfma_m, 0))
+    WG_COLBYTE_A = Layout((wg[DIM_M], k_iters), (0, k_t * tile_row_bytes))
+    WG_ROW_B = Layout((wg[DIM_N], k_iters), (twg_n * mfma_n, 0))
+    WG_COLBYTE_B = Layout((wg[DIM_N], k_iters), (0, k_t * tile_row_bytes))
 
     # Cooperative load: per-wave tile iteration + LDS write offset.
     # Each wave loads coop_m * coop_k tiles (A) or coop_n * coop_k tiles (B).
-    # COOP_COORD maps per-wave tile idx -> global byte offset from WG base.
-    COOP_COORD_A = Layout((coop_a_k, coop_a_m), (tile_row_bytes, mfma_m * stride_a))
-    COOP_COORD_B = Layout((coop_b_k, coop_b_n), (tile_row_bytes, mfma_n * stride_b))
+    COOP_ROW_A = Layout((coop_a_k, coop_a_m), (0, mfma_m))
+    COOP_COLBYTE_A = Layout((coop_a_k, coop_a_m), (tile_row_bytes, 0))
+    COOP_ROW_B = Layout((coop_b_k, coop_b_n), (0, mfma_n))
+    COOP_COLBYTE_B = Layout((coop_b_k, coop_b_n), (tile_row_bytes, 0))
     # COOP_LDS maps per-wave tile idx -> LDS byte offset from wave's LDS base.
     COOP_LDS_A = Layout((coop_a_k, coop_a_m), (twg_m * tile_bytes, tile_bytes))
     COOP_LDS_B = Layout((coop_b_k, coop_b_n), (twg_n * tile_bytes, tile_bytes))
@@ -198,6 +197,21 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
     b.add_ptr_arg(AccessKind.WriteOnly)
     a_ptr, b_ptr, c_ptr = b.load_args()
 
+    # -- Buffer resource descriptors for OOB-safe global access --
+    from aster.dialects import arith
+    from aster.dialects._arith_enum_gen import CmpIPredicate
+
+    total_bytes_a = gs[DIM_M] * padded_K * elt_bytes_a
+    total_bytes_b = gs[DIM_N] * padded_K * elt_bytes_b
+    total_bytes_c = gs[DIM_M] * gs[DIM_N] * spec.elt_bytes_c
+    a_rsrc = b.make_buffer_rsrc(a_ptr, b.s_mov_b32(total_bytes_a), b.constant_i32(0))
+    b_rsrc = b.make_buffer_rsrc(b_ptr, b.s_mov_b32(total_bytes_b), b.constant_i32(0))
+    c_rsrc = b.make_buffer_rsrc(c_ptr, b.s_mov_b32(total_bytes_c), b.constant_i32(0))
+    soffset = b.s_mov_b32(0)
+
+    i32_type = ir.IntegerType.get_signless(32, b._ctx)
+    oob_i32 = arith.constant(i32_type, _OOB_VOFFSET, loc=b._loc, ip=b._kip)
+
     # -- Register/token types for memref buffers --
     from aster._mlir_libs._amdgcn import AGPRRangeType, VGPRRangeType
 
@@ -212,10 +226,6 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
     wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg[DIM_M], wg[DIM_N]))
     wave_m_idx, wave_n_idx = b.delinearize_index(b.wave_id(wave_size=ws), (wpw[DIM_M], wpw[DIM_N]))
     wid = b.wave_id(wave_size=ws)
-
-    # Global tile-unit base for this wave (used for READ + C store).
-    m_dist_idx = b.linearize_index((wg_m_idx, wave_m_idx), (wg[DIM_M], wpw[DIM_M]))
-    n_dist_idx = b.linearize_index((wg_n_idx, wave_n_idx), (wg[DIM_N], wpw[DIM_N]))
 
     # Cooperative load starts: wave_id -> (m_start, k_start) with OOB clamping.
     # When staggered, use local wave_id within 4-wave group.
@@ -238,22 +248,55 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
     # -- Scheduled helper functions for type erasure --
     # Preserved through constexpr expansion by selective-inlining (no
     # allow-scheduled-calls), inlined after pipelining by PHASE_SROA.
-    sgpr2_type = ir.Type.parse("!amdgcn.sgpr<[? + 2]>")
+    sgpr4_type = ir.Type.parse("!amdgcn.sgpr<[? + 4]>")
+    sgpr1_type = ir.Type.parse("!amdgcn.sgpr<[? + 1]>")
     read_ret = [any_type] * n_frags_per_tile + [lds_read_tok] * n_frags_per_tile
 
-    @b.define_helper("_load_a", [sgpr2_type, idx_type], [any_type, flat_read_tok])
-    def load_a_fn(bb, ptr, off):
-        [(d, t)] = bb.load_multi_tile_from_global(
-            ptr, off, GLOBAL_LOAD_TILE_A, GLOBAL_LOAD_SUB_TILE_A, bb.global_load_dwordx4
-        )
-        return [bb.to_any(d), t]
+    # OOB-safe buffer load helper: computes per-lane global row and
+    # column, masks lanes whose row exceeds the matrix bounds, and
+    # issues a buffer_load_dwordx4. K-dimension overflow is handled by
+    # the padded stride (zero-filled beyond the real K).
+    #
+    # The helper takes (rsrc, soffset, row_base, col_byte_base):
+    #   row_base   -- tile's starting row (elements).
+    #   col_byte_base -- tile's starting column byte offset within row.
+    # Per-lane row/col offsets come from the tile layout.
+    lanes_per_row = ws // mfma_m
 
-    @b.define_helper("_load_b", [sgpr2_type, idx_type], [any_type, flat_read_tok])
-    def load_b_fn(bb, ptr, off):
-        [(d, t)] = bb.load_multi_tile_from_global(
-            ptr, off, GLOBAL_LOAD_TILE_B, GLOBAL_LOAD_SUB_TILE_B, bb.global_load_dwordx4
-        )
-        return [bb.to_any(d), t]
+    def _make_buffer_load_helper(name, op_rows, op_stride, load_bytes):
+        """Build a buffer load helper with OOB row masking.
+
+        op_rows: number of rows in the operand (M for A, N for B).
+        op_stride: leading-dimension byte stride (padded).
+        load_bytes: bytes per lane load (global_load_bytes).
+        """
+
+        @b.define_helper(name, [sgpr4_type, sgpr1_type, idx_type, idx_type], [any_type, flat_read_tok])
+        def fn(bb, rsrc, soff, row_base, col_byte_base):
+            _d0 = ir.AffineExpr.get_dim(0)
+            _d1 = ir.AffineExpr.get_dim(1)
+            _i32 = ir.IntegerType.get_signless(32, bb._ctx)
+            _idx = ir.IndexType.get(bb._ctx)
+            lid = bb.lane_id()
+            lane_row = bb.affine_apply(ir.AffineExpr.get_floor_div(_d0, lanes_per_row), [lid])
+            lane_col_byte = bb.affine_apply((_d0 % lanes_per_row) * load_bytes, [lid])
+            row = bb.affine_apply(_d0 + _d1, [row_base, lane_row])
+            col_byte = bb.affine_apply(_d0 + _d1, [col_byte_base, lane_col_byte])
+            voff = bb.affine_apply(_d0 * op_stride + _d1, [row, col_byte])
+            voff_i32 = bb.index_cast_i32(voff)
+            row_i32 = bb.index_cast_i32(row)
+            m_i32 = arith.constant(_i32, op_rows, loc=bb._loc, ip=bb._kip)
+            oob_val = arith.constant(_i32, _OOB_VOFFSET, loc=bb._loc, ip=bb._kip)
+            row_ok = arith.cmpi(CmpIPredicate.slt, row_i32, m_i32, loc=bb._loc, ip=bb._kip)
+            masked = arith.select(row_ok, voff_i32, oob_val, loc=bb._loc, ip=bb._kip)
+            voffset = bb.index_to_vgpr(arith.index_cast(_idx, masked, loc=bb._loc, ip=bb._kip))
+            d, t = bb.buffer_load_dwordx4(rsrc, soff, voffset)
+            return [bb.to_any(d), t]
+
+        return fn
+
+    load_a_fn = _make_buffer_load_helper("_load_a", gs[DIM_M], stride_a, mapping.global_load_bytes)
+    load_b_fn = _make_buffer_load_helper("_load_b", gs[DIM_N], stride_b, mapping.global_load_bytes)
 
     @b.define_helper("_write_a", [any_type, idx_type], [lds_write_tok] * n_wtoks_per_tile)
     def write_a_fn(bb, data_any, lds_off):
@@ -319,34 +362,50 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
         # -- LOAD A (cooperative: scheduled func.call for type erasure) --
         with b.stage(STG_A_LOAD):
             a_wg_k_idx = b.linearize_index((wg_m_idx, k_iv), (wg[DIM_M], k_iters))
-            a_wg_base = b.linearize_layout(a_wg_k_idx, WG_BASE_A)
-            coop_a_off = b.linearize_layout(
-                b.linearize_index((coop_a_k_start, coop_a_m_start), (k_t, twg_m)), TILE_COORD_A
-            )
-            a_wave_base = b.affine_apply(d0 + d1, [a_wg_base, coop_a_off])
+            coop_a_start_idx = b.linearize_index((coop_a_k_start, coop_a_m_start), (k_t, twg_m))
+            a_wg_row = b.linearize_layout(a_wg_k_idx, WG_ROW_A)
+            a_wg_colbyte = b.linearize_layout(a_wg_k_idx, WG_COLBYTE_A)
+            a_coop_row = b.linearize_layout(coop_a_start_idx, TILE_ROW_A)
+            a_coop_colbyte = b.linearize_layout(coop_a_start_idx, TILE_COLBYTE_A)
+            a_row_base0 = b.affine_apply(d0 + d1, [a_wg_row, a_coop_row])
+            a_colbyte_base0 = b.affine_apply(d0 + d1, [a_wg_colbyte, a_coop_colbyte])
 
             @b.foreach_tile(n_coop_a, types=[(any_type, 1), (flat_read_tok, 1)])
             def load_a(idx):
-                tile_off = b.linearize_layout(idx, COOP_COORD_A)
-                off = b.affine_apply(d0 + d1, [a_wave_base, tile_off])
-                return b.call_helper(load_a_fn, [a_ptr, off], [any_type, flat_read_tok])
+                tile_row = b.linearize_layout(idx, COOP_ROW_A)
+                tile_colbyte = b.linearize_layout(idx, COOP_COLBYTE_A)
+                row_base = b.affine_apply(d0 + d1, [a_row_base0, tile_row])
+                col_byte_base = b.affine_apply(d0 + d1, [a_colbyte_base0, tile_colbyte])
+                return b.call_helper(
+                    load_a_fn,
+                    [a_rsrc, soffset, row_base, col_byte_base],
+                    [any_type, flat_read_tok],
+                )
 
             data_buf_a, tok_buf_a = load_a
 
         # -- LOAD B (cooperative: all waves load cooperatively) --
         with b.stage(STG_B_LOAD):
             b_wg_k_idx = b.linearize_index((wg_n_idx, k_iv), (wg[DIM_N], k_iters))
-            b_wg_base = b.linearize_layout(b_wg_k_idx, WG_BASE_B)
-            coop_b_off = b.linearize_layout(
-                b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), TILE_COORD_B
-            )
-            b_wave_base = b.affine_apply(d0 + d1, [b_wg_base, coop_b_off])
+            coop_b_start_idx = b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n))
+            b_wg_row = b.linearize_layout(b_wg_k_idx, WG_ROW_B)
+            b_wg_colbyte = b.linearize_layout(b_wg_k_idx, WG_COLBYTE_B)
+            b_coop_row = b.linearize_layout(coop_b_start_idx, TILE_ROW_B)
+            b_coop_colbyte = b.linearize_layout(coop_b_start_idx, TILE_COLBYTE_B)
+            b_row_base0 = b.affine_apply(d0 + d1, [b_wg_row, b_coop_row])
+            b_colbyte_base0 = b.affine_apply(d0 + d1, [b_wg_colbyte, b_coop_colbyte])
 
             @b.foreach_tile(n_coop_b, types=[(any_type, 1), (flat_read_tok, 1)])
             def load_b(idx):
-                tile_off = b.linearize_layout(idx, COOP_COORD_B)
-                off = b.affine_apply(d0 + d1, [b_wave_base, tile_off])
-                return b.call_helper(load_b_fn, [b_ptr, off], [any_type, flat_read_tok])
+                tile_row = b.linearize_layout(idx, COOP_ROW_B)
+                tile_colbyte = b.linearize_layout(idx, COOP_COLBYTE_B)
+                row_base = b.affine_apply(d0 + d1, [b_row_base0, tile_row])
+                col_byte_base = b.affine_apply(d0 + d1, [b_colbyte_base0, tile_colbyte])
+                return b.call_helper(
+                    load_b_fn,
+                    [b_rsrc, soffset, row_base, col_byte_base],
+                    [any_type, flat_read_tok],
+                )
 
             data_buf_b, tok_buf_b = load_b
 
@@ -460,21 +519,59 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
         def _():
             b.s_barrier()
 
-    # -- Store C tiles --
-    m_base = b.linearize_layout(m_dist_idx, M_DIST)
-    n_base = b.linearize_layout(n_dist_idx, N_DIST)
-    total_m_tiles, total_n_tiles = wg[DIM_M] * twg_m, wg[DIM_N] * twg_n
-    c_global_idx = b.linearize_index((m_base, n_base), (total_m_tiles, total_n_tiles))
-    c_base = b.linearize_layout(c_global_idx, Layout((total_m_tiles, total_n_tiles), C_COORD.strides))
+    # -- Store C tiles (buffer ops with OOB masking) --
+    c_row_origin = b.affine_apply(
+        d0 + d1,
+        [
+            b.linearize_layout(wg_m_idx, Layout(wg[DIM_M], twg_m * mfma_m)),
+            b.linearize_layout(wave_m_idx, Layout(wpw[DIM_M], m_t * mfma_m)),
+        ],
+    )
+    c_col_origin = b.affine_apply(
+        d0 + d1,
+        [
+            b.linearize_layout(wg_n_idx, Layout(wg[DIM_N], twg_n * mfma_n)),
+            b.linearize_layout(wave_n_idx, Layout(wpw[DIM_N], n_t * mfma_n)),
+        ],
+    )
+
+    c_lane = b.lane_id()
+    c_n_subs = GLOBAL_STORE_SUB_TILE_C.size()
+
+    M_i32 = arith.constant(i32_type, gs[DIM_M], loc=b._loc, ip=b._kip)
+    N_i32 = arith.constant(i32_type, gs[DIM_N], loc=b._loc, ip=b._kip)
+
+    # Per-acc tile: (m_acc, n_acc) -> (row_offset, col_offset) in elements.
+    C_TILE_ROW = Layout((m_t, n_t), (mfma_m, 0))
+    C_TILE_COL = Layout((m_t, n_t), (0, mfma_n))
 
     @b.foreach_tile(n_accs)
     def _(idx):
-        tile_off = b.linearize_layout(idx, C_COORD)
-        c_off = b.affine_apply(d0 + d1, [c_base, tile_off])
         acc = b.memref_load(c_buf, idx)
-        b.store_multi_fragment_to_global(
-            acc, c_ptr, c_off, GLOBAL_STORE_TILE_C, GLOBAL_STORE_SUB_TILE_C, b.global_store_dword
-        )
+        tile_row = b.linearize_layout(idx, C_TILE_ROW)
+        tile_col = b.linearize_layout(idx, C_TILE_COL)
+        # Global element row/col of the tile origin.
+        tile_row_g = b.affine_apply(d0 + d1, [c_row_origin, tile_row])
+        tile_col_g = b.affine_apply(d0 + d1, [c_col_origin, tile_col])
+        agprs = b.split_ax4(acc)
+        n_agprs_per_sub = len(agprs) // c_n_subs
+        for s in range(c_n_subs):
+            for i in range(n_agprs_per_sub):
+                # Lane's row/col within the MFMA tile.
+                lane_row = b.affine_apply(ir.AffineExpr.get_floor_div(d0, mfma_n) * n_agprs + i, [c_lane])
+                lane_col = b.affine_apply(d0 % mfma_n, [c_lane])
+                row = b.affine_apply(d0 + d1, [tile_row_g, lane_row])
+                col = b.affine_apply(d0 + d1, [tile_col_g, lane_col])
+                row_i32 = b.index_cast_i32(row)
+                col_i32 = b.index_cast_i32(col)
+                row_ok = arith.cmpi(CmpIPredicate.slt, row_i32, M_i32, loc=b._loc, ip=b._kip)
+                col_ok = arith.cmpi(CmpIPredicate.slt, col_i32, N_i32, loc=b._loc, ip=b._kip)
+                in_bounds = arith.andi(row_ok, col_ok, loc=b._loc, ip=b._kip)
+                voff = b.affine_apply(d0 * stride_c_row + d1 * spec.elt_bytes_c, [row, col])
+                voff_i32 = b.index_cast_i32(voff)
+                masked = arith.select(in_bounds, voff_i32, oob_i32, loc=b._loc, ip=b._kip)
+                voffset = b.index_to_vgpr(arith.index_cast(idx_type, masked, loc=b._loc, ip=b._kip))
+                b.buffer_store_dword(agprs[s * n_agprs_per_sub + i], c_rsrc, soffset, voffset)
 
     return b.build()
 
@@ -574,11 +671,15 @@ def _make_instance(
     mcpu=None,
     rotate_compute_stage=False,
     ll_sched=0,
+    M=None,
+    N=None,
+    K=None,
 ):
     """Build a MultitileGemmInstance from list parameters.
 
-    M, N, K are derived from the tile grid, mcpu (which selects the MFMA
-    shape), and GemmMappingSpec defaults for transfer widths.
+    M, N, K default to the tile-grid-derived sizes (exact divisibility).
+    Pass explicit values to test non-divisible (OOB) cases; the
+    workgroup grid is then computed via ceildiv.
     """
     from kittens.gemm_config import mfma_shape_for_mcpu
 
@@ -592,8 +693,35 @@ def _make_instance(
     mapping_kw = {}
     if mcpu is not None:
         mapping_kw["mcpu"] = mcpu
+
+    spec_kw = {} if mfma_shape is None else {"mfma_shape": mfma_shape}
+    probe_spec = GemmSpec.from_sizes(1, 1, 1, **spec_kw)
+    mfma = probe_spec.mfma_shape
+    ws = GemmMappingSpec.__dataclass_fields__["wave_size"].default
+    glb = GemmMappingSpec.__dataclass_fields__["global_load_bytes"].default
+    tile_k_elems = (ws // mfma[DIM_M]) * (glb // probe_spec.elt_bytes_a)
+
+    # Per-WG coverage in elements along each dimension.
+    wg_m_elems = num_tiles_per_wg[DIM_M] * mfma[DIM_M]
+    wg_n_elems = num_tiles_per_wg[DIM_N] * mfma[DIM_N]
+
+    # Derive or use explicit problem sizes.
+    if M is None:
+        M = num_workgroups[DIM_M] * wg_m_elems
+    if N is None:
+        N = num_workgroups[DIM_N] * wg_n_elems
+    if K is None:
+        K = k_mult * num_tiles_per_wg[DIM_K] * tile_k_elems
+
+    # Compute workgroup grid via ceildiv to cover the full matrix.
+    actual_wg = [
+        _ceildiv(M, wg_m_elems),
+        _ceildiv(N, wg_n_elems),
+        num_workgroups[DIM_K],
+    ]
+
     mapping = GemmMappingSpec(
-        num_workgroups_per_kernel=list(num_workgroups),
+        num_workgroups_per_kernel=actual_wg,
         num_waves_per_workgroup=list(num_waves_per_wg),
         num_tiles_per_wave=[
             num_tiles_per_wg[DIM_M] // num_waves_per_wg[DIM_M],
@@ -606,27 +734,38 @@ def _make_instance(
         ll_sched=ll_sched,
         **mapping_kw,
     )
-    spec_kw = {} if mfma_shape is None else {"mfma_shape": mfma_shape}
-    probe_spec = GemmSpec.from_sizes(1, 1, 1, **spec_kw)
-    mfma = probe_spec.mfma_shape
-    tile_k_elems = (mapping.wave_size // mfma[DIM_M]) * (mapping.global_load_bytes // probe_spec.elt_bytes_a)
-    M = num_workgroups[DIM_M] * num_tiles_per_wg[DIM_M] * mfma[DIM_M]
-    N = num_workgroups[DIM_N] * num_tiles_per_wg[DIM_N] * mfma[DIM_N]
-    k = k_mult * num_tiles_per_wg[DIM_K] * tile_k_elems
-    return MultitileGemmInstance(GemmSpec.from_sizes(M, N, k, **spec_kw), mapping)
+    return MultitileGemmInstance(GemmSpec.from_sizes(M, N, K, **spec_kw), mapping)
 
 
 def _run_multitile(cfg):
     """Compile + run a multi-tile GEMM, verify against numpy."""
     gs = cfg.gemm_size
+    M, N, K = gs[DIM_M], gs[DIM_N], gs[DIM_K]
 
-    np.random.seed(42 + gs[DIM_M] + gs[DIM_N] + gs[DIM_K])
+    np.random.seed(42 + M + N + K)
     A_mat = (np.random.randn(*cfg.spec.operand_shape(OP_A)) * 0.1).astype(np.float16)
     B_mat = (np.random.randn(*cfg.spec.operand_shape(OP_B)) * 0.1).astype(np.float16)
 
+    # Pad K to the tile-aligned size so buffer loads never cross row
+    # boundaries. The padding is zero-filled and does not affect the
+    # GEMM result.
+    mapping = cfg.mapping
+    mfma = cfg.spec.mfma_shape
+    tile_k_elems = (mapping.wave_size // mfma[DIM_M]) * (mapping.global_load_bytes // cfg.spec.elt_bytes_a)
+    k_t = mapping.num_tiles_per_wave[DIM_K]
+    k_step = k_t * tile_k_elems
+    padded_K = _ceildiv(K, k_step) * k_step
+    if padded_K != K:
+        A_pad = np.zeros((M, padded_K), dtype=np.float16)
+        A_pad[:, :K] = A_mat
+        B_pad = np.zeros((N, padded_K), dtype=np.float16)
+        B_pad[:, :K] = B_mat
+    else:
+        A_pad, B_pad = A_mat, B_mat
+
     with tempfile.NamedTemporaryFile(suffix=".hsaco", delete=True) as tmp:
         compile_multitile_gemm(cfg, tmp.name)
-        C_output, _ = execute_multitile_hsaco(cfg, tmp.name, 1, A_mat, B_mat)
+        C_output, _ = execute_multitile_hsaco(cfg, tmp.name, 1, A_pad, B_pad)
 
     expected = (A_mat.astype(np.float32) @ B_mat.astype(np.float32).T).flatten()
     np.testing.assert_allclose(C_output, expected, rtol=1e-2, atol=1e-2)
@@ -772,6 +911,39 @@ class TestOperandPath:
             k_mult=4,
             pipeline_strategy=pipeline_strategy,
             rotate_compute_stage=rotate_compute_stage,
+        )
+        _run_multitile(cfg)
+
+
+class TestOOB:
+    """Non-divisible M, N, K: buffer ops with OOB voffset masking.
+
+    Uses three primes > 512 to guarantee non-divisibility by any tile or
+    MFMA dimension.
+    """
+
+    _M, _N, _K = 521, 547, 557
+
+    @pytest.mark.parametrize(
+        "num_waves_per_wg,num_tiles_per_wg",
+        [
+            ([1, 1, 1], [3, 2, 1]),
+            ([2, 2, 1], [4, 4, 1]),
+            ([4, 2, 1], [8, 4, 1]),
+        ],
+        ids=["1w_3x2", "4w_2x2_4x4", "8w_4x2_8x4"],
+    )
+    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg, pipeline_strategy):
+        cfg = _make_instance(
+            [1, 1, 1],
+            num_waves_per_wg,
+            num_tiles_per_wg,
+            k_mult=4,
+            pipeline_strategy=pipeline_strategy,
+            M=self._M,
+            N=self._N,
+            K=self._K,
         )
         _run_multitile(cfg)
 

@@ -521,12 +521,12 @@ class WeakScaledMappedGemmInstance:
         gs = self.spec.gemm_size
         mfma = self.spec.mfma_shape
         for dim, name in [(DIM_M, "M"), (DIM_N, "N")]:
-            expected = wg[dim] * twg[dim] * mfma[dim]
-            assert gs[dim] == expected, (
-                f"gemm_size[{name}]={gs[dim]} != "
+            coverage = wg[dim] * twg[dim] * mfma[dim]
+            assert gs[dim] <= coverage, (
+                f"gemm_size[{name}]={gs[dim]} > "
                 f"num_workgroups_per_kernel[{name}]({wg[dim]}) * "
                 f"num_tiles_per_wg[{name}]({twg[dim]}) * "
-                f"mfma_shape[{name}]({mfma[dim]}) = {expected}"
+                f"mfma_shape[{name}]({mfma[dim]}) = {coverage}"
             )
 
     # --- Convenience accessors ---
