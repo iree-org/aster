@@ -25,25 +25,28 @@ include "aster/Interfaces/DependentOpInterface.td"
 // Register type constraints (AMDReg)
 //===----------------------------------------------------------------------===//
 
-class AMDReg<string cppType, string name> :
+class AMDReg<string cppType, string name, bit _isSReg = false> :
   Type<CPred<"::llvm::isa<::mlir::aster::amdgcn::" # cppType # ">($_self)">,
        name # " type", "::mlir::aster::amdgcn::" # cppType>,
-  PrintOperand;
+  PrintOperand {
+  bit isSReg = _isSReg;
+}
 
 def AGPRType : AMDReg<"AGPRType", "AGPR">;
 def VGPRType : AMDReg<"VGPRType", "VGPR">;
 def SGPRType : AMDReg<"SGPRType", "SGPR">;
 
-def VCCType : AMDReg<"VCCType", "VCC">;
-def VCCLoType : AMDReg<"VCCLoType", "VCC Lo">;
-def VCCHiType : AMDReg<"VCCHiType", "VCC Hi">;
-def M0Type : AMDReg<"M0Type", "M0">;
-def EXECType : AMDReg<"EXECType", "EXEC">;
-def EXECLoType : AMDReg<"EXECLoType", "EXEC Lo">;
-def EXECHiType : AMDReg<"EXECHiType", "EXEC Hi">;
-def VCCZType : AMDReg<"VCCZType", "VCCZ">;
-def EXECZType : AMDReg<"EXECZType", "EXECZ">;
-def SCCType : AMDReg<"SCCType", "SCC">;
+// Special registers.
+def VCCType : AMDReg<"VCCType", "VCC", /*isSReg=*/true>;
+def VCCLoType : AMDReg<"VCCLoType", "VCC Lo", /*isSReg=*/true>;
+def VCCHiType : AMDReg<"VCCHiType", "VCC Hi", /*isSReg=*/true>;
+def M0Type : AMDReg<"M0Type", "M0", /*isSReg=*/true>;
+def EXECType : AMDReg<"EXECType", "EXEC", /*isSReg=*/true>;
+def EXECLoType : AMDReg<"EXECLoType", "EXEC Lo", /*isSReg=*/true>;
+def EXECHiType : AMDReg<"EXECHiType", "EXEC Hi", /*isSReg=*/true>;
+def VCCZType : AMDReg<"VCCZType", "VCCZ", /*isSReg=*/true>;
+def EXECZType : AMDReg<"EXECZType", "EXECZ", /*isSReg=*/true>;
+def SCCType : AMDReg<"SCCType", "SCC", /*isSReg=*/true>;
 
 //===----------------------------------------------------------------------===//
 // Special register constraint

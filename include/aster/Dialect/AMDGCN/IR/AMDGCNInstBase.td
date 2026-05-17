@@ -53,6 +53,9 @@ def AMDInstTrait : InstructionTrait {
     }
 
     ArrayRef<ISAVersion> getISAVersions();
+
+    /// Get the special register operands of the instruction.
+    void getSpecialOperands(::llvm::SmallVectorImpl<::mlir::aster::SpecialOperand> &operands);
   }];
   let extraConcreteClassDefinition = [{
     OperandRange $cppClass::getInstOuts() {
