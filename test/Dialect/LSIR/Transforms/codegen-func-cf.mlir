@@ -2,9 +2,9 @@
 
 // CHECK-LABEL: amdgcn.module @test
 // CHECK:   func.func @loop_func
-// CHECK:     cf.cond_br %{{.*}}, ^bb1(%{{.*}} : !amdgcn.sgpr), ^bb2
+// CHECK:     lsir.cond_br %{{.*}} : !amdgcn.vcc, ^bb1(%{{.*}} : !amdgcn.sgpr), ^bb2
 // CHECK:   ^bb1(%{{.*}}: !amdgcn.sgpr):
-// CHECK:     cf.cond_br %{{.*}}, ^bb1(%{{.*}} : !amdgcn.sgpr), ^bb2
+// CHECK:     lsir.cond_br %{{.*}} : !amdgcn.vcc, ^bb1(%{{.*}} : !amdgcn.sgpr), ^bb2
 // CHECK:   ^bb2:
 
 amdgcn.module @test target = <gfx942> {

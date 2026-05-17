@@ -237,8 +237,11 @@ ForOpConversion::matchAndRewrite(scf::ForOp op, OpAdaptor adaptor,
 LogicalResult
 FuncOpConversion::matchAndRewrite(FunctionOpInterface funcOp, OpAdaptor adaptor,
                                   ConversionPatternRewriter &rewriter) const {
-  // Don't convert if legal.
-  if (getConverter(typeConverter).isLegal(funcOp.getFunctionType()))
+  // Don't convert if the function op is not a func::FuncOp or is legal.
+  // TODO: Remove the func::FuncOp check once we have better ways to convert the
+  // function.
+  if (isLegalFuncOpInterface(funcOp, getConverter(typeConverter)) ||
+      !isa<func::FuncOp>(funcOp))
     return failure();
 
   // Check the funcOp has `FunctionType`.
@@ -413,6 +416,20 @@ void mlir::aster::populateArithConversionPatterns(TypeConverter &converter,
       IndexCastOpConversion>(converter, patterns.getContext());
 }
 
+bool mlir::aster::isLegalFuncOpInterface(FunctionOpInterface op,
+                                         const TypeConverter &converter) {
+  if (!converter.isLegal(op.getFunctionType()))
+    return false;
+  // Also check interior block arguments (e.g. loop-carried values).
+  for (Block &block : op.getFunctionBody()) {
+    if (llvm::any_of(block.getArguments(), [&](BlockArgument arg) {
+          return !converter.isLegal(arg.getType());
+        }))
+      return false;
+  }
+  return true;
+}
+
 void mlir::aster::populateFuncConversionPatterns(TypeConverter &converter,
                                                  ConversionTarget &target,
                                                  RewritePatternSet &patterns) {
@@ -422,7 +439,7 @@ void mlir::aster::populateFuncConversionPatterns(TypeConverter &converter,
       });
   target.addDynamicallyLegalOp<func::FuncOp>(
       [&](func::FuncOp op) -> std::optional<bool> {
-        return converter.isLegal(op.getFunctionType());
+        return isLegalFuncOpInterface(op, converter);
       });
   patterns.add<CallOpConversion, FuncOpConversion, ReturnOpConversion>(
       converter, patterns.getContext());

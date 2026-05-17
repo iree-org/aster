@@ -256,26 +256,26 @@ def LSIR_AssumeNoaliasOp : LSIR_Op<"assume_noalias", [
 // CmpFOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CmpFOp : LSIR_InstOp<"cmpf", [PureInst]> {
+def LSIR_CmpFOp : LSIR_InstOp<"cmpf", [InstInferType, PureInst]> {
   let summary = "Floating point comparison operation";
   let description = [{
-    The `lsir.cmpf` operation compares two floating point values and returns i1.
-    The `i1` return value is kept late in the pipeline and is only translated to
-    SCC after register allocation, together with cf branch operations.
-
+    The `lsir.cmpf` operation compares two floating point values and writes the
+    result to a destination register.
     Example:
     ```mlir
-    %result = lsir.cmpf f32 olt %lhs, %rhs : !amdgcn.vgpr, !amdgcn.vgpr
+    %result = lsir.cmpf f32 olt %dst, %lhs, %rhs
+                : !amdgcn.vcc, !amdgcn.vgpr, !amdgcn.vgpr
     ```
   }];
   let leadingArguments = (ins
     AnyFloatTypeAttr:$semantics,
     Arith_CmpFPredicateAttr:$predicate
   );
+  let outputs = (ins RegType:$dst);
   let inputs = (ins FloatOrRegType:$lhs, FloatOrRegType:$rhs);
-  let leadingResults = (outs I1:$result);
   let assemblyFormat = [{
-    $semantics $predicate $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $semantics $predicate $dst `,` $lhs `,` $rhs attr-dict
+    `:` type($dst) `,` type($lhs) `,` type($rhs)
   }];
 }
 
@@ -283,27 +283,27 @@ def LSIR_CmpFOp : LSIR_InstOp<"cmpf", [PureInst]> {
 // CmpIOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CmpIOp : LSIR_InstOp<"cmpi", [PureInst]> {
+def LSIR_CmpIOp : LSIR_InstOp<"cmpi", [InstInferType, PureInst]> {
   let summary = "Integer comparison operation";
   let description = [{
     The `lsir.cmpi` operation compares two integer operands according to the
-    specified predicate and returns i1.
-    The `i1` return value is kept late in the pipeline and is only translated to
-    SCC after register allocation, together with cf branch operations.
+    specified predicate and writes the result to a destination register.
 
     Example:
     ```mlir
-    %result = lsir.cmpi i32 eq %lhs, %rhs : !amdgcn.sgpr, !amdgcn.sgpr
+    %result = lsir.cmpi i32 eq %dst, %lhs, %rhs
+                : !amdgcn.scc, !amdgcn.sgpr, !amdgcn.sgpr
     ```
   }];
   let leadingArguments = (ins
     AnyIntTypeAttr:$semantics,
     Arith_CmpIPredicateAttr:$predicate
   );
+  let outputs = (ins RegType:$dst);
   let inputs = (ins IntOrRegType:$lhs, IntOrRegType:$rhs);
-  let leadingResults = (outs I1:$result);
   let assemblyFormat = [{
-    $semantics $predicate $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs)
+    $semantics $predicate $dst `,` $lhs `,` $rhs attr-dict
+    `:` type($dst) `,` type($lhs) `,` type($rhs)
   }];
 }
 
@@ -798,24 +798,18 @@ def LSIR_RemUIOp : BinaryIOp<"remui"> {
 def LSIR_SelectOp : LSIR_InstOp<"select", [PureInst, InstInferType]> {
   let summary = "Select operation";
   let description = [{
-    The `lsir.select` operation selects between two values based on a condition.
-    The condition can be either a register type or i1 (from lsir.cmpi/cmpf).
-
-    When the condition is i1, LegalizeCF fuses the cmpi + select into
-    s_cmp + s_cselect_b32. When the condition is a register, it lowers to
-    a conditional move instruction.
+    The `lsir.select` operation selects between two values based on a register
+    condition.
 
     Example:
     ```mlir
     %result = lsir.select %dst, %cond, %tv, %fv
-      : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
-    %result = lsir.select %dst, %i1_cond, %tv, %fv
-      : !amdgcn.sgpr, i1, i32, i32
+      : !amdgcn.sgpr, !amdgcn.scc, !amdgcn.sgpr, !amdgcn.sgpr
     ```
   }];
   let outputs = (ins RegType:$dst);
   let inputs = (ins
-    IntFloatOrRegType:$condition,
+    RegType:$condition,
     IntFloatOrRegType:$true_value,
     IntFloatOrRegType:$false_value
   );

@@ -128,12 +128,20 @@ struct ArithMinMaxOpPattern : public OpCodeGenPattern<MinMaxOp> {
     Location loc = op.getLoc();
     Value lhs = adaptor.getLhs(), rhs = adaptor.getRhs();
     // Lower to lsir.cmpi + lsir.select directly (skip arith intermediates).
+    // lsir.cmpi uses DPS: determine the compare dst type (SCC for scalar ops,
+    // VCC for vector ops) from the lhs register kind.
     Type regType = this->converter.convertType(op);
     Value dst = this->createAlloca(rewriter, loc, regType);
+    Type cmpDstType =
+        isa<amdgcn::VGPRType>(lhs.getType())
+            ? Type(amdgcn::VCCType::get(rewriter.getContext(), Register()))
+            : Type(amdgcn::SCCType::get(rewriter.getContext(), Register()));
+    Value cmpDst = this->createAlloca(rewriter, loc, cmpDstType);
     Value cmp = lsir::CmpIOp::create(
-        rewriter, loc, rewriter.getI1Type(),
-        TypeAttr::get(op.getLhs().getType()),
-        arith::CmpIPredicateAttr::get(rewriter.getContext(), pred), lhs, rhs);
+                    rewriter, loc, TypeAttr::get(op.getLhs().getType()),
+                    arith::CmpIPredicateAttr::get(rewriter.getContext(), pred),
+                    cmpDst, lhs, rhs)
+                    .getDstRes();
     rewriter.replaceOpWithNewOp<lsir::SelectOp>(op, dst, cmp, lhs, rhs);
     return success();
   }
@@ -271,10 +279,12 @@ LogicalResult
 ArithCmpIOpPattern::matchAndRewrite(arith::CmpIOp op,
                                     arith::CmpIOp::Adaptor adaptor,
                                     ConversionPatternRewriter &rewriter) const {
-  // lsir.cmpi returns i1 directly, operands are converted to registers
-  rewriter.replaceOpWithNewOp<lsir::CmpIOp>(
-      op, rewriter.getI1Type(), TypeAttr::get(op.getLhs().getType()),
-      op.getPredicateAttr(), adaptor.getLhs(), adaptor.getRhs());
+  Type dstType = converter.convertType(op.getResult());
+  Value dst = createAlloca(rewriter, op.getLoc(), dstType);
+  auto cmpOp = lsir::CmpIOp::create(
+      rewriter, op.getLoc(), TypeAttr::get(op.getLhs().getType()),
+      op.getPredicateAttr(), dst, adaptor.getLhs(), adaptor.getRhs());
+  rewriter.replaceOp(op, cmpOp);
   return success();
 }
 
@@ -286,10 +296,16 @@ LogicalResult
 ArithCmpFOpPattern::matchAndRewrite(arith::CmpFOp op,
                                     arith::CmpFOp::Adaptor adaptor,
                                     ConversionPatternRewriter &rewriter) const {
-  // lsir.cmpf returns i1 directly, operands are converted to registers
-  rewriter.replaceOpWithNewOp<lsir::CmpFOp>(
-      op, rewriter.getI1Type(), TypeAttr::get(op.getLhs().getType()),
-      op.getPredicateAttr(), adaptor.getLhs(), adaptor.getRhs());
+  // AMDGCN has no scalar float compare instructions (s_cmp_* is integer-only).
+  // All float comparisons use VOPC instructions (v_cmp_f_*) which write to VCC.
+  assert(isa<amdgcn::VGPRType>(adaptor.getLhs().getType()) &&
+         "arith.cmpf operands must be VGPRs after codegen conversion");
+  Type dstType = amdgcn::VCCType::get(op.getContext(), Register());
+  Value dst = createAlloca(rewriter, op.getLoc(), dstType);
+  auto cmpOp = lsir::CmpFOp::create(
+      rewriter, op.getLoc(), TypeAttr::get(op.getLhs().getType()),
+      op.getPredicateAttr(), dst, adaptor.getLhs(), adaptor.getRhs());
+  rewriter.replaceOp(op, cmpOp);
   return success();
 }
 
@@ -337,7 +353,14 @@ LogicalResult CFCondBranchOpPattern::matchAndRewrite(
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
 
-  // Convert operands to match the expected converted block argument types
+  // The condition must already be a register type (SCC from lsir.cmpi or
+  // VCC from lsir.cmpf). If it is still i1 (e.g. from an unconverted arith
+  // comparison), we cannot convert this op.
+  Value cond = adaptor.getCondition();
+  if (!isa<RegisterTypeInterface>(cond.getType()))
+    return failure();
+
+  // Convert operands to match the expected converted block argument types.
   SmallVector<Value> trueOperands =
       convertBranchOperands(adaptor.getTrueDestOperands(), op.getTrueDest(),
                             *getTypeConverter(), rewriter, loc);
@@ -345,8 +368,8 @@ LogicalResult CFCondBranchOpPattern::matchAndRewrite(
       convertBranchOperands(adaptor.getFalseDestOperands(), op.getFalseDest(),
                             *getTypeConverter(), rewriter, loc);
 
-  rewriter.replaceOpWithNewOp<cf::CondBranchOp>(
-      op, op.getCondition(), op.getTrueDest(), trueOperands, op.getFalseDest(),
+  rewriter.replaceOpWithNewOp<lsir::CondBranchOp>(
+      op, cond, op.getTrueDest(), trueOperands, op.getFalseDest(),
       falseOperands);
   return success();
 }
@@ -361,12 +384,12 @@ CFBranchOpPattern::matchAndRewrite(cf::BranchOp op,
                                    ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
 
-  // Convert operands to match the expected converted block argument types
+  // Convert operands to match the expected converted block argument types.
   SmallVector<Value> destOperands =
       convertBranchOperands(adaptor.getDestOperands(), op.getDest(),
                             *getTypeConverter(), rewriter, loc);
 
-  rewriter.replaceOpWithNewOp<cf::BranchOp>(op, op.getDest(), destOperands);
+  rewriter.replaceOpWithNewOp<lsir::BranchOp>(op, op.getDest(), destOperands);
   return success();
 }
 
@@ -395,16 +418,13 @@ KernelOpConversion::matchAndRewrite(amdgcn::KernelOp op,
 LogicalResult ArithSelectOpPattern::matchAndRewrite(
     arith::SelectOp op, arith::SelectOp::Adaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
+  // lsir.select requires a register condition (SCC or VCC). If the condition
+  // is still i1 (e.g. from an unconverted arith comparison), we cannot convert.
+  Value cond = adaptor.getCondition();
+  if (!isa<RegisterTypeInterface>(cond.getType()))
+    return failure();
   Type type = this->converter.convertType(op);
   Value dst = this->createAlloca(rewriter, op.getLoc(), type);
-  // If the original condition comes from lsir.cmpi/cmpf (i1 result), use the
-  // original value to avoid the type converter wrapping it in a cast.
-  // For block-argument i1 conditions, the type converter correctly maps them
-  // to register types, so we use the adapted value.
-  Value cond = op.getCondition().getDefiningOp<lsir::CmpIOp>() ||
-                       op.getCondition().getDefiningOp<lsir::CmpFOp>()
-                   ? op.getCondition()
-                   : adaptor.getCondition();
   rewriter.replaceOpWithNewOp<lsir::SelectOp>(
       op, dst, cond, adaptor.getTrueValue(), adaptor.getFalseValue());
   return success();
@@ -445,7 +465,7 @@ void mlir::aster::lsir::populateCodeGenPatterns(CodeGenConverter &converter,
                                                 ConversionTarget &target) {
   // Configure the conversion target.
   target.addLegalDialect<lsir::LSIRDialect>();
-  target.addIllegalDialect<arith::ArithDialect>();
+  target.addIllegalDialect<arith::ArithDialect, cf::ControlFlowDialect>();
   target.addDynamicallyLegalOp<arith::ConstantOp>(
       [&](arith::ConstantOp op) { return op.getType().isIntOrIndexOrFloat(); });
   target.addDynamicallyLegalOp<RegConstraintOp>(
@@ -454,44 +474,9 @@ void mlir::aster::lsir::populateCodeGenPatterns(CodeGenConverter &converter,
                       lsir::FromRegOp, lsir::ToRegOp, lsir::RegConstraintOp>();
   target.addLegalOp<UnrealizedConversionCastOp>();
 
-  // arith.cmpi/cmpf are always converted to lsir counterparts.
-  // They return i1 but their operands are converted to register types.
-  target.addIllegalOp<arith::CmpIOp, arith::CmpFOp>();
-
-  // Helper to check if operands are legal for CF ops. Operands are legal if
-  // they are register types OR if they come from constants (which stay scalar).
-  auto cfOperandsLegal = [&](ValueRange operands) {
-    return llvm::all_of(operands, [&](Value v) {
-      Type t = v.getType();
-      // Register types are legal
-      if (isa<RegisterTypeInterface, TokenDependencyTypeInterface>(t))
-        return true;
-      return false;
-    });
-  };
-
-  // CF dialect ops are dynamically legal when their branch operands are either
-  // register types or constants. The condition stays as i1.
-  target.addDynamicallyLegalOp<cf::CondBranchOp>([&](cf::CondBranchOp op) {
-    return cfOperandsLegal(op.getTrueDestOperands()) &&
-           cfOperandsLegal(op.getFalseDestOperands());
-  });
-  target.addDynamicallyLegalOp<cf::BranchOp>(
-      [&](cf::BranchOp op) { return cfOperandsLegal(op.getDestOperands()); });
-
-  // KernelOp is dynamically legal - it becomes legal once the
-  // KernelOpConversion pattern has converted all block argument types.
-  // Start as illegal to ensure the pattern runs.
+  // Function ops are dynamically legal.
   target.addDynamicallyLegalOp<amdgcn::KernelOp>([&](amdgcn::KernelOp op) {
-    // Check if any block in the body has non-register, non-i1 arguments
-    for (Block &block : op.getBodyRegion()) {
-      for (BlockArgument arg : block.getArguments()) {
-        Type t = arg.getType();
-        if (!isa<RegisterTypeInterface>(t) && !t.isInteger(1))
-          return false;
-      }
-    }
-    return true;
+    return isLegalFuncOpInterface(op, converter);
   });
 
   // Add the patterns.
@@ -538,10 +523,9 @@ void mlir::aster::lsir::populateCodeGenPatterns(CodeGenConverter &converter,
                // These patterns go together for proper composable control-flow
                // support. CF patterns need the type converter to handle block
                // argument conversion. KernelOp conversion handles block
-               // argument types in kernel bodies. Cmp ops are converted to lsir
-               // counterparts returning i1, which persists late in the pipeline
-               // and is only translated to SCC after register allocation,
-               // together with cf branch operations.
+               // argument types in kernel bodies. arith.cmpi is converted to
+               // lsir.cmpi (DPS, SCC/VCC dst); cf.br/cf.cond_br are replaced
+               // by lsir.br/lsir.cond_br that carry register conditions.
                ArithCmpIOpPattern, ArithCmpFOpPattern, CFCondBranchOpPattern,
                CFBranchOpPattern, KernelOpConversion, AssumeUniformOpPattern
                // That's all folks!

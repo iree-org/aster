@@ -9,7 +9,7 @@
 amdgcn.module @test target = #amdgcn.target<gfx942> {
 
   // Two independent cmpi+select chains must NOT be interleaved.
-  // All i1 producers write to VCC/SCC, so overlapping lifetimes = clobber.
+  // All VCC producers write to VCC, so overlapping lifetimes = clobber.
   // CHECK-LABEL: kernel @i1_serialize_cmpi_select
   // CHECK:         lsir.cmpi
   // CHECK-NEXT:    lsir.select
@@ -21,11 +21,13 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %v1 = amdgcn.alloca : !v
     %v2 = amdgcn.alloca : !v
     %v3 = amdgcn.alloca : !v
+    %vcc_a = lsir.alloca : !amdgcn.vcc
+    %vcc_b = lsir.alloca : !amdgcn.vcc
     %c0 = arith.constant 0 : i32
-    %cmp_a = lsir.cmpi i32 slt %v0, %c0 : !v, i32
-    lsir.select %v1, %cmp_a, %v2, %v0 : !v, i1, !v, !v
-    %cmp_b = lsir.cmpi i32 slt %v2, %c0 : !v, i32
-    lsir.select %v3, %cmp_b, %v0, %v2 : !v, i1, !v, !v
+    %cmp_a = lsir.cmpi i32 slt %vcc_a, %v0, %c0 : !amdgcn.vcc, !v, i32
+    lsir.select %v1, %cmp_a, %v2, %v0 : !v, !amdgcn.vcc, !v, !v
+    %cmp_b = lsir.cmpi i32 slt %vcc_b, %v2, %c0 : !amdgcn.vcc, !v, i32
+    lsir.select %v3, %cmp_b, %v0, %v2 : !v, !amdgcn.vcc, !v, !v
     amdgcn.end_kernel
   }
 
@@ -45,13 +47,16 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %v3 = amdgcn.alloca : !v
     %v4 = amdgcn.alloca : !v
     %v5 = amdgcn.alloca : !v
+    %vcc_a = lsir.alloca : !amdgcn.vcc
+    %vcc_b = lsir.alloca : !amdgcn.vcc
+    %vcc_c = lsir.alloca : !amdgcn.vcc
     %c0 = arith.constant 0 : i32
-    %cmp_a = lsir.cmpi i32 slt %v0, %c0 : !v, i32
-    lsir.select %v1, %cmp_a, %v2, %v0 : !v, i1, !v, !v
-    %cmp_b = lsir.cmpi i32 slt %v2, %c0 : !v, i32
-    lsir.select %v3, %cmp_b, %v0, %v2 : !v, i1, !v, !v
-    %cmp_c = lsir.cmpi i32 slt %v4, %c0 : !v, i32
-    lsir.select %v5, %cmp_c, %v0, %v4 : !v, i1, !v, !v
+    %cmp_a = lsir.cmpi i32 slt %vcc_a, %v0, %c0 : !amdgcn.vcc, !v, i32
+    lsir.select %v1, %cmp_a, %v2, %v0 : !v, !amdgcn.vcc, !v, !v
+    %cmp_b = lsir.cmpi i32 slt %vcc_b, %v2, %c0 : !amdgcn.vcc, !v, i32
+    lsir.select %v3, %cmp_b, %v0, %v2 : !v, !amdgcn.vcc, !v, !v
+    %cmp_c = lsir.cmpi i32 slt %vcc_c, %v4, %c0 : !amdgcn.vcc, !v, i32
+    lsir.select %v5, %cmp_c, %v0, %v4 : !v, !amdgcn.vcc, !v, !v
     amdgcn.end_kernel
   }
 
@@ -70,12 +75,14 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %v3 = amdgcn.alloca : !v
     %v4 = amdgcn.alloca : !v
     %v5 = amdgcn.alloca : !v
+    %vcc_a = lsir.alloca : !amdgcn.vcc
+    %vcc_b = lsir.alloca : !amdgcn.vcc
     %c0 = arith.constant 0 : i32
-    %cmp_a = lsir.cmpi i32 slt %v0, %c0 : !v, i32
-    lsir.select %v1, %cmp_a, %v2, %v0 : !v, i1, !v, !v
-    lsir.select %v3, %cmp_a, %v4, %v0 : !v, i1, !v, !v
-    %cmp_b = lsir.cmpi i32 slt %v2, %c0 : !v, i32
-    lsir.select %v5, %cmp_b, %v0, %v2 : !v, i1, !v, !v
+    %cmp_a = lsir.cmpi i32 slt %vcc_a, %v0, %c0 : !amdgcn.vcc, !v, i32
+    lsir.select %v1, %cmp_a, %v2, %v0 : !v, !amdgcn.vcc, !v, !v
+    lsir.select %v3, %cmp_a, %v4, %v0 : !v, !amdgcn.vcc, !v, !v
+    %cmp_b = lsir.cmpi i32 slt %vcc_b, %v2, %c0 : !amdgcn.vcc, !v, i32
+    lsir.select %v5, %cmp_b, %v0, %v2 : !v, !amdgcn.vcc, !v, !v
     amdgcn.end_kernel
   }
 

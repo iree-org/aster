@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --amdgcn-convert-scf-control-flow | FileCheck %s
+// RUN: aster-opt %s --aster-convert-scf-control-flow | FileCheck %s
 
 // Test scf.for with a single iter_arg (accumulator pattern)
 // Uses index_cast to convert i32 bounds to index (required by scf.for with iter_args)

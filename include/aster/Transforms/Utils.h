@@ -88,6 +88,10 @@ void populateFuncConversionPatterns(TypeConverter &converter,
                                     ConversionTarget &target,
                                     RewritePatternSet &patterns);
 
+/// Check if a function op interface is legal per the given type converter.
+bool isLegalFuncOpInterface(FunctionOpInterface op,
+                            const TypeConverter &converter);
+
 /// Populate ptr dialect conversion patterns.
 void populatePtrConversionPatterns(TypeConverter &converter,
                                    ConversionTarget &target,
