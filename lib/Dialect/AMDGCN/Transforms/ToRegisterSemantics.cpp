@@ -171,9 +171,11 @@ AllocaOpPattern::matchAndRewrite(AllocaOp op, PatternRewriter &rewriter) const {
     return rewriter.notifyMatchFailure(op,
                                        "alloca does not have value semantics");
 
-  // Create a new alloca with unallocated semantics.
-  AllocaOp newAlloca =
-      AllocaOp::create(rewriter, op.getLoc(), regTy.getAsUnallocated());
+  // Create a new alloca with non-value semantics.
+  RegisterTypeInterface newRegTy = regTy.hasTrait<SpecialRegTrait>()
+                                       ? regTy.getAsAllocated(0)
+                                       : regTy.getAsUnallocated();
+  AllocaOp newAlloca = AllocaOp::create(rewriter, op.getLoc(), newRegTy);
 
   // Create a tagged cast to the original type.
   auto castOp = createTaggedCast(rewriter, op.getLoc(), op.getType(),
