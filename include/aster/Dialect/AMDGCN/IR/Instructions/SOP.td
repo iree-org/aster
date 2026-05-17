@@ -708,27 +708,49 @@ def SCselectB64 : SOP2Out1In3Inst<"s_cselect_b64",
 }
 #endif // SCSELECTB64_DEF
 
-#ifndef SMOVB32_DEF
-#define SMOVB32_DEF
-def SMovB32 : AMDISAInstruction<"s_mov_b32"> {
+#ifndef SOP1OUT1IN1INST_DEF
+#define SOP1OUT1IN1INST_DEF
+class SOP1Out1In1Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type> : AMDISAInstruction<mnemonic> {
   let props = [IsSALU, IsSOP1];
   let archs = [CDNA3Isa, CDNA4Isa];
-  let description = [{
-    Move scalar input into a scalar register.
-  }];
-  let encodings = [InstEnc<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4], 0b00000000>];
   let outputs = (ins
-    OneSGPROrSRegType:$dst0
+    AnyRegOf<dst0Type>:$dst0
   );
   let inputs = (ins
-    OneSGPROrSRegOrLitConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>, F32, IntType<32>>:$src0
+    AnyOperandOf<src0Type>:$src0
   );
   let trailingArgs = (ins);
   let asm_syntax = [
     ASMString<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4], "${mnemonic} $dst0, $src0">
   ];
 }
+#endif // SOP1OUT1IN1INST_DEF
+
+#ifndef SMOVB32_DEF
+#define SMOVB32_DEF
+def SMovB32 : SOP1Out1In1Inst<"s_mov_b32",
+    /*dst0=*/[OneSGPROrSRegType],
+    /*src0=*/[OneSGPROrSRegOrLitConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>, F32, IntType<32>>]
+  > {
+  let description = [{
+    Move scalar input into a scalar register.
+  }];
+  let encodings = [InstEnc<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4], 0b00000000>];
+}
 #endif // SMOVB32_DEF
+
+#ifndef SMOVB64_DEF
+#define SMOVB64_DEF
+def SMovB64 : SOP1Out1In1Inst<"s_mov_b64",
+    /*dst0=*/[TwoSGPROrSRegType],
+    /*src0=*/[TwoSGPROrSRegOrConstType]
+  > {
+  let description = [{
+    Move scalar input into a scalar register.
+  }];
+  let encodings = [InstEnc<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4], 0b00000001>];
+}
+#endif // SMOVB64_DEF
 
 #ifndef SNOP_DEF
 #define SNOP_DEF
