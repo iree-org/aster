@@ -526,14 +526,16 @@ amdgcn.kernel @reg_interference {
 // CHECK:    results: [5 = `%{{.*}}`]
 // CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
 // CHECK:    results: [6 = `%{{.*}}`]
-// CHECK:  Operation: `%{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, i32`
+// CHECK:  Operation: `%{{.*}} = lsir.alloca : !amdgcn.scc`
 // CHECK:    results: [7 = `%{{.*}}`]
-// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
+// CHECK:  Operation: `%{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.scc, !amdgcn.sgpr<?>, i32`
 // CHECK:    results: [8 = `%{{.*}}`]
 // CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
 // CHECK:    results: [9 = `%{{.*}}`]
 // CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
 // CHECK:    results: [10 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
+// CHECK:    results: [11 = `%{{.*}}`]
 // CHECK:  Op: module {...}
 // CHECK:    LIVE BEFORE: []
 // CHECK:  Symbol: phi_coalescing_2
@@ -557,12 +559,14 @@ amdgcn.kernel @reg_interference {
 // CHECK:    LIVE BEFORE: [3 = `%{{.*}}`, 4 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
 // CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 3 = `%{{.*}}`, 4 = `%{{.*}}`]
-// CHECK:  Op: %{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, i32
+// CHECK:  Op: %{{.*}} = lsir.alloca : !amdgcn.scc
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 3 = `%{{.*}}`]
+// CHECK:  Op: %{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.scc, !amdgcn.sgpr<?>, i32
 // CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 3 = `%{{.*}}`]
 // CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>
-// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
-// CHECK:  Op: cf.cond_br %{{.*}}, ^bb1, ^bb2
-// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 8 = `%{{.*}}`]
+// CHECK:  Op: lsir.cond_br %{{.*}} : !amdgcn.scc, ^bb1, ^bb2
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 8 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
 // CHECK:    LIVE BEFORE: [1 = `%{{.*}}`]
 // CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>
@@ -570,9 +574,9 @@ amdgcn.kernel @reg_interference {
 // CHECK:  Op: amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr<?>) -> ()
 // CHECK:    LIVE BEFORE: []
 // CHECK:  Op: lsir.copy %{{.*}}, %{{.*}} : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-// CHECK:    LIVE BEFORE: [9 = `%{{.*}}`]
+// CHECK:    LIVE BEFORE: [10 = `%{{.*}}`]
 // CHECK:  Op: cf.br ^bb3
-// CHECK:    LIVE BEFORE: [8 = `%{{.*}}`]
+// CHECK:    LIVE BEFORE: [9 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
 // CHECK:    LIVE BEFORE: [2 = `%{{.*}}`]
 // CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>
@@ -580,11 +584,11 @@ amdgcn.kernel @reg_interference {
 // CHECK:  Op: amdgcn.test_inst outs %{{.*}} : (!amdgcn.vgpr<?>) -> ()
 // CHECK:    LIVE BEFORE: []
 // CHECK:  Op: lsir.copy %{{.*}}, %{{.*}} : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-// CHECK:    LIVE BEFORE: [10 = `%{{.*}}`]
+// CHECK:    LIVE BEFORE: [11 = `%{{.*}}`]
 // CHECK:  Op: cf.br ^bb3
-// CHECK:    LIVE BEFORE: [8 = `%{{.*}}`]
+// CHECK:    LIVE BEFORE: [9 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.test_inst ins %{{.*}} : (!amdgcn.vgpr<?>) -> ()
-// CHECK:    LIVE BEFORE: [8 = `%{{.*}}`]
+// CHECK:    LIVE BEFORE: [9 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
 amdgcn.kernel @phi_coalescing_2 {
@@ -597,9 +601,10 @@ amdgcn.kernel @phi_coalescing_2 {
   %5 = alloca : !amdgcn.vgpr<?>
   test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
   test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
-  %8 = lsir.cmpi i32 eq %2, %c0_i32 : !amdgcn.sgpr<?>, i32
+  %scc8 = lsir.alloca : !amdgcn.scc
+  %8 = lsir.cmpi i32 eq %scc8, %2, %c0_i32 : !amdgcn.scc, !amdgcn.sgpr<?>, i32
   %9 = alloca : !amdgcn.vgpr<?>
-  cf.cond_br %8, ^bb1, ^bb2
+  lsir.cond_br %8 : !amdgcn.scc, ^bb1, ^bb2
 ^bb1:  // CHECK: pred: ^bb0
   test_inst outs %4 ins %0 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   %11 = alloca : !amdgcn.vgpr<?>
@@ -629,10 +634,12 @@ amdgcn.kernel @phi_coalescing_2 {
 // CHECK:    results: [3 = `%{{.*}}`]
 // CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.sgpr<?>`
 // CHECK:    results: [4 = `%{{.*}}`]
-// CHECK:  Operation: `%{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, i32`
+// CHECK:  Operation: `%{{.*}} = lsir.alloca : !amdgcn.scc`
 // CHECK:    results: [5 = `%{{.*}}`]
-// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
+// CHECK:  Operation: `%{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.scc, !amdgcn.sgpr<?>, i32`
 // CHECK:    results: [6 = `%{{.*}}`]
+// CHECK:  Operation: `%{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>`
+// CHECK:    results: [7 = `%{{.*}}`]
 // CHECK:  Op: module {...}
 // CHECK:    LIVE BEFORE: []
 // CHECK:  Symbol: phi_coalescing_3
@@ -652,22 +659,24 @@ amdgcn.kernel @phi_coalescing_2 {
 // CHECK:    LIVE BEFORE: [3 = `%{{.*}}`, 4 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
 // CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 3 = `%{{.*}}`, 4 = `%{{.*}}`]
-// CHECK:  Op: %{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, i32
+// CHECK:  Op: %{{.*}} = lsir.alloca : !amdgcn.scc
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 3 = `%{{.*}}`]
+// CHECK:  Op: %{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.scc, !amdgcn.sgpr<?>, i32
 // CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 3 = `%{{.*}}`]
 // CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>
-// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
-// CHECK:  Op: cf.cond_br %{{.*}}, ^bb1, ^bb2
-// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
-// CHECK:  Op: lsir.copy %{{.*}}, %{{.*}} : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
-// CHECK:  Op: cf.br ^bb3
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 6 = `%{{.*}}`]
+// CHECK:  Op: lsir.cond_br %{{.*}} : !amdgcn.scc, ^bb1, ^bb2
 // CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 6 = `%{{.*}}`]
 // CHECK:  Op: lsir.copy %{{.*}}, %{{.*}} : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: cf.br ^bb3
-// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 6 = `%{{.*}}`]
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 7 = `%{{.*}}`]
+// CHECK:  Op: lsir.copy %{{.*}}, %{{.*}} : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`]
+// CHECK:  Op: cf.br ^bb3
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 7 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}}, %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
-// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 6 = `%{{.*}}`]
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 7 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
 amdgcn.kernel @phi_coalescing_3 {
@@ -678,9 +687,10 @@ amdgcn.kernel @phi_coalescing_3 {
   %3 = alloca : !amdgcn.sgpr<?>
   test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
   test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
-  %6 = lsir.cmpi i32 eq %2, %c0_i32 : !amdgcn.sgpr<?>, i32
+  %scc6 = lsir.alloca : !amdgcn.scc
+  %6 = lsir.cmpi i32 eq %scc6, %2, %c0_i32 : !amdgcn.scc, !amdgcn.sgpr<?>, i32
   %7 = alloca : !amdgcn.vgpr<?>
-  cf.cond_br %6, ^bb1, ^bb2
+  lsir.cond_br %6 : !amdgcn.scc, ^bb1, ^bb2
 ^bb1:  // CHECK: pred: ^bb0
   lsir.copy %7, %0 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
   cf.br ^bb3
@@ -780,15 +790,18 @@ amdgcn.kernel @test_empty_kernel {
 // CHECK:    LIVE BEFORE: []
 // CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.sgpr<?>
 // CHECK:    LIVE BEFORE: []
-// CHECK:  Op: %{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr<?>, i32
+// CHECK:  Op: %{{.*}} = lsir.alloca : !amdgcn.scc
 // CHECK:    LIVE BEFORE: [1 = `%{{.*}}`]
-// CHECK:  Op: cf.cond_br %{{.*}}, ^bb1, ^bb2
-// CHECK:    LIVE BEFORE: []
+// CHECK:  Op: %{{.*}} = lsir.cmpi i32 eq %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.scc, !amdgcn.sgpr<?>, i32
+// CHECK:    LIVE BEFORE: [1 = `%{{.*}}`]
+// CHECK:  Op: lsir.cond_br %{{.*}} : !amdgcn.scc, ^bb1, ^bb2
+// CHECK:    LIVE BEFORE: [3 = `%{{.*}}`]
 amdgcn.kernel @test_non_register_filtered {
   %c0 = arith.constant 0 : i32
   %0 = alloca : !amdgcn.sgpr<?>
-  %cond = lsir.cmpi i32 eq %0, %c0 : !amdgcn.sgpr<?>, i32
-  cf.cond_br %cond, ^bb1, ^bb2
+  %scc_dst = lsir.alloca : !amdgcn.scc
+  %cond = lsir.cmpi i32 eq %scc_dst, %0, %c0 : !amdgcn.scc, !amdgcn.sgpr<?>, i32
+  lsir.cond_br %cond : !amdgcn.scc, ^bb1, ^bb2
 ^bb1:
   end_kernel
 ^bb2:

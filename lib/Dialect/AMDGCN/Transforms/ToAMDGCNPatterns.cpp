@@ -318,6 +318,22 @@ struct TimingStopOpPattern : public OpRewritePattern<lsir::TimingStopOp> {
 // PtrAddOpPattern
 //===----------------------------------------------------------------------===//
 
+struct CmpIOpPattern : public OpRewritePattern<lsir::CmpIOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::CmpIOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
+// SelectOpPattern
+//===----------------------------------------------------------------------===//
+
+struct SelectOpPattern : public OpRewritePattern<lsir::SelectOp> {
+  using Base::Base;
+  LogicalResult matchAndRewrite(lsir::SelectOp op,
+                                PatternRewriter &rewriter) const override;
+};
+
 struct PtrAddOpPattern : public OpRewritePattern<PtrAddOp> {
   using Base::Base;
   LogicalResult matchAndRewrite(PtrAddOp op,
@@ -1941,17 +1957,177 @@ PtrAddOpPattern::matchAndRewrite(PtrAddOp op, PatternRewriter &rewriter) const {
 }
 
 //===----------------------------------------------------------------------===//
+// SelectOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+SelectOpPattern::matchAndRewrite(lsir::SelectOp op,
+                                 PatternRewriter &rewriter) const {
+  Value flagReg = op.getCondition();
+  bool isVector = isa<VCCType>(flagReg.getType());
+  Location loc = op.getLoc();
+  Value dst = op.getDst();
+  Value result;
+
+  if (isVector) {
+    // v_cndmask_b32: vdst = VCC[lane] ? src1 : src0 (note: reversed order!).
+    // src0 = false_value, src1 = true_value, src2 = VCC.
+    // VOP2 src1 must be a VGPR; materialize via v_mov_b32 into dst if needed.
+    // The resulting dst WAR in v_cndmask_b32 is well-defined for VOP2.
+    Value trueVal = op.getTrueValue();
+    Value falseVal = op.getFalseValue();
+    if (!isa<VGPRType>(trueVal.getType())) {
+      VMovB32::create(rewriter, loc, dst, trueVal);
+      trueVal = dst;
+    }
+    result = VCndmaskB32::create(rewriter, loc, dst, falseVal, trueVal, flagReg)
+                 .getDst0Res();
+  } else {
+    // s_cselect_b32: sdst = SCC ? src0 : src1.
+    // src0 = true_value (selected when SCC=1), src1 = false_value.
+    result = SCselectB32::create(rewriter, loc, dst, op.getTrueValue(),
+                                 op.getFalseValue(), flagReg)
+                 .getDst0Res();
+  }
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// CmpIOpPattern helpers
+//===----------------------------------------------------------------------===//
+
+static Value createScalarCompare(PatternRewriter &rewriter, Location loc,
+                                 arith::CmpIPredicate pred, Value dst,
+                                 Value lhs, Value rhs) {
+  switch (pred) {
+  case arith::CmpIPredicate::eq:
+    return SCmpEqI32::create(rewriter, loc, dst, lhs, rhs).getSccDstRes();
+  case arith::CmpIPredicate::ne:
+    return SCmpLgI32::create(rewriter, loc, dst, lhs, rhs).getSccDstRes();
+  case arith::CmpIPredicate::slt:
+    return SCmpLtI32::create(rewriter, loc, dst, lhs, rhs).getSccDstRes();
+  case arith::CmpIPredicate::sle:
+    return SCmpLeI32::create(rewriter, loc, dst, lhs, rhs).getSccDstRes();
+  case arith::CmpIPredicate::sgt:
+    return SCmpGtI32::create(rewriter, loc, dst, lhs, rhs).getSccDstRes();
+  case arith::CmpIPredicate::sge:
+    return SCmpGeI32::create(rewriter, loc, dst, lhs, rhs).getSccDstRes();
+  case arith::CmpIPredicate::ult:
+    return SCmpLtU32::create(rewriter, loc, dst, lhs, rhs).getSccDstRes();
+  case arith::CmpIPredicate::ule:
+    return SCmpLeU32::create(rewriter, loc, dst, lhs, rhs).getSccDstRes();
+  case arith::CmpIPredicate::ugt:
+    return SCmpGtU32::create(rewriter, loc, dst, lhs, rhs).getSccDstRes();
+  case arith::CmpIPredicate::uge:
+    return SCmpGeU32::create(rewriter, loc, dst, lhs, rhs).getSccDstRes();
+  }
+  llvm_unreachable("unknown CmpIPredicate");
+}
+
+/// Create a v_cmp_* instruction for vector comparisons. The 32-bit VOPC
+/// encoding requires rhs (src1) to be a VGPR; swap operands before calling if
+/// needed.
+static Value createVectorCompare(PatternRewriter &rewriter, Location loc,
+                                 arith::CmpIPredicate pred, Value dst,
+                                 Value lhs, Value rhs) {
+  switch (pred) {
+  case arith::CmpIPredicate::eq:
+    return VCmpEqI32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
+  case arith::CmpIPredicate::ne:
+    return VCmpNeI32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
+  case arith::CmpIPredicate::slt:
+    return VCmpLtI32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
+  case arith::CmpIPredicate::sle:
+    return VCmpLeI32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
+  case arith::CmpIPredicate::sgt:
+    return VCmpGtI32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
+  case arith::CmpIPredicate::sge:
+    return VCmpGeI32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
+  case arith::CmpIPredicate::ult:
+    return VCmpLtU32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
+  case arith::CmpIPredicate::ule:
+    return VCmpLeU32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
+  case arith::CmpIPredicate::ugt:
+    return VCmpGtU32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
+  case arith::CmpIPredicate::uge:
+    return VCmpGeU32::create(rewriter, loc, dst, lhs, rhs).getDst0Res();
+  }
+  llvm_unreachable("unknown CmpIPredicate");
+}
+
+/// Swap a comparison predicate (a op b becomes b swapped_op a).
+static arith::CmpIPredicate swapPredicate(arith::CmpIPredicate pred) {
+  switch (pred) {
+  case arith::CmpIPredicate::eq:
+    return arith::CmpIPredicate::eq;
+  case arith::CmpIPredicate::ne:
+    return arith::CmpIPredicate::ne;
+  case arith::CmpIPredicate::slt:
+    return arith::CmpIPredicate::sgt;
+  case arith::CmpIPredicate::sle:
+    return arith::CmpIPredicate::sge;
+  case arith::CmpIPredicate::sgt:
+    return arith::CmpIPredicate::slt;
+  case arith::CmpIPredicate::sge:
+    return arith::CmpIPredicate::sle;
+  case arith::CmpIPredicate::ult:
+    return arith::CmpIPredicate::ugt;
+  case arith::CmpIPredicate::ule:
+    return arith::CmpIPredicate::uge;
+  case arith::CmpIPredicate::ugt:
+    return arith::CmpIPredicate::ult;
+  case arith::CmpIPredicate::uge:
+    return arith::CmpIPredicate::ule;
+  }
+  llvm_unreachable("unknown CmpIPredicate");
+}
+
+//===----------------------------------------------------------------------===//
+// CmpIOpPattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult CmpIOpPattern::matchAndRewrite(lsir::CmpIOp op,
+                                             PatternRewriter &rewriter) const {
+  Value dst = op.getDst();
+  Value lhs = op.getLhs();
+  Value rhs = op.getRhs();
+  arith::CmpIPredicate pred = op.getPredicate();
+  Location loc = op.getLoc();
+
+  Value result;
+  if (isa<VCCType>(dst.getType())) {
+    // Vector compare: v_cmp_* writes to VCC. The 32-bit VOPC encoding requires
+    // src1 (rhs) to be a VGPR. If rhs is not a VGPR, swap operands and flip
+    // the predicate.
+    if (!isa<VGPRType>(rhs.getType())) {
+      assert(isa<VGPRType>(lhs.getType()) &&
+             "at least one operand must be a VGPR for vector compare");
+      std::swap(lhs, rhs);
+      pred = swapPredicate(pred);
+    }
+    result = createVectorCompare(rewriter, loc, pred, dst, lhs, rhs);
+  } else {
+    // Scalar compare: s_cmp_* writes to SCC.
+    result = createScalarCompare(rewriter, loc, pred, dst, lhs, rhs);
+  }
+
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ToAMDGCNPass patterns
 //===----------------------------------------------------------------------===//
 
 void mlir::aster::amdgcn::populateToAMDGCNPatterns(
     RewritePatternSet &patterns) {
   patterns.add< // Arithmetic ops.
-      AddFOpPattern, AddIOpPattern, AndIOpPattern, ExtSIOpPattern,
-      ExtUIOpPattern, MaximumFOpPattern, MinimumFOpPattern, MulFOpPattern,
-      MulIOpPattern, MulHiSIOpPattern, OrIOpPattern, ShLIOpPattern,
-      ShRSIOpPattern, ShRUIOpPattern, SubFOpPattern, SubIOpPattern,
-      XOrIOpPattern,
+      AddFOpPattern, AddIOpPattern, AndIOpPattern, CmpIOpPattern,
+      SelectOpPattern, ExtSIOpPattern, ExtUIOpPattern, MaximumFOpPattern,
+      MinimumFOpPattern, MulFOpPattern, MulIOpPattern, MulHiSIOpPattern,
+      OrIOpPattern, ShLIOpPattern, ShRSIOpPattern, ShRUIOpPattern,
+      SubFOpPattern, SubIOpPattern, XOrIOpPattern,
       // Memory ops.
       AllocaOpPattern, AssumeNoaliasOpPattern, LoadOpPattern, StoreOpPattern,
       // Data movement ops.

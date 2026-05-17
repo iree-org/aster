@@ -11,12 +11,12 @@
 // 4. Chained selects and loop counter advance all get concrete registers.
 //
 // CHECK-LABEL: kernel @chained_select_loop_3_way_buffer_mux {
-// CHECK:   cf.br ^bb1
+// CHECK:   lsir.br ^bb1
 // CHECK: ^bb1:
 // CHECK:   lsir.select %{{[0-9]+}},
 // CHECK:   lsir.select %{{[0-9]+}},
 // CHECK:   test_inst ins %{{[0-9]+}} : (!amdgcn.sgpr<{{[0-9]+}}>)
-// CHECK:   cf.cond_br %{{.*}}, ^bb1, ^bb2
+// CHECK:   lsir.cond_br %{{.*}} : !amdgcn.scc<{{.*}}>, ^bb1, ^bb2
 amdgcn.module @chained_select target = <gfx942> {
   kernel @chained_select_loop_3_way_buffer_mux {
     %c0_i32 = arith.constant 0 : i32
@@ -46,14 +46,16 @@ amdgcn.module @chained_select target = <gfx942> {
     cf.br ^loop(%k_init, %buf_init : !amdgcn.sgpr, !amdgcn.sgpr)
 
   ^loop(%k: !amdgcn.sgpr, %buf_idx: !amdgcn.sgpr):
+    // Shared SCC alloca for all sequential comparisons.
+    %scc = alloca : !amdgcn.scc
     // 3-way buffer mux: chained select on buf_idx
-    %is_buf0 = lsir.cmpi i32 eq %buf_idx, %c0_i32 : !amdgcn.sgpr, i32
-    %is_buf1 = lsir.cmpi i32 eq %buf_idx, %c1_i32 : !amdgcn.sgpr, i32
+    %is_buf1 = lsir.cmpi i32 eq %scc, %buf_idx, %c1_i32 : !amdgcn.scc, !amdgcn.sgpr, i32
+    // inner picks between buf1 / buf2 values.
+    %inner = lsir.select %s_inner, %is_buf1, %c100_i32, %c200_i32 : !amdgcn.sgpr, !amdgcn.scc, i32, i32
 
-    // Chained select: inner picks between buf1 / buf2 values,
-    // outer picks between buf0 and inner result.
-    %inner = lsir.select %s_inner, %is_buf1, %c100_i32, %c200_i32 : !amdgcn.sgpr, i1, i32, i32
-    %outer = lsir.select %s_outer, %is_buf0, %c0_i32, %inner : !amdgcn.sgpr, i1, i32, !amdgcn.sgpr
+    %is_buf0 = lsir.cmpi i32 eq %scc, %buf_idx, %c0_i32 : !amdgcn.scc, !amdgcn.sgpr, i32
+    // Chained select: outer picks between buf0 and inner result.
+    %outer = lsir.select %s_outer, %is_buf0, %c0_i32, %inner : !amdgcn.sgpr, !amdgcn.scc, i32, !amdgcn.sgpr
 
     // Use the outer select result (prevents DCE)
     test_inst ins %outer : (!amdgcn.sgpr) -> ()
@@ -61,14 +63,14 @@ amdgcn.module @chained_select target = <gfx942> {
     // Advance buf_idx: (buf_idx + 1) % 3 via wrap
     %_scc_dst_add_u32 = alloca : !amdgcn.scc<0>
     %next_raw = s_add_u32 outs(%s_add, %_scc_dst_add_u32) ins(%buf_idx, %c1_i32) : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, i32)
-    %is_3 = lsir.cmpi i32 eq %next_raw, %c3_i32 : !amdgcn.sgpr, i32
-    %next_buf = lsir.select %s_next_buf, %is_3, %c0_i32, %next_raw : !amdgcn.sgpr, i1, i32, !amdgcn.sgpr
+    %is_3 = lsir.cmpi i32 eq %scc, %next_raw, %c3_i32 : !amdgcn.scc, !amdgcn.sgpr, i32
+    %next_buf = lsir.select %s_next_buf, %is_3, %c0_i32, %next_raw : !amdgcn.sgpr, !amdgcn.scc, i32, !amdgcn.sgpr
 
     // Advance loop counter
     %_scc_dst_add_u32_1 = alloca : !amdgcn.scc<0>
     %k_next = s_add_u32 outs(%s_cmp, %_scc_dst_add_u32_1) ins(%k, %c1_i32) : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, i32)
-    %done = lsir.cmpi i32 slt %k_next, %c6_i32 : !amdgcn.sgpr, i32
-    cf.cond_br %done, ^loop(%k_next, %next_buf : !amdgcn.sgpr, !amdgcn.sgpr), ^exit
+    %done = lsir.cmpi i32 slt %scc, %k_next, %c6_i32 : !amdgcn.scc, !amdgcn.sgpr, i32
+    lsir.cond_br %done : !amdgcn.scc, ^loop(%k_next, %next_buf : !amdgcn.sgpr, !amdgcn.sgpr), ^exit
 
   ^exit:
     end_kernel

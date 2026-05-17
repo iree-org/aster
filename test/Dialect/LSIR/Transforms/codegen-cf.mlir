@@ -3,9 +3,10 @@
 //===----------------------------------------------------------------------===//
 // Test CF dialect patterns: arith.cmpi/cmpf conversion and block argument
 // handling in control flow operations. Verifies that:
-// 1. arith.cmpi/cmpf are converted to lsir.cmpi/cmpf returning i1
+// 1. arith.cmpi is converted to lsir.cmpi (DPS, SCC/VCC dst)
 // 2. Scalar block arguments are converted to register types
 // 3. Branch operands are properly wrapped in alloca+mov when needed
+// 4. cf.cond_br with register condition is lowered to lsir.cond_br
 //===----------------------------------------------------------------------===//
 
 // CHECK-LABEL: amdgcn.module @test_uniform_loop
@@ -15,16 +16,18 @@
 // CHECK:           %[[LOAD:.*]] = load_arg 1
 // CHECK:           s_waitcnt
 // CHECK:           split_register_range
-// CHECK:           %[[CMP_INIT:.*]] = lsir.cmpi i32 sgt %{{.*}}, %[[C0]] : !amdgcn.sgpr, i32
+// CHECK:           %[[SCC_INIT:.*]] = lsir.alloca : !amdgcn.scc
+// CHECK:           %[[CMP_INIT:.*]] = lsir.cmpi i32 sgt %[[SCC_INIT]], %{{.*}}, %[[C0]] : !amdgcn.scc, !amdgcn.sgpr, i32
 // CHECK:           %[[ALLOCA_INIT:.*]] = lsir.alloca : !amdgcn.sgpr
 // CHECK:           %[[MOV_INIT:.*]] = lsir.mov %[[ALLOCA_INIT]], %[[C0]]
-// CHECK:           cf.cond_br %[[CMP_INIT]], ^bb1(%[[MOV_INIT]] : !amdgcn.sgpr), ^bb2
+// CHECK:           lsir.cond_br %[[CMP_INIT]] : !amdgcn.scc, ^bb1(%[[MOV_INIT]] : !amdgcn.sgpr), ^bb2
 // CHECK:         ^bb1(%[[LOOP_ARG:.*]]: !amdgcn.sgpr):
 // CHECK:           test_inst ins %[[LOOP_ARG]]
 // CHECK:           %[[ALLOCA_LOOP:.*]] = lsir.alloca : !amdgcn.sgpr
 // CHECK:           %[[LOOP_ADDI:.*]] = lsir.addi i32 %[[ALLOCA_LOOP]], %[[LOOP_ARG]], %[[C1]]
-// CHECK:           %[[CMP_LOOP:.*]] = lsir.cmpi i32 slt %[[LOOP_ADDI]], %{{.*}} : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:           cf.cond_br %[[CMP_LOOP]], ^bb1(%[[LOOP_ADDI]] : !amdgcn.sgpr), ^bb2
+// CHECK:           %[[SCC_LOOP:.*]] = lsir.alloca : !amdgcn.scc
+// CHECK:           %[[CMP_LOOP:.*]] = lsir.cmpi i32 slt %[[SCC_LOOP]], %[[LOOP_ADDI]], %{{.*}} : !amdgcn.scc, !amdgcn.sgpr, !amdgcn.sgpr
+// CHECK:           lsir.cond_br %[[CMP_LOOP]] : !amdgcn.scc, ^bb1(%[[LOOP_ADDI]] : !amdgcn.sgpr), ^bb2
 // CHECK:         ^bb2:
 // CHECK:           end_kernel
 
@@ -63,10 +66,11 @@ amdgcn.module @test_uniform_loop target = <gfx942> {
 // CHECK:           alloca
 // CHECK:           %[[LOAD_RESULT:.*]], %{{.*}} = s_load_dword
 // CHECK:           s_waitcnt
-// CHECK:           %[[CMP_INIT2:.*]] = lsir.cmpi i32 sgt %[[LOAD_RESULT]], %[[C0]] : !amdgcn.sgpr, i32
+// CHECK:           %[[SCC_INIT2:.*]] = lsir.alloca : !amdgcn.scc
+// CHECK:           %[[CMP_INIT2:.*]] = lsir.cmpi i32 sgt %[[SCC_INIT2]], %[[LOAD_RESULT]], %[[C0]] : !amdgcn.scc, !amdgcn.sgpr, i32
 // CHECK:           %[[ALLOCA_INIT2:.*]] = lsir.alloca : !amdgcn.sgpr
 // CHECK:           %[[MOV_INIT2:.*]] = lsir.mov %[[ALLOCA_INIT2]], %[[C0]]
-// CHECK:           cf.cond_br %[[CMP_INIT2]], ^bb1(%[[MOV_INIT2]] : !amdgcn.sgpr), ^bb2
+// CHECK:           lsir.cond_br %[[CMP_INIT2]] : !amdgcn.scc, ^bb1(%[[MOV_INIT2]] : !amdgcn.sgpr), ^bb2
 // CHECK:         ^bb1(%[[LOOP_ARG2:.*]]: !amdgcn.sgpr):
 // CHECK:           %[[ALLOCA_SHLI:.*]] = lsir.alloca : !amdgcn.sgpr
 // CHECK:           %[[LOOP_SHLI:.*]] = lsir.shli i32 %[[ALLOCA_SHLI]], %[[LOOP_ARG2]], %[[C2]]
@@ -75,8 +79,9 @@ amdgcn.module @test_uniform_loop target = <gfx942> {
 // CHECK:           global_store_dword
 // CHECK:           %[[ALLOCA_ADDI:.*]] = lsir.alloca : !amdgcn.sgpr
 // CHECK:           %[[LOOP_ADDI2:.*]] = lsir.addi i32 %[[ALLOCA_ADDI]], %[[LOOP_ARG2]], %[[C1]]
-// CHECK:           %[[CMP_LOOP2:.*]] = lsir.cmpi i32 slt %[[LOOP_ADDI2]], %[[LOAD_RESULT]] : !amdgcn.sgpr, !amdgcn.sgpr
-// CHECK:           cf.cond_br %[[CMP_LOOP2]], ^bb1(%[[LOOP_ADDI2]] : !amdgcn.sgpr), ^bb2
+// CHECK:           %[[SCC_LOOP2:.*]] = lsir.alloca : !amdgcn.scc
+// CHECK:           %[[CMP_LOOP2:.*]] = lsir.cmpi i32 slt %[[SCC_LOOP2]], %[[LOOP_ADDI2]], %[[LOAD_RESULT]] : !amdgcn.scc, !amdgcn.sgpr, !amdgcn.sgpr
+// CHECK:           lsir.cond_br %[[CMP_LOOP2]] : !amdgcn.scc, ^bb1(%[[LOOP_ADDI2]] : !amdgcn.sgpr), ^bb2
 // CHECK:         ^bb2:
 // CHECK:           end_kernel
 
@@ -111,18 +116,19 @@ amdgcn.module @test_uniform_loop_with_load target = <gfx942> {
 // -----
 
 //===----------------------------------------------------------------------===//
-// Test arith.cmpi + arith.select -> lsir.cmpi + lsir.select(i1)
+// Test arith.cmpi + arith.select -> lsir.cmpi (DPS) + lsir.select(SCC)
 // Verifies that:
-// 1. arith.cmpi is converted to lsir.cmpi returning i1
-// 2. arith.select with i1 condition is converted to lsir.select with i1
-// 3. No unrealized_conversion_cast is inserted for the i1 condition
+// 1. arith.cmpi is converted to lsir.cmpi (DPS) with SCC dst
+// 2. arith.select with register condition is converted to lsir.select
+// 3. No unrealized_conversion_cast is inserted
 //===----------------------------------------------------------------------===//
 
 // CHECK-LABEL: amdgcn.module @test_select_i1
 // CHECK:         kernel @test_select_i1
-// CHECK:           %[[CMP:.*]] = lsir.cmpi i32 eq %{{.*}}, %{{.*}} : !amdgcn.sgpr, i32
+// CHECK:           %[[SCC:.*]] = lsir.alloca : !amdgcn.scc
+// CHECK:           %[[CMP:.*]] = lsir.cmpi i32 eq %[[SCC]], %{{.*}}, %{{.*}} : !amdgcn.scc, !amdgcn.sgpr, i32
 // CHECK:           %[[ALLOCA:.*]] = lsir.alloca : !amdgcn.sgpr
-// CHECK:           lsir.select %[[ALLOCA]], %[[CMP]], %{{.*}}, %{{.*}} : !amdgcn.sgpr, i1, i32, i32
+// CHECK:           lsir.select %[[ALLOCA]], %[[CMP]], %{{.*}}, %{{.*}} : !amdgcn.sgpr, !amdgcn.scc, i32, i32
 // CHECK-NOT:       unrealized_conversion_cast
 
 amdgcn.module @test_select_i1 target = <gfx942> {
@@ -141,26 +147,4 @@ amdgcn.module @test_select_i1 target = <gfx942> {
     amdgcn.test_inst ins %3 : (!amdgcn.sgpr) -> ()
     end_kernel
   }
-}
-
-// -----
-
-// CHECK-LABEL:   func.func @test_token_in_args(
-// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.read_token<flat>) {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
-// CHECK:           %[[CMPI_0:.*]] = lsir.cmpi i32 sgt %[[ARG0]], %[[CONSTANT_0]] : !amdgcn.vgpr, i32
-// CHECK:           cf.cond_br %[[CMPI_0]], ^bb1(%[[ARG1]] : !amdgcn.read_token<flat>), ^bb2
-// CHECK:         ^bb1(%[[VAL_0:.*]]: !amdgcn.read_token<flat>):
-// CHECK:           cf.cond_br %[[CMPI_0]], ^bb1(%[[VAL_0]] : !amdgcn.read_token<flat>), ^bb2
-// CHECK:         ^bb2:
-// CHECK:           return
-// CHECK:         }
-func.func @test_token_in_args(%arg0: i32, %arg1: !amdgcn.read_token<flat>) {
-  %c0_i32 = arith.constant 0 : i32
-  %0 = arith.cmpi sgt, %arg0, %c0_i32 : i32
-  cf.cond_br %0, ^bb1(%arg1 : !amdgcn.read_token<flat>), ^bb2
-^bb1(%1: !amdgcn.read_token<flat>):  // 2 preds: ^bb0, ^bb1
-  cf.cond_br %0, ^bb1(%1 : !amdgcn.read_token<flat>), ^bb2
-^bb2:  // 2 preds: ^bb0, ^bb1
-  return
 }

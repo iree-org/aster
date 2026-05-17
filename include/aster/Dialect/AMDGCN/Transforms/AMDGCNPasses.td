@@ -304,45 +304,19 @@ def ConvertLDSBuffers : Pass<"amdgcn-convert-lds-buffers"> {
   ];
 }
 
-def ConvertSCFControlFlow : Pass<"amdgcn-convert-scf-control-flow"> {
-  let summary = "Convert SCF control flow to AMDGCN control flow instructions";
-  let description = [{
-    This pass converts SCF structured control flow operations (such as scf.for,
-    scf.if, scf.while) to AMDGCN control flow instructions.
-
-    The pass first runs thread uniform analysis to determine whether loop
-    induction variables and conditions are uniform across all threads. Based on
-    this analysis:
-
-    - For thread-uniform conditions: emit scalar compare instructions (s_cmp_*)
-      and branch on SCC
-    - For thread-divergent conditions: emit vector compare instructions (v_cmp_*)
-      and branch on VCC/VCCZ
-
-    This pass should run after the ABI has been set and before register
-    allocation.
-
-    Post-condition: #amdgcn.no_op_with_regions
-  }];
-  let dependentDialects = [
-    "mlir::aster::amdgcn::AMDGCNDialect",
-    "mlir::aster::lsir::LSIRDialect",
-    "mlir::cf::ControlFlowDialect"
-  ];
-}
-
 def LegalizeCF : Pass<"amdgcn-legalize-cf"> {
-  let summary = "Legalize CF dialect ops to AMDGCN scalar branch instructions";
+  let summary = "Legalize LSIR branch ops to AMDGCN scalar branch instructions";
   let description = [{
-    This pass legalizes CF dialect operations (cf.cond_br, cf.br) and lsir.cmpi
-    to AMDGCN scalar branch and compare instructions. It runs after register
-    allocation when operands are in physical registers and values flow through
-    side effects.
+    This pass legalizes LSIR branch operations (lsir.cond_br, lsir.br) to
+    AMDGCN scalar branch instructions. It runs after register allocation when
+    operands are in physical registers and values flow through side effects.
+
+    The pass expects lsir.cond_br conditions to be an SCC or VCC register.
 
     Transformations:
-    - lsir.cmpi (returns i1) -> s_cmp_* (sets SCC flag)
-    - cf.cond_br -> s_cbranch_scc1 / scc0 + s_branch
-    - cf.br -> s_branch
+    - lsir.cond_br (SCC condition) -> s_cbranch_scc1/scc0
+    - lsir.cond_br (VCC condition) -> s_cbranch_vccnz/vccz
+    - lsir.br -> s_branch
 
     Pre-condition: #amdgcn.all_registers_allocated
     Post-condition: #amdgcn.no_cf_branches
@@ -354,9 +328,7 @@ def LegalizeCF : Pass<"amdgcn-legalize-cf"> {
     current behavior is enough to model `scf.for` loops.
   }];
   let dependentDialects = [
-    "mlir::aster::amdgcn::AMDGCNDialect",
-    "mlir::arith::ArithDialect",
-    "mlir::cf::ControlFlowDialect"
+    "mlir::aster::amdgcn::AMDGCNDialect"
   ];
 }
 
