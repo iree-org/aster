@@ -48,14 +48,9 @@ using namespace mlir::aster::amdgcn;
 /// Returns true if `type` is a special register (SCC, VCC, …) with value
 /// semantics, i.e. a register that must be tunnelled through an SGPR carrier.
 static bool isSpecialReg(Type type) {
-  auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(type);
-  if (!regTy || !regTy.hasValueSemantics())
+  if (!type.hasTrait<SpecialRegTrait>())
     return false;
-  RegisterKind k = regTy.getRegisterKind();
-  if (k == RegisterKind::Unknown || k == RegisterKind::AGPR ||
-      k == RegisterKind::SGPR || k == RegisterKind::VGPR)
-    return false;
-  return true;
+  return cast<RegisterTypeInterface>(type).hasValueSemantics();
 }
 
 namespace {
@@ -70,6 +65,24 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
+// Allocator
+//===----------------------------------------------------------------------===//
+/// `amdgcn.alloca` allocator.
+struct Allocator {
+  Allocator(Block *entryBB) : entryBB(entryBB) {
+    assert(entryBB != nullptr && "entry block cannot be null");
+  }
+
+  /// Get or create an alloca for the given type. For special-registers this
+  /// returns a unique allocation.
+  Value getOrCreateAlloc(OpBuilder &builder, Location loc, Type type);
+
+private:
+  Block *entryBB;
+  DenseMap<Type, Value> sregAllocMap;
+};
+
+//===----------------------------------------------------------------------===//
 // BufferizationImpl
 //===----------------------------------------------------------------------===//
 /// Register bufferization implementation.
@@ -79,29 +92,34 @@ public:
 ///   Correctness, Code Quality, and Efficiency. [Research Report] 2008, pp.14.
 ///   ⟨inria-00349925v1⟩
 struct BufferizationImpl {
-  BufferizationImpl(DominanceInfo &domInfo, DPSAnalysis &dpsAnalysis,
+  BufferizationImpl(Allocator &allocator, DominanceInfo &domInfo,
+                    DPSAnalysis &dpsAnalysis,
                     DPSClobberingAnalysis &dpsLiveness)
-      : domInfo(domInfo), dpsAnalysis(dpsAnalysis), dpsLiveness(dpsLiveness) {}
+      : allocator(allocator), domInfo(domInfo), dpsAnalysis(dpsAnalysis),
+        dpsLiveness(dpsLiveness) {}
 
   /// Run the bufferization transform.
-  void run(FunctionOpInterface op);
+  void run(RewriterBase &rewriter, FunctionOpInterface op);
 
   /// Insert de-clobbering allocas for the given operation.
-  void handleInstruction(IRRewriter &rewriter, InstOpInterface op);
+  void handleInstruction(RewriterBase &rewriter, InstOpInterface op);
 
   /// Insert phi-breaking copies for the given block argument.
-  void handleBlockArgument(IRRewriter &rewriter, BlockArgument arg);
+  void handleBlockArgument(RewriterBase &rewriter, BlockArgument arg);
 
   /// Insert phi-forwards.
-  void handlePhiForwards(IRRewriter &rewriter);
+  void handlePhiForwards(RewriterBase &rewriter);
 
   /// Insert phi-forwards for a group of phi-forwards.
-  void handlePhiForwardGroup(IRRewriter &rewriter, int64_t start, int64_t end);
+  void handlePhiForwardGroup(RewriterBase &rewriter, int64_t start,
+                             int64_t end);
 
   /// Remove register values from the terminators and the given blocks.
-  void handleBlocksAndTerminators(IRRewriter &rewriter,
+  void handleBlocksAndTerminators(RewriterBase &rewriter,
                                   ArrayRef<Block *> blocks);
-
+  /// An alloca allocator.
+  Allocator &allocator;
+  /// The dominance info.
   DominanceInfo &domInfo;
   /// The entry block of the function.
   Block *entryBlock = nullptr;
@@ -125,12 +143,42 @@ struct BufferizationImpl {
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// AMDGCNBufferization pass
+// Allocator
 //===----------------------------------------------------------------------===//
 
-void BufferizationImpl::run(FunctionOpInterface op) {
+Value Allocator::getOrCreateAlloc(OpBuilder &builder, Location loc, Type type) {
+  auto rTy = cast<RegisterTypeInterface>(type);
+
+  // For non-special registers, just create a new allocation.
+  if (!rTy.hasTrait<SpecialRegTrait>())
+    return createAllocation(builder, loc, rTy);
+
+  // For special registers, check if the allocation is already cached.
+  Value &alloc = sregAllocMap[type];
+  if (alloc)
+    return alloc;
+
+  // Create a new allocation and cache it.
+  OpBuilder::InsertionGuard guard(builder);
+  builder.setInsertionPointToStart(entryBB);
+  alloc = createAllocation(builder, loc, rTy);
+
+  // For composite special registers, map the sub-allocations to the cache.
+  if (bitEnumContainsAll(rTy.getProps(), RegisterProps::IsComposite)) {
+    auto rOp = alloc.getDefiningOp<MakeRegisterRangeOp>();
+    assert(rOp && "expected allocation to be a range");
+    for (Value v : rOp.getInputs())
+      sregAllocMap[v.getType()] = v;
+  }
+  return alloc;
+}
+
+//===----------------------------------------------------------------------===//
+// BufferizationImpl
+//===----------------------------------------------------------------------===//
+
+void BufferizationImpl::run(RewriterBase &rewriter, FunctionOpInterface op) {
   entryBlock = &op.getFunctionBody().getBlocks().front();
-  IRRewriter rewriter(op->getContext());
   // Insert de-clobbering allocas for all instructions that needed.
   op.walk([&](InstOpInterface op) {
     rewriter.setInsertionPoint(op);
@@ -157,7 +205,7 @@ void BufferizationImpl::run(FunctionOpInterface op) {
   handleBlocksAndTerminators(rewriter, blocksToUpdate);
 }
 
-void BufferizationImpl::handleInstruction(IRRewriter &rewriter,
+void BufferizationImpl::handleInstruction(RewriterBase &rewriter,
                                           InstOpInterface instOp) {
   ResultRange results = instOp.getInstResults();
   if (results.empty())
@@ -183,13 +231,14 @@ void BufferizationImpl::handleInstruction(IRRewriter &rewriter,
     if (!resultInfo[pos++])
       continue;
 
-    Value newAlloca = createAllocation(rewriter, instOp.getLoc(), regTy);
+    Value newAlloca =
+        allocator.getOrCreateAlloc(rewriter, instOp.getLoc(), regTy);
     out.set(newAlloca);
     LDBG() << "-- De-clobbering out operand: " << idx;
   }
 }
 
-void BufferizationImpl::handleBlockArgument(IRRewriter &rewriter,
+void BufferizationImpl::handleBlockArgument(RewriterBase &rewriter,
                                             BlockArgument arg) {
   const DPSAnalysis::ProvenanceSet *provenance = dpsAnalysis.getProvenance(arg);
   assert(provenance != nullptr && "block argument must have provenance");
@@ -218,7 +267,7 @@ void BufferizationImpl::handleBlockArgument(IRRewriter &rewriter,
     carrierTy = regTy.getAsUnallocated();
   }
   Value commonAlloc = createAllocation(rewriter, loc, carrierTy);
-  Value argAlloc = createAllocation(rewriter, loc, regTy);
+  Value argAlloc = allocator.getOrCreateAlloc(rewriter, loc, regTy);
 
   // Save the branch, value to forward, destination block and allocation for
   // each phi-node to handle later.
@@ -258,7 +307,7 @@ void BufferizationImpl::handleBlockArgument(IRRewriter &rewriter,
   phiReplacements.push_back({arg, cpy.getTargetRes()});
 }
 
-void BufferizationImpl::handlePhiForwards(IRRewriter &rewriter) {
+void BufferizationImpl::handlePhiForwards(RewriterBase &rewriter) {
   auto getCmpTuple = [&](const std::tuple<BranchOpInterface, int32_t, Value,
                                           Block *, Value, int64_t> &elem) {
     BranchOpInterface brOp = std::get<0>(elem);
@@ -295,7 +344,7 @@ void BufferizationImpl::handlePhiForwards(IRRewriter &rewriter) {
   }
 }
 
-void BufferizationImpl::handlePhiForwardGroup(IRRewriter &rewriter,
+void BufferizationImpl::handlePhiForwardGroup(RewriterBase &rewriter,
                                               int64_t start, int64_t end) {
   // Get the origin block and region.
   Block *prdBlock = std::get<0>(phiForwards[start])->getBlock();
@@ -329,7 +378,7 @@ void BufferizationImpl::handlePhiForwardGroup(IRRewriter &rewriter,
                        std::get<3>(phiForwards[start]), fwdValues);
 }
 
-void BufferizationImpl::handleBlocksAndTerminators(IRRewriter &rewriter,
+void BufferizationImpl::handleBlocksAndTerminators(RewriterBase &rewriter,
                                                    ArrayRef<Block *> blocks) {
   auto isRegValType = [](Value value) {
     auto regTy = dyn_cast<RegisterTypeInterface>(value.getType());
@@ -369,9 +418,47 @@ void BufferizationImpl::handleBlocksAndTerminators(IRRewriter &rewriter,
 // AMDGCNBufferization pass
 //===----------------------------------------------------------------------===//
 
-void AMDGCNBufferization::runOnOperation() {
-  Operation *moduleOp = getOperation();
-  auto &domInfo = getAnalysis<DominanceInfo>();
+/// Canonicalize outs of special register-typed instructions to shared
+/// allocations.
+static void canonicalizeSRegAllocas(IRRewriter &rewriter, Allocator &allocator,
+                                    FunctionOpInterface op) {
+  SetVector<AllocaOpInterface> allocas;
+  op.walk([&](InstOpInterface op) {
+    OperandRange outs = op.getInstOuts();
+    if (outs.empty())
+      return;
+    MutableArrayRef<OpOperand> operands =
+        op->getOpOperands().slice(outs.getBeginOperandIndex(), outs.size());
+    // Go through each out-operand and canonicalize it to a shared allocation.
+    for (OpOperand &out : operands) {
+      if (!out.get().getType().hasTrait<SpecialRegTrait>())
+        continue;
+      // If the out-operand is an alloca, add it to the list of allocas to
+      // erase.
+      if (auto maybeAlloc =
+              dyn_cast_if_present<AllocaOpInterface>(out.get().getDefiningOp()))
+        allocas.insert(maybeAlloc);
+
+      // Get the shared allocation for the special register type.
+      Value alloc = allocator.getOrCreateAlloc(rewriter, op.getLoc(),
+                                               out.get().getType());
+      out.set(alloc);
+    }
+  });
+
+  // Erase the allocas.
+  for (AllocaOpInterface alloc : allocas) {
+    if (alloc->use_empty())
+      rewriter.eraseOp(alloc);
+  }
+}
+
+/// Run the bufferization transform on the given function.
+static LogicalResult runOnFunction(FunctionOpInterface op,
+                                   DominanceInfo &domInfo) {
+  IRRewriter rewriter(op->getContext());
+  Allocator allocator(&op.getFunctionBody().getBlocks().front());
+  canonicalizeSRegAllocas(rewriter, allocator, op);
 
   // Create the dataflow solver and load the liveness analysis.
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
@@ -380,34 +467,38 @@ void AMDGCNBufferization::runOnOperation() {
   solver.load<LivenessAnalysis>(symbolTable);
 
   // Initialize and run the solver.
-  if (failed(solver.initializeAndRun(moduleOp))) {
-    moduleOp->emitError() << "failed to run liveness analysis";
-    return signalPassFailure();
-  }
+  if (failed(solver.initializeAndRun(op)))
+    return op->emitError() << "failed to run liveness analysis";
+
+  // Run the DPS analysis.
+  FailureOr<DPSAnalysis> dpsResult = DPSAnalysis::create(op);
+  if (failed(dpsResult))
+    return op->emitError() << "failed to run DPS analysis";
+
+  // Run the DPS liveness analysis.
+  FailureOr<DPSClobberingAnalysis> livenessResult =
+      DPSClobberingAnalysis::create(*dpsResult, solver, op);
+  if (failed(livenessResult))
+    return op->emitError() << "failed to run DPS liveness analysis";
+
+  // Run the bufferization transform.
+  BufferizationImpl impl(allocator, domInfo, *dpsResult, *livenessResult);
+  impl.run(rewriter, op);
+
+  return success();
+}
+
+void AMDGCNBufferization::runOnOperation() {
+  Operation *moduleOp = getOperation();
+  auto &domInfo = getAnalysis<DominanceInfo>();
 
   // Walk through the functions and run the bufferization transform.
   WalkResult result = moduleOp->walk([&](FunctionOpInterface op) {
     if (op.empty())
       return WalkResult::skip();
 
-    // Run the DPS analysis.
-    FailureOr<DPSAnalysis> dpsResult = DPSAnalysis::create(op);
-    if (failed(dpsResult)) {
-      op->emitError() << "failed to run DPS analysis";
+    if (failed(runOnFunction(op, domInfo)))
       return WalkResult::interrupt();
-    }
-
-    // Run the DPS liveness analysis.
-    FailureOr<DPSClobberingAnalysis> livenessResult =
-        DPSClobberingAnalysis::create(*dpsResult, solver, op);
-    if (failed(livenessResult)) {
-      op->emitError() << "failed to run DPS liveness analysis";
-      return WalkResult::interrupt();
-    }
-
-    // Run the bufferization transform.
-    BufferizationImpl impl(domInfo, *dpsResult, *livenessResult);
-    impl.run(op);
 
     return WalkResult::advance();
   });
