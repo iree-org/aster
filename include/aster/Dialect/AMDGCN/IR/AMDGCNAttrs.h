@@ -19,11 +19,12 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
 #include "aster/Dialect/AMDGCN/IR/Hazards.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.h"
-#include "aster/Dialect/NormalForm/IR/NormalFormInterfaces.h"
 #include "aster/Interfaces/MemorySpaceConstraints.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "aster/Interfaces/TargetAttr.h"
 #include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.h"
+#include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
+#include "mlir/Dialect/Transform/Utils/DiagnosedSilenceableFailure.h"
 #include "mlir/IR/Attributes.h"
 
 namespace mlir {
