@@ -1445,6 +1445,31 @@ class VOP1Out1In1Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type,
 }
 #endif // VOP1OUT1IN1INST_DEF
 
+#ifndef VACCVGPRMOVB32_DEF
+#define VACCVGPRMOVB32_DEF
+def VAccvgprMovB32 : VOP1Out1In1Inst<"v_accvgpr_mov_b32",
+    /*dst0=*/[AGPROf<1>],
+    /*src0=*/[AGPROf<1>],
+    /*opTraits=*/[MovInstOpInterface]
+  > {
+  let description = [{
+    Move data from one accumulator register to another accumulator register.
+  }];
+  let encodings = [
+    InstEnc<[ENC_VOP1_CDNA3, ENC_VOP1_CDNA4], 0b01010010>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0111010010>
+  ];
+  let asm_syntax = [
+    ASMString<[ENC_VOP1_CDNA3, ENC_VOP1_CDNA4], "${mnemonic} $dst0, $src0">
+  ];
+  let instExtraClassDeclaration = [{
+    ::mlir::aster::Operand getDestOperand() { return getDst0Mutable(); }
+    ::mlir::Value getDestResult() { return getDst0Res(); }
+    ::mlir::aster::Operand getSrcOperand() { return getSrc0Mutable(); }
+  }];
+}
+#endif // VACCVGPRMOVB32_DEF
+
 #ifndef VCVTF16F32_DEF
 #define VCVTF16F32_DEF
 def VCvtF16F32 : VOP1Out1In1Inst<"v_cvt_f16_f32",
