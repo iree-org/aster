@@ -20,7 +20,6 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNTypeConstraints.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
 include "aster/IR/CommonProps.td"
-include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 include "aster/Interfaces/AllocaOpInterface.td"
 include "aster/Interfaces/DependentOpInterface.td"
@@ -446,11 +445,11 @@ def AMDGCN_KernelOp : AMDGCN_Op<"kernel", [
 
     /// Adds normal form attributes. Returns true if the op was changed.
     bool addNormalForms(
-        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
+        ::llvm::ArrayRef<::mlir::transform::NormalFormAttrInterface> normalForms);
 
     /// Removes normal form attributes. Returns true if the op was changed.
     bool removeNormalForms(
-        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
+        ::llvm::ArrayRef<::mlir::transform::NormalFormAttrInterface> normalForms);
   }];
 }
 
@@ -573,11 +572,11 @@ def AMDGCN_ModuleOp : AMDGCN_Op<"module", [
 
     /// Adds normal form attributes. Returns true if the op was changed.
     bool addNormalForms(
-        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
+        ::llvm::ArrayRef<::mlir::transform::NormalFormAttrInterface> normalForms);
 
     /// Removes normal form attributes. Returns true if the op was changed.
     bool removeNormalForms(
-        ::llvm::ArrayRef<::normalform::NormalFormAttrInterface> normalForms);
+        ::llvm::ArrayRef<::mlir::transform::NormalFormAttrInterface> normalForms);
   }];
 }
 

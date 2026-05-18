@@ -22,7 +22,6 @@ add_mlir_dialect_library(AMDGCNDialect
   ASTERIR
   AsterInterfaces
   LSIRDialect
-  MLIRNormalFormDialect
   MLIRArithDialect
   MLIRControlFlowDialect
   MLIRControlFlowInterfaces
@@ -31,4 +30,6 @@ add_mlir_dialect_library(AMDGCNDialect
   MLIRIR
   MLIRInferTypeOpInterface
   MLIRPtrDialect
+  MLIRTransformDialectInterfaces
+  MLIRTransformDialectUtils
 )

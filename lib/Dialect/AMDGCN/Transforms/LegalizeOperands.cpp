@@ -42,37 +42,31 @@ struct LegalizeOperands
 };
 
 //===----------------------------------------------------------------------===//
-// SelectLegalizePattern
+// VGPRSelectInstLegalizePattern
 //===----------------------------------------------------------------------===//
 
-struct SelectLegalizePattern : public OpRewritePattern<lsir::SelectOp> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(lsir::SelectOp op,
+// Handles VALU select ops (non-SCC condition) where the true-value operand
+// must be materialized into a VGPR (VOP2 src1 must be VGPR, VOP3 must be
+// inline).
+struct VGPRSelectInstLegalizePattern
+    : public OpInterfaceRewritePattern<SelectInstOpInterface> {
+  using Base::Base;
+
+  LogicalResult matchAndRewrite(SelectInstOpInterface op,
                                 PatternRewriter &rewriter) const override;
 };
 
 //===----------------------------------------------------------------------===//
-// SCselectLegalizePattern
+// SGPRSelectInstLegalizePattern
 //===----------------------------------------------------------------------===//
 
-// SOP2 allows at most one literal; materialize src0 into a register.
-template <typename OpTy, int bitWidth>
-struct SCselectLegalizePattern : public OpRewritePattern<OpTy> {
-  using OpRewritePattern<OpTy>::OpRewritePattern;
-  LogicalResult matchAndRewrite(OpTy op,
-                                PatternRewriter &rewriter) const override;
-};
+// Handles SALU select ops (SCC condition) where two non-inline constants
+// require materializing the true-value operand (SOP2 at-most-one-literal rule).
+struct SGPRSelectInstLegalizePattern
+    : public OpInterfaceRewritePattern<SelectInstOpInterface> {
+  using Base::Base;
 
-using SCselectB32LegalizePattern = SCselectLegalizePattern<SCselectB32, 32>;
-using SCselectB64LegalizePattern = SCselectLegalizePattern<SCselectB64, 64>;
-
-//===----------------------------------------------------------------------===//
-// VCndmaskB32LegalizePattern
-//===----------------------------------------------------------------------===//
-
-struct VCndmaskB32LegalizePattern : public OpRewritePattern<VCndmaskB32> {
-  using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(VCndmaskB32 op,
+  LogicalResult matchAndRewrite(SelectInstOpInterface op,
                                 PatternRewriter &rewriter) const override;
 };
 
@@ -91,95 +85,64 @@ static std::optional<int64_t> getConstInt(Value v, int width) {
 static bool isInlineInt(int64_t val) { return val >= -16 && val <= 64; }
 
 //===----------------------------------------------------------------------===//
-// SelectLegalizePattern
+// VGPRSelectInstLegalizePattern
 //===----------------------------------------------------------------------===//
 
-LogicalResult
-SelectLegalizePattern::matchAndRewrite(lsir::SelectOp op,
-                                       PatternRewriter &rewriter) const {
+LogicalResult VGPRSelectInstLegalizePattern::matchAndRewrite(
+    SelectInstOpInterface op, PatternRewriter &rewriter) const {
+  if (isa<SCCType>(op.getConditionOperand().getType()))
+    return failure();
+  Value trueVal = op.getTrueValueOperand().getValue();
+  std::optional<int64_t> trueConst = getConstInt(trueVal, 32);
+  if (!trueConst || isInlineInt(*trueConst))
+    return failure();
   MLIRContext *ctx = rewriter.getContext();
-  Location loc = op.getLoc();
+  Location loc = op->getLoc();
+  Value out = createAllocation(rewriter, loc, getVGPR(ctx));
+  Value movResult = VMovB32::create(rewriter, loc, out, trueVal).getDst0Res();
+  rewriter.modifyOpInPlace(
+      op, [&]() { op.getTrueValueOperand().get()->set(movResult); });
+  return success();
+}
 
-  if (isa<VCCType>(op.getCondition().getType())) {
-    // VOP2 src1 must be VGPR; VOP3 requires inline. Materialize into a VGPR.
-    auto trueConst = getConstInt(op.getTrueValue(), 32);
-    if (!trueConst || isInlineInt(*trueConst))
-      return failure();
-    Value out = createAllocation(rewriter, loc, getVGPR(ctx));
-    Value movResult =
-        VMovB32::create(rewriter, loc, out, op.getTrueValue()).getDst0Res();
-    rewriter.modifyOpInPlace(
-        op, [&]() { op.getTrueValueMutable().assign(movResult); });
-    return success();
+//===----------------------------------------------------------------------===//
+// SGPRSelectInstLegalizePattern
+//===----------------------------------------------------------------------===//
+
+LogicalResult SGPRSelectInstLegalizePattern::matchAndRewrite(
+    SelectInstOpInterface op, PatternRewriter &rewriter) const {
+  if (!isa<SCCType>(op.getConditionOperand().getType()))
+    return failure();
+  Value trueVal = op.getTrueValueOperand().getValue();
+  Value falseVal = op.getFalseValueOperand().getValue();
+  // Try 32-bit first, then 64-bit.
+  std::optional<int64_t> trueConst = getConstInt(trueVal, 32);
+  std::optional<int64_t> falseConst = getConstInt(falseVal, 32);
+  int bitWidth = 32;
+  if (!trueConst && !falseConst) {
+    trueConst = getConstInt(trueVal, 64);
+    falseConst = getConstInt(falseVal, 64);
+    bitWidth = 64;
   }
-
-  // SOP2 allows at most one literal; materialize true_value into an SGPR.
-  auto trueConst = getConstInt(op.getTrueValue(), 32);
-  auto falseConst = getConstInt(op.getFalseValue(), 32);
   if (!trueConst || !falseConst || isInlineInt(*trueConst) ||
       isInlineInt(*falseConst))
     return failure();
-  Value out = createAllocation(rewriter, loc, getSGPR(ctx));
-  Value movResult =
-      SMovB32::create(rewriter, loc, getSGPR(ctx), out, op.getTrueValue())
-          .getDst0Res();
-  rewriter.modifyOpInPlace(
-      op, [&]() { op.getTrueValueMutable().assign(movResult); });
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// SCselectLegalizePattern
-//===----------------------------------------------------------------------===//
-
-template <typename OpTy, int bitWidth>
-LogicalResult SCselectLegalizePattern<OpTy, bitWidth>::matchAndRewrite(
-    OpTy op, PatternRewriter &rewriter) const {
-  auto src0Const = getConstInt(op.getSrc0(), bitWidth);
-  auto src1Const = getConstInt(op.getSrc1(), bitWidth);
-  if (!src0Const || !src1Const || isInlineInt(*src0Const) ||
-      isInlineInt(*src1Const))
-    return failure();
-
   MLIRContext *ctx = rewriter.getContext();
-  Location loc = op.getLoc();
-  if constexpr (bitWidth == 32) {
+  Location loc = op->getLoc();
+  Value movResult;
+  if (bitWidth == 32) {
     RegisterTypeInterface sgprTy = getSGPR(ctx);
     Value out = createAllocation(rewriter, loc, sgprTy);
-    Value movResult =
-        SMovB32::create(rewriter, loc, sgprTy, out, op.getSrc0()).getDst0Res();
-    rewriter.modifyOpInPlace(op,
-                             [&]() { op.getSrc0Mutable().assign(movResult); });
-    return success();
+    movResult =
+        SMovB32::create(rewriter, loc, sgprTy, out, trueVal).getDst0Res();
+  } else {
+    RegisterTypeInterface sgprTy = getSGPR(ctx, 2);
+    Value out = createAllocation(rewriter, loc, sgprTy);
+    movResult =
+        SMovB64::create(rewriter, loc, sgprTy, out, trueVal).getDst0Res();
   }
-  RegisterTypeInterface sgprTy = getSGPR(ctx, 2);
-  Value out = createAllocation(rewriter, loc, sgprTy);
-  Value movResult =
-      SMovB64::create(rewriter, loc, sgprTy, out, op.getSrc0()).getDst0Res();
-  rewriter.modifyOpInPlace(op,
-                           [&]() { op.getSrc0Mutable().assign(movResult); });
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// VCndmaskB32LegalizePattern
-//===----------------------------------------------------------------------===//
-
-LogicalResult
-VCndmaskB32LegalizePattern::matchAndRewrite(VCndmaskB32 op,
-                                            PatternRewriter &rewriter) const {
-  // VOP2 src1 must be VGPR; VOP3 requires inline. Materialize into a VGPR.
-  auto src1Const = getConstInt(op.getSrc1(), 32);
-  if (!src1Const || isInlineInt(*src1Const))
-    return failure();
-
-  MLIRContext *ctx = rewriter.getContext();
-  Location loc = op.getLoc();
-  Value out = createAllocation(rewriter, loc, getVGPR(ctx));
-  Value movResult =
-      VMovB32::create(rewriter, loc, out, op.getSrc1()).getDst0Res();
-  rewriter.modifyOpInPlace(op,
-                           [&]() { op.getSrc1Mutable().assign(movResult); });
+  rewriter.modifyOpInPlace(
+      op, [&]() { op.getTrueValueOperand().get()->set(movResult); });
   return success();
 }
 
@@ -189,8 +152,7 @@ VCndmaskB32LegalizePattern::matchAndRewrite(VCndmaskB32 op,
 
 void LegalizeOperands::runOnOperation() {
   RewritePatternSet patterns(&getContext());
-  patterns.add<SelectLegalizePattern, SCselectB32LegalizePattern,
-               SCselectB64LegalizePattern, VCndmaskB32LegalizePattern>(
+  patterns.add<VGPRSelectInstLegalizePattern, SGPRSelectInstLegalizePattern>(
       &getContext());
   if (failed(applyPatternsGreedily(
           getOperation(), FrozenRewritePatternSet(std::move(patterns)))))

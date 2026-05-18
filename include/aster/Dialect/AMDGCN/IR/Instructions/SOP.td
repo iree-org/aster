@@ -660,7 +660,7 @@ def SMulI32 : SOP2Out1In2Inst<"s_mul_i32"> {
 
 #ifndef SOP2OUT1IN3INST_DEF
 #define SOP2OUT1IN3INST_DEF
-class SOP2Out1In3Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type, list<Type> src1Type> : AMDISAInstruction<mnemonic> {
+class SOP2Out1In3Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type, list<Type> src1Type, list<Trait> opTraits = []> : AMDISAInstruction<mnemonic, opTraits> {
   let props = [IsSALU, IsSOP2];
   let archs = [CDNA3Isa, CDNA4Isa];
   let outputs = (ins
@@ -683,13 +683,21 @@ class SOP2Out1In3Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type,
 def SCselectB32 : SOP2Out1In3Inst<"s_cselect_b32",
     /*dst0=*/[OneSGPROrSRegType],
     /*src0=*/[OneSGPROrSRegOrLitConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>, F32, IntType<32>>],
-    /*src1=*/[OneSGPROrSRegOrLitConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>, F32, IntType<32>>]
+    /*src1=*/[OneSGPROrSRegOrLitConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>, F32, IntType<32>>],
+    /*opTraits=*/[SelectInstOpInterface]
   > {
   let description = [{
     Select the first input if SCC is true otherwise select the second input,
     then store the selected input into a scalar register.
   }];
   let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001010>];
+  let instExtraClassDeclaration = [{
+    ::mlir::aster::Operand getDestOperand() { return getDst0Mutable(); }
+    ::mlir::Value getDestResult() { return getDst0Res(); }
+    ::mlir::aster::Operand getConditionOperand() { return getSccSrcMutable(); }
+    ::mlir::aster::Operand getTrueValueOperand() { return getSrc0Mutable(); }
+    ::mlir::aster::Operand getFalseValueOperand() { return getSrc1Mutable(); }
+  }];
 }
 #endif // SCSELECTB32_DEF
 
@@ -698,19 +706,27 @@ def SCselectB32 : SOP2Out1In3Inst<"s_cselect_b32",
 def SCselectB64 : SOP2Out1In3Inst<"s_cselect_b64",
     /*dst0=*/[TwoSGPROrSRegType],
     /*src0=*/[TwoSGPROrSRegOrConstType],
-    /*src1=*/[TwoSGPROrSRegOrConstType]
+    /*src1=*/[TwoSGPROrSRegOrConstType],
+    /*opTraits=*/[SelectInstOpInterface]
   > {
   let description = [{
     Select the first input if SCC is true otherwise select the second input,
     then store the selected input into a scalar register.
   }];
   let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001011>];
+  let instExtraClassDeclaration = [{
+    ::mlir::aster::Operand getDestOperand() { return getDst0Mutable(); }
+    ::mlir::Value getDestResult() { return getDst0Res(); }
+    ::mlir::aster::Operand getConditionOperand() { return getSccSrcMutable(); }
+    ::mlir::aster::Operand getTrueValueOperand() { return getSrc0Mutable(); }
+    ::mlir::aster::Operand getFalseValueOperand() { return getSrc1Mutable(); }
+  }];
 }
 #endif // SCSELECTB64_DEF
 
 #ifndef SOP1OUT1IN1INST_DEF
 #define SOP1OUT1IN1INST_DEF
-class SOP1Out1In1Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type> : AMDISAInstruction<mnemonic> {
+class SOP1Out1In1Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type, list<Trait> opTraits = []> : AMDISAInstruction<mnemonic, opTraits> {
   let props = [IsSALU, IsSOP1];
   let archs = [CDNA3Isa, CDNA4Isa];
   let outputs = (ins
@@ -730,12 +746,18 @@ class SOP1Out1In1Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type>
 #define SMOVB32_DEF
 def SMovB32 : SOP1Out1In1Inst<"s_mov_b32",
     /*dst0=*/[OneSGPROrSRegType],
-    /*src0=*/[OneSGPROrSRegOrLitConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>, F32, IntType<32>>]
+    /*src0=*/[OneSGPROrSRegOrLitConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>, F32, IntType<32>>],
+    /*opTraits=*/[MovInstOpInterface]
   > {
   let description = [{
     Move scalar input into a scalar register.
   }];
   let encodings = [InstEnc<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4], 0b00000000>];
+  let instExtraClassDeclaration = [{
+    ::mlir::aster::Operand getDestOperand() { return getDst0Mutable(); }
+    ::mlir::Value getDestResult() { return getDst0Res(); }
+    ::mlir::aster::Operand getSrcOperand() { return getSrc0Mutable(); }
+  }];
 }
 #endif // SMOVB32_DEF
 
@@ -743,12 +765,18 @@ def SMovB32 : SOP1Out1In1Inst<"s_mov_b32",
 #define SMOVB64_DEF
 def SMovB64 : SOP1Out1In1Inst<"s_mov_b64",
     /*dst0=*/[TwoSGPROrSRegType],
-    /*src0=*/[TwoSGPROrSRegOrConstType]
+    /*src0=*/[TwoSGPROrSRegOrConstType],
+    /*opTraits=*/[MovInstOpInterface]
   > {
   let description = [{
     Move scalar input into a scalar register.
   }];
   let encodings = [InstEnc<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4], 0b00000001>];
+  let instExtraClassDeclaration = [{
+    ::mlir::aster::Operand getDestOperand() { return getDst0Mutable(); }
+    ::mlir::Value getDestResult() { return getDst0Res(); }
+    ::mlir::aster::Operand getSrcOperand() { return getSrc0Mutable(); }
+  }];
 }
 #endif // SMOVB64_DEF
 

@@ -1,6 +1,6 @@
 // RUN: aster-opt %s --amdgcn-set-normal-forms='module-forms=no_lsir_ops' | FileCheck %s --check-prefix=MODULE
-// RUN: aster-opt %s --amdgcn-set-normal-forms='kernel-forms=no_op_with_regions' | FileCheck %s --check-prefix=KERNEL
-// RUN: aster-opt %s --amdgcn-set-normal-forms='module-forms=no_lsir_ops kernel-forms=no_op_with_regions,no_cf_branches' | FileCheck %s --check-prefix=BOTH
+// RUN: aster-opt %s --amdgcn-set-normal-forms='kernel-forms=no_scf_ops' | FileCheck %s --check-prefix=KERNEL
+// RUN: aster-opt %s --amdgcn-set-normal-forms='module-forms=no_lsir_ops kernel-forms=no_scf_ops,no_cf_branches' | FileCheck %s --check-prefix=BOTH
 
 // MODULE: amdgcn.module @test
 // MODULE-SAME: attributes {normal_forms = [#amdgcn.no_lsir_ops]}
@@ -10,12 +10,12 @@
 // KERNEL: amdgcn.module @test
 // KERNEL-NOT:   normal_forms
 // KERNEL:       kernel @k
-// KERNEL-SAME:  normal_forms = [#amdgcn.no_op_with_regions]
+// KERNEL-SAME:  normal_forms = [#amdgcn.no_scf_ops]
 
 // BOTH: amdgcn.module @test
 // BOTH-SAME: attributes {normal_forms = [#amdgcn.no_lsir_ops]}
 // BOTH:       kernel @k
-// BOTH-SAME:  normal_forms = [#amdgcn.no_op_with_regions, #amdgcn.no_cf_branches]
+// BOTH-SAME:  normal_forms = [#amdgcn.no_scf_ops, #amdgcn.no_cf_branches]
 
 amdgcn.module @test target = #amdgcn.target<gfx942> {
   amdgcn.kernel @k {

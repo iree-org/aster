@@ -15,6 +15,11 @@ mlir_tablegen(InstOpInterface.h.inc -gen-op-interface-decls)
 mlir_tablegen(InstOpInterface.cpp.inc -gen-op-interface-defs)
 add_public_tablegen_target(InstOpInterfaceIncGen)
 
+set(LLVM_TARGET_DEFINITIONS InstOpInterfaces.td)
+mlir_tablegen(InstOpInterfaces.h.inc -gen-op-interface-decls)
+mlir_tablegen(InstOpInterfaces.cpp.inc -gen-op-interface-defs)
+add_public_tablegen_target(AsterInstOpInterfacesIncGen)
+
 set(LLVM_TARGET_DEFINITIONS MemorySpaceConstraints.td)
 mlir_tablegen(MemorySpaceConstraints.h.inc -gen-attr-interface-decls)
 mlir_tablegen(MemorySpaceConstraints.cpp.inc -gen-attr-interface-defs)
@@ -29,11 +34,6 @@ set(LLVM_TARGET_DEFINITIONS RegisterType.td)
 mlir_tablegen(RegisterType.h.inc -gen-type-interface-decls)
 mlir_tablegen(RegisterType.cpp.inc -gen-type-interface-defs)
 add_public_tablegen_target(RegisterTypeIncGen)
-
-set(LLVM_TARGET_DEFINITIONS VerifierAttr.td)
-mlir_tablegen(VerifierAttr.h.inc -gen-attr-interface-decls)
-mlir_tablegen(VerifierAttr.cpp.inc -gen-attr-interface-defs)
-add_public_tablegen_target(VerifierAttrIncGen)
 
 set(LLVM_TARGET_DEFINITIONS ResourceInterfaces.td)
 mlir_tablegen(ResourceTypeInterfaces.h.inc -gen-type-interface-decls)

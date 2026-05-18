@@ -3,6 +3,7 @@ set(LLVM_OPTIONAL_SOURCES
   DependentOpInterface.cpp
   GPUFuncInterface.cpp
   InstOpInterface.cpp
+  InstOpInterfaces.cpp
   LivenessOpInterface.cpp
   MemorySpaceConstraints.cpp
   ModuleOpInterface.cpp
@@ -12,7 +13,6 @@ set(LLVM_OPTIONAL_SOURCES
   SchedInterfaces.cpp
   TargetAttr.cpp
   UpstreamModelsImpl.cpp
-  VerifierAttr.cpp
 )
 
 add_mlir_library(AsterInterfaces
@@ -20,6 +20,7 @@ add_mlir_library(AsterInterfaces
   DependentOpInterface.cpp
   GPUFuncInterface.cpp
   InstOpInterface.cpp
+  InstOpInterfaces.cpp
   LivenessOpInterface.cpp
   MemorySpaceConstraints.cpp
   ModuleOpInterface.cpp
@@ -28,10 +29,10 @@ add_mlir_library(AsterInterfaces
   ResourceInterfaces.cpp
   SchedInterfaces.cpp
   TargetAttr.cpp
-  VerifierAttr.cpp
 
   DEPENDS
   AllocaOpInterfaceIncGen
+  AsterInstOpInterfacesIncGen
   AsterInterfacesIncGen
   GPUFuncInterfaceIncGen
   InstOpInterfaceIncGen
@@ -44,7 +45,6 @@ add_mlir_library(AsterInterfaces
   ResourceInterfacesIncGen
   SchedInterfacesIncGen
   TargetAttrIncGen
-  VerifierAttrIncGen
 
   LINK_LIBS PUBLIC
   ASTERSupport
