@@ -74,7 +74,7 @@ LogicalResult mlir::aster::amdgcn::target::compileAsm(
   // Lookup the target
   std::string error;
   const llvm::Target *target =
-      llvm::TargetRegistry::lookupTarget(targetTriple.str(), error);
+      llvm::TargetRegistry::lookupTarget(targetTriple, error);
   if (!target)
     return emitError(loc, Twine("failed to lookup target: ") + error);
 
@@ -98,7 +98,7 @@ LogicalResult mlir::aster::amdgcn::target::compileAsm(
   assert(sti && "failed to create MCSubtargetInfo");
 
   // Create MC context
-  llvm::MCContext ctx(targetTriple, *mai, mri.get(), sti.get(), &srcMgr);
+  llvm::MCContext ctx(targetTriple, *mai, *mri, *sti, &srcMgr);
 
   // Create object file info
   std::unique_ptr<llvm::MCObjectFileInfo> mofi(
