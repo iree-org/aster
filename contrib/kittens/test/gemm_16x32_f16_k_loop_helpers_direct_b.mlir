@@ -2,7 +2,7 @@
   // Pipeline: B load at A_STAGE_LOAD, B wait+split at A_STAGE_WRITE,
   //           MFMA at A_STAGE_COMPUTE.
   //
-  // The preshuffle byte offset is computed via layout.linearize with a
+  // The preshuffle byte offset is computed via layout.apply with a
   // static layout attribute matching the Python-side preshuffle_b_index_layout.
   // This is the single source of truth for the B addressing.
 
@@ -19,7 +19,7 @@
     %buf_size = affine.apply affine_map<()[s0, s1] -> (s0 * s1)>()[%k_t, %n_t]
     %gfut_b = memref.alloca(%buf_size) : !gfut_b_buf
 
-    // Compute the flat coordinate for layout.linearize: n_block * (K_BLOCKS * 64) + k_block * 64 + lane_id.
+    // Compute the flat coordinate for layout.apply: n_block * (K_BLOCKS * 64) + k_block * 64 + lane_id.
     %lid = func.call @lane_id() : () -> index
 
     scf.for %kt = %c0 to %k_t step %c1 {
@@ -32,9 +32,9 @@
         %flat_coord = affine.linearize_index [%n_block, %k_block, %lid]
             by ({{N_BLOCKS}}, {{K_BLOCKS}}, 64) : index
 
-        // Preshuffle byte offset via layout.linearize.
+        // Preshuffle byte offset via layout.apply.
         // Layout: [N_BLOCKS, K_BLOCKS, 64] : [STRIDE_N0_BYTES, 1024, 16]
-        %b_byte_off = layout.linearize %flat_coord,
+        %b_byte_off = layout.apply[%flat_coord],
             #layout.strided_layout<[{{N_BLOCKS}}, {{K_BLOCKS}}, 64] : [{{STRIDE_N0_BYTES}}, 1024, 16]>
 
         %idx = affine.linearize_index [%kt, %i] by (%k_t, %n_t) : index

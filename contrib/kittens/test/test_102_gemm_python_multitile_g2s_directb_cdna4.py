@@ -33,7 +33,7 @@ from aster.compiler.core import compile_mlir_module_to_asm, assemble_to_hsaco
 from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.utils import system_has_gpu
 from aster.pass_pipelines import make_default_pass_pipeline
-from aster.layout import Layout, Swizzle
+from aster.layout import Layout, Swizzle, make_layout
 
 from kittens.gemm_config import (
     A as OP_A,
@@ -140,18 +140,38 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     WAVE_READ_COORD_A = Layout((k_t, m_t), (twg_m * tile_bytes, tile_bytes))
     WAVE_M_LDS_OFF = Layout((wpw[DIM_M], wpw[DIM_N]), (m_t * tile_bytes, 0))
     WG_BASE_A = Layout((wg[DIM_M], k_iters), (twg_m * TILE_COORD_A.strides[1], k_t * TILE_COORD_A.strides[0]))
-    M_DIST = Layout((wg[DIM_M], wpw[DIM_M]), (twg_m, m_t))
-    N_DIST = Layout((wg[DIM_N], wpw[DIM_N]), (twg_n, n_t))
+
+    # Per-wave A base layout via make_layout (fused WG_BASE_A + TILE_COORD_A).
+    WAVE_BASE_A = make_layout(WG_BASE_A, TILE_COORD_A)
     C_COORD = Layout((m_t, n_t), (mfma_m * stride_c_row, mfma_n * stride_c_col))
 
-    # Preshuffle B layout: (n_block, k_block, lane_id) -> byte offset.
-    # Reuses shuffle_weight() from kittens_helpers.py byte-for-byte.
-    nb, kb = cfg.preshuffle_n_blocks, cfg.preshuffle_k_blocks
+    # Global C-tile base in bytes: (wg_m_idx, wave_m_idx, wg_n_idx, wave_n_idx)
+    # -> byte offset of this wave's first C tile.
+    C_BASE = Layout(
+        sizes=((wg[DIM_M], wpw[DIM_M]), (wg[DIM_N], wpw[DIM_N])),
+        strides=(
+            (twg_m * mfma_m * stride_c_row, m_t * mfma_m * stride_c_row),
+            (twg_n * mfma_n * stride_c_col, n_t * mfma_n * stride_c_col),
+        ),
+    )
+    # Per-thread C-tile byte offset = C_BASE + per-tile (m, n) offset.
+    C_OFF = make_layout(C_BASE, C_COORD)
+
+    # Preshuffle B byte offset as a single rank-3 nested layout over the 6
+    # atomic coords (wg_n_idx, wave_n_idx, nt, k_iv, kt, lid). Fuses N_DIST,
+    # the per-iter (n_block, k_block) math, and the original PRESHUFFLE_LAYOUT.
+    _, kb = cfg.preshuffle_n_blocks, cfg.preshuffle_k_blocks
     lane_s = cfg.preshuffle_lane_stride_bytes
     k_s = cfg.preshuffle_k_block_stride_bytes
     stride_n0_bytes = kb * k_s
-    PRESHUFFLE_DIMS = (nb, kb, ws)
-    PRESHUFFLE_LAYOUT = Layout((nb, kb, ws), (stride_n0_bytes, k_s, lane_s))
+    PRESHUFFLE_FULL = Layout(
+        sizes=((wg[DIM_N], wpw[DIM_N], n_t), (k_iters, k_t), ws),
+        strides=(
+            (twg_n * stride_n0_bytes, n_t * stride_n0_bytes, stride_n0_bytes),
+            (k_t * k_s, k_s),
+            lane_s,
+        ),
+    )
 
     # Cooperative load layouts (same pattern as test_102).
     COOP_COORD_A = Layout((coop_a_k, coop_a_m), (tile_row_bytes, mfma_m * stride_a))
@@ -187,8 +207,8 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     thread_off_a = b.affine_apply(
         d0 + d1,
         [
-            b.linearize_layout(lane, TILE_LOCAL_A, swizzle=lds_swizzle),
-            b.linearize_layout(lane, ROW_STRIDE_CORR_A),
+            b.layout_apply(lane, TILE_LOCAL_A, swizzle=lds_swizzle),
+            b.layout_apply(lane, ROW_STRIDE_CORR_A),
         ],
     )
 
@@ -219,16 +239,13 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg[DIM_M], wg[DIM_N]))
     wid = b.wave_id(wave_size=ws)
     wave_m_idx, wave_n_idx = b.delinearize_index(wid, (wpw[DIM_M], wpw[DIM_N]))
-    m_dist_idx = b.linearize_index((wg_m_idx, wave_m_idx), (wg[DIM_M], wpw[DIM_M]))
-    n_dist_idx = b.linearize_index((wg_n_idx, wave_n_idx), (wg[DIM_N], wpw[DIM_N]))
 
     # Cooperative load starts: wave_id -> (spatial_start, k_start) with OOB
     # clamping. Excess waves clamp to the last valid start and duplicate the
     # last tile. Same pattern as test_102.
-    coop_a_m_start_raw = b.linearize_layout(wid, Layout((a_waves_m, a_waves_k), (coop_a_m, 0)))
-    coop_a_k_start_raw = b.linearize_layout(wid, Layout((a_waves_m, a_waves_k), (0, coop_a_k)))
-    coop_a_m_start = b.arith_minui(coop_a_m_start_raw, b.constant_index(max_a_m_start))
-    coop_a_k_start = b.arith_minui(coop_a_k_start_raw, b.constant_index(max_a_k_start))
+    coop_a_m_raw, coop_a_k_raw = b.delinearize_index(wid, (a_waves_m, a_waves_k))
+    coop_a_m_start = b.arith_minui(b.affine_apply(d0 * coop_a_m, [coop_a_m_raw]), b.constant_index(max_a_m_start))
+    coop_a_k_start = b.arith_minui(b.affine_apply(d0 * coop_a_k, [coop_a_k_raw]), b.constant_index(max_a_k_start))
 
     c0, c1 = b.constant_index(0), b.constant_index(1)
     s0, s1, s2 = [ir.AffineExpr.get_symbol(i) for i in range(3)]
@@ -242,22 +259,15 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
 
         # -- G2S LOAD A (cooperative, 2D split) --
         with b.stage(STG_A_LOAD):
-            a_wg_k_idx = b.linearize_index((wg_m_idx, k_iv), (wg[DIM_M], k_iters))
-            a_wg_base = b.linearize_layout(a_wg_k_idx, WG_BASE_A)
-            coop_a_off = b.linearize_layout(
-                b.linearize_index((coop_a_k_start, coop_a_m_start), (k_t, twg_m)), TILE_COORD_A
-            )
-            a_wave_base = b.affine_apply(d0 + d1, [a_wg_base, coop_a_off])
-            coop_a_lds_off = b.linearize_layout(
-                b.linearize_index((coop_a_k_start, coop_a_m_start), (k_t, twg_m)), LDS_COORD_A
-            )
-            lds_a_wave = b.affine_apply(d0 + d1, [lds_a, coop_a_lds_off])
+            a_wave_base = b.layout_apply((wg_m_idx, k_iv, coop_a_k_start, coop_a_m_start), WAVE_BASE_A)
+            coop_a_lds_off = b.layout_apply((coop_a_k_start, coop_a_m_start), LDS_COORD_A)
+            lds_a_wave = b.layout_sum(lds_a, coop_a_lds_off)
 
             @b.foreach_tile(n_coop_a, types=[(b.flat_read_tok, 1)])
             def g2s_toks_a(idx):
-                tile_off = b.linearize_layout(idx, COOP_COORD_A)
+                tile_off = b.layout_apply(idx, COOP_COORD_A)
                 voff = b.affine_apply(s0 + s1 + s2, [], [a_wave_base, thread_off_a, tile_off])
-                lds_off = b.affine_apply(d0 + d1, [lds_a_wave, b.linearize_layout(idx, COOP_LDS_A)])
+                lds_off = b.layout_sum(lds_a_wave, b.layout_apply(idx, COOP_LDS_A))
                 b.set_m0(m0, b.index_to_sgpr(lds_off))
                 tok = b.g2s_buffer_load_dwordx4(m0, a_rsrc, soff_val, b.index_to_vgpr(voff))
                 return [tok]
@@ -265,17 +275,11 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
         # -- LOAD B (direct_b: preshuffled global load to VGPRs) --
         with b.stage(STG_B_LOAD):
             lid = b.lane_id()
-            n_base_b = b.linearize_layout(b.linearize_index((wg_n_idx, wave_n_idx), (wg[DIM_N], wpw[DIM_N])), N_DIST)
 
             @b.foreach_tile(n_read_b, types=[(b.any_type, 1), (b.flat_read_tok, 1)])
             def load_b_direct(idx):
                 kt, nt = b.delinearize_index(idx, (k_t, n_t))
-                n_block = b.affine_apply(d0 + d1, [n_base_b, nt])
-                k_block = b.affine_apply(d0 * k_t + d1, [k_iv, kt])
-                byte_off = b.linearize_layout(
-                    b.linearize_index((n_block, k_block, lid), PRESHUFFLE_DIMS),
-                    PRESHUFFLE_LAYOUT,
-                )
+                byte_off = b.layout_apply((wg_n_idx, wave_n_idx, nt, k_iv, kt, lid), PRESHUFFLE_FULL)
                 return b.call_helper(load_b_direct_fn, [b_ptr, byte_off], [b.any_type, b.flat_read_tok])
 
             data_buf_b_direct, tok_buf_b_direct = load_b_direct
@@ -289,13 +293,13 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
 
             b.s_barrier()
 
-            wave_m_off = b.linearize_layout(wid, WAVE_M_LDS_OFF)
-            wave_lds_base_a = b.affine_apply(d0 + d1, [lds_a, wave_m_off])
+            wave_m_off = b.layout_apply(wid, WAVE_M_LDS_OFF)
+            wave_lds_base_a = b.layout_sum(lds_a, wave_m_off)
 
             @b.foreach_tile(n_read_a, types=[(b.any_type, n_frags_per_tile), (b.lds_read_tok, n_frags_per_tile)])
             def read_a(idx):
-                tile_off = b.linearize_layout(idx, WAVE_READ_COORD_A)
-                off = b.affine_apply(d0 + d1, [wave_lds_base_a, tile_off])
+                tile_off = b.layout_apply(idx, WAVE_READ_COORD_A)
+                off = b.layout_sum(wave_lds_base_a, tile_off)
                 return b.call_helper(read_a_fn, [off], read_ret)
 
             frag_buf_a, rtok_buf_a = read_a
@@ -352,16 +356,10 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
             b.s_barrier()
 
     # Store C tiles.
-    m_base = b.linearize_layout(m_dist_idx, M_DIST)
-    n_base = b.linearize_layout(n_dist_idx, N_DIST)
-    total_m_tiles, total_n_tiles = wg[DIM_M] * twg_m, wg[DIM_N] * twg_n
-    c_global_idx = b.linearize_index((m_base, n_base), (total_m_tiles, total_n_tiles))
-    c_base = b.linearize_layout(c_global_idx, Layout((total_m_tiles, total_n_tiles), C_COORD.strides))
-
     @b.foreach_tile(n_accs)
     def _(idx):
-        tile_off = b.linearize_layout(idx, C_COORD)
-        c_off = b.affine_apply(d0 + d1, [c_base, tile_off])
+        m, n = b.delinearize_index(idx, (m_t, n_t))
+        c_off = b.layout_apply((wg_m_idx, wave_m_idx, wg_n_idx, wave_n_idx, m, n), C_OFF)
         acc = b.memref_load(c_buf, idx)
         b.store_multi_fragment_to_global(
             acc, c_ptr, c_off, GLOBAL_STORE_TILE_C, GLOBAL_STORE_SUB_TILE_C, b.global_store_dword

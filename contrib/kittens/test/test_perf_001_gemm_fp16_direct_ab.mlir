@@ -73,16 +73,16 @@ amdgcn.module @kittens_gemm_f16_direct_ab target = #amdgcn.target<gfx942> {
 
     // WG tile offsets via layout
     %bid = func.call @linear_block_id() : () -> index
-    %wg_m_off = layout.linearize %bid,
+    %wg_m_off = layout.apply[%bid],
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [{{M_TILES_WG}}, 0]>
-    %wg_n_off = layout.linearize %bid,
+    %wg_n_off = layout.apply[%bid],
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [0, {{N_TILES_WG}}]>
 
     // Wave COMPUTE distribution (= LOAD distribution for direct path)
     %wid = func.call @wave_id() : () -> index
-    %wave_m_off = layout.linearize %wid,
+    %wave_m_off = layout.apply[%wid],
         #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [{{M_T}}, 0]>
-    %wave_n_off = layout.linearize %wid,
+    %wave_n_off = layout.apply[%wid],
         #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [0, {{N_T}}]>
 
     // Compose: tile index = WG offset + wave offset

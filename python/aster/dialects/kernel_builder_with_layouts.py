@@ -45,7 +45,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
         d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
         n_subs = tile_layout.size()
         results = []
-        thread_off = self.linearize_layout(self.lane_id(), multi_tile_layout)
+        thread_off = self.layout_apply(self.lane_id(), multi_tile_layout)
         for s in range(n_subs):
             sub_off = tile_layout(s)
             byte_off = self.affine_apply(
@@ -74,7 +74,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
         lane = self.lane_id()
         for s in range(n_subs):
             sub_off = tile_layout(s)
-            tile_off = self.linearize_layout(lane, multi_tile_layout)
+            tile_off = self.layout_apply(lane, multi_tile_layout)
             tile_off = self.affine_apply(d0 + sub_off, [tile_off])
             addr = self.affine_apply(
                 d0 + d1, [lds_base, self.apply_swizzle(tile_off, swizzle)]
@@ -101,7 +101,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
         lane = self.lane_id()
         for s in range(n_subs):
             sub_off = tile_layout(s)
-            frag_off = self.linearize_layout(lane, multi_tile_layout)
+            frag_off = self.layout_apply(lane, multi_tile_layout)
             frag_off = self.affine_apply(d0 + sub_off, [frag_off])
             swizzled = self.apply_swizzle(frag_off, swizzle)
             addr = self.affine_apply(d0 + d1, [lds_base, swizzled])
@@ -137,7 +137,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
             sub_off = tile_layout(s)
             for i in range(n_agprs):
                 coord = self.affine_apply(d0 * n_agprs + i, [lane])
-                off = self.linearize_layout(coord, multi_tile_layout)
+                off = self.layout_apply(coord, multi_tile_layout)
                 total = self.affine_apply(d0 + d1 + sub_off, [tile_byte_offset, off])
                 tokens.append(
                     store_fn(

@@ -166,6 +166,14 @@ int64_t LayoutAttr::getSize() const {
   return computeProduct(flatShape);
 }
 
+// Flatten shape to leaves and count them.
+int64_t LayoutAttr::getFlatRank() const {
+  SmallVector<int64_t> flatShape, flatStride;
+  for (auto [s, d] : llvm::zip(getShape(), getStride()))
+    flattenIntTuple(s, d, flatShape, flatStride);
+  return flatShape.size();
+}
+
 // Extent = 1 + sum((s_i - 1) * d_i) over all leaf modes.
 int64_t LayoutAttr::getExtent() const {
   SmallVector<int64_t> flatShape, flatStride;

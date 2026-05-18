@@ -25,12 +25,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional
+from typing import List, Optional
 
 from aster import ir
-
-if TYPE_CHECKING:
-    from aster.layout import Layout, Swizzle
+from aster.layout import Layout, Swizzle, SwizzledLayout
 from aster.dialects import arith
 from aster.dialects import affine as affined
 from aster.dialects import func as funcd
@@ -611,41 +609,40 @@ class KernelBuilder:
         dest = self.alloca_vgpr()
         return self._emit_vop3(opcode, dest, src0, src1, src2=src2)
 
-    def _linearize_layout(self, layout, coord, swizzle=None):
-        """Emit layout.linearize (+ optional layout.swizzle) for a linear coord."""
-        from aster.dialects import layout as layout_d
-
-        sizes = layout.sizes if isinstance(layout.sizes, tuple) else (layout.sizes,)
-        strides = (
-            layout.strides if isinstance(layout.strides, tuple) else (layout.strides,)
-        )
-        attr = layout_d.strided_layout(list(sizes), list(strides), ctx=self._ctx)
-        off = layout_d.linearize(coord, attr, loc=self._loc, ip=self._kip)
-        if swizzle is None:
-            return off
-        return layout_d.swizzle(
-            off,
-            bits=swizzle.bits,
-            base=swizzle.base,
-            shift=swizzle.shift,
-            loc=self._loc,
-            ip=self._kip,
-        )
-
-    def linearize_layout(
+    def layout_apply(
         self,
-        coord: ir.Value,
-        layout: "Layout",
-        swizzle: Optional["Swizzle"] = None,
+        coord: ir.Value | tuple[ir.Value, ...],
+        layout: Layout | SwizzledLayout,
+        swizzle: Optional[Swizzle] = None,
     ) -> ir.Value:
-        """Emit layout.linearize: linear coord -> byte offset via layout strides.
+        """Emit layout.apply (+ optional layout.swizzle) for coord and Layout.
 
-        Optionally applies layout.swizzle for LDS bank conflict
-        avoidance.
+        `coord` is either an ir.Value (linear form: layout.apply recursively
+        delinearizes by the shape tree, then dots with strides) or a sequence
+        of ir.Values matching the layout's flat rank (decomposed form:
+        layout.apply dots strides directly).
+
+        Each layout type emits itself: a plain Layout is one layout.apply,
+        a SwizzledLayout is its irreducible two-part address (an XOR swizzle
+        is not strided, so it cannot collapse into one layout.apply).
         """
-        return self._linearize_layout(layout, coord, swizzle)
+        return layout.lower(self, coord, swizzle)
 
-    def apply_swizzle(self, offset: ir.Value, swizzle: "Swizzle") -> ir.Value:
+    def layout_sum(self, *offsets: ir.Value) -> ir.Value:
+        """Sum N offsets via a single affine.apply.
+
+        Each offset must be an index-typed ir.Value; produce one with
+        b.layout_apply(coord, layout) or any other source.
+        """
+        assert offsets, "layout_sum: need at least one offset"
+        if len(offsets) == 1:
+            return offsets[0]
+        expr = ir.AffineExpr.get_constant(0)
+        for i in range(len(offsets)):
+            expr = expr + ir.AffineExpr.get_dim(i)
+        return self.affine_apply(expr, list(offsets))
+
+    def apply_swizzle(self, offset: ir.Value, swizzle: Swizzle) -> ir.Value:
         """Apply XOR swizzle to a byte offset (standalone, without linearize)."""
         from aster.dialects import layout as layout_d
 

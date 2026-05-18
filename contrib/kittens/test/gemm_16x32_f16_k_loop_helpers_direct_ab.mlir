@@ -24,7 +24,7 @@
         %flat_coord = affine.linearize_index [%m_block, %k_block, %lid]
             by ({{M_BLOCKS}}, {{K_BLOCKS}}, 64) : index
 
-        %a_byte_off = layout.linearize %flat_coord,
+        %a_byte_off = layout.apply[%flat_coord],
             #layout.strided_layout<[{{M_BLOCKS}}, {{K_BLOCKS}}, 64] : [{{STRIDE_M0_BYTES}}, 1024, 16]>
 
         %idx = affine.linearize_index [%kt, %i] by (%k_t, %m_t) : index
@@ -56,7 +56,7 @@
         %flat_coord = affine.linearize_index [%n_block, %k_block, %lid]
             by ({{N_BLOCKS}}, {{K_BLOCKS}}, 64) : index
 
-        %b_byte_off = layout.linearize %flat_coord,
+        %b_byte_off = layout.apply[%flat_coord],
             #layout.strided_layout<[{{N_BLOCKS}}, {{K_BLOCKS}}, 64] : [{{STRIDE_N0_BYTES}}, 1024, 16]>
 
         %idx = affine.linearize_index [%kt, %i] by (%k_t, %n_t) : index

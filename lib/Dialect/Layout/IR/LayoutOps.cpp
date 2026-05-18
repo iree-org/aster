@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/Layout/IR/LayoutOps.h"
+#include "aster/Dialect/Layout/IR/LayoutAttrs.h"
 #include "aster/Dialect/Layout/IR/LayoutDialect.h"
 
 #include "mlir/IR/Builders.h"
@@ -42,3 +43,17 @@ void LayoutDialect::initialize() {
 
 #define GET_OP_CLASSES
 #include "aster/Dialect/Layout/IR/LayoutOps.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// ApplyOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ApplyOp::verify() {
+  size_t numCoords = getCoords().size();
+  int64_t flatRank = getLayout().getFlatRank();
+  bool ok = numCoords == 1 || numCoords == static_cast<size_t>(flatRank);
+  if (!ok)
+    return emitOpError() << "expected 1 (linear) or " << flatRank
+                         << " (decomposed) coords, got " << numCoords;
+  return success();
+}

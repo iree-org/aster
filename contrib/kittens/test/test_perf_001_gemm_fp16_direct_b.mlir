@@ -75,16 +75,16 @@ amdgcn.module @kittens_gemm_f16_direct_b target = #amdgcn.target<gfx942> {
 
     // WG tile offsets via layout
     %bid = func.call @linear_block_id() : () -> index
-    %wg_m_off = layout.linearize %bid,
+    %wg_m_off = layout.apply[%bid],
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [{{M_TILES_WG}}, 0]>
-    %wg_n_off = layout.linearize %bid,
+    %wg_n_off = layout.apply[%bid],
         #layout.strided_layout<[{{M_WG}}, {{N_WG}}] : [0, {{N_TILES_WG}}]>
 
     // Wave COMPUTE distribution: which output tiles does this wave own?
     %wid = func.call @wave_id() : () -> index
-    %wave_m_off = layout.linearize %wid,
+    %wave_m_off = layout.apply[%wid],
         #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [{{M_T}}, 0]>
-    %wave_n_off = layout.linearize %wid,
+    %wave_n_off = layout.apply[%wid],
         #layout.strided_layout<[{{M_WAVES}}, {{N_WAVES}}] : [0, {{N_T}}]>
 
     // Compose: tile index = WG offset + wave offset (for MFMA + C store)
@@ -97,9 +97,9 @@ amdgcn.module @kittens_gemm_f16_direct_b target = #amdgcn.target<gfx942> {
     %c_COOP_A_K = arith.constant {{COOP_A_K}} : index
     %c_MAX_A_M = arith.constant {{MAX_COOP_A_M_START}} : index
     %c_MAX_A_K = arith.constant {{MAX_COOP_A_K_START}} : index
-    %coop_a_m_raw = layout.linearize %wid,
+    %coop_a_m_raw = layout.apply[%wid],
         #layout.strided_layout<[{{COOP_A_WAVES_M}}, {{COOP_A_WAVES_K}}] : [{{COOP_A_M}}, 0]>
-    %coop_a_k_raw = layout.linearize %wid,
+    %coop_a_k_raw = layout.apply[%wid],
         #layout.strided_layout<[{{COOP_A_WAVES_M}}, {{COOP_A_WAVES_K}}] : [0, {{COOP_A_K}}]>
     %coop_a_m_start = arith.minui %coop_a_m_raw, %c_MAX_A_M : index
     %coop_a_k_start = arith.minui %coop_a_k_raw, %c_MAX_A_K : index
