@@ -15,6 +15,11 @@ mlir_tablegen(InstOpInterface.h.inc -gen-op-interface-decls)
 mlir_tablegen(InstOpInterface.cpp.inc -gen-op-interface-defs)
 add_public_tablegen_target(InstOpInterfaceIncGen)
 
+set(LLVM_TARGET_DEFINITIONS InstOpInterfaces.td)
+mlir_tablegen(InstOpInterfaces.h.inc -gen-op-interface-decls)
+mlir_tablegen(InstOpInterfaces.cpp.inc -gen-op-interface-defs)
+add_public_tablegen_target(AsterInstOpInterfacesIncGen)
+
 set(LLVM_TARGET_DEFINITIONS MemorySpaceConstraints.td)
 mlir_tablegen(MemorySpaceConstraints.h.inc -gen-attr-interface-decls)
 mlir_tablegen(MemorySpaceConstraints.cpp.inc -gen-attr-interface-defs)

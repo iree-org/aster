@@ -26,6 +26,7 @@
 #include "aster/Interfaces/AllocaOpInterface.h"
 #include "aster/Interfaces/DependentOpInterface.h"
 #include "aster/Interfaces/GPUFuncInterface.h"
+#include "aster/Interfaces/InstOpInterfaces.h"
 #include "aster/Interfaces/LivenessOpInterface.h"
 #include "aster/Interfaces/ModuleOpInterface.h"
 #include "aster/Interfaces/OperandBundleOpInterface.h"
