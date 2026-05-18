@@ -30,11 +30,6 @@ mlir_tablegen(RegisterType.h.inc -gen-type-interface-decls)
 mlir_tablegen(RegisterType.cpp.inc -gen-type-interface-defs)
 add_public_tablegen_target(RegisterTypeIncGen)
 
-set(LLVM_TARGET_DEFINITIONS VerifierAttr.td)
-mlir_tablegen(VerifierAttr.h.inc -gen-attr-interface-decls)
-mlir_tablegen(VerifierAttr.cpp.inc -gen-attr-interface-defs)
-add_public_tablegen_target(VerifierAttrIncGen)
-
 set(LLVM_TARGET_DEFINITIONS ResourceInterfaces.td)
 mlir_tablegen(ResourceTypeInterfaces.h.inc -gen-type-interface-decls)
 mlir_tablegen(ResourceTypeInterfaces.cpp.inc -gen-type-interface-defs)

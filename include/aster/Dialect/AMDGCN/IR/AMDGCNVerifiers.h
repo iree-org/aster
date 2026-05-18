@@ -16,22 +16,11 @@
 #define ASTER_DIALECT_AMDGCN_IR_VERIFIERS_H
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
-#include "aster/Interfaces/VerifierAttr.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Region.h"
+#include "llvm/ADT/ArrayRef.h"
 
 namespace mlir::aster::amdgcn {
-/// Check that an operation is inside an AMDGCN kernel.
-LogicalResult verifyIsInKernelImpl(Operation *op, const VerifierState &state);
-/// Check that an operation is inside an AMDGCN module.
-LogicalResult verifyIsInModuleImpl(Operation *op, const VerifierState &state);
-/// Check that an operation can be allocated by the register allocator.
-LogicalResult verifyIsAllocatableOpImpl(Operation *op,
-                                        const VerifierState &state);
-/// Check that an operation can be translated to assembly.
-LogicalResult verifyIsAllocatedOpImpl(Operation *op,
-                                      const VerifierState &state);
-/// Check constants used in AMDGCN operations.
-LogicalResult verifyConstantsImpl(Operation *op, const VerifierState &state);
-
 /// Verify ISA support for operations in a region.
 /// If isas is empty, no AMDGCNInstOpInterface operations are allowed.
 /// If isas is non-empty, all AMDGCNInstOpInterface operations must be valid

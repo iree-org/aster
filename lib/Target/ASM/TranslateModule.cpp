@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Target/ASM/TranslateModule.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
@@ -614,9 +615,48 @@ LogicalResult TranslateModuleImpl::translate() {
   return emitMetadata();
 }
 
+/// Validate that any i64/f64 immediate operands on instruction ops are valid
+/// AMDGCN inline literals. 64-bit literals cannot be encoded in instructions;
+/// only the inline constant set (integers -16..64, specific floats) is valid.
+static LogicalResult check64BitImmediates(KernelOp kernel) {
+  static constexpr float kFPLits[] = {-4.0f, -2.0f, -1.0f, -0.5f, 0.15915494f,
+                                      0.5f,  1.0f,  2.0f,  4.0f};
+  static constexpr int64_t kIntLits[] = {
+      -16, -15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0,
+      1,   2,   3,   4,   5,   6,   7,   8,  9,  10, 11, 12, 13, 14, 15, 16, 17,
+      18,  19,  20,  21,  22,  23,  24,  25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+      35,  36,  37,  38,  39,  40,  41,  42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+      52,  53,  54,  55,  56,  57,  58,  59, 60, 61, 62, 63, 64};
+  LogicalResult result = success();
+  kernel->walk([&](AMDGCNInstOpInterface op) {
+    for (auto [index, value] : llvm::enumerate(op.getInstIns())) {
+      Type type = value.getType();
+      if (type.isSignlessInteger(64) && !checkIntConst(value, kIntLits)) {
+        op->emitError() << "constant operand " << index
+                        << " has unsupported 64-bit integer type";
+        result = failure();
+      } else if (type.isF64() && !checkFloatConst(value, kFPLits)) {
+        op->emitError() << "constant operand " << index
+                        << " has unsupported 64-bit float type";
+        result = failure();
+      }
+    }
+  });
+  return result;
+}
+
 LogicalResult mlir::aster::amdgcn::target::translateModule(
     amdgcn::ModuleOp module, llvm::raw_ostream &os, bool debugPrint) {
-  if (failed(runVerifiersOnOp<IsTranslatableOpAttr>(module)))
-    return failure();
+  // Check that all register types have allocated semantics. This replaces the
+  // old per-op IsAllocatedOpAttr walk; non-register types (i1, i32, etc.) pass
+  // automatically, making the CF/LSIR allow-list from that verifier redundant.
+  AllRegistersAllocatedAttr allocated =
+      AllRegistersAllocatedAttr::get(module.getContext());
+  for (KernelOp kernel : module.getOps<KernelOp>()) {
+    if (failed(allocated.checkOperation(kernel).checkAndReport()))
+      return failure();
+    if (failed(check64BitImmediates(kernel)))
+      return failure();
+  }
   return TranslateModuleImpl(module, os, debugPrint).translate();
 }
