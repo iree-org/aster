@@ -302,8 +302,31 @@ def check_numpy_blas(label=""):
     print(f"{tag}numpy BLAS ok: {dt * 1000:.0f} ms")
 
 
+def _visible_device_ids():
+    """Operator-allotted visible GPUs as physical ids, or None if unset.
+
+    Honors HIP_VISIBLE_DEVICES, then CUDA_VISIBLE_DEVICES (comma list).
+    Captured at import, before any child's _gpu_init mutates the env, so
+    the harness never runs outside the GPUs the operator allotted it.
+    """
+    for var in ("HIP_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES"):
+        v = os.environ.get(var)
+        if v is not None and v.strip() != "":
+            ids = [int(x) for x in v.split(",") if x.strip() != ""]
+            if ids:
+                return ids
+    return None
+
+
+_VISIBLE_GPU_IDS = _visible_device_ids()
+
+
 def detect_num_gpus(mcpu: str):
-    """Return the number of GPUs matching ``mcpu``, or 0 if none are present."""
+    """Return the number of GPUs matching ``mcpu``, or 0 if none are present.
+
+    Clamped to the operator-allotted visible set so we never fan workers
+    onto GPUs other processes own.
+    """
     try:
         from aster.execution.utils import system_has_gpu
 
@@ -311,9 +334,25 @@ def detect_num_gpus(mcpu: str):
             return 0
         from aster._mlir_libs._runtime_module import hip_get_device_count
 
-        return max(1, hip_get_device_count())
+        n = hip_get_device_count()
+        if _VISIBLE_GPU_IDS is not None:
+            n = min(max(n, 0) or len(_VISIBLE_GPU_IDS), len(_VISIBLE_GPU_IDS))
+        return max(1, n)
     except Exception:
         return 0
+
+
+_GPU_LOCK_DIR = os.path.join(tempfile.gettempdir(), "aster-gpu-locks")
+
+
+def _gpu_lock_path(gpu_id):
+    """Stable per-PHYSICAL-GPU lock file, shared across runs/phases/processes."""
+    if _VISIBLE_GPU_IDS is not None:
+        phys = _VISIBLE_GPU_IDS[gpu_id % len(_VISIBLE_GPU_IDS)]
+    else:
+        phys = gpu_id
+    os.makedirs(_GPU_LOCK_DIR, exist_ok=True)
+    return os.path.join(_GPU_LOCK_DIR, f"gpu_{phys}.lock")
 
 
 def warn_mcpu_mismatch(compile_mcpu: str) -> None:
@@ -560,7 +599,14 @@ def _gpu_init(gpu_id):
     """
     import io
 
-    os.environ["HIP_VISIBLE_DEVICES"] = str(gpu_id)
+    # gpu_id is a dense logical index; map it through the operator-allotted
+    # visible set so HIP_VISIBLE_DEVICES is pinned to the PHYSICAL device the
+    # operator gave us, never blindly to the logical index.
+    if _VISIBLE_GPU_IDS is not None:
+        phys = _VISIBLE_GPU_IDS[gpu_id % len(_VISIBLE_GPU_IDS)]
+    else:
+        phys = gpu_id
+    os.environ["HIP_VISIBLE_DEVICES"] = str(phys)
     # Suppress AMD/HIP/HSA logging at the source.
     os.environ["AMD_LOG_LEVEL"] = "0"
     os.environ["HIP_TRACE_API"] = "0"
@@ -655,7 +701,7 @@ def _exec_one_isolated(work_item, gpu_id, timeout=120, gpu_lock_path=None):
 # ---------------------------------------------------------------------------
 
 
-def _persistent_worker_loop(cmd_conn, result_conn, gpu_id):
+def _persistent_worker_loop(cmd_conn, result_conn, gpu_id, gpu_lock_path=None):
     """Long-lived child process: init HIP once, process configs, reuse memory.
 
     Protocol: parent sends work_item tuples through cmd_conn.
@@ -713,18 +759,33 @@ def _persistent_worker_loop(cmd_conn, result_conn, gpu_id):
                 # Same size: just zero C, keep A/B.
                 host_C[:] = 0
 
-            times = execute_hsaco(
-                hsaco_path=hsaco_path,
-                kernel_name=kernel_name,
-                arguments=[
-                    InputArray(host_A),
-                    InputArray(host_B),
-                    OutputArray(host_C),
-                ],
-                grid_dim=(num_wg, 1, 1),
-                block_dim=(num_threads, 1, 1),
-                num_iterations=num_iter,
-            )
+            # Hold the per-GPU exclusive lock only across the GPU launch so
+            # cooperating workers/phases/runs serialize on the device. The OS
+            # auto-releases the flock if this child dies (crash-safe).
+            lock_fd = None
+            if gpu_lock_path:
+                lock_fd = os.open(gpu_lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            try:
+                times = execute_hsaco(
+                    hsaco_path=hsaco_path,
+                    kernel_name=kernel_name,
+                    arguments=[
+                        InputArray(host_A),
+                        InputArray(host_B),
+                        OutputArray(host_C),
+                    ],
+                    grid_dim=(num_wg, 1, 1),
+                    block_dim=(num_threads, 1, 1),
+                    num_iterations=num_iter,
+                )
+            finally:
+                if lock_fd is not None:
+                    try:
+                        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                        os.close(lock_fd)
+                    except OSError:
+                        pass
             result_conn.send((label, times, None))
         except Exception as e:
             result_conn.send((label, None, str(e).split("\n")[0][:200]))
@@ -733,7 +794,7 @@ def _persistent_worker_loop(cmd_conn, result_conn, gpu_id):
     result_conn.close()
 
 
-def _persistent_verify_loop(cmd_conn, result_conn, gpu_id):
+def _persistent_verify_loop(cmd_conn, result_conn, gpu_id, gpu_lock_path=None):
     """Long-lived child for correctness verification: init HIP once, verify configs.
 
     Same protocol as _persistent_worker_loop: 3-tuples (label, None, error_or_none).
@@ -767,18 +828,30 @@ def _persistent_verify_loop(cmd_conn, result_conn, gpu_id):
 
                 B = shuffle_weight(B)
             C = np.zeros(m * n, dtype=np.float32)
-            execute_hsaco(
-                hsaco_path=hsaco_path,
-                kernel_name=kernel_name,
-                arguments=[
-                    InputArray(A.flatten()),
-                    InputArray(B.flatten()),
-                    OutputArray(C),
-                ],
-                grid_dim=(num_wg, 1, 1),
-                block_dim=(num_threads, 1, 1),
-                num_iterations=1,
-            )
+            lock_fd = None
+            if gpu_lock_path:
+                lock_fd = os.open(gpu_lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            try:
+                execute_hsaco(
+                    hsaco_path=hsaco_path,
+                    kernel_name=kernel_name,
+                    arguments=[
+                        InputArray(A.flatten()),
+                        InputArray(B.flatten()),
+                        OutputArray(C),
+                    ],
+                    grid_dim=(num_wg, 1, 1),
+                    block_dim=(num_threads, 1, 1),
+                    num_iterations=1,
+                )
+            finally:
+                if lock_fd is not None:
+                    try:
+                        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                        os.close(lock_fd)
+                    except OSError:
+                        pass
             np.testing.assert_allclose(C, expected, rtol=1e-2, atol=1e-2)
             result_conn.send((label, None, None))
         except AssertionError:
@@ -798,9 +871,10 @@ class _PersistentGpuWorker:
     configs.
     """
 
-    def __init__(self, gpu_id, loop_fn=None):
+    def __init__(self, gpu_id, loop_fn=None, gpu_lock_path=None):
         self.gpu_id = gpu_id
         self._loop_fn = loop_fn or _persistent_worker_loop
+        self._gpu_lock_path = gpu_lock_path
         self._proc = None
         self._cmd = None  # parent -> child
         self._res = None  # child -> parent
@@ -816,7 +890,7 @@ class _PersistentGpuWorker:
         res_reader, res_writer = ctx.Pipe(duplex=False)
         p = ctx.Process(
             target=self._loop_fn,
-            args=(cmd_reader, res_writer, self.gpu_id),
+            args=(cmd_reader, res_writer, self.gpu_id, self._gpu_lock_path),
             daemon=True,
         )
         p.start()
@@ -842,7 +916,7 @@ class _PersistentGpuWorker:
             # Timed out -- kill and report.
             label = "unknown"
             self._proc.kill()
-            self._proc.join()
+            self._proc.join(timeout=10)
             self._cleanup()
             return label, None, f"execution timed out after {timeout}s"
         return self._res.recv()
@@ -857,14 +931,14 @@ class _PersistentGpuWorker:
         if not self._res.poll(timeout):
             label = item[0]
             self._proc.kill()
-            self._proc.join()
+            self._proc.join(timeout=10)
             self._cleanup()
             return label, None, f"execution timed out after {timeout}s"
         try:
             return self._res.recv()
         except (EOFError, ConnectionResetError):
             label = item[0]
-            self._proc.join()
+            self._proc.join(timeout=10)
             exitcode = self._proc.exitcode
             self._cleanup()
             sig = -exitcode if exitcode and exitcode < 0 else exitcode
@@ -880,7 +954,7 @@ class _PersistentGpuWorker:
                 pass
             if self._proc.is_alive():
                 self._proc.kill()
-                self._proc.join()
+                self._proc.join(timeout=10)
         self._cleanup()
 
     def _cleanup(self):
@@ -907,7 +981,7 @@ def _run_gpu_queue(gpu_id, items, result_queue, timeout=120, gpu_lock_path=None,
     """
     import queue as _queue_mod
 
-    worker = _PersistentGpuWorker(gpu_id, loop_fn=loop_fn)
+    worker = _PersistentGpuWorker(gpu_id, loop_fn=loop_fn, gpu_lock_path=gpu_lock_path)
     try:
         if isinstance(items, _queue_mod.Queue):
             while True:
@@ -1034,7 +1108,14 @@ def run_on_gpus(
 
 def _verify_gpu_queue(gpu_id, work_queue, result_queue, timeout=180):
     """Process a verification queue on one GPU using a persistent worker."""
-    _run_gpu_queue(gpu_id, work_queue, result_queue, timeout=timeout, loop_fn=_persistent_verify_loop)
+    _run_gpu_queue(
+        gpu_id,
+        work_queue,
+        result_queue,
+        timeout=timeout,
+        gpu_lock_path=_gpu_lock_path(gpu_id),
+        loop_fn=_persistent_verify_loop,
+    )
 
 
 def verify_on_gpus(configs, hsaco_paths, num_gpus, desc="Verifying", init_mode: InitMode = INIT_DEFAULT):
@@ -1228,11 +1309,8 @@ def bench_perf_sweep_pipelined(
 
     active = list(configs)
 
-    # Worker budget: +25% extra processes for execution (data prep is CPU-bound).
-    if num_gpus > 0:
-        n_exec_per_gpu = max(1, max(1, compile_workers // 4) // num_gpus)
-    else:
-        n_exec_per_gpu = 0
+    # One persistent execution worker per GPU.
+    n_exec_per_gpu = 1 if num_gpus > 0 else 0
 
     print(
         f"\nPipelined sweep: {len(active)} configs, "
@@ -1248,16 +1326,14 @@ def bench_perf_sweep_pipelined(
     else:
         hsaco_dir = tempfile.mkdtemp(prefix="bench_hsaco_")
 
-    # Per-GPU file locks for crash-safe GPU exclusivity.
-    gpu_lock_dir = os.path.join(hsaco_dir, "gpu_locks")
-    os.makedirs(gpu_lock_dir, exist_ok=True)
-
     # Per-GPU work queues + threads (reuses _run_gpu_queue with Queue mode).
+    # GPU exclusivity uses the stable per-physical-GPU lock (_gpu_lock_path),
+    # shared across runs/phases/processes, crash-safe (OS releases on death).
     gpu_work_queues = []
     gpu_threads = []
     exec_result_q = queue.Queue()
     for gpu_id in range(num_gpus):
-        lock_path = os.path.join(gpu_lock_dir, f"gpu_{gpu_id}.lock")
+        lock_path = _gpu_lock_path(gpu_id)
         for _ in range(n_exec_per_gpu):
             wq = queue.Queue()
             t = threading.Thread(
