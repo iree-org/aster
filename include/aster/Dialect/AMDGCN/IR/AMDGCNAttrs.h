@@ -16,7 +16,6 @@
 #define ASTER_DIALECT_AMDGCN_IR_AMDGCNATTRS_H
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
 #include "aster/Dialect/AMDGCN/IR/Hazards.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/KernelArgInterface.h"
 #include "aster/Interfaces/MemorySpaceConstraints.h"

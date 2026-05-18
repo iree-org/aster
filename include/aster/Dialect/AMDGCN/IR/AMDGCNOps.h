@@ -18,7 +18,6 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
 #include "aster/Dialect/AMDGCN/IR/InstructionProps.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/InstOpInterfaces.h"

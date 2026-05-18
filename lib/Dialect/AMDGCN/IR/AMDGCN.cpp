@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/IR/ParsePrintUtils.h"
 #include "mlir/IR/DialectImplementation.h"
@@ -24,6 +25,25 @@
 using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
+
+//===----------------------------------------------------------------------===//
+// Inline literal validation
+//===----------------------------------------------------------------------===//
+
+bool amdgcn::checkFloatConst(Value value, ArrayRef<float> values) {
+  APFloat apFloat(APFloat::IEEEdouble());
+  if (!matchPattern(value, m_ConstantFloat(&apFloat)))
+    return false;
+  float fval = static_cast<float>(apFloat.convertToDouble());
+  return llvm::is_contained(values, fval);
+}
+
+bool amdgcn::checkIntConst(Value value, ArrayRef<int64_t> values) {
+  APInt apInt;
+  if (!matchPattern(value, m_ConstantInt(&apInt)))
+    return false;
+  return llvm::is_contained(values, apInt.getSExtValue());
+}
 
 //===----------------------------------------------------------------------===//
 // Internal functions
