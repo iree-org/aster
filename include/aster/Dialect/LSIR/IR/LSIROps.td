@@ -19,6 +19,7 @@ include "aster/Dialect/LSIR/IR/LSIRDialect.td"
 include "aster/Dialect/LSIR/IR/LSIRAttrs.td"
 include "aster/Dialect/LSIR/IR/LSIRTypes.td"
 include "aster/Interfaces/AllocaOpInterface.td"
+include "aster/Interfaces/InstOpInterfaces.td"
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -311,7 +312,8 @@ def LSIR_CmpIOp : LSIR_InstOp<"cmpi", [InstInferType, PureInst]> {
 // CopyOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_CopyOp : LSIR_InstOp<"copy", [InstInferType, PureInst]> {
+def LSIR_CopyOp : LSIR_InstOp<"copy", [InstInferType, MovInstOpInterface,
+    PureInst]> {
   let summary = "Copy operation";
   let description = [{
     The `lsir.copy` operation copies a value from a source register to a target
@@ -328,6 +330,11 @@ def LSIR_CopyOp : LSIR_InstOp<"copy", [InstInferType, PureInst]> {
     $target `,` $source attr-dict `:` type($target) `,` type($source)
   }];
   let hasCanonicalizeMethod = 1;
+  let extraClassDeclaration = [{
+    ::mlir::aster::Operand getDestOperand() { return getTargetMutable(); }
+    ::mlir::Value getDestResult() { return getTargetRes(); }
+    ::mlir::aster::Operand getSrcOperand() { return getSourceMutable(); }
+  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -610,7 +617,7 @@ def LSIR_MinimumFOp : BinaryFOp<"minimumf"> {
 //===----------------------------------------------------------------------===//
 
 def LSIR_MovOp : LSIR_InstOp<"mov", [
-    PureInst, InstInferType
+    InstInferType, MovInstOpInterface, PureInst
   ]> {
   let summary = "Move operation";
   let description = [{
@@ -625,6 +632,11 @@ def LSIR_MovOp : LSIR_InstOp<"mov", [
   let inputs = (ins IntFloatOrRegType:$value);
   let assemblyFormat = [{
     $dst `,` $value attr-dict `:` type($dst) `,` type($value)
+  }];
+  let extraClassDeclaration = [{
+    ::mlir::aster::Operand getDestOperand() { return getDstMutable(); }
+    ::mlir::Value getDestResult() { return getDstRes(); }
+    ::mlir::aster::Operand getSrcOperand() { return getValueMutable(); }
   }];
 }
 
@@ -795,7 +807,9 @@ def LSIR_RemUIOp : BinaryIOp<"remui"> {
 // SelectOp
 //===----------------------------------------------------------------------===//
 
-def LSIR_SelectOp : LSIR_InstOp<"select", [PureInst, InstInferType]> {
+def LSIR_SelectOp : LSIR_InstOp<"select", [
+    InstInferType, PureInst, SelectInstOpInterface
+  ]> {
   let summary = "Select operation";
   let description = [{
     The `lsir.select` operation selects between two values based on a register
@@ -816,6 +830,13 @@ def LSIR_SelectOp : LSIR_InstOp<"select", [PureInst, InstInferType]> {
   let assemblyFormat = [{
     $dst `,` $condition `,` $true_value `,` $false_value attr-dict
     `:` type($dst) `,` type($condition) `,` type($true_value) `,` type($false_value)
+  }];
+  let extraClassDeclaration = [{
+    ::mlir::aster::Operand getDestOperand() { return getDstMutable(); }
+    ::mlir::Value getDestResult() { return getDstRes(); }
+    ::mlir::aster::Operand getConditionOperand() { return getConditionMutable(); }
+    ::mlir::aster::Operand getTrueValueOperand() { return getTrueValueMutable(); }
+    ::mlir::aster::Operand getFalseValueOperand() { return getFalseValueMutable(); }
   }];
 }
 

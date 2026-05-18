@@ -18,6 +18,7 @@
 include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCNTypeConstraints.td"
 include "aster/IR/Inst.td"
+include "aster/Interfaces/InstOpInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // Base instruction class for AMDGCN instructions.

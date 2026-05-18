@@ -20,6 +20,7 @@
 #include "aster/IR/InstImpl.h"
 #include "aster/Interfaces/AllocaOpInterface.h"
 #include "aster/Interfaces/InstOpInterface.h"
+#include "aster/Interfaces/InstOpInterfaces.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.h"
