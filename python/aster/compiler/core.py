@@ -251,6 +251,74 @@ def _find_amdgcn_kernel(module, kernel_name: Optional[str]):
     return None
 
 
+def _compile_module_core(
+    module,
+    pass_pipeline: str,
+    library_paths: Optional[List[str]],
+    kernel_name: Optional[str],
+    opts: PrintOptions,
+    print_dir_name: str,
+    logger,
+    mlir_source: str,
+) -> Tuple[str, Any]:
+    """Run the pass pipeline on module, translate to assembly, and handle print options.
+
+    Args:
+        module: An MLIR module in the AMDGCN dialect.
+        pass_pipeline: Pass pipeline string.
+        library_paths: Optional AMDGCN library files to preload before the pipeline.
+        kernel_name: If provided, search for a specific kernel. If None, uses the first
+            amdgcn.module found.
+        opts: Print and diagnostic options.
+        print_dir_name: Name prefix used when creating the print output directory.
+        logger: Logger instance.
+        mlir_source: Source identifier used in error messages (file path or "<module>").
+
+    Returns:
+        Tuple of (asm_code, module) where module is the MLIR module after passes.
+    """
+    from aster.utils.logging import aster_log_info
+
+    ctx = module.context
+
+    print_dir_path: Optional[pathlib.Path] = None
+    if opts.print_root_dir is not None and (opts.print_asm or opts.print_ir_after_all):
+        print_dir_path = _create_print_dir(print_dir_name, opts.print_root_dir)
+
+    if library_paths:
+        _apply_preload_pass(module, library_paths, mlir_source, ctx, logger)
+
+    if print_dir_path is not None:
+        (print_dir_path / "pipeline.txt").write_text(pass_pipeline)
+        (print_dir_path / "preprocessed.mlir").write_text(str(module))
+
+    _run_pass_pipeline(module, pass_pipeline, ctx, opts, print_dir_path, logger)
+
+    aster_log_info(logger, f"[COMPILE] Searching for kernel: {kernel_name}")
+    amdgcn_module = _find_amdgcn_kernel(module, kernel_name)
+    assert amdgcn_module is not None, (
+        f"failed to find kernel {kernel_name}"
+        if kernel_name
+        else "no amdgcn.module found after pipeline"
+    )
+    aster_log_info(logger, f"[COMPILE] Found kernel: {kernel_name}")
+
+    aster_log_info(logger, "[COMPILE] Translating to assembly")
+    asm_complete = translate_module(amdgcn_module, debug_print=False)
+    aster_log_info(logger, "[COMPILE] Assembly generation completed")
+
+    if opts.print_asm:
+        if print_dir_path is not None:
+            (print_dir_path / "kernel.s").write_text(asm_complete)
+        else:
+            print(asm_complete, flush=True)
+
+    if print_dir_path is not None:
+        (print_dir_path / "output.mlir").write_text(str(module))
+
+    return asm_complete, module
+
+
 def compile_mlir_module_to_asm(
     module,
     pass_pipeline: Optional[str] = None,
@@ -284,22 +352,19 @@ def compile_mlir_module_to_asm(
         pass_pipeline = TEST_SROA_PASS_PIPELINE
 
     opts = print_opts if print_opts is not None else PrintOptions.from_flags()
-    ctx = module.context
     logger = aster_get_logger()
-
-    if library_paths:
-        _apply_preload_pass(module, library_paths, "<module>", ctx, logger)
-
-    _run_pass_pipeline(module, pass_pipeline, ctx, opts, None, logger)
-
-    amdgcn_module = _find_amdgcn_kernel(module, kernel_name)
-    assert amdgcn_module is not None, (
-        f"failed to find kernel {kernel_name}"
-        if kernel_name
-        else "no amdgcn.module found after pipeline"
+    print_dir_name = kernel_name if kernel_name else "module"
+    asm, _ = _compile_module_core(
+        module,
+        pass_pipeline,
+        library_paths,
+        kernel_name,
+        opts,
+        print_dir_name,
+        logger,
+        "<module>",
     )
-
-    return translate_module(amdgcn_module, debug_print=False)
+    return asm
 
 
 def compile_mlir_file_to_asm(
@@ -330,10 +395,6 @@ def compile_mlir_file_to_asm(
 
     opts = print_opts if print_opts is not None else PrintOptions.from_flags()
 
-    print_dir_path: Optional[pathlib.Path] = None
-    if opts.print_root_dir is not None and (opts.print_asm or opts.print_ir_after_all):
-        print_dir_path = _create_print_dir(kernel_name, opts.print_root_dir)
-
     logger = aster_get_logger()
     aster_log_info(
         logger, f"[COMPILE] Loading MLIR file: {pathlib.Path(mlir_file).name}"
@@ -343,31 +404,13 @@ def compile_mlir_file_to_asm(
         mlir_file, ctx, preprocess, opts.print_preprocessed_ir
     )
 
-    if library_paths:
-        _apply_preload_pass(module, library_paths, mlir_file, ctx, logger)
-
-    if print_dir_path is not None:
-        (print_dir_path / "pipeline.txt").write_text(pass_pipeline)
-        (print_dir_path / "preprocessed.mlir").write_text(str(module))
-
-    _run_pass_pipeline(module, pass_pipeline, ctx, opts, print_dir_path, logger)
-
-    aster_log_info(logger, f"[COMPILE] Searching for kernel: {kernel_name}")
-    amdgcn_module = _find_amdgcn_kernel(module, kernel_name)
-    assert amdgcn_module is not None, f"failed to find kernel {kernel_name}"
-    aster_log_info(logger, f"[COMPILE] Found kernel: {kernel_name}")
-
-    aster_log_info(logger, "[COMPILE] Translating to assembly")
-    asm_complete = translate_module(amdgcn_module, debug_print=False)
-    aster_log_info(logger, "[COMPILE] Assembly generation completed")
-
-    if opts.print_asm:
-        if print_dir_path is not None:
-            (print_dir_path / "kernel.s").write_text(asm_complete)
-        else:
-            print(asm_complete, flush=True)
-
-    if print_dir_path is not None:
-        (print_dir_path / "output.mlir").write_text(str(module))
-
-    return asm_complete, module
+    return _compile_module_core(
+        module,
+        pass_pipeline,
+        library_paths,
+        kernel_name,
+        opts,
+        kernel_name,
+        logger,
+        mlir_file,
+    )
