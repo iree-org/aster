@@ -166,39 +166,14 @@ struct RegInterferenceOpPattern : public OpRewritePattern<RegInterferenceOp> {
 struct CopyOpPattern : public OpRewritePattern<lsir::CopyOp> {
   using Base::Base;
 
-  /// Find the max allocated VGPR register number in the enclosing function.
-  /// Returns -1 if no allocated VGPRs are found.
-  static int findMaxAllocatedVGPR(Operation *op) {
-    int maxVGPR = -1;
-    auto funcOp = op->getParentOfType<FunctionOpInterface>();
-    if (!funcOp)
-      return maxVGPR;
-    funcOp->walk([&](AllocaOp alloca) {
-      if (auto vgprTy = dyn_cast<VGPRType>(alloca.getType())) {
-        if (vgprTy.hasAllocatedSemantics()) {
-          int regNum = vgprTy.getReg().getRegister();
-          maxVGPR = std::max(maxVGPR, regNum);
-        }
-      }
-    });
-    return maxVGPR;
-  }
-
   LogicalResult matchAndRewrite(lsir::CopyOp op,
                                 PatternRewriter &rewriter) const override;
 };
 
-struct VMovB32Pattern : public OpRewritePattern<VMovB32> {
+struct MovInstOpPattern : public OpInterfaceRewritePattern<MovInstOpInterface> {
   using Base::Base;
 
-  LogicalResult matchAndRewrite(VMovB32 op,
-                                PatternRewriter &rewriter) const override;
-};
-
-struct SMovB32Pattern : public OpRewritePattern<SMovB32> {
-  using Base::Base;
-
-  LogicalResult matchAndRewrite(SMovB32 op,
+  LogicalResult matchAndRewrite(MovInstOpInterface op,
                                 PatternRewriter &rewriter) const override;
 };
 } // namespace
@@ -597,17 +572,7 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
       return;
     }
     if (tgtTy.getRegisterKind() == RegisterKind::AGPR) {
-      // AGPR->AGPR copy: no direct instruction on CDNA3/CDNA4.
-      // Must go through VGPR intermediate: read AGPR->VGPR, write VGPR->AGPR.
-      // Allocate a scratch VGPR past all used VGPRs to avoid conflicts.
-      // TODO: evaluate whether this would be too prohibitive a use case and
-      // whether we'd prefer to fail hard and tell user to get a better
-      // schedule.
-      int scratchReg = findMaxAllocatedVGPR(op) + 1;
-      auto vtmpTy = VGPRType::get(rewriter.getContext(), Register(scratchReg));
-      auto vtmp = AllocaOp::create(rewriter, tgt.getLoc(), vtmpTy);
-      VAccvgprRead::create(rewriter, tgt.getLoc(), vtmp, src);
-      VAccvgprWrite::create(rewriter, tgt.getLoc(), tgt, vtmp);
+      VAccvgprMovB32::create(rewriter, tgt.getLoc(), tgt, src);
       return;
     }
     VMovB32::create(rewriter, tgt.getLoc(), tgt, src);
@@ -620,26 +585,17 @@ LogicalResult CopyOpPattern::matchAndRewrite(lsir::CopyOp op,
   return success();
 }
 
-LogicalResult VMovB32Pattern::matchAndRewrite(VMovB32 op,
-                                              PatternRewriter &rewriter) const {
-  RegisterTypeInterface dstTy = op.getDst0().getType();
-  auto srcTy = llvm::dyn_cast<RegisterTypeInterface>(op.getSrc0().getType());
-  if (!srcTy)
+LogicalResult
+MovInstOpPattern::matchAndRewrite(MovInstOpInterface op,
+                                  PatternRewriter &rewriter) const {
+  // CopyOpPattern handles lsir::CopyOp specifically.
+  if (isa<lsir::CopyOp>(op))
     return failure();
-  if (!srcTy.hasAllocatedSemantics() || !dstTy.hasAllocatedSemantics())
-    return failure();
-  if (srcTy != dstTy)
-    return rewriter.notifyMatchFailure(
-        op, "source and destination types do not match");
-  rewriter.eraseOp(op);
-  return success();
-}
-
-LogicalResult SMovB32Pattern::matchAndRewrite(SMovB32 op,
-                                              PatternRewriter &rewriter) const {
-  RegisterTypeInterface dstTy = op.getDst0().getType();
-  auto srcTy = llvm::dyn_cast<RegisterTypeInterface>(op.getSrc0().getType());
-  if (!srcTy)
+  RegisterTypeInterface dstTy =
+      dyn_cast<RegisterTypeInterface>(op.getDestOperand().getType());
+  RegisterTypeInterface srcTy =
+      dyn_cast<RegisterTypeInterface>(op.getSrcOperand().getType());
+  if (!srcTy || !dstTy)
     return failure();
   if (!srcTy.hasAllocatedSemantics() || !dstTy.hasAllocatedSemantics())
     return failure();
@@ -702,8 +658,12 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
 
   RewritePatternSet patterns(&getContext());
   patterns.add<InstRewritePattern, MakeRegisterRangeOpPattern,
-               RegInterferenceOpPattern, CopyOpPattern, SMovB32Pattern,
-               VMovB32Pattern>(&getContext());
+               RegInterferenceOpPattern>(&getContext());
+  // CopyOpPattern handles lsir::CopyOp with dedicated logic. MovInstOpPattern
+  // guards against lsir::CopyOp explicitly because CopyOpPattern can return
+  // failure for it; the higher benefit ensures CopyOpPattern runs first.
+  patterns.add<CopyOpPattern>(&getContext(), /*benefit=*/2);
+  patterns.add<MovInstOpPattern>(&getContext(), /*benefit=*/1);
   FrozenRewritePatternSet frozenPatterns(std::move(patterns));
   if (failed(applyPatternsGreedily(
           funcOp, frozenPatterns,

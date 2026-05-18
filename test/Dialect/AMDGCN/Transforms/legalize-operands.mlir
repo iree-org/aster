@@ -398,3 +398,100 @@ amdgcn.module @vcndmask_b32_inline_src1_mod target = <gfx942> {
     end_kernel
   }
 }
+
+// -----
+
+// Test: lsir.select with SGPR (non-SCC, non-VCC) condition + non-inline
+// true_value. SGPR conditions lower to v_cndmask_b32 (VALU), so the true
+// value must be materialized into a VGPR via v_mov_b32, not s_mov_b32.
+
+// CHECK-LABEL: kernel @sgpr_cond_select_non_inline_true
+// CHECK:         %{{.*}} = alloca : !amdgcn.vgpr
+// CHECK:         %[[OUT:.*]] = alloca : !amdgcn.vgpr
+// CHECK:         %[[MOV:.*]] = v_mov_b32 outs(%[[OUT]]) ins(%{{.*}}) : outs(!amdgcn.vgpr) ins(i32)
+// CHECK:         lsir.select %{{.*}}, %{{.*}}, %[[MOV]], %{{.*}} : !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr, i32
+// CHECK-NOT:     s_mov_b32
+amdgcn.module @sgpr_cond_select_non_inline_mod target = <gfx942> {
+  amdgcn.kernel @sgpr_cond_select_non_inline_true {
+    %c544 = arith.constant 544 : i32
+    %c1632 = arith.constant 1632 : i32
+    %v0 = alloca : !amdgcn.vgpr
+    %v1 = alloca : !amdgcn.vgpr
+    %s0 = alloca : !amdgcn.sgpr
+    %sel = lsir.select %v1, %s0, %c544, %c1632 : !amdgcn.vgpr, !amdgcn.sgpr, i32, i32
+    test_inst ins %sel : (!amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+// Test: lsir.select with SGPR condition + inline true_value -> no
+// transformation. 10 is in [-16, 64], so VOP3 can encode it directly.
+
+// CHECK-LABEL: kernel @sgpr_cond_select_inline_true
+// CHECK-NOT:     v_mov_b32
+// CHECK-NOT:     s_mov_b32
+// CHECK:         lsir.select %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : !amdgcn.vgpr, !amdgcn.sgpr, i32, i32
+amdgcn.module @sgpr_cond_select_inline_mod target = <gfx942> {
+  amdgcn.kernel @sgpr_cond_select_inline_true {
+    %c10 = arith.constant 10 : i32
+    %c200 = arith.constant 200 : i32
+    %v1 = alloca : !amdgcn.vgpr
+    %s0 = alloca : !amdgcn.sgpr
+    %sel = lsir.select %v1, %s0, %c10, %c200 : !amdgcn.vgpr, !amdgcn.sgpr, i32, i32
+    test_inst ins %sel : (!amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+// Test: v_cndmask_b32 with a two-SGPR condition (VOP3 mode, non-VCC) and
+// non-inline src1. The condition is not SCC, so VGPRSelectInstLegalizePattern
+// fires and materializes src1 into a VGPR via v_mov_b32.
+
+// CHECK-LABEL: kernel @vcndmask_twosgpr_cond_non_inline_src1
+// CHECK:         %{{.*}} = alloca : !amdgcn.vgpr
+// CHECK:         %[[OUT:.*]] = alloca : !amdgcn.vgpr
+// CHECK:         %[[MOV:.*]] = v_mov_b32 outs(%[[OUT]]) ins(%{{.*}}) : outs(!amdgcn.vgpr) ins(i32)
+// CHECK:         v_cndmask_b32 outs(%{{.*}}) ins(%{{.*}}, %[[MOV]], %{{.*}}) : outs(!amdgcn.vgpr) ins(i32, !amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>)
+amdgcn.module @vcndmask_twosgpr_cond_mod target = <gfx942> {
+  amdgcn.kernel @vcndmask_twosgpr_cond_non_inline_src1 {
+    %c544 = arith.constant 544 : i32
+    %c1632 = arith.constant 1632 : i32
+    %v0 = alloca : !amdgcn.vgpr
+    %v1 = alloca : !amdgcn.vgpr
+    %s0 = alloca : !amdgcn.sgpr
+    %s1 = alloca : !amdgcn.sgpr
+    %cond = make_register_range %s0, %s1 : !amdgcn.sgpr, !amdgcn.sgpr
+    test_inst ins %cond : (!amdgcn.sgpr<[? + 2]>) -> ()
+    %sel = amdgcn.v_cndmask_b32 outs(%v1) ins(%c1632, %c544, %cond) : outs(!amdgcn.vgpr) ins(i32, i32, !amdgcn.sgpr<[? + 2]>)
+    test_inst ins %sel : (!amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}
+
+// -----
+
+// Test: v_cndmask_b32 with a two-SGPR condition + inline src1 -> no
+// transformation. 10 is in [-16, 64], so VOP3 can encode it directly.
+
+// CHECK-LABEL: kernel @vcndmask_twosgpr_cond_inline_src1
+// CHECK-NOT:     v_mov_b32
+// CHECK:         v_cndmask_b32 outs(%{{.*}}) ins(%{{.*}}, %{{.*}}, %{{.*}}) : outs(!amdgcn.vgpr) ins(i32, i32, !amdgcn.sgpr<[? + 2]>)
+amdgcn.module @vcndmask_twosgpr_cond_inline_mod target = <gfx942> {
+  amdgcn.kernel @vcndmask_twosgpr_cond_inline_src1 {
+    %c10 = arith.constant 10 : i32
+    %c200 = arith.constant 200 : i32
+    %v0 = alloca : !amdgcn.vgpr
+    %v1 = alloca : !amdgcn.vgpr
+    %s0 = alloca : !amdgcn.sgpr
+    %s1 = alloca : !amdgcn.sgpr
+    %cond = make_register_range %s0, %s1 : !amdgcn.sgpr, !amdgcn.sgpr
+    test_inst ins %cond : (!amdgcn.sgpr<[? + 2]>) -> ()
+    %sel = amdgcn.v_cndmask_b32 outs(%v1) ins(%c200, %c10, %cond) : outs(!amdgcn.vgpr) ins(i32, i32, !amdgcn.sgpr<[? + 2]>)
+    test_inst ins %sel : (!amdgcn.vgpr) -> ()
+    end_kernel
+  }
+}

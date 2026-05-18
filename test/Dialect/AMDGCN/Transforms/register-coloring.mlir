@@ -1112,3 +1112,21 @@ func.func @range_interference() {
   amdgcn.reg_interference %0, %5 : !amdgcn.vgpr<?>, !amdgcn.vgpr<2>
   return
 }
+
+// -----
+
+// Test: s_mov_b64 with non-interfering src and dst ranges -> both are allocated
+// to the same two SGPRs and the mov is erased by MovInstOpPattern.
+
+// CHECK-LABEL:   func.func @redundant_s_mov_b64() {
+// CHECK-NOT:       s_mov_b64
+func.func @redundant_s_mov_b64() {
+  %s0 = amdgcn.alloca : !amdgcn.sgpr<?>
+  %s1 = amdgcn.alloca : !amdgcn.sgpr<?>
+  %s2 = amdgcn.alloca : !amdgcn.sgpr<?>
+  %s3 = amdgcn.alloca : !amdgcn.sgpr<?>
+  %r0 = amdgcn.make_register_range %s0, %s1 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
+  %r1 = amdgcn.make_register_range %s2, %s3 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
+  amdgcn.s_mov_b64 outs(%r1) ins(%r0) : outs(!amdgcn.sgpr<[? : ? + 2]>) ins(!amdgcn.sgpr<[? : ? + 2]>)
+  return
+}

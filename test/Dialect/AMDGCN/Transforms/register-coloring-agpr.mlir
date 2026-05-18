@@ -56,14 +56,11 @@ amdgcn.kernel @agpr_range_allocation {
 
 // -----
 
-// No other VGPRs allocated, so scratch is v0.
 // CHECK-LABEL: amdgcn.kernel @agpr_copy {
 // CHECK-DAG:     %[[A0:.*]] = alloca : !amdgcn.agpr<0>
 // CHECK-DAG:     %[[A1:.*]] = alloca : !amdgcn.agpr<1>
 // CHECK:         test_inst outs %[[A0]] : (!amdgcn.agpr<0>) -> ()
-// CHECK:         %[[VTMP:.*]] = alloca : !amdgcn.vgpr<0>
-// CHECK:         v_accvgpr_read outs(%[[VTMP]]) ins(%[[A1]])
-// CHECK:         v_accvgpr_write outs(%[[A0]]) ins(%[[VTMP]])
+// CHECK:         v_accvgpr_mov_b32 outs(%[[A0]]) ins(%[[A1]])
 // CHECK:         test_inst ins %[[A1]] : (!amdgcn.agpr<1>) -> ()
 // CHECK:         end_kernel
 amdgcn.kernel @agpr_copy {
@@ -77,16 +74,13 @@ amdgcn.kernel @agpr_copy {
 
 // -----
 
-// With VGPRs v0..v2 in use, the scratch should be v3.
 // CHECK-LABEL: amdgcn.kernel @agpr_copy_with_vgprs {
 // CHECK-DAG:     %[[V0:.*]] = alloca : !amdgcn.vgpr<0>
 // CHECK-DAG:     %[[V1:.*]] = alloca : !amdgcn.vgpr<1>
 // CHECK-DAG:     %[[V2:.*]] = alloca : !amdgcn.vgpr<2>
 // CHECK-DAG:     %[[A0:.*]] = alloca : !amdgcn.agpr<0>
 // CHECK-DAG:     %[[A1:.*]] = alloca : !amdgcn.agpr<1>
-// CHECK:         %[[VTMP:.*]] = alloca : !amdgcn.vgpr<3>
-// CHECK:         v_accvgpr_read outs(%[[VTMP]]) ins(%[[A1]])
-// CHECK:         v_accvgpr_write outs(%[[A0]]) ins(%[[VTMP]])
+// CHECK:         v_accvgpr_mov_b32 outs(%[[A0]]) ins(%[[A1]])
 // CHECK:         end_kernel
 amdgcn.kernel @agpr_copy_with_vgprs {
   %v0 = alloca : !amdgcn.vgpr<?>
@@ -208,4 +202,20 @@ amdgcn.kernel @agpr_to_vgpr_copy_rejected {
   lsir.copy %a, %v : !amdgcn.agpr<?>, !amdgcn.vgpr<?>
   test_inst ins %v : (!amdgcn.vgpr<?>) -> ()
   end_kernel
+}
+
+// -----
+
+// Test: v_accvgpr_mov_b32 with non-interfering src and dst AGPRs -> both are
+// allocated to the same AGPR and the mov is erased by MovInstOpPattern.
+
+// CHECK-LABEL: kernel @redundant_v_accvgpr_mov {
+// CHECK-NOT:     v_accvgpr_mov_b32
+amdgcn.module @redundant_v_accvgpr_mov_mod target = <gfx942> {
+  amdgcn.kernel @redundant_v_accvgpr_mov {
+    %a0 = alloca : !amdgcn.agpr<?>
+    %a1 = alloca : !amdgcn.agpr<?>
+    amdgcn.v_accvgpr_mov_b32 outs(%a1) ins(%a0) : outs(!amdgcn.agpr<?>) ins(!amdgcn.agpr<?>)
+    end_kernel
+  }
 }
