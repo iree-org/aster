@@ -68,6 +68,10 @@ def LayoutAttr : Layout_Attr<"Layout", "strided_layout"> {
     /// Number of top-level modes.
     int64_t getRank() const { return getShape().size(); }
 
+    /// Number of leaf modes after recursive flattening of nested tuples.
+    /// Equal to getRank() for flat layouts, larger for nested layouts.
+    int64_t getFlatRank() const;
+
     /// Evaluate the layout at an integral coordinate.
     int64_t evaluate(int64_t coord) const;
 

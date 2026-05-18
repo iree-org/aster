@@ -31,7 +31,7 @@ def build_copy_kernel(
     src_ptr, dst_ptr = b.load_args()
 
     tid = b.thread_id("x")
-    byte_off = b.linearize_layout(tid, thread_layout)
+    byte_off = b.layout_apply(tid, thread_layout)
 
     src_addr = b.global_addr(src_ptr, byte_off)
     data, load_tok = b.global_load_dwordx4(src_addr)
@@ -79,7 +79,7 @@ def test_build_copy_kernel_ir():
         assert "global_load_dwordx4" in text
         assert "global_store_dwordx4" in text
         assert "ptr.ptr_add" in text
-        assert "layout.linearize" in text
+        assert "layout.apply" in text
 
 
 def test_build_copy_kernel_asm():
@@ -95,6 +95,67 @@ def test_build_copy_kernel_asm():
         assert "global_load_dwordx4" in asm
         assert "global_store_dwordx4" in asm
         assert "s_endpgm" in asm
+
+
+def test_swizzled_layout_lower_two_part_address():
+    """SwizzledLayout.lower emits the irreducible unswizzled + XOR-swizzled sum."""
+    from aster import ir
+    from aster.layout import Swizzle, SwizzledLayout
+    from aster.dialects.kernel_builder import KernelBuilder
+    from aster.dialects.amdgcn import AccessKind
+
+    ctx = ir.Context()
+    ctx.allow_unregistered_dialects = True
+    with ctx:
+        b = KernelBuilder("swz_module", "swz", target="gfx942")
+        b.add_ptr_arg(AccessKind.ReadOnly)
+        tid = b.thread_id("x")
+        sl = SwizzledLayout(
+            unswizzled_base=Layout(sizes=(4,), strides=(64,)),
+            swizzled_base=Layout(sizes=(4,), strides=(16,)),
+            swizzle_spec=Swizzle(bits=2, base=0, shift=3),
+        )
+        off = b.layout_apply(tid, sl)
+        text = str(b.build())
+        assert text.count("layout.apply") == 2
+        assert "layout.swizzle" in text
+        assert "affine.apply" in text
+        assert off is not None
+
+
+def test_swizzled_layout_dispatch_matches_manual():
+    """Polymorphic layout_apply(SwizzledLayout) == manual two-call form."""
+    from aster import ir
+    from aster.layout import Swizzle, SwizzledLayout
+    from aster.dialects.kernel_builder import KernelBuilder
+    from aster.dialects.amdgcn import AccessKind
+
+    unswz = Layout(sizes=(4,), strides=(64,))
+    swz = Layout(sizes=(4,), strides=(16,))
+    spec = Swizzle(bits=2, base=0, shift=3)
+
+    def emit(use_swizzled_layout: bool) -> str:
+        ctx = ir.Context()
+        ctx.allow_unregistered_dialects = True
+        with ctx:
+            b = KernelBuilder("m", "k", target="gfx942")
+            b.add_ptr_arg(AccessKind.ReadOnly)
+            tid = b.thread_id("x")
+            if use_swizzled_layout:
+                b.layout_apply(
+                    tid,
+                    SwizzledLayout(
+                        unswizzled_base=unswz, swizzled_base=swz, swizzle_spec=spec
+                    ),
+                )
+            else:
+                u = b.layout_apply(tid, unswz)
+                s = b.layout_apply(tid, swz, swizzle=spec)
+                d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
+                b.affine_apply(d0 + d1, [u, s])
+            return str(b.build())
+
+    assert emit(True) == emit(False)
 
 
 # ---------------------------------------------------------------------------

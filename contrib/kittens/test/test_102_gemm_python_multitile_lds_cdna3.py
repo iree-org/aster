@@ -11,7 +11,7 @@ import pytest
 from aster import ir
 import tempfile
 
-from aster.layout import Layout, Swizzle
+from aster.layout import Layout, Swizzle, make_layout
 from aster.dialects.kernel_builder_with_layouts import KernelBuilderWithLayouts as KernelBuilder
 from aster.dialects.amdgcn import AccessKind
 from aster.compiler.core import compile_mlir_module_to_asm, assemble_to_hsaco
@@ -156,21 +156,37 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
     # Flat wave_id -> (wpw_m, wpw_n), then M-only / N-only byte stride.
     WAVE_M_LDS_OFF = Layout((wpw[DIM_M], wpw[DIM_N]), (m_t * tile_bytes, 0))
     WAVE_N_LDS_OFF = Layout((wpw[DIM_M], wpw[DIM_N]), (0, n_t * tile_bytes))
+    # Per-wave LDS read offset = wave-base shift + per-tile (k, m/n) offset.
+    WAVE_READ_FULL_A = make_layout(WAVE_M_LDS_OFF, WAVE_READ_COORD_A)
+    WAVE_READ_FULL_B = make_layout(WAVE_N_LDS_OFF, WAVE_READ_COORD_B)
 
     # WG base coord: (wg_idx, k_iter) -> global byte offset to WG's first tile.
     WG_BASE_A = Layout((wg[DIM_M], k_iters), (twg_m * TILE_COORD_A.strides[1], k_t * TILE_COORD_A.strides[0]))
     WG_BASE_B = Layout((wg[DIM_N], k_iters), (twg_n * TILE_COORD_B.strides[1], k_t * TILE_COORD_B.strides[0]))
     C_COORD = Layout((m_t, n_t), (mfma_m * stride_c_row, mfma_n * stride_c_col))
 
-    # Distribution layouts: (wg_idx, wave_idx) -> global tile index.
-    M_DIST = Layout((wg[DIM_M], wpw[DIM_M]), (twg_m, m_t))
-    N_DIST = Layout((wg[DIM_N], wpw[DIM_N]), (twg_n, n_t))
-
     # Cooperative load: per-wave tile iteration + LDS write offset.
     # Each wave loads coop_m * coop_k tiles (A) or coop_n * coop_k tiles (B).
     # COOP_COORD maps per-wave tile idx -> global byte offset from WG base.
     COOP_COORD_A = Layout((coop_a_k, coop_a_m), (tile_row_bytes, mfma_m * stride_a))
     COOP_COORD_B = Layout((coop_b_k, coop_b_n), (tile_row_bytes, mfma_n * stride_b))
+
+    # Per-wave A/B base layouts: WG_BASE + cooperative tile offset, fused as a
+    # nested rank-2 layout. Coords: (wg_*_idx, k_iv, coop_*_k_start, coop_*_m_start).
+    WAVE_BASE_A = make_layout(WG_BASE_A, TILE_COORD_A)
+    WAVE_BASE_B = make_layout(WG_BASE_B, TILE_COORD_B)
+
+    # Global C-tile base in bytes: (wg_m_idx, wave_m_idx, wg_n_idx, wave_n_idx)
+    # -> byte offset of this wave's first C tile.
+    C_BASE = Layout(
+        sizes=((wg[DIM_M], wpw[DIM_M]), (wg[DIM_N], wpw[DIM_N])),
+        strides=(
+            (twg_m * mfma_m * stride_c_row, m_t * mfma_m * stride_c_row),
+            (twg_n * mfma_n * stride_c_col, n_t * mfma_n * stride_c_col),
+        ),
+    )
+    # Per-thread C-tile byte offset = C_BASE + per-tile (m, n) offset.
+    C_OFF = make_layout(C_BASE, C_COORD)
     # COOP_LDS maps per-wave tile idx -> LDS byte offset from wave's LDS base.
     COOP_LDS_A = Layout((coop_a_k, coop_a_m), (twg_m * tile_bytes, tile_bytes))
     COOP_LDS_B = Layout((coop_b_k, coop_b_n), (twg_n * tile_bytes, tile_bytes))
@@ -188,7 +204,7 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
     lds_total_a = n_tiles_a_wg * tile_bytes
     lds_total_b = n_tiles_b_wg * tile_bytes
 
-    d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
+    d0 = ir.AffineExpr.get_dim(0)
 
     b = KernelBuilder("gemm_mod", cfg.kernel_name, target=mapping.mcpu)
     b.set_block_dims(mapping.num_threads)
@@ -210,26 +226,20 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
 
     # -- Distribution --
     wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg[DIM_M], wg[DIM_N]))
-    wave_m_idx, wave_n_idx = b.delinearize_index(b.wave_id(wave_size=ws), (wpw[DIM_M], wpw[DIM_N]))
     wid = b.wave_id(wave_size=ws)
-
-    # Global tile-unit base for this wave (used for READ + C store).
-    m_dist_idx = b.linearize_index((wg_m_idx, wave_m_idx), (wg[DIM_M], wpw[DIM_M]))
-    n_dist_idx = b.linearize_index((wg_n_idx, wave_n_idx), (wg[DIM_N], wpw[DIM_N]))
+    wave_m_idx, wave_n_idx = b.delinearize_index(wid, (wpw[DIM_M], wpw[DIM_N]))
 
     # Cooperative load starts: wave_id -> (m_start, k_start) with OOB clamping.
     # When staggered, use local wave_id within 4-wave group.
     coop_wid = b.affine_apply(d0 % nw_coop, [wid]) if ping_pong_staggered else wid
     ## A
-    coop_a_m_start_raw = b.linearize_layout(coop_wid, Layout((a_waves_m, a_waves_k), (coop_a_m, 0)))
-    coop_a_k_start_raw = b.linearize_layout(coop_wid, Layout((a_waves_m, a_waves_k), (0, coop_a_k)))
-    coop_a_m_start = b.arith_minui(coop_a_m_start_raw, b.constant_index(max_a_m_start))
-    coop_a_k_start = b.arith_minui(coop_a_k_start_raw, b.constant_index(max_a_k_start))
+    coop_a_m_raw, coop_a_k_raw = b.delinearize_index(coop_wid, (a_waves_m, a_waves_k))
+    coop_a_m_start = b.arith_minui(b.affine_apply(d0 * coop_a_m, [coop_a_m_raw]), b.constant_index(max_a_m_start))
+    coop_a_k_start = b.arith_minui(b.affine_apply(d0 * coop_a_k, [coop_a_k_raw]), b.constant_index(max_a_k_start))
     ## B
-    coop_b_n_start_raw = b.linearize_layout(coop_wid, Layout((b_waves_n, b_waves_k), (coop_b_n, 0)))
-    coop_b_k_start_raw = b.linearize_layout(coop_wid, Layout((b_waves_n, b_waves_k), (0, coop_b_k)))
-    coop_b_n_start = b.arith_minui(coop_b_n_start_raw, b.constant_index(max_b_n_start))
-    coop_b_k_start = b.arith_minui(coop_b_k_start_raw, b.constant_index(max_b_k_start))
+    coop_b_n_raw, coop_b_k_raw = b.delinearize_index(coop_wid, (b_waves_n, b_waves_k))
+    coop_b_n_start = b.arith_minui(b.affine_apply(d0 * coop_b_n, [coop_b_n_raw]), b.constant_index(max_b_n_start))
+    coop_b_k_start = b.arith_minui(b.affine_apply(d0 * coop_b_k, [coop_b_k_raw]), b.constant_index(max_b_k_start))
 
     c0, c1 = b.constant_index(0), b.constant_index(1)
     any_type = ir.Type.parse("!aster_utils.any")
@@ -318,48 +328,36 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
 
         # -- LOAD A (cooperative: scheduled func.call for type erasure) --
         with b.stage(STG_A_LOAD):
-            a_wg_k_idx = b.linearize_index((wg_m_idx, k_iv), (wg[DIM_M], k_iters))
-            a_wg_base = b.linearize_layout(a_wg_k_idx, WG_BASE_A)
-            coop_a_off = b.linearize_layout(
-                b.linearize_index((coop_a_k_start, coop_a_m_start), (k_t, twg_m)), TILE_COORD_A
-            )
-            a_wave_base = b.affine_apply(d0 + d1, [a_wg_base, coop_a_off])
+            a_wave_base = b.layout_apply((wg_m_idx, k_iv, coop_a_k_start, coop_a_m_start), WAVE_BASE_A)
 
             @b.foreach_tile(n_coop_a, types=[(any_type, 1), (flat_read_tok, 1)])
             def load_a(idx):
-                tile_off = b.linearize_layout(idx, COOP_COORD_A)
-                off = b.affine_apply(d0 + d1, [a_wave_base, tile_off])
+                tile_off = b.layout_apply(idx, COOP_COORD_A)
+                off = b.layout_sum(a_wave_base, tile_off)
                 return b.call_helper(load_a_fn, [a_ptr, off], [any_type, flat_read_tok])
 
             data_buf_a, tok_buf_a = load_a
 
         # -- LOAD B (cooperative: all waves load cooperatively) --
         with b.stage(STG_B_LOAD):
-            b_wg_k_idx = b.linearize_index((wg_n_idx, k_iv), (wg[DIM_N], k_iters))
-            b_wg_base = b.linearize_layout(b_wg_k_idx, WG_BASE_B)
-            coop_b_off = b.linearize_layout(
-                b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), TILE_COORD_B
-            )
-            b_wave_base = b.affine_apply(d0 + d1, [b_wg_base, coop_b_off])
+            b_wave_base = b.layout_apply((wg_n_idx, k_iv, coop_b_k_start, coop_b_n_start), WAVE_BASE_B)
 
             @b.foreach_tile(n_coop_b, types=[(any_type, 1), (flat_read_tok, 1)])
             def load_b(idx):
-                tile_off = b.linearize_layout(idx, COOP_COORD_B)
-                off = b.affine_apply(d0 + d1, [b_wave_base, tile_off])
+                tile_off = b.layout_apply(idx, COOP_COORD_B)
+                off = b.layout_sum(b_wave_base, tile_off)
                 return b.call_helper(load_b_fn, [b_ptr, off], [any_type, flat_read_tok])
 
             data_buf_b, tok_buf_b = load_b
 
         # -- LDS WRITE A --
         with b.stage(STG_A_LDS_WRITE):
-            coop_a_lds_off = b.linearize_layout(
-                b.linearize_index((coop_a_k_start, coop_a_m_start), (k_t, twg_m)), LDS_COORD_A
-            )
-            lds_a_wave = b.affine_apply(d0 + d1, [lds_a, coop_a_lds_off])
+            coop_a_lds_off = b.layout_apply((coop_a_k_start, coop_a_m_start), LDS_COORD_A)
+            lds_a_wave = b.layout_sum(lds_a, coop_a_lds_off)
 
             @b.foreach_tile(n_coop_a, types=[(lds_write_tok, n_wtoks_per_tile)])
             def wtok_buf_a(idx):
-                lds_off = b.affine_apply(d0 + d1, [lds_a_wave, b.linearize_layout(idx, COOP_LDS_A)])
+                lds_off = b.layout_sum(lds_a_wave, b.layout_apply(idx, COOP_LDS_A))
                 b.wait_deps(b.memref_load(tok_buf_a, idx))
                 return b.call_helper(
                     write_a_fn,
@@ -369,14 +367,12 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
 
         # -- LDS WRITE B --
         with b.stage(STG_B_LDS_WRITE):
-            coop_b_lds_off = b.linearize_layout(
-                b.linearize_index((coop_b_k_start, coop_b_n_start), (k_t, twg_n)), LDS_COORD_B
-            )
-            lds_b_wave = b.affine_apply(d0 + d1, [lds_b, coop_b_lds_off])
+            coop_b_lds_off = b.layout_apply((coop_b_k_start, coop_b_n_start), LDS_COORD_B)
+            lds_b_wave = b.layout_sum(lds_b, coop_b_lds_off)
 
             @b.foreach_tile(n_coop_b, types=[(lds_write_tok, n_wtoks_per_tile)])
             def wtok_buf_b(idx):
-                lds_off = b.affine_apply(d0 + d1, [lds_b_wave, b.linearize_layout(idx, COOP_LDS_B)])
+                lds_off = b.layout_sum(lds_b_wave, b.layout_apply(idx, COOP_LDS_B))
                 b.wait_deps(b.memref_load(tok_buf_b, idx))
                 return b.call_helper(
                     write_b_fn,
@@ -392,13 +388,14 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
                 b.wait_deps(b.memref_load(wtok_buf_a, i))
 
             b.s_barrier()
-            wave_m_off = b.linearize_layout(wid, WAVE_M_LDS_OFF)
-            wave_lds_base_a = b.affine_apply(d0 + d1, [lds_a, wave_m_off])
 
             @b.foreach_tile(n_read_a, types=[(any_type, n_frags_per_tile), (lds_read_tok, n_frags_per_tile)])
             def read_a(idx):
-                tile_off = b.linearize_layout(idx, WAVE_READ_COORD_A)
-                off = b.affine_apply(d0 + d1, [wave_lds_base_a, tile_off])
+                k, m = b.delinearize_index(idx, (k_t, m_t))
+                off = b.layout_sum(
+                    lds_a,
+                    b.layout_apply((wave_m_idx, wave_n_idx, k, m), WAVE_READ_FULL_A),
+                )
                 return b.call_helper(read_a_fn, [off], read_ret)
 
             frag_buf_a, rtok_buf_a = read_a
@@ -411,13 +408,13 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
             def _(i):
                 b.wait_deps(b.memref_load(wtok_buf_b, i))
 
-            wave_n_off = b.linearize_layout(wid, WAVE_N_LDS_OFF)
-            wave_lds_base_b = b.affine_apply(d0 + d1, [lds_b, wave_n_off])
-
             @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (lds_read_tok, n_frags_per_tile)])
             def read_b(idx):
-                tile_off = b.linearize_layout(idx, WAVE_READ_COORD_B)
-                off = b.affine_apply(d0 + d1, [wave_lds_base_b, tile_off])
+                k, n = b.delinearize_index(idx, (k_t, n_t))
+                off = b.layout_sum(
+                    lds_b,
+                    b.layout_apply((wave_m_idx, wave_n_idx, k, n), WAVE_READ_FULL_B),
+                )
                 return b.call_helper(read_b_fn, [off], read_ret)
 
             b.dealloc_lds(lds_b_h)
@@ -461,16 +458,10 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
             b.s_barrier()
 
     # -- Store C tiles --
-    m_base = b.linearize_layout(m_dist_idx, M_DIST)
-    n_base = b.linearize_layout(n_dist_idx, N_DIST)
-    total_m_tiles, total_n_tiles = wg[DIM_M] * twg_m, wg[DIM_N] * twg_n
-    c_global_idx = b.linearize_index((m_base, n_base), (total_m_tiles, total_n_tiles))
-    c_base = b.linearize_layout(c_global_idx, Layout((total_m_tiles, total_n_tiles), C_COORD.strides))
-
     @b.foreach_tile(n_accs)
     def _(idx):
-        tile_off = b.linearize_layout(idx, C_COORD)
-        c_off = b.affine_apply(d0 + d1, [c_base, tile_off])
+        m, n = b.delinearize_index(idx, (m_t, n_t))
+        c_off = b.layout_apply((wg_m_idx, wave_m_idx, wg_n_idx, wave_n_idx, m, n), C_OFF)
         acc = b.memref_load(c_buf, idx)
         b.store_multi_fragment_to_global(
             acc, c_ptr, c_off, GLOBAL_STORE_TILE_C, GLOBAL_STORE_SUB_TILE_C, b.global_store_dword

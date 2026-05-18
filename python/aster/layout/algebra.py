@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Optional
+
 from aster.layout.int_tuple import (
     IntTuple,
     product,
@@ -21,6 +23,10 @@ from aster.layout.int_tuple import (
     delinearize,
     linearize,
 )
+
+if TYPE_CHECKING:
+    from aster import ir
+    from aster.dialects.kernel_builder import KernelBuilder
 
 
 def _flatten_int_tuple(t: IntTuple) -> tuple[int, ...]:
@@ -65,6 +71,27 @@ class Layout:
         flat_d = _flatten_int_tuple(self.strides)
         coords = delinearize(idx, flat_s)
         return linearize(coords, flat_d)
+
+    def lower(
+        self, b: "KernelBuilder", coord, swizzle: Optional["Swizzle"] = None
+    ) -> "ir.Value":
+        """Emit layout.apply (+ optional layout.swizzle) for this layout."""
+        from aster.dialects import layout as layout_d
+
+        sizes = self.sizes if isinstance(self.sizes, tuple) else (self.sizes,)
+        strides = self.strides if isinstance(self.strides, tuple) else (self.strides,)
+        attr = layout_d.strided_layout(list(sizes), list(strides), ctx=b._ctx)
+        off = layout_d.apply(coord, attr, loc=b._loc, ip=b._kip)
+        if swizzle is None:
+            return off
+        return layout_d.swizzle(
+            off,
+            bits=swizzle.bits,
+            base=swizzle.base,
+            shift=swizzle.shift,
+            loc=b._loc,
+            ip=b._kip,
+        )
 
     def size(self) -> int:
         """Total number of logical elements."""
@@ -113,6 +140,55 @@ class Swizzle:
 
     def __repr__(self) -> str:
         return f"Swizzle(bits={self.bits}, base={self.base}, shift={self.shift})"
+
+
+class SwizzledLayout:
+    """Layout with an additive unswizzled layout plus an XOR-swizzled layout.
+
+    Evaluating layout_apply(coord, SwizzledLayout(...)) is equivalent to:
+        linearize(coord, unswizzled_base)
+            + swizzle_spec(linearize(coord, swizzled_base))
+
+    Used for G2S two-part LDS addressing where a row-stride correction is
+    added unswizzled and the tile-local offset is XOR-swizzled.
+
+    All constructor arguments are keyword-only and required:
+        unswizzled_base: layout for the additive (unswizzled) term.
+        swizzled_base:   layout for the term that is XOR-swizzled.
+        swizzle_spec:    Swizzle parameters (bits/base/shift).
+    """
+
+    __slots__ = ("unswizzled_base", "swizzled_base", "swizzle_spec")
+
+    def __init__(
+        self,
+        *,
+        unswizzled_base: Layout,
+        swizzled_base: Layout,
+        swizzle_spec: Swizzle,
+    ) -> None:
+        self.unswizzled_base = unswizzled_base
+        self.swizzled_base = swizzled_base
+        self.swizzle_spec = swizzle_spec
+
+    def __repr__(self) -> str:
+        return (
+            f"SwizzledLayout(unswizzled_base={self.unswizzled_base}, "
+            f"swizzled_base={self.swizzled_base}, "
+            f"swizzle_spec={self.swizzle_spec})"
+        )
+
+    def lower(
+        self, b: "KernelBuilder", coord, swizzle: Optional["Swizzle"] = None
+    ) -> "ir.Value":
+        """Emit the two-part address: unswizzled base + XOR-swizzled base."""
+        from aster import ir
+
+        assert swizzle is None, "SwizzledLayout already carries its own swizzle"
+        unswizzled_off = self.unswizzled_base.lower(b, coord)
+        swizzled_off = self.swizzled_base.lower(b, coord, self.swizzle_spec)
+        d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
+        return b.affine_apply(d0 + d1, [unswizzled_off, swizzled_off])
 
 
 def make_layout(*layouts: Layout) -> Layout:

@@ -73,7 +73,7 @@ amdgcn.module @kittens_gemm_2wave_lds target = #amdgcn.target<gfx942> {
 
     // Wave position: layout maps wave_id -> M tile offset
     %wid = func.call @wave_id() : () -> index
-    %m_offset = layout.linearize %wid, #layout.strided_layout<[2] : [16]>
+    %m_offset = layout.apply[%wid], #layout.strided_layout<[2] : [16]>
 
     // Allocate LDS: 3 tiles (A0 for wave 0, A1 for wave 1, B shared)
     %lds_a0_h = amdgcn.alloc_lds 1024

@@ -13,12 +13,12 @@ Usage:
     attr = layout.strided_layout([(2, 2), (2, 4)],
                                  [(1, 4), (2, 8)])          # nested
 
-    # Emit layout.linearize op
-    offset = layout.linearize(coord, attr)
+    # Emit layout.apply op
+    offset = layout.apply(coord, attr)
 """
 
 from ._layout_ops_gen import *  # noqa: F401, F403
-from ._layout_ops_gen import _Dialect, LinearizeOp, SwizzleOp  # noqa: F401
+from ._layout_ops_gen import _Dialect, ApplyOp, SwizzleOp  # noqa: F401
 from ._ods_common import _cext as _ods_cext
 
 _ods_ir = _ods_cext.ir
@@ -62,11 +62,12 @@ def strided_layout(shape, stride, *, ctx=None):
     return _ods_ir.Attribute.parse(asm, ctx)
 
 
-def linearize(coord, layout_attr, *, loc=None, ip=None):
-    """Emit a layout.linearize op.
+def apply(coords, layout_attr, *, loc=None, ip=None):
+    """Emit a layout.apply op (evaluate a layout at coordinates).
 
     Args:
-        coord: index-typed SSA value (the logical coordinate)
+        coords: a single index-typed SSA value (linear form) or a sequence of
+        index-typed SSA values matching the layout's flat rank (decomposed form).
         layout_attr: a #layout.strided_layout attribute
         loc: optional location
         ip: optional insertion point
@@ -74,10 +75,14 @@ def linearize(coord, layout_attr, *, loc=None, ip=None):
     Returns:
         index-typed SSA value (the physical offset)
     """
+    if isinstance(coords, (list, tuple)):
+        coords_list = list(coords)
+    else:
+        coords_list = [coords]
     idx_type = _ods_ir.IndexType.get()
-    return LinearizeOp(
+    return ApplyOp(
         result=idx_type,
-        coord=coord,
+        coords=coords_list,
         layout=layout_attr,
         loc=loc,
         ip=ip,

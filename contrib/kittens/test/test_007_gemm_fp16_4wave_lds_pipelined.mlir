@@ -67,8 +67,8 @@ amdgcn.module @kittens_gemm_4wave_lds_pipelined target = #amdgcn.target<gfx942> 
 
     // Wave tile offsets via layout (2x2 wave grid)
     %wid = func.call @wave_id() : () -> index
-    %m_offset = layout.linearize %wid, #layout.strided_layout<[2, 2] : [16, 0]>
-    %n_offset = layout.linearize %wid, #layout.strided_layout<[2, 2] : [0, 16]>
+    %m_offset = layout.apply[%wid], #layout.strided_layout<[2, 2] : [16, 0]>
+    %n_offset = layout.apply[%wid], #layout.strided_layout<[2, 2] : [0, 16]>
     // Wave coordinates for LDS buffer selection (runtime strides)
     %wave_m, %wave_n = affine.delinearize_index %wid into (%c2, %c2) : index, index
 

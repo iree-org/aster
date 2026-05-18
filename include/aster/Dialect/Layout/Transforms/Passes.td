@@ -16,16 +16,16 @@ include "mlir/Pass/PassBase.td"
 def LowerLayoutToAffine : Pass<"lower-layout-to-affine"> {
   let summary = "Lower layout ops to affine.delinearize_index + affine.linearize_index_by_strides";
   let description = [{
-    Lowers `layout.linearize` and `layout.swizzle` to `affine` + `arith`.
+    Lowers `layout.apply` and `layout.swizzle` to `affine` + `arith`.
 
     For multi-rank layouts, the lowering is:
-      layout.linearize %c, <[s0, s1] : [d0, d1]>
+      layout.apply %c, <[s0, s1] : [d0, d1]>
       =>
       %c0, %c1 = affine.delinearize_index %c into (s0, s1)
       %off = affine.linearize_index_by_strides[%c0, %c1] by (d0, d1) : index
 
     For rank-1 layouts:
-      layout.linearize %c, <[s0] : [d0]>
+      layout.apply %c, <[s0] : [d0]>
       =>
       %off = affine.linearize_index_by_strides[%c] by (d0) : index
 

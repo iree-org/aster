@@ -19,53 +19,87 @@ include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
-// layout.linearize -- evaluate a layout at a runtime coordinate
+// layout.apply
 //===----------------------------------------------------------------------===//
 
-def Layout_LinearizeOp : Layout_Op<"linearize", [Pure]> {
+def Layout_ApplyOp : Layout_Op<"apply", [Pure]> {
   let summary = "Evaluate a layout at a coordinate to produce an offset";
   let description = [{
-    Maps a 1D logical coordinate to a 1D physical offset using a layout
-    attribute. This is a "layout-aware linearize" that handles the
-    delinearization internally.
+    Evaluates a layout function at a coordinate to produce a 1D offset. This
+    parallels `affine.apply`, which evaluates an affine map at operands.
 
-    The lowering decomposes into two steps:
-      1. `affine.delinearize_index` -- extract coordinates from the shape
-      2. `affine.linearize_index_by_strides` -- dot product with explicit strides
+    A layout L = (shape : strides) defines a mapping from a coordinate domain
+    to a physical offset. `layout.apply` takes coordinates in one of two forms:
 
-    For a rank-2 layout `[4, 8] : [1, 4]`:
-    ```mlir
-    %off = layout.linearize %c, #layout.strided_layout<[4, 8] : [1, 4]>
-    ```
-    lowers to:
-    ```mlir
-    %c0, %c1 = affine.delinearize_index %c into (4, 8) : index, index
-    %off = affine.linearize_index_by_strides [%c0, %c1] by (1, 4) : index
-    ```
+    1. Linear form: one coord. Recursive delinearize against the layout's
+       shape tree, one `affine.delinearize_index` per nested mode against
+       that mode's sub-shape product.
+       The convention is first-mode-slowest (C row-major).
 
-    For a rank-1 layout `[64] : [16]`:
-    ```mlir
-    %off = layout.linearize %c, #layout.strided_layout<[64] : [16]>
-    ```
-    lowers to:
-    ```mlir
-    %off = affine.linearize_index_by_strides [%c] by (16) : index
-    ```
+       Flat layout:
+       ```mlir
+       %off = layout.apply[%c], #layout.strided_layout<[4, 8] : [8, 1]>
+       // lowers to:
+       %c0, %c1 = affine.delinearize_index %c into (4, 8) : index, index
+       %off = affine.linearize_index_by_strides[%c0, %c1] by (8, 1) : index
+       ```
+
+       Nested layout: one delinearize per nesting level.
+       ```mlir
+       // Layout <[(2,2), (2,4)] : [(1,4), (2,8)]> has rank 2 and flat_rank 4.
+       %off = layout.apply[%c],
+         #layout.strided_layout<[(2, 2), (2, 4)] : [(1, 4), (2, 8)]>
+
+       // lowers to:
+       %a, %b = affine.delinearize_index %c into (4, 8) : index, index
+       %a0, %a1 = affine.delinearize_index %a into (2, 2) : index, index
+       %b0, %b1 = affine.delinearize_index %b into (2, 4) : index, index
+       %off = affine.linearize_index_by_strides[%a0, %a1, %b0, %b1]
+                                                by (1, 4, 2, 8) : index
+       ```
+
+    2. Decomposed form: as many coords as the flat rank of the layout. Dot
+       coords with flat strides directly, no delinearization. For a nested
+       layout this means one coord per *leaf*, not one per top-level mode.
+
+       Flat layout:
+       ```mlir
+       %off = layout.apply[%c0, %c1], #layout.strided_layout<[4, 8] : [8, 1]>
+       // lowers to:
+       %off = affine.linearize_index_by_strides[%c0, %c1] by (8, 1) : index
+       ```
+
+       Nested layout: same example as form 1, flat_rank coords supplied
+       directly so the delinearize levels disappear.
+       ```mlir
+       // Layout <[(2,2), (2,4)] : [(1,4), (2,8)]> has rank 2 and flat_rank 4.
+       %off = layout.apply[%a0, %a1, %b0, %b1],
+         #layout.strided_layout<[(2, 2), (2, 4)] : [(1, 4), (2, 8)]>
+       // lowers to:
+       %off = affine.linearize_index_by_strides[%a0, %a1, %b0, %b1]
+                                                by (1, 4, 2, 8) : index
+       ```
+
+    The two forms coincide when flat_rank = 1.
+
+    Verifier: the number of coords must be 1 or flat_rank.
   }];
 
   let arguments = (ins
-    Index:$coord,
+    Variadic<Index>:$coords,
     LayoutAttr:$layout
   );
   let results = (outs Index:$result);
 
   let assemblyFormat = [{
-    $coord `,` $layout attr-dict
+    `[` $coords `]` `,` $layout attr-dict
   }];
+
+  let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//
-// layout.swizzle -- XOR-based address swizzle
+// layout.swizzle
 //===----------------------------------------------------------------------===//
 
 def Layout_SwizzleOp : Layout_Op<"swizzle", [Pure]> {

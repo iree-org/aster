@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 //
 // Lowers layout dialect ops:
-//   layout.linearize -> affine.delinearize_index
+//   layout.apply     -> affine.delinearize_index
 //                       + affine.linearize_index_by_strides
 //   layout.swizzle   -> arith bit ops (index_cast + shrui + andi + xori)
 //
@@ -55,49 +55,88 @@ static void flattenToLeaves(Attribute attr, SmallVectorImpl<int64_t> &out) {
     flattenToLeaves(elem, out);
 }
 
+/// Product of all leaf values under an int-tuple shape attribute.
+static int64_t productOfLeaves(Attribute attr) {
+  SmallVector<int64_t> leaves;
+  flattenToLeaves(attr, leaves);
+  int64_t p = 1;
+  for (int64_t v : leaves)
+    p *= v;
+  return p;
+}
+
+/// Recursively delinearize `coord` against the layout's shape tree.
+static void recursiveDelinearize(PatternRewriter &rewriter, Location loc,
+                                 Value coord, Attribute shapeAttr,
+                                 SmallVectorImpl<Value> &leavesOut) {
+  if (isa<IntegerAttr>(shapeAttr)) {
+    leavesOut.push_back(coord);
+    return;
+  }
+  auto arr = cast<ArrayAttr>(shapeAttr);
+  if (arr.size() == 1) {
+    recursiveDelinearize(rewriter, loc, coord, arr[0], leavesOut);
+    return;
+  }
+  SmallVector<int64_t> childProducts;
+  childProducts.reserve(arr.size());
+  for (Attribute child : arr)
+    childProducts.push_back(productOfLeaves(child));
+  auto delinOp = affine::AffineDelinearizeIndexOp::create(rewriter, loc, coord,
+                                                          childProducts);
+  for (auto [childCoord, child] : llvm::zip(delinOp.getResults(), arr))
+    recursiveDelinearize(rewriter, loc, childCoord, child, leavesOut);
+}
+
 //===----------------------------------------------------------------------===//
 // Rewrite patterns
 //===----------------------------------------------------------------------===//
 
 namespace {
 
-/// Lower layout.linearize to affine.delinearize_index (coordinate extraction)
-/// + affine.linearize_index (bounded form, when the layout is contiguous) or
-/// + affine.linearize_index_by_strides (explicit stride dot product, when the
-///   layout has non-suffix-product strides -- broadcasts, permutations,
-///   row-pitched memrefs, etc.).
-struct LowerLinearizePattern : public OpRewritePattern<LinearizeOp> {
+/// Lower layout.apply. Verifier guarantees one of two arities:
+///   1. 1 coord (linear): recursive delinearize against the layout's shape
+///      tree (one affine.delinearize_index per nested mode against that
+///      mode's children's products), then dot with flat strides.
+///   2. flat_rank(layout) coords (decomposed): dot directly with flat strides.
+struct LowerApplyPattern : public OpRewritePattern<ApplyOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(LinearizeOp op,
+  LogicalResult matchAndRewrite(ApplyOp op,
                                 PatternRewriter &rewriter) const override {
     auto layout = op.getLayout();
     Location loc = op.getLoc();
-    Value coord = op.getCoord();
+    ValueRange coords = op.getCoords();
 
     SmallVector<int64_t> flatShape, flatStride;
     for (auto s : layout.getShape())
       flattenToLeaves(s, flatShape);
     for (auto d : layout.getStride())
       flattenToLeaves(d, flatStride);
-
     assert(flatShape.size() == flatStride.size());
+    size_t flatRank = flatShape.size();
 
-    // Step 1: Delinearize the flat coordinate into multi-index by shape.
-    // This is always `hasOuterBound = true` because `flatShape` has one size
-    // per result.
-    auto delinOp = affine::AffineDelinearizeIndexOp::create(rewriter, loc,
-                                                            coord, flatShape);
+    SmallVector<Value> dotCoords;
+    if (coords.size() == flatRank) {
+      // Decomposed form: just dot.
+      dotCoords.assign(coords.begin(), coords.end());
+    } else {
+      // Linear form: recursive delinearize against the shape tree.
+      assert(coords.size() == 1 && "verifier should reject other arities");
+      recursiveDelinearize(rewriter, loc, coords[0], layout.getShape(),
+                           dotCoords);
+    }
 
-    // Step 2: recombine into a linear index. Prefer the `linearize_index` form
-    // which preserves `hasOuterBound = true` at the type level.
+    // Prefer `linearize_index` bounded form when strides are
+    // suffix_product(shape): it preserves the static range bound at the type
+    // level for downstream analyses.
     Value result;
     if (computeSuffixProduct(flatShape) == ArrayRef<int64_t>(flatStride)) {
       result = affine::AffineLinearizeIndexOp::create(
-          rewriter, loc, delinOp.getResults(), flatShape, /*disjoint=*/true);
+          rewriter, loc, dotCoords, flatShape, /*disjoint=*/true);
     } else {
       result = affine::AffineLinearizeIndexByStridesOp::create(
-          rewriter, loc, delinOp.getResults(), flatStride);
+          rewriter, loc, dotCoords, flatStride);
     }
 
     rewriter.replaceOp(op, result);
@@ -175,7 +214,7 @@ struct LowerLayoutToAffinePass
 
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
-    patterns.add<LowerLinearizePattern, LinearizeIndexBoundedToStrides,
+    patterns.add<LowerApplyPattern, LinearizeIndexBoundedToStrides,
                  LowerSwizzlePattern>(&getContext());
 
     if (failed(applyPatternsGreedily(
