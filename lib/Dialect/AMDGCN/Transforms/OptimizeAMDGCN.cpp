@@ -272,8 +272,12 @@ static std::optional<AddiMatch> matchAddiConstOperand(lsir::AddIOp a) {
   return std::nullopt;
 }
 
-/// Compute the backward use-def slice of `addr` restricted to lsir.addi
-/// producers, and record which addis carry a constant operand.
+/// Compute the backward use-def slice of `addr` walking through any
+/// lsir.addi producer, and record which addis carry a constant operand.
+/// The slice is an unconstrained tree/DAG of addis -- no single-use
+/// restriction. Multi-use addis are still included; the rewrite is
+/// out-of-place (creates fresh addis), so it cannot disturb their other
+/// consumers.
 static AddiSlice collectAddiSlice(Value addr) {
   AddiSlice result;
   auto rootAddi = addr.getDefiningOp<lsir::AddIOp>();
@@ -281,20 +285,10 @@ static AddiSlice collectAddiSlice(Value addr) {
     return result;
 
   BackwardSliceOptions opts;
-  // Walk only through single-use addis as the rewrite is in-place and changing
-  // a multi-use addi's inplace would break its other consumers.
-  // TODO: revisit if a non-in-place rewrite becomes desirable.
-  Operation *rootOp = rootAddi.getOperation();
-  opts.filter = [rootOp](Operation *o) {
-    // Allow root unconditionally, it is never modified inplace.
-    if (o == rootOp)
-      return true;
-    auto addi = dyn_cast<lsir::AddIOp>(o);
-    return addi && addi.getDstRes().hasOneUse();
-  };
+  opts.filter = [](Operation *o) { return isa<lsir::AddIOp>(o); };
   opts.omitBlockArguments = true;
   opts.inclusive = true;
-  if (failed(getBackwardSlice(rootOp, &result.addis, opts)))
+  if (failed(getBackwardSlice(rootAddi.getOperation(), &result.addis, opts)))
     return {};
 
   for (Operation *o : result.addis)
@@ -303,25 +297,34 @@ static AddiSlice collectAddiSlice(Value addr) {
   return result;
 }
 
-/// Optimize memory operations whose address/voffset is produced by an lsir.addi
-/// sub-tree containing a constant operand.
+/// Optimize memory operations whose address/voffset is produced by an
+/// lsir.addi sub-tree containing a constant operand. The fold pulls the
+/// constant from the addi tree into the mem op's c() slot. To stay safe
+/// under multi-use intermediates (and multi-use foldTarget), the rewrite
+/// is OUT-OF-PLACE: fresh addis are created along the chosen path from
+/// foldTarget up to the root, while the original chain stays alive for any
+/// other consumers.
 ///
 /// Constant at the root addi (the immediate producer of the address):
 ///   %addr = lsir.addi i32 %dst, %base, %const
 ///   amdgcn.mem_op ins(%addr, %data) args(%c0)
 /// ->
 ///   amdgcn.mem_op ins(%base, %data) args(%const)
+///   // %addr unchanged; alive for other users.
 ///
-/// Constant at a deeper addi:
-///   %p = lsir.addi i32 %dst0, %base, %const          // single use
-///   %addr = lsir.addi i32 %dst1, %sgpr_or_vgpr, %p
+/// Constant at a deeper addi (path foldTarget -> ... -> root, length N):
+///   %p   = lsir.addi i32 %dst0, %base, %const
+///   %addr = lsir.addi i32 %dst1, %carrier, %p
 ///   amdgcn.mem_op ins(%addr, %data) args(%c0)
 /// ->
-///   %addr = lsir.addi i32 %dst1, %sgpr_or_vgpr, %base
-///   amdgcn.mem_op ins(%addr, %data) args(%const)
+///   %new_dst  = lsir.alloca : ...
+///   %new_addr = lsir.addi i32 %new_dst, %carrier, %base   // clone, skipping
+///   %const amdgcn.mem_op ins(%new_addr, %data) args(%const)
+///   // %p and %addr unchanged; alive for other users (DCE'd if dead).
+/// Cost: 1 fresh alloca + 1 fresh addi per path step.
 ///
-/// TODO: multi-constant case -- combine multiple constants from the slice
-/// into one merged c() offset (parenthesis-like balance algorithm to keep
+/// TODO: multi-constant -- combine multiple constants from the slice into
+/// one merged c() offset (parenthesis-like balance algorithm to keep
 /// partial sums within the encoding range).
 ///
 /// Buffer pattern: same shape on the voffset operand.
@@ -350,31 +353,61 @@ static LogicalResult optimizeAddiOffsets(Operation *op, Operand foldableOperand,
   if (mergedOff < 0 || mergedOff > maxConstOff)
     return rewriter.notifyMatchFailure(op, "merged offset out of range");
 
-  // foldTarget at the root: retarget the mem op's address operand past it.
-  // The root may have other users; they still see its unchanged value.
-  if (foldTarget.getOperation() == foldableValue.getDefiningOp()) {
+  Value foldedC =
+      getI32Constant(rewriter, op->getLoc(), static_cast<int32_t>(mergedOff));
+
+  // Depth-0: foldTarget IS the immediate producer of the mem op's address.
+  // Just retarget the mem op past it -- foldTarget itself is untouched and
+  // remains valid for any other users.
+  Operation *rootOp = foldableValue.getDefiningOp();
+  if (foldTarget.getOperation() == rootOp) {
     rewriter.modifyOpInPlace(op, [&] {
       foldableOperand->set(match.nonConstantOperand);
-      constOffset->set(getI32Constant(rewriter, op->getLoc(),
-                                      static_cast<int32_t>(mergedOff)));
+      constOffset->set(foldedC);
     });
     return success();
   }
 
-  // The root is in the backwardSlice via `inclusive=true` regardless of its use
-  // count. Check that if the root has other users we bail.
-  // TODO: Fix upstream so that backwardSlice inclusive=true does not ignore the
-  // filter (or at least have an option to also apply the filter to the root).
-  auto root = cast<lsir::AddIOp>(foldableValue.getDefiningOp());
-  if (!root.getDstRes().hasOneUse())
-    return rewriter.notifyMatchFailure(
-        op, "multi-use root would observe wrong value after deep fold");
-  OpOperand &use = *foldTarget.getDstRes().use_begin();
-  rewriter.modifyOpInPlace(use.getOwner(),
-                           [&] { use.set(match.nonConstantOperand); });
+  // Depth>0: walk from foldTarget up to root through in-slice users,
+  // picking the first one when a step has multiple in-slice users.
+  // Multiple paths are correct (each path's fold compensates exactly the
+  // contribution of foldTarget through that path); we only need one.
+  SmallVector<lsir::AddIOp, 2> path;
+  Operation *cursor = foldTarget.getOperation();
+  while (cursor != rootOp) {
+    lsir::AddIOp ascending;
+    for (Operation *user : cursor->getUsers()) {
+      if (slice.addis.count(user)) {
+        ascending = cast<lsir::AddIOp>(user);
+        break;
+      }
+    }
+    if (!ascending)
+      return rewriter.notifyMatchFailure(op, "no in-slice path to root");
+    path.push_back(ascending);
+    cursor = ascending.getOperation();
+  }
+
+  // Clone each addi on the path bottom-up, replacing the operand that
+  // points to the previous chain element with the new survivor value.
+  // Each clone gets its own alloca; the original addi is left alone.
+  Value newValue = match.nonConstantOperand;
+  Value prevOriginal = foldTarget.getDstRes();
+  for (lsir::AddIOp p : path) {
+    bool prevIsLhs = (p.getLhs() == prevOriginal);
+    Value otherOperand = prevIsLhs ? p.getRhs() : p.getLhs();
+    Value newLhs = prevIsLhs ? newValue : otherOperand;
+    Value newRhs = prevIsLhs ? otherOperand : newValue;
+    Value newDst = createAllocation(rewriter, p.getLoc(), p.getDst().getType());
+    auto newAddi = lsir::AddIOp::create(
+        rewriter, p.getLoc(), p.getSemanticsAttr(), newDst, newLhs, newRhs);
+    prevOriginal = p.getDstRes();
+    newValue = newAddi.getDstRes();
+  }
+
   rewriter.modifyOpInPlace(op, [&] {
-    constOffset->set(getI32Constant(rewriter, op->getLoc(),
-                                    static_cast<int32_t>(mergedOff)));
+    foldableOperand->set(newValue);
+    constOffset->set(foldedC);
   });
   return success();
 }

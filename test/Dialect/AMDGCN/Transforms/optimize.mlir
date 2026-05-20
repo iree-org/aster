@@ -548,11 +548,11 @@ func.func @test_ds_read_addi_chain_depth1_merge(
 
 // -----
 
-// CHECK-LABEL:   func.func @test_ds_write_addi_chain_depth1_multiuse_nofold(
-//       CHECK:     %[[C0:.*]] = arith.constant 0 : i32
-//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C0]])
-//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C0]])
-func.func @test_ds_write_addi_chain_depth1_multiuse_nofold(
+// CHECK-LABEL:   func.func @test_ds_write_addi_chain_depth1_multiuse_outofplace_fold(
+//       CHECK:     %[[C1024:.*]] = arith.constant 1024 : i32
+//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C1024]])
+//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C1024]])
+func.func @test_ds_write_addi_chain_depth1_multiuse_outofplace_fold(
     %base: !amdgcn.vgpr,
     %carrier0: !amdgcn.sgpr, %carrier1: !amdgcn.sgpr,
     %data0: !amdgcn.vgpr<[? + 2]>, %data1: !amdgcn.vgpr<[? + 2]>) {
@@ -571,11 +571,11 @@ func.func @test_ds_write_addi_chain_depth1_multiuse_nofold(
 
 // -----
 
-// CHECK-LABEL:   func.func @test_ds_write_addi_chain_multiuse_intermediate_nofold(
-//       CHECK:     %[[C0:.*]] = arith.constant 0 : i32
-//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C0]])
-//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C0]])
-func.func @test_ds_write_addi_chain_multiuse_intermediate_nofold(
+// CHECK-LABEL:   func.func @test_ds_write_addi_chain_multiuse_intermediate_outofplace_fold(
+//       CHECK:     %[[C128:.*]] = arith.constant 128 : i32
+//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C128]])
+//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C128]])
+func.func @test_ds_write_addi_chain_multiuse_intermediate_outofplace_fold(
     %base: !amdgcn.vgpr,
     %carrier0: !amdgcn.sgpr, %carrier1: !amdgcn.sgpr,
     %tail0: !amdgcn.sgpr, %tail1: !amdgcn.sgpr,
