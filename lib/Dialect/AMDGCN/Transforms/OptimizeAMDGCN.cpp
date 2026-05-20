@@ -23,6 +23,7 @@
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/IR/RewriteUtils.h"
 #include "aster/IR/ValueOrConst.h"
+#include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
@@ -241,21 +242,89 @@ static LogicalResult optimizePtrAddOffsets(Operation *op, Operand addr,
   return success();
 }
 
-/// Optimize memory operations whose address/voffset is produced by lsir.addi
-/// with a constant operand. Folds the constant into the instruction's
-/// constant_offset field.
+namespace {
+/// An lsir.addi carrying a constant operand: the non-constant operand and
+/// the constant value.
+struct AddiMatch {
+  Value nonConstantOperand;
+  int64_t constant;
+};
+
+/// Backward use-def slice of an lsir.addi sub-tree feeding a mem op address.
+/// TODO: In the future we may want to collect other ops than just addi but
+/// there is a tradeoff between constants coming from mul, shl/r etc having been
+/// properly combined at a higher-level (like affine). Refrain from going
+/// overboard with low-level analysis unless proven necessary.
+struct AddiSlice {
+  SetVector<Operation *> addis;
+  SmallVector<lsir::AddIOp, 2> constHolders;
+};
+} // namespace
+
+/// If `a` has a constant i32/index operand, return the non-constant operand
+/// and the constant value.
+static std::optional<AddiMatch> matchAddiConstOperand(lsir::AddIOp a) {
+  APInt c;
+  if (matchPattern(a.getRhs(), m_ConstantInt(&c)))
+    return AddiMatch{a.getLhs(), c.getSExtValue()};
+  if (matchPattern(a.getLhs(), m_ConstantInt(&c)))
+    return AddiMatch{a.getRhs(), c.getSExtValue()};
+  return std::nullopt;
+}
+
+/// Compute the backward use-def slice of `addr` restricted to lsir.addi
+/// producers, and record which addis carry a constant operand.
+static AddiSlice collectAddiSlice(Value addr) {
+  AddiSlice result;
+  auto rootAddi = addr.getDefiningOp<lsir::AddIOp>();
+  if (!rootAddi)
+    return result;
+
+  BackwardSliceOptions opts;
+  // Walk only through single-use addis as the rewrite is in-place and changing
+  // a multi-use addi's inplace would break its other consumers.
+  // TODO: revisit if a non-in-place rewrite becomes desirable.
+  Operation *rootOp = rootAddi.getOperation();
+  opts.filter = [rootOp](Operation *o) {
+    // Allow root unconditionally, it is never modified inplace.
+    if (o == rootOp)
+      return true;
+    auto addi = dyn_cast<lsir::AddIOp>(o);
+    return addi && addi.getDstRes().hasOneUse();
+  };
+  opts.omitBlockArguments = true;
+  opts.inclusive = true;
+  if (failed(getBackwardSlice(rootOp, &result.addis, opts)))
+    return {};
+
+  for (Operation *o : result.addis)
+    if (matchAddiConstOperand(cast<lsir::AddIOp>(o)))
+      result.constHolders.push_back(cast<lsir::AddIOp>(o));
+  return result;
+}
+
+/// Optimize memory operations whose address/voffset is produced by an lsir.addi
+/// sub-tree containing a constant operand.
 ///
-/// DS pattern (folds addr):
+/// Constant at the root addi (the immediate producer of the address):
 ///   %addr = lsir.addi i32 %dst, %base, %const
-///   amdgcn.ds_write_b64 ins(%addr, %data) args(%c0)
+///   amdgcn.mem_op ins(%addr, %data) args(%c0)
 /// ->
-///   amdgcn.ds_write_b64 ins(%base, %data) args(%const)
+///   amdgcn.mem_op ins(%base, %data) args(%const)
 ///
-/// Buffer pattern (folds voffset):
-///   %voff = lsir.addi i32 %dst, %base, %const
-///   amdgcn.buffer_load_dword ... off_or_idx = %voff ... args(%c0)
+/// Constant at a deeper addi:
+///   %p = lsir.addi i32 %dst0, %base, %const          // single use
+///   %addr = lsir.addi i32 %dst1, %sgpr_or_vgpr, %p
+///   amdgcn.mem_op ins(%addr, %data) args(%c0)
 /// ->
-///   amdgcn.buffer_load_dword ... off_or_idx = %base ... args(%const)
+///   %addr = lsir.addi i32 %dst1, %sgpr_or_vgpr, %base
+///   amdgcn.mem_op ins(%addr, %data) args(%const)
+///
+/// TODO: multi-constant case -- combine multiple constants from the slice
+/// into one merged c() offset (parenthesis-like balance algorithm to keep
+/// partial sums within the encoding range).
+///
+/// Buffer pattern: same shape on the voffset operand.
 static LogicalResult optimizeAddiOffsets(Operation *op, Operand foldableOperand,
                                          Operand constOffset,
                                          int64_t maxConstOff,
@@ -264,46 +333,46 @@ static LogicalResult optimizeAddiOffsets(Operation *op, Operand foldableOperand,
   if (!foldableValue)
     return rewriter.notifyMatchFailure(op, "no foldable operand value");
 
-  auto addi = foldableValue.getDefiningOp<lsir::AddIOp>();
-  if (!addi)
-    return rewriter.notifyMatchFailure(op, "operand not produced by lsir.addi");
+  AddiSlice slice = collectAddiSlice(foldableValue);
+  if (slice.constHolders.empty())
+    return rewriter.notifyMatchFailure(
+        op, "no constant-carrying lsir.addi reachable from address");
 
-  // Check if one of the addi operands is a constant i32.
-  Value lhs = addi.getLhs();
-  Value rhs = addi.getRhs();
-  Value base = nullptr;
-  int64_t addiConst = 0;
-
-  auto tryGetConst = [](Value v) -> std::optional<int32_t> {
-    if (!isa<IntegerType>(v.getType()))
-      return std::nullopt;
-    return ValueOrI32::getConstant(v);
-  };
-
-  std::optional<int32_t> cst = tryGetConst(rhs);
-  if (cst) {
-    base = lhs;
-    addiConst = *cst;
-  } else {
-    cst = tryGetConst(lhs);
-    if (!cst)
-      return rewriter.notifyMatchFailure(op,
-                                         "neither addi operand is constant");
-    base = rhs;
-    addiConst = *cst;
-  }
-
-  // Get the existing constant offset from the mem op.
   std::optional<int32_t> memOpOffOpt = getConstOffsetValue(constOffset);
   if (!memOpOffOpt)
     return rewriter.notifyMatchFailure(op, "expected constant offset");
 
-  int64_t mergedOff = addiConst + *memOpOffOpt;
+  // Slice is postorder, so constHolders.front() is the deepest -- the first
+  // constant we hit walking back from the address.
+  lsir::AddIOp foldTarget = slice.constHolders.front();
+  AddiMatch match = *matchAddiConstOperand(foldTarget);
+  int64_t mergedOff = match.constant + *memOpOffOpt;
   if (mergedOff < 0 || mergedOff > maxConstOff)
     return rewriter.notifyMatchFailure(op, "merged offset out of range");
 
+  // foldTarget at the root: retarget the mem op's address operand past it.
+  // The root may have other users; they still see its unchanged value.
+  if (foldTarget.getOperation() == foldableValue.getDefiningOp()) {
+    rewriter.modifyOpInPlace(op, [&] {
+      foldableOperand->set(match.nonConstantOperand);
+      constOffset->set(getI32Constant(rewriter, op->getLoc(),
+                                      static_cast<int32_t>(mergedOff)));
+    });
+    return success();
+  }
+
+  // The root is in the backwardSlice via `inclusive=true` regardless of its use
+  // count. Check that if the root has other users we bail.
+  // TODO: Fix upstream so that backwardSlice inclusive=true does not ignore the
+  // filter (or at least have an option to also apply the filter to the root).
+  auto root = cast<lsir::AddIOp>(foldableValue.getDefiningOp());
+  if (!root.getDstRes().hasOneUse())
+    return rewriter.notifyMatchFailure(
+        op, "multi-use root would observe wrong value after deep fold");
+  OpOperand &use = *foldTarget.getDstRes().use_begin();
+  rewriter.modifyOpInPlace(use.getOwner(),
+                           [&] { use.set(match.nonConstantOperand); });
   rewriter.modifyOpInPlace(op, [&] {
-    foldableOperand->set(base);
     constOffset->set(getI32Constant(rewriter, op->getLoc(),
                                     static_cast<int32_t>(mergedOff)));
   });

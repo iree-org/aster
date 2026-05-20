@@ -503,3 +503,94 @@ func.func @test_store_global_const_only(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !am
   %token = amdgcn.global_store_dword data %arg1 addr %0 offset d(%voff) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
   return
 }
+
+// -----
+
+// CHECK-LABEL:   func.func @test_ds_write_addi_chain_depth1(
+//  CHECK-SAME:     %[[BASE:.*]]: !amdgcn.vgpr,
+//  CHECK-SAME:     %[[CARRIER:.*]]: !amdgcn.sgpr,
+//       CHECK:       %[[C1024:.*]] = arith.constant 1024 : i32
+//       CHECK:       %[[OUTER:.*]] = lsir.addi i32 {{.*}}, %[[CARRIER]], %[[BASE]] : !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr
+//       CHECK:       amdgcn.ds_write_b64 data {{.*}} addr %[[OUTER]] offset c(%[[C1024]]) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+func.func @test_ds_write_addi_chain_depth1(
+    %base: !amdgcn.vgpr, %carrier: !amdgcn.sgpr, %data: !amdgcn.vgpr<[? + 2]>) {
+  %c1024 = arith.constant 1024 : i32
+  %inner_dst = lsir.alloca : !amdgcn.vgpr
+  %inner = lsir.addi i32 %inner_dst, %base, %c1024 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %outer_dst = lsir.alloca : !amdgcn.vgpr
+  %outer = lsir.addi i32 %outer_dst, %carrier, %inner : !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr
+  %c0 = arith.constant 0 : i32
+  %token = amdgcn.ds_write_b64 data %data addr %outer offset c(%c0) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+  return
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @test_ds_read_addi_chain_depth1_merge(
+//  CHECK-SAME:     %[[BASE:.*]]: !amdgcn.vgpr,
+//  CHECK-SAME:     %[[CARRIER:[^)]*]]: !amdgcn.sgpr) -> !amdgcn.vgpr {
+//       CHECK:       %[[C1032:.*]] = arith.constant 1032 : i32
+//       CHECK:       %[[OUTER:.*]] = lsir.addi i32 {{.*}}, %[[BASE]], %[[CARRIER]] : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr
+//       CHECK:       %[[VAL:.*]], %[[TOK:.*]] = amdgcn.ds_read_b32 dest {{.*}} addr %[[OUTER]] offset c(%[[C1032]])
+//       CHECK:       return %[[VAL]] : !amdgcn.vgpr
+func.func @test_ds_read_addi_chain_depth1_merge(
+    %base: !amdgcn.vgpr, %carrier: !amdgcn.sgpr) -> !amdgcn.vgpr {
+  %c1024 = arith.constant 1024 : i32
+  %inner_dst = lsir.alloca : !amdgcn.vgpr
+  %inner = lsir.addi i32 %inner_dst, %c1024, %base : !amdgcn.vgpr, i32, !amdgcn.vgpr
+  %outer_dst = lsir.alloca : !amdgcn.vgpr
+  %outer = lsir.addi i32 %outer_dst, %inner, %carrier : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr
+  %dest = amdgcn.alloca : !amdgcn.vgpr
+  %c8 = arith.constant 8 : i32
+  %dest_res, %token = amdgcn.ds_read_b32 dest %dest addr %outer offset c(%c8) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
+  return %dest_res : !amdgcn.vgpr
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @test_ds_write_addi_chain_depth1_multiuse_nofold(
+//       CHECK:     %[[C0:.*]] = arith.constant 0 : i32
+//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C0]])
+//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C0]])
+func.func @test_ds_write_addi_chain_depth1_multiuse_nofold(
+    %base: !amdgcn.vgpr,
+    %carrier0: !amdgcn.sgpr, %carrier1: !amdgcn.sgpr,
+    %data0: !amdgcn.vgpr<[? + 2]>, %data1: !amdgcn.vgpr<[? + 2]>) {
+  %c1024 = arith.constant 1024 : i32
+  %inner_dst = lsir.alloca : !amdgcn.vgpr
+  %inner = lsir.addi i32 %inner_dst, %base, %c1024 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %outer0_dst = lsir.alloca : !amdgcn.vgpr
+  %outer0 = lsir.addi i32 %outer0_dst, %carrier0, %inner : !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr
+  %outer1_dst = lsir.alloca : !amdgcn.vgpr
+  %outer1 = lsir.addi i32 %outer1_dst, %carrier1, %inner : !amdgcn.vgpr, !amdgcn.sgpr, !amdgcn.vgpr
+  %c0 = arith.constant 0 : i32
+  %t0 = amdgcn.ds_write_b64 data %data0 addr %outer0 offset c(%c0) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+  %t1 = amdgcn.ds_write_b64 data %data1 addr %outer1 offset c(%c0) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+  return
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @test_ds_write_addi_chain_multiuse_intermediate_nofold(
+//       CHECK:     %[[C0:.*]] = arith.constant 0 : i32
+//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C0]])
+//       CHECK:     amdgcn.ds_write_b64 data %{{.*}} addr {{.*}} offset c(%[[C0]])
+func.func @test_ds_write_addi_chain_multiuse_intermediate_nofold(
+    %base: !amdgcn.vgpr,
+    %carrier0: !amdgcn.sgpr, %carrier1: !amdgcn.sgpr,
+    %tail0: !amdgcn.sgpr, %tail1: !amdgcn.sgpr,
+    %data0: !amdgcn.vgpr<[? + 2]>, %data1: !amdgcn.vgpr<[? + 2]>) {
+  %c128 = arith.constant 128 : i32
+  %deep_dst = lsir.alloca : !amdgcn.vgpr
+  %deep = lsir.addi i32 %deep_dst, %base, %c128 : !amdgcn.vgpr, !amdgcn.vgpr, i32
+  %mid_dst = lsir.alloca : !amdgcn.vgpr
+  %mid = lsir.addi i32 %mid_dst, %deep, %carrier0 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr
+  %addr0_dst = lsir.alloca : !amdgcn.vgpr
+  %addr0 = lsir.addi i32 %addr0_dst, %mid, %tail0 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr
+  %addr1_dst = lsir.alloca : !amdgcn.vgpr
+  %addr1 = lsir.addi i32 %addr1_dst, %mid, %tail1 : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.sgpr
+  %c0 = arith.constant 0 : i32
+  %t0 = amdgcn.ds_write_b64 data %data0 addr %addr0 offset c(%c0) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+  %t1 = amdgcn.ds_write_b64 data %data1 addr %addr1 offset c(%c0) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+  return
+}
