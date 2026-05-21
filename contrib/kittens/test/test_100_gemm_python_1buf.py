@@ -14,6 +14,9 @@ import pytest
 
 from aster import ir
 from aster.dialects.kernel_builder_with_layouts import (
+    ds_read_64b,
+    ds_write_64b,
+    global_load_dwordx4,
     KernelBuilderWithLayouts as KernelBuilder,
 )
 from aster.dialects.amdgcn import AccessKind
@@ -24,17 +27,7 @@ from aster.execution.utils import system_has_mcpu
 
 from aster.layout import Layout, Swizzle
 
-# LDS write layouts.
-LDS_WRITE_TILE_A = Layout((16, 4), (64, 16))
-LDS_WRITE_TILE_B = Layout((16, 4), (64, 16))
-LDS_WRITE_SUB_TILE_A = Layout((1, 2), (0, 8))
-LDS_WRITE_SUB_TILE_B = Layout((1, 2), (0, 8))
-
-# LDS read layouts.
-LDS_READ_TILE_A = Layout((4, 16), (8, 64))
-LDS_READ_TILE_B = Layout((4, 16), (8, 64))
-LDS_READ_SUB_TILE_A = Layout((1, 2), (0, 32))
-LDS_READ_SUB_TILE_B = Layout((1, 2), (0, 32))
+ELT_BYTES = 2  # f16
 
 LDS_SWIZZLE = Swizzle(bits=3, base=3, shift=3)
 
@@ -50,10 +43,7 @@ def _build_gemm_1buf(k, stride_a, stride_b):
     k_tiles = k // 32
     stride_c = 16 * 4  # 16 f32 columns * 4 bytes
     d0 = ir.AffineExpr.get_dim(0)
-    GLOBAL_LOAD_TILE_A = Layout((16, 4), (stride_a, 16))
-    GLOBAL_LOAD_TILE_B = Layout((16, 4), (stride_b, 16))
-    GLOBAL_LOAD_SUB_TILE_A = Layout(1, 0)
-    GLOBAL_LOAD_SUB_TILE_B = Layout(1, 0)
+    #   Global store still uses naked Layout + b.store_multi_fragment_to_global.
     GLOBAL_STORE_TILE_C = Layout((4, 16, 4), (4 * stride_c, 4, stride_c))
     GLOBAL_STORE_SUB_TILE_C = Layout(1, 0)
 
@@ -62,6 +52,32 @@ def _build_gemm_1buf(k, stride_a, stride_b):
     b.add_ptr_arg(AccessKind.ReadOnly)  # B
     b.add_ptr_arg(AccessKind.WriteOnly)  # C
     a_ptr, b_ptr, c_ptr = b.load_args()
+
+    # Tiled copy descriptors, all layouts have byte strides.
+    # value_layout = (N copies per thread) : (byte stride between copy addresses)
+    # N copies will be emitted.
+    tc_load_a = b.make_tiled_copy_descriptor(
+        global_load_dwordx4,
+        thread_layout=Layout((16, 4), (stride_a, 16)),
+        value_layout=Layout(1, 0),
+    )
+    tc_load_b = b.make_tiled_copy_descriptor(
+        global_load_dwordx4,
+        thread_layout=Layout((16, 4), (stride_b, 16)),
+        value_layout=Layout(1, 0),
+    )
+    tc_dsw = b.make_tiled_copy_descriptor(
+        ds_write_64b,
+        thread_layout=Layout((16, 4), (64, 16)),
+        value_layout=Layout(2, 8),
+        swizzle=LDS_SWIZZLE,
+    )
+    tc_dsr = b.make_tiled_copy_descriptor(
+        ds_read_64b,
+        thread_layout=Layout((4, 16), (8, 64)),
+        value_layout=Layout(2, 32),
+        swizzle=LDS_SWIZZLE,
+    )
 
     lds_a_h, lds_a = b.alloc_lds(1024)
     lds_b_h, lds_b = b.alloc_lds(1024)
@@ -77,29 +93,20 @@ def _build_gemm_1buf(k, stride_a, stride_b):
     def _(k_iv, acc):
         tile_off = b.affine_apply(d0 * 64, [k_iv])
 
-        [(a_data, a_tok)] = b.load_multi_tile_from_global(
-            a_ptr, tile_off, GLOBAL_LOAD_TILE_A, GLOBAL_LOAD_SUB_TILE_A, b.global_load_dwordx4
-        )
-        [(b_data, b_tok)] = b.load_multi_tile_from_global(
-            b_ptr, tile_off, GLOBAL_LOAD_TILE_B, GLOBAL_LOAD_SUB_TILE_B, b.global_load_dwordx4
-        )
+        A_tile = b.TensorDescriptor(a_ptr, offset=tile_off)
+        B_tile = b.TensorDescriptor(b_ptr, offset=tile_off)
+        a_data, a_tok = b.copy(tc_load_a, A_tile)
+        b_data, b_tok = b.copy(tc_load_b, B_tile)
         b.wait_deps(a_tok, b_tok)
 
-        a_wtoks = b.write_multi_tile_to_lds(
-            a_data, lds_a, LDS_WRITE_TILE_A, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_A, b.ds_write_b64
-        )
-        b_wtoks = b.write_multi_tile_to_lds(
-            b_data, lds_b, LDS_WRITE_TILE_B, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_B, b.ds_write_b64
-        )
+        sA = b.TensorDescriptor(lds_a)
+        sB = b.TensorDescriptor(lds_b)
+        a_wtoks = b.copy(tc_dsw, sA, data=b.split_vx4(a_data))
+        b_wtoks = b.copy(tc_dsw, sB, data=b.split_vx4(b_data))
         b.wait_deps(*a_wtoks, *b_wtoks)
 
-        a_frags = b.read_multi_fragment_from_lds(
-            lds_a, LDS_READ_TILE_A, LDS_SWIZZLE, LDS_READ_SUB_TILE_A, b.ds_read_b64
-        )
-        b_frags = b.read_multi_fragment_from_lds(
-            lds_b, LDS_READ_TILE_B, LDS_SWIZZLE, LDS_READ_SUB_TILE_B, b.ds_read_b64
-        )
-
+        a_frags = b.copy(tc_dsr, sA)
+        b_frags = b.copy(tc_dsr, sB)
         for (a_d, a_t), (b_d, b_t) in zip(a_frags, b_frags):
             b.wait_deps(a_t, b_t)
             acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_d, b_d)

@@ -628,6 +628,31 @@ class KernelBuilder:
         """
         return layout.lower(self, coord, swizzle)
 
+    def thread_value_offsets(
+        self,
+        tid: ir.Value,
+        thread_layout: Layout,
+        value_layout: Layout,
+    ) -> list[ir.Value]:
+        """Emit layout.thread_value_offsets: N = value_layout.size() offsets."""
+        from aster.dialects import layout as layout_d
+
+        def _to_attr(lay: Layout):
+            sizes = lay.sizes if isinstance(lay.sizes, tuple) else (lay.sizes,)
+            strides = lay.strides if isinstance(lay.strides, tuple) else (lay.strides,)
+            return layout_d.strided_layout(list(sizes), list(strides), ctx=self._ctx)
+
+        return list(
+            layout_d.thread_value_offsets(
+                tid,
+                _to_attr(thread_layout),
+                _to_attr(value_layout),
+                value_layout.size(),
+                loc=self._loc,
+                ip=self._kip,
+            )
+        )
+
     def layout_sum(self, *offsets: ir.Value) -> ir.Value:
         """Sum N offsets via a single affine.apply.
 

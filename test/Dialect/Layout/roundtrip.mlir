@@ -78,3 +78,10 @@ func.func @test_swizzle_different_params(%off: index) -> index {
   %r = layout.swizzle %off, bits = 3, base = 1, shift = 5
   return %r : index
 }
+
+// CHECK-LABEL: func.func @test_thread_value_offsets
+func.func @test_thread_value_offsets(%tid: index) -> (index, index) {
+  // CHECK: layout.thread_value_offsets[%{{.*}}] thread_layout = <[16, 4] : [128, 16]> value_layout = <[2] : [4]> -> index, index
+  %offs:2 = layout.thread_value_offsets[%tid] thread_layout = <[16, 4] : [128, 16]> value_layout = <[2] : [4]> -> index, index
+  return %offs#0, %offs#1 : index, index
+}

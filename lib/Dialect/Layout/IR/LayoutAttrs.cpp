@@ -143,57 +143,53 @@ void LayoutAttr::print(AsmPrinter &printer) const {
 // (computeProduct, linearize, delinearize). The recursive wrappers below
 // handle nesting by flattening to leaves and recursing into sub-tuples.
 
-/// Flatten an int tuple element to a list of (leaf_shape, leaf_stride) pairs.
-static void flattenIntTuple(Attribute shape, Attribute stride,
-                            SmallVectorImpl<int64_t> &flatShape,
-                            SmallVectorImpl<int64_t> &flatStride) {
+/// Append leaf (shape, stride) pairs from one mode's tree to the output.
+static void flattenMode(Attribute shape, Attribute stride,
+                        SmallVectorImpl<int64_t> &shapeOut,
+                        SmallVectorImpl<int64_t> &strideOut) {
   if (auto si = dyn_cast<IntegerAttr>(shape)) {
-    flatShape.push_back(si.getInt());
-    flatStride.push_back(cast<IntegerAttr>(stride).getInt());
+    shapeOut.push_back(si.getInt());
+    strideOut.push_back(cast<IntegerAttr>(stride).getInt());
     return;
   }
-  auto shapeArr = cast<ArrayAttr>(shape);
-  auto strideArr = cast<ArrayAttr>(stride);
-  for (auto [s, d] : llvm::zip(shapeArr, strideArr))
-    flattenIntTuple(s, d, flatShape, flatStride);
+  for (auto [s, d] : llvm::zip(cast<ArrayAttr>(shape), cast<ArrayAttr>(stride)))
+    flattenMode(s, d, shapeOut, strideOut);
 }
 
-// Flatten shape to leaves.
+void LayoutAttr::flatten(SmallVectorImpl<int64_t> &shape,
+                         SmallVectorImpl<int64_t> &stride) const {
+  for (auto [s, d] : llvm::zip(getShape(), getStride()))
+    flattenMode(s, d, shape, stride);
+}
+
 int64_t LayoutAttr::getSize() const {
-  SmallVector<int64_t> flatShape, flatStride;
-  for (auto [s, d] : llvm::zip(getShape(), getStride()))
-    flattenIntTuple(s, d, flatShape, flatStride);
-  return computeProduct(flatShape);
+  SmallVector<int64_t> shape, stride;
+  flatten(shape, stride);
+  return computeProduct(shape);
 }
 
-// Flatten shape to leaves and count them.
 int64_t LayoutAttr::getFlatRank() const {
-  SmallVector<int64_t> flatShape, flatStride;
-  for (auto [s, d] : llvm::zip(getShape(), getStride()))
-    flattenIntTuple(s, d, flatShape, flatStride);
-  return flatShape.size();
+  SmallVector<int64_t> shape, stride;
+  flatten(shape, stride);
+  return shape.size();
 }
 
 // Extent = 1 + sum((s_i - 1) * d_i) over all leaf modes.
 int64_t LayoutAttr::getExtent() const {
-  SmallVector<int64_t> flatShape, flatStride;
-  for (auto [s, d] : llvm::zip(getShape(), getStride()))
-    flattenIntTuple(s, d, flatShape, flatStride);
+  SmallVector<int64_t> shape, stride;
+  flatten(shape, stride);
   int64_t result = 1;
-  for (auto [s, d] : llvm::zip(flatShape, flatStride))
+  for (auto [s, d] : llvm::zip(shape, stride))
     result += (s - 1) * d;
   return result;
 }
 
-// Flatten to leaves, then delinearize by shape and dot-product with strides.
 int64_t LayoutAttr::evaluate(int64_t coord) const {
-  SmallVector<int64_t> flatShape, flatStride;
-  for (auto [s, d] : llvm::zip(getShape(), getStride()))
-    flattenIntTuple(s, d, flatShape, flatStride);
-
-  SmallVector<int64_t> basis = computeStrides(flatShape);
+  SmallVector<int64_t> shape, stride;
+  flatten(shape, stride);
+  SmallVector<int64_t> basis = computeStrides(shape);
   SmallVector<int64_t> coords = delinearize(coord, basis);
-  return linearize(coords, flatStride);
+  return linearize(coords, stride);
 }
 
 //===----------------------------------------------------------------------===//
