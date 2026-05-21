@@ -27,3 +27,34 @@ line-length = 88
 search_path = ["build/python_packages", "contrib", "contrib/kittens/test"]
 project_includes = ["build/python_packages/aster/**/*.py"]
 project_excludes = ["**/node_modules", "**/__pycache__"]
+
+[tool.pyright]
+# The aster package ships generated code (TableGen + nanobind) into
+# build/python_packages; that copy is what type-checking resolves against.
+# Source under python/ is missing the generated *_ops_gen.py and *.so stubs.
+extraPaths = [
+    "build/python_packages",
+    "contrib",
+    "contrib/kittens/test",
+    "contrib/cpu/python",
+]
+include = [
+    "python",
+    "build/python_packages/aster",
+    "contrib",
+    "mlir_kernels",
+    "test",
+]
+exclude = [
+    "**/__pycache__",
+    "**/.aster",
+    "**/node_modules",
+    "build/_deps",
+    "build/CMakeFiles",
+]
+# Reduce noise from MLIR bindings; the generated stubs lack full type info.
+reportMissingTypeStubs = "none"
+reportMissingModuleSource = "none"
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".aster"
