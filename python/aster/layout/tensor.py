@@ -7,10 +7,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aster.layout.algebra import Layout
 
 
 @dataclass(frozen=True)
 class Tensor:
+    """View Tensor: pointer + dynamic offset + optional Layout."""
+
     ptr: Any
     offset: Any = None
+    layout: Optional["Layout"] = None

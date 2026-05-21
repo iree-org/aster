@@ -25,7 +25,7 @@ from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 
-from aster.layout import Layout, Swizzle
+from aster.layout import Layout, Swizzle, Tensor
 
 ELT_BYTES = 2  # f16
 
@@ -43,7 +43,7 @@ def _build_gemm_1buf(k, stride_a, stride_b):
     k_tiles = k // 32
     stride_c = 16 * 4  # 16 f32 columns * 4 bytes
     d0 = ir.AffineExpr.get_dim(0)
-    #   Global store still uses naked Layout + b.store_multi_fragment_to_global.
+    # Global store still uses naked Layout + store_multi_fragment_to_global.
     GLOBAL_STORE_TILE_C = Layout((4, 16, 4), (4 * stride_c, 4, stride_c))
     GLOBAL_STORE_SUB_TILE_C = Layout(1, 0)
 
@@ -93,23 +93,26 @@ def _build_gemm_1buf(k, stride_a, stride_b):
     def _(k_iv, acc):
         tile_off = b.affine_apply(d0 * 64, [k_iv])
 
-        A_tile = b.TensorDescriptor(a_ptr, offset=tile_off)
-        B_tile = b.TensorDescriptor(b_ptr, offset=tile_off)
-        a_data, a_tok = b.copy(tc_load_a, A_tile)
-        b_data, b_tok = b.copy(tc_load_b, B_tile)
-        b.wait_deps(a_tok, b_tok)
+        A_tile = Tensor(a_ptr, offset=tile_off)
+        B_tile = Tensor(b_ptr, offset=tile_off)
+        a_load_res = b.transfer_tile(A_tile, tc_load_a)
+        b_load_res = b.transfer_tile(B_tile, tc_load_b)
+        b.wait_deps(a_load_res, b_load_res)
 
-        sA = b.TensorDescriptor(lds_a)
-        sB = b.TensorDescriptor(lds_b)
-        a_wtoks = b.copy(tc_dsw, sA, data=b.split_vx4(a_data))
-        b_wtoks = b.copy(tc_dsw, sB, data=b.split_vx4(b_data))
-        b.wait_deps(*a_wtoks, *b_wtoks)
+        sA = Tensor(lds_a)
+        sB = Tensor(lds_b)
+        dsw_a_res = b.transfer_tile(sA, tc_dsw, data=b.split_vx4(a_load_res.data_at(0)))
+        dsw_b_res = b.transfer_tile(sB, tc_dsw, data=b.split_vx4(b_load_res.data_at(0)))
+        b.wait_deps(dsw_a_res, dsw_b_res)
 
-        a_frags = b.copy(tc_dsr, sA)
-        b_frags = b.copy(tc_dsr, sB)
-        for (a_d, a_t), (b_d, b_t) in zip(a_frags, b_frags):
-            b.wait_deps(a_t, b_t)
+        dsr_a_res = b.transfer_tile(sA, tc_dsr)
+        dsr_b_res = b.transfer_tile(sB, tc_dsr)
+        b.wait_deps(dsr_a_res, dsr_b_res)
+
+        # One MFMA per LDS-read fragment (value_layout.size() == 2).
+        for (a_d, _a_t), (b_d, _b_t) in zip(dsr_a_res, dsr_b_res):
             acc = b.mfma("v_mfma_f32_16x16x16_f16", acc, a_d, b_d)
+
         return [acc]
 
     [acc_final] = acc

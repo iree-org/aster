@@ -1,8 +1,8 @@
 """Pure-Python pipelined GEMM using layout-first programming model.
 
-Supersedes test_005_gemm_fp16_lds_pipelined.mlir -- no .mlir template
+Supersedes test_005_gemm_fp16_lds_pipelined.mlir, no .mlir template
 needed. Pipeline scheduling via b.stage() context manager + sched.stage
-attributes.
+attributes. 16x16x(32 * k) problem size, 1 mxn tile per wave.
 """
 
 import os
@@ -15,6 +15,9 @@ import pytest
 
 from aster import ir
 from aster.dialects.kernel_builder_with_layouts import (
+    ds_read_64b,
+    ds_write_64b,
+    global_load_dwordx4,
     KernelBuilderWithLayouts as KernelBuilder,
 )
 from aster.dialects.amdgcn import AccessKind
@@ -24,19 +27,7 @@ from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 from aster.pass_pipelines import make_default_pass_pipeline, PipelineConfig
 
-from aster.layout import Layout, Swizzle
-
-# LDS write layouts.
-LDS_WRITE_TILE_A = Layout((16, 4), (64, 16))
-LDS_WRITE_TILE_B = Layout((16, 4), (64, 16))
-LDS_WRITE_SUB_TILE_A = Layout((1, 2), (0, 8))
-LDS_WRITE_SUB_TILE_B = Layout((1, 2), (0, 8))
-
-# LDS read layouts.
-LDS_READ_TILE_A = Layout((4, 16), (8, 64))
-LDS_READ_TILE_B = Layout((4, 16), (8, 64))
-LDS_READ_SUB_TILE_A = Layout((1, 2), (0, 32))
-LDS_READ_SUB_TILE_B = Layout((1, 2), (0, 32))
+from aster.layout import Layout, Swizzle, Tensor
 
 LDS_SWIZZLE = Swizzle(bits=3, base=3, shift=3)
 
@@ -48,15 +39,13 @@ STAGE_READ = 2
 STAGE_COMPUTE = 3
 
 
-def _build_gemm_pipelined(k, stride_ab):
+def _build_gemm_pipelined(k):
     """Build pipelined GEMM kernel in Python with layout + stage annotations."""
     k_tiles = k // 32
+    stride_a = k * 2
+    stride_b = k * 2
     stride_c = 16 * 4
     d0 = ir.AffineExpr.get_dim(0)
-    GLOBAL_LOAD_TILE_A = Layout((16, 4), (stride_ab, 16))
-    GLOBAL_LOAD_SUB_TILE_A = Layout(1, 0)
-    GLOBAL_LOAD_TILE_B = Layout((16, 4), (stride_ab, 16))
-    GLOBAL_LOAD_SUB_TILE_B = Layout(1, 0)
     GLOBAL_STORE_TILE_C = Layout((4, 16, 4), (4 * stride_c, 4, stride_c))
     GLOBAL_STORE_SUB_TILE_C = Layout(1, 0)
 
@@ -65,6 +54,29 @@ def _build_gemm_pipelined(k, stride_ab):
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.WriteOnly)
     a_ptr, b_ptr, c_ptr = b.load_args()
+
+    tc_load_a = b.make_tiled_copy_descriptor(
+        global_load_dwordx4,
+        thread_layout=Layout((16, 4), (stride_a, 16)),
+        value_layout=Layout(1, 0),
+    )
+    tc_load_b = b.make_tiled_copy_descriptor(
+        global_load_dwordx4,
+        thread_layout=Layout((16, 4), (stride_b, 16)),
+        value_layout=Layout(1, 0),
+    )
+    tc_dsw = b.make_tiled_copy_descriptor(
+        ds_write_64b,
+        thread_layout=Layout((16, 4), (64, 16)),
+        value_layout=Layout(2, 8),
+        swizzle=LDS_SWIZZLE,
+    )
+    tc_dsr = b.make_tiled_copy_descriptor(
+        ds_read_64b,
+        thread_layout=Layout((4, 16), (8, 64)),
+        value_layout=Layout(2, 32),
+        swizzle=LDS_SWIZZLE,
+    )
 
     c0 = b.constant_index(0)
     c1 = b.constant_index(1)
@@ -79,30 +91,22 @@ def _build_gemm_pipelined(k, stride_ab):
         with b.stage(STAGE_LOAD):
             lds_a_h, lds_a = b.alloc_lds(1024)
             lds_b_h, lds_b = b.alloc_lds(1024)
-            [(a_data, a_tok)] = b.load_multi_tile_from_global(
-                a_ptr, tile_off, GLOBAL_LOAD_TILE_A, GLOBAL_LOAD_SUB_TILE_A, b.global_load_dwordx4
-            )
-            [(b_data, b_tok)] = b.load_multi_tile_from_global(
-                b_ptr, tile_off, GLOBAL_LOAD_TILE_B, GLOBAL_LOAD_SUB_TILE_B, b.global_load_dwordx4
-            )
+            A_tile = Tensor(a_ptr, offset=tile_off)
+            B_tile = Tensor(b_ptr, offset=tile_off)
+            a_load_res = b.transfer_tile(A_tile, tc_load_a)
+            b_load_res = b.transfer_tile(B_tile, tc_load_b)
 
         with b.stage(STAGE_WRITE):
-            b.wait_deps(a_tok, b_tok)
-            a_wtoks = b.write_multi_tile_to_lds(
-                a_data, lds_a, LDS_WRITE_TILE_A, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_A, b.ds_write_b64
-            )
-            b_wtoks = b.write_multi_tile_to_lds(
-                b_data, lds_b, LDS_WRITE_TILE_B, LDS_SWIZZLE, LDS_WRITE_SUB_TILE_B, b.ds_write_b64
-            )
+            b.wait_deps(a_load_res, b_load_res)
+            sA = Tensor(lds_a)
+            sB = Tensor(lds_b)
+            dsw_a_res = b.transfer_tile(sA, tc_dsw, data=b.split_vx4(a_load_res.data_at(0)))
+            dsw_b_res = b.transfer_tile(sB, tc_dsw, data=b.split_vx4(b_load_res.data_at(0)))
 
         with b.stage(STAGE_READ):
-            b.wait_deps(*a_wtoks, *b_wtoks)
-            a_frags = b.read_multi_fragment_from_lds(
-                lds_a, LDS_READ_TILE_A, LDS_SWIZZLE, LDS_READ_SUB_TILE_A, b.ds_read_b64
-            )
-            b_frags = b.read_multi_fragment_from_lds(
-                lds_b, LDS_READ_TILE_B, LDS_SWIZZLE, LDS_READ_SUB_TILE_B, b.ds_read_b64
-            )
+            b.wait_deps(dsw_a_res, dsw_b_res)
+            a_frags = b.transfer_tile(sA, tc_dsr)
+            b_frags = b.transfer_tile(sB, tc_dsr)
 
         with b.stage(STAGE_COMPUTE):
             for (a_d, a_t), (b_d, b_t) in zip(a_frags, b_frags):
@@ -128,8 +132,6 @@ def _build_gemm_pipelined(k, stride_ab):
 class TestPythonGEMMPipelined:
     @pytest.mark.parametrize("k", [128, 256, 512, 1024])
     def test_gemm_pipelined_python(self, k):
-        stride_ab = k * 2
-
         np.random.seed(42 + k)
         A = (np.random.randn(16, k) * 0.1).astype(np.float16)
         B = (np.random.randn(16, k) * 0.1).astype(np.float16)
@@ -138,7 +140,7 @@ class TestPythonGEMMPipelined:
         ctx = ir.Context()
         ctx.allow_unregistered_dialects = True
         with ctx:
-            module = _build_gemm_pipelined(k, stride_ab)
+            module = _build_gemm_pipelined(k)
             asm = compile_mlir_module_to_asm(module, pass_pipeline=make_default_pass_pipeline(PipelineConfig()))
 
         path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
@@ -178,7 +180,7 @@ if __name__ == "__main__":
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        module = _build_gemm_pipelined(args.k, args.k * 2, 2)
+        module = _build_gemm_pipelined(args.k)
         asm = compile_mlir_module_to_asm(
             module,
             pass_pipeline=make_default_pass_pipeline(PipelineConfig()),

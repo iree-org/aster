@@ -1278,17 +1278,33 @@ class KernelBuilder:
 
     def split_vx4(self, vx4_val) -> tuple[ir.Value, ir.Value]:
         """Split a VGPRx4 into two VGPRx2 values."""
-        v_type = VGPRType.get(self._ctx, reg=None)
-        op = SplitRegisterRangeOp(
-            input=vx4_val,
-            results=[v_type, v_type, v_type, v_type],
-            loc=self._loc,
-            ip=self._kip,
+        return self.split_register_range(vx4_val, 2)
+
+    def split_register_range(
+        self, value: ir.Value, n_subs: int
+    ) -> tuple[ir.Value, ...]:
+        """Split a composite register range into n_subs equal-width sub-ranges.
+
+        Width W = the input's register count; W must be divisible by
+        n_subs. Each output is a range of width W // n_subs (a singleton
+        register when W // n_subs == 1). n_subs == 1 returns (value,)
+        unchanged.
+        """
+        if n_subs == 1:
+            return (value,)
+        op = SplitRegisterRangeOp(input=value, loc=self._loc, ip=self._kip)
+        regs = list(op.results_)
+        width = len(regs)
+        assert width % n_subs == 0, (
+            f"register-range width {width} not divisible by n_subs {n_subs}"
         )
-        r = op.results_
-        lo = self._make_register_range([r[0], r[1]])
-        hi = self._make_register_range([r[2], r[3]])
-        return lo, hi
+        sub_width = width // n_subs
+        if sub_width == 1:
+            return tuple(regs)
+        return tuple(
+            self._make_register_range(regs[i * sub_width : (i + 1) * sub_width])
+            for i in range(n_subs)
+        )
 
     def split_ax4(self, ax4_val) -> tuple[ir.Value, ir.Value, ir.Value, ir.Value]:
         """Split an AGPRx4 into four individual AGPRs."""

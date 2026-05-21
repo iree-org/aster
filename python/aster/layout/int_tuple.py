@@ -12,11 +12,27 @@
 from __future__ import annotations
 
 from functools import reduce
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
-# A shape or stride: scalar int or flat tuple of ints.
+# A shape or stride: scalar int or nested tuple of ints.
 # TODO: support ir.Value of type index everywhere
 IntTuple: TypeAlias = int | tuple[int, ...]
+
+
+def flatten_nested(t: Any) -> tuple[Any, ...]:
+    """Flatten a possibly-nested sequence (or scalar) to a flat tuple.
+
+    Treats tuples and lists as nestable; everything else is a leaf.
+    """
+    if not isinstance(t, (tuple, list)):
+        return (t,)
+    result: list[Any] = []
+    for x in t:
+        if isinstance(x, (tuple, list)):
+            result.extend(flatten_nested(x))
+        else:
+            result.append(x)
+    return tuple(result)
 
 
 def product(a: IntTuple) -> int:

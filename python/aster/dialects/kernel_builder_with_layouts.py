@@ -9,15 +9,29 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional, TypeAlias, Union
 
 from aster import ir
 from aster.dialects.kernel_builder import KernelBuilder
-from aster.layout.algebra import Layout, Swizzle
+from aster.layout.algebra import (
+    Layout,
+    Swizzle,
+    Symbol,
+    enumerate_flat_coords,
+)
 from aster.layout.tensor import Tensor
+from aster.layout.values import LayoutValues
 
-if TYPE_CHECKING:
-    pass
+# Wait arguments to wait_deps:
+#   - a LayoutValues with flattened token_values(), or
+#   - a list/tuple of tokens, or
+#   - a bare ir.Value token.
+WaitArg: TypeAlias = Union[LayoutValues, list[ir.Value], tuple[ir.Value, ...], ir.Value]
+
+# Bound values in local_tile.
+BoundValue: TypeAlias = Union[int, ir.Value]
+# local_tile accepts a mapping from inter-tile-axis Symbol to a value.
+Bindings: TypeAlias = dict[Symbol, BoundValue]
 
 
 class MemSpace(enum.Enum):
@@ -64,12 +78,211 @@ class TiledCopy:
     swizzle: Optional[Swizzle] = None
 
 
+@dataclass(frozen=True, slots=True)
+class _TileTransfer:
+    """Per-value payloads and tokens emitted for one tiled transfer."""
+
+    payloads: tuple[Any | None, ...]
+    tokens: tuple[Any, ...]
+
+
 class KernelBuilderWithLayouts(KernelBuilder):
     """KernelBuilder with layout-first tile operations."""
 
-    def TensorDescriptor(self, ptr: Any, offset: Any = None) -> Tensor:
-        """Build the memory side of a copy: a pointer and an optional dynamic offset."""
-        return Tensor(ptr, offset)
+    def wait_deps(self, *tokens: WaitArg) -> None:
+        """Wait for dependency tokens (supports various forms of WaitArg)."""
+
+        flat: list[ir.Value] = []
+        for tok in tokens:
+            if isinstance(tok, LayoutValues):
+                flat.extend(tok.token_values())
+            elif isinstance(tok, (list, tuple)):
+                flat.extend(tok)
+            else:
+                flat.append(tok)
+        super().wait_deps(*flat)
+
+    def _filter_layout_by_axes(
+        self, layout: Layout, axes: tuple[Symbol, ...]
+    ) -> Layout:
+        """Flattened sub-layout of layout restricted to axes."""
+
+        assert layout.axes is not None, (
+            f"_filter_layout_by_axes requires axes (from tile()), got {layout!r}"
+        )
+        flat_sizes = layout.flat_sizes
+        flat_strides = (
+            layout.strides if isinstance(layout.strides, tuple) else (layout.strides,)
+        )
+        sizes: list[int] = []
+        strides: list[int] = []
+        for ax in axes:
+            try:
+                i = layout.axes.index(ax)
+            except ValueError as e:
+                raise KeyError(f"axis {ax!r} not in layout axes {layout.axes!r}") from e
+            sizes.append(flat_sizes[i])
+            strides.append(flat_strides[i])
+        return Layout(tuple(sizes), tuple(strides), axes=tuple(axes))
+
+    def _drop_layout_axes(self, layout: Layout, dropped: set[Symbol]) -> Layout:
+        """Flattened sub-layout of layout with dropped axes removed."""
+
+        assert layout.axes is not None, (
+            f"_drop_layout_axes requires axes (from tile()), got {layout!r}"
+        )
+        flat_sizes = layout.flat_sizes
+        flat_strides = (
+            layout.strides if isinstance(layout.strides, tuple) else (layout.strides,)
+        )
+        keep = [i for i, ax in enumerate(layout.axes) if ax not in dropped]
+        return Layout(
+            tuple(flat_sizes[i] for i in keep),
+            tuple(flat_strides[i] for i in keep),
+            axes=tuple(layout.axes[i] for i in keep),
+        )
+
+    def slice(self, tensor: Tensor, bindings: Bindings) -> Tensor:
+        """Fold bindings into tensor.offset and drop the bound axes from
+        the (flattened) result Tensor's layout."""
+
+        L = tensor.layout
+        assert L is not None and L.axes is not None, (
+            f"slice requires a layout-backed tensor, got {tensor!r}"
+        )
+        named = {ax for ax in L.axes if ax is not None}
+        unbound = set(bindings.keys()) - named
+        assert not unbound, (
+            f"slice bindings {unbound!r} not present in tensor axes "
+            f"{sorted(named, key=repr)!r}"
+        )
+        bound_axes = tuple(bindings.keys())
+        new_off = tensor.offset
+        if bound_axes:
+            sub_layout = self._filter_layout_by_axes(L, bound_axes)
+            bound_values = tuple(
+                self.constant_index(v) if isinstance(v, int) else v
+                for v in bindings.values()
+            )
+            rel = self.layout_apply(bound_values, sub_layout)
+            new_off = rel if new_off is None else self.layout_sum(new_off, rel)
+        new_layout = self._drop_layout_axes(L, set(bound_axes))
+        return Tensor(tensor.ptr, new_off, new_layout)
+
+    def alloc_lds_tensor(
+        self, size_bytes: int, *, layout: Layout
+    ) -> tuple[ir.Value, Tensor]:
+        """Allocate LDS and wrap as a layout-backed Tensor."""
+        handle, ptr = self.alloc_lds(size_bytes)
+        return handle, Tensor(ptr, None, layout)
+
+    def _emit_transfer_tile(
+        self, tc: TiledCopy, tensor: Tensor, data: Any = None
+    ) -> _TileTransfer:
+        """Emit one tiled hardware transfer at tensor.ptr + tensor.offset."""
+        copy_atom = tc.copy
+        swizzle = tc.swizzle
+        offsets = self.thread_value_offsets(tc.pid, tc.thread_layout, tc.value_layout)
+        n = len(offsets)
+
+        def _total(voff: ir.Value) -> ir.Value:
+            return (
+                self.layout_sum(tensor.offset, voff)
+                if tensor.offset is not None
+                else voff
+            )
+
+        op = getattr(self, copy_atom.op_name)
+        src, dst = copy_atom.src_space, copy_atom.dst_space
+        payloads: list[Any | None] = []
+        tokens: list[Any] = []
+        if src is MemSpace.GLOBAL and dst is MemSpace.REG:
+            for voff in offsets:
+                rd, tok = op(
+                    tensor.ptr, dynamic_offset=self.index_to_vgpr(_total(voff))
+                )
+                payloads.append(rd)
+                tokens.append(tok)
+        elif src is MemSpace.REG and dst is MemSpace.LDS:
+            assert data is not None, "reg->lds transfer needs data"
+            if not isinstance(data, (list, tuple)):
+                data = [data]
+            assert len(data) == n, (
+                f"reg->lds transfer: data has {len(data)} payloads but "
+                f"value_layout.size()={n}"
+            )
+            for v, voff in enumerate(offsets):
+                tok = op(data[v], self._addr(tensor.ptr, _total(voff), swizzle))
+                payloads.append(None)
+                tokens.append(tok)
+        elif src is MemSpace.LDS and dst is MemSpace.REG:
+            for voff in offsets:
+                rd, tok = op(self._addr(tensor.ptr, _total(voff), swizzle))
+                payloads.append(rd)
+                tokens.append(tok)
+        else:
+            raise NotImplementedError(f"transfer: {src} -> {dst}")
+        return _TileTransfer(payloads=tuple(payloads), tokens=tuple(tokens))
+
+    def transfer_tiles(
+        self,
+        tensor: Tensor,
+        tc: TiledCopy,
+        *,
+        unroll_axes: tuple[Symbol, ...],
+        data: Optional[LayoutValues] = None,
+    ) -> LayoutValues:
+        """Emit one hardware transfer per (unroll_axes-coord, value-coord).
+
+        unroll_axes: Symbols from tensor.layout to iterate over.
+        data: per-tile payload bundle from a prior transfer.
+
+        To bind some axes before iterating, pre-slice via slice(t, {...}).
+        """
+        L = tensor.layout
+        assert L is not None and L.axes is not None, (
+            f"transfer_tiles expects a Tensor layout with axes (e.g. from a tile() call), got {L!r}"
+        )
+        value_coords = enumerate_flat_coords(tc.value_layout.flat_sizes)
+        n_per_tile = tc.value_layout.size()
+        sub_layout = self._filter_layout_by_axes(L, unroll_axes)
+        iter_flat = sub_layout.flat_sizes
+        out_layout = Layout(
+            iter_flat if n_per_tile == 1 else iter_flat + tc.value_layout.flat_sizes
+        )
+
+        def per_tile_payloads(coords):
+            if data is None:
+                return None
+            loader_n = data.value_layout.size() // sub_layout.size()
+            if loader_n == 1:
+                base = data.data_at(coords)
+                return list(self.split_register_range(base, n_per_tile))
+            assert loader_n == n_per_tile, (
+                f"data has {loader_n} payloads/tile but writer needs {n_per_tile}"
+            )
+            return [data.data_at(coords + vc) for vc in value_coords]
+
+        flat_payloads: list[Any | None] = []
+        flat_tokens: list[Any] = []
+        for coords in enumerate_flat_coords(sub_layout.flat_sizes):
+            tile_rel = self.layout_apply(
+                tuple(self.constant_index(c) for c in coords), sub_layout
+            )
+            tile_off = (
+                tile_rel
+                if tensor.offset is None
+                else self.layout_sum(tensor.offset, tile_rel)
+            )
+            sub_tensor = Tensor(tensor.ptr, tile_off)
+            transfer = self._emit_transfer_tile(
+                tc, sub_tensor, data=per_tile_payloads(coords)
+            )
+            flat_payloads.extend(transfer.payloads)
+            flat_tokens.extend(transfer.tokens)
+        return LayoutValues.from_flat(
+            out_layout, payloads=tuple(flat_payloads), tokens=tuple(flat_tokens)
+        )
 
     def _scope_count(self, scope: Scope) -> int:
         if scope is Scope.LANE:
@@ -113,65 +326,31 @@ class KernelBuilderWithLayouts(KernelBuilder):
         rel = off if swizzle is None else self.apply_swizzle(off, swizzle)
         return self.layout_sum(base, rel)
 
+    def transfer_tile(
+        self,
+        tensor: Tensor,
+        tc: TiledCopy,
+        *,
+        data: Any = None,
+    ) -> LayoutValues:
+        """Emit hardware transfers for one tiled copy at ``tensor``'s offset."""
+        transfer = self._emit_transfer_tile(tc, tensor, data=data)
+        return LayoutValues.from_flat(
+            tc.value_layout,
+            payloads=transfer.payloads,
+            tokens=transfer.tokens,
+        )
+
     def copy(
         self,
         tc: TiledCopy,
         tensor: Tensor,
         data: Any = None,
-    ):
-        """Emit N hardware transfers for one TiledCopy."""
-        copy_atom = tc.copy
-        swizzle = tc.swizzle
+    ) -> LayoutValues:
+        """Deprecated: use ``transfer_tile(tensor, tc, *, data=)``."""
+        return self.transfer_tile(tensor, tc, data=data)
 
-        offsets = self.thread_value_offsets(
-            tc.pid,
-            tc.thread_layout,
-            tc.value_layout,
-        )
-        n = len(offsets)
-
-        # Fold the tensor's base offset into each per-v offset.
-        def _total(voff: ir.Value) -> ir.Value:
-            return (
-                self.layout_sum(tensor.offset, voff)
-                if tensor.offset is not None
-                else voff
-            )
-
-        out: list[Any] = []
-        if (
-            copy_atom.src_space is MemSpace.GLOBAL
-            and copy_atom.dst_space is MemSpace.REG
-        ):
-            op = getattr(self, copy_atom.op_name)
-            for voff in offsets:
-                out.append(
-                    op(tensor.ptr, dynamic_offset=self.index_to_vgpr(_total(voff)))
-                )
-        elif (
-            copy_atom.src_space is MemSpace.REG and copy_atom.dst_space is MemSpace.LDS
-        ):
-            assert data is not None, "reg->lds copy needs data"
-            if not isinstance(data, (list, tuple)):
-                data = [data]
-            assert len(data) == n, (
-                f"reg->lds copy: data has {len(data)} payloads but "
-                f"value_layout.size()={n}"
-            )
-            op = getattr(self, copy_atom.op_name)
-            for v, voff in enumerate(offsets):
-                out.append(op(data[v], self._addr(tensor.ptr, _total(voff), swizzle)))
-        elif (
-            copy_atom.src_space is MemSpace.LDS and copy_atom.dst_space is MemSpace.REG
-        ):
-            op = getattr(self, copy_atom.op_name)
-            for voff in offsets:
-                out.append(op(self._addr(tensor.ptr, _total(voff), swizzle)))
-        else:
-            raise NotImplementedError(
-                f"copy: {copy_atom.src_space} -> {copy_atom.dst_space}"
-            )
-        return out[0] if n == 1 else out
+    copy_all = transfer_tiles
 
     # -----------------------------------------------------------------------
     # Multi-MFMA tile ops (compose single-tile ops over tile_layout)
@@ -261,9 +440,6 @@ class KernelBuilderWithLayouts(KernelBuilder):
             addr = self.affine_apply(d0 + d1, [lds_base, swizzled])
             results.append(read_fn(addr))
         return results
-
-    # -----------------------------------------------------------------------
-    # MFMA C-accumulator store.-----------------------------------------------------------------------
 
     def store_multi_fragment_to_global(
         self,
