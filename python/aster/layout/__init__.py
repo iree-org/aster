@@ -14,3 +14,4 @@ from aster.layout.int_tuple import (
     linearize,
 )
 from aster.layout.algebra import Layout, Swizzle, SwizzledLayout, make_layout
+from aster.layout.tensor import Tensor

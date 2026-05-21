@@ -18,7 +18,12 @@ Usage:
 """
 
 from ._layout_ops_gen import *  # noqa: F401, F403
-from ._layout_ops_gen import _Dialect, ApplyOp, SwizzleOp  # noqa: F401
+from ._layout_ops_gen import (  # noqa: F401
+    _Dialect,
+    ApplyOp,
+    SwizzleOp,
+    ThreadValueOffsetsOp,
+)
 from ._ods_common import _cext as _ods_cext
 
 _ods_ir = _ods_cext.ir
@@ -87,6 +92,26 @@ def apply(coords, layout_attr, *, loc=None, ip=None):
         loc=loc,
         ip=ip,
     ).result
+
+
+def thread_value_offsets(
+    tid,
+    thread_layout_attr,
+    value_layout_attr,
+    n,
+    *,
+    loc=None,
+    ip=None,
+):
+    idx_type = _ods_ir.IndexType.get()
+    return ThreadValueOffsetsOp(
+        results_=[idx_type] * n,
+        tid=tid,
+        thread_layout=thread_layout_attr,
+        value_layout=value_layout_attr,
+        loc=loc,
+        ip=ip,
+    ).results
 
 
 def swizzle(offset, *, bits, base, shift, loc=None, ip=None):

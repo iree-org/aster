@@ -72,6 +72,11 @@ def LayoutAttr : Layout_Attr<"Layout", "strided_layout"> {
     /// Equal to getRank() for flat layouts, larger for nested layouts.
     int64_t getFlatRank() const;
 
+    /// Flatten the shape/stride trees in lockstep, appending leaf values
+    /// (first-mode-slowest order). Used by every layout-evaluation routine.
+    void flatten(::llvm::SmallVectorImpl<int64_t> &shape,
+                 ::llvm::SmallVectorImpl<int64_t> &stride) const;
+
     /// Evaluate the layout at an integral coordinate.
     int64_t evaluate(int64_t coord) const;
 

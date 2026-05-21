@@ -99,6 +99,67 @@ def Layout_ApplyOp : Layout_Op<"apply", [Pure]> {
 }
 
 //===----------------------------------------------------------------------===//
+// layout.thread_value_offsets
+//===----------------------------------------------------------------------===//
+
+def Layout_ThreadValueOffsetsOp : Layout_Op<"thread_value_offsets", [Pure]> {
+  let summary = "Return offsets of a thread-value layout sliced at thread tid";
+  let description = [{
+    Returns the list of offsets with length fixed by `value_layout.size()`:
+
+        results[v] = thread_layout(tid) + value_layout(v)
+                   for v in [0, value_layout.size())
+
+    `thread_layout` and `value_layout` are independent strided layouts; each may
+    be multi-dimensional or nested. Both must use the same stride units, either
+    elements or bytes. The resulting offsets are in the same unit.
+
+    The verifier enforces injectivity, so no two `(tid, v)` pairs alias the same
+    offset.
+
+    Degenerate `value_layout = <[1] : [0]>` is the single-result case
+    (one transfer per thread).
+
+    Example. 16 threads on a (4, 4) grid, 2 transfers per thread at byte stride
+    2 between transfers:
+
+    ```mlir
+    %offs:2 = layout.thread_value_offsets[%tid]
+      thread_layout = #layout.strided_layout<[4, 4] : [16, 4]>
+      value_layout = #layout.strided_layout<[2] : [2]> -> index, index
+    ```
+
+    lowers to base offset + per-value `affine.apply`:
+
+    ```mlir
+    %d:2 = affine.delinearize_index %tid into (4, 4) : index, index
+    %a   = affine.linearize_index_by_strides[%d#0, %d#1] by (16, 4) : index
+    %r1  = affine.apply affine_map<(d0) -> (d0 + 2)>(%a)
+    // offs:2 = %a, %r1
+    ```
+
+    Rank-N `thread_layout` produces a rank-N `affine.delinearize_index`. A nested
+    `thread_layout` produces one delinearize per nesting level.
+    Multi-dimensional `value_layout` contributes one offset per `v`.
+  }];
+
+  let arguments = (ins
+    Index:$tid,
+    LayoutAttr:$thread_layout,
+    LayoutAttr:$value_layout
+  );
+  let results = (outs Variadic<Index>:$results);
+
+  let assemblyFormat = [{
+    `[` $tid `]`
+    `thread_layout` `=` $thread_layout
+    `value_layout` `=` $value_layout attr-dict `->` type($results)
+  }];
+
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
 // layout.swizzle
 //===----------------------------------------------------------------------===//
 

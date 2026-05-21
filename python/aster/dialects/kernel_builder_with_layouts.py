@@ -7,17 +7,171 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import enum
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Optional
 
 from aster import ir
 from aster.dialects.kernel_builder import KernelBuilder
+from aster.layout.algebra import Layout, Swizzle
+from aster.layout.tensor import Tensor
 
 if TYPE_CHECKING:
-    from aster.layout import Layout, Swizzle
+    pass
+
+
+class MemSpace(enum.Enum):
+    """Address space of a copy endpoint."""
+
+    GLOBAL = "global"
+    REG = "reg"
+    LDS = "lds"
+
+
+class Scope(enum.Enum):
+    """Participant universe a TiledCopy partitions across."""
+
+    LANE = "lane"
+    WAVE = "wave"  # NYI
+    THREAD = "thread"  # NYI
+    WORKGROUP = "workgroup"  # NYI
+
+
+@dataclass(frozen=True)
+class Copy:
+    """A hardware transfer: the ISA op + its endpoints' address spaces."""
+
+    op_name: str
+    src_space: MemSpace
+    dst_space: MemSpace
+
+
+global_load_dwordx4 = Copy("global_load_dwordx4", MemSpace.GLOBAL, MemSpace.REG)
+ds_write_64b = Copy("ds_write_b64", MemSpace.REG, MemSpace.LDS)
+ds_read_64b = Copy("ds_read_b64", MemSpace.LDS, MemSpace.REG)
+
+
+@dataclass(frozen=True)
+class TiledCopy:
+    """A copy plan bound to a participant: hardware atomic copy + byte-space
+    thread/value layouts + the (pid, scope) the layouts are addressed at."""
+
+    copy: Copy
+    thread_layout: Layout
+    value_layout: Layout
+    pid: Any
+    scope: Scope
+    swizzle: Optional[Swizzle] = None
 
 
 class KernelBuilderWithLayouts(KernelBuilder):
     """KernelBuilder with layout-first tile operations."""
+
+    def TensorDescriptor(self, ptr: Any, offset: Any = None) -> Tensor:
+        """Build the memory side of a copy: a pointer and an optional dynamic offset."""
+        return Tensor(ptr, offset)
+
+    def _scope_count(self, scope: Scope) -> int:
+        if scope is Scope.LANE:
+            # wave_size on CDNA; matches lane_id()'s default
+            # TODO: programmatically extract from target info
+            return 64
+        raise NotImplementedError(f"scope {scope.value!r} has no count wired")
+
+    def _scope_pid(self, scope: Scope) -> Any:
+        if scope is Scope.LANE:
+            return self.lane_id()
+        raise NotImplementedError(f"scope {scope.value!r} has no pid producer wired")
+
+    def make_tiled_copy_descriptor(
+        self,
+        copy: Copy,
+        thread_layout: Layout,
+        value_layout: Layout,
+        *,
+        swizzle: Optional[Swizzle] = None,
+        scope: Scope = Scope.LANE,
+    ) -> TiledCopy:
+        expected = self._scope_count(scope)
+        actual = thread_layout.size()
+        assert actual == expected, (
+            f"thread_layout size {actual} does not match scope "
+            f"{scope.value!r} count {expected}; the participant id chosen "
+            "for this scope would index outside the layout."
+        )
+        return TiledCopy(
+            copy=copy,
+            thread_layout=thread_layout,
+            value_layout=value_layout,
+            pid=self._scope_pid(scope),
+            scope=scope,
+            swizzle=swizzle,
+        )
+
+    def _addr(self, base: Any, off: ir.Value, swizzle: Optional[Swizzle]) -> Any:
+        """LDS / global address = base + (maybe swizzled) per-transfer offset."""
+        rel = off if swizzle is None else self.apply_swizzle(off, swizzle)
+        return self.layout_sum(base, rel)
+
+    def copy(
+        self,
+        tc: TiledCopy,
+        tensor: Tensor,
+        data: Any = None,
+    ):
+        """Emit N hardware transfers for one TiledCopy."""
+        copy_atom = tc.copy
+        swizzle = tc.swizzle
+
+        offsets = self.thread_value_offsets(
+            tc.pid,
+            tc.thread_layout,
+            tc.value_layout,
+        )
+        n = len(offsets)
+
+        # Fold the tensor's base offset into each per-v offset.
+        def _total(voff: ir.Value) -> ir.Value:
+            return (
+                self.layout_sum(tensor.offset, voff)
+                if tensor.offset is not None
+                else voff
+            )
+
+        out: list[Any] = []
+        if (
+            copy_atom.src_space is MemSpace.GLOBAL
+            and copy_atom.dst_space is MemSpace.REG
+        ):
+            op = getattr(self, copy_atom.op_name)
+            for voff in offsets:
+                out.append(
+                    op(tensor.ptr, dynamic_offset=self.index_to_vgpr(_total(voff)))
+                )
+        elif (
+            copy_atom.src_space is MemSpace.REG and copy_atom.dst_space is MemSpace.LDS
+        ):
+            assert data is not None, "reg->lds copy needs data"
+            if not isinstance(data, (list, tuple)):
+                data = [data]
+            assert len(data) == n, (
+                f"reg->lds copy: data has {len(data)} payloads but "
+                f"value_layout.size()={n}"
+            )
+            op = getattr(self, copy_atom.op_name)
+            for v, voff in enumerate(offsets):
+                out.append(op(data[v], self._addr(tensor.ptr, _total(voff), swizzle)))
+        elif (
+            copy_atom.src_space is MemSpace.LDS and copy_atom.dst_space is MemSpace.REG
+        ):
+            op = getattr(self, copy_atom.op_name)
+            for voff in offsets:
+                out.append(op(self._addr(tensor.ptr, _total(voff), swizzle)))
+        else:
+            raise NotImplementedError(
+                f"copy: {copy_atom.src_space} -> {copy_atom.dst_space}"
+            )
+        return out[0] if n == 1 else out
 
     # -----------------------------------------------------------------------
     # Multi-MFMA tile ops (compose single-tile ops over tile_layout)
@@ -107,6 +261,9 @@ class KernelBuilderWithLayouts(KernelBuilder):
             addr = self.affine_apply(d0 + d1, [lds_base, swizzled])
             results.append(read_fn(addr))
         return results
+
+    # -----------------------------------------------------------------------
+    # MFMA C-accumulator store.-----------------------------------------------------------------------
 
     def store_multi_fragment_to_global(
         self,

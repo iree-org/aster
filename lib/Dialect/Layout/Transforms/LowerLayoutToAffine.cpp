@@ -205,6 +205,42 @@ struct LowerSwizzlePattern : public OpRewritePattern<SwizzleOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// ThreadValueOffsetsToApply
+//===----------------------------------------------------------------------===//
+
+/// Based offset rewritten to `layout.apply[%tid], #thread_layout`, then one
+/// `affine.apply (d0 + vOff)` per non-zero offset.
+struct ThreadValueOffsetsToApply : OpRewritePattern<ThreadValueOffsetsOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(ThreadValueOffsetsOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    MLIRContext *ctx = op.getContext();
+    LayoutAttr val = op.getValueLayout();
+    int64_t n = val.getSize();
+
+    Value baseOffset =
+        ApplyOp::create(rewriter, loc, rewriter.getIndexType(),
+                        ValueRange{op.getTid()}, op.getThreadLayout())
+            .getResult();
+
+    SmallVector<Value> results;
+    results.reserve(n);
+    results.push_back(baseOffset);
+    for (int64_t v = 1; v < n; ++v) {
+      int64_t vOff = val.evaluate(v);
+      auto d0 = getAffineDimExpr(0, ctx);
+      auto map = AffineMap::get(/*dimCount=*/1, /*symbolCount=*/0, d0 + vOff);
+      results.push_back(affine::AffineApplyOp::create(rewriter, loc, map,
+                                                      ValueRange{baseOffset})
+                            .getResult());
+    }
+    rewriter.replaceOp(op, results);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Pass definition
 //===----------------------------------------------------------------------===//
 
@@ -214,8 +250,9 @@ struct LowerLayoutToAffinePass
 
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
-    patterns.add<LowerApplyPattern, LinearizeIndexBoundedToStrides,
-                 LowerSwizzlePattern>(&getContext());
+    patterns.add<ThreadValueOffsetsToApply, LowerApplyPattern,
+                 LinearizeIndexBoundedToStrides, LowerSwizzlePattern>(
+        &getContext());
 
     if (failed(applyPatternsGreedily(
             getOperation(), std::move(patterns),

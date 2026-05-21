@@ -45,6 +45,7 @@ declare_mlir_python_sources(ASTERPythonSources.core
     layout/__init__.py
     layout/int_tuple.py
     layout/algebra.py
+    layout/tensor.py
 )
 
 declare_mlir_python_extension(ASTERPythonExtensions._amdgcn
