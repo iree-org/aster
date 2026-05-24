@@ -14,3 +14,7 @@
 /examples/trace_*
 /examples/*zip
 /llvm/llvm-project/
+/wheelhouse/
+*.whl
+/.llvm-extract/
+/.llvm-pkg.tar.gz
