@@ -1,9 +1,20 @@
 add_mlir_library(MlirAirLib
-  lib/ConvertLinalgToAMDGCN.cpp
+  lib/AirToAMDGCN.cpp
+  lib/ConvertToAMDGCNLibraryCalls.cpp
+  lib/ConvertMemSpaceToAMDGCN.cpp
   lib/Init.cpp
   lib/Pipelines.cpp
 
   LINK_LIBS PUBLIC
+  AIRConversionPasses
+  AIRDialect
+  MLIRBufferizationDialect
+  MLIRBufferizationTransformOps
+  MLIRBufferizationTransforms
+  MLIRTensorInferTypeOpInterfaceImpl
+  MLIRTensorTransforms
+  AIRTransformOps
+  AIRTransformPasses
   ASTERInit
   AsterTransforms
   AsterCodeGen
@@ -13,6 +24,7 @@ add_mlir_library(MlirAirLib
   MLIRAffineDialect
   MLIRAffineTransforms
   MLIRFuncDialect
+  MLIRGPUDialect
   MLIRLinalgDialect
   MLIRLinalgTransformOps
   MLIRLinalgTransforms
