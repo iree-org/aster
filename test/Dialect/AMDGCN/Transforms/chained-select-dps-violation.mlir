@@ -11,7 +11,7 @@
 // 4. Chained selects and loop counter advance all get concrete registers.
 //
 // CHECK-LABEL: kernel @chained_select_loop_3_way_buffer_mux {
-// CHECK:   lsir.br ^bb1
+// CHECK:   cf.br ^bb1
 // CHECK: ^bb1:
 // CHECK:   lsir.select %{{[0-9]+}},
 // CHECK:   lsir.select %{{[0-9]+}},

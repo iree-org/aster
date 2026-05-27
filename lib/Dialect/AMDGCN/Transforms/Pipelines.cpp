@@ -64,10 +64,13 @@ struct RegAllocPipelineOptions
 /// This pipeline performs register allocation for AMDGCN kernels by running
 /// the following passes in sequence:
 /// 1. Bufferization - inserts copies to remove potentially clobbered values,
-/// and removes phi-nodes arguments with register value semantics.
+///    and removes phi-node arguments with register value semantics.
 /// 2. ToRegisterSemantics - converts value allocas to unallocated register
-///    semantics
-/// 3. RegisterAlloc - performs the actual register allocation
+///    semantics.
+/// 3. RegisterColoring - performs the actual register allocation.
+/// 4. PostRegAllocLegalization - expands lsir.copy to hardware mov instructions
+///    and erases redundant movs whose source and destination are the same
+///    physical register.
 static void buildRegAllocPassPipeline(OpPassManager &pm,
                                       const RegAllocPipelineOptions &options) {
   if (options.hoistIterArgWaits) {
@@ -95,6 +98,7 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
   coloringOpts.numVGPRs = options.numVGPRs;
   coloringOpts.numAGPRs = options.numAGPRs;
   pm.addPass(createRegisterColoring(coloringOpts));
+  pm.addPass(createPostRegAllocLegalization());
   pm.addPass(createHoistOps());
   pm.addPass(createCFGSimplification());
 }
