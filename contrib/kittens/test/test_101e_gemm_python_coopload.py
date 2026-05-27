@@ -9,9 +9,6 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-import math
-from dataclasses import dataclass
-
 import numpy as np
 import pytest
 
@@ -30,6 +27,7 @@ from aster.execution.utils import system_has_mcpu
 from aster.pass_pipelines import make_default_pass_pipeline, PipelineConfig
 
 from aster.layout import Layout, Swizzle, Symbol, Tensor, enumerate_flat_coords, tile
+from coop import make_coop_load_plan
 
 
 # Per-wave compute axes (same as test_101c/d).
@@ -68,103 +66,6 @@ STG_A_READ = 2
 STG_B_READ = 2
 STG_COMPUTE = 3
 N_STAGES = STG_COMPUTE + 1
-
-
-def coop_2d_split(num_tiles, num_waves, kt):
-    """Pick (waves_s, waves_k, coop_s, coop_k) minimizing clamping."""
-    best = None
-    # Simply iterate over all factorizations of num_waves into waves_s x waves_k.
-    for ws in range(1, num_waves + 1):
-        if num_waves % ws != 0:
-            continue
-        wk = num_waves // ws
-        cs = math.ceil(num_tiles / ws)
-        ck = math.ceil(kt / wk)
-        wasted = ws * wk * cs * ck - num_tiles * kt
-        over_excess = max(0, ws - num_tiles) + max(0, wk - kt)
-        key = (wasted, over_excess, -ws)
-        if best is None or key < best[0]:
-            best = (key, ws, wk, cs, ck)
-    _, waves_s, waves_k, coop_s, coop_k = best
-    return waves_s, waves_k, coop_s, coop_k
-
-
-@dataclass(frozen=True, slots=True)
-class CoopLoadPlan:
-    """Per-operand cooperative-load output of make_coop_load_plan.
-
-    Five fields consumed at the call site:
-      - global_layout / lds_layout: rank-2 per-wave coop-iter Layouts
-        (sizes (coop_s, coop_k)), used as Tensor layouts for the global
-        load and LDS write respectively.
-      - global_wave_off / lds_wave_off: clamped wave-start byte offsets
-        added to the Tensor offset before transfer_tiles.
-      - unroll_axes: (spatial_axis, k_axis) tuple for transfer_tiles.
-    """
-
-    global_layout: Layout
-    global_wave_off: ir.Value
-    lds_layout: Layout
-    lds_wave_off: ir.Value
-    unroll_axes: tuple
-
-
-def make_coop_load_plan(
-    b,
-    wid,
-    *,
-    num_waves: int,
-    wg_tile_global: Layout,
-    wg_tile_lds: Layout,
-    spatial_axis: Symbol,
-    k_axis: Symbol,
-) -> CoopLoadPlan:
-    """Build a CoopLoadPlan from per-tile WG-level Layouts."""
-    num_tiles, kt = wg_tile_global.sizes
-    s_stride_g, k_stride_g = wg_tile_global.strides
-    s_stride_l, k_stride_l = wg_tile_lds.strides
-    assert wg_tile_lds.sizes == (num_tiles, kt), (
-        f"wg_tile_lds sizes {wg_tile_lds.sizes} != wg_tile_global {wg_tile_global.sizes}"
-    )
-
-    waves_s, waves_k, coop_s, coop_k = coop_2d_split(num_tiles, num_waves, kt)
-    max_s_start = max(0, num_tiles - coop_s)
-    max_k_start = max(0, kt - coop_k)
-
-    per_wave_global = Layout(
-        (coop_s, coop_k),
-        (s_stride_g, k_stride_g),
-        axes=(spatial_axis, k_axis),
-    )
-    per_wave_lds = Layout(
-        (coop_s, coop_k),
-        (s_stride_l, k_stride_l),
-        axes=(spatial_axis, k_axis),
-    )
-
-    wave_s_idx, wave_k_idx = b.delinearize_index(wid, (waves_s, waves_k))
-    d0 = ir.AffineExpr.get_dim(0)
-
-    def _clamped(idx_v, step_bytes, max_tiles, per_tile):
-        unclamped = b.affine_apply(d0 * step_bytes, [idx_v])
-        return b.arith_minui(unclamped, b.constant_index(max_tiles * per_tile))
-
-    global_wave_off = b.layout_sum(
-        _clamped(wave_s_idx, coop_s * s_stride_g, max_s_start, s_stride_g),
-        _clamped(wave_k_idx, coop_k * k_stride_g, max_k_start, k_stride_g),
-    )
-    lds_wave_off = b.layout_sum(
-        _clamped(wave_s_idx, coop_s * s_stride_l, max_s_start, s_stride_l),
-        _clamped(wave_k_idx, coop_k * k_stride_l, max_k_start, k_stride_l),
-    )
-
-    return CoopLoadPlan(
-        global_layout=per_wave_global,
-        global_wave_off=global_wave_off,
-        lds_layout=per_wave_lds,
-        lds_wave_off=lds_wave_off,
-        unroll_axes=(spatial_axis, k_axis),
-    )
 
 
 def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K, stride_a, stride_b):
