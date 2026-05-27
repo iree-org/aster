@@ -43,8 +43,7 @@
         }
       ]
     },
-    "bench_perf_102_gemm_python_multitile_lds_cdna3": {},
-    "bench_perf_103_gemm_python_multitile_ping_pong": {}
+    "bench_perf_102_gemm_python_multitile_lds_cdna3": {}
   },
   "gfx950": {
     "bench_perf_102_gemm_python_multitile_directb_cdna4": {},
