@@ -75,9 +75,7 @@ def AMDGCN_InstAttr :
 // Scheduling attributes
 //===----------------------------------------------------------------------===//
 
-def ValueSchedulerAttr : AMDGCN_Attr<"ValueScheduler", "value_scheduler", [
-    DeclareAttrInterfaceMethods<SchedGraphAttrInterface>
-  ]> {
+def ValueSchedulerAttr : AMDGCN_Attr<"ValueScheduler", "value_scheduler", []> {
   let summary = "Value-based scheduling graph builder for AMDGCN instructions";
   let description = [{
     Builds a scheduling graph by iterating over ops in the block and adding
@@ -90,9 +88,7 @@ def ValueSchedulerAttr : AMDGCN_Attr<"ValueScheduler", "value_scheduler", [
   }];
 }
 
-def InstPropLabelerAttr : AMDGCN_Attr<"InstPropLabeler", "inst_prop_labeler", [
-    DeclareAttrInterfaceMethods<SchedLabelerAttrInterface>
-  ]> {
+def InstPropLabelerAttr : AMDGCN_Attr<"InstPropLabeler", "inst_prop_labeler", []> {
   let summary = "Label nodes by instruction properties";
   let description = [{
     Labels nodes with the given stage if the operation has any of the specified
@@ -107,9 +103,7 @@ def InstPropLabelerAttr : AMDGCN_Attr<"InstPropLabeler", "inst_prop_labeler", [
   let assemblyFormat = "`<` `[` $instMatcher `]` `,` $stage `>`";
 }
 
-def OpCodeLabelerAttr : AMDGCN_Attr<"OpCodeLabeler", "opcode_labeler", [
-    DeclareAttrInterfaceMethods<SchedLabelerAttrInterface>
-  ]> {
+def OpCodeLabelerAttr : AMDGCN_Attr<"OpCodeLabeler", "opcode_labeler", []> {
   let summary = "Label nodes by opcode";
   let description = [{
     Labels nodes with the given stage if the operation's opcode is in the
@@ -125,9 +119,7 @@ def OpCodeLabelerAttr : AMDGCN_Attr<"OpCodeLabeler", "opcode_labeler", [
 }
 
 def LatencyPipelinerSchedAttr : AMDGCN_Attr<"LatencyPipelinerSched",
-    "latency_pipeliner_sched", [
-    DeclareAttrInterfaceMethods<SchedBuilderAttrInterface>
-  ]> {
+    "latency_pipeliner_sched", []> {
   let summary = "Latency-aware pipelining scheduler";
   let description = [{
     Schedules operations in two phases:
@@ -151,15 +143,13 @@ def LatencyPipelinerSchedAttr : AMDGCN_Attr<"LatencyPipelinerSched",
   let assemblyFormat = "`<` $schedLimit `>`";
 }
 
-def LowLevelSchedulerAttr : AMDGCN_Attr<"LowLevelScheduler", "low_level_scheduler", [
-    DeclareAttrInterfaceMethods<SchedBuilderAttrInterface>
-  ]> {
+def LowLevelSchedulerAttr : AMDGCN_Attr<"LowLevelScheduler", "low_level_scheduler", []> {
   let summary = "Greedy queue-aware scheduler for AMDGCN";
   let description = [{
     Schedules using a hardware queue simulator (VALU, XDL, SALU, VMEM, LGKM)
     with stall avoidance and interleaving heuristics.
 
-    `preset` selects a pre-tuned magic-number set in SchedAttrs.cpp:
+    `preset` selects a pre-tuned magic-number set in lib/Dialect/AMDGCN/Scheduler/SchedulerAttrs.cpp:
       1 = default mfma-hiding
       2..N = future presets
     `annotateStalls` records per-op stall metadata on the IR during scheduling.

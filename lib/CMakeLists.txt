@@ -13,6 +13,7 @@ add_mlir_library(ASTERInit
 
   LINK_LIBS PUBLIC
   AMDGCNDialect
+  AMDGCNScheduler
   AMDGCNTransforms
   AsterCodeGenTransforms
   AsterInterfaces

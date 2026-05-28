@@ -1,4 +1,4 @@
-//===- SchedAttrs.cpp - AMDGCN scheduling attribute implementations -------===//
+//===- SchedulerAttrs.cpp - AMDGCN scheduler attribute external models ----===//
 //
 // Copyright 2025 The ASTER Authors
 //
@@ -8,12 +8,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
+#include "aster/Dialect/AMDGCN/Scheduler/Scheduler.h"
 #include "aster/Interfaces/SchedInterfaces.h"
-#include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/SliceAnalysis.h"
+#include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -25,510 +27,87 @@ using namespace mlir;
 using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
+// Forward declarations for the graph-builder helpers defined in
+// GraphBuilderAttrs.cpp. These are in the named namespace so they have
+// external linkage without needing a separate header.
+namespace mlir::aster::amdgcn {
+LogicalResult initValueSchedulerAnalyses(SchedAnalysis &analysis);
+FailureOr<SchedGraph> buildValueSchedulerGraph(Block *block,
+                                               const SchedAnalysis &analysis);
+} // namespace mlir::aster::amdgcn
+
 //===----------------------------------------------------------------------===//
-// ValueSchedulerAttr - SchedGraphAttrInterface
+// ValueSchedulerAttr - SchedGraphAttrInterface external model
 //===----------------------------------------------------------------------===//
 
 namespace {
-struct GraphBuilder {
-  GraphBuilder(Block *block, const DataFlowSolver &solver)
-      : block(block), solver(const_cast<DataFlowSolver &>(solver)) {
-    assert(block && "expected a valid block");
+struct ValueSchedulerAttrImpl
+    : SchedGraphAttrInterface::FallbackModel<ValueSchedulerAttrImpl> {
+  LogicalResult initializeAnalyses(Attribute, SchedAnalysis &analysis) const {
+    return initValueSchedulerAnalyses(analysis);
   }
 
-  /// Run the graph builder on the given block, adding edges between operations.
-  LogicalResult run(SchedGraph &graph);
-
-private:
-  /// Build the SSA dependencies for the graph.
-  void buildSSADeps(SchedGraph &graph);
-
-  /// Build the non-SSA dependencies for the graph.
-  void buildNonSSADeps(SchedGraph &graph);
-
-  /// Handle a wait operation.
-  void handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait);
-
-  /// Handle a barrier operation. With barriers we must add dependencies before
-  /// and after if the operation affects SALU or SGPRs.
-  void handleBarrier(SchedGraph &graph, int64_t pos, Operation *barrier);
-
-  /// Add serialization edges for i1-producing ops within a block.
-  void addI1SerializationEdges(SchedGraph &graph);
-
-  Block *block;
-  SmallVector<int64_t> syncPoints;
-  DataFlowSolver &solver;
+  FailureOr<SchedGraph> createGraph(Attribute, Block *block,
+                                    const SchedAnalysis &analysis) const {
+    return buildValueSchedulerGraph(block, analysis);
+  }
 };
 } // namespace
 
-LogicalResult
-ValueSchedulerAttr::initializeAnalyses(SchedAnalysis &analysis) const {
-  // Load the wait analysis.
-  analysis.getSolver().load<WaitAnalysis>(analysis.getDomInfo());
-  analysis.setRunDataflowAnalyses();
-  return success();
-}
-
-LogicalResult GraphBuilder::run(SchedGraph &graph) {
-  buildSSADeps(graph);
-  buildNonSSADeps(graph);
-  addI1SerializationEdges(graph);
-  return success();
-}
-
-void GraphBuilder::buildSSADeps(SchedGraph &graph) {
-  for (auto opIndex : llvm::enumerate(graph.getOps())) {
-    Operation *op = opIndex.value();
-    int64_t i = opIndex.index();
-
-    LDBG() << "Processing operation: " << i << " "
-           << OpWithFlags(op, OpPrintingFlags().skipRegions());
-
-    bool hasEffects = op->hasTrait<OpTrait::HasRecursiveMemoryEffects>() ||
-                      op->hasTrait<MemoryEffectOpInterface::Trait>();
-
-    // If the operation has no side-effect we need to treat it as a possible
-    // sync point. Same for non-pure operations.
-    //
-    // Exclude SOP2 SALU arithmetic ops (s_add_*, ...) arithmetic ops from sync
-    // points. The implicit read/write effects on architectural registers SCC
-    // are captured by the RAW/WAR edges added in buildNonSSADeps.
-    // Treating as fences would serialize independent arithmetic chains.
-    bool isReorderableArith = false;
-    if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
-      isReorderableArith =
-          instOp.hasAnyProps({InstProp::Sop2, InstProp::IsValu});
-    if ((!hasEffects || !mlir::isPure(op)) && !isReorderableArith &&
-        !isa<LoadOpInterface, StoreOpInterface, AllocaOpInterface>(op)) {
-      LDBG() << "Adding sync point: " << i;
-      syncPoints.push_back(i);
-    }
-
-    ValueRange deps = op->getOperands();
-
-    // Add edges for the dependencies.
-    for (Value operand : deps) {
-      Operation *producer = operand.getDefiningOp();
-      if (producer && producer->getBlock() == block)
-        graph.addEdge(producer, op);
-    }
-  }
-}
-
-template <typename RegType>
-struct IsModeledArchReg : std::false_type {};
-template <>
-struct IsModeledArchReg<SCCType> : std::true_type {};
-template <>
-struct IsModeledArchReg<VCCType> : std::true_type {};
-
-/// Returns the read/write effects of `op` on the architectural register
-/// `RegType` (currently SCC or VCC). The register is referenced as a DPS
-/// alloca operand: an outs operand of `RegType` means the op writes the
-/// register; an ins operand of `RegType` means the op reads it. Ops without
-/// AMDGCNInstOpInterface have no architectural-register effects modeled
-/// here.
-template <typename RegType>
-static void getArchRegEffects(Operation *op, bool &reads, bool &writes) {
-  static_assert(IsModeledArchReg<RegType>::value,
-                "getArchRegEffects only supports modeled architectural "
-                "registers (SCC, VCC)");
-  reads = false;
-  writes = false;
-  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-  if (!instOp)
-    return;
-  for (Value v : instOp.getInstOuts()) {
-    if (isa<RegType>(v.getType())) {
-      writes = true;
-      break;
-    }
-  }
-  for (Value v : instOp.getInstIns()) {
-    if (isa<RegType>(v.getType())) {
-      reads = true;
-      break;
-    }
-  }
-}
-
-/// Add scheduling edges for the read/write effects on a single architectural
-/// register (`RegType`). The register is shared by every op that touches it
-/// but flows through DPS alloca operands rather than SSA results, so no SSA
-/// def-use chain captures the dependence.
-template <typename RegType>
-static void addArchRegEffectEdges(SchedGraph &graph, Block *block) {
-  static_assert(IsModeledArchReg<RegType>::value,
-                "addArchRegEffectEdges only supports modeled architectural "
-                "registers (SCC, VCC)");
-  SmallVector<Operation *> writers;
-  SmallVector<Operation *> readers;
-  for (Operation &op : *block) {
-    bool reads = false;
-    bool writes = false;
-    getArchRegEffects<RegType>(&op, reads, writes);
-    if (!reads && !writes)
-      continue;
-    if (reads) {
-      // RAW: pin every prior writer before this reader.
-      for (Operation *w : writers)
-        graph.addEdge(w, &op);
-    }
-    if (writes) {
-      // WAR: pin every prior reader before this writer.
-      for (Operation *r : readers)
-        graph.addEdge(r, &op);
-    }
-    if (reads)
-      readers.push_back(&op);
-    if (writes)
-      writers.push_back(&op);
-  }
-}
-
-void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
-  ArrayRef<Operation *> ops = graph.getOps();
-  for (int64_t &i : syncPoints) {
-    Operation *op = ops[i];
-    if (auto waitOp = dyn_cast<WaitOp>(op)) {
-      handleWaitOp(graph, i, waitOp);
-      // Mark the sync point as processed.
-      i = -1;
-      continue;
-    }
-    if (auto barrierOp = dyn_cast<SBarrier>(op)) {
-      handleBarrier(graph, i, barrierOp);
-      // Mark the sync point as processed.
-      i = -1;
-      continue;
-    }
-  }
-
-  // Erase all the processed sync points.
-  llvm::erase(syncPoints, -1);
-
-  // Add fence edges for the remaining sync points: every preceding op in
-  // the segment must precede the sync point, and every following op in the
-  // segment must come after.
-  if (!syncPoints.empty()) {
-    for (auto [i, syncPoint] : llvm::enumerate(syncPoints)) {
-      int64_t prevSyncPoint = i > 0 ? syncPoints[i - 1] : 0;
-      int64_t nextSyncPoint =
-          i < (syncPoints.size() - 1) ? syncPoints[i + 1] + 1 : ops.size();
-      for (int64_t point = prevSyncPoint; point < syncPoint; point++)
-        graph.addEdge(point, syncPoint);
-      for (int64_t point = syncPoint + 1; point < nextSyncPoint; point++)
-        graph.addEdge(syncPoint, point);
-    }
-  }
-
-  // RAW / WAR edges for read/write effects on the architectural registers
-  // SCC and VCC.
-  addArchRegEffectEdges<SCCType>(graph, block);
-  addArchRegEffectEdges<VCCType>(graph, block);
-}
-
-static bool isTokenOfKind(Type type, MemoryInstructionKind kind) {
-  if (auto rt = dyn_cast<ReadTokenType>(type))
-    return rt.getKind() == kind;
-  if (auto wt = dyn_cast<WriteTokenType>(type))
-    return wt.getKind() == kind;
-  return false;
-}
-
-static bool isFlatToken(Type type) {
-  return isTokenOfKind(type, MemoryInstructionKind::Flat);
-}
-
-static bool isLgkmToken(Type type) {
-  return isTokenOfKind(type, MemoryInstructionKind::Shared) ||
-         isTokenOfKind(type, MemoryInstructionKind::Constant);
-}
-
-void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
-  // Get the wait state.
-  const WaitState *state =
-      solver.lookupState<WaitState>(solver.getProgramPointAfter(wait));
-  assert(state && "expected valid wait state");
-
-  // Collect all the operations that sync at this point.
-  SetVector<Operation *> waitedOps;
-  for (const TokenState &token : state->waitOpInfo->waitedTokens) {
-    if (!token.getToken())
-      continue;
-    Operation *op = token.getToken().getDefiningOp();
-    if (!op || op->getBlock() != block)
-      continue;
-    waitedOps.insert(op);
-  }
-  for (const TokenState &token : state->waitOpInfo->impliedTokens) {
-    if (!token.getToken())
-      continue;
-    Operation *op = token.getToken().getDefiningOp();
-    if (!op || op->getBlock() != block)
-      continue;
-    waitedOps.insert(op);
-  }
-
-  // Add edges for the waited operations.
-  for (Operation *op : waitedOps)
-    graph.addEdge(op, wait);
-
-  // Add edges for the operations that are after this wait operation that wait
-  // on the same tokens.
-  // Waits with explicit counters have side-effects and must be pinned.
-  // Pin all DS ops, do not pin global / flat / constant ops (may be unsafe).
-  // TODO: This is a crude approximation, needs proper futures + wait_all + then
-  // modeling.
-  bool hasExplicitVmCnt = wait.getVmCnt() != WaitOp::kNoWaitCount;
-  bool hasExplicitLgkmCnt = wait.getLgkmCnt() != WaitOp::kNoWaitCount;
-  for (Value dep : wait.getDependencies()) {
-    if (isLgkmToken(dep.getType()))
-      hasExplicitLgkmCnt = true;
-  }
-  for (Operation *op : graph.getOps().drop_front(pos + 1)) {
-    ValueRange operands = op->getOperands();
-    for (Value operand : operands) {
-      Operation *producer = operand.getDefiningOp();
-      if (!producer || producer->getBlock() != block)
-        continue;
-      if (waitedOps.contains(producer))
-        graph.addEdge(wait, op);
-    }
-
-    bool producesVM = llvm::any_of(op->getResultTypes(), isFlatToken);
-    bool producesLgkm = llvm::any_of(op->getResultTypes(), isLgkmToken);
-    // TODO: This is a crude approximation, needs proper futures + wait_all +
-    // then modeling.
-    if (hasExplicitVmCnt && producesVM)
-      graph.addEdge(wait, op);
-    if (hasExplicitLgkmCnt && producesLgkm)
-      graph.addEdge(wait, op);
-  }
-}
-
-void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
-                                 Operation *barrier) {
-  // Helper function to add an edge between an operation and the barrier.
-  auto addEdge = [&](Operation *op, int64_t i) {
-    if (i < pos)
-      graph.addEdge(op, barrier);
-    if (i > pos)
-      graph.addEdge(barrier, op);
-  };
-
-  // Iterate over all the operations in the graph.
-  for (auto opIndex : llvm::enumerate(graph.getOps())) {
-    Operation *op = opIndex.value();
-    int64_t i = opIndex.index();
-
-    // Skip itself.
-    if (op == barrier)
-      continue;
-
-    auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-
-    // If there's no interface, add an edge from the barrier to the operation.
-    if (!instOp || instOp.getOpCode() == OpCode::Invalid) {
-      if (!isPure(op))
-        addEdge(op, i);
-      continue;
-    }
-
-    // Pin SALU and SMEM to barriers.
-    if (instOp.hasAnyProps({InstProp::Salu, InstProp::Smem})) {
-      addEdge(op, i);
-      continue;
-    }
-    // Pin DS and VMEM ops to barriers (s_barrier is a memory fence).
-    if (instOp.hasAnyProps({InstProp::Ds, InstProp::IsVmem})) {
-      addEdge(op, i);
-      continue;
-    }
-
-    // If the operation has any SGPR outputs, add an edge.
-    bool hasSGPROut = llvm::any_of(instOp->getResults(), [](Value result) {
-      return isa<SGPRType>(result.getType());
-    });
-    if (hasSGPROut)
-      addEdge(op, i);
-  }
-}
-
-void GraphBuilder::addI1SerializationEdges(SchedGraph &graph) {
-  SmallVector<Operation *> prevI1Consumers;
-
-  for (Operation &op : *block) {
-    if (op.hasTrait<OpTrait::IsTerminator>())
-      continue;
-
-    bool producesI1 = false;
-    for (OpResult result : op.getResults()) {
-      if (result.getType().isInteger(1)) {
-        producesI1 = true;
-        break;
-      }
-    }
-    if (!producesI1)
-      continue;
-
-    for (Operation *consumer : prevI1Consumers)
-      graph.addEdge(consumer, &op);
-
-    prevI1Consumers.clear();
-    bool hasConsumers = false;
-    for (OpResult result : op.getResults()) {
-      if (!result.getType().isInteger(1))
-        continue;
-      for (Operation *user : result.getUsers()) {
-        if (user->getBlock() == block) {
-          prevI1Consumers.push_back(user);
-          hasConsumers = true;
-        }
-      }
-    }
-
-    if (!hasConsumers)
-      prevI1Consumers.push_back(&op);
-  }
-}
-
-FailureOr<SchedGraph>
-ValueSchedulerAttr::createGraph(Block *block,
-                                const SchedAnalysis &analysis) const {
-  SchedGraph graph(block);
-  GraphBuilder builder(block, analysis.getSolver());
-  if (failed(builder.run(graph)))
-    return failure();
-  graph.compress();
-  return graph;
-}
-
 //===----------------------------------------------------------------------===//
-// InstPropLabelerAttr - SchedLabelerAttrInterface
-//===----------------------------------------------------------------------===//
-
-int32_t InstPropLabelerAttr::getLabel(Operation *op, int32_t,
-                                      const SchedGraph &) const {
-  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-  if (!instOp || instOp.getOpCode() == OpCode::Invalid)
-    return -1;
-  ArrayRef<InstProp> matcher = getInstMatcher();
-  if (matcher.empty())
-    return getStage();
-  if (!instOp.hasAnyProps(matcher))
-    return -1;
-  return getStage();
-}
-
-//===----------------------------------------------------------------------===//
-// OpCodeLabelerAttr - SchedLabelerAttrInterface
-//===----------------------------------------------------------------------===//
-
-int32_t OpCodeLabelerAttr::getLabel(Operation *op, int32_t,
-                                    const SchedGraph &) const {
-  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-  if (!instOp || instOp.getOpCode() == OpCode::Invalid)
-    return -1;
-  ArrayRef<OpCode> matcher = getOpCodeMatcher();
-  if (matcher.empty())
-    return getStage();
-  OpCode opcode = instOp.getOpCode();
-  if (!llvm::is_contained(matcher, opcode))
-    return -1;
-  return getStage();
-}
-
-//===----------------------------------------------------------------------===//
-// LatencyPipelinerSchedAttr - SchedBuilderAttrInterface
-//===----------------------------------------------------------------------===//
-
-LogicalResult
-LatencyPipelinerSchedAttr::createSched(const SchedGraph &schedGraph,
-                                       SmallVectorImpl<int32_t> &sched) const {
-  if (!schedGraph.isCompressed())
-    return failure();
-
-  int32_t limit = getSchedLimit();
-  if (limit <= 0)
-    limit = std::numeric_limits<int32_t>::max();
-
-  auto schedFn = [&](ArrayRef<int32_t> ready, SetVector<int32_t> &indices) {
-    bool hasZeroLabel = false;
-    // Phase 1: schedule label-0 ops immediately.
-    for (auto [i, node] : llvm::enumerate(ready)) {
-      if (schedGraph.getLabel(node) == 0) {
-        hasZeroLabel = true;
-        indices.insert(i);
-      }
-    }
-
-    // Early exit if we scheduled any label-0 ops.
-    if (hasZeroLabel)
-      return;
-
-    // Phase 2: interleaved highest-latency scheduling.
-    using IntPair = std::pair<int32_t, int32_t>;
-    SmallVector<IntPair> sortedReady;
-    sortedReady =
-        llvm::map_to_vector(llvm::enumerate(ready), [&](auto indexNode) {
-          auto [i, node] = indexNode;
-          return std::make_pair(node, static_cast<int32_t>(i));
-        });
-    llvm::sort(sortedReady, [&](IntPair a, IntPair b) {
-      int32_t labelA = schedGraph.getLabel(a.first);
-      int32_t labelB = schedGraph.getLabel(b.first);
-      // Sort descending by label; break ties by ascending node ID.
-      if (labelA != labelB)
-        return labelA > labelB;
-      return a.first < b.first;
-    });
-    if (sortedReady.empty())
-      return;
-
-    int32_t numToAdd = std::min<int32_t>(limit, ready.size());
-    int32_t currLabel = schedGraph.getLabel(sortedReady.front().first);
-    int32_t idx = 1;
-    // Schedule the highest-latency op.
-    indices.insert(sortedReady.front().second);
-    --numToAdd;
-
-    // Circular scheduler, always trying to schedule ops with different labels.
-    while (numToAdd > 0) {
-      // Skip already-inserted ops and ops with the same label as the last
-      // scheduled one, advancing the circular index.
-      if (indices.contains(sortedReady[idx].second) ||
-          currLabel == schedGraph.getLabel(sortedReady[idx].first)) {
-        idx = (idx + 1) % sortedReady.size();
-
-        // If we looped, reset the label so in the next iteration we will
-        // schedule the highest-latency op among the remaining ones.
-        if (idx == 0)
-          currLabel = std::numeric_limits<int32_t>::min();
-        continue;
-      }
-      // Schedule the op and update the current label.
-      indices.insert(sortedReady[idx].second);
-      --numToAdd;
-      currLabel = schedGraph.getLabel(sortedReady[idx].first);
-      idx = (idx + 1) % sortedReady.size();
-      if (idx == 0)
-        currLabel = std::numeric_limits<int32_t>::min();
-    }
-  };
-
-  return schedGraph.topologicalSched(schedFn, sched);
-}
-
-//===----------------------------------------------------------------------===//
-// LowLevelSchedulerAttr - SchedBuilderAttrInterface
+// InstPropLabelerAttr - SchedLabelerAttrInterface external model
 //===----------------------------------------------------------------------===//
 
 namespace {
+struct InstPropLabelerAttrImpl
+    : SchedLabelerAttrInterface::FallbackModel<InstPropLabelerAttrImpl> {
+  int32_t getLabel(Attribute attr, Operation *op, int32_t,
+                   const SchedGraph &) const {
+    auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
+    if (!instOp || instOp.getOpCode() == OpCode::Invalid)
+      return -1;
+    ArrayRef<InstProp> matcher =
+        cast<InstPropLabelerAttr>(attr).getInstMatcher();
+    if (matcher.empty())
+      return cast<InstPropLabelerAttr>(attr).getStage();
+    if (!instOp.hasAnyProps(matcher))
+      return -1;
+    return cast<InstPropLabelerAttr>(attr).getStage();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// OpCodeLabelerAttr - SchedLabelerAttrInterface external model
+//===----------------------------------------------------------------------===//
+
+namespace {
+struct OpCodeLabelerAttrImpl
+    : SchedLabelerAttrInterface::FallbackModel<OpCodeLabelerAttrImpl> {
+  int32_t getLabel(Attribute attr, Operation *op, int32_t,
+                   const SchedGraph &) const {
+    auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
+    if (!instOp || instOp.getOpCode() == OpCode::Invalid)
+      return -1;
+    ArrayRef<OpCode> matcher = cast<OpCodeLabelerAttr>(attr).getOpCodeMatcher();
+    if (matcher.empty())
+      return cast<OpCodeLabelerAttr>(attr).getStage();
+    OpCode opcode = instOp.getOpCode();
+    if (!llvm::is_contained(matcher, opcode))
+      return -1;
+    return cast<OpCodeLabelerAttr>(attr).getStage();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// LowLevelSchedulerAttr - SchedBuilderAttrInterface external model
+//===----------------------------------------------------------------------===//
+
 // LGKM covers all LDS reads/writes and SMEM loads. Reads and writes have
 // different raw latencies but in practice the lgkmcnt counter aggregates both,
-// so distinguishing the two is not actionable (at least o nCDNA3).
+// so distinguishing the two is not actionable (at least on CDNA3).
+namespace {
 enum class QueueType : int32_t { VALU, XDL, SALU, VMEM, LGKM, Unknown };
 } // namespace
 
@@ -573,6 +152,23 @@ static QueueType classifyOp(Operation *op) {
     return QueueType::VALU;
 
   return QueueType::Unknown;
+}
+
+static bool isTokenOfKind(Type type, MemoryInstructionKind kind) {
+  if (auto rt = dyn_cast<ReadTokenType>(type))
+    return rt.getKind() == kind;
+  if (auto wt = dyn_cast<WriteTokenType>(type))
+    return wt.getKind() == kind;
+  return false;
+}
+
+static bool isFlatToken(Type type) {
+  return isTokenOfKind(type, MemoryInstructionKind::Flat);
+}
+
+static bool isLgkmToken(Type type) {
+  return isTokenOfKind(type, MemoryInstructionKind::Shared) ||
+         isTokenOfKind(type, MemoryInstructionKind::Constant);
 }
 
 namespace {
@@ -882,7 +478,7 @@ struct QueueSimulator {
 // Scheduler state -- carried across schedFn calls for deficit-counter scoring
 //===----------------------------------------------------------------------===//
 
-/// Scheduler state counts drives the deficit-term scoring.
+/// Scheduler state that drives the deficit-term scoring.
 struct SchedState {
   // Bitset for amdgcn.wait gating:
   //   - bit 0 = waits on vmcnt (flat tokens),
@@ -905,14 +501,14 @@ struct SchedState {
   SmallVector<int32_t, kRecentKindsWindow> recentIds;
 
   // For each XDL node, the prepopulated list of LGKM predecessors.
-  DenseMap<int32_t, SmallVector<int32_t, 4>> xdlLgkmPreds;
+  DenseMap<int32_t, SmallVector<int32_t>> xdlLgkmPreds;
 
   // For each LGKM node, the total count of XDL successors.
   DenseMap<int32_t, int32_t> lgkmTotalConsumers;
 
   // For each LGKM that has been issued and still has unconsumed XDL successors,
   // the remaining count. Empty before the LGKM fires; removed
-  // once all consumers fire
+  // once all consumers fire.
   int64_t outstandingLgkm = 0;
   DenseMap<int32_t, int32_t> lgkmRemainingConsumers;
 
@@ -1058,7 +654,7 @@ BarrierClosures BarrierClosures::create(const SchedGraph &schedGraph) {
   for (int32_t b = 0; b < schedGraph.sizeNodes(); ++b) {
     if (!isa<SBarrier>(schedGraph.getOp(b)))
       continue;
-    DenseSet<int32_t> closure = schedGraph.bfs(b, /*reversrOrder=*/true);
+    DenseSet<int32_t> closure = schedGraph.bfs(b, /*reverseOrder=*/true);
     int32_t memCount = 0;
     for (int32_t n : closure) {
       result.containingBarriers[n].push_back(b);
@@ -1336,154 +932,265 @@ computeStoreFeederSet(const SchedGraph &schedGraph,
   return storeFeederSet;
 }
 
-LogicalResult
-LowLevelSchedulerAttr::createSched(const SchedGraph &schedGraph,
-                                   SmallVectorImpl<int32_t> &sched) const {
-  if (!schedGraph.isCompressed())
-    return failure();
+//===----------------------------------------------------------------------===//
+// LatencyPipelinerSchedAttr - SchedBuilderAttrInterface external model
+//===----------------------------------------------------------------------===//
 
-  if (schedGraph.getOps().empty())
-    return success();
+namespace {
+struct LatencyPipelinerSchedAttrImpl
+    : SchedBuilderAttrInterface::FallbackModel<LatencyPipelinerSchedAttrImpl> {
+  LogicalResult createSched(Attribute attr, const SchedGraph &schedGraph,
+                            SmallVectorImpl<int32_t> &sched) const {
+    if (!schedGraph.isCompressed())
+      return failure();
 
-  // Look up the magic-number table for this scheduling run. ISA defaults to
-  // CDNA3 if no parent ModuleOp is found (matches the AMDGCNHazards pattern).
-  ISAVersion isaVersion = ISAVersion::CDNA3;
-  if (Operation *parent = schedGraph.getBlock()->getParentOp())
-    if (auto moduleOp = parent->getParentOfType<amdgcn::ModuleOp>())
-      isaVersion = getIsaForTarget(moduleOp.getTarget());
-  const CDNA3Latencies &L = latencies(isaVersion, getPreset());
+    int32_t limit = cast<LatencyPipelinerSchedAttr>(attr).getSchedLimit();
+    if (limit <= 0)
+      limit = std::numeric_limits<int32_t>::max();
 
-  // Classify each op (queue, exec latency, issue cost, wait-kind bitmask),
-  // and pre-cache the LGKM-R <-> XDL adjacency for the deadline counter.
-  SchedState state;
-  state.classifyOps(schedGraph, L);
-  QueueSimulator sim;
-
-  llvm::DenseMap<int32_t, int32_t> xdlChainPred =
-      computeXdlChainPredecessors(schedGraph, state.queueTypes);
-  llvm::DenseSet<int32_t> storeFeederSet =
-      computeStoreFeederSet(schedGraph, state.queueTypes);
-
-  // Barrier-aware structural scheduling.
-  // Barrier bypass mode triggers when the next unscheduled barrier has no more
-  // unscheduled memory ops in its closure. We then skip the score-based loop
-  // barrier-first, then mfmas. This gives mfmas opportunities to hide the issue
-  // of post-barrier memory ops.
-  BarrierClosures barriers = BarrierClosures::create(schedGraph);
-
-  // Track stall cycles and reasons for each scheduled op.
-  SmallVector<int64_t> stallCycles;
-  SmallVector<StringRef> stallReasons;
-
-  // Greedy pick driven by SchedGraph::topologicalSched. When scores tie, prefer
-  // the smallest node id for a stable order. Assigns indices to the scheduled
-  // operations.
-  auto schedFn = [&](ArrayRef<int32_t> ready, SetVector<int32_t> &indices) {
-    int32_t bestIdx = -1;
-    bool hasImmSchedOp = false;
-
-    // Trivial-op fast path: schedule all alloca/make_register/constant ops
-    // immediately so the scheduler sees the real frontier.
-    for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
-      Operation *op = schedGraph.getOp(ready[i]);
-      if (isa<AllocaOpInterface, MakeRegisterRangeOp, SplitRegisterRangeOp>(
-              op) ||
-          op->hasTrait<OpTrait::ConstantLike>()) {
-        indices.insert(i);
-        stallCycles.push_back(0);
-        stallReasons.push_back("");
-        hasImmSchedOp = true;
-      }
-    }
-    if (hasImmSchedOp)
-      return;
-
-    // Barrier-bypass mode: when the next unscheduled barrier has no more
-    // unscheduled memory preds in its closure, force-pick the barrier (if
-    // ready) so it fires ahead of the score-based candidates.
-    int32_t nextBarrier = barriers.getNextUnscheduledBarrier();
-    if (nextBarrier >= 0 && barriers.unscheduledMemPreds[nextBarrier] == 0) {
-      for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
-        if (ready[i] == nextBarrier) {
-          bestIdx = i;
-          break;
+    auto schedFn = [&](ArrayRef<int32_t> ready, SetVector<int32_t> &indices) {
+      bool hasZeroLabel = false;
+      // Phase 1: schedule label-0 ops immediately.
+      for (auto [i, node] : llvm::enumerate(ready)) {
+        if (schedGraph.getLabel(node) == 0) {
+          hasZeroLabel = true;
+          indices.insert(i);
         }
       }
-      if (bestIdx < 0) {
-        const DenseSet<int32_t> &closure = barriers.closure[nextBarrier];
+
+      // Early exit if we scheduled any label-0 ops.
+      if (hasZeroLabel)
+        return;
+
+      // Phase 2: interleaved highest-latency scheduling.
+      using IntPair = std::pair<int32_t, int32_t>;
+      SmallVector<IntPair> sortedReady;
+      sortedReady =
+          llvm::map_to_vector(llvm::enumerate(ready), [&](auto indexNode) {
+            auto [i, node] = indexNode;
+            return std::make_pair(node, static_cast<int32_t>(i));
+          });
+      llvm::sort(sortedReady, [&](IntPair a, IntPair b) {
+        int32_t labelA = schedGraph.getLabel(a.first);
+        int32_t labelB = schedGraph.getLabel(b.first);
+        // Sort descending by label; break ties by ascending node ID.
+        if (labelA != labelB)
+          return labelA > labelB;
+        return a.first < b.first;
+      });
+      if (sortedReady.empty())
+        return;
+
+      int32_t numToAdd = std::min<int32_t>(limit, ready.size());
+      int32_t currLabel = schedGraph.getLabel(sortedReady.front().first);
+      int32_t idx = 1;
+      // Schedule the highest-latency op.
+      indices.insert(sortedReady.front().second);
+      --numToAdd;
+
+      // Circular scheduler, always trying to schedule ops with different
+      // labels.
+      while (numToAdd > 0) {
+        // Skip already-inserted ops and ops with the same label as the last
+        // scheduled one, advancing the circular index.
+        if (indices.contains(sortedReady[idx].second) ||
+            currLabel == schedGraph.getLabel(sortedReady[idx].first)) {
+          idx = (idx + 1) % sortedReady.size();
+
+          // If we looped, reset the label so in the next iteration we will
+          // schedule the highest-latency op among the remaining ones.
+          if (idx == 0)
+            currLabel = std::numeric_limits<int32_t>::min();
+          continue;
+        }
+        // Schedule the op and update the current label.
+        indices.insert(sortedReady[idx].second);
+        --numToAdd;
+        currLabel = schedGraph.getLabel(sortedReady[idx].first);
+        idx = (idx + 1) % sortedReady.size();
+        if (idx == 0)
+          currLabel = std::numeric_limits<int32_t>::min();
+      }
+    };
+
+    return schedGraph.topologicalSched(schedFn, sched);
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// LowLevelSchedulerAttr - SchedBuilderAttrInterface external model
+//===----------------------------------------------------------------------===//
+
+namespace {
+struct LowLevelSchedulerAttrImpl
+    : SchedBuilderAttrInterface::FallbackModel<LowLevelSchedulerAttrImpl> {
+  LogicalResult createSched(Attribute attr, const SchedGraph &schedGraph,
+                            SmallVectorImpl<int32_t> &sched) const {
+    if (!schedGraph.isCompressed())
+      return failure();
+
+    if (schedGraph.getOps().empty())
+      return success();
+
+    // Look up the magic-number table for this scheduling run. ISA defaults to
+    // CDNA3 if no parent ModuleOp is found (matches the AMDGCNHazards pattern).
+    ISAVersion isaVersion = ISAVersion::CDNA3;
+    if (Operation *parent = schedGraph.getBlock()->getParentOp())
+      if (auto moduleOp = parent->getParentOfType<amdgcn::ModuleOp>())
+        isaVersion = getIsaForTarget(moduleOp.getTarget());
+    int preset = cast<LowLevelSchedulerAttr>(attr).getPreset();
+    const CDNA3Latencies &L = latencies(isaVersion, preset);
+
+    // Classify each op (queue, exec latency, issue cost, wait-kind bitmask),
+    // and pre-cache the LGKM-R <-> XDL adjacency for the deadline counter.
+    SchedState state;
+    state.classifyOps(schedGraph, L);
+    QueueSimulator sim;
+
+    llvm::DenseMap<int32_t, int32_t> xdlChainPred =
+        computeXdlChainPredecessors(schedGraph, state.queueTypes);
+    llvm::DenseSet<int32_t> storeFeederSet =
+        computeStoreFeederSet(schedGraph, state.queueTypes);
+
+    // Barrier-aware structural scheduling.
+    // Barrier bypass mode triggers when the next unscheduled barrier has no
+    // more unscheduled memory ops in its closure. We then skip the score-based
+    // loop barrier-first, then mfmas. This gives mfmas opportunities to hide
+    // the issue of post-barrier memory ops.
+    BarrierClosures barriers = BarrierClosures::create(schedGraph);
+
+    // Track stall cycles and reasons for each scheduled op.
+    SmallVector<int64_t> stallCycles;
+    SmallVector<StringRef> stallReasons;
+
+    // Greedy pick driven by SchedGraph::topologicalSched. When scores tie,
+    // prefer the smallest node id for a stable order. Assigns indices to the
+    // scheduled operations.
+    auto schedFn = [&](ArrayRef<int32_t> ready, SetVector<int32_t> &indices) {
+      int32_t bestIdx = -1;
+      bool hasImmSchedOp = false;
+
+      // Trivial-op fast path: schedule all alloca/make_register/constant ops
+      // immediately so the scheduler sees the real frontier.
+      for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
+        Operation *op = schedGraph.getOp(ready[i]);
+        if (isa<AllocaOpInterface, MakeRegisterRangeOp, SplitRegisterRangeOp>(
+                op) ||
+            op->hasTrait<OpTrait::ConstantLike>()) {
+          indices.insert(i);
+          stallCycles.push_back(0);
+          stallReasons.push_back("");
+          hasImmSchedOp = true;
+        }
+      }
+      if (hasImmSchedOp)
+        return;
+
+      // Barrier-bypass mode: when the next unscheduled barrier has no more
+      // unscheduled memory preds in its closure, force-pick the barrier (if
+      // ready) so it fires ahead of the score-based candidates.
+      int32_t nextBarrier = barriers.getNextUnscheduledBarrier();
+      if (nextBarrier >= 0 && barriers.unscheduledMemPreds[nextBarrier] == 0) {
         for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
-          if (closure.contains(ready[i])) {
+          if (ready[i] == nextBarrier) {
             bestIdx = i;
             break;
           }
         }
+        if (bestIdx < 0) {
+          const DenseSet<int32_t> &closure = barriers.closure[nextBarrier];
+          for (int32_t i = 0; i < static_cast<int32_t>(ready.size()); ++i) {
+            if (closure.contains(ready[i])) {
+              bestIdx = i;
+              break;
+            }
+          }
+        }
       }
-    }
 
-    // Scoring mode. The consumer-ready test is a SchedState method; bind
-    // it here so pickByScore can call it without seeing SchedState.
-    auto hasXdlConsumerInReady = [&](int32_t xdlNode) {
-      return state.hasXdlConsumerInReady(xdlNode);
+      // Scoring mode. The consumer-ready test is a SchedState method; bind
+      // it here so pickByScore can call it without seeing SchedState.
+      auto hasXdlConsumerInReady = [&](int32_t xdlNode) {
+        return state.hasXdlConsumerInReady(xdlNode);
+      };
+      auto isVmemStoreOp = [&](int32_t node) {
+        Operation *op = schedGraph.getOp(node);
+        return isa<GlobalStoreDwordInstOpInterface, BufferStoreInstOpInterface>(
+            op);
+      };
+      auto isVmemStoreFeederOp = [&](int32_t node) {
+        return storeFeederSet.contains(node);
+      };
+      auto isXdlChainContinuationOp = [&](int32_t node) {
+        auto it = xdlChainPred.find(node);
+        if (it == xdlChainPred.end())
+          return false;
+        int32_t pred = it->second;
+        // Recent-id history is on the SchedState; walk the last
+        // `xdlChainLookback` entries.
+        ArrayRef<int32_t> recentIds(state.recentIds);
+        size_t lb = L.xdlChainLookback;
+        ArrayRef<int32_t> window = recentIds.take_back(lb);
+        return llvm::is_contained(window, pred);
+      };
+      if (bestIdx < 0)
+        bestIdx = pickByScore(ready, sim, state.queueTypes, state.waitKind,
+                              state, hasXdlConsumerInReady, isVmemStoreOp,
+                              isVmemStoreFeederOp, isXdlChainContinuationOp, L);
+
+      assert(bestIdx >= 0 && "schedFn must select a ready node");
+
+      // Record stall cycles and reasons.
+      int32_t chosen = ready[bestIdx];
+      QueueType chosenQt = state.queueTypes[chosen];
+      int64_t stall = sim.issue(chosenQt, state.execLatencies[chosen],
+                                state.issueCosts[chosen], L);
+      stallCycles.push_back(stall);
+      stallReasons.push_back(stall > 0 ? getQueueName(chosenQt) : "");
+
+      barriers.markIssued(schedGraph, chosen);
+
+      // Update closure state. Push the chosen kind into the sliding window;
+      // drop the oldest if it has overflowed.
+      state.recentKinds.push_back(chosenQt);
+      state.recentIds.push_back(chosen);
+      if (state.recentKinds.size() >
+          static_cast<size_t>(SchedState::kRecentKindsWindow)) {
+        state.recentKinds.erase(state.recentKinds.begin());
+        state.recentIds.erase(state.recentIds.begin());
+      }
+
+      state.onIssued(chosen);
+
+      indices.insert(bestIdx);
     };
-    auto isVmemStoreOp = [&](int32_t node) {
-      Operation *op = schedGraph.getOp(node);
-      return isa<GlobalStoreDwordInstOpInterface, BufferStoreInstOpInterface>(
-          op);
-    };
-    auto isVmemStoreFeederOp = [&](int32_t node) {
-      return storeFeederSet.contains(node);
-    };
-    auto isXdlChainContinuationOp = [&](int32_t node) {
-      auto it = xdlChainPred.find(node);
-      if (it == xdlChainPred.end())
-        return false;
-      int32_t pred = it->second;
-      // Recent-id history is on the SchedState; walk the last
-      // `xdlChainLookback` entries.
-      ArrayRef<int32_t> recentIds(state.recentIds);
-      size_t lb = L.xdlChainLookback;
-      ArrayRef<int32_t> window = recentIds.take_back(lb);
-      return llvm::is_contained(window, pred);
-    };
-    if (bestIdx < 0)
-      bestIdx = pickByScore(ready, sim, state.queueTypes, state.waitKind, state,
-                            hasXdlConsumerInReady, isVmemStoreOp,
-                            isVmemStoreFeederOp, isXdlChainContinuationOp, L);
 
-    assert(bestIdx >= 0 && "schedFn must select a ready node");
+    // Topologically schedule the operations.
+    if (failed(schedGraph.topologicalSched(schedFn, sched)))
+      return failure();
 
-    // Record stall cycles and reasons.
-    int32_t chosen = ready[bestIdx];
-    QueueType chosenQt = state.queueTypes[chosen];
-    int64_t stall = sim.issue(chosenQt, state.execLatencies[chosen],
-                              state.issueCosts[chosen], L);
-    stallCycles.push_back(stall);
-    stallReasons.push_back(stall > 0 ? getQueueName(chosenQt) : "");
+    // Annotate stalls for debugging purposes.
+    if (cast<LowLevelSchedulerAttr>(attr).getAnnotateStalls())
+      annotateStalls(schedGraph, sched, stallCycles, stallReasons);
 
-    barriers.markIssued(schedGraph, chosen);
+    return success();
+  }
+};
+} // namespace
 
-    // Update closure state. Push the chosen kind into the sliding window;
-    // drop the oldest if it has overflowed.
-    state.recentKinds.push_back(chosenQt);
-    state.recentIds.push_back(chosen);
-    if (state.recentKinds.size() >
-        static_cast<size_t>(SchedState::kRecentKindsWindow)) {
-      state.recentKinds.erase(state.recentKinds.begin());
-      state.recentIds.erase(state.recentIds.begin());
-    }
+//===----------------------------------------------------------------------===//
+// Registration
+//===----------------------------------------------------------------------===//
 
-    state.onIssued(chosen);
-
-    indices.insert(bestIdx);
-  };
-
-  // Topologically schedule the operations.
-  if (failed(schedGraph.topologicalSched(schedFn, sched)))
-    return failure();
-
-  // Annotate stalls for debugging purposes.
-  if (getAnnotateStalls())
-    annotateStalls(schedGraph, sched, stallCycles, stallReasons);
-
-  return success();
+void mlir::aster::amdgcn::registerAMDGCNSchedulerExternalModels(
+    DialectRegistry &registry) {
+  registry.addExtension(+[](MLIRContext *ctx, AMDGCNDialect *) {
+    ValueSchedulerAttr::attachInterface<ValueSchedulerAttrImpl>(*ctx);
+    InstPropLabelerAttr::attachInterface<InstPropLabelerAttrImpl>(*ctx);
+    OpCodeLabelerAttr::attachInterface<OpCodeLabelerAttrImpl>(*ctx);
+    LatencyPipelinerSchedAttr::attachInterface<LatencyPipelinerSchedAttrImpl>(
+        *ctx);
+    LowLevelSchedulerAttr::attachInterface<LowLevelSchedulerAttrImpl>(*ctx);
+  });
 }

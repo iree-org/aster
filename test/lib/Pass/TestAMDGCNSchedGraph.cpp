@@ -48,8 +48,11 @@ struct TestAMDGCNSchedGraph
     dataflow::loadBaselineAnalyses(solver);
     SchedAnalysis analysis(root, solver, domInfo, getAnalysisManager());
 
-    auto schedAttr = ValueSchedulerAttr::get(&getContext());
-    if (failed(schedAttr.initializeAnalyses(analysis))) {
+    // The interface methods are external models; dispatch through the
+    // interface.
+    auto schedGraphAttr = mlir::cast<SchedGraphAttrInterface>(
+        ValueSchedulerAttr::get(&getContext()));
+    if (failed(schedGraphAttr.initializeAnalyses(analysis))) {
       root->emitError() << "failed to initialize sched analyses";
       return signalPassFailure();
     }
@@ -60,7 +63,7 @@ struct TestAMDGCNSchedGraph
 
     root->walk([&](amdgcn::KernelOp kernel) {
       Block &block = kernel.getBodyRegion().front();
-      auto graph = schedAttr.createGraph(&block, analysis);
+      auto graph = schedGraphAttr.createGraph(&block, analysis);
       if (failed(graph)) {
         kernel.emitError() << "failed to build SchedGraph";
         signalPassFailure();
