@@ -254,7 +254,7 @@ class GemmMappingSpec(PipelineConfigProtocol):
     epilogue_peeling: bool = True  # fully unroll cleanup loop
     ll_sched: int = 0  # 0 = off; 1+ = run scheduler with preset N (see SchedAttrs.cpp)
     hoist_wait: bool = False  # hoist iter-arg waits
-    set_mfma_priority: bool = True  # insert s_setprio around MFMA groups
+    set_mfma_priority: bool = False  # insert s_setprio around MFMA groups
     rotate_compute_stage: bool = False  # enable compute-stage rotation in pass pipeline
 
     # --- Atomic transfer sizes (bytes per lane per memory operation) ---
