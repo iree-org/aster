@@ -63,6 +63,7 @@ class Copy:
 global_load_dwordx4 = Copy("global_load_dwordx4", MemSpace.GLOBAL, MemSpace.REG)
 ds_write_64b = Copy("ds_write_b64", MemSpace.REG, MemSpace.LDS)
 ds_read_64b = Copy("ds_read_b64", MemSpace.LDS, MemSpace.REG)
+g2s_buffer_load_dwordx4 = Copy("g2s_buffer_load_dwordx4", MemSpace.GLOBAL, MemSpace.LDS)
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,24 @@ class TiledCopy:
     pid: Any
     scope: Scope
     swizzle: Optional[Swizzle] = None
+
+
+@dataclass(frozen=True, slots=True)
+class TransferTileG2S:
+    """G2S resources for transfer_tiles_g2s, built by prepare_transfer_tiles_g2s.
+
+    per_thread_voff rationale:
+    G2S hw writes M0 + TID*16 linearly to LDS, to account for this constraint:
+        - align the global source address to match the LDS address with a
+        swizzled tile-local read, and
+        - adjust the global source address by an unswizzled row-stride correction.
+    Note: Atm m0 is a named register and not an SSA value.
+    """
+
+    rsrc: Any
+    soff: Any
+    m0: Any
+    per_thread_voff: Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,6 +302,119 @@ class KernelBuilderWithLayouts(KernelBuilder):
         return LayoutValues.from_flat(
             out_layout, payloads=tuple(flat_payloads), tokens=tuple(flat_tokens)
         )
+
+    def prepare_transfer_tiles_g2s(
+        self,
+        ptr: ir.Value,
+        *,
+        buffer_num_records_bytes: int,
+        spatial_dim: int,
+        wave_size: int,
+        tile_row_bytes: int,
+        global_load_bytes: int,
+        global_row_stride: int,
+        swizzle: Swizzle,
+        srd_flags: int = 0x24924,
+    ) -> TransferTileG2S:
+        """Set up the loop-invariant G2S resources for transfer_tiles_g2s.
+
+        Bundles the four things a G2S load needs into a TransferTileG2S:
+          - buffer resource descriptor over `ptr` (num records in bytes),
+          - a zero scalar offset (SGPR),
+          - the M0 register (LDS destination base),
+          - a per-lane source byte offset within one tile.
+
+        M0 is allocated here, outside any `stage` scope, so the pipeliner does
+        not treat it as stage-rotating state. (Allocating it inside
+        transfer_tiles_g2s, which runs under a `stage` context, stamps
+        sched.stage on the alloca and desyncs the s_mov from the G2S load.)
+        """
+        nr = self.s_mov_b32(buffer_num_records_bytes)
+        rsrc = self.make_buffer_rsrc(ptr, nr, self.constant_i32(0), flags=srd_flags)
+        soff = self.s_mov_b32(0)
+        m0 = self.alloc_m0()
+
+        lanes_per_row = wave_size // spatial_dim
+        tile_local = Layout(
+            (spatial_dim, lanes_per_row), (tile_row_bytes, global_load_bytes)
+        )
+        row_corr = Layout(
+            (spatial_dim, lanes_per_row), (global_row_stride - tile_row_bytes, 0)
+        )
+        lane = self.lane_id()
+        d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
+        per_thread_voff = self.affine_apply(
+            d0 + d1,
+            [
+                self.layout_apply(lane, tile_local, swizzle=swizzle),
+                self.layout_apply(lane, row_corr),
+            ],
+        )
+        return TransferTileG2S(
+            rsrc=rsrc, soff=soff, m0=m0, per_thread_voff=per_thread_voff
+        )
+
+    def transfer_tiles_g2s(
+        self,
+        src_tensor: Tensor,
+        dst_tensor: Tensor,
+        g2s: TransferTileG2S,
+        *,
+        unroll_axes: tuple,
+    ) -> tuple:
+        """Emit G2S transfers (`buffer_load_dwordx4_lds`) per (unroll_axes) coord.
+
+        G2S goes global -> LDS in one instruction via MUBUF semantics: the
+        hardware writes `M0 + TID*16` to LDS, with the global source byte
+        coming from `g2s.rsrc + g2s.soff + g2s.per_thread_voff + tile_global`.
+        This does not fit the FLAT TiledCopy path so it has its own entry.
+
+        Args:
+          src_tensor: global source. `src_tensor.offset` is the wave-and-iter
+            global byte base; `src_tensor.layout` gives per-tile global byte
+            strides (must contain `unroll_axes`).
+          dst_tensor: LDS destination, mirror of src_tensor: offset is the
+            wave LDS byte base, layout gives per-tile LDS byte strides.
+          g2s: prepared resources from prepare_transfer_tiles_g2s.
+          unroll_axes: Symbol axes to iterate over (one G2S each).
+
+        Returns:
+          A tuple of G2S write tokens, one per (unroll_axes) coord, in
+          row-major order. Wait on these before reading from LDS.
+        """
+        src_L = src_tensor.layout
+        dst_L = dst_tensor.layout
+        assert src_L is not None and src_L.axes is not None, (
+            f"src_tensor needs a layout with axes, got {src_L!r}"
+        )
+        assert dst_L is not None and dst_L.axes is not None, (
+            f"dst_tensor needs a layout with axes, got {dst_L!r}"
+        )
+        src_sub = self._filter_layout_by_axes(src_L, unroll_axes)
+        dst_sub = self._filter_layout_by_axes(dst_L, unroll_axes)
+        s0, s1, s2 = (ir.AffineExpr.get_symbol(i) for i in range(3))
+        tokens: list[ir.Value] = []
+        for coords in enumerate_flat_coords(src_sub.flat_sizes):
+            coord_vals = tuple(self.constant_index(c) for c in coords)
+            tile_g_off = self.layout_apply(coord_vals, src_sub)
+            tile_l_off = self.layout_apply(coord_vals, dst_sub)
+            voff = self.affine_apply(
+                s0 + s1 + s2,
+                [],
+                [src_tensor.offset, tile_g_off, g2s.per_thread_voff],
+            )
+            lds_rel = (
+                self.layout_sum(dst_tensor.offset, tile_l_off)
+                if dst_tensor.offset is not None
+                else tile_l_off
+            )
+            lds_off = self.layout_sum(dst_tensor.ptr, lds_rel)
+            self.set_m0(g2s.m0, self.index_to_sgpr(lds_off))
+            tok = self.g2s_buffer_load_dwordx4(
+                g2s.m0, g2s.rsrc, g2s.soff, self.index_to_vgpr(voff)
+            )
+            tokens.append(tok)
+        return tuple(tokens)
 
     def _scope_count(self, scope: Scope) -> int:
         if scope is Scope.LANE:
