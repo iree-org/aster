@@ -62,6 +62,28 @@ LogicalResult colorGraph(const aster::Graph &graph,
                          Location loc, int32_t numVGPRs = 256,
                          int32_t numAGPRs = 256, int32_t numSGPRs = 102);
 
+/// Objective for the ILP register allocator.
+enum class ILPObjective {
+  /// Minimize the peak physical register used per register kind.
+  MinPressure,
+  /// Only prove that a feasible coloring exists; do not optimize.
+  Feasibility,
+};
+
+/// ILP-based register allocator (CP-SAT, OR-Tools). Same contract as
+/// colorGraph: writes allocated types into types[i] for previously
+/// unallocated nodes, leaves already-allocated and value-semantics nodes
+/// untouched, and preserves the leader/non-leader convention encoded in
+/// constraints. Returns failure on infeasibility (no spill insertion).
+///
+/// ilpTimeLimitMs: wall-clock time limit in milliseconds; 0 disables the limit.
+LogicalResult
+colorGraphILP(const aster::Graph &graph, ArrayRef<NodeConstraint> constraints,
+              MutableArrayRef<AMDGCNRegisterTypeInterface> types, Location loc,
+              int32_t numVGPRs = 256, int32_t numAGPRs = 256,
+              int32_t numSGPRs = 102, int32_t ilpTimeLimitMs = 5000,
+              ILPObjective ilpObjective = ILPObjective::MinPressure);
+
 } // namespace mlir::aster::amdgcn
 
 #endif // ASTER_LIB_DIALECT_AMDGCN_TRANSFORMS_GRAPHCOLORING_H

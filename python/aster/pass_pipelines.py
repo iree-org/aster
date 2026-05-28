@@ -1,5 +1,6 @@
 """Common pass pipelines used across the codebase."""
 
+import os
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -262,6 +263,9 @@ def phase_amdgcn_backend(
         opts.append(f"ll-sched={ll_sched}")
     if set_mfma_priority:
         opts.append("set-mfma-priority=true")
+    # Use the ILP register allocator when ASTER_ILP is set.
+    if os.environ.get("ASTER_ILP"):
+        opts.append("reg-alloc-solver=ilp")
     if opts:
         return f"amdgcn-backend{{{' '.join(opts)}}}"
     return "amdgcn-backend"

@@ -19,6 +19,7 @@ config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 config.suffixes = [".mlir"]
 if config.aster_python_enabled.lower() == "on":
     config.suffixes += [".py"]
+config.available_features.add("ilp_regalloc")
 
 # test_source_root: The root path where tests are located.
 config.test_source_root = os.path.dirname(__file__)

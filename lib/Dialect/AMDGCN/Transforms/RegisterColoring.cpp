@@ -321,6 +321,23 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
            << this->buildMode << "\"";
   }
 
+  enum class RegAllocSolver { Greedy, ILP };
+  RegAllocSolver regSolver = RegAllocSolver::Greedy;
+  if (this->regAllocSolver == "ilp")
+    regSolver = RegAllocSolver::ILP;
+  else if (this->regAllocSolver != "greedy")
+    return funcOp.emitError()
+           << "reg-alloc-solver must be \"greedy\" or \"ilp\", got \""
+           << this->regAllocSolver << "\"";
+
+  amdgcn::ILPObjective ilpObj = amdgcn::ILPObjective::MinPressure;
+  if (this->ilpObjective == "feasibility")
+    ilpObj = amdgcn::ILPObjective::Feasibility;
+  else if (this->ilpObjective != "min-pressure")
+    return funcOp.emitError()
+           << "ilp-objective must be \"min-pressure\" or \"feasibility\", "
+              "got \""
+           << this->ilpObjective << "\"";
   // Create the range constraint analysis.
   FailureOr<RangeConstraintAnalysis> rangeAnalysis =
       RangeConstraintAnalysis::create(funcOp);
@@ -404,8 +421,16 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
           funcOp.getLoc())))
     return failure();
 
-  if (failed(colorGraph(coalescingInfo->graph, nodeConsts, types,
-                        funcOp.getLoc(), numVGPRs, numAGPRs, numSGPRs)))
+  LogicalResult colored = failure();
+  if (regSolver == RegAllocSolver::Greedy) {
+    colored = colorGraph(coalescingInfo->graph, nodeConsts, types,
+                        funcOp.getLoc(), numVGPRs, numAGPRs, numSGPRs);
+  } else {
+    colored =
+        colorGraphILP(coalescingInfo->graph, nodeConsts, types, funcOp.getLoc(), numVGPRs,
+                      numAGPRs, numSGPRs, this->ilpTimeLimitMs, ilpObj);
+  }
+  if (failed(colored))
     return funcOp.emitError() << "failed to run register allocator";
 
   //===--------------------------------------------------------------------===//

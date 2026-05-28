@@ -7,6 +7,7 @@ add_mlir_library(AMDGCNTransforms
   GraphColoring.cpp
   HoistIterArgWaits.cpp
   HoistOps.cpp
+  ILPColoring.cpp
   InstructionSchedulingAutoschedulePass.cpp
   LDSAlloc.cpp
   LegalizeCF.cpp
@@ -53,3 +54,5 @@ add_mlir_library(AMDGCNTransforms
   MLIRTransforms
   MLIRUBDialect
 )
+
+target_link_libraries(AMDGCNTransforms PRIVATE ortools::ortools)

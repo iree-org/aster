@@ -17,4 +17,5 @@ add_mlir_library(ASTERAnalysis
   MLIRGPUDialect
   MLIRIR
   MLIRSupport
+  MLIRAffineDialect
 )

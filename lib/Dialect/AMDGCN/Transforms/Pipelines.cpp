@@ -53,6 +53,21 @@ struct RegAllocPipelineOptions
       *this, "hoist-iter-arg-waits",
       llvm::cl::desc("Hoist iter_arg-dependent waits to loop head"),
       llvm::cl::init(false)};
+  mlir::detail::PassOptions::Option<std::string> regAllocSolver{
+      *this, "reg-alloc-solver",
+      llvm::cl::desc(
+          "Register allocation back-end: \"greedy\" (default) or \"ilp\""),
+      llvm::cl::init("greedy")};
+  mlir::detail::PassOptions::Option<int32_t> ilpTimeLimitMs{
+      *this, "ilp-time-limit-ms",
+      llvm::cl::desc("Wall-clock time limit for the ILP solver in milliseconds "
+                     "(default 100000)"),
+      llvm::cl::init(100000)};
+  mlir::detail::PassOptions::Option<std::string> ilpObjective{
+      *this, "ilp-objective",
+      llvm::cl::desc("ILP objective: \"min-pressure\" (default) or "
+                     "\"feasibility\""),
+      llvm::cl::init("min-pressure")};
 };
 
 /// Build the RegAlloc pass pipeline.
@@ -87,6 +102,9 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
   coloringOpts.numVGPRs = options.numVGPRs;
   coloringOpts.numAGPRs = options.numAGPRs;
   coloringOpts.numSGPRs = options.numSGPRs;
+  coloringOpts.regAllocSolver = options.regAllocSolver;
+  coloringOpts.ilpTimeLimitMs = options.ilpTimeLimitMs;
+  coloringOpts.ilpObjective = options.ilpObjective;
   pm.addPass(createRegisterColoring(coloringOpts));
   pm.addPass(createPostRegAllocLegalization());
   pm.addPass(createHoistOps());
@@ -175,6 +193,21 @@ struct AMDGCNBackendPipelineOptions
       *this, "set-mfma-priority",
       llvm::cl::desc("Insert s_setprio around MFMA groups"),
       llvm::cl::init(false)};
+  mlir::detail::PassOptions::Option<std::string> regAllocSolver{
+      *this, "reg-alloc-solver",
+      llvm::cl::desc(
+          "Register allocation back-end: \"greedy\" (default) or \"ilp\""),
+      llvm::cl::init("greedy")};
+  mlir::detail::PassOptions::Option<int32_t> ilpTimeLimitMs{
+      *this, "ilp-time-limit-ms",
+      llvm::cl::desc("Wall-clock time limit for the ILP solver in milliseconds "
+                     "(default 100000)"),
+      llvm::cl::init(100000)};
+  mlir::detail::PassOptions::Option<std::string> ilpObjective{
+      *this, "ilp-objective",
+      llvm::cl::desc("ILP objective: \"min-pressure\" (default) or "
+                     "\"feasibility\""),
+      llvm::cl::init("min-pressure")};
 };
 
 static void
@@ -212,6 +245,9 @@ buildAMDGCNBackendPassPipeline(OpPassManager &pm,
     regAllocOpts.numVGPRs = options.numVGPRs;
     regAllocOpts.numAGPRs = options.numAGPRs;
     regAllocOpts.hoistIterArgWaits = options.hoistIterArgWaits;
+    regAllocOpts.regAllocSolver = options.regAllocSolver;
+    regAllocOpts.ilpTimeLimitMs = options.ilpTimeLimitMs;
+    regAllocOpts.ilpObjective = options.ilpObjective;
     buildRegAllocPassPipeline(kernelPm, regAllocOpts);
     kernelPm.addPass(createCanonicalizerPass());
     kernelPm.addPass(createCSEPass());

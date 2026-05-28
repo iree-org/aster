@@ -107,6 +107,14 @@ def RegisterColoring : Pass<"amdgcn-register-coloring"> {
            "Maximum number of AGPRs available for allocation (default 256)">,
     Option<"numSGPRs", "num-sgprs", "int32_t", "102",
            "Maximum number of SGPRs available for allocation (default 102)">,
+    Option<"regAllocSolver", "reg-alloc-solver", "std::string", "\"greedy\"",
+           "Register allocation back-end: \"greedy\" (default) or \"ilp\"">,
+    Option<"ilpTimeLimitMs", "ilp-time-limit-ms", "int32_t", "5000",
+           "Wall-clock time limit for the ILP solver, in milliseconds "
+           "(default 5000). Ignored for the greedy solver.">,
+    Option<"ilpObjective", "ilp-objective", "std::string", "\"min-pressure\"",
+           "ILP objective: \"min-pressure\" (default) minimizes the maximum "
+           "register used per kind; \"feasibility\" only proves a coloring exists.">,
   ];
 }
 
