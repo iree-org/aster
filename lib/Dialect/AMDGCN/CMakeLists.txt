@@ -1,4 +1,5 @@
 add_subdirectory(Analysis)
 add_subdirectory(CodeGen)
 add_subdirectory(IR)
+add_subdirectory(Scheduler)
 add_subdirectory(Transforms)

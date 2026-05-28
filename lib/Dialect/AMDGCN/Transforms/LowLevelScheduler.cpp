@@ -47,10 +47,13 @@ struct LowLevelSchedulerPass
     if (failed(allInlined.checkOperation(kernel).checkAndReport()))
       return signalPassFailure();
 
+    // The sched interface implementations are external models, so an explicit
+    // cast through the interface is required here.
     GenericSchedulerAttr compositeAttr = GenericSchedulerAttr::get(
-        ctx, ValueSchedulerAttr::get(ctx),
+        ctx, mlir::cast<SchedGraphAttrInterface>(ValueSchedulerAttr::get(ctx)),
         SchedListLabelerAttr::get(ctx, ArrayRef<SchedLabelerAttrInterface>{}),
-        LowLevelSchedulerAttr::get(ctx, preset, debugStalls));
+        mlir::cast<SchedBuilderAttrInterface>(
+            LowLevelSchedulerAttr::get(ctx, preset, debugStalls)));
 
     StringAttr schedName = StringAttr::get(ctx, "amdgcn.low_level_sched");
     SmallVector<SchedInfo> schedInfos(

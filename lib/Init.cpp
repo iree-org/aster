@@ -11,6 +11,7 @@
 #include "aster/Init.h"
 #include "aster/CodeGen/Passes.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNDialect.h"
+#include "aster/Dialect/AMDGCN/Scheduler/Scheduler.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsDialect.h"
 #include "aster/Dialect/AsterUtils/Transforms/Passes.h"
@@ -410,6 +411,7 @@ void mlir::aster::initDialects(DialectRegistry &registry) {
   registry.insert<lsir::LSIRDialect>();
   registry.insert<aster_utils::AsterUtilsDialect>();
   registerUpstreamExternalModels(registry);
+  amdgcn::registerAMDGCNSchedulerExternalModels(registry);
   if (contribRegisterFn)
     contribRegisterFn(registry);
 }

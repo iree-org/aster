@@ -1,7 +1,6 @@
 add_mlir_dialect_library(AMDGCNDialect
   AMDGCN.cpp
   AMDGCNAttrs.cpp
-  SchedAttrs.cpp
   AMDGCNTypes.cpp
   AMDGCNVerifiers.cpp
   Hazards.cpp
