@@ -12,6 +12,7 @@
 #include "aster/Dialect/AMDGCN/Analysis/ReachingDefinitions.h"
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNRegisterTypeInterface.h"
 #include "aster/Dialect/AMDGCN/Transforms/Transforms.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/IR/InstImpl.h"
@@ -353,6 +354,25 @@ static CoalescingInfo buildCoalescingInfo(RegisterInterferenceGraph &graph,
       info.graph.addEdge(s, t);
   }
   info.graph.compress();
+
+  // Verify: each quotient slot contains at most one physical register.
+  // Coalescing skips moves where both sides are allocated, but transitive
+  // merges through an unallocated intermediate could still violate this.
+  // Defensively assert for now but may require fixing in the future.
+  for (int32_t qid = 0; qid < numQuotient; ++qid) {
+    std::optional<AMDGCNRegisterTypeInterface> seenFixed;
+    for (int32_t j = info.memberOffsets[qid], end = info.memberOffsets[qid + 1];
+         j < end; ++j) {
+      auto regTy = cast<AMDGCNRegisterTypeInterface>(
+          graph.getValue(info.memberData[j]).getType());
+      if (!regTy.hasAllocatedSemantics())
+        continue;
+      assert((!seenFixed || *seenFixed == regTy) &&
+             "coalescing class contains multiple preallocated registers");
+      seenFixed = regTy;
+    }
+  }
+
   return info;
 }
 
